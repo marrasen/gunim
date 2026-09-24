@@ -594,6 +594,16 @@ func createNativeWindow(window *Window, wndconfig *wndconfig, visual uintptr, de
 
 	grabErrorHandlerX11()
 
+	mask := _CWBorderPixel | _CWColormap | _CWEventMask
+	if wndconfig.popup {
+		// The window manager leaves a popup alone: it goes exactly where
+		// it is put, with no frame, and the keyboard stays with the window
+		// that opened it. A gunim change.
+		wa.OverrideRedirect = 1
+		mask |= _CWOverrideRedirect
+		window.platform.overrideRedirect = true
+	}
+
 	window.platform.parent = _glfw.platformWindow.root
 	window.platform.handle = xCreateWindow(_glfw.platformWindow.display,
 		_glfw.platformWindow.root,
@@ -603,7 +613,7 @@ func createNativeWindow(window *Window, wndconfig *wndconfig, visual uintptr, de
 		depth, // Color depth
 		_InputOutput,
 		visual,
-		_CWBorderPixel|_CWColormap|_CWEventMask,
+		_Culong(mask),
 		&wa)
 
 	releaseErrorHandlerX11()
@@ -690,7 +700,13 @@ func createNativeWindow(window *Window, wndconfig *wndconfig, visual uintptr, de
 			[]_Clong{_Clong(os.Getpid())})
 	}
 
-	if _glfw.platformWindow.NET_WM_WINDOW_TYPE != 0 && _glfw.platformWindow.NET_WM_WINDOW_TYPE_NORMAL != 0 {
+	if wndconfig.popup && _glfw.platformWindow.NET_WM_WINDOW_TYPE != 0 {
+		// Compositors pick a popup's shadow and animation by its type.
+		xChangePropertyGeneric(_glfw.platformWindow.display, window.platform.handle,
+			_glfw.platformWindow.NET_WM_WINDOW_TYPE, _XA_ATOM,
+			_PropModeReplace,
+			[]_Atom{xInternAtom(_glfw.platformWindow.display, "_NET_WM_WINDOW_TYPE_POPUP_MENU", false)})
+	} else if _glfw.platformWindow.NET_WM_WINDOW_TYPE != 0 && _glfw.platformWindow.NET_WM_WINDOW_TYPE_NORMAL != 0 {
 		xChangePropertyGeneric(_glfw.platformWindow.display, window.platform.handle,
 			_glfw.platformWindow.NET_WM_WINDOW_TYPE, _XA_ATOM,
 			_PropModeReplace,

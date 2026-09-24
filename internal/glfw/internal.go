@@ -44,6 +44,8 @@ type wndconfig struct {
 	instanceName     string // X11: GLFW_X11_INSTANCE_NAME
 
 	noRedirectionBitmap bool // Win32
+
+	popup bool // gunim change
 }
 
 type ctxconfig struct {

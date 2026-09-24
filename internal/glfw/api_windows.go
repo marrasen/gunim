@@ -339,6 +339,9 @@ const (
 	_WS_CLIPCHILDREN                                           = 0x02000000
 	_WS_DLGFRAME                                               = 0x00400000
 	_WS_EX_APPWINDOW                                           = 0x00040000
+	_WS_EX_NOACTIVATE                                          = 0x08000000
+	_WS_EX_TOOLWINDOW                                          = 0x00000080
+	_MA_NOACTIVATE                                             = 3
 	_WS_EX_CLIENTEDGE                                          = 0x00000200
 	_WS_EX_LAYERED                                             = 0x00080000
 	_WS_EX_NOREDIRECTIONBITMAP                                 = 0x00200000

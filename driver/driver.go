@@ -82,11 +82,15 @@ type Options struct {
 	Monitor *Monitor
 	Kind    Kind
 	// Parent, for a popup or utility window, is the window it belongs
-	// to. Anchor is where it wants to sit, in Parent's coordinate
-	// space, which keeps the request expressible on Wayland as well as
-	// on X11.
+	// to. Anchor is a rectangle in Parent's logical space, which keeps
+	// the request expressible on Wayland as well as on X11.
+	//
+	// A popup attaches to Anchor: it opens just below it, starting at
+	// its left edge. Where the screen runs out below and there is more
+	// room above, it opens above. It slides sideways to stay on the
+	// screen. A utility window puts its top-left corner at Anchor.Min.
 	Parent Window
-	Anchor geom.Point
+	Anchor geom.Rect
 }
 
 // Kind is what sort of window to open. Each one maps onto a real window
@@ -102,7 +106,10 @@ const (
 	KindUtility
 	// KindPopup is a bare, transient overlay: a menu, a tooltip, a combo
 	// box list. It extends past its parent's bounds, which is the one
-	// thing Ebitengine has to give up by owning a single window.
+	// thing Ebitengine has to give up by owning a single window. It
+	// never takes the keyboard, so the window that opened it keeps
+	// focus. Its surface is transparent where the display server can
+	// blend windows, so a popup can have round corners and a shadow.
 	KindPopup
 )
 

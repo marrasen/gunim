@@ -116,6 +116,13 @@ const (
 	X11ClassName           = Hint(0x00024001)
 	X11InstanceName        = Hint(0x00024002)
 
+	// Popup makes a window for a menu, a list or a tooltip: it has no
+	// frame, stays above other windows, and never takes focus, so the
+	// window that opened it keeps the keyboard. On X11 the window manager
+	// leaves it alone (override-redirect), so it goes exactly where it is
+	// put. A gunim change.
+	Popup = Hint(0x00025001)
+
 	// Win32NoRedirectionBitmap specifies whether the window is created without a redirection surface
 	// (WS_EX_NOREDIRECTIONBITMAP). Only set this when the content is presented through
 	// DirectComposition, as such a window shows nothing otherwise.

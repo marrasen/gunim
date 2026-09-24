@@ -231,6 +231,11 @@ type Frame struct {
 	// them every frame, never keeping one in a field, so a theme switch
 	// animates through them.
 	Theme *theme.Live
+	// Transparent is set in a popup whose window shows what is behind
+	// it wherever nothing is painted, so the popup can have round
+	// corners and a shadow. Where the display server cannot blend
+	// windows, it is false, and the popup should fill its whole box.
+	Transparent bool
 
 	// seq numbers the frame, so the engine can tell which nodes this
 	// frame drew.
@@ -335,6 +340,29 @@ type state struct {
 	drawn    uint64
 	// clip is the clipping the node was last painted under.
 	clip *paint.Clip
+	// opener is set on the root of a popup's tree: the node that opened
+	// the popup.
+	opener *state
+}
+
+// up returns s's parent, or for the root of a popup, the node that
+// opened it.
+func (s *state) up() *state {
+	if s.parent != nil {
+		return s.parent
+	}
+	return s.opener
+}
+
+// below reports whether s is anc or lies beneath it, counting a popup
+// as beneath the node that opened it.
+func (s *state) below(anc *state) bool {
+	for a := s; a != nil; a = a.up() {
+		if a == anc {
+			return true
+		}
+	}
+	return false
 }
 
 // leaving reports whether s or any node above it is [Exiting].

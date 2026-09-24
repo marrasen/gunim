@@ -114,7 +114,7 @@ func (a *App) NewWindow(o WindowOptions) (*Window, error) {
 	}
 	do := driver.Options{
 		Title: o.Title, Size: o.Size, Monitor: o.Monitor,
-		Kind: o.Kind, Anchor: o.Anchor,
+		Kind: o.Kind, Anchor: geom.Rect{Min: o.Anchor, Max: o.Anchor},
 	}
 	if o.Parent != nil {
 		do.Parent = o.Parent.dw
@@ -125,6 +125,7 @@ func (a *App) NewWindow(o WindowOptions) (*Window, error) {
 	}
 
 	w := newWindow(dw, o.Root)
+	w.open = a.drv.NewWindow
 	go w.loop()
 	return w, nil
 }
@@ -144,6 +145,13 @@ type Window struct {
 	// wake nudges the loop when a command arrives. It holds one token,
 	// because one nudge is as good as a hundred.
 	wake chan struct{}
+	// open opens a popup's window, and popupIn carries the popups'
+	// events to the UI goroutine.
+	open    func(driver.Options) (driver.Window, error)
+	popupIn chan popupEvent
+	// blends is whether the last popup's window blended with what is
+	// behind it, the guess for the next one.
+	blends bool
 
 	// inFlight is true from Present until the driver reports the frame
 	// shown. shown is when the last one was, and due is when the frame
@@ -189,6 +197,13 @@ func newWindow(dw driver.Window, root Node) *Window {
 		done:  make(chan struct{}),
 		wake:  make(chan struct{}, 1),
 		clock: time.Now(),
+		open: func(o driver.Options) (driver.Window, error) {
+			ow := driver.Offscreen(o.Size)
+			_ = ow.Place(o.Anchor, o.Size)
+			return ow, nil
+		},
+		popupIn: make(chan popupEvent, 16),
+		blends:  true,
 	}
 	rootState := &state{node: root, presence: Present, id: Root}
 	w.ui = &UI{
@@ -324,6 +339,14 @@ func NewOffscreen(size geom.Size, root Node) *Window {
 // holding an offscreen window can step time. Commands queued through
 // [Client] are applied first, the same way the loop applies them.
 func (w *Window) Frame(delta time.Duration) {
+	for drained := false; !drained; {
+		select {
+		case e := <-w.popupIn:
+			w.ui.popupEvent(e)
+		default:
+			drained = true
+		}
+	}
 	w.applyPending()
 	w.clock = w.clock.Add(delta)
 	w.ui.frame(w.clock, delta)
@@ -365,6 +388,7 @@ func (w *Window) loop() {
 		r.RaiseThread()
 	}
 	defer close(w.out)
+	defer w.ui.closeAllPopups()
 	defer func() {
 		if err := w.dw.Close(); err != nil {
 			w.err = errors.Join(w.err, fmt.Errorf("gunim: close window: %w", err))
@@ -406,7 +430,17 @@ func (w *Window) wait() bool {
 	if len(w.ui.pending) > 0 {
 		out, next = w.out, w.ui.pending[0]
 	}
+	// A timer wakes the loop for the frame it runs in. Frames are
+	// stamped a refresh ahead, so it wakes a refresh early.
+	var alarm <-chan time.Time
+	if at, ok := w.ui.nextTimer(); ok {
+		t := time.NewTimer(time.Until(at) - refreshInterval(w.dw.RefreshRate()))
+		defer t.Stop()
+		alarm = t.C
+	}
 	select {
+	case <-alarm:
+		w.ui.invalid = true
 	case <-w.done:
 		return false
 	case <-w.wake:
@@ -415,6 +449,8 @@ func (w *Window) wait() bool {
 			return false
 		}
 		w.ui.handlePlatform(ev)
+	case e := <-w.popupIn:
+		w.ui.popupEvent(e)
 	case f, ok := <-w.dw.Presented():
 		if !ok {
 			return false
@@ -591,6 +627,60 @@ type UI struct {
 	// pending holds intents the application has yet to take. See
 	// [UI.post] for why it grows instead of blocking or dropping.
 	pending []Envelope
+	// popups are the open popups, each after the one it was opened
+	// from.
+	popups []*surface
+	// timers are waiting to run, in no order.
+	timers []*timer
+}
+
+// timer is a function waiting for its time.
+type timer struct {
+	at time.Time
+	fn func(u *UI)
+}
+
+// After runs fn on the UI goroutine at the first frame d or more after
+// this one, and returns a function that cancels it. The window sleeps
+// while it waits, so a tooltip's delay costs no frames.
+func (u *UI) After(d time.Duration, fn func(u *UI)) (stop func()) {
+	// The last frame's time is long past when the window has slept.
+	from := u.now
+	if now := time.Now(); now.After(from) {
+		from = now
+	}
+	t := &timer{at: from.Add(d), fn: fn}
+	u.timers = append(u.timers, t)
+	return func() {
+		u.timers = slices.DeleteFunc(u.timers, func(o *timer) bool { return o == t })
+	}
+}
+
+// runTimers runs the timers whose time has come.
+func (u *UI) runTimers() {
+	var due []*timer
+	u.timers = slices.DeleteFunc(u.timers, func(t *timer) bool {
+		if t.at.After(u.now) {
+			return false
+		}
+		due = append(due, t)
+		return true
+	})
+	for _, t := range due {
+		t.fn(u)
+	}
+}
+
+// nextTimer returns when the earliest timer is due, and false when
+// there is none.
+func (u *UI) nextTimer() (time.Time, bool) {
+	var at time.Time
+	for _, t := range u.timers {
+		if at.IsZero() || t.at.Before(at) {
+			at = t.at
+		}
+	}
+	return at, !at.IsZero()
 }
 
 // Root returns the node at the top of the tree.
@@ -605,8 +695,12 @@ func (u *UI) Now() time.Time { return u.now }
 // Inside a node's Handle, or a view's update or patch function, it is
 // the theme that node is drawn with, which a [ThemeScope] above it may
 // set.
-func (u *UI) Theme() *theme.Live {
-	for s := u.current; s != nil; s = s.parent {
+func (u *UI) Theme() *theme.Live { return u.themeOf(u.current) }
+
+// themeOf returns the theme s is drawn with. A popup's content is drawn
+// with the theme of the node that opened it.
+func (u *UI) themeOf(s *state) *theme.Live {
+	for ; s != nil; s = s.up() {
 		if sc, ok := s.node.(ThemeScope); ok {
 			return sc.ThemeScope()
 		}
@@ -687,7 +781,7 @@ func (u *UI) flush() {
 
 // idOf finds the ID of the nearest mounted view at or above n.
 func (u *UI) idOf(n Node) ID {
-	for s := u.index[n]; s != nil; s = s.parent {
+	for s := u.index[n]; s != nil; s = s.up() {
 		if s.id != "" {
 			return s.id
 		}
@@ -797,12 +891,18 @@ func (u *UI) Remove(n Node) {
 	}
 	s.presence = Exiting
 	u.invalid = true
+	u.closePopupsOf(s)
 	if u.focus != nil && u.focus.within(s) {
 		u.Focus(nil)
 	}
 	if u.hover != nil && u.hover.within(s) {
-		u.deliver(u.hover, input.PointerLeave{Time: u.now})
-		u.hover = nil
+		for h := u.hover; h != s.parent; h = h.parent {
+			u.deliver(h, input.PointerLeave{Time: u.now})
+		}
+		u.hover = s.parent
+		if s.parent != nil && s.parent.parent == nil {
+			u.hover = nil // a root is never hovered
+		}
 	}
 	if u.capture != nil && u.capture.within(s) {
 		u.capture = nil
@@ -906,6 +1006,7 @@ func (u *UI) needsFrame() bool { return u.animating || u.invalid }
 func (u *UI) frame(now time.Time, delta time.Duration) {
 	u.now = now
 	u.invalid = false
+	u.runTimers()
 	u.flush()
 	u.seq++
 	f := Frame{Now: now, Delta: delta, Scale: u.w.dw.Scale(), Theme: u.theme, seq: u.seq}
@@ -913,16 +1014,24 @@ func (u *UI) frame(now time.Time, delta time.Duration) {
 	// 1. Advance every animated value by the real elapsed time, the
 	//    theme's included.
 	animating := u.theme.Step(delta)
-	if u.step(u.root, delta) {
-		animating = true
+	for _, r := range u.roots() {
+		if u.step(r, delta) {
+			animating = true
+		}
 	}
 
 	// 2. Let entering and exiting nodes run their transitions, then
 	//    unlink the ones that have finished leaving.
-	if !u.settle(u.root, Present, f) {
-		animating = true
+	for _, r := range u.roots() {
+		fr := f
+		if r.opener != nil {
+			fr.Theme = u.themeOf(r.opener)
+		}
+		if !u.settle(r, Present, fr) {
+			animating = true
+		}
+		u.reap(r)
 	}
-	u.reap(u.root)
 
 	u.animating = animating
 
@@ -940,18 +1049,33 @@ func (u *UI) frame(now time.Time, delta time.Duration) {
 		u.w.Close()
 	}
 	u.placeCaret()
+	u.framePopups(f)
 
 	// 5. Layout and paint may have started animations: a caret aimed at
 	//    a new place, a row sent to a new position. Look again, without
 	//    moving time on, so the window keeps drawing until they finish.
 	//    Going by step 1 alone, the window would sleep, and the motion
 	//    would wait for the next input to get going.
-	if !u.animating && (u.theme.Step(0) || u.step(u.root, 0)) {
+	if !u.animating && u.theme.Step(0) {
 		u.animating = true
+	}
+	for _, r := range u.roots() {
+		if !u.animating && u.step(r, 0) {
+			u.animating = true
+		}
 	}
 
 	// Counted last, so a reader that sees the count also sees the frame.
 	u.w.stats.frames.Add(1)
+}
+
+// roots returns the top of the window's tree and of every popup's.
+func (u *UI) roots() []*state {
+	rs := []*state{u.root}
+	for _, p := range u.popups {
+		rs = append(rs, p.root)
+	}
+	return rs
 }
 
 // step advances animated values depth-first and reports whether
@@ -1015,6 +1139,7 @@ func (u *UI) reap(s *state) {
 // forget drops a subtree from the index and gives up any focus or
 // hover it held.
 func (u *UI) forget(s *state) {
+	u.closePopupsOf(s)
 	if u.focus == s {
 		u.focus = nil
 	}

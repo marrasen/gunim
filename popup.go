@@ -1,0 +1,371 @@
+package gunim
+
+import (
+	"fmt"
+	"slices"
+
+	"github.com/marrasen/gunim/driver"
+	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/paint"
+)
+
+// A Popup is a window a node opens beside itself: the list of a
+// drop-down, a menu, a tooltip. It is a real window in the display
+// server, so it can reach past the edge of the window that opened it.
+//
+// Its content is an ordinary node in the opener's tree of nodes, run
+// by the same UI goroutine. The content enters and leaves with its own
+// transitions, and the window closes once the content has left.
+//
+// A popup never takes the keyboard. Keys keep going to the focused node
+// in the window, so the node that opened a menu moves through it with
+// the arrow keys.
+type Popup struct {
+	u *UI
+	s *surface
+}
+
+// PopupOptions describes a popup to open.
+type PopupOptions struct {
+	// Anchor is the rectangle the popup attaches to, in the opener's
+	// own space. The popup opens just below it, starting at its left
+	// edge. Where the screen runs out below and there is more room
+	// above, it opens above. It slides sideways to stay on the screen.
+	Anchor geom.Rect
+	// Max bounds the content's size. Zero allows up to 4096 each way.
+	Max geom.Size
+	// Dismiss runs when the pointer is pressed outside the popup and
+	// its opener, or when the window loses the keyboard. It usually
+	// closes the popup. A popup with no Dismiss, such as a tooltip,
+	// stays until its opener closes it.
+	Dismiss func(u *UI)
+}
+
+// OpenPopup opens a popup holding content, attached to opener. The
+// window opens with the next frame, at the size content lays out to,
+// and follows the content's size and the anchor's place from then on.
+//
+// Closing or removing the opener closes the popup.
+func (u *UI) OpenPopup(opener, content Node, o PopupOptions) *Popup {
+	os, ok := u.index[opener]
+	if !ok {
+		panic("gunim: OpenPopup from a node that is not in the tree")
+	}
+	if o.Max == (geom.Size{}) {
+		o.Max = geom.Sz(4096, 4096)
+	}
+	root := &state{node: &popupRoot{}, presence: Present, opener: os}
+	u.index[root.node] = root
+	s := &surface{root: root, opts: o, held: -1}
+	u.popups = append(u.popups, s)
+	u.Insert(root.node, content)
+	return &Popup{u: u, s: s}
+}
+
+// Close starts the content's exit. The window closes once it has left.
+func (p *Popup) Close() { p.u.closePopup(p.s) }
+
+// Open reports whether the popup is open and staying so: false once it
+// has started to close.
+func (p *Popup) Open() bool { return !p.s.closing }
+
+// Move attaches the popup to a new anchor, in the opener's space.
+func (p *Popup) Move(anchor geom.Rect) {
+	p.s.opts.Anchor = anchor
+	p.u.invalid = true
+}
+
+// A PopupPadder is popup content that leaves room around what it
+// shows, for a shadow. The popup lines up the part inside the padding
+// with its anchor, so the menu itself sits against the drop-down that
+// opened it and its shadow reaches past.
+type PopupPadder interface {
+	Node
+	PopupPadding() geom.Insets
+}
+
+// surface is a popup window and the tree of nodes it shows.
+type surface struct {
+	root *state
+	opts PopupOptions
+	// dw is nil until the first frame has laid the content out.
+	dw driver.Window
+	// size and anchor are where the window was last put, in logical
+	// pixels, anchor in the parent window's space.
+	size   geom.Size
+	anchor geom.Rect
+	// painters alternate, so the next frame can be recorded while the
+	// driver still holds the last. held is the one the driver holds,
+	// or -1.
+	painters [2]paint.Painter
+	held     int
+	inFlight bool
+	// stale is set when a frame was recorded while one was in flight,
+	// and so never shown.
+	stale   bool
+	closing bool
+	// stop ends the goroutine passing the window's events on.
+	stop chan struct{}
+}
+
+// popupEvent is one event from a popup's window, passed on to the UI
+// goroutine: input, or a frame shown.
+type popupEvent struct {
+	s     *surface
+	ev    any
+	shown bool
+}
+
+// popupRoot is the node at the top of a popup's tree. It is as big as
+// its content.
+type popupRoot struct{ _ byte }
+
+func (r *popupRoot) Layout(c Constraints, _ Frame, kids Children) geom.Size {
+	var size geom.Size
+	for k := range kids.All {
+		ks := k.Layout(Loose(c.Max))
+		k.Place(geom.Point{})
+		size = geom.Sz(max(size.W, ks.W), max(size.H, ks.H))
+	}
+	return size
+}
+
+func (r *popupRoot) Paint(p *paint.Painter, _ Frame, _ geom.Size, kids Children) {
+	for k := range kids.All {
+		k.Paint(p)
+	}
+}
+
+// closePopup starts s's content leaving.
+func (u *UI) closePopup(s *surface) {
+	if s.closing {
+		return
+	}
+	s.closing = true
+	for _, k := range s.root.kids {
+		u.Remove(k.node)
+	}
+	u.invalid = true
+}
+
+// closePopupsOf closes every popup opened from s or beneath it.
+func (u *UI) closePopupsOf(s *state) {
+	for _, p := range u.popups {
+		if p.root.opener != nil && p.root.opener.below(s) {
+			u.closePopup(p)
+		}
+	}
+}
+
+// dismissFor runs Dismiss on each popup a press at target, in the tree
+// under root, lands outside of. A press inside a popup opened from
+// within another counts as inside both. A nil target dismisses them
+// all.
+func (u *UI) dismissFor(target *state) {
+	for _, p := range slices.Clone(u.popups) {
+		if p.closing || p.opts.Dismiss == nil {
+			continue
+		}
+		if target != nil && (target.below(p.root) || target.below(p.root.opener)) {
+			continue
+		}
+		p.opts.Dismiss(u)
+	}
+}
+
+// surfaceOf returns the popup holding s, or nil for the main window.
+func (u *UI) surfaceOf(s *state) *surface {
+	for s.parent != nil {
+		s = s.parent
+	}
+	for _, p := range u.popups {
+		if p.root == s {
+			return p
+		}
+	}
+	return nil
+}
+
+// windowOf returns the driver window showing s.
+func (u *UI) windowOf(s *state) driver.Window {
+	if p := u.surfaceOf(s); p != nil {
+		return p.dw
+	}
+	return u.w.dw
+}
+
+// framePopups lays out, paints and presents every popup, after the
+// main window has been painted, so each opener's place is known. A
+// popup opened from within another comes after it, so its parent
+// window is open by the time it opens.
+func (u *UI) framePopups(f Frame) {
+	for _, s := range slices.Clone(u.popups) {
+		if s.closing && len(s.root.kids) == 0 {
+			u.dropPopup(s)
+			continue
+		}
+		u.framePopup(s, f)
+	}
+}
+
+func (u *UI) framePopup(s *surface, f Frame) {
+	opener := s.root.opener
+	f.Theme = u.themeOf(opener)
+	// Until the window opens, guess it blends as the last one did.
+	f.Transparent = u.w.blends
+	if s.dw != nil {
+		f.Scale = s.dw.Scale()
+		f.Transparent = transparent(s.dw)
+	}
+	size := u.layoutPopup(s, f)
+	anchor := u.popupAnchor(s)
+
+	parent := u.windowOf(opener)
+	switch {
+	case s.dw == nil && parent == nil:
+		// The opener's own popup has yet to open.
+		u.invalid = true
+		return
+	case s.dw == nil:
+		dw, err := u.w.open(driver.Options{Kind: driver.KindPopup, Parent: parent, Anchor: anchor, Size: size})
+		if err != nil {
+			u.w.err = fmt.Errorf("gunim: open popup: %w", err)
+			u.closePopup(s)
+			return
+		}
+		s.dw, s.size, s.anchor = dw, size, anchor
+		s.stop = make(chan struct{})
+		go u.w.forward(s)
+		if tr := transparent(dw); tr != f.Transparent {
+			// The guess was wrong: lay out again before the first frame.
+			u.w.blends, f.Transparent = tr, tr
+			size, anchor = u.layoutPopup(s, f), u.popupAnchor(s)
+			if pl, ok := dw.(driver.Placer); ok {
+				_ = pl.Place(anchor, size)
+			}
+			s.size, s.anchor = size, anchor
+		}
+	case size != s.size || anchor != s.anchor:
+		if pl, ok := s.dw.(driver.Placer); ok {
+			_ = pl.Place(anchor, size)
+		}
+		s.size, s.anchor = size, anchor
+	}
+
+	i := 0
+	if s.held == 0 {
+		i = 1
+	}
+	pp := &s.painters[i]
+	pp.Reset()
+	s.root.toWindow, s.root.drawn = paint.Identity, u.seq
+	s.root.node.Paint(pp, f, s.root.size, Children{ns: s.root.kids, f: f})
+	if s.inFlight {
+		s.stale = true
+		return
+	}
+	if err := s.dw.Present(pp.Ops(), pp.Damage()); err != nil {
+		u.w.err = fmt.Errorf("gunim: present popup: %w", err)
+		u.closePopup(s)
+		return
+	}
+	s.held, s.inFlight, s.stale = i, true, false
+}
+
+// layoutPopup lays out a popup's content and returns the size its
+// window takes.
+func (u *UI) layoutPopup(s *surface, f Frame) geom.Size {
+	s.root.size = s.root.node.Layout(Loose(s.opts.Max), f, Children{ns: s.root.kids, f: f})
+	return geom.Sz(max(1, s.root.size.W), max(1, s.root.size.H))
+}
+
+// popupAnchor returns s's anchor in the space of the window its opener
+// is in, moved by the content's padding. It is left as it is, top above
+// bottom, even where the padding turns it inside out: the popup lines
+// its top up with the bottom and its bottom with the top.
+func (u *UI) popupAnchor(s *surface) geom.Rect {
+	t := s.root.opener.toWindow
+	a := s.opts.Anchor
+	anchor := geom.Rect{Min: t.Apply(a.Min), Max: t.Apply(a.Max)}
+	for _, k := range s.root.kids {
+		if pp, ok := k.node.(PopupPadder); ok {
+			in := pp.PopupPadding()
+			anchor.Min.X -= in.Left
+			anchor.Min.Y += in.Bottom
+			anchor.Max.Y -= in.Top
+			break
+		}
+	}
+	return anchor
+}
+
+// transparent reports whether dw blends with what is behind it.
+func transparent(dw driver.Window) bool {
+	t, ok := dw.(driver.Transparent)
+	return ok && t.Transparent()
+}
+
+// dropPopup closes a popup's window once its content has left.
+func (u *UI) dropPopup(s *surface) {
+	u.popups = slices.DeleteFunc(u.popups, func(p *surface) bool { return p == s })
+	delete(u.index, s.root.node)
+	if s.dw == nil {
+		return
+	}
+	close(s.stop)
+	_ = s.dw.Close()
+}
+
+// closeAllPopups closes every popup window at once, as the window
+// closes.
+func (u *UI) closeAllPopups() {
+	for _, s := range u.popups {
+		if s.dw != nil {
+			close(s.stop)
+			_ = s.dw.Close()
+		}
+	}
+	u.popups = nil
+}
+
+// popupEvent handles one event from a popup's window.
+func (u *UI) popupEvent(e popupEvent) {
+	if !slices.Contains(u.popups, e.s) {
+		return
+	}
+	if e.shown {
+		e.s.inFlight, e.s.held = false, -1
+		if e.s.stale {
+			u.invalid = true
+		}
+		return
+	}
+	u.handleOn(e.s.root, e.ev)
+}
+
+// forward passes a popup window's events to the UI goroutine until the
+// popup closes.
+func (w *Window) forward(s *surface) {
+	send := func(e popupEvent) bool {
+		select {
+		case w.popupIn <- e:
+			return true
+		case <-s.stop:
+			return false
+		}
+	}
+	for {
+		select {
+		case <-s.stop:
+			return
+		case ev, ok := <-s.dw.Input():
+			if !ok || !send(popupEvent{s: s, ev: ev}) {
+				return
+			}
+		case _, ok := <-s.dw.Presented():
+			if !ok || !send(popupEvent{s: s, shown: true}) {
+				return
+			}
+		}
+	}
+}

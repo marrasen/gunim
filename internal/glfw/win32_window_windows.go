@@ -24,6 +24,10 @@ import (
 func (w *Window) getWindowStyle() uint32 {
 	var style uint32 = _WS_CLIPSIBLINGS | _WS_CLIPCHILDREN
 
+	if w.platform.popup {
+		return style | _WS_POPUP
+	}
+
 	if w.monitor != nil {
 		style |= _WS_POPUP
 	} else {
@@ -46,6 +50,12 @@ func (w *Window) getWindowStyle() uint32 {
 
 func (w *Window) getWindowExStyle() uint32 {
 	var style uint32 = _WS_EX_APPWINDOW
+
+	if w.platform.popup {
+		// A tool window keeps off the taskbar, and a no-activate window
+		// leaves the keyboard with the window that opened it.
+		style = _WS_EX_TOOLWINDOW | _WS_EX_NOACTIVATE | _WS_EX_TOPMOST
+	}
 
 	if w.floating {
 		style |= _WS_EX_TOPMOST
@@ -617,6 +627,10 @@ func windowProc(hWnd windows.HWND, uMsg uint32, wParam _WPARAM, lParam _LPARAM) 
 
 	switch uMsg {
 	case _WM_MOUSEACTIVATE:
+		if window.platform.popup {
+			// A click on a popup leaves the keyboard where it was.
+			return _MA_NOACTIVATE
+		}
 		// HACK: Postpone cursor disabling when the window was activated by
 		//       clicking a caption button
 		if _HIWORD(uint32(lParam)) == _WM_LBUTTONDOWN {
@@ -1533,6 +1547,8 @@ func (w *Window) platformCreateWindow(wndconfig *wndconfig, ctxconfig *ctxconfig
 	if ctxconfig.client == NoAPI && !fbconfig.transparent && winver.IsWindows10OrGreater() && wndconfig.noRedirectionBitmap {
 		w.platform.noRedirectionBitmap = true
 	}
+
+	w.platform.popup = wndconfig.popup
 
 	if err := w.createNativeWindow(wndconfig, fbconfig); err != nil {
 		return err

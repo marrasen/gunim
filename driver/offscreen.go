@@ -34,6 +34,8 @@ type OffscreenWindow struct {
 	rate  float64
 	ops   []paint.Op
 	clip  string
+	// anchor is where a popup was last attached.
+	anchor geom.Rect
 
 	presented chan Frame
 	input     chan any
@@ -78,6 +80,21 @@ func (w *OffscreenWindow) Resize(size geom.Size) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.size = size
+}
+
+// Place implements [Placer] by taking the size and keeping the anchor.
+func (w *OffscreenWindow) Place(anchor geom.Rect, size geom.Size) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.anchor, w.size = anchor, size
+	return nil
+}
+
+// Anchor returns where the window was last attached, for a popup.
+func (w *OffscreenWindow) Anchor() geom.Rect {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.anchor
 }
 
 // Size implements [Window].

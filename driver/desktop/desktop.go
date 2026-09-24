@@ -276,8 +276,12 @@ func (d *Driver) openWindow(o driver.Options) (*Window, error) {
 	switch o.Kind {
 	case driver.KindPopup:
 		hints = append(hints,
-			[2]int{int(glfw.Decorated), glfw.False},
+			[2]int{int(glfw.Popup), glfw.True},
+			// Cocoa has no popup hint yet; there, a popup is a borderless
+			// window floating above the rest.
 			[2]int{int(glfw.Floating), glfw.True},
+			[2]int{int(glfw.Decorated), glfw.False},
+			[2]int{int(glfw.TransparentFramebuffer), glfw.True},
 			[2]int{int(glfw.FocusOnShow), glfw.False})
 	case driver.KindUtility:
 		hints = append(hints, [2]int{int(glfw.Floating), glfw.True})
@@ -299,6 +303,10 @@ func (d *Driver) openWindow(o driver.Options) (*Window, error) {
 	}
 
 	w := newWindow(d, gw)
+	if o.Kind == driver.KindPopup {
+		t, err := gw.GetAttrib(glfw.TransparentFramebuffer)
+		w.transparent = err == nil && t == glfw.True
+	}
 	if err := w.place(o); err != nil {
 		_ = gw.Destroy()
 		return nil, err

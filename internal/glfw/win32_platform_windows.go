@@ -30,6 +30,9 @@ type platformWindowState struct {
 	// resized (#3477). It is only enabled for windows that present through DirectComposition.
 	noRedirectionBitmap bool
 
+	// popup is set for a window made with the Popup hint. A gunim change.
+	popup bool
+
 	// Cached size used to filter out duplicate events
 	width  int
 	height int

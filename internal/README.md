@@ -35,6 +35,13 @@ gunim's changes are marked `gunim change` in the code:
   (`windowProc` in `win32_window_windows.go`). A pointer moved by
   `SetCursorPos`, remote input or automation can deliver its button
   message first, and the click would land where the pointer was.
+- `glfw` has a `Popup` window hint, for menus, lists and tooltips: a
+  window that never takes focus. On X11 it is override-redirect, so the
+  window manager leaves it where it is put, and typed
+  `_NET_WM_WINDOW_TYPE_POPUP_MENU` (`x11_window_linbsd.go`). On Win32
+  it is a `WS_POPUP` tool window with `WS_EX_NOACTIVATE` and
+  `WS_EX_TOPMOST`, and a click answers `WM_MOUSEACTIVATE` with
+  `MA_NOACTIVATE` (`win32_window_windows.go`). Cocoa ignores it.
 
 To take a newer Ebitengine, copy the same files again and reapply those
 changes.

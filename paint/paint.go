@@ -13,6 +13,7 @@ package paint
 
 import (
 	"image/color"
+	"math"
 
 	"github.com/marrasen/gunim/geom"
 )
@@ -72,6 +73,15 @@ func Translate(p geom.Point) Transform { return Transform{1, 0, p.X, 0, 1, p.Y} 
 // into place should swell from its middle and stay where it is.
 func Scale(s float32, at geom.Point) Transform {
 	return Transform{s, 0, at.X * (1 - s), 0, s, at.Y * (1 - s)}
+}
+
+// Rotate turns by rad radians about the point at, clockwise on screen.
+func Rotate(rad float32, at geom.Point) Transform {
+	s, c := float32(math.Sin(float64(rad))), float32(math.Cos(float64(rad)))
+	return Transform{
+		c, -s, at.X - c*at.X + s*at.Y,
+		s, c, at.Y - s*at.X - c*at.Y,
+	}
 }
 
 // Mul returns t applied after u.

@@ -5,19 +5,31 @@ import (
 	"slices"
 	"time"
 
+	"github.com/marrasen/gunim/driver"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
 )
 
-// handlePlatform turns one raw platform event into tree traffic.
+// handlePlatform turns one raw platform event from the window into
+// tree traffic.
+func (u *UI) handlePlatform(ev any) { u.handleOn(u.root, ev) }
+
+// handleOn turns one raw platform event into tree traffic, for the
+// window whose tree starts at root: the main window's, or a popup's.
 //
 // Pointer events are routed by position, keyboard events by focus. The
-// engine works out hover changes itself, on every widget's behalf.
-func (u *UI) handlePlatform(ev any) {
+// engine works out hover changes itself, on every widget's behalf. A
+// press in a popup leaves focus where it is, so the node that opened a
+// menu keeps the keyboard while the menu is clicked.
+func (u *UI) handleOn(root *state, ev any) {
 	u.invalid = true
 	switch e := ev.(type) {
+	case driver.WindowFocus:
+		if !e.Focused && root == u.root {
+			u.dismissFor(nil)
+		}
 	case input.PointerMove:
-		u.updateHover(e.Pos, e.Time)
+		u.updateHover(root, e.Pos, e.Time)
 		mk := func(local geom.Point) input.Event {
 			return input.PointerMove{Pos: local, Mods: e.Mods, Time: e.Time}
 		}
@@ -25,13 +37,18 @@ func (u *UI) handlePlatform(ev any) {
 			u.deliver(u.capture, mk(u.local(u.capture, e.Pos)))
 			return
 		}
-		u.dispatchAt(e.Pos, mk)
+		u.dispatchAt(root, e.Pos, mk)
 	case input.PointerDown:
+		// A press outside a popup dismisses it; the press still goes
+		// where it lands.
+		u.dismissFor(u.hit(root, e.Pos))
 		// A press moves focus before it is delivered, so a text field
 		// that is clicked is already focused when it sees the press.
-		u.focusAt(e.Pos)
+		if root == u.root {
+			u.focusAt(e.Pos)
+		}
 		// Whoever takes the press keeps the pointer until the release.
-		u.capture = u.dispatchAt(e.Pos, func(local geom.Point) input.Event {
+		u.capture = u.dispatchAt(root, e.Pos, func(local geom.Point) input.Event {
 			return input.PointerDown{Pos: local, Button: e.Button, Mods: e.Mods, Clicks: e.Clicks, Time: e.Time}
 		})
 	case input.PointerUp:
@@ -41,16 +58,16 @@ func (u *UI) handlePlatform(ev any) {
 		if c := u.capture; c != nil {
 			u.capture = nil
 			u.deliver(c, mk(u.local(c, e.Pos)))
-			u.updateHover(e.Pos, e.Time)
+			u.updateHover(root, e.Pos, e.Time)
 			return
 		}
-		u.dispatchAt(e.Pos, mk)
+		u.dispatchAt(root, e.Pos, mk)
 	case input.Scroll:
-		u.dispatchAt(e.Pos, func(local geom.Point) input.Event {
+		u.dispatchAt(root, e.Pos, func(local geom.Point) input.Event {
 			return input.Scroll{Pos: local, Delta: e.Delta, Mods: e.Mods, Time: e.Time}
 		})
 	case input.PointerLeave:
-		u.updateHover(geom.Pt(-1, -1), e.Time)
+		u.updateHover(root, geom.Pt(-1, -1), e.Time)
 	default:
 		// Keyboard and focus events go to the focused node and bubble
 		// from there, which is how a shortcut a text field ignores ends
@@ -163,24 +180,40 @@ func (u *UI) rectIn(s, a *state) geom.Rect {
 }
 
 // updateHover sends [input.PointerLeave] and [input.PointerEnter] when
-// the node under the pointer changes. While a node holds the pointer,
+// the node under the pointer changes. The pointer is over a node and
+// every node around it, so a card lights up while the pointer is over
+// a button inside it. Each node the pointer leaves hears so, innermost
+// first, and each node it enters hears so, outermost first. While a
+// node holds the pointer,
 // only it and what is inside it can be hovered, so a drag lights up
 // nothing else, and the node learns when the pointer leaves it and
 // comes back.
-func (u *UI) updateHover(p geom.Point, t time.Time) {
-	next := u.hit(u.root, p)
+//
+// root is the tree of the window the pointer is in. The pointer leaving
+// one window clears the hover only when it was in that window, so it
+// keeps what it found in the popup it moved into.
+func (u *UI) updateHover(root *state, p geom.Point, t time.Time) {
+	next := u.hit(root, p)
 	if u.capture != nil && (next == nil || !next.within(u.capture)) {
 		next = nil
+	}
+	if next == nil && u.hover != nil && !u.hover.within(root) {
+		return
 	}
 	if next == u.hover {
 		return
 	}
-	if u.hover != nil {
-		u.deliver(u.hover, input.PointerLeave{Time: t})
-	}
+	prev := u.hover
 	u.hover = next
-	if next != nil {
-		u.deliver(next, input.PointerEnter{Pos: u.local(next, p), Time: t})
+	for s := prev; s != nil && s.parent != nil && (next == nil || !next.within(s)); s = s.parent {
+		u.deliver(s, input.PointerLeave{Time: t})
+	}
+	var entered []*state
+	for s := next; s != nil && s.parent != nil && (prev == nil || !prev.within(s)); s = s.parent {
+		entered = append(entered, s)
+	}
+	for _, s := range slices.Backward(entered) {
+		u.deliver(s, input.PointerEnter{Pos: u.local(s, p), Time: t})
 	}
 }
 
@@ -188,8 +221,8 @@ func (u *UI) updateHover(p geom.Point, t time.Time) {
 // built by mk, with the position translated into that node's space. A
 // node that declines it passes the event on to its ancestors. It
 // returns the node that took the event, or nil.
-func (u *UI) dispatchAt(p geom.Point, mk func(local geom.Point) input.Event) *state {
-	for s := u.hit(u.root, p); s != nil; s = s.parent {
+func (u *UI) dispatchAt(root *state, p geom.Point, mk func(local geom.Point) input.Event) *state {
+	for s := u.hit(root, p); s != nil; s = s.parent {
 		if h, ok := s.node.(Handler); ok {
 			var took bool
 			u.on(s, func() { took = h.Handle(mk(u.local(s, p)), u) })
@@ -248,7 +281,7 @@ func (u *UI) hit(s *state, p geom.Point) *state {
 		}
 		return k
 	}
-	if s == u.root {
+	if s.parent == nil {
 		return nil
 	}
 	return s

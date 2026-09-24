@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -85,7 +86,21 @@ type Window struct {
 	// input method asks from the main thread.
 	textInput atomic.Bool
 
+	// parent is the window a popup belongs to, and popup is set for a
+	// popup. Both are set once, before the window shows.
+	parent *Window
+	popup  bool
+	// transparent is whether the window blends with what is behind it,
+	// read once as it opens.
+	transparent bool
+
 	// The fields below belong to the main thread.
+	//
+	// anchor is where a popup was last attached, and popups are the
+	// open popups that belong to this window, which follow it as it
+	// moves.
+	anchor     geom.Rect
+	popups     []*Window
 	closed     bool
 	cursor     geom.Point
 	mods       input.Mods
@@ -218,6 +233,9 @@ func (w *Window) shutdown() {
 		return
 	}
 	w.closed = true
+	if w.parent != nil {
+		w.parent.popups = slices.DeleteFunc(w.parent.popups, func(c *Window) bool { return c == w })
+	}
 	w.in.close()
 	w.stopRender()
 	<-w.done
@@ -254,18 +272,20 @@ func (*Window) RaiseThread() { raiseThread() }
 // stopRender tells the render thread and the input feed to stop.
 func (w *Window) stopRender() { w.quitOnce.Do(func() { close(w.quit) }) }
 
-// place moves the window where the options ask: beside its parent at
-// Anchor, or centred on a chosen monitor. It runs on the main thread.
+// place moves the window where the options ask: attached to its
+// anchor, or centred on a chosen monitor. It runs on the main thread.
 func (w *Window) place(o driver.Options) error {
 	if p, ok := o.Parent.(*Window); ok {
+		if o.Kind == driver.KindPopup {
+			w.parent, w.popup = p, true
+			return w.attach(o.Anchor)
+		}
 		px, py, err := p.gw.GetPos()
 		if err != nil {
 			return err
 		}
-		p.mu.Lock()
-		f := p.scale / p.perCoord
-		p.mu.Unlock()
-		return w.gw.SetPos(px+int(o.Anchor.X*f), py+int(o.Anchor.Y*f))
+		f := p.coordsPerLogical()
+		return w.gw.SetPos(px+int(o.Anchor.Min.X*f), py+int(o.Anchor.Min.Y*f))
 	}
 	if o.Monitor == nil {
 		return nil
@@ -287,6 +307,100 @@ func (w *Window) place(o driver.Options) error {
 	x := int(b.Min.X) + (int(b.Size().W)-ww)/2
 	y := int(b.Min.Y) + (int(b.Size().H)-wh)/2
 	return w.gw.SetPos(x, y)
+}
+
+// coordsPerLogical is GLFW screen coordinates per logical pixel.
+func (w *Window) coordsPerLogical() float32 {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.scale / w.perCoord
+}
+
+// attach puts a popup beside anchor, a rectangle in its parent's
+// logical space, as [driver.Options] describes. It runs on the main
+// thread.
+func (w *Window) attach(anchor geom.Rect) error {
+	p := w.parent
+	w.anchor = anchor
+	if !slices.Contains(p.popups, w) {
+		p.popups = append(p.popups, w)
+	}
+	px, py, err := p.gw.GetPos()
+	if err != nil {
+		return err
+	}
+	f := p.coordsPerLogical()
+	a := geom.Rect{
+		Min: geom.Pt(float32(px)+anchor.Min.X*f, float32(py)+anchor.Min.Y*f),
+		Max: geom.Pt(float32(px)+anchor.Max.X*f, float32(py)+anchor.Max.Y*f),
+	}
+	ww, wh, err := w.gw.GetSize()
+	if err != nil {
+		return err
+	}
+	x, y := popupAt(a, float32(ww), float32(wh), workArea(a.Min))
+	return w.gw.SetPos(int(x), int(y))
+}
+
+// popupAt returns where a popup of size w×h goes for anchor a, all in
+// screen coordinates: below a, or above it when the room below runs
+// out and there is more above, and slid sideways to stay inside area.
+func popupAt(a geom.Rect, w, h float32, area geom.Rect) (x, y float32) {
+	x, y = a.Min.X, a.Max.Y
+	if area.Empty() {
+		return x, y
+	}
+	if y+h > area.Max.Y && a.Min.Y-area.Min.Y > area.Max.Y-a.Max.Y {
+		y = a.Min.Y - h
+	}
+	x = max(area.Min.X, min(x, area.Max.X-w))
+	y = max(area.Min.Y, min(y, area.Max.Y-h))
+	return x, y
+}
+
+// workArea returns the part of the monitor holding p that windows may
+// use, which leaves out the taskbar and the like, in screen
+// coordinates. It runs on the main thread.
+func workArea(p geom.Point) geom.Rect {
+	ms, err := glfw.GetMonitors()
+	if err != nil {
+		return geom.Rect{}
+	}
+	var first geom.Rect
+	for _, m := range ms {
+		x, y, mw, mh, err := m.GetWorkarea()
+		if err != nil || mw <= 0 || mh <= 0 {
+			continue
+		}
+		r := geom.Rc(float32(x), float32(y), float32(mw), float32(mh))
+		if r.Contains(p) {
+			return r
+		}
+		if first.Empty() {
+			first = r
+		}
+	}
+	return first
+}
+
+// Transparent implements [driver.Transparent].
+func (w *Window) Transparent() bool { return w.transparent }
+
+// Place implements [driver.Placer].
+func (w *Window) Place(anchor geom.Rect, size geom.Size) error {
+	return w.d.call(func() error {
+		if w.closed || w.parent == nil {
+			return nil
+		}
+		f := w.coordsPerLogical()
+		ww, wh := max(1, int(size.W*f+0.5)), max(1, int(size.H*f+0.5))
+		if cw, ch, err := w.gw.GetSize(); err == nil && (cw != ww || ch != wh) {
+			if err := w.gw.SetSize(ww, wh); err != nil {
+				return err
+			}
+		}
+		return w.attach(anchor)
+	})
 }
 
 // measure reads the window's framebuffer, scale and monitor. It runs
@@ -369,8 +483,16 @@ func (w *Window) install() {
 		}
 	})
 	_, _ = gw.SetContentScaleCallback(func(*glfw.Window, float32, float32) { remeasure() })
-	_, _ = gw.SetPosCallback(func(*glfw.Window, int, int) { remeasure() })
+	_, _ = gw.SetPosCallback(func(*glfw.Window, int, int) {
+		remeasure()
+		for _, c := range w.popups {
+			_ = c.attach(c.anchor)
+		}
+	})
 	_, _ = gw.SetRefreshCallback(func(*glfw.Window) { w.in.push(driver.Redraw{}) })
+	_, _ = gw.SetFocusCallback(func(_ *glfw.Window, focused bool) {
+		w.in.push(driver.WindowFocus{Focused: focused})
+	})
 	_, _ = gw.SetCloseCallback(func(*glfw.Window) {
 		// Closing the input tells the engine the window has gone; it
 		// then calls Close, which destroys it.

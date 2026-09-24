@@ -38,3 +38,21 @@ type CaretPlacer interface {
 // with no input behind it: after a resize, a move to another monitor,
 // or the display server asking for the contents back.
 type Redraw struct{}
+
+// A Placer is a popup [Window] that can move and resize: to fit new
+// content, or to follow its anchor. anchor is in the parent's logical
+// space, as in [Options], and size is in logical pixels.
+type Placer interface {
+	Place(anchor geom.Rect, size geom.Size) error
+}
+
+// WindowFocus is sent on [Window.Input] when the window gains or loses
+// the keyboard.
+type WindowFocus struct{ Focused bool }
+
+// A Transparent is a [Window] that can say whether it shows what is
+// behind it wherever nothing is painted. A popup is transparent where
+// the display server can blend windows.
+type Transparent interface {
+	Transparent() bool
+}

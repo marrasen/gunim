@@ -158,3 +158,26 @@ var (
 	// AreaWidth is a text area's width when it is given none.
 	AreaWidth = theme.Length("area.width", 320)
 )
+
+// Menu tokens, for menus, drop-down lists and tooltips.
+var (
+	MenuFill   = theme.Color("menu.fill", color.NRGBA{R: 0x24, G: 0x28, B: 0x33, A: 0xff})
+	MenuBorder = theme.Color("menu.border", color.NRGBA{R: 0x3a, G: 0x40, B: 0x50, A: 0xff})
+	MenuShadow = theme.Color("menu.shadow", color.NRGBA{A: 0x90})
+	// MenuHot is the highlight behind the item under the pointer.
+	MenuHot    = theme.Color("menu.hot", color.NRGBA{R: 0x5e, G: 0x9c, B: 0xff, A: 0x48})
+	MenuRadius = theme.Length("menu.radius", 8)
+	// MenuPadding is the space between a menu's edge and its items.
+	MenuPadding    = theme.Length("menu.padding", 4)
+	MenuRowHeight  = theme.Length("menu.row.height", 28)
+	MenuRowPadding = theme.Length("menu.row.padding", 12)
+	// MenuMargin is the room a popup leaves around itself for its
+	// shadow.
+	MenuMargin = theme.Length("menu.margin", 14)
+
+	TooltipFill    = theme.Color("tooltip.fill", color.NRGBA{R: 0xec, G: 0xef, B: 0xf4, A: 0xf4})
+	TooltipInk     = theme.Foreground("tooltip.ink", color.NRGBA{R: 0x16, G: 0x18, B: 0x1e, A: 0xff})
+	TooltipSize    = theme.Length("tooltip.size", 12.5)
+	TooltipRadius  = theme.Length("tooltip.radius", 6)
+	TooltipPadding = theme.Insets("tooltip.padding", geom.Insets{Top: 4, Right: 8, Bottom: 5, Left: 8})
+)
