@@ -9,6 +9,7 @@ import (
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
+	"github.com/marrasen/gunim/theme"
 )
 
 // ping is a sample application intent.
@@ -47,7 +48,7 @@ func newProbe(label string) *probe {
 	return p
 }
 
-func (p *probe) Transition(s Presence) bool {
+func (p *probe) Transition(s Presence, _ Frame) bool {
 	switch s {
 	case Entering:
 		p.in.Animate(1, anim.Snappy)
@@ -127,6 +128,7 @@ func TestCommandsAndIntentsSurviveTheWire(t *testing.T) {
 		Patch{Key: "topic", Data: tick{At: 0.5}},
 		Unmount{ID: "panel"},
 		Focus{ID: "panel"},
+		SetTheme{Theme: "light"},
 		Envelope{From: "panel", Intent: ping{N: 1}},
 		ping{N: 3},
 		tick{At: 0.25},
@@ -554,5 +556,46 @@ func TestFocusOnALeavingViewFails(t *testing.T) {
 func TestCheckWireRejectsNil(t *testing.T) {
 	if err := CheckWire(nil); err == nil {
 		t.Fatal("CheckWire(nil) = nil, want an error")
+	}
+}
+
+func TestSetThemeAnimatesEveryReader(t *testing.T) {
+	pad := theme.Length("test.wire.pad", 8)
+	w := newTestWindow()
+	w.RegisterTheme(theme.Make("roomy", theme.Set(pad, 20)))
+	if got := pad.Get(w.ui.Theme()); got != 8 {
+		t.Fatalf("setup: pad = %v, want 8", got)
+	}
+	run(w, 1)
+	if w.ui.needsFrame() {
+		t.Fatal("setup: the window should be idle")
+	}
+
+	if err := w.Client().SetTheme("roomy"); err != nil {
+		t.Fatal(err)
+	}
+	run(w, 3)
+	if got := pad.Get(w.ui.Theme()); got <= 8 || got >= 20 {
+		t.Fatalf("three frames into the switch, pad = %v, want between 8 and 20", got)
+	}
+	if !w.ui.needsFrame() {
+		t.Fatal("the window went idle in the middle of a theme switch")
+	}
+	run(w, 300)
+	if got := pad.Get(w.ui.Theme()); got != 20 {
+		t.Fatalf("once settled, pad = %v, want 20", got)
+	}
+}
+
+func TestSetThemeWithAnUnknownNameComesBackAsAFailure(t *testing.T) {
+	w := newTestWindow()
+	c := w.Client()
+	if err := c.SetTheme("nope"); err != nil {
+		t.Fatal(err)
+	}
+	run(w, 1)
+	v, ok := As[CommandFailed](take(t, c))
+	if !ok || v.Command != "set-theme" || v.Key != "nope" {
+		t.Fatalf("got %+v, want a failed set-theme naming nope", v)
 	}
 }

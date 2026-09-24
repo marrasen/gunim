@@ -24,7 +24,7 @@ func newFadePanel() *fadePanel {
 	return p
 }
 
-func (p *fadePanel) Transition(s Presence) bool {
+func (p *fadePanel) Transition(s Presence, _ Frame) bool {
 	switch s {
 	case Entering:
 		p.in.Animate(1, anim.Snappy)

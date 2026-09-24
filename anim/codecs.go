@@ -107,3 +107,44 @@ func clampByte(v float32) uint8 {
 		return uint8(v + 0.5)
 	}
 }
+
+// Mix returns the value t of the way from a to b, blending each scalar
+// the codec takes apart. t may leave 0..1, so a spring's overshoot
+// carries through.
+//
+// It is how a widget turns an animated state into a look: animate the
+// hover from 0 to 1, and Mix the theme's idle and hover colours by it
+// each frame, so the colours can change underneath without the
+// animation noticing.
+func Mix[T any](c Codec[T], a, b T, t float32) T {
+	var x, y [MaxScalars]float32
+	c.Encode(a, &x)
+	c.Encode(b, &y)
+	for i := range c.N {
+		x[i] += (y[i] - x[i]) * t
+	}
+	return c.Decode(&x)
+}
+
+// InsetsCodec animates the four sides of a padding or margin.
+var InsetsCodec = Codec[geom.Insets]{
+	N: 4,
+	Encode: func(v geom.Insets, d *[MaxScalars]float32) {
+		d[0], d[1], d[2], d[3] = v.Top, v.Right, v.Bottom, v.Left
+	},
+	Decode: func(s *[MaxScalars]float32) geom.Insets {
+		return geom.Insets{Top: s[0], Right: s[1], Bottom: s[2], Left: s[3]}
+	},
+}
+
+// SpringCodec animates a spring's response and damping, so a theme can
+// make every motion gradually snappier or softer.
+var SpringCodec = Codec[Spring]{
+	N: 2,
+	Encode: func(v Spring, d *[MaxScalars]float32) {
+		d[0], d[1] = v.Response, v.Damping
+	},
+	Decode: func(s *[MaxScalars]float32) Spring {
+		return Spring{Response: s[0], Damping: s[1]}
+	},
+}

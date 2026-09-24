@@ -16,6 +16,7 @@ import (
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
+	"github.com/marrasen/gunim/theme"
 )
 
 // Main starts the platform event loop and runs fn alongside it.
@@ -167,8 +168,9 @@ type Window struct {
 	barrier int
 	stats   windowStats
 
-	mu    sync.RWMutex
-	views map[string]*view
+	mu     sync.RWMutex
+	views  map[string]*view
+	themes map[string]theme.Theme
 	// err holds whatever ended the window. The UI goroutine writes it
 	// before closing events, and [Window.Err] reads it afterwards, so
 	// closing the channel carries the handover.
@@ -195,6 +197,7 @@ func newWindow(dw driver.Window, root Node) *Window {
 		index:  map[Node]*state{root: rootState},
 		ids:    map[ID]*state{Root: rootState},
 		topics: map[string][]*state{},
+		theme:  theme.NewLive(theme.Make("default")),
 	}
 	return w
 }
@@ -282,6 +285,10 @@ func (c Client) Patch(key string, p any) error {
 	}
 	return c.Send(Patch{Key: key, Data: p})
 }
+
+// SetTheme switches the window to the theme registered under name, and
+// every themed value animates to it.
+func (c Client) SetTheme(name string) error { return c.Send(SetTheme{Theme: name}) }
 
 // Unmount starts a view's exit and returns at once, with the view still
 // on screen animating away.
@@ -560,6 +567,8 @@ type UI struct {
 	hover *state
 
 	now time.Time
+	// theme is the window's live theme, stepped every frame.
+	theme *theme.Live
 	// seq counts frames; see [Frame].
 	seq       uint64
 	painter   paint.Painter
@@ -575,6 +584,17 @@ func (u *UI) Root() Node { return u.root.node }
 
 // Now is the current frame's timestamp.
 func (u *UI) Now() time.Time { return u.now }
+
+// Theme returns the window's live theme, for reading tokens outside
+// Layout and Paint, such as the motion a Handle animates with.
+func (u *UI) Theme() *theme.Live { return u.theme }
+
+// UseTheme switches the window to th. Every themed value animates from
+// where it is to th's, with th's [theme.Switch] motion.
+func (u *UI) UseTheme(th theme.Theme) {
+	u.theme.Use(th)
+	u.invalid = true
+}
 
 // Invalidate asks for one more frame, whatever the animation state. Use
 // it when something changed that the engine can see no other way.
@@ -783,14 +803,18 @@ func (u *UI) frame(now time.Time, delta time.Duration) {
 	u.invalid = false
 	u.flush()
 	u.seq++
-	f := Frame{Now: now, Delta: delta, Scale: u.w.dw.Scale(), seq: u.seq}
+	f := Frame{Now: now, Delta: delta, Scale: u.w.dw.Scale(), Theme: u.theme, seq: u.seq}
 
-	// 1. Advance every animated value by the real elapsed time.
-	animating := u.step(u.root, delta)
+	// 1. Advance every animated value by the real elapsed time, the
+	//    theme's included.
+	animating := u.theme.Step(delta)
+	if u.step(u.root, delta) {
+		animating = true
+	}
 
 	// 2. Let entering and exiting nodes run their transitions, then
 	//    unlink the ones that have finished leaving.
-	if !u.settle(u.root, Present) {
+	if !u.settle(u.root, Present, f) {
 		animating = true
 	}
 	u.reap(u.root)
@@ -832,19 +856,19 @@ func (u *UI) step(s *state, dt time.Duration) bool {
 // finished. A node inherits Exiting from its ancestors: when a panel
 // leaves, everything inside it is leaving too, and the panel waits for
 // its children to agree they are done.
-func (u *UI) settle(s *state, inherited Presence) bool {
+func (u *UI) settle(s *state, inherited Presence, f Frame) bool {
 	p := s.presence
 	if inherited == Exiting {
 		p = Exiting
 	}
 	settled := true
 	for _, k := range s.kids {
-		if !u.settle(k, p) {
+		if !u.settle(k, p, f) {
 			settled = false
 		}
 	}
 	if t, ok := s.node.(Transitioner); ok && p != Present {
-		if !t.Transition(p) {
+		if !t.Transition(p, f) {
 			settled = false
 		}
 	}

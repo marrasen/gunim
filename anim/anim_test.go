@@ -1,6 +1,7 @@
 package anim_test
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -105,5 +106,40 @@ func TestTweenRespectsDuration(t *testing.T) {
 	took := step(a, 5*time.Second)
 	if took < 450*time.Millisecond || took > 550*time.Millisecond {
 		t.Fatalf("settled after %v, want about 500ms", took)
+	}
+}
+
+func TestSpringStepsCompose(t *testing.T) {
+	// The spring is solved exactly, so one long step lands where many
+	// short ones do, whatever the damping.
+	for _, sp := range []anim.Spring{anim.Snappy, anim.Gentle, anim.Bouncy, {Response: 0.3, Damping: 2.5}} {
+		one := anim.State{Position: 0, To: 100, From: 0, Velocity: 40}
+		many := one
+		sp.Step(&one, 100*time.Millisecond)
+		for range 100 {
+			sp.Step(&many, time.Millisecond)
+		}
+		if d := one.Position - many.Position; d < -0.01 || d > 0.01 {
+			t.Errorf("%+v: one step to %v, a hundred steps to %v", sp, one.Position, many.Position)
+		}
+	}
+}
+
+func TestAStiffSpringStaysFiniteAndSettles(t *testing.T) {
+	for _, sp := range []anim.Spring{{Response: 0.001, Damping: 1}, {Response: 0, Damping: 0.5}} {
+		s := anim.State{Position: 0, To: 1, From: 0}
+		settled := false
+		for range 10 {
+			if sp.Step(&s, time.Second/60) {
+				settled = true
+				break
+			}
+		}
+		if math.IsNaN(float64(s.Position)) || math.IsInf(float64(s.Position), 0) {
+			t.Fatalf("%+v: position %v", sp, s.Position)
+		}
+		if !settled || s.Position != 1 {
+			t.Fatalf("%+v: at %v after ten frames, settled %v; want settled at 1", sp, s.Position, settled)
+		}
 	}
 }

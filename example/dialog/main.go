@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"image/color"
 	"log"
 	"os"
 	"os/signal"
@@ -33,7 +32,7 @@ func run() error {
 		w, err := a.NewWindow(gunim.WindowOptions{
 			Title: "gunim",
 			Size:  geom.Sz(900, 620),
-			Root:  &gunim.Box{Fill: color.NRGBA{R: 0x16, G: 0x18, B: 0x1e, A: 0xff}},
+			Root:  &shell{},
 		})
 		if err != nil {
 			return fmt.Errorf("dialog example: %w", err)

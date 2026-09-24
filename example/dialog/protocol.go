@@ -11,7 +11,8 @@
 // wire_test.go proves each one would also survive a socket.
 //
 // Running it opens a window with three jobs. Run one, and when it is
-// done, delete it through the confirm dialog.
+// done, delete it through the confirm dialog. Press T to switch between
+// the dark and light themes.
 package main
 
 import "github.com/marrasen/gunim"

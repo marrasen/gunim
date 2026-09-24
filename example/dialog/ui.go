@@ -8,6 +8,7 @@ import (
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/text"
+	"github.com/marrasen/gunim/theme"
 	"github.com/marrasen/gunim/widget"
 )
 
@@ -18,6 +19,9 @@ import (
 // ring, how a row arrives and leaves. The application sends state and
 // hears intents, and the wiring in between is all here.
 func registerViews(w *gunim.Window) {
+	w.RegisterTheme(darkTheme())
+	w.RegisterTheme(lightTheme())
+
 	gunim.RegisterView(w, "joblist",
 		func(JobList) *widget.List { return widget.NewList() },
 		func(l *widget.List, s JobList, u *gunim.UI) {
@@ -34,9 +38,9 @@ func registerViews(w *gunim.Window) {
 	// A patch reaches one row and retargets one spring. The list stays
 	// exactly as it is, so a job ticking from 20% to 30% costs a
 	// retarget rather than a reconciliation.
-	gunim.RegisterPatch(w, "joblist", func(l *widget.List, p JobProgress, _ *gunim.UI) {
+	gunim.RegisterPatch(w, "joblist", func(l *widget.List, p JobProgress, u *gunim.UI) {
 		if r, ok := widget.RowOf[*jobRow](l, widget.Key(p.ID)); ok {
-			r.progress.Animate(p.Progress, anim.Snappy)
+			r.progress.Animate(p.Progress, widget.Quick.Get(u.Theme()))
 		}
 	})
 
@@ -53,6 +57,11 @@ func registerViews(w *gunim.Window) {
 }
 
 // jobRow renders one job: a title, a progress bar and a button.
+//
+// Its colours follow the theme through a status change. The row
+// animates how far it has moved from its last status to its current
+// one, and blends the theme's colours for the two each frame, so a theme
+// switch in the middle of a status change lands smoothly too.
 type jobRow struct {
 	anim.Group
 
@@ -60,41 +69,40 @@ type jobRow struct {
 	// progress trails the job's real progress, so a patch lands as a
 	// bar sliding rather than jumping.
 	progress *anim.Float
-	tint     *anim.Color
-	action   *widget.Button
-	// title is the job's name, shaped when the job changes.
-	title text.Run
+	// was is the status the row is moving away from, and change runs
+	// from 0 to 1 as it arrives at job.Status.
+	was    JobStatus
+	change *anim.Float
+	action *widget.Button
+	// title is the job's name, shaped for its size.
+	title     text.Run
+	titleText string
 }
-
-var (
-	rowIdle    = color.NRGBA{R: 0x22, G: 0x26, B: 0x30, A: 0xff}
-	rowRunning = color.NRGBA{R: 0x1e, G: 0x33, B: 0x4a, A: 0xff}
-	rowDone    = color.NRGBA{R: 0x1e, G: 0x3a, B: 0x2c, A: 0xff}
-	rowBar     = color.NRGBA{R: 0x5e, G: 0x9c, B: 0xff, A: 0xff}
-	rowText    = color.NRGBA{R: 0xec, G: 0xef, B: 0xf4, A: 0xff}
-)
 
 func newJobRow(j Job) *jobRow {
 	r := &jobRow{
 		job:      j,
+		was:      j.Status,
 		progress: anim.NewFloat(j.Progress),
-		tint:     anim.NewColor(tintFor(j.Status)),
-		title:    text.Default().Shape(j.Title, 15),
+		change:   anim.NewFloat(1),
 	}
 	r.action = widget.NewButton("Run")
 	r.action.On = intentFor(j)
-	r.Add(r.progress, r.tint)
+	r.Add(r.progress, r.change)
 	return r
 }
 
 // Set takes fresh data for a row that is already on screen. Everything
 // it changes is a target, so the row moves to the new values rather
 // than snapping to them.
-func (r *jobRow) Set(j Job) {
+func (r *jobRow) Set(j Job, u *gunim.UI) {
+	if j.Status != r.job.Status {
+		r.was = r.job.Status
+		r.change.Jump(0)
+		r.change.Animate(1, widget.Settle.Get(u.Theme()))
+	}
 	r.job = j
-	r.title = text.Default().Shape(j.Title, 15)
-	r.progress.Animate(j.Progress, anim.Snappy)
-	r.tint.Animate(tintFor(j.Status), anim.Gentle)
+	r.progress.Animate(j.Progress, widget.Quick.Get(u.Theme()))
 	r.action.SetLabel(labelFor(j.Status))
 	r.action.On = intentFor(j)
 }
@@ -112,16 +120,17 @@ func intentFor(j Job) gunim.Intent {
 	return nil
 }
 
-func tintFor(s JobStatus) color.NRGBA {
+// tint returns the theme's colour for a status.
+func tint(s JobStatus, th *theme.Live) color.NRGBA {
 	switch s {
 	case JobRunning:
-		return rowRunning
+		return RowRunning.Get(th)
 	case JobDone:
-		return rowDone
+		return RowDone.Get(th)
 	case JobPending:
-		return rowIdle
+		return RowIdle.Get(th)
 	}
-	return rowIdle
+	return RowIdle.Get(th)
 }
 
 func labelFor(s JobStatus) string {
@@ -139,28 +148,32 @@ func labelFor(s JobStatus) string {
 // Children implements [gunim.Composite].
 func (r *jobRow) Children() []gunim.Node { return []gunim.Node{r.action} }
 
-const rowHeight = 44
-
 // Layout implements [gunim.Node].
-func (r *jobRow) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
+func (r *jobRow) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
+	h := RowHeight.Get(f.Theme)
 	kid := kids.At(0)
-	size := kid.Layout(gunim.Loose(geom.Sz(c.Max.W, rowHeight)))
-	kid.Place(geom.Pt(c.Max.W-size.W-8, (rowHeight-size.H)/2))
-	return geom.Sz(c.Max.W, rowHeight)
+	size := kid.Layout(gunim.Loose(geom.Sz(c.Max.W, h)))
+	kid.Place(geom.Pt(c.Max.W-size.W-8, (h-size.H)/2))
+	return geom.Sz(c.Max.W, h)
 }
 
 // Paint implements [gunim.Node].
-func (r *jobRow) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, kids gunim.Children) {
+func (r *jobRow) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.Children) {
+	th := f.Theme
 	full := geom.Rect{Max: box.Point()}
-	p.RRect(full, 8, paint.Solid(r.tint.Value()))
+	fill := anim.Mix(anim.ColorCodec, tint(r.was, th), tint(r.job.Status, th), r.change.Value())
+	p.RRect(full, RowRadius.Get(th), paint.Solid(fill))
 
 	// The bar reads the spring, so it is wherever the animation has got
 	// to rather than wherever the last patch said.
 	if t := r.progress.Value(); t > 0 {
 		bar := geom.Rc(0, box.H-3, box.W*t, 3)
-		p.RRect(bar, 1.5, paint.Solid(rowBar))
+		p.RRect(bar, 1.5, paint.Solid(widget.Accent.Get(th)))
 	}
 
-	r.title.Paint(p, geom.Pt(14, (box.H-r.title.Height())/2), rowText)
+	if size := RowTitleSize.Get(th); r.titleText != r.job.Title || r.title.Size != size {
+		r.title, r.titleText = text.Default().Shape(r.job.Title, size), r.job.Title
+	}
+	r.title.Paint(p, geom.Pt(14, (box.H-r.title.Height())/2), widget.Ink.Get(th))
 	kids.At(0).Paint(p)
 }

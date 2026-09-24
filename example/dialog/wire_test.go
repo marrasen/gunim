@@ -18,6 +18,7 @@ func TestWire(t *testing.T) {
 		DeleteRequested{ID: "1"},
 		Confirmed{What: "Delete?"},
 		Cancelled{},
+		ThemeToggled{},
 	)
 	if err != nil {
 		t.Fatal(err)

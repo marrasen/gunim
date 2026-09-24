@@ -24,32 +24,22 @@ type Key string
 // It is the piece that makes published state worth animating. Hand it a
 // slice with [Sync] and it works out the difference against what is on
 // screen, rather than rebuilding and letting the result pop.
+//
+// Its look and motion come from the theme: [ListSpacing] between rows,
+// [Quick] to carry rows in and to their new places, and [Settle] to
+// carry them out, gentler because something on its way out should get
+// out of the way.
 type List struct {
 	anim.Group
-
-	// Spacing is the gap between rows, in logical pixels.
-	Spacing float32
-	// Enter and Leave carry rows in and out. Leave is gentler, because
-	// something on its way out should get out of the way.
-	Enter anim.Spring
-	Leave anim.Spring
-	// Move carries a row that stayed to its new position.
-	Move anim.Spring
 
 	rows   map[Key]*row
 	order  []Key
 	height float32
 }
 
-// NewList returns an empty list with stock motion.
+// NewList returns an empty list.
 func NewList() *List {
-	return &List{
-		Spacing: 6,
-		Enter:   anim.Snappy,
-		Leave:   anim.Gentle,
-		Move:    anim.Snappy,
-		rows:    map[Key]*row{},
-	}
+	return &List{rows: map[Key]*row{}}
 }
 
 // Len returns how many rows are on screen, counting those animating
@@ -92,8 +82,9 @@ func RowOf[N gunim.Node](l *List, key Key) (N, bool) {
 //
 // key gives each item its identity, build makes a node for an item
 // arriving for the first time, and update refreshes one that is already
-// on screen. update may be nil for rows that render from the node they
-// were built with.
+// on screen. update gets the UI, so it can animate with the theme's
+// motion. It may be nil for rows that render from the node they were
+// built with.
 //
 //	widget.Sync(l, u, s.Jobs,
 //	    func(j Job) widget.Key { return widget.Key(j.ID) },
@@ -104,7 +95,7 @@ func RowOf[N gunim.Node](l *List, key Key) (N, bool) {
 // that row, so a list that flickers between two states stays smooth
 // instead of restarting.
 func Sync[T any, N gunim.Node](l *List, u *gunim.UI, items []T,
-	key func(T) Key, build func(T) N, update func(N, T),
+	key func(T) Key, build func(T) N, update func(N, T, *gunim.UI),
 ) {
 	staying := make(map[Key]bool, len(items))
 	next := make([]Key, 0, len(items))
@@ -123,13 +114,13 @@ func Sync[T any, N gunim.Node](l *List, u *gunim.UI, items []T,
 			u.Insert(l, r)
 			if update != nil {
 				if typed, ok := r.child.(N); ok {
-					update(typed, item)
+					update(typed, item, u)
 				}
 			}
 			continue
 		}
 
-		r := newRow(k, build(item), l)
+		r := newRow(k, build(item))
 		l.rows[k] = r
 		u.Insert(l, r)
 	}
@@ -184,7 +175,9 @@ func mergeOrder(prev, next []Key, leaving map[Key]bool) []Key {
 }
 
 // Layout implements [gunim.Node].
-func (l *List) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
+func (l *List) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
+	spacing := ListSpacing.Get(f.Theme)
+	move := Quick.Get(f.Theme)
 	// The engine owns what exists, so reap anything it has already
 	// taken out of the tree.
 	live := make(map[Key]gunim.Child, kids.Len())
@@ -218,16 +211,16 @@ func (l *List) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) g
 
 		// The target is where the row belongs; the spring says where it
 		// is right now. That gap is the movement animation.
-		r.y.Animate(y, l.Move)
+		r.y.Animate(y, move)
 		kid.Place(geom.Pt(0, r.y.Value()))
 
 		y += size.H
 		if size.H > 0 {
-			y += l.Spacing
+			y += spacing
 		}
 	}
 	if y > 0 {
-		y -= l.Spacing
+		y -= spacing
 	}
 	l.height = y
 	return c.Constrain(geom.Sz(width, y))
@@ -252,7 +245,6 @@ type row struct {
 
 	key   Key
 	child gunim.Node
-	list  *List
 
 	// y is the row's top edge, springing toward the position the list
 	// works out for it.
@@ -267,11 +259,10 @@ type row struct {
 	presence gunim.Presence
 }
 
-func newRow(key Key, child gunim.Node, l *List) *row {
+func newRow(key Key, child gunim.Node) *row {
 	r := &row{
 		key:    key,
 		child:  child,
-		list:   l,
 		y:      anim.NewFloat(0),
 		height: anim.NewFloat(0),
 		fade:   anim.NewFloat(0),
@@ -290,14 +281,14 @@ func (r *row) Children() []gunim.Node { return []gunim.Node{r.child} }
 // The row reports settled once its contents and its height have both
 // come to rest, which is what holds its place in the tree long enough
 // for the gap to close.
-func (r *row) Transition(p gunim.Presence) bool {
+func (r *row) Transition(p gunim.Presence, f gunim.Frame) bool {
 	switch p {
 	case gunim.Entering:
-		r.fade.Animate(1, r.list.Enter)
-		r.slide.Animate(1, r.list.Enter)
+		r.fade.Animate(1, Quick.Get(f.Theme))
+		r.slide.Animate(1, Quick.Get(f.Theme))
 	case gunim.Exiting:
-		r.fade.Animate(0, r.list.Leave)
-		r.slide.Animate(0, r.list.Leave)
+		r.fade.Animate(0, Settle.Get(f.Theme))
+		r.slide.Animate(0, Settle.Get(f.Theme))
 	case gunim.Present:
 		// Settled, with the arrival already behind it.
 	}
@@ -305,7 +296,7 @@ func (r *row) Transition(p gunim.Presence) bool {
 }
 
 // Layout implements [gunim.Node].
-func (r *row) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
+func (r *row) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
 	kid := kids.At(0)
 	inner := kid.Layout(gunim.Constraints{
 		Min: geom.Sz(c.Max.W, 0),
@@ -317,9 +308,9 @@ func (r *row) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) ge
 	// list reads the result as this row's height, so the rows below it
 	// move as it goes.
 	target := inner.H
-	spring := r.list.Enter
+	spring := Quick.Get(f.Theme)
 	if r.presence == gunim.Exiting {
-		target, spring = 0, r.list.Leave
+		target, spring = 0, Settle.Get(f.Theme)
 	}
 	r.height.Animate(target, spring)
 
@@ -327,7 +318,7 @@ func (r *row) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) ge
 }
 
 // Paint implements [gunim.Node].
-func (r *row) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, kids gunim.Children) {
+func (r *row) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.Children) {
 	t := r.fade.Value()
 	if t <= 0 || box.H <= 0 {
 		return
@@ -339,7 +330,7 @@ func (r *row) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, kids gunim.C
 		Bounds:  geom.Rect{Max: box.Point()},
 		Opacity: t,
 		Clip:    true,
-		Radius:  4,
+		Radius:  RowRadius.Get(f.Theme),
 	})()
 	defer p.Push(paint.Translate(geom.Pt(-16*(1-r.slide.Value()), 0)))()
 	kids.At(0).Paint(p)

@@ -27,6 +27,7 @@ import (
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
+	"github.com/marrasen/gunim/theme"
 )
 
 // A Node is one element of the presentation tree.
@@ -81,7 +82,7 @@ type Animator interface {
 // repeatedly: [anim.Animated.Animate] ignores a target it is already
 // heading for, so the obvious implementation is already correct.
 //
-//	func (d *Dialog) Transition(p gunim.Presence) bool {
+//	func (d *Dialog) Transition(p gunim.Presence, f gunim.Frame) bool {
 //	    switch p {
 //	    case gunim.Entering:
 //	        d.in.Animate(1, anim.Bouncy)
@@ -99,7 +100,7 @@ type Animator interface {
 // Leave Transitioner out and the node appears and disappears at once.
 type Transitioner interface {
 	Node
-	Transition(p Presence) (settled bool)
+	Transition(p Presence, f Frame) (settled bool)
 }
 
 // A Composite is a node built from child nodes it owns.
@@ -171,6 +172,10 @@ type Frame struct {
 	// window is on. It changes when the window is dragged between a
 	// laptop screen and an external monitor.
 	Scale float32
+	// Theme is the window's theme, for reading tokens with Get. Read
+	// them every frame, never keeping one in a field, so a theme switch
+	// animates through them.
+	Theme *theme.Live
 
 	// seq numbers the frame, so the engine can tell which nodes this
 	// frame drew.

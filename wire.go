@@ -111,6 +111,17 @@ type Focus struct {
 	ID ID
 }
 
+// SetTheme switches the window to a theme registered with
+// [Window.RegisterTheme], animating every themed value to it.
+type SetTheme struct {
+	Theme string
+}
+
+func (SetTheme) isCommand() {}
+
+// Name identifies the command on the wire.
+func (SetTheme) Name() string { return "set-theme" }
+
 func (Mount) isCommand()   {}
 func (Update) isCommand()  {}
 func (Publish) isCommand() {}

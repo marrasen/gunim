@@ -1,6 +1,8 @@
 package gunim
 
 import (
+	"github.com/marrasen/gunim/theme"
+
 	"errors"
 	"fmt"
 	"reflect"
@@ -160,6 +162,8 @@ func (u *UI) apply(c Command) {
 		err = u.unmount(c)
 	case Focus:
 		err = u.focusID(c.ID)
+	case SetTheme:
+		err = u.setTheme(c.Theme)
 	default:
 		err = fmt.Errorf("unknown command %T", c)
 	}
@@ -183,6 +187,8 @@ func commandTarget(c Command) (id ID, key string) {
 		return c.ID, ""
 	case Focus:
 		return c.ID, ""
+	case SetTheme:
+		return "", c.Theme
 	default:
 		return "", ""
 	}
@@ -330,6 +336,33 @@ func (u *UI) unmount(c Unmount) error {
 	}
 	u.Remove(s.node)
 	return nil
+}
+
+func (u *UI) setTheme(name string) error {
+	th, ok := u.w.lookupTheme(name)
+	if !ok {
+		return fmt.Errorf("theme %q needs RegisterTheme", name)
+	}
+	u.UseTheme(th)
+	return nil
+}
+
+// RegisterTheme names a theme the application can switch to with
+// [Client.SetTheme]. Themes live in the window's process, like views.
+func (w *Window) RegisterTheme(th theme.Theme) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.themes == nil {
+		w.themes = map[string]theme.Theme{}
+	}
+	w.themes[th.Name] = th
+}
+
+func (w *Window) lookupTheme(name string) (theme.Theme, bool) {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	th, ok := w.themes[name]
+	return th, ok
 }
 
 func (u *UI) focusID(id ID) error {

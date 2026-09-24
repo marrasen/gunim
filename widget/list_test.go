@@ -7,6 +7,7 @@ import (
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/paint"
+	"github.com/marrasen/gunim/theme"
 	"github.com/marrasen/gunim/widget"
 )
 
@@ -25,7 +26,7 @@ const cellHeight = 20
 
 func newCell(v string) *cell { return &cell{label: v} }
 
-func (c *cell) set(v string) { c.label = v }
+func (c *cell) set(v string, _ *gunim.UI) { c.label = v }
 
 func (c *cell) Layout(cs gunim.Constraints, _ gunim.Frame, _ gunim.Children) geom.Size {
 	return geom.Sz(cs.Max.W, cellHeight)
@@ -50,7 +51,6 @@ func newListFixture(t *testing.T) *listFixture {
 	gunim.RegisterView(f.w, "list",
 		func(listState) *widget.List {
 			f.list = widget.NewList()
-			f.list.Spacing = 0 // keeps the arithmetic in the test obvious
 			return f.list
 		},
 		func(l *widget.List, s listState, u *gunim.UI) {
@@ -60,6 +60,12 @@ func newListFixture(t *testing.T) *listFixture {
 				(*cell).set)
 		})
 	f.c = f.w.Client()
+	// No spacing keeps the arithmetic in the tests obvious. The theme
+	// is in force before any token is read, so the list starts at it.
+	f.w.RegisterTheme(theme.Make("tight", theme.Set(widget.ListSpacing, 0)))
+	if err := f.c.SetTheme("tight"); err != nil {
+		t.Fatal(err)
+	}
 	if err := f.c.Mount(gunim.Root, "list", "list", listState{}, "items"); err != nil {
 		t.Fatal(err)
 	}

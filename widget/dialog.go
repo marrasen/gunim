@@ -1,8 +1,6 @@
 package widget
 
 import (
-	"image/color"
-
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
@@ -95,50 +93,42 @@ func (d *Dialog) Handle(e input.Event, u *gunim.UI) bool {
 	return false
 }
 
-var (
-	dialogFill   = color.NRGBA{R: 0x1d, G: 0x20, B: 0x28, A: 0xff}
-	dialogBorder = color.NRGBA{R: 0x3a, G: 0x40, B: 0x50, A: 0xff}
-	dialogText   = color.NRGBA{R: 0xec, G: 0xef, B: 0xf4, A: 0xff}
-	scrim        = color.NRGBA{A: 0x99}
-)
-
-const dialogPad = 20
-
 // Layout implements [gunim.Node]. The dialog fills the space it is
-// given and centres a fixed-size panel inside it, so the scrim covers
-// the window while the panel keeps its own size.
-func (d *Dialog) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
+// given and centres a panel inside it, so the scrim covers the window
+// while the panel keeps its own size.
+func (d *Dialog) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
 	size := c.Max
-	panel := d.panel(size)
+	panel := d.panel(size, f)
+	pad := DialogPadding.Get(f.Theme)
 
 	// Buttons sit along the bottom right of the panel, laid out from the
 	// right so the primary action lands outermost.
-	x := panel.Max.X - dialogPad
-	y := panel.Max.Y - dialogPad
+	x := panel.Max.X - pad
+	y := panel.Max.Y - pad
 	for i := kids.Len() - 1; i >= 0; i-- {
 		kid := kids.At(i)
 		s := kid.Layout(gunim.Loose(panel.Size()))
 		x -= s.W
 		kid.Place(geom.Pt(x, y-s.H))
-		x -= 10
+		x -= DialogGap.Get(f.Theme)
 	}
 	return size
 }
 
 // panel returns the dialog's own rectangle, centred in size.
-func (d *Dialog) panel(size geom.Size) geom.Rect {
-	const w, h = 420, 200
+func (d *Dialog) panel(size geom.Size, f gunim.Frame) geom.Rect {
+	w, h := DialogWidth.Get(f.Theme), DialogHeight.Get(f.Theme)
 	return geom.Rc((size.W-w)/2, (size.H-h)/2, w, h)
 }
 
 // Transition implements [gunim.Transitioner]. The dialog springs in
 // with a slight overshoot, and settles out without one.
-func (d *Dialog) Transition(p gunim.Presence) bool {
+func (d *Dialog) Transition(p gunim.Presence, f gunim.Frame) bool {
 	switch p {
 	case gunim.Entering:
-		d.in.Animate(1, anim.Bouncy)
+		d.in.Animate(1, Bounce.Get(f.Theme))
 	case gunim.Exiting:
-		d.in.Animate(0, anim.Gentle)
+		d.in.Animate(0, Settle.Get(f.Theme))
 	case gunim.Present:
 		// Settled in.
 	}
@@ -146,7 +136,8 @@ func (d *Dialog) Transition(p gunim.Presence) bool {
 }
 
 // Paint implements [gunim.Node].
-func (d *Dialog) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, kids gunim.Children) {
+func (d *Dialog) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.Children) {
+	th := f.Theme
 	t := d.in.Value()
 	if t <= 0 {
 		return
@@ -158,14 +149,15 @@ func (d *Dialog) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, kids guni
 	// The scrim darkens whatever is behind the dialog and blurs it. The
 	// blur radius is tied to the same value as the fade, so the
 	// background comes back into focus as the dialog leaves.
-	dim := scrim
-	dim.A = uint8(float32(scrim.A) * fade)
+	dim := Scrim.Get(th)
+	dim.A = uint8(float32(dim.A) * fade)
 	full := geom.Rect{Max: box.Point()}
-	closeScrim := p.Layer(paint.LayerOpts{Bounds: full, Opacity: fade, Backdrop: 14 * fade})
+	closeScrim := p.Layer(paint.LayerOpts{Bounds: full, Opacity: fade, Backdrop: DialogBackdrop.Get(th) * fade})
 	p.RRect(full, 0, paint.Solid(dim))
 	closeScrim()
 
-	panel := d.panel(box)
+	panel := d.panel(box, f)
+	radius, pad := DialogRadius.Get(th), DialogPadding.Get(th)
 
 	// The panel fades and grows into place together. Starting at 0.94
 	// makes it read as arriving; starting nearer 0 would make it read
@@ -173,14 +165,17 @@ func (d *Dialog) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, kids guni
 	defer p.Layer(paint.LayerOpts{Bounds: panel, Opacity: fade})()
 	defer p.Push(paint.Scale(0.94+0.06*t, panel.Center()))()
 
-	p.ShadowRRect(panel, 14, paint.Solid(dialogFill), paint.Shadow{
+	shadow := DialogShadow.Get(th)
+	shadow.A = uint8(float32(shadow.A) * fade)
+	p.ShadowRRect(panel, radius, paint.Solid(DialogFill.Get(th)), paint.Shadow{
 		Offset: geom.Pt(0, 8*fade),
 		Blur:   32 * fade,
-		Color:  color.NRGBA{A: uint8(0x80 * fade)},
+		Color:  shadow,
 	})
-	p.RRectStroke(panel, 14, paint.Fill{}, paint.Stroke{Width: 1, Color: dialogBorder})
-	title := d.titleText.layout(d.Title, text.Style{Size: 17, MaxLines: 2}, panel.Size().W-2*dialogPad)
-	title.Paint(p, panel.Min.Add(geom.Pt(dialogPad, dialogPad)), dialogText)
+	p.RRectStroke(panel, radius, paint.Fill{}, paint.Stroke{Width: 1, Color: DialogBorder.Get(th)})
+	style := text.Style{Size: DialogTitleSize.Get(th), MaxLines: 2}
+	title := d.titleText.layout(d.Title, style, panel.Size().W-2*pad)
+	title.Paint(p, panel.Min.Add(geom.Pt(pad, pad)), Ink.Get(th))
 
 	for kid := range kids.All {
 		kid.Paint(p)

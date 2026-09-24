@@ -8,8 +8,6 @@
 package widget
 
 import (
-	"image/color"
-
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
@@ -22,7 +20,9 @@ import (
 // Every visible reaction it has is a spring. Hovering warms the fill,
 // pressing squashes it slightly, focusing grows a ring around it. All
 // three can be part way through at once and stay independent, because
-// each is its own value with its own motion.
+// each is its own value with its own motion. Each animates a state from
+// 0 to 1, and the look comes from the theme every frame, so a theme
+// switch lands in the middle of a hover without a jolt.
 type Button struct {
 	// Group makes the button an Animator, so the engine steps its
 	// values and knows to keep drawing while any of them is moving.
@@ -40,38 +40,22 @@ type Button struct {
 	// activate is local behaviour, set by [Button.OnActivate].
 	activate func(*gunim.UI)
 
-	fill  *anim.Color
+	hover *anim.Float
 	press *anim.Float
 	ring  *anim.Float
 	held  bool
 	text  label
 }
 
-// Colours. A real theme belongs elsewhere; these keep the example
-// readable.
-var (
-	buttonIdle  = color.NRGBA{R: 0x2b, G: 0x2f, B: 0x3a, A: 0xff}
-	buttonHover = color.NRGBA{R: 0x3d, G: 0x45, B: 0x58, A: 0xff}
-	buttonText  = color.NRGBA{R: 0xec, G: 0xef, B: 0xf4, A: 0xff}
-	accent      = color.NRGBA{R: 0x5e, G: 0x9c, B: 0xff, A: 0xff}
-)
-
-// Button metrics, in logical pixels.
-const (
-	buttonTextSize = 14
-	buttonPadding  = 16
-	buttonHeight   = 36
-)
-
 // NewButton returns a button showing label.
 func NewButton(label string) *Button {
 	b := &Button{
 		Label: label,
-		fill:  anim.NewColor(buttonIdle),
+		hover: anim.NewFloat(0),
 		press: anim.NewFloat(0),
 		ring:  anim.NewFloat(0),
 	}
-	b.Add(b.fill, b.press, b.ring)
+	b.Add(b.hover, b.press, b.ring)
 	return b
 }
 
@@ -88,24 +72,25 @@ func (b *Button) SetLabel(label string) { b.Label = label }
 
 // Handle implements [gunim.Handler].
 func (b *Button) Handle(e input.Event, u *gunim.UI) bool {
+	th := u.Theme()
 	switch e := e.(type) {
 	case input.PointerEnter:
-		b.fill.Animate(buttonHover, anim.Snappy)
+		b.hover.Animate(1, Quick.Get(th))
 	case input.PointerLeave:
-		b.fill.Animate(buttonIdle, anim.Gentle)
+		b.hover.Animate(0, Settle.Get(th))
 		// Releasing outside the button cancels the press, and the
 		// squash springs back on its own.
 		b.held = false
-		b.press.Animate(0, anim.Bouncy)
+		b.press.Animate(0, Bounce.Get(th))
 	case input.PointerDown:
 		b.held = true
-		b.press.Animate(1, anim.Snappy)
+		b.press.Animate(1, Quick.Get(th))
 	case input.PointerUp:
 		if !b.held {
 			return false
 		}
 		b.held = false
-		b.press.Animate(0, anim.Bouncy)
+		b.press.Animate(0, Bounce.Get(th))
 		b.fire(u)
 	case input.KeyPress:
 		if e.Key != input.KeySpace && e.Key != input.KeyEnter {
@@ -113,13 +98,13 @@ func (b *Button) Handle(e input.Event, u *gunim.UI) bool {
 		}
 		// Keyboard activation runs the same squash, so the button
 		// looks pressed however it was reached.
-		b.press.Retarget(1, anim.Snappy)
-		b.press.Animate(0, anim.Bouncy)
+		b.press.Retarget(1, Quick.Get(th))
+		b.press.Animate(0, Bounce.Get(th))
 		b.fire(u)
 	case input.FocusGained:
-		b.ring.Animate(1, anim.Snappy)
+		b.ring.Animate(1, Quick.Get(th))
 	case input.FocusLost:
-		b.ring.Animate(0, anim.Gentle)
+		b.ring.Animate(0, Settle.Get(th))
 	default:
 		return false
 	}
@@ -143,33 +128,36 @@ func (b *Button) fire(u *gunim.UI) {
 }
 
 // Layout implements [gunim.Node].
-func (b *Button) Layout(c gunim.Constraints, _ gunim.Frame, _ gunim.Children) geom.Size {
-	run := b.text.shape(b.Label, buttonTextSize)
-	return c.Constrain(geom.Sz(run.Advance+2*buttonPadding, buttonHeight))
+func (b *Button) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
+	run := b.text.shape(b.Label, TextSize.Get(f.Theme))
+	return c.Constrain(geom.Sz(run.Advance+2*ButtonPadding.Get(f.Theme), ButtonHeight.Get(f.Theme)))
 }
 
 // Paint implements [gunim.Node].
-func (b *Button) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, _ gunim.Children) {
+func (b *Button) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
+	th := f.Theme
 	r := geom.Rect{Max: box.Point()}
+	radius := ButtonRadius.Get(th)
 
 	// Squash toward the centre while held. Scaling about the middle is
 	// what makes it read as a press.
-	if s := 1 - 0.035*b.press.Value(); s != 1 {
+	if s := 1 - ButtonSquash.Get(th)*b.press.Value(); s != 1 {
 		defer p.Push(paint.Scale(s, r.Center()))()
 	}
 
 	// The focus ring grows outward from the button's edge.
 	if t := b.ring.Value(); t > 0 {
-		ring := accent
-		ring.A = uint8(0x90 * t)
+		ring := Accent.Get(th)
+		ring.A = uint8(float32(ring.A) * 0.56 * min(t, 1))
 		grow := 3 * t
 		p.RRectStroke(
 			geom.Rect{Min: geom.Pt(r.Min.X-grow, r.Min.Y-grow), Max: geom.Pt(r.Max.X+grow, r.Max.Y+grow)},
-			8+grow, paint.Fill{}, paint.Stroke{Width: 2, Color: ring},
+			radius+grow, paint.Fill{}, paint.Stroke{Width: 2, Color: ring},
 		)
 	}
 
-	p.RRect(r, 8, paint.Solid(b.fill.Value()))
-	run := b.text.shape(b.Label, buttonTextSize)
-	run.Paint(p, geom.Pt((box.W-run.Advance)/2, (box.H-run.Height())/2), buttonText)
+	fill := anim.Mix(anim.ColorCodec, ButtonFill.Get(th), ButtonHover.Get(th), b.hover.Value())
+	p.RRect(r, radius, paint.Solid(fill))
+	run := b.text.shape(b.Label, TextSize.Get(th))
+	run.Paint(p, geom.Pt((box.W-run.Advance)/2, (box.H-run.Height())/2), Ink.Get(th))
 }

@@ -54,22 +54,11 @@ func (sp Spring) Step(s *State, dt time.Duration) bool {
 	}
 	s.Elapsed += dt
 
-	// Semi-implicit Euler over fixed 1 ms substeps. It stays stable for
-	// every Response a person would actually pick, and it is short
-	// enough to read, which matters more here than an analytic
-	// solution.
-	const h = float32(0.001)
-	left := float32(dt.Seconds())
-	for left > 0 {
-		step := h
-		if left < step {
-			step = left
-		}
-		left -= step
-		accel := -omega*omega*(s.Position-s.To) - 2*zeta*omega*s.Velocity
-		s.Velocity += accel * step
-		s.Position += s.Velocity * step
-	}
+	// The exact motion of a damped spring over dt, so any stiffness and
+	// any step are stable and cost the same.
+	x, v := springStep(float64(s.Position-s.To), float64(s.Velocity), float64(omega), float64(zeta), dt.Seconds())
+	s.Position = s.To + float32(x)
+	s.Velocity = float32(v)
 
 	// Settle relative to the distance travelled, so a spring over 400
 	// pixels and one over 0..1 both stop at the point they look still.
@@ -149,6 +138,34 @@ var (
 		return 1 - u*u*u/2
 	}
 )
+
+// springStep advances a damped spring, x” = -ω²x - 2ζωx', by t seconds
+// from displacement x and velocity v, using the closed-form solution for
+// each damping regime.
+func springStep(x, v, omega, zeta, t float64) (xt, vt float64) {
+	switch {
+	case math.Abs(zeta-1) < 1e-6:
+		// Critically damped: x(t) = (a + bt)e^(-ωt).
+		b := v + omega*x
+		e := math.Exp(-omega * t)
+		return (x + b*t) * e, (b - omega*(x+b*t)) * e
+	case zeta < 1:
+		// Underdamped: a decaying oscillation at the damped frequency.
+		wd := omega * math.Sqrt(1-zeta*zeta)
+		e := math.Exp(-zeta * omega * t)
+		c, sn := math.Cos(wd*t), math.Sin(wd*t)
+		return e * (x*c + (v+zeta*omega*x)/wd*sn),
+			e * (v*c - (omega*omega*x+zeta*omega*v)/wd*sn)
+	default:
+		// Overdamped: the sum of two decaying exponentials.
+		root := omega * math.Sqrt(zeta*zeta-1)
+		r1, r2 := -zeta*omega+root, -zeta*omega-root
+		c1 := (v - r2*x) / (r1 - r2)
+		c2 := x - c1
+		e1, e2 := math.Exp(r1*t), math.Exp(r2*t)
+		return c1*e1 + c2*e2, c1*r1*e1 + c2*r2*e2
+	}
+}
 
 func abs32(v float32) float32 {
 	if v < 0 {

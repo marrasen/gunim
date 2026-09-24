@@ -70,6 +70,16 @@ func handle(ctx context.Context, c gunim.Client, s *store, ev gunim.Envelope) {
 		s.remove(s.pending)
 		_ = c.Publish(JobsTopic, s.list())
 
+	case is[ThemeToggled](ev):
+		// Which theme shows is application state, like any other; the
+		// window animates the switch.
+		s.light = !s.light
+		name := darkTheme().Name
+		if s.light {
+			name = lightTheme().Name
+		}
+		_ = c.SetTheme(name)
+
 	case is[Cancelled](ev):
 		s.pending = ""
 
@@ -117,8 +127,10 @@ func runJob(ctx context.Context, c gunim.Client, s *store, id string) {
 type store struct {
 	mu   sync.Mutex
 	jobs []Job
-	// pending is the job the open dialog is asking about.
+	// pending is the job the open dialog is asking about, and light
+	// whether the light theme is showing. Only serve touches them.
 	pending string
+	light   bool
 }
 
 func (s *store) list() JobList {

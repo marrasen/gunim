@@ -43,9 +43,14 @@ func (u *UI) handlePlatform(ev any) {
 	default:
 		// Keyboard and focus events go to the focused node and bubble
 		// from there, which is how a shortcut a text field ignores ends
-		// up at the window.
+		// up at the window. With nothing focused they go to the root, so
+		// a window-wide shortcut works before anything has been clicked.
 		if ev, ok := ev.(input.Event); ok {
-			u.bubble(u.focus, ev)
+			target := u.focus
+			if target == nil {
+				target = u.root
+			}
+			u.bubble(target, ev)
 		}
 	}
 }

@@ -137,12 +137,12 @@ click.
 ## What a widget looks like
 
 ```go
-func (d *Dialog) Transition(p gunim.Presence) bool {
+func (d *Dialog) Transition(p gunim.Presence, f gunim.Frame) bool {
     switch p {
     case gunim.Entering:
-        d.in.Animate(1, anim.Bouncy)
+        d.in.Animate(1, Bounce.Get(f.Theme))
     case gunim.Exiting:
-        d.in.Animate(0, anim.Gentle)
+        d.in.Animate(0, Settle.Get(f.Theme))
     }
     return !d.in.Active()
 }
@@ -151,6 +151,33 @@ func (d *Dialog) Transition(p gunim.Presence) bool {
 That is the whole exit-animation contract. The engine calls `Transition`
 every frame while the node is entering or leaving. `Animate` ignores a
 target it is already heading for, so the repeated call is free.
+
+## Themes
+
+A theme sets how widgets look and move: colours, but also paddings,
+radii, text sizes and the springs that animations run on. A widget
+declares each value as a token with a default, and reads it every frame:
+
+```go
+var ButtonPadding = theme.Length("button.padding", 16)
+
+size := run.Advance + 2*ButtonPadding.Get(f.Theme)
+```
+
+A theme gives tokens values, and a window keeps one animated value per
+token. Switching themes retargets them all, so going from dark to light
+moves colours, sizes and motion together:
+
+```go
+w.RegisterTheme(widget.Light())
+c.SetTheme("light")
+```
+
+Widgets animate state and look up style: a button animates how hovered
+it is, from 0 to 1, and blends the theme's idle and hover colours by it
+each frame. A theme switch in the middle of a hover then just works.
+`example/dialog` switches between a dark and a light theme when you
+press T.
 
 ## Encoding
 
@@ -184,6 +211,7 @@ the far end knows what to decode it into:
 | `gunim/paint` | The per-frame draw list: rounded rects, shadows, text, layers |
 | `gunim/geom` | float32 points, sizes, rectangles |
 | `gunim/input` | Pointer, keyboard and focus events, keys, buttons, modifiers |
+| `gunim/theme` | Tokens, themes, and animated theme switching |
 | `gunim/text` | Fonts and fallback, shaping, paragraph layout, glyph rasterizing |
 | `gunim/driver` | The seam with the operating system, and an offscreen window |
 | `gunim/driver/desktop` | The driver for Linux, Windows and macOS, on GLFW and OpenGL |
@@ -250,4 +278,11 @@ rates, each drawing an animated rounded rectangle, with
 
 - Run it on Linux with two monitors at different rates, on a real GPU.
 
-Widgets and layout follow.
+Then widgets and layout, on top of the theme:
+
+- Row and column containers, and a scroll view.
+- A text field: caret, selection, editing and input methods.
+- Theme switches that look good halfway: blend colours in Oklab rather
+  than sRGB, and let a theme stagger its tokens, so text keeps its
+  contrast while light and dark cross.
+- Themes for a subtree, so a sidebar or a dialog can wear its own.
