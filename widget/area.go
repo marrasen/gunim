@@ -62,6 +62,16 @@ func (a *TextArea) Focusable() bool { return true }
 // TakesText implements [gunim.TextTaker].
 func (a *TextArea) TakesText() bool { return true }
 
+// TextCaret implements [gunim.CaretReporter].
+func (a *TextArea) TextCaret() geom.Rect {
+	at := a.caretAt.Value().Add(a.origin(FieldPadding.Default()))
+	h := a.para.LineHeight
+	if len(a.para.Lines) > 0 {
+		h = a.para.Lines[0].Run.Height()
+	}
+	return geom.Rc(at.X, at.Y, 1.5, h)
+}
+
 // Text returns the area's text.
 func (a *TextArea) Text() string { return string(a.text) }
 

@@ -104,3 +104,41 @@ func TestFocusTellsTheDriverWhenTextIsTaken(t *testing.T) {
 		t.Fatalf("text input went %v, want on for the field and off after it", tw.active)
 	}
 }
+
+// caretWindow is an offscreen window that records the text caret.
+type caretWindow struct {
+	*driver.OffscreenWindow
+	carets []geom.Rect
+}
+
+func (w *caretWindow) SetTextCaret(r geom.Rect) { w.carets = append(w.carets, r) }
+
+type caretNode struct {
+	recorder
+	at geom.Rect
+}
+
+func (*caretNode) TakesText() bool        { return true }
+func (n *caretNode) TextCaret() geom.Rect { return n.at }
+func (n *caretNode) Focusable() bool      { return true }
+
+func TestTheFocusedCaretReachesTheDriverInWindowSpace(t *testing.T) {
+	cw := &caretWindow{OffscreenWindow: driver.Offscreen(geom.Sz(800, 600))}
+	w := newWindow(cw, nil)
+	st := &stage{t: paint.Translate(geom.Pt(100, 50))}
+	n := &caretNode{at: geom.Rc(5, 2, 1.5, 16)}
+	w.ui.Insert(w.ui.Root(), st)
+	w.ui.Insert(st, n)
+	w.ui.Focus(n)
+	run(w, 1)
+	// The stage places the node at (10, 10) and paints it moved by
+	// (100, 50).
+	want := geom.Rc(115, 62, 1.5, 16)
+	if len(cw.carets) != 1 || cw.carets[0] != want {
+		t.Fatalf("carets %v, want one at %v", cw.carets, want)
+	}
+	run(w, 3)
+	if len(cw.carets) != 1 {
+		t.Fatalf("an unmoved caret was reported again: %v", cw.carets)
+	}
+}

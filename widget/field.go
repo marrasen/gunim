@@ -46,6 +46,8 @@ type TextField struct {
 	scroll  *anim.Float
 
 	shaped shapedText
+	// size is the field's size at its last layout.
+	size geom.Size
 	// line is the text as last laid out, for navigating.
 	line text.Run
 }
@@ -73,6 +75,14 @@ func (t *TextField) Focusable() bool { return true }
 // TakesText implements [gunim.TextTaker], so an input method composes
 // into the field.
 func (t *TextField) TakesText() bool { return true }
+
+// TextCaret implements [gunim.CaretReporter].
+func (t *TextField) TextCaret() geom.Rect {
+	pad := FieldPadding.Default()
+	h := t.line.Height()
+	y := (t.size.H - h) / 2
+	return geom.Rc(pad-t.scroll.Value()+t.caretAt.Value(), y, 1.5, h)
+}
 
 // Text returns the field's text.
 func (t *TextField) Text() string { return string(t.text) }
@@ -176,6 +186,7 @@ func (t *TextField) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children)
 		w = FieldWidth.Get(th)
 	}
 	own := c.Constrain(geom.Sz(w, FieldHeight.Get(th)))
+	t.size = own
 
 	// Aim the caret, the selection and the scroll. Each glides there.
 	run := t.run(th)

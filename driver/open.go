@@ -1,6 +1,10 @@
 package driver
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/marrasen/gunim/geom"
+)
 
 // ErrNoDriver is returned when no platform driver is built in for the
 // operating system gunim is running on.
@@ -21,6 +25,13 @@ type Raiser interface {
 // result as [github.com/marrasen/gunim/input.TextInput]. Setting it false ends any composition.
 type TextInputter interface {
 	SetTextInput(active bool)
+}
+
+// A CaretPlacer is a [Window] that can tell the platform's input method
+// where the text caret is, in logical pixels of window space, so its
+// candidate window opens beside the text being composed.
+type CaretPlacer interface {
+	SetTextCaret(r geom.Rect)
 }
 
 // Redraw is sent on [Window.Input] when the window needs drawing again

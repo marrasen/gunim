@@ -140,6 +140,15 @@ func scoped(f Frame, n Node) Frame {
 	return f
 }
 
+// A CaretReporter is a [TextTaker] that reports where its text caret
+// is, in its own space, so the platform's input method can open its
+// candidate window beside it. The engine asks after every frame while
+// the node has focus.
+type CaretReporter interface {
+	TextTaker
+	TextCaret() geom.Rect
+}
+
 // A Revealer is a node that can bring part of what it shows into view,
 // as a scroll view does. When focus moves by Tab, the engine calls
 // Reveal on every Revealer above the newly focused node, with that

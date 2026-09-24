@@ -577,6 +577,8 @@ type UI struct {
 	capture *state
 	// current is the node whose Handle, update or patch is running.
 	current *state
+	// caretAt is the text caret last told to the driver.
+	caretAt geom.Rect
 
 	now time.Time
 	// theme is the window's live theme, stepped every frame.
@@ -865,6 +867,26 @@ func (u *UI) takeText(s *state) {
 	ti.SetTextInput(takes)
 }
 
+// placeCaret tells the driver where the focused node's text caret is,
+// in window space, when it has moved.
+func (u *UI) placeCaret() {
+	cp, ok := u.w.dw.(driver.CaretPlacer)
+	if !ok || u.focus == nil {
+		return
+	}
+	cr, ok := u.focus.node.(CaretReporter)
+	if !ok || !cr.TakesText() {
+		return
+	}
+	r := cr.TextCaret()
+	t := u.focus.toWindow
+	at := geom.Rect{Min: t.Apply(r.Min), Max: t.Apply(r.Max)}.Normalized()
+	if at != u.caretAt {
+		u.caretAt = at
+		cp.SetTextCaret(at)
+	}
+}
+
 // needsFrame reports whether there is anything to draw.
 func (u *UI) needsFrame() bool { return u.animating || u.invalid }
 
@@ -906,6 +928,7 @@ func (u *UI) frame(now time.Time, delta time.Duration) {
 		u.w.err = fmt.Errorf("gunim: present frame: %w", err)
 		u.w.Close()
 	}
+	u.placeCaret()
 	// Counted last, so a reader that sees the count also sees the frame.
 	u.w.stats.frames.Add(1)
 }

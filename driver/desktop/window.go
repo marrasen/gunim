@@ -69,6 +69,11 @@ type Window struct {
 	// on X11 and Windows, and 2 on a Retina display.
 	perCoord float32
 	err      error
+	// caret is the text caret the engine last reported, in window space
+	// and logical pixels. Platform code places an input method's
+	// composition and candidate windows from it; no platform reads it
+	// yet.
+	caret geom.Rect
 	// drawnW and drawnH are the framebuffer size of the last frame the
 	// render thread swapped, and drew is nudged after each swap.
 	drawnW, drawnH int
@@ -152,6 +157,14 @@ func (w *Window) RefreshRate() float64 {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.rate
+}
+
+// SetTextCaret implements [driver.CaretPlacer]. It keeps the caret for
+// the platform's input method.
+func (w *Window) SetTextCaret(r geom.Rect) {
+	w.mu.Lock()
+	w.caret = r
+	w.mu.Unlock()
 }
 
 // SetTextInput implements [driver.TextInputter].
