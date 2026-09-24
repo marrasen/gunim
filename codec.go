@@ -89,8 +89,8 @@ type wireCommand struct {
 
 // MarshalCommand encodes a command for a socket transport.
 //
-// In one process there is nothing to encode, because [Client] hands
-// the window the command as it is. The value a command carries needs
+// In one process [Client] hands the window the command as it is, so
+// encoding is for a socket alone. The value a command carries needs
 // [RegisterType], so the far end knows what to decode it into.
 func MarshalCommand(c Command) ([]byte, error) {
 	w := wireCommand{Command: c.Name()}

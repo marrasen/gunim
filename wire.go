@@ -19,8 +19,8 @@ const Root ID = "root"
 // A Command travels from the application into a window.
 //
 // Commands carry plain Go values. In one process they cross over a
-// queue exactly as they are, with nothing encoded or copied, so a
-// state holding an image hands the window the image itself. A socket
+// queue exactly as they are, uncopied, so a state holding an image
+// hands the window the image itself. A socket
 // transport turns them into bytes with [MarshalCommand] and back with
 // [UnmarshalCommand]; [CheckWire] proves in a test that a value will
 // make that trip.
@@ -162,8 +162,8 @@ var (
 
 // RegisterType names a type for the wire.
 //
-// In one process nothing needs a name, because values cross as they
-// are. A socket carries a name alongside each state, patch and intent
+// Names are for the wire; in one process values cross as they are.
+// A socket carries a name alongside each state, patch and intent
 // so the far end knows what to decode it into, so register every type
 // your application sends either way, and let [CheckWire] catch the ones
 // you missed. Call it from an init function in the package that

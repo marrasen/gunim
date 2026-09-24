@@ -10,8 +10,8 @@
 // change. In this process the values cross as they are, and
 // wire_test.go proves each one would also survive a socket.
 //
-// Running it opens a window with three jobs. Text is not drawn yet, so
-// the rows and their buttons show without labels.
+// Running it opens a window with three jobs. Text drawing comes next,
+// so for now the rows and their buttons show as bare shapes.
 package main
 
 import "github.com/marrasen/gunim"

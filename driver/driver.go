@@ -42,7 +42,7 @@
 // The engine keeps one frame in flight. It draws when it has something
 // to show and nothing in flight, then waits for the report before it
 // draws again. An idle window has nothing in flight, so the first frame
-// after a keystroke is drawn at once rather than a refresh later. Two
+// after a keystroke is drawn at once. Two
 // windows on two monitors swap on separate threads, so each one keeps
 // its own monitor's rate.
 package driver
@@ -115,15 +115,15 @@ type Window interface {
 	// The engine waits for it before drawing the next frame, so the
 	// rate the display takes frames at is the rate the window draws
 	// at, whatever the application is doing. The engine keeps at most
-	// one frame in flight, so a channel with room for one never blocks
-	// the render thread.
+	// one frame in flight, so a channel with room for one always has
+	// room when the render thread reports.
 	Presented() <-chan Frame
 
 	// Input carries raw platform input for this window.
 	Input() <-chan any
 
-	// Present hands a frame to the render thread and returns without
-	// waiting for the display. damage is the region that changed,
+	// Present hands a frame to the render thread and returns at once;
+	// the display takes it later. damage is the region that changed,
 	// which a driver may use to present just that part of the surface.
 	//
 	// ops belong to the driver until the matching Frame arrives on

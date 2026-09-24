@@ -83,8 +83,8 @@ func report(ctx context.Context, windows []*gunim.Window) {
 	var wg sync.WaitGroup
 	closed := make(chan struct{})
 	for _, w := range windows {
-		// The windows send nothing worth reading, but draining the
-		// stream is how to learn that a window has closed.
+		// Draining a window's intents is how to learn that it has
+		// closed; these windows send none worth reading.
 		wg.Go(func() {
 			for ev := range w.Client().Intents() {
 				_ = ev
@@ -130,7 +130,7 @@ func newBouncer(hue color.NRGBA) *bouncer {
 }
 
 // Step implements [gunim.Animator]. Each time the spring settles it
-// sets off for the other side, so the window never goes idle.
+// sets off for the other side, so the window keeps drawing.
 func (b *bouncer) Step(dt time.Duration) bool {
 	if !b.Group.Step(dt) {
 		b.right = !b.right

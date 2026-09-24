@@ -203,7 +203,7 @@ func newWindow(dw driver.Window, root Node) *Window {
 // Everything the application can do goes through it, and everything it
 // can say is a plain value. In one process those values cross as they
 // are; a socket transport encodes them with [MarshalCommand] and
-// changes nothing on either side.
+// leaves both sides as they are.
 func (w *Window) Client() Client { return Client{w: w} }
 
 // ErrWindowClosed is returned by [Client] methods once the window has
@@ -377,8 +377,8 @@ func (w *Window) wants() bool {
 // it mean different things in different orders. Commands queue, because
 // the last state for a topic is the only one worth drawing.
 func (w *Window) wait() bool {
-	// A nil channel never receives, so the send case is live only while
-	// intents are waiting for the application.
+	// A send on a nil channel blocks forever, so the send case is live
+	// only while intents are waiting for the application.
 	var out chan<- Envelope
 	var next Envelope
 	if len(w.ui.pending) > 0 {
@@ -410,10 +410,10 @@ func (w *Window) wait() bool {
 // The frame is stamped with the moment it is predicted to reach the
 // screen, so animation lines up with what the viewer sees. Its delta is
 // the time since the previous frame's stamp while something was moving
-// through the gap. After the window has slept, nothing was moving, and
-// whatever starts now is a frame old when it appears, so the delta is
-// one refresh. Carrying the time slept instead would push a fresh hover
-// most of the way through its animation before its first frame.
+// through the gap. After the window has slept, everything was at rest,
+// and whatever starts now is a frame old when it appears, so the delta
+// is one refresh. Carrying the time slept would push a fresh hover most
+// of the way through its animation before its first frame.
 func (w *Window) draw() {
 	w.applyPending()
 	interval := refreshInterval(w.dw.RefreshRate())
@@ -428,7 +428,7 @@ func (w *Window) draw() {
 }
 
 // refreshInterval turns a refresh rate into the time between frames,
-// assuming 60 Hz when the driver cannot say.
+// assuming 60 Hz when the driver reports no rate.
 func refreshInterval(hz float64) time.Duration {
 	if hz <= 0 {
 		hz = 60
@@ -437,8 +437,8 @@ func refreshInterval(hz float64) time.Duration {
 }
 
 // nextVsync predicts when a frame drawn at now will reach the screen:
-// the first refresh after now, in step with the last frame shown. With
-// nothing shown yet, it is one interval from now.
+// the first refresh after now, in step with the last frame shown.
+// Before the first frame is shown, it is one interval from now.
 func nextVsync(shown time.Time, interval time.Duration, now time.Time) time.Time {
 	if shown.IsZero() {
 		return now.Add(interval)

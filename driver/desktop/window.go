@@ -42,8 +42,8 @@ type Window struct {
 	done      chan struct{}
 	// closeOnce runs Close once; quitOnce closes quit once, whichever
 	// of Close and shutdown gets there first. They are separate so that
-	// shutdown, run on the main thread while Close waits for it, never
-	// waits on Close's Once.
+	// shutdown, run on the main thread while Close waits for it, waits on
+	// quitOnce alone.
 	closeOnce sync.Once
 	quitOnce  sync.Once
 
@@ -380,8 +380,8 @@ func (w *Window) render() {
 // A swap interval of one should make SwapBuffers wait for the display.
 // Some setups ignore it: a virtual machine, a remote desktop, a driver
 // with vsync forced off. A swap that returns well inside one refresh
-// has not waited, so pace sleeps out the rest of the refresh itself,
-// which keeps such a window at the display's rate instead of spinning.
+// has skipped the wait, so pace sleeps out the rest of the refresh
+// itself, which holds such a window to the display's rate.
 func pace(last time.Time, rate float64) time.Time {
 	now := time.Now()
 	if last.IsZero() || rate <= 0 {
@@ -431,9 +431,10 @@ func abs(v float32) float32 {
 
 // inbox carries input from the main thread to the engine.
 //
-// It never blocks the main thread, which pumps events for every window:
-// a window slow to read its input must leave the others alone. So it
-// queues without bound, and a goroutine of its own feeds the channel.
+// It queues without bound, and a goroutine of its own feeds the
+// channel. So the main thread, which pumps events for every window,
+// always hands input over at once, and a window slow to read its input
+// leaves the others running.
 type inbox struct {
 	out  chan any
 	quit <-chan struct{}

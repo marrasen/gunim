@@ -138,7 +138,7 @@ func TestLoopDrawsOncePerDisplayRefresh(t *testing.T) {
 	}
 	waitFor(t, func() bool { return w.Stats().Frames >= 1 }, "the first frame")
 
-	// Nothing more is drawn until the display takes that frame, however
+	// The next frame waits for the display to take that one, however
 	// much the application queues. The probe is still animating in, so
 	// the window wants every frame it can get.
 	for range 50 {
@@ -188,7 +188,7 @@ func TestFirstFrameAfterIdleStepsOneRefresh(t *testing.T) {
 
 	// Sleep past the longest step a spring will take, then start an
 	// animation. Its first frame should advance it by one refresh, as
-	// if it had started a frame ago, rather than by the time slept.
+	// if it had started a frame ago; the time slept stays out of it.
 	time.Sleep(150 * time.Millisecond)
 	before := w.Stats().Frames
 	if err := c.Patch("jobs", tick{At: 1}); err != nil {

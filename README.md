@@ -14,7 +14,7 @@ CGO_ENABLED=0 go run ./example/twowindows -for 5s
 ```
 
 It has run on Linux under X11. Windows and macOS build but are still
-untested. Text is not drawn yet.
+untested. Text drawing comes next.
 
 ## The split
 
@@ -35,11 +35,11 @@ c.Mount(gunim.Root, "confirm", "confirm", ConfirmState{Title: "Delete everything
 ```
 
 That keeps application code off the goroutine that draws frames, by
-construction: the application holds a `Client`, never a node, so the
-only thing it can hand the window is a value.
+construction: the application holds a `Client`, and a `Client` takes
+values, so values are all it can hand the window.
 
-In one process those values cross as they are. Nothing is encoded or
-copied, so a state holding an image gives the window the image itself.
+In one process those values cross as they are, uncopied, so a state
+holding an image gives the window the image itself.
 The price is the rule channels already teach: sending a value hands it
 over, so leave it unchanged afterwards.
 
@@ -152,7 +152,7 @@ target it is already heading for, so the repeated call is free.
 
 ## Encoding
 
-Nothing is encoded in one process. A socket transport encodes with
+Encoding belongs to a socket transport, which uses
 `MarshalCommand` and `MarshalEnvelope`, which use `encoding/json/v2`
 with one set of options in `codec.go`:
 
