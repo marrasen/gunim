@@ -101,3 +101,33 @@ func TestAKeyKeepsOneType(t *testing.T) {
 	}()
 	Color("test.pad", color.NRGBA{})
 }
+
+var ink = Foreground("test.ink", color.NRGBA{R: 0xee, G: 0xee, B: 0xee, A: 0xff})
+
+func TestAForegroundFadesThroughASwitch(t *testing.T) {
+	dark := color.NRGBA{R: 0x11, G: 0x11, B: 0x11, A: 0xff}
+	l := NewLive(Make("dark"))
+	if got := ink.Get(l); got.A != 0xff {
+		t.Fatalf("setup: ink %v, want opaque", got)
+	}
+	l.Use(Make("light", Set(ink, dark), Set(Switch, anim.Spring{Response: 0.5, Damping: 1})))
+
+	// Somewhere in the switch the ink is out of sight, and it is never
+	// a grey between the two.
+	minAlpha := uint8(0xff)
+	for range 120 {
+		l.Step(time.Second / 120)
+		c := ink.Get(l)
+		minAlpha = min(minAlpha, c.A)
+		if c.A > 0x20 && c.R != 0xee && c.R != 0x11 {
+			t.Fatalf("ink %v is visible part way between its two colours", c)
+		}
+	}
+	if minAlpha > 0x08 {
+		t.Fatalf("ink stayed at least %d opaque through the switch, want it faded out", minAlpha)
+	}
+	step(l, 300)
+	if got := ink.Get(l); got != dark {
+		t.Fatalf("once settled, ink is %v, want %v", got, dark)
+	}
+}

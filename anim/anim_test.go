@@ -1,6 +1,7 @@
 package anim_test
 
 import (
+	"image/color"
 	"math"
 	"testing"
 	"time"
@@ -141,5 +142,30 @@ func TestAStiffSpringStaysFiniteAndSettles(t *testing.T) {
 		if !settled || s.Position != 1 {
 			t.Fatalf("%+v: at %v after ten frames, settled %v; want settled at 1", sp, s.Position, settled)
 		}
+	}
+}
+
+func TestColorsSurviveOklab(t *testing.T) {
+	for r := 0; r < 256; r += 15 {
+		for g := 0; g < 256; g += 15 {
+			for b := 0; b < 256; b += 15 {
+				c := color.NRGBA{R: uint8(r), G: uint8(g), B: uint8(b), A: 0x80}
+				got := anim.Mix(anim.ColorCodec, c, c, 0.5)
+				d := func(x, y uint8) int { return max(int(x)-int(y), int(y)-int(x)) }
+				if d(got.R, c.R) > 1 || d(got.G, c.G) > 1 || d(got.B, c.B) > 1 || got.A != c.A {
+					t.Fatalf("%v came back as %v", c, got)
+				}
+			}
+		}
+	}
+}
+
+func TestAnOklabBlendKeepsItsBrightness(t *testing.T) {
+	red, blue := color.NRGBA{R: 0xff, A: 0xff}, color.NRGBA{B: 0xff, A: 0xff}
+	ok := anim.Mix(anim.ColorCodec, red, blue, 0.5)
+	srgb := anim.Mix(anim.SRGBCodec, red, blue, 0.5)
+	// sRGB's midpoint is a dark purple; Oklab's is a lighter one.
+	if int(ok.R)+int(ok.G)+int(ok.B) <= int(srgb.R)+int(srgb.G)+int(srgb.B) {
+		t.Fatalf("Oklab midpoint %v is no brighter than sRGB's %v", ok, srgb)
 	}
 }

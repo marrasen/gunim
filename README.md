@@ -288,7 +288,4 @@ Then widgets and layout, on top of the theme:
   Windows and macOS, which the GLFW port reports only on X11. The input
   method is also not yet told where the caret is, for placing its
   candidate window.
-- Theme switches that look good halfway: blend colours in Oklab rather
-  than sRGB, and let a theme stagger its tokens, so text keeps its
-  contrast while light and dark cross.
 - Themes for a subtree, so a sidebar or a dialog can wear its own.

@@ -11,7 +11,7 @@ import (
 // Tokens shared by every widget. Their defaults make the dark theme.
 var (
 	// Ink is the colour of text.
-	Ink = theme.Color("ink", color.NRGBA{R: 0xec, G: 0xef, B: 0xf4, A: 0xff})
+	Ink = theme.Foreground("ink", color.NRGBA{R: 0xec, G: 0xef, B: 0xf4, A: 0xff})
 	// Accent marks focus and selection.
 	Accent = theme.Color("accent", color.NRGBA{R: 0x5e, G: 0x9c, B: 0xff, A: 0xff})
 	// TextSize is the body text size.
@@ -136,7 +136,7 @@ var (
 	FieldFill    = theme.Color("field.fill", color.NRGBA{R: 0x12, G: 0x14, B: 0x19, A: 0xff})
 	FieldBorder  = theme.Color("field.border", color.NRGBA{R: 0x3a, G: 0x40, B: 0x50, A: 0xff})
 	Selection    = theme.Color("field.selection", color.NRGBA{R: 0x5e, G: 0x9c, B: 0xff, A: 0x55})
-	Placeholder  = theme.Color("field.placeholder", color.NRGBA{R: 0x8a, G: 0x90, B: 0x9c, A: 0xff})
+	Placeholder  = theme.Foreground("field.placeholder", color.NRGBA{R: 0x8a, G: 0x90, B: 0x9c, A: 0xff})
 	FieldHeight  = theme.Length("field.height", 36)
 	FieldWidth   = theme.Length("field.width", 240)
 	FieldPadding = theme.Length("field.padding", 10)

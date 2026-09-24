@@ -38,6 +38,9 @@ type Token[T any] struct {
 	key   string
 	def   T
 	codec anim.Codec[T]
+	// blend, when set, draws the value part way through a switch from
+	// its progress, in place of animating the value itself.
+	blend func(from, to T, p float32) T
 }
 
 var (
@@ -62,6 +65,34 @@ func New[T any](key string, def T, c anim.Codec[T]) Token[T] {
 // Color declares a colour token.
 func Color(key string, def color.NRGBA) Token[color.NRGBA] {
 	return New(key, def, anim.ColorCodec)
+}
+
+// Foreground declares a colour token for what is drawn on top of other
+// colours, such as text.
+//
+// When a switch swaps light and dark, text and its background must
+// pass a moment where they are equally bright, and text drawn there
+// smears into its background. A foreground token fades out in its old
+// colour and back in with its new one instead, so the crossing happens
+// while it is out of sight.
+func Foreground(key string, def color.NRGBA) Token[color.NRGBA] {
+	t := New(key, def, anim.ColorCodec)
+	t.blend = fadeThrough
+	return t
+}
+
+// fadeThrough draws from fading out over the first half of p and to
+// fading in over the second.
+func fadeThrough(from, to color.NRGBA, p float32) color.NRGBA {
+	fade := func(c color.NRGBA, v float32) color.NRGBA {
+		v = max(0, min(v, 1))
+		c.A = uint8(float32(c.A)*v*v*(3-2*v) + 0.5)
+		return c
+	}
+	if p < 0.5 {
+		return fade(from, 1-2*p)
+	}
+	return fade(to, 2*p-1)
 }
 
 // Length declares a length token in logical pixels: a radius, a gap, a
@@ -92,14 +123,14 @@ func (t Token[T]) Get(l *Live) T {
 	}
 	s, ok := l.slots[t.key]
 	if !ok {
-		s = &slot[T]{a: anim.New(t.in(l.active), t.codec), token: t}
+		s = t.newSlot(l.active)
 		l.slots[t.key] = s
 	}
-	typed, ok := s.(*slot[T])
+	typed, ok := s.(valuer[T])
 	if !ok {
 		panic(fmt.Sprintf("theme: %q read as the wrong type", t.key))
 	}
-	return typed.a.Value()
+	return typed.value()
 }
 
 // in returns the token's value in th, or its default.
@@ -169,6 +200,20 @@ type stepper interface {
 	retarget(th Theme, m anim.Motion)
 }
 
+type valuer[T any] interface {
+	value() T
+}
+
+// newSlot returns the live value of t in th, at rest.
+func (t Token[T]) newSlot(th Theme) stepper {
+	if t.blend != nil {
+		v := t.in(th)
+		return &blendSlot[T]{token: t, from: v, to: v, p: anim.NewFloat(1)}
+	}
+	return &slot[T]{a: anim.New(t.in(th), t.codec), token: t}
+}
+
+// slot animates a token's value itself.
 type slot[T any] struct {
 	a     *anim.Animated[T]
 	token Token[T]
@@ -177,6 +222,26 @@ type slot[T any] struct {
 func (s *slot[T]) step(dt time.Duration) bool { return s.a.Step(dt) }
 
 func (s *slot[T]) retarget(th Theme, m anim.Motion) { s.a.Animate(s.token.in(th), m) }
+
+func (s *slot[T]) value() T { return s.a.Value() }
+
+// blendSlot animates a switch's progress, and draws the token's value
+// from it with the token's blend.
+type blendSlot[T any] struct {
+	token    Token[T]
+	from, to T
+	p        *anim.Float
+}
+
+func (s *blendSlot[T]) step(dt time.Duration) bool { return s.p.Step(dt) }
+
+func (s *blendSlot[T]) retarget(th Theme, m anim.Motion) {
+	s.from, s.to = s.value(), s.token.in(th)
+	s.p.Jump(0)
+	s.p.Animate(1, m)
+}
+
+func (s *blendSlot[T]) value() T { return s.token.blend(s.from, s.to, min(s.p.Value(), 1)) }
 
 // NewLive returns the live form of th, at rest.
 func NewLive(th Theme) *Live {
