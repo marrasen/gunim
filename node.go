@@ -171,6 +171,10 @@ type Frame struct {
 	// window is on. It changes when the window is dragged between a
 	// laptop screen and an external monitor.
 	Scale float32
+
+	// seq numbers the frame, so the engine can tell which nodes this
+	// frame drew.
+	seq uint64
 }
 
 // Children is a node's children, in order. It is valid only for the
@@ -228,9 +232,17 @@ func (c Child) Place(at geom.Point) {
 // Size returns the size the child chose at its last Layout.
 func (c Child) Size() geom.Size { return c.n.size }
 
-// Paint draws the child's subtree at the position it was placed.
+// Paint draws the child's subtree at the position it was placed, under
+// whatever transform the parent has pushed.
+//
+// That transform is what input follows. A child drawn scaled, slid or
+// rotated receives pointer events where it appears on screen, with
+// positions in its own space; a child its parent leaves unpainted
+// receives none.
 func (c Child) Paint(p *paint.Painter) {
 	defer p.Push(paint.Translate(c.n.origin))()
+	c.n.toWindow = p.Transform()
+	c.n.drawn = c.f.seq
 	c.n.node.Paint(p, c.f, c.n.size, Children{ns: c.n.kids, f: c.f})
 }
 
@@ -252,11 +264,11 @@ type state struct {
 	// settled records the result of the last transition pass, so reap
 	// can unlink finished subtrees from a single walk.
 	settled bool
-}
-
-// bounds returns the child's rectangle in its parent's space.
-func (s *state) bounds() geom.Rect {
-	return geom.Rect{Min: s.origin, Max: s.origin.Add(s.size.Point())}
+	// toWindow is the transform the node was last painted under, from
+	// its own space to the window's, and drawn is the frame that painted
+	// it. Hit testing reads both, so input follows what is on screen.
+	toWindow paint.Transform
+	drawn    uint64
 }
 
 // leaving reports whether s or any node above it is [Exiting].

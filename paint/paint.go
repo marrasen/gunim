@@ -79,10 +79,30 @@ func (t Transform) Mul(u Transform) Transform {
 	}
 }
 
+// Invert returns the transform that undoes t. It reports false when t
+// has no inverse, as when it scales to zero and folds the plane onto a
+// line.
+func (t Transform) Invert() (Transform, bool) {
+	det := t.A*t.E - t.B*t.D
+	if det == 0 {
+		return Transform{}, false
+	}
+	a, b := t.E/det, -t.B/det
+	d, e := -t.D/det, t.A/det
+	return Transform{
+		A: a, B: b, C: -(a*t.C + b*t.F),
+		D: d, E: e, F: -(d*t.C + e*t.F),
+	}, true
+}
+
 // Apply maps a point through t.
 func (t Transform) Apply(p geom.Point) geom.Point {
 	return geom.Point{X: t.A*p.X + t.B*p.Y + t.C, Y: t.D*p.X + t.E*p.Y + t.F}
 }
+
+// Transform returns the transform in force, which maps the current
+// drawing space to window space.
+func (p *Painter) Transform() Transform { return p.cur }
 
 // Push applies t on top of the current transform and returns the
 // function that pops it, so a node can write:

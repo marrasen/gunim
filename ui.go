@@ -559,7 +559,9 @@ type UI struct {
 	focus *state
 	hover *state
 
-	now       time.Time
+	now time.Time
+	// seq counts frames; see [Frame].
+	seq       uint64
 	painter   paint.Painter
 	animating bool
 	invalid   bool
@@ -780,7 +782,8 @@ func (u *UI) frame(now time.Time, delta time.Duration) {
 	u.now = now
 	u.invalid = false
 	u.flush()
-	f := Frame{Now: now, Delta: delta, Scale: u.w.dw.Scale()}
+	u.seq++
+	f := Frame{Now: now, Delta: delta, Scale: u.w.dw.Scale(), seq: u.seq}
 
 	// 1. Advance every animated value by the real elapsed time.
 	animating := u.step(u.root, delta)
@@ -800,6 +803,7 @@ func (u *UI) frame(now time.Time, delta time.Duration) {
 
 	// 4. Record the frame and hand it to the driver.
 	u.painter.Reset()
+	u.root.toWindow, u.root.drawn = paint.Identity, u.seq
 	u.root.node.Paint(&u.painter, f, u.root.size, Children{ns: u.root.kids, f: f})
 	if err := u.w.dw.Present(u.painter.Ops(), u.painter.Damage()); err != nil {
 		u.w.err = fmt.Errorf("gunim: present frame: %w", err)

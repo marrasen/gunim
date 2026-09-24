@@ -1,6 +1,7 @@
 package gunim
 
 import (
+	"math"
 	"slices"
 	"time"
 
@@ -96,21 +97,25 @@ func (u *UI) deliver(s *state, e input.Event) {
 	}
 }
 
-// hit finds the topmost node containing p, where p is in s's
-// coordinate space.
+// hit finds the topmost node under p, a point in window space.
+//
+// Each node is tested where the last frame drew it, through the
+// transform it was painted under, so a scaled dialog or a panel sliding
+// in takes clicks where it appears. A node that frame left unpainted is
+// passed over.
 //
 // Children are tested last-first because the last child painted is the
 // one on top. Exiting nodes are skipped, so a click aimed at what lies
 // behind a fading dialog reaches it.
 func (u *UI) hit(s *state, p geom.Point) *state {
 	for _, k := range slices.Backward(s.kids) {
-		if k.presence == Exiting {
+		if k.presence == Exiting || k.drawn != u.seq {
 			continue
 		}
-		if !k.bounds().Contains(p) {
+		if !(geom.Rect{Max: k.size.Point()}).Contains(u.local(k, p)) {
 			continue
 		}
-		if deep := u.hit(k, p.Sub(k.origin)); deep != nil {
+		if deep := u.hit(k, p); deep != nil {
 			return deep
 		}
 		return k
@@ -121,10 +126,14 @@ func (u *UI) hit(s *state, p geom.Point) *state {
 	return s
 }
 
-// local converts a point in window space into s's own space.
+// local converts a point in window space into s's own space, through
+// the transform s was last painted under. A node drawn with no area,
+// scaled to zero, maps every point far outside itself.
 func (u *UI) local(s *state, p geom.Point) geom.Point {
-	for n := s; n != nil && n != u.root; n = n.parent {
-		p = p.Sub(n.origin)
+	inv, ok := s.toWindow.Invert()
+	if !ok {
+		inf := float32(math.Inf(1))
+		return geom.Pt(inf, inf)
 	}
-	return p
+	return inv.Apply(p)
 }
