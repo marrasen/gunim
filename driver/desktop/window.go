@@ -28,7 +28,17 @@ const (
 	// scrollLine is how far one notch of a wheel scrolls, in logical
 	// pixels.
 	scrollLine = 40
+	// resizeWait is the longest a resize waits for a frame at its new
+	// size.
+	resizeWait = 100 * time.Millisecond
 )
+
+// holdResize is true where the operating system shows a resized window
+// as soon as its resize callback returns: Windows runs a modal loop
+// during a drag-resize and calls back from inside it. Holding the
+// callback until a frame at the new size has been drawn keeps frames
+// drawn for the old size off the screen.
+const holdResize = runtime.GOOS == "windows"
 
 // Window is the desktop implementation of [driver.Window].
 type Window struct {
@@ -58,6 +68,10 @@ type Window struct {
 	// on X11 and Windows, and 2 on a Retina display.
 	perCoord float32
 	err      error
+	// drawnW and drawnH are the framebuffer size of the last frame the
+	// render thread swapped, and drew is nudged after each swap.
+	drawnW, drawnH int
+	drew           chan struct{}
 
 	// The fields below belong to the main thread.
 	closed     bool
@@ -76,6 +90,7 @@ func newWindow(d *Driver, gw *glfw.Window) *Window {
 		presented: make(chan driver.Frame, 1),
 		frames:    make(chan []paint.Op, 1),
 		quit:      make(chan struct{}),
+		drew:      make(chan struct{}, 1),
 		done:      make(chan struct{}),
 		scale:     1,
 		rate:      60,
@@ -164,6 +179,29 @@ func (w *Window) shutdown() {
 	_ = w.gw.Destroy()
 }
 
+// awaitFrameAtSize blocks the main thread until the render thread has
+// swapped a frame at the current framebuffer size, or resizeWait has
+// passed. It runs on the main thread, inside a resize.
+func (w *Window) awaitFrameAtSize() {
+	timeout := time.NewTimer(resizeWait)
+	defer timeout.Stop()
+	for {
+		w.mu.Lock()
+		done := w.drawnW == w.fbW && w.drawnH == w.fbH
+		w.mu.Unlock()
+		if done {
+			return
+		}
+		select {
+		case <-w.drew:
+		case <-timeout.C:
+			return
+		case <-w.quit:
+			return
+		}
+	}
+}
+
 // stopRender tells the render thread and the input feed to stop.
 func (w *Window) stopRender() { w.quitOnce.Do(func() { close(w.quit) }) }
 
@@ -186,6 +224,15 @@ func (w *Window) place(o driver.Options) error {
 	ww, wh, err := w.gw.GetSize()
 	if err != nil {
 		return err
+	}
+	// On Windows a window that scales to its monitor grows by the ratio
+	// of the two monitors' scales once it arrives, so centre it at that
+	// size.
+	if runtime.GOOS == "windows" && o.Monitor.Scale > 0 {
+		if from, _, err := w.gw.GetContentScale(); err == nil && from > 0 {
+			ww = int(float32(ww) * o.Monitor.Scale / from)
+			wh = int(float32(wh) * o.Monitor.Scale / from)
+		}
 	}
 	b := o.Monitor.Bounds
 	x := int(b.Min.X) + (int(b.Size().W)-ww)/2
@@ -266,7 +313,12 @@ func (w *Window) install() {
 		w.measure()
 		w.in.push(driver.Redraw{})
 	}
-	_, _ = gw.SetFramebufferSizeCallback(func(*glfw.Window, int, int) { remeasure() })
+	_, _ = gw.SetFramebufferSizeCallback(func(*glfw.Window, int, int) {
+		remeasure()
+		if holdResize {
+			w.awaitFrameAtSize()
+		}
+	})
 	_, _ = gw.SetContentScaleCallback(func(*glfw.Window, float32, float32) { remeasure() })
 	_, _ = gw.SetPosCallback(func(*glfw.Window, int, int) { remeasure() })
 	_, _ = gw.SetRefreshCallback(func(*glfw.Window) { w.in.push(driver.Redraw{}) })
@@ -348,6 +400,9 @@ func (w *Window) render() {
 		}()
 	}
 
+	vb := newVBlank(w.gw)
+	defer vb.close()
+
 	var last time.Time
 	for {
 		var ops []paint.Op
@@ -361,10 +416,24 @@ func (w *Window) render() {
 			fbW, fbH, scale, rate := w.fbW, w.fbH, w.scale, w.rate
 			w.mu.Unlock()
 			r.draw(ops, fbW, fbH, scale)
+			synced := vb.wait()
 			if err := w.gw.SwapBuffers(); err != nil {
 				w.fail(fmt.Errorf("desktop: swap buffers: %w", err))
 			}
-			last = pace(last, rate)
+			w.mu.Lock()
+			w.drawnW, w.drawnH = fbW, fbH
+			w.mu.Unlock()
+			select {
+			case w.drew <- struct{}{}:
+			default:
+			}
+			if synced {
+				// The frame went out on the monitor's vertical blank,
+				// so that is when it reached the screen.
+				last = time.Now()
+			} else {
+				last = pace(last, rate)
+			}
 		}
 		select {
 		case w.presented <- driver.Frame{Shown: last}:
@@ -375,13 +444,18 @@ func (w *Window) render() {
 }
 
 // pace returns the time a frame reached the screen, given when the
-// last one did.
+// last one did. It serves where the swap is the only signal of the
+// display's timing: Linux and macOS, and Windows when the vertical
+// blank wait is unavailable.
 //
 // A swap interval of one should make SwapBuffers wait for the display.
-// Some setups ignore it: a virtual machine, a remote desktop, a driver
-// with vsync forced off. A swap that returns well inside one refresh
-// has skipped the wait, so pace sleeps out the rest of the refresh
+// Some setups skip the wait: a virtual machine, a remote desktop, a
+// driver with vsync forced off. A swap that returns well inside one
+// refresh has skipped it, so pace sleeps out the rest of the refresh
 // itself, which holds such a window to the display's rate.
+//
+// How long the swap took proves nothing either way. With software GL a
+// swap spends milliseconds copying pixels with no vsync behind it.
 func pace(last time.Time, rate float64) time.Time {
 	now := time.Now()
 	if last.IsZero() || rate <= 0 {
@@ -402,7 +476,7 @@ func (w *Window) startGL() (*renderer, error) {
 		return nil, fmt.Errorf("desktop: make context current: %w", err)
 	}
 	// An error here leaves the swap unpaced, which pace makes up for.
-	_ = w.gw.SwapInterval(1)
+	_ = w.gw.SwapInterval(swapInterval)
 	ctx, err := gl.NewDefaultContext()
 	if err != nil {
 		return nil, fmt.Errorf("desktop: %w", err)
