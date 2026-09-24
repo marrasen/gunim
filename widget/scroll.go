@@ -113,6 +113,20 @@ func (s *Scroll) Handle(e input.Event, u *gunim.UI) bool {
 	return true
 }
 
+// Reveal implements [gunim.Revealer]: it scrolls just far enough to
+// bring r, in the Scroll's own space, fully into view, with a little
+// room around it.
+func (s *Scroll) Reveal(r geom.Rect, u *gunim.UI) {
+	const room = 8
+	offset := s.offset.Value()
+	switch {
+	case r.Min.Y < 0:
+		s.ScrollTo(offset+r.Min.Y-room, Quick.Get(u.Theme()))
+	case r.Max.Y > s.viewport:
+		s.ScrollTo(offset+r.Max.Y-s.viewport+room, Quick.Get(u.Theme()))
+	}
+}
+
 // Layout implements [gunim.Node].
 func (s *Scroll) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
 	s.th = f.Theme

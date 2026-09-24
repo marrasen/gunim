@@ -42,9 +42,12 @@ type Button struct {
 
 	hover *anim.Float
 	press *anim.Float
-	ring  *anim.Float
-	held  bool
-	text  shapedText
+	// size is the button's size at its last layout, for telling a
+	// release over it from one outside.
+	size geom.Size
+	ring *anim.Float
+	held bool
+	text shapedText
 }
 
 // NewButton returns a button showing label.
@@ -76,11 +79,14 @@ func (b *Button) Handle(e input.Event, u *gunim.UI) bool {
 	switch e := e.(type) {
 	case input.PointerEnter:
 		b.hover.Animate(1, Quick.Get(th))
+		// Coming back while still held presses it again.
+		if b.held {
+			b.press.Animate(1, Quick.Get(th))
+		}
 	case input.PointerLeave:
 		b.hover.Animate(0, Settle.Get(th))
-		// Releasing outside the button cancels the press, and the
-		// squash springs back on its own.
-		b.held = false
+		// The button keeps the pointer while it is held. Leaving eases
+		// the press off, and releasing out here cancels it.
 		b.press.Animate(0, Bounce.Get(th))
 	case input.PointerDown:
 		b.held = true
@@ -91,7 +97,9 @@ func (b *Button) Handle(e input.Event, u *gunim.UI) bool {
 		}
 		b.held = false
 		b.press.Animate(0, Bounce.Get(th))
-		b.fire(u)
+		if (geom.Rect{Max: b.size.Point()}).Contains(e.Pos) {
+			b.fire(u)
+		}
 	case input.KeyPress:
 		if e.Key != input.KeySpace && e.Key != input.KeyEnter {
 			return false
@@ -130,8 +138,12 @@ func (b *Button) fire(u *gunim.UI) {
 // Layout implements [gunim.Node].
 func (b *Button) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
 	run := b.text.shape(b.Label, TextSize.Get(f.Theme))
-	return c.Constrain(geom.Sz(run.Advance+2*ButtonPadding.Get(f.Theme), ButtonHeight.Get(f.Theme)))
+	b.size = c.Constrain(geom.Sz(run.Advance+2*ButtonPadding.Get(f.Theme), ButtonHeight.Get(f.Theme)))
+	return b.size
 }
+
+// Focusable implements [gunim.Focusable].
+func (b *Button) Focusable() bool { return true }
 
 // Paint implements [gunim.Node].
 func (b *Button) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {

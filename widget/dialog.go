@@ -80,9 +80,17 @@ func (d *Dialog) finish(u *gunim.UI, what gunim.Intent) {
 
 // Handle implements [gunim.Handler]. Escape dismisses.
 func (d *Dialog) Handle(e input.Event, u *gunim.UI) bool {
-	if k, ok := e.(input.KeyPress); ok && k.Key == input.KeyEscape {
-		d.finish(u, d.Dismiss)
-		return true
+	if k, ok := e.(input.KeyPress); ok {
+		switch k.Key {
+		case input.KeyEscape:
+			d.finish(u, d.Dismiss)
+			return true
+		case input.KeyTab:
+			// A modal keeps focus among its own buttons.
+			d.cycle(u, !k.Mods.Has(input.ModShift))
+			return true
+		default:
+		}
 	}
 	// A modal swallows the pointer events that reach it, keeping clicks
 	// off whatever lies behind.
@@ -91,6 +99,33 @@ func (d *Dialog) Handle(e input.Event, u *gunim.UI) bool {
 		return true
 	}
 	return false
+}
+
+// Focusable implements [gunim.Focusable]. A click on the dialog's
+// empty space focuses the dialog itself, so Escape and Tab still reach
+// it.
+func (d *Dialog) Focusable() bool { return true }
+
+// cycle moves focus to the next of the dialog's buttons, or the
+// previous, wrapping around.
+func (d *Dialog) cycle(u *gunim.UI, forward bool) {
+	kids := d.Children()
+	at := -1
+	for i, k := range kids {
+		if k == u.Focused() {
+			at = i
+		}
+	}
+	next := 0
+	switch {
+	case at < 0 && !forward:
+		next = len(kids) - 1
+	case at >= 0 && forward:
+		next = (at + 1) % len(kids)
+	case at >= 0:
+		next = (at - 1 + len(kids)) % len(kids)
+	}
+	u.Focus(kids[next])
 }
 
 // Layout implements [gunim.Node]. The dialog fills the space it is

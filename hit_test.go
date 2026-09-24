@@ -187,3 +187,76 @@ func TestClipFollowsTheTransformItWasDrawnUnder(t *testing.T) {
 		t.Fatalf("press at %v in the child's space, want %v", got, want)
 	}
 }
+
+// pair lays two recorders side by side, a on the left and b on the
+// right, each 100 by 100.
+type pair struct{ a, b *recorder }
+
+func (p *pair) Children() []Node { return []Node{p.a, p.b} }
+
+func (p *pair) Layout(c Constraints, _ Frame, kids Children) geom.Size {
+	for i := range kids.Len() {
+		k := kids.At(i)
+		k.Layout(Tight(geom.Sz(100, 100)))
+		k.Place(geom.Pt(float32(i)*100, 0))
+	}
+	return c.Max
+}
+
+func (p *pair) Paint(pt *paint.Painter, _ Frame, _ geom.Size, kids Children) {
+	for k := range kids.All {
+		k.Paint(pt)
+	}
+}
+
+func count[T input.Event](r *recorder) int {
+	n := 0
+	for _, e := range r.events {
+		if _, ok := e.(T); ok {
+			n++
+		}
+	}
+	return n
+}
+
+func TestAPressKeepsThePointerUntilRelease(t *testing.T) {
+	w := newTestWindow()
+	p := &pair{a: &recorder{}, b: &recorder{}}
+	w.ui.Insert(w.ui.Root(), p)
+	run(w, 1)
+
+	w.Input(input.PointerDown{Pos: geom.Pt(50, 50)})
+	w.Input(input.PointerMove{Pos: geom.Pt(150, 50)})
+	if len(p.b.events) != 0 {
+		t.Fatalf("b saw %v during a drag that a held", p.b.events)
+	}
+	w.Input(input.PointerUp{Pos: geom.Pt(150, 50)})
+
+	if count[input.PointerMove](p.a) != 1 || count[input.PointerUp](p.a) != 1 {
+		t.Fatalf("a saw %v; want the move and the release that followed its press", p.a.events)
+	}
+	for _, e := range p.a.events {
+		if m, ok := e.(input.PointerMove); ok && m.Pos != geom.Pt(150, 50) {
+			t.Fatalf("a got the move at %v in its space, want (150, 50)", m.Pos)
+		}
+	}
+
+	// After the release, the pointer is free again.
+	w.Input(input.PointerMove{Pos: geom.Pt(160, 50)})
+	if count[input.PointerMove](p.b) != 1 {
+		t.Fatalf("b saw %v after the release; want the move", p.b.events)
+	}
+}
+
+func TestRemovingTheHolderFreesThePointer(t *testing.T) {
+	w := newTestWindow()
+	p := &pair{a: &recorder{}, b: &recorder{}}
+	w.ui.Insert(w.ui.Root(), p)
+	run(w, 1)
+	w.Input(input.PointerDown{Pos: geom.Pt(50, 50)})
+	w.ui.Remove(p.a)
+	w.Input(input.PointerMove{Pos: geom.Pt(150, 50)})
+	if count[input.PointerMove](p.b) != 1 {
+		t.Fatalf("b saw %v; the removed node still held the pointer", p.b.events)
+	}
+}

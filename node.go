@@ -103,6 +103,24 @@ type Transitioner interface {
 	Transition(p Presence, f Frame) (settled bool)
 }
 
+// A Focusable is a node keyboard focus can move to: by a click, which
+// focuses the nearest Focusable at or above the node hit, and by Tab,
+// which visits them in the order they are painted. Focusable reports
+// whether it takes focus right now, so a disabled control can decline.
+type Focusable interface {
+	Node
+	Focusable() bool
+}
+
+// A Revealer is a node that can bring part of what it shows into view,
+// as a scroll view does. When focus moves by Tab, the engine calls
+// Reveal on every Revealer above the newly focused node, with that
+// node's box in the Revealer's own space.
+type Revealer interface {
+	Node
+	Reveal(r geom.Rect, u *UI)
+}
+
 // A Composite is a node built from child nodes it owns.
 //
 // The engine inserts them when the node is inserted, so a widget made

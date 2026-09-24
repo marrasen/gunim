@@ -572,6 +572,9 @@ type UI struct {
 
 	focus *state
 	hover *state
+	// capture is the node that took the last press and keeps the
+	// pointer until its release.
+	capture *state
 
 	now time.Time
 	// theme is the window's live theme, stepped every frame.
@@ -778,6 +781,9 @@ func (u *UI) Remove(n Node) {
 		u.deliver(u.hover, input.PointerLeave{Time: u.now})
 		u.hover = nil
 	}
+	if u.capture != nil && u.capture.within(s) {
+		u.capture = nil
+	}
 }
 
 // Presence reports where n is in its lifecycle.
@@ -786,6 +792,14 @@ func (u *UI) Presence(n Node) Presence {
 		return s.presence
 	}
 	return Exiting
+}
+
+// Focused returns the node with keyboard focus, or nil.
+func (u *UI) Focused() Node {
+	if u.focus == nil {
+		return nil
+	}
+	return u.focus.node
 }
 
 // Focus moves keyboard focus to n, sending [input.FocusLost] and
@@ -922,6 +936,9 @@ func (u *UI) forget(s *state) {
 	}
 	if u.hover == s {
 		u.hover = nil
+	}
+	if u.capture == s {
+		u.capture = nil
 	}
 	if s.id != "" && u.ids[s.id] == s {
 		delete(u.ids, s.id)

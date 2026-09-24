@@ -283,8 +283,6 @@ Then widgets and layout, on top of the theme:
 - Text fields: input methods (the driver reports no composition yet),
   multi-line editing, and caret movement that follows visual order in
   mixed-direction text.
-- Pointer capture, so a drag that leaves a widget keeps reaching it.
-- Keyboard focus that moves with Tab.
 - Theme switches that look good halfway: blend colours in Oklab rather
   than sRGB, and let a theme stagger its tokens, so text keeps its
   contrast while light and dark cross.

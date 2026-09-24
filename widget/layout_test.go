@@ -45,11 +45,14 @@ type frame struct {
 }
 
 func (f *frame) Handle(e input.Event, _ *gunim.UI) bool {
-	switch e.(type) {
+	switch e := e.(type) {
 	case input.Scroll:
 		f.wheel++
 		return true
 	case input.KeyPress:
+		if e.Key == input.KeyTab {
+			return false // for the engine to move focus
+		}
 		f.keys++
 		return true
 	}

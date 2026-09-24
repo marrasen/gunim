@@ -57,6 +57,9 @@ func NewTextField() *TextField {
 	}
 }
 
+// Focusable implements [gunim.Focusable].
+func (t *TextField) Focusable() bool { return true }
+
 // Text returns the field's text.
 func (t *TextField) Text() string { return string(t.text) }
 
@@ -184,6 +187,8 @@ func (t *TextField) key(e input.KeyPress, u *gunim.UI) bool {
 		case t.caret < len(t.text):
 			t.replace(t.caret, t.caret+1, nil, u)
 		}
+	case input.KeyTab:
+		return false // focus moves on
 	case input.KeyEnter:
 		if t.OnSubmit != nil {
 			u.Send(t, t.OnSubmit(t.Text()))
