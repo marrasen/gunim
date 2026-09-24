@@ -1,6 +1,8 @@
 package gunim
 
 import (
+	"image/color"
+
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/paint"
 )
@@ -16,6 +18,9 @@ import (
 type Box struct {
 	// Padding is inset from every edge before children are placed.
 	Padding geom.Insets
+	// Fill paints the whole box behind its children. The zero colour
+	// paints nothing.
+	Fill color.NRGBA
 }
 
 // Layout implements [Node].
@@ -30,7 +35,10 @@ func (b *Box) Layout(c Constraints, _ Frame, kids Children) geom.Size {
 }
 
 // Paint implements [Node].
-func (b *Box) Paint(p *paint.Painter, _ Frame, _ geom.Size, kids Children) {
+func (b *Box) Paint(p *paint.Painter, _ Frame, box geom.Size, kids Children) {
+	if b.Fill.A > 0 {
+		p.RRect(geom.Rect{Max: box.Point()}, 0, paint.Solid(b.Fill))
+	}
 	for kid := range kids.All {
 		kid.Paint(p)
 	}

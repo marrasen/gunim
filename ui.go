@@ -116,7 +116,7 @@ func (a *App) NewWindow(o WindowOptions) (*Window, error) {
 		Kind: o.Kind, Anchor: o.Anchor,
 	}
 	if o.Parent != nil {
-		do.Parent, do.Share = o.Parent.dw, o.Parent.dw
+		do.Parent = o.Parent.dw
 	}
 	dw, err := a.drv.NewWindow(do)
 	if err != nil {

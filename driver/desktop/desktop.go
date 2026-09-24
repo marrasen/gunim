@@ -262,11 +262,10 @@ func (d *Driver) openWindow(o driver.Options) (*Window, error) {
 	if err := d.setContextHints(); err != nil {
 		return nil, err
 	}
-	// Every window shares with the one share group, which covers
-	// o.Share.
-	share, err := d.shareGroup()
-	if err != nil {
-		return nil, err
+	// Every window shares GL objects with the one share group.
+	share, shareErr := d.shareGroup()
+	if shareErr != nil {
+		return nil, shareErr
 	}
 	hints := [][2]int{
 		{int(glfw.Visible), glfw.False},

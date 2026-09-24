@@ -66,6 +66,9 @@ type Driver interface {
 
 	// NewWindow opens a window. It is safe to call from any goroutine;
 	// the driver marshals the request onto the main goroutine.
+	//
+	// Every window a driver opens shares one group of GL objects, so a
+	// glyph atlas or a shader can serve them all.
 	NewWindow(o Options) (Window, error)
 
 	// Monitors lists the attached displays.
@@ -84,10 +87,6 @@ type Options struct {
 	// on X11.
 	Parent Window
 	Anchor geom.Point
-	// Share, when set, is a window to share GL objects with, so the
-	// glyph atlas and shaders are uploaded once and serve every open
-	// window.
-	Share Window
 }
 
 // Kind is what sort of window to open. Each one maps onto a real window
