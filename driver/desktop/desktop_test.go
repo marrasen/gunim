@@ -118,3 +118,76 @@ func TestInboxDeliversInOrderAndCloses(t *testing.T) {
 		t.Fatalf("delivered %d events, want 100", want)
 	}
 }
+
+// TestBackdropFramesStayUpright draws a frame that is white on top and
+// black below, under a full-window backdrop layer followed by an
+// unclipped layer, the way the confirm dialog paints. Under one software
+// driver, the copy of such a frame to the window came out upside down
+// when its shader read gl_FragCoord.
+func TestBackdropFramesStayUpright(t *testing.T) {
+	if display == nil {
+		t.Skip("no display")
+	}
+	dw, err := display.NewWindow(driver.Options{Title: "gunim backdrop", Size: geom.Sz(160, 120)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w, ok := dw.(*Window)
+	if !ok {
+		t.Fatalf("NewWindow returned a %T", dw)
+	}
+	defer func() { _ = w.Close() }()
+
+	type frame struct {
+		pix  []byte
+		w, h int
+	}
+	got := make(chan frame, 1)
+	w.mu.Lock()
+	w.readback = func(pix []byte, fw, fh int) {
+		select {
+		case got <- frame{pix, fw, fh}:
+		default:
+		}
+	}
+	w.mu.Unlock()
+
+	size := w.Size()
+	full := geom.Rect{Max: size.Point()}
+	top := geom.Rect{Max: geom.Pt(size.W, size.H/2)}
+	white := color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
+	black := color.NRGBA{A: 0xff}
+
+	// 4, 12 and 30 pixels run the blur at full, half and quarter
+	// resolution.
+	for _, sigma := range []float32{4, 12, 30} {
+		ops := []paint.Op{
+			&paint.RRectOp{Rect: full, Fill: paint.Solid(black), Transform: paint.Identity},
+			&paint.RRectOp{Rect: top, Fill: paint.Solid(white), Transform: paint.Identity},
+			&paint.LayerOp{Opts: paint.LayerOpts{Bounds: full, Opacity: 1, Backdrop: sigma}, Transform: paint.Identity},
+			&paint.LayerEndOp{},
+			&paint.LayerOp{Opts: paint.LayerOpts{Bounds: full, Opacity: 1}, Transform: paint.Identity},
+			&paint.LayerEndOp{},
+		}
+		// Several frames, since the flip came and went from frame to
+		// frame.
+		for i := range 4 {
+			if err := w.Present(ops, geom.Rect{}); err != nil {
+				t.Fatal(err)
+			}
+			var f frame
+			select {
+			case f = <-got:
+			case <-time.After(5 * time.Second):
+				t.Fatal("no frame read back")
+			}
+			<-w.Presented()
+			// Rows arrive bottom up: the first row is the window's bottom.
+			bottom := f.pix[(f.w/2)*4]
+			topRow := f.pix[((f.h-1)*f.w+f.w/2)*4]
+			if topRow < 200 || bottom > 55 {
+				t.Fatalf("sigma %v, frame %d: top %d and bottom %d, want white on top of black", sigma, i, topRow, bottom)
+			}
+		}
+	}
+}

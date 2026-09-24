@@ -226,7 +226,9 @@ sleeps out the rest of the refresh itself.
 Every shape is one quad and one signed distance field, so rounded
 rectangles, strokes, gradients and shadows stay crisp at any scale. A
 layer draws into an offscreen texture and is composited back with its
-opacity and rounded clip. Text is shaped by go-text/typesetting, a
+opacity and rounded clip. A layer's `Blur` and `Backdrop` are Gaussian
+blurs, run at half or a quarter of the resolution when they are wide.
+Text is shaped by go-text/typesetting, a
 pure-Go port of HarfBuzz, and drawn from a glyph atlas that keeps four
 quarter-pixel shifts of each glyph, so text sits sharp at any
 fractional position. While a transform scales it, as when a dialog
@@ -247,6 +249,5 @@ rates, each drawing an animated rounded rectangle, with
 
 - Run it on Linux with two monitors at different rates, on a real GPU.
 - Lay out paragraphs: line breaking, mixed scripts, right-to-left text.
-- Draw the `Blur` and `Backdrop` of a layer, which it also skips.
 
 Widgets and layout follow.

@@ -127,12 +127,14 @@ type LayerOpts struct {
 	// Opacity multiplies the whole group at once, so overlapping shapes
 	// inside it stay opaque to one another as the group fades.
 	Opacity float32
-	// Blur, in pixels, applied to the layer's own contents.
+	// Blur blurs the layer's own contents. It is the standard deviation
+	// of a Gaussian in logical pixels, as in CSS's blur().
 	Blur float32
-	// Backdrop, in pixels, blurs whatever is already behind the layer.
-	// This is the frosted glass behind a modal, and it is why layers
-	// are a first-class idea here: it needs the frame so far as a
-	// texture.
+	// Backdrop blurs whatever is already behind the layer, within its
+	// bounds, rounded by Radius when the layer clips. It is a standard
+	// deviation like Blur. This is the frosted glass behind a modal,
+	// and it is why layers are a first-class idea here: it needs the
+	// frame so far as a texture.
 	Backdrop float32
 	// Clip confines drawing to Bounds, rounded by Radius.
 	Clip   bool

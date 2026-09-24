@@ -72,6 +72,9 @@ type Window struct {
 	// render thread swapped, and drew is nudged after each swap.
 	drawnW, drawnH int
 	drew           chan struct{}
+	// readback, when set by a test, receives each frame's pixels as
+	// RGBA rows from the bottom up, read before the swap.
+	readback func(pix []byte, w, h int)
 
 	// The fields below belong to the main thread.
 	closed     bool
@@ -420,8 +423,14 @@ func (w *Window) render() {
 		if r != nil {
 			w.mu.Lock()
 			fbW, fbH, scale, rate := w.fbW, w.fbH, w.scale, w.rate
+			readback := w.readback
 			w.mu.Unlock()
 			r.draw(ops, fbW, fbH, scale)
+			if readback != nil {
+				pix := make([]byte, fbW*fbH*4)
+				r.gl.ReadPixels(pix, 0, 0, int32(fbW), int32(fbH), gl.RGBA, gl.UNSIGNED_BYTE)
+				readback(pix, fbW, fbH)
+			}
 			synced := vb.wait()
 			if err := w.gw.SwapBuffers(); err != nil {
 				w.fail(fmt.Errorf("desktop: swap buffers: %w", err))

@@ -34,7 +34,8 @@ const (
 // Text draws from a glyph atlas: each glyph is rasterized once per
 // size and quarter-pixel shift, and every run is a batch of quads.
 //
-// Still to come: the Blur and Backdrop of a layer.
+// A layer's Blur and Backdrop are separable Gaussian blurs, run at a
+// reduced resolution when the radius is large; see blur.go.
 type renderer struct {
 	gl gl.Context
 
@@ -53,8 +54,17 @@ type renderer struct {
 	bytes []byte
 
 	// layers holds one offscreen target per nesting depth, reused from
-	// frame to frame and resized with the window.
+	// frame to frame and resized with the window. layers[0] is the
+	// frame itself when the frame is drawn offscreen.
 	layers []target
+	// offscreen is true for a frame drawn into layers[0] and copied to
+	// the window at the end, which a Backdrop needs: it reads what has
+	// been drawn so far, and the window's own framebuffer cannot be
+	// read back.
+	offscreen bool
+	blurProg  program
+	// blurs holds two scratch targets for each downsampling factor.
+	blurs [len(blurFactors)][2]target
 	// stack is the targets being drawn into, innermost last, with the
 	// op that opened each.
 	stack []*paint.LayerOp
@@ -98,12 +108,18 @@ uniform vec3 u_row1;
 uniform float u_scale;
 uniform vec2 u_target;
 out vec2 v_local;
+// v_uv is where this point falls in a texture the size of the target,
+// for passes that read one. It comes from the position the quad is
+// drawn at, which holds for any target; gl_FragCoord flips under some
+// drivers when one program draws both offscreen and to the window.
+out vec2 v_uv;
 
 void main() {
 	vec2 local = u_quad.xy + a_pos * u_quad.zw;
 	v_local = local;
 	vec3 h = vec3(local, 1.0);
 	vec2 p = vec2(dot(u_row0, h), dot(u_row1, h)) * u_scale;
+	v_uv = vec2(p.x / u_target.x, 1.0 - p.y / u_target.y);
 	gl_Position = vec4(p.x / u_target.x * 2.0 - 1.0, 1.0 - p.y / u_target.y * 2.0, 0.0, 1.0);
 }
 `
@@ -196,8 +212,8 @@ void main() {
 
 const layerShader = `
 in vec2 v_local;
+in vec2 v_uv;
 uniform sampler2D u_tex;
-uniform vec2 u_target;
 uniform float u_opacity;
 uniform vec4 u_rect;
 uniform float u_radius;
@@ -205,7 +221,7 @@ uniform float u_clip;
 out vec4 fragColor;
 
 void main() {
-	vec4 c = texture(u_tex, gl_FragCoord.xy / u_target);
+	vec4 c = texture(u_tex, v_uv);
 	float cov = 1.0;
 	if (u_clip > 0.5) {
 		cov = coverage(sdRRect(v_local, u_rect, u_radius));
@@ -238,6 +254,11 @@ func newRenderer(g gl.Context, isES bool) (*renderer, error) {
 		return nil, err
 	}
 	r.initText()
+	if r.blurProg, err = link(g, header+vertexShader, header+blurShader,
+		"u_quad", "u_row0", "u_row1", "u_scale", "u_target",
+		"u_src", "u_dst", "u_dir", "u_sigma"); err != nil {
+		return nil, err
+	}
 
 	// One unit quad serves every draw; the vertex shader places it.
 	r.vao = g.CreateVertexArray()
@@ -309,6 +330,13 @@ func (r *renderer) release() {
 		g.DeleteFramebuffer(t.fbo)
 		g.DeleteTexture(t.tex)
 	}
+	for _, pair := range r.blurs {
+		for _, t := range pair {
+			g.DeleteFramebuffer(t.fbo)
+			g.DeleteTexture(t.tex)
+		}
+	}
+	g.DeleteProgram(r.blurProg.id)
 	g.DeleteTexture(r.glyphs.tex)
 	g.DeleteBuffer(r.textVBO)
 	g.DeleteBuffer(r.textIBO)
@@ -329,7 +357,20 @@ func (r *renderer) draw(ops []paint.Op, fbW, fbH int, scale float32) {
 	g := r.gl
 	r.fbW, r.fbH, r.scale = fbW, fbH, scale
 	r.stack = r.stack[:0]
-	g.BindFramebuffer(gl.FRAMEBUFFER, 0)
+	r.offscreen = false
+	for _, op := range ops {
+		if l, ok := op.(*paint.LayerOp); ok && l.Opts.Backdrop > 0 {
+			r.offscreen = true
+			break
+		}
+	}
+	if r.offscreen {
+		if len(r.layers) == 0 {
+			r.layers = append(r.layers, target{})
+		}
+		r.fit(&r.layers[0])
+	}
+	g.BindFramebuffer(gl.FRAMEBUFFER, r.fbo(0))
 	g.Viewport(0, 0, int32(fbW), int32(fbH))
 	g.Clear(glColorBufferBit)
 	g.BindVertexArray(r.vao)
@@ -350,6 +391,21 @@ func (r *renderer) draw(ops []paint.Op, fbW, fbH int, scale float32) {
 	for len(r.stack) > 0 {
 		r.closeLayer()
 	}
+
+	if r.offscreen {
+		g.BindFramebuffer(gl.FRAMEBUFFER, 0)
+		g.Clear(glColorBufferBit)
+		r.composite(r.layers[0].tex, nil, 1, false, 0)
+	}
+}
+
+// fbo returns the framebuffer for nesting depth d: the window, or the
+// offscreen frame, at depth 0, and a layer's target beneath it.
+func (r *renderer) fbo(d int) uint32 {
+	if d == 0 && !r.offscreen {
+		return 0
+	}
+	return r.layers[d].fbo
 }
 
 // common sets the uniforms both programs share.
@@ -409,7 +465,7 @@ func (r *renderer) rrect(op *paint.RRectOp) {
 
 // openLayer starts drawing into a fresh offscreen target.
 func (r *renderer) openLayer(op *paint.LayerOp) {
-	depth := len(r.stack)
+	depth := len(r.stack) + 1
 	for len(r.layers) <= depth {
 		r.layers = append(r.layers, target{})
 	}
@@ -422,51 +478,96 @@ func (r *renderer) openLayer(op *paint.LayerOp) {
 }
 
 // closeLayer composites the innermost layer into the one around it.
+//
+// A Backdrop goes first: what the parent holds so far is blurred and
+// drawn back over itself within the layer's bounds, rounded when the
+// layer clips. The layer's contents go on top, blurred first when the
+// layer asks for Blur.
 func (r *renderer) closeLayer() {
-	n := len(r.stack) - 1
-	op := r.stack[n]
-	r.stack = r.stack[:n]
-	g := r.gl
-	parent := uint32(0)
-	if n > 0 {
-		parent = r.layers[n-1].fbo
+	depth := len(r.stack)
+	op := r.stack[depth-1]
+	r.stack = r.stack[:depth-1]
+	o := op.Opts
+	radius := float32(0)
+	if o.Clip {
+		radius = o.Radius
 	}
-	g.BindFramebuffer(gl.FRAMEBUFFER, parent)
 
+	if o.Backdrop > 0 && (depth > 1 || r.offscreen) {
+		behind := r.blur(r.layers[depth-1].tex, r.region(op, true), o.Backdrop*r.scale)
+		r.gl.BindFramebuffer(gl.FRAMEBUFFER, r.fbo(depth-1))
+		r.composite(behind, op, o.Opacity, true, radius)
+	}
+
+	contents := r.layers[depth].tex
+	if o.Blur > 0 {
+		contents = r.blur(contents, r.region(op, o.Clip), o.Blur*r.scale)
+	}
+	r.gl.BindFramebuffer(gl.FRAMEBUFFER, r.fbo(depth-1))
+	r.composite(contents, op, o.Opacity, o.Clip, radius)
+}
+
+// composite draws tex, a window-sized texture, into the bound target at
+// opacity. With clip it covers op's bounds, rounded by radius; without,
+// the whole window. A nil op composites the whole window unclipped.
+func (r *renderer) composite(tex uint32, op *paint.LayerOp, opacity float32, clip bool, radius float32) {
+	g := r.gl
 	p := r.layer
 	g.UseProgram(p.id)
+	g.BindVertexArray(r.vao)
 	g.ActiveTexture(gl.TEXTURE0)
-	g.BindTexture(gl.TEXTURE_2D, r.layers[n].tex)
+	g.BindTexture(gl.TEXTURE_2D, tex)
 	g.Uniform1i(p.loc["u_tex"], 0)
-	opacity := op.Opts.Opacity
 	p.set4(g, "u_opacity", opacity)
-	b := op.Opts.Bounds
-	p.set4(g, "u_rect", b.Min.X, b.Min.Y, b.Max.X, b.Max.Y)
-	p.set4(g, "u_radius", op.Opts.Radius)
-	if op.Opts.Clip {
+	p.set4(g, "u_radius", radius)
+	if clip && op != nil {
+		b := op.Opts.Bounds
+		p.set4(g, "u_rect", b.Min.X, b.Min.Y, b.Max.X, b.Max.Y)
 		p.set4(g, "u_clip", 1)
 		r.common(p, grow4(b, 2), op.Transform)
 	} else {
-		// Unclipped, the layer may have drawn anywhere, so composite
-		// the whole window.
 		p.set4(g, "u_clip", 0)
-		full := geom.Rect{Max: geom.Pt(float32(r.fbW)/r.scale, float32(r.fbH)/r.scale)}
-		r.common(p, full, paint.Identity)
+		r.common(p, r.window(), paint.Identity)
 	}
 	r.quad()
 }
 
+// window returns the whole window in logical pixels.
+func (r *renderer) window() geom.Rect {
+	return geom.Rect{Max: geom.Pt(float32(r.fbW)/r.scale, float32(r.fbH)/r.scale)}
+}
+
+// region returns the device-pixel rectangle a layer covers: its bounds
+// under its transform when bounded, or the whole window.
+func (r *renderer) region(op *paint.LayerOp, bounded bool) geom.Rect {
+	if !bounded {
+		return geom.Rect{Max: geom.Pt(float32(r.fbW), float32(r.fbH))}
+	}
+	b, t := op.Opts.Bounds, op.Transform
+	first := t.Apply(b.Min)
+	out := geom.Rect{Min: first, Max: first}
+	for _, c := range []geom.Point{{X: b.Max.X, Y: b.Min.Y}, b.Max, {X: b.Min.X, Y: b.Max.Y}} {
+		p := t.Apply(c)
+		out.Min = geom.Pt(min(out.Min.X, p.X), min(out.Min.Y, p.Y))
+		out.Max = geom.Pt(max(out.Max.X, p.X), max(out.Max.Y, p.Y))
+	}
+	return geom.Rect{Min: out.Min.Mul(r.scale), Max: out.Max.Mul(r.scale)}
+}
+
 // fit sizes t to the window, creating it on first use.
-func (r *renderer) fit(t *target) {
+func (r *renderer) fit(t *target) { r.fitSize(t, r.fbW, r.fbH) }
+
+// fitSize sizes t to w by h pixels, creating it on first use.
+func (r *renderer) fitSize(t *target, w, h int) {
 	g := r.gl
-	if t.tex != 0 && t.w == r.fbW && t.h == r.fbH {
+	if t.tex != 0 && t.w == w && t.h == h {
 		return
 	}
 	if t.tex == 0 {
 		t.tex = g.CreateTexture()
 		t.fbo = g.CreateFramebuffer()
 	}
-	t.w, t.h = r.fbW, r.fbH
+	t.w, t.h = w, h
 	g.BindTexture(gl.TEXTURE_2D, t.tex)
 	g.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, glLinear)
 	g.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, glLinear)
