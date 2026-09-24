@@ -208,7 +208,7 @@ func TestEachWindowTakesItsMonitorsRate(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer func() { _ = w.Close() }()
+		t.Cleanup(func() { _ = w.Close() })
 		windows[i] = w
 		if got := w.RefreshRate(); got != ms[i].RefreshRate {
 			t.Fatalf("window on %s reports %v Hz, want its monitor's %v", ms[i].Name, got, ms[i].RefreshRate)
