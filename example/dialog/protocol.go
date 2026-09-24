@@ -10,8 +10,8 @@
 // change. In this process the values cross as they are, and
 // wire_test.go proves each one would also survive a socket.
 //
-// Running it opens a window with three jobs. Text drawing comes next,
-// so for now the rows and their buttons show as bare shapes.
+// Running it opens a window with three jobs. Run one, and when it is
+// done, delete it through the confirm dialog.
 package main
 
 import "github.com/marrasen/gunim"

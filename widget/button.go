@@ -44,6 +44,7 @@ type Button struct {
 	press *anim.Float
 	ring  *anim.Float
 	held  bool
+	text  label
 }
 
 // Colours. A real theme belongs elsewhere; these keep the example
@@ -53,6 +54,13 @@ var (
 	buttonHover = color.NRGBA{R: 0x3d, G: 0x45, B: 0x58, A: 0xff}
 	buttonText  = color.NRGBA{R: 0xec, G: 0xef, B: 0xf4, A: 0xff}
 	accent      = color.NRGBA{R: 0x5e, G: 0x9c, B: 0xff, A: 0xff}
+)
+
+// Button metrics, in logical pixels.
+const (
+	buttonTextSize = 14
+	buttonPadding  = 16
+	buttonHeight   = 36
 )
 
 // NewButton returns a button showing label.
@@ -136,10 +144,8 @@ func (b *Button) fire(u *gunim.UI) {
 
 // Layout implements [gunim.Node].
 func (b *Button) Layout(c gunim.Constraints, _ gunim.Frame, _ gunim.Children) geom.Size {
-	// Placeholder metrics. Real measurement means shaping the label with
-	// the theme's face, which is the text package's job.
-	const perRune, padding, height = 8.5, 32, 36
-	return c.Constrain(geom.Sz(float32(len(b.Label))*perRune+padding, height))
+	run := b.text.shape(b.Label, buttonTextSize)
+	return c.Constrain(geom.Sz(run.Advance+2*buttonPadding, buttonHeight))
 }
 
 // Paint implements [gunim.Node].
@@ -164,5 +170,6 @@ func (b *Button) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, _ gunim.C
 	}
 
 	p.RRect(r, 8, paint.Solid(b.fill.Value()))
-	p.Text(nil, buttonText, r) // glyphs come from the text package
+	run := b.text.shape(b.Label, buttonTextSize)
+	run.Paint(p, geom.Pt((box.W-run.Advance)/2, (box.H-run.Height())/2), buttonText)
 }

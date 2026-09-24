@@ -18,6 +18,8 @@ const (
 	glColorBufferBit = 0x4000
 	glLinear         = 0x2601
 	glUnsignedShort  = 0x1403
+	glR8             = 0x8229
+	glRed            = 0x1903
 )
 
 // A renderer replays a [paint] op list with OpenGL. It lives on one
@@ -29,13 +31,26 @@ const (
 // composited back with its opacity and, when it clips, its rounded
 // bounds.
 //
-// Still to come: text, and the Blur and Backdrop of a layer.
+// Text draws from a glyph atlas: each glyph is rasterized once per
+// size and quarter-pixel shift, and every run is a batch of quads.
+//
+// Still to come: the Blur and Backdrop of a layer.
 type renderer struct {
 	gl gl.Context
 
 	vao, vbo, ibo uint32
 	shape         program
 	layer         program
+
+	glyphs   atlas
+	textProg program
+	textVAO  uint32
+	textVBO  uint32
+	textIBO  uint32
+	// quads is the text batch being built, four vertices of x, y, u, v
+	// each per glyph, in device pixels.
+	quads []float32
+	bytes []byte
 
 	// layers holds one offscreen target per nesting depth, reused from
 	// frame to frame and resized with the window.
@@ -156,6 +171,29 @@ void main() {
 }
 `
 
+const textVertexShader = `
+in vec2 a_pos;
+in vec2 a_uv;
+uniform vec2 u_target;
+out vec2 v_uv;
+
+void main() {
+	v_uv = a_uv;
+	gl_Position = vec4(a_pos.x / u_target.x * 2.0 - 1.0, 1.0 - a_pos.y / u_target.y * 2.0, 0.0, 1.0);
+}
+`
+
+const textShader = `
+in vec2 v_uv;
+uniform sampler2D u_atlas;
+uniform vec4 u_color;
+out vec4 fragColor;
+
+void main() {
+	fragColor = premul(u_color) * texture(u_atlas, v_uv).r;
+}
+`
+
 const layerShader = `
 in vec2 v_local;
 uniform sampler2D u_tex;
@@ -194,6 +232,12 @@ func newRenderer(g gl.Context, isES bool) (*renderer, error) {
 		"u_tex", "u_opacity", "u_rect", "u_radius", "u_clip"); err != nil {
 		return nil, err
 	}
+
+	if r.textProg, err = link(g, header+textVertexShader, header+sdfFunc+textShader,
+		"u_target", "u_atlas", "u_color"); err != nil {
+		return nil, err
+	}
+	r.initText()
 
 	// One unit quad serves every draw; the vertex shader places it.
 	r.vao = g.CreateVertexArray()
@@ -234,6 +278,7 @@ func link(g gl.Context, vs, fs string, uniforms ...string) (program, error) {
 	g.AttachShader(id, v)
 	g.AttachShader(id, f)
 	g.BindAttribLocation(id, 0, "a_pos")
+	g.BindAttribLocation(id, 1, "a_uv")
 	g.LinkProgram(id)
 	if g.GetProgrami(id, gl.LINK_STATUS) == gl.FALSE {
 		defer g.DeleteProgram(id)
@@ -264,6 +309,11 @@ func (r *renderer) release() {
 		g.DeleteFramebuffer(t.fbo)
 		g.DeleteTexture(t.tex)
 	}
+	g.DeleteTexture(r.glyphs.tex)
+	g.DeleteBuffer(r.textVBO)
+	g.DeleteBuffer(r.textIBO)
+	g.DeleteVertexArray(r.textVAO)
+	g.DeleteProgram(r.textProg.id)
 	g.DeleteBuffer(r.vbo)
 	g.DeleteBuffer(r.ibo)
 	g.DeleteVertexArray(r.vao)
@@ -293,7 +343,7 @@ func (r *renderer) draw(ops []paint.Op, fbW, fbH int, scale float32) {
 		case *paint.LayerEndOp:
 			r.closeLayer()
 		case *paint.TextOp:
-			// Text arrives with the text package.
+			r.text(op)
 		}
 	}
 	// A layer left open by a node that forgot to close it still shows.

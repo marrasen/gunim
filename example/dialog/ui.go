@@ -7,6 +7,7 @@ import (
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/paint"
+	"github.com/marrasen/gunim/text"
 	"github.com/marrasen/gunim/widget"
 )
 
@@ -61,6 +62,8 @@ type jobRow struct {
 	progress *anim.Float
 	tint     *anim.Color
 	action   *widget.Button
+	// title is the job's name, shaped when the job changes.
+	title text.Run
 }
 
 var (
@@ -76,6 +79,7 @@ func newJobRow(j Job) *jobRow {
 		job:      j,
 		progress: anim.NewFloat(j.Progress),
 		tint:     anim.NewColor(tintFor(j.Status)),
+		title:    text.Default().Shape(j.Title, 15),
 	}
 	r.action = widget.NewButton("Run")
 	r.action.On = RunRequested{ID: j.ID}
@@ -88,6 +92,7 @@ func newJobRow(j Job) *jobRow {
 // than snapping to them.
 func (r *jobRow) Set(j Job) {
 	r.job = j
+	r.title = text.Default().Shape(j.Title, 15)
 	r.progress.Animate(j.Progress, anim.Snappy)
 	r.tint.Animate(tintFor(j.Status), anim.Gentle)
 	r.action.SetLabel(labelFor(j.Status))
@@ -142,6 +147,6 @@ func (r *jobRow) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, kids guni
 		p.RRect(bar, 1.5, paint.Solid(rowBar))
 	}
 
-	p.Text(nil, rowText, full)
+	r.title.Paint(p, geom.Pt(14, (box.H-r.title.Height())/2), rowText)
 	kids.At(0).Paint(p)
 }

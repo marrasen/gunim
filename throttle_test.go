@@ -174,14 +174,16 @@ func TestFirstFrameAfterIdleStepsOneRefresh(t *testing.T) {
 
 	// Present frames until the probe has finished entering and the
 	// window stops drawing.
+	// A frame usually follows a tick within microseconds, but the UI
+	// goroutine keeps its own OS thread, and waking one can take
+	// milliseconds, so idle means no frame for a generous while.
 	for i := 0; ; i++ {
 		if i == 500 {
 			t.Fatal("window never went idle")
 		}
 		before := w.Stats().Frames
 		d.Tick()
-		time.Sleep(2 * time.Millisecond)
-		if w.Stats().Frames == before {
+		if !within(50*time.Millisecond, func() bool { return w.Stats().Frames > before }) {
 			break
 		}
 	}
@@ -235,6 +237,18 @@ func mustPublish(t *testing.T, c Client, label string) {
 	if err := c.Publish("jobs", panelState{Label: label}); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// within reports whether cond turns true before d has passed.
+func within(d time.Duration, cond func() bool) bool {
+	deadline := time.Now().Add(d)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return true
+		}
+		time.Sleep(time.Millisecond)
+	}
+	return cond()
 }
 
 func waitFor(t *testing.T, cond func() bool, what string) {

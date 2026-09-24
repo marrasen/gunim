@@ -25,6 +25,7 @@ func TestMain(m *testing.M) {
 		os.Exit(m.Run())
 	}
 	display = d
+	d.stayOpen = true
 	ctx, cancel := context.WithCancel(context.Background())
 	code := make(chan int, 1)
 	_ = d.Run(ctx, func() {

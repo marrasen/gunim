@@ -25,6 +25,7 @@ import (
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/paint"
+	"github.com/marrasen/gunim/text"
 )
 
 func main() {
@@ -57,7 +58,7 @@ func run(runFor time.Duration) error {
 			o := gunim.WindowOptions{
 				Title: fmt.Sprintf("gunim %d", i+1),
 				Size:  geom.Sz(640, 360),
-				Root:  newBouncer(hue),
+				Root:  newBouncer(fmt.Sprintf("Window %d", i+1), hue),
 			}
 			switch {
 			case len(monitors) > 1:
@@ -118,13 +119,14 @@ func report(ctx context.Context, windows []*gunim.Window) {
 // the window is open.
 type bouncer struct {
 	anim.Group
+	title text.Run
 	hue   color.NRGBA
 	x     *anim.Float
 	right bool
 }
 
-func newBouncer(hue color.NRGBA) *bouncer {
-	b := &bouncer{hue: hue, x: anim.NewFloat(0)}
+func newBouncer(title string, hue color.NRGBA) *bouncer {
+	b := &bouncer{title: text.Default().Shape(title, 22), hue: hue, x: anim.NewFloat(0)}
 	b.Add(b.x)
 	return b
 }
@@ -151,6 +153,7 @@ func (b *bouncer) Layout(c gunim.Constraints, _ gunim.Frame, _ gunim.Children) g
 // Paint implements [gunim.Node].
 func (b *bouncer) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, _ gunim.Children) {
 	p.RRect(geom.Rect{Max: box.Point()}, 0, paint.Solid(color.NRGBA{R: 0x16, G: 0x18, B: 0x1e, A: 0xff}))
+	b.title.Paint(p, geom.Pt(24, 18), color.NRGBA{R: 0xec, G: 0xef, B: 0xf4, A: 0xff})
 
 	const w, h = 160, 110
 	// Bouncy overshoots by about 11%, so the swing covers the middle 80%

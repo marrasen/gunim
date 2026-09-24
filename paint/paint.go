@@ -177,7 +177,9 @@ type Shadow struct {
 // Glyphs carry fractional positions, so a label animating across the
 // screen stays steady as it crosses pixel boundaries.
 type TextOp struct {
-	Glyphs    []Glyph
+	Glyphs []Glyph
+	// Size is the font size in logical pixels.
+	Size      float32
 	Color     color.NRGBA
 	Transform Transform
 }
@@ -230,9 +232,11 @@ func (p *Painter) ShadowRRect(r geom.Rect, radius float32, f Fill, sh Shadow) {
 	p.record(&RRectOp{Rect: r, Radius: radius, Fill: f, Shadow: sh, Transform: p.cur}, grown)
 }
 
-// Text records a shaped run.
-func (p *Painter) Text(g []Glyph, c color.NRGBA, bounds geom.Rect) {
-	p.record(&TextOp{Glyphs: g, Color: c, Transform: p.cur}, bounds)
+// Text records a shaped run at size logical pixels. bounds is the
+// area the run covers, for damage tracking. The text package's Run.Paint
+// is the usual way to call it.
+func (p *Painter) Text(g []Glyph, size float32, c color.NRGBA, bounds geom.Rect) {
+	p.record(&TextOp{Glyphs: g, Size: size, Color: c, Transform: p.cur}, bounds)
 }
 
 func (p *Painter) record(op Op, bounds geom.Rect) {

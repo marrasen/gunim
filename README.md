@@ -15,7 +15,7 @@ CGO_ENABLED=0 go run ./example/twowindows -for 5s
 
 It runs on Windows 11 with 60 Hz and 120 Hz monitors side by side, each
 window at its own monitor's rate, and on Linux under X11. macOS builds
-and is still untested. Text drawing comes next.
+and is still untested. Text draws as single lines, shaped in pure Go.
 
 ## The split
 
@@ -183,6 +183,7 @@ the far end knows what to decode it into:
 | `gunim/paint` | The per-frame draw list: rounded rects, shadows, text, layers |
 | `gunim/geom` | float32 points, sizes, rectangles |
 | `gunim/input` | Pointer, keyboard and focus events, keys, buttons, modifiers |
+| `gunim/text` | Fonts, shaping a line into glyphs, and glyph rasterizing |
 | `gunim/driver` | The seam with the operating system, and an offscreen window |
 | `gunim/driver/desktop` | The driver for Linux, Windows and macOS, on GLFW and OpenGL |
 | `gunim/widget` | Worked examples: `Button`, `Dialog`, a keyed `List` |
@@ -225,7 +226,12 @@ sleeps out the rest of the refresh itself.
 Every shape is one quad and one signed distance field, so rounded
 rectangles, strokes, gradients and shadows stay crisp at any scale. A
 layer draws into an offscreen texture and is composited back with its
-opacity and rounded clip.
+opacity and rounded clip. Text is shaped by go-text/typesetting, a
+pure-Go port of HarfBuzz, and drawn from a glyph atlas that keeps four
+quarter-pixel shifts of each glyph, so text sits sharp at any
+fractional position. While a transform scales it, as when a dialog
+grows into place, the glyphs keep their resting size and scale with
+the quads, and they sharpen again when the motion settles.
 
 On Linux that port speaks X11, so a Wayland desktop runs gunim through
 XWayland. That suits free-floating popups: X11 lets a client place a
@@ -240,7 +246,7 @@ rates, each drawing an animated rounded rectangle, with
 120 Hz monitor (issue #1). What remains:
 
 - Run it on Linux with two monitors at different rates, on a real GPU.
-- Draw text, which the renderer skips today.
+- Lay out paragraphs: line breaking, mixed scripts, right-to-left text.
 - Draw the `Blur` and `Backdrop` of a layer, which it also skips.
 
 Widgets and layout follow.

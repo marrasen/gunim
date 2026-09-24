@@ -46,6 +46,9 @@ type Driver struct {
 	windows map[*glfw.Window]*Window
 	opened  bool
 	quit    bool
+	// stayOpen keeps the event loop running after the last window
+	// closes, so tests can open one window after another.
+	stayOpen bool
 }
 
 // Open initialises GLFW and loads the GL library. Call it on the main
@@ -80,7 +83,7 @@ func (d *Driver) Run(ctx context.Context, ready func()) error {
 			break
 		}
 		d.runTasks()
-		if d.opened && len(d.windows) == 0 {
+		if d.opened && len(d.windows) == 0 && !d.stayOpen {
 			break
 		}
 	}

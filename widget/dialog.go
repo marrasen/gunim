@@ -39,8 +39,9 @@ type Dialog struct {
 	// of the motion.
 	in *anim.Float
 
-	ok     *Button
-	cancel *Button
+	ok        *Button
+	cancel    *Button
+	titleText label
 }
 
 // NewDialog returns a dialog with an OK and a Cancel button. Mount it
@@ -157,7 +158,7 @@ func (d *Dialog) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, kids guni
 		Color:  color.NRGBA{A: uint8(0x80 * t)},
 	})
 	p.RRectStroke(panel, 14, paint.Fill{}, paint.Stroke{Width: 1, Color: dialogBorder})
-	p.Text(nil, dialogText, panel)
+	d.titleText.shape(d.Title, 17).Paint(p, panel.Min.Add(geom.Pt(dialogPad, dialogPad)), dialogText)
 
 	for kid := range kids.All {
 		kid.Paint(p)
