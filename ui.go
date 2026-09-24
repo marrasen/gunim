@@ -329,6 +329,13 @@ func (w *Window) Frame(delta time.Duration) {
 	w.ui.frame(w.clock, delta)
 }
 
+// Input hands the window a platform event, as a driver would: a pointer
+// move, a click, a key. It is for a window driven with [Window.Frame],
+// such as one from [NewOffscreen], and must be called from the goroutine
+// calling Frame. Positions are in window space, and the pointer is
+// routed through where the last frame drew each node.
+func (w *Window) Input(ev any) { w.ui.handlePlatform(ev) }
+
 // Err returns the error that ended the window. Read it once
 // [Client.Intents] has closed.
 func (w *Window) Err() error { return w.err }

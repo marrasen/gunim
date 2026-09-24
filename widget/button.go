@@ -44,7 +44,7 @@ type Button struct {
 	press *anim.Float
 	ring  *anim.Float
 	held  bool
-	text  label
+	text  shapedText
 }
 
 // NewButton returns a button showing label.

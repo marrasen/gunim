@@ -40,7 +40,7 @@ type Dialog struct {
 
 	ok        *Button
 	cancel    *Button
-	titleText paragraph
+	titleText laidText
 }
 
 // NewDialog returns a dialog with an OK and a Cancel button. Mount it

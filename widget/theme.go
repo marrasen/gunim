@@ -4,6 +4,7 @@ import (
 	"image/color"
 
 	"github.com/marrasen/gunim/anim"
+	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/theme"
 )
 
@@ -86,8 +87,46 @@ func Light() theme.Theme {
 		theme.Set(DialogHeight, 220),
 		theme.Set(ListSpacing, 10),
 		theme.Set(RowRadius, 10),
+		theme.Set(Background, color.NRGBA{R: 0xf3, G: 0xf5, B: 0xf9, A: 0xff}),
+		theme.Set(Margin, geom.Uniform(24)),
+		theme.Set(CardFill, color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}),
+		theme.Set(CardRadius, 16),
+		theme.Set(CardPadding, geom.Insets{Top: 14, Right: 16, Bottom: 14, Left: 20}),
+		theme.Set(ScrollbarColor, color.NRGBA{A: 0x40}),
+		theme.Set(Gap, 12),
+		theme.Set(HeadingSize, 24),
 	)
 }
 
 // Dark is the default theme, with every token at its default.
 func Dark() theme.Theme { return theme.Make("dark") }
+
+// Layout tokens.
+var (
+	// Gap is the space between the children of a row or column.
+	Gap = theme.Length("layout.gap", 8)
+	// Reflow is the motion children spring to new places with when a
+	// row or column gains or loses one.
+	Reflow = theme.Spring("motion.reflow", anim.Snappy)
+)
+
+// Scroll tokens.
+var (
+	ScrollbarColor = theme.Color("scroll.bar", color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x50})
+	ScrollbarWidth = theme.Length("scroll.bar.width", 6)
+	// ScrollLine is how far an arrow key scrolls.
+	ScrollLine = theme.Length("scroll.line", 40)
+)
+
+// Surface tokens.
+var (
+	// Background is the window's own colour, behind everything.
+	Background = theme.Color("background", color.NRGBA{R: 0x16, G: 0x18, B: 0x1e, A: 0xff})
+	// Margin is the space Pad leaves around its child by default.
+	Margin      = theme.Insets("layout.margin", geom.Uniform(16))
+	CardFill    = theme.Color("card.fill", color.NRGBA{R: 0x22, G: 0x26, B: 0x30, A: 0xff})
+	CardRadius  = theme.Length("card.radius", 10)
+	CardPadding = theme.Insets("card.padding", geom.Insets{Top: 10, Right: 12, Bottom: 10, Left: 14})
+	// HeadingSize is the size of a heading's text.
+	HeadingSize = theme.Length("text.heading.size", 22)
+)
