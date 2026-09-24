@@ -1,0 +1,228 @@
+// Package anim animates values over time.
+//
+// The unit of animation is [Animated], a value that holds where it is
+// now, where it is heading, and the [Motion] carrying it there. The
+// package deals purely in elapsed time: you advance values with
+// [Animated.Step], passing the real delta. That is what makes a 60 Hz
+// display, a 144 Hz display and a dropped frame all produce the same
+// motion.
+//
+// A widget usually owns several animated values and embeds a [Group] so
+// the engine can step them in one call:
+//
+//	type Button struct {
+//	    anim.Group
+//	    hover *anim.Float
+//	}
+//
+//	b.hover.Animate(1, anim.Snappy)
+package anim
+
+import "time"
+
+// MaxScalars is the most scalars a single [Animated] value can hold.
+//
+// Four covers every type worth animating as a unit: a float, a point, a
+// size, a rectangle, a colour. Anything larger is really several
+// independent animations and belongs in several values. So the limit
+// buys an allocation-free fixed array for free.
+const MaxScalars = 4
+
+// A Codec takes a value apart into scalars and puts it back together.
+//
+// Springs need a position *and* a velocity per scalar, so values come
+// apart into scalars first: a colour animates as four independent
+// springs, and retargeting mid-flight stays smooth on every channel.
+// Holding that logic in a Codec also lets Animated work on ordinary
+// types like float32 and color.NRGBA, which carry no methods of their
+// own.
+type Codec[T any] struct {
+	// N is how many scalars T uses, from 1 to MaxScalars.
+	N int
+	// Encode writes T's scalars into the first N slots of dst.
+	Encode func(v T, dst *[MaxScalars]float32)
+	// Decode rebuilds a T from the first N slots of src.
+	Decode func(src *[MaxScalars]float32) T
+}
+
+// State is the live state of one animated scalar. Implementations of
+// [Motion] read and write it; widgets work through [Animated] instead.
+type State struct {
+	// Position is the value right now.
+	Position float32
+	// Velocity is the rate of change, in units per second. Springs
+	// carry it across a retarget, so an interrupted animation turns
+	// around smoothly.
+	Velocity float32
+	// From is the position when the current animation started, and To
+	// is where it is heading.
+	From, To float32
+	// Elapsed is how long the current animation has been running.
+	Elapsed time.Duration
+}
+
+// A Motion advances one scalar toward its target and reports whether it
+// has arrived. [Spring] and [Tween] implement it; so can you.
+type Motion interface {
+	Step(s *State, dt time.Duration) (settled bool)
+}
+
+// A Stepper is anything the engine can advance by a time delta. It
+// reports whether it is still animating, which is how the engine knows
+// a window can stop drawing and go back to sleep.
+type Stepper interface {
+	Step(dt time.Duration) (animating bool)
+}
+
+// Animated is a value of type T that moves toward a target over time.
+//
+// Build one with [New], or with a typed constructor such as
+// [NewFloat].
+type Animated[T any] struct {
+	codec  Codec[T]
+	state  [MaxScalars]State
+	motion Motion
+	active bool
+}
+
+// New returns an Animated holding v, at rest.
+func New[T any](v T, c Codec[T]) *Animated[T] {
+	if c.N < 1 || c.N > MaxScalars {
+		panic("anim: codec N out of range")
+	}
+	a := &Animated[T]{codec: c}
+	a.Jump(v)
+	return a
+}
+
+// Value returns where the animation is right now.
+func (a *Animated[T]) Value() T {
+	var buf [MaxScalars]float32
+	for i := range a.codec.N {
+		buf[i] = a.state[i].Position
+	}
+	return a.codec.Decode(&buf)
+}
+
+// Target returns where the animation is heading. At rest it matches
+// [Animated.Value].
+func (a *Animated[T]) Target() T {
+	var buf [MaxScalars]float32
+	for i := range a.codec.N {
+		buf[i] = a.state[i].To
+	}
+	return a.codec.Decode(&buf)
+}
+
+// Active reports whether an animation is in flight.
+func (a *Animated[T]) Active() bool { return a.active }
+
+// Animate starts moving toward to under m.
+//
+// Animate returns at once when to is already the target, leaving an
+// animation heading there to carry on under its original motion. That
+// makes it safe to call every frame, which is how [gunim.Transitioner]
+// works: a node can say "I am leaving, fade out" on each frame of its
+// exit and the fade runs once, start to finish. Use [Animated.Retarget]
+// to change the motion of something already in flight.
+func (a *Animated[T]) Animate(to T, m Motion) {
+	var buf [MaxScalars]float32
+	a.codec.Encode(to, &buf)
+	if a.heading(&buf) {
+		return
+	}
+	a.retarget(&buf, m)
+}
+
+// Retarget is Animate, and it always adopts m, even mid-flight.
+// Velocity carries over, so the change of motion stays invisible.
+func (a *Animated[T]) Retarget(to T, m Motion) {
+	var buf [MaxScalars]float32
+	a.codec.Encode(to, &buf)
+	a.retarget(&buf, m)
+}
+
+// Jump moves to v at once, cancelling anything in flight. Use it to set
+// an initial value. To end an animation early, prefer animating to
+// where you want it: cutting motion dead is the jarring thing this
+// package exists to avoid.
+func (a *Animated[T]) Jump(v T) {
+	var buf [MaxScalars]float32
+	a.codec.Encode(v, &buf)
+	for i := range a.codec.N {
+		a.state[i] = State{Position: buf[i], From: buf[i], To: buf[i]}
+	}
+	a.active = false
+	a.motion = nil
+}
+
+// Step advances the animation by dt and reports whether it is still
+// running. The engine calls this once per frame.
+func (a *Animated[T]) Step(dt time.Duration) bool {
+	if !a.active {
+		return false
+	}
+	settled := true
+	for i := range a.codec.N {
+		if !a.motion.Step(&a.state[i], dt) {
+			settled = false
+		}
+	}
+	if settled {
+		a.active = false
+		a.motion = nil
+	}
+	return a.active
+}
+
+// heading reports whether the animation is already on its way to buf,
+// or already sitting there.
+func (a *Animated[T]) heading(buf *[MaxScalars]float32) bool {
+	for i := range a.codec.N {
+		if a.state[i].To != buf[i] {
+			return false
+		}
+	}
+	// The target matches, so either we are on our way there or we have
+	// arrived.
+	return true
+}
+
+func (a *Animated[T]) retarget(buf *[MaxScalars]float32, m Motion) {
+	moving := false
+	for i := range a.codec.N {
+		s := &a.state[i]
+		s.From = s.Position
+		s.To = buf[i]
+		s.Elapsed = 0
+		if s.From != s.To {
+			moving = true
+		}
+	}
+	a.motion = m
+	a.active = moving
+	if !moving {
+		a.motion = nil
+	}
+}
+
+// Group collects animated values so a widget can step them all at once.
+// Embed it in a widget and register each value in the constructor.
+type Group struct {
+	vs []Stepper
+}
+
+// Add registers values with the group.
+func (g *Group) Add(vs ...Stepper) { g.vs = append(g.vs, vs...) }
+
+// Step advances every registered value and reports whether any of them
+// is still animating.
+func (g *Group) Step(dt time.Duration) bool {
+	animating := false
+	for _, v := range g.vs {
+		if v.Step(dt) {
+			animating = true
+		}
+	}
+	return animating
+}
