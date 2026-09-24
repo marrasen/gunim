@@ -191,3 +191,55 @@ func TestBackdropFramesStayUpright(t *testing.T) {
 		}
 	}
 }
+
+// TestEachWindowTakesItsMonitorsRate needs two monitors with different
+// refresh rates; tools/multimon/start.sh makes a virtual pair.
+func TestEachWindowTakesItsMonitorsRate(t *testing.T) {
+	if display == nil {
+		t.Skip("no display")
+	}
+	ms := display.Monitors()
+	if len(ms) < 2 || ms[0].RefreshRate == ms[1].RefreshRate {
+		t.Skip("needs two monitors at different refresh rates; see tools/multimon")
+	}
+	windows := make([]driver.Window, 2)
+	for i := range windows {
+		w, err := display.NewWindow(driver.Options{Title: "gunim rate", Size: geom.Sz(200, 120), Monitor: &ms[i]})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = w.Close() }()
+		windows[i] = w
+		if got := w.RefreshRate(); got != ms[i].RefreshRate {
+			t.Fatalf("window on %s reports %v Hz, want its monitor's %v", ms[i].Name, got, ms[i].RefreshRate)
+		}
+	}
+
+	// Present as fast as each window takes frames, both at once, for
+	// a second, and count.
+	counts := make([]int, len(windows))
+	done := make(chan struct{})
+	for i, w := range windows {
+		go func() {
+			deadline := time.Now().Add(time.Second)
+			for time.Now().Before(deadline) {
+				if err := w.Present(nil, geom.Rect{}); err != nil {
+					break
+				}
+				<-w.Presented()
+				counts[i]++
+			}
+			done <- struct{}{}
+		}()
+	}
+	<-done
+	<-done
+	for i, n := range counts {
+		// Software GL on a virtual display falls a little short of a
+		// fast rate, so allow some room below.
+		rate := ms[i].RefreshRate
+		if f := float64(n); f < 0.8*rate || f > 1.1*rate {
+			t.Errorf("window on %s at %v Hz drew %d frames in a second", ms[i].Name, rate, n)
+		}
+	}
+}

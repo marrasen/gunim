@@ -276,7 +276,10 @@ rates, each drawing an animated rounded rectangle, with
 `CGO_ENABLED=0`, on Linux and Windows. Windows passes, on a 60 Hz and a
 120 Hz monitor (issue #1). What remains:
 
-- Run it on Linux with two monitors at different rates, on a real GPU.
+- Run it on Linux with a real GPU, where the swap waits for vblank.
+  Two monitors at different rates run on a virtual display from
+  `tools/multimon/start.sh`: each window takes its own monitor's rate,
+  paced by the fallback timer, since a virtual display has no vblank.
 
 Then widgets and layout, on top of the theme:
 
