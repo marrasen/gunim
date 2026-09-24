@@ -28,10 +28,28 @@
 // while Wayland keeps a popup anchored to its parent through xdg_popup.
 // The API here stays expressible on both by making popups
 // anchor-relative.
+//
+// # Pacing
+//
+// A window is paced by its own buffer swaps. Pure-Go GL has no vsync
+// event to wait on; what it has is SwapBuffers with a swap interval of
+// one, which blocks until the display takes the frame. So each window
+// gets a render goroutine of its own, locked to an OS thread with
+// runtime.LockOSThread because a GL context belongs to one thread. That
+// goroutine replays a frame's ops, swaps, and reports on
+// [Window.Presented] once the swap returns.
+//
+// The engine keeps one frame in flight. It draws when it has something
+// to show and nothing in flight, then waits for the report before it
+// draws again. An idle window has nothing in flight, so the first frame
+// after a keystroke is drawn at once rather than a refresh later. Two
+// windows on two monitors swap on separate threads, so each one keeps
+// its own monitor's rate.
 package driver
 
 import (
 	"context"
+	"time"
 
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/paint"
@@ -91,27 +109,26 @@ const (
 
 // A Window is one on-screen surface with its own GL context.
 type Window interface {
-	// Frames ticks once per display refresh, carrying the timestamp the
-	// frame is predicted to reach the screen. Animating against the
-	// moment of presentation is what keeps motion smooth when the
-	// compositor is running a frame ahead.
+	// Presented reports each frame handed to Present once it has
+	// reached the screen: exactly one Frame per Present, in order.
 	//
-	// Each window has its own Frames channel driven by its own
-	// monitor's vsync, so a 60 Hz laptop panel and a 144 Hz external
-	// monitor each keep their own rate.
-	//
-	// A driver sends without blocking and lets a tick go when nobody is
-	// waiting, because an idle window leaves this channel alone. Every
-	// path to a frame runs through here, so the rate the driver ticks
-	// at is the rate the window draws at, whatever the application is
-	// doing.
-	Frames() <-chan Frame
+	// The engine waits for it before drawing the next frame, so the
+	// rate the display takes frames at is the rate the window draws
+	// at, whatever the application is doing. The engine keeps at most
+	// one frame in flight, so a channel with room for one never blocks
+	// the render thread.
+	Presented() <-chan Frame
 
 	// Input carries raw platform input for this window.
 	Input() <-chan any
 
-	// Present replays ops. damage is the region that changed, which a
-	// driver may use to present just that part of the surface.
+	// Present hands a frame to the render thread and returns without
+	// waiting for the display. damage is the region that changed,
+	// which a driver may use to present just that part of the surface.
+	//
+	// ops belong to the driver until the matching Frame arrives on
+	// Presented; the engine records the next frame into the same
+	// buffers only after that.
 	Present(ops []paint.Op, damage geom.Rect) error
 
 	// Size is the current size in logical pixels, and Scale is device
@@ -126,10 +143,13 @@ type Window interface {
 	Close() error
 }
 
-// Frame is one vsync tick.
+// Frame reports one presented frame.
 type Frame struct {
-	// Deadline is when this frame is expected to reach the screen.
-	Deadline int64 // UnixNano
+	// Shown is when the frame reached the screen: when the swap
+	// returned, or the display's own timestamp for it where the
+	// platform has one. The engine predicts the next frame's
+	// presentation time from it.
+	Shown time.Time
 }
 
 // Monitor is an attached display.

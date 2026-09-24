@@ -160,8 +160,9 @@ func (c Constraints) Constrain(s geom.Size) geom.Size {
 
 // Frame is the per-frame context handed to layout and paint.
 type Frame struct {
-	// Now is this frame's timestamp. Every node in a frame sees the
-	// same value, so two animations started together stay together.
+	// Now is when this frame is predicted to reach the screen. Every
+	// node in a frame sees the same value, so two animations started
+	// together stay together.
 	Now time.Time
 	// Delta is how long since the previous frame.
 	Delta time.Duration

@@ -288,6 +288,14 @@ type Window struct {
 	// because one nudge is as good as a hundred.
 	wake chan struct{}
 
+	// inFlight is true from Present until the driver reports the frame
+	// shown. shown is when the last one was, and due is when the frame
+	// most recently drawn is predicted to be. All three belong to the
+	// UI goroutine.
+	inFlight bool
+	shown    time.Time
+	due      time.Time
+
 	closeOnce sync.Once
 	// clock is the synthetic frame time used by [Window.Frame], so an
 	// offscreen window steps at whatever rate the caller chooses.
@@ -325,10 +333,12 @@ func (w *Window) Close() { w.closeOnce.Do(func() { close(w.done) }) }
 
 // loop is the window's whole life.
 //
-// It sleeps until there is a reason to draw, waits for the display, and
-// draws once. Every path to a frame goes through the display, so the
-// window draws at most once per refresh whatever the application does
-// with [Client].
+// It draws when there is something to show and no frame in flight, and
+// otherwise waits for whatever comes first: a command, input, the
+// display taking the frame in flight, or the application making room
+// for an intent. Every frame after the first waits for the one before
+// it to reach the screen, so the window draws at most once per refresh
+// whatever the application does with [Client].
 func (w *Window) loop() {
 	defer close(w.out)
 	defer func() {
@@ -337,27 +347,14 @@ func (w *Window) loop() {
 		}
 	}()
 
-	last := time.Now()
 	for {
-		// Sleep until something needs drawing. An idle window costs a
-		// blocked goroutine and nothing else.
-		for !w.wants() {
-			if !w.awaitWork() {
-				return
-			}
+		if !w.inFlight && w.wants() {
+			w.draw()
+			continue
 		}
-
-		// Wait for the display. Commands that arrive meanwhile join the
-		// batch this frame is about to apply.
-		if !w.awaitVsync() {
+		if !w.wait() {
 			return
 		}
-
-		w.applyPending()
-		now := time.Now()
-		delta := now.Sub(last)
-		last = now
-		w.ui.frame(now, delta)
 	}
 }
 
@@ -371,8 +368,20 @@ func (w *Window) wants() bool {
 	return queued > 0 || w.ui.needsFrame()
 }
 
-// awaitWork blocks until a command or an input event arrives.
-func (w *Window) awaitWork() bool {
+// wait blocks until something happens, handles it, and reports whether
+// the window is still open.
+//
+// Input is handled as it arrives, because a click and the release after
+// it mean different things in different orders. Commands queue, because
+// the last state for a topic is the only one worth drawing.
+func (w *Window) wait() bool {
+	// A nil channel never receives, so the send case is live only while
+	// intents are waiting for the application.
+	var out chan<- Envelope
+	var next Envelope
+	if len(w.ui.pending) > 0 {
+		out, next = w.out, w.ui.pending[0]
+	}
 	select {
 	case <-w.done:
 		return false
@@ -382,33 +391,61 @@ func (w *Window) awaitWork() bool {
 			return false
 		}
 		w.ui.handlePlatform(ev)
+	case f, ok := <-w.dw.Presented():
+		if !ok {
+			return false
+		}
+		w.inFlight = false
+		w.shown = f.Shown
+	case out <- next:
+		w.ui.pending = w.ui.pending[1:]
 	}
 	return true
 }
 
-// awaitVsync blocks until the display is ready for the next frame,
-// taking commands and input while it waits.
+// draw builds one frame and hands it to the driver.
 //
-// This is where an application pushing faster than the screen refreshes
-// gets slowed to the screen. Input is handled as it arrives, because a
-// click and the release after it mean different things in different
-// orders. Commands queue, because the last state for a topic is the
-// only one worth drawing.
-func (w *Window) awaitVsync() bool {
-	for {
-		select {
-		case <-w.done:
-			return false
-		case <-w.dw.Frames():
-			return true
-		case <-w.wake:
-		case ev, ok := <-w.dw.Input():
-			if !ok {
-				return false
-			}
-			w.ui.handlePlatform(ev)
-		}
+// The frame is stamped with the moment it is predicted to reach the
+// screen, so animation lines up with what the viewer sees. Its delta is
+// the time since the previous frame's stamp while something was moving
+// through the gap. After the window has slept, nothing was moving, and
+// whatever starts now is a frame old when it appears, so the delta is
+// one refresh. Carrying the time slept instead would push a fresh hover
+// most of the way through its animation before its first frame.
+func (w *Window) draw() {
+	w.applyPending()
+	interval := refreshInterval(w.dw.RefreshRate())
+	due := nextVsync(w.shown, interval, time.Now())
+	delta := interval
+	if w.ui.animating && due.After(w.due) {
+		delta = due.Sub(w.due)
 	}
+	w.due = due
+	w.ui.frame(due, delta)
+	w.inFlight = true
+}
+
+// refreshInterval turns a refresh rate into the time between frames,
+// assuming 60 Hz when the driver cannot say.
+func refreshInterval(hz float64) time.Duration {
+	if hz <= 0 {
+		hz = 60
+	}
+	return time.Duration(float64(time.Second) / hz)
+}
+
+// nextVsync predicts when a frame drawn at now will reach the screen:
+// the first refresh after now, in step with the last frame shown. With
+// nothing shown yet, it is one interval from now.
+func nextVsync(shown time.Time, interval time.Duration, now time.Time) time.Time {
+	if shown.IsZero() {
+		return now.Add(interval)
+	}
+	n := int64(now.Sub(shown)/interval) + 1
+	if n < 1 {
+		n = 1
+	}
+	return shown.Add(time.Duration(n) * interval)
 }
 
 // queue adds cmd to the batch for the next frame.
@@ -732,7 +769,6 @@ func (u *UI) needsFrame() bool { return u.animating || u.invalid }
 func (u *UI) frame(now time.Time, delta time.Duration) {
 	u.now = now
 	u.invalid = false
-	u.w.stats.frames.Add(1)
 	u.flush()
 	f := Frame{Now: now, Delta: delta, Scale: u.w.dw.Scale()}
 
@@ -759,6 +795,8 @@ func (u *UI) frame(now time.Time, delta time.Duration) {
 		u.w.err = fmt.Errorf("gunim: present frame: %w", err)
 		u.w.Close()
 	}
+	// Counted last, so a reader that sees the count also sees the frame.
+	u.w.stats.frames.Add(1)
 }
 
 // step advances animated values depth-first and reports whether

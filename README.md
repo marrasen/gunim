@@ -70,8 +70,9 @@ ID, so there is one delivery path.
 application pushes at whatever rate it produces state, and the window
 draws once per display refresh.
 
-Two things make that true. Every path to a frame waits on the driver's
-vsync tick, so the display sets the rate. And a `Publish` that a later
+Two things make that true. A window keeps one frame in flight and
+draws the next only once the display has taken it, so the display sets
+the rate. And a `Publish` that a later
 one supersedes is replaced in the queue before it ever reaches a view,
 so 101 publishes between two frames cost one reconciliation:
 

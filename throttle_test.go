@@ -3,6 +3,8 @@ package gunim
 import (
 	"testing"
 	"time"
+
+	"github.com/marrasen/gunim/anim"
 )
 
 // counted is a view that records how often its update ran, so a test
@@ -130,32 +132,100 @@ func TestLoopDrawsOncePerDisplayRefresh(t *testing.T) {
 	go w.loop()
 	defer w.Close()
 
+	// With nothing in flight, the first frame goes out at once.
 	if err := c.Mount(Root, "panel", "counted", panelState{Label: "start"}, "jobs"); err != nil {
 		t.Fatal(err)
 	}
+	waitFor(t, func() bool { return w.Stats().Frames >= 1 }, "the first frame")
+
+	// Nothing more is drawn until the display takes that frame, however
+	// much the application queues. The probe is still animating in, so
+	// the window wants every frame it can get.
 	for range 50 {
 		mustPublish(t, c, "push")
 	}
-
-	// Nothing reaches the screen until the display asks for it, however
-	// much the application queued.
-	time.Sleep(25 * time.Millisecond)
-	if got := w.Stats().Frames; got != 0 {
-		t.Fatalf("drew %d frames before the display ticked once", got)
-	}
-
-	d.Tick()
-	waitFor(t, func() bool { return w.Stats().Frames >= 1 }, "the first frame")
 	time.Sleep(25 * time.Millisecond)
 	if got := w.Stats().Frames; got != 1 {
-		t.Fatalf("drew %d frames for one display refresh, want 1", got)
+		t.Fatalf("drew %d frames with the first still in flight, want 1", got)
 	}
 
 	d.Tick()
 	waitFor(t, func() bool { return w.Stats().Frames >= 2 }, "the second frame")
 	time.Sleep(25 * time.Millisecond)
 	if got := w.Stats().Frames; got != 2 {
-		t.Fatalf("drew %d frames for two display refreshes, want 2", got)
+		t.Fatalf("drew %d frames for one presented frame, want 2", got)
+	}
+	if got := w.Stats().Coalesced; got != 49 {
+		t.Fatalf("Coalesced = %d, want 49 of the 50 publishes superseded while waiting", got)
+	}
+}
+
+func TestFirstFrameAfterIdleStepsOneRefresh(t *testing.T) {
+	w := newProbeWindow(t)
+	d := w.offscreen(t)
+	c := w.Client()
+	go w.loop()
+	defer w.Close()
+
+	if err := c.Mount(Root, "panel", "panel", panelState{}, "jobs"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, func() bool { return w.Stats().Frames >= 1 }, "the first frame")
+
+	// Present frames until the probe has finished entering and the
+	// window stops drawing.
+	for i := 0; ; i++ {
+		if i == 500 {
+			t.Fatal("window never went idle")
+		}
+		before := w.Stats().Frames
+		d.Tick()
+		time.Sleep(2 * time.Millisecond)
+		if w.Stats().Frames == before {
+			break
+		}
+	}
+
+	// Sleep past the longest step a spring will take, then start an
+	// animation. Its first frame should advance it by one refresh, as
+	// if it had started a frame ago, rather than by the time slept.
+	time.Sleep(150 * time.Millisecond)
+	before := w.Stats().Frames
+	if err := c.Patch("jobs", tick{At: 1}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, func() bool { return w.Stats().Frames > before }, "the frame after idle")
+
+	want := anim.NewFloat(0)
+	want.Animate(1, anim.Snappy)
+	want.Step(time.Second / 60)
+	if got := probeOf(t, w.ui.ids["panel"].node).at.Value(); got != want.Value() {
+		t.Fatalf("after one frame the value is %v, want %v: one refresh of motion", got, want.Value())
+	}
+}
+
+func TestNextVsyncFollowsThePhaseOfTheLastFrame(t *testing.T) {
+	const iv = 10 * time.Millisecond
+	shown := time.Unix(100, 0)
+	cases := []struct {
+		name string
+		now  time.Duration // after shown
+		want time.Duration // after shown
+	}{
+		{"straight after a swap", 1 * time.Millisecond, 10 * time.Millisecond},
+		{"late in the same refresh", 9 * time.Millisecond, 10 * time.Millisecond},
+		{"after idling several refreshes", 43 * time.Millisecond, 50 * time.Millisecond},
+		{"on a refresh boundary", 20 * time.Millisecond, 30 * time.Millisecond},
+		{"with the clock behind the report", -5 * time.Millisecond, 10 * time.Millisecond},
+	}
+	for _, tc := range cases {
+		if got := nextVsync(shown, iv, shown.Add(tc.now)); !got.Equal(shown.Add(tc.want)) {
+			t.Errorf("%s: due %v after shown, want %v", tc.name, got.Sub(shown), tc.want)
+		}
+	}
+	now := time.Unix(200, 0)
+	if got := nextVsync(time.Time{}, iv, now); !got.Equal(now.Add(iv)) {
+		t.Errorf("with nothing shown yet: due %v after now, want %v", got.Sub(now), iv)
 	}
 }
 

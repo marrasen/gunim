@@ -1,7 +1,9 @@
 package driver
 
 import (
+	"slices"
 	"sync"
+	"time"
 
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/paint"
@@ -12,15 +14,15 @@ import (
 // It keeps the op list from the last frame instead of drawing it, which
 // makes it the driver for tests, for golden-image comparisons once a
 // rasteriser exists, and for running an interface headlessly on a build
-// machine. Its Frames and Input channels stay quiet, so whoever holds
-// it decides when a frame happens.
+// machine. Its Presented and Input channels stay quiet, so whoever
+// holds it decides when a frame reaches the "screen".
 func Offscreen(size geom.Size) *OffscreenWindow {
 	return &OffscreenWindow{
-		size:   size,
-		scale:  1,
-		rate:   60,
-		frames: make(chan Frame),
-		input:  make(chan any),
+		size:      size,
+		scale:     1,
+		rate:      60,
+		presented: make(chan Frame),
+		input:     make(chan any),
 	}
 }
 
@@ -32,24 +34,23 @@ type OffscreenWindow struct {
 	rate  float64
 	ops   []paint.Op
 
-	frames chan Frame
-	input  chan any
+	presented chan Frame
+	input     chan any
 }
 
-// Frames implements [Window]. It stays quiet, because the holder of an
-// offscreen window decides when a frame happens.
-func (w *OffscreenWindow) Frames() <-chan Frame { return w.frames }
+// Presented implements [Window]. It stays quiet until [OffscreenWindow.Tick].
+func (w *OffscreenWindow) Presented() <-chan Frame { return w.presented }
 
 // Input implements [Window]. Feed it with [OffscreenWindow.Post].
 func (w *OffscreenWindow) Input() <-chan any { return w.input }
 
-// Tick delivers one display refresh, blocking until the window takes
-// it.
+// Tick reports the frame in flight as shown, blocking until the window
+// takes the report.
 //
-// A driver with a screen behind it sends without blocking and lets a
-// tick go when nobody is waiting. This one waits, so that a test knows
-// the frame it asked for has been picked up.
-func (w *OffscreenWindow) Tick() { w.frames <- Frame{} }
+// A real driver reports each frame as its swap returns. This one waits
+// for the test, so a test decides exactly when the display is ready for
+// the next frame.
+func (w *OffscreenWindow) Tick() { w.presented <- Frame{Shown: time.Now()} }
 
 // Post delivers a platform event, blocking until the window reads it.
 func (w *OffscreenWindow) Post(ev any) { w.input <- ev }
@@ -58,7 +59,9 @@ func (w *OffscreenWindow) Post(ev any) { w.input <- ev }
 func (w *OffscreenWindow) Present(ops []paint.Op, _ geom.Rect) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	w.ops = ops
+	// The engine reuses its buffers once the frame is reported shown,
+	// so keep a copy for Ops to return.
+	w.ops = slices.Clone(ops)
 	return nil
 }
 
