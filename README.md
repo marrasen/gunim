@@ -152,9 +152,9 @@ target it is already heading for, so the repeated call is free.
 
 ## Encoding
 
-Encoding belongs to a socket transport, which uses
-`MarshalCommand` and `MarshalEnvelope`, which use `encoding/json/v2`
-with one set of options in `codec.go`:
+Encoding belongs to a socket transport. It calls `MarshalCommand` and
+`MarshalEnvelope`, which use `encoding/json/v2` with one set of options
+in `codec.go`:
 
 ```go
 var wireOptions = json.JoinOptions(
