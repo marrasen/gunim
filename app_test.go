@@ -3,6 +3,7 @@ package gunim
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -102,6 +103,23 @@ func TestFocusTellsTheDriverWhenTextIsTaken(t *testing.T) {
 	w.ui.Focus(other)
 	if len(tw.active) != 2 || !tw.active[0] || tw.active[1] {
 		t.Fatalf("text input went %v, want on for the field and off after it", tw.active)
+	}
+}
+
+func TestFocusMovingBetweenTextTakersEndsTheComposition(t *testing.T) {
+	// A composition belongs to the node it was typed into, so moving to
+	// another node that takes text ends it on the way.
+	tw := &textWindow{OffscreenWindow: driver.Offscreen(geom.Sz(800, 600))}
+	w := newWindow(tw, nil)
+	field, notes := &takesText{}, &takesText{}
+	w.ui.Insert(w.ui.Root(), field)
+	w.ui.Insert(w.ui.Root(), notes)
+
+	w.ui.Focus(field)
+	w.ui.Focus(notes)
+	want := []bool{true, false, true}
+	if !slices.Equal(tw.active, want) {
+		t.Fatalf("text input went %v, want %v", tw.active, want)
 	}
 }
 

@@ -843,8 +843,9 @@ func (u *UI) Focus(n Node) {
 	if u.focus != nil {
 		u.deliver(u.focus, input.FocusLost{Time: u.now})
 	}
+	prev := u.focus
 	u.focus = next
-	u.takeText(next)
+	u.takeText(prev, next)
 	if next != nil {
 		u.deliver(next, input.FocusGained{Time: u.now})
 	}
@@ -852,19 +853,29 @@ func (u *UI) Focus(n Node) {
 }
 
 // takeText tells the driver whether the newly focused node takes typed
-// text, so the input method composes into the window only then.
-func (u *UI) takeText(s *state) {
+// text, so the input method composes into the window only then. A
+// composition belongs to the node it was typed into, so focus moving
+// between two nodes that take text turns text input off on the way,
+// which ends it.
+func (u *UI) takeText(prev, next *state) {
 	ti, ok := u.w.dw.(driver.TextInputter)
 	if !ok {
 		return
 	}
-	var takes bool
-	if s != nil {
-		if t, ok := s.node.(TextTaker); ok {
-			takes = t.TakesText()
-		}
+	takes := takingText(next)
+	if takes && takingText(prev) {
+		ti.SetTextInput(false)
 	}
 	ti.SetTextInput(takes)
+}
+
+// takingText reports whether s is a node that takes typed text.
+func takingText(s *state) bool {
+	if s == nil {
+		return false
+	}
+	t, ok := s.node.(TextTaker)
+	return ok && t.TakesText()
 }
 
 // placeCaret tells the driver where the focused node's text caret is,
