@@ -323,3 +323,37 @@ func TestRemovedNodeGivesUpFocusAndHover(t *testing.T) {
 		t.Fatal("Focus gave focus to a leaving node")
 	}
 }
+
+// aimer is a node that starts an animation from Layout, as a text field
+// aims its caret there.
+type aimer struct {
+	anim.Group
+	x      *anim.Float
+	target float32
+}
+
+func (a *aimer) Layout(c Constraints, _ Frame, _ Children) geom.Size {
+	a.x.Animate(a.target, anim.Snappy)
+	return c.Max
+}
+
+func (a *aimer) Paint(*paint.Painter, Frame, geom.Size, Children) {}
+
+func TestAnAnimationStartedInLayoutKeepsTheWindowDrawing(t *testing.T) {
+	w := newTestWindow()
+	a := &aimer{x: anim.NewFloat(0)}
+	a.Add(a.x)
+	w.ui.Insert(w.ui.Root(), a)
+	run(w, 1)
+	if w.ui.needsFrame() {
+		t.Fatal("setup: the window should be idle")
+	}
+
+	// A change of target, as a keystroke makes, and one frame for it.
+	a.target = 100
+	w.ui.Invalidate()
+	run(w, 1)
+	if !w.ui.needsFrame() {
+		t.Fatal("the window went idle with an animation Layout had just started")
+	}
+}

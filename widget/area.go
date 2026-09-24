@@ -242,7 +242,11 @@ func (a *TextArea) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) 
 			at.X = a.hintX
 		}
 	}
-	a.caretAt.Animate(at, motion)
+	if a.edited {
+		a.caretAt.Jump(at)
+	} else {
+		a.caretAt.Animate(at, motion)
+	}
 
 	scroll := a.scroll.Target()
 	switch {
@@ -251,7 +255,8 @@ func (a *TextArea) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) 
 	case at.Y+a.para.LineHeight > scroll+a.view:
 		scroll = at.Y + a.para.LineHeight - a.view
 	}
-	a.scroll.Animate(max(0, min(scroll, a.para.Size.H-a.view)), motion)
+	a.aim(a.scroll, max(0, min(scroll, a.para.Size.H-a.view)), motion)
+	a.edited = false
 	return own
 }
 

@@ -202,3 +202,22 @@ func TestACommitReplacesTheSelection(t *testing.T) {
 	ty.run(1)
 	ty.want("X", 1)
 }
+
+func TestTheCaretJumpsForTypingAndGlidesForMoving(t *testing.T) {
+	ty := newTyper(t)
+	ty.typeText("abc")
+	if ty.field.caretAt.Active() {
+		t.Fatal("the caret is still gliding the frame after typing")
+	}
+	if got, want := ty.field.caretAt.Value(), ty.field.line.CaretX(3); got != want {
+		t.Fatalf("after typing, the caret is at %v, want %v at once", got, want)
+	}
+	ty.key(input.KeyBackspace, 0)
+	if got, want := ty.field.caretAt.Value(), ty.field.line.CaretX(2); got != want {
+		t.Fatalf("after Backspace, the caret is at %v, want %v at once", got, want)
+	}
+	ty.key(input.KeyLeft, 0)
+	if !ty.field.caretAt.Active() {
+		t.Fatal("an arrow key moved the caret without a glide")
+	}
+}

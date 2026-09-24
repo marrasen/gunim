@@ -197,10 +197,10 @@ func (t *TextField) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children)
 	if t.hinted && len(t.preedit) == 0 && run.Places(caret, t.hintX) {
 		cx = t.hintX
 	}
-	t.caretAt.Animate(cx, motion)
+	t.aim(t.caretAt, cx, motion)
 	a, b := run.CaretX(anchor), cx
-	t.selA.Animate(min(a, b), motion)
-	t.selB.Animate(max(a, b), motion)
+	t.aim(t.selA, min(a, b), motion)
+	t.aim(t.selB, max(a, b), motion)
 
 	scroll := t.scroll.Target()
 	switch {
@@ -210,7 +210,8 @@ func (t *TextField) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children)
 		scroll = cx - inner
 	}
 	scroll = max(0, min(scroll, run.Advance-inner))
-	t.scroll.Animate(scroll, motion)
+	t.aim(t.scroll, scroll, motion)
+	t.edited = false
 	return own
 }
 

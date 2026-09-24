@@ -5,6 +5,7 @@ import (
 	"unicode"
 
 	"github.com/marrasen/gunim"
+	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/input"
 )
 
@@ -35,6 +36,10 @@ type editor struct {
 
 	// changed is called after every edit.
 	changed func(u *gunim.UI)
+	// edited is set by typing, deleting and composing, and cleared by
+	// the widget's next layout. The caret jumps after an edit, so it
+	// keeps up with the text; it glides when it only moves.
+	edited bool
 }
 
 // navigator is what the editor needs from laid-out text.
@@ -108,6 +113,7 @@ func (e *editor) compose(c input.Composing) {
 		return len([]rune(c.Text[:b]))
 	}
 	e.preSel = [2]int{runeAt(c.Selected[0]), runeAt(c.Selected[1])}
+	e.edited = true
 }
 
 // press places the caret for a click at rune i: selecting a word on a
@@ -271,6 +277,7 @@ func (e *editor) replace(start, end int, with []rune, u *gunim.UI) {
 	out = append(out, e.text[end:]...)
 	e.text = out
 	e.set(start+len(with), false)
+	e.edited = true
 	if e.changed != nil {
 		e.changed(u)
 	}
@@ -300,6 +307,18 @@ func wordEnd(rs []rune, i int) int {
 		i++
 	}
 	return i
+}
+
+// aim sends a to v: at once after an edit, gliding with m otherwise.
+func (e *editor) aim(a interface {
+	Jump(float32)
+	Animate(float32, anim.Motion)
+}, v float32, m anim.Motion) {
+	if e.edited {
+		a.Jump(v)
+		return
+	}
+	a.Animate(v, m)
 }
 
 func abs32(v float32) float32 {

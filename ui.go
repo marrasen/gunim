@@ -929,6 +929,16 @@ func (u *UI) frame(now time.Time, delta time.Duration) {
 		u.w.Close()
 	}
 	u.placeCaret()
+
+	// 5. Layout and paint may have started animations: a caret aimed at
+	//    a new place, a row sent to a new position. Look again, without
+	//    moving time on, so the window keeps drawing until they finish.
+	//    Going by step 1 alone, the window would sleep, and the motion
+	//    would wait for the next input to get going.
+	if !u.animating && (u.theme.Step(0) || u.step(u.root, 0)) {
+		u.animating = true
+	}
+
 	// Counted last, so a reader that sees the count also sees the frame.
 	u.w.stats.frames.Add(1)
 }
