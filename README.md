@@ -280,6 +280,13 @@ fractional position. While a transform scales it, as when a dialog
 grows into place, the glyphs keep their resting size and scale with
 the quads, and they sharpen again when the motion settles.
 
+A character the font lacks comes from the face's fallbacks, then from
+the fonts installed on the system, found on first need. So Hebrew,
+Arabic or Japanese show wherever a font for them is installed, with no
+font shipped by the application. `text.ParseCollection` reads `.ttc`
+collections, which is how Windows ships most of its Chinese, Japanese
+and Korean fonts.
+
 On Linux that port speaks X11, so a Wayland desktop runs gunim through
 XWayland. That suits free-floating popups: X11 lets a client place a
 window at an absolute screen position, and Wayland keeps a popup

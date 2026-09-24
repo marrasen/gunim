@@ -3,9 +3,9 @@
 // English, Hebrew and Arabic in one paragraph and a right-to-left
 // paragraph after it.
 //
-// Hebrew and Arabic need fonts that have them. It looks for Noto Sans
-// Hebrew and Noto Sans Arabic where Debian and Ubuntu install them, and
-// shows boxes in their place when they are missing.
+// Hebrew, Arabic and Japanese come from fonts installed on the system,
+// which the text package finds on its own; they show as boxes where no
+// installed font has them.
 //
 //	CGO_ENABLED=0 go run ./example/paragraph
 package main
@@ -27,12 +27,8 @@ import (
 )
 
 const sample = "Paragraphs wrap where Unicode allows, and a word such as שלום or مرحبا sits in its place inside English text, read in its own direction.\n\n" +
-	"שלום עולם! פסקה זו מתחילה בעברית, ולכן היא נקראת מימין לשמאל ומיושרת לימין."
-
-var fallbacks = []string{
-	"/usr/share/fonts/truetype/noto/NotoSansHebrew-Regular.ttf",
-	"/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf",
-}
+	"שלום עולם! פסקה זו מתחילה בעברית, ולכן היא נקראת מימין לשמאל ומיושרת לימין.\n\n" +
+	"日本語の文章も、インストールされたフォントで表示されます。"
 
 func main() {
 	runFor := flag.Duration("for", 0, "quit after this long; zero runs until the window closes")
@@ -52,20 +48,8 @@ func run(runFor time.Duration) error {
 	}
 
 	face := text.Default()
-	var extra []*text.Face
-	for _, path := range fallbacks {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			log.Printf("no %s; its script will show as boxes", path)
-			continue
-		}
-		f, err := text.Parse(data)
-		if err != nil {
-			return err
-		}
-		extra = append(extra, f)
-	}
-	face.Fallback(extra...)
+	// Scan for installed fonts now, so the first frame does not wait.
+	go func() { _ = text.LoadSystemFonts() }()
 
 	return gunim.Main(ctx, func(a *gunim.App) error {
 		w, err := a.NewWindow(gunim.WindowOptions{

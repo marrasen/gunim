@@ -72,19 +72,45 @@ func Parse(data []byte) (*Face, error) {
 	if err != nil {
 		return nil, fmt.Errorf("text: %w", err)
 	}
+	mu.Lock()
+	defer mu.Unlock()
+	return faceOf(ff), nil
+}
+
+// ParseCollection reads a font collection, a .ttc or .otc file, which
+// holds several faces: the weights of a family, or the Chinese,
+// Japanese and Korean cuts of one design. Windows ships most of its
+// Chinese, Japanese and Korean fonts this way.
+func ParseCollection(data []byte) ([]*Face, error) {
+	ffs, err := font.ParseTTC(bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("text: %w", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	out := make([]*Face, len(ffs))
+	for i, ff := range ffs {
+		out[i] = faceOf(ff)
+	}
+	return out, nil
+}
+
+// faceOf returns the Face for a parsed font, registering it on first
+// sight. It runs with mu held.
+func faceOf(ff *font.Face) *Face {
+	if f, ok := byFont[ff]; ok {
+		return f
+	}
 	f := &Face{face: ff, upem: float32(ff.Upem())}
 	if ext, ok := ff.FontHExtents(); ok {
 		f.ascent, f.descent, f.gap = ext.Ascender, -ext.Descender, ext.LineGap
 	} else {
 		f.ascent, f.descent = 0.8*f.upem, 0.2*f.upem
 	}
-
-	mu.Lock()
 	f.id = uint32(len(faces))
 	faces = append(faces, f)
 	byFont[ff] = f
-	mu.Unlock()
-	return f, nil
+	return f
 }
 
 // Default returns Go Regular, the face gunim uses when a widget names
@@ -124,7 +150,8 @@ func (f *Face) Fallback(others ...*Face) *Face {
 }
 
 // fontmap resolves each character to the first face that has it, which
-// is how go-text splits a run by font. It runs with mu held.
+// is how go-text splits a run by font: the face, then its fallbacks,
+// then the fonts installed on the system. It runs with mu held.
 type fontmap struct{ f *Face }
 
 // ResolveFace implements [shaping.Fontmap].
@@ -136,6 +163,9 @@ func (m fontmap) ResolveFace(r rune) *font.Face {
 		if _, ok := fb.face.NominalGlyph(r); ok {
 			return fb.face
 		}
+	}
+	if ff := systemFace(r); ff != nil {
+		return ff
 	}
 	return m.f.face
 }
