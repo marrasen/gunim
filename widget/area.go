@@ -37,6 +37,8 @@ type TextArea struct {
 	// is, for navigating.
 	para text.Paragraph
 	view float32
+	// followed is the caret the view last scrolled to keep in sight.
+	followed int
 }
 
 // NewTextArea returns an empty text area five lines tall.
@@ -248,13 +250,19 @@ func (a *TextArea) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) 
 		a.caretAt.Animate(at, motion)
 	}
 
+	// Follow the caret only when it has moved or the text has changed,
+	// so the wheel can scroll away from it; the next keystroke brings
+	// it back into view.
 	scroll := a.scroll.Target()
-	switch {
-	case at.Y < scroll:
-		scroll = at.Y
-	case at.Y+a.para.LineHeight > scroll+a.view:
-		scroll = at.Y + a.para.LineHeight - a.view
+	if a.edited || caret != a.followed {
+		switch {
+		case at.Y < scroll:
+			scroll = at.Y
+		case at.Y+a.para.LineHeight > scroll+a.view:
+			scroll = at.Y + a.para.LineHeight - a.view
+		}
 	}
+	a.followed = caret
 	a.aim(a.scroll, max(0, min(scroll, a.para.Size.H-a.view)), motion)
 	a.edited = false
 	return own

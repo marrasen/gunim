@@ -162,3 +162,30 @@ func TestLeftAndRightStepInAField(t *testing.T) {
 	ty.key(input.KeyLeft, 0)
 	ty.want("abc", 1) // collapses to the selection's start
 }
+
+func TestTheWheelScrollsAnAreaAwayFromItsCaret(t *testing.T) {
+	wr := newWriter(t, 400)
+	for range 30 {
+		wr.typeText("line")
+		wr.key(input.KeyEnter, 0)
+	}
+	wr.run(120)
+	bottom := wr.area.scroll.Value()
+	if bottom <= 0 {
+		t.Fatal("setup: the caret at the end should have scrolled the area")
+	}
+
+	// Scroll up past where the caret could be seen, and let it settle.
+	wr.w.Input(input.Scroll{Pos: geom.Pt(50, 50), Delta: geom.Pt(0, 1000)})
+	wr.run(120)
+	if top := wr.area.scroll.Value(); top != 0 {
+		t.Fatalf("after scrolling up, the area sits at %v, want 0: it went back to the caret", top)
+	}
+
+	// Typing brings the caret back into view.
+	wr.typeText("x")
+	wr.run(120)
+	if got := wr.area.scroll.Value(); got != bottom {
+		t.Fatalf("after typing, the area sits at %v, want back at the caret, %v", got, bottom)
+	}
+}
