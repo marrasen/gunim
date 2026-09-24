@@ -15,7 +15,7 @@ A gunim program is two halves that speak only in values.
 The **window** owns the widget tree, the springs, the focus ring, and
 how a dialog arrives and leaves. The **application** owns the work.
 Between them run commands one way and intents the other, and every one
-of them survives `encoding/json`.
+of them is a plain value.
 
 ```go
 // Window half: the wiring is data.
@@ -27,12 +27,18 @@ c.Mount(gunim.Root, "confirm", "confirm", ConfirmState{Title: "Delete everything
 ```
 
 That keeps application code off the goroutine that draws frames, by
-construction: a function pointer has no wire format, so the only thing
-that fits through is data.
+construction: the application holds a `Client`, never a node, so the
+only thing it can hand the window is a value.
 
-Both halves are Go, so one type declaration serves them both. Swap the
-in-process channel for a socket and the application moves to another
-machine with both halves unchanged.
+In one process those values cross as they are. Nothing is encoded or
+copied, so a state holding an image gives the window the image itself.
+The price is the rule channels already teach: sending a value hands it
+over, so leave it unchanged afterwards.
+
+Both halves are Go, so one type declaration serves them both, and
+`CheckWire` proves in a test that each one would also survive a socket.
+Put a socket transport where the queue is, and the application moves
+to another machine with both halves unchanged.
 
 Local interaction stays local. A dialog closes itself on the frame the
 button is released, and tells the application afterwards.
@@ -137,8 +143,9 @@ target it is already heading for, so the repeated call is free.
 
 ## Encoding
 
-Everything crossing the boundary goes through `encoding/json/v2`, with
-one set of options in `codec.go`:
+Nothing is encoded in one process. A socket transport encodes with
+`MarshalCommand` and `MarshalEnvelope`, which use `encoding/json/v2`
+with one set of options in `codec.go`:
 
 ```go
 var wireOptions = json.JoinOptions(
@@ -150,10 +157,11 @@ var wireOptions = json.JoinOptions(
 `OmitZeroStructFields` is why this repo has zero struct tags. A zero
 field is left out and comes back zero, with no annotation on it. v2
 matches member names case-sensitively, so the Go field name is the wire
-name:
+name. Each carried value goes with the name `RegisterType` gave it, so
+the far end knows what to decode it into:
 
 ```json
-{"Parent":"root","ID":"jobs","View":"joblist","Watch":["jobs"]}
+{"Command":"mount","Parent":"root","ID":"jobs","View":"joblist","Watch":["jobs"],"Value":{"Kind":"job.list","Data":{"Jobs":[{"ID":"1","Title":"Reindex archive","Status":"pending"}]}}}
 ```
 
 ## Packages

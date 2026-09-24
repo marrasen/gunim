@@ -7,8 +7,8 @@
 //
 // Cutting between the halves is what a socket would replace: the
 // application half could move to another machine and neither half would
-// change, because everything crossing between them already survives
-// encoding/json.
+// change. In this process the values cross as they are, and
+// wire_test.go proves each one would also survive a socket.
 //
 // Running it prints a message and exits, because driver.Open is still a
 // stub. Everything above that line is real.
@@ -83,6 +83,8 @@ type Confirmed struct {
 type Cancelled struct{}
 
 func init() {
+	gunim.RegisterType[JobList]("job.list")
+	gunim.RegisterType[ConfirmState]("confirm.state")
 	gunim.RegisterType[JobProgress]("job.progress")
 	gunim.RegisterType[RunRequested]("job.run")
 	gunim.RegisterType[DeleteRequested]("job.delete")

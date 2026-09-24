@@ -2,7 +2,6 @@ package gunim
 
 import (
 	"context"
-	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"reflect"
@@ -153,9 +152,9 @@ func newWindow(dw driver.Window, root Node) *Window {
 // Client returns the application's handle to this window.
 //
 // Everything the application can do goes through it, and everything it
-// can say is a value that survives encoding/json. Swapping the in-
-// process channel for a socket then changes the transport and leaves
-// the application alone.
+// can say is a plain value. In one process those values cross as they
+// are; a socket transport encodes them with [MarshalCommand] and
+// changes nothing on either side.
 func (w *Window) Client() Client { return Client{w: w} }
 
 // ErrWindowClosed is returned by [Client] methods once the window has
@@ -177,7 +176,8 @@ type Client struct{ w *Window }
 // refresh. Backpressure from a slow frame would land on the goroutine
 // doing the real work, which is the opposite of what this split is for.
 //
-// It is safe from any goroutine.
+// Send hands the command over, state and all; see [Command] for what
+// that asks of you. It is safe from any goroutine.
 func (c Client) Send(cmd Command) error {
 	w := c.w
 	select {
@@ -203,21 +203,13 @@ func (c Client) Send(cmd Command) error {
 // watch names the topics the view follows, so one [Client.Publish]
 // reaches every view showing the same data.
 func (c Client) Mount(parent, id ID, view string, state any, watch ...string) error {
-	raw, err := encodeState(state)
-	if err != nil {
-		return err
-	}
-	return c.Send(Mount{Parent: parent, ID: id, View: view, Watch: watch, State: raw})
+	return c.Send(Mount{Parent: parent, ID: id, View: view, Watch: watch, State: state})
 }
 
 // Update hands fresh state to one mounted view. It is [Client.Publish]
 // to the topic named after the view's own ID.
 func (c Client) Update(id ID, state any) error {
-	raw, err := encodeState(state)
-	if err != nil {
-		return err
-	}
-	return c.Send(Update{ID: id, State: raw})
+	return c.Send(Update{ID: id, State: state})
 }
 
 // Publish hands fresh state to every view watching key.
@@ -226,29 +218,19 @@ func (c Client) Update(id ID, state any) error {
 // trigger, the transport pushes the result, and every view showing that
 // data animates the difference.
 func (c Client) Publish(key string, state any) error {
-	raw, err := encodeState(state)
-	if err != nil {
-		return err
-	}
-	return c.Send(Publish{Key: key, State: raw})
+	return c.Send(Publish{Key: key, State: state})
 }
 
 // Patch hands a typed partial change to every view watching key.
 //
 // Use it when a value moved and the shape stayed put, so the change
 // lands as a spring retargeting rather than as a reconciled list. The
-// patch type needs [RegisterType] and a [RegisterPatch] handler on the
-// views that care.
+// views that care need a [RegisterPatch] handler for p's type.
 func (c Client) Patch(key string, p any) error {
-	kind, ok := TypeName(p)
-	if !ok {
-		return fmt.Errorf("gunim: patch %T needs RegisterType", p)
+	if p == nil {
+		return errors.New("gunim: Patch needs a value")
 	}
-	raw, err := encodeState(p)
-	if err != nil {
-		return err
-	}
-	return c.Send(Patch{Key: key, Kind: kind, Data: raw})
+	return c.Send(Patch{Key: key, Data: p})
 }
 
 // Unmount starts a view's exit and returns at once, with the view still
@@ -268,17 +250,6 @@ func (c Client) Err() error { return c.w.err }
 
 // Close shuts the window down.
 func (c Client) Close() { c.w.Close() }
-
-func encodeState(v any) (jsontext.Value, error) {
-	if v == nil {
-		return nil, nil
-	}
-	raw, err := encode(v)
-	if err != nil {
-		return nil, fmt.Errorf("gunim: encode state %T: %w", v, err)
-	}
-	return raw, nil
-}
 
 // NewOffscreen returns a window backed by no display, with the frame
 // loop left to the caller.
@@ -562,28 +533,18 @@ func (u *UI) Invalidate() { u.invalid = true }
 
 // Send reports an intent from n to the application.
 //
-// The intent travels as data, so the widget stays ignorant of the
+// The intent travels as a value, so the widget stays ignorant of the
 // application and the application stays off this goroutine. From is
 // filled in with the ID of the nearest mounted view above n, which is
 // how the application knows which of three open dialogs answered.
 //
-// Send returns at once. An intent that fails to encode comes back as a
-// [CommandFailed], which beats a click that quietly does nothing.
+// Send returns at once.
 func (u *UI) Send(n Node, v Intent) {
-	e, err := envelope(u.idOf(n), v)
-	if err != nil {
-		u.report(CommandFailed{Command: "intent", ID: u.idOf(n), Reason: err.Error()})
-		return
-	}
-	u.post(e)
+	u.post(Envelope{From: u.idOf(n), Intent: v})
 }
 
 // report sends a gunim-generated intent.
-func (u *UI) report(v Intent) {
-	if e, err := envelope("", v); err == nil {
-		u.post(e)
-	}
-}
+func (u *UI) report(v Intent) { u.post(Envelope{Intent: v}) }
 
 // post queues an envelope for the application.
 //

@@ -1,7 +1,6 @@
 package gunim
 
 import (
-	"encoding/json/jsontext"
 	"testing"
 	"time"
 
@@ -29,6 +28,7 @@ type panelState struct {
 func init() {
 	RegisterType[ping]("test.ping")
 	RegisterType[tick]("test.tick")
+	RegisterType[panelState]("test.panel")
 }
 
 // probe is a view root that fades in and out and reports clicks.
@@ -116,26 +116,25 @@ func newProbeWindow(t *testing.T) *Window {
 	return w
 }
 
-func TestCommandsAndIntentsSurviveJSON(t *testing.T) {
+func TestCommandsAndIntentsSurviveTheWire(t *testing.T) {
 	// The compiler stays quiet about serializability, so the rule is
 	// enforced here. An application does the same over its own types.
 	values := []any{
-		Mount{Parent: Root, ID: "panel", View: "panel", Watch: []string{"topic"}, State: jsontext.Value(`{"Label":"hi"}`)},
-		Update{ID: "panel", State: jsontext.Value(`{"Label":"bye"}`)},
-		Publish{Key: "topic", State: jsontext.Value(`{"Label":"all"}`)},
-		Patch{Key: "topic", Kind: "test.tick", Data: jsontext.Value(`{"At":0.5}`)},
+		Mount{Parent: Root, ID: "panel", View: "panel", Watch: []string{"topic"}, State: panelState{Label: "hi"}},
+		Update{ID: "panel", State: panelState{Label: "bye"}},
+		Publish{Key: "topic", State: panelState{Label: "all"}},
+		Patch{Key: "topic", Data: tick{At: 0.5}},
 		Unmount{ID: "panel"},
 		Focus{ID: "panel"},
-		Envelope{From: "panel", Kind: "test.ping", Data: jsontext.Value(`{"N":1}`)},
+		Envelope{From: "panel", Intent: ping{N: 1}},
 		ping{N: 3},
 		tick{At: 0.25},
 		CommandFailed{Command: "mount", ID: "panel", Reason: "view missing"},
 
-		// Zero fields are what used to need `json:",omitempty"` on
-		// every one of them. OmitZeroStructFields leaves them out of
-		// the output, so they come back zero with no tag in sight.
+		// Zero fields are left out of the encoding and come back zero,
+		// with no struct tag in sight.
 		Mount{Parent: Root, ID: "bare", View: "panel"},
-		Envelope{From: "bare", Kind: "test.ping"},
+		Envelope{From: "bare"},
 		Publish{Key: "empty"},
 		CommandFailed{},
 	}
@@ -144,15 +143,61 @@ func TestCommandsAndIntentsSurviveJSON(t *testing.T) {
 	}
 }
 
+func TestCheckWireCatchesAnUnregisteredType(t *testing.T) {
+	type unnamed struct{ N int }
+	if err := CheckWire(unnamed{N: 1}); err == nil {
+		t.Fatal("CheckWire passed a type with no RegisterType")
+	}
+	if err := CheckWire(Publish{Key: "k", State: unnamed{N: 1}}); err == nil {
+		t.Fatal("CheckWire passed a command carrying a type with no RegisterType")
+	}
+}
+
 func TestWireFormatUsesGoFieldNames(t *testing.T) {
 	// The Go field name is the wire name, and a zero field is absent.
-	got, err := encode(Mount{Parent: Root, ID: "jobs", View: "joblist", Watch: []string{"jobs"}})
+	got, err := MarshalCommand(Mount{Parent: Root, ID: "jobs", View: "joblist", Watch: []string{"jobs"}, State: panelState{Label: "x"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	const want = `{"Parent":"root","ID":"jobs","View":"joblist","Watch":["jobs"]}`
+	const want = `{"Command":"mount","Parent":"root","ID":"jobs","View":"joblist","Watch":["jobs"],"Value":{"Kind":"test.panel","Data":{"Label":"x"}}}`
 	if string(got) != want {
 		t.Fatalf("encoded as\n  %s\nwant\n  %s", got, want)
+	}
+}
+
+// frameState holds a large buffer, the way an image would.
+type frameState struct {
+	Pixels []byte
+}
+
+func TestStateCrossesByReference(t *testing.T) {
+	// In one process nothing is encoded, so a view sees the very bytes
+	// the application sent.
+	w := newTestWindow()
+	var seen []byte
+	RegisterView(w, "image",
+		func(frameState) *Box { return &Box{} },
+		func(_ *Box, s frameState, _ *UI) { seen = s.Pixels })
+	pixels := make([]byte, 4<<20)
+	if err := w.Client().Mount(Root, "image", "image", frameState{Pixels: pixels}); err != nil {
+		t.Fatal(err)
+	}
+	run(w, 1)
+	if len(seen) != len(pixels) || &seen[0] != &pixels[0] {
+		t.Fatal("the view got a copy of the pixels rather than the pixels")
+	}
+}
+
+func TestStateOfTheWrongTypeComesBackAsAFailure(t *testing.T) {
+	w := newProbeWindow(t)
+	c := w.Client()
+	if err := c.Mount(Root, "panel", "panel", tick{At: 1}); err != nil {
+		t.Fatal(err)
+	}
+	run(w, 1)
+	v, ok := As[CommandFailed](take(t, c))
+	if !ok || v.Command != "mount" {
+		t.Fatal("a mount with the wrong state type should fail")
 	}
 }
 
@@ -294,7 +339,7 @@ func TestClickTravelsBackAsAnIntent(t *testing.T) {
 	}
 	v, ok := As[ping](ev)
 	if !ok {
-		t.Fatalf("As[ping] failed on kind %q", ev.Kind)
+		t.Fatalf("As[ping] failed on %T", ev.Intent)
 	}
 	if v.N != 1 {
 		t.Fatalf("N = %d, want 1", v.N)

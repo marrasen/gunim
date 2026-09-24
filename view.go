@@ -1,8 +1,9 @@
 package gunim
 
 import (
-	"encoding/json/jsontext"
+	"errors"
 	"fmt"
+	"reflect"
 )
 
 // A view builds, updates and patches a subtree from application state.
@@ -10,9 +11,9 @@ import (
 // is what survives after the types are erased.
 type view struct {
 	name    string
-	build   func(jsontext.Value) (Node, error)
-	update  func(Node, jsontext.Value, *UI) error
-	patches map[string]func(Node, jsontext.Value, *UI) error
+	build   func(any) (Node, error)
+	update  func(Node, any, *UI) error
+	patches map[reflect.Type]func(Node, any, *UI) error
 }
 
 // RegisterView names a view the application can mount, and wires it to
@@ -34,19 +35,19 @@ type view struct {
 // and stays clear of the render loop.
 func RegisterView[S any, N Node](w *Window, name string, build func(S) N, update func(N, S, *UI)) {
 	v := w.view(name)
-	v.build = func(raw jsontext.Value) (Node, error) {
-		s, err := decodeState[S](name, raw)
+	v.build = func(state any) (Node, error) {
+		s, err := stateAs[S](name, state)
 		if err != nil {
 			return nil, err
 		}
 		return build(s), nil
 	}
-	v.update = func(n Node, raw jsontext.Value, u *UI) error {
+	v.update = func(n Node, state any, u *UI) error {
 		typed, err := nodeAs[N](name, n)
 		if err != nil {
 			return err
 		}
-		s, err := decodeState[S](name, raw)
+		s, err := stateAs[S](name, state)
 		if err != nil {
 			return err
 		}
@@ -61,37 +62,38 @@ func RegisterView[S any, N Node](w *Window, name string, build func(S) N, update
 //
 // A patch says that a value changed while the shape stayed put, so
 // apply usually retargets a spring and lets it carry the node from
-// wherever it is now. Register the patch type with [RegisterType] as
-// well, so both ends of the connection agree on its name.
+// wherever it is now. The type of the value handed to [Client.Patch]
+// picks the handler.
 //
 //	gunim.RegisterPatch(w, "jobs", func(l *widget.List, p Progress, u *gunim.UI) {
 //	    l.Row(p.ID).Progress.Animate(p.Done, anim.Snappy)
 //	})
 func RegisterPatch[P any, N Node](w *Window, viewName string, apply func(N, P, *UI)) {
-	var zero P
-	kind, ok := TypeName(zero)
-	if !ok {
-		panic(fmt.Sprintf("gunim: patch %T needs RegisterType before RegisterPatch", zero))
-	}
 	v := w.view(viewName)
-	v.patches[kind] = func(n Node, raw jsontext.Value, u *UI) error {
+	v.patches[reflect.TypeFor[P]()] = func(n Node, data any, u *UI) error {
 		typed, err := nodeAs[N](viewName, n)
 		if err != nil {
 			return err
 		}
-		var p P
-		if err := decode(raw, &p); err != nil {
-			return fmt.Errorf("gunim: view %q patch %s: %w", viewName, kind, err)
+		p, ok := data.(P)
+		if !ok {
+			return fmt.Errorf("gunim: view %q patch wants %s and got %T", viewName, reflect.TypeFor[P](), data)
 		}
 		apply(typed, p, u)
 		return nil
 	}
 }
 
-func decodeState[S any](name string, raw jsontext.Value) (S, error) {
-	var s S
-	if err := decode(raw, &s); err != nil {
-		return s, fmt.Errorf("gunim: view %q state: %w", name, err)
+// stateAs returns state as the S a view renders. Nil stands for the
+// zero S, so a mount with no state builds an empty view.
+func stateAs[S any](name string, state any) (S, error) {
+	var zero S
+	if state == nil {
+		return zero, nil
+	}
+	s, ok := state.(S)
+	if !ok {
+		return zero, fmt.Errorf("gunim: view %q wants %s state and got %T", name, reflect.TypeFor[S](), state)
 	}
 	return s, nil
 }
@@ -116,7 +118,7 @@ func (w *Window) view(name string) *view {
 	}
 	v, ok := w.views[name]
 	if !ok {
-		v = &view{name: name, patches: map[string]func(Node, jsontext.Value, *UI) error{}}
+		v = &view{name: name, patches: map[reflect.Type]func(Node, any, *UI) error{}}
 		w.views[name] = v
 	}
 	return v
@@ -276,7 +278,7 @@ func (u *UI) unsubscribe(s *state) {
 }
 
 // publish hands state to every view watching key.
-func (u *UI) publish(key string, state jsontext.Value) error {
+func (u *UI) publish(key string, state any) error {
 	subs := u.topics[key]
 	if len(subs) == 0 {
 		return fmt.Errorf("nothing is watching %q", key)
@@ -298,10 +300,14 @@ func (u *UI) patch(c Patch) error {
 	if len(subs) == 0 {
 		return fmt.Errorf("nothing is watching %q", c.Key)
 	}
+	if c.Data == nil {
+		return errors.New("patch carries no data")
+	}
+	t := reflect.TypeOf(c.Data)
 	var firstErr error
 	applied := 0
 	for _, s := range subs {
-		apply, ok := s.view.patches[c.Kind]
+		apply, ok := s.view.patches[t]
 		if !ok {
 			continue
 		}
@@ -311,7 +317,7 @@ func (u *UI) patch(c Patch) error {
 		}
 	}
 	if applied == 0 && firstErr == nil {
-		return fmt.Errorf("no view watching %q handles patch %q", c.Key, c.Kind)
+		return fmt.Errorf("no view watching %q handles patch %s", c.Key, t)
 	}
 	u.invalid = true
 	return firstErr
