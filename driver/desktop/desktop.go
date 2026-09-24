@@ -54,6 +54,9 @@ type Driver struct {
 	// stayOpen keeps the event loop running after the last window
 	// closes, so tests can open one window after another.
 	stayOpen bool
+
+	// shared is what every window's renderer shares.
+	shared shared
 }
 
 // Open initialises GLFW and loads the GL library. Call it on the main

@@ -35,6 +35,8 @@ gunim's changes are marked `gunim change` in the code:
   (`windowProc` in `win32_window_windows.go`). A pointer moved by
   `SetCursorPos`, remote input or automation can deliver its button
   message first, and the click would land where the pointer was.
+- `gl` binds `glGenerateMipmap` (`interface.go`, `default_purego.go`,
+  `debug.go`), for image textures drawn smaller than their size.
 - `glfw` has a `Popup` window hint, for menus, lists and tooltips: a
   window that never takes focus. On X11 it is override-redirect, so the
   window manager leaves it where it is put, and typed

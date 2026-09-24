@@ -62,6 +62,8 @@ type Context interface {
 	Finish()
 	Flush()
 	FramebufferRenderbuffer(target uint32, attachment uint32, renderbuffertarget uint32, renderbuffer uint32)
+	// GenerateMipmap is a gunim change.
+	GenerateMipmap(target uint32)
 	FramebufferTexture2D(target uint32, attachment uint32, textarget uint32, texture uint32, level int32)
 	GetError() uint32
 	GetExtension(name string) any

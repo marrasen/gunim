@@ -3,10 +3,9 @@
 package desktop
 
 import (
-	"encoding/binary"
-	"image"
 	"math"
 
+	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/internal/gl"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/text"
@@ -20,36 +19,21 @@ const (
 	// keeps, so a glyph at any fractional x lands within a quarter
 	// pixel of where it belongs.
 	subpixel = 4
-	// maxQuads is the most glyphs one draw call carries.
-	maxQuads = 4096
 )
 
-// atlas packs glyph masks into one single-channel texture, in shelves.
-// When it fills, it starts again from empty.
-type atlas struct {
-	tex        uint32
-	x, y, rowH int
-	slots      map[glyphKey]glyphSlot
+// glyphTexture is a renderer's copy of the shared atlas: the glyphs it
+// has drawn, in a single-channel texture, from the atlas's epoch.
+type glyphTexture struct {
+	tex   uint32
+	epoch int
+	have  map[glyphKey]bool
 }
 
-type glyphKey struct {
-	face, id uint32
-	// size is the device size in 1/64 pixel.
-	size  int32
-	shift uint8
-}
-
-// glyphSlot is where a glyph sits in the atlas. A zero w marks a glyph
-// with nothing to draw, such as a space.
-type glyphSlot struct {
-	x, y, w, h int
-	off        image.Point
-}
-
-func (r *renderer) initText() {
+func (r *renderer) initGlyphs() {
 	g := r.gl
-	r.glyphs.slots = map[glyphKey]glyphSlot{}
+	r.glyphs.have = map[glyphKey]bool{}
 	r.glyphs.tex = g.CreateTexture()
+	g.ActiveTexture(gl.TEXTURE0)
 	g.BindTexture(gl.TEXTURE_2D, r.glyphs.tex)
 	g.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, glLinear)
 	g.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, glLinear)
@@ -57,32 +41,9 @@ func (r *renderer) initText() {
 	g.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
 	g.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
 	g.TexImage2D(gl.TEXTURE_2D, 0, glR8, atlasSize, atlasSize, glRed, gl.UNSIGNED_BYTE, make([]byte, atlasSize*atlasSize))
-
-	r.textVAO = g.CreateVertexArray()
-	g.BindVertexArray(r.textVAO)
-	r.textVBO = g.CreateBuffer()
-	g.BindBuffer(gl.ARRAY_BUFFER, r.textVBO)
-	g.BufferInit(gl.ARRAY_BUFFER, maxQuads*4*16, gl.STREAM_DRAW)
-	g.EnableVertexAttribArray(0)
-	g.VertexAttribPointer(0, 2, gl.FLOAT, false, 16, 0)
-	g.EnableVertexAttribArray(1)
-	g.VertexAttribPointer(1, 2, gl.FLOAT, false, 16, 8)
-
-	// Every batch uses the same two triangles per quad.
-	idx := make([]byte, 0, maxQuads*6*2)
-	for q := range maxQuads {
-		b := uint16(q * 4)
-		for _, i := range [6]uint16{b, b + 1, b + 2, b, b + 2, b + 3} {
-			idx = binary.LittleEndian.AppendUint16(idx, i)
-		}
-	}
-	r.textIBO = g.CreateBuffer()
-	g.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, r.textIBO)
-	g.BufferInit(gl.ELEMENT_ARRAY_BUFFER, len(idx), gl.STREAM_DRAW)
-	g.BufferSubData(gl.ELEMENT_ARRAY_BUFFER, 0, idx)
 }
 
-// text draws a shaped run.
+// text queues a shaped run's glyphs.
 //
 // A run under a plain translation snaps each glyph to the pixel grid,
 // to the nearest quarter pixel across and a whole pixel down, so text
@@ -94,10 +55,14 @@ func (r *renderer) text(op *paint.TextOp) {
 	if len(op.Glyphs) == 0 || op.Size <= 0 || op.Color.A == 0 {
 		return
 	}
+	r.uses(0)
 	t := op.Transform
 	plain := t.A == 1 && t.B == 0 && t.D == 0 && t.E == 1
 	sizePx := op.Size * r.scale
-	r.quads = r.quads[:0]
+	l := look{kind: kindGlyph, color0: rgba(op.Color)}
+	// Corners arrive in device pixels, placed by the glyph's own
+	// transform: the op's without its translation.
+	shape := paint.Transform{A: t.A, B: t.B, D: t.D, E: t.E}
 
 	var (
 		face   *text.Face
@@ -122,99 +87,50 @@ func (r *renderer) text(op *paint.TextOp) {
 			}
 			ox, oy, shift = fx, float32(math.Round(float64(oy))), uint8(s)
 		}
-		slot, ok := r.glyph(op, face, faceID, gly.ID, sizePx, shift)
+		slot, ok := r.glyph(glyphKeyFor(faceID, gly.ID, sizePx, shift), face, sizePx)
 		if !ok {
 			continue
 		}
-		if len(r.quads)/16 == maxQuads {
-			r.flushText(op)
-		}
+		r.uses(0)
 		x0, y0 := float32(slot.off.X), float32(slot.off.Y)
-		x1, y1 := x0+float32(slot.w), y0+float32(slot.h)
-		u0, v0 := float32(slot.x)/atlasSize, float32(slot.y)/atlasSize
-		u1, v1 := float32(slot.x+slot.w)/atlasSize, float32(slot.y+slot.h)/atlasSize
-		corner := func(cx, cy, u, v float32) {
-			if plain {
-				r.quads = append(r.quads, ox+cx, oy+cy, u, v)
-				return
-			}
-			r.quads = append(r.quads, ox+t.A*cx+t.B*cy, oy+t.D*cx+t.E*cy, u, v)
+		q := geom.Rect{Min: geom.Pt(x0, y0), Max: geom.Pt(x0+float32(slot.w), y0+float32(slot.h))}
+		uv := geom.Rect{
+			Min: geom.Pt(float32(slot.x)/atlasSize, float32(slot.y)/atlasSize),
+			Max: geom.Pt(float32(slot.x+slot.w)/atlasSize, float32(slot.y+slot.h)/atlasSize),
 		}
-		corner(x0, y0, u0, v0)
-		corner(x1, y0, u1, v0)
-		corner(x1, y1, u1, v1)
-		corner(x0, y1, u0, v1)
+		shape.C, shape.F = ox, oy
+		r.quad(corners(q, uv), shape, 1, &l)
 	}
-	r.flushText(op)
-	r.gl.BindVertexArray(r.vao)
 }
 
-// glyph returns where a glyph sits in the atlas, rasterizing and
-// uploading it on first use. It reports false for a glyph with nothing
-// to draw.
-func (r *renderer) glyph(op *paint.TextOp, face *text.Face, faceID, id uint32, sizePx float32, shift uint8) (glyphSlot, bool) {
+// glyph returns where a glyph sits in the atlas, copying it into this
+// renderer's texture on first use. It reports false for a glyph with
+// nothing to draw.
+func (r *renderer) glyph(key glyphKey, face *text.Face, sizePx float32) (glyphSlot, bool) {
+	slot, epoch, ok := r.shared.glyph(key, face, sizePx)
 	a := &r.glyphs
-	key := glyphKey{face: faceID, id: id, size: int32(math.Round(float64(sizePx) * 64)), shift: shift}
-	if slot, ok := a.slots[key]; ok {
-		return slot, slot.w > 0
+	g := r.gl
+	if epoch != a.epoch {
+		// The atlas started again, here or in another window. What is
+		// queued was placed in the old one, so it draws first.
+		r.flush()
+		clear(a.have)
+		a.epoch = epoch
+		g.ActiveTexture(gl.TEXTURE0)
+		g.BindTexture(gl.TEXTURE_2D, a.tex)
+		g.TexSubImage2D(gl.TEXTURE_2D, 0, 0, 0, atlasSize, atlasSize, glRed, gl.UNSIGNED_BYTE, make([]byte, atlasSize*atlasSize))
 	}
-	m := face.Rasterize(id, sizePx, float32(shift)/subpixel)
-	if m.W == 0 {
-		a.slots[key] = glyphSlot{}
+	if !ok {
 		return glyphSlot{}, false
 	}
-	if m.W+1 > atlasSize || m.H+1 > atlasSize {
-		return glyphSlot{}, false
+	if !a.have[key] {
+		// Queued glyphs are drawn later, from the texture as it will be
+		// then, which holds them all: a new glyph only fills an empty
+		// place.
+		g.ActiveTexture(gl.TEXTURE0)
+		g.BindTexture(gl.TEXTURE_2D, a.tex)
+		g.TexSubImage2D(gl.TEXTURE_2D, 0, int32(slot.x), int32(slot.y), int32(slot.w), int32(slot.h), glRed, gl.UNSIGNED_BYTE, slot.pix)
+		a.have[key] = true
 	}
-	if a.x+m.W+1 > atlasSize {
-		a.x, a.y, a.rowH = 0, a.y+a.rowH, 0
-	}
-	if a.y+m.H+1 > atlasSize {
-		// Full: draw what this run has queued against the glyphs it was
-		// built from, then start the atlas again.
-		r.flushText(op)
-		r.resetAtlas()
-	}
-	slot := glyphSlot{x: a.x, y: a.y, w: m.W, h: m.H, off: m.Offset}
-	g := r.gl
-	g.BindTexture(gl.TEXTURE_2D, a.tex)
-	g.TexSubImage2D(gl.TEXTURE_2D, 0, int32(slot.x), int32(slot.y), int32(m.W), int32(m.H), glRed, gl.UNSIGNED_BYTE, m.Pix)
-	a.x += m.W + 1
-	a.rowH = max(a.rowH, m.H+1)
-	a.slots[key] = slot
-	return slot, true
-}
-
-func (r *renderer) resetAtlas() {
-	a := &r.glyphs
-	clear(a.slots)
-	a.x, a.y, a.rowH = 0, 0, 0
-	g := r.gl
-	g.BindTexture(gl.TEXTURE_2D, a.tex)
-	g.TexSubImage2D(gl.TEXTURE_2D, 0, 0, 0, atlasSize, atlasSize, glRed, gl.UNSIGNED_BYTE, make([]byte, atlasSize*atlasSize))
-}
-
-// flushText draws the queued glyph quads.
-func (r *renderer) flushText(op *paint.TextOp) {
-	n := len(r.quads) / 16
-	if n == 0 {
-		return
-	}
-	r.bytes = r.bytes[:0]
-	for _, v := range r.quads {
-		r.bytes = binary.LittleEndian.AppendUint32(r.bytes, math.Float32bits(v))
-	}
-	g := r.gl
-	p := r.textProg
-	g.UseProgram(p.id)
-	g.BindVertexArray(r.textVAO)
-	g.BindBuffer(gl.ARRAY_BUFFER, r.textVBO)
-	g.BufferSubData(gl.ARRAY_BUFFER, 0, r.bytes)
-	g.ActiveTexture(gl.TEXTURE0)
-	g.BindTexture(gl.TEXTURE_2D, r.glyphs.tex)
-	g.Uniform1i(p.loc["u_atlas"], 0)
-	p.set4(g, "u_target", float32(r.fbW), float32(r.fbH))
-	p.set4(g, "u_color", rgba(op.Color)...)
-	g.DrawElements(gl.TRIANGLES, int32(n*6), glUnsignedShort, 0)
-	r.quads = r.quads[:0]
+	return slot.glyphSlot, true
 }

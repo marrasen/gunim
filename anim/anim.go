@@ -39,10 +39,10 @@ const MaxScalars = 4
 type Codec[T any] struct {
 	// N is how many scalars T uses, from 1 to MaxScalars.
 	N int
-	// Encode writes T's scalars into the first N slots of dst.
-	Encode func(v T, dst *[MaxScalars]float32)
+	// Encode returns T's scalars in the first N slots.
+	Encode func(v T) [MaxScalars]float32
 	// Decode rebuilds a T from the first N slots of src.
-	Decode func(src *[MaxScalars]float32) T
+	Decode func(src [MaxScalars]float32) T
 }
 
 // State is the live state of one animated scalar. Implementations of
@@ -101,7 +101,7 @@ func (a *Animated[T]) Value() T {
 	for i := range a.codec.N {
 		buf[i] = a.state[i].Position
 	}
-	return a.codec.Decode(&buf)
+	return a.codec.Decode(buf)
 }
 
 // Target returns where the animation is heading. At rest it matches
@@ -111,7 +111,7 @@ func (a *Animated[T]) Target() T {
 	for i := range a.codec.N {
 		buf[i] = a.state[i].To
 	}
-	return a.codec.Decode(&buf)
+	return a.codec.Decode(buf)
 }
 
 // Active reports whether an animation is in flight.
@@ -126,8 +126,7 @@ func (a *Animated[T]) Active() bool { return a.active }
 // exit and the fade runs once, start to finish. Use [Animated.Retarget]
 // to change the motion of something already in flight.
 func (a *Animated[T]) Animate(to T, m Motion) {
-	var buf [MaxScalars]float32
-	a.codec.Encode(to, &buf)
+	buf := a.codec.Encode(to)
 	if a.heading(&buf) {
 		return
 	}
@@ -137,8 +136,7 @@ func (a *Animated[T]) Animate(to T, m Motion) {
 // Retarget is Animate, and it always adopts m, even mid-flight.
 // Velocity carries over, so the change of motion stays invisible.
 func (a *Animated[T]) Retarget(to T, m Motion) {
-	var buf [MaxScalars]float32
-	a.codec.Encode(to, &buf)
+	buf := a.codec.Encode(to)
 	a.startMotion(&buf, m)
 }
 
@@ -147,8 +145,7 @@ func (a *Animated[T]) Retarget(to T, m Motion) {
 // where you want it: cutting motion dead is the jarring thing this
 // package exists to avoid.
 func (a *Animated[T]) Jump(v T) {
-	var buf [MaxScalars]float32
-	a.codec.Encode(v, &buf)
+	buf := a.codec.Encode(v)
 	for i := range a.codec.N {
 		a.state[i] = State{Position: buf[i], From: buf[i], To: buf[i]}
 	}

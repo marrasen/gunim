@@ -29,17 +29,18 @@ type Color = Animated[color.NRGBA]
 // progress value driving everything else.
 var FloatCodec = Codec[float32]{
 	N:      1,
-	Encode: func(v float32, d *[MaxScalars]float32) { d[0] = v },
-	Decode: func(s *[MaxScalars]float32) float32 { return s[0] },
+	Encode: func(v float32) (d [MaxScalars]float32) { d[0] = v; return },
+	Decode: func(s [MaxScalars]float32) float32 { return s[0] },
 }
 
 // PointCodec animates a position as two independent springs.
 var PointCodec = Codec[geom.Point]{
 	N: 2,
-	Encode: func(v geom.Point, d *[MaxScalars]float32) {
+	Encode: func(v geom.Point) (d [MaxScalars]float32) {
 		d[0], d[1] = v.X, v.Y
+		return
 	},
-	Decode: func(s *[MaxScalars]float32) geom.Point {
+	Decode: func(s [MaxScalars]float32) geom.Point {
 		return geom.Point{X: s[0], Y: s[1]}
 	},
 }
@@ -47,10 +48,11 @@ var PointCodec = Codec[geom.Point]{
 // SizeCodec animates a width and height.
 var SizeCodec = Codec[geom.Size]{
 	N: 2,
-	Encode: func(v geom.Size, d *[MaxScalars]float32) {
+	Encode: func(v geom.Size) (d [MaxScalars]float32) {
 		d[0], d[1] = v.W, v.H
+		return
 	},
-	Decode: func(s *[MaxScalars]float32) geom.Size {
+	Decode: func(s [MaxScalars]float32) geom.Size {
 		return geom.Size{W: s[0], H: s[1]}
 	},
 }
@@ -59,10 +61,11 @@ var SizeCodec = Codec[geom.Size]{
 // for a focus ring or a selection that slides between targets.
 var RectCodec = Codec[geom.Rect]{
 	N: 4,
-	Encode: func(v geom.Rect, d *[MaxScalars]float32) {
+	Encode: func(v geom.Rect) (d [MaxScalars]float32) {
 		d[0], d[1], d[2], d[3] = v.Min.X, v.Min.Y, v.Max.X, v.Max.Y
+		return
 	},
-	Decode: func(s *[MaxScalars]float32) geom.Rect {
+	Decode: func(s [MaxScalars]float32) geom.Rect {
 		return geom.Rect{Min: geom.Point{X: s[0], Y: s[1]}, Max: geom.Point{X: s[2], Y: s[3]}}
 	},
 }
@@ -74,11 +77,12 @@ var RectCodec = Codec[geom.Rect]{
 // own, straight.
 var ColorCodec = Codec[color.NRGBA]{
 	N: 4,
-	Encode: func(v color.NRGBA, d *[MaxScalars]float32) {
+	Encode: func(v color.NRGBA) (d [MaxScalars]float32) {
 		d[0], d[1], d[2] = toOklab(v)
 		d[3] = float32(v.A)
+		return
 	},
-	Decode: func(s *[MaxScalars]float32) color.NRGBA {
+	Decode: func(s [MaxScalars]float32) color.NRGBA {
 		r, g, b := fromOklab(s[0], s[1], s[2])
 		return color.NRGBA{R: r, G: g, B: b, A: clampByte(s[3])}
 	},
@@ -89,10 +93,11 @@ var ColorCodec = Codec[color.NRGBA]{
 // blend between saturated colours.
 var SRGBCodec = Codec[color.NRGBA]{
 	N: 4,
-	Encode: func(v color.NRGBA, d *[MaxScalars]float32) {
+	Encode: func(v color.NRGBA) (d [MaxScalars]float32) {
 		d[0], d[1], d[2], d[3] = float32(v.R), float32(v.G), float32(v.B), float32(v.A)
+		return
 	},
-	Decode: func(s *[MaxScalars]float32) color.NRGBA {
+	Decode: func(s [MaxScalars]float32) color.NRGBA {
 		return color.NRGBA{R: clampByte(s[0]), G: clampByte(s[1]), B: clampByte(s[2]), A: clampByte(s[3])}
 	},
 }
@@ -175,22 +180,21 @@ func clampByte(v float32) uint8 {
 // each frame, so the colours can change underneath without the
 // animation noticing.
 func Mix[T any](c Codec[T], a, b T, t float32) T {
-	var x, y [MaxScalars]float32
-	c.Encode(a, &x)
-	c.Encode(b, &y)
+	x, y := c.Encode(a), c.Encode(b)
 	for i := range c.N {
 		x[i] += (y[i] - x[i]) * t
 	}
-	return c.Decode(&x)
+	return c.Decode(x)
 }
 
 // InsetsCodec animates the four sides of a padding or margin.
 var InsetsCodec = Codec[geom.Insets]{
 	N: 4,
-	Encode: func(v geom.Insets, d *[MaxScalars]float32) {
+	Encode: func(v geom.Insets) (d [MaxScalars]float32) {
 		d[0], d[1], d[2], d[3] = v.Top, v.Right, v.Bottom, v.Left
+		return
 	},
-	Decode: func(s *[MaxScalars]float32) geom.Insets {
+	Decode: func(s [MaxScalars]float32) geom.Insets {
 		return geom.Insets{Top: s[0], Right: s[1], Bottom: s[2], Left: s[3]}
 	},
 }
@@ -199,10 +203,11 @@ var InsetsCodec = Codec[geom.Insets]{
 // make every motion gradually snappier or softer.
 var SpringCodec = Codec[Spring]{
 	N: 2,
-	Encode: func(v Spring, d *[MaxScalars]float32) {
+	Encode: func(v Spring) (d [MaxScalars]float32) {
 		d[0], d[1] = v.Response, v.Damping
+		return
 	},
-	Decode: func(s *[MaxScalars]float32) Spring {
+	Decode: func(s [MaxScalars]float32) Spring {
 		return Spring{Response: s[0], Damping: s[1]}
 	},
 }

@@ -14,6 +14,7 @@ package paint
 import (
 	"image/color"
 	"math"
+	"slices"
 
 	"github.com/marrasen/gunim/geom"
 )
@@ -24,34 +25,161 @@ import (
 // Painter to the tree and then to the driver, so a node should use it
 // and let it go.
 type Painter struct {
-	ops    []Op
-	stack  []Transform
-	cur    Transform
-	damage geom.Rect
+	ops []Op
+	// bounds holds, for each op, the part of the window it can touch.
+	// A layer's covers everything drawn inside it.
+	bounds []geom.Rect
+	// prev and prevBounds are the frame recorded before this one, and
+	// hasPrev says there was one. blurs is set when a layer blurs, and
+	// prevBlurs when one did in the frame before.
+	prev       []Op
+	prevBounds []geom.Rect
+	hasPrev    bool
+	blurs      bool
+	prevBlurs  bool
+	// open holds the index of each layer open, innermost last.
+	open  []int
+	stack []Transform
+	cur   Transform
 	// clip is the innermost clipping layer open, or nil.
 	clip *Clip
 	// ready is false in a zero Painter, whose cur has never been set;
 	// at reads it as the identity until then.
 	ready bool
+	// popFn is pop as a func value, made once, so Push allocates
+	// nothing.
+	popFn func()
+	// rrects and texts hold the ops themselves, in blocks, so a frame
+	// allocates a block now and then, never an op at a time. The blocks
+	// of the frame before this one are reused; the driver is done with
+	// them by then.
+	rrects, prevRRects slab[RRectOp]
+	texts, prevTexts   slab[TextOp]
 }
 
-// Reset clears the painter so its buffers can be reused next frame.
+// slab hands out ops from blocks it keeps from frame to frame.
+type slab[T any] struct {
+	blocks [][]T
+	// n is how many of the current block are taken, and at which
+	// block is current.
+	at, n int
+}
+
+const slabBlock = 256
+
+// take returns a zeroed T from the slab.
+func (s *slab[T]) take() *T {
+	if s.at < len(s.blocks) && s.n == slabBlock {
+		s.at, s.n = s.at+1, 0
+	}
+	if s.at == len(s.blocks) {
+		s.blocks = append(s.blocks, make([]T, slabBlock))
+	}
+	v := &s.blocks[s.at][s.n]
+	s.n++
+	var zero T
+	*v = zero
+	return v
+}
+
+// reset makes every block available again.
+func (s *slab[T]) reset() { s.at, s.n = 0, 0 }
+
+// Everything is the damage that covers the whole window.
+var Everything = geom.Rect{Min: geom.Pt(-1e9, -1e9), Max: geom.Pt(1e9, 1e9)}
+
+// Reset starts a new frame. The frame recorded so far becomes the one
+// [Painter.Damage] compares against, and the buffers of the one before
+// it are reused.
 func (p *Painter) Reset() {
-	p.ops = p.ops[:0]
+	p.hasPrev = p.ready
+	p.prev, p.ops = p.ops, p.prev[:0]
+	p.prevBounds, p.bounds = p.bounds, p.prevBounds[:0]
+	p.prevBlurs, p.blurs = p.blurs, false
+	p.prevRRects, p.rrects = p.rrects, p.prevRRects
+	p.prevTexts, p.texts = p.texts, p.prevTexts
+	p.rrects.reset()
+	p.texts.reset()
+	p.open = p.open[:0]
 	p.stack = p.stack[:0]
 	p.cur = Identity
 	p.ready = true
-	p.damage = geom.Rect{}
 	p.clip = nil
+}
+
+// Forget drops the frame Damage compares against, so the next frame's
+// damage is [Everything]. Use it when the frame recorded before is not
+// the one on screen.
+func (p *Painter) Forget() {
+	p.hasPrev = false
+	p.prev = p.prev[:0]
+	p.prevBounds = p.prevBounds[:0]
 }
 
 // Ops returns the recorded commands in draw order.
 func (p *Painter) Ops() []Op { return p.ops }
 
-// Damage returns the union of everything painted this frame. A driver
-// that can do partial presentation uses it to avoid redrawing the whole
-// window when only a button is pulsing.
-func (p *Painter) Damage() geom.Rect { return p.damage }
+// Damage returns the part of the window where this frame differs from
+// the one recorded before it: the old and new bounds of every op that
+// changed, came or went. A driver redraws just that part, so a button
+// easing into its hover colour costs the button and not the window.
+//
+// It is [Everything] for the first frame, and for a frame that blurs
+// or followed one that did, since a blur spreads a change past its
+// bounds. Ops are matched in order, so a node added early in the frame
+// damages everything painted after it, which costs time and never
+// correctness.
+func (p *Painter) Damage() geom.Rect {
+	if !p.hasPrev || p.blurs || p.prevBlurs {
+		return Everything
+	}
+	var d geom.Rect
+	n := min(len(p.ops), len(p.prev))
+	for i := range n {
+		if p.bounds[i] != p.prevBounds[i] || !sameOp(p.ops[i], p.prev[i]) {
+			d = d.Union(p.bounds[i]).Union(p.prevBounds[i])
+		}
+	}
+	for _, b := range p.bounds[n:] {
+		d = d.Union(b)
+	}
+	for _, b := range p.prevBounds[n:] {
+		d = d.Union(b)
+	}
+	return d
+}
+
+// sameOp reports whether two ops draw the same thing.
+func sameOp(a, b Op) bool {
+	switch a := a.(type) {
+	case *RRectOp:
+		b, ok := b.(*RRectOp)
+		if !ok {
+			return false
+		}
+		ga, gb := a.Fill.Gradient, b.Fill.Gradient
+		if (ga == nil) != (gb == nil) || (ga != nil && *ga != *gb) {
+			return false
+		}
+		a2, b2 := *a, *b
+		a2.Fill.Gradient, b2.Fill.Gradient = nil, nil
+		return a2 == b2
+	case *TextOp:
+		b, ok := b.(*TextOp)
+		return ok && a.Size == b.Size && a.Color == b.Color && a.Transform == b.Transform &&
+			slices.Equal(a.Glyphs, b.Glyphs)
+	case *ImageOp:
+		b, ok := b.(*ImageOp)
+		return ok && *a == *b
+	case *LayerOp:
+		b, ok := b.(*LayerOp)
+		return ok && *a == *b
+	case *LayerEndOp:
+		_, ok := b.(*LayerEndOp)
+		return ok
+	}
+	return false
+}
 
 // Transform is an affine transform, stored as the two rows of a 2x3
 // matrix. Scale and translate cover almost everything a widget does;
@@ -138,7 +266,10 @@ func (p *Painter) Push(t Transform) func() {
 	p.stack = append(p.stack, p.at())
 	p.cur = p.at().Mul(t)
 	p.ready = true
-	return p.pop
+	if p.popFn == nil {
+		p.popFn = p.pop
+	}
+	return p.popFn
 }
 
 func (p *Painter) pop() {
@@ -173,7 +304,12 @@ type LayerOpts struct {
 //
 //	defer p.Layer(paint.LayerOpts{Opacity: t, Backdrop: 12 * t})()
 func (p *Painter) Layer(o LayerOpts) func() {
+	if o.Blur > 0 || o.Backdrop > 0 {
+		p.blurs = true
+	}
 	p.record(&LayerOp{Opts: o, Transform: p.at()}, o.Bounds)
+	at := len(p.ops) - 1
+	p.open = append(p.open, at)
 	outer := p.clip
 	if o.Clip {
 		c := &Clip{outer: outer, rect: o.Bounds, radius: o.Radius}
@@ -181,7 +317,13 @@ func (p *Painter) Layer(o LayerOpts) func() {
 		p.clip = c
 	}
 	return func() {
+		if i := slices.Index(p.open, at); i >= 0 {
+			p.open = slices.Delete(p.open, i, i+1)
+		}
+		// The end covers what the layer does, since compositing it
+		// draws there.
 		p.ops = append(p.ops, &LayerEndOp{})
+		p.bounds = append(p.bounds, p.bounds[at])
 		p.clip = outer
 	}
 }
@@ -313,14 +455,24 @@ func (*TextOp) isOp()     {}
 func (*LayerOp) isOp()    {}
 func (*LayerEndOp) isOp() {}
 
-// RRect records a rounded rectangle.
-func (p *Painter) RRect(r geom.Rect, radius float32, f Fill) {
-	p.record(&RRectOp{Rect: r, Radius: radius, Fill: f, Transform: p.at()}, r)
+// rrect takes an RRectOp from the painter's blocks.
+func (p *Painter) rrect(op RRectOp) *RRectOp {
+	v := p.rrects.take()
+	*v = op
+	return v
 }
 
-// RRectStroke records a rounded rectangle with an outline.
+// RRect records a rounded rectangle.
+func (p *Painter) RRect(r geom.Rect, radius float32, f Fill) {
+	p.record(p.rrect(RRectOp{Rect: r, Radius: radius, Fill: f, Transform: p.at()}), r)
+}
+
+// RRectStroke records a rounded rectangle with an outline, which is
+// centred on the rectangle's edge.
 func (p *Painter) RRectStroke(r geom.Rect, radius float32, f Fill, s Stroke) {
-	p.record(&RRectOp{Rect: r, Radius: radius, Fill: f, Stroke: s, Transform: p.at()}, r)
+	half := s.Width / 2
+	p.record(p.rrect(RRectOp{Rect: r, Radius: radius, Fill: f, Stroke: s, Transform: p.at()}),
+		geom.Rect{Min: geom.Pt(r.Min.X-half, r.Min.Y-half), Max: geom.Pt(r.Max.X+half, r.Max.Y+half)})
 }
 
 // ShadowRRect records a rounded rectangle with a drop shadow.
@@ -329,21 +481,36 @@ func (p *Painter) ShadowRRect(r geom.Rect, radius float32, f Fill, sh Shadow) {
 		Min: geom.Pt(r.Min.X-sh.Blur-sh.Spread+sh.Offset.X, r.Min.Y-sh.Blur-sh.Spread+sh.Offset.Y),
 		Max: geom.Pt(r.Max.X+sh.Blur+sh.Spread+sh.Offset.X, r.Max.Y+sh.Blur+sh.Spread+sh.Offset.Y),
 	}
-	p.record(&RRectOp{Rect: r, Radius: radius, Fill: f, Shadow: sh, Transform: p.at()}, grown)
+	p.record(p.rrect(RRectOp{Rect: r, Radius: radius, Fill: f, Shadow: sh, Transform: p.at()}), grown.Union(r))
 }
 
 // Text records a shaped run at size logical pixels. bounds is the
 // area the run covers, for damage tracking. The text package's Run.Paint
 // is the usual way to call it.
 func (p *Painter) Text(g []Glyph, size float32, c color.NRGBA, bounds geom.Rect) {
-	p.record(&TextOp{Glyphs: g, Size: size, Color: c, Transform: p.at()}, bounds)
+	op := p.texts.take()
+	*op = TextOp{Glyphs: g, Size: size, Color: c, Transform: p.at()}
+	p.record(op, bounds)
 }
 
+// record adds op, which draws within bounds in the current space. The
+// bounds are kept in window space, whatever space the node happened to
+// be painting in, grown by a pixel and a half for antialiasing.
 func (p *Painter) record(op Op, bounds geom.Rect) {
-	p.ops = append(p.ops, op)
-	// Transform the corners so damage is tracked in window space,
-	// whatever space the node happened to be painting in.
 	t := p.at()
-	a, b := t.Apply(bounds.Min), t.Apply(bounds.Max)
-	p.damage = p.damage.Union(geom.Rect{Min: a, Max: b}.Normalized())
+	first := t.Apply(bounds.Min)
+	w := geom.Rect{Min: first, Max: first}
+	for _, c := range [...]geom.Point{{X: bounds.Max.X, Y: bounds.Min.Y}, bounds.Max, {X: bounds.Min.X, Y: bounds.Max.Y}} {
+		q := t.Apply(c)
+		w.Min = geom.Pt(min(w.Min.X, q.X), min(w.Min.Y, q.Y))
+		w.Max = geom.Pt(max(w.Max.X, q.X), max(w.Max.Y, q.Y))
+	}
+	const aa = 1.5
+	w = geom.Rect{Min: geom.Pt(w.Min.X-aa, w.Min.Y-aa), Max: geom.Pt(w.Max.X+aa, w.Max.Y+aa)}
+	p.ops = append(p.ops, op)
+	p.bounds = append(p.bounds, w)
+	// Every layer open around the op draws where it does.
+	for _, i := range p.open {
+		p.bounds[i] = p.bounds[i].Union(w)
+	}
 }

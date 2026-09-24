@@ -56,6 +56,7 @@ type defaultContext struct {
 	gpEnableVertexAttribArray  uintptr
 	gpFinish                   uintptr
 	gpFlush                    uintptr
+	gpGenerateMipmap           uintptr // gunim change
 	gpFramebufferRenderbuffer  uintptr
 	gpFramebufferTexture2D     uintptr
 	gpGenBuffers               uintptr
@@ -288,6 +289,11 @@ func (c *defaultContext) Flush() {
 	purego.SyscallN(c.gpFlush)
 }
 
+// GenerateMipmap is a gunim change.
+func (c *defaultContext) GenerateMipmap(target uint32) {
+	purego.SyscallN(c.gpGenerateMipmap, uintptr(target))
+}
+
 func (c *defaultContext) FramebufferRenderbuffer(target uint32, attachment uint32, renderbuffertarget uint32, renderbuffer uint32) {
 	purego.SyscallN(c.gpFramebufferRenderbuffer, uintptr(target), uintptr(attachment), uintptr(renderbuffertarget), uintptr(renderbuffer))
 }
@@ -514,6 +520,7 @@ func (c *defaultContext) LoadFunctions() error {
 	c.gpEnableVertexAttribArray = g.get("glEnableVertexAttribArray")
 	c.gpFinish = g.get("glFinish")
 	c.gpFlush = g.get("glFlush")
+	c.gpGenerateMipmap = g.get("glGenerateMipmap") // gunim change
 	c.gpFramebufferRenderbuffer = g.get("glFramebufferRenderbuffer")
 	c.gpFramebufferTexture2D = g.get("glFramebufferTexture2D")
 	c.gpGenBuffers = g.get("glGenBuffers")

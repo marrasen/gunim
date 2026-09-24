@@ -264,7 +264,7 @@ func (u *UI) framePopup(s *surface, f Frame) {
 		s.stale = true
 		return
 	}
-	if err := s.dw.Present(pp.Ops(), pp.Damage()); err != nil {
+	if err := s.dw.Present(pp.Ops(), paint.Everything); err != nil {
 		u.w.err = fmt.Errorf("gunim: present popup: %w", err)
 		u.closePopup(s)
 		return

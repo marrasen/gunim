@@ -1,6 +1,8 @@
 // Command controls shows gunim's controls: a drop-down, a context
 // menu and tooltips, each opening a popup window that can reach past
-// the edge of the main one.
+// the edge of the main one, and a picture that crossfades to the next.
+// The application draws the pictures and hands them to the window in
+// its state, by reference.
 //
 //	CGO_ENABLED=0 go run ./example/controls
 package main
@@ -9,20 +11,28 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"image"
 	"log"
+	"math"
 	"os"
 	"os/signal"
 	"time"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/widget"
 )
 
 // The vocabulary the two halves share.
 type (
 	// Page is the state the page renders.
-	Page struct{ Status string }
+	Page struct {
+		Status  string
+		Picture *paint.Image
+	}
+	// Next travels when the picture button is pressed.
+	Next struct{}
 	// Chose travels when the drop-down changes.
 	Chose struct{ Fruit int }
 	// Picked travels when a context menu item is picked.
@@ -36,6 +46,7 @@ func init() {
 	gunim.RegisterType[Chose]("controls.chose")
 	gunim.RegisterType[Picked]("controls.picked")
 	gunim.RegisterType[ThemeToggled]("controls.theme")
+	gunim.RegisterType[Next]("controls.next")
 }
 
 var (
@@ -70,17 +81,19 @@ func run(runFor time.Duration) error {
 		}
 		w.RegisterTheme(widget.Dark())
 		w.RegisterTheme(widget.Light())
-		gunim.RegisterView(w, "page", buildPage, func(p *page, s Page, _ *gunim.UI) {
+		gunim.RegisterView(w, "page", buildPage, func(p *page, s Page, u *gunim.UI) {
 			p.status.Text = s.Status
+			p.picture.SetSource(s.Picture, u)
 		})
 		return serve(ctx, w.Client())
 	})
 }
 
-// page is the page view, with a handle on the status line.
+// page is the page view, with handles on what updates change.
 type page struct {
 	*widget.Pad
-	status *widget.Label
+	status  *widget.Label
+	picture *widget.Image
 }
 
 func buildPage(s Page) *page {
@@ -100,16 +113,69 @@ func buildPage(s Page) *page {
 	toggle.On = ThemeToggled{}
 	tipped := widget.NewTooltip(toggle, "Switches between the dark and light themes")
 
+	picture := widget.NewImage(s.Picture)
+	picture.Fit, picture.Radius, picture.Size = widget.FitCover, 10, geom.Sz(240, 150)
+	next := widget.NewButton("Next picture")
+	next.On = Next{}
+	pictureRow := widget.Row(picture, next)
+	pictureRow.Cross = widget.CrossEnd
+
 	status := widget.NewLabel(s.Status)
-	col := widget.Column(title, fruitRow, menu, widget.Row(tipped), status)
+	col := widget.Column(title, fruitRow, menu, widget.Row(tipped), pictureRow, status)
 	col.Cross = widget.CrossStretch
-	return &page{Pad: widget.NewPad(col), status: status}
+	return &page{Pad: widget.NewPad(col), status: status, picture: picture}
+}
+
+// pictures draws a few pictures to page through: soft bands of colour
+// in different hues.
+func pictures() []*paint.Image {
+	var out []*paint.Image
+	for _, hue := range []float64{0.58, 0.05, 0.33, 0.8} {
+		m := image.NewRGBA(image.Rect(0, 0, 480, 300))
+		for y := range 300 {
+			for x := range 480 {
+				fx, fy := float64(x)/480, float64(y)/300
+				v := 0.5 + 0.5*math.Sin(9*fx+4*math.Sin(5*fy+hue*6))
+				r, g, b := hsv(hue+0.08*v, 0.55+0.3*fy, 0.45+0.5*v)
+				i := m.PixOffset(x, y)
+				m.Pix[i], m.Pix[i+1], m.Pix[i+2], m.Pix[i+3] = r, g, b, 0xff
+			}
+		}
+		out = append(out, paint.NewImage(m))
+	}
+	return out
+}
+
+func hsv(h, s, v float64) (r, g, b uint8) {
+	h = (h - math.Floor(h)) * 6
+	c := v * s
+	x := c * (1 - math.Abs(math.Mod(h, 2)-1))
+	var rf, gf, bf float64
+	switch int(h) {
+	case 0:
+		rf, gf = c, x
+	case 1:
+		rf, gf = x, c
+	case 2:
+		gf, bf = c, x
+	case 3:
+		gf, bf = x, c
+	case 4:
+		rf, bf = x, c
+	default:
+		rf, bf = c, x
+	}
+	m := v - c
+	return uint8((rf + m) * 255), uint8((gf + m) * 255), uint8((bf + m) * 255)
 }
 
 func serve(ctx context.Context, c gunim.Client) error {
-	if err := c.Mount(gunim.Root, "page", "page", Page{Status: "Nothing chosen yet."}); err != nil {
+	pics := pictures()
+	state := Page{Status: "Nothing chosen yet.", Picture: pics[0]}
+	if err := c.Mount(gunim.Root, "page", "page", state); err != nil {
 		return err
 	}
+	shown := 0
 	light := false
 	for {
 		select {
@@ -121,9 +187,15 @@ func serve(ctx context.Context, c gunim.Client) error {
 			}
 			switch v := ev.Intent.(type) {
 			case Chose:
-				_ = c.Update("page", Page{Status: fmt.Sprintf("Chose %s.", fruits[v.Fruit])})
+				state.Status = fmt.Sprintf("Chose %s.", fruits[v.Fruit])
+				_ = c.Update("page", state)
 			case Picked:
-				_ = c.Update("page", Page{Status: fmt.Sprintf("Picked %s.", actions[v.Action])})
+				state.Status = fmt.Sprintf("Picked %s.", actions[v.Action])
+				_ = c.Update("page", state)
+			case Next:
+				shown = (shown + 1) % len(pics)
+				state.Picture = pics[shown]
+				_ = c.Update("page", state)
 			case ThemeToggled:
 				light = !light
 				_ = c.SetTheme(map[bool]string{false: "dark", true: "light"}[light])

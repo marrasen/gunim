@@ -181,3 +181,6 @@ var (
 	TooltipRadius  = theme.Length("tooltip.radius", 6)
 	TooltipPadding = theme.Insets("tooltip.padding", geom.Insets{Top: 4, Right: 8, Bottom: 5, Left: 8})
 )
+
+// Crossfade is the motion an [Image] fades with.
+var Crossfade = theme.Spring("motion.crossfade", anim.Gentle)

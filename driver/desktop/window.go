@@ -49,7 +49,7 @@ type Window struct {
 
 	in        *inbox
 	presented chan driver.Frame
-	frames    chan []paint.Op
+	frames    chan frame
 	quit      chan struct{}
 	done      chan struct{}
 	// closeOnce runs Close once; quitOnce closes quit once, whichever
@@ -115,7 +115,7 @@ func newWindow(d *Driver, gw *glfw.Window) *Window {
 		d:         d,
 		gw:        gw,
 		presented: make(chan driver.Frame, 1),
-		frames:    make(chan []paint.Op, 1),
+		frames:    make(chan frame, 1),
 		quit:      make(chan struct{}),
 		drew:      make(chan struct{}, 1),
 		done:      make(chan struct{}),
@@ -135,7 +135,7 @@ func (w *Window) Input() <-chan any { return w.in.out }
 
 // Present implements [driver.Window]. It hands ops to the render thread
 // and returns at once.
-func (w *Window) Present(ops []paint.Op, _ geom.Rect) error {
+func (w *Window) Present(ops []paint.Op, damage geom.Rect) error {
 	w.mu.Lock()
 	err := w.err
 	w.mu.Unlock()
@@ -145,7 +145,7 @@ func (w *Window) Present(ops []paint.Op, _ geom.Rect) error {
 	select {
 	case <-w.quit:
 		return errClosed
-	case w.frames <- ops:
+	case w.frames <- frame{ops, damage}:
 		return nil
 	default:
 		return errors.New("desktop: Present called with a frame already in flight")
@@ -550,6 +550,13 @@ func (w *Window) install() {
 	installText(w)
 }
 
+// frame is one frame for the render thread: its ops, and the part of
+// the window that changed since the frame before.
+type frame struct {
+	ops    []paint.Op
+	damage geom.Rect
+}
+
 // render is the window's render thread. It owns the GL context: it
 // replays each frame the engine presents, swaps, and reports the frame
 // shown once the swap returns.
@@ -577,18 +584,18 @@ func (w *Window) render() {
 
 	var last time.Time
 	for {
-		var ops []paint.Op
+		var f frame
 		select {
 		case <-w.quit:
 			return
-		case ops = <-w.frames:
+		case f = <-w.frames:
 		}
 		if r != nil {
 			w.mu.Lock()
 			fbW, fbH, scale, rate := w.fbW, w.fbH, w.scale, w.rate
 			readback := w.readback
 			w.mu.Unlock()
-			r.draw(ops, fbW, fbH, scale)
+			r.draw(f.ops, f.damage, fbW, fbH, scale)
 			if readback != nil {
 				pix := make([]byte, fbW*fbH*4)
 				r.gl.ReadPixels(pix, 0, 0, int32(fbW), int32(fbH), gl.RGBA, gl.UNSIGNED_BYTE)
@@ -662,7 +669,7 @@ func (w *Window) startGL() (*renderer, error) {
 	if err := ctx.LoadFunctions(); err != nil {
 		return nil, fmt.Errorf("desktop: %w", err)
 	}
-	return newRenderer(ctx, w.d.isES)
+	return newRenderer(ctx, w.d.isES, &w.d.shared)
 }
 
 // fail records an error for the next Present to return.

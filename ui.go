@@ -326,11 +326,19 @@ func (c Client) Close() { c.w.Close() }
 // NewOffscreen returns a window backed by no display, with the frame
 // loop left to the caller.
 //
-// Drive it with [Window.Frame] and read the result from the driver's
-// op list. It is how a test steps an interface a frame at a time, and
-// how a build machine renders one with no display attached.
+// Drive it with [Window.Frame] and read the result from
+// [Window.Offscreen]. It is how a test steps an interface a frame at a
+// time, and how a build machine renders one with no display attached.
 func NewOffscreen(size geom.Size, root Node) *Window {
 	return newWindow(driver.Offscreen(size), root)
+}
+
+// Offscreen returns the driver window behind a window from
+// [NewOffscreen], which holds the last frame's ops, and nil for a
+// window on a display.
+func (w *Window) Offscreen() *driver.OffscreenWindow {
+	d, _ := w.dw.(*driver.OffscreenWindow)
+	return d
 }
 
 // Frame advances the window by delta and draws once.

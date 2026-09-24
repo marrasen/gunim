@@ -333,6 +333,15 @@ func (d *DebugContext) Flush() {
 	}
 }
 
+// GenerateMipmap is a gunim change.
+func (d *DebugContext) GenerateMipmap(arg0 uint32) {
+	d.Context.GenerateMipmap(arg0)
+	fmt.Fprintln(os.Stderr, "GenerateMipmap")
+	if e := d.Context.GetError(); e != NO_ERROR {
+		panic(fmt.Sprintf("gl: GetError() returned %d at GenerateMipmap", e))
+	}
+}
+
 func (d *DebugContext) FramebufferRenderbuffer(arg0 uint32, arg1 uint32, arg2 uint32, arg3 uint32) {
 	d.Context.FramebufferRenderbuffer(arg0, arg1, arg2, arg3)
 	fmt.Fprintln(os.Stderr, "FramebufferRenderbuffer")

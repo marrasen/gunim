@@ -21,28 +21,25 @@ var blurFactors = [...]int{1, 2, 4}
 // pixels at the resolution the blur runs at.
 const maxTaps = 64
 
+// blurShader reads its source on unit 1. v_extra.xy is one texel of
+// the target along the pass's direction, and v_extra.z the standard
+// deviation in the target's pixels.
 const blurShader = `
-in vec2 v_local;
 in vec2 v_uv;
-uniform sampler2D u_src;
-// u_dst is the size in pixels of the target this pass draws into.
-uniform vec2 u_dst;
-// u_dir is (1, 0) for the horizontal pass and (0, 1) for the vertical.
-uniform vec2 u_dir;
-// u_sigma is the standard deviation, in pixels of the target.
-uniform float u_sigma;
+in vec4 v_extra;
+uniform sampler2D u_tex;
 out vec4 fragColor;
 
 void main() {
 	vec2 uv = v_uv;
-	vec2 texel = u_dir / u_dst;
-	float s = max(u_sigma, 0.0001);
+	vec2 texel = v_extra.xy;
+	float s = max(v_extra.z, 0.0001);
 	int n = min(int(ceil(3.0 * s)), 64);
-	vec4 acc = texture(u_src, uv);
+	vec4 acc = texture(u_tex, uv);
 	float total = 1.0;
 	for (int i = 1; i <= n; i++) {
 		float w = exp(-0.5 * float(i * i) / (s * s));
-		acc += w * (texture(u_src, uv + texel * float(i)) + texture(u_src, uv - texel * float(i)));
+		acc += w * (texture(u_tex, uv + texel * float(i)) + texture(u_tex, uv - texel * float(i)));
 		total += 2.0 * w;
 	}
 	fragColor = acc / total;
@@ -70,14 +67,8 @@ func (r *renderer) blur(src uint32, region geom.Rect, sigma float32) uint32 {
 	reach := float32(math.Ceil(float64(min(3*s, maxTaps)))) + 1
 
 	g := r.gl
-	p := r.blurProg
-	g.UseProgram(p.id)
-	g.BindVertexArray(r.vao)
-	r.common(p, r.window(), paint.Identity)
-	p.set4(g, "u_dst", float32(w), float32(h))
-	p.set4(g, "u_sigma", s)
-	g.Uniform1i(p.loc["u_src"], 0)
-	g.ActiveTexture(gl.TEXTURE0)
+	r.flush()
+	g.UseProgram(r.blurProg.id)
 	g.Viewport(0, 0, int32(w), int32(h))
 	g.Disable(gl.BLEND)
 	g.Enable(gl.SCISSOR_TEST)
@@ -97,14 +88,17 @@ func (r *renderer) blur(src uint32, region geom.Rect, sigma float32) uint32 {
 		sx, sy, sw, sh := scissor(grow4(scaled, pass.grow), w, h)
 		g.Scissor(sx, sy, sw, sh)
 		g.BindFramebuffer(gl.FRAMEBUFFER, pass.dst)
-		g.BindTexture(gl.TEXTURE_2D, pass.src)
-		p.set4(g, "u_dir", pass.dir[0], pass.dir[1])
-		r.quad()
+		r.uses(pass.src)
+		r.quad(corners(r.window(), geom.Rect{}), paint.Identity, r.scale, &look{
+			extra: [4]float32{pass.dir[0] / float32(w), pass.dir[1] / float32(h), s, 0},
+		})
+		r.flush()
 	}
 
 	g.Disable(gl.SCISSOR_TEST)
 	g.Enable(gl.BLEND)
 	g.Viewport(0, 0, int32(r.fbW), int32(r.fbH))
+	g.UseProgram(r.drawProg.id)
 	return pair[1].tex
 }
 
