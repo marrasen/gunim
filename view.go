@@ -169,7 +169,7 @@ func (u *UI) apply(c Command) {
 	}
 }
 
-func commandTarget(c Command) (ID, string) {
+func commandTarget(c Command) (id ID, key string) {
 	switch c := c.(type) {
 	case Mount:
 		return c.ID, ""

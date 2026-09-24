@@ -6,6 +6,7 @@ import (
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 )
 
@@ -75,15 +76,15 @@ func (d *Dialog) finish(u *gunim.UI, what gunim.Intent) {
 }
 
 // Handle implements [gunim.Handler]. Escape dismisses.
-func (d *Dialog) Handle(e gunim.Event, u *gunim.UI) bool {
-	if k, ok := e.(gunim.KeyPress); ok && k.Key == gunim.KeyEscape {
+func (d *Dialog) Handle(e input.Event, u *gunim.UI) bool {
+	if k, ok := e.(input.KeyPress); ok && k.Key == input.KeyEscape {
 		d.finish(u, d.Dismiss)
 		return true
 	}
 	// A modal swallows the pointer events that reach it, keeping clicks
 	// off whatever lies behind.
 	switch e.(type) {
-	case gunim.PointerDown, gunim.PointerUp, gunim.Scroll:
+	case input.PointerDown, input.PointerUp, input.Scroll:
 		return true
 	}
 	return false

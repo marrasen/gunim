@@ -40,7 +40,7 @@ func run() error {
 		return serve(ctx, w.Client())
 	})
 	if errors.Is(err, driver.ErrNoDriver) {
-		log.Print("no platform driver yet: see driver/driver.go")
+		log.Print("gunim has no driver for this operating system yet")
 		return nil
 	}
 	return err

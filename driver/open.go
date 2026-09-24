@@ -2,14 +2,11 @@ package driver
 
 import "errors"
 
-// ErrNoDriver is returned by [Open] until a platform driver is wired
-// in.
-var ErrNoDriver = errors.New("driver: no platform driver built in; see the package doc for the plan")
+// ErrNoDriver is returned when no platform driver is built in for the
+// operating system gunim is running on.
+var ErrNoDriver = errors.New("driver: no platform driver for this operating system")
 
-// Open connects to the display server.
-//
-// The real implementation is a build-tagged file per platform, each
-// returning a driver built on the forked Ebitengine GLFW port. This
-// stub holds that place while the layers above it are designed, so they
-// compile and their tests run on a machine with no display.
-func Open() (Driver, error) { return nil, ErrNoDriver }
+// Redraw is sent on [Window.Input] when the window needs drawing again
+// with no input behind it: after a resize, a move to another monitor,
+// or the display server asking for the contents back.
+type Redraw struct{}

@@ -5,8 +5,16 @@ the display's refresh rate.
 
 ## Status
 
-The API is a sketch. It compiles, `go vet` is clean, and the tests pass.
-`driver.Open` returns `ErrNoDriver`, so drawing comes next.
+The API is a sketch, and windows draw. `example/twowindows` opens two
+windows, each animating a rounded rectangle on its own render thread,
+built with `CGO_ENABLED=0`:
+
+```sh
+CGO_ENABLED=0 go run ./example/twowindows -for 5s
+```
+
+It has run on Linux under X11. Windows and macOS build but are still
+untested. Text is not drawn yet.
 
 ## The split
 
@@ -173,8 +181,10 @@ the far end knows what to decode it into:
 | `gunim/anim` | `Animated[T]`, springs, tweens, easings |
 | `gunim/paint` | The per-frame draw list: rounded rects, shadows, text, layers |
 | `gunim/geom` | float32 points, sizes, rectangles |
-| `gunim/driver` | The seam with the operating system |
-| `gunim/widget` | Worked examples: `Button`, `Dialog` |
+| `gunim/input` | Pointer, keyboard and focus events, keys, buttons, modifiers |
+| `gunim/driver` | The seam with the operating system, and an offscreen window |
+| `gunim/driver/desktop` | The driver for Linux, Windows and macOS, on GLFW and OpenGL |
+| `gunim/widget` | Worked examples: `Button`, `Dialog`, a keyed `List` |
 
 Commands, intents, topics and the `Client` live in `wire.go` and
 `view.go`. `driver.Offscreen` plus `Window.Frame` run a window with no
@@ -195,8 +205,23 @@ monitor and shared GL objects are all available down there. Ebitengine
 confines itself to a single window in `internal/ui`, one layer up, and
 that is the layer gunim replaces.
 
-A gunim driver is `internal/glfw` forked and exported, plus the GL calls
-to replay a `paint` op list.
+`internal/glfw` and `internal/gl` are copies of Ebitengine's, with two
+changes listed in `internal/README.md`. The main one tracks the current
+GL context per thread, so each window can render on a thread of its
+own.
+
+`driver/desktop` pumps GLFW events on the main thread, and gives each
+window a render thread that owns its GL context. The render thread
+replays the frame's `paint` ops, swaps buffers, and reports the frame
+shown once the swap returns. That report is what paces the window, so
+two windows on two monitors keep two refresh rates. Where the swap does
+not wait for the display, as under a remote desktop, the render thread
+sleeps out the rest of the refresh itself.
+
+Every shape is one quad and one signed distance field, so rounded
+rectangles, strokes, gradients and shadows stay crisp at any scale. A
+layer draws into an offscreen texture and is composited back with its
+opacity and rounded clip.
 
 On Linux that port speaks X11, so a Wayland desktop runs gunim through
 XWayland. That suits free-floating popups: X11 lets a client place a
@@ -205,6 +230,14 @@ anchored to its parent.
 
 ## Next
 
-One milestone covers most of the risk: two windows, on two monitors at
-different refresh rates, each drawing an animated rounded rectangle,
-`CGO_ENABLED=0`, on Linux and Windows. Widgets, layout and text follow.
+The first milestone is two windows on two monitors at different refresh
+rates, each drawing an animated rounded rectangle, with
+`CGO_ENABLED=0`, on Linux and Windows. It runs on one Linux monitor so
+far. What remains:
+
+- Run it on two monitors at different rates, on real GPU hardware.
+- Run it on Windows.
+- Draw text, which the renderer skips today.
+- Draw the `Blur` and `Backdrop` of a layer, which it also skips.
+
+Widgets and layout follow.

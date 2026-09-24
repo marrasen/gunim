@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"github.com/marrasen/gunim/driver"
+	"github.com/marrasen/gunim/driver/desktop"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 )
 
@@ -41,7 +43,7 @@ import (
 // The error Main returns is the one fn returned, joined with any error
 // the platform event loop ended on.
 func Main(ctx context.Context, fn func(*App) error) error {
-	drv, err := driver.Open()
+	drv, err := desktop.Open()
 	if err != nil {
 		return fmt.Errorf("gunim: open display: %w", err)
 	}
@@ -123,6 +125,53 @@ func (a *App) NewWindow(o WindowOptions) (*Window, error) {
 	w := newWindow(dw, o.Root)
 	go w.loop()
 	return w, nil
+}
+
+// A Window is one on-screen window and the UI goroutine that drives it.
+//
+// Everything inside a window — the tree, the focus, what the pointer is
+// over — belongs to that goroutine. Application code sends commands in
+// through [Window.Client] and hears back on [Client.Intents]. Because the
+// goroutine alone decides when a node dies, the engine can keep a
+// removed dialog alive for as long as its exit animation needs.
+type Window struct {
+	dw   driver.Window
+	ui   *UI
+	out  chan Envelope
+	done chan struct{}
+	// wake nudges the loop when a command arrives. It holds one token,
+	// because one nudge is as good as a hundred.
+	wake chan struct{}
+
+	// inFlight is true from Present until the driver reports the frame
+	// shown. shown is when the last one was, and due is when the frame
+	// most recently drawn is predicted to be. All three belong to the
+	// UI goroutine.
+	inFlight bool
+	shown    time.Time
+	due      time.Time
+
+	closeOnce sync.Once
+	// clock is the synthetic frame time used by [Window.Frame], so an
+	// offscreen window steps at whatever rate the caller chooses.
+	clock time.Time
+
+	// inMu guards the inbound queue, which application goroutines fill
+	// and the UI goroutine drains once a frame.
+	inMu sync.Mutex
+	// pending is the batch the next frame will apply, and barrier is
+	// where coalescing may start: everything before it was queued ahead
+	// of a command that changes what exists.
+	pending []Command
+	barrier int
+	stats   windowStats
+
+	mu    sync.RWMutex
+	views map[string]*view
+	// err holds whatever ended the window. The UI goroutine writes it
+	// before closing events, and [Window.Err] reads it afterwards, so
+	// closing the channel carries the handover.
+	err error
 }
 
 // newWindow builds a window and its tree, leaving the UI goroutine to
@@ -270,53 +319,6 @@ func (w *Window) Frame(delta time.Duration) {
 	w.applyPending()
 	w.clock = w.clock.Add(delta)
 	w.ui.frame(w.clock, delta)
-}
-
-// A Window is one on-screen window and the UI goroutine that drives it.
-//
-// Everything inside a window — the tree, the focus, what the pointer is
-// over — belongs to that goroutine. Application code sends commands in
-// through [Window.Client] and hears back on [Client.Intents]. Because the
-// goroutine alone decides when a node dies, the engine can keep a
-// removed dialog alive for as long as its exit animation needs.
-type Window struct {
-	dw   driver.Window
-	ui   *UI
-	out  chan Envelope
-	done chan struct{}
-	// wake nudges the loop when a command arrives. It holds one token,
-	// because one nudge is as good as a hundred.
-	wake chan struct{}
-
-	// inFlight is true from Present until the driver reports the frame
-	// shown. shown is when the last one was, and due is when the frame
-	// most recently drawn is predicted to be. All three belong to the
-	// UI goroutine.
-	inFlight bool
-	shown    time.Time
-	due      time.Time
-
-	closeOnce sync.Once
-	// clock is the synthetic frame time used by [Window.Frame], so an
-	// offscreen window steps at whatever rate the caller chooses.
-	clock time.Time
-
-	// inMu guards the inbound queue, which application goroutines fill
-	// and the UI goroutine drains once a frame.
-	inMu sync.Mutex
-	// pending is the batch the next frame will apply, and barrier is
-	// where coalescing may start: everything before it was queued ahead
-	// of a command that changes what exists.
-	pending []Command
-	barrier int
-	stats   windowStats
-
-	mu    sync.RWMutex
-	views map[string]*view
-	// err holds whatever ended the window. The UI goroutine writes it
-	// before closing events, and [Window.Err] reads it afterwards, so
-	// closing the channel carries the handover.
-	err error
 }
 
 // Err returns the error that ended the window. Read it once
@@ -711,7 +713,7 @@ func reenter(s *state) {
 // exactly as long as it asks for.
 //
 // Input skips a leaving node, so focus and hover inside n end here,
-// with [FocusLost] and [PointerLeave] sent as usual.
+// with [input.FocusLost] and [input.PointerLeave] sent as usual.
 func (u *UI) Remove(n Node) {
 	s, ok := u.index[n]
 	if !ok || s == u.root {
@@ -723,7 +725,7 @@ func (u *UI) Remove(n Node) {
 		u.Focus(nil)
 	}
 	if u.hover != nil && u.hover.within(s) {
-		u.send(u.hover, PointerLeave{Time: u.now})
+		u.deliver(u.hover, input.PointerLeave{Time: u.now})
 		u.hover = nil
 	}
 }
@@ -736,8 +738,8 @@ func (u *UI) Presence(n Node) Presence {
 	return Exiting
 }
 
-// Focus moves keyboard focus to n, sending [FocusLost] and
-// [FocusGained] to the nodes concerned. Pass nil to drop focus.
+// Focus moves keyboard focus to n, sending [input.FocusLost] and
+// [input.FocusGained] to the nodes concerned. Pass nil to drop focus.
 //
 // A node that is leaving takes no input, so focusing one does nothing.
 func (u *UI) Focus(n Node) {
@@ -752,11 +754,11 @@ func (u *UI) Focus(n Node) {
 		return
 	}
 	if u.focus != nil {
-		u.send(u.focus, FocusLost{Time: u.now})
+		u.deliver(u.focus, input.FocusLost{Time: u.now})
 	}
 	u.focus = next
 	if next != nil {
-		u.send(next, FocusGained{Time: u.now})
+		u.deliver(next, input.FocusGained{Time: u.now})
 	}
 	u.invalid = true
 }

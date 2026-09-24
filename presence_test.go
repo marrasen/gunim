@@ -7,6 +7,7 @@ import (
 
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 )
 
@@ -271,10 +272,10 @@ func TestInsertIntoOwnSubtreePanics(t *testing.T) {
 
 // recorder is a node that fills the window and logs what it is sent.
 type recorder struct {
-	events []Event
+	events []input.Event
 }
 
-func (r *recorder) Handle(e Event, _ *UI) bool {
+func (r *recorder) Handle(e input.Event, _ *UI) bool {
 	r.events = append(r.events, e)
 	return true
 }
@@ -282,7 +283,7 @@ func (r *recorder) Handle(e Event, _ *UI) bool {
 func (r *recorder) Layout(c Constraints, _ Frame, _ Children) geom.Size { return c.Max }
 func (r *recorder) Paint(*paint.Painter, Frame, geom.Size, Children)    {}
 
-func (r *recorder) got(want Event) bool {
+func (r *recorder) got(want input.Event) bool {
 	for _, e := range r.events {
 		if reflect.TypeOf(e) == reflect.TypeOf(want) {
 			return true
@@ -299,7 +300,7 @@ func TestRemovedNodeGivesUpFocusAndHover(t *testing.T) {
 	w.ui.Insert(group, r)
 	run(w, 1)
 
-	w.ui.handlePlatform(PointerMove{Pos: geom.Pt(10, 10), Time: time.Now()})
+	w.ui.handlePlatform(input.PointerMove{Pos: geom.Pt(10, 10), Time: time.Now()})
 	w.ui.Focus(r)
 	if w.ui.focus == nil || w.ui.hover == nil {
 		t.Fatal("setup: recorder should hold focus and hover")
@@ -313,8 +314,8 @@ func TestRemovedNodeGivesUpFocusAndHover(t *testing.T) {
 	if w.ui.hover != nil {
 		t.Fatal("a leaving node kept hover")
 	}
-	if !r.got(FocusLost{}) || !r.got(PointerLeave{}) {
-		t.Fatalf("recorder saw %v, want FocusLost and PointerLeave", r.events)
+	if !r.got(input.FocusLost{}) || !r.got(input.PointerLeave{}) {
+		t.Fatalf("recorder saw %v, want input.FocusLost and input.PointerLeave", r.events)
 	}
 
 	w.ui.Focus(r)

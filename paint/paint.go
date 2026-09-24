@@ -197,11 +197,6 @@ type Glyph struct {
 // An Op is one recorded draw command.
 type Op interface{ isOp() }
 
-func (*RRectOp) isOp()    {}
-func (*TextOp) isOp()     {}
-func (*LayerOp) isOp()    {}
-func (*LayerEndOp) isOp() {}
-
 // LayerOp opens an offscreen group; LayerEndOp composites it.
 type LayerOp struct {
 	Opts      LayerOpts
@@ -210,6 +205,11 @@ type LayerOp struct {
 
 // LayerEndOp closes the most recently opened layer.
 type LayerEndOp struct{}
+
+func (*RRectOp) isOp()    {}
+func (*TextOp) isOp()     {}
+func (*LayerOp) isOp()    {}
+func (*LayerEndOp) isOp() {}
 
 // RRect records a rounded rectangle.
 func (p *Painter) RRect(r geom.Rect, radius float32, f Fill) {

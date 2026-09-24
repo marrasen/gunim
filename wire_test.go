@@ -7,6 +7,7 @@ import (
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/driver"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 )
 
@@ -58,8 +59,8 @@ func (p *probe) Transition(s Presence) bool {
 	return !p.in.Active()
 }
 
-func (p *probe) Handle(e Event, u *UI) bool {
-	if _, ok := e.(PointerDown); ok {
+func (p *probe) Handle(e input.Event, u *UI) bool {
+	if _, ok := e.(input.PointerDown); ok {
 		p.hits++
 		u.Send(p, ping{N: p.hits})
 		return true
@@ -331,7 +332,7 @@ func TestClickTravelsBackAsAnIntent(t *testing.T) {
 	}
 	run(w, 60)
 
-	w.ui.handlePlatform(PointerDown{Pos: geom.Pt(10, 10), Time: time.Now()})
+	w.ui.handlePlatform(input.PointerDown{Pos: geom.Pt(10, 10), Time: time.Now()})
 
 	ev := take(t, c)
 	if ev.From != "panel" {

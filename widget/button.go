@@ -13,6 +13,7 @@ import (
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 )
 
@@ -78,28 +79,28 @@ func (b *Button) OnActivate(fn func(*gunim.UI)) { b.activate = fn }
 func (b *Button) SetLabel(label string) { b.Label = label }
 
 // Handle implements [gunim.Handler].
-func (b *Button) Handle(e gunim.Event, u *gunim.UI) bool {
+func (b *Button) Handle(e input.Event, u *gunim.UI) bool {
 	switch e := e.(type) {
-	case gunim.PointerEnter:
+	case input.PointerEnter:
 		b.fill.Animate(buttonHover, anim.Snappy)
-	case gunim.PointerLeave:
+	case input.PointerLeave:
 		b.fill.Animate(buttonIdle, anim.Gentle)
 		// Releasing outside the button cancels the press, and the
 		// squash springs back on its own.
 		b.held = false
 		b.press.Animate(0, anim.Bouncy)
-	case gunim.PointerDown:
+	case input.PointerDown:
 		b.held = true
 		b.press.Animate(1, anim.Snappy)
-	case gunim.PointerUp:
+	case input.PointerUp:
 		if !b.held {
 			return false
 		}
 		b.held = false
 		b.press.Animate(0, anim.Bouncy)
 		b.fire(u)
-	case gunim.KeyPress:
-		if e.Key != gunim.KeySpace && e.Key != gunim.KeyEnter {
+	case input.KeyPress:
+		if e.Key != input.KeySpace && e.Key != input.KeyEnter {
 			return false
 		}
 		// Keyboard activation runs the same squash, so the button
@@ -107,9 +108,9 @@ func (b *Button) Handle(e gunim.Event, u *gunim.UI) bool {
 		b.press.Retarget(1, anim.Snappy)
 		b.press.Animate(0, anim.Bouncy)
 		b.fire(u)
-	case gunim.FocusGained:
+	case input.FocusGained:
 		b.ring.Animate(1, anim.Snappy)
-	case gunim.FocusLost:
+	case input.FocusLost:
 		b.ring.Animate(0, anim.Gentle)
 	default:
 		return false

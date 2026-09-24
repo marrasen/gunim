@@ -10,8 +10,8 @@
 // change. In this process the values cross as they are, and
 // wire_test.go proves each one would also survive a socket.
 //
-// Running it prints a message and exits, because driver.Open is still a
-// stub. Everything above that line is real.
+// Running it opens a window with three jobs. Text is not drawn yet, so
+// the rows and their buttons show without labels.
 package main
 
 import "github.com/marrasen/gunim"

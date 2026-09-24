@@ -1,4 +1,9 @@
-package gunim
+// Package input holds the events a window delivers to its nodes, and
+// the keys, buttons and modifiers they carry.
+//
+// It sits below both gunim and the driver, so a driver can report input
+// in the same types a node receives.
+package input
 
 import (
 	"time"
@@ -7,7 +12,7 @@ import (
 )
 
 // An Event is something that happened to a node: pointer, keyboard or
-// focus. Nodes receive events by implementing [Handler].
+// focus. Nodes receive events by implementing gunim.Handler.
 type Event interface{ isEvent() }
 
 // Pointer events carry Pos in the receiving node's own coordinate
@@ -154,23 +159,101 @@ func (m Mods) Has(want Mods) bool { return m&want == want }
 
 // Key is a physical key, whatever layout is in force. Matching on the
 // physical key keeps a shortcut on the same spot on the keyboard for
-// QWERTY and Dvorak alike.
+// QWERTY and Dvorak alike. Each key is named after what it shows on a
+// US keyboard.
 type Key uint16
 
-// A representative slice of the key set. The full table is generated
-// from the platform layer's scancode maps.
+// The keys gunim reports.
 const (
 	KeyUnknown Key = iota
+
 	KeyA
 	KeyB
 	KeyC
+	KeyD
+	KeyE
+	KeyF
+	KeyG
+	KeyH
+	KeyI
+	KeyJ
+	KeyK
+	KeyL
+	KeyM
+	KeyN
+	KeyO
+	KeyP
+	KeyQ
+	KeyR
+	KeyS
+	KeyT
+	KeyU
+	KeyV
+	KeyW
+	KeyX
+	KeyY
+	KeyZ
+
+	Key0
+	Key1
+	Key2
+	Key3
+	Key4
+	Key5
+	Key6
+	Key7
+	Key8
+	Key9
+
+	KeyF1
+	KeyF2
+	KeyF3
+	KeyF4
+	KeyF5
+	KeyF6
+	KeyF7
+	KeyF8
+	KeyF9
+	KeyF10
+	KeyF11
+	KeyF12
+
 	KeyEscape
 	KeyEnter
 	KeyTab
 	KeySpace
 	KeyBackspace
+	KeyDelete
+	KeyInsert
 	KeyLeft
 	KeyRight
 	KeyUp
 	KeyDown
+	KeyHome
+	KeyEnd
+	KeyPageUp
+	KeyPageDown
+
+	KeyMinus
+	KeyEqual
+	KeyLeftBracket
+	KeyRightBracket
+	KeyBackslash
+	KeySemicolon
+	KeyApostrophe
+	KeyGraveAccent
+	KeyComma
+	KeyPeriod
+	KeySlash
+
+	KeyLeftShift
+	KeyRightShift
+	KeyLeftControl
+	KeyRightControl
+	KeyLeftAlt
+	KeyRightAlt
+	KeyLeftSuper
+	KeyRightSuper
+	KeyCapsLock
+	KeyMenu
 )

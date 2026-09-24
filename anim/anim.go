@@ -131,7 +131,7 @@ func (a *Animated[T]) Animate(to T, m Motion) {
 	if a.heading(&buf) {
 		return
 	}
-	a.retarget(&buf, m)
+	a.startMotion(&buf, m)
 }
 
 // Retarget is Animate, and it always adopts m, even mid-flight.
@@ -139,7 +139,7 @@ func (a *Animated[T]) Animate(to T, m Motion) {
 func (a *Animated[T]) Retarget(to T, m Motion) {
 	var buf [MaxScalars]float32
 	a.codec.Encode(to, &buf)
-	a.retarget(&buf, m)
+	a.startMotion(&buf, m)
 }
 
 // Jump moves to v at once, cancelling anything in flight. Use it to set
@@ -188,7 +188,7 @@ func (a *Animated[T]) heading(buf *[MaxScalars]float32) bool {
 	return true
 }
 
-func (a *Animated[T]) retarget(buf *[MaxScalars]float32, m Motion) {
+func (a *Animated[T]) startMotion(buf *[MaxScalars]float32, m Motion) {
 	moving := false
 	for i := range a.codec.N {
 		s := &a.state[i]

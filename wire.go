@@ -224,14 +224,14 @@ func As[T any](e Envelope) (T, bool) {
 //	}
 func CheckWire(values ...any) error {
 	for _, v := range values {
-		if err := checkWire(v); err != nil {
+		if err := checkOne(v); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func checkWire(v any) error {
+func checkOne(v any) error {
 	var (
 		got any
 		err error

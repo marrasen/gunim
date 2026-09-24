@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 )
 
@@ -57,7 +58,7 @@ type Node interface {
 // this node's coordinate space.
 type Handler interface {
 	Node
-	Handle(e Event, u *UI) (handled bool)
+	Handle(e input.Event, u *UI) (handled bool)
 }
 
 // An Animator is a node that owns animated values.
