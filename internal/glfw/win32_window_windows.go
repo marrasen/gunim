@@ -2531,13 +2531,8 @@ func (w *Window) platformSetCursor(cursor *Cursor) error {
 	return nil
 }
 
-func platformSetClipboardString(str string) error {
-	panic("glfw: platformSetClipboardString is not implemented")
-}
-
-func platformGetClipboardString() (string, error) {
-	panic("glfw: platformGetClipboardString is not implemented")
-}
+// gunim change: platformSetClipboardString and platformGetClipboardString
+// are in win32_clipboard_windows.go.
 
 func (w *Window) GetWin32Window() (windows.HWND, error) {
 	if !_glfw.initialized {

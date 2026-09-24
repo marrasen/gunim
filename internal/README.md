@@ -28,6 +28,8 @@ gunim's changes are marked `gunim change` in the code:
   `ResetInputContext`, and, Windows only, `SetInputMethodEnabled` and
   `SetInputMethodCaret`. `windowProc` routes the `WM_IME_*` composition
   messages there, and the platform window state holds its fields.
+- `glfw` implements the Win32 clipboard (`win32_clipboard_windows.go`),
+  as C GLFW does. The Ebitengine port left it as a stub that panicked.
 
 To take a newer Ebitengine, copy the same files again and reapply those
 changes.
