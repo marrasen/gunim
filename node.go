@@ -237,11 +237,13 @@ func (c Child) Size() geom.Size { return c.n.size }
 //
 // That transform is what input follows. A child drawn scaled, slid or
 // rotated receives pointer events where it appears on screen, with
-// positions in its own space; a child its parent leaves unpainted
-// receives none.
+// positions in its own space. A child receives them only where it is
+// visible: inside every clipping layer around it, and only when its
+// parent painted it at all.
 func (c Child) Paint(p *paint.Painter) {
 	defer p.Push(paint.Translate(c.n.origin))()
 	c.n.toWindow = p.Transform()
+	c.n.clip = p.Clip()
 	c.n.drawn = c.f.seq
 	c.n.node.Paint(p, c.f, c.n.size, Children{ns: c.n.kids, f: c.f})
 }
@@ -269,6 +271,8 @@ type state struct {
 	// it. Hit testing reads both, so input follows what is on screen.
 	toWindow paint.Transform
 	drawn    uint64
+	// clip is the clipping the node was last painted under.
+	clip *paint.Clip
 }
 
 // leaving reports whether s or any node above it is [Exiting].

@@ -101,8 +101,8 @@ func (u *UI) deliver(s *state, e input.Event) {
 //
 // Each node is tested where the last frame drew it, through the
 // transform it was painted under, so a scaled dialog or a panel sliding
-// in takes clicks where it appears. A node that frame left unpainted is
-// passed over.
+// in takes clicks where it appears. The part of a node a clipping layer
+// hides takes none, and neither does a node that frame left unpainted.
 //
 // Children are tested last-first because the last child painted is the
 // one on top. Exiting nodes are skipped, so a click aimed at what lies
@@ -112,7 +112,7 @@ func (u *UI) hit(s *state, p geom.Point) *state {
 		if k.presence == Exiting || k.drawn != u.seq {
 			continue
 		}
-		if !(geom.Rect{Max: k.size.Point()}).Contains(u.local(k, p)) {
+		if !(geom.Rect{Max: k.size.Point()}).Contains(u.local(k, p)) || !k.clip.Contains(p) {
 			continue
 		}
 		if deep := u.hit(k, p); deep != nil {

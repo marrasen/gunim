@@ -15,6 +15,10 @@ import (
 type stage struct {
 	t    paint.Transform
 	skip bool
+	// clip, when set, clips the child through a layer, rounded by
+	// radius, in the stage's space under t.
+	clip   geom.Rect
+	radius float32
 }
 
 func (s *stage) Layout(c Constraints, _ Frame, kids Children) geom.Size {
@@ -30,6 +34,9 @@ func (s *stage) Paint(p *paint.Painter, _ Frame, _ geom.Size, kids Children) {
 		return
 	}
 	defer p.Push(s.t)()
+	if !s.clip.Empty() {
+		defer p.Layer(paint.LayerOpts{Bounds: s.clip, Clip: true, Radius: s.radius, Opacity: 1})()
+	}
 	for kid := range kids.All {
 		kid.Paint(p)
 	}
@@ -132,4 +139,51 @@ func TestHoverEntersAtThePointOnTheTransformedChild(t *testing.T) {
 		}
 	}
 	t.Fatalf("no PointerEnter; saw %v", r.events)
+}
+
+func newClippedStage(t *testing.T, tr paint.Transform, clip geom.Rect, radius float32) (*Window, *recorder) {
+	t.Helper()
+	w, st, r := newStage(t, tr)
+	st.clip, st.radius = clip, radius
+	run(w, 1)
+	return w, r
+}
+
+func TestClickOutsideAClipMisses(t *testing.T) {
+	// The clip shows the child's left half, x 10..60.
+	w, r := newClippedStage(t, paint.Identity, geom.Rc(10, 10, 50, 50), 0)
+	press(w, 90, 30)
+	if len(r.events) != 0 {
+		t.Fatalf("a click on the clipped-away half reached the child: %v", r.events)
+	}
+	press(w, 40, 30)
+	if got, want := pressedAt(t, r), geom.Pt(30, 20); !near(got, want) {
+		t.Fatalf("press at %v in the child's space, want %v", got, want)
+	}
+}
+
+func TestClickInARoundedClipsCornerMisses(t *testing.T) {
+	w, r := newClippedStage(t, paint.Identity, geom.Rc(10, 10, 100, 50), 20)
+	press(w, 12, 12)
+	if len(r.events) != 0 {
+		t.Fatalf("a click in the rounded-off corner reached the child: %v", r.events)
+	}
+	press(w, 60, 35)
+	if len(r.events) == 0 {
+		t.Fatal("a click in the middle of the clip missed the child")
+	}
+}
+
+func TestClipFollowsTheTransformItWasDrawnUnder(t *testing.T) {
+	// At double scale the clip covers window x 20..120; the child
+	// covers 20..220.
+	w, r := newClippedStage(t, paint.Scale(2, geom.Point{}), geom.Rc(10, 10, 50, 50), 0)
+	press(w, 150, 50)
+	if len(r.events) != 0 {
+		t.Fatalf("a click outside the scaled clip reached the child: %v", r.events)
+	}
+	press(w, 100, 50)
+	if got, want := pressedAt(t, r), geom.Pt(40, 15); !near(got, want) {
+		t.Fatalf("press at %v in the child's space, want %v", got, want)
+	}
 }

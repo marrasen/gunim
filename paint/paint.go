@@ -27,6 +27,11 @@ type Painter struct {
 	stack  []Transform
 	cur    Transform
 	damage geom.Rect
+	// clip is the innermost clipping layer open, or nil.
+	clip *Clip
+	// ready is false in a zero Painter, whose cur has never been set;
+	// at reads it as the identity until then.
+	ready bool
 }
 
 // Reset clears the painter so its buffers can be reused next frame.
@@ -34,7 +39,9 @@ func (p *Painter) Reset() {
 	p.ops = p.ops[:0]
 	p.stack = p.stack[:0]
 	p.cur = Identity
+	p.ready = true
 	p.damage = geom.Rect{}
+	p.clip = nil
 }
 
 // Ops returns the recorded commands in draw order.
@@ -100,17 +107,27 @@ func (t Transform) Apply(p geom.Point) geom.Point {
 	return geom.Point{X: t.A*p.X + t.B*p.Y + t.C, Y: t.D*p.X + t.E*p.Y + t.F}
 }
 
+// at returns the transform in force. A zero Painter starts from the
+// identity.
+func (p *Painter) at() Transform {
+	if !p.ready {
+		return Identity
+	}
+	return p.cur
+}
+
 // Transform returns the transform in force, which maps the current
 // drawing space to window space.
-func (p *Painter) Transform() Transform { return p.cur }
+func (p *Painter) Transform() Transform { return p.at() }
 
 // Push applies t on top of the current transform and returns the
 // function that pops it, so a node can write:
 //
 //	defer p.Push(paint.Translate(origin))()
 func (p *Painter) Push(t Transform) func() {
-	p.stack = append(p.stack, p.cur)
-	p.cur = p.cur.Mul(t)
+	p.stack = append(p.stack, p.at())
+	p.cur = p.at().Mul(t)
+	p.ready = true
 	return p.pop
 }
 
@@ -146,8 +163,59 @@ type LayerOpts struct {
 //
 //	defer p.Layer(paint.LayerOpts{Opacity: t, Backdrop: 12 * t})()
 func (p *Painter) Layer(o LayerOpts) func() {
-	p.record(&LayerOp{Opts: o, Transform: p.cur}, o.Bounds)
-	return func() { p.ops = append(p.ops, &LayerEndOp{}) }
+	p.record(&LayerOp{Opts: o, Transform: p.at()}, o.Bounds)
+	outer := p.clip
+	if o.Clip {
+		c := &Clip{outer: outer, rect: o.Bounds, radius: o.Radius}
+		c.inv, c.ok = p.at().Invert()
+		p.clip = c
+	}
+	return func() {
+		p.ops = append(p.ops, &LayerEndOp{})
+		p.clip = outer
+	}
+}
+
+// Clip returns the clipping in force: every open layer that clips,
+// innermost first. It is nil when nothing clips.
+func (p *Painter) Clip() *Clip { return p.clip }
+
+// A Clip is the area a clipping layer lets drawing through, together
+// with the clips around it. It stays valid after the frame that made it,
+// which lets input be tested against what the frame showed.
+type Clip struct {
+	outer  *Clip
+	inv    Transform
+	ok     bool
+	rect   geom.Rect
+	radius float32
+}
+
+// Contains reports whether p, a point in window space, lies inside c and
+// every clip around it. A nil Clip contains every point.
+func (c *Clip) Contains(p geom.Point) bool {
+	for ; c != nil; c = c.outer {
+		if !c.ok || !insideRounded(c.inv.Apply(p), c.rect, c.radius) {
+			return false
+		}
+	}
+	return true
+}
+
+// insideRounded reports whether p lies inside r with its corners
+// rounded by radius.
+func insideRounded(p geom.Point, r geom.Rect, radius float32) bool {
+	if !r.Contains(p) {
+		return false
+	}
+	radius = min(radius, (r.Max.X-r.Min.X)/2, (r.Max.Y-r.Min.Y)/2)
+	if radius <= 0 {
+		return true
+	}
+	// Distance into the corner square, from the centre of its rounding.
+	dx := max(r.Min.X+radius-p.X, p.X-(r.Max.X-radius), 0)
+	dy := max(r.Min.Y+radius-p.Y, p.Y-(r.Max.Y-radius), 0)
+	return dx*dx+dy*dy <= radius*radius
 }
 
 // Fill describes how a shape is coloured. Exactly one of Solid or
@@ -237,12 +305,12 @@ func (*LayerEndOp) isOp() {}
 
 // RRect records a rounded rectangle.
 func (p *Painter) RRect(r geom.Rect, radius float32, f Fill) {
-	p.record(&RRectOp{Rect: r, Radius: radius, Fill: f, Transform: p.cur}, r)
+	p.record(&RRectOp{Rect: r, Radius: radius, Fill: f, Transform: p.at()}, r)
 }
 
 // RRectStroke records a rounded rectangle with an outline.
 func (p *Painter) RRectStroke(r geom.Rect, radius float32, f Fill, s Stroke) {
-	p.record(&RRectOp{Rect: r, Radius: radius, Fill: f, Stroke: s, Transform: p.cur}, r)
+	p.record(&RRectOp{Rect: r, Radius: radius, Fill: f, Stroke: s, Transform: p.at()}, r)
 }
 
 // ShadowRRect records a rounded rectangle with a drop shadow.
@@ -251,20 +319,21 @@ func (p *Painter) ShadowRRect(r geom.Rect, radius float32, f Fill, sh Shadow) {
 		Min: geom.Pt(r.Min.X-sh.Blur-sh.Spread+sh.Offset.X, r.Min.Y-sh.Blur-sh.Spread+sh.Offset.Y),
 		Max: geom.Pt(r.Max.X+sh.Blur+sh.Spread+sh.Offset.X, r.Max.Y+sh.Blur+sh.Spread+sh.Offset.Y),
 	}
-	p.record(&RRectOp{Rect: r, Radius: radius, Fill: f, Shadow: sh, Transform: p.cur}, grown)
+	p.record(&RRectOp{Rect: r, Radius: radius, Fill: f, Shadow: sh, Transform: p.at()}, grown)
 }
 
 // Text records a shaped run at size logical pixels. bounds is the
 // area the run covers, for damage tracking. The text package's Run.Paint
 // is the usual way to call it.
 func (p *Painter) Text(g []Glyph, size float32, c color.NRGBA, bounds geom.Rect) {
-	p.record(&TextOp{Glyphs: g, Size: size, Color: c, Transform: p.cur}, bounds)
+	p.record(&TextOp{Glyphs: g, Size: size, Color: c, Transform: p.at()}, bounds)
 }
 
 func (p *Painter) record(op Op, bounds geom.Rect) {
 	p.ops = append(p.ops, op)
 	// Transform the corners so damage is tracked in window space,
 	// whatever space the node happened to be painting in.
-	a, b := p.cur.Apply(bounds.Min), p.cur.Apply(bounds.Max)
+	t := p.at()
+	a, b := t.Apply(bounds.Min), t.Apply(bounds.Max)
 	p.damage = p.damage.Union(geom.Rect{Min: a, Max: b}.Normalized())
 }
