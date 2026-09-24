@@ -82,7 +82,7 @@ func newJobRow(j Job) *jobRow {
 		title:    text.Default().Shape(j.Title, 15),
 	}
 	r.action = widget.NewButton("Run")
-	r.action.On = RunRequested{ID: j.ID}
+	r.action.On = intentFor(j)
 	r.Add(r.progress, r.tint)
 	return r
 }
@@ -96,6 +96,20 @@ func (r *jobRow) Set(j Job) {
 	r.progress.Animate(j.Progress, anim.Snappy)
 	r.tint.Animate(tintFor(j.Status), anim.Gentle)
 	r.action.SetLabel(labelFor(j.Status))
+	r.action.On = intentFor(j)
+}
+
+// intentFor is what the row's button asks for: to run a pending job,
+// to delete a finished one, and nothing while it runs.
+func intentFor(j Job) gunim.Intent {
+	switch j.Status {
+	case JobPending:
+		return RunRequested{ID: j.ID}
+	case JobDone:
+		return DeleteRequested{ID: j.ID}
+	case JobRunning:
+	}
+	return nil
 }
 
 func tintFor(s JobStatus) color.NRGBA {

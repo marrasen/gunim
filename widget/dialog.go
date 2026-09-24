@@ -62,7 +62,10 @@ func (d *Dialog) SetTitle(title string) { d.Title = title }
 
 // Children implements [gunim.Composite], so mounting the dialog brings
 // its buttons with it.
-func (d *Dialog) Children() []gunim.Node { return []gunim.Node{d.ok, d.cancel} }
+//
+// Layout places them from the right, so the last one, OK, lands
+// outermost.
+func (d *Dialog) Children() []gunim.Node { return []gunim.Node{d.cancel, d.ok} }
 
 // finish closes the dialog and tells the application what happened.
 //
@@ -127,20 +130,37 @@ func (d *Dialog) panel(size geom.Size) geom.Rect {
 	return geom.Rc((size.W-w)/2, (size.H-h)/2, w, h)
 }
 
+// Transition implements [gunim.Transitioner]. The dialog springs in
+// with a slight overshoot, and settles out without one.
+func (d *Dialog) Transition(p gunim.Presence) bool {
+	switch p {
+	case gunim.Entering:
+		d.in.Animate(1, anim.Bouncy)
+	case gunim.Exiting:
+		d.in.Animate(0, anim.Gentle)
+	case gunim.Present:
+		// Settled in.
+	}
+	return !d.in.Active()
+}
+
 // Paint implements [gunim.Node].
 func (d *Dialog) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, kids gunim.Children) {
 	t := d.in.Value()
 	if t <= 0 {
 		return
 	}
+	// The spring overshoots on the way in. The scale takes the
+	// overshoot, and everything that fades stops at fully opaque.
+	fade := min(t, 1)
 
 	// The scrim darkens whatever is behind the dialog and blurs it. The
 	// blur radius is tied to the same value as the fade, so the
 	// background comes back into focus as the dialog leaves.
 	dim := scrim
-	dim.A = uint8(float32(scrim.A) * t)
+	dim.A = uint8(float32(scrim.A) * fade)
 	full := geom.Rect{Max: box.Point()}
-	closeScrim := p.Layer(paint.LayerOpts{Bounds: full, Opacity: t, Backdrop: 14 * t})
+	closeScrim := p.Layer(paint.LayerOpts{Bounds: full, Opacity: fade, Backdrop: 14 * fade})
 	p.RRect(full, 0, paint.Solid(dim))
 	closeScrim()
 
@@ -149,13 +169,13 @@ func (d *Dialog) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, kids guni
 	// The panel fades and grows into place together. Starting at 0.94
 	// makes it read as arriving; starting nearer 0 would make it read
 	// as being inflated.
-	defer p.Layer(paint.LayerOpts{Bounds: panel, Opacity: t})()
+	defer p.Layer(paint.LayerOpts{Bounds: panel, Opacity: fade})()
 	defer p.Push(paint.Scale(0.94+0.06*t, panel.Center()))()
 
 	p.ShadowRRect(panel, 14, paint.Solid(dialogFill), paint.Shadow{
-		Offset: geom.Pt(0, 8*t),
-		Blur:   32 * t,
-		Color:  color.NRGBA{A: uint8(0x80 * t)},
+		Offset: geom.Pt(0, 8*fade),
+		Blur:   32 * fade,
+		Color:  color.NRGBA{A: uint8(0x80 * fade)},
 	})
 	p.RRectStroke(panel, 14, paint.Fill{}, paint.Stroke{Width: 1, Color: dialogBorder})
 	d.titleText.shape(d.Title, 17).Paint(p, panel.Min.Add(geom.Pt(dialogPad, dialogPad)), dialogText)
