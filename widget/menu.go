@@ -299,8 +299,9 @@ func (d *Dropdown) key(k input.KeyPress, u *gunim.UI) bool {
 		case input.KeySpace, input.KeyEnter, input.KeyDown, input.KeyUp:
 			d.open(u)
 			return true
+		default:
+			return false
 		}
-		return false
 	}
 	switch k.Key {
 	case input.KeyEscape:
@@ -309,8 +310,9 @@ func (d *Dropdown) key(k input.KeyPress, u *gunim.UI) bool {
 	case input.KeyTab:
 		d.close(u)
 		return false // focus moves on
+	default:
+		return d.menu.Key(k, u)
 	}
-	return d.menu.Key(k, u)
 }
 
 func (d *Dropdown) open(u *gunim.UI) {
@@ -593,8 +595,10 @@ type tip struct {
 	transparent bool
 }
 
+// Step implements [gunim.Animator].
 func (t *tip) Step(dt time.Duration) bool { return t.in.Step(dt) }
 
+// Transition implements [gunim.Transitioner].
 func (t *tip) Transition(p gunim.Presence, f gunim.Frame) bool {
 	switch p {
 	case gunim.Entering:
@@ -606,8 +610,10 @@ func (t *tip) Transition(p gunim.Presence, f gunim.Frame) bool {
 	return !t.in.Active()
 }
 
+// PopupPadding implements [gunim.PopupPadder].
 func (t *tip) PopupPadding() geom.Insets { return geom.Uniform(t.margin) }
 
+// Layout implements [gunim.Node].
 func (t *tip) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
 	th := f.Theme
 	t.transparent = f.Transparent
@@ -620,12 +626,12 @@ func (t *tip) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.
 	return c.Constrain(geom.Sz(run.Advance+pad.Left+pad.Right+2*t.margin, run.Height()+pad.Top+pad.Bottom+2*t.margin))
 }
 
+// Paint implements [gunim.Node].
 func (t *tip) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
 	th := f.Theme
 	card := geom.Rect{Min: geom.Pt(t.margin, t.margin), Max: geom.Pt(box.W-t.margin, box.H-t.margin)}
-	radius := float32(0)
 	if t.transparent {
-		radius = TooltipRadius.Get(th)
+		radius := TooltipRadius.Get(th)
 		defer p.Layer(paint.LayerOpts{Bounds: geom.Rect{Max: box.Point()}, Opacity: min(1, max(0, t.in.Value()))})()
 		p.ShadowRRect(card, radius, paint.Solid(TooltipFill.Get(th)), paint.Shadow{
 			Offset: geom.Pt(0, 2), Blur: t.margin * 0.5, Color: MenuShadow.Get(th),

@@ -127,7 +127,7 @@ func TestPatchesAreNeverCoalesced(t *testing.T) {
 
 func TestLoopDrawsOncePerDisplayRefresh(t *testing.T) {
 	w := newCountedWindow(t)
-	d := w.offscreen(t)
+	d := w.mustOffscreen(t)
 	c := w.Client()
 	go w.loop()
 	defer w.Close()
@@ -162,7 +162,7 @@ func TestLoopDrawsOncePerDisplayRefresh(t *testing.T) {
 
 func TestFirstFrameAfterIdleStepsOneRefresh(t *testing.T) {
 	w := newProbeWindow(t)
-	d := w.offscreen(t)
+	d := w.mustOffscreen(t)
 	c := w.Client()
 	go w.loop()
 	defer w.Close()

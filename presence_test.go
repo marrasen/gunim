@@ -87,7 +87,7 @@ func TestRemovedNodeStaysUntilItsExitFinishes(t *testing.T) {
 	if v := panel.in.Value(); v <= 0 || v >= 1 {
 		t.Fatalf("mid-exit value = %v, want something between 0 and 1", v)
 	}
-	if len(w.offscreen(t).Ops()) == 0 {
+	if len(w.mustOffscreen(t).Ops()) == 0 {
 		t.Fatal("an exiting node painted nothing")
 	}
 

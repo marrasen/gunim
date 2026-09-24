@@ -310,7 +310,7 @@ func (d *Driver) openWindow(o driver.Options) (*Window, error) {
 		t, err := gw.GetAttrib(glfw.TransparentFramebuffer)
 		w.transparent = err == nil && t == glfw.True
 	}
-	if err := w.place(o); err != nil {
+	if err := w.position(o); err != nil {
 		_ = gw.Destroy()
 		return nil, err
 	}

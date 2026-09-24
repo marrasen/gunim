@@ -47,13 +47,18 @@ func openMenu(t *testing.T, dismiss func(*UI)) (*Window, *recorder, *menu, *Popu
 	return w, opener, m, pop
 }
 
-func popupWindow(w *Window) *driver.OffscreenWindow {
-	return w.ui.popups[0].dw.(*driver.OffscreenWindow)
+func popupWindow(t *testing.T, w *Window) *driver.OffscreenWindow {
+	t.Helper()
+	pw, ok := w.ui.popups[0].dw.(*driver.OffscreenWindow)
+	if !ok {
+		t.Fatalf("the popup is a %T, want an offscreen window", w.ui.popups[0].dw)
+	}
+	return pw
 }
 
 func TestPopupOpensAtItsContentsSizeBesideItsAnchor(t *testing.T) {
 	w, _, _, _ := openMenu(t, nil)
-	pw := popupWindow(w)
+	pw := popupWindow(t, w)
 	if got := pw.Size(); got != geom.Sz(120, 80) {
 		t.Errorf("popup size = %v, want 120x80", got)
 	}
@@ -69,7 +74,7 @@ func TestPopupOpensAtItsContentsSizeBesideItsAnchor(t *testing.T) {
 func TestPopupFollowsItsAnchor(t *testing.T) {
 	w, _, _, pop := openMenu(t, nil)
 	pop.Move(geom.Rc(0, 50, 100, 0))
-	pw := popupWindow(w)
+	pw := popupWindow(t, w)
 	pw.Tick()
 	run(w, 1)
 	if got, want := pw.Anchor(), geom.Rc(10, 60, 100, 0); got != want {

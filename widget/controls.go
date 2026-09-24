@@ -21,8 +21,8 @@ type toggle struct {
 	// OnChange turns the new state into an intent for the application.
 	OnChange func(on bool) gunim.Intent
 
-	// on runs from 0 to 1 as the control turns on.
-	on    *anim.Float
+	// lit runs from 0 to 1 as the control turns on.
+	lit   *anim.Float
 	hover *anim.Float
 	press *anim.Float
 	ring  *anim.Float
@@ -37,12 +37,12 @@ type toggle struct {
 func newToggle(label string) toggle {
 	t := toggle{
 		Label: label,
-		on:    anim.NewFloat(0),
+		lit:   anim.NewFloat(0),
 		hover: anim.NewFloat(0),
 		press: anim.NewFloat(0),
 		ring:  anim.NewFloat(0),
 	}
-	t.Add(t.on, t.hover, t.press, t.ring)
+	t.Add(t.lit, t.hover, t.press, t.ring)
 	return t
 }
 
@@ -53,12 +53,12 @@ func (t *toggle) SetOn(on bool, u *gunim.UI) {
 		return
 	}
 	t.On = on
-	t.on.Animate(value(on), Bounce.Get(u.Theme()))
+	t.lit.Animate(value(on), Bounce.Get(u.Theme()))
 }
 
 func (t *toggle) flip(n gunim.Node, u *gunim.UI) {
 	t.On = !t.On
-	t.on.Animate(value(t.On), Bounce.Get(u.Theme()))
+	t.lit.Animate(value(t.On), Bounce.Get(u.Theme()))
 	if t.OnChange != nil {
 		u.Send(n, t.OnChange(t.On))
 	}
@@ -115,7 +115,7 @@ func (t *toggle) handle(n gunim.Node, e input.Event, u *gunim.UI) bool {
 func (t *toggle) layout(c gunim.Constraints, f gunim.Frame, mark geom.Size) geom.Size {
 	if !t.laid {
 		t.laid = true
-		t.on.Jump(value(t.On))
+		t.lit.Jump(value(t.On))
 	}
 	w, h := mark.W, mark.H
 	if t.Label != "" {
@@ -127,7 +127,8 @@ func (t *toggle) layout(c gunim.Constraints, f gunim.Frame, mark geom.Size) geom
 	return t.size
 }
 
-// paintLabel draws the label after a mark mark wide.
+// paintLabel draws the label after the control's mark, which is mark
+// wide.
 func (t *toggle) paintLabel(p *paint.Painter, f gunim.Frame, box geom.Size, mark float32) {
 	if t.Label == "" {
 		return
@@ -162,7 +163,7 @@ func (c *Checkbox) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 	s := CheckSize.Get(th)
 	r := geom.Rc(0, (box.H-s)/2, s, s)
 	radius := CheckRadius.Get(th)
-	on := c.on.Value()
+	on := c.lit.Value()
 
 	func() {
 		defer p.Push(paint.Scale(1-0.1*c.press.Value(), r.Center()))()
@@ -220,7 +221,7 @@ func (s *Switch) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 	th := f.Theme
 	w, h := SwitchWidth.Get(th), SwitchHeight.Get(th)
 	track := geom.Rc(0, (box.H-h)/2, w, h)
-	on := s.on.Value()
+	on := s.lit.Value()
 	focusRing(p, track, h/2, s.ring.Value(), th)
 	off := anim.Mix(anim.ColorCodec, SwitchOff.Get(th), Ink.Get(th), 0.15*s.hover.Value())
 	p.RRect(track, h/2, paint.Solid(anim.Mix(anim.ColorCodec, off, Accent.Get(th), min(max(on, 0), 1))))
@@ -260,9 +261,9 @@ type Slider struct {
 	size  geom.Size
 }
 
-// NewSlider returns a slider from min to max, at min.
-func NewSlider(min, max float32) *Slider {
-	s := &Slider{Min: min, Max: max, value: min, at: anim.NewFloat(0), hover: anim.NewFloat(0), ring: anim.NewFloat(0)}
+// NewSlider returns a slider from lo to hi, at lo.
+func NewSlider(lo, hi float32) *Slider {
+	s := &Slider{Min: lo, Max: hi, value: lo, at: anim.NewFloat(0), hover: anim.NewFloat(0), ring: anim.NewFloat(0)}
 	s.Add(s.at, s.hover, s.ring)
 	return s
 }
@@ -435,7 +436,7 @@ type Tabs struct {
 	ring  *anim.Float
 	laid  bool
 
-	titles []shapedText
+	shaped []shapedText
 	// spans holds each title's left and right edge.
 	spans [][2]float32
 	head  float32
@@ -530,13 +531,13 @@ func (b *tabBar) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) ge
 	th := f.Theme
 	t.head = TabHeight.Get(th)
 	pad := TabPadding.Get(th)
-	if len(t.titles) != len(t.Titles) {
-		t.titles = make([]shapedText, len(t.Titles))
+	if len(t.shaped) != len(t.Titles) {
+		t.shaped = make([]shapedText, len(t.Titles))
 	}
 	t.spans = t.spans[:0]
 	x := float32(0)
 	for i, s := range t.Titles {
-		w := t.titles[i].shape(s, TextSize.Get(th)).Advance + 2*pad
+		w := t.shaped[i].shape(s, TextSize.Get(th)).Advance + 2*pad
 		t.spans = append(t.spans, [2]float32{x, x + w})
 		x += w
 	}
@@ -563,7 +564,7 @@ func (b *tabBar) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 	th := f.Theme
 	pad := TabPadding.Get(th)
 	for i := range t.Titles {
-		run := t.titles[i].run
+		run := t.shaped[i].run
 		ink := Placeholder.Get(th)
 		if i == t.selected {
 			ink = Ink.Get(th)

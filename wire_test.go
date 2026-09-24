@@ -75,7 +75,7 @@ func (p *probe) Paint(pt *paint.Painter, _ Frame, box geom.Size, _ Children) {
 }
 
 // offscreen returns the driver behind a test window.
-func (w *Window) offscreen(t *testing.T) *driver.OffscreenWindow {
+func (w *Window) mustOffscreen(t *testing.T) *driver.OffscreenWindow {
 	t.Helper()
 	d, ok := w.dw.(*driver.OffscreenWindow)
 	if !ok {

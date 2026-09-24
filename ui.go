@@ -1079,7 +1079,8 @@ func (u *UI) frame(now time.Time, delta time.Duration) {
 
 // roots returns the top of the window's tree and of every popup's.
 func (u *UI) roots() []*state {
-	rs := []*state{u.root}
+	rs := make([]*state, 0, 1+len(u.popups))
+	rs = append(rs, u.root)
 	for _, p := range u.popups {
 		rs = append(rs, p.root)
 	}

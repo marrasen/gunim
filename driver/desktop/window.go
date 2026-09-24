@@ -272,9 +272,9 @@ func (*Window) RaiseThread() { raiseThread() }
 // stopRender tells the render thread and the input feed to stop.
 func (w *Window) stopRender() { w.quitOnce.Do(func() { close(w.quit) }) }
 
-// place moves the window where the options ask: attached to its
+// position moves the window where the options ask: attached to its
 // anchor, or centred on a chosen monitor. It runs on the main thread.
-func (w *Window) place(o driver.Options) error {
+func (w *Window) position(o driver.Options) error {
 	if p, ok := o.Parent.(*Window); ok {
 		if o.Kind == driver.KindPopup {
 			w.parent, w.popup = p, true

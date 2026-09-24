@@ -159,8 +159,9 @@ func buildPage(s Page) *page {
 // pictures draws a few pictures to page through: soft bands of colour
 // in different hues.
 func pictures() []*paint.Image {
-	var out []*paint.Image
-	for _, hue := range []float64{0.58, 0.05, 0.33, 0.8} {
+	hues := []float64{0.58, 0.05, 0.33, 0.8}
+	out := make([]*paint.Image, 0, len(hues))
+	for _, hue := range hues {
 		m := image.NewRGBA(image.Rect(0, 0, 480, 300))
 		for y := range 300 {
 			for x := range 480 {

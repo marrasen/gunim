@@ -21,30 +21,30 @@ var benchSize = geom.Sz(800, 600)
 // hiddenGL makes a hidden window's context current on the calling
 // goroutine, locked to its thread, and builds a renderer on it, so a
 // benchmark can time the renderer with no swap or vsync in the way.
-func hiddenGL(tb testing.TB) (*renderer, func()) {
+func hiddenGL(tb testing.TB) (r *renderer, done func()) {
 	tb.Helper()
 	if display == nil {
 		tb.Skip("no display")
 	}
 	var gw *glfw.Window
-	err := display.call(func() error {
+	open := func() error {
 		if err := glfw.DefaultWindowHints(); err != nil {
 			return err
 		}
 		if err := display.setContextHints(); err != nil {
 			return err
 		}
+		if err := glfw.WindowHint(glfw.Visible, glfw.False); err != nil {
+			return err
+		}
 		share, err := display.shareGroup()
 		if err != nil {
 			return err
 		}
-		if err := glfw.WindowHint(glfw.Visible, glfw.False); err != nil {
-			return err
-		}
 		gw, err = glfw.CreateWindow(int(benchSize.W), int(benchSize.H), "gunim bench", nil, share)
 		return err
-	})
-	if err != nil {
+	}
+	if err := display.call(open); err != nil {
 		tb.Fatal(err)
 	}
 	runtime.LockOSThread()
@@ -55,11 +55,10 @@ func hiddenGL(tb testing.TB) (*renderer, func()) {
 	if err != nil {
 		tb.Fatal(err)
 	}
-	if err := ctx.LoadFunctions(); err != nil {
+	if err = ctx.LoadFunctions(); err != nil {
 		tb.Fatal(err)
 	}
-	r, err := newRenderer(ctx, display.isES, &display.shared)
-	if err != nil {
+	if r, err = newRenderer(ctx, display.isES, &display.shared); err != nil {
 		tb.Fatal(err)
 	}
 	return r, func() {
@@ -104,7 +103,7 @@ func recordGallery(p *paint.Painter, rows int, hover float32) {
 	p.RRect(geom.Rect{Max: benchSize.Point()}, 0, paint.Solid(color.NRGBA{R: 0x16, G: 0x18, B: 0x1e, A: 0xff}))
 	title := runs.title
 	title.Paint(p, geom.Pt(16, 16), ink)
-	close := p.Layer(paint.LayerOpts{Bounds: geom.Rc(16, 60, benchSize.W-32, benchSize.H-76), Opacity: 1, Clip: true, Radius: 4})
+	endScroll := p.Layer(paint.LayerOpts{Bounds: geom.Rc(16, 60, benchSize.W-32, benchSize.H-76), Opacity: 1, Clip: true, Radius: 4})
 	for i := range rows {
 		y := 60 + float32(i)*56
 		p.RRect(geom.Rc(16, y, benchSize.W-32, 50), 10, paint.Solid(card))
@@ -118,7 +117,7 @@ func recordGallery(p *paint.Painter, rows int, hover float32) {
 		open := runs.open
 		open.Paint(p, geom.Pt(benchSize.W-92, y+16), ink)
 	}
-	close()
+	endScroll()
 }
 
 // BenchmarkRenderHover draws the gallery with one button easing into

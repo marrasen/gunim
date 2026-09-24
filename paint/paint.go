@@ -455,8 +455,8 @@ func (*TextOp) isOp()     {}
 func (*LayerOp) isOp()    {}
 func (*LayerEndOp) isOp() {}
 
-// rrect takes an RRectOp from the painter's blocks.
-func (p *Painter) rrect(op RRectOp) *RRectOp {
+// takeRRect takes an RRectOp from the painter's blocks.
+func (p *Painter) takeRRect(op RRectOp) *RRectOp {
 	v := p.rrects.take()
 	*v = op
 	return v
@@ -464,14 +464,14 @@ func (p *Painter) rrect(op RRectOp) *RRectOp {
 
 // RRect records a rounded rectangle.
 func (p *Painter) RRect(r geom.Rect, radius float32, f Fill) {
-	p.record(p.rrect(RRectOp{Rect: r, Radius: radius, Fill: f, Transform: p.at()}), r)
+	p.record(p.takeRRect(RRectOp{Rect: r, Radius: radius, Fill: f, Transform: p.at()}), r)
 }
 
 // RRectStroke records a rounded rectangle with an outline, which is
 // centred on the rectangle's edge.
 func (p *Painter) RRectStroke(r geom.Rect, radius float32, f Fill, s Stroke) {
 	half := s.Width / 2
-	p.record(p.rrect(RRectOp{Rect: r, Radius: radius, Fill: f, Stroke: s, Transform: p.at()}),
+	p.record(p.takeRRect(RRectOp{Rect: r, Radius: radius, Fill: f, Stroke: s, Transform: p.at()}),
 		geom.Rect{Min: geom.Pt(r.Min.X-half, r.Min.Y-half), Max: geom.Pt(r.Max.X+half, r.Max.Y+half)})
 }
 
@@ -481,7 +481,7 @@ func (p *Painter) ShadowRRect(r geom.Rect, radius float32, f Fill, sh Shadow) {
 		Min: geom.Pt(r.Min.X-sh.Blur-sh.Spread+sh.Offset.X, r.Min.Y-sh.Blur-sh.Spread+sh.Offset.Y),
 		Max: geom.Pt(r.Max.X+sh.Blur+sh.Spread+sh.Offset.X, r.Max.Y+sh.Blur+sh.Spread+sh.Offset.Y),
 	}
-	p.record(p.rrect(RRectOp{Rect: r, Radius: radius, Fill: f, Shadow: sh, Transform: p.at()}), grown.Union(r))
+	p.record(p.takeRRect(RRectOp{Rect: r, Radius: radius, Fill: f, Shadow: sh, Transform: p.at()}), grown.Union(r))
 }
 
 // Text records a shaped run at size logical pixels. bounds is the

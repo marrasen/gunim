@@ -120,6 +120,7 @@ type popupEvent struct {
 // its content.
 type popupRoot struct{ _ byte }
 
+// Layout implements [Node]: the content, laid out loose, at the top left.
 func (r *popupRoot) Layout(c Constraints, _ Frame, kids Children) geom.Size {
 	var size geom.Size
 	for k := range kids.All {
@@ -130,6 +131,7 @@ func (r *popupRoot) Layout(c Constraints, _ Frame, kids Children) geom.Size {
 	return size
 }
 
+// Paint implements [Node].
 func (r *popupRoot) Paint(p *paint.Painter, _ Frame, _ geom.Size, kids Children) {
 	for k := range kids.All {
 		k.Paint(p)
@@ -288,13 +290,15 @@ func (u *UI) popupAnchor(s *surface) geom.Rect {
 	a := s.opts.Anchor
 	anchor := geom.Rect{Min: t.Apply(a.Min), Max: t.Apply(a.Max)}
 	for _, k := range s.root.kids {
-		if pp, ok := k.node.(PopupPadder); ok {
-			in := pp.PopupPadding()
-			anchor.Min.X -= in.Left
-			anchor.Min.Y += in.Bottom
-			anchor.Max.Y -= in.Top
-			break
+		pp, ok := k.node.(PopupPadder)
+		if !ok {
+			continue
 		}
+		in := pp.PopupPadding()
+		anchor.Min.X -= in.Left
+		anchor.Min.Y += in.Bottom
+		anchor.Max.Y -= in.Top
+		break
 	}
 	return anchor
 }

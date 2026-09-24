@@ -59,8 +59,8 @@ func TestCheckboxFlipsOnClickAndSpace(t *testing.T) {
 	}
 	w.Input(input.KeyPress{Key: input.KeySpace})
 	run(60)
-	if c.On || c.on.Value() != 0 {
-		t.Fatalf("Space left the checkbox on at %v", c.on.Value())
+	if c.On || c.lit.Value() != 0 {
+		t.Fatalf("Space left the checkbox on at %v", c.lit.Value())
 	}
 	if got := sent(w); len(got) != 2 || got[0] != (flipped{true}) || got[1] != (flipped{false}) {
 		t.Fatalf("intents %v, want on then off", got)
@@ -72,7 +72,7 @@ func TestSwitchStartsWhereOnSays(t *testing.T) {
 	s.On = true
 	_, run := stage(t, &frame{child: s, size: geom.Sz(200, 28)})
 	run(1)
-	if v := s.on.Value(); v != 1 {
+	if v := s.lit.Value(); v != 1 {
 		t.Fatalf("a switch made on starts at %v, want 1", v)
 	}
 }

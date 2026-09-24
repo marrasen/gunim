@@ -29,7 +29,7 @@ type Color = Animated[color.NRGBA]
 // progress value driving everything else.
 var FloatCodec = Codec[float32]{
 	N:      1,
-	Encode: func(v float32) (d [MaxScalars]float32) { d[0] = v; return },
+	Encode: func(v float32) (d [MaxScalars]float32) { d[0] = v; return d },
 	Decode: func(s [MaxScalars]float32) float32 { return s[0] },
 }
 
@@ -38,7 +38,7 @@ var PointCodec = Codec[geom.Point]{
 	N: 2,
 	Encode: func(v geom.Point) (d [MaxScalars]float32) {
 		d[0], d[1] = v.X, v.Y
-		return
+		return d
 	},
 	Decode: func(s [MaxScalars]float32) geom.Point {
 		return geom.Point{X: s[0], Y: s[1]}
@@ -50,7 +50,7 @@ var SizeCodec = Codec[geom.Size]{
 	N: 2,
 	Encode: func(v geom.Size) (d [MaxScalars]float32) {
 		d[0], d[1] = v.W, v.H
-		return
+		return d
 	},
 	Decode: func(s [MaxScalars]float32) geom.Size {
 		return geom.Size{W: s[0], H: s[1]}
@@ -63,7 +63,7 @@ var RectCodec = Codec[geom.Rect]{
 	N: 4,
 	Encode: func(v geom.Rect) (d [MaxScalars]float32) {
 		d[0], d[1], d[2], d[3] = v.Min.X, v.Min.Y, v.Max.X, v.Max.Y
-		return
+		return d
 	},
 	Decode: func(s [MaxScalars]float32) geom.Rect {
 		return geom.Rect{Min: geom.Point{X: s[0], Y: s[1]}, Max: geom.Point{X: s[2], Y: s[3]}}
@@ -80,7 +80,7 @@ var ColorCodec = Codec[color.NRGBA]{
 	Encode: func(v color.NRGBA) (d [MaxScalars]float32) {
 		d[0], d[1], d[2] = toOklab(v)
 		d[3] = float32(v.A)
-		return
+		return d
 	},
 	Decode: func(s [MaxScalars]float32) color.NRGBA {
 		r, g, b := fromOklab(s[0], s[1], s[2])
@@ -95,7 +95,7 @@ var SRGBCodec = Codec[color.NRGBA]{
 	N: 4,
 	Encode: func(v color.NRGBA) (d [MaxScalars]float32) {
 		d[0], d[1], d[2], d[3] = float32(v.R), float32(v.G), float32(v.B), float32(v.A)
-		return
+		return d
 	},
 	Decode: func(s [MaxScalars]float32) color.NRGBA {
 		return color.NRGBA{R: clampByte(s[0]), G: clampByte(s[1]), B: clampByte(s[2]), A: clampByte(s[3])}
@@ -192,7 +192,7 @@ var InsetsCodec = Codec[geom.Insets]{
 	N: 4,
 	Encode: func(v geom.Insets) (d [MaxScalars]float32) {
 		d[0], d[1], d[2], d[3] = v.Top, v.Right, v.Bottom, v.Left
-		return
+		return d
 	},
 	Decode: func(s [MaxScalars]float32) geom.Insets {
 		return geom.Insets{Top: s[0], Right: s[1], Bottom: s[2], Left: s[3]}
@@ -205,7 +205,7 @@ var SpringCodec = Codec[Spring]{
 	N: 2,
 	Encode: func(v Spring) (d [MaxScalars]float32) {
 		d[0], d[1] = v.Response, v.Damping
-		return
+		return d
 	},
 	Decode: func(s [MaxScalars]float32) Spring {
 		return Spring{Response: s[0], Damping: s[1]}

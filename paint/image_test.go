@@ -1,6 +1,7 @@
 package paint
 
 import (
+	"bytes"
 	"encoding/json"
 	"image"
 	"image/color"
@@ -35,7 +36,7 @@ func TestImageSurvivesJSON(t *testing.T) {
 	if err := json.Unmarshal(data, &back); err != nil {
 		t.Fatal(err)
 	}
-	if string(back.Pix()) != string(src.Pix) {
+	if !bytes.Equal(back.Pix(), src.Pix) {
 		t.Fatalf("pixels changed crossing JSON:\n got %v\nwant %v", back.Pix(), src.Pix)
 	}
 }
