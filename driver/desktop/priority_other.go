@@ -2,6 +2,8 @@
 
 package desktop
 
-// raiseThread leaves the thread's priority as it is. Raising it on
-// Linux and macOS needs privileges an application seldom has.
+// raiseProcess and raiseThread leave priorities as they are. Raising
+// them on Linux and macOS needs privileges an application seldom has.
+func raiseProcess() {}
+
 func raiseThread() {}

@@ -67,6 +67,7 @@ func Open() (*Driver, error) {
 		_ = glfw.Terminate()
 		return nil, fmt.Errorf("desktop: %w", err)
 	}
+	raiseProcess()
 	// The main thread pumps every window's events, and init has locked
 	// it for life.
 	raiseThread()
