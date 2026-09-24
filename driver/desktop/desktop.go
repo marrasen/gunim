@@ -44,8 +44,13 @@ type Driver struct {
 
 	// The fields below belong to the main thread.
 	windows map[*glfw.Window]*Window
-	opened  bool
-	quit    bool
+	// shareRoot is a hidden window whose context no thread ever makes
+	// current. Every window's context shares with it, which puts them
+	// all in one share group without sharing with a context that a render
+	// thread holds: NVIDIA's driver refuses that.
+	shareRoot *glfw.Window
+	opened    bool
+	quit      bool
 	// stayOpen keeps the event loop running after the last window
 	// closes, so tests can open one window after another.
 	stayOpen bool
@@ -96,6 +101,10 @@ func (d *Driver) Run(ctx context.Context, ready func()) error {
 	d.runTasks()
 	for _, w := range d.windows {
 		w.shutdown()
+	}
+	if d.shareRoot != nil {
+		_ = d.shareRoot.Destroy()
+		d.shareRoot = nil
 	}
 	return errors.Join(err, glfw.Terminate())
 }
@@ -225,6 +234,24 @@ func (d *Driver) setContextHints() error {
 	return nil
 }
 
+// shareGroup returns the hidden window every window's context shares
+// with, creating it on first use with the context hints already set. It
+// runs on the main thread.
+func (d *Driver) shareGroup() (*glfw.Window, error) {
+	if d.shareRoot != nil {
+		return d.shareRoot, nil
+	}
+	if err := glfw.WindowHint(glfw.Visible, glfw.False); err != nil {
+		return nil, err
+	}
+	root, err := glfw.CreateWindow(1, 1, "", nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("desktop: create share context: %w", err)
+	}
+	d.shareRoot = root
+	return root, nil
+}
+
 // openWindow opens a window on the main thread and starts its render
 // thread.
 func (d *Driver) openWindow(o driver.Options) (*Window, error) {
@@ -232,6 +259,12 @@ func (d *Driver) openWindow(o driver.Options) (*Window, error) {
 		return nil, err
 	}
 	if err := d.setContextHints(); err != nil {
+		return nil, err
+	}
+	// Every window shares with the one share group, which covers
+	// o.Share.
+	share, err := d.shareGroup()
+	if err != nil {
 		return nil, err
 	}
 	hints := [][2]int{
@@ -256,10 +289,6 @@ func (d *Driver) openWindow(o driver.Options) (*Window, error) {
 		}
 	}
 
-	var share *glfw.Window
-	if s, ok := o.Share.(*Window); ok {
-		share = s.gw
-	}
 	size := o.Size
 	if size.W <= 0 || size.H <= 0 {
 		size = geom.Sz(800, 600)
