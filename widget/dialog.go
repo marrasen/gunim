@@ -8,6 +8,7 @@ import (
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
+	"github.com/marrasen/gunim/text"
 )
 
 // Dialog is a modal panel that fades, scales and blurs its way in and
@@ -41,7 +42,7 @@ type Dialog struct {
 
 	ok        *Button
 	cancel    *Button
-	titleText label
+	titleText paragraph
 }
 
 // NewDialog returns a dialog with an OK and a Cancel button. Mount it
@@ -178,7 +179,8 @@ func (d *Dialog) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, kids guni
 		Color:  color.NRGBA{A: uint8(0x80 * fade)},
 	})
 	p.RRectStroke(panel, 14, paint.Fill{}, paint.Stroke{Width: 1, Color: dialogBorder})
-	d.titleText.shape(d.Title, 17).Paint(p, panel.Min.Add(geom.Pt(dialogPad, dialogPad)), dialogText)
+	title := d.titleText.layout(d.Title, text.Style{Size: 17, MaxLines: 2}, panel.Size().W-2*dialogPad)
+	title.Paint(p, panel.Min.Add(geom.Pt(dialogPad, dialogPad)), dialogText)
 
 	for kid := range kids.All {
 		kid.Paint(p)

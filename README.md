@@ -15,7 +15,8 @@ CGO_ENABLED=0 go run ./example/twowindows -for 5s
 
 It runs on Windows 11 with 60 Hz and 120 Hz monitors side by side, each
 window at its own monitor's rate, and on Linux under X11. macOS builds
-and is still untested. Text draws as single lines, shaped in pure Go.
+and is still untested. Text shapes and wraps in pure Go, including
+right-to-left and mixed scripts.
 
 ## The split
 
@@ -183,7 +184,7 @@ the far end knows what to decode it into:
 | `gunim/paint` | The per-frame draw list: rounded rects, shadows, text, layers |
 | `gunim/geom` | float32 points, sizes, rectangles |
 | `gunim/input` | Pointer, keyboard and focus events, keys, buttons, modifiers |
-| `gunim/text` | Fonts, shaping a line into glyphs, and glyph rasterizing |
+| `gunim/text` | Fonts and fallback, shaping, paragraph layout, glyph rasterizing |
 | `gunim/driver` | The seam with the operating system, and an offscreen window |
 | `gunim/driver/desktop` | The driver for Linux, Windows and macOS, on GLFW and OpenGL |
 | `gunim/widget` | Worked examples: `Button`, `Dialog`, a keyed `List` |
@@ -228,7 +229,7 @@ rectangles, strokes, gradients and shadows stay crisp at any scale. A
 layer draws into an offscreen texture and is composited back with its
 opacity and rounded clip. A layer's `Blur` and `Backdrop` are Gaussian
 blurs, run at half or a quarter of the resolution when they are wide.
-Text is shaped by go-text/typesetting, a
+Text is shaped and wrapped by go-text/typesetting, a
 pure-Go port of HarfBuzz, and drawn from a glyph atlas that keeps four
 quarter-pixel shifts of each glyph, so text sits sharp at any
 fractional position. While a transform scales it, as when a dialog
@@ -248,6 +249,5 @@ rates, each drawing an animated rounded rectangle, with
 120 Hz monitor (issue #1). What remains:
 
 - Run it on Linux with two monitors at different rates, on a real GPU.
-- Lay out paragraphs: line breaking, mixed scripts, right-to-left text.
 
 Widgets and layout follow.

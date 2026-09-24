@@ -19,3 +19,22 @@ func (l *label) shape(s string, size float32) text.Run {
 	}
 	return l.run
 }
+
+// paragraph holds a string's laid-out form and lays it out again only
+// when the string, style or width changes.
+type paragraph struct {
+	s     string
+	style text.Style
+	width float32
+	p     text.Paragraph
+	ok    bool
+}
+
+// layout returns s laid out in the default face at width.
+func (pr *paragraph) layout(s string, st text.Style, width float32) text.Paragraph {
+	if !pr.ok || pr.s != s || pr.style != st || pr.width != width {
+		pr.s, pr.style, pr.width, pr.ok = s, st, width, true
+		pr.p = text.Default().Layout(s, st, width)
+	}
+	return pr.p
+}

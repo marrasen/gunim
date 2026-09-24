@@ -2,13 +2,15 @@
 // those glyphs for a driver to draw.
 //
 // Shaping is the step that turns a string and a font into glyphs: it
-// picks each glyph, applies kerning and ligatures, and places them. It
-// runs on the UI goroutine during layout, and its result is a [Run]
-// that measures itself and paints itself. Rasterizing turns one glyph
-// into a coverage mask at one device size, and runs on a driver's
-// render thread when a glyph first appears.
+// picks each glyph, applies kerning and ligatures, and places them.
+// Layout goes further: it splits text into runs by direction, script
+// and font, shapes each, and wraps the result into lines at a width.
+// Both run on the UI goroutine during layout, and produce values that
+// measure and paint themselves. Rasterizing turns one glyph into a
+// coverage mask at one device size, and runs on a driver's render
+// thread when a glyph first appears.
 //
-// Both are pure Go, built on go-text/typesetting, the HarfBuzz port
+// All of it is pure Go, built on go-text/typesetting, the HarfBuzz port
 // that Gio and Ebitengine also use.
 package text
 
@@ -20,6 +22,7 @@ import (
 	"math"
 	"sync"
 
+	"github.com/go-text/typesetting/bidi"
 	"github.com/go-text/typesetting/di"
 	"github.com/go-text/typesetting/font"
 	"github.com/go-text/typesetting/font/opentype"
@@ -33,28 +36,35 @@ import (
 	"github.com/marrasen/gunim/paint"
 )
 
-// A Face is a font, ready to shape and rasterize. It is safe for
-// concurrent use: the UI goroutine shapes with it while render threads
-// rasterize from it.
-type Face struct {
-	id   uint32
-	upem float32
-	// ascent and descent are the font's line extents in font units,
-	// both positive.
-	ascent, descent, gap float32
-
-	mu     sync.Mutex
-	face   *font.Face
-	shaper shaping.HarfbuzzShaper
-}
-
+// mu guards everything that touches go-text state: the shaper, the
+// segmenter, the wrapper, and every parsed font, whose glyph caches
+// fill as they are used. The UI goroutine shapes while render threads
+// rasterize, and one layout can reach several fonts through fallback,
+// so a single lock keeps that simple.
 var (
-	facesMu sync.RWMutex
+	mu      sync.Mutex
+	shaper  shaping.HarfbuzzShaper
+	seg     shaping.Segmenter
+	wrapper shaping.LineWrapper
+	levels  bidi.Paragraph
 	faces   []*Face
+	byFont  = map[*font.Face]*Face{}
 
 	defaultOnce sync.Once
 	defaultFace *Face
 )
+
+// A Face is a font, ready to shape and rasterize, with the faces it
+// falls back to for characters it lacks. It is safe for concurrent use.
+type Face struct {
+	id   uint32
+	face *font.Face
+	upem float32
+	// ascent, descent and gap are the font's line extents in font
+	// units, all positive.
+	ascent, descent, gap float32
+	fallback             []*Face
+}
 
 // Parse reads a TrueType or OpenType font.
 func Parse(data []byte) (*Face, error) {
@@ -69,10 +79,11 @@ func Parse(data []byte) (*Face, error) {
 		f.ascent, f.descent = 0.8*f.upem, 0.2*f.upem
 	}
 
-	facesMu.Lock()
+	mu.Lock()
 	f.id = uint32(len(faces))
 	faces = append(faces, f)
-	facesMu.Unlock()
+	byFont[ff] = f
+	mu.Unlock()
 	return f, nil
 }
 
@@ -92,12 +103,41 @@ func Default() *Face {
 // Lookup returns the face a [paint.Glyph] names. A driver calls it to
 // rasterize the glyphs of a [paint.TextOp].
 func Lookup(id uint32) (*Face, bool) {
-	facesMu.RLock()
-	defer facesMu.RUnlock()
+	mu.Lock()
+	defer mu.Unlock()
 	if int(id) >= len(faces) {
 		return nil, false
 	}
 	return faces[id], true
+}
+
+// Fallback sets the faces that draw the characters f lacks, in order of
+// preference, and returns f. Go Regular covers Latin, Greek and
+// Cyrillic; Hebrew, Arabic or CJK text needs a face that has them.
+//
+//	face := text.Default().Fallback(hebrew, arabic)
+func (f *Face) Fallback(others ...*Face) *Face {
+	mu.Lock()
+	f.fallback = append([]*Face(nil), others...)
+	mu.Unlock()
+	return f
+}
+
+// fontmap resolves each character to the first face that has it, which
+// is how go-text splits a run by font. It runs with mu held.
+type fontmap struct{ f *Face }
+
+// ResolveFace implements [shaping.Fontmap].
+func (m fontmap) ResolveFace(r rune) *font.Face {
+	if _, ok := m.f.face.NominalGlyph(r); ok {
+		return m.f.face
+	}
+	for _, fb := range m.f.fallback {
+		if _, ok := fb.face.NominalGlyph(r); ok {
+			return fb.face
+		}
+	}
+	return m.f.face
 }
 
 // A Run is one line of shaped text, laid out along a baseline that
@@ -106,8 +146,8 @@ type Run struct {
 	Face *Face
 	// Size is the font size in logical pixels.
 	Size float32
-	// Glyphs are positioned relative to the start of the baseline, with
-	// y growing downward.
+	// Glyphs are in visual order, left to right, positioned relative to
+	// the start of the baseline with y growing downward.
 	Glyphs []paint.Glyph
 	// Advance is how far the pen moved: the run's width.
 	Advance float32
@@ -134,55 +174,269 @@ func (r Run) Paint(p *paint.Painter, topLeft geom.Point, c color.NRGBA) {
 	})
 }
 
-// Shape lays s out as one line at size logical pixels.
+// Shape lays s out as one line at size logical pixels, with no
+// wrapping. A newline in s is drawn as a space.
 //
-// The script comes from the first letter that has one, which covers
-// single-script labels. Mixed scripts, right-to-left text and line
-// breaking arrive with paragraph layout.
+// Bidirectional text and fallback faces work as they do in [Face.Layout].
 func (f *Face) Shape(s string, size float32) Run {
-	scale := size / f.upem
-	run := Run{Face: f, Size: size, Ascent: f.ascent * scale, Descent: f.descent * scale}
-	if s == "" {
-		return run
-	}
 	runes := []rune(s)
-	in := shaping.Input{
-		Text:      runes,
-		RunStart:  0,
-		RunEnd:    len(runes),
-		Direction: di.DirectionLTR,
-		Face:      f.face,
-		Size:      fixed.Int26_6(math.Round(float64(size) * 64)),
-		Script:    scriptOf(runes),
-		Language:  language.DefaultLanguage(),
+	for i, r := range runes {
+		if r == '\n' {
+			runes[i] = ' '
+		}
 	}
+	mu.Lock()
+	defer mu.Unlock()
+	lines, _ := f.wrapLocked(runes, size, 0, shaping.WrapConfig{Direction: direction(runes)})
+	if len(lines) == 0 {
+		return f.emptyRun(size)
+	}
+	return f.lineRun(lines[0], size)
+}
 
-	f.mu.Lock()
-	out := f.shaper.Shape(in)
-	f.mu.Unlock()
+// Align places lines of different widths within a paragraph.
+type Align uint8
 
-	run.Glyphs = make([]paint.Glyph, 0, len(out.Glyphs))
+const (
+	// AlignStart puts lines against the edge a paragraph starts from:
+	// the left for left-to-right text, the right for right-to-left.
+	AlignStart Align = iota
+	// AlignCenter centres each line.
+	AlignCenter
+	// AlignEnd puts lines against the edge a paragraph ends at.
+	AlignEnd
+)
+
+// Style describes how [Face.Layout] sets a paragraph.
+type Style struct {
+	// Size is the font size in logical pixels.
+	Size float32
+	// LineHeight scales the font's own line spacing. Zero means 1.
+	LineHeight float32
+	Align      Align
+	// MaxLines cuts the text after that many lines and ends the last
+	// one with an ellipsis. Zero means no limit.
+	MaxLines int
+}
+
+// A Paragraph is text laid out in lines.
+type Paragraph struct {
+	Lines []Line
+	// Size is the box the lines fill: the widest line by the height of
+	// every line together.
+	Size geom.Size
+	// Truncated reports whether MaxLines cut text off.
+	Truncated bool
+}
+
+// A Line is one line of a [Paragraph].
+type Line struct {
+	Run Run
+	// At is the top-left of the line's box within the paragraph, after
+	// alignment.
+	At geom.Point
+	// RightToLeft reports whether the line belongs to a right-to-left
+	// paragraph.
+	RightToLeft bool
+}
+
+// Paint draws the paragraph with its top-left at topLeft.
+func (p Paragraph) Paint(painter *paint.Painter, topLeft geom.Point, c color.NRGBA) {
+	for _, l := range p.Lines {
+		l.Run.Paint(painter, topLeft.Add(l.At), c)
+	}
+}
+
+// Layout sets s as a paragraph in lines at most width logical pixels
+// wide, breaking where Unicode's line breaking rules allow and within a
+// word only when the word alone is wider than width. A width of zero or
+// less sets each line of s unbroken.
+//
+// Each newline in s starts a paragraph of its own, whose direction comes
+// from its first letter with a direction, so Hebrew or Arabic sets right
+// to left while the text around it sets left to right. Characters the
+// face lacks come from its [Face.Fallback] faces.
+func (f *Face) Layout(s string, st Style, width float32) Paragraph {
+	if st.LineHeight <= 0 {
+		st.LineHeight = 1
+	}
+	scale := st.Size / f.upem
+	ascent, descent := f.ascent*scale, f.descent*scale
+	step := (f.ascent + f.descent + f.gap) * scale * st.LineHeight
+	// Half the leading goes above the line and half below.
+	halfLeading := (step - ascent - descent) / 2
+
+	var out Paragraph
+	paras := splitLines(s)
+	mu.Lock()
+	var ellipsis shaping.Output
+	if st.MaxLines > 0 {
+		ellipsis = f.shapeLocked([]rune("…"), st.Size, di.DirectionLTR)
+	}
+	for i, runes := range paras {
+		if st.MaxLines > 0 && len(out.Lines) == st.MaxLines {
+			out.Truncated = true
+			break
+		}
+		dir := direction(runes)
+		cfg := shaping.WrapConfig{Direction: dir}
+		if st.MaxLines > 0 {
+			cfg.TruncateAfterLines = st.MaxLines - len(out.Lines)
+			cfg.Truncator = ellipsis
+			cfg.TextContinues = i < len(paras)-1
+		}
+		lines, cut := f.wrapLocked(runes, st.Size, width, cfg)
+		if cut > 0 {
+			out.Truncated = true
+		}
+		if len(lines) == 0 {
+			// An empty paragraph still takes a line.
+			lines = []shaping.Line{nil}
+		}
+		for _, ln := range lines {
+			run := f.lineRun(ln, st.Size)
+			run.Ascent, run.Descent = ascent, descent
+			out.Lines = append(out.Lines, Line{
+				Run:         run,
+				At:          geom.Pt(0, float32(len(out.Lines))*step+halfLeading),
+				RightToLeft: dir == di.DirectionRTL,
+			})
+		}
+		if st.MaxLines > 0 && len(out.Lines) > st.MaxLines {
+			out.Lines = out.Lines[:st.MaxLines]
+			out.Truncated = true
+		}
+	}
+	mu.Unlock()
+
+	for _, l := range out.Lines {
+		out.Size.W = max(out.Size.W, l.Run.Advance)
+	}
+	out.Size.H = float32(len(out.Lines)) * step
+	for i := range out.Lines {
+		l := &out.Lines[i]
+		spare := out.Size.W - l.Run.Advance
+		switch {
+		case st.Align == AlignCenter:
+			l.At.X = spare / 2
+		case (st.Align == AlignEnd) != l.RightToLeft:
+			l.At.X = spare
+		}
+	}
+	return out
+}
+
+// splitLines splits s at each newline into the runes of each line.
+func splitLines(s string) [][]rune {
+	var out [][]rune
+	start := 0
+	runes := []rune(s)
+	for i, r := range runes {
+		if r == '\n' {
+			out = append(out, runes[start:i])
+			start = i + 1
+		}
+	}
+	return append(out, runes[start:])
+}
+
+// direction returns the direction of a paragraph: the direction of its
+// first letter that has one, and left to right when none does. It runs
+// with mu held.
+func direction(runes []rune) di.Direction {
+	if len(runes) == 0 {
+		return di.DirectionLTR
+	}
+	// With no default, the bidi algorithm sets the paragraph's level
+	// from its first strong character, and no run sits below it.
+	runs := levels.Segment(runes, bidi.Neutral)
+	rtl := true
+	for i := range runs.NumRuns() {
+		if runs.Run(i).Level%2 == 0 {
+			rtl = false
+			break
+		}
+	}
+	if rtl {
+		return di.DirectionRTL
+	}
+	return di.DirectionLTR
+}
+
+// shapeLocked shapes runes as a single run in f. It runs with mu held.
+func (f *Face) shapeLocked(runes []rune, size float32, dir di.Direction) shaping.Output {
+	return shaper.Shape(shaping.Input{
+		Text:      runes,
+		RunEnd:    len(runes),
+		Direction: dir,
+		Face:      f.face,
+		Size:      toFixed(size),
+		Script:    language.Common,
+		Language:  language.DefaultLanguage(),
+	})
+}
+
+// wrapLocked splits one paragraph into runs, shapes them, and wraps them
+// into lines no wider than width, or unbroken when width is zero or less.
+// It also returns how many runes a line limit in cfg cut off. It runs
+// with mu held.
+func (f *Face) wrapLocked(runes []rune, size, width float32, cfg shaping.WrapConfig) (lines []shaping.Line, cut int) {
+	if len(runes) == 0 {
+		return nil, 0
+	}
+	inputs := seg.Split(shaping.Input{
+		Text:      runes,
+		RunEnd:    len(runes),
+		Direction: cfg.Direction,
+		Face:      f.face,
+		Size:      toFixed(size),
+		Language:  language.DefaultLanguage(),
+	}, fontmap{f})
+	outs := make([]shaping.Output, len(inputs))
+	for i, in := range inputs {
+		outs[i] = shaper.Shape(in)
+	}
+	maxWidth := fixed.Int26_6(math.MaxInt32)
+	if width > 0 {
+		maxWidth = toFixed(width)
+	}
+	return wrapper.WrapParagraphF(cfg, maxWidth, runes, shaping.NewSliceIterator(outs))
+}
+
+// lineRun lays a wrapped line's runs out left to right in visual order.
+// Each run's glyphs are already in visual order. It runs with mu held.
+func (f *Face) lineRun(ln shaping.Line, size float32) Run {
+	run := f.emptyRun(size)
+	order := make([]int, len(ln))
+	for i, r := range ln {
+		order[r.VisualIndex] = i
+	}
 	var pen float32
-	for _, g := range out.Glyphs {
-		run.Glyphs = append(run.Glyphs, paint.Glyph{
-			ID:   uint32(g.GlyphID),
-			At:   geom.Pt(pen+fromFixed(g.XOffset), -fromFixed(g.YOffset)),
-			Face: f.id,
-		})
-		pen += fromFixed(g.Advance)
+	for _, i := range order {
+		out := ln[i]
+		id := f.id
+		if face, ok := byFont[out.Face]; ok {
+			id = face.id
+		}
+		for _, g := range out.Glyphs {
+			run.Glyphs = append(run.Glyphs, paint.Glyph{
+				ID:   uint32(g.GlyphID),
+				At:   geom.Pt(pen+fromFixed(g.XOffset), -fromFixed(g.YOffset)),
+				Face: id,
+			})
+			pen += fromFixed(g.Advance)
+		}
 	}
 	run.Advance = pen
 	return run
 }
 
-func scriptOf(runes []rune) language.Script {
-	for _, r := range runes {
-		if s := language.LookupScript(r); s != language.Common && s != language.Inherited && s != language.Unknown {
-			return s
-		}
-	}
-	return language.Latin
+func (f *Face) emptyRun(size float32) Run {
+	scale := size / f.upem
+	return Run{Face: f, Size: size, Ascent: f.ascent * scale, Descent: f.descent * scale}
 }
+
+func toFixed(v float32) fixed.Int26_6 { return fixed.Int26_6(math.Round(float64(v) * 64)) }
 
 func fromFixed(v fixed.Int26_6) float32 { return float32(v) / 64 }
 
@@ -204,9 +458,9 @@ type Mask struct {
 //
 // A glyph with no outline, such as a space, returns an empty mask.
 func (f *Face) Rasterize(id uint32, sizePx, dx float32) Mask {
-	f.mu.Lock()
+	mu.Lock()
 	outline, ok := f.face.GlyphDataOutline(font.GID(id))
-	f.mu.Unlock()
+	mu.Unlock()
 	if !ok || len(outline.Segments) == 0 {
 		return Mask{}
 	}
