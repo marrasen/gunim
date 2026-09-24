@@ -1,0 +1,160 @@
+package widget
+
+import (
+	"testing"
+	"time"
+
+	"github.com/marrasen/gunim"
+	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/input"
+	"github.com/marrasen/gunim/paint"
+)
+
+// A field that shares a name with a method of anim.Group hides it, and
+// the engine then never steps the widget. These fail to compile if one
+// does.
+var (
+	_ gunim.Animator = (*Button)(nil)
+	_ gunim.Animator = (*Checkbox)(nil)
+	_ gunim.Animator = (*Switch)(nil)
+	_ gunim.Animator = (*Slider)(nil)
+	_ gunim.Animator = (*Tabs)(nil)
+	_ gunim.Animator = (*Menu)(nil)
+	_ gunim.Animator = (*Dropdown)(nil)
+	_ gunim.Animator = (*Image)(nil)
+)
+
+type (
+	flipped struct{ On bool }
+	slid    struct{ V float32 }
+	tabbed  struct{ I int }
+)
+
+// sent drains the window's intents.
+func sent(w *gunim.Window) []gunim.Intent {
+	var out []gunim.Intent
+	for {
+		select {
+		case e := <-w.Client().Intents():
+			out = append(out, e.Intent)
+		default:
+			return out
+		}
+	}
+}
+
+func click(w *gunim.Window, x, y float32) {
+	w.Input(input.PointerDown{Pos: geom.Pt(x, y), Clicks: 1, Time: time.Now()})
+	w.Input(input.PointerUp{Pos: geom.Pt(x, y), Time: time.Now()})
+}
+
+func TestCheckboxFlipsOnClickAndSpace(t *testing.T) {
+	c := NewCheckbox("Tick")
+	c.OnChange = func(on bool) gunim.Intent { return flipped{on} }
+	w, run := stage(t, &frame{child: c, size: geom.Sz(200, 28)})
+	click(w, 10, 14)
+	run(1)
+	if !c.On {
+		t.Fatal("a click left the checkbox off")
+	}
+	w.Input(input.KeyPress{Key: input.KeySpace})
+	run(60)
+	if c.On || c.on.Value() != 0 {
+		t.Fatalf("Space left the checkbox on at %v", c.on.Value())
+	}
+	if got := sent(w); len(got) != 2 || got[0] != (flipped{true}) || got[1] != (flipped{false}) {
+		t.Fatalf("intents %v, want on then off", got)
+	}
+}
+
+func TestSwitchStartsWhereOnSays(t *testing.T) {
+	s := NewSwitch("Power")
+	s.On = true
+	_, run := stage(t, &frame{child: s, size: geom.Sz(200, 28)})
+	run(1)
+	if v := s.on.Value(); v != 1 {
+		t.Fatalf("a switch made on starts at %v, want 1", v)
+	}
+}
+
+func TestSliderFollowsPointerAndKeys(t *testing.T) {
+	s := NewSlider(0, 100)
+	s.Snap = 1
+	s.OnChange = func(v float32) gunim.Intent { return slid{v} }
+	w, run := stage(t, &frame{child: s, size: geom.Sz(218, 28)})
+	// The track runs from 9 to 209, inside the knob's half at each end.
+	w.Input(input.PointerDown{Pos: geom.Pt(109, 14), Clicks: 1})
+	run(1)
+	if s.Value() != 50 {
+		t.Fatalf("a press mid-track set %v, want 50", s.Value())
+	}
+	w.Input(input.PointerMove{Pos: geom.Pt(159, 14)})
+	w.Input(input.PointerUp{Pos: geom.Pt(159, 14)})
+	run(60)
+	if s.Value() != 75 || s.at.Value() != 0.75 {
+		t.Fatalf("a drag to three quarters left %v with the knob at %v", s.Value(), s.at.Value())
+	}
+	for _, k := range []input.Key{input.KeyRight, input.KeyRight, input.KeyEnd, input.KeyPageDown} {
+		w.Input(input.KeyPress{Key: k})
+	}
+	run(1)
+	if s.Value() != 90 {
+		t.Fatalf("keys left %v, want 90", s.Value())
+	}
+	got := sent(w)
+	if last := got[len(got)-1]; last != (slid{90}) {
+		t.Fatalf("last intent %v, want slid{90}", last)
+	}
+}
+
+func TestTabsShowOnePageAtATime(t *testing.T) {
+	a, b := &recorder{}, &recorder{}
+	tabs := NewTabs([]string{"One", "Two"}, a, b)
+	tabs.OnChange = func(i int) gunim.Intent { return tabbed{i} }
+	w, run := stage(t, &frame{child: tabs, size: geom.Sz(300, 200)})
+	click(w, 150, 100)
+	run(1)
+	if len(a.events) == 0 || len(b.events) != 0 {
+		t.Fatal("a click on the page reached the wrong one")
+	}
+	// The second title starts after the first, "One" and its padding.
+	click(w, tabs.spans[1][0]+5, 10)
+	run(60)
+	if tabs.Selected() != 1 {
+		t.Fatalf("a click on the second title left tab %d", tabs.Selected())
+	}
+	a.events, b.events = nil, nil
+	click(w, 150, 100)
+	run(1)
+	if len(b.events) == 0 || len(a.events) != 0 {
+		t.Fatal("after the switch, a click on the page reached the old one")
+	}
+	// The click on the page took focus from the titles; a click on the
+	// chosen title gives it back.
+	click(w, tabs.spans[1][0]+5, 10)
+	w.Input(input.KeyPress{Key: input.KeyLeft})
+	run(1)
+	if tabs.Selected() != 0 {
+		t.Fatal("Left on the focused titles did not go back a tab")
+	}
+	if got := sent(w); len(got) != 2 || got[0] != (tabbed{1}) || got[1] != (tabbed{0}) {
+		t.Fatalf("intents %v, want tab 1 then 0", got)
+	}
+}
+
+// recorder fills the space it is given and takes every pointer press.
+type recorder struct{ events []input.Event }
+
+func (r *recorder) Handle(e input.Event, _ *gunim.UI) bool {
+	if _, ok := e.(input.PointerDown); ok {
+		r.events = append(r.events, e)
+		return true
+	}
+	return false
+}
+
+func (r *recorder) Layout(c gunim.Constraints, _ gunim.Frame, _ gunim.Children) geom.Size {
+	return c.Max
+}
+
+func (r *recorder) Paint(*paint.Painter, gunim.Frame, geom.Size, gunim.Children) {}

@@ -224,14 +224,14 @@ the far end knows what to decode it into:
 | --- | --- |
 | `gunim` | `Node`, the presence lifecycle, the window and its frame loop |
 | `gunim/anim` | `Animated[T]`, springs, tweens, easings |
-| `gunim/paint` | The per-frame draw list: rounded rects, shadows, text, layers |
+| `gunim/paint` | The per-frame draw list: rounded rects, shadows, text, images, layers |
 | `gunim/geom` | float32 points, sizes, rectangles |
 | `gunim/input` | Pointer, keyboard and focus events, keys, buttons, modifiers |
 | `gunim/theme` | Tokens, themes, and animated theme switching |
 | `gunim/text` | Fonts and fallback, shaping, paragraph layout, glyph rasterizing |
 | `gunim/driver` | The seam with the operating system, and an offscreen window |
 | `gunim/driver/desktop` | The driver for Linux, Windows and macOS, on GLFW and OpenGL |
-| `gunim/widget` | `Row`, `Column`, `Scroll`, `Label`, `TextField`, `TextArea`, `Card`, `Button`, `Dialog`, a keyed `List`, and their theme tokens |
+| `gunim/widget` | `Row`, `Column`, `Scroll`, `Label`, `TextField`, `TextArea`, `Card`, `Button`, `Checkbox`, `Switch`, `Slider`, `Tabs`, `Dropdown`, `ContextMenu`, `Tooltip`, `Image`, `Dialog`, a keyed `List`, and their theme tokens |
 
 Commands, intents, topics and the `Client` live in `wire.go` and
 `view.go`. `driver.Offscreen` plus `Window.Frame` run a window with no
@@ -252,10 +252,11 @@ monitor and shared GL objects are all available down there. Ebitengine
 confines itself to a single window in `internal/ui`, one layer up, and
 that is the layer gunim replaces.
 
-`internal/glfw` and `internal/gl` are copies of Ebitengine's, with two
+`internal/glfw` and `internal/gl` are copies of Ebitengine's, with the
 changes listed in `internal/README.md`. The main one tracks the current
 GL context per thread, so each window can render on a thread of its
-own.
+own. Another adds a popup window: one the window manager leaves where
+it is put, which never takes the keyboard.
 
 `driver/desktop` pumps GLFW events on the main thread, and gives each
 window a render thread that owns its GL context. The render thread
@@ -269,12 +270,21 @@ not wait for the display, as under a remote desktop, the render thread
 sleeps out the rest of the refresh itself.
 
 Every shape is one quad and one signed distance field, so rounded
-rectangles, strokes, gradients and shadows stay crisp at any scale. A
-layer draws into an offscreen texture and is composited back with its
-opacity and rounded clip. A layer's `Blur` and `Backdrop` are Gaussian
+rectangles, strokes, gradients and shadows stay crisp at any scale.
+Shapes, glyphs, images and layer composites all go through one shader
+program, and each vertex carries what its pixels need, so a run of ops
+is one draw call: the widgets gallery draws in three. Every window
+shares the one program, built once. A layer draws into an offscreen
+texture and is composited back with its opacity and rounded clip.
+
+The painter compares each frame with the one before, and the driver
+redraws only the part that changed into a canvas it keeps, then copies
+the canvas to the window. A button easing into its hover colour costs
+the button. Images upload to the GPU once, with mipmaps, and stay while
+frames draw them. A layer's `Blur` and `Backdrop` are Gaussian
 blurs, run at half or a quarter of the resolution when they are wide.
 Text is shaped and wrapped by go-text/typesetting, a
-pure-Go port of HarfBuzz, and drawn from a glyph atlas that keeps four
+pure-Go port of HarfBuzz, and drawn from a glyph atlas, shared by every window, that keeps four
 quarter-pixel shifts of each glyph, so text sits sharp at any
 fractional position. While a transform scales it, as when a dialog
 grows into place, the glyphs keep their resting size and scale with
@@ -287,10 +297,17 @@ font shipped by the application. `text.ParseCollection` reads `.ttc`
 collections, which is how Windows ships most of its Chinese, Japanese
 and Korean fonts.
 
+Menus, drop-down lists and tooltips open in popup windows, so they
+reach past the edge of the window that opened them. A popup's content
+is an ordinary node in the opener's tree, run by the same goroutine,
+and it animates in and out like any other. The popup opens below its
+anchor, or above where the screen runs out. Where the display server
+blends windows, it has round corners and a shadow.
+
 On Linux that port speaks X11, so a Wayland desktop runs gunim through
-XWayland. That suits free-floating popups: X11 lets a client place a
-window at an absolute screen position, and Wayland keeps a popup
-anchored to its parent.
+XWayland. That suits popups: X11 lets a client place a window at an
+absolute screen position, and Wayland keeps a popup anchored to its
+parent.
 
 ## Next
 
@@ -304,9 +321,11 @@ rates, each drawing an animated rounded rectangle, with
   `tools/multimon/start.sh`: each window takes its own monitor's rate,
   paced by the fallback timer, since a virtual display has no vblank.
 
-Then widgets and layout, on top of the theme:
+Then, in no set order:
 
-- Input-method compositions on Windows and macOS, which the GLFW port
-  reports only on X11, and telling the input method where the caret is,
-  so its candidate window opens beside it. Both are changes to the
-  GLFW port.
+- Popups, images and the new renderer on Windows, and measuring the
+  renderer on a GPU. Every number so far comes from software GL.
+- macOS, which builds and has never run. Its popups are borderless
+  floating windows, with no popup type of their own yet.
+- Input-method compositions on macOS, which the GLFW port reports only
+  on X11 and, with a gunim change, on Windows.

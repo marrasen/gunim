@@ -101,6 +101,17 @@ func Light() theme.Theme {
 		theme.Set(Placeholder, color.NRGBA{R: 0x80, G: 0x88, B: 0x96, A: 0xff}),
 		theme.Set(FieldRadius, 12),
 		theme.Set(FieldHeight, 40),
+		theme.Set(MenuFill, color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}),
+		theme.Set(MenuBorder, color.NRGBA{R: 0xd5, G: 0xdb, B: 0xe5, A: 0xff}),
+		theme.Set(MenuShadow, color.NRGBA{A: 0x40}),
+		theme.Set(MenuHot, color.NRGBA{R: 0x2f, G: 0x6f, B: 0xe0, A: 0x30}),
+		theme.Set(MenuRadius, 12),
+		theme.Set(TooltipFill, color.NRGBA{R: 0x1c, G: 0x20, B: 0x28, A: 0xf0}),
+		theme.Set(TooltipInk, color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}),
+		theme.Set(SwitchOff, color.NRGBA{R: 0xc8, G: 0xd0, B: 0xdc, A: 0xff}),
+		theme.Set(Knob, color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}),
+		theme.Set(CheckRadius, 6),
+		theme.Set(ControlHeight, 32),
 	)
 }
 
@@ -184,3 +195,27 @@ var (
 
 // Crossfade is the motion an [Image] fades with.
 var Crossfade = theme.Spring("motion.crossfade", anim.Gentle)
+
+// Control tokens, for checkboxes, switches, sliders and tabs.
+var (
+	// ControlHeight is the least height a control takes, so a row of
+	// them lines up with buttons and fields.
+	ControlHeight = theme.Length("control.height", 28)
+	// ControlGap is the space between a control and its label.
+	ControlGap  = theme.Length("control.gap", 8)
+	CheckSize   = theme.Length("check.size", 18)
+	CheckRadius = theme.Length("check.radius", 5)
+	// CheckMark is the colour of a checkbox's tick.
+	CheckMark    = theme.Color("check.mark", color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff})
+	SwitchWidth  = theme.Length("switch.width", 40)
+	SwitchHeight = theme.Length("switch.height", 22)
+	// SwitchOff is the track of a switch that is off, and of a slider
+	// past its knob.
+	SwitchOff = theme.Color("switch.off", color.NRGBA{R: 0x3a, G: 0x40, B: 0x50, A: 0xff})
+	// Knob is the colour of a switch's and a slider's knob.
+	Knob        = theme.Color("knob", color.NRGBA{R: 0xf4, G: 0xf6, B: 0xfa, A: 0xff})
+	KnobSize    = theme.Length("knob.size", 18)
+	SliderTrack = theme.Length("slider.track", 4)
+	TabHeight   = theme.Length("tab.height", 38)
+	TabPadding  = theme.Length("tab.padding", 14)
+)

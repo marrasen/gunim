@@ -1,8 +1,9 @@
-// Command controls shows gunim's controls: a drop-down, a context
-// menu and tooltips, each opening a popup window that can reach past
-// the edge of the main one, and a picture that crossfades to the next.
-// The application draws the pictures and hands them to the window in
-// its state, by reference.
+// Command controls shows gunim's controls on three tabs. The first has
+// a drop-down, a context menu and a tooltip, each opening a popup
+// window that can reach past the edge of the main one. The second has
+// a checkbox, a switch and a slider. The third has a picture that
+// crossfades to the next; the application draws the pictures and
+// hands them to the window in its state, by reference.
 //
 //	CGO_ENABLED=0 go run ./example/controls
 package main
@@ -33,6 +34,13 @@ type (
 	}
 	// Next travels when the picture button is pressed.
 	Next struct{}
+	// Toggled travels when a checkbox or switch flips.
+	Toggled struct {
+		Name string
+		On   bool
+	}
+	// Slid travels as the slider moves.
+	Slid struct{ Value float32 }
 	// Chose travels when the drop-down changes.
 	Chose struct{ Fruit int }
 	// Picked travels when a context menu item is picked.
@@ -47,6 +55,8 @@ func init() {
 	gunim.RegisterType[Picked]("controls.picked")
 	gunim.RegisterType[ThemeToggled]("controls.theme")
 	gunim.RegisterType[Next]("controls.next")
+	gunim.RegisterType[Toggled]("controls.toggled")
+	gunim.RegisterType[Slid]("controls.slid")
 }
 
 var (
@@ -73,7 +83,7 @@ func run(runFor time.Duration) error {
 	return gunim.Main(ctx, func(a *gunim.App) error {
 		w, err := a.NewWindow(gunim.WindowOptions{
 			Title: "gunim controls",
-			Size:  geom.Sz(560, 420),
+			Size:  geom.Sz(560, 440),
 			Root:  widget.NewSurface(),
 		})
 		if err != nil {
@@ -112,6 +122,19 @@ func buildPage(s Page) *page {
 	toggle := widget.NewButton("Switch theme")
 	toggle.On = ThemeToggled{}
 	tipped := widget.NewTooltip(toggle, "Switches between the dark and light themes")
+	popups := widget.Column(fruitRow, menu, widget.Row(tipped))
+	popups.Cross = widget.CrossStretch
+
+	check := widget.NewCheckbox("Send me the newsletter")
+	check.OnChange = func(on bool) gunim.Intent { return Toggled{Name: "Newsletter", On: on} }
+	sw := widget.NewSwitch("Dark mode")
+	sw.On = true
+	sw.OnChange = func(on bool) gunim.Intent { return Toggled{Name: "Dark mode", On: on} }
+	slider := widget.NewSlider(0, 100)
+	slider.Snap = 1
+	slider.OnChange = func(v float32) gunim.Intent { return Slid{Value: v} }
+	toggles := widget.Column(check, sw, widget.NewLabel("Volume"), slider)
+	toggles.Cross = widget.CrossStretch
 
 	picture := widget.NewImage(s.Picture)
 	picture.Fit, picture.Radius, picture.Size = widget.FitCover, 10, geom.Sz(240, 150)
@@ -120,8 +143,15 @@ func buildPage(s Page) *page {
 	pictureRow := widget.Row(picture, next)
 	pictureRow.Cross = widget.CrossEnd
 
+	pad := func(n gunim.Node) gunim.Node {
+		p := widget.NewPad(n)
+		p.Padding = widget.CardPadding
+		return p
+	}
+	tabs := widget.NewTabs([]string{"Popups", "Toggles", "Pictures"}, pad(popups), pad(toggles), pad(pictureRow))
+
 	status := widget.NewLabel(s.Status)
-	col := widget.Column(title, fruitRow, menu, widget.Row(tipped), pictureRow, status)
+	col := widget.Column(title, tabs, status).Grow(tabs, 1)
 	col.Cross = widget.CrossStretch
 	return &page{Pad: widget.NewPad(col), status: status, picture: picture}
 }
@@ -191,6 +221,16 @@ func serve(ctx context.Context, c gunim.Client) error {
 				_ = c.Update("page", state)
 			case Picked:
 				state.Status = fmt.Sprintf("Picked %s.", actions[v.Action])
+				_ = c.Update("page", state)
+			case Toggled:
+				state.Status = fmt.Sprintf("%s is %s.", v.Name, map[bool]string{false: "off", true: "on"}[v.On])
+				_ = c.Update("page", state)
+				if v.Name == "Dark mode" {
+					light = !v.On
+					_ = c.SetTheme(map[bool]string{false: "dark", true: "light"}[light])
+				}
+			case Slid:
+				state.Status = fmt.Sprintf("Volume %.0f.", v.Value)
 				_ = c.Update("page", state)
 			case Next:
 				shown = (shown + 1) % len(pics)
