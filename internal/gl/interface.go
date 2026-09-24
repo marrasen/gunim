@@ -16,7 +16,6 @@
 
 package gl
 
-
 // Context is a context for OpenGL (ES) functions.
 //
 // Context is basically the same as gomobile's gl.Context.

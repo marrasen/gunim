@@ -59,6 +59,9 @@ func Open() (*Driver, error) {
 		_ = glfw.Terminate()
 		return nil, fmt.Errorf("desktop: %w", err)
 	}
+	// The main thread pumps every window's events, and init has locked
+	// it for life.
+	raiseThread()
 	return &Driver{isES: probe.IsES(), windows: map[*glfw.Window]*Window{}}, nil
 }
 

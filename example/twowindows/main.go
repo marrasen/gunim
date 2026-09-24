@@ -153,7 +153,9 @@ func (b *bouncer) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, _ gunim.
 	p.RRect(geom.Rect{Max: box.Point()}, 0, paint.Solid(color.NRGBA{R: 0x16, G: 0x18, B: 0x1e, A: 0xff}))
 
 	const w, h = 160, 110
-	x := 40 + (box.W-w-80)*b.x.Value()
+	// Bouncy overshoots by about 11%, so the swing covers the middle 80%
+	// of the track and the overshoot stays inside the margins.
+	x := 40 + (box.W-w-80)*(0.1+0.8*b.x.Value())
 	y := (box.H - h) / 2
 	r := geom.Rc(x, y, w, h)
 	p.ShadowRRect(r, 18, paint.Fill{}, paint.Shadow{

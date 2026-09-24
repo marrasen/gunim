@@ -13,8 +13,9 @@ built with `CGO_ENABLED=0`:
 CGO_ENABLED=0 go run ./example/twowindows -for 5s
 ```
 
-It has run on Linux under X11. Windows and macOS build but are still
-untested. Text drawing comes next.
+It runs on Windows 11 with 60 Hz and 120 Hz monitors side by side, each
+window at its own monitor's rate, and on Linux under X11. macOS builds
+and is still untested. Text drawing comes next.
 
 ## The split
 
@@ -214,7 +215,10 @@ own.
 window a render thread that owns its GL context. The render thread
 replays the frame's `paint` ops, swaps buffers, and reports the frame
 shown once the swap returns. That report is what paces the window, so
-two windows on two monitors keep two refresh rates. Where the swap does
+two windows on two monitors keep two refresh rates. On Windows, GLFW's
+swap waits for the compositor, which follows the fastest monitor, so
+each render thread waits for its own monitor's vertical blank instead,
+the way Chromium does. Where the swap does
 not wait for the display, as under a remote desktop, the render thread
 sleeps out the rest of the refresh itself.
 
@@ -232,11 +236,10 @@ anchored to its parent.
 
 The first milestone is two windows on two monitors at different refresh
 rates, each drawing an animated rounded rectangle, with
-`CGO_ENABLED=0`, on Linux and Windows. It runs on one Linux monitor so
-far. What remains:
+`CGO_ENABLED=0`, on Linux and Windows. Windows passes, on a 60 Hz and a
+120 Hz monitor (issue #1). What remains:
 
-- Run it on two monitors at different rates, on real GPU hardware.
-- Run it on Windows.
+- Run it on Linux with two monitors at different rates, on a real GPU.
 - Draw text, which the renderer skips today.
 - Draw the `Blur` and `Backdrop` of a layer, which it also skips.
 

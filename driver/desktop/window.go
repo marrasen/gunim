@@ -202,6 +202,9 @@ func (w *Window) awaitFrameAtSize() {
 	}
 }
 
+// RaiseThread implements [driver.Raiser].
+func (*Window) RaiseThread() { raiseThread() }
+
 // stopRender tells the render thread and the input feed to stop.
 func (w *Window) stopRender() { w.quitOnce.Do(func() { close(w.quit) }) }
 
@@ -384,9 +387,12 @@ func (w *Window) install() {
 // render is the window's render thread. It owns the GL context: it
 // replays each frame the engine presents, swaps, and reports the frame
 // shown once the swap returns.
+//
+// The goroutine keeps its thread until it exits, so the raised thread
+// and the GL context end together with it.
 func (w *Window) render() {
 	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
+	raiseThread()
 	defer close(w.done)
 
 	r, err := w.startGL()
