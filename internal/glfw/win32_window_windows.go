@@ -712,9 +712,19 @@ func windowProc(hWnd windows.HWND, uMsg uint32, wParam _WPARAM, lParam _LPARAM) 
 
 			window.platform.highSurrogate = 0
 			window.inputChar(codepoint, getKeyMods(), uMsg != _WM_SYSCHAR)
+			// gunim change: typed text goes to the text input callback too,
+			// as on X11.
+			window.inputText(string(codepoint), uMsg != _WM_SYSCHAR)
 		}
 
 		return 0
+
+	// gunim change: the input method's composition, while the application
+	// is taking text (win32_ime_windows.go).
+	case _WM_IME_STARTCOMPOSITION, _WM_IME_COMPOSITION, _WM_IME_ENDCOMPOSITION:
+		if window.handleIMEMessage(uMsg, lParam) {
+			return 0
+		}
 
 	case _WM_UNICHAR:
 		if wParam == _UNICODE_NOCHAR {
@@ -725,6 +735,7 @@ func windowProc(hWnd windows.HWND, uMsg uint32, wParam _WPARAM, lParam _LPARAM) 
 		}
 
 		window.inputChar(rune(wParam), getKeyMods(), true)
+		window.inputText(string(rune(wParam)), true) // gunim change
 		return 0
 
 	case _WM_KEYDOWN, _WM_SYSKEYDOWN, _WM_KEYUP, _WM_SYSKEYUP:

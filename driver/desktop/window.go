@@ -71,8 +71,7 @@ type Window struct {
 	err      error
 	// caret is the text caret the engine last reported, in window space
 	// and logical pixels. Platform code places an input method's
-	// composition and candidate windows from it; no platform reads it
-	// yet.
+	// composition and candidate windows from it.
 	caret geom.Rect
 	// drawnW and drawnH are the framebuffer size of the last frame the
 	// render thread swapped, and drew is nudged after each swap.
@@ -165,15 +164,15 @@ func (w *Window) SetTextCaret(r geom.Rect) {
 	w.mu.Lock()
 	w.caret = r
 	w.mu.Unlock()
+	caretMoved(w)
 }
 
 // SetTextInput implements [driver.TextInputter].
 func (w *Window) SetTextInput(active bool) {
-	if w.textInput.Swap(active) == active || active {
+	if w.textInput.Swap(active) == active {
 		return
 	}
-	// Ending text input ends any composition in progress.
-	w.d.post(func() { resetInputMethod(w) })
+	w.d.post(func() { textInputChanged(w, active) })
 }
 
 // Clipboard implements [driver.Window]. It reads the clipboard on the

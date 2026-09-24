@@ -22,6 +22,12 @@ gunim's changes are marked `gunim change` in the code:
 - `gl` loads desktop OpenGL before OpenGL ES on Linux and the BSDs
   (`procaddr_linbsd.go`), so the context is created through GLX without
   asking `glxinfo` whether GLX can make an ES context.
+- `glfw` gives the Win32 port the input-method API of the X11 one
+  (`win32_ime_windows.go`): compositions through IMM32 while the
+  application takes text, typed text through the text input callback,
+  `ResetInputContext`, and, Windows only, `SetInputMethodEnabled` and
+  `SetInputMethodCaret`. `windowProc` routes the `WM_IME_*` composition
+  messages there, and the platform window state holds its fields.
 
 To take a newer Ebitengine, copy the same files again and reapply those
-two changes.
+changes.

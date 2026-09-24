@@ -24,10 +24,14 @@ func installText(w *Window) {
 	_, _ = gw.SetTextInputActiveCallback(func(*glfw.Window) bool { return w.textInput.Load() })
 }
 
-// resetInputMethod ends a composition in progress. It runs on the main
-// thread.
-func resetInputMethod(w *Window) {
-	if !w.closed {
+// textInputChanged ends a composition in progress when the application
+// stops taking text. It runs on the main thread.
+func textInputChanged(w *Window, active bool) {
+	if !active && !w.closed {
 		_ = w.gw.ResetInputContext()
 	}
 }
+
+// caretMoved does nothing: the input method draws the composition
+// inline, and places its candidate window itself.
+func caretMoved(*Window) {}

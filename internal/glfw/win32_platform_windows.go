@@ -40,6 +40,17 @@ type platformWindowState struct {
 
 	// The last received high surrogate when decoding pairs of UTF-16 messages
 	highSurrogate uint16
+
+	// gunim change: the input method's state (win32_ime_windows.go). The
+	// preedit fields hold the composition reported last, and imeCaret the
+	// text caret in client-area pixels.
+	preeditText             string
+	preeditStart            int
+	preeditEnd              int
+	imeCaret                _RECT
+	preeditCallback         PreeditCallback
+	textInputCallback       TextInputCallback
+	textInputActiveCallback TextInputActiveCallback
 }
 
 type platformMonitorState struct {
