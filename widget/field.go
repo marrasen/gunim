@@ -231,7 +231,7 @@ func (t *TextField) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ guni
 	run := t.run(th)
 	x := pad - t.scroll.Value()
 	y := (box.H - run.Height()) / 2
-	if len(t.text) == 0 && t.Placeholder != "" {
+	if len(t.text) == 0 && len(t.preedit) == 0 && t.Placeholder != "" {
 		ph := text.Default().Shape(t.Placeholder, TextSize.Get(th))
 		ph.Paint(p, geom.Pt(pad, y), Placeholder.Get(th))
 	}
