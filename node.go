@@ -112,6 +112,15 @@ type Focusable interface {
 	Focusable() bool
 }
 
+// A TextTaker is a node that takes typed text while it has focus, as a
+// text field does. While one has focus, the platform's input method
+// composes into the window and reports its composition as
+// [input.Composing].
+type TextTaker interface {
+	Node
+	TakesText() bool
+}
+
 // A Revealer is a node that can bring part of what it shows into view,
 // as a scroll view does. When focus moves by Tab, the engine calls
 // Reveal on every Revealer above the newly focused node, with that

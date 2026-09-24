@@ -283,9 +283,11 @@ rates, each drawing an animated rounded rectangle, with
 
 Then widgets and layout, on top of the theme:
 
-- Text fields: input methods (the driver reports no composition yet),
-  multi-line editing, and caret movement that follows visual order in
-  mixed-direction text.
+- Text fields: multi-line editing, caret movement that follows visual
+  order in mixed-direction text, and input-method compositions on
+  Windows and macOS, which the GLFW port reports only on X11. The input
+  method is also not yet told where the caret is, for placing its
+  candidate window.
 - Theme switches that look good halfway: blend colours in Oklab rather
   than sRGB, and let a theme stagger its tokens, so text keeps its
   contrast while light and dark cross.

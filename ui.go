@@ -821,10 +821,27 @@ func (u *UI) Focus(n Node) {
 		u.deliver(u.focus, input.FocusLost{Time: u.now})
 	}
 	u.focus = next
+	u.takeText(next)
 	if next != nil {
 		u.deliver(next, input.FocusGained{Time: u.now})
 	}
 	u.invalid = true
+}
+
+// takeText tells the driver whether the newly focused node takes typed
+// text, so the input method composes into the window only then.
+func (u *UI) takeText(s *state) {
+	ti, ok := u.w.dw.(driver.TextInputter)
+	if !ok {
+		return
+	}
+	var takes bool
+	if s != nil {
+		if t, ok := s.node.(TextTaker); ok {
+			takes = t.TakesText()
+		}
+	}
+	ti.SetTextInput(takes)
 }
 
 // needsFrame reports whether there is anything to draw.

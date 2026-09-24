@@ -25,6 +25,10 @@ import (
 //
 // While the field has focus, keys pressed without Ctrl, Alt or Super
 // stop at it, so typing never sets off a window's shortcuts.
+//
+// An input method composes in place: the composition shows at the caret,
+// underlined, with the input method's own caret or highlight inside it,
+// until it commits.
 type TextField struct {
 	Placeholder string
 	// OnChange and OnSubmit turn the text into an intent to send when
@@ -36,6 +40,11 @@ type TextField struct {
 	text          []rune
 	caret, anchor int
 	held          bool
+	// preedit is the input method's composition, and preSel the part of
+	// it the input method highlights, in runes; both ends are its caret
+	// when nothing is highlighted.
+	preedit []rune
+	preSel  [2]int
 
 	focus  *anim.Float
 	caretX *anim.Float
@@ -59,6 +68,23 @@ func NewTextField() *TextField {
 
 // Focusable implements [gunim.Focusable].
 func (t *TextField) Focusable() bool { return true }
+
+// TakesText implements [gunim.TextTaker], so an input method composes
+// into the field.
+func (t *TextField) TakesText() bool { return true }
+
+// shown returns the text as drawn, with any composition in place of the
+// selection, and where the composition starts.
+func (t *TextField) shown() (runes []rune, at int) {
+	start, end := t.Selection()
+	if len(t.preedit) == 0 {
+		return t.text, start
+	}
+	out := make([]rune, 0, len(t.text)-(end-start)+len(t.preedit))
+	out = append(out, t.text[:start]...)
+	out = append(out, t.preedit...)
+	return append(out, t.text[end:]...), start
+}
 
 // Text returns the field's text.
 func (t *TextField) Text() string { return string(t.text) }
@@ -96,6 +122,7 @@ func (t *TextField) Handle(e input.Event, u *gunim.UI) bool {
 	case input.FocusLost:
 		t.focus.Animate(0, Settle.Get(u.Theme()))
 		t.anchor = t.caret
+		t.preedit = nil // the driver ends the composition too
 	case input.PointerDown:
 		i := t.indexAt(e.Pos, u)
 		switch {
@@ -117,7 +144,10 @@ func (t *TextField) Handle(e input.Event, u *gunim.UI) bool {
 	case input.PointerUp:
 		t.held = false
 	case input.TextInput:
+		t.preedit = nil
 		t.insert(e.Text, u)
+	case input.Composing:
+		t.compose(e)
 	case input.KeyPress:
 		return t.key(e, u)
 	default:
@@ -125,6 +155,17 @@ func (t *TextField) Handle(e input.Event, u *gunim.UI) bool {
 	}
 	u.Invalidate()
 	return true
+}
+
+// compose takes the input method's latest composition, whose selection
+// arrives in bytes.
+func (t *TextField) compose(e input.Composing) {
+	t.preedit = []rune(e.Text)
+	runeAt := func(b int) int {
+		b = max(0, min(b, len(e.Text)))
+		return len([]rune(e.Text[:b]))
+	}
+	t.preSel = [2]int{runeAt(e.Selected[0]), runeAt(e.Selected[1])}
 }
 
 // indexAt returns the rune index a pointer at p, in the field's space,
@@ -261,6 +302,13 @@ func (t *TextField) replace(start, end int, with []rune, u *gunim.UI) {
 	}
 }
 
+func abs32(v float32) float32 {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
 // wordStart returns where the word at or before i starts, skipping
 // spaces before it.
 func wordStart(rs []rune, i int) int {
@@ -288,7 +336,8 @@ func wordEnd(rs []rune, i int) int {
 }
 
 func (t *TextField) run(th *theme.Live) text.Run {
-	return t.shaped.shape(string(t.text), TextSize.Get(th))
+	shown, _ := t.shown()
+	return t.shaped.shape(string(shown), TextSize.Get(th))
 }
 
 // Layout implements [gunim.Node]. The field fills the width it is given,
@@ -305,9 +354,16 @@ func (t *TextField) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children)
 	run := t.run(th)
 	inner := own.W - 2*FieldPadding.Get(th)
 	motion := Caret.Get(th)
-	cx := run.CaretX(t.caret)
+	caret, anchor := t.caret, t.anchor
+	if len(t.preedit) > 0 {
+		// While composing, the caret and highlight are the input
+		// method's, inside the composition.
+		_, at := t.shown()
+		anchor, caret = at+t.preSel[0], at+t.preSel[1]
+	}
+	cx := run.CaretX(caret)
 	t.caretX.Animate(cx, motion)
-	a, b := run.CaretX(t.anchor), cx
+	a, b := run.CaretX(anchor), cx
 	t.selA.Animate(min(a, b), motion)
 	t.selB.Animate(max(a, b), motion)
 
@@ -350,6 +406,12 @@ func (t *TextField) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ guni
 		p.RRect(geom.Rc(x+a, y, b-a, run.Height()), 3, paint.Solid(sel))
 	}
 	run.Paint(p, geom.Pt(x, y), Ink.Get(th))
+	if len(t.preedit) > 0 {
+		// Underline the composition, as input methods expect.
+		_, at := t.shown()
+		x0, x1 := run.CaretX(at), run.CaretX(at+len(t.preedit))
+		p.RRect(geom.Rc(x+min(x0, x1), y+run.Ascent+2, abs32(x1-x0), 1), 0, paint.Solid(Ink.Get(th)))
+	}
 
 	if focus > 0.01 {
 		c := Accent.Get(th)

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/marrasen/gunim/driver"
@@ -75,6 +76,10 @@ type Window struct {
 	// readback, when set by a test, receives each frame's pixels as
 	// RGBA rows from the bottom up, read before the swap.
 	readback func(pix []byte, w, h int)
+
+	// textInput is whether the application is taking text, which the
+	// input method asks from the main thread.
+	textInput atomic.Bool
 
 	// The fields below belong to the main thread.
 	closed     bool
@@ -147,6 +152,15 @@ func (w *Window) RefreshRate() float64 {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.rate
+}
+
+// SetTextInput implements [driver.TextInputter].
+func (w *Window) SetTextInput(active bool) {
+	if w.textInput.Swap(active) == active || active {
+		return
+	}
+	// Ending text input ends any composition in progress.
+	w.d.post(func() { resetInputMethod(w) })
 }
 
 // Clipboard implements [driver.Window]. It reads the clipboard on the
@@ -399,9 +413,7 @@ func (w *Window) install() {
 			w.in.push(input.KeyRelease{Key: keyOf(k), Mods: w.mods, Time: now})
 		}
 	})
-	_, _ = gw.SetCharCallback(func(_ *glfw.Window, r rune) {
-		w.in.push(input.TextInput{Text: string(r), Time: time.Now()})
-	})
+	installText(w)
 }
 
 // render is the window's render thread. It owns the GL context: it

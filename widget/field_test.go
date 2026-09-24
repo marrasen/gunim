@@ -165,3 +165,40 @@ func TestClicksPlaceTheCaretAndSelectWords(t *testing.T) {
 		t.Fatalf("double-click selected %d..%d, want the word two at 4..7", s, e)
 	}
 }
+
+func TestACompositionShowsInPlaceUntilItCommits(t *testing.T) {
+	ty := newTyper(t)
+	ty.typeText("ab")
+	ty.key(input.KeyLeft, 0)
+	// "にほ" is six bytes; the input method's caret is at its end.
+	ty.w.Input(input.Composing{Text: "にほ", Selected: [2]int{6, 6}})
+	ty.run(1)
+	if got := ty.field.Text(); got != "ab" {
+		t.Fatalf("text %q during composition, want it untouched", got)
+	}
+	shown, at := ty.field.shown()
+	if string(shown) != "aにほb" || at != 1 {
+		t.Fatalf("shown %q from %d, want aにほb from 1", string(shown), at)
+	}
+
+	ty.w.Input(input.Composing{})
+	ty.w.Input(input.TextInput{Text: "日本"})
+	ty.run(1)
+	ty.want("a日本b", 3)
+	if shown, _ := ty.field.shown(); string(shown) != "a日本b" {
+		t.Fatalf("shown %q after the commit, want the committed text", string(shown))
+	}
+}
+
+func TestACommitReplacesTheSelection(t *testing.T) {
+	ty := newTyper(t)
+	ty.typeText("hello")
+	ty.key(input.KeyHome, input.ModShift)
+	ty.w.Input(input.Composing{Text: "x", Selected: [2]int{1, 1}})
+	if shown, _ := ty.field.shown(); string(shown) != "x" {
+		t.Fatalf("shown %q, want the composition in place of the selection", string(shown))
+	}
+	ty.w.Input(input.TextInput{Text: "X"})
+	ty.run(1)
+	ty.want("X", 1)
+}
