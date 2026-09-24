@@ -101,14 +101,16 @@ func (d *Driver) Run(ctx context.Context, ready func()) error {
 }
 
 // post queues f for the main thread and wakes the event loop.
+//
+// The wake-up happens under the lock that Run takes to stop, so Run
+// cannot terminate GLFW while a wake-up is on its way.
 func (d *Driver) post(f func()) bool {
 	d.mu.Lock()
+	defer d.mu.Unlock()
 	if d.stopped {
-		d.mu.Unlock()
 		return false
 	}
 	d.tasks = append(d.tasks, f)
-	d.mu.Unlock()
 	_ = glfw.PostEmptyEvent()
 	return true
 }
