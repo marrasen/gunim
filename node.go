@@ -121,6 +121,25 @@ type TextTaker interface {
 	TakesText() bool
 }
 
+// A ThemeScope is a node that gives its subtree a theme of its own. The
+// scope's theme falls back to the one around it for the tokens it
+// leaves out; see [theme.Live.Under]. The node steps the Live it
+// returns, as an [Animator].
+type ThemeScope interface {
+	Node
+	ThemeScope() *theme.Live
+}
+
+// scoped returns f with n's theme when n is a [ThemeScope].
+func scoped(f Frame, n Node) Frame {
+	if sc, ok := n.(ThemeScope); ok {
+		l := sc.ThemeScope()
+		l.Under(f.Theme)
+		f.Theme = l
+	}
+	return f
+}
+
 // A Revealer is a node that can bring part of what it shows into view,
 // as a scroll view does. When focus moves by Tab, the engine calls
 // Reveal on every Revealer above the newly focused node, with that
@@ -251,7 +270,8 @@ func (c Child) Presence() Presence { return c.n.presence }
 
 // Layout lays the child out within cs and returns the size it chose.
 func (c Child) Layout(cs Constraints) geom.Size {
-	c.n.size = c.n.node.Layout(cs, c.f, Children{ns: c.n.kids, f: c.f})
+	f := scoped(c.f, c.n.node)
+	c.n.size = c.n.node.Layout(cs, f, Children{ns: c.n.kids, f: f})
 	return c.n.size
 }
 
@@ -277,7 +297,8 @@ func (c Child) Paint(p *paint.Painter) {
 	c.n.toWindow = p.Transform()
 	c.n.clip = p.Clip()
 	c.n.drawn = c.f.seq
-	c.n.node.Paint(p, c.f, c.n.size, Children{ns: c.n.kids, f: c.f})
+	f := scoped(c.f, c.n.node)
+	c.n.node.Paint(p, f, c.n.size, Children{ns: c.n.kids, f: f})
 }
 
 // state is the engine's bookkeeping for one node. It stays inside the

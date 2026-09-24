@@ -117,13 +117,22 @@ func (t Token[T]) Default() T { return t.def }
 
 // Get returns the token's value in l right now, part way to its target
 // while a theme switch is running. A nil Live gives the default.
+//
+// In a scope, a token the scope's theme leaves out comes from the theme
+// around it, and moves with it.
 func (t Token[T]) Get(l *Live) T {
 	if l == nil {
 		return t.def
 	}
 	s, ok := l.slots[t.key]
 	if !ok {
-		s = t.newSlot(l.active)
+		if l.parent != nil && !l.active.has(t.key) {
+			// Remember the token, so a later switch to a theme that sets
+			// it starts from the value it shows now.
+			l.reads[t.key] = func() stepper { return t.slotAt(t.Get(l.parent)) }
+			return t.Get(l.parent)
+		}
+		s = t.slotAt(t.in(l.active))
 		l.slots[t.key] = s
 	}
 	typed, ok := s.(valuer[T])
@@ -131,6 +140,20 @@ func (t Token[T]) Get(l *Live) T {
 		panic(fmt.Sprintf("theme: %q read as the wrong type", t.key))
 	}
 	return typed.value()
+}
+
+// target is where t is heading in th: th's value, or else the theme
+// around it, or else the default.
+func (t Token[T]) target(th Theme, parent *Live) T {
+	if v, ok := th.values[t.key]; ok {
+		if typed, ok := v.(T); ok {
+			return typed
+		}
+	}
+	if parent != nil {
+		return t.Get(parent)
+	}
+	return t.def
 }
 
 // in returns the token's value in th, or its default.
@@ -147,6 +170,11 @@ func (t Token[T]) in(th Theme) T {
 type Theme struct {
 	Name   string
 	values map[string]any
+}
+
+func (th Theme) has(key string) bool {
+	_, ok := th.values[key]
+	return ok
 }
 
 // With returns a copy of th with entries added, replacing any value th
@@ -188,29 +216,39 @@ func Make(name string, entries ...Entry) Theme {
 // the new theme's value is the one used.
 var Switch = Spring("theme.switch", anim.Spring{Response: 0.6, Damping: 1})
 
-// A Live is the theme in force in one window: every token read so far,
-// each an animated value. It belongs to the window's UI goroutine.
+// A Live is the theme in force in one window, or in one part of it:
+// every token read so far, each an animated value. It belongs to the
+// window's UI goroutine.
 type Live struct {
 	active Theme
 	slots  map[string]stepper
+	// parent is the theme around a scope, and nil for a window's own.
+	parent *Live
+	// reads holds the tokens a scope has passed on to its parent, each
+	// with a way to give it a value of its own.
+	reads map[string]func() stepper
 }
 
 type stepper interface {
 	step(dt time.Duration) bool
-	retarget(th Theme, m anim.Motion)
+	// retarget starts moving toward th's value, or the parent's.
+	retarget(th Theme, parent *Live, m anim.Motion)
+	// follow keeps heading for th's value, or the parent's, as the
+	// parent's moves, without starting over.
+	follow(th Theme, parent *Live, m anim.Motion)
+	moving() bool
 }
 
 type valuer[T any] interface {
 	value() T
 }
 
-// newSlot returns the live value of t in th, at rest.
-func (t Token[T]) newSlot(th Theme) stepper {
+// slotAt returns a live value for t, at rest at v.
+func (t Token[T]) slotAt(v T) stepper {
 	if t.blend != nil {
-		v := t.in(th)
 		return &blendSlot[T]{token: t, from: v, to: v, p: anim.NewFloat(1)}
 	}
-	return &slot[T]{a: anim.New(t.in(th), t.codec), token: t}
+	return &slot[T]{a: anim.New(v, t.codec), token: t}
 }
 
 // slot animates a token's value itself.
@@ -221,7 +259,13 @@ type slot[T any] struct {
 
 func (s *slot[T]) step(dt time.Duration) bool { return s.a.Step(dt) }
 
-func (s *slot[T]) retarget(th Theme, m anim.Motion) { s.a.Animate(s.token.in(th), m) }
+func (s *slot[T]) retarget(th Theme, parent *Live, m anim.Motion) {
+	s.a.Animate(s.token.target(th, parent), m)
+}
+
+func (s *slot[T]) follow(th Theme, parent *Live, m anim.Motion) { s.retarget(th, parent, m) }
+
+func (s *slot[T]) moving() bool { return s.a.Active() }
 
 func (s *slot[T]) value() T { return s.a.Value() }
 
@@ -235,39 +279,76 @@ type blendSlot[T any] struct {
 
 func (s *blendSlot[T]) step(dt time.Duration) bool { return s.p.Step(dt) }
 
-func (s *blendSlot[T]) retarget(th Theme, m anim.Motion) {
-	s.from, s.to = s.value(), s.token.in(th)
+func (s *blendSlot[T]) retarget(th Theme, parent *Live, m anim.Motion) {
+	s.from, s.to = s.value(), s.token.target(th, parent)
 	s.p.Jump(0)
 	s.p.Animate(1, m)
 }
+
+func (s *blendSlot[T]) follow(th Theme, parent *Live, _ anim.Motion) {
+	s.to = s.token.target(th, parent)
+}
+
+func (s *blendSlot[T]) moving() bool { return s.p.Active() }
 
 func (s *blendSlot[T]) value() T { return s.token.blend(s.from, s.to, min(s.p.Value(), 1)) }
 
 // NewLive returns the live form of th, at rest.
 func NewLive(th Theme) *Live {
-	return &Live{active: th, slots: map[string]stepper{}}
+	return &Live{active: th, slots: map[string]stepper{}, reads: map[string]func() stepper{}}
 }
+
+// Under makes l a scope within parent: tokens l's theme leaves out come
+// from parent. The engine calls it every frame for a node that gives its
+// subtree a theme.
+func (l *Live) Under(parent *Live) { l.parent = parent }
 
 // Active returns the theme the values are heading for.
 func (l *Live) Active() Theme { return l.active }
 
+// motion returns the motion a switch to th runs with: th's own, or the
+// one around it.
+func (l *Live) motion(th Theme) anim.Motion {
+	return Switch.target(th, l.parent)
+}
+
 // Use switches to th, animating every token from where it is now. Tokens
-// first read after the switch start at th's values.
+// first read after the switch start at th's values. In a scope, a token
+// th stops setting glides to the value around it, and one th starts
+// setting glides from there.
 func (l *Live) Use(th Theme) {
 	l.active = th
-	m := Switch.in(th)
+	m := l.motion(th)
 	for _, s := range l.slots {
-		s.retarget(th, m)
+		s.retarget(th, l.parent, m)
+	}
+	for key, mk := range l.reads {
+		if _, ok := l.slots[key]; !ok && th.has(key) {
+			s := mk()
+			s.retarget(th, l.parent, m)
+			l.slots[key] = s
+		}
 	}
 }
 
 // Step advances every value by dt and reports whether any is still
 // moving. The engine calls it once a frame.
+//
+// In a scope, a token the scope's theme leaves out follows the value
+// around it until it gets there, then reads straight through again.
 func (l *Live) Step(dt time.Duration) bool {
 	moving := false
-	for _, s := range l.slots {
+	m := l.motion(l.active)
+	for key, s := range l.slots {
+		inherited := l.parent != nil && !l.active.has(key)
+		if inherited {
+			s.follow(l.active, l.parent, m)
+		}
 		if s.step(dt) {
 			moving = true
+		}
+		if inherited && !s.moving() {
+			delete(l.slots, key)
 		}
 	}
 	return moving

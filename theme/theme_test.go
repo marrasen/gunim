@@ -131,3 +131,61 @@ func TestAForegroundFadesThroughASwitch(t *testing.T) {
 		t.Fatalf("once settled, ink is %v, want %v", got, dark)
 	}
 }
+
+func TestAScopeOverridesSomeTokensAndInheritsTheRest(t *testing.T) {
+	window := NewLive(Make("plain"))
+	scope := NewLive(Make("callout", Set(pad, 30)))
+	scope.Under(window)
+	if got := pad.Get(scope); got != 30 {
+		t.Fatalf("pad in the scope is %v, want its own 30", got)
+	}
+	if got := ink.Get(scope); got != ink.Get(window) {
+		t.Fatalf("ink in the scope is %v, want the window's %v", got, ink.Get(window))
+	}
+
+	// A window switch reaches the inherited token inside the scope at
+	// the same moment, and leaves the scope's own alone.
+	grey := color.NRGBA{R: 0x80, G: 0x80, B: 0x80, A: 0xff}
+	window.Use(Make("grey", Set(ink, grey), Set(pad, 12)))
+	for range 5 {
+		window.Step(time.Second / 60)
+		scope.Step(time.Second / 60)
+		if ink.Get(scope) != ink.Get(window) {
+			t.Fatal("the scope's inherited ink lags the window's")
+		}
+	}
+	if got := pad.Get(scope); got != 30 {
+		t.Fatalf("pad in the scope moved to %v with the window's switch", got)
+	}
+}
+
+func TestAScopeSwitchGlidesToAndFromTheThemeAround(t *testing.T) {
+	window := NewLive(Make("roomy", Set(pad, 20)))
+	scope := NewLive(Make("plain"))
+	scope.Under(window)
+	if pad.Get(scope) != 20 {
+		t.Fatal("setup: the scope should inherit 20")
+	}
+
+	// Setting the token glides it out from the window's value.
+	scope.Use(Make("tight", Set(pad, 4)))
+	scope.Step(time.Second / 60)
+	if got := pad.Get(scope); got >= 20 || got <= 4 {
+		t.Fatalf("a frame into setting pad, it is %v, want between 20 and 4", got)
+	}
+	step(scope, 300)
+	if got := pad.Get(scope); got != 4 {
+		t.Fatalf("once settled, pad is %v, want 4", got)
+	}
+
+	// Leaving it out again glides it back to the window's.
+	scope.Use(Make("plain"))
+	scope.Step(time.Second / 60)
+	if got := pad.Get(scope); got <= 4 || got >= 20 {
+		t.Fatalf("a frame into dropping pad, it is %v, want between 4 and 20", got)
+	}
+	step(scope, 300)
+	if got := pad.Get(scope); got != 20 {
+		t.Fatalf("once settled, pad is %v, want the window's 20", got)
+	}
+}

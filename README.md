@@ -179,6 +179,22 @@ each frame. A theme switch in the middle of a hover then just works.
 `example/dialog` switches between a dark and a light theme when you
 press T.
 
+Colours blend through Oklab, so a switch keeps its brightness and its
+hues. Text colours are declared with `theme.Foreground`: they fade out
+in the old colour and back in with the new one. Text and background
+swap brightness in a dark-to-light switch, and fading through keeps
+the text from smearing into a matching grey where they cross.
+
+A subtree can wear a theme of its own. `widget.NewThemed(child, th)`
+sets th's tokens inside it, and the rest come from the theme around it
+and move with it:
+
+```go
+callout := widget.NewThemed(card, theme.Make("callout",
+    theme.Set(widget.CardFill, blue),
+    theme.Set(widget.Ink, white)))
+```
+
 ## Encoding
 
 Encoding belongs to a socket transport. It calls `MarshalCommand` and
@@ -288,4 +304,3 @@ Then widgets and layout, on top of the theme:
   Windows and macOS, which the GLFW port reports only on X11. The input
   method is also not yet told where the caret is, for placing its
   candidate window.
-- Themes for a subtree, so a sidebar or a dialog can wear its own.

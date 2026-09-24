@@ -191,7 +191,9 @@ func (u *UI) updateHover(p geom.Point, t time.Time) {
 func (u *UI) dispatchAt(p geom.Point, mk func(local geom.Point) input.Event) *state {
 	for s := u.hit(u.root, p); s != nil; s = s.parent {
 		if h, ok := s.node.(Handler); ok {
-			if h.Handle(mk(u.local(s, p)), u) {
+			var took bool
+			u.on(s, func() { took = h.Handle(mk(u.local(s, p)), u) })
+			if took {
 				return s
 			}
 		}
@@ -203,8 +205,12 @@ func (u *UI) dispatchAt(p geom.Point, mk func(local geom.Point) input.Event) *st
 // whether one took it.
 func (u *UI) bubble(s *state, e input.Event) bool {
 	for ; s != nil; s = s.parent {
-		if h, ok := s.node.(Handler); ok && h.Handle(e, u) {
-			return true
+		if h, ok := s.node.(Handler); ok {
+			var took bool
+			u.on(s, func() { took = h.Handle(e, u) })
+			if took {
+				return true
+			}
 		}
 	}
 	return false
@@ -215,7 +221,7 @@ func (u *UI) bubble(s *state, e input.Event) bool {
 // region events get.
 func (u *UI) deliver(s *state, e input.Event) {
 	if h, ok := s.node.(Handler); ok {
-		h.Handle(e, u)
+		u.on(s, func() { h.Handle(e, u) })
 	}
 }
 

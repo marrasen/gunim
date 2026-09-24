@@ -1,11 +1,14 @@
 package widget
 
 import (
+	"image/color"
 	"testing"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
+	"github.com/marrasen/gunim/paint"
+	"github.com/marrasen/gunim/theme"
 )
 
 type pressed struct{ N int }
@@ -133,4 +136,36 @@ func TestADialogKeepsTabAmongItsButtons(t *testing.T) {
 	// the dialog itself, where Escape reaches it.
 	w.Input(input.PointerDown{Pos: geom.Pt(400, 300)})
 	check(d)
+}
+
+// themeProbe records the Ink it is drawn with and handles keys with.
+type themeProbe struct {
+	spot
+	drawn, handled color.NRGBA
+}
+
+func (p *themeProbe) Paint(pt *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.Children) {
+	p.drawn = Ink.Get(f.Theme)
+}
+
+func (p *themeProbe) Handle(e input.Event, u *gunim.UI) bool {
+	p.handled = Ink.Get(u.Theme())
+	return true
+}
+
+func (p *themeProbe) Focusable() bool { return true }
+
+func TestThemedGivesItsSubtreeItsOwnTheme(t *testing.T) {
+	red := color.NRGBA{R: 0xff, A: 0xff}
+	inside, outside := &themeProbe{spot: spot{size: geom.Sz(50, 20)}}, &themeProbe{spot: spot{size: geom.Sz(50, 20)}}
+	col := Column(NewThemed(inside, theme.Make("red", theme.Set(Ink, red))), outside)
+	w, run := stage(t, &frame{child: col, size: geom.Sz(300, 300)})
+	run(1)
+	if inside.drawn != red || outside.drawn != Ink.Default() {
+		t.Fatalf("drawn with %v inside and %v outside, want red and the default", inside.drawn, outside.drawn)
+	}
+	w.Input(input.PointerDown{Pos: geom.Pt(10, 10)})
+	if inside.handled != red {
+		t.Fatalf("handled with %v inside, want red", inside.handled)
+	}
 }

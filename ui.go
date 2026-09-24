@@ -575,6 +575,8 @@ type UI struct {
 	// capture is the node that took the last press and keeps the
 	// pointer until its release.
 	capture *state
+	// current is the node whose Handle, update or patch is running.
+	current *state
 
 	now time.Time
 	// theme is the window's live theme, stepped every frame.
@@ -597,7 +599,26 @@ func (u *UI) Now() time.Time { return u.now }
 
 // Theme returns the window's live theme, for reading tokens outside
 // Layout and Paint, such as the motion a Handle animates with.
-func (u *UI) Theme() *theme.Live { return u.theme }
+//
+// Inside a node's Handle, or a view's update or patch function, it is
+// the theme that node is drawn with, which a [ThemeScope] above it may
+// set.
+func (u *UI) Theme() *theme.Live {
+	for s := u.current; s != nil; s = s.parent {
+		if sc, ok := s.node.(ThemeScope); ok {
+			return sc.ThemeScope()
+		}
+	}
+	return u.theme
+}
+
+// on runs fn with s as the node being served, so Theme finds its scope.
+func (u *UI) on(s *state, fn func()) {
+	prev := u.current
+	u.current = s
+	defer func() { u.current = prev }()
+	fn()
+}
 
 // UseTheme switches the window to th. Every themed value animates from
 // where it is to th's, with th's [theme.Switch] motion.
@@ -874,6 +895,7 @@ func (u *UI) frame(now time.Time, delta time.Duration) {
 
 	// 3. Lay the tree out at the window's current size.
 	size := u.w.dw.Size()
+	f = scoped(f, u.root.node)
 	u.root.size = u.root.node.Layout(Tight(size), f, Children{ns: u.root.kids, f: f})
 
 	// 4. Record the frame and hand it to the driver.
@@ -908,6 +930,7 @@ func (u *UI) step(s *state, dt time.Duration) bool {
 // leaves, everything inside it is leaving too, and the panel waits for
 // its children to agree they are done.
 func (u *UI) settle(s *state, inherited Presence, f Frame) bool {
+	f = scoped(f, s.node)
 	p := s.presence
 	if inherited == Exiting {
 		p = Exiting

@@ -228,7 +228,8 @@ func (u *UI) mount(c Mount) error {
 
 	// Build makes the shell; update fills it. Running both here means a
 	// view has one place that turns state into nodes.
-	return v.update(n, c.State, u)
+	u.on(s, func() { err = v.update(n, c.State, u) })
+	return err
 }
 
 // revive brings back a view that is still animating out, so a dialog
@@ -241,7 +242,9 @@ func (u *UI) revive(s, parent *state, c Mount) error {
 	u.Insert(parent.node, s.node)
 	u.unsubscribe(s)
 	u.watch(s, c)
-	return s.view.update(s.node, c.State, u)
+	var err error
+	u.on(s, func() { err = s.view.update(s.node, c.State, u) })
+	return err
 }
 
 // release takes a leaving view's ID and topics away, so a new view can
@@ -291,7 +294,9 @@ func (u *UI) publish(key string, state any) error {
 	}
 	var firstErr error
 	for _, s := range subs {
-		if err := s.view.update(s.node, state, u); err != nil && firstErr == nil {
+		var err error
+		u.on(s, func() { err = s.view.update(s.node, state, u) })
+		if err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}
@@ -318,7 +323,9 @@ func (u *UI) patch(c Patch) error {
 			continue
 		}
 		applied++
-		if err := apply(s.node, c.Data, u); err != nil && firstErr == nil {
+		var err error
+		u.on(s, func() { err = apply(s.node, c.Data, u) })
+		if err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}

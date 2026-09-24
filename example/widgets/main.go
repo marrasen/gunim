@@ -12,6 +12,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"image/color"
 	"log"
 	"os"
 	"os/signal"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/theme"
 	"github.com/marrasen/gunim/widget"
 )
 
@@ -120,9 +122,18 @@ func buildGallery(Gallery) *gallery {
 	header := widget.Row(title, spacer, search, toggle).Grow(spacer, 1)
 	header.Cross = widget.CrossCenter
 
+	// The callout wears a theme of its own that sets only its colours,
+	// so a theme switch still moves its padding and corners with the
+	// rest of the page.
+	callout := widget.NewThemed(
+		widget.NewCard(widget.NewLabel("This card wears a theme of its own. Switch the theme: its colours stay, its padding and corners move with the page.")),
+		theme.Make("callout",
+			theme.Set(widget.CardFill, color.NRGBA{R: 0x2f, G: 0x6f, B: 0xe0, A: 0xff}),
+			theme.Set(widget.Ink, color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff})))
+
 	list := widget.NewList()
 	scroll := widget.NewScroll(list)
-	page := widget.Column(header, scroll).Grow(scroll, 1)
+	page := widget.Column(header, callout, scroll).Grow(scroll, 1)
 	page.Cross = widget.CrossStretch
 	return &gallery{Pad: widget.NewPad(page), list: list}
 }
