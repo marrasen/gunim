@@ -30,6 +30,11 @@ gunim's changes are marked `gunim change` in the code:
   messages there, and the platform window state holds its fields.
 - `glfw` implements the Win32 clipboard (`win32_clipboard_windows.go`),
   as C GLFW does. The Ebitengine port left it as a stub that panicked.
+- `glfw` reports the position a Win32 button message carries as a
+  cursor move before the button, when it differs from the last one
+  (`windowProc` in `win32_window_windows.go`). A pointer moved by
+  `SetCursorPos`, remote input or automation can deliver its button
+  message first, and the click would land where the pointer was.
 
 To take a newer Ebitengine, copy the same files again and reapply those
 changes.

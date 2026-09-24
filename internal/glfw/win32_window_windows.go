@@ -850,11 +850,11 @@ func windowProc(hWnd windows.HWND, uMsg uint32, wParam _WPARAM, lParam _LPARAM) 
 			_SetCapture(hWnd)
 		}
 
-		// The message carries where the button went down or up. A pointer
-		// moved by SetCursorPos, or by some remote and automated input,
-		// can have its button message arrive before the WM_MOUSEMOVE that
-		// would have reported the move, so the click would land where the
-		// pointer used to be. Report the move first.
+		// gunim change: the message carries where the button went down or
+		// up. A pointer moved by SetCursorPos, or by some remote and
+		// automated input, can have its button message arrive before the
+		// WM_MOUSEMOVE that would have reported the move, so the click
+		// would land where the pointer used to be. Report the move first.
 		if window.cursorMode != CursorDisabled {
 			x := _GET_X_LPARAM(lParam)
 			y := _GET_Y_LPARAM(lParam)

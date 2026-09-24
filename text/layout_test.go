@@ -118,14 +118,29 @@ var (
 
 // latinWithHebrew returns Go Regular falling back to Noto Sans Hebrew,
 // parsed once.
+// latinWithHebrew returns Go Regular falling back to a Hebrew face:
+// Noto Sans Hebrew where Debian and Ubuntu put it, or else whatever
+// installed font covers Hebrew, such as Arial on Windows.
 func latinWithHebrew(t *testing.T) (latin, heb *Face) {
 	t.Helper()
-	if _, err := os.Stat("/usr/share/fonts/truetype/noto/NotoSansHebrew-Regular.ttf"); err != nil {
-		t.Skip("no Noto Sans Hebrew on this machine")
-	}
 	hebrewOnce.Do(func() {
-		hebrew = faceFile(t, "/usr/share/fonts/truetype/noto/NotoSansHebrew-Regular.ttf")
+		const noto = "/usr/share/fonts/truetype/noto/NotoSansHebrew-Regular.ttf"
+		if _, err := os.Stat(noto); err == nil {
+			hebrew = faceFile(t, noto)
+			return
+		}
+		if LoadSystemFonts() != nil {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		if ff := systemFace('ש'); ff != nil {
+			hebrew = byFont[ff]
+		}
 	})
+	if hebrew == nil {
+		t.Skip("no font on this machine covers Hebrew")
+	}
 	// A face of its own, so setting its fallback leaves Default alone.
 	latin, err := Parse(goregular.TTF)
 	if err != nil {

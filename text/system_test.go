@@ -8,12 +8,23 @@ import (
 	"golang.org/x/image/font/gofont/goregular"
 )
 
-const cjkCollection = "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
+// cjkCollections are font collections with Japanese, where Linux
+// distributions and Windows install them.
+var cjkCollections = []string{
+	"/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+	`C:\Windows\Fonts\msgothic.ttc`,
+}
 
 func TestACollectionHoldsSeveralFaces(t *testing.T) {
-	data, err := os.ReadFile(cjkCollection)
-	if err != nil {
-		t.Skipf("no %s on this machine", cjkCollection)
+	var data []byte
+	for _, path := range cjkCollections {
+		if d, err := os.ReadFile(path); err == nil {
+			data = d
+			break
+		}
+	}
+	if data == nil {
+		t.Skip("no Japanese font collection on this machine")
 	}
 	faces, err := ParseCollection(data)
 	if err != nil {
