@@ -215,7 +215,7 @@ the far end knows what to decode it into:
 | `gunim/text` | Fonts and fallback, shaping, paragraph layout, glyph rasterizing |
 | `gunim/driver` | The seam with the operating system, and an offscreen window |
 | `gunim/driver/desktop` | The driver for Linux, Windows and macOS, on GLFW and OpenGL |
-| `gunim/widget` | `Row`, `Column`, `Scroll`, `Label`, `Card`, `Button`, `Dialog`, a keyed `List`, and their theme tokens |
+| `gunim/widget` | `Row`, `Column`, `Scroll`, `Label`, `TextField`, `Card`, `Button`, `Dialog`, a keyed `List`, and their theme tokens |
 
 Commands, intents, topics and the `Client` live in `wire.go` and
 `view.go`. `driver.Offscreen` plus `Window.Frame` run a window with no
@@ -280,7 +280,11 @@ rates, each drawing an animated rounded rectangle, with
 
 Then widgets and layout, on top of the theme:
 
-- A text field: caret, selection, editing and input methods.
+- Text fields: input methods (the driver reports no composition yet),
+  multi-line editing, and caret movement that follows visual order in
+  mixed-direction text.
+- Pointer capture, so a drag that leaves a widget keeps reaching it.
+- Keyboard focus that moves with Tab.
 - Theme switches that look good halfway: blend colours in Oklab rather
   than sRGB, and let a theme stagger its tokens, so text keeps its
   contrast while light and dark cross.

@@ -1,7 +1,9 @@
-// Command widgets is a gallery of gunim's layout widgets: a header row,
-// and a scrolling column of cards, each a row with a label that wraps
-// and a button. The toggle switches between the dark and light themes,
-// and every size, colour and motion animates to the new one.
+// Command widgets is a gallery of gunim's widgets: a header row with a
+// search field, and a scrolling list of cards, each a row with a label
+// that wraps and a button. Typing in the field filters the cards, which
+// collapse and grow back as they leave and return. The toggle switches
+// between the dark and light themes, and every size, colour and motion
+// animates to the new one.
 //
 //	CGO_ENABLED=0 go run ./example/widgets
 package main
@@ -13,6 +15,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"time"
 
 	"github.com/marrasen/gunim"
@@ -32,6 +35,8 @@ type (
 	Confirm struct{ Title string }
 	// Closed travels when the confirm dialog closes.
 	Closed struct{}
+	// Filtered travels as the user types in the search field.
+	Filtered struct{ Text string }
 )
 
 func init() {
@@ -40,6 +45,7 @@ func init() {
 	gunim.RegisterType[Opened]("gallery.open")
 	gunim.RegisterType[Confirm]("gallery.confirm")
 	gunim.RegisterType[Closed]("gallery.closed")
+	gunim.RegisterType[Filtered]("gallery.filter")
 }
 
 func main() {
@@ -77,7 +83,14 @@ func registerViews(w *gunim.Window) {
 	w.RegisterTheme(widget.Dark())
 	w.RegisterTheme(widget.Light())
 
-	gunim.RegisterView(w, "gallery", buildGallery, nil)
+	gunim.RegisterView(w, "gallery", buildGallery,
+		func(g *gallery, s Gallery, u *gunim.UI) {
+			// Cards are keyed by their text, so a filter that hides some
+			// collapses them and one that brings them back grows them in.
+			widget.Sync(g.list, u, s.Items,
+				func(item string) widget.Key { return widget.Key(item) },
+				newCard, nil)
+		})
 	gunim.RegisterView(w, "confirm",
 		func(s Confirm) *widget.Dialog {
 			d := widget.NewDialog(s.Title)
@@ -86,33 +99,42 @@ func registerViews(w *gunim.Window) {
 		}, nil)
 }
 
-// buildGallery lays the gallery out: a heading and a theme button over a
-// scrolling column of cards.
-func buildGallery(s Gallery) *widget.Pad {
+// gallery is the gallery view: a padded page, with a handle on the list
+// of cards so updates can sync it.
+type gallery struct {
+	*widget.Pad
+	list *widget.List
+}
+
+// buildGallery lays the gallery out: a heading, a search field and a
+// theme button over a scrolling list of cards.
+func buildGallery(Gallery) *gallery {
 	title := widget.NewLabel("Widgets")
 	title.Size = widget.HeadingSize
+	search := widget.NewTextField()
+	search.Placeholder = "Filter"
+	search.OnChange = func(s string) gunim.Intent { return Filtered{Text: s} }
 	toggle := widget.NewButton("Switch theme")
 	toggle.On = ThemeToggled{}
 	spacer := widget.NewSpacer()
-	header := widget.Row(title, spacer, toggle).Grow(spacer, 1)
+	header := widget.Row(title, spacer, search, toggle).Grow(spacer, 1)
 	header.Cross = widget.CrossCenter
 
-	cards := make([]gunim.Node, 0, len(s.Items))
-	for _, item := range s.Items {
-		label := widget.NewLabel(item)
-		open := widget.NewButton("Open")
-		open.On = Opened{Item: item}
-		row := widget.Row(label, open).Grow(label, 1)
-		row.Cross = widget.CrossCenter
-		cards = append(cards, widget.NewCard(row))
-	}
-	items := widget.Column(cards...)
-	items.Cross = widget.CrossStretch
-	scroll := widget.NewScroll(items)
-
+	list := widget.NewList()
+	scroll := widget.NewScroll(list)
 	page := widget.Column(header, scroll).Grow(scroll, 1)
 	page.Cross = widget.CrossStretch
-	return widget.NewPad(page)
+	return &gallery{Pad: widget.NewPad(page), list: list}
+}
+
+// newCard makes the card for one item: its text, wrapping, and a button.
+func newCard(item string) *widget.Card {
+	label := widget.NewLabel(item)
+	open := widget.NewButton("Open")
+	open.On = Opened{Item: item}
+	row := widget.Row(label, open).Grow(label, 1)
+	row.Cross = widget.CrossCenter
+	return widget.NewCard(row)
 }
 
 // serve is the application half.
@@ -123,6 +145,15 @@ func serve(ctx context.Context, c gunim.Client) error {
 	}
 	if err := c.Mount(gunim.Root, "gallery", "gallery", Gallery{Items: items}); err != nil {
 		return err
+	}
+	filter := func(text string) Gallery {
+		var out []string
+		for _, item := range items {
+			if strings.Contains(strings.ToLower(item), strings.ToLower(text)) {
+				out = append(out, item)
+			}
+		}
+		return Gallery{Items: out}
 	}
 	light := false
 	for {
@@ -137,6 +168,8 @@ func serve(ctx context.Context, c gunim.Client) error {
 			case ThemeToggled:
 				light = !light
 				_ = c.SetTheme(map[bool]string{false: "dark", true: "light"}[light])
+			case Filtered:
+				_ = c.Update("gallery", filter(v.Text))
 			case Opened:
 				_ = c.Mount(gunim.Root, "confirm", "confirm", Confirm{Title: "Open " + v.Item})
 				_ = c.Focus("confirm")

@@ -197,3 +197,54 @@ func TestRightToLeftParagraphStartsOnTheRight(t *testing.T) {
 		t.Fatalf("short line ends at %v, want the right edge %v", got, want)
 	}
 }
+
+func TestCaretsRunAlongLatinText(t *testing.T) {
+	r := Default().Shape("hello", 16)
+	if r.Start != 0 || r.End != 5 {
+		t.Fatalf("runes %d..%d, want 0..5", r.Start, r.End)
+	}
+	if r.CaretX(0) != 0 || r.CaretX(5) != r.Advance {
+		t.Fatalf("carets at the ends are %v and %v, want 0 and %v", r.CaretX(0), r.CaretX(5), r.Advance)
+	}
+	for i := 1; i <= 5; i++ {
+		if r.CaretX(i) <= r.CaretX(i-1) {
+			t.Fatalf("caret %d at %v is not right of caret %d at %v", i, r.CaretX(i), i-1, r.CaretX(i-1))
+		}
+	}
+	// A click lands on the nearest caret.
+	for i := range 6 {
+		if got := r.Index(r.CaretX(i) + 0.4); got != i {
+			t.Fatalf("a click just right of caret %d went to %d", i, got)
+		}
+	}
+	if r.Index(-50) != 0 || r.Index(1e6) != 5 {
+		t.Fatal("a click past either end should land at that end")
+	}
+}
+
+func TestCaretsRunRightToLeftInHebrew(t *testing.T) {
+	latin, _ := latinWithHebrew(t)
+	r := latin.Shape("שלום", 16)
+	if r.CaretX(0) != r.Advance || r.CaretX(4) != 0 {
+		t.Fatalf("carets at the ends are %v and %v, want %v on the right and 0 on the left", r.CaretX(0), r.CaretX(4), r.Advance)
+	}
+	for i := 1; i <= 4; i++ {
+		if r.CaretX(i) >= r.CaretX(i-1) {
+			t.Fatalf("caret %d is not left of caret %d", i, i-1)
+		}
+	}
+}
+
+func TestCaretsOfAWrappedLineCountWithinItsParagraph(t *testing.T) {
+	p := Default().Layout("one two three four", Style{Size: 16}, 60)
+	if len(p.Lines) < 2 {
+		t.Fatal("setup: the text should wrap")
+	}
+	second := p.Lines[1].Run
+	if second.Start != p.Lines[0].Run.End {
+		t.Fatalf("the second line starts at rune %d, want where the first ends, %d", second.Start, p.Lines[0].Run.End)
+	}
+	if second.CaretX(second.Start) != 0 {
+		t.Fatalf("the second line's first caret is at %v, want 0", second.CaretX(second.Start))
+	}
+}

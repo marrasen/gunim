@@ -33,6 +33,7 @@ type OffscreenWindow struct {
 	scale float32
 	rate  float64
 	ops   []paint.Op
+	clip  string
 
 	presented chan Frame
 	input     chan any
@@ -91,6 +92,21 @@ func (w *OffscreenWindow) Scale() float32 { return w.scale }
 
 // RefreshRate implements [Window].
 func (w *OffscreenWindow) RefreshRate() float64 { return w.rate }
+
+// Clipboard implements [Window] with a clipboard of the window's own.
+func (w *OffscreenWindow) Clipboard() (string, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.clip, nil
+}
+
+// SetClipboard implements [Window].
+func (w *OffscreenWindow) SetClipboard(s string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.clip = s
+	return nil
+}
 
 // Close implements [Window].
 func (w *OffscreenWindow) Close() error { return nil }

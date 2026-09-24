@@ -139,6 +139,11 @@ type Window interface {
 	// window as it is dragged to another display.
 	RefreshRate() float64
 
+	// Clipboard returns the text on the system clipboard, and
+	// SetClipboard replaces it. Both may wait on the display server.
+	Clipboard() (string, error)
+	SetClipboard(s string) error
+
 	Close() error
 }
 

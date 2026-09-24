@@ -149,6 +149,23 @@ func (w *Window) RefreshRate() float64 {
 	return w.rate
 }
 
+// Clipboard implements [driver.Window]. It reads the clipboard on the
+// main thread, where GLFW has to, and waits for the answer.
+func (w *Window) Clipboard() (string, error) {
+	var s string
+	err := w.d.call(func() error {
+		var err error
+		s, err = glfw.GetClipboardString()
+		return err
+	})
+	return s, err
+}
+
+// SetClipboard implements [driver.Window].
+func (w *Window) SetClipboard(s string) error {
+	return w.d.call(func() error { return w.gw.SetClipboardString(s) })
+}
+
 // Close implements [driver.Window]. It stops the render thread, then
 // destroys the window on the main thread.
 func (w *Window) Close() error {

@@ -130,3 +130,18 @@ var (
 	// HeadingSize is the size of a heading's text.
 	HeadingSize = theme.Length("text.heading.size", 22)
 )
+
+// Text field tokens.
+var (
+	FieldFill    = theme.Color("field.fill", color.NRGBA{R: 0x12, G: 0x14, B: 0x19, A: 0xff})
+	FieldBorder  = theme.Color("field.border", color.NRGBA{R: 0x3a, G: 0x40, B: 0x50, A: 0xff})
+	Selection    = theme.Color("field.selection", color.NRGBA{R: 0x5e, G: 0x9c, B: 0xff, A: 0x55})
+	Placeholder  = theme.Color("field.placeholder", color.NRGBA{R: 0x8a, G: 0x90, B: 0x9c, A: 0xff})
+	FieldHeight  = theme.Length("field.height", 36)
+	FieldWidth   = theme.Length("field.width", 240)
+	FieldPadding = theme.Length("field.padding", 10)
+	FieldRadius  = theme.Length("field.radius", 8)
+	// Caret is the motion the caret and the selection glide with.
+	// Make it very stiff for a caret that jumps.
+	Caret = theme.Spring("motion.caret", anim.Spring{Response: 0.09, Damping: 1})
+)

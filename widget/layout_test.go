@@ -39,14 +39,18 @@ func (s *spot) Handle(e input.Event, _ *gunim.UI) bool {
 type frame struct {
 	child gunim.Node
 	size  geom.Size
-	// wheel counts the wheel events that reach the frame, after its
-	// child has passed them on.
-	wheel int
+	// wheel and keys count the wheel events and key presses that reach
+	// the frame, after its child has passed them on.
+	wheel, keys int
 }
 
 func (f *frame) Handle(e input.Event, _ *gunim.UI) bool {
-	if _, ok := e.(input.Scroll); ok {
+	switch e.(type) {
+	case input.Scroll:
 		f.wheel++
+		return true
+	case input.KeyPress:
+		f.keys++
 		return true
 	}
 	return false

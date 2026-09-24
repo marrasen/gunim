@@ -603,6 +603,19 @@ func (u *UI) UseTheme(th theme.Theme) {
 	u.invalid = true
 }
 
+// Clipboard returns the text on the system clipboard, or "" when there
+// is none or the display server cannot say.
+func (u *UI) Clipboard() string {
+	s, err := u.w.dw.Clipboard()
+	if err != nil {
+		return ""
+	}
+	return s
+}
+
+// SetClipboard puts s on the system clipboard.
+func (u *UI) SetClipboard(s string) { _ = u.w.dw.SetClipboard(s) }
+
 // Invalidate asks for one more frame, whatever the animation state. Use
 // it when something changed that the engine can see no other way.
 func (u *UI) Invalidate() { u.invalid = true }

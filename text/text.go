@@ -154,6 +154,45 @@ type Run struct {
 	// Ascent and Descent are the line's extents above and below the
 	// baseline, both positive.
 	Ascent, Descent float32
+	// Start and End are the runes of the text this line holds, as rune
+	// indices into the string it was shaped from. For a line of a
+	// Paragraph, they count within that line's paragraph: the text
+	// between two newlines.
+	Start, End int
+	// carets holds the caret's x before each rune from Start to End,
+	// End included.
+	carets []float32
+}
+
+// CaretX returns the x of a caret placed before rune i, counted as
+// Start and End are. In right-to-left text a
+// rune's leading edge is its right side, so the caret sits there. i is
+// clamped to the line.
+func (r Run) CaretX(i int) float32 {
+	if len(r.carets) == 0 {
+		return 0
+	}
+	i = min(max(i, r.Start), r.End)
+	return r.carets[i-r.Start]
+}
+
+// Index returns the rune index whose caret position is nearest x: where
+// a click at x puts the caret.
+func (r Run) Index(x float32) int {
+	best, dist := r.Start, float32(math.Inf(1))
+	for i, cx := range r.carets {
+		if d := abs(cx - x); d < dist {
+			best, dist = r.Start+i, d
+		}
+	}
+	return best
+}
+
+func abs(v float32) float32 {
+	if v < 0 {
+		return -v
+	}
+	return v
 }
 
 // Height returns the line's height, ascent plus descent.
@@ -411,6 +450,16 @@ func (f *Face) lineRun(ln shaping.Line, size float32) Run {
 	for i, r := range ln {
 		order[r.VisualIndex] = i
 	}
+	if len(ln) > 0 {
+		run.Start, run.End = ln[0].Runes.Offset, ln[0].Runes.Offset
+		for _, out := range ln {
+			run.Start = min(run.Start, out.Runes.Offset)
+			run.End = max(run.End, out.Runes.Offset+out.Runes.Count)
+		}
+	}
+	carets := make([]float32, run.End-run.Start+1)
+	set := make([]bool, len(carets))
+
 	var pen float32
 	for _, i := range order {
 		out := ln[i]
@@ -418,22 +467,46 @@ func (f *Face) lineRun(ln shaping.Line, size float32) Run {
 		if face, ok := byFont[out.Face]; ok {
 			id = face.id
 		}
-		for _, g := range out.Glyphs {
-			run.Glyphs = append(run.Glyphs, paint.Glyph{
-				ID:   uint32(g.GlyphID),
-				At:   geom.Pt(pen+fromFixed(g.XOffset), -fromFixed(g.YOffset)),
-				Face: id,
-			})
-			pen += fromFixed(g.Advance)
+		rtl := out.Direction.Progression() == di.TowardTopLeft
+		for gi := 0; gi < len(out.Glyphs); {
+			// A cluster is one or more glyphs drawn for one or more
+			// runes; its width is shared out among its runes.
+			g := out.Glyphs[gi]
+			n := max(g.GlyphsCount(), 1)
+			x0 := pen
+			for _, cg := range out.Glyphs[gi:min(gi+n, len(out.Glyphs))] {
+				run.Glyphs = append(run.Glyphs, paint.Glyph{
+					ID:   uint32(cg.GlyphID),
+					At:   geom.Pt(pen+fromFixed(cg.XOffset), -fromFixed(cg.YOffset)),
+					Face: id,
+				})
+				pen += fromFixed(cg.Advance)
+			}
+			runes := max(g.RunesCount(), 1)
+			for k := range runes + 1 {
+				idx := g.TextIndex() + k - run.Start
+				if idx < 0 || idx >= len(carets) || (k == runes && set[idx]) {
+					continue
+				}
+				frac := float32(k) / float32(runes)
+				if rtl {
+					carets[idx] = pen - (pen-x0)*frac
+				} else {
+					carets[idx] = x0 + (pen-x0)*frac
+				}
+				set[idx] = k < runes
+			}
+			gi += n
 		}
 	}
 	run.Advance = pen
+	run.carets = carets
 	return run
 }
 
 func (f *Face) emptyRun(size float32) Run {
 	scale := size / f.upem
-	return Run{Face: f, Size: size, Ascent: f.ascent * scale, Descent: f.descent * scale}
+	return Run{Face: f, Size: size, Ascent: f.ascent * scale, Descent: f.descent * scale, carets: []float32{0}}
 }
 
 func toFixed(v float32) fixed.Int26_6 { return fixed.Int26_6(math.Round(float64(v) * 64)) }
