@@ -131,9 +131,13 @@ func buildGallery(Gallery) *gallery {
 			theme.Set(widget.CardFill, color.NRGBA{R: 0x2f, G: 0x6f, B: 0xe0, A: 0xff}),
 			theme.Set(widget.Ink, color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff})))
 
+	notes := widget.NewTextArea()
+	notes.Rows = 3
+	notes.Placeholder = "Notes: several lines, wrapped to the width"
+
 	list := widget.NewList()
 	scroll := widget.NewScroll(list)
-	page := widget.Column(header, callout, scroll).Grow(scroll, 1)
+	page := widget.Column(header, callout, notes, scroll).Grow(scroll, 1)
 	page.Cross = widget.CrossStretch
 	return &gallery{Pad: widget.NewPad(page), list: list}
 }

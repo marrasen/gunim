@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"golang.org/x/image/font/gofont/goregular"
+
+	"github.com/marrasen/gunim/geom"
 )
 
 const fox = "the quick brown fox jumps over the lazy dog"
@@ -246,5 +248,95 @@ func TestCaretsOfAWrappedLineCountWithinItsParagraph(t *testing.T) {
 	}
 	if second.CaretX(second.Start) != 0 {
 		t.Fatalf("the second line's first caret is at %v, want 0", second.CaretX(second.Start))
+	}
+}
+
+func TestParagraphCaretsCountTheWholeString(t *testing.T) {
+	p := Default().Layout("ab\n\ncd", Style{Size: 16}, 0)
+	// Runes: a0 b1 \n2 \n3 c4 d5; the empty middle line holds rune 3.
+	for _, tc := range []struct {
+		i, line int
+	}{{0, 0}, {2, 0}, {3, 1}, {4, 2}, {6, 2}} {
+		line, at := p.Caret(tc.i)
+		if line != tc.line {
+			t.Errorf("caret %d on line %d, want %d", tc.i, line, tc.line)
+		}
+		if at.Y != p.Lines[tc.line].At.Y {
+			t.Errorf("caret %d at y %v, want its line's top %v", tc.i, at.Y, p.Lines[tc.line].At.Y)
+		}
+	}
+	if _, at := p.Caret(6); at.X != p.Lines[2].Run.Advance {
+		t.Errorf("the last caret is at x %v, want the end of cd, %v", at.X, p.Lines[2].Run.Advance)
+	}
+}
+
+func TestAWrappedLinesEndCaretGoesToTheNextLine(t *testing.T) {
+	p := Default().Layout("one two three four", Style{Size: 16}, 60)
+	if len(p.Lines) < 2 {
+		t.Fatal("setup: the text should wrap")
+	}
+	if line, _ := p.Caret(p.Lines[1].Run.Start); line != 1 {
+		t.Fatalf("the caret at the wrap is on line %d, want the later line", line)
+	}
+}
+
+func TestParagraphIndexFindsTheLineAndRune(t *testing.T) {
+	p := Default().Layout("ab\ncd", Style{Size: 16}, 0)
+	if got := p.Index(geom.Pt(0, 1)); got != 0 {
+		t.Fatalf("a click at the top left went to %d, want 0", got)
+	}
+	if got := p.Index(geom.Pt(1000, p.LineHeight*1.5)); got != 5 {
+		t.Fatalf("a click past the end of the second line went to %d, want 5", got)
+	}
+	if got := p.Index(geom.Pt(0, 1e6)); got != 3 {
+		t.Fatalf("a click below the text went to %d, want the last line's start, 3", got)
+	}
+}
+
+func TestBesideStepsThroughLatin(t *testing.T) {
+	r := Default().Shape("abc", 16)
+	if i, _ := r.Beside(1, r.CaretX(1), true); i != 2 {
+		t.Fatalf("right from 1 went to %d, want 2", i)
+	}
+	if i, _ := r.Beside(1, r.CaretX(1), false); i != 0 {
+		t.Fatalf("left from 1 went to %d, want 0", i)
+	}
+	if i, x := r.Beside(3, r.CaretX(3), true); i != 3 || x != r.CaretX(3) {
+		t.Fatal("Beside should stop at the right end")
+	}
+}
+
+func TestBesideFollowsTheScreenThroughHebrew(t *testing.T) {
+	latin, _ := latinWithHebrew(t)
+	r := latin.Shape("a שלום b", 16)
+	// From the far left, moving right reaches every caret place in
+	// order across the screen, the Hebrew word's included, and ends at
+	// the far right.
+	i, x := 0, r.CaretX(0)
+	steps := 0
+	for {
+		ni, nx := r.Beside(i, x, true)
+		if ni == i && nx == x {
+			break
+		}
+		if nx <= x {
+			t.Fatalf("moving right, the caret went from x %v to %v", x, nx)
+		}
+		if !r.Places(ni, nx) {
+			t.Fatalf("Beside put the caret at rune %d, x %v, where it cannot sit", ni, nx)
+		}
+		i, x, steps = ni, nx, steps+1
+	}
+	// Eight runes leave nine places; a caret stops at eight of them
+	// after the first.
+	if steps != 8 || x != r.Advance {
+		t.Fatalf("%d steps ending at x %v, want 8 ending at %v", steps, x, r.Advance)
+	}
+	// And back again.
+	for range 8 {
+		i, x = r.Beside(i, x, false)
+	}
+	if x != 0 || i != 0 {
+		t.Fatalf("eight steps left ended at rune %d, x %v, want 0, 0", i, x)
 	}
 }

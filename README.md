@@ -231,7 +231,7 @@ the far end knows what to decode it into:
 | `gunim/text` | Fonts and fallback, shaping, paragraph layout, glyph rasterizing |
 | `gunim/driver` | The seam with the operating system, and an offscreen window |
 | `gunim/driver/desktop` | The driver for Linux, Windows and macOS, on GLFW and OpenGL |
-| `gunim/widget` | `Row`, `Column`, `Scroll`, `Label`, `TextField`, `Card`, `Button`, `Dialog`, a keyed `List`, and their theme tokens |
+| `gunim/widget` | `Row`, `Column`, `Scroll`, `Label`, `TextField`, `TextArea`, `Card`, `Button`, `Dialog`, a keyed `List`, and their theme tokens |
 
 Commands, intents, topics and the `Client` live in `wire.go` and
 `view.go`. `driver.Offscreen` plus `Window.Frame` run a window with no
@@ -299,8 +299,7 @@ rates, each drawing an animated rounded rectangle, with
 
 Then widgets and layout, on top of the theme:
 
-- Text fields: multi-line editing, caret movement that follows visual
-  order in mixed-direction text, and input-method compositions on
-  Windows and macOS, which the GLFW port reports only on X11. The input
-  method is also not yet told where the caret is, for placing its
-  candidate window.
+- Input-method compositions on Windows and macOS, which the GLFW port
+  reports only on X11, and telling the input method where the caret is,
+  so its candidate window opens beside it. Both are changes to the
+  GLFW port.

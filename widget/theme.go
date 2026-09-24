@@ -151,3 +151,10 @@ var (
 	// Make it very stiff for a caret that jumps.
 	Caret = theme.Spring("motion.caret", anim.Spring{Response: 0.09, Damping: 1})
 )
+
+// Text area tokens. The frame, colours and padding are the text
+// field's.
+var (
+	// AreaWidth is a text area's width when it is given none.
+	AreaWidth = theme.Length("area.width", 320)
+)

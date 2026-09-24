@@ -155,19 +155,26 @@ type Run struct {
 	// baseline, both positive.
 	Ascent, Descent float32
 	// Start and End are the runes of the text this line holds, as rune
-	// indices into the string it was shaped from. For a line of a
-	// Paragraph, they count within that line's paragraph: the text
-	// between two newlines.
+	// indices into the whole string it was shaped or laid out from.
 	Start, End int
 	// carets holds the caret's x before each rune from Start to End,
 	// End included.
 	carets []float32
+	// stops are every place a caret can sit on screen, by x. Where
+	// text of two directions meets, one rune index has two places.
+	stops []stop
+}
+
+// stop is one place a caret can sit: an x, and the rune index a caret
+// there is before.
+type stop struct {
+	x float32
+	i int
 }
 
 // CaretX returns the x of a caret placed before rune i, counted as
-// Start and End are. In right-to-left text a
-// rune's leading edge is its right side, so the caret sits there. i is
-// clamped to the line.
+// Start and End are. In right-to-left text a rune's leading edge is its
+// right side, so the caret sits there. i is clamped to the line.
 func (r Run) CaretX(i int) float32 {
 	if len(r.carets) == 0 {
 		return 0
@@ -186,6 +193,70 @@ func (r Run) Index(x float32) int {
 		}
 	}
 	return best
+}
+
+// Beside returns the caret place next on screen to a caret before rune
+// i at x: the nearest to the right when right is true, else to the
+// left, as a rune index and an x. It returns i and x at the line's edge.
+//
+// In text of one direction that is the next or previous rune. In mixed
+// text it follows the screen, so an arrow key moves the caret the way
+// it points. Where text of two directions meets, one rune index has two
+// places on screen; keep the x Beside returns to draw the caret where
+// it went.
+func (r Run) Beside(i int, x float32, right bool) (next int, nextX float32) {
+	const eps = 0.01
+	nextX = float32(math.Inf(1))
+	if !right {
+		nextX = float32(math.Inf(-1))
+	}
+	for _, s := range r.stops {
+		if right && s.x > x+eps && s.x < nextX || !right && s.x < x-eps && s.x > nextX {
+			nextX = s.x
+		}
+	}
+	if math.IsInf(float64(nextX), 0) {
+		return i, x
+	}
+	// Of the runes at that place, take the one nearest i in the text.
+	next = -1
+	for _, s := range r.stops {
+		if abs(s.x-nextX) <= eps && (next < 0 || absInt(s.i-i) < absInt(next-i)) {
+			next = s.i
+		}
+	}
+	return next, nextX
+}
+
+// Hit returns the caret place nearest x, as a rune index and an x.
+func (r Run) Hit(x float32) (i int, caretX float32) {
+	if len(r.stops) == 0 {
+		return r.Start, 0
+	}
+	best := r.stops[0]
+	for _, s := range r.stops {
+		if abs(s.x-x) < abs(best.x-x) {
+			best = s
+		}
+	}
+	return best.i, best.x
+}
+
+// Places reports whether a caret before rune i can sit at x.
+func (r Run) Places(i int, x float32) bool {
+	for _, s := range r.stops {
+		if s.i == i && abs(s.x-x) <= 0.01 {
+			return true
+		}
+	}
+	return false
+}
+
+func absInt(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
 }
 
 func abs(v float32) float32 {
@@ -261,6 +332,8 @@ type Style struct {
 // A Paragraph is text laid out in lines.
 type Paragraph struct {
 	Lines []Line
+	// LineHeight is the distance from one line's top to the next's.
+	LineHeight float32
 	// Size is the box the lines fill: the widest line by the height of
 	// every line together.
 	Size geom.Size
@@ -277,6 +350,37 @@ type Line struct {
 	// RightToLeft reports whether the line belongs to a right-to-left
 	// paragraph.
 	RightToLeft bool
+}
+
+// Caret returns where a caret before rune i goes: its line, and its x
+// and the top of that line within the paragraph. i counts runes in the
+// whole string. Where a wrapped line ends and the next begins at the
+// same rune, the caret goes to the start of the later line.
+func (p Paragraph) Caret(i int) (line int, at geom.Point) {
+	for k, l := range p.Lines {
+		if l.Run.Start <= i {
+			line = k
+		}
+	}
+	if len(p.Lines) == 0 {
+		return 0, geom.Point{}
+	}
+	l := p.Lines[line]
+	return line, geom.Pt(l.At.X+l.Run.CaretX(i), l.At.Y)
+}
+
+// Index returns the rune whose caret is nearest pt, in the paragraph's
+// space: where a click at pt puts the caret.
+func (p Paragraph) Index(pt geom.Point) int {
+	if len(p.Lines) == 0 {
+		return 0
+	}
+	line := 0
+	if p.LineHeight > 0 {
+		line = int(pt.Y / p.LineHeight)
+	}
+	l := p.Lines[max(0, min(line, len(p.Lines)-1))]
+	return l.Run.Index(pt.X - l.At.X)
 }
 
 // Paint draws the paragraph with its top-left at topLeft.
@@ -305,8 +409,9 @@ func (f *Face) Layout(s string, st Style, width float32) Paragraph {
 	// Half the leading goes above the line and half below.
 	halfLeading := (step - ascent - descent) / 2
 
-	var out Paragraph
+	out := Paragraph{LineHeight: step}
 	paras := splitLines(s)
+	base := 0 // the rune where the current paragraph starts
 	mu.Lock()
 	var ellipsis shaping.Output
 	if st.MaxLines > 0 {
@@ -335,6 +440,10 @@ func (f *Face) Layout(s string, st Style, width float32) Paragraph {
 		for _, ln := range lines {
 			run := f.lineRun(ln, st.Size)
 			run.Ascent, run.Descent = ascent, descent
+			run.Start, run.End = run.Start+base, run.End+base
+			for k := range run.stops {
+				run.stops[k].i += base
+			}
 			out.Lines = append(out.Lines, Line{
 				Run:         run,
 				At:          geom.Pt(0, float32(len(out.Lines))*step+halfLeading),
@@ -345,6 +454,7 @@ func (f *Face) Layout(s string, st Style, width float32) Paragraph {
 			out.Lines = out.Lines[:st.MaxLines]
 			out.Truncated = true
 		}
+		base += len(runes) + 1 // and the newline
 	}
 	mu.Unlock()
 
@@ -484,16 +594,17 @@ func (f *Face) lineRun(ln shaping.Line, size float32) Run {
 			}
 			runes := max(g.RunesCount(), 1)
 			for k := range runes + 1 {
+				frac := float32(k) / float32(runes)
+				edge := x0 + (pen-x0)*frac
+				if rtl {
+					edge = pen - (pen-x0)*frac
+				}
+				run.stops = append(run.stops, stop{x: edge, i: g.TextIndex() + k})
 				idx := g.TextIndex() + k - run.Start
 				if idx < 0 || idx >= len(carets) || (k == runes && set[idx]) {
 					continue
 				}
-				frac := float32(k) / float32(runes)
-				if rtl {
-					carets[idx] = pen - (pen-x0)*frac
-				} else {
-					carets[idx] = x0 + (pen-x0)*frac
-				}
+				carets[idx] = edge
 				set[idx] = k < runes
 			}
 			gi += n
@@ -501,12 +612,18 @@ func (f *Face) lineRun(ln shaping.Line, size float32) Run {
 	}
 	run.Advance = pen
 	run.carets = carets
+	if len(run.stops) == 0 {
+		run.stops = []stop{{x: 0, i: run.Start}}
+	}
 	return run
 }
 
 func (f *Face) emptyRun(size float32) Run {
 	scale := size / f.upem
-	return Run{Face: f, Size: size, Ascent: f.ascent * scale, Descent: f.descent * scale, carets: []float32{0}}
+	return Run{
+		Face: f, Size: size, Ascent: f.ascent * scale, Descent: f.descent * scale,
+		carets: []float32{0}, stops: []stop{{}},
+	}
 }
 
 func toFixed(v float32) fixed.Int26_6 { return fixed.Int26_6(math.Round(float64(v) * 64)) }
