@@ -35,6 +35,10 @@ type TextField struct {
 	// goroutine; what reaches the application is the value they return.
 	OnChange func(text string) gunim.Intent
 	OnSubmit func(text string) gunim.Intent
+	// OnEdit runs on the UI goroutine each time the text changes, for a
+	// widget around the field that reacts at once, as a palette filters
+	// its list.
+	OnEdit func(text string, u *gunim.UI)
 
 	editor
 	held bool
@@ -62,6 +66,9 @@ func NewTextField() *TextField {
 		scroll:  anim.NewFloat(0),
 	}
 	t.changed = func(u *gunim.UI) {
+		if t.OnEdit != nil {
+			t.OnEdit(t.Text(), u)
+		}
 		if t.OnChange != nil {
 			u.Send(t, t.OnChange(t.Text()))
 		}
@@ -133,9 +140,12 @@ func (t *TextField) Handle(e input.Event, u *gunim.UI) bool {
 		t.compose(e)
 	case input.KeyPress:
 		if e.Key == input.KeyEnter {
-			if t.OnSubmit != nil {
-				u.Send(t, t.OnSubmit(t.Text()))
+			// With nothing to submit to, Enter is for the nodes around
+			// the field, such as a dialog's default button.
+			if t.OnSubmit == nil {
+				return false
 			}
+			u.Send(t, t.OnSubmit(t.Text()))
 			return true
 		}
 		if !t.key(e, u, fieldNav{t}) {

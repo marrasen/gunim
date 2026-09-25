@@ -216,6 +216,8 @@ func (e *editor) key(k input.KeyPress, u *gunim.UI, n navigator) bool {
 		e.insert("\n", u)
 	case input.KeyTab:
 		return false // focus moves on
+	case input.KeyEscape:
+		return false // for whatever the field sits in, to close
 	case input.KeyA, input.KeyC, input.KeyX, input.KeyV:
 		if !ctrl {
 			return true // typing: the letter arrives as TextInput
