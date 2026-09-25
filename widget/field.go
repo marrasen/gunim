@@ -1,6 +1,7 @@
 package widget
 
 import (
+	"strings"
 	"time"
 
 	"github.com/marrasen/gunim"
@@ -30,6 +31,10 @@ import (
 // until it commits.
 type TextField struct {
 	Placeholder string
+	// Secret shows each character as a dot, as a password field does,
+	// keeps the text off the clipboard, and gives a screen reader no
+	// value to read.
+	Secret bool
 	// OnChange and OnSubmit turn the text into an intent to send when
 	// it changes, and when Enter is pressed. They run on the UI
 	// goroutine; what reaches the application is the value they return.
@@ -183,6 +188,10 @@ func (n fieldNav) page() int { return 1 }
 
 func (t *TextField) run(th *theme.Live) text.Run {
 	shown, _ := t.shown()
+	t.secret = t.Secret
+	if t.Secret {
+		shown = []rune(strings.Repeat("•", len(shown)))
+	}
 	t.line = t.shaped.shape(string(shown), TextSize.Get(th))
 	return t.line
 }

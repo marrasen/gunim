@@ -31,6 +31,14 @@ type Dialog struct {
 	// client feeling this design exists to avoid.
 	Accept  gunim.Intent
 	Dismiss gunim.Intent
+	// OnAccept, when set, makes the intent sent on confirming from what
+	// the dialog holds, such as a form's fields, in place of Accept.
+	OnAccept func() gunim.Intent
+	// Body is what the dialog shows under its title, such as a [Form].
+	// Set it before mounting the dialog, which grows to fit it. Enter
+	// in the body confirms, and Tab moves through the body's fields and
+	// the buttons.
+	Body gunim.Node
 
 	// in runs from 0 (gone) to 1 (fully present) and drives every visual
 	// property. One value for the whole transition keeps the fade, the
@@ -41,6 +49,10 @@ type Dialog struct {
 	ok        *Button
 	cancel    *Button
 	titleText laidText
+	// height is the panel's height, from the last layout, and focused
+	// is set once the keyboard has gone to the body's first field.
+	height  float32
+	focused bool
 }
 
 // NewDialog returns a dialog with an OK and a Cancel button. Mount it
@@ -50,7 +62,7 @@ func NewDialog(title string) *Dialog {
 	d.Add(d.in)
 
 	d.ok = NewButton("OK")
-	d.ok.OnActivate(func(u *gunim.UI) { d.finish(u, d.Accept) })
+	d.ok.OnActivate(d.accept)
 	d.cancel = NewButton("Cancel")
 	d.cancel.OnActivate(func(u *gunim.UI) { d.finish(u, d.Dismiss) })
 	return d
@@ -59,12 +71,41 @@ func NewDialog(title string) *Dialog {
 // SetTitle changes the title. Call it from a view's update function.
 func (d *Dialog) SetTitle(title string) { d.Title = title }
 
+// SetButtons names the dialog's buttons, such as "Connect" and
+// "Cancel".
+func (d *Dialog) SetButtons(ok, cancel string) {
+	d.ok.Label, d.cancel.Label = ok, cancel
+}
+
+func (d *Dialog) accept(u *gunim.UI) {
+	what := d.Accept
+	if d.OnAccept != nil {
+		what = d.OnAccept()
+	}
+	d.finish(u, what)
+}
+
+// focusables returns what Tab moves through: the body's fields, then
+// the buttons.
+func (d *Dialog) focusables() []gunim.Node {
+	var out []gunim.Node
+	if b, ok := d.Body.(interface{ Focusables() []gunim.Node }); ok {
+		out = append(out, b.Focusables()...)
+	}
+	return append(out, d.cancel, d.ok)
+}
+
 // Children implements [gunim.Composite], so mounting the dialog brings
 // its buttons with it.
 //
 // Layout places them from the right, so the last one, OK, lands
 // outermost.
-func (d *Dialog) Children() []gunim.Node { return []gunim.Node{d.cancel, d.ok} }
+func (d *Dialog) Children() []gunim.Node {
+	if d.Body != nil {
+		return []gunim.Node{d.Body, d.cancel, d.ok}
+	}
+	return []gunim.Node{d.cancel, d.ok}
+}
 
 // finish closes the dialog and tells the application what happened.
 //
@@ -85,12 +126,24 @@ func (d *Dialog) Handle(e input.Event, u *gunim.UI) bool {
 		case input.KeyEscape:
 			d.finish(u, d.Dismiss)
 			return true
+		case input.KeyEnter, input.KeyKPEnter:
+			d.accept(u)
+			return true
 		case input.KeyTab:
 			// A modal keeps focus among its own buttons.
 			d.cycle(u, !k.Mods.Has(input.ModShift))
 			return true
 		default:
 		}
+	}
+	// Given the keyboard as it opens, the dialog hands it to its first
+	// field.
+	if _, ok := e.(input.FocusGained); ok && !d.focused {
+		d.focused = true
+		if f := d.focusables(); len(f) > 2 {
+			u.Focus(f[0])
+		}
+		return true
 	}
 	// A modal swallows the pointer events that reach it, keeping clicks
 	// off whatever lies behind.
@@ -109,7 +162,7 @@ func (d *Dialog) Focusable() bool { return true }
 // cycle moves focus to the next of the dialog's buttons, or the
 // previous, wrapping around.
 func (d *Dialog) cycle(u *gunim.UI, forward bool) {
-	kids := d.Children()
+	kids := d.focusables()
 	at := -1
 	for i, k := range kids {
 		if k == u.Focused() {
@@ -133,14 +186,33 @@ func (d *Dialog) cycle(u *gunim.UI, forward bool) {
 // while the panel keeps its own size.
 func (d *Dialog) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
 	size := c.Max
+	th := f.Theme
+	pad := DialogPadding.Get(th)
+	width := DialogWidth.Get(th)
+	// With a body, the panel grows to fit the title, the body and the
+	// buttons.
+	d.height = DialogHeight.Get(th)
+	first := 0
+	var body gunim.Child
+	hasBody := d.Body != nil
+	if hasBody {
+		first = 1
+		body = kids.At(0)
+		title := d.titleText.layout(d.Title, text.Style{Size: DialogTitleSize.Get(th), MaxLines: 2}, width-2*pad)
+		bs := body.Layout(gunim.Constraints{Max: geom.Sz(width-2*pad, 0)})
+		d.height = max(d.height, pad+title.Size.H+pad+bs.H+pad+ButtonHeight.Get(th)+pad)
+	}
 	panel := d.panel(size, f)
-	pad := DialogPadding.Get(f.Theme)
+	if hasBody {
+		title := d.titleText.layout(d.Title, text.Style{Size: DialogTitleSize.Get(th), MaxLines: 2}, width-2*pad)
+		body.Place(panel.Min.Add(geom.Pt(pad, pad+title.Size.H+pad)))
+	}
 
 	// Buttons sit along the bottom right of the panel, laid out from the
 	// right so the primary action lands outermost.
 	x := panel.Max.X - pad
 	y := panel.Max.Y - pad
-	for i := kids.Len() - 1; i >= 0; i-- {
+	for i := kids.Len() - 1; i >= first; i-- {
 		kid := kids.At(i)
 		s := kid.Layout(gunim.Loose(panel.Size()))
 		x -= s.W
@@ -152,7 +224,10 @@ func (d *Dialog) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children)
 
 // panel returns the dialog's own rectangle, centred in size.
 func (d *Dialog) panel(size geom.Size, f gunim.Frame) geom.Rect {
-	w, h := DialogWidth.Get(f.Theme), DialogHeight.Get(f.Theme)
+	w, h := DialogWidth.Get(f.Theme), d.height
+	if h <= 0 {
+		h = DialogHeight.Get(f.Theme)
+	}
 	return geom.Rc((size.W-w)/2, (size.H-h)/2, w, h)
 }
 

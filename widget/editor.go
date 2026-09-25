@@ -17,6 +17,8 @@ type editor struct {
 	text          []rune
 	caret, anchor int
 	multiline     bool
+	// secret keeps the text off the clipboard.
+	secret bool
 
 	// hintX is the caret's x as an arrow key left it. Where text of two
 	// directions meets, one rune index has two places on screen, and
@@ -237,11 +239,11 @@ func (e *editor) clipboard(k input.Key, start, end int, u *gunim.UI) {
 		e.anchor, e.caret = 0, len(e.text)
 		e.hinted, e.goal = false, false
 	case input.KeyC:
-		if start != end {
+		if start != end && !e.secret {
 			u.SetClipboard(string(e.text[start:end]))
 		}
 	case input.KeyX:
-		if start != end {
+		if start != end && !e.secret {
 			u.SetClipboard(string(e.text[start:end]))
 			e.replace(start, end, nil, u)
 		}

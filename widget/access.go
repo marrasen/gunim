@@ -32,7 +32,11 @@ func (b *Button) AccessAct(r access.Request, u *gunim.UI) bool {
 
 // Access implements [gunim.Accessible].
 func (t *TextField) Access() access.Info {
-	return access.Info{Role: access.RoleTextField, Name: t.Placeholder, Value: t.Text(), State: access.StateEditable}
+	value := t.Text()
+	if t.Secret {
+		value = ""
+	}
+	return access.Info{Role: access.RoleTextField, Name: t.Placeholder, Value: value, State: access.StateEditable}
 }
 
 // Access implements [gunim.Accessible].
