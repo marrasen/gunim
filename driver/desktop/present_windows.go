@@ -87,6 +87,16 @@ const (
 )
 
 // call calls method m of COM object obj.
+//
+// Arguments are often the address of a Go variable, turned into a
+// uintptr for the call. Go may move a goroutine's stack at any moment
+// and has no way to know a uintptr points into it, so COM would write
+// to where the variable used to be. uintptrescapes moves any variable
+// whose address a caller passes here off the stack, where it stays put
+// for the length of the call, as it does for the syscall package's own
+// calls.
+//
+//go:uintptrescapes
 func call(obj uintptr, m int, args ...uintptr) uintptr {
 	// COM hands its objects over as addresses of memory Go never
 	// allocated or moves.
