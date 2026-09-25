@@ -9,6 +9,7 @@ import (
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
+	"github.com/marrasen/gunim/theme"
 )
 
 // VirtualList shows a long list of items and scrolls through it,
@@ -33,6 +34,9 @@ type VirtualList struct {
 	// Estimate is the height assumed for a row not yet laid out. Zero
 	// means 40.
 	Estimate float32
+	// Spacing is the room between rows. It defaults to the theme's
+	// [ListSpacing]; a table's rows sit against each other.
+	Spacing theme.Token[float32]
 
 	build func(Key) gunim.Node
 
@@ -53,10 +57,10 @@ type VirtualList struct {
 	// order, and tops sums them, so finding the row at an offset and
 	// the offset of a row are quick however long the list. dirty says
 	// the order changed and both need building again.
-	entry   []float32
-	tops    fenwick
-	dirty   bool
-	spacing float32
+	entry []float32
+	tops  fenwick
+	dirty bool
+	gap   float32
 }
 
 // anchor returns the first row at or below the top of the view, and
@@ -83,7 +87,7 @@ func (l *VirtualList) anchor() (Key, float32, bool) {
 // spacing after it. The spacing closes with a row closing, r, so the
 // row takes no room once it is shut.
 func (l *VirtualList) entryOf(h float32, r *row) float32 {
-	return h + closing(l.spacing, h, r)
+	return h + closing(l.gap, h, r)
 }
 
 // closing returns the spacing after a row of height h: all of it,
@@ -172,6 +176,7 @@ const overscan = 300
 func NewVirtualList(build func(Key) gunim.Node) *VirtualList {
 	l := &VirtualList{
 		scrolling: newScrolling(),
+		Spacing:   ListSpacing,
 		build:     build,
 		gone:      map[Key]bool{},
 		heights:   map[Key]float32{},
@@ -240,7 +245,7 @@ func (l *VirtualList) SetKeys(keys []Key, u *gunim.UI) {
 // ScrollToKey glides the list so key's row is at the top of the view,
 // or as near as the list's end allows.
 func (l *VirtualList) ScrollToKey(key Key, u *gunim.UI) {
-	spacing := ListSpacing.Get(u.Theme())
+	spacing := l.Spacing.Get(u.Theme())
 	y := float32(0)
 	for _, k := range l.order {
 		if k == key {
@@ -282,7 +287,7 @@ func (l *VirtualList) EdgeScroll(p geom.Point, dt time.Duration, u *gunim.UI) ge
 func (l *VirtualList) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
 	own := c.Max
 	width := own.W
-	spacing := ListSpacing.Get(f.Theme)
+	spacing := l.Spacing.Get(f.Theme)
 	move := Quick.Get(f.Theme)
 	l.th, l.viewport = f.Theme, own.H
 
@@ -304,12 +309,12 @@ func (l *VirtualList) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Chil
 			}
 		}
 	}
-	if l.dirty || spacing != l.spacing {
+	if l.dirty || spacing != l.gap {
 		// Items that come or go above the view shift what is in it.
 		// Hold the first row in view where it is, unless the list is at
 		// its top, where a new item should push in where it shows.
 		anchor, at, ok := l.anchor()
-		l.spacing = spacing
+		l.gap = spacing
 		l.index()
 		if ok {
 			if i := slices.Index(l.order, anchor); i >= 0 {
