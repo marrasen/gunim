@@ -34,6 +34,9 @@ type Menu struct {
 	Disabled []bool
 	// Breaks lists the items a line goes above, grouping the menu.
 	Breaks []int
+	// Captions lists the items that are captions over the group below
+	// them: drawn small and dim, and passed by like a disabled item.
+	Captions []int
 	// Pick runs on the UI goroutine with the index of the item picked.
 	Pick func(i int, u *gunim.UI)
 	// MinWidth is the narrowest the menu gets, so a drop-down's list is
@@ -73,7 +76,9 @@ func NewMenu(items ...string) *Menu {
 
 func flag(list []bool, i int) bool { return i >= 0 && i < len(list) && list[i] }
 
-func (m *Menu) enabled(i int) bool { return i >= 0 && i < len(m.Items) && !flag(m.Disabled, i) }
+func (m *Menu) enabled(i int) bool {
+	return i >= 0 && i < len(m.Items) && !flag(m.Disabled, i) && !slices.Contains(m.Captions, i)
+}
 
 // step returns the enabled item from i on, going by dir, or from
 // staying where it is when there is none.
@@ -289,6 +294,11 @@ func (m *Menu) Paint(p *paint.Painter, f gunim.Frame, _ geom.Size, _ gunim.Child
 		col := ink
 		if !m.enabled(i) {
 			col = dim
+		}
+		if slices.Contains(m.Captions, i) {
+			caption := m.rows[i].shape(m.Items[i], TextSize.Get(th)*0.85)
+			caption.Paint(p, geom.Pt(card.Min.X+pad, m.rowY(i)+(m.row-caption.Height())/2), hint)
+			continue
 		}
 		run := m.rows[i].run
 		y := m.rowY(i) + (m.row-run.Height())/2

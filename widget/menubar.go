@@ -29,6 +29,7 @@ type BarMenu struct {
 	Checked  []bool
 	Disabled []bool
 	Breaks   []int
+	Captions []int
 }
 
 // Menubar is a row of menu titles along the top of a window, each
@@ -90,7 +91,7 @@ func (b *Menubar) Open(i int, u *gunim.UI) {
 	b.open = i
 	m := b.Menus[i]
 	menu := NewMenu(m.Items...)
-	menu.Hints, menu.Checked, menu.Disabled, menu.Breaks = m.Hints, m.Checked, m.Disabled, m.Breaks
+	menu.Hints, menu.Checked, menu.Disabled, menu.Breaks, menu.Captions = m.Hints, m.Checked, m.Disabled, m.Breaks, m.Captions
 	menu.MinWidth = 180
 	menu.Pick = func(item int, u *gunim.UI) {
 		b.Close(u)

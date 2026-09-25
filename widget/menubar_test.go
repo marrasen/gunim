@@ -106,3 +106,16 @@ func TestAMenuFindsItemsBelowALine(t *testing.T) {
 		t.Fatalf("picked %v, want Quit", *picks)
 	}
 }
+
+func TestTheKeysPassACaptionBy(t *testing.T) {
+	m := NewMenu("Split", "Right", "Down")
+	m.Captions = []int{0}
+	m.Key(input.KeyPress{Key: input.KeyDown}, nil)
+	if m.Highlighted() != 1 {
+		t.Fatalf("Down from nothing highlighted %d, want Right, past the caption", m.Highlighted())
+	}
+	m.Key(input.KeyPress{Key: input.KeyUp}, nil)
+	if m.Highlighted() != 1 {
+		t.Fatalf("Up from the first item moved to %d, want it to stay", m.Highlighted())
+	}
+}
