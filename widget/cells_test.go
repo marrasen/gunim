@@ -176,3 +176,26 @@ func TestAnOutlineCursorIsHollow(t *testing.T) {
 		t.Fatalf("the last op is %+v, want a red outline with nothing inside", ops[len(ops)-1])
 	}
 }
+
+func TestABlinkFadesTheCursorOutAndBack(t *testing.T) {
+	_, g, run := newCellStage(t)
+	g.SetCursor(Cursor{Col: 1, Row: 1, Visible: true})
+	run(30)
+	g.SetCursor(Cursor{Col: 1, Row: 1, Visible: true, Blinked: true})
+	last := g.lit.Value()
+	for i := range 30 {
+		run(1)
+		if v := g.lit.Value(); v > last+0.001 {
+			t.Fatalf("frame %d: fading out, the cursor brightened from %v to %v", i, last, v)
+		}
+		last = g.lit.Value()
+	}
+	if last > 0.01 {
+		t.Fatalf("blinked off, the cursor is still at %v", last)
+	}
+	g.SetCursor(Cursor{Col: 1, Row: 1, Visible: true})
+	run(30)
+	if v := g.lit.Value(); v < 0.99 {
+		t.Fatalf("blinked on, the cursor came back to %v", v)
+	}
+}

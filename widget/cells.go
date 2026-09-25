@@ -4,6 +4,7 @@ import (
 	"image/color"
 	"math"
 	"slices"
+	"time"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
@@ -46,6 +47,8 @@ type CellGrid struct {
 	lines      []cellRow
 	cursor     Cursor
 	at         *anim.Point
+	// lit fades the cursor through a blink.
+	lit *anim.Float
 
 	// metrics are what the last layout measured the cells by.
 	metrics cellMetrics
@@ -103,6 +106,9 @@ type Cursor struct {
 	Col, Row int
 	Shape    CursorShape
 	Visible  bool
+	// Blinked marks the off half of a blink: the cursor fades out, and
+	// back in once Blinked clears, where Visible hides it at once.
+	Blinked bool
 	// Color is the cursor's colour; clear takes the colour of the
 	// character under it.
 	Color color.NRGBA
@@ -154,7 +160,8 @@ type cellGlyph struct {
 // NewCellGrid returns an empty grid.
 func NewCellGrid() *CellGrid {
 	g := &CellGrid{Background: Background, Foreground: Ink, at: anim.NewPoint(geom.Point{})}
-	g.Add(g.at)
+	g.lit = anim.NewFloat(1)
+	g.Add(g.at, g.lit)
 	return g
 }
 
@@ -287,6 +294,14 @@ func (g *CellGrid) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) 
 	}
 	own = c.Constrain(own)
 	g.fitCols, g.fitRows = max(1, int(own.W/m.w)), max(1, int(own.H/m.h))
+
+	// A blink fades the cursor out and back.
+	lit := float32(1)
+	if g.cursor.Blinked {
+		lit = 0
+	}
+	// A tween, which never overshoots, so the fade never flickers back.
+	g.lit.Animate(lit, anim.Tween{Duration: 150 * time.Millisecond})
 
 	// The cursor glides along its row and jumps to another.
 	to := geom.Pt(float32(g.cursor.Col)*m.w, float32(g.cursor.Row)*m.h)
@@ -421,6 +436,10 @@ func (g *CellGrid) paintCursor(p *paint.Painter, ink, background color.NRGBA) {
 	if !cur.Visible || cur.Row < 0 || cur.Row >= g.rows || cur.Col < 0 || cur.Col >= g.cols {
 		return
 	}
+	lit := min(max(g.lit.Value(), 0), 1)
+	if lit < 0.01 {
+		return
+	}
 	m := g.metrics
 	under := g.lines[cur.Row].cells[cur.Col]
 	col := cur.Color
@@ -436,6 +455,9 @@ func (g *CellGrid) paintCursor(p *paint.Painter, ink, background color.NRGBA) {
 	}
 	at := g.at.Value()
 	box := geom.Rect{Min: at, Max: geom.Pt(at.X+w, at.Y+m.h)}
+	if lit < 1 {
+		defer p.Layer(paint.LayerOpts{Bounds: box, Opacity: lit})()
+	}
 	switch cur.Shape {
 	case CursorBar:
 		box.Max.X = box.Min.X + 2*m.line
