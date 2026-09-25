@@ -311,7 +311,8 @@ what the drawn nodes say into a tree after each frame, while a screen
 reader listens. On Linux the driver answers over AT-SPI, which Orca
 reads: the tabs, fields, checkboxes, sliders and buttons of the
 examples read out, and a screen reader can press, check, set and move
-focus through them. Windows' UI Automation and macOS come later.
+focus through them. On Windows it answers UI Automation, which
+Narrator reads, on 64-bit Windows. macOS comes later.
 
 On Linux that port speaks X11, so a Wayland desktop runs gunim through
 XWayland. That suits popups: X11 lets a client place a window at an
