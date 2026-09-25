@@ -54,6 +54,7 @@ type platformWindowState struct {
 	preeditCallback         PreeditCallback
 	textInputCallback       TextInputCallback
 	textInputActiveCallback TextInputActiveCallback
+	getObjectCallback       GetObjectCallback
 }
 
 type platformMonitorState struct {

@@ -61,7 +61,7 @@ type Driver struct {
 	// present_windows.go.
 	dxgi bool
 	// acc is the connection to assistive technology.
-	acc driverAccess
+	acc driverAccess //nolint:unused // used on Linux
 }
 
 // Open initialises GLFW and loads the GL library. Call it on the main

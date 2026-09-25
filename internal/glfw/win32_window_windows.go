@@ -626,6 +626,13 @@ func windowProc(hWnd windows.HWND, uMsg uint32, wParam _WPARAM, lParam _LPARAM) 
 	}
 
 	switch uMsg {
+	case _WM_GETOBJECT:
+		if cb := window.platform.getObjectCallback; cb != nil {
+			if r, ok := cb(window, uintptr(wParam), uintptr(lParam)); ok {
+				return r
+			}
+		}
+
 	case _WM_MOUSEACTIVATE:
 		if window.platform.popup {
 			// A click on a popup leaves the keyboard where it was.
