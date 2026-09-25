@@ -38,6 +38,8 @@ type OffscreenWindow struct {
 	// window sits on its pretend screen.
 	anchor geom.Rect
 	origin geom.Point
+	// out holds the files of each drag handed to other programs.
+	out [][]string
 
 	presented chan Frame
 	input     chan any
@@ -90,6 +92,22 @@ func (w *OffscreenWindow) Place(anchor geom.Rect, size geom.Size) error {
 	defer w.mu.Unlock()
 	w.anchor, w.size = anchor, size
 	return nil
+}
+
+// DragOut implements [DragOuter] by keeping the paths; a test ends the
+// drag by sending [DragOutEnded] through Input.
+func (w *OffscreenWindow) DragOut(paths []string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.out = append(w.out, paths)
+	return nil
+}
+
+// DraggedOut returns the files of each drag handed to other programs.
+func (w *OffscreenWindow) DraggedOut() [][]string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.out
 }
 
 // SetOrigin puts the window's top left corner at p on its pretend

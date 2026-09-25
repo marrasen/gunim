@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/marrasen/gunim/driver"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
@@ -154,4 +155,54 @@ func TestFilesDroppedOnAWindowReachTheNodeUnderThem(t *testing.T) {
 	if len(got.Paths) != 1 || got.Paths[0] != "/tmp/a.png" {
 		t.Fatalf("the basket got %v, want the dropped file", got)
 	}
+}
+
+// exportable is drag data that leaves the application as a file.
+type exportable struct{ path string }
+
+func (e exportable) ExportFiles() ([]string, error) { return []string{e.path}, nil }
+
+func TestADragLeavingEveryWindowGoesToOtherProgramsAsFiles(t *testing.T) {
+	a, _, c, _ := twoWindows(t)
+	c.word = ""
+	// A carrier of exportable data.
+	x := &exporter{carrier: c, data: exportable{"/tmp/apple.png"}}
+	a.ui.Remove(c)
+	a.ui.Insert(a.ui.root.kids[0].node, x)
+	run(a, 60)
+	a.Input(input.PointerDown{Pos: geom.Pt(30, 30), Time: time.Now()})
+	a.Input(input.PointerMove{Pos: geom.Pt(40, 30), Time: time.Now()})
+	run(a, 1)
+	// Over the other window it is still a drag inside the application.
+	a.Input(input.PointerMove{Pos: geom.Pt(1000, 50), Time: time.Now()})
+	if out := a.mustOffscreen(t).DraggedOut(); len(out) != 0 {
+		t.Fatalf("handed out over a window of the application: %v", out)
+	}
+	// Past every window, it goes out as the file.
+	a.Input(input.PointerMove{Pos: geom.Pt(3000, 50), Time: time.Now()})
+	out := a.mustOffscreen(t).DraggedOut()
+	if len(out) != 1 || len(out[0]) != 1 || out[0][0] != "/tmp/apple.png" {
+		t.Fatalf("handed out %v, want the file once", out)
+	}
+	if len(a.ui.popups) != 0 {
+		t.Fatal("the picture under the pointer stayed once the drag went out")
+	}
+	a.Input(driver.DragOutEnded{Taken: true})
+	if len(x.ended) != 1 || !x.ended[0].Taken {
+		t.Fatalf("the source heard %v, want one DragEnd, taken", x.ended)
+	}
+}
+
+// exporter is a carrier whose drag carries data of its own.
+type exporter struct {
+	*carrier
+	data any
+}
+
+func (e *exporter) Handle(ev input.Event, u *UI) bool {
+	if _, ok := ev.(input.PointerMove); ok {
+		u.StartDrag(e, e.data, &sized{recorder: &recorder{}, size: geom.Sz(20, 10)}, geom.Pt(5, 5))
+		return true
+	}
+	return e.carrier.Handle(ev, u)
 }

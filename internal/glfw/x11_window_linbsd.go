@@ -949,7 +949,11 @@ func handleSelectionRequest(event *_XEvent) {
 	var reply _XEvent
 	selection := reply.xselection()
 	selection.Type = _SelectionNotify
-	selection.Property = writeTargetToProperty(request)
+	if request.Selection == _glfw.platformWindow.XdndSelection {
+		selection.Property = dragOutProperty(request) // gunim change
+	} else {
+		selection.Property = writeTargetToProperty(request)
+	}
 	selection.Display = request.Display
 	selection.Requestor = request.Requestor
 	selection.Selection = request.Selection
@@ -1382,6 +1386,9 @@ func processEvent(event *_XEvent) error {
 
 	case _ButtonRelease:
 		mods := translateState(event.xbutton().State)
+		if dragOutState.source == window {
+			dragOutRelease(event.xbutton().Time) // gunim change
+		}
 
 		switch {
 		case event.xbutton().Button == _Button1:
@@ -1425,6 +1432,9 @@ func processEvent(event *_XEvent) error {
 	case _MotionNotify:
 		x := int(event.xmotion().X)
 		y := int(event.xmotion().Y)
+		if dragOutState.source == window {
+			dragOutMove(event.xmotion().XRoot, event.xmotion().YRoot, event.xmotion().Time) // gunim change
+		}
 
 		if x != window.platform.warpCursorPosX ||
 			y != window.platform.warpCursorPosY {
@@ -1507,6 +1517,10 @@ func processEvent(event *_XEvent) error {
 		client := event.xclient()
 
 		if client.MessageType == _None {
+			return nil
+		}
+
+		if dragOutMessage(client) { // gunim change
 			return nil
 		}
 

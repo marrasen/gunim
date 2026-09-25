@@ -153,6 +153,17 @@ func (u *UI) closePopup(s *surface) {
 	u.invalid = true
 }
 
+// closePopupNow closes s and its window at once, with no exit.
+func (u *UI) closePopupNow(s *surface) {
+	s.closing = true
+	for _, k := range s.root.kids {
+		u.forget(k)
+	}
+	s.root.kids = nil
+	u.dropPopup(s)
+	u.invalid = true
+}
+
 // closePopupsOf closes every popup opened from s or beneath it.
 func (u *UI) closePopupsOf(s *state) {
 	for _, p := range u.popups {

@@ -24,6 +24,8 @@ func (u *UI) handlePlatform(ev any) { u.handleOn(u.root, ev) }
 func (u *UI) handleOn(root *state, ev any) {
 	u.invalid = true
 	switch e := ev.(type) {
+	case driver.DragOutEnded:
+		u.dragEnded(e.Taken)
 	case driver.WindowFocus:
 		if !e.Focused && root == u.root {
 			u.dismissFor(nil)

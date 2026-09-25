@@ -386,6 +386,38 @@ func workArea(p geom.Point) geom.Rect {
 	return first
 }
 
+// dragOutWait is how long a drag handed to another program may wait
+// for it to finish taking the drop before it is given up.
+const dragOutWait = 10 * time.Second
+
+// DragOut implements [driver.DragOuter]. The platform's drag and drop
+// runs on the main thread; on Windows it holds the main thread until
+// the drop, so this returns at once and reports the end on Input.
+func (w *Window) DragOut(paths []string) error {
+	ok := w.d.post(func() {
+		ended := false
+		end := func(taken bool) {
+			ended = true
+			w.in.push(driver.DragOutEnded{Taken: taken})
+		}
+		if err := w.gw.StartDragOut(paths, end); err != nil {
+			end(false)
+			return
+		}
+		time.AfterFunc(dragOutWait, func() {
+			w.d.post(func() {
+				if !ended {
+					w.gw.CancelDragOut()
+				}
+			})
+		})
+	})
+	if !ok {
+		return errStopped
+	}
+	return nil
+}
+
 // ToScreen implements [driver.Screener].
 func (w *Window) ToScreen(p geom.Point) geom.Point {
 	w.mu.Lock()

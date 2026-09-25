@@ -64,3 +64,15 @@ type Screener interface {
 	ToScreen(p geom.Point) geom.Point
 	FromScreen(p geom.Point) geom.Point
 }
+
+// A DragOuter is a [Window] that can hand a drag the pointer is
+// carrying, with a button down in it, to other programs, as files.
+// DragOut returns at once, and the window reports the end on
+// [Window.Input] as [DragOutEnded].
+type DragOuter interface {
+	DragOut(paths []string) error
+}
+
+// DragOutEnded is sent on [Window.Input] when a drag handed to other
+// programs ends. Taken says whether a program took the drop.
+type DragOutEnded struct{ Taken bool }

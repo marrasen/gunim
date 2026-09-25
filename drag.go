@@ -20,6 +20,15 @@ import (
 // that lets the pointer through. Everything crosses between windows as
 // messages, since each window's nodes belong to its own goroutine.
 
+// A FileExporter is drag data that can leave the application as files,
+// to be dropped on a file manager or another program. Once a drag of
+// one leaves every window of the application, ExportFiles writes the
+// files, where they need writing, and returns their paths, and the
+// platform's own drag and drop carries them on.
+type FileExporter interface {
+	ExportFiles() ([]string, error)
+}
+
 // windows is the application's open windows, which drags look through
 // for the one under the pointer.
 type windows struct {
@@ -155,6 +164,9 @@ func (u *UI) dragTo(p geom.Point) {
 		u.w.sendDrag(d.over, dragMsg{kind: dragLeave})
 	}
 	d.over = over
+	if over == nil && u.dragOut(d) {
+		return
+	}
 	if over != nil {
 		u.w.sendDrag(over, dragMsg{kind: dragOver, at: at, data: d.data})
 	}
@@ -163,6 +175,34 @@ func (u *UI) dragTo(p geom.Point) {
 		d.ghost.Move(geom.Rect{Min: g, Max: g})
 	}
 	u.invalid = true
+}
+
+// dragOut hands d to other programs, when it can go as files, and
+// reports whether it did. The picture under the pointer goes at once:
+// the platform's drag shows its own, and on Windows it holds the main
+// thread, which moving a window needs.
+func (u *UI) dragOut(d *drag) bool {
+	fe, ok := d.data.(FileExporter)
+	if !ok {
+		return false
+	}
+	do, ok := u.w.dw.(driver.DragOuter)
+	if !ok {
+		return false
+	}
+	paths, err := fe.ExportFiles()
+	if err != nil || len(paths) == 0 {
+		return false
+	}
+	if d.ghost != nil {
+		u.closePopupNow(d.ghost.s)
+	}
+	u.drag = nil
+	u.dragFrom = d.source
+	if err := do.DragOut(paths); err != nil {
+		u.dragEnded(false)
+	}
+	return true
 }
 
 // dragDrop lets the drag go at p, in the window's space.

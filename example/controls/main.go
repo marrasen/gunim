@@ -10,7 +10,9 @@
 // fifth is a list to put in order by dragging its rows.
 //
 // A second window, the basket, takes pictures dragged to it from the
-// Pictures tab, and image files dropped on it from a file manager.
+// Pictures tab, and image files dropped on it from a file manager. A
+// picture dragged out of both windows goes to other programs as a PNG
+// file, so a file manager can take it.
 //
 //	CGO_ENABLED=0 go run ./example/controls
 package main
@@ -73,8 +75,12 @@ type (
 		Paths []string
 	}
 	// pictureRef is what a thumbnail carries when it is dragged. It
-	// stays inside the process, so it needs no registered name.
-	pictureRef struct{ Index int }
+	// stays inside the process, so it needs no registered name. Dragged
+	// out of the application, it becomes a PNG file.
+	pictureRef struct {
+		Index   int
+		Picture *paint.Image
+	}
 	// Opened travels when a thumbnail is clicked.
 	Opened struct{ Index int }
 	// Closed travels when the open picture is clicked.
@@ -216,7 +222,7 @@ func buildPage(s Page) *page {
 	for i, pic := range s.Pictures {
 		img := widget.NewImage(pic)
 		img.Fit, img.Radius, img.Size = widget.FitCover, 8, geom.Sz(112, 70)
-		drag := widget.NewDraggable(widget.NewHero(heroTag(i), img), pictureRef{Index: i})
+		drag := widget.NewDraggable(widget.NewHero(heroTag(i), img), pictureRef{Index: i, Picture: pic})
 		drag.OnClick = Opened{Index: i}
 		drag.Ghost = func() gunim.Node {
 			ghost := widget.NewImage(pic)
@@ -226,7 +232,7 @@ func buildPage(s Page) *page {
 		cells = append(cells, drag)
 	}
 	thumbs := widget.Row(cells...)
-	pictureRow := widget.Column(thumbs, widget.NewLabel("Click a picture to open it, or drag it to the basket."))
+	pictureRow := widget.Column(thumbs, widget.NewLabel("Click a picture to open it. Drag it to the basket, or out to a file manager."))
 
 	pad := func(n gunim.Node) gunim.Node {
 		p := widget.NewPad(n)
@@ -522,4 +528,19 @@ func load(path string) (*paint.Image, error) {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	return paint.NewImage(m), nil
+}
+
+// ExportFiles implements [gunim.FileExporter]: the picture, written as
+// a PNG in the temporary directory, for a file manager to take.
+func (r pictureRef) ExportFiles() ([]string, error) {
+	path := filepath.Join(os.TempDir(), "gunim-picture-"+strconv.Itoa(r.Index+1)+".png")
+	f, err := os.Create(path)
+	if err != nil {
+		return nil, err
+	}
+	if err := r.Picture.EncodePNG(f); err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	return []string{path}, f.Close()
 }

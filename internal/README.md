@@ -38,6 +38,13 @@ gunim's changes are marked `gunim change` in the code:
 - `gl` binds `glGenerateMipmap` (`interface.go`, `default_purego.go`,
   `debug.go`), for image textures drawn smaller than their size, and
   `glClearColor`, through `purego.RegisterFunc` since it takes floats.
+- `glfw` can drag files out of a window to other programs:
+  `StartDragOut` and `CancelDragOut` (`dragout.go`). On X11 the window
+  becomes an XDND source (`x11_dragout_linbsd.go`, with hooks in
+  `x11_window_linbsd.go` for pointer moves, the button's release, the
+  target's replies and XdndSelection requests). On Win32 it runs OLE's
+  `DoDragDrop` over a shell data object made from the files' item IDs
+  (`win32_dragout_windows.go`). Cocoa returns an error.
 - `glfw` has a `Popup` window hint, for menus, lists and tooltips: a
   window that never takes focus. On X11 it is override-redirect, so the
   window manager leaves it where it is put, and typed

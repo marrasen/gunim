@@ -7,6 +7,7 @@ import (
 	"image"
 	"image/draw"
 	"image/png"
+	"io"
 	"strconv"
 
 	"github.com/marrasen/gunim/geom"
@@ -46,13 +47,21 @@ func (m *Image) Size() (w, h int) { return m.w, m.h }
 // for a driver to upload. They must not be changed.
 func (m *Image) Pix() []byte { return m.pix }
 
+// EncodePNG writes the image to w as a PNG.
+func (m *Image) EncodePNG(w io.Writer) error {
+	rgba := &image.RGBA{Pix: m.pix, Stride: 4 * m.w, Rect: image.Rect(0, 0, m.w, m.h)}
+	if err := png.Encode(w, rgba); err != nil {
+		return fmt.Errorf("paint: encode image: %w", err)
+	}
+	return nil
+}
+
 // MarshalJSON encodes the image as a PNG in a JSON string, so a state
 // that carries one can cross a socket transport.
 func (m *Image) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
-	rgba := &image.RGBA{Pix: m.pix, Stride: 4 * m.w, Rect: image.Rect(0, 0, m.w, m.h)}
-	if err := png.Encode(&buf, rgba); err != nil {
-		return nil, fmt.Errorf("paint: encode image: %w", err)
+	if err := m.EncodePNG(&buf); err != nil {
+		return nil, err
 	}
 	return strconv.AppendQuote(nil, base64.StdEncoding.EncodeToString(buf.Bytes())), nil
 }
