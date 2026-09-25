@@ -232,3 +232,36 @@ func TestGalleryDrawsInAFewCalls(t *testing.T) {
 		t.Fatalf("%d ops drew in %d calls, want at most 4", len(ops), r.draws)
 	}
 }
+
+// TestFrameForASmallerWindowSitsTopLeft draws a frame laid out for a
+// window of 400 by 300 into the 800 by 600 buffer, as happens on
+// Windows while a window grows faster than frames keep up. The frame
+// sits at the top left, and the rest of the buffer takes its
+// background colour.
+func TestFrameForASmallerWindowSitsTopLeft(t *testing.T) {
+	r, done := hiddenGL(t)
+	defer done()
+	bg := color.NRGBA{R: 0x20, G: 0x40, B: 0x60, A: 0xff}
+	mark := color.NRGBA{R: 0xff, A: 0xff}
+	ops := []paint.Op{
+		&paint.RRectOp{Rect: geom.Rc(0, 0, 400, 300), Fill: paint.Solid(bg), Transform: paint.Identity},
+		&paint.RRectOp{Rect: geom.Rc(10, 10, 20, 20), Fill: paint.Solid(mark), Transform: paint.Identity},
+	}
+	w, h := int(benchSize.W), int(benchSize.H)
+	r.draw(ops, paint.Everything, w, h, 1)
+	at := func(x, y int) [3]byte {
+		pix := make([]byte, 4)
+		r.gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
+		// GL counts rows from the bottom.
+		r.gl.ReadPixels(pix, int32(x), int32(h-1-y), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE)
+		return [3]byte{pix[0], pix[1], pix[2]}
+	}
+	if got := at(20, 20); got != [3]byte{0xff, 0, 0} {
+		t.Errorf("the mark at the top left is %v, want red", got)
+	}
+	for _, p := range [][2]int{{700, 50}, {50, 500}, {700, 500}} {
+		if got := at(p[0], p[1]); got != [3]byte{0x20, 0x40, 0x60} {
+			t.Errorf("the buffer past the frame at %v is %v, want the background", p, got)
+		}
+	}
+}

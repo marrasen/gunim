@@ -595,11 +595,20 @@ func (w *Window) render() {
 			fbW, fbH, scale, rate := w.fbW, w.fbH, w.scale, w.rate
 			readback := w.readback
 			w.mu.Unlock()
-			r.draw(f.ops, f.damage, fbW, fbH, scale)
+			// Draw into the buffer as it is. A frame laid out for a
+			// window that has since grown then sits at the top left, and
+			// the new strip takes the window's background, where it
+			// would otherwise land at the bottom left of the larger
+			// buffer.
+			drawW, drawH := fbW, fbH
+			if bw, bh, ok := vb.bufferSize(); ok && bw > 0 && bh > 0 {
+				drawW, drawH = bw, bh
+			}
+			r.draw(f.ops, f.damage, drawW, drawH, scale)
 			if readback != nil {
-				pix := make([]byte, fbW*fbH*4)
-				r.gl.ReadPixels(pix, 0, 0, int32(fbW), int32(fbH), gl.RGBA, gl.UNSIGNED_BYTE)
-				readback(pix, fbW, fbH)
+				pix := make([]byte, drawW*drawH*4)
+				r.gl.ReadPixels(pix, 0, 0, int32(drawW), int32(drawH), gl.RGBA, gl.UNSIGNED_BYTE)
+				readback(pix, drawW, drawH)
 			}
 			synced := vb.wait()
 			if err := w.gw.SwapBuffers(); err != nil {

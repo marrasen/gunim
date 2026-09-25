@@ -416,8 +416,9 @@ func (r *renderer) draw(ops []paint.Op, damage geom.Rect, fbW, fbH int, scale fl
 	g.BindFramebuffer(gl.FRAMEBUFFER, r.fbo(0))
 	g.Viewport(0, 0, int32(fbW), int32(fbH))
 	r.bindDraw()
+	bg, opaque := background(ops)
 	if r.direct {
-		clearWindow(g)
+		clearWindow(g, bg, opaque)
 	}
 	if !box.Empty() {
 		if !whole {
@@ -425,7 +426,7 @@ func (r *renderer) draw(ops []paint.Op, damage geom.Rect, fbW, fbH int, scale fl
 			g.Scissor(scissor(box, fbW, fbH))
 		}
 		g.Clear(glColorBufferBit)
-		resetClear(g)
+		g.ClearColor(0, 0, 0, 0)
 		r.replay(ops)
 		r.flush()
 		if !whole {
@@ -435,9 +436,9 @@ func (r *renderer) draw(ops []paint.Op, damage geom.Rect, fbW, fbH int, scale fl
 	if !r.direct {
 		r.canvasOK, r.canvasScale = true, scale
 		g.BindFramebuffer(gl.FRAMEBUFFER, 0)
-		clearWindow(g)
+		clearWindow(g, bg, opaque)
 		g.Clear(glColorBufferBit)
-		resetClear(g)
+		g.ClearColor(0, 0, 0, 0)
 		r.composite(r.layers[0].tex, nil, 1, false, 0)
 		r.flush()
 	}
@@ -449,20 +450,35 @@ func (r *renderer) draw(ops []paint.Op, damage geom.Rect, fbW, fbH int, scale fl
 // shows. It is for finding where a stray band of colour comes from.
 var debugClear = os.Getenv("GUNIM_DEBUG_CLEAR") == "1"
 
-// clearWindow sets the colour the window's framebuffer clears to:
-// transparent, or magenta under GUNIM_DEBUG_CLEAR. Offscreen targets
-// always clear to transparent.
-func clearWindow(g gl.Context) {
-	if debugClear {
+// clearWindow sets the colour the window's framebuffer clears to: the
+// frame's background when it has an opaque one, transparent when it
+// has none, or magenta under GUNIM_DEBUG_CLEAR. Offscreen targets
+// clear to transparent, and the caller sets that back after the clear.
+func clearWindow(g gl.Context, bg [4]float32, opaque bool) {
+	switch {
+	case debugClear:
 		g.ClearColor(1, 0, 1, 1)
+	case opaque:
+		g.ClearColor(bg[0], bg[1], bg[2], 1)
 	}
 }
 
-// resetClear puts the clear colour back to transparent.
-func resetClear(g gl.Context) {
-	if debugClear {
-		g.ClearColor(0, 0, 0, 0)
+// background returns the colour of a frame's background: its first op,
+// when that is a plain opaque rectangle from the window's top left
+// corner, as a window's surface paints. A frame drawn for a smaller
+// window than the buffer holds leaves a strip the clear fills, and the
+// background colour makes that strip look like the window's own.
+func background(ops []paint.Op) ([4]float32, bool) {
+	if len(ops) == 0 {
+		return [4]float32{}, false
 	}
+	op, ok := ops[0].(*paint.RRectOp)
+	if !ok || op.Radius != 0 || op.Transform != paint.Identity || op.Fill.Gradient != nil ||
+		op.Fill.Solid.A != 0xff || op.Shadow.Color.A != 0 || op.Stroke.Width > 0 ||
+		op.Rect.Min.X > 0 || op.Rect.Min.Y > 0 {
+		return [4]float32{}, false
+	}
+	return rgba(op.Fill.Solid), true
 }
 
 // deviceBox turns damage in logical pixels into the whole device pixels

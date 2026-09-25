@@ -16,3 +16,7 @@ func newVBlank(*glfw.Window) *vblank { return &vblank{} }
 func (*vblank) wait() bool { return false }
 
 func (*vblank) close() {}
+
+// bufferSize reports false: the buffer here changes size only as the
+// main thread measures it.
+func (*vblank) bufferSize() (w, h int, ok bool) { return 0, 0, false }

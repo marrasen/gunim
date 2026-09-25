@@ -19,6 +19,7 @@ var (
 	user32                         = windows.NewLazySystemDLL("user32.dll")
 	gdi32                          = windows.NewLazySystemDLL("gdi32.dll")
 	procMonitorFromWindow          = user32.NewProc("MonitorFromWindow")
+	procGetClientRect              = user32.NewProc("GetClientRect")
 	procGetMonitorInfoW            = user32.NewProc("GetMonitorInfoW")
 	procCreateDCW                  = gdi32.NewProc("CreateDCW")
 	procDeleteDC                   = gdi32.NewProc("DeleteDC")
@@ -107,4 +108,21 @@ func (v *vblank) close() {
 	a := v.adapter
 	_, _, _ = procD3DKMTCloseAdapter.Call(uintptr(unsafe.Pointer(&a)))
 	v.adapter = 0
+}
+
+// bufferSize returns the size the window's buffer has right now, in
+// pixels. Windows grows the buffer the moment the window grows, before
+// the main thread hears of it, so a frame drawn at the size the main
+// thread last measured can land in a larger buffer. It is safe to call
+// from the render thread.
+func (v *vblank) bufferSize() (w, h int, ok bool) {
+	if v.hwnd == 0 {
+		return 0, 0, false
+	}
+	var rc struct{ left, top, right, bottom int32 }
+	r, _, _ := procGetClientRect.Call(uintptr(v.hwnd), uintptr(unsafe.Pointer(&rc)))
+	if r == 0 {
+		return 0, 0, false
+	}
+	return int(rc.right - rc.left), int(rc.bottom - rc.top), true
 }
