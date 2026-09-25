@@ -53,6 +53,8 @@ type TextField struct {
 	selA    *anim.Float
 	selB    *anim.Float
 	scroll  *anim.Float
+	// flash runs from 1 down to 0 after Flash, tinting the field.
+	flash *anim.Float
 
 	shaped shapedText
 	// size is the field's size at its last layout.
@@ -69,6 +71,7 @@ func NewTextField() *TextField {
 		selA:    anim.NewFloat(0),
 		selB:    anim.NewFloat(0),
 		scroll:  anim.NewFloat(0),
+		flash:   anim.NewFloat(0),
 	}
 	t.changed = func(u *gunim.UI) {
 		if t.OnEdit != nil {
@@ -108,10 +111,22 @@ func (t *TextField) SetText(s string) {
 	t.set(len(t.text), false)
 }
 
+// Flash tints the field in the accent colour and fades it back, to
+// show that something other than typing changed it, such as a button
+// that fills it in. A hidden field changes only its dots, which are
+// easy to miss.
+func (t *TextField) Flash() {
+	t.flash.Jump(1)
+	t.flash.Animate(0, anim.Tween{Duration: flashTime, Ease: anim.EaseInOut})
+}
+
+// flashTime is how long a flash takes to fade.
+const flashTime = 700 * time.Millisecond
+
 // Step implements [gunim.Animator].
 func (t *TextField) Step(dt time.Duration) bool {
 	moving := false
-	for _, a := range []*anim.Float{t.focus, t.caretAt, t.selA, t.selB, t.scroll} {
+	for _, a := range []*anim.Float{t.focus, t.caretAt, t.selA, t.selB, t.scroll, t.flash} {
 		if a.Step(dt) {
 			moving = true
 		}
@@ -241,7 +256,12 @@ func (t *TextField) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ guni
 	r := geom.Rect{Max: box.Point()}
 	radius := FieldRadius.Get(th)
 	border := anim.Mix(anim.ColorCodec, FieldBorder.Get(th), Accent.Get(th), min(focus, 1))
-	p.RRectStroke(r, radius, paint.Solid(FieldFill.Get(th)), paint.Stroke{Width: 1 + focus, Color: border})
+	fill := FieldFill.Get(th)
+	if lit := min(max(t.flash.Value(), 0), 1); lit > 0 {
+		fill = anim.Mix(anim.ColorCodec, fill, Accent.Get(th), 0.35*lit)
+		border = anim.Mix(anim.ColorCodec, border, Accent.Get(th), lit)
+	}
+	p.RRectStroke(r, radius, paint.Solid(fill), paint.Stroke{Width: 1 + focus, Color: border})
 
 	pad := FieldPadding.Get(th)
 	inner := geom.Rect{Min: geom.Pt(pad/2, 0), Max: geom.Pt(box.W-pad/2, box.H)}

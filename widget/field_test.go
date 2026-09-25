@@ -2,6 +2,7 @@ package widget
 
 import (
 	"testing"
+	"time"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
@@ -237,5 +238,31 @@ func TestAltGrTypesWhereControlAndAltAreHeld(t *testing.T) {
 	ty.want("abą@", 4)
 	if ty.fr.keys != 0 {
 		t.Fatalf("%d typing presses left the field", ty.fr.keys)
+	}
+}
+
+func TestAFlashFadesOutSteadily(t *testing.T) {
+	w := gunim.NewOffscreen(geom.Sz(300, 60), nil)
+	f := NewTextField()
+	gunim.RegisterView(w, "field", func(struct{}) gunim.Node { return f }, nil)
+	if err := w.Client().Mount(gunim.Root, "field", "field", struct{}{}); err != nil {
+		t.Fatal(err)
+	}
+	w.Frame(time.Second / 60)
+	f.Flash()
+	last := f.flash.Value()
+	if last != 1 {
+		t.Fatalf("flashed, the tint starts at %v", last)
+	}
+	for i := range 60 {
+		w.Frame(time.Second / 60)
+		v := f.flash.Value()
+		if v > last || v < 0 {
+			t.Fatalf("frame %d: the tint went from %v to %v", i, last, v)
+		}
+		last = v
+	}
+	if last != 0 {
+		t.Fatalf("a second on, the tint is at %v", last)
 	}
 }
