@@ -547,6 +547,22 @@ func (p *redrawPolicy) add(partial bool, took time.Duration) {
 	} else if p.timed >= policyTimed {
 		p.decided, p.partial = true, true
 	}
+	if p.decided && debugRedraw {
+		fmt.Fprintf(os.Stderr, "gunim: redraw in part: %v (full frames %v, part frames %v, %d timed)\n",
+			p.partial, medianOr(p.full), medianOr(p.part), p.timed)
+	}
+}
+
+// debugRedraw is set by GUNIM_DEBUG_REDRAW=1, which prints the redraw
+// policy's choice and the times behind it once it decides.
+var debugRedraw = os.Getenv("GUNIM_DEBUG_REDRAW") == "1"
+
+// medianOr returns the median of ds, or zero for none.
+func medianOr(ds []time.Duration) time.Duration {
+	if len(ds) == 0 {
+		return 0
+	}
+	return median(ds)
 }
 
 // median returns the middle of ds, which it sorts.
