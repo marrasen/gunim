@@ -701,16 +701,21 @@ type timer struct {
 // this one, and returns a function that cancels it. The window sleeps
 // while it waits, so a tooltip's delay costs no frames.
 func (u *UI) After(d time.Duration, fn func(u *UI)) (stop func()) {
-	// The last frame's time is long past when the window has slept.
-	from := u.now
-	if now := time.Now(); now.After(from) {
-		from = now
-	}
-	t := &timer{at: from.Add(d), fn: fn}
+	t := &timer{at: u.clock().Add(d), fn: fn}
 	u.timers = append(u.timers, t)
 	return func() {
 		u.timers = slices.DeleteFunc(u.timers, func(o *timer) bool { return o == t })
 	}
+}
+
+// clock returns the later of the last frame's time and the wall
+// clock's: the frame's time runs a refresh ahead while frames draw, and
+// is long past once the window has slept.
+func (u *UI) clock() time.Time {
+	if now := time.Now(); now.After(u.now) {
+		return now
+	}
+	return u.now
 }
 
 // runTimers runs the timers whose time has come.

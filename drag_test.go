@@ -206,3 +206,55 @@ func (e *exporter) Handle(ev input.Event, u *UI) bool {
 	}
 	return e.carrier.Handle(ev, u)
 }
+
+func TestADragCrossingTheGapBetweenWindowsStaysInside(t *testing.T) {
+	a, b, c, bk := twoWindows(t)
+	// A gap of 20 between the windows.
+	b.mustOffscreen(t).SetOrigin(geom.Pt(820, 0))
+	x := &exporter{carrier: c, data: exportable{"/tmp/apple.png"}}
+	a.ui.Remove(c)
+	a.ui.Insert(a.ui.root.kids[0].node, x)
+	run(a, 60)
+	a.Input(input.PointerDown{Pos: geom.Pt(30, 30), Time: time.Now()})
+	a.Input(input.PointerMove{Pos: geom.Pt(40, 30), Time: time.Now()})
+	a.Input(input.PointerMove{Pos: geom.Pt(810, 50), Time: time.Now()})
+	run(a, 2)
+	if out := a.mustOffscreen(t).DraggedOut(); len(out) != 0 {
+		t.Fatalf("crossing the gap handed the drag out: %v", out)
+	}
+	if len(a.ui.popups) != 1 {
+		t.Fatal("the picture under the pointer went in the gap")
+	}
+	a.Input(input.PointerMove{Pos: geom.Pt(900, 50), Time: time.Now()})
+	a.Input(input.PointerUp{Pos: geom.Pt(900, 50), Time: time.Now()})
+	run(b, 1)
+	run(a, 1)
+	var dropped bool
+	for _, e := range bk.events {
+		if _, ok := e.(input.Drop); ok {
+			dropped = true
+		}
+	}
+	if !dropped || len(a.mustOffscreen(t).DraggedOut()) != 0 {
+		t.Fatal("the drop across the gap did not land inside the application")
+	}
+}
+
+func TestADragRestingOutsideLeavesAfterAMoment(t *testing.T) {
+	a, _, c, _ := twoWindows(t)
+	x := &exporter{carrier: c, data: exportable{"/tmp/apple.png"}}
+	a.ui.Remove(c)
+	a.ui.Insert(a.ui.root.kids[0].node, x)
+	run(a, 60)
+	a.Input(input.PointerDown{Pos: geom.Pt(30, 30), Time: time.Now()})
+	a.Input(input.PointerMove{Pos: geom.Pt(40, 30), Time: time.Now()})
+	// Just past the right window's edge, and then still.
+	a.Input(input.PointerMove{Pos: geom.Pt(1620, 50), Time: time.Now()})
+	if len(a.mustOffscreen(t).DraggedOut()) != 0 {
+		t.Fatal("handed out at once, close to a window")
+	}
+	run(a, 30) // half a second
+	if len(a.mustOffscreen(t).DraggedOut()) != 1 {
+		t.Fatal("a drag resting outside was not handed out")
+	}
+}
