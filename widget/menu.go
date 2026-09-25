@@ -3,6 +3,7 @@ package widget
 import (
 	"image/color"
 	"math"
+	"slices"
 	"time"
 
 	"github.com/marrasen/gunim"
@@ -23,6 +24,16 @@ type Menu struct {
 	anim.Group
 
 	Items []string
+	// Hints, Checked and Disabled say more about the items, in the same
+	// order, and may be shorter than Items. A hint shows at the right,
+	// such as the item's shortcut. A checked item has a tick before it.
+	// A disabled item is dimmed, and the pointer and the keys pass it
+	// by.
+	Hints    []string
+	Checked  []bool
+	Disabled []bool
+	// Breaks lists the items a line goes above, grouping the menu.
+	Breaks []int
 	// Pick runs on the UI goroutine with the index of the item picked.
 	Pick func(i int, u *gunim.UI)
 	// MinWidth is the narrowest the menu gets, so a drop-down's list is
@@ -35,7 +46,10 @@ type Menu struct {
 	hotOn *anim.Float
 	in    *anim.Float
 
-	rows []shapedText
+	rows     []shapedText
+	hintRuns []shapedText
+	// tops holds each row's top, from the first row's.
+	tops []float32
 	// card is where the menu is drawn in its box, row and pad the row
 	// height and the space around the rows, all from the last layout.
 	card        geom.Rect
@@ -57,11 +71,29 @@ func NewMenu(items ...string) *Menu {
 	return m
 }
 
+func flag(list []bool, i int) bool { return i >= 0 && i < len(list) && list[i] }
+
+func (m *Menu) enabled(i int) bool { return i >= 0 && i < len(m.Items) && !flag(m.Disabled, i) }
+
+// step returns the enabled item from i on, going by dir, or from
+// staying where it is when there is none.
+func (m *Menu) step(from, i, dir int) int {
+	for ; i >= 0 && i < len(m.Items); i += dir {
+		if m.enabled(i) {
+			return i
+		}
+	}
+	return from
+}
+
 // Highlight moves the highlight to item i, gliding from where it was.
-// A negative i takes it away.
+// A negative i, or a disabled item, takes it away.
 func (m *Menu) Highlight(i int) {
 	if i >= len(m.Items) {
 		i = len(m.Items) - 1
+	}
+	if !m.enabled(i) {
+		i = -1
 	}
 	m.hot = i
 	if i < 0 {
@@ -86,15 +118,19 @@ func (m *Menu) Highlighted() int { return m.hot }
 func (m *Menu) Key(k input.KeyPress, u *gunim.UI) bool {
 	switch k.Key {
 	case input.KeyDown:
-		m.Highlight(min(m.hot+1, len(m.Items)-1))
+		m.Highlight(m.step(m.hot, m.hot+1, 1))
 	case input.KeyUp:
-		m.Highlight(max(m.hot-1, 0))
+		if m.hot < 0 {
+			m.Highlight(m.step(m.hot, len(m.Items)-1, -1))
+		} else {
+			m.Highlight(m.step(m.hot, m.hot-1, -1))
+		}
 	case input.KeyHome:
-		m.Highlight(0)
+		m.Highlight(m.step(m.hot, 0, 1))
 	case input.KeyEnd:
-		m.Highlight(len(m.Items) - 1)
+		m.Highlight(m.step(m.hot, len(m.Items)-1, -1))
 	case input.KeyEnter, input.KeySpace:
-		if m.hot >= 0 && m.Pick != nil {
+		if m.enabled(m.hot) && m.Pick != nil {
 			m.Pick(m.hot, u)
 		}
 	default:
@@ -130,7 +166,7 @@ func (m *Menu) Handle(e input.Event, u *gunim.UI) bool {
 		}
 	case input.PointerDown:
 	case input.PointerUp:
-		if i := m.rowAt(e.Pos); i >= 0 && m.Pick != nil {
+		if i := m.rowAt(e.Pos); m.enabled(i) && m.Pick != nil {
 			m.Pick(i, u)
 		}
 	default:
@@ -145,15 +181,28 @@ func (m *Menu) rowAt(p geom.Point) int {
 	if !m.card.Contains(p) || m.row <= 0 {
 		return -1
 	}
-	i := int((p.Y - m.card.Min.Y - m.pad) / m.row)
-	if i < 0 || i >= len(m.Items) {
-		return -1
+	for i := range m.Items {
+		if y := m.rowY(i); p.Y >= y && p.Y < y+m.row {
+			return i
+		}
 	}
-	return i
+	return -1
 }
 
 // rowY returns the top of row i in the menu's space.
-func (m *Menu) rowY(i int) float32 { return m.card.Min.Y + m.pad + float32(i)*m.row }
+func (m *Menu) rowY(i int) float32 {
+	top := float32(i) * m.row
+	if i >= 0 && i < len(m.tops) {
+		top = m.tops[i]
+	}
+	return m.card.Min.Y + m.pad + top
+}
+
+// menuBreak is the room a line between groups takes.
+const menuBreak = 9
+
+// menuTick is the room a tick takes before the items, when any has one.
+const menuTick = 18
 
 // Layout implements [gunim.Node].
 func (m *Menu) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
@@ -166,13 +215,26 @@ func (m *Menu) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom
 	m.row, m.pad = MenuRowHeight.Get(th), MenuPadding.Get(th)
 	if len(m.rows) != len(m.Items) {
 		m.rows = make([]shapedText, len(m.Items))
+		m.hintRuns = make([]shapedText, len(m.Items))
 	}
 	size := TextSize.Get(th)
+	gutter := m.gutter()
 	w := m.MinWidth
+	m.tops = m.tops[:0]
+	y := float32(0)
 	for i, s := range m.Items {
-		w = max(w, m.rows[i].shape(s, size).Advance+2*MenuRowPadding.Get(th))
+		if slices.Contains(m.Breaks, i) && i > 0 {
+			y += menuBreak
+		}
+		m.tops = append(m.tops, y)
+		y += m.row
+		line := gutter + m.rows[i].shape(s, size).Advance + 2*MenuRowPadding.Get(th)
+		if i < len(m.Hints) && m.Hints[i] != "" {
+			line += 32 + m.hintRuns[i].shape(m.Hints[i], size*0.9).Advance
+		}
+		w = max(w, line)
 	}
-	h := float32(len(m.Items))*m.row + 2*m.pad
+	h := y + 2*m.pad
 	m.card = geom.Rc(m.margin, m.margin, w, h)
 	if m.hot >= 0 && !m.glide {
 		m.hotY.Jump(m.rowY(m.hot))
@@ -212,11 +274,58 @@ func (m *Menu) Paint(p *paint.Painter, f gunim.Frame, _ geom.Size, _ gunim.Child
 		p.RRect(geom.Rc(card.Min.X+inset, m.hotY.Value(), card.Size().W-2*inset, m.row), max(0, radius-inset), paint.Solid(c))
 	}
 	ink := Ink.Get(th)
+	dim := ink
+	dim.A /= 3
+	hint := MenuHint.Get(th)
+	pad := MenuRowPadding.Get(th)
+	gutter := m.gutter()
+	for _, i := range m.Breaks {
+		if i > 0 && i < len(m.Items) {
+			y := m.rowY(i) - menuBreak/2
+			p.RRect(geom.Rc(card.Min.X+pad, y, card.Size().W-2*pad, 1), 0, paint.Solid(MenuBorder.Get(th)))
+		}
+	}
 	for i := range m.Items {
+		col := ink
+		if !m.enabled(i) {
+			col = dim
+		}
 		run := m.rows[i].run
 		y := m.rowY(i) + (m.row-run.Height())/2
-		run.Paint(p, geom.Pt(card.Min.X+MenuRowPadding.Get(th), y), ink)
+		if flag(m.Checked, i) {
+			drawTick(p, geom.Pt(card.Min.X+pad+gutter/2-2, m.rowY(i)+m.row/2), col)
+		}
+		run.Paint(p, geom.Pt(card.Min.X+pad+gutter, y), col)
+		if i < len(m.Hints) && m.Hints[i] != "" {
+			h := m.hintRuns[i].run
+			if !m.enabled(i) {
+				hint.A /= 3
+			}
+			h.Paint(p, geom.Pt(card.Max.X-pad-h.Advance, m.rowY(i)+(m.row-h.Height())/2), hint)
+			hint = MenuHint.Get(th)
+		}
 	}
+}
+
+// gutter is the room before the items' titles: a tick's, when any item
+// has one.
+func (m *Menu) gutter() float32 {
+	if slices.Contains(m.Checked, true) {
+		return menuTick
+	}
+	return 0
+}
+
+// drawTick draws a small tick centred on c.
+func drawTick(p *paint.Painter, c geom.Point, ink color.NRGBA) {
+	const thick = 1.8
+	bar := func(from geom.Point, length, angle float32) {
+		defer p.Push(paint.Rotate(angle, from))()
+		p.RRect(geom.Rc(from.X, from.Y-thick/2, length, thick), thick/2, paint.Solid(ink))
+	}
+	knee := geom.Pt(c.X-1, c.Y+3)
+	bar(knee, 5, -math.Pi*3/4)
+	bar(knee, 10, -math.Pi/4)
 }
 
 // Dropdown shows one item of a list, and opens the list in a popup to

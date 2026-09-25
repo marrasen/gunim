@@ -176,7 +176,9 @@ var (
 	MenuBorder = theme.Color("menu.border", color.NRGBA{R: 0x3a, G: 0x40, B: 0x50, A: 0xff})
 	MenuShadow = theme.Color("menu.shadow", color.NRGBA{A: 0x90})
 	// MenuHot is the highlight behind the item under the pointer.
-	MenuHot    = theme.Color("menu.hot", color.NRGBA{R: 0x5e, G: 0x9c, B: 0xff, A: 0x48})
+	MenuHot = theme.Color("menu.hot", color.NRGBA{R: 0x5e, G: 0x9c, B: 0xff, A: 0x48})
+	// MenuHint colours an item's hint, such as its shortcut.
+	MenuHint   = theme.Color("menu.hint", color.NRGBA{R: 0x8a, G: 0x93, B: 0xa6, A: 0xff})
 	MenuRadius = theme.Length("menu.radius", 8)
 	// MenuPadding is the space between a menu's edge and its items.
 	MenuPadding    = theme.Length("menu.padding", 4)

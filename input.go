@@ -115,14 +115,17 @@ func (u *UI) handleOn(root *state, ev any) {
 }
 
 // focusAt moves focus for a press at p: to the nearest [Focusable] at
-// or above the node hit. A press inside the focused node leaves focus
-// where it is, which keeps a focused dialog focused when its panel is
-// clicked. A press anywhere else drops it.
+// or above the node hit. A press inside the focused node, or on a
+// [FocusKeeper], leaves focus where it is, which keeps a focused dialog
+// focused when its panel is clicked. A press anywhere else drops it.
 func (u *UI) focusAt(p geom.Point) {
 	target := u.hit(u.root, p)
 	for s := target; s != nil; s = s.parent {
 		if f, ok := s.node.(Focusable); ok && f.Focusable() {
 			u.Focus(s.node)
+			return
+		}
+		if _, ok := s.node.(FocusKeeper); ok {
 			return
 		}
 	}

@@ -149,6 +149,14 @@ type CaretReporter interface {
 	TextCaret() geom.Rect
 }
 
+// A FocusKeeper is a node a press on leaves the keyboard focus where it
+// is, such as a menubar or a toolbar, whose buttons act on whatever has
+// the keyboard.
+type FocusKeeper interface {
+	Node
+	KeepsFocus()
+}
+
 // A CursorShaper is a node that names the pointer's shape over it, such
 // as a text field's I-beam or a divider's resize arrows. The engine asks
 // the node the pointer is over, and the nodes around it in turn, and
