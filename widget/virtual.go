@@ -89,12 +89,23 @@ func (l *VirtualList) anchor() (Key, float32, bool) {
 }
 
 // entryOf is the room a row of height h takes: its height and the
-// spacing after it, or nothing for a row closed to nothing.
-func (l *VirtualList) entryOf(h float32) float32 {
+// spacing after it. The spacing closes with a row closing, r, so the
+// row takes no room once it is shut.
+func (l *VirtualList) entryOf(h float32, r *row) float32 {
+	return h + closing(l.spacing, h, r)
+}
+
+// closing returns the spacing after a row of height h: all of it,
+// shrinking with a row that is opening or closing, r, in proportion to
+// how open it is. r may be nil.
+func closing(spacing, h float32, r *row) float32 {
 	if h <= 0 {
 		return 0
 	}
-	return h + l.spacing
+	if r != nil && r.inner > 0 && h < r.inner {
+		return spacing * h / r.inner
+	}
+	return spacing
 }
 
 // index builds entry and tops from the order and the known heights.
@@ -102,10 +113,11 @@ func (l *VirtualList) index() {
 	l.entry = l.entry[:0]
 	for _, k := range l.order {
 		h := l.height(k)
-		if r, ok := l.live[k]; ok && l.gone[k] {
+		r, ok := l.live[k]
+		if ok && l.gone[k] {
 			h = r.height.Value()
 		}
-		l.entry = append(l.entry, l.entryOf(h))
+		l.entry = append(l.entry, l.entryOf(h, r))
 	}
 	l.tops.reset(l.entry)
 	l.dirty = false
@@ -383,6 +395,10 @@ func (l *VirtualList) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Chil
 					l.target += d
 					l.offset.Jump(l.offset.Value() + d)
 					l.offset.Animate(l.target, move)
+					// The rows move by as much, so none moves on screen.
+					for _, r := range l.live {
+						anim.Shift(r.y, d)
+					}
 				}
 			}
 		}
@@ -398,9 +414,15 @@ func (l *VirtualList) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Chil
 		i--
 	}
 	y := float32(l.tops.sum(i))
+	// carry is how far the rows after one above the view that changed
+	// height have moved, along with the offset, this frame.
+	var carry float32
 	for ; i < len(l.order) && y <= bottom; i++ {
 		k := l.order[i]
 		r, built := l.live[k]
+		if built && carry != 0 {
+			anim.Shift(r.y, carry)
+		}
 		if !built {
 			if l.gone[k] {
 				y += l.entry[i]
@@ -424,9 +446,11 @@ func (l *VirtualList) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Chil
 		if !l.gone[k] {
 			l.heights[k] = r.inner
 		}
-		if e := l.entryOf(size.H); e != l.entry[i] {
+		if e := l.entryOf(size.H, r); e != l.entry[i] {
 			d := e - l.entry[i]
-			above := y+l.entry[i] <= offset
+			// Above the view means starting above it: a row at its top
+			// edge that grows is one growing into view.
+			above := y < offset && y+l.entry[i] <= offset
 			l.entry[i] = e
 			l.tops.add(i, float64(d))
 			if above {
@@ -436,6 +460,7 @@ func (l *VirtualList) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Chil
 				l.target += d
 				l.offset.Jump(offset)
 				l.offset.Animate(l.target, move)
+				carry += d
 			}
 		}
 		r.y.Animate(y, move)

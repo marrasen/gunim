@@ -214,10 +214,7 @@ func (l *List) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) g
 		r.y.Animate(y, move)
 		kid.Place(geom.Pt(0, r.y.Value()))
 
-		y += size.H
-		if size.H > 0 {
-			y += spacing
-		}
+		y += size.H + closing(spacing, size.H, r)
 	}
 	if y > 0 {
 		y -= spacing

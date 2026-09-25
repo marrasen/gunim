@@ -228,3 +228,92 @@ func TestVirtualListHoldsTheViewAsItemsArriveAbove(t *testing.T) {
 		t.Fatalf("row %s moved from %v to %v on screen as items arrived above", first, before, after)
 	}
 }
+
+// scrollBy sends n wheel notches, up for negative n.
+func scrollBy(w *gunim.Window, run func(int), n int) {
+	step := float32(-120)
+	if n < 0 {
+		step, n = 120, -n
+	}
+	for range n {
+		w.Input(input.Scroll{Pos: geom.Pt(100, 100), Delta: geom.Pt(0, step)})
+		run(2)
+	}
+}
+
+func TestVirtualListShowsAnItemAddedAtTheTopAfterScrollingBack(t *testing.T) {
+	w, l, run := newVirtual(t, keys(1000), 40)
+	scrollBy(w, run, 20)
+	run(60)
+	scrollBy(w, run, -30)
+	run(120)
+	if err := w.Client().Update("v", shownKeys{append([]Key{"new"}, keys(1000)...)}); err != nil {
+		t.Fatal(err)
+	}
+	run(120)
+	if r, ok := l.live["new"]; !ok || l.Offset() != 0 || r.y.Value() != 0 {
+		t.Fatalf("the new row is built %v, the list at %v; want it at the top in view", ok, l.Offset())
+	}
+}
+
+// screenTop returns where row k sits on screen.
+func screenTop(l *VirtualList, k Key) float32 { return l.live[k].y.Value() - l.Offset() }
+
+func TestVirtualListNeverJumpsAsARemovedRowCloses(t *testing.T) {
+	w, l, run := newVirtual(t, keys(1000), 40)
+	// Row 20 part way under the top edge, as a wheel leaves it, and
+	// row 21, just below it, removed.
+	l.ScrollTo(46*20+6, Quick.Default())
+	run(120)
+	offset := l.Offset()
+	ks := keys(1000)
+	if err := w.Client().Update("v", shownKeys{append(ks[:21:21], ks[22:]...)}); err != nil {
+		t.Fatal(err)
+	}
+	last := screenTop(l, "22")
+	for range 120 {
+		run(1)
+		now := screenTop(l, "22")
+		if now > last+0.01 {
+			t.Fatalf("row 22 moved down the screen, from %v to %v, while the row above it closed", last, now)
+		}
+		// The closed row stops a hair above nothing, and that hair may
+		// move the list as the row goes; a jump would be the spacing.
+		if d := l.Offset() - offset; d > 0.5 || d < -0.5 {
+			t.Fatalf("the list moved from %v to %v as a row in view closed", offset, l.Offset())
+		}
+		last = now
+	}
+	if want := float32(46*21) - l.Offset(); last-want > 0.01 || want-last > 0.01 {
+		t.Fatalf("row 22 settled at %v on screen, want %v", last, want)
+	}
+}
+
+func TestVirtualListHoldsEveryFrameStillAsItemsArriveAbove(t *testing.T) {
+	w, l, run := newVirtual(t, keys(1000), 80)
+	l.ScrollTo(4600, Quick.Default())
+	run(120)
+	first, before := firstInView(l)
+	if err := w.Client().Update("v", shownKeys{append([]Key{"a", "b", "c"}, keys(1000)...)}); err != nil {
+		t.Fatal(err)
+	}
+	for range 60 {
+		run(1)
+		if now := screenTop(l, first); now != before {
+			t.Fatalf("row %s moved on screen from %v to %v", first, before, now)
+		}
+	}
+	// Scrolling up builds the new rows, 80 tall where 40 is assumed.
+	l.ScrollTo(l.Offset()-200, Quick.Default())
+	prev := screenTop(l, first)
+	for range 120 {
+		run(1)
+		now := screenTop(l, first)
+		// The scroll's spring may overshoot a hair as it settles; a
+		// row measured above the view would jump by tens of pixels.
+		if now < prev-1 {
+			t.Fatalf("row %s jumped up the screen, from %v to %v, while scrolling up", first, prev, now)
+		}
+		prev = now
+	}
+}

@@ -153,6 +153,17 @@ func (a *Animated[T]) Jump(v T) {
 	a.motion = nil
 }
 
+// Shift moves a number by d, along with where its animation started
+// and where it is heading, so a motion in flight carries on unchanged
+// from its new place. It is for a value measured from a point that
+// moved, such as a row's place in a list whose scroll offset jumped.
+func Shift(a *Float, d float32) {
+	s := &a.state[0]
+	s.Position += d
+	s.From += d
+	s.To += d
+}
+
 // Step advances the animation by dt and reports whether it is still
 // running. The engine calls this once per frame.
 func (a *Animated[T]) Step(dt time.Duration) bool {
