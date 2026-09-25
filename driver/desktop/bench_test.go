@@ -61,6 +61,11 @@ func hiddenGL(tb testing.TB) (r *renderer, done func()) {
 	if r, err = newRenderer(ctx, display.isES, &display.shared); err != nil {
 		tb.Fatal(err)
 	}
+	// The tests and benchmarks choose how each frame is drawn, so the
+	// policy stays out of it.
+	display.shared.mu.Lock()
+	display.shared.policy = redrawPolicy{decided: true, partial: true}
+	display.shared.mu.Unlock()
 	return r, func() {
 		r.release()
 		_ = (*glfw.Window)(nil).MakeContextCurrent()

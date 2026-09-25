@@ -6,13 +6,15 @@ import (
 	"image"
 	"math"
 	"sync"
+	"time"
 
 	"github.com/marrasen/gunim/internal/gl"
 	"github.com/marrasen/gunim/text"
 )
 
 // shared is what every window's renderer shares: the shader programs,
-// and the glyph atlas as the CPU sees it.
+// the glyph atlas as the CPU sees it, and the redraw policy, since how
+// fast this machine draws is the same for every window.
 //
 // A program is compiled once, by the first render thread to need it,
 // and used by all of them, which saves each new window, and every popup,
@@ -28,12 +30,30 @@ import (
 // from several threads at once would need fences between them; copying
 // into textures of their own needs none.
 type shared struct {
-	mu    sync.Mutex
-	built bool
-	err   error
-	draw  program
-	blur  program
-	atlas sharedAtlas
+	mu     sync.Mutex
+	built  bool
+	err    error
+	draw   program
+	blur   program
+	atlas  sharedAtlas
+	policy redrawPolicy
+}
+
+// redraw reports whether the redraw policy is decided, and whether it
+// has settled on drawing every frame in full.
+func (s *shared) redraw() (decided, fullOnly bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.policy.decided, s.policy.fullOnly()
+}
+
+// timeFrame records how long a frame took, drawn in part or in full.
+func (s *shared) timeFrame(partial bool, took time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.policy.decided {
+		s.policy.add(partial, took)
+	}
 }
 
 // programs returns the shared programs, building them on first use
