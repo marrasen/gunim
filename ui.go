@@ -995,6 +995,17 @@ func (u *UI) Remove(n Node) {
 	}
 }
 
+// Bounds returns the box n was last drawn in, in the window's logical
+// pixels, and false when the last frame drew it nowhere, as for a node
+// out of the tree or under a popup's window.
+func (u *UI) Bounds(n Node) (geom.Rect, bool) {
+	s, ok := u.index[n]
+	if !ok || s.drawn != u.seq || u.surfaceOf(s) != nil {
+		return geom.Rect{}, false
+	}
+	return u.rectIn(s, u.root), true
+}
+
 // Presence reports where n is in its lifecycle.
 func (u *UI) Presence(n Node) Presence {
 	if s, ok := u.index[n]; ok {
