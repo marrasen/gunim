@@ -12,7 +12,6 @@ import (
 
 // paletteOpener is a focusable block that opens its palette on F1.
 type paletteOpener struct {
-	block
 	p      *Palette
 	picked []int
 }
@@ -46,7 +45,6 @@ func newPaletteStage(t *testing.T) (*gunim.Window, *paletteOpener, func(int)) {
 		Pick: func(i int, _ *gunim.UI) { o.picked = append(o.picked, i) },
 	}
 	w, run := stage(t, o)
-	w.Client().Focus(gunim.Root)
 	run(1)
 	return w, o, run
 }
