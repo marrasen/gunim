@@ -4,6 +4,8 @@ package glfw
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"syscall"
 	"unsafe"
@@ -30,6 +32,7 @@ var (
 	procCoTaskMemFree      = ole32.NewProc("CoTaskMemFree")
 	procSHParseDisplayName = shell32dnd.NewProc("SHParseDisplayName")
 	procSHCreateDataObject = shell32dnd.NewProc("SHCreateDataObject")
+	procILFindLastID       = shell32dnd.NewProc("ILFindLastID")
 )
 
 const (
@@ -120,39 +123,68 @@ func (w *Window) platformStartDragOut(paths []string, end func(taken bool)) erro
 		return oleErr
 	}
 
-	// The files' item IDs, from which the shell makes the data object.
-	pidls := make([]uintptr, 0, len(paths))
+	// The shell makes the data object from the folder holding the files
+	// and the files' item IDs within it, the way Explorer describes a
+	// selection. The files must share a folder.
+	if len(paths) == 0 {
+		return nil
+	}
+	dir := filepath.Dir(paths[0])
+	for _, p := range paths[1:] {
+		if filepath.Dir(p) != dir {
+			return fmt.Errorf("glfw: files dragged out must share a folder: %s and %s", paths[0], p)
+		}
+	}
+	var pidls []uintptr
 	defer func() {
 		for _, p := range pidls {
 			_, _, _ = procCoTaskMemFree.Call(p)
 		}
 	}()
-	for _, path := range paths {
+	parse := func(path string) (uintptr, error) {
 		name, err := windows.UTF16PtrFromString(path)
+		if err != nil {
+			return 0, err
+		}
+		var pidl uintptr
+		hr, _, _ := procSHParseDisplayName.Call(uintptr(unsafe.Pointer(name)), 0,
+			uintptr(unsafe.Pointer(&pidl)), 0, 0)
+		dragOutLog("SHParseDisplayName %s: HRESULT %#x", path, uint32(hr))
+		if int32(hr) < 0 {
+			return 0, fmt.Errorf("glfw: SHParseDisplayName %s: HRESULT %#x", path, uint32(hr))
+		}
+		pidls = append(pidls, pidl)
+		return pidl, nil
+	}
+	folder, err := parse(dir)
+	if err != nil {
+		return err
+	}
+	children := make([]uintptr, 0, len(paths))
+	for _, path := range paths {
+		abs, err := parse(path)
 		if err != nil {
 			return err
 		}
-		var pidl uintptr
-		if hr, _, _ := procSHParseDisplayName.Call(uintptr(unsafe.Pointer(name)), 0,
-			uintptr(unsafe.Pointer(&pidl)), 0, 0); int32(hr) < 0 {
-			return fmt.Errorf("glfw: SHParseDisplayName %s: HRESULT %#x", path, uint32(hr))
-		}
-		pidls = append(pidls, pidl)
-	}
-	if len(pidls) == 0 {
-		return nil
+		// The last item of a file's full ID is its ID within its folder.
+		child, _, _ := procILFindLastID.Call(abs)
+		children = append(children, child)
 	}
 	var data uintptr
-	if hr, _, _ := procSHCreateDataObject.Call(0, uintptr(len(pidls)), uintptr(unsafe.Pointer(&pidls[0])),
-		0, uintptr(unsafe.Pointer(&iidIDataObject)), uintptr(unsafe.Pointer(&data))); int32(hr) < 0 {
+	hr, _, _ := procSHCreateDataObject.Call(folder, uintptr(len(children)), uintptr(unsafe.Pointer(&children[0])),
+		0, uintptr(unsafe.Pointer(&iidIDataObject)), uintptr(unsafe.Pointer(&data)))
+	dragOutLog("SHCreateDataObject: HRESULT %#x", uint32(hr))
+	if int32(hr) < 0 {
 		return fmt.Errorf("glfw: SHCreateDataObject: HRESULT %#x", uint32(hr))
 	}
 	defer comRelease(data)
+	dragOutLog("the data object offers files (CF_HDROP): HRESULT %#x", queryHDrop(data))
 
 	src := &dropSource{vtbl: dropSourceTable(), refs: 1}
 	var effect uint32
-	hr, _, _ := procDoDragDrop.Call(data, uintptr(unsafe.Pointer(src)), dropEffectCopy,
+	hr, _, _ = procDoDragDrop.Call(data, uintptr(unsafe.Pointer(src)), dropEffectCopy,
 		uintptr(unsafe.Pointer(&effect)))
+	dragOutLog("DoDragDrop: HRESULT %#x, effect %d", uint32(hr), effect)
 	// OLE kept the source until here.
 	src.refs = 0
 
@@ -174,6 +206,31 @@ func (w *Window) platformStartDragOut(paths []string, end func(taken bool)) erro
 // platformCancelDragOut does nothing on Windows, where DoDragDrop has
 // returned by the time anything could ask.
 func (w *Window) platformCancelDragOut() {}
+
+// dragOutDebug is set by GUNIM_DEBUG_DRAGOUT=1, which logs each step of
+// a drag out to standard error.
+var dragOutDebug = os.Getenv("GUNIM_DEBUG_DRAGOUT") == "1"
+
+func dragOutLog(format string, args ...any) {
+	if dragOutDebug {
+		fmt.Fprintf(os.Stderr, "gunim drag out: "+format+"\n", args...)
+	}
+}
+
+// queryHDrop asks a data object whether it can give its files as a
+// CF_HDROP, and returns its answer: 0 for yes.
+func queryHDrop(obj uintptr) uint32 {
+	format := struct {
+		cf     uint16
+		ptd    uintptr
+		aspect uint32
+		index  int32
+		tymed  uint32
+	}{cf: 15, aspect: 1, index: -1, tymed: 1}
+	vtbl := *(*[6]uintptr)(unsafe.Pointer(*(*uintptr)(unsafe.Pointer(obj))))
+	hr, _, _ := syscall.SyscallN(vtbl[5], obj, uintptr(unsafe.Pointer(&format)))
+	return uint32(hr)
+}
 
 // comRelease calls Release on a COM object.
 func comRelease(obj uintptr) {
