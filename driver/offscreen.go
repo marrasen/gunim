@@ -34,7 +34,9 @@ type OffscreenWindow struct {
 	scale float32
 	rate  float64
 	ops   []paint.Op
-	clip  string
+	// damage is the part of the window the last frame changed.
+	damage geom.Rect
+	clip   string
 	// anchor is where a popup was last attached, and origin where the
 	// window sits on its pretend screen.
 	anchor geom.Rect
@@ -67,14 +69,23 @@ func (w *OffscreenWindow) Tick() { w.presented <- Frame{Shown: time.Now()} }
 // Post delivers a platform event, blocking until the window reads it.
 func (w *OffscreenWindow) Post(ev any) { w.input <- ev }
 
-// Present implements [Window] by keeping the op list.
-func (w *OffscreenWindow) Present(ops []paint.Op, _ geom.Rect) error {
+// Present implements [Window] by keeping the op list and the damage.
+func (w *OffscreenWindow) Present(ops []paint.Op, damage geom.Rect) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	// The engine reuses its buffers once the frame is reported shown,
 	// so keep a copy for Ops to return.
 	w.ops = slices.Clone(ops)
+	w.damage = damage
 	return nil
+}
+
+// Damage returns the part of the window the last frame changed, in
+// logical pixels: empty when it changed nothing.
+func (w *OffscreenWindow) Damage() geom.Rect {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.damage
 }
 
 // Ops returns the commands recorded by the last frame.
