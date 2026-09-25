@@ -837,7 +837,8 @@ func windowProc(hWnd windows.HWND, uMsg uint32, wParam _WPARAM, lParam _LPARAM) 
 			window.inputKey(key, int(scancode), Press, mods)
 			window.inputKey(key, int(scancode), Release, mods)
 		} else {
-			window.inputKey(key, int(scancode), action, mods)
+			// gunim change: say whether the press typed text.
+			window.inputKeyTyped(key, int(scancode), action, mods, action == Press && typedNext(hWnd))
 		}
 
 	case _WM_LBUTTONDOWN, _WM_RBUTTONDOWN, _WM_MBUTTONDOWN, _WM_XBUTTONDOWN, _WM_LBUTTONUP, _WM_RBUTTONUP, _WM_MBUTTONUP, _WM_XBUTTONUP:

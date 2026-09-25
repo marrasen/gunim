@@ -131,6 +131,10 @@ type (
 )
 
 type Window struct {
+	// gunim change: keyTyped is set while the key callback reports a
+	// key press that typed text. See KeyTyped.
+	keyTyped bool
+
 	resizable        bool
 	decorated        bool
 	autoIconify      bool

@@ -1251,9 +1251,11 @@ func processEvent(event *_XEvent) error {
 			var keysym _KeySym
 			xLookupString(event.xkey(), nil, 0, &keysym, 0)
 
-			window.inputKey(key, keycode, Press, mods)
+			codepoint, ok := keySym2Unicode(uint32(keysym))
+			// gunim change: say whether the press typed text.
+			window.inputKeyTyped(key, keycode, Press, mods, ok && plain && isTextCodepoint(codepoint))
 
-			if codepoint, ok := keySym2Unicode(uint32(keysym)); ok {
+			if ok {
 				window.inputChar(codepoint, mods, plain)
 				window.inputText(string(codepoint), plain)
 			}
@@ -1263,11 +1265,13 @@ func processEvent(event *_XEvent) error {
 
 		// The input method filters the key presses it may take and forwards
 		// back the ones it declines, which then arrive as an unfiltered copy.
-		// The decision is asynchronous, so while the application is taking
-		// text input a filtered key press waits for that copy: a key press the
-		// input method takes is already part of the text it commits, and
-		// acting on the key as well would apply it twice.
-		if filtered && window.textInputActive() {
+		// The decision is asynchronous, so a filtered key press waits for
+		// that copy: a key press the input method takes is already part of
+		// the text it commits, and acting on the key as well would apply it
+		// twice. gunim change: it waits whether or not the application is
+		// taking text, since only the copy's lookup tells whether the press
+		// typed text (KeyTyped).
+		if filtered {
 			return nil
 		}
 
@@ -1278,15 +1282,10 @@ func processEvent(event *_XEvent) error {
 		// NOTE: Always allow the first event for each key through
 		//       (the server never sends a timestamp of zero)
 		// NOTE: Timestamp difference is compared to handle wrap-around
-		diff := event.xkey().Time - window.platform.keyPressTimes[keycode]
-		if diff == event.xkey().Time || (diff > 0 && diff < 1<<31) {
-			if keycode != 0 {
-				window.inputKey(key, keycode, Press, mods)
-			}
-
-			window.platform.keyPressTimes[keycode] = event.xkey().Time
-		}
-
+		// gunim change: the text is looked up before the key is reported,
+		// to say whether the press typed it.
+		var text string
+		typed := false
 		if !filtered {
 			var status int32
 			buffer := make([]byte, 100)
@@ -1306,14 +1305,27 @@ func processEvent(event *_XEvent) error {
 			}
 
 			if status == _XLookupChars || status == _XLookupBoth {
-				text := string(chars[:count])
-				for _, codepoint := range text {
-					window.inputChar(codepoint, mods, plain)
-				}
-				// The input method commits a whole string at once, so it
-				// is reported as one event rather than per character.
-				window.inputText(text, plain)
+				text = string(chars[:count])
+				typed = true
 			}
+		}
+
+		diff := event.xkey().Time - window.platform.keyPressTimes[keycode]
+		if diff == event.xkey().Time || (diff > 0 && diff < 1<<31) {
+			if keycode != 0 {
+				window.inputKeyTyped(key, keycode, Press, mods, typed && plain && hasTextCodepoint(text))
+			}
+
+			window.platform.keyPressTimes[keycode] = event.xkey().Time
+		}
+
+		if typed {
+			for _, codepoint := range text {
+				window.inputChar(codepoint, mods, plain)
+			}
+			// The input method commits a whole string at once, so it
+			// is reported as one event rather than per character.
+			window.inputText(text, plain)
 		}
 
 		return nil

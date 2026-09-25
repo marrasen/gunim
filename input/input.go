@@ -86,7 +86,14 @@ type KeyPress struct {
 	// Repeat is true when the system's key repeat produced the press,
 	// and false for a fresh one.
 	Repeat bool
-	Time   time.Time
+	// Typed is true when the press also typed text, which arrives next
+	// as a [TextInput], and for a dead key, which types with the key
+	// after it. Modifiers alone leave this unclear: AltGr+Q types @ on
+	// a German keyboard with Control and Alt held. A node that takes
+	// text leaves a typing press to the text. It is reported on Windows
+	// and Linux.
+	Typed bool
+	Time  time.Time
 }
 
 // KeyRelease arrives when a key comes back up.
@@ -292,4 +299,41 @@ const (
 	KeyRightSuper
 	KeyCapsLock
 	KeyMenu
+
+	// The keypad's keys, which type digits and signs with Num Lock on.
+	KeyKP0
+	KeyKP1
+	KeyKP2
+	KeyKP3
+	KeyKP4
+	KeyKP5
+	KeyKP6
+	KeyKP7
+	KeyKP8
+	KeyKP9
+	KeyKPDecimal
+	KeyKPDivide
+	KeyKPMultiply
+	KeyKPSubtract
+	KeyKPAdd
+	KeyKPEnter
+	KeyKPEqual
+
+	KeyF13
+	KeyF14
+	KeyF15
+	KeyF16
+	KeyF17
+	KeyF18
+	KeyF19
+	KeyF20
+	KeyF21
+	KeyF22
+	KeyF23
+	KeyF24
+
+	KeyPause
+	KeyPrintScreen
+	KeyScrollLock
+	KeyNumLock
 )

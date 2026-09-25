@@ -221,3 +221,21 @@ func TestTheCaretJumpsForTypingAndGlidesForMoving(t *testing.T) {
 		t.Fatal("an arrow key moved the caret without a glide")
 	}
 }
+
+func TestAltGrTypesWhereControlAndAltAreHeld(t *testing.T) {
+	ty := newTyper(t)
+	ty.typeText("ab")
+	// AltGr+A types ą on a Polish keyboard, with Control and Alt held:
+	// typing, and no select-all.
+	ty.w.Input(input.KeyPress{Key: input.KeyA, Mods: input.ModControl | input.ModAlt, Typed: true})
+	ty.typeText("ą")
+	ty.want("abą", 3)
+	// AltGr+Q types @ on a German one. The press stays in the field,
+	// where a window's Control+Alt+Q would otherwise take it.
+	ty.w.Input(input.KeyPress{Key: input.KeyQ, Mods: input.ModControl | input.ModAlt, Typed: true})
+	ty.typeText("@")
+	ty.want("abą@", 4)
+	if ty.fr.keys != 0 {
+		t.Fatalf("%d typing presses left the field", ty.fr.keys)
+	}
+}

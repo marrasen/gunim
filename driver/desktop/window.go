@@ -617,12 +617,12 @@ func (w *Window) install() {
 			Time:  time.Now(),
 		})
 	})
-	_, _ = gw.SetKeyCallback(func(_ *glfw.Window, k glfw.Key, _ int, action glfw.Action, mods glfw.ModifierKey) {
+	_, _ = gw.SetKeyCallback(func(gw *glfw.Window, k glfw.Key, _ int, action glfw.Action, mods glfw.ModifierKey) {
 		w.mods = modsOf(mods)
 		now := time.Now()
 		switch action {
 		case glfw.Press, glfw.Repeat:
-			w.in.push(input.KeyPress{Key: keyOf(k), Mods: w.mods, Repeat: action == glfw.Repeat, Time: now})
+			w.in.push(input.KeyPress{Key: keyOf(k), Mods: w.mods, Repeat: action == glfw.Repeat, Typed: gw.KeyTyped(), Time: now})
 		case glfw.Release:
 			w.in.push(input.KeyRelease{Key: keyOf(k), Mods: w.mods, Time: now})
 		}

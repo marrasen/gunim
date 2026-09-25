@@ -134,6 +134,11 @@ func (e *editor) press(i, clicks int, shift bool) {
 // key handles a key press. It reports false for a key the widget or its
 // ancestors should have: a shortcut, Tab, and Enter in a single line.
 func (e *editor) key(k input.KeyPress, u *gunim.UI, n navigator) bool {
+	// A press that typed text is typing, whatever modifiers it holds:
+	// AltGr holds Control and Alt. Its text arrives as TextInput.
+	if k.Typed {
+		return true
+	}
 	ctrl := k.Mods.Has(input.ModControl) || k.Mods.Has(input.ModSuper)
 	shift := k.Mods.Has(input.ModShift)
 	start, end := e.Selection()
