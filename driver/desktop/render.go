@@ -8,8 +8,6 @@ import (
 	"image/color"
 	"math"
 	"os"
-	"slices"
-	"time"
 	"unsafe"
 
 	"github.com/marrasen/gunim/geom"
@@ -402,8 +400,7 @@ func (r *renderer) draw(ops []paint.Op, damage geom.Rect, fbW, fbH int, scale fl
 	// falls out of date, and the next frame that draws there draws all
 	// of it.
 	s, ws := box.Size(), window.Size()
-	decided, fullOnly := r.shared.redraw()
-	r.direct = !backdrop && (s.W*s.H > ws.W*ws.H/2 || fullOnly)
+	r.direct = !backdrop && s.W*s.H > ws.W*ws.H/2
 	if r.fit(&r.layers[0]) || !r.canvasOK || scale != r.canvasScale {
 		if !r.direct {
 			box = window
@@ -415,14 +412,6 @@ func (r *renderer) draw(ops []paint.Op, damage geom.Rect, fbW, fbH int, scale fl
 		// Straight to the window, which holds nothing after a swap.
 		box, whole = window, true
 		r.canvasOK = false
-	}
-	// Until the policy settles, frames are timed, finished on the GPU
-	// at both ends so the time is this frame's alone.
-	timing := !decided
-	var start time.Time
-	if timing {
-		g.Finish()
-		start = time.Now()
 	}
 	g.BindFramebuffer(gl.FRAMEBUFFER, r.fbo(0))
 	g.Viewport(0, 0, int32(fbW), int32(fbH))
@@ -452,15 +441,6 @@ func (r *renderer) draw(ops []paint.Op, damage geom.Rect, fbW, fbH int, scale fl
 		g.ClearColor(0, 0, 0, 0)
 		r.composite(r.layers[0].tex, nil, 1, false, 0)
 		r.flush()
-	}
-	if timing {
-		g.Finish()
-		switch took := time.Since(start); {
-		case r.direct:
-			r.shared.timeFrame(false, took)
-		case !whole:
-			r.shared.timeFrame(true, took)
-		}
 	}
 	r.evictImages()
 }
@@ -499,76 +479,6 @@ func background(ops []paint.Op) ([4]float32, bool) {
 		return [4]float32{}, false
 	}
 	return rgba(op.Fill.Solid), true
-}
-
-// redrawPolicy learns whether redrawing only what changed is worth it
-// here. It redraws the changed part into the canvas and copies the
-// canvas to the window, where drawing everything goes straight to the
-// window. Software GL shades each pixel slowly, so the smaller redraw
-// wins, by about a third on llvmpipe. A GPU shades the whole window
-// quickly, so the copy costs more than it saves, about a fifth more on
-// an RTX 3070.
-//
-// So the first frames of each kind are timed, and once there are
-// enough of both, the faster kind stays for every window. When one
-// kind never comes, timing stops after a while and the partial redraw
-// stays.
-type redrawPolicy struct {
-	decided bool
-	// partial is the choice, once decided.
-	partial bool
-	// full and part hold the times of frames drawn each way, and timed
-	// counts every frame timed.
-	full, part []time.Duration
-	timed      int
-}
-
-// policySamples is how many frames of each kind decide the policy, and
-// policyTimed how many frames are timed before it gives up deciding.
-const (
-	policySamples = 6
-	policyTimed   = 600
-)
-
-// fullOnly reports whether every frame should go straight to the
-// window.
-func (p *redrawPolicy) fullOnly() bool { return p.decided && !p.partial }
-
-// add records a frame's time, drawn in part or in full.
-func (p *redrawPolicy) add(partial bool, took time.Duration) {
-	if partial {
-		p.part = append(p.part, took)
-	} else {
-		p.full = append(p.full, took)
-	}
-	p.timed++
-	if len(p.full) >= policySamples && len(p.part) >= policySamples {
-		p.decided, p.partial = true, median(p.part) < median(p.full)
-	} else if p.timed >= policyTimed {
-		p.decided, p.partial = true, true
-	}
-	if p.decided && debugRedraw {
-		fmt.Fprintf(os.Stderr, "gunim: redraw in part: %v (full frames %v, part frames %v, %d timed)\n",
-			p.partial, medianOr(p.full), medianOr(p.part), p.timed)
-	}
-}
-
-// debugRedraw is set by GUNIM_DEBUG_REDRAW=1, which prints the redraw
-// policy's choice and the times behind it once it decides.
-var debugRedraw = os.Getenv("GUNIM_DEBUG_REDRAW") == "1"
-
-// medianOr returns the median of ds, or zero for none.
-func medianOr(ds []time.Duration) time.Duration {
-	if len(ds) == 0 {
-		return 0
-	}
-	return median(ds)
-}
-
-// median returns the middle of ds, which it sorts.
-func median(ds []time.Duration) time.Duration {
-	slices.Sort(ds)
-	return ds[len(ds)/2]
 }
 
 // deviceBox turns damage in logical pixels into the whole device pixels
