@@ -7,6 +7,7 @@ import (
 
 	"github.com/marrasen/gunim/access"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 )
 
@@ -36,6 +37,8 @@ type OffscreenWindow struct {
 	ops   []paint.Op
 	// damage is the part of the window the last frame changed.
 	damage geom.Rect
+	// cursor is the pointer's shape last set.
+	cursor input.Cursor
 	clip   string
 	// anchor is where a popup was last attached, and origin where the
 	// window sits on its pretend screen.
@@ -78,6 +81,20 @@ func (w *OffscreenWindow) Present(ops []paint.Op, damage geom.Rect) error {
 	w.ops = slices.Clone(ops)
 	w.damage = damage
 	return nil
+}
+
+// SetCursor implements [CursorSetter].
+func (w *OffscreenWindow) SetCursor(c input.Cursor) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.cursor = c
+}
+
+// Cursor returns the pointer's shape last set.
+func (w *OffscreenWindow) Cursor() input.Cursor {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.cursor
 }
 
 // Damage returns the part of the window the last frame changed, in

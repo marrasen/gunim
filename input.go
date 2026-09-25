@@ -47,9 +47,11 @@ func (u *UI) handleOn(root *state, ev any) {
 		}
 		if u.capture != nil {
 			u.deliver(u.capture, mk(u.local(u.capture, e.Pos)))
+			u.shapePointer(root, e.Pos)
 			return
 		}
 		u.dispatchAt(root, e.Pos, mk)
+		u.shapePointer(root, e.Pos)
 	case input.PointerDown:
 		if root == u.root {
 			u.pointer = e.Pos
@@ -66,6 +68,7 @@ func (u *UI) handleOn(root *state, ev any) {
 		u.capture = u.dispatchAt(root, e.Pos, func(local geom.Point) input.Event {
 			return input.PointerDown{Pos: local, Button: e.Button, Mods: e.Mods, Clicks: e.Clicks, Time: e.Time}
 		})
+		u.shapePointer(root, e.Pos)
 	case input.PointerUp:
 		if root == u.root && u.drag != nil {
 			u.capture = nil
@@ -80,6 +83,7 @@ func (u *UI) handleOn(root *state, ev any) {
 			u.capture = nil
 			u.deliver(c, mk(u.local(c, e.Pos)))
 			u.updateHover(root, e.Pos, e.Time)
+			u.shapePointer(root, e.Pos)
 			return
 		}
 		u.dispatchAt(root, e.Pos, mk)

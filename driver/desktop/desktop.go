@@ -20,6 +20,7 @@ import (
 
 	"github.com/marrasen/gunim/driver"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/internal/gl"
 	"github.com/marrasen/gunim/internal/glfw"
 )
@@ -44,6 +45,8 @@ type Driver struct {
 
 	// The fields below belong to the main thread.
 	windows map[*glfw.Window]*Window
+	// cursors holds the pointer shapes made so far.
+	cursors map[input.Cursor]*glfw.Cursor
 	// shareRoot is a hidden window whose context no thread ever makes
 	// current. Every window's context shares with it, which puts them
 	// all in one share group without sharing with a context that a render

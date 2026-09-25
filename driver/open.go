@@ -5,7 +5,14 @@ import (
 
 	"github.com/marrasen/gunim/access"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/input"
 )
+
+// A CursorSetter is a [Window] that can change the pointer's shape
+// while the pointer is over it.
+type CursorSetter interface {
+	SetCursor(c input.Cursor)
+}
 
 // ErrNoDriver is returned when no platform driver is built in for the
 // operating system gunim is running on.

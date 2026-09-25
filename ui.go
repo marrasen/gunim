@@ -690,6 +690,8 @@ type UI struct {
 	// focusMoved is set when focus moves, until the tree has told
 	// assistive technology.
 	focusMoved bool
+	// cursors is the pointer's shape last set on each window.
+	cursors map[driver.Window]input.Cursor
 }
 
 // Local returns the value this window keeps under key, making it with
