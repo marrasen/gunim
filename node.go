@@ -244,6 +244,11 @@ type Frame struct {
 	u *UI
 }
 
+// Number counts frames: it is one more than the frame before's. A node
+// can tell from it whether something was drawn in the frame just
+// before this one.
+func (f Frame) Number() uint64 { return f.seq }
+
 // Children is a node's children, in order. It is valid only for the
 // duration of the call it was passed to.
 type Children struct {

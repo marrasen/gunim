@@ -21,9 +21,10 @@ const (
 	FitFill
 )
 
-// Image shows a picture. It fades in as it arrives and out as it
-// leaves, and a new picture crossfades over the old one, with the
-// theme's [Crossfade] motion.
+// Image shows a picture, and crossfades to a new one with the theme's
+// [Crossfade] motion. It arrives and leaves with what holds it, so a
+// view that fades in fades its pictures with it, and a [Hero] flies a
+// picture that is whole from its first frame.
 type Image struct {
 	anim.Group
 
@@ -41,7 +42,7 @@ type Image struct {
 
 // NewImage returns an image showing src.
 func NewImage(src *paint.Image) *Image {
-	i := &Image{src: src, mix: anim.NewFloat(0)}
+	i := &Image{src: src, mix: anim.NewFloat(1)}
 	i.Add(i.mix)
 	return i
 }
@@ -59,19 +60,6 @@ func (i *Image) SetSource(src *paint.Image, u *gunim.UI) {
 	i.mix.Jump(0)
 	i.mix.Animate(1, Crossfade.Get(u.Theme()))
 	u.Invalidate()
-}
-
-// Transition implements [gunim.Transitioner].
-func (i *Image) Transition(p gunim.Presence, f gunim.Frame) bool {
-	switch p {
-	case gunim.Entering:
-		i.mix.Animate(1, Crossfade.Get(f.Theme))
-	case gunim.Exiting:
-		i.prev = nil
-		i.mix.Animate(0, Crossfade.Get(f.Theme))
-	case gunim.Present:
-	}
-	return !i.mix.Active()
 }
 
 // Layout implements [gunim.Node].

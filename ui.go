@@ -640,6 +640,29 @@ type UI struct {
 	popups []*surface
 	// timers are waiting to run, in no order.
 	timers []*timer
+	// locals holds what Local stores.
+	locals map[any]any
+}
+
+// Local returns the value this window keeps under key, making it with
+// fresh the first time. It is for state that nodes of one kind share
+// across a window, such as the elements that fly between screens
+// looking for their counterparts. It belongs to the window's UI
+// goroutine, as nodes do; call it from Layout, Paint or Transition.
+func Local[T any](f Frame, key any, fresh func() T) T {
+	u := f.u
+	if u == nil {
+		return fresh()
+	}
+	if u.locals == nil {
+		u.locals = map[any]any{}
+	}
+	if v, ok := u.locals[key].(T); ok {
+		return v
+	}
+	v := fresh()
+	u.locals[key] = v
+	return v
 }
 
 // timer is a function waiting for its time.
@@ -1052,6 +1075,7 @@ func (u *UI) frame(now time.Time, delta time.Duration) {
 	u.painter.Reset()
 	u.root.toWindow, u.root.drawn = paint.Identity, u.seq
 	u.root.node.Paint(&u.painter, f, u.root.size, Children{ns: u.root.kids, f: f, s: u.root})
+	u.painter.PaintFloats()
 	if err := u.w.dw.Present(u.painter.Ops(), u.painter.Damage()); err != nil {
 		u.w.err = fmt.Errorf("gunim: present frame: %w", err)
 		u.w.Close()

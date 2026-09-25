@@ -1,8 +1,9 @@
 // Command controls shows gunim's controls on four tabs. The first has
 // a drop-down, a context menu and a tooltip, each opening a popup
 // window that can reach past the edge of the main one. The second has
-// a checkbox, a switch and a slider. The third has a picture that
-// crossfades to the next; the application draws the pictures and
+// a checkbox, a switch and a slider. The third has pictures: click one
+// and it flies from its thumbnail to fill the window, and back when
+// clicked again. The application draws the pictures and
 // hands them to the window in its state, by reference. The fourth is a
 // list of a hundred thousand items, of which only those in view are
 // built; adding and removing items animates.
@@ -24,7 +25,9 @@ import (
 	"time"
 
 	"github.com/marrasen/gunim"
+	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/widget"
 )
@@ -33,8 +36,8 @@ import (
 type (
 	// Page is the state the page renders.
 	Page struct {
-		Status  string
-		Picture *paint.Image
+		Status   string
+		Pictures []*paint.Image
 		// Items are the long list's keys.
 		Items []widget.Key
 	}
@@ -42,8 +45,15 @@ type (
 	Added struct{}
 	// Removed travels when an item's Remove button is pressed.
 	Removed struct{ Item widget.Key }
-	// Next travels when the picture button is pressed.
-	Next struct{}
+	// Opened travels when a thumbnail is clicked.
+	Opened struct{ Index int }
+	// Closed travels when the open picture is clicked.
+	Closed struct{}
+	// Photo is the state of the open picture's view.
+	Photo struct {
+		Index   int
+		Picture *paint.Image
+	}
 	// Toggled travels when a checkbox or switch flips.
 	Toggled struct {
 		Name string
@@ -64,7 +74,9 @@ func init() {
 	gunim.RegisterType[Chose]("controls.chose")
 	gunim.RegisterType[Picked]("controls.picked")
 	gunim.RegisterType[ThemeToggled]("controls.theme")
-	gunim.RegisterType[Next]("controls.next")
+	gunim.RegisterType[Opened]("controls.opened")
+	gunim.RegisterType[Closed]("controls.closed")
+	gunim.RegisterType[Photo]("controls.photo")
 	gunim.RegisterType[Toggled]("controls.toggled")
 	gunim.RegisterType[Slid]("controls.slid")
 	gunim.RegisterType[Added]("controls.added")
@@ -103,9 +115,9 @@ func run(runFor time.Duration) error {
 		}
 		w.RegisterTheme(widget.Dark())
 		w.RegisterTheme(widget.Light())
+		gunim.RegisterView(w, "photo", newPhoto, nil)
 		gunim.RegisterView(w, "page", buildPage, func(p *page, s Page, u *gunim.UI) {
 			p.status.Text = s.Status
-			p.picture.SetSource(s.Picture, u)
 			p.items.SetKeys(s.Items, u)
 		})
 		return serve(ctx, w.Client())
@@ -115,9 +127,8 @@ func run(runFor time.Duration) error {
 // page is the page view, with handles on what updates change.
 type page struct {
 	*widget.Pad
-	status  *widget.Label
-	picture *widget.Image
-	items   *widget.VirtualList
+	status *widget.Label
+	items  *widget.VirtualList
 }
 
 func buildPage(s Page) *page {
@@ -150,12 +161,14 @@ func buildPage(s Page) *page {
 	toggles := widget.Column(check, sw, widget.NewLabel("Volume"), slider)
 	toggles.Cross = widget.CrossStretch
 
-	picture := widget.NewImage(s.Picture)
-	picture.Fit, picture.Radius, picture.Size = widget.FitCover, 10, geom.Sz(240, 150)
-	next := widget.NewButton("Next picture")
-	next.On = Next{}
-	pictureRow := widget.Row(picture, next)
-	pictureRow.Cross = widget.CrossEnd
+	cells := make([]gunim.Node, 0, len(s.Pictures))
+	for i, pic := range s.Pictures {
+		img := widget.NewImage(pic)
+		img.Fit, img.Radius, img.Size = widget.FitCover, 8, geom.Sz(112, 70)
+		cells = append(cells, &tap{child: widget.NewHero(heroTag(i), img), on: Opened{Index: i}})
+	}
+	thumbs := widget.Row(cells...)
+	pictureRow := widget.Column(thumbs, widget.NewLabel("Click a picture to open it."))
 
 	pad := func(n gunim.Node) gunim.Node {
 		p := widget.NewPad(n)
@@ -181,7 +194,102 @@ func buildPage(s Page) *page {
 	status := widget.NewLabel(s.Status)
 	col := widget.Column(title, tabs, status).Grow(tabs, 1)
 	col.Cross = widget.CrossStretch
-	return &page{Pad: widget.NewPad(col), status: status, picture: picture, items: items}
+	return &page{Pad: widget.NewPad(col), status: status, items: items}
+}
+
+func heroTag(i int) string { return "picture-" + strconv.Itoa(i) }
+
+// tap sends an intent when its child is clicked.
+type tap struct {
+	child gunim.Node
+	on    gunim.Intent
+	held  bool
+	size  geom.Size
+}
+
+func (t *tap) Children() []gunim.Node { return []gunim.Node{t.child} }
+
+func (t *tap) Handle(e input.Event, u *gunim.UI) bool {
+	switch e := e.(type) {
+	case input.PointerDown:
+		t.held = true
+	case input.PointerUp:
+		if t.held && (geom.Rect{Max: t.size.Point()}).Contains(e.Pos) {
+			u.Send(t, t.on)
+		}
+		t.held = false
+	default:
+		return false
+	}
+	return true
+}
+
+func (t *tap) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
+	k := kids.At(0)
+	t.size = k.Layout(c)
+	k.Place(geom.Point{})
+	return t.size
+}
+
+func (t *tap) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim.Children) {
+	kids.At(0).Paint(p)
+}
+
+// photo is the open picture: the window dims, and the picture, a hero
+// with its thumbnail's tag, flies in to fill most of it. A click
+// anywhere closes it.
+type photo struct {
+	anim.Group
+	fade *anim.Float
+	hero *widget.Hero
+}
+
+func newPhoto(s Photo) *photo {
+	img := widget.NewImage(s.Picture)
+	img.Fit, img.Radius = widget.FitCover, 14
+	p := &photo{fade: anim.NewFloat(0), hero: widget.NewHero(heroTag(s.Index), img)}
+	p.Add(p.fade)
+	return p
+}
+
+func (p *photo) Children() []gunim.Node { return []gunim.Node{p.hero} }
+
+func (p *photo) Transition(pr gunim.Presence, f gunim.Frame) bool {
+	switch pr {
+	case gunim.Entering:
+		p.fade.Animate(1, widget.Settle.Get(f.Theme))
+	case gunim.Exiting:
+		p.fade.Animate(0, widget.Settle.Get(f.Theme))
+	case gunim.Present:
+	}
+	return !p.fade.Active()
+}
+
+func (p *photo) Handle(e input.Event, u *gunim.UI) bool {
+	if _, ok := e.(input.PointerDown); ok {
+		u.Send(p, Closed{})
+		return true
+	}
+	return false
+}
+
+func (p *photo) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
+	box := c.Max
+	// As large as fits in nine tenths of the window, at the pictures'
+	// shape of 480 by 300.
+	s := min(box.W*0.9/480, box.H*0.9/300)
+	size := geom.Sz(480*s, 300*s)
+	k := kids.At(0)
+	k.Layout(gunim.Tight(size))
+	k.Place(geom.Pt((box.W-size.W)/2, (box.H-size.H)/2))
+	return box
+}
+
+func (p *photo) Paint(pt *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.Children) {
+	dim := widget.Scrim.Get(f.Theme)
+	dim.A = uint8(float32(dim.A) * min(max(p.fade.Value(), 0), 1))
+	pt.RRect(geom.Rect{Max: box.Point()}, 0, paint.Solid(dim))
+	kids.At(0).Paint(pt)
 }
 
 // pictures draws a few pictures to page through: soft bands of colour
@@ -235,11 +343,10 @@ func serve(ctx context.Context, c gunim.Client) error {
 		items[i] = widget.Key(strconv.Itoa(i + 1))
 	}
 	added := len(items)
-	state := Page{Status: "Nothing chosen yet.", Picture: pics[0], Items: items}
+	state := Page{Status: "Nothing chosen yet.", Pictures: pics, Items: items}
 	if err := c.Mount(gunim.Root, "page", "page", state); err != nil {
 		return err
 	}
-	shown := 0
 	light := false
 	for {
 		select {
@@ -276,10 +383,10 @@ func serve(ctx context.Context, c gunim.Client) error {
 				state.Items = slices.DeleteFunc(slices.Clone(state.Items), func(k widget.Key) bool { return k == v.Item })
 				state.Status = fmt.Sprintf("Removed item %s; %d left.", v.Item, len(state.Items))
 				_ = c.Update("page", state)
-			case Next:
-				shown = (shown + 1) % len(pics)
-				state.Picture = pics[shown]
-				_ = c.Update("page", state)
+			case Opened:
+				_ = c.Mount(gunim.Root, "photo", "photo", Photo{Index: v.Index, Picture: pics[v.Index]})
+			case Closed:
+				_ = c.Unmount("photo")
 			case ThemeToggled:
 				light = !light
 				_ = c.SetTheme(map[bool]string{false: "dark", true: "light"}[light])

@@ -262,6 +262,7 @@ func (u *UI) framePopup(s *surface, f Frame) {
 	pp.Reset()
 	s.root.toWindow, s.root.drawn = paint.Identity, u.seq
 	s.root.node.Paint(pp, f, s.root.size, Children{ns: s.root.kids, f: f, s: s.root})
+	pp.PaintFloats()
 	if s.inFlight {
 		s.stale = true
 		return

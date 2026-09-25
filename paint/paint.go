@@ -55,6 +55,9 @@ type Painter struct {
 	// them by then.
 	rrects, prevRRects slab[RRectOp]
 	texts, prevTexts   slab[TextOp]
+	// floats holds painting put off until the rest of the frame is
+	// done; see Float.
+	floats []func(*Painter)
 }
 
 // slab hands out ops from blocks it keeps from frame to frame.
@@ -105,6 +108,30 @@ func (p *Painter) Reset() {
 	p.cur = Identity
 	p.ready = true
 	p.clip = nil
+	clear(p.floats)
+	p.floats = p.floats[:0]
+}
+
+// Float puts fn off until the rest of the frame has painted, and runs
+// it then in window space, above everything and inside no clip. It is
+// for something that must leave its place in the tree for a moment,
+// such as an element flying from one screen to the next, which the
+// containers around it would otherwise clip.
+func (p *Painter) Float(fn func(*Painter)) { p.floats = append(p.floats, fn) }
+
+// PaintFloats runs the painting put off with Float, including any that
+// it puts off in turn. The engine calls it once the tree has painted.
+func (p *Painter) PaintFloats() {
+	for len(p.floats) > 0 {
+		fs := p.floats
+		p.floats = nil
+		for _, fn := range fs {
+			stack, cur, clip := p.stack, p.cur, p.clip
+			p.stack, p.cur, p.clip = nil, Identity, nil
+			fn(p)
+			p.stack, p.cur, p.clip = stack, cur, clip
+		}
+	}
 }
 
 // Forget drops the frame Damage compares against, so the next frame's

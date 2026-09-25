@@ -1,0 +1,164 @@
+package widget
+
+import (
+	"testing"
+	"time"
+
+	"github.com/marrasen/gunim"
+	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/paint"
+)
+
+// spot places its child at a fixed place and size.
+type spot2 struct {
+	at    geom.Rect
+	child gunim.Node
+}
+
+func (s *spot2) Children() []gunim.Node { return []gunim.Node{s.child} }
+
+func (s *spot2) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
+	k := kids.At(0)
+	k.Layout(gunim.Tight(s.at.Size()))
+	k.Place(s.at.Min)
+	return c.Max
+}
+
+func (s *spot2) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim.Children) {
+	kids.At(0).Paint(p)
+}
+
+// heroStage has a thumbnail hero in view "grid", and a view "detail"
+// with a big hero of the same tag, mounted and unmounted on demand.
+type heroStage struct {
+	w          *gunim.Window
+	run        func(int)
+	thumb, big *Hero
+	thumbPic   *paint.Image
+	bigPic     *paint.Image
+}
+
+func newHeroStage(t *testing.T) *heroStage {
+	t.Helper()
+	s := &heroStage{thumbPic: picture(10, 10), bigPic: picture(10, 10)}
+	thumb := NewImage(s.thumbPic)
+	thumb.Fit = FitFill
+	s.thumb = NewHero("pic", thumb)
+	s.w = gunim.NewOffscreen(geom.Sz(400, 400), nil)
+	gunim.RegisterView(s.w, "grid", func(struct{}) gunim.Node {
+		return &spot2{at: geom.Rc(10, 10, 40, 30), child: s.thumb}
+	}, nil)
+	gunim.RegisterView(s.w, "detail", func(struct{}) gunim.Node {
+		big := NewImage(s.bigPic)
+		big.Fit = FitFill
+		s.big = NewHero("pic", big)
+		return &spot2{at: geom.Rc(100, 100, 200, 150), child: s.big}
+	}, nil)
+	if err := s.w.Client().Mount(gunim.Root, "grid", "grid", nil); err != nil {
+		t.Fatal(err)
+	}
+	s.run = func(n int) {
+		for range n {
+			s.w.Frame(time.Second / 60)
+		}
+	}
+	s.run(60)
+	return s
+}
+
+// drawn returns where each picture was drawn in the last frame.
+func (s *heroStage) drawn() map[*paint.Image]geom.Rect {
+	out := map[*paint.Image]geom.Rect{}
+	for _, op := range s.w.Offscreen().Ops() {
+		if im, ok := op.(*paint.ImageOp); ok && im.Opacity > 0 {
+			t := im.Transform
+			out[im.Image] = geom.Rect{Min: t.Apply(im.Rect.Min), Max: t.Apply(im.Rect.Max)}
+		}
+	}
+	return out
+}
+
+func TestHeroFliesFromItsCounterpartAndBack(t *testing.T) {
+	s := newHeroStage(t)
+	if err := s.w.Client().Mount(gunim.Root, "detail", "detail", nil); err != nil {
+		t.Fatal(err)
+	}
+	s.run(2)
+	d := s.drawn()
+	if _, ok := d[s.thumbPic]; ok {
+		t.Fatal("the thumbnail still shows while its hero flies")
+	}
+	r, ok := d[s.bigPic]
+	if !ok {
+		t.Fatal("the big picture is not drawn in flight")
+	}
+	// Two frames in, it is between the thumbnail and its own place.
+	if r.Min.X <= 10 || r.Min.X >= 100 || r.Size().W <= 40 || r.Size().W >= 200 {
+		t.Fatalf("in flight at %v, want between the thumbnail and its place", r)
+	}
+	s.run(120)
+	if landed := s.drawn(); landed[s.bigPic] != geom.Rc(100, 100, 200, 150) || landed[s.thumbPic] != geom.Rc(10, 10, 40, 30) {
+		t.Fatalf("landed with %v; want both pictures in their places", landed)
+	}
+
+	// Leaving, the big hero hides, and the thumbnail flies back from it.
+	if err := s.w.Client().Unmount("detail"); err != nil {
+		t.Fatal(err)
+	}
+	s.run(2)
+	d = s.drawn()
+	if _, ok := d[s.bigPic]; ok {
+		t.Fatal("the big picture still shows once its hero has left")
+	}
+	r = d[s.thumbPic]
+	if r.Min.X <= 10 || r.Min.X >= 100 {
+		t.Fatalf("the thumbnail flying back is at %v, want between", r)
+	}
+	s.run(120)
+	if d := s.drawn(); d[s.thumbPic] != geom.Rc(10, 10, 40, 30) {
+		t.Fatalf("the thumbnail landed at %v", d[s.thumbPic])
+	}
+}
+
+func TestHeroClosedMidFlightFliesBackVisibly(t *testing.T) {
+	s := newHeroStage(t)
+	if err := s.w.Client().Mount(gunim.Root, "detail", "detail", nil); err != nil {
+		t.Fatal(err)
+	}
+	s.run(4)
+	if err := s.w.Client().Unmount("detail"); err != nil {
+		t.Fatal(err)
+	}
+	s.run(2)
+	if _, ok := s.drawn()[s.thumbPic]; !ok {
+		t.Fatal("the thumbnail is hidden while it flies back")
+	}
+	s.run(120)
+	if d := s.drawn(); d[s.thumbPic] != geom.Rc(10, 10, 40, 30) {
+		t.Fatalf("the thumbnail landed at %v", d[s.thumbPic])
+	}
+}
+
+func TestHeroFlightMovesSmoothlyEveryFrame(t *testing.T) {
+	s := newHeroStage(t)
+	if err := s.w.Client().Mount(gunim.Root, "detail", "detail", nil); err != nil {
+		t.Fatal(err)
+	}
+	prev := geom.Rc(10, 10, 40, 30)
+	for i := range 90 {
+		s.run(1)
+		r, ok := s.drawn()[s.bigPic]
+		if !ok {
+			t.Fatalf("frame %d: the flying picture is missing", i)
+		}
+		// Growing toward 200 wide, never shrinking by more than a spring's
+		// settling, and never leaping.
+		if dw := r.Size().W - prev.Size().W; dw < -1 || dw > 60 {
+			t.Fatalf("frame %d: width went from %v to %v", i, prev.Size().W, r.Size().W)
+		}
+		if dx := r.Min.X - prev.Min.X; dx < -1 || dx > 40 {
+			t.Fatalf("frame %d: left edge went from %v to %v", i, prev.Min.X, r.Min.X)
+		}
+		prev = r
+	}
+}

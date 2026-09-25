@@ -219,3 +219,6 @@ var (
 	TabHeight   = theme.Length("tab.height", 38)
 	TabPadding  = theme.Length("tab.padding", 14)
 )
+
+// HeroMotion is the motion a [Hero] flies with.
+var HeroMotion = theme.Spring("motion.hero", anim.Spring{Response: 0.42, Damping: 0.86})
