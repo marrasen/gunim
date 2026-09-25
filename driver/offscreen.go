@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/marrasen/gunim/access"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/paint"
 )
@@ -40,6 +41,10 @@ type OffscreenWindow struct {
 	origin geom.Point
 	// out holds the files of each drag handed to other programs.
 	out [][]string
+	// access says whether something listens for the accessibility tree,
+	// and tree is the last one published.
+	access bool
+	tree   *access.Tree
 
 	presented chan Frame
 	input     chan any
@@ -92,6 +97,35 @@ func (w *OffscreenWindow) Place(anchor geom.Rect, size geom.Size) error {
 	defer w.mu.Unlock()
 	w.anchor, w.size = anchor, size
 	return nil
+}
+
+// ListenForAccess makes the window want its accessibility tree, as a
+// screen reader would, and keep the last one published.
+func (w *OffscreenWindow) ListenForAccess() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.access = true
+}
+
+// AccessWanted implements [AccessPublisher].
+func (w *OffscreenWindow) AccessWanted() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.access
+}
+
+// PublishAccess implements [AccessPublisher].
+func (w *OffscreenWindow) PublishAccess(t *access.Tree) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.tree = t
+}
+
+// AccessTree returns the last accessibility tree published.
+func (w *OffscreenWindow) AccessTree() *access.Tree {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.tree
 }
 
 // DragOut implements [DragOuter] by keeping the paths; a test ends the

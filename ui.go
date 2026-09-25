@@ -127,6 +127,7 @@ func (a *App) NewWindow(o WindowOptions) (*Window, error) {
 	}
 
 	w := newWindow(dw, o.Root)
+	w.title = o.Title
 	w.open = a.drv.NewWindow
 	w.app = a
 	a.windows.add(w)
@@ -153,6 +154,8 @@ type Window struct {
 	// events to the UI goroutine.
 	open    func(driver.Options) (driver.Window, error)
 	popupIn chan popupEvent
+	// title is the window's title, which a screen reader reads for it.
+	title string
 	// app is the application the window belongs to, and dragIn carries
 	// drags from its other windows.
 	app    *App
@@ -668,6 +671,10 @@ type UI struct {
 	drag     *drag
 	dragFrom *state
 	dragAt   *state
+	// aids counts the IDs given to nodes for assistive technology, and
+	// byAID finds a node by its ID, as of the last tree published.
+	aids  uint64
+	byAID map[uint64]*state
 }
 
 // Local returns the value this window keeps under key, making it with
@@ -1113,6 +1120,12 @@ func (u *UI) frame(now time.Time, delta time.Duration) {
 	}
 	u.placeCaret()
 	u.framePopups(f)
+	u.publishAccess(u.w.dw, u.root, u.w.title)
+	for _, s := range u.popups {
+		if s.dw != nil {
+			u.publishAccess(s.dw, s.root, "")
+		}
+	}
 
 	// 5. Layout and paint may have started animations: a caret aimed at
 	//    a new place, a row sent to a new position. Look again, without

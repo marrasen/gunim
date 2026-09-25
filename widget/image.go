@@ -29,6 +29,8 @@ type Image struct {
 	anim.Group
 
 	Fit Fit
+	// Alt says what the picture shows, for a screen reader.
+	Alt string
 	// Radius rounds the corners of the drawn picture.
 	Radius float32
 	// Size is the size the image asks for. Zero asks for the picture's

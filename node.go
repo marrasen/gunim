@@ -375,6 +375,9 @@ type state struct {
 	// opener is set on the root of a popup's tree: the node that opened
 	// the popup.
 	opener *state
+	// aid is the node's ID for assistive technology, or 0 before it has
+	// one.
+	aid uint64
 }
 
 // up returns s's parent, or for the root of a popup, the node that

@@ -5,6 +5,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/marrasen/gunim/access"
 	"github.com/marrasen/gunim/driver"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
@@ -24,6 +25,8 @@ func (u *UI) handlePlatform(ev any) { u.handleOn(u.root, ev) }
 func (u *UI) handleOn(root *state, ev any) {
 	u.invalid = true
 	switch e := ev.(type) {
+	case access.Request:
+		u.accessRequest(e)
 	case driver.DragOutEnded:
 		u.dragEnded(e.Taken)
 	case driver.WindowFocus:

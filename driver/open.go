@@ -3,6 +3,7 @@ package driver
 import (
 	"errors"
 
+	"github.com/marrasen/gunim/access"
 	"github.com/marrasen/gunim/geom"
 )
 
@@ -76,3 +77,14 @@ type DragOuter interface {
 // DragOutEnded is sent on [Window.Input] when a drag handed to other
 // programs ends. Taken says whether a program took the drop.
 type DragOutEnded struct{ Taken bool }
+
+// An AccessPublisher is a [Window] that tells assistive technology,
+// such as a screen reader, what the window holds. AccessWanted reports
+// whether anything is listening, so the engine gathers the tree only
+// then. PublishAccess takes the tree as the last frame drew it; it
+// belongs to the publisher from then on. A screen reader's requests
+// come back on [Window.Input] as [access.Request].
+type AccessPublisher interface {
+	AccessWanted() bool
+	PublishAccess(t *access.Tree)
+}
