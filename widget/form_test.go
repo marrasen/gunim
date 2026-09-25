@@ -158,3 +158,33 @@ func TestADialogWithAProblemStaysOpenAndShakes(t *testing.T) {
 		t.Fatalf("intents %v, want the host", got)
 	}
 }
+
+type answered struct{ What string }
+
+func TestADialogsExtraButtonSendsItsAnswer(t *testing.T) {
+	d := NewDialog("Replace notes.txt?")
+	d.SetButtons("Replace", "Stop")
+	d.Accept = answered{"replace"}
+	d.AddButton("Leave It", func() gunim.Intent { return answered{"leave"} })
+	w := gunim.NewOffscreen(geom.Sz(800, 600), nil)
+	gunim.RegisterView(w, "d", func(struct{}) gunim.Node { return d }, nil)
+	if err := w.Client().Mount(gunim.Root, "d", "d", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Client().Focus("d"); err != nil {
+		t.Fatal(err)
+	}
+	run := func(n int) {
+		for range n {
+			w.Frame(time.Second / 60)
+		}
+	}
+	run(30)
+	// Tab goes to the first button, Leave It, then Enter presses it.
+	w.Input(input.KeyPress{Key: input.KeyTab})
+	w.Input(input.KeyPress{Key: input.KeyEnter})
+	run(30)
+	if got := sent(w); len(got) != 1 || got[0] != (answered{"leave"}) {
+		t.Fatalf("intents %v, want leave", got)
+	}
+}

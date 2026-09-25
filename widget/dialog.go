@@ -52,6 +52,7 @@ type Dialog struct {
 
 	ok        *Button
 	cancel    *Button
+	extra     []*Button
 	titleText laidText
 	// height is the panel's height, from the last layout, and focused
 	// is set once the keyboard has gone to the body's first field.
@@ -86,6 +87,15 @@ func (d *Dialog) SetButtons(ok, cancel string) {
 	d.ok.Label, d.cancel.Label = ok, cancel
 }
 
+// AddButton adds a button left of Cancel, which closes the dialog and
+// sends the intent what makes, as a third answer to a question: Leave
+// It beside Replace and Stop. Add buttons before mounting the dialog.
+func (d *Dialog) AddButton(label string, what func() gunim.Intent) {
+	b := NewButton(label)
+	b.OnActivate(func(u *gunim.UI) { d.finish(u, what()) })
+	d.extra = append(d.extra, b)
+}
+
 func (d *Dialog) accept(u *gunim.UI) {
 	if d.Check != nil {
 		if msg := d.Check(); msg != "" {
@@ -112,6 +122,9 @@ func (d *Dialog) focusables() []gunim.Node {
 	if b, ok := d.Body.(interface{ Focusables() []gunim.Node }); ok {
 		out = append(out, b.Focusables()...)
 	}
+	for _, b := range d.extra {
+		out = append(out, b)
+	}
 	return append(out, d.cancel, d.ok)
 }
 
@@ -121,10 +134,14 @@ func (d *Dialog) focusables() []gunim.Node {
 // Layout places them from the right, so the last one, OK, lands
 // outermost.
 func (d *Dialog) Children() []gunim.Node {
+	var out []gunim.Node
 	if d.Body != nil {
-		return []gunim.Node{d.Body, d.problem, d.cancel, d.ok}
+		out = append(out, d.Body, d.problem)
 	}
-	return []gunim.Node{d.cancel, d.ok}
+	for _, b := range d.extra {
+		out = append(out, b)
+	}
+	return append(out, d.cancel, d.ok)
 }
 
 // finish closes the dialog and tells the application what happened.
@@ -160,8 +177,10 @@ func (d *Dialog) Handle(e input.Event, u *gunim.UI) bool {
 	// field.
 	if _, ok := e.(input.FocusGained); ok && !d.focused {
 		d.focused = true
-		if f := d.focusables(); len(f) > 2 {
-			u.Focus(f[0])
+		if b, ok := d.Body.(interface{ Focusables() []gunim.Node }); ok {
+			if f := b.Focusables(); len(f) > 0 {
+				u.Focus(f[0])
+			}
 		}
 		return true
 	}
