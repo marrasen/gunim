@@ -57,6 +57,9 @@ type Driver struct {
 
 	// shared is what every window's renderer shares.
 	shared shared
+	// dxgi is set where windows present through DXGI; see
+	// present_windows.go.
+	dxgi bool
 }
 
 // Open initialises GLFW and loads the GL library. Call it on the main
@@ -74,7 +77,9 @@ func Open() (*Driver, error) {
 	// The main thread pumps every window's events, and init has locked
 	// it for life.
 	raiseThread()
-	return &Driver{isES: probe.IsES(), windows: map[*glfw.Window]*Window{}}, nil
+	d := &Driver{isES: probe.IsES(), windows: map[*glfw.Window]*Window{}}
+	d.dxgi = d.presentsThroughDXGI()
+	return d, nil
 }
 
 // Run implements [driver.Driver]. It pumps events on the calling
@@ -213,6 +218,25 @@ func monitorInfo(m *glfw.Monitor) (driver.Monitor, bool) {
 	}, true
 }
 
+// contextWindow opens the hidden window that holds a DXGI window's
+// context, sharing with share. It runs on the main thread.
+func (d *Driver) contextWindow(share *glfw.Window) (*glfw.Window, error) {
+	if err := glfw.DefaultWindowHints(); err != nil {
+		return nil, err
+	}
+	if err := d.setContextHints(); err != nil {
+		return nil, err
+	}
+	if err := glfw.WindowHint(glfw.Visible, glfw.False); err != nil {
+		return nil, err
+	}
+	ctx, err := glfw.CreateWindow(1, 1, "", nil, share)
+	if err != nil {
+		return nil, fmt.Errorf("desktop: create context window: %w", err)
+	}
+	return ctx, nil
+}
+
 // setContextHints asks GLFW for a context the renderer can use: OpenGL
 // 3.2 core, or OpenGL ES 3.0 where only ES was found. It runs on the
 // main thread.
@@ -270,11 +294,21 @@ func (d *Driver) openWindow(o driver.Options) (*Window, error) {
 	if shareErr != nil {
 		return nil, shareErr
 	}
+	share0 := share
 	hints := [][2]int{
 		{int(glfw.Visible), glfw.False},
 		{int(glfw.DoubleBuffer), glfw.True},
 		// Size the window in logical pixels on a scaled monitor.
 		{int(glfw.ScaleToMonitor), glfw.True},
+	}
+	if d.dxgi {
+		// The window shows what DXGI presents and holds no context of
+		// its own; a hidden window holds it. With no redirection surface,
+		// nothing the window would otherwise draw shows under the frame.
+		hints = append(hints,
+			[2]int{int(glfw.ClientAPI), glfw.NoAPI},
+			[2]int{int(glfw.Win32NoRedirectionBitmap), glfw.True})
+		share = nil
 	}
 	switch o.Kind {
 	case driver.KindPopup:
@@ -284,8 +318,12 @@ func (d *Driver) openWindow(o driver.Options) (*Window, error) {
 			// window floating above the rest.
 			[2]int{int(glfw.Floating), glfw.True},
 			[2]int{int(glfw.Decorated), glfw.False},
-			[2]int{int(glfw.TransparentFramebuffer), glfw.True},
 			[2]int{int(glfw.FocusOnShow), glfw.False})
+		if !d.dxgi {
+			// DXGI's frames carry alpha; OpenGL's need a transparent
+			// framebuffer to.
+			hints = append(hints, [2]int{int(glfw.TransparentFramebuffer), glfw.True})
+		}
 	case driver.KindUtility:
 		hints = append(hints, [2]int{int(glfw.Floating), glfw.True})
 	case driver.KindNormal:
@@ -309,9 +347,17 @@ func (d *Driver) openWindow(o driver.Options) (*Window, error) {
 	}
 
 	w := newWindow(d, gw)
+	if d.dxgi {
+		ctx, err := d.contextWindow(share0)
+		if err != nil {
+			_ = gw.Destroy()
+			return nil, err
+		}
+		w.ctx = ctx
+	}
 	if o.Kind == driver.KindPopup {
 		t, err := gw.GetAttrib(glfw.TransparentFramebuffer)
-		w.transparent = err == nil && t == glfw.True
+		w.transparent = d.dxgi || (err == nil && t == glfw.True)
 	}
 	if err := w.position(o); err != nil {
 		_ = gw.Destroy()

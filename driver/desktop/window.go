@@ -89,6 +89,12 @@ type Window struct {
 	// input method asks from the main thread.
 	textInput atomic.Bool
 
+	// ctx, where windows present through DXGI, is the hidden window
+	// that holds this window's context, and pres, which belongs to the
+	// render thread, presents its frames.
+	ctx  *glfw.Window
+	pres *presenter
+
 	// parent is the window a popup belongs to, and popup is set for a
 	// popup. Both are set once, before the window shows.
 	parent *Window
@@ -244,6 +250,9 @@ func (w *Window) shutdown() {
 	<-w.done
 	delete(w.d.windows, w.gw)
 	_ = w.gw.Destroy()
+	if w.ctx != nil {
+		_ = w.ctx.Destroy()
+	}
 }
 
 // awaitFrameAtSize blocks the main thread until the render thread has
@@ -634,6 +643,9 @@ func (w *Window) render() {
 	}
 	if r != nil {
 		defer func() {
+			if w.pres != nil {
+				w.pres.close()
+			}
 			r.release()
 			_ = (*glfw.Window)(nil).MakeContextCurrent()
 		}()
@@ -655,14 +667,30 @@ func (w *Window) render() {
 			fbW, fbH, scale, rate := w.fbW, w.fbH, w.scale, w.rate
 			readback := w.readback
 			w.mu.Unlock()
+			if w.pres != nil {
+				fbo, err := w.pres.begin(fbW, fbH)
+				if err != nil {
+					w.fail(err)
+				}
+				r.windowFBO = fbo
+			}
 			r.draw(f.ops, f.damage, fbW, fbH, scale)
 			if readback != nil {
+				if w.pres != nil {
+					// The window's texture is upside down for Direct3D;
+					// the canvas holds the frame the right way up.
+					r.gl.BindFramebuffer(gl.FRAMEBUFFER, r.layers[0].fbo)
+				}
 				pix := make([]byte, fbW*fbH*4)
 				r.gl.ReadPixels(pix, 0, 0, int32(fbW), int32(fbH), gl.RGBA, gl.UNSIGNED_BYTE)
 				readback(pix, fbW, fbH)
 			}
 			synced := vb.wait()
-			if err := w.gw.SwapBuffers(); err != nil {
+			if w.pres != nil {
+				if err := w.pres.present(); err != nil {
+					w.fail(err)
+				}
+			} else if err := w.gw.SwapBuffers(); err != nil {
 				w.fail(fmt.Errorf("desktop: swap buffers: %w", err))
 			}
 			w.mu.Lock()
@@ -717,19 +745,34 @@ func pace(last time.Time, rate float64) time.Time {
 // startGL makes the context current on this thread, turns on vsync and
 // builds the renderer.
 func (w *Window) startGL() (*renderer, error) {
-	if err := w.gw.MakeContextCurrent(); err != nil {
+	holder := w.gw
+	if w.ctx != nil {
+		holder = w.ctx
+	}
+	if err := holder.MakeContextCurrent(); err != nil {
 		return nil, fmt.Errorf("desktop: make context current: %w", err)
 	}
 	// An error here leaves the swap unpaced, which pace makes up for.
-	_ = w.gw.SwapInterval(swapInterval)
+	_ = holder.SwapInterval(swapInterval)
 	ctx, err := gl.NewDefaultContext()
 	if err != nil {
 		return nil, fmt.Errorf("desktop: %w", err)
 	}
-	if err := ctx.LoadFunctions(); err != nil {
+	if err = ctx.LoadFunctions(); err != nil {
 		return nil, fmt.Errorf("desktop: %w", err)
 	}
-	return newRenderer(ctx, w.d.isES, &w.d.shared)
+	r, err := newRenderer(ctx, w.d.isES, &w.d.shared)
+	if err != nil {
+		return nil, err
+	}
+	if w.ctx != nil {
+		if w.pres, err = w.startPresenter(ctx); err != nil {
+			r.release()
+			return nil, err
+		}
+		r.flipWindow = true
+	}
+	return r, nil
 }
 
 // fail records an error for the next Present to return.

@@ -265,3 +265,29 @@ func TestFrameForASmallerWindowSitsTopLeft(t *testing.T) {
 		}
 	}
 }
+
+// TestAFlippedWindowGetsItsTopRowFirst draws white over black, top
+// over bottom, for a window that reads its rows from the top, as DXGI
+// does: OpenGL's first row, its bottom, must hold the white.
+func TestAFlippedWindowGetsItsTopRowFirst(t *testing.T) {
+	r, done := hiddenGL(t)
+	defer done()
+	r.flipWindow = true
+	w, h := int(benchSize.W), int(benchSize.H)
+	white := color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
+	black := color.NRGBA{A: 0xff}
+	ops := []paint.Op{
+		&paint.RRectOp{Rect: geom.Rect{Max: benchSize.Point()}, Fill: paint.Solid(black), Transform: paint.Identity},
+		&paint.RRectOp{Rect: geom.Rect{Max: geom.Pt(benchSize.W, benchSize.H/2)}, Fill: paint.Solid(white), Transform: paint.Identity},
+	}
+	r.draw(ops, paint.Everything, w, h, 1)
+	row := func(y int32) byte {
+		pix := make([]byte, 4)
+		r.gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
+		r.gl.ReadPixels(pix, int32(w/2), y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE)
+		return pix[0]
+	}
+	if first, last := row(0), row(int32(h-1)); first < 200 || last > 55 {
+		t.Fatalf("first row %d, last row %d; want the white top first", first, last)
+	}
+}

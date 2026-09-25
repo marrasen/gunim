@@ -84,6 +84,12 @@ type renderer struct {
 	// redrawn is the device-pixel area the last frame redrew, for
 	// tests.
 	redrawn geom.Rect
+	// windowFBO is the framebuffer the window shows: 0, or on Windows
+	// the texture DXGI presents. flipWindow is set for that texture,
+	// whose rows Direct3D reads from the top where OpenGL writes them
+	// from the bottom, so the canvas goes to it upside down.
+	windowFBO  uint32
+	flipWindow bool
 	// blurs holds two scratch targets for each downsampling factor.
 	blurs [len(blurFactors)][2]target
 	// stack is the targets being drawn into, innermost last, with the
@@ -400,7 +406,7 @@ func (r *renderer) draw(ops []paint.Op, damage geom.Rect, fbW, fbH int, scale fl
 	// falls out of date, and the next frame that draws there draws all
 	// of it.
 	s, ws := box.Size(), window.Size()
-	r.direct = !backdrop && s.W*s.H > ws.W*ws.H/2
+	r.direct = !backdrop && !r.flipWindow && s.W*s.H > ws.W*ws.H/2
 	if r.fit(&r.layers[0]) || !r.canvasOK || scale != r.canvasScale {
 		if !r.direct {
 			box = window
@@ -435,11 +441,11 @@ func (r *renderer) draw(ops []paint.Op, damage geom.Rect, fbW, fbH int, scale fl
 	}
 	if !r.direct {
 		r.canvasOK, r.canvasScale = true, scale
-		g.BindFramebuffer(gl.FRAMEBUFFER, 0)
+		g.BindFramebuffer(gl.FRAMEBUFFER, r.windowFBO)
 		clearWindow(g, bg, opaque)
 		g.Clear(glColorBufferBit)
 		g.ClearColor(0, 0, 0, 0)
-		r.composite(r.layers[0].tex, nil, 1, false, 0)
+		r.present(r.layers[0].tex)
 		r.flush()
 	}
 	r.evictImages()
@@ -479,6 +485,24 @@ func background(ops []paint.Op) ([4]float32, bool) {
 		return [4]float32{}, false
 	}
 	return rgba(op.Fill.Solid), true
+}
+
+// present queues the canvas's copy to the window, upside down for a
+// window that reads its rows from the top.
+func (r *renderer) present(canvas uint32) {
+	if !r.flipWindow {
+		r.composite(canvas, nil, 1, false, 0)
+		return
+	}
+	r.uses(canvas)
+	win := r.window()
+	// Drawn as an image, whose texture coordinates are its own: the top
+	// of the window takes the texture's first row, where a layer's copy
+	// would take its last.
+	uv := geom.Rect{Max: geom.Pt(1, 1)}
+	r.quad(corners(win, uv), paint.Identity, r.scale, &look{
+		rect: win, kind: kindImage, color0: [4]float32{0, 0, 0, 1},
+	})
 }
 
 // deviceBox turns damage in logical pixels into the whole device pixels
@@ -715,7 +739,7 @@ func (r *renderer) composite(tex uint32, op *paint.LayerOp, opacity float32, cli
 // target beneath it.
 func (r *renderer) fbo(d int) uint32 {
 	if d == 0 && r.direct {
-		return 0
+		return r.windowFBO
 	}
 	return r.layers[d].fbo
 }
