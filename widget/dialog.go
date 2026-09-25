@@ -87,7 +87,8 @@ func NewDialog(title string) *Dialog {
 func (d *Dialog) SetTitle(title string) { d.Title = title }
 
 // SetButtons names the dialog's buttons, such as "Connect" and
-// "Cancel".
+// "Cancel". An empty cancel leaves the dialog with OK alone, for one
+// that only tells; Escape still closes it.
 func (d *Dialog) SetButtons(ok, cancel string) {
 	d.ok.Label, d.cancel.Label = ok, cancel
 }
@@ -130,7 +131,15 @@ func (d *Dialog) focusables() []gunim.Node {
 	for _, b := range d.extra {
 		out = append(out, b)
 	}
-	return append(out, d.cancel, d.ok)
+	return append(out, d.buttons()...)
+}
+
+// buttons are Cancel, when it has a label, and OK.
+func (d *Dialog) buttons() []gunim.Node {
+	if d.cancel.Label == "" {
+		return []gunim.Node{d.ok}
+	}
+	return []gunim.Node{d.cancel, d.ok}
 }
 
 // Children implements [gunim.Composite], so mounting the dialog brings
@@ -146,7 +155,7 @@ func (d *Dialog) Children() []gunim.Node {
 	for _, b := range d.extra {
 		out = append(out, b)
 	}
-	return append(out, d.cancel, d.ok)
+	return append(out, d.buttons()...)
 }
 
 // finish closes the dialog and tells the application what happened.
@@ -183,7 +192,7 @@ func (d *Dialog) Handle(e input.Event, u *gunim.UI) bool {
 	if _, ok := e.(input.FocusGained); ok && !d.focused {
 		d.focused = true
 		if d.Danger {
-			u.Focus(d.cancel)
+			u.Focus(d.buttons()[0])
 			return true
 		}
 		if b, ok := d.Body.(interface{ Focusables() []gunim.Node }); ok {
