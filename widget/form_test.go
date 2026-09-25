@@ -110,3 +110,51 @@ func TestAFormLinesItsLabelsUpAgainstItsFields(t *testing.T) {
 		t.Fatalf("the gap between labels and fields is %v, want %v", gap, FormGap.Default())
 	}
 }
+
+func TestADialogWithAProblemStaysOpenAndShakes(t *testing.T) {
+	host := NewTextField()
+	d := NewDialog("Connect to a server")
+	d.Body = NewForm().Add("Host", host)
+	d.OnAccept = func() gunim.Intent { return signIn{Host: host.Text()} }
+	d.Check = func() string {
+		if host.Text() == "" {
+			return "Say which server."
+		}
+		return ""
+	}
+	w := gunim.NewOffscreen(geom.Sz(800, 600), nil)
+	gunim.RegisterView(w, "d", func(struct{}) gunim.Node { return d }, nil)
+	if err := w.Client().Mount(gunim.Root, "d", "d", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Client().Focus("d"); err != nil {
+		t.Fatal(err)
+	}
+	run := func(n int) {
+		for range n {
+			w.Frame(time.Second / 60)
+		}
+	}
+	run(30)
+	w.Input(input.KeyPress{Key: input.KeyEnter})
+	run(3)
+	if d.problem.Text != "Say which server." {
+		t.Fatalf("the dialog says %q", d.problem.Text)
+	}
+	if d.shake.Value() == 0 {
+		t.Fatal("the dialog kept still")
+	}
+	run(90)
+	if got := sent(w); len(got) != 0 {
+		t.Fatalf("an empty form sent %v", got)
+	}
+	if v := d.shake.Value(); v != 0 {
+		t.Fatalf("the shake settled at %v, want 0", v)
+	}
+	w.Input(input.TextInput{Text: "example.com"})
+	w.Input(input.KeyPress{Key: input.KeyEnter})
+	run(30)
+	if got := sent(w); len(got) != 1 || got[0] != (signIn{Host: "example.com"}) {
+		t.Fatalf("intents %v, want the host", got)
+	}
+}

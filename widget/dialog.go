@@ -34,6 +34,10 @@ type Dialog struct {
 	// OnAccept, when set, makes the intent sent on confirming from what
 	// the dialog holds, such as a form's fields, in place of Accept.
 	OnAccept func() gunim.Intent
+	// Check, when set, runs as the user confirms, and says what stands
+	// in the way, or nothing. With something in the way the dialog stays
+	// open, gives a shake, and says it under the body.
+	Check func() string
 	// Body is what the dialog shows under its title, such as a [Form].
 	// Set it before mounting the dialog, which grows to fit it. Enter
 	// in the body confirms, and Tab moves through the body's fields and
@@ -53,13 +57,18 @@ type Dialog struct {
 	// is set once the keyboard has gone to the body's first field.
 	height  float32
 	focused bool
+	// problem is what Check last said, and shake the shake it set off.
+	problem *Label
+	shake   *anim.Float
 }
 
 // NewDialog returns a dialog with an OK and a Cancel button. Mount it
 // from a view and it animates itself in.
 func NewDialog(title string) *Dialog {
-	d := &Dialog{Title: title, in: anim.NewFloat(0)}
-	d.Add(d.in)
+	d := &Dialog{Title: title, in: anim.NewFloat(0), shake: anim.NewFloat(0)}
+	d.problem = NewLabel("")
+	d.problem.Color = DialogProblem
+	d.Add(d.in, d.shake)
 
 	d.ok = NewButton("OK")
 	d.ok.OnActivate(d.accept)
@@ -78,6 +87,17 @@ func (d *Dialog) SetButtons(ok, cancel string) {
 }
 
 func (d *Dialog) accept(u *gunim.UI) {
+	if d.Check != nil {
+		if msg := d.Check(); msg != "" {
+			d.problem.SetText(msg)
+			// A kick sideways that a springy motion rings down to rest.
+			d.shake.Jump(1)
+			d.shake.Animate(0, anim.Spring{Response: 0.18, Damping: 0.12})
+			u.Invalidate()
+			return
+		}
+	}
+	d.problem.SetText("")
 	what := d.Accept
 	if d.OnAccept != nil {
 		what = d.OnAccept()
@@ -102,7 +122,7 @@ func (d *Dialog) focusables() []gunim.Node {
 // outermost.
 func (d *Dialog) Children() []gunim.Node {
 	if d.Body != nil {
-		return []gunim.Node{d.Body, d.cancel, d.ok}
+		return []gunim.Node{d.Body, d.problem, d.cancel, d.ok}
 	}
 	return []gunim.Node{d.cancel, d.ok}
 }
@@ -193,19 +213,27 @@ func (d *Dialog) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children)
 	// buttons.
 	d.height = DialogHeight.Get(th)
 	first := 0
-	var body gunim.Child
+	var body, problem gunim.Child
 	hasBody := d.Body != nil
+	var bs, ps geom.Size
 	if hasBody {
-		first = 1
-		body = kids.At(0)
+		first = 2
+		body, problem = kids.At(0), kids.At(1)
 		title := d.titleText.layout(d.Title, text.Style{Size: DialogTitleSize.Get(th), MaxLines: 2}, width-2*pad)
-		bs := body.Layout(gunim.Constraints{Max: geom.Sz(width-2*pad, 0)})
-		d.height = pad + title.Size.H + pad + bs.H + pad + ButtonHeight.Get(th) + pad
+		bs = body.Layout(gunim.Constraints{Max: geom.Sz(width-2*pad, 0)})
+		ps = problem.Layout(gunim.Constraints{Max: geom.Sz(width-2*pad, 0)})
+		extra := float32(0)
+		if d.problem.Text != "" {
+			extra = pad/2 + ps.H
+		}
+		d.height = pad + title.Size.H + pad + bs.H + extra + pad + ButtonHeight.Get(th) + pad
 	}
 	panel := d.panel(size, f)
 	if hasBody {
 		title := d.titleText.layout(d.Title, text.Style{Size: DialogTitleSize.Get(th), MaxLines: 2}, width-2*pad)
-		body.Place(panel.Min.Add(geom.Pt(pad, pad+title.Size.H+pad)))
+		at := panel.Min.Add(geom.Pt(pad, pad+title.Size.H+pad))
+		body.Place(at)
+		problem.Place(at.Add(geom.Pt(0, bs.H+pad/2)))
 	}
 
 	// Buttons sit along the bottom right of the panel, laid out from the
@@ -268,6 +296,8 @@ func (d *Dialog) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids guni
 
 	panel := d.panel(box, f)
 	radius, pad := DialogRadius.Get(th), DialogPadding.Get(th)
+	// A shake swings the panel from side to side.
+	defer p.Push(paint.Translate(geom.Pt(14*d.shake.Value(), 0)))()
 
 	// The panel fades and grows into place together. Starting at 0.94
 	// makes it read as arriving; starting nearer 0 would make it read

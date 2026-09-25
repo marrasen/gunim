@@ -40,10 +40,12 @@ var (
 
 // Dialog tokens.
 var (
-	DialogFill      = theme.Color("dialog.fill", color.NRGBA{R: 0x1d, G: 0x20, B: 0x28, A: 0xff})
-	DialogBorder    = theme.Color("dialog.border", color.NRGBA{R: 0x3a, G: 0x40, B: 0x50, A: 0xff})
-	DialogShadow    = theme.Color("dialog.shadow", color.NRGBA{A: 0x80})
-	Scrim           = theme.Color("dialog.scrim", color.NRGBA{A: 0x99})
+	DialogFill   = theme.Color("dialog.fill", color.NRGBA{R: 0x1d, G: 0x20, B: 0x28, A: 0xff})
+	DialogBorder = theme.Color("dialog.border", color.NRGBA{R: 0x3a, G: 0x40, B: 0x50, A: 0xff})
+	DialogShadow = theme.Color("dialog.shadow", color.NRGBA{A: 0x80})
+	Scrim        = theme.Color("dialog.scrim", color.NRGBA{A: 0x99})
+	// DialogProblem colours what stands in the way of confirming a dialog.
+	DialogProblem   = theme.Color("dialog.problem", color.NRGBA{R: 0xff, G: 0x8a, B: 0x80, A: 0xff})
 	DialogRadius    = theme.Length("dialog.radius", 14)
 	DialogPadding   = theme.Length("dialog.padding", 20)
 	DialogTitleSize = theme.Length("dialog.title.size", 17)
