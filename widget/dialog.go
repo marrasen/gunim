@@ -36,7 +36,8 @@ type Dialog struct {
 	OnAccept func() gunim.Intent
 	// Danger marks the dialog's OK as an action that destroys, such as
 	// Delete, and shows it in red; otherwise it shows as the action the
-	// dialog expects.
+	// dialog expects. A danger dialog opens with Cancel focused, so
+	// Enter cancels and the red button takes a deliberate press.
 	Danger bool
 	// Check, when set, runs as the user confirms, and says what stands
 	// in the way, or nothing. With something in the way the dialog stays
@@ -178,9 +179,13 @@ func (d *Dialog) Handle(e input.Event, u *gunim.UI) bool {
 		}
 	}
 	// Given the keyboard as it opens, the dialog hands it to its first
-	// field.
+	// field, or to Cancel when it is a danger dialog.
 	if _, ok := e.(input.FocusGained); ok && !d.focused {
 		d.focused = true
+		if d.Danger {
+			u.Focus(d.cancel)
+			return true
+		}
 		if b, ok := d.Body.(interface{ Focusables() []gunim.Node }); ok {
 			if f := b.Focusables(); len(f) > 0 {
 				u.Focus(f[0])

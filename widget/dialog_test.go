@@ -6,6 +6,7 @@ import (
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/input"
 )
 
 func TestDialogAnimatesInAndOut(t *testing.T) {
@@ -77,5 +78,37 @@ func TestADangerButtonFadesInFromThePlainColours(t *testing.T) {
 	}
 	if last != 1 {
 		t.Fatalf("settled, the button is %v of the way to red", last)
+	}
+}
+
+func TestADangerDialogOpensOnCancelSoEnterCancels(t *testing.T) {
+	w := gunim.NewOffscreen(geom.Sz(800, 600), nil)
+	var d *Dialog
+	gunim.RegisterView(w, "confirm", func(title string) *Dialog {
+		d = NewDialog(title)
+		d.Danger = true
+		d.Body = NewForm().Add("Name", NewTextField())
+		d.Accept, d.Dismiss = "delete", "keep"
+		return d
+	}, nil)
+	c := w.Client()
+	if err := c.Mount(gunim.Root, "confirm", "confirm", "Delete?"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Focus("confirm"); err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		w.Frame(time.Second / 60)
+	}
+	w.Input(input.KeyPress{Key: input.KeyEnter})
+	w.Frame(time.Second / 60)
+	select {
+	case env := <-c.Intents():
+		if env.Intent != "keep" {
+			t.Fatalf("Enter on a danger dialog sent %v, want keep", env.Intent)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Enter on a danger dialog sent nothing")
 	}
 }
