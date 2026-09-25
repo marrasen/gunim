@@ -1017,7 +1017,7 @@ func (u *UI) frame(now time.Time, delta time.Duration) {
 	u.runTimers()
 	u.flush()
 	u.seq++
-	f := Frame{Now: now, Delta: delta, Scale: u.w.dw.Scale(), Theme: u.theme, seq: u.seq}
+	f := Frame{Now: now, Delta: delta, Scale: u.w.dw.Scale(), Theme: u.theme, seq: u.seq, u: u}
 
 	// 1. Advance every animated value by the real elapsed time, the
 	//    theme's included.
@@ -1046,12 +1046,12 @@ func (u *UI) frame(now time.Time, delta time.Duration) {
 	// 3. Lay the tree out at the window's current size.
 	size := u.w.dw.Size()
 	f = scoped(f, u.root.node)
-	u.root.size = u.root.node.Layout(Tight(size), f, Children{ns: u.root.kids, f: f})
+	u.root.size = u.root.node.Layout(Tight(size), f, Children{ns: u.root.kids, f: f, s: u.root})
 
 	// 4. Record the frame and hand it to the driver.
 	u.painter.Reset()
 	u.root.toWindow, u.root.drawn = paint.Identity, u.seq
-	u.root.node.Paint(&u.painter, f, u.root.size, Children{ns: u.root.kids, f: f})
+	u.root.node.Paint(&u.painter, f, u.root.size, Children{ns: u.root.kids, f: f, s: u.root})
 	if err := u.w.dw.Present(u.painter.Ops(), u.painter.Damage()); err != nil {
 		u.w.err = fmt.Errorf("gunim: present frame: %w", err)
 		u.w.Close()

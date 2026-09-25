@@ -1,9 +1,11 @@
-// Command controls shows gunim's controls on three tabs. The first has
+// Command controls shows gunim's controls on four tabs. The first has
 // a drop-down, a context menu and a tooltip, each opening a popup
 // window that can reach past the edge of the main one. The second has
 // a checkbox, a switch and a slider. The third has a picture that
 // crossfades to the next; the application draws the pictures and
-// hands them to the window in its state, by reference.
+// hands them to the window in its state, by reference. The fourth is a
+// list of a hundred thousand items, of which only those in view are
+// built; adding and removing items animates.
 //
 //	CGO_ENABLED=0 go run ./example/controls
 package main
@@ -17,6 +19,8 @@ import (
 	"math"
 	"os"
 	"os/signal"
+	"slices"
+	"strconv"
 	"time"
 
 	"github.com/marrasen/gunim"
@@ -31,7 +35,13 @@ type (
 	Page struct {
 		Status  string
 		Picture *paint.Image
+		// Items are the long list's keys.
+		Items []widget.Key
 	}
+	// Added travels when the long list's Add button is pressed.
+	Added struct{}
+	// Removed travels when an item's Remove button is pressed.
+	Removed struct{ Item widget.Key }
 	// Next travels when the picture button is pressed.
 	Next struct{}
 	// Toggled travels when a checkbox or switch flips.
@@ -57,6 +67,8 @@ func init() {
 	gunim.RegisterType[Next]("controls.next")
 	gunim.RegisterType[Toggled]("controls.toggled")
 	gunim.RegisterType[Slid]("controls.slid")
+	gunim.RegisterType[Added]("controls.added")
+	gunim.RegisterType[Removed]("controls.removed")
 }
 
 var (
@@ -94,6 +106,7 @@ func run(runFor time.Duration) error {
 		gunim.RegisterView(w, "page", buildPage, func(p *page, s Page, u *gunim.UI) {
 			p.status.Text = s.Status
 			p.picture.SetSource(s.Picture, u)
+			p.items.SetKeys(s.Items, u)
 		})
 		return serve(ctx, w.Client())
 	})
@@ -104,6 +117,7 @@ type page struct {
 	*widget.Pad
 	status  *widget.Label
 	picture *widget.Image
+	items   *widget.VirtualList
 }
 
 func buildPage(s Page) *page {
@@ -148,12 +162,26 @@ func buildPage(s Page) *page {
 		p.Padding = widget.CardPadding
 		return p
 	}
-	tabs := widget.NewTabs([]string{"Popups", "Toggles", "Pictures"}, pad(popups), pad(toggles), pad(pictureRow))
+	items := widget.NewVirtualList(func(k widget.Key) gunim.Node {
+		label := widget.NewLabel("Item " + string(k))
+		remove := widget.NewButton("Remove")
+		remove.On = Removed{Item: k}
+		row := widget.Row(label, remove).Grow(label, 1)
+		row.Cross = widget.CrossCenter
+		return widget.NewCard(row)
+	})
+	add := widget.NewButton("Add at the top")
+	add.On = Added{}
+	long := widget.Column(widget.Row(add), items).Grow(items, 1)
+	long.Cross = widget.CrossStretch
+
+	tabs := widget.NewTabs([]string{"Popups", "Toggles", "Pictures", "Long list"},
+		pad(popups), pad(toggles), pad(pictureRow), pad(long))
 
 	status := widget.NewLabel(s.Status)
 	col := widget.Column(title, tabs, status).Grow(tabs, 1)
 	col.Cross = widget.CrossStretch
-	return &page{Pad: widget.NewPad(col), status: status, picture: picture}
+	return &page{Pad: widget.NewPad(col), status: status, picture: picture, items: items}
 }
 
 // pictures draws a few pictures to page through: soft bands of colour
@@ -202,7 +230,12 @@ func hsv(h, s, v float64) (r, g, b uint8) {
 
 func serve(ctx context.Context, c gunim.Client) error {
 	pics := pictures()
-	state := Page{Status: "Nothing chosen yet.", Picture: pics[0]}
+	items := make([]widget.Key, 100_000)
+	for i := range items {
+		items[i] = widget.Key(strconv.Itoa(i + 1))
+	}
+	added := len(items)
+	state := Page{Status: "Nothing chosen yet.", Picture: pics[0], Items: items}
 	if err := c.Mount(gunim.Root, "page", "page", state); err != nil {
 		return err
 	}
@@ -232,6 +265,16 @@ func serve(ctx context.Context, c gunim.Client) error {
 				}
 			case Slid:
 				state.Status = fmt.Sprintf("Volume %.0f.", v.Value)
+				_ = c.Update("page", state)
+			case Added:
+				added++
+				k := widget.Key(strconv.Itoa(added))
+				state.Items = append([]widget.Key{k}, state.Items...)
+				state.Status = fmt.Sprintf("Added item %s.", k)
+				_ = c.Update("page", state)
+			case Removed:
+				state.Items = slices.DeleteFunc(slices.Clone(state.Items), func(k widget.Key) bool { return k == v.Item })
+				state.Status = fmt.Sprintf("Removed item %s; %d left.", v.Item, len(state.Items))
 				_ = c.Update("page", state)
 			case Next:
 				shown = (shown + 1) % len(pics)

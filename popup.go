@@ -261,7 +261,7 @@ func (u *UI) framePopup(s *surface, f Frame) {
 	pp := &s.painters[i]
 	pp.Reset()
 	s.root.toWindow, s.root.drawn = paint.Identity, u.seq
-	s.root.node.Paint(pp, f, s.root.size, Children{ns: s.root.kids, f: f})
+	s.root.node.Paint(pp, f, s.root.size, Children{ns: s.root.kids, f: f, s: s.root})
 	if s.inFlight {
 		s.stale = true
 		return
@@ -277,7 +277,7 @@ func (u *UI) framePopup(s *surface, f Frame) {
 // layoutPopup lays out a popup's content and returns the size its
 // window takes.
 func (u *UI) layoutPopup(s *surface, f Frame) geom.Size {
-	s.root.size = s.root.node.Layout(Loose(s.opts.Max), f, Children{ns: s.root.kids, f: f})
+	s.root.size = s.root.node.Layout(Loose(s.opts.Max), f, Children{ns: s.root.kids, f: f, s: s.root})
 	return geom.Sz(max(1, s.root.size.W), max(1, s.root.size.H))
 }
 

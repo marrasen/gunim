@@ -257,6 +257,14 @@ type row struct {
 	slide *anim.Float
 
 	presence gunim.Presence
+	// inner is the item's own height at the last layout.
+	inner float32
+	// instant is set for a row a virtual list builds or drops as it
+	// scrolls, which appears and goes at once: the change is in what
+	// is in view, where nothing arrived or left.
+	instant bool
+	// laid is set by the row's first layout.
+	laid bool
 }
 
 func newRow(key Key, child gunim.Node) *row {
@@ -282,6 +290,15 @@ func (r *row) Children() []gunim.Node { return []gunim.Node{r.child} }
 // come to rest, which is what holds its place in the tree long enough
 // for the gap to close.
 func (r *row) Transition(p gunim.Presence, f gunim.Frame) bool {
+	if r.instant {
+		switch p {
+		case gunim.Entering:
+			r.fade.Jump(1)
+			r.slide.Jump(1)
+		case gunim.Exiting, gunim.Present:
+		}
+		return true
+	}
 	switch p {
 	case gunim.Entering:
 		r.fade.Animate(1, Quick.Get(f.Theme))
@@ -307,11 +324,16 @@ func (r *row) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) ge
 	// Open toward the item's own height, and closed while leaving. The
 	// list reads the result as this row's height, so the rows below it
 	// move as it goes.
+	r.inner = inner.H
 	target := inner.H
 	spring := Quick.Get(f.Theme)
 	if r.presence == gunim.Exiting {
 		target, spring = 0, Settle.Get(f.Theme)
 	}
+	if r.instant && !r.laid {
+		r.height.Jump(target)
+	}
+	r.laid = true
 	r.height.Animate(target, spring)
 
 	return geom.Sz(c.Max.W, r.height.Value())
@@ -321,6 +343,13 @@ func (r *row) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) ge
 func (r *row) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.Children) {
 	t := r.fade.Value()
 	if t <= 0 || box.H <= 0 {
+		return
+	}
+	// At rest, the row draws its item as it is. The layer is for the
+	// fade and the clip while it opens and closes, and each one ends a
+	// batch of drawing.
+	if t >= 1 && r.slide.Value() >= 1 && box.H >= r.inner {
+		kids.At(0).Paint(p)
 		return
 	}
 	// Clipping to the animated height keeps the item its own size while

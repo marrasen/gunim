@@ -191,3 +191,39 @@ func TestHoverEntersEveryNodeAroundThePointer(t *testing.T) {
 		t.Fatal("leaving the window did not leave both")
 	}
 }
+
+// builder builds one child, 50 by 50 at (10, 10), in its first layout.
+type builder struct {
+	made *recorder
+}
+
+func (b *builder) Layout(c Constraints, _ Frame, kids Children) geom.Size {
+	if b.made == nil {
+		b.made = &recorder{}
+		k := kids.Build(b.made)
+		k.Layout(Tight(geom.Sz(50, 50)))
+		k.Place(geom.Pt(10, 10))
+	}
+	for k := range kids.All {
+		k.Layout(Tight(geom.Sz(50, 50)))
+		k.Place(geom.Pt(10, 10))
+	}
+	return c.Max
+}
+
+func (b *builder) Paint(p *paint.Painter, _ Frame, _ geom.Size, kids Children) {
+	for k := range kids.All {
+		k.Paint(p)
+	}
+}
+
+func TestAChildBuiltInLayoutPaintsAndTakesInputThatFrame(t *testing.T) {
+	w := newTestWindow()
+	b := &builder{}
+	w.ui.Insert(w.ui.Root(), b)
+	run(w, 1)
+	press(w, 30, 30)
+	if !b.made.got(input.PointerDown{}) {
+		t.Fatal("the built child took no press after its first frame")
+	}
+}

@@ -240,6 +240,8 @@ type Frame struct {
 	// seq numbers the frame, so the engine can tell which nodes this
 	// frame drew.
 	seq uint64
+	// u is the UI laying out and painting the frame.
+	u *UI
 }
 
 // Children is a node's children, in order. It is valid only for the
@@ -247,6 +249,31 @@ type Frame struct {
 type Children struct {
 	ns []*state
 	f  Frame
+	// s is the node the children belong to.
+	s *state
+}
+
+// Build adds n as a child during layout, and returns it ready to lay
+// out and place. It is for a node that makes its children as it lays
+// them out, such as a list that builds only the rows in view. The child
+// is [Entering], so its Transition runs from the next frame. It is left
+// out of this Children, and the next layout sees it among the rest.
+//
+// Build may be called only from Layout.
+func (c Children) Build(n Node) Child {
+	u := c.f.u
+	if u == nil || c.s == nil {
+		panic("gunim: Children.Build outside layout")
+	}
+	u.Insert(c.s.node, n)
+	return Child{n: u.index[n], f: c.f}
+}
+
+// Drop starts a child's exit during layout, as [UI.Remove] does.
+func (c Children) Drop(n Node) {
+	if u := c.f.u; u != nil {
+		u.Remove(n)
+	}
 }
 
 // Len returns the number of children, including any that are exiting.
@@ -285,7 +312,7 @@ func (c Child) Presence() Presence { return c.n.presence }
 // Layout lays the child out within cs and returns the size it chose.
 func (c Child) Layout(cs Constraints) geom.Size {
 	f := scoped(c.f, c.n.node)
-	c.n.size = c.n.node.Layout(cs, f, Children{ns: c.n.kids, f: f})
+	c.n.size = c.n.node.Layout(cs, f, Children{ns: c.n.kids, f: f, s: c.n})
 	return c.n.size
 }
 
@@ -312,7 +339,7 @@ func (c Child) Paint(p *paint.Painter) {
 	c.n.clip = p.Clip()
 	c.n.drawn = c.f.seq
 	f := scoped(c.f, c.n.node)
-	c.n.node.Paint(p, f, c.n.size, Children{ns: c.n.kids, f: f})
+	c.n.node.Paint(p, f, c.n.size, Children{ns: c.n.kids, f: f, s: c.n})
 }
 
 // state is the engine's bookkeeping for one node. It stays inside the
