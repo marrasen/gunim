@@ -672,6 +672,11 @@ type UI struct {
 	drag     *drag
 	dragFrom *state
 	dragAt   *state
+	// dragOver is set while a drag is over this window, at dragOverAt,
+	// carrying dragOverData, for scrolling at the edges.
+	dragOver     bool
+	dragOverAt   geom.Point
+	dragOverData any
 	// aids counts the IDs given to nodes for assistive technology, and
 	// byAID finds a node by its ID, as of the last tree published.
 	aids  uint64
@@ -1082,12 +1087,16 @@ func (u *UI) frame(now time.Time, delta time.Duration) {
 	u.invalid = false
 	u.runTimers()
 	u.flush()
+	// Scroll what a held drag is near the edge of, while the nodes are
+	// still where the last frame drew them, to find what the pointer is
+	// over.
+	scrolled := u.edgeScroll(delta)
 	u.seq++
 	f := Frame{Now: now, Delta: delta, Scale: u.w.dw.Scale(), Theme: u.theme, seq: u.seq, u: u}
 
 	// 1. Advance every animated value by the real elapsed time, the
 	//    theme's included.
-	animating := u.theme.Step(delta)
+	animating := u.theme.Step(delta) || scrolled
 	for _, r := range u.roots() {
 		if u.step(r, delta) {
 			animating = true

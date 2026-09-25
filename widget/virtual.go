@@ -2,6 +2,7 @@ package widget
 
 import (
 	"slices"
+	"time"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
@@ -266,6 +267,12 @@ func (l *VirtualList) Handle(e input.Event, u *gunim.UI) bool { return l.handle(
 // Reveal implements [gunim.Revealer]: it scrolls just far enough to
 // bring r, in the list's own space, into view.
 func (l *VirtualList) Reveal(r geom.Rect, u *gunim.UI) { l.reveal(r, u) }
+
+// EdgeScroll implements [gunim.EdgeScroller]: a drag held near the top
+// or the bottom scrolls the list.
+func (l *VirtualList) EdgeScroll(p geom.Point, dt time.Duration, u *gunim.UI) geom.Point {
+	return l.edgeScroll(p, dt, u)
+}
 
 // Layout implements [gunim.Node].
 //

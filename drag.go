@@ -286,6 +286,21 @@ func (w *Window) sendDrag(to *Window, m dragMsg) {
 	}
 }
 
+// dragHover offers a drag of data at p, in the window's space, to the
+// node under it, and tells the node it left, if another took it.
+func (u *UI) dragHover(p geom.Point, data any) {
+	now := time.Now()
+	took := u.dispatchAt(u.root, p, func(local geom.Point) input.Event {
+		return input.DragOver{Pos: local, Data: data, Time: now}
+	})
+	if took != u.dragAt {
+		if u.dragAt != nil {
+			u.deliver(u.dragAt, input.DragLeave{Time: now})
+		}
+		u.dragAt = took
+	}
+}
+
 // dragMsg handles one step of a drag over this window.
 func (u *UI) dragMsg(m dragMsg) {
 	u.invalid = true
@@ -293,21 +308,16 @@ func (u *UI) dragMsg(m dragMsg) {
 	switch m.kind {
 	case dragOver:
 		p := fromScreen(u.w, m.at)
-		took := u.dispatchAt(u.root, p, func(local geom.Point) input.Event {
-			return input.DragOver{Pos: local, Data: m.data, Time: now}
-		})
-		if took != u.dragAt {
-			if u.dragAt != nil {
-				u.deliver(u.dragAt, input.DragLeave{Time: now})
-			}
-			u.dragAt = took
-		}
+		u.dragOver, u.dragOverAt, u.dragOverData = true, p, m.data
+		u.dragHover(p, m.data)
 	case dragLeave:
+		u.dragOver, u.dragOverData = false, nil
 		if u.dragAt != nil {
 			u.deliver(u.dragAt, input.DragLeave{Time: now})
 			u.dragAt = nil
 		}
 	case dragDrop:
+		u.dragOver, u.dragOverData = false, nil
 		p := fromScreen(u.w, m.at)
 		took := u.dispatchAt(u.root, p, func(local geom.Point) input.Event {
 			return input.Drop{Pos: local, Data: m.data, Time: now}

@@ -68,6 +68,10 @@ func (l *List) Handle(e input.Event, u *gunim.UI) bool {
 	return true
 }
 
+// DragHeld implements [gunim.DragHolder]: a row held up by the pointer
+// scrolls the views around the list when it nears their edges.
+func (l *List) DragHeld() bool { return l.drag.active }
+
 // drop ends a drag, into the gap, and tells the application of the new
 // order. The row springs into its place from where it was let go.
 func (l *List) drop(u *gunim.UI) {

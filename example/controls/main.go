@@ -256,7 +256,9 @@ func buildPage(s Page) *page {
 
 	tasks := widget.NewList()
 	tasks.Reorder = func(keys []widget.Key) gunim.Intent { return Arranged{Tasks: keys} }
-	arrange := widget.Column(widget.NewLabel("Drag the tasks into order."), tasks)
+	// Hold a task near the top or the bottom to scroll the list.
+	taskView := widget.NewScroll(tasks)
+	arrange := widget.Column(widget.NewLabel("Drag the tasks into order. Hold one near an edge to scroll."), taskView).Grow(taskView, 1)
 	arrange.Cross = widget.CrossStretch
 
 	tabs := widget.NewTabs([]string{"Popups", "Toggles", "Pictures", "Long list", "Arrange"},
@@ -382,7 +384,9 @@ func serve(ctx context.Context, c, bc gunim.Client) error {
 	}
 	added := len(items)
 	state := Page{Status: "Nothing chosen yet.", Pictures: pics, Items: items,
-		Tasks: []widget.Key{"Water the plants", "Answer the letters", "Bake the bread", "Mend the fence", "Read a chapter"}}
+		Tasks: []widget.Key{"Water the plants", "Answer the letters", "Bake the bread", "Mend the fence", "Read a chapter",
+			"Sweep the porch", "Walk the dog", "Fix the bicycle", "Call grandmother", "Plant the bulbs",
+			"Oil the hinges", "Sort the photos"}}
 	if err := c.Mount(gunim.Root, "page", "page", state); err != nil {
 		return err
 	}

@@ -1,6 +1,8 @@
 package widget
 
 import (
+	"time"
+
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
@@ -39,6 +41,12 @@ func (s *Scroll) Handle(e input.Event, u *gunim.UI) bool { return s.handle(e, u)
 // bring r, in the Scroll's own space, fully into view, with a little
 // room around it.
 func (s *Scroll) Reveal(r geom.Rect, u *gunim.UI) { s.reveal(r, u) }
+
+// EdgeScroll implements [gunim.EdgeScroller]: a drag held near the top
+// or the bottom scrolls the view.
+func (s *Scroll) EdgeScroll(p geom.Point, dt time.Duration, u *gunim.UI) geom.Point {
+	return s.edgeScroll(p, dt, u)
+}
 
 // Layout implements [gunim.Node].
 func (s *Scroll) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {

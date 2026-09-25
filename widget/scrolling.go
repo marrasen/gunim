@@ -199,6 +199,48 @@ func (s *scrolling) handle(e input.Event, u *gunim.UI) bool {
 	return true
 }
 
+// A drag held near an edge scrolls, faster the nearer it is: from
+// nothing at edgeZone inside, to edgeSpeed at the edge, and on to four
+// times that as far again past it.
+const (
+	edgeZone  = 40
+	edgeSpeed = 700
+)
+
+// edgeScroll scrolls for a drag held at p, in the widget's space, over
+// a frame of dt, and returns how far the content moved.
+func (s *scrolling) edgeScroll(p geom.Point, dt time.Duration, u *gunim.UI) geom.Point {
+	if s.held || s.end() <= 0 {
+		return geom.Point{}
+	}
+	zone := min(float32(edgeZone), s.viewport/4)
+	var v float32
+	switch {
+	case p.Y < zone:
+		t := min((zone-p.Y)/zone, 2)
+		v = -edgeSpeed * t * t
+	case p.Y > s.viewport-zone:
+		t := min((p.Y-s.viewport+zone)/zone, 2)
+		v = edgeSpeed * t * t
+	default:
+		return geom.Point{}
+	}
+	// A frame after a pause covers the pause; the scroll picks up from
+	// where it was.
+	secs := float32(min(dt, 50*time.Millisecond).Seconds())
+	from := s.offset.Value()
+	to := s.clamp(from + v*secs)
+	if to == from {
+		return geom.Point{}
+	}
+	s.flinging = false
+	s.target = to
+	s.offset.Jump(to)
+	s.showBar()
+	u.Invalidate()
+	return geom.Pt(0, from-to)
+}
+
 // base is the offset the wheel and the keys count from: the target, or
 // where a fling has got to.
 func (s *scrolling) base() float32 {
