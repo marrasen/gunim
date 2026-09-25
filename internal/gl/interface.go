@@ -38,6 +38,8 @@ type Context interface {
 	BufferSubData(target uint32, offset int, data []byte)
 	CheckFramebufferStatus(target uint32) uint32
 	Clear(mask uint32)
+	// ClearColor is a gunim change.
+	ClearColor(red, green, blue, alpha float32)
 	ColorMask(red, green, blue, alpha bool)
 	CompileShader(shader uint32)
 	CreateBuffer() uint32

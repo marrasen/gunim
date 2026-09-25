@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"image/color"
 	"math"
+	"os"
 	"unsafe"
 
 	"github.com/marrasen/gunim/geom"
@@ -415,12 +416,16 @@ func (r *renderer) draw(ops []paint.Op, damage geom.Rect, fbW, fbH int, scale fl
 	g.BindFramebuffer(gl.FRAMEBUFFER, r.fbo(0))
 	g.Viewport(0, 0, int32(fbW), int32(fbH))
 	r.bindDraw()
+	if r.direct {
+		clearWindow(g)
+	}
 	if !box.Empty() {
 		if !whole {
 			g.Enable(gl.SCISSOR_TEST)
 			g.Scissor(scissor(box, fbW, fbH))
 		}
 		g.Clear(glColorBufferBit)
+		resetClear(g)
 		r.replay(ops)
 		r.flush()
 		if !whole {
@@ -430,11 +435,34 @@ func (r *renderer) draw(ops []paint.Op, damage geom.Rect, fbW, fbH int, scale fl
 	if !r.direct {
 		r.canvasOK, r.canvasScale = true, scale
 		g.BindFramebuffer(gl.FRAMEBUFFER, 0)
+		clearWindow(g)
 		g.Clear(glColorBufferBit)
+		resetClear(g)
 		r.composite(r.layers[0].tex, nil, 1, false, 0)
 		r.flush()
 	}
 	r.evictImages()
+}
+
+// debugClear is set by GUNIM_DEBUG_CLEAR=1, which clears the window to
+// magenta before each frame, so a part of the window no frame covers
+// shows. It is for finding where a stray band of colour comes from.
+var debugClear = os.Getenv("GUNIM_DEBUG_CLEAR") == "1"
+
+// clearWindow sets the colour the window's framebuffer clears to:
+// transparent, or magenta under GUNIM_DEBUG_CLEAR. Offscreen targets
+// always clear to transparent.
+func clearWindow(g gl.Context) {
+	if debugClear {
+		g.ClearColor(1, 0, 1, 1)
+	}
+}
+
+// resetClear puts the clear colour back to transparent.
+func resetClear(g gl.Context) {
+	if debugClear {
+		g.ClearColor(0, 0, 0, 0)
+	}
 }
 
 // deviceBox turns damage in logical pixels into the whole device pixels

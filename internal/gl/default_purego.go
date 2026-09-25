@@ -24,6 +24,8 @@ import (
 )
 
 type defaultContext struct {
+	clearColor func(red, green, blue, alpha float32) // gunim change
+
 	gpActiveTexture            uintptr
 	gpAttachShader             uintptr
 	gpBindAttribLocation       uintptr
@@ -57,6 +59,7 @@ type defaultContext struct {
 	gpFinish                   uintptr
 	gpFlush                    uintptr
 	gpGenerateMipmap           uintptr // gunim change
+	gpClearColor               uintptr // gunim change
 	gpFramebufferRenderbuffer  uintptr
 	gpFramebufferTexture2D     uintptr
 	gpGenBuffers               uintptr
@@ -294,6 +297,12 @@ func (c *defaultContext) GenerateMipmap(target uint32) {
 	purego.SyscallN(c.gpGenerateMipmap, uintptr(target))
 }
 
+// ClearColor is a gunim change. The floats travel as a func type,
+// since purego passes floats only through RegisterFunc.
+func (c *defaultContext) ClearColor(red, green, blue, alpha float32) {
+	c.clearColor(red, green, blue, alpha)
+}
+
 func (c *defaultContext) FramebufferRenderbuffer(target uint32, attachment uint32, renderbuffertarget uint32, renderbuffer uint32) {
 	purego.SyscallN(c.gpFramebufferRenderbuffer, uintptr(target), uintptr(attachment), uintptr(renderbuffertarget), uintptr(renderbuffer))
 }
@@ -521,6 +530,10 @@ func (c *defaultContext) LoadFunctions() error {
 	c.gpFinish = g.get("glFinish")
 	c.gpFlush = g.get("glFlush")
 	c.gpGenerateMipmap = g.get("glGenerateMipmap") // gunim change
+	c.gpClearColor = g.get("glClearColor")         // gunim change
+	if c.gpClearColor != 0 {
+		purego.RegisterFunc(&c.clearColor, c.gpClearColor)
+	}
 	c.gpFramebufferRenderbuffer = g.get("glFramebufferRenderbuffer")
 	c.gpFramebufferTexture2D = g.get("glFramebufferTexture2D")
 	c.gpGenBuffers = g.get("glGenBuffers")

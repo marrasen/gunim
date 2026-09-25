@@ -122,22 +122,48 @@ func recordGallery(p *paint.Painter, rows int, hover float32) {
 
 // BenchmarkRenderHover draws the gallery with one button easing into
 // its hover colour: every frame differs from the last in that button
-// alone.
+// alone, so each redraws that button and copies the canvas to the
+// window. The frames are recorded beforehand, so this times drawing
+// alone; compare it with BenchmarkRenderGallery, which draws the whole
+// frame straight to the window.
 func BenchmarkRenderHover(b *testing.B) {
 	r, done := hiddenGL(b)
 	defer done()
-	var p paint.Painter
+	var still, lit, diff paint.Painter
+	recordGallery(&still, 40, 0)
+	recordGallery(&lit, 40, 1)
+	recordGallery(&diff, 40, 0)
+	recordGallery(&diff, 40, 1)
+	damage := diff.Damage()
 	w, h := int(benchSize.W), int(benchSize.H)
-	recordGallery(&p, 40, 0)
-	r.draw(p.Ops(), p.Damage(), w, h, 1)
+	// Fill the canvas, so every frame after draws in part.
+	r.draw(still.Ops(), paint.Everything, w, h, 1)
+	r.draw(still.Ops(), damage, w, h, 1)
 	r.gl.Finish()
 	b.ResetTimer()
 	for i := range b.N {
-		recordGallery(&p, 40, float32(i%2))
-		r.draw(p.Ops(), p.Damage(), w, h, 1)
+		ops := still.Ops()
+		if i%2 == 1 {
+			ops = lit.Ops()
+		}
+		r.draw(ops, damage, w, h, 1)
 		r.gl.Finish()
 	}
 	b.ReportMetric(float64(r.redrawn.Size().W*r.redrawn.Size().H), "px/frame")
+}
+
+// BenchmarkRecordGallery times what the engine does for each frame on
+// the CPU before the driver draws it: recording the gallery's ops and
+// finding what changed since the frame before.
+func BenchmarkRecordGallery(b *testing.B) {
+	var p paint.Painter
+	recordGallery(&p, 40, 0)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := range b.N {
+		recordGallery(&p, 40, float32(i%2))
+		_ = p.Damage()
+	}
 }
 
 // canvas reads the renderer's canvas.

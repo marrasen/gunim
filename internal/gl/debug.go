@@ -333,6 +333,15 @@ func (d *DebugContext) Flush() {
 	}
 }
 
+// ClearColor is a gunim change.
+func (d *DebugContext) ClearColor(arg0, arg1, arg2, arg3 float32) {
+	d.Context.ClearColor(arg0, arg1, arg2, arg3)
+	fmt.Fprintln(os.Stderr, "ClearColor")
+	if e := d.Context.GetError(); e != NO_ERROR {
+		panic(fmt.Sprintf("gl: GetError() returned %d at ClearColor", e))
+	}
+}
+
 // GenerateMipmap is a gunim change.
 func (d *DebugContext) GenerateMipmap(arg0 uint32) {
 	d.Context.GenerateMipmap(arg0)
