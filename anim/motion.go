@@ -173,3 +173,39 @@ func abs32(v float32) float32 {
 	}
 	return v
 }
+
+// Decay coasts a value on its velocity, which falls away exponentially,
+// the way content flung by a finger slows to a stop. It ignores the
+// target: start it with [Fling], which aims the target at where the
+// value will come to rest.
+type Decay struct {
+	// Tau is how long, in seconds, the velocity takes to fall to about
+	// a third of itself. The value travels velocity times Tau in all.
+	Tau float32
+}
+
+// Step implements [Motion].
+func (d Decay) Step(s *State, dt time.Duration) bool {
+	dt = min(dt, maxStep)
+	tau := float64(max(d.Tau, 0.01))
+	e := math.Exp(-dt.Seconds() / tau)
+	s.Position += float32(float64(s.Velocity) * tau * (1 - e))
+	s.Velocity *= float32(e)
+	s.Elapsed += dt
+	if abs32(s.Velocity) < 2 {
+		s.Velocity = 0
+		s.To = s.Position
+		return true
+	}
+	return false
+}
+
+// Fling sets a moving at velocity v, in units a second, coasting to a
+// stop under d. A spring started on a afterwards carries the velocity
+// on, which is how content flung past its end bounces back.
+func Fling(a *Float, v float32, d Decay) {
+	s := &a.state[0]
+	s.Velocity = v
+	rest := s.Position + v*max(d.Tau, 0.01)
+	a.Retarget(rest, d)
+}

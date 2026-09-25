@@ -32,14 +32,31 @@ type Key string
 type List struct {
 	anim.Group
 
+	// Reorder, when set, lets the pointer drag rows into a new order,
+	// and turns the order a drop leaves into an intent for the
+	// application. See [List.Handle].
+	Reorder func(keys []Key) gunim.Intent
+
 	rows   map[Key]*row
 	order  []Key
 	height float32
+
+	// slots holds each row's place from the last layout, for finding
+	// the row under the pointer.
+	slots map[Key][2]float32
+	// drag is the row the pointer is dragging, and lift carries it up
+	// off the list and back down.
+	drag reorder
+	lift *anim.Float
+	// spacing is the gap between rows at the last layout.
+	spacing float32
 }
 
 // NewList returns an empty list.
 func NewList() *List {
-	return &List{rows: map[Key]*row{}}
+	l := &List{rows: map[Key]*row{}, slots: map[Key][2]float32{}, lift: anim.NewFloat(0)}
+	l.Add(l.lift)
+	return l
 }
 
 // Len returns how many rows are on screen, counting those animating
@@ -177,6 +194,7 @@ func mergeOrder(prev, next []Key, leaving map[Key]bool) []Key {
 // Layout implements [gunim.Node].
 func (l *List) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
 	spacing := ListSpacing.Get(f.Theme)
+	l.spacing = spacing
 	move := Quick.Get(f.Theme)
 	// The engine owns what exists, so reap anything it has already
 	// taken out of the tree.
@@ -196,8 +214,16 @@ func (l *List) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) g
 
 	width := c.Max.W
 	y := float32(0)
-	for _, k := range l.order {
-		kid := live[k]
+	order := l.order
+	if l.drag.active {
+		order = l.dropOrder()
+	}
+	clear(l.slots)
+	for _, k := range order {
+		kid, ok := live[k]
+		if !ok {
+			continue
+		}
 		r := l.rows[k]
 
 		// Presence comes from the engine, so a row learns it is leaving
@@ -210,9 +236,15 @@ func (l *List) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) g
 		})
 
 		// The target is where the row belongs; the spring says where it
-		// is right now. That gap is the movement animation.
-		r.y.Animate(y, move)
+		// is right now. That gap is the movement animation. A row being
+		// dragged goes where the pointer has it.
+		if l.drag.active && k == l.drag.key {
+			r.y.Jump(l.drag.y)
+		} else {
+			r.y.Animate(y, move)
+		}
 		kid.Place(geom.Pt(0, r.y.Value()))
+		l.slots[k] = [2]float32{y, size.H}
 
 		y += size.H + closing(spacing, size.H, r)
 	}
@@ -223,10 +255,20 @@ func (l *List) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) g
 	return c.Constrain(geom.Sz(width, y))
 }
 
-// Paint implements [gunim.Node].
-func (l *List) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim.Children) {
+// Paint implements [gunim.Node]. A row that is lifted, being dragged or
+// settling from a drop, is drawn last, over the rest, with a shadow.
+func (l *List) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.Children) {
+	var lifted gunim.Child
+	up := false
 	for kid := range kids.All {
+		if r, ok := kid.Node().(*row); ok && r.key == l.drag.key && l.lift.Value() > 0.001 {
+			lifted, up = kid, true
+			continue
+		}
 		kid.Paint(p)
+	}
+	if up {
+		l.paintLifted(p, f, box, lifted)
 	}
 }
 

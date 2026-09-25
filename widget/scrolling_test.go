@@ -1,0 +1,109 @@
+package widget
+
+import (
+	"testing"
+	"time"
+
+	"github.com/marrasen/gunim"
+	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/input"
+)
+
+// newDragList mounts a 300 by 400 list of 200 rows of 40, 9194 tall in
+// all, which the pointer can drag.
+func newDragList(t *testing.T) (*gunim.Window, *VirtualList, func(int)) {
+	t.Helper()
+	w, l, run := newVirtual(t, keys(200), 40)
+	l.DragScroll = true
+	return w, l, run
+}
+
+// drag presses at (100, from), moves down to the given y in steps over
+// d, and lets
+// go, with timestamps ending now, as a hand would.
+func drag(w *gunim.Window, from, to float32, d time.Duration) {
+	const steps = 8
+	end := time.Now()
+	start := end.Add(-d)
+	w.Input(input.PointerDown{Pos: geom.Pt(100, from), Clicks: 1, Time: start})
+	for i := 1; i <= steps; i++ {
+		y := from + (to-from)*float32(i)/steps
+		w.Input(input.PointerMove{Pos: geom.Pt(100, y), Time: start.Add(d * time.Duration(i) / steps)})
+	}
+	w.Input(input.PointerUp{Pos: geom.Pt(100, to), Time: end})
+}
+
+func TestAFlingCarriesOnAfterRelease(t *testing.T) {
+	w, l, run := newDragList(t)
+	drag(w, 300, 100, 80*time.Millisecond) // 200 px in 80 ms: a fast flick
+	if at := l.Offset(); at < 199 || at > 201 {
+		t.Fatalf("after dragging 200 px the list is at %v", at)
+	}
+	prev := l.Offset()
+	for range 120 {
+		run(1)
+		now := l.Offset()
+		if now < prev-0.01 {
+			t.Fatalf("the fling went backwards, from %v to %v", prev, now)
+		}
+		prev = now
+	}
+	if prev < 600 {
+		t.Fatalf("the fling stopped at %v, want well past the 200 dragged", prev)
+	}
+}
+
+func TestADragPastTheTopStretchesAndSpringsBack(t *testing.T) {
+	w, l, run := newDragList(t)
+	start := time.Now()
+	w.Input(input.PointerDown{Pos: geom.Pt(100, 100), Clicks: 1, Time: start})
+	w.Input(input.PointerMove{Pos: geom.Pt(100, 300), Time: start.Add(time.Second)})
+	at := l.Offset()
+	if at >= 0 || at <= -200 {
+		t.Fatalf("a drag of 200 past the top shows offset %v, want part of the way", at)
+	}
+	w.Input(input.PointerUp{Pos: geom.Pt(100, 300), Time: start.Add(2 * time.Second)})
+	prev := at
+	for range 120 {
+		run(1)
+		now := l.Offset()
+		if now < prev-0.01 || now > 0.5 {
+			t.Fatalf("springing back went from %v to %v", prev, now)
+		}
+		prev = now
+	}
+	if prev != 0 {
+		t.Fatalf("settled at %v, want 0", prev)
+	}
+}
+
+func TestAFlingPastTheEndBouncesBack(t *testing.T) {
+	w, l, run := newDragList(t)
+	end := float32(200*46 - 6 - 400)
+	l.ScrollTo(end-100, Quick.Default())
+	run(120)
+	drag(w, 300, 200, 40*time.Millisecond) // fast, toward the end
+	most := l.Offset()
+	for range 180 {
+		run(1)
+		most = max(most, l.Offset())
+	}
+	if most <= end {
+		t.Fatalf("the fling stopped at the end, %v, without running past it", most)
+	}
+	if at := l.Offset(); at < end-0.5 || at > end+0.5 {
+		t.Fatalf("settled at %v, want the end, %v", at, end)
+	}
+}
+
+func TestTheWheelTakesOverAFlingFromWhereItIs(t *testing.T) {
+	w, l, run := newDragList(t)
+	drag(w, 300, 100, 80*time.Millisecond)
+	run(10)
+	at := l.Offset()
+	w.Input(input.Scroll{Pos: geom.Pt(100, 100), Delta: geom.Pt(0, -40)})
+	run(120)
+	if got := l.Offset(); got < at+39 || got > at+41 {
+		t.Fatalf("the wheel took over at %v and ended at %v, want 40 further", at, got)
+	}
+}

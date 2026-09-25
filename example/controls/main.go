@@ -6,7 +6,8 @@
 // clicked again. The application draws the pictures and
 // hands them to the window in its state, by reference. The fourth is a
 // list of a hundred thousand items, of which only those in view are
-// built; adding and removing items animates.
+// built; adding and removing items animates, and a drag flings it. The
+// fifth is a list to put in order by dragging its rows.
 //
 //	CGO_ENABLED=0 go run ./example/controls
 package main
@@ -38,13 +39,17 @@ type (
 	Page struct {
 		Status   string
 		Pictures []*paint.Image
-		// Items are the long list's keys.
+		// Items are the long list's keys, and Tasks the order of the
+		// list to arrange.
 		Items []widget.Key
+		Tasks []widget.Key
 	}
 	// Added travels when the long list's Add button is pressed.
 	Added struct{}
 	// Removed travels when an item's Remove button is pressed.
 	Removed struct{ Item widget.Key }
+	// Arranged travels when a task is dropped in a new place.
+	Arranged struct{ Tasks []widget.Key }
 	// Opened travels when a thumbnail is clicked.
 	Opened struct{ Index int }
 	// Closed travels when the open picture is clicked.
@@ -81,6 +86,7 @@ func init() {
 	gunim.RegisterType[Slid]("controls.slid")
 	gunim.RegisterType[Added]("controls.added")
 	gunim.RegisterType[Removed]("controls.removed")
+	gunim.RegisterType[Arranged]("controls.arranged")
 }
 
 var (
@@ -119,6 +125,7 @@ func run(runFor time.Duration) error {
 		gunim.RegisterView(w, "page", buildPage, func(p *page, s Page, u *gunim.UI) {
 			p.status.Text = s.Status
 			p.items.SetKeys(s.Items, u)
+			widget.Sync(p.tasks, u, s.Tasks, func(k widget.Key) widget.Key { return k }, newTask, nil)
 		})
 		return serve(ctx, w.Client())
 	})
@@ -129,6 +136,7 @@ type page struct {
 	*widget.Pad
 	status *widget.Label
 	items  *widget.VirtualList
+	tasks  *widget.List
 }
 
 func buildPage(s Page) *page {
@@ -185,17 +193,26 @@ func buildPage(s Page) *page {
 	})
 	add := widget.NewButton("Add at the top")
 	add.On = Added{}
+	items.DragScroll = true
 	long := widget.Column(widget.Row(add), items).Grow(items, 1)
 	long.Cross = widget.CrossStretch
 
-	tabs := widget.NewTabs([]string{"Popups", "Toggles", "Pictures", "Long list"},
-		pad(popups), pad(toggles), pad(pictureRow), pad(long))
+	tasks := widget.NewList()
+	tasks.Reorder = func(keys []widget.Key) gunim.Intent { return Arranged{Tasks: keys} }
+	arrange := widget.Column(widget.NewLabel("Drag the tasks into order."), tasks)
+	arrange.Cross = widget.CrossStretch
+
+	tabs := widget.NewTabs([]string{"Popups", "Toggles", "Pictures", "Long list", "Arrange"},
+		pad(popups), pad(toggles), pad(pictureRow), pad(long), pad(arrange))
 
 	status := widget.NewLabel(s.Status)
 	col := widget.Column(title, tabs, status).Grow(tabs, 1)
 	col.Cross = widget.CrossStretch
-	return &page{Pad: widget.NewPad(col), status: status, items: items}
+	return &page{Pad: widget.NewPad(col), status: status, items: items, tasks: tasks}
 }
+
+// newTask makes the row for a task: its name on a card.
+func newTask(k widget.Key) *widget.Card { return widget.NewCard(widget.NewLabel(string(k))) }
 
 func heroTag(i int) string { return "picture-" + strconv.Itoa(i) }
 
@@ -343,7 +360,8 @@ func serve(ctx context.Context, c gunim.Client) error {
 		items[i] = widget.Key(strconv.Itoa(i + 1))
 	}
 	added := len(items)
-	state := Page{Status: "Nothing chosen yet.", Pictures: pics, Items: items}
+	state := Page{Status: "Nothing chosen yet.", Pictures: pics, Items: items,
+		Tasks: []widget.Key{"Water the plants", "Answer the letters", "Bake the bread", "Mend the fence", "Read a chapter"}}
 	if err := c.Mount(gunim.Root, "page", "page", state); err != nil {
 		return err
 	}
@@ -382,6 +400,10 @@ func serve(ctx context.Context, c gunim.Client) error {
 			case Removed:
 				state.Items = slices.DeleteFunc(slices.Clone(state.Items), func(k widget.Key) bool { return k == v.Item })
 				state.Status = fmt.Sprintf("Removed item %s; %d left.", v.Item, len(state.Items))
+				_ = c.Update("page", state)
+			case Arranged:
+				state.Tasks = v.Tasks
+				state.Status = fmt.Sprintf("First up: %s.", v.Tasks[0])
 				_ = c.Update("page", state)
 			case Opened:
 				_ = c.Mount(gunim.Root, "photo", "photo", Photo{Index: v.Index, Picture: pics[v.Index]})

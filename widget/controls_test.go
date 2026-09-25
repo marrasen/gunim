@@ -22,6 +22,9 @@ var (
 	_ gunim.Animator = (*Menu)(nil)
 	_ gunim.Animator = (*Dropdown)(nil)
 	_ gunim.Animator = (*Image)(nil)
+	_ gunim.Animator = (*Scroll)(nil)
+	_ gunim.Animator = (*VirtualList)(nil)
+	_ gunim.Animator = (*Hero)(nil)
 )
 
 type (

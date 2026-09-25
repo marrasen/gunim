@@ -2,14 +2,12 @@ package widget
 
 import (
 	"slices"
-	"time"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
-	"github.com/marrasen/gunim/theme"
 )
 
 // VirtualList shows a long list of items and scrolls through it,
@@ -29,7 +27,7 @@ import (
 // The list scrolls itself, as a [Scroll] does: the wheel and the keys
 // glide it with a spring, and a thin bar shows while it moves.
 type VirtualList struct {
-	anim.Group
+	scrolling
 
 	// Estimate is the height assumed for a row not yet laid out. Zero
 	// means 40.
@@ -49,14 +47,6 @@ type VirtualList struct {
 	// animate marks the keys that arrived through SetKeys, whose rows
 	// grow in when built.
 	animate map[Key]bool
-
-	offset *anim.Float
-	target float32
-	bar    *anim.Float
-	idle   time.Duration
-	th     *theme.Live
-
-	content, viewport float32
 
 	// entry holds each row's height and the spacing after it, in
 	// order, and tops sums them, so finding the row at an offset and
@@ -180,13 +170,12 @@ const overscan = 300
 // build when the row comes into view.
 func NewVirtualList(build func(Key) gunim.Node) *VirtualList {
 	l := &VirtualList{
-		build:   build,
-		gone:    map[Key]bool{},
-		heights: map[Key]float32{},
-		live:    map[Key]*row{},
-		animate: map[Key]bool{},
-		offset:  anim.NewFloat(0),
-		bar:     anim.NewFloat(0),
+		scrolling: newScrolling(),
+		build:     build,
+		gone:      map[Key]bool{},
+		heights:   map[Key]float32{},
+		live:      map[Key]*row{},
+		animate:   map[Key]bool{},
 	}
 	return l
 }
@@ -261,22 +250,6 @@ func (l *VirtualList) ScrollToKey(key Key, u *gunim.UI) {
 	}
 }
 
-// ScrollTo sets the target offset, clamped to the content, and carries
-// the content there with motion.
-func (l *VirtualList) ScrollTo(y float32, motion anim.Motion) {
-	l.target = l.clamp(y)
-	l.offset.Animate(l.target, motion)
-	l.bar.Animate(1, Quick.Get(l.th))
-	l.idle = 0
-}
-
-// Offset returns how far the list is scrolled right now.
-func (l *VirtualList) Offset() float32 { return l.offset.Value() }
-
-func (l *VirtualList) clamp(y float32) float32 {
-	return max(0, min(y, l.content-l.viewport))
-}
-
 func (l *VirtualList) height(k Key) float32 {
 	if h, ok := l.heights[k]; ok {
 		return h
@@ -287,69 +260,12 @@ func (l *VirtualList) height(k Key) float32 {
 	return 40
 }
 
-// Step implements [gunim.Animator]. Once the list has rested for a
-// moment, the bar fades.
-func (l *VirtualList) Step(dt time.Duration) bool {
-	moving := l.offset.Step(dt)
-	if moving {
-		l.idle = 0
-	} else if l.bar.Target() > 0 {
-		l.idle += dt
-		if l.idle >= barLinger {
-			l.bar.Animate(0, Settle.Get(l.th))
-		}
-	}
-	barMoving := l.bar.Step(dt)
-	return moving || barMoving || l.bar.Target() > 0
-}
-
 // Handle implements [gunim.Handler].
-func (l *VirtualList) Handle(e input.Event, u *gunim.UI) bool {
-	th := u.Theme()
-	var to float32
-	switch e := e.(type) {
-	case input.Scroll:
-		to = l.target - e.Delta.Y
-	case input.KeyPress:
-		switch e.Key {
-		case input.KeyUp:
-			to = l.target - ScrollLine.Get(th)
-		case input.KeyDown:
-			to = l.target + ScrollLine.Get(th)
-		case input.KeyPageUp:
-			to = l.target - l.viewport*0.9
-		case input.KeyPageDown:
-			to = l.target + l.viewport*0.9
-		case input.KeyHome:
-			to = 0
-		case input.KeyEnd:
-			to = l.content
-		default:
-			return false
-		}
-	default:
-		return false
-	}
-	if l.clamp(to) == l.target {
-		return false
-	}
-	l.ScrollTo(to, Quick.Get(th))
-	u.Invalidate()
-	return true
-}
+func (l *VirtualList) Handle(e input.Event, u *gunim.UI) bool { return l.handle(e, u) }
 
 // Reveal implements [gunim.Revealer]: it scrolls just far enough to
 // bring r, in the list's own space, into view.
-func (l *VirtualList) Reveal(r geom.Rect, u *gunim.UI) {
-	const room = 8
-	offset := l.offset.Value()
-	switch {
-	case r.Min.Y < 0:
-		l.ScrollTo(offset+r.Min.Y-room, Quick.Get(u.Theme()))
-	case r.Max.Y > l.viewport:
-		l.ScrollTo(offset+r.Max.Y-l.viewport+room, Quick.Get(u.Theme()))
-	}
-}
+func (l *VirtualList) Reveal(r geom.Rect, u *gunim.UI) { l.reveal(r, u) }
 
 // Layout implements [gunim.Node].
 //
@@ -357,12 +273,11 @@ func (l *VirtualList) Reveal(r geom.Rect, u *gunim.UI) {
 // key in view that has none, drops the rows that have scrolled away,
 // and lays out and places the rest.
 func (l *VirtualList) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
-	l.th = f.Theme
 	own := c.Max
 	width := own.W
 	spacing := ListSpacing.Get(f.Theme)
 	move := Quick.Get(f.Theme)
-	l.viewport = own.H
+	l.th, l.viewport = f.Theme, own.H
 
 	// Rows the engine has taken out are gone for good.
 	children := make(map[*row]gunim.Child, kids.Len())
@@ -392,9 +307,7 @@ func (l *VirtualList) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Chil
 		if ok {
 			if i := slices.Index(l.order, anchor); i >= 0 {
 				if d := float32(l.tops.sum(i)) - at; d != 0 {
-					l.target += d
-					l.offset.Jump(l.offset.Value() + d)
-					l.offset.Animate(l.target, move)
+					l.shift(d)
 					// The rows move by as much, so none moves on screen.
 					for _, r := range l.live {
 						anim.Shift(r.y, d)
@@ -457,9 +370,7 @@ func (l *VirtualList) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Chil
 				// A row above the view changed height: move the offset
 				// with it, so what is on screen stays still.
 				offset += d
-				l.target += d
-				l.offset.Jump(offset)
-				l.offset.Animate(l.target, move)
+				l.shift(d)
 				carry += d
 			}
 		}
@@ -475,12 +386,7 @@ func (l *VirtualList) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Chil
 			delete(l.live, k)
 		}
 	}
-	l.content = max(0, float32(l.tops.sum(len(l.order)))-spacing)
-
-	if t := l.clamp(l.target); t != l.target {
-		l.target = t
-		l.offset.Animate(t, Settle.Get(f.Theme))
-	}
+	l.fit(max(0, float32(l.tops.sum(len(l.order)))-spacing), own.H, f.Theme)
 	return own
 }
 
@@ -503,17 +409,7 @@ func (l *VirtualList) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids
 			kid.Paint(p)
 		}
 	}()
-
-	t := l.bar.Value()
-	if t <= 0 || l.content <= l.viewport {
-		return
-	}
-	w := ScrollbarWidth.Get(f.Theme)
-	length := max(box.H*l.viewport/l.content, 2*w)
-	top := (box.H - length) * l.offset.Value() / (l.content - l.viewport)
-	col := ScrollbarColor.Get(f.Theme)
-	col.A = uint8(float32(col.A) * min(t, 1))
-	p.RRect(geom.Rc(box.W-w-2, top, w, length), w/2, paint.Solid(col))
+	l.paintBar(p, f, box)
 }
 
 func deleteKey(keys []Key, k Key) []Key {
