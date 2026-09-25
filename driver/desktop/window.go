@@ -69,7 +69,10 @@ type Window struct {
 	// perCoord is framebuffer pixels per GLFW screen coordinate. It is 1
 	// on X11 and Windows, and 2 on a Retina display.
 	perCoord float32
-	err      error
+	// origin is the client area's top left corner in screen
+	// coordinates.
+	origin geom.Point
+	err    error
 	// caret is the text caret the engine last reported, in window space
 	// and logical pixels. Platform code places an input method's
 	// composition and candidate windows from it.
@@ -383,6 +386,22 @@ func workArea(p geom.Point) geom.Rect {
 	return first
 }
 
+// ToScreen implements [driver.Screener].
+func (w *Window) ToScreen(p geom.Point) geom.Point {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	f := w.scale / w.perCoord
+	return geom.Pt(w.origin.X+p.X*f, w.origin.Y+p.Y*f)
+}
+
+// FromScreen implements [driver.Screener].
+func (w *Window) FromScreen(p geom.Point) geom.Point {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	f := w.scale / w.perCoord
+	return geom.Pt((p.X-w.origin.X)/f, (p.Y-w.origin.Y)/f)
+}
+
 // Transparent implements [driver.Transparent].
 func (w *Window) Transparent() bool { return w.transparent }
 
@@ -423,9 +442,14 @@ func (w *Window) measure() {
 		perCoord = float32(fbW) / float32(ww)
 	}
 	rate := w.monitorRate()
+	x, y, err := w.gw.GetPos()
+	if err != nil {
+		x, y = 0, 0
+	}
 
 	w.mu.Lock()
 	w.fbW, w.fbH, w.scale, w.perCoord = fbW, fbH, scale, perCoord
+	w.origin = geom.Pt(float32(x), float32(y))
 	if rate > 0 {
 		w.rate = rate
 	}
@@ -528,6 +552,10 @@ func (w *Window) install() {
 		}
 		w.lastPress, w.lastButton, w.lastPos = now, button, w.cursor
 		w.in.push(input.PointerDown{Pos: w.cursor, Button: button, Mods: w.mods, Clicks: w.clicks, Time: now})
+	})
+	_, _ = gw.SetDropCallback(func(_ *glfw.Window, names []string) {
+		// GLFW moves the cursor to where the files were let go first.
+		w.in.push(input.Drop{Pos: w.cursor, Paths: names, Time: time.Now()})
 	})
 	_, _ = gw.SetScrollCallback(func(_ *glfw.Window, x, y float64) {
 		w.in.push(input.Scroll{

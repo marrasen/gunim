@@ -82,6 +82,8 @@ func runApp(ctx context.Context, drv driver.Driver, fn func(*App) error) error {
 // only way to open a window.
 type App struct {
 	drv driver.Driver
+	// windows is the open windows, for drags between them.
+	windows windows
 }
 
 // Monitors lists the attached displays, so an application can put a
@@ -126,6 +128,8 @@ func (a *App) NewWindow(o WindowOptions) (*Window, error) {
 
 	w := newWindow(dw, o.Root)
 	w.open = a.drv.NewWindow
+	w.app = a
+	a.windows.add(w)
 	go w.loop()
 	return w, nil
 }
@@ -149,6 +153,10 @@ type Window struct {
 	// events to the UI goroutine.
 	open    func(driver.Options) (driver.Window, error)
 	popupIn chan popupEvent
+	// app is the application the window belongs to, and dragIn carries
+	// drags from its other windows.
+	app    *App
+	dragIn chan dragMsg
 	// blends is whether the last popup's window blended with what is
 	// behind it, the guess for the next one.
 	blends bool
@@ -203,6 +211,7 @@ func newWindow(dw driver.Window, root Node) *Window {
 			return ow, nil
 		},
 		popupIn: make(chan popupEvent, 16),
+		dragIn:  make(chan dragMsg, 64),
 		blends:  true,
 	}
 	rootState := &state{node: root, presence: Present, id: Root}
@@ -351,6 +360,8 @@ func (w *Window) Frame(delta time.Duration) {
 		select {
 		case e := <-w.popupIn:
 			w.ui.popupEvent(e)
+		case m := <-w.dragIn:
+			w.ui.dragMsg(m)
 		default:
 			drained = true
 		}
@@ -397,6 +408,11 @@ func (w *Window) loop() {
 	}
 	defer close(w.out)
 	defer w.ui.closeAllPopups()
+	defer func() {
+		if w.app != nil {
+			w.app.windows.remove(w)
+		}
+	}()
 	defer func() {
 		if err := w.dw.Close(); err != nil {
 			w.err = errors.Join(w.err, fmt.Errorf("gunim: close window: %w", err))
@@ -459,6 +475,8 @@ func (w *Window) wait() bool {
 		w.ui.handlePlatform(ev)
 	case e := <-w.popupIn:
 		w.ui.popupEvent(e)
+	case m := <-w.dragIn:
+		w.ui.dragMsg(m)
 	case f, ok := <-w.dw.Presented():
 		if !ok {
 			return false
@@ -642,6 +660,14 @@ type UI struct {
 	timers []*timer
 	// locals holds what Local stores.
 	locals map[any]any
+	// pointer is where the pointer was last in the window. drag is the
+	// drag the pointer carries from here, dragFrom the node a drag that
+	// has been let go started at, until its end is known, and dragAt
+	// the node taking a drag over this window.
+	pointer  geom.Point
+	drag     *drag
+	dragFrom *state
+	dragAt   *state
 }
 
 // Local returns the value this window keeps under key, making it with

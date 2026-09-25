@@ -290,6 +290,9 @@ func (d *Driver) openWindow(o driver.Options) (*Window, error) {
 		hints = append(hints, [2]int{int(glfw.Floating), glfw.True})
 	case driver.KindNormal:
 	}
+	if o.Passthrough {
+		hints = append(hints, [2]int{int(glfw.MousePassthrough), glfw.True})
+	}
 	for _, h := range hints {
 		if err := glfw.WindowHint(glfw.Hint(h[0]), h[1]); err != nil {
 			return nil, err

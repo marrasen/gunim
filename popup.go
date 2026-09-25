@@ -34,6 +34,9 @@ type PopupOptions struct {
 	Anchor geom.Rect
 	// Max bounds the content's size. Zero allows up to 4096 each way.
 	Max geom.Size
+	// Passthrough lets the pointer through the popup to whatever is
+	// under it, as for the picture a drag carries.
+	Passthrough bool
 	// Dismiss runs when the pointer is pressed outside the popup and
 	// its opener, or when the window loses the keyboard. It usually
 	// closes the popup. A popup with no Dismiss, such as a tooltip,
@@ -229,7 +232,7 @@ func (u *UI) framePopup(s *surface, f Frame) {
 		u.invalid = true
 		return
 	case s.dw == nil:
-		dw, err := u.w.open(driver.Options{Kind: driver.KindPopup, Parent: parent, Anchor: anchor, Size: size})
+		dw, err := u.w.open(driver.Options{Kind: driver.KindPopup, Parent: parent, Anchor: anchor, Size: size, Passthrough: s.opts.Passthrough})
 		if err != nil {
 			u.w.err = fmt.Errorf("gunim: open popup: %w", err)
 			u.closePopup(s)

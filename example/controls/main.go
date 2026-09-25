@@ -9,6 +9,9 @@
 // built; adding and removing items animates, and a drag flings it. The
 // fifth is a list to put in order by dragging its rows.
 //
+// A second window, the basket, takes pictures dragged to it from the
+// Pictures tab, and image files dropped on it from a file manager.
+//
 //	CGO_ENABLED=0 go run ./example/controls
 package main
 
@@ -17,16 +20,22 @@ import (
 	"flag"
 	"fmt"
 	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"log"
 	"math"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
+	"github.com/marrasen/gunim/driver"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
@@ -50,6 +59,22 @@ type (
 	Removed struct{ Item widget.Key }
 	// Arranged travels when a task is dropped in a new place.
 	Arranged struct{ Tasks []widget.Key }
+	// Basket is the state of the basket window.
+	Basket struct{ Items []Kept }
+	// Kept is one picture in the basket.
+	Kept struct {
+		Key     widget.Key
+		Picture *paint.Image
+	}
+	// Basketed travels when a picture is dropped in the basket: one of
+	// the page's, by Index, or image files, by Paths.
+	Basketed struct {
+		Index int
+		Paths []string
+	}
+	// pictureRef is what a thumbnail carries when it is dragged. It
+	// stays inside the process, so it needs no registered name.
+	pictureRef struct{ Index int }
 	// Opened travels when a thumbnail is clicked.
 	Opened struct{ Index int }
 	// Closed travels when the open picture is clicked.
@@ -87,6 +112,8 @@ func init() {
 	gunim.RegisterType[Added]("controls.added")
 	gunim.RegisterType[Removed]("controls.removed")
 	gunim.RegisterType[Arranged]("controls.arranged")
+	gunim.RegisterType[Basket]("controls.basket")
+	gunim.RegisterType[Basketed]("controls.basketed")
 }
 
 var (
@@ -127,7 +154,23 @@ func run(runFor time.Duration) error {
 			p.items.SetKeys(s.Items, u)
 			widget.Sync(p.tasks, u, s.Tasks, func(k widget.Key) widget.Key { return k }, newTask, nil)
 		})
-		return serve(ctx, w.Client())
+		b, err := a.NewWindow(gunim.WindowOptions{
+			Title:  "gunim basket",
+			Size:   geom.Sz(260, 440),
+			Kind:   driver.KindUtility,
+			Parent: w,
+			Anchor: geom.Pt(580, 0),
+			Root:   widget.NewSurface(),
+		})
+		if err != nil {
+			return err
+		}
+		b.RegisterTheme(widget.Dark())
+		b.RegisterTheme(widget.Light())
+		gunim.RegisterView(b, "basket", buildBasket, func(k *basket, s Basket, u *gunim.UI) {
+			widget.Sync(k.list, u, s.Items, func(i Kept) widget.Key { return i.Key }, newKept, nil)
+		})
+		return serve(ctx, w.Client(), b.Client())
 	})
 }
 
@@ -173,10 +216,17 @@ func buildPage(s Page) *page {
 	for i, pic := range s.Pictures {
 		img := widget.NewImage(pic)
 		img.Fit, img.Radius, img.Size = widget.FitCover, 8, geom.Sz(112, 70)
-		cells = append(cells, &tap{child: widget.NewHero(heroTag(i), img), on: Opened{Index: i}})
+		drag := widget.NewDraggable(widget.NewHero(heroTag(i), img), pictureRef{Index: i})
+		drag.OnClick = Opened{Index: i}
+		drag.Ghost = func() gunim.Node {
+			ghost := widget.NewImage(pic)
+			ghost.Fit, ghost.Radius, ghost.Size = widget.FitCover, 8, geom.Sz(112, 70)
+			return ghost
+		}
+		cells = append(cells, drag)
 	}
 	thumbs := widget.Row(cells...)
-	pictureRow := widget.Column(thumbs, widget.NewLabel("Click a picture to open it."))
+	pictureRow := widget.Column(thumbs, widget.NewLabel("Click a picture to open it, or drag it to the basket."))
 
 	pad := func(n gunim.Node) gunim.Node {
 		p := widget.NewPad(n)
@@ -215,42 +265,6 @@ func buildPage(s Page) *page {
 func newTask(k widget.Key) *widget.Card { return widget.NewCard(widget.NewLabel(string(k))) }
 
 func heroTag(i int) string { return "picture-" + strconv.Itoa(i) }
-
-// tap sends an intent when its child is clicked.
-type tap struct {
-	child gunim.Node
-	on    gunim.Intent
-	held  bool
-	size  geom.Size
-}
-
-func (t *tap) Children() []gunim.Node { return []gunim.Node{t.child} }
-
-func (t *tap) Handle(e input.Event, u *gunim.UI) bool {
-	switch e := e.(type) {
-	case input.PointerDown:
-		t.held = true
-	case input.PointerUp:
-		if t.held && (geom.Rect{Max: t.size.Point()}).Contains(e.Pos) {
-			u.Send(t, t.on)
-		}
-		t.held = false
-	default:
-		return false
-	}
-	return true
-}
-
-func (t *tap) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
-	k := kids.At(0)
-	t.size = k.Layout(c)
-	k.Place(geom.Point{})
-	return t.size
-}
-
-func (t *tap) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim.Children) {
-	kids.At(0).Paint(p)
-}
 
 // photo is the open picture: the window dims, and the picture, a hero
 // with its thumbnail's tag, flies in to fill most of it. A click
@@ -353,7 +367,7 @@ func hsv(h, s, v float64) (r, g, b uint8) {
 	return uint8((rf + m) * 255), uint8((gf + m) * 255), uint8((bf + m) * 255)
 }
 
-func serve(ctx context.Context, c gunim.Client) error {
+func serve(ctx context.Context, c, bc gunim.Client) error {
 	pics := pictures()
 	items := make([]widget.Key, 100_000)
 	for i := range items {
@@ -365,11 +379,44 @@ func serve(ctx context.Context, c gunim.Client) error {
 	if err := c.Mount(gunim.Root, "page", "page", state); err != nil {
 		return err
 	}
+	var kept Basket
+	if err := bc.Mount(gunim.Root, "basket", "basket", kept); err != nil {
+		return err
+	}
 	light := false
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
+		case ev, ok := <-bc.Intents():
+			if !ok {
+				return bc.Err()
+			}
+			v, ok := ev.Intent.(Basketed)
+			if !ok {
+				continue
+			}
+			var add []*paint.Image
+			if v.Index >= 0 {
+				add = append(add, pics[v.Index])
+			}
+			for _, path := range v.Paths {
+				if !isImage(path) {
+					continue
+				}
+				pic, err := load(path)
+				if err != nil {
+					log.Print(err)
+					continue
+				}
+				add = append(add, pic)
+			}
+			for _, pic := range add {
+				kept.Items = append(kept.Items, Kept{Key: widget.Key(strconv.Itoa(len(kept.Items) + 1)), Picture: pic})
+			}
+			_ = bc.Update("basket", kept)
+			state.Status = fmt.Sprintf("Pictures in the basket: %d.", len(kept.Items))
+			_ = c.Update("page", state)
 		case ev, ok := <-c.Intents():
 			if !ok {
 				return c.Err()
@@ -417,4 +464,62 @@ func serve(ctx context.Context, c gunim.Client) error {
 			}
 		}
 	}
+}
+
+// basket is the basket window's view: a list of kept pictures that
+// takes drops.
+type basket struct {
+	*widget.DropTarget
+	list *widget.List
+}
+
+func buildBasket(Basket) *basket {
+	list := widget.NewList()
+	hint := widget.NewLabel("Drag pictures here, from the Pictures tab or from a file manager.")
+	scroll := widget.NewScroll(list)
+	col := widget.Column(hint, scroll).Grow(scroll, 1)
+	col.Cross = widget.CrossStretch
+	target := widget.NewDropTarget(widget.NewPad(col))
+	target.Accept = func(data any, paths []string) bool {
+		if _, ok := data.(pictureRef); ok {
+			return true
+		}
+		return slices.ContainsFunc(paths, isImage)
+	}
+	target.OnDrop = func(d input.Drop) gunim.Intent {
+		if r, ok := d.Data.(pictureRef); ok {
+			return Basketed{Index: r.Index}
+		}
+		return Basketed{Index: -1, Paths: d.Paths}
+	}
+	return &basket{DropTarget: target, list: list}
+}
+
+// newKept makes a kept picture's row.
+func newKept(k Kept) *widget.Image {
+	img := widget.NewImage(k.Picture)
+	img.Fit, img.Radius, img.Size = widget.FitCover, 8, geom.Sz(220, 120)
+	return img
+}
+
+func isImage(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".png", ".jpg", ".jpeg", ".gif":
+		return true
+	}
+	return false
+}
+
+// load reads an image file.
+func load(path string) (*paint.Image, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	m, _, err := image.Decode(f)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	return paint.NewImage(m), nil
 }

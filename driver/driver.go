@@ -91,6 +91,9 @@ type Options struct {
 	// screen. A utility window puts its top-left corner at Anchor.Min.
 	Parent Window
 	Anchor geom.Rect
+	// Passthrough lets the pointer through the window to whatever is
+	// under it, as for the picture carried under the pointer in a drag.
+	Passthrough bool
 }
 
 // Kind is what sort of window to open. Each one maps onto a real window

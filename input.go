@@ -29,6 +29,13 @@ func (u *UI) handleOn(root *state, ev any) {
 			u.dismissFor(nil)
 		}
 	case input.PointerMove:
+		if root == u.root {
+			u.pointer = e.Pos
+			if u.drag != nil {
+				u.dragTo(e.Pos)
+				return
+			}
+		}
 		u.updateHover(root, e.Pos, e.Time)
 		mk := func(local geom.Point) input.Event {
 			return input.PointerMove{Pos: local, Mods: e.Mods, Time: e.Time}
@@ -39,6 +46,9 @@ func (u *UI) handleOn(root *state, ev any) {
 		}
 		u.dispatchAt(root, e.Pos, mk)
 	case input.PointerDown:
+		if root == u.root {
+			u.pointer = e.Pos
+		}
 		// A press outside a popup dismisses it; the press still goes
 		// where it lands.
 		u.dismissFor(u.hit(root, e.Pos))
@@ -52,6 +62,12 @@ func (u *UI) handleOn(root *state, ev any) {
 			return input.PointerDown{Pos: local, Button: e.Button, Mods: e.Mods, Clicks: e.Clicks, Time: e.Time}
 		})
 	case input.PointerUp:
+		if root == u.root && u.drag != nil {
+			u.capture = nil
+			u.dragDrop(e.Pos)
+			u.updateHover(root, e.Pos, e.Time)
+			return
+		}
 		mk := func(local geom.Point) input.Event {
 			return input.PointerUp{Pos: local, Button: e.Button, Mods: e.Mods, Time: e.Time}
 		}
@@ -68,6 +84,10 @@ func (u *UI) handleOn(root *state, ev any) {
 		})
 	case input.PointerLeave:
 		u.updateHover(root, geom.Pt(-1, -1), e.Time)
+	case input.Drop:
+		u.dispatchAt(root, e.Pos, func(local geom.Point) input.Event {
+			return input.Drop{Pos: local, Data: e.Data, Paths: e.Paths, Time: e.Time}
+		})
 	default:
 		// Keyboard and focus events go to the focused node and bubble
 		// from there, which is how a shortcut a text field ignores ends

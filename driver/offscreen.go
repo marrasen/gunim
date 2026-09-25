@@ -34,8 +34,10 @@ type OffscreenWindow struct {
 	rate  float64
 	ops   []paint.Op
 	clip  string
-	// anchor is where a popup was last attached.
+	// anchor is where a popup was last attached, and origin where the
+	// window sits on its pretend screen.
 	anchor geom.Rect
+	origin geom.Point
 
 	presented chan Frame
 	input     chan any
@@ -88,6 +90,28 @@ func (w *OffscreenWindow) Place(anchor geom.Rect, size geom.Size) error {
 	defer w.mu.Unlock()
 	w.anchor, w.size = anchor, size
 	return nil
+}
+
+// SetOrigin puts the window's top left corner at p on its pretend
+// screen, for tests that drag between windows.
+func (w *OffscreenWindow) SetOrigin(p geom.Point) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.origin = p
+}
+
+// ToScreen implements [Screener].
+func (w *OffscreenWindow) ToScreen(p geom.Point) geom.Point {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return p.Add(w.origin)
+}
+
+// FromScreen implements [Screener].
+func (w *OffscreenWindow) FromScreen(p geom.Point) geom.Point {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return p.Sub(w.origin)
 }
 
 // Anchor returns where the window was last attached, for a popup.

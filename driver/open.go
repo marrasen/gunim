@@ -56,3 +56,11 @@ type WindowFocus struct{ Focused bool }
 type Transparent interface {
 	Transparent() bool
 }
+
+// A Screener is a [Window] that knows where it is on the screen. It
+// turns a point in its own logical space into screen coordinates, and
+// back, so a drag can go from one window to another.
+type Screener interface {
+	ToScreen(p geom.Point) geom.Point
+	FromScreen(p geom.Point) geom.Point
+}

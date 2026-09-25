@@ -119,6 +119,38 @@ type FocusGained struct{ Time time.Time }
 // FocusLost arrives when a node gives keyboard focus up.
 type FocusLost struct{ Time time.Time }
 
+// DragOver arrives while something is dragged over a node: another
+// node's Data, dragged inside the application, from this window or
+// another. It bubbles like a pointer event. A node that returns true
+// for it will take the drop, and hears DragLeave if the drag moves on.
+type DragOver struct {
+	Pos  geom.Point
+	Data any
+	Time time.Time
+}
+
+// DragLeave arrives when a drag a node took DragOver for moves on, or
+// ends somewhere else.
+type DragLeave struct{ Time time.Time }
+
+// Drop arrives when something is let go over a node: another node's
+// Data, dragged inside the application, or files from another program,
+// such as a file manager, as Paths. It bubbles like a pointer event,
+// and the node that returns true has taken it.
+type Drop struct {
+	Pos   geom.Point
+	Data  any
+	Paths []string
+	Time  time.Time
+}
+
+// DragEnd arrives at the node a drag started from once it ends.
+// Taken says whether a node took the drop.
+type DragEnd struct {
+	Taken bool
+	Time  time.Time
+}
+
 func (PointerEnter) isEvent() {}
 func (PointerLeave) isEvent() {}
 func (PointerMove) isEvent()  {}
@@ -131,6 +163,10 @@ func (TextInput) isEvent()    {}
 func (Composing) isEvent()    {}
 func (FocusGained) isEvent()  {}
 func (FocusLost) isEvent()    {}
+func (DragOver) isEvent()     {}
+func (DragLeave) isEvent()    {}
+func (Drop) isEvent()         {}
+func (DragEnd) isEvent()      {}
 
 // Button identifies a pointer button.
 type Button uint8
