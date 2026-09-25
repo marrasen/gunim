@@ -83,11 +83,14 @@ func (u *UI) accessNode(s *state, info access.Info) *access.Node {
 		Focused:   u.focus == s && info.Active == 0,
 	}
 	for i, p := range info.Parts {
+		// A part takes focus with its node, such as a tab with the tab
+		// list.
 		part := &access.Node{
-			Info:    p,
-			ID:      id | uint64(i+1)<<partBits,
-			Bounds:  windowRect(s.toWindow, p.Bounds),
-			Focused: u.focus == s && info.Active == i+1,
+			Info:      p,
+			ID:        id | uint64(i+1)<<partBits,
+			Bounds:    windowRect(s.toWindow, p.Bounds),
+			Focusable: n.Focusable,
+			Focused:   u.focus == s && info.Active == i+1,
 		}
 		n.Children = append(n.Children, part)
 	}
@@ -110,6 +113,19 @@ func (u *UI) publishAccess(dw driver.Window, root *state, title string) {
 		return
 	}
 	pub.PublishAccess(u.accessTree(root, title))
+}
+
+// focusNow tells assistive technology at once when input moved focus,
+// from the tree as the last frame drew it with focus where it is now.
+// A screen reader reading a key press looks for the focus straight
+// away; told a frame later, it takes the news for what it already
+// knows, and says nothing.
+func (u *UI) focusNow() {
+	if !u.focusMoved {
+		return
+	}
+	u.focusMoved = false
+	u.publishAccess(u.w.dw, u.root, u.w.title)
 }
 
 // accessRequest carries out a screen reader's request.

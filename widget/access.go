@@ -127,6 +127,7 @@ func (b *tabBar) AccessAct(r access.Request, u *gunim.UI) bool {
 func (d *Dropdown) Access() access.Info {
 	info := access.Info{
 		Role:    access.RoleComboBox,
+		Name:    d.Label,
 		State:   access.StateExpandable | access.StateHasPopup,
 		Actions: []string{access.ActionPress},
 	}

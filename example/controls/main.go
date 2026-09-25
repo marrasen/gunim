@@ -194,6 +194,7 @@ func buildPage(s Page) *page {
 
 	fruit := widget.NewDropdown(fruits...)
 	fruit.OnChange = func(i int) gunim.Intent { return Chose{Fruit: i} }
+	fruit.Label = "Fruit"
 	fruitRow := widget.Row(widget.NewLabel("Fruit"), fruit)
 	fruitRow.Cross = widget.CrossCenter
 

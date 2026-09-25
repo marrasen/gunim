@@ -95,6 +95,11 @@ type Window struct {
 	ctx  *glfw.Window
 	pres *presenter
 
+	// acc is the window's place with assistive technology, and focused
+	// whether it has the keyboard.
+	acc     windowAccess
+	focused atomic.Bool
+
 	// parent is the window a popup belongs to, and popup is set for a
 	// popup. Both are set once, before the window shows.
 	parent *Window
@@ -242,6 +247,7 @@ func (w *Window) shutdown() {
 		return
 	}
 	w.closed = true
+	w.accessClose()
 	if w.parent != nil {
 		w.parent.popups = slices.DeleteFunc(w.parent.popups, func(c *Window) bool { return c == w })
 	}
@@ -443,6 +449,9 @@ func (w *Window) FromScreen(p geom.Point) geom.Point {
 	return geom.Pt((p.X-w.origin.X)/f, (p.Y-w.origin.Y)/f)
 }
 
+// hasFocus reports whether the window has the keyboard.
+func (w *Window) hasFocus() bool { return w.focused.Load() }
+
 // Transparent implements [driver.Transparent].
 func (w *Window) Transparent() bool { return w.transparent }
 
@@ -556,6 +565,8 @@ func (w *Window) install() {
 	})
 	_, _ = gw.SetRefreshCallback(func(*glfw.Window) { w.in.push(driver.Redraw{}) })
 	_, _ = gw.SetFocusCallback(func(_ *glfw.Window, focused bool) {
+		w.focused.Store(focused)
+		w.accessFocus(focused)
 		w.in.push(driver.WindowFocus{Focused: focused})
 	})
 	_, _ = gw.SetCloseCallback(func(*glfw.Window) {

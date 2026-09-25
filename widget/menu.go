@@ -231,6 +231,9 @@ type Dropdown struct {
 
 	Items    []string
 	Selected int
+	// Label names the drop-down for a screen reader, as the label
+	// beside it does on screen.
+	Label string
 	// OnChange turns a new choice into an intent for the application.
 	OnChange func(i int) gunim.Intent
 
@@ -241,7 +244,7 @@ type Dropdown struct {
 	popup *gunim.Popup
 	menu  *Menu
 	size  geom.Size
-	label shapedText
+	shown shapedText
 }
 
 // NewDropdown returns a drop-down of items with the first chosen.
@@ -379,7 +382,7 @@ func (d *Dropdown) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 
 	pad := FieldPadding.Get(th)
 	if d.Selected >= 0 && d.Selected < len(d.Items) {
-		run := d.label.shape(d.Items[d.Selected], TextSize.Get(th))
+		run := d.shown.shape(d.Items[d.Selected], TextSize.Get(th))
 		run.Paint(p, geom.Pt(pad, (box.H-run.Height())/2), Ink.Get(th))
 	}
 

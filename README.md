@@ -229,6 +229,7 @@ the far end knows what to decode it into:
 | `gunim/input` | Pointer, keyboard and focus events, keys, buttons, modifiers |
 | `gunim/theme` | Tokens, themes, and animated theme switching |
 | `gunim/text` | Fonts and fallback, shaping, paragraph layout, glyph rasterizing |
+| `gunim/access` | What a window says to screen readers: roles, names, states, actions |
 | `gunim/driver` | The seam with the operating system, and an offscreen window |
 | `gunim/driver/desktop` | The driver for Linux, Windows and macOS, on GLFW and OpenGL |
 | `gunim/widget` | `Row`, `Column`, `Scroll`, `Label`, `TextField`, `TextArea`, `Card`, `Button`, `Checkbox`, `Switch`, `Slider`, `Tabs`, `Dropdown`, `ContextMenu`, `Tooltip`, `Image`, `Hero` for elements that fly between screens, `Draggable` and `DropTarget` for drag and drop within and between windows and to and from file managers, `Dialog`, a keyed `List`, a `VirtualList` that builds only the rows in view, and their theme tokens |
@@ -303,6 +304,14 @@ is an ordinary node in the opener's tree, run by the same goroutine,
 and it animates in and out like any other. The popup opens below its
 anchor, or above where the screen runs out. Where the display server
 blends windows, it has round corners and a shadow.
+
+Screen readers can read and use a window. A node that means something
+to a person, such as a button, says what it is, and the engine gathers
+what the drawn nodes say into a tree after each frame, while a screen
+reader listens. On Linux the driver answers over AT-SPI, which Orca
+reads: the tabs, fields, checkboxes, sliders and buttons of the
+examples read out, and a screen reader can press, check, set and move
+focus through them. Windows' UI Automation and macOS come later.
 
 On Linux that port speaks X11, so a Wayland desktop runs gunim through
 XWayland. That suits popups: X11 lets a client place a window at an

@@ -60,6 +60,8 @@ type Driver struct {
 	// dxgi is set where windows present through DXGI; see
 	// present_windows.go.
 	dxgi bool
+	// acc is the connection to assistive technology.
+	acc driverAccess
 }
 
 // Open initialises GLFW and loads the GL library. Call it on the main
@@ -364,6 +366,7 @@ func (d *Driver) openWindow(o driver.Options) (*Window, error) {
 		return nil, err
 	}
 	w.install()
+	w.accessOpen()
 	if err := gw.Show(); err != nil {
 		_ = gw.Destroy()
 		return nil, err

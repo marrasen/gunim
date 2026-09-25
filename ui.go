@@ -476,6 +476,7 @@ func (w *Window) wait() bool {
 			return false
 		}
 		w.ui.handlePlatform(ev)
+		w.ui.focusNow()
 	case e := <-w.popupIn:
 		w.ui.popupEvent(e)
 	case m := <-w.dragIn:
@@ -675,6 +676,9 @@ type UI struct {
 	// byAID finds a node by its ID, as of the last tree published.
 	aids  uint64
 	byAID map[uint64]*state
+	// focusMoved is set when focus moves, until the tree has told
+	// assistive technology.
+	focusMoved bool
 }
 
 // Local returns the value this window keeps under key, making it with
@@ -1014,6 +1018,7 @@ func (u *UI) Focus(n Node) {
 	}
 	prev := u.focus
 	u.focus = next
+	u.focusMoved = true
 	u.takeText(prev, next)
 	if next != nil {
 		u.deliver(next, input.FocusGained{Time: u.now})
@@ -1121,6 +1126,7 @@ func (u *UI) frame(now time.Time, delta time.Duration) {
 	u.placeCaret()
 	u.framePopups(f)
 	u.publishAccess(u.w.dw, u.root, u.w.title)
+	u.focusMoved = false
 	for _, s := range u.popups {
 		if s.dw != nil {
 			u.publishAccess(s.dw, s.root, "")
