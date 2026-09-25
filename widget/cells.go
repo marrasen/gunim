@@ -444,7 +444,10 @@ func (g *CellGrid) paintCursor(p *paint.Painter, ink, background color.NRGBA) {
 		box.Min.Y = box.Max.Y - 2*m.line
 		p.RRect(box, 0, paint.Solid(col))
 	case CursorOutline:
-		p.RRectStroke(box, 0, paint.Solid(col), paint.Stroke{Width: m.line})
+		// The outline runs inside the cell, half a line in from its edge.
+		half := m.line / 2
+		box = geom.Rect{Min: geom.Pt(box.Min.X+half, box.Min.Y+half), Max: geom.Pt(box.Max.X-half, box.Max.Y-half)}
+		p.RRectStroke(box, 0, paint.Fill{}, paint.Stroke{Width: m.line, Color: col})
 	case CursorBlock:
 		p.RRect(box, 0, paint.Solid(col))
 		// The character under a block shows in the cell's background.

@@ -39,6 +39,10 @@ type Split struct {
 	// Vertical stacks the panes one above the other; otherwise they
 	// sit side by side.
 	Vertical bool
+	// Fixed keeps the first pane's length, in logical pixels, as the
+	// space changes, as a sidebar does. Share and SetShare then count
+	// that length, where they otherwise count a share from 0 to 1.
+	Fixed bool
 	// OnMove, when set, makes the intent sent once the pointer lets the
 	// divider go, with the first pane's new share.
 	OnMove func(share float32) gunim.Intent
@@ -84,14 +88,21 @@ func (s *Split) SetPane(i int, n gunim.Node, u *gunim.UI) {
 	u.InsertAt(s, i, n)
 }
 
+// Held reports whether the pointer is dragging the divider.
+func (s *Split) Held() bool { return s.held }
+
 // Share returns the first pane's share of the space that the split is
 // heading for, from 0 to 1.
 func (s *Split) Share() float32 { return s.share.Target() }
 
 // SetShare aims the first pane's share of the space at v, from 0 to 1,
-// and glides there with motion. A nil motion jumps.
+// or its length with Fixed, and glides there with motion. A nil motion
+// jumps.
 func (s *Split) SetShare(v float32, motion anim.Motion) {
-	v = min(max(v, 0), 1)
+	if !s.Fixed {
+		v = min(max(v, 0), 1)
+	}
+	v = max(v, 0)
 	if motion == nil {
 		s.share.Jump(v)
 		return
@@ -106,16 +117,32 @@ func (s *Split) along(p geom.Point) float32 {
 	return p.X
 }
 
-// room returns the gap the divider takes at share v: all of it, or
-// less as one pane nears the whole space.
-func (s *Split) room(gap, v float32) float32 {
+// fraction returns the first pane's share of the space, from 0 to 1.
+func (s *Split) fraction() float32 {
+	v := s.share.Value()
+	if s.Fixed {
+		if s.length <= 0 {
+			return 0
+		}
+		v /= s.length
+	}
+	return min(max(v, 0), 1)
+}
+
+// room returns the gap the divider takes: all of it, or less as one
+// pane nears the whole space.
+func (s *Split) room(gap float32) float32 {
+	v := s.fraction()
 	return gap * min(max(min(v, 1-v)*20, 0), 1)
 }
 
 // firstLength returns the first pane's length along the split.
 func (s *Split) firstLength() float32 {
-	v := min(max(s.share.Value(), 0), 1)
-	return float32(int((s.length-s.gap)*v + 0.5))
+	space := s.length - s.gap
+	if s.Fixed {
+		return float32(int(min(max(s.share.Value(), 0), space) + 0.5))
+	}
+	return float32(int(space*s.fraction() + 0.5))
 }
 
 // Layout implements [gunim.Node]. The split fills the space it is
@@ -126,7 +153,7 @@ func (s *Split) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) 
 	if s.Vertical {
 		s.length = own.H
 	}
-	s.gap = s.room(SplitGap.Get(f.Theme), s.share.Value())
+	s.gap = s.room(SplitGap.Get(f.Theme))
 	a := s.firstLength()
 	b := max(0, s.length-s.gap-a)
 	for kid := range kids.All {
@@ -203,7 +230,7 @@ func (s *Split) Handle(e input.Event, u *gunim.UI) bool {
 		if e.Button != input.ButtonPrimary || !s.inGap(e.Pos) {
 			return false
 		}
-		if e.Clicks == 2 {
+		if e.Clicks == 2 && !s.Fixed {
 			s.share.Animate(0.5, Settle.Get(th))
 			s.moved(u)
 			return true
@@ -217,7 +244,11 @@ func (s *Split) Handle(e input.Event, u *gunim.UI) bool {
 			space := s.length - s.gap
 			if space > 0 {
 				a := min(max(s.along(e.Pos)-s.grab, min(splitMin, space/2)), max(space-splitMin, space/2))
-				s.share.Jump(a / space)
+				if s.Fixed {
+					s.share.Jump(a)
+				} else {
+					s.share.Jump(a / space)
+				}
 			}
 			u.Invalidate()
 			return true

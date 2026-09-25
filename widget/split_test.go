@@ -138,3 +138,24 @@ func TestThePointerTakesTheShapeOfWhatItIsOver(t *testing.T) {
 		t.Fatalf("dragging the divider, the pointer is %v, want the resize arrows", got)
 	}
 }
+
+func TestAFixedSplitKeepsItsFirstPaneAsTheWindowResizes(t *testing.T) {
+	w, s, run := newSplitStage(t)
+	s.Fixed = true
+	s.SetShare(120, nil)
+	run(1)
+	if a := s.firstLength(); a != 120 {
+		t.Fatalf("the first pane is %v wide, want 120", a)
+	}
+	w.Offscreen().Resize(geom.Sz(700, 300))
+	run(1)
+	if a := s.firstLength(); a != 120 {
+		t.Fatalf("after the window widened the first pane is %v wide, want 120", a)
+	}
+	// Folded away, it takes the divider with it.
+	s.SetShare(0, nil)
+	run(1)
+	if a, g := s.firstLength(), s.gap; a != 0 || g != 0 {
+		t.Fatalf("folded, the first pane is %v wide with a gap of %v, want 0 and 0", a, g)
+	}
+}

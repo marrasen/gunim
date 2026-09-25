@@ -164,3 +164,15 @@ func BenchmarkAGridScrollingAFullScreen(b *testing.B) {
 		w.Frame(16_666_667)
 	}
 }
+
+func TestAnOutlineCursorIsHollow(t *testing.T) {
+	w, g, run := newCellStage(t)
+	red := color.NRGBA{R: 0xff, A: 0xff}
+	g.SetCursor(Cursor{Col: 2, Row: 1, Visible: true, Shape: CursorOutline, Color: red})
+	run(30)
+	ops := w.Offscreen().Ops()
+	last, ok := ops[len(ops)-1].(*paint.RRectOp)
+	if !ok || last.Fill.Solid.A != 0 || last.Stroke.Color != red || last.Stroke.Width <= 0 {
+		t.Fatalf("the last op is %+v, want a red outline with nothing inside", ops[len(ops)-1])
+	}
+}
