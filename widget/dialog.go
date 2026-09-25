@@ -34,6 +34,10 @@ type Dialog struct {
 	// OnAccept, when set, makes the intent sent on confirming from what
 	// the dialog holds, such as a form's fields, in place of Accept.
 	OnAccept func() gunim.Intent
+	// Danger marks the dialog's OK as an action that destroys, such as
+	// Delete, and shows it in red; otherwise it shows as the action the
+	// dialog expects.
+	Danger bool
 	// Check, when set, runs as the user confirms, and says what stands
 	// in the way, or nothing. With something in the way the dialog stays
 	// open, gives a shake, and says it under the body.
@@ -227,6 +231,10 @@ func (d *Dialog) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children)
 	size := c.Max
 	th := f.Theme
 	pad := DialogPadding.Get(th)
+	d.ok.Kind = ButtonPrimary
+	if d.Danger {
+		d.ok.Kind = ButtonDanger
+	}
 	width := DialogWidth.Get(th)
 	// With a body, the panel grows to fit the title, the body and the
 	// buttons.

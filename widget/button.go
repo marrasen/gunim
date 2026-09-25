@@ -29,6 +29,10 @@ type Button struct {
 	anim.Group
 
 	Label string
+	// Kind says how much the button stands out: plain, primary for the
+	// action a dialog expects, or danger for one that destroys, such as
+	// Delete.
+	Kind ButtonKind
 	// On is the intent sent to the application when the button is
 	// activated. It travels as data, so the application can be a
 	// goroutine or a process on another machine, and either way it
@@ -168,8 +172,29 @@ func (b *Button) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 		)
 	}
 
-	fill := anim.Mix(anim.ColorCodec, ButtonFill.Get(th), ButtonHover.Get(th), b.hover.Value())
+	rest, hover, ink := ButtonFill, ButtonHover, Ink
+	switch b.Kind {
+	case ButtonPrimary:
+		rest, hover, ink = ButtonPrimaryFill, ButtonPrimaryHover, ButtonStrongInk
+	case ButtonDanger:
+		rest, hover, ink = ButtonDangerFill, ButtonDangerHover, ButtonStrongInk
+	case ButtonPlain:
+	}
+	fill := anim.Mix(anim.ColorCodec, rest.Get(th), hover.Get(th), b.hover.Value())
 	p.RRect(r, radius, paint.Solid(fill))
 	run := b.text.shape(b.Label, TextSize.Get(th))
-	run.Paint(p, geom.Pt((box.W-run.Advance)/2, (box.H-run.Height())/2), Ink.Get(th))
+	run.Paint(p, geom.Pt((box.W-run.Advance)/2, (box.H-run.Height())/2), ink.Get(th))
 }
+
+// ButtonKind says how much a [Button] stands out.
+type ButtonKind uint8
+
+// The kinds of button.
+const (
+	// ButtonPlain is the usual button.
+	ButtonPlain ButtonKind = iota
+	// ButtonPrimary is the action a dialog expects, in the accent colour.
+	ButtonPrimary
+	// ButtonDanger is an action that destroys, such as Delete, in red.
+	ButtonDanger
+)

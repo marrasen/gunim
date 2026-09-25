@@ -28,11 +28,19 @@ var (
 
 // Button tokens.
 var (
-	ButtonFill    = theme.Color("button.fill", color.NRGBA{R: 0x2b, G: 0x2f, B: 0x3a, A: 0xff})
-	ButtonHover   = theme.Color("button.hover", color.NRGBA{R: 0x3d, G: 0x45, B: 0x58, A: 0xff})
-	ButtonRadius  = theme.Length("button.radius", 8)
-	ButtonPadding = theme.Length("button.padding", 16)
-	ButtonHeight  = theme.Length("button.height", 36)
+	ButtonFill  = theme.Color("button.fill", color.NRGBA{R: 0x2b, G: 0x2f, B: 0x3a, A: 0xff})
+	ButtonHover = theme.Color("button.hover", color.NRGBA{R: 0x3d, G: 0x45, B: 0x58, A: 0xff})
+	// ButtonPrimaryFill and ButtonDangerFill fill a primary button and a
+	// dangerous one, lighter under the pointer, with ButtonStrongInk on
+	// them.
+	ButtonPrimaryFill  = theme.Color("button.primary", color.NRGBA{R: 0x3a, G: 0x6f, B: 0xd8, A: 0xff})
+	ButtonPrimaryHover = theme.Color("button.primary.hover", color.NRGBA{R: 0x4d, G: 0x82, B: 0xe8, A: 0xff})
+	ButtonDangerFill   = theme.Color("button.danger", color.NRGBA{R: 0xc2, G: 0x3f, B: 0x38, A: 0xff})
+	ButtonDangerHover  = theme.Color("button.danger.hover", color.NRGBA{R: 0xd6, G: 0x53, B: 0x4b, A: 0xff})
+	ButtonStrongInk    = theme.Foreground("button.strong.ink", color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff})
+	ButtonRadius       = theme.Length("button.radius", 8)
+	ButtonPadding      = theme.Length("button.padding", 16)
+	ButtonHeight       = theme.Length("button.height", 36)
 	// ButtonSquash is how far a press shrinks the button, as a fraction
 	// of its size.
 	ButtonSquash = theme.Length("button.squash", 0.035)
