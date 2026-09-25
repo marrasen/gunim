@@ -137,3 +137,35 @@ func TestTheCursorStaysOnItsRowAsTheRowsReorder(t *testing.T) {
 		t.Fatalf("after the rows reversed the cursor is on %q, want 1", k)
 	}
 }
+
+func TestTypingFindsARowByTheStartOfItsName(t *testing.T) {
+	w, tbl, _, run := newTableStage(t, 300)
+	now := time.Now()
+	// "row 2" is row 2; "row 25" comes further on.
+	w.Input(input.TextInput{Text: "ROW 2", Time: now})
+	w.Input(input.TextInput{Text: "5", Time: now.Add(200 * time.Millisecond)})
+	run(1)
+	if k, _ := tbl.Cursor(); k != "25" {
+		t.Fatalf("typing row 25 put the cursor on %q", k)
+	}
+	// After a pause, typing starts a new name.
+	w.Input(input.TextInput{Text: "row 7", Time: now.Add(3 * time.Second)})
+	run(1)
+	if k, _ := tbl.Cursor(); k != "7" {
+		t.Fatalf("typing row 7 after a pause put the cursor on %q", k)
+	}
+}
+
+func TestSpaceTwiceMarksTwoRows(t *testing.T) {
+	w, tbl, _, run := newTableStage(t, 10)
+	now := time.Now()
+	for i := range 2 {
+		at := now.Add(time.Duration(i) * 100 * time.Millisecond)
+		w.Input(input.KeyPress{Key: input.KeySpace, Typed: true, Time: at})
+		w.Input(input.TextInput{Text: " ", Time: at})
+	}
+	run(1)
+	if got := tbl.Marked(); !slices.Equal(got, []Key{"0", "1"}) {
+		t.Fatalf("marked %v, want 0 and 1", got)
+	}
+}

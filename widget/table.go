@@ -3,6 +3,8 @@ package widget
 import (
 	"image/color"
 	"math"
+	"strings"
+	"time"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
@@ -76,6 +78,10 @@ type Table struct {
 	// xs holds each column's left edge and width, from the last layout.
 	xs      [][2]float32
 	focused bool
+	// typed is what has been typed to find a row, and typedAt when the
+	// last of it was.
+	typed   string
+	typedAt time.Time
 }
 
 // NewTable returns an empty table of columns.
@@ -176,9 +182,17 @@ func (t *Table) Handle(e input.Event, u *gunim.UI) bool {
 		t.focused = false
 		u.Invalidate()
 		return true
+	case input.TextInput:
+		t.find(e, u)
+		return true
 	case input.KeyPress:
 		if e.Mods.Has(input.ModControl) || e.Mods.Has(input.ModAlt) {
 			return false
+		}
+		// A typed press leaves it to the text, which finds a row; Space
+		// while finding goes into the name.
+		if e.Typed && (e.Key != input.KeySpace || t.finding(e.Time)) {
+			return true
 		}
 		page := max(1, int(t.pageRows(u)))
 		switch e.Key {
@@ -212,6 +226,42 @@ func (t *Table) Handle(e input.Event, u *gunim.UI) bool {
 		return true
 	}
 	return false
+}
+
+// findPause is how long typing rests before a new name starts.
+const findPause = time.Second
+
+func (t *Table) finding(now time.Time) bool {
+	return t.typed != "" && now.Sub(t.typedAt) < findPause
+}
+
+// find moves the cursor to the first row whose first cell starts with
+// what has been typed, whatever its case. Typing after a pause starts
+// a new name.
+func (t *Table) find(e input.TextInput, u *gunim.UI) {
+	now := e.Time
+	if now.IsZero() {
+		now = time.Now()
+	}
+	if !t.finding(now) {
+		t.typed = ""
+		// A name never starts with a space: that one marked a row.
+		if strings.TrimSpace(e.Text) == "" {
+			return
+		}
+	}
+	t.typed += strings.ToLower(e.Text)
+	t.typedAt = now
+	if t.Row == nil {
+		return
+	}
+	for i, k := range t.keys {
+		row := t.Row(k)
+		if len(row.Cells) > 0 && strings.HasPrefix(strings.ToLower(row.Cells[0]), t.typed) {
+			t.move(i, u)
+			return
+		}
+	}
 }
 
 // pageRows is how many rows the table shows at once.
