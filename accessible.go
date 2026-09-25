@@ -1,6 +1,8 @@
 package gunim
 
 import (
+	"slices"
+
 	"github.com/marrasen/gunim/access"
 	"github.com/marrasen/gunim/driver"
 	"github.com/marrasen/gunim/geom"
@@ -42,20 +44,31 @@ func (u *UI) accessID(s *state) uint64 {
 // accessTree gathers what the window's tree says for assistive
 // technology, as the last frame drew it.
 func (u *UI) accessTree(root *state, title string) *access.Tree {
-	u.byAID = map[uint64]*state{}
+	if u.byAID == nil {
+		u.byAID = map[*state]map[uint64]*state{}
+	}
+	// Trees of popups that have closed go.
+	for r := range u.byAID {
+		if r != u.root && !slices.ContainsFunc(u.popups, func(p *surface) bool { return p.root == r }) {
+			delete(u.byAID, r)
+		}
+	}
+	ids := map[uint64]*state{}
+	u.byAID[root] = ids
 	top := &access.Node{
 		Info:   access.Info{Role: access.RoleWindow, Name: title},
 		ID:     u.accessID(root),
 		Bounds: geom.Rect{Max: root.size.Point()},
 	}
-	u.byAID[top.ID] = root
-	u.gather(root, top)
+	ids[top.ID] = root
+	u.gather(root, top, ids)
 	return access.NewTree(top)
 }
 
 // gather adds what s's children say to parent, skipping nodes that say
 // nothing and the ones the last frame left undrawn or that are leaving.
-func (u *UI) gather(s *state, parent *access.Node) {
+// ids gathers the nodes by ID.
+func (u *UI) gather(s *state, parent *access.Node, ids map[uint64]*state) {
 	for _, k := range s.kids {
 		if k.presence == Exiting || k.drawn != u.seq {
 			continue
@@ -63,17 +76,17 @@ func (u *UI) gather(s *state, parent *access.Node) {
 		into := parent
 		if a, ok := k.node.(Accessible); ok {
 			n := u.accessNode(k, a.Access())
+			ids[n.ID] = k
 			parent.Children = append(parent.Children, n)
 			into = n
 		}
-		u.gather(k, into)
+		u.gather(k, into, ids)
 	}
 }
 
 // accessNode makes s's node from what it said.
 func (u *UI) accessNode(s *state, info access.Info) *access.Node {
 	id := u.accessID(s)
-	u.byAID[id] = s
 	f, focusable := s.node.(Focusable)
 	n := &access.Node{
 		Info:      info,
@@ -130,8 +143,13 @@ func (u *UI) focusNow() {
 
 // accessRequest carries out a screen reader's request.
 func (u *UI) accessRequest(r access.Request) {
-	s, ok := u.byAID[r.ID&(1<<partBits-1)]
-	if !ok || s.leaving() {
+	var s *state
+	for _, ids := range u.byAID {
+		if found, ok := ids[r.ID&(1<<partBits-1)]; ok {
+			s = found
+		}
+	}
+	if s == nil || s.leaving() {
 		return
 	}
 	r.Part = int(r.ID>>partBits) - 1

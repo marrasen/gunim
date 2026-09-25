@@ -19,8 +19,19 @@ $refs = @(
     [System.Windows.Rect].Assembly.Location
 )
 Add-Type -ReferencedAssemblies $refs -TypeDefinition @"
+using System;
 using System.Collections.Concurrent;
+using System.Runtime.InteropServices;
 using System.Windows.Automation;
+public static class Keys {
+    [DllImport("user32.dll")] static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
+    // Tab, with its scan code, as a keyboard sends it.
+    public static void Tab() {
+        keybd_event(0x09, 0x0F, 0, UIntPtr.Zero);
+        keybd_event(0x09, 0x0F, 2, UIntPtr.Zero);
+    }
+}
 public static class FocusLog {
     public static ConcurrentQueue<string> Seen = new ConcurrentQueue<string>();
     public static void Start() {
@@ -121,8 +132,9 @@ if ($slider) {
 # 4. Focus events, which Narrator follows, as Tab moves focus.
 [FocusLog]::Start()
 (New-Object -ComObject WScript.Shell).AppActivate('gunim controls') | Out-Null
+[Keys]::SetForegroundWindow([IntPtr]$win.Current.NativeWindowHandle) | Out-Null
 Start-Sleep -Milliseconds 500
-foreach ($i in 1..4) { [System.Windows.Forms.SendKeys]::SendWait('{TAB}'); Start-Sleep -Milliseconds 400 }
+foreach ($i in 1..4) { [Keys]::Tab(); Start-Sleep -Milliseconds 400 }
 Start-Sleep -Milliseconds 500
 $seen = @([FocusLog]::Seen.ToArray() | Where-Object { $_ -like '* gunim' })
 $seen | ForEach-Object { Say "  focus: $_" }

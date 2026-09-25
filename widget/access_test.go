@@ -107,3 +107,27 @@ func TestAScreenReaderCanPressAndFocus(t *testing.T) {
 		t.Fatalf("focus is on %+v, want the checkbox", tree.Focus)
 	}
 }
+
+func TestAScreenReaderClosesADropDownItOpened(t *testing.T) {
+	d := NewDropdown("Apple", "Banana", "Cherry")
+	d.Label = "Fruit"
+	w, run := stage(t, &frame{child: Column(d), size: geom.Sz(400, 300)})
+	w.Offscreen().ListenForAccess()
+	run(2)
+	combo := find(w.Offscreen().AccessTree().Root, access.RoleComboBox, "Fruit")
+	if combo == nil {
+		t.Fatal("no combo box in the tree")
+	}
+	w.Input(access.Request{ID: combo.ID, Action: access.ActionOpen})
+	run(30)
+	if !d.IsOpen() {
+		t.Fatal("asked to open, the list stayed closed")
+	}
+	// The open list's own window publishes a tree too; the combo box is
+	// still found.
+	w.Input(access.Request{ID: combo.ID, Action: access.ActionClose})
+	run(30)
+	if d.IsOpen() {
+		t.Fatal("asked to close, the list stayed open")
+	}
+}

@@ -3,7 +3,10 @@
 package desktop
 
 import (
+	"fmt"
 	"math"
+	"os"
+	"runtime"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -45,7 +48,19 @@ var (
 	procSafeArrayPutElement                    = oleaut32.NewProc("SafeArrayPutElement")
 	procSysAllocString                         = oleaut32.NewProc("SysAllocString")
 	procSysFreeString                          = oleaut32.NewProc("SysFreeString")
+	procCoInitializeEx                         = windows.NewLazySystemDLL("ole32.dll").NewProc("CoInitializeEx")
+	procCoUninitialize                         = windows.NewLazySystemDLL("ole32.dll").NewProc("CoUninitialize")
 )
+
+// uiaDebug is set by GUNIM_DEBUG_UIA=1, which logs each event raised,
+// and what UI Automation answered, to standard error.
+var uiaDebug = os.Getenv("GUNIM_DEBUG_UIA") == "1"
+
+func uiaLog(format string, args ...any) {
+	if uiaDebug {
+		fmt.Fprintf(os.Stderr, "gunim uia: "+format+"\n", args...)
+	}
+}
 
 // The interfaces an element answers to, in the order of its method
 // table pointers.
@@ -169,6 +184,16 @@ type uiaWindow struct {
 func newUIAWindow(w *Window, hwnd uintptr) *uiaWindow {
 	uw := &uiaWindow{win: w, hwnd: hwnd, events: make(chan func(), 64), stop: make(chan struct{})}
 	go func() {
+		// UI Automation's functions, raising events among them, need COM
+		// on the thread that calls them.
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+		const coinitMultithreaded = 0
+		hr, _, _ := procCoInitializeEx.Call(0, coinitMultithreaded)
+		uiaLog("CoInitializeEx: HRESULT %#x", uint32(hr))
+		if int32(hr) >= 0 {
+			defer func() { _, _, _ = procCoUninitialize.Call() }()
+		}
 		for {
 			select {
 			case ev := <-uw.events:
@@ -226,6 +251,7 @@ func (uw *uiaWindow) raise(ev func()) {
 func (uw *uiaWindow) focusChanged() {
 	if t := uw.tree.Load(); t != nil && t.Focus != nil && t.Focus != t.Root {
 		id := t.Focus.ID
+		uiaLog("focus moved to node %d, %q; the window has the keyboard: %v", id, t.Focus.Name, uw.keyboard())
 		uw.raise(func() { uw.event(id, eventFocusChanged) })
 	}
 }
@@ -249,6 +275,9 @@ func (uw *uiaWindow) publish(t *access.Tree) {
 	uw.parents.Store(&parents)
 	old := uw.tree.Swap(t)
 	if r, _, _ := procUiaClientsAreListening.Call(); r == 0 {
+		if old == nil {
+			uiaLog("no clients listen for events")
+		}
 		return
 	}
 	if old == nil {
@@ -268,8 +297,12 @@ func (uw *uiaWindow) publish(t *access.Tree) {
 		}
 	}
 	diff(t.Root)
-	if t.Focus != nil && t.Focus != t.Root && (old.Focus == nil || old.Focus.ID != t.Focus.ID) && uw.keyboard() {
-		uw.focusChanged()
+	if t.Focus != nil && t.Focus != t.Root && (old.Focus == nil || old.Focus.ID != t.Focus.ID) {
+		if uw.keyboard() {
+			uw.focusChanged()
+		} else {
+			uiaLog("focus moved to node %d, but the window lacks the keyboard", t.Focus.ID)
+		}
 	}
 }
 
@@ -315,7 +348,8 @@ func (uw *uiaWindow) diff(o, n *access.Node, root bool) {
 func (uw *uiaWindow) event(id uint64, event int32) {
 	e := uw.element(id)
 	defer e.release()
-	_, _, _ = procUiaRaiseAutomationEvent.Call(e.iface(ifSimple), uintptr(event))
+	hr, _, _ := procUiaRaiseAutomationEvent.Call(e.iface(ifSimple), uintptr(event))
+	uiaLog("event %d from node %d: HRESULT %#x", event, id, uint32(hr))
 }
 
 // changed raises a property's change on node id, and frees the two
@@ -326,8 +360,9 @@ func (uw *uiaWindow) changed(id uint64, prop int32, was, is variant) {
 	e := uw.element(id)
 	defer e.release()
 	// A VARIANT, larger than a register, goes by the address of a copy.
-	_, _, _ = procUiaRaiseAutomationPropertyChangedEvent.Call(e.iface(ifSimple), uintptr(prop),
+	hr, _, _ := procUiaRaiseAutomationPropertyChangedEvent.Call(e.iface(ifSimple), uintptr(prop),
 		uintptr(unsafe.Pointer(&was)), uintptr(unsafe.Pointer(&is)))
+	uiaLog("property %d of node %d changed: HRESULT %#x", prop, id, uint32(hr))
 }
 
 // structure tells UI Automation node id's children changed.
@@ -335,8 +370,9 @@ func (uw *uiaWindow) structure(id uint64) {
 	e := uw.element(id)
 	defer e.release()
 	rid := runtimeID(id)
-	_, _, _ = procUiaRaiseStructureChangedEvent.Call(e.iface(ifSimple), childrenInvalidated,
+	hr, _, _ := procUiaRaiseStructureChangedEvent.Call(e.iface(ifSimple), childrenInvalidated,
 		uintptr(unsafe.Pointer(&rid[0])), uintptr(len(rid)))
+	uiaLog("children of node %d changed: HRESULT %#x", id, uint32(hr))
 }
 
 // runtimeID is node id's runtime ID, which UI Automation adds to the

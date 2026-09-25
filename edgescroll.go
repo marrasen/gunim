@@ -1,6 +1,8 @@
 package gunim
 
 import (
+	"fmt"
+	"os"
 	"time"
 
 	"github.com/marrasen/gunim/geom"
@@ -59,6 +61,7 @@ func (u *UI) edgeScroll(dt time.Duration) bool {
 		}
 		var moved geom.Point
 		u.on(s, func() { moved = e.EdgeScroll(u.local(s, at), dt, u) })
+		edgeLog(u.now, dt, u.local(s, at), moved)
 		if moved == (geom.Point{}) {
 			continue
 		}
@@ -77,6 +80,18 @@ func (u *UI) edgeScroll(dt time.Duration) bool {
 		return true
 	}
 	return false
+}
+
+// edgeDebug is set by GUNIM_DEBUG_EDGE=1, which logs each frame of a
+// held drag's scroll to standard error: the frame's time and length,
+// the pointer in the scroller's space, and how far the content moved.
+var edgeDebug = os.Getenv("GUNIM_DEBUG_EDGE") == "1"
+
+func edgeLog(now time.Time, dt time.Duration, p, moved geom.Point) {
+	if edgeDebug {
+		fmt.Fprintf(os.Stderr, "gunim edge: frame %s, %.1f ms, pointer at %.0f, moved %.1f\n",
+			now.Format("15:04:05.000"), float64(dt.Microseconds())/1000, p.Y, moved.Y)
+	}
 }
 
 func holdsDrag(s *state) bool {

@@ -211,6 +211,10 @@ func newWindow(dw driver.Window, root Node) *Window {
 		open: func(o driver.Options) (driver.Window, error) {
 			ow := driver.Offscreen(o.Size)
 			_ = ow.Place(o.Anchor, o.Size)
+			// A screen reader reading a window reads its popups.
+			if p, ok := o.Parent.(*driver.OffscreenWindow); ok && p.AccessWanted() {
+				ow.ListenForAccess()
+			}
 			return ow, nil
 		},
 		popupIn: make(chan popupEvent, 16),
@@ -678,9 +682,11 @@ type UI struct {
 	dragOverAt   geom.Point
 	dragOverData any
 	// aids counts the IDs given to nodes for assistive technology, and
-	// byAID finds a node by its ID, as of the last tree published.
+	// byAID finds a node by its ID, for each tree published, the
+	// window's and each popup's, keyed by the tree's root, as of the
+	// last time it was published.
 	aids  uint64
-	byAID map[uint64]*state
+	byAID map[*state]map[uint64]*state
 	// focusMoved is set when focus moves, until the tree has told
 	// assistive technology.
 	focusMoved bool
