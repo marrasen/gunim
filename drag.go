@@ -142,22 +142,16 @@ type drag struct {
 	data   any
 	ghost  *Popup
 	grab   geom.Point
-	// over is the window the drag is over, or nil. outside is when
-	// the pointer last left the application's windows, while it stays
-	// out, and recheck stops the timer that looks again.
-	over    *Window
-	outside time.Time
-	recheck func()
+	// over is the window the drag is over, or nil.
+	over *Window
 }
 
-// A drag of files leaves the application once the pointer has clearly
-// left it: farther than leaveReach from every window of the
-// application, or out of them all for leaveAfter. Crossing the gap
-// between two of its windows stays a drag inside it.
-const (
-	leaveReach = 64
-	leaveAfter = 200 * time.Millisecond
-)
+// leaveReach is how far a drag of files must go from every window of
+// the application before it leaves it. Crossing a gap between two of
+// its windows, however slowly, stays a drag inside it. Once the
+// platform's drag has it, the pointer may come back as close as it
+// likes to drop.
+const leaveReach = 64
 
 // StartDrag starts dragging data from n, which has the pointer pressed
 // on it: call it from n's Handle, for a press or a move. ghost, when
@@ -199,9 +193,7 @@ func (u *UI) dragTo(p geom.Point) {
 		u.w.sendDrag(d.over, dragMsg{kind: dragLeave})
 	}
 	d.over = over
-	if over != nil {
-		d.outside = time.Time{}
-	} else if u.leaving(d, at) && u.dragOut(d) {
+	if over == nil && u.leaving(at) && u.dragOut(d) {
 		return
 	}
 	if over != nil {
@@ -214,26 +206,13 @@ func (u *UI) dragTo(p geom.Point) {
 	u.invalid = true
 }
 
-// leaving reports whether a drag outside every window of the
-// application, at the screen point at, has clearly left it. Until it
-// has, a timer looks again, for a pointer that comes to rest in a gap.
-func (u *UI) leaving(d *drag, at geom.Point) bool {
-	now := u.clock()
-	if d.outside.IsZero() {
-		d.outside = now
+// leaving reports whether a drag at the screen point at, outside every
+// window of the application, has gone far enough to leave it.
+func (u *UI) leaving(at geom.Point) bool {
+	if u.w.app == nil {
+		return !holds(u.w, at)
 	}
-	if now.Sub(d.outside) >= leaveAfter || u.w.app == nil || u.w.app.windows.farFrom(at, leaveReach) {
-		return true
-	}
-	if d.recheck == nil {
-		d.recheck = u.After(leaveAfter, func(u *UI) {
-			d.recheck = nil
-			if u.drag == d && d.over == nil {
-				u.dragTo(u.pointer)
-			}
-		})
-	}
-	return false
+	return u.w.app.windows.farFrom(at, leaveReach)
 }
 
 // dragOut hands d to other programs, when it can go as files, and

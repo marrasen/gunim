@@ -240,7 +240,7 @@ func TestADragCrossingTheGapBetweenWindowsStaysInside(t *testing.T) {
 	}
 }
 
-func TestADragRestingOutsideLeavesAfterAMoment(t *testing.T) {
+func TestADragLeavesOnlyOnceFarFromEveryWindow(t *testing.T) {
 	a, _, c, _ := twoWindows(t)
 	x := &exporter{carrier: c, data: exportable{"/tmp/apple.png"}}
 	a.ui.Remove(c)
@@ -248,13 +248,15 @@ func TestADragRestingOutsideLeavesAfterAMoment(t *testing.T) {
 	run(a, 60)
 	a.Input(input.PointerDown{Pos: geom.Pt(30, 30), Time: time.Now()})
 	a.Input(input.PointerMove{Pos: geom.Pt(40, 30), Time: time.Now()})
-	// Just past the right window's edge, and then still.
+	// Just past the right window's edge, and resting there a while: a
+	// slow crossing looks the same.
 	a.Input(input.PointerMove{Pos: geom.Pt(1620, 50), Time: time.Now()})
+	run(a, 60)
 	if len(a.mustOffscreen(t).DraggedOut()) != 0 {
-		t.Fatal("handed out at once, close to a window")
+		t.Fatal("handed out close to a window")
 	}
-	run(a, 30) // half a second
+	a.Input(input.PointerMove{Pos: geom.Pt(1700, 50), Time: time.Now()})
 	if len(a.mustOffscreen(t).DraggedOut()) != 1 {
-		t.Fatal("a drag resting outside was not handed out")
+		t.Fatal("a drag far from every window was not handed out")
 	}
 }
