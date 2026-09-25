@@ -161,7 +161,7 @@ func TestAnActionLeavesTheDialogOpen(t *testing.T) {
 		box.OnFlip(func(on bool, _ *gunim.UI) { field.Secret = !on })
 		field.Secret = true
 		d.Body = NewForm().Add("Password", field).Add("", box)
-		d.AddAction("Make One Up", func(*gunim.UI) { field.SetText("made") })
+		d.AddAction("Generate", func(*gunim.UI) { field.SetText("made") })
 		return d
 	}, nil)
 	c := w.Client()
