@@ -59,6 +59,8 @@ type Dialog struct {
 	cancel    *Button
 	extra     []*Button
 	titleText laidText
+	// width is the panel's width at the last layout.
+	width float32
 	// height is the panel's height, from the last layout, and focused
 	// is set once the keyboard has gone to the body's first field.
 	height  float32
@@ -258,16 +260,26 @@ func (d *Dialog) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children)
 	if d.Danger {
 		d.ok.Kind = ButtonDanger
 	}
-	width := DialogWidth.Get(th)
+	// As wide as the theme says, or as the buttons need in a row,
+	// whichever is wider, and no wider than the window.
+	first := 0
+	if d.Body != nil {
+		first = 2
+	}
+	gap := DialogGap.Get(th)
+	row := -gap
+	for i := first; i < kids.Len(); i++ {
+		row += kids.At(i).Layout(gunim.Loose(size)).W + gap
+	}
+	width := min(max(DialogWidth.Get(th), row+2*pad), size.W)
+	d.width = width
 	// With a body, the panel grows to fit the title, the body and the
 	// buttons.
 	d.height = DialogHeight.Get(th)
-	first := 0
 	var body, problem gunim.Child
 	hasBody := d.Body != nil
 	var bs, ps geom.Size
 	if hasBody {
-		first = 2
 		body, problem = kids.At(0), kids.At(1)
 		title := d.titleText.layout(d.Title, text.Style{Size: DialogTitleSize.Get(th), MaxLines: 2}, width-2*pad)
 		bs = body.Layout(gunim.Constraints{Max: geom.Sz(width-2*pad, 0)})
@@ -302,7 +314,10 @@ func (d *Dialog) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children)
 
 // panel returns the dialog's own rectangle, centred in size.
 func (d *Dialog) panel(size geom.Size, f gunim.Frame) geom.Rect {
-	w, h := DialogWidth.Get(f.Theme), d.height
+	w, h := d.width, d.height
+	if w <= 0 {
+		w = DialogWidth.Get(f.Theme)
+	}
 	if h <= 0 {
 		h = DialogHeight.Get(f.Theme)
 	}

@@ -195,3 +195,43 @@ func TestAnActionLeavesTheDialogOpen(t *testing.T) {
 	default:
 	}
 }
+
+func TestADialogWidensForItsButtons(t *testing.T) {
+	w := gunim.NewOffscreen(geom.Sz(1000, 600), nil)
+	var d *Dialog
+	var u *gunim.UI
+	gunim.RegisterView(w, "many", func(title string) *Dialog {
+		d = NewDialog(title)
+		d.Body = NewLabel("Several things can be done here.")
+		d.AddAction("Copy Prompt", func(*gunim.UI) {})
+		d.AddAction("Copy Setup", func(*gunim.UI) {})
+		d.AddButton("Stop Sharing", func() gunim.Intent { return nil })
+		d.SetButtons("Done", "Cancel")
+		return d
+	}, func(_ *Dialog, _ string, got *gunim.UI) { u = got })
+	c := w.Client()
+	if err := c.Mount(gunim.Root, "many", "many", "Share", "many"); err != nil {
+		t.Fatal(err)
+	}
+	for range 60 {
+		w.Frame(time.Second / 60)
+	}
+	if err := c.Publish("many", "Share"); err != nil {
+		t.Fatal(err)
+	}
+	w.Frame(time.Second / 60)
+	panel, ok := u.Bounds(d)
+	if !ok {
+		t.Fatal("the dialog has no bounds")
+	}
+	inner := d.panel(panel.Size(), gunim.Frame{Theme: u.Theme()}).Add(panel.Min)
+	for _, b := range append(d.extra, d.cancel, d.ok) {
+		r, ok := u.Bounds(b)
+		if !ok {
+			t.Fatalf("%s has no bounds", b.Label)
+		}
+		if r.Min.X < inner.Min.X || r.Max.X > inner.Max.X {
+			t.Fatalf("%s spans %v, outside the panel %v", b.Label, r, inner)
+		}
+	}
+}
