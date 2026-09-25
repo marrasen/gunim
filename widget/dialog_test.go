@@ -149,3 +149,49 @@ func TestADialogWithNoCancelHasOKAlone(t *testing.T) {
 		t.Fatal("Enter sent nothing")
 	}
 }
+
+func TestAnActionLeavesTheDialogOpen(t *testing.T) {
+	w := gunim.NewOffscreen(geom.Sz(800, 600), nil)
+	var d *Dialog
+	var box *Checkbox
+	field := NewTextField()
+	gunim.RegisterView(w, "form", func(title string) *Dialog {
+		d = NewDialog(title)
+		box = NewCheckbox("Show")
+		box.OnFlip(func(on bool, _ *gunim.UI) { field.Secret = !on })
+		field.Secret = true
+		d.Body = NewForm().Add("Password", field).Add("", box)
+		d.AddAction("Make One Up", func(*gunim.UI) { field.SetText("made") })
+		return d
+	}, nil)
+	c := w.Client()
+	if err := c.Mount(gunim.Root, "form", "form", "Add"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Focus("form"); err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		w.Frame(time.Second / 60)
+	}
+	// Tab from the field to the box, and Space ticks it.
+	w.Input(input.KeyPress{Key: input.KeyTab})
+	w.Input(input.KeyPress{Key: input.KeySpace})
+	// Tab on to the action, and Enter presses it.
+	w.Input(input.KeyPress{Key: input.KeyTab})
+	w.Input(input.KeyPress{Key: input.KeyEnter})
+	for range 3 {
+		w.Frame(time.Second / 60)
+	}
+	if field.Secret {
+		t.Fatal("ticked, the box left the field hidden")
+	}
+	if field.Text() != "made" {
+		t.Fatalf("after the action, the field holds %q", field.Text())
+	}
+	select {
+	case env := <-c.Intents():
+		t.Fatalf("the action closed the dialog, sending %v", env.Intent)
+	default:
+	}
+}

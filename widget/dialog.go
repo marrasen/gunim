@@ -102,6 +102,15 @@ func (d *Dialog) AddButton(label string, what func() gunim.Intent) {
 	d.extra = append(d.extra, b)
 }
 
+// AddAction adds a button left of Cancel that runs do and leaves the
+// dialog open, for help with the form, such as making up a password.
+// Add buttons before mounting the dialog.
+func (d *Dialog) AddAction(label string, do func(u *gunim.UI)) {
+	b := NewButton(label)
+	b.OnActivate(do)
+	d.extra = append(d.extra, b)
+}
+
 func (d *Dialog) accept(u *gunim.UI) {
 	if d.Check != nil {
 		if msg := d.Check(); msg != "" {

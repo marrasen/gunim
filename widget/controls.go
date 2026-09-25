@@ -20,6 +20,8 @@ type toggle struct {
 	On    bool
 	// OnChange turns the new state into an intent for the application.
 	OnChange func(on bool) gunim.Intent
+	// flipped is local behaviour, set by OnFlip.
+	flipped func(on bool, u *gunim.UI)
 
 	// lit runs from 0 to 1 as the control turns on.
 	lit   *anim.Float
@@ -56,9 +58,16 @@ func (t *toggle) SetOn(on bool, u *gunim.UI) {
 	t.lit.Animate(value(on), Bounce.Get(u.Theme()))
 }
 
+// OnFlip wires behaviour that runs inside the window when the user
+// flips the control, such as a box that shows a password field's text.
+func (t *toggle) OnFlip(fn func(on bool, u *gunim.UI)) { t.flipped = fn }
+
 func (t *toggle) flip(n gunim.Node, u *gunim.UI) {
 	t.On = !t.On
 	t.lit.Animate(value(t.On), Bounce.Get(u.Theme()))
+	if t.flipped != nil {
+		t.flipped(t.On, u)
+	}
 	if t.OnChange != nil {
 		u.Send(n, t.OnChange(t.On))
 	}
