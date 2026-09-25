@@ -200,7 +200,7 @@ func (d *Dialog) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children)
 		body = kids.At(0)
 		title := d.titleText.layout(d.Title, text.Style{Size: DialogTitleSize.Get(th), MaxLines: 2}, width-2*pad)
 		bs := body.Layout(gunim.Constraints{Max: geom.Sz(width-2*pad, 0)})
-		d.height = max(d.height, pad+title.Size.H+pad+bs.H+pad+ButtonHeight.Get(th)+pad)
+		d.height = pad + title.Size.H + pad + bs.H + pad + ButtonHeight.Get(th) + pad
 	}
 	panel := d.panel(size, f)
 	if hasBody {
