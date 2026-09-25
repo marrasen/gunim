@@ -8,11 +8,15 @@
 package widget
 
 import (
+	"image/color"
+	"time"
+
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
+	"github.com/marrasen/gunim/theme"
 )
 
 // Button is a labelled, clickable rectangle.
@@ -50,8 +54,12 @@ type Button struct {
 	// release over it from one outside.
 	size geom.Size
 	ring *anim.Float
-	held bool
-	text shapedText
+	// tone fades the colours from kind was to kind is, so a primary or
+	// danger button comes up from the plain button's colours.
+	tone    *anim.Float
+	was, is ButtonKind
+	held    bool
+	text    shapedText
 }
 
 // NewButton returns a button showing label.
@@ -61,8 +69,9 @@ func NewButton(label string) *Button {
 		hover: anim.NewFloat(0),
 		press: anim.NewFloat(0),
 		ring:  anim.NewFloat(0),
+		tone:  anim.NewFloat(1),
 	}
-	b.Add(b.hover, b.press, b.ring)
+	b.Add(b.hover, b.press, b.ring, b.tone)
 	return b
 }
 
@@ -143,6 +152,11 @@ func (b *Button) fire(u *gunim.UI) {
 func (b *Button) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
 	run := b.text.shape(b.Label, TextSize.Get(f.Theme))
 	b.size = c.Constrain(geom.Sz(run.Advance+2*ButtonPadding.Get(f.Theme), ButtonHeight.Get(f.Theme)))
+	if b.Kind != b.is {
+		b.was, b.is = b.is, b.Kind
+		b.tone.Jump(0)
+		b.tone.Animate(1, anim.Tween{Duration: toneTime})
+	}
 	return b.size
 }
 
@@ -172,18 +186,31 @@ func (b *Button) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 		)
 	}
 
-	rest, hover, ink := ButtonFill, ButtonHover, Ink
-	switch b.Kind {
-	case ButtonPrimary:
-		rest, hover, ink = ButtonPrimaryFill, ButtonPrimaryHover, ButtonStrongInk
-	case ButtonDanger:
-		rest, hover, ink = ButtonDangerFill, ButtonDangerHover, ButtonStrongInk
-	case ButtonPlain:
+	fromRest, fromHover, fromInk := kindColours(b.was)
+	rest, hover, ink := kindColours(b.is)
+	t := min(max(b.tone.Value(), 0), 1)
+	mix := func(from, to theme.Token[color.NRGBA]) color.NRGBA {
+		return anim.Mix(anim.ColorCodec, from.Get(th), to.Get(th), t)
 	}
-	fill := anim.Mix(anim.ColorCodec, rest.Get(th), hover.Get(th), b.hover.Value())
+	fill := anim.Mix(anim.ColorCodec, mix(fromRest, rest), mix(fromHover, hover), b.hover.Value())
 	p.RRect(r, radius, paint.Solid(fill))
 	run := b.text.shape(b.Label, TextSize.Get(th))
-	run.Paint(p, geom.Pt((box.W-run.Advance)/2, (box.H-run.Height())/2), ink.Get(th))
+	run.Paint(p, geom.Pt((box.W-run.Advance)/2, (box.H-run.Height())/2), mix(fromInk, ink))
+}
+
+// toneTime is how long a button takes to fade into a new kind's colours.
+const toneTime = 350 * time.Millisecond
+
+// kindColours returns the rest fill, hover fill and ink of a kind.
+func kindColours(k ButtonKind) (rest, hover, ink theme.Token[color.NRGBA]) {
+	switch k {
+	case ButtonPrimary:
+		return ButtonPrimaryFill, ButtonPrimaryHover, ButtonStrongInk
+	case ButtonDanger:
+		return ButtonDangerFill, ButtonDangerHover, ButtonStrongInk
+	case ButtonPlain:
+	}
+	return ButtonFill, ButtonHover, Ink
 }
 
 // ButtonKind says how much a [Button] stands out.
