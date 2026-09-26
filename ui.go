@@ -165,6 +165,8 @@ type Window struct {
 	// events to the UI goroutine.
 	open    func(driver.Options) (driver.Window, error)
 	popupIn chan popupEvent
+	// redraw asks for a frame, for Client.Shot.
+	redraw chan struct{}
 	// title is the window's title, which a screen reader reads for it.
 	title string
 	// askToClose is sent to the application when the user asks to close
@@ -232,6 +234,7 @@ func newWindow(dw driver.Window, root Node) *Window {
 			return ow, nil
 		},
 		popupIn: make(chan popupEvent, 16),
+		redraw:  make(chan struct{}, 1),
 		dragIn:  make(chan dragMsg, 64),
 		blends:  true,
 	}
@@ -352,6 +355,35 @@ func (c Client) Err() error { return c.w.err }
 
 // Close shuts the window down.
 func (c Client) Close() { c.w.Close() }
+
+// ErrNoPixels is returned by [Client.Shot] for a window whose driver
+// draws nothing to read back, such as one from [NewOffscreen].
+var ErrNoPixels = errors.New("gunim: this window draws no pixels to read")
+
+// Shot returns the window's next frame as a picture, for a tool that
+// drives the window through a script and keeps what it shows. It draws
+// a frame for the purpose, and waits for it, or for ctx to end.
+func (c Client) Shot(ctx context.Context) (*image.RGBA, error) {
+	s, ok := c.w.dw.(driver.Shooter)
+	if !ok {
+		return nil, ErrNoPixels
+	}
+	got := make(chan *image.RGBA, 1)
+	s.Shoot(func(img *image.RGBA) { got <- img })
+	select {
+	case c.w.redraw <- struct{}{}:
+	default:
+		// A frame is asked for already.
+	}
+	select {
+	case img := <-got:
+		return img, nil
+	case <-c.w.done:
+		return nil, ErrWindowClosed
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
 
 // NewOffscreen returns a window backed by no display, with the frame
 // loop left to the caller.
@@ -506,6 +538,8 @@ func (w *Window) wait() bool {
 		w.ui.popupEvent(e)
 	case m := <-w.dragIn:
 		w.ui.dragMsg(m)
+	case <-w.redraw:
+		w.ui.invalid = true
 	case f, ok := <-w.dw.Presented():
 		if !ok {
 			return false

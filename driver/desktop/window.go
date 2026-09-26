@@ -5,6 +5,7 @@ package desktop
 import (
 	"errors"
 	"fmt"
+	"image"
 	"runtime"
 	"slices"
 	"sync"
@@ -88,6 +89,9 @@ type Window struct {
 	// readback, when set by a test, receives each frame's pixels as
 	// RGBA rows from the bottom up, read before the swap.
 	readback func(pix []byte, w, h int)
+	// shot, when set, receives the next frame's pixels once, the right
+	// way up.
+	shot func(*image.RGBA)
 
 	// textInput is whether the application is taking text, which the
 	// input method asks from the main thread.
@@ -635,6 +639,29 @@ func (w *Window) install() {
 	installText(w)
 }
 
+// Shoot implements [driver.Shooter].
+func (w *Window) Shoot(fn func(*image.RGBA)) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.shot = fn
+}
+
+// shotBack is a readback that turns the pixels, read from the bottom
+// up, into a picture the right way up for shot, and hands them on to
+// the readback there was.
+func shotBack(was func([]byte, int, int), shot func(*image.RGBA)) func([]byte, int, int) {
+	return func(pix []byte, w, h int) {
+		img := image.NewRGBA(image.Rect(0, 0, w, h))
+		for y := range h {
+			copy(img.Pix[y*img.Stride:(y+1)*img.Stride], pix[(h-1-y)*w*4:(h-y)*w*4])
+		}
+		go shot(img)
+		if was != nil {
+			was(pix, w, h)
+		}
+	}
+}
+
 // frame is one frame for the render thread: its ops, and the part of
 // the window that changed since the frame before.
 type frame struct {
@@ -681,8 +708,12 @@ func (w *Window) render() {
 		if r != nil {
 			w.mu.Lock()
 			fbW, fbH, scale, rate := w.fbW, w.fbH, w.scale, w.rate
-			readback := w.readback
+			readback, shot := w.readback, w.shot
+			w.shot = nil
 			w.mu.Unlock()
+			if shot != nil {
+				readback = shotBack(readback, shot)
+			}
 			if w.pres != nil {
 				fbo, err := w.pres.begin(fbW, fbH)
 				if err != nil {

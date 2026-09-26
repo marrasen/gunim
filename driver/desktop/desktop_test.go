@@ -4,6 +4,7 @@ package desktop
 
 import (
 	"context"
+	"image"
 	"image/color"
 	"os"
 	"testing"
@@ -241,5 +242,40 @@ func TestEachWindowTakesItsMonitorsRate(t *testing.T) {
 		if f := float64(n); f < 0.8*rate || f > 1.1*rate {
 			t.Errorf("window on %s at %v Hz drew %d frames in a second", ms[i].Name, rate, n)
 		}
+	}
+}
+
+// A shot is the frame the right way up: white on top of black.
+func TestAShotIsTheFrameTheRightWayUp(t *testing.T) {
+	if display == nil {
+		t.Skip("no display")
+	}
+	dw, err := display.NewWindow(driver.Options{Title: "gunim shot", Size: geom.Sz(160, 120)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := dw.(*Window)
+	defer func() { _ = w.Close() }()
+	got := make(chan *image.RGBA, 1)
+	w.Shoot(func(img *image.RGBA) { got <- img })
+	size := w.Size()
+	ops := []paint.Op{
+		&paint.RRectOp{Rect: geom.Rect{Max: size.Point()}, Fill: paint.Solid(color.NRGBA{A: 0xff}), Transform: paint.Identity},
+		&paint.RRectOp{Rect: geom.Rect{Max: geom.Pt(size.W, size.H/2)}, Fill: paint.Solid(color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}), Transform: paint.Identity},
+	}
+	if err := w.Present(ops, geom.Rect{}); err != nil {
+		t.Fatal(err)
+	}
+	var img *image.RGBA
+	select {
+	case img = <-got:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no shot")
+	}
+	<-w.Presented()
+	b := img.Bounds()
+	top, bottom := img.RGBAAt(b.Dx()/2, 2), img.RGBAAt(b.Dx()/2, b.Dy()-3)
+	if top.R < 200 || bottom.R > 55 {
+		t.Fatalf("top %v and bottom %v, want white on top of black", top, bottom)
 	}
 }

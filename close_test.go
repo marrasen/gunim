@@ -1,6 +1,7 @@
 package gunim
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -44,5 +45,12 @@ func TestAWindowCloses(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("asked to close, the window stayed open")
+	}
+}
+
+func TestAnOffscreenWindowHasNoPixelsToShoot(t *testing.T) {
+	w := newTestWindow()
+	if _, err := w.Client().Shot(t.Context()); !errors.Is(err, ErrNoPixels) {
+		t.Fatalf("shot offscreen: %v", err)
 	}
 }

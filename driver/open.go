@@ -2,6 +2,7 @@ package driver
 
 import (
 	"errors"
+	"image"
 
 	"github.com/marrasen/gunim/access"
 	"github.com/marrasen/gunim/geom"
@@ -57,6 +58,14 @@ type Placer interface {
 // WindowFocus is sent on [Window.Input] when the window gains or loses
 // the keyboard.
 type WindowFocus struct{ Focused bool }
+
+// Shooter is a [Window] that can hand over what it draws: fn receives
+// the next frame's pixels, the right way up, on a goroutine of the
+// driver's. A driver that draws nothing, such as the offscreen one,
+// does not implement it.
+type Shooter interface {
+	Shoot(fn func(*image.RGBA))
+}
 
 // CloseAsked is sent on [Window.Input] when the user asks to close the
 // window: its close button, or the system's keys for closing one. The
