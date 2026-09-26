@@ -718,10 +718,10 @@ type UI struct {
 	topics map[string][]*state
 	// kept holds what the nodes asked for with KeepDrawing drew last.
 	kept map[Node]*Drawing
-	// spare holds popup windows hidden to open again, and spared says
-	// one has been made ahead of time.
+	// spare holds popup windows hidden to open again, and spared counts
+	// the ones made ahead of time.
 	spare  []spareWindow
-	spared bool
+	spared int
 
 	focus *state
 	hover *state

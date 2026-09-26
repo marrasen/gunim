@@ -366,9 +366,19 @@ func (u *UI) dropPopup(s *surface) {
 	})
 }
 
-// mostSpare is how many hidden popup windows are kept to open again:
-// enough for a menu and a list opened from it.
-const mostSpare = 2
+// mostSpare is how many hidden popup windows are kept to open again,
+// and warmSpare how many are made ahead of time. Running along a menu
+// bar opens a menu while the ones before are still fading out in their
+// windows, so a few are wanted at once.
+const (
+	mostSpare = 4
+	warmSpare = 4
+)
+
+// warmSize is the size a window made ahead of time is made at: a
+// menu's, near enough, since growing a window's surface to fit the
+// popup is the larger part of opening one in it.
+var warmSize = geom.Sz(320, 360)
 
 // spareWindow is a popup's window, hidden, kept for the next popup
 // with the same parent that lets the pointer through or not alike.
@@ -403,12 +413,14 @@ func (u *UI) reuse(parent driver.Window, passthrough bool, anchor geom.Rect, siz
 // window is on screen, so the first menu or palette opens as fast as
 // the ones after it: making a window and its surface is the larger
 // part of opening a popup, and on Windows a slow one.
+//
+// One is made a frame, so the window's first frames are not held up.
 func (u *UI) makeSpare() {
-	if u.spared {
+	if u.spared >= warmSpare {
 		return
 	}
-	u.spared = true
-	dw, err := u.w.open(driver.Options{Kind: driver.KindPopup, Parent: u.w.dw, Size: geom.Sz(1, 1), Hidden: true})
+	u.spared++
+	dw, err := u.w.open(driver.Options{Kind: driver.KindPopup, Parent: u.w.dw, Size: warmSize, Hidden: true})
 	if err != nil {
 		return
 	}
