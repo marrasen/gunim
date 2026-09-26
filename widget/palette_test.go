@@ -15,12 +15,15 @@ import (
 type paletteOpener struct {
 	p      *Palette
 	picked []int
+	// u is the UI the palette was opened in.
+	u *gunim.UI
 }
 
 func (o *paletteOpener) Focusable() bool { return true }
 
 func (o *paletteOpener) Handle(e input.Event, u *gunim.UI) bool {
 	if k, ok := e.(input.KeyPress); ok && k.Key == input.KeyF1 {
+		o.u = u
 		o.p.Open(o, geom.Rc(0, 40, 600, 0), u)
 		return true
 	}
@@ -151,5 +154,35 @@ func TestAPaletteOfManyBuildsOnlyTheRowsInView(t *testing.T) {
 	run(20)
 	if f := o.p.card.found; len(f) == 0 || f[0].Index != 49 {
 		t.Fatalf("typing number 49 found %v first", f[:min(3, len(f))])
+	}
+}
+
+// The palette opening under a pointer at rest, and its rows shifting
+// under it as the query narrows, reach a row as the pointer arriving
+// without a move. That leaves the highlight on the best match; a move
+// takes it.
+func TestAPointerAtRestLeavesThePalettesHighlight(t *testing.T) {
+	w, o, run := newPaletteStage(t)
+	focusOpener(w, run)
+	w.Input(input.KeyPress{Key: input.KeyF1})
+	run(20)
+	c := o.p.card
+	var other *paletteRow
+	for _, r := range c.list.live {
+		if pr, ok := r.child.(*paletteRow); ok && pr.index != c.hotIndex() {
+			other = pr
+		}
+	}
+	if other == nil {
+		t.Fatal("no row but the highlighted one is built")
+	}
+	hot := c.hot
+	other.Handle(input.PointerEnter{}, o.u)
+	if c.hot != hot {
+		t.Fatalf("the pointer arriving at rest moved the highlight from %d to %d", hot, c.hot)
+	}
+	other.Handle(input.PointerMove{}, o.u)
+	if c.hotIndex() != other.index {
+		t.Fatal("a move over a row left the highlight elsewhere")
 	}
 }

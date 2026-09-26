@@ -362,6 +362,13 @@ func (c Child) Paint(p *paint.Painter) {
 	c.n.clip = p.Clip()
 	c.n.drawn = c.f.seq
 	f := scoped(c.f, c.n.node)
+	if d := c.f.u.kept[c.n.node]; d != nil {
+		mark := p.Mark()
+		c.n.node.Paint(p, f, c.n.size, Children{ns: c.n.kids, f: f, s: c.n})
+		p.Keep(mark, &d.rec)
+		d.size = c.n.size
+		return
+	}
 	c.n.node.Paint(p, f, c.n.size, Children{ns: c.n.kids, f: f, s: c.n})
 }
 

@@ -715,6 +715,8 @@ type UI struct {
 	// then reaches the list, the sidebar count and the status line
 	// together.
 	topics map[string][]*state
+	// kept holds what the nodes asked for with KeepDrawing drew last.
+	kept map[Node]*Drawing
 
 	focus *state
 	hover *state

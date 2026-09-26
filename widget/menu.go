@@ -169,7 +169,9 @@ func (m *Menu) Handle(e input.Event, u *gunim.UI) bool {
 	defer m.told(m.hot, u)
 	switch e := e.(type) {
 	case input.PointerEnter:
-		m.Highlight(m.rowAt(e.Pos))
+		// The pointer arriving without moving, as when the menu opens
+		// under it, leaves the highlight where the keys put it. A move
+		// follows any real arrival.
 	case input.PointerMove:
 		if i := m.rowAt(e.Pos); i >= 0 {
 			m.Highlight(i)

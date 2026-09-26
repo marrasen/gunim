@@ -346,7 +346,10 @@ func (r *paletteRow) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gun
 // Handle implements [gunim.Handler]: the pointer highlights and picks.
 func (r *paletteRow) Handle(e input.Event, u *gunim.UI) bool {
 	switch e.(type) {
-	case input.PointerEnter, input.PointerMove:
+	case input.PointerMove:
+		// A move alone: the palette opening under a pointer at rest, or
+		// the rows shifting under it as the query narrows, leaves the
+		// highlight on the best match, where Enter picks it.
 		for k, f := range r.c.found {
 			if f.Index == r.index && r.c.hot != k {
 				r.c.hot = k
