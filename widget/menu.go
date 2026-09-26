@@ -355,6 +355,8 @@ type Dropdown struct {
 	Label string
 	// OnChange turns a new choice into an intent for the application.
 	OnChange func(i int) gunim.Intent
+	// picked is local behaviour, set by OnPick.
+	picked func(i int, u *gunim.UI)
 
 	hover *anim.Float
 	ring  *anim.Float
@@ -365,6 +367,10 @@ type Dropdown struct {
 	size  geom.Size
 	shown shapedText
 }
+
+// OnPick wires behaviour that runs inside the window when the user
+// picks an item, such as filling in a form from a saved entry.
+func (d *Dropdown) OnPick(fn func(i int, u *gunim.UI)) { d.picked = fn }
 
 // NewDropdown returns a drop-down of items with the first chosen.
 func NewDropdown(items ...string) *Dropdown {
@@ -445,6 +451,9 @@ func (d *Dropdown) open(u *gunim.UI) {
 		d.close(u)
 		if i != d.Selected {
 			d.Selected = i
+			if d.picked != nil {
+				d.picked(i, u)
+			}
 			if d.OnChange != nil {
 				u.Send(d, d.OnChange(i))
 			}

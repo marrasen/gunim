@@ -53,6 +53,19 @@ func TestDropdownPicksWithTheKeyboard(t *testing.T) {
 	}
 }
 
+func TestAPickRunsInTheWindowToo(t *testing.T) {
+	w, run, d := newPicker(t)
+	got := -1
+	d.OnPick(func(i int, _ *gunim.UI) { got = i })
+	for _, k := range []input.Key{input.KeyDown, input.KeyEnter} {
+		w.Input(input.KeyPress{Key: k})
+		run(1)
+	}
+	if got != 1 {
+		t.Fatalf("picking Banana told the window %d", got)
+	}
+}
+
 func TestDropdownClosesOnEscapeAndOutsideClick(t *testing.T) {
 	w, run, d := newPicker(t)
 	w.Input(input.KeyPress{Key: input.KeyEscape})
