@@ -29,7 +29,9 @@ Keys squash and spring back with a ripple, typed digits roll into the
 display, and a sum worked out flies in an arc to the tape. On the graph,
 curves draw themselves on, the one being typed morphs with each key, the
 grid thickens and thins as the wheel zooms, a flick coasts, and a dot
-traces the curve under the pointer on a spring.
+traces the curve under the pointer on a spring. A sum with no answer
+sends a red echo out past the window's edges, onto the desktop, and a
+curve kept on the graph a green one.
 
 ![The calculator](example/calculator/calculator.png)
 ![The graph](example/calculator/graph.png)

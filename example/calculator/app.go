@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/marrasen/gunim"
@@ -57,7 +58,7 @@ const calcTopic = "calc"
 
 // serve is the application half: it keeps the calculator's state, and
 // hears what the window sends.
-func serve(ctx context.Context, c gunim.Client, start Calc, keys string) error {
+func serve(ctx context.Context, c gunim.Client, start Calc, keys, typed string) error {
 	s := &calcState{Calc: start}
 	if err := c.Mount(gunim.Root, "calc", "calc", s.Calc, calcTopic); err != nil {
 		return err
@@ -70,10 +71,30 @@ func serve(ctx context.Context, c gunim.Client, start Calc, keys string) error {
 	if keys != "" {
 		_ = c.Publish(calcTopic, s.Calc)
 	}
+	// Keys to type one at a time, once the window has opened.
+	typing := splitKeys(typed)
+	var ticks <-chan time.Time
+	if len(typing) > 0 {
+		tick := time.NewTicker(typeEvery)
+		defer tick.Stop()
+		ticks = tick.C
+	}
+	wait := typeAfter / typeEvery
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case <-ticks:
+			if wait > 0 {
+				wait--
+				continue
+			}
+			s.press(typing[0])
+			typing = typing[1:]
+			if len(typing) == 0 {
+				ticks = nil
+			}
+			_ = c.Publish(calcTopic, s.Calc)
 		case ev, ok := <-c.Intents():
 			if !ok {
 				return c.Err()
@@ -100,6 +121,13 @@ func serve(ctx context.Context, c gunim.Client, start Calc, keys string) error {
 		}
 	}
 }
+
+// typeAfter is how long after the window opens -type starts, and
+// typeEvery how long it takes over each key.
+const (
+	typeAfter = 800 * time.Millisecond
+	typeEvery = 160 * time.Millisecond
+)
 
 // splitKeys splits keys typed on the command line, where a function
 // is written with a bracket after it: "2sin(3)=" is 2, sin, 3, ), =.

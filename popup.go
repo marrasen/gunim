@@ -37,6 +37,10 @@ type PopupOptions struct {
 	// Passthrough lets the pointer through the popup to whatever is
 	// under it, as for the picture a drag carries.
 	Passthrough bool
+	// Over puts the popup's top-left corner at the anchor's, exactly,
+	// for a popup laid over the window, such as a glow reaching past
+	// its edges. It stays there even where the screen runs out.
+	Over bool
 	// Dismiss runs when the pointer is pressed outside the popup and
 	// its anchor, or when the window loses the keyboard. It usually
 	// closes the popup. A press on the anchor is left to the opener, so
@@ -257,9 +261,9 @@ func (u *UI) framePopup(s *surface, f Frame) {
 		u.invalid = true
 		return
 	case s.dw == nil:
-		dw, err := u.reuse(parent, s.opts.Passthrough, anchor, size), error(nil)
+		dw, err := u.reuse(parent, s.opts, anchor, size), error(nil)
 		if dw == nil {
-			dw, err = u.w.open(driver.Options{Kind: driver.KindPopup, Parent: parent, Anchor: anchor, Size: size, Passthrough: s.opts.Passthrough})
+			dw, err = u.w.open(driver.Options{Kind: driver.KindPopup, Parent: parent, Anchor: anchor, Size: size, Passthrough: s.opts.Passthrough, Over: s.opts.Over})
 		}
 		if err != nil {
 			u.w.err = fmt.Errorf("gunim: open popup: %w", err)
@@ -350,9 +354,17 @@ func (u *UI) dropPopup(s *surface) {
 	}
 	close(s.stop)
 	// Kept, hidden, for the next popup, unless a frame is still on its
-	// way to it, whose report would reach that popup instead.
-	if r, ok := s.dw.(driver.Recycler); ok && !s.inFlight && len(u.spare) < mostSpare && r.Hide() == nil {
-		u.spare = append(u.spare, spareWindow{dw: s.dw, parent: u.windowOf(s.root.opener), passthrough: s.opts.Passthrough})
+	// way to it, whose report would reach that popup instead. Each kind
+	// of window keeps its own few.
+	sp := spareWindow{dw: s.dw, parent: u.windowOf(s.root.opener), passthrough: s.opts.Passthrough, over: s.opts.Over}
+	alike := 0
+	for _, o := range u.spare {
+		if o.fits(sp.parent, s.opts) {
+			alike++
+		}
+	}
+	if r, ok := s.dw.(driver.Recycler); ok && !s.inFlight && alike < mostSpare && r.Hide() == nil {
+		u.spare = append(u.spare, sp)
 		return
 	}
 	_ = s.dw.Close()
@@ -381,19 +393,25 @@ const (
 var warmSize = geom.Sz(320, 360)
 
 // spareWindow is a popup's window, hidden, kept for the next popup
-// with the same parent that lets the pointer through or not alike.
+// with the same parent, the same Passthrough and the same Over.
 type spareWindow struct {
 	dw          driver.Window
 	parent      driver.Window
 	passthrough bool
+	over        bool
+}
+
+// fits reports whether sp serves a popup with parent and options o.
+func (sp spareWindow) fits(parent driver.Window, o PopupOptions) bool {
+	return sp.parent == parent && sp.passthrough == o.Passthrough && sp.over == o.Over
 }
 
 // reuse puts a spare window at anchor, at size, and shows it. It
 // returns nil when none fits, or the one that did would not show, and
 // a new window is to be opened.
-func (u *UI) reuse(parent driver.Window, passthrough bool, anchor geom.Rect, size geom.Size) driver.Window {
+func (u *UI) reuse(parent driver.Window, o PopupOptions, anchor geom.Rect, size geom.Size) driver.Window {
 	for i, sp := range u.spare {
-		if sp.parent != parent || sp.passthrough != passthrough {
+		if !sp.fits(parent, o) {
 			continue
 		}
 		u.spare = slices.Delete(u.spare, i, i+1)
@@ -424,6 +442,7 @@ func (u *UI) makeSpare() {
 	if err != nil {
 		return
 	}
+	u.w.blends = transparent(dw)
 	if _, ok := dw.(driver.Recycler); !ok || len(u.spare) >= mostSpare {
 		_ = dw.Close()
 		return

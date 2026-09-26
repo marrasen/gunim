@@ -985,6 +985,12 @@ func (u *UI) RequestAttention() {
 	}
 }
 
+// Blends reports whether a popup's window blends with what is behind
+// it, so the desktop shows wherever the popup paints nothing. It is a
+// guess, true, until the first popup's window has opened; one is made
+// ahead of time as the window first shows.
+func (u *UI) Blends() bool { return u.w.blends }
+
 // Invalidate asks for one more frame, whatever the animation state. Use
 // it when something changed that the engine can see no other way.
 func (u *UI) Invalidate() { u.invalid = true }

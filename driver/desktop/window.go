@@ -117,6 +117,9 @@ type Window struct {
 	// popup. Both are set once, before the window shows.
 	parent *Window
 	popup  bool
+	// over puts a popup's corner at its anchor's, as
+	// [driver.Options.Over] asks.
+	over bool
 	// transparent is whether the window blends with what is behind it,
 	// read once as it opens.
 	transparent bool
@@ -308,7 +311,7 @@ func (w *Window) stopRender() { w.quitOnce.Do(func() { close(w.quit) }) }
 func (w *Window) position(o driver.Options) error {
 	if p, ok := o.Parent.(*Window); ok {
 		if o.Kind == driver.KindPopup {
-			w.parent, w.popup = p, true
+			w.parent, w.popup, w.over = p, true, o.Over
 			return w.attach(o.Anchor)
 		}
 		px, py, err := p.gw.GetPos()
@@ -371,6 +374,9 @@ func (w *Window) attach(anchor geom.Rect) error {
 	}
 	area := popupArea(a, workArea)
 	x, y := popupAt(a, float32(ww), float32(wh), area)
+	if w.over {
+		x, y = a.Min.X, a.Min.Y
+	}
 	if popupDebug {
 		fmt.Fprintf(os.Stderr, "gunim popup: parent at %d,%d, %.2f per logical pixel; anchor %v on screen; popup %dx%d in work area %v, put at %.0f,%.0f\n",
 			px, py, f, a, ww, wh, area, x, y)
