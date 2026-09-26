@@ -169,3 +169,34 @@ func TestSpaceTwiceMarksTwoRows(t *testing.T) {
 		t.Fatalf("marked %v, want 0 and 1", got)
 	}
 }
+
+// Backspace takes back a letter of a name being found, Escape gives up
+// finding, and after that both are left to whatever holds the table.
+func TestBackspaceAndEscapeWorkOnANameBeingFound(t *testing.T) {
+	w, tbl, _, run := newTableStage(t, 300)
+	now := time.Now()
+	w.Input(input.TextInput{Text: "row 25", Time: now})
+	run(1)
+	w.Input(input.KeyPress{Key: input.KeyBackspace, Time: now.Add(100 * time.Millisecond)})
+	run(1)
+	if k, _ := tbl.Cursor(); k != "2" {
+		t.Fatalf("taking back the 5 left the cursor on %q, want row 2", k)
+	}
+	w.Input(input.KeyPress{Key: input.KeyEscape, Time: now.Add(200 * time.Millisecond)})
+	run(1)
+	if tbl.finding(now.Add(300 * time.Millisecond)) {
+		t.Fatal("Escape left the name being found")
+	}
+}
+
+func TestInsertMarksAndMovesOn(t *testing.T) {
+	w, tbl, _, run := newTableStage(t, 10)
+	w.Input(input.KeyPress{Key: input.KeyInsert})
+	run(1)
+	if !slices.Equal(tbl.Marked(), []Key{"0"}) {
+		t.Fatalf("Insert marked %v", tbl.Marked())
+	}
+	if k, _ := tbl.Cursor(); k != "1" {
+		t.Fatalf("Insert left the cursor on %q", k)
+	}
+}

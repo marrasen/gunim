@@ -212,7 +212,24 @@ func (t *Table) Handle(e input.Event, u *gunim.UI) bool {
 			if k, ok := t.Cursor(); ok && t.OnActivate != nil {
 				t.OnActivate(k, u)
 			}
-		case input.KeySpace:
+		case input.KeyBackspace:
+			// Takes back a letter of a name being found, and is left to
+			// the application otherwise.
+			if !t.finding(when(e.Time)) {
+				return false
+			}
+			typed := []rune(t.typed)
+			t.typed = string(typed[:len(typed)-1])
+			t.typedAt = when(e.Time)
+			t.findTyped(u)
+		case input.KeyEscape:
+			// Gives up finding, and is left to the application when
+			// nothing is being found.
+			if !t.finding(when(e.Time)) {
+				return false
+			}
+			t.typed = ""
+		case input.KeySpace, input.KeyInsert:
 			if k, ok := t.Cursor(); ok {
 				t.marked[k] = !t.marked[k]
 				if !t.marked[k] {
@@ -226,6 +243,14 @@ func (t *Table) Handle(e input.Event, u *gunim.UI) bool {
 		return true
 	}
 	return false
+}
+
+// when is an event's time, or now for one that carries none.
+func when(at time.Time) time.Time {
+	if at.IsZero() {
+		return time.Now()
+	}
+	return at
 }
 
 // findPause is how long typing rests before a new name starts.
@@ -252,7 +277,13 @@ func (t *Table) find(e input.TextInput, u *gunim.UI) {
 	}
 	t.typed += strings.ToLower(e.Text)
 	t.typedAt = now
-	if t.Row == nil {
+	t.findTyped(u)
+}
+
+// findTyped moves the cursor to the first row whose first cell starts
+// with what has been typed.
+func (t *Table) findTyped(u *gunim.UI) {
+	if t.Row == nil || t.typed == "" {
 		return
 	}
 	for i, k := range t.keys {
