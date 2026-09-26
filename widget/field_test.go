@@ -266,3 +266,30 @@ func TestAFlashFadesOutSteadily(t *testing.T) {
 		t.Fatalf("a second on, the tint is at %v", last)
 	}
 }
+
+// Tab or Right takes a ghost at the end of the text; without one, Tab
+// is left to the fields around.
+func TestTabTakesTheGhost(t *testing.T) {
+	ty := newTyper(t)
+	ty.field.OnEdit = func(s string, _ *gunim.UI) {
+		ty.field.Ghost = ""
+		if s == "/ho" {
+			ty.field.Ghost = "me/"
+		}
+	}
+	ty.typeText("/ho")
+	if ty.field.Ghost != "me/" {
+		t.Fatalf("typed /ho, the ghost is %q", ty.field.Ghost)
+	}
+	ty.key(input.KeyTab, 0)
+	ty.want("/home/", 6)
+	if ty.field.Ghost != "" {
+		t.Fatalf("taken, the ghost is still %q", ty.field.Ghost)
+	}
+	ty.w.Input(input.KeyPress{Key: input.KeyLeft})
+	ty.run(1)
+	ty.field.Ghost = "x"
+	// Not at the end: Right moves, and the ghost stays a suggestion.
+	ty.key(input.KeyRight, 0)
+	ty.want("/home/", 6)
+}

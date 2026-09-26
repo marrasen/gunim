@@ -44,6 +44,10 @@ type TextField struct {
 	// widget around the field that reacts at once, as a palette filters
 	// its list.
 	OnEdit func(text string, u *gunim.UI)
+	// Ghost is a suggestion for the rest of the text, such as the rest
+	// of a folder's name, shown faintly after the caret while the caret
+	// is at the end. Tab or Right takes it. Set it from OnEdit.
+	Ghost string
 
 	editor
 	held bool
@@ -168,6 +172,12 @@ func (t *TextField) Handle(e input.Event, u *gunim.UI) bool {
 			u.Send(t, t.OnSubmit(t.Text()))
 			return true
 		}
+		if t.Ghost != "" && e.Mods == 0 && (e.Key == input.KeyTab || e.Key == input.KeyRight) && t.atEnd() {
+			ghost := t.Ghost
+			t.Ghost = ""
+			t.insert(ghost, u)
+			break
+		}
 		if !t.key(e, u, fieldNav{t}) {
 			return false
 		}
@@ -176,6 +186,12 @@ func (t *TextField) Handle(e input.Event, u *gunim.UI) bool {
 	}
 	u.Invalidate()
 	return true
+}
+
+// atEnd reports whether the caret is at the end of the text, with
+// nothing selected and nothing being composed.
+func (t *TextField) atEnd() bool {
+	return t.caret == len(t.text) && t.anchor == t.caret && len(t.preedit) == 0
 }
 
 // indexAt returns the rune index a pointer at p, in the field's space,
@@ -281,6 +297,10 @@ func (t *TextField) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ guni
 		p.RRect(geom.Rc(x+a, y, b-a, run.Height()), 3, paint.Solid(sel))
 	}
 	run.Paint(p, geom.Pt(x, y), Ink.Get(th))
+	if t.Ghost != "" && focus > 0.01 && t.atEnd() && !t.Secret {
+		ghost := text.Default().Shape(t.Ghost, TextSize.Get(th))
+		ghost.Paint(p, geom.Pt(x+run.Advance, y), Placeholder.Get(th))
+	}
 	if len(t.preedit) > 0 {
 		// Underline the composition, as input methods expect.
 		_, at := t.shown()
