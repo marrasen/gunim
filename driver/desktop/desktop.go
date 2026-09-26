@@ -368,6 +368,11 @@ func (d *Driver) openWindow(o driver.Options) (*Window, error) {
 		_ = gw.Destroy()
 		return nil, err
 	}
+	if len(o.Icons) > 0 {
+		// macOS has no window icons, and says so; a window without one
+		// is no reason to fail.
+		_ = gw.SetIcon(o.Icons)
+	}
 	w.install()
 	w.accessOpen()
 	if err := gw.Show(); err != nil {

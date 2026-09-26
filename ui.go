@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image"
 	"reflect"
 	"runtime"
 	"slices"
@@ -107,6 +108,9 @@ type WindowOptions struct {
 	// [Box], and views can be mounted into it later through
 	// [Client.Mount].
 	Root Node
+	// Icons are the window's icon at several sizes, for the title bar
+	// and the taskbar. None leaves the system's own.
+	Icons []image.Image
 	// AskToClose, when set, is sent to the application when the user
 	// asks to close the window, in place of closing it. The application
 	// closes the window with [Client.Close] once it has decided, such as
@@ -122,7 +126,7 @@ func (a *App) NewWindow(o WindowOptions) (*Window, error) {
 	}
 	do := driver.Options{
 		Title: o.Title, Size: o.Size, Monitor: o.Monitor,
-		Kind: o.Kind, Anchor: geom.Rect{Min: o.Anchor, Max: o.Anchor},
+		Kind: o.Kind, Anchor: geom.Rect{Min: o.Anchor, Max: o.Anchor}, Icons: o.Icons,
 	}
 	if o.Parent != nil {
 		do.Parent = o.Parent.dw

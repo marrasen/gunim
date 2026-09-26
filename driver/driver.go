@@ -49,6 +49,7 @@ package driver
 
 import (
 	"context"
+	"image"
 	"time"
 
 	"github.com/marrasen/gunim/geom"
@@ -94,6 +95,9 @@ type Options struct {
 	// Passthrough lets the pointer through the window to whatever is
 	// under it, as for the picture carried under the pointer in a drag.
 	Passthrough bool
+	// Icons are the window's icon at several sizes, for the title bar
+	// and the taskbar to pick from. None leaves the system's own.
+	Icons []image.Image
 }
 
 // Kind is what sort of window to open. Each one maps onto a real window
