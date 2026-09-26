@@ -56,6 +56,9 @@ type scrolling struct {
 	trails int
 	// flinging is set while the content coasts from a fling.
 	flinging bool
+	// jumped says the view was put somewhere at once, since the last
+	// layout: bringing it back inside new content then jumps too.
+	jumped bool
 }
 
 type sample struct {
@@ -69,6 +72,16 @@ func newScrolling() scrolling {
 
 // Offset returns how far the content is scrolled right now.
 func (s *scrolling) Offset() float32 { return s.offset.Value() }
+
+// jumpTo puts the view at y at once, for content that is new rather
+// than moved: a folder opened in a table, whose rows would otherwise
+// glide in from wherever the last folder was scrolled to.
+func (s *scrolling) jumpTo(y float32) {
+	s.flinging = false
+	s.target = max(0, y)
+	s.offset.Jump(s.target)
+	s.jumped = true
+}
 
 // ScrollTo sets the target offset, clamped to the content, and carries
 // the content there with motion.
@@ -336,8 +349,13 @@ func (s *scrolling) fit(content, viewport float32, th *theme.Live) {
 	}
 	if t := s.clamp(s.target); t != s.target {
 		s.target = t
-		s.offset.Animate(t, Settle.Get(th))
+		if s.jumped {
+			s.offset.Jump(t)
+		} else {
+			s.offset.Animate(t, Settle.Get(th))
+		}
 	}
+	s.jumped = false
 }
 
 // paintBar draws the bar, fading with the content's motion.

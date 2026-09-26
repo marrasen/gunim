@@ -142,6 +142,32 @@ func (t *Table) SetCursor(key Key, u *gunim.UI) {
 	}
 }
 
+// JumpTo puts the cursor on key and the view on it at once, at the top
+// when it is in the first screenful. It is for a table showing rows that
+// are new rather than moved, as a file list does for a folder just
+// opened: its rows appear in place instead of gliding in from wherever
+// the rows before were scrolled to.
+func (t *Table) JumpTo(key Key, u *gunim.UI) {
+	i, ok := t.index[key]
+	if !ok {
+		i = 0
+	}
+	t.cursor = i
+	if len(t.keys) == 0 {
+		t.cursor = 0
+	}
+	h := TableRowHeight.Get(u.Theme())
+	y := float32(t.cursor) * h
+	page := t.list.viewport
+	if y+h <= page || page <= 0 {
+		y = 0
+	} else {
+		y -= (page - h) / 2
+	}
+	t.list.jumpTo(y)
+	u.Invalidate()
+}
+
 // Marked returns the marked rows, in the table's order.
 func (t *Table) Marked() []Key {
 	var out []Key

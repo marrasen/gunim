@@ -219,3 +219,60 @@ func TestUpPastTheTopOfTheViewScrollsBack(t *testing.T) {
 		t.Fatalf("the cursor, on %s at %v, is out of the view from %v to %v", k, top, off, off+tbl.list.viewport)
 	}
 }
+
+// jumpState is what the jump test's view shows: rows, and the row to
+// put the cursor on at once, if any.
+type jumpState struct {
+	Keys []Key
+	Jump Key
+}
+
+// A table given new rows, and put on one at once, shows them in place
+// rather than gliding them in from where the rows before were scrolled
+// to.
+func TestJumpToShowsNewRowsInPlace(t *testing.T) {
+	tbl := NewTable(TableColumn{Title: "Name"})
+	tbl.Row = func(k Key) TableRow { return TableRow{Cells: []string{string(k)}} }
+	w := gunim.NewOffscreen(geom.Sz(600, 400), nil)
+	gunim.RegisterView(w, "t", func(jumpState) *Table { return tbl }, func(tb *Table, st jumpState, u *gunim.UI) {
+		tb.SetKeys(st.Keys, u)
+		if st.Jump != "" {
+			tb.JumpTo(st.Jump, u)
+		}
+	})
+	many := make([]Key, 1000)
+	for i := range many {
+		many[i] = Key(strconv.Itoa(i))
+	}
+	c := w.Client()
+	if err := c.Mount(gunim.Root, "t", "t", jumpState{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Update("t", jumpState{Keys: many}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Focus("t"); err != nil {
+		t.Fatal(err)
+	}
+	run := func(n int) {
+		for range n {
+			w.Frame(time.Second / 60)
+		}
+	}
+	run(2)
+	w.Input(input.KeyPress{Key: input.KeyEnd})
+	run(60)
+	if tbl.list.Offset() <= 0 {
+		t.Fatal("after End the view stayed at the top")
+	}
+	if err := c.Update("t", jumpState{Keys: []Key{"a", "b", "c"}, Jump: "b"}); err != nil {
+		t.Fatal(err)
+	}
+	run(1)
+	if off := tbl.list.Offset(); off != 0 || tbl.list.offset.Active() {
+		t.Fatalf("the new rows are shown from %v, moving %v; want at once at the top", off, tbl.list.offset.Active())
+	}
+	if k, _ := tbl.Cursor(); k != "b" {
+		t.Fatalf("the cursor is on %q, want b", k)
+	}
+}
