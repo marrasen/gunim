@@ -235,3 +235,38 @@ func TestADialogWidensForItsButtons(t *testing.T) {
 		}
 	}
 }
+
+// A careful dialog opens on Cancel too, and keeps OK its usual colour.
+func TestACarefulDialogOpensOnCancelInItsUsualColours(t *testing.T) {
+	w := gunim.NewOffscreen(geom.Sz(800, 600), nil)
+	var d *Dialog
+	gunim.RegisterView(w, "trust", func(title string) *Dialog {
+		d = NewDialog(title)
+		d.Careful = true
+		d.Accept, d.Dismiss = "trust", "leave"
+		return d
+	}, nil)
+	c := w.Client()
+	if err := c.Mount(gunim.Root, "trust", "trust", "Trust this key?"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Focus("trust"); err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		w.Frame(time.Second / 60)
+	}
+	if d.ok.Kind == ButtonDanger {
+		t.Fatal("a careful dialog's OK is red")
+	}
+	w.Input(input.KeyPress{Key: input.KeyEnter})
+	w.Frame(time.Second / 60)
+	select {
+	case env := <-c.Intents():
+		if env.Intent != "leave" {
+			t.Fatalf("Enter on a careful dialog sent %v, want leave", env.Intent)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Enter sent nothing")
+	}
+}

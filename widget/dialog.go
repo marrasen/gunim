@@ -39,6 +39,11 @@ type Dialog struct {
 	// dialog expects. A danger dialog opens with Cancel focused, so
 	// Enter cancels and the red button takes a deliberate press.
 	Danger bool
+	// Careful opens the dialog with Cancel focused, as Danger does, and
+	// leaves OK its usual colour: for a question where yes by reflex is
+	// the answer that cannot be taken back, such as trusting a server's
+	// new key.
+	Careful bool
 	// Check, when set, runs as the user confirms, and says what stands
 	// in the way, or nothing. With something in the way the dialog stays
 	// open, gives a shake, and says it under the body.
@@ -202,7 +207,7 @@ func (d *Dialog) Handle(e input.Event, u *gunim.UI) bool {
 	// field, or to Cancel when it is a danger dialog.
 	if _, ok := e.(input.FocusGained); ok && !d.focused {
 		d.focused = true
-		if d.Danger {
+		if d.Danger || d.Careful {
 			u.Focus(d.buttons()[0])
 			return true
 		}
