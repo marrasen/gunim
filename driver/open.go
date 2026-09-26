@@ -58,6 +58,11 @@ type Placer interface {
 // the keyboard.
 type WindowFocus struct{ Focused bool }
 
+// CloseAsked is sent on [Window.Input] when the user asks to close the
+// window: its close button, or the system's keys for closing one. The
+// window stays open, for the engine to close or keep.
+type CloseAsked struct{}
+
 // A Transparent is a [Window] that can say whether it shows what is
 // behind it wherever nothing is painted. A popup is transparent where
 // the display server can blend windows.

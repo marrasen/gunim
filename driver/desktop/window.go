@@ -573,10 +573,11 @@ func (w *Window) install() {
 		w.accessFocus(focused)
 		w.in.push(driver.WindowFocus{Focused: focused})
 	})
-	_, _ = gw.SetCloseCallback(func(*glfw.Window) {
-		// Closing the input tells the engine the window has gone; it
-		// then calls Close, which destroys it.
-		w.in.close()
+	_, _ = gw.SetCloseCallback(func(gw *glfw.Window) {
+		// The engine decides: it closes the window, or asks the
+		// application first.
+		_ = gw.SetShouldClose(false)
+		w.in.push(driver.CloseAsked{})
 	})
 
 	_, _ = gw.SetCursorPosCallback(func(_ *glfw.Window, x, y float64) {

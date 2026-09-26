@@ -107,6 +107,12 @@ type WindowOptions struct {
 	// [Box], and views can be mounted into it later through
 	// [Client.Mount].
 	Root Node
+	// AskToClose, when set, is sent to the application when the user
+	// asks to close the window, in place of closing it. The application
+	// closes the window with [Client.Close] once it has decided, such as
+	// after asking whether to stop what is still running. When nil, the
+	// window closes at once.
+	AskToClose Intent
 }
 
 // NewWindow opens a window and starts its UI goroutine.
@@ -128,6 +134,7 @@ func (a *App) NewWindow(o WindowOptions) (*Window, error) {
 
 	w := newWindow(dw, o.Root)
 	w.title = o.Title
+	w.askToClose = o.AskToClose
 	w.open = a.drv.NewWindow
 	w.app = a
 	a.windows.add(w)
@@ -156,6 +163,9 @@ type Window struct {
 	popupIn chan popupEvent
 	// title is the window's title, which a screen reader reads for it.
 	title string
+	// askToClose is sent to the application when the user asks to close
+	// the window, and nil closes it at once.
+	askToClose Intent
 	// app is the application the window belongs to, and dragIn carries
 	// drags from its other windows.
 	app    *App
@@ -478,6 +488,13 @@ func (w *Window) wait() bool {
 	case ev, ok := <-w.dw.Input():
 		if !ok {
 			return false
+		}
+		if _, asked := ev.(driver.CloseAsked); asked {
+			if w.askToClose == nil {
+				return false
+			}
+			w.ui.report(w.askToClose)
+			return true
 		}
 		w.ui.handlePlatform(ev)
 		w.ui.focusNow()
