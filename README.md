@@ -18,6 +18,22 @@ window at its own monitor's rate, and on Linux under X11. macOS builds
 and is still untested. Text shapes and wraps in pure Go, including
 right-to-left and mixed scripts.
 
+`example/calculator` shows the animation: a calculator with a graph, in
+a window that draws its own title bar.
+
+```sh
+CGO_ENABLED=0 go run ./example/calculator
+```
+
+Keys squash and spring back with a ripple, typed digits roll into the
+display, and a sum worked out flies in an arc to the tape. On the graph,
+curves draw themselves on, the one being typed morphs with each key, the
+grid thickens and thins as the wheel zooms, a flick coasts, and a dot
+traces the curve under the pointer on a spring.
+
+![The calculator](example/calculator/calculator.png)
+![The graph](example/calculator/graph.png)
+
 ## The split
 
 A gunim program is two halves that speak only in values.
