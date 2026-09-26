@@ -493,9 +493,14 @@ func (w *Window) Place(anchor geom.Rect, size geom.Size) error {
 
 // measure reads the window's framebuffer, scale and monitor. It runs
 // on the main thread.
+//
+// A minimized window on Windows has an empty framebuffer, and sits at
+// -32000, -32000. It keeps the size and place it had, so what is laid
+// out in it, such as a terminal telling its shell how wide it is, stays
+// as it was until the window comes back.
 func (w *Window) measure() {
 	fbW, fbH, err := w.gw.GetFramebufferSize()
-	if err != nil {
+	if err != nil || fbW <= 0 || fbH <= 0 {
 		return
 	}
 	ww, _, err := w.gw.GetSize()
@@ -569,9 +574,10 @@ func (w *Window) install() {
 		w.measure()
 		w.in.push(driver.Redraw{})
 	}
-	_, _ = gw.SetFramebufferSizeCallback(func(*glfw.Window, int, int) {
+	_, _ = gw.SetFramebufferSizeCallback(func(_ *glfw.Window, width, height int) {
 		remeasure()
-		if holdResize {
+		// A minimized window draws nothing to wait for.
+		if holdResize && width > 0 && height > 0 {
 			w.awaitFrameAtSize()
 		}
 	})
