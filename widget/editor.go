@@ -211,7 +211,7 @@ func (e *editor) key(k input.KeyPress, u *gunim.UI, n navigator) bool {
 		case e.caret < len(e.text):
 			e.replace(e.caret, e.caret+1, nil, u)
 		}
-	case input.KeyEnter:
+	case input.KeyEnter, input.KeyKPEnter:
 		if !e.multiline {
 			return false
 		}

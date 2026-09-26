@@ -138,7 +138,7 @@ func (m *Menu) Key(k input.KeyPress, u *gunim.UI) bool {
 		m.Highlight(m.step(m.hot, 0, 1))
 	case input.KeyEnd:
 		m.Highlight(m.step(m.hot, len(m.Items)-1, -1))
-	case input.KeyEnter, input.KeySpace:
+	case input.KeyEnter, input.KeyKPEnter, input.KeySpace:
 		if m.enabled(m.hot) && m.Pick != nil {
 			m.Pick(m.hot, u)
 		}
@@ -444,7 +444,7 @@ func (d *Dropdown) Handle(e input.Event, u *gunim.UI) bool {
 func (d *Dropdown) key(k input.KeyPress, u *gunim.UI) bool {
 	if !d.IsOpen() {
 		switch k.Key {
-		case input.KeySpace, input.KeyEnter, input.KeyDown, input.KeyUp:
+		case input.KeySpace, input.KeyEnter, input.KeyKPEnter, input.KeyDown, input.KeyUp:
 			d.open(u)
 			return true
 		default:

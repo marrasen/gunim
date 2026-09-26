@@ -114,7 +114,7 @@ func (b *Button) Handle(e input.Event, u *gunim.UI) bool {
 			b.fire(u)
 		}
 	case input.KeyPress:
-		if e.Key != input.KeySpace && e.Key != input.KeyEnter {
+		if e.Key != input.KeySpace && e.Key != input.KeyEnter && e.Key != input.KeyKPEnter {
 			return false
 		}
 		// Keyboard activation runs the same squash, so the button

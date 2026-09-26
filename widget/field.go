@@ -163,7 +163,7 @@ func (t *TextField) Handle(e input.Event, u *gunim.UI) bool {
 	case input.Composing:
 		t.compose(e)
 	case input.KeyPress:
-		if e.Key == input.KeyEnter {
+		if e.Key == input.KeyEnter || e.Key == input.KeyKPEnter {
 			// With nothing to submit to, Enter is for the nodes around
 			// the field, such as a dialog's default button.
 			if t.OnSubmit == nil {

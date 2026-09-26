@@ -140,3 +140,16 @@ func TestAMenubarSaysWhatIsHighlighted(t *testing.T) {
 		t.Fatalf("highlighted %v, want %v", lit, want)
 	}
 }
+
+// The keypad's Enter picks, as the main one does.
+func TestTheKeypadsEnterPicksFromAMenu(t *testing.T) {
+	w, b, _, picks, run := newBarStage(t)
+	file := b.span(0)
+	clickAt(w, run, geom.Pt((file[0]+file[1])/2, 15))
+	w.Input(input.KeyPress{Key: input.KeyDown})
+	w.Input(input.KeyPress{Key: input.KeyKPEnter})
+	run(20)
+	if len(*picks) != 1 || (*picks)[0] != (barPick{0, 0}) {
+		t.Fatalf("picked %v, want New from File", *picks)
+	}
+}
