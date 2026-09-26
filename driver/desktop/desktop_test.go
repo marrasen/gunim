@@ -254,7 +254,10 @@ func TestAShotIsTheFrameTheRightWayUp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w := dw.(*Window)
+	w, ok := dw.(*Window)
+	if !ok {
+		t.Fatalf("NewWindow returned a %T", dw)
+	}
 	defer func() { _ = w.Close() }()
 	got := make(chan *image.RGBA, 1)
 	w.Shoot(func(img *image.RGBA) { got <- img })
