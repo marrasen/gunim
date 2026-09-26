@@ -34,7 +34,7 @@ func (u *UI) handleOn(root *state, ev any) {
 			return
 		}
 		if !e.Focused {
-			u.dismissFor(nil)
+			u.dismissFor(nil, nil)
 		}
 		var ev input.Event = input.WindowFocusGained{Time: time.Now()}
 		if !e.Focused {
@@ -70,7 +70,7 @@ func (u *UI) handleOn(root *state, ev any) {
 		}
 		// A press outside a popup dismisses it; the press still goes
 		// where it lands.
-		u.dismissFor(u.hit(root, e.Pos))
+		u.dismissFor(u.hit(root, e.Pos), u.onAnchorOf(root, e.Pos))
 		// A press moves focus before it is delivered, so a text field
 		// that is clicked is already focused when it sees the press.
 		was := u.focus

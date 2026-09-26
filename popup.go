@@ -38,9 +38,11 @@ type PopupOptions struct {
 	// under it, as for the picture a drag carries.
 	Passthrough bool
 	// Dismiss runs when the pointer is pressed outside the popup and
-	// its opener, or when the window loses the keyboard. It usually
-	// closes the popup. A popup with no Dismiss, such as a tooltip,
-	// stays until its opener closes it.
+	// its anchor, or when the window loses the keyboard. It usually
+	// closes the popup. A press on the anchor is left to the opener, so
+	// a menu's title or a drop-down's box can close what it opened
+	// rather than see it closed and open it again. A popup with no
+	// Dismiss, such as a tooltip, stays until its opener closes it.
 	Dismiss func(u *UI)
 }
 
@@ -177,15 +179,27 @@ func (u *UI) closePopupsOf(s *state) {
 // under root, lands outside of. A press inside a popup opened from
 // within another counts as inside both. A nil target dismisses them
 // all.
-func (u *UI) dismissFor(target *state) {
+func (u *UI) dismissFor(target *state, onAnchor func(p *surface) bool) {
 	for _, p := range slices.Clone(u.popups) {
 		if p.closing || p.opts.Dismiss == nil {
 			continue
 		}
-		if target != nil && (target.below(p.root) || target.below(p.root.opener)) {
+		if target != nil && (target.below(p.root) || onAnchor(p)) {
 			continue
 		}
 		p.opts.Dismiss(u)
+	}
+}
+
+// onAnchorOf reports whether a press at pos, in the window whose tree
+// starts at root, lands on a popup's anchor.
+func (u *UI) onAnchorOf(root *state, pos geom.Point) func(p *surface) bool {
+	return func(p *surface) bool {
+		o := p.root.opener
+		if o == nil || o.leaving() || u.surfaceOf(o) != u.surfaceOf(root) {
+			return false
+		}
+		return p.opts.Anchor.Contains(u.local(o, pos))
 	}
 }
 

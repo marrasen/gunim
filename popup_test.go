@@ -227,3 +227,25 @@ func TestAChildBuiltInLayoutPaintsAndTakesInputThatFrame(t *testing.T) {
 		t.Fatal("the built child took no press after its first frame")
 	}
 }
+
+// A popup opened from a big node, hanging from a small part of it, as a
+// palette hangs from a line across the window: a press on the node but
+// off the anchor dismisses it, and a press on the anchor is left to the
+// opener.
+func TestAPressOnTheOpenerButOffTheAnchorDismisses(t *testing.T) {
+	w, _, opener := newStage(t, paint.Identity)
+	dismissed := 0
+	w.ui.OpenPopup(opener, newMenu(), PopupOptions{
+		Anchor:  geom.Rect{Max: geom.Pt(100, 10)},
+		Dismiss: func(*UI) { dismissed++ },
+	})
+	run(w, 1)
+	press(w, 50, 15) // on the anchor, the opener at (10, 10)
+	if dismissed != 0 {
+		t.Fatal("a press on the anchor dismissed the popup")
+	}
+	press(w, 50, 45) // on the opener, below the anchor
+	if dismissed != 1 {
+		t.Fatalf("a press on the opener off the anchor dismissed %d times, want once", dismissed)
+	}
+}
