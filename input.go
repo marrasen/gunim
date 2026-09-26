@@ -184,11 +184,21 @@ func (u *UI) FocusNext(forward bool) {
 		next = (at - 1 + len(order)) % len(order)
 	}
 	u.Focus(order[next].node)
-	u.reveal(order[next])
+	u.revealState(order[next])
 }
 
-// reveal asks each [Revealer] above s to bring s into view.
-func (u *UI) reveal(s *state) {
+// Reveal scrolls n into view through every [Revealer] around it, as
+// focusing it does, and leaves the keyboard where it is: for a list
+// that follows what the user works in, such as a row for the pane in
+// front.
+func (u *UI) Reveal(n Node) {
+	if s, ok := u.index[n]; ok {
+		u.revealState(s)
+	}
+}
+
+// revealState asks each [Revealer] above s to bring s into view.
+func (u *UI) revealState(s *state) {
 	for a := s.parent; a != nil; a = a.parent {
 		if r, ok := a.node.(Revealer); ok {
 			r.Reveal(u.rectIn(s, a), u)
