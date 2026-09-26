@@ -165,8 +165,10 @@ type Window struct {
 	// events to the UI goroutine.
 	open    func(driver.Options) (driver.Window, error)
 	popupIn chan popupEvent
-	// redraw asks for a frame, for Client.Shot.
-	redraw chan struct{}
+	// redraw asks for a frame, for Client.Shot, and injected carries
+	// input from Client.Input.
+	redraw   chan struct{}
+	injected chan input.Event
 	// title is the window's title, which a screen reader reads for it.
 	title string
 	// askToClose is sent to the application when the user asks to close
@@ -233,10 +235,11 @@ func newWindow(dw driver.Window, root Node) *Window {
 			}
 			return ow, nil
 		},
-		popupIn: make(chan popupEvent, 16),
-		redraw:  make(chan struct{}, 1),
-		dragIn:  make(chan dragMsg, 64),
-		blends:  true,
+		popupIn:  make(chan popupEvent, 16),
+		redraw:   make(chan struct{}, 1),
+		injected: make(chan input.Event),
+		dragIn:   make(chan dragMsg, 64),
+		blends:   true,
 	}
 	rootState := &state{node: root, presence: Present, id: Root}
 	w.ui = &UI{
@@ -355,6 +358,21 @@ func (c Client) Err() error { return c.w.err }
 
 // Close shuts the window down.
 func (c Client) Close() { c.w.Close() }
+
+// Input hands the window an input event, as its driver would: a key, a
+// click, text. It is for a tool that drives a window through a script,
+// such as a screenshot taker. Positions are in window space. It waits
+// for the window to take the event, or for ctx to end.
+func (c Client) Input(ctx context.Context, ev input.Event) error {
+	select {
+	case c.w.injected <- ev:
+		return nil
+	case <-c.w.done:
+		return ErrWindowClosed
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
 
 // ErrNoPixels is returned by [Client.Shot] for a window whose driver
 // draws nothing to read back, such as one from [NewOffscreen].
@@ -540,6 +558,9 @@ func (w *Window) wait() bool {
 		w.ui.dragMsg(m)
 	case <-w.redraw:
 		w.ui.invalid = true
+	case ev := <-w.injected:
+		w.ui.handlePlatform(ev)
+		w.ui.focusNow()
 	case f, ok := <-w.dw.Presented():
 		if !ok {
 			return false

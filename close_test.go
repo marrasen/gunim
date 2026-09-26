@@ -6,6 +6,9 @@ import (
 	"time"
 
 	"github.com/marrasen/gunim/driver"
+	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/input"
+	"github.com/marrasen/gunim/paint"
 )
 
 // quitAsked is what the application hears when the user asks to close
@@ -52,5 +55,51 @@ func TestAnOffscreenWindowHasNoPixelsToShoot(t *testing.T) {
 	w := newTestWindow()
 	if _, err := w.Client().Shot(t.Context()); !errors.Is(err, ErrNoPixels) {
 		t.Fatalf("shot offscreen: %v", err)
+	}
+}
+
+// keyTaker says which keys reach it.
+type keyTaker struct{}
+
+func (keyTaker) Layout(c Constraints, _ Frame, _ Children) geom.Size { return c.Max }
+func (keyTaker) Paint(*paint.Painter, Frame, geom.Size, Children)    {}
+func (keyTaker) Focusable() bool                                     { return true }
+func (k keyTaker) Handle(e input.Event, u *UI) bool {
+	if p, ok := e.(input.KeyPress); ok {
+		u.Send(k, p.Key)
+		return true
+	}
+	return false
+}
+
+func TestInputHandedToTheWindowReachesTheFocus(t *testing.T) {
+	w := newTestWindow()
+	RegisterView(w, "taker", func(struct{}) Node { return keyTaker{} }, nil)
+	c := w.Client()
+	go w.loop()
+	defer w.Close()
+	if err := c.Mount(Root, "taker", "taker", struct{}{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Focus("taker"); err != nil {
+		t.Fatal(err)
+	}
+	// The focus moves at the next frame, and the key is handed over at
+	// once, so it is handed over until the focus has moved.
+	deadline := time.After(time.Second)
+	for {
+		if err := c.Input(t.Context(), input.KeyPress{Key: input.KeyA}); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case env := <-c.Intents():
+			if env.Intent != input.KeyA {
+				t.Fatalf("the focus heard %#v", env.Intent)
+			}
+			return
+		case <-time.After(20 * time.Millisecond):
+		case <-deadline:
+			t.Fatal("the key never reached the focus")
+		}
 	}
 }
