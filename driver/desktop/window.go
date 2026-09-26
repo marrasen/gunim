@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"os"
 	"runtime"
 	"slices"
 	"sync"
@@ -364,9 +365,26 @@ func (w *Window) attach(anchor geom.Rect) error {
 	if err != nil {
 		return err
 	}
-	x, y := popupAt(a, float32(ww), float32(wh), workArea(a.Min))
+	area := workArea(a.Min)
+	x, y := popupAt(a, float32(ww), float32(wh), area)
+	if popupDebug {
+		fmt.Fprintf(os.Stderr, "gunim popup: parent at %d,%d, %.2f per logical pixel; anchor %v on screen; popup %dx%d in work area %v, put at %.0f,%.0f\n",
+			px, py, f, a, ww, wh, area, x, y)
+		if ms, err := glfw.GetMonitors(); err == nil {
+			for _, m := range ms {
+				name, _ := m.GetName()
+				mx, my, mw, mh, err := m.GetWorkarea()
+				fmt.Fprintf(os.Stderr, "gunim popup:   monitor %s: work area %d,%d %dx%d, %v\n", name, mx, my, mw, mh, err)
+			}
+		}
+	}
 	return w.gw.SetPos(int(x), int(y))
 }
+
+// popupDebug is set by GUNIM_DEBUG_POPUP=1, which logs where each
+// popup is put to standard error: the parent, the anchor on screen, the
+// work area it was kept inside, and every monitor's work area.
+var popupDebug = os.Getenv("GUNIM_DEBUG_POPUP") == "1"
 
 // popupAt returns where a popup of size w×h goes for anchor a, all in
 // screen coordinates: below a, or above it when the room below runs
@@ -382,31 +400,6 @@ func popupAt(a geom.Rect, w, h float32, area geom.Rect) (x, y float32) {
 	x = max(area.Min.X, min(x, area.Max.X-w))
 	y = max(area.Min.Y, min(y, area.Max.Y-h))
 	return x, y
-}
-
-// workArea returns the part of the monitor holding p that windows may
-// use, which leaves out the taskbar and the like, in screen
-// coordinates. It runs on the main thread.
-func workArea(p geom.Point) geom.Rect {
-	ms, err := glfw.GetMonitors()
-	if err != nil {
-		return geom.Rect{}
-	}
-	var first geom.Rect
-	for _, m := range ms {
-		x, y, mw, mh, err := m.GetWorkarea()
-		if err != nil || mw <= 0 || mh <= 0 {
-			continue
-		}
-		r := geom.Rc(float32(x), float32(y), float32(mw), float32(mh))
-		if r.Contains(p) {
-			return r
-		}
-		if first.Empty() {
-			first = r
-		}
-	}
-	return first
 }
 
 // dragOutWait is how long a drag handed to another program may wait

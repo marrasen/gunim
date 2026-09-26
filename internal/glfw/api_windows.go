@@ -830,6 +830,7 @@ var (
 	procLoadImageW                    = user32.NewProc("LoadImageW")
 	procMapVirtualKeyW                = user32.NewProc("MapVirtualKeyW")
 	procMonitorFromWindow             = user32.NewProc("MonitorFromWindow")
+	procMonitorFromPoint              = user32.NewProc("MonitorFromPoint")
 	procMoveWindow                    = user32.NewProc("MoveWindow")
 	procMsgWaitForMultipleObjects     = user32.NewProc("MsgWaitForMultipleObjects")
 	procOffsetRect                    = user32.NewProc("OffsetRect")
@@ -1454,6 +1455,18 @@ func _LoadImageW(hInst _HINSTANCE, name uintptr, typ uint32, cx int32, cy int32,
 func _MapVirtualKeyW(uCode uint32, uMapType uint32) uint32 {
 	r, _, _ := procMapVirtualKeyW.Call(uintptr(uCode), uintptr(uMapType))
 	return uint32(r)
+}
+
+// _MonitorFromPoint takes its POINT by value, which a 64-bit call
+// passes in one register and a 32-bit one as two words.
+func _MonitorFromPoint(x, y int32, dwFlags uint32) _HMONITOR {
+	var r uintptr
+	if unsafe.Sizeof(uintptr(0)) == 8 {
+		r, _, _ = procMonitorFromPoint.Call(uintptr(uint32(x))|uintptr(uint32(y))<<32, uintptr(dwFlags))
+	} else {
+		r, _, _ = procMonitorFromPoint.Call(uintptr(uint32(x)), uintptr(uint32(y)), uintptr(dwFlags))
+	}
+	return _HMONITOR(r)
 }
 
 func _MonitorFromWindow(hwnd windows.HWND, dwFlags uint32) _HMONITOR {
