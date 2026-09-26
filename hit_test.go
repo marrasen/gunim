@@ -1,6 +1,7 @@
 package gunim
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -258,5 +259,41 @@ func TestRemovingTheHolderFreesThePointer(t *testing.T) {
 	w.Input(input.PointerMove{Pos: geom.Pt(150, 50)})
 	if count[input.PointerMove](p.b) != 1 {
 		t.Fatalf("b saw %v; the removed node still held the pointer", p.b.events)
+	}
+}
+
+// focusRecorder is a recorder that takes the keyboard.
+type focusRecorder struct{ recorder }
+
+func (*focusRecorder) Focusable() bool { return true }
+
+// focusPair is a pair of recorders that take the keyboard.
+type focusPair struct {
+	pair
+	fa, fb *focusRecorder
+}
+
+func (p *focusPair) Children() []Node { return []Node{p.fa, p.fb} }
+
+func TestAPressSaysWhetherItMovedTheFocus(t *testing.T) {
+	w := newTestWindow()
+	p := &focusPair{fa: &focusRecorder{}, fb: &focusRecorder{}}
+	w.ui.Insert(w.ui.Root(), p)
+	run(w, 1)
+	focusing := func(r *focusRecorder) []bool {
+		var out []bool
+		for _, e := range r.events {
+			if d, ok := e.(input.PointerDown); ok {
+				out = append(out, d.Focusing)
+			}
+		}
+		return out
+	}
+	for _, x := range []float32{50, 50, 150} {
+		w.Input(input.PointerDown{Pos: geom.Pt(x, 50)})
+		w.Input(input.PointerUp{Pos: geom.Pt(x, 50)})
+	}
+	if a, b := focusing(p.fa), focusing(p.fb); !slices.Equal(a, []bool{true, false}) || !slices.Equal(b, []bool{true}) {
+		t.Fatalf("a's presses moved the focus %v and b's %v; want the first of each", a, b)
 	}
 }

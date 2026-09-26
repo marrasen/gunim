@@ -217,3 +217,32 @@ func TestAGridTakesNewFaces(t *testing.T) {
 		t.Fatalf("in Go Regular, the cells are still Go Mono's %v", mono)
 	}
 }
+
+// A rule of box-drawing characters is drawn to the cell, so it runs
+// unbroken from the first cell's left edge to the last one's right.
+func TestABoxRuleJoinsAcrossCells(t *testing.T) {
+	w, g, run := newCellStage(t)
+	green := color.NRGBA{G: 0xff, A: 0xff}
+	g.SetRow(0, []Cell{{Rune: '─', FG: green}, {Rune: '┼', FG: green}, {Rune: '─', FG: green}})
+	run(1)
+	cell := g.CellSize()
+	// The rule's pieces: short and wide, in the middle of the row.
+	var pieces []geom.Rect
+	for _, op := range w.Offscreen().Ops() {
+		if r, ok := op.(*paint.RRectOp); ok && r.Fill.Solid == green && r.Rect.Size().H < cell.H/2 && r.Rect.Size().W > r.Rect.Size().H {
+			pieces = append(pieces, r.Rect)
+		}
+	}
+	reach := float32(0)
+	for moved := true; moved; {
+		moved = false
+		for _, r := range pieces {
+			if r.Min.X <= reach && r.Max.X > reach {
+				reach, moved = r.Max.X, true
+			}
+		}
+	}
+	if reach < 3*cell.W-0.01 {
+		t.Fatalf("the rule runs from 0 to %v of %v, in pieces %v", reach, 3*cell.W, pieces)
+	}
+}

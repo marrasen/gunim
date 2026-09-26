@@ -364,7 +364,9 @@ func (g *CellGrid) drawRow(cells []Cell, ink color.NRGBA) rowPaint {
 		if fg.A == 0 {
 			fg = ink
 		}
-		if c.Rune != 0 && c.Rune != ' ' {
+		if drawn := g.boxDrawn(c.Rune, x0, x1, fg); len(drawn) > 0 {
+			lines = append(lines, drawn...)
+		} else if c.Rune != 0 && c.Rune != ' ' {
 			g.place(&out, c.Rune, c.Style, fg, x0, x1)
 			for _, mark := range c.Marks {
 				g.place(&out, mark, c.Style, fg, x0, x1)
@@ -380,6 +382,32 @@ func (g *CellGrid) drawRow(cells []Cell, ink color.NRGBA) rowPaint {
 	}
 	for _, l := range lines {
 		put(l.r.Min.X, l.r.Max.X, l.r.Min.Y, l.r.Max.Y, l.c)
+	}
+	return out
+}
+
+// boxDrawn is what a box-drawing or block character fills in the cells
+// from x0 to x1, drawn to the cell rather than taken from the font, so
+// lines meet across cells. It is nil for any other character.
+func (g *CellGrid) boxDrawn(r rune, x0, x1 float32, c color.NRGBA) []cellFill {
+	if r < 0x2500 || r > 0x259f {
+		return nil
+	}
+	m := g.metrics
+	s := m.scale
+	w, h := int(math.Round(float64((x1-x0)*s))), int(math.Round(float64(m.h*s)))
+	rects := boxDrawing(r, w, h)
+	if len(rects) == 0 {
+		return nil
+	}
+	out := make([]cellFill, 0, len(rects))
+	for _, b := range rects {
+		ink := c
+		ink.A = uint8(int(c.A) * int(b.alpha) / 255)
+		out = append(out, cellFill{c: ink, r: geom.Rect{
+			Min: geom.Pt(x0+float32(b.x0)/s, float32(b.y0)/s),
+			Max: geom.Pt(x0+float32(b.x1)/s, float32(b.y1)/s),
+		}})
 	}
 	return out
 }

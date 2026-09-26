@@ -50,7 +50,11 @@ type PointerDown struct {
 	// Clicks counts this press within a rapid sequence: 1 for a single
 	// click, 2 for the second of a double click.
 	Clicks int
-	Time   time.Time
+	// Focusing says the press moved the keyboard focus, as it arrives:
+	// what had it before was elsewhere. A node that takes a first click
+	// as only choosing it, as a terminal does, passes such a press by.
+	Focusing bool
+	Time     time.Time
 }
 
 // PointerUp arrives when a button comes back up.
@@ -67,8 +71,13 @@ type PointerUp struct {
 type Scroll struct {
 	Pos   geom.Point
 	Delta geom.Point
-	Mods  Mods
-	Time  time.Time
+	// Notches is the movement in the wheel's notches, as the system
+	// counts them, for a node that scrolls by a count of lines a notch
+	// rather than by distance. A touchpad gives fractions. Zero when the
+	// source does not say.
+	Notches geom.Point
+	Mods    Mods
+	Time    time.Time
 }
 
 // Keyboard events split press from release, and deliver the text a
@@ -93,7 +102,14 @@ type KeyPress struct {
 	// text leaves a typing press to the text. It is reported on Windows
 	// and Linux.
 	Typed bool
-	Time  time.Time
+	// Char is the character the key types on the keyboard layout in
+	// use, without Shift, for a key that types one: '+' for the key
+	// marked + on a Swedish keyboard, which sits where a US one has -.
+	// A shortcut on + or [ reads it, so it follows what is printed on
+	// the key rather than where the key sits. Zero when the system does
+	// not say.
+	Char rune
+	Time time.Time
 }
 
 // KeyRelease arrives when a key comes back up.

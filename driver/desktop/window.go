@@ -620,18 +620,19 @@ func (w *Window) install() {
 	})
 	_, _ = gw.SetScrollCallback(func(_ *glfw.Window, x, y float64) {
 		w.in.push(input.Scroll{
-			Pos:   w.cursor,
-			Delta: geom.Pt(float32(x)*scrollLine, float32(y)*scrollLine),
-			Mods:  w.mods,
-			Time:  time.Now(),
+			Pos:     w.cursor,
+			Delta:   geom.Pt(float32(x)*scrollLine, float32(y)*scrollLine),
+			Notches: geom.Pt(float32(x), float32(y)),
+			Mods:    w.mods,
+			Time:    time.Now(),
 		})
 	})
-	_, _ = gw.SetKeyCallback(func(gw *glfw.Window, k glfw.Key, _ int, action glfw.Action, mods glfw.ModifierKey) {
+	_, _ = gw.SetKeyCallback(func(gw *glfw.Window, k glfw.Key, scancode int, action glfw.Action, mods glfw.ModifierKey) {
 		w.mods = modsOf(mods)
 		now := time.Now()
 		switch action {
 		case glfw.Press, glfw.Repeat:
-			w.in.push(input.KeyPress{Key: keyOf(k), Mods: w.mods, Repeat: action == glfw.Repeat, Typed: gw.KeyTyped(), Time: now})
+			w.in.push(input.KeyPress{Key: keyOf(k), Mods: w.mods, Repeat: action == glfw.Repeat, Typed: gw.KeyTyped(), Char: charOf(k, scancode), Time: now})
 		case glfw.Release:
 			w.in.push(input.KeyRelease{Key: keyOf(k), Mods: w.mods, Time: now})
 		}
@@ -912,4 +913,18 @@ func (q *inbox) feed() {
 			return
 		}
 	}
+}
+
+// charOf is the character a key types on the layout in use, without
+// Shift, or zero for a key that types none or more than one.
+func charOf(k glfw.Key, scancode int) rune {
+	name, err := glfw.GetKeyName(k, scancode)
+	if err != nil {
+		return 0
+	}
+	r := []rune(name)
+	if len(r) != 1 {
+		return 0
+	}
+	return r[0]
 }

@@ -61,12 +61,14 @@ func (u *UI) handleOn(root *state, ev any) {
 		u.dismissFor(u.hit(root, e.Pos))
 		// A press moves focus before it is delivered, so a text field
 		// that is clicked is already focused when it sees the press.
+		was := u.focus
 		if root == u.root {
 			u.focusAt(e.Pos)
 		}
+		focusing := u.focus != was
 		// Whoever takes the press keeps the pointer until the release.
 		u.capture = u.dispatchAt(root, e.Pos, func(local geom.Point) input.Event {
-			return input.PointerDown{Pos: local, Button: e.Button, Mods: e.Mods, Clicks: e.Clicks, Time: e.Time}
+			return input.PointerDown{Pos: local, Button: e.Button, Mods: e.Mods, Clicks: e.Clicks, Focusing: focusing, Time: e.Time}
 		})
 		u.shapePointer(root, e.Pos)
 	case input.PointerUp:
@@ -89,7 +91,7 @@ func (u *UI) handleOn(root *state, ev any) {
 		u.dispatchAt(root, e.Pos, mk)
 	case input.Scroll:
 		u.dispatchAt(root, e.Pos, func(local geom.Point) input.Event {
-			return input.Scroll{Pos: local, Delta: e.Delta, Mods: e.Mods, Time: e.Time}
+			return input.Scroll{Pos: local, Delta: e.Delta, Notches: e.Notches, Mods: e.Mods, Time: e.Time}
 		})
 	case input.PointerLeave:
 		u.updateHover(root, geom.Pt(-1, -1), e.Time)
