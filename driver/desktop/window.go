@@ -365,7 +365,7 @@ func (w *Window) attach(anchor geom.Rect) error {
 	if err != nil {
 		return err
 	}
-	area := workArea(a.Min)
+	area := popupArea(a, workArea)
 	x, y := popupAt(a, float32(ww), float32(wh), area)
 	if popupDebug {
 		fmt.Fprintf(os.Stderr, "gunim popup: parent at %d,%d, %.2f per logical pixel; anchor %v on screen; popup %dx%d in work area %v, put at %.0f,%.0f\n",
@@ -385,6 +385,14 @@ func (w *Window) attach(anchor geom.Rect) error {
 // popup is put to standard error: the parent, the anchor on screen, the
 // work area it was kept inside, and every monitor's work area.
 var popupDebug = os.Getenv("GUNIM_DEBUG_POPUP") == "1"
+
+// popupArea is the work area a popup for anchor a is kept inside: the
+// one under the anchor's middle. The anchor's corner can lie off the
+// window, as a menu's shadow margin reaches past a maximized window's
+// edge, onto the monitor beside it.
+func popupArea(a geom.Rect, areaAt func(geom.Point) geom.Rect) geom.Rect {
+	return areaAt(a.Center())
+}
 
 // popupAt returns where a popup of size w×h goes for anchor a, all in
 // screen coordinates: below a, or above it when the room below runs

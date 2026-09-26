@@ -27,3 +27,29 @@ func TestPopupAt(t *testing.T) {
 		}
 	}
 }
+
+// A maximized window on the middle of three monitors: the File menu's
+// anchor, shadow margin and all, starts left of the window's edge. The
+// menu stays on the window's monitor. The numbers are the ones logged
+// on the machine where it went to the monitor on the left.
+func TestAPopupStaysOnTheMonitorOfItsAnchor(t *testing.T) {
+	left := geom.Rc(-1920, 0, 1920, 1200)
+	middle := geom.Rc(0, 0, 2560, 1540)
+	right := geom.Rc(2560, 0, 1920, 1080)
+	areaAt := func(p geom.Point) geom.Rect {
+		for _, r := range []geom.Rect{left, middle, right} {
+			if r.Contains(p) {
+				return r
+			}
+		}
+		return geom.Rect{}
+	}
+	a := geom.Rect{Min: geom.Pt(-12.5, 46.5), Max: geom.Pt(64.41406, 49)}
+	area := popupArea(a, areaAt)
+	if area != middle {
+		t.Fatalf("the menu is kept in %v, want the middle monitor %v", area, middle)
+	}
+	if x, y := popupAt(a, 301, 207, area); x != 0 || y != 49 {
+		t.Fatalf("the menu is put at %v,%v, want 0,49", x, y)
+	}
+}
