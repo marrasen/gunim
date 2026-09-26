@@ -212,6 +212,10 @@ const (
 	ButtonPrimary Button = iota
 	ButtonSecondary
 	ButtonMiddle
+	// ButtonBack and ButtonForward are a mouse's side buttons, which go
+	// back and forward through where one has been, as in a browser.
+	ButtonBack
+	ButtonForward
 )
 
 // Mods is the set of modifier keys held when an event happened.

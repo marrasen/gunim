@@ -156,8 +156,11 @@ func buttonOf(b glfw.MouseButton) (input.Button, bool) {
 		return input.ButtonSecondary, true
 	case glfw.MouseButtonMiddle:
 		return input.ButtonMiddle, true
+	case glfw.MouseButton4:
+		return input.ButtonBack, true
+	case glfw.MouseButton5:
+		return input.ButtonForward, true
 	default:
-		// Side buttons have no gunim name yet.
 		return 0, false
 	}
 }
