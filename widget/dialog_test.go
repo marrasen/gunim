@@ -270,3 +270,21 @@ func TestACarefulDialogOpensOnCancelInItsUsualColours(t *testing.T) {
 		t.Fatal("Enter sent nothing")
 	}
 }
+
+// A disabled control takes no click and no focus.
+func TestADisabledControlTakesNoClick(t *testing.T) {
+	box := NewCheckbox("Forward agent")
+	box.Disabled = true
+	w, run := stage(t, &frame{child: box, size: geom.Sz(200, 30)})
+	w.Input(input.PointerDown{Pos: geom.Pt(8, 15), Button: input.ButtonPrimary, Clicks: 1})
+	w.Input(input.PointerUp{Pos: geom.Pt(8, 15), Button: input.ButtonPrimary})
+	run(1)
+	if box.On || box.Focusable() {
+		t.Fatalf("disabled, the box is on %v, focusable %v", box.On, box.Focusable())
+	}
+	pick := NewDropdown("None", "desk")
+	pick.Disabled = true
+	if pick.Focusable() {
+		t.Fatal("a disabled drop-down takes focus")
+	}
+}

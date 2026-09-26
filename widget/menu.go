@@ -353,6 +353,9 @@ type Dropdown struct {
 	// Label names the drop-down for a screen reader, as the label
 	// beside it does on screen.
 	Label string
+	// Disabled shows the drop-down faint, and it takes no clicks, keys
+	// or focus, for a choice that does not apply now.
+	Disabled bool
 	// OnChange turns a new choice into an intent for the application.
 	OnChange func(i int) gunim.Intent
 	// picked is local behaviour, set by OnPick.
@@ -385,13 +388,16 @@ func NewDropdown(items ...string) *Dropdown {
 }
 
 // Focusable implements [gunim.Focusable].
-func (d *Dropdown) Focusable() bool { return true }
+func (d *Dropdown) Focusable() bool { return !d.Disabled }
 
 // IsOpen reports whether the list is open.
 func (d *Dropdown) IsOpen() bool { return d.popup != nil && d.popup.Open() }
 
 // Handle implements [gunim.Handler].
 func (d *Dropdown) Handle(e input.Event, u *gunim.UI) bool {
+	if d.Disabled {
+		return false
+	}
 	th := u.Theme()
 	switch e := e.(type) {
 	case input.PointerEnter:
@@ -495,6 +501,7 @@ const chevron = 10
 
 // Paint implements [gunim.Node].
 func (d *Dropdown) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
+	defer faintIf(p, box, d.Disabled)()
 	th := f.Theme
 	r := geom.Rect{Max: box.Point()}
 	radius := FieldRadius.Get(th)

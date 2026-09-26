@@ -18,6 +18,9 @@ type toggle struct {
 	anim.Group
 	Label string
 	On    bool
+	// Disabled shows the control faint, and it takes no clicks, keys or
+	// focus, for a choice that does not apply now.
+	Disabled bool
 	// OnChange turns the new state into an intent for the application.
 	OnChange func(on bool) gunim.Intent
 	// flipped is local behaviour, set by OnFlip.
@@ -74,10 +77,13 @@ func (t *toggle) flip(n gunim.Node, u *gunim.UI) {
 }
 
 // Focusable implements [gunim.Focusable].
-func (t *toggle) Focusable() bool { return true }
+func (t *toggle) Focusable() bool { return !t.Disabled }
 
 // handle is the Handle both controls share; n is the control itself.
 func (t *toggle) handle(n gunim.Node, e input.Event, u *gunim.UI) bool {
+	if t.Disabled {
+		return false
+	}
 	th := u.Theme()
 	switch e := e.(type) {
 	case input.PointerEnter:
@@ -168,6 +174,7 @@ func (c *Checkbox) Layout(cs gunim.Constraints, f gunim.Frame, _ gunim.Children)
 
 // Paint implements [gunim.Node].
 func (c *Checkbox) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
+	defer faintIf(p, box, c.Disabled)()
 	th := f.Theme
 	s := CheckSize.Get(th)
 	r := geom.Rc(0, (box.H-s)/2, s, s)
@@ -227,6 +234,7 @@ func (s *Switch) Layout(cs gunim.Constraints, f gunim.Frame, _ gunim.Children) g
 
 // Paint implements [gunim.Node].
 func (s *Switch) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
+	defer faintIf(p, box, s.Disabled)()
 	th := f.Theme
 	w, h := SwitchWidth.Get(th), SwitchHeight.Get(th)
 	track := geom.Rc(0, (box.H-h)/2, w, h)
@@ -672,4 +680,13 @@ func value(on bool) float32 {
 		return 1
 	}
 	return 0
+}
+
+// faintIf draws what follows faint while off is set, as a control that
+// does not apply now is drawn, and returns what ends it.
+func faintIf(p *paint.Painter, box geom.Size, off bool) func() {
+	if !off {
+		return func() {}
+	}
+	return p.Layer(paint.LayerOpts{Bounds: geom.Rect{Max: box.Point()}.Inset(geom.Uniform(-8)), Opacity: 0.4})
 }
