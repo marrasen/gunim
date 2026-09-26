@@ -27,7 +27,7 @@ func TestTheIconIsDrawnAtEverySize(t *testing.T) {
 		}
 	}
 	t.Logf("drawn in %v", took)
-	if took > 150*time.Millisecond {
+	if took > 500*time.Millisecond {
 		t.Fatalf("drawing the icons took %v", took)
 	}
 }

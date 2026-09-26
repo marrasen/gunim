@@ -125,7 +125,8 @@ type WindowOptions struct {
 	// application draws none.
 	Chromeless bool
 	// Arrive has the window grow a little and fade in as it opens, over
-	// [ArriveTime], the way [Client.Leave] takes it away.
+	// [ArriveTime], the way [Client.Leave] takes it away. Closed by the
+	// user, with no AskToClose, it leaves that way too.
 	Arrive bool
 }
 
@@ -151,7 +152,7 @@ func (a *App) NewWindow(o WindowOptions) (*Window, error) {
 	w.title = o.Title
 	w.askToClose = o.AskToClose
 	w.ui.startChrome()
-	w.ui.arriving = o.Arrive
+	w.ui.arriving, w.ui.animated = o.Arrive, o.Arrive
 	w.open = a.drv.NewWindow
 	w.app = a
 	a.windows.add(w)
@@ -581,11 +582,7 @@ func (w *Window) wait() bool {
 			return false
 		}
 		if _, asked := ev.(driver.CloseAsked); asked {
-			if w.askToClose == nil {
-				return false
-			}
-			w.ui.report(w.askToClose)
-			return true
+			return w.ui.closeAsked()
 		}
 		w.ui.handlePlatform(ev)
 		w.ui.focusNow()
@@ -764,6 +761,9 @@ type UI struct {
 	// it began in.
 	goingAway bool
 	leftAt    time.Time
+	// animated says the window arrives and leaves animated, as
+	// [WindowOptions.Arrive] asks.
+	animated bool
 	// arriving says the window is coming in as it opens, and arrivedAt
 	// is the frame it began in.
 	arriving  bool

@@ -53,3 +53,27 @@ func TestAWindowArrivesFadingIn(t *testing.T) {
 		}
 	}
 }
+
+// A window that arrived animated, closed by the user with no one to
+// ask, leaves animated too, and closes once it has.
+func TestAWindowThatArrivedLeavesTheSameWay(t *testing.T) {
+	w, _, _ := newStage(t, paint.Identity)
+	w.ui.animated = true
+	w.ui.AskToClose()
+	w.Frame(time.Second / 60)
+	w.Frame(LeaveTime / 2)
+	if _, ok := w.Offscreen().Ops()[0].(*paint.LayerOp); !ok {
+		t.Fatal("closed by the user, the window did not leave animated")
+	}
+	select {
+	case <-w.done:
+		t.Fatal("the window closed before it had left")
+	default:
+	}
+	w.Frame(LeaveTime)
+	select {
+	case <-w.done:
+	default:
+		t.Fatal("left, the window is still open")
+	}
+}

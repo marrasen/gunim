@@ -57,13 +57,28 @@ func (u *UI) ToggleMaximize() {
 }
 
 // AskToClose does what the system's close button does: asks the
-// application, with the window's AskToClose, or closes the window.
+// application, with the window's AskToClose, or closes the window,
+// animated when it arrived so.
 func (u *UI) AskToClose() {
-	if u.w.askToClose != nil {
-		u.report(u.w.askToClose)
-		return
+	if !u.closeAsked() {
+		u.w.Close()
 	}
-	u.w.Close()
+}
+
+// closeAsked answers the user asking to close the window: the
+// application is asked, with the window's AskToClose, or a window that
+// arrived animated leaves the same way. It reports false for a window
+// to close at once.
+func (u *UI) closeAsked() bool {
+	switch {
+	case u.w.askToClose != nil:
+		u.report(u.w.askToClose)
+	case u.animated:
+		u.startLeaving()
+	default:
+		return false
+	}
+	return true
 }
 
 // noteTitleBar notes where a node that is part of the title bar is, as
