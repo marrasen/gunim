@@ -176,6 +176,16 @@ type Revealer interface {
 	Reveal(r geom.Rect, u *UI)
 }
 
+// A Shaped node draws on part of its box: a popup's card inside a
+// window kept at its largest size, so the window need not follow the
+// card as it grows. A point Covers reports false for is not the node's,
+// nor its children's, and the pointer passes on to whatever lies under
+// it. In a popup, a press there is a press outside.
+type Shaped interface {
+	Node
+	Covers(p geom.Point) bool
+}
+
 // A Composite is a node built from child nodes it owns.
 //
 // The engine inserts them when the node is inserted, so a widget made

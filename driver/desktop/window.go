@@ -929,3 +929,27 @@ func charOf(k glfw.Key, scancode int) rune {
 	}
 	return r[0]
 }
+
+// Hide implements [driver.Recycler].
+func (w *Window) Hide() error {
+	return w.d.call(func() error {
+		if w.closed {
+			return nil
+		}
+		return w.gw.Hide()
+	})
+}
+
+// Show implements [driver.Recycler].
+func (w *Window) Show() error {
+	return w.d.call(func() error {
+		if w.closed {
+			return errStopped
+		}
+		if err := w.gw.Show(); err != nil {
+			return err
+		}
+		w.measure()
+		return nil
+	})
+}

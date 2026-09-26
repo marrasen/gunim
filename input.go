@@ -329,7 +329,11 @@ func (u *UI) hit(s *state, p geom.Point) *state {
 		if k.presence == Exiting || k.drawn != u.seq {
 			continue
 		}
-		if !(geom.Rect{Max: k.size.Point()}).Contains(u.local(k, p)) || !k.clip.Contains(p) {
+		local := u.local(k, p)
+		if !(geom.Rect{Max: k.size.Point()}).Contains(local) || !k.clip.Contains(p) {
+			continue
+		}
+		if sh, ok := k.node.(Shaped); ok && !sh.Covers(local) {
 			continue
 		}
 		if deep := u.hit(k, p); deep != nil {

@@ -255,7 +255,20 @@ func (c *paletteCard) Layout(cs gunim.Constraints, f gunim.Frame, kids gunim.Chi
 	kids.At(1).Place(geom.Pt(c.margin+c.pad, c.margin+c.pad+fh+gap))
 	h := c.pad + fh + gap + lh + c.pad
 	c.card = geom.Rc(c.margin, c.margin, w, h)
+	// Where the window can show what is behind it, it is kept at the
+	// palette's tallest and the card grows and shrinks inside it: a
+	// window resized every frame of the card's motion is slow, and on
+	// Windows very slow. Below the card, the pointer passes through.
+	if c.transparent {
+		h = max(h, c.pad+fh+c.pad+paletteRows*(c.rowH+c.spacing)+c.pad)
+	}
 	return cs.Constrain(geom.Sz(w+2*c.margin, h+2*c.margin))
+}
+
+// Covers implements [gunim.Shaped]: the card is the palette's, and the
+// rest of a window kept at its tallest is not.
+func (c *paletteCard) Covers(p geom.Point) bool {
+	return !c.transparent || c.card.Contains(p)
 }
 
 // Paint implements [gunim.Node]: a card like a menu's, fading in and

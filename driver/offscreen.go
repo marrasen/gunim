@@ -50,6 +50,8 @@ type OffscreenWindow struct {
 	// and tree is the last one published.
 	access bool
 	tree   *access.Tree
+	// hidden says the window is hidden, kept to show again.
+	hidden bool
 
 	// title, full and attention are what the application last asked
 	// of the window's frame.
@@ -279,3 +281,26 @@ func (w *OffscreenWindow) SetClipboard(s string) error {
 
 // Close implements [Window].
 func (w *OffscreenWindow) Close() error { return nil }
+
+// Hide implements [Recycler].
+func (w *OffscreenWindow) Hide() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.hidden = true
+	return nil
+}
+
+// Show implements [Recycler].
+func (w *OffscreenWindow) Show() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.hidden = false
+	return nil
+}
+
+// Hidden reports whether the window is hidden, kept to show again.
+func (w *OffscreenWindow) Hidden() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.hidden
+}

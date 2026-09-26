@@ -1,6 +1,7 @@
 package gunim
 
 import (
+	"runtime"
 	"testing"
 	"time"
 
@@ -247,5 +248,64 @@ func TestAPressOnTheOpenerButOffTheAnchorDismisses(t *testing.T) {
 	press(w, 50, 45) // on the opener, below the anchor
 	if dismissed != 1 {
 		t.Fatalf("a press on the opener off the anchor dismissed %d times, want once", dismissed)
+	}
+}
+
+// shown reports the frame a popup's window holds as shown, as a screen
+// would, and waits for the report to reach the engine.
+func shown(w *Window, pw *driver.OffscreenWindow) {
+	pw.Tick()
+	for len(w.popupIn) == 0 {
+		runtime.Gosched()
+	}
+}
+
+// A popup's window, once the popup has gone, is hidden and kept, and
+// the next popup opens in it rather than in a new one.
+func TestAClosedPopupsWindowIsKeptForTheNext(t *testing.T) {
+	w, opener, _, pop := openMenu(t, nil)
+	first := popupWindow(t, w)
+	pop.Close()
+	for range 120 {
+		if len(w.ui.popups) == 0 {
+			break
+		}
+		shown(w, first)
+		run(w, 1)
+	}
+	if len(w.ui.popups) != 0 || len(w.ui.spare) != 1 || !first.Hidden() {
+		t.Fatalf("closed, there are %d popups and %d spare windows, the first hidden %v", len(w.ui.popups), len(w.ui.spare), first.Hidden())
+	}
+	w.ui.OpenPopup(opener, newMenu(), PopupOptions{Anchor: geom.Rect{Max: geom.Pt(100, 50)}})
+	run(w, 1)
+	if popupWindow(t, w) != first || first.Hidden() || len(w.ui.spare) != 0 {
+		t.Fatalf("the next popup opened in a new window, or the kept one stayed hidden %v", first.Hidden())
+	}
+}
+
+// card is popup content that draws a card on the top half of its box,
+// as a palette kept at its tallest does.
+type card struct{ menu }
+
+func (c *card) Covers(p geom.Point) bool { return p.Y < 40 }
+
+// A press in a popup's window where its content draws nothing is a
+// press outside: it dismisses the popup, and the content never sees it.
+func TestAPressWhereAPopupDrawsNothingDismisses(t *testing.T) {
+	w, _, opener := newStage(t, paint.Identity)
+	c := &card{menu: *newMenu()}
+	c.Add(c.in)
+	dismissed := 0
+	w.ui.OpenPopup(opener, c, PopupOptions{Anchor: geom.Rect{Max: geom.Pt(100, 50)}, Dismiss: func(*UI) { dismissed++ }})
+	run(w, 1)
+	s := w.ui.popups[0]
+	w.ui.popupEvent(popupEvent{s: s, ev: input.PointerDown{Pos: geom.Pt(30, 20), Time: time.Now()}})
+	if dismissed != 0 || !c.got(input.PointerDown{}) {
+		t.Fatalf("a press on the card dismissed %d times, and the card saw it %v", dismissed, c.got(input.PointerDown{}))
+	}
+	c.events = nil
+	w.ui.popupEvent(popupEvent{s: s, ev: input.PointerDown{Pos: geom.Pt(30, 60), Time: time.Now()}})
+	if dismissed != 1 || c.got(input.PointerDown{}) {
+		t.Fatalf("a press below the card dismissed %d times, and the card saw it %v", dismissed, c.got(input.PointerDown{}))
 	}
 }

@@ -98,6 +98,9 @@ type Options struct {
 	// Icons are the window's icon at several sizes, for the title bar
 	// and the taskbar to pick from. None leaves the system's own.
 	Icons []image.Image
+	// Hidden opens the window hidden, for a popup's window made ahead
+	// of time, which a [Recycler] shows once there is a popup for it.
+	Hidden bool
 }
 
 // Kind is what sort of window to open. Each one maps onto a real window

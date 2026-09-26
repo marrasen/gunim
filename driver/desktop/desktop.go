@@ -375,9 +375,11 @@ func (d *Driver) openWindow(o driver.Options) (*Window, error) {
 	}
 	w.install()
 	w.accessOpen()
-	if err := gw.Show(); err != nil {
-		_ = gw.Destroy()
-		return nil, err
+	if !o.Hidden {
+		if err := gw.Show(); err != nil {
+			_ = gw.Destroy()
+			return nil, err
+		}
 	}
 	w.measure()
 	d.windows[gw] = w

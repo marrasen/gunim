@@ -55,6 +55,16 @@ type Placer interface {
 	Place(anchor geom.Rect, size geom.Size) error
 }
 
+// A Recycler is a popup [Window] that can be hidden and shown again,
+// so a popup that opens often, such as a menu or a palette, need not
+// make a window and its surface each time: on Windows that is the
+// larger part of opening one. Hide takes the window off the screen,
+// keeping it; Show puts it back where Place last put it.
+type Recycler interface {
+	Hide() error
+	Show() error
+}
+
 // WindowFocus is sent on [Window.Input] when the window gains or loses
 // the keyboard.
 type WindowFocus struct{ Focused bool }

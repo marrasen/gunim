@@ -567,6 +567,7 @@ func (w *Window) wait() bool {
 		}
 		w.inFlight = false
 		w.shown = f.Shown
+		w.ui.makeSpare()
 	case out <- next:
 		w.ui.pending = w.ui.pending[1:]
 	}
@@ -717,6 +718,10 @@ type UI struct {
 	topics map[string][]*state
 	// kept holds what the nodes asked for with KeepDrawing drew last.
 	kept map[Node]*Drawing
+	// spare holds popup windows hidden to open again, and spared says
+	// one has been made ahead of time.
+	spare  []spareWindow
+	spared bool
 
 	focus *state
 	hover *state

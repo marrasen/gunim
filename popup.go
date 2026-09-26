@@ -257,7 +257,10 @@ func (u *UI) framePopup(s *surface, f Frame) {
 		u.invalid = true
 		return
 	case s.dw == nil:
-		dw, err := u.w.open(driver.Options{Kind: driver.KindPopup, Parent: parent, Anchor: anchor, Size: size, Passthrough: s.opts.Passthrough})
+		dw, err := u.reuse(parent, s.opts.Passthrough, anchor, size), error(nil)
+		if dw == nil {
+			dw, err = u.w.open(driver.Options{Kind: driver.KindPopup, Parent: parent, Anchor: anchor, Size: size, Passthrough: s.opts.Passthrough})
+		}
 		if err != nil {
 			u.w.err = fmt.Errorf("gunim: open popup: %w", err)
 			u.closePopup(s)
@@ -346,11 +349,96 @@ func (u *UI) dropPopup(s *surface) {
 		return
 	}
 	close(s.stop)
+	// Kept, hidden, for the next popup, unless a frame is still on its
+	// way to it, whose report would reach that popup instead.
+	if r, ok := s.dw.(driver.Recycler); ok && !s.inFlight && len(u.spare) < mostSpare && r.Hide() == nil {
+		u.spare = append(u.spare, spareWindow{dw: s.dw, parent: u.windowOf(s.root.opener), passthrough: s.opts.Passthrough})
+		return
+	}
 	_ = s.dw.Close()
+	// A spare kept for a popup of this one's has lost its parent.
+	u.spare = slices.DeleteFunc(u.spare, func(sp spareWindow) bool {
+		if sp.parent == s.dw {
+			_ = sp.dw.Close()
+			return true
+		}
+		return false
+	})
+}
+
+// mostSpare is how many hidden popup windows are kept to open again:
+// enough for a menu and a list opened from it.
+const mostSpare = 2
+
+// spareWindow is a popup's window, hidden, kept for the next popup
+// with the same parent that lets the pointer through or not alike.
+type spareWindow struct {
+	dw          driver.Window
+	parent      driver.Window
+	passthrough bool
+}
+
+// reuse puts a spare window at anchor, at size, and shows it. It
+// returns nil when none fits, or the one that did would not show, and
+// a new window is to be opened.
+func (u *UI) reuse(parent driver.Window, passthrough bool, anchor geom.Rect, size geom.Size) driver.Window {
+	for i, sp := range u.spare {
+		if sp.parent != parent || sp.passthrough != passthrough {
+			continue
+		}
+		u.spare = slices.Delete(u.spare, i, i+1)
+		// What came in while it was hidden was for the popup before.
+		drain(sp.dw)
+		r, ok := sp.dw.(driver.Recycler)
+		if pl, placer := sp.dw.(driver.Placer); !ok || (placer && pl.Place(anchor, size) != nil) || r.Show() != nil {
+			_ = sp.dw.Close()
+			return nil
+		}
+		return sp.dw
+	}
+	return nil
+}
+
+// makeSpare makes a popup's window ahead of time, hidden, once the
+// window is on screen, so the first menu or palette opens as fast as
+// the ones after it: making a window and its surface is the larger
+// part of opening a popup, and on Windows a slow one.
+func (u *UI) makeSpare() {
+	if u.spared {
+		return
+	}
+	u.spared = true
+	dw, err := u.w.open(driver.Options{Kind: driver.KindPopup, Parent: u.w.dw, Size: geom.Sz(1, 1), Hidden: true})
+	if err != nil {
+		return
+	}
+	if _, ok := dw.(driver.Recycler); !ok || len(u.spare) >= mostSpare {
+		_ = dw.Close()
+		return
+	}
+	u.spare = append(u.spare, spareWindow{dw: dw, parent: u.w.dw})
+}
+
+// drain empties a window's input and frame reports without waiting.
+func drain(dw driver.Window) {
+	for {
+		select {
+		case _, ok := <-dw.Input():
+			if !ok {
+				return
+			}
+		case _, ok := <-dw.Presented():
+			if !ok {
+				return
+			}
+		default:
+			return
+		}
+	}
 }
 
 // closeAllPopups closes every popup window at once, as the window
-// closes.
+// closes, and the spare ones.
 func (u *UI) closeAllPopups() {
 	for _, s := range u.popups {
 		if s.dw != nil {
@@ -359,6 +447,10 @@ func (u *UI) closeAllPopups() {
 		}
 	}
 	u.popups = nil
+	for _, sp := range u.spare {
+		_ = sp.dw.Close()
+	}
+	u.spare = nil
 }
 
 // popupEvent handles one event from a popup's window.
