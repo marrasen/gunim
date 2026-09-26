@@ -45,6 +45,8 @@ type TableRow struct {
 	Cells  []string
 	Strong bool
 	Faint  bool
+	// Accent draws the row in the theme's accent colour, as for a link.
+	Accent bool
 }
 
 // Table shows rows of cells under a header of column titles, and
@@ -486,6 +488,8 @@ func (r *tableRow) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 	}
 	ink := Ink.Get(th)
 	switch {
+	case row.Accent:
+		ink = Accent.Get(th)
 	case row.Strong:
 		ink = TableStrong.Get(th)
 	case row.Faint:
