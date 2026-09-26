@@ -168,6 +168,27 @@ func (t *Table) JumpTo(key Key, u *gunim.UI) {
 	u.Invalidate()
 }
 
+// Offset is how far the table is scrolled, for putting it back later
+// with ShowAt.
+func (t *Table) Offset() float32 { return t.list.Offset() }
+
+// ShowAt is JumpTo with the view put back where it was, offset down,
+// as a file list does going back to a folder: the rows are where the
+// user left them. The cursor's row is kept in view.
+func (t *Table) ShowAt(key Key, offset float32, u *gunim.UI) {
+	t.JumpTo(key, u)
+	h := TableRowHeight.Get(u.Theme())
+	y := float32(t.cursor) * h
+	page := t.list.viewport
+	if page > 0 {
+		offset = min(max(offset, y+h-page), y)
+	}
+	t.list.jumpTo(max(0, offset))
+	// Put back as it was, the rows come at once, rather than growing
+	// in as a folder new to the list does.
+	t.list.still = true
+}
+
 // Marked returns the marked rows, in the table's order.
 func (t *Table) Marked() []Key {
 	var out []Key
@@ -336,6 +357,9 @@ func (t *Table) pageRows(u *gunim.UI) float32 {
 // given: the header along the top, the rows under it.
 func (t *Table) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
 	own := c.Max
+	// Every row is as tall, so a row not laid out yet is where it will
+	// be: a view put back far down a table stays on the rows it showed.
+	t.list.Estimate = TableRowHeight.Get(f.Theme)
 	pad := MenuRowPadding.Get(f.Theme)
 	// Fixed columns take their widths; the rest share what is left.
 	fixed, shared := float32(0), 0

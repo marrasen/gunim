@@ -34,6 +34,9 @@ type VirtualList struct {
 	// Estimate is the height assumed for a row not yet laid out. Zero
 	// means 40.
 	Estimate float32
+	// still says the rows built at the next layout come at once, for a
+	// view put back as it was.
+	still bool
 	// Spacing is the room between rows. It defaults to the theme's
 	// [ListSpacing]; a table's rows sit against each other.
 	Spacing theme.Token[float32]
@@ -316,7 +319,9 @@ func (l *VirtualList) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Chil
 		anchor, at, ok := l.anchor()
 		l.gap = spacing
 		l.index()
-		if ok {
+		// A view just put somewhere stays there: the rows are new, and
+		// holding the old first row would move it off.
+		if ok && !l.jumped {
 			if i := slices.Index(l.order, anchor); i >= 0 {
 				if d := float32(l.tops.sum(i)) - at; d != 0 {
 					l.shift(d)
@@ -354,7 +359,10 @@ func (l *VirtualList) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Chil
 				continue
 			}
 			r = newRow(k, l.build(k))
-			r.instant = !l.animate[k]
+			// A row above a view just put somewhere comes at once:
+			// growing in, it would push the view down from where it
+			// was put.
+			r.instant = !l.animate[k] || l.still || (l.jumped && y < offset)
 			if r.instant {
 				r.fade.Jump(1)
 				r.slide.Jump(1)
@@ -399,6 +407,7 @@ func (l *VirtualList) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Chil
 		}
 	}
 	l.fit(max(0, float32(l.tops.sum(len(l.order)))-spacing), own.H, f.Theme)
+	l.still = false
 	return own
 }
 
