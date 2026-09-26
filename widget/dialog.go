@@ -118,6 +118,11 @@ func (d *Dialog) AddAction(label string, do func(u *gunim.UI)) {
 	d.extra = append(d.extra, b)
 }
 
+// Close closes the dialog and sends nothing, for an action that leads
+// on to another dialog, such as a Remove button in a form that asks
+// first.
+func (d *Dialog) Close(u *gunim.UI) { d.finish(u, nil) }
+
 func (d *Dialog) accept(u *gunim.UI) {
 	if d.Check != nil {
 		if msg := d.Check(); msg != "" {
