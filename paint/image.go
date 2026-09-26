@@ -106,7 +106,8 @@ type ImageOpts struct {
 	Src geom.Rect
 	// Radius rounds the corners of the drawn rectangle.
 	Radius float32
-	// Opacity multiplies the image's own alpha.
+	// Opacity multiplies the image's own alpha. The zero value draws
+	// nothing, so an image drawn as it is takes 1.
 	Opacity float32
 }
 
