@@ -95,3 +95,24 @@ type AccessPublisher interface {
 	AccessWanted() bool
 	PublishAccess(t *access.Tree)
 }
+
+// A Titler is a [Window] whose title the application can change, as
+// the platform shows it on the title bar and in the task switcher.
+type Titler interface {
+	SetTitle(title string)
+}
+
+// A FullScreener is a [Window] that can fill its monitor, without the
+// platform's frame, and go back to the size and place it had.
+type FullScreener interface {
+	SetFullScreen(on bool)
+	FullScreen() bool
+}
+
+// An Attender is a [Window] that can ask for the user's attention
+// without taking the keyboard, as a terminal does for a bell in a
+// window the user is not looking at: the platform flashes it in the
+// task bar, or bounces it in the dock.
+type Attender interface {
+	RequestAttention()
+}

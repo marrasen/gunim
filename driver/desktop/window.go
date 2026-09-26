@@ -72,7 +72,11 @@ type Window struct {
 	// origin is the client area's top left corner in screen
 	// coordinates.
 	origin geom.Point
-	err    error
+	// full says the window fills its monitor, and windowed is where it
+	// was and how big, in screen coordinates, to go back to.
+	full     bool
+	windowed [4]int
+	err      error
 	// caret is the text caret the engine last reported, in window space
 	// and logical pixels. Platform code places an input method's
 	// composition and candidate windows from it.

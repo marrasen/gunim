@@ -51,8 +51,56 @@ type OffscreenWindow struct {
 	access bool
 	tree   *access.Tree
 
+	// title, full and attention are what the application last asked
+	// of the window's frame.
+	title     string
+	full      bool
+	attention int
+
 	presented chan Frame
 	input     chan any
+}
+
+// SetTitle implements [Titler].
+func (w *OffscreenWindow) SetTitle(title string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.title = title
+}
+
+// Title returns the title last set.
+func (w *OffscreenWindow) Title() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.title
+}
+
+// SetFullScreen implements [FullScreener].
+func (w *OffscreenWindow) SetFullScreen(on bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.full = on
+}
+
+// FullScreen implements [FullScreener].
+func (w *OffscreenWindow) FullScreen() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.full
+}
+
+// RequestAttention implements [Attender].
+func (w *OffscreenWindow) RequestAttention() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.attention++
+}
+
+// Attention returns how many times attention was asked for.
+func (w *OffscreenWindow) Attention() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.attention
 }
 
 // Presented implements [Window]. It stays quiet until [OffscreenWindow.Tick].

@@ -822,6 +822,36 @@ func (u *UI) Clipboard() string {
 // SetClipboard puts s on the system clipboard.
 func (u *UI) SetClipboard(s string) { _ = u.w.dw.SetClipboard(s) }
 
+// SetTitle changes the window's title, where the platform can.
+func (u *UI) SetTitle(title string) {
+	if t, ok := u.w.dw.(driver.Titler); ok {
+		t.SetTitle(title)
+	}
+}
+
+// SetFullScreen makes the window fill its monitor, or gives it back
+// its frame, where the platform can.
+func (u *UI) SetFullScreen(on bool) {
+	if f, ok := u.w.dw.(driver.FullScreener); ok {
+		f.SetFullScreen(on)
+	}
+}
+
+// FullScreen reports whether the window fills its monitor.
+func (u *UI) FullScreen() bool {
+	f, ok := u.w.dw.(driver.FullScreener)
+	return ok && f.FullScreen()
+}
+
+// RequestAttention asks for the user's attention without taking the
+// keyboard, where the platform can: it flashes the window in the task
+// bar, or bounces it in the dock.
+func (u *UI) RequestAttention() {
+	if a, ok := u.w.dw.(driver.Attender); ok {
+		a.RequestAttention()
+	}
+}
+
 // Invalidate asks for one more frame, whatever the animation state. Use
 // it when something changed that the engine can see no other way.
 func (u *UI) Invalidate() { u.invalid = true }
