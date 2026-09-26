@@ -186,6 +186,24 @@ type Shaped interface {
 	Covers(p geom.Point) bool
 }
 
+// A Caption is part of the title bar of a chromeless window, one the
+// application draws. CaptionRects are the parts of the node, in its own
+// space, with nothing else on them: a press there moves the window and
+// a double click maximizes it, as on the system's own title bar. A
+// menu bar's are where no title is.
+type Caption interface {
+	Node
+	CaptionRects(size geom.Size) []geom.Rect
+}
+
+// A MaximizeButton is the maximize button of a chromeless window's
+// title bar. The system is told where it is, since Windows 11 hangs its
+// snap layouts on it. MaximizeRect is where it is in the node's space.
+type MaximizeButton interface {
+	Node
+	MaximizeRect(size geom.Size) geom.Rect
+}
+
 // A Composite is a node built from child nodes it owns.
 //
 // The engine inserts them when the node is inserted, so a widget made
@@ -372,6 +390,9 @@ func (c Child) Paint(p *paint.Painter) {
 	c.n.clip = p.Clip()
 	c.n.drawn = c.f.seq
 	f := scoped(c.f, c.n.node)
+	if c.f.u.chrome != nil {
+		c.f.u.noteTitleBar(c.n.node, p.Transform(), c.n.size)
+	}
 	if d := c.f.u.kept[c.n.node]; d != nil {
 		mark := p.Mark()
 		c.n.node.Paint(p, f, c.n.size, Children{ns: c.n.kids, f: f, s: c.n})

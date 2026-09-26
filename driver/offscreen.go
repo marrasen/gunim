@@ -52,6 +52,8 @@ type OffscreenWindow struct {
 	tree   *access.Tree
 	// hidden says the window is hidden, kept to show again.
 	hidden bool
+	// frame is the pretend frame of a window made chromeless.
+	frame *OffscreenFrame
 
 	// title, full and attention are what the application last asked
 	// of the window's frame.
@@ -303,4 +305,103 @@ func (w *OffscreenWindow) Hidden() bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.hidden
+}
+
+// OffscreenFrame is what an offscreen window made chromeless was asked
+// to do, for a test to read.
+type OffscreenFrame struct {
+	// Native says the pretend system moves and sizes the window itself,
+	// as Windows does.
+	Native bool
+	// Caption and Maximize are the title bar last reported.
+	Caption  []geom.Rect
+	Maximize geom.Rect
+	// Moves counts the moves started, Resizes the edges sized by, and
+	// Minimized the minimizes.
+	Moves     int
+	Resizes   []Edge
+	Minimized int
+	// IsMaximized is the window's pretend state.
+	IsMaximized bool
+}
+
+// MakeChromeless makes the window one whose application draws its
+// title bar, with a pretend system that moves and sizes it itself when
+// native, and leaves that to the engine otherwise.
+func (w *OffscreenWindow) MakeChromeless(native bool) *OffscreenFrame {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.frame = &OffscreenFrame{Native: native}
+	return w.frame
+}
+
+// Chromeless implements [Framer].
+func (w *OffscreenWindow) Chromeless() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.frame != nil
+}
+
+// SetTitleBar implements [Framer].
+func (w *OffscreenWindow) SetTitleBar(caption []geom.Rect, maximize geom.Rect) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.frame != nil {
+		w.frame.Caption, w.frame.Maximize = slices.Clone(caption), maximize
+	}
+}
+
+// NativeFrame implements [Framer].
+func (w *OffscreenWindow) NativeFrame() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.frame != nil && w.frame.Native
+}
+
+// StartMove implements [Framer].
+func (w *OffscreenWindow) StartMove() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.frame != nil {
+		w.frame.Moves++
+	}
+	return nil
+}
+
+// StartResize implements [Framer].
+func (w *OffscreenWindow) StartResize(e Edge) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.frame != nil {
+		w.frame.Resizes = append(w.frame.Resizes, e)
+	}
+	return nil
+}
+
+// Minimize implements [Framer].
+func (w *OffscreenWindow) Minimize() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.frame != nil {
+		w.frame.Minimized++
+	}
+	return nil
+}
+
+// SetMaximized implements [Framer]. The pretend system reports no
+// change: a test sends [WindowMaximized] as a real one would.
+func (w *OffscreenWindow) SetMaximized(on bool) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.frame != nil {
+		w.frame.IsMaximized = on
+	}
+	return nil
+}
+
+// Maximized implements [Framer].
+func (w *OffscreenWindow) Maximized() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.frame != nil && w.frame.IsMaximized
 }

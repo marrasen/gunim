@@ -16,6 +16,8 @@ var standardCursors = map[input.Cursor]glfw.StandardCursor{
 	input.CursorResizeV:    glfw.VResizeCursor,
 	input.CursorMove:       glfw.ResizeAllCursor,
 	input.CursorNotAllowed: glfw.NotAllowedCursor,
+	input.CursorResizeNWSE: glfw.ResizeNWSECursor,
+	input.CursorResizeNESW: glfw.ResizeNESWCursor,
 }
 
 // SetCursor implements [driver.CursorSetter].

@@ -135,6 +135,10 @@ type Window struct {
 	// key press that typed text. See KeyTyped.
 	keyTyped bool
 
+	// gunim change: hitTest says what a point in a chromeless window is.
+	// See chrome.go.
+	hitTest HitTestCallback
+
 	resizable        bool
 	decorated        bool
 	autoIconify      bool

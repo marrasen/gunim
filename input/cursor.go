@@ -25,4 +25,8 @@ const (
 	CursorMove
 	// CursorNotAllowed says what the pointer is over refuses it.
 	CursorNotAllowed
+	// CursorResizeNWSE and CursorResizeNESW are the diagonal arrows,
+	// over a window's corners.
+	CursorResizeNWSE
+	CursorResizeNESW
 )

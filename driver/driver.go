@@ -101,6 +101,10 @@ type Options struct {
 	// Hidden opens the window hidden, for a popup's window made ahead
 	// of time, which a [Recycler] shows once there is a popup for it.
 	Hidden bool
+	// Chromeless takes the system's title bar and frame away from an
+	// ordinary window, for the application to draw its own: see
+	// [Framer].
+	Chromeless bool
 }
 
 // Kind is what sort of window to open. Each one maps onto a real window

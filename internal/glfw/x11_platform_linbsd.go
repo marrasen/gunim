@@ -47,6 +47,10 @@ type platformWindowState struct {
 	iconified        bool
 	maximized        bool
 
+	// gunim change: chromeless says the window draws its own title bar
+	// (x11_chrome_linbsd.go).
+	chromeless bool
+
 	// Whether the visual supports framebuffer transparency
 	transparent bool
 

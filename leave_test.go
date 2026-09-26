@@ -34,3 +34,22 @@ func TestAWindowLeavesFadingAndThenCloses(t *testing.T) {
 		t.Fatal("gone, the window is still open")
 	}
 }
+
+// A window opened to arrive grows and fades in, and is drawn plainly
+// once it has.
+func TestAWindowArrivesFadingIn(t *testing.T) {
+	w, _, _ := newStage(t, paint.Identity)
+	w.ui.arriving, w.ui.arrivedAt = true, time.Time{}
+	w.Frame(time.Second / 60)
+	l, ok := w.Offscreen().Ops()[0].(*paint.LayerOp)
+	if !ok || l.Opts.Opacity > 0.1 || l.Transform.A >= 1 {
+		t.Fatalf("arriving, the frame starts with %#v", w.Offscreen().Ops()[0])
+	}
+	w.Frame(ArriveTime)
+	w.Frame(time.Second / 60)
+	if ops := w.Offscreen().Ops(); len(ops) > 0 {
+		if _, ok := ops[0].(*paint.LayerOp); ok {
+			t.Fatal("arrived, the window is still drawn in a layer")
+		}
+	}
+}

@@ -140,3 +140,48 @@ type FullScreener interface {
 type Attender interface {
 	RequestAttention()
 }
+
+// A Framer is a [Window] opened with [Options.Chromeless]: its
+// application draws the title bar, and the system goes on moving,
+// sizing and maximizing it as it would by its own.
+type Framer interface {
+	// Chromeless reports whether the system's title bar is gone. It is
+	// false where a system keeps its own, as macOS does for now, and
+	// the application then draws none.
+	Chromeless() bool
+	// SetTitleBar says which parts of the window are title bar with
+	// nothing on them, where a press moves the window and a double
+	// click maximizes it, and where the maximize button is, in logical
+	// pixels in the window's space. The system asks about a point at
+	// once, on its own thread, and is answered from these.
+	SetTitleBar(caption []geom.Rect, maximize geom.Rect)
+	// NativeFrame reports whether the system moves and sizes the window
+	// from the title bar and the edges itself, as Windows does. Where it
+	// does not, the engine starts moves and resizes with StartMove and
+	// StartResize, and maximizes on a double click.
+	NativeFrame() bool
+	StartMove() error
+	StartResize(e Edge) error
+	Minimize() error
+	SetMaximized(on bool) error
+	Maximized() bool
+}
+
+// Edge is an edge or corner of a window, to size it by.
+type Edge uint8
+
+// The edges and corners, clockwise from the top left.
+const (
+	EdgeTopLeft Edge = iota
+	EdgeTop
+	EdgeTopRight
+	EdgeRight
+	EdgeBottomRight
+	EdgeBottom
+	EdgeBottomLeft
+	EdgeLeft
+)
+
+// WindowMaximized is sent on [Window.Input] when the window is
+// maximized or restored.
+type WindowMaximized struct{ Maximized bool }

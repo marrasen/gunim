@@ -55,6 +55,12 @@ type platformWindowState struct {
 	textInputCallback       TextInputCallback
 	textInputActiveCallback TextInputActiveCallback
 	getObjectCallback       GetObjectCallback
+
+	// gunim change: chromeless says the window draws its own title bar,
+	// and overMaximize that the pointer is on its maximize button, which
+	// Windows sees as outside the client area (win32_chrome_windows.go).
+	chromeless   bool
+	overMaximize bool
 }
 
 type platformMonitorState struct {

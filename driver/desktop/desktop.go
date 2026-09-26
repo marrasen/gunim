@@ -374,6 +374,9 @@ func (d *Driver) openWindow(o driver.Options) (*Window, error) {
 		_ = gw.SetIcon(o.Icons)
 	}
 	w.install()
+	if o.Chromeless && o.Kind == driver.KindNormal {
+		w.setChromeless()
+	}
 	w.accessOpen()
 	if !o.Hidden {
 		if err := gw.Show(); err != nil {

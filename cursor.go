@@ -16,6 +16,9 @@ func (u *UI) shapePointer(root *state, p geom.Point) {
 		s = u.hit(root, p)
 	}
 	c := input.CursorArrow
+	if edge, ok := u.edgeAt(p); ok && root == u.root {
+		c, s = edgeCursor(edge), nil
+	}
 	for ; s != nil; s = s.parent {
 		if cs, ok := s.node.(CursorShaper); ok {
 			u.on(s, func() { c = cs.Cursor(u.local(s, p)) })

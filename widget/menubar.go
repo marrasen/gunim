@@ -45,6 +45,9 @@ type BarMenu struct {
 type Menubar struct {
 	anim.Group
 	Menus []BarMenu
+	// Title is the window's title, drawn faint in the middle of the room
+	// the menus leave, when the bar is a chromeless window's title bar.
+	Title string
 	// Pick runs on the UI goroutine with the menu and the item picked,
 	// once the menu has closed.
 	Pick func(menu, item int, u *gunim.UI)
@@ -60,7 +63,8 @@ type Menubar struct {
 	// over is the title under the pointer, or -1.
 	over int
 
-	titles []shapedText
+	titles   []shapedText
+	titleRun shapedText
 	// spans holds each title's left and right edges.
 	spans    [][2]float32
 	lightX   *anim.Float
@@ -152,6 +156,19 @@ func (b *Menubar) span(i int) [2]float32 {
 		return b.spans[i]
 	}
 	return [2]float32{}
+}
+
+// CaptionRects implements [gunim.Caption]: in a chromeless window, the
+// bar where no title is moves the window, as a title bar does.
+func (b *Menubar) CaptionRects(size geom.Size) []geom.Rect {
+	end := float32(0)
+	if n := len(b.spans); n > 0 {
+		end = b.spans[n-1][1]
+	}
+	if end >= size.W {
+		return nil
+	}
+	return []geom.Rect{geom.Rc(end, 0, size.W-end, size.H)}
 }
 
 // aim glides the light to title i, or fades it for -1.
@@ -290,5 +307,23 @@ func (b *Menubar) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.
 	for i, s := range b.spans {
 		run := b.titles[i].run
 		run.Paint(p, geom.Pt(s[0]+pad, (box.H-run.Height())/2), ink)
+	}
+	if b.Title != "" && f.Chromeless() {
+		// In the middle of the bar, or of the room the menus leave when
+		// that would run into them, and left out when there is none.
+		end := float32(0)
+		if n := len(b.spans); n > 0 {
+			end = b.spans[n-1][1] + 2*pad
+		}
+		run := b.titleRun.shape(b.Title, TextSize.Get(th))
+		x := (box.W - run.Advance) / 2
+		if x < end {
+			x = end + (box.W-end-run.Advance)/2
+		}
+		if x >= end {
+			faintInk := ink
+			faintInk.A = uint8(float32(faintInk.A) * 0.6)
+			run.Paint(p, geom.Pt(x, (box.H-run.Height())/2), faintInk)
+		}
 	}
 }

@@ -33,6 +33,10 @@ func (u *UI) handleOn(root *state, ev any) {
 		u.accessRequest(e)
 	case driver.DragOutEnded:
 		u.dragEnded(e.Taken)
+	case driver.WindowMaximized:
+		if u.chrome != nil {
+			u.chrome.maximized = e.Maximized
+		}
 	case driver.WindowFocus:
 		if root != u.root {
 			return
@@ -75,6 +79,11 @@ func (u *UI) handleOn(root *state, ev any) {
 		// A press outside a popup dismisses it; the press still goes
 		// where it lands.
 		u.dismissFor(u.hit(root, e.Pos), u.onAnchorOf(root, e.Pos))
+		// On a chromeless window's edge or caption, the press moves or
+		// sizes the window, where the system leaves that to the engine.
+		if root == u.root && u.framePress(e.Pos, e) {
+			return
+		}
 		// A press moves focus before it is delivered, so a text field
 		// that is clicked is already focused when it sees the press.
 		was := u.focus

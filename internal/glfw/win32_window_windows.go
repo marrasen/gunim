@@ -152,11 +152,11 @@ func (w *Window) applyAspectRatio(edge int, area *_RECT) error {
 	exStyle := w.getWindowExStyle()
 
 	if winver.IsWindows10AnniversaryUpdateOrGreater() {
-		if err := _AdjustWindowRectExForDpi(&frame, style, false, exStyle, _GetDpiForWindow(w.platform.handle)); err != nil {
+		if err := w.adjustRectForDpi(&frame, style, false, exStyle, _GetDpiForWindow(w.platform.handle)); err != nil {
 			return err
 		}
 	} else {
-		if err := _AdjustWindowRectEx(&frame, style, false, exStyle); err != nil {
+		if err := w.adjustRect(&frame, style, false, exStyle); err != nil {
 			return err
 		}
 	}
@@ -355,11 +355,11 @@ func (w *Window) updateWindowStyles() error {
 	}
 
 	if winver.IsWindows10AnniversaryUpdateOrGreater() {
-		if err := _AdjustWindowRectExForDpi(&rect, style, false, w.getWindowExStyle(), _GetDpiForWindow(w.platform.handle)); err != nil {
+		if err := w.adjustRectForDpi(&rect, style, false, w.getWindowExStyle(), _GetDpiForWindow(w.platform.handle)); err != nil {
 			return err
 		}
 	} else {
-		if err := _AdjustWindowRectEx(&rect, style, false, w.getWindowExStyle()); err != nil {
+		if err := w.adjustRect(&rect, style, false, w.getWindowExStyle()); err != nil {
 			return err
 		}
 	}
@@ -559,7 +559,7 @@ func (w *Window) maximizeWindowManually() error {
 		exStyle := uint32(s)
 		if winver.IsWindows10AnniversaryUpdateOrGreater() {
 			dpi := _GetDpiForWindow(w.platform.handle)
-			if err := _AdjustWindowRectExForDpi(&rect, style, false, exStyle, dpi); err != nil {
+			if err := w.adjustRectForDpi(&rect, style, false, exStyle, dpi); err != nil {
 				return err
 			}
 			m, err := _GetSystemMetricsForDpi(_SM_CYCAPTION, dpi)
@@ -568,7 +568,7 @@ func (w *Window) maximizeWindowManually() error {
 			}
 			_OffsetRect(&rect, 0, m)
 		} else {
-			if err := _AdjustWindowRectEx(&rect, style, false, exStyle); err != nil {
+			if err := w.adjustRect(&rect, style, false, exStyle); err != nil {
 				return err
 			}
 			m, err := _GetSystemMetrics(_SM_CYCAPTION)
@@ -623,6 +623,11 @@ func windowProc(hWnd windows.HWND, uMsg uint32, wParam _WPARAM, lParam _LPARAM) 
 		}
 
 		return uintptr(_DefWindowProcW(hWnd, uMsg, wParam, lParam))
+	}
+
+	// gunim change: a chromeless window's frame and hit test.
+	if r, ok := window.chromeMessage(uMsg, wParam, lParam); ok {
+		return r
 	}
 
 	switch uMsg {
@@ -1152,12 +1157,12 @@ func windowProc(hWnd windows.HWND, uMsg uint32, wParam _WPARAM, lParam _LPARAM) 
 		}
 
 		if winver.IsWindows10AnniversaryUpdateOrGreater() {
-			if err := _AdjustWindowRectExForDpi(&frame, style, false, exStyle, _GetDpiForWindow(window.platform.handle)); err != nil {
+			if err := window.adjustRectForDpi(&frame, style, false, exStyle, _GetDpiForWindow(window.platform.handle)); err != nil {
 				_glfw.errors = append(_glfw.errors, err)
 				return 0
 			}
 		} else {
-			if err := _AdjustWindowRectEx(&frame, style, false, exStyle); err != nil {
+			if err := window.adjustRect(&frame, style, false, exStyle); err != nil {
 				_glfw.errors = append(_glfw.errors, err)
 				return 0
 			}
@@ -1217,11 +1222,11 @@ func windowProc(hWnd windows.HWND, uMsg uint32, wParam _WPARAM, lParam _LPARAM) 
 			var source, target _RECT
 			size := (*_SIZE)(unsafe.Pointer(lParam))
 
-			if err := _AdjustWindowRectExForDpi(&source, window.getWindowStyle(), false, window.getWindowExStyle(), _GetDpiForWindow(window.platform.handle)); err != nil {
+			if err := window.adjustRectForDpi(&source, window.getWindowStyle(), false, window.getWindowExStyle(), _GetDpiForWindow(window.platform.handle)); err != nil {
 				_glfw.errors = append(_glfw.errors, err)
 				return 0
 			}
-			if err := _AdjustWindowRectExForDpi(&target, window.getWindowStyle(), false, window.getWindowExStyle(), uint32(_LOWORD(uint32(wParam)))); err != nil {
+			if err := window.adjustRectForDpi(&target, window.getWindowStyle(), false, window.getWindowExStyle(), uint32(_LOWORD(uint32(wParam)))); err != nil {
 				_glfw.errors = append(_glfw.errors, err)
 				return 0
 			}
@@ -1765,11 +1770,11 @@ func (w *Window) platformSetWindowPos(xpos, ypos int) error {
 		bottom: int32(ypos),
 	}
 	if winver.IsWindows10AnniversaryUpdateOrGreater() {
-		if err := _AdjustWindowRectExForDpi(&rect, w.getWindowStyle(), false, w.getWindowExStyle(), _GetDpiForWindow(w.platform.handle)); err != nil {
+		if err := w.adjustRectForDpi(&rect, w.getWindowStyle(), false, w.getWindowExStyle(), _GetDpiForWindow(w.platform.handle)); err != nil {
 			return err
 		}
 	} else {
-		if err := _AdjustWindowRectEx(&rect, w.getWindowStyle(), false, w.getWindowExStyle()); err != nil {
+		if err := w.adjustRect(&rect, w.getWindowStyle(), false, w.getWindowExStyle()); err != nil {
 			return err
 		}
 	}
@@ -1807,11 +1812,11 @@ func (w *Window) platformSetWindowSize(width, height int) error {
 		}
 
 		if winver.IsWindows10AnniversaryUpdateOrGreater() {
-			if err := _AdjustWindowRectExForDpi(&rect, w.getWindowStyle(), false, w.getWindowExStyle(), _GetDpiForWindow(w.platform.handle)); err != nil {
+			if err := w.adjustRectForDpi(&rect, w.getWindowStyle(), false, w.getWindowExStyle(), _GetDpiForWindow(w.platform.handle)); err != nil {
 				return err
 			}
 		} else {
-			if err := _AdjustWindowRectEx(&rect, w.getWindowStyle(), false, w.getWindowExStyle()); err != nil {
+			if err := w.adjustRect(&rect, w.getWindowStyle(), false, w.getWindowExStyle()); err != nil {
 				return err
 			}
 		}
@@ -1880,11 +1885,11 @@ func (w *Window) platformGetWindowFrameSize() (left, top, right, bottom int, err
 		bottom: int32(height),
 	}
 	if winver.IsWindows10AnniversaryUpdateOrGreater() {
-		if err := _AdjustWindowRectExForDpi(&rect, w.getWindowStyle(), false, w.getWindowExStyle(), _GetDpiForWindow(w.platform.handle)); err != nil {
+		if err := w.adjustRectForDpi(&rect, w.getWindowStyle(), false, w.getWindowExStyle(), _GetDpiForWindow(w.platform.handle)); err != nil {
 			return 0, 0, 0, 0, err
 		}
 	} else {
-		if err := _AdjustWindowRectEx(&rect, w.getWindowStyle(), false, w.getWindowExStyle()); err != nil {
+		if err := w.adjustRect(&rect, w.getWindowStyle(), false, w.getWindowExStyle()); err != nil {
 			return 0, 0, 0, 0, err
 		}
 	}
@@ -1962,11 +1967,11 @@ func (w *Window) platformSetWindowMonitor(monitor *Monitor, xpos, ypos, width, h
 				bottom: int32(ypos + height),
 			}
 			if winver.IsWindows10AnniversaryUpdateOrGreater() {
-				if err := _AdjustWindowRectExForDpi(&rect, w.getWindowStyle(), false, w.getWindowExStyle(), _GetDpiForWindow(w.platform.handle)); err != nil {
+				if err := w.adjustRectForDpi(&rect, w.getWindowStyle(), false, w.getWindowExStyle(), _GetDpiForWindow(w.platform.handle)); err != nil {
 					return err
 				}
 			} else {
-				if err := _AdjustWindowRectEx(&rect, w.getWindowStyle(), false, w.getWindowExStyle()); err != nil {
+				if err := w.adjustRect(&rect, w.getWindowStyle(), false, w.getWindowExStyle()); err != nil {
 					return err
 				}
 			}
@@ -2045,13 +2050,13 @@ func (w *Window) platformSetWindowMonitor(monitor *Monitor, xpos, ypos, width, h
 			bottom: int32(ypos + height),
 		}
 		if winver.IsWindows10AnniversaryUpdateOrGreater() {
-			if err := _AdjustWindowRectExForDpi(&rect, w.getWindowStyle(),
+			if err := w.adjustRectForDpi(&rect, w.getWindowStyle(),
 				false, w.getWindowExStyle(),
 				_GetDpiForWindow(w.platform.handle)); err != nil {
 				return err
 			}
 		} else {
-			if err := _AdjustWindowRectEx(&rect, w.getWindowStyle(),
+			if err := w.adjustRect(&rect, w.getWindowStyle(),
 				false, w.getWindowExStyle()); err != nil {
 				return err
 			}

@@ -117,6 +117,16 @@ type WindowOptions struct {
 	// after asking whether to stop what is still running. When nil, the
 	// window closes at once.
 	AskToClose Intent
+	// Chromeless takes the system's title bar and frame away, for the
+	// application to draw its own, as nodes that are [Caption] and
+	// [MaximizeButton]. The system goes on moving, snapping, sizing and
+	// maximizing the window. Where a system keeps its own title bar, as
+	// macOS does for now, [UI.Chromeless] reports false and the
+	// application draws none.
+	Chromeless bool
+	// Arrive has the window grow a little and fade in as it opens, over
+	// [ArriveTime], the way [Client.Leave] takes it away.
+	Arrive bool
 }
 
 // NewWindow opens a window and starts its UI goroutine.
@@ -127,6 +137,7 @@ func (a *App) NewWindow(o WindowOptions) (*Window, error) {
 	do := driver.Options{
 		Title: o.Title, Size: o.Size, Monitor: o.Monitor,
 		Kind: o.Kind, Anchor: geom.Rect{Min: o.Anchor, Max: o.Anchor}, Icons: o.Icons,
+		Chromeless: o.Chromeless,
 	}
 	if o.Parent != nil {
 		do.Parent = o.Parent.dw
@@ -139,6 +150,8 @@ func (a *App) NewWindow(o WindowOptions) (*Window, error) {
 	w := newWindow(dw, o.Root)
 	w.title = o.Title
 	w.askToClose = o.AskToClose
+	w.ui.startChrome()
+	w.ui.arriving = o.Arrive
 	w.open = a.drv.NewWindow
 	w.app = a
 	a.windows.add(w)
@@ -374,8 +387,12 @@ func (c Client) Leave() {
 	}
 }
 
-// LeaveTime is how long a window takes to leave.
-const LeaveTime = 220 * time.Millisecond
+// LeaveTime is how long a window takes to leave, and ArriveTime how
+// long one opened with [WindowOptions.Arrive] takes to come in.
+const (
+	LeaveTime  = 220 * time.Millisecond
+	ArriveTime = 220 * time.Millisecond
+)
 
 // Input hands the window an input event, as its driver would: a key, a
 // click, text. It is for a tool that drives a window through a script,
@@ -740,10 +757,17 @@ type UI struct {
 	topics map[string][]*state
 	// kept holds what the nodes asked for with KeepDrawing drew last.
 	kept map[Node]*Drawing
+	// chrome is the title bar of a chromeless window, nil for a window
+	// with the system's.
+	chrome *titleBar
 	// goingAway says the window is animating out, and leftAt is the frame
 	// it began in.
 	goingAway bool
 	leftAt    time.Time
+	// arriving says the window is coming in as it opens, and arrivedAt
+	// is the frame it began in.
+	arriving  bool
+	arrivedAt time.Time
 	// spare holds popup windows hidden to open again, and spared counts
 	// the ones made ahead of time.
 	spare  []spareWindow
@@ -1283,18 +1307,34 @@ func (u *UI) frame(now time.Time, delta time.Duration) {
 
 	// 4. Record the frame and hand it to the driver.
 	u.painter.Reset()
+	u.beginTitleBar()
 	u.root.toWindow, u.root.drawn = paint.Identity, u.seq
 	left := false
 	func() {
+		// gone is how far the window is from being all there: coming in
+		// as it opens, or going as it leaves.
+		gone := float32(0)
+		if u.arriving {
+			if u.arrivedAt.IsZero() {
+				u.arrivedAt = now
+			}
+			k := min(float32(now.Sub(u.arrivedAt))/float32(ArriveTime), 1)
+			u.arriving = k < 1
+			u.animating = true
+			// Eased out: quick to show, settling into place.
+			gone = (1 - k) * (1 - k)
+		}
 		if u.goingAway {
 			k := u.leftBy(now)
 			left = k >= 1
 			u.animating = true
 			// Eased in: slow to start, gone quickly.
-			k *= k
+			gone = max(gone, k*k)
+		}
+		if gone > 0 {
 			box := geom.Rect{Max: size.Point()}
-			defer u.painter.Push(paint.Scale(1-leaveShrink*k, box.Center()))()
-			defer u.painter.Layer(paint.LayerOpts{Bounds: box, Opacity: 1 - k})()
+			defer u.painter.Push(paint.Scale(1-leaveShrink*gone, box.Center()))()
+			defer u.painter.Layer(paint.LayerOpts{Bounds: box, Opacity: 1 - gone})()
 		}
 		u.root.node.Paint(&u.painter, f, u.root.size, Children{ns: u.root.kids, f: f, s: u.root})
 		u.painter.PaintFloats()
@@ -1303,6 +1343,7 @@ func (u *UI) frame(now time.Time, delta time.Duration) {
 		u.w.err = fmt.Errorf("gunim: present frame: %w", err)
 		u.w.Close()
 	}
+	u.sendTitleBar()
 	u.placeCaret()
 	u.framePopups(f)
 	u.publishAccess(u.w.dw, u.root, u.w.title)

@@ -49,6 +49,10 @@ type Window struct {
 	d  *Driver
 	gw *glfw.Window
 
+	// chrome is the title bar a chromeless window's application draws:
+	// see chrome.go.
+	chrome chrome
+
 	in        *inbox
 	presented chan driver.Frame
 	frames    chan frame
