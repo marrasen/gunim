@@ -46,7 +46,14 @@ func main() {
 	graph := flag.Bool("graph", false, "open on the graph")
 	shot := flag.String("shot", "", "write the window to this PNG file after -after, and quit")
 	after := flag.Duration("after", 1500*time.Millisecond, "how long -shot waits")
+	iconTo := flag.String("icon", "", "write the icon, 256 pixels square, to this PNG file, and quit")
 	flag.Parse()
+	if *iconTo != "" {
+		if err := writeIcon(*iconTo); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	if err := run(*runFor, *keys, *graph, *shot, *after); err != nil {
 		log.Fatal(err)
 	}
@@ -66,6 +73,7 @@ func run(runFor time.Duration, keys string, graph bool, shot string, after time.
 			Size:       geom.Sz(980, 660),
 			Chromeless: true,
 			Arrive:     true,
+			Icons:      icons(),
 		})
 		if err != nil {
 			return fmt.Errorf("calculator: %w", err)
@@ -108,4 +116,13 @@ func writeShot(ctx context.Context, c gunim.Client, path string) error {
 		return err
 	}
 	return errors.Join(png.Encode(f, img), f.Close())
+}
+
+// writeIcon writes the icon, at its largest, to a PNG file.
+func writeIcon(path string) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	return errors.Join(png.Encode(f, drawIcon(256)), f.Close())
 }
