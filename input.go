@@ -24,6 +24,10 @@ func (u *UI) handlePlatform(ev any) { u.handleOn(u.root, ev) }
 // menu keeps the keyboard while the menu is clicked.
 func (u *UI) handleOn(root *state, ev any) {
 	u.invalid = true
+	if u.goingAway {
+		// A window on its way out takes nothing more.
+		return
+	}
 	switch e := ev.(type) {
 	case access.Request:
 		u.accessRequest(e)

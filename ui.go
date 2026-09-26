@@ -169,6 +169,8 @@ type Window struct {
 	// input from Client.Input.
 	redraw   chan struct{}
 	injected chan input.Event
+	// leave asks the window to animate out and close.
+	leave chan struct{}
 	// title is the window's title, which a screen reader reads for it.
 	title string
 	// askToClose is sent to the application when the user asks to close
@@ -237,6 +239,7 @@ func newWindow(dw driver.Window, root Node) *Window {
 		},
 		popupIn:  make(chan popupEvent, 16),
 		redraw:   make(chan struct{}, 1),
+		leave:    make(chan struct{}, 1),
 		injected: make(chan input.Event),
 		dragIn:   make(chan dragMsg, 64),
 		blends:   true,
@@ -359,6 +362,21 @@ func (c Client) Err() error { return c.w.err }
 // Close shuts the window down.
 func (c Client) Close() { c.w.Close() }
 
+// Leave closes the window the way an application quitting does: its
+// content shrinks a little and fades, over [LeaveTime], and then the
+// window closes, as [Client.Close] does. Input is ignored meanwhile, and
+// popups close at once. Where the window can show what is behind it, it
+// fades into the desktop; elsewhere into the dark.
+func (c Client) Leave() {
+	select {
+	case c.w.leave <- struct{}{}:
+	default:
+	}
+}
+
+// LeaveTime is how long a window takes to leave.
+const LeaveTime = 220 * time.Millisecond
+
 // Input hands the window an input event, as its driver would: a key, a
 // click, text. It is for a tool that drives a window through a script,
 // such as a screenshot taker. Positions are in window space. It waits
@@ -433,6 +451,8 @@ func (w *Window) Frame(delta time.Duration) {
 			w.ui.popupEvent(e)
 		case m := <-w.dragIn:
 			w.ui.dragMsg(m)
+		case <-w.leave:
+			w.ui.startLeaving()
 		default:
 			drained = true
 		}
@@ -558,6 +578,8 @@ func (w *Window) wait() bool {
 		w.ui.dragMsg(m)
 	case <-w.redraw:
 		w.ui.invalid = true
+	case <-w.leave:
+		w.ui.startLeaving()
 	case ev := <-w.injected:
 		w.ui.handlePlatform(ev)
 		w.ui.focusNow()
@@ -718,6 +740,10 @@ type UI struct {
 	topics map[string][]*state
 	// kept holds what the nodes asked for with KeepDrawing drew last.
 	kept map[Node]*Drawing
+	// goingAway says the window is animating out, and leftAt is the frame
+	// it began in.
+	goingAway bool
+	leftAt    time.Time
 	// spare holds popup windows hidden to open again, and spared counts
 	// the ones made ahead of time.
 	spare  []spareWindow
@@ -1258,8 +1284,21 @@ func (u *UI) frame(now time.Time, delta time.Duration) {
 	// 4. Record the frame and hand it to the driver.
 	u.painter.Reset()
 	u.root.toWindow, u.root.drawn = paint.Identity, u.seq
-	u.root.node.Paint(&u.painter, f, u.root.size, Children{ns: u.root.kids, f: f, s: u.root})
-	u.painter.PaintFloats()
+	left := false
+	func() {
+		if u.goingAway {
+			k := u.leftBy(now)
+			left = k >= 1
+			u.animating = true
+			// Eased in: slow to start, gone quickly.
+			k *= k
+			box := geom.Rect{Max: size.Point()}
+			defer u.painter.Push(paint.Scale(1-leaveShrink*k, box.Center()))()
+			defer u.painter.Layer(paint.LayerOpts{Bounds: box, Opacity: 1 - k})()
+		}
+		u.root.node.Paint(&u.painter, f, u.root.size, Children{ns: u.root.kids, f: f, s: u.root})
+		u.painter.PaintFloats()
+	}()
 	if err := u.w.dw.Present(u.painter.Ops(), u.painter.Damage()); err != nil {
 		u.w.err = fmt.Errorf("gunim: present frame: %w", err)
 		u.w.Close()
@@ -1290,6 +1329,31 @@ func (u *UI) frame(now time.Time, delta time.Duration) {
 
 	// Counted last, so a reader that sees the count also sees the frame.
 	u.w.stats.frames.Add(1)
+	if left {
+		u.w.Close()
+	}
+}
+
+// leaveShrink is how much of its size a window's content loses as it
+// leaves.
+const leaveShrink = 0.06
+
+// startLeaving starts the window leaving: see [Client.Leave].
+func (u *UI) startLeaving() {
+	if u.goingAway {
+		return
+	}
+	u.goingAway, u.invalid = true, true
+	u.closeAllPopups()
+}
+
+// leftBy is how far the window has gone in leaving, from 0 to 1, at the
+// frame stamped now.
+func (u *UI) leftBy(now time.Time) float32 {
+	if u.leftAt.IsZero() {
+		u.leftAt = now
+	}
+	return min(float32(now.Sub(u.leftAt))/float32(LeaveTime), 1)
 }
 
 // roots returns the top of the window's tree and of every popup's.
