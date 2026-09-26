@@ -142,6 +142,7 @@ type glyphRun struct {
 
 type cellMetrics struct {
 	size, scale    float32
+	faces          [4]*text.Face
 	w, h, ascent   float32
 	line, strikeAt float32
 }
@@ -253,7 +254,7 @@ func (g *CellGrid) face(s CellStyle) *text.Face {
 // Sizes snap to whole device pixels, so every cell's edge falls on a
 // pixel and each glyph lands on the same place in its cell.
 func (g *CellGrid) measure(size, scale float32) {
-	if g.metrics.size == size && g.metrics.scale == scale {
+	if g.metrics.size == size && g.metrics.scale == scale && g.metrics.faces == g.Faces {
 		return
 	}
 	snap := func(v float32) float32 { return float32(math.Round(float64(v*scale))) / scale }
@@ -263,7 +264,7 @@ func (g *CellGrid) measure(size, scale float32) {
 	if !ok {
 		advance = size * 0.6
 	}
-	m := cellMetrics{size: size, scale: scale}
+	m := cellMetrics{size: size, scale: scale, faces: g.Faces}
 	m.w = max(snap(advance), 1/scale)
 	m.ascent = snap(ascent + gap/2)
 	m.h = max(snap(ascent+descent+gap), 1/scale)

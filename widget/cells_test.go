@@ -9,6 +9,8 @@ import (
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/paint"
+	"github.com/marrasen/gunim/text"
+	"golang.org/x/image/font/gofont/goregular"
 )
 
 // cellsOf turns s into a row of plain cells.
@@ -197,5 +199,21 @@ func TestABlinkFadesTheCursorOutAndBack(t *testing.T) {
 	run(30)
 	if v := g.lit.Value(); v < 0.99 {
 		t.Fatalf("blinked on, the cursor came back to %v", v)
+	}
+}
+
+// Faces changed after the grid has been drawn take effect: the cells
+// are measured again and drawn in the new face.
+func TestAGridTakesNewFaces(t *testing.T) {
+	_, g, run := newCellStage(t)
+	mono := g.CellSize()
+	regular, err := text.Parse(goregular.TTF)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.Faces = [4]*text.Face{regular}
+	run(2)
+	if g.CellSize() == mono {
+		t.Fatalf("in Go Regular, the cells are still Go Mono's %v", mono)
 	}
 }
