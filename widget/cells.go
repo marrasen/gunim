@@ -318,6 +318,7 @@ func (g *CellGrid) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) 
 func (g *CellGrid) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
 	m := g.metrics
 	p.RRect(geom.Rect{Max: box.Point()}, 0, paint.Solid(g.Background.Get(f.Theme)))
+	defer p.Push(paint.Translate(pixelSnap(p.Transform(), f.Scale)))()
 	ink := g.Foreground.Get(f.Theme)
 	for y := range g.lines {
 		top := float32(y) * m.h
@@ -516,4 +517,21 @@ func (g *CellGrid) paintCursor(p *paint.Painter, ink, background color.NRGBA) {
 			p.Text(run.glyphs, m.size, run.c, geom.Rect{Min: geom.Pt(0, -m.ascent), Max: geom.Pt(w, m.h-m.ascent)})
 		}
 	}
+}
+
+// pixelSnap is how far to move the grid for its corner to sit on a
+// device pixel, under transform t at scale device pixels to a logical
+// one. Every cell is a whole number of device pixels, so with the corner
+// on one, every cell's edge is too. With the corner between pixels,
+// the two cells either side of each edge would each cover part of the
+// same pixel, and the background would show through the seam: a grid
+// of faint lines across a picture drawn in half blocks.
+//
+// A grid drawn scaled, as while it zooms, keeps its place.
+func pixelSnap(t paint.Transform, scale float32) geom.Point {
+	if scale <= 0 || t.A != 1 || t.E != 1 || t.B != 0 || t.D != 0 {
+		return geom.Point{}
+	}
+	snap := func(v float32) float32 { return float32(math.Round(float64(v*scale)))/scale - v }
+	return geom.Pt(snap(t.C), snap(t.F))
 }

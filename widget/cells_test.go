@@ -246,3 +246,46 @@ func TestABoxRuleJoinsAcrossCells(t *testing.T) {
 		t.Fatalf("the rule runs from 0 to %v of %v, in pieces %v", reach, 3*cell.W, pieces)
 	}
 }
+
+// A grid whose corner falls between device pixels still puts every
+// cell's fills on whole device pixels, so half blocks side by side and
+// row on row meet with no seam of background between them.
+func TestCellsLandOnDevicePixelsWherever(t *testing.T) {
+	const scale = 1.5
+	g := NewCellGrid()
+	g.Size = 14
+	g.Resize(4, 3)
+	g.measure(14, scale)
+	top, bottom := color.NRGBA{B: 0xff, A: 0xff}, color.NRGBA{G: 0x80, A: 0xff}
+	for y := range 3 {
+		row := make([]Cell, 4)
+		for x := range row {
+			row[x] = Cell{Rune: '▀', FG: top, BG: bottom}
+		}
+		g.SetRow(y, row)
+	}
+	for _, at := range []geom.Point{geom.Pt(10.3, 20.7), geom.Pt(0.5, 0.25), geom.Pt(161.7, 29.9)} {
+		var p paint.Painter
+		func() {
+			defer p.Push(paint.Translate(at))()
+			g.Paint(&p, gunim.Frame{Scale: scale}, geom.Sz(100, 100), gunim.Children{})
+		}()
+		whole := func(v float32) bool { return math.Abs(float64(v*scale)-math.Round(float64(v*scale))) < 1e-3 }
+		fills := 0
+		for _, op := range p.Ops() {
+			r, ok := op.(*paint.RRectOp)
+			if !ok || (r.Fill.Solid != top && r.Fill.Solid != bottom) {
+				continue
+			}
+			fills++
+			for _, v := range []float32{r.Transform.C + r.Rect.Min.X, r.Transform.C + r.Rect.Max.X, r.Transform.F + r.Rect.Min.Y, r.Transform.F + r.Rect.Max.Y} {
+				if !whole(v) {
+					t.Fatalf("at %v a fill's edge lands at %v device pixels: %v under %v", at, v*scale, r.Rect, r.Transform)
+				}
+			}
+		}
+		if fills == 0 {
+			t.Fatalf("at %v the grid drew no half blocks", at)
+		}
+	}
+}
