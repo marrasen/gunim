@@ -1,6 +1,7 @@
 package widget
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -117,5 +118,25 @@ func TestTheKeysPassACaptionBy(t *testing.T) {
 	m.Key(input.KeyPress{Key: input.KeyUp}, nil)
 	if m.Highlighted() != 1 {
 		t.Fatalf("Up from the first item moved to %d, want it to stay", m.Highlighted())
+	}
+}
+
+func TestAMenubarSaysWhatIsHighlighted(t *testing.T) {
+	w, b, _, _, run := newBarStage(t)
+	var lit []barPick
+	b.OnHighlight = func(m, i int, _ *gunim.UI) { lit = append(lit, barPick{m, i}) }
+	file := b.span(0)
+	clickAt(w, run, geom.Pt((file[0]+file[1])/2, 15))
+	w.Input(input.KeyPress{Key: input.KeyDown})
+	run(1)
+	w.Input(input.KeyPress{Key: input.KeyRight})
+	run(1)
+	w.Input(input.KeyPress{Key: input.KeyDown})
+	run(1)
+	w.Input(input.KeyPress{Key: input.KeyEscape})
+	run(1)
+	want := []barPick{{0, -1}, {0, 0}, {1, -1}, {1, 1}, {-1, -1}}
+	if !slices.Equal(lit, want) {
+		t.Fatalf("highlighted %v, want %v", lit, want)
 	}
 }

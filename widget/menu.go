@@ -39,6 +39,9 @@ type Menu struct {
 	Captions []int
 	// Pick runs on the UI goroutine with the index of the item picked.
 	Pick func(i int, u *gunim.UI)
+	// OnHighlight runs on the UI goroutine when the pointer or a key
+	// moves the highlight, with the item it moved to, or -1.
+	OnHighlight func(i int, u *gunim.UI)
 	// MinWidth is the narrowest the menu gets, so a drop-down's list is
 	// at least as wide as the drop-down.
 	MinWidth float32
@@ -121,6 +124,7 @@ func (m *Menu) Highlighted() int { return m.hot }
 // opened the menu, which keeps the keyboard, to pass keys on. It
 // reports whether it used the key.
 func (m *Menu) Key(k input.KeyPress, u *gunim.UI) bool {
+	defer m.told(m.hot, u)
 	switch k.Key {
 	case input.KeyDown:
 		m.Highlight(m.step(m.hot, m.hot+1, 1))
@@ -162,6 +166,7 @@ func (m *Menu) Transition(p gunim.Presence, f gunim.Frame) bool {
 
 // Handle implements [gunim.Handler].
 func (m *Menu) Handle(e input.Event, u *gunim.UI) bool {
+	defer m.told(m.hot, u)
 	switch e := e.(type) {
 	case input.PointerEnter:
 		m.Highlight(m.rowAt(e.Pos))
@@ -179,6 +184,13 @@ func (m *Menu) Handle(e input.Event, u *gunim.UI) bool {
 	}
 	u.Invalidate()
 	return true
+}
+
+// told runs OnHighlight when the highlight has moved from was.
+func (m *Menu) told(was int, u *gunim.UI) {
+	if m.hot != was && m.OnHighlight != nil {
+		m.OnHighlight(m.hot, u)
+	}
 }
 
 // rowAt returns the item at p, in the menu's space, or -1.

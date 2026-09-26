@@ -48,6 +48,10 @@ type Menubar struct {
 	// Pick runs on the UI goroutine with the menu and the item picked,
 	// once the menu has closed.
 	Pick func(menu, item int, u *gunim.UI)
+	// OnHighlight runs on the UI goroutine when the highlight moves,
+	// with the open menu and the item highlighted on it, -1 for none.
+	// Closing the menus runs it with -1 for both.
+	OnHighlight func(menu, item int, u *gunim.UI)
 
 	open  int
 	popup *gunim.Popup
@@ -93,6 +97,7 @@ func (b *Menubar) Open(i int, u *gunim.UI) {
 	menu := NewMenu(m.Items...)
 	menu.Hints, menu.Checked, menu.Disabled, menu.Breaks, menu.Captions = m.Hints, m.Checked, m.Disabled, m.Breaks, m.Captions
 	menu.MinWidth = 180
+	menu.OnHighlight = func(item int, u *gunim.UI) { b.highlight(i, item, u) }
 	menu.Pick = func(item int, u *gunim.UI) {
 		b.Close(u)
 		if b.Pick != nil {
@@ -108,7 +113,15 @@ func (b *Menubar) Open(i int, u *gunim.UI) {
 	})
 	b.aim(i, u)
 	u.Focus(b)
+	b.highlight(i, -1, u)
 	u.Invalidate()
+}
+
+// highlight runs OnHighlight.
+func (b *Menubar) highlight(menu, item int, u *gunim.UI) {
+	if b.OnHighlight != nil {
+		b.OnHighlight(menu, item, u)
+	}
 }
 
 // Close closes the open menu, and gives the keyboard back.
@@ -118,6 +131,7 @@ func (b *Menubar) Close(u *gunim.UI) {
 	}
 	b.shut()
 	b.open = -1
+	b.highlight(-1, -1, u)
 	if b.back != nil {
 		u.Focus(b.back)
 		b.back = nil
