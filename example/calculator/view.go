@@ -87,12 +87,6 @@ type calcRoot struct {
 	echo widget.Echo
 }
 
-// The echo's colours.
-var (
-	echoError = color.NRGBA{R: 0xff, G: 0x4d, B: 0x4d, A: 0xff}
-	echoPlot  = color.NRGBA{R: 0x3d, G: 0xe0, B: 0x7a, A: 0xff}
-)
-
 func newCalcRoot() *calcRoot {
 	r := &calcRoot{mode: anim.NewFloat(0)}
 	r.bar = newTitleBar(r)
@@ -117,10 +111,10 @@ func (r *calcRoot) show(s Calc, u *gunim.UI) {
 		}
 	}
 	if s.Errors > was.Errors {
-		r.echo.Ping(u, echoError)
+		r.echo.Ping(u, widget.EchoProblem)
 	}
 	if len(s.Plots) > 0 && !slices.ContainsFunc(was.Plots, func(p Plot) bool { return p.ID == s.Plots[len(s.Plots)-1].ID }) {
-		r.echo.Ping(u, echoPlot)
+		r.echo.Ping(u, widget.EchoDone)
 	}
 	r.bar.show(s.Graph)
 	r.calc.show(was, s, u)

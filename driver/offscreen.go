@@ -246,6 +246,10 @@ func (w *OffscreenWindow) FromScreen(p geom.Point) geom.Point {
 	return p.Sub(w.origin)
 }
 
+// Transparent implements [Transparent]: an offscreen window blends, as
+// a popup does on a display server that blends windows.
+func (w *OffscreenWindow) Transparent() bool { return true }
+
 // Anchor returns where the window was last attached, for a popup.
 func (w *OffscreenWindow) Anchor() geom.Rect {
 	w.mu.Lock()

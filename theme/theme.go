@@ -99,6 +99,9 @@ func fadeThrough(from, to color.NRGBA, p float32) color.NRGBA {
 // font size.
 func Length(key string, def float32) Token[float32] { return New(key, def, anim.FloatCodec) }
 
+// Number declares a plain number token: a strength, a share, a count.
+func Number(key string, def float32) Token[float32] { return New(key, def, anim.FloatCodec) }
+
 // Insets declares a padding or margin token.
 func Insets(key string, def geom.Insets) Token[geom.Insets] {
 	return New(key, def, anim.InsetsCodec)
