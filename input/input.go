@@ -142,6 +142,16 @@ type FocusGained struct{ Time time.Time }
 // FocusLost arrives when a node gives keyboard focus up.
 type FocusLost struct{ Time time.Time }
 
+// WindowFocusLost arrives when the window gives the keyboard to another
+// program. It goes to the focused node and bubbles, as a key does. A
+// key held as the keyboard went sends no release here, so a node
+// waiting on one, as for Ctrl let go, ends the wait on it.
+type WindowFocusLost struct{ Time time.Time }
+
+// WindowFocusGained arrives when the window has the keyboard back. It
+// goes to the focused node and bubbles, as a key does.
+type WindowFocusGained struct{ Time time.Time }
+
 // DragOver arrives while something is dragged over a node: another
 // node's Data, dragged inside the application, from this window or
 // another. It bubbles like a pointer event. A node that returns true
@@ -190,6 +200,9 @@ func (DragOver) isEvent()     {}
 func (DragLeave) isEvent()    {}
 func (Drop) isEvent()         {}
 func (DragEnd) isEvent()      {}
+
+func (WindowFocusLost) isEvent()   {}
+func (WindowFocusGained) isEvent() {}
 
 // Button identifies a pointer button.
 type Button uint8

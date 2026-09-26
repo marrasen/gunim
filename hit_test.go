@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/marrasen/gunim/driver"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
@@ -295,5 +296,27 @@ func TestAPressSaysWhetherItMovedTheFocus(t *testing.T) {
 	}
 	if a, b := focusing(p.fa), focusing(p.fb); !slices.Equal(a, []bool{true, false}) || !slices.Equal(b, []bool{true}) {
 		t.Fatalf("a's presses moved the focus %v and b's %v; want the first of each", a, b)
+	}
+}
+
+func TestTheFocusedNodeHearsTheWindowLoseTheKeyboard(t *testing.T) {
+	w := newTestWindow()
+	p := &focusPair{fa: &focusRecorder{}, fb: &focusRecorder{}}
+	w.ui.Insert(w.ui.Root(), p)
+	run(w, 1)
+	w.ui.Focus(p.fb)
+	w.ui.handlePlatform(driver.WindowFocus{Focused: false})
+	w.ui.handlePlatform(driver.WindowFocus{Focused: true})
+	var got []string
+	for _, e := range p.fb.events {
+		switch e.(type) {
+		case input.WindowFocusLost:
+			got = append(got, "lost")
+		case input.WindowFocusGained:
+			got = append(got, "gained")
+		}
+	}
+	if !slices.Equal(got, []string{"lost", "gained"}) {
+		t.Fatalf("the focused node heard %v", got)
 	}
 }

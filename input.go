@@ -30,9 +30,21 @@ func (u *UI) handleOn(root *state, ev any) {
 	case driver.DragOutEnded:
 		u.dragEnded(e.Taken)
 	case driver.WindowFocus:
-		if !e.Focused && root == u.root {
+		if root != u.root {
+			return
+		}
+		if !e.Focused {
 			u.dismissFor(nil)
 		}
+		var ev input.Event = input.WindowFocusGained{Time: time.Now()}
+		if !e.Focused {
+			ev = input.WindowFocusLost{Time: time.Now()}
+		}
+		target := u.focus
+		if target == nil {
+			target = u.root
+		}
+		u.bubble(target, ev)
 	case input.PointerMove:
 		if root == u.root {
 			u.pointer = e.Pos

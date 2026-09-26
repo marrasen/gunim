@@ -100,13 +100,16 @@ func (p *Palette) choose(i int, u *gunim.UI) {
 // paletteCard is the palette's popup: the field over the list.
 type paletteCard struct {
 	anim.Group
-	p      *Palette
-	field  *TextField
-	list   *List
-	scroll *Scroll
-	found  []match.Found
-	hot    int
-	in     *anim.Float
+	p     *Palette
+	field *TextField
+	// list builds only the rows in view: a palette holds hundreds of
+	// commands, and each letter typed ranks them all again.
+	list  *VirtualList
+	found []match.Found
+	// at is where the query matched each item found, by index.
+	at  map[int][]int
+	hot int
+	in  *anim.Float
 	// height is the list's height, gliding as the list changes.
 	height *anim.Float
 
@@ -116,16 +119,19 @@ type paletteCard struct {
 }
 
 func newPaletteCard(p *Palette) *paletteCard {
-	c := &paletteCard{p: p, field: NewTextField(), list: NewList(), in: anim.NewFloat(0), height: anim.NewFloat(0)}
+	c := &paletteCard{p: p, field: NewTextField(), in: anim.NewFloat(0), height: anim.NewFloat(0)}
+	c.list = NewVirtualList(func(k Key) gunim.Node {
+		i, _ := strconv.Atoi(string(k))
+		return newPaletteRow(c, i)
+	})
 	c.field.Placeholder = p.Placeholder
 	c.field.OnEdit = c.filter
-	c.scroll = NewScroll(c.list)
 	c.Add(c.in, c.height)
 	return c
 }
 
 // Children implements [gunim.Composite].
-func (c *paletteCard) Children() []gunim.Node { return []gunim.Node{c.field, c.scroll} }
+func (c *paletteCard) Children() []gunim.Node { return []gunim.Node{c.field, c.list} }
 
 // PopupPadding implements [gunim.PopupPadder].
 func (c *paletteCard) PopupPadding() geom.Insets { return geom.Uniform(c.margin) }
@@ -151,14 +157,25 @@ func (c *paletteCard) filter(q string, u *gunim.UI) {
 	}
 	c.found = match.Rank(items, q)
 	c.hot = 0
-	Sync(c.list, u, c.found,
-		func(f match.Found) Key { return Key(strconv.Itoa(f.Index)) },
-		func(f match.Found) *paletteRow { return newPaletteRow(c, f) },
-		func(r *paletteRow, f match.Found, _ *gunim.UI) { r.at = f.At })
+	c.at = make(map[int][]int, len(c.found))
+	keys := make([]Key, len(c.found))
+	for i, f := range c.found {
+		c.at[f.Index] = f.At
+		keys[i] = Key(strconv.Itoa(f.Index))
+	}
+	c.list.SetKeys(keys, u)
 	c.light(u)
 	rows := float32(min(len(c.found), paletteRows))
 	c.height.Animate(rows*(c.rowOr(u)+ListSpacing.Get(u.Theme())), Settle.Get(u.Theme()))
-	c.scroll.ScrollTo(0, Quick.Get(u.Theme()))
+	c.list.ScrollTo(0, Quick.Get(u.Theme()))
+}
+
+// hotIndex is the item highlighted, or -1.
+func (c *paletteCard) hotIndex() int {
+	if c.hot < 0 || c.hot >= len(c.found) {
+		return -1
+	}
+	return c.found[c.hot].Index
 }
 
 func (c *paletteCard) rowOr(u *gunim.UI) float32 {
@@ -168,18 +185,15 @@ func (c *paletteCard) rowOr(u *gunim.UI) float32 {
 	return PaletteRowHeight.Get(u.Theme())
 }
 
-// light marks the highlighted row, and scrolls it into view.
+// light scrolls the highlighted row into view; each row lights itself
+// as it is laid out.
 func (c *paletteCard) light(u *gunim.UI) {
-	for k, f := range c.found {
-		if r, ok := RowOf[*paletteRow](c.list, Key(strconv.Itoa(f.Index))); ok {
-			r.setHot(k == c.hot, u)
-		}
-	}
 	if c.hot >= 0 && c.hot < len(c.found) {
 		step := c.rowOr(u) + ListSpacing.Get(u.Theme())
 		y := float32(c.hot) * step
-		c.scroll.Reveal(geom.Rc(0, y, 1, step), u)
+		c.list.revealContent(geom.Rc(0, y, 1, step), u)
 	}
+	u.Invalidate()
 }
 
 func (c *paletteCard) move(by int, u *gunim.UI) {
@@ -271,33 +285,29 @@ type paletteRow struct {
 	anim.Group
 	c     *paletteCard
 	index int
-	at    []int
 	hot   *anim.Float
 	on    bool
 	title shapedText
 	hint  shapedText
 }
 
-func newPaletteRow(c *paletteCard, f match.Found) *paletteRow {
-	r := &paletteRow{c: c, index: f.Index, at: f.At, hot: anim.NewFloat(0)}
+func newPaletteRow(c *paletteCard, index int) *paletteRow {
+	r := &paletteRow{c: c, index: index, hot: anim.NewFloat(0)}
 	r.Add(r.hot)
 	return r
 }
 
-func (r *paletteRow) setHot(on bool, u *gunim.UI) {
-	if on == r.on {
-		return
-	}
-	r.on = on
-	to := float32(0)
-	if on {
-		to = 1
-	}
-	r.hot.Animate(to, Quick.Get(u.Theme()))
-}
-
-// Layout implements [gunim.Node].
+// Layout implements [gunim.Node]. The row lights as it is laid out, when
+// it has become the one highlighted, or dims when it has stopped being.
 func (r *paletteRow) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
+	if on := r.c.hotIndex() == r.index; on != r.on {
+		r.on = on
+		to := float32(0)
+		if on {
+			to = 1
+		}
+		r.hot.Animate(to, Quick.Get(f.Theme))
+	}
 	return c.Constrain(geom.Sz(c.Max.W, PaletteRowHeight.Get(f.Theme)))
 }
 
@@ -316,12 +326,13 @@ func (r *paletteRow) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gun
 	top := (box.H - run.Height()) / 2
 	// The matched letters sit on marks, joined where they run on.
 	mark := PaletteMark.Get(th)
-	for i := 0; i < len(r.at); {
+	at := r.c.at[r.index]
+	for i := 0; i < len(at); {
 		j := i
-		for j+1 < len(r.at) && r.at[j+1] == r.at[j]+1 {
+		for j+1 < len(at) && at[j+1] == at[j]+1 {
 			j++
 		}
-		x0, x1 := run.CaretX(r.at[i]), run.CaretX(r.at[j]+1)
+		x0, x1 := run.CaretX(at[i]), run.CaretX(at[j]+1)
 		p.RRect(geom.Rc(pad+x0-1, top, x1-x0+2, run.Height()), 3, paint.Solid(mark))
 		i = j + 1
 	}

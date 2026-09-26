@@ -162,7 +162,7 @@ func (t *Table) move(i int, u *gunim.UI) {
 	}
 	t.cursor = min(max(i, 0), len(t.keys)-1)
 	h := TableRowHeight.Get(u.Theme())
-	t.list.Reveal(geom.Rc(0, float32(t.cursor)*h, 1, h), u)
+	t.list.revealContent(geom.Rc(0, float32(t.cursor)*h, 1, h), u)
 	u.Invalidate()
 }
 

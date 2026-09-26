@@ -319,6 +319,13 @@ func (s *scrolling) reveal(r geom.Rect, u *gunim.UI) {
 	}
 }
 
+// revealContent is reveal for r in the content's space, measured from
+// its top rather than from the top of the view.
+func (s *scrolling) revealContent(r geom.Rect, u *gunim.UI) {
+	off := s.offset.Value()
+	s.reveal(geom.Rect{Min: geom.Pt(r.Min.X, r.Min.Y-off), Max: geom.Pt(r.Max.X, r.Max.Y-off)}, u)
+}
+
 // fit takes the content's height and the view's from a layout, and
 // brings the offset back inside when the content has shrunk under it.
 func (s *scrolling) fit(content, viewport float32, th *theme.Live) {

@@ -200,3 +200,22 @@ func TestInsertMarksAndMovesOn(t *testing.T) {
 		t.Fatalf("Insert left the cursor on %q", k)
 	}
 }
+
+// Up past the top of the view scrolls it back, as Down past the bottom
+// does.
+func TestUpPastTheTopOfTheViewScrollsBack(t *testing.T) {
+	w, tbl, _, run := newTableStage(t, 1000)
+	w.Input(input.KeyPress{Key: input.KeyEnd})
+	run(60)
+	for range 40 {
+		w.Input(input.KeyPress{Key: input.KeyUp})
+		run(1)
+	}
+	run(60)
+	k, _ := tbl.Cursor()
+	h := TableRowHeight.Get(nil)
+	top := float32(tbl.cursor) * h
+	if off := tbl.list.Offset(); top < off || top+h > off+tbl.list.viewport {
+		t.Fatalf("the cursor, on %s at %v, is out of the view from %v to %v", k, top, off, off+tbl.list.viewport)
+	}
+}

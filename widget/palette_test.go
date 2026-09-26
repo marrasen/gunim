@@ -1,6 +1,7 @@
 package widget
 
 import (
+	"strconv"
 	"testing"
 	"time"
 
@@ -123,5 +124,32 @@ func TestThePaletteShrinksSmoothlyAsTheQueryNarrows(t *testing.T) {
 	step := PaletteRowHeight.Default() + ListSpacing.Default()
 	if full != 4*step || last != 3*step {
 		t.Fatalf("the list went from %v to %v, want %v to %v", full, last, 4*step, 3*step)
+	}
+}
+
+// A palette of hundreds of commands builds only the rows it shows, so a
+// letter typed costs what the rows in view do.
+func TestAPaletteOfManyBuildsOnlyTheRowsInView(t *testing.T) {
+	w, o, run := newPaletteStage(t)
+	o.p.Items = nil
+	for i := range 500 {
+		o.p.Items = append(o.p.Items, PaletteItem{Title: "Command number " + strconv.Itoa(i)})
+	}
+	focusOpener(w, run)
+	w.Input(input.KeyPress{Key: input.KeyF1})
+	run(20)
+	if n := o.p.card.list.Built(); n == 0 || n > 60 {
+		t.Fatalf("open on 500 items, the palette built %d rows", n)
+	}
+	// Down to the bottom and back, and the highlighted row is built.
+	w.Input(input.KeyPress{Key: input.KeyPageDown})
+	run(30)
+	if r, ok := o.p.card.list.live[Key(strconv.Itoa(o.p.card.hotIndex()))]; !ok || r == nil {
+		t.Fatalf("paged down to %d, its row is not built", o.p.card.hot)
+	}
+	w.Input(input.TextInput{Text: "number 49"})
+	run(20)
+	if f := o.p.card.found; len(f) == 0 || f[0].Index != 49 {
+		t.Fatalf("typing number 49 found %v first", f[:min(3, len(f))])
 	}
 }
