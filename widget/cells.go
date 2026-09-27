@@ -314,11 +314,23 @@ func (g *CellGrid) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) 
 	if g.cursor.Blinked {
 		lit = 0
 	}
+	to := geom.Pt(float32(g.cursor.Col)*m.w, float32(g.cursor.Row)*m.h)
+	// A hidden cursor has nothing to show moving: it takes its place and
+	// its light at once, so a program that hides it, as an animation
+	// does, draws no frames for a cursor nobody sees.
+	if !g.cursor.Visible {
+		if g.lit.Target() != lit || g.lit.Active() {
+			g.lit.Jump(lit)
+		}
+		if g.at.Target() != to || g.at.Active() {
+			g.at.Jump(to)
+		}
+		return own
+	}
 	// A tween, which never overshoots, so the fade never flickers back.
 	g.lit.Animate(lit, anim.Tween{Duration: 150 * time.Millisecond})
 
 	// The cursor glides along its row and jumps to another.
-	to := geom.Pt(float32(g.cursor.Col)*m.w, float32(g.cursor.Row)*m.h)
 	if to.Y == g.at.Target().Y && to != g.at.Target() {
 		g.at.Animate(to, Caret.Get(f.Theme))
 	} else if to.Y != g.at.Target().Y {

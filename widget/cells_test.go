@@ -289,3 +289,22 @@ func TestCellsLandOnDevicePixelsWherever(t *testing.T) {
 		}
 	}
 }
+
+// A hidden cursor, as an animation hides it, blinks and moves without
+// animating: nothing on screen changes, so no frame is drawn for it.
+func TestAHiddenCursorAnimatesNothing(t *testing.T) {
+	_, g, run := newCellStage(t)
+	for i := range 4 {
+		g.SetCursor(Cursor{Col: 3 + i, Row: 2, Visible: false, Blinked: i%2 == 0})
+		run(1)
+		if g.lit.Active() || g.at.Active() {
+			t.Fatalf("step %d: the hidden cursor is animating", i)
+		}
+	}
+	// Shown again, it takes its place and fades as before.
+	g.SetCursor(Cursor{Col: 9, Row: 2, Visible: true, Blinked: true})
+	run(1)
+	if !g.lit.Active() {
+		t.Fatal("the shown cursor did not fade for its blink")
+	}
+}
