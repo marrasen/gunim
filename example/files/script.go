@@ -44,6 +44,9 @@ func (a *app) scriptStep(step string) {
 		a.handle(a.handlers, FilterChanged{Text: arg})
 	case "wait":
 	default:
+		if a.scriptDnd(verb, arg) {
+			return
+		}
 		a.handle(a.handlers, Command{Name: step})
 	}
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"flag"
-	"fmt"
 	"image/png"
 	"log"
 	"os"
@@ -14,7 +13,6 @@ import (
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/driver"
-	"github.com/marrasen/gunim/geom"
 )
 
 func main() {
@@ -67,22 +65,10 @@ func run(o options, shot string, after, runFor time.Duration) error {
 		defer cancel()
 	}
 	err := gunim.Main(ctx, func(a *gunim.App) error {
-		w, err := a.NewWindow(gunim.WindowOptions{
-			Title:      "Files",
-			Size:       geom.Sz(1180, 740),
-			Root:       &root{},
-			Chromeless: true,
-			Arrive:     true,
-			ZoomKeys:   true,
-			Icons:      icons(),
-			AskToClose: CloseAsked{},
-		})
-		if err != nil {
-			return fmt.Errorf("files: %w", err)
-		}
-		registerViews(w)
-		c := w.Client()
-		if shot != "" {
+		return serveWindows(ctx, a, o, func(c gunim.Client) {
+			if shot == "" {
+				return
+			}
 			go func() {
 				select {
 				case <-time.After(after):
@@ -94,8 +80,7 @@ func run(o options, shot string, after, runFor time.Duration) error {
 				}
 				c.Close()
 			}()
-		}
-		return serve(ctx, c, o)
+		})
 	})
 	if errors.Is(err, driver.ErrNoDriver) {
 		log.Print("gunim has no driver for this operating system yet")

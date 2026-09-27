@@ -19,6 +19,8 @@ type prefs struct {
 	Sidebar     float32
 	Sort        SortBy
 	Desc        bool
+	// FavNames holds the names given to favourites, by path.
+	FavNames map[string]string
 }
 
 // defaultPrefsPath is where the settings live: gunim-files/prefs.json in

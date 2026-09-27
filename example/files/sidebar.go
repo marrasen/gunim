@@ -71,22 +71,7 @@ func (s *sidebar) set(p Places, u *gunim.UI) {
 	}
 	key := func(i placeItem) widget.Key { return widget.Key(i.Path) }
 	widget.Sync(s.places, u, items(p.Places), key, newPlaceRow, (*placeRow).set)
-	widget.Sync(s.favs, u, items(p.Favourites), key,
-		func(i placeItem) *widget.ContextMenu {
-			m := widget.NewContextMenu(newPlaceRow(i), "Open", "Unpin from sidebar")
-			m.OnPick = func(k int) gunim.Intent {
-				if k == 0 {
-					return Navigate{Path: i.Path}
-				}
-				return Unpin{Path: i.Path}
-			}
-			return m
-		},
-		func(m *widget.ContextMenu, i placeItem, u *gunim.UI) {
-			if r, ok := m.Children()[0].(*placeRow); ok {
-				r.set(i, u)
-			}
-		})
+	widget.Sync(s.favs, u, items(p.Favourites), key, newPlaceRow, (*placeRow).set)
 	if len(p.Favourites) == 0 {
 		s.hint.SetText("Pin a folder here with Ctrl+D.")
 	} else {

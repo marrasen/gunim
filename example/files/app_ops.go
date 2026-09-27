@@ -99,6 +99,7 @@ func (a *app) opsCommand(name string) bool {
 			return true
 		}
 		a.ops.clip, a.ops.cut = paths, name == CmdCut
+		a.clipChanged()
 		verb := "copy"
 		if a.ops.cut {
 			verb = "move"
@@ -111,6 +112,7 @@ func (a *app) opsCommand(name string) bool {
 		srcs := slices.Clone(a.ops.clip)
 		if a.ops.cut {
 			a.ops.clip, a.ops.cut = nil, false
+			a.clipChanged()
 			a.startOp(job{kind: OpMove, srcs: srcs, dest: here}, "Moving "+what(srcs)+" to "+placeName(here))
 		} else {
 			a.startOp(job{kind: OpCopy, srcs: srcs, dest: here}, "Copying "+what(srcs)+" to "+placeName(here))
@@ -322,6 +324,7 @@ func (a *app) finish(id int, j job, rec record, err error) {
 			a.nav.pick = ""
 		}
 	}
+	a.touched(j)
 	a.relist()
 }
 
