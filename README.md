@@ -366,3 +366,8 @@ Then, in no set order:
   floating windows, with no popup type of their own yet.
 - Input-method compositions on macOS, which the GLFW port reports only
   on X11 and, with a gunim change, on Windows.
+
+## Licence
+
+gunim is under the Apache License 2.0, in `LICENSE`. The code copied from
+Ebitengine keeps its own notices; see `internal/README.md`.
