@@ -93,3 +93,43 @@ func TestThePointerKeepsAToastAndAClickDismissesIt(t *testing.T) {
 		t.Fatalf("after a click, %d toasts showing, want 0", n)
 	}
 }
+
+type undone struct{ ID int }
+
+func TestAToastsActionSendsItsIntentAndDismissesIt(t *testing.T) {
+	h := &toastHost{t: &Toasts{}}
+	w, run := stage(t, h)
+	type do struct{ fn func(u *gunim.UI) }
+	gunim.RegisterPatch(w, "stage", func(_ gunim.Node, d do, u *gunim.UI) { d.fn(u) })
+	on := func(fn func(u *gunim.UI)) {
+		if err := w.Client().Patch("stage", do{fn}); err != nil {
+			t.Fatal(err)
+		}
+		run(1)
+	}
+	on(func(u *gunim.UI) { h.t.Show(Toast{Title: "Copied 3 files", Action: "Undo", On: undone{7}}, u) })
+	run(40)
+	card := h.t.cards[0]
+	var r, title geom.Rect
+	var ok bool
+	on(func(u *gunim.UI) {
+		r, ok = u.Bounds(card.action)
+		title, _ = u.Bounds(card.title)
+	})
+	if !ok {
+		t.Fatal("the toast drew no action")
+	}
+	if title.Max.X > r.Min.X {
+		t.Fatalf("the title reaches %v, past the action at %v", title.Max.X, r.Min.X)
+	}
+	at := r.Center()
+	w.Input(input.PointerDown{Pos: at, Button: input.ButtonPrimary, Clicks: 1, Time: time.Now()})
+	w.Input(input.PointerUp{Pos: at, Button: input.ButtonPrimary, Time: time.Now()})
+	run(1)
+	if got := sent(w); len(got) != 1 || got[0] != (undone{7}) {
+		t.Fatalf("a click on Undo sent %v", got)
+	}
+	if n := h.t.Len(); n != 0 {
+		t.Fatalf("after its action, %d toasts showing, want 0", n)
+	}
+}

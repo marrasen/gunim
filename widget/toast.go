@@ -25,6 +25,10 @@ const toastLife = 5 * time.Second
 type Toast struct {
 	Title string
 	Body  string
+	// Action names a link on the toast, such as Undo, and On is the
+	// intent a click on it sends. The toast goes once it is clicked.
+	Action string
+	On     gunim.Intent
 }
 
 // Toasts shows short notices in a stack, the newest nearest the corner
@@ -132,6 +136,7 @@ type toastCard struct {
 	owner   *Toasts
 	title   *Label
 	body    *Label
+	action  *Link
 	in      *anim.Float
 	y       *anim.Float
 	hover   *anim.Float
@@ -144,15 +149,24 @@ func newToastCard(t *Toasts, to Toast) *toastCard {
 		in: anim.NewFloat(0), y: anim.NewFloat(0), hover: anim.NewFloat(0)}
 	c.body.Color = PaletteHint
 	c.Add(c.in, c.y, c.hover)
+	if to.Action != "" {
+		c.action = NewLink(to.Action)
+		c.action.On = to.On
+		c.action.OnActivate(func(u *gunim.UI) { t.dismiss(c, u) })
+	}
 	return c
 }
 
 // Children implements [gunim.Composite].
 func (c *toastCard) Children() []gunim.Node {
-	if c.body.Text == "" {
-		return []gunim.Node{c.title}
+	out := []gunim.Node{c.title}
+	if c.body.Text != "" {
+		out = append(out, c.body)
 	}
-	return []gunim.Node{c.title, c.body}
+	if c.action != nil {
+		out = append(out, c.action)
+	}
+	return out
 }
 
 // Transition implements [gunim.Transitioner]: in from the side and up
@@ -172,9 +186,25 @@ func (c *toastCard) Transition(p gunim.Presence, f gunim.Frame) bool {
 func (c *toastCard) Layout(cs gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
 	pad := CardPadding.Get(f.Theme)
 	w := cs.Max.W
+	room := w - pad.Left - pad.Right
+	// The action sits at the right of the title.
+	var act geom.Size
+	if c.action != nil {
+		k := kids.At(kids.Len() - 1)
+		act = k.Layout(gunim.Constraints{Max: geom.Sz(room, 0)})
+		k.Place(geom.Pt(w-pad.Right-act.W, pad.Top))
+	}
 	y := pad.Top
-	for k := range kids.All {
-		s := k.Layout(gunim.Constraints{Max: geom.Sz(w-pad.Left-pad.Right, 0)})
+	for i := range kids.Len() {
+		k := kids.At(i)
+		if c.action != nil && k.Node() == gunim.Node(c.action) {
+			continue
+		}
+		r := room
+		if i == 0 && act.W > 0 {
+			r = max(0, room-act.W-Gap.Get(f.Theme))
+		}
+		s := k.Layout(gunim.Constraints{Max: geom.Sz(r, 0)})
 		k.Place(geom.Pt(pad.Left, y))
 		y += s.H + 4
 	}
