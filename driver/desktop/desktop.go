@@ -371,7 +371,12 @@ func (d *Driver) openWindow(o driver.Options) (*Window, error) {
 	if p, ok := o.Parent.(*Window); ok {
 		w.textRendering = o.Text.Or(p.textRendering)
 	} else {
-		w.textRendering = o.Text.Or(systemText())
+		sys, err := systemText()
+		if err != nil {
+			_ = gw.Destroy()
+			return nil, err
+		}
+		w.textRendering = o.Text.Or(sys)
 	}
 	if len(o.Icons) > 0 {
 		// macOS has no window icons, and says so; a window without one
