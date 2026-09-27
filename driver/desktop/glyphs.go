@@ -21,8 +21,45 @@ const (
 	subpixel = 4
 )
 
-// glyphTexture is a renderer's copy of the shared atlas: the glyphs it
-// has drawn, in a single-channel texture, from the atlas's epoch.
+// The contrast glyph coverage is enhanced by, for greyscale glyphs and
+// for glyphs on subpixels.
+const (
+	greyContrast = 1.0
+	lcdContrast  = 0.5
+)
+
+// gammaRatios are Direct2D's coefficients for correcting glyph coverage
+// blended in gamma space, for gammas from 1 to 2.2 in steps of a tenth.
+var gammaRatios = [...][4]float32{
+	{0, 0, 0, 0},
+	{0.0166, -0.0807, 0.2227, -0.0751},
+	{0.0350, -0.1760, 0.4325, -0.1370},
+	{0.0543, -0.2821, 0.6302, -0.1876},
+	{0.0739, -0.3963, 0.8167, -0.2287},
+	{0.0933, -0.5161, 0.9926, -0.2616},
+	{0.1121, -0.6395, 1.1588, -0.2877},
+	{0.1300, -0.7649, 1.3159, -0.3080},
+	{0.1469, -0.8911, 1.4644, -0.3234},
+	{0.1627, -1.0170, 1.6051, -0.3347},
+	{0.1773, -1.1420, 1.7385, -0.3426},
+	{0.1908, -1.2652, 1.8650, -0.3476},
+	{0.2031, -1.3864, 1.9851, -0.3501},
+}
+
+// ratiosFor returns the gamma ratios nearest gamma, scaled as the
+// shader uses them.
+func ratiosFor(gamma float32) [4]float32 {
+	i := int(math.Round(float64((gamma - 1) * 10)))
+	r := gammaRatios[min(max(i, 0), len(gammaRatios)-1)]
+	for k := range r {
+		r[k] /= 4
+	}
+	return r
+}
+
+// glyphTexture is a renderer's copy of a shared atlas: the glyphs it
+// has drawn, from the atlas's epoch. The greyscale atlas has one
+// channel, and the subpixel one three.
 type glyphTexture struct {
 	tex   uint32
 	epoch int
@@ -30,17 +67,27 @@ type glyphTexture struct {
 }
 
 func (r *renderer) initGlyphs() {
-	g := r.gl
 	r.glyphs.have = map[glyphKey]bool{}
-	r.glyphs.tex = g.CreateTexture()
-	g.ActiveTexture(gl.TEXTURE0)
-	g.BindTexture(gl.TEXTURE_2D, r.glyphs.tex)
+	r.lcdGlyphs.have = map[glyphKey]bool{}
+	r.glyphs.tex = r.newAtlas(gl.TEXTURE0, glR8, glRed, 1)
+}
+
+// newAtlas makes an empty atlas texture on unit, with channels bytes a
+// pixel.
+func (r *renderer) newAtlas(unit uint32, internal int32, format uint32, channels int) uint32 {
+	g := r.gl
+	tex := g.CreateTexture()
+	g.ActiveTexture(unit)
+	g.BindTexture(gl.TEXTURE_2D, tex)
 	g.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, glLinear)
 	g.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, glLinear)
 	g.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
 	g.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
 	g.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
-	g.TexImage2D(gl.TEXTURE_2D, 0, glR8, atlasSize, atlasSize, glRed, gl.UNSIGNED_BYTE, make([]byte, atlasSize*atlasSize))
+	g.TexImage2D(gl.TEXTURE_2D, 0, internal, atlasSize, atlasSize, format, gl.UNSIGNED_BYTE,
+		make([]byte, atlasSize*atlasSize*channels))
+	g.ActiveTexture(gl.TEXTURE0)
+	return tex
 }
 
 // text queues a shaped run's glyphs.
@@ -51,6 +98,9 @@ func (r *renderer) initGlyphs() {
 // into place, the glyphs keep their resting size in the atlas and the
 // quads carry the transform; they soften while moving and sharpen when
 // the transform settles back to a translation.
+//
+// Glyphs use the panel's subpixels only at rest, and straight on the
+// canvas or the window, whose pixels behind them are opaque.
 func (r *renderer) text(op *paint.TextOp) {
 	if len(op.Glyphs) == 0 || op.Size <= 0 || op.Color.A == 0 {
 		return
@@ -59,7 +109,15 @@ func (r *renderer) text(op *paint.TextOp) {
 	t := op.Transform
 	plain := t.A == 1 && t.B == 0 && t.D == 0 && t.E == 1
 	sizePx := op.Size * r.scale
-	l := look{kind: kindGlyph, color0: rgba(op.Color)}
+	raster := text.Raster{Hint: r.textRendering.Hinting == text.HintingLight}
+	l := look{kind: kindGlyph, color0: rgba(op.Color), color1: r.gamma, stroke: greyContrast}
+	if r.subpixels && plain && r.depth == 0 {
+		raster.LCD = true
+		l.radius, l.stroke = 1, lcdContrast
+		if r.textRendering.Smoothing == text.SubpixelBGR {
+			l.radius = 2
+		}
+	}
 	// Corners arrive in device pixels, placed by the glyph's own
 	// transform: the op's without its translation.
 	shape := paint.Transform{A: t.A, B: t.B, D: t.D, E: t.E}
@@ -87,7 +145,7 @@ func (r *renderer) text(op *paint.TextOp) {
 			}
 			ox, oy, shift = fx, float32(math.Round(float64(oy))), uint8(s)
 		}
-		slot, ok := r.glyph(glyphKeyFor(faceID, gly.ID, sizePx, shift), face, sizePx)
+		slot, ok := r.glyph(glyphKeyFor(faceID, gly.ID, sizePx, shift, raster), face, sizePx)
 		if !ok {
 			continue
 		}
@@ -103,12 +161,18 @@ func (r *renderer) text(op *paint.TextOp) {
 	}
 }
 
-// glyph returns where a glyph sits in the atlas, copying it into this
+// glyph returns where a glyph sits in its atlas, copying it into this
 // renderer's texture on first use. It reports false for a glyph with
 // nothing to draw.
 func (r *renderer) glyph(key glyphKey, face *text.Face, sizePx float32) (glyphSlot, bool) {
 	slot, epoch, ok := r.shared.glyph(key, face, sizePx)
-	a := &r.glyphs
+	a, unit, format, channels := &r.glyphs, uint32(gl.TEXTURE0), uint32(glRed), 1
+	if key.raster.LCD {
+		a, unit, format, channels = &r.lcdGlyphs, glTexture2, glRGB, 3
+		if a.tex == 0 {
+			a.tex, a.epoch = r.newAtlas(unit, glRGB8, format, channels), epoch
+		}
+	}
 	g := r.gl
 	if epoch != a.epoch {
 		// The atlas started again, here or in another window. What is
@@ -116,9 +180,11 @@ func (r *renderer) glyph(key glyphKey, face *text.Face, sizePx float32) (glyphSl
 		r.flush()
 		clear(a.have)
 		a.epoch = epoch
-		g.ActiveTexture(gl.TEXTURE0)
+		g.ActiveTexture(unit)
 		g.BindTexture(gl.TEXTURE_2D, a.tex)
-		g.TexSubImage2D(gl.TEXTURE_2D, 0, 0, 0, atlasSize, atlasSize, glRed, gl.UNSIGNED_BYTE, make([]byte, atlasSize*atlasSize))
+		g.TexSubImage2D(gl.TEXTURE_2D, 0, 0, 0, atlasSize, atlasSize, format, gl.UNSIGNED_BYTE,
+			make([]byte, atlasSize*atlasSize*channels))
+		g.ActiveTexture(gl.TEXTURE0)
 	}
 	if !ok {
 		return glyphSlot{}, false
@@ -127,9 +193,11 @@ func (r *renderer) glyph(key glyphKey, face *text.Face, sizePx float32) (glyphSl
 		// Queued glyphs are drawn later, from the texture as it will be
 		// then, which holds them all: a new glyph only fills an empty
 		// place.
-		g.ActiveTexture(gl.TEXTURE0)
+		g.ActiveTexture(unit)
 		g.BindTexture(gl.TEXTURE_2D, a.tex)
-		g.TexSubImage2D(gl.TEXTURE_2D, 0, int32(slot.x), int32(slot.y), int32(slot.w), int32(slot.h), glRed, gl.UNSIGNED_BYTE, slot.pix)
+		g.TexSubImage2D(gl.TEXTURE_2D, 0, int32(slot.x), int32(slot.y), int32(slot.w), int32(slot.h), format,
+			gl.UNSIGNED_BYTE, slot.pix)
+		g.ActiveTexture(gl.TEXTURE0)
 		a.have[key] = true
 	}
 	return slot.glyphSlot, true

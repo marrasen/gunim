@@ -13,6 +13,7 @@ import (
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/internal/gl"
 	"github.com/marrasen/gunim/paint"
+	"github.com/marrasen/gunim/text"
 )
 
 // GL constants the gl package leaves out.
@@ -23,8 +24,13 @@ const (
 	glUnsignedShort      = 0x1403
 	glR8                 = 0x8229
 	glRed                = 0x1903
+	glRGB8               = 0x8051
+	glRGB                = 0x1907
 	glStaticDraw         = 0x88E4
 	glTexture1           = 0x84C1
+	glTexture2           = 0x84C2
+	glOneMinusSrc1Color  = 0x88FA
+	glOneMinusSrc1Alpha  = 0x88FB
 )
 
 // A renderer replays a [paint] op list with OpenGL. It lives on one
@@ -43,6 +49,8 @@ const (
 // is composited back with its opacity and, when it clips, its rounded
 // bounds. A layer's Blur and Backdrop are separable Gaussian blurs, run
 // at a reduced resolution when the radius is large; see blur.go.
+// An opaque layer that clips to an upright rectangle, or not at all,
+// draws in place instead, under a scissor.
 //
 // Text draws from a glyph atlas: each glyph is rasterized once per size
 // and quarter-pixel shift; see glyphs.go. Images upload once and stay
@@ -63,8 +71,18 @@ type renderer struct {
 	// draws counts draw calls, for tests and benchmarks.
 	draws int
 
-	glyphs glyphTexture
-	images map[*paint.Image]*imageTexture
+	glyphs, lcdGlyphs glyphTexture
+	images            map[*paint.Image]*imageTexture
+	// dual says the draw program blends each channel by a colour of its
+	// own, which glyphs on subpixels need.
+	dual bool
+	// textRendering is how the window draws text, and subpixels says
+	// its glyphs may use the panel's subpixels: it asks for them, its
+	// surface is opaque, and the program blends by channel. gamma holds
+	// the ratios the shader corrects coverage by.
+	textRendering text.Rendering
+	subpixels     bool
+	gamma         [4]float32
 
 	// layers holds one offscreen target per nesting depth, reused from
 	// frame to frame and resized with the window. layers[0] is the
@@ -98,9 +116,14 @@ type renderer struct {
 	flipWindow bool
 	// blurs holds two scratch targets for each downsampling factor.
 	blurs [len(blurFactors)][2]target
-	// stack is the targets being drawn into, innermost last, with the
-	// op that opened each.
-	stack []*paint.LayerOp
+	// stack is the layers open, innermost last. depth is the target
+	// being drawn into: 0 for the canvas, or the window for a frame
+	// drawn straight to it, and layers[depth] beneath. clip is the
+	// device-pixel box drawing is scissored to, with its origin at the
+	// top left.
+	stack []openLayer
+	depth int
+	clip  geom.Rect
 
 	fbW, fbH int
 	scale    float32
@@ -115,15 +138,25 @@ type target struct {
 // program is a linked shader.
 type program struct{ id uint32 }
 
+// openLayer is a layer being drawn: the op that opened it, whether it
+// draws in place, straight into the target around it, and the clip
+// around it.
+type openLayer struct {
+	op      *paint.LayerOp
+	inPlace bool
+	clip    geom.Rect
+}
+
 // Each vertex is vertFloats floats, in eight attributes of two or four:
 //
 //	a_pos    where the vertex lands, in normalized device coordinates
 //	a_local  the point in the shape's own space, for its distance field
 //	a_rect   the shape's rectangle in its own space
-//	a_param  corner radius, stroke width, kind, and a flag
+//	a_param  corner radius, stroke width, kind, and a flag; for a glyph,
+//	         its subpixel order and contrast in place of the first two
 //	a_color0 the fill, the shadow's colour or the glyph's; for an image
 //	         or a layer, the opacity in alpha
-//	a_color1 the gradient's end colour
+//	a_color1 the gradient's end colour, or a glyph's gamma ratios
 //	a_extra  the gradient's ends; the shadow's offset, blur and spread;
 //	         or texture coordinates
 //	a_stroke the stroke's colour
@@ -204,6 +237,18 @@ float coverage(float d) {
 vec4 premul(vec4 c) { return vec4(c.rgb * c.a, c.a); }
 `
 
+// drawOut declares the draw program's outputs: its colour and, where
+// the program blends by channel, how much of what is behind each
+// channel of it hides.
+const drawOut = `
+#ifdef DUAL
+layout(location = 0, index = 0) out vec4 fragColor;
+layout(location = 0, index = 1) out vec4 fragCover;
+#else
+out vec4 fragColor;
+#endif
+`
+
 const drawShader = `
 in vec2 v_local;
 flat in vec4 v_rect;
@@ -214,11 +259,45 @@ in vec4 v_extra;
 flat in vec4 v_stroke;
 in vec2 v_uv;
 uniform sampler2D u_atlas;
+uniform sampler2D u_lcd;
 uniform sampler2D u_tex;
-out vec4 fragColor;
 
-void main() {
+// glyph returns a glyph's colour, with its coverage enhanced by the
+// contrast in v_param.y and corrected for gamma by the ratios in
+// v_color1. v_param.x is 0 for a greyscale glyph, and 1 or 2 for one
+// on subpixels that run red to blue or blue to red; cover gets the
+// coverage of each channel.
+vec4 glyph(out vec4 cover) {
+	vec4 c = v_color0;
+	vec4 g = v_color1;
+	float k = v_param.y;
+	if (v_param.x < 0.5) {
+		float a = texture(u_atlas, v_extra.xy).r;
+		// The contrast applies to dark text and fades out for light.
+		k *= clamp(4.0 * (0.75 - dot(c.rgb, vec3(0.30, 0.59, 0.11))), 0.0, 1.0);
+		a = a * (k + 1.0) / (a * k + 1.0);
+		float f = dot(c.rgb, vec3(0.25, 0.5, 0.25));
+		a = clamp(a + a * (1.0 - a) * ((g.x * f + g.y) * a + (g.z * f + g.w)), 0.0, 1.0);
+		vec4 col = premul(c) * a;
+		cover = vec4(col.a);
+		return col;
+	}
+	vec3 m = texture(u_lcd, v_extra.xy).rgb;
+	if (v_param.x > 1.5) {
+		m = m.bgr;
+	}
+	m = m * (k + 1.0) / (m * k + 1.0);
+	m = clamp(m + m * (1.0 - m) * ((g.x * c.rgb + g.y) * m + (g.z * c.rgb + g.w)), 0.0, 1.0) * c.a;
+	cover = vec4(m, max(m.r, max(m.g, m.b)));
+	return vec4(c.rgb * m, cover.a);
+}
+
+vec4 shade(out vec4 cover) {
 	int kind = int(v_param.z + 0.5);
+	if (kind == 2) {
+		return glyph(cover);
+	}
+	vec4 col;
 	if (kind == 1) {
 		// A shadow: the shape's distance field, offset, spread and
 		// softened.
@@ -226,47 +305,48 @@ void main() {
 		vec4 r = v_rect + vec4(-spread, -spread, spread, spread);
 		float d = sdRRect(v_local - v_extra.xy, r, v_param.x + spread);
 		float blur = max(v_extra.z, 0.5);
-		fragColor = premul(v_color0) * (1.0 - smoothstep(-blur, blur, d));
-		return;
-	}
-	if (kind == 2) {
-		fragColor = premul(v_color0) * texture(u_atlas, v_extra.xy).r;
-		return;
-	}
-	if (kind == 3) {
+		col = premul(v_color0) * (1.0 - smoothstep(-blur, blur, d));
+	} else if (kind == 3) {
 		float cov = coverage(sdRRect(v_local, v_rect, v_param.x));
-		fragColor = texture(u_tex, v_extra.xy) * v_color0.a * cov;
-		return;
-	}
-	if (kind == 4) {
+		col = texture(u_tex, v_extra.xy) * v_color0.a * cov;
+	} else if (kind == 4) {
 		float cov = 1.0;
 		if (v_param.w > 0.5) {
 			cov = coverage(sdRRect(v_local, v_rect, v_param.x));
 		}
-		fragColor = texture(u_tex, v_uv) * v_color0.a * cov;
-		return;
+		col = texture(u_tex, v_uv) * v_color0.a * cov;
+	} else {
+		float d = sdRRect(v_local, v_rect, v_param.x);
+		vec4 fill = v_color0;
+		if (v_param.w > 0.5) {
+			vec2 g = v_extra.zw - v_extra.xy;
+			float t = clamp(dot(v_local - v_extra.xy, g) / max(dot(g, g), 1e-6), 0.0, 1.0);
+			fill = mix(v_color0, v_color1, t);
+		}
+		col = premul(fill) * coverage(d);
+		float sw = v_param.y;
+		if (sw > 0.0) {
+			vec4 s = premul(v_stroke) * coverage(abs(d) - sw * 0.5);
+			col = s + col * (1.0 - s.a);
+		}
 	}
-	float d = sdRRect(v_local, v_rect, v_param.x);
-	vec4 fill = v_color0;
-	if (v_param.w > 0.5) {
-		vec2 g = v_extra.zw - v_extra.xy;
-		float t = clamp(dot(v_local - v_extra.xy, g) / max(dot(g, g), 1e-6), 0.0, 1.0);
-		fill = mix(v_color0, v_color1, t);
-	}
-	vec4 col = premul(fill) * coverage(d);
-	float sw = v_param.y;
-	if (sw > 0.0) {
-		vec4 s = premul(v_stroke) * coverage(abs(d) - sw * 0.5);
-		col = s + col * (1.0 - s.a);
-	}
-	fragColor = col;
+	cover = vec4(col.a);
+	return col;
+}
+
+void main() {
+	vec4 cover;
+	fragColor = shade(cover);
+#ifdef DUAL
+	fragCover = cover;
+#endif
 }
 `
 
 func newRenderer(g gl.Context, isES bool, sh *shared) (*renderer, error) {
 	r := &renderer{gl: g, shared: sh, images: map[*paint.Image]*imageTexture{}}
 	var err error
-	if r.drawProg, r.blurProg, err = sh.programs(g, isES); err != nil {
+	if r.drawProg, r.blurProg, r.dual, err = sh.programs(g, isES); err != nil {
 		return nil, err
 	}
 
@@ -295,31 +375,59 @@ func newRenderer(g gl.Context, isES bool, sh *shared) (*renderer, error) {
 
 	r.initGlyphs()
 	g.Enable(gl.BLEND)
-	g.BlendFuncSeparate(gl.ONE, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+	if r.dual {
+		g.BlendFuncSeparate(gl.ONE, glOneMinusSrc1Color, gl.ONE, glOneMinusSrc1Alpha)
+	} else {
+		g.BlendFuncSeparate(gl.ONE, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+	}
 	return r, nil
 }
 
+// setText sets how the renderer draws text, for a window whose surface
+// blends with what is behind it when transparent.
+func (r *renderer) setText(tr text.Rendering, transparent bool) {
+	r.textRendering = tr
+	r.subpixels = tr.Smoothing.Subpixel() && r.dual && !transparent
+	r.gamma = ratiosFor(tr.Gamma)
+}
+
 // buildPrograms compiles and links the two shared programs and points
-// their samplers at their texture units: the glyph atlas on unit 0, and
-// an image, a layer or a blur's source on unit 1.
-func buildPrograms(g gl.Context, isES bool) (draw, blur program, err error) {
-	header := "#version 150\n"
+// their samplers at their texture units: the glyph atlas on unit 0, an
+// image, a layer or a blur's source on unit 1, and the subpixel glyph
+// atlas on unit 2. The draw program blends by channel where the context
+// has dual-source blending, and dual says so.
+func buildPrograms(g gl.Context, isES bool) (draw, blur program, dual bool, err error) {
+	header, dualHeader := "#version 150\n", "#version 330\n#define DUAL\n"
 	if isES {
 		header = "#version 300 es\nprecision highp float;\n"
+		dualHeader = "#version 300 es\n#extension GL_EXT_blend_func_extended : require\nprecision highp float;\n" +
+			"#define DUAL\n"
 	}
-	if draw, err = link(g, header+vertexShader, header+sdfFunc+drawShader); err != nil {
-		return program{}, program{}, err
+	draw, err = link(g, dualHeader+vertexShader, dualHeader+sdfFunc+drawOut+drawShader)
+	dual = err == nil && !noDual
+	if !dual {
+		if draw.id != 0 {
+			g.DeleteProgram(draw.id)
+		}
+		if draw, err = link(g, header+vertexShader, header+sdfFunc+drawOut+drawShader); err != nil {
+			return program{}, program{}, false, err
+		}
 	}
 	g.UseProgram(draw.id)
 	g.Uniform1i(g.GetUniformLocation(draw.id, "u_atlas"), 0)
 	g.Uniform1i(g.GetUniformLocation(draw.id, "u_tex"), 1)
+	g.Uniform1i(g.GetUniformLocation(draw.id, "u_lcd"), 2)
 	if blur, err = link(g, header+vertexShader, header+blurShader); err != nil {
-		return program{}, program{}, err
+		return program{}, program{}, false, err
 	}
 	g.UseProgram(blur.id)
 	g.Uniform1i(g.GetUniformLocation(blur.id, "u_tex"), 1)
-	return draw, blur, nil
+	return draw, blur, dual, nil
 }
+
+// noDual is set by GUNIM_NO_DUAL_SOURCE=1, which draws as a context
+// without dual-source blending would, with greyscale text.
+var noDual = os.Getenv("GUNIM_NO_DUAL_SOURCE") == "1"
 
 // link compiles and links a program, with the attributes at the
 // locations the vertex layout gives them.
@@ -378,6 +486,9 @@ func (r *renderer) release() {
 		r.dropImage(m)
 	}
 	g.DeleteTexture(r.glyphs.tex)
+	if r.lcdGlyphs.tex != 0 {
+		g.DeleteTexture(r.lcdGlyphs.tex)
+	}
 	g.DeleteBuffer(r.vbo)
 	g.DeleteBuffer(r.ibo)
 	g.DeleteVertexArray(r.vao)
@@ -392,7 +503,7 @@ func (r *renderer) draw(ops []paint.Op, damage geom.Rect, fbW, fbH int, scale fl
 	}
 	g := r.gl
 	r.fbW, r.fbH, r.scale = fbW, fbH, scale
-	r.stack = r.stack[:0]
+	r.stack, r.depth = r.stack[:0], 0
 	if len(r.layers) == 0 {
 		r.layers = append(r.layers, target{})
 	}
@@ -423,11 +534,10 @@ func (r *renderer) draw(ops []paint.Op, damage geom.Rect, fbW, fbH int, scale fl
 			box = window
 		}
 	}
-	whole := box == window
 	r.redrawn = box
 	if r.direct {
 		// Straight to the window, which holds nothing after a swap.
-		box, whole = window, true
+		box = window
 		r.canvasOK = false
 	}
 	g.BindFramebuffer(gl.FRAMEBUFFER, r.fbo(0))
@@ -438,21 +548,16 @@ func (r *renderer) draw(ops []paint.Op, damage geom.Rect, fbW, fbH int, scale fl
 		clearWindow(g, bg, opaque)
 	}
 	if !box.Empty() {
-		if !whole {
-			g.Enable(gl.SCISSOR_TEST)
-			g.Scissor(scissor(box, fbW, fbH))
-		}
+		r.setClip(box)
 		g.Clear(glColorBufferBit)
 		g.ClearColor(0, 0, 0, 0)
-		if !whole {
+		if box != window {
 			r.cull = box
 		}
 		r.replay(ops)
 		r.flush()
 		r.cull = geom.Rect{}
-		if !whole {
-			g.Disable(gl.SCISSOR_TEST)
-		}
+		r.setClip(window)
 	}
 	if !r.direct {
 		r.canvasOK, r.canvasScale = true, scale
@@ -697,19 +802,45 @@ func (r *renderer) rrect(op *paint.RRectOp) {
 	r.quad(corners(grow4(op.Rect, op.Stroke.Width/2+2), geom.Rect{}), op.Transform, r.scale, &l)
 }
 
-// openLayer starts drawing into a fresh offscreen target.
+// openLayer starts drawing into a fresh offscreen target, or goes on
+// drawing into the current one, scissored, for a layer that can draw
+// in place.
 func (r *renderer) openLayer(op *paint.LayerOp) {
 	r.flush()
-	depth := len(r.stack) + 1
-	for len(r.layers) <= depth {
+	r.stack = append(r.stack, openLayer{op: op, clip: r.clip})
+	if box, ok := r.inPlace(op); ok {
+		r.stack[len(r.stack)-1].inPlace = true
+		r.setClip(intersect(r.clip, box))
+		return
+	}
+	r.depth++
+	for len(r.layers) <= r.depth {
 		r.layers = append(r.layers, target{})
 	}
-	t := &r.layers[depth]
+	t := &r.layers[r.depth]
 	r.fit(t)
-	r.stack = append(r.stack, op)
 	g := r.gl
 	g.BindFramebuffer(gl.FRAMEBUFFER, t.fbo)
 	g.Clear(glColorBufferBit)
+}
+
+// inPlace reports whether a layer draws the same straight into the
+// target around it as composited from a target of its own, and the
+// device-pixel box it clips to: it is opaque, blurs nothing, and clips
+// to an upright rectangle or not at all.
+func (r *renderer) inPlace(op *paint.LayerOp) (geom.Rect, bool) {
+	o, t := op.Opts, op.Transform
+	switch {
+	case o.Opacity < 1 || o.Blur > 0 || o.Backdrop > 0:
+		return geom.Rect{}, false
+	case !o.Clip:
+		return r.region(op, false), true
+	case o.Radius > 0 || t.B != 0 || t.D != 0:
+		return geom.Rect{}, false
+	}
+	b := r.region(op, true)
+	round := func(v float32) float32 { return float32(math.Round(float64(v))) }
+	return geom.Rect{Min: geom.Pt(round(b.Min.X), round(b.Min.Y)), Max: geom.Pt(round(b.Max.X), round(b.Max.Y))}, true
 }
 
 // closeLayer composites the innermost layer into the one around it.
@@ -720,9 +851,15 @@ func (r *renderer) openLayer(op *paint.LayerOp) {
 // layer asks for Blur.
 func (r *renderer) closeLayer() {
 	r.flush()
-	depth := len(r.stack)
-	op := r.stack[depth-1]
-	r.stack = r.stack[:depth-1]
+	top := r.stack[len(r.stack)-1]
+	r.stack = r.stack[:len(r.stack)-1]
+	r.setClip(top.clip)
+	if top.inPlace {
+		return
+	}
+	depth := r.depth
+	r.depth--
+	op := top.op
 	o := op.Opts
 	radius := float32(0)
 	if o.Clip {
@@ -833,4 +970,31 @@ func grow4(r geom.Rect, by float32) geom.Rect {
 
 func rgba(c color.NRGBA) [4]float32 {
 	return [4]float32{float32(c.R) / 255, float32(c.G) / 255, float32(c.B) / 255, float32(c.A) / 255}
+}
+
+// setClip scissors drawing to c, a device-pixel box with its origin at
+// the top left.
+func (r *renderer) setClip(c geom.Rect) {
+	r.clip = c
+	r.applyClip()
+}
+
+// applyClip sets GL's scissor to the renderer's clip, or turns it off
+// where the clip holds the whole target.
+func (r *renderer) applyClip() {
+	g, c := r.gl, r.clip
+	if c.Min.X <= 0 && c.Min.Y <= 0 && c.Max.X >= float32(r.fbW) && c.Max.Y >= float32(r.fbH) {
+		g.Disable(gl.SCISSOR_TEST)
+		return
+	}
+	g.Enable(gl.SCISSOR_TEST)
+	g.Scissor(scissor(c, r.fbW, r.fbH))
+}
+
+// intersect returns the part of a that b covers too.
+func intersect(a, b geom.Rect) geom.Rect {
+	return geom.Rect{
+		Min: geom.Pt(max(a.Min.X, b.Min.X), max(a.Min.Y, b.Min.Y)),
+		Max: geom.Pt(min(a.Max.X, b.Max.X), min(a.Max.Y, b.Max.Y)),
+	}
 }

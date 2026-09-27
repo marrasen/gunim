@@ -309,6 +309,15 @@ fractional position. While a transform scales it, as when a dialog
 grows into place, the glyphs keep their resting size and scale with
 the quads, and they sharpen again when the motion settles.
 
+Small text is hinted: each glyph's baseline, x-height, cap height and
+the tops and bottoms of its strokes land on whole pixels, while widths
+and positions across stay as shaped. Where Windows has ClearType on,
+glyphs are drawn on the panel's red, green and blue subpixels, and
+the shader blends each channel on its own. Text that is scaled or
+rotated, that fades in a layer, or that sits in a transparent window
+is drawn in greyscale. Linux and macOS get greyscale by default.
+`WindowOptions.Text` chooses otherwise.
+
 A character the font lacks comes from the face's fallbacks, then from
 the fonts installed on the system, found on first need. So Hebrew,
 Arabic or Japanese show wherever a font for them is installed, with no

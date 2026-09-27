@@ -54,6 +54,7 @@ import (
 
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/paint"
+	"github.com/marrasen/gunim/text"
 )
 
 // A Driver owns the connection to the display server.
@@ -109,6 +110,9 @@ type Options struct {
 	// ordinary window, for the application to draw its own: see
 	// [Framer].
 	Chromeless bool
+	// Text says how the window draws text. Its zero value follows the
+	// system, and a window with a Parent takes the parent's.
+	Text text.Rendering
 }
 
 // Kind is what sort of window to open. Each one maps onto a real window

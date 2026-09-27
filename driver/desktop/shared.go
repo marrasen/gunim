@@ -33,22 +33,27 @@ type shared struct {
 	err   error
 	draw  program
 	blur  program
-	atlas sharedAtlas
+	// dual says the draw program gives a second colour to blend by, for
+	// glyphs on subpixels.
+	dual bool
+	// atlas holds greyscale glyphs, and lcd glyphs rendered for
+	// subpixels.
+	atlas, lcd sharedAtlas
 }
 
 // programs returns the shared programs, building them on first use
 // with the calling thread's context.
-func (s *shared) programs(g gl.Context, isES bool) (draw, blur program, err error) {
+func (s *shared) programs(g gl.Context, isES bool) (draw, blur program, dual bool, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.built {
 		s.built = true
-		s.draw, s.blur, s.err = buildPrograms(g, isES)
+		s.draw, s.blur, s.dual, s.err = buildPrograms(g, isES)
 		// The other threads may use them as soon as the lock goes, so
 		// they must be complete in the share group by then.
 		g.Finish()
 	}
-	return s.draw, s.blur, s.err
+	return s.draw, s.blur, s.dual, s.err
 }
 
 // sharedAtlas packs glyph masks into an atlasSize square, in shelves.
@@ -71,6 +76,8 @@ type glyphKey struct {
 	// size is the device size in 1/64 pixel.
 	size  int32
 	shift uint8
+	// raster is how the glyph is rendered: hinted, and for subpixels.
+	raster text.Raster
 }
 
 // glyphSlot is where a glyph sits in the atlas. A zero w marks a glyph
@@ -87,13 +94,16 @@ func (s *shared) glyph(key glyphKey, face *text.Face, sizePx float32) (sharedSlo
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	a := &s.atlas
+	if key.raster.LCD {
+		a = &s.lcd
+	}
 	if a.slots == nil {
 		a.slots, a.epoch = map[glyphKey]sharedSlot{}, 1
 	}
 	if slot, ok := a.slots[key]; ok {
 		return slot, a.epoch, slot.w > 0
 	}
-	m := face.Rasterize(key.id, sizePx, float32(key.shift)/subpixel, text.Raster{})
+	m := face.Rasterize(key.id, sizePx, float32(key.shift)/subpixel, key.raster)
 	if m.W == 0 || m.W+1 > atlasSize || m.H+1 > atlasSize {
 		a.slots[key] = sharedSlot{}
 		return sharedSlot{}, a.epoch, false
@@ -114,7 +124,7 @@ func (s *shared) glyph(key glyphKey, face *text.Face, sizePx float32) (sharedSlo
 }
 
 // glyphKeyFor returns the atlas key for a glyph at a device size and
-// subpixel shift.
-func glyphKeyFor(face, id uint32, sizePx float32, shift uint8) glyphKey {
-	return glyphKey{face: face, id: id, size: int32(math.Round(float64(sizePx) * 64)), shift: shift}
+// subpixel shift, rendered as raster says.
+func glyphKeyFor(face, id uint32, sizePx float32, shift uint8, raster text.Raster) glyphKey {
+	return glyphKey{face: face, id: id, size: int32(math.Round(float64(sizePx) * 64)), shift: shift, raster: raster}
 }

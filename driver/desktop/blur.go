@@ -95,7 +95,7 @@ func (r *renderer) blur(src uint32, region geom.Rect, sigma float32) uint32 {
 		r.flush()
 	}
 
-	g.Disable(gl.SCISSOR_TEST)
+	r.applyClip()
 	g.Enable(gl.BLEND)
 	g.Viewport(0, 0, int32(r.fbW), int32(r.fbH))
 	g.UseProgram(r.drawProg.id)

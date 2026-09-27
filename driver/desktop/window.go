@@ -19,6 +19,7 @@ import (
 	"github.com/marrasen/gunim/internal/gl"
 	"github.com/marrasen/gunim/internal/glfw"
 	"github.com/marrasen/gunim/paint"
+	"github.com/marrasen/gunim/text"
 )
 
 // errClosed is returned by Present once the window has closed.
@@ -123,6 +124,8 @@ type Window struct {
 	// transparent is whether the window blends with what is behind it,
 	// read once as it opens.
 	transparent bool
+	// textRendering is how the window draws text, settled as it opens.
+	textRendering text.Rendering
 
 	// The fields below belong to the main thread.
 	//
@@ -830,6 +833,7 @@ func (w *Window) startGL() (*renderer, error) {
 	if err != nil {
 		return nil, err
 	}
+	r.setText(w.textRendering, w.transparent)
 	if w.ctx != nil {
 		if w.pres, err = w.startPresenter(ctx); err != nil {
 			r.release()

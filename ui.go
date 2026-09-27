@@ -17,6 +17,7 @@ import (
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
+	"github.com/marrasen/gunim/text"
 	"github.com/marrasen/gunim/theme"
 )
 
@@ -128,6 +129,10 @@ type WindowOptions struct {
 	// [ArriveTime], the way [Client.Leave] takes it away. Closed by the
 	// user, with no AskToClose, it leaves that way too.
 	Arrive bool
+	// Text says how the window draws text: greyscale or on the panel's
+	// subpixels, and hinted or not. Its zero value follows the system's
+	// settings.
+	Text text.Rendering
 }
 
 // NewWindow opens a window and starts its UI goroutine.
@@ -138,7 +143,7 @@ func (a *App) NewWindow(o WindowOptions) (*Window, error) {
 	do := driver.Options{
 		Title: o.Title, Size: o.Size, Monitor: o.Monitor,
 		Kind: o.Kind, Anchor: geom.Rect{Min: o.Anchor, Max: o.Anchor}, Icons: o.Icons,
-		Chromeless: o.Chromeless,
+		Chromeless: o.Chromeless, Text: o.Text,
 	}
 	if o.Parent != nil {
 		do.Parent = o.Parent.dw
