@@ -235,7 +235,7 @@ func (u *UI) dragTo(p geom.Point) {
 	if d.ghost != nil {
 		g := u.local(d.source, p).Sub(d.grab)
 		d.ghost.Move(geom.Rect{Min: g, Max: g})
-		u.toGhost(d.ghost, input.DragMove{At: at, Time: time.Now()})
+		u.toGhost(d.ghost, input.DragMove{At: p, Time: time.Now()})
 	}
 	if over != nil {
 		u.w.sendDrag(over, dragMsg{kind: dragOver, at: at, data: d.data, mods: d.mods, from: u.w})

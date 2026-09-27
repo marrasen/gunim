@@ -189,7 +189,8 @@ type DragEnd struct {
 }
 
 // DragMove arrives at the picture a drag carries each time the pointer
-// moves it. At is the pointer's place on the screen.
+// moves it. At is where the pointer is, in the space of the window the
+// drag started in.
 type DragMove struct {
 	At   geom.Point
 	Time time.Time

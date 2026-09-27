@@ -106,6 +106,9 @@ type DropTarget struct {
 	Accept func(data any, paths []string) bool
 	// OnDrop turns a drop into an intent for the application.
 	OnDrop func(d input.Drop) gunim.Intent
+	// Hint, when set, says what a drop would do, as the drag moves over the
+	// target, for the picture the drag carries to show, such as a [DropHint].
+	Hint func(e input.DragOver) any
 
 	child gunim.Node
 	glow  *anim.Float
@@ -132,6 +135,9 @@ func (t *DropTarget) Handle(e input.Event, u *gunim.UI) bool {
 	case input.DragOver:
 		if !t.takes(e.Data, nil) {
 			return false
+		}
+		if t.Hint != nil {
+			u.AnswerDrag(t.Hint(e))
 		}
 		t.glow.Animate(1, Quick.Get(th))
 	case input.DragLeave:
