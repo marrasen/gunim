@@ -176,6 +176,7 @@ func (a *app) navigate(path string, travel int, record bool) {
 	n.filter, n.pick = "", ""
 	clear(n.sel)
 	n.cursor = ""
+	a.enteredFolder()
 	a.list()
 	a.readSpace()
 	a.publishPlaces()

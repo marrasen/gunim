@@ -46,6 +46,7 @@ type app struct {
 	nav     navState
 	ops     opsState
 	preview previewState
+	thumbs  thumbState
 	places  []Place
 	banner  int
 	// script is what is left of the steps to run, once the first folder
@@ -100,7 +101,7 @@ func launch(ctx context.Context, c gunim.Client, o options) (*app, error) {
 	if err := c.Mount(gunim.Root, browserID, "browser", a.shell); err != nil {
 		return nil, err
 	}
-	a.handlers = []handler{a.handleNav, a.handleOps, a.handlePreview, a.handlePlaces, a.handleShell}
+	a.handlers = []handler{a.handleNav, a.handleOps, a.handlePreview, a.handlePlaces, a.handleShell, a.handleIcons}
 	a.startup(o)
 	return a, nil
 }
@@ -119,6 +120,7 @@ func newApp(ctx context.Context, c gunim.Client, o options) (*app, error) {
 		prefsPath: o.prefsPath}
 	a.nav.init()
 	a.ops.init()
+	a.thumbs.init()
 	if a.prefsPath == "" {
 		if a.prefsPath, err = defaultPrefsPath(); err != nil {
 			return nil, err

@@ -63,6 +63,9 @@ func makeDemo(root string) (string, error) {
 	if err := writePicture(filepath.Join(dir, "Wallpaper.png"), 0.62); err != nil {
 		return "", err
 	}
+	if err := makePictures(filepath.Join(dir, "Photos")); err != nil {
+		return "", err
+	}
 	// Spread the times so sorting by date means something.
 	es, err := os.ReadDir(dir)
 	if err != nil {

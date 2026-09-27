@@ -22,6 +22,7 @@ func registerViews(w *gunim.Window) {
 	registerOps(w)
 	registerStatus(w)
 	registerDialogs(w)
+	registerIcons(w)
 }
 
 // root is the window's root: the background, with the views stacked on
@@ -167,6 +168,10 @@ func (b *browser) Handle(e input.Event, u *gunim.UI) bool {
 		cmd = CmdPin
 	case ctrl && k.Key == input.KeyW:
 		cmd = CmdCloseApp
+	case ctrl && k.Key == input.Key1:
+		cmd = CmdViewDetails
+	case ctrl && k.Key == input.Key2:
+		cmd = CmdViewIcons
 	case ctrl:
 		return false
 	case alt && k.Key == input.KeyLeft, !alt && k.Key == input.KeyBackspace:
@@ -194,7 +199,7 @@ func (b *browser) Handle(e input.Event, u *gunim.UI) bool {
 
 // focusListing gives the keyboard to the grid showing.
 func (b *browser) focusListing(u *gunim.UI) {
-	if g := b.listing.grid(); g != nil {
-		u.Focus(g)
+	if b.listing.cur != nil {
+		u.Focus(b.listing.cur.focusNode())
 	}
 }

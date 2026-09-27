@@ -44,6 +44,7 @@ type listingArea struct {
 	cur    *listingPage
 	path   string
 	widths []float32
+	view   ViewMode
 }
 
 func newListingArea(b *browser) *listingArea {
@@ -63,15 +64,16 @@ func (a *listingArea) grid() *widget.DataGrid {
 // filtered or read again.
 func (a *listingArea) setListing(l Listing, u *gunim.UI) {
 	if a.cur == nil || l.Path != a.path {
-		focused := a.cur == nil || u.Focused() == gunim.Node(a.cur.grid)
+		focused := a.cur == nil || u.Focused() == a.cur.focusNode()
 		if a.cur != nil {
 			a.widths = a.cur.widths()
 		}
 		a.path = l.Path
 		a.cur = newListingPage(a.b, a.widths)
+		a.cur.icons.show(a.view.Icons && samePath(a.view.Path, l.Path), false, u)
 		a.deck.show(a.cur, l.Travel, u)
 		if focused {
-			u.Focus(a.cur.grid)
+			u.Focus(a.cur.focusNode())
 		}
 	}
 	a.cur.set(l, u)
@@ -85,6 +87,7 @@ func (a *listingArea) rows(r RowBlock, u *gunim.UI) {
 		if a.cur.arrive {
 			a.cur.arrive = false
 			a.cur.grid.Arrive(u)
+			a.cur.icons.arrive(u)
 		}
 		u.Invalidate()
 	}
@@ -102,6 +105,7 @@ func (a *listingArea) selection(s Selection, u *gunim.UI) {
 			g.ScrollTo(float64(s.Cursor)-vis/2, u)
 		}
 	}
+	a.cur.icons.selection(s, u)
 }
 
 func (a *listingArea) bands(s Bands, u *gunim.UI) {
@@ -114,6 +118,10 @@ func (a *listingArea) bands(s Bands, u *gunim.UI) {
 
 // selectAll and selectNone work the grid as Ctrl+A and Escape do.
 func (a *listingArea) selectAll(u *gunim.UI) {
+	if a.cur != nil && a.cur.icons.on {
+		a.cur.icons.selectAll(u)
+		return
+	}
 	if g := a.grid(); g != nil && g.Rows() > 0 {
 		g.SetSelectedRows([][2]int{{0, g.Rows()}}, 0, u)
 		u.Send(g, Selected{Gen: a.cur.gen, Runs: [][2]int{{0, g.Rows()}}, Cursor: 0})
@@ -121,6 +129,10 @@ func (a *listingArea) selectAll(u *gunim.UI) {
 }
 
 func (a *listingArea) selectNone(u *gunim.UI) {
+	if a.cur != nil && a.cur.icons.on {
+		a.cur.icons.selectNone(u)
+		return
+	}
 	if g := a.grid(); g != nil {
 		g.SetSelectedRows(nil, -1, u)
 		u.Send(g, Selected{Gen: a.cur.gen, Cursor: -1})
@@ -171,6 +183,7 @@ type listingPage struct {
 	// stripIn runs from 0 to 1 as the overview strip comes in, which it
 	// does only while the rows do not all fit.
 	stripIn *anim.Float
+	icons   *iconView
 }
 
 // contextItems are the commands of the listing's context menu.
@@ -214,6 +227,7 @@ func newListingPage(b *browser, widths []float32) *listingPage {
 	pg.msg = widget.NewLabel("")
 	pg.msg.Color = Faint
 	pg.bar = widget.NewProgressBar()
+	pg.icons = newIconView(pg)
 	return pg
 }
 
@@ -251,6 +265,7 @@ func (pg *listingPage) set(l Listing, u *gunim.UI) {
 		}
 	}
 	pg.grid.SetRows(l.Total, u)
+	pg.icons.grid.SetLen(l.Total, u)
 	switch {
 	case l.Err != "":
 		pg.msg.Color = ErrorInk
@@ -382,13 +397,13 @@ func marks(name, filter string) [][2]int {
 
 // Children implements [gunim.Composite].
 func (pg *listingPage) Children() []gunim.Node {
-	return []gunim.Node{pg.menu, pg.strip, pg.msg, pg.bar}
+	return []gunim.Node{pg.menu, pg.strip, pg.msg, pg.bar, pg.icons}
 }
 
 // Layout implements [gunim.Node].
 func (pg *listingPage) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
 	grid, strip, msg, bar := kids.At(0), kids.At(1), kids.At(2), kids.At(3)
-	fits := float64(pg.grid.Rows()) <= pg.grid.Visible()
+	fits := float64(pg.grid.Rows()) <= pg.grid.Visible() || pg.icons.on
 	pg.stripIn.Animate(map[bool]float32{false: 1, true: 0}[fits], widget.Settle.Get(f.Theme))
 	sw := widget.OverviewWidth.Get(f.Theme) * min(max(pg.stripIn.Value(), 0), 1)
 	grid.Layout(gunim.Tight(geom.Sz(c.Max.W-sw, c.Max.H)))
@@ -400,19 +415,23 @@ func (pg *listingPage) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Chi
 	msg.Place(geom.Pt((c.Max.W-ms.W)/2, head+max(24, (c.Max.H-head)/3-ms.H/2)))
 	bar.Layout(gunim.Tight(geom.Sz(c.Max.W, 2)))
 	bar.Place(geom.Pt(0, head))
+	icons := kids.At(4)
+	icons.Layout(gunim.Tight(c.Max))
+	icons.Place(geom.Point{})
 	return c.Max
 }
 
 // Paint implements [gunim.Node].
 func (pg *listingPage) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.Children) {
 	p.RRect(geom.Rect{Max: box.Point()}, 0, paint.Solid(widget.Background.Get(f.Theme)))
-	kids.At(0).Paint(p)
+	pg.icons.paintDetails(p, box, kids.At(0))
 	if pg.stripIn.Value() > 0.001 {
 		func() {
 			defer p.Layer(paint.LayerOpts{Bounds: geom.Rect{Max: box.Point()}, Opacity: 1, Clip: true})()
 			kids.At(1).Paint(p)
 		}()
 	}
+	kids.At(4).Paint(p)
 	if pg.msg.Text != "" {
 		kids.At(2).Paint(p)
 	}

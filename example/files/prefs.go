@@ -19,6 +19,10 @@ type prefs struct {
 	Sidebar     float32
 	Sort        SortBy
 	Desc        bool
+	// Views says which folders show as icons, Icons how the rest do, and Tile how wide an icon's tile is.
+	Views map[string]bool
+	Icons bool
+	Tile  float32
 }
 
 // defaultPrefsPath is where the settings live: gunim-files/prefs.json in

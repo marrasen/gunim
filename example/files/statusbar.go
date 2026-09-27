@@ -16,14 +16,15 @@ func registerStatus(w *gunim.Window) {
 type statusBar struct {
 	left, right *widget.Label
 	row         *widget.Flex
+	views       *viewBar
 }
 
 func newStatusBar() *statusBar {
-	s := &statusBar{left: widget.NewLabel(""), right: widget.NewLabel("")}
+	s := &statusBar{left: widget.NewLabel(""), right: widget.NewLabel(""), views: newViewBar()}
 	for _, l := range []*widget.Label{s.left, s.right} {
 		l.Size, l.Color, l.MaxLines = SmallText, Faint, 1
 	}
-	s.row = widget.Row(s.left, s.right).Grow(s.left, 1)
+	s.row = widget.Row(s.left, s.right, s.views).Grow(s.left, 1)
 	s.row.Cross = widget.CrossCenter
 	return s
 }
