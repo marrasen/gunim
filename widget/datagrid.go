@@ -71,6 +71,9 @@ type GridSpan struct {
 	// Marks are runs of the text to highlight, such as what a search found,
 	// each a start and an end in runes, the end left out.
 	Marks [][2]int
+	// On makes the span a link: a click on it sends On, and a click with Ctrl
+	// held sends OnCtrl when it is set.
+	On, OnCtrl gunim.Intent
 }
 
 // GridRow is what a [DataGrid] shows for one row: the spans of each
@@ -174,6 +177,9 @@ type DataGrid struct {
 
 	// th is the window's live theme, kept from Layout for Step.
 	th *theme.Live
+
+	// links are where the last paint drew spans that are links.
+	links []gridLink
 
 	shapes map[spanKey]*spanShape
 	frame  uint64
@@ -406,6 +412,7 @@ func (g *DataGrid) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 	th := f.Theme
 	g.frame++
 	g.pending = false
+	g.links = g.links[:0]
 	bodyW := g.bodyWidth(th)
 	size := GridTextSize.Get(th)
 	pad := GridCellPadding.Get(th)
@@ -540,6 +547,10 @@ func (g *DataGrid) paintCell(p *paint.Painter, th *theme.Live, i, c int, spans [
 			}
 		}
 		run.Paint(p, geom.Pt(pen, ty), ink)
+		if s.On != nil {
+			g.links = append(g.links, gridLink{r: geom.Rc(pen, y, run.Advance, g.rowH), on: s.On, ctrl: s.OnCtrl})
+			p.RRect(geom.Rc(pen, ty+run.Ascent+1.5, run.Advance, 1), 0, paint.Solid(ink))
+		}
 		pen += run.Advance
 		if chip {
 			pen += chipPad
@@ -652,6 +663,11 @@ func (g *DataGrid) paintBar(p *paint.Painter, th *theme.Live) {
 func (g *DataGrid) Cursor(pt geom.Point) input.Cursor {
 	if g.drag == dragEdge || g.edgeAt(pt) >= 0 {
 		return input.CursorResizeH
+	}
+	for _, l := range g.links {
+		if l.r.Contains(pt) {
+			return input.CursorHand
+		}
 	}
 	return input.CursorArrow
 }
@@ -789,6 +805,16 @@ func (g *DataGrid) press(e input.PointerDown, u *gunim.UI) bool {
 	if i < 0 {
 		return true
 	}
+	for _, l := range g.links {
+		if l.r.Contains(e.Pos) {
+			if e.Mods.Has(input.ModControl) && l.ctrl != nil {
+				g.send(l.ctrl, u)
+			} else {
+				g.send(l.on, u)
+			}
+			return true
+		}
+	}
 	if g.OnClick != nil {
 		g.send(g.OnClick(i), u)
 	}
@@ -909,4 +935,10 @@ func (g *DataGrid) paintSort(p *paint.Painter, at geom.Point, up bool, c color.N
 	defer p.Push(paint.Rotate(turn, at))()
 	defer p.Push(paint.Scale(0.7, at))()
 	drawChevron(p, at, c)
+}
+
+// gridLink is where a span that is a link was drawn, and what it sends.
+type gridLink struct {
+	r        geom.Rect
+	on, ctrl gunim.Intent
 }

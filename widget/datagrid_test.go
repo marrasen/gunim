@@ -233,3 +233,28 @@ func TestAClickOnATitleIsSent(t *testing.T) {
 		t.Fatalf("clicks on the titles sent %v", got)
 	}
 }
+
+type idFound struct{ ID string }
+
+type idOpened struct{ ID string }
+
+func TestASpanThatIsALinkSendsItsIntent(t *testing.T) {
+	g := NewDataGrid(GridColumn{Title: "Text"})
+	g.Row = func(int) (GridRow, bool) {
+		return GridRow{Cells: [][]GridSpan{{{Text: `"id": `}, {Text: `"Ab3d"`, On: idFound{"Ab3d"}, OnCtrl: idOpened{"Ab3d"}}}}}, true
+	}
+	g.rows = 1
+	w, run := stage(t, &frame{child: g, size: geom.Sz(400, 300)})
+	if len(g.links) != 1 {
+		t.Fatalf("the grid drew %d links, want 1", len(g.links))
+	}
+	at := g.links[0].r.Center()
+	click(w, at.X, at.Y)
+	run(1)
+	w.Input(input.PointerDown{Pos: at, Button: input.ButtonPrimary, Clicks: 1, Mods: input.ModControl, Time: time.Now()})
+	w.Input(input.PointerUp{Pos: at, Button: input.ButtonPrimary, Time: time.Now()})
+	run(1)
+	if got := sent(w); len(got) != 2 || got[0] != (idFound{"Ab3d"}) || got[1] != (idOpened{"Ab3d"}) {
+		t.Fatalf("a click and a Ctrl+click on the link sent %v", got)
+	}
+}
