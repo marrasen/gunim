@@ -196,3 +196,23 @@ func TestOnCopyTakesCtrlCInPlaceOfText(t *testing.T) {
 		t.Fatalf("Ctrl+C sent %v, want rows 2 to 4", got[0])
 	}
 }
+
+func TestASecondaryPressSelectsTheRowUnlessItIsSelected(t *testing.T) {
+	g, w, run, clickRow := multiGrid(t)
+	press := func(i int) {
+		y := GridHeaderHeight.Default() + GridRowHeight.Default()*float32(i) + 5
+		w.Input(input.PointerDown{Pos: geom.Pt(50, y), Button: input.ButtonSecondary, Clicks: 1, Time: time.Now()})
+		w.Input(input.PointerUp{Pos: geom.Pt(50, y), Button: input.ButtonSecondary, Time: time.Now()})
+		run(1)
+	}
+	clickRow(2, 0)
+	clickRow(4, input.ModShift)
+	press(3)
+	if got := g.SelectedRows(); !slices.Equal(got, [][2]int{{2, 5}}) {
+		t.Fatalf("a secondary press on a selected row left %v selected, want 2 to 4", got)
+	}
+	press(9)
+	if got := lastRows(t, w); !slices.Equal(got, [][2]int{{9, 10}}) {
+		t.Fatalf("a secondary press on row 9 selected %v, want it alone", got)
+	}
+}

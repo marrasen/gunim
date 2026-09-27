@@ -117,7 +117,9 @@ func (r GridRow) Text() string {
 // One row can be selected: by a click, which on the selected row clears
 // it, and by the arrow keys, Page Up and Page Down, Home and End. Escape
 // clears it, and Ctrl+C copies it. With Multi, several rows can be
-// selected at once.
+// selected at once. A press with the secondary button selects the row
+// under it, unless it is selected already, and leaves the press to a
+// context menu around the grid.
 type DataGrid struct {
 	Columns []GridColumn
 	// Row returns row i, and false while it has not arrived.
@@ -881,6 +883,17 @@ func (g *DataGrid) Handle(e input.Event, u *gunim.UI) bool {
 }
 
 func (g *DataGrid) press(e input.PointerDown, u *gunim.UI) bool {
+	if e.Button == input.ButtonSecondary {
+		// A context menu around the grid acts on the row pressed.
+		if i := g.rowAt(e.Pos.Y); i >= 0 && !g.IsSelected(i) && (g.NoHeader || e.Pos.Y >= g.header) {
+			if g.Multi {
+				g.pick(i, 0, u)
+			} else {
+				g.selectAndTell(i, u)
+			}
+		}
+		return false
+	}
 	if e.Button != input.ButtonPrimary {
 		return false
 	}
