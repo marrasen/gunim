@@ -40,6 +40,8 @@ type OffscreenWindow struct {
 	// cursor is the pointer's shape last set.
 	cursor input.Cursor
 	clip   string
+	// chooser answers ChooseFiles; see SetChooser.
+	chooser func(ChooseOptions) ([]string, error)
 	// anchor is where a popup was last attached, and origin where the
 	// window sits on its pretend screen.
 	anchor geom.Rect
@@ -408,4 +410,24 @@ func (w *OffscreenWindow) Maximized() bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.frame != nil && w.frame.IsMaximized
+}
+
+// SetChooser sets what ChooseFiles answers, for a test standing in for
+// the user.
+func (w *OffscreenWindow) SetChooser(fn func(ChooseOptions) ([]string, error)) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.chooser = fn
+}
+
+// ChooseFiles implements [FileChooser] with the function SetChooser set,
+// and returns [ErrNoChooser] without one.
+func (w *OffscreenWindow) ChooseFiles(o ChooseOptions) ([]string, error) {
+	w.mu.Lock()
+	fn := w.chooser
+	w.mu.Unlock()
+	if fn == nil {
+		return nil, ErrNoChooser
+	}
+	return fn(o)
 }

@@ -446,6 +446,34 @@ func (c Client) Shot(ctx context.Context) (*image.RGBA, error) {
 	}
 }
 
+// ChooseFiles shows the system's dialog for choosing files or folders to
+// open, owned by the window, and returns what was chosen, or nothing when
+// the dialog was cancelled. It blocks until the dialog closes or ctx ends;
+// an ended ctx leaves the dialog open.
+func (c Client) ChooseFiles(ctx context.Context, o driver.ChooseOptions) ([]string, error) {
+	fc, ok := c.w.dw.(driver.FileChooser)
+	if !ok {
+		return nil, driver.ErrNoChooser
+	}
+	type chosen struct {
+		paths []string
+		err   error
+	}
+	got := make(chan chosen, 1)
+	go func() {
+		paths, err := fc.ChooseFiles(o)
+		got <- chosen{paths, err}
+	}()
+	select {
+	case r := <-got:
+		return r.paths, r.err
+	case <-c.w.done:
+		return nil, ErrWindowClosed
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
 // NewOffscreen returns a window backed by no display, with the frame
 // loop left to the caller.
 //
