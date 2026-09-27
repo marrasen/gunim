@@ -59,3 +59,22 @@ func TestAContextMenuTakesItsItemsFromWhereItOpens(t *testing.T) {
 		t.Fatalf("the keys picked %v, want Delete", got)
 	}
 }
+
+func TestAContextMenuCanActInsideTheWindow(t *testing.T) {
+	w, c, run := contextStage(t)
+	var local []int
+	c.Picked = func(i int, _ *gunim.UI) { local = append(local, i) }
+	c.OnPick = func(int) gunim.Intent { return nil }
+	w.Input(input.PointerDown{Pos: geom.Pt(50, 50), Button: input.ButtonSecondary, Clicks: 1, Time: time.Now()})
+	w.Input(input.PointerUp{Pos: geom.Pt(50, 50), Button: input.ButtonSecondary, Time: time.Now()})
+	run(5)
+	w.Input(input.KeyPress{Key: input.KeyDown, Time: time.Now()})
+	w.Input(input.KeyPress{Key: input.KeyEnter, Time: time.Now()})
+	run(2)
+	if !slices.Equal(local, []int{0}) {
+		t.Fatalf("Picked heard %v, want the first item", local)
+	}
+	if got := sent(w); len(got) != 0 {
+		t.Fatalf("an OnPick of nil sent %v", got)
+	}
+}

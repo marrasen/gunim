@@ -586,6 +586,9 @@ type ContextMenu struct {
 	Prepare func(at geom.Point, u *gunim.UI) bool
 	// OnPick turns a picked item into an intent for the application.
 	OnPick func(i int) gunim.Intent
+	// Picked, when set, runs on the UI goroutine with the item picked, for
+	// work inside the window, such as copying to the clipboard.
+	Picked func(i int, u *gunim.UI)
 
 	child gunim.Node
 	popup *gunim.Popup
@@ -650,8 +653,13 @@ func (c *ContextMenu) show(at geom.Point, u *gunim.UI) {
 	m.Hints, m.Checked, m.Disabled, m.Breaks = c.Hints, c.Checked, c.Disabled, c.Breaks
 	m.Pick = func(i int, u *gunim.UI) {
 		c.close(u)
+		if c.Picked != nil {
+			c.Picked(i, u)
+		}
 		if c.OnPick != nil {
-			u.Send(c, c.OnPick(i))
+			if v := c.OnPick(i); v != nil {
+				u.Send(c, v)
+			}
 		}
 	}
 	c.menu = m
