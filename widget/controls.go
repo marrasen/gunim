@@ -436,11 +436,17 @@ func (s *Slider) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 type Tabs struct {
 	anim.Group
 	Titles []string
+	// Disabled lists the tabs that cannot be chosen now, in order, and may
+	// be shorter than Titles. They are drawn faint.
+	Disabled []bool
 	// OnChange turns the chosen tab into an intent for the application.
 	OnChange func(i int) gunim.Intent
 
 	bar      *tabBar
 	pages    []gunim.Node
+	// count is how many pages there are: those given, and those inserted
+	// since, as the views mounted under the tabs' view are.
+	count int
 	selected int
 	// prev is the page leaving, or -1, and from is the side the new
 	// page comes from: 1 from the right, -1 from the left.
@@ -462,7 +468,7 @@ type Tabs struct {
 // NewTabs returns tabs showing pages under titles, the first chosen.
 // The two lists pair up in order.
 func NewTabs(titles []string, pages ...gunim.Node) *Tabs {
-	t := &Tabs{Titles: titles, pages: pages, prev: -1, line: anim.NewPoint(geom.Point{}), slide: anim.NewFloat(1), ring: anim.NewFloat(0)}
+	t := &Tabs{Titles: titles, pages: pages, count: len(pages), prev: -1, line: anim.NewPoint(geom.Point{}), slide: anim.NewFloat(1), ring: anim.NewFloat(0)}
 	t.bar = &tabBar{t: t}
 	t.Add(t.line, t.slide, t.ring)
 	return t
@@ -478,7 +484,7 @@ func (t *Tabs) Selected() int { return t.selected }
 // Select chooses tab i without an intent. Call it from a view's update
 // function.
 func (t *Tabs) Select(i int, u *gunim.UI) {
-	if i < 0 || i >= len(t.pages) || i == t.selected {
+	if i < 0 || i >= t.count || i == t.selected {
 		return
 	}
 	t.prev, t.from = t.selected, 1
@@ -492,7 +498,7 @@ func (t *Tabs) Select(i int, u *gunim.UI) {
 }
 
 func (t *Tabs) choose(i int, u *gunim.UI) {
-	if i == t.selected || i < 0 || i >= len(t.pages) {
+	if i == t.selected || i < 0 || i >= t.count || flag(t.Disabled, i) {
 		return
 	}
 	t.Select(i, u)
@@ -522,13 +528,13 @@ func (b *tabBar) Handle(e input.Event, u *gunim.UI) bool {
 	case input.KeyPress:
 		switch e.Key {
 		case input.KeyLeft:
-			t.choose(t.selected-1, u)
+			t.choose(t.enabled(t.selected-1, -1), u)
 		case input.KeyRight:
-			t.choose(t.selected+1, u)
+			t.choose(t.enabled(t.selected+1, 1), u)
 		case input.KeyHome:
-			t.choose(0, u)
+			t.choose(t.enabled(0, 1), u)
 		case input.KeyEnd:
-			t.choose(len(t.pages)-1, u)
+			t.choose(t.enabled(t.count-1, -1), u)
 		default:
 			return false
 		}
@@ -583,7 +589,10 @@ func (b *tabBar) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 	for i := range t.Titles {
 		run := t.shaped[i].run
 		ink := Placeholder.Get(th)
-		if i == t.selected {
+		switch {
+		case flag(t.Disabled, i):
+			ink.A /= 3
+		case i == t.selected:
 			ink = Ink.Get(th)
 		}
 		run.Paint(p, geom.Pt(t.spans[i][0]+pad, (t.head-run.Height())/2), ink)
@@ -601,6 +610,7 @@ func (b *tabBar) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 // top; every page is laid out below them at the size left, so a page
 // keeps its state and its scroll while another shows.
 func (t *Tabs) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
+	t.count = kids.Len() - 1
 	bar := kids.At(0)
 	bs := bar.Layout(gunim.Constraints{Max: geom.Sz(c.Max.W, 0)})
 	bar.Place(geom.Point{})
@@ -689,4 +699,15 @@ func faintIf(p *paint.Painter, box geom.Size, off bool) func() {
 		return func() {}
 	}
 	return p.Layer(paint.LayerOpts{Bounds: geom.Rect{Max: box.Point()}.Inset(geom.Uniform(-8)), Opacity: 0.4})
+}
+
+// enabled returns the first tab from i on, going by dir, that can be
+// chosen, or -1.
+func (t *Tabs) enabled(i, dir int) int {
+	for ; i >= 0 && i < t.count; i += dir {
+		if !flag(t.Disabled, i) {
+			return i
+		}
+	}
+	return -1
 }

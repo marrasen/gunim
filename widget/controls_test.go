@@ -1,6 +1,7 @@
 package widget
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -161,3 +162,43 @@ func (r *recorder) Layout(c gunim.Constraints, _ gunim.Frame, _ gunim.Children) 
 }
 
 func (r *recorder) Paint(*paint.Painter, gunim.Frame, geom.Size, gunim.Children) {}
+
+func TestTabsTakePagesMountedUnderThemAndSkipDisabledOnes(t *testing.T) {
+	tabs := NewTabs([]string{"One", "Two", "Three"})
+	tabs.Disabled = []bool{false, true}
+	w := gunim.NewOffscreen(geom.Sz(600, 400), nil)
+	gunim.RegisterView(w, "tabs", func(struct{}) *Tabs { return tabs }, nil)
+	pages := []*spot{newSpot(10, 10), newSpot(10, 10), newSpot(10, 10)}
+	for i, p := range pages {
+		gunim.RegisterView(w, fmt.Sprint("page", i), func(struct{}) *spot { return p }, nil)
+	}
+	c := w.Client()
+	if err := c.Mount(gunim.Root, "tabs", "tabs", nil); err != nil {
+		t.Fatal(err)
+	}
+	for i := range pages {
+		if err := c.Mount("tabs", gunim.ID(fmt.Sprint("page", i)), fmt.Sprint("page", i), nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run := func(n int) {
+		for range n {
+			w.Frame(time.Second / 60)
+		}
+	}
+	run(2)
+	if tabs.count != 3 {
+		t.Fatalf("the tabs hold %d pages, want the 3 mounted", tabs.count)
+	}
+	two := tabs.spans[1]
+	click(w, (two[0]+two[1])/2, 10)
+	run(1)
+	if tabs.Selected() != 0 {
+		t.Fatalf("a click on a disabled tab chose tab %d", tabs.Selected())
+	}
+	w.Input(input.KeyPress{Key: input.KeyRight})
+	run(1)
+	if tabs.Selected() != 2 {
+		t.Fatalf("Right from the first tab chose tab %d, want 2, past the disabled one", tabs.Selected())
+	}
+}

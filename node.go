@@ -204,6 +204,14 @@ type MaximizeButton interface {
 	MaximizeRect(size geom.Size) geom.Rect
 }
 
+// A Slotted node is a view's root that puts the views mounted under it
+// somewhere inside itself, such as a shell's tabs under its header. Slot
+// returns that node, which must be one of its own descendants.
+type Slotted interface {
+	Node
+	Slot() Node
+}
+
 // A Composite is a node built from child nodes it owns.
 //
 // The engine inserts them when the node is inserted, so a widget made

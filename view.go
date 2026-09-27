@@ -219,7 +219,7 @@ func (u *UI) mount(c Mount) error {
 		return err
 	}
 
-	u.Insert(parent.node, n)
+	u.Insert(slotOf(parent.node), n)
 	s := u.index[n]
 	s.id = c.ID
 	s.view = v
@@ -239,7 +239,7 @@ func (u *UI) revive(s, parent *state, c Mount) error {
 	if parent.within(s) {
 		return fmt.Errorf("parent %q is inside %q", c.Parent, c.ID)
 	}
-	u.Insert(parent.node, s.node)
+	u.Insert(slotOf(parent.node), s.node)
 	u.unsubscribe(s)
 	u.watch(s, c)
 	var err error
@@ -386,4 +386,15 @@ func (u *UI) focusID(id ID) error {
 	}
 	u.Focus(s.node)
 	return nil
+}
+
+// slotOf returns the node views mounted under n go into: its slot when n
+// is [Slotted], and n itself otherwise.
+func slotOf(n Node) Node {
+	if s, ok := n.(Slotted); ok {
+		if slot := s.Slot(); slot != nil {
+			return slot
+		}
+	}
+	return n
 }
