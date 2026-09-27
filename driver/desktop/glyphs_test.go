@@ -128,6 +128,8 @@ func TestAnOpaqueClipDrawsInPlace(t *testing.T) {
 	end := p.Layer(paint.LayerOpts{Bounds: geom.Rc(10, 10, 40, 40), Opacity: 1, Clip: true})
 	p.RRect(geom.Rc(0, 0, 100, 100), 0, paint.Solid(red))
 	end()
+	// A big frame after a big frame goes straight to the window, with no copy to count.
+	r.draw(p.Ops(), paint.Everything, int(benchSize.W), int(benchSize.H), 1)
 	r.draws = 0
 	r.draw(p.Ops(), paint.Everything, int(benchSize.W), int(benchSize.H), 1)
 	// One batch before the clip and one inside it, with no composite.
