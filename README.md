@@ -240,7 +240,7 @@ the far end knows what to decode it into:
 
 | Package | What it is |
 | --- | --- |
-| `gunim` | `Node`, the presence lifecycle, the window and its frame loop |
+| `gunim` | `Node`, the presence lifecycle, the window and its frame loop, and its zoom with Ctrl and +, - and 0 or the wheel |
 | `gunim/anim` | `Animated[T]`, springs, tweens, easings |
 | `gunim/paint` | The per-frame draw list: rounded rects, shadows, text, images, layers |
 | `gunim/geom` | float32 points, sizes, rectangles |

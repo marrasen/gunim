@@ -22,6 +22,7 @@ func Offscreen(size geom.Size) *OffscreenWindow {
 	return &OffscreenWindow{
 		size:      size,
 		scale:     1,
+		zoom:      1,
 		rate:      60,
 		presented: make(chan Frame),
 		input:     make(chan any),
@@ -33,8 +34,10 @@ type OffscreenWindow struct {
 	mu    sync.Mutex
 	size  geom.Size
 	scale float32
-	rate  float64
-	ops   []paint.Op
+	// zoom multiplies scale, and divides the size the content is laid out in.
+	zoom float32
+	rate float64
+	ops  []paint.Op
 	// damage is the part of the window the last frame changed.
 	damage geom.Rect
 	// cursor is the pointer's shape last set.
@@ -175,11 +178,11 @@ func (w *OffscreenWindow) Resize(size geom.Size) {
 	w.size = size
 }
 
-// Place implements [Placer] by taking the size and keeping the anchor.
+// Place implements [Placer] by taking the size, at the window's zoom, and keeping the anchor.
 func (w *OffscreenWindow) Place(anchor geom.Rect, size geom.Size) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	w.anchor, w.size = anchor, size
+	w.anchor, w.size = anchor, geom.Sz(size.W*w.zoom, size.H*w.zoom)
 	return nil
 }
 
@@ -265,11 +268,29 @@ func (w *OffscreenWindow) Anchor() geom.Rect {
 func (w *OffscreenWindow) Size() geom.Size {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return w.size
+	return geom.Sz(w.size.W/w.zoom, w.size.H/w.zoom)
 }
 
 // Scale implements [Window].
-func (w *OffscreenWindow) Scale() float32 { return w.scale }
+func (w *OffscreenWindow) Scale() float32 {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.scale * w.zoom
+}
+
+// SetZoom implements [Zoomer].
+func (w *OffscreenWindow) SetZoom(z float32) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.zoom = z
+}
+
+// Zoom returns the factor the window's content is zoomed by.
+func (w *OffscreenWindow) Zoom() float32 {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.zoom
+}
 
 // RefreshRate implements [Window].
 func (w *OffscreenWindow) RefreshRate() float64 { return w.rate }

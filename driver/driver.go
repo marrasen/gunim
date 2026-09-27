@@ -176,6 +176,12 @@ type Window interface {
 	Close() error
 }
 
+// A Zoomer is a window that draws its content larger or smaller than the monitor's scale asks for.
+type Zoomer interface {
+	// SetZoom multiplies the window's scale by z, 1 for none, keeping the window's size on screen.
+	SetZoom(z float32)
+}
+
 // Frame reports one presented frame.
 type Frame struct {
 	// Shown is when the frame reached the screen: when the swap

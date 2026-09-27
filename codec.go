@@ -83,6 +83,7 @@ type wireCommand struct {
 	ID      ID
 	View    string
 	Theme   string
+	Zoom    float32
 	Watch   []string
 	Key     string
 	Value   wireValue
@@ -111,6 +112,8 @@ func MarshalCommand(c Command) ([]byte, error) {
 		w.ID = c.ID
 	case SetTheme:
 		w.Theme = c.Theme
+	case SetZoom:
+		w.Zoom = c.Zoom
 	default:
 		return nil, fmt.Errorf("gunim: unknown command %T", c)
 	}
@@ -146,6 +149,8 @@ func UnmarshalCommand(data []byte) (Command, error) {
 		return Focus{ID: w.ID}, nil
 	case "set-theme":
 		return SetTheme{Theme: w.Theme}, nil
+	case "set-zoom":
+		return SetZoom{Zoom: w.Zoom}, nil
 	}
 	return nil, fmt.Errorf("gunim: unknown command %q", w.Command)
 }

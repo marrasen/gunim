@@ -68,11 +68,14 @@ type Window struct {
 
 	// mu guards what the main thread measures and the render thread
 	// and the engine read.
-	mu    sync.Mutex
-	fbW   int
-	fbH   int
-	scale float32
-	rate  float64
+	mu  sync.Mutex
+	fbW int
+	fbH int
+	// scale is content times zoom: the monitor's scale, and the factor the user zoomed by.
+	scale   float32
+	content float32
+	zoom    float32
+	rate    float64
 	// perCoord is framebuffer pixels per GLFW screen coordinate. It is 1
 	// on X11 and Windows, and 2 on a Retina display.
 	perCoord float32
@@ -153,6 +156,8 @@ func newWindow(d *Driver, gw *glfw.Window) *Window {
 		drew:      make(chan struct{}, 1),
 		done:      make(chan struct{}),
 		scale:     1,
+		content:   1,
+		zoom:      1,
 		rate:      60,
 		perCoord:  1,
 	}
@@ -190,6 +195,15 @@ func (w *Window) Size() geom.Size {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return geom.Sz(float32(w.fbW)/w.scale, float32(w.fbH)/w.scale)
+}
+
+// SetZoom implements [driver.Zoomer].
+func (w *Window) SetZoom(z float32) {
+	w.mu.Lock()
+	w.zoom = z
+	w.scale = w.content * z
+	w.mu.Unlock()
+	w.in.push(driver.Redraw{})
 }
 
 // Scale implements [driver.Window].
@@ -525,7 +539,7 @@ func (w *Window) measure() {
 	}
 
 	w.mu.Lock()
-	w.fbW, w.fbH, w.scale, w.perCoord = fbW, fbH, scale, perCoord
+	w.fbW, w.fbH, w.content, w.scale, w.perCoord = fbW, fbH, scale, scale*w.zoom, perCoord
 	w.origin = geom.Pt(float32(x), float32(y))
 	if rate > 0 {
 		w.rate = rate

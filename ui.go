@@ -133,6 +133,11 @@ type WindowOptions struct {
 	// subpixels, and hinted or not. Its zero value follows the system's
 	// settings.
 	Text text.Rendering
+	// Zoom draws the content that many times larger, as [UI.SetZoom] does; zero is 1.
+	Zoom float32
+	// ZoomKeys zooms the window with Ctrl and +, - or 0, and with Ctrl and the wheel, and reports each change as
+	// [Zoomed].
+	ZoomKeys bool
 }
 
 // NewWindow opens a window and starts its UI goroutine.
@@ -158,6 +163,10 @@ func (a *App) NewWindow(o WindowOptions) (*Window, error) {
 	w.askToClose = o.AskToClose
 	w.ui.startChrome()
 	w.ui.arriving, w.ui.animated = o.Arrive, o.Arrive
+	w.ui.zoomKeys = o.ZoomKeys
+	if o.Zoom > 0 {
+		w.ui.SetZoom(o.Zoom)
+	}
 	w.open = a.drv.NewWindow
 	w.app = a
 	a.windows.add(w)
@@ -273,6 +282,7 @@ func newWindow(dw driver.Window, root Node) *Window {
 		ids:    map[ID]*state{Root: rootState},
 		topics: map[string][]*state{},
 		theme:  theme.NewLive(theme.Make("default")),
+		zoom:   1,
 	}
 	return w
 }
@@ -364,6 +374,9 @@ func (c Client) Patch(key string, p any) error {
 // SetTheme switches the window to the theme registered under name, and
 // every themed value animates to it.
 func (c Client) SetTheme(name string) error { return c.Send(SetTheme{Theme: name}) }
+
+// SetZoom draws the window's content z times larger, as [UI.SetZoom] does.
+func (c Client) SetZoom(z float32) error { return c.Send(SetZoom{Zoom: z}) }
 
 // Unmount starts a view's exit and returns at once, with the view still
 // on screen animating away.
@@ -861,6 +874,11 @@ type UI struct {
 	// pending holds intents the application has yet to take. See
 	// [UI.post] for why it grows instead of blocking or dropping.
 	pending []Envelope
+	// zoom is the factor the content is drawn larger by, zoomKeys says Ctrl with +, - and 0 or the wheel change it,
+	// and zoomNotches holds the wheel's movement short of a step.
+	zoom        float32
+	zoomKeys    bool
+	zoomNotches float32
 	// popups are the open popups, each after the one it was opened
 	// from.
 	popups []*surface

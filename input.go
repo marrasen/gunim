@@ -115,6 +115,9 @@ func (u *UI) handleOn(root *state, ev any) {
 		}
 		u.dispatchAt(root, e.Pos, mk)
 	case input.Scroll:
+		if u.zoomKey(e) {
+			return
+		}
 		u.dispatchAt(root, e.Pos, func(local geom.Point) input.Event {
 			return input.Scroll{Pos: local, Delta: e.Delta, Notches: e.Notches, Mods: e.Mods, Time: e.Time}
 		})
@@ -129,6 +132,9 @@ func (u *UI) handleOn(root *state, ev any) {
 		// from there, which is how a shortcut a text field ignores ends
 		// up at the window. With nothing focused they go to the root, so
 		// a window-wide shortcut works before anything has been clicked.
+		if u.zoomKey(ev) {
+			return
+		}
 		if ev, ok := ev.(input.Event); ok {
 			target := u.focus
 			if target == nil {

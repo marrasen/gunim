@@ -119,6 +119,16 @@ type SetTheme struct {
 
 func (SetTheme) isCommand() {}
 
+// SetZoom draws the window's content Zoom times larger, as [UI.SetZoom] does.
+type SetZoom struct {
+	Zoom float32
+}
+
+func (SetZoom) isCommand() {}
+
+// Name identifies the command on the wire.
+func (SetZoom) Name() string { return "set-zoom" }
+
 // Name identifies the command on the wire.
 func (SetTheme) Name() string { return "set-theme" }
 

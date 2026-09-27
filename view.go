@@ -164,6 +164,8 @@ func (u *UI) apply(c Command) {
 		err = u.focusID(c.ID)
 	case SetTheme:
 		err = u.setTheme(c.Theme)
+	case SetZoom:
+		u.SetZoom(c.Zoom)
 	default:
 		err = fmt.Errorf("unknown command %T", c)
 	}

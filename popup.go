@@ -99,6 +99,8 @@ type surface struct {
 	opts PopupOptions
 	// dw is nil until the first frame has laid the content out.
 	dw driver.Window
+	// zoom is the zoom dw was last given.
+	zoom float32
 	// size and anchor are where the window was last put, in logical
 	// pixels, anchor in the parent window's space.
 	size   geom.Size
@@ -247,6 +249,11 @@ func (u *UI) framePopup(s *surface, f Frame) {
 	f.Theme = u.themeOf(opener)
 	// Until the window opens, guess it blends as the last one did.
 	f.Transparent = u.w.blends
+	if s.dw != nil && s.zoom != u.zoom {
+		setZoom(s.dw, u.zoom)
+		// Place the window again at the new zoom
+		s.zoom, s.size = u.zoom, geom.Size{}
+	}
 	if s.dw != nil {
 		f.Scale = s.dw.Scale()
 		f.Transparent = transparent(s.dw)
@@ -269,6 +276,11 @@ func (u *UI) framePopup(s *surface, f Frame) {
 			u.w.err = fmt.Errorf("gunim: open popup: %w", err)
 			u.closePopup(s)
 			return
+		}
+		if s.zoom = u.zoom; setZoom(dw, u.zoom) {
+			if pl, ok := dw.(driver.Placer); ok {
+				_ = pl.Place(anchor, size)
+			}
 		}
 		s.dw, s.size, s.anchor = dw, size, anchor
 		s.stop = make(chan struct{})
