@@ -215,6 +215,10 @@ type DataGrid struct {
 	// links are where the last paint drew spans that are links.
 	links []gridLink
 
+	// partRow and partCol are the row and the column of each part the
+	// grid last told a screen reader of, -1 where it has none.
+	partRow, partCol []int
+
 	shapes map[spanKey]*spanShape
 	frame  uint64
 	cut    map[cutKey]text.Run

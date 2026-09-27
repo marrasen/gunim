@@ -1,0 +1,161 @@
+package widget
+
+import (
+	"github.com/marrasen/gunim"
+	"github.com/marrasen/gunim/access"
+	"github.com/marrasen/gunim/geom"
+)
+
+// Access implements [gunim.Accessible]: a menu bar with an item for each
+// menu's title, the open one expanded.
+func (b *Menubar) Access() access.Info {
+	info := access.Info{Role: access.RoleMenuBar}
+	for i, m := range b.Menus {
+		part := access.Info{Role: access.RoleMenuItem, Name: m.Title, Actions: []string{access.ActionPress},
+			State: access.StateExpandable | access.StateHasPopup}
+		if i == b.open {
+			part.State |= access.StateExpanded
+			info.Active = i + 1
+		}
+		if i < len(b.spans) {
+			part.Bounds = geom.Rc(b.spans[i][0], 0, b.spans[i][1]-b.spans[i][0], b.height)
+		}
+		info.Parts = append(info.Parts, part)
+	}
+	return info
+}
+
+// AccessAct implements [gunim.AccessActor]: pressing a title opens its
+// menu, or closes it when it is open.
+func (b *Menubar) AccessAct(r access.Request, u *gunim.UI) bool {
+	if r.Action != access.ActionPress || r.Part < 0 || r.Part >= len(b.Menus) {
+		return false
+	}
+	if b.open == r.Part {
+		b.Close(u)
+	} else {
+		b.Open(r.Part, u)
+	}
+	return true
+}
+
+// Access implements [gunim.Accessible]: the three buttons.
+func (c *WindowControls) Access() access.Info {
+	info := access.Info{Role: access.RoleGroup}
+	if c.size.W <= 0 {
+		return info
+	}
+	maximize := "Maximize"
+	if c.maxed {
+		maximize = "Restore"
+	}
+	for i, name := range []string{"Minimize", maximize, "Close"} {
+		info.Parts = append(info.Parts, access.Info{Role: access.RoleButton, Name: name,
+			Actions: []string{access.ActionPress}, Bounds: geom.Rc(float32(i)*windowButtonWidth, 0, windowButtonWidth, c.size.H)})
+	}
+	return info
+}
+
+// AccessAct implements [gunim.AccessActor].
+func (c *WindowControls) AccessAct(r access.Request, u *gunim.UI) bool {
+	if r.Action != access.ActionPress {
+		return false
+	}
+	switch r.Part {
+	case 0:
+		u.Minimize()
+	case 1:
+		u.ToggleMaximize()
+	case 2:
+		u.AskToClose()
+	default:
+		return false
+	}
+	return true
+}
+
+// Access implements [gunim.Accessible]: how far the work has got, from 0
+// to 1, or no range while that is unknown.
+func (b *ProgressBar) Access() access.Info {
+	if b.Indeterminate {
+		return access.Info{Role: access.RoleProgressBar, Value: "working"}
+	}
+	return access.Info{Role: access.RoleProgressBar, Range: &access.Range{Max: 1, Value: float64(b.value.Target())}}
+}
+
+// Access implements [gunim.Accessible]: a scroll bar over the rows the
+// target can scroll to.
+func (o *Overview) Access() access.Info {
+	info := access.Info{Role: access.RoleScrollBar, Name: "Overview"}
+	if o.Target != nil {
+		info.Range = &access.Range{Max: max(0, float64(o.Target.Rows())-o.Target.Visible()), Value: o.Target.Top(), Step: 1}
+	}
+	return info
+}
+
+// AccessAct implements [gunim.AccessActor]: a new value scrolls there.
+func (o *Overview) AccessAct(r access.Request, u *gunim.UI) bool {
+	if !r.SetValue || o.Target == nil {
+		return false
+	}
+	o.Target.JumpTo(r.Value, false, u)
+	return true
+}
+
+// Access implements [gunim.Accessible]: a group of the two panes, with
+// the divider between them a slider of the first pane's share, or its
+// length with Fixed.
+func (s *Split) Access() access.Info {
+	top := float64(1)
+	if s.Fixed {
+		top = float64(s.length)
+	}
+	at := s.firstLength()
+	bounds := geom.Rc(at, 0, s.gap, s.own.H)
+	if s.Vertical {
+		bounds = geom.Rc(0, at, s.own.W, s.gap)
+	}
+	return access.Info{Role: access.RoleGroup, Parts: []access.Info{{
+		Role: access.RoleSlider, Name: "Divider", Bounds: bounds,
+		Range: &access.Range{Max: top, Value: float64(s.share.Target())},
+	}}}
+}
+
+// AccessAct implements [gunim.AccessActor]: a new value for the divider
+// moves it there, and tells OnMove.
+func (s *Split) AccessAct(r access.Request, u *gunim.UI) bool {
+	if !r.SetValue || r.Part != 0 {
+		return false
+	}
+	s.SetShare(float32(r.Value), Quick.Get(u.Theme()))
+	if s.OnMove != nil {
+		if v := s.OnMove(s.share.Target()); v != nil {
+			u.Send(s, v)
+		}
+	}
+	u.Invalidate()
+	return true
+}
+
+// Access implements [gunim.Accessible]: a picture named by what its head
+// says.
+func (g *LiveGraph) Access() access.Info {
+	info := access.Info{Role: access.RoleImage}
+	if g.Label != nil && len(g.samples) > 0 {
+		info.Name = g.Label(g.recent())
+	}
+	return info
+}
+
+// Access implements [gunim.Accessible]: the item's title, what it says
+// beside it, and whether it is highlighted.
+func (r *paletteRow) Access() access.Info {
+	info := access.Info{Role: access.RoleLabel, Name: r.item.Title, Description: r.item.Detail}
+	if r.item.Hint != "" {
+		info.Description += " " + r.item.Hint
+	}
+	if r.on {
+		info.State = access.StateSelected
+	}
+	return info
+}

@@ -65,8 +65,10 @@ type Menubar struct {
 
 	titles   []shapedText
 	titleRun shapedText
-	// spans holds each title's left and right edges.
+	// spans holds each title's left and right edges, and height the
+	// bar's height, from the last layout.
 	spans    [][2]float32
+	height   float32
 	lightX   *anim.Float
 	lightW   *anim.Float
 	lightOn  *anim.Float
@@ -290,7 +292,9 @@ func (b *Menubar) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) g
 		b.spans = append(b.spans, [2]float32{x, x + w})
 		x += w
 	}
-	return c.Constrain(geom.Sz(max(c.Max.W, x), MenubarHeight.Get(th)))
+	size := c.Constrain(geom.Sz(max(c.Max.W, x), MenubarHeight.Get(th)))
+	b.height = size.H
+	return size
 }
 
 // Paint implements [gunim.Node].

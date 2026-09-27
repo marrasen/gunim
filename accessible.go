@@ -95,20 +95,34 @@ func (u *UI) accessNode(s *state, info access.Info) *access.Node {
 		Focusable: focusable && f.Focusable(),
 		Focused:   u.focus == s && info.Active == 0,
 	}
-	for i, p := range info.Parts {
-		// A part takes focus with its node, such as a tab with the tab
-		// list.
-		part := &access.Node{
-			Info:      p,
-			ID:        id | uint64(i+1)<<partBits,
-			Bounds:    windowRect(s.toWindow, p.Bounds),
-			Focusable: n.Focusable,
-			Focused:   u.focus == s && info.Active == i+1,
-		}
-		n.Children = append(n.Children, part)
-	}
+	k := 0
+	n.Children = u.accessParts(s, info.Parts, id, n.Focusable, info.Active, &k)
 	n.Parts = nil
 	return n
+}
+
+// accessParts makes the nodes of s's parts and the parts inside them,
+// counting them in order with k. A part takes focus with its node, such
+// as a tab with the tab list.
+func (u *UI) accessParts(s *state, parts []access.Info, id uint64, focusable bool, active int, k *int) []*access.Node {
+	if len(parts) == 0 {
+		return nil
+	}
+	out := make([]*access.Node, 0, len(parts))
+	for _, p := range parts {
+		*k++
+		part := &access.Node{
+			Info:      p,
+			ID:        id | uint64(*k)<<partBits,
+			Bounds:    windowRect(s.toWindow, p.Bounds),
+			Focusable: focusable,
+			Focused:   u.focus == s && active == *k,
+		}
+		part.Children = u.accessParts(s, p.Parts, id, focusable, active, k)
+		part.Parts = nil
+		out = append(out, part)
+	}
+	return out
 }
 
 // windowRect maps r through t into window space, as the box around its

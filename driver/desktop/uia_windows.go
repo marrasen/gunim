@@ -141,29 +141,35 @@ const (
 
 // The control types, UI Automation's roles.
 const (
-	ctButton    = 50000
-	ctCheckBox  = 50002
-	ctComboBox  = 50003
-	ctEdit      = 50004
-	ctHyperlink = 50005
-	ctImage     = 50006
-	ctListItem  = 50007
-	ctList      = 50008
-	ctMenu      = 50009
-	ctMenuItem  = 50011
-	ctSlider    = 50015
-	ctTab       = 50018
-	ctTabItem   = 50019
-	ctText      = 50020
-	ctToolTip   = 50022
-	ctGroup     = 50026
-	ctWindow    = 50032
-	ctPane      = 50033
-	navParent   = 0
-	navNext     = 1
-	navPrevious = 2
-	navFirst    = 3
-	navLast     = 4
+	ctButton      = 50000
+	ctCheckBox    = 50002
+	ctComboBox    = 50003
+	ctEdit        = 50004
+	ctHyperlink   = 50005
+	ctImage       = 50006
+	ctListItem    = 50007
+	ctList        = 50008
+	ctMenu        = 50009
+	ctMenuBar     = 50010
+	ctMenuItem    = 50011
+	ctProgressBar = 50012
+	ctScrollBar   = 50014
+	ctSlider      = 50015
+	ctTab         = 50018
+	ctTabItem     = 50019
+	ctText        = 50020
+	ctToolTip     = 50022
+	ctGroup       = 50026
+	ctDataItem    = 50029
+	ctWindow      = 50032
+	ctPane        = 50033
+	ctHeaderItem  = 50035
+	ctTable       = 50036
+	navParent     = 0
+	navNext       = 1
+	navPrevious   = 2
+	navFirst      = 3
+	navLast       = 4
 )
 
 // uiaWindow is one window, as UI Automation sees it.
@@ -325,7 +331,8 @@ func (uw *uiaWindow) diff(o, n *access.Node, root bool) {
 		was, is := expandState(o), expandState(n)
 		uw.raise(func() { uw.changed(id, propExpandCollapseState, intVariant(was), intVariant(is)) })
 	}
-	if !o.State.Has(access.StateSelected) && n.State.Has(access.StateSelected) && n.Role == access.RoleTab {
+	if !o.State.Has(access.StateSelected) && n.State.Has(access.StateSelected) &&
+		(n.Role == access.RoleTab || n.Role == access.RoleRow) {
 		uw.raise(func() { uw.event(id, eventElementSelected) })
 	}
 	if o.Name != n.Name && !root {
@@ -484,7 +491,7 @@ func (e *element) supports(k int) bool {
 	case ifRange:
 		return n.Range != nil
 	case ifSelectionItem:
-		return n.Role == access.RoleTab
+		return n.Role == access.RoleTab || n.Role == access.RoleRow
 	case ifExpandCollapse:
 		return n.State.Has(access.StateExpandable)
 	}
@@ -547,6 +554,20 @@ func controlType(n *access.Node) int32 {
 		return ctPane
 	case access.RoleLink:
 		return ctHyperlink
+	case access.RoleTable:
+		return ctTable
+	case access.RoleRow:
+		return ctDataItem
+	case access.RoleCell:
+		return ctText
+	case access.RoleColumnHeader:
+		return ctHeaderItem
+	case access.RoleMenuBar:
+		return ctMenuBar
+	case access.RoleProgressBar:
+		return ctProgressBar
+	case access.RoleScrollBar:
+		return ctScrollBar
 	case access.RoleGroup:
 		return ctGroup
 	}
