@@ -321,9 +321,12 @@ func (a *TextArea) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 // runes start to end cover on each line they touch. A span that carries
 // on past a line's end covers a little more, standing for the line
 // break.
-func (a *TextArea) spans(start, end int, fn func(geom.Rect)) {
+func (a *TextArea) spans(start, end int, fn func(geom.Rect)) { paraSpans(a.para, start, end, fn) }
+
+// paraSpans is [TextArea.spans] for any paragraph.
+func paraSpans(p text.Paragraph, start, end int, fn func(geom.Rect)) {
 	const lineBreak = 6
-	for _, l := range a.para.Lines {
+	for _, l := range p.Lines {
 		s0, s1 := max(start, l.Run.Start), min(end, l.Run.End)
 		if s0 > s1 || (s0 == s1 && end <= l.Run.End) {
 			continue

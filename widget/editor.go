@@ -121,16 +121,24 @@ func (e *editor) compose(c input.Composing) {
 // press places the caret for a click at rune i: selecting a word on a
 // double click and everything on a triple, and extending with Shift.
 func (e *editor) press(i, clicks int, shift bool) {
-	switch {
-	case clicks >= 3:
-		e.anchor, e.caret = 0, len(e.text)
-	case clicks == 2:
-		e.anchor, e.caret = wordStart(e.text, i), wordEnd(e.text, i)
-	default:
+	if clicks < 2 {
 		e.set(i, shift)
 		return
 	}
+	e.anchor, e.caret = clickRange(e.text, i, clicks)
 	e.hinted, e.goal = false, false
+}
+
+// clickRange returns what a click at rune i of rs selects: nothing on a
+// single click, a word on a double and everything on a triple.
+func clickRange(rs []rune, i, clicks int) (anchor, caret int) {
+	switch {
+	case clicks >= 3:
+		return 0, len(rs)
+	case clicks == 2:
+		return wordStart(rs, i), wordEnd(rs, i)
+	}
+	return i, i
 }
 
 // key handles a key press. It reports false for a key the widget or its

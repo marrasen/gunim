@@ -2,9 +2,11 @@ package widget
 
 import (
 	"image/color"
+	"unicode/utf8"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/text"
 	"github.com/marrasen/gunim/theme"
@@ -26,8 +28,21 @@ type Label struct {
 	// MaxLines cuts the text after that many lines with an ellipsis.
 	// Zero means no limit.
 	MaxLines int
+	// Selectable lets the mouse select the text and Ctrl+C copy it: a
+	// drag selects a range, a double click a word and a triple click all.
+	Selectable bool
 
 	laid laidText
+	sel  textSelection
+}
+
+// textSelection is the selection in text that is read but not edited.
+type textSelection struct {
+	caret, anchor int
+	// held is set while a press drags the selection.
+	held bool
+	// x is where the paragraph was last painted, across the node.
+	x float32
 }
 
 // NewLabel returns a label showing s.
@@ -57,5 +72,82 @@ func (l *Label) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Ch
 		x = box.W - para.Size.W
 	case text.AlignStart:
 	}
+	l.sel.x = x
+	if start, end := l.Selection(); start != end {
+		sel := paint.Solid(Selection.Get(f.Theme))
+		paraSpans(para, start, end, func(r geom.Rect) { p.RRect(r.Add(geom.Pt(x, 0)), 3, sel) })
+	}
 	para.Paint(p, geom.Pt(x, 0), l.Color.Get(f.Theme))
+}
+
+// Selection returns the selected runes' range, start before end.
+func (l *Label) Selection() (start, end int) {
+	n := utf8.RuneCountInString(l.Text)
+	return min(l.sel.caret, l.sel.anchor, n), min(max(l.sel.caret, l.sel.anchor), n)
+}
+
+// SelectedText returns the selected text.
+func (l *Label) SelectedText() string {
+	start, end := l.Selection()
+	return string([]rune(l.Text)[start:end])
+}
+
+// Focusable implements [gunim.Focusable]: a selectable label takes
+// focus from a click, so Ctrl+C reaches it.
+func (l *Label) Focusable() bool { return l.Selectable }
+
+// SkipsTab implements [gunim.TabSkipper].
+func (l *Label) SkipsTab() {}
+
+// DragHeld implements [gunim.DragHolder], so a scroll view scrolls
+// while a selection is dragged past its edge.
+func (l *Label) DragHeld() bool { return l.sel.held }
+
+// Handle implements [gunim.Handler]: on a selectable label, the mouse
+// selects, Ctrl+C copies and Ctrl+A selects all.
+func (l *Label) Handle(e input.Event, u *gunim.UI) bool {
+	if !l.Selectable {
+		return false
+	}
+	switch e := e.(type) {
+	case input.FocusLost:
+		l.sel.anchor, l.sel.held = l.sel.caret, false
+	case input.PointerDown:
+		if e.Button != input.ButtonPrimary {
+			return false
+		}
+		i := l.laid.p.Index(e.Pos.Sub(geom.Pt(l.sel.x, 0)))
+		if e.Clicks < 2 && e.Mods.Has(input.ModShift) {
+			l.sel.caret = i
+		} else {
+			l.sel.anchor, l.sel.caret = clickRange([]rune(l.Text), i, e.Clicks)
+		}
+		l.sel.held = true
+	case input.PointerMove:
+		if !l.sel.held {
+			return false
+		}
+		l.sel.caret = l.laid.p.Index(e.Pos.Sub(geom.Pt(l.sel.x, 0)))
+	case input.PointerUp:
+		if !l.sel.held {
+			return false
+		}
+		l.sel.held = false
+	case input.KeyPress:
+		if e.Typed || !e.Mods.Has(input.ModControl) && !e.Mods.Has(input.ModSuper) {
+			return false
+		}
+		switch start, end := l.Selection(); {
+		case e.Key == input.KeyC && start != end:
+			u.SetClipboard(l.SelectedText())
+		case e.Key == input.KeyA:
+			l.sel.anchor, l.sel.caret = 0, utf8.RuneCountInString(l.Text)
+		default:
+			return false
+		}
+	default:
+		return false
+	}
+	u.Invalidate()
+	return true
 }
