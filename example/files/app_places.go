@@ -68,7 +68,8 @@ func (a *app) loadPlaces() {
 func (a *app) publishPlaces() {
 	s := Places{Places: a.places, Current: a.nav.path}
 	for _, f := range a.prefs.Favourites {
-		s.Favourites = append(s.Favourites, Place{Name: placeName(f), Path: f, Kind: "favourite"})
+		s.Favourites = append(s.Favourites, Place{Name: a.favName(f), Path: f, Kind: "favourite"})
 	}
 	a.patch(s)
+	a.publishVolumes(s)
 }

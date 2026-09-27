@@ -343,6 +343,12 @@ func (u *UI) popupAnchor(s *surface) geom.Rect {
 			continue
 		}
 		in := pp.PopupPadding()
+		if s.opts.Over {
+			// The content, inside its padding, sits on the anchor's corner
+			anchor.Min = anchor.Min.Sub(geom.Pt(in.Left, in.Top))
+			anchor.Max = anchor.Max.Sub(geom.Pt(in.Left, in.Top))
+			break
+		}
 		anchor.Min.X -= in.Left
 		anchor.Min.Y += in.Bottom
 		anchor.Max.Y -= in.Top

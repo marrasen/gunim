@@ -106,12 +106,8 @@ func newIconView(pg *listingPage) *iconView {
 		pg.b.status.views.zoomBy(notches, u)
 	}
 	iv.grid = g
-	labels := make([]string, len(contextItems))
-	for i, it := range contextItems {
-		labels[i] = it.label
-	}
-	iv.menu = widget.NewContextMenu(g, labels...)
-	iv.menu.OnPick = func(i int) gunim.Intent { return Command{Name: contextItems[i].cmd} }
+	g.DragTiles = pg.dragRows
+	iv.menu = pg.contextMenu(g, g.TileAt, func() [][2]int { sel, _ := g.Selected(); return sel })
 	return iv
 }
 

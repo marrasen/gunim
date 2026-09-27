@@ -24,6 +24,8 @@ type options struct {
 	// pick is a name to select once the first folder is read, and do the
 	// steps of a script to run after it; see runScript.
 	pick, do string
+	// hub is the windows this one opens beside, and nil for a window alone.
+	hub *hub
 }
 
 // app is the application half. Everything on it runs on the serve loop;
@@ -56,6 +58,9 @@ type app struct {
 	script    []string
 	scripting bool
 	handlers  []handler
+	// hub is the windows of the process, and dnd what drops need.
+	hub *hub
+	dnd dndState
 }
 
 // handler is one area's share of the intents: it reports whether it
@@ -103,8 +108,10 @@ func launch(ctx context.Context, c gunim.Client, o options) (*app, error) {
 	if err := c.Mount(gunim.Root, browserID, "browser", a.shell); err != nil {
 		return nil, err
 	}
-	a.handlers = []handler{a.handleNav, a.handleOps, a.handlePreview, a.handlePlaces, a.handleShell, a.handleIcons,
-		a.handleViewer, a.handleSearch, a.handleTheme}
+	a.hub = joinHub(a, o.hub)
+	a.publishClip()
+	a.handlers = []handler{a.handleDnd, a.handleNav, a.handleOps, a.handlePreview, a.handlePlaces, a.handleShell,
+		a.handleIcons, a.handleViewer, a.handleSearch, a.handleTheme}
 	a.startup(o)
 	return a, nil
 }
@@ -251,7 +258,9 @@ func (a *app) savePrefs() {
 	}
 	if err := savePrefs(a.prefsPath, a.prefs); err != nil {
 		a.fail(err.Error())
+		return
 	}
+	a.prefsSaved()
 }
 
 // stopAll cancels what is running, and waits for the operations to stop,
@@ -264,6 +273,7 @@ func (a *app) stopAll() {
 	a.preview.stop()
 	a.viewer.stop()
 	a.search.stop()
+	a.hub.leave(a)
 	close(a.stopped)
 	a.ops.wg.Wait()
 }

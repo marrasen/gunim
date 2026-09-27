@@ -918,10 +918,20 @@ type UI struct {
 	dragFrom *state
 	dragAt   *state
 	// dragOver is set while a drag is over this window, at dragOverAt,
-	// carrying dragOverData, for scrolling at the edges.
+	// carrying dragOverData with dragOverMods held, from the window
+	// dragOverFrom.
 	dragOver     bool
 	dragOverAt   geom.Point
 	dragOverData any
+	dragOverMods input.Mods
+	dragOverFrom *Window
+	// dragAnswer is what the node under a drag answers as it takes
+	// DragOver, and dragAnswered the answer last sent back.
+	dragAnswer   any
+	dragAnswered any
+	// dragGhost is the picture of a drag let go, until its end is
+	// known.
+	dragGhost *Popup
 	// aids counts the IDs given to nodes for assistive technology, and
 	// byAID finds a node by its ID, for each tree published, the
 	// window's and each popup's, keyed by the tree's root, as of the
@@ -1387,6 +1397,10 @@ func (u *UI) frame(now time.Time, delta time.Duration) {
 	// still where the last frame drew them, to find what the pointer is
 	// over.
 	scrolled := u.edgeScroll(delta)
+	if !scrolled && u.dragOver {
+		// Offer a resting drag again, as what lies under it may have changed
+		u.dragHover(u.dragOverAt, u.dragOverData)
+	}
 	u.seq++
 	f := Frame{Now: now, Delta: delta, Scale: u.w.dw.Scale(), Theme: u.theme, seq: u.seq, u: u}
 

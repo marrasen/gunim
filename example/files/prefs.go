@@ -23,6 +23,8 @@ type prefs struct {
 	Views map[string]bool
 	Icons bool
 	Tile  float32
+	// FavNames holds the names given to favourites, by path.
+	FavNames map[string]string
 }
 
 // defaultPrefsPath is where the settings live: gunim-files/prefs.json in

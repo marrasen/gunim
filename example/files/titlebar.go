@@ -28,6 +28,7 @@ var menus = []struct {
 	items []menuItem
 }{
 	{"File", []menuItem{
+		{"New window", "Ctrl+N", CmdNewWindow},
 		{"New folder", "Ctrl+Shift+N", CmdNewFolder},
 		{"Open", "Enter", CmdOpen},
 		{"-", "", ""},

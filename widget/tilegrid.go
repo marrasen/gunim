@@ -48,6 +48,8 @@ type TileGrid struct {
 	OnActivate func(i int) gunim.Intent
 	// OnZoom, when set, takes Ctrl with the wheel over the grid, in notches up, from the window's zoom.
 	OnZoom func(notches float32, u *gunim.UI)
+	// DragTiles, when set, lets the tiles selected be dragged, as [DataGrid.DragRows] does for rows.
+	DragTiles func(sel [][2]int, at geom.Point) (data any, ghost gunim.Node, grab geom.Point)
 
 	n int
 	// Size is the size of each tile. Change it and the tiles spring to their new places and sizes.
@@ -76,6 +78,17 @@ type TileGrid struct {
 	revealNext int
 	moved      bool
 	jumpRow    int
+	lift       tileLift
+}
+
+// tileLift is a press on a tile that may become a drag of the tiles selected.
+type tileLift struct {
+	tile  int
+	at    geom.Point
+	mods  input.Mods
+	armed bool
+	// later leaves the selection's change to the release, and dragging says the press became a drag.
+	later, dragging bool
 }
 
 // NewTileGrid returns an empty grid of tiles of size.
@@ -202,6 +215,9 @@ func (g *TileGrid) target(i int) geom.Rect {
 }
 
 // at returns the tile at p, in the grid's space, or -1 over empty space.
+// TileAt returns the tile at p, in the grid's own space, or -1 for none.
+func (g *TileGrid) TileAt(p geom.Point) int { return g.at(p) }
+
 func (g *TileGrid) at(p geom.Point) int {
 	if g.cols == 0 || g.step.W <= 0 || g.step.H <= 0 {
 		return -1
@@ -285,12 +301,26 @@ func (g *TileGrid) Handle(e input.Event, u *gunim.UI) bool {
 			g.drawBand(e.Pos, u)
 			return true
 		}
+		if l := g.lift; l.armed && !l.dragging {
+			if d := e.Pos.Sub(l.at); d.X*d.X+d.Y*d.Y >= pickUp*pickUp && g.IsSelected(l.tile) {
+				g.startDrag(u)
+			}
+			return true
+		}
 		if i := g.at(e.Pos); i != g.hover {
 			g.hover = i
 			u.Invalidate()
 		}
 		return false
 	case input.PointerUp:
+		if g.lift.armed {
+			l := g.lift
+			g.lift = tileLift{}
+			if l.later && !l.dragging {
+				g.pick(l.tile, l.mods, u)
+			}
+			return true
+		}
 		if !g.banding {
 			return false
 		}
@@ -304,10 +334,24 @@ func (g *TileGrid) Handle(e input.Event, u *gunim.UI) bool {
 			u.Invalidate()
 		}
 		return false
+	case input.DragEnd:
+		g.lift = tileLift{}
+		return true
 	case input.KeyPress:
 		return g.key(e, u)
 	}
 	return false
+}
+
+// startDrag drags the tiles selected, for a press that moved far enough.
+func (g *TileGrid) startDrag(u *gunim.UI) {
+	data, ghost, grab := g.DragTiles(slices.Clone(g.runs), g.lift.at)
+	if data == nil {
+		g.lift = tileLift{}
+		return
+	}
+	g.lift.dragging, g.lift.later = true, false
+	u.StartDrag(g, data, ghost, grab)
 }
 
 func (g *TileGrid) press(e input.PointerDown, u *gunim.UI) bool {
@@ -343,6 +387,14 @@ func (g *TileGrid) press(e input.PointerDown, u *gunim.UI) bool {
 			u.Send(g, g.OnActivate(i))
 		}
 		return true
+	}
+	if g.DragTiles != nil {
+		// A press on a tile selected may start a drag of the selection, so the release changes the selection instead
+		g.lift = tileLift{tile: i, at: e.Pos, mods: e.Mods, armed: true}
+		if g.IsSelected(i) && !e.Mods.Has(input.ModShift) {
+			g.lift.later = true
+			return true
+		}
 	}
 	g.pick(i, e.Mods, u)
 	return true

@@ -57,6 +57,7 @@ func (u *UI) handleOn(root *state, ev any) {
 		if root == u.root {
 			u.pointer = e.Pos
 			if u.drag != nil {
+				u.drag.mods = e.Mods
 				u.dragTo(e.Pos)
 				return
 			}
@@ -98,6 +99,7 @@ func (u *UI) handleOn(root *state, ev any) {
 		u.shapePointer(root, e.Pos)
 	case input.PointerUp:
 		if root == u.root && u.drag != nil {
+			u.drag.mods = e.Mods
 			u.capture = nil
 			u.dragDrop(e.Pos)
 			u.updateHover(root, e.Pos, e.Time)
@@ -125,24 +127,36 @@ func (u *UI) handleOn(root *state, ev any) {
 		u.updateHover(root, geom.Pt(-1, -1), e.Time)
 	case input.Drop:
 		u.dispatchAt(root, e.Pos, func(local geom.Point) input.Event {
-			return input.Drop{Pos: local, Data: e.Data, Paths: e.Paths, Time: e.Time}
+			return input.Drop{Pos: local, Data: e.Data, Paths: e.Paths, Mods: e.Mods, Time: e.Time}
 		})
-	default:
-		// Keyboard and focus events go to the focused node and bubble
-		// from there, which is how a shortcut a text field ignores ends
-		// up at the window. With nothing focused they go to the root, so
-		// a window-wide shortcut works before anything has been clicked.
-		if u.zoomKey(ev) {
+	case input.KeyPress, input.KeyRelease:
+		if u.drag != nil {
+			// Keys speak to the drag while it lasts.
+			u.dragKey(ev)
 			return
 		}
-		if ev, ok := ev.(input.Event); ok {
-			target := u.focus
-			if target == nil {
-				target = u.root
-			}
-			if !u.bubble(target, ev) {
-				u.tab(ev)
-			}
+		u.keyEvent(ev)
+	default:
+		u.keyEvent(ev)
+	}
+}
+
+// keyEvent delivers a keyboard or focus event. It goes to the focused
+// node and bubbles from there, which is how a shortcut a text field
+// ignores ends up at the window. With nothing focused it goes to the
+// root, so a window-wide shortcut works before anything has been
+// clicked.
+func (u *UI) keyEvent(ev any) {
+	if u.zoomKey(ev) {
+		return
+	}
+	if ev, ok := ev.(input.Event); ok {
+		target := u.focus
+		if target == nil {
+			target = u.root
+		}
+		if !u.bubble(target, ev) {
+			u.tab(ev)
 		}
 	}
 }

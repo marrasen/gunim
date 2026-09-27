@@ -125,6 +125,9 @@ const (
 	dragDrop
 	// dragEnded: the drop was taken, or was not, back to the source.
 	dragEnded
+	// dragAnswer: what a drop over the window would do, back to the
+	// source.
+	dragAnswer
 )
 
 // dragMsg is one step of a drag, sent from one window to another.
@@ -132,6 +135,7 @@ type dragMsg struct {
 	kind  dragKind
 	at    geom.Point
 	data  any
+	mods  input.Mods
 	from  *Window
 	taken bool
 }
@@ -144,6 +148,8 @@ type drag struct {
 	grab   geom.Point
 	// over is the window the drag is over, or nil.
 	over *Window
+	// mods are the modifier keys held.
+	mods input.Mods
 }
 
 // leaveReach is how far a drag of files must go from every window of
@@ -152,6 +158,10 @@ type drag struct {
 // platform's drag has it, the pointer may come back as close as it
 // likes to drop.
 const leaveReach = 64
+
+// ghostWait is the longest the picture a drag carries waits, once let
+// go, to hear whether the drop was taken.
+const ghostWait = 2 * time.Second
 
 // StartDrag starts dragging data from n, which has the pointer pressed
 // on it: call it from n's Handle, for a press or a move. ghost, when
@@ -162,21 +172,45 @@ const leaveReach = 64
 // application's others. Nodes under it hear [input.DragOver], and the
 // one that takes it hears [input.Drop] when the button is let go. n
 // hears [input.DragEnd] at the end, saying whether a node took it.
+// Escape gives the drag up.
+//
+// The ghost hears [input.DragMove] as the pointer moves it,
+// [input.DragAnswer] when the node under the pointer says what a drop
+// would do, and [input.DragEnd] before it leaves.
 func (u *UI) StartDrag(n Node, data any, ghost Node, grab geom.Point) {
 	s, ok := u.index[n]
 	if !ok {
 		panic("gunim: StartDrag from a node that is not in the tree")
 	}
+	u.dropGhost(false)
 	d := &drag{source: s, data: data, grab: grab}
 	if ghost != nil {
-		at := u.local(s, u.pointer).Sub(grab)
-		d.ghost = u.OpenPopup(n, ghost, PopupOptions{
+		// The root opens the picture, so it stays while the source leaves
+		at := u.local(u.root, u.pointer).Sub(grab)
+		d.ghost = u.OpenPopup(u.root.node, ghost, PopupOptions{
 			Anchor:      geom.Rect{Min: at, Max: at},
 			Passthrough: true,
+			Over:        true,
 		})
 	}
 	u.drag = d
 	u.dragTo(u.pointer)
+}
+
+// AnswerDrag says what a drop here would do, from a node's Handle for
+// [input.DragOver]. The picture the drag carries hears it as
+// [input.DragAnswer], in whichever window the drag started. answer
+// must be comparable.
+func (u *UI) AnswerDrag(answer any) { u.dragAnswer = answer }
+
+// toGhost hands e to the picture p shows.
+func (u *UI) toGhost(p *Popup, e input.Event) {
+	if p == nil {
+		return
+	}
+	for _, k := range p.s.root.kids {
+		u.deliver(k, e)
+	}
 }
 
 // dragTo carries the drag to p, in the window's space.
@@ -189,21 +223,76 @@ func (u *UI) dragTo(p geom.Point) {
 	} else if holds(u.w, at) {
 		over = u.w
 	}
-	if d.over != nil && d.over != over {
-		u.w.sendDrag(d.over, dragMsg{kind: dragLeave})
+	if d.over != over {
+		if d.over != nil {
+			u.w.sendDrag(d.over, dragMsg{kind: dragLeave})
+		}
+		u.toGhost(d.ghost, input.DragAnswer{Time: time.Now()})
 	}
 	d.over = over
 	if over == nil && u.leaving(at) && u.dragOut(d) {
 		return
 	}
-	if over != nil {
-		u.w.sendDrag(over, dragMsg{kind: dragOver, at: at, data: d.data})
-	}
 	if d.ghost != nil {
-		g := u.local(d.source, p).Sub(d.grab)
+		g := u.local(u.root, p).Sub(d.grab)
 		d.ghost.Move(geom.Rect{Min: g, Max: g})
+		u.toGhost(d.ghost, input.DragMove{At: p, Time: time.Now()})
+	}
+	if over != nil {
+		u.w.sendDrag(over, dragMsg{kind: dragOver, at: at, data: d.data, mods: d.mods, from: u.w})
 	}
 	u.invalid = true
+}
+
+// modKeys are the modifier keys and what each holds.
+var modKeys = map[input.Key]input.Mods{
+	input.KeyLeftShift: input.ModShift, input.KeyRightShift: input.ModShift,
+	input.KeyLeftControl: input.ModControl, input.KeyRightControl: input.ModControl,
+	input.KeyLeftAlt: input.ModAlt, input.KeyRightAlt: input.ModAlt,
+}
+
+// dragKey takes a key pressed or let go while the pointer carries a
+// drag: Escape gives the drag up, and a modifier key tells the node
+// under the drag.
+func (u *UI) dragKey(ev any) {
+	var mods input.Mods
+	var key input.Key
+	down := false
+	switch e := ev.(type) {
+	case input.KeyPress:
+		mods, key, down = e.Mods, e.Key, true
+	case input.KeyRelease:
+		mods, key = e.Mods, e.Key
+	default:
+		return
+	}
+	if down && key == input.KeyEscape {
+		u.cancelDrag()
+		return
+	}
+	// A modifier's own key may or may not count itself as held.
+	if m, ok := modKeys[key]; ok {
+		if down {
+			mods |= m
+		} else {
+			mods &^= m
+		}
+	}
+	if mods != u.drag.mods {
+		u.drag.mods = mods
+		u.dragTo(u.pointer)
+	}
+}
+
+// cancelDrag gives up the drag the pointer carries: nothing takes it.
+func (u *UI) cancelDrag() {
+	d := u.drag
+	u.drag = nil
+	if d.over != nil {
+		u.w.sendDrag(d.over, dragMsg{kind: dragLeave})
+	}
+	u.dragFrom, u.dragGhost = d.source, d.ghost
+	u.dragEnded(false)
 }
 
 // leaving reports whether a drag at the screen point at, outside every
@@ -243,30 +332,54 @@ func (u *UI) dragOut(d *drag) bool {
 	return true
 }
 
-// dragDrop lets the drag go at p, in the window's space.
+// dragDrop lets the drag go at p, in the window's space. The picture
+// under the pointer stays until the window under it says whether it
+// took the drop.
 func (u *UI) dragDrop(p geom.Point) {
 	u.dragTo(p)
 	d := u.drag
-	u.drag = nil
-	if d.ghost != nil {
-		d.ghost.Close()
+	if d == nil {
+		// The drag went out to other programs on the way.
+		return
 	}
-	u.dragFrom = d.source
+	u.drag = nil
+	u.dragFrom, u.dragGhost = d.source, d.ghost
 	if d.over == nil {
 		u.dragEnded(false)
 		return
 	}
-	u.w.sendDrag(d.over, dragMsg{kind: dragDrop, at: toScreen(u.w, p), data: d.data, from: u.w})
+	if ghost := d.ghost; ghost != nil {
+		u.After(ghostWait, func(u *UI) {
+			if u.dragGhost == ghost {
+				u.dropGhost(false)
+			}
+		})
+	}
+	u.w.sendDrag(d.over, dragMsg{kind: dragDrop, at: toScreen(u.w, p), data: d.data, mods: d.mods, from: u.w})
 }
 
-// dragEnded tells the node the drag started from how it ended.
+// dragEnded tells the node the drag started from how it ended, and the
+// picture the drag carried, which then leaves.
 func (u *UI) dragEnded(taken bool) {
 	s := u.dragFrom
 	u.dragFrom = nil
 	if s != nil && s.parent != nil {
 		u.deliver(s, input.DragEnd{Taken: taken, Time: time.Now()})
 	}
+	u.dropGhost(taken)
 	u.invalid = true
+}
+
+// dropGhost tells the picture a drag let go of how the drag ended, and
+// closes it.
+func (u *UI) dropGhost(taken bool) {
+	g := u.dragGhost
+	u.dragGhost = nil
+	if g == nil || !g.Open() {
+		return
+	}
+	u.toGhost(g, input.DragEnd{Taken: taken, Time: time.Now()})
+	g.Close()
 }
 
 // sendDrag hands m to window to, at once when it is this window.
@@ -287,17 +400,28 @@ func (w *Window) sendDrag(to *Window, m dragMsg) {
 }
 
 // dragHover offers a drag of data at p, in the window's space, to the
-// node under it, and tells the node it left, if another took it.
+// node under it, and tells the node it left, if another took it. What
+// the node answers goes back to the window the drag came from.
 func (u *UI) dragHover(p geom.Point, data any) {
 	now := time.Now()
+	u.dragAnswer = nil
 	took := u.dispatchAt(u.root, p, func(local geom.Point) input.Event {
-		return input.DragOver{Pos: local, Data: data, Time: now}
+		return input.DragOver{Pos: local, Data: data, Mods: u.dragOverMods, Time: now}
 	})
+	answer := u.dragAnswer
+	u.dragAnswer = nil
+	if took == nil {
+		answer = nil
+	}
 	if took != u.dragAt {
 		if u.dragAt != nil {
 			u.deliver(u.dragAt, input.DragLeave{Time: now})
 		}
 		u.dragAt = took
+	}
+	if answer != u.dragAnswered && u.dragOverFrom != nil {
+		u.dragAnswered = answer
+		u.w.sendDrag(u.dragOverFrom, dragMsg{kind: dragAnswer, data: answer, from: u.w})
 	}
 }
 
@@ -309,18 +433,19 @@ func (u *UI) dragMsg(m dragMsg) {
 	case dragOver:
 		p := fromScreen(u.w, m.at)
 		u.dragOver, u.dragOverAt, u.dragOverData = true, p, m.data
+		u.dragOverMods, u.dragOverFrom = m.mods, m.from
 		u.dragHover(p, m.data)
 	case dragLeave:
-		u.dragOver, u.dragOverData = false, nil
+		u.dragOver, u.dragOverData, u.dragOverFrom, u.dragAnswered = false, nil, nil, nil
 		if u.dragAt != nil {
 			u.deliver(u.dragAt, input.DragLeave{Time: now})
 			u.dragAt = nil
 		}
 	case dragDrop:
-		u.dragOver, u.dragOverData = false, nil
+		u.dragOver, u.dragOverData, u.dragOverFrom, u.dragAnswered = false, nil, nil, nil
 		p := fromScreen(u.w, m.at)
 		took := u.dispatchAt(u.root, p, func(local geom.Point) input.Event {
-			return input.Drop{Pos: local, Data: m.data, Time: now}
+			return input.Drop{Pos: local, Data: m.data, Mods: m.mods, Time: now}
 		})
 		if u.dragAt != nil && u.dragAt != took {
 			u.deliver(u.dragAt, input.DragLeave{Time: now})
@@ -332,5 +457,9 @@ func (u *UI) dragMsg(m dragMsg) {
 		}
 	case dragEnded:
 		u.dragEnded(m.taken)
+	case dragAnswer:
+		if d := u.drag; d != nil && d.over == m.from {
+			u.toGhost(d.ghost, input.DragAnswer{Answer: m.data, Time: now})
+		}
 	}
 }

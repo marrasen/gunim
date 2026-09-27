@@ -58,6 +58,12 @@ show thumbnails, decoded in the background for the tiles in view. Space
 opens a picture large: it grows out of its tile, the arrow keys slide
 to the next, the wheel zooms about the pointer, and Escape flies it back.
 
+Items drag as a stack of cards that trails the pointer and says what a
+drop will do: move or copy to the folder under it, pin it to the
+favourites, or nothing, with a shake. A folder the drag rests on springs
+open. Files drag between windows, out to other programs, and in from
+them. Ctrl+N opens another window on the same folder.
+
 ## The split
 
 A gunim program is two halves that speak only in values.
@@ -272,7 +278,7 @@ the far end knows what to decode it into:
 | `gunim/access` | What a window says to screen readers: roles, names, states, actions |
 | `gunim/driver` | The seam with the operating system, and an offscreen window |
 | `gunim/driver/desktop` | The driver for Linux, Windows and macOS, on GLFW and OpenGL |
-| `gunim/widget` | `Row`, `Column`, `Scroll`, a `TileGrid` that builds only the tiles in view and selects with a band, `Label` whose text the mouse can select and copy when `Selectable`, `TextField`, `TextArea`, `Card`, `Button`, `Checkbox`, `Switch`, `Slider`, `Tabs`, `Dropdown`, `ContextMenu`, `Tooltip`, `Image`, `Hero` for elements that fly between screens, `Draggable` and `DropTarget` for drag and drop within and between windows and to and from file managers, `Dialog`, a keyed `List`, a `VirtualList` that builds only the rows in view, a `DataGrid` that draws millions of rows of styled cells by index, an `Overview` strip that maps and scrolls it, a `MenuButton` whose menu can stay open to tick several items, removable `Chip`s and a `Wrap` that flows them onto lines, `RichText` that wraps text in several styles with links, and their theme tokens |
+| `gunim/widget` | `Row`, `Column`, `Scroll`, a `TileGrid` that builds only the tiles in view and selects with a band, `Label` whose text the mouse can select and copy when `Selectable`, `TextField`, `TextArea`, `Card`, `Button`, `Checkbox`, `Switch`, `Slider`, `Tabs`, `Dropdown`, `ContextMenu`, `Tooltip`, `Image`, `Hero` for elements that fly between screens, `Draggable` and `DropTarget` for drag and drop within and between windows and to and from file managers, a `DragGhost` that trails the pointer and says what a drop would do, a `DropZone` that lights the spot under a drag and springs it open, `Dialog`, a keyed `List`, a `VirtualList` that builds only the rows in view, a `DataGrid` that draws millions of rows of styled cells by index and drags the rows selected, an `Overview` strip that maps and scrolls it, a `MenuButton` whose menu can stay open to tick several items, removable `Chip`s and a `Wrap` that flows them onto lines, `RichText` that wraps text in several styles with links, and their theme tokens |
 
 Commands, intents, topics and the `Client` live in `wire.go` and
 `view.go`. `driver.Offscreen` plus `Window.Frame` run a window with no

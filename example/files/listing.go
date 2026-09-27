@@ -189,13 +189,6 @@ type listingPage struct {
 	left *RowsLeft
 }
 
-// contextItems are the commands of the listing's context menu.
-var contextItems = []menuItem{
-	{"Open", "", CmdOpen}, {"Cut", "", CmdCut}, {"Copy", "", CmdCopy}, {"Paste", "", CmdPaste},
-	{"Rename", "", CmdRename}, {"Move to trash", "", CmdTrash}, {"Delete permanently", "", CmdDelete},
-	{"New folder", "", CmdNewFolder}, {"Pin to sidebar", "", CmdPin}, {"Show in system file manager", "", CmdReveal},
-}
-
 func newListingPage(b *browser, widths []float32) *listingPage {
 	pg := &listingPage{b: b, blocks: map[int][]Row{}, stale: map[int][]Row{}, asked: map[int]bool{}, gen: -1,
 		stripIn: anim.NewFloat(0), arrive: true, sorted: [2]int{-1, -1}}
@@ -217,16 +210,12 @@ func newListingPage(b *browser, widths []float32) *listingPage {
 	g.OnActivate = func(row int) gunim.Intent { return Activated{Gen: pg.gen, Row: row} }
 	g.OnHeader = func(c int) gunim.Intent { return SortClicked{Column: c} }
 	g.OnCopy = func([][2]int) gunim.Intent { return Command{Name: CmdCopy} }
+	g.DragRows = pg.dragRows
 	pg.grid = g
 	pg.strip = widget.NewOverview(g)
 	pg.strip.Top = widget.GridHeaderHeight
 	pg.strip.Readout = pg.readout
-	labels := make([]string, len(contextItems))
-	for i, it := range contextItems {
-		labels[i] = it.label
-	}
-	pg.menu = widget.NewContextMenu(g, labels...)
-	pg.menu.OnPick = func(i int) gunim.Intent { return Command{Name: contextItems[i].cmd} }
+	pg.menu = pg.contextMenu(g, g.RowAt, g.SelectedRows)
 	pg.msg = widget.NewLabel("")
 	pg.msg.Color = Faint
 	pg.bar = widget.NewProgressBar()

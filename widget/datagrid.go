@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/marrasen/gunim"
+	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
@@ -160,6 +161,16 @@ type DataGrid struct {
 	// grid that shows its position some other way.
 	NoHeader bool
 	NoBar    bool
+	// DragRows, when set, lets the rows selected be dragged: a press on
+	// one and a move of a few pixels drags the data it returns, with
+	// ghost under the pointer, held grab from its top left. at is where
+	// the press was, in the grid's space. A nil data drags nothing.
+	DragRows func(sel [][2]int, at geom.Point) (data any, ghost gunim.Node, grab geom.Point)
+
+	// lift is a press that may become a drag, and away how far the rows
+	// dragged have dimmed.
+	lift gridLift
+	away *anim.Float
 
 	rows     int
 	selected int
@@ -232,6 +243,19 @@ const (
 	dragEdge
 )
 
+// gridLift is a press on a row that may become a drag of the rows
+// selected.
+type gridLift struct {
+	row   int
+	at    geom.Point
+	mods  input.Mods
+	armed bool
+	// later is set when the release, not the press, changes the
+	// selection, as for a press on a row already selected.
+	later    bool
+	dragging bool
+}
+
 type spanKey struct {
 	row       int
 	col, span int32
@@ -259,6 +283,7 @@ func NewDataGrid(columns ...GridColumn) *DataGrid {
 		sentFirst: -1,
 		hoverCol:  -1,
 		shapes:    map[spanKey]*spanShape{},
+		away:      anim.NewFloat(0),
 		cut:       map[cutKey]text.Run{},
 	}
 }
@@ -432,6 +457,9 @@ func (g *DataGrid) Step(dt time.Duration) bool {
 		if g.leftAgo > leaveTime {
 			g.gone, g.leaving = nil, nil
 		}
+		moving = true
+	}
+	if g.away != nil && g.away.Step(dt) {
 		moving = true
 	}
 	if g.arriving {
@@ -684,6 +712,11 @@ func (g *DataGrid) paintRow(p *paint.Painter, th *theme.Live, i int, y, bodyW, s
 			p.RRect(geom.Rc(left, y+g.rowH*0.3, max(0, x[1]*0.6-pad), g.rowH*0.4), g.rowH*0.2, paint.Solid(c))
 		}
 		return
+	}
+	if g.away != nil && g.IsSelected(i) {
+		if a := g.away.Value(); a > 0.001 {
+			defer p.Layer(paint.LayerOpts{Bounds: band, Opacity: 1 - 0.55*min(a, 1)})()
+		}
 	}
 	if in := g.arrived(i); in < 1 {
 		if in <= 0 {
@@ -944,7 +977,7 @@ func (g *DataGrid) columnAt(x float32) int {
 	return -1
 }
 
-func (g *DataGrid) rowAt(y float32) int {
+func (g *DataGrid) rowAtY(y float32) int {
 	if y < g.header || g.rowH <= 0 {
 		return -1
 	}
@@ -953,6 +986,73 @@ func (g *DataGrid) rowAt(y float32) int {
 		return -1
 	}
 	return i
+}
+
+// RowAt returns the row at p, in the grid's space, or -1 over the
+// titles or below the rows.
+func (g *DataGrid) RowAt(p geom.Point) int {
+	if g.th == nil {
+		return -1
+	}
+	if p.X < 0 || p.X >= g.bodyWidth(g.th) {
+		return -1
+	}
+	return g.rowAtY(p.Y)
+}
+
+// RowRect returns where row i shows, in the grid's space, as the last
+// layout put it, and false when it is out of view.
+func (g *DataGrid) RowRect(i int) (geom.Rect, bool) {
+	if g.th == nil || i < 0 || i >= g.rows || g.rowH <= 0 {
+		return geom.Rect{}, false
+	}
+	y := g.header + float32((float64(i)-g.top)*float64(g.rowH))
+	if y+g.rowH <= g.header || y >= g.view.H {
+		return geom.Rect{}, false
+	}
+	return geom.Rc(0, y, g.bodyWidth(g.th), g.rowH), true
+}
+
+// EdgeScroll implements [gunim.EdgeScroller]: a drag held near the top
+// or the bottom of the rows scrolls them.
+func (g *DataGrid) EdgeScroll(p geom.Point, dt time.Duration, u *gunim.UI) geom.Point {
+	if g.rowH <= 0 {
+		return geom.Point{}
+	}
+	top, bottom := g.header, g.view.H
+	zone := min(float32(edgeZone), (bottom-top)/4)
+	var v float32
+	switch {
+	case p.Y < top+zone:
+		t := min((top+zone-p.Y)/zone, 2)
+		v = -edgeSpeed * t * t
+	case p.Y > bottom-zone:
+		t := min((p.Y-bottom+zone)/zone, 2)
+		v = edgeSpeed * t * t
+	default:
+		return geom.Point{}
+	}
+	secs := float32(min(dt, 50*time.Millisecond).Seconds())
+	from := g.top
+	to := g.clampTop(from + float64(v*secs/g.rowH))
+	if to == from {
+		return geom.Point{}
+	}
+	g.top, g.goal, g.vel = to, to, 0
+	u.Invalidate()
+	return geom.Pt(0, float32(from-to)*g.rowH)
+}
+
+// startDrag drags the rows selected, for a press that moved far enough.
+func (g *DataGrid) startDrag(u *gunim.UI) {
+	data, ghost, grab := g.DragRows(g.SelectedRows(), g.lift.at)
+	if data == nil {
+		g.lift = gridLift{}
+		return
+	}
+	g.lift.dragging, g.lift.later = true, false
+	u.StartDrag(g, data, ghost, grab)
+	g.away.Animate(1, Quick.Get(u.Theme()))
 }
 
 func (g *DataGrid) send(v gunim.Intent, u *gunim.UI) {
@@ -991,6 +1091,10 @@ func (g *DataGrid) Handle(e input.Event, u *gunim.UI) bool {
 	case input.PointerMove:
 		return g.move(e, u)
 	case input.PointerUp:
+		if g.lift.armed {
+			g.release(u)
+			return true
+		}
 		if g.drag == dragNone {
 			return false
 		}
@@ -1005,6 +1109,10 @@ func (g *DataGrid) Handle(e input.Event, u *gunim.UI) bool {
 			g.hoverCol = -1
 			u.Invalidate()
 		}
+	case input.DragEnd:
+		g.lift = gridLift{}
+		g.away.Animate(0, Settle.Get(th))
+		return true
 	case input.KeyPress:
 		return g.key(e, u)
 	}
@@ -1014,7 +1122,7 @@ func (g *DataGrid) Handle(e input.Event, u *gunim.UI) bool {
 func (g *DataGrid) press(e input.PointerDown, u *gunim.UI) bool {
 	if e.Button == input.ButtonSecondary {
 		// A context menu around the grid acts on the row pressed.
-		if i := g.rowAt(e.Pos.Y); i >= 0 && !g.IsSelected(i) && (g.NoHeader || e.Pos.Y >= g.header) {
+		if i := g.rowAtY(e.Pos.Y); i >= 0 && !g.IsSelected(i) && (g.NoHeader || e.Pos.Y >= g.header) {
 			if g.Multi {
 				g.pick(i, 0, u)
 			} else {
@@ -1056,7 +1164,7 @@ func (g *DataGrid) press(e input.PointerDown, u *gunim.UI) bool {
 		}
 		return true
 	}
-	i := g.rowAt(e.Pos.Y)
+	i := g.rowAtY(e.Pos.Y)
 	if i < 0 {
 		if g.Multi && e.Pos.Y >= g.header && !e.Mods.Has(input.ModControl) && !e.Mods.Has(input.ModShift) {
 			g.selectAndTell(-1, u)
@@ -1083,19 +1191,49 @@ func (g *DataGrid) press(e input.PointerDown, u *gunim.UI) bool {
 		}
 		return true
 	}
-	if g.Multi {
-		g.pick(i, e.Mods, u)
-		return true
+	if g.DragRows != nil {
+		// A press on a row selected may start a drag of the selection, so
+		// the release changes the selection instead.
+		g.lift = gridLift{row: i, at: e.Pos, mods: e.Mods, armed: true}
+		if g.IsSelected(i) && !e.Mods.Has(input.ModShift) && (!e.Focusing || g.Multi) {
+			g.lift.later = true
+			return true
+		}
 	}
-	if i == g.selected && !e.Focusing {
+	g.choose(i, e.Mods, e.Focusing, u)
+	return true
+}
+
+// choose changes the selection for a click on row i.
+func (g *DataGrid) choose(i int, mods input.Mods, focusing bool, u *gunim.UI) {
+	if g.Multi {
+		g.pick(i, mods, u)
+		return
+	}
+	if i == g.selected && !focusing {
 		g.selectAndTell(-1, u)
 	} else {
 		g.selectAndTell(i, u)
 	}
-	return true
+}
+
+// release ends a press that may have become a drag, and changes the
+// selection now when the press left it for later.
+func (g *DataGrid) release(u *gunim.UI) {
+	l := g.lift
+	g.lift = gridLift{}
+	if l.later && !l.dragging {
+		g.choose(l.row, l.mods, false, u)
+	}
 }
 
 func (g *DataGrid) move(e input.PointerMove, u *gunim.UI) bool {
+	if g.lift.armed && !g.lift.dragging {
+		if d := e.Pos.Sub(g.lift.at); d.X*d.X+d.Y*d.Y >= pickUp*pickUp && g.IsSelected(g.lift.row) {
+			g.startDrag(u)
+		}
+		return true
+	}
 	switch g.drag {
 	case dragEdge:
 		g.Columns[g.dragCol].Width = max(24, e.Pos.X-g.grab)
@@ -1126,6 +1264,10 @@ func (g *DataGrid) move(e input.PointerMove, u *gunim.UI) bool {
 
 func (g *DataGrid) key(e input.KeyPress, u *gunim.UI) bool {
 	if e.Mods.Has(input.ModControl) {
+		if e.Mods.Has(input.ModShift) {
+			// Ctrl with Shift is left to the keys around the grid
+			return false
+		}
 		switch {
 		case e.Key == input.KeyC && g.OnCopy != nil:
 			if sel := g.SelectedRows(); len(sel) > 0 {

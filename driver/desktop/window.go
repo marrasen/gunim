@@ -648,9 +648,9 @@ func (w *Window) install() {
 		w.lastPress, w.lastButton, w.lastPos = now, button, w.cursor
 		w.in.push(input.PointerDown{Pos: w.cursor, Button: button, Mods: w.mods, Clicks: w.clicks, Time: now})
 	})
-	_, _ = gw.SetDropCallback(func(_ *glfw.Window, names []string) {
+	_, _ = gw.SetDropCallback(func(gw *glfw.Window, names []string) {
 		// GLFW moves the cursor to where the files were let go first.
-		w.in.push(input.Drop{Pos: w.cursor, Paths: names, Time: time.Now()})
+		w.in.push(input.Drop{Pos: w.cursor, Paths: names, Mods: modsOf(gw.HeldModifiers()), Time: time.Now()})
 	})
 	_, _ = gw.SetScrollCallback(func(_ *glfw.Window, x, y float64) {
 		w.in.push(input.Scroll{

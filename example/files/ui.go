@@ -26,6 +26,8 @@ func registerViews(w *gunim.Window) {
 	registerPalette(w)
 	registerSpeed(w)
 	registerRowsLeft(w)
+	registerDnd(w)
+	registerProps(w)
 }
 
 // root is the window's root: the background, with the views stacked on
@@ -61,6 +63,7 @@ type browser struct {
 	split   *widget.Split
 	main    *widget.Split
 	page    *widget.Flex
+	dnd     *dndView
 }
 
 func newBrowser() *browser {
@@ -74,13 +77,14 @@ func newBrowser() *browser {
 	b.ops = newOpsPanel()
 	b.status = newStatusBar()
 	b.palette = newFilesPalette(b)
-	b.main = widget.NewSplit(b.listing, b.preview)
+	b.dnd = newDndView(b)
+	b.main = widget.NewSplit(b.dnd.listing, b.preview)
 	b.main.SetShare(0.72, nil)
-	b.split = widget.NewSplit(b.side, b.main)
+	b.split = widget.NewSplit(b.dnd.side, b.main)
 	b.split.Fixed = true
 	b.split.SetShare(sidebarWidth, nil)
 	b.split.OnMove = func(w float32) gunim.Intent { return SidebarMoved{Width: w} }
-	b.page = widget.Column(b.title, b.path, b.banner.fold, b.split, b.ops.fold, b.status).Grow(b.split, 1)
+	b.page = widget.Column(b.title, b.dnd.crumbs, b.banner.fold, b.split, b.ops.fold, b.status).Grow(b.split, 1)
 	b.page.Cross = widget.CrossStretch
 	b.page.Gap = noGap
 	return b
@@ -147,6 +151,9 @@ func (b *browser) Handle(e input.Event, u *gunim.UI) bool {
 	k, ok := e.(input.KeyPress)
 	if !ok {
 		return false
+	}
+	if b.dnd.keys(k, u) {
+		return true
 	}
 	ctrl, shift, alt := k.Mods.Has(input.ModControl), k.Mods.Has(input.ModShift), k.Mods.Has(input.ModAlt)
 	var cmd string
