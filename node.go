@@ -458,6 +458,8 @@ type state struct {
 	// aid is the node's ID for assistive technology, or 0 before it has
 	// one.
 	aid uint64
+	// aliases are the nodes the node embeds, which the index also maps to it.
+	aliases []Node
 }
 
 // up returns s's parent, or for the root of a popup, the node that

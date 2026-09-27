@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/marrasen/gunim"
+	"github.com/marrasen/gunim/access"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
 )
@@ -287,4 +288,66 @@ func TestADisabledControlTakesNoClick(t *testing.T) {
 	if pick.Focusable() {
 		t.Fatal("a disabled drop-down takes focus")
 	}
+}
+
+// ownDialog is a view that embeds a dialog, as an application's own dialog does.
+type ownDialog struct {
+	*Dialog
+	note string
+}
+
+func TestADialogEmbeddedInAViewClosesItself(t *testing.T) {
+	w := gunim.NewOffscreen(geom.Sz(800, 600), nil)
+	w.Offscreen().ListenForAccess()
+	var v *ownDialog
+	gunim.RegisterView(w, "own", func(title string) *ownDialog {
+		v = &ownDialog{Dialog: NewDialog(title), note: "mine"}
+		v.Accept, v.Dismiss = "ok", "cancel"
+		return v
+	}, nil)
+	c := w.Client()
+	if err := c.Mount(gunim.Root, "own", "own", "Mine"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Focus("own"); err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		w.Frame(time.Second / 60)
+	}
+	if !hasRole(w.Offscreen().AccessTree().Root, access.RoleDialog) {
+		t.Fatal("the dialog does not show")
+	}
+	w.Input(input.KeyPress{Key: input.KeyEscape})
+	w.Frame(time.Second / 60)
+	select {
+	case env := <-c.Intents():
+		if env.Intent != "cancel" || env.From != "own" {
+			t.Fatalf("Escape sent %v from %q, want cancel from own", env.Intent, env.From)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Escape sent nothing")
+	}
+	for range 120 {
+		w.Frame(time.Second / 60)
+	}
+	if hasRole(w.Offscreen().AccessTree().Root, access.RoleDialog) {
+		t.Fatal("the dialog stayed after Escape")
+	}
+}
+
+// hasRole reports whether n or a node under it has role r.
+func hasRole(n *access.Node, r access.Role) bool {
+	if n == nil {
+		return false
+	}
+	if n.Role == r {
+		return true
+	}
+	for _, k := range n.Children {
+		if hasRole(k, r) {
+			return true
+		}
+	}
+	return false
 }

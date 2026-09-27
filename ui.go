@@ -1122,6 +1122,9 @@ func (u *UI) Invalidate() { u.invalid = true }
 //
 // Send returns at once.
 func (u *UI) Send(n Node, v Intent) {
+	if _, ok := u.index[n]; !ok && n != nil {
+		u.stray("Send", n)
+	}
 	u.post(Envelope{From: u.idOf(n), Intent: v})
 }
 
@@ -1190,6 +1193,9 @@ func (u *UI) InsertAt(parent Node, i int, child Node) {
 	}
 	assertAddressable(child)
 	if cs, ok := u.index[child]; ok {
+		if cs.node != child {
+			panic("gunim: Insert of a node embedded in another node in the tree")
+		}
 		wasLeaving := cs.leaving()
 		if u.move(cs, ps, i) {
 			u.invalid = true
@@ -1210,6 +1216,13 @@ func (u *UI) InsertAt(parent Node, i int, child Node) {
 	if c, ok := child.(Composite); ok {
 		for _, k := range c.Children() {
 			u.Insert(child, k)
+		}
+	}
+	// A node embedded in child stands for child, so a method it promotes can name itself
+	for _, e := range embedded(child) {
+		if _, taken := u.index[e]; !taken {
+			u.index[e] = cs
+			cs.aliases = append(cs.aliases, e)
 		}
 	}
 }
@@ -1259,7 +1272,11 @@ func reenter(s *state) {
 // with [input.FocusLost] and [input.PointerLeave] sent as usual.
 func (u *UI) Remove(n Node) {
 	s, ok := u.index[n]
-	if !ok || s == u.root {
+	if !ok {
+		u.stray("Remove", n)
+		return
+	}
+	if s == u.root {
 		return
 	}
 	s.presence = Exiting
@@ -1287,6 +1304,9 @@ func (u *UI) Remove(n Node) {
 // out of the tree or under a popup's window.
 func (u *UI) Bounds(n Node) (geom.Rect, bool) {
 	s, ok := u.index[n]
+	if !ok {
+		u.stray("Bounds", n)
+	}
 	if !ok || s.drawn != u.seq || u.surfaceOf(s) != nil {
 		return geom.Rect{}, false
 	}
@@ -1317,6 +1337,9 @@ func (u *UI) Focus(n Node) {
 	var next *state
 	if n != nil {
 		next = u.index[n]
+		if next == nil {
+			u.stray("Focus", n)
+		}
 		if next != nil && next.leaving() {
 			return
 		}
@@ -1611,6 +1634,12 @@ func (u *UI) forget(s *state) {
 	}
 	u.unsubscribe(s)
 	delete(u.index, s.node)
+	for _, a := range s.aliases {
+		if u.index[a] == s {
+			delete(u.index, a)
+		}
+	}
+	s.aliases = nil
 	for _, k := range s.kids {
 		u.forget(k)
 	}
