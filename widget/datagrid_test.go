@@ -217,3 +217,19 @@ func TestEveryClickOnARowIsSent(t *testing.T) {
 		t.Fatalf("two clicks on row 2 sent %v", got)
 	}
 }
+
+type gridSorted struct{ Column int }
+
+func TestAClickOnATitleIsSent(t *testing.T) {
+	g := NewDataGrid(GridColumn{Title: "Name", Width: 100, Sort: 1}, GridColumn{Title: "Size", Closable: true})
+	g.OnHeader = func(c int) gunim.Intent { return gridSorted{c} }
+	g.OnClose = func(c int) gunim.Intent { return gridResized{c, 0} }
+	w, run := stage(t, &frame{child: g, size: geom.Sz(400, 300)})
+	click(w, 40, 10)
+	run(1)
+	click(w, 150, 10)
+	run(1)
+	if got := sent(w); len(got) != 2 || got[0] != (gridSorted{0}) || got[1] != (gridSorted{1}) {
+		t.Fatalf("clicks on the titles sent %v", got)
+	}
+}

@@ -49,6 +49,9 @@ type GridColumn struct {
 	// Closable shows a cross on the title under the pointer, which sends
 	// the grid's OnClose.
 	Closable bool
+	// Sort shows an arrow by the title: 1 for rows sorted up by the column,
+	// -1 for down, and 0 for none.
+	Sort int
 }
 
 // GridMinFill is the narrowest a column with no width gets.
@@ -126,6 +129,8 @@ type DataGrid struct {
 	OnActivate func(row int) gunim.Intent
 	// OnResize turns a column resized by a drag into an intent.
 	OnResize func(column int, width float32) gunim.Intent
+	// OnHeader turns a click on a column's title into an intent, as to sort by it.
+	OnHeader func(column int) gunim.Intent
 	// OnClose turns a click on a closable column's cross into an intent.
 	OnClose func(column int) gunim.Intent
 	// Copy returns the text Ctrl+C copies for row i, and the row's
@@ -591,6 +596,9 @@ func (g *DataGrid) paintHeader(p *paint.Painter, th *theme.Live, bodyW, size, pa
 		if closing {
 			room -= h / 2
 		}
+		if col.Sort != 0 {
+			room -= sortArrow
+		}
 		if run.Advance > room {
 			run = g.cutRun(run, room)
 		}
@@ -599,6 +607,9 @@ func (g *DataGrid) paintHeader(p *paint.Painter, th *theme.Live, bodyW, size, pa
 			at = x + w - pad - run.Advance
 		}
 		run.Paint(p, geom.Pt(at, (h-run.Height())/2), ink)
+		if col.Sort != 0 {
+			g.paintSort(p, geom.Pt(at+run.Advance+sortArrow/2+2, h/2), col.Sort > 0, ink)
+		}
 		if closing {
 			drawCross(p, geom.Pt(x+w-pad-h/4, h/2), h/4, ink)
 		}
@@ -766,7 +777,11 @@ func (g *DataGrid) press(e input.PointerDown, u *gunim.UI) bool {
 			x := g.xs[c][0] + g.xs[c][1] - g.left
 			if e.Pos.X >= x-GridCellPadding.Get(th)-g.header/2 {
 				g.send(g.OnClose(c), u)
+				return true
 			}
+		}
+		if c >= 0 && g.OnHeader != nil {
+			g.send(g.OnHeader(c), u)
 		}
 		return true
 	}
@@ -879,4 +894,19 @@ func (g *DataGrid) copyText(i int) string {
 	}
 	row, _ := g.Row(i)
 	return row.Text()
+}
+
+// sortArrow is the room the arrow by a sorted column's title takes.
+const sortArrow = 12
+
+// paintSort draws the small arrow by a sorted column's title, pointing up
+// for rows sorted up.
+func (g *DataGrid) paintSort(p *paint.Painter, at geom.Point, up bool, c color.NRGBA) {
+	turn := float32(0)
+	if up {
+		turn = math.Pi
+	}
+	defer p.Push(paint.Rotate(turn, at))()
+	defer p.Push(paint.Scale(0.7, at))()
+	drawChevron(p, at, c)
 }
