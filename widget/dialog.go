@@ -291,7 +291,7 @@ func (d *Dialog) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children)
 	var bs, ps geom.Size
 	if hasBody {
 		body, problem = kids.At(0), kids.At(1)
-		title := d.titleText.layout(d.Title, text.Style{Size: DialogTitleSize.Get(th), MaxLines: 2}, width-2*pad)
+		title := d.titleText.layout(faceIn(Font, th), d.Title, text.Style{Size: DialogTitleSize.Get(th), MaxLines: 2}, width-2*pad)
 		bs = body.Layout(gunim.Constraints{Max: geom.Sz(width-2*pad, 0)})
 		ps = problem.Layout(gunim.Constraints{Max: geom.Sz(width-2*pad, 0)})
 		extra := float32(0)
@@ -302,7 +302,7 @@ func (d *Dialog) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children)
 	}
 	panel := d.panel(size, f)
 	if hasBody {
-		title := d.titleText.layout(d.Title, text.Style{Size: DialogTitleSize.Get(th), MaxLines: 2}, width-2*pad)
+		title := d.titleText.layout(faceIn(Font, th), d.Title, text.Style{Size: DialogTitleSize.Get(th), MaxLines: 2}, width-2*pad)
 		at := panel.Min.Add(geom.Pt(pad, pad+title.Size.H+pad))
 		body.Place(at)
 		problem.Place(at.Add(geom.Pt(0, bs.H+pad/2)))
@@ -389,7 +389,7 @@ func (d *Dialog) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids guni
 	})
 	p.RRectStroke(panel, radius, paint.Fill{}, paint.Stroke{Width: 1, Color: DialogBorder.Get(th)})
 	style := text.Style{Size: DialogTitleSize.Get(th), MaxLines: 2}
-	title := d.titleText.layout(d.Title, style, panel.Size().W-2*pad)
+	title := d.titleText.layout(faceIn(Font, th), d.Title, style, panel.Size().W-2*pad)
 	title.Paint(p, panel.Min.Add(geom.Pt(pad, pad)), Ink.Get(th))
 
 	for kid := range kids.All {

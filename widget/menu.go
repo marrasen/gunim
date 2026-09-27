@@ -247,9 +247,9 @@ func (m *Menu) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom
 		}
 		m.tops = append(m.tops, y)
 		y += m.row
-		line := gutter + m.rows[i].shape(s, size).Advance + 2*MenuRowPadding.Get(th)
+		line := gutter + m.rows[i].shape(faceIn(Font, th), s, size).Advance + 2*MenuRowPadding.Get(th)
 		if i < len(m.Hints) && m.Hints[i] != "" {
-			line += 32 + m.hintRuns[i].shape(m.Hints[i], size*0.9).Advance
+			line += 32 + m.hintRuns[i].shape(faceIn(Font, th), m.Hints[i], size*0.9).Advance
 		}
 		w = max(w, line)
 	}
@@ -310,7 +310,7 @@ func (m *Menu) Paint(p *paint.Painter, f gunim.Frame, _ geom.Size, _ gunim.Child
 			col = dim
 		}
 		if slices.Contains(m.Captions, i) {
-			caption := m.rows[i].shape(m.Items[i], TextSize.Get(th)*0.85)
+			caption := m.rows[i].shape(faceIn(Font, th), m.Items[i], TextSize.Get(th)*0.85)
 			caption.Paint(p, geom.Pt(card.Min.X+pad, m.rowY(i)+(m.row-caption.Height())/2), hint)
 			continue
 		}
@@ -503,7 +503,7 @@ func (d *Dropdown) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) 
 	w := float32(0)
 	var probe shapedText
 	for _, s := range d.Items {
-		w = max(w, probe.shape(s, TextSize.Get(th)).Advance)
+		w = max(w, probe.shape(faceIn(Font, th), s, TextSize.Get(th)).Advance)
 	}
 	pad := FieldPadding.Get(th)
 	d.size = c.Constrain(geom.Sz(w+2*pad+chevron+pad, FieldHeight.Get(th)))
@@ -531,7 +531,7 @@ func (d *Dropdown) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 
 	pad := FieldPadding.Get(th)
 	if d.Selected >= 0 && d.Selected < len(d.Items) {
-		run := d.shown.shape(d.Items[d.Selected], TextSize.Get(th))
+		run := d.shown.shape(faceIn(Font, th), d.Items[d.Selected], TextSize.Get(th))
 		run.Paint(p, geom.Pt(pad, (box.H-run.Height())/2), Ink.Get(th))
 	}
 
@@ -773,7 +773,7 @@ func (t *tip) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.
 	if f.Transparent {
 		t.margin = MenuMargin.Get(th)
 	}
-	run := t.run.shape(t.text, TooltipSize.Get(th))
+	run := t.run.shape(faceIn(Font, th), t.text, TooltipSize.Get(th))
 	pad := TooltipPadding.Get(th)
 	return c.Constrain(geom.Sz(run.Advance+pad.Left+pad.Right+2*t.margin, run.Height()+pad.Top+pad.Bottom+2*t.margin))
 }

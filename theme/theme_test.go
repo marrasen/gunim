@@ -189,3 +189,20 @@ func TestAScopeSwitchGlidesToAndFromTheThemeAround(t *testing.T) {
 		t.Fatalf("once settled, pad is %v, want the window's 20", got)
 	}
 }
+
+func TestChoiceSwitchesWholeHalfway(t *testing.T) {
+	shape := Choice("test.shape", "round")
+	l := NewLive(Make("round"))
+	if got := shape.Get(l); got != "round" {
+		t.Fatalf("shape = %q, want the default round", got)
+	}
+	l.Use(Make("square", Set(shape, "square")))
+	step(l, 1)
+	if got := shape.Get(l); got != "round" {
+		t.Fatalf("a frame into the switch, shape = %q, want round still", got)
+	}
+	step(l, 300)
+	if got := shape.Get(l); got != "square" {
+		t.Fatalf("once settled, shape = %q, want square", got)
+	}
+}

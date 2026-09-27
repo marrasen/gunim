@@ -216,7 +216,7 @@ func (g *LiveGraph) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ guni
 		for _, v := range g.samples[n-k:] {
 			sum += v
 		}
-		run := g.text.shape(g.Label(sum/float64(k)), TextSize.Get(th)*0.85)
+		run := g.text.shape(faceIn(Font, th), g.Label(sum/float64(k)), TextSize.Get(th)*0.85)
 		ink := Ink.Get(th)
 		ink.A = 0xc0
 		run.Paint(p, geom.Pt(max(0, box.W-run.Advance), 0), ink)

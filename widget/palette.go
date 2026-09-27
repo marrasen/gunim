@@ -335,7 +335,7 @@ func (r *paletteRow) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gun
 	pad := MenuRowPadding.Get(th)
 	size := TextSize.Get(th)
 	item := r.c.p.Items[r.index]
-	run := r.title.shape(item.Title, size)
+	run := r.title.shape(faceIn(Font, th), item.Title, size)
 	top := (box.H - run.Height()) / 2
 	// The matched letters sit on marks, joined where they run on.
 	mark := PaletteMark.Get(th)
@@ -351,7 +351,7 @@ func (r *paletteRow) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gun
 	}
 	run.Paint(p, geom.Pt(pad, top), Ink.Get(th))
 	if item.Hint != "" {
-		hint := r.hint.shape(item.Hint, size*0.9)
+		hint := r.hint.shape(faceIn(Font, th), item.Hint, size*0.9)
 		hint.Paint(p, geom.Pt(box.W-pad-hint.Advance, (box.H-hint.Height())/2), PaletteHint.Get(th))
 	}
 }

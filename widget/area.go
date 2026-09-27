@@ -9,6 +9,7 @@ import (
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/text"
+	"github.com/marrasen/gunim/theme"
 )
 
 // TextArea is editable text over several lines, wrapped to its width.
@@ -20,6 +21,8 @@ import (
 // between lines, and the text scrolls to keep it in view.
 type TextArea struct {
 	Placeholder string
+	// Face is the face the text is set in, and the theme's [Font] when unset.
+	Face theme.Token[*text.Face]
 	// OnChange turns the text into an intent to send when it changes.
 	OnChange func(text string) gunim.Intent
 	// Rows is how many lines tall the area is.
@@ -230,7 +233,7 @@ func (a *TextArea) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) 
 		w = AreaWidth.Get(th)
 	}
 	shown, _ := a.shown()
-	a.para = a.laid.layout(string(shown), text.Style{Size: TextSize.Get(th)}, w-2*pad)
+	a.para = a.laid.layout(faceIn(a.Face, th), string(shown), text.Style{Size: TextSize.Get(th)}, w-2*pad)
 	own := c.Constrain(geom.Sz(w, float32(max(a.Rows, 1))*a.para.LineHeight+2*pad))
 	a.view = own.H - 2*pad
 
@@ -282,7 +285,7 @@ func (a *TextArea) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 
 	o := a.origin(pad)
 	if len(a.text) == 0 && len(a.preedit) == 0 && a.Placeholder != "" {
-		ph := text.Default().Layout(a.Placeholder, text.Style{Size: TextSize.Get(th)}, box.W-2*pad)
+		ph := faceIn(a.Face, th).Layout(a.Placeholder, text.Style{Size: TextSize.Get(th)}, box.W-2*pad)
 		ph.Paint(p, o, Placeholder.Get(th))
 	}
 

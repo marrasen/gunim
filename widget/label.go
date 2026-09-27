@@ -18,6 +18,8 @@ type Label struct {
 	Text string
 	// Size and Color default to the theme's [TextSize] and [Ink]; set
 	// them to tokens of your own for a heading or a caption.
+	// Face is the face the text is set in, and the theme's [Font] when unset.
+	Face  theme.Token[*text.Face]
 	Size  theme.Token[float32]
 	Color theme.Token[color.NRGBA]
 	Align text.Align
@@ -35,7 +37,7 @@ func NewLabel(s string) *Label { return &Label{Text: s, Size: TextSize, Color: I
 func (l *Label) SetText(s string) { l.Text = s }
 
 func (l *Label) paragraph(f gunim.Frame, width float32) text.Paragraph {
-	return l.laid.layout(l.Text, text.Style{Size: l.Size.Get(f.Theme), Align: l.Align, MaxLines: l.MaxLines}, width)
+	return l.laid.layout(faceIn(l.Face, f.Theme), l.Text, text.Style{Size: l.Size.Get(f.Theme), Align: l.Align, MaxLines: l.MaxLines}, width)
 }
 
 // Layout implements [gunim.Node].

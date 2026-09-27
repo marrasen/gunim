@@ -36,6 +36,8 @@ type TableColumn struct {
 	Width float32
 	// End lines the column's text up at its right edge, as numbers are.
 	End bool
+	// Face is the face the column's cells are set in, and the theme's [Font] when unset.
+	Face theme.Token[*text.Face]
 }
 
 // TableRow is what a [Table] shows for one row: a line of text for each
@@ -398,8 +400,8 @@ func (t *Table) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim.C
 
 // cellText lays out s for a cell width wide, cut short with an ellipsis
 // when it will not fit.
-func cellText(cache *laidText, s string, size, width float32) text.Paragraph {
-	return cache.layout(s, text.Style{Size: size, MaxLines: 1}, max(width, 1))
+func cellText(cache *laidText, face *text.Face, s string, size, width float32) text.Paragraph {
+	return cache.layout(face, s, text.Style{Size: size, MaxLines: 1}, max(width, 1))
 }
 
 // tableHeader is a table's row of column titles.
@@ -427,7 +429,7 @@ func (h *tableHeader) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gu
 			break
 		}
 		x, w := t.xs[i][0], t.xs[i][1]
-		para := cellText(&h.titles[i], c.Title, size, w-12)
+		para := cellText(&h.titles[i], faceIn(Font, th), c.Title, size, w-12)
 		at := x
 		if c.End {
 			at = x + w - 12 - para.Size.W
@@ -551,7 +553,7 @@ func (r *tableRow) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 			break
 		}
 		x, w := t.xs[i][0], t.xs[i][1]
-		para := cellText(&r.cells[i], s, size, w-12)
+		para := cellText(&r.cells[i], faceIn(t.Columns[i].Face, th), s, size, w-12)
 		at := x
 		if t.Columns[i].End {
 			at = x + w - 12 - para.Size.W

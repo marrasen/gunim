@@ -173,7 +173,7 @@ target it is already heading for, so the repeated call is free.
 ## Themes
 
 A theme sets how widgets look and move: colours, but also paddings,
-radii, text sizes and the springs that animations run on. A widget
+radii, fonts, text sizes and the springs that animations run on. A widget
 declares each value as a token with a default, and reads it every frame:
 
 ```go

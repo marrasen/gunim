@@ -112,6 +112,19 @@ func Spring(key string, def anim.Spring) Token[anim.Spring] {
 	return New(key, def, anim.SpringCodec)
 }
 
+// Choice declares a token for a value that cannot blend, such as a
+// font: a switch changes it whole, halfway through.
+func Choice[T any](key string, def T) Token[T] {
+	t := New(key, def, anim.Codec[T]{})
+	t.blend = func(from, to T, p float32) T {
+		if p < 0.5 {
+			return from
+		}
+		return to
+	}
+	return t
+}
+
 // Key returns the token's name.
 func (t Token[T]) Key() string { return t.key }
 

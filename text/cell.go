@@ -16,23 +16,24 @@ import (
 // That is how terminals draw, and it keeps a screen that changes whole,
 // as a scrolling one does, cheap to draw again.
 
-var (
-	monoOnce  sync.Once
-	monoFaces [4]*Face
-)
+var monoFaces = builtins{
+	name:  "Go Mono",
+	fonts: [4][]byte{gomono.TTF, gomonobold.TTF, gomonoitalic.TTF, gomonobolditalic.TTF},
+}
 
 // GoMono returns Go Mono, a monospaced face for code and terminals, in
 // the style asked for.
-func GoMono(bold, italic bool) *Face {
-	monoOnce.Do(func() {
-		for i, data := range [4][]byte{gomono.TTF, gomonobold.TTF, gomonoitalic.TTF, gomonobolditalic.TTF} {
-			f, err := Parse(data)
-			if err != nil {
-				panic("text: the built-in Go Mono font fails to parse: " + err.Error())
-			}
-			monoFaces[i] = f
-		}
-	})
+func GoMono(bold, italic bool) *Face { return monoFaces.get(bold, italic) }
+
+// builtins is a family of four built-in faces, each parsed on first use.
+type builtins struct {
+	name  string
+	fonts [4][]byte
+	once  [4]sync.Once
+	faces [4]*Face
+}
+
+func (b *builtins) get(bold, italic bool) *Face {
 	i := 0
 	if bold {
 		i |= 1
@@ -40,7 +41,14 @@ func GoMono(bold, italic bool) *Face {
 	if italic {
 		i |= 2
 	}
-	return monoFaces[i]
+	b.once[i].Do(func() {
+		f, err := Parse(b.fonts[i])
+		if err != nil {
+			panic("text: the built-in " + b.name + " font fails to parse: " + err.Error())
+		}
+		b.faces[i] = f
+	})
+	return b.faces[i]
 }
 
 // Glyph returns the glyph that draws r on its own, from f, the faces it

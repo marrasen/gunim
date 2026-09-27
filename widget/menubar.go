@@ -286,7 +286,7 @@ func (b *Menubar) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) g
 	pad := MenuRowPadding.Get(th)
 	x := float32(4)
 	for i, m := range b.Menus {
-		w := b.titles[i].shape(m.Title, TextSize.Get(th)).Advance + 2*pad
+		w := b.titles[i].shape(faceIn(Font, th), m.Title, TextSize.Get(th)).Advance + 2*pad
 		b.spans = append(b.spans, [2]float32{x, x + w})
 		x += w
 	}
@@ -315,7 +315,7 @@ func (b *Menubar) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.
 		if n := len(b.spans); n > 0 {
 			end = b.spans[n-1][1] + 2*pad
 		}
-		run := b.titleRun.shape(b.Title, TextSize.Get(th))
+		run := b.titleRun.shape(faceIn(Font, th), b.Title, TextSize.Get(th))
 		x := (box.W - run.Advance) / 2
 		if x < end {
 			x = end + (box.W-end-run.Advance)/2

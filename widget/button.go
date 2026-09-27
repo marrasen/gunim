@@ -150,7 +150,7 @@ func (b *Button) fire(u *gunim.UI) {
 
 // Layout implements [gunim.Node].
 func (b *Button) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
-	run := b.text.shape(b.Label, TextSize.Get(f.Theme))
+	run := b.text.shape(faceIn(Font, f.Theme), b.Label, TextSize.Get(f.Theme))
 	b.size = c.Constrain(geom.Sz(run.Advance+2*ButtonPadding.Get(f.Theme), ButtonHeight.Get(f.Theme)))
 	if b.Kind != b.is {
 		b.was, b.is = b.is, b.Kind
@@ -194,7 +194,7 @@ func (b *Button) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 	}
 	fill := anim.Mix(anim.ColorCodec, mix(fromRest, rest), mix(fromHover, hover), b.hover.Value())
 	p.RRect(r, radius, paint.Solid(fill))
-	run := b.text.shape(b.Label, TextSize.Get(th))
+	run := b.text.shape(faceIn(Font, th), b.Label, TextSize.Get(th))
 	run.Paint(p, geom.Pt((box.W-run.Advance)/2, (box.H-run.Height())/2), mix(fromInk, ink))
 }
 

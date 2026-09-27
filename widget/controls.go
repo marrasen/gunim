@@ -134,7 +134,7 @@ func (t *toggle) layout(c gunim.Constraints, f gunim.Frame, mark geom.Size) geom
 	}
 	w, h := mark.W, mark.H
 	if t.Label != "" {
-		run := t.text.shape(t.Label, TextSize.Get(f.Theme))
+		run := t.text.shape(faceIn(Font, f.Theme), t.Label, TextSize.Get(f.Theme))
 		w += ControlGap.Get(f.Theme) + run.Advance
 		h = max(h, run.Height())
 	}
@@ -148,7 +148,7 @@ func (t *toggle) paintLabel(p *paint.Painter, f gunim.Frame, box geom.Size, mark
 	if t.Label == "" {
 		return
 	}
-	run := t.text.shape(t.Label, TextSize.Get(f.Theme))
+	run := t.text.shape(faceIn(Font, f.Theme), t.Label, TextSize.Get(f.Theme))
 	run.Paint(p, geom.Pt(mark+ControlGap.Get(f.Theme), (box.H-run.Height())/2), Ink.Get(f.Theme))
 }
 
@@ -554,7 +554,7 @@ func (b *tabBar) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) ge
 	t.spans = t.spans[:0]
 	x := float32(0)
 	for i, s := range t.Titles {
-		w := t.shaped[i].shape(s, TextSize.Get(th)).Advance + 2*pad
+		w := t.shaped[i].shape(faceIn(Font, th), s, TextSize.Get(th)).Advance + 2*pad
 		t.spans = append(t.spans, [2]float32{x, x + w})
 		x += w
 	}

@@ -31,6 +31,8 @@ import (
 // until it commits.
 type TextField struct {
 	Placeholder string
+	// Face is the face the text is set in, and the theme's [Font] when unset.
+	Face theme.Token[*text.Face]
 	// Secret shows each character as a dot, as a password field does,
 	// keeps the text off the clipboard, and gives a screen reader no
 	// value to read.
@@ -223,7 +225,7 @@ func (t *TextField) run(th *theme.Live) text.Run {
 	if t.Secret {
 		shown = []rune(strings.Repeat("•", len(shown)))
 	}
-	t.line = t.shaped.shape(string(shown), TextSize.Get(th))
+	t.line = t.shaped.shape(faceIn(t.Face, th), string(shown), TextSize.Get(th))
 	return t.line
 }
 
@@ -287,7 +289,7 @@ func (t *TextField) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ guni
 	x := pad - t.scroll.Value()
 	y := (box.H - run.Height()) / 2
 	if len(t.text) == 0 && len(t.preedit) == 0 && t.Placeholder != "" {
-		ph := text.Default().Shape(t.Placeholder, TextSize.Get(th))
+		ph := faceIn(t.Face, th).Shape(t.Placeholder, TextSize.Get(th))
 		ph.Paint(p, geom.Pt(pad, y), Placeholder.Get(th))
 	}
 
@@ -298,7 +300,7 @@ func (t *TextField) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ guni
 	}
 	run.Paint(p, geom.Pt(x, y), Ink.Get(th))
 	if t.Ghost != "" && focus > 0.01 && t.atEnd() && !t.Secret {
-		ghost := text.Default().Shape(t.Ghost, TextSize.Get(th))
+		ghost := faceIn(t.Face, th).Shape(t.Ghost, TextSize.Get(th))
 		ghost.Paint(p, geom.Pt(x+run.Advance, y), Placeholder.Get(th))
 	}
 	if len(t.preedit) > 0 {

@@ -8,6 +8,8 @@ import (
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
+	"github.com/marrasen/gunim/text"
+	"github.com/marrasen/gunim/theme"
 )
 
 // spot is a fixed-size node that remembers where it was last drawn, in
@@ -241,5 +243,29 @@ func TestLabelWrapsToItsWidth(t *testing.T) {
 	run(1)
 	if short := l.laid.p.Size.H; short >= tall {
 		t.Fatalf("at 1000 px the label is %v tall, at 120 px %v; want it shorter when wider", short, tall)
+	}
+}
+
+func TestLabelSetsTextInItsFace(t *testing.T) {
+	sans, mono := NewLabel("iiii"), NewLabel("iiii")
+	mono.Face = MonoFont
+	stage(t, &frame{child: Column(sans, mono), size: geom.Sz(400, 400)})
+	if got := sans.laid.face; got != text.Default() {
+		t.Fatalf("a label with no face is set in %v, want the default face", got)
+	}
+	wide := text.GoMono(false, false).Shape("MMMM", 14).Advance
+	if got := mono.laid.p.Size.W; got != wide {
+		t.Fatalf("iiii in the mono face is %v wide, want %v, as wide as MMMM", got, wide)
+	}
+}
+
+func TestThemeFontReachesLabels(t *testing.T) {
+	l := NewLabel("text")
+	w, run := stage(t, &frame{child: l, size: geom.Sz(400, 100)})
+	w.RegisterTheme(theme.Make("code", theme.Set(Font, text.GoMono(false, false))))
+	w.Client().SetTheme("code")
+	run(120)
+	if got := l.laid.face; got != text.GoMono(false, false) {
+		t.Fatalf("after switching to a theme with a mono font, the label is set in %v", got)
 	}
 }

@@ -5,6 +5,7 @@ import (
 
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/text"
 	"github.com/marrasen/gunim/theme"
 )
 
@@ -16,6 +17,11 @@ var (
 	Accent = theme.Color("accent", color.NRGBA{R: 0x5e, G: 0x9c, B: 0xff, A: 0xff})
 	// TextSize is the body text size.
 	TextSize = theme.Length("text.size", 14)
+	// Font is the face text is set in, BoldFont the face for strong text,
+	// and MonoFont the face for code and logs.
+	Font     = theme.Choice("text.font", text.Default())
+	BoldFont = theme.Choice("text.font.bold", text.GoSans(true, false))
+	MonoFont = theme.Choice("text.font.mono", text.GoMono(false, false))
 
 	// Quick is the motion for direct feedback: hover, press, focus.
 	Quick = theme.Spring("motion.quick", anim.Snappy)

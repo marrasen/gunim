@@ -28,6 +28,9 @@ import (
 	"github.com/go-text/typesetting/font/opentype"
 	"github.com/go-text/typesetting/language"
 	"github.com/go-text/typesetting/shaping"
+	"golang.org/x/image/font/gofont/gobold"
+	"golang.org/x/image/font/gofont/gobolditalic"
+	"golang.org/x/image/font/gofont/goitalic"
 	"golang.org/x/image/font/gofont/goregular"
 	"golang.org/x/image/math/fixed"
 	"golang.org/x/image/vector"
@@ -49,9 +52,6 @@ var (
 	levels  bidi.Paragraph
 	faces   []*Face
 	byFont  = map[*font.Face]*Face{}
-
-	defaultOnce sync.Once
-	defaultFace *Face
 )
 
 // A Face is a font, ready to shape and rasterize, with the faces it
@@ -115,16 +115,16 @@ func faceOf(ff *font.Face) *Face {
 
 // Default returns Go Regular, the face gunim uses when a widget names
 // none.
-func Default() *Face {
-	defaultOnce.Do(func() {
-		f, err := Parse(goregular.TTF)
-		if err != nil {
-			panic("text: the built-in Go Regular font fails to parse: " + err.Error())
-		}
-		defaultFace = f
-	})
-	return defaultFace
+func Default() *Face { return GoSans(false, false) }
+
+var sansFaces = builtins{
+	name:  "Go",
+	fonts: [4][]byte{goregular.TTF, gobold.TTF, goitalic.TTF, gobolditalic.TTF},
 }
+
+// GoSans returns Go, the proportional face gunim sets text in, in the
+// style asked for.
+func GoSans(bold, italic bool) *Face { return sansFaces.get(bold, italic) }
 
 // Lookup returns the face a [paint.Glyph] names. A driver calls it to
 // rasterize the glyphs of a [paint.TextOp].
