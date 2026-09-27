@@ -230,9 +230,21 @@ func TestAPaletteShowsItemsFoundElsewhere(t *testing.T) {
 	if row("/work/docs/readme.md") != moved || moved.index != 0 || o.p.card.hotIndex() != 0 {
 		t.Fatal("a row found again was not kept and moved to the top")
 	}
+	// The highlight moved on stays with its item as the answer grows.
+	w.Input(input.KeyPress{Key: input.KeyDown})
+	run(2)
+	o.p.SetItems([]PaletteItem{
+		{Title: "readme.md", Key: "/work/docs/readme.md"},
+		{Title: "rent.txt", Key: "/rent.txt"},
+		{Title: "report.txt", Key: "/work/report.txt"},
+	}, o.u)
+	run(2)
+	if o.p.card.hotIndex() != 2 {
+		t.Fatalf("the highlight went to %d as the items grew, want it on report.txt, 2", o.p.card.hotIndex())
+	}
 	w.Input(input.KeyPress{Key: input.KeyEnter, Mods: input.ModControl})
 	run(10)
-	if len(ctrl) != 1 || ctrl[0] != 0 || len(o.picked) != 0 {
-		t.Fatalf("Ctrl+Enter picked %v and %v, want CtrlPick with 0", ctrl, o.picked)
+	if len(ctrl) != 1 || ctrl[0] != 2 || len(o.picked) != 0 {
+		t.Fatalf("Ctrl+Enter picked %v and %v, want CtrlPick with 2", ctrl, o.picked)
 	}
 }

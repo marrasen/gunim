@@ -117,9 +117,15 @@ func (p *Palette) IsOpen() bool { return p.popup != nil && p.popup.Open() }
 // SetItems makes items the palette's items, in the order given, for a
 // palette whose Search ranks them. Rows move to their new places.
 func (p *Palette) SetItems(items []PaletteItem, u *gunim.UI) {
+	was := Key("")
+	if p.IsOpen() && p.card.hot > 0 {
+		if i := p.card.hotIndex(); i >= 0 {
+			was = p.keyOf(i)
+		}
+	}
 	p.Items = items
 	if p.IsOpen() {
-		p.card.show(u)
+		p.card.show(was, u)
 	}
 }
 
@@ -237,10 +243,19 @@ func (c *paletteCard) filter(q string, u *gunim.UI) {
 }
 
 // show shows the items as given, for a palette whose Search ranks them.
-func (c *paletteCard) show(u *gunim.UI) {
+// The highlight stays on the item under key was while the items hold it.
+func (c *paletteCard) show(was Key, u *gunim.UI) {
 	c.found = make([]match.Found, len(c.p.Items))
 	for i, it := range c.p.Items {
 		c.found[i] = match.Found{Index: i, At: it.At}
+	}
+	for k := range c.found {
+		if was != "" && c.p.keyOf(k) == was {
+			c.refill(u)
+			c.hot = k
+			c.light(u)
+			return
+		}
 	}
 	c.list.ScrollTo(0, Quick.Get(u.Theme()))
 	c.refill(u)
