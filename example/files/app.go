@@ -101,7 +101,8 @@ func launch(ctx context.Context, c gunim.Client, o options) (*app, error) {
 	if err := c.Mount(gunim.Root, browserID, "browser", a.shell); err != nil {
 		return nil, err
 	}
-	a.handlers = []handler{a.handleNav, a.handleOps, a.handlePreview, a.handlePlaces, a.handleShell, a.handleSearch}
+	a.handlers = []handler{a.handleNav, a.handleOps, a.handlePreview, a.handlePlaces, a.handleShell, a.handleSearch,
+		a.handleTheme}
 	a.startup(o)
 	return a, nil
 }

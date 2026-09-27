@@ -13,7 +13,8 @@ const scriptPause = 700 * time.Millisecond
 // runScript runs the next step of the script from -do, and the rest after
 // it, each after a pause. A step is a command's name, "into:name" to go
 // into a folder, "select:name" to select an item, "filter:text" to filter,
-// "palette:text" to open the palette with text typed, "big-copy" or
+// "palette:text" to open the palette with text typed, "theme:light" or
+// "theme:dark" to switch the theme, "big-copy" or
 // "big-copy:MB a second" to copy a 2 GB file slowly, or "wait" to do
 // nothing.
 func (a *app) runScript() {
@@ -44,6 +45,8 @@ func (a *app) scriptStep(step string) {
 		a.showPreview()
 	case "filter":
 		a.handle(a.handlers, FilterChanged{Text: arg})
+	case "theme":
+		a.handle(a.handlers, Command{Name: "theme." + arg})
 	case "big-copy":
 		a.bigCopy(arg)
 	case "palette":

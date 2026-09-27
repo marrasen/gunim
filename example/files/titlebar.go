@@ -59,7 +59,8 @@ var menus = []struct {
 		{"Sort by date modified", "", CmdSortTime},
 		{"Sort by type", "", CmdSortType},
 		{"-", "", ""},
-		{"Light theme", "", CmdTheme},
+		{"Dark theme", "", CmdThemeDark},
+		{"Light theme", "", CmdThemeLight},
 		{"Refresh", "F5", CmdRefresh},
 	}},
 	{"Go", []menuItem{
@@ -139,7 +140,8 @@ func (t *titleBar) check(cmd string, on bool) {
 func (t *titleBar) setShell(s Shell) {
 	t.check(CmdHidden, s.ShowHidden)
 	t.check(CmdPreview, s.ShowPreview)
-	t.check(CmdTheme, s.Light)
+	t.check(CmdThemeDark, !s.Light)
+	t.check(CmdThemeLight, s.Light)
 }
 
 // setListing names the folder in the title, and ticks the sort.

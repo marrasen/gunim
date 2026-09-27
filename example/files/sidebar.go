@@ -57,7 +57,7 @@ func newSidebar() *sidebar {
 	s.col = widget.Column(places, s.places, widget.NewSized(widget.NewSpacer(), 0, 6), favs, s.favs, s.hint)
 	s.col.Cross = widget.CrossStretch
 	s.col.Gap = sideSpacing
-	s.scroll = widget.NewScroll(&sidePad{child: s.col})
+	s.scroll = widget.NewScroll(&sidePad{child: widget.NewThemed(s.col, sideTheme())})
 	return s
 }
 

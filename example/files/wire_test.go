@@ -18,7 +18,7 @@ func TestWire(t *testing.T) {
 			Sort: SortSize, Desc: true, Filter: "x", Travel: -1, CanBack: true},
 		RowBlock{Gen: 3, Start: 0, Rows: []Row{{Name: "a.txt", Kind: KindFile, Size: "4 bytes", Tint: TintDocument}}},
 		Selection{Gen: 3, Runs: [][2]int{{0, 2}}, Cursor: 1},
-		Bands{Gen: 3, Bands: []Band{{Folders: 0.5, Other: 0.5, First: "a"}}},
+		Bands{Gen: 3, Bands: []Band{{Shares: []float32{0.5, 0.5}, First: "a"}}},
 		Status{Left: "2 items", Right: "1 GB free"},
 		Banner{Seq: 1, Text: "no"},
 		NeedRows{Gen: 3, Starts: []int{0, 256}},

@@ -279,11 +279,7 @@ func (pg *listingPage) setBands(bs []Band) {
 	parts := make([]widget.OverviewBand, len(bs))
 	pg.firstNames = pg.firstNames[:0]
 	for i, b := range bs {
-		parts[i] = widget.OverviewBand{Parts: []widget.OverviewPart{
-			{Share: b.Folders, Color: tintToken(TintFolder)},
-			{Share: b.Media, Color: tintToken(TintImage)},
-			{Share: b.Other, Color: tintToken(TintOther), Faint: true},
-		}}
+		parts[i] = widget.OverviewBand{Parts: overviewParts(b.Shares)}
 		pg.firstNames = append(pg.firstNames, b.First)
 	}
 	pg.strip.Bands = parts

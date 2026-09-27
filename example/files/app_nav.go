@@ -458,20 +458,12 @@ func (a *app) publishBands() {
 	bands := make([]Band, count)
 	for b := range count {
 		from, to := b*len(n.rows)/count, (b+1)*len(n.rows)/count
-		var dirs, media, other int
-		for _, e := range n.rows[from:to] {
-			switch tintOf(e) {
-			case TintFolder:
-				dirs++
-			case TintImage, TintVideo, TintAudio:
-				media++
-			case TintOther, TintArchive, TintDocument, TintCode, TintProgram:
-				other++
-			}
-		}
+		shares := make([]float32, TintProgram+1)
 		all := float32(max(to-from, 1))
-		bands[b] = Band{Folders: float32(dirs) / all, Media: float32(media) / all, Other: float32(other) / all,
-			First: n.rows[from].Name}
+		for _, e := range n.rows[from:to] {
+			shares[tintOf(e)] += 1 / all
+		}
+		bands[b] = Band{Shares: shares, First: n.rows[from].Name}
 	}
 	a.patch(Bands{Gen: n.gen, Bands: bands})
 }
