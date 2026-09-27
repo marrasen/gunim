@@ -151,6 +151,9 @@ type DataGrid struct {
 	// Copy returns the text Ctrl+C copies for row i, and the row's
 	// [GridRow.Text] when nil.
 	Copy func(i int) string
+	// OnCopy, when set, turns Ctrl+C on the selected rows into an intent
+	// in place of copying their text, as for a list of files.
+	OnCopy func(sel [][2]int) gunim.Intent
 	// NoHeader hides the column titles, and NoBar the scrollbar, for a
 	// grid that shows its position some other way.
 	NoHeader bool
@@ -936,6 +939,12 @@ func (g *DataGrid) move(e input.PointerMove, u *gunim.UI) bool {
 func (g *DataGrid) key(e input.KeyPress, u *gunim.UI) bool {
 	if e.Mods.Has(input.ModControl) {
 		switch {
+		case e.Key == input.KeyC && g.OnCopy != nil:
+			if sel := g.SelectedRows(); len(sel) > 0 {
+				g.send(g.OnCopy(sel), u)
+				return true
+			}
+			return false
 		case e.Key == input.KeyC && g.Multi && len(g.runs) > 0:
 			u.SetClipboard(g.copyRuns())
 			return true

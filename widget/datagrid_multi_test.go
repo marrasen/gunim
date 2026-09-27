@@ -169,3 +169,22 @@ func TestRunsStayInOrderAndApart(t *testing.T) {
 		t.Fatalf("the runs hold %d rows, want 13", n)
 	}
 }
+
+type rowsCopied struct{ Sel [][2]int }
+
+func TestOnCopyTakesCtrlCInPlaceOfText(t *testing.T) {
+	g, w, run, clickRow := multiGrid(t)
+	g.OnCopy = func(sel [][2]int) gunim.Intent { return rowsCopied{sel} }
+	clickRow(2, 0)
+	clickRow(4, input.ModShift)
+	sent(w)
+	w.Input(input.KeyPress{Key: input.KeyC, Mods: input.ModControl})
+	run(1)
+	got := sent(w)
+	if len(got) != 1 {
+		t.Fatalf("Ctrl+C sent %v, want one intent", got)
+	}
+	if c, ok := got[0].(rowsCopied); !ok || !slices.Equal(c.Sel, [][2]int{{2, 5}}) {
+		t.Fatalf("Ctrl+C sent %v, want rows 2 to 4", got[0])
+	}
+}
