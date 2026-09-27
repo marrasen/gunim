@@ -28,3 +28,10 @@ func TestAClickOnALinkRunsItAndSendsItsIntent(t *testing.T) {
 		t.Fatalf("a link reads as a %v", role)
 	}
 }
+
+func TestSizedHoldsItsChildToItsWidth(t *testing.T) {
+	a, b := newSpot(40, 20), newSpot(30, 20)
+	stage(t, &frame{child: Row(NewSized(a, 120, 0), b), size: geom.Sz(400, 100)})
+	// b starts after the 120 the first child is held to, and the gap.
+	at(t, b, geom.Pt(120+Gap.Default(), 0))
+}
