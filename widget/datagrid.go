@@ -1135,6 +1135,10 @@ func (g *DataGrid) move(e input.PointerMove, u *gunim.UI) bool {
 
 func (g *DataGrid) key(e input.KeyPress, u *gunim.UI) bool {
 	if e.Mods.Has(input.ModControl) {
+		if e.Mods.Has(input.ModShift) {
+			// Ctrl with Shift is left to the keys around the grid
+			return false
+		}
 		switch {
 		case e.Key == input.KeyC && g.OnCopy != nil:
 			if sel := g.SelectedRows(); len(sel) > 0 {

@@ -127,3 +127,22 @@ func dragged(v any) [][2]int {
 	}
 	return nil
 }
+
+func TestCtrlShiftCIsLeftToTheKeysAroundTheGrid(t *testing.T) {
+	g, w, run, rowY, _ := dragGrid(t)
+	g.OnCopy = func([][2]int) gunim.Intent { return rowsDragged{} }
+	w.Input(input.PointerDown{Pos: geom.Pt(50, rowY(1)), Button: input.ButtonPrimary, Clicks: 1, Time: time.Now()})
+	w.Input(input.PointerUp{Pos: geom.Pt(50, rowY(1)), Button: input.ButtonPrimary, Time: time.Now()})
+	run(1)
+	sent(w)
+	w.Input(input.KeyPress{Key: input.KeyC, Mods: input.ModControl | input.ModShift, Time: time.Now()})
+	run(1)
+	if got := sent(w); len(got) != 0 {
+		t.Fatalf("Ctrl+Shift+C sent %v", got)
+	}
+	w.Input(input.KeyPress{Key: input.KeyC, Mods: input.ModControl, Time: time.Now()})
+	run(1)
+	if got := sent(w); len(got) != 1 {
+		t.Fatalf("Ctrl+C sent %v, want the copy", got)
+	}
+}
