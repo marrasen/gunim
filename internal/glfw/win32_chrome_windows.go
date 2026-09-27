@@ -47,21 +47,26 @@ const (
 	_TME_NONCLIENT = 0x00000010
 
 	// _DWMWA_WINDOW_CORNER_PREFERENCE asks Windows 11 how to draw the
-	// window's corners, and _DWMWCP_ROUND asks for them round.
+	// window's corners: _DWMWCP_ROUND round, _DWMWCP_DONOTROUND square.
 	_DWMWA_WINDOW_CORNER_PREFERENCE = 33
+	_DWMWCP_DONOTROUND              = 1
 	_DWMWCP_ROUND                   = 2
 )
 
 var procDwmSetWindowAttribute = dwmapi.NewProc("DwmSetWindowAttribute")
 
 // roundCorners asks Windows 11 to round the window's corners, as it
-// does its own windows'. Earlier versions have no round corners and
-// refuse, which leaves the window as it was.
-func (w *Window) roundCorners() {
+// does its own windows', or with round unset to square them, as for a
+// window filling its monitor. Earlier versions have no round corners
+// and refuse, which leaves the window as it was.
+func (w *Window) roundCorners(round bool) {
 	if procDwmSetWindowAttribute.Find() != nil {
 		return
 	}
-	pref := uint32(_DWMWCP_ROUND)
+	pref := uint32(_DWMWCP_DONOTROUND)
+	if round {
+		pref = _DWMWCP_ROUND
+	}
 	_, _, _ = procDwmSetWindowAttribute.Call(uintptr(w.platform.handle), _DWMWA_WINDOW_CORNER_PREFERENCE,
 		uintptr(unsafe.Pointer(&pref)), unsafe.Sizeof(pref))
 }
@@ -98,7 +103,7 @@ func (w *Window) platformSetChromeless(on bool) error {
 	}
 	w.platform.chromeless = on
 	if on {
-		w.roundCorners()
+		w.roundCorners(w.monitor == nil)
 	}
 	// The frame is worked out again, and the window keeps the size of
 	// its content.

@@ -1993,6 +1993,11 @@ func (w *Window) platformSetWindowMonitor(monitor *Monitor, xpos, ypos, width, h
 	}
 
 	w.inputWindowMonitor(monitor)
+	// A chromeless window's round corners would cut into the screen
+	// while it fills the monitor.
+	if w.platform.chromeless {
+		w.roundCorners(w.monitor == nil)
+	}
 
 	if w.monitor != nil {
 		var flags uint32 = _SWP_SHOWWINDOW | _SWP_NOACTIVATE | _SWP_NOCOPYBITS
