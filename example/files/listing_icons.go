@@ -21,7 +21,7 @@ import (
 // labelRoom is the height under a tile's picture for its name, two lines of it.
 const labelRoom = 38
 
-// registerIcons wires the icon view's patches.
+// registerIcons wires the icon view's patches and the viewer.
 func registerIcons(w *gunim.Window) {
 	gunim.RegisterPatch(w, "browser", func(b *browser, v ViewMode, u *gunim.UI) {
 		b.status.views.set(v, u)
@@ -30,6 +30,7 @@ func registerIcons(w *gunim.Window) {
 		b.listing.setView(v, u)
 	})
 	gunim.RegisterPatch(w, "browser", func(b *browser, t Thumb, u *gunim.UI) { b.listing.thumb(t, u) })
+	registerViewer(w)
 }
 
 // setView shows the folder at v.Path as icons or as details, sliding from one to the other on the page showing.
@@ -96,6 +97,9 @@ func newIconView(pg *listingPage) *iconView {
 	}
 	g.OnSelect = func(sel [][2]int, cursor int) gunim.Intent { return Selected{Gen: pg.gen, Runs: sel, Cursor: cursor} }
 	g.OnActivate = func(i int) gunim.Intent {
+		if r, ok := pg.view(i); ok && !r.Dir && viewable(r.Name) {
+			return OpenViewer{Gen: pg.gen, Row: i}
+		}
 		return Activated{Gen: pg.gen, Row: i}
 	}
 	g.OnZoom = func(notches float32, u *gunim.UI) {

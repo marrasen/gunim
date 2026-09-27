@@ -217,6 +217,17 @@ func (a *app) sendThumb(job thumbJob, done thumbDone) {
 	a.patch(th)
 }
 
+// cachedThumb returns the largest thumbnail made of the file at path as it was at mod, and the picture's own size,
+// or nil.
+func (a *app) cachedThumb(path string, mod int64) (*paint.Image, image.Point) {
+	for i := len(thumbSizes) - 1; i >= 0; i-- {
+		if d, ok := a.thumbs.cache[thumbKey{path: path, size: thumbSizes[i], mod: mod}]; ok && d.img != nil {
+			return d.img, d.full
+		}
+	}
+	return nil, image.Point{}
+}
+
 // makeThumb reads the picture at path and makes it at most size pixels across, and returns the picture's own size.
 func makeThumb(path string, size int) (*paint.Image, image.Point, error) {
 	img, full, err := decodePicture(path)
@@ -260,8 +271,9 @@ func decodePicture(path string) (img image.Image, size image.Point, err error) {
 	return img, size, nil
 }
 
-// enteredFolder tells the window how the folder about to show shows.
+// enteredFolder closes the viewer, and tells the window how the folder about to show shows.
 func (a *app) enteredFolder() {
+	a.closeViewer()
 	a.publishView()
 }
 

@@ -53,6 +53,11 @@ runs, and each finished operation leaves a toast with Undo. A folder of
 a hundred thousand files lists in the background and scrolls at once,
 as the grid draws only the rows in view.
 
+Ctrl+2 shows a folder as icons, and each row flies to its tile. Pictures
+show thumbnails, decoded in the background for the tiles in view. Space
+opens a picture large: it grows out of its tile, the arrow keys slide
+to the next, the wheel zooms about the pointer, and Escape flies it back.
+
 ## The split
 
 A gunim program is two halves that speak only in values.

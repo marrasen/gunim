@@ -184,6 +184,8 @@ func (b *browser) Handle(e input.Event, u *gunim.UI) bool {
 		cmd = CmdHome
 	case k.Key == input.KeyF5:
 		cmd = CmdRefresh
+	case k.Key == input.KeySpace && !shift:
+		cmd = CmdViewer
 	case k.Key == input.KeyF2:
 		cmd = CmdRename
 	case shift && k.Key == input.KeyDelete:

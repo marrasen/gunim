@@ -109,12 +109,17 @@ func (h *harness) recordTiles() func(name string) *iconTile {
 	}
 }
 
-func TestTheWireCarriesTheIconView(t *testing.T) {
+func TestTheWireCarriesTheIconViewAndTheViewer(t *testing.T) {
 	err := gunim.CheckWire(
 		ViewMode{Path: "/a", Icons: true, Tile: 128},
 		NeedThumbs{Gen: 2, Size: 128, Rows: []int{1, 2}},
 		Thumb{Dir: "/a", Name: "b.png", Size: 128, Err: "no"},
 		TileSized{Size: 140},
+		OpenViewer{Gen: 2, Row: 1},
+		ViewerStep{Dir: -1},
+		ViewerWants{Seq: 1, W: 800, H: 600},
+		ViewerClosed{Seq: 1},
+		Viewing{Seq: 1, Travel: 1, Path: "/a/b.png", Name: "b.png", Index: 2, Count: 3, W: 60, H: 40, Loading: true},
 	)
 	if err != nil {
 		t.Fatal(err)
