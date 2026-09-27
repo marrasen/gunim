@@ -2,7 +2,10 @@
 
 package main
 
-import "errors"
+import (
+	"errors"
+	"time"
+)
 
 // errNoTrash is returned where the app knows no trash for the system.
 var errNoTrash = errors.New("moving to the trash is not supported on this system; delete permanently instead")
@@ -12,7 +15,9 @@ type noTrash struct{}
 
 func (noTrash) Trash(string) (string, error) { return "", errNoTrash }
 
-func (noTrash) Restore(string, string) error { return errNoTrash }
+func (noTrash) Restore(string, string, time.Time, string) error { return errNoTrash }
+
+func (noTrash) Describe(string) string { return "" }
 
 // systemTrash returns a trash that says the system has none the app knows.
 func systemTrash() (trasher, error) { return noTrash{}, nil }

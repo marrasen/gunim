@@ -22,12 +22,12 @@ func TestTheSpeedComesFromACopysProgress(t *testing.T) {
 	if _, err := runJob(context.Background(), job{kind: OpCopy, srcs: []string{src}, dest: root}, e); err != nil {
 		t.Fatal(err)
 	}
-	// Each report a quarter of a second after the one before.
+	// The copy moves a megabyte each quarter of a second.
 	var m speedometer
 	start := time.Now()
 	var rates []float64
-	for i, p := range reports {
-		if m.add(start.Add(time.Duration(i)*250*time.Millisecond), p.bytes) {
+	for _, p := range reports {
+		if m.add(start.Add(time.Duration(p.bytes/copyBuffer)*250*time.Millisecond), p.bytes) {
 			rates = append(rates, m.rate)
 		}
 	}
@@ -35,12 +35,13 @@ func TestTheSpeedComesFromACopysProgress(t *testing.T) {
 	if last.bytes != 4*copyBuffer || last.bytesTotal != 4*copyBuffer {
 		t.Fatalf("the copy reported %d of %d bytes at the end", last.bytes, last.bytesTotal)
 	}
-	var peak float64
-	for _, r := range rates {
-		peak = max(peak, r)
+	if len(rates) < 2 {
+		t.Fatalf("%d samples from %d reports", len(rates), len(reports))
 	}
-	if want := float64(copyBuffer) * 4; len(rates) < 3 || peak != want {
-		t.Fatalf("the samples are %v, want a megabyte a quarter second, %v, at their peak", rates, want)
+	for _, r := range rates {
+		if want := float64(copyBuffer) * 4; r != want {
+			t.Fatalf("the samples are %v, want each a megabyte a quarter second, %v", rates, want)
+		}
 	}
 	if left := m.left(copyBuffer, 4*copyBuffer); left <= 0 {
 		t.Fatalf("with three quarters to go the time left is %v", left)

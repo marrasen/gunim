@@ -356,7 +356,7 @@ func TestRestoreRefusesToOverwrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	tree(t, root, "a.txt")
-	if err := tr.Restore(filepath.Join(root, "a.txt"), to); err == nil || !strings.Contains(err.Error(), "exists again") {
+	if err := tr.Restore(filepath.Join(root, "a.txt"), to, time.Now(), filepath.Join(root, "a.txt")); err == nil || !strings.Contains(err.Error(), "exists again") {
 		t.Fatalf("restoring over a new file returned %v", err)
 	}
 	if contents(t, to) != "a.txt" {

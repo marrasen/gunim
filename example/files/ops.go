@@ -44,8 +44,11 @@ type job struct {
 
 // step is one item an operation moved or made: what was at from is now at
 // to. A new folder has no from, and a trashed item has no to where the
-// system does not say where it went.
-type step struct{ from, to string }
+// app cannot take it back out. at is when a trashed item went.
+type step struct {
+	from, to string
+	at       time.Time
+}
 
 // record is what an operation did, for undo to reverse.
 type record struct {
@@ -86,6 +89,9 @@ type clash struct {
 	// sameKind is set when both are folders or both are not, which a
 	// replace needs.
 	sameKind bool
+	// from says what src is where it is no path to read, as for an item
+	// in the Recycle Bin.
+	from string
 }
 
 // errStopped is returned when the user stops an operation at a clash.
@@ -156,7 +162,7 @@ func (r *runner) tell(now bool) {
 	}
 }
 
-func (r *runner) did(from, to string) { r.rec.steps = append(r.rec.steps, step{from, to}) }
+func (r *runner) did(from, to string) { r.rec.steps = append(r.rec.steps, step{from: from, to: to}) }
 
 // measure counts the items and bytes under path, stopping at the first
 // error.
@@ -611,11 +617,12 @@ func (r *runner) trashAll(srcs []string) error {
 		}
 		r.p.current = src
 		r.tell(false)
+		at := time.Now()
 		to, err := r.env.trash.Trash(src)
 		if err != nil {
 			return err
 		}
-		r.did(src, to)
+		r.rec.steps = append(r.rec.steps, step{from: src, to: to, at: at})
 		r.p.items++
 	}
 	return nil
@@ -739,6 +746,9 @@ func (r *runner) undo(rec *record) error {
 			return err
 		}
 		r.p.current = s.to
+		if rec.kind == OpTrash {
+			r.p.current = s.from
+		}
 		r.tell(false)
 		if err := r.undoStep(rec.kind, s); err != nil {
 			return err
@@ -767,13 +777,7 @@ func (r *runner) undoStep(k OpKind, s step) error {
 			return err
 		}
 	case OpTrash:
-		if s.to == "" {
-			return errNoRestore
-		}
-		if err := r.env.trash.Restore(s.from, s.to); err != nil {
-			return err
-		}
-		r.did(s.to, s.from)
+		return r.restore(s)
 	case OpDelete, OpUndo:
 		return errors.New("this cannot be undone")
 	}

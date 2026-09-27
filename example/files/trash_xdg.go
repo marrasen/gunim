@@ -88,25 +88,64 @@ func (t xdgTrash) claim(abs, name string) (dest string, ok bool, err error) {
 	return dest, true, nil
 }
 
-// Restore implements [trasher].
-func (t xdgTrash) Restore(original, trashed string) error {
+// Restore implements [trasher]: it checks the item's .trashinfo record
+// says it came from original, moves it to to, and removes the record.
+func (t xdgTrash) Restore(original, trashed string, _ time.Time, to string) error {
 	if trashed == "" {
 		return errNoRestore
 	}
-	if _, err := os.Lstat(original); err == nil {
-		return fmt.Errorf("%s exists again; move it away to restore the one in the trash", original)
-	} else if !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("restoring %s: %w", original, err)
-	}
-	if err := os.Rename(trashed, original); err != nil {
-		return fmt.Errorf("restoring %s: %w", original, err)
-	}
 	record := filepath.Join(t.dir, "info", filepath.Base(trashed)+".trashinfo")
+	from, err := t.origin(record)
+	if err != nil {
+		return err
+	}
+	if !samePath(from, original) {
+		return fmt.Errorf("the trash record %s says the item came from %s, not %s", record, from, original)
+	}
+	if _, err := os.Lstat(to); err == nil {
+		return fmt.Errorf("%s exists again; move it away to restore the one in the trash", to)
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("restoring %s: %w", to, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(to), 0o755); err != nil {
+		return fmt.Errorf("restoring %s: %w", to, err)
+	}
+	if err := os.Rename(trashed, to); err != nil {
+		return fmt.Errorf("restoring %s: %w", to, err)
+	}
 	if err := os.Remove(record); err != nil {
-		return fmt.Errorf("restored %s, but removing its trash record failed: %w", original, err)
+		return fmt.Errorf("restored %s, but removing its trash record failed: %w", to, err)
 	}
 	return nil
 }
+
+// origin reads where the item of the .trashinfo record at path came from.
+func (t xdgTrash) origin(path string) (string, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("reading the trash record: %w", err)
+	}
+	for line := range strings.Lines(string(b)) {
+		v, ok := strings.CutPrefix(strings.TrimSpace(line), "Path=")
+		if !ok {
+			continue
+		}
+		p, err := url.PathUnescape(v)
+		if err != nil {
+			return "", fmt.Errorf("reading the trash record %s: %w", path, err)
+		}
+		p = filepath.FromSlash(p)
+		if !filepath.IsAbs(p) {
+			// A trash on another volume keeps paths from the volume's top.
+			p = filepath.Join(filepath.Dir(t.dir), p)
+		}
+		return p, nil
+	}
+	return "", fmt.Errorf("the trash record %s says nothing of where the item came from", path)
+}
+
+// Describe implements [trasher].
+func (xdgTrash) Describe(trashed string) string { return "in the trash, " + describe(trashed) }
 
 // numbered returns name with " (n)" put before its extension.
 func numbered(name string, n int) string {

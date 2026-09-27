@@ -408,7 +408,10 @@ func (a *app) askClash(ctx context.Context, op int, c clash) (answer, error) {
 	reply := make(chan ClashAnswered, 1)
 	a.post(func() {
 		ask := ClashAsk{Op: op, Name: filepath.Base(c.dst), Where: placeName(filepath.Dir(c.dst)),
-			New: describe(c.src), Old: describe(c.dst), SameKind: c.sameKind, CanForAll: true}
+			New: c.from, Old: describe(c.dst), SameKind: c.sameKind, CanForAll: true}
+		if ask.New == "" {
+			ask.New = describe(c.src)
+		}
 		a.showDialog(&dialog{view: "clash", state: ask, op: op, answer: func(in gunim.Intent) {
 			if v, ok := in.(ClashAnswered); ok {
 				reply <- v
