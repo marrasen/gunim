@@ -7,6 +7,7 @@ import (
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
+	"github.com/marrasen/gunim/paint"
 )
 
 type gridView struct{ First, Count int }
@@ -169,5 +170,32 @@ func TestPendingRowsKeepTheGridDrawing(t *testing.T) {
 	run(1)
 	if !g.Step(time.Second / 60) {
 		t.Fatal("a grid showing rows yet to arrive stops animating their placeholders")
+	}
+}
+
+func TestAMarkLightsTheRunesItCovers(t *testing.T) {
+	g := NewDataGrid(GridColumn{Title: "Message"})
+	g.Row = func(int) (GridRow, bool) {
+		return GridRow{Cells: [][]GridSpan{{{Text: "find the needle here", Marks: [][2]int{{9, 15}}}}}}, true
+	}
+	g.rows = 1
+	w, _ := stage(t, &frame{child: g, size: geom.Sz(400, 300)})
+	run := Font.Default().Shape("find the needle here", GridTextSize.Default())
+	want0, want1 := run.CaretX(9), run.CaretX(15)
+	found := false
+	for _, op := range w.Offscreen().Ops() {
+		r, ok := op.(*paint.RRectOp)
+		if !ok || r.Fill.Solid != GridMark.Default() {
+			continue
+		}
+		found = true
+		x := r.Transform.Apply(r.Rect.Min).X
+		pad := GridCellPadding.Default()
+		if d := x - (pad + want0); d < -0.5 || d > 0.5 || r.Rect.Size().W-(want1-want0) > 0.5 {
+			t.Fatalf("the mark is at %v, %v wide; want %v, %v wide", x, r.Rect.Size().W, pad+want0, want1-want0)
+		}
+	}
+	if !found {
+		t.Fatal("no mark was drawn")
 	}
 }

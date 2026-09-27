@@ -27,6 +27,8 @@ var (
 	GridRule   = theme.Color("grid.rule", color.NRGBA{R: 0x5e, G: 0x9c, B: 0xff, A: 0x90})
 	// GridPending draws a row that has not arrived yet.
 	GridPending = theme.Color("grid.pending", color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x14})
+	// GridMark lights the text a span marks.
+	GridMark = theme.Color("grid.mark", color.NRGBA{R: 0xe8, G: 0xb3, B: 0x4a, A: 0x60})
 	// GridChipRadius rounds a span drawn on a fill.
 	GridChipRadius = theme.Length("grid.chip.radius", 4)
 	// GridBarWidth is the width of the scrollbar's track.
@@ -63,6 +65,9 @@ type GridSpan struct {
 	Face theme.Token[*text.Face]
 	// Faint draws the span at half strength.
 	Faint bool
+	// Marks are runs of the text to highlight, such as what a search found,
+	// each a start and an end in runes, the end left out.
+	Marks [][2]int
 }
 
 // GridRow is what a [DataGrid] shows for one row: the spans of each
@@ -519,6 +524,12 @@ func (g *DataGrid) paintCell(p *paint.Painter, th *theme.Live, i, c int, spans [
 			}
 			p.RRect(geom.Rc(pen, y+3, run.Advance+2*chipPad, g.rowH-6), GridChipRadius.Get(th), paint.Solid(fill))
 			pen += chipPad
+		}
+		for _, m := range s.Marks {
+			x0, x1 := min(run.CaretX(m[0]), run.Advance), min(run.CaretX(m[1]), run.Advance)
+			if x1 > x0 {
+				p.RRect(geom.Rc(pen+x0, ty, x1-x0, run.Height()), 2, paint.Solid(GridMark.Get(th)))
+			}
 		}
 		run.Paint(p, geom.Pt(pen, ty), ink)
 		pen += run.Advance
