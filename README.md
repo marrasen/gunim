@@ -250,7 +250,7 @@ the far end knows what to decode it into:
 | `gunim/access` | What a window says to screen readers: roles, names, states, actions |
 | `gunim/driver` | The seam with the operating system, and an offscreen window |
 | `gunim/driver/desktop` | The driver for Linux, Windows and macOS, on GLFW and OpenGL |
-| `gunim/widget` | `Row`, `Column`, `Scroll`, `Label`, `TextField`, `TextArea`, `Card`, `Button`, `Checkbox`, `Switch`, `Slider`, `Tabs`, `Dropdown`, `ContextMenu`, `Tooltip`, `Image`, `Hero` for elements that fly between screens, `Draggable` and `DropTarget` for drag and drop within and between windows and to and from file managers, `Dialog`, a keyed `List`, a `VirtualList` that builds only the rows in view, a `DataGrid` that draws millions of rows of styled cells by index, and their theme tokens |
+| `gunim/widget` | `Row`, `Column`, `Scroll`, `Label`, `TextField`, `TextArea`, `Card`, `Button`, `Checkbox`, `Switch`, `Slider`, `Tabs`, `Dropdown`, `ContextMenu`, `Tooltip`, `Image`, `Hero` for elements that fly between screens, `Draggable` and `DropTarget` for drag and drop within and between windows and to and from file managers, `Dialog`, a keyed `List`, a `VirtualList` that builds only the rows in view, a `DataGrid` that draws millions of rows of styled cells by index, an `Overview` strip that maps and scrolls it, and their theme tokens |
 
 Commands, intents, topics and the `Client` live in `wire.go` and
 `view.go`. `driver.Offscreen` plus `Window.Frame` run a window with no
