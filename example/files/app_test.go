@@ -11,6 +11,7 @@ import (
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
+	"github.com/marrasen/gunim/widget"
 )
 
 // harness runs the app half against the real views in an offscreen
@@ -390,4 +391,69 @@ func TestAClickOnARowSelectsItAndPreviewsIt(t *testing.T) {
 	h.until("the preview shows it", func() bool {
 		return h.b.preview.cur != nil && h.a.preview.subject != "" && h.b.preview.seq == h.a.preview.seq
 	})
+}
+
+// bounds returns where n was last drawn, in the window.
+func (h *harness) bounds(n func(b *browser) gunim.Node) geom.Rect {
+	h.t.Helper()
+	type ask struct{}
+	var r geom.Rect
+	var ok bool
+	gunim.RegisterPatch(h.w, "browser", func(b *browser, _ ask, u *gunim.UI) { r, ok = u.Bounds(n(b)) })
+	if err := h.w.Client().Patch(string(browserID), ask{}); err != nil {
+		h.t.Fatal(err)
+	}
+	h.frames(1)
+	if !ok {
+		h.t.Fatal("the node was not drawn")
+	}
+	return r
+}
+
+// click presses and lets go at p.
+func (h *harness) click(p geom.Point) {
+	h.w.Input(input.PointerDown{Pos: p, Button: input.ButtonPrimary, Clicks: 1, Time: time.Now()})
+	h.w.Input(input.PointerUp{Pos: p, Button: input.ButtonPrimary, Time: time.Now()})
+	h.frames(2)
+}
+
+func TestAClickOnAFavouriteGoesThere(t *testing.T) {
+	h := newHarness(t, "work/report.txt")
+	h.do(Navigate{Path: filepath.Join(h.dir, "work")})
+	h.do(Command{Name: CmdPin})
+	h.do(Command{Name: CmdUp})
+	h.until("the favourite shows and the folder is back", func() bool {
+		return h.b.side.favs.Len() == 1 && len(h.shown()) == 1 && h.shown()[0] == "work"
+	})
+	h.frames(30)
+	row := h.bounds(func(b *browser) gunim.Node {
+		n, _ := b.side.favs.Row(widget.Key(filepath.Join(h.dir, "work")))
+		return n
+	})
+	h.click(row.Center())
+	h.until("the favourite opens", func() bool { return slices.Equal(h.shown(), []string{"report.txt"}) })
+}
+
+func TestAClickOnAFolderOfThePathGoesThere(t *testing.T) {
+	h := newHarness(t, "a/b/c.txt")
+	h.do(Navigate{Path: filepath.Join(h.dir, "a", "b")})
+	h.until("the deep folder shows", func() bool { return slices.Equal(h.shown(), []string{"c.txt"}) })
+	h.frames(30)
+	crumbs := h.b.path.crumbs.crumbs
+	parent := crumbs[len(crumbs)-2]
+	if parent.name != "a" {
+		t.Fatalf("the crumb before the last is %q, want a", parent.name)
+	}
+	r := h.bounds(func(*browser) gunim.Node { return parent })
+	h.click(geom.Pt(r.Min.X+8, r.Center().Y))
+	h.until("the folder a opens", func() bool { return slices.Equal(h.shown(), []string{"b"}) })
+	if h.b.path.slot.editing {
+		t.Fatal("a click on a folder of the path started editing it")
+	}
+	// A click beside the folders, or on the folder showing, edits the path.
+	bar := h.bounds(func(b *browser) gunim.Node { return b.path.crumbs })
+	h.click(geom.Pt(bar.Max.X-10, bar.Center().Y))
+	if !h.b.path.slot.editing {
+		t.Fatal("a click beside the folders did not edit the path")
+	}
 }

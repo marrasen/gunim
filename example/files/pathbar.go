@@ -455,7 +455,9 @@ func (n *crumb) Handle(e input.Event, u *gunim.UI) bool {
 	case input.PointerLeave:
 		n.hover.Animate(0, widget.Settle.Get(u.Theme()))
 	case input.PointerDown:
-		if e.Button != input.ButtonPrimary || e.Pos.X > n.run.Advance+12 {
+		// A press on the folder showing edits the path, as one beside the
+		// folders does.
+		if e.Button != input.ButtonPrimary || e.Pos.X > n.run.Advance+12 || n.last {
 			return false
 		}
 		u.Send(n, Navigate{Path: n.path})
@@ -468,7 +470,7 @@ func (n *crumb) Handle(e input.Event, u *gunim.UI) bool {
 
 // Cursor implements [gunim.CursorShaper].
 func (n *crumb) Cursor(p geom.Point) input.Cursor {
-	if p.X > n.run.Advance+12 {
+	if p.X > n.run.Advance+12 || n.last {
 		return input.CursorText
 	}
 	return input.CursorHand
