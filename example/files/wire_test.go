@@ -51,6 +51,13 @@ func TestWire(t *testing.T) {
 		Preview{Seq: 1, Title: "a.png", Facts: []Fact{{Label: "Size", Value: "1 KB"}}, Image: thumb},
 		Counted{Seq: 1, Items: "3 items", Size: "1 KB", Counting: true},
 		RevealPath{Path: "/a"},
+		PaletteQuery{Seq: 2, Text: "rep"},
+		PaletteResults{Seq: 2, Hits: []PaletteHit{{Title: "report.txt", Detail: "docs", Key: "file:/a/report.txt",
+			At: []int{0, 1, 2}}}, Status: "3 items"},
+		PalettePicked{Key: "cmd:hidden", Ctrl: true},
+		OpenPalette{Query: ">sort"},
+		OpSpeed{ID: 1, Rate: 1 << 20, Left: 3.5, File: "/a/big.bin"},
+		OpDone{ID: 1, OK: true},
 	)
 	if err != nil {
 		t.Fatal(err)

@@ -59,6 +59,7 @@ func lightTheme() theme.Theme {
 		theme.Set(Caption, color.NRGBA{R: 0x80, G: 0x88, B: 0x96, A: 0xff}),
 		theme.Set(ErrorInk, color.NRGBA{R: 0xb4, G: 0x2a, B: 0x22, A: 0xff}),
 		theme.Set(ErrorFill, color.NRGBA{R: 0xfd, G: 0xe4, B: 0xe1, A: 0xff}),
+		theme.Set(Success, color.NRGBA{R: 0x1f, G: 0x9d, B: 0x55, A: 0xff}),
 		theme.Set(widget.MenubarFill, color.NRGBA{R: 0xe1, G: 0xe5, B: 0xec, A: 0xff}),
 		theme.Set(widget.MenubarHot, color.NRGBA{A: 0x10}),
 		theme.Set(widget.WindowButtonHot, color.NRGBA{A: 0x14}),

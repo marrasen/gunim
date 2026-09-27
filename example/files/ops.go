@@ -100,6 +100,8 @@ type env struct {
 	// every 50 ms when that is zero.
 	report      func(progress)
 	reportEvery time.Duration
+	// limit, when above zero, holds a copy to that many bytes a second.
+	limit float64
 }
 
 // runner runs one job.
@@ -110,6 +112,9 @@ type runner struct {
 	p    progress
 	all  *answer
 	last time.Time
+	// paced counts the bytes copied since paceStart, for env.limit.
+	paced     int64
+	paceStart time.Time
 }
 
 // runJob runs j, stopping at the first error, and returns what it did.
@@ -452,6 +457,9 @@ func (r *runner) copyFile(src, dst string, info fs.FileInfo) (err error) {
 			}
 			r.p.bytes += int64(n)
 			r.tell(false)
+			if err := r.pace(n); err != nil {
+				return fail(err)
+			}
 		}
 		if errors.Is(rerr, io.EOF) {
 			break

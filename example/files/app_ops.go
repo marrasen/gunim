@@ -22,12 +22,17 @@ const showAfter = 250 * time.Millisecond
 type opsState struct {
 	next    int
 	running map[int]*opRun
+	// cheering holds the operations that went well and show so a moment
+	// in the panel.
+	cheering map[int]*opRun
 	// records holds what finished operations did, by their ID, and undo
 	// their IDs in the order Ctrl+Z takes them back.
 	records map[int]*finished
 	undo    []int
 	clip    []string
 	cut     bool
+	// limit holds copies to that many bytes a second, for the demo.
+	limit float64
 	// dialogs are the dialogs to show, the first showing.
 	dialogs []*dialog
 	shown   int
@@ -38,6 +43,7 @@ type opsState struct {
 
 func (o *opsState) init() {
 	o.running = map[int]*opRun{}
+	o.cheering = map[int]*opRun{}
 	o.records = map[int]*finished{}
 }
 
@@ -49,11 +55,7 @@ type opRun struct {
 	cancel  context.CancelFunc
 	visible bool
 	last    progress
-	// speed is bytes a second, smoothed, and at when bytes were last
-	// counted.
-	speed     float64
-	at        time.Time
-	lastBytes int64
+	meter   speedometer
 }
 
 // finished is what a finished operation did, and how to say it.
@@ -179,7 +181,7 @@ func (a *app) startOp(j job, title string) {
 	a.ops.next++
 	id := a.ops.next
 	ctx, cancel := context.WithCancel(a.ctx)
-	r := &opRun{id: id, title: title, kind: j.kind, cancel: cancel, at: time.Now()}
+	r := &opRun{id: id, title: title, kind: j.kind, cancel: cancel}
 	a.ops.running[id] = r
 	time.AfterFunc(showAfter, func() {
 		a.post(func() {
@@ -193,10 +195,23 @@ func (a *app) startOp(j job, title string) {
 		trash:  a.trash,
 		ask:    func(ctx context.Context, c clash) (answer, error) { return a.askClash(ctx, id, c) },
 		report: func(p progress) { a.post(func() { a.progressed(id, p) }) },
+		limit:  a.ops.limit,
 	}
 	a.ops.wg.Go(func() {
 		rec, err := runJob(ctx, j, e)
 		a.post(func() { a.finish(id, j, rec, err) })
+	})
+}
+
+// cheer keeps finished operation id in the panel while it shows it went
+// well.
+func (a *app) cheer(id int, r *opRun) {
+	a.ops.cheering[id] = r
+	time.AfterFunc(cheerFor, func() {
+		a.post(func() {
+			delete(a.ops.cheering, id)
+			a.publishOps()
+		})
 	})
 }
 
@@ -206,19 +221,13 @@ func (a *app) progressed(id int, p progress) {
 	if !ok {
 		return
 	}
-	now := time.Now()
-	if dt := now.Sub(r.at).Seconds(); dt > 0.2 {
-		rate := float64(p.bytes-r.lastBytes) / dt
-		if r.speed == 0 {
-			r.speed = rate
-		} else {
-			r.speed = 0.7*r.speed + 0.3*rate
-		}
-		r.at, r.lastBytes = now, p.bytes
-	}
+	sampled := r.meter.add(time.Now(), p.bytes)
 	r.last = p
 	if r.visible {
 		a.patch(r.tick())
+		if sampled && p.bytesTotal > 0 {
+			a.patch(OpSpeed{ID: id, Rate: r.meter.rate, Left: r.meter.left(p.bytes, p.bytesTotal), File: p.current})
+		}
 	}
 }
 
@@ -230,9 +239,9 @@ func (r *opRun) tick() OpTick {
 	case p.bytesTotal > 0:
 		t.Done = float32(float64(p.bytes) / float64(p.bytesTotal))
 		t.Detail = humanBytes(p.bytes) + " of " + humanBytes(p.bytesTotal)
-		if r.speed > 0 {
-			t.Detail += "  ·  " + humanBytes(int64(r.speed)) + "/s"
-			if left := float64(p.bytesTotal-p.bytes) / r.speed; left >= 1 {
+		if speed := r.meter.smooth; speed > 0 {
+			t.Detail += "  ·  " + humanBytes(int64(speed)) + "/s"
+			if left := r.meter.left(p.bytes, p.bytesTotal); left >= 1 {
 				t.Detail += fmt.Sprintf("  ·  %s left", (time.Duration(left) * time.Second).Round(time.Second))
 			}
 		}
@@ -255,13 +264,22 @@ func (a *app) publishOps() {
 	for id := range a.ops.running {
 		ids = append(ids, id)
 	}
+	for id := range a.ops.cheering {
+		ids = append(ids, id)
+	}
 	slices.Sort(ids)
 	for _, id := range ids {
-		r := a.ops.running[id]
+		r, ok := a.ops.running[id]
+		if !ok {
+			r = a.ops.cheering[id]
+		}
 		if !r.visible {
 			continue
 		}
 		t := r.tick()
+		if !ok {
+			t = OpTick{ID: id, Done: 1, Detail: "Done"}
+		}
 		s.Ops = append(s.Ops, OpView{ID: id, Title: r.title, Done: t.Done, Unknown: t.Unknown, Detail: t.Detail})
 	}
 	a.patch(s)
@@ -277,6 +295,11 @@ func (a *app) finish(id int, j job, rec record, err error) {
 	r.cancel()
 	a.dropDialogs(id)
 	if r.visible {
+		a.patch(OpDone{ID: id, OK: err == nil})
+		if err == nil {
+			r.title = doneTitle(j, rec)
+			a.cheer(id, r)
+		}
 		a.publishOps()
 	}
 	done := plural(len(rec.steps), "item")

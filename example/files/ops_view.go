@@ -55,19 +55,24 @@ type opRow struct {
 	detail *widget.Label
 	bar    *widget.ProgressBar
 	cancel *widget.Button
-	col    *widget.Flex
+	graph  *widget.LiveGraph
+	badge  *doneBadge
+	// samples counts the speeds the graph has had.
+	samples int
+	col     *widget.Flex
 }
 
 func newOpRow(o OpView) *opRow {
 	r := &opRow{title: widget.NewLabel(o.Title), detail: widget.NewLabel(o.Detail), bar: widget.NewProgressBar(),
-		cancel: widget.NewButton("Cancel")}
+		cancel: widget.NewButton("Cancel"), graph: newSpeedGraph()}
+	r.badge = newDoneBadge(r.cancel)
 	r.title.MaxLines = 1
 	r.detail.Color, r.detail.Size, r.detail.MaxLines = Faint, SmallText, 1
 	r.cancel.On = CancelOp{ID: o.ID}
 	r.bar.Indeterminate = o.Unknown
-	head := widget.Row(r.title, r.cancel).Grow(r.title, 1)
+	head := widget.Row(r.title, r.badge).Grow(r.title, 1)
 	head.Cross = widget.CrossCenter
-	r.col = widget.Column(head, r.bar, r.detail)
+	r.col = widget.Column(head, &glowBar{bar: r.bar, badge: r.badge}, r.graph, r.detail)
 	r.col.Cross = widget.CrossStretch
 	r.col.Gap = smallGap
 	return r
@@ -101,6 +106,7 @@ func (r *opRow) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) 
 // Paint implements [gunim.Node].
 func (r *opRow) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.Children) {
 	p.RRect(geom.Rect{Max: box.Point()}, widget.CardRadius.Get(f.Theme), paint.Solid(widget.CardFill.Get(f.Theme)))
+	paintCheer(p, f.Theme, r.badge, box)
 	kids.At(0).Paint(p)
 }
 
