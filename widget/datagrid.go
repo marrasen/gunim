@@ -135,8 +135,8 @@ type DataGrid struct {
 	Multi bool
 	// OnSelectRows turns a change of the rows selected, with Multi, into
 	// an intent. sel holds runs of rows, each a first row and an end row
-	// left out, in order.
-	OnSelectRows func(sel [][2]int) gunim.Intent
+	// left out, in order, and cursor is the row the keyboard is on, or -1.
+	OnSelectRows func(sel [][2]int, cursor int) gunim.Intent
 	// OnClick turns a click on a row into an intent, each click, whether or
 	// not it changes the selection.
 	OnClick func(row int) gunim.Intent
@@ -1031,6 +1031,7 @@ func (g *DataGrid) moveKey(e input.KeyPress, at, page int, u *gunim.UI) bool {
 		return true
 	}
 	to = min(max(to, 0), g.rows-1)
+	g.selectAndTell(to, u)
 	if e.Mods.Has(input.ModShift) {
 		if g.anchor < 0 {
 			g.anchor = max(at, 0)
@@ -1040,12 +1041,12 @@ func (g *DataGrid) moveKey(e input.KeyPress, at, page int, u *gunim.UI) bool {
 		g.anchor = to
 		g.setRuns([][2]int{{to, to + 1}}, u)
 	}
-	g.selectAndTell(to, u)
 	return true
 }
 
 // pick changes the selection for a click on row i, with Multi.
 func (g *DataGrid) pick(i int, mods input.Mods, u *gunim.UI) {
+	g.selectAndTell(i, u)
 	switch {
 	case mods.Has(input.ModShift):
 		if g.anchor < 0 {
@@ -1068,7 +1069,6 @@ func (g *DataGrid) pick(i int, mods input.Mods, u *gunim.UI) {
 		g.anchor = i
 		g.setRuns([][2]int{{i, i + 1}}, u)
 	}
-	g.selectAndTell(i, u)
 	u.Invalidate()
 }
 
@@ -1080,7 +1080,7 @@ func (g *DataGrid) setRuns(runs [][2]int, u *gunim.UI) {
 	}
 	g.runs = runs
 	if g.OnSelectRows != nil {
-		g.send(g.OnSelectRows(slices.Clone(runs)), u)
+		g.send(g.OnSelectRows(slices.Clone(runs), g.selected), u)
 	}
 	u.Invalidate()
 }

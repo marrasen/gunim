@@ -10,7 +10,10 @@ import (
 	"github.com/marrasen/gunim/input"
 )
 
-type gridRows struct{ Sel [][2]int }
+type gridRows struct {
+	Sel    [][2]int
+	Cursor int
+}
 
 // multiGrid stages a grid of 100 rows with Multi on, and returns a click
 // on row i with mods.
@@ -19,7 +22,7 @@ func multiGrid(t *testing.T) (g *DataGrid, w *gunim.Window, run func(int), click
 	g = NewDataGrid(GridColumn{Title: "Name"})
 	g.Multi = true
 	g.Row = func(int) (GridRow, bool) { return GridRow{Cells: [][]GridSpan{{{Text: "row"}}}}, true }
-	g.OnSelectRows = func(sel [][2]int) gunim.Intent { return gridRows{sel} }
+	g.OnSelectRows = func(sel [][2]int, cursor int) gunim.Intent { return gridRows{sel, cursor} }
 	g.rows = 100
 	w, run = stage(t, &frame{child: g, size: geom.Sz(400, 300)})
 	clickRow = func(i int, mods input.Mods) {
@@ -33,11 +36,16 @@ func multiGrid(t *testing.T) (g *DataGrid, w *gunim.Window, run func(int), click
 
 func lastRows(t *testing.T, w *gunim.Window) [][2]int {
 	t.Helper()
-	var last [][2]int
+	return lastChange(t, w).Sel
+}
+
+func lastChange(t *testing.T, w *gunim.Window) gridRows {
+	t.Helper()
+	var last gridRows
 	found := false
 	for _, v := range sent(w) {
 		if r, ok := v.(gridRows); ok {
-			last, found = r.Sel, true
+			last, found = r, true
 		}
 	}
 	if !found {
@@ -105,8 +113,8 @@ func TestShiftArrowsGrowTheSelection(t *testing.T) {
 	w.Input(input.KeyPress{Key: input.KeyDown, Mods: input.ModShift})
 	w.Input(input.KeyPress{Key: input.KeyDown, Mods: input.ModShift})
 	run(1)
-	if got, want := lastRows(t, w), [][2]int{{5, 8}}; !slices.Equal(got, want) {
-		t.Fatalf("two Shift+Down from 5 selected %v, want %v", got, want)
+	if got, want := lastChange(t, w), [][2]int{{5, 8}}; !slices.Equal(got.Sel, want) || got.Cursor != 7 {
+		t.Fatalf("two Shift+Down from 5 selected %v with the keyboard on %d, want %v on 7", got.Sel, got.Cursor, want)
 	}
 	w.Input(input.KeyPress{Key: input.KeyUp})
 	run(1)
