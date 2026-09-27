@@ -52,6 +52,28 @@ func TestAWrapStartsANewRowWhereTheNextChildWouldPassItsWidth(t *testing.T) {
 	at(t, c, geom.Pt(0, 30))
 }
 
+func TestAWrapCanCentreEachChildInItsRow(t *testing.T) {
+	a, b, c := newSpot(150, 20), newSpot(150, 30), newSpot(150, 20)
+	wrap := NewWrap()
+	wrap.Gap, wrap.Cross = tableNoGap, CrossCenter
+	w := gunim.NewOffscreen(geom.Sz(320, 200), nil)
+	gunim.RegisterView(w, "wrap", func(struct{}) gunim.Node { return wrap },
+		func(n gunim.Node, _ struct{}, u *gunim.UI) {
+			for _, k := range []gunim.Node{a, b, c} {
+				u.Insert(n, k)
+			}
+		})
+	if err := w.Client().Mount(gunim.Root, "wrap", "wrap", nil); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		w.Frame(time.Second / 60)
+	}
+	at(t, a, geom.Pt(0, 5))
+	at(t, b, geom.Pt(150, 0))
+	at(t, c, geom.Pt(0, 30))
+}
+
 func TestAMenuButtonThatStaysOpenTicksWhatIsPicked(t *testing.T) {
 	b := NewMenuButton("Files", "app.log", "app.log.1", "app.log.2")
 	b.StayOpen = true

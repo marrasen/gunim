@@ -144,6 +144,8 @@ type Wrap struct {
 	// Gap is the space between children, and the theme's [Gap] when
 	// unset.
 	Gap theme.Token[float32]
+	// Cross puts each child at the top of its line, or with CrossCenter or CrossEnd in its middle or at its bottom.
+	Cross Cross
 }
 
 // NewWrap returns an empty wrap.
@@ -158,14 +160,36 @@ func (w *Wrap) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) g
 	}
 	width := c.Max.W
 	var x, y, line float32
+	// start is the first child of the line being filled, and at and sizes where each child goes and how big it is
+	start := 0
+	var at []geom.Point
+	var sizes []geom.Size
+	endLine := func() {
+		for i := start; i < len(at); i++ {
+			switch w.Cross {
+			case CrossCenter:
+				at[i].Y += (line - sizes[i].H) / 2
+			case CrossEnd:
+				at[i].Y += line - sizes[i].H
+			}
+		}
+		start = len(at)
+	}
 	for kid := range kids.All {
 		s := kid.Layout(gunim.Loose(geom.Sz(width, 0)))
 		if x > 0 && x+s.W > width {
+			endLine()
 			x, y, line = 0, y+line+gap, 0
 		}
-		kid.Place(geom.Pt(x, y))
+		at, sizes = append(at, geom.Pt(x, y)), append(sizes, s)
 		x += s.W + gap
 		line = max(line, s.H)
+	}
+	endLine()
+	i := 0
+	for kid := range kids.All {
+		kid.Place(at[i])
+		i++
 	}
 	return c.Constrain(geom.Sz(width, y+line))
 }
