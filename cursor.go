@@ -20,8 +20,14 @@ func (u *UI) shapePointer(root *state, p geom.Point) {
 		c, s = edgeCursor(edge), nil
 	}
 	for ; s != nil; s = s.parent {
-		if cs, ok := s.node.(CursorShaper); ok {
-			u.on(s, func() { c = cs.Cursor(u.local(s, p)) })
+		cs, ok := s.node.(CursorShaper)
+		if !ok {
+			continue
+		}
+		named := input.CursorInherit
+		u.on(s, func() { named = cs.Cursor(u.local(s, p)) })
+		if named != input.CursorInherit {
+			c = named
 			break
 		}
 	}

@@ -29,4 +29,7 @@ const (
 	// over a window's corners.
 	CursorResizeNWSE
 	CursorResizeNESW
+	// CursorInherit leaves the shape to the nodes around the one that
+	// names it.
+	CursorInherit
 )

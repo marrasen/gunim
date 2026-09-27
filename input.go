@@ -183,7 +183,9 @@ func (u *UI) FocusNext(forward bool) {
 			return
 		}
 		if f, ok := s.node.(Focusable); ok && f.Focusable() {
-			order = append(order, s)
+			if _, skip := s.node.(TabSkipper); !skip {
+				order = append(order, s)
+			}
 		}
 		for _, k := range s.kids {
 			walk(k)

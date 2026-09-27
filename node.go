@@ -157,11 +157,19 @@ type FocusKeeper interface {
 	KeepsFocus()
 }
 
+// A TabSkipper is a [Focusable] that Tab passes over, such as
+// selectable text, which takes focus only from a click.
+type TabSkipper interface {
+	Focusable
+	SkipsTab()
+}
+
 // A CursorShaper is a node that names the pointer's shape over it, such
 // as a text field's I-beam or a divider's resize arrows. The engine asks
 // the node the pointer is over, and the nodes around it in turn, and
-// takes the first answer; while a node holds the pointer, as during a
-// drag, it asks that node. p is the pointer, in the node's space.
+// takes the first answer other than [input.CursorInherit]; while a node
+// holds the pointer, as during a drag, it asks that node. p is the
+// pointer, in the node's space.
 type CursorShaper interface {
 	Node
 	Cursor(p geom.Point) input.Cursor
