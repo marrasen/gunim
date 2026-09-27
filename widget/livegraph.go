@@ -206,19 +206,28 @@ func (g *LiveGraph) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ guni
 	p.RRect(geom.Rc(headAt.X-3, headAt.Y-3, 6, 6), 3, paint.Solid(color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}))
 	p.RRect(geom.Rc(headAt.X-2, headAt.Y-2, 4, 4), 2, paint.Solid(accent))
 	if g.Label != nil {
-		// Over the plot, at the end the samples come in at: the mean of
-		// the last second, which holds still enough to read.
-		k := n
-		if g.Every > 0 {
-			k = min(n, max(1, int(time.Second/g.Every)))
-		}
-		sum := 0.0
-		for _, v := range g.samples[n-k:] {
-			sum += v
-		}
-		run := g.text.shape(faceIn(Font, th), g.Label(sum/float64(k)), TextSize.Get(th)*0.85)
+		// Over the plot, at the end the samples come in at.
+		run := g.text.shape(faceIn(Font, th), g.Label(g.recent()), TextSize.Get(th)*0.85)
 		ink := Ink.Get(th)
 		ink.A = 0xc0
 		run.Paint(p, geom.Pt(max(0, box.W-run.Advance), 0), ink)
 	}
+}
+
+// recent returns the mean of the last second's samples, which holds
+// still enough to read.
+func (g *LiveGraph) recent() float64 {
+	n := len(g.samples)
+	if n == 0 {
+		return 0
+	}
+	k := n
+	if g.Every > 0 {
+		k = min(n, max(1, int(time.Second/g.Every)))
+	}
+	sum := 0.0
+	for _, v := range g.samples[n-k:] {
+		sum += v
+	}
+	return sum / float64(k)
 }

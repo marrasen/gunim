@@ -48,6 +48,7 @@ type app struct {
 	preview previewState
 	thumbs  thumbState
 	viewer  viewerState
+	search  searchState
 	places  []Place
 	banner  int
 	// script is what is left of the steps to run, once the first folder
@@ -102,7 +103,8 @@ func launch(ctx context.Context, c gunim.Client, o options) (*app, error) {
 	if err := c.Mount(gunim.Root, browserID, "browser", a.shell); err != nil {
 		return nil, err
 	}
-	a.handlers = []handler{a.handleNav, a.handleOps, a.handlePreview, a.handlePlaces, a.handleShell, a.handleIcons, a.handleViewer}
+	a.handlers = []handler{a.handleNav, a.handleOps, a.handlePreview, a.handlePlaces, a.handleShell, a.handleIcons,
+		a.handleViewer, a.handleSearch, a.handleTheme}
 	a.startup(o)
 	return a, nil
 }
@@ -261,6 +263,7 @@ func (a *app) stopAll() {
 	a.nav.stop()
 	a.preview.stop()
 	a.viewer.stop()
+	a.search.stop()
 	close(a.stopped)
 	a.ops.wg.Wait()
 }

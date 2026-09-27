@@ -55,9 +55,10 @@ type Split struct {
 	held bool
 	grab float32
 	over bool
-	// length is the space along the split the last layout had, and
-	// gap the room the divider took.
+	// length is the space along the split the last layout had, gap the
+	// room the divider took, and own the split's size.
 	length, gap float32
+	own         geom.Size
 }
 
 // NewSplit returns first and second split evenly.
@@ -149,6 +150,7 @@ func (s *Split) firstLength() float32 {
 // given.
 func (s *Split) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
 	own := c.Max
+	s.own = own
 	s.length = own.W
 	if s.Vertical {
 		s.length = own.H

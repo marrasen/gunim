@@ -49,3 +49,10 @@ func TestAnEmptyQueryFindsEverythingInOrder(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestAQueryTypedWholeMarksTheRunItNames(t *testing.T) {
+	at, _, ok := Find("report", "report.txt")
+	if !ok || !slices.Equal(at, []int{0, 1, 2, 3, 4, 5}) {
+		t.Fatalf("report marks %v in report.txt, want the first six letters", at)
+	}
+}

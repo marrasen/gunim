@@ -1,6 +1,8 @@
 package widget
 
 import (
+	"slices"
+	"strconv"
 	"testing"
 	"time"
 
@@ -277,5 +279,47 @@ func TestArrivingRowsComeInFromTheTop(t *testing.T) {
 	run(60)
 	if g.arrived(12) != 1 || g.Step(time.Second/60) {
 		t.Fatal("a second in, the rows have not all come in and settled")
+	}
+}
+
+func TestLeavingRowsShutAndTheRowsBelowSlideUp(t *testing.T) {
+	names := make([]string, 100)
+	for i := range names {
+		names[i] = strconv.Itoa(i)
+	}
+	shown := names
+	g := NewDataGrid(GridColumn{Title: "Name"})
+	g.Row = func(i int) (GridRow, bool) { return GridRow{Cells: [][]GridSpan{{{Text: shown[i]}}}}, true }
+	g.rows = len(names)
+	w, run := stage(t, &frame{child: g, size: geom.Sz(400, 300)})
+	type leave struct{}
+	gunim.RegisterPatch(w, "stage", func(_ gunim.Node, _ leave, u *gunim.UI) {
+		g.Leave([]int{4, 3, 90}, u)
+		shown = slices.Concat(names[:3], names[5:90], names[91:])
+		g.SetRows(len(shown), u)
+	})
+	was := g.rowY(5)
+	if err := w.Client().Patch("stage", leave{}); err != nil {
+		t.Fatal(err)
+	}
+	run(1)
+	if g.Leaving() != 2 {
+		t.Fatalf("%d rows in view are leaving, want 2", g.Leaving())
+	}
+	if at, above := g.before(3); at != 5 || above != 2 {
+		t.Fatalf("row 3 was row %d with %d leaving above it, want 5 and 2", at, above)
+	}
+	if y := g.rowY(3); y > was+0.01 || y < was-g.rowH {
+		t.Fatalf("a frame in, the row after those leaving is at %v, want it to start from %v", y, was)
+	}
+	run(6)
+	mid := g.rowY(3)
+	if s := g.shut(); s <= 0 || s >= 1 || mid >= was || mid <= g.header+3*g.rowH {
+		t.Fatalf("100 ms in, the rows have shut %v and the row below is at %v, between %v and %v", s, mid,
+			g.header+3*g.rowH, was)
+	}
+	run(60)
+	if len(g.gone) != 0 || g.rowY(3) != g.header+3*g.rowH || g.Step(time.Second/60) {
+		t.Fatal("a second in, the rows have not all left and settled")
 	}
 }

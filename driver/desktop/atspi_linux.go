@@ -564,6 +564,20 @@ func atspiRole(n *access.Node) uint32 {
 		return 49
 	case access.RoleLink:
 		return 88
+	case access.RoleTable:
+		return 55
+	case access.RoleRow:
+		return 90 // table row
+	case access.RoleCell:
+		return 56 // table cell
+	case access.RoleColumnHeader:
+		return 57 // table column header
+	case access.RoleMenuBar:
+		return 34
+	case access.RoleProgressBar:
+		return 42
+	case access.RoleScrollBar:
+		return 48
 	case access.RoleGroup:
 	}
 	return 39 // panel
@@ -605,7 +619,7 @@ func (o *object) states() []uint32 {
 			}
 		}
 		switch n.Role {
-		case access.RoleTab, access.RoleMenuItem, access.RoleListItem:
+		case access.RoleTab, access.RoleMenuItem, access.RoleListItem, access.RoleRow:
 			set(22) // selectable
 		case access.RoleTextField:
 			if s.Has(access.StateMultiline) {

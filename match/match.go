@@ -147,7 +147,40 @@ func Find(query, title string) (at []int, score int, ok bool) {
 		at[j] = end
 		end = from[j][end]
 	}
-	return at, endScore + runBonus(runes, at), true
+	score = endScore + runBonus(runes, at)
+	// The table scores letters one at a time, so a run it passed over
+	// can still win once its bonus counts.
+	if run, runScore, ok := bestRun(runes, want); ok && runScore > score {
+		at, score = run, runScore
+	}
+	return at, score, true
+}
+
+// bestRun finds the query as one unbroken run in the title, where it
+// scores best, bonus and all.
+func bestRun(runes, want []rune) (at []int, score int, ok bool) {
+	for i := 0; i+len(want) <= len(runes); i++ {
+		hit := true
+		for j, letter := range want {
+			if unicode.ToLower(runes[i+j]) != letter {
+				hit = false
+				break
+			}
+		}
+		if !hit {
+			continue
+		}
+		run := make([]int, len(want))
+		s := scoreConsecutive * (len(want) - 1)
+		for j := range want {
+			run[j] = i + j
+			s += placeScore(runes, i+j)
+		}
+		if s += runBonus(runes, run); !ok || s > score {
+			at, score, ok = run, s, true
+		}
+	}
+	return at, score, ok
 }
 
 // placeQuery scores every place each letter of the query could go, and

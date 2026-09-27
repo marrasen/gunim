@@ -202,12 +202,22 @@ type DataGrid struct {
 	arrival   float64
 	arriveTop int
 	arriving  bool
+	// gone holds the rows Leave took away, by their index before, in
+	// order, leaving those of them in view, and left how long ago Leave
+	// was called, in seconds.
+	gone    []int
+	leaving []gridLeaving
+	leftAgo float64
 
 	// th is the window's live theme, kept from Layout for Step.
 	th *theme.Live
 
 	// links are where the last paint drew spans that are links.
 	links []gridLink
+
+	// partRow and partCol are the row and the column of each part the
+	// grid last told a screen reader of, -1 where it has none.
+	partRow, partCol []int
 
 	shapes map[spanKey]*spanShape
 	frame  uint64
@@ -417,6 +427,13 @@ func (g *DataGrid) Step(dt time.Duration) bool {
 		g.pulse += dt.Seconds()
 		moving = true
 	}
+	if len(g.gone) > 0 {
+		g.leftAgo += dt.Seconds()
+		if g.leftAgo > leaveTime {
+			g.gone, g.leaving = nil, nil
+		}
+		moving = true
+	}
 	if g.arriving {
 		g.arrival += dt.Seconds()
 		if g.arrival > arriveStagger*(g.Visible()+1)+arriveTime {
@@ -440,6 +457,78 @@ const (
 func (g *DataGrid) Arrive(u *gunim.UI) {
 	g.arrival, g.arriveTop, g.arriving = 0, int(math.Floor(g.top)), true
 	u.Invalidate()
+}
+
+// leaveTime is how long a row takes to leave.
+const leaveTime = 0.3
+
+// gridLeaving is a row in view on its way out: its index before it left,
+// what it showed, and whether it was selected.
+type gridLeaving struct {
+	at       int
+	row      GridRow
+	selected bool
+}
+
+// Leave has the rows that were at the indexes in gone collapse and fade,
+// while the rows below them slide up into their place. Call it once the
+// rows have changed, with Row still returning the rows as they were
+// before, which the grid keeps for the rows in view.
+func (g *DataGrid) Leave(gone []int, u *gunim.UI) {
+	g.gone, g.leaving, g.leftAgo = nil, nil, 0
+	if g.Row == nil || len(gone) == 0 {
+		return
+	}
+	g.gone = slices.Clone(gone)
+	slices.Sort(g.gone)
+	g.gone = slices.Compact(g.gone)
+	first, last := int(math.Floor(g.top)), int(math.Ceil(g.top+g.Visible()))+1
+	from, _ := slices.BinarySearch(g.gone, first)
+	for _, i := range g.gone[from:] {
+		if i > last {
+			break
+		}
+		if row, ok := g.Row(i); ok {
+			g.leaving = append(g.leaving, gridLeaving{at: i, row: row, selected: g.IsSelected(i)})
+		}
+	}
+	u.Invalidate()
+}
+
+// Leaving returns how many rows in view are on their way out.
+func (g *DataGrid) Leaving() int { return len(g.leaving) }
+
+// shut returns how far the rows leaving have shut, from 0 to 1.
+func (g *DataGrid) shut() float32 {
+	t := float32(min(g.leftAgo/leaveTime, 1))
+	return 1 - (1-t)*(1-t)*(1-t)
+}
+
+// before returns the index row i of the rows now had before Leave, and
+// how many rows in view that are leaving sat above it.
+func (g *DataGrid) before(i int) (at, above int) {
+	at = i
+	for {
+		n, _ := slices.BinarySearch(g.gone, at+1)
+		if next := i + n; next != at {
+			at = next
+			continue
+		}
+		break
+	}
+	above, _ = slices.BinarySearchFunc(g.leaving, at, func(l gridLeaving, at int) int { return l.at - at })
+	return at, above
+}
+
+// rowY returns where row i sits in the grid, below the rows still
+// leaving above it.
+func (g *DataGrid) rowY(i int) float32 {
+	y := g.header + float32((float64(i)-g.top)*float64(g.rowH))
+	if len(g.gone) == 0 {
+		return y
+	}
+	_, above := g.before(i)
+	return y + float32(above)*(1-g.shut())*g.rowH
 }
 
 // arrived returns how far row i has come in, from 0 to 1.
@@ -527,6 +616,10 @@ func (g *DataGrid) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 			defer p.Layer(paint.LayerOpts{Bounds: geom.Rc(0, g.header, bodyW, box.H-g.header), Opacity: 1, Clip: true})()
 			first := int(math.Floor(g.top))
 			last := min(g.rows, int(math.Ceil(g.top+g.Visible()))+1)
+			if len(g.gone) > 0 {
+				g.paintLeaving(p, th, first, last, bodyW, size, pad)
+				return
+			}
 			for i := first; i < last; i++ {
 				y := g.header + float32((float64(i)-g.top)*float64(g.rowH))
 				g.paintRow(p, th, i, y, bodyW, size, pad)
@@ -546,6 +639,33 @@ func (g *DataGrid) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 				delete(g.shapes, k)
 			}
 		}
+	}
+}
+
+// paintLeaving paints the rows first to last while rows leave: each row
+// still below where the rows leaving were, and those rows shutting.
+func (g *DataGrid) paintLeaving(p *paint.Painter, th *theme.Live, first, last int, bodyW, size, pad float32) {
+	open := 1 - g.shut()
+	top := g.header + float32(-g.top*float64(g.rowH))
+	for i := max(0, first-len(g.leaving)-1); i < last; i++ {
+		y := g.rowY(i)
+		if y > g.view.H || y+g.rowH < g.header {
+			continue
+		}
+		g.paintRow(p, th, i, y, bodyW, size, pad)
+	}
+	if open <= 0 {
+		return
+	}
+	for k, l := range g.leaving {
+		n, _ := slices.BinarySearch(g.gone, l.at)
+		y := top + (float32(l.at-n)+float32(k)*open)*g.rowH
+		band := geom.Rc(0, y, bodyW, g.rowH*open)
+		func() {
+			defer p.Layer(paint.LayerOpts{Bounds: band, Opacity: open * open, Clip: true})()
+			defer p.Push(paint.Translate(geom.Pt(0, -g.rowH*(1-open)/2)))()
+			g.paintContent(p, th, -2-k, l.row, l.selected, false, y, bodyW, size, pad)
+		}()
 	}
 }
 
@@ -572,17 +692,26 @@ func (g *DataGrid) paintRow(p *paint.Painter, th *theme.Live, i int, y, bodyW, s
 		defer p.Layer(paint.LayerOpts{Bounds: band, Opacity: in})()
 		defer p.Push(paint.Translate(geom.Pt(0, -6*(1-in))))()
 	}
+	cursor := g.Multi && g.focused && i == g.selected && countRuns(g.runs) > 1
+	g.paintContent(p, th, i, row, g.IsSelected(i), cursor, y, bodyW, size, pad)
+}
+
+// paintContent paints row at y, under key in the shape cache: its tint,
+// its selection and cursor, and its cells.
+func (g *DataGrid) paintContent(p *paint.Painter, th *theme.Live, key int, row GridRow, selected, cursor bool,
+	y, bodyW, size, pad float32) {
+	band := geom.Rc(0, y, bodyW, g.rowH)
 	if row.Tint.Key() != "" {
 		p.RRect(band, 0, paint.Solid(row.Tint.Get(th)))
 	}
-	if g.IsSelected(i) {
+	if selected {
 		c := GridCursor.Get(th)
 		if !g.focused {
 			c.A = c.A * 2 / 3
 		}
 		p.RRect(band, 0, paint.Solid(c))
 	}
-	if g.Multi && g.focused && i == g.selected && countRuns(g.runs) > 1 {
+	if cursor {
 		p.RRectStroke(band.Inset(geom.Uniform(0.5)), 0, paint.Fill{}, paint.Stroke{Width: 1, Color: GridRule.Get(th)})
 	}
 	if row.Rule {
@@ -596,7 +725,7 @@ func (g *DataGrid) paintRow(p *paint.Painter, th *theme.Live, i int, y, bodyW, s
 		if x > bodyW || x+w < 0 {
 			continue
 		}
-		g.paintCell(p, th, i, c, spans, row.Dim, x, y, w, size, pad)
+		g.paintCell(p, th, key, c, spans, row.Dim, x, y, w, size, pad)
 	}
 }
 

@@ -71,9 +71,9 @@ func (recycleBin) Trash(path string) (string, error) {
 	case op.fAnyOperationsAborted != 0:
 		return "", fmt.Errorf("moving %s to the Recycle Bin was stopped", abs)
 	}
-	return "", nil
+	return inRecycleBin, nil
 }
 
-// Restore implements [trasher]; the app cannot take items out of the
-// Recycle Bin.
-func (recycleBin) Restore(string, string) error { return errNoRestore }
+// inRecycleBin is where Trash says an item went; Restore finds it again by
+// where it came from and when.
+const inRecycleBin = "the Recycle Bin"

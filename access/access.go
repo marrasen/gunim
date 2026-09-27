@@ -45,12 +45,25 @@ const (
 	RoleScrollArea
 	// RoleLink is text that does something when clicked.
 	RoleLink
+	// RoleTable holds rows of cells, each row a RoleRow of RoleCell or,
+	// for the titles, RoleColumnHeader.
+	RoleTable
+	RoleRow
+	RoleCell
+	RoleColumnHeader
+	// RoleMenuBar holds the titles of a window's menus.
+	RoleMenuBar
+	// RoleProgressBar shows how far work has got, in its Range.
+	RoleProgressBar
+	// RoleScrollBar scrolls something else, its place in its Range.
+	RoleScrollBar
 )
 
 var roleNames = [...]string{
 	"group", "window", "button", "checkbox", "switch", "slider", "text field",
 	"label", "heading", "image", "list", "list item", "tab list", "tab",
 	"menu", "menu item", "combo box", "dialog", "tooltip", "scroll area", "link",
+	"table", "row", "cell", "column header", "menu bar", "progress bar", "scroll bar",
 }
 
 func (r Role) String() string {
@@ -106,7 +119,9 @@ type Info struct {
 	Actions []string
 	// Parts are parts of the node it draws itself, such as a menu's
 	// items or a tab list's tabs, each with Bounds in the node's own
-	// space. A request for a part names it by its index in Part.
+	// space. A part may hold parts, as a table's rows hold cells. A
+	// request for a part names it by its index in Part, counting parts
+	// and the parts inside them in order.
 	Parts []Info
 	// Bounds is where a part lies, in its node's space. The engine
 	// finds a node's own bounds.

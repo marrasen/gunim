@@ -96,10 +96,10 @@ type Selection struct {
 }
 
 // Band is what the overview strip shows for a stretch of rows: the
-// share of folders, pictures and other files, and the first name.
+// share of each tint, by Tint, and the first name.
 type Band struct {
-	Folders, Media, Other float32
-	First                 string
+	Shares []float32
+	First  string
 }
 
 // Bands is the overview strip of listing Gen.

@@ -18,7 +18,7 @@ func TestWire(t *testing.T) {
 			Sort: SortSize, Desc: true, Filter: "x", Travel: -1, CanBack: true},
 		RowBlock{Gen: 3, Start: 0, Rows: []Row{{Name: "a.txt", Kind: KindFile, Size: "4 bytes", Tint: TintDocument}}},
 		Selection{Gen: 3, Runs: [][2]int{{0, 2}}, Cursor: 1},
-		Bands{Gen: 3, Bands: []Band{{Folders: 0.5, Other: 0.5, First: "a"}}},
+		Bands{Gen: 3, Bands: []Band{{Shares: []float32{0.5, 0.5}, First: "a"}}},
 		Status{Left: "2 items", Right: "1 GB free"},
 		Banner{Seq: 1, Text: "no"},
 		NeedRows{Gen: 3, Starts: []int{0, 256}},
@@ -51,6 +51,13 @@ func TestWire(t *testing.T) {
 		Preview{Seq: 1, Title: "a.png", Facts: []Fact{{Label: "Size", Value: "1 KB"}}, Image: thumb},
 		Counted{Seq: 1, Items: "3 items", Size: "1 KB", Counting: true},
 		RevealPath{Path: "/a"},
+		PaletteQuery{Seq: 2, Text: "rep"},
+		PaletteResults{Seq: 2, Hits: []PaletteHit{{Title: "report.txt", Detail: "docs", Key: "file:/a/report.txt",
+			At: []int{0, 1, 2}}}, Status: "3 items"},
+		PalettePicked{Key: "cmd:hidden", Ctrl: true},
+		OpenPalette{Query: ">sort"},
+		OpSpeed{ID: 1, Rate: 1 << 20, Left: 3.5, File: "/a/big.bin"},
+		OpDone{ID: 1, OK: true},
 	)
 	if err != nil {
 		t.Fatal(err)

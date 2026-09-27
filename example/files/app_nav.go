@@ -309,9 +309,13 @@ func (a *app) refilter() {
 	if n.loading || n.err != nil {
 		return
 	}
+	was := n.rows
 	n.rows = filterEntries(n.all, n.filter, a.shell.ShowHidden)
 	n.gen++
 	a.publishListing()
+	if left := gone(was, n.rows); len(left) > 0 {
+		a.patch(RowsLeft{Gen: n.gen, Rows: left})
+	}
 	a.publishBands()
 	if n.pick != "" {
 		clear(n.sel)
@@ -455,20 +459,12 @@ func (a *app) publishBands() {
 	bands := make([]Band, count)
 	for b := range count {
 		from, to := b*len(n.rows)/count, (b+1)*len(n.rows)/count
-		var dirs, media, other int
-		for _, e := range n.rows[from:to] {
-			switch tintOf(e) {
-			case TintFolder:
-				dirs++
-			case TintImage, TintVideo, TintAudio:
-				media++
-			case TintOther, TintArchive, TintDocument, TintCode, TintProgram:
-				other++
-			}
-		}
+		shares := make([]float32, TintProgram+1)
 		all := float32(max(to-from, 1))
-		bands[b] = Band{Folders: float32(dirs) / all, Media: float32(media) / all, Other: float32(other) / all,
-			First: n.rows[from].Name}
+		for _, e := range n.rows[from:to] {
+			shares[tintOf(e)] += 1 / all
+		}
+		bands[b] = Band{Shares: shares, First: n.rows[from].Name}
 	}
 	a.patch(Bands{Gen: n.gen, Bands: bands})
 }

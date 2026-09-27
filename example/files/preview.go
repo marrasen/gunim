@@ -79,7 +79,7 @@ func newPreviewPage(s Preview) *previewPage {
 	}
 	if s.Image != nil {
 		img := widget.NewImage(s.Image)
-		img.Fit, img.Radius = widget.FitContain, 8
+		img.Fit, img.Radius, img.Alt = widget.FitContain, 8, s.Title
 		kids = append(kids, &thumbBox{img: img})
 	} else if s.Title != "" {
 		kids = append(kids, &typeTile{tint: s.Tint, label: tileLabel(s)})

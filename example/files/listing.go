@@ -81,6 +81,7 @@ func (a *listingArea) setListing(l Listing, u *gunim.UI) {
 
 func (a *listingArea) rows(r RowBlock, u *gunim.UI) {
 	if a.cur != nil && r.Gen == a.cur.gen {
+		a.cur.leave(u)
 		a.cur.blocks[r.Start] = r.Rows
 		delete(a.cur.asked, r.Start)
 		a.cur.forget()
@@ -184,6 +185,8 @@ type listingPage struct {
 	// does only while the rows do not all fit.
 	stripIn *anim.Float
 	icons   *iconView
+	// left holds the rows to leave once the rows of gen arrive.
+	left *RowsLeft
 }
 
 // contextItems are the commands of the listing's context menu.
@@ -291,11 +294,7 @@ func (pg *listingPage) setBands(bs []Band) {
 	parts := make([]widget.OverviewBand, len(bs))
 	pg.firstNames = pg.firstNames[:0]
 	for i, b := range bs {
-		parts[i] = widget.OverviewBand{Parts: []widget.OverviewPart{
-			{Share: b.Folders, Color: tintToken(TintFolder)},
-			{Share: b.Media, Color: tintToken(TintImage)},
-			{Share: b.Other, Color: tintToken(TintOther), Faint: true},
-		}}
+		parts[i] = widget.OverviewBand{Parts: overviewParts(b.Shares)}
 		pg.firstNames = append(pg.firstNames, b.First)
 	}
 	pg.strip.Bands = parts

@@ -34,6 +34,10 @@ type WindowControls struct {
 	hot  [3]*anim.Float
 	over int
 	down int
+	// size and maxed are the buttons' size and whether the window was
+	// maximized, at the last layout.
+	size  geom.Size
+	maxed bool
 }
 
 // NewWindowControls returns the three buttons.
@@ -49,6 +53,7 @@ func NewWindowControls() *WindowControls {
 // Layout implements [gunim.Node]: three buttons as tall as the title
 // bar.
 func (c *WindowControls) Layout(cs gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
+	c.size, c.maxed = geom.Size{}, f.Maximized()
 	if !f.Chromeless() {
 		// The system's title bar has its own.
 		return cs.Constrain(geom.Size{})
@@ -57,7 +62,8 @@ func (c *WindowControls) Layout(cs gunim.Constraints, f gunim.Frame, _ gunim.Chi
 	if h <= 0 {
 		h = MenubarHeight.Get(f.Theme)
 	}
-	return cs.Constrain(geom.Sz(3*windowButtonWidth, h))
+	c.size = cs.Constrain(geom.Sz(3*windowButtonWidth, h))
+	return c.size
 }
 
 // MaximizeRect implements [gunim.MaximizeButton].

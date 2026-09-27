@@ -23,6 +23,9 @@ func registerViews(w *gunim.Window) {
 	registerStatus(w)
 	registerDialogs(w)
 	registerIcons(w)
+	registerPalette(w)
+	registerSpeed(w)
+	registerRowsLeft(w)
 }
 
 // root is the window's root: the background, with the views stacked on
@@ -54,6 +57,7 @@ type browser struct {
 	ops     *opsPanel
 	status  *statusBar
 	toasts  *widget.Toasts
+	palette *filesPalette
 	split   *widget.Split
 	main    *widget.Split
 	page    *widget.Flex
@@ -69,6 +73,7 @@ func newBrowser() *browser {
 	b.preview = newPreviewPane()
 	b.ops = newOpsPanel()
 	b.status = newStatusBar()
+	b.palette = newFilesPalette(b)
 	b.main = widget.NewSplit(b.listing, b.preview)
 	b.main.SetShare(0.72, nil)
 	b.split = widget.NewSplit(b.side, b.main)
@@ -151,6 +156,9 @@ func (b *browser) Handle(e input.Event, u *gunim.UI) bool {
 		return true
 	case ctrl && k.Key == input.KeyF:
 		u.Focus(b.path.filter)
+		return true
+	case ctrl && k.Key == input.KeyP:
+		b.palette.open("", u)
 		return true
 	case ctrl && shift && k.Key == input.KeyN:
 		cmd = CmdNewFolder
