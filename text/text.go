@@ -315,13 +315,13 @@ func (r Run) Paint(p *paint.Painter, topLeft geom.Point, c color.NRGBA) {
 }
 
 // Shape lays s out as one line at size logical pixels, with no
-// wrapping. A newline in s is drawn as a space.
+// wrapping. A line break in s is drawn as a space.
 //
 // Bidirectional text and fallback faces work as they do in [Face.Layout].
 func (f *Face) Shape(s string, size float32) Run {
 	runes := []rune(s)
 	for i, r := range runes {
-		if r == '\n' {
+		if isLineBreak(r) {
 			runes[i] = ' '
 		}
 	}
@@ -441,7 +441,7 @@ func (f *Face) Layout(s string, st Style, width float32) Paragraph {
 	halfLeading := (step - ascent - descent) / 2
 
 	out := Paragraph{LineHeight: step}
-	paras := splitLines(s)
+	paras, seps := splitLines(s)
 	base := 0 // the rune where the current paragraph starts
 	mu.Lock()
 	var ellipsis shaping.Output
@@ -485,7 +485,7 @@ func (f *Face) Layout(s string, st Style, width float32) Paragraph {
 			out.Lines = out.Lines[:st.MaxLines]
 			out.Truncated = true
 		}
-		base += len(runes) + 1 // and the newline
+		base += len(runes) + seps[i]
 	}
 	mu.Unlock()
 
@@ -506,18 +506,34 @@ func (f *Face) Layout(s string, st Style, width float32) Paragraph {
 	return out
 }
 
-// splitLines splits s at each newline into the runes of each line.
-func splitLines(s string) [][]rune {
-	var out [][]rune
+// splitLines splits s at each line break into the runes of each line, and returns how many runes the break after
+// each line takes: two for \r\n, one for \n, \r and the Unicode line and paragraph separators, none after the last.
+func splitLines(s string) (lines [][]rune, seps []int) {
 	start := 0
 	runes := []rune(s)
-	for i, r := range runes {
-		if r == '\n' {
-			out = append(out, runes[start:i])
-			start = i + 1
+	for i := 0; i < len(runes); i++ {
+		if !isLineBreak(runes[i]) {
+			continue
 		}
+		sep := 1
+		if runes[i] == '\r' && i+1 < len(runes) && runes[i+1] == '\n' {
+			sep = 2
+		}
+		lines, seps = append(lines, runes[start:i]), append(seps, sep)
+		i += sep - 1
+		start = i + 1
 	}
-	return append(out, runes[start:])
+	return append(lines, runes[start:]), append(seps, 0)
+}
+
+// isLineBreak reports whether r ends a line: a newline, a carriage return, a next line, or a line or paragraph
+// separator.
+func isLineBreak(r rune) bool {
+	switch r {
+	case '\n', '\r', '\u0085', ' ', ' ':
+		return true
+	}
+	return false
 }
 
 // direction returns the direction of a paragraph: the direction of its
