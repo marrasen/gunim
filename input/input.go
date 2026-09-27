@@ -156,9 +156,11 @@ type WindowFocusGained struct{ Time time.Time }
 // node's Data, dragged inside the application, from this window or
 // another. It bubbles like a pointer event. A node that returns true
 // for it will take the drop, and hears DragLeave if the drag moves on.
+// Mods are the modifier keys held, such as Ctrl to copy.
 type DragOver struct {
 	Pos  geom.Point
 	Data any
+	Mods Mods
 	Time time.Time
 }
 
@@ -169,19 +171,36 @@ type DragLeave struct{ Time time.Time }
 // Drop arrives when something is let go over a node: another node's
 // Data, dragged inside the application, or files from another program,
 // such as a file manager, as Paths. It bubbles like a pointer event,
-// and the node that returns true has taken it.
+// and the node that returns true has taken it. Mods are the modifier
+// keys held as it was let go, where the system says.
 type Drop struct {
 	Pos   geom.Point
 	Data  any
 	Paths []string
+	Mods  Mods
 	Time  time.Time
 }
 
-// DragEnd arrives at the node a drag started from once it ends.
-// Taken says whether a node took the drop.
+// DragEnd arrives at the node a drag started from once it ends, and at
+// the picture the drag carries. Taken says whether a node took the drop.
 type DragEnd struct {
 	Taken bool
 	Time  time.Time
+}
+
+// DragMove arrives at the picture a drag carries each time the pointer
+// moves it. At is the pointer's place on the screen.
+type DragMove struct {
+	At   geom.Point
+	Time time.Time
+}
+
+// DragAnswer arrives at the picture a drag carries when what a drop
+// would do changes: the answer the node under the pointer gave, or nil
+// over nothing that answers.
+type DragAnswer struct {
+	Answer any
+	Time   time.Time
 }
 
 func (PointerEnter) isEvent() {}
@@ -200,6 +219,8 @@ func (DragOver) isEvent()     {}
 func (DragLeave) isEvent()    {}
 func (Drop) isEvent()         {}
 func (DragEnd) isEvent()      {}
+func (DragMove) isEvent()     {}
+func (DragAnswer) isEvent()   {}
 
 func (WindowFocusLost) isEvent()   {}
 func (WindowFocusGained) isEvent() {}

@@ -260,3 +260,147 @@ func TestADragLeavesOnlyOnceFarFromEveryWindow(t *testing.T) {
 		t.Fatal("a drag far from every window was not handed out")
 	}
 }
+
+// answerer is a basket that says what a drop on it would do.
+type answerer struct {
+	basket
+	answer string
+}
+
+func (a *answerer) Handle(e input.Event, u *UI) bool {
+	if _, ok := e.(input.DragOver); ok {
+		u.AnswerDrag(a.answer)
+	}
+	return a.basket.Handle(e, u)
+}
+
+// ghostHeard returns the events of the kind of want the carrier's ghost heard.
+func ghostHeard[E input.Event](c *carrier) []E {
+	var out []E
+	for _, e := range c.ghost.events {
+		if v, ok := e.(E); ok {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+func TestTheAnswerOfTheNodeUnderADragReachesItsPicture(t *testing.T) {
+	a, b, c, bk := twoWindows(t)
+	ans := &answerer{answer: "Move here"}
+	b.ui.Remove(bk)
+	b.ui.Insert(b.ui.Root(), ans)
+	run(b, 60)
+	a.Input(input.PointerDown{Pos: geom.Pt(30, 30), Time: time.Now()})
+	a.Input(input.PointerMove{Pos: geom.Pt(40, 30), Time: time.Now()})
+	a.Input(input.PointerMove{Pos: geom.Pt(1000, 50), Time: time.Now()})
+	run(b, 1)
+	run(a, 1)
+	answers := ghostHeard[input.DragAnswer](c)
+	if len(answers) == 0 || answers[len(answers)-1].Answer != "Move here" {
+		t.Fatalf("the picture heard %v, want the answer from the other window", answers)
+	}
+	if moves := ghostHeard[input.DragMove](c); len(moves) < 2 || !near(moves[len(moves)-1].At, geom.Pt(1000, 50)) {
+		t.Fatalf("the picture heard moves %v, want the last at (1000, 50) on the screen", moves)
+	}
+	// Off every window, nothing answers.
+	a.Input(input.PointerMove{Pos: geom.Pt(3000, 50), Time: time.Now()})
+	answers = ghostHeard[input.DragAnswer](c)
+	if answers[len(answers)-1].Answer != nil {
+		t.Fatalf("off the windows the picture still heard %v", answers[len(answers)-1].Answer)
+	}
+}
+
+func TestModifierKeysReachTheNodeUnderADrag(t *testing.T) {
+	w := newTestWindow()
+	c := &carrier{word: "pear"}
+	bk := &basket{}
+	p := &apart{}
+	w.ui.Insert(w.ui.Root(), p)
+	w.ui.Insert(p, c)
+	w.ui.Insert(p, bk)
+	run(w, 1)
+	w.Input(input.PointerDown{Pos: geom.Pt(30, 30), Time: time.Now()})
+	w.Input(input.PointerMove{Pos: geom.Pt(40, 30), Time: time.Now()})
+	w.Input(input.PointerMove{Pos: geom.Pt(250, 250), Mods: input.ModShift, Time: time.Now()})
+	w.Input(input.KeyPress{Key: input.KeyLeftControl, Mods: input.ModShift, Time: time.Now()})
+	w.Input(input.PointerUp{Pos: geom.Pt(250, 250), Mods: input.ModShift | input.ModControl, Time: time.Now()})
+	var over []input.Mods
+	var drop input.Drop
+	for _, e := range bk.events {
+		switch e := e.(type) {
+		case input.DragOver:
+			over = append(over, e.Mods)
+		case input.Drop:
+			drop = e
+		}
+	}
+	if len(over) < 2 || over[0] != input.ModShift || over[1] != input.ModShift|input.ModControl {
+		t.Fatalf("DragOver carried %v, want Shift and then Shift with Ctrl", over)
+	}
+	if drop.Mods != input.ModShift|input.ModControl {
+		t.Fatalf("the drop carried %v, want Shift with Ctrl", drop.Mods)
+	}
+}
+
+func TestEscapeGivesADragUp(t *testing.T) {
+	a, b, c, bk := twoWindows(t)
+	a.Input(input.PointerDown{Pos: geom.Pt(30, 30), Time: time.Now()})
+	a.Input(input.PointerMove{Pos: geom.Pt(40, 30), Time: time.Now()})
+	a.Input(input.PointerMove{Pos: geom.Pt(1000, 50), Time: time.Now()})
+	run(b, 1)
+	a.Input(input.KeyPress{Key: input.KeyEscape, Time: time.Now()})
+	run(b, 1)
+	if !bk.got(input.DragLeave{}) {
+		t.Fatal("the basket did not hear the drag leave")
+	}
+	if len(c.ended) != 1 || c.ended[0].Taken {
+		t.Fatalf("the carrier heard %v, want one DragEnd, untaken", c.ended)
+	}
+	a.Input(input.PointerUp{Pos: geom.Pt(1000, 50), Time: time.Now()})
+	run(b, 1)
+	if bk.got(input.Drop{}) {
+		t.Fatal("a drag given up still dropped")
+	}
+}
+
+func TestThePictureOfADragStaysUntilTheDropIsTaken(t *testing.T) {
+	a, b, c, _ := twoWindows(t)
+	a.Input(input.PointerDown{Pos: geom.Pt(30, 30), Time: time.Now()})
+	a.Input(input.PointerMove{Pos: geom.Pt(40, 30), Time: time.Now()})
+	a.Input(input.PointerMove{Pos: geom.Pt(1000, 50), Time: time.Now()})
+	a.Input(input.PointerUp{Pos: geom.Pt(1000, 50), Time: time.Now()})
+	run(a, 1)
+	if len(a.ui.popups) != 1 || len(ghostHeard[input.DragEnd](c)) != 0 {
+		t.Fatal("the picture left before the other window said whether it took the drop")
+	}
+	run(b, 1)
+	run(a, 1)
+	ends := ghostHeard[input.DragEnd](c)
+	if len(ends) != 1 || !ends[0].Taken {
+		t.Fatalf("the picture heard %v, want one DragEnd, taken", ends)
+	}
+	run(a, 120)
+	if len(a.ui.popups) != 0 {
+		t.Fatal("the picture stayed after the drop was taken")
+	}
+}
+
+// apart puts its first child at (10, 10) and its second at (200, 200),
+// each 100 square.
+type apart struct{ _ byte }
+
+func (p *apart) Layout(c Constraints, _ Frame, kids Children) geom.Size {
+	for i, at := range []geom.Point{{X: 10, Y: 10}, {X: 200, Y: 200}}[:kids.Len()] {
+		k := kids.At(i)
+		k.Layout(Tight(geom.Sz(100, 100)))
+		k.Place(at)
+	}
+	return c.Max
+}
+
+func (p *apart) Paint(pt *paint.Painter, _ Frame, _ geom.Size, kids Children) {
+	for k := range kids.All {
+		k.Paint(pt)
+	}
+}
