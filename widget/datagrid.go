@@ -119,6 +119,9 @@ type DataGrid struct {
 	// OnSelect turns a change of selection into an intent; row is -1
 	// when nothing is selected.
 	OnSelect func(row int) gunim.Intent
+	// OnClick turns a click on a row into an intent, each click, whether or
+	// not it changes the selection.
+	OnClick func(row int) gunim.Intent
 	// OnActivate turns a double click or Enter on a row into an intent.
 	OnActivate func(row int) gunim.Intent
 	// OnResize turns a column resized by a drag into an intent.
@@ -770,6 +773,9 @@ func (g *DataGrid) press(e input.PointerDown, u *gunim.UI) bool {
 	i := g.rowAt(e.Pos.Y)
 	if i < 0 {
 		return true
+	}
+	if g.OnClick != nil {
+		g.send(g.OnClick(i), u)
 	}
 	if e.Clicks == 2 {
 		if g.OnActivate != nil {

@@ -199,3 +199,21 @@ func TestAMarkLightsTheRunesItCovers(t *testing.T) {
 		t.Fatal("no mark was drawn")
 	}
 }
+
+type gridClicked struct{ Row int }
+
+func TestEveryClickOnARowIsSent(t *testing.T) {
+	g := NewDataGrid(GridColumn{Title: "Name"})
+	g.Row = func(int) (GridRow, bool) { return GridRow{}, true }
+	g.OnClick = func(row int) gunim.Intent { return gridClicked{row} }
+	g.rows = 10
+	w, run := stage(t, &frame{child: g, size: geom.Sz(400, 300)})
+	y := GridHeaderHeight.Default() + GridRowHeight.Default()*2 + 5
+	click(w, 50, y)
+	run(1)
+	click(w, 50, y)
+	run(1)
+	if got := sent(w); len(got) != 2 || got[0] != (gridClicked{2}) || got[1] != (gridClicked{2}) {
+		t.Fatalf("two clicks on row 2 sent %v", got)
+	}
+}
