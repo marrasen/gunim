@@ -573,6 +573,17 @@ func drawChevron(p *paint.Painter, c geom.Point, ink color.NRGBA) {
 // passes keys to the menu, and hands focus back once it closes.
 type ContextMenu struct {
 	Items []string
+	// Hints, Checked, Disabled and Breaks say more about the items, as
+	// they do in a [Menu]: a shortcut at the right, a tick, a dimmed item
+	// the pointer passes by, and the items a line goes above.
+	Hints    []string
+	Checked  []bool
+	Disabled []bool
+	Breaks   []int
+	// Prepare, when set, runs as the secondary button goes down at at, in
+	// the context menu's space, before the menu opens. It may set the items
+	// for the place pressed, and returning false opens no menu.
+	Prepare func(at geom.Point, u *gunim.UI) bool
 	// OnPick turns a picked item into an intent for the application.
 	OnPick func(i int) gunim.Intent
 
@@ -602,7 +613,10 @@ func (c *ContextMenu) Handle(e input.Event, u *gunim.UI) bool {
 		if e.Button != input.ButtonSecondary {
 			return false
 		}
-		c.open(e.Pos, u)
+		if c.Prepare != nil && !c.Prepare(e.Pos, u) {
+			return false
+		}
+		c.show(e.Pos, u)
 	case input.KeyPress:
 		if !c.Focusable() {
 			return false
@@ -621,9 +635,19 @@ func (c *ContextMenu) Handle(e input.Event, u *gunim.UI) bool {
 	return true
 }
 
-func (c *ContextMenu) open(at geom.Point, u *gunim.UI) {
+// Open opens the menu at at, in the context menu's space, as a press of the
+// secondary button there does, for a key such as the Menu key.
+func (c *ContextMenu) Open(at geom.Point, u *gunim.UI) {
+	if c.Prepare != nil && !c.Prepare(at, u) {
+		return
+	}
+	c.show(at, u)
+}
+
+func (c *ContextMenu) show(at geom.Point, u *gunim.UI) {
 	c.close(u)
 	m := NewMenu(c.Items...)
+	m.Hints, m.Checked, m.Disabled, m.Breaks = c.Hints, c.Checked, c.Disabled, c.Breaks
 	m.Pick = func(i int, u *gunim.UI) {
 		c.close(u)
 		if c.OnPick != nil {
