@@ -422,7 +422,8 @@ func (p Paragraph) Paint(painter *paint.Painter, topLeft geom.Point, c color.NRG
 
 // Layout sets s as a paragraph in lines at most width logical pixels
 // wide, breaking where Unicode's line breaking rules allow and within a
-// word only when the word alone is wider than width. A width of zero or
+// word only when the word alone is wider than width. A path breaks after
+// its slashes or backslashes and nowhere else in it. A width of zero or
 // less sets each line of s unbroken.
 //
 // Each newline in s starts a paragraph of its own, whose direction comes
@@ -579,7 +580,7 @@ func (f *Face) wrapLocked(runes []rune, size, width float32, cfg shaping.WrapCon
 	if width > 0 {
 		maxWidth = toFixed(width)
 	}
-	return wrapper.WrapParagraphF(cfg, maxWidth, runes, shaping.NewSliceIterator(outs))
+	return wrapper.WrapParagraphF(cfg, maxWidth, breakText(runes), shaping.NewSliceIterator(outs))
 }
 
 // lineRun lays a wrapped line's runs out left to right in visual order.
