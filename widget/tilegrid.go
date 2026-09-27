@@ -214,10 +214,10 @@ func (g *TileGrid) target(i int) geom.Rect {
 	return geom.Rc(g.left+float32(c)*g.step.W, g.pad+float32(r)*g.step.H, g.Size.W, g.Size.H)
 }
 
-// at returns the tile at p, in the grid's space, or -1 over empty space.
 // TileAt returns the tile at p, in the grid's own space, or -1 for none.
 func (g *TileGrid) TileAt(p geom.Point) int { return g.at(p) }
 
+// at returns the tile at p, in the grid's space, or -1 over empty space.
 func (g *TileGrid) at(p geom.Point) int {
 	if g.cols == 0 || g.step.W <= 0 || g.step.H <= 0 {
 		return -1
