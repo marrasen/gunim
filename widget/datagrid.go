@@ -491,6 +491,9 @@ func (g *DataGrid) Leave(gone []int, u *gunim.UI) {
 	u.Invalidate()
 }
 
+// Leaving returns how many rows in view are on their way out.
+func (g *DataGrid) Leaving() int { return len(g.leaving) }
+
 // shut returns how far the rows leaving have shut, from 0 to 1.
 func (g *DataGrid) shut() float32 {
 	t := float32(min(g.leftAgo/leaveTime, 1))

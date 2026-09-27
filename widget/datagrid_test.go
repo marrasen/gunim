@@ -303,8 +303,8 @@ func TestLeavingRowsShutAndTheRowsBelowSlideUp(t *testing.T) {
 		t.Fatal(err)
 	}
 	run(1)
-	if len(g.leaving) != 2 {
-		t.Fatalf("%d rows in view are leaving, want 2", len(g.leaving))
+	if g.Leaving() != 2 {
+		t.Fatalf("%d rows in view are leaving, want 2", g.Leaving())
 	}
 	if at, above := g.before(3); at != 5 || above != 2 {
 		t.Fatalf("row 3 was row %d with %d leaving above it, want 5 and 2", at, above)
