@@ -29,9 +29,10 @@ const pickUp = 4
 // that nothing inside the row takes, and a move of a few pixels, picks
 // the row up: it lifts, follows the pointer, and the other rows spring
 // aside to open a gap where it would land. Letting go drops it into the
-// gap and sends Reorder the new order.
+// gap and sends Reorder the new order. With OnClick set, a press let go
+// on the row it began on without picking it up is a click.
 func (l *List) Handle(e input.Event, u *gunim.UI) bool {
-	if l.Reorder == nil {
+	if l.Reorder == nil && l.OnClick == nil {
 		return false
 	}
 	th := u.Theme()
@@ -49,7 +50,7 @@ func (l *List) Handle(e input.Event, u *gunim.UI) bool {
 		if !l.drag.pressed {
 			return false
 		}
-		if !l.drag.active && abs32(e.Pos.Y-l.drag.from) >= pickUp {
+		if l.Reorder != nil && !l.drag.active && abs32(e.Pos.Y-l.drag.from) >= pickUp {
 			l.drag.active = true
 			l.lift.Animate(1, Quick.Get(th))
 		}
@@ -59,6 +60,11 @@ func (l *List) Handle(e input.Event, u *gunim.UI) bool {
 	case input.PointerUp:
 		if !l.drag.pressed {
 			return false
+		}
+		if k, _, ok := l.rowAt(e.Pos.Y); ok && !l.drag.active && l.OnClick != nil && k == l.drag.key {
+			if v := l.OnClick(k); v != nil {
+				u.Send(l, v)
+			}
 		}
 		l.drop(u)
 	default:

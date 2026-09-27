@@ -36,6 +36,9 @@ type List struct {
 	// and turns the order a drop leaves into an intent for the
 	// application. See [List.Handle].
 	Reorder func(keys []Key) gunim.Intent
+	// OnClick, when set, turns a click on a row that nothing inside the
+	// row takes into an intent, so a row can be both clicked and dragged.
+	OnClick func(key Key) gunim.Intent
 
 	rows   map[Key]*row
 	order  []Key

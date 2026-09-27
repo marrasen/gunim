@@ -83,3 +83,28 @@ func TestAClickOnARowLeavesTheOrder(t *testing.T) {
 		t.Fatal("a click moved a row")
 	}
 }
+
+type rowClicked struct{ Key Key }
+
+func TestARowThatIsNotDraggedIsClicked(t *testing.T) {
+	w, l, run := newReorderList(t)
+	l.OnClick = func(k Key) gunim.Intent { return rowClicked{k} }
+	w.Input(input.PointerDown{Pos: geom.Pt(100, 46+20), Clicks: 1})
+	w.Input(input.PointerMove{Pos: geom.Pt(102, 46+21)})
+	w.Input(input.PointerUp{Pos: geom.Pt(102, 46+21)})
+	run(1)
+	w.Input(input.PointerDown{Pos: geom.Pt(100, 20), Clicks: 1})
+	for y := float32(20); y <= 110; y += 10 {
+		w.Input(input.PointerMove{Pos: geom.Pt(100, y)})
+		run(1)
+	}
+	w.Input(input.PointerUp{Pos: geom.Pt(100, 110)})
+	run(60)
+	got := sent(w)
+	if len(got) != 2 || got[0] != (rowClicked{"1"}) {
+		t.Fatalf("a click on row 1 and a drag of row 0 sent %v, want the click and then the new order", got)
+	}
+	if _, ok := got[1].(reordered); !ok {
+		t.Fatalf("the drag sent %v, want the new order and no click", got[1])
+	}
+}
