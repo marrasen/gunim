@@ -484,6 +484,29 @@ func (c Client) SaveFile(ctx context.Context, o driver.SaveOptions) (string, err
 	return awaitDialog(ctx, c, func() (string, error) { return fs.SaveFile(o) })
 }
 
+// Open opens the file or folder at path with the program the system keeps
+// for it, as a double click in the system's file manager does. It returns
+// once the system has taken the request, and [driver.ErrNoLauncher] where
+// gunim cannot ask.
+func (c Client) Open(path string) error {
+	l, ok := c.w.dw.(driver.Launcher)
+	if !ok {
+		return driver.ErrNoLauncher
+	}
+	return l.Open(path)
+}
+
+// Reveal shows the file or folder at path in the system's file manager,
+// selected where the system can. It returns [driver.ErrNoLauncher] where
+// gunim cannot ask.
+func (c Client) Reveal(path string) error {
+	l, ok := c.w.dw.(driver.Launcher)
+	if !ok {
+		return driver.ErrNoLauncher
+	}
+	return l.Reveal(path)
+}
+
 // awaitDialog runs show, which shows a dialog, and waits for its answer,
 // the window to close, or ctx to end.
 func awaitDialog[T any](ctx context.Context, c Client, show func() (T, error)) (T, error) {

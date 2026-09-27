@@ -47,6 +47,8 @@ type OffscreenWindow struct {
 	chooser func(ChooseOptions) ([]string, error)
 	// saver answers SaveFile; see SetSaver.
 	saver func(SaveOptions) (string, error)
+	// open and reveal answer Open and Reveal; see SetLauncher.
+	open, reveal func(string) error
 	// anchor is where a popup was last attached, and origin where the
 	// window sits on its pretend screen.
 	anchor geom.Rect
@@ -472,4 +474,36 @@ func (w *OffscreenWindow) SaveFile(o SaveOptions) (string, error) {
 		return "", ErrNoChooser
 	}
 	return fn(o)
+}
+
+// SetLauncher sets what Open and Reveal do, for a test standing in for
+// the system.
+func (w *OffscreenWindow) SetLauncher(open, reveal func(path string) error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.open, w.reveal = open, reveal
+}
+
+// Open implements [Launcher] with the function SetLauncher set, and
+// returns [ErrNoLauncher] without one.
+func (w *OffscreenWindow) Open(path string) error {
+	w.mu.Lock()
+	fn := w.open
+	w.mu.Unlock()
+	if fn == nil {
+		return ErrNoLauncher
+	}
+	return fn(path)
+}
+
+// Reveal implements [Launcher] with the function SetLauncher set, and
+// returns [ErrNoLauncher] without one.
+func (w *OffscreenWindow) Reveal(path string) error {
+	w.mu.Lock()
+	fn := w.reveal
+	w.mu.Unlock()
+	if fn == nil {
+		return ErrNoLauncher
+	}
+	return fn(path)
 }

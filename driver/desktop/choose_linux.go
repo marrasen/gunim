@@ -79,13 +79,9 @@ func addFilters(opts map[string]dbus.Variant, filters []driver.FileFilter) {
 // portal calls the FileChooser portal's method, owned by w, and waits for
 // its answer, which is nil when the dialog was cancelled.
 func (w *Window) portal(method, title string, opts map[string]dbus.Variant) (any, error) {
-	var xid uintptr
-	if err := w.d.call(func() error {
-		x, err := w.gw.GetX11Window()
-		xid = x
-		return err
-	}); err != nil {
-		return nil, fmt.Errorf("desktop: finding the window for a file dialog: %w", err)
+	parent, err := w.portalParent()
+	if err != nil {
+		return nil, err
 	}
 	conn, err := dbus.ConnectSessionBus()
 	if err != nil {
@@ -111,7 +107,7 @@ func (w *Window) portal(method, title string, opts map[string]dbus.Variant) (any
 	var handle dbus.ObjectPath
 	desk := conn.Object("org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop")
 	if err := desk.Call("org.freedesktop.portal.FileChooser."+method, 0,
-		fmt.Sprintf("x11:%x", xid), title, opts).Store(&handle); err != nil {
+		parent, title, opts).Store(&handle); err != nil {
 		return nil, fmt.Errorf("desktop: opening the file dialog: %w", err)
 	}
 	// An older portal names the request its own way, and says which.
@@ -133,6 +129,19 @@ func (w *Window) portal(method, title string, opts map[string]dbus.Variant) (any
 		}
 	}
 	return nil, errors.New("desktop: the session bus closed before the file dialog answered")
+}
+
+// portalParent names w to a portal, which puts its dialogs over it.
+func (w *Window) portalParent() (string, error) {
+	var xid uintptr
+	if err := w.d.call(func() error {
+		x, err := w.gw.GetX11Window()
+		xid = x
+		return err
+	}); err != nil {
+		return "", fmt.Errorf("desktop: finding the window for the desktop portal: %w", err)
+	}
+	return fmt.Sprintf("x11:%x", xid), nil
 }
 
 // portalPaths returns the paths of the file URIs in a FileChooser answer.
