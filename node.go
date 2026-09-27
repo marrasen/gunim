@@ -295,6 +295,14 @@ type Frame struct {
 // before this one.
 func (f Frame) Number() uint64 { return f.seq }
 
+// Send is [UI.Send] for a node laying out or painting, such as a list
+// that asks for the rows scrolled into view.
+func (f Frame) Send(n Node, v Intent) {
+	if f.u != nil {
+		f.u.Send(n, v)
+	}
+}
+
 // Children is a node's children, in order. It is valid only for the
 // duration of the call it was passed to.
 type Children struct {

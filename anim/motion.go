@@ -74,6 +74,17 @@ func (sp Spring) Step(s *State, dt time.Duration) bool {
 	return false
 }
 
+// Follow moves x, with velocity v, toward to over dt, for a value too
+// large for an [Animated] float32 to hold to the pixel, such as a
+// position far down a long list.
+func (sp Spring) Follow(x, v, to float64, dt time.Duration) (float64, float64) {
+	resp := float64(max(sp.Response, 0.001))
+	zeta := float64(max(sp.Damping, 0))
+	dt = min(dt, maxStep)
+	x, v = springStep(x-to, v, 2*math.Pi/resp, zeta, dt.Seconds())
+	return to + x, v
+}
+
 // An Ease reshapes linear progress in 0..1 into eased progress.
 type Ease func(t float32) float32
 
