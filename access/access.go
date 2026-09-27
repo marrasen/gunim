@@ -43,12 +43,14 @@ const (
 	RoleDialog
 	RoleTooltip
 	RoleScrollArea
+	// RoleLink is text that does something when clicked.
+	RoleLink
 )
 
 var roleNames = [...]string{
 	"group", "window", "button", "checkbox", "switch", "slider", "text field",
 	"label", "heading", "image", "list", "list item", "tab list", "tab",
-	"menu", "menu item", "combo box", "dialog", "tooltip", "scroll area",
+	"menu", "menu item", "combo box", "dialog", "tooltip", "scroll area", "link",
 }
 
 func (r Role) String() string {

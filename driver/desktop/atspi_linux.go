@@ -562,6 +562,8 @@ func atspiRole(n *access.Node) uint32 {
 		return 64
 	case access.RoleScrollArea:
 		return 49
+	case access.RoleLink:
+		return 88
 	case access.RoleGroup:
 	}
 	return 39 // panel

@@ -145,6 +145,7 @@ const (
 	ctCheckBox  = 50002
 	ctComboBox  = 50003
 	ctEdit      = 50004
+	ctHyperlink = 50005
 	ctImage     = 50006
 	ctListItem  = 50007
 	ctList      = 50008
@@ -544,6 +545,8 @@ func controlType(n *access.Node) int32 {
 		return ctToolTip
 	case access.RoleScrollArea:
 		return ctPane
+	case access.RoleLink:
+		return ctHyperlink
 	case access.RoleGroup:
 		return ctGroup
 	}
