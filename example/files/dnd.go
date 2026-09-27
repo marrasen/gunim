@@ -237,7 +237,7 @@ func (v *dndView) sideSpot(d input.Drop, u *gunim.UI) (widget.DropSpot, bool) {
 	if hr, drawn := u.Bounds(s.hint); drawn && s.hint.Text != "" {
 		bottom = max(bottom, hr.Max.Y)
 	}
-	section := geom.Rect{Min: geom.Pt(zr.Min.X+4, fr.Min.Y-24), Max: geom.Pt(zr.Max.X-4, bottom+8)}
+	section := geom.Rect{Min: geom.Pt(zr.Min.X+4, fr.Min.Y-24), Max: geom.Pt(zr.Max.X-4, max(bottom+8, zr.Max.Y-8))}
 	if at.Y < section.Min.Y {
 		return widget.DropSpot{}, false
 	}
