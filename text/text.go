@@ -17,7 +17,6 @@ package text
 import (
 	"bytes"
 	"fmt"
-	"image"
 	"image/color"
 	"math"
 	"sync"
@@ -25,7 +24,6 @@ import (
 	"github.com/go-text/typesetting/bidi"
 	"github.com/go-text/typesetting/di"
 	"github.com/go-text/typesetting/font"
-	"github.com/go-text/typesetting/font/opentype"
 	"github.com/go-text/typesetting/language"
 	"github.com/go-text/typesetting/shaping"
 	"golang.org/x/image/font/gofont/gobold"
@@ -33,7 +31,6 @@ import (
 	"golang.org/x/image/font/gofont/goitalic"
 	"golang.org/x/image/font/gofont/goregular"
 	"golang.org/x/image/math/fixed"
-	"golang.org/x/image/vector"
 
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/paint"
@@ -64,6 +61,9 @@ type Face struct {
 	// units, all positive.
 	ascent, descent, gap float32
 	fallback             []*Face
+	// zones are where hinted edges line up, measured on first use.
+	zones    []zone
+	zonesSet bool
 }
 
 // Parse reads a TrueType or OpenType font.
@@ -659,82 +659,3 @@ func (f *Face) emptyRun(size float32) Run {
 func toFixed(v float32) fixed.Int26_6 { return fixed.Int26_6(math.Round(float64(v) * 64)) }
 
 func fromFixed(v fixed.Int26_6) float32 { return float32(v) / 64 }
-
-// A Mask is one glyph's coverage at one device size: 0 outside the
-// glyph, 255 inside, and antialiased in between.
-type Mask struct {
-	// Pix holds W*H coverage bytes, row by row.
-	Pix  []byte
-	W, H int
-	// Offset is where the mask's top-left corner sits relative to the
-	// glyph's origin on the baseline, in device pixels, y down.
-	Offset image.Point
-}
-
-// Rasterize renders glyph id at sizePx device pixels, with its origin
-// shifted right by dx, a fraction of a pixel. A driver keeps a few
-// shifts of each glyph so text can sit at any fractional position and
-// still look the same.
-//
-// A glyph with no outline, such as a space, returns an empty mask.
-func (f *Face) Rasterize(id uint32, sizePx, dx float32) Mask {
-	mu.Lock()
-	outline, ok := f.face.GlyphDataOutline(font.GID(id))
-	mu.Unlock()
-	if !ok || len(outline.Segments) == 0 {
-		return Mask{}
-	}
-
-	scale := sizePx / f.upem
-	pt := func(p font.SegmentPoint) (float32, float32) { return p.X*scale + dx, -p.Y * scale }
-
-	minX, minY := float32(math.Inf(1)), float32(math.Inf(1))
-	maxX, maxY := float32(math.Inf(-1)), float32(math.Inf(-1))
-	for _, seg := range outline.Segments {
-		for _, a := range seg.ArgsSlice() {
-			x, y := pt(a)
-			minX, maxX = min(minX, x), max(maxX, x)
-			minY, maxY = min(minY, y), max(maxY, y)
-		}
-	}
-	x0, y0 := int(math.Floor(float64(minX))), int(math.Floor(float64(minY)))
-	x1, y1 := int(math.Ceil(float64(maxX))), int(math.Ceil(float64(maxY)))
-	w, h := x1-x0, y1-y0
-	if w <= 0 || h <= 0 {
-		return Mask{}
-	}
-
-	r := vector.NewRasterizer(w, h)
-	local := func(p font.SegmentPoint) (float32, float32) {
-		x, y := pt(p)
-		return x - float32(x0), y - float32(y0)
-	}
-	// MoveTo leaves the previous contour open, so each one is closed
-	// before the next begins.
-	open := false
-	for _, seg := range outline.Segments {
-		switch seg.Op {
-		case opentype.SegmentOpMoveTo:
-			if open {
-				r.ClosePath()
-			}
-			open = true
-			r.MoveTo(local(seg.Args[0]))
-		case opentype.SegmentOpLineTo:
-			r.LineTo(local(seg.Args[0]))
-		case opentype.SegmentOpQuadTo:
-			bx, by := local(seg.Args[0])
-			cx, cy := local(seg.Args[1])
-			r.QuadTo(bx, by, cx, cy)
-		case opentype.SegmentOpCubeTo:
-			bx, by := local(seg.Args[0])
-			cx, cy := local(seg.Args[1])
-			dx, dy := local(seg.Args[2])
-			r.CubeTo(bx, by, cx, cy, dx, dy)
-		}
-	}
-	r.ClosePath()
-	dst := image.NewAlpha(image.Rect(0, 0, w, h))
-	r.Draw(dst, dst.Bounds(), image.Opaque, image.Point{})
-	return Mask{Pix: dst.Pix, W: w, H: h, Offset: image.Pt(x0, y0)}
-}

@@ -93,7 +93,7 @@ func (s *shared) glyph(key glyphKey, face *text.Face, sizePx float32) (sharedSlo
 	if slot, ok := a.slots[key]; ok {
 		return slot, a.epoch, slot.w > 0
 	}
-	m := face.Rasterize(key.id, sizePx, float32(key.shift)/subpixel)
+	m := face.Rasterize(key.id, sizePx, float32(key.shift)/subpixel, text.Raster{})
 	if m.W == 0 || m.W+1 > atlasSize || m.H+1 > atlasSize {
 		a.slots[key] = sharedSlot{}
 		return sharedSlot{}, a.epoch, false

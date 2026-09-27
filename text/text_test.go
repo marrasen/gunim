@@ -33,7 +33,7 @@ func TestShapeScalesWithSize(t *testing.T) {
 func TestRasterizeCoversTheGlyph(t *testing.T) {
 	f := Default()
 	run := f.Shape("O", 32)
-	m := f.Rasterize(run.Glyphs[0].ID, 32, 0)
+	m := f.Rasterize(run.Glyphs[0].ID, 32, 0, Raster{})
 	if m.W == 0 || m.H == 0 {
 		t.Fatal("empty mask for O")
 	}
@@ -57,7 +57,7 @@ func TestRasterizeCoversTheGlyph(t *testing.T) {
 func TestRasterizeASpaceIsEmpty(t *testing.T) {
 	f := Default()
 	run := f.Shape(" ", 16)
-	if m := f.Rasterize(run.Glyphs[0].ID, 16, 0); m.W != 0 {
+	if m := f.Rasterize(run.Glyphs[0].ID, 16, 0, Raster{}); m.W != 0 {
 		t.Fatalf("a space rasterized to %dx%d", m.W, m.H)
 	}
 }
