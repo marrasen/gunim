@@ -323,9 +323,9 @@ func (r *runner) skipped(src string) error {
 	return nil
 }
 
-// copyItem copies src to dst. merge copies a folder's contents into the
-// folder at dst, and replace puts a file in place of the one at dst. top
-// records dst as made by the operation.
+// copyItem copies src to dst, into the folder there with merge, or in
+// place of the file there with replace. top records dst as made by the
+// operation.
 func (r *runner) copyItem(src, dst string, merge, replace, top bool) error {
 	if err := r.ctx.Err(); err != nil {
 		return err
@@ -503,9 +503,9 @@ func (r *runner) moveAll(srcs []string, dest string) error {
 	return nil
 }
 
-// moveItem moves src to dst, by a rename on one volume, and by a copy and
-// a delete across volumes. merge moves a folder's contents into the
-// folder at dst. top records the move.
+// moveItem moves src to dst, or into the folder there with merge, by a
+// rename on one volume and by a copy and a delete across volumes. top
+// records the move.
 func (r *runner) moveItem(src, dst string, merge, top bool) error {
 	if err := r.ctx.Err(); err != nil {
 		return err

@@ -11,10 +11,9 @@ import (
 // slideDistance is how far a page slides as it comes and goes.
 const slideDistance = 56
 
-// page holds one screenful in a deck: a folder's listing, or a preview.
-// It slides in from the side its travel says, fading up, and leaves the
-// other way, so going into a folder and coming back out move opposite
-// ways. With no travel it rises a little as it fades.
+// page holds one screenful in a deck, such as a folder's listing. It
+// slides in from the side its travel says and leaves the other way, or
+// with no travel rises a little as it fades.
 type page struct {
 	anim.Group
 	child   gunim.Node

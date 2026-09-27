@@ -85,9 +85,13 @@ func (a *app) reveal(path string) {
 func (a *app) showPreview() {
 	n := &a.nav
 	sel := a.selectedEntries()
+	if n.loading {
+		// The preview stays as it is until the folder is read.
+		return
+	}
 	var subject string
 	switch {
-	case n.loading || n.err != nil:
+	case n.err != nil:
 		subject = "none"
 	case len(sel) == 1:
 		subject = "item:" + filepath.Join(n.path, sel[0].Name) + sel[0].Mod.String()
