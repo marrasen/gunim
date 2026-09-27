@@ -293,3 +293,20 @@ func TestTabTakesTheGhost(t *testing.T) {
 	ty.key(input.KeyRight, 0)
 	ty.want("/home/", 6)
 }
+
+func TestSelectPicksARunOfText(t *testing.T) {
+	ty := newTyper(t)
+	ty.field.SetText("report.pdf")
+	ty.field.Select(0, 6)
+	if start, end := ty.field.Selection(); start != 0 || end != 6 {
+		t.Fatalf("selected %d to %d, want 0 to 6", start, end)
+	}
+	ty.typeText("summary")
+	if got := ty.field.Text(); got != "summary.pdf" {
+		t.Fatalf("typing over the selection left %q", got)
+	}
+	ty.field.Select(-4, 400)
+	if start, end := ty.field.Selection(); start != 0 || end != len("summary.pdf") {
+		t.Fatalf("a selection past both ends became %d to %d", start, end)
+	}
+}

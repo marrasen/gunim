@@ -117,6 +117,14 @@ func (t *TextField) SetText(s string) {
 	t.set(len(t.text), false)
 }
 
+// Select selects the text from rune start to rune end, with the caret at
+// end, such as a file's name without its extension. Call it from a
+// view's update function.
+func (t *TextField) Select(start, end int) {
+	t.set(start, false)
+	t.set(end, true)
+}
+
 // Flash tints the field in the accent colour and fades it back, to
 // show that something other than typing changed it, such as a button
 // that fills it in. A hidden field changes only its dots, which are
