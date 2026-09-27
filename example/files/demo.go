@@ -20,6 +20,7 @@ func makeDemo(root string) (string, error) {
 	files := map[string]string{
 		"Projects/gunim/README.md":      "# gunim\n\nAn animation-first GUI framework for Go.\n",
 		"Projects/gunim/main.go":        "package main\n\nfunc main() {\n\tprintln(\"hello\")\n}\n",
+		"Projects/Release notes.md":     "# Old release notes\n",
 		"Projects/notes.txt":            "Ideas for the file manager.\n",
 		"Music/playlist.m3u":            "track1.mp3\ntrack2.mp3\n",
 		"Documents/budget 2026.csv":     "month,amount\njan,120\nfeb,95\n",
@@ -89,6 +90,15 @@ const releaseNotes = `# Release notes
 
 - Undo for rename, move, copy and trash.
 `
+
+// makeBig makes a file of size bytes at path, without writing them.
+func makeBig(path string, size int64) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	return errors.Join(f.Truncate(size), f.Close())
+}
 
 // writePicture draws a sunset over the sea in hue, and writes it as a PNG.
 func writePicture(path string, hue float64) error {

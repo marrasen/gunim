@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/marrasen/gunim"
@@ -31,6 +32,8 @@ type opsState struct {
 	dialogs []*dialog
 	shown   int
 	tokens  int
+	// wg counts the operations' goroutines.
+	wg sync.WaitGroup
 }
 
 func (o *opsState) init() {
@@ -191,10 +194,10 @@ func (a *app) startOp(j job, title string) {
 		ask:    func(ctx context.Context, c clash) (answer, error) { return a.askClash(ctx, id, c) },
 		report: func(p progress) { a.post(func() { a.progressed(id, p) }) },
 	}
-	go func() {
+	a.ops.wg.Go(func() {
 		rec, err := runJob(ctx, j, e)
 		a.post(func() { a.finish(id, j, rec, err) })
-	}()
+	})
 }
 
 // progressed takes how far operation id has got.
@@ -453,7 +456,9 @@ func (a *app) answered(in gunim.Intent) {
 	d.answer(in)
 	if len(a.ops.dialogs) > 0 {
 		a.mountDialog(a.ops.dialogs[0])
+		return
 	}
+	a.patch(FocusListing{})
 }
 
 // dropDialogs takes away the dialogs of operation op, which has ended.
@@ -467,6 +472,8 @@ func (a *app) dropDialogs(op int) {
 		a.send(a.c.Unmount(first.id))
 		if len(a.ops.dialogs) > 0 {
 			a.mountDialog(a.ops.dialogs[0])
+		} else {
+			a.patch(FocusListing{})
 		}
 	}
 }

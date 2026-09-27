@@ -117,13 +117,14 @@ func (b *browser) setShell(s Shell, u *gunim.UI) {
 func (b *browser) Children() []gunim.Node { return []gunim.Node{b.page, b.toasts} }
 
 // Layout implements [gunim.Node]: the page fills the window, and the
-// toasts sit at the bottom right, over the status bar.
+// toasts sit at the bottom right, over the progress panel and the status
+// bar.
 func (b *browser) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
 	page, toasts := kids.At(0), kids.At(1)
 	page.Layout(gunim.Tight(c.Max))
 	page.Place(geom.Point{})
 	ts := toasts.Layout(gunim.Loose(geom.Sz(c.Max.W-32, c.Max.H)))
-	toasts.Place(geom.Pt(c.Max.W-ts.W-16, c.Max.H-ts.H-40))
+	toasts.Place(geom.Pt(c.Max.W-ts.W-16, c.Max.H-ts.H-40-b.ops.fold.height))
 	return c.Max
 }
 

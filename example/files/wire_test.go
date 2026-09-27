@@ -30,6 +30,8 @@ func TestWire(t *testing.T) {
 		FilterChanged{Text: "re"},
 		WindowFocused{},
 		SidebarMoved{Width: 200},
+		CloseAsked{},
+		FocusListing{},
 		Places{Places: []Place{{Name: "C:", Path: `C:\`, Kind: "drive", Free: 1, Total: 2}}, Current: "/"},
 		FavouritesReordered{Paths: []string{"/a", "/b"}},
 		Unpin{Path: "/a"},

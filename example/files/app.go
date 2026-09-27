@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/marrasen/gunim"
@@ -15,10 +17,12 @@ const pollEvery = 2 * time.Second
 type options struct {
 	dir       string
 	prefsPath string
-	// noPoll turns off the check for changes, for tests.
+	// noPoll turns off the check for changes, and trash stands in for the
+	// system's trash, for tests.
 	noPoll bool
-	// pick is a name to select, and do a command to run, once the first
-	// folder is read.
+	trash  trasher
+	// pick is a name to select once the first folder is read, and do the
+	// steps of a script to run after it; see runScript.
 	pick, do string
 }
 
@@ -29,6 +33,8 @@ type app struct {
 	c     gunim.Client
 	done  chan func()
 	trash trasher
+	// stopped closes once the serve loop has stopped reading done.
+	stopped chan struct{}
 
 	prefs     prefs
 	prefsPath string
@@ -42,9 +48,11 @@ type app struct {
 	preview previewState
 	places  []Place
 	banner  int
-	// first holds what to do once the first folder is read.
-	first    *options
-	handlers []handler
+	// script is what is left of the steps to run, once the first folder
+	// is read.
+	script    []string
+	scripting bool
+	handlers  []handler
 }
 
 // handler is one area's share of the intents: it reports whether it
@@ -53,22 +61,17 @@ type handler func(in gunim.Intent) bool
 
 // serve runs the application half until ctx ends or the window closes.
 func serve(ctx context.Context, c gunim.Client, o options) error {
-	a, err := newApp(ctx, c, o)
+	a, err := launch(ctx, c, o)
 	if err != nil {
 		return err
 	}
-	if err := c.Mount(gunim.Root, browserID, "browser", a.shell); err != nil {
-		return err
-	}
-	a.startup(o)
+	handlers := a.handlers
 	var tick <-chan time.Time
 	if !o.noPoll {
 		t := time.NewTicker(pollEvery)
 		defer t.Stop()
 		tick = t.C
 	}
-	handlers := []handler{a.handleNav, a.handleOps, a.handlePreview, a.handlePlaces, a.handleShell}
-	a.handlers = handlers
 	for {
 		select {
 		case <-ctx.Done():
@@ -88,13 +91,32 @@ func serve(ctx context.Context, c gunim.Client, o options) error {
 	}
 }
 
-// newApp makes the application half, with the settings read.
-func newApp(ctx context.Context, c gunim.Client, o options) (*app, error) {
-	tr, err := systemTrash()
+// launch makes the application half and fills the window.
+func launch(ctx context.Context, c gunim.Client, o options) (*app, error) {
+	a, err := newApp(ctx, c, o)
 	if err != nil {
 		return nil, err
 	}
-	a := &app{ctx: ctx, c: c, done: make(chan func(), 256), trash: tr, prefsPath: o.prefsPath}
+	if err := c.Mount(gunim.Root, browserID, "browser", a.shell); err != nil {
+		return nil, err
+	}
+	a.handlers = []handler{a.handleNav, a.handleOps, a.handlePreview, a.handlePlaces, a.handleShell}
+	a.startup(o)
+	return a, nil
+}
+
+// newApp makes the application half, with the settings read.
+func newApp(ctx context.Context, c gunim.Client, o options) (*app, error) {
+	tr := o.trash
+	if tr == nil {
+		var err error
+		if tr, err = systemTrash(); err != nil {
+			return nil, err
+		}
+	}
+	var err error
+	a := &app{ctx: ctx, c: c, done: make(chan func(), 256), stopped: make(chan struct{}), trash: tr,
+		prefsPath: o.prefsPath}
 	a.nav.init()
 	a.ops.init()
 	if a.prefsPath == "" {
@@ -118,23 +140,11 @@ func (a *app) startup(o options) {
 		a.send(a.c.SetZoom(a.prefs.Zoom))
 	}
 	a.loadPlaces()
-	if o.pick != "" || o.do != "" {
-		a.first = &o
+	if o.do != "" {
+		a.script = strings.Split(o.do, ",")
 	}
 	a.startNav(o.dir)
-	if a.first != nil {
-		a.nav.pick = o.pick
-	}
-}
-
-// firstRead runs what the command line asked for once the first folder
-// is read.
-func (a *app) firstRead(handlers []handler) {
-	o := a.first
-	a.first = nil
-	if o.do != "" {
-		a.handle(handlers, Command{Name: o.do})
-	}
+	a.nav.pick = o.pick
 }
 
 func (a *app) handle(handlers []handler, in gunim.Intent) {
@@ -164,13 +174,16 @@ func (a *app) handleShell(in gunim.Intent) bool {
 			a.shell.ShowPreview = !a.shell.ShowPreview
 			a.prefs.HidePreview = !a.shell.ShowPreview
 		case CmdCloseApp:
-			a.c.Leave()
+			a.close()
 			return true
 		default:
 			return false
 		}
 		a.publishShell()
 		a.savePrefs()
+		return true
+	case CloseAsked:
+		a.close()
 		return true
 	case SidebarMoved:
 		a.shell.Sidebar = v.Width
@@ -181,6 +194,23 @@ func (a *app) handleShell(in gunim.Intent) bool {
 	return false
 }
 
+// close closes the window, once the user agrees to stop what is running.
+func (a *app) close() {
+	n := len(a.ops.running)
+	if n == 0 {
+		a.c.Leave()
+		return
+	}
+	a.confirm(Confirm{Title: "Stop " + plural(n, "operation") + " and close?",
+		Body: "What is running stops where it has got to. Anything half copied is taken away.", OK: "Stop and close"},
+		func() {
+			for _, r := range a.ops.running {
+				r.cancel()
+			}
+			a.c.Leave()
+		})
+}
+
 func (a *app) publishShell() { a.send(a.c.Update(browserID, a.shell)) }
 
 // post runs fn on the serve loop, unless the app has stopped.
@@ -188,16 +218,17 @@ func (a *app) post(fn func()) {
 	select {
 	case a.done <- fn:
 	case <-a.ctx.Done():
+	case <-a.stopped:
 	}
 }
 
 // patch sends a patch to the browser.
 func (a *app) patch(v any) { a.send(a.c.Patch(string(browserID), v)) }
 
-// send logs a command the window did not take, which happens once it has
-// closed.
+// send logs a command the window did not take. A window that has closed
+// takes nothing, and needs no word about it.
 func (a *app) send(err error) {
-	if err != nil {
+	if err != nil && !errors.Is(err, gunim.ErrWindowClosed) {
 		log.Printf("sending to the window: %v", err)
 	}
 }
@@ -218,11 +249,14 @@ func (a *app) savePrefs() {
 	}
 }
 
-// stopAll cancels what is running.
+// stopAll cancels what is running, and waits for the operations to stop,
+// so none is left writing once the app has gone.
 func (a *app) stopAll() {
 	for _, r := range a.ops.running {
 		r.cancel()
 	}
 	a.nav.stop()
 	a.preview.stop()
+	close(a.stopped)
+	a.ops.wg.Wait()
 }

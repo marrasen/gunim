@@ -120,6 +120,8 @@ type fold struct {
 	child gunim.Node
 	open  *anim.Float
 	inner float32
+	// height is the height the fold took at its last layout.
+	height float32
 }
 
 func newFold(child gunim.Node) *fold {
@@ -149,7 +151,8 @@ func (f *fold) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) g
 	f.inner = s.H
 	t := min(max(f.open.Value(), 0), 1)
 	kid.Place(geom.Pt(0, 0))
-	return geom.Sz(c.Max.W, s.H*t)
+	f.height = s.H * t
+	return geom.Sz(c.Max.W, f.height)
 }
 
 // Paint implements [gunim.Node].

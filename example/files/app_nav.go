@@ -270,8 +270,9 @@ func (a *app) listed(gen int, path string, es []entry, mod time.Time, err error)
 	n.all = es
 	a.refilter()
 	n.travel = 0
-	if a.first != nil {
-		a.firstRead(a.handlers)
+	if len(a.script) > 0 && !a.scripting {
+		a.scripting = true
+		a.runScript()
 	}
 }
 

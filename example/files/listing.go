@@ -23,6 +23,7 @@ func registerListing(w *gunim.Window) {
 	gunim.RegisterPatch(w, "browser", func(b *browser, r RowBlock, u *gunim.UI) { b.listing.rows(r, u) })
 	gunim.RegisterPatch(w, "browser", func(b *browser, s Selection, u *gunim.UI) { b.listing.selection(s, u) })
 	gunim.RegisterPatch(w, "browser", func(b *browser, s Bands, u *gunim.UI) { b.listing.bands(s, u) })
+	gunim.RegisterPatch(w, "browser", func(b *browser, _ FocusListing, u *gunim.UI) { b.focusListing(u) })
 }
 
 // columns are the grid's columns, in the order of SortBy.

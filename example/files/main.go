@@ -24,18 +24,19 @@ func main() {
 	shot := flag.String("shot", "", "write the window to this PNG file after -after, and quit; implies -demo without -dir")
 	after := flag.Duration("after", 2*time.Second, "how long -shot waits")
 	pick := flag.String("select", "", "the name to select once the folder is read")
-	keys := flag.String("do", "", "a command to run once the folder is read, such as copy.demo or rename")
+	keys := flag.String("do", "", "steps to run once the folder is read, split by commas, such as copy,into:Documents,paste")
+	big := flag.Bool("big", false, "put a 2 GB file in the demo folder, to watch a long copy")
 	runFor := flag.Duration("for", 0, "quit after this long; zero runs until the window closes")
 	flag.Parse()
 	o := options{dir: *dir, prefsPath: *prefsPath, pick: *pick, do: *keys}
-	if err := start(o, *demo || *shot != "" && o.dir == "", *shot, *after, *runFor); err != nil {
+	if err := start(o, *demo || *shot != "" && o.dir == "", *big, *shot, *after, *runFor); err != nil {
 		log.Fatal(err)
 	}
 }
 
 // start runs the window, on a demo folder made for the purpose with demo,
 // which it removes once the window closes.
-func start(o options, demo bool, shot string, after, runFor time.Duration) (err error) {
+func start(o options, demo, big bool, shot string, after, runFor time.Duration) (err error) {
 	if demo {
 		root, merr := os.MkdirTemp("", "gunim-files-demo-")
 		if merr != nil {
@@ -44,6 +45,11 @@ func start(o options, demo bool, shot string, after, runFor time.Duration) (err 
 		defer func() { err = errors.Join(err, os.RemoveAll(root)) }()
 		if o.dir, err = makeDemo(root); err != nil {
 			return err
+		}
+		if big {
+			if err := makeBig(filepath.Join(o.dir, "Big video.mp4"), 2<<30); err != nil {
+				return err
+			}
 		}
 		if o.prefsPath == "" {
 			o.prefsPath = filepath.Join(root, "prefs.json")
@@ -69,6 +75,7 @@ func run(o options, shot string, after, runFor time.Duration) error {
 			Arrive:     true,
 			ZoomKeys:   true,
 			Icons:      icons(),
+			AskToClose: CloseAsked{},
 		})
 		if err != nil {
 			return fmt.Errorf("files: %w", err)

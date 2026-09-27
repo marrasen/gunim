@@ -193,6 +193,13 @@ type FilterChanged struct {
 // WindowFocused says the window has the keyboard back.
 type WindowFocused struct{}
 
+// FocusListing is a patch that gives the keyboard to the listing, as a
+// dialog closes.
+type FocusListing struct{}
+
+// CloseAsked travels when the user asks to close the window.
+type CloseAsked struct{}
+
 // SidebarMoved carries the sidebar's width once its divider is let go.
 type SidebarMoved struct {
 	Width float32
@@ -215,4 +222,6 @@ func init() {
 	gunim.RegisterType[FilterChanged]("files.filter")
 	gunim.RegisterType[WindowFocused]("files.focused")
 	gunim.RegisterType[SidebarMoved]("files.sidebar-moved")
+	gunim.RegisterType[CloseAsked]("files.close-asked")
+	gunim.RegisterType[FocusListing]("files.focus-listing")
 }
