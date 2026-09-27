@@ -171,6 +171,7 @@ func (w *Wrap) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) g
 				at[i].Y += (line - sizes[i].H) / 2
 			case CrossEnd:
 				at[i].Y += line - sizes[i].H
+			case CrossStart, CrossStretch:
 			}
 		}
 		start = len(at)
