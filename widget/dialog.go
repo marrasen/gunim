@@ -18,9 +18,6 @@ import (
 // away, and tells the engine when it is finished. How long that takes
 // and what it looks like stay inside the dialog, which is what makes
 // the animation easy to change later.
-//
-// A dialog closes itself by removing itself from the tree, so a view must return the dialog itself: a view that
-// embeds it cannot be closed by its buttons.
 type Dialog struct {
 	anim.Group
 
