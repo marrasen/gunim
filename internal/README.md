@@ -45,6 +45,10 @@ gunim's changes are marked `gunim change` in the code:
   target's replies and XdndSelection requests). On Win32 it runs OLE's
   `DoDragDrop` over a shell data object made from the files' item IDs
   (`win32_dragout_windows.go`). Cocoa returns an error.
+- `glfw` reads the modifier keys held now, for files dropped from another
+  program while the window lacks the keyboard: `HeldModifiers`
+  (`heldmods.go`), from `GetAsyncKeyState` on Win32 and `XQueryPointer`
+  on X11. Cocoa reports none.
 - `glfw` has a `Popup` window hint, for menus, lists and tooltips: a
   window that never takes focus. On X11 it is override-redirect, so the
   window manager leaves it where it is put, and typed
