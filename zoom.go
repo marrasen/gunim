@@ -4,8 +4,27 @@ import (
 	"math"
 
 	"github.com/marrasen/gunim/driver"
+	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
 )
+
+// A WheelZoomer is a node that zooms something of its own with Ctrl and the wheel, such as a picture or a grid of
+// tiles. While ZoomsWithWheel reports true, the window's zoom leaves Ctrl with the wheel over it alone, and the node,
+// or one inside it, hears the scroll with its modifiers.
+type WheelZoomer interface {
+	Node
+	ZoomsWithWheel() bool
+}
+
+// wheelZoomerAt reports whether the node at p, or one around it, takes Ctrl with the wheel.
+func (u *UI) wheelZoomerAt(root *state, p geom.Point) bool {
+	for s := u.hit(root, p); s != nil; s = s.parent {
+		if z, ok := s.node.(WheelZoomer); ok && z.ZoomsWithWheel() {
+			return true
+		}
+	}
+	return false
+}
 
 // Zoomed is reported when the user zooms the window with [WindowOptions.ZoomKeys], so the application can remember
 // the zoom for next time.

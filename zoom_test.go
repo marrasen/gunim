@@ -166,3 +166,46 @@ func TestAPopupTakesTheWindowsZoom(t *testing.T) {
 		t.Errorf("the popup lays out in %v, want its content's 120x80", got)
 	}
 }
+
+// wheelTaker zooms with Ctrl and the wheel while on, and counts the scrolls it hears.
+type wheelTaker struct {
+	on     bool
+	scroll int
+}
+
+func (w *wheelTaker) Layout(c Constraints, _ Frame, _ Children) geom.Size { return c.Max }
+
+func (w *wheelTaker) Paint(*paint.Painter, Frame, geom.Size, Children) {}
+
+func (w *wheelTaker) ZoomsWithWheel() bool { return w.on }
+
+func (w *wheelTaker) Handle(e input.Event, _ *UI) bool {
+	if s, ok := e.(input.Scroll); ok && s.Mods.Has(input.ModControl) {
+		w.scroll++
+		return true
+	}
+	return false
+}
+
+func TestAWheelZoomerTakesCtrlWithTheWheel(t *testing.T) {
+	taker := &wheelTaker{on: true}
+	w := NewOffscreen(geom.Sz(800, 600), &Box{})
+	w.ui.zoomKeys = true
+	w.ui.Insert(w.ui.Root(), taker)
+	run(w, 2)
+	wheel := func() {
+		w.ui.handlePlatform(input.Scroll{Pos: geom.Pt(10, 10), Notches: geom.Pt(0, 1), Mods: input.ModControl, Time: time.Now()})
+	}
+	wheel()
+	if w.ui.Zoom() != 1 || taker.scroll != 1 {
+		t.Fatalf("over a wheel zoomer the window zoomed to %v and the node heard %d scrolls", w.ui.Zoom(), taker.scroll)
+	}
+	taker.on = false
+	wheel()
+	if w.ui.Zoom() != 1.1 || taker.scroll != 1 {
+		t.Fatalf("with the zoomer off the window zoomed to %v and the node heard %d scrolls", w.ui.Zoom(), taker.scroll)
+	}
+	if got := zooms(w); len(got) != 1 {
+		t.Errorf("reported %v, want the one zoom of the window", got)
+	}
+}

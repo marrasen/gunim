@@ -115,7 +115,7 @@ func (u *UI) handleOn(root *state, ev any) {
 		}
 		u.dispatchAt(root, e.Pos, mk)
 	case input.Scroll:
-		if u.zoomKey(e) {
+		if !u.wheelZoomerAt(root, e.Pos) && u.zoomKey(e) {
 			return
 		}
 		u.dispatchAt(root, e.Pos, func(local geom.Point) input.Event {
