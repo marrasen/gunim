@@ -32,7 +32,7 @@ func TestADataGridReadsAsATable(t *testing.T) {
 	var b strings.Builder
 	dump(table, 0, &b)
 	got := b.String()
-	for _, want := range []string{"column header Name", "column header Size", "row file0, 0 KB", "cell file0", "cell 0 KB"} {
+	for _, want := range []string{"row Name, Size", "column header Name", "column header Size", "row file0, 0 KB", "cell file0", "cell 0 KB"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("the table lacks %q:\n%s", want, got)
 		}

@@ -24,6 +24,7 @@ func (g *DataGrid) Access() access.Info {
 	if !g.NoHeader {
 		head := access.Info{Role: access.RoleRow, Bounds: geom.Rc(0, 0, bodyW, g.header)}
 		part(-1, -1)
+		var titles []string
 		for c, col := range g.Columns {
 			if c >= len(g.xs) {
 				break
@@ -35,7 +36,9 @@ func (g *DataGrid) Access() access.Info {
 			}
 			part(-1, c)
 			head.Parts = append(head.Parts, h)
+			titles = append(titles, col.Title)
 		}
+		head.Name = strings.Join(titles, ", ")
 		info.Parts = append(info.Parts, head)
 	}
 	if g.Row == nil || g.rowH <= 0 {
