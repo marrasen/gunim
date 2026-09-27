@@ -613,23 +613,13 @@ func (g *DataGrid) paintHeader(p *paint.Painter, th *theme.Live, bodyW, size, pa
 		}
 		run.Paint(p, geom.Pt(at, (h-run.Height())/2), ink)
 		if closing {
-			g.paintCross(p, geom.Pt(x+w-pad-h/4, h/2), h/4, ink)
+			drawCross(p, geom.Pt(x+w-pad-h/4, h/2), h/4, ink)
 		}
 		if c < len(g.Columns)-1 {
 			p.RRect(geom.Rc(x+w-1, h*0.25, 1, h*0.5), 0, paint.Solid(MenuBorder.Get(th)))
 		}
 	}
 	p.RRect(geom.Rc(0, h-1, g.view.W, 1), 0, paint.Solid(MenuBorder.Get(th)))
-}
-
-// paintCross draws a small ×, r across, centred on at.
-func (g *DataGrid) paintCross(p *paint.Painter, at geom.Point, r float32, c color.NRGBA) {
-	for _, turn := range [2]float32{math.Pi / 4, -math.Pi / 4} {
-		func() {
-			defer p.Push(paint.Rotate(turn, at))()
-			p.RRect(geom.Rc(at.X-r/2, at.Y-0.75, r, 1.5), 0.75, paint.Solid(c))
-		}()
-	}
 }
 
 // barRect returns the scrollbar's track, and its thumb within it.

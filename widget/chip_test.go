@@ -1,0 +1,110 @@
+package widget
+
+import (
+	"testing"
+	"time"
+
+	"github.com/marrasen/gunim"
+	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/input"
+)
+
+type removed struct{ Label string }
+
+type picked struct{ Item int }
+
+func TestAClickOnAChipsCrossRemovesIt(t *testing.T) {
+	c := NewChip("level", "error")
+	c.OnRemove = func() gunim.Intent { return removed{"error"} }
+	w, run := stage(t, &frame{child: Row(c), size: geom.Sz(400, 40)})
+	click(w, 5, 12)
+	run(1)
+	if got := sent(w); len(got) != 0 {
+		t.Fatalf("a click on the label sent %v, want nothing", got)
+	}
+	click(w, c.crossX, 12)
+	run(1)
+	if got := sent(w); len(got) != 1 || got[0] != (removed{"error"}) {
+		t.Fatalf("a click on the cross sent %v, want the chip removed", got)
+	}
+}
+
+func TestAWrapStartsANewRowWhereTheNextChildWouldPassItsWidth(t *testing.T) {
+	a, b, c := newSpot(150, 20), newSpot(150, 30), newSpot(150, 20)
+	wrap := NewWrap()
+	wrap.Gap = tableNoGap
+	w := gunim.NewOffscreen(geom.Sz(320, 200), nil)
+	gunim.RegisterView(w, "wrap", func(struct{}) gunim.Node { return wrap },
+		func(n gunim.Node, _ struct{}, u *gunim.UI) {
+			for _, k := range []gunim.Node{a, b, c} {
+				u.Insert(n, k)
+			}
+		})
+	if err := w.Client().Mount(gunim.Root, "wrap", "wrap", nil); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		w.Frame(time.Second / 60)
+	}
+	at(t, a, geom.Pt(0, 0))
+	at(t, b, geom.Pt(150, 0))
+	// The row is as tall as its tallest child.
+	at(t, c, geom.Pt(0, 30))
+}
+
+func TestAMenuButtonThatStaysOpenTicksWhatIsPicked(t *testing.T) {
+	b := NewMenuButton("Files", "app.log", "app.log.1", "app.log.2")
+	b.StayOpen = true
+	b.OnPick = func(i int) gunim.Intent { return picked{i} }
+	w, run := stage(t, &frame{child: Row(b), size: geom.Sz(400, 300)})
+	click(w, 10, 10)
+	run(10)
+	if !b.IsOpen() {
+		t.Fatal("a click did not open the menu")
+	}
+	w.Input(input.KeyPress{Key: input.KeyDown})
+	w.Input(input.KeyPress{Key: input.KeyDown})
+	w.Input(input.KeyPress{Key: input.KeyEnter})
+	run(1)
+	if !b.IsOpen() {
+		t.Fatal("a pick closed a menu that stays open")
+	}
+	if len(b.Checked) < 2 || !b.Checked[1] || b.menu.Checked[1] != true {
+		t.Fatalf("after picking the second item, ticks are %v, want it ticked", b.Checked)
+	}
+	w.Input(input.KeyPress{Key: input.KeyEnter})
+	run(1)
+	if b.Checked[1] {
+		t.Fatal("picking a ticked item left it ticked")
+	}
+	if got := sent(w); len(got) != 2 || got[0] != (picked{1}) || got[1] != (picked{1}) {
+		t.Fatalf("intents %v, want two picks of item 1", got)
+	}
+}
+
+func TestAPaletteOffersTypedItemsFirst(t *testing.T) {
+	w, o, run := newPaletteStage(t)
+	o.p.Typed = func(q string) []PaletteItem {
+		if q == "" {
+			return nil
+		}
+		return []PaletteItem{{Title: "path = " + q}}
+	}
+	focusOpener(w, run)
+	w.Input(input.KeyPress{Key: input.KeyF1})
+	run(20)
+	w.Input(input.TextInput{Text: "sp"})
+	run(20)
+	f := o.p.card.found
+	if len(f) < 2 || f[0].Index != len(o.p.Items) {
+		t.Fatalf("typing sp found %v, want the typed item first", f)
+	}
+	if got := o.p.item(f[0].Index).Title; got != "path = sp" {
+		t.Fatalf("the typed item is %q, want path = sp", got)
+	}
+	w.Input(input.KeyPress{Key: input.KeyEnter})
+	run(20)
+	if len(o.picked) != 1 || o.picked[0] != len(o.p.Items) {
+		t.Fatalf("picked %v, want the typed item at %d", o.picked, len(o.p.Items))
+	}
+}

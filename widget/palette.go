@@ -48,12 +48,17 @@ type Palette struct {
 	Items       []PaletteItem
 	Placeholder string
 	// Pick runs with the index of the item chosen, once the palette
-	// has closed.
+	// has closed. An index past Items is Typed's item at i-len(Items).
 	Pick func(i int, u *gunim.UI)
+	// Typed, when set, returns items made from what has been typed, such
+	// as a value to match exactly; they show first, in the order given.
+	Typed func(query string) []PaletteItem
 
 	popup *gunim.Popup
 	card  *paletteCard
 	back  gunim.Node
+	// typedItems holds Typed's items for the query last typed.
+	typedItems []PaletteItem
 }
 
 // Open opens the palette in a popup attached to anchor, a rectangle in
@@ -156,6 +161,17 @@ func (c *paletteCard) filter(q string, u *gunim.UI) {
 		items[i] = match.Item{Title: it.Title, Also: it.Also}
 	}
 	c.found = match.Rank(items, q)
+	c.p.typedItems = nil
+	if c.p.Typed != nil {
+		c.p.typedItems = c.p.Typed(q)
+	}
+	if n := len(c.p.typedItems); n > 0 {
+		first := make([]match.Found, n, n+len(c.found))
+		for k := range first {
+			first[k] = match.Found{Index: len(c.p.Items) + k}
+		}
+		c.found = append(first, c.found...)
+	}
 	c.hot = 0
 	c.at = make(map[int][]int, len(c.found))
 	keys := make([]Key, len(c.found))
@@ -334,7 +350,7 @@ func (r *paletteRow) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gun
 	}
 	pad := MenuRowPadding.Get(th)
 	size := TextSize.Get(th)
-	item := r.c.p.Items[r.index]
+	item := r.c.p.item(r.index)
 	run := r.title.shape(faceIn(Font, th), item.Title, size)
 	top := (box.H - run.Height()) / 2
 	// The matched letters sit on marks, joined where they run on.
@@ -377,4 +393,15 @@ func (r *paletteRow) Handle(e input.Event, u *gunim.UI) bool {
 		return true
 	}
 	return false
+}
+
+// item returns item i, counting Typed's items after Items.
+func (p *Palette) item(i int) PaletteItem {
+	if i < len(p.Items) {
+		return p.Items[i]
+	}
+	if k := i - len(p.Items); k < len(p.typedItems) {
+		return p.typedItems[k]
+	}
+	return PaletteItem{}
 }
