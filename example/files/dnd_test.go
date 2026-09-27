@@ -463,3 +463,24 @@ func TestDndWire(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestDraggingOutOfTheWindowHandsTheFilesOver(t *testing.T) {
+	h := newDndHarness(t, "a.txt", "b.txt", "c.txt")
+	h.choose("a.txt", "b.txt")
+	at := h.point("a.txt")
+	h.w.Input(input.PointerMove{Pos: at})
+	h.w.Input(input.PointerDown{Pos: at, Button: input.ButtonPrimary, Clicks: 1})
+	h.w.Input(input.PointerMove{Pos: at.Add(geom.Pt(12, 6))})
+	h.frames(3)
+	// Far past the window's edge, the drag leaves for other programs.
+	h.w.Input(input.PointerMove{Pos: geom.Pt(-400, -400)})
+	h.frames(3)
+	out := h.w.Offscreen().DraggedOut()
+	want := []string{filepath.Join(h.dir, "a.txt"), filepath.Join(h.dir, "b.txt")}
+	if len(out) != 1 || !slices.Equal(out[0], want) {
+		t.Fatalf("handed out %v, want %v", out, want)
+	}
+	if len(h.a.ops.running) != 0 || !h.exists("a.txt") {
+		t.Fatal("handing the files over changed them")
+	}
+}

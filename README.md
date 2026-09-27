@@ -53,6 +53,12 @@ runs, and each finished operation leaves a toast with Undo. A folder of
 a hundred thousand files lists in the background and scrolls at once,
 as the grid draws only the rows in view.
 
+Items drag as a stack of cards that trails the pointer and says what a
+drop will do: move or copy to the folder under it, pin it to the
+favourites, or nothing, with a shake. A folder the drag rests on springs
+open. Files drag between windows, out to other programs, and in from
+them. Ctrl+N opens another window on the same folder.
+
 ## The split
 
 A gunim program is two halves that speak only in values.
