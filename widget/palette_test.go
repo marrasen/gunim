@@ -186,3 +186,53 @@ func TestAPointerAtRestLeavesThePalettesHighlight(t *testing.T) {
 		t.Fatal("a move over a row left the highlight elsewhere")
 	}
 }
+
+// A palette whose Search ranks elsewhere shows what SetItems gives it,
+// each row keeping its key from one answer to the next.
+func TestAPaletteShowsItemsFoundElsewhere(t *testing.T) {
+	w, o, run := newPaletteStage(t)
+	var asked []string
+	var ctrl []int
+	o.p.Search = func(q string, _ *gunim.UI) { asked = append(asked, q) }
+	o.p.CtrlPick = func(i int, _ *gunim.UI) { ctrl = append(ctrl, i) }
+	o.p.Items = nil
+	focusOpener(w, run)
+	w.Input(input.KeyPress{Key: input.KeyF1})
+	run(5)
+	w.Input(input.TextInput{Text: "re"})
+	run(2)
+	if len(asked) != 2 || asked[1] != "re" {
+		t.Fatalf("the palette asked for %q, want the empty query and then re", asked)
+	}
+	o.p.SetItems([]PaletteItem{
+		{Title: "report.txt", Detail: "/work", Key: "/work/report.txt", At: []int{0, 1}},
+		{Title: "readme.md", Detail: "/work/docs", Key: "/work/docs/readme.md", At: []int{0, 1}},
+	}, o.u)
+	o.p.SetStatus("Looked through 12 items", o.u)
+	run(20)
+	row := func(k Key) *paletteRow {
+		r, ok := o.p.card.list.live[k]
+		if !ok {
+			t.Fatalf("no row for %s", k)
+		}
+		pr, ok := r.child.(*paletteRow)
+		if !ok {
+			t.Fatalf("the row for %s holds %T", k, r.child)
+		}
+		return pr
+	}
+	moved := row("/work/docs/readme.md")
+	o.p.SetItems([]PaletteItem{
+		{Title: "readme.md", Detail: "/work/docs", Key: "/work/docs/readme.md", At: []int{0, 1}},
+		{Title: "report.txt", Detail: "/work", Key: "/work/report.txt", At: []int{0, 1}},
+	}, o.u)
+	run(20)
+	if row("/work/docs/readme.md") != moved || moved.index != 0 || o.p.card.hotIndex() != 0 {
+		t.Fatal("a row found again was not kept and moved to the top")
+	}
+	w.Input(input.KeyPress{Key: input.KeyEnter, Mods: input.ModControl})
+	run(10)
+	if len(ctrl) != 1 || ctrl[0] != 0 || len(o.picked) != 0 {
+		t.Fatalf("Ctrl+Enter picked %v and %v, want CtrlPick with 0", ctrl, o.picked)
+	}
+}
