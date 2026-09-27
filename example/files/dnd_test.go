@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/marrasen/gunim"
+	"github.com/marrasen/gunim/access"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/widget"
@@ -500,4 +501,34 @@ func TestDraggingTilesOntoAFolderMovesThem(t *testing.T) {
 	h.script("drop")
 	h.until("both files arrive in sub", func() bool { return h.exists("sub/a.txt") && h.exists("sub/b.txt") })
 	h.idle()
+}
+
+// dialogShown reports whether the window's accessibility tree holds a dialog.
+func (h *harness) dialogShown() bool {
+	var find func(n *access.Node) bool
+	find = func(n *access.Node) bool {
+		if n == nil {
+			return false
+		}
+		if n.Role == access.RoleDialog {
+			return true
+		}
+		return slices.ContainsFunc(n.Children, find)
+	}
+	t := h.w.Offscreen().AccessTree()
+	return t != nil && find(t.Root)
+}
+
+func TestThePropertiesButtonsCloseTheDialog(t *testing.T) {
+	for _, key := range []input.Key{input.KeyEscape, input.KeyEnter} {
+		h := newDndHarness(t, "sub/a.txt", "b.txt")
+		h.w.Offscreen().ListenForAccess()
+		for _, name := range []string{"sub", "b.txt"} {
+			h.choose(name)
+			h.do(Command{Name: CmdProperties})
+			h.until("the dialog shows", func() bool { h.frames(1); return h.dialogShown() })
+			h.w.Input(input.KeyPress{Key: key})
+			h.until("the dialog leaves", func() bool { h.frames(1); return !h.dialogShown() && len(h.a.ops.dialogs) == 0 })
+		}
+	}
 }

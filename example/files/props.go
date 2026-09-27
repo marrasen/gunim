@@ -5,9 +5,18 @@ import (
 	"github.com/marrasen/gunim/widget"
 )
 
+// registerProps registers the Properties dialog, whose view is the dialog itself so it can take itself away.
 func registerProps(w *gunim.Window) {
-	gunim.RegisterView(w, "props", newPropsDialog, nil)
-	gunim.RegisterPatch(w, "props", func(d *propsDialog, c PropsCounted, u *gunim.UI) { d.counted(c, u) })
+	var shown *propsDialog
+	gunim.RegisterView(w, "props", func(s Props) *widget.Dialog {
+		shown = newPropsDialog(s)
+		return shown.Dialog
+	}, nil)
+	gunim.RegisterPatch(w, "props", func(d *widget.Dialog, c PropsCounted, u *gunim.UI) {
+		if shown != nil && shown.Dialog == d {
+			shown.counted(c, u)
+		}
+	})
 }
 
 // propsDialog is the Properties dialog: what the items are, where, how
