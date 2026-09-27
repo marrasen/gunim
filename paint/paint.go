@@ -525,12 +525,16 @@ func (p *Painter) Text(g []Glyph, size float32, c color.NRGBA, bounds geom.Rect)
 // be painting in, grown by a pixel and a half for antialiasing.
 func (p *Painter) record(op Op, bounds geom.Rect) {
 	t := p.at()
-	first := t.Apply(bounds.Min)
-	w := geom.Rect{Min: first, Max: first}
-	for _, c := range [...]geom.Point{{X: bounds.Max.X, Y: bounds.Min.Y}, bounds.Max, {X: bounds.Min.X, Y: bounds.Max.Y}} {
-		q := t.Apply(c)
-		w.Min = geom.Pt(min(w.Min.X, q.X), min(w.Min.Y, q.Y))
-		w.Max = geom.Pt(max(w.Max.X, q.X), max(w.Max.Y, q.Y))
+	a, b := t.Apply(bounds.Min), t.Apply(bounds.Max)
+	w := geom.Rect{Min: geom.Pt(min(a.X, b.X), min(a.Y, b.Y)), Max: geom.Pt(max(a.X, b.X), max(a.Y, b.Y))}
+	// Turned, the other two corners can reach further; scaled and moved,
+	// as nearly everything is drawn, the two opposite ones say it all.
+	if t.B != 0 || t.D != 0 {
+		for _, c := range [...]geom.Point{{X: bounds.Max.X, Y: bounds.Min.Y}, {X: bounds.Min.X, Y: bounds.Max.Y}} {
+			q := t.Apply(c)
+			w.Min = geom.Pt(min(w.Min.X, q.X), min(w.Min.Y, q.Y))
+			w.Max = geom.Pt(max(w.Max.X, q.X), max(w.Max.Y, q.Y))
+		}
 	}
 	const aa = 1.5
 	w = geom.Rect{Min: geom.Pt(w.Min.X-aa, w.Min.Y-aa), Max: geom.Pt(w.Max.X+aa, w.Max.Y+aa)}

@@ -2,12 +2,14 @@ package widget
 
 import (
 	"fmt"
+	"image/color"
 	"testing"
 	"time"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
+	"github.com/marrasen/gunim/paint"
 )
 
 // BenchmarkFrame times one frame of a gallery like the widgets
@@ -38,4 +40,30 @@ func BenchmarkFrame(b *testing.B) {
 		w.Frame(time.Second / 60)
 	}
 	b.ReportMetric(float64(len(w.Offscreen().Ops())), "ops/frame")
+}
+
+// BenchmarkHalfBlockFrame times one frame of an animation drawn in half
+// blocks, as termflix draws, at 250 by 75 cells: every cell in new
+// colours, set and painted.
+func BenchmarkHalfBlockFrame(b *testing.B) {
+	const cols, rows = 250, 75
+	g := NewCellGrid()
+	g.Size = 14
+	g.Resize(cols, rows)
+	g.measure(14, 1.5)
+	row := make([]Cell, cols)
+	var p paint.Painter
+	b.ReportAllocs()
+	for i := range b.N {
+		for y := range rows {
+			for x := range row {
+				v := uint8(x + y + i)
+				row[x] = Cell{Rune: '▀', FG: color.NRGBA{R: v, G: 90, B: 160, A: 255}, BG: color.NRGBA{R: 40, G: v, B: 160, A: 255}}
+			}
+			g.SetRow(y, row)
+		}
+		p.Reset()
+		g.Paint(&p, gunim.Frame{Scale: 1.5}, geom.Sz(cols*10, rows*20), gunim.Children{})
+	}
+	b.ReportMetric(float64(len(p.Ops())), "ops/frame")
 }

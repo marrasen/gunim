@@ -55,6 +55,19 @@ type CellGrid struct {
 	// fitCols and fitRows are how many cells fit the last layout's box.
 	fitCols, fitRows int
 	glyphs           map[glyphKey]cellGlyph
+	// boxes are the rectangles each box-drawing or block character
+	// fills, by the character and the cells' size in device pixels,
+	// worked out once: an animation in half blocks draws the same one
+	// in every cell of every frame. marks is a row's lines under and
+	// through characters, kept for the next row.
+	boxes map[boxKey][]boxRect
+	marks []cellFill
+}
+
+// boxKey names a character drawn in code at one size.
+type boxKey struct {
+	r    rune
+	w, h int
 }
 
 // Cell is one character cell of a [CellGrid]. The zero Cell is blank.
@@ -327,7 +340,7 @@ func (g *CellGrid) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 		}
 		line := &g.lines[y]
 		if line.stale {
-			line.drawn = g.drawRow(line.cells, ink)
+			line.drawn = g.drawRow(line.cells, ink, line.drawn)
 			line.stale = false
 		}
 		g.paintRow(p, line.drawn, top)
@@ -335,10 +348,11 @@ func (g *CellGrid) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 	g.paintCursor(p, ink, g.Background.Get(f.Theme))
 }
 
-// drawRow works out what a row of cells draws.
-func (g *CellGrid) drawRow(cells []Cell, ink color.NRGBA) rowPaint {
+// drawRow works out what a row of cells draws, reusing the room of the
+// row's last drawing, was.
+func (g *CellGrid) drawRow(cells []Cell, ink color.NRGBA, was rowPaint) rowPaint {
 	m := g.metrics
-	var out rowPaint
+	out := rowPaint{fills: was.fills[:0], runs: was.runs[:0]}
 	put := func(x0, x1, y0, y1 float32, c color.NRGBA) {
 		if n := len(out.fills); n > 0 {
 			last := &out.fills[n-1]
@@ -349,7 +363,7 @@ func (g *CellGrid) drawRow(cells []Cell, ink color.NRGBA) rowPaint {
 		}
 		out.fills = append(out.fills, cellFill{r: geom.Rect{Min: geom.Pt(x0, y0), Max: geom.Pt(x1, y1)}, c: c})
 	}
-	var lines []cellFill
+	lines := g.marks[:0]
 	for x := 0; x < len(cells); x++ {
 		c := cells[x]
 		span := 1
@@ -365,8 +379,8 @@ func (g *CellGrid) drawRow(cells []Cell, ink color.NRGBA) rowPaint {
 		if fg.A == 0 {
 			fg = ink
 		}
-		if drawn := g.boxDrawn(c.Rune, x0, x1, fg); len(drawn) > 0 {
-			lines = append(lines, drawn...)
+		if drawn, ok := g.boxDrawn(lines, c.Rune, x0, x1, fg); ok {
+			lines = drawn
 		} else if c.Rune != 0 && c.Rune != ' ' {
 			g.place(&out, c.Rune, c.Style, fg, x0, x1)
 			for _, mark := range c.Marks {
@@ -384,24 +398,33 @@ func (g *CellGrid) drawRow(cells []Cell, ink color.NRGBA) rowPaint {
 	for _, l := range lines {
 		put(l.r.Min.X, l.r.Max.X, l.r.Min.Y, l.r.Max.Y, l.c)
 	}
+	g.marks = lines
 	return out
 }
 
-// boxDrawn is what a box-drawing or block character fills in the cells
-// from x0 to x1, drawn to the cell rather than taken from the font, so
-// lines meet across cells. It is nil for any other character.
-func (g *CellGrid) boxDrawn(r rune, x0, x1 float32, c color.NRGBA) []cellFill {
+// boxDrawn adds to out what a box-drawing or block character fills in
+// the cells from x0 to x1, drawn to the cell rather than taken from the
+// font, so lines meet across cells. It reports false, adding nothing,
+// for any other character.
+func (g *CellGrid) boxDrawn(out []cellFill, r rune, x0, x1 float32, c color.NRGBA) ([]cellFill, bool) {
 	if r < 0x2500 || r > 0x259f {
-		return nil
+		return out, false
 	}
 	m := g.metrics
 	s := m.scale
 	w, h := int(math.Round(float64((x1-x0)*s))), int(math.Round(float64(m.h*s)))
-	rects := boxDrawing(r, w, h)
-	if len(rects) == 0 {
-		return nil
+	key := boxKey{r, w, h}
+	rects, seen := g.boxes[key]
+	if !seen {
+		rects = boxDrawing(r, w, h)
+		if g.boxes == nil {
+			g.boxes = map[boxKey][]boxRect{}
+		}
+		g.boxes[key] = rects
 	}
-	out := make([]cellFill, 0, len(rects))
+	if len(rects) == 0 {
+		return out, false
+	}
 	for _, b := range rects {
 		ink := c
 		ink.A = uint8(int(c.A) * int(b.alpha) / 255)
@@ -410,7 +433,7 @@ func (g *CellGrid) boxDrawn(r rune, x0, x1 float32, c color.NRGBA) []cellFill {
 			Max: geom.Pt(x0+float32(b.x1)/s, float32(b.y1)/s),
 		}})
 	}
-	return out
+	return out, true
 }
 
 // place adds r's glyph to the run of its colour, centred in the cells

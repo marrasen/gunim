@@ -262,3 +262,29 @@ func waitFor(t *testing.T, cond func() bool, what string) {
 	}
 	t.Fatalf("timed out waiting for %s", what)
 }
+
+// With a frame on its way to the screen, a timer that is already due
+// waits for that frame: the loop sleeps until the frame is shown, and
+// the timer runs in the frame after. Armed early, the timer would fire
+// again each time the loop waited, and spin it until the frame showed.
+func TestADueTimerWaitsForTheFrameInFlight(t *testing.T) {
+	w := newTestWindow()
+	w.ui.After(0, func(*UI) {})
+	w.inFlight = true
+	woke := make(chan bool, 1)
+	go func() { woke <- w.wait() }()
+	select {
+	case <-woke:
+		t.Fatal("the loop woke with a frame in flight and nothing new")
+	case <-time.After(100 * time.Millisecond):
+	}
+	w.Offscreen().Tick()
+	select {
+	case open := <-woke:
+		if !open || w.inFlight {
+			t.Fatalf("the frame shown left the window open %v, a frame in flight %v", open, w.inFlight)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("the frame shown left the loop asleep")
+	}
+}

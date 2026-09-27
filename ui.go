@@ -197,6 +197,8 @@ type Window struct {
 	// blends is whether the last popup's window blended with what is
 	// behind it, the guess for the next one.
 	blends bool
+	// alarm wakes the loop for the next timer; see wait.
+	alarm *time.Timer
 
 	// inFlight is true from Present until the driver reports the frame
 	// shown. shown is when the last one was, and due is when the frame
@@ -564,12 +566,24 @@ func (w *Window) wait() bool {
 		out, next = w.out, w.ui.pending[0]
 	}
 	// A timer wakes the loop for the frame it runs in. Frames are
-	// stamped a refresh ahead, so it wakes a refresh early.
+	// stamped a refresh ahead, so it wakes a refresh early. One timer
+	// serves every wait: a terminal's output wakes the loop hundreds of
+	// times a second, and a new timer each time is garbage each time.
+	//
+	// While a frame is on its way to the screen, the loop can draw no
+	// other, and the frame shown wakes it. A timer due by then would
+	// fire at every wait and spin the loop until the frame showed, so
+	// it waits for the wait after.
 	var alarm <-chan time.Time
-	if at, ok := w.ui.nextTimer(); ok {
-		t := time.NewTimer(time.Until(at) - refreshInterval(w.dw.RefreshRate()))
-		defer t.Stop()
-		alarm = t.C
+	if at, ok := w.ui.nextTimer(); ok && !w.inFlight {
+		d := time.Until(at) - refreshInterval(w.dw.RefreshRate())
+		if w.alarm == nil {
+			w.alarm = time.NewTimer(d)
+		} else {
+			w.alarm.Reset(d)
+		}
+		defer w.alarm.Stop()
+		alarm = w.alarm.C
 	}
 	select {
 	case <-alarm:
