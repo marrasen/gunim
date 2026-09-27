@@ -137,7 +137,7 @@ func (a *app) showPreview() {
 	default:
 		info := entry{Name: placeName(n.path), Dir: true, Type: "Folder", Mod: n.mod}
 		pv := Preview{Seq: seq, Title: info.Name, Type: "This folder", Path: n.path, Tint: TintFolder,
-			Facts: []Fact{{"Holds", plural(len(n.all), "item")}, {"Modified", fmtTime(n.mod)}, {"Where", filepath.Dir(n.path)}}}
+			Facts: []Fact{{"Holds", plural(len(n.all), "item")}, {"Modified", fmtTime(n.mod)}, {"In", placeName(filepath.Dir(n.path))}}}
 		a.patch(pv)
 	}
 }
@@ -183,7 +183,7 @@ func itemPreview(ctx context.Context, seq int, path string, e entry) Preview {
 		}
 		pv.Facts = append(pv.Facts, Fact{"Points to", target})
 	}
-	pv.Facts = append(pv.Facts, Fact{"Where", filepath.Dir(path)})
+	pv.Facts = append(pv.Facts, Fact{"In", placeName(filepath.Dir(path))})
 	switch {
 	case e.Dir:
 		pv.Counting = true
@@ -250,7 +250,11 @@ func textStart(ctx context.Context, path string) (head string, more bool, err er
 	if err != nil {
 		return "", false, fmt.Errorf("reading %s: %w", filepath.Base(path), err)
 	}
-	defer func() { _ = f.Close() }()
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			head, more, err = "", false, fmt.Errorf("reading %s: %w", filepath.Base(path), cerr)
+		}
+	}()
 	buf := make([]byte, textHead)
 	n, err := io.ReadFull(f, buf)
 	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {

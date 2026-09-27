@@ -40,12 +40,16 @@ type entry struct {
 
 // listDir reads the entries of dir. It stops at the first entry it cannot
 // read, and says which one.
-func listDir(ctx context.Context, dir string) ([]entry, error) {
+func listDir(ctx context.Context, dir string) (es []entry, err error) {
 	f, err := os.Open(dir)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = f.Close() }()
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			es, err = nil, fmt.Errorf("reading %s: %w", dir, cerr)
+		}
+	}()
 	var out []entry
 	for {
 		if err := ctx.Err(); err != nil {

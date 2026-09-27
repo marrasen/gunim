@@ -12,7 +12,8 @@ const scriptPause = 700 * time.Millisecond
 
 // runScript runs the next step of the script from -do, and the rest after
 // it, each after a pause. A step is a command's name, "into:name" to go
-// into a folder, "select:name" to select an item, or "wait" to do nothing.
+// into a folder, "select:name" to select an item, "filter:text" to filter,
+// or "wait" to do nothing.
 func (a *app) runScript() {
 	time.AfterFunc(scriptPause, func() {
 		a.post(func() {
@@ -39,6 +40,8 @@ func (a *app) scriptStep(step string) {
 		a.publishSelection()
 		a.publishStatus()
 		a.showPreview()
+	case "filter":
+		a.handle(a.handlers, FilterChanged{Text: arg})
 	case "wait":
 	default:
 		a.handle(a.handlers, Command{Name: step})

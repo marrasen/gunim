@@ -41,7 +41,7 @@ func userFolders(home string) ([]userPlace, error) {
 
 // readUserDirs reads the XDG_*_DIR lines of the file at path into dirs.
 // A missing file changes nothing.
-func readUserDirs(path, home string, dirs map[string]string) error {
+func readUserDirs(path, home string, dirs map[string]string) (err error) {
 	f, err := os.Open(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
@@ -49,7 +49,11 @@ func readUserDirs(path, home string, dirs map[string]string) error {
 	if err != nil {
 		return fmt.Errorf("reading %s: %w", path, err)
 	}
-	defer func() { _ = f.Close() }()
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("reading %s: %w", path, cerr)
+		}
+	}()
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
 		key, value, ok := strings.Cut(strings.TrimSpace(sc.Text()), "=")

@@ -97,6 +97,9 @@ func newPreviewPage(s Preview) *previewPage {
 		kids = append(kids, factRowOf("Holds", pg.holds), factRowOf("Total size", pg.size))
 	}
 	if s.Path != "" {
+		full := widget.NewLabel(s.Path)
+		full.Size, full.Color, full.Selectable = SmallText, Caption, true
+		kids = append(kids, full)
 		reveal := widget.NewLink("Show in system file manager")
 		reveal.Size = SmallText
 		reveal.On = RevealPath{Path: s.Path}
