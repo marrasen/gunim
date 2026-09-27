@@ -404,3 +404,20 @@ func (p *apart) Paint(pt *paint.Painter, _ Frame, _ geom.Size, kids Children) {
 		k.Paint(pt)
 	}
 }
+
+func TestThePictureOfADragOutlivesItsSource(t *testing.T) {
+	a, _, c, _ := twoWindows(t)
+	a.Input(input.PointerDown{Pos: geom.Pt(30, 30), Time: time.Now()})
+	a.Input(input.PointerMove{Pos: geom.Pt(40, 30), Time: time.Now()})
+	run(a, 5)
+	a.ui.Remove(c)
+	run(a, 120)
+	if len(a.ui.popups) != 1 || !a.ui.drag.ghost.Open() {
+		t.Fatal("the picture went with the node the drag started from")
+	}
+	a.Input(input.PointerUp{Pos: geom.Pt(40, 30), Time: time.Now()})
+	run(a, 120)
+	if len(a.ui.popups) != 0 {
+		t.Fatal("the picture stayed after the drag ended")
+	}
+}

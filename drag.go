@@ -185,8 +185,9 @@ func (u *UI) StartDrag(n Node, data any, ghost Node, grab geom.Point) {
 	u.dropGhost(false)
 	d := &drag{source: s, data: data, grab: grab}
 	if ghost != nil {
-		at := u.local(s, u.pointer).Sub(grab)
-		d.ghost = u.OpenPopup(n, ghost, PopupOptions{
+		// The root opens the picture, so it stays while the source leaves
+		at := u.local(u.root, u.pointer).Sub(grab)
+		d.ghost = u.OpenPopup(u.root.node, ghost, PopupOptions{
 			Anchor:      geom.Rect{Min: at, Max: at},
 			Passthrough: true,
 			Over:        true,
@@ -233,7 +234,7 @@ func (u *UI) dragTo(p geom.Point) {
 		return
 	}
 	if d.ghost != nil {
-		g := u.local(d.source, p).Sub(d.grab)
+		g := u.local(u.root, p).Sub(d.grab)
 		d.ghost.Move(geom.Rect{Min: g, Max: g})
 		u.toGhost(d.ghost, input.DragMove{At: p, Time: time.Now()})
 	}
