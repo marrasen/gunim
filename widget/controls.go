@@ -442,11 +442,11 @@ type Tabs struct {
 	// OnChange turns the chosen tab into an intent for the application.
 	OnChange func(i int) gunim.Intent
 
-	bar      *tabBar
-	pages    []gunim.Node
+	bar   *tabBar
+	pages []gunim.Node
 	// count is how many pages there are: those given, and those inserted
 	// since, as the views mounted under the tabs' view are.
-	count int
+	count    int
 	selected int
 	// prev is the page leaving, or -1, and from is the side the new
 	// page comes from: 1 from the right, -1 from the left.
