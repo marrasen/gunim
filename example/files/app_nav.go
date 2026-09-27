@@ -308,9 +308,13 @@ func (a *app) refilter() {
 	if n.loading || n.err != nil {
 		return
 	}
+	was := n.rows
 	n.rows = filterEntries(n.all, n.filter, a.shell.ShowHidden)
 	n.gen++
 	a.publishListing()
+	if left := gone(was, n.rows); len(left) > 0 {
+		a.patch(RowsLeft{Gen: n.gen, Rows: left})
+	}
 	a.publishBands()
 	if n.pick != "" {
 		clear(n.sel)

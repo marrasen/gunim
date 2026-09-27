@@ -24,6 +24,7 @@ func registerViews(w *gunim.Window) {
 	registerDialogs(w)
 	registerPalette(w)
 	registerSpeed(w)
+	registerRowsLeft(w)
 }
 
 // root is the window's root: the background, with the views stacked on
