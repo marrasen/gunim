@@ -45,8 +45,10 @@ type CellGrid struct {
 
 	cols, rows int
 	lines      []cellRow
-	cursor     Cursor
-	at         *anim.Point
+	// ink is the colour the rows were drawn with for cells that name none.
+	ink    color.NRGBA
+	cursor Cursor
+	at     *anim.Point
 	// lit fades the cursor through a blink.
 	lit *anim.Float
 
@@ -376,6 +378,13 @@ func (g *CellGrid) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 	defer func() { g.run, g.painted = p.RunFrom(mark), key }()
 	p.RRect(geom.Rect{Max: box.Point()}, 0, paint.Solid(bg))
 	defer p.Push(paint.Translate(pixelSnap(p.Transform(), f.Scale)))()
+	// Redraw every row when the ink changes, as it does through a theme switch
+	if ink != g.ink {
+		g.ink = ink
+		for y := range g.lines {
+			g.lines[y].stale = true
+		}
+	}
 	for y := range g.lines {
 		top := float32(y) * m.h
 		if top >= box.H {

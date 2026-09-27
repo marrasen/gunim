@@ -10,6 +10,7 @@ import (
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/text"
+	"github.com/marrasen/gunim/theme"
 	"golang.org/x/image/font/gofont/goregular"
 )
 
@@ -341,6 +342,23 @@ func TestAStillGridDrawsTheSameFrame(t *testing.T) {
 	for _, op := range p.Ops() {
 		if r, ok := op.(*paint.RRectOp); ok && r.Transform.F < 50 {
 			t.Fatalf("after the grid moved, a command was drawn at %v", r.Transform)
+		}
+	}
+}
+
+func TestAGridTakesTheNewInkAfterAThemeSwitch(t *testing.T) {
+	w, g, run := newCellStage(t)
+	light := color.NRGBA{R: 0x10, G: 0x20, B: 0x30, A: 0xff}
+	w.RegisterTheme(theme.Make("light", theme.Set(Ink, light)))
+	if err := w.Client().SetTheme("light"); err != nil {
+		t.Fatal(err)
+	}
+	run(240)
+	for y, line := range g.lines {
+		for _, r := range line.drawn.runs {
+			if r.c != light {
+				t.Fatalf("row %d draws in %v after the switch, want the new ink %v", y, r.c, light)
+			}
 		}
 	}
 }
