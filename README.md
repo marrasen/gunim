@@ -36,6 +36,23 @@ curve kept on the graph a green one.
 ![The calculator](example/calculator/calculator.png)
 ![The graph](example/calculator/graph.png)
 
+`example/files` is a file manager that does real work: it copies, moves,
+renames, makes folders, and moves items to the trash, each in the
+background with progress, cancel and undo.
+
+```sh
+CGO_ENABLED=0 go run ./example/files
+CGO_ENABLED=0 go run ./example/files -demo
+```
+
+`-demo` opens a folder of sample files made in a temporary folder, and
+keeps its settings there too. Going into a folder slides its listing in
+from the right, and going back slides it in from the left. The preview
+crossfades between items, the progress panel slides up while something
+runs, and each finished operation leaves a toast with Undo. A folder of
+a hundred thousand files lists in the background and scrolls at once,
+as the grid draws only the rows in view.
+
 ## The split
 
 A gunim program is two halves that speak only in values.
