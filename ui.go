@@ -1397,6 +1397,10 @@ func (u *UI) frame(now time.Time, delta time.Duration) {
 	// still where the last frame drew them, to find what the pointer is
 	// over.
 	scrolled := u.edgeScroll(delta)
+	if !scrolled && u.dragOver {
+		// Offer a resting drag again, as what lies under it may have changed
+		u.dragHover(u.dragOverAt, u.dragOverData)
+	}
 	u.seq++
 	f := Frame{Now: now, Delta: delta, Scale: u.w.dw.Scale(), Theme: u.theme, seq: u.seq, u: u}
 

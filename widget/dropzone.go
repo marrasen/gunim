@@ -91,6 +91,7 @@ func (z *DropZone) Handle(e input.Event, u *gunim.UI) bool {
 		}
 		z.hover(spot, u)
 		u.AnswerDrag(spot.Hint)
+		return true
 	case input.DragLeave:
 		z.leave(u)
 	case input.Drop:

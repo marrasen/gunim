@@ -181,11 +181,12 @@ func (g *DragGhost) Transition(p gunim.Presence, f gunim.Frame) bool {
 	return true
 }
 
-// hintSize is the height of the line beside the pointer, and hintAt
-// where it sits from the pointer.
-const hintSize = 26
-
-var hintAt = geom.Pt(16, 18)
+// hintSize is the height of the line beside the pointer, and hintGap the
+// room between it and the card.
+const (
+	hintSize = 26
+	hintGap  = 12
+)
 
 // Layout implements [gunim.Node].
 func (g *DragGhost) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
@@ -205,8 +206,8 @@ func (g *DragGhost) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Childr
 		g.hintW.Jump(pill)
 	}
 	g.hintW.Animate(pill, Quick.Get(th))
-	w := max(g.size.W, g.grab.X+hintAt.X+pill+4)
-	h := max(g.size.H, g.grab.Y+hintAt.Y+hintSize+4)
+	w := g.size.W + hintGap + pill + 4
+	h := max(g.size.H, g.grab.Y+hintSize/2+4)
 	return c.Constrain(geom.Sz(w+2*g.margin, h+2*g.margin))
 }
 
@@ -239,8 +240,14 @@ func (g *DragGhost) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids g
 		p.RRect(geom.Rect{Max: box.Point()}, 0, paint.Solid(CardFill.Get(th)))
 	}
 	defer p.Layer(paint.LayerOpts{Bounds: geom.Rect{Max: box.Point()}, Opacity: opacity})()
+	g.paintCard(p, th, pointer, scale, shift, spin, kids)
 	g.paintHint(p, th, pointer, out)
+}
 
+// paintCard draws the card, the cards behind it and the badge, trailing
+// the pointer and tilted.
+func (g *DragGhost) paintCard(p *paint.Painter, th *theme.Live, pointer geom.Point, scale float32, shift geom.Point,
+	spin float32, kids gunim.Children) {
 	lag := geom.Pt(float32(g.lag[0]), float32(g.lag[1]))
 	tilt := max(-maxTilt, min(maxTilt, lag.X*0.006+float32(g.vel[0])*0.0004)) + spin
 	fan := min(float32(math.Abs(g.vel[0])+math.Abs(g.vel[1]))*0.00025, 0.12)
@@ -253,13 +260,13 @@ func (g *DragGhost) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids g
 	fill := CardFill.Get(th)
 	shadow := paint.Shadow{Offset: geom.Pt(0, 6), Blur: 18, Color: MenuShadow.Get(th)}
 	for i := min(g.Stack, 2); i >= 1; i-- {
-		turn := float32(i)*0.045 + fan*float32(i)
+		turn := float32(i)*0.06 + fan*float32(i)
 		if i == 2 {
 			turn = -turn
 		}
 		func() {
 			defer p.Push(paint.Rotate(turn, card.Center()))()
-			back := card.Add(geom.Pt(3*float32(i), 3*float32(i)))
+			back := card.Add(geom.Pt(5*float32(i), 4*float32(i)))
 			p.ShadowRRect(back, radius, paint.Solid(fill), shadow)
 			p.RRectStroke(back, radius, paint.Fill{}, paint.Stroke{Width: 1, Color: MenuBorder.Get(th)})
 		}()
@@ -292,7 +299,7 @@ func (g *DragGhost) paintHint(p *paint.Painter, th *theme.Live, pointer geom.Poi
 	if on <= 0.01 || g.hint.Text == "" {
 		return
 	}
-	at := pointer.Add(hintAt)
+	at := pointer.Add(geom.Pt(g.size.W-g.grab.X+hintGap-8*(1-min(on, 1)), -hintSize/2))
 	w := max(hintSize, g.hintW.Value())
 	pill := geom.Rc(at.X, at.Y, w, hintSize)
 	defer p.Layer(paint.LayerOpts{Bounds: pill.Inset(geom.Uniform(-12)), Opacity: min(on, 1) * (1 - out)})()
