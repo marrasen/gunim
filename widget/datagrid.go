@@ -155,7 +155,6 @@ type DataGrid struct {
 	grab     float32
 	grabFrom float64
 	hoverCol int
-	overEdge bool
 
 	pending bool
 	pulse   float64
@@ -413,7 +412,7 @@ func (g *DataGrid) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 		g.paintHeader(p, th, bodyW, size, pad)
 	}
 	if !g.NoBar {
-		g.paintBar(p, th, box)
+		g.paintBar(p, th)
 	}
 	// Forget the shapes of rows that left the view, once there are many.
 	if len(g.shapes) > 4096 {
@@ -648,7 +647,7 @@ func (g *DataGrid) barRect(th *theme.Live) (track, thumb geom.Rect, ok bool) {
 	return track, thumb, true
 }
 
-func (g *DataGrid) paintBar(p *paint.Painter, th *theme.Live, box geom.Size) {
+func (g *DataGrid) paintBar(p *paint.Painter, th *theme.Live) {
 	_, thumb, ok := g.barRect(th)
 	if !ok {
 		return
@@ -828,6 +827,7 @@ func (g *DataGrid) move(e input.PointerMove, u *gunim.UI) bool {
 		}
 		u.Invalidate()
 		return true
+	case dragNone:
 	}
 	hover := -1
 	if !g.NoHeader && e.Pos.Y < g.header {

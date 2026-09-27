@@ -77,7 +77,7 @@ func (sp Spring) Step(s *State, dt time.Duration) bool {
 // Follow moves x, with velocity v, toward to over dt, for a value too
 // large for an [Animated] float32 to hold to the pixel, such as a
 // position far down a long list.
-func (sp Spring) Follow(x, v, to float64, dt time.Duration) (float64, float64) {
+func (sp Spring) Follow(x, v, to float64, dt time.Duration) (at, speed float64) {
 	resp := float64(max(sp.Response, 0.001))
 	zeta := float64(max(sp.Damping, 0))
 	dt = min(dt, maxStep)

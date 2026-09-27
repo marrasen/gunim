@@ -263,7 +263,9 @@ func TestThemeFontReachesLabels(t *testing.T) {
 	l := NewLabel("text")
 	w, run := stage(t, &frame{child: l, size: geom.Sz(400, 100)})
 	w.RegisterTheme(theme.Make("code", theme.Set(Font, text.GoMono(false, false))))
-	w.Client().SetTheme("code")
+	if err := w.Client().SetTheme("code"); err != nil {
+		t.Fatal(err)
+	}
 	run(120)
 	if got := l.laid.face; got != text.GoMono(false, false) {
 		t.Fatalf("after switching to a theme with a mono font, the label is set in %v", got)
