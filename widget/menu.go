@@ -370,6 +370,9 @@ type Dropdown struct {
 	// Disabled shows the drop-down faint, and it takes no clicks, keys
 	// or focus, for a choice that does not apply now.
 	Disabled bool
+	// MaxWidth caps the drop-down's width, cutting a longer item short with
+	// an ellipsis. Zero leaves it as wide as its longest item.
+	MaxWidth float32
 	// OnChange turns a new choice into an intent for the application.
 	OnChange func(i int) gunim.Intent
 	// picked is local behaviour, set by OnPick.
@@ -383,6 +386,7 @@ type Dropdown struct {
 	menu  *Menu
 	size  geom.Size
 	shown shapedText
+	ell   shapedText
 }
 
 // OnPick wires behaviour that runs inside the window when the user
@@ -506,7 +510,11 @@ func (d *Dropdown) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) 
 		w = max(w, probe.shape(faceIn(Font, th), s, TextSize.Get(th)).Advance)
 	}
 	pad := FieldPadding.Get(th)
-	d.size = c.Constrain(geom.Sz(w+2*pad+chevron+pad, FieldHeight.Get(th)))
+	w += 2*pad + chevron + pad
+	if d.MaxWidth > 0 {
+		w = min(w, d.MaxWidth)
+	}
+	d.size = c.Constrain(geom.Sz(w, FieldHeight.Get(th)))
 	return d.size
 }
 
@@ -532,6 +540,9 @@ func (d *Dropdown) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 	pad := FieldPadding.Get(th)
 	if d.Selected >= 0 && d.Selected < len(d.Items) {
 		run := d.shown.shape(faceIn(Font, th), d.Items[d.Selected], TextSize.Get(th))
+		if room := box.W - 2*pad - chevron - pad; run.Advance > room {
+			run = cutRun(run, d.ell.shape(faceIn(Font, th), "…", TextSize.Get(th)), room)
+		}
 		run.Paint(p, geom.Pt(pad, (box.H-run.Height())/2), Ink.Get(th))
 	}
 

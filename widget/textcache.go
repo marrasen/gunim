@@ -1,6 +1,7 @@
 package widget
 
 import (
+	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/text"
 	"github.com/marrasen/gunim/theme"
 )
@@ -53,4 +54,41 @@ func (pr *laidText) layout(face *text.Face, s string, st text.Style, width float
 		pr.p = face.Layout(s, st, width)
 	}
 	return pr.p
+}
+
+// cutRun returns run cut to the glyphs that fit in room with ell, an
+// ellipsis shaped in the same face and size, after them.
+func cutRun(run, ell text.Run, room float32) text.Run {
+	avail := room - ell.Advance
+	n := 0
+	for n < len(run.Glyphs) {
+		end := run.Advance
+		if n+1 < len(run.Glyphs) {
+			end = run.Glyphs[n+1].At.X
+		}
+		if end > avail {
+			break
+		}
+		n++
+	}
+	if n == len(run.Glyphs) {
+		return run
+	}
+	pen := float32(0)
+	if n > 0 {
+		pen = run.Glyphs[n].At.X
+	}
+	out := run
+	out.Glyphs = make([]paint.Glyph, 0, n+len(ell.Glyphs))
+	if avail >= 0 {
+		out.Glyphs = append(out.Glyphs, run.Glyphs[:n]...)
+	} else {
+		pen = 0
+	}
+	for _, gl := range ell.Glyphs {
+		gl.At.X += pen
+		out.Glyphs = append(out.Glyphs, gl)
+	}
+	out.Advance = pen + ell.Advance
+	return out
 }

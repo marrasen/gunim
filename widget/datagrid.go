@@ -555,34 +555,7 @@ func (g *DataGrid) cutRun(run text.Run, room float32) text.Run {
 		ell = run.Face.Shape("…", run.Size)
 		g.cut[key] = ell
 	}
-	avail := room - ell.Advance
-	n := 0
-	for n < len(run.Glyphs) {
-		end := run.Advance
-		if n+1 < len(run.Glyphs) {
-			end = run.Glyphs[n+1].At.X
-		}
-		if end > avail {
-			break
-		}
-		n++
-	}
-	out := run
-	pen := float32(0)
-	if n > 0 {
-		pen = run.Glyphs[n].At.X
-	}
-	out.Glyphs = make([]paint.Glyph, 0, n+len(ell.Glyphs))
-	out.Glyphs = append(out.Glyphs, run.Glyphs[:n]...)
-	if avail < 0 {
-		out.Glyphs, pen = out.Glyphs[:0], 0
-	}
-	for _, gl := range ell.Glyphs {
-		gl.At.X += pen
-		out.Glyphs = append(out.Glyphs, gl)
-	}
-	out.Advance = pen + ell.Advance
-	return out
+	return cutRun(run, ell, room)
 }
 
 func (g *DataGrid) paintHeader(p *paint.Painter, th *theme.Live, bodyW, size, pad float32) {

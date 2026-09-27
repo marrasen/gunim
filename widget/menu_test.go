@@ -104,3 +104,16 @@ func TestTooltipShowsAfterItsDelay(t *testing.T) {
 		t.Fatal("the tooltip stayed after the pointer left")
 	}
 }
+
+func TestADropdownKeepsWithinItsMaxWidth(t *testing.T) {
+	d := NewDropdown("All sessions", "#12  2024-02-15 10:17:39+01:00  v5.4.1  3 err")
+	d.MaxWidth = 150
+	d.Selected = 1
+	stage(t, &frame{child: Row(d), size: geom.Sz(600, 100)})
+	if d.size.W != 150 {
+		t.Fatalf("the drop-down is %v wide, want its MaxWidth of 150", d.size.W)
+	}
+	if w := d.shown.run.Advance; w <= 150-2*FieldPadding.Default()-chevron {
+		t.Fatalf("the uncut item is only %v wide; the test needs one that is cut", w)
+	}
+}
