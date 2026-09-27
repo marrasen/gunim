@@ -28,6 +28,9 @@ import (
 type Hero struct {
 	anim.Group
 	Tag string
+	// Anchor makes the hero a place a counterpart flies from and back to, such as a tile in a grid: it stays put as
+	// it arrives, and leaving sends nothing flying.
+	Anchor bool
 
 	child gunim.Node
 	// fly runs from 0 to 1 over a flight, from and to its ends in window
@@ -67,8 +70,8 @@ type heroesKey struct{}
 func (h *Hero) register(f gunim.Frame) heroes {
 	reg := gunim.Local(f, heroesKey{}, func() heroes { return heroes{} })
 	list := slices.DeleteFunc(reg[h.Tag], func(o *Hero) bool {
-		// Heroes not drawn lately have left, or are out of sight.
-		return o != h && o.seen+2 < f.Number()
+		// Heroes not drawn lately have left, or are out of sight, and some have taken another tag.
+		return o != h && (o.seen+2 < f.Number() || o.Tag != h.Tag)
 	})
 	if !slices.Contains(list, h) {
 		list = append(list, h)
@@ -94,7 +97,7 @@ func (h *Hero) Transition(p gunim.Presence, f gunim.Frame) bool {
 	case gunim.Entering:
 		if !h.arrived {
 			h.arrived = true
-			if o := h.counterpart(f); o != nil {
+			if o := h.counterpart(f); o != nil && !h.Anchor {
 				h.takeOff(o.rect, f)
 				o.hidden, h.partner = true, o
 			}
@@ -102,7 +105,7 @@ func (h *Hero) Transition(p gunim.Presence, f gunim.Frame) bool {
 	case gunim.Exiting:
 		if !h.leaving {
 			h.leaving = true
-			if o := h.counterpart(f); o != nil {
+			if o := h.counterpart(f); o != nil && !h.Anchor {
 				// The one staying flies back from here, and this one is
 				// gone at once: there is only ever one of a pair to see.
 				o.takeOff(h.rect, f)

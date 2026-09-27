@@ -162,3 +162,79 @@ func TestHeroFlightMovesSmoothlyEveryFrame(t *testing.T) {
 		prev = r
 	}
 }
+
+func TestAnAnchorHeroStaysPutAndTakesItsCounterpartBack(t *testing.T) {
+	thumbPic, bigPic := picture(10, 10), picture(10, 10)
+	var thumb *Hero
+	w := gunim.NewOffscreen(geom.Sz(400, 400), nil)
+	gunim.RegisterView(w, "grid", func(struct{}) gunim.Node {
+		img := NewImage(thumbPic)
+		img.Fit = FitFill
+		thumb = NewHero("pic", img)
+		thumb.Anchor = true
+		return &spot2{at: geom.Rc(10, 10, 40, 30), child: thumb}
+	}, nil)
+	gunim.RegisterView(w, "detail", func(struct{}) gunim.Node {
+		img := NewImage(bigPic)
+		img.Fit = FitFill
+		return &spot2{at: geom.Rc(100, 100, 200, 150), child: NewHero("pic", img)}
+	}, nil)
+	s := &heroStage{w: w, run: func(n int) {
+		for range n {
+			w.Frame(time.Second / 60)
+		}
+	}}
+	if err := w.Client().Mount(gunim.Root, "detail", "detail", nil); err != nil {
+		t.Fatal(err)
+	}
+	s.run(30)
+	// The anchor arrives where it belongs, and the big picture stays.
+	if err := w.Client().Mount(gunim.Root, "grid", "grid", nil); err != nil {
+		t.Fatal(err)
+	}
+	s.run(2)
+	if d := s.drawn(); d[thumbPic] != geom.Rc(10, 10, 40, 30) || d[bigPic] != geom.Rc(100, 100, 200, 150) {
+		t.Fatalf("an anchor arriving drew %v; want both pictures in their places", d)
+	}
+	// The anchor leaving sends nothing flying.
+	if err := w.Client().Unmount("grid"); err != nil {
+		t.Fatal(err)
+	}
+	s.run(2)
+	if d := s.drawn(); d[bigPic] != geom.Rc(100, 100, 200, 150) {
+		t.Fatalf("an anchor leaving moved the big picture to %v", d[bigPic])
+	}
+	// Back again, it takes the big picture home as it leaves.
+	if err := w.Client().Mount(gunim.Root, "grid", "grid", nil); err != nil {
+		t.Fatal(err)
+	}
+	s.run(30)
+	if err := w.Client().Unmount("detail"); err != nil {
+		t.Fatal(err)
+	}
+	s.run(2)
+	r := s.drawn()[thumbPic]
+	if r.Min.X <= 10 || r.Min.X >= 100 {
+		t.Fatalf("the anchor flying back is at %v, want between", r)
+	}
+	if !thumb.Anchor {
+		t.Fatal("the grid was built again")
+	}
+}
+
+func TestAHeroWithANewTagLeavesItsOldPartnerAlone(t *testing.T) {
+	s := newHeroStage(t)
+	if err := s.w.Client().Mount(gunim.Root, "detail", "detail", nil); err != nil {
+		t.Fatal(err)
+	}
+	s.run(120)
+	s.big.Tag = "other"
+	s.run(2)
+	if err := s.w.Client().Unmount("grid"); err != nil {
+		t.Fatal(err)
+	}
+	s.run(2)
+	if r := s.drawn()[s.bigPic]; r != geom.Rc(100, 100, 200, 150) {
+		t.Fatalf("the big picture flew to %v for a hero of the tag it left", r)
+	}
+}
