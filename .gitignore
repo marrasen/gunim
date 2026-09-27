@@ -1,1 +1,10 @@
 dist/
+
+# The examples, built at the repo root with go build ./example/...
+/calculator
+/controls
+/dialog
+/paragraph
+/twowindows
+/widgets
+*.exe
