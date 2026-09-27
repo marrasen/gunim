@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -566,9 +567,9 @@ func (a *app) publishStatus() {
 	default:
 		s.Left = plural(len(n.rows), "item")
 		if hidden := len(n.all) - len(n.rows); hidden > 0 && n.filter == "" {
-			s.Left += fmt.Sprintf(" (%d hidden)", hidden)
+			s.Left += " (" + count(hidden) + " hidden)"
 		} else if n.filter != "" {
-			s.Left += fmt.Sprintf(" of %d match “%s”", len(n.all), n.filter)
+			s.Left += " of " + count(len(n.all)) + " match “" + n.filter + "”"
 		}
 		if sel := a.selectedEntries(); len(sel) > 0 {
 			var size int64
@@ -579,7 +580,7 @@ func (a *app) publishStatus() {
 					files++
 				}
 			}
-			s.Left += fmt.Sprintf("  ·  %d selected", len(sel))
+			s.Left += "  ·  " + count(len(sel)) + " selected"
 			if files > 0 {
 				s.Left += " (" + humanBytes(size) + ")"
 			}
@@ -598,7 +599,19 @@ func plural(n int, what string) string {
 	if n == 1 {
 		return "1 " + what
 	}
-	return fmt.Sprintf("%d %ss", n, what)
+	return count(n) + " " + what + "s"
+}
+
+// count writes n with its thousands apart, as 100,000.
+func count(n int) string {
+	s := strconv.Itoa(n)
+	if n < 0 {
+		return "-" + count(-n)
+	}
+	for i := len(s) - 3; i > 0; i -= 3 {
+		s = s[:i] + "," + s[i:]
+	}
+	return s
 }
 
 // readSpace reads the free space of the folder's volume in the

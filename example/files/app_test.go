@@ -157,6 +157,37 @@ func TestTheGridShowsTheFolderFoldersFirst(t *testing.T) {
 	}
 }
 
+func TestCountsKeepTheirThousandsApart(t *testing.T) {
+	for n, want := range map[int]string{0: "0", 999: "999", 1000: "1,000", 100000: "100,000", 1234567: "1,234,567"} {
+		if got := count(n); got != want {
+			t.Fatalf("count(%d) = %q, want %q", n, got, want)
+		}
+	}
+}
+
+func TestEditingThePathGoesThere(t *testing.T) {
+	h := newHarness(t, "sub/x.txt")
+	h.w.Input(input.KeyPress{Key: input.KeyL, Mods: input.ModControl})
+	h.frames(2)
+	if !h.b.path.slot.editing || h.b.path.field.Text() != h.dir {
+		t.Fatalf("Ctrl+L left the path bar editing %v with %q", h.b.path.slot.editing, h.b.path.field.Text())
+	}
+	h.w.Input(input.KeyPress{Key: input.KeyEnd})
+	h.w.Input(input.TextInput{Text: string(filepath.Separator) + "sub"})
+	h.w.Input(input.KeyPress{Key: input.KeyEnter})
+	h.until("the typed folder opens", func() bool { return slices.Equal(h.shown(), []string{"x.txt"}) })
+	if h.b.path.slot.editing {
+		t.Fatal("the path bar is still editing after Enter")
+	}
+	h.w.Input(input.KeyPress{Key: input.KeyL, Mods: input.ModControl})
+	h.w.Input(input.TextInput{Text: "nonsense"})
+	h.w.Input(input.KeyPress{Key: input.KeyEscape})
+	h.frames(2)
+	if h.b.path.slot.editing || !samePath(h.a.nav.path, filepath.Join(h.dir, "sub")) {
+		t.Fatal("Escape did not leave the path as it was")
+	}
+}
+
 func TestTheFilterNarrowsTheRows(t *testing.T) {
 	h := newHarness(t, "report.pdf", "notes.txt", "old-report.txt")
 	h.do(FilterChanged{Text: "REPORT"})

@@ -238,7 +238,7 @@ func (r *opRun) tick() OpTick {
 		}
 	case p.itemsTotal > 0:
 		t.Done = float32(p.items) / float32(p.itemsTotal)
-		t.Detail = fmt.Sprintf("%d of %d items", p.items, p.itemsTotal)
+		t.Detail = count(p.items) + " of " + plural(p.itemsTotal, "item")
 	default:
 		t.Unknown = true
 		t.Detail = "Counting…"
@@ -294,8 +294,13 @@ func (a *app) finish(id int, j job, rec record, err error) {
 		a.patch(Notice{Title: "Undone", Body: r.title})
 	case err == nil:
 		n := Notice{Title: doneTitle(j, rec), Undo: undo}
-		if rec.replaced > 0 {
+		switch {
+		case rec.replaced > 0:
 			n.Body = plural(rec.replaced, "file") + " replaced, which undo cannot bring back."
+		case j.kind == OpTrash && !restorable(rec):
+			// Undo would only say so; the toast says it now.
+			n.Undo = 0
+			n.Body = "Restore from the system's trash to bring them back."
 		}
 		a.patch(n)
 	case errors.Is(err, context.Canceled):
@@ -318,6 +323,17 @@ func (a *app) finish(id int, j job, rec record, err error) {
 		}
 	}
 	a.relist()
+}
+
+// restorable reports whether the app can take what a trash record holds
+// back out of the trash.
+func restorable(rec record) bool {
+	for _, s := range rec.steps {
+		if s.to == "" {
+			return false
+		}
+	}
+	return true
 }
 
 // doneTitle says what a finished job did.

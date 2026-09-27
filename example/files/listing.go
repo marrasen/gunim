@@ -82,6 +82,10 @@ func (a *listingArea) rows(r RowBlock, u *gunim.UI) {
 		a.cur.blocks[r.Start] = r.Rows
 		delete(a.cur.asked, r.Start)
 		a.cur.forget()
+		if a.cur.arrive {
+			a.cur.arrive = false
+			a.cur.grid.Arrive(u)
+		}
 		u.Invalidate()
 	}
 }
@@ -160,6 +164,10 @@ type listingPage struct {
 	first         int
 	firstNames    []string
 	loading       bool
+	// arrive has the next rows come in one after another, as they do in a
+	// folder just opened or sorted anew; sorted is the sort they came in.
+	arrive bool
+	sorted [2]int
 	// stripIn runs from 0 to 1 as the overview strip comes in, which it
 	// does only while the rows do not all fit.
 	stripIn *anim.Float
@@ -174,7 +182,7 @@ var contextItems = []menuItem{
 
 func newListingPage(b *browser, widths []float32) *listingPage {
 	pg := &listingPage{b: b, blocks: map[int][]Row{}, stale: map[int][]Row{}, asked: map[int]bool{}, gen: -1,
-		stripIn: anim.NewFloat(0)}
+		stripIn: anim.NewFloat(0), arrive: true, sorted: [2]int{-1, -1}}
 	pg.Add(pg.stripIn)
 	cols := columns()
 	for i, w := range widths {
@@ -230,6 +238,9 @@ func (pg *listingPage) set(l Listing, u *gunim.UI) {
 		pg.gen = l.Gen
 	}
 	pg.filter = strings.ToLower(l.Filter)
+	if sorted := [2]int{int(l.Sort), map[bool]int{false: 0, true: 1}[l.Desc]}; sorted != pg.sorted {
+		pg.sorted, pg.arrive = sorted, true
+	}
 	pg.loading = l.Loading
 	// The bar moves only while it shows, so the window can rest.
 	pg.bar.Indeterminate = l.Loading
