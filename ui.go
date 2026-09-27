@@ -455,22 +455,42 @@ func (c Client) ChooseFiles(ctx context.Context, o driver.ChooseOptions) ([]stri
 	if !ok {
 		return nil, driver.ErrNoChooser
 	}
-	type chosen struct {
-		paths []string
-		err   error
+	return awaitDialog(ctx, c, func() ([]string, error) { return fc.ChooseFiles(o) })
+}
+
+// SaveFile shows the system's dialog for choosing where to save a file,
+// owned by the window, and returns the path chosen, or "" when the dialog
+// was cancelled. The dialog asks before it lets an existing file be
+// chosen. It blocks until the dialog closes or ctx ends; an ended ctx
+// leaves the dialog open.
+func (c Client) SaveFile(ctx context.Context, o driver.SaveOptions) (string, error) {
+	fs, ok := c.w.dw.(driver.FileSaver)
+	if !ok {
+		return "", driver.ErrNoChooser
 	}
-	got := make(chan chosen, 1)
+	return awaitDialog(ctx, c, func() (string, error) { return fs.SaveFile(o) })
+}
+
+// awaitDialog runs show, which shows a dialog, and waits for its answer,
+// the window to close, or ctx to end.
+func awaitDialog[T any](ctx context.Context, c Client, show func() (T, error)) (T, error) {
+	type answer struct {
+		v   T
+		err error
+	}
+	got := make(chan answer, 1)
 	go func() {
-		paths, err := fc.ChooseFiles(o)
-		got <- chosen{paths, err}
+		v, err := show()
+		got <- answer{v, err}
 	}()
+	var zero T
 	select {
 	case r := <-got:
-		return r.paths, r.err
+		return r.v, r.err
 	case <-c.w.done:
-		return nil, ErrWindowClosed
+		return zero, ErrWindowClosed
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return zero, ctx.Err()
 	}
 }
 

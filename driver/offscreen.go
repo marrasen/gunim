@@ -42,6 +42,8 @@ type OffscreenWindow struct {
 	clip   string
 	// chooser answers ChooseFiles; see SetChooser.
 	chooser func(ChooseOptions) ([]string, error)
+	// saver answers SaveFile; see SetSaver.
+	saver func(SaveOptions) (string, error)
 	// anchor is where a popup was last attached, and origin where the
 	// window sits on its pretend screen.
 	anchor geom.Rect
@@ -428,6 +430,25 @@ func (w *OffscreenWindow) ChooseFiles(o ChooseOptions) ([]string, error) {
 	w.mu.Unlock()
 	if fn == nil {
 		return nil, ErrNoChooser
+	}
+	return fn(o)
+}
+
+// SetSaver sets what SaveFile answers, for a test standing in for the user.
+func (w *OffscreenWindow) SetSaver(fn func(SaveOptions) (string, error)) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.saver = fn
+}
+
+// SaveFile implements [FileSaver] with the function SetSaver set, and
+// returns [ErrNoChooser] without one.
+func (w *OffscreenWindow) SaveFile(o SaveOptions) (string, error) {
+	w.mu.Lock()
+	fn := w.saver
+	w.mu.Unlock()
+	if fn == nil {
+		return "", ErrNoChooser
 	}
 	return fn(o)
 }

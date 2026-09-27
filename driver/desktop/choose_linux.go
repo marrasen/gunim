@@ -29,6 +29,56 @@ type portalRule struct {
 // ChooseFiles implements [driver.FileChooser] with the desktop portal's
 // FileChooser, which draws the desktop's own dialog.
 func (w *Window) ChooseFiles(o driver.ChooseOptions) ([]string, error) {
+	opts := map[string]dbus.Variant{
+		"multiple":  dbus.MakeVariant(o.Multiple),
+		"directory": dbus.MakeVariant(o.Folders),
+	}
+	if !o.Folders {
+		addFilters(opts, o.Filters)
+	}
+	results, err := w.portal("OpenFile", o.Title, opts)
+	if err != nil || results == nil {
+		return nil, err
+	}
+	return portalPaths(results)
+}
+
+// SaveFile implements [driver.FileSaver] with the desktop portal's
+// FileChooser.
+func (w *Window) SaveFile(o driver.SaveOptions) (string, error) {
+	opts := map[string]dbus.Variant{}
+	if o.Name != "" {
+		opts["current_name"] = dbus.MakeVariant(o.Name)
+	}
+	addFilters(opts, o.Filters)
+	results, err := w.portal("SaveFile", o.Title, opts)
+	if err != nil || results == nil {
+		return "", err
+	}
+	paths, err := portalPaths(results)
+	if err != nil || len(paths) == 0 {
+		return "", err
+	}
+	return paths[0], nil
+}
+
+func addFilters(opts map[string]dbus.Variant, filters []driver.FileFilter) {
+	if len(filters) == 0 {
+		return
+	}
+	out := make([]portalFilter, len(filters))
+	for i, f := range filters {
+		out[i].Name = f.Name
+		for _, p := range f.Patterns {
+			out[i].Rules = append(out[i].Rules, portalRule{Pattern: p})
+		}
+	}
+	opts["filters"] = dbus.MakeVariant(out)
+}
+
+// portal calls the FileChooser portal's method, owned by w, and waits for
+// its answer, which is nil when the dialog was cancelled.
+func (w *Window) portal(method, title string, opts map[string]dbus.Variant) (any, error) {
 	var xid uintptr
 	if err := w.d.call(func() error {
 		x, err := w.gw.GetX11Window()
@@ -56,27 +106,12 @@ func (w *Window) ChooseFiles(o driver.ChooseOptions) ([]string, error) {
 	); err != nil {
 		return nil, fmt.Errorf("desktop: listening for the file dialog: %w", err)
 	}
-
-	opts := map[string]dbus.Variant{
-		"handle_token": dbus.MakeVariant(token),
-		"multiple":     dbus.MakeVariant(o.Multiple),
-		"directory":    dbus.MakeVariant(o.Folders),
-		"modal":        dbus.MakeVariant(true),
-	}
-	if len(o.Filters) > 0 && !o.Folders {
-		filters := make([]portalFilter, len(o.Filters))
-		for i, f := range o.Filters {
-			filters[i].Name = f.Name
-			for _, p := range f.Patterns {
-				filters[i].Rules = append(filters[i].Rules, portalRule{Pattern: p})
-			}
-		}
-		opts["filters"] = dbus.MakeVariant(filters)
-	}
+	opts["handle_token"] = dbus.MakeVariant(token)
+	opts["modal"] = dbus.MakeVariant(true)
 	var handle dbus.ObjectPath
-	portal := conn.Object("org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop")
-	if err := portal.Call("org.freedesktop.portal.FileChooser.OpenFile", 0,
-		fmt.Sprintf("x11:%x", xid), o.Title, opts).Store(&handle); err != nil {
+	desk := conn.Object("org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop")
+	if err := desk.Call("org.freedesktop.portal.FileChooser."+method, 0,
+		fmt.Sprintf("x11:%x", xid), title, opts).Store(&handle); err != nil {
 		return nil, fmt.Errorf("desktop: opening the file dialog: %w", err)
 	}
 	// An older portal names the request its own way, and says which.
@@ -90,7 +125,7 @@ func (w *Window) ChooseFiles(o driver.ChooseOptions) ([]string, error) {
 		code, _ := sig.Body[0].(uint32)
 		switch code {
 		case 0:
-			return portalPaths(sig.Body[1])
+			return sig.Body[1], nil
 		case 1:
 			return nil, nil
 		default:

@@ -32,3 +32,16 @@ func TestChooseFilesSaysWhenThereIsNoDialog(t *testing.T) {
 		t.Fatalf("err = %v, want ErrNoChooser", err)
 	}
 }
+
+func TestSaveFileAsksTheWindowsDialog(t *testing.T) {
+	w := NewOffscreen(geom.Sz(400, 300), nil)
+	var asked driver.SaveOptions
+	w.Offscreen().SetSaver(func(o driver.SaveOptions) (string, error) {
+		asked = o
+		return "out/screenshot.png", nil
+	})
+	got, err := w.Client().SaveFile(context.Background(), driver.SaveOptions{Title: "Save a copy", Name: "screenshot.png"})
+	if err != nil || got != "out/screenshot.png" || asked.Name != "screenshot.png" {
+		t.Fatalf("saved to %q, %v, asked with %+v", got, err, asked)
+	}
+}

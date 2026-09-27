@@ -32,3 +32,22 @@ type FileChooser interface {
 // ErrNoChooser is returned where the platform has no file dialog gunim
 // can show.
 var ErrNoChooser = errors.New("driver: no file dialog on this platform")
+
+// SaveOptions describes a dialog for choosing where to save a file.
+type SaveOptions struct {
+	Title string
+	// Name is the file name the dialog starts with.
+	Name string
+	// Filters offer kinds of file to save as, the first chosen to begin
+	// with. None offers every file.
+	Filters []FileFilter
+}
+
+// A FileSaver is a [Window] that can show the system's dialog for choosing
+// where to save a file, owned by the window. SaveFile blocks until the
+// dialog closes, and returns "" when it was cancelled. The dialog asks
+// before it lets an existing file be chosen. It may be called from any
+// goroutine but the main one.
+type FileSaver interface {
+	SaveFile(o SaveOptions) (string, error)
+}
