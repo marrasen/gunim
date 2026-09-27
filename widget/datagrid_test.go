@@ -258,3 +258,24 @@ func TestASpanThatIsALinkSendsItsIntent(t *testing.T) {
 		t.Fatalf("a click and a Ctrl+click on the link sent %v", got)
 	}
 }
+
+func TestArrivingRowsComeInFromTheTop(t *testing.T) {
+	g := NewDataGrid(GridColumn{Title: "Name"})
+	g.Row = func(int) (GridRow, bool) { return GridRow{Cells: [][]GridSpan{{{Text: "row"}}}}, true }
+	g.rows = 100
+	w, run := stage(t, &frame{child: g, size: geom.Sz(400, 300)})
+	type arrive struct{}
+	gunim.RegisterPatch(w, "stage", func(_ gunim.Node, _ arrive, u *gunim.UI) { g.Arrive(u) })
+	if err := w.Client().Patch("stage", arrive{}); err != nil {
+		t.Fatal(err)
+	}
+	run(6)
+	first, last := g.arrived(0), g.arrived(12)
+	if first <= last || first <= 0 || first >= 1 {
+		t.Fatalf("100 ms in, the first row has come %v of the way and the thirteenth %v", first, last)
+	}
+	run(60)
+	if g.arrived(12) != 1 || g.Step(time.Second/60) {
+		t.Fatal("a second in, the rows have not all come in and settled")
+	}
+}

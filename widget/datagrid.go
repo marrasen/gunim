@@ -194,6 +194,13 @@ type DataGrid struct {
 	pending bool
 	pulse   float64
 
+	// arrival is how long ago Arrive was called, in seconds, and
+	// arriveTop the row at the top of the view then; arriving is set
+	// until the last row in view has come in.
+	arrival   float64
+	arriveTop int
+	arriving  bool
+
 	// th is the window's live theme, kept from Layout for Step.
 	th *theme.Live
 
@@ -408,7 +415,39 @@ func (g *DataGrid) Step(dt time.Duration) bool {
 		g.pulse += dt.Seconds()
 		moving = true
 	}
+	if g.arriving {
+		g.arrival += dt.Seconds()
+		if g.arrival > arriveStagger*(g.Visible()+1)+arriveTime {
+			g.arriving = false
+		}
+		moving = true
+	}
 	return moving
+}
+
+// Arrive and its timing: each row takes arriveTime to come in, the next
+// row starting arriveStagger after the one above it.
+const (
+	arriveTime    = 0.26
+	arriveStagger = 0.018
+)
+
+// Arrive has the rows in view come in one after another from the top,
+// each fading up and sliding down into place, as for rows that replaced
+// the ones before.
+func (g *DataGrid) Arrive(u *gunim.UI) {
+	g.arrival, g.arriveTop, g.arriving = 0, int(math.Floor(g.top)), true
+	u.Invalidate()
+}
+
+// arrived returns how far row i has come in, from 0 to 1.
+func (g *DataGrid) arrived(i int) float32 {
+	if !g.arriving {
+		return 1
+	}
+	t := (g.arrival - float64(max(i-g.arriveTop, 0))*arriveStagger) / arriveTime
+	t = min(max(t, 0), 1)
+	return float32(1 - (1-t)*(1-t)*(1-t))
 }
 
 // Layout implements [gunim.Node]. The grid fills the space it is given.
@@ -523,6 +562,13 @@ func (g *DataGrid) paintRow(p *paint.Painter, th *theme.Live, i int, y, bodyW, s
 			p.RRect(geom.Rc(left, y+g.rowH*0.3, max(0, x[1]*0.6-pad), g.rowH*0.4), g.rowH*0.2, paint.Solid(c))
 		}
 		return
+	}
+	if in := g.arrived(i); in < 1 {
+		if in <= 0 {
+			return
+		}
+		defer p.Layer(paint.LayerOpts{Bounds: band, Opacity: in})()
+		defer p.Push(paint.Translate(geom.Pt(0, -6*(1-in))))()
 	}
 	if row.Tint.Key() != "" {
 		p.RRect(band, 0, paint.Solid(row.Tint.Get(th)))
