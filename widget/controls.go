@@ -484,7 +484,7 @@ func (t *Tabs) Selected() int { return t.selected }
 // Select chooses tab i without an intent. Call it from a view's update
 // function.
 func (t *Tabs) Select(i int, u *gunim.UI) {
-	if i < 0 || i >= t.count || i == t.selected {
+	if i < 0 || i >= max(t.count, len(t.Titles)) || i == t.selected {
 		return
 	}
 	t.prev, t.from = t.selected, 1

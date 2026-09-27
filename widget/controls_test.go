@@ -202,3 +202,19 @@ func TestTabsTakePagesMountedUnderThemAndSkipDisabledOnes(t *testing.T) {
 		t.Fatalf("Right from the first tab chose tab %d, want 2, past the disabled one", tabs.Selected())
 	}
 }
+
+func TestTabsCanBeSelectedBeforeTheirPagesArrive(t *testing.T) {
+	tabs := NewTabs([]string{"One", "Two", "Three"})
+	w := gunim.NewOffscreen(geom.Sz(600, 400), nil)
+	gunim.RegisterView(w, "tabs", func(struct{}) *Tabs { return tabs }, func(tb *Tabs, _ struct{}, u *gunim.UI) { tb.Select(2, u) })
+	page := newSpot(10, 10)
+	gunim.RegisterView(w, "page", func(struct{}) *spot { return page }, nil)
+	c := w.Client()
+	if err := c.Mount(gunim.Root, "tabs", "tabs", nil); err != nil {
+		t.Fatal(err)
+	}
+	w.Frame(time.Second / 60)
+	if tabs.Selected() != 2 {
+		t.Fatalf("selecting a tab whose page has not arrived chose %d", tabs.Selected())
+	}
+}
