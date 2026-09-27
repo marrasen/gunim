@@ -3,6 +3,7 @@ package widget
 import (
 	"image/color"
 	"math"
+	"slices"
 	"strings"
 	"time"
 
@@ -115,7 +116,8 @@ func (r GridRow) Text() string {
 //
 // One row can be selected: by a click, which on the selected row clears
 // it, and by the arrow keys, Page Up and Page Down, Home and End. Escape
-// clears it, and Ctrl+C copies it.
+// clears it, and Ctrl+C copies it. With Multi, several rows can be
+// selected at once.
 type DataGrid struct {
 	Columns []GridColumn
 	// Row returns row i, and false while it has not arrived.
@@ -123,8 +125,18 @@ type DataGrid struct {
 	// OnView turns the rows in view, first to first+count, into an intent.
 	OnView func(first, count int) gunim.Intent
 	// OnSelect turns a change of selection into an intent; row is -1
-	// when nothing is selected.
+	// when nothing is selected. With Multi, row is the row the keyboard
+	// is on.
 	OnSelect func(row int) gunim.Intent
+	// Multi lets several rows be selected: Ctrl with a click adds a row or
+	// takes it away, Shift with a click or a key selects the rows from the
+	// last one picked, and Ctrl+A selects every row. A click below the
+	// rows clears the selection.
+	Multi bool
+	// OnSelectRows turns a change of the rows selected, with Multi, into
+	// an intent. sel holds runs of rows, each a first row and an end row
+	// left out, in order.
+	OnSelectRows func(sel [][2]int) gunim.Intent
 	// OnClick turns a click on a row into an intent, each click, whether or
 	// not it changes the selection.
 	OnClick func(row int) gunim.Intent
@@ -147,6 +159,10 @@ type DataGrid struct {
 	rows     int
 	selected int
 	focused  bool
+	// runs are the rows selected with Multi, and anchor the row a
+	// selection with Shift runs from.
+	runs   [][2]int
+	anchor int
 
 	// top is the row at the top of the view, with a fraction for a row
 	// partly scrolled off, goal where the spring carries it, and vel its
@@ -217,6 +233,7 @@ func NewDataGrid(columns ...GridColumn) *DataGrid {
 	return &DataGrid{
 		Columns:   columns,
 		selected:  -1,
+		anchor:    -1,
 		sentFirst: -1,
 		hoverCol:  -1,
 		shapes:    map[spanKey]*spanShape{},
@@ -234,6 +251,10 @@ func (g *DataGrid) SetRows(n int, u *gunim.UI) {
 	if g.selected >= g.rows {
 		g.selected = -1
 	}
+	if g.anchor >= g.rows {
+		g.anchor = -1
+	}
+	g.runs = clipRuns(g.runs, g.rows)
 	g.goal = g.clampTop(g.goal)
 	g.top = g.clampTop(g.top)
 	g.sentFirst = -1
@@ -249,11 +270,51 @@ func (g *DataGrid) Select(i int, reveal bool, u *gunim.UI) {
 	if i < 0 || i >= g.rows {
 		i = -1
 	}
-	g.selected = i
+	g.selected, g.anchor = i, i
+	g.runs = nil
+	if i >= 0 {
+		g.runs = [][2]int{{i, i + 1}}
+	}
 	if reveal && i >= 0 {
 		g.reveal(i)
 	}
 	u.Invalidate()
+}
+
+// SelectedRows returns the rows selected, as runs of a first row and an
+// end row left out, in order.
+func (g *DataGrid) SelectedRows() [][2]int {
+	if !g.Multi {
+		if g.selected < 0 {
+			return nil
+		}
+		return [][2]int{{g.selected, g.selected + 1}}
+	}
+	return slices.Clone(g.runs)
+}
+
+// SetSelectedRows selects the rows in sel, runs of a first row and an end
+// row left out, and puts the keyboard on row cursor, -1 for none, without
+// telling OnSelect or OnSelectRows. It is for a grid with Multi.
+func (g *DataGrid) SetSelectedRows(sel [][2]int, cursor int, u *gunim.UI) {
+	var runs [][2]int
+	for _, r := range sel {
+		runs = addRun(runs, r[0], r[1])
+	}
+	g.runs = clipRuns(runs, g.rows)
+	if cursor < 0 || cursor >= g.rows {
+		cursor = -1
+	}
+	g.selected, g.anchor = cursor, cursor
+	u.Invalidate()
+}
+
+// IsSelected reports whether row i is selected.
+func (g *DataGrid) IsSelected(i int) bool {
+	if !g.Multi {
+		return i >= 0 && i == g.selected
+	}
+	return hasRun(g.runs, i)
 }
 
 // Top returns the row at the top of the view, with a fraction for a row
@@ -463,12 +524,15 @@ func (g *DataGrid) paintRow(p *paint.Painter, th *theme.Live, i int, y, bodyW, s
 	if row.Tint.Key() != "" {
 		p.RRect(band, 0, paint.Solid(row.Tint.Get(th)))
 	}
-	if i == g.selected {
+	if g.IsSelected(i) {
 		c := GridCursor.Get(th)
 		if !g.focused {
 			c.A = c.A * 2 / 3
 		}
 		p.RRect(band, 0, paint.Solid(c))
+	}
+	if g.Multi && g.focused && i == g.selected && countRuns(g.runs) > 1 {
+		p.RRectStroke(band.Inset(geom.Uniform(0.5)), 0, paint.Fill{}, paint.Stroke{Width: 1, Color: GridRule.Get(th)})
 	}
 	if row.Rule {
 		p.RRect(geom.Rc(0, y, bodyW, 1), 0, paint.Solid(GridRule.Get(th)))
@@ -803,6 +867,10 @@ func (g *DataGrid) press(e input.PointerDown, u *gunim.UI) bool {
 	}
 	i := g.rowAt(e.Pos.Y)
 	if i < 0 {
+		if g.Multi && e.Pos.Y >= g.header && !e.Mods.Has(input.ModControl) && !e.Mods.Has(input.ModShift) {
+			g.selectAndTell(-1, u)
+			g.setRuns(nil, u)
+		}
 		return true
 	}
 	for _, l := range g.links {
@@ -822,6 +890,10 @@ func (g *DataGrid) press(e input.PointerDown, u *gunim.UI) bool {
 		if g.OnActivate != nil {
 			g.send(g.OnActivate(i), u)
 		}
+		return true
+	}
+	if g.Multi {
+		g.pick(i, e.Mods, u)
 		return true
 	}
 	if i == g.selected && !e.Focusing {
@@ -863,8 +935,15 @@ func (g *DataGrid) move(e input.PointerMove, u *gunim.UI) bool {
 
 func (g *DataGrid) key(e input.KeyPress, u *gunim.UI) bool {
 	if e.Mods.Has(input.ModControl) {
-		if e.Key == input.KeyC && g.selected >= 0 {
+		switch {
+		case e.Key == input.KeyC && g.Multi && len(g.runs) > 0:
+			u.SetClipboard(g.copyRuns())
+			return true
+		case e.Key == input.KeyC && !g.Multi && g.selected >= 0:
 			u.SetClipboard(g.copyText(g.selected))
+			return true
+		case e.Key == input.KeyA && g.Multi && g.rows > 0:
+			g.setRuns([][2]int{{0, g.rows}}, u)
 			return true
 		}
 		return false
@@ -876,6 +955,10 @@ func (g *DataGrid) key(e input.KeyPress, u *gunim.UI) bool {
 	at := g.selected
 	if at < 0 {
 		at = int(math.Ceil(g.top)) - 1
+	}
+	if g.Multi && g.moveKey(e, at, page, u) {
+		u.Invalidate()
+		return true
 	}
 	switch e.Key {
 	case input.KeyUp:
@@ -900,15 +983,112 @@ func (g *DataGrid) key(e input.KeyPress, u *gunim.UI) bool {
 		}
 		g.send(g.OnActivate(g.selected), u)
 	case input.KeyEscape:
-		if g.selected < 0 {
+		if g.selected < 0 && len(g.runs) == 0 {
 			return false
 		}
 		g.selectAndTell(-1, u)
+		if g.Multi {
+			g.setRuns(nil, u)
+		}
 	default:
 		return false
 	}
 	u.Invalidate()
 	return true
+}
+
+// moveKey moves the keyboard to another row for a key that does so, with
+// Multi: with Shift the rows from the anchor to it are selected, and
+// without, it alone.
+func (g *DataGrid) moveKey(e input.KeyPress, at, page int, u *gunim.UI) bool {
+	var to int
+	switch e.Key {
+	case input.KeyUp:
+		to = at - 1
+	case input.KeyDown:
+		to = at + 1
+	case input.KeyPageUp:
+		to = at - page
+	case input.KeyPageDown:
+		to = at + page
+	case input.KeyHome:
+		to = 0
+	case input.KeyEnd:
+		to = g.rows - 1
+	default:
+		return false
+	}
+	if g.rows == 0 {
+		return true
+	}
+	to = min(max(to, 0), g.rows-1)
+	if e.Mods.Has(input.ModShift) {
+		if g.anchor < 0 {
+			g.anchor = max(at, 0)
+		}
+		g.setRuns([][2]int{{min(g.anchor, to), max(g.anchor, to) + 1}}, u)
+	} else {
+		g.anchor = to
+		g.setRuns([][2]int{{to, to + 1}}, u)
+	}
+	g.selectAndTell(to, u)
+	return true
+}
+
+// pick changes the selection for a click on row i, with Multi.
+func (g *DataGrid) pick(i int, mods input.Mods, u *gunim.UI) {
+	switch {
+	case mods.Has(input.ModShift):
+		if g.anchor < 0 {
+			g.anchor = i
+		}
+		from, to := min(g.anchor, i), max(g.anchor, i)+1
+		if mods.Has(input.ModControl) {
+			g.setRuns(addRun(slices.Clone(g.runs), from, to), u)
+		} else {
+			g.setRuns([][2]int{{from, to}}, u)
+		}
+	case mods.Has(input.ModControl):
+		g.anchor = i
+		if hasRun(g.runs, i) {
+			g.setRuns(removeRun(g.runs, i), u)
+		} else {
+			g.setRuns(addRun(slices.Clone(g.runs), i, i+1), u)
+		}
+	default:
+		g.anchor = i
+		g.setRuns([][2]int{{i, i + 1}}, u)
+	}
+	g.selectAndTell(i, u)
+	u.Invalidate()
+}
+
+// setRuns selects runs, and tells OnSelectRows when that changes the
+// selection.
+func (g *DataGrid) setRuns(runs [][2]int, u *gunim.UI) {
+	if slices.Equal(runs, g.runs) {
+		return
+	}
+	g.runs = runs
+	if g.OnSelectRows != nil {
+		g.send(g.OnSelectRows(slices.Clone(runs)), u)
+	}
+	u.Invalidate()
+}
+
+// copyRuns returns the text Ctrl+C copies for the rows selected with
+// Multi, a line for each.
+func (g *DataGrid) copyRuns() string {
+	var b strings.Builder
+	for _, r := range g.runs {
+		for i := r[0]; i < r[1]; i++ {
+			if b.Len() > 0 {
+				b.WriteByte('\n')
+			}
+			b.WriteString(g.copyText(i))
+		}
+	}
+	return b.String()
 }
 
 func (g *DataGrid) copyText(i int) string {
@@ -941,4 +1121,88 @@ func (g *DataGrid) paintSort(p *paint.Painter, at geom.Point, up bool, c color.N
 type gridLink struct {
 	r        geom.Rect
 	on, ctrl gunim.Intent
+}
+
+// addRun adds the rows from a to b, b left out, to runs, which are in
+// order and apart, and keeps them so.
+func addRun(runs [][2]int, a, b int) [][2]int {
+	if a >= b {
+		return runs
+	}
+	out := make([][2]int, 0, len(runs)+1)
+	placed := false
+	for _, r := range runs {
+		switch {
+		case r[1] < a:
+			out = append(out, r)
+		case r[0] > b:
+			if !placed {
+				out = append(out, [2]int{a, b})
+				placed = true
+			}
+			out = append(out, r)
+		default:
+			a, b = min(a, r[0]), max(b, r[1])
+		}
+	}
+	if !placed {
+		out = append(out, [2]int{a, b})
+	}
+	return out
+}
+
+// removeRun takes row i out of runs.
+func removeRun(runs [][2]int, i int) [][2]int {
+	out := make([][2]int, 0, len(runs)+1)
+	for _, r := range runs {
+		if i < r[0] || i >= r[1] {
+			out = append(out, r)
+			continue
+		}
+		if r[0] < i {
+			out = append(out, [2]int{r[0], i})
+		}
+		if i+1 < r[1] {
+			out = append(out, [2]int{i + 1, r[1]})
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// hasRun reports whether row i is in runs.
+func hasRun(runs [][2]int, i int) bool {
+	k, found := slices.BinarySearchFunc(runs, i, func(r [2]int, i int) int {
+		switch {
+		case r[1] <= i:
+			return -1
+		case r[0] > i:
+			return 1
+		}
+		return 0
+	})
+	return found && k < len(runs)
+}
+
+// clipRuns cuts runs off at row n.
+func clipRuns(runs [][2]int, n int) [][2]int {
+	var out [][2]int
+	for _, r := range runs {
+		if r[0] >= n {
+			break
+		}
+		out = append(out, [2]int{r[0], min(r[1], n)})
+	}
+	return out
+}
+
+// countRuns returns how many rows runs hold.
+func countRuns(runs [][2]int) int {
+	n := 0
+	for _, r := range runs {
+		n += r[1] - r[0]
+	}
+	return n
 }

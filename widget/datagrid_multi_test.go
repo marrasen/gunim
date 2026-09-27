@@ -1,0 +1,171 @@
+package widget
+
+import (
+	"slices"
+	"testing"
+	"time"
+
+	"github.com/marrasen/gunim"
+	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/input"
+)
+
+type gridRows struct{ Sel [][2]int }
+
+// multiGrid stages a grid of 100 rows with Multi on, and returns a click
+// on row i with mods.
+func multiGrid(t *testing.T) (g *DataGrid, w *gunim.Window, run func(int), clickRow func(i int, mods input.Mods)) {
+	t.Helper()
+	g = NewDataGrid(GridColumn{Title: "Name"})
+	g.Multi = true
+	g.Row = func(int) (GridRow, bool) { return GridRow{Cells: [][]GridSpan{{{Text: "row"}}}}, true }
+	g.OnSelectRows = func(sel [][2]int) gunim.Intent { return gridRows{sel} }
+	g.rows = 100
+	w, run = stage(t, &frame{child: g, size: geom.Sz(400, 300)})
+	clickRow = func(i int, mods input.Mods) {
+		y := GridHeaderHeight.Default() + GridRowHeight.Default()*float32(i) + 5
+		w.Input(input.PointerDown{Pos: geom.Pt(50, y), Button: input.ButtonPrimary, Clicks: 1, Mods: mods, Time: time.Now()})
+		w.Input(input.PointerUp{Pos: geom.Pt(50, y), Button: input.ButtonPrimary, Mods: mods, Time: time.Now()})
+		run(1)
+	}
+	return g, w, run, clickRow
+}
+
+func lastRows(t *testing.T, w *gunim.Window) [][2]int {
+	t.Helper()
+	var last [][2]int
+	found := false
+	for _, v := range sent(w) {
+		if r, ok := v.(gridRows); ok {
+			last, found = r.Sel, true
+		}
+	}
+	if !found {
+		t.Fatal("no change of the rows selected was sent")
+	}
+	return last
+}
+
+func TestCtrlClickAddsAndTakesAwayRows(t *testing.T) {
+	g, w, _, clickRow := multiGrid(t)
+	clickRow(2, 0)
+	clickRow(5, input.ModControl)
+	clickRow(6, input.ModControl)
+	if got, want := lastRows(t, w), [][2]int{{2, 3}, {5, 7}}; !slices.Equal(got, want) {
+		t.Fatalf("after a click on 2 and Ctrl+clicks on 5 and 6, rows %v are selected, want %v", got, want)
+	}
+	clickRow(5, input.ModControl)
+	if got, want := lastRows(t, w), [][2]int{{2, 3}, {6, 7}}; !slices.Equal(got, want) {
+		t.Fatalf("after a second Ctrl+click on 5, rows %v are selected, want %v", got, want)
+	}
+	if g.IsSelected(5) || !g.IsSelected(6) || !g.IsSelected(2) {
+		t.Fatal("IsSelected disagrees with the rows sent")
+	}
+}
+
+func TestShiftClickSelectsARunFromTheAnchor(t *testing.T) {
+	_, w, _, clickRow := multiGrid(t)
+	clickRow(4, 0)
+	clickRow(8, input.ModShift)
+	if got, want := lastRows(t, w), [][2]int{{4, 9}}; !slices.Equal(got, want) {
+		t.Fatalf("a Shift+click on 8 from 4 selected %v, want %v", got, want)
+	}
+	clickRow(1, input.ModShift)
+	if got, want := lastRows(t, w), [][2]int{{1, 5}}; !slices.Equal(got, want) {
+		t.Fatalf("a Shift+click on 1 from 4 selected %v, want %v", got, want)
+	}
+	clickRow(10, input.ModControl)
+	clickRow(12, input.ModControl|input.ModShift)
+	if got, want := lastRows(t, w), [][2]int{{1, 5}, {10, 13}}; !slices.Equal(got, want) {
+		t.Fatalf("Ctrl+Shift+click added %v, want %v", got, want)
+	}
+}
+
+func TestCtrlASelectsEveryRowAndEscapeClears(t *testing.T) {
+	g, w, run, clickRow := multiGrid(t)
+	clickRow(3, 0)
+	w.Input(input.KeyPress{Key: input.KeyA, Mods: input.ModControl})
+	run(1)
+	if got, want := lastRows(t, w), [][2]int{{0, 100}}; !slices.Equal(got, want) {
+		t.Fatalf("Ctrl+A selected %v, want %v", got, want)
+	}
+	w.Input(input.KeyPress{Key: input.KeyEscape})
+	run(1)
+	if got := lastRows(t, w); len(got) != 0 {
+		t.Fatalf("Escape left %v selected", got)
+	}
+	if _, ok := g.Selected(); ok {
+		t.Fatal("Escape left the keyboard on a row")
+	}
+}
+
+func TestShiftArrowsGrowTheSelection(t *testing.T) {
+	_, w, run, clickRow := multiGrid(t)
+	clickRow(5, 0)
+	w.Input(input.KeyPress{Key: input.KeyDown, Mods: input.ModShift})
+	w.Input(input.KeyPress{Key: input.KeyDown, Mods: input.ModShift})
+	run(1)
+	if got, want := lastRows(t, w), [][2]int{{5, 8}}; !slices.Equal(got, want) {
+		t.Fatalf("two Shift+Down from 5 selected %v, want %v", got, want)
+	}
+	w.Input(input.KeyPress{Key: input.KeyUp})
+	run(1)
+	if got, want := lastRows(t, w), [][2]int{{6, 7}}; !slices.Equal(got, want) {
+		t.Fatalf("Up without Shift selected %v, want %v", got, want)
+	}
+}
+
+func TestAClickBelowTheRowsClearsAMultipleSelection(t *testing.T) {
+	g, w, run, clickRow := multiGrid(t)
+	g.rows = 3
+	clickRow(0, 0)
+	clickRow(2, input.ModShift)
+	click(w, 50, 250)
+	run(1)
+	if got := lastRows(t, w); len(got) != 0 {
+		t.Fatalf("a click below the rows left %v selected", got)
+	}
+}
+
+func TestSetRowsCutsTheSelectionShort(t *testing.T) {
+	g, w, run, _ := multiGrid(t)
+	type act struct{ do func(u *gunim.UI) }
+	gunim.RegisterPatch(w, "stage", func(_ gunim.Node, a act, u *gunim.UI) { a.do(u) })
+	on := func(do func(u *gunim.UI)) {
+		if err := w.Client().Patch("stage", act{do}); err != nil {
+			t.Fatal(err)
+		}
+		run(1)
+	}
+	on(func(u *gunim.UI) { g.SetSelectedRows([][2]int{{50, 60}, {1, 3}}, 50, u) })
+	if got, want := g.SelectedRows(), [][2]int{{1, 3}, {50, 60}}; !slices.Equal(got, want) {
+		t.Fatalf("SetSelectedRows kept %v, want %v", got, want)
+	}
+	on(func(u *gunim.UI) { g.SetRows(55, u) })
+	if got, want := g.SelectedRows(), [][2]int{{1, 3}, {50, 55}}; !slices.Equal(got, want) {
+		t.Fatalf("after cutting the grid to 55 rows, %v are selected, want %v", got, want)
+	}
+}
+
+func TestRunsStayInOrderAndApart(t *testing.T) {
+	var runs [][2]int
+	runs = addRun(runs, 10, 12)
+	runs = addRun(runs, 2, 4)
+	runs = addRun(runs, 4, 6)
+	runs = addRun(runs, 11, 20)
+	if want := [][2]int{{2, 6}, {10, 20}}; !slices.Equal(runs, want) {
+		t.Fatalf("runs %v, want %v", runs, want)
+	}
+	runs = removeRun(runs, 15)
+	if want := [][2]int{{2, 6}, {10, 15}, {16, 20}}; !slices.Equal(runs, want) {
+		t.Fatalf("after taking 15 away, runs %v, want %v", runs, want)
+	}
+	for i, want := range map[int]bool{1: false, 2: true, 5: true, 6: false, 15: false, 16: true, 19: true, 20: false} {
+		if hasRun(runs, i) != want {
+			t.Fatalf("hasRun(%d) is %v, want %v", i, !want, want)
+		}
+	}
+	if n := countRuns(runs); n != 13 {
+		t.Fatalf("the runs hold %d rows, want 13", n)
+	}
+}
