@@ -505,6 +505,10 @@ func (g *DataGrid) paintCell(p *paint.Painter, th *theme.Live, i, c int, spans [
 			room -= 2 * chipPad
 		}
 		cut := run.Advance > room
+		// A gap that does not fit ends the cell rather than showing a lone ellipsis
+		if cut && strings.TrimSpace(s.Text) == "" {
+			return
+		}
 		if cut {
 			run = g.cutRun(run, room)
 		}
