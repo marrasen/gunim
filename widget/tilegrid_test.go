@@ -179,8 +179,8 @@ func TestTileGridBandSelectsWhatItTouches(t *testing.T) {
 }
 
 func TestTileGridSpringsToANewTileSize(t *testing.T) {
-	g, w, run := tileStage(t, 30)
-	onTiles(t, w, func(u *gunim.UI) { g.SetTileSize(geom.Sz(160, 120), u) })
+	g, _, run := tileStage(t, 30)
+	g.Size = geom.Sz(160, 120)
 	run(4)
 	if g.Columns() != 2 {
 		t.Fatalf("with larger tiles the grid has %d columns, want 2", g.Columns())
@@ -241,5 +241,18 @@ func onTiles(t *testing.T, w *gunim.Window, do func(u *gunim.UI)) {
 	gunim.RegisterPatch(w, "stage", func(_ gunim.Node, a tileAct, u *gunim.UI) { a.do(u) })
 	if err := w.Client().Patch("stage", tileAct{do}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestTileGridJumpsToATile(t *testing.T) {
+	g, w, run := tileStage(t, 1000)
+	onTiles(t, w, func(u *gunim.UI) { g.JumpToTile(401, u) })
+	run(1)
+	// Row 100 starts at 14 + 100*68; the view puts it at the top, less the padding.
+	if got := g.Offset(); got != 6800 {
+		t.Fatalf("the grid jumped to %v, want 6800", got)
+	}
+	if _, ok := g.live[401]; !ok {
+		t.Fatal("tile 401 is not built after the jump")
 	}
 }

@@ -49,8 +49,10 @@ type TileGrid struct {
 	// OnZoom, when set, takes Ctrl with the wheel over the grid, in notches up, from the window's zoom.
 	OnZoom func(notches float32, u *gunim.UI)
 
-	n    int
-	size geom.Size
+	n int
+	// Size is the size of each tile. Change it and the tiles spring to their new places and sizes.
+	Size geom.Size
+
 	// cols, left and step are the columns, the left edge of the first and the room from one tile to the next, as
 	// last laid out.
 	cols       int
@@ -73,12 +75,13 @@ type TileGrid struct {
 	departing  bool
 	revealNext int
 	moved      bool
+	jumpRow    int
 }
 
 // NewTileGrid returns an empty grid of tiles of size.
 func NewTileGrid(size geom.Size) *TileGrid {
-	return &TileGrid{scrolling: newScrolling(), size: size, live: map[int]*tileCell{}, cursor: -1, anchor: -1,
-		hover: -1, band: anim.NewRect(geom.Rect{}), bandIn: anim.NewFloat(0), revealNext: -1}
+	return &TileGrid{scrolling: newScrolling(), Size: size, live: map[int]*tileCell{}, cursor: -1, anchor: -1,
+		hover: -1, band: anim.NewRect(geom.Rect{}), bandIn: anim.NewFloat(0), revealNext: -1, jumpRow: -1}
 }
 
 // Len returns how many tiles the grid holds.
@@ -97,15 +100,9 @@ func (g *TileGrid) SetLen(n int, u *gunim.UI) {
 	u.Invalidate()
 }
 
-// TileSize returns the size tiles are heading for.
-func (g *TileGrid) TileSize() geom.Size { return g.size }
-
-// SetTileSize changes the size of the tiles, which spring to their new places and sizes.
-func (g *TileGrid) SetTileSize(s geom.Size, u *gunim.UI) {
-	if s == g.size || s.W <= 0 || s.H <= 0 {
-		return
-	}
-	g.size = s
+// JumpToTile puts the row of tile i at the top of the view at once, as near as the end allows.
+func (g *TileGrid) JumpToTile(i int, u *gunim.UI) {
+	g.jumpRow = i
 	u.Invalidate()
 }
 
@@ -201,7 +198,7 @@ func (g *TileGrid) Step(dt time.Duration) bool {
 func (g *TileGrid) target(i int) geom.Rect {
 	cols := max(g.cols, 1)
 	r, c := i/cols, i%cols
-	return geom.Rc(g.left+float32(c)*g.step.W, g.pad+float32(r)*g.step.H, g.size.W, g.size.H)
+	return geom.Rc(g.left+float32(c)*g.step.W, g.pad+float32(r)*g.step.H, g.Size.W, g.Size.H)
 }
 
 // at returns the tile at p, in the grid's space, or -1 over empty space.
@@ -214,7 +211,7 @@ func (g *TileGrid) at(p geom.Point) int {
 		return -1
 	}
 	c, r := int(x/g.step.W), int(y/g.step.H)
-	if c >= g.cols || x-float32(c)*g.step.W > g.size.W || y-float32(r)*g.step.H > g.size.H {
+	if c >= g.cols || x-float32(c)*g.step.W > g.Size.W || y-float32(r)*g.step.H > g.Size.H {
 		return -1
 	}
 	if i := r*g.cols + c; i < g.n {
@@ -235,7 +232,7 @@ func (g *TileGrid) inBand(band geom.Rect) [][2]int {
 		}
 		// Past a tile's right edge, into the gap, the band has not reached the next.
 		k := int(math.Floor(float64(c)))
-		if x-g.left-float32(k)*g.step.W > g.size.W {
+		if x-g.left-float32(k)*g.step.W > g.Size.W {
 			k++
 		}
 		return max(0, k)
@@ -246,7 +243,7 @@ func (g *TileGrid) inBand(band geom.Rect) [][2]int {
 			return int(math.Floor(float64(r)))
 		}
 		k := int(math.Floor(float64(r)))
-		if y-g.pad-float32(k)*g.step.H > g.size.H {
+		if y-g.pad-float32(k)*g.step.H > g.Size.H {
 			k++
 		}
 		return max(0, k)
@@ -501,7 +498,7 @@ func (g *TileGrid) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Childre
 
 	oldStep, oldPad, oldCols := g.step, g.pad, g.cols
 	g.pad = pad
-	g.step = geom.Sz(g.size.W+gap, g.size.H+gap)
+	g.step = geom.Sz(g.Size.W+gap, g.Size.H+gap)
 	g.cols = max(1, int((own.W-2*pad+gap)/g.step.W))
 	g.left = max(pad, (own.W-float32(g.cols)*g.step.W+gap)/2)
 	rows := (g.n + g.cols - 1) / g.cols
@@ -510,6 +507,10 @@ func (g *TileGrid) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Childre
 	if relaid {
 		g.hold(oldCols, oldStep, oldPad)
 	}
+	if i := min(g.jumpRow, g.n-1); i >= 0 {
+		g.jumpTo(g.target(i).Min.Y - pad)
+	}
+	g.jumpRow = -1
 	g.fit(max(content, 0), own.H, th)
 	if i := g.revealNext; i >= 0 && i < g.n {
 		g.revealNext = -1
