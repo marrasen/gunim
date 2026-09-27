@@ -58,6 +58,9 @@ type Painter struct {
 	// floats holds painting put off until the rest of the frame is
 	// done; see Float.
 	floats []func(*Painter)
+	// carried are the stretches of this frame copied from the frame
+	// before with Again.
+	carried []carried
 }
 
 // slab hands out ops from blocks it keeps from frame to frame.
@@ -110,6 +113,7 @@ func (p *Painter) Reset() {
 	p.clip = nil
 	clear(p.floats)
 	p.floats = p.floats[:0]
+	p.carried = p.carried[:0]
 }
 
 // Float puts fn off until the rest of the frame has painted, and runs
@@ -162,7 +166,18 @@ func (p *Painter) Damage() geom.Rect {
 	}
 	var d geom.Rect
 	n := min(len(p.ops), len(p.prev))
-	for i := range n {
+	next := 0
+	for i := 0; i < n; i++ {
+		// A stretch carried to the place it held is the same by making.
+		for next < len(p.carried) && p.carried[next].at < i {
+			next++
+		}
+		if next < len(p.carried) {
+			if c := p.carried[next]; c.at == i && c.from == i && i+c.n <= n {
+				i += c.n - 1
+				continue
+			}
+		}
 		if p.bounds[i] != p.prevBounds[i] || !sameOp(p.ops[i], p.prev[i]) {
 			d = d.Union(p.bounds[i]).Union(p.prevBounds[i])
 		}

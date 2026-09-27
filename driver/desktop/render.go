@@ -79,11 +79,17 @@ type renderer struct {
 	canvasOK    bool
 	canvasScale float32
 	// direct is set for a frame drawn straight to the window, which is
-	// quicker when most of it changed: it saves the copy.
-	direct bool
+	// quicker when most of it changed: it saves the copy. big says the
+	// frame before changed most of the window too.
+	direct, big bool
 	// redrawn is the device-pixel area the last frame redrew, for
 	// tests.
 	redrawn geom.Rect
+	// cull is the device-pixel area a frame redraws in part, while its
+	// commands are queued, and empty otherwise. A quad drawn straight
+	// to the canvas wholly outside it is left out: the scissor would
+	// throw all of it away, after it had been sent and set up.
+	cull geom.Rect
 	// windowFBO is the framebuffer the window shows: 0, or on Windows
 	// the texture DXGI presents. flipWindow is set for that texture,
 	// whose rows Direct3D reads from the top where OpenGL writes them
@@ -401,12 +407,17 @@ func (r *renderer) draw(ops []paint.Op, damage geom.Rect, fbW, fbH int, scale fl
 	}
 	box := r.deviceBox(damage)
 	window := geom.Rect{Max: geom.Pt(float32(fbW), float32(fbH))}
-	// A frame that changed more than half the window goes straight to
-	// it, unless it needs the canvas for a backdrop. The canvas then
-	// falls out of date, and the next frame that draws there draws all
-	// of it.
+	// A frame that changed more than half the window, after one that
+	// did too, goes straight to it, unless it needs the canvas for a
+	// backdrop. The canvas then falls out of date, and the next frame
+	// that draws there draws all of it. After a small frame the canvas
+	// is kept, since big frames between small ones, as an animation's
+	// between the breaths of a mark beside it, would each leave the
+	// next small one to draw the whole window.
 	s, ws := box.Size(), window.Size()
-	r.direct = !backdrop && !r.flipWindow && s.W*s.H > ws.W*ws.H/2
+	big := s.W*s.H > ws.W*ws.H/2
+	r.direct = !backdrop && !r.flipWindow && big && r.big
+	r.big = big
 	if r.fit(&r.layers[0]) || !r.canvasOK || scale != r.canvasScale {
 		if !r.direct {
 			box = window
@@ -433,8 +444,12 @@ func (r *renderer) draw(ops []paint.Op, damage geom.Rect, fbW, fbH int, scale fl
 		}
 		g.Clear(glColorBufferBit)
 		g.ClearColor(0, 0, 0, 0)
+		if !whole {
+			r.cull = box
+		}
 		r.replay(ops)
 		r.flush()
+		r.cull = geom.Rect{}
 		if !whole {
 			g.Disable(gl.SCISSOR_TEST)
 		}
@@ -612,8 +627,22 @@ func (r *renderer) quad(corners [4]quadVert, t paint.Transform, scale float32, l
 		flag = 1
 	}
 	sx, sy := 2*scale/float32(r.fbW), 2*scale/float32(r.fbH)
-	for _, c := range corners {
-		p := t.Apply(c.local)
+	var at [4]geom.Point
+	for i, c := range corners {
+		at[i] = t.Apply(c.local)
+	}
+	if !r.cull.Empty() && len(r.stack) == 0 {
+		lo, hi := at[0], at[0]
+		for _, p := range at[1:] {
+			lo = geom.Pt(min(lo.X, p.X), min(lo.Y, p.Y))
+			hi = geom.Pt(max(hi.X, p.X), max(hi.Y, p.Y))
+		}
+		if hi.X*scale < r.cull.Min.X || lo.X*scale > r.cull.Max.X || hi.Y*scale < r.cull.Min.Y || lo.Y*scale > r.cull.Max.Y {
+			return
+		}
+	}
+	for i, c := range corners {
+		p := at[i]
 		extra := l.extra
 		if l.kind == kindGlyph || l.kind == kindImage {
 			extra[0], extra[1] = c.uv.X, c.uv.Y

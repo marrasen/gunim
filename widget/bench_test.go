@@ -67,3 +67,29 @@ func BenchmarkHalfBlockFrame(b *testing.B) {
 	}
 	b.ReportMetric(float64(len(p.Ops())), "ops/frame")
 }
+
+// BenchmarkStillGridFrame times a frame in which a 250 by 75 grid of
+// half blocks has not changed, as while something beside it animates.
+func BenchmarkStillGridFrame(b *testing.B) {
+	const cols, rows = 250, 75
+	g := NewCellGrid()
+	g.Size = 14
+	g.Resize(cols, rows)
+	g.measure(14, 1.5)
+	row := make([]Cell, cols)
+	for y := range rows {
+		for x := range row {
+			row[x] = Cell{Rune: '▀', FG: color.NRGBA{R: uint8(x), G: 90, B: 160, A: 255}, BG: color.NRGBA{R: 40, G: uint8(y), B: 160, A: 255}}
+		}
+		g.SetRow(y, row)
+	}
+	var p paint.Painter
+	f, box := gunim.Frame{Scale: 1.5}, geom.Sz(cols*10, rows*20)
+	b.ReportAllocs()
+	for range b.N {
+		p.Reset()
+		g.Paint(&p, f, box, gunim.Children{})
+		_ = p.Damage()
+	}
+	b.ReportMetric(float64(len(p.Ops())), "ops/frame")
+}

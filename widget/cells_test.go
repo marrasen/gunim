@@ -308,3 +308,39 @@ func TestAHiddenCursorAnimatesNothing(t *testing.T) {
 		t.Fatal("the shown cursor did not fade for its blink")
 	}
 }
+
+// paintGrid paints g into p as one frame, at at.
+func paintGrid(p *paint.Painter, g *CellGrid, at geom.Point) {
+	p.Reset()
+	defer p.Push(paint.Translate(at))()
+	g.Paint(p, gunim.Frame{Scale: 1}, geom.Sz(400, 300), gunim.Children{})
+}
+
+// A frame in which nothing of the grid changed draws it the same, and
+// damages nothing; a row that changed damages that row alone; a grid
+// that moved is drawn where it went.
+func TestAStillGridDrawsTheSameFrame(t *testing.T) {
+	_, g, _ := newCellStage(t)
+	var p paint.Painter
+	paintGrid(&p, g, geom.Point{})
+	first := len(p.Ops())
+	paintGrid(&p, g, geom.Point{})
+	if len(p.Ops()) != first {
+		t.Fatalf("the still frame holds %d commands, want %d", len(p.Ops()), first)
+	}
+	if d := p.Damage(); !d.Empty() {
+		t.Fatalf("the still frame damaged %v", d)
+	}
+	g.SetRow(3, cellsOf("row 3 changed"))
+	paintGrid(&p, g, geom.Point{})
+	h := g.CellSize().H
+	if d := p.Damage(); d.Empty() || d.Min.Y < 3*h-2 || d.Max.Y > 4*h+2 {
+		t.Fatalf("changing row 3 damaged %v, want rows %v to %v", d, 3*h, 4*h)
+	}
+	paintGrid(&p, g, geom.Pt(0, 50))
+	for _, op := range p.Ops() {
+		if r, ok := op.(*paint.RRectOp); ok && r.Transform.F < 50 {
+			t.Fatalf("after the grid moved, a command was drawn at %v", r.Transform)
+		}
+	}
+}

@@ -62,6 +62,27 @@ type CellGrid struct {
 	// through characters, kept for the next row.
 	boxes map[boxKey][]boxRect
 	marks []cellFill
+	// run is what the grid drew last frame, and painted what it drew it
+	// from, so a frame in which nothing of the grid changed hands the
+	// drawing on rather than drawing thousands of cells again.
+	run     paint.Run
+	painted paintKey
+}
+
+// paintKey is everything outside the rows that goes into drawing the
+// grid.
+type paintKey struct {
+	t       paint.Transform
+	scale   float32
+	box     geom.Size
+	bg, ink color.NRGBA
+	cursor  Cursor
+	lit     float32
+	at      geom.Point
+	metrics cellMetrics
+	// set is true in every key made, so the zero key, before the first
+	// frame, matches none.
+	set bool
 }
 
 // boxKey names a character drawn in code at one size.
@@ -342,9 +363,19 @@ func (g *CellGrid) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) 
 // Paint implements [gunim.Node].
 func (g *CellGrid) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
 	m := g.metrics
-	p.RRect(geom.Rect{Max: box.Point()}, 0, paint.Solid(g.Background.Get(f.Theme)))
+	bg, ink := g.Background.Get(f.Theme), g.Foreground.Get(f.Theme)
+	key := paintKey{
+		t: p.Transform(), scale: f.Scale, box: box, bg: bg, ink: ink,
+		cursor: g.cursor, lit: g.lit.Value(), at: g.at.Value(), metrics: m, set: true,
+	}
+	mark := p.Mark()
+	if key == g.painted && !g.staleIn(box) && p.Again(g.run) {
+		g.run = p.RunFrom(mark)
+		return
+	}
+	defer func() { g.run, g.painted = p.RunFrom(mark), key }()
+	p.RRect(geom.Rect{Max: box.Point()}, 0, paint.Solid(bg))
 	defer p.Push(paint.Translate(pixelSnap(p.Transform(), f.Scale)))()
-	ink := g.Foreground.Get(f.Theme)
 	for y := range g.lines {
 		top := float32(y) * m.h
 		if top >= box.H {
@@ -357,7 +388,21 @@ func (g *CellGrid) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 		}
 		g.paintRow(p, line.drawn, top)
 	}
-	g.paintCursor(p, ink, g.Background.Get(f.Theme))
+	g.paintCursor(p, ink, bg)
+}
+
+// staleIn reports whether a row the grid draws in box has changed since
+// it was last drawn.
+func (g *CellGrid) staleIn(box geom.Size) bool {
+	for y := range g.lines {
+		if float32(y)*g.metrics.h >= box.H {
+			break
+		}
+		if g.lines[y].stale {
+			return true
+		}
+	}
+	return false
 }
 
 // drawRow works out what a row of cells draws, reusing the room of the
