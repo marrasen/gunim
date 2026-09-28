@@ -1484,7 +1484,7 @@ func (u *UI) frame(now time.Time, delta time.Duration) {
 		// as the gap beside a split's handle, as opaque as the window is:
 		// the desktop shows there only as the window fades in or out.
 		if b, ok := u.w.dw.(driver.Backgrounder); ok {
-			c := windowBackground.Get(f.Theme)
+			c := WindowBackground.Get(f.Theme)
 			c.A = uint8(float32(c.A)*(1-gone) + 0.5)
 			b.SetBackground(c)
 		}

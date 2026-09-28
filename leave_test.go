@@ -84,7 +84,7 @@ func TestAWindowThatArrivedLeavesTheSameWay(t *testing.T) {
 func TestAWindowAllThereIsOpaqueUnderItsTree(t *testing.T) {
 	w, _, _ := newStage(t, paint.Identity)
 	w.Frame(time.Second / 60)
-	want := windowBackground.Get(w.ui.theme)
+	want := WindowBackground.Get(w.ui.theme)
 	if got := w.Offscreen().Background(); got != want || got.A != 0xff {
 		t.Fatalf("the window's background is %v, want the theme's %v, opaque", got, want)
 	}

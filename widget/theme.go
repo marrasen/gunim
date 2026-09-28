@@ -3,6 +3,7 @@ package widget
 import (
 	"image/color"
 
+	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/text"
@@ -154,7 +155,7 @@ var (
 // Surface tokens.
 var (
 	// Background is the window's own colour, behind everything.
-	Background = theme.Color("background", color.NRGBA{R: 0x16, G: 0x18, B: 0x1e, A: 0xff})
+	Background = gunim.WindowBackground
 	// Margin is the space Pad leaves around its child by default.
 	Margin      = theme.Insets("layout.margin", geom.Uniform(16))
 	CardFill    = theme.Color("card.fill", color.NRGBA{R: 0x22, G: 0x26, B: 0x30, A: 0xff})
