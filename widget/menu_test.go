@@ -91,16 +91,16 @@ func TestTooltipShowsAfterItsDelay(t *testing.T) {
 	w, run := stage(t, &frame{child: tip, size: geom.Sz(200, 36)})
 	w.Input(input.PointerMove{Pos: geom.Pt(20, 18), Time: time.Now()})
 	run(1)
-	if tip.popup != nil {
+	if tip.tip.popup != nil {
 		t.Fatal("the tooltip showed at once")
 	}
 	run(60) // a second
-	if tip.popup == nil {
+	if tip.tip.popup == nil {
 		t.Fatal("the tooltip did not show after its delay")
 	}
 	w.Input(input.PointerLeave{Time: time.Now()})
 	run(1)
-	if tip.popup != nil {
+	if tip.tip.popup != nil {
 		t.Fatal("the tooltip stayed after the pointer left")
 	}
 }

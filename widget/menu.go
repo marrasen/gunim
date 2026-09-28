@@ -708,21 +708,41 @@ type Tooltip struct {
 	Delay time.Duration
 
 	child gunim.Node
-	at    geom.Point
-	stop  func()
-	popup *gunim.Popup
+	tip   tipper
 }
 
 // NewTooltip returns child with a tooltip of s.
 func NewTooltip(child gunim.Node, s string) *Tooltip {
-	return &Tooltip{Text: s, Delay: 600 * time.Millisecond, child: child}
+	return &Tooltip{Text: s, Delay: tipDelay, child: child}
 }
+
+// tipDelay is how long the pointer rests on a node before its tooltip shows.
+const tipDelay = 600 * time.Millisecond
 
 // Children implements [gunim.Composite].
 func (t *Tooltip) Children() []gunim.Node { return []gunim.Node{t.child} }
 
 // Handle implements [gunim.Handler].
 func (t *Tooltip) Handle(e input.Event, u *gunim.UI) bool {
+	t.tip.handle(e, u, t, t.Text, t.Delay)
+	return false
+}
+
+// tipper shows a tooltip for the node it serves.
+type tipper struct {
+	text  string
+	delay time.Duration
+	at    geom.Point
+	stop  func()
+	popup *gunim.Popup
+	// owner is the node the popup opens from.
+	owner gunim.Node
+}
+
+// handle shows the tooltip text for owner once the pointer rests on it for delay, and hides it when the pointer
+// leaves, presses or scrolls.
+func (t *tipper) handle(e input.Event, u *gunim.UI, owner gunim.Node, text string, delay time.Duration) {
+	t.owner, t.text, t.delay = owner, text, delay
 	switch e := e.(type) {
 	case input.PointerEnter:
 		t.at = e.Pos
@@ -735,29 +755,28 @@ func (t *Tooltip) Handle(e input.Event, u *gunim.UI) bool {
 	case input.PointerLeave, input.PointerDown, input.Scroll:
 		t.hide(u)
 	}
-	return false
 }
 
-func (t *Tooltip) wait(u *gunim.UI) {
+func (t *tipper) wait(u *gunim.UI) {
 	if t.stop != nil {
 		t.stop()
 	}
-	t.stop = u.After(t.Delay, t.show)
+	t.stop = u.After(t.delay, t.show)
 }
 
-func (t *Tooltip) show(u *gunim.UI) {
+func (t *tipper) show(u *gunim.UI) {
 	t.stop = nil
-	if t.popup != nil {
+	if t.popup != nil || t.text == "" {
 		return
 	}
 	// Below the pointer, clear of it, or above it where the screen runs
 	// out.
-	t.popup = u.OpenPopup(t, &tip{text: t.Text, in: anim.NewFloat(0)}, gunim.PopupOptions{
+	t.popup = u.OpenPopup(t.owner, &tip{text: t.text, in: anim.NewFloat(0)}, gunim.PopupOptions{
 		Anchor: geom.Rect{Min: t.at.Sub(geom.Pt(0, 4)), Max: t.at.Add(geom.Pt(0, 22))},
 	})
 }
 
-func (t *Tooltip) hide(*gunim.UI) {
+func (t *tipper) hide(*gunim.UI) {
 	if t.stop != nil {
 		t.stop()
 		t.stop = nil
