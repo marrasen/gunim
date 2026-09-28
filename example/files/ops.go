@@ -554,7 +554,8 @@ func (r *runner) moveItem(src, dst string, merge, top bool) error {
 	}
 	r.p.current = src
 	if merge {
-		return r.mergeInto(src, dst)
+		_, err := r.mergeInto(src, dst)
+		return err
 	}
 	_, statErr := os.Lstat(dst)
 	if statErr != nil && !errors.Is(statErr, fs.ErrNotExist) {
@@ -581,34 +582,45 @@ func (r *runner) moveItem(src, dst string, merge, top bool) error {
 }
 
 // mergeInto moves the contents of the folder src into the folder dst, and
-// removes src once nothing in it was skipped.
-func (r *runner) mergeInto(src, dst string) error {
+// removes src once nothing in it was skipped, at any depth. kept reports
+// that something was skipped, and src kept.
+func (r *runner) mergeInto(src, dst string) (kept bool, err error) {
 	kids, err := os.ReadDir(src)
 	if err != nil {
-		return fmt.Errorf("reading %s: %w", src, err)
+		return false, fmt.Errorf("reading %s: %w", src, err)
 	}
-	kept := false
 	for _, k := range kids {
 		s, d := filepath.Join(src, k.Name()), filepath.Join(dst, k.Name())
 		to, skip, m, _, err := r.resolve(s, d)
 		if err != nil {
-			return err
+			return false, err
 		}
-		if skip {
+		switch {
+		case skip:
 			kept = true
-			continue
-		}
-		if err := r.moveItem(s, to, m, true); err != nil {
-			return err
+		case m:
+			if err := r.ctx.Err(); err != nil {
+				return false, err
+			}
+			r.p.current = s
+			deep, err := r.mergeInto(s, to)
+			if err != nil {
+				return false, err
+			}
+			kept = kept || deep
+		default:
+			if err := r.moveItem(s, to, false, true); err != nil {
+				return false, err
+			}
 		}
 	}
 	if kept {
-		return nil
+		return true, nil
 	}
 	if err := os.Remove(src); err != nil {
-		return fmt.Errorf("removing %s after moving what it held: %w", src, err)
+		return false, fmt.Errorf("removing %s after moving what it held: %w", src, err)
 	}
-	return nil
+	return false, nil
 }
 
 // moveAcross moves src to another volume by copying it and deleting it.

@@ -337,6 +337,27 @@ func TestUndoingAMergeMakesTheEmptiedFolderAgain(t *testing.T) {
 	}
 }
 
+// An item skipped deep in a merge keeps each folder above it.
+func TestAMergeKeepsTheFoldersOfASkippedItem(t *testing.T) {
+	root := t.TempDir()
+	tree(t, root, "d/x/a.txt", "d/x/b.txt", "dst/d/x/a.txt")
+	e := testEnv(root, answer{}, nil)
+	e.ask = func(_ context.Context, c clash) (answer, error) {
+		if filepath.Base(c.dst) == "a.txt" {
+			return answer{choice: choiceSkip}, nil
+		}
+		return answer{choice: choiceReplace}, nil
+	}
+	_, err := runJob(context.Background(), job{kind: OpMove, dest: filepath.Join(root, "dst"),
+		srcs: []string{filepath.Join(root, "d")}}, e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if contents(t, at(root, "d/x/a.txt")) != "d/x/a.txt" || contents(t, at(root, "dst/d/x/b.txt")) != "d/x/b.txt" {
+		t.Fatalf("after the merge d holds %v and dst/d/x holds %v", names(t, at(root, "d")), names(t, at(root, "dst/d/x")))
+	}
+}
+
 func TestAMoveThatReplacesCountsIt(t *testing.T) {
 	root := t.TempDir()
 	tree(t, root, "a.txt", "dst/a.txt")
