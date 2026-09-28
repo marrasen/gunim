@@ -110,6 +110,8 @@ type Options struct {
 	// ordinary window, for the application to draw its own: see
 	// [Framer].
 	Chromeless bool
+	// Border is the line round a chromeless window's edge; see [Border].
+	Border Border
 	// Text says how the window draws text. Its zero value follows the
 	// system, and a window with a Parent takes the parent's.
 	Text text.Rendering

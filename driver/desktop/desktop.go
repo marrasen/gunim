@@ -386,6 +386,9 @@ func (d *Driver) openWindow(o driver.Options) (*Window, error) {
 	}
 	w.install()
 	if o.Chromeless && o.Kind == driver.KindNormal {
+		w.mu.Lock()
+		w.border = o.Border
+		w.mu.Unlock()
 		w.setChromeless()
 	}
 	w.accessOpen()

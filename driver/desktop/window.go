@@ -95,6 +95,8 @@ type Window struct {
 	// shadow says gunim draws the window's shadow, and shadowAt is the opacity it was last given; see startShadow.
 	shadow   bool
 	shadowAt float32
+	// border is the line round a chromeless window's edge the application asked for; see applyBorder.
+	border driver.Border
 	// covered says the window is cloaked, which the drawn shadow follows. It is used on the main thread.
 	covered bool
 	// uncovered puts the window on the screen once; see uncover.

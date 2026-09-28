@@ -67,11 +67,12 @@ type OffscreenWindow struct {
 	// frame is the pretend frame of a window made chromeless.
 	frame *OffscreenFrame
 
-	// title, full and attention are what the application last asked
-	// of the window's frame.
+	// title, full, attention and border are what the application last
+	// asked of the window's frame.
 	title     string
 	full      bool
 	attention int
+	border    Border
 
 	presented chan Frame
 	input     chan any
@@ -89,6 +90,20 @@ func (w *OffscreenWindow) Title() string {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.title
+}
+
+// SetBorder implements [Borderer].
+func (w *OffscreenWindow) SetBorder(b Border) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.border = b
+}
+
+// Border returns the border last set.
+func (w *OffscreenWindow) Border() Border {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.border
 }
 
 // SetFullScreen implements [FullScreener].

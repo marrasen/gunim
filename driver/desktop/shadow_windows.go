@@ -25,6 +25,24 @@ func startShadow(w *Window) {
 	w.mu.Unlock()
 }
 
+// applyBorder gives a chromeless window the border the application asked for, drawn with its shadow or by the
+// system. It runs on the main thread.
+func applyBorder(w *Window) {
+	if !w.Chromeless() {
+		return
+	}
+	w.mu.Lock()
+	b, drawn := w.border, w.shadow
+	w.mu.Unlock()
+	set := w.gw.SetBorderColor
+	if drawn {
+		set = w.gw.SetShadowBorder
+	}
+	if err := set(b.Color, b.None); err != nil {
+		w.debugf("border: %v", err)
+	}
+}
+
 // fadeShadow shows the drawn shadow at opacity o, or hides it at 0. It runs on the main thread.
 func fadeShadow(w *Window, o float32) {
 	if err := w.gw.SetShadowOpacity(o); err != nil {
@@ -34,16 +52,20 @@ func fadeShadow(w *Window, o float32) {
 
 // cornerRadius is the radius, in device pixels, a window with a drawn shadow cuts its corners to, as Windows 11
 // rounds its own, and the edge it leaves for the shadow's border, or 0 and 0 while it is maximized or fills its
-// monitor. Both follow the monitor's scale alone, not the window's zoom, as the system's do.
+// monitor, and no edge where the application asked for no border. Both follow the monitor's scale alone, not the
+// window's zoom, as the system's do.
 func (w *Window) cornerRadius() (radius, edge float32) {
 	if w.Maximized() || w.FullScreen() {
 		return 0, 0
 	}
 	w.mu.Lock()
-	on, k := w.shadow, w.content
+	on, k, none := w.shadow, w.content, w.border.None
 	w.mu.Unlock()
 	if !on {
 		return 0, 0
+	}
+	if none {
+		return 8 * k, 0
 	}
 	return 8 * k, float32(math.Ceil(float64(k)))
 }

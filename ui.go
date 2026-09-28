@@ -125,6 +125,9 @@ type WindowOptions struct {
 	// macOS does for now, [UI.Chromeless] reports false and the
 	// application draws none.
 	Chromeless bool
+	// Border is the thin line round a chromeless window's edge, where the platform draws one, as Windows 11 does: a
+	// colour of the application's own, or none. Its zero value is the system's; see [UI.SetBorder].
+	Border driver.Border
 	// Arrive has the window grow a little and fade in as it opens, over
 	// [ArriveTime], the way [Client.Leave] takes it away. Closed by the
 	// user, with no AskToClose, it leaves that way too.
@@ -148,7 +151,7 @@ func (a *App) NewWindow(o WindowOptions) (*Window, error) {
 	do := driver.Options{
 		Title: o.Title, Size: o.Size, Monitor: o.Monitor,
 		Kind: o.Kind, Anchor: geom.Rect{Min: o.Anchor, Max: o.Anchor}, Icons: o.Icons,
-		Chromeless: o.Chromeless, Text: o.Text,
+		Chromeless: o.Chromeless, Border: o.Border, Text: o.Text,
 	}
 	if o.Parent != nil {
 		do.Parent = o.Parent.dw
@@ -1109,6 +1112,14 @@ func (u *UI) SetClipboard(s string) { _ = u.w.dw.SetClipboard(s) }
 func (u *UI) SetTitle(title string) {
 	if t, ok := u.w.dw.(driver.Titler); ok {
 		t.SetTitle(title)
+	}
+}
+
+// SetBorder sets the thin line round a chromeless window's edge, as [WindowOptions.Border] does, such as to follow the
+// application's theme.
+func (u *UI) SetBorder(b driver.Border) {
+	if d, ok := u.w.dw.(driver.Borderer); ok {
+		d.SetBorder(b)
 	}
 }
 

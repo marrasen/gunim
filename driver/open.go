@@ -184,6 +184,20 @@ type Framer interface {
 	Maximized() bool
 }
 
+// Border is the thin line round the edge of a window opened with [Options.Chromeless], where the platform draws one,
+// as Windows 11 does. Its zero value is the system's own.
+type Border struct {
+	// Color is the line's colour. Its zero value is the system's.
+	Color color.NRGBA
+	// None draws no line, and the window's content reaches its edge.
+	None bool
+}
+
+// A Borderer is a [Window] whose [Border] the application can set.
+type Borderer interface {
+	SetBorder(b Border)
+}
+
 // Edge is an edge or corner of a window, to size it by.
 type Edge uint8
 

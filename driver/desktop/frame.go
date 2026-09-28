@@ -2,7 +2,10 @@
 
 package desktop
 
-import "github.com/marrasen/gunim/internal/glfw"
+import (
+	"github.com/marrasen/gunim/driver"
+	"github.com/marrasen/gunim/internal/glfw"
+)
 
 // SetTitle implements [driver.Titler].
 func (w *Window) SetTitle(title string) {
@@ -11,6 +14,20 @@ func (w *Window) SetTitle(title string) {
 			_ = w.gw.SetTitle(title)
 		}
 	})
+}
+
+// SetBorder implements [driver.Borderer].
+func (w *Window) SetBorder(b driver.Border) {
+	w.mu.Lock()
+	w.border = b
+	w.mu.Unlock()
+	w.d.post(func() {
+		if !w.closed {
+			applyBorder(w)
+		}
+	})
+	// The edge the window leaves for the border changes with it
+	w.in.push(driver.Redraw{})
 }
 
 // RequestAttention implements [driver.Attender].
