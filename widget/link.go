@@ -19,7 +19,8 @@ var LinkInk = theme.Foreground("link.ink", color.NRGBA{R: 0x7c, G: 0x9c, B: 0xff
 
 // Link is text that does something when clicked, underlined under the
 // pointer: a small action among other text, where a button would be
-// too big, such as "show 12 more".
+// too big, such as "show 12 more". It takes focus, grows a ring as a
+// [Button] does, and Enter or Space activates it.
 type Link struct {
 	anim.Group
 	Text string
@@ -34,6 +35,7 @@ type Link struct {
 
 	activate func(*gunim.UI)
 	hover    *anim.Float
+	ring     *anim.Float
 	shaped   shapedText
 	// laid is the text cut to its box, ending in an ellipsis, for a link
 	// given less room than its text takes.
@@ -42,8 +44,8 @@ type Link struct {
 
 // NewLink returns a link showing s.
 func NewLink(s string) *Link {
-	l := &Link{Text: s, Size: TextSize, hover: anim.NewFloat(0)}
-	l.Add(l.hover)
+	l := &Link{Text: s, Size: TextSize, hover: anim.NewFloat(0), ring: anim.NewFloat(0)}
+	l.Add(l.hover, l.ring)
 	return l
 }
 
@@ -82,6 +84,7 @@ func (l *Link) iconWidth(th *theme.Live) float32 {
 // Given less room than its text takes, it ends the text in an ellipsis
 // within its box.
 func (l *Link) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
+	focusRing(p, geom.Rect{Max: box.Point()}, 4, l.ring.Value(), f.Theme)
 	run := l.run(f.Theme)
 	ink := LinkInk.Get(f.Theme)
 	x := l.iconWidth(f.Theme)
@@ -120,9 +123,24 @@ func (l *Link) Handle(e input.Event, u *gunim.UI) bool {
 		}
 		l.fire(u)
 		return true
+	case input.KeyPress:
+		if e.Key != input.KeyEnter && e.Key != input.KeyKPEnter && e.Key != input.KeySpace {
+			return false
+		}
+		l.fire(u)
+		return true
+	case input.FocusGained:
+		l.ring.Animate(1, Quick.Get(u.Theme()))
+		return true
+	case input.FocusLost:
+		l.ring.Animate(0, Settle.Get(u.Theme()))
+		return true
 	}
 	return false
 }
+
+// Focusable implements [gunim.Focusable].
+func (l *Link) Focusable() bool { return true }
 
 func (l *Link) fire(u *gunim.UI) {
 	if l.activate != nil {
