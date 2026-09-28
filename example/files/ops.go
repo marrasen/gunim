@@ -121,6 +121,9 @@ type runner struct {
 	// paced counts the bytes copied since paceStart, for env.limit.
 	paced     int64
 	paceStart time.Time
+	// made holds the folders a copy made at the top of what it copies,
+	// for the copy to stay out of.
+	made []fs.FileInfo
 }
 
 // runJob runs j, stopping at the first error, and returns what it did.
@@ -201,16 +204,31 @@ func (r *runner) planBytes(srcs []string) error {
 	return nil
 }
 
-// into checks that src is not a folder that dir lies inside.
+// into checks that src is not a folder that dir lies inside. It checks
+// the paths as written and with the links along them followed. src
+// itself stays as it is, as a link can go into the folder it leads to.
 func into(src, dir string) error {
-	rel, err := filepath.Rel(src, dir)
-	if err != nil {
-		return nil //nolint:nilerr // Paths on different volumes are not inside each other.
-	}
-	if rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+	followed := filepath.Join(realPath(filepath.Dir(src)), filepath.Base(src))
+	if inside(dir, src) || inside(realPath(dir), followed) {
 		return fmt.Errorf("%s cannot go inside itself", filepath.Base(src))
 	}
 	return nil
+}
+
+// inside reports whether path is dir or lies inside it. Paths on
+// different volumes are apart.
+func inside(path, dir string) bool {
+	rel, err := filepath.Rel(dir, path)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// realPath returns path with the links along it followed, or path as it
+// is where they cannot be.
+func realPath(path string) string {
+	if p, err := filepath.EvalSymlinks(path); err == nil {
+		return p
+	}
+	return path
 }
 
 // samePath reports whether a and b name the same place.
@@ -350,7 +368,10 @@ func (r *runner) copyItem(src, dst string, merge, replace, top bool) error {
 	case info.Mode()&fs.ModeSymlink != 0:
 		err = copyLink(src, dst, replace)
 	case info.IsDir():
-		err = r.copyDir(src, dst, info, merge)
+		if slices.ContainsFunc(r.made, func(m fs.FileInfo) bool { return os.SameFile(m, info) }) {
+			return fmt.Errorf("%s cannot go inside itself", filepath.Base(src))
+		}
+		err = r.copyDir(src, dst, info, merge, top)
 	case info.Mode().IsRegular():
 		err = r.copyFile(src, dst, info)
 	default:
@@ -371,10 +392,14 @@ func (r *runner) copyItem(src, dst string, merge, replace, top bool) error {
 }
 
 // copyDir copies the folder src to dst, into the folder there with merge.
-func (r *runner) copyDir(src, dst string, info fs.FileInfo, merge bool) error {
+// top keeps dst in made, where the copy makes it.
+func (r *runner) copyDir(src, dst string, info fs.FileInfo, merge, top bool) error {
 	if !merge {
 		if err := os.Mkdir(dst, info.Mode().Perm()|0o700); err != nil {
 			return fmt.Errorf("making %s: %w", dst, err)
+		}
+		if made, err := os.Lstat(dst); err == nil && top {
+			r.made = append(r.made, made)
 		}
 	}
 	kids, err := os.ReadDir(src)

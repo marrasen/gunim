@@ -210,6 +210,46 @@ func TestAFolderCannotGoInsideItself(t *testing.T) {
 	}
 }
 
+// A link to a folder inside the folder is inside it too.
+func TestAFolderCannotGoInsideItselfThroughALink(t *testing.T) {
+	root := t.TempDir()
+	tree(t, root, "d/in/f.txt")
+	if err := os.Symlink(at(root, "d/in"), at(root, "ln")); err != nil {
+		t.Skip("this system makes no links:", err)
+	}
+	for _, kind := range []OpKind{OpCopy, OpMove} {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_, err := runJob(ctx, job{kind: kind, dest: at(root, "ln"), srcs: []string{at(root, "d")}},
+			testEnv(root, answer{}, nil))
+		cancel()
+		if err == nil || !strings.Contains(err.Error(), "inside itself") {
+			t.Fatalf("kind %d: err = %v, want one about going inside itself", kind, err)
+		}
+		if got := names(t, at(root, "d/in")); !slices.Equal(got, []string{"f.txt"}) {
+			t.Fatalf("kind %d: the folder holds %v after the refusal", kind, got)
+		}
+	}
+	// A link itself can go into the folder it leads to.
+	if _, err := runJob(context.Background(), job{kind: OpCopy, dest: at(root, "d/in"), srcs: []string{at(root, "ln")}},
+		testEnv(root, answer{}, nil)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A copy stays out of the folder it makes, where the folder it copies
+// holds the one it makes.
+func TestACopyStaysOutOfTheFolderItMakes(t *testing.T) {
+	root := t.TempDir()
+	tree(t, root, "d/in/f.txt")
+	r := &runner{ctx: context.Background(), env: testEnv(root, answer{}, nil)}
+	// Past the check of into, as a mount of one folder in another would
+	// get.
+	err := r.copyItem(at(root, "d"), at(root, "d/in/d"), false, false, true)
+	if err == nil || !strings.Contains(err.Error(), "inside itself") {
+		t.Fatalf("err = %v, want one about going inside itself", err)
+	}
+}
+
 func TestACopyStopsAtTheFirstErrorAndSaysWhere(t *testing.T) {
 	root := t.TempDir()
 	tree(t, root, "b.txt", "dst/")
