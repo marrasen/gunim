@@ -78,3 +78,18 @@ func TestTabReachesASegmentedControl(t *testing.T) {
 		t.Fatalf("the control reads as %+v, want two options named by their icons, the second checked", info.Parts)
 	}
 }
+
+func TestASegmentedControlThatKeepsFocusLeavesTheKeyboardOnAClick(t *testing.T) {
+	field, s := NewTextField(), NewSegmented("One", "Two")
+	s.KeepFocus = true
+	w, run := stage(t, &frame{child: Column(field, s), size: geom.Sz(300, 200)})
+	focused := focusProbe(t, w, run)
+	click(w, 20, 10)
+	run(1)
+	click(w, s.width*1.5, FieldHeight.Default()+Gap.Default()+10)
+	run(1)
+	if f := focused(); f != field || s.Selected() != 1 {
+		t.Fatalf("a click on Two chose %d and moved the keyboard to %T; want Two, the keyboard left in the field",
+			s.Selected(), f)
+	}
+}

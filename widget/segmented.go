@@ -37,6 +37,8 @@ type Segmented struct {
 	Track theme.Token[color.NRGBA]
 	// OnChange turns the option chosen into an intent for the application.
 	OnChange func(i int) gunim.Intent
+	// KeepFocus leaves the keyboard where it is when the control is clicked; Tab still reaches it.
+	KeepFocus bool
 
 	selected int
 	// pill is the pill's place, in options from the first.
@@ -89,6 +91,9 @@ func (s *Segmented) choose(i int, u *gunim.UI) {
 
 // Focusable implements [gunim.Focusable].
 func (s *Segmented) Focusable() bool { return true }
+
+// FocusOnPress implements [gunim.PressFocuser].
+func (s *Segmented) FocusOnPress() bool { return !s.KeepFocus }
 
 // at returns the option at x in the control's space, or -1.
 func (s *Segmented) at(x float32) int {
