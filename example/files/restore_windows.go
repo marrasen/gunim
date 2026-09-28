@@ -64,6 +64,7 @@ const (
 	rpcEChangedMode         = 0x80010106
 	clsctxInprocServer      = 0x1
 	sigdnNormalDisplay      = 0
+	sigdnFileSysPath        = 0x80058000
 	fofNoConfirmMkdir       = 0x200
 
 	vtQueryInterface      = 0
@@ -138,16 +139,16 @@ func (recycleBin) Restore(original, _ string, at time.Time, to string) error {
 // Describe implements [trasher].
 func (recycleBin) Describe(string) string { return "in the Recycle Bin" }
 
-// recycled is an item in the Recycle Bin: where it came from and when.
+// recycled is an item in the Recycle Bin, and what the bin says of it.
 type recycled struct {
 	item unsafe.Pointer
-	path string
-	when time.Time
+	binItem
 }
 
 // findRecycled returns the IShellItem2 of the item in the Recycle Bin that
 // came from original, deleted closest to at and no earlier than a moment
-// before it.
+// before it. An item known to have original's extension comes before one
+// that matches only by the name without it.
 func findRecycled(original string, at time.Time) (unsafe.Pointer, error) {
 	var bin unsafe.Pointer
 	hr, _, _ := procSHGetKnownFolderItem.Call(uintptr(unsafe.Pointer(&folderRecycleBin)), 0, 0,
@@ -162,7 +163,15 @@ func findRecycled(original string, at time.Time) (unsafe.Pointer, error) {
 		return nil, fmt.Errorf("listing the Recycle Bin: HRESULT %#x", hr)
 	}
 	defer release(enum)
-	var best *recycled
+	// found holds the items that match, to pick the best of.
+	var found []recycled
+	defer func() {
+		for _, r := range found {
+			if r.item != nil {
+				release(r.item)
+			}
+		}
+	}()
 	for {
 		var child unsafe.Pointer
 		var got uint32
@@ -176,32 +185,27 @@ func findRecycled(original string, at time.Time) (unsafe.Pointer, error) {
 		r, err := readRecycled(child)
 		release(child)
 		if err != nil {
-			if best != nil {
-				release(best.item)
-			}
 			return nil, err
 		}
-		if !sameRecycled(r.path, original) || r.when.Before(at.Add(-2*time.Second)) ||
-			best != nil && r.when.Sub(at).Abs() >= best.when.Sub(at).Abs() {
+		if rankRecycled(r.binItem, original, at) == 0 {
 			release(r.item)
 			continue
 		}
-		if best != nil {
-			release(best.item)
-		}
-		best = &r
+		found = append(found, r)
 	}
-	if best == nil {
+	items := make([]binItem, len(found))
+	for i, r := range found {
+		items[i] = r.binItem
+	}
+	best := pickRecycled(items, original, at)
+	if best < 0 {
 		return nil, fmt.Errorf("the Recycle Bin holds nothing from %s deleted at %s; it may have been restored or emptied",
 			original, at.Format("15:04:05"))
 	}
-	return best.item, nil
-}
-
-// sameRecycled reports whether an item the Recycle Bin says came from got
-// is the one from want. The shell may leave out the extension.
-func sameRecycled(got, want string) bool {
-	return samePath(got, want) || samePath(got, strings.TrimSuffix(want, filepath.Ext(want)))
+	// The caller releases the item it gets.
+	item := found[best].item
+	found[best].item = nil
+	return item, nil
 }
 
 // readRecycled reads where the Recycle Bin item child came from and when
@@ -217,7 +221,7 @@ func readRecycled(child unsafe.Pointer) (recycled, error) {
 		release(item)
 		return recycled{}, err
 	}
-	name, err := displayName(item)
+	name, err := shellName(item, sigdnNormalDisplay)
 	if err != nil {
 		release(item)
 		return recycled{}, err
@@ -233,7 +237,14 @@ func readRecycled(child unsafe.Pointer) (recycled, error) {
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(dir, name)
 	}
-	return recycled{item: item, path: path, when: time.Unix(0, ft.Nanoseconds())}, nil
+	r := recycled{item: item, binItem: binItem{path: path, when: time.Unix(0, ft.Nanoseconds())}}
+	// The bin keeps the item as a file named $R and a few letters, with
+	// the item's own extension. That tells a.txt from a.log where the name
+	// shows without its extension.
+	if kept, err := shellName(item, sigdnFileSysPath); err == nil && strings.HasPrefix(filepath.Base(kept), "$R") {
+		r.ext, r.extKnown = filepath.Ext(kept), true
+	}
+	return r, nil
 }
 
 // shellString reads the text of property key of item.
@@ -246,10 +257,10 @@ func shellString(item unsafe.Pointer, key *propertyKey) (string, error) {
 	return windows.UTF16PtrToString(p), nil
 }
 
-// displayName reads the name item shows.
-func displayName(item unsafe.Pointer) (string, error) {
+// shellName reads the name of item in the form sigdn.
+func shellName(item unsafe.Pointer, sigdn uint32) (string, error) {
 	var p *uint16
-	if hr := comCall(item, vtGetDisplayName, sigdnNormalDisplay, uintptr(unsafe.Pointer(&p))); failed(hr) {
+	if hr := comCall(item, vtGetDisplayName, uintptr(sigdn), uintptr(unsafe.Pointer(&p))); failed(hr) {
 		return "", fmt.Errorf("reading the name of an item in the Recycle Bin: HRESULT %#x", hr)
 	}
 	defer func() { _, _, _ = procCoTaskMemFree.Call(uintptr(unsafe.Pointer(p))) }()
