@@ -2,6 +2,8 @@ package widget
 
 import (
 	"slices"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -214,5 +216,29 @@ func TestASecondaryPressSelectsTheRowUnlessItIsSelected(t *testing.T) {
 	press(9)
 	if got := lastRows(t, w); !slices.Equal(got, [][2]int{{9, 10}}) {
 		t.Fatalf("a secondary press on row 9 selected %v, want it alone", got)
+	}
+}
+
+// Ctrl+C copies the selected rows that have arrived, a line each, and
+// leaves out the rest rather than copying blank lines; however many
+// rows are selected, it copies MostCopiedRows at most.
+func TestCtrlCCopiesTheRowsThatHaveArrived(t *testing.T) {
+	g, w, run, clickRow := multiGrid(t)
+	g.Row = func(i int) (GridRow, bool) {
+		return GridRow{Cells: [][]GridSpan{{{Text: "row " + strconv.Itoa(i)}}}}, i%2 == 0
+	}
+	g.rows = 1_000_000
+	clickRow(0, 0)
+	w.Input(input.KeyPress{Key: input.KeyA, Mods: input.ModControl})
+	w.Input(input.KeyPress{Key: input.KeyC, Mods: input.ModControl})
+	run(1)
+	text, err := w.Offscreen().Clipboard()
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(text, "\n")
+	if len(lines) != MostCopiedRows || lines[0] != "row 0" || lines[1] != "row 2" {
+		t.Fatalf("Ctrl+C copied %d lines starting %q, want %d starting with rows 0 and 2",
+			len(lines), lines[:min(2, len(lines))], MostCopiedRows)
 	}
 }

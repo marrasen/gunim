@@ -152,10 +152,13 @@ type DataGrid struct {
 	// OnClose turns a click on a closable column's cross into an intent.
 	OnClose func(column int) gunim.Intent
 	// Copy returns the text Ctrl+C copies for row i, and the row's
-	// [GridRow.Text] when nil.
+	// [GridRow.Text] when nil. Without Copy, Ctrl+C takes the selected
+	// rows that have arrived, up to [MostCopiedRows], a line each.
 	Copy func(i int) string
 	// OnCopy, when set, turns Ctrl+C on the selected rows into an intent
-	// in place of copying their text, as for a list of files.
+	// in place of copying their text, as for a list of files, or for a
+	// grid whose rows arrive as they come into view, which copies the
+	// selection whole from where its rows come from.
 	OnCopy func(sel [][2]int) gunim.Intent
 	// NoHeader hides the column titles, and NoBar the scrollbar, for a
 	// grid that shows its position some other way.
@@ -1279,7 +1282,9 @@ func (g *DataGrid) key(e input.KeyPress, u *gunim.UI) bool {
 			u.SetClipboard(g.copyRuns())
 			return true
 		case e.Key == input.KeyC && !g.Multi && g.selected >= 0:
-			u.SetClipboard(g.copyText(g.selected))
+			if line, ok := g.copyText(g.selected); ok {
+				u.SetClipboard(line)
+			}
 			return true
 		case e.Key == input.KeyA && g.Multi && g.rows > 0:
 			g.setRuns([][2]int{{0, g.rows}}, u)
@@ -1415,30 +1420,42 @@ func (g *DataGrid) setRuns(runs [][2]int, u *gunim.UI) {
 	u.Invalidate()
 }
 
+// MostCopiedRows is the most rows Ctrl+C copies itself, which it does on
+// the UI goroutine. A grid that copies more sets OnCopy.
+const MostCopiedRows = 10000
+
 // copyRuns returns the text Ctrl+C copies for the rows selected with
-// Multi, a line for each.
+// Multi, a line for each row that has arrived, up to MostCopiedRows.
 func (g *DataGrid) copyRuns() string {
 	var b strings.Builder
+	n := 0
 	for _, r := range g.runs {
-		for i := r[0]; i < r[1]; i++ {
-			if b.Len() > 0 {
+		for i := r[0]; i < r[1] && n < MostCopiedRows; i++ {
+			line, ok := g.copyText(i)
+			if !ok {
+				continue
+			}
+			if n > 0 {
 				b.WriteByte('\n')
 			}
-			b.WriteString(g.copyText(i))
+			b.WriteString(line)
+			n++
 		}
 	}
 	return b.String()
 }
 
-func (g *DataGrid) copyText(i int) string {
+// copyText returns the text Ctrl+C copies for row i, and false for a
+// row that has not arrived.
+func (g *DataGrid) copyText(i int) (string, bool) {
 	if g.Copy != nil {
-		return g.Copy(i)
+		return g.Copy(i), true
 	}
 	if g.Row == nil {
-		return ""
+		return "", false
 	}
-	row, _ := g.Row(i)
-	return row.Text()
+	row, ok := g.Row(i)
+	return row.Text(), ok
 }
 
 // sortArrow is the room the arrow by a sorted column's title takes.
