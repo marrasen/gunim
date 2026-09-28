@@ -11,9 +11,12 @@ import (
 	"github.com/marrasen/gunim/text"
 )
 
+// settledMost is the most device pixels a settled mask is kept at, across or down.
+const settledMost = 256
+
 // mask queues a shape's coverage, tinted by the op's colour, through the greyscale glyph atlas.
 //
-// A settled shape is rasterized once per device size and kept in the atlas; one still changing is rasterized every
+// A settled shape is rasterized once per device size, up to settledMost, and kept in the atlas; one still changing is rasterized every
 // frame into the scratch strip. Under a plain translation the mask snaps to whole device pixels. Under a scale or
 // rotation it keeps its resting size and the quad carries the transform, as glyphs do.
 func (r *renderer) mask(op *paint.MaskOp) {
@@ -33,13 +36,19 @@ func (r *renderer) mask(op *paint.MaskOp) {
 	}
 	var slot glyphSlot
 	if op.Shape.Settled() {
-		key := glyphKey{shape: op.Shape, w: int32(w), h: int32(h)}
+		// A mask bigger than settledMost is kept at that size and stretched, so a big one neither overflows the
+		// atlas nor empties it of the text in every window.
+		sw, sh := w, h
+		if big := max(w, h); big > settledMost {
+			sw, sh = max(1, w*settledMost/big), max(1, h*settledMost/big)
+		}
+		key := glyphKey{shape: op.Shape, w: int32(sw), h: int32(sh)}
 		s, ok := r.glyph(key, func() text.Mask {
-			pix := op.Shape.Coverage(w, h)
-			if len(pix) != w*h {
+			pix := op.Shape.Coverage(sw, sh)
+			if len(pix) != sw*sh {
 				return text.Mask{}
 			}
-			return text.Mask{Pix: pix, W: w, H: h}
+			return text.Mask{Pix: pix, W: sw, H: sh}
 		})
 		if !ok {
 			return

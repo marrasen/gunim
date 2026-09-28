@@ -1,7 +1,9 @@
 package paint
 
 import (
+	"fmt"
 	"image/color"
+	"reflect"
 
 	"github.com/marrasen/gunim/geom"
 )
@@ -31,6 +33,9 @@ func (*MaskOp) isOp() {}
 func (p *Painter) Mask(s Shape, r geom.Rect, c color.NRGBA) {
 	if s == nil || c.A == 0 || r.Empty() {
 		return
+	}
+	if !reflect.TypeOf(s).Comparable() {
+		panic(fmt.Sprintf("paint: Mask of %T, a shape that is not comparable", s))
 	}
 	p.record(&MaskOp{Shape: s, Rect: r, Color: c, Transform: p.at()}, r)
 }

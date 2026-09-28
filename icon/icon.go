@@ -22,6 +22,10 @@ type Icon struct {
 	Path string
 	// Fill is SVG path data filled as well as stroked, or empty.
 	Fill string
+
+	// parsed holds the outline, parsed on first use and freed with the icon.
+	parsed     *outline
+	parsedOnce sync.Once
 }
 
 // Check reports the first error in the icon's path data.
@@ -33,19 +37,15 @@ func (ic *Icon) Check() error {
 	return err
 }
 
-// outlines holds each icon's parsed outline, by icon.
-var outlines sync.Map
-
 // outline returns the icon's parsed outline. A path with an error draws as far as it parsed.
 func (ic *Icon) outline() *outline {
-	if o, ok := outlines.Load(ic); ok {
-		return o.(*outline) //nolint:forcetypeassert // only outlines are stored
-	}
-	o := &outline{}
-	o.strokes, _ = parse(ic.Path)
-	o.fills, _ = parse(ic.Fill)
-	got, _ := outlines.LoadOrStore(ic, o)
-	return got.(*outline) //nolint:forcetypeassert // only outlines are stored
+	ic.parsedOnce.Do(func() {
+		o := &outline{}
+		o.strokes, _ = parse(ic.Path)
+		o.fills, _ = parse(ic.Fill)
+		ic.parsed = o
+	})
+	return ic.parsed
 }
 
 // Stroke is an icon as a [paint.Shape]: stroked Width units wide on its 24-unit grid, and drawn on as far as
@@ -59,8 +59,9 @@ type Stroke struct {
 // Stroke returns the icon stroked 2 units wide, as Lucide draws it, and drawn in full.
 func (ic *Icon) Stroke() Stroke { return Stroke{Icon: ic, Width: 2, Progress: 1} }
 
-// Settled implements [paint.Shape]: a stroke drawn in full stays as it is.
-func (s Stroke) Settled() bool { return s.Progress >= 1 }
+// Settled implements [paint.Shape]: a stroke drawn in full stays as it is. A width that is not a number is redrawn
+// every frame, as it never equals the last one's.
+func (s Stroke) Settled() bool { return s.Progress >= 1 && s.Width == s.Width }
 
 // Coverage implements [paint.Shape]. It fits the 24-unit grid into w by h pixels, centred.
 func (s Stroke) Coverage(w, h int) []byte {

@@ -7,6 +7,9 @@ import (
 // flatness is how far, in pixels, a flattened curve may stray from the true one.
 const flatness = 0.05
 
+// maxSteps is the most chords a curve is flattened into.
+const maxSteps = 1024
+
 // polyline is a subpath flattened to points in pixels. fill says it is filled as well as stroked.
 type polyline struct {
 	pts  []pt
@@ -26,7 +29,11 @@ func flatten(subs []subpath, k float32, off pt, fill bool, out []polyline) []pol
 			p0, p1, p2, p3 := px(s.p[0]), px(s.p[1]), px(s.p[2]), px(s.p[3])
 			// A cubic's second difference bounds how far its chords stray.
 			dd := max(length(p0.sub(p1.scale2()).add(p2)), length(p1.sub(p2.scale2()).add(p3)))
-			n := max(1, int(math.Ceil(math.Sqrt(float64(0.75*dd/flatness)))))
+			// Past maxSteps a curve is far bigger than any mask, and its points are lost off the edges anyway.
+			n := maxSteps
+			if f := math.Ceil(math.Sqrt(float64(0.75 * dd / flatness))); f < maxSteps {
+				n = max(1, int(f))
+			}
 			for i := 1; i <= n; i++ {
 				t := float32(i) / float32(n)
 				a, b, c := p0.lerp(p1, t), p1.lerp(p2, t), p2.lerp(p3, t)

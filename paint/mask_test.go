@@ -2,6 +2,7 @@ package paint
 
 import (
 	"image/color"
+	"strings"
 	"testing"
 
 	"github.com/marrasen/gunim/geom"
@@ -81,4 +82,23 @@ func TestAMaskIsCarriedAndKept(t *testing.T) {
 	if m, ok := p.Ops()[1].(*MaskOp); !ok || m.Transform != Translate(geom.Pt(100, 0)) {
 		t.Fatalf("replayed %+v", p.Ops()[1])
 	}
+}
+
+// sliced is a Shape that cannot be compared, for it holds a slice.
+type sliced struct{ pts []float32 }
+
+func (sliced) Coverage(w, h int) []byte { return make([]byte, w*h) }
+
+func (sliced) Settled() bool { return true }
+
+// A shape that cannot be compared is refused where it is drawn, with its type named, and not in a later frame.
+func TestAMaskOfAShapeThatCannotBeComparedPanicsAtOnce(t *testing.T) {
+	defer func() {
+		if r, ok := recover().(string); !ok || !strings.Contains(r, "paint.sliced") {
+			t.Fatalf("Mask panicked with %v, want the type named", r)
+		}
+	}()
+	var p Painter
+	p.Mask(sliced{}, geom.Rc(0, 0, 10, 10), color.NRGBA{A: 0xff})
+	t.Fatal("Mask took a shape that cannot be compared")
 }

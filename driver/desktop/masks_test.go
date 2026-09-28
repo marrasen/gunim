@@ -94,3 +94,23 @@ func TestAMaskStillChangingIsRasterizedEveryFrame(t *testing.T) {
 		t.Errorf("the far end of the wide mask is %v, want green", got)
 	}
 }
+
+// A settled mask too big for the atlas is kept smaller and stretched to its box, soft only at its very edge, and
+// the atlas keeps the rest.
+func TestABigSettledMaskDrawsStretched(t *testing.T) {
+	r, done := hiddenGL(t)
+	defer done()
+	n := 0
+	s := countedSquare{n: &n, settled: true}
+	was := r.shared.atlas.epoch
+	pix := drawMask(r, s, geom.Rc(10, 5, 500, 590), color.NRGBA{R: 0xff, A: 0xff})
+	for _, p := range [][2]int{{13, 8}, {506, 591}, {250, 300}} {
+		if got := pixelAt(pix, p[0], p[1]); got[0] < 0xf0 {
+			t.Errorf("the big mask's pixel at %v is %v, want red", p, got)
+		}
+	}
+	drawMask(r, countedSquare{n: &n, settled: true}, geom.Rc(10, 5, 501, 590), color.NRGBA{R: 0xff, A: 0xff})
+	if r.shared.atlas.epoch != was {
+		t.Error("two big masks emptied the atlas, and the text of every window with it")
+	}
+}
