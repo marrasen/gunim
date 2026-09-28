@@ -157,6 +157,13 @@ type FocusKeeper interface {
 	KeepsFocus()
 }
 
+// A PressFocuser is a [Focusable] that says whether a press focuses it. One that says no leaves the keyboard where
+// it is, as a toolbar's buttons do, and Tab still reaches it.
+type PressFocuser interface {
+	Focusable
+	FocusOnPress() bool
+}
+
 // A TabSkipper is a [Focusable] that Tab passes over, such as
 // selectable text, which takes focus only from a click.
 type TabSkipper interface {

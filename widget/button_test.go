@@ -66,3 +66,26 @@ func TestADisabledButtonTakesNoClickKeyOrFocus(t *testing.T) {
 		t.Fatalf("clicked once enabled, the button sent %d intents, want 1", n)
 	}
 }
+
+func TestAButtonThatKeepsFocusLeavesTheKeyboardOnAClick(t *testing.T) {
+	field, b := NewTextField(), NewButton("Go")
+	b.KeepFocus = true
+	b.On = pressed{1}
+	w, run := stage(t, &frame{child: Column(field, b), size: geom.Sz(300, 200)})
+	focused := focusProbe(t, w, run)
+	click(w, 20, 10)
+	run(1)
+	top := FieldHeight.Default() + Gap.Default()
+	click(w, 20, top+10)
+	run(1)
+	if f := focused(); f != field {
+		t.Fatalf("a click on the button moved the keyboard to %T, want it left in the field", f)
+	}
+	if got := sent(w); len(got) != 1 {
+		t.Fatalf("the click sent %v, want the button's intent", got)
+	}
+	tab(w, run, 0)
+	if f := focused(); f != b {
+		t.Fatalf("Tab from the field put the keyboard on %T, want the button", f)
+	}
+}

@@ -47,6 +47,9 @@ type Button struct {
 	Ghost bool
 	// Disabled fades the button faint; it then takes no clicks, keys or focus.
 	Disabled bool
+	// KeepFocus leaves the keyboard where it is when the button is clicked, as a toolbar's buttons do; Tab still
+	// reaches it.
+	KeepFocus bool
 	// Kind says how much the button stands out: plain, primary for the
 	// action a dialog expects, or danger for one that destroys, such as
 	// Delete.
@@ -235,6 +238,9 @@ func (b *Button) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) ge
 
 // Focusable implements [gunim.Focusable].
 func (b *Button) Focusable() bool { return !b.Disabled }
+
+// FocusOnPress implements [gunim.PressFocuser].
+func (b *Button) FocusOnPress() bool { return !b.KeepFocus }
 
 // Paint implements [gunim.Node].
 func (b *Button) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
