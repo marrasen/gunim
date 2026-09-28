@@ -365,6 +365,20 @@ func TestPinningAddsAFavouriteAndSavesIt(t *testing.T) {
 	}
 }
 
+// A folder with an entry that cannot be read still lists, with that
+// entry shown by its name.
+func TestAFolderListsPastAnEntryItCannotRead(t *testing.T) {
+	h := newHarness(t, "a.txt")
+	if err := os.Symlink("loop", filepath.Join(h.dir, "loop")); err != nil {
+		t.Skipf("this system will not make a link here: %v", err)
+	}
+	h.a.poll()
+	h.until("the folder lists with the link", func() bool { return slices.Equal(h.shown(), []string{"a.txt", "loop"}) })
+	if h.a.nav.err != nil {
+		t.Fatalf("the listing says %v", h.a.nav.err)
+	}
+}
+
 func TestAClickOnARowSelectsItAndPreviewsIt(t *testing.T) {
 	h := newHarness(t, "notes.txt")
 	h.until("the rows arrive", func() bool { return len(h.shown()) == 1 })

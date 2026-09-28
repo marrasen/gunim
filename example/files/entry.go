@@ -31,15 +31,20 @@ type entry struct {
 	Size   int64
 	Mod    time.Time
 	Hidden bool
-	// Broken is set for a link whose target is missing.
+	// Broken is set for a link whose target is missing, and for an item
+	// that cannot be read.
 	Broken bool
 	Type   string
+	// Err says why the item, or the target of the link it is, cannot be
+	// read.
+	Err string
 	// lower is the name in lower case, for sorting and filtering.
 	lower string
 }
 
-// listDir reads the entries of dir. It stops at the first entry it cannot
-// read, and says which one.
+// listDir reads the entries of dir. An entry it cannot read lists with
+// its name and why, and an entry deleted while it lists is left out, so
+// the errors it returns are about dir itself.
 func listDir(ctx context.Context, dir string) (es []entry, err error) {
 	f, err := os.Open(dir)
 	if err != nil {
@@ -57,11 +62,9 @@ func listDir(ctx context.Context, dir string) (es []entry, err error) {
 		}
 		batch, rerr := f.ReadDir(1024)
 		for _, d := range batch {
-			e, err := readEntry(dir, d)
-			if err != nil {
-				return nil, err
+			if e, ok := readEntry(dir, d); ok {
+				out = append(out, e)
 			}
-			out = append(out, e)
 		}
 		if errors.Is(rerr, io.EOF) {
 			return out, nil
@@ -75,17 +78,23 @@ func listDir(ctx context.Context, dir string) (es []entry, err error) {
 	}
 }
 
-// readEntry turns a directory entry into an entry.
-func readEntry(dir string, d fs.DirEntry) (entry, error) {
+// readEntry turns a directory entry into an entry. ok is false for an
+// entry deleted since dir was read.
+func readEntry(dir string, d fs.DirEntry) (e entry, ok bool) {
 	info, err := d.Info()
-	if err != nil {
-		return entry{}, fmt.Errorf("reading %s: %w", filepath.Join(dir, d.Name()), err)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return entry{}, false
+	case err != nil:
+		name := d.Name()
+		return entry{Name: name, Kind: KindFile, Hidden: strings.HasPrefix(name, "."), Broken: true,
+			Type: "Cannot be read", Err: err.Error(), lower: strings.ToLower(name)}, true
 	}
-	return makeEntry(dir, info)
+	return makeEntry(dir, info), true
 }
 
 // makeEntry turns what Lstat says about an item of dir into an entry.
-func makeEntry(dir string, info fs.FileInfo) (entry, error) {
+func makeEntry(dir string, info fs.FileInfo) entry {
 	name := info.Name()
 	e := entry{Name: name, Size: info.Size(), Mod: info.ModTime(), lower: strings.ToLower(name)}
 	e.Hidden = strings.HasPrefix(name, ".") || hiddenAttr(info)
@@ -101,7 +110,10 @@ func makeEntry(dir string, info fs.FileInfo) (entry, error) {
 			e.Broken = true
 			e.Type = "Broken link"
 		case err != nil:
-			return entry{}, fmt.Errorf("following the link %s: %w", filepath.Join(dir, name), err)
+			// A link to itself, or into a folder that cannot be read.
+			e.Broken = true
+			e.Type = "Link that cannot be followed"
+			e.Err = err.Error()
 		case target.IsDir():
 			e.Dir, e.Size = true, 0
 			e.Type = "Link to folder"
@@ -112,7 +124,7 @@ func makeEntry(dir string, info fs.FileInfo) (entry, error) {
 	default:
 		e.Type = typeLabel(name)
 	}
-	return e, nil
+	return e
 }
 
 // isLink reports whether info is a symbolic link, or a junction on Windows.
@@ -126,7 +138,7 @@ func statEntry(path string) (entry, error) {
 	if err != nil {
 		return entry{}, err
 	}
-	return makeEntry(filepath.Dir(path), info)
+	return makeEntry(filepath.Dir(path), info), nil
 }
 
 // typeLabel names the type of a file from its extension.

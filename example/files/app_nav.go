@@ -546,6 +546,10 @@ func (a *app) activate(e entry) {
 		a.navigate(path, 1, true)
 		return
 	}
+	if e.Err != "" {
+		a.fail(path + " cannot be read: " + e.Err)
+		return
+	}
 	if e.Broken {
 		a.fail(path + " is a link to something that is gone.")
 		return

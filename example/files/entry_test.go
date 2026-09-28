@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -80,6 +81,70 @@ func TestListDirFollowsLinks(t *testing.T) {
 				t.Fatalf("the broken link reads as %+v", e)
 			}
 		}
+	}
+}
+
+// An entry that cannot be read shows by its name and why; the rest of the
+// folder lists as ever.
+func TestListDirShowsWhatItCannotReadOfAnEntry(t *testing.T) {
+	root := t.TempDir()
+	tree(t, root, "file.txt", "locked/inside.txt")
+	if err := os.Symlink("loop", filepath.Join(root, "loop")); err != nil {
+		t.Skipf("this system will not make a link here: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(root, "locked", "inside.txt"), filepath.Join(root, "shut")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(root, "locked"), 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(filepath.Join(root, "locked"), 0o755) })
+	es, err := listDir(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := entryNames(es)
+	slices.Sort(got)
+	if !slices.Equal(got, []string{"file.txt", "locked", "loop", "shut"}) {
+		t.Fatalf("listed %v", got)
+	}
+	for _, e := range es {
+		switch e.Name {
+		case "loop":
+			if e.Kind != KindLink || e.Err == "" {
+				t.Fatalf("the link to itself reads as %+v", e)
+			}
+		case "shut":
+			// Root reads the folder all the same.
+			if e.Kind != KindLink || e.Err == "" && os.Geteuid() != 0 {
+				t.Fatalf("the link into a folder that cannot be read reads as %+v", e)
+			}
+		case "file.txt":
+			if e.Err != "" {
+				t.Fatalf("the file reads as %+v", e)
+			}
+		}
+	}
+}
+
+// failingEntry is an entry of a folder whose Lstat fails with err.
+type failingEntry struct {
+	fs.DirEntry
+	err error
+}
+
+func (failingEntry) Name() string { return "x.txt" }
+func (d failingEntry) Info() (fs.FileInfo, error) {
+	return nil, &fs.PathError{Op: "lstat", Path: "x.txt", Err: d.err}
+}
+
+func TestAnEntryDeletedWhileListingIsLeftOut(t *testing.T) {
+	if _, ok := readEntry(t.TempDir(), failingEntry{err: fs.ErrNotExist}); ok {
+		t.Fatal("an entry deleted while the folder was listed is kept")
+	}
+	e, ok := readEntry(t.TempDir(), failingEntry{err: fs.ErrPermission})
+	if !ok || e.Name != "x.txt" || e.Err == "" || !e.Broken {
+		t.Fatalf("an entry that cannot be read reads as %+v, kept %v", e, ok)
 	}
 }
 
