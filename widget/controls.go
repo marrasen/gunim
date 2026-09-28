@@ -261,8 +261,14 @@ func (s *Switch) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 // A click on the track sends the knob gliding there; a drag carries it
 // along with the pointer. The knob grows while the pointer is over it
 // or it is held.
+//
+// A [Vertical] slider is a fader: Max is at the top, and it fills the
+// height it is given rather than the width.
 type Slider struct {
 	anim.Group
+	// Axis lays the track along the width, which is the zero value, or
+	// up the height as a fader.
+	Axis     Axis
 	Min, Max float32
 	// Snap rounds the value to multiples of itself, counted from Min;
 	// zero leaves it free.
@@ -283,6 +289,14 @@ type Slider struct {
 func NewSlider(lo, hi float32) *Slider {
 	s := &Slider{Min: lo, Max: hi, value: lo, at: anim.NewFloat(0), hover: anim.NewFloat(0), ring: anim.NewFloat(0)}
 	s.Add(s.at, s.hover, s.ring)
+	return s
+}
+
+// NewFader returns a vertical slider from lo to hi, at lo, with hi at
+// the top.
+func NewFader(lo, hi float32) *Slider {
+	s := NewSlider(lo, hi)
+	s.Axis = Vertical
 	return s
 }
 
@@ -328,11 +342,16 @@ func (s *Slider) set(v float32, m anim.Motion, u *gunim.UI) {
 // Focusable implements [gunim.Focusable].
 func (s *Slider) Focusable() bool { return true }
 
-// valueAt returns the value at x in the slider's space.
-func (s *Slider) valueAt(x float32, th *theme.Live) float32 {
+// valueAt returns the value at a point in the slider's space.
+func (s *Slider) valueAt(pos geom.Point, th *theme.Live) float32 {
 	k := KnobSize.Get(th) / 2
+	if s.Axis == Vertical {
+		// The track runs up the slider, so the top of it is Max.
+		h := max(s.size.H-2*k, 1)
+		return s.Min + (1-max(0, min((pos.Y-k)/h, 1)))*(s.Max-s.Min)
+	}
 	w := max(s.size.W-2*k, 1)
-	return s.Min + max(0, min((x-k)/w, 1))*(s.Max-s.Min)
+	return s.Min + max(0, min((pos.X-k)/w, 1))*(s.Max-s.Min)
 }
 
 // Handle implements [gunim.Handler].
@@ -354,14 +373,14 @@ func (s *Slider) Handle(e input.Event, u *gunim.UI) bool {
 			return false
 		}
 		s.held = true
-		s.set(s.valueAt(e.Pos.X, th), Quick.Get(th), u)
+		s.set(s.valueAt(e.Pos, th), Quick.Get(th), u)
 	case input.PointerMove:
 		if !s.held {
 			return false
 		}
 		// The knob keeps up with the pointer while it glides in from a
 		// click, then follows it exactly.
-		s.set(s.valueAt(e.Pos.X, th), Caret.Get(th), u)
+		s.set(s.valueAt(e.Pos, th), Caret.Get(th), u)
 	case input.PointerUp:
 		if !s.held {
 			return false
@@ -398,9 +417,21 @@ func (s *Slider) Handle(e input.Event, u *gunim.UI) bool {
 	return true
 }
 
-// Layout implements [gunim.Node]. The slider fills the width it is
-// given, or the theme's [FieldWidth] when the width is unbounded.
+// Layout implements [gunim.Node].
+//
+// A horizontal slider fills the width it is given, or the theme's
+// [FieldWidth] where the width is unbounded. A vertical one fills the
+// height, or [FieldWidth] where that is unbounded, and is as wide as
+// the knob.
 func (s *Slider) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
+	if s.Axis == Vertical {
+		h := c.Max.H
+		if h <= 0 {
+			h = FieldWidth.Get(f.Theme)
+		}
+		s.size = c.Constrain(geom.Sz(ControlHeight.Get(f.Theme), h))
+		return s.size
+	}
 	w := c.Max.W
 	if w <= 0 {
 		w = FieldWidth.Get(f.Theme)
@@ -413,17 +444,32 @@ func (s *Slider) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) ge
 func (s *Slider) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
 	th := f.Theme
 	k := KnobSize.Get(th)
-	th2 := SliderTrack.Get(th)
-	y := box.H / 2
-	x0, x1 := k/2, box.W-k/2
+	track := SliderTrack.Get(th)
 	at := s.at.Value()
-	x := x0 + (x1-x0)*at
-	p.RRect(geom.Rect{Min: geom.Pt(x0, y-th2/2), Max: geom.Pt(x1, y+th2/2)}, th2/2, paint.Solid(SwitchOff.Get(th)))
-	p.RRect(geom.Rect{Min: geom.Pt(x0, y-th2/2), Max: geom.Pt(x, y+th2/2)}, th2/2, paint.Solid(Accent.Get(th)))
+
+	var whole, filled geom.Rect
+	var centre geom.Point
+	if s.Axis == Vertical {
+		x := box.W / 2
+		y0, y1 := box.H-k/2, k/2 // the bottom of the track is Min
+		y := y0 + (y1-y0)*at
+		whole = geom.Rect{Min: geom.Pt(x-track/2, y1), Max: geom.Pt(x+track/2, y0)}
+		filled = geom.Rect{Min: geom.Pt(x-track/2, y), Max: geom.Pt(x+track/2, y0)}
+		centre = geom.Pt(x, y)
+	} else {
+		y := box.H / 2
+		x0, x1 := k/2, box.W-k/2
+		x := x0 + (x1-x0)*at
+		whole = geom.Rect{Min: geom.Pt(x0, y-track/2), Max: geom.Pt(x1, y+track/2)}
+		filled = geom.Rect{Min: geom.Pt(x0, y-track/2), Max: geom.Pt(x, y+track/2)}
+		centre = geom.Pt(x, y)
+	}
+	p.RRect(whole, track/2, paint.Solid(SwitchOff.Get(th)))
+	p.RRect(filled, track/2, paint.Solid(Accent.Get(th)))
 
 	grow := 1 + 0.2*max(s.hover.Value(), 0)
 	d := k * grow
-	knob := geom.Rc(x-d/2, y-d/2, d, d)
+	knob := geom.Rc(centre.X-d/2, centre.Y-d/2, d, d)
 	focusRing(p, knob, d/2, s.ring.Value(), th)
 	p.ShadowRRect(knob, d/2, paint.Solid(Knob.Get(th)), paint.Shadow{Offset: geom.Pt(0, 1), Blur: 3, Color: color.NRGBA{A: 0x60}})
 }

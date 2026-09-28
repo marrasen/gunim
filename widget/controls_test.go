@@ -219,3 +219,42 @@ func TestTabsCanBeSelectedBeforeTheirPagesArrive(t *testing.T) {
 		t.Fatalf("selecting a tab whose page has not arrived chose %d", tabs.Selected())
 	}
 }
+
+func TestFaderRunsUpTheHeight(t *testing.T) {
+	s := NewFader(0, 100)
+	s.Snap = 1
+	s.OnChange = func(v float32) gunim.Intent { return slid{v} }
+	w, run := stage(t, &frame{child: s, size: geom.Sz(28, 218)})
+	// The track runs from 9 at the top to 209 at the bottom, inside the
+	// knob's half at each end, and the top of it is the maximum.
+	w.Input(input.PointerDown{Pos: geom.Pt(14, 109), Clicks: 1})
+	run(1)
+	if s.Value() != 50 {
+		t.Fatalf("a press mid-track set %v, want 50", s.Value())
+	}
+	w.Input(input.PointerMove{Pos: geom.Pt(14, 9)})
+	w.Input(input.PointerUp{Pos: geom.Pt(14, 9)})
+	run(60)
+	if s.Value() != 100 || s.at.Value() != 1 {
+		t.Fatalf("a drag to the top left %v with the knob at %v", s.Value(), s.at.Value())
+	}
+	// Up still raises and down still lowers, as on a horizontal one.
+	w.Input(input.KeyPress{Key: input.KeyDown})
+	run(1)
+	if s.Value() != 99 {
+		t.Fatalf("pressing down left %v, want 99", s.Value())
+	}
+}
+
+func TestFaderFillsTheHeightItIsGiven(t *testing.T) {
+	s := NewFader(0, 1)
+	w, run := stage(t, &frame{child: s, size: geom.Sz(40, 300)})
+	run(1)
+	_ = w
+	if s.size.H != 300 {
+		t.Errorf("a fader in 300 of height took %v", s.size.H)
+	}
+	if s.size.W > 40 {
+		t.Errorf("a fader took %v of width, more than it was given", s.size.W)
+	}
+}
