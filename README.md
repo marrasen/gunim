@@ -222,8 +222,8 @@ c.SetTheme("light")
 Widgets animate state and look up style: a button animates how hovered
 it is, from 0 to 1, and blends the theme's idle and hover colours by it
 each frame. A theme switch in the middle of a hover then just works.
-`example/dialog` switches between a dark and a light theme when you
-press T.
+`example/widgets` switches between a dark and a light theme with the
+Switch theme button in its header.
 
 Colours blend through Oklab, so a switch keeps its brightness and its
 hues. Text colours are declared with `theme.Foreground`: they fade out
