@@ -312,6 +312,31 @@ func TestMoveRenamesAndUndoMovesBack(t *testing.T) {
 	}
 }
 
+// A move that merges a folder into one of its name removes the folder it
+// emptied; undo makes it again to put its items back in.
+func TestUndoingAMergeMakesTheEmptiedFolderAgain(t *testing.T) {
+	root := t.TempDir()
+	tree(t, root, "d/a.txt", "d/e/b.txt", "dst/d/c.txt", "dst/d/e/")
+	e := testEnv(root, answer{choice: choiceReplace, all: true}, nil)
+	rec, err := runJob(context.Background(), job{kind: OpMove, dest: filepath.Join(root, "dst"),
+		srcs: []string{filepath.Join(root, "d")}}, e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := names(t, root); !slices.Equal(got, []string{"dst"}) {
+		t.Fatalf("after the merge the folder holds %v", got)
+	}
+	if _, err := runJob(context.Background(), job{kind: OpUndo, undo: &rec}, e); err != nil {
+		t.Fatal(err)
+	}
+	if contents(t, at(root, "d/a.txt")) != "d/a.txt" || contents(t, at(root, "d/e/b.txt")) != "d/e/b.txt" {
+		t.Fatalf("after undo d holds %v", names(t, at(root, "d")))
+	}
+	if got := names(t, at(root, "dst/d")); !slices.Equal(got, []string{"c.txt", "e"}) {
+		t.Fatalf("after undo dst/d holds %v", got)
+	}
+}
+
 func TestAMoveThatReplacesCountsIt(t *testing.T) {
 	root := t.TempDir()
 	tree(t, root, "a.txt", "dst/a.txt")

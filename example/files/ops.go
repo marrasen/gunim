@@ -804,6 +804,10 @@ func (r *runner) undoStep(k OpKind, s step) error {
 		} else if !errors.Is(err, fs.ErrNotExist) {
 			return fmt.Errorf("moving %s back: %w", s.to, err)
 		}
+		// A move that merged a folder removed the folder it emptied.
+		if err := os.MkdirAll(filepath.Dir(s.from), 0o777); err != nil {
+			return fmt.Errorf("moving %s back: %w", s.to, err)
+		}
 		if err := r.moveItem(s.to, s.from, false, true); err != nil {
 			return err
 		}
