@@ -33,6 +33,8 @@ type ProgressBar struct {
 	// since is when the stripe began, so its place follows the frame
 	// clock.
 	since time.Time
+	// painted says the bar was painted since the last step; see Step.
+	painted bool
 }
 
 // NewProgressBar returns an empty bar.
@@ -54,10 +56,15 @@ func (b *ProgressBar) Set(v float32, u *gunim.UI) {
 // Value is where the fill is now, from 0 to 1.
 func (b *ProgressBar) Value() float32 { return min(max(b.value.Value(), 0), 1) }
 
-// Step implements [anim.Animator]. An indeterminate bar keeps
-// drawing, as its stripe is always moving.
+// Step implements [anim.Animator]. An indeterminate bar keeps drawing
+// while it is painted, as its stripe is always moving. One out of sight
+// lets the window rest.
 func (b *ProgressBar) Step(dt time.Duration) bool {
-	return b.Group.Step(dt) || b.Indeterminate
+	moving := b.Indeterminate && b.painted
+	if dt > 0 {
+		b.painted = false
+	}
+	return b.Group.Step(dt) || moving
 }
 
 // Layout implements [gunim.Node]: as wide as it may be, and as tall as
@@ -75,6 +82,7 @@ const (
 
 // Paint implements [gunim.Node].
 func (b *ProgressBar) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
+	b.painted = true
 	r := geom.Rect{Max: box.Point()}
 	radius := box.H / 2
 	p.RRect(r, radius, paint.Solid(ProgressTrack.Get(f.Theme)))

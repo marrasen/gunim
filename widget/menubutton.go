@@ -223,6 +223,9 @@ func (b *MenuButton) Access() access.Info {
 	if b.IsOpen() {
 		info.State |= access.StateExpanded
 	}
+	if info.Name == "" {
+		info.Name = iconName(b.Icon)
+	}
 	return info
 }
 

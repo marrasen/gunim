@@ -766,22 +766,28 @@ type tipper struct {
 	popup *gunim.Popup
 	// owner is the node the popup opens from.
 	owner gunim.Node
+	// quiet keeps the tooltip down after a press or a scroll, until the pointer leaves.
+	quiet bool
 }
 
 // handle shows the tooltip text for owner once the pointer rests on it for delay, and hides it when the pointer
-// leaves, presses or scrolls.
+// leaves, presses or scrolls. After a press or a scroll it stays down until the pointer leaves and comes back.
 func (t *tipper) handle(e input.Event, u *gunim.UI, owner gunim.Node, text string, delay time.Duration) {
 	t.owner, t.text, t.delay = owner, text, delay
 	switch e := e.(type) {
 	case input.PointerEnter:
-		t.at = e.Pos
+		t.at, t.quiet = e.Pos, false
 		t.wait(u)
 	case input.PointerMove:
 		t.at = e.Pos
-		if t.popup == nil {
+		if t.popup == nil && !t.quiet {
 			t.wait(u) // the delay starts again while the pointer moves
 		}
-	case input.PointerLeave, input.PointerDown, input.Scroll:
+	case input.PointerLeave:
+		t.quiet = false
+		t.hide(u)
+	case input.PointerDown, input.Scroll:
+		t.quiet = true
 		t.hide(u)
 	}
 }

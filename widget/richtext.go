@@ -180,10 +180,15 @@ func (r *RichText) Handle(e input.Event, u *gunim.UI) bool {
 	return false
 }
 
-// Access implements [gunim.Accessible]: the text, read as a label.
+// Access implements [gunim.Accessible]: the text, read as a label. An icon shown without text, as a link, is read
+// by its name.
 func (r *RichText) Access() access.Info {
 	var b strings.Builder
 	for _, s := range r.Spans {
+		if s.Text == "" && s.Icon != nil && s.On != nil {
+			b.WriteString(iconName(s.Icon))
+			continue
+		}
 		b.WriteString(s.Text)
 	}
 	return access.Info{Role: access.RoleLabel, Name: b.String()}

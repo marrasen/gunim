@@ -34,5 +34,10 @@ func (b *IconButton) Handle(e input.Event, u *gunim.UI) bool {
 
 // Access implements [gunim.Accessible].
 func (b *IconButton) Access() access.Info {
-	return access.Info{Role: access.RoleButton, Name: b.Tooltip, Actions: []string{access.ActionPress}}
+	name := b.Tooltip
+	if name == "" {
+		name = iconName(b.Icon)
+	}
+	return access.Info{Role: access.RoleButton, Name: name, State: activeState(b.Active),
+		Actions: []string{access.ActionPress}}
 }

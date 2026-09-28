@@ -3,6 +3,7 @@ package widget
 import (
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
@@ -125,4 +126,25 @@ func TestTextScrollsClearOfTheIconAndTheX(t *testing.T) {
 	if x := ty.field.TextCaret().Min.X; x != pad+s+gap {
 		t.Fatalf("at the start the caret is at %v, want %v", x, pad+s+gap)
 	}
+}
+
+// The X clears on a primary click alone, let go over it.
+func TestTheXClearsOnAPrimaryClickLetGoOverIt(t *testing.T) {
+	ty := newTyperWith(t, func(f *TextField) { f.Clearable = true })
+	ty.typeText("abc")
+	ty.run(30)
+	x := maskOps(ty.w.Offscreen())[0].Rect.Center()
+	for _, b := range []input.Button{input.ButtonSecondary, input.ButtonMiddle} {
+		ty.w.Input(input.PointerDown{Pos: x, Button: b, Clicks: 1, Time: time.Now()})
+		ty.w.Input(input.PointerUp{Pos: x, Button: b, Time: time.Now()})
+		ty.run(1)
+		ty.want("abc", 3)
+	}
+	ty.w.Input(input.PointerDown{Pos: x, Button: input.ButtonPrimary, Clicks: 1, Time: time.Now()})
+	ty.run(1)
+	ty.want("abc", 3)
+	ty.w.Input(input.PointerMove{Pos: geom.Pt(20, x.Y), Time: time.Now()})
+	ty.w.Input(input.PointerUp{Pos: geom.Pt(20, x.Y), Button: input.ButtonPrimary, Time: time.Now()})
+	ty.run(1)
+	ty.want("abc", 3)
 }

@@ -89,7 +89,7 @@ type sliced struct{ pts []float32 }
 
 func (sliced) Coverage(w, h int) []byte { return make([]byte, w*h) }
 
-func (sliced) Settled() bool { return true }
+func (s sliced) Settled() bool { return len(s.pts) == 0 }
 
 // A shape that cannot be compared is refused where it is drawn, with its type named, and not in a later frame.
 func TestAMaskOfAShapeThatCannotBeComparedPanicsAtOnce(t *testing.T) {

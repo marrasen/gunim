@@ -61,7 +61,11 @@ func TestPaletteTitlesLineUpAfterAColumnForIcons(t *testing.T) {
 	if x := titleX(t, paintRow(c, 3)); x != pad+room {
 		t.Fatalf("narrowed, the title starts at %v, want %v", x, pad+room)
 	}
+	// Items changed in place are read again with the next letter typed.
 	o.p.Items[1].Icon, o.p.Items[2].Icon = nil, nil
+	w.Input(input.KeyPress{Key: input.KeyBackspace})
+	w.Input(input.TextInput{Text: "e"})
+	run(20)
 	if x := titleX(t, paintRow(c, 3)); x != pad {
 		t.Fatalf("with no icons the title starts at %v, want at the padding", x)
 	}

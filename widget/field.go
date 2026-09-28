@@ -69,6 +69,8 @@ type TextField struct {
 	// clearOn runs from 0 to 1 as the X shows, and clearHot as the pointer comes over it.
 	clearOn  *anim.Float
 	clearHot *anim.Float
+	// clearing says a primary press on the X is held.
+	clearing bool
 
 	shaped shapedText
 	// size is the field's size at its last layout, and lead and trail the room before and after the text.
@@ -168,8 +170,10 @@ func (t *TextField) Handle(e input.Event, u *gunim.UI) bool {
 		t.anchor = t.caret
 		t.preedit = nil // the driver ends the composition too
 	case input.PointerDown:
+		// The X clears on a primary click let go over it, so a press
+		// dragged off it clears nothing.
 		if t.overClear(e.Pos) {
-			t.clear(u)
+			t.clearing = e.Button == input.ButtonPrimary
 			break
 		}
 		t.press(t.indexAt(e.Pos, u), e.Clicks, e.Mods.Has(input.ModShift))
@@ -185,6 +189,12 @@ func (t *TextField) Handle(e input.Event, u *gunim.UI) bool {
 		return false
 	case input.PointerUp:
 		t.held = false
+		if t.clearing && e.Button == input.ButtonPrimary {
+			t.clearing = false
+			if t.overClear(e.Pos) {
+				t.clear(u)
+			}
+		}
 	case input.TextInput:
 		t.preedit = nil
 		t.insert(e.Text, u)

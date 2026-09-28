@@ -242,7 +242,8 @@ func (b *Button) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 	if lit := b.lit.Value(); lit > 0 {
 		inked = anim.Mix(anim.ColorCodec, inked, Accent.Get(th), min(lit, 1))
 	}
-	x := (box.W - b.content(th)) / 2
+	// Squeezed, the icon keeps to the button's left edge.
+	x := max((box.W-b.content(th))/2, 0)
 	if b.Icon != nil {
 		s := b.iconSize(th)
 		paintIcon(p, th, b.Icon, geom.Rc(x, (box.H-s)/2, s, s), inked, 1)

@@ -99,3 +99,16 @@ func firstTextX(t *testing.T, ops []paint.Op) float32 {
 	t.Fatal("nothing drew text")
 	return 0
 }
+
+// Beside a title that wraps, the icon sits level with the first line.
+func TestAToastsIconSitsBesideTheTitlesFirstLine(t *testing.T) {
+	long := "The copy of the folder could not finish, for the disk it was going to has no room left on it at all"
+	_, masks := showToast(t, Toast{Title: long, Kind: ToastError}, 60)
+	short := masks()[0]
+	_, masks = showToast(t, Toast{Title: "Saved", Kind: ToastError}, 60)
+	one := masks()[0]
+	top := func(m *paint.MaskOp) float32 { return m.Transform.F + m.Rect.Min.Y }
+	if a, b := top(short), top(one); a != b {
+		t.Fatalf("beside a wrapped title the icon's top is at %v, beside one line at %v, want the same", a, b)
+	}
+}

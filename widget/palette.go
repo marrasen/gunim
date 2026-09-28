@@ -189,6 +189,8 @@ type paletteCard struct {
 	card                       geom.Rect
 	status                     shapedText
 	transparent                bool
+	// icons says an item has an icon, found as the items change rather than for each row every frame.
+	icons bool
 }
 
 func newPaletteCard(p *Palette) *paletteCard {
@@ -267,6 +269,7 @@ func (c *paletteCard) show(was Key, u *gunim.UI) {
 // refill puts the items found in the list, the highlight on the first.
 func (c *paletteCard) refill(u *gunim.UI) {
 	c.hot = 0
+	c.icons = c.p.hasIcons()
 	c.at = make(map[int][]int, len(c.found))
 	c.index = make(map[Key]int, len(c.found))
 	keys := make([]Key, len(c.found))
@@ -489,7 +492,10 @@ func (r *paletteRow) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gun
 	item := r.item
 	run := r.title.shape(faceIn(Font, th), item.Title, size)
 	top := (box.H - run.Height()) / 2
-	lead := pad + r.c.p.iconRoom(th)
+	lead := pad
+	if r.c.icons {
+		lead += IconSize.Get(th) + IconGap.Get(th)
+	}
 	// The matched letters sit on marks, joined where they run on.
 	mark := PaletteMark.Get(th)
 	at := r.at
@@ -561,14 +567,14 @@ func (p *Palette) item(i int) PaletteItem {
 	return PaletteItem{}
 }
 
-// iconRoom is the room before the titles for icons, with the gap, when any item has one.
-func (p *Palette) iconRoom(th *theme.Live) float32 {
+// hasIcons reports whether any item has an icon, so the titles leave room for them.
+func (p *Palette) hasIcons() bool {
 	for _, list := range [][]PaletteItem{p.Items, p.typedItems} {
 		for _, it := range list {
 			if it.Icon != nil {
-				return IconSize.Get(th) + IconGap.Get(th)
+				return true
 			}
 		}
 	}
-	return 0
+	return false
 }

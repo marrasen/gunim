@@ -78,6 +78,22 @@ func (k ToastKind) look() (*icon.Icon, theme.Token[color.NRGBA]) {
 	return nil, Ink
 }
 
+// name is what a screen reader calls the kind's icon, so an error reads as one.
+func (k ToastKind) name() string {
+	switch k {
+	case ToastInfo:
+		return "Information"
+	case ToastSuccess:
+		return "Success"
+	case ToastWarning:
+		return "Warning"
+	case ToastError:
+		return "Error"
+	case ToastPlain:
+	}
+	return ""
+}
+
 // Toasts shows short notices in a stack, the newest nearest the corner
 // it sits in. Each slides in from the side and fades up, stays a few
 // seconds, and slides away; the pointer resting on one keeps it, and a
@@ -208,7 +224,7 @@ func newToastCard(t *Toasts, to Toast) *toastCard {
 		ic = to.Icon
 	}
 	if ic != nil {
-		c.mark = NewIcon(ic, "")
+		c.mark = NewIcon(ic, to.Kind.name())
 		c.mark.Color = ink
 		c.mark.DrawOn(toastDrawOn)
 	}
@@ -255,6 +271,8 @@ func (c *toastCard) Layout(cs gunim.Constraints, f gunim.Frame, kids gunim.Child
 	room := w - left - pad.Right
 	// The action sits at the right of the title.
 	var act, title geom.Size
+	// line is the height of the title's first line, which the icon sits beside.
+	var line float32
 	y := pad.Top
 	for k := range kids.All {
 		if c.action != nil && k.Node() == gunim.Node(c.action) {
@@ -274,6 +292,7 @@ func (c *toastCard) Layout(cs gunim.Constraints, f gunim.Frame, kids gunim.Child
 			k.Place(geom.Pt(left, y))
 			if n == gunim.Node(c.title) {
 				title = s
+				line = c.title.paragraph(f, r).LineHeight
 			}
 			y += s.H + 4
 		}
@@ -281,7 +300,7 @@ func (c *toastCard) Layout(cs gunim.Constraints, f gunim.Frame, kids gunim.Child
 	for k := range kids.All {
 		if c.mark != nil && k.Node() == gunim.Node(c.mark) {
 			s := k.Layout(gunim.Constraints{Max: geom.Sz(room, 0)})
-			k.Place(geom.Pt(pad.Left, pad.Top+(title.H-s.H)/2))
+			k.Place(geom.Pt(pad.Left, pad.Top+(min(line, title.H)-s.H)/2))
 		}
 	}
 	return geom.Sz(w, y-4+pad.Bottom)

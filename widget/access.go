@@ -2,10 +2,12 @@ package widget
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/access"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/icon"
 )
 
 // What each widget tells a screen reader, and what it does when a
@@ -16,9 +18,31 @@ func (l *Label) Access() access.Info {
 	return access.Info{Role: access.RoleLabel, Name: l.Text}
 }
 
-// Access implements [gunim.Accessible].
+// Access implements [gunim.Accessible]. A button showing an icon alone is named by the icon; an active one reads as
+// checked, as a toggle that is on.
 func (b *Button) Access() access.Info {
-	return access.Info{Role: access.RoleButton, Name: b.Label, Actions: []string{access.ActionPress}}
+	name := b.Label
+	if name == "" {
+		name = iconName(b.Icon)
+	}
+	return access.Info{Role: access.RoleButton, Name: name, State: activeState(b.Active),
+		Actions: []string{access.ActionPress}}
+}
+
+// activeState is the state of a button that is active, as a toggle that is on, or none.
+func activeState(active bool) access.State {
+	if active {
+		return access.StateCheckable | access.StateChecked
+	}
+	return 0
+}
+
+// iconName is what a screen reader calls an icon shown without words: its name in Lucide, in words.
+func iconName(ic *icon.Icon) string {
+	if ic == nil {
+		return ""
+	}
+	return strings.ReplaceAll(ic.Name, "-", " ")
 }
 
 // AccessAct implements [gunim.AccessActor].

@@ -114,3 +114,14 @@ func TestASpinningIconTurns(t *testing.T) {
 		t.Fatal("a spinning icon says it has settled")
 	}
 }
+
+// A spinner on a page out of sight lets the window rest.
+func TestASpinnerOutOfSightStopsAskingForFrames(t *testing.T) {
+	i := NewIcon(icon.Loader2, "Loading")
+	i.Spin = true
+	_, run := stage(t, NewTabs([]string{"Shown", "Hidden"}, NewLabel("Here"), i))
+	run(5)
+	if i.Step(time.Second / 60) {
+		t.Fatal("a spinner on a hidden page still asks for frames")
+	}
+}

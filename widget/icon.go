@@ -45,6 +45,8 @@ type Icon struct {
 
 	drawn *anim.Float
 	since time.Time
+	// painted says the icon was painted since the last step; see Step.
+	painted bool
 }
 
 // NewIcon returns a node showing ic, which a screen reader calls name.
@@ -60,8 +62,16 @@ func (i *Icon) DrawOn(d time.Duration) {
 	i.drawn.Animate(1, anim.Tween{Duration: d, Ease: anim.EaseInOut})
 }
 
-// Step implements [gunim.Animator]. A spinning icon keeps drawing.
-func (i *Icon) Step(dt time.Duration) bool { return i.Group.Step(dt) || i.Spin }
+// Step implements [gunim.Animator]. A spinning icon keeps drawing while it is painted: one on a page out of sight
+// lets the window rest, and turns on where it would be once it is painted again. The engine's step of no time,
+// after a frame is painted, leaves the mark for the next frame's.
+func (i *Icon) Step(dt time.Duration) bool {
+	spin := i.Spin && i.painted
+	if dt > 0 {
+		i.painted = false
+	}
+	return i.Group.Step(dt) || spin
+}
 
 // size is the icon's size in th.
 func (i *Icon) size(th *theme.Live) float32 {
@@ -79,6 +89,7 @@ func (i *Icon) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom
 
 // Paint implements [gunim.Node]: the icon is centred in its box.
 func (i *Icon) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
+	i.painted = true
 	s := i.size(f.Theme)
 	r := geom.Rc((box.W-s)/2, (box.H-s)/2, s, s)
 	if i.Spin {
