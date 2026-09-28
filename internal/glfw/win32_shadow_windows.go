@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: 2026 The gunim Authors
 
 // gunim change: this file is gunim's. It draws a chromeless window's
-// shadow and border in a window of its own: a click-through layered
-// window, owned by the chromeless window, that follows it from the
-// window's own messages.
+// shadow and border in four windows of its own, one along each edge:
+// click-through layered windows, owned by the chromeless window, that
+// follow it from the window's own messages.
 
 package glfw
 
@@ -47,15 +47,19 @@ var (
 	procDeleteDC            = gdi32.NewProc("DeleteDC")
 	procSetTimer            = user32.NewProc("SetTimer")
 	procKillTimer           = user32.NewProc("KillTimer")
+	procBeginDeferWindowPos = user32.NewProc("BeginDeferWindowPos")
+	procDeferWindowPos      = user32.NewProc("DeferWindowPos")
+	procEndDeferWindowPos   = user32.NewProc("EndDeferWindowPos")
 
 	shadowClassRegistered bool
 )
 
-// drawnShadow is the window a chromeless window's shadow is drawn in.
+// drawnShadow is the windows a chromeless window's shadow is drawn in: strips along its top, bottom, left and right
+// edges, which leave the middle of the window uncovered for tools that pick a window by its rectangle.
 type drawnShadow struct {
-	hwnd windows.HWND
-	dc   _HDC
-	bmp  _HBITMAP
+	hwnds [4]windows.HWND
+	dc    _HDC
+	bmp   _HBITMAP
 	// measure draws solid green bands instead of a shadow, for measuring how closely it follows.
 	measure bool
 
@@ -63,8 +67,10 @@ type drawnShadow struct {
 	w, h, dpi int32
 	winW      int32
 	winH      int32
-	// left and top are how far the shadow reaches past the window's left and top edges.
+	// left and top are how far the shadow reaches past the window's left and top edges, and inX and inY how far the
+	// bitmap draws inside them, where the strips reach.
 	left, top int32
+	inX, inY  int32
 	x, y      int32
 	alpha     uint8
 
@@ -109,17 +115,23 @@ func (w *Window) SetDrawnShadow(measure bool) error {
 		}
 		shadowClassRegistered = true
 	}
-	h, err := _CreateWindowExW(_WS_EX_LAYERED|_WS_EX_TRANSPARENT|_WS_EX_TOOLWINDOW|_WS_EX_NOACTIVATE, shadowClassName, "",
-		_WS_POPUP, 0, 0, 1, 1, w.platform.handle, 0, _glfw.platformWindow.instance, nil)
-	if err != nil {
-		return err
+	s := &drawnShadow{measure: measure, restore: 1, scale: 1}
+	for i := range s.hwnds {
+		h, err := _CreateWindowExW(_WS_EX_LAYERED|_WS_EX_TRANSPARENT|_WS_EX_TOOLWINDOW|_WS_EX_NOACTIVATE, shadowClassName,
+			"", _WS_POPUP, 0, 0, 1, 1, w.platform.handle, 0, _glfw.platformWindow.instance, nil)
+		if err != nil {
+			_ = s.destroy()
+			return err
+		}
+		s.hwnds[i] = h
 	}
 	dc, _, e := procCreateCompatibleDC.Call(0)
 	if dc == 0 {
-		_ = _DestroyWindow(h)
+		_ = s.destroy()
 		return e
 	}
-	w.platform.shadow = &drawnShadow{hwnd: h, dc: _HDC(dc), measure: measure, restore: 1, scale: 1}
+	s.dc = _HDC(dc)
+	w.platform.shadow = s
 	w.roundCorners(false)
 	return nil
 }
@@ -219,9 +231,7 @@ func (w *Window) placeShadow() error {
 	main := w.platform.handle
 	alpha := s.opacity * s.restore
 	if alpha <= 0 || !_IsWindowVisible(main) || _IsIconic(main) || _IsZoomed(main) || w.monitor != nil {
-		if _IsWindowVisible(s.hwnd) {
-			_ShowWindow(s.hwnd, _SW_HIDE)
-		}
+		s.hide()
 		return nil
 	}
 	r, err := _GetWindowRect(main)
@@ -238,33 +248,109 @@ func (w *Window) placeShadow() error {
 	}
 	x, y := r.left-s.left, r.top-s.top
 	a := uint8(alpha*255 + 0.5)
+	strips := s.strips()
 	if redraw || a != s.alpha {
-		screen, err := _GetDC(0)
-		if err != nil {
+		if err := s.update(x, y, a, strips); err != nil {
 			return err
-		}
-		pos := _POINT{x: x, y: y}
-		size := [2]int32{s.w, s.h}
-		src := _POINT{}
-		blend := [4]byte{0, 0, a, _AC_SRC_ALPHA}
-		ok, _, e := procUpdateLayeredWindow.Call(uintptr(s.hwnd), uintptr(screen), uintptr(unsafe.Pointer(&pos)),
-			uintptr(unsafe.Pointer(&size)), uintptr(s.dc), uintptr(unsafe.Pointer(&src)), 0,
-			uintptr(unsafe.Pointer(&blend)), _ULW_ALPHA)
-		_ReleaseDC(0, screen)
-		if ok == 0 {
-			return e
 		}
 		s.alpha = a
 	} else if x != s.x || y != s.y {
-		if err := _SetWindowPos(s.hwnd, 0, x, y, 0, 0, _SWP_NOSIZE|_SWP_NOZORDER|_SWP_NOACTIVATE); err != nil {
+		if err := s.move(x, y, strips); err != nil {
 			return err
 		}
 	}
 	s.x, s.y = x, y
-	if !_IsWindowVisible(s.hwnd) {
-		_ShowWindow(s.hwnd, _SW_SHOWNOACTIVATE)
+	for i, st := range strips {
+		if st.w > 0 && st.h > 0 && !_IsWindowVisible(s.hwnds[i]) {
+			_ShowWindow(s.hwnds[i], _SW_SHOWNOACTIVATE)
+		}
 	}
 	return nil
+}
+
+// A strip is the part of the bitmap one of the shadow's windows shows, in bitmap pixels.
+type strip struct{ x, y, w, h int32 }
+
+// strips are the parts of the bitmap along the window's top, bottom, left and right edges: everything the bitmap draws.
+func (s *drawnShadow) strips() [4]strip {
+	top, bottom := s.top+s.inY, s.top+s.winH-s.inY
+	right := s.left + s.winW - s.inX
+	return [4]strip{
+		{0, 0, s.w, top},
+		{0, bottom, s.w, s.h - bottom},
+		{0, top, s.left + s.inX, bottom - top},
+		{right, top, s.w - right, bottom - top},
+	}
+}
+
+// update shows the bitmap in the shadow's windows at opacity a, with the bitmap's top left at x, y on the screen.
+func (s *drawnShadow) update(x, y int32, a uint8, strips [4]strip) error {
+	screen, err := _GetDC(0)
+	if err != nil {
+		return err
+	}
+	defer _ReleaseDC(0, screen)
+	blend := [4]byte{0, 0, a, _AC_SRC_ALPHA}
+	for i, st := range strips {
+		if st.w <= 0 || st.h <= 0 {
+			if _IsWindowVisible(s.hwnds[i]) {
+				_ShowWindow(s.hwnds[i], _SW_HIDE)
+			}
+			continue
+		}
+		pos := _POINT{x: x + st.x, y: y + st.y}
+		size := [2]int32{st.w, st.h}
+		src := _POINT{x: st.x, y: st.y}
+		ok, _, e := procUpdateLayeredWindow.Call(uintptr(s.hwnds[i]), uintptr(screen), uintptr(unsafe.Pointer(&pos)),
+			uintptr(unsafe.Pointer(&size)), uintptr(s.dc), uintptr(unsafe.Pointer(&src)), 0,
+			uintptr(unsafe.Pointer(&blend)), _ULW_ALPHA)
+		if ok == 0 {
+			return e
+		}
+	}
+	return nil
+}
+
+// move moves the shadow's windows together, with the bitmap's top left to x, y on the screen.
+func (s *drawnShadow) move(x, y int32, strips [4]strip) error {
+	dwp, _, e := procBeginDeferWindowPos.Call(uintptr(len(strips)))
+	if dwp == 0 {
+		return e
+	}
+	for i, st := range strips {
+		dwp, _, e = procDeferWindowPos.Call(dwp, uintptr(s.hwnds[i]), 0, uintptr(x+st.x), uintptr(y+st.y), 0, 0,
+			_SWP_NOSIZE|_SWP_NOZORDER|_SWP_NOACTIVATE)
+		if dwp == 0 {
+			return e
+		}
+	}
+	if ok, _, e := procEndDeferWindowPos.Call(dwp); ok == 0 {
+		return e
+	}
+	return nil
+}
+
+// hide hides the shadow's windows.
+func (s *drawnShadow) hide() {
+	for _, h := range s.hwnds {
+		if _IsWindowVisible(h) {
+			_ShowWindow(h, _SW_HIDE)
+		}
+	}
+}
+
+// destroy destroys the shadow's windows.
+func (s *drawnShadow) destroy() error {
+	var first error
+	for _, h := range s.hwnds {
+		if h == 0 {
+			continue
+		}
+		if err := _DestroyWindow(h); err != nil && first == nil {
+			first = err
+		}
+	}
+	return first
 }
 
 // draw draws the shadow and border for a window of winW by winH pixels at dpi, into a premultiplied bitmap: a
@@ -303,6 +389,7 @@ func (s *drawnShadow) draw(winW, winH, dpi int32, b *windowBorder) error {
 	}
 	s.w, s.h, s.dpi, s.winW, s.winH, s.left, s.top, s.drawnActive = W, H, dpi, winW, winH, side, top, s.active
 	s.restyled = false
+	s.inX, s.inY = 17, 17
 	px := s.bits
 
 	// The window's rectangle in the bitmap
@@ -344,6 +431,7 @@ func (s *drawnShadow) draw(winW, winH, dpi int32, b *windowBorder) error {
 	}
 	// Rows and columns this far inside the window are covered by it whole
 	reach := int32(max(radius, edge)) + 2
+	s.inX, s.inY = x0-side+reach+1, y0-top+reach+1
 	for y := int32(0); y < H; y++ {
 		down := strength * blur(float64(y)+0.5, fy0+drop, fy1+drop)
 		row := px[y*W : (y+1)*W]
@@ -409,5 +497,5 @@ func (w *Window) dropShadow() error {
 		_ = _DeleteObject(_HGDIOBJ(s.bmp))
 	}
 	procDeleteDC.Call(uintptr(s.dc))
-	return _DestroyWindow(s.hwnd)
+	return s.destroy()
 }
