@@ -154,7 +154,9 @@ var (
 
 // Surface tokens.
 var (
-	// Background is the window's own colour, behind everything.
+	// Background is the window's own colour, behind everything. It is
+	// the token application code reads and themes set: the engine's
+	// [gunim.WindowBackground], which lays it under a window's tree.
 	Background = gunim.WindowBackground
 	// Margin is the space Pad leaves around its child by default.
 	Margin      = theme.Insets("layout.margin", geom.Uniform(16))

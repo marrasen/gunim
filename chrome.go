@@ -210,6 +210,8 @@ func (w *Window) MakeChromeless(native bool) *driver.OffscreenFrame {
 }
 
 // WindowBackground is the theme's background: the colour under a
-// window's tree, where the tree paints nothing. The widgets' Background
-// is this token.
+// window's tree, where the tree paints nothing. Application code reads
+// and sets it as widget.Background, the same token, which is where the
+// other colours of a theme are; the engine declares it here, for a
+// window with no widgets.
 var WindowBackground = theme.Color("background", color.NRGBA{R: 0x16, G: 0x18, B: 0x1e, A: 0xff})
