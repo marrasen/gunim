@@ -9,8 +9,10 @@ import (
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
+	"github.com/marrasen/gunim/theme"
 )
 
 // Menu is a list of items to pick from, shown in a popup: the list a
@@ -32,6 +34,8 @@ type Menu struct {
 	Hints    []string
 	Checked  []bool
 	Disabled []bool
+	// Icons shows an icon before each item's text, in the same order, and may be shorter than Items.
+	Icons []*icon.Icon
 	// Breaks lists the items a line goes above, grouping the menu.
 	Breaks []int
 	// Captions lists the items that are captions over the group below
@@ -237,7 +241,7 @@ func (m *Menu) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom
 		m.hintRuns = make([]shapedText, len(m.Items))
 	}
 	size := TextSize.Get(th)
-	gutter := m.gutter()
+	gutter := m.gutter() + m.iconRoom(th)
 	w := m.MinWidth
 	m.tops = m.tops[:0]
 	y := float32(0)
@@ -319,7 +323,12 @@ func (m *Menu) Paint(p *paint.Painter, f gunim.Frame, _ geom.Size, _ gunim.Child
 		if flag(m.Checked, i) {
 			drawTick(p, geom.Pt(card.Min.X+pad+gutter/2-2, m.rowY(i)+m.row/2), col)
 		}
-		run.Paint(p, geom.Pt(card.Min.X+pad+gutter, y), col)
+		x := card.Min.X + pad + gutter
+		if i < len(m.Icons) && m.Icons[i] != nil {
+			s := IconSize.Get(th)
+			paintIcon(p, th, m.Icons[i], geom.Rc(x, m.rowY(i)+(m.row-s)/2, s, s), col, 1)
+		}
+		run.Paint(p, geom.Pt(x+m.iconRoom(th), y), col)
 		if i < len(m.Hints) && m.Hints[i] != "" {
 			h := m.hintRuns[i].run
 			if !m.enabled(i) {
@@ -333,6 +342,16 @@ func (m *Menu) Paint(p *paint.Painter, f gunim.Frame, _ geom.Size, _ gunim.Child
 
 // gutter is the room before the items' titles: a tick's, when any item
 // has one.
+// iconRoom is the room icons take before the items' text, when any item has one.
+func (m *Menu) iconRoom(th *theme.Live) float32 {
+	for _, ic := range m.Icons {
+		if ic != nil {
+			return IconSize.Get(th) + IconGap.Get(th)
+		}
+	}
+	return 0
+}
+
 func (m *Menu) gutter() float32 {
 	if slices.Contains(m.Checked, true) {
 		return menuTick

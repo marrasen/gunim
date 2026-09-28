@@ -138,3 +138,18 @@ func TestALinkShowsItsIconBeforeItsText(t *testing.T) {
 		}
 	}
 }
+
+func TestMenuItemsShowTheirIcons(t *testing.T) {
+	m := NewMenu("Copy", "Refresh", "Close")
+	f := gunim.Frame{Scale: 1}
+	plain := m.Layout(gunim.Constraints{Max: geom.Sz(400, 400)}, f, gunim.Children{})
+	m.Icons = []*icon.Icon{icon.Copy, nil, icon.X}
+	s := m.Layout(gunim.Constraints{Max: geom.Sz(400, 400)}, f, gunim.Children{})
+	if want := plain.W + IconSize.Default() + IconGap.Default(); s.W != want {
+		t.Fatalf("with icons the menu is %v wide, want %v", s.W, want)
+	}
+	ms := masksIn(painted(m, s))
+	if len(ms) != 2 || strokeOf(t, ms[0]).Icon != icon.Copy || strokeOf(t, ms[1]).Icon != icon.X {
+		t.Fatalf("the menu drew %d icons, want copy and close", len(ms))
+	}
+}
