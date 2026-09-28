@@ -262,7 +262,7 @@ func (k *f10) Layout(c gunim.Constraints, _ gunim.Frame, _ gunim.Children) geom.
 
 func (k *f10) Paint(*paint.Painter, gunim.Frame, geom.Size, gunim.Children) {}
 
-func TestOpeningACompactMenubarsMenuPutsTheKeysInIt(t *testing.T) {
+func TestF10OpensACompactMenubarsListWithTheKeysOnIt(t *testing.T) {
 	var picks []barPick
 	b := NewMenubar(
 		BarMenu{Title: "File", Items: []string{"New"}},
@@ -270,7 +270,7 @@ func TestOpeningACompactMenubarsMenuPutsTheKeysInIt(t *testing.T) {
 	)
 	b.Compact = true
 	b.Pick = func(m, i int, _ *gunim.UI) { picks = append(picks, barPick{m, i}) }
-	col := Column(b, &f10{open: func(u *gunim.UI) { b.Open(1, u) }})
+	col := Column(b, &f10{open: func(u *gunim.UI) { b.Open(0, u) }})
 	col.Cross = CrossStretch
 	w, run := stage(t, &frame{child: col, size: geom.Sz(600, 400)})
 	w.Input(input.PointerDown{Pos: geom.Pt(100, 60), Clicks: 1, Time: time.Now()})
@@ -278,16 +278,22 @@ func TestOpeningACompactMenubarsMenuPutsTheKeysInIt(t *testing.T) {
 	run(2)
 	w.Input(input.KeyPress{Key: input.KeyF10})
 	run(1)
-	if b.open != 1 || !b.inMenu {
-		t.Fatalf("F10 left menu %d open, the keys in it %v", b.open, b.inMenu)
+	if b.open != 0 || b.inMenu || b.list.Highlighted() != 0 {
+		t.Fatalf("F10 left menu %d open, File's line lit %v, the keys in the menu %v", b.open, b.list.Highlighted() == 0, b.inMenu)
 	}
 	// Opened before the list had laid out, the menu goes beside its line once it has.
 	run(3)
-	if card, row := b.panel.cardInList(), b.list.RowRect(1); card.Min.X < row.Max.X || card.Min.Y > row.Min.Y {
-		t.Fatalf("Edit's menu is on a card at %v, want beside its line, %v", card, row)
+	if card, row := b.panel.cardInList(), b.list.RowRect(0); card.Min.X < row.Max.X || card.Min.Y > row.Min.Y {
+		t.Fatalf("File's menu is on a card at %v, want beside its line, %v", card, row)
 	}
-	// Edit's Copy is disabled: Down comes to Paste.
+	// Down goes along the list to Edit, and opens its menu
 	w.Input(input.KeyPress{Key: input.KeyDown})
+	run(1)
+	if b.open != 1 || b.inMenu {
+		t.Fatalf("Down left menu %d open, the keys in the menu %v; want Edit's, the keys on the list", b.open, b.inMenu)
+	}
+	// Right goes into Edit, where Copy is disabled: Enter picks Paste
+	w.Input(input.KeyPress{Key: input.KeyRight})
 	w.Input(input.KeyPress{Key: input.KeyEnter})
 	run(20)
 	if len(picks) != 1 || picks[0] != (barPick{1, 1}) {

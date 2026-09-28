@@ -117,8 +117,9 @@ func (b *Menubar) KeepsFocus() {}
 func (b *Menubar) IsOpen() bool { return b.open >= 0 || b.listPopup != nil }
 
 // Open opens menu i, taking the keyboard, as F10 does in most
-// programs. A compact bar opens its list, with menu i beside it and
-// the keys in it.
+// programs. A compact bar opens its list, with menu i's line lit and
+// its menu beside it, and the keys on the list: Down and Up move along
+// it, and Right or Enter go into the menu.
 func (b *Menubar) Open(i int, u *gunim.UI) {
 	if i < 0 || i >= len(b.Menus) || i == b.open {
 		return
@@ -127,12 +128,9 @@ func (b *Menubar) Open(i int, u *gunim.UI) {
 		b.back = u.Focused()
 	}
 	if b.Compact {
-		// Into menu i, as from the keyboard: Left goes back out to the
-		// list.
 		b.showList(u)
 		b.list.Highlight(i)
 		b.openBeside(i, u)
-		b.inMenu = true
 		return
 	}
 	b.shut(u)
