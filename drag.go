@@ -360,7 +360,7 @@ func (u *UI) dragDrop(p geom.Point) {
 	u.drag = nil
 	id := u.holdDrop(d.source, d.ghost)
 	if d.over == nil {
-		u.endDrop(id, false)
+		u.endDropOut(id, p)
 		return
 	}
 	u.After(dropWait, func(u *UI) { u.endDrop(id, false) })
@@ -369,7 +369,7 @@ func (u *UI) dragDrop(p geom.Point) {
 		// node still hears the end when it comes.
 		u.After(ghostWait, func(u *UI) {
 			if p, ok := u.drops[id]; ok && p.ghost != nil {
-				u.dropGhost(p.ghost, false)
+				u.dropGhost(p.ghost, input.DragEnd{Time: time.Now()})
 				p.ghost = nil
 				u.drops[id] = p
 			}
@@ -393,25 +393,37 @@ func (u *UI) holdDrop(from *state, ghost *Popup) uint64 {
 // picture it carried, which then leaves. An end heard twice, or for a
 // drop unknown here, does nothing.
 func (u *UI) endDrop(id uint64, taken bool) {
+	u.endDropAs(id, input.DragEnd{Taken: taken})
+}
+
+// endDropOut ends drop id untaken, let go at p, in the window's space,
+// over no window of the application.
+func (u *UI) endDropOut(id uint64, p geom.Point) {
+	u.endDropAs(id, input.DragEnd{Out: true, At: p})
+}
+
+// endDropAs ends drop id as e says.
+func (u *UI) endDropAs(id uint64, e input.DragEnd) {
 	p, ok := u.drops[id]
 	if !ok {
 		return
 	}
 	delete(u.drops, id)
+	e.Time = time.Now()
 	if p.from != nil && p.from.parent != nil {
-		u.deliver(p.from, input.DragEnd{Taken: taken, Time: time.Now()})
+		u.deliver(p.from, e)
 	}
-	u.dropGhost(p.ghost, taken)
+	u.dropGhost(p.ghost, e)
 	u.invalid = true
 }
 
 // dropGhost tells a picture a drag let go of how the drag ended, and
 // closes it.
-func (u *UI) dropGhost(g *Popup, taken bool) {
+func (u *UI) dropGhost(g *Popup, e input.DragEnd) {
 	if g == nil || !g.Open() {
 		return
 	}
-	u.toGhost(g, input.DragEnd{Taken: taken, Time: time.Now()})
+	u.toGhost(g, e)
 	g.Close()
 }
 

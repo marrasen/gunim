@@ -138,6 +138,21 @@ func TestADragLetGoOverNothingEndsUntaken(t *testing.T) {
 	if len(c.ended) != 1 || c.ended[0].Taken {
 		t.Fatalf("the carrier heard %v, want one DragEnd, untaken", c.ended)
 	}
+	if e := c.ended[0]; !e.Out || !near(e.At, geom.Pt(3000, 50)) {
+		t.Fatalf("the carrier heard %v, want it out of every window, at (3000, 50)", e)
+	}
+}
+
+func TestADragLetGoOverAWindowIsNotOut(t *testing.T) {
+	a, _, c, _ := twoWindows(t)
+	a.Input(input.PointerDown{Pos: geom.Pt(30, 30), Time: time.Now()})
+	a.Input(input.PointerMove{Pos: geom.Pt(40, 30), Time: time.Now()})
+	// Over its own window, where nothing takes it.
+	a.Input(input.PointerUp{Pos: geom.Pt(600, 50), Time: time.Now()})
+	run(a, 1)
+	if len(c.ended) != 1 || c.ended[0].Taken || c.ended[0].Out {
+		t.Fatalf("the carrier heard %v, want one DragEnd, untaken and not out", c.ended)
+	}
 }
 
 func TestFilesDroppedOnAWindowReachTheNodeUnderThem(t *testing.T) {

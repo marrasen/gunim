@@ -183,8 +183,15 @@ type Drop struct {
 
 // DragEnd arrives at the node a drag started from once it ends, and at
 // the picture the drag carries. Taken says whether a node took the drop.
+//
+// Out says the drag was let go over no window of the application, as
+// on the desktop, and At is where, in the space of the window the drag
+// started in: a node can open a window of its own there for what it
+// carried. A drag given up with Escape is not Out.
 type DragEnd struct {
 	Taken bool
+	Out   bool
+	At    geom.Point
 	Time  time.Time
 }
 
