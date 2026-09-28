@@ -23,7 +23,7 @@ func registerPathBar(w *gunim.Window) {
 // folders of the path, and the filter.
 type pathBar struct {
 	b             *browser
-	back, fwd, up *navButton
+	back, fwd, up *widget.IconButton
 	crumbs        *crumbBar
 	field         *pathField
 	slot          *pathSlot
@@ -34,17 +34,18 @@ type pathBar struct {
 
 func newPathBar(b *browser) *pathBar {
 	p := &pathBar{b: b}
-	p.back = newNavButton("←", CmdBack)
-	p.fwd = newNavButton("→", CmdForward)
-	p.up = newNavButton("↑", CmdUp)
+	p.back = newNavButton(icon.ArrowLeft, "Back (Alt+Left)", CmdBack)
+	p.fwd = newNavButton(icon.ArrowRight, "Forward (Alt+Right)", CmdForward)
+	p.up = newNavButton(icon.ArrowUp, "Up (Alt+Up)", CmdUp)
 	p.crumbs = &crumbBar{bar: p}
 	p.field = &pathField{TextField: widget.NewTextField(), bar: p}
-	p.slot = newPathSlot(p.crumbs, p.field)
+	p.slot = newPathSlot(widget.NewThemed(p.crumbs, crumbTheme), p.field)
 	p.filter = &filterField{TextField: widget.NewTextField(), bar: p}
 	p.filter.Placeholder = "Filter this folder"
 	p.filter.Icon, p.filter.Clearable = icon.Search, true
 	p.filter.OnChange = func(s string) gunim.Intent { return FilterChanged{Text: s} }
-	p.row = widget.Row(p.back, p.fwd, p.up, p.slot, widget.NewSized(p.filter, 220, 0)).Grow(p.slot, 1)
+	nav := func(b *widget.IconButton) gunim.Node { return widget.NewSized(b, navSize, navSize) }
+	p.row = widget.Row(nav(p.back), nav(p.fwd), nav(p.up), p.slot, widget.NewSized(p.filter, 220, 0)).Grow(p.slot, 1)
 	p.row.Cross = widget.CrossCenter
 	p.row.Gap = smallGap
 	return p
@@ -53,11 +54,20 @@ func newPathBar(b *browser) *pathBar {
 // smallGap is the gap between the path bar's parts.
 var smallGap = theme.Length("files.gap.small", 4)
 
+// navSize is the size of the back, forward and up buttons.
+const navSize = 32
+
+// newNavButton returns a button that sends cmd, which leaves the keyboard with the listing when clicked.
+func newNavButton(ic *icon.Icon, tooltip, cmd string) *widget.IconButton {
+	b := widget.NewIconButton(ic, tooltip)
+	b.On, b.KeepFocus, b.Disabled = Command{Name: cmd}, true, true
+	return b
+}
+
 // setListing shows the folder of l.
 func (p *pathBar) setListing(l Listing, u *gunim.UI) {
-	p.back.enable(l.CanBack, u)
-	p.fwd.enable(l.CanForward, u)
-	p.up.enable(l.CanUp, u)
+	p.back.Disabled, p.fwd.Disabled, p.up.Disabled = !l.CanBack, !l.CanForward, !l.CanUp
+	u.Invalidate()
 	if l.Path != p.path {
 		p.path = l.Path
 		p.crumbs.set(l.Crumbs, u)
@@ -100,98 +110,17 @@ func (p *pathBar) Paint(pt *paint.Painter, f gunim.Frame, box geom.Size, kids gu
 	kids.At(0).Paint(pt)
 }
 
-// navButton is a round button with an arrow on it, dimmed while there
-// is nowhere for it to go.
-type navButton struct {
-	anim.Group
-	glyph string
-	cmd   string
-	on    bool
-	lit   *anim.Float
-	hover *anim.Float
-	press *anim.Float
-	run   text.Run
-	size  float32
-}
-
-func newNavButton(glyph, cmd string) *navButton {
-	b := &navButton{glyph: glyph, cmd: cmd, lit: anim.NewFloat(0), hover: anim.NewFloat(0), press: anim.NewFloat(0)}
-	b.Add(b.lit, b.hover, b.press)
-	return b
-}
-
-func (b *navButton) enable(on bool, u *gunim.UI) {
-	b.on = on
-	b.lit.Animate(map[bool]float32{false: 0, true: 1}[on], widget.Quick.Get(u.Theme()))
-}
-
-// Layout implements [gunim.Node].
-func (b *navButton) Layout(c gunim.Constraints, _ gunim.Frame, _ gunim.Children) geom.Size {
-	return c.Constrain(geom.Sz(32, 32))
-}
-
-// Paint implements [gunim.Node].
-func (b *navButton) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
-	th := f.Theme
-	r := geom.Rect{Max: box.Point()}
-	scale := 1 - 0.08*b.press.Value()
-	defer p.Push(paint.Scale(scale, r.Center()))()
-	if h := b.hover.Value() * b.lit.Value(); h > 0.01 {
-		c := widget.ButtonHover.Get(th)
-		c.A = uint8(float32(c.A) * min(h, 1))
-		p.RRect(r, box.H/2, paint.Solid(c))
-	}
-	size := widget.TextSize.Get(th) + 3
-	if b.size != size || len(b.run.Glyphs) == 0 {
-		b.run, b.size = text.Default().Shape(b.glyph, size), size
-	}
-	ink := widget.Ink.Get(th)
-	ink.A = uint8(float32(ink.A) * (0.3 + 0.7*min(max(b.lit.Value(), 0), 1)))
-	b.run.Paint(p, geom.Pt((box.W-b.run.Advance)/2, (box.H-b.run.Height())/2), ink)
-}
-
-// Handle implements [gunim.Handler].
-func (b *navButton) Handle(e input.Event, u *gunim.UI) bool {
-	th := u.Theme()
-	switch e := e.(type) {
-	case input.PointerEnter:
-		b.hover.Animate(1, widget.Quick.Get(th))
-	case input.PointerLeave:
-		b.hover.Animate(0, widget.Settle.Get(th))
-	case input.PointerDown:
-		if e.Button != input.ButtonPrimary || !b.on {
-			return false
-		}
-		b.press.Animate(1, widget.Quick.Get(th))
-	case input.PointerUp:
-		b.press.Animate(0, widget.Bounce.Get(th))
-		if b.on {
-			u.Send(b, Command{Name: b.cmd})
-		}
-	default:
-		return false
-	}
-	return true
-}
-
-// Cursor implements [gunim.CursorShaper].
-func (b *navButton) Cursor(geom.Point) input.Cursor { return input.CursorHand }
-
-// KeepsFocus implements [gunim.FocusKeeper], so a click leaves the
-// keyboard with the listing.
-func (b *navButton) KeepsFocus() {}
-
 // pathSlot shows the folders of the path, or the field that edits it,
 // crossfading between them.
 type pathSlot struct {
 	anim.Group
-	crumbs  *crumbBar
+	crumbs  gunim.Node
 	field   *pathField
 	editing bool
 	mix     *anim.Float
 }
 
-func newPathSlot(c *crumbBar, f *pathField) *pathSlot {
+func newPathSlot(c gunim.Node, f *pathField) *pathSlot {
 	s := &pathSlot{crumbs: c, field: f, mix: anim.NewFloat(0)}
 	s.Add(s.mix)
 	return s
@@ -309,12 +238,12 @@ func (c *crumbBar) set(cs []Crumb, u *gunim.UI) {
 	}
 	c.crumbs = c.crumbs[:keep]
 	for i := keep; i < len(cs); i++ {
-		n := newCrumb(cs[i], i-keep)
+		n := newCrumb(cs[i], c.bar)
 		c.crumbs = append(c.crumbs, n)
 		u.Insert(c, n)
 	}
 	for i, n := range c.crumbs {
-		n.last = i == len(c.crumbs)-1
+		n.setLast(i == len(c.crumbs)-1)
 	}
 	u.Invalidate()
 }
@@ -371,25 +300,50 @@ func (c *crumbBar) Handle(e input.Event, u *gunim.UI) bool {
 // Cursor implements [gunim.CursorShaper].
 func (c *crumbBar) Cursor(geom.Point) input.Cursor { return input.CursorText }
 
-// crumb is one folder of the path: its name, a link to it, and a chevron
-// after all but the last.
+// crumbTheme sizes the crumbs' buttons to fit the path bar.
+var crumbTheme = theme.Make("files.crumbs",
+	theme.Set(widget.ButtonHeight, 26),
+	theme.Set(widget.ButtonPadding, 6),
+	theme.Set(widget.ButtonRadius, 6),
+)
+
+// crumb is one folder of the path: a button that goes there, and a
+// chevron after all but the last. The last one's button edits the path.
 type crumb struct {
 	anim.Group
 	name, path string
 	last       bool
-	x          float32
-	in         *anim.Float
-	hover      *anim.Float
-	delay      int
-	run, sep   text.Run
-	size       float32
+	btn        *widget.Button
+	// x is where the crumb was placed, and pill its button's width, at the last layout.
+	x, pill float32
+	in      *anim.Float
+	sep     text.Run
+	size    float32
 }
 
-func newCrumb(c Crumb, delay int) *crumb {
-	n := &crumb{name: c.Name, path: c.Path, delay: delay, in: anim.NewFloat(0), hover: anim.NewFloat(0)}
-	n.Add(n.in, n.hover)
+func newCrumb(c Crumb, bar *pathBar) *crumb {
+	n := &crumb{name: c.Name, path: c.Path, btn: widget.NewButton(c.Name), in: anim.NewFloat(0)}
+	n.Add(n.in)
+	n.btn.Ghost, n.btn.KeepFocus = true, true
+	n.btn.OnActivate(func(u *gunim.UI) {
+		if n.last {
+			bar.edit(u)
+		}
+	})
 	return n
 }
+
+// setLast makes the crumb the last, the folder showing, or one before it.
+func (n *crumb) setLast(last bool) {
+	n.last = last
+	n.btn.Ink, n.btn.On = widget.Ink, nil
+	if !last {
+		n.btn.Ink, n.btn.On = Faint, Navigate{Path: n.path}
+	}
+}
+
+// Children implements [gunim.Composite].
+func (n *crumb) Children() []gunim.Node { return []gunim.Node{n.btn} }
 
 // Transition implements [gunim.Transitioner]: a crumb slides in from the
 // left and fades up, and fades as it leaves.
@@ -404,75 +358,39 @@ func (n *crumb) Transition(p gunim.Presence, f gunim.Frame) bool {
 	return !n.in.Active()
 }
 
-func (n *crumb) shape(th *theme.Live) {
-	size := widget.TextSize.Get(th)
-	if n.size == size && len(n.run.Glyphs) > 0 {
-		return
-	}
-	n.size = size
-	n.run = text.Default().Shape(n.name, size)
-	n.sep = text.Default().Shape("›", size)
-}
-
 // Layout implements [gunim.Node].
-func (n *crumb) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
-	n.shape(f.Theme)
-	w := n.run.Advance + 12
+func (n *crumb) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
+	if size := widget.TextSize.Get(f.Theme); n.size != size || len(n.sep.Glyphs) == 0 {
+		n.size, n.sep = size, text.Default().Shape("›", size)
+	}
+	kid := kids.At(0)
+	s := kid.Layout(gunim.Loose(c.Max))
+	kid.Place(geom.Point{})
+	n.pill = s.W
+	w := s.W
 	if !n.last {
 		w += n.sep.Advance + 8
 	}
-	return c.Constrain(geom.Sz(w, 26))
+	return c.Constrain(geom.Sz(w, s.H))
 }
 
 // Paint implements [gunim.Node].
-func (n *crumb) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
-	th := f.Theme
+func (n *crumb) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.Children) {
 	t := min(max(n.in.Value(), 0), 1)
 	if t <= 0.001 {
 		return
 	}
 	defer p.Layer(paint.LayerOpts{Bounds: geom.Rect{Max: box.Point()}.Inset(geom.Uniform(-4)), Opacity: t})()
 	defer p.Push(paint.Translate(geom.Pt(-10*(1-t), 0)))()
-	pill := geom.Rc(0, 0, n.run.Advance+12, box.H)
-	if h := n.hover.Value(); h > 0.01 {
-		c := widget.ButtonHover.Get(th)
-		c.A = uint8(float32(c.A) * min(h, 1))
-		p.RRect(pill, 6, paint.Solid(c))
-	}
-	ink := widget.Ink.Get(th)
+	kids.At(0).Paint(p)
 	if !n.last {
-		ink = Faint.Get(th)
+		n.sep.Paint(p, geom.Pt(n.pill+4, (box.H-n.sep.Height())/2), Caption.Get(f.Theme))
 	}
-	n.run.Paint(p, geom.Pt(6, (box.H-n.run.Height())/2), ink)
-	if !n.last {
-		n.sep.Paint(p, geom.Pt(pill.Max.X+4, (box.H-n.sep.Height())/2), Caption.Get(th))
-	}
-}
-
-// Handle implements [gunim.Handler].
-func (n *crumb) Handle(e input.Event, u *gunim.UI) bool {
-	switch e := e.(type) {
-	case input.PointerEnter:
-		n.hover.Animate(1, widget.Quick.Get(u.Theme()))
-	case input.PointerLeave:
-		n.hover.Animate(0, widget.Settle.Get(u.Theme()))
-	case input.PointerDown:
-		// A press on the folder showing edits the path, as one beside the
-		// folders does.
-		if e.Button != input.ButtonPrimary || e.Pos.X > n.run.Advance+12 || n.last {
-			return false
-		}
-		u.Send(n, Navigate{Path: n.path})
-	case input.PointerUp:
-	default:
-		return false
-	}
-	return true
 }
 
 // Cursor implements [gunim.CursorShaper].
 func (n *crumb) Cursor(p geom.Point) input.Cursor {
-	if p.X > n.run.Advance+12 || n.last {
+	if p.X > n.pill || n.last {
 		return input.CursorText
 	}
 	return input.CursorHand

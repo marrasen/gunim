@@ -5,47 +5,8 @@ import (
 	"github.com/marrasen/gunim/access"
 )
 
-// navNames name the path bar's buttons by their commands.
-var navNames = map[string]string{CmdBack: "Back", CmdForward: "Forward", CmdUp: "Up"}
-
-// Access implements [gunim.Accessible].
-func (b *navButton) Access() access.Info {
-	info := access.Info{Role: access.RoleButton, Name: navNames[b.cmd], Actions: []string{access.ActionPress}}
-	if !b.on {
-		info.State = access.StateDisabled
-	}
-	return info
-}
-
-// AccessAct implements [gunim.AccessActor].
-func (b *navButton) AccessAct(r access.Request, u *gunim.UI) bool {
-	if r.Action != access.ActionPress || !b.on {
-		return false
-	}
-	u.Send(b, Command{Name: b.cmd})
-	return true
-}
-
 // Access implements [gunim.Accessible]: the folders of the path.
 func (c *crumbBar) Access() access.Info { return access.Info{Role: access.RoleGroup, Name: "Path"} }
-
-// Access implements [gunim.Accessible]: a link to the folder, or for the
-// folder showing, its name.
-func (n *crumb) Access() access.Info {
-	if n.last {
-		return access.Info{Role: access.RoleLabel, Name: n.name}
-	}
-	return access.Info{Role: access.RoleLink, Name: n.name, Actions: []string{access.ActionPress}}
-}
-
-// AccessAct implements [gunim.AccessActor].
-func (n *crumb) AccessAct(r access.Request, u *gunim.UI) bool {
-	if r.Action != access.ActionPress || n.last {
-		return false
-	}
-	u.Send(n, Navigate{Path: n.path})
-	return true
-}
 
 // Access implements [gunim.Accessible]: a link to the place, with its
 // free space or why it cannot be read.
