@@ -56,24 +56,31 @@ var nodeType = reflect.TypeFor[Node]()
 // one at some depth. It is worked out from the types alone, once for each, so a node that embeds none, as most do
 // through an anim.Group, is passed over at once.
 func fieldsOf(t reflect.Type) []int {
-	idx, _ := fieldsAt(t, 0)
+	if v, ok := embedFields.Load(t); ok {
+		if idx, ok := v.([]int); ok {
+			return idx
+		}
+	}
+	idx, _ := fieldsAt(t, map[reflect.Type]bool{})
 	return idx
 }
 
-// fieldsAt is fieldsOf at depth, as far down as collectEmbedded looks. It reports whether the answer is whole, and
-// keeps only whole ones: a type met at the depth limit, as one embedding itself through a pointer is, is looked at
-// again from where it is next met.
-func fieldsAt(t reflect.Type, depth int) ([]int, bool) {
+// fieldsAt is fieldsOf, with visiting the types being worked out above
+// t. It reports whether t leads back to one of them, as a type embedding
+// itself through a pointer does. Such a field may hold a node, and is
+// kept, which is right at any depth, so every answer is kept for its
+// type.
+func fieldsAt(t reflect.Type, visiting map[reflect.Type]bool) (idx []int, loops bool) {
 	if v, ok := embedFields.Load(t); ok {
-		if idx, ok := v.([]int); ok {
-			return idx, true
+		if kept, ok := v.([]int); ok {
+			return kept, false
 		}
 	}
-	if depth > 8 {
-		return nil, false
+	if visiting[t] {
+		return nil, true
 	}
-	var idx []int
-	whole := true
+	visiting[t] = true
+	defer delete(visiting, t)
 	for i := range t.NumField() {
 		f := t.Field(i)
 		if !f.Anonymous {
@@ -90,16 +97,14 @@ func fieldsAt(t reflect.Type, depth int) ([]int, bool) {
 			idx = append(idx, i)
 			continue
 		}
-		inner, w := fieldsAt(ft, depth+1)
-		whole = whole && w
-		if len(inner) > 0 || !w {
+		inner, back := fieldsAt(ft, visiting)
+		loops = loops || back
+		if len(inner) > 0 || back {
 			idx = append(idx, i)
 		}
 	}
-	if whole {
-		embedFields.Store(t, idx)
-	}
-	return idx, whole
+	embedFields.Store(t, idx)
+	return idx, loops
 }
 
 // panicOnStrays is set by PanicOnStrays.
