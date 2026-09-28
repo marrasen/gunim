@@ -5,15 +5,15 @@ import (
 	"os"
 )
 
-// drawnShadowMode is GUNIM_DRAWN_SHADOW: "1" draws a chromeless window's shadow in a window of gunim's own instead
-// of the system's, and "measure" draws green bands there, for measuring how closely it follows.
+// drawnShadowMode is GUNIM_DRAWN_SHADOW: "0" leaves a chromeless window's shadow to the system, and "measure" draws
+// green bands instead of the drawn shadow, for measuring how closely it follows.
 var drawnShadowMode = os.Getenv("GUNIM_DRAWN_SHADOW")
 
-// startShadow gives a chromeless window a drawn shadow where GUNIM_DRAWN_SHADOW asks for one and the window presents
-// through DXGI. It runs on the main thread.
+// startShadow gives a chromeless window a drawn shadow where it presents through DXGI, unless GUNIM_DRAWN_SHADOW=0.
+// It runs on the main thread.
 func startShadow(w *Window) {
 	// Only DXGI's frames carry the alpha the cut corners need
-	if drawnShadowMode != "1" && drawnShadowMode != "measure" || !w.d.dxgi {
+	if drawnShadowMode == "0" || !w.d.dxgi {
 		return
 	}
 	if err := w.gw.SetDrawnShadow(drawnShadowMode == "measure"); err != nil {
