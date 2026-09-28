@@ -3,7 +3,6 @@ package main
 import (
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
-	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/widget"
 )
@@ -180,13 +179,4 @@ func (t *titleBar) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gu
 	for k := range kids.All {
 		k.Paint(p)
 	}
-}
-
-// Handle implements [gunim.Handler]: F10 opens the first menu.
-func (t *titleBar) Handle(e input.Event, u *gunim.UI) bool {
-	if k, ok := e.(input.KeyPress); ok && k.Key == input.KeyF10 {
-		t.bar.Open(0, u)
-		return true
-	}
-	return false
 }

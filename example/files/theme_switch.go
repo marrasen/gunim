@@ -14,7 +14,7 @@ const (
 
 // sideTheme keeps the sidebar's rows as close in either theme.
 func sideTheme() theme.Theme {
-	return theme.Make("files.side", theme.Set(widget.ListSpacing, 4))
+	return theme.Make("files.side", theme.Set(widget.ListSpacing, 4), theme.Set(widget.RowRadius, 7))
 }
 
 // handleTheme takes the commands that pick a theme.
