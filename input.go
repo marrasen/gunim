@@ -32,8 +32,11 @@ func (u *UI) handleOn(root *state, ev any) {
 	case access.Request:
 		u.accessRequest(e)
 	case driver.DragOutEnded:
-		u.endDrop(u.dragOutDrop, e.Taken)
-		u.dragOutDrop = 0
+		if len(u.dragOuts) > 0 {
+			id := u.dragOuts[0]
+			u.dragOuts = u.dragOuts[1:]
+			u.endDrop(id, e.Taken)
+		}
 	case driver.WindowMaximized:
 		if u.chrome != nil {
 			u.chrome.maximized = e.Maximized

@@ -916,11 +916,12 @@ type UI struct {
 	drag    *drag
 	dragAt  *state
 	// drops are the drags let go from here whose end is still to be
-	// heard, by number, and dropSeq the last number given. dragOutDrop
-	// is the drop handed to other programs, whose end the platform says.
-	drops       map[uint64]pendingDrop
-	dropSeq     uint64
-	dragOutDrop uint64
+	// heard, by number, and dropSeq the last number given. dragOuts are
+	// the drops handed to other programs, oldest first, whose ends the
+	// platform says in that order.
+	drops    map[uint64]pendingDrop
+	dropSeq  uint64
+	dragOuts []uint64
 	// dragOver is set while a drag is over this window, at dragOverAt,
 	// carrying dragOverData with dragOverMods held, from the window
 	// dragOverFrom.

@@ -170,8 +170,13 @@ type drag struct {
 const leaveReach = 64
 
 // ghostWait is the longest the picture a drag carries waits, once let
-// go, to hear whether the drop was taken.
-const ghostWait = 2 * time.Second
+// go, to hear whether the drop was taken, and dropWait the longest the
+// node it came from waits: a window that closed with the drop still
+// unread never answers, and the drop ends untaken.
+const (
+	ghostWait = 2 * time.Second
+	dropWait  = 10 * time.Second
+)
 
 // StartDrag starts dragging data from n, which has the pointer pressed
 // on it: call it from n's Handle, for a press or a move. ghost, when
@@ -333,11 +338,12 @@ func (u *UI) dragOut(d *drag) bool {
 		u.closePopupNow(d.ghost.s)
 	}
 	u.drag = nil
-	u.dragOutDrop = u.holdDrop(d.source, nil)
+	id := u.holdDrop(d.source, nil)
 	if err := do.DragOut(paths); err != nil {
-		u.endDrop(u.dragOutDrop, false)
-		u.dragOutDrop = 0
+		u.endDrop(id, false)
+		return true
 	}
+	u.dragOuts = append(u.dragOuts, id)
 	return true
 }
 
@@ -357,6 +363,7 @@ func (u *UI) dragDrop(p geom.Point) {
 		u.endDrop(id, false)
 		return
 	}
+	u.After(dropWait, func(u *UI) { u.endDrop(id, false) })
 	if d.ghost != nil {
 		// The picture waits so long for the answer, and then goes; the
 		// node still hears the end when it comes.
@@ -417,10 +424,21 @@ func (w *Window) sendDrag(to *Window, m dragMsg) {
 	select {
 	case to.dragIn <- m:
 	default:
-		// A window too busy to take a drag step misses it; the next
-		// move sends another.
-		if m.kind == dragDrop {
+		switch m.kind {
+		case dragDrop:
 			w.ui.endDrop(m.drop, false)
+		case dragEnded:
+			// A drop's end must arrive, or its node never hears it:
+			// it waits for the window to take it, or to close.
+			go func() {
+				select {
+				case to.dragIn <- m:
+				case <-to.done:
+				}
+			}()
+		default:
+			// A window too busy to take a drag step misses it; the
+			// next move sends another.
 		}
 	}
 }

@@ -461,3 +461,51 @@ func TestASlowAnswerReachesItsOwnDrop(t *testing.T) {
 		t.Fatal("the first drag's picture never heard its drop was taken")
 	}
 }
+
+// A drop over a window that never answers, as one that closed with the
+// drop unread, ends untaken once dropWait has passed.
+func TestADropNobodyAnswersEndsUntaken(t *testing.T) {
+	a, _, c, _ := twoWindows(t)
+	a.Input(input.PointerDown{Pos: geom.Pt(30, 30), Time: time.Now()})
+	a.Input(input.PointerMove{Pos: geom.Pt(40, 30), Time: time.Now()})
+	a.Input(input.PointerMove{Pos: geom.Pt(1000, 50), Time: time.Now()})
+	a.Input(input.PointerUp{Pos: geom.Pt(1000, 50), Time: time.Now()})
+	// Window b never draws, so never answers.
+	run(a, int(dropWait/(time.Second/60))+10)
+	if len(c.ended) != 1 || c.ended[0].Taken {
+		t.Fatalf("the carrier heard %v, want one DragEnd, untaken", c.ended)
+	}
+	if len(a.ui.drops) != 0 {
+		t.Fatalf("%d drops are still waiting", len(a.ui.drops))
+	}
+}
+
+// Two drags handed to other programs each hear their own end, in the
+// order the platform says them.
+func TestDragsHandedOutHearTheirEndsInOrder(t *testing.T) {
+	a, _, c, _ := twoWindows(t)
+	c.word = ""
+	x := &exporter{carrier: c, data: exportable{"/tmp/apple.png"}}
+	a.ui.Remove(c)
+	a.ui.Insert(a.ui.root.kids[0].node, x)
+	run(a, 60)
+	for range 2 {
+		a.Input(input.PointerDown{Pos: geom.Pt(30, 30), Time: time.Now()})
+		a.Input(input.PointerMove{Pos: geom.Pt(40, 30), Time: time.Now()})
+		run(a, 1)
+		a.Input(input.PointerMove{Pos: geom.Pt(3000, 50), Time: time.Now()})
+		a.Input(input.PointerUp{Pos: geom.Pt(3000, 50), Time: time.Now()})
+		run(a, 1)
+	}
+	if out := a.mustOffscreen(t).DraggedOut(); len(out) != 2 {
+		t.Fatalf("handed out %v, want two drags", out)
+	}
+	a.Input(driver.DragOutEnded{Taken: true})
+	a.Input(driver.DragOutEnded{Taken: false})
+	if len(x.ended) != 2 || !x.ended[0].Taken || x.ended[1].Taken {
+		t.Fatalf("the source heard %v, want the first taken and the second not", x.ended)
+	}
+	if len(a.ui.drops) != 0 {
+		t.Fatalf("%d drops are still waiting", len(a.ui.drops))
+	}
+}
