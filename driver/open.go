@@ -137,7 +137,13 @@ type DragOuter interface {
 
 // DragOutEnded is sent on [Window.Input] when a drag handed to other
 // programs ends. Taken says whether a program took the drop.
-type DragOutEnded struct{ Taken bool }
+type DragOutEnded struct {
+	Taken bool
+	// Back says the pointer came back over a window of the application with the button still down, so the window
+	// that started the drag carries it on, and At is where the pointer is, in the window's logical space.
+	Back bool
+	At   geom.Point
+}
 
 // An AccessPublisher is a [Window] that tells assistive technology,
 // such as a screen reader, what the window holds. AccessWanted reports

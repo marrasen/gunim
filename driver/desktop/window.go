@@ -572,12 +572,22 @@ const dragOutWait = 10 * time.Second
 func (w *Window) DragOut(paths []string) error {
 	ok := w.d.post(func() {
 		ended := false
-		end := func(taken bool) {
+		end := func(taken, back bool) {
 			ended = true
-			w.in.push(driver.DragOutEnded{Taken: taken})
+			e := driver.DragOutEnded{Taken: taken, Back: back}
+			if back {
+				x, y, err := w.gw.GetCursorPos()
+				if err != nil {
+					// Without the pointer the drag cannot carry on, so it ends untaken
+					w.debugf("drag back: %v", err)
+					e.Back = false
+				}
+				e.At = w.logical(x, y)
+			}
+			w.in.push(e)
 		}
 		if err := w.gw.StartDragOut(paths, end); err != nil {
-			end(false)
+			end(false, false)
 			return
 		}
 		time.AfterFunc(dragOutWait, func() {

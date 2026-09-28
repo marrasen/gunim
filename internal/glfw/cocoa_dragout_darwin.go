@@ -6,7 +6,7 @@ import "errors"
 
 // Dragging out of a window is a gunim change that Cocoa has yet to get.
 
-func (w *Window) platformStartDragOut([]string, func(bool)) error {
+func (w *Window) platformStartDragOut([]string, func(bool, bool)) error {
 	return errors.New("glfw: dragging out of a window waits on Cocoa support")
 }
 

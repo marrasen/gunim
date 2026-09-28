@@ -956,6 +956,8 @@ type UI struct {
 	drops    map[uint64]pendingDrop
 	dropSeq  uint64
 	dragOuts []uint64
+	// outDrags are the drags handed to other programs, by drop number, to carry on should the pointer come back.
+	outDrags map[uint64]*drag
 	// dragOver is set while a drag is over this window, at dragOverAt,
 	// carrying dragOverData with dragOverMods held, from the window
 	// dragOverFrom.

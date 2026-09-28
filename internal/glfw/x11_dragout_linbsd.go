@@ -36,12 +36,12 @@ type dragOut struct {
 	// dropped is set once the drop is sent, while the target reads the
 	// files and says it has finished.
 	dropped bool
-	end     func(taken bool)
+	end     func(taken, back bool)
 }
 
 var dragOutState dragOut
 
-func (w *Window) platformStartDragOut(paths []string, end func(taken bool)) error {
+func (w *Window) platformStartDragOut(paths []string, end func(taken, back bool)) error {
 	finishDragOut(false)
 	var b strings.Builder
 	for _, p := range paths {
@@ -73,7 +73,7 @@ func finishDragOut(taken bool) {
 	d := dragOutState
 	dragOutState = dragOut{}
 	if d.source != nil && d.end != nil {
-		d.end(taken)
+		d.end(taken, false)
 	}
 }
 

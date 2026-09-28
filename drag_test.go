@@ -524,3 +524,42 @@ func TestDragsHandedOutHearTheirEndsInOrder(t *testing.T) {
 		t.Fatalf("%d drops are still waiting", len(a.ui.drops))
 	}
 }
+
+func TestADragThatWentOutCarriesOnWhenThePointerComesBack(t *testing.T) {
+	a, b, c, bk := twoWindows(t)
+	x := &exporter{carrier: c, data: exportable{"/tmp/apple.png"}}
+	a.ui.Remove(c)
+	a.ui.Insert(a.ui.root.kids[0].node, x)
+	run(a, 60)
+	a.Input(input.PointerDown{Pos: geom.Pt(30, 30), Time: time.Now()})
+	a.Input(input.PointerMove{Pos: geom.Pt(40, 30), Time: time.Now()})
+	a.Input(input.PointerMove{Pos: geom.Pt(3000, 50), Time: time.Now()})
+	if len(a.mustOffscreen(t).DraggedOut()) != 1 {
+		t.Fatal("the drag far from every window was not handed out")
+	}
+	// The platform gives the drag back as the pointer comes over the other window
+	a.Input(driver.DragOutEnded{Back: true, At: geom.Pt(900, 50)})
+	if len(x.ended) != 0 {
+		t.Fatalf("the source heard %v as the drag came back, want nothing yet", x.ended)
+	}
+	a.Input(input.PointerMove{Pos: geom.Pt(900, 50), Time: time.Now()})
+	run(a, 1)
+	if len(a.ui.popups) != 1 {
+		t.Fatal("the picture under the pointer did not come back with the drag")
+	}
+	a.Input(input.PointerUp{Pos: geom.Pt(900, 50), Time: time.Now()})
+	run(b, 1)
+	run(a, 1)
+	var dropped bool
+	for _, e := range bk.events {
+		if _, ok := e.(input.Drop); ok {
+			dropped = true
+		}
+	}
+	if !dropped {
+		t.Fatal("the drag that came back did not drop in the other window")
+	}
+	if len(x.ended) != 1 || !x.ended[0].Taken {
+		t.Fatalf("the source heard %v, want one DragEnd, taken", x.ended)
+	}
+}

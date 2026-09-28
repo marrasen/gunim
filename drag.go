@@ -155,7 +155,9 @@ type drag struct {
 	source *state
 	data   any
 	ghost  *Popup
-	grab   geom.Point
+	// picture is what the ghost shows.
+	picture Node
+	grab    geom.Point
 	// over is the window the drag is over, or nil.
 	over *Window
 	// mods are the modifier keys held.
@@ -197,16 +199,42 @@ func (u *UI) StartDrag(n Node, data any, ghost Node, grab geom.Point) {
 	if !ok {
 		panic("gunim: StartDrag from a node that is not in the tree")
 	}
-	d := &drag{source: s, data: data, grab: grab}
-	if ghost != nil {
-		// The root opens the picture, so it stays while the source leaves
-		at := u.local(u.root, u.pointer).Sub(grab)
-		d.ghost = u.OpenPopup(u.root.node, ghost, PopupOptions{
-			Anchor:      geom.Rect{Min: at, Max: at},
-			Passthrough: true,
-			Over:        true,
-		})
+	d := &drag{source: s, data: data, grab: grab, picture: ghost}
+	u.openGhost(d)
+	u.drag = d
+	u.dragTo(u.pointer)
+}
+
+// openGhost opens the popup that shows d's picture under the pointer.
+func (u *UI) openGhost(d *drag) {
+	if d.picture == nil {
+		return
 	}
+	// The root opens the picture, so it stays while the source leaves
+	at := u.local(u.root, u.pointer).Sub(d.grab)
+	d.ghost = u.OpenPopup(u.root.node, d.picture, PopupOptions{
+		Anchor:      geom.Rect{Min: at, Max: at},
+		Passthrough: true,
+		Over:        true,
+	})
+}
+
+// dragBack carries on drag id, which went out to other programs, as the pointer comes back over a window of the
+// application with the button still down.
+func (u *UI) dragBack(id uint64, at geom.Point) {
+	d, ok := u.outDrags[id]
+	if !ok {
+		u.endDrop(id, false)
+		return
+	}
+	delete(u.outDrags, id)
+	delete(u.drops, id)
+	if u.drag != nil {
+		return
+	}
+	d.over = nil
+	u.pointer = at
+	u.openGhost(d)
 	u.drag = d
 	u.dragTo(u.pointer)
 }
@@ -344,6 +372,10 @@ func (u *UI) dragOut(d *drag) bool {
 		return true
 	}
 	u.dragOuts = append(u.dragOuts, id)
+	if u.outDrags == nil {
+		u.outDrags = map[uint64]*drag{}
+	}
+	u.outDrags[id] = d
 	return true
 }
 
@@ -404,6 +436,7 @@ func (u *UI) endDropOut(id uint64, p geom.Point) {
 
 // endDropAs ends drop id as e says.
 func (u *UI) endDropAs(id uint64, e input.DragEnd) {
+	delete(u.outDrags, id)
 	p, ok := u.drops[id]
 	if !ok {
 		return

@@ -22,7 +22,8 @@ import (
 // DoDragDrop runs a message loop of its own until the drop, on the main
 // thread, and GLFW's windows keep getting their messages through it.
 // It swallows the button's release, so the release is reported once it
-// returns.
+// returns. The drag is given up as the pointer comes back over one of
+// the application's windows, which takes the pointer back.
 
 var (
 	ole32                  = windows.NewLazySystemDLL("ole32.dll")
@@ -71,6 +72,8 @@ var (
 	dropSourceMethodsOnce sync.Once
 	oleOnce               sync.Once
 	oleErr                error
+	// dragOutBack says the drag out running was given up as the pointer came back over a window of the application.
+	dragOutBack bool
 )
 
 func dropSourceTable() *dropSourceVtbl {
@@ -102,6 +105,9 @@ func dropSourceTable() *dropSourceVtbl {
 					return dragdropSCancel
 				case keys&mkLButton == 0:
 					return dragdropSDrop
+				case pointerOverApp():
+					dragOutBack = true
+					return dragdropSCancel
 				}
 				return sOK
 			}),
@@ -113,7 +119,7 @@ func dropSourceTable() *dropSourceVtbl {
 	return &dropSourceMethods
 }
 
-func (w *Window) platformStartDragOut(paths []string, end func(taken bool)) error {
+func (w *Window) platformStartDragOut(paths []string, end func(taken, back bool)) error {
 	oleOnce.Do(func() {
 		if hr, _, _ := procOleInitialize.Call(0); int32(hr) < 0 {
 			oleErr = fmt.Errorf("glfw: OleInitialize: HRESULT %#x", uint32(hr))
@@ -181,12 +187,24 @@ func (w *Window) platformStartDragOut(paths []string, end func(taken bool)) erro
 	dragOutLog("the data object offers files (CF_HDROP): HRESULT %#x", queryHDrop(data))
 
 	src := &dropSource{vtbl: dropSourceTable(), refs: 1}
+	dragOutBack = false
 	var effect uint32
 	hr, _, _ = procDoDragDrop.Call(data, uintptr(unsafe.Pointer(src)), dropEffectCopy,
 		uintptr(unsafe.Pointer(&effect)))
 	dragOutLog("DoDragDrop: HRESULT %#x, effect %d", uint32(hr), effect)
 	// OLE kept the source until here.
 	src.refs = 0
+
+	if dragOutBack {
+		dragOutBack = false
+		// The button is still down: the window takes the pointer back and goes on carrying the drag
+		_SetCapture(w.platform.handle)
+		dragOutLog("the pointer came back over the application")
+		if end != nil {
+			end(false, true)
+		}
+		return nil
+	}
 
 	// DoDragDrop took the button's release; report it, so the window
 	// sees the button up.
@@ -198,9 +216,24 @@ func (w *Window) platformStartDragOut(paths []string, end func(taken bool)) erro
 	_ = _ReleaseCapture()
 
 	if end != nil {
-		end(uint32(hr) == dragdropSDrop && effect != 0)
+		end(uint32(hr) == dragdropSDrop && effect != 0, false)
 	}
 	return nil
+}
+
+// pointerOverApp reports whether the pointer is over one of the application's windows.
+func pointerOverApp() bool {
+	p, err := _GetCursorPos()
+	if err != nil {
+		return false
+	}
+	h := _WindowFromPoint(p)
+	for _, w := range _glfw.windows {
+		if w.platform.handle == h {
+			return true
+		}
+	}
+	return false
 }
 
 // platformCancelDragOut does nothing on Windows, where DoDragDrop has

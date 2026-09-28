@@ -6,8 +6,10 @@ package glfw
 // down in w, to other programs, as the files at paths. It is a gunim
 // change. From here the platform's drag and drop takes the pointer's
 // moves and the button's release, and end runs on the main thread once
-// the drag is over, saying whether a program took the drop.
-func (w *Window) StartDragOut(paths []string, end func(taken bool)) error {
+// the drag is over, saying whether a program took the drop, or whether
+// the pointer came back over one of the application's windows with the
+// button still down, which gives the pointer back to w.
+func (w *Window) StartDragOut(paths []string, end func(taken, back bool)) error {
 	if !_glfw.initialized {
 		return NotInitialized
 	}
