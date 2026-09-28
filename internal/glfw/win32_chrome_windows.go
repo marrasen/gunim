@@ -59,13 +59,14 @@ var procDwmSetWindowAttribute = dwmapi.NewProc("DwmSetWindowAttribute")
 // does its own windows', or with round unset to square them, as for a
 // window filling its monitor. Earlier versions have no round corners
 // and refuse, which leaves the window as it was. A window whose frame
-// is hidden stays square; see SetFrameHidden.
+// is hidden, or drawn by gunim, stays square; see SetFrameHidden and
+// SetDrawnShadow.
 func (w *Window) roundCorners(round bool) {
 	if procDwmSetWindowAttribute.Find() != nil {
 		return
 	}
 	pref := uint32(_DWMWCP_DONOTROUND)
-	if round && !w.platform.frameHidden {
+	if round && !w.platform.frameHidden && w.platform.shadow == nil {
 		pref = _DWMWCP_ROUND
 	}
 	_, _, _ = procDwmSetWindowAttribute.Call(uintptr(w.platform.handle), _DWMWA_WINDOW_CORNER_PREFERENCE,

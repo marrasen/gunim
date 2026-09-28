@@ -398,6 +398,7 @@ func (d *Driver) openWindow(o driver.Options) (*Window, error) {
 			// Kept off the screen until its first frame is there; see
 			// cloak. A frame that never comes uncovers it all the same.
 			cloak(w, true)
+			w.covered = true
 			time.AfterFunc(time.Second, w.uncover)
 		}
 		if err := gw.Show(); err != nil {

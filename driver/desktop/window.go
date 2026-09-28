@@ -92,6 +92,11 @@ type Window struct {
 	under color.NRGBA
 	// fading says the window is last drawn partly there; see SetFade.
 	fading bool
+	// shadow says gunim draws the window's shadow, and shadowAt is the opacity it was last given; see startShadow.
+	shadow   bool
+	shadowAt float32
+	// covered says the window is cloaked, which the drawn shadow follows. It is used on the main thread.
+	covered bool
 	// uncovered puts the window on the screen once; see uncover.
 	uncovered sync.Once
 	// opened is when the window was made, for GUNIM_DEBUG_WINDOW.
@@ -223,7 +228,16 @@ func (w *Window) SetFade(opacity float32) {
 	w.mu.Lock()
 	changed := fading != w.fading
 	w.fading = fading
+	shadow := w.shadow && opacity != w.shadowAt
+	w.shadowAt = opacity
 	w.mu.Unlock()
+	if shadow {
+		w.d.post(func() {
+			if !w.closed && !w.covered {
+				fadeShadow(w, opacity)
+			}
+		})
+	}
 	if !changed {
 		return
 	}
@@ -1077,6 +1091,11 @@ func (w *Window) uncover() {
 			if !w.closed {
 				w.debugf("uncovered")
 				cloak(w, false)
+				w.covered = false
+				w.mu.Lock()
+				o := w.shadowAt
+				w.mu.Unlock()
+				fadeShadow(w, o)
 			}
 		})
 	})

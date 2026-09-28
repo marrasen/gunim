@@ -625,7 +625,8 @@ func windowProc(hWnd windows.HWND, uMsg uint32, wParam _WPARAM, lParam _LPARAM) 
 		return uintptr(_DefWindowProcW(hWnd, uMsg, wParam, lParam))
 	}
 
-	// gunim change: a chromeless window's frame and hit test.
+	// gunim change: a chromeless window's drawn shadow, frame and hit test.
+	window.shadowMessage(uMsg, wParam)
 	if r, ok := window.chromeMessage(uMsg, wParam, lParam); ok {
 		return r
 	}
@@ -1638,6 +1639,10 @@ func (w *Window) platformCreateWindow(wndconfig *wndconfig, ctxconfig *ctxconfig
 }
 
 func (w *Window) platformDestroyWindow() error {
+	// gunim change: the drawn shadow goes first.
+	if err := w.dropShadow(); err != nil {
+		return err
+	}
 	if w.monitor != nil {
 		if err := w.releaseMonitor(); err != nil {
 			return err

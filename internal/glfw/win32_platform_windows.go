@@ -62,6 +62,8 @@ type platformWindowState struct {
 	chromeless bool
 	// frameHidden says SetFrameHidden took the frame away (gunim).
 	frameHidden  bool
+	// shadow is the window a drawn shadow is drawn in, or nil (gunim).
+	shadow *drawnShadow
 	overMaximize bool
 }
 
