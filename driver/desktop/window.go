@@ -392,7 +392,8 @@ func (w *Window) awaitFrameAtSize() {
 	start := time.Now()
 	for {
 		w.mu.Lock()
-		done := w.drawnW == w.fbW && w.drawnH == w.fbH
+		// A window that has drawn nothing yet is not on the screen
+		done := w.drawnW == w.fbW && w.drawnH == w.fbH || w.drawnW == 0 && w.drawnH == 0
 		w.mu.Unlock()
 		if done {
 			w.debugf("frame at the new size after %v", time.Since(start).Round(time.Millisecond))
