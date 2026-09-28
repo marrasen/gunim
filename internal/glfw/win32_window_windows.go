@@ -628,6 +628,7 @@ func windowProc(hWnd windows.HWND, uMsg uint32, wParam _WPARAM, lParam _LPARAM) 
 	// gunim change: a chromeless window's drawn shadow, frame and hit test.
 	window.shadowMessage(uMsg, wParam)
 	window.borderMessage(uMsg, wParam)
+	window.moveSizeMessage(uMsg)
 	if r, ok := window.chromeMessage(uMsg, wParam, lParam); ok {
 		return r
 	}

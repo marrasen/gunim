@@ -67,8 +67,8 @@ type OffscreenWindow struct {
 	// frame is the pretend frame of a window made chromeless.
 	frame *OffscreenFrame
 
-	// workArea is the pretend screen's work area in the window's space,
-	// for the room it leaves a popup; see SetWorkArea.
+	// workArea is the pretend screen's work area, in screen space, for
+	// the room it leaves a popup; see SetWorkArea.
 	workArea geom.Rect
 	// title, full, attention and border are what the application last
 	// asked of the window's frame.
@@ -95,8 +95,8 @@ func (w *OffscreenWindow) Title() string {
 	return w.title
 }
 
-// SetWorkArea sets the pretend screen's work area, in the window's logical space, for a test of popups that fit
-// themselves to it. Until it is set there is no end to it.
+// SetWorkArea sets the pretend screen's work area, in screen space, where the window sits at its origin, for a test
+// of popups that fit themselves to it. Until it is set there is no end to it.
 func (w *OffscreenWindow) SetWorkArea(area geom.Rect) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -107,8 +107,9 @@ func (w *OffscreenWindow) SetWorkArea(area geom.Rect) {
 func (w *OffscreenWindow) PopupRoom(anchor geom.Rect) Room {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	a := w.workArea
-	if a.Empty() {
+	// The work area in the window's space
+	a := w.workArea.Add(geom.Pt(-w.origin.X, -w.origin.Y))
+	if w.workArea.Empty() {
 		return NoRoomLimit
 	}
 	return Room{Below: a.Max.Y - anchor.Max.Y, Above: anchor.Min.Y - a.Min.Y, Left: anchor.Min.X - a.Min.X, Right: a.Max.X - anchor.Min.X}

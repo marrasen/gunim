@@ -139,7 +139,8 @@ type surface struct {
 	closing bool
 	// stop ends the goroutine passing the window's events on.
 	stop chan struct{}
-	// room is the room the screen leaves round roomAt, the anchor it was asked for; see PopupFitter.
+	// room is the room the screen leaves round roomAt, the anchor it was asked for, on the screen where the parent
+	// window can say; see PopupFitter.
 	room      driver.Room
 	roomAt    geom.Rect
 	roomKnown bool
@@ -366,7 +367,7 @@ func (u *UI) framePopup(s *surface, f Frame) {
 // window again only when the anchor has moved.
 func (u *UI) fitPopup(s *surface, parent driver.Window) {
 	r, ok := parent.(driver.PopupRoomer)
-	if !ok {
+	if !ok || s.closing {
 		return
 	}
 	for _, k := range s.root.kids {
@@ -374,9 +375,15 @@ func (u *UI) fitPopup(s *surface, parent driver.Window) {
 		if !ok {
 			continue
 		}
-		if a := u.popupAnchor(s); !s.roomKnown || a != s.roomAt {
+		a := u.popupAnchor(s)
+		at := a
+		if sc, ok := parent.(driver.Screener); ok {
+			// Where the anchor is on the screen, which changes as the window moves
+			at = geom.Rect{Min: sc.ToScreen(a.Min), Max: sc.ToScreen(a.Max)}
+		}
+		if !s.roomKnown || at != s.roomAt {
 			s.room = r.PopupRoom(a)
-			s.roomAt, s.roomKnown = a, true
+			s.roomAt, s.roomKnown = at, true
 		}
 		fit.FitPopup(s.room)
 	}

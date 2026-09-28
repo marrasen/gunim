@@ -709,6 +709,7 @@ func (w *Window) logical(x, y float64) geom.Point {
 // install connects GLFW's callbacks. They all run on the main thread.
 func (w *Window) install() {
 	gw := w.gw
+	watchMoveSize(w)
 	remeasure := func() {
 		was := w.Scale()
 		w.measure()

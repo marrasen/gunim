@@ -254,6 +254,17 @@ func (w *Window) chromeHit(lParam _LPARAM) int {
 
 func (w *Window) platformChromeless() bool { return w.platform.chromeless }
 
+// SetMoveSizeCallback sets the function told when the user starts moving or sizing the window by its frame or its
+// title bar, which Windows then does in a loop of its own. It is a gunim addition, on Windows alone.
+func (w *Window) SetMoveSizeCallback(f func(w *Window)) { w.platform.moveSize = f }
+
+// moveSizeMessage tells the move-or-size callback when Windows starts moving or sizing the window.
+func (w *Window) moveSizeMessage(uMsg uint32) {
+	if uMsg == _WM_ENTERSIZEMOVE && w.platform.moveSize != nil {
+		w.platform.moveSize(w)
+	}
+}
+
 func (w *Window) platformStartMoveResize(direction int) error {
 	// Windows sizes and moves from the hit test: nothing to start.
 	return nil

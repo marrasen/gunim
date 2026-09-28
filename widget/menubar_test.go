@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/marrasen/gunim"
+	"github.com/marrasen/gunim/driver"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
@@ -388,12 +389,13 @@ func TestHeadingForAnOpenMenuCrossesLinesWithoutOpeningTheirs(t *testing.T) {
 // in the window's space.
 func newRoomStage(t *testing.T, lines int, top, bottom float32) (b *Menubar, run func(int), move func(at geom.Point)) {
 	t.Helper()
-	return newAreaStage(t, lines, geom.Rect{Min: geom.Pt(-1000, top), Max: geom.Pt(5000, bottom)})
+	_, b, run, move = newAreaStage(t, lines, geom.Rect{Min: geom.Pt(-1000, top), Max: geom.Pt(5000, bottom)})
+	return b, run, move
 }
 
 // newAreaStage opens a compact bar's list, with a menu of lines items, the screen's work area being area, in the
 // window's space.
-func newAreaStage(t *testing.T, lines int, area geom.Rect) (b *Menubar, run func(int), move func(at geom.Point)) {
+func newAreaStage(t *testing.T, lines int, area geom.Rect) (w *gunim.Window, b *Menubar, run func(int), move func(at geom.Point)) {
 	t.Helper()
 	tall := BarMenu{Title: "Font"}
 	for i := range lines {
@@ -407,7 +409,7 @@ func newAreaStage(t *testing.T, lines int, area geom.Rect) (b *Menubar, run func
 	b.Compact = true
 	col := Column(b, NewTextField())
 	col.Cross = CrossStretch
-	w, run := stage(t, &frame{child: col, size: geom.Sz(600, 400)})
+	w, run = stage(t, &frame{child: col, size: geom.Sz(600, 400)})
 	w.Offscreen().SetWorkArea(area)
 	s := b.span(0)
 	clickAt(w, run, geom.Pt((s[0]+s[1])/2, 15))
@@ -417,7 +419,7 @@ func newAreaStage(t *testing.T, lines int, area geom.Rect) (b *Menubar, run func
 		list.Input(input.PointerMove{Pos: at.Add(b.panel.off), Time: time.Now()})
 		run(1)
 	}
-	return b, run, move
+	return w, b, run, move
 }
 
 func TestACompactMenubarsTallMenuMovesUpToStayOnTheScreen(t *testing.T) {
@@ -489,7 +491,7 @@ func TestAMenuTallerThanTheRoomBelowRisesAboveTheButtonWithoutTheList(t *testing
 func TestAMenuWithNoRoomOnTheRightOpensOnTheListsLeft(t *testing.T) {
 	// The screen ends just right of the list, with room on the left
 	const right = 260
-	b, run, move := newAreaStage(t, 4, geom.Rect{Min: geom.Pt(-1000, -1000), Max: geom.Pt(right, 1000)})
+	_, b, run, move := newAreaStage(t, 4, geom.Rect{Min: geom.Pt(-1000, -1000), Max: geom.Pt(right, 1000)})
 	move(middle(b.list.RowRect(1)))
 	run(40)
 	if b.open != 1 || !b.panel.left {
@@ -524,5 +526,38 @@ func TestAMenuWithNoRoomOnTheRightOpensOnTheListsLeft(t *testing.T) {
 	run(15)
 	if b.open != 1 {
 		t.Fatalf("resting on Edit's line left menu %d open", b.open)
+	}
+}
+
+func TestMovingTheWindowByItsFrameClosesACompactMenubarsList(t *testing.T) {
+	w, b, _, _, run := newCompactStage(t)
+	s := b.span(0)
+	clickAt(w, run, geom.Pt((s[0]+s[1])/2, 15))
+	if !b.IsOpen() {
+		t.Fatal("the click left the list closed")
+	}
+	// The press that starts a move goes to the system, which says so
+	w.Input(driver.MoveStarted{})
+	run(20)
+	if b.IsOpen() {
+		t.Fatal("starting to move the window left the list open")
+	}
+}
+
+func TestACompactMenubarsListFitsItselfAgainWhereTheWindowMoves(t *testing.T) {
+	// With room below, Font's menu stays level with its line
+	w, b, run, move := newAreaStage(t, 12, geom.Rect{Min: geom.Pt(-1000, -1000), Max: geom.Pt(5000, 1000)})
+	move(middle(b.list.RowRect(2)))
+	run(40)
+	level := b.list.RowRect(2).Min.Y
+	if first := b.panel.cardInList().Min.Y + b.menu.RowRect(0).Min.Y; first < level-1 || first > level+1 {
+		t.Fatalf("Font's first line is at %v, want level with its line, at %v", first, level)
+	}
+	// Moved down, so the screen ends close below the button, it moves up to stay on the screen
+	w.Offscreen().SetOrigin(geom.Pt(0, 1000-440))
+	w.Input(driver.Redraw{})
+	run(40)
+	if first := b.panel.cardInList().Min.Y + b.menu.RowRect(0).Min.Y; first >= level {
+		t.Fatalf("after the window moved down, Font's first line is at %v, not above its line, at %v", first, level)
 	}
 }

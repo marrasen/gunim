@@ -186,6 +186,10 @@ type Framer interface {
 	Maximized() bool
 }
 
+// MoveStarted is sent on [Window.Input] when the user starts moving or sizing the window by its frame or its title
+// bar, where the system takes the press that starts it for itself. It closes what a press outside would.
+type MoveStarted struct{}
+
 // A PopupRoomer is a [Window] that says how much room the screen leaves round a rectangle in its own logical space,
 // for a popup attached there: to the edges of the work area of the monitor under it.
 type PopupRoomer interface {

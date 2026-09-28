@@ -64,6 +64,8 @@ type platformWindowState struct {
 	frameHidden bool
 	// shadow is the window a drawn shadow is drawn in, or nil (gunim).
 	shadow *drawnShadow
+	// moveSize is told when the user starts moving or sizing the window by its frame (gunim).
+	moveSize func(w *Window)
 	// border is the window's border, or nil, and ncActive whether the window is drawn active (gunim).
 	border       *windowBorder
 	ncActive     bool

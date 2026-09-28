@@ -41,6 +41,12 @@ func (u *UI) handleOn(root *state, ev any) {
 		if u.chrome != nil {
 			u.chrome.maximized = e.Maximized
 		}
+	case driver.MoveStarted:
+		// The press that started it went to the system, and would have closed these
+		if root == u.root {
+			u.dismissFor(nil, nil)
+		}
+		return
 	case driver.WindowFocus:
 		if root != u.root {
 			return
