@@ -1,6 +1,7 @@
 package driver
 
 import (
+	"image/color"
 	"slices"
 	"sync"
 	"time"
@@ -61,6 +62,8 @@ type OffscreenWindow struct {
 	tree   *access.Tree
 	// hidden says the window is hidden, kept to show again.
 	hidden bool
+	// under is the colour last set under the window's frames.
+	under color.NRGBA
 	// frame is the pretend frame of a window made chromeless.
 	frame *OffscreenFrame
 
@@ -253,6 +256,20 @@ func (w *OffscreenWindow) FromScreen(p geom.Point) geom.Point {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return p.Sub(w.origin)
+}
+
+// SetBackground implements [Backgrounder].
+func (w *OffscreenWindow) SetBackground(c color.NRGBA) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.under = c
+}
+
+// Background returns the colour last set under the window's frames.
+func (w *OffscreenWindow) Background() color.NRGBA {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.under
 }
 
 // Transparent implements [Transparent]: an offscreen window blends, as

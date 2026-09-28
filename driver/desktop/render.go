@@ -103,6 +103,9 @@ type renderer struct {
 	// redrawn is the device-pixel area the last frame redrew, for
 	// tests.
 	redrawn geom.Rect
+	// under is the window's background, where a frame's first op leaves
+	// it uncovered; see driver.Backgrounder.
+	under color.NRGBA
 	// cull is the device-pixel area a frame redraws in part, while its
 	// commands are queued, and empty otherwise. A quad drawn straight
 	// to the canvas wholly outside it is left out: the scissor would
@@ -543,9 +546,12 @@ func (r *renderer) draw(ops []paint.Op, damage geom.Rect, fbW, fbH int, scale fl
 	g.BindFramebuffer(gl.FRAMEBUFFER, r.fbo(0))
 	g.Viewport(0, 0, int32(fbW), int32(fbH))
 	r.bindDraw()
-	bg, opaque := background(ops)
+	bg, alpha := background(ops)
+	if alpha == 0 && r.under.A > 0 {
+		bg, alpha = rgba(r.under), float32(r.under.A)/0xff
+	}
 	if r.direct {
-		clearWindow(g, bg, opaque)
+		clearWindow(g, bg, alpha)
 	}
 	if !box.Empty() {
 		r.setClip(box)
@@ -562,7 +568,7 @@ func (r *renderer) draw(ops []paint.Op, damage geom.Rect, fbW, fbH int, scale fl
 	if !r.direct {
 		r.canvasOK, r.canvasScale = true, scale
 		g.BindFramebuffer(gl.FRAMEBUFFER, r.windowFBO)
-		clearWindow(g, bg, opaque)
+		clearWindow(g, bg, alpha)
 		g.Clear(glColorBufferBit)
 		g.ClearColor(0, 0, 0, 0)
 		r.present(r.layers[0].tex)
@@ -576,35 +582,38 @@ func (r *renderer) draw(ops []paint.Op, damage geom.Rect, fbW, fbH int, scale fl
 // shows. It is for finding where a stray band of colour comes from.
 var debugClear = os.Getenv("GUNIM_DEBUG_CLEAR") == "1"
 
-// clearWindow sets the colour the window's framebuffer clears to: the
-// frame's background when it has an opaque one, transparent when it
-// has none, or magenta under GUNIM_DEBUG_CLEAR. Offscreen targets
-// clear to transparent, and the caller sets that back after the clear.
-func clearWindow(g gl.Context, bg [4]float32, opaque bool) {
+// clearWindow sets the colour the window's framebuffer clears to: bg
+// at alpha, premultiplied as the window blends, which is the frame's
+// background when it has an opaque one, else the window's own, or
+// transparent with alpha zero; or magenta under GUNIM_DEBUG_CLEAR.
+// Offscreen targets clear to transparent, and the caller sets that back
+// after the clear.
+func clearWindow(g gl.Context, bg [4]float32, alpha float32) {
 	switch {
 	case debugClear:
 		g.ClearColor(1, 0, 1, 1)
-	case opaque:
-		g.ClearColor(bg[0], bg[1], bg[2], 1)
+	case alpha > 0:
+		g.ClearColor(bg[0]*alpha, bg[1]*alpha, bg[2]*alpha, alpha)
 	}
 }
 
-// background returns the colour of a frame's background: its first op,
+// background returns the colour of a frame's background, and 1, or 0
+// when it has none: its first op,
 // when that is a plain opaque rectangle from the window's top left
 // corner, as a window's surface paints. A frame drawn for a smaller
 // window than the buffer holds leaves a strip the clear fills, and the
 // background colour makes that strip look like the window's own.
-func background(ops []paint.Op) ([4]float32, bool) {
+func background(ops []paint.Op) (bg [4]float32, alpha float32) {
 	if len(ops) == 0 {
-		return [4]float32{}, false
+		return [4]float32{}, 0
 	}
 	op, ok := ops[0].(*paint.RRectOp)
 	if !ok || op.Radius != 0 || op.Transform != paint.Identity || op.Fill.Gradient != nil ||
 		op.Fill.Solid.A != 0xff || op.Shadow.Color.A != 0 || op.Stroke.Width > 0 ||
 		op.Rect.Min.X > 0 || op.Rect.Min.Y > 0 {
-		return [4]float32{}, false
+		return [4]float32{}, 0
 	}
-	return rgba(op.Fill.Solid), true
+	return rgba(op.Fill.Solid), 1
 }
 
 // present queues the canvas's copy to the window, upside down for a

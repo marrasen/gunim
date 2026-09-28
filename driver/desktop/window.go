@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"image/color"
 	"os"
 	"runtime"
 	"slices"
@@ -87,6 +88,8 @@ type Window struct {
 	full     bool
 	windowed [4]int
 	err      error
+	// under is the colour the engine last set under the window's frames.
+	under color.NRGBA
 	// caret is the text caret the engine last reported, in window space
 	// and logical pixels. Platform code places an input method's
 	// composition and candidate windows from it.
@@ -195,6 +198,13 @@ func (w *Window) Size() geom.Size {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return geom.Sz(float32(w.fbW)/w.scale, float32(w.fbH)/w.scale)
+}
+
+// SetBackground implements [driver.Backgrounder].
+func (w *Window) SetBackground(c color.NRGBA) {
+	w.mu.Lock()
+	w.under = c
+	w.mu.Unlock()
 }
 
 // SetZoom implements [driver.Zoomer]. The pointer, where it rests over
@@ -759,6 +769,7 @@ func (w *Window) render() {
 		if r != nil {
 			w.mu.Lock()
 			fbW, fbH, scale, rate := w.fbW, w.fbH, w.scale, w.rate
+			r.under = w.under
 			readback, shot := w.readback, w.shot
 			w.shot = nil
 			w.mu.Unlock()

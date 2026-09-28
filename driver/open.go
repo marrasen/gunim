@@ -3,6 +3,7 @@ package driver
 import (
 	"errors"
 	"image"
+	"image/color"
 
 	"github.com/marrasen/gunim/access"
 	"github.com/marrasen/gunim/geom"
@@ -81,6 +82,14 @@ type Shooter interface {
 // window: its close button, or the system's keys for closing one. The
 // window stays open, for the engine to close or keep.
 type CloseAsked struct{}
+
+// A Backgrounder is a [Window] the engine tells the colour under its
+// frame: what shows where the frame paints nothing and its first op
+// leaves the window uncovered. Its alpha is how opaque that is, as for
+// a window fading in, and zero leaves the window clear there.
+type Backgrounder interface {
+	SetBackground(c color.NRGBA)
+}
 
 // A Transparent is a [Window] that can say whether it shows what is
 // behind it wherever nothing is painted. A popup is transparent where
