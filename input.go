@@ -60,7 +60,7 @@ func (u *UI) handleOn(root *state, ev any) {
 		}
 		target := u.focus
 		if target == nil {
-			target = u.root
+			target = u.appRoot()
 		}
 		u.bubble(target, ev)
 	case input.PointerMove:
@@ -169,7 +169,7 @@ func (u *UI) keyEvent(ev any) {
 	if ev, ok := ev.(input.Event); ok {
 		target := u.focus
 		if target == nil {
-			target = u.root
+			target = u.appRoot()
 		}
 		if !u.bubble(target, ev) {
 			u.tab(ev)

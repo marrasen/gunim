@@ -75,11 +75,9 @@ func run(runFor time.Duration, keys, typed string, graph bool, shot string, afte
 	}
 	err := gunim.Main(ctx, func(a *gunim.App) error {
 		w, err := a.NewWindow(gunim.WindowOptions{
-			Title:      "Calculator",
-			Size:       geom.Sz(980, 660),
-			Chromeless: true,
-			Arrive:     true,
-			Icons:      icons(),
+			Title: "Calculator",
+			Size:  geom.Sz(980, 660),
+			Icons: icons(),
 		})
 		if err != nil {
 			return fmt.Errorf("calculator: %w", err)

@@ -32,6 +32,11 @@ const resizeMargin = 6
 func (u *UI) startChrome() {
 	if fr, ok := u.w.dw.(driver.Framer); ok && fr.Chromeless() {
 		u.chrome = &titleBar{fr: fr, maximized: fr.Maximized()}
+		if newTitleBar != nil && u.titleBar == nil {
+			bar := newTitleBar()
+			bar.SetTitle(u.w.title)
+			u.giveTitleBar(bar)
+		}
 	}
 }
 

@@ -134,8 +134,6 @@ func windowOptions() gunim.WindowOptions {
 		Title:      "Files",
 		Size:       geom.Sz(1180, 740),
 		Root:       &root{},
-		Chromeless: true,
-		Arrive:     true,
 		ZoomKeys:   true,
 		Icons:      icons(),
 		AskToClose: CloseAsked{},

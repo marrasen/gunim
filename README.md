@@ -18,6 +18,13 @@ window at its own monitor's rate, and on Linux under X11. macOS builds
 and is still untested. Text shapes and wraps in pure Go, including
 right-to-left and mixed scripts.
 
+A window looks finished with no work from the application. By default
+gunim draws its title bar, rounded corners, border and shadow, and the
+window fades in as it opens and fades out as it closes. An application
+that puts `widget.WindowControls` in its own tree draws its own title
+bar instead. `WindowOptions.SystemFrame` keeps the system's frame, and
+`WindowOptions.Instant` turns the fade off.
+
 `example/calculator` shows the animation: a calculator with a graph, in
 a window that draws its own title bar.
 

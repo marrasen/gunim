@@ -118,20 +118,18 @@ type WindowOptions struct {
 	// after asking whether to stop what is still running. When nil, the
 	// window closes at once.
 	AskToClose Intent
-	// Chromeless takes the system's title bar and frame away, for the
-	// application to draw its own, as nodes that are [Caption] and
-	// [MaximizeButton]. The system goes on moving, snapping, sizing and
-	// maximizing the window. Where a system keeps its own title bar, as
-	// macOS does for now, [UI.Chromeless] reports false and the
-	// application draws none.
-	Chromeless bool
+	// SystemFrame keeps the system's title bar and frame. Without it a window is chromeless: it gets the title bar
+	// registered with [RegisterTitleBar], which package widget provides, and a node of the application's that is a
+	// [Caption] takes that bar's place. The system goes on moving, snapping, sizing and maximizing the window. With no
+	// title bar registered, or where a system keeps its own, as macOS does for now, the window keeps the system's.
+	SystemFrame bool
 	// Border is the thin line round a chromeless window's edge, where the platform draws one, as Windows 11 does: a
 	// colour of the application's own, or none. Its zero value is the system's; see [UI.SetBorder].
 	Border driver.Border
-	// Arrive has the window grow a little and fade in as it opens, over
-	// [ArriveTime], the way [Client.Leave] takes it away. Closed by the
-	// user, with no AskToClose, it leaves that way too.
-	Arrive bool
+	// Instant opens and closes a chromeless window at once. Without it the window grows a little and fades in as it
+	// opens, over [ArriveTime], and fades out as it closes, the way [Client.Leave] takes it away. A window with the
+	// system's frame comes and goes as the system animates it.
+	Instant bool
 	// Text says how the window draws text: greyscale or on the panel's
 	// subpixels, and hinted or not. Its zero value follows the system's
 	// settings.
@@ -151,7 +149,7 @@ func (a *App) NewWindow(o WindowOptions) (*Window, error) {
 	do := driver.Options{
 		Title: o.Title, Size: o.Size, Monitor: o.Monitor,
 		Kind: o.Kind, Anchor: geom.Rect{Min: o.Anchor, Max: o.Anchor}, Icons: o.Icons,
-		Chromeless: o.Chromeless, Border: o.Border, Text: o.Text,
+		Chromeless: !o.SystemFrame && newTitleBar != nil, Border: o.Border, Text: o.Text,
 	}
 	if o.Parent != nil {
 		do.Parent = o.Parent.dw
@@ -165,7 +163,8 @@ func (a *App) NewWindow(o WindowOptions) (*Window, error) {
 	w.title = o.Title
 	w.askToClose = o.AskToClose
 	w.ui.startChrome()
-	w.ui.arriving, w.ui.animated = o.Arrive, o.Arrive
+	animated := w.ui.chrome != nil && !o.Instant
+	w.ui.arriving, w.ui.animated = animated, animated
 	w.ui.zoomKeys = o.ZoomKeys
 	if o.Zoom > 0 {
 		w.ui.SetZoom(o.Zoom)
@@ -415,7 +414,7 @@ func (c Client) Leave() {
 }
 
 // LeaveTime is how long a window takes to leave, and ArriveTime how
-// long one opened with [WindowOptions.Arrive] takes to come in.
+// long one takes to come in, unless opened with [WindowOptions.Instant].
 const (
 	LeaveTime  = 220 * time.Millisecond
 	ArriveTime = 220 * time.Millisecond
@@ -886,12 +885,14 @@ type UI struct {
 	// chrome is the title bar of a chromeless window, nil for a window
 	// with the system's.
 	chrome *titleBar
+	// titleBar is the title bar the engine gave the window, or nil; see giveTitleBar.
+	titleBar TitleBar
 	// goingAway says the window is animating out, and leftAt is the frame
 	// it began in.
 	goingAway bool
 	leftAt    time.Time
-	// animated says the window arrives and leaves animated, as
-	// [WindowOptions.Arrive] asks.
+	// animated says the window arrives and leaves animated, unless
+	// [WindowOptions.Instant] asks otherwise.
 	animated bool
 	// arriving says the window is coming in as it opens, and arrivedAt
 	// is the frame it began in.
@@ -1055,8 +1056,16 @@ func (u *UI) nextTimer() (time.Time, bool) {
 	return at, !at.IsZero()
 }
 
-// Root returns the node at the top of the tree.
-func (u *UI) Root() Node { return u.root.node }
+// Root returns the node at the top of the application's tree, which [Root] names.
+func (u *UI) Root() Node { return u.appRoot().node }
+
+// appRoot is the top of the application's tree: the window's root, or the node below the window frame.
+func (u *UI) appRoot() *state {
+	if s := u.ids[Root]; s != nil {
+		return s
+	}
+	return u.root
+}
 
 // Now is the current frame's timestamp.
 func (u *UI) Now() time.Time { return u.now }
@@ -1112,6 +1121,10 @@ func (u *UI) SetClipboard(s string) { _ = u.w.dw.SetClipboard(s) }
 func (u *UI) SetTitle(title string) {
 	if t, ok := u.w.dw.(driver.Titler); ok {
 		t.SetTitle(title)
+	}
+	if u.titleBar != nil {
+		u.titleBar.SetTitle(title)
+		u.invalid = true
 	}
 }
 
