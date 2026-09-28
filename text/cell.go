@@ -58,7 +58,7 @@ func (b *builtins) get(bold, italic bool) *Face {
 func (f *Face) Glyph(r rune, size float32) (g paint.Glyph, advance float32, ok bool) {
 	mu.Lock()
 	defer mu.Unlock()
-	ff := fontmap{f}.ResolveFace(r)
+	ff := (&fontmap{f: f}).resolve(r)
 	gid, ok := ff.NominalGlyph(r)
 	if !ok {
 		return paint.Glyph{}, 0, false

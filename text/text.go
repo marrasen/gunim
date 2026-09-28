@@ -20,6 +20,7 @@ import (
 	"image/color"
 	"math"
 	"sync"
+	"unicode"
 
 	"github.com/go-text/typesetting/bidi"
 	"github.com/go-text/typesetting/di"
@@ -31,6 +32,7 @@ import (
 	"golang.org/x/image/font/gofont/goitalic"
 	"golang.org/x/image/font/gofont/goregular"
 	"golang.org/x/image/math/fixed"
+	"golang.org/x/text/unicode/norm"
 
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/paint"
@@ -152,10 +154,34 @@ func (f *Face) Fallback(others ...*Face) *Face {
 // fontmap resolves each character to the first face that has it, which
 // is how go-text splits a run by font: the face, then its fallbacks,
 // then the fonts installed on the system. It runs with mu held.
-type fontmap struct{ f *Face }
+//
+// A combining mark stays in its letter's face when that face has the mark, or the letter and mark as one character,
+// so the shaper draws them together; last and lastFace are the letter and its face.
+type fontmap struct {
+	f        *Face
+	last     rune
+	lastFace *font.Face
+}
 
 // ResolveFace implements [shaping.Fontmap].
-func (m fontmap) ResolveFace(r rune) *font.Face {
+func (m *fontmap) ResolveFace(r rune) *font.Face {
+	if m.lastFace != nil && unicode.In(r, unicode.Mn, unicode.Me, unicode.Mc) {
+		if _, ok := m.lastFace.NominalGlyph(r); ok {
+			return m.lastFace
+		}
+		if c := []rune(norm.NFC.String(string([]rune{m.last, r}))); len(c) == 1 {
+			if _, ok := m.lastFace.NominalGlyph(c[0]); ok {
+				m.last = c[0]
+				return m.lastFace
+			}
+		}
+	}
+	m.last, m.lastFace = r, m.resolve(r)
+	return m.lastFace
+}
+
+// resolve is the first face that has r.
+func (m *fontmap) resolve(r rune) *font.Face {
 	if _, ok := m.f.face.NominalGlyph(r); ok {
 		return m.f.face
 	}
@@ -587,7 +613,7 @@ func (f *Face) wrapLocked(runes []rune, size, width float32, cfg shaping.WrapCon
 		Face:      f.face,
 		Size:      toFixed(size),
 		Language:  language.DefaultLanguage(),
-	}, fontmap{f})
+	}, &fontmap{f: f})
 	outs := make([]shaping.Output, len(inputs))
 	for i, in := range inputs {
 		outs[i] = shaper.Shape(in)
