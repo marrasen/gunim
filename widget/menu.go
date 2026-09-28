@@ -383,6 +383,8 @@ type Dropdown struct {
 
 	Items    []string
 	Selected int
+	// Icons shows an icon before each item, as in a [Menu], and before the chosen one on the drop-down itself.
+	Icons []*icon.Icon
 	// Label names the drop-down for a screen reader, as the label
 	// beside it does on screen.
 	Label string
@@ -488,6 +490,7 @@ func (d *Dropdown) key(k input.KeyPress, u *gunim.UI) bool {
 
 func (d *Dropdown) open(u *gunim.UI) {
 	m := NewMenu(d.Items...)
+	m.Icons = d.Icons
 	m.MinWidth = d.size.W
 	m.Highlight(d.Selected)
 	m.Pick = func(i int, u *gunim.UI) {
@@ -529,12 +532,31 @@ func (d *Dropdown) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) 
 		w = max(w, probe.shape(faceIn(Font, th), s, TextSize.Get(th)).Advance)
 	}
 	pad := FieldPadding.Get(th)
-	w += 2*pad + chevron + pad
+	w += 2*pad + chevron + pad + d.iconRoom(th)
 	if d.MaxWidth > 0 {
 		w = min(w, d.MaxWidth)
 	}
 	d.size = c.Constrain(geom.Sz(w, FieldHeight.Get(th)))
 	return d.size
+}
+
+// icon returns item i's icon, or nil.
+func (d *Dropdown) icon(i int) *icon.Icon {
+	if i < 0 || i >= len(d.Icons) {
+		return nil
+	}
+	return d.Icons[i]
+}
+
+// iconRoom is the room before the drop-down's text for the icons, when any item has one, so the text keeps its
+// place from choice to choice.
+func (d *Dropdown) iconRoom(th *theme.Live) float32 {
+	for _, ic := range d.Icons {
+		if ic != nil {
+			return IconSize.Get(th) + IconGap.Get(th)
+		}
+	}
+	return 0
 }
 
 // chevron is the width of the drop-down's arrow.
@@ -558,11 +580,17 @@ func (d *Dropdown) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 
 	pad := FieldPadding.Get(th)
 	if d.Selected >= 0 && d.Selected < len(d.Items) {
+		x := pad
+		if ic := d.icon(d.Selected); ic != nil {
+			s := IconSize.Get(th)
+			paintIcon(p, th, ic, geom.Rc(x, (box.H-s)/2, s, s), Ink.Get(th), 1)
+		}
+		x += d.iconRoom(th)
 		run := d.shown.shape(faceIn(Font, th), d.Items[d.Selected], TextSize.Get(th))
-		if room := box.W - 2*pad - chevron - pad; run.Advance > room {
+		if room := box.W - x - pad - chevron - pad; run.Advance > room {
 			run = cutRun(run, d.ell.shape(faceIn(Font, th), "…", TextSize.Get(th)), room)
 		}
-		run.Paint(p, geom.Pt(pad, (box.H-run.Height())/2), Ink.Get(th))
+		run.Paint(p, geom.Pt(x, (box.H-run.Height())/2), Ink.Get(th))
 	}
 
 	// The chevron turns over as the list opens.
@@ -599,6 +627,8 @@ type ContextMenu struct {
 	Checked  []bool
 	Disabled []bool
 	Breaks   []int
+	// Icons shows an icon before each item, as in a [Menu].
+	Icons []*icon.Icon
 	// Prepare, when set, runs as the secondary button goes down at at, in
 	// the context menu's space, before the menu opens. It may set the items
 	// for the place pressed, and returning false opens no menu.
@@ -669,7 +699,7 @@ func (c *ContextMenu) Open(at geom.Point, u *gunim.UI) {
 func (c *ContextMenu) show(at geom.Point, u *gunim.UI) {
 	c.close(u)
 	m := NewMenu(c.Items...)
-	m.Hints, m.Checked, m.Disabled, m.Breaks = c.Hints, c.Checked, c.Disabled, c.Breaks
+	m.Hints, m.Checked, m.Disabled, m.Breaks, m.Icons = c.Hints, c.Checked, c.Disabled, c.Breaks, c.Icons
 	m.Pick = func(i int, u *gunim.UI) {
 		c.close(u)
 		if c.Picked != nil {

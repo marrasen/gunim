@@ -6,6 +6,7 @@ import (
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/theme"
@@ -30,6 +31,7 @@ type BarMenu struct {
 	Disabled []bool
 	Breaks   []int
 	Captions []int
+	Icons    []*icon.Icon
 }
 
 // Menubar is a row of menu titles along the top of a window, each
@@ -102,6 +104,7 @@ func (b *Menubar) Open(i int, u *gunim.UI) {
 	m := b.Menus[i]
 	menu := NewMenu(m.Items...)
 	menu.Hints, menu.Checked, menu.Disabled, menu.Breaks, menu.Captions = m.Hints, m.Checked, m.Disabled, m.Breaks, m.Captions
+	menu.Icons = m.Icons
 	menu.MinWidth = 180
 	menu.OnHighlight = func(item int, u *gunim.UI) { b.highlight(i, item, u) }
 	menu.Pick = func(item int, u *gunim.UI) {

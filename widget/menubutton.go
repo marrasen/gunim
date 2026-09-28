@@ -7,8 +7,10 @@ import (
 	"github.com/marrasen/gunim/access"
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
+	"github.com/marrasen/gunim/theme"
 )
 
 // MenuButton is a button that opens a menu below it. With StayOpen the
@@ -19,13 +21,16 @@ type MenuButton struct {
 	anim.Group
 
 	Title string
-	// Items, Hints, Checked, Breaks and Captions make the menu; see
+	// Icon shows before the title.
+	Icon *icon.Icon
+	// Items, Hints, Checked, Breaks, Captions and Icons make the menu; see
 	// [Menu].
 	Items    []string
 	Hints    []string
 	Checked  []bool
 	Breaks   []int
 	Captions []int
+	Icons    []*icon.Icon
 	// StayOpen keeps the menu open after a pick, and flips the item's tick.
 	StayOpen bool
 	// Active draws the button's border in the accent colour, as when its
@@ -146,7 +151,7 @@ func (b *MenuButton) open(u *gunim.UI) {
 
 // sync gives the open menu the button's items as they are now.
 func (b *MenuButton) sync(m *Menu) {
-	m.Items, m.Hints, m.Checked, m.Breaks, m.Captions = b.Items, b.Hints, b.Checked, b.Breaks, b.Captions
+	m.Items, m.Hints, m.Checked, m.Breaks, m.Captions, m.Icons = b.Items, b.Hints, b.Checked, b.Breaks, b.Captions, b.Icons
 }
 
 func (b *MenuButton) close(u *gunim.UI) {
@@ -165,7 +170,7 @@ func (b *MenuButton) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children
 	}
 	run := b.shown.shape(faceIn(Font, th), b.Title, TextSize.Get(th))
 	pad := FieldPadding.Get(th)
-	b.size = c.Constrain(geom.Sz(run.Advance+2*pad+chevron+pad, FieldHeight.Get(th)))
+	b.size = c.Constrain(geom.Sz(b.iconRoom(th)+run.Advance+2*pad+chevron+pad, FieldHeight.Get(th)))
 	return b.size
 }
 
@@ -188,11 +193,23 @@ func (b *MenuButton) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gun
 	}
 	p.RRectStroke(r, radius, paint.Solid(fill), paint.Stroke{Width: 1, Color: border})
 	pad := FieldPadding.Get(th)
+	if b.Icon != nil {
+		s := IconSize.Get(th)
+		paintIcon(p, th, b.Icon, geom.Rc(pad, (box.H-s)/2, s, s), Ink.Get(th), 1)
+	}
 	run := b.shown.run
-	run.Paint(p, geom.Pt(pad, (box.H-run.Height())/2), Ink.Get(th))
+	run.Paint(p, geom.Pt(pad+b.iconRoom(th), (box.H-run.Height())/2), Ink.Get(th))
 	c := geom.Pt(box.W-pad-chevron/2, box.H/2)
 	defer p.Push(paint.Rotate(math.Pi*b.turn.Value(), c))()
 	drawChevron(p, c, Ink.Get(th))
+}
+
+// iconRoom is the room the icon takes before the title, with its gap.
+func (b *MenuButton) iconRoom(th *theme.Live) float32 {
+	if b.Icon == nil {
+		return 0
+	}
+	return IconSize.Get(th) + IconGap.Get(th)
 }
 
 // Access implements [gunim.Accessible].
