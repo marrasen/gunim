@@ -1480,10 +1480,16 @@ func (u *UI) frame(now time.Time, delta time.Duration) {
 			// Eased in: slow to start, gone quickly.
 			gone = max(gone, k*k)
 		}
+		box := geom.Rect{Max: size.Point()}
 		if gone > 0 {
-			box := geom.Rect{Max: size.Point()}
 			defer u.painter.Push(paint.Scale(1-leaveShrink*gone, box.Center()))()
 			defer u.painter.Layer(paint.LayerOpts{Bounds: box, Opacity: 1 - gone})()
+		} else {
+			// All there, the window is opaque: its background under
+			// everything, so what the tree leaves unpainted, such as the
+			// gap beside a split's handle, is the window's and not the
+			// desktop's, and the driver clears to it.
+			u.painter.RRect(box, 0, paint.Solid(windowBackground.Get(f.Theme)))
 		}
 		u.root.node.Paint(&u.painter, f, u.root.size, Children{ns: u.root.kids, f: f, s: u.root})
 		u.painter.PaintFloats()

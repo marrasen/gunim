@@ -1,12 +1,14 @@
 package gunim
 
 import (
+	"image/color"
 	"slices"
 
 	"github.com/marrasen/gunim/driver"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
+	"github.com/marrasen/gunim/theme"
 )
 
 // titleBar is what the engine knows of a chromeless window's title bar:
@@ -206,3 +208,7 @@ func (w *Window) MakeChromeless(native bool) *driver.OffscreenFrame {
 	w.ui.startChrome()
 	return fr
 }
+
+// windowBackground is the theme's background, the widgets' Background,
+// which the engine lays under a window's tree.
+var windowBackground = theme.Color("background", color.NRGBA{R: 0x16, G: 0x18, B: 0x1e, A: 0xff})

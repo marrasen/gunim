@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/paint"
 )
 
@@ -75,5 +76,25 @@ func TestAWindowThatArrivedLeavesTheSameWay(t *testing.T) {
 	case <-w.done:
 	default:
 		t.Fatal("left, the window is still open")
+	}
+}
+
+// A window all there lays its opaque background under its tree first,
+// so the driver clears to it and nothing of the desktop shows through
+// what the tree leaves unpainted. While it arrives it is a layer
+// fading in, for the desktop to show through.
+func TestAWindowAllThereIsOpaqueUnderItsTree(t *testing.T) {
+	w, _, _ := newStage(t, paint.Identity)
+	w.Frame(time.Second / 60)
+	first, ok := w.Offscreen().Ops()[0].(*paint.RRectOp)
+	if !ok || first.Fill.Solid.A != 0xff || first.Rect.Min != (geom.Point{}) ||
+		first.Rect.Max != w.Offscreen().Size().Point() {
+		t.Fatalf("the frame starts with %#v, want the window's opaque background over all of it", w.Offscreen().Ops()[0])
+	}
+	w.ui.arriving = true
+	w.ui.arrivedAt = time.Time{}
+	w.Frame(time.Second / 60)
+	if _, ok := w.Offscreen().Ops()[0].(*paint.LayerOp); !ok {
+		t.Fatalf("an arriving window's frame starts with %T, want its fading layer", w.Offscreen().Ops()[0])
 	}
 }
