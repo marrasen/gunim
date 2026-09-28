@@ -32,6 +32,9 @@ type Link struct {
 	activate func(*gunim.UI)
 	hover    *anim.Float
 	shaped   shapedText
+	// laid is the text cut to its box, ending in an ellipsis, for a link
+	// given less room than its text takes.
+	laid laidText
 }
 
 // NewLink returns a link showing s.
@@ -46,11 +49,15 @@ func NewLink(s string) *Link {
 func (l *Link) OnActivate(fn func(*gunim.UI)) { l.activate = fn }
 
 func (l *Link) run(th *theme.Live) text.Run {
-	size := TextSize.Get(th)
+	return l.shaped.shape(faceIn(l.Face, th), l.Text, l.textSize(th))
+}
+
+// textSize is the link's text size in th.
+func (l *Link) textSize(th *theme.Live) float32 {
 	if l.Size.Key() != "" {
-		size = l.Size.Get(th)
+		return l.Size.Get(th)
 	}
-	return l.shaped.shape(faceIn(l.Face, th), l.Text, size)
+	return TextSize.Get(th)
 }
 
 // Layout implements [gunim.Node].
@@ -59,13 +66,22 @@ func (l *Link) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom
 }
 
 // Paint implements [gunim.Node].
-func (l *Link) Paint(p *paint.Painter, f gunim.Frame, _ geom.Size, _ gunim.Children) {
+// Given less room than its text takes, it ends the text in an ellipsis
+// within its box.
+func (l *Link) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
 	run := l.run(f.Theme)
 	ink := LinkInk.Get(f.Theme)
-	run.Paint(p, geom.Point{}, ink)
+	wide := run.Advance
+	if run.Advance > box.W+0.5 {
+		para := l.laid.layout(faceIn(l.Face, f.Theme), l.Text, text.Style{Size: l.textSize(f.Theme), MaxLines: 1}, box.W)
+		para.Paint(p, geom.Point{}, ink)
+		wide = para.Size.W
+	} else {
+		run.Paint(p, geom.Point{}, ink)
+	}
 	if t := l.hover.Value(); t > 0.01 {
 		ink.A = uint8(float32(ink.A) * min(t, 1))
-		p.RRect(geom.Rc(0, run.Ascent+1.5, run.Advance, 1), 0, paint.Solid(ink))
+		p.RRect(geom.Rc(0, run.Ascent+1.5, wide, 1), 0, paint.Solid(ink))
 	}
 }
 
