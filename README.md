@@ -284,7 +284,12 @@ done.DrawOn(600 * time.Millisecond) // strokes draw on in order
 An icon is strokes, drawn as a coverage mask. The mask is rasterized
 once per icon, pixel size and stroke width, and kept in the glyph
 atlas. It is tinted as it draws, so a theme's colour animates without
-drawing it again. `Link` and `Menu` take icons too. `go generate
+drawing it again. Links, menus, drop-downs, tabs, chips, the palette, dialogs
+and rich text take icons too. A text field shows one at its start, and
+`Clearable` gives it an X that empties it. A toast's `Kind` picks an icon
+that draws itself on as the toast arrives. The widgets' own marks, such
+as a menu's tick, a drop-down's chevron and a chip's cross, are Lucide
+icons too. `go generate
 ./icon` with `LUCIDE_REACT` set to a lucide-react package directory
 writes them again from a newer Lucide.
 

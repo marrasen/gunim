@@ -5,6 +5,9 @@
 // between the dark and light themes, and every size, colour and motion
 // animates to the new one. A row of icons shows them at 16 and 48 pixels,
 // drawing themselves on, spinning, and in buttons, a link and a menu.
+// Another card shows icons in tabs, a chip, a drop-down and rich text, a
+// button opens a danger dialog, and a toast of each kind arrives at the
+// start and when asked.
 //
 //	CGO_ENABLED=0 go run ./example/widgets
 //	CGO_ENABLED=0 go run ./example/widgets -shot widgets.png
@@ -26,6 +29,7 @@ import (
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/icon"
+	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/theme"
 	"github.com/marrasen/gunim/widget"
 )
@@ -44,6 +48,14 @@ type (
 	Closed struct{}
 	// Filtered travels as the user types in the search field.
 	Filtered struct{ Text string }
+	// DeleteAsked travels when the user presses Delete notes.
+	DeleteAsked struct{}
+	// Danger is the state of the danger dialog.
+	Danger struct{ Title string }
+	// ToastsAsked travels when the user asks for the toasts again.
+	ToastsAsked struct{}
+	// ShowToasts is the patch that shows a toast of each kind.
+	ShowToasts struct{}
 )
 
 func init() {
@@ -53,6 +65,10 @@ func init() {
 	gunim.RegisterType[Confirm]("gallery.confirm")
 	gunim.RegisterType[Closed]("gallery.closed")
 	gunim.RegisterType[Filtered]("gallery.filter")
+	gunim.RegisterType[DeleteAsked]("gallery.delete")
+	gunim.RegisterType[Danger]("gallery.danger")
+	gunim.RegisterType[ToastsAsked]("gallery.toasts")
+	gunim.RegisterType[ShowToasts]("gallery.toasts.show")
 }
 
 func main() {
@@ -77,7 +93,7 @@ func run(runFor time.Duration, shot string, after time.Duration, zoom float32) e
 	return gunim.Main(ctx, func(a *gunim.App) error {
 		w, err := a.NewWindow(gunim.WindowOptions{
 			Title: "gunim widgets",
-			Size:  geom.Sz(720, 560),
+			Size:  geom.Sz(720, 720),
 			Root:  widget.NewSurface(),
 		})
 		if err != nil {
@@ -106,19 +122,61 @@ func registerViews(w *gunim.Window) {
 				func(item string) widget.Key { return widget.Key(item) },
 				newCard, nil)
 		})
+	gunim.RegisterPatch(w, "gallery", func(g *gallery, _ ShowToasts, u *gunim.UI) { g.showToasts(u) })
 	gunim.RegisterView(w, "confirm",
 		func(s Confirm) *widget.Dialog {
 			d := widget.NewDialog(s.Title)
 			d.Accept, d.Dismiss = Closed{}, Closed{}
 			return d
 		}, nil)
+	gunim.RegisterView(w, "danger",
+		func(s Danger) *widget.Dialog {
+			d := widget.NewDialog(s.Title)
+			d.Danger = true
+			d.SetButtons("Delete", "Cancel")
+			d.Accept, d.Dismiss = Closed{}, Closed{}
+			return d
+		}, nil)
 }
 
-// gallery is the gallery view: a padded page, with a handle on the list
-// of cards so updates can sync it.
+// gallery is the gallery view: a padded page with toasts over its bottom right, and a handle on the list of cards
+// so updates can sync it.
 type gallery struct {
-	*widget.Pad
-	list *widget.List
+	page   *widget.Pad
+	list   *widget.List
+	toasts *widget.Toasts
+}
+
+// Children implements [gunim.Composite].
+func (g *gallery) Children() []gunim.Node { return []gunim.Node{g.page, g.toasts} }
+
+// Layout implements [gunim.Node]: the page fills the window, and the toasts sit at its bottom right.
+func (g *gallery) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
+	page, toasts := kids.At(0), kids.At(1)
+	page.Layout(gunim.Tight(c.Max))
+	page.Place(geom.Point{})
+	ts := toasts.Layout(gunim.Loose(geom.Sz(c.Max.W-32, c.Max.H)))
+	toasts.Place(geom.Pt(c.Max.W-ts.W-16, c.Max.H-ts.H-16))
+	return c.Max
+}
+
+// Paint implements [gunim.Node].
+func (g *gallery) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim.Children) {
+	for k := range kids.All {
+		k.Paint(p)
+	}
+}
+
+// showToasts shows a toast of each kind.
+func (g *gallery) showToasts(u *gunim.UI) {
+	for _, t := range []widget.Toast{
+		{Title: "Syncing", Body: "Your notes sync in the background.", Kind: widget.ToastInfo},
+		{Title: "Saved", Body: "The notes are saved.", Kind: widget.ToastSuccess},
+		{Title: "Disk almost full", Kind: widget.ToastWarning},
+		{Title: "Could not reach the server", Kind: widget.ToastError, Action: "Retry", On: ToastsAsked{}},
+	} {
+		g.toasts.Show(t, u)
+	}
 }
 
 // buildGallery lays the gallery out: a heading, a search field and a
@@ -128,6 +186,7 @@ func buildGallery(Gallery) *gallery {
 	title.Size = widget.HeadingSize
 	search := widget.NewTextField()
 	search.Placeholder = "Filter"
+	search.Icon, search.Clearable = icon.Search, true
 	search.OnChange = func(s string) gunim.Intent { return Filtered{Text: s} }
 	toggle := widget.NewButton("Switch theme")
 	toggle.Icon = icon.SunMoon
@@ -152,9 +211,39 @@ func buildGallery(Gallery) *gallery {
 
 	list := widget.NewList()
 	scroll := widget.NewScroll(list)
-	page := widget.Column(header, icons(), callout, notes, scroll).Grow(scroll, 1)
+	page := widget.Column(header, icons(), moreIcons(), callout, notes, scroll).Grow(scroll, 1)
 	page.Cross = widget.CrossStretch
-	return &gallery{Pad: widget.NewPad(page), list: list}
+	return &gallery{page: widget.NewPad(page), list: list, toasts: &widget.Toasts{}}
+}
+
+// moreIcons lays out a card of widgets with icons: tabs, a chip, a drop-down, rich text with icons inline, and
+// buttons for a danger dialog and the toasts.
+func moreIcons() *widget.Card {
+	tabs := widget.NewTabs([]string{"Files", "Search", "Settings"},
+		widget.NewLabel("Tabs show an icon before each title."),
+		widget.NewLabel("The chosen tab's icon is drawn in the ink."),
+		widget.NewLabel("The rest are dim."))
+	tabs.Icons = []*icon.Icon{icon.Folder, icon.Search, icon.Settings}
+	chip := widget.NewChip("", "Pictures")
+	chip.Icon = icon.Image
+	view := widget.NewDropdown("List", "Grid")
+	view.Icons = []*icon.Icon{icon.List, icon.LayoutGrid}
+	del := widget.NewButton("Delete notes")
+	del.Icon, del.Kind, del.On = icon.Trash2, widget.ButtonDanger, DeleteAsked{}
+	again := widget.NewButton("Toasts")
+	again.Icon, again.On = icon.Bell, ToastsAsked{}
+	controls := widget.Row(chip, view, del, again)
+	controls.Cross = widget.CrossCenter
+	rich := widget.NewRichText(
+		widget.RichSpan{Text: "Saved "},
+		widget.RichSpan{Icon: icon.CircleCheck, Ink: widget.ToastSuccessInk},
+		widget.RichSpan{Text: " to "},
+		widget.RichSpan{Icon: icon.FolderOpen, Text: "Documents", On: Opened{Item: "Documents"}},
+		widget.RichSpan{Text: ". Icons sit in rich text as words do, and one in a link is part of the link."},
+	)
+	col := widget.Column(tabs, controls, rich)
+	col.Cross = widget.CrossStretch
+	return widget.NewCard(col)
 }
 
 // bigIcon is the size of the large icons in the gallery.
@@ -212,6 +301,9 @@ func serve(ctx context.Context, c gunim.Client, shot string, after time.Duration
 	if err := c.Mount(gunim.Root, "gallery", "gallery", Gallery{Items: items}); err != nil {
 		return err
 	}
+	if err := c.Patch("gallery", ShowToasts{}); err != nil {
+		return err
+	}
 	filter := func(text string) Gallery {
 		var out []string
 		for _, item := range items {
@@ -249,6 +341,11 @@ func serve(ctx context.Context, c gunim.Client, shot string, after time.Duration
 			case Opened:
 				_ = c.Mount(gunim.Root, "confirm", "confirm", Confirm{Title: "Open " + v.Item})
 				_ = c.Focus("confirm")
+			case DeleteAsked:
+				_ = c.Mount(gunim.Root, "danger", "danger", Danger{Title: "Delete all notes?"})
+				_ = c.Focus("danger")
+			case ToastsAsked:
+				_ = c.Patch("gallery", ShowToasts{})
 			case gunim.CommandFailed:
 				log.Printf("command %s failed: %s", v.Command, v.Reason)
 			}
