@@ -988,6 +988,18 @@ func (g *DataGrid) rowAtY(y float32) int {
 	if i < 0 || i >= g.rows {
 		return -1
 	}
+	if len(g.gone) == 0 {
+		return i
+	}
+	// While rows leave, the rows below them are drawn lower, by what has
+	// yet to shut: the row drawn at y is this one or one above it. Where
+	// y falls in the room a leaving row still takes, no row is there.
+	for i > 0 && g.rowY(i) > y {
+		i--
+	}
+	if y < g.rowY(i) || y >= g.rowY(i)+g.rowH {
+		return -1
+	}
 	return i
 }
 
@@ -1009,7 +1021,7 @@ func (g *DataGrid) RowRect(i int) (geom.Rect, bool) {
 	if g.th == nil || i < 0 || i >= g.rows || g.rowH <= 0 {
 		return geom.Rect{}, false
 	}
-	y := g.header + float32((float64(i)-g.top)*float64(g.rowH))
+	y := g.rowY(i)
 	if y+g.rowH <= g.header || y >= g.view.H {
 		return geom.Rect{}, false
 	}

@@ -323,3 +323,42 @@ func TestLeavingRowsShutAndTheRowsBelowSlideUp(t *testing.T) {
 		t.Fatal("a second in, the rows have not all left and settled")
 	}
 }
+
+// While rows leave, a point finds the row drawn under it, and RowRect
+// says where a row is drawn; the room a leaving row still takes is no
+// row's.
+func TestAPointFindsTheRowDrawnThereWhileRowsLeave(t *testing.T) {
+	names := make([]string, 100)
+	for i := range names {
+		names[i] = strconv.Itoa(i)
+	}
+	shown := names
+	g := NewDataGrid(GridColumn{Title: "Name"})
+	g.Row = func(i int) (GridRow, bool) { return GridRow{Cells: [][]GridSpan{{{Text: shown[i]}}}}, true }
+	g.rows = len(names)
+	w, run := stage(t, &frame{child: g, size: geom.Sz(400, 300)})
+	type leave struct{}
+	gunim.RegisterPatch(w, "stage", func(_ gunim.Node, _ leave, u *gunim.UI) {
+		g.Leave([]int{3, 4}, u)
+		shown = slices.Concat(names[:3], names[5:])
+		g.SetRows(len(shown), u)
+	})
+	if err := w.Client().Patch("stage", leave{}); err != nil {
+		t.Fatal(err)
+	}
+	run(6)
+	drawn := g.rowY(3)
+	settled := g.header + 3*g.rowH
+	if drawn <= settled+2 {
+		t.Fatalf("100 ms in, row 3 is drawn at %v, want it still below %v", drawn, settled)
+	}
+	if got := g.rowAtY(drawn + 1); got != 3 {
+		t.Fatalf("a point on the row drawn as row 3 finds row %d", got)
+	}
+	if r, ok := g.RowRect(3); !ok || r.Min.Y != drawn {
+		t.Fatalf("RowRect(3) is %v, want it at %v, where the row is drawn", r, drawn)
+	}
+	if got := g.rowAtY(settled + 1); got != -1 {
+		t.Fatalf("a point in the room the leaving rows still take finds row %d", got)
+	}
+}
