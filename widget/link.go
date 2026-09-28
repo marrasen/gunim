@@ -7,6 +7,7 @@ import (
 	"github.com/marrasen/gunim/access"
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/text"
@@ -22,6 +23,8 @@ var LinkInk = theme.Foreground("link.ink", color.NRGBA{R: 0x7c, G: 0x9c, B: 0xff
 type Link struct {
 	anim.Group
 	Text string
+	// Icon shows before the text, as tall as the text and in its colour.
+	Icon *icon.Icon
 	// Size and Face default to the theme's [TextSize] and [Font].
 	Size theme.Token[float32]
 	Face theme.Token[*text.Face]
@@ -62,7 +65,17 @@ func (l *Link) textSize(th *theme.Live) float32 {
 
 // Layout implements [gunim.Node].
 func (l *Link) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
-	return c.Constrain(l.run(f.Theme).Box())
+	s := l.run(f.Theme).Box()
+	s.W += l.iconWidth(f.Theme)
+	return c.Constrain(s)
+}
+
+// iconWidth is the room the link's icon takes before its text, with the gap.
+func (l *Link) iconWidth(th *theme.Live) float32 {
+	if l.Icon == nil {
+		return 0
+	}
+	return l.textSize(th) + IconGap.Get(th)
 }
 
 // Paint implements [gunim.Node].
@@ -71,17 +84,23 @@ func (l *Link) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom
 func (l *Link) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
 	run := l.run(f.Theme)
 	ink := LinkInk.Get(f.Theme)
+	x := l.iconWidth(f.Theme)
+	if l.Icon != nil {
+		s := l.textSize(f.Theme)
+		paintIcon(p, f.Theme, l.Icon, geom.Rc(0, (run.Height()-s)/2, s, s), ink, 1)
+	}
 	wide := run.Advance
-	if run.Advance > box.W+0.5 {
-		para := l.laid.layout(faceIn(l.Face, f.Theme), l.Text, text.Style{Size: l.textSize(f.Theme), MaxLines: 1}, box.W)
-		para.Paint(p, geom.Point{}, ink)
+	if run.Advance > box.W-x+0.5 {
+		para := l.laid.layout(faceIn(l.Face, f.Theme), l.Text, text.Style{Size: l.textSize(f.Theme), MaxLines: 1},
+			max(box.W-x, 0))
+		para.Paint(p, geom.Pt(x, 0), ink)
 		wide = para.Size.W
 	} else {
-		run.Paint(p, geom.Point{}, ink)
+		run.Paint(p, geom.Pt(x, 0), ink)
 	}
 	if t := l.hover.Value(); t > 0.01 {
 		ink.A = uint8(float32(ink.A) * min(t, 1))
-		p.RRect(geom.Rc(0, run.Ascent+1.5, wide, 1), 0, paint.Solid(ink))
+		p.RRect(geom.Rc(x, run.Ascent+1.5, wide, 1), 0, paint.Solid(ink))
 	}
 }
 

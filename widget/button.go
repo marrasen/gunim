@@ -14,6 +14,7 @@ import (
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/theme"
@@ -33,6 +34,8 @@ type Button struct {
 	anim.Group
 
 	Label string
+	// Icon shows before the label, in the label's colour. A button with an icon and no label is square.
+	Icon *icon.Icon
 	// Kind says how much the button stands out: plain, primary for the
 	// action a dialog expects, or danger for one that destroys, such as
 	// Delete.
@@ -60,6 +63,10 @@ type Button struct {
 	was, is ButtonKind
 	held    bool
 	text    shapedText
+	// ghost leaves the fill clear until the pointer is over the button.
+	ghost bool
+	// self is the node the button sends from, when it is part of a larger one.
+	self gunim.Node
 }
 
 // NewButton returns a button showing label.
@@ -144,14 +151,23 @@ func (b *Button) fire(u *gunim.UI) {
 		b.activate(u)
 	}
 	if b.On != nil {
-		u.Send(b, b.On)
+		var from gunim.Node = b
+		if b.self != nil {
+			from = b.self
+		}
+		u.Send(from, b.On)
 	}
 }
 
 // Layout implements [gunim.Node].
 func (b *Button) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
-	run := b.text.shape(faceIn(Font, f.Theme), b.Label, TextSize.Get(f.Theme))
-	b.size = c.Constrain(geom.Sz(run.Advance+2*ButtonPadding.Get(f.Theme), ButtonHeight.Get(f.Theme)))
+	th := f.Theme
+	h := ButtonHeight.Get(th)
+	w := h
+	if b.Label != "" || b.Icon == nil {
+		w = b.content(th) + 2*ButtonPadding.Get(th)
+	}
+	b.size = c.Constrain(geom.Sz(w, h))
 	if b.Kind != b.is {
 		b.was, b.is = b.is, b.Kind
 		b.tone.Jump(0)
@@ -192,10 +208,38 @@ func (b *Button) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 	mix := func(from, to theme.Token[color.NRGBA]) color.NRGBA {
 		return anim.Mix(anim.ColorCodec, from.Get(th), to.Get(th), t)
 	}
-	fill := anim.Mix(anim.ColorCodec, mix(fromRest, rest), mix(fromHover, hover), b.hover.Value())
+	restFill, hoverFill := mix(fromRest, rest), mix(fromHover, hover)
+	if b.ghost {
+		restFill = hoverFill
+		restFill.A = 0
+	}
+	fill := anim.Mix(anim.ColorCodec, restFill, hoverFill, b.hover.Value())
 	p.RRect(r, radius, paint.Solid(fill))
-	run := b.text.shape(faceIn(Font, th), b.Label, TextSize.Get(th))
-	run.Paint(p, geom.Pt((box.W-run.Advance)/2, (box.H-run.Height())/2), mix(fromInk, ink))
+	x := (box.W - b.content(th)) / 2
+	if b.Icon != nil {
+		s := IconSize.Get(th)
+		paintIcon(p, th, b.Icon, geom.Rc(x, (box.H-s)/2, s, s), mix(fromInk, ink), 1)
+		x += s + IconGap.Get(th)
+	}
+	if b.Label != "" {
+		run := b.text.shape(faceIn(Font, th), b.Label, TextSize.Get(th))
+		run.Paint(p, geom.Pt(x, (box.H-run.Height())/2), mix(fromInk, ink))
+	}
+}
+
+// content is the width of the button's icon and label, side by side.
+func (b *Button) content(th *theme.Live) float32 {
+	w := float32(0)
+	if b.Label != "" || b.Icon == nil {
+		w = b.text.shape(faceIn(Font, th), b.Label, TextSize.Get(th)).Advance
+	}
+	if b.Icon != nil {
+		w += IconSize.Get(th)
+		if b.Label != "" {
+			w += IconGap.Get(th)
+		}
+	}
+	return w
 }
 
 // toneTime is how long a button takes to fade into a new kind's colours.
