@@ -45,6 +45,8 @@ type frame struct {
 	// wheel and keys count the wheel events and key presses that reach
 	// the frame, after its child has passed them on.
 	wheel, keys int
+	// keysGoOn passes the key presses on past the frame, to the window's key catchers.
+	keysGoOn bool
 }
 
 func (f *frame) Handle(e input.Event, _ *gunim.UI) bool {
@@ -57,7 +59,7 @@ func (f *frame) Handle(e input.Event, _ *gunim.UI) bool {
 			return false // for the engine to move focus
 		}
 		f.keys++
-		return true
+		return !f.keysGoOn
 	}
 	return false
 }

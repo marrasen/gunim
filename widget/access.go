@@ -201,8 +201,8 @@ func (d *Dropdown) AccessAct(r access.Request, u *gunim.UI) bool {
 // entry, the highlighted one active.
 func (m *Menu) Access() access.Info {
 	info := access.Info{Role: access.RoleMenu, Active: m.hot + 1}
-	for i, s := range m.Items {
-		part := access.Info{Role: access.RoleMenuItem, Name: s, Actions: []string{access.ActionPress}}
+	for i := range m.Items {
+		part := access.Info{Role: access.RoleMenuItem, Name: m.label(i), Actions: []string{access.ActionPress}}
 		if i == m.hot {
 			part.State = access.StateSelected
 		}

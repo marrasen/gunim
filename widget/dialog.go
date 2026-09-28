@@ -231,10 +231,12 @@ func (d *Dialog) Handle(e input.Event, u *gunim.UI) bool {
 		return true
 	}
 	// A modal swallows the pointer events that reach it, keeping clicks
-	// off whatever lies behind.
-	switch e.(type) {
-	case input.PointerDown, input.PointerUp, input.Scroll:
+	// off whatever lies behind, and keeps the window's menus shut.
+	switch e := e.(type) {
+	case input.PointerDown, input.PointerUp, input.Scroll, input.AltTapped:
 		return true
+	case input.KeyPress:
+		return e.Key == input.KeyF10 || e.Mods.Has(input.ModAlt)
 	}
 	return false
 }

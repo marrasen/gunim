@@ -234,9 +234,9 @@ func (e *editor) key(k input.KeyPress, u *gunim.UI, n navigator) bool {
 		}
 		e.clipboard(k.Key, start, end, u)
 	default:
-		// Keys with a modifier are shortcuts for someone else; the rest
-		// are typing, which arrives as TextInput.
-		return !ctrl && !k.Mods.Has(input.ModAlt)
+		// Keys with a modifier are shortcuts for someone else, as are the
+		// function keys; the rest are typing, which arrives as TextInput.
+		return !ctrl && !k.Mods.Has(input.ModAlt) && !functionKey(k.Key)
 	}
 	return true
 }
@@ -343,4 +343,9 @@ func abs32(v float32) float32 {
 		return -v
 	}
 	return v
+}
+
+// functionKey reports whether k is one of F1 to F24.
+func functionKey(k input.Key) bool {
+	return k >= input.KeyF1 && k <= input.KeyF12 || k >= input.KeyF13 && k <= input.KeyF24
 }

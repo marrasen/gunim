@@ -29,7 +29,7 @@ func newBarStage(t *testing.T) (*gunim.Window, *Menubar, *TextField, *[]barPick,
 	field := NewTextField()
 	col := Column(b, field)
 	col.Cross = CrossStretch
-	w, run := stage(t, &frame{child: col, size: geom.Sz(600, 400)})
+	w, run := stage(t, &frame{child: col, size: geom.Sz(600, 400), keysGoOn: true})
 	w.Input(input.PointerDown{Pos: geom.Pt(100, 60), Clicks: 1, Time: time.Now()})
 	w.Input(input.PointerUp{Pos: geom.Pt(100, 60), Time: time.Now()})
 	run(2)

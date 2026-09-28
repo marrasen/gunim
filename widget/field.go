@@ -25,7 +25,8 @@ import (
 // and focus grows a ring around the field.
 //
 // While the field has focus, keys pressed without Ctrl, Alt or Super
-// stop at it, so typing never sets off a window's shortcuts.
+// stop at it, so typing never sets off a window's shortcuts. The
+// function keys go on.
 //
 // An input method composes in place: the composition shows at the caret,
 // underlined, with the input method's own caret or highlight inside it,

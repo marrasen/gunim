@@ -49,6 +49,12 @@ type Menu struct {
 	// MinWidth is the narrowest the menu gets, so a drop-down's list is
 	// at least as wide as the drop-down.
 	MinWidth float32
+	// AccessKeys has the items mark their access keys with a & before the letter, as "&Open", which is not drawn.
+	// Without a mark an item's key is its first letter. Typing a key picks its item; see [Menu.Key].
+	AccessKeys bool
+
+	// cues underlines the access keys.
+	cues bool
 
 	hot   int
 	glide bool
@@ -129,9 +135,10 @@ func (m *Menu) Highlight(i int) {
 func (m *Menu) Highlighted() int { return m.hot }
 
 // Key moves the highlight with the arrow keys, Home and End, and picks
-// the highlighted item with Enter or Space. It is for the node that
-// opened the menu, which keeps the keyboard, to pass keys on. It
-// reports whether it used the key.
+// the highlighted item with Enter or Space. With AccessKeys, a letter
+// picks the item whose key it is, or moves the highlight among several.
+// It is for the node that opened the menu, which keeps the keyboard, to
+// pass keys on. It reports whether it used the key.
 func (m *Menu) Key(k input.KeyPress, u *gunim.UI) bool {
 	defer m.told(m.hot, u)
 	switch k.Key {
@@ -152,9 +159,47 @@ func (m *Menu) Key(k input.KeyPress, u *gunim.UI) bool {
 			m.Pick(m.hot, u)
 		}
 	default:
-		return false
+		return m.AccessKeys && m.pickByKey(k, u)
 	}
 	return true
+}
+
+// pickByKey picks the item whose access key k types. With several such items it moves the highlight to the next.
+func (m *Menu) pickByKey(k input.KeyPress, u *gunim.UI) bool {
+	r := keyRune(k)
+	if r == 0 || k.Mods.Has(input.ModControl) || k.Mods.Has(input.ModAlt) {
+		return false
+	}
+	var hits []int
+	for i, s := range m.Items {
+		if _, key, _ := accessKey(s); key == r && m.enabled(i) {
+			hits = append(hits, i)
+		}
+	}
+	if len(hits) == 0 {
+		return false
+	}
+	next := hits[0]
+	for _, i := range hits {
+		if i > m.hot {
+			next = i
+			break
+		}
+	}
+	m.Highlight(next)
+	if len(hits) == 1 && m.Pick != nil {
+		m.Pick(next, u)
+	}
+	return true
+}
+
+// label returns item i as it is drawn: without its access key's mark, with AccessKeys.
+func (m *Menu) label(i int) string {
+	if !m.AccessKeys {
+		return m.Items[i]
+	}
+	shown, _, _ := accessKey(m.Items[i])
+	return shown
 }
 
 // PopupPadding implements [gunim.PopupPadder]: the room around the
@@ -257,13 +302,13 @@ func (m *Menu) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom
 	w := m.MinWidth
 	m.tops = m.tops[:0]
 	y := float32(0)
-	for i, s := range m.Items {
+	for i := range m.Items {
 		if slices.Contains(m.Breaks, i) && i > 0 {
 			y += menuBreak
 		}
 		m.tops = append(m.tops, y)
 		y += m.row
-		line := gutter + m.rows[i].shape(faceIn(Font, th), s, size).Advance + 2*MenuRowPadding.Get(th)
+		line := gutter + m.rows[i].shape(faceIn(Font, th), m.label(i), size).Advance + 2*MenuRowPadding.Get(th)
 		if i < len(m.Hints) && m.Hints[i] != "" {
 			line += 32 + m.hintRuns[i].shape(faceIn(Font, th), m.Hints[i], size*0.9).Advance
 		}
@@ -333,7 +378,7 @@ func (m *Menu) Paint(p *paint.Painter, f gunim.Frame, _ geom.Size, _ gunim.Child
 			col = dim
 		}
 		if slices.Contains(m.Captions, i) {
-			caption := m.rows[i].shape(faceIn(Font, th), m.Items[i], TextSize.Get(th)*0.85)
+			caption := m.rows[i].shape(faceIn(Font, th), m.label(i), TextSize.Get(th)*0.85)
 			caption.Paint(p, geom.Pt(card.Min.X+pad, m.rowY(i)+(m.row-caption.Height())/2), hint)
 			continue
 		}
@@ -349,6 +394,10 @@ func (m *Menu) Paint(p *paint.Painter, f gunim.Frame, _ geom.Size, _ gunim.Child
 			paintIcon(p, th, m.Icons[i], geom.Rc(x, m.rowY(i)+(m.row-s)/2, s, s), col, 1)
 		}
 		run.Paint(p, geom.Pt(x+m.iconRoom(th), y), col)
+		if m.cues && m.AccessKeys {
+			_, _, at := accessKey(m.Items[i])
+			underline(p, run, at, geom.Pt(x+m.iconRoom(th), y), col)
+		}
 		if i < len(m.Hints) && m.Hints[i] != "" {
 			h := m.hintRuns[i].run
 			if !m.enabled(i) {
