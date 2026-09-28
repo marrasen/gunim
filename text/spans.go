@@ -202,21 +202,38 @@ func makeUnit(spans []Span, all []rune, owner []int, start, end int, mandatory b
 }
 
 // splitUnit cuts u after as many runes as fit in width, at least one, and
-// reports false when there is nothing to cut.
+// reports false when there is nothing to cut. A box, such as an icon, that
+// runs past width moves to the rest with what follows it.
 func splitUnit(spans []Span, u unit, width float32) (head, rest unit, ok bool) {
 	for i, p := range u.pieces {
 		runes := []rune(u.texts[i])
-		if p.At.X+p.Run.Advance <= width || len(runes) == 0 {
+		if p.At.X+p.Run.Advance <= width {
 			continue
+		}
+		if len(runes) == 0 {
+			if i == 0 {
+				continue
+			}
+			head, rest = cutBefore(u, i)
+			return head, rest, true
 		}
 		k := 0
 		for k < len(runes) && p.At.X+p.Run.CaretX(k+1) <= width {
 			k++
 		}
-		if k == 0 && i == 0 {
+		if k == 0 {
+			// With text before it, the cut falls before this piece. After
+			// boxes alone, the head keeps a rune, as the unit's first
+			// piece does.
+			for j := range i {
+				if u.texts[j] != "" {
+					head, rest = cutBefore(u, i)
+					return head, rest, true
+				}
+			}
 			k = 1
 		}
-		if k == 0 || k >= len(runes) && i == len(u.pieces)-1 {
+		if k >= len(runes) && i == len(u.pieces)-1 {
 			return unit{}, unit{}, false
 		}
 		s := spans[p.Span]
@@ -241,6 +258,18 @@ func splitUnit(spans []Span, u unit, width float32) (head, rest unit, ok bool) {
 		return head, rest, true
 	}
 	return unit{}, unit{}, false
+}
+
+// cutBefore cuts u before its piece i, which moves to the start of the rest.
+func cutBefore(u unit, i int) (head, rest unit) {
+	at := u.pieces[i].At.X
+	head = unit{pieces: append([]Piece(nil), u.pieces[:i]...), texts: append([]string(nil), u.texts[:i]...), width: at, ink: at}
+	rest = unit{texts: append([]string(nil), u.texts[i:]...), mandatory: u.mandatory, width: u.width - at, ink: u.ink - at}
+	for _, q := range u.pieces[i:] {
+		q.At.X -= at
+		rest.pieces = append(rest.pieces, q)
+	}
+	return head, rest
 }
 
 // finishLine sets the line's height from its tallest piece, and puts every

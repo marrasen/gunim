@@ -128,3 +128,28 @@ func TestABoxBesideAWordWrapsWithIt(t *testing.T) {
 		t.Fatalf("the second line holds %+v, want the box and the word it touches", l)
 	}
 }
+
+// A long word after a box still wraps in a narrow column, the box and a letter first.
+func TestALongWordAfterABoxWrapsInANarrowColumn(t *testing.T) {
+	f := GoSans(false, false)
+	word := "averyveryverylongfilename.pdf"
+	spans := []Span{{Face: f, Size: 14, Box: 22}, {Text: word, Face: f, Size: 14}}
+	p := LayoutSpans(spans, Style{}, 22)
+	if len(p.Lines) < 5 {
+		t.Fatalf("at 22 wide the word took %d lines, want it cut up", len(p.Lines))
+	}
+	if l := p.Lines[0].Pieces; len(l) != 2 || l[0].Span != 0 || len(l[1].Run.Glyphs) != 1 {
+		t.Fatalf("the first line holds %+v, want the box and one letter", l)
+	}
+}
+
+// A box after a word that fills the line starts the next one.
+func TestABoxAfterAWordThatFillsTheLineStartsTheNext(t *testing.T) {
+	f := GoSans(false, false)
+	spans := []Span{{Text: "gamma", Face: f, Size: 14}, {Face: f, Size: 14, Box: 20}}
+	width := f.Shape("gamma", 14).Advance
+	p := LayoutSpans(spans, Style{}, width)
+	if len(p.Lines) != 2 || boxPiece(p.Lines[1], 1) != 0 || p.Lines[1].Pieces[0].At.X != 0 {
+		t.Fatalf("at %v wide the lines are %+v, want the box to start the second", width, p.Lines)
+	}
+}
