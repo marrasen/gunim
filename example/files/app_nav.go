@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -272,6 +273,10 @@ func (a *app) listed(gen int, path string, es []entry, mod time.Time, err error)
 	n.all = es
 	a.refilter()
 	n.travel = 0
+	if slices.ContainsFunc(es, func(e entry) bool { return e.Kind == KindLink && e.Dir }) {
+		// A link to a folder can lead to another volume.
+		a.publishVolumes(Places{Current: path})
+	}
 	if len(a.script) > 0 && !a.scripting {
 		a.scripting = true
 		a.runScript()

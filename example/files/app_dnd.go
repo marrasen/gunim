@@ -156,7 +156,9 @@ func (a *app) openSystem() {
 }
 
 // publishVolumes finds the volume of each folder in s the window can
-// drop on, in the background, and sends them.
+// drop on, in the background, and sends them: the folder showing and
+// the folders along its path, the links to folders in it, the places
+// and the favourites.
 func (a *app) publishVolumes(s Places) {
 	d := &a.dnd
 	if d.vols == nil {
@@ -169,6 +171,18 @@ func (a *app) publishVolumes(s Places) {
 		}
 	}
 	add(s.Current)
+	if s.Current != "" {
+		for _, c := range crumbs(s.Current) {
+			add(c.Path)
+		}
+	}
+	if samePath(s.Current, a.nav.path) {
+		for _, e := range a.nav.all {
+			if e.Kind == KindLink && e.Dir {
+				add(filepath.Join(s.Current, e.Name))
+			}
+		}
+	}
 	for _, p := range slices.Concat(s.Places, s.Favourites) {
 		add(p.Path)
 	}

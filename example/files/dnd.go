@@ -199,7 +199,14 @@ func (v *dndView) listingSpot(d input.Drop, u *gunim.UI) (widget.DropSpot, bool)
 		if r, ok := l.cur.view(row); ok && r.Dir {
 			rr, _ := l.cur.itemRect(row)
 			dir := filepath.Join(l.path, r.Name)
-			return v.spot(d, spotKey{"row", dir}, rr.Add(off), dir, l.path, true), true
+			// A folder is on the volume of the folder showing. A link
+			// to one is on the volume the app found for it, or on none
+			// known while it looks.
+			vol := l.path
+			if r.Kind == KindLink {
+				vol = dir
+			}
+			return v.spot(d, spotKey{"row", dir}, rr.Add(off), dir, vol, true), true
 		}
 	}
 	whole := gr.Add(zr.Min.Mul(-1)).Inset(geom.Uniform(3))
@@ -268,7 +275,7 @@ func (v *dndView) crumbSpot(d input.Drop, u *gunim.UI) (widget.DropSpot, bool) {
 		}
 		pill := geom.Rc(r.Min.X, r.Min.Y, c.run.Advance+12, r.Size().H)
 		if pill.Contains(at) {
-			return v.spot(d, spotKey{"crumb", c.path}, pill.Add(zr.Min.Mul(-1)), c.path, v.b.listing.path, !c.last), true
+			return v.spot(d, spotKey{"crumb", c.path}, pill.Add(zr.Min.Mul(-1)), c.path, c.path, !c.last), true
 		}
 	}
 	return widget.DropSpot{}, false

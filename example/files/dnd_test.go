@@ -532,3 +532,41 @@ func TestThePropertiesButtonsCloseTheDialog(t *testing.T) {
 		}
 	}
 }
+
+// A drop plans by the volume of the folder it lands on. A folder of the
+// path, or a link to a folder, can be on a volume the folder showing is
+// not on.
+func TestADropPlansByTheVolumeOfTheFolderUnderIt(t *testing.T) {
+	h := newDndHarness(t, "a.txt")
+	tree(t, h.root, "stick/")
+	link := filepath.Join(h.dir, "link")
+	if err := os.Symlink(filepath.Join(h.root, "stick"), link); err != nil {
+		t.Skip("this system makes no links:", err)
+	}
+	h.a.poll()
+	h.until("the link shows", func() bool { return slices.Equal(h.shown(), []string{"link", "a.txt"}) })
+	h.until("the window knows the volumes of the folder above and the link", func() bool {
+		_, above := h.b.dnd.vols[h.root]
+		_, ln := h.b.dnd.vols[link]
+		return above && ln
+	})
+	// Both stand for a USB stick.
+	h.ui(func(b *browser, _ *gunim.UI) { b.dnd.vols[h.root], b.dnd.vols[link] = "stick", "stick" })
+	var spot widget.DropSpot
+	h.choose("a.txt")
+	h.script("drag-start:a.txt", "drag-over:"+filepath.Base(h.root))
+	h.ui(func(b *browser, _ *gunim.UI) { spot, _ = b.dnd.crumbs.Over() })
+	if hint, _ := spot.Hint.(widget.DropHint); hint.Effect != widget.DropCopy {
+		t.Fatalf("over a folder of the path on another volume the drop says %v, want a copy", spot.Hint)
+	}
+	h.script("drag-over:link")
+	h.ui(func(b *browser, _ *gunim.UI) { spot, _ = b.dnd.listing.Over() })
+	if hint, _ := spot.Hint.(widget.DropHint); hint.Effect != widget.DropCopy {
+		t.Fatalf("over a link to a folder on another volume the drop says %v, want a copy", spot.Hint)
+	}
+	h.script("drop")
+	h.idle()
+	if !h.exists("a.txt") {
+		t.Fatal("the drop moved the file to another volume")
+	}
+}
