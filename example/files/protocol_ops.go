@@ -34,6 +34,8 @@ type OpTick struct {
 type Notice struct {
 	Title, Body string
 	Undo        int
+	// Kind is success, warning or info, for the toast's icon; empty shows none.
+	Kind string
 }
 
 // CancelOp asks to stop a running operation.

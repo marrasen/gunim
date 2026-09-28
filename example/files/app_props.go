@@ -189,7 +189,7 @@ func (a *app) applyAttrs(path string, readOnly, hidden bool) {
 				a.showError(ErrorBox{Title: "The attributes were not changed", Body: err.Error()})
 				return
 			}
-			a.patch(Notice{Title: "Changed the attributes of " + placeName(path)})
+			a.patch(Notice{Title: "Changed the attributes of " + placeName(path), Kind: "success"})
 			a.relist()
 		})
 	}()

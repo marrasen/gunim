@@ -111,7 +111,7 @@ func (a *app) pinFolders(paths []string) {
 				a.savePrefs()
 				a.publishPlaces()
 			}
-			n := Notice{Title: "Pinned " + plural(added, "folder")}
+			n := Notice{Title: "Pinned " + plural(added, "folder"), Kind: "success"}
 			if len(files) > 0 {
 				n.Body = strings.Join(files, ", ") + " left out: only folders can be pinned."
 			}

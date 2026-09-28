@@ -13,12 +13,19 @@ func registerOps(w *gunim.Window) {
 	gunim.RegisterPatch(w, "browser", func(b *browser, s Ops, u *gunim.UI) { b.ops.set(s, u) })
 	gunim.RegisterPatch(w, "browser", func(b *browser, t OpTick, u *gunim.UI) { b.ops.tick(t, u) })
 	gunim.RegisterPatch(w, "browser", func(b *browser, n Notice, u *gunim.UI) {
-		t := widget.Toast{Title: n.Title, Body: n.Body}
+		t := widget.Toast{Title: n.Title, Body: n.Body, Kind: toastKinds[n.Kind]}
 		if n.Undo != 0 {
 			t.Action, t.On = "Undo", UndoOp{ID: n.Undo}
 		}
 		b.toasts.Show(t, u)
 	})
+}
+
+// toastKinds are the toasts' kinds, by a notice's kind.
+var toastKinds = map[string]widget.ToastKind{
+	"success": widget.ToastSuccess,
+	"warning": widget.ToastWarning,
+	"info":    widget.ToastInfo,
 }
 
 // opsPanel is the panel over the status bar that shows the operations

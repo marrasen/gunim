@@ -4,6 +4,7 @@ import (
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/text"
@@ -41,6 +42,7 @@ func newPathBar(b *browser) *pathBar {
 	p.slot = newPathSlot(p.crumbs, p.field)
 	p.filter = &filterField{TextField: widget.NewTextField(), bar: p}
 	p.filter.Placeholder = "Filter this folder"
+	p.filter.Icon, p.filter.Clearable = icon.Search, true
 	p.filter.OnChange = func(s string) gunim.Intent { return FilterChanged{Text: s} }
 	p.row = widget.Row(p.back, p.fwd, p.up, p.slot, widget.NewSized(p.filter, 220, 0)).Grow(p.slot, 1)
 	p.row.Cross = widget.CrossCenter

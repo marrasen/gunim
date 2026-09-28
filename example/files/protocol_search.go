@@ -19,6 +19,8 @@ type PaletteHit struct {
 	// At holds the runes of Title the query matched.
 	At      []int
 	Problem bool
+	// Mark says what the hit is, for its icon: folder, file, command, place or problem.
+	Mark string
 }
 
 // PaletteResults answers a PaletteQuery, again each time the index

@@ -5,6 +5,7 @@ import (
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/widget"
 )
 
@@ -55,6 +56,15 @@ func (fp *filesPalette) search(q string, u *gunim.UI) {
 	u.Send(fp.b.listing, PaletteQuery{Seq: fp.seq, Text: q})
 }
 
+// hitIcons are the icons of the palette's hits, by their marks.
+var hitIcons = map[string]*icon.Icon{
+	"folder":  icon.Folder,
+	"file":    icon.File,
+	"command": icon.SquareTerminal,
+	"place":   icon.MapPin,
+	"problem": icon.CircleAlert,
+}
+
 // results shows the application's answer to the query last asked.
 func (fp *filesPalette) results(r PaletteResults, u *gunim.UI) {
 	if r.Seq != fp.seq || !fp.p.IsOpen() {
@@ -64,7 +74,7 @@ func (fp *filesPalette) results(r PaletteResults, u *gunim.UI) {
 	items := make([]widget.PaletteItem, len(r.Hits))
 	for i, h := range r.Hits {
 		items[i] = widget.PaletteItem{Title: h.Title, Detail: h.Detail, Hint: h.Hint, Key: widget.Key(h.Key), At: h.At,
-			Problem: h.Problem}
+			Problem: h.Problem, Icon: hitIcons[h.Mark]}
 	}
 	fp.p.SetItems(items, u)
 	fp.p.SetStatus(r.Status, u)

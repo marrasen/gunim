@@ -304,9 +304,10 @@ func rankIndex(ctx context.Context, root string, items []indexed, errs []walkErr
 	hits := make([]PaletteHit, 0, min(len(found), paletteHits)+len(errs))
 	for _, f := range found[:min(len(found), paletteHits)] {
 		it := items[f.i]
-		h := PaletteHit{Title: it.name(), Detail: folderOf(root, it), Key: "file:" + filepath.Join(root, it.rel), At: f.at}
+		h := PaletteHit{Title: it.name(), Detail: folderOf(root, it), Key: "file:" + filepath.Join(root, it.rel), At: f.at,
+			Mark: "file"}
 		if it.dir {
-			h.Hint = "Folder"
+			h.Hint, h.Mark = "Folder", "folder"
 		}
 		hits = append(hits, h)
 	}
@@ -316,7 +317,7 @@ func rankIndex(ctx context.Context, root string, items []indexed, errs []walkErr
 			continue
 		}
 		hits = append(hits, PaletteHit{Title: "Could not read " + placeName(where), Detail: rootCause(e.err).Error(),
-			Key: "go:" + where, Problem: true})
+			Key: "go:" + where, Problem: true, Mark: "problem"})
 	}
 	return hits
 }
@@ -351,16 +352,18 @@ func rankCommands(query string, places []Place, favourites []string) []PaletteHi
 			if it.label == "-" {
 				continue
 			}
-			hits = append(hits, PaletteHit{Title: it.label, Detail: m.title, Hint: it.hint, Key: "cmd:" + it.cmd})
+			hits = append(hits, PaletteHit{Title: it.label, Detail: m.title, Hint: it.hint, Key: "cmd:" + it.cmd,
+				Mark: "command"})
 			items = append(items, match.Item{Title: it.label, Also: []string{m.title}})
 		}
 	}
 	for _, p := range places {
-		hits = append(hits, PaletteHit{Title: "Go to " + p.Name, Detail: p.Path, Key: "go:" + p.Path})
+		hits = append(hits, PaletteHit{Title: "Go to " + p.Name, Detail: p.Path, Key: "go:" + p.Path, Mark: "place"})
 		items = append(items, match.Item{Title: "Go to " + p.Name, Also: []string{p.Path}})
 	}
 	for _, f := range favourites {
-		hits = append(hits, PaletteHit{Title: "Go to " + placeName(f), Detail: f, Hint: "Favourite", Key: "go:" + f})
+		hits = append(hits, PaletteHit{Title: "Go to " + placeName(f), Detail: f, Hint: "Favourite", Key: "go:" + f,
+			Mark: "place"})
 		items = append(items, match.Item{Title: "Go to " + placeName(f), Also: []string{f}})
 	}
 	found := match.Rank(items, query)

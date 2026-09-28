@@ -109,7 +109,8 @@ func (a *app) opsCommand(name string) bool {
 		if a.ops.cut {
 			verb = "move"
 		}
-		a.patch(Notice{Title: plural(len(paths), "item") + " ready to " + verb, Body: "Go to a folder and paste with Ctrl+V."})
+		a.patch(Notice{Title: plural(len(paths), "item") + " ready to " + verb, Body: "Go to a folder and paste with Ctrl+V.",
+			Kind: "info"})
 	case CmdPaste:
 		if len(a.ops.clip) == 0 || here == "" {
 			return true
@@ -322,9 +323,9 @@ func (a *app) finish(id int, j job, rec record, err error) {
 	}
 	switch {
 	case err == nil && j.kind == OpUndo:
-		a.patch(Notice{Title: "Undone", Body: r.title})
+		a.patch(Notice{Title: "Undone", Body: r.title, Kind: "success"})
 	case err == nil:
-		n := Notice{Title: doneTitle(j, rec), Undo: undo}
+		n := Notice{Title: doneTitle(j, rec), Undo: undo, Kind: "success"}
 		switch {
 		case rec.replaced > 0:
 			n.Body = plural(rec.replaced, "file") + " replaced, which undo cannot bring back."
@@ -335,9 +336,9 @@ func (a *app) finish(id int, j job, rec record, err error) {
 		}
 		a.patch(n)
 	case errors.Is(err, context.Canceled):
-		a.patch(Notice{Title: "Stopped: " + r.title, Body: done + " done before it stopped.", Undo: undo})
+		a.patch(Notice{Title: "Stopped: " + r.title, Body: done + " done before it stopped.", Undo: undo, Kind: "warning"})
 	case errors.Is(err, errStopped):
-		a.patch(Notice{Title: "Stopped: " + r.title, Body: done + " done before it stopped.", Undo: undo})
+		a.patch(Notice{Title: "Stopped: " + r.title, Body: done + " done before it stopped.", Undo: undo, Kind: "warning"})
 	default:
 		body := err.Error()
 		if len(rec.steps) > 0 {
@@ -345,7 +346,7 @@ func (a *app) finish(id int, j job, rec record, err error) {
 		}
 		a.showError(ErrorBox{Title: failedTitle(j), Body: body})
 		if keep {
-			a.patch(Notice{Title: "Partly done: " + r.title, Undo: undo})
+			a.patch(Notice{Title: "Partly done: " + r.title, Undo: undo, Kind: "warning"})
 		}
 	}
 	if j.kind == OpRename || j.kind == OpNewFolder {
