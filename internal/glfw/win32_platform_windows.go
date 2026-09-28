@@ -61,9 +61,9 @@ type platformWindowState struct {
 	// Windows sees as outside the client area (win32_chrome_windows.go).
 	chromeless bool
 	// frameHidden says SetFrameHidden took the frame away (gunim).
-	frameHidden  bool
+	frameHidden bool
 	// shadow is the window a drawn shadow is drawn in, or nil (gunim).
-	shadow *drawnShadow
+	shadow       *drawnShadow
 	overMaximize bool
 }
 

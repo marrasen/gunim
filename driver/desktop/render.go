@@ -109,6 +109,11 @@ type renderer struct {
 	// under is the window's background, where a frame's first op leaves
 	// it uncovered; see driver.Backgrounder.
 	under color.NRGBA
+	// corner is the radius, in device pixels, the window's corners are
+	// cut to on the screen, or 0 for square corners, and edge the width
+	// of the edge a cut window leaves for the border its drawn shadow
+	// draws; see shape.
+	corner, edge float32
 	// cull is the device-pixel area a frame redraws in part, while its
 	// commands are queued, and empty otherwise. A quad drawn straight
 	// to the canvas wholly outside it is left out: the scissor would
@@ -534,7 +539,7 @@ func (r *renderer) draw(ops []paint.Op, damage geom.Rect, fbW, fbH int, scale fl
 	// next small one to draw the whole window.
 	s, ws := box.Size(), window.Size()
 	big := s.W*s.H > ws.W*ws.H/2
-	r.direct = !backdrop && !r.flipWindow && big && r.big
+	r.direct = !backdrop && !r.flipWindow && big && r.big && r.corner == 0
 	r.big = big
 	if r.fit(&r.layers[0]) || !r.canvasOK || scale != r.canvasScale {
 		if !r.direct {
@@ -572,9 +577,21 @@ func (r *renderer) draw(ops []paint.Op, damage geom.Rect, fbW, fbH int, scale fl
 	if !r.direct {
 		r.canvasOK, r.canvasScale = true, scale
 		g.BindFramebuffer(gl.FRAMEBUFFER, r.windowFBO)
-		clearWindow(g, bg, alpha)
-		g.Clear(glColorBufferBit)
-		g.ClearColor(0, 0, 0, 0)
+		if r.corner > 0 {
+			// Transparent outside the rounded corners, the background inside them
+			g.Clear(glColorBufferBit)
+			if alpha > 0 {
+				c := [4]float32{bg[0], bg[1], bg[2], alpha}
+				rect, radius := r.shape()
+				r.quad(corners(r.window(), geom.Rect{}), paint.Identity, r.scale, &look{
+					rect: rect, radius: radius, kind: kindShape, color0: c, color1: c,
+				})
+			}
+		} else {
+			clearWindow(g, bg, alpha)
+			g.Clear(glColorBufferBit)
+			g.ClearColor(0, 0, 0, 0)
+		}
 		r.present(r.layers[0].tex)
 		r.flush()
 	}
@@ -633,9 +650,21 @@ func (r *renderer) present(canvas uint32) {
 	// of the window takes the texture's first row, where a layer's copy
 	// would take its last.
 	uv := geom.Rect{Max: geom.Pt(1, 1)}
+	rect, radius := win, float32(0)
+	if r.corner > 0 {
+		rect, radius = r.shape()
+	}
 	r.quad(corners(win, uv), paint.Identity, r.scale, &look{
-		rect: win, kind: kindImage, color0: [4]float32{0, 0, 0, 1},
+		rect: rect, radius: radius, kind: kindImage, color0: [4]float32{0, 0, 0, 1},
 	})
+}
+
+// shape is the part of a window with cut corners that shows its frame, in logical pixels: the window less its edge,
+// with corners that much tighter.
+func (r *renderer) shape() (rect geom.Rect, radius float32) {
+	w := r.window()
+	e := r.edge / r.scale
+	return geom.Rect{Min: geom.Pt(w.Min.X+e, w.Min.Y+e), Max: geom.Pt(w.Max.X-e, w.Max.Y-e)}, (r.corner - r.edge) / r.scale
 }
 
 // deviceBox turns damage in logical pixels into the whole device pixels

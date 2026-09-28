@@ -834,6 +834,7 @@ func (w *Window) render() {
 		case f = <-w.frames:
 		}
 		if r != nil {
+			r.corner, r.edge = w.cornerRadius()
 			w.mu.Lock()
 			fbW, fbH, scale, rate := w.fbW, w.fbH, w.scale, w.rate
 			r.under = w.under

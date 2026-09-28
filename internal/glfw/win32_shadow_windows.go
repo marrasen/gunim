@@ -30,8 +30,10 @@ const (
 
 	// shadowTimer is the main window's timer that fades the shadow back in once the window has restored.
 	shadowTimer = 0x67756e69
-	// shadowRestoreDelay is how long the shadow waits for the restore animation, in milliseconds.
+	// shadowRestoreDelay is how long the shadow waits for the restore animation, in milliseconds, and
+	// shadowRedrawDelay for the window's first frame where Windows does not animate.
 	shadowRestoreDelay = 150
+	shadowRedrawDelay  = 50
 	// shadowFadeIn is how long the shadow takes to come back after it, in milliseconds.
 	shadowFadeIn = 80
 	shadowTick   = 16
@@ -70,6 +72,9 @@ type drawnShadow struct {
 	restore float32
 
 	minimized bool
+	// active says the window is active, which draws a stronger shadow, and drawnActive what the bitmap was drawn for.
+	active      bool
+	drawnActive bool
 }
 
 // SetDrawnShadow draws the window's shadow and border in a window of gunim's own, or with measure set, green bands
@@ -148,15 +153,21 @@ func (w *Window) shadowMessage(uMsg uint32, wParam _WPARAM) {
 	}
 	switch uMsg {
 	case _WM_WINDOWPOSCHANGED:
+	case _WM_NCACTIVATE:
+		s.active = wParam != 0
 	case _WM_SIZE:
 		switch {
 		case wParam == _SIZE_MINIMIZED:
 			s.minimized = true
 		case s.minimized:
-			// Held back through the restore animation, then faded in
+			// Held back until the window is back on the screen, then faded in
 			s.minimized = false
 			s.restore = 0
-			procSetTimer.Call(uintptr(w.platform.handle), shadowTimer, shadowRestoreDelay, 0)
+			delay := uintptr(shadowRedrawDelay)
+			if minimizeAnimates() {
+				delay = shadowRestoreDelay
+			}
+			procSetTimer.Call(uintptr(w.platform.handle), shadowTimer, delay, 0)
 		}
 	case _WM_TIMER:
 		if wParam != shadowTimer {
@@ -174,6 +185,20 @@ func (w *Window) shadowMessage(uMsg uint32, wParam _WPARAM) {
 	if err := w.placeShadow(); err != nil {
 		_glfw.errors = append(_glfw.errors, err)
 	}
+}
+
+// minimizeAnimates reports whether Windows animates a window as it minimizes and restores.
+func minimizeAnimates() bool {
+	const spiGetAnimation = 0x0048
+	info := struct {
+		size    uint32
+		animate int32
+	}{size: 8}
+	// Where Windows will not say, the shadow waits, which is safe either way
+	if err := _SystemParametersInfoW(spiGetAnimation, 8, uintptr(unsafe.Pointer(&info)), 0); err != nil {
+		return true
+	}
+	return info.animate != 0
 }
 
 // placeShadow puts the drawn shadow round the window, drawing it again where the window's size has changed, or hides
@@ -194,7 +219,7 @@ func (w *Window) placeShadow() error {
 	}
 	dpi := int32(_GetDpiForWindow(main))
 	winW, winH := r.right-r.left, r.bottom-r.top
-	redraw := winW != s.winW || winH != s.winH || dpi != s.dpi
+	redraw := winW != s.winW || winH != s.winH || dpi != s.dpi || s.active != s.drawnActive
 	if redraw {
 		if err := s.draw(winW, winH, dpi); err != nil {
 			return err
@@ -232,12 +257,16 @@ func (w *Window) placeShadow() error {
 }
 
 // draw draws the shadow and border for a window of winW by winH pixels at dpi, into a premultiplied bitmap: a
-// rectangle offset downwards and blurred, with a grey line just outside the window.
+// rectangle offset downwards and blurred, outside the window, and a grey border in the window's outer pixel, which
+// the window leaves clear.
 func (s *drawnShadow) draw(winW, winH, dpi int32) error {
 	k := float64(dpi) / 96
-	sigma, drop, inset := 16*k, 16*k, 0.9*k
-	const strength = 0.366
-	side, top, bottom := int32(37*k+0.5), int32(22*k+0.5), int32(54*k+0.5)
+	// Fitted to the shadow Windows 11 draws round an active window, and a weaker, shorter one round an inactive one
+	sigma, drop, inset, radius, strength := 22.7*k, 21.3*k, 2*k, 8*k, 0.366
+	if !s.active {
+		sigma, strength = 18.7*k, 0.25
+	}
+	side, top, bottom := int32(50*k+0.5), int32(31*k+0.5), int32(73*k+0.5)
 	if s.measure {
 		side, top, bottom = 24, 24, 24
 	}
@@ -257,7 +286,7 @@ func (s *drawnShadow) draw(winW, winH, dpi int32) error {
 		_ = _DeleteObject(_HGDIOBJ(s.bmp))
 	}
 	s.bmp = bmp
-	s.w, s.h, s.dpi, s.winW, s.winH, s.left, s.top = W, H, dpi, winW, winH, side, top
+	s.w, s.h, s.dpi, s.winW, s.winH, s.left, s.top, s.drawnActive = W, H, dpi, winW, winH, side, top, s.active
 	px := unsafe.Slice((*uint32)(unsafe.Pointer(bits)), int(W)*int(H))
 
 	// The window's rectangle in the bitmap
@@ -273,32 +302,60 @@ func (s *drawnShadow) draw(winW, winH, dpi int32) error {
 		}
 		return nil
 	}
+	fx0, fy0, fx1, fy1 := float64(x0), float64(y0), float64(x1), float64(y1)
+	// The border is one logical pixel wide, in whole pixels, as the window leaves it
+	edge := math.Ceil(k)
 	// A blurred rectangle is the product of a blurred edge across and a blurred edge down
 	blur := func(p, a, b float64) float64 {
 		return 0.5 * (math.Erf((p-a)/(sigma*math.Sqrt2)) - math.Erf((p-b)/(sigma*math.Sqrt2)))
 	}
 	across := make([]float64, W)
 	for x := range across {
-		across[x] = blur(float64(x)+0.5, float64(x0)+inset, float64(x1)-inset)
+		across[x] = blur(float64(x)+0.5, fx0+inset, fx1-inset)
 	}
+	// Rows and columns this far inside the window are covered by it whole
+	reach := int32(radius) + 2
 	for y := int32(0); y < H; y++ {
-		down := strength * blur(float64(y)+0.5, float64(y0)+drop, float64(y1)+drop)
+		down := strength * blur(float64(y)+0.5, fy0+drop, fy1+drop)
 		row := px[y*W : (y+1)*W]
-		for x := range row {
-			xi := int32(x)
-			inside := xi >= x0 && xi < x1 && y >= y0 && y < y1
-			switch {
-			case inside:
-				row[x] = 0
-			case xi >= x0-1 && xi <= x1 && y >= y0-1 && y <= y1:
-				// The border: grey 0x5e at half opacity, premultiplied
-				row[x] = 0x802F2F2F
-			default:
-				row[x] = uint32(down*across[x]*255+0.5) << 24
+		pixel := func(x int32) uint32 {
+			cx, cy := float64(x)+0.5, float64(y)+0.5
+			outer := min(max(0.5-sdRRect(cx, cy, fx0, fy0, fx1, fy1, radius), 0), 1)
+			inner := min(max(0.5-sdRRect(cx, cy, fx0+edge, fy0+edge, fx1-edge, fy1-edge, radius-edge), 0), 1)
+			if inner >= 1 {
+				return 0
 			}
+			// The border is grey 0x5e at half opacity, between the window's edge and its content
+			border := 0.5 * (outer - inner)
+			a := border + down*across[x]*(1-outer)
+			c := uint32(float64(0x5e)*border + 0.5)
+			return uint32(a*255+0.5)<<24 | c<<16 | c<<8 | c
+		}
+		if y >= y0+reach && y < y1-reach {
+			clear(row)
+			for x := int32(0); x < x0+2; x++ {
+				row[x] = pixel(x)
+			}
+			for x := x1 - 2; x < W; x++ {
+				row[x] = pixel(x)
+			}
+			continue
+		}
+		for x := range row {
+			row[x] = pixel(int32(x))
 		}
 	}
 	return nil
+}
+
+// sdRRect is the signed distance from (px, py) to the rectangle x0, y0, x1, y1 with corners rounded by r: negative
+// inside.
+func sdRRect(px, py, x0, y0, x1, y1, r float64) float64 {
+	hx, hy := (x1-x0)/2, (y1-y0)/2
+	r = min(r, hx, hy)
+	qx := math.Abs(px-(x0+x1)/2) - hx + r
+	qy := math.Abs(py-(y0+y1)/2) - hy + r
+	return math.Hypot(max(qx, 0), max(qy, 0)) + min(max(qx, qy), 0) - r
 }
 
 // dropShadow destroys the drawn shadow's window and bitmap.
