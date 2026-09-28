@@ -8,6 +8,7 @@ import (
 	"github.com/marrasen/gunim/access"
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/theme"
@@ -30,6 +31,8 @@ type Chip struct {
 	// Lead is drawn dim before the label.
 	Lead  string
 	Label string
+	// Icon shows at the start of the chip, before the lead and the label, in the label's colour.
+	Icon *icon.Icon
 	// OnRemove turns a click on the cross into an intent.
 	OnRemove func() gunim.Intent
 
@@ -52,6 +55,9 @@ func (c *Chip) Layout(cs gunim.Constraints, f gunim.Frame, _ gunim.Children) geo
 	h := ChipHeight.Get(th)
 	size := TextSize.Get(th) * 0.9
 	w := h / 2
+	if c.Icon != nil {
+		w += IconSize.Get(th) + IconGap.Get(th)
+	}
 	if c.Lead != "" {
 		w += c.leadText.shape(faceIn(BoldFont, th), c.Lead, size).Advance + 6
 	}
@@ -67,6 +73,11 @@ func (c *Chip) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Chi
 	fill := anim.Mix(anim.ColorCodec, ChipFill.Get(th), ChipHover.Get(th), c.hover.Value())
 	p.RRect(geom.Rect{Max: box.Point()}, box.H/2, paint.Solid(fill))
 	x := box.H / 2
+	if c.Icon != nil {
+		s := IconSize.Get(th)
+		paintIcon(p, th, c.Icon, geom.Rc(x, (box.H-s)/2, s, s), Ink.Get(th), 1)
+		x += s + IconGap.Get(th)
+	}
 	if c.Lead != "" {
 		run := c.leadText.run
 		run.Paint(p, geom.Pt(x, (box.H-run.Height())/2), ChipLead.Get(th))
