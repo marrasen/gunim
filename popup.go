@@ -107,11 +107,12 @@ type PopupPadder interface {
 }
 
 // A PopupFitter is popup content that fits itself to the room the screen leaves: before each layout it is told how
-// many logical pixels there are between its anchor and the bottom of the screen, and the top. The window opens below
-// the anchor while content no taller than the room below fits there, so content that keeps to that room stays below.
+// many logical pixels there are from its anchor to each edge of the screen. The window opens below the anchor while
+// content no taller than the room below fits there, and slides sideways only for content wider than the room right
+// of the anchor, so content that keeps to that room stays where it is attached.
 type PopupFitter interface {
 	Node
-	FitPopup(below, above float32)
+	FitPopup(room driver.Room)
 }
 
 // surface is a popup window and the tree of nodes it shows.
@@ -138,11 +139,10 @@ type surface struct {
 	closing bool
 	// stop ends the goroutine passing the window's events on.
 	stop chan struct{}
-	// below and above are the room the screen leaves below and above roomAt, the anchor they were asked for; see
-	// PopupFitter.
-	below, above float32
-	roomAt       geom.Rect
-	roomKnown    bool
+	// room is the room the screen leaves round roomAt, the anchor it was asked for; see PopupFitter.
+	room      driver.Room
+	roomAt    geom.Rect
+	roomKnown bool
 	// opened is when the popup was opened, window how it got its window and in how long, and shown whether its first
 	// frame has been shown, for GUNIM_DEBUG_POPUP.
 	opened time.Time
@@ -362,8 +362,8 @@ func (u *UI) framePopup(s *surface, f Frame) {
 	s.held, s.inFlight, s.stale = i, true, false
 }
 
-// fitPopup tells content that fits itself to the screen how much room there is below and above its anchor, asking
-// the parent window again only when the anchor has moved.
+// fitPopup tells content that fits itself to the screen how much room there is round its anchor, asking the parent
+// window again only when the anchor has moved.
 func (u *UI) fitPopup(s *surface, parent driver.Window) {
 	r, ok := parent.(driver.PopupRoomer)
 	if !ok {
@@ -375,10 +375,10 @@ func (u *UI) fitPopup(s *surface, parent driver.Window) {
 			continue
 		}
 		if a := u.popupAnchor(s); !s.roomKnown || a != s.roomAt {
-			s.below, s.above = r.PopupRoom(a)
+			s.room = r.PopupRoom(a)
 			s.roomAt, s.roomKnown = a, true
 		}
-		fit.FitPopup(s.below, s.above)
+		fit.FitPopup(s.room)
 	}
 }
 

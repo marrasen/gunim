@@ -5,6 +5,7 @@ import (
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
+	"github.com/marrasen/gunim/driver"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/paint"
 )
@@ -20,23 +21,28 @@ type barPanel struct {
 	// probes are the bar's menus, laid out to find the largest.
 	probes []*Menu
 
-	// cardX is the card's left edge, against the list's card, and cardY, cardW and cardH its top and size, springing
-	// to the open menu's; cardOn fades it in and out. placed says the card has a place to spring from.
-	cardX                       float32
+	// cardY, cardW and cardH are the card's top and size, springing to the open menu's; cardOn fades it in and out.
+	// placed says the card has a place to spring from, and left that it is on the list's left.
 	cardY, cardW, cardH, cardOn *anim.Float
-	placed                      bool
+	placed, left                bool
 	margin                      float32
 	transparent                 bool
 
-	// below is the room the screen leaves below the button, and above the room above the window, told says they were
-	// told, and up says the panel opens above the button, as it does when the list does not fit below. head is how far
-	// the window reaches above the list, over the button, for a menu too tall for the room below it, and padTop the
-	// top padding last reported, which the room was told from. off is how far down the panel the list sits, and limit
-	// how far down the cards may reach.
-	below, above float32
-	told, up     bool
-	head, padTop float32
-	off, limit   float32
+	// room is the room the screen leaves round the button: below its bottom, and right and left of its left edge,
+	// less a pixel so rounding keeps the window on the screen. told says it was told, and pad is the padding last
+	// reported, which it was told from.
+	room driver.Room
+	told bool
+	pad  geom.Insets
+	// up says the panel opens above the button, as it does when the list does not fit below. head and lead are how far
+	// the window reaches above the list and left of it, for a menu too tall for the room below or too wide for the room
+	// right. off is where the list sits in the panel, and limit how far down the cards may reach.
+	up         bool
+	head, lead float32
+	off        geom.Point
+	limit      float32
+	// sides says which menus open on the list's left.
+	sides []bool
 }
 
 func newBarPanel(b *Menubar, list *Menu) *barPanel {
@@ -50,32 +56,44 @@ func newBarPanel(b *Menubar, list *Menu) *barPanel {
 func (p *barPanel) Children() []gunim.Node { return []gunim.Node{p.list} }
 
 // PopupPadding implements [gunim.PopupPadder]: the list's, which is the part of the panel lined up with the button,
-// and above it the room the window reaches over the list.
+// and above it and left of it the room the window reaches past the list.
 func (p *barPanel) PopupPadding() geom.Insets {
 	in := p.list.PopupPadding()
 	in.Top += p.head
-	p.padTop = in.Top
+	in.Left += p.lead
+	p.pad = in
 	return in
 }
 
-// FitPopup implements [gunim.PopupFitter]. The room below is told from the window's top, which is the top padding
-// above the button's bottom, and kept from the button, less a pixel so rounding keeps the window on the screen.
-func (p *barPanel) FitPopup(below, above float32) {
-	p.below, p.above, p.told = below-p.padTop-1, above, true
+// FitPopup implements [gunim.PopupFitter]. The room is told from the window's corner, which is the padding up and left
+// of the button, and kept from the button.
+func (p *barPanel) FitPopup(r driver.Room) {
+	p.room = driver.Room{Below: r.Below - p.pad.Top - 1, Above: r.Above, Left: r.Left + p.pad.Left, Right: r.Right - p.pad.Left - 1}
+	p.told = true
 }
 
-// cardInList is the card beside the list in the list's space.
-func (p *barPanel) cardInList() geom.Rect { return p.sideCard().Add(geom.Pt(0, -p.off)) }
+// listCard is the list's card in the panel's space.
+func (p *barPanel) listCard() geom.Rect { return p.list.card.Add(p.off) }
 
-// sideCard is where the card beside the list is drawn now, in the panel's space.
+// cardInList is the card beside the list in the list's space.
+func (p *barPanel) cardInList() geom.Rect { return p.sideCard().Add(geom.Pt(-p.off.X, -p.off.Y)) }
+
+// sideCard is where the card beside the list is drawn now, in the panel's space: against the list's right edge, or
+// its left.
 func (p *barPanel) sideCard() geom.Rect {
-	return geom.Rc(p.cardX, p.cardY.Value(), max(0, p.cardW.Value()), max(0, p.cardH.Value()))
+	lc := p.listCard()
+	w, h := max(0, p.cardW.Value()), max(0, p.cardH.Value())
+	x := lc.Max.X
+	if p.left {
+		x = lc.Min.X - w
+	}
+	return geom.Rc(x, p.cardY.Value(), w, h)
 }
 
 // cardAt is where the card for menu i, h tall, goes: its first line level with the list's line i, or as much higher
 // as keeps it inside the room the screen leaves.
 func (p *barPanel) cardAt(i int, h float32, f gunim.Frame) float32 {
-	top := p.off + p.list.RowRect(i).Min.Y - MenuPadding.Get(f.Theme)
+	top := p.off.Y + p.list.RowRect(i).Min.Y - MenuPadding.Get(f.Theme)
 	return max(min(top, p.limit-p.margin-h), p.margin)
 }
 
@@ -85,12 +103,12 @@ func (p *barPanel) Covers(at geom.Point) bool {
 	if !p.transparent {
 		return true
 	}
-	return p.list.card.Add(geom.Pt(0, p.off)).Contains(at) || (p.cardOn.Target() > 0 && p.sideCard().Contains(at))
+	return p.listCard().Contains(at) || (p.cardOn.Target() > 0 && p.sideCard().Contains(at))
 }
 
 // Layout implements [gunim.Node]: the list, and beside it the card, as large as the window needs for the bar's largest
 // menu beside its line, within the room the screen leaves. Below the button the list is at the top; above it, at the
-// bottom, against the button.
+// bottom, against the button. A menu too wide for the room right of the list opens on its left.
 func (p *barPanel) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
 	p.transparent = f.Transparent
 	p.margin = 0
@@ -98,9 +116,8 @@ func (p *barPanel) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Childre
 		p.margin = MenuMargin.Get(f.Theme)
 	}
 	lk := kids.At(0)
-	size := lk.Layout(gunim.Loose(c.Max))
-	listH := size.H
-	p.cardX = p.list.card.Max.X
+	list := lk.Layout(gunim.Loose(c.Max))
+	lc := p.list.card
 
 	// Every menu, laid out as it would be beside its line
 	if len(p.probes) != len(p.b.Menus) {
@@ -116,34 +133,59 @@ func (p *barPanel) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Childre
 			p.b.fill(p.probes[i], i)
 		}
 		sizes[i] = p.probes[i].Layout(gunim.Loose(c.Max), f, gunim.Children{})
-		size.W = max(size.W, p.cardX+sizes[i].W+p.margin)
 		tallest = max(tallest, sizes[i].H)
 	}
+	room := driver.NoRoomLimit
+	if p.told {
+		room = p.room
+	}
 
-	// Below the button while the list fits there, as the window is put, else above it
-	// The list's card starts at the button's bottom, its margin down the window, and the cards may reach as far down
-	// as the room below the button
-	room := p.below + p.margin
-	p.up = p.told && listH > room && p.above > room
-	p.off, p.limit, p.head = 0, float32(math.Inf(1)), 0
+	// Right of the list while a menu fits there, else left of it where it fits there, and the window reaches as far left
+	// as the menus on the left need. The list's card starts at the button's left edge, its margin into the window.
+	p.sides = p.sides[:0]
+	p.lead = 0
+	for _, s := range sizes {
+		left := lc.Max.X-lc.Min.X+s.W > room.Right-p.margin && s.W <= room.Left-p.margin
+		p.sides = append(p.sides, left)
+		if left {
+			p.lead = max(p.lead, p.margin+s.W-lc.Min.X)
+		}
+	}
+	p.lead = min(p.lead, max(0, room.Left-lc.Min.X))
+	width := p.lead + list.W
+	for i, s := range sizes {
+		if !p.sides[i] {
+			width = max(width, p.lead+lc.Max.X+s.W+p.margin)
+		}
+	}
+
+	// Below the button while the list fits there, as the window is put, else above it. The list's card starts at the
+	// button's bottom, its margin down the window, and the cards may reach as far down as the room below the button.
+	below := room.Below + p.margin
+	p.up = p.told && list.H > below && room.Above > below
+	p.head, p.limit = 0, float32(math.Inf(1))
+	height := list.H
 	switch {
 	case p.up:
-		size.H = max(listH, min(p.above, tallest+2*p.margin))
-		p.off, p.limit = size.H-listH, size.H
+		height = max(list.H, min(room.Above, tallest+2*p.margin))
+		p.off.Y, p.limit = height-list.H, height
 	case p.told:
 		// A menu too tall for the room below its line rises above the list, as far as the screen allows
 		pad := MenuPadding.Get(f.Theme)
 		for i, s := range sizes {
-			top := min(p.list.RowRect(i).Min.Y-pad, room-p.margin-s.H)
+			top := min(p.list.RowRect(i).Min.Y-pad, below-p.margin-s.H)
 			p.head = max(p.head, p.margin-top)
 		}
-		p.head = min(p.head, max(0, p.above))
-		p.off, p.limit = p.head, p.head+room
-		size.H = p.off + listH
+		p.head = min(p.head, max(0, room.Above))
+		p.off.Y, p.limit = p.head, p.head+below
+		height = p.off.Y + list.H
+	default:
+		p.off.Y = 0
 	}
-	lk.Place(geom.Pt(0, p.off))
+	p.off.X = p.lead
+	lk.Place(p.off)
 	for i, s := range sizes {
-		size.H = max(size.H, p.cardAt(i, s.H, f)+s.H+p.margin)
+		height = max(height, p.cardAt(i, s.H, f)+s.H+p.margin)
 	}
 
 	// The menus shown beside the list ride on the card; the open one sets where it goes
@@ -151,25 +193,29 @@ func (p *barPanel) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Childre
 	for i := 1; i < kids.Len(); i++ {
 		k := kids.At(i)
 		s := k.Layout(gunim.Loose(c.Max))
-		k.Place(geom.Pt(p.cardX, p.cardY.Value()))
-		if k.Node() == open && p.b.open >= 0 {
-			p.aim(p.cardAt(p.b.open, s.H, f), s, f)
+		if k.Node() == open && p.b.open >= 0 && p.b.open < len(p.sides) {
+			p.aim(p.cardAt(p.b.open, s.H, f), s, p.sides[p.b.open], f)
 		}
+		k.Place(p.sideCard().Min)
 	}
 	if open == nil {
 		p.cardOn.Animate(0, Quick.Get(f.Theme))
 	}
-	return c.Constrain(size)
+	return c.Constrain(geom.Sz(width, height))
 }
 
-// aim sends the card to top at size, springing there from where it was, or there at once when it had nowhere to
-// spring from.
-func (p *barPanel) aim(top float32, s geom.Size, f gunim.Frame) {
-	if !p.placed || p.cardOn.Value() < 0.05 {
+// aim sends the card to top at size, on the list's left or its right, springing there from where it was, or there at
+// once when it had nowhere to spring from or moves to the list's other side.
+func (p *barPanel) aim(top float32, s geom.Size, left bool, f gunim.Frame) {
+	if !p.placed || p.cardOn.Value() < 0.05 || left != p.left {
+		if p.placed && left != p.left {
+			// Across the list, the card fades in again rather than jumping
+			p.cardOn.Jump(0)
+		}
 		p.cardY.Jump(top)
 		p.cardW.Jump(s.W)
 		p.cardH.Jump(s.H)
-		p.placed = true
+		p.placed, p.left = true, left
 	} else if p.cardY.Target() != top || p.cardW.Target() != s.W || p.cardH.Target() != s.H {
 		p.cardY.Animate(top, anim.Snappy)
 		p.cardW.Animate(s.W, anim.Snappy)

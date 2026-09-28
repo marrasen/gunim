@@ -230,22 +230,31 @@ func (b *Menubar) showList(u *gunim.UI) {
 // beside the list, before that line's menu opens.
 const menuAimWait = 120 * time.Millisecond
 
-// aiming reports whether the pointer's last move on a compact bar's list headed for the menu open beside it: into
-// the wedge from where it was to the near edge of the menu's card.
+// aiming reports whether the pointer's last move on a compact bar's list headed for the menu open beside it, on the
+// list's right or its left: into the wedge from where it was to the near edge of the menu's card.
 func (b *Menubar) aiming() bool {
 	if b.menu == nil || b.panel == nil {
 		return false
 	}
 	from, to := b.list.wasPointer, b.list.pointer
 	card := b.panel.cardInList()
-	if card.Empty() || to.X <= from.X || to.X >= card.Min.X {
+	if card.Empty() {
+		return false
+	}
+	edge, step := card.Min.X, to.X-from.X
+	if b.panel.left {
+		edge, step = card.Max.X, from.X-to.X
+	}
+	span := edge - from.X
+	if b.panel.left {
+		span = from.X - edge
+	}
+	if step <= 0 || step >= span {
 		return false
 	}
 	// The pointer's slope stays within the wedge's, from where it was to the card's near corners
-	slope := (to.Y - from.Y) / (to.X - from.X)
-	top := (card.Min.Y - from.Y) / (card.Min.X - from.X)
-	bottom := (card.Max.Y - from.Y) / (card.Min.X - from.X)
-	return slope >= top && slope <= bottom
+	slope := (to.Y - from.Y) / step
+	return slope >= (card.Min.Y-from.Y)/span && slope <= (card.Max.Y-from.Y)/span
 }
 
 // stopWaiting cancels a menu waiting to open beside a compact bar's list.

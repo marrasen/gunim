@@ -4,6 +4,7 @@ import (
 	"errors"
 	"image"
 	"image/color"
+	"math"
 	"time"
 
 	"github.com/marrasen/gunim/access"
@@ -185,11 +186,21 @@ type Framer interface {
 	Maximized() bool
 }
 
-// A PopupRoomer is a [Window] that says how much room the screen leaves below and above a rectangle in its own
-// logical space, in logical pixels, for a popup attached there: to the bottom and the top of the work area of the
-// monitor under it.
+// A PopupRoomer is a [Window] that says how much room the screen leaves round a rectangle in its own logical space,
+// for a popup attached there: to the edges of the work area of the monitor under it.
 type PopupRoomer interface {
-	PopupRoom(anchor geom.Rect) (below, above float32)
+	PopupRoom(anchor geom.Rect) Room
+}
+
+// Room is the room, in logical pixels, from a popup's anchor to the edges of the screen's work area: below its bottom
+// and above its top, and right and left of its left edge, where a popup starts.
+type Room struct {
+	Below, Above, Left, Right float32
+}
+
+// NoRoomLimit is the room where nothing says where the screen ends.
+var NoRoomLimit = Room{
+	Below: float32(math.Inf(1)), Above: float32(math.Inf(1)), Left: float32(math.Inf(1)), Right: float32(math.Inf(1)),
 }
 
 // Border is the thin line round the edge of a window opened with [Options.Chromeless], where the platform draws one,

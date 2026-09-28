@@ -388,6 +388,13 @@ func TestHeadingForAnOpenMenuCrossesLinesWithoutOpeningTheirs(t *testing.T) {
 // in the window's space.
 func newRoomStage(t *testing.T, lines int, top, bottom float32) (b *Menubar, run func(int), move func(at geom.Point)) {
 	t.Helper()
+	return newAreaStage(t, lines, geom.Rect{Min: geom.Pt(-1000, top), Max: geom.Pt(5000, bottom)})
+}
+
+// newAreaStage opens a compact bar's list, with a menu of lines items, the screen's work area being area, in the
+// window's space.
+func newAreaStage(t *testing.T, lines int, area geom.Rect) (b *Menubar, run func(int), move func(at geom.Point)) {
+	t.Helper()
 	tall := BarMenu{Title: "Font"}
 	for i := range lines {
 		tall.Items = append(tall.Items, fmt.Sprintf("Font %d", i))
@@ -401,13 +408,13 @@ func newRoomStage(t *testing.T, lines int, top, bottom float32) (b *Menubar, run
 	col := Column(b, NewTextField())
 	col.Cross = CrossStretch
 	w, run := stage(t, &frame{child: col, size: geom.Sz(600, 400)})
-	w.Offscreen().SetWorkArea(geom.Rect{Min: geom.Pt(-1000, top), Max: geom.Pt(5000, bottom)})
+	w.Offscreen().SetWorkArea(area)
 	s := b.span(0)
 	clickAt(w, run, geom.Pt((s[0]+s[1])/2, 15))
 	run(2)
 	list := b.listPopup
 	move = func(at geom.Point) {
-		list.Input(input.PointerMove{Pos: at.Add(geom.Pt(0, b.panel.off)), Time: time.Now()})
+		list.Input(input.PointerMove{Pos: at.Add(b.panel.off), Time: time.Now()})
 		run(1)
 	}
 	return b, run, move
@@ -447,7 +454,7 @@ func TestACompactMenubarsListOpensAboveWhereItDoesNotFitBelow(t *testing.T) {
 		t.Fatal("with no room below for the list, the panel opens below the button")
 	}
 	size := b.listPopup.Offscreen().Size()
-	if bottom := b.panel.off + b.list.card.Max.Y + b.list.margin; bottom < size.H-1 || bottom > size.H+1 {
+	if bottom := b.panel.off.Y + b.list.card.Max.Y + b.list.margin; bottom < size.H-1 || bottom > size.H+1 {
 		t.Fatalf("the list ends at %v, want at the bottom of the window, %v, against the button", bottom, size.H)
 	}
 	move(middle(b.list.RowRect(2)))
@@ -476,5 +483,46 @@ func TestAMenuTallerThanTheRoomBelowRisesAboveTheButtonWithoutTheList(t *testing
 	card := b.panel.sideCard()
 	if card.Min.Y < b.panel.margin-1 || card.Max.Y > size.H-b.panel.margin+1 {
 		t.Fatalf("Font's menu is on a card at %v, want inside the window, %v tall", card, size.H)
+	}
+}
+
+func TestAMenuWithNoRoomOnTheRightOpensOnTheListsLeft(t *testing.T) {
+	// The screen ends just right of the list, with room on the left
+	const right = 260
+	b, run, move := newAreaStage(t, 4, geom.Rect{Min: geom.Pt(-1000, -1000), Max: geom.Pt(right, 1000)})
+	move(middle(b.list.RowRect(1)))
+	run(40)
+	if b.open != 1 || !b.panel.left {
+		t.Fatalf("resting on Edit left menu %d open, on the list's left %v", b.open, b.panel.left)
+	}
+	card, list := b.panel.cardInList(), b.list.card
+	if card.Max.X != list.Min.X {
+		t.Fatalf("Edit's menu ends at %v, want against the list's left edge, at %v", card.Max.X, list.Min.X)
+	}
+	if b.panel.sideCard().Min.X < b.panel.margin {
+		t.Fatalf("Edit's menu starts at %v, outside the window", b.panel.sideCard().Min.X)
+	}
+	// The list stays under the button, and the window on the screen
+	pw := b.listPopup.Offscreen()
+	if x := pw.Anchor().Min.X + b.panel.off.X + list.Min.X; x < b.span(0)[0]-1 || x > b.span(0)[0]+1 {
+		t.Fatalf("the list starts at %v, want at the button's left edge, %v", x, b.span(0)[0])
+	}
+	if end := pw.Anchor().Min.X + pw.Size().W; end > right+1 {
+		t.Fatalf("the window reaches %v, past the screen's right edge, %v", end, float32(right))
+	}
+	// Heading down and left for File's menu over Edit's line keeps it open, and resting there opens Edit's
+	move(middle(b.list.RowRect(0)))
+	run(40)
+	if b.open != 0 || !b.panel.left {
+		t.Fatalf("resting on File left menu %d open, on the list's left %v", b.open, b.panel.left)
+	}
+	move(geom.Pt(b.list.RowRect(0).Center().X, b.list.RowRect(0).Max.Y-2))
+	move(geom.Pt(list.Min.X+2, b.list.RowRect(1).Center().Y))
+	if b.open != 0 {
+		t.Fatalf("heading for File's menu over Edit's line opened menu %d", b.open)
+	}
+	run(15)
+	if b.open != 1 {
+		t.Fatalf("resting on Edit's line left menu %d open", b.open)
 	}
 }

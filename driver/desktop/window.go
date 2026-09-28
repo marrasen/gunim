@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"image"
 	"image/color"
-	"math"
 	"os"
 	"runtime"
 	"slices"
@@ -504,8 +503,8 @@ func (w *Window) attach(anchor geom.Rect) error {
 var popupDebug = os.Getenv("GUNIM_DEBUG_POPUP") == "1"
 
 // PopupRoom implements [driver.PopupRoomer]. Where the window or its monitor cannot say, there is no end to the room.
-func (w *Window) PopupRoom(anchor geom.Rect) (below, above float32) {
-	below, above = float32(math.Inf(1)), float32(math.Inf(1))
+func (w *Window) PopupRoom(anchor geom.Rect) driver.Room {
+	room := driver.NoRoomLimit
 	_ = w.d.call(func() error {
 		if w.closed {
 			return nil
@@ -523,10 +522,13 @@ func (w *Window) PopupRoom(anchor geom.Rect) (below, above float32) {
 		if area.Empty() || f <= 0 {
 			return nil
 		}
-		below, above = (area.Max.Y-a.Max.Y)/f, (a.Min.Y-area.Min.Y)/f
+		room = driver.Room{
+			Below: (area.Max.Y - a.Max.Y) / f, Above: (a.Min.Y - area.Min.Y) / f,
+			Left: (a.Min.X - area.Min.X) / f, Right: (area.Max.X - a.Min.X) / f,
+		}
 		return nil
 	})
-	return below, above
+	return room
 }
 
 // popupArea is the work area a popup for anchor a is kept inside: the

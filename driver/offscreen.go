@@ -2,7 +2,6 @@ package driver
 
 import (
 	"image/color"
-	"math"
 	"slices"
 	"sync"
 	"time"
@@ -104,14 +103,15 @@ func (w *OffscreenWindow) SetWorkArea(area geom.Rect) {
 	w.workArea = area
 }
 
-// PopupRoom implements [PopupRoomer]: the room between the anchor and the work area's bottom and top.
-func (w *OffscreenWindow) PopupRoom(anchor geom.Rect) (below, above float32) {
+// PopupRoom implements [PopupRoomer]: the room between the anchor and the work area's edges.
+func (w *OffscreenWindow) PopupRoom(anchor geom.Rect) Room {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if w.workArea.Empty() {
-		return float32(math.Inf(1)), float32(math.Inf(1))
+	a := w.workArea
+	if a.Empty() {
+		return NoRoomLimit
 	}
-	return w.workArea.Max.Y - anchor.Max.Y, anchor.Min.Y - w.workArea.Min.Y
+	return Room{Below: a.Max.Y - anchor.Max.Y, Above: anchor.Min.Y - a.Min.Y, Left: anchor.Min.X - a.Min.X, Right: a.Max.X - anchor.Min.X}
 }
 
 // SetBorder implements [Borderer].
