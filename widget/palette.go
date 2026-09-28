@@ -7,6 +7,7 @@ import (
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/match"
 	"github.com/marrasen/gunim/paint"
@@ -30,8 +31,10 @@ const paletteRows = 10
 // beside it, such as its shortcut, and other words it answers to.
 type PaletteItem struct {
 	Title string
-	Hint  string
-	Also  []string
+	// Icon shows before the title, in its colour. Titles line up after a column for icons when any item has one.
+	Icon *icon.Icon
+	Hint string
+	Also []string
 	// Detail is said faintly after the title, such as the folder a file
 	// is in.
 	Detail string
@@ -486,6 +489,7 @@ func (r *paletteRow) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gun
 	item := r.item
 	run := r.title.shape(faceIn(Font, th), item.Title, size)
 	top := (box.H - run.Height()) / 2
+	lead := pad + r.c.p.iconRoom(th)
 	// The matched letters sit on marks, joined where they run on.
 	mark := PaletteMark.Get(th)
 	at := r.at
@@ -495,21 +499,25 @@ func (r *paletteRow) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gun
 			j++
 		}
 		x0, x1 := run.CaretX(at[i]), run.CaretX(at[j]+1)
-		p.RRect(geom.Rc(pad+x0-1, top, x1-x0+2, run.Height()), 3, paint.Solid(mark))
+		p.RRect(geom.Rc(lead+x0-1, top, x1-x0+2, run.Height()), 3, paint.Solid(mark))
 		i = j + 1
 	}
 	ink := Ink.Get(th)
 	if item.Problem {
 		ink = DialogProblem.Get(th)
 	}
-	run.Paint(p, geom.Pt(pad, top), ink)
+	if item.Icon != nil {
+		s := IconSize.Get(th)
+		paintIcon(p, th, item.Icon, geom.Rc(pad, (box.H-s)/2, s, s), ink, 1)
+	}
+	run.Paint(p, geom.Pt(lead, top), ink)
 	end := box.W - pad
 	if item.Hint != "" {
 		hint := r.hint.shape(faceIn(Font, th), item.Hint, size*0.9)
 		end -= hint.Advance + pad
 		hint.Paint(p, geom.Pt(box.W-pad-hint.Advance, (box.H-hint.Height())/2), PaletteHint.Get(th))
 	}
-	if x := pad + run.Advance + size*0.8; item.Detail != "" && end-x > size {
+	if x := lead + run.Advance + size*0.8; item.Detail != "" && end-x > size {
 		face := faceIn(Font, th)
 		detail := r.detail.shape(face, item.Detail, size*0.85)
 		if detail.Advance > end-x {
@@ -551,4 +559,16 @@ func (p *Palette) item(i int) PaletteItem {
 		return p.typedItems[k]
 	}
 	return PaletteItem{}
+}
+
+// iconRoom is the room before the titles for icons, with the gap, when any item has one.
+func (p *Palette) iconRoom(th *theme.Live) float32 {
+	for _, list := range [][]PaletteItem{p.Items, p.typedItems} {
+		for _, it := range list {
+			if it.Icon != nil {
+				return IconSize.Get(th) + IconGap.Get(th)
+			}
+		}
+	}
+	return 0
 }
