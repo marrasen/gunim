@@ -492,9 +492,10 @@ func (a *app) mountDialog(d *dialog) {
 }
 
 // answered hands a dialog's answer to the dialog showing, and shows the
-// next.
+// next. An answer meant for another dialog, as one that arrives after
+// its operation ended, is dropped.
 func (a *app) answered(in gunim.Intent) {
-	if len(a.ops.dialogs) == 0 {
+	if len(a.ops.dialogs) == 0 || !answers(in, a.ops.dialogs[0].state) {
 		return
 	}
 	d := a.ops.dialogs[0]
@@ -505,6 +506,31 @@ func (a *app) answered(in gunim.Intent) {
 		return
 	}
 	a.patch(FocusListing{})
+}
+
+// answers reports whether in is an answer to the dialog with state: of
+// its kind, and with its operation or token.
+func answers(in gunim.Intent, state any) bool {
+	switch v := in.(type) {
+	case ClashAnswered:
+		s, ok := state.(ClashAsk)
+		return ok && s.Op == v.Op
+	case Confirmed:
+		s, ok := state.(Confirm)
+		return ok && s.Token == v.Token
+	case Prompted:
+		s, ok := state.(Prompt)
+		return ok && s.Token == v.Token
+	case PropsApplied:
+		s, ok := state.(Props)
+		return ok && s.Token == v.Token
+	case DialogClosed:
+		switch state.(type) {
+		case ErrorBox, Props:
+			return true
+		}
+	}
+	return false
 }
 
 // dropDialogs takes away the dialogs of operation op, which has ended.

@@ -471,3 +471,33 @@ func TestRenameSelectsTheStemOfANameBeyondASCII(t *testing.T) {
 		t.Fatalf("the prompt is %+v, want a stem of 3 runes", h.a.ops.dialogs[0].state)
 	}
 }
+
+// An answer that arrives after its operation stopped is dropped: an
+// answer reaches only the dialog it was for.
+func TestALateAnswerLeavesTheNextOperationsDialog(t *testing.T) {
+	h := newHarness(t, "a.txt", "one/a.txt", "two/a.txt")
+	src := []string{filepath.Join(h.dir, "a.txt")}
+	h.a.startOp(job{kind: OpCopy, srcs: src, dest: filepath.Join(h.dir, "one")}, "first")
+	first := h.a.ops.next
+	h.until("the first clash is asked about", func() bool { return len(h.a.ops.dialogs) == 1 })
+	h.a.startOp(job{kind: OpCopy, srcs: src, dest: filepath.Join(h.dir, "two")}, "second")
+	h.until("the second clash waits", func() bool { return len(h.a.ops.dialogs) == 2 })
+	h.do(CancelOp{ID: first})
+	h.until("the first operation ends", func() bool { return len(h.a.ops.dialogs) == 1 })
+	h.do(ClashAnswered{Op: first, Choice: ChoiceReplace, All: true})
+	h.frames(10)
+	if len(h.a.ops.dialogs) != 1 {
+		t.Fatal("the late answer took the second operation's dialog")
+	}
+	if contents(t, filepath.Join(h.dir, "two", "a.txt")) != "two/a.txt" {
+		t.Fatal("the late answer replaced the second operation's file")
+	}
+	h.do(Confirmed{Token: 99, OK: true})
+	h.do(DialogClosed{})
+	if len(h.a.ops.dialogs) != 1 {
+		t.Fatal("an answer to another kind of dialog took the clash dialog")
+	}
+	ask, _ := h.a.ops.dialogs[0].state.(ClashAsk)
+	h.answer(ClashAnswered{Op: ask.Op, Choice: ChoiceSkip})
+	h.until("the second operation ends", func() bool { return len(h.a.ops.running) == 0 })
+}
