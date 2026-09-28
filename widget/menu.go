@@ -212,6 +212,12 @@ func (m *Menu) rowAt(p geom.Point) int {
 	return -1
 }
 
+// RowRect returns where item i is in the menu's space, from the last
+// layout, as for a menu opening beside it.
+func (m *Menu) RowRect(i int) geom.Rect {
+	return geom.Rc(m.card.Min.X, m.rowY(i), m.card.Size().W, m.row)
+}
+
 // rowY returns the top of row i in the menu's space.
 func (m *Menu) rowY(i int) float32 {
 	top := float32(i) * m.row
