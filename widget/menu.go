@@ -321,7 +321,8 @@ func (m *Menu) Paint(p *paint.Painter, f gunim.Frame, _ geom.Size, _ gunim.Child
 		run := m.rows[i].run
 		y := m.rowY(i) + (m.row-run.Height())/2
 		if flag(m.Checked, i) {
-			drawTick(p, geom.Pt(card.Min.X+pad+gutter/2-2, m.rowY(i)+m.row/2), col)
+			s := IconSize.Get(th)
+			paintIcon(p, th, icon.Check, geom.Rc(card.Min.X+pad+gutter/2-1-s/2, m.rowY(i)+(m.row-s)/2, s, s), col, 1)
 		}
 		x := card.Min.X + pad + gutter
 		if i < len(m.Icons) && m.Icons[i] != nil {
@@ -340,8 +341,6 @@ func (m *Menu) Paint(p *paint.Painter, f gunim.Frame, _ geom.Size, _ gunim.Child
 	}
 }
 
-// gutter is the room before the items' titles: a tick's, when any item
-// has one.
 // iconRoom is the room icons take before the items' text, when any item has one.
 func (m *Menu) iconRoom(th *theme.Live) float32 {
 	for _, ic := range m.Icons {
@@ -352,23 +351,12 @@ func (m *Menu) iconRoom(th *theme.Live) float32 {
 	return 0
 }
 
+// gutter is the room before the items' titles: a tick's, when any item has one.
 func (m *Menu) gutter() float32 {
 	if slices.Contains(m.Checked, true) {
 		return menuTick
 	}
 	return 0
-}
-
-// drawTick draws a small tick centred on c.
-func drawTick(p *paint.Painter, c geom.Point, ink color.NRGBA) {
-	const thick = 1.8
-	bar := func(from geom.Point, length, angle float32) {
-		defer p.Push(paint.Rotate(angle, from))()
-		p.RRect(geom.Rc(from.X, from.Y-thick/2, length, thick), thick/2, paint.Solid(ink))
-	}
-	knee := geom.Pt(c.X-1, c.Y+3)
-	bar(knee, 5, -math.Pi*3/4)
-	bar(knee, 10, -math.Pi/4)
 }
 
 // Dropdown shows one item of a list, and opens the list in a popup to
