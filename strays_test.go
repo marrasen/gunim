@@ -1,12 +1,23 @@
 package gunim
 
 import (
+	"fmt"
 	"os"
 	"testing"
 )
 
-// gunim's tests name every call about a node that is not in the tree.
+// made are the offscreen windows the tests made, and TestMain fails the
+// run for any stray they kept that a test did not take.
+var made []*Window
+
 func TestMain(m *testing.M) {
-	PanicOnStrays(true)
-	os.Exit(m.Run())
+	offscreenMade = func(w *Window) { made = append(made, w) }
+	code := m.Run()
+	for _, w := range made {
+		for _, s := range w.Strays() {
+			fmt.Fprintln(os.Stderr, "stray:", s)
+			code = 1
+		}
+	}
+	os.Exit(code)
 }

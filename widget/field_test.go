@@ -6,6 +6,7 @@ import (
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/gunimtest"
 	"github.com/marrasen/gunim/input"
 )
 
@@ -242,7 +243,7 @@ func TestAltGrTypesWhereControlAndAltAreHeld(t *testing.T) {
 }
 
 func TestAFlashFadesOutSteadily(t *testing.T) {
-	w := gunim.NewOffscreen(geom.Sz(300, 60), nil)
+	w := gunimtest.New(t, geom.Sz(300, 60), nil)
 	f := NewTextField()
 	gunim.RegisterView(w, "field", func(struct{}) gunim.Node { return f }, nil)
 	if err := w.Client().Mount(gunim.Root, "field", "field", struct{}{}); err != nil {

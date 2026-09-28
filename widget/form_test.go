@@ -6,6 +6,7 @@ import (
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/gunimtest"
 	"github.com/marrasen/gunim/input"
 )
 
@@ -27,7 +28,7 @@ func newSignInStage(t *testing.T) (*gunim.Window, *Form, [3]gunim.Node, func(int
 	d.OnAccept = func() gunim.Intent {
 		return signIn{Host: host.Text(), Password: pass.Text(), Remember: remember.On}
 	}
-	w := gunim.NewOffscreen(geom.Sz(800, 600), nil)
+	w := gunimtest.New(t, geom.Sz(800, 600), nil)
 	gunim.RegisterView(w, "d", func(struct{}) gunim.Node { return d }, nil)
 	if err := w.Client().Mount(gunim.Root, "d", "d", nil); err != nil {
 		t.Fatal(err)
@@ -122,7 +123,7 @@ func TestADialogWithAProblemStaysOpenAndShakes(t *testing.T) {
 		}
 		return ""
 	}
-	w := gunim.NewOffscreen(geom.Sz(800, 600), nil)
+	w := gunimtest.New(t, geom.Sz(800, 600), nil)
 	gunim.RegisterView(w, "d", func(struct{}) gunim.Node { return d }, nil)
 	if err := w.Client().Mount(gunim.Root, "d", "d", nil); err != nil {
 		t.Fatal(err)
@@ -166,7 +167,7 @@ func TestADialogsExtraButtonSendsItsAnswer(t *testing.T) {
 	d.SetButtons("Replace", "Stop")
 	d.Accept = answered{"replace"}
 	d.AddButton("Leave It", func() gunim.Intent { return answered{"leave"} })
-	w := gunim.NewOffscreen(geom.Sz(800, 600), nil)
+	w := gunimtest.New(t, geom.Sz(800, 600), nil)
 	gunim.RegisterView(w, "d", func(struct{}) gunim.Node { return d }, nil)
 	if err := w.Client().Mount(gunim.Root, "d", "d", nil); err != nil {
 		t.Fatal(err)

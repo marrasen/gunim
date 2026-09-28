@@ -8,6 +8,7 @@ import (
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/gunimtest"
 	"github.com/marrasen/gunim/input"
 )
 
@@ -15,7 +16,7 @@ import (
 // maximize button is reported to the system.
 func TestWindowControlsWorkTheWindow(t *testing.T) {
 	c := NewWindowControls()
-	w := gunim.NewOffscreen(geom.Sz(600, 300), nil)
+	w := gunimtest.New(t, geom.Sz(600, 300), nil)
 	fr := w.MakeChromeless(true)
 	sp := NewSpacer()
 	row := Row(sp, c).Grow(sp, 1)

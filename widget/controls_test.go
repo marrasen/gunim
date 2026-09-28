@@ -7,6 +7,7 @@ import (
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/gunimtest"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 )
@@ -166,7 +167,7 @@ func (r *recorder) Paint(*paint.Painter, gunim.Frame, geom.Size, gunim.Children)
 func TestTabsTakePagesMountedUnderThemAndSkipDisabledOnes(t *testing.T) {
 	tabs := NewTabs([]string{"One", "Two", "Three"})
 	tabs.Disabled = []bool{false, true}
-	w := gunim.NewOffscreen(geom.Sz(600, 400), nil)
+	w := gunimtest.New(t, geom.Sz(600, 400), nil)
 	gunim.RegisterView(w, "tabs", func(struct{}) *Tabs { return tabs }, nil)
 	pages := []*spot{newSpot(10, 10), newSpot(10, 10), newSpot(10, 10)}
 	for i, p := range pages {
@@ -205,7 +206,7 @@ func TestTabsTakePagesMountedUnderThemAndSkipDisabledOnes(t *testing.T) {
 
 func TestTabsCanBeSelectedBeforeTheirPagesArrive(t *testing.T) {
 	tabs := NewTabs([]string{"One", "Two", "Three"})
-	w := gunim.NewOffscreen(geom.Sz(600, 400), nil)
+	w := gunimtest.New(t, geom.Sz(600, 400), nil)
 	gunim.RegisterView(w, "tabs", func(struct{}) *Tabs { return tabs }, func(tb *Tabs, _ struct{}, u *gunim.UI) { tb.Select(2, u) })
 	page := newSpot(10, 10)
 	gunim.RegisterView(w, "page", func(struct{}) *spot { return page }, nil)

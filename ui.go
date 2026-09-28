@@ -211,6 +211,9 @@ type Window struct {
 	// blends is whether the last popup's window blended with what is
 	// behind it, the guess for the next one.
 	blends bool
+	// keepStrays says the window keeps its strays, and strays holds them.
+	keepStrays bool
+	strays     []Stray
 	// alarm wakes the loop for the next timer; see wait.
 	alarm *time.Timer
 
@@ -536,8 +539,28 @@ func awaitDialog[T any](ctx context.Context, c Client, show func() (T, error)) (
 // Drive it with [Window.Frame] and read the result from
 // [Window.Offscreen]. It is how a test steps an interface a frame at a
 // time, and how a build machine renders one with no display attached.
+// It keeps its strays, for a test to check; see [Window.Strays] and the
+// gunimtest package.
 func NewOffscreen(size geom.Size, root Node) *Window {
-	return newWindow(driver.Offscreen(size), root)
+	w := newWindow(driver.Offscreen(size), root)
+	w.keepStrays = true
+	if offscreenMade != nil {
+		offscreenMade(w)
+	}
+	return w
+}
+
+// offscreenMade is told of each offscreen window made, for the engine's
+// own tests to check them all.
+var offscreenMade func(*Window)
+
+// Strays returns the calls about nodes out of the tree the window has
+// kept since the last call, and forgets them. Only an offscreen window
+// keeps them.
+func (w *Window) Strays() []Stray {
+	s := w.strays
+	w.strays = nil
+	return s
 }
 
 // Offscreen returns the driver window behind a window from
@@ -1122,12 +1145,17 @@ func (u *UI) Invalidate() { u.invalid = true }
 // filled in with the ID of the nearest mounted view above n, which is
 // how the application knows which of three open dialogs answered.
 //
-// Send returns at once.
-func (u *UI) Send(n Node, v Intent) {
-	if _, ok := u.index[n]; !ok && n != nil {
+// Send returns at once. It reports whether n was in the tree: a node
+// that has left, as one a timer or a late update still names, sends
+// with no ID, and in an offscreen window counts as a [Stray]. A nil n
+// sends from no node, and reports true.
+func (u *UI) Send(n Node, v Intent) bool {
+	_, ok := u.index[n]
+	if !ok && n != nil {
 		u.stray("Send", n)
 	}
 	u.post(Envelope{From: u.idOf(n), Intent: v})
+	return ok || n == nil
 }
 
 // report sends a gunim-generated intent.
@@ -1272,14 +1300,17 @@ func reenter(s *state) {
 //
 // Input skips a leaving node, so focus and hover inside n end here,
 // with [input.FocusLost] and [input.PointerLeave] sent as usual.
-func (u *UI) Remove(n Node) {
+//
+// Remove reports whether n was in the tree. Removing a node that has
+// already left, as a timer that closes a toast the user closed first
+// does, is common and harmless, and does nothing.
+func (u *UI) Remove(n Node) bool {
 	s, ok := u.index[n]
 	if !ok {
-		u.stray("Remove", n)
-		return
+		return false
 	}
 	if s == u.root {
-		return
+		return true
 	}
 	s.presence = Exiting
 	u.invalid = true
@@ -1299,6 +1330,7 @@ func (u *UI) Remove(n Node) {
 	if u.capture != nil && u.capture.within(s) {
 		u.capture = nil
 	}
+	return true
 }
 
 // Bounds returns the box n was last drawn in, in the window's logical
@@ -1332,19 +1364,23 @@ func (u *UI) Focused() Node {
 // [input.FocusGained] to the nodes concerned. Pass nil to drop focus.
 //
 // A node that is leaving takes no input, so focusing one does nothing.
-func (u *UI) Focus(n Node) {
+// Focus reports whether n took focus: false for a node leaving, or out
+// of the tree, which leaves focus where it was, and in an offscreen
+// window counts as a [Stray].
+func (u *UI) Focus(n Node) bool {
 	var next *state
 	if n != nil {
 		next = u.index[n]
 		if next == nil {
 			u.stray("Focus", n)
+			return false
 		}
-		if next != nil && next.leaving() {
-			return
+		if next.leaving() {
+			return false
 		}
 	}
 	if next == u.focus {
-		return
+		return true
 	}
 	if u.focus != nil {
 		u.deliver(u.focus, input.FocusLost{Time: u.now})
@@ -1357,6 +1393,7 @@ func (u *UI) Focus(n Node) {
 		u.deliver(next, input.FocusGained{Time: u.now})
 	}
 	u.invalid = true
+	return true
 }
 
 // takeText tells the driver whether the newly focused node takes typed

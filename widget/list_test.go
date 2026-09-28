@@ -6,6 +6,7 @@ import (
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/gunimtest"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/theme"
 	"github.com/marrasen/gunim/widget"
@@ -47,7 +48,7 @@ type listFixture struct {
 func newListFixture(t *testing.T) *listFixture {
 	t.Helper()
 	f := &listFixture{}
-	f.w = gunim.NewOffscreen(geom.Sz(400, 600), nil)
+	f.w = gunimtest.New(t, geom.Sz(400, 600), nil)
 	gunim.RegisterView(f.w, "list",
 		func(listState) *widget.List {
 			f.list = widget.NewList()

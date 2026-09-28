@@ -2,9 +2,11 @@ package gunim
 
 import (
 	"fmt"
+	"path/filepath"
 	"reflect"
+	"runtime"
+	"strings"
 	"sync"
-	"sync/atomic"
 	"unsafe"
 )
 
@@ -107,17 +109,47 @@ func fieldsAt(t reflect.Type, visiting map[reflect.Type]bool) (idx []int, loops 
 	return idx, loops
 }
 
-// panicOnStrays is set by PanicOnStrays.
-var panicOnStrays atomic.Bool
+// A Stray is a call about a node that was not in the tree: Send or
+// Focus with a node that had left it, or had yet to enter. The call
+// does nothing for the node, which is right for a node that left while
+// something about it was on its way, and a bug for code that took the
+// node to be there. An offscreen window keeps its strays for a test to
+// look at; see [Window.Strays].
+type Stray struct {
+	// Call is the call: "Send" or "Focus".
+	Call string
+	// Node is the node's type, such as "*widget.Toast".
+	Node string
+	// At is where the call came from, as file:line, the first caller
+	// outside the engine.
+	At string
+}
 
-// PanicOnStrays makes Remove, Send and Focus with a node that is not in the tree panic, naming the call and the
-// node's type, so the mistake shows where it happens. Without it they do nothing. A test suite turns it on in its
-// TestMain; an application's own tests choose for themselves.
-func PanicOnStrays(on bool) { panicOnStrays.Store(on) }
+func (s Stray) String() string {
+	return fmt.Sprintf("%s of a %s that is not in the tree, from %s", s.Call, s.Node, s.At)
+}
 
-// stray reports a call about a node that is not in the tree, which panics with PanicOnStrays on.
+// stray keeps a call about a node that is not in the tree, in a window
+// that keeps them.
 func (u *UI) stray(call string, n Node) {
-	if panicOnStrays.Load() {
-		panic(fmt.Sprintf("gunim: %s of a %T that is not in the tree", call, n))
+	if !u.w.keepStrays {
+		return
+	}
+	u.w.strays = append(u.w.strays, Stray{Call: call, Node: fmt.Sprintf("%T", n), At: callerOutside()})
+}
+
+// callerOutside is the file and line of the first caller outside the
+// engine's own package.
+func callerOutside() string {
+	pcs := make([]uintptr, 16)
+	frames := runtime.CallersFrames(pcs[:runtime.Callers(3, pcs)])
+	for {
+		f, more := frames.Next()
+		if !strings.HasPrefix(f.Function, "github.com/marrasen/gunim.") || strings.HasSuffix(f.File, "_test.go") {
+			return fmt.Sprintf("%s:%d", filepath.Base(f.File), f.Line)
+		}
+		if !more {
+			return "?"
+		}
 	}
 }

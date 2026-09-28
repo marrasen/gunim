@@ -8,6 +8,7 @@ import (
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/gunimtest"
 	"github.com/marrasen/gunim/input"
 )
 
@@ -35,7 +36,7 @@ func newTableStage(t *testing.T, n int) (*gunim.Window, *Table, *tableEvents, fu
 	for i := range keys {
 		keys[i] = Key(strconv.Itoa(i))
 	}
-	w := gunim.NewOffscreen(geom.Sz(600, 400), nil)
+	w := gunimtest.New(t, geom.Sz(600, 400), nil)
 	gunim.RegisterView(w, "t", func(struct{}) *Table { return tbl },
 		func(tb *Table, _ struct{}, u *gunim.UI) { tb.SetKeys(keys, u) })
 	if err := w.Client().Mount(gunim.Root, "t", "t", nil); err != nil {
@@ -233,7 +234,7 @@ type jumpState struct {
 func TestJumpToShowsNewRowsInPlace(t *testing.T) {
 	tbl := NewTable(TableColumn{Title: "Name"})
 	tbl.Row = func(k Key) TableRow { return TableRow{Cells: []string{string(k)}} }
-	w := gunim.NewOffscreen(geom.Sz(600, 400), nil)
+	w := gunimtest.New(t, geom.Sz(600, 400), nil)
 	gunim.RegisterView(w, "t", func(jumpState) *Table { return tbl }, func(tb *Table, st jumpState, u *gunim.UI) {
 		tb.SetKeys(st.Keys, u)
 		if st.Jump != "" {

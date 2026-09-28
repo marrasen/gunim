@@ -6,6 +6,7 @@ import (
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/gunimtest"
 	"github.com/marrasen/gunim/paint"
 )
 
@@ -44,7 +45,7 @@ func newHeroStage(t *testing.T) *heroStage {
 	thumb := NewImage(s.thumbPic)
 	thumb.Fit = FitFill
 	s.thumb = NewHero("pic", thumb)
-	s.w = gunim.NewOffscreen(geom.Sz(400, 400), nil)
+	s.w = gunimtest.New(t, geom.Sz(400, 400), nil)
 	gunim.RegisterView(s.w, "grid", func(struct{}) gunim.Node {
 		return &spot2{at: geom.Rc(10, 10, 40, 30), child: s.thumb}
 	}, nil)
@@ -166,7 +167,7 @@ func TestHeroFlightMovesSmoothlyEveryFrame(t *testing.T) {
 func TestAnAnchorHeroStaysPutAndTakesItsCounterpartBack(t *testing.T) {
 	thumbPic, bigPic := picture(10, 10), picture(10, 10)
 	var thumb *Hero
-	w := gunim.NewOffscreen(geom.Sz(400, 400), nil)
+	w := gunimtest.New(t, geom.Sz(400, 400), nil)
 	gunim.RegisterView(w, "grid", func(struct{}) gunim.Node {
 		img := NewImage(thumbPic)
 		img.Fit = FitFill

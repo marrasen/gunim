@@ -7,6 +7,7 @@ import (
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/gunimtest"
 	"github.com/marrasen/gunim/paint"
 )
 
@@ -48,7 +49,7 @@ type shown struct{ Pic *paint.Image }
 func TestImageCrossfadesToANewSource(t *testing.T) {
 	a, b := picture(10, 10), picture(10, 10)
 	img := NewImage(a)
-	w := gunim.NewOffscreen(geom.Sz(100, 100), nil)
+	w := gunimtest.New(t, geom.Sz(100, 100), nil)
 	gunim.RegisterView(w, "pic", func(shown) *frame { return &frame{child: img, size: geom.Sz(10, 10)} },
 		func(_ *frame, s shown, u *gunim.UI) { img.SetSource(s.Pic, u) })
 	if err := w.Client().Mount(gunim.Root, "pic", "pic", shown{a}); err != nil {

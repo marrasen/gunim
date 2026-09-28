@@ -6,6 +6,7 @@ import (
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/gunimtest"
 	"github.com/marrasen/gunim/input"
 )
 
@@ -17,7 +18,7 @@ func newSplitStage(t *testing.T) (*gunim.Window, *Split, func(int)) {
 	t.Helper()
 	s := NewSplit(NewTextField(), &block{h: 10})
 	s.OnMove = func(v float32) gunim.Intent { return splitMoved{v} }
-	w := gunim.NewOffscreen(geom.Sz(406, 300), nil)
+	w := gunimtest.New(t, geom.Sz(406, 300), nil)
 	gunim.RegisterView(w, "split", func(struct{}) gunim.Node { return s }, nil)
 	if err := w.Client().Mount(gunim.Root, "split", "split", nil); err != nil {
 		t.Fatal(err)

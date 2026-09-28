@@ -8,6 +8,7 @@ import (
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/gunimtest"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 )
@@ -24,7 +25,7 @@ func BenchmarkFrame(b *testing.B) {
 		list.kids = append(list.kids, NewCard(row))
 	}
 	list.Cross = CrossStretch
-	w := gunim.NewOffscreen(geom.Sz(720, 560), nil)
+	w := gunimtest.New(b, geom.Sz(720, 560), nil)
 	gunim.RegisterView(w, "g", func(struct{}) gunim.Node { return NewPad(NewScroll(list)) }, nil)
 	if err := w.Client().Mount(gunim.Root, "g", "g", nil); err != nil {
 		b.Fatal(err)

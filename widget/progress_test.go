@@ -6,11 +6,12 @@ import (
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/gunimtest"
 )
 
 func progressStage(t *testing.T) (b *ProgressBar, set func(float32), run func(int)) {
 	t.Helper()
-	w := gunim.NewOffscreen(geom.Sz(300, 40), nil)
+	w := gunimtest.New(t, geom.Sz(300, 40), nil)
 	gunim.RegisterView(w, "bar", func(float32) *ProgressBar {
 		b = NewProgressBar()
 		return b

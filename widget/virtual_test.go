@@ -7,6 +7,7 @@ import (
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/gunimtest"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 )
@@ -46,7 +47,7 @@ func newVirtual(t *testing.T, ks []Key, height float32) (*gunim.Window, *Virtual
 		blocks[k] = b
 		return b
 	})
-	w := gunim.NewOffscreen(geom.Sz(300, 400), nil)
+	w := gunimtest.New(t, geom.Sz(300, 400), nil)
 	gunim.RegisterView(w, "v", func(shownKeys) gunim.Node { return l },
 		func(_ gunim.Node, s shownKeys, u *gunim.UI) { l.SetKeys(s.Keys, u) })
 	if err := w.Client().Mount(gunim.Root, "v", "v", shownKeys{ks}); err != nil {

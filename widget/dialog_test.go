@@ -7,11 +7,12 @@ import (
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/access"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/gunimtest"
 	"github.com/marrasen/gunim/input"
 )
 
 func TestDialogAnimatesInAndOut(t *testing.T) {
-	w := gunim.NewOffscreen(geom.Sz(800, 600), nil)
+	w := gunimtest.New(t, geom.Sz(800, 600), nil)
 	var d *Dialog
 	gunim.RegisterView(w, "confirm", func(title string) *Dialog {
 		d = NewDialog(title)
@@ -50,7 +51,7 @@ func TestDialogAnimatesInAndOut(t *testing.T) {
 }
 
 func TestADangerButtonFadesInFromThePlainColours(t *testing.T) {
-	w := gunim.NewOffscreen(geom.Sz(800, 600), nil)
+	w := gunimtest.New(t, geom.Sz(800, 600), nil)
 	var d *Dialog
 	gunim.RegisterView(w, "confirm", func(title string) *Dialog {
 		d = NewDialog(title)
@@ -83,7 +84,7 @@ func TestADangerButtonFadesInFromThePlainColours(t *testing.T) {
 }
 
 func TestADangerDialogOpensOnCancelSoEnterCancels(t *testing.T) {
-	w := gunim.NewOffscreen(geom.Sz(800, 600), nil)
+	w := gunimtest.New(t, geom.Sz(800, 600), nil)
 	var d *Dialog
 	gunim.RegisterView(w, "confirm", func(title string) *Dialog {
 		d = NewDialog(title)
@@ -115,7 +116,7 @@ func TestADangerDialogOpensOnCancelSoEnterCancels(t *testing.T) {
 }
 
 func TestADialogWithNoCancelHasOKAlone(t *testing.T) {
-	w := gunim.NewOffscreen(geom.Sz(800, 600), nil)
+	w := gunimtest.New(t, geom.Sz(800, 600), nil)
 	var d *Dialog
 	gunim.RegisterView(w, "note", func(title string) *Dialog {
 		d = NewDialog(title)
@@ -152,7 +153,7 @@ func TestADialogWithNoCancelHasOKAlone(t *testing.T) {
 }
 
 func TestAnActionLeavesTheDialogOpen(t *testing.T) {
-	w := gunim.NewOffscreen(geom.Sz(800, 600), nil)
+	w := gunimtest.New(t, geom.Sz(800, 600), nil)
 	var d *Dialog
 	var box *Checkbox
 	field := NewTextField()
@@ -198,7 +199,7 @@ func TestAnActionLeavesTheDialogOpen(t *testing.T) {
 }
 
 func TestADialogWidensForItsButtons(t *testing.T) {
-	w := gunim.NewOffscreen(geom.Sz(1000, 600), nil)
+	w := gunimtest.New(t, geom.Sz(1000, 600), nil)
 	var d *Dialog
 	var u *gunim.UI
 	gunim.RegisterView(w, "many", func(title string) *Dialog {
@@ -239,7 +240,7 @@ func TestADialogWidensForItsButtons(t *testing.T) {
 
 // A careful dialog opens on Cancel too, and keeps OK its usual colour.
 func TestACarefulDialogOpensOnCancelInItsUsualColours(t *testing.T) {
-	w := gunim.NewOffscreen(geom.Sz(800, 600), nil)
+	w := gunimtest.New(t, geom.Sz(800, 600), nil)
 	var d *Dialog
 	gunim.RegisterView(w, "trust", func(title string) *Dialog {
 		d = NewDialog(title)
@@ -297,7 +298,7 @@ type ownDialog struct {
 }
 
 func TestADialogEmbeddedInAViewClosesItself(t *testing.T) {
-	w := gunim.NewOffscreen(geom.Sz(800, 600), nil)
+	w := gunimtest.New(t, geom.Sz(800, 600), nil)
 	w.Offscreen().ListenForAccess()
 	var v *ownDialog
 	gunim.RegisterView(w, "own", func(title string) *ownDialog {

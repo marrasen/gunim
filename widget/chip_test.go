@@ -6,6 +6,7 @@ import (
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/gunimtest"
 	"github.com/marrasen/gunim/input"
 )
 
@@ -33,7 +34,7 @@ func TestAWrapStartsANewRowWhereTheNextChildWouldPassItsWidth(t *testing.T) {
 	a, b, c := newSpot(150, 20), newSpot(150, 30), newSpot(150, 20)
 	wrap := NewWrap()
 	wrap.Gap = tableNoGap
-	w := gunim.NewOffscreen(geom.Sz(320, 200), nil)
+	w := gunimtest.New(t, geom.Sz(320, 200), nil)
 	gunim.RegisterView(w, "wrap", func(struct{}) gunim.Node { return wrap },
 		func(n gunim.Node, _ struct{}, u *gunim.UI) {
 			for _, k := range []gunim.Node{a, b, c} {
@@ -56,7 +57,7 @@ func TestAWrapCanCentreEachChildInItsRow(t *testing.T) {
 	a, b, c := newSpot(150, 20), newSpot(150, 30), newSpot(150, 20)
 	wrap := NewWrap()
 	wrap.Gap, wrap.Cross = tableNoGap, CrossCenter
-	w := gunim.NewOffscreen(geom.Sz(320, 200), nil)
+	w := gunimtest.New(t, geom.Sz(320, 200), nil)
 	gunim.RegisterView(w, "wrap", func(struct{}) gunim.Node { return wrap },
 		func(n gunim.Node, _ struct{}, u *gunim.UI) {
 			for _, k := range []gunim.Node{a, b, c} {

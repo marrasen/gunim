@@ -6,6 +6,7 @@ import (
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/gunimtest"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/text"
@@ -88,7 +89,7 @@ func spotColumn(n int) (spots []*spot, nodes []gunim.Node) {
 // function that runs n frames.
 func stage(t *testing.T, root gunim.Node) (w *gunim.Window, run func(n int)) {
 	t.Helper()
-	w = gunim.NewOffscreen(geom.Sz(800, 600), nil)
+	w = gunimtest.New(t, geom.Sz(800, 600), nil)
 	gunim.RegisterView(w, "stage", func(struct{}) gunim.Node { return root }, nil)
 	if err := w.Client().Mount(gunim.Root, "stage", "stage", nil); err != nil {
 		t.Fatal(err)

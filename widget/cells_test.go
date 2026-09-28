@@ -8,6 +8,7 @@ import (
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/gunimtest"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/text"
 	"github.com/marrasen/gunim/theme"
@@ -32,7 +33,7 @@ func newCellStage(t testing.TB) (*gunim.Window, *CellGrid, func(int)) {
 	for y := range 12 {
 		g.SetRow(y, cellsOf(fmt.Sprintf("row %d: the quick brown fox", y)))
 	}
-	w := gunim.NewOffscreen(geom.Sz(400, 300), nil)
+	w := gunimtest.New(t, geom.Sz(400, 300), nil)
 	gunim.RegisterView(w, "cells", func(struct{}) gunim.Node { return g }, nil)
 	if err := w.Client().Mount(gunim.Root, "cells", "cells", nil); err != nil {
 		t.Fatal(err)
@@ -145,7 +146,7 @@ func BenchmarkAGridScrollingAFullScreen(b *testing.B) {
 	g := NewCellGrid()
 	g.Size = 14
 	g.Resize(200, 60)
-	w := gunim.NewOffscreen(geom.Sz(1700, 1100), nil)
+	w := gunimtest.New(b, geom.Sz(1700, 1100), nil)
 	gunim.RegisterView(w, "cells", func(struct{}) gunim.Node { return g }, nil)
 	if err := w.Client().Mount(gunim.Root, "cells", "cells", nil); err != nil {
 		b.Fatal(err)

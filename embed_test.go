@@ -74,41 +74,39 @@ func TestInsertingAnEmbeddedNodeElsewherePanics(t *testing.T) {
 	w.ui.Insert(w.ui.Root(), outer.part)
 }
 
-// With PanicOnStrays on, as gunim's tests have it, acting on a node
-// that is not in the tree panics and names the call. Bounds is a
-// question, and answers false.
-func TestNamingANodeThatIsNotInTheTreePanicsUnderTest(t *testing.T) {
+// A call about a node out of the tree reports false and does nothing
+// for it. Send and Focus are kept as strays, naming the call, the node
+// and where the call came from; Remove, for a node that has already
+// left, is common and harmless, and is not. Bounds answers false.
+func TestAStrayReportsFalseAndIsKept(t *testing.T) {
 	w := newTestWindow()
 	stray := &part{}
 	if _, ok := w.ui.Bounds(stray); ok {
 		t.Error("Bounds of a node not in the tree said it was drawn")
 	}
-	for name, call := range map[string]func(){
-		"Remove": func() { w.ui.Remove(stray) },
-		"Send":   func() { w.ui.Send(stray, nil) },
-		"Focus":  func() { w.ui.Focus(stray) },
-	} {
-		func() {
-			defer func() {
-				if e := recover(); e == nil || !strings.Contains(fmt.Sprint(e), name) {
-					t.Errorf("%s of a node not in the tree panicked with %v", name, e)
-				}
-			}()
-			call()
-		}()
+	if w.ui.Remove(stray) || w.ui.Send(stray, nil) || w.ui.Focus(stray) {
+		t.Fatal("a call about a node not in the tree reported true")
 	}
-}
-
-// Without PanicOnStrays, as in an application's own tests, the same
-// calls do nothing.
-func TestAStrayIsQuietUnlessAsked(t *testing.T) {
-	PanicOnStrays(false)
-	defer PanicOnStrays(true)
-	w := newTestWindow()
-	stray := &part{}
-	w.ui.Remove(stray)
-	w.ui.Send(stray, nil)
-	w.ui.Focus(stray)
+	got := w.Strays()
+	if len(got) != 2 || got[0].Call != "Send" || got[1].Call != "Focus" {
+		t.Fatalf("the strays kept are %v, want Send and Focus", got)
+	}
+	for _, s := range got {
+		if s.Node != "*gunim.part" || !strings.HasPrefix(s.At, "embed_test.go:") {
+			t.Fatalf("a stray says %v, want the node's type and this file", s)
+		}
+	}
+	if len(w.Strays()) != 0 {
+		t.Fatal("Strays kept what it had handed over")
+	}
+	// A node in the tree reports true, and keeps nothing.
+	w.ui.Insert(w.ui.Root(), stray)
+	if !w.ui.Send(stray, nil) || !w.ui.Focus(stray) || !w.ui.Remove(stray) {
+		t.Fatal("a call about a node in the tree reported false")
+	}
+	if got := w.Strays(); len(got) != 0 {
+		t.Fatalf("calls about a node in the tree kept %v", got)
+	}
 }
 
 // BenchmarkEmbeddedOfAPlainNode times looking for embedded nodes in a

@@ -8,6 +8,7 @@ import (
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/gunimtest"
 	"github.com/marrasen/gunim/input"
 )
 
@@ -18,7 +19,7 @@ func newScrolledReorderList(t *testing.T) (*gunim.Window, *Scroll, *List, func(i
 	l := NewList()
 	l.Reorder = func(keys []Key) gunim.Intent { return reordered{keys} }
 	s := NewScroll(l)
-	w := gunim.NewOffscreen(geom.Sz(300, 200), nil)
+	w := gunimtest.New(t, geom.Sz(300, 200), nil)
 	gunim.RegisterView(w, "l", func(shownItems) gunim.Node { return s },
 		func(_ gunim.Node, st shownItems, u *gunim.UI) {
 			Sync(l, u, st.Items, func(k Key) Key { return k },
