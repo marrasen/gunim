@@ -3,8 +3,10 @@ package desktop
 import (
 	"fmt"
 	"image/color"
-	"math"
 	"os"
+
+	"github.com/marrasen/gunim/driver"
+	"github.com/marrasen/gunim/internal/glfw"
 )
 
 // drawnShadowMode is GUNIM_DRAWN_SHADOW: "0" leaves a chromeless window's shadow to the system, and "measure" draws
@@ -25,6 +27,13 @@ func startShadow(w *Window) {
 	w.mu.Lock()
 	w.shadow = true
 	w.mu.Unlock()
+	// The window leaves its edge clear for the border as wide as it is drawn, and draws again as that changes
+	w.gw.SetBorderWidthCallback(func(_ *glfw.Window, px float32) {
+		w.mu.Lock()
+		w.edge = px
+		w.mu.Unlock()
+		w.in.push(driver.Redraw{})
+	})
 }
 
 // applyBorder gives a chromeless window the border the application asked for, drawn with its shadow or by the
@@ -34,21 +43,37 @@ func applyBorder(w *Window) error {
 		return nil
 	}
 	w.mu.Lock()
-	b, drawn := w.border, w.shadow
+	b := w.border
 	w.mu.Unlock()
-	set := w.gw.SetBorderColors
-	if drawn {
-		set = w.gw.SetShadowBorder
-	}
 	inactive := b.Inactive
 	if inactive == (color.NRGBA{}) {
 		inactive = b.Color
 	}
-	if err := set(b.Color, inactive, b.None); err != nil {
+	transition := b.Transition
+	switch {
+	case transition == 0:
+		transition = driver.BorderTransition
+	case transition < 0:
+		transition = 0
+	}
+	if err := w.gw.SetBorder(b.Color, inactive, b.Width, b.None, transition); err != nil {
 		w.debugf("border: %v", err)
 		return fmt.Errorf("desktop: set the window's border: %w", err)
 	}
 	return nil
+}
+
+// edgeShown tells the drawn border the edge a presented frame left for it, which it covers until the window has drawn
+// a narrower one, so a shrinking border leaves no gap. It runs on the render thread.
+func edgeShown(w *Window, px float32) {
+	w.d.post(func() {
+		if w.closed {
+			return
+		}
+		if err := w.gw.SetBorderShown(px); err != nil {
+			w.fail(fmt.Errorf("desktop: draw the window's border: %w", err))
+		}
+	})
 }
 
 // fadeShadow shows the drawn shadow at opacity o, or hides it at 0. It runs on the main thread.
@@ -56,24 +81,4 @@ func fadeShadow(w *Window, o float32) {
 	if err := w.gw.SetShadowOpacity(o); err != nil {
 		w.debugf("shadow: %v", err)
 	}
-}
-
-// cornerRadius is the radius, in device pixels, a window with a drawn shadow cuts its corners to, as Windows 11
-// rounds its own, and the edge it leaves for the shadow's border, or 0 and 0 while it is maximized or fills its
-// monitor, and no edge where the application asked for no border. Both follow the monitor's scale alone, not the
-// window's zoom, as the system's do.
-func (w *Window) cornerRadius() (radius, edge float32) {
-	if w.Maximized() || w.FullScreen() {
-		return 0, 0
-	}
-	w.mu.Lock()
-	on, k, none := w.shadow, w.content, w.border.None
-	w.mu.Unlock()
-	if !on {
-		return 0, 0
-	}
-	if none {
-		return 8 * k, 0
-	}
-	return 8 * k, float32(math.Ceil(float64(k)))
 }

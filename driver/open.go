@@ -4,6 +4,7 @@ import (
 	"errors"
 	"image"
 	"image/color"
+	"time"
 
 	"github.com/marrasen/gunim/access"
 	"github.com/marrasen/gunim/geom"
@@ -191,9 +192,18 @@ type Border struct {
 	Color color.NRGBA
 	// Inactive is its colour while another window is active. Its zero value is Color.
 	Inactive color.NRGBA
+	// Width is the line's width in logical pixels, taken from the window's edge. Its zero value is one. Where the
+	// system draws the line, it is always one pixel wide.
+	Width float32
 	// None draws no line, and the window's content reaches its edge.
 	None bool
+	// Transition is how long a change of colour or width takes, eased, whether the application changes the border or
+	// the window is activated. Its zero value is [BorderTransition], and a negative one changes at once.
+	Transition time.Duration
 }
+
+// BorderTransition is how long a [Border] takes to change when its Transition is zero.
+const BorderTransition = 150 * time.Millisecond
 
 // A Borderer is a [Window] whose [Border] the application can set.
 type Borderer interface {

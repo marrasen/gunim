@@ -64,9 +64,8 @@ type platformWindowState struct {
 	frameHidden bool
 	// shadow is the window a drawn shadow is drawn in, or nil (gunim).
 	shadow *drawnShadow
-	// border is the colours SetBorderColors asked the system for, or nil, and ncActive whether the window is drawn
-	// active (gunim).
-	border       *borderColors
+	// border is the window's border, or nil, and ncActive whether the window is drawn active (gunim).
+	border       *windowBorder
 	ncActive     bool
 	overMaximize bool
 }

@@ -95,8 +95,10 @@ type Window struct {
 	// shadow says gunim draws the window's shadow, and shadowAt is the opacity it was last given; see startShadow.
 	shadow   bool
 	shadowAt float32
-	// border is the line round a chromeless window's edge the application asked for; see applyBorder.
+	// border is the line round a chromeless window's edge the application asked for, and edge the width, in device
+	// pixels, a drawn one is drawn at now; see applyBorder.
 	border driver.Border
+	edge   float32
 	// covered says the window is cloaked, which the drawn shadow follows. It is used on the main thread.
 	covered bool
 	// uncovered puts the window on the screen once; see uncover.
@@ -828,6 +830,8 @@ func (w *Window) render() {
 	defer vb.close()
 
 	var last time.Time
+	// shownEdge is the edge the last frame presented left for the border
+	shownEdge := float32(-1)
 	for {
 		var f frame
 		select {
@@ -873,6 +877,10 @@ func (w *Window) render() {
 				w.fail(fmt.Errorf("desktop: swap buffers: %w", err))
 			}
 			w.uncover()
+			if r.edge != shownEdge {
+				shownEdge = r.edge
+				edgeShown(w, shownEdge)
+			}
 			w.mu.Lock()
 			w.drawnW, w.drawnH = fbW, fbH
 			w.mu.Unlock()
@@ -1084,6 +1092,23 @@ func (w *Window) Show() error {
 		w.measure()
 		return nil
 	})
+}
+
+// cornerRadius is the radius, in device pixels, a window with a drawn shadow cuts its corners to, as Windows 11
+// rounds its own, and the edge it leaves for the shadow's border, or 0 and 0 while it is maximized or fills its
+// monitor. The radius follows the monitor's scale alone, not the window's zoom, as the system's does, and the edge is
+// as wide as the border is drawn now.
+func (w *Window) cornerRadius() (radius, edge float32) {
+	if w.Maximized() || w.FullScreen() {
+		return 0, 0
+	}
+	w.mu.Lock()
+	on, k, edge := w.shadow, w.content, w.edge
+	w.mu.Unlock()
+	if !on {
+		return 0, 0
+	}
+	return 8 * k, edge
 }
 
 // uncover puts the window on the screen once, after its first frame is

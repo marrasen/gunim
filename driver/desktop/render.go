@@ -664,7 +664,7 @@ func (r *renderer) present(canvas uint32) {
 func (r *renderer) shape() (rect geom.Rect, radius float32) {
 	w := r.window()
 	e := r.edge / r.scale
-	return geom.Rect{Min: geom.Pt(w.Min.X+e, w.Min.Y+e), Max: geom.Pt(w.Max.X-e, w.Max.Y-e)}, (r.corner - r.edge) / r.scale
+	return geom.Rect{Min: geom.Pt(w.Min.X+e, w.Min.Y+e), Max: geom.Pt(w.Max.X-e, w.Max.Y-e)}, max(r.corner-r.edge, 0) / r.scale
 }
 
 // deviceBox turns damage in logical pixels into the whole device pixels
