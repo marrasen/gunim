@@ -264,6 +264,30 @@ the far end knows what to decode it into:
 {"Command":"mount","Parent":"root","ID":"jobs","View":"joblist","Watch":["jobs"],"Value":{"Kind":"job.list","Data":{"Jobs":[{"ID":"1","Title":"Reindex archive","Status":"pending"}]}}}
 ```
 
+## Icons
+
+Package `icon` holds Lucide's icons, one variable each, named as
+lucide-react names them: `icon.Funnel`, `icon.Columns3`, and older names
+such as `icon.Filter` and `icon.Loader2`. A program links only the icons
+it uses; `icon/byname` looks any of them up by name, and links them all.
+
+```go
+refresh := widget.NewIconButton(icon.RefreshCw, "Refresh") // the tooltip names it
+copyBtn := widget.NewButton("Copy")
+copyBtn.Icon = icon.Copy
+spinner := widget.NewIcon(icon.Loader2, "Loading")
+spinner.Spin = true
+done := widget.NewIcon(icon.CircleCheck, "Saved")
+done.DrawOn(600 * time.Millisecond) // strokes draw on in order
+```
+
+An icon is strokes, drawn as a coverage mask. The mask is rasterized
+once per icon, pixel size and stroke width, and kept in the glyph
+atlas. It is tinted as it draws, so a theme's colour animates without
+drawing it again. `Link` and `Menu` take icons too. `go generate
+./icon` with `LUCIDE_REACT` set to a lucide-react package directory
+writes them again from a newer Lucide.
+
 ## Packages
 
 | Package | What it is |
@@ -279,7 +303,7 @@ the far end knows what to decode it into:
 | `gunim/access` | What a window says to screen readers: roles, names, states, actions |
 | `gunim/driver` | The seam with the operating system, and an offscreen window |
 | `gunim/driver/desktop` | The driver for Linux, Windows and macOS, on GLFW and OpenGL |
-| `gunim/widget` | `Row`, `Column`, `Scroll`, a `TileGrid` that builds only the tiles in view and selects with a band, `Label` whose text the mouse can select and copy when `Selectable`, `TextField`, `TextArea`, `Card`, `Button`, `Checkbox`, `Switch`, `Slider`, `Tabs`, `Dropdown`, `ContextMenu`, `Tooltip`, `Image`, `Hero` for elements that fly between screens, `Draggable` and `DropTarget` for drag and drop within and between windows and to and from file managers, a `DragGhost` that trails the pointer and says what a drop would do, a `DropZone` that lights the spot under a drag and springs it open, `Dialog`, a keyed `List`, a `VirtualList` that builds only the rows in view, a `DataGrid` that draws millions of rows of styled cells by index and drags the rows selected, an `Overview` strip that maps and scrolls it, a `MenuButton` whose menu can stay open to tick several items, removable `Chip`s and a `Wrap` that flows them onto lines, `RichText` that wraps text in several styles with links, and their theme tokens |
+| `gunim/widget` | `Row`, `Column`, `Scroll`, a `TileGrid` that builds only the tiles in view and selects with a band, `Label` whose text the mouse can select and copy when `Selectable`, `TextField`, `TextArea`, `Card`, `Button`, `Icon`, `IconButton`, `Checkbox`, `Switch`, `Slider`, `Tabs`, `Dropdown`, `ContextMenu`, `Tooltip`, `Image`, `Hero` for elements that fly between screens, `Draggable` and `DropTarget` for drag and drop within and between windows and to and from file managers, a `DragGhost` that trails the pointer and says what a drop would do, a `DropZone` that lights the spot under a drag and springs it open, `Dialog`, a keyed `List`, a `VirtualList` that builds only the rows in view, a `DataGrid` that draws millions of rows of styled cells by index and drags the rows selected, an `Overview` strip that maps and scrolls it, a `MenuButton` whose menu can stay open to tick several items, removable `Chip`s and a `Wrap` that flows them onto lines, `RichText` that wraps text in several styles with links, and their theme tokens |
 
 Commands, intents, topics and the `Client` live in `wire.go` and
 `view.go`. `driver.Offscreen` plus `Window.Frame` run a window with no

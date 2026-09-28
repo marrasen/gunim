@@ -3,16 +3,20 @@
 // that wraps and a button. Typing in the field filters the cards, which
 // collapse and grow back as they leave and return. The toggle switches
 // between the dark and light themes, and every size, colour and motion
-// animates to the new one.
+// animates to the new one. A row of icons shows them at 16 and 48 pixels,
+// drawing themselves on, spinning, and in buttons, a link and a menu.
 //
 //	CGO_ENABLED=0 go run ./example/widgets
+//	CGO_ENABLED=0 go run ./example/widgets -shot widgets.png
 package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"image/color"
+	"image/png"
 	"log"
 	"os"
 	"os/signal"
@@ -21,6 +25,7 @@ import (
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/theme"
 	"github.com/marrasen/gunim/widget"
 )
@@ -52,13 +57,16 @@ func init() {
 
 func main() {
 	runFor := flag.Duration("for", 0, "quit after this long; zero runs until the window closes")
+	shot := flag.String("shot", "", "write the window to this PNG file after -after, and quit")
+	after := flag.Duration("after", 2*time.Second, "how long -shot waits")
+	zoom := flag.Float64("zoom", 1, "zoom the window, as Ctrl with + and - does")
 	flag.Parse()
-	if err := run(*runFor); err != nil {
+	if err := run(*runFor, *shot, *after, float32(*zoom)); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func run(runFor time.Duration) error {
+func run(runFor time.Duration, shot string, after time.Duration, zoom float32) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	if runFor > 0 {
@@ -76,7 +84,12 @@ func run(runFor time.Duration) error {
 			return err
 		}
 		registerViews(w)
-		return serve(ctx, w.Client())
+		if zoom != 1 {
+			if err := w.Client().SetZoom(zoom); err != nil {
+				return err
+			}
+		}
+		return serve(ctx, w.Client(), shot, after)
 	})
 }
 
@@ -117,9 +130,11 @@ func buildGallery(Gallery) *gallery {
 	search.Placeholder = "Filter"
 	search.OnChange = func(s string) gunim.Intent { return Filtered{Text: s} }
 	toggle := widget.NewButton("Switch theme")
+	toggle.Icon = icon.SunMoon
 	toggle.On = ThemeToggled{}
 	spacer := widget.NewSpacer()
-	header := widget.Row(title, spacer, search, toggle).Grow(spacer, 1)
+	header := widget.Row(title, spacer, search, widget.NewIconButton(icon.Filter, "Filter"),
+		widget.NewIconButton(icon.Columns3, "Columns"), toggle).Grow(spacer, 1)
 	header.Cross = widget.CrossCenter
 
 	// The callout wears a theme of its own that sets only its colours,
@@ -137,23 +152,59 @@ func buildGallery(Gallery) *gallery {
 
 	list := widget.NewList()
 	scroll := widget.NewScroll(list)
-	page := widget.Column(header, callout, notes, scroll).Grow(scroll, 1)
+	page := widget.Column(header, icons(), callout, notes, scroll).Grow(scroll, 1)
 	page.Cross = widget.CrossStretch
 	return &gallery{Pad: widget.NewPad(page), list: list}
+}
+
+// bigIcon is the size of the large icons in the gallery.
+var bigIcon = theme.Length("gallery.icon.big", 48)
+
+// icons lays out a card of icons: small ones, large ones that draw themselves on, a spinner, and icons in a link and
+// a button that draws the large ones on again.
+func icons() *widget.Card {
+	row := make([]gunim.Node, 0, 16)
+	for _, ic := range []*icon.Icon{icon.Database, icon.HardDrive, icon.ShieldAlert, icon.Target, icon.ScrollText,
+		icon.Copy, icon.RefreshCw, icon.ChevronRight, icon.X, icon.Check} {
+		row = append(row, widget.NewIcon(ic, ic.Name))
+	}
+	spin := widget.NewIcon(icon.Loader2, "Loading")
+	spin.Spin = true
+	big := make([]*widget.Icon, 0, 3)
+	for _, ic := range []*icon.Icon{icon.TriangleAlert, icon.FolderOpen, icon.CircleCheck} {
+		i := widget.NewIcon(ic, ic.Name)
+		i.Size = bigIcon
+		i.DrawOn(1200 * time.Millisecond)
+		big = append(big, i)
+		row = append(row, i)
+	}
+	again := widget.NewIconButton(icon.RotateCcw, "Draw the icons on again")
+	again.OnActivate(func(*gunim.UI) {
+		for _, i := range big {
+			i.DrawOn(1200 * time.Millisecond)
+		}
+	})
+	link := widget.NewLink("Open folder")
+	link.Icon = icon.FolderOpen
+	row = append(row, spin, again, link)
+	r := widget.Row(row...)
+	r.Cross = widget.CrossCenter
+	return widget.NewCard(r)
 }
 
 // newCard makes the card for one item: its text, wrapping, and a button.
 func newCard(item string) *widget.Card {
 	label := widget.NewLabel(item)
 	open := widget.NewButton("Open")
+	open.Icon = icon.ExternalLink
 	open.On = Opened{Item: item}
 	row := widget.Row(label, open).Grow(label, 1)
 	row.Cross = widget.CrossCenter
 	return widget.NewCard(row)
 }
 
-// serve is the application half.
-func serve(ctx context.Context, c gunim.Client) error {
+// serve is the application half. Given a shot path, it writes the window there after a while and quits.
+func serve(ctx context.Context, c gunim.Client, shot string, after time.Duration) error {
 	items := make([]string, 40)
 	for i := range items {
 		items[i] = fmt.Sprintf("Item %d. %s", i+1, blurb[i%len(blurb)])
@@ -171,9 +222,19 @@ func serve(ctx context.Context, c gunim.Client) error {
 		return Gallery{Items: out}
 	}
 	light := false
+	var shoot <-chan time.Time
+	if shot != "" {
+		shoot = time.After(after)
+	}
 	for {
 		select {
 		case <-ctx.Done():
+			return nil
+		case <-shoot:
+			if err := writeShot(ctx, c, shot); err != nil {
+				return err
+			}
+			c.Close()
 			return nil
 		case ev, ok := <-c.Intents():
 			if !ok {
@@ -200,4 +261,17 @@ var blurb = []string{
 	"This one runs long enough that it wraps onto a second line when the window is narrow, and reflows as the window grows.",
 	"Scroll with the wheel: the list glides to where the wheel sends it.",
 	"Nothing here but a button.",
+}
+
+// writeShot writes what the window shows to a PNG file.
+func writeShot(ctx context.Context, c gunim.Client, path string) error {
+	img, err := c.Shot(ctx)
+	if err != nil {
+		return err
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	return errors.Join(png.Encode(f, img), f.Close())
 }
