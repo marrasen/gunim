@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/input"
@@ -122,7 +123,7 @@ func (a *app) pinFolders(paths []string) {
 // renameFavourite asks for a name for the favourite at path.
 func (a *app) renameFavourite(path string) {
 	name := a.favName(path)
-	a.prompt(Prompt{Title: "Rename favourite", Text: name, OK: "Rename", Stem: len(name)}, func(n string) {
+	a.prompt(Prompt{Title: "Rename favourite", Text: name, OK: "Rename", Stem: utf8.RuneCountInString(name)}, func(n string) {
 		if a.prefs.FavNames == nil {
 			a.prefs.FavNames = map[string]string{}
 		}

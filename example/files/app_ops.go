@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/marrasen/gunim"
 )
@@ -137,9 +138,9 @@ func (a *app) opsCommand(name string) bool {
 			return true
 		}
 		src := filepath.Join(here, es[0].Name)
-		stem := len(es[0].Name)
+		stem := utf8.RuneCountInString(es[0].Name)
 		if !es[0].Dir {
-			stem = len(strings.TrimSuffix(es[0].Name, filepath.Ext(es[0].Name)))
+			stem = utf8.RuneCountInString(strings.TrimSuffix(es[0].Name, filepath.Ext(es[0].Name)))
 		}
 		a.prompt(Prompt{Title: "Rename", Text: es[0].Name, OK: "Rename", Stem: stem}, func(name string) {
 			a.nav.pick = name
@@ -155,7 +156,7 @@ func (a *app) opsCommand(name string) bool {
 			return true
 		}
 		base := filepath.Base(name)
-		a.prompt(Prompt{Title: "New folder", Text: base, OK: "Make", Stem: len(base)}, func(name string) {
+		a.prompt(Prompt{Title: "New folder", Text: base, OK: "Make", Stem: utf8.RuneCountInString(base)}, func(name string) {
 			a.nav.pick = name
 			a.startOp(job{kind: OpNewFolder, dest: here, name: name}, "Making "+name)
 		})

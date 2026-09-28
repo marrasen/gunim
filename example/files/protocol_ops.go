@@ -95,7 +95,8 @@ type Prompt struct {
 	Title, Text string
 	OK          string
 	// Stem is how much of Text is selected to begin with, the name
-	// without its extension.
+	// without its extension, counted in runes, as TextField.Select
+	// counts.
 	Stem int
 }
 

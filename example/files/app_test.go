@@ -457,3 +457,17 @@ func TestAClickOnAFolderOfThePathGoesThere(t *testing.T) {
 		t.Fatal("a click beside the folders did not edit the path")
 	}
 }
+
+// A name with letters outside ASCII has its stem counted in runes, as
+// the text field selects, so the extension stays out of the selection.
+func TestRenameSelectsTheStemOfANameBeyondASCII(t *testing.T) {
+	h := newHarness(t, "Ålö.txt")
+	h.until("the rows arrive", func() bool { return len(h.shown()) == 1 })
+	h.pick("Ålö.txt")
+	h.w.Input(input.KeyPress{Key: input.KeyF2})
+	h.until("the prompt shows", func() bool { return len(h.a.ops.dialogs) == 1 })
+	p, ok := h.a.ops.dialogs[0].state.(Prompt)
+	if !ok || p.Stem != 3 {
+		t.Fatalf("the prompt is %+v, want a stem of 3 runes", h.a.ops.dialogs[0].state)
+	}
+}
