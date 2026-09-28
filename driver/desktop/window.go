@@ -224,12 +224,22 @@ func (w *Window) SetFade(opacity float32) {
 	changed := fading != w.fading
 	w.fading = fading
 	w.mu.Unlock()
-	if changed && w.Chromeless() {
-		w.d.post(func() {
-			if !w.closed {
-				showFrame(w, !fading)
-			}
-		})
+	if !changed {
+		return
+	}
+	w.debugf("fading %v, at %.2f", fading, opacity)
+	if !w.Chromeless() {
+		return
+	}
+	posted := w.d.post(func() {
+		if w.closed {
+			w.debugf("frame left alone: the window has closed")
+			return
+		}
+		showFrame(w, !fading)
+	})
+	if !posted {
+		w.debugf("frame left alone: the driver has stopped")
 	}
 }
 
@@ -337,6 +347,7 @@ func (w *Window) shutdown() {
 		return
 	}
 	w.closed = true
+	w.debugf("closed")
 	w.accessClose()
 	if w.parent != nil {
 		w.parent.popups = slices.DeleteFunc(w.parent.popups, func(c *Window) bool { return c == w })
