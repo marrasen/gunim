@@ -53,7 +53,8 @@ const (
 // draws in place instead, under a scissor.
 //
 // Text draws from a glyph atlas: each glyph is rasterized once per size
-// and quarter-pixel shift; see glyphs.go. Images upload once and stay
+// and quarter-pixel shift; see glyphs.go. Masks, such as icons, share
+// the greyscale atlas; see masks.go. Images upload once and stay
 // on the GPU while frames use them; see images.go.
 type renderer struct {
 	gl     gl.Context
@@ -73,6 +74,8 @@ type renderer struct {
 
 	glyphs, lcdGlyphs glyphTexture
 	images            map[*paint.Image]*imageTexture
+	// scratchX is where the next mask goes in the scratch strip, and scratches counts the masks put there, for tests.
+	scratchX, scratches int
 	// dual says the draw program blends each channel by a colour of its
 	// own, which glyphs on subpixels need.
 	dual bool
@@ -507,6 +510,7 @@ func (r *renderer) draw(ops []paint.Op, damage geom.Rect, fbW, fbH int, scale fl
 	g := r.gl
 	r.fbW, r.fbH, r.scale = fbW, fbH, scale
 	r.stack, r.depth = r.stack[:0], 0
+	r.scratchX = 0
 	if len(r.layers) == 0 {
 		r.layers = append(r.layers, target{})
 	}
@@ -661,6 +665,8 @@ func (r *renderer) replay(ops []paint.Op) {
 			r.text(op)
 		case *paint.ImageOp:
 			r.image(op)
+		case *paint.MaskOp:
+			r.mask(op)
 		}
 	}
 	// A layer left open by a node that forgot to close it still shows.

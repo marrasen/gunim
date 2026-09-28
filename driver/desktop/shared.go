@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/marrasen/gunim/internal/gl"
+	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/text"
 )
 
@@ -56,7 +57,7 @@ func (s *shared) programs(g gl.Context, isES bool) (draw, blur program, dual boo
 	return s.draw, s.blur, s.dual, s.err
 }
 
-// sharedAtlas packs glyph masks into an atlasSize square, in shelves.
+// sharedAtlas packs glyph masks into an atlasSize square, in shelves, above the scratch strip at its foot.
 // When it fills, it starts again from empty and moves to a new epoch,
 // which tells each renderer to clear its texture.
 type sharedAtlas struct {
@@ -64,6 +65,10 @@ type sharedAtlas struct {
 	epoch      int
 	slots      map[glyphKey]sharedSlot
 }
+
+// scratchRows is the height of the strip along the atlas's foot that each renderer fills anew every frame, with
+// masks drawn for that frame alone.
+const scratchRows = 128
 
 // sharedSlot is a glyph's place in the atlas and its mask.
 type sharedSlot struct {
@@ -78,6 +83,9 @@ type glyphKey struct {
 	shift uint8
 	// raster is how the glyph is rendered: hinted, and for subpixels.
 	raster text.Raster
+	// shape is the shape a mask draws, w by h device pixels, in place of a glyph.
+	shape paint.Shape
+	w, h  int32
 }
 
 // glyphSlot is where a glyph sits in the atlas. A zero w marks a glyph
@@ -87,10 +95,10 @@ type glyphSlot struct {
 	off        image.Point
 }
 
-// glyph returns a glyph's place in the atlas, rasterizing it on first
+// glyph returns a glyph's place in the atlas, rasterizing it with raster on first
 // use, and the atlas's epoch. It reports false for a glyph with nothing
 // to draw.
-func (s *shared) glyph(key glyphKey, face *text.Face, sizePx float32) (sharedSlot, int, bool) {
+func (s *shared) glyph(key glyphKey, raster func() text.Mask) (sharedSlot, int, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	a := &s.atlas
@@ -103,15 +111,16 @@ func (s *shared) glyph(key glyphKey, face *text.Face, sizePx float32) (sharedSlo
 	if slot, ok := a.slots[key]; ok {
 		return slot, a.epoch, slot.w > 0
 	}
-	m := face.Rasterize(key.id, sizePx, float32(key.shift)/subpixel, key.raster)
-	if m.W == 0 || m.W+1 > atlasSize || m.H+1 > atlasSize {
+	m := raster()
+	const room = atlasSize - scratchRows
+	if m.W == 0 || m.W+1 > atlasSize || m.H+1 > room {
 		a.slots[key] = sharedSlot{}
 		return sharedSlot{}, a.epoch, false
 	}
 	if a.x+m.W+1 > atlasSize {
 		a.x, a.y, a.rowH = 0, a.y+a.rowH, 0
 	}
-	if a.y+m.H+1 > atlasSize {
+	if a.y+m.H+1 > room {
 		clear(a.slots)
 		a.x, a.y, a.rowH = 0, 0, 0
 		a.epoch++

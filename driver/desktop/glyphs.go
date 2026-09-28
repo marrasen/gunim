@@ -145,7 +145,10 @@ func (r *renderer) text(op *paint.TextOp) {
 			}
 			ox, oy, shift = fx, float32(math.Round(float64(oy))), uint8(s)
 		}
-		slot, ok := r.glyph(glyphKeyFor(faceID, gly.ID, sizePx, shift, raster), face, sizePx)
+		key := glyphKeyFor(faceID, gly.ID, sizePx, shift, raster)
+		slot, ok := r.glyph(key, func() text.Mask {
+			return face.Rasterize(key.id, sizePx, float32(key.shift)/subpixel, key.raster)
+		})
 		if !ok {
 			continue
 		}
@@ -161,11 +164,11 @@ func (r *renderer) text(op *paint.TextOp) {
 	}
 }
 
-// glyph returns where a glyph sits in its atlas, copying it into this
+// glyph returns where a glyph sits in its atlas, rasterizing it with raster and copying it into this
 // renderer's texture on first use. It reports false for a glyph with
 // nothing to draw.
-func (r *renderer) glyph(key glyphKey, face *text.Face, sizePx float32) (glyphSlot, bool) {
-	slot, epoch, ok := r.shared.glyph(key, face, sizePx)
+func (r *renderer) glyph(key glyphKey, raster func() text.Mask) (glyphSlot, bool) {
+	slot, epoch, ok := r.shared.glyph(key, raster)
 	a, unit, format, channels := &r.glyphs, uint32(gl.TEXTURE0), uint32(glRed), 1
 	if key.raster.LCD {
 		a, unit, format, channels = &r.lcdGlyphs, glTexture2, glRGB, 3
