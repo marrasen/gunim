@@ -171,6 +171,12 @@ type TabSkipper interface {
 	SkipsTab()
 }
 
+// A TabGroup is a node whose [Focusable] nodes Tab visits as one stop: the one that last had the focus, or the first.
+// The group moves the focus among them itself, such as with the arrow keys, through [UI.FocusWithin].
+type TabGroup interface {
+	TabGroup()
+}
+
 // A KeyCatcher is a node that hears the keyboard events nothing focused took, wherever the keyboard is, such as a
 // menubar's F10 and Alt shortcuts, and [input.WindowFocusLost]. The engine offers each such event to the KeyCatchers
 // the last frame drew, in the order they were painted, until one returns true.
@@ -467,6 +473,8 @@ type state struct {
 	drawn    uint64
 	// clip is the clipping the node was last painted under.
 	clip *paint.Clip
+	// tabStop is, for a [TabGroup], the node in it that last had the focus.
+	tabStop *state
 	// opener is set on the root of a popup's tree: the node that opened
 	// the popup.
 	opener *state

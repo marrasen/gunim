@@ -278,6 +278,12 @@ func (u *UI) FocusNext(forward bool) {
 		if s.presence == Exiting || (s != u.root && s.drawn != u.seq) {
 			return
 		}
+		if _, ok := s.node.(TabGroup); ok && s != u.root {
+			if stop := u.tabStop(s); stop != nil {
+				order = append(order, stop)
+			}
+			return
+		}
 		if f, ok := s.node.(Focusable); ok && f.Focusable() {
 			if _, skip := s.node.(TabSkipper); !skip {
 				order = append(order, s)
@@ -310,6 +316,66 @@ func (u *UI) FocusNext(forward bool) {
 	}
 	u.Focus(order[next].node)
 	u.revealState(order[next])
+}
+
+// tabStop is where Tab stops in group g: the node in it with the focus, or the one that last had it, or the first.
+func (u *UI) tabStop(g *state) *state {
+	stops := u.focusables(g)
+	for _, want := range []*state{u.focus, g.tabStop} {
+		for _, s := range stops {
+			if s == want {
+				return s
+			}
+		}
+	}
+	if len(stops) == 0 {
+		return nil
+	}
+	return stops[0]
+}
+
+// focusables are the nodes under s, s left out, that Tab could visit, in paint order.
+func (u *UI) focusables(s *state) []*state {
+	var out []*state
+	var walk func(s *state)
+	walk = func(s *state) {
+		if s.presence == Exiting || s.drawn != u.seq {
+			return
+		}
+		if f, ok := s.node.(Focusable); ok && f.Focusable() {
+			if _, skip := s.node.(TabSkipper); !skip {
+				out = append(out, s)
+			}
+		}
+		for _, k := range s.kids {
+			walk(k)
+		}
+	}
+	for _, k := range s.kids {
+		walk(k)
+	}
+	return out
+}
+
+// FocusWithin moves the focus to the next node group holds that Tab could visit, or the previous one when forward is
+// false, as a [TabGroup]'s arrow keys do. It stops at either end, and reports whether the focus moved.
+func (u *UI) FocusWithin(group Node, forward bool) bool {
+	g, ok := u.index[group]
+	if !ok {
+		return false
+	}
+	stops := u.focusables(g)
+	at := slices.Index(stops, u.focus)
+	next := at + 1
+	if !forward {
+		next = at - 1
+	}
+	if at < 0 || next < 0 || next >= len(stops) {
+		return false
+	}
+	u.Focus(stops[next].node)
+	u.revealState(stops[next])
+	return true
 }
 
 // Reveal scrolls n into view through every [Revealer] around it, as

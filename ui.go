@@ -1423,6 +1423,12 @@ func (u *UI) Focus(n Node) bool {
 	prev := u.focus
 	u.focus = next
 	u.focusMoved = true
+	// Each group round the node remembers it as its stop for Tab
+	for a := next; a != nil; a = a.parent {
+		if _, ok := a.node.(TabGroup); ok {
+			a.tabStop = next
+		}
+	}
 	u.takeText(prev, next)
 	if next != nil {
 		u.deliver(next, input.FocusGained{Time: u.now})

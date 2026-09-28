@@ -65,6 +65,16 @@ func TestTabReachesEveryPartOfTheWindowAndTheSidebarOpensAPlace(t *testing.T) {
 	if !b.path.fwd.Disabled {
 		t.Error("Forward is enabled with nowhere to go")
 	}
+	// The folders of the path are one stop
+	crumbs := 0
+	for _, c := range b.path.crumbs.crumbs {
+		if seen[c.btn] {
+			crumbs++
+		}
+	}
+	if crumbs != 1 {
+		t.Errorf("Tab stopped at %d folders of the path, want 1", crumbs)
+	}
 	// The path bar comes before the sidebar, and the sidebar before the listing.
 	at := func(n gunim.Node) int { return slices.Index(order, n) }
 	if at(b.path.back) > at(b.side.places) || at(b.side.favs) > at(b.listing.cur.focusNode()) {
@@ -93,5 +103,35 @@ func TestAltAndALetterOpenTheFilesMenus(t *testing.T) {
 	h.frames(20)
 	if h.b.title.bar.IsOpen() {
 		t.Fatal("Escape left a menu open")
+	}
+}
+
+func TestTheArrowsMoveAlongThePathAndTabComesBackThere(t *testing.T) {
+	h := newHarness(t, "a.txt")
+	cs := h.b.path.crumbs.crumbs
+	if len(cs) < 3 {
+		t.Fatalf("the path has %d folders, want at least 3", len(cs))
+	}
+	for h.focused() != cs[0].btn {
+		h.press(input.KeyTab, 0)
+	}
+	h.press(input.KeyRight, 0)
+	if h.focused() != cs[1].btn {
+		t.Fatal("Right did not move to the second folder")
+	}
+	h.press(input.KeyEnd, 0)
+	if h.focused() != cs[len(cs)-1].btn {
+		t.Fatal("End did not move to the last folder")
+	}
+	h.press(input.KeyLeft, 0)
+	at := h.focused()
+	h.press(input.KeyTab, 0)
+	h.press(input.KeyTab, input.ModShift)
+	if h.focused() != at {
+		t.Fatal("Shift+Tab back into the path did not come back to the folder it left")
+	}
+	h.press(input.KeyHome, 0)
+	if h.focused() != cs[0].btn {
+		t.Fatal("Home did not move to the first folder")
 	}
 }

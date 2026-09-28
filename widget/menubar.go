@@ -549,6 +549,23 @@ func (b *Menubar) openKeyed(i int, u *gunim.UI) {
 	b.enterMenu(u)
 }
 
+// backToBar closes the open menu and leaves its title lit, with the keyboard on the bar, as Escape does in a menu
+// opened from the keyboard.
+func (b *Menubar) backToBar(u *gunim.UI) {
+	i := b.open
+	b.shut(u)
+	b.stopWaiting()
+	b.open, b.inMenu = -1, false
+	b.highlight(-1, -1, u)
+	if u.Focused() != b {
+		b.back = u.Focused()
+		u.Focus(b)
+	}
+	b.armed, b.lit = true, i
+	b.aim(i, u)
+	u.Invalidate()
+}
+
 // armedKey works the bar while it has the keyboard with no menu open: Left and Right move along the titles; Down,
 // Up, Enter and Space open the one lit; a title's access key opens its menu.
 func (b *Menubar) armedKey(k input.KeyPress, u *gunim.UI) bool {
@@ -619,7 +636,13 @@ func (b *Menubar) key(k input.KeyPress, u *gunim.UI) bool {
 		b.Open((b.open+n-1)%n, u)
 	case input.KeyRight:
 		b.Open((b.open+1)%n, u)
-	case input.KeyEscape, input.KeyF10:
+	case input.KeyEscape:
+		if b.byKeys {
+			b.backToBar(u)
+		} else {
+			b.Close(u)
+		}
+	case input.KeyF10:
 		b.Close(u)
 	case input.KeyTab:
 		b.Close(u)

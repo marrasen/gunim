@@ -288,14 +288,35 @@ func (c *crumbBar) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gu
 }
 
 // Handle implements [gunim.Handler]: a press beside the folders edits
-// the path.
+// the path, and the arrow keys, Home and End move between the folders.
 func (c *crumbBar) Handle(e input.Event, u *gunim.UI) bool {
-	if d, ok := e.(input.PointerDown); ok && d.Button == input.ButtonPrimary {
+	switch e := e.(type) {
+	case input.PointerDown:
+		if e.Button != input.ButtonPrimary {
+			return false
+		}
 		c.bar.edit(u)
 		return true
+	case input.KeyPress:
+		if e.Mods != 0 {
+			return false
+		}
+		switch e.Key {
+		case input.KeyLeft, input.KeyRight:
+			u.FocusWithin(c, e.Key == input.KeyRight)
+			return true
+		case input.KeyHome, input.KeyEnd:
+			for u.FocusWithin(c, e.Key == input.KeyEnd) {
+			}
+			return true
+		default:
+		}
 	}
 	return false
 }
+
+// TabGroup implements [gunim.TabGroup]: the folders are one stop for Tab.
+func (c *crumbBar) TabGroup() {}
 
 // Cursor implements [gunim.CursorShaper].
 func (c *crumbBar) Cursor(geom.Point) input.Cursor { return input.CursorText }

@@ -86,10 +86,17 @@ func TestAltAloneLightsTheFirstTitleForTheArrows(t *testing.T) {
 	if b.open != 1 || b.menu.Highlighted() != 1 {
 		t.Fatalf("Right and Down left menu %d open, item %d lit; want Edit's Paste", b.open, b.menu.Highlighted())
 	}
+	// Escape goes back to the bar with Edit lit, and again gives the keyboard back
+	key(w, run, input.KeyEscape, 0)
+	run(20)
+	if b.IsOpen() || !b.armed || b.lit != 1 {
+		t.Fatalf("Escape left a menu open %v, the bar armed %v, title %d lit; want no menu, Edit lit", b.IsOpen(),
+			b.armed, b.lit)
+	}
 	key(w, run, input.KeyEscape, 0)
 	run(20)
 	if b.IsOpen() || b.armed {
-		t.Fatal("Escape left the bar with the keyboard")
+		t.Fatal("a second Escape left the bar with the keyboard")
 	}
 	w.Input(input.TextInput{Text: "hi"})
 	run(1)
