@@ -809,6 +809,15 @@ func windowProc(hWnd windows.HWND, uMsg uint32, wParam _WPARAM, lParam _LPARAM) 
 
 		key := _glfw.platformWindow.keycodes[scancode]
 
+		// gunim change: an arrow, Home, End, Page Up or Down, Insert or
+		// Delete is the key it says it is. The keypad's keys with Num
+		// Lock off, and keys a script sends without the extended flag,
+		// come as these with the keypad's scancodes, which read as the
+		// keypad's digits.
+		if k, ok := navigationKeys[uint32(wParam)]; ok {
+			key = k
+		}
+
 		// The Ctrl keys require special handling
 		if wParam == _VK_CONTROL {
 			if _HIWORD(uint32(lParam))&_KF_EXTENDED != 0 {
@@ -2599,4 +2608,19 @@ func (w *Window) GetWin32Window() (windows.HWND, error) {
 		return 0, NotInitialized
 	}
 	return w.platform.handle, nil
+}
+
+// navigationKeys are the keys named by their virtual-key code whatever
+// their scancode (gunim): VK_PRIOR to VK_DOWN, VK_INSERT and VK_DELETE.
+var navigationKeys = map[uint32]Key{
+	0x21: KeyPageUp,
+	0x22: KeyPageDown,
+	0x23: KeyEnd,
+	0x24: KeyHome,
+	0x25: KeyLeft,
+	0x26: KeyUp,
+	0x27: KeyRight,
+	0x28: KeyDown,
+	0x2D: KeyInsert,
+	0x2E: KeyDelete,
 }
