@@ -98,6 +98,7 @@ const (
 	_LR_SHARED                                                 = 0x8000
 	_LWA_ALPHA                                                 = 0x00000002
 	_MAPVK_VK_TO_VSC                                           = 0
+	_MAPVK_VK_TO_VSC_EX                                        = 4
 	_MAPVK_VSC_TO_VK                                           = 1
 	_MONITOR_DEFAULTTONEAREST                                  = 0x00000002
 	_MOUSE_MOVE_ABSOLUTE                                       = 0x01

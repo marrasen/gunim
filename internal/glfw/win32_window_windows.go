@@ -778,7 +778,18 @@ func windowProc(hWnd windows.HWND, uMsg uint32, wParam _WPARAM, lParam _LPARAM) 
 			}
 			// NOTE: Some synthetic key messages have a scancode of zero
 			// HACK: Map the virtual key back to a usable scancode
-			scancode = _MapVirtualKeyW(uint32(wParam), _MAPVK_VK_TO_VSC)
+			// gunim change: with the extended prefix, so a synthetic
+			// arrow or Home reads as itself and not as the keypad key
+			// that shares its scancode.
+			// Pause, the one key with the E1 prefix, keeps the plain
+			// mapping, which reads as Pause.
+			scancode = _MapVirtualKeyW(uint32(wParam), _MAPVK_VK_TO_VSC_EX)
+			switch scancode & 0xff00 {
+			case 0xe000:
+				scancode = scancode&0xff | _KF_EXTENDED
+			case 0xe100:
+				scancode = _MapVirtualKeyW(uint32(wParam), _MAPVK_VK_TO_VSC)
+			}
 		}
 
 		// HACK: Alt+PrtSc has a different scancode than just PrtSc
