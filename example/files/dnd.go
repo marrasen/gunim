@@ -273,7 +273,7 @@ func (v *dndView) crumbSpot(d input.Drop, u *gunim.UI) (widget.DropSpot, bool) {
 		if !ok {
 			continue
 		}
-		pill := geom.Rc(r.Min.X, r.Min.Y, c.run.Advance+12, r.Size().H)
+		pill := geom.Rc(r.Min.X, r.Min.Y, c.pill, r.Size().H)
 		if pill.Contains(at) {
 			return v.spot(d, spotKey{"crumb", c.path}, pill.Add(zr.Min.Mul(-1)), c.path, c.path, !c.last), true
 		}

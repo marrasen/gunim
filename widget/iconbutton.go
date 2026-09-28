@@ -22,7 +22,7 @@ type IconButton struct {
 // NewIconButton returns a button showing ic, with tooltip saying what it does.
 func NewIconButton(ic *icon.Icon, tooltip string) *IconButton {
 	b := &IconButton{Button: *NewButton(""), Tooltip: tooltip}
-	b.Icon, b.ghost, b.self = ic, true, b
+	b.Icon, b.Ghost, b.self = ic, true, b
 	return b
 }
 
@@ -38,6 +38,5 @@ func (b *IconButton) Access() access.Info {
 	if name == "" {
 		name = iconName(b.Icon)
 	}
-	return access.Info{Role: access.RoleButton, Name: name, State: activeState(b.Active),
-		Actions: []string{access.ActionPress}}
+	return access.Info{Role: access.RoleButton, Name: name, State: b.state(), Actions: []string{access.ActionPress}}
 }

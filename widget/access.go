@@ -25,8 +25,16 @@ func (b *Button) Access() access.Info {
 	if name == "" {
 		name = iconName(b.Icon)
 	}
-	return access.Info{Role: access.RoleButton, Name: name, State: activeState(b.Active),
-		Actions: []string{access.ActionPress}}
+	return access.Info{Role: access.RoleButton, Name: name, State: b.state(), Actions: []string{access.ActionPress}}
+}
+
+// state is the button's state: active, disabled, both or neither.
+func (b *Button) state() access.State {
+	s := activeState(b.Active)
+	if b.Disabled {
+		s |= access.StateDisabled
+	}
+	return s
 }
 
 // activeState is the state of a button that is active, as a toggle that is on, or none.
@@ -47,7 +55,7 @@ func iconName(ic *icon.Icon) string {
 
 // AccessAct implements [gunim.AccessActor].
 func (b *Button) AccessAct(r access.Request, u *gunim.UI) bool {
-	if r.Action != access.ActionPress {
+	if r.Action != access.ActionPress || b.Disabled {
 		return false
 	}
 	b.fire(u)
@@ -193,8 +201,8 @@ func (d *Dropdown) AccessAct(r access.Request, u *gunim.UI) bool {
 // entry, the highlighted one active.
 func (m *Menu) Access() access.Info {
 	info := access.Info{Role: access.RoleMenu, Active: m.hot + 1}
-	for i, s := range m.Items {
-		part := access.Info{Role: access.RoleMenuItem, Name: s, Actions: []string{access.ActionPress}}
+	for i := range m.Items {
+		part := access.Info{Role: access.RoleMenuItem, Name: m.label(i), Actions: []string{access.ActionPress}}
 		if i == m.hot {
 			part.State = access.StateSelected
 		}

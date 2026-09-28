@@ -119,6 +119,10 @@ type KeyRelease struct {
 	Time time.Time
 }
 
+// AltTapped arrives when Alt is pressed and let go with no other key, click or scroll between, as moves the keyboard
+// to a window's menu bar on Windows. It goes to the focused node and bubbles, as a key does.
+type AltTapped struct{ Time time.Time }
+
 // TextInput carries text the keystroke produced, after the input method
 // has had its say. A node that wants characters reads this one; a node
 // that wants shortcuts reads [KeyPress].
@@ -219,6 +223,7 @@ func (PointerUp) isEvent()    {}
 func (Scroll) isEvent()       {}
 func (KeyPress) isEvent()     {}
 func (KeyRelease) isEvent()   {}
+func (AltTapped) isEvent()    {}
 func (TextInput) isEvent()    {}
 func (Composing) isEvent()    {}
 func (FocusGained) isEvent()  {}

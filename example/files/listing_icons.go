@@ -11,7 +11,7 @@ import (
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
-	"github.com/marrasen/gunim/input"
+	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/text"
 	"github.com/marrasen/gunim/theme"
@@ -480,24 +480,41 @@ func (m *errorMark) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ guni
 	p.RRect(geom.Rc((box.W-w)/2, box.H*0.68, w, w), w/2, white)
 }
 
-// viewBar is the pair of buttons in the status bar that switch between details and icons, and the slider that
-// sizes the icons, which slides out while they show.
+// viewBar is the switch in the status bar between details and icons, and the slider that sizes the icons, which
+// slides out while they show.
 type viewBar struct {
 	anim.Group
-	icons  bool
 	tile   float32
-	pill   *anim.Float
 	open   *anim.Float
-	hot    int
+	modes  *widget.Segmented
+	scope  *widget.Themed
 	slider *widget.Slider
-	// set is whether a view mode has arrived, before which nothing slides.
+	// shown is whether a view mode has arrived, before which nothing slides.
 	shown bool
 }
 
+// viewTheme sizes the switch to fit the status bar.
+var viewTheme = theme.Make("files.views",
+	theme.Set(widget.SegmentedHeight, 20),
+	theme.Set(widget.SegmentedPadding, 6),
+)
+
+// viewIcon is the size of the switch's icons.
+var viewIcon = theme.Length("files.views.icon", 14)
+
 func newViewBar() *viewBar {
-	v := &viewBar{tile: defaultTile, pill: anim.NewFloat(0), open: anim.NewFloat(0), hot: -1,
+	v := &viewBar{tile: defaultTile, open: anim.NewFloat(0), modes: widget.NewSegmented(),
 		slider: widget.NewSlider(minTile, maxTile)}
-	v.Add(v.pill, v.open)
+	v.Add(v.open)
+	v.scope = widget.NewThemed(v.modes, viewTheme)
+	v.modes.Icons = []*icon.Icon{icon.List, icon.LayoutGrid}
+	v.modes.IconSize = viewIcon
+	v.modes.OnChange = func(i int) gunim.Intent {
+		if i == 1 {
+			return Command{Name: CmdViewIcons}
+		}
+		return Command{Name: CmdViewDetails}
+	}
 	v.slider.Snap = tileStep
 	v.slider.OnChange = func(s float32) gunim.Intent {
 		v.tile = s
@@ -508,13 +525,14 @@ func newViewBar() *viewBar {
 
 // set takes the view mode of the folder showing.
 func (v *viewBar) set(m ViewMode, u *gunim.UI) {
-	v.icons = m.Icons
-	to := map[bool]float32{false: 0, true: 1}[m.Icons]
+	to, mode := float32(0), 0
+	if m.Icons {
+		to, mode = 1, 1
+	}
+	v.modes.SetSelected(mode, u)
 	if v.shown {
-		v.pill.Animate(to, widget.Quick.Get(u.Theme()))
 		v.open.Animate(to, Page.Get(u.Theme()))
 	} else {
-		v.pill.Jump(to)
 		v.open.Jump(to)
 		v.tile = m.Tile
 		v.slider.SetValue(m.Tile, u)
@@ -542,83 +560,33 @@ func (v *viewBar) zoomBy(notches float32, u *gunim.UI) {
 }
 
 const (
-	toggleW = 26
 	// tileStep is the step the tile size moves in.
 	tileStep = 4
-	toggleH  = 20
 	sliderW  = 120
 )
 
 // Children implements [gunim.Composite].
-func (v *viewBar) Children() []gunim.Node { return []gunim.Node{v.slider} }
+func (v *viewBar) Children() []gunim.Node { return []gunim.Node{v.scope, v.slider} }
 
 // Layout implements [gunim.Node].
 func (v *viewBar) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
 	open := min(max(v.open.Value(), 0), 1)
-	h := max(c.Max.H, toggleH)
-	s := kids.At(0)
-	s.Layout(gunim.Tight(geom.Sz(sliderW, h)))
-	s.Place(geom.Pt(2*toggleW+10, 0))
-	return c.Constrain(geom.Sz(2*toggleW+(10+sliderW)*open, h))
+	modes, slider := kids.At(0), kids.At(1)
+	ms := modes.Layout(gunim.Loose(c.Max))
+	h := max(c.Max.H, ms.H)
+	modes.Place(geom.Pt(0, (h-ms.H)/2))
+	slider.Layout(gunim.Tight(geom.Sz(sliderW, h)))
+	slider.Place(geom.Pt(ms.W+10, 0))
+	return c.Constrain(geom.Sz(ms.W+(10+sliderW)*open, h))
 }
 
 // Paint implements [gunim.Node].
-func (v *viewBar) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.Children) {
-	th := f.Theme
-	y := (box.H - toggleH) / 2
-	track := geom.Rc(0, y, 2*toggleW, toggleH)
-	p.RRect(track, toggleH/2, paint.Solid(widget.FieldFill.Get(th)))
-	pill := geom.Rc(v.pill.Value()*toggleW+1, y+1, toggleW-2, toggleH-2)
-	p.RRect(pill, toggleH/2-1, paint.Solid(widget.Accent.Get(th)))
-	for i := range 2 {
-		ink := Faint.Get(th)
-		if (i == 1) == v.icons || i == v.hot {
-			ink = widget.ButtonStrongInk.Get(th)
-		}
-		cx, cy := float32(i)*toggleW+toggleW/2, y+toggleH/2
-		if i == 0 {
-			for k := range 3 {
-				p.RRect(geom.Rc(cx-6, cy-5+float32(k)*4, 12, 2), 1, paint.Solid(ink))
-			}
-			continue
-		}
-		for k := range 4 {
-			p.RRect(geom.Rc(cx-5+float32(k%2)*6, cy-5+float32(k/2)*6, 4, 4), 1, paint.Solid(ink))
-		}
-	}
+func (v *viewBar) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, kids gunim.Children) {
+	kids.At(0).Paint(p)
 	if open := v.open.Value(); open > 0.01 {
 		defer p.Layer(paint.LayerOpts{Bounds: geom.Rect{Max: box.Point()}, Opacity: min(open, 1), Clip: true})()
-		kids.At(0).Paint(p)
+		kids.At(1).Paint(p)
 	}
-}
-
-// Handle implements [gunim.Handler]: a press on either button switches to its view.
-func (v *viewBar) Handle(e input.Event, u *gunim.UI) bool {
-	switch e := e.(type) {
-	case input.PointerMove:
-		hot := -1
-		if e.Pos.X >= 0 && e.Pos.X < 2*toggleW {
-			hot = int(e.Pos.X / toggleW)
-		}
-		if hot != v.hot {
-			v.hot = hot
-			u.Invalidate()
-		}
-	case input.PointerLeave:
-		v.hot = -1
-		u.Invalidate()
-	case input.PointerDown:
-		if e.Button != input.ButtonPrimary || e.Pos.X >= 2*toggleW {
-			return false
-		}
-		cmd := CmdViewDetails
-		if e.Pos.X >= toggleW {
-			cmd = CmdViewIcons
-		}
-		u.Send(v, Command{Name: cmd})
-		return true
-	}
-	return false
 }
 
 func lerp(a, b, t float32) float32 { return a + (b-a)*t }

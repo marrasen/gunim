@@ -11,7 +11,8 @@ import (
 func (b *Menubar) Access() access.Info {
 	info := access.Info{Role: access.RoleMenuBar}
 	for i, m := range b.Menus {
-		part := access.Info{Role: access.RoleMenuItem, Name: m.Title, Actions: []string{access.ActionPress},
+		shown, _, _ := accessKey(m.Title)
+		part := access.Info{Role: access.RoleMenuItem, Name: shown, Actions: []string{access.ActionPress},
 			State: access.StateExpandable | access.StateHasPopup}
 		if i == b.open {
 			part.State |= access.StateExpanded

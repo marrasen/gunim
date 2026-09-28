@@ -43,6 +43,13 @@ type Button struct {
 	Ink theme.Token[color.NRGBA]
 	// Active shows the ink in [Accent], as a toggle that is on does, fading between the two.
 	Active bool
+	// Ghost leaves the fill clear until the pointer is over the button.
+	Ghost bool
+	// Disabled fades the button faint; it then takes no clicks, keys or focus.
+	Disabled bool
+	// KeepFocus leaves the keyboard where it is when the button is clicked, as a toolbar's buttons do; Tab still
+	// reaches it.
+	KeepFocus bool
 	// Kind says how much the button stands out: plain, primary for the
 	// action a dialog expects, or danger for one that destroys, such as
 	// Delete.
@@ -72,8 +79,10 @@ type Button struct {
 	was, is ButtonKind
 	held    bool
 	text    shapedText
-	// ghost leaves the fill clear until the pointer is over the button.
-	ghost bool
+	// dim runs from 0 to 1 as Disabled turns on.
+	dim *anim.Float
+	// over says the pointer is over the button, and laid that it has been laid out.
+	over, laid bool
 	// self is the node the button sends from, when it is part of a larger one.
 	self gunim.Node
 }
@@ -87,8 +96,9 @@ func NewButton(label string) *Button {
 		ring:  anim.NewFloat(0),
 		lit:   anim.NewFloat(0),
 		tone:  anim.NewFloat(1),
+		dim:   anim.NewFloat(0),
 	}
-	b.Add(b.hover, b.press, b.ring, b.lit, b.tone)
+	b.Add(b.hover, b.press, b.ring, b.lit, b.tone, b.dim)
 	return b
 }
 
@@ -106,14 +116,19 @@ func (b *Button) SetLabel(label string) { b.Label = label }
 // Handle implements [gunim.Handler].
 func (b *Button) Handle(e input.Event, u *gunim.UI) bool {
 	th := u.Theme()
+	if b.Disabled {
+		return b.handleDisabled(e, th)
+	}
 	switch e := e.(type) {
 	case input.PointerEnter:
+		b.over = true
 		b.hover.Animate(1, Quick.Get(th))
 		// Coming back while still held presses it again.
 		if b.held {
 			b.press.Animate(1, Quick.Get(th))
 		}
 	case input.PointerLeave:
+		b.over = false
 		b.hover.Animate(0, Settle.Get(th))
 		// The button keeps the pointer while it is held. Leaving eases
 		// the press off, and releasing out here cancels it.
@@ -141,6 +156,22 @@ func (b *Button) Handle(e input.Event, u *gunim.UI) bool {
 		b.fire(u)
 	case input.FocusGained:
 		b.ring.Animate(1, Quick.Get(th))
+	case input.FocusLost:
+		b.ring.Animate(0, Settle.Get(th))
+	default:
+		return false
+	}
+	return true
+}
+
+// handleDisabled takes the pointer's presses and passes keys by, while the button is disabled.
+func (b *Button) handleDisabled(e input.Event, th *theme.Live) bool {
+	switch e.(type) {
+	case input.PointerEnter:
+		b.over = true
+	case input.PointerLeave:
+		b.over = false
+	case input.PointerDown, input.PointerUp:
 	case input.FocusLost:
 		b.ring.Animate(0, Settle.Get(th))
 	default:
@@ -187,6 +218,15 @@ func (b *Button) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) ge
 		}
 		b.lit.Animate(on, Quick.Get(th))
 	}
+	if off := value(b.Disabled); !b.laid {
+		b.dim.Jump(off)
+	} else if b.dim.Target() != off {
+		b.dim.Animate(off, Quick.Get(th))
+		b.held = false
+		b.press.Animate(0, Settle.Get(th))
+		b.hover.Animate(value(b.over && !b.Disabled), Quick.Get(th))
+	}
+	b.laid = true
 	b.size = c.Constrain(geom.Sz(w, h))
 	if b.Kind != b.is {
 		b.was, b.is = b.is, b.Kind
@@ -197,7 +237,10 @@ func (b *Button) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) ge
 }
 
 // Focusable implements [gunim.Focusable].
-func (b *Button) Focusable() bool { return true }
+func (b *Button) Focusable() bool { return !b.Disabled }
+
+// FocusOnPress implements [gunim.PressFocuser].
+func (b *Button) FocusOnPress() bool { return !b.KeepFocus }
 
 // Paint implements [gunim.Node].
 func (b *Button) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
@@ -229,11 +272,13 @@ func (b *Button) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 		return anim.Mix(anim.ColorCodec, from.Get(th), to.Get(th), t)
 	}
 	restFill, hoverFill := mix(fromRest, rest), mix(fromHover, hover)
-	if b.ghost {
+	if b.Ghost {
 		restFill = hoverFill
 		restFill.A = 0
 	}
 	fill := anim.Mix(anim.ColorCodec, restFill, hoverFill, b.hover.Value())
+	faint := 1 - 0.6*min(max(b.dim.Value(), 0), 1)
+	fill.A = uint8(float32(fill.A) * faint)
 	p.RRect(r, min(radius, box.H/2), paint.Solid(fill))
 	inked := mix(fromInk, ink)
 	if b.Ink.Key() != "" {
@@ -242,6 +287,7 @@ func (b *Button) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 	if lit := b.lit.Value(); lit > 0 {
 		inked = anim.Mix(anim.ColorCodec, inked, Accent.Get(th), min(lit, 1))
 	}
+	inked.A = uint8(float32(inked.A) * faint)
 	// Squeezed, the icon keeps to the button's left edge.
 	x := max((box.W-b.content(th))/2, 0)
 	if b.Icon != nil {

@@ -6,6 +6,7 @@ import (
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 )
 
@@ -24,6 +25,9 @@ type Key string
 // It is the piece that makes published state worth animating. Hand it a
 // slice with [Sync] and it works out the difference against what is on
 // screen, rather than rebuilding and letting the result pop.
+//
+// With OnClick set, the list takes focus and keeps a cursor on a row:
+// Up, Down, Home and End move it, and Enter or Space clicks its row.
 //
 // Its look and motion come from the theme: [ListSpacing] between rows,
 // [Quick] to carry rows in and to their new places, and [Settle] to
@@ -53,12 +57,18 @@ type List struct {
 	lift *anim.Float
 	// spacing is the gap between rows at the last layout.
 	spacing float32
+
+	// cursor is the row the keys work on; ring grows while the list has focus, and mark carries it to the cursor.
+	cursor Key
+	ring   *anim.Float
+	mark   *anim.Rect
 }
 
 // NewList returns an empty list.
 func NewList() *List {
-	l := &List{rows: map[Key]*row{}, slots: map[Key][2]float32{}, lift: anim.NewFloat(0)}
-	l.Add(l.lift)
+	l := &List{rows: map[Key]*row{}, slots: map[Key][2]float32{}, lift: anim.NewFloat(0), ring: anim.NewFloat(0),
+		mark: anim.NewRect(geom.Rect{})}
+	l.Add(l.lift, l.ring, l.mark)
 	return l
 }
 
@@ -255,6 +265,14 @@ func (l *List) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) g
 		y -= spacing
 	}
 	l.height = y
+	if s, ok := l.slots[l.cursor]; ok {
+		to := geom.Rc(0, s[0], width, s[1])
+		if l.ring.Value() < 0.01 {
+			l.mark.Jump(to)
+		} else {
+			l.mark.Animate(to, move)
+		}
+	}
 	return c.Constrain(geom.Sz(width, y))
 }
 
@@ -273,6 +291,91 @@ func (l *List) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.
 	if up {
 		l.paintLifted(p, f, box, lifted)
 	}
+	if _, ok := l.slots[l.cursor]; ok && !l.drag.active {
+		r := l.mark.Value()
+		focusRing(p, geom.Rect{Min: geom.Pt(r.Min.X+3, r.Min.Y), Max: geom.Pt(r.Max.X-3, r.Max.Y)},
+			RowRadius.Get(f.Theme), l.ring.Value(), f.Theme)
+	}
+}
+
+// Focusable implements [gunim.Focusable]: a list with OnClick set takes focus.
+func (l *List) Focusable() bool { return l.OnClick != nil }
+
+// Cursor returns the row the keys work on, if it is still in the list.
+func (l *List) Cursor() (Key, bool) {
+	r, ok := l.rows[l.cursor]
+	if !ok || r.presence == gunim.Exiting {
+		return "", false
+	}
+	return l.cursor, true
+}
+
+// live returns the rows in display order that are not animating out.
+func (l *List) live() []Key {
+	out := make([]Key, 0, len(l.order))
+	for _, k := range l.order {
+		if r, ok := l.rows[k]; ok && r.presence != gunim.Exiting {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+// moveCursor puts the cursor on keys[i], within the list, and brings its row into view.
+func (l *List) moveCursor(keys []Key, i int, u *gunim.UI) {
+	if len(keys) == 0 {
+		return
+	}
+	l.cursor = keys[min(max(i, 0), len(keys)-1)]
+	if r, ok := l.rows[l.cursor]; ok {
+		u.Reveal(r)
+	}
+	u.Invalidate()
+}
+
+// key works the cursor: Up, Down, Home and End move it, and Enter or Space clicks its row.
+func (l *List) key(e input.KeyPress, u *gunim.UI) bool {
+	if l.OnClick == nil || e.Mods.Has(input.ModControl) || e.Mods.Has(input.ModAlt) {
+		return false
+	}
+	keys := l.live()
+	at := slices.Index(keys, l.cursor)
+	switch e.Key {
+	case input.KeyUp:
+		if at < 0 {
+			at = len(keys)
+		}
+		l.moveCursor(keys, at-1, u)
+	case input.KeyDown:
+		l.moveCursor(keys, at+1, u)
+	case input.KeyHome:
+		l.moveCursor(keys, 0, u)
+	case input.KeyEnd:
+		l.moveCursor(keys, len(keys)-1, u)
+	case input.KeyEnter, input.KeyKPEnter, input.KeySpace:
+		if at < 0 {
+			return false
+		}
+		if v := l.OnClick(l.cursor); v != nil {
+			u.Send(l, v)
+		}
+	default:
+		return false
+	}
+	return true
+}
+
+// focus grows or shrinks the ring, and on focus puts the cursor on the first row when it is on none.
+func (l *List) focus(on bool, u *gunim.UI) {
+	if !on {
+		l.ring.Animate(0, Settle.Get(u.Theme()))
+		return
+	}
+	l.ring.Animate(1, Quick.Get(u.Theme()))
+	if keys := l.live(); len(keys) > 0 && !slices.Contains(keys, l.cursor) {
+		l.cursor = keys[0]
+	}
+	u.Invalidate()
 }
 
 // row wraps one item so the list can animate its arrival, its departure

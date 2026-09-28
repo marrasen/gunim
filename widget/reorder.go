@@ -30,13 +30,22 @@ const pickUp = 4
 // the row up: it lifts, follows the pointer, and the other rows spring
 // aside to open a gap where it would land. Letting go drops it into the
 // gap and sends Reorder the new order. With OnClick set, a press let go
-// on the row it began on without picking it up is a click.
+// on the row it began on without picking it up is a click. A press puts
+// the keys' cursor on its row.
 func (l *List) Handle(e input.Event, u *gunim.UI) bool {
 	if l.Reorder == nil && l.OnClick == nil {
 		return false
 	}
 	th := u.Theme()
 	switch e := e.(type) {
+	case input.KeyPress:
+		return l.key(e, u)
+	case input.FocusGained:
+		l.focus(true, u)
+		return true
+	case input.FocusLost:
+		l.focus(false, u)
+		return true
 	case input.PointerDown:
 		if e.Button != input.ButtonPrimary {
 			return false
@@ -46,6 +55,7 @@ func (l *List) Handle(e input.Event, u *gunim.UI) bool {
 			return false
 		}
 		l.drag = reorder{key: k, pressed: true, from: e.Pos.Y, grab: e.Pos.Y - top, y: top}
+		l.cursor = k
 	case input.PointerMove:
 		if !l.drag.pressed {
 			return false

@@ -23,7 +23,8 @@ var (
 )
 
 // BarMenu is one menu of a [Menubar]: its title, and its items, which
-// take the extras a [Menu] does.
+// take the extras a [Menu] does. The title and the items may mark their
+// access keys with a & before the letter, as "&File"; see [Menu.AccessKeys].
 type BarMenu struct {
 	Title    string
 	Items    []string
@@ -51,6 +52,11 @@ type BarMenu struct {
 // and Escape closes it, giving the keyboard back where it was. A click
 // on the bar leaves the keyboard where it is, so the bar's commands
 // act on what has it.
+//
+// Wherever the keyboard is, Alt and a title's access key open its
+// menu, and F10 or Alt pressed alone puts the keyboard on the bar with
+// the first title lit, for Left, Right and Down to work. While Alt is
+// held, or the keyboard opened the bar, the access keys are underlined.
 type Menubar struct {
 	anim.Group
 	Menus []BarMenu
@@ -89,6 +95,10 @@ type Menubar struct {
 	// while the pointer heads for the one open.
 	keyed bool
 	wait  func()
+	// armed says the keyboard is on the bar with no menu open and title lit lit. byKeys says the keyboard opened
+	// the bar, and altDown that Alt is held; either underlines the access keys.
+	armed, byKeys, altDown bool
+	lit                    int
 
 	titles   []shapedText
 	titleRun shapedText
@@ -124,9 +134,10 @@ func (b *Menubar) Open(i int, u *gunim.UI) {
 	if i < 0 || i >= len(b.Menus) || i == b.open {
 		return
 	}
-	if !b.IsOpen() {
+	if !b.IsOpen() && !b.armed {
 		b.back = u.Focused()
 	}
+	b.armed = false
 	if b.Compact {
 		b.showList(u)
 		b.list.Highlight(i)
@@ -169,6 +180,7 @@ func (b *Menubar) fill(m *Menu, i int) {
 	bm := b.Menus[i]
 	m.Items, m.Hints, m.Checked, m.Disabled, m.Breaks, m.Captions = bm.Items, bm.Hints, bm.Checked, bm.Disabled, bm.Breaks, bm.Captions
 	m.Icons = bm.Icons
+	m.AccessKeys, m.cues = true, b.byKeys
 }
 
 // showList opens a compact bar's list of its menus, with none open
@@ -181,6 +193,7 @@ func (b *Menubar) showList(u *gunim.UI) {
 		b.back = u.Focused()
 	}
 	list := NewMenu()
+	list.AccessKeys, list.cues = true, b.byKeys
 	for _, m := range b.Menus {
 		list.Items = append(list.Items, m.Title)
 		list.Hints = append(list.Hints, "›")
@@ -313,7 +326,7 @@ func (b *Menubar) highlight(menu, item int, u *gunim.UI) {
 // Close closes the open menu, and a compact bar's list, and gives the
 // keyboard back.
 func (b *Menubar) Close(u *gunim.UI) {
-	if !b.IsOpen() {
+	if !b.IsOpen() && !b.armed {
 		return
 	}
 	b.shut(u)
@@ -322,11 +335,13 @@ func (b *Menubar) Close(u *gunim.UI) {
 		b.listPopup.Close()
 		b.listPopup, b.list, b.panel = nil, nil, nil
 	}
-	b.open, b.inMenu = -1, false
+	b.open, b.inMenu, b.armed, b.byKeys = -1, false, false, false
 	b.highlight(-1, -1, u)
 	if b.back != nil {
 		u.Focus(b.back)
 		b.back = nil
+	} else if u.Focused() == b {
+		u.Focus(nil)
 	}
 	b.aim(b.over, u)
 	u.Invalidate()
@@ -404,7 +419,10 @@ func (b *Menubar) Handle(e input.Event, u *gunim.UI) bool {
 		return true
 	case input.PointerLeave:
 		b.over = -1
-		if b.open < 0 {
+		switch {
+		case b.armed:
+			b.aim(b.lit, u)
+		case b.open < 0:
 			b.aim(-1, u)
 		}
 		return true
@@ -413,6 +431,7 @@ func (b *Menubar) Handle(e input.Event, u *gunim.UI) bool {
 			return false
 		}
 		i := b.titleAt(e.Pos)
+		b.byKeys = false
 		switch {
 		case i < 0:
 		case b.Compact && b.IsOpen():
@@ -427,8 +446,135 @@ func (b *Menubar) Handle(e input.Event, u *gunim.UI) bool {
 		return true
 	case input.KeyPress:
 		return b.key(e, u)
+	case input.KeyRelease:
+		b.altUp(e, u)
+	case input.AltTapped:
+		if !b.IsOpen() && !b.armed {
+			return false
+		}
+		b.Close(u)
+		return true
+	case input.FocusLost:
+		if b.armed && !b.IsOpen() {
+			// Focus went elsewhere, as by a click: it stays there.
+			b.back = nil
+			b.Close(u)
+		}
 	}
 	return false
+}
+
+// CatchKey implements [gunim.KeyCatcher]: F10 or Alt alone puts the keyboard on the bar, Alt and a title's access
+// key opens its menu, and Alt held underlines the access keys.
+func (b *Menubar) CatchKey(e input.Event, u *gunim.UI) bool {
+	switch e := e.(type) {
+	case input.AltTapped:
+		b.altDown = false
+		b.arm(u)
+		return true
+	case input.KeyRelease:
+		b.altUp(e, u)
+	case input.WindowFocusLost:
+		b.altDown = false
+	case input.KeyPress:
+		switch {
+		case e.Key == input.KeyF10 && e.Mods == 0:
+			b.arm(u)
+			return true
+		case altKey(e.Key):
+			b.altHeld(e, u)
+		case altOnly(e.Mods):
+			return b.openByKey(keyRune(e), u)
+		}
+	}
+	return false
+}
+
+// altHeld underlines the access keys while Alt is held alone.
+func (b *Menubar) altHeld(e input.KeyPress, u *gunim.UI) {
+	if e.Mods&^input.ModAlt == 0 && !b.altDown {
+		b.altDown = true
+		u.Invalidate()
+	}
+}
+
+// altUp takes the underlines away as Alt is let go.
+func (b *Menubar) altUp(e input.KeyRelease, u *gunim.UI) {
+	if altKey(e.Key) && b.altDown {
+		b.altDown = false
+		u.Invalidate()
+	}
+}
+
+// arm puts the keyboard on the bar with its first title lit and no menu open, as F10 and Alt alone do; a compact
+// bar opens its list. With the keyboard on the bar already, it gives it back.
+func (b *Menubar) arm(u *gunim.UI) {
+	if b.IsOpen() || b.armed {
+		b.Close(u)
+		return
+	}
+	if len(b.Menus) == 0 {
+		return
+	}
+	b.byKeys = true
+	if b.Compact {
+		b.Open(0, u)
+		return
+	}
+	b.back = u.Focused()
+	b.armed, b.lit = true, 0
+	u.Focus(b)
+	b.aim(0, u)
+	u.Invalidate()
+}
+
+// openByKey opens the menu whose title's access key is r, from the keyboard, and reports whether there is one.
+func (b *Menubar) openByKey(r rune, u *gunim.UI) bool {
+	if r == 0 {
+		return false
+	}
+	for i, m := range b.Menus {
+		if _, key, _ := accessKey(m.Title); key == r {
+			b.openKeyed(i, u)
+			return true
+		}
+	}
+	return false
+}
+
+// openKeyed opens menu i from the keyboard, with the keys in the menu from its first item.
+func (b *Menubar) openKeyed(i int, u *gunim.UI) {
+	b.byKeys = true
+	b.Open(i, u)
+	b.enterMenu(u)
+}
+
+// armedKey works the bar while it has the keyboard with no menu open: Left and Right move along the titles; Down,
+// Up, Enter and Space open the one lit; a title's access key opens its menu.
+func (b *Menubar) armedKey(k input.KeyPress, u *gunim.UI) bool {
+	n := len(b.Menus)
+	switch k.Key {
+	case input.KeyLeft:
+		b.lit = (b.lit + n - 1) % n
+		b.aim(b.lit, u)
+	case input.KeyRight:
+		b.lit = (b.lit + 1) % n
+		b.aim(b.lit, u)
+	case input.KeyDown, input.KeyUp, input.KeyEnter, input.KeyKPEnter, input.KeySpace:
+		b.openKeyed(b.lit, u)
+	case input.KeyEscape, input.KeyF10:
+		b.Close(u)
+	case input.KeyTab:
+		b.Close(u)
+		return false
+	default:
+		if k.Mods.Has(input.ModControl) {
+			return false
+		}
+		b.openByKey(keyRune(k), u)
+	}
+	u.Invalidate()
+	return true
 }
 
 // hover follows the pointer onto title i, or off the titles for -1:
@@ -445,14 +591,24 @@ func (b *Menubar) hover(i int, u *gunim.UI) {
 		}
 	case b.open >= 0 && i >= 0:
 		b.Open(i, u)
-	case b.open < 0:
+	case b.armed && i >= 0:
+		b.lit = i
+		b.aim(i, u)
+	case b.open < 0 && !b.armed:
 		b.aim(i, u)
 	}
 }
 
 func (b *Menubar) key(k input.KeyPress, u *gunim.UI) bool {
+	if altKey(k.Key) {
+		b.altHeld(k, u)
+		return b.IsOpen() || b.armed
+	}
 	if b.Compact {
 		return b.compactKey(k, u)
+	}
+	if b.armed && b.open < 0 {
+		return b.armedKey(k, u)
 	}
 	if b.open < 0 {
 		return false
@@ -469,6 +625,9 @@ func (b *Menubar) key(k input.KeyPress, u *gunim.UI) bool {
 		b.Close(u)
 		return false
 	default:
+		if altOnly(k.Mods) && b.openByKey(keyRune(k), u) {
+			return true
+		}
 		if b.menu != nil && b.menu.Key(k, u) {
 			u.Invalidate()
 			return true
@@ -495,6 +654,8 @@ func (b *Menubar) compactKey(k input.KeyPress, u *gunim.UI) bool {
 	}
 	var used bool
 	switch {
+	case altOnly(k.Mods) && b.openByKey(keyRune(k), u):
+		used = true
 	case b.inMenu && k.Key == input.KeyLeft:
 		// Back out to the list, the menu left open beside it.
 		b.inMenu = false
@@ -541,7 +702,8 @@ func (b *Menubar) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) g
 		return size
 	}
 	for i, m := range b.Menus {
-		w := b.titles[i].shape(faceIn(Font, th), m.Title, TextSize.Get(th)).Advance + 2*pad
+		shown, _, _ := accessKey(m.Title)
+		w := b.titles[i].shape(faceIn(Font, th), shown, TextSize.Get(th)).Advance + 2*pad
 		b.spans = append(b.spans, [2]float32{x, x + w})
 		x += w
 	}
@@ -565,9 +727,15 @@ func (b *Menubar) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.
 		b.paintCompact(p, f, box)
 		return
 	}
+	cues := b.byKeys || b.altDown
 	for i, s := range b.spans {
 		run := b.titles[i].run
-		run.Paint(p, geom.Pt(s[0]+pad, (box.H-run.Height())/2), ink)
+		at := geom.Pt(s[0]+pad, (box.H-run.Height())/2)
+		run.Paint(p, at, ink)
+		if cues {
+			_, _, k := accessKey(b.Menus[i].Title)
+			underline(p, run, k, at, ink)
+		}
 	}
 	if b.Title != "" && f.Chromeless() {
 		// In the middle of the bar, or of the room the menus leave when

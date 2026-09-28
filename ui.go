@@ -904,7 +904,9 @@ type UI struct {
 	spared int
 
 	focus *state
-	hover *state
+	// altAlone says Alt is down with nothing pressed since, for [input.AltTapped].
+	altAlone bool
+	hover    *state
 	// capture is the node that took the last press and keeps the
 	// pointer until its release.
 	capture *state

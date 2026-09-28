@@ -11,6 +11,7 @@ import (
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/text"
+	"github.com/marrasen/gunim/theme"
 	"github.com/marrasen/gunim/widget"
 )
 
@@ -116,7 +117,7 @@ func (r *calcRoot) show(s Calc, u *gunim.UI) {
 	if len(s.Plots) > 0 && !slices.ContainsFunc(was.Plots, func(p Plot) bool { return p.ID == s.Plots[len(s.Plots)-1].ID }) {
 		r.echo.Ping(u, widget.EchoDone)
 	}
-	r.bar.show(s.Graph)
+	r.bar.show(s.Graph, u)
 	r.calc.show(was, s, u)
 	r.graph.show(s, u)
 	u.Invalidate()
@@ -259,18 +260,24 @@ func typedKey(c rune) (string, bool) {
 // window's buttons.
 type titleBar struct {
 	r        *calcRoot
-	sw       *modeSwitch
+	sw       *widget.Segmented
 	title    *widget.WindowTitle
 	controls *widget.WindowControls
 }
 
 func newTitleBar(r *calcRoot) *titleBar {
-	t := &titleBar{r: r, sw: newModeSwitch(r), title: widget.NewWindowTitle("Calculator"), controls: widget.NewWindowControls()}
+	t := &titleBar{r: r, sw: newModeSwitch(), title: widget.NewWindowTitle("Calculator"), controls: widget.NewWindowControls()}
 	t.title.Label().Color = widget.Ink
 	return t
 }
 
-func (t *titleBar) show(graph bool) { t.sw.show(graph) }
+func (t *titleBar) show(graph bool, u *gunim.UI) {
+	mode := 0
+	if graph {
+		mode = 1
+	}
+	t.sw.SetSelected(mode, u)
+}
 
 // Children implements [gunim.Composite].
 func (t *titleBar) Children() []gunim.Node { return []gunim.Node{t.sw, t.title, t.controls} }
@@ -297,75 +304,16 @@ func (t *titleBar) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gu
 	}
 }
 
-// modeSwitch is the switch between the calculator and the graph: two
-// words, and a pill that glides to the one showing.
-type modeSwitch struct {
-	anim.Group
-	r     *calcRoot
-	pill  *anim.Float
-	hover *anim.Float
-	on    int
-}
+// switchTrack fills the track of the switch between the calculator and the graph.
+var switchTrack = theme.Color("calc.switch.track", color.NRGBA{R: 0xec, G: 0xef, B: 0xf4, A: 0x14})
 
-var modeWords = [2]string{"Calc", "Graph"}
-
-// modeWidth is each word's room in the switch.
-const modeWidth, modeHeight = 64, 28
-
-func newModeSwitch(r *calcRoot) *modeSwitch {
-	s := &modeSwitch{r: r, pill: anim.NewFloat(0), hover: anim.NewFloat(0)}
-	s.Add(s.pill, s.hover)
+// newModeSwitch returns the switch between the calculator and the graph, which leaves the keyboard with the
+// calculator when clicked.
+func newModeSwitch() *widget.Segmented {
+	s := widget.NewSegmented("Calc", "Graph")
+	s.Track, s.KeepFocus = switchTrack, true
+	s.OnChange = func(i int) gunim.Intent { return ShowGraph{On: i == 1} }
 	return s
-}
-
-func (s *modeSwitch) show(graph bool) {
-	to := 0
-	if graph {
-		to = 1
-	}
-	if to != s.on {
-		s.on = to
-		s.pill.Animate(float32(to), anim.Bouncy)
-	}
-}
-
-// Layout implements [gunim.Node].
-func (s *modeSwitch) Layout(c gunim.Constraints, _ gunim.Frame, _ gunim.Children) geom.Size {
-	return c.Constrain(geom.Sz(2*modeWidth, modeHeight))
-}
-
-// Paint implements [gunim.Node].
-func (s *modeSwitch) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
-	th := f.Theme
-	track := widget.Ink.Get(th)
-	p.RRect(geom.Rect{Max: box.Point()}, box.H/2, paint.Solid(faded(track, 0.08+0.04*s.hover.Value())))
-	x := s.pill.Value() * modeWidth
-	p.RRect(geom.Rc(x+2, 2, modeWidth-4, box.H-4), (box.H-4)/2, paint.Solid(widget.Accent.Get(th)))
-	for i, word := range modeWords {
-		run := shaped(word, 13)
-		// The word the pill is on reads on the pill; the other, faint.
-		near := 1 - min(abs32(s.pill.Value()-float32(i)), 1)
-		ink := faded(track, 0.55+0.45*near)
-		run.Paint(p, geom.Pt(float32(i)*modeWidth+(modeWidth-run.Advance)/2, (box.H-run.Height())/2), ink)
-	}
-}
-
-// Handle implements [gunim.Handler].
-func (s *modeSwitch) Handle(e input.Event, u *gunim.UI) bool {
-	switch e := e.(type) {
-	case input.PointerEnter:
-		s.hover.Animate(1, anim.Snappy)
-	case input.PointerLeave:
-		s.hover.Animate(0, anim.Snappy)
-	case input.PointerDown:
-		if e.Button != input.ButtonPrimary {
-			return false
-		}
-		u.Send(s, ShowGraph{On: e.Pos.X >= modeWidth})
-	default:
-		return false
-	}
-	return true
 }
 
 func abs32(v float32) float32 {

@@ -157,11 +157,26 @@ type FocusKeeper interface {
 	KeepsFocus()
 }
 
+// A PressFocuser is a [Focusable] that says whether a press focuses it. One that says no leaves the keyboard where
+// it is, as a toolbar's buttons do, and Tab still reaches it.
+type PressFocuser interface {
+	Focusable
+	FocusOnPress() bool
+}
+
 // A TabSkipper is a [Focusable] that Tab passes over, such as
 // selectable text, which takes focus only from a click.
 type TabSkipper interface {
 	Focusable
 	SkipsTab()
+}
+
+// A KeyCatcher is a node that hears the keyboard events nothing focused took, wherever the keyboard is, such as a
+// menubar's F10 and Alt shortcuts, and [input.WindowFocusLost]. The engine offers each such event to the KeyCatchers
+// the last frame drew, in the order they were painted, until one returns true.
+type KeyCatcher interface {
+	Node
+	CatchKey(e input.Event, u *UI) bool
 }
 
 // A CursorShaper is a node that names the pointer's shape over it, such

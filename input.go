@@ -46,6 +46,7 @@ func (u *UI) handleOn(root *state, ev any) {
 			u.chrome.maximized = e.Maximized
 		}
 	case driver.MoveStarted:
+		u.altAlone = false
 		// The press that started it went to the system, and would have closed these
 		if root == u.root {
 			u.dismissFor(nil, nil)
@@ -55,6 +56,7 @@ func (u *UI) handleOn(root *state, ev any) {
 		if root != u.root {
 			return
 		}
+		u.altAlone = false
 		if !e.Focused {
 			u.dismissFor(nil, nil)
 		}
@@ -66,7 +68,9 @@ func (u *UI) handleOn(root *state, ev any) {
 		if target == nil {
 			target = u.appRoot()
 		}
-		u.bubble(target, ev)
+		if !u.bubble(target, ev) {
+			u.catchKey(ev)
+		}
 	case input.PointerMove:
 		if root == u.root {
 			u.pointer, u.pointerIn = e.Pos, true
@@ -91,6 +95,7 @@ func (u *UI) handleOn(root *state, ev any) {
 			u.movedAt(e.Mods)
 		}
 	case input.PointerDown:
+		u.altAlone = false
 		if root == u.root {
 			u.pointer = e.Pos
 		}
@@ -134,6 +139,7 @@ func (u *UI) handleOn(root *state, ev any) {
 		}
 		u.dispatchAt(root, e.Pos, mk)
 	case input.Scroll:
+		u.altAlone = false
 		if !u.wheelZoomerAt(root, e.Pos) && u.zoomKey(e) {
 			return
 		}
@@ -150,22 +156,50 @@ func (u *UI) handleOn(root *state, ev any) {
 			return input.Drop{Pos: local, Data: e.Data, Paths: e.Paths, Mods: e.Mods, Time: e.Time}
 		})
 	case input.KeyPress, input.KeyRelease:
+		tapped := u.altTap(ev)
 		if u.drag != nil {
 			// Keys speak to the drag while it lasts.
 			u.dragKey(ev)
 			return
 		}
 		u.keyEvent(ev)
+		if tapped {
+			u.keyEvent(input.AltTapped{Time: time.Now()})
+		}
 	default:
 		u.keyEvent(ev)
 	}
 }
 
+// altTap follows Alt going down and up, and reports whether ev lets it go with nothing pressed while it was down.
+// Alt pressed with another modifier held, as AltGr is, does not count.
+func (u *UI) altTap(ev any) bool {
+	switch e := ev.(type) {
+	case input.KeyPress:
+		if isAlt(e.Key) {
+			if !e.Repeat {
+				u.altAlone = e.Mods&^input.ModAlt == 0
+			}
+			return false
+		}
+		u.altAlone = false
+	case input.KeyRelease:
+		if isAlt(e.Key) && u.altAlone {
+			u.altAlone = false
+			return true
+		}
+	}
+	return false
+}
+
+// isAlt reports whether k is either Alt key.
+func isAlt(k input.Key) bool { return k == input.KeyLeftAlt || k == input.KeyRightAlt }
+
 // keyEvent delivers a keyboard or focus event. It goes to the focused
 // node and bubbles from there, which is how a shortcut a text field
 // ignores ends up at the window. With nothing focused it goes to the
 // root, so a window-wide shortcut works before anything has been
-// clicked.
+// clicked. What nothing takes goes to the [KeyCatcher]s.
 func (u *UI) keyEvent(ev any) {
 	if u.zoomKey(ev) {
 		return
@@ -175,21 +209,43 @@ func (u *UI) keyEvent(ev any) {
 		if target == nil {
 			target = u.appRoot()
 		}
-		if !u.bubble(target, ev) {
+		if !u.bubble(target, ev) && !u.catchKey(ev) {
 			u.tab(ev)
 		}
 	}
 }
 
+// catchKey offers ev to the [KeyCatcher]s the last frame drew, in paint order, and reports whether one took it.
+func (u *UI) catchKey(ev input.Event) bool {
+	var took bool
+	var walk func(s *state)
+	walk = func(s *state) {
+		if took || s.presence == Exiting || (s != u.root && s.drawn != u.seq) {
+			return
+		}
+		if c, ok := s.node.(KeyCatcher); ok {
+			u.on(s, func() { took = c.CatchKey(ev, u) })
+		}
+		for _, k := range s.kids {
+			walk(k)
+		}
+	}
+	walk(u.root)
+	return took
+}
+
 // focusAt moves focus for a press at p: to the nearest [Focusable] at
 // or above the node hit. A press inside the focused node, or on a
 // [FocusKeeper], leaves focus where it is, which keeps a focused dialog
-// focused when its panel is clicked. A press anywhere else drops it.
+// focused when its panel is clicked, and so does a press on a
+// [PressFocuser] that declines it. A press anywhere else drops it.
 func (u *UI) focusAt(p geom.Point) {
 	target := u.hit(u.root, p)
 	for s := target; s != nil; s = s.parent {
 		if f, ok := s.node.(Focusable); ok && f.Focusable() {
-			u.Focus(s.node)
+			if pf, ok := s.node.(PressFocuser); !ok || pf.FocusOnPress() {
+				u.Focus(s.node)
+			}
 			return
 		}
 		if _, ok := s.node.(FocusKeeper); ok {
