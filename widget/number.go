@@ -43,7 +43,12 @@ type NumberField struct {
 	OnChange func(v float64) gunim.Intent
 
 	value float64
+	set   func(v float64, u *gunim.UI)
 }
+
+// OnSet wires behaviour that runs inside the window as the value
+// changes, such as a slider beside the field that follows it.
+func (n *NumberField) OnSet(fn func(v float64, u *gunim.UI)) { n.set = fn }
 
 // NewNumberField returns a field holding lo, bounded by lo and hi.
 func NewNumberField(lo, hi float64) *NumberField {
@@ -58,6 +63,9 @@ func NewNumberField(lo, hi float64) *NumberField {
 		// the bounds mid-word would fight the fingers: typing 1 on the
 		// way to 12 would jump to the minimum.
 		n.value = v
+		if n.set != nil {
+			n.set(v, u)
+		}
 		if n.OnChange != nil {
 			u.Send(n, n.OnChange(v))
 		}
@@ -121,7 +129,13 @@ func (n *NumberField) commit(v float64, u *gunim.UI) {
 	n.value = v
 	n.TextField.SetText(n.format(v))
 	u.Invalidate()
-	if changed && n.OnChange != nil {
+	if !changed {
+		return
+	}
+	if n.set != nil {
+		n.set(v, u)
+	}
+	if n.OnChange != nil {
 		u.Send(n, n.OnChange(v))
 	}
 }

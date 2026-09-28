@@ -54,6 +54,10 @@ type Button struct {
 	// action a dialog expects, or danger for one that destroys, such as
 	// Delete.
 	Kind ButtonKind
+	// Tooltip says what the button does, or why it cannot: a popup
+	// shows it once the pointer has rested on the button, and a screen
+	// reader reads it in place of the label where there is none.
+	Tooltip string
 	// On is the intent sent to the application when the button is
 	// activated. It travels as data, so the application can be a
 	// goroutine or a process on another machine, and either way it
@@ -89,6 +93,7 @@ type Button struct {
 	over, laid bool
 	// self is the node the button sends from, when it is part of a larger one.
 	self gunim.Node
+	tip  tipper
 }
 
 // NewButton returns a button showing label.
@@ -120,6 +125,9 @@ func (b *Button) SetLabel(label string) { b.Label = label }
 
 // Handle implements [gunim.Handler].
 func (b *Button) Handle(e input.Event, u *gunim.UI) bool {
+	// A tooltip shows even on a button that cannot act, since saying
+	// why is exactly what it is for.
+	b.tip.handle(e, u, b.node(), b.Tooltip, tipDelay)
 	th := u.Theme()
 	if b.Disabled {
 		return b.handleDisabled(e, th)
@@ -257,6 +265,15 @@ func (b *Button) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) ge
 	return b.size
 }
 
+// node is the button as the tree knows it, which is the whole widget
+// when the button is part of a larger one.
+func (b *Button) node() gunim.Node {
+	if b.self != nil {
+		return b.self
+	}
+	return b
+}
+
 // Focusable implements [gunim.Focusable].
 func (b *Button) Focusable() bool { return !b.Disabled }
 
@@ -265,6 +282,7 @@ func (b *Button) FocusOnPress() bool { return !b.KeepFocus }
 
 // Paint implements [gunim.Node].
 func (b *Button) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
+	defer faintIf(p, box, b.Disabled)()
 	th := f.Theme
 	r := geom.Rect{Max: box.Point()}
 	radius := ButtonRadius.Get(th)

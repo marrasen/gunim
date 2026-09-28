@@ -258,3 +258,18 @@ func TestFaderFillsTheHeightItIsGiven(t *testing.T) {
 		t.Errorf("a fader took %v of width, more than it was given", s.size.W)
 	}
 }
+
+func TestSliderTellsTheWindowAsItMoves(t *testing.T) {
+	s := NewSlider(0, 100)
+	s.Snap = 1
+	var seen []float32
+	s.OnMove(func(v float32, _ *gunim.UI) { seen = append(seen, v) })
+	w, run := stage(t, &frame{child: s, size: geom.Sz(218, 28)})
+	w.Input(input.PointerDown{Pos: geom.Pt(109, 14), Clicks: 1})
+	run(1)
+	w.Input(input.KeyPress{Key: input.KeyRight})
+	run(1)
+	if len(seen) != 2 || seen[0] != 50 || seen[1] != 51 {
+		t.Errorf("OnMove saw %v, want 50 then 51", seen)
+	}
+}

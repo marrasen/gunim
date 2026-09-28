@@ -66,6 +66,10 @@ type Dialog struct {
 	// in the body confirms, and Tab moves through the body's fields and
 	// the buttons.
 	Body gunim.Node
+	// Width, when set, is the panel's width in place of the theme's
+	// [DialogWidth], for a body that needs the room: a table, or a bank
+	// of faders. It is still capped at the window's width.
+	Width float32
 
 	// in runs from 0 (gone) to 1 (fully present) and drives every visual
 	// property. One value for the whole transition keeps the fade, the
@@ -307,7 +311,11 @@ func (d *Dialog) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children)
 	for i := first; i < kids.Len(); i++ {
 		row += kids.At(i).Layout(gunim.Loose(size)).W + gap
 	}
-	width := min(max(DialogWidth.Get(th), row+2*pad), size.W)
+	want := DialogWidth.Get(th)
+	if d.Width > 0 {
+		want = d.Width
+	}
+	width := min(max(want, row+2*pad), size.W)
 	d.width = width
 	// With a body, the panel grows to fit the title, the body and the
 	// buttons.
@@ -324,7 +332,15 @@ func (d *Dialog) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children)
 		if d.problem.Text != "" {
 			extra = pad/2 + ps.H
 		}
-		d.height = pad + title.Size.H + pad + bs.H + extra + pad + ButtonHeight.Get(th) + pad
+		around := pad + title.Size.H + pad + extra + pad + ButtonHeight.Get(th) + pad
+		d.height = around + bs.H
+		// A body taller than the window is measured again with the
+		// room that is left, so a form that scrolls fills it instead of
+		// running off both ends of the screen.
+		if room := size.H - DialogMargin.Get(th) - around; d.height > size.H && room > 0 {
+			bs = body.Layout(gunim.Tight(geom.Sz(width-2*pad, room)))
+			d.height = around + bs.H
+		}
 	}
 	panel := d.panel(size, f)
 	if hasBody {

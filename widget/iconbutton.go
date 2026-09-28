@@ -1,10 +1,8 @@
 package widget
 
 import (
-	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/access"
 	"github.com/marrasen/gunim/icon"
-	"github.com/marrasen/gunim/input"
 )
 
 // IconButton is a square button showing only an icon, such as a toolbar's Refresh. Its fill stays clear until the
@@ -14,22 +12,14 @@ import (
 // it as the button's name.
 type IconButton struct {
 	Button
-	Tooltip string
-
-	tip tipper
 }
 
 // NewIconButton returns a button showing ic, with tooltip saying what it does.
 func NewIconButton(ic *icon.Icon, tooltip string) *IconButton {
-	b := &IconButton{Button: *NewButton(""), Tooltip: tooltip}
+	b := &IconButton{Button: *NewButton("")}
+	b.Tooltip = tooltip
 	b.Icon, b.Ghost, b.self = ic, true, b
 	return b
-}
-
-// Handle implements [gunim.Handler].
-func (b *IconButton) Handle(e input.Event, u *gunim.UI) bool {
-	b.tip.handle(e, u, b, b.Tooltip, tipDelay)
-	return b.Button.Handle(e, u)
 }
 
 // Access implements [gunim.Accessible].

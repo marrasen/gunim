@@ -84,6 +84,9 @@ var (
 	DialogWidth     = theme.Length("dialog.width", 420)
 	DialogHeight    = theme.Length("dialog.height", 200)
 	DialogGap       = theme.Length("dialog.gap", 10)
+	// DialogMargin is the room a dialog leaves around itself when its
+	// body is taller than the window.
+	DialogMargin = theme.Length("dialog.margin", 48)
 	// DialogBackdrop is how far the scrim blurs what is behind it.
 	DialogBackdrop = theme.Length("dialog.backdrop", 14)
 )

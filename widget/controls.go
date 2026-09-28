@@ -22,10 +22,14 @@ type toggle struct {
 	// Disabled shows the control faint, and it takes no clicks, keys or
 	// focus, for a choice that does not apply now.
 	Disabled bool
+	// Tooltip says more about the choice than its label has room for: a
+	// popup shows it once the pointer has rested on the control.
+	Tooltip string
 	// OnChange turns the new state into an intent for the application.
 	OnChange func(on bool) gunim.Intent
 	// flipped is local behaviour, set by OnFlip.
 	flipped func(on bool, u *gunim.UI)
+	tip     tipper
 
 	// lit runs from 0 to 1 as the control turns on.
 	lit   *anim.Float
@@ -82,6 +86,9 @@ func (t *toggle) Focusable() bool { return !t.Disabled }
 
 // handle is the Handle both controls share; n is the control itself.
 func (t *toggle) handle(n gunim.Node, e input.Event, u *gunim.UI) bool {
+	// A tooltip shows even on a control that cannot be set, since
+	// saying why is exactly what it is for.
+	t.tip.handle(e, u, n, t.Tooltip, tipDelay)
 	if t.Disabled {
 		return false
 	}
@@ -270,11 +277,16 @@ type Slider struct {
 	// up the height as a fader.
 	Axis     Axis
 	Min, Max float32
+	// Disabled shows the slider faint, and it takes no clicks, keys or
+	// focus, for a value that cannot be set now.
+	Disabled bool
 	// Snap rounds the value to multiples of itself, counted from Min;
 	// zero leaves it free.
 	Snap float32
 	// OnChange turns a new value into an intent for the application.
 	OnChange func(v float32) gunim.Intent
+	// moved is local behaviour, set by OnMove.
+	moved func(v float32, u *gunim.UI)
 
 	value float32
 	// at is the knob's place, 0 to 1 along the track.
@@ -300,6 +312,10 @@ func NewFader(lo, hi float32) *Slider {
 	return s
 }
 
+// OnMove wires behaviour that runs inside the window as the value
+// changes, such as a number beside the slider that follows it.
+func (s *Slider) OnMove(fn func(v float32, u *gunim.UI)) { s.moved = fn }
+
 // Value returns the slider's value.
 func (s *Slider) Value() float32 { return s.value }
 
@@ -308,6 +324,14 @@ func (s *Slider) Value() float32 { return s.value }
 func (s *Slider) SetValue(v float32, u *gunim.UI) {
 	s.value = s.clamp(v)
 	s.at.Animate(s.frac(), Quick.Get(u.Theme()))
+}
+
+// Set sets the value with the knob jumping straight to it, and tells
+// nobody. It is for a place with no UI to hand, such as a field beside
+// the slider reporting what was typed into it.
+func (s *Slider) Set(v float32) {
+	s.value = s.clamp(v)
+	s.at.Jump(s.frac())
 }
 
 func (s *Slider) clamp(v float32) float32 {
@@ -334,13 +358,16 @@ func (s *Slider) set(v float32, m anim.Motion, u *gunim.UI) {
 	}
 	s.value = v
 	s.at.Animate(s.frac(), m)
+	if s.moved != nil {
+		s.moved(v, u)
+	}
 	if s.OnChange != nil {
 		u.Send(s, s.OnChange(v))
 	}
 }
 
 // Focusable implements [gunim.Focusable].
-func (s *Slider) Focusable() bool { return true }
+func (s *Slider) Focusable() bool { return !s.Disabled }
 
 // valueAt returns the value at a point in the slider's space.
 func (s *Slider) valueAt(pos geom.Point, th *theme.Live) float32 {
@@ -356,6 +383,9 @@ func (s *Slider) valueAt(pos geom.Point, th *theme.Live) float32 {
 
 // Handle implements [gunim.Handler].
 func (s *Slider) Handle(e input.Event, u *gunim.UI) bool {
+	if s.Disabled {
+		return false
+	}
 	th := u.Theme()
 	step := s.Snap
 	if step <= 0 {
@@ -442,6 +472,7 @@ func (s *Slider) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) ge
 
 // Paint implements [gunim.Node].
 func (s *Slider) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
+	defer faintIf(p, box, s.Disabled)()
 	th := f.Theme
 	k := KnobSize.Get(th)
 	track := SliderTrack.Get(th)
