@@ -112,3 +112,13 @@ func paintIcon(p *paint.Painter, th *theme.Live, ic *icon.Icon, r geom.Rect, c c
 	}
 	p.Mask(icon.Stroke{Icon: ic, Width: IconStroke.Get(th), Progress: min(progress, 1)}, r, c)
 }
+
+// paintSmallIcon draws ic into r, tinted c, with strokes as thick on screen as at [IconSize], for a mark smaller
+// than an icon.
+func paintSmallIcon(p *paint.Painter, th *theme.Live, ic *icon.Icon, r geom.Rect, c color.NRGBA) {
+	w := r.Size().W
+	if ic == nil || w <= 0 {
+		return
+	}
+	p.Mask(icon.Stroke{Icon: ic, Width: IconStroke.Get(th) * IconSize.Get(th) / w, Progress: 1}, r, c)
+}

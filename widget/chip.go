@@ -85,17 +85,13 @@ func (c *Chip) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Chi
 	}
 	run := c.labelText.run
 	run.Paint(p, geom.Pt(x, (box.H-run.Height())/2), Ink.Get(th))
-	drawCross(p, geom.Pt(c.crossX, box.H/2), box.H/3, Ink.Get(th))
+	paintCross(p, th, geom.Pt(c.crossX, box.H/2), box.H/3, Ink.Get(th))
 }
 
-// drawCross draws a small ×, size across, centred on at.
-func drawCross(p *paint.Painter, at geom.Point, size float32, c color.NRGBA) {
-	for _, turn := range [2]float32{math.Pi / 4, -math.Pi / 4} {
-		func() {
-			defer p.Push(paint.Rotate(turn, at))()
-			p.RRect(geom.Rc(at.X-size/2, at.Y-0.75, size, 1.5), 0.75, paint.Solid(c))
-		}()
-	}
+// paintCross draws icon.X centred on at, with strokes size long and as thick as an icon's.
+func paintCross(p *paint.Painter, th *theme.Live, at geom.Point, size float32, c color.NRGBA) {
+	s := size * math.Sqrt2
+	paintSmallIcon(p, th, icon.X, geom.Rc(at.X-s/2, at.Y-s/2, s, s), c)
 }
 
 // Handle implements [gunim.Handler]: a click on the cross removes the

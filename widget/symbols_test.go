@@ -76,3 +76,32 @@ func TestSortedColumnsShowAChevron(t *testing.T) {
 		t.Fatalf("the table sorted down drew %v, want a chevron down", got)
 	}
 }
+
+func TestAChipsCrossIsLucidesX(t *testing.T) {
+	c := NewChip("", "Large")
+	w, _ := stage(t, Row(c))
+	ms := maskOps(w.Offscreen())
+	if len(ms) != 1 || strokeOf(t, ms[0]).Icon != icon.X {
+		t.Fatalf("the chip drew %d marks, want an X", len(ms))
+	}
+	h := ChipHeight.Default()
+	if at := ms[0].Rect.Center(); abs32(at.X-c.crossX) > 0.01 || abs32(at.Y-h/2) > 0.01 {
+		t.Fatalf("the X is centred on %v, want on the cross's place, %v", at, geom.Pt(c.crossX, h/2))
+	}
+	if s := strokeOf(t, ms[0]); abs32(s.Width*ms[0].Rect.Size().W-IconStroke.Default()*IconSize.Default()) > 0.01 {
+		t.Fatalf("the X's strokes are %v wide on its grid, want as thick on screen as an icon's", s.Width)
+	}
+}
+
+func TestAClosableColumnShowsAnXUnderThePointer(t *testing.T) {
+	g := NewDataGrid(GridColumn{Title: "Name", Width: 120}, GridColumn{Title: "Kind", Width: 120, Closable: true})
+	w, run := stage(t, &frame{child: g, size: geom.Sz(400, 200)})
+	if got := iconsDrawn(t, w); len(got) != 0 {
+		t.Fatalf("with the pointer away the header drew %v", got)
+	}
+	w.Input(input.PointerMove{Pos: geom.Pt(180, g.header/2)})
+	run(1)
+	if got := iconsDrawn(t, w); len(got) != 1 || got[0] != icon.X {
+		t.Fatalf("with the pointer on the closable column the header drew %v, want an X", got)
+	}
+}

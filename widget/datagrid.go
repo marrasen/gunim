@@ -937,7 +937,7 @@ func (g *DataGrid) paintHeader(p *paint.Painter, th *theme.Live, bodyW, size, pa
 			paintSort(p, th, geom.Pt(at+run.Advance+sortArrow/2+2, h/2), col.Sort > 0, ink)
 		}
 		if closing {
-			drawCross(p, geom.Pt(x+w-pad-h/4, h/2), h/4, ink)
+			paintCross(p, th, geom.Pt(x+w-pad-h/4, h/2), h/4, ink)
 		}
 		if c < len(g.Columns)-1 {
 			p.RRect(geom.Rc(x+w-1, h*0.25, 1, h*0.5), 0, paint.Solid(MenuBorder.Get(th)))
@@ -1530,7 +1530,7 @@ func paintSort(p *paint.Painter, th *theme.Live, at geom.Point, up bool, c color
 		ic = icon.ChevronUp
 	}
 	s := IconSize.Get(th) * sortScale
-	paintIcon(p, th, ic, geom.Rc(at.X-s/2, at.Y-s/2, s, s), c, 1)
+	paintSmallIcon(p, th, ic, geom.Rc(at.X-s/2, at.Y-s/2, s, s), c)
 }
 
 // sortScale is the size of a sort chevron against [IconSize].
