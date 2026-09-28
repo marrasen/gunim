@@ -152,8 +152,9 @@ type DataGrid struct {
 	// OnClose turns a click on a closable column's cross into an intent.
 	OnClose func(column int) gunim.Intent
 	// Copy returns the text Ctrl+C copies for row i, and the row's
-	// [GridRow.Text] when nil. Without Copy, Ctrl+C takes the selected
-	// rows that have arrived, up to [MostCopiedRows], a line each.
+	// [GridRow.Text] when nil. Without Copy, Ctrl+C looks at the first
+	// [MostCopiedRows] rows selected and takes those that have arrived,
+	// a line each, and leaves the clipboard as it was when none has.
 	Copy func(i int) string
 	// OnCopy, when set, turns Ctrl+C on the selected rows into an intent
 	// in place of copying their text, as for a list of files, or for a
@@ -1296,7 +1297,9 @@ func (g *DataGrid) key(e input.KeyPress, u *gunim.UI) bool {
 			}
 			return false
 		case e.Key == input.KeyC && g.Multi && len(g.runs) > 0:
-			u.SetClipboard(g.copyRuns())
+			if lines, ok := g.copyRuns(); ok {
+				u.SetClipboard(lines)
+			}
 			return true
 		case e.Key == input.KeyC && !g.Multi && g.selected >= 0:
 			if line, ok := g.copyText(g.selected); ok {
@@ -1437,29 +1440,32 @@ func (g *DataGrid) setRuns(runs [][2]int, u *gunim.UI) {
 	u.Invalidate()
 }
 
-// MostCopiedRows is the most rows Ctrl+C copies itself, which it does on
-// the UI goroutine. A grid that copies more sets OnCopy.
+// MostCopiedRows is the most selected rows Ctrl+C looks at itself,
+// which it does on the UI goroutine. A grid that copies more sets
+// OnCopy.
 const MostCopiedRows = 10000
 
 // copyRuns returns the text Ctrl+C copies for the rows selected with
-// Multi, a line for each row that has arrived, up to MostCopiedRows.
-func (g *DataGrid) copyRuns() string {
+// Multi: a line for each of the first MostCopiedRows that has arrived,
+// and false when none has.
+func (g *DataGrid) copyRuns() (string, bool) {
 	var b strings.Builder
-	n := 0
+	looked, copied := 0, 0
 	for _, r := range g.runs {
-		for i := r[0]; i < r[1] && n < MostCopiedRows; i++ {
+		for i := r[0]; i < r[1] && looked < MostCopiedRows; i++ {
+			looked++
 			line, ok := g.copyText(i)
 			if !ok {
 				continue
 			}
-			if n > 0 {
+			if copied > 0 {
 				b.WriteByte('\n')
 			}
 			b.WriteString(line)
-			n++
+			copied++
 		}
 	}
-	return b.String()
+	return b.String(), copied > 0
 }
 
 // copyText returns the text Ctrl+C copies for row i, and false for a

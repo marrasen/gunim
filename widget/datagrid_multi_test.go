@@ -224,11 +224,14 @@ func TestASecondaryPressSelectsTheRowUnlessItIsSelected(t *testing.T) {
 // rows are selected, it copies MostCopiedRows at most.
 func TestCtrlCCopiesTheRowsThatHaveArrived(t *testing.T) {
 	g, w, run, clickRow := multiGrid(t)
+	asked := 0
 	g.Row = func(i int) (GridRow, bool) {
+		asked++
 		return GridRow{Cells: [][]GridSpan{{{Text: "row " + strconv.Itoa(i)}}}}, i%2 == 0
 	}
 	g.rows = 1_000_000
 	clickRow(0, 0)
+	asked = 0
 	w.Input(input.KeyPress{Key: input.KeyA, Mods: input.ModControl})
 	w.Input(input.KeyPress{Key: input.KeyC, Mods: input.ModControl})
 	run(1)
@@ -237,8 +240,28 @@ func TestCtrlCCopiesTheRowsThatHaveArrived(t *testing.T) {
 		t.Fatal(err)
 	}
 	lines := strings.Split(text, "\n")
-	if len(lines) != MostCopiedRows || lines[0] != "row 0" || lines[1] != "row 2" {
-		t.Fatalf("Ctrl+C copied %d lines starting %q, want %d starting with rows 0 and 2",
-			len(lines), lines[:min(2, len(lines))], MostCopiedRows)
+	if len(lines) != MostCopiedRows/2 || lines[0] != "row 0" || lines[1] != "row 2" {
+		t.Fatalf("Ctrl+C copied %d lines starting %q, want the %d that arrived of the first %d, from rows 0 and 2",
+			len(lines), lines[:min(2, len(lines))], MostCopiedRows/2, MostCopiedRows)
+	}
+	if asked > MostCopiedRows+100 {
+		t.Fatalf("Ctrl+C asked for %d rows, want no more than the %d it looks at, and the rows in view", asked, MostCopiedRows)
+	}
+}
+
+// Ctrl+C with no selected row arrived leaves the clipboard as it was.
+func TestCtrlCOfRowsStillComingLeavesTheClipboard(t *testing.T) {
+	g, w, run, clickRow := multiGrid(t)
+	g.Row = func(i int) (GridRow, bool) { return GridRow{}, i == 0 }
+	clickRow(0, 0)
+	if err := w.Offscreen().SetClipboard("kept"); err != nil {
+		t.Fatal(err)
+	}
+	w.Input(input.KeyPress{Key: input.KeyA, Mods: input.ModControl})
+	g.runs = [][2]int{{1, 50}}
+	w.Input(input.KeyPress{Key: input.KeyC, Mods: input.ModControl})
+	run(1)
+	if text, _ := w.Offscreen().Clipboard(); text != "kept" {
+		t.Fatalf("Ctrl+C of rows still coming left the clipboard %q, want it as it was", text)
 	}
 }
