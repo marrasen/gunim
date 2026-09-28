@@ -75,14 +75,16 @@ func TestZoomKeysStepThroughTheZooms(t *testing.T) {
 		{ctrl(input.KeyMinus, '+'), 1.25},
 		{ctrl(input.Key0, '0'), 1},
 		{ctrl(input.KeyMinus, 0), 0.9},
+		// The 0 key of a French keyboard types à
+		{ctrl(input.Key0, 'à'), 1},
 	} {
 		w.ui.handlePlatform(c.ev)
 		if w.ui.Zoom() != c.want {
 			t.Fatalf("after Ctrl with %v %q the zoom is %v, want %v", c.ev.Key, c.ev.Char, w.ui.Zoom(), c.want)
 		}
 	}
-	if got := zooms(w); len(got) != 6 {
-		t.Errorf("reported %v, want each of the 6 changes", got)
+	if got := zooms(w); len(got) != 7 {
+		t.Errorf("reported %v, want each of the 7 changes", got)
 	}
 }
 

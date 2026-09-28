@@ -124,7 +124,9 @@ func (u *UI) zoomKey(ev any) bool {
 			u.zoomBy(1)
 		case e.Char == '-' || e.Char == 0 && e.Key == input.KeyMinus || e.Key == input.KeyKPSubtract:
 			u.zoomBy(-1)
-		case e.Char == '0' || e.Char == 0 && e.Key == input.Key0 || e.Key == input.KeyKP0:
+		// The 0 key resets whatever it types: on a French layout it types
+		// à, and Ctrl with it resets the zoom all the same.
+		case e.Char == '0' || e.Key == input.Key0 || e.Key == input.KeyKP0:
 			u.zoomTo(1)
 		default:
 			return false
