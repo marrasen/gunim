@@ -25,8 +25,16 @@ func (b *Button) Access() access.Info {
 	if name == "" {
 		name = iconName(b.Icon)
 	}
-	return access.Info{Role: access.RoleButton, Name: name, State: activeState(b.Active),
-		Actions: []string{access.ActionPress}}
+	return access.Info{Role: access.RoleButton, Name: name, State: b.state(), Actions: []string{access.ActionPress}}
+}
+
+// state is the button's state: active, disabled, both or neither.
+func (b *Button) state() access.State {
+	s := activeState(b.Active)
+	if b.Disabled {
+		s |= access.StateDisabled
+	}
+	return s
 }
 
 // activeState is the state of a button that is active, as a toggle that is on, or none.
@@ -47,7 +55,7 @@ func iconName(ic *icon.Icon) string {
 
 // AccessAct implements [gunim.AccessActor].
 func (b *Button) AccessAct(r access.Request, u *gunim.UI) bool {
-	if r.Action != access.ActionPress {
+	if r.Action != access.ActionPress || b.Disabled {
 		return false
 	}
 	b.fire(u)
