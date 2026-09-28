@@ -26,7 +26,14 @@ type typer struct {
 
 func newTyper(t *testing.T) *typer {
 	t.Helper()
+	return newTyperWith(t, func(*TextField) {})
+}
+
+// newTyperWith is newTyper with the field set up by set first.
+func newTyperWith(t *testing.T, set func(*TextField)) *typer {
+	t.Helper()
 	field := NewTextField()
+	set(field)
 	field.OnChange = func(s string) gunim.Intent { return changed{s} }
 	field.OnSubmit = func(s string) gunim.Intent { return submitted{s} }
 	fr := &frame{child: field, size: geom.Sz(300, 36)}

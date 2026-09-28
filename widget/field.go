@@ -7,6 +7,7 @@ import (
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/text"
@@ -31,6 +32,10 @@ import (
 // until it commits.
 type TextField struct {
 	Placeholder string
+	// Icon shows at the start of the field in the placeholder's colour, such as icon.Search.
+	Icon *icon.Icon
+	// Clearable shows an X at the end while the field has text. Clicking it or pressing Escape empties the field.
+	Clearable bool
 	// Face is the face the text is set in, and the theme's [Font] when unset.
 	Face theme.Token[*text.Face]
 	// Secret shows each character as a dot, as a password field does,
@@ -61,10 +66,14 @@ type TextField struct {
 	scroll  *anim.Float
 	// flash runs from 1 down to 0 after Flash, tinting the field.
 	flash *anim.Float
+	// clearOn runs from 0 to 1 as the X shows, and clearHot as the pointer comes over it.
+	clearOn  *anim.Float
+	clearHot *anim.Float
 
 	shaped shapedText
-	// size is the field's size at its last layout.
-	size geom.Size
+	// size is the field's size at its last layout, and lead and trail the room before and after the text.
+	size        geom.Size
+	lead, trail float32
 	// line is the text as last laid out, for navigating.
 	line text.Run
 }
@@ -72,12 +81,14 @@ type TextField struct {
 // NewTextField returns an empty field.
 func NewTextField() *TextField {
 	t := &TextField{
-		focus:   anim.NewFloat(0),
-		caretAt: anim.NewFloat(0),
-		selA:    anim.NewFloat(0),
-		selB:    anim.NewFloat(0),
-		scroll:  anim.NewFloat(0),
-		flash:   anim.NewFloat(0),
+		focus:    anim.NewFloat(0),
+		caretAt:  anim.NewFloat(0),
+		selA:     anim.NewFloat(0),
+		selB:     anim.NewFloat(0),
+		scroll:   anim.NewFloat(0),
+		flash:    anim.NewFloat(0),
+		clearOn:  anim.NewFloat(0),
+		clearHot: anim.NewFloat(0),
 	}
 	t.changed = func(u *gunim.UI) {
 		if t.OnEdit != nil {
@@ -99,10 +110,9 @@ func (t *TextField) TakesText() bool { return true }
 
 // TextCaret implements [gunim.CaretReporter].
 func (t *TextField) TextCaret() geom.Rect {
-	pad := FieldPadding.Default()
 	h := t.line.Height()
 	y := (t.size.H - h) / 2
-	return geom.Rc(pad-t.scroll.Value()+t.caretAt.Value(), y, 1.5, h)
+	return geom.Rc(t.lead-t.scroll.Value()+t.caretAt.Value(), y, 1.5, h)
 }
 
 // Text returns the field's text.
@@ -140,7 +150,7 @@ const flashTime = 700 * time.Millisecond
 // Step implements [gunim.Animator].
 func (t *TextField) Step(dt time.Duration) bool {
 	moving := false
-	for _, a := range []*anim.Float{t.focus, t.caretAt, t.selA, t.selB, t.scroll, t.flash} {
+	for _, a := range []*anim.Float{t.focus, t.caretAt, t.selA, t.selB, t.scroll, t.flash, t.clearOn, t.clearHot} {
 		if a.Step(dt) {
 			moving = true
 		}
@@ -158,13 +168,21 @@ func (t *TextField) Handle(e input.Event, u *gunim.UI) bool {
 		t.anchor = t.caret
 		t.preedit = nil // the driver ends the composition too
 	case input.PointerDown:
+		if t.overClear(e.Pos) {
+			t.clear(u)
+			break
+		}
 		t.press(t.indexAt(e.Pos, u), e.Clicks, e.Mods.Has(input.ModShift))
 		t.held = true
 	case input.PointerMove:
+		t.clearHot.Animate(value(t.overClear(e.Pos)), Quick.Get(u.Theme()))
 		if !t.held {
 			return false
 		}
 		t.set(t.indexAt(e.Pos, u), true)
+	case input.PointerLeave:
+		t.clearHot.Animate(0, Settle.Get(u.Theme()))
+		return false
 	case input.PointerUp:
 		t.held = false
 	case input.TextInput:
@@ -181,6 +199,10 @@ func (t *TextField) Handle(e input.Event, u *gunim.UI) bool {
 			}
 			u.Send(t, t.OnSubmit(t.Text()))
 			return true
+		}
+		if e.Key == input.KeyEscape && e.Mods == 0 && t.clearable() {
+			t.clear(u)
+			break
 		}
 		if t.Ghost != "" && e.Mods == 0 && (e.Key == input.KeyTab || e.Key == input.KeyRight) && t.atEnd() {
 			ghost := t.Ghost
@@ -207,7 +229,36 @@ func (t *TextField) atEnd() bool {
 // indexAt returns the rune index a pointer at p, in the field's space,
 // puts the caret at.
 func (t *TextField) indexAt(p geom.Point, u *gunim.UI) int {
-	return t.run(u.Theme()).Index(p.X - FieldPadding.Get(u.Theme()) + t.scroll.Value())
+	return t.run(u.Theme()).Index(p.X - t.lead + t.scroll.Value())
+}
+
+// clearable reports whether the X shows: the field is Clearable, has text, and is not composing.
+func (t *TextField) clearable() bool {
+	return t.Clearable && len(t.text) > 0 && len(t.preedit) == 0
+}
+
+// overClear reports whether p, in the field's space, is on the X.
+func (t *TextField) overClear(p geom.Point) bool {
+	return t.clearable() && p.X >= t.size.W-t.trail
+}
+
+// clear empties the field as typing would, sending OnChange.
+func (t *TextField) clear(u *gunim.UI) {
+	t.anchor = 0
+	t.replace(0, len(t.text), nil, u)
+}
+
+// room returns the room before the text, for the icon, and after it, for the X.
+func (t *TextField) room(th *theme.Live) (lead, trail float32) {
+	pad := FieldPadding.Get(th)
+	lead, trail = pad, pad
+	if t.Icon != nil {
+		lead += IconSize.Get(th) + IconGap.Get(th)
+	}
+	if t.Clearable {
+		trail += IconSize.Get(th) + IconGap.Get(th)
+	}
+	return lead, trail
 }
 
 // fieldNav navigates a field's one line.
@@ -250,7 +301,15 @@ func (t *TextField) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children)
 
 	// Aim the caret, the selection and the scroll. Each glides there.
 	run := t.run(th)
-	inner := own.W - 2*FieldPadding.Get(th)
+	t.lead, t.trail = t.room(th)
+	inner := own.W - t.lead - t.trail
+	if on := value(t.clearable()); on != t.clearOn.Target() {
+		if on == 1 {
+			t.clearOn.Animate(1, Bounce.Get(th))
+		} else {
+			t.clearOn.Animate(0, Quick.Get(th))
+		}
+	}
 	motion := Caret.Get(th)
 	caret, anchor := t.drawnCaret()
 	cx := run.CaretX(caret)
@@ -290,15 +349,21 @@ func (t *TextField) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ guni
 	p.RRectStroke(r, radius, paint.Solid(fill), paint.Stroke{Width: 1 + focus, Color: border})
 
 	pad := FieldPadding.Get(th)
-	inner := geom.Rect{Min: geom.Pt(pad/2, 0), Max: geom.Pt(box.W-pad/2, box.H)}
+	lead, trail := t.room(th)
+	s := IconSize.Get(th)
+	if t.Icon != nil {
+		paintIcon(p, th, t.Icon, geom.Rc(pad, (box.H-s)/2, s, s), Placeholder.Get(th), 1)
+	}
+	t.paintClear(p, th, box)
+	inner := geom.Rect{Min: geom.Pt(lead-pad/2, 0), Max: geom.Pt(box.W-trail+pad/2, box.H)}
 	defer p.Layer(paint.LayerOpts{Bounds: inner, Opacity: 1, Clip: true})()
 
 	run := t.run(th)
-	x := pad - t.scroll.Value()
+	x := lead - t.scroll.Value()
 	y := (box.H - run.Height()) / 2
 	if len(t.text) == 0 && len(t.preedit) == 0 && t.Placeholder != "" {
 		ph := faceIn(t.Face, th).Shape(t.Placeholder, TextSize.Get(th))
-		ph.Paint(p, geom.Pt(pad, y), Placeholder.Get(th))
+		ph.Paint(p, geom.Pt(lead, y), Placeholder.Get(th))
 	}
 
 	if a, b := t.selA.Value(), t.selB.Value(); b-a > 0.5 && focus > 0 {
@@ -323,4 +388,18 @@ func (t *TextField) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ guni
 		c.A = uint8(float32(c.A) * min(focus, 1))
 		p.RRect(geom.Rc(x+t.caretAt.Value()-0.75, y, 1.5, run.Height()), 0.75, paint.Solid(c))
 	}
+}
+
+// paintClear draws the X at the end of the field, growing and fading in with clearOn.
+func (t *TextField) paintClear(p *paint.Painter, th *theme.Live, box geom.Size) {
+	on := t.clearOn.Value()
+	if !t.Clearable || on <= 0.01 {
+		return
+	}
+	s := IconSize.Get(th)
+	r := geom.Rc(box.W-FieldPadding.Get(th)-s, (box.H-s)/2, s, s)
+	ink := anim.Mix(anim.ColorCodec, Placeholder.Get(th), Ink.Get(th), min(max(t.clearHot.Value(), 0), 1))
+	ink.A = uint8(float32(ink.A) * min(on, 1))
+	defer p.Push(paint.Scale(0.5+0.5*on, r.Center()))()
+	paintIcon(p, th, icon.X, r, ink, 1)
 }
