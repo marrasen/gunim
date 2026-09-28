@@ -471,7 +471,9 @@ func (r *runner) copyFile(src, dst string, info fs.FileInfo) (err error) {
 			err = fmt.Errorf("reading %s: %w", src, cerr)
 		}
 	}()
-	out, err := os.CreateTemp(filepath.Dir(dst), "."+filepath.Base(dst)+".*.part")
+	// The part file's name is short, so a dst whose name is near the
+	// longest a name can be fits too.
+	out, err := os.CreateTemp(filepath.Dir(dst), ".files-*.part")
 	if err != nil {
 		return fmt.Errorf("writing %s: %w", dst, err)
 	}

@@ -289,6 +289,21 @@ func TestACancelledCopyLeavesNoPartFile(t *testing.T) {
 	}
 }
 
+// A file with a name near the longest a name can be copies too: its
+// part file takes a short name of its own.
+func TestAFileWithALongNameCopies(t *testing.T) {
+	root := t.TempDir()
+	name := strings.Repeat("n", 250) + ".txt"
+	tree(t, root, "dst/", name)
+	if _, err := runJob(context.Background(), job{kind: OpCopy, dest: filepath.Join(root, "dst"),
+		srcs: []string{filepath.Join(root, name)}}, testEnv(root, answer{}, nil)); err != nil {
+		t.Fatal(err)
+	}
+	if got := names(t, filepath.Join(root, "dst")); !slices.Equal(got, []string{name}) {
+		t.Fatalf("the copy left %v", got)
+	}
+}
+
 func TestMoveRenamesAndUndoMovesBack(t *testing.T) {
 	root := t.TempDir()
 	tree(t, root, "a.txt", "d/b.txt", "dst/")
