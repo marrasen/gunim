@@ -22,6 +22,8 @@ var (
 	IconStroke = theme.Length("icon.stroke", 2)
 	// IconGap is the space between an icon and the text beside it.
 	IconGap = theme.Length("icon.gap", 6)
+	// IconPadding is the space around the icon of a button that shows an icon alone at a size of its own.
+	IconPadding = theme.Length("icon.padding", 3)
 )
 
 // spinTime is how long a spinning icon takes to turn once.

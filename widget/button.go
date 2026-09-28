@@ -36,6 +36,13 @@ type Button struct {
 	Label string
 	// Icon shows before the label, in the label's colour. A button with an icon and no label is square.
 	Icon *icon.Icon
+	// IconSize, when set, is the icon's size in place of [IconSize]; a button with an icon and no label then fits
+	// the icon with [IconPadding] around it.
+	IconSize theme.Token[float32]
+	// Ink, when set, colours the label and the icon in place of the kind's ink.
+	Ink theme.Token[color.NRGBA]
+	// Active shows the ink in [Accent], as a toggle that is on does, fading between the two.
+	Active bool
 	// Kind says how much the button stands out: plain, primary for the
 	// action a dialog expects, or danger for one that destroys, such as
 	// Delete.
@@ -57,6 +64,8 @@ type Button struct {
 	// release over it from one outside.
 	size geom.Size
 	ring *anim.Float
+	// lit runs from 0 to 1 as Active turns on.
+	lit *anim.Float
 	// tone fades the colours from kind was to kind is, so a primary or
 	// danger button comes up from the plain button's colours.
 	tone    *anim.Float
@@ -76,9 +85,10 @@ func NewButton(label string) *Button {
 		hover: anim.NewFloat(0),
 		press: anim.NewFloat(0),
 		ring:  anim.NewFloat(0),
+		lit:   anim.NewFloat(0),
 		tone:  anim.NewFloat(1),
 	}
-	b.Add(b.hover, b.press, b.ring, b.tone)
+	b.Add(b.hover, b.press, b.ring, b.lit, b.tone)
 	return b
 }
 
@@ -164,8 +174,18 @@ func (b *Button) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) ge
 	th := f.Theme
 	h := ButtonHeight.Get(th)
 	w := h
-	if b.Label != "" || b.Icon == nil {
+	switch {
+	case b.Label != "" || b.Icon == nil:
 		w = b.content(th) + 2*ButtonPadding.Get(th)
+	case b.IconSize.Key() != "":
+		w = b.iconSize(th) + 2*IconPadding.Get(th)
+		h = w
+	}
+	if on := float32(0); b.Active != (b.lit.Target() == 1) {
+		if b.Active {
+			on = 1
+		}
+		b.lit.Animate(on, Quick.Get(th))
 	}
 	b.size = c.Constrain(geom.Sz(w, h))
 	if b.Kind != b.is {
@@ -214,17 +234,32 @@ func (b *Button) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 		restFill.A = 0
 	}
 	fill := anim.Mix(anim.ColorCodec, restFill, hoverFill, b.hover.Value())
-	p.RRect(r, radius, paint.Solid(fill))
+	p.RRect(r, min(radius, box.H/2), paint.Solid(fill))
+	inked := mix(fromInk, ink)
+	if b.Ink.Key() != "" {
+		inked = b.Ink.Get(th)
+	}
+	if lit := b.lit.Value(); lit > 0 {
+		inked = anim.Mix(anim.ColorCodec, inked, Accent.Get(th), min(lit, 1))
+	}
 	x := (box.W - b.content(th)) / 2
 	if b.Icon != nil {
-		s := IconSize.Get(th)
-		paintIcon(p, th, b.Icon, geom.Rc(x, (box.H-s)/2, s, s), mix(fromInk, ink), 1)
+		s := b.iconSize(th)
+		paintIcon(p, th, b.Icon, geom.Rc(x, (box.H-s)/2, s, s), inked, 1)
 		x += s + IconGap.Get(th)
 	}
 	if b.Label != "" {
 		run := b.text.shape(faceIn(Font, th), b.Label, TextSize.Get(th))
-		run.Paint(p, geom.Pt(x, (box.H-run.Height())/2), mix(fromInk, ink))
+		run.Paint(p, geom.Pt(x, (box.H-run.Height())/2), inked)
 	}
+}
+
+// iconSize is the size the button draws its icon at.
+func (b *Button) iconSize(th *theme.Live) float32 {
+	if b.IconSize.Key() != "" {
+		return b.IconSize.Get(th)
+	}
+	return IconSize.Get(th)
 }
 
 // content is the width of the button's icon and label, side by side.
@@ -234,7 +269,7 @@ func (b *Button) content(th *theme.Live) float32 {
 		w = b.text.shape(faceIn(Font, th), b.Label, TextSize.Get(th)).Advance
 	}
 	if b.Icon != nil {
-		w += IconSize.Get(th)
+		w += b.iconSize(th)
 		if b.Label != "" {
 			w += IconGap.Get(th)
 		}
