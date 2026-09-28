@@ -6,6 +6,7 @@ import (
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/input"
+	"github.com/marrasen/gunim/paint"
 )
 
 func TestACheckedMenuItemShowsACheck(t *testing.T) {
@@ -103,5 +104,26 @@ func TestAClosableColumnShowsAnXUnderThePointer(t *testing.T) {
 	run(1)
 	if got := iconsDrawn(t, w); len(got) != 1 || got[0] != icon.X {
 		t.Fatalf("with the pointer on the closable column the header drew %v, want an X", got)
+	}
+}
+
+func TestADropsEffectShowsLucidesSign(t *testing.T) {
+	for _, c := range []struct {
+		e  DropEffect
+		ic *icon.Icon
+	}{{DropMove, icon.ArrowRight}, {DropCopy, icon.Plus}, {DropLink, icon.Link}, {DropRefused, icon.Ban}} {
+		var p paint.Painter
+		paintEffect(&p, nil, c.e, geom.Pt(20, 20), ButtonStrongInk.Default())
+		ops := p.Ops()
+		if len(ops) != 1 {
+			t.Fatalf("effect %d drew %d ops, want one sign", c.e, len(ops))
+		}
+		m, ok := ops[0].(*paint.MaskOp)
+		if !ok || strokeOf(t, m).Icon != c.ic {
+			t.Fatalf("effect %d drew %v, want %s", c.e, ops[0], c.ic.Name)
+		}
+		if m.Rect.Center() != geom.Pt(20, 20) || m.Rect.Size().W != effectSize {
+			t.Fatalf("effect %d's sign is at %v, want %v square centred on the dot", c.e, m.Rect, effectSize)
+		}
 	}
 }

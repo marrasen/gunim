@@ -8,6 +8,7 @@ import (
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/theme"
@@ -312,34 +313,27 @@ func (g *DragGhost) paintHint(p *paint.Painter, th *theme.Live, pointer geom.Poi
 	}
 	dot := geom.Rc(at.X+4, at.Y+4, hintSize-8, hintSize-8)
 	p.RRect(dot, dot.Size().W/2, paint.Solid(mark))
-	drawEffect(p, g.hint.Effect, dot.Center(), ButtonStrongInk.Get(th))
+	paintEffect(p, th, g.hint.Effect, dot.Center(), ButtonStrongInk.Get(th))
 	run := g.hintRun.run
 	defer p.Layer(paint.LayerOpts{Bounds: pill, Opacity: 1, Clip: true, Radius: hintSize / 2})()
 	run.Paint(p, geom.Pt(at.X+hintSize, at.Y+(hintSize-run.Height())/2), Ink.Get(th))
 }
 
-// drawEffect draws the small sign of an effect centred on c: an arrow to
-// move, a plus to copy, a curved arrow to link, and a bar to refuse.
-func drawEffect(p *paint.Painter, e DropEffect, c geom.Point, ink color.NRGBA) {
-	const thick = 1.8
-	bar := func(from geom.Point, length, angle float32) {
-		defer p.Push(paint.Rotate(angle, from))()
-		p.RRect(geom.Rc(from.X, from.Y-thick/2, length, thick), thick/2, paint.Solid(ink))
-	}
+// effectSize is the size of the sign of a drop's effect.
+const effectSize = 14
+
+// paintEffect draws the sign of an effect centred on c: icon.ArrowRight to move, icon.Plus to copy, icon.Link to
+// link, and icon.Ban to refuse.
+func paintEffect(p *paint.Painter, th *theme.Live, e DropEffect, c geom.Point, ink color.NRGBA) {
+	ic := icon.Ban
 	switch e {
 	case DropMove:
-		bar(geom.Pt(c.X-4.5, c.Y), 9, 0)
-		bar(geom.Pt(c.X+4.5, c.Y), 4.5, math.Pi*3/4)
-		bar(geom.Pt(c.X+4.5, c.Y), 4.5, -math.Pi*3/4)
+		ic = icon.ArrowRight
 	case DropCopy:
-		bar(geom.Pt(c.X-4.5, c.Y), 9, 0)
-		bar(geom.Pt(c.X, c.Y-4.5), 9, math.Pi/2)
+		ic = icon.Plus
 	case DropLink:
-		tip := geom.Pt(c.X+3.5, c.Y-3.5)
-		bar(geom.Pt(c.X-3.5, c.Y+3.5), 9.9, -math.Pi/4)
-		bar(tip, 5, math.Pi)
-		bar(tip, 5, math.Pi/2)
+		ic = icon.Link
 	case DropRefused:
-		bar(geom.Pt(c.X-4.5, c.Y), 9, 0)
 	}
+	paintSmallIcon(p, th, ic, geom.Rc(c.X-effectSize/2, c.Y-effectSize/2, effectSize, effectSize), ink)
 }
