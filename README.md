@@ -369,6 +369,15 @@ examples read out, and a screen reader can press, check, set and move
 focus through them. On Windows it answers UI Automation, which
 Narrator reads, on 64-bit Windows. macOS comes later.
 
+A Go program for Windows is a console program, and started from
+Explorer or a shortcut it gets a console window of its own. The driver
+lets go of a console the program was given alone, as it starts, and
+keeps one it shares with the terminal that started it, so output there
+still shows. The console may show for an instant first. A release build
+avoids it entirely with `go build -ldflags -H=windowsgui`, at the cost
+of output in a terminal; the build tag `gunimconsole` keeps the console
+in every case.
+
 On Linux that port speaks X11, so a Wayland desktop runs gunim through
 XWayland. That suits popups: X11 lets a client place a window at an
 absolute screen position, and Wayland keeps a popup anchored to its

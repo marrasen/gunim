@@ -1,3 +1,5 @@
+//go:build !gunimconsole
+
 package desktop
 
 import (
@@ -13,6 +15,11 @@ import (
 // driver lets it go as the program starts. A console the program shares,
 // as when it was started from a terminal, stays, so what it prints
 // there, and a program run with its output piped, are as they were.
+//
+// The build tag gunimconsole keeps the console in every case, for a
+// program that wants one. A release build that wants no console at all,
+// not even the instant before this lets it go, is linked with
+// -ldflags -H=windowsgui.
 
 var (
 	consoleKernel32           = windows.NewLazySystemDLL("kernel32.dll")
