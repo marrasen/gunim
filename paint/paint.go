@@ -213,6 +213,9 @@ func sameOp(a, b Op) bool {
 	case *ImageOp:
 		b, ok := b.(*ImageOp)
 		return ok && *a == *b
+	case *MaskOp:
+		b, ok := b.(*MaskOp)
+		return ok && *a == *b
 	case *LayerOp:
 		b, ok := b.(*LayerOp)
 		return ok && *a == *b

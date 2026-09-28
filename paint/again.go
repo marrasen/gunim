@@ -29,7 +29,7 @@ type carried struct{ at, from, n int }
 
 // Again records run, from the frame before, into this frame unchanged,
 // and reports whether it could. It can when run is from this painter's
-// frame before this one and holds only shapes, text and images; with
+// frame before this one and holds only shapes, text, images and masks; with
 // false nothing is recorded, and the node draws as usual.
 //
 // The commands keep the transforms they were drawn with, so the space
@@ -45,7 +45,7 @@ func (p *Painter) Again(run Run) bool {
 	}
 	for _, op := range p.prev[run.from:run.to] {
 		switch op.(type) {
-		case *RRectOp, *TextOp, *ImageOp:
+		case *RRectOp, *TextOp, *ImageOp, *MaskOp:
 		default:
 			return false
 		}
@@ -60,6 +60,9 @@ func (p *Painter) Again(run Run) bool {
 			*t = *op
 			p.ops = append(p.ops, t)
 		case *ImageOp:
+			c := *op
+			p.ops = append(p.ops, &c)
+		case *MaskOp:
 			c := *op
 			p.ops = append(p.ops, &c)
 		}

@@ -58,6 +58,9 @@ func (p *Painter) Keep(mark int, r *Recording) {
 		case *ImageOp:
 			c := *op
 			k.op, own = &c, op.Transform
+		case *MaskOp:
+			c := *op
+			k.op, own = &c, op.Transform
 		case *LayerOp:
 			c := *op
 			k.op, own = &c, op.Transform
@@ -99,6 +102,10 @@ func (p *Painter) Replay(r *Recording) {
 			t.Transform = p.at()
 			p.record(t, k.bounds)
 		case *ImageOp:
+			c := *op
+			c.Transform = p.at()
+			p.record(&c, k.bounds)
+		case *MaskOp:
 			c := *op
 			c.Transform = p.at()
 			p.record(&c, k.bounds)
