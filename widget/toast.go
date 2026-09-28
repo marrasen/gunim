@@ -1,12 +1,14 @@
 package widget
 
 import (
+	"image/color"
 	"slices"
 	"time"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/theme"
@@ -16,10 +18,18 @@ import (
 var (
 	ToastWidth = theme.Length("toast.width", 340)
 	ToastGap   = theme.Length("toast.gap", 10)
+	// ToastInfoInk, ToastSuccessInk, ToastWarningInk and ToastErrorInk colour the icon of each kind of toast.
+	ToastInfoInk    = theme.Color("toast.info", color.NRGBA{R: 0x5e, G: 0x9c, B: 0xff, A: 0xff})
+	ToastSuccessInk = theme.Color("toast.success", color.NRGBA{R: 0x4c, G: 0xc3, B: 0x8a, A: 0xff})
+	ToastWarningInk = theme.Color("toast.warning", color.NRGBA{R: 0xe8, G: 0xb3, B: 0x4a, A: 0xff})
+	ToastErrorInk   = theme.Color("toast.error", color.NRGBA{R: 0xff, G: 0x6b, B: 0x66, A: 0xff})
 )
 
 // toastLife is how long a toast stays when the pointer leaves it alone.
 const toastLife = 5 * time.Second
+
+// toastDrawOn is how long a toast's icon takes to draw itself on.
+const toastDrawOn = 600 * time.Millisecond
 
 // Toast is a short notice: a title, and a line or two under it.
 type Toast struct {
@@ -29,6 +39,43 @@ type Toast struct {
 	// intent a click on it sends. The toast goes once it is clicked.
 	Action string
 	On     gunim.Intent
+	// Kind picks the icon before the title and its colour. The plain kind shows none.
+	Kind ToastKind
+	// Icon, when set, replaces the kind's icon. A plain toast shows it in the ink.
+	Icon *icon.Icon
+}
+
+// ToastKind says what a [Toast] reports, and picks its icon and colour.
+type ToastKind uint8
+
+// The kinds of toast.
+const (
+	// ToastPlain shows no icon.
+	ToastPlain ToastKind = iota
+	// ToastInfo shows icon.Info in [ToastInfoInk].
+	ToastInfo
+	// ToastSuccess shows icon.CircleCheck in [ToastSuccessInk].
+	ToastSuccess
+	// ToastWarning shows icon.TriangleAlert in [ToastWarningInk].
+	ToastWarning
+	// ToastError shows icon.CircleAlert in [ToastErrorInk].
+	ToastError
+)
+
+// look returns the kind's icon and colour, or nil for the plain kind.
+func (k ToastKind) look() (*icon.Icon, theme.Token[color.NRGBA]) {
+	switch k {
+	case ToastInfo:
+		return icon.Info, ToastInfoInk
+	case ToastSuccess:
+		return icon.CircleCheck, ToastSuccessInk
+	case ToastWarning:
+		return icon.TriangleAlert, ToastWarningInk
+	case ToastError:
+		return icon.CircleAlert, ToastErrorInk
+	case ToastPlain:
+	}
+	return nil, Ink
 }
 
 // Toasts shows short notices in a stack, the newest nearest the corner
@@ -133,10 +180,12 @@ func (t *Toasts) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim.
 // toastCard is one toast.
 type toastCard struct {
 	anim.Group
-	owner   *Toasts
-	title   *Label
-	body    *Label
-	action  *Link
+	owner  *Toasts
+	title  *Label
+	body   *Label
+	action *Link
+	// mark is the kind's icon before the title, or nil.
+	mark    *Icon
 	in      *anim.Float
 	y       *anim.Float
 	hover   *anim.Float
@@ -154,6 +203,15 @@ func newToastCard(t *Toasts, to Toast) *toastCard {
 		c.action.On = to.On
 		c.action.OnActivate(func(u *gunim.UI) { t.dismiss(c, u) })
 	}
+	ic, ink := to.Kind.look()
+	if to.Icon != nil {
+		ic = to.Icon
+	}
+	if ic != nil {
+		c.mark = NewIcon(ic, "")
+		c.mark.Color = ink
+		c.mark.DrawOn(toastDrawOn)
+	}
 	return c
 }
 
@@ -165,6 +223,9 @@ func (c *toastCard) Children() []gunim.Node {
 	}
 	if c.action != nil {
 		out = append(out, c.action)
+	}
+	if c.mark != nil {
+		out = append(out, c.mark)
 	}
 	return out
 }
@@ -182,31 +243,46 @@ func (c *toastCard) Transition(p gunim.Presence, f gunim.Frame) bool {
 	return !c.in.Active()
 }
 
-// Layout implements [gunim.Node].
+// Layout implements [gunim.Node]. The icon sits before the title, and the text after it.
 func (c *toastCard) Layout(cs gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
-	pad := CardPadding.Get(f.Theme)
+	th := f.Theme
+	pad := CardPadding.Get(th)
 	w := cs.Max.W
-	room := w - pad.Left - pad.Right
-	// The action sits at the right of the title.
-	var act geom.Size
-	if c.action != nil {
-		k := kids.At(kids.Len() - 1)
-		act = k.Layout(gunim.Constraints{Max: geom.Sz(room, 0)})
-		k.Place(geom.Pt(w-pad.Right-act.W, pad.Top))
+	left := pad.Left
+	if c.mark != nil {
+		left += IconSize.Get(th) + IconGap.Get(th)
 	}
+	room := w - left - pad.Right
+	// The action sits at the right of the title.
+	var act, title geom.Size
 	y := pad.Top
-	for i := range kids.Len() {
-		k := kids.At(i)
+	for k := range kids.All {
 		if c.action != nil && k.Node() == gunim.Node(c.action) {
-			continue
+			act = k.Layout(gunim.Constraints{Max: geom.Sz(room, 0)})
+			k.Place(geom.Pt(w-pad.Right-act.W, pad.Top))
 		}
-		r := room
-		if i == 0 && act.W > 0 {
-			r = max(0, room-act.W-Gap.Get(f.Theme))
+	}
+	for k := range kids.All {
+		switch n := k.Node(); n {
+		case gunim.Node(c.action), gunim.Node(c.mark):
+		default:
+			r := room
+			if n == gunim.Node(c.title) && act.W > 0 {
+				r = max(0, room-act.W-Gap.Get(th))
+			}
+			s := k.Layout(gunim.Constraints{Max: geom.Sz(r, 0)})
+			k.Place(geom.Pt(left, y))
+			if n == gunim.Node(c.title) {
+				title = s
+			}
+			y += s.H + 4
 		}
-		s := k.Layout(gunim.Constraints{Max: geom.Sz(r, 0)})
-		k.Place(geom.Pt(pad.Left, y))
-		y += s.H + 4
+	}
+	for k := range kids.All {
+		if c.mark != nil && k.Node() == gunim.Node(c.mark) {
+			s := k.Layout(gunim.Constraints{Max: geom.Sz(room, 0)})
+			k.Place(geom.Pt(pad.Left, pad.Top+(title.H-s.H)/2))
+		}
 	}
 	return geom.Sz(w, y-4+pad.Bottom)
 }

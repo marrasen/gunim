@@ -129,6 +129,9 @@ func Light() theme.Theme {
 		theme.Set(Knob, color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}),
 		theme.Set(CheckRadius, 6),
 		theme.Set(ControlHeight, 32),
+		theme.Set(ToastSuccessInk, color.NRGBA{R: 0x1f, G: 0x8a, B: 0x4c, A: 0xff}),
+		theme.Set(ToastWarningInk, color.NRGBA{R: 0xb7, G: 0x79, B: 0x1f, A: 0xff}),
+		theme.Set(ToastErrorInk, color.NRGBA{R: 0xd0, G: 0x3a, B: 0x35, A: 0xff}),
 	)
 }
 
