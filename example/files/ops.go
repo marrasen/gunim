@@ -811,9 +811,17 @@ func (r *runner) undoStep(k OpKind, s step) error {
 		}
 		r.did(s.to, to)
 	case OpMove, OpRename:
-		if _, err := os.Lstat(s.from); err == nil {
+		info, err := os.Lstat(s.from)
+		switch {
+		case err == nil && caseOnly(s, info):
+			if err = os.Rename(s.to, s.from); err != nil {
+				return fmt.Errorf("renaming %s back: %w", s.to, err)
+			}
+			r.did(s.to, s.from)
+			return nil
+		case err == nil:
 			return fmt.Errorf("%s exists again, so %s cannot go back there", s.from, filepath.Base(s.to))
-		} else if !errors.Is(err, fs.ErrNotExist) {
+		case !errors.Is(err, fs.ErrNotExist):
 			return fmt.Errorf("moving %s back: %w", s.to, err)
 		}
 		// A move that merged a folder removed the folder it emptied.
@@ -829,6 +837,17 @@ func (r *runner) undoStep(k OpKind, s step) error {
 		return errors.New("this cannot be undone")
 	}
 	return nil
+}
+
+// caseOnly reports whether step s changed only the case of a name, on a
+// file system that ignores case: from, found as info, is the item at to.
+func caseOnly(s step, info fs.FileInfo) bool {
+	if !samePath(filepath.Dir(s.from), filepath.Dir(s.to)) ||
+		!strings.EqualFold(filepath.Base(s.from), filepath.Base(s.to)) {
+		return false
+	}
+	now, err := os.Lstat(s.to)
+	return err == nil && os.SameFile(info, now)
 }
 
 // undoable reports whether rec can be undone.

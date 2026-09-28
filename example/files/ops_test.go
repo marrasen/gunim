@@ -492,6 +492,31 @@ func TestRenameChecksTheNameAndUndoes(t *testing.T) {
 	}
 }
 
+// On a file system that ignores case, a rename that changed only the
+// case finds the item at its old name too. A hard link stands in for
+// that here, as the test's file system tells case apart.
+func TestUndoingARenameOfTheCaseOnly(t *testing.T) {
+	root := t.TempDir()
+	tree(t, root, "Report.txt", "Other.txt")
+	if err := os.Link(at(root, "Report.txt"), at(root, "report.txt")); err != nil {
+		t.Skip("this system makes no hard links:", err)
+	}
+	e := testEnv(root, answer{}, nil)
+	rec := record{kind: OpRename, steps: []step{{from: at(root, "report.txt"), to: at(root, "Report.txt")}}}
+	if _, err := runJob(context.Background(), job{kind: OpUndo, undo: &rec}, e); err != nil {
+		t.Fatal(err)
+	}
+	// Another file at the old name still stops the undo.
+	if err := os.Rename(at(root, "Other.txt"), at(root, "OTHER.txt")); err != nil {
+		t.Fatal(err)
+	}
+	tree(t, root, "Other.txt")
+	rec = record{kind: OpRename, steps: []step{{from: at(root, "Other.txt"), to: at(root, "OTHER.txt")}}}
+	if _, err := runJob(context.Background(), job{kind: OpUndo, undo: &rec}, e); err == nil {
+		t.Fatal("undo moved a file onto another at its old name")
+	}
+}
+
 func TestANewFolderAndItsUndo(t *testing.T) {
 	root := t.TempDir()
 	tree(t, root, "dir/")
