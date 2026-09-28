@@ -113,6 +113,9 @@ type Window struct {
 	// render thread swapped, and drew is nudged after each swap.
 	drawnW, drawnH int
 	drew           chan struct{}
+	// placing says Place is sizing the window, which then waits for no frame at the new size. It is used on the main
+	// thread.
+	placing bool
 	// readback, when set by a test, receives each frame's pixels as
 	// RGBA rows from the bottom up, read before the swap.
 	readback func(pix []byte, w, h int)
@@ -586,7 +589,11 @@ func (w *Window) Place(anchor geom.Rect, size geom.Size) error {
 		f := w.coordsPerLogical()
 		ww, wh := max(1, int(size.W*f+0.5)), max(1, int(size.H*f+0.5))
 		if cw, ch, err := w.gw.GetSize(); err == nil && (cw != ww || ch != wh) {
-			if err := w.gw.SetSize(ww, wh); err != nil {
+			// The engine waits on this call, and draws the frame at the new size after it
+			w.placing = true
+			err := w.gw.SetSize(ww, wh)
+			w.placing = false
+			if err != nil {
 				return err
 			}
 		}
@@ -686,8 +693,8 @@ func (w *Window) install() {
 	_, _ = gw.SetFramebufferSizeCallback(func(_ *glfw.Window, width, height int) {
 		w.debugf("framebuffer %dx%d", width, height)
 		remeasure()
-		// A minimized window draws nothing to wait for.
-		if holdResize && width > 0 && height > 0 {
+		// A minimized window draws nothing to wait for, and a popup being placed draws only once Place returns.
+		if holdResize && width > 0 && height > 0 && !w.placing {
 			w.awaitFrameAtSize()
 		}
 	})
