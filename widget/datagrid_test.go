@@ -8,6 +8,7 @@ import (
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 )
@@ -389,5 +390,43 @@ func TestTheLastRowIsFoundWhileARowAboveItLeaves(t *testing.T) {
 	}
 	if got := g.rowAtY(drawn + g.rowH - 1); got != last {
 		t.Fatalf("a point near the foot of the last row, drawn at %v, finds row %d, want %d", drawn, got, last)
+	}
+}
+
+func TestASpanShowsItsIconBeforeItsText(t *testing.T) {
+	g := NewDataGrid(GridColumn{Title: "Name"})
+	g.Row = func(int) (GridRow, bool) {
+		return GridRow{Cells: [][]GridSpan{{{Text: "notes.txt", Icon: icon.FileText}}}}, true
+	}
+	g.rows = 1
+	w, _ := stage(t, &frame{child: g, size: geom.Sz(400, 300)})
+	masks := maskOps(w.Offscreen())
+	if len(masks) != 1 || strokeOf(t, masks[0]).Icon != icon.FileText {
+		t.Fatalf("the grid drew %d masks, want the span's icon", len(masks))
+	}
+	size := GridTextSize.Default()
+	if r := masks[0].Rect; r.Size() != geom.Sz(size, size) {
+		t.Fatalf("the icon is %v, want %v square, as tall as the text", r.Size(), size)
+	}
+}
+
+func TestAnIconAloneIsALink(t *testing.T) {
+	g := NewDataGrid(GridColumn{Title: "Name"})
+	g.Row = func(int) (GridRow, bool) {
+		return GridRow{Cells: [][]GridSpan{{{Icon: icon.Copy, On: idFound{"copy"}}, {Text: " notes.txt"}}}}, true
+	}
+	g.rows = 1
+	w, run := stage(t, &frame{child: g, size: geom.Sz(400, 300)})
+	if len(g.links) != 1 {
+		t.Fatalf("the grid drew %d links, want the icon's", len(g.links))
+	}
+	if r := g.links[0].r; r.Size().W != GridTextSize.Default() {
+		t.Fatalf("the icon's link is %v wide, want the icon's width", r.Size().W)
+	}
+	at := g.links[0].r.Center()
+	click(w, at.X, at.Y)
+	run(1)
+	if got := sent(w); len(got) != 1 || got[0] != (idFound{"copy"}) {
+		t.Fatalf("a click on the icon sent %v", got)
 	}
 }

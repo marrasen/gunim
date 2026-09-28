@@ -10,6 +10,7 @@ import (
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/text"
@@ -33,6 +34,8 @@ var (
 	GridMark = theme.Color("grid.mark", color.NRGBA{R: 0xe8, G: 0xb3, B: 0x4a, A: 0x60})
 	// GridChipRadius rounds a span drawn on a fill.
 	GridChipRadius = theme.Length("grid.chip.radius", 4)
+	// GridIconGap is the space between a span's icon and its text.
+	GridIconGap = theme.Length("grid.icon.gap", 4)
 	// GridBarWidth is the width of the scrollbar's track.
 	GridBarWidth = theme.Length("grid.bar.width", 10)
 )
@@ -62,6 +65,9 @@ const GridMinFill = 120
 // GridSpan is a piece of a cell's text in a colour and face of its own.
 type GridSpan struct {
 	Text string
+	// Icon, when set, draws before the text in the span's ink, as tall as the text; a span with an icon and no
+	// text shows the icon alone.
+	Icon *icon.Icon
 	// Ink is the text's colour, and the theme's [Ink] when unset.
 	Ink theme.Token[color.NRGBA]
 	// Fill, when set, draws the span on a rounded chip of that colour.
@@ -785,7 +791,7 @@ func (g *DataGrid) paintCell(p *paint.Painter, th *theme.Live, i, c int, spans [
 			face = faceIn(s.Face, th)
 		}
 		runs[k] = g.shape(spanKey{row: i, col: int32(c), span: int32(k)}, face, s.Text, size)
-		total += runs[k].Advance
+		total += runs[k].Advance + spanIconWidth(s, size, th)
 		if s.Fill.Key() != "" {
 			total += 2 * chipPad
 		}
@@ -809,6 +815,11 @@ func (g *DataGrid) paintCell(p *paint.Painter, th *theme.Live, i, c int, spans [
 		if chip {
 			room -= 2 * chipPad
 		}
+		iconW := spanIconWidth(s, size, th)
+		if iconW > room {
+			return
+		}
+		room -= iconW
 		cut := run.Advance > room
 		// A gap that does not fit ends the cell rather than showing a lone ellipsis
 		if cut && strings.TrimSpace(s.Text) == "" {
@@ -823,8 +834,13 @@ func (g *DataGrid) paintCell(p *paint.Painter, th *theme.Live, i, c int, spans [
 			if s.Faint || dim {
 				fill.A /= 2
 			}
-			p.RRect(geom.Rc(pen, y+3, run.Advance+2*chipPad, g.rowH-6), GridChipRadius.Get(th), paint.Solid(fill))
+			p.RRect(geom.Rc(pen, y+3, iconW+run.Advance+2*chipPad, g.rowH-6), GridChipRadius.Get(th), paint.Solid(fill))
 			pen += chipPad
+		}
+		start := pen
+		if s.Icon != nil {
+			paintIcon(p, th, s.Icon, geom.Rc(pen, y+(g.rowH-size)/2, size, size), ink, 1)
+			pen += iconW
 		}
 		for _, m := range s.Marks {
 			x0, x1 := min(run.CaretX(m[0]), run.Advance), min(run.CaretX(m[1]), run.Advance)
@@ -834,8 +850,10 @@ func (g *DataGrid) paintCell(p *paint.Painter, th *theme.Live, i, c int, spans [
 		}
 		run.Paint(p, geom.Pt(pen, ty), ink)
 		if s.On != nil {
-			g.links = append(g.links, gridLink{r: geom.Rc(pen, y, run.Advance, g.rowH), on: s.On, ctrl: s.OnCtrl})
-			p.RRect(geom.Rc(pen, ty+run.Ascent+1.5, run.Advance, 1), 0, paint.Solid(ink))
+			g.links = append(g.links, gridLink{r: geom.Rc(start, y, pen-start+run.Advance, g.rowH), on: s.On, ctrl: s.OnCtrl})
+			if run.Advance > 0 {
+				p.RRect(geom.Rc(pen, ty+run.Ascent+1.5, run.Advance, 1), 0, paint.Solid(ink))
+			}
 		}
 		pen += run.Advance
 		if chip {
@@ -845,6 +863,17 @@ func (g *DataGrid) paintCell(p *paint.Painter, th *theme.Live, i, c int, spans [
 			return
 		}
 	}
+}
+
+// spanIconWidth is the room span s's icon takes at text size, with the gap before any text.
+func spanIconWidth(s GridSpan, size float32, th *theme.Live) float32 {
+	if s.Icon == nil {
+		return 0
+	}
+	if s.Text == "" {
+		return size
+	}
+	return size + GridIconGap.Get(th)
 }
 
 // shape returns s shaped in face at size, from the grid's cache when it
