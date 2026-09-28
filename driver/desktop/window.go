@@ -90,6 +90,10 @@ type Window struct {
 	err      error
 	// under is the colour the engine last set under the window's frames.
 	under color.NRGBA
+	// uncovered puts the window on the screen once; see uncover.
+	uncovered sync.Once
+	// opened is when the window was made, for GUNIM_DEBUG_WINDOW.
+	opened time.Time
 	// caret is the text caret the engine last reported, in window space
 	// and logical pixels. Platform code places an input method's
 	// composition and candidate windows from it.
@@ -152,6 +156,7 @@ type Window struct {
 func newWindow(d *Driver, gw *glfw.Window) *Window {
 	w := &Window{
 		d:         d,
+		opened:    time.Now(),
 		gw:        gw,
 		presented: make(chan driver.Frame, 1),
 		frames:    make(chan frame, 1),
@@ -629,14 +634,19 @@ func (w *Window) install() {
 		}
 	}
 	_, _ = gw.SetFramebufferSizeCallback(func(_ *glfw.Window, width, height int) {
+		w.debugf("framebuffer %dx%d", width, height)
 		remeasure()
 		// A minimized window draws nothing to wait for.
 		if holdResize && width > 0 && height > 0 {
 			w.awaitFrameAtSize()
 		}
 	})
-	_, _ = gw.SetContentScaleCallback(func(*glfw.Window, float32, float32) { remeasure() })
-	_, _ = gw.SetPosCallback(func(*glfw.Window, int, int) {
+	_, _ = gw.SetContentScaleCallback(func(_ *glfw.Window, x, _ float32) {
+		w.debugf("content scale %v", x)
+		remeasure()
+	})
+	_, _ = gw.SetPosCallback(func(_ *glfw.Window, x, y int) {
+		w.debugf("moved to %d,%d", x, y)
 		remeasure()
 		for _, c := range w.popups {
 			_ = c.attach(c.anchor)
@@ -813,6 +823,7 @@ func (w *Window) render() {
 			} else if err := w.gw.SwapBuffers(); err != nil {
 				w.fail(fmt.Errorf("desktop: swap buffers: %w", err))
 			}
+			w.uncover()
 			w.mu.Lock()
 			w.drawnW, w.drawnH = fbW, fbH
 			w.mu.Unlock()
@@ -1024,4 +1035,31 @@ func (w *Window) Show() error {
 		w.measure()
 		return nil
 	})
+}
+
+// uncover puts the window on the screen once, after its first frame is
+// presented, if it was kept off it; see cloak.
+func (w *Window) uncover() {
+	w.uncovered.Do(func() {
+		w.d.post(func() {
+			if !w.closed {
+				w.debugf("uncovered")
+				cloak(w, false)
+			}
+		})
+	})
+}
+
+// windowDebug is set by GUNIM_DEBUG_WINDOW=1, which logs to standard
+// error how each window moves, sizes and scales, and when it is shown
+// and uncovered, with the time since it opened: for finding where a
+// window first shows up, and why.
+var windowDebug = os.Getenv("GUNIM_DEBUG_WINDOW") == "1"
+
+// debugf logs one line about the window, with GUNIM_DEBUG_WINDOW set.
+func (w *Window) debugf(format string, args ...any) {
+	if !windowDebug {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "gunim window %p %6.1f ms: %s\n", w, float64(time.Since(w.opened).Microseconds())/1000, fmt.Sprintf(format, args...))
 }

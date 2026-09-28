@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"runtime"
 	"sync"
+	"time"
 
 	"github.com/marrasen/gunim/driver"
 	"github.com/marrasen/gunim/geom"
@@ -388,11 +389,22 @@ func (d *Driver) openWindow(o driver.Options) (*Window, error) {
 		w.setChromeless()
 	}
 	w.accessOpen()
+	if x, y, err := gw.GetPos(); err == nil {
+		fw, fh, _ := gw.GetFramebufferSize()
+		w.debugf("made at %d,%d, framebuffer %dx%d, kind %d", x, y, fw, fh, o.Kind)
+	}
 	if !o.Hidden {
+		if o.Kind == driver.KindNormal {
+			// Kept off the screen until its first frame is there; see
+			// cloak. A frame that never comes uncovers it all the same.
+			cloak(w, true)
+			time.AfterFunc(time.Second, w.uncover)
+		}
 		if err := gw.Show(); err != nil {
 			_ = gw.Destroy()
 			return nil, err
 		}
+		w.debugf("shown")
 	}
 	w.measure()
 	d.windows[gw] = w
