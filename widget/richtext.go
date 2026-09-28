@@ -8,6 +8,7 @@ import (
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/access"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/text"
@@ -17,6 +18,9 @@ import (
 // RichSpan is a piece of a [RichText] in a style of its own.
 type RichSpan struct {
 	Text string
+	// Icon shows before the text, as tall as the text and in its colour. A span with an icon and no text shows
+	// the icon alone. The icon wraps with the word it touches, and is part of the span's link.
+	Icon *icon.Icon
 	// Face, Size and Ink default to the theme's [Font], [TextSize] and
 	// [Ink], and to [LinkInk] for a link.
 	Face theme.Token[*text.Face]
@@ -40,6 +44,9 @@ type RichText struct {
 	laid  text.SpanParagraph
 	key   []text.Span
 	width float32
+	// from holds the index in Spans of each span laid out, and icon whether that span is the icon's box.
+	from []int
+	icon []bool
 	// hover is the link under the pointer, or -1.
 	hover int
 }
@@ -51,13 +58,26 @@ func NewRichText(spans ...RichSpan) *RichText { return &RichText{Spans: spans, h
 func (r *RichText) SetSpans(spans ...RichSpan) { r.Spans = spans }
 
 func (r *RichText) paragraph(th *theme.Live, width float32) text.SpanParagraph {
-	spans := make([]text.Span, len(r.Spans))
+	spans := make([]text.Span, 0, len(r.Spans))
+	r.from, r.icon = r.from[:0], r.icon[:0]
 	for i, s := range r.Spans {
 		size := TextSize.Get(th)
 		if s.Size.Key() != "" {
 			size = s.Size.Get(th)
 		}
-		spans[i] = text.Span{Text: s.Text, Face: faceIn(s.Face, th), Size: size}
+		face := faceIn(s.Face, th)
+		if s.Icon != nil {
+			box := size
+			if s.Text != "" {
+				box += IconGap.Get(th)
+			}
+			spans = append(spans, text.Span{Face: face, Size: size, Box: box})
+			r.from, r.icon = append(r.from, i), append(r.icon, true)
+		}
+		if s.Text != "" || s.Icon == nil {
+			spans = append(spans, text.Span{Text: s.Text, Face: face, Size: size})
+			r.from, r.icon = append(r.from, i), append(r.icon, false)
+		}
 	}
 	if !slices.Equal(spans, r.key) || width != r.width {
 		r.key, r.width = spans, width
@@ -71,16 +91,26 @@ func (r *RichText) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) 
 	return c.Constrain(r.paragraph(f.Theme, c.Max.W).Size)
 }
 
+// span returns the index in Spans of a piece laid out, whether the piece is an icon, and false for a piece of
+// no span.
+func (r *RichText) span(pc text.Piece) (i int, isIcon, ok bool) {
+	if pc.Span < 0 || pc.Span >= len(r.from) || r.from[pc.Span] >= len(r.Spans) {
+		return 0, false, false
+	}
+	return r.from[pc.Span], r.icon[pc.Span], true
+}
+
 // Paint implements [gunim.Node].
 func (r *RichText) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
 	th := f.Theme
 	laid := r.paragraph(th, box.W)
 	for _, l := range laid.Lines {
 		for _, pc := range l.Pieces {
-			if pc.Span >= len(r.Spans) {
+			i, isIcon, ok := r.span(pc)
+			if !ok {
 				continue
 			}
-			s := r.Spans[pc.Span]
+			s := r.Spans[i]
 			ink := Ink.Get(th)
 			switch {
 			case s.Ink.Key() != "":
@@ -91,8 +121,13 @@ func (r *RichText) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 			if s.Mark.Key() != "" {
 				p.RRect(geom.Rc(pc.At.X, pc.At.Y, pc.Run.Advance, pc.Run.Height()), 2, paint.Solid(s.Mark.Get(th)))
 			}
+			if isIcon {
+				size := pc.Run.Size
+				paintIcon(p, th, s.Icon, geom.Rc(pc.At.X, pc.At.Y+(pc.Run.Height()-size)/2, size, size), ink, 1)
+				continue
+			}
 			pc.Run.Paint(p, pc.At, ink)
-			if s.Underline || s.On != nil && pc.Span == r.hover {
+			if s.Underline || s.On != nil && i == r.hover {
 				p.RRect(geom.Rc(pc.At.X, pc.At.Y+pc.Run.Ascent+1.5, pc.Run.Advance, 1), 0, paint.Solid(ink))
 			}
 		}
@@ -103,9 +138,9 @@ func (r *RichText) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 func (r *RichText) linkAt(pt geom.Point) int {
 	for _, l := range r.laid.Lines {
 		for _, pc := range l.Pieces {
-			if pc.Span < len(r.Spans) && r.Spans[pc.Span].On != nil &&
+			if i, _, ok := r.span(pc); ok && r.Spans[i].On != nil &&
 				geom.Rc(pc.At.X, pc.At.Y, pc.Run.Advance, pc.Run.Height()).Contains(pt) {
-				return pc.Span
+				return i
 			}
 		}
 	}

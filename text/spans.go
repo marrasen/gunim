@@ -16,6 +16,9 @@ type Span struct {
 	Face *Face
 	// Size is the font size in logical pixels.
 	Size float32
+	// Box, when above zero, makes the span a box that many pixels wide in place of its text, such as an icon. It
+	// is as tall as the span's text, and breaks with the text beside it as a letter would.
+	Box float32
 }
 
 // A Piece is the part of one span that sits on one line of a
@@ -45,6 +48,9 @@ type SpanParagraph struct {
 	Size geom.Size
 }
 
+// boxRune stands for a box when finding where lines may break, so a box breaks as a letter does.
+const boxRune = 'x'
+
 // unit is the text between two places a line may break: pieces of one or
 // more spans, laid out one after another.
 type unit struct {
@@ -72,6 +78,11 @@ func LayoutSpans(spans []Span, st Style, width float32) SpanParagraph {
 	var all []rune
 	var owner []int
 	for i, s := range spans {
+		if s.Box > 0 {
+			all = append(all, boxRune)
+			owner = append(owner, i)
+			continue
+		}
 		for _, r := range s.Text {
 			all = append(all, r)
 			owner = append(owner, i)
@@ -165,6 +176,16 @@ func makeUnit(spans []Span, all []rune, owner []int, start, end int, mandatory b
 			b++
 		}
 		s := spans[owner[a]]
+		if s.Box > 0 {
+			run := s.Face.Shape("", s.Size)
+			run.Advance = s.Box
+			u.pieces = append(u.pieces, Piece{Span: owner[a], Run: run, At: geom.Pt(u.width, 0)})
+			u.texts = append(u.texts, "")
+			u.width += s.Box
+			u.ink = u.width
+			a = b
+			continue
+		}
 		text := strings.TrimRight(string(all[a:b]), "\r\n")
 		run := s.Face.Shape(text, s.Size)
 		u.pieces = append(u.pieces, Piece{Span: owner[a], Run: run, At: geom.Pt(u.width, 0)})
