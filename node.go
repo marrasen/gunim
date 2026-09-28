@@ -164,6 +164,14 @@ type TabSkipper interface {
 	SkipsTab()
 }
 
+// A KeyCatcher is a node that hears the keyboard events nothing focused took, wherever the keyboard is, such as a
+// menubar's F10 and Alt shortcuts, and [input.WindowFocusLost]. The engine offers each such event to the KeyCatchers
+// the last frame drew, in the order they were painted, until one returns true.
+type KeyCatcher interface {
+	Node
+	CatchKey(e input.Event, u *UI) bool
+}
+
 // A CursorShaper is a node that names the pointer's shape over it, such
 // as a text field's I-beam or a divider's resize arrows. The engine asks
 // the node the pointer is over, and the nodes around it in turn, and
