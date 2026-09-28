@@ -39,27 +39,60 @@ const (
 // keyedParts numbers a node's parts that have a Key. A Key keeps its
 // number while it comes and goes, so a screen reader holding a part
 // finds that part, and at holds where each number's part lies in the
-// node's parts as last published.
+// node's parts as last published. owner is the Key each number is
+// given to.
 type keyedParts struct {
-	num  map[uint64]int
-	next int
-	at   map[int]int
+	num   map[uint64]int
+	owner map[int]uint64
+	next  int
+	at    map[int]int
 }
 
 // number returns key's part number, giving it the next on first use.
-// Once every number has been given, the numbering starts again.
+// Once every number has been given, a number goes again, from the one
+// given longest ago, whose part is missing from the parts being
+// published, so no two parts published together share one.
 func (kp *keyedParts) number(key uint64) int {
 	if n, ok := kp.num[key]; ok {
 		return n
 	}
-	if kp.num == nil || kp.next >= partsEnd {
-		kp.num, kp.next = map[uint64]int{}, keyedFrom
+	if kp.num == nil {
+		kp.num, kp.owner, kp.next = map[uint64]int{}, map[int]uint64{}, keyedFrom
 	}
 	n := kp.next
-	kp.next++
-	kp.num[key] = n
+	for {
+		if n >= partsEnd {
+			n = keyedFrom
+		}
+		if _, published := kp.at[n]; !published {
+			break
+		}
+		n++
+		if n == kp.next {
+			// Every number is in this publish: past the node's reach.
+			return 0
+		}
+	}
+	kp.next = n + 1
+	if old, ok := kp.owner[n]; ok {
+		delete(kp.num, old)
+	}
+	kp.num[key], kp.owner[n] = n, key
 	return n
 }
+
+// countParts counts parts and the parts inside them.
+func countParts(parts []access.Info) int {
+	n := len(parts)
+	for _, p := range parts {
+		n += countParts(p.Parts)
+	}
+	return n
+}
+
+// placeKey stands for the part at place k, among the parts numbered by
+// their place, once those numbers run out.
+func placeKey(k int) uint64 { return 1<<63 | uint64(k) }
 
 // accessID returns s's ID for assistive technology, giving it one on
 // first use. IDs count up from 1 and never repeat, so a screen reader
@@ -146,11 +179,22 @@ func (u *UI) accessParts(s *state, parts []access.Info, id uint64, focusable boo
 	for _, p := range parts {
 		*k++
 		num := *k
-		if p.Key != 0 {
+		if key := p.Key; key != 0 || num >= keyedFrom {
+			// A keyed part, or one past the numbers parts take by their
+			// place: numbered from the keyed ones, and found through at.
+			if key == 0 {
+				key = placeKey(num)
+			}
 			if s.parts == nil {
 				s.parts = &keyedParts{at: map[int]int{}}
 			}
-			num = s.parts.number(p.Key)
+			num = s.parts.number(key)
+			if num == 0 {
+				// Left out, with its parts still counted, so the parts
+				// after it keep their places.
+				*k += countParts(p.Parts)
+				continue
+			}
 			s.parts.at[num] = *k
 		}
 		part := &access.Node{
