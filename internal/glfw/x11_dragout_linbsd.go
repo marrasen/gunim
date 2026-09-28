@@ -19,7 +19,9 @@ import (
 // the release arrive here, and each move finds the window under the
 // pointer that takes drops and tells it where the drag is. The window
 // owns XdndSelection for the length of the drag, and hands the files
-// over as text/uri-list when the target asks for them.
+// over as text/uri-list when the target asks for them. Over a window
+// of the application the drag ends as back, and the window carries it
+// on from the same pointer events.
 
 // dragOut is the drag out of a window, if one is in progress.
 type dragOut struct {
@@ -69,12 +71,26 @@ func (w *Window) platformCancelDragOut() {
 }
 
 // finishDragOut ends the drag, telling the source how it went.
-func finishDragOut(taken bool) {
+func finishDragOut(taken bool) { endDragOut(taken, false) }
+
+// endDragOut ends the drag, telling the source whether a program took it, or whether it came back over a window of
+// the application.
+func endDragOut(taken, back bool) {
 	d := dragOutState
 	dragOutState = dragOut{}
 	if d.source != nil && d.end != nil {
-		d.end(taken, false)
+		d.end(taken, back)
 	}
+}
+
+// ownWindow reports whether h is one of the application's windows.
+func ownWindow(h _XID) bool {
+	for _, w := range _glfw.windows {
+		if w.platform.handle == h {
+			return true
+		}
+	}
+	return false
 }
 
 // dragOutMove steers the drag to (x, y) on the root window.
@@ -87,6 +103,10 @@ func dragOutMove(x, y int32, t _Time) {
 	if target != d.target {
 		if d.target != _None {
 			sendXdnd(d.target, xdndLeave(), [5]_Clong{_Clong(d.source.platform.handle)})
+		}
+		if target != _None && ownWindow(target) {
+			endDragOut(false, true)
+			return
 		}
 		d.target, d.version, d.accepted = target, version, false
 		if target != _None {
