@@ -938,6 +938,11 @@ type UI struct {
 	pointer geom.Point
 	// pointerIn says the pointer rests over the window, at pointer.
 	pointerIn bool
+	// movedOn is the node the last move landed on, movedTo where in its
+	// space, and movedMods the keys held; see hoverAgain.
+	movedOn   *state
+	movedTo   geom.Point
+	movedMods input.Mods
 	drag      *drag
 	dragAt    *state
 	// drops are the drags let go from here whose end is still to be
@@ -1672,6 +1677,9 @@ func (u *UI) forget(s *state) {
 	}
 	if u.hover == s {
 		u.hover = nil
+	}
+	if u.movedOn == s {
+		u.movedOn = nil
 	}
 	if u.capture == s {
 		u.capture = nil

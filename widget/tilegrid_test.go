@@ -256,3 +256,28 @@ func TestTileGridJumpsToATile(t *testing.T) {
 		t.Fatal("tile 401 is not built after the jump")
 	}
 }
+
+// A zoom moves the tiles under a still pointer, and the tile lit is the
+// one under it at the new zoom, with no move of the pointer.
+func TestTileGridHoverFollowsAZoom(t *testing.T) {
+	g, w, run := tileStage(t, 30)
+	at := tileAt(7)
+	w.Input(input.PointerMove{Pos: at, Time: time.Now()})
+	run(1)
+	if g.hover != 7 {
+		t.Fatalf("the pointer over tile 7 lit %d", g.hover)
+	}
+	if err := w.Client().SetZoom(1.5); err != nil {
+		t.Fatal(err)
+	}
+	for range 30 {
+		run(1)
+		// The grid's own space is the window's, shrunk by the zoom.
+		if want := g.at(at.Mul(1 / 1.5)); g.hover != want {
+			t.Fatalf("at zoom 1.5 the pointer is over tile %d, and %d is lit", want, g.hover)
+		}
+	}
+	if g.hover == 7 {
+		t.Fatal("the zoom left tile 7 under the pointer, so the test tests nothing")
+	}
+}

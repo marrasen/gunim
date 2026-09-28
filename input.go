@@ -77,6 +77,9 @@ func (u *UI) handleOn(root *state, ev any) {
 		}
 		u.dispatchAt(root, e.Pos, mk)
 		u.shapePointer(root, e.Pos)
+		if root == u.root {
+			u.movedAt(e.Mods)
+		}
 	case input.PointerDown:
 		if root == u.root {
 			u.pointer = e.Pos
@@ -405,10 +408,34 @@ func (u *UI) local(s *state, p geom.Point) geom.Point {
 // What is under a still pointer moves as the window zooms, a list
 // scrolls or tiles spring to new places, and hover and the pointer's
 // shape follow it, as they would a move.
+//
+// A node that tracks the part under the pointer itself, such as a grid
+// of tiles, hears of it by a move: when the point under the pointer is
+// another in the node's space than the last move gave it, the move is
+// given again, at the point it now is.
 func (u *UI) hoverAgain(now time.Time) {
 	if !u.pointerIn || u.drag != nil {
 		return
 	}
 	u.updateHover(u.root, u.pointer, now)
 	u.shapePointer(u.root, u.pointer)
+	if u.capture != nil || u.hover == nil {
+		return
+	}
+	if u.hover == u.movedOn && u.local(u.hover, u.pointer) == u.movedTo {
+		return
+	}
+	mods := u.movedMods
+	u.dispatchAt(u.root, u.pointer, func(local geom.Point) input.Event {
+		return input.PointerMove{Pos: local, Mods: mods, Time: now}
+	})
+	u.movedAt(mods)
+}
+
+// movedAt notes where the pointer's last move landed, for hoverAgain.
+func (u *UI) movedAt(mods input.Mods) {
+	u.movedOn, u.movedMods = u.hover, mods
+	if u.hover != nil {
+		u.movedTo = u.local(u.hover, u.pointer)
+	}
 }
