@@ -39,7 +39,7 @@ func TestTheFrameIsTheApplications(t *testing.T) {
 	if err := c.Mount(Root, "frame", "frame", ask{}, "frame"); err != nil {
 		t.Fatal(err)
 	}
-	border := driver.Border{Color: color.NRGBA{R: 0x30, G: 0x60, B: 0x90, A: 0xff}}
+	border := driver.Border{Color: color.NRGBA{R: 0x30, G: 0x60, B: 0x90, A: 0xff}, Inactive: color.NRGBA{R: 0x80, A: 0xff}}
 	if err := c.Publish("frame", ask{title: "gunimterm — build", full: true, bell: true, border: border}); err != nil {
 		t.Fatal(err)
 	}

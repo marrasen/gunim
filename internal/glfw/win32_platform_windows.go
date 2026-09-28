@@ -63,7 +63,11 @@ type platformWindowState struct {
 	// frameHidden says SetFrameHidden took the frame away (gunim).
 	frameHidden bool
 	// shadow is the window a drawn shadow is drawn in, or nil (gunim).
-	shadow       *drawnShadow
+	shadow *drawnShadow
+	// border is the colours SetBorderColors asked the system for, or nil, and ncActive whether the window is drawn
+	// active (gunim).
+	border       *borderColors
+	ncActive     bool
 	overMaximize bool
 }
 

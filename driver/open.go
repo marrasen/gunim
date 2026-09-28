@@ -187,8 +187,10 @@ type Framer interface {
 // Border is the thin line round the edge of a window opened with [Options.Chromeless], where the platform draws one,
 // as Windows 11 does. Its zero value is the system's own.
 type Border struct {
-	// Color is the line's colour. Its zero value is the system's.
+	// Color is the line's colour while the window is active. Its zero value is the system's.
 	Color color.NRGBA
+	// Inactive is its colour while another window is active. Its zero value is Color.
+	Inactive color.NRGBA
 	// None draws no line, and the window's content reaches its edge.
 	None bool
 }

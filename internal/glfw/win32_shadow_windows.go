@@ -83,14 +83,24 @@ type drawnShadow struct {
 	active      bool
 	drawnActive bool
 
-	// border is the border's colour, or with noBorder there is none; restyled says it changed since the last drawing.
-	border   color.NRGBA
-	noBorder bool
-	restyled bool
+	// border and inactiveBorder are the border's colours while the window is active and inactive, or with noBorder
+	// there is none; restyled says they changed since the last drawing.
+	border         color.NRGBA
+	inactiveBorder color.NRGBA
+	noBorder       bool
+	restyled       bool
 }
 
-// systemBorder is the colour Windows 11 draws a window's thin border in, measured over magenta.
-var systemBorder = color.NRGBA{R: 0x5e, G: 0x5e, B: 0x5e, A: 0x80}
+// systemBorder and systemInactiveBorder are the colours Windows 11 draws a window's thin border in while it is active
+// and inactive, measured over magenta.
+var (
+	systemBorder         = color.NRGBA{R: 0x5e, G: 0x5e, B: 0x5e, A: 0x80}
+	systemInactiveBorder = color.NRGBA{R: 0x5f, G: 0x5f, B: 0x5f, A: 0x7d}
+)
+
+// borderColors are the colours the system draws a window's border in while it is active and inactive, as COLORREFs
+// or _DWMWA_COLOR_NONE or _DWMWA_COLOR_DEFAULT.
+type borderColors struct{ active, inactive uint32 }
 
 // SetDrawnShadow draws the window's shadow and border in a window of gunim's own, or with measure set, green bands
 // for measuring. The window's corners stay square, so Windows draws no shadow of its own. The shadow stays hidden
@@ -127,7 +137,8 @@ func (w *Window) SetDrawnShadow(measure bool) error {
 		_ = _DestroyWindow(h)
 		return e
 	}
-	w.platform.shadow = &drawnShadow{hwnd: h, dc: _HDC(dc), measure: measure, restore: 1, border: systemBorder}
+	w.platform.shadow = &drawnShadow{hwnd: h, dc: _HDC(dc), measure: measure, restore: 1,
+		border: systemBorder, inactiveBorder: systemInactiveBorder}
 	w.roundCorners(false)
 	return nil
 }
@@ -145,9 +156,10 @@ func (w *Window) SetShadowOpacity(o float32) error {
 	return w.placeShadow()
 }
 
-// SetShadowBorder sets the colour of the border drawn with the shadow, or with none, draws none and leaves the window
-// its edge; the zero colour is the system's. It is a gunim addition, on Windows alone.
-func (w *Window) SetShadowBorder(c color.NRGBA, none bool) error {
+// SetShadowBorder sets the colours of the border drawn with the shadow while the window is active and inactive, or
+// with none, draws none and leaves the window its edge; a zero colour is the system's. It is a gunim addition, on
+// Windows alone.
+func (w *Window) SetShadowBorder(active, inactive color.NRGBA, none bool) error {
 	if !_glfw.initialized {
 		return NotInitialized
 	}
@@ -155,33 +167,49 @@ func (w *Window) SetShadowBorder(c color.NRGBA, none bool) error {
 	if s == nil {
 		return nil
 	}
-	if c == (color.NRGBA{}) {
-		c = systemBorder
+	if active == (color.NRGBA{}) {
+		active = systemBorder
 	}
-	s.border, s.noBorder, s.restyled = c, none, true
+	if inactive == (color.NRGBA{}) {
+		inactive = systemInactiveBorder
+	}
+	s.border, s.inactiveBorder, s.noBorder, s.restyled = active, inactive, none, true
 	return w.placeShadow()
 }
 
-// SetBorderColor sets the colour of the thin border Windows 11 draws round a window, opaque, or with none, takes it
-// away; the zero colour is the system's. Earlier versions draw no such border, and refuse. It is a gunim addition, on
-// Windows alone.
-func (w *Window) SetBorderColor(c color.NRGBA, none bool) error {
+// SetBorderColors sets the colours of the thin border Windows 11 draws round a window while it is active and
+// inactive, opaque, or with none, takes it away; a zero colour is the system's. Earlier versions draw no such border,
+// and refuse. It is a gunim addition, on Windows alone.
+func (w *Window) SetBorderColors(active, inactive color.NRGBA, none bool) error {
 	if !_glfw.initialized {
 		return NotInitialized
 	}
-	if procDwmSetWindowAttribute.Find() != nil {
-		return nil
+	ref := func(c color.NRGBA) uint32 {
+		switch {
+		case none:
+			return _DWMWA_COLOR_NONE
+		case c == (color.NRGBA{}):
+			return _DWMWA_COLOR_DEFAULT
+		}
+		return uint32(c.R) | uint32(c.G)<<8 | uint32(c.B)<<16
 	}
-	v := uint32(_DWMWA_COLOR_DEFAULT)
-	switch {
-	case none:
-		v = _DWMWA_COLOR_NONE
-	case c != (color.NRGBA{}):
-		v = uint32(c.R) | uint32(c.G)<<8 | uint32(c.B)<<16
+	w.platform.border = &borderColors{active: ref(active), inactive: ref(inactive)}
+	w.colorBorder()
+	return nil
+}
+
+// colorBorder gives the system's border the colour SetBorderColors asked for, for whether the window is active.
+func (w *Window) colorBorder() {
+	b := w.platform.border
+	if b == nil || procDwmSetWindowAttribute.Find() != nil {
+		return
+	}
+	v := b.inactive
+	if w.platform.ncActive {
+		v = b.active
 	}
 	_, _, _ = procDwmSetWindowAttribute.Call(uintptr(w.platform.handle), _DWMWA_BORDER_COLOR,
 		uintptr(unsafe.Pointer(&v)), unsafe.Sizeof(v))
-	return nil
 }
 
 // shadowProc lets the pointer through the shadow, and keeps it hidden as its window restores; see shadowMessage.
@@ -199,8 +227,13 @@ func shadowProc(hWnd windows.HWND, uMsg uint32, wParam _WPARAM, lParam _LPARAM) 
 	return uintptr(_DefWindowProcW(hWnd, uMsg, wParam, lParam))
 }
 
-// shadowMessage keeps the drawn shadow with its window as it moves, sizes, minimizes and restores.
+// shadowMessage keeps the drawn shadow with its window as it moves, sizes, minimizes and restores, and the border's
+// colour with whether the window is active.
 func (w *Window) shadowMessage(uMsg uint32, wParam _WPARAM) {
+	if uMsg == _WM_NCACTIVATE {
+		w.platform.ncActive = wParam != 0
+		w.colorBorder()
+	}
 	s := w.platform.shadow
 	if s == nil {
 		return
@@ -364,6 +397,9 @@ func (s *drawnShadow) draw(winW, winH, dpi int32) error {
 		edge = 0
 	}
 	bc := s.border
+	if !s.active {
+		bc = s.inactiveBorder
+	}
 	// A blurred rectangle is the product of a blurred edge across and a blurred edge down
 	blur := func(p, a, b float64) float64 {
 		return 0.5 * (math.Erf((p-a)/(sigma*math.Sqrt2)) - math.Erf((p-b)/(sigma*math.Sqrt2)))

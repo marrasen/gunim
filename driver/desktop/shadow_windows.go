@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"image/color"
 	"math"
 	"os"
 )
@@ -34,11 +35,15 @@ func applyBorder(w *Window) {
 	w.mu.Lock()
 	b, drawn := w.border, w.shadow
 	w.mu.Unlock()
-	set := w.gw.SetBorderColor
+	set := w.gw.SetBorderColors
 	if drawn {
 		set = w.gw.SetShadowBorder
 	}
-	if err := set(b.Color, b.None); err != nil {
+	inactive := b.Inactive
+	if inactive == (color.NRGBA{}) {
+		inactive = b.Color
+	}
+	if err := set(b.Color, inactive, b.None); err != nil {
 		w.debugf("border: %v", err)
 	}
 }
