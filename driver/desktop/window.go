@@ -207,29 +207,34 @@ func (w *Window) SetBackground(c color.NRGBA) {
 	w.mu.Unlock()
 }
 
-// SetZoom implements [driver.Zoomer]. The pointer, where it rests over
-// the window, is at another logical point at the new zoom, which the
-// window hears as a move, so hover and the pointer's shape follow.
+// SetZoom implements [driver.Zoomer]. The pointer is read again at the
+// new zoom; see pointerAgain.
 func (w *Window) SetZoom(z float32) {
 	w.mu.Lock()
 	w.zoom = z
 	w.scale = w.content * z
 	w.mu.Unlock()
 	w.in.push(driver.Redraw{})
-	w.d.post(func() {
-		if w.closed {
-			return
-		}
-		if over, err := w.gw.GetAttrib(glfw.Hovered); err != nil || over != glfw.True {
-			return
-		}
-		x, y, err := w.gw.GetCursorPos()
-		if err != nil {
-			return
-		}
-		w.cursor = w.logical(x, y)
-		w.in.push(input.PointerMove{Pos: w.cursor, Mods: w.mods, Time: time.Now()})
-	})
+	w.d.post(w.pointerAgain)
+}
+
+// pointerAgain reads the pointer again, as the window's scale changes
+// under it, and where it rests over the window reports its new logical
+// point as a move, so hover and the pointer's shape follow. It runs on
+// the main thread.
+func (w *Window) pointerAgain() {
+	if w.closed {
+		return
+	}
+	if over, err := w.gw.GetAttrib(glfw.Hovered); err != nil || over != glfw.True {
+		return
+	}
+	x, y, err := w.gw.GetCursorPos()
+	if err != nil {
+		return
+	}
+	w.cursor = w.logical(x, y)
+	w.in.push(input.PointerMove{Pos: w.cursor, Mods: w.mods, Time: time.Now()})
 }
 
 // Scale implements [driver.Window].
@@ -614,8 +619,14 @@ func (w *Window) logical(x, y float64) geom.Point {
 func (w *Window) install() {
 	gw := w.gw
 	remeasure := func() {
+		was := w.Scale()
 		w.measure()
 		w.in.push(driver.Redraw{})
+		if w.Scale() != was {
+			// Onto a monitor of another scale: the pointer resting over
+			// the window is at another logical point.
+			w.pointerAgain()
+		}
 	}
 	_, _ = gw.SetFramebufferSizeCallback(func(_ *glfw.Window, width, height int) {
 		remeasure()
