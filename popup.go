@@ -80,6 +80,17 @@ func (p *Popup) Close() { p.u.closePopup(p.s) }
 // has started to close.
 func (p *Popup) Open() bool { return !p.s.closing }
 
+// Offscreen returns the driver window behind a popup of a window from [NewOffscreen], for a test to send it input,
+// and nil before the popup's window opens or for a window on a display.
+func (p *Popup) Offscreen() *driver.OffscreenWindow {
+	d, _ := p.s.dw.(*driver.OffscreenWindow)
+	return d
+}
+
+// Input hands the popup a platform event, as its window would, for a window driven with [Window.Frame]. It must be
+// called from the goroutine calling Frame, and positions are in the popup's window's space.
+func (p *Popup) Input(ev any) { p.u.popupEvent(popupEvent{s: p.s, ev: ev}) }
+
 // Move attaches the popup to a new anchor, in the opener's space.
 func (p *Popup) Move(anchor geom.Rect) {
 	p.s.opts.Anchor = anchor
