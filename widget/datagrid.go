@@ -161,6 +161,11 @@ type DataGrid struct {
 	// grid whose rows arrive as they come into view, which copies the
 	// selection whole from where its rows come from.
 	OnCopy func(sel [][2]int) gunim.Intent
+	// OnCopied, when set, turns a copy Ctrl+C made itself into an intent
+	// saying how many rows it copied of how many were selected, so an
+	// application can say when rows were left out: those still to
+	// arrive, or past MostCopiedRows.
+	OnCopied func(copied, selected int) gunim.Intent
 	// NoHeader hides the column titles, and NoBar the scrollbar, for a
 	// grid that shows its position some other way.
 	NoHeader bool
@@ -1297,14 +1302,19 @@ func (g *DataGrid) key(e input.KeyPress, u *gunim.UI) bool {
 			}
 			return false
 		case e.Key == input.KeyC && g.Multi && len(g.runs) > 0:
-			if lines, ok := g.copyRuns(); ok {
+			lines, copied := g.copyRuns()
+			if copied > 0 {
 				u.SetClipboard(lines)
 			}
+			g.copied(copied, g.selectedCount(), u)
 			return true
 		case e.Key == input.KeyC && !g.Multi && g.selected >= 0:
+			copied := 0
 			if line, ok := g.copyText(g.selected); ok {
 				u.SetClipboard(line)
+				copied = 1
 			}
+			g.copied(copied, 1, u)
 			return true
 		case e.Key == input.KeyA && g.Multi && g.rows > 0:
 			g.setRuns([][2]int{{0, g.rows}}, u)
@@ -1447,8 +1457,8 @@ const MostCopiedRows = 10000
 
 // copyRuns returns the text Ctrl+C copies for the rows selected with
 // Multi: a line for each of the first MostCopiedRows that has arrived,
-// and false when none has.
-func (g *DataGrid) copyRuns() (string, bool) {
+// and how many that was.
+func (g *DataGrid) copyRuns() (lines string, n int) {
 	var b strings.Builder
 	looked, copied := 0, 0
 	for _, r := range g.runs {
@@ -1465,7 +1475,7 @@ func (g *DataGrid) copyRuns() (string, bool) {
 			copied++
 		}
 	}
-	return b.String(), copied > 0
+	return b.String(), copied
 }
 
 // copyText returns the text Ctrl+C copies for row i, and false for a
@@ -1581,6 +1591,22 @@ func clipRuns(runs [][2]int, n int) [][2]int {
 func countRuns(runs [][2]int) int {
 	n := 0
 	for _, r := range runs {
+		n += r[1] - r[0]
+	}
+	return n
+}
+
+// copied tells the application, through OnCopied, what Ctrl+C copied.
+func (g *DataGrid) copied(copied, selected int, u *gunim.UI) {
+	if g.OnCopied != nil {
+		g.send(g.OnCopied(copied, selected), u)
+	}
+}
+
+// selectedCount is how many rows the runs select.
+func (g *DataGrid) selectedCount() int {
+	n := 0
+	for _, r := range g.runs {
 		n += r[1] - r[0]
 	}
 	return n

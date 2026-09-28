@@ -265,3 +265,26 @@ func TestCtrlCOfRowsStillComingLeavesTheClipboard(t *testing.T) {
 		t.Fatalf("Ctrl+C of rows still coming left the clipboard %q, want it as it was", text)
 	}
 }
+
+type rowsCopiedOf struct{ Copied, Selected int }
+
+// OnCopied hears how many rows Ctrl+C copied of how many were selected.
+func TestOnCopiedSaysHowManyRowsWereCopied(t *testing.T) {
+	g, w, run, clickRow := multiGrid(t)
+	g.Row = func(i int) (GridRow, bool) { return GridRow{Cells: [][]GridSpan{{{Text: "row"}}}}, i%2 == 0 }
+	g.OnCopied = func(copied, selected int) gunim.Intent { return rowsCopiedOf{copied, selected} }
+	clickRow(0, 0)
+	w.Input(input.KeyPress{Key: input.KeyA, Mods: input.ModControl})
+	sent(w)
+	w.Input(input.KeyPress{Key: input.KeyC, Mods: input.ModControl})
+	run(1)
+	var got []rowsCopiedOf
+	for _, v := range sent(w) {
+		if c, ok := v.(rowsCopiedOf); ok {
+			got = append(got, c)
+		}
+	}
+	if len(got) != 1 || got[0] != (rowsCopiedOf{50, 100}) {
+		t.Fatalf("OnCopied heard %v, want 50 rows copied of 100", got)
+	}
+}
