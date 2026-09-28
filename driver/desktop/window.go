@@ -389,16 +389,22 @@ func (w *Window) shutdown() {
 func (w *Window) awaitFrameAtSize() {
 	timeout := time.NewTimer(resizeWait)
 	defer timeout.Stop()
+	start := time.Now()
 	for {
 		w.mu.Lock()
 		done := w.drawnW == w.fbW && w.drawnH == w.fbH
 		w.mu.Unlock()
 		if done {
+			w.debugf("frame at the new size after %v", time.Since(start).Round(time.Millisecond))
 			return
 		}
 		select {
 		case <-w.drew:
+		case <-w.d.posted:
+			// The UI goroutine may be waiting on the main thread to draw the frame
+			w.d.runTasks()
 		case <-timeout.C:
+			w.debugf("no frame at the new size after %v", time.Since(start).Round(time.Millisecond))
 			return
 		case <-w.quit:
 			return

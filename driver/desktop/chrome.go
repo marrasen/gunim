@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/marrasen/gunim/driver"
@@ -87,14 +88,24 @@ func (w *Window) Minimize() error {
 	return w.d.call(func() error { return w.gw.Iconify() })
 }
 
-// SetMaximized implements [driver.Framer].
+// SetMaximized implements [driver.Framer]. It returns before the window has changed size, so the caller can draw the
+// window at its new size meanwhile; an error fails the window.
 func (w *Window) SetMaximized(on bool) error {
-	return w.d.call(func() error {
+	posted := w.d.post(func() {
+		var err error
 		if on {
-			return w.gw.Maximize()
+			err = w.gw.Maximize()
+		} else {
+			err = w.gw.Restore()
 		}
-		return w.gw.Restore()
+		if err != nil {
+			w.fail(fmt.Errorf("desktop: maximize: %w", err))
+		}
 	})
+	if !posted {
+		return errStopped
+	}
+	return nil
 }
 
 // Maximized implements [driver.Framer].

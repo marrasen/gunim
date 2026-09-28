@@ -43,6 +43,8 @@ type Driver struct {
 	mu      sync.Mutex
 	tasks   []func()
 	stopped bool
+	// posted is signalled as a task is queued, for a main thread waiting on a window to run it.
+	posted chan struct{}
 
 	// The fields below belong to the main thread.
 	windows map[*glfw.Window]*Window
@@ -83,7 +85,7 @@ func Open() (*Driver, error) {
 	// The main thread pumps every window's events, and init has locked
 	// it for life.
 	raiseThread()
-	d := &Driver{isES: probe.IsES(), windows: map[*glfw.Window]*Window{}}
+	d := &Driver{isES: probe.IsES(), windows: map[*glfw.Window]*Window{}, posted: make(chan struct{}, 1)}
 	d.dxgi = d.presentsThroughDXGI()
 	return d, nil
 }
@@ -136,6 +138,10 @@ func (d *Driver) post(f func()) bool {
 	}
 	d.tasks = append(d.tasks, f)
 	_ = glfw.PostEmptyEvent()
+	select {
+	case d.posted <- struct{}{}:
+	default:
+	}
 	return true
 }
 
