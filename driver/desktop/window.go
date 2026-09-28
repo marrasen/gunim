@@ -92,9 +92,11 @@ type Window struct {
 	under color.NRGBA
 	// fading says the window is last drawn partly there; see SetFade.
 	fading bool
-	// shadow says gunim draws the window's shadow, and shadowAt is the opacity it was last given; see startShadow.
-	shadow   bool
-	shadowAt float32
+	// shadow says gunim draws the window's shadow, and shadowAt and shadowScale are the opacity and scale it was last
+	// given; see startShadow.
+	shadow      bool
+	shadowAt    float32
+	shadowScale float32
 	// border is the line round a chromeless window's edge the application asked for, and edge the width, in device
 	// pixels, a drawn one is drawn at now; see applyBorder.
 	border driver.Border
@@ -226,22 +228,20 @@ func (w *Window) SetBackground(c color.NRGBA) {
 	w.mu.Unlock()
 }
 
-// SetFade implements [driver.Fader]. The border and shadow the system
-// draws round a chromeless window stay whole as the window fades, round
-// a window that is not there yet or no longer, so they are hidden while
-// it fades; see showFrame.
-func (w *Window) SetFade(opacity float32) {
+// SetFade implements [driver.Fader]. A drawn shadow and border fade and shrink with the window. The border and
+// shadow the system draws round a chromeless window cannot, so they are hidden while it fades; see showFrame.
+func (w *Window) SetFade(opacity, scale float32) {
 	fading := opacity < 1
 	w.mu.Lock()
 	changed := fading != w.fading
 	w.fading = fading
-	shadow := w.shadow && opacity != w.shadowAt
-	w.shadowAt = opacity
+	shadow := w.shadow && (opacity != w.shadowAt || scale != w.shadowScale)
+	w.shadowAt, w.shadowScale = opacity, scale
 	w.mu.Unlock()
 	if shadow {
 		w.d.post(func() {
 			if !w.closed && !w.covered {
-				fadeShadow(w, opacity)
+				fadeShadow(w, opacity, scale)
 			}
 		})
 	}
@@ -1148,6 +1148,18 @@ func (w *Window) cornerRadius() (radius, edge float32) {
 	return 8 * k, edge
 }
 
+// Outline implements [driver.Outliner].
+func (w *Window) Outline() (radius, edge float32, blends bool) {
+	radius, edge = w.cornerRadius()
+	w.mu.Lock()
+	scale := w.scale
+	w.mu.Unlock()
+	if scale <= 0 {
+		scale = 1
+	}
+	return radius / scale, edge / scale, w.d.dxgi || w.transparent
+}
+
 // uncover puts the window on the screen once, after its first frame is
 // presented, if it was kept off it; see cloak.
 func (w *Window) uncover() {
@@ -1158,9 +1170,9 @@ func (w *Window) uncover() {
 				cloak(w, false)
 				w.covered = false
 				w.mu.Lock()
-				o := w.shadowAt
+				o, s := w.shadowAt, w.shadowScale
 				w.mu.Unlock()
-				fadeShadow(w, o)
+				fadeShadow(w, o, s)
 			}
 		})
 	})

@@ -6,7 +6,7 @@ package desktop
 func startShadow(*Window) {}
 
 // fadeShadow does nothing where gunim draws no shadow of its own.
-func fadeShadow(*Window, float32) {}
+func fadeShadow(*Window, float32, float32) {}
 
 // applyBorder does nothing where the system draws no border round a chromeless window.
 func applyBorder(*Window) error { return nil }

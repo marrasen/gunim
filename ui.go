@@ -1537,20 +1537,38 @@ func (u *UI) frame(now time.Time, delta time.Duration) {
 			gone = max(gone, k*k)
 		}
 		// The window's background shows where the tree paints nothing, such
-		// as the gap beside a split's handle, as opaque as the window is:
-		// the desktop shows there only as the window fades in or out.
+		// as the gap beside a split's handle. Where the window can show what
+		// is behind it, a fading window draws it itself, inside its shape,
+		// so the window fades and shrinks whole: background, corners, border
+		// and shadow. Elsewhere it fades into the dark.
+		var radius, edge float32
+		blends := false
+		if o, ok := u.w.dw.(driver.Outliner); ok {
+			radius, edge, blends = o.Outline()
+		}
+		whole := gone > 0 && blends
 		if b, ok := u.w.dw.(driver.Backgrounder); ok {
 			c := WindowBackground.Get(f.Theme)
 			c.A = uint8(float32(c.A)*(1-gone) + 0.5)
+			if whole {
+				c.A = 0
+			}
 			b.SetBackground(c)
 		}
+		scale := 1 - leaveShrink*gone
 		if fd, ok := u.w.dw.(driver.Fader); ok {
-			fd.SetFade(1 - gone)
+			fd.SetFade(1-gone, scale)
 		}
 		if gone > 0 {
 			box := geom.Rect{Max: size.Point()}
-			defer u.painter.Push(paint.Scale(1-leaveShrink*gone, box.Center()))()
-			defer u.painter.Layer(paint.LayerOpts{Bounds: box, Opacity: 1 - gone})()
+			defer u.painter.Push(paint.Scale(scale, box.Center()))()
+			if whole {
+				shape := box.Inset(geom.Uniform(edge))
+				defer u.painter.Layer(paint.LayerOpts{Bounds: shape, Opacity: 1 - gone, Clip: true, Radius: max(0, radius-edge)})()
+				u.painter.RRect(shape, 0, paint.Solid(WindowBackground.Get(f.Theme)))
+			} else {
+				defer u.painter.Layer(paint.LayerOpts{Bounds: box, Opacity: 1 - gone})()
+			}
 		}
 		u.root.node.Paint(&u.painter, f, u.root.size, Children{ns: u.root.kids, f: f, s: u.root})
 		u.painter.PaintFloats()

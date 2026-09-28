@@ -95,10 +95,21 @@ type Backgrounder interface {
 
 // A Fader is a [Window] the engine tells how opaque it is drawing the
 // window, below 1 as the window fades in as it opens or out as it
-// leaves. What the system draws round a window, such as a shadow, has no
-// such fade, and the driver can hide it meanwhile.
+// leaves, and how large, about its middle, as it grows and shrinks
+// meanwhile. What the driver draws round the window, such as a shadow,
+// fades and shrinks with it; what the system draws, which cannot, the
+// driver can hide.
 type Fader interface {
-	SetFade(opacity float32)
+	SetFade(opacity, scale float32)
+}
+
+// An Outliner is a [Window] that says what shape it shows: the radius its
+// corners are cut to and the edge it leaves for a border, both in logical
+// pixels and 0 for none, and whether it can show what is behind it. The
+// engine draws a fading window's background inside that shape, so the
+// window fades and shrinks whole.
+type Outliner interface {
+	Outline() (radius, edge float32, blends bool)
 }
 
 // A Transparent is a [Window] that can say whether it shows what is

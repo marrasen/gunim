@@ -67,6 +67,10 @@ type OffscreenWindow struct {
 	// frame is the pretend frame of a window made chromeless.
 	frame *OffscreenFrame
 
+	// radius, edge and blends are the shape the window says it shows; see
+	// SetOutline.
+	radius, edge float32
+	blends       bool
 	// workArea is the pretend screen's work area, in screen space, for
 	// the room it leaves a popup; see SetWorkArea.
 	workArea geom.Rect
@@ -301,6 +305,21 @@ func (w *OffscreenWindow) SetBackground(c color.NRGBA) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.under = c
+}
+
+// SetOutline sets the shape Outline reports, for a test of a window that cuts its corners. Until it is set the
+// window is square and cannot show what is behind it.
+func (w *OffscreenWindow) SetOutline(radius, edge float32, blends bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.radius, w.edge, w.blends = radius, edge, blends
+}
+
+// Outline implements [Outliner].
+func (w *OffscreenWindow) Outline() (radius, edge float32, blends bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.radius, w.edge, w.blends
 }
 
 // Background returns the colour last set under the window's frames.

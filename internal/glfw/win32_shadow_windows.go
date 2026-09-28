@@ -68,9 +68,13 @@ type drawnShadow struct {
 	x, y      int32
 	alpha     uint8
 
-	// opacity is the application's, restore the fade back in after the window restores.
+	// opacity is the application's, restore the fade back in after the window restores, and scale how large the
+	// window is drawn, about its middle, as it comes and goes.
 	opacity float32
 	restore float32
+	scale   float32
+	// bits are the bitmap's pixels.
+	bits []uint32
 
 	minimized bool
 	// active says the window is active, which draws a stronger shadow, and drawnActive what the bitmap was drawn for.
@@ -115,13 +119,14 @@ func (w *Window) SetDrawnShadow(measure bool) error {
 		_ = _DestroyWindow(h)
 		return e
 	}
-	w.platform.shadow = &drawnShadow{hwnd: h, dc: _HDC(dc), measure: measure, restore: 1}
+	w.platform.shadow = &drawnShadow{hwnd: h, dc: _HDC(dc), measure: measure, restore: 1, scale: 1}
 	w.roundCorners(false)
 	return nil
 }
 
-// SetShadowOpacity shows the drawn shadow at opacity o, or hides it at 0.
-func (w *Window) SetShadowOpacity(o float32) error {
+// SetShadowFade shows the drawn shadow and border at opacity o, or hides them at 0, round the window drawn scale times
+// its size about its middle, as it comes and goes.
+func (w *Window) SetShadowFade(o, scale float32) error {
 	if !_glfw.initialized {
 		return NotInitialized
 	}
@@ -130,6 +135,9 @@ func (w *Window) SetShadowOpacity(o float32) error {
 		return nil
 	}
 	s.opacity = o
+	if scale != s.scale {
+		s.scale, s.restyled = scale, true
+	}
 	return w.placeShadow()
 }
 
@@ -274,28 +282,33 @@ func (s *drawnShadow) draw(winW, winH, dpi int32, b *windowBorder) error {
 		side, top, bottom = 24, 24, 24
 	}
 	W, H := winW+2*side, winH+top+bottom
-	var bi _BITMAPV5HEADER
-	bi.bV5Size = uint32(unsafe.Sizeof(bi))
-	bi.bV5Width = W
-	bi.bV5Height = -H
-	bi.bV5Planes = 1
-	bi.bV5BitCount = 32
-	bmp, bits, err := _CreateDIBSection(0, &bi, _DIB_RGB_COLORS, 0, 0)
-	if err != nil {
-		return err
+	// A bitmap of the same size is drawn again in place, as it is on every frame of a fade
+	if s.bmp == 0 || W != s.w || H != s.h {
+		var bi _BITMAPV5HEADER
+		bi.bV5Size = uint32(unsafe.Sizeof(bi))
+		bi.bV5Width = W
+		bi.bV5Height = -H
+		bi.bV5Planes = 1
+		bi.bV5BitCount = 32
+		bmp, bits, err := _CreateDIBSection(0, &bi, _DIB_RGB_COLORS, 0, 0)
+		if err != nil {
+			return err
+		}
+		procSelectObject.Call(uintptr(s.dc), uintptr(bmp))
+		if s.bmp != 0 {
+			_ = _DeleteObject(_HGDIOBJ(s.bmp))
+		}
+		s.bmp = bmp
+		s.bits = unsafe.Slice((*uint32)(unsafe.Pointer(bits)), int(W)*int(H))
 	}
-	procSelectObject.Call(uintptr(s.dc), uintptr(bmp))
-	if s.bmp != 0 {
-		_ = _DeleteObject(_HGDIOBJ(s.bmp))
-	}
-	s.bmp = bmp
 	s.w, s.h, s.dpi, s.winW, s.winH, s.left, s.top, s.drawnActive = W, H, dpi, winW, winH, side, top, s.active
 	s.restyled = false
-	px := unsafe.Slice((*uint32)(unsafe.Pointer(bits)), int(W)*int(H))
+	px := s.bits
 
 	// The window's rectangle in the bitmap
 	x0, y0, x1, y1 := side, top, side+winW, top+winH
 	if s.measure {
+		clear(px)
 		for y := int32(0); y < H; y++ {
 			for x := int32(0); x < W; x++ {
 				d := max(x0-x, x-x1+1, y0-y, y-y1+1)
@@ -306,12 +319,21 @@ func (s *drawnShadow) draw(winW, winH, dpi int32, b *windowBorder) error {
 		}
 		return nil
 	}
-	fx0, fy0, fx1, fy1 := float64(x0), float64(y0), float64(x1), float64(y1)
 	var edge float64
 	var bc [4]float64
 	if b != nil {
 		edge, bc = b.drawnWidth(), b.now.color
 	}
+	// As the window comes and goes it is drawn smaller about its middle, and so are its corners and border
+	sc := float64(s.scale)
+	if sc <= 0 {
+		sc = 1
+	}
+	mx, my := float64(x0+x1)/2, float64(y0+y1)/2
+	hw, hh := float64(winW)*sc/2, float64(winH)*sc/2
+	fx0, fy0, fx1, fy1 := mx-hw, my-hh, mx+hw, my+hh
+	radius, edge = radius*sc, edge*sc
+	x0, y0, x1, y1 = int32(math.Ceil(fx0)), int32(math.Ceil(fy0)), int32(fx1), int32(fy1)
 	// A blurred rectangle is the product of a blurred edge across and a blurred edge down
 	blur := func(p, a, b float64) float64 {
 		return 0.5 * (math.Erf((p-a)/(sigma*math.Sqrt2)) - math.Erf((p-b)/(sigma*math.Sqrt2)))
@@ -340,18 +362,25 @@ func (s *drawnShadow) draw(winW, winH, dpi int32, b *windowBorder) error {
 			b := uint32(bc[2]*border + 0.5)
 			return uint32(a*255+0.5)<<24 | r<<16 | g<<8 | b
 		}
-		if y >= y0+reach && y < y1-reach {
-			clear(row)
-			for x := int32(0); x < x0+reach; x++ {
-				row[x] = pixel(x)
-			}
-			for x := x1 - reach; x < W; x++ {
-				row[x] = pixel(x)
+		// Outside the window's rectangle there is only shadow, and inside it, only near its edge and corners, the
+		// window's shape and border
+		shadow := func(x int32) uint32 { return uint32(down*across[x]*255+0.5) << 24 }
+		if y < y0-1 || y > y1 {
+			for x := range row {
+				row[x] = shadow(int32(x))
 			}
 			continue
 		}
-		for x := range row {
-			row[x] = pixel(int32(x))
+		middle := y >= y0+reach && y < y1-reach
+		for x := int32(0); x < W; x++ {
+			switch {
+			case x < x0-1 || x > x1:
+				row[x] = shadow(x)
+			case !middle || x < x0+reach || x >= x1-reach:
+				row[x] = pixel(x)
+			default:
+				row[x] = 0
+			}
 		}
 	}
 	return nil

@@ -76,9 +76,13 @@ func edgeShown(w *Window, px float32) {
 	})
 }
 
-// fadeShadow shows the drawn shadow at opacity o, or hides it at 0. It runs on the main thread.
-func fadeShadow(w *Window, o float32) {
-	if err := w.gw.SetShadowOpacity(o); err != nil {
+// fadeShadow shows the drawn shadow at opacity o, or hides it at 0, round the window drawn scale times its size. It
+// runs on the main thread.
+func fadeShadow(w *Window, o, scale float32) {
+	if scale <= 0 {
+		scale = 1
+	}
+	if err := w.gw.SetShadowFade(o, scale); err != nil {
 		w.debugf("shadow: %v", err)
 	}
 }

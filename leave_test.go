@@ -99,3 +99,24 @@ func TestAWindowAllThereIsOpaqueUnderItsTree(t *testing.T) {
 		t.Fatalf("an arriving window's frame starts with %T, want its fading layer", w.Offscreen().Ops()[0])
 	}
 }
+
+// A window that cuts its corners and can show what is behind it leaves whole: its background is drawn inside the
+// shrinking layer, clipped to its shape, and none is left under it at full size.
+func TestAWindowWithRoundCornersLeavesWhole(t *testing.T) {
+	w, _, _ := newStage(t, paint.Identity)
+	w.Offscreen().SetOutline(8, 1, true)
+	w.Client().Leave()
+	w.Frame(time.Second / 60)
+	w.Frame(LeaveTime / 2)
+	ops := w.Offscreen().Ops()
+	l, ok := ops[0].(*paint.LayerOp)
+	if !ok || !l.Opts.Clip || l.Opts.Radius != 7 || l.Opts.Bounds.Min.X != 1 || l.Transform.A >= 1 {
+		t.Fatalf("halfway out, the frame starts with %#v, want a shrinking layer clipped to the window's shape", ops[0])
+	}
+	if _, ok := ops[1].(*paint.RRectOp); !ok {
+		t.Fatalf("halfway out, the layer starts with %#v, want the window's background", ops[1])
+	}
+	if a := w.Offscreen().Background().A; a != 0 {
+		t.Fatalf("halfway out, the background left under the window is %v opaque", a)
+	}
+}
