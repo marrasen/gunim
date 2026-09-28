@@ -57,6 +57,8 @@ type opRun struct {
 	visible bool
 	last    progress
 	meter   speedometer
+	// undoes is the finished operation an undo reverses.
+	undoes int
 }
 
 // finished is what a finished operation did, and how to say it.
@@ -297,6 +299,9 @@ func (a *app) finish(id int, j job, rec record, err error) {
 	delete(a.ops.running, id)
 	r.cancel()
 	a.dropDialogs(id)
+	if j.kind == OpUndo {
+		a.undone(r.undoes, rec)
+	}
 	if r.visible {
 		a.patch(OpDone{ID: id, OK: err == nil})
 		if err == nil {
@@ -394,16 +399,32 @@ func failedTitle(j job) string {
 	}[j.kind]
 }
 
-// undo reverses finished operation id.
+// undo reverses finished operation id. Its record stays while the undo
+// runs, off the list Ctrl+Z takes from.
 func (a *app) undo(id int) {
+	f, ok := a.ops.records[id]
+	if !ok || !slices.Contains(a.ops.undo, id) {
+		return
+	}
+	a.ops.undo = slices.DeleteFunc(a.ops.undo, func(v int) bool { return v == id })
+	rec := f.rec
+	a.startOp(job{kind: OpUndo, undo: &rec}, "Undoing: "+f.title)
+	a.ops.running[a.ops.next].undoes = id
+}
+
+// undone takes the end of the undo of finished operation id: it drops
+// the record, or keeps the steps the undo left, to undo later.
+func (a *app) undone(id int, rec record) {
 	f, ok := a.ops.records[id]
 	if !ok {
 		return
 	}
-	delete(a.ops.records, id)
-	a.ops.undo = slices.DeleteFunc(a.ops.undo, func(v int) bool { return v == id })
-	rec := f.rec
-	a.startOp(job{kind: OpUndo, undo: &rec}, "Undoing: "+f.title)
+	if len(rec.left) == 0 {
+		delete(a.ops.records, id)
+		return
+	}
+	f.rec.steps = rec.left
+	a.ops.undo = append(a.ops.undo, id)
 }
 
 // askClash asks the user about clash c of operation op, and waits for the

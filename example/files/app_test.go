@@ -501,3 +501,29 @@ func TestALateAnswerLeavesTheNextOperationsDialog(t *testing.T) {
 	h.answer(ClashAnswered{Op: ask.Op, Choice: ChoiceSkip})
 	h.until("the second operation ends", func() bool { return len(h.a.ops.running) == 0 })
 }
+
+// An undo that stops partway leaves what it did not reach to undo later.
+func TestAnUndoThatStopsKeepsTheRestUndoable(t *testing.T) {
+	h := newHarness(t, "a.txt", "b.txt", "sub/")
+	h.a.startOp(job{kind: OpMove, srcs: []string{filepath.Join(h.dir, "a.txt"), filepath.Join(h.dir, "b.txt")},
+		dest: filepath.Join(h.dir, "sub")}, "Moving")
+	h.until("the move finishes", func() bool { return len(h.a.ops.running) == 0 && len(h.a.ops.undo) == 1 })
+	// A new a.txt stands where the first file would go back.
+	tree(t, h.dir, "a.txt")
+	h.do(Command{Name: CmdUndo})
+	h.until("the undo stops", func() bool { return len(h.a.ops.running) == 0 && h.exists("b.txt") })
+	if len(h.a.ops.undo) != 1 {
+		t.Fatalf("after the undo stopped, %d operations can be undone, want 1", len(h.a.ops.undo))
+	}
+	h.do(Command{Name: CmdUndo})
+	h.until("a second undo stops at the same file", func() bool { return len(h.a.ops.running) == 0 })
+	if err := os.Remove(filepath.Join(h.dir, "a.txt")); err != nil {
+		t.Fatal(err)
+	}
+	h.do(Command{Name: CmdUndo})
+	h.until("the rest is undone", func() bool { return len(h.a.ops.running) == 0 && h.exists("a.txt") })
+	if h.exists("sub/a.txt") || !h.exists("b.txt") || len(h.a.ops.undo) != 0 {
+		t.Fatalf("after the last undo sub holds %v, and %d operations can be undone", names(t, filepath.Join(h.dir, "sub")),
+			len(h.a.ops.undo))
+	}
+}

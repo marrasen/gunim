@@ -57,6 +57,9 @@ type record struct {
 	// replaced counts the files a copy or a move put in place of others,
 	// which undo cannot bring back.
 	replaced int
+	// left holds, for an undo that stopped, the steps of the record it
+	// undid that it did not undo.
+	left []step
 }
 
 // progress is how far an operation has got.
@@ -760,22 +763,25 @@ func (r *runner) newFolder(dir, name string) error {
 	return nil
 }
 
-// undo reverses what rec did, the last step first.
+// undo reverses what rec did, the last step first. Where it stops, it
+// keeps the steps it did not undo in left.
 func (r *runner) undo(rec *record) error {
 	steps := slices.Clone(rec.steps)
 	slices.Reverse(steps)
 	r.p.itemsTotal = len(steps)
 	r.tell(true)
-	for _, s := range steps {
-		if err := r.ctx.Err(); err != nil {
-			return err
+	for i, s := range steps {
+		err := r.ctx.Err()
+		if err == nil {
+			r.p.current = s.to
+			if rec.kind == OpTrash {
+				r.p.current = s.from
+			}
+			r.tell(false)
+			err = r.undoStep(rec.kind, s)
 		}
-		r.p.current = s.to
-		if rec.kind == OpTrash {
-			r.p.current = s.from
-		}
-		r.tell(false)
-		if err := r.undoStep(rec.kind, s); err != nil {
+		if err != nil {
+			r.rec.left = slices.Clone(rec.steps[:len(steps)-i])
 			return err
 		}
 		r.p.items++
