@@ -936,8 +936,10 @@ type UI struct {
 	// drag the pointer carries from here, and dragAt the node taking a
 	// drag over this window.
 	pointer geom.Point
-	drag    *drag
-	dragAt  *state
+	// pointerIn says the pointer rests over the window, at pointer.
+	pointerIn bool
+	drag      *drag
+	dragAt    *state
 	// drops are the drags let go from here whose end is still to be
 	// heard, by number, and dropSeq the last number given. dragOuts are
 	// the drops handed to other programs, oldest first, whose ends the
@@ -1540,6 +1542,7 @@ func (u *UI) frame(now time.Time, delta time.Duration) {
 	}
 	u.sendTitleBar()
 	u.placeCaret()
+	u.hoverAgain(now)
 	u.framePopups(f)
 	u.publishAccess(u.w.dw, u.root, u.w.title)
 	u.focusMoved = false

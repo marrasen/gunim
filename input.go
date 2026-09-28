@@ -59,7 +59,7 @@ func (u *UI) handleOn(root *state, ev any) {
 		u.bubble(target, ev)
 	case input.PointerMove:
 		if root == u.root {
-			u.pointer = e.Pos
+			u.pointer, u.pointerIn = e.Pos, true
 			if u.drag != nil {
 				u.drag.mods = e.Mods
 				u.dragTo(e.Pos)
@@ -128,6 +128,9 @@ func (u *UI) handleOn(root *state, ev any) {
 			return input.Scroll{Pos: local, Delta: e.Delta, Notches: e.Notches, Mods: e.Mods, Time: e.Time}
 		})
 	case input.PointerLeave:
+		if root == u.root {
+			u.pointerIn = false
+		}
 		u.updateHover(root, geom.Pt(-1, -1), e.Time)
 	case input.Drop:
 		u.dispatchAt(root, e.Pos, func(local geom.Point) input.Event {
@@ -396,4 +399,16 @@ func (u *UI) local(s *state, p geom.Point) geom.Point {
 		return geom.Pt(inf, inf)
 	}
 	return inv.Apply(p)
+}
+
+// hoverAgain finds what the pointer rests over in the frame just drawn.
+// What is under a still pointer moves as the window zooms, a list
+// scrolls or tiles spring to new places, and hover and the pointer's
+// shape follow it, as they would a move.
+func (u *UI) hoverAgain(now time.Time) {
+	if !u.pointerIn || u.drag != nil {
+		return
+	}
+	u.updateHover(u.root, u.pointer, now)
+	u.shapePointer(u.root, u.pointer)
 }

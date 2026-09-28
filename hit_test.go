@@ -320,3 +320,57 @@ func TestTheFocusedNodeHearsTheWindowLoseTheKeyboard(t *testing.T) {
 		t.Fatalf("the focused node heard %v", got)
 	}
 }
+
+// swapped lays out two children side by side, swapped when flip is set.
+type swapped struct{ flip bool }
+
+func (s *swapped) Layout(c Constraints, _ Frame, kids Children) geom.Size {
+	for i := range 2 {
+		k := kids.At(i)
+		k.Layout(Tight(geom.Sz(100, 100)))
+		x := float32(i) * 100
+		if s.flip {
+			x = 100 - x
+		}
+		k.Place(geom.Pt(x, 0))
+	}
+	return c.Max
+}
+
+func (s *swapped) Paint(p *paint.Painter, _ Frame, _ geom.Size, kids Children) {
+	kids.At(0).Paint(p)
+	kids.At(1).Paint(p)
+}
+
+// When what lies under a resting pointer moves, as a zoom or a spring
+// moves it, hover follows it in the frame that moved it, with no move
+// of the pointer.
+func TestHoverFollowsWhatMovesUnderAStillPointer(t *testing.T) {
+	w := newTestWindow()
+	s := &swapped{}
+	a := &sized{recorder: &recorder{}, size: geom.Sz(100, 100)}
+	b := &sized{recorder: &recorder{}, size: geom.Sz(100, 100)}
+	w.ui.Insert(w.ui.Root(), s)
+	w.ui.Insert(s, a)
+	w.ui.Insert(s, b)
+	run(w, 1)
+	w.Input(input.PointerMove{Pos: geom.Pt(50, 50), Time: time.Now()})
+	run(w, 1)
+	if !a.got(input.PointerEnter{}) {
+		t.Fatal("the node under the pointer heard no PointerEnter")
+	}
+	s.flip = true
+	w.ui.Invalidate()
+	run(w, 1)
+	if !b.got(input.PointerEnter{}) || !a.got(input.PointerLeave{}) {
+		t.Fatal("after the nodes swapped under the resting pointer, hover stayed where it was")
+	}
+	// Once the pointer has left the window, nothing is hovered again.
+	w.Input(input.PointerLeave{Time: time.Now()})
+	s.flip = false
+	w.ui.Invalidate()
+	run(w, 1)
+	if w.ui.hover != nil {
+		t.Fatal("with the pointer gone, a frame hovered a node again")
+	}
+}
