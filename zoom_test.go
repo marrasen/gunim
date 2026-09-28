@@ -211,3 +211,16 @@ func TestAWheelZoomerTakesCtrlWithTheWheel(t *testing.T) {
 		t.Errorf("reported %v, want the one zoom of the window", got)
 	}
 }
+
+// Ctrl+Shift with the 0 key types ) on a US layout, and is left to the
+// keys around: the zoom stays.
+func TestCtrlShiftZeroLeavesTheZoom(t *testing.T) {
+	w, _ := newZoomWindow(t)
+	w.ui.SetZoom(1.25)
+	e := ctrl(input.Key0, ')')
+	e.Mods |= input.ModShift
+	w.ui.handlePlatform(e)
+	if w.ui.Zoom() != 1.25 {
+		t.Fatalf("Ctrl+Shift+0 set the zoom to %v, want it left at 1.25", w.ui.Zoom())
+	}
+}
