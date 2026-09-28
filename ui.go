@@ -1533,6 +1533,9 @@ func (u *UI) frame(now time.Time, delta time.Duration) {
 			c.A = uint8(float32(c.A)*(1-gone) + 0.5)
 			b.SetBackground(c)
 		}
+		if fd, ok := u.w.dw.(driver.Fader); ok {
+			fd.SetFade(1 - gone)
+		}
 		if gone > 0 {
 			box := geom.Rect{Max: size.Point()}
 			defer u.painter.Push(paint.Scale(1-leaveShrink*gone, box.Center()))()

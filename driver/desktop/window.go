@@ -90,6 +90,8 @@ type Window struct {
 	err      error
 	// under is the colour the engine last set under the window's frames.
 	under color.NRGBA
+	// fading says the window is last drawn partly there; see SetFade.
+	fading bool
 	// uncovered puts the window on the screen once; see uncover.
 	uncovered sync.Once
 	// opened is when the window was made, for GUNIM_DEBUG_WINDOW.
@@ -210,6 +212,25 @@ func (w *Window) SetBackground(c color.NRGBA) {
 	w.mu.Lock()
 	w.under = c
 	w.mu.Unlock()
+}
+
+// SetFade implements [driver.Fader]. The border and shadow the system
+// draws round a chromeless window stay whole as the window fades, round
+// a window that is not there yet or no longer, so they are hidden while
+// it fades; see showFrame.
+func (w *Window) SetFade(opacity float32) {
+	fading := opacity < 1
+	w.mu.Lock()
+	changed := fading != w.fading
+	w.fading = fading
+	w.mu.Unlock()
+	if changed && w.Chromeless() {
+		w.d.post(func() {
+			if !w.closed {
+				showFrame(w, !fading)
+			}
+		})
+	}
 }
 
 // SetZoom implements [driver.Zoomer]. The pointer is read again at the

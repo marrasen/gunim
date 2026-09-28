@@ -91,6 +91,14 @@ type Backgrounder interface {
 	SetBackground(c color.NRGBA)
 }
 
+// A Fader is a [Window] the engine tells how opaque it is drawing the
+// window, below 1 as the window fades in as it opens or out as it
+// leaves. What the system draws round a window, such as a shadow, has no
+// such fade, and the driver can hide it meanwhile.
+type Fader interface {
+	SetFade(opacity float32)
+}
+
 // A Transparent is a [Window] that can say whether it shows what is
 // behind it wherever nothing is painted. A popup is transparent where
 // the display server can blend windows.
