@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"fmt"
 	"image/color"
 	"math"
 	"os"
@@ -28,9 +29,9 @@ func startShadow(w *Window) {
 
 // applyBorder gives a chromeless window the border the application asked for, drawn with its shadow or by the
 // system. It runs on the main thread.
-func applyBorder(w *Window) {
+func applyBorder(w *Window) error {
 	if !w.Chromeless() {
-		return
+		return nil
 	}
 	w.mu.Lock()
 	b, drawn := w.border, w.shadow
@@ -45,7 +46,9 @@ func applyBorder(w *Window) {
 	}
 	if err := set(b.Color, inactive, b.None); err != nil {
 		w.debugf("border: %v", err)
+		return fmt.Errorf("desktop: set the window's border: %w", err)
 	}
+	return nil
 }
 
 // fadeShadow shows the drawn shadow at opacity o, or hides it at 0. It runs on the main thread.

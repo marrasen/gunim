@@ -27,7 +27,6 @@ func (w *Window) setChromeless() {
 	}
 	w.chrome.on = true
 	startShadow(w)
-	applyBorder(w)
 	w.gw.SetHitTestCallback(func(_ *glfw.Window, x, y int) glfw.Hit {
 		f := w.coordsPerLogical()
 		if f <= 0 {

@@ -9,16 +9,20 @@
 package glfw
 
 import (
+	"errors"
+	"fmt"
 	"image/color"
 	"math"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/registry"
 )
 
 const (
 	_WM_SHOWWINDOW       = 0x0018
 	_WM_TIMER            = 0x0113
+	_WM_SETTINGCHANGE    = 0x001A
 	_WM_WINDOWPOSCHANGED = 0x0047
 
 	_SW_PARENTOPENING  = 3
@@ -83,6 +87,9 @@ type drawnShadow struct {
 	active      bool
 	drawnActive bool
 
+	// askedBorder and askedInactive are the colours the application asked for, zero for the system's; see
+	// resolveBorder.
+	askedBorder, askedInactive color.NRGBA
 	// border and inactiveBorder are the border's colours while the window is active and inactive, or with noBorder
 	// there is none; restyled says they changed since the last drawing.
 	border         color.NRGBA
@@ -167,14 +174,66 @@ func (w *Window) SetShadowBorder(active, inactive color.NRGBA, none bool) error 
 	if s == nil {
 		return nil
 	}
-	if active == (color.NRGBA{}) {
-		active = systemBorder
+	s.askedBorder, s.askedInactive, s.noBorder = active, inactive, none
+	if err := s.resolveBorder(); err != nil {
+		return err
 	}
-	if inactive == (color.NRGBA{}) {
-		inactive = systemInactiveBorder
-	}
-	s.border, s.inactiveBorder, s.noBorder, s.restyled = active, inactive, none, true
 	return w.placeShadow()
+}
+
+// resolveBorder turns the colours the application asked for into the ones drawn: a zero colour is the system's grey,
+// or while the window is active, the accent colour where the user shows it on window borders.
+func (s *drawnShadow) resolveBorder() error {
+	s.border, s.inactiveBorder = s.askedBorder, s.askedInactive
+	if s.border == (color.NRGBA{}) {
+		s.border = systemBorder
+		accent, on, err := accentBorder()
+		if err != nil {
+			return err
+		}
+		if on {
+			s.border = accent
+		}
+	}
+	if s.inactiveBorder == (color.NRGBA{}) {
+		s.inactiveBorder = systemInactiveBorder
+	}
+	s.restyled = true
+	return nil
+}
+
+// accentBorder returns the accent colour, and true where the user shows it on title bars and window borders, as
+// Windows' settings under Personalisation and Colours say. A setting that is not there, as on earlier versions, is
+// off.
+func accentBorder() (color.NRGBA, bool, error) {
+	const at = `Software\Microsoft\Windows\DWM`
+	k, err := registry.OpenKey(registry.CURRENT_USER, at, registry.QUERY_VALUE)
+	if errors.Is(err, registry.ErrNotExist) {
+		return color.NRGBA{}, false, nil
+	}
+	if err != nil {
+		return color.NRGBA{}, false, fmt.Errorf("glfw: read %s: %w", at, err)
+	}
+	defer func() { _ = k.Close() }()
+	shown, _, err := k.GetIntegerValue("ColorPrevalence")
+	if errors.Is(err, registry.ErrNotExist) {
+		return color.NRGBA{}, false, nil
+	}
+	if err != nil {
+		return color.NRGBA{}, false, fmt.Errorf("glfw: read ColorPrevalence in %s: %w", at, err)
+	}
+	if shown == 0 {
+		return color.NRGBA{}, false, nil
+	}
+	// The accent colour is stored as 0xAABBGGRR
+	c, _, err := k.GetIntegerValue("AccentColor")
+	if errors.Is(err, registry.ErrNotExist) {
+		return color.NRGBA{}, false, nil
+	}
+	if err != nil {
+		return color.NRGBA{}, false, fmt.Errorf("glfw: read AccentColor in %s: %w", at, err)
+	}
+	return color.NRGBA{R: uint8(c), G: uint8(c >> 8), B: uint8(c >> 16), A: 0xff}, true, nil
 }
 
 // SetBorderColors sets the colours of the thin border Windows 11 draws round a window while it is active and
@@ -239,6 +298,12 @@ func (w *Window) shadowMessage(uMsg uint32, wParam _WPARAM) {
 		return
 	}
 	switch uMsg {
+	case _WM_SETTINGCHANGE, _WM_DWMCOLORIZATIONCOLORCHANGED:
+		// The accent colour, or whether it shows on borders, may have changed
+		if err := s.resolveBorder(); err != nil {
+			_glfw.errors = append(_glfw.errors, err)
+			return
+		}
 	case _WM_WINDOWPOSCHANGED:
 	case _WM_NCACTIVATE:
 		s.active = wParam != 0

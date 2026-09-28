@@ -22,8 +22,11 @@ func (w *Window) SetBorder(b driver.Border) {
 	w.border = b
 	w.mu.Unlock()
 	w.d.post(func() {
-		if !w.closed {
-			applyBorder(w)
+		if w.closed {
+			return
+		}
+		if err := applyBorder(w); err != nil {
+			w.fail(err)
 		}
 	})
 	// The edge the window leaves for the border changes with it

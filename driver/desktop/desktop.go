@@ -390,6 +390,10 @@ func (d *Driver) openWindow(o driver.Options) (*Window, error) {
 		w.border = o.Border
 		w.mu.Unlock()
 		w.setChromeless()
+		if err := applyBorder(w); err != nil {
+			_ = gw.Destroy()
+			return nil, err
+		}
 	}
 	w.accessOpen()
 	if x, y, err := gw.GetPos(); err == nil {
