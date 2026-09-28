@@ -23,19 +23,6 @@ func focusProbe(t *testing.T, w *gunim.Window, run func(int)) func() gunim.Node 
 	}
 }
 
-// intents returns how many intents w has sent since it was last asked.
-func intents(w *gunim.Window) int {
-	n := 0
-	for {
-		select {
-		case <-w.Client().Intents():
-			n++
-		default:
-			return n
-		}
-	}
-}
-
 type enable struct{}
 
 func TestADisabledButtonTakesNoClickKeyOrFocus(t *testing.T) {
@@ -51,7 +38,7 @@ func TestADisabledButtonTakesNoClickKeyOrFocus(t *testing.T) {
 	w.Input(input.PointerDown{Pos: mid, Clicks: 1})
 	w.Input(input.PointerUp{Pos: mid})
 	run(1)
-	if n := intents(w); n != 0 {
+	if n := len(sent(w)); n != 0 {
 		t.Fatalf("clicked while disabled, the button sent %d intents", n)
 	}
 	tab(w, run, 0)
@@ -75,7 +62,7 @@ func TestADisabledButtonTakesNoClickKeyOrFocus(t *testing.T) {
 	w.Input(input.PointerDown{Pos: mid, Clicks: 1})
 	w.Input(input.PointerUp{Pos: mid})
 	run(1)
-	if n := intents(w); n != 1 {
+	if n := len(sent(w)); n != 1 {
 		t.Fatalf("clicked once enabled, the button sent %d intents, want 1", n)
 	}
 }
