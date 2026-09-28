@@ -2,6 +2,7 @@ package driver
 
 import (
 	"image/color"
+	"math"
 	"slices"
 	"sync"
 	"time"
@@ -67,6 +68,9 @@ type OffscreenWindow struct {
 	// frame is the pretend frame of a window made chromeless.
 	frame *OffscreenFrame
 
+	// workArea is the pretend screen's work area in the window's space,
+	// for the room it leaves a popup; see SetWorkArea.
+	workArea geom.Rect
 	// title, full, attention and border are what the application last
 	// asked of the window's frame.
 	title     string
@@ -90,6 +94,24 @@ func (w *OffscreenWindow) Title() string {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.title
+}
+
+// SetWorkArea sets the pretend screen's work area, in the window's logical space, for a test of popups that fit
+// themselves to it. Until it is set there is no end to it.
+func (w *OffscreenWindow) SetWorkArea(area geom.Rect) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.workArea = area
+}
+
+// PopupRoom implements [PopupRoomer]: the room between the anchor and the work area's bottom and top.
+func (w *OffscreenWindow) PopupRoom(anchor geom.Rect) (below, above float32) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.workArea.Empty() {
+		return float32(math.Inf(1)), float32(math.Inf(1))
+	}
+	return w.workArea.Max.Y - anchor.Max.Y, anchor.Min.Y - w.workArea.Min.Y
 }
 
 // SetBorder implements [Borderer].

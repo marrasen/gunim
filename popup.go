@@ -106,6 +106,14 @@ type PopupPadder interface {
 	PopupPadding() geom.Insets
 }
 
+// A PopupFitter is popup content that fits itself to the room the screen leaves: before each layout it is told how
+// many logical pixels there are between its anchor and the bottom of the screen, and the top. The window opens below
+// the anchor while content no taller than the room below fits there, so content that keeps to that room stays below.
+type PopupFitter interface {
+	Node
+	FitPopup(below, above float32)
+}
+
 // surface is a popup window and the tree of nodes it shows.
 type surface struct {
 	root *state
@@ -130,6 +138,11 @@ type surface struct {
 	closing bool
 	// stop ends the goroutine passing the window's events on.
 	stop chan struct{}
+	// below and above are the room the screen leaves below and above roomAt, the anchor they were asked for; see
+	// PopupFitter.
+	below, above float32
+	roomAt       geom.Rect
+	roomKnown    bool
 	// opened is when the popup was opened, window how it got its window and in how long, and shown whether its first
 	// frame has been shown, for GUNIM_DEBUG_POPUP.
 	opened time.Time
@@ -280,10 +293,11 @@ func (u *UI) framePopup(s *surface, f Frame) {
 		f.Scale = s.dw.Scale()
 		f.Transparent = transparent(s.dw)
 	}
+	parent := u.windowOf(opener)
+	u.fitPopup(s, parent)
 	size := u.layoutPopup(s, f)
 	anchor := u.popupAnchor(s)
 
-	parent := u.windowOf(opener)
 	switch {
 	case s.dw == nil && parent == nil:
 		// The opener's own popup has yet to open.
@@ -346,6 +360,26 @@ func (u *UI) framePopup(s *surface, f Frame) {
 		return
 	}
 	s.held, s.inFlight, s.stale = i, true, false
+}
+
+// fitPopup tells content that fits itself to the screen how much room there is below and above its anchor, asking
+// the parent window again only when the anchor has moved.
+func (u *UI) fitPopup(s *surface, parent driver.Window) {
+	r, ok := parent.(driver.PopupRoomer)
+	if !ok {
+		return
+	}
+	for _, k := range s.root.kids {
+		fit, ok := k.node.(PopupFitter)
+		if !ok {
+			continue
+		}
+		if a := u.popupAnchor(s); !s.roomKnown || a != s.roomAt {
+			s.below, s.above = r.PopupRoom(a)
+			s.roomAt, s.roomKnown = a, true
+		}
+		fit.FitPopup(s.below, s.above)
+	}
 }
 
 // layoutPopup lays out a popup's content and returns the size its

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"math"
 	"os"
 	"runtime"
 	"slices"
@@ -501,6 +502,32 @@ func (w *Window) attach(anchor geom.Rect) error {
 // popup is put to standard error: the parent, the anchor on screen, the
 // work area it was kept inside, and every monitor's work area.
 var popupDebug = os.Getenv("GUNIM_DEBUG_POPUP") == "1"
+
+// PopupRoom implements [driver.PopupRoomer]. Where the window or its monitor cannot say, there is no end to the room.
+func (w *Window) PopupRoom(anchor geom.Rect) (below, above float32) {
+	below, above = float32(math.Inf(1)), float32(math.Inf(1))
+	_ = w.d.call(func() error {
+		if w.closed {
+			return nil
+		}
+		px, py, err := w.gw.GetPos()
+		if err != nil {
+			return err
+		}
+		f := w.coordsPerLogical()
+		a := geom.Rect{
+			Min: geom.Pt(float32(px)+anchor.Min.X*f, float32(py)+anchor.Min.Y*f),
+			Max: geom.Pt(float32(px)+anchor.Max.X*f, float32(py)+anchor.Max.Y*f),
+		}
+		area := popupArea(a, workArea)
+		if area.Empty() || f <= 0 {
+			return nil
+		}
+		below, above = (area.Max.Y-a.Max.Y)/f, (a.Min.Y-area.Min.Y)/f
+		return nil
+	})
+	return below, above
+}
 
 // popupArea is the work area a popup for anchor a is kept inside: the
 // one under the anchor's middle. The anchor's corner can lie off the

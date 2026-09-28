@@ -1,6 +1,7 @@
 package widget
 
 import (
+	"fmt"
 	"slices"
 	"testing"
 	"time"
@@ -281,7 +282,7 @@ func TestOpeningACompactMenubarsMenuPutsTheKeysInIt(t *testing.T) {
 	}
 	// Opened before the list had laid out, the menu goes beside its line once it has.
 	run(3)
-	if card, row := b.panel.sideCard(), b.list.RowRect(1); card.Min.X < row.Max.X || card.Min.Y > row.Min.Y {
+	if card, row := b.panel.cardInList(), b.list.RowRect(1); card.Min.X < row.Max.X || card.Min.Y > row.Min.Y {
 		t.Fatalf("Edit's menu is on a card at %v, want beside its line, %v", card, row)
 	}
 	// Edit's Copy is disabled: Down comes to Paste.
@@ -323,7 +324,7 @@ func TestACompactMenubarsMenuSitsLevelWithItsLineAgainstTheList(t *testing.T) {
 	for i := range b.Menus {
 		move(middle(b.list.RowRect(i)))
 		run(40)
-		card := b.panel.sideCard()
+		card := b.panel.cardInList()
 		first := card.Min.Y + b.menu.RowRect(0).Min.Y
 		if row := b.list.RowRect(i); first < row.Min.Y-1 || first > row.Min.Y+1 {
 			t.Fatalf("menu %d's first line is at %v, want level with its line on the list, at %v", i, first, row.Min.Y)
@@ -363,7 +364,7 @@ func TestHeadingForAnOpenMenuCrossesLinesWithoutOpeningTheirs(t *testing.T) {
 		t.Fatalf("resting on File opened menu %d", b.open)
 	}
 	// From File's line, down and to the right toward File's menu, over Edit's line
-	card := b.panel.sideCard()
+	card := b.panel.cardInList()
 	from := geom.Pt(b.list.RowRect(0).Center().X, b.list.RowRect(0).Max.Y-2)
 	to := geom.Pt(card.Min.X-2, b.list.RowRect(1).Center().Y)
 	move(from)
@@ -380,5 +381,100 @@ func TestHeadingForAnOpenMenuCrossesLinesWithoutOpeningTheirs(t *testing.T) {
 	move(middle(b.list.RowRect(2)))
 	if b.open != 2 {
 		t.Fatalf("moving straight down to View left menu %d open", b.open)
+	}
+}
+
+// newRoomStage opens a compact bar's list, with a menu of lines items, the screen ending below bottom and above top,
+// in the window's space.
+func newRoomStage(t *testing.T, lines int, top, bottom float32) (b *Menubar, run func(int), move func(at geom.Point)) {
+	t.Helper()
+	tall := BarMenu{Title: "Font"}
+	for i := range lines {
+		tall.Items = append(tall.Items, fmt.Sprintf("Font %d", i))
+	}
+	b = NewMenubar(
+		BarMenu{Title: "File", Items: []string{"New", "Open", "Quit"}},
+		BarMenu{Title: "Edit", Items: []string{"Copy", "Paste"}},
+		tall,
+	)
+	b.Compact = true
+	col := Column(b, NewTextField())
+	col.Cross = CrossStretch
+	w, run := stage(t, &frame{child: col, size: geom.Sz(600, 400)})
+	w.Offscreen().SetWorkArea(geom.Rect{Min: geom.Pt(-1000, top), Max: geom.Pt(5000, bottom)})
+	s := b.span(0)
+	clickAt(w, run, geom.Pt((s[0]+s[1])/2, 15))
+	run(2)
+	list := b.listPopup
+	move = func(at geom.Point) {
+		list.Input(input.PointerMove{Pos: at.Add(geom.Pt(0, b.panel.off)), Time: time.Now()})
+		run(1)
+	}
+	return b, run, move
+}
+
+func TestACompactMenubarsTallMenuMovesUpToStayOnTheScreen(t *testing.T) {
+	const bottom = 440
+	b, run, move := newRoomStage(t, 12, -1000, bottom)
+	below := bottom - b.listPopup.Offscreen().Anchor().Max.Y
+	move(middle(b.list.RowRect(2)))
+	run(40)
+	if b.open != 2 || b.panel.up {
+		t.Fatalf("resting on Font left menu %d open, the panel opening above the button %v", b.open, b.panel.up)
+	}
+	card := b.panel.sideCard()
+	if card.Max.Y > below-b.panel.margin {
+		t.Fatalf("Font's menu reaches down to %v, past the room below the button, %v", card.Max.Y, below)
+	}
+	if first := b.panel.cardInList().Min.Y + b.menu.RowRect(0).Min.Y; first >= b.list.RowRect(2).Min.Y {
+		t.Fatalf("Font's first line is at %v, not above its line on the list, at %v: the test has room enough", first, b.list.RowRect(2).Min.Y)
+	}
+	if h := b.listPopup.Offscreen().Size().H; h > below {
+		t.Fatalf("the list's window is %v tall, taller than the room below the button, %v", h, below)
+	}
+	// A menu with room for it stays level with its line
+	move(middle(b.list.RowRect(0)))
+	run(40)
+	first := b.panel.cardInList().Min.Y + b.menu.RowRect(0).Min.Y
+	if row := b.list.RowRect(0); first < row.Min.Y-1 || first > row.Min.Y+1 {
+		t.Fatalf("File's first line is at %v, want level with its line on the list, at %v", first, row.Min.Y)
+	}
+}
+
+func TestACompactMenubarsListOpensAboveWhereItDoesNotFitBelow(t *testing.T) {
+	b, run, move := newRoomStage(t, 12, -1000, 90)
+	if !b.panel.up {
+		t.Fatal("with no room below for the list, the panel opens below the button")
+	}
+	size := b.listPopup.Offscreen().Size()
+	if bottom := b.panel.off + b.list.card.Max.Y + b.list.margin; bottom < size.H-1 || bottom > size.H+1 {
+		t.Fatalf("the list ends at %v, want at the bottom of the window, %v, against the button", bottom, size.H)
+	}
+	move(middle(b.list.RowRect(2)))
+	run(40)
+	if card := b.panel.sideCard(); b.open != 2 || card.Min.Y < b.panel.margin-1 || card.Max.Y > size.H-b.panel.margin+1 {
+		t.Fatalf("Font's menu, open %v, is on a card at %v, want inside the window, %v tall", b.open == 2, card, size.H)
+	}
+}
+
+func TestAMenuTallerThanTheRoomBelowRisesAboveTheButtonWithoutTheList(t *testing.T) {
+	const bottom = 440
+	b, run, move := newRoomStage(t, 30, -1000, bottom)
+	move(middle(b.list.RowRect(2)))
+	run(40)
+	if b.open != 2 || b.panel.up {
+		t.Fatalf("resting on Font left menu %d open, the list opening above the button %v", b.open, b.panel.up)
+	}
+	if b.panel.head <= 0 {
+		t.Fatal("the window reaches no higher than the list, with Font's menu too tall for the room below")
+	}
+	// The window still ends inside the screen, the list at the head's depth
+	size := b.listPopup.Offscreen().Size()
+	if end := b.listPopup.Offscreen().Anchor().Max.Y + size.H; end > bottom+1 {
+		t.Fatalf("the window reaches down to %v, past the bottom of the screen, %v", end, float32(bottom))
+	}
+	card := b.panel.sideCard()
+	if card.Min.Y < b.panel.margin-1 || card.Max.Y > size.H-b.panel.margin+1 {
+		t.Fatalf("Font's menu is on a card at %v, want inside the window, %v tall", card, size.H)
 	}
 }

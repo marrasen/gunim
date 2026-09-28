@@ -185,6 +185,13 @@ type Framer interface {
 	Maximized() bool
 }
 
+// A PopupRoomer is a [Window] that says how much room the screen leaves below and above a rectangle in its own
+// logical space, in logical pixels, for a popup attached there: to the bottom and the top of the work area of the
+// monitor under it.
+type PopupRoomer interface {
+	PopupRoom(anchor geom.Rect) (below, above float32)
+}
+
 // Border is the thin line round the edge of a window opened with [Options.Chromeless], where the platform draws one,
 // as Windows 11 does. Its zero value is the system's own.
 type Border struct {

@@ -216,9 +216,9 @@ func (b *Menubar) showList(u *gunim.UI) {
 	b.list = list
 	b.panel = newBarPanel(b, list)
 	span := b.span(0)
+	// No cap on its size: the panel keeps itself to the room the screen leaves
 	b.listPopup = u.OpenPopup(b, b.panel, gunim.PopupOptions{
 		Anchor:  geom.Rect{Min: geom.Pt(span[0], 0), Max: geom.Pt(span[1], MenubarHeight.Get(u.Theme()))},
-		Max:     geom.Sz(600, 800),
 		Dismiss: b.Close,
 	})
 	b.aim(0, u)
@@ -237,7 +237,7 @@ func (b *Menubar) aiming() bool {
 		return false
 	}
 	from, to := b.list.wasPointer, b.list.pointer
-	card := b.panel.sideCard()
+	card := b.panel.cardInList()
 	if card.Empty() || to.X <= from.X || to.X >= card.Min.X {
 		return false
 	}
