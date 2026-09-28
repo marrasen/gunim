@@ -197,13 +197,29 @@ func (w *Window) Size() geom.Size {
 	return geom.Sz(float32(w.fbW)/w.scale, float32(w.fbH)/w.scale)
 }
 
-// SetZoom implements [driver.Zoomer].
+// SetZoom implements [driver.Zoomer]. The pointer, where it rests over
+// the window, is at another logical point at the new zoom, which the
+// window hears as a move, so hover and the pointer's shape follow.
 func (w *Window) SetZoom(z float32) {
 	w.mu.Lock()
 	w.zoom = z
 	w.scale = w.content * z
 	w.mu.Unlock()
 	w.in.push(driver.Redraw{})
+	w.d.post(func() {
+		if w.closed {
+			return
+		}
+		if over, err := w.gw.GetAttrib(glfw.Hovered); err != nil || over != glfw.True {
+			return
+		}
+		x, y, err := w.gw.GetCursorPos()
+		if err != nil {
+			return
+		}
+		w.cursor = w.logical(x, y)
+		w.in.push(input.PointerMove{Pos: w.cursor, Mods: w.mods, Time: time.Now()})
+	})
 }
 
 // Scale implements [driver.Window].
