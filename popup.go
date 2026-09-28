@@ -2,7 +2,9 @@ package gunim
 
 import (
 	"fmt"
+	"os"
 	"slices"
+	"time"
 
 	"github.com/marrasen/gunim/driver"
 	"github.com/marrasen/gunim/geom"
@@ -56,16 +58,16 @@ type PopupOptions struct {
 //
 // Closing or removing the opener closes the popup.
 func (u *UI) OpenPopup(opener, content Node, o PopupOptions) *Popup {
-	os, ok := u.index[opener]
+	from, ok := u.index[opener]
 	if !ok {
 		panic("gunim: OpenPopup from a node that is not in the tree")
 	}
 	if o.Max == (geom.Size{}) {
 		o.Max = geom.Sz(4096, 4096)
 	}
-	root := &state{node: &popupRoot{}, presence: Present, opener: os}
+	root := &state{node: &popupRoot{}, presence: Present, opener: from}
 	u.index[root.node] = root
-	s := &surface{root: root, opts: o, held: -1}
+	s := &surface{root: root, opts: o, held: -1, opened: time.Now()}
 	u.popups = append(u.popups, s)
 	u.Insert(root.node, content)
 	return &Popup{u: u, s: s}
@@ -117,7 +119,16 @@ type surface struct {
 	closing bool
 	// stop ends the goroutine passing the window's events on.
 	stop chan struct{}
+	// opened is when the popup was opened, window how it got its window and in how long, and shown whether its first
+	// frame has been shown, for GUNIM_DEBUG_POPUP.
+	opened time.Time
+	window string
+	shown  bool
 }
+
+// popupDebug is set by GUNIM_DEBUG_POPUP=1, which logs to standard error how each popup got its window and how long
+// it took to show.
+var popupDebug = os.Getenv("GUNIM_DEBUG_POPUP") == "1"
 
 // popupEvent is one event from a popup's window, passed on to the UI
 // goroutine: input, or a frame shown.
@@ -268,10 +279,14 @@ func (u *UI) framePopup(s *surface, f Frame) {
 		u.invalid = true
 		return
 	case s.dw == nil:
+		start := time.Now()
 		dw, err := u.reuse(parent, s.opts, anchor, size), error(nil)
+		s.window = "a spare window"
 		if dw == nil {
 			dw, err = u.w.open(driver.Options{Kind: driver.KindPopup, Parent: parent, Anchor: anchor, Size: size, Passthrough: s.opts.Passthrough, Over: s.opts.Over})
+			s.window = "a new window"
 		}
+		s.window += fmt.Sprintf(", got in %.1f ms", float64(time.Since(start).Microseconds())/1000)
 		if err != nil {
 			u.w.err = fmt.Errorf("gunim: open popup: %w", err)
 			u.closePopup(s)
@@ -508,6 +523,11 @@ func (u *UI) popupEvent(e popupEvent) {
 		return
 	}
 	if e.shown {
+		if popupDebug && !e.s.shown {
+			fmt.Fprintf(os.Stderr, "gunim popup: shown %.1f ms after it opened, in %s\n",
+				float64(time.Since(e.s.opened).Microseconds())/1000, e.s.window)
+		}
+		e.s.shown = true
 		e.s.inFlight, e.s.held = false, -1
 		if e.s.stale {
 			u.invalid = true
