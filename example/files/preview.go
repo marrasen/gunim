@@ -66,6 +66,8 @@ type previewPage struct {
 	scroll *widget.Scroll
 	holds  *widget.Label
 	size   *widget.Label
+	// links are the links under the path.
+	links []*widget.Link
 }
 
 func newPreviewPage(s Preview) *previewPage {
@@ -107,7 +109,8 @@ func newPreviewPage(s Preview) *previewPage {
 		copyPath.Size = SmallText
 		path := s.Path
 		copyPath.OnActivate(func(u *gunim.UI) { u.SetClipboard(path) })
-		links := widget.Row(reveal, copyPath)
+		pg.links = []*widget.Link{reveal, copyPath}
+		links := &linkWrap{Wrap: widget.NewWrap(), kids: []gunim.Node{reveal, copyPath}}
 		links.Gap = sideGap
 		kids = append(kids, links)
 	}
@@ -133,6 +136,16 @@ func newPreviewPage(s Preview) *previewPage {
 
 // sideGap is the room between links in a row.
 var sideGap = widget.Gap
+
+// linkWrap sets links in a row, and moves a link that would pass the
+// pane's edge to a line of its own.
+type linkWrap struct {
+	*widget.Wrap
+	kids []gunim.Node
+}
+
+// Children implements [gunim.Composite].
+func (l *linkWrap) Children() []gunim.Node { return l.kids }
 
 // tileLabel is what the tile for an item without a picture says: its
 // extension, or a word for a folder.
