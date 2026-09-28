@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -88,12 +89,47 @@ func TestListDirFollowsLinks(t *testing.T) {
 // folder lists as ever.
 func TestListDirShowsWhatItCannotReadOfAnEntry(t *testing.T) {
 	root := t.TempDir()
-	tree(t, root, "file.txt", "locked/inside.txt")
+	tree(t, root, "file.txt")
 	if err := os.Symlink("loop", filepath.Join(root, "loop")); err != nil {
 		t.Skipf("this system will not make a link here: %v", err)
 	}
-	if err := os.Symlink(filepath.Join(root, "locked", "inside.txt"), filepath.Join(root, "shut")); err != nil {
+	es, err := listDir(context.Background(), root)
+	if err != nil {
 		t.Fatal(err)
+	}
+	got := entryNames(es)
+	slices.Sort(got)
+	if !slices.Equal(got, []string{"file.txt", "loop"}) {
+		t.Fatalf("listed %v", got)
+	}
+	for _, e := range es {
+		switch e.Name {
+		case "loop":
+			if e.Kind != KindLink || !e.Broken || e.Err == "" {
+				t.Fatalf("the link to itself reads as %+v", e)
+			}
+		case "file.txt":
+			if e.Err != "" {
+				t.Fatalf("the file reads as %+v", e)
+			}
+		}
+	}
+}
+
+// A link into a folder that cannot be read shows the read error. The test
+// locks the folder with chmod, which works on Unix alone: on Windows, chmod
+// only sets the read-only attribute and the folder stays readable.
+func TestListDirShowsALinkIntoAFolderItCannotRead(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("chmod cannot lock a folder on Windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root reads a locked folder all the same")
+	}
+	root := t.TempDir()
+	tree(t, root, "file.txt", "locked/inside.txt")
+	if err := os.Symlink(filepath.Join(root, "locked", "inside.txt"), filepath.Join(root, "shut")); err != nil {
+		t.Skipf("this system will not make a link here: %v", err)
 	}
 	if err := os.Chmod(filepath.Join(root, "locked"), 0); err != nil {
 		t.Fatal(err)
@@ -105,24 +141,12 @@ func TestListDirShowsWhatItCannotReadOfAnEntry(t *testing.T) {
 	}
 	got := entryNames(es)
 	slices.Sort(got)
-	if !slices.Equal(got, []string{"file.txt", "locked", "loop", "shut"}) {
+	if !slices.Equal(got, []string{"file.txt", "locked", "shut"}) {
 		t.Fatalf("listed %v", got)
 	}
 	for _, e := range es {
-		switch e.Name {
-		case "loop":
-			if e.Kind != KindLink || e.Err == "" {
-				t.Fatalf("the link to itself reads as %+v", e)
-			}
-		case "shut":
-			// Root reads the folder all the same.
-			if e.Kind != KindLink || e.Err == "" && os.Geteuid() != 0 {
-				t.Fatalf("the link into a folder that cannot be read reads as %+v", e)
-			}
-		case "file.txt":
-			if e.Err != "" {
-				t.Fatalf("the file reads as %+v", e)
-			}
+		if e.Name == "shut" && (e.Kind != KindLink || !e.Broken || e.Err == "") {
+			t.Fatalf("the link into a folder that cannot be read reads as %+v", e)
 		}
 	}
 }
