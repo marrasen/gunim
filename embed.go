@@ -49,14 +49,31 @@ func collectEmbedded(s reflect.Value, out *[]Node, depth int) {
 	}
 }
 
-// fieldsOf returns the embedded fields of struct type t that are structs or pointers to structs.
+// nodeType is the Node interface, for asking a type whether it is one.
+var nodeType = reflect.TypeFor[Node]()
+
+// fieldsOf returns the embedded fields of struct type t, structs or pointers to structs, that are nodes or embed
+// one at some depth. It is worked out from the types alone, once for each, so a node that embeds none, as most do
+// through an anim.Group, is passed over at once.
 func fieldsOf(t reflect.Type) []int {
+	idx, _ := fieldsAt(t, 0)
+	return idx
+}
+
+// fieldsAt is fieldsOf at depth, as far down as collectEmbedded looks. It reports whether the answer is whole, and
+// keeps only whole ones: a type met at the depth limit, as one embedding itself through a pointer is, is looked at
+// again from where it is next met.
+func fieldsAt(t reflect.Type, depth int) ([]int, bool) {
 	if v, ok := embedFields.Load(t); ok {
 		if idx, ok := v.([]int); ok {
-			return idx
+			return idx, true
 		}
 	}
+	if depth > 8 {
+		return nil, false
+	}
 	var idx []int
+	whole := true
 	for i := range t.NumField() {
 		f := t.Field(i)
 		if !f.Anonymous {
@@ -66,12 +83,23 @@ func fieldsOf(t reflect.Type) []int {
 		if ft.Kind() == reflect.Pointer {
 			ft = ft.Elem()
 		}
-		if ft.Kind() == reflect.Struct {
+		if ft.Kind() != reflect.Struct {
+			continue
+		}
+		if reflect.PointerTo(ft).Implements(nodeType) {
+			idx = append(idx, i)
+			continue
+		}
+		inner, w := fieldsAt(ft, depth+1)
+		whole = whole && w
+		if len(inner) > 0 || !w {
 			idx = append(idx, i)
 		}
 	}
-	embedFields.Store(t, idx)
-	return idx
+	if whole {
+		embedFields.Store(t, idx)
+	}
+	return idx, whole
 }
 
 // panicOnStrays is set by PanicOnStrays.

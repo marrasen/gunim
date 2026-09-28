@@ -2,9 +2,11 @@ package gunim
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/paint"
 )
@@ -107,4 +109,44 @@ func TestAStrayIsQuietUnlessAsked(t *testing.T) {
 	w.ui.Remove(stray)
 	w.ui.Send(stray, nil)
 	w.ui.Focus(stray)
+}
+
+// BenchmarkEmbeddedOfAPlainNode times looking for embedded nodes in a
+// node that embeds none, as every row and tile built while scrolling
+// is looked at as it is inserted.
+func BenchmarkEmbeddedOfAPlainNode(b *testing.B) {
+	n := &grouped{}
+	b.ReportAllocs()
+	for range b.N {
+		_ = embedded(n)
+	}
+}
+
+// grouped embeds what most widgets embed, and no node.
+type grouped struct {
+	anim.Group
+}
+
+func (g *grouped) Layout(c Constraints, _ Frame, _ Children) geom.Size { return c.Max }
+func (g *grouped) Paint(*paint.Painter, Frame, geom.Size, Children)    {}
+
+// looped embeds itself through a pointer, and a node beside it.
+type looped struct {
+	*looped
+	*part
+}
+
+func (l *looped) Layout(c Constraints, _ Frame, _ Children) geom.Size { return c.Max }
+func (l *looped) Paint(*paint.Painter, Frame, geom.Size, Children)    {}
+
+// A node that embeds its own type through a pointer is looked through
+// as far as the walk goes, without end, and the node beside it found.
+func TestANodeEmbeddingItselfIsLookedThrough(t *testing.T) {
+	inner := &part{}
+	n := &looped{part: inner}
+	n.looped = &looped{}
+	found := embedded(n)
+	if !slices.Contains(found, Node(inner)) {
+		t.Fatalf("the part beside the loop was not found among %v", found)
+	}
 }
