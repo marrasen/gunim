@@ -28,7 +28,38 @@ type AccessActor interface {
 }
 
 // partBits is where a part's number goes in its ID, above the node's.
-const partBits = 48
+// A part numbered by its place takes a number below keyedFrom; a part
+// with a Key takes one from keyedFrom up, which stays with its Key.
+const (
+	partBits  = 48
+	keyedFrom = 1 << 15
+	partsEnd  = 1 << (64 - partBits)
+)
+
+// keyedParts numbers a node's parts that have a Key. A Key keeps its
+// number while it comes and goes, so a screen reader holding a part
+// finds that part, and at holds where each number's part lies in the
+// node's parts as last published.
+type keyedParts struct {
+	num  map[uint64]int
+	next int
+	at   map[int]int
+}
+
+// number returns key's part number, giving it the next on first use.
+// Once every number has been given, the numbering starts again.
+func (kp *keyedParts) number(key uint64) int {
+	if n, ok := kp.num[key]; ok {
+		return n
+	}
+	if kp.num == nil || kp.next >= partsEnd {
+		kp.num, kp.next = map[uint64]int{}, keyedFrom
+	}
+	n := kp.next
+	kp.next++
+	kp.num[key] = n
+	return n
+}
 
 // accessID returns s's ID for assistive technology, giving it one on
 // first use. IDs count up from 1 and never repeat, so a screen reader
@@ -95,6 +126,9 @@ func (u *UI) accessNode(s *state, info access.Info) *access.Node {
 		Focusable: focusable && f.Focusable(),
 		Focused:   u.focus == s && info.Active == 0,
 	}
+	if s.parts != nil {
+		clear(s.parts.at)
+	}
 	k := 0
 	n.Children = u.accessParts(s, info.Parts, id, n.Focusable, info.Active, &k)
 	n.Parts = nil
@@ -111,9 +145,17 @@ func (u *UI) accessParts(s *state, parts []access.Info, id uint64, focusable boo
 	out := make([]*access.Node, 0, len(parts))
 	for _, p := range parts {
 		*k++
+		num := *k
+		if p.Key != 0 {
+			if s.parts == nil {
+				s.parts = &keyedParts{at: map[int]int{}}
+			}
+			num = s.parts.number(p.Key)
+			s.parts.at[num] = *k
+		}
 		part := &access.Node{
 			Info:      p,
-			ID:        id | uint64(*k)<<partBits,
+			ID:        id | uint64(num)<<partBits,
 			Bounds:    windowRect(s.toWindow, p.Bounds),
 			Focusable: focusable,
 			Focused:   u.focus == s && active == *k,
@@ -167,6 +209,18 @@ func (u *UI) accessRequest(r access.Request) {
 		return
 	}
 	r.Part = int(r.ID>>partBits) - 1
+	if num := r.Part + 1; num >= keyedFrom {
+		// A keyed part: wherever it lies now, and nowhere once it has
+		// gone.
+		at, ok := 0, false
+		if s.parts != nil {
+			at, ok = s.parts.at[num]
+		}
+		if !ok {
+			return
+		}
+		r.Part = at - 1
+	}
 	if r.Focus {
 		u.Focus(s.node)
 	}

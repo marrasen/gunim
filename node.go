@@ -458,6 +458,9 @@ type state struct {
 	// aid is the node's ID for assistive technology, or 0 before it has
 	// one.
 	aid uint64
+	// parts numbers the node's keyed parts for assistive technology; see
+	// keyedParts.
+	parts *keyedParts
 	// aliases are the nodes the node embeds, which the index also maps to it.
 	aliases []Node
 }

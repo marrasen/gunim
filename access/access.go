@@ -126,6 +126,13 @@ type Info struct {
 	// Bounds is where a part lies, in its node's space. The engine
 	// finds a node's own bounds.
 	Bounds geom.Rect
+	// Key, set on a part, names what the part shows, such as a row's
+	// number, so a screen reader holding the part keeps it as the
+	// node's parts move: a request for it reaches the part with that Key
+	// wherever it is now, and none once it has gone, as a row scrolled
+	// away. A node's keyed parts have Keys apart. Zero names a part by
+	// its place among the node's parts.
+	Key uint64
 	// Active is the index of the part the node's focus is on, such as
 	// the highlighted item of an open menu, or -1 for none. The zero
 	// Info has none: it counts from 1, so set it to the index plus one.

@@ -12,7 +12,9 @@ import (
 
 // Access implements [gunim.Accessible]: a table of the rows in view, each
 // a row of cells, under a row of the columns' titles. The row the
-// keyboard is on is the active one.
+// keyboard is on is the active one. Rows and cells are keyed by the row
+// and column they show, so a screen reader holding one keeps it as the
+// grid scrolls.
 func (g *DataGrid) Access() access.Info {
 	info := access.Info{Role: access.RoleTable}
 	g.partRow, g.partCol = g.partRow[:0], g.partCol[:0]
@@ -47,7 +49,7 @@ func (g *DataGrid) Access() access.Info {
 	first := max(0, int(math.Floor(g.top)))
 	last := min(g.rows, int(math.Ceil(g.top+g.Visible())))
 	for i := first; i < last; i++ {
-		r := access.Info{Role: access.RoleRow, Bounds: geom.Rc(0, g.rowY(i), bodyW, g.rowH),
+		r := access.Info{Role: access.RoleRow, Key: cellKey(i, -1), Bounds: geom.Rc(0, g.rowY(i), bodyW, g.rowH),
 			Description: fmt.Sprintf("row %d of %d", i+1, g.rows), Actions: []string{access.ActionPress}}
 		if g.IsSelected(i) {
 			r.State = access.StateSelected
@@ -75,7 +77,7 @@ func (g *DataGrid) Access() access.Info {
 				names = append(names, text)
 			}
 			part(i, c)
-			r.Parts = append(r.Parts, access.Info{Role: access.RoleCell, Name: text,
+			r.Parts = append(r.Parts, access.Info{Role: access.RoleCell, Name: text, Key: cellKey(i, c),
 				Bounds: geom.Rc(g.xs[c][0]-g.left, g.rowY(i), g.xs[c][1], g.rowH)})
 		}
 		r.Name = strings.Join(names, ", ")
@@ -103,3 +105,7 @@ func (g *DataGrid) AccessAct(r access.Request, u *gunim.UI) bool {
 	}
 	return true
 }
+
+// cellKey is the access Key of row i's cell in column c, or of the row
+// itself with c -1.
+func cellKey(i, c int) uint64 { return uint64(i+1)<<16 | uint64(c+1) }
