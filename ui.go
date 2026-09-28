@@ -1304,9 +1304,6 @@ func (u *UI) Remove(n Node) {
 // out of the tree or under a popup's window.
 func (u *UI) Bounds(n Node) (geom.Rect, bool) {
 	s, ok := u.index[n]
-	if !ok {
-		u.stray("Bounds", n)
-	}
 	if !ok || s.drawn != u.seq || u.surfaceOf(s) != nil {
 		return geom.Rect{}, false
 	}

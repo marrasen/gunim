@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"sync"
-	"testing"
+	"sync/atomic"
 	"unsafe"
 )
 
@@ -74,10 +74,17 @@ func fieldsOf(t reflect.Type) []int {
 	return idx
 }
 
-// stray reports a call about a node that is not in the tree. Under test it panics, so the mistake shows where it
-// happens.
+// panicOnStrays is set by PanicOnStrays.
+var panicOnStrays atomic.Bool
+
+// PanicOnStrays makes Remove, Send and Focus with a node that is not in the tree panic, naming the call and the
+// node's type, so the mistake shows where it happens. Without it they do nothing. A test suite turns it on in its
+// TestMain; an application's own tests choose for themselves.
+func PanicOnStrays(on bool) { panicOnStrays.Store(on) }
+
+// stray reports a call about a node that is not in the tree, which panics with PanicOnStrays on.
 func (u *UI) stray(call string, n Node) {
-	if testing.Testing() {
+	if panicOnStrays.Load() {
 		panic(fmt.Sprintf("gunim: %s of a %T that is not in the tree", call, n))
 	}
 }

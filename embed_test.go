@@ -72,12 +72,17 @@ func TestInsertingAnEmbeddedNodeElsewherePanics(t *testing.T) {
 	w.ui.Insert(w.ui.Root(), outer.part)
 }
 
+// With PanicOnStrays on, as gunim's tests have it, acting on a node
+// that is not in the tree panics and names the call. Bounds is a
+// question, and answers false.
 func TestNamingANodeThatIsNotInTheTreePanicsUnderTest(t *testing.T) {
 	w := newTestWindow()
 	stray := &part{}
+	if _, ok := w.ui.Bounds(stray); ok {
+		t.Error("Bounds of a node not in the tree said it was drawn")
+	}
 	for name, call := range map[string]func(){
 		"Remove": func() { w.ui.Remove(stray) },
-		"Bounds": func() { w.ui.Bounds(stray) },
 		"Send":   func() { w.ui.Send(stray, nil) },
 		"Focus":  func() { w.ui.Focus(stray) },
 	} {
@@ -90,4 +95,16 @@ func TestNamingANodeThatIsNotInTheTreePanicsUnderTest(t *testing.T) {
 			call()
 		}()
 	}
+}
+
+// Without PanicOnStrays, as in an application's own tests, the same
+// calls do nothing.
+func TestAStrayIsQuietUnlessAsked(t *testing.T) {
+	PanicOnStrays(false)
+	defer PanicOnStrays(true)
+	w := newTestWindow()
+	stray := &part{}
+	w.ui.Remove(stray)
+	w.ui.Send(stray, nil)
+	w.ui.Focus(stray)
 }
