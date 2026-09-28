@@ -77,15 +77,18 @@ type Menubar struct {
 	// over is the title under the pointer, or -1.
 	over int
 
-	// list is a compact bar's list of the menus, in listPopup, and
-	// inMenu says the keys work the menu open beside it rather than
+	// list is a compact bar's list of the menus, on panel in listPopup,
+	// and inMenu says the keys work the menu open beside it rather than
 	// the list.
 	list      *Menu
+	panel     *barPanel
 	listPopup *gunim.Popup
 	inMenu    bool
-	// besideAt is where the menu beside the list was last put, in the
-	// list's space.
-	besideAt geom.Point
+	// keyed says the list's highlight is moving by a key, not the
+	// pointer, and wait cancels a menu waiting to open beside the list
+	// while the pointer heads for the one open.
+	keyed bool
+	wait  func()
 
 	titles   []shapedText
 	titleRun shapedText
@@ -132,13 +135,9 @@ func (b *Menubar) Open(i int, u *gunim.UI) {
 		b.inMenu = true
 		return
 	}
-	b.shut()
+	b.shut(u)
 	b.open = i
-	m := b.Menus[i]
-	menu := NewMenu(m.Items...)
-	menu.Hints, menu.Checked, menu.Disabled, menu.Breaks, menu.Captions = m.Hints, m.Checked, m.Disabled, m.Breaks, m.Captions
-	menu.Icons = m.Icons
-	menu.MinWidth = 180
+	menu := b.newMenu(i)
 	menu.OnHighlight = func(item int, u *gunim.UI) { b.highlight(i, item, u) }
 	menu.Pick = func(item int, u *gunim.UI) {
 		b.Close(u)
@@ -159,6 +158,21 @@ func (b *Menubar) Open(i int, u *gunim.UI) {
 	u.Invalidate()
 }
 
+// newMenu makes menu i's [Menu].
+func (b *Menubar) newMenu(i int) *Menu {
+	m := NewMenu()
+	b.fill(m, i)
+	m.MinWidth = 180
+	return m
+}
+
+// fill gives m menu i's items and what the bar says about them.
+func (b *Menubar) fill(m *Menu, i int) {
+	bm := b.Menus[i]
+	m.Items, m.Hints, m.Checked, m.Disabled, m.Breaks, m.Captions = bm.Items, bm.Hints, bm.Checked, bm.Disabled, bm.Breaks, bm.Captions
+	m.Icons = bm.Icons
+}
+
 // showList opens a compact bar's list of its menus, with none open
 // beside it, and takes the keyboard.
 func (b *Menubar) showList(u *gunim.UI) {
@@ -175,10 +189,23 @@ func (b *Menubar) showList(u *gunim.UI) {
 	}
 	list.MinWidth = 160
 	list.OnHighlight = func(i int, u *gunim.UI) {
-		if i >= 0 && i != b.open {
-			b.inMenu = false
-			b.openBeside(i, u)
+		b.stopWaiting()
+		if i < 0 || i == b.open {
+			return
 		}
+		if !b.keyed && b.aiming() {
+			// Crossing lines on the way to the menu open: it stays, unless the pointer rests
+			b.wait = u.After(menuAimWait, func(u *gunim.UI) {
+				b.wait = nil
+				if b.list != nil && b.list.Highlighted() == i && i != b.open {
+					b.inMenu = false
+					b.openBeside(i, u)
+				}
+			})
+			return
+		}
+		b.inMenu = false
+		b.openBeside(i, u)
 	}
 	list.Pick = func(i int, u *gunim.UI) {
 		if i != b.open {
@@ -187,8 +214,9 @@ func (b *Menubar) showList(u *gunim.UI) {
 		b.enterMenu(u)
 	}
 	b.list = list
+	b.panel = newBarPanel(b, list)
 	span := b.span(0)
-	b.listPopup = u.OpenPopup(b, list, gunim.PopupOptions{
+	b.listPopup = u.OpenPopup(b, b.panel, gunim.PopupOptions{
 		Anchor:  geom.Rect{Min: geom.Pt(span[0], 0), Max: geom.Pt(span[1], MenubarHeight.Get(u.Theme()))},
 		Max:     geom.Sz(600, 800),
 		Dismiss: b.Close,
@@ -198,19 +226,48 @@ func (b *Menubar) showList(u *gunim.UI) {
 	u.Invalidate()
 }
 
-// openBeside opens menu i beside its line on a compact bar's list.
+// menuAimWait is how long the pointer rests on a line of a compact bar's list, while it heads for the menu open
+// beside the list, before that line's menu opens.
+const menuAimWait = 120 * time.Millisecond
+
+// aiming reports whether the pointer's last move on a compact bar's list headed for the menu open beside it: into
+// the wedge from where it was to the near edge of the menu's card.
+func (b *Menubar) aiming() bool {
+	if b.menu == nil || b.panel == nil {
+		return false
+	}
+	from, to := b.list.wasPointer, b.list.pointer
+	card := b.panel.sideCard()
+	if card.Empty() || to.X <= from.X || to.X >= card.Min.X {
+		return false
+	}
+	// The pointer's slope stays within the wedge's, from where it was to the card's near corners
+	slope := (to.Y - from.Y) / (to.X - from.X)
+	top := (card.Min.Y - from.Y) / (card.Min.X - from.X)
+	bottom := (card.Max.Y - from.Y) / (card.Min.X - from.X)
+	return slope >= top && slope <= bottom
+}
+
+// stopWaiting cancels a menu waiting to open beside a compact bar's list.
+func (b *Menubar) stopWaiting() {
+	if b.wait != nil {
+		b.wait()
+		b.wait = nil
+	}
+}
+
+// openBeside opens menu i beside its line on a compact bar's list: on the card beside the list, where the menu open
+// before fades out as it fades in.
 func (b *Menubar) openBeside(i int, u *gunim.UI) {
-	b.shut()
+	b.shut(u)
 	b.open, b.inMenu = i, false
-	m := b.Menus[i]
-	menu := NewMenu(m.Items...)
-	menu.Hints, menu.Checked, menu.Disabled, menu.Breaks, menu.Captions = m.Hints, m.Checked, m.Disabled, m.Breaks, m.Captions
-	menu.Icons = m.Icons
-	menu.MinWidth = 180
+	menu := b.newMenu(i)
+	menu.bare = true
 	menu.OnHighlight = func(item int, u *gunim.UI) {
 		if item >= 0 {
-			// The pointer on the menu: the keys follow it there.
+			// The pointer on the menu: the keys follow it there, and the list keeps its line lit.
 			b.inMenu = true
+			b.list.Highlight(i)
 		}
 		b.highlight(i, item, u)
 	}
@@ -221,38 +278,9 @@ func (b *Menubar) openBeside(i int, u *gunim.UI) {
 		}
 	}
 	b.menu = menu
-	at := b.beside(i)
-	b.besideAt = at
-	b.popup = u.OpenPopup(b.list, menu, gunim.PopupOptions{
-		Anchor:  geom.Rect{Min: at, Max: at},
-		Max:     geom.Sz(600, 800),
-		Dismiss: b.Close,
-	})
+	u.Insert(b.panel, menu)
 	b.highlight(i, -1, u)
 	u.Invalidate()
-}
-
-// beside is where menu i opens beside a compact bar's list, in the
-// list's space: its first line level with the list's line i. The list's
-// margin and padding stand in for the menu's, which has yet to lay out.
-func (b *Menubar) beside(i int) geom.Point {
-	row, first := b.list.RowRect(i), b.list.RowRect(0)
-	return geom.Pt(row.Max.X+first.Min.X, row.Min.Y-first.Min.Y)
-}
-
-// Step implements [gunim.Animator]. A menu opened beside a compact
-// bar's list before the list had laid out, as from the keyboard, moves
-// beside its line once the list has.
-func (b *Menubar) Step(dt time.Duration) bool {
-	moving := b.Group.Step(dt)
-	if b.Compact && b.popup != nil && b.list != nil && b.open >= 0 {
-		if at := b.beside(b.open); at != b.besideAt {
-			b.besideAt = at
-			b.popup.Move(geom.Rect{Min: at, Max: at})
-			moving = true
-		}
-	}
-	return moving
 }
 
 // enterMenu has the keys work the menu open beside a compact bar's
@@ -281,10 +309,11 @@ func (b *Menubar) Close(u *gunim.UI) {
 	if !b.IsOpen() {
 		return
 	}
-	b.shut()
+	b.shut(u)
+	b.stopWaiting()
 	if b.listPopup != nil {
 		b.listPopup.Close()
-		b.listPopup, b.list = nil, nil
+		b.listPopup, b.list, b.panel = nil, nil, nil
 	}
 	b.open, b.inMenu = -1, false
 	b.highlight(-1, -1, u)
@@ -296,11 +325,16 @@ func (b *Menubar) Close(u *gunim.UI) {
 	u.Invalidate()
 }
 
-func (b *Menubar) shut() {
+// shut closes the open menu: its popup, or on a compact bar, the menu beside the list, which fades from the card.
+func (b *Menubar) shut(u *gunim.UI) {
 	if b.popup != nil {
 		b.popup.Close()
-		b.popup, b.menu = nil, nil
+		b.popup = nil
 	}
+	if b.menu != nil && b.Compact {
+		u.Remove(b.menu)
+	}
+	b.menu = nil
 }
 
 func (b *Menubar) span(i int) [2]float32 {
@@ -444,15 +478,15 @@ func (b *Menubar) compactKey(k input.KeyPress, u *gunim.UI) bool {
 	if !b.IsOpen() {
 		return false
 	}
-	switch k.Key {
-	case input.KeyEscape, input.KeyF10:
+	if k.Key == input.KeyEscape || k.Key == input.KeyF10 {
 		b.Close(u)
 		return true
-	case input.KeyTab:
+	}
+	if k.Key == input.KeyTab {
 		b.Close(u)
 		return false
 	}
-	used := false
+	var used bool
 	switch {
 	case b.inMenu && k.Key == input.KeyLeft:
 		// Back out to the list, the menu left open beside it.
@@ -469,7 +503,9 @@ func (b *Menubar) compactKey(k input.KeyPress, u *gunim.UI) bool {
 	case k.Key == input.KeyLeft:
 		used = true
 	default:
+		b.keyed = true
 		used = b.list != nil && b.list.Key(k, u)
+		b.keyed = false
 	}
 	if used {
 		u.Invalidate()

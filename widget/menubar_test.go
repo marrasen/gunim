@@ -279,10 +279,10 @@ func TestOpeningACompactMenubarsMenuPutsTheKeysInIt(t *testing.T) {
 	if b.open != 1 || !b.inMenu {
 		t.Fatalf("F10 left menu %d open, the keys in it %v", b.open, b.inMenu)
 	}
-	// Opened before the list had laid out, the menu moves beside it.
+	// Opened before the list had laid out, the menu goes beside its line once it has.
 	run(3)
-	if row := b.list.RowRect(1); b.besideAt.X < row.Max.X || b.besideAt.Y > row.Min.Y {
-		t.Fatalf("Edit's menu is at %v, want beside its line, %v", b.besideAt, row)
+	if card, row := b.panel.sideCard(), b.list.RowRect(1); card.Min.X < row.Max.X || card.Min.Y > row.Min.Y {
+		t.Fatalf("Edit's menu is on a card at %v, want beside its line, %v", card, row)
 	}
 	// Edit's Copy is disabled: Down comes to Paste.
 	w.Input(input.KeyPress{Key: input.KeyDown})
@@ -290,5 +290,95 @@ func TestOpeningACompactMenubarsMenuPutsTheKeysInIt(t *testing.T) {
 	run(20)
 	if len(picks) != 1 || picks[0] != (barPick{1, 1}) {
 		t.Fatalf("picked %v, want Edit's Paste", picks)
+	}
+}
+
+// openCompactList opens a compact bar's list on a stage whose popups show what is behind them, so menus leave a
+// margin for their shadow.
+func openCompactList(t *testing.T) (b *Menubar, run func(int), move func(at geom.Point)) {
+	t.Helper()
+	w, b, _, _, run := newCompactStage(t)
+	s := b.span(0)
+	clickAt(w, run, geom.Pt((s[0]+s[1])/2, 15))
+	run(2)
+	if b.listPopup.Offscreen() == nil {
+		t.Fatal("the list has no window")
+	}
+	list := b.listPopup
+	move = func(at geom.Point) {
+		list.Input(input.PointerMove{Pos: at, Time: time.Now()})
+		run(1)
+	}
+	return b, run, move
+}
+
+// middle is the middle of r.
+func middle(r geom.Rect) geom.Point { return r.Center() }
+
+func TestACompactMenubarsMenuSitsLevelWithItsLineAgainstTheList(t *testing.T) {
+	b, run, move := openCompactList(t)
+	if b.list.margin <= 0 {
+		t.Fatalf("the list leaves a margin of %v, want room for a shadow", b.list.margin)
+	}
+	for i := range b.Menus {
+		move(middle(b.list.RowRect(i)))
+		run(40)
+		card := b.panel.sideCard()
+		first := card.Min.Y + b.menu.RowRect(0).Min.Y
+		if row := b.list.RowRect(i); first < row.Min.Y-1 || first > row.Min.Y+1 {
+			t.Fatalf("menu %d's first line is at %v, want level with its line on the list, at %v", i, first, row.Min.Y)
+		}
+		if card.Min.X != b.list.card.Max.X {
+			t.Fatalf("menu %d's card starts at %v, want against the list's, which ends at %v", i, card.Min.X, b.list.card.Max.X)
+		}
+	}
+}
+
+func TestMovingAlongACompactMenubarsListOpensNoWindow(t *testing.T) {
+	b, run, move := openCompactList(t)
+	list := b.listPopup
+	for i := range b.Menus {
+		move(middle(b.list.RowRect(i)))
+		if b.open != i || b.popup != nil || b.listPopup != list {
+			t.Fatalf("on line %d, menu %d is open, in a popup of its own %v, the list in the same one %v",
+				i, b.open, b.popup != nil, b.listPopup == list)
+		}
+	}
+	// The window is kept at its largest from the start, so it does not grow as the menus change
+	size := list.Offscreen().Size()
+	for i := range b.Menus {
+		move(middle(b.list.RowRect(i)))
+		run(20)
+		if got := list.Offscreen().Size(); got != size {
+			t.Fatalf("on line %d, the list's window is %v, where it was %v", i, got, size)
+		}
+	}
+}
+
+func TestHeadingForAnOpenMenuCrossesLinesWithoutOpeningTheirs(t *testing.T) {
+	b, run, move := openCompactList(t)
+	move(middle(b.list.RowRect(0)))
+	run(20)
+	if b.open != 0 {
+		t.Fatalf("resting on File opened menu %d", b.open)
+	}
+	// From File's line, down and to the right toward File's menu, over Edit's line
+	card := b.panel.sideCard()
+	from := geom.Pt(b.list.RowRect(0).Center().X, b.list.RowRect(0).Max.Y-2)
+	to := geom.Pt(card.Min.X-2, b.list.RowRect(1).Center().Y)
+	move(from)
+	move(to)
+	if b.list.Highlighted() != 1 || b.open != 0 {
+		t.Fatalf("heading for File's menu over Edit's line opened menu %d, with line %d lit", b.open, b.list.Highlighted())
+	}
+	// Resting there opens Edit's menu after all
+	run(15)
+	if b.open != 1 {
+		t.Fatalf("resting on Edit's line left menu %d open", b.open)
+	}
+	// Moving straight down opens the next line's menu at once
+	move(middle(b.list.RowRect(2)))
+	if b.open != 2 {
+		t.Fatalf("moving straight down to View left menu %d open", b.open)
 	}
 }

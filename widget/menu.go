@@ -66,6 +66,11 @@ type Menu struct {
 	margin      float32
 	row, pad    float32
 	transparent bool
+	// bare draws only the highlight and the rows, fading, for a card drawn round them by something else: the menu
+	// beside a compact menubar's list.
+	bare bool
+	// pointer and wasPointer are where the pointer last moved on the menu, and where it was the move before.
+	pointer, wasPointer geom.Point
 }
 
 // NewMenu returns a menu of items, with nothing highlighted.
@@ -177,6 +182,7 @@ func (m *Menu) Handle(e input.Event, u *gunim.UI) bool {
 		// under it, leaves the highlight where the keys put it. A move
 		// follows any real arrival.
 	case input.PointerMove:
+		m.wasPointer, m.pointer = m.pointer, e.Pos
 		if i := m.rowAt(e.Pos); i >= 0 {
 			m.Highlight(i)
 		}
@@ -238,7 +244,7 @@ func (m *Menu) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom
 	th := f.Theme
 	m.transparent = f.Transparent
 	m.margin = 0
-	if f.Transparent {
+	if f.Transparent && !m.bare {
 		m.margin = MenuMargin.Get(th)
 	}
 	m.row, m.pad = MenuRowHeight.Get(th), MenuPadding.Get(th)
@@ -278,7 +284,13 @@ func (m *Menu) Paint(p *paint.Painter, f gunim.Frame, _ geom.Size, _ gunim.Child
 	card := m.card
 	radius := MenuRadius.Get(th)
 	t := m.in.Value()
-	if m.transparent {
+	switch {
+	case m.bare:
+		defer p.Layer(paint.LayerOpts{Bounds: card, Opacity: min(1, max(0, t))})()
+		if !m.transparent {
+			radius = 0
+		}
+	case m.transparent:
 		// Fade in and unfold from the top edge, which is the edge that
 		// meets the anchor when the menu opens below it.
 		defer p.Layer(paint.LayerOpts{Bounds: geom.Rect{Max: card.Max.Add(geom.Pt(m.margin, m.margin))}, Opacity: min(1, max(0, t))})()
@@ -290,11 +302,12 @@ func (m *Menu) Paint(p *paint.Painter, f gunim.Frame, _ geom.Size, _ gunim.Child
 			Blur:   m.margin * 0.6,
 			Color:  shadow,
 		})
-	} else {
+		p.RRectStroke(card, radius, paint.Fill{}, paint.Stroke{Width: 1, Color: MenuBorder.Get(th)})
+	default:
 		radius = 0
 		p.RRect(card, 0, paint.Solid(MenuFill.Get(th)))
+		p.RRectStroke(card, radius, paint.Fill{}, paint.Stroke{Width: 1, Color: MenuBorder.Get(th)})
 	}
-	p.RRectStroke(card, radius, paint.Fill{}, paint.Stroke{Width: 1, Color: MenuBorder.Get(th)})
 
 	if on := m.hotOn.Value(); on > 0.01 {
 		c := MenuHot.Get(th)
