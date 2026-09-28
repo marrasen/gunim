@@ -7,6 +7,7 @@ import (
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/theme"
@@ -436,6 +437,8 @@ func (s *Slider) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 type Tabs struct {
 	anim.Group
 	Titles []string
+	// Icons shows an icon before each title, in the title's colour, and may be shorter than Titles.
+	Icons []*icon.Icon
 	// Disabled lists the tabs that cannot be chosen now, in order, and may
 	// be shorter than Titles. They are drawn faint.
 	Disabled []bool
@@ -507,6 +510,22 @@ func (t *Tabs) choose(i int, u *gunim.UI) {
 	}
 }
 
+// icon returns tab i's icon, or nil.
+func (t *Tabs) icon(i int) *icon.Icon {
+	if i < 0 || i >= len(t.Icons) {
+		return nil
+	}
+	return t.Icons[i]
+}
+
+// iconRoom is the room tab i's icon takes before its title, with the gap.
+func (t *Tabs) iconRoom(i int, th *theme.Live) float32 {
+	if t.icon(i) == nil {
+		return 0
+	}
+	return IconSize.Get(th) + IconGap.Get(th)
+}
+
 // tabBar is the row of titles.
 type tabBar struct{ t *Tabs }
 
@@ -560,7 +579,7 @@ func (b *tabBar) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) ge
 	t.spans = t.spans[:0]
 	x := float32(0)
 	for i, s := range t.Titles {
-		w := t.shaped[i].shape(faceIn(Font, th), s, TextSize.Get(th)).Advance + 2*pad
+		w := t.shaped[i].shape(faceIn(Font, th), s, TextSize.Get(th)).Advance + 2*pad + t.iconRoom(i, th)
 		t.spans = append(t.spans, [2]float32{x, x + w})
 		x += w
 	}
@@ -595,7 +614,12 @@ func (b *tabBar) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 		case i == t.selected:
 			ink = Ink.Get(th)
 		}
-		run.Paint(p, geom.Pt(t.spans[i][0]+pad, (t.head-run.Height())/2), ink)
+		x := t.spans[i][0] + pad
+		if ic := t.icon(i); ic != nil {
+			s := IconSize.Get(th)
+			paintIcon(p, th, ic, geom.Rc(x, (t.head-s)/2, s, s), ink, 1)
+		}
+		run.Paint(p, geom.Pt(x+t.iconRoom(i, th), (t.head-run.Height())/2), ink)
 	}
 	p.RRect(geom.Rc(0, t.head-1, box.W, 1), 0, paint.Solid(FieldBorder.Get(th)))
 	line := t.line.Value()
