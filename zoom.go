@@ -56,6 +56,10 @@ func (u *UI) SetZoom(z float32) {
 	if z == u.zoom {
 		return
 	}
+	// The pointer stays where it is on the screen, and its point in the
+	// window's logical pixels shrinks as the zoom grows. Taken so at
+	// once, the frame that lays the zoom out finds what is under it.
+	u.pointer = u.pointer.Mul(u.zoom / z)
 	u.zoom = z
 	setZoom(u.w.dw, z)
 	u.Invalidate()

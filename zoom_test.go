@@ -224,3 +224,28 @@ func TestCtrlShiftZeroLeavesTheZoom(t *testing.T) {
 		t.Fatalf("Ctrl+Shift+0 set the zoom to %v, want it left at 1.25", w.ui.Zoom())
 	}
 }
+
+// After a zoom, hover is on what lies under the resting pointer at the
+// new zoom, in the frame that lays it out, with no move of the pointer.
+func TestHoverAfterAZoomIsOnWhatIsUnderThePointer(t *testing.T) {
+	w := newTestWindow()
+	s := &swapped{}
+	a := &sized{recorder: &recorder{}, size: geom.Sz(100, 100)}
+	b := &sized{recorder: &recorder{}, size: geom.Sz(100, 100)}
+	w.ui.Insert(w.ui.Root(), s)
+	w.ui.Insert(s, a)
+	w.ui.Insert(s, b)
+	run(w, 1)
+	// Over b, the right one, at zoom 1.
+	w.Input(input.PointerMove{Pos: geom.Pt(150, 50), Time: time.Now()})
+	run(w, 1)
+	if !b.got(input.PointerEnter{}) {
+		t.Fatal("the node under the pointer heard no PointerEnter")
+	}
+	// At zoom 2 the same point on the screen is at 75, over a.
+	w.ui.SetZoom(2)
+	run(w, 1)
+	if !a.got(input.PointerEnter{}) || !b.got(input.PointerLeave{}) {
+		t.Fatal("after the zoom, hover stayed on the node that was under the pointer before it")
+	}
+}
