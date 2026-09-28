@@ -362,3 +362,32 @@ func TestAPointFindsTheRowDrawnThereWhileRowsLeave(t *testing.T) {
 		t.Fatalf("a point in the room the leaving rows still take finds row %d", got)
 	}
 }
+
+// The last row, drawn lower while a row above it leaves, is found at
+// the point it is drawn, below where the rows end once settled.
+func TestTheLastRowIsFoundWhileARowAboveItLeaves(t *testing.T) {
+	names := []string{"0", "1", "2", "3", "4", "5"}
+	shown := names
+	g := NewDataGrid(GridColumn{Title: "Name"})
+	g.Row = func(i int) (GridRow, bool) { return GridRow{Cells: [][]GridSpan{{{Text: shown[i]}}}}, true }
+	g.rows = len(names)
+	w, run := stage(t, &frame{child: g, size: geom.Sz(400, 300)})
+	type leave struct{}
+	gunim.RegisterPatch(w, "stage", func(_ gunim.Node, _ leave, u *gunim.UI) {
+		g.Leave([]int{2}, u)
+		shown = slices.Concat(names[:2], names[3:])
+		g.SetRows(len(shown), u)
+	})
+	if err := w.Client().Patch("stage", leave{}); err != nil {
+		t.Fatal(err)
+	}
+	run(6)
+	last := g.rows - 1
+	drawn := g.rowY(last)
+	if end := g.header + float32(g.rows)*g.rowH; drawn+g.rowH-1 < end {
+		t.Fatalf("100 ms in, the last row's foot is at %v, want it below %v, where the rows end", drawn+g.rowH-1, end)
+	}
+	if got := g.rowAtY(drawn + g.rowH - 1); got != last {
+		t.Fatalf("a point near the foot of the last row, drawn at %v, finds row %d, want %d", drawn, got, last)
+	}
+}

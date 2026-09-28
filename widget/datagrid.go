@@ -985,15 +985,20 @@ func (g *DataGrid) rowAtY(y float32) int {
 		return -1
 	}
 	i := int(math.Floor(g.top + float64((y-g.header)/g.rowH)))
-	if i < 0 || i >= g.rows {
-		return -1
-	}
 	if len(g.gone) == 0 {
+		if i < 0 || i >= g.rows {
+			return -1
+		}
 		return i
 	}
 	// While rows leave, the rows below them are drawn lower, by what has
-	// yet to shut: the row drawn at y is this one or one above it. Where
-	// y falls in the room a leaving row still takes, no row is there.
+	// yet to shut: the row drawn at y is this one or one above it, and
+	// may be the last row, drawn below where the rows end. Where y falls
+	// in the room a leaving row still takes, no row is there.
+	i = min(i, g.rows-1)
+	if i < 0 {
+		return -1
+	}
 	for i > 0 && g.rowY(i) > y {
 		i--
 	}
