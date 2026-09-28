@@ -1,12 +1,16 @@
 package widget
 
 import (
+	"image/color"
+
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/text"
+	"github.com/marrasen/gunim/theme"
 )
 
 // Dialog is a modal panel that fades, scales and blurs its way in and
@@ -22,6 +26,9 @@ type Dialog struct {
 	anim.Group
 
 	Title string
+	// Icon shows before the title, in the ink, or in [DialogDangerInk] for a danger dialog. A danger dialog
+	// without one shows icon.TriangleAlert.
+	Icon *icon.Icon
 	// Accept is the intent sent when the user confirms, and Dismiss the
 	// one sent when they back out. Both travel as data.
 	//
@@ -291,7 +298,7 @@ func (d *Dialog) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children)
 	var bs, ps geom.Size
 	if hasBody {
 		body, problem = kids.At(0), kids.At(1)
-		title := d.titleText.layout(faceIn(Font, th), d.Title, text.Style{Size: DialogTitleSize.Get(th), MaxLines: 2}, width-2*pad)
+		title := d.title(th, width)
 		bs = body.Layout(gunim.Constraints{Max: geom.Sz(width-2*pad, 0)})
 		ps = problem.Layout(gunim.Constraints{Max: geom.Sz(width-2*pad, 0)})
 		extra := float32(0)
@@ -302,7 +309,7 @@ func (d *Dialog) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children)
 	}
 	panel := d.panel(size, f)
 	if hasBody {
-		title := d.titleText.layout(faceIn(Font, th), d.Title, text.Style{Size: DialogTitleSize.Get(th), MaxLines: 2}, width-2*pad)
+		title := d.title(th, width)
 		at := panel.Min.Add(geom.Pt(pad, pad+title.Size.H+pad))
 		body.Place(at)
 		problem.Place(at.Add(geom.Pt(0, bs.H+pad/2)))
@@ -388,11 +395,40 @@ func (d *Dialog) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids guni
 		Color:  shadow,
 	})
 	p.RRectStroke(panel, radius, paint.Fill{}, paint.Stroke{Width: 1, Color: DialogBorder.Get(th)})
-	style := text.Style{Size: DialogTitleSize.Get(th), MaxLines: 2}
-	title := d.titleText.layout(faceIn(Font, th), d.Title, style, panel.Size().W-2*pad)
-	title.Paint(p, panel.Min.Add(geom.Pt(pad, pad)), Ink.Get(th))
+	title := d.title(th, panel.Size().W)
+	if ic, ink := d.mark(); ic != nil {
+		s := IconSize.Get(th)
+		paintIcon(p, th, ic, geom.Rc(panel.Min.X+pad, panel.Min.Y+pad+(title.LineHeight-s)/2, s, s), ink.Get(th), 1)
+	}
+	title.Paint(p, panel.Min.Add(geom.Pt(pad+d.iconRoom(th), pad)), Ink.Get(th))
 
 	for kid := range kids.All {
 		kid.Paint(p)
 	}
+}
+
+// mark returns the icon before the title and its colour, or nil.
+func (d *Dialog) mark() (*icon.Icon, theme.Token[color.NRGBA]) {
+	ic, ink := d.Icon, Ink
+	if d.Danger {
+		ink = DialogDangerInk
+		if ic == nil {
+			ic = icon.TriangleAlert
+		}
+	}
+	return ic, ink
+}
+
+// iconRoom is the room the icon takes before the title, with its gap.
+func (d *Dialog) iconRoom(th *theme.Live) float32 {
+	if ic, _ := d.mark(); ic == nil {
+		return 0
+	}
+	return IconSize.Get(th) + IconGap.Get(th)
+}
+
+// title lays the title out for a panel width wide, after the icon.
+func (d *Dialog) title(th *theme.Live, width float32) text.Paragraph {
+	style := text.Style{Size: DialogTitleSize.Get(th), MaxLines: 2}
+	return d.titleText.layout(faceIn(Font, th), d.Title, style, width-2*DialogPadding.Get(th)-d.iconRoom(th))
 }

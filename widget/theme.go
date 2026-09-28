@@ -60,7 +60,9 @@ var (
 	DialogShadow = theme.Color("dialog.shadow", color.NRGBA{A: 0x80})
 	Scrim        = theme.Color("dialog.scrim", color.NRGBA{A: 0x99})
 	// DialogProblem colours what stands in the way of confirming a dialog.
-	DialogProblem   = theme.Color("dialog.problem", color.NRGBA{R: 0xff, G: 0x8a, B: 0x80, A: 0xff})
+	DialogProblem = theme.Color("dialog.problem", color.NRGBA{R: 0xff, G: 0x8a, B: 0x80, A: 0xff})
+	// DialogDangerInk colours the icon of a danger dialog.
+	DialogDangerInk = theme.Color("dialog.danger", color.NRGBA{R: 0xe5, G: 0x5a, B: 0x52, A: 0xff})
 	DialogRadius    = theme.Length("dialog.radius", 14)
 	DialogPadding   = theme.Length("dialog.padding", 20)
 	DialogTitleSize = theme.Length("dialog.title.size", 17)
