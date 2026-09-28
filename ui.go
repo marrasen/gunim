@@ -910,13 +910,17 @@ type UI struct {
 	// locals holds what Local stores.
 	locals map[any]any
 	// pointer is where the pointer was last in the window. drag is the
-	// drag the pointer carries from here, dragFrom the node a drag that
-	// has been let go started at, until its end is known, and dragAt
-	// the node taking a drag over this window.
-	pointer  geom.Point
-	drag     *drag
-	dragFrom *state
-	dragAt   *state
+	// drag the pointer carries from here, and dragAt the node taking a
+	// drag over this window.
+	pointer geom.Point
+	drag    *drag
+	dragAt  *state
+	// drops are the drags let go from here whose end is still to be
+	// heard, by number, and dropSeq the last number given. dragOutDrop
+	// is the drop handed to other programs, whose end the platform says.
+	drops       map[uint64]pendingDrop
+	dropSeq     uint64
+	dragOutDrop uint64
 	// dragOver is set while a drag is over this window, at dragOverAt,
 	// carrying dragOverData with dragOverMods held, from the window
 	// dragOverFrom.
@@ -929,9 +933,6 @@ type UI struct {
 	// DragOver, and dragAnswered the answer last sent back.
 	dragAnswer   any
 	dragAnswered any
-	// dragGhost is the picture of a drag let go, until its end is
-	// known.
-	dragGhost *Popup
 	// aids counts the IDs given to nodes for assistive technology, and
 	// byAID finds a node by its ID, for each tree published, the
 	// window's and each popup's, keyed by the tree's root, as of the

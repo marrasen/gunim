@@ -130,7 +130,9 @@ const (
 	dragAnswer
 )
 
-// dragMsg is one step of a drag, sent from one window to another.
+// dragMsg is one step of a drag, sent from one window to another. drop
+// numbers a drop, and its end carries the number back, so the end
+// reaches the drag it is for.
 type dragMsg struct {
 	kind  dragKind
 	at    geom.Point
@@ -138,6 +140,14 @@ type dragMsg struct {
 	mods  input.Mods
 	from  *Window
 	taken bool
+	drop  uint64
+}
+
+// pendingDrop is a drag let go whose end is still to be heard: the node
+// it started from, and the picture it carried, until it closes.
+type pendingDrop struct {
+	from  *state
+	ghost *Popup
 }
 
 // drag is the drag a window's pointer is carrying.
@@ -182,7 +192,6 @@ func (u *UI) StartDrag(n Node, data any, ghost Node, grab geom.Point) {
 	if !ok {
 		panic("gunim: StartDrag from a node that is not in the tree")
 	}
-	u.dropGhost(false)
 	d := &drag{source: s, data: data, grab: grab}
 	if ghost != nil {
 		// The root opens the picture, so it stays while the source leaves
@@ -291,8 +300,7 @@ func (u *UI) cancelDrag() {
 	if d.over != nil {
 		u.w.sendDrag(d.over, dragMsg{kind: dragLeave})
 	}
-	u.dragFrom, u.dragGhost = d.source, d.ghost
-	u.dragEnded(false)
+	u.endDrop(u.holdDrop(d.source, d.ghost), false)
 }
 
 // leaving reports whether a drag at the screen point at, outside every
@@ -325,9 +333,10 @@ func (u *UI) dragOut(d *drag) bool {
 		u.closePopupNow(d.ghost.s)
 	}
 	u.drag = nil
-	u.dragFrom = d.source
+	u.dragOutDrop = u.holdDrop(d.source, nil)
 	if err := do.DragOut(paths); err != nil {
-		u.dragEnded(false)
+		u.endDrop(u.dragOutDrop, false)
+		u.dragOutDrop = 0
 	}
 	return true
 }
@@ -343,38 +352,55 @@ func (u *UI) dragDrop(p geom.Point) {
 		return
 	}
 	u.drag = nil
-	u.dragFrom, u.dragGhost = d.source, d.ghost
+	id := u.holdDrop(d.source, d.ghost)
 	if d.over == nil {
-		u.dragEnded(false)
+		u.endDrop(id, false)
 		return
 	}
-	if ghost := d.ghost; ghost != nil {
+	if d.ghost != nil {
+		// The picture waits so long for the answer, and then goes; the
+		// node still hears the end when it comes.
 		u.After(ghostWait, func(u *UI) {
-			if u.dragGhost == ghost {
-				u.dropGhost(false)
+			if p, ok := u.drops[id]; ok && p.ghost != nil {
+				u.dropGhost(p.ghost, false)
+				p.ghost = nil
+				u.drops[id] = p
 			}
 		})
 	}
-	u.w.sendDrag(d.over, dragMsg{kind: dragDrop, at: toScreen(u.w, p), data: d.data, mods: d.mods, from: u.w})
+	u.w.sendDrag(d.over, dragMsg{kind: dragDrop, at: toScreen(u.w, p), data: d.data, mods: d.mods, from: u.w, drop: id})
 }
 
-// dragEnded tells the node the drag started from how it ended, and the
-// picture the drag carried, which then leaves.
-func (u *UI) dragEnded(taken bool) {
-	s := u.dragFrom
-	u.dragFrom = nil
-	if s != nil && s.parent != nil {
-		u.deliver(s, input.DragEnd{Taken: taken, Time: time.Now()})
+// holdDrop keeps a drag let go until its end is heard, and returns its
+// number.
+func (u *UI) holdDrop(from *state, ghost *Popup) uint64 {
+	if u.drops == nil {
+		u.drops = map[uint64]pendingDrop{}
 	}
-	u.dropGhost(taken)
+	u.dropSeq++
+	u.drops[u.dropSeq] = pendingDrop{from: from, ghost: ghost}
+	return u.dropSeq
+}
+
+// endDrop tells the node drop id started from how it ended, and the
+// picture it carried, which then leaves. An end heard twice, or for a
+// drop unknown here, does nothing.
+func (u *UI) endDrop(id uint64, taken bool) {
+	p, ok := u.drops[id]
+	if !ok {
+		return
+	}
+	delete(u.drops, id)
+	if p.from != nil && p.from.parent != nil {
+		u.deliver(p.from, input.DragEnd{Taken: taken, Time: time.Now()})
+	}
+	u.dropGhost(p.ghost, taken)
 	u.invalid = true
 }
 
-// dropGhost tells the picture a drag let go of how the drag ended, and
+// dropGhost tells a picture a drag let go of how the drag ended, and
 // closes it.
-func (u *UI) dropGhost(taken bool) {
-	g := u.dragGhost
-	u.dragGhost = nil
+func (u *UI) dropGhost(g *Popup, taken bool) {
 	if g == nil || !g.Open() {
 		return
 	}
@@ -394,7 +420,7 @@ func (w *Window) sendDrag(to *Window, m dragMsg) {
 		// A window too busy to take a drag step misses it; the next
 		// move sends another.
 		if m.kind == dragDrop {
-			w.ui.dragEnded(false)
+			w.ui.endDrop(m.drop, false)
 		}
 	}
 }
@@ -451,12 +477,12 @@ func (u *UI) dragMsg(m dragMsg) {
 			u.deliver(u.dragAt, input.DragLeave{Time: now})
 		}
 		u.dragAt = nil
-		reply := dragMsg{kind: dragEnded, taken: took != nil}
+		reply := dragMsg{kind: dragEnded, taken: took != nil, drop: m.drop}
 		if m.from != nil {
 			u.w.sendDrag(m.from, reply)
 		}
 	case dragEnded:
-		u.dragEnded(m.taken)
+		u.endDrop(m.drop, m.taken)
 	case dragAnswer:
 		if d := u.drag; d != nil && d.over == m.from {
 			u.toGhost(d.ghost, input.DragAnswer{Answer: m.data, Time: now})

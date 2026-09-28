@@ -421,3 +421,43 @@ func TestThePictureOfADragOutlivesItsSource(t *testing.T) {
 		t.Fatal("the picture stayed after the drag ended")
 	}
 }
+
+// A drop whose answer is slow reaches its own drag: a second drag, let
+// go before the first's answer came, neither hears that answer nor
+// takes the first's picture with it.
+func TestASlowAnswerReachesItsOwnDrop(t *testing.T) {
+	a, b, c, _ := twoWindows(t)
+	a.Input(input.PointerDown{Pos: geom.Pt(30, 30), Time: time.Now()})
+	a.Input(input.PointerMove{Pos: geom.Pt(40, 30), Time: time.Now()})
+	run(a, 1)
+	first := c.ghost
+	a.Input(input.PointerMove{Pos: geom.Pt(1000, 50), Time: time.Now()})
+	a.Input(input.PointerUp{Pos: geom.Pt(1000, 50), Time: time.Now()})
+	run(a, 1)
+	// Window b has not drawn: its answer waits. A second drag is let go
+	// over window a, where nothing takes it.
+	a.Input(input.PointerDown{Pos: geom.Pt(30, 30), Time: time.Now()})
+	a.Input(input.PointerMove{Pos: geom.Pt(40, 30), Time: time.Now()})
+	a.Input(input.PointerMove{Pos: geom.Pt(600, 30), Time: time.Now()})
+	a.Input(input.PointerUp{Pos: geom.Pt(600, 30), Time: time.Now()})
+	run(a, 1)
+	if len(c.ended) != 1 || c.ended[0].Taken {
+		t.Fatalf("after the second drop the carrier heard %v, want one DragEnd, untaken", c.ended)
+	}
+	if first.got(input.DragEnd{}) {
+		t.Fatal("the first drag's picture heard an end before the first drop's answer")
+	}
+	run(b, 1)
+	run(a, 1)
+	if len(c.ended) != 2 || !c.ended[1].Taken {
+		t.Fatalf("after b answered the carrier heard %v, want the first drop's end, taken", c.ended)
+	}
+	for _, e := range first.events {
+		if end, ok := e.(input.DragEnd); ok && !end.Taken {
+			t.Fatal("the first drag's picture heard it was not taken")
+		}
+	}
+	if !first.got(input.DragEnd{}) {
+		t.Fatal("the first drag's picture never heard its drop was taken")
+	}
+}
