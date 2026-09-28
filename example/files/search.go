@@ -37,10 +37,14 @@ var indexBounds = bounds{items: 200_000, time: 5 * time.Second}
 type indexed struct {
 	// rel is the item's path under the root, and lower it in lower case.
 	rel, lower string
-	// name starts at nameAt in rel.
-	nameAt int
-	dir    bool
-	depth  int
+	// name starts at nameAt in rel, and lowerName is it in lower case.
+	// Lower case can change a string's length in bytes, as a Kelvin sign
+	// or a dotted capital I does, so the name's own lower case is kept
+	// rather than cut out of lower at nameAt.
+	nameAt    int
+	lowerName string
+	dir       bool
+	depth     int
 }
 
 func (x indexed) name() string { return x.rel[x.nameAt:] }
@@ -167,7 +171,8 @@ func walkIndex(ctx context.Context, root string, b bounds, read func(string) ([]
 		for _, e := range es {
 			p := filepath.Join(rel, e.Name())
 			dir := e.IsDir()
-			batch = append(batch, indexed{rel: p, lower: strings.ToLower(p), nameAt: len(p) - len(e.Name()), dir: dir,
+			batch = append(batch, indexed{rel: p, lower: strings.ToLower(p), nameAt: len(p) - len(e.Name()),
+				lowerName: strings.ToLower(e.Name()), dir: dir,
 				depth: strings.Count(p, string(filepath.Separator))})
 			if dir {
 				queue = append(queue, p)
@@ -269,7 +274,7 @@ func rankIndex(ctx context.Context, root string, items []indexed, errs []walkErr
 		if !subsequence(q, it.lower) {
 			continue
 		}
-		if subsequence(q, it.lower[it.nameAt:]) {
+		if subsequence(q, it.lowerName) {
 			if at, score, ok := match.Find(q, it.name()); ok {
 				found = append(found, scored{i: i, byName: true, at: at, score: score})
 				continue

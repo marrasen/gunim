@@ -153,3 +153,19 @@ func TestThePaletteRunsACommand(t *testing.T) {
 	h.w.Input(input.KeyPress{Key: input.KeyEnter})
 	h.until("the hidden file shows", func() bool { return len(h.shown()) == 2 })
 }
+
+// Lower case can change a path's length: a Kelvin sign shrinks from
+// three bytes to one, and a dotted capital I grows. A file under such a
+// folder is still found by its name, and the ranking never reads its
+// name at the wrong place.
+func TestANameIsFoundUnderAFolderWhoseLowerCaseChangesLength(t *testing.T) {
+	root := t.TempDir()
+	tree(t, root, "KKK/alpha.txt", "İİİİ/beta.txt")
+	items, _, _ := walk(t, root, bounds{items: 100, time: time.Minute}, os.ReadDir)
+	for _, q := range []string{"alpha", "beta"} {
+		hits := rankIndex(context.Background(), root, items, nil, q)
+		if len(hits) == 0 || hits[0].Title != q+".txt" || hits[0].At == nil {
+			t.Fatalf("%s found %+v, want %s.txt found by its name", q, hits, q)
+		}
+	}
+}
