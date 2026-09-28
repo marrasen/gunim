@@ -270,7 +270,8 @@ the far end knows what to decode it into:
 | --- | --- |
 | `gunim` | `Node`, the presence lifecycle, the window and its frame loop, and its zoom with Ctrl and +, - and 0 or the wheel |
 | `gunim/anim` | `Animated[T]`, springs, tweens, easings |
-| `gunim/paint` | The per-frame draw list: rounded rects, shadows, text, images, layers |
+| `gunim/paint` | The per-frame draw list: rounded rects, shadows, text, images, tinted masks, layers |
+| `gunim/icon` | Lucide's icons as strokes, drawn as tinted masks; `icon/byname` looks them up by name |
 | `gunim/geom` | float32 points, sizes, rectangles |
 | `gunim/input` | Pointer, keyboard and focus events, keys, buttons, modifiers |
 | `gunim/theme` | Tokens, themes, and animated theme switching |
@@ -407,4 +408,6 @@ Then, in no set order:
 ## Licence
 
 gunim is under the Apache License 2.0, in `LICENSE`. The code copied from
-Ebitengine keeps its own notices; see `internal/README.md`.
+Ebitengine keeps its own notices; see `internal/README.md`. The icons in
+`icon/lucide.go` are generated from Lucide's, under the ISC licence in
+`icon/LICENSE-lucide`.
