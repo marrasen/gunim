@@ -443,15 +443,7 @@ func (h *tableHeader) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gu
 				ax = at - 8
 			}
 			ay := box.H / 2
-			turn := float32(0)
-			if !t.descending {
-				turn = math.Pi
-			}
-			func() {
-				defer p.Push(paint.Rotate(turn, geom.Pt(ax, ay)))()
-				defer p.Push(paint.Scale(0.7, geom.Pt(ax, ay)))()
-				drawChevron(p, geom.Pt(ax, ay), col)
-			}()
+			paintSort(p, th, geom.Pt(ax, ay), !t.descending, col)
 		}
 	}
 	line := MenuBorder.Get(th)

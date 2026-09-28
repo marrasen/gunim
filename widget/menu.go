@@ -584,21 +584,13 @@ func (d *Dropdown) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 	// The chevron turns over as the list opens.
 	c := geom.Pt(box.W-pad-chevron/2, box.H/2)
 	defer p.Push(paint.Rotate(math.Pi*d.turn.Value(), c))()
-	drawChevron(p, c, Ink.Get(th))
+	paintChevron(p, th, c, Ink.Get(th))
 }
 
-// drawChevron draws a small downward arrow centred on c, as two bars
-// turned 45 degrees each way.
-func drawChevron(p *paint.Painter, c geom.Point, ink color.NRGBA) {
-	const half, thick = 4, 1.6
-	arm := float32(half * math.Sqrt2)
-	for _, s := range []float32{-1, 1} {
-		mid := geom.Pt(c.X+s*half/2, c.Y)
-		closeArm := p.Push(paint.Rotate(-s*math.Pi/4, mid))
-		bar := geom.Rect{Min: geom.Pt(mid.X-arm/2-thick/2, mid.Y-thick/2), Max: geom.Pt(mid.X+arm/2+thick/2, mid.Y+thick/2)}
-		p.RRect(bar, thick/2, paint.Solid(ink))
-		closeArm()
-	}
+// paintChevron draws icon.ChevronDown centred on c.
+func paintChevron(p *paint.Painter, th *theme.Live, c geom.Point, ink color.NRGBA) {
+	s := IconSize.Get(th)
+	paintIcon(p, th, icon.ChevronDown, geom.Rc(c.X-s/2, c.Y-s/2, s, s), ink, 1)
 }
 
 // ContextMenu opens a menu at the pointer when its child is clicked

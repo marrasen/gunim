@@ -21,9 +21,9 @@ func TestADropdownShowsTheChosenItemsIcon(t *testing.T) {
 	if gap := d.size.W - plain.size.W; gap != IconSize.Default()+IconGap.Default() {
 		t.Fatalf("the drop-down with icons is %v wider, want room for an icon and its gap", gap)
 	}
-	masks := maskOps(w.Offscreen())
-	if len(masks) != 1 || strokeOf(t, masks[0]).Icon != icon.LayoutGrid {
-		t.Fatalf("the drop-down drew %d icons, want the chosen item's", len(masks))
+	want := []*icon.Icon{icon.ChevronDown, icon.LayoutGrid, icon.ChevronDown}
+	if got := iconsDrawn(t, w); !slices.Equal(got, want) {
+		t.Fatalf("the drop-downs drew %v, want their chevrons and the chosen item's icon", got)
 	}
 	click(w, d.size.W/2, plain.size.H+d.size.H/2+1)
 	run(10)
@@ -38,9 +38,8 @@ func TestAMenuButtonShowsItsIconAndItsItemsIcons(t *testing.T) {
 	b.Icons = []*icon.Icon{icon.Clock, icon.Signal}
 	w, run := stage(t, Row(b))
 	run(2)
-	masks := maskOps(w.Offscreen())
-	if len(masks) != 1 || strokeOf(t, masks[0]).Icon != icon.Columns3 {
-		t.Fatalf("the menu button drew %d icons, want its own", len(masks))
+	if got := iconsDrawn(t, w); !slices.Equal(got, []*icon.Icon{icon.Columns3, icon.ChevronDown}) {
+		t.Fatalf("the menu button drew %v, want its own icon and its chevron", got)
 	}
 	click(w, b.size.W/2, b.size.H/2)
 	run(10)

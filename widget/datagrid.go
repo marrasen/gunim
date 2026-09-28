@@ -934,7 +934,7 @@ func (g *DataGrid) paintHeader(p *paint.Painter, th *theme.Live, bodyW, size, pa
 		}
 		run.Paint(p, geom.Pt(at, (h-run.Height())/2), ink)
 		if col.Sort != 0 {
-			g.paintSort(p, geom.Pt(at+run.Advance+sortArrow/2+2, h/2), col.Sort > 0, ink)
+			paintSort(p, th, geom.Pt(at+run.Advance+sortArrow/2+2, h/2), col.Sort > 0, ink)
 		}
 		if closing {
 			drawCross(p, geom.Pt(x+w-pad-h/4, h/2), h/4, ink)
@@ -1523,17 +1523,18 @@ func (g *DataGrid) copyText(i int) (string, bool) {
 // sortArrow is the room the arrow by a sorted column's title takes.
 const sortArrow = 12
 
-// paintSort draws the small arrow by a sorted column's title, pointing up
-// for rows sorted up.
-func (g *DataGrid) paintSort(p *paint.Painter, at geom.Point, up bool, c color.NRGBA) {
-	turn := float32(0)
+// paintSort draws the chevron by a sorted column's title centred on at, pointing up for rows sorted up.
+func paintSort(p *paint.Painter, th *theme.Live, at geom.Point, up bool, c color.NRGBA) {
+	ic := icon.ChevronDown
 	if up {
-		turn = math.Pi
+		ic = icon.ChevronUp
 	}
-	defer p.Push(paint.Rotate(turn, at))()
-	defer p.Push(paint.Scale(0.7, at))()
-	drawChevron(p, at, c)
+	s := IconSize.Get(th) * sortScale
+	paintIcon(p, th, ic, geom.Rc(at.X-s/2, at.Y-s/2, s, s), c, 1)
 }
+
+// sortScale is the size of a sort chevron against [IconSize].
+const sortScale = 0.7
 
 // gridLink is where a span that is a link was drawn, and what it sends.
 type gridLink struct {

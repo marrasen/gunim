@@ -5,6 +5,7 @@ import (
 
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/icon"
+	"github.com/marrasen/gunim/input"
 )
 
 func TestACheckedMenuItemShowsACheck(t *testing.T) {
@@ -24,5 +25,54 @@ func TestACheckedMenuItemShowsACheck(t *testing.T) {
 		if ms[k].Rect != want || ms[k].Color != Ink.Default() {
 			t.Errorf("item %d's check is at %v in %v, want at %v in the ink", i, ms[k].Rect, ms[k].Color, want)
 		}
+	}
+}
+
+func TestADropdownsChevronIsLucidesAndTurnsAsItOpens(t *testing.T) {
+	d := NewDropdown("One", "Two")
+	w, run := stage(t, Row(d))
+	ms := maskOps(w.Offscreen())
+	if len(ms) != 1 || strokeOf(t, ms[0]).Icon != icon.ChevronDown {
+		t.Fatalf("the drop-down drew %d marks, want a chevron", len(ms))
+	}
+	s, pad := IconSize.Default(), FieldPadding.Default()
+	c := geom.Pt(d.size.W-pad-chevron/2, d.size.H/2)
+	if want := geom.Rc(c.X-s/2, c.Y-s/2, s, s); ms[0].Rect != want || ms[0].Transform.A != 1 {
+		t.Fatalf("the chevron is at %v turned %v, want upright at %v", ms[0].Rect, ms[0].Transform.A, want)
+	}
+	click(w, d.size.W/2, d.size.H/2)
+	run(60)
+	m := maskOps(w.Offscreen())[0]
+	if m.Transform.A > -0.99 {
+		t.Fatalf("open, the chevron is turned to %v, want upside down", m.Transform.A)
+	}
+	if p := m.Transform.Apply(m.Rect.Center()); p.Sub(c).X*p.Sub(c).X+p.Sub(c).Y*p.Sub(c).Y > 0.01 {
+		t.Fatalf("open, the chevron is centred on %v, want %v", p, c)
+	}
+}
+
+func TestSortedColumnsShowAChevron(t *testing.T) {
+	g := NewDataGrid(GridColumn{Title: "Name", Width: 120, Sort: 1}, GridColumn{Title: "Size", Width: 120, Sort: -1},
+		GridColumn{Title: "Kind", Width: 120})
+	w, _ := stage(t, &frame{child: g, size: geom.Sz(400, 200)})
+	got := iconsDrawn(t, w)
+	if len(got) != 2 || got[0] != icon.ChevronUp || got[1] != icon.ChevronDown {
+		t.Fatalf("the grid's header drew %v, want a chevron up and one down", got)
+	}
+	if s := maskOps(w.Offscreen())[0].Rect.Size().W; abs32(s-IconSize.Default()*sortScale) > 0.01 {
+		t.Fatalf("the sort chevron is %v wide, want %v", s, IconSize.Default()*sortScale)
+	}
+
+	tb := NewTable(TableColumn{Title: "Name", Width: 120}, TableColumn{Title: "Size", Width: 120})
+	tb.SetSorted(0, false)
+	w, run := stage(t, &frame{child: tb, size: geom.Sz(400, 200)})
+	if got := iconsDrawn(t, w); len(got) != 1 || got[0] != icon.ChevronUp {
+		t.Fatalf("the table sorted up drew %v, want a chevron up", got)
+	}
+	tb.SetSorted(0, true)
+	w.Input(input.PointerMove{Pos: geom.Pt(1, 1)})
+	run(1)
+	if got := iconsDrawn(t, w); len(got) != 1 || got[0] != icon.ChevronDown {
+		t.Fatalf("the table sorted down drew %v, want a chevron down", got)
 	}
 }
