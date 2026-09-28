@@ -15,15 +15,8 @@ import (
 
 var procDwmSetWindowAttribute = windows.NewLazySystemDLL("dwmapi.dll").NewProc("DwmSetWindowAttribute")
 
-// dwmwaCloak is DWMWA_CLOAK, and dwmwaNCRenderingPolicy is
-// DWMWA_NCRENDERING_POLICY with its values DWMNCRP_DISABLED and
-// DWMNCRP_ENABLED.
-const (
-	dwmwaCloak             = 13
-	dwmwaNCRenderingPolicy = 2
-	dwmncrpDisabled        = 1
-	dwmncrpEnabled         = 2
-)
+// dwmwaCloak is DWMWA_CLOAK.
+const dwmwaCloak = 13
 
 // cloak keeps w off the screen, or with on unset puts it back. It runs
 // on the main thread. Where the system refuses, the window shows as it
@@ -43,21 +36,10 @@ func cloak(w *Window, on bool) {
 	_, _, _ = procDwmSetWindowAttribute.Call(uintptr(hwnd), dwmwaCloak, uintptr(unsafe.Pointer(&v)), unsafe.Sizeof(v))
 }
 
-// showFrame puts back the border, shadow and round corners the system
-// draws round a chromeless window, or with on unset hides them, for a
-// window fading in or out. It runs on the main thread.
+// showFrame puts back the border and shadow the system draws round a
+// chromeless window, or with on unset hides them, for a window fading in
+// or out; see glfw's SetFrameHidden. It runs on the main thread.
 func showFrame(w *Window, on bool) {
-	if procDwmSetWindowAttribute.Find() != nil {
-		return
-	}
-	hwnd, err := w.gw.GetWin32Window()
-	if err != nil {
-		return
-	}
-	v := uint32(dwmncrpDisabled)
-	if on {
-		v = dwmncrpEnabled
-	}
 	w.debugf("frame shown %v", on)
-	_, _, _ = procDwmSetWindowAttribute.Call(uintptr(hwnd), dwmwaNCRenderingPolicy, uintptr(unsafe.Pointer(&v)), unsafe.Sizeof(v))
+	_ = w.gw.SetFrameHidden(!on)
 }

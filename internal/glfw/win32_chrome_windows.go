@@ -256,3 +256,54 @@ func (w *Window) platformStartMoveResize(direction int) error {
 	// Windows sizes and moves from the hit test: nothing to start.
 	return nil
 }
+
+// _DWMWA_BORDER_COLOR sets the colour of a window's thin border on
+// Windows 11; _DWMWA_COLOR_NONE draws none, and _DWMWA_COLOR_DEFAULT
+// the system's.
+const (
+	_DWMWA_BORDER_COLOR  = 34
+	_DWMWA_COLOR_NONE    = 0xfffffffe
+	_DWMWA_COLOR_DEFAULT = 0xffffffff
+)
+
+// SetFrameHidden takes away the border and shadow Windows draws round a
+// chromeless window, or with hide unset puts them back, for a window
+// that fades in or out: they have no fade of their own. The window takes
+// a popup's style meanwhile, which Windows draws no shadow for. A
+// maximized window keeps its style, as its client area depends on it,
+// and has no shadow to hide. It is a gunim addition, on Windows alone.
+func (w *Window) SetFrameHidden(hide bool) error {
+	if !_glfw.initialized {
+		return NotInitialized
+	}
+	if !w.platform.chromeless || w.monitor != nil || w.platform.frameHidden == hide {
+		return nil
+	}
+	if hide && _IsZoomed(w.platform.handle) {
+		return nil
+	}
+	cur, err := _GetWindowLongW(w.platform.handle, _GWL_STYLE)
+	if err != nil {
+		return err
+	}
+	w.platform.frameHidden = hide
+	// Only the frame's bits change: the rest, such as WS_VISIBLE, stay.
+	const frame = _WS_CAPTION | _WS_THICKFRAME | _WS_MAXIMIZEBOX | _WS_SYSMENU
+	style := uint32(cur)&^frame | _WS_POPUP
+	if !hide {
+		style = uint32(cur)&^_WS_POPUP | w.getWindowStyle()&frame
+	}
+	if _, err := _SetWindowLongW(w.platform.handle, _GWL_STYLE, int32(style)); err != nil {
+		return err
+	}
+	if procDwmSetWindowAttribute.Find() == nil {
+		c := uint32(_DWMWA_COLOR_DEFAULT)
+		if hide {
+			c = _DWMWA_COLOR_NONE
+		}
+		_, _, _ = procDwmSetWindowAttribute.Call(uintptr(w.platform.handle), _DWMWA_BORDER_COLOR,
+			uintptr(unsafe.Pointer(&c)), unsafe.Sizeof(c))
+	}
+	return _SetWindowPos(w.platform.handle, 0, 0, 0, 0, 0,
+		_SWP_FRAMECHANGED|_SWP_NOACTIVATE|_SWP_NOZORDER|_SWP_NOMOVE|_SWP_NOSIZE|_SWP_NOOWNERZORDER)
+}

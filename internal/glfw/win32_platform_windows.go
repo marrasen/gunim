@@ -59,7 +59,9 @@ type platformWindowState struct {
 	// gunim change: chromeless says the window draws its own title bar,
 	// and overMaximize that the pointer is on its maximize button, which
 	// Windows sees as outside the client area (win32_chrome_windows.go).
-	chromeless   bool
+	chromeless bool
+	// frameHidden says SetFrameHidden took the frame away (gunim).
+	frameHidden  bool
 	overMaximize bool
 }
 
