@@ -3,6 +3,8 @@ package text
 import (
 	"strings"
 	"testing"
+
+	"github.com/marrasen/gunim/geom"
 )
 
 func runesIn(p SpanParagraph) int {
@@ -151,5 +153,54 @@ func TestABoxAfterAWordThatFillsTheLineStartsTheNext(t *testing.T) {
 	p := LayoutSpans(spans, Style{}, width)
 	if len(p.Lines) != 2 || boxPiece(p.Lines[1], 1) != 0 || p.Lines[1].Pieces[0].At.X != 0 {
 		t.Fatalf("at %v wide the lines are %+v, want the box to start the second", width, p.Lines)
+	}
+}
+
+func TestPiecesKnowWhereTheyStart(t *testing.T) {
+	regular, bold := GoSans(false, false), GoSans(true, false)
+	spans := []Span{{"one two three ", regular, 14, 0}, {"four five", bold, 14, 0}, {"\nsix", regular, 14, 0}}
+	p := LayoutSpans(spans, Style{}, 60)
+	all := []rune("one two three four five\nsix")
+	for _, l := range p.Lines {
+		for _, pc := range l.Pieces {
+			text := strings.TrimSpace(string(all[pc.Start : pc.Start+pc.Run.End]))
+			if want := strings.TrimSpace(spans[pc.Span].Text); !strings.Contains(want, text) {
+				t.Fatalf("piece at %d reads %q, not part of its span %q", pc.Start, text, want)
+			}
+		}
+	}
+}
+
+func TestIndexFindsTheRuneUnderAPoint(t *testing.T) {
+	regular, bold := GoSans(false, false), GoSans(true, false)
+	p := LayoutSpans([]Span{{"hello ", regular, 14, 0}, {"world", bold, 14, 0}, {"\nagain", regular, 14, 0}}, Style{}, 0)
+	for _, l := range p.Lines {
+		for _, pc := range l.Pieces {
+			for i := pc.Run.Start; i < pc.Run.End; i++ {
+				// Just right of the caret before rune i.
+				x := pc.At.X + pc.Run.CaretX(i) + 0.5
+				if got := p.Index(geom.Pt(x, l.Top+l.Height/2)); got != pc.Start+i {
+					t.Fatalf("Index at rune %d's caret = %d", pc.Start+i, got)
+				}
+			}
+		}
+	}
+	if got := p.Index(geom.Pt(-5, -5)); got != 0 {
+		t.Fatalf("Index above and left = %d, want 0", got)
+	}
+	if got := p.Index(geom.Pt(1000, 1000)); got != 17 {
+		t.Fatalf("Index below and right = %d, want the end, 17", got)
+	}
+}
+
+func TestSelectCoversEachLineOnce(t *testing.T) {
+	p := LayoutSpans([]Span{{"one\ntwo\nthree", GoSans(false, false), 14, 0}}, Style{}, 0)
+	var boxes []geom.Rect
+	p.Select(1, 9, func(r geom.Rect) { boxes = append(boxes, r) })
+	if len(boxes) != 3 {
+		t.Fatalf("%d boxes for a selection over three lines, want 3", len(boxes))
+	}
+	if boxes[0].Min.Y != p.Lines[0].Top || boxes[2].Min.Y != p.Lines[2].Top {
+		t.Fatalf("boxes %v are not on the lines", boxes)
 	}
 }

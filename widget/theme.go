@@ -18,11 +18,16 @@ var (
 	Accent = theme.Color("accent", color.NRGBA{R: 0x5e, G: 0x9c, B: 0xff, A: 0xff})
 	// TextSize is the body text size.
 	TextSize = theme.Length("text.size", 14)
-	// Font is the face text is set in, BoldFont the face for strong text,
-	// and MonoFont the face for code and logs.
-	Font     = theme.Choice("text.font", text.Default())
-	BoldFont = theme.Choice("text.font.bold", text.GoSans(true, false))
-	MonoFont = theme.Choice("text.font.mono", text.GoMono(false, false))
+	// Font is the face text is set in, BoldFont the face for strong text, ItalicFont and BoldItalicFont the faces
+	// for emphasis, and MonoFont the face for code and logs.
+	Font           = theme.Choice("text.font", text.Default())
+	BoldFont       = theme.Choice("text.font.bold", text.GoSans(true, false))
+	ItalicFont     = theme.Choice("text.font.italic", text.GoSans(false, true))
+	BoldItalicFont = theme.Choice("text.font.bold.italic", text.GoSans(true, true))
+	MonoFont       = theme.Choice("text.font.mono", text.GoMono(false, false))
+	// CodeFill is the fill behind code in text, and QuoteBar the bar beside a quote.
+	CodeFill = theme.Color("text.code.fill", color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x12})
+	QuoteBar = theme.Color("text.quote.bar", color.NRGBA{R: 0x4a, G: 0x50, B: 0x60, A: 0xff})
 
 	// Quick is the motion for direct feedback: hover, press, focus.
 	Quick = theme.Spring("motion.quick", anim.Snappy)
@@ -138,6 +143,8 @@ func Light() theme.Theme {
 		theme.Set(ToolbarFill, color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}),
 		theme.Set(ToolbarBorder, color.NRGBA{R: 0xd5, G: 0xdb, B: 0xe5, A: 0xff}),
 		theme.Set(ToolbarShadow, color.NRGBA{A: 0x28}),
+		theme.Set(CodeFill, color.NRGBA{A: 0x0b}),
+		theme.Set(QuoteBar, color.NRGBA{R: 0xc8, G: 0xd0, B: 0xdc, A: 0xff}),
 		// The window's chrome.
 		theme.Set(MenubarFill, color.NRGBA{R: 0xe1, G: 0xe5, B: 0xec, A: 0xff}),
 		theme.Set(MenubarHot, color.NRGBA{A: 0x10}),

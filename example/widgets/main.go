@@ -29,6 +29,7 @@ import (
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/icon"
+	"github.com/marrasen/gunim/markdown"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/theme"
 	"github.com/marrasen/gunim/widget"
@@ -217,7 +218,7 @@ func buildGallery(Gallery) *gallery {
 }
 
 // moreIcons lays out a card of widgets with icons: tabs, a chip, a drop-down, rich text with icons inline, buttons
-// for a danger dialog and the toasts, and a toolbar.
+// for a danger dialog and the toasts, a toolbar, and a Markdown document.
 func moreIcons() *widget.Card {
 	tabs := widget.NewTabs([]string{"Files", "Search", "Settings"},
 		widget.NewLabel("Tabs show an icon before each title."),
@@ -243,7 +244,10 @@ func moreIcons() *widget.Card {
 		widget.RichSpan{Icon: icon.FolderOpen, Text: "Documents", On: Opened{Item: "Documents"}},
 		widget.RichSpan{Text: ". Icons sit in rich text as words do, and one in a link is part of the link."},
 	)
-	col := widget.Column(tabs, controls, rich)
+	doc := markdown.New("Markdown shows as **text**: *emphasis*, `code`, [links](https://example.com) and lists.\n\n" +
+		"- [x] select across paragraphs\n- [ ] copy with Ctrl+C\n\n> A quote, and a line of code:\n\n" +
+		"```\ngo run ./example/widgets\n```")
+	col := widget.Column(tabs, controls, rich, doc)
 	col.Cross = widget.CrossStretch
 	return widget.NewCard(col)
 }

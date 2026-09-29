@@ -29,6 +29,9 @@ type Piece struct {
 	Run  Run
 	// At is the top-left of the piece's line box, where Run.Paint puts it.
 	At geom.Point
+	// Start is the rune the piece starts at, counted through the spans' texts one after another, with a box as one
+	// rune.
+	Start int
 }
 
 // A SpanLine is one line of a [SpanParagraph].
@@ -179,7 +182,7 @@ func makeUnit(spans []Span, all []rune, owner []int, start, end int, mandatory b
 		if s.Box > 0 {
 			run := s.Face.Shape("", s.Size)
 			run.Advance = s.Box
-			u.pieces = append(u.pieces, Piece{Span: owner[a], Run: run, At: geom.Pt(u.width, 0)})
+			u.pieces = append(u.pieces, Piece{Span: owner[a], Run: run, At: geom.Pt(u.width, 0), Start: a})
 			u.texts = append(u.texts, "")
 			u.width += s.Box
 			u.ink = u.width
@@ -188,7 +191,7 @@ func makeUnit(spans []Span, all []rune, owner []int, start, end int, mandatory b
 		}
 		text := strings.TrimRight(string(all[a:b]), "\r\n")
 		run := s.Face.Shape(text, s.Size)
-		u.pieces = append(u.pieces, Piece{Span: owner[a], Run: run, At: geom.Pt(u.width, 0)})
+		u.pieces = append(u.pieces, Piece{Span: owner[a], Run: run, At: geom.Pt(u.width, 0), Start: a})
 		u.texts = append(u.texts, text)
 		// The ink ends before the spaces the unit ends in.
 		ink := u.width + run.CaretX(len([]rune(strings.TrimRightFunc(text, unicode.IsSpace))))
@@ -240,12 +243,12 @@ func splitUnit(spans []Span, u unit, width float32) (head, rest unit, ok bool) {
 		left := s.Face.Shape(string(runes[:k]), s.Size)
 		right := s.Face.Shape(string(runes[k:]), s.Size)
 		head = unit{
-			pieces: append(append([]Piece(nil), u.pieces[:i]...), Piece{Span: p.Span, Run: left, At: p.At}),
+			pieces: append(append([]Piece(nil), u.pieces[:i]...), Piece{Span: p.Span, Run: left, At: p.At, Start: p.Start}),
 			texts:  append(append([]string(nil), u.texts[:i]...), string(runes[:k])),
 		}
 		head.width = p.At.X + left.Advance
 		head.ink = head.width
-		rest = unit{pieces: []Piece{{Span: p.Span, Run: right}}, texts: []string{string(runes[k:])}, mandatory: u.mandatory}
+		rest = unit{pieces: []Piece{{Span: p.Span, Run: right, Start: p.Start + k}}, texts: []string{string(runes[k:])}, mandatory: u.mandatory}
 		x := right.Advance
 		for j, q := range u.pieces[i+1:] {
 			q.At.X = x
@@ -294,4 +297,65 @@ func finishLine(spans []Span, pieces []Piece, ink float32, st Style) SpanLine {
 		p.At.Y = halfLeading + ascent - p.Run.Ascent
 	}
 	return SpanLine{Pieces: pieces, Height: height, Width: ink}
+}
+
+// Index returns the rune a caret put at pt, in the paragraph's space, sits before: on the line pt is level with, or
+// the nearest line, at the place on it nearest pt.
+func (p SpanParagraph) Index(pt geom.Point) int {
+	if len(p.Lines) == 0 {
+		return 0
+	}
+	line := p.Lines[len(p.Lines)-1]
+	for _, l := range p.Lines {
+		if pt.Y < l.Top+l.Height {
+			line = l
+			break
+		}
+	}
+	if len(line.Pieces) == 0 {
+		return 0
+	}
+	pc := line.Pieces[len(line.Pieces)-1]
+	for _, q := range line.Pieces {
+		if pt.X < q.At.X+q.Run.Advance {
+			pc = q
+			break
+		}
+	}
+	return pc.Start + pc.Run.Index(pt.X-pc.At.X)
+}
+
+// Select calls fn with the box, in the paragraph's space, that runes start to end cover on each line they touch. A
+// selection that carries on past a line's end covers a little more, standing for the line break.
+func (p SpanParagraph) Select(start, end int, fn func(geom.Rect)) {
+	const lineBreak = 6
+	for _, l := range p.Lines {
+		if len(l.Pieces) == 0 {
+			continue
+		}
+		first, last := l.Pieces[0], l.Pieces[len(l.Pieces)-1]
+		from, to := first.Start, last.Start+last.Run.End
+		if end < from || start > to || start == end {
+			continue
+		}
+		x0, x1 := float32(-1), float32(0)
+		for _, pc := range l.Pieces {
+			a, b := max(start, pc.Start), min(end, pc.Start+pc.Run.End)
+			if a > b {
+				continue
+			}
+			l0, l1 := pc.At.X+pc.Run.CaretX(a-pc.Start), pc.At.X+pc.Run.CaretX(b-pc.Start)
+			if x0 < 0 || l0 < x0 {
+				x0 = l0
+			}
+			x1 = max(x1, l1)
+		}
+		if x0 < 0 {
+			continue
+		}
+		if end > to {
+			x1 += lineBreak
+		}
+		fn(geom.Rc(x0, l.Top, x1-x0, l.Height))
+	}
 }
