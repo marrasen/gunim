@@ -135,6 +135,48 @@ func Light() theme.Theme {
 		theme.Set(ToastSuccessInk, color.NRGBA{R: 0x1f, G: 0x8a, B: 0x4c, A: 0xff}),
 		theme.Set(ToastWarningInk, color.NRGBA{R: 0xb7, G: 0x79, B: 0x1f, A: 0xff}),
 		theme.Set(ToastErrorInk, color.NRGBA{R: 0xd0, G: 0x3a, B: 0x35, A: 0xff}),
+		theme.Set(ToolbarFill, color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}),
+		theme.Set(ToolbarBorder, color.NRGBA{R: 0xd5, G: 0xdb, B: 0xe5, A: 0xff}),
+		theme.Set(ToolbarShadow, color.NRGBA{A: 0x28}),
+		// The window's chrome.
+		theme.Set(MenubarFill, color.NRGBA{R: 0xe1, G: 0xe5, B: 0xec, A: 0xff}),
+		theme.Set(MenubarHot, color.NRGBA{A: 0x10}),
+		theme.Set(WindowButtonHot, color.NRGBA{A: 0x14}),
+		// Quiet text: hints, headers, crumbs.
+		theme.Set(MenuHint, color.NRGBA{R: 0x5f, G: 0x67, B: 0x75, A: 0xff}),
+		theme.Set(PaletteHint, color.NRGBA{R: 0x5f, G: 0x67, B: 0x75, A: 0xff}),
+		theme.Set(TableHeader, color.NRGBA{R: 0x5f, G: 0x67, B: 0x75, A: 0xff}),
+		theme.Set(ChipLead, color.NRGBA{R: 0x5f, G: 0x67, B: 0x75, A: 0xff}),
+		theme.Set(AddressCrumbInk, color.NRGBA{R: 0x5f, G: 0x67, B: 0x75, A: 0xff}),
+		theme.Set(AddressChevron, color.NRGBA{R: 0x80, G: 0x88, B: 0x96, A: 0xff}),
+		// Text and marks that say something is wrong.
+		theme.Set(DialogProblem, color.NRGBA{R: 0xb4, G: 0x2a, B: 0x22, A: 0xff}),
+		theme.Set(DialogDangerInk, color.NRGBA{R: 0xc8, G: 0x34, B: 0x2c, A: 0xff}),
+		theme.Set(DropRefusedInk, color.NRGBA{R: 0xc8, G: 0x34, B: 0x2c, A: 0xff}),
+		// Fills, lines and tracks.
+		theme.Set(ChipFill, color.NRGBA{R: 0xe4, G: 0xe8, B: 0xf0, A: 0xff}),
+		theme.Set(ChipHover, color.NRGBA{R: 0xd2, G: 0xda, B: 0xe8, A: 0xff}),
+		theme.Set(SplitLine, color.NRGBA{R: 0xd5, G: 0xdb, B: 0xe5, A: 0xff}),
+		theme.Set(ProgressTrack, color.NRGBA{R: 0xd5, G: 0xdb, B: 0xe5, A: 0xff}),
+		theme.Set(OverviewFill, color.NRGBA{R: 0xe9, G: 0xec, B: 0xf2, A: 0xff}),
+		theme.Set(OverviewHover, color.NRGBA{A: 0x40}),
+		theme.Set(GridPending, color.NRGBA{A: 0x10}),
+		// The accent's tints, from the light accent.
+		theme.Set(LinkInk, color.NRGBA{R: 0x2f, G: 0x6f, B: 0xe0, A: 0xff}),
+		theme.Set(TableStrong, color.NRGBA{R: 0x2f, G: 0x6f, B: 0xe0, A: 0xff}),
+		theme.Set(SplitHot, color.NRGBA{R: 0x2f, G: 0x6f, B: 0xe0, A: 0xff}),
+		theme.Set(GridRule, color.NRGBA{R: 0x2f, G: 0x6f, B: 0xe0, A: 0x90}),
+		theme.Set(GridCursor, color.NRGBA{R: 0x2f, G: 0x6f, B: 0xe0, A: 0x30}),
+		theme.Set(TableCursor, color.NRGBA{R: 0x2f, G: 0x6f, B: 0xe0, A: 0x30}),
+		theme.Set(PaletteMark, color.NRGBA{R: 0x2f, G: 0x6f, B: 0xe0, A: 0x40}),
+		theme.Set(OverviewMark, color.NRGBA{R: 0x2f, G: 0x6f, B: 0xe0, A: 0xe6}),
+		theme.Set(OverviewBox, color.NRGBA{R: 0x2f, G: 0x6f, B: 0xe0, A: 0x22}),
+		theme.Set(OverviewBoxEdge, color.NRGBA{R: 0x2f, G: 0x6f, B: 0xe0, A: 0x80}),
+		theme.Set(BandFill, color.NRGBA{R: 0x2f, G: 0x6f, B: 0xe0, A: 0x2a}),
+		theme.Set(BandEdge, color.NRGBA{R: 0x2f, G: 0x6f, B: 0xe0, A: 0xd0}),
+		theme.Set(TileCursor, color.NRGBA{R: 0x2f, G: 0x6f, B: 0xe0, A: 0xc0}),
+		theme.Set(TileHover, color.NRGBA{R: 0x2f, G: 0x6f, B: 0xe0, A: 0x14}),
+		theme.Set(TileSelected, color.NRGBA{R: 0x2f, G: 0x6f, B: 0xe0, A: 0x38}),
 	)
 }
 

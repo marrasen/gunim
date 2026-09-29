@@ -45,8 +45,14 @@ type Token[T any] struct {
 
 var (
 	keysMu sync.Mutex
-	keys   = map[string]reflect.Type{}
+	keys   = map[string]declared{}
 )
+
+// declared is a token's type and default, kept for [Declared].
+type declared struct {
+	typ reflect.Type
+	def any
+}
 
 // New declares a token with its own codec. The key names it within a
 // [Theme], and must be unique; two tokens with one key and different
@@ -55,10 +61,10 @@ func New[T any](key string, def T, c anim.Codec[T]) Token[T] {
 	t := reflect.TypeFor[T]()
 	keysMu.Lock()
 	defer keysMu.Unlock()
-	if prev, ok := keys[key]; ok && prev != t {
-		panic(fmt.Sprintf("theme: %q is already a %s token", key, prev))
+	if prev, ok := keys[key]; ok && prev.typ != t {
+		panic(fmt.Sprintf("theme: %q is already a %s token", key, prev.typ))
 	}
-	keys[key] = t
+	keys[key] = declared{typ: t, def: def}
 	return Token[T]{key: key, def: def, codec: c}
 }
 
@@ -125,6 +131,18 @@ func Choice[T any](key string, def T) Token[T] {
 	return t
 }
 
+// Declared returns every token declared so far, by key, with its default. A test can walk it to check that a theme
+// gives each token a value that suits it.
+func Declared() map[string]any {
+	keysMu.Lock()
+	defer keysMu.Unlock()
+	out := make(map[string]any, len(keys))
+	for k, d := range keys {
+		out[k] = d.def
+	}
+	return out
+}
+
 // Key returns the token's name.
 func (t Token[T]) Key() string { return t.key }
 
@@ -187,6 +205,9 @@ type Theme struct {
 	Name   string
 	values map[string]any
 }
+
+// Has reports whether th gives the token named key a value.
+func (th Theme) Has(key string) bool { return th.has(key) }
 
 func (th Theme) has(key string) bool {
 	_, ok := th.values[key]

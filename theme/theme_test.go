@@ -206,3 +206,14 @@ func TestChoiceSwitchesWholeHalfway(t *testing.T) {
 		t.Fatalf("once settled, shape = %q, want square", got)
 	}
 }
+
+func TestDeclaredListsTokensWithTheirDefaults(t *testing.T) {
+	tok := Length("test.declared", 7)
+	if got, ok := Declared()[tok.Key()]; !ok || got != float32(7) {
+		t.Fatalf("Declared()[%q] = %v, %v, want 7", tok.Key(), got, ok)
+	}
+	th := Make("t", Set(tok, 9))
+	if !th.Has(tok.Key()) || th.Has("test.nothing") {
+		t.Fatal("Has does not match what the theme sets")
+	}
+}

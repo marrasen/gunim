@@ -216,8 +216,8 @@ func buildGallery(Gallery) *gallery {
 	return &gallery{page: widget.NewPad(page), list: list, toasts: &widget.Toasts{}}
 }
 
-// moreIcons lays out a card of widgets with icons: tabs, a chip, a drop-down, rich text with icons inline, and
-// buttons for a danger dialog and the toasts.
+// moreIcons lays out a card of widgets with icons: tabs, a chip, a drop-down, rich text with icons inline, buttons
+// for a danger dialog and the toasts, and a toolbar.
 func moreIcons() *widget.Card {
 	tabs := widget.NewTabs([]string{"Files", "Search", "Settings"},
 		widget.NewLabel("Tabs show an icon before each title."),
@@ -232,7 +232,9 @@ func moreIcons() *widget.Card {
 	del.Icon, del.Kind, del.On = icon.Trash2, widget.ButtonDanger, DeleteAsked{}
 	again := widget.NewButton("Toasts")
 	again.Icon, again.On = icon.Bell, ToastsAsked{}
-	controls := widget.Row(chip, view, del, again)
+	tools := widget.NewToolbar(widget.NewIconButton(icon.Reply, "Reply"), widget.NewIconButton(icon.Pencil, "Edit"),
+		widget.NewIconButton(icon.Trash2, "Delete"))
+	controls := widget.Row(chip, view, del, again, tools)
 	controls.Cross = widget.CrossCenter
 	rich := widget.NewRichText(
 		widget.RichSpan{Text: "Saved "},
