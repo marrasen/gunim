@@ -1,7 +1,9 @@
 package main
 
 import (
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/marrasen/gunim"
@@ -43,6 +45,9 @@ func (a *app) membersOf(c *conv, now time.Time) []Member {
 			away = append(away, m)
 		}
 	}
+	byName := func(a, b Member) int { return strings.Compare(a.Name, b.Name) }
+	slices.SortFunc(active, byName)
+	slices.SortFunc(away, byName)
 	return append(append(out, active...), away...)
 }
 

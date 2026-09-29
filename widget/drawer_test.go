@@ -11,7 +11,9 @@ import (
 // measured records the box it was last painted in.
 type measured struct{ box geom.Size }
 
-func (m *measured) Layout(c gunim.Constraints, _ gunim.Frame, _ gunim.Children) geom.Size { return c.Max }
+func (m *measured) Layout(c gunim.Constraints, _ gunim.Frame, _ gunim.Children) geom.Size {
+	return c.Max
+}
 func (m *measured) Paint(_ *paint.Painter, _ gunim.Frame, box geom.Size, _ gunim.Children) {
 	m.box = box
 }

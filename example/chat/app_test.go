@@ -373,8 +373,18 @@ func TestMembersListTheUserFirstThenThoseActive(t *testing.T) {
 	last := c.people[len(c.people)-1]
 	h.a.add(c, last, "Here", time.Now())
 	ms := h.a.membersOf(c, time.Now())
-	if ms[0].Name != me || ms[1].Name != last || !ms[1].Active || ms[1].Status != "Active now" {
-		t.Fatalf("the members are %+v, want the user, then %s active", ms, last)
+	if ms[0].Name != me {
+		t.Fatalf("the members start with %s, want the user", ms[0].Name)
+	}
+	seenAway := false
+	for _, m := range ms[1:] {
+		if m.Active && seenAway {
+			t.Fatalf("an active member comes after one away: %+v", ms)
+		}
+		seenAway = seenAway || !m.Active
+		if m.Name == last && (!m.Active || m.Status != "Active now") {
+			t.Fatalf("%s, who just wrote, stands as %+v", last, m)
+		}
 	}
 	if len(ms) != len(c.people)+1 {
 		t.Fatalf("%d members, want the conversation's people and the user", len(ms))
