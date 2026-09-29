@@ -742,7 +742,7 @@ var chatter = []string{
 	"Does anyone know why the Linux test is flaky? It passes every time on my machine.",
 	"Merged 👍",
 	"Release checklist:\n- [ ] update the changelog\n- [ ] tag v5.3.0\n- [ ] tell the customers",
-	"https://example.com/merge_requests/412",
+	"Review please: https://example.com/merge_requests/412",
 	"Meeting moved to 14:00.",
 	"Can we talk about the sync protocol tomorrow? I have some thoughts on the event IDs.",
 	"Sounds good.",
