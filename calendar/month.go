@@ -37,6 +37,11 @@ type Month struct {
 	// Month is any day of the month shown, and FirstWeekday the day weeks start on.
 	Month        time.Time
 	FirstWeekday time.Weekday
+	// HideWeekends leaves Saturdays and Sundays out.
+	HideWeekends bool
+	// More, when set, runs in place of OnDay for a click on how many more events a day has, with the day and the
+	// box of the line saying so, such as to list them beside it.
+	More func(day time.Time, box geom.Rect, u *gunim.UI)
 	// OnDay turns a click on a day's number into an intent, such as to show that day alone.
 	OnDay func(day time.Time) gunim.Intent
 	// OnCreate turns a click on free room in a day into an intent, to make an event that day.
@@ -46,6 +51,11 @@ type Month struct {
 	Create func(day time.Time, box geom.Rect, u *gunim.UI)
 	// OnEdit turns a double click on an event into an intent, such as to open it in an editor.
 	OnEdit func(id string) gunim.Intent
+	// OnDelete turns Delete on the event chosen by the keys into an intent.
+	OnDelete func(id string) gunim.Intent
+	// OnStep turns scrolling, which has nothing else to move in a month, into an intent to step to the month either
+	// side, by -1 or 1.
+	OnStep func(by int) gunim.Intent
 	// Busy, when set, is asked before a press on free room begins an event, as [Days.Busy] is.
 	Busy func() bool
 	// OnChange turns an event dragged to another day into an intent.
@@ -54,6 +64,8 @@ type Month struct {
 	Open func(id string, box geom.Rect, u *gunim.UI)
 
 	events []Event
+	tip    widget.PartTip
+	swipe  swipe
 	box    geom.Size
 	// slide carries the days in from the side they came from, as the month steps.
 	slide *anim.Float
@@ -132,6 +144,23 @@ func (m *Month) SetMonth(day time.Time, u *gunim.UI) {
 	u.Invalidate()
 }
 
+// Focusable implements [gunim.Focusable]: the keys move between the events.
+func (m *Month) Focusable() bool { return true }
+
+// stops returns the events the keys move between, those showing.
+func (m *Month) stops() []stop {
+	var out []stop
+	for _, k := range m.order {
+		s := m.sprites[k]
+		if s == nil || s.gone {
+			continue
+		}
+		c := m.cellAt(s.rect.Target().Center())
+		out = append(out, stop{id: s.e.ID, day: c, start: s.e.Start, box: s.rect.Target()})
+	}
+	return out
+}
+
 // EventAt returns the ID of the event at pt, in the month's space, and false where there is none.
 func (m *Month) EventAt(pt geom.Point) (string, bool) {
 	ch, ok := m.chipAt(pt)
@@ -164,12 +193,44 @@ func (m *Month) first() time.Time { return WeekStart(MonthStart(m.Month), m.Firs
 // day returns the midnight of cell i, counting from the top left.
 func (m *Month) day(i int) time.Time { return AddDays(m.first(), i) }
 
-func (m *Month) cellW() float32 { return m.box.W / 7 }
+// shows reports whether the day dd of each week, from 0 to 6, shows.
+func (m *Month) shows(dd int) bool {
+	wd := m.day(dd).Weekday()
+	return !m.HideWeekends || (wd != time.Saturday && wd != time.Sunday)
+}
+
+// cols returns how many days of each week show.
+func (m *Month) cols() int {
+	n := 0
+	for dd := range 7 {
+		if m.shows(dd) {
+			n++
+		}
+	}
+	return max(n, 1)
+}
+
+// colOf returns the column day dd of each week shows in.
+func (m *Month) colOf(dd int) int {
+	c := 0
+	for k := range dd {
+		if m.shows(k) {
+			c++
+		}
+	}
+	return c
+}
+
+func (m *Month) cellW() float32 { return m.box.W / float32(m.cols()) }
 func (m *Month) cellH() float32 { return (m.box.H - monthHeadH) / 6 }
 
-// cell returns cell i's box.
+// cell returns cell i's box, which has no width for a day that does not show.
 func (m *Month) cell(i int) geom.Rect {
-	return geom.Rc(float32(i%7)*m.cellW(), monthHeadH+float32(i/7)*m.cellH(), m.cellW(), m.cellH())
+	w := m.cellW()
+	if !m.shows(i % 7) {
+		w = 0
+	}
+	return geom.Rc(float32(m.colOf(i%7))*m.cellW(), monthHeadH+float32(i/7)*m.cellH(), w, m.cellH())
 }
 
 // cellAt returns the cell under pt, or -1.
@@ -177,7 +238,14 @@ func (m *Month) cellAt(pt geom.Point) int {
 	if pt.Y < monthHeadH || pt.X < 0 || pt.X >= m.box.W || pt.Y >= m.box.H {
 		return -1
 	}
-	return min(int(pt.X/m.cellW()), 6) + 7*min(int((pt.Y-monthHeadH)/m.cellH()), 5)
+	col := min(int(pt.X/m.cellW()), m.cols()-1)
+	row := min(int((pt.Y-monthHeadH)/m.cellH()), 5)
+	for dd := range 7 {
+		if m.shows(dd) && m.colOf(dd) == col {
+			return dd + 7*row
+		}
+	}
+	return -1
 }
 
 // Layout implements [gunim.Node].
@@ -213,7 +281,7 @@ func (m *Month) place(th *theme.Live, jump, drop bool) {
 		s, ok := m.sprites[key]
 		switch {
 		case !ok:
-			s = &sprite{rect: anim.NewRect(ch.box), in: anim.NewFloat(0), lift: anim.NewFloat(0)}
+			s = newSprite(ch.box, ch.e)
 			if jump {
 				s.in.Jump(1)
 			} else {
@@ -233,7 +301,8 @@ func (m *Month) place(th *theme.Live, jump, drop bool) {
 			}
 			s.rect.Animate(ch.box, motion)
 		}
-		s.e, s.long = ch.e, ch.bar
+		s.show(ch.e, th)
+		s.long = ch.bar
 	}
 	for k, s := range m.sprites {
 		if seen[k] {
@@ -292,6 +361,16 @@ func (m *Month) chips() []chip {
 				for dd := first; dd <= last; dd++ {
 					taken[r][dd], bars[r][dd] = true, bar
 				}
+				// A bar runs from the first day of its days that shows to the last.
+				for first < last && !m.shows(first) {
+					first++
+				}
+				for last > first && !m.shows(last) {
+					last--
+				}
+				if !m.shows(first) {
+					return
+				}
 				c0, c1 := m.cell(week*7+first), m.cell(week*7+last)
 				y := c0.Min.Y + dayNumH + float32(r)*(chipH+chipGap)
 				out = append(out, chip{e: e, bar: bar, box: geom.Rc(c0.Min.X+3, y, c1.Max.X-c0.Min.X-6, chipH)})
@@ -319,12 +398,14 @@ func (m *Month) chips() []chip {
 				continue
 			}
 			for dd := first; dd <= last; dd++ {
-				place(e, dd, dd, false)
+				if m.shows(dd) {
+					place(e, dd, dd, false)
+				}
 			}
 		}
 		// A day with events that did not fit gives up its last line to say how many more, unless a bar holds it.
 		for dd := range 7 {
-			if hidden[dd] == 0 || bars[rows-1][dd] {
+			if hidden[dd] == 0 || bars[rows-1][dd] || !m.shows(dd) {
 				continue
 			}
 			cell := week*7 + dd
@@ -376,10 +457,16 @@ func (m *Month) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Ch
 	regular, bold := widget.Font.Get(th), widget.BoldFont.Get(th)
 	size := EventText.Get(th)
 	for dd := range 7 {
+		if !m.shows(dd) {
+			continue
+		}
 		name := regular.Shape(m.day(dd).Format("Mon"), size)
-		name.Paint(p, geom.Pt(float32(dd)*m.cellW()+8, (monthHeadH-name.Height())/2), faint)
+		name.Paint(p, geom.Pt(m.cell(dd).Min.X+8, (monthHeadH-name.Height())/2), faint)
 	}
 	for i := range 42 {
+		if !m.shows(i % 7) {
+			continue
+		}
 		c := m.cell(i)
 		day := m.day(i)
 		if day.Month() != m.Month.Month() {
@@ -388,7 +475,7 @@ func (m *Month) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Ch
 			p.RRect(c, 0, paint.Solid(WeekendFill.Get(th)))
 		}
 		p.RRect(geom.Rc(c.Min.X, c.Min.Y, c.Size().W, 1), 0, paint.Solid(line))
-		if i%7 > 0 {
+		if m.colOf(i%7) > 0 {
 			p.RRect(geom.Rc(c.Min.X, c.Min.Y, 1, c.Size().H), 0, paint.Solid(line))
 		}
 		label := strconv.Itoa(day.Day())
@@ -445,15 +532,16 @@ func (m *Month) paintSprite(p *paint.Painter, th *theme.Live, s *sprite) {
 	}
 	e := s.e
 	size := EventText.Get(th)
-	fill, bar, ink, _ := eventColors(th, e, lift)
+	wait := min(max(s.wait.Value(), 0), 1)
+	fill, bar, ink, _ := eventColors(th, e, lift, wait)
 	if s.long {
 		shadow := paint.Shadow{}
 		if lift > 0.01 {
 			shadow = paint.Shadow{Color: color.NRGBA{A: uint8(0x50 * lift)}, Blur: 8 * lift, Offset: geom.Pt(0, 2*lift)}
 		}
 		p.ShadowRRect(r, 5, paint.Solid(fill), shadow)
-		if e.Faint {
-			stripes(p, r, 5, bar)
+		if wait > 0.01 {
+			stripes(p, r, 5, bar, wait)
 		}
 		t := m.paragraph(th, e.Title, r.Size().W-12, true, size)
 		t.Paint(p, geom.Pt(r.Min.X+7, r.Center().Y-t.Size.H/2), ink)
@@ -465,11 +553,10 @@ func (m *Month) paintSprite(p *paint.Painter, th *theme.Live, s *sprite) {
 				Offset: geom.Pt(0, 2*lift)})
 		}
 		dot := geom.Rc(r.Min.X+5, r.Center().Y-4, 8, 8)
-		if e.Faint {
-			p.RRectStroke(dot, 4, paint.Fill{}, paint.Stroke{Width: 1.5, Color: bar})
-		} else {
-			p.RRect(dot, 4, paint.Solid(bar))
-		}
+		// A ring while it waits for an answer, filling in once it has one.
+		solid := bar
+		solid.A = uint8(float32(solid.A) * (1 - wait))
+		p.RRectStroke(dot, 4, paint.Solid(solid), paint.Stroke{Width: 1.5, Color: bar})
 		t := m.paragraph(th, clock(e.Start.Hour(), e.Start.Minute())+" "+e.Title, r.Size().W-20, false, size)
 		t.Paint(p, geom.Pt(r.Min.X+18, r.Center().Y-t.Size.H/2), ink)
 	}
@@ -515,6 +602,28 @@ func (m *Month) chipAt(pt geom.Point) (chip, bool) {
 func (m *Month) Handle(e input.Event, u *gunim.UI) bool {
 	switch e := e.(type) {
 	case input.PointerMove:
+		text := ""
+		if ch, ok := m.chipAt(e.Pos); ok && ch.more == 0 && m.drag == nil {
+			line := clock(ch.e.Start.Hour(), ch.e.Start.Minute()) + " " + ch.e.Title
+			if widget.Font.Get(u.Theme()).Shape(line, EventText.Get(u.Theme())).Advance > ch.box.Size().W-20 {
+				text = eventTip(ch.e)
+			}
+		}
+		m.tip.Handle(e, u, m, text)
+	case input.PointerLeave, input.PointerDown:
+		m.tip.Handle(e, u, m, "")
+	case input.Scroll:
+		m.tip.Handle(e, u, m, "")
+		if m.OnStep == nil {
+			return false
+		}
+		if by := m.swipe.step(e, true); by != 0 {
+			u.Send(m, m.OnStep(by))
+		}
+		return true
+	}
+	switch e := e.(type) {
+	case input.PointerMove:
 		if g := m.drag; g != nil {
 			if !g.moved && math.Hypot(float64(e.Pos.X-g.from.X), float64(e.Pos.Y-g.from.Y)) < dragSlack {
 				return true
@@ -548,7 +657,13 @@ func (m *Month) Handle(e input.Event, u *gunim.UI) bool {
 			m.aimLifts(u.Theme())
 			return true
 		}
-		return false
+		return eventKeys(e, u, m, m.stops(), m.selected, func(id string) { m.Select(id, u) }, m.Open, m.OnDelete)
+	case input.FocusGained:
+		if e.Keyed && m.selected == "" {
+			if s, ok := nextStop(m.stops(), "", input.KeyDown); ok {
+				m.Select(s.id, u)
+			}
+		}
 	case input.PointerDown:
 		if e.Button != input.ButtonPrimary {
 			return false
@@ -588,7 +703,10 @@ func (m *Month) Handle(e input.Event, u *gunim.UI) bool {
 func (m *Month) press(e input.PointerDown, u *gunim.UI) {
 	if ch, ok := m.chipAt(e.Pos); ok {
 		if ch.more > 0 {
-			if m.OnDay != nil {
+			switch {
+			case m.More != nil:
+				m.More(m.day(ch.cell), ch.box, u)
+			case m.OnDay != nil:
 				u.Send(m, m.OnDay(m.day(ch.cell)))
 			}
 			return

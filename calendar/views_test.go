@@ -160,3 +160,82 @@ func TestAnEventDraggedInTheMonthKeepsItsTime(t *testing.T) {
 		t.Fatalf("dragging Tuesday's event to Thursday sent %v, want %v", got, want)
 	}
 }
+
+// deleted is the intent the tests' views send for Delete.
+type deleted struct{ id string }
+
+func TestTheKeysMoveBetweenEventsOpenAndDelete(t *testing.T) {
+	d := newWeek()
+	d.OnDelete = func(id string) gunim.Intent { return deleted{id} }
+	var opened string
+	d.Open = func(id string, _ geom.Rect, _ *gunim.UI) { opened = id }
+	// A second event on Tuesday, later, and one on Thursday.
+	d.events = append(d.events,
+		Event{ID: "b", Title: "Later", Start: monday.Add(38 * time.Hour), End: monday.Add(39 * time.Hour)},
+		Event{ID: "c", Title: "Thursday", Start: monday.Add(3*24*time.Hour + 10*time.Hour), End: monday.Add(3*24*time.Hour + 11*time.Hour)})
+	w, run, sent := stage(t, d)
+	key := func(k input.Key) {
+		w.Input(input.KeyPress{Key: k})
+		run(1)
+	}
+	// Tab into the grid chooses the first event.
+	w.Input(input.KeyPress{Key: input.KeyTab})
+	run(1)
+	if d.selected != "a" {
+		t.Fatalf("Tab into the grid chose %q, want the first event", d.selected)
+	}
+	key(input.KeyDown)
+	if d.selected != "b" {
+		t.Fatalf("Down chose %q, want the next event that day", d.selected)
+	}
+	key(input.KeyRight)
+	if d.selected != "c" {
+		t.Fatalf("Right chose %q, want the nearest event on a day to the right", d.selected)
+	}
+	key(input.KeyEnter)
+	if opened != "c" {
+		t.Fatalf("Enter opened %q", opened)
+	}
+	key(input.KeyDelete)
+	if got := sent(); len(got) != 1 || got[0] != (deleted{"c"}) {
+		t.Fatalf("Delete sent %v", got)
+	}
+	key(input.KeyEscape)
+	if d.selected != "" {
+		t.Fatal("Escape left an event chosen")
+	}
+}
+
+func TestSwipingSidewaysStepsOnce(t *testing.T) {
+	d := newWeek()
+	d.OnStep = func(by int) gunim.Intent { return by }
+	w, run, sent := stage(t, d)
+	at := geom.Pt(400, 400)
+	start := time.Now()
+	for i := range 10 {
+		w.Input(input.Scroll{Pos: at, Delta: geom.Pt(-40, 0), Time: start.Add(time.Duration(i) * 16 * time.Millisecond)})
+	}
+	run(1)
+	if got := sent(); len(got) != 1 || got[0] != 1 {
+		t.Fatalf("a swipe to the left sent %v, want one step on", got)
+	}
+}
+
+func TestTheMonthCanLeaveOutWeekends(t *testing.T) {
+	m := NewMonth(monday)
+	m.HideWeekends = true
+	_, run, _ := stage(t, m)
+	run(1)
+	if m.cols() != 5 {
+		t.Fatalf("the month shows %d days a week, want five", m.cols())
+	}
+	if c := m.cell(5); c.Size().W != 0 {
+		t.Fatalf("Saturday's cell is %v wide, want none", c.Size().W)
+	}
+	if got := m.cellAt(m.cell(4).Center()); got != 4 {
+		t.Fatalf("the cell under Friday is %d, want 4", got)
+	}
+	if m.cell(7).Min.X != 0 {
+		t.Fatal("the second week does not start at the left edge")
+	}
+}

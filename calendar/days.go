@@ -59,6 +59,11 @@ type Days struct {
 	Open func(id string, box geom.Rect, u *gunim.UI)
 	// OnEdit turns a double click on an event into an intent, such as to open it in an editor.
 	OnEdit func(id string) gunim.Intent
+	// OnDelete turns Delete on the event chosen by the keys into an intent.
+	OnDelete func(id string) gunim.Intent
+	// OnStep turns scrolling sideways, or with Shift held, into an intent to step to the days either side, by -1
+	// or 1.
+	OnStep func(by int) gunim.Intent
 	// Busy, when set, is asked before a press on free time begins an event. True lets the press do nothing more,
 	// such as one that only closed a card about an event.
 	Busy func() bool
@@ -97,6 +102,8 @@ type Days struct {
 	// longRows is how many rows the whole-day events take.
 	longRows int
 	hover    string
+	tip      widget.PartTip
+	swipe    swipe
 	drag     *dayDrag
 	// ghostHeld is the drag that drew out an event being named, whose ghost stays until ClearGhost.
 	ghostHeld *dayDrag
@@ -118,12 +125,29 @@ type sprite struct {
 	top, bottom bool
 	rect        *anim.Rect
 	in, lift    *anim.Float
-	gone        bool
+	// wait runs to 1 while the event waits for the user's answer, and back to 0 once it has one.
+	wait *anim.Float
+	gone bool
 }
 
 func (s *sprite) step(dt time.Duration) bool {
-	a, b, c := s.rect.Step(dt), s.in.Step(dt), s.lift.Step(dt)
-	return a || b || c
+	a, b, c, w := s.rect.Step(dt), s.in.Step(dt), s.lift.Step(dt), s.wait.Step(dt)
+	return a || b || c || w
+}
+
+// newSprite returns a sprite for e at box.
+func newSprite(box geom.Rect, e Event) *sprite {
+	s := &sprite{rect: anim.NewRect(box), in: anim.NewFloat(0), lift: anim.NewFloat(0), wait: anim.NewFloat(0)}
+	if e.Faint {
+		s.wait.Jump(1)
+	}
+	return s
+}
+
+// show sets the event s draws, fading to or from the look of one waiting for an answer.
+func (s *sprite) show(e Event, th *theme.Live) {
+	s.e = e
+	s.wait.Animate(map[bool]float32{false: 0, true: 1}[e.Faint], widget.Settle.Get(th))
 }
 
 // dayDrag is a drag on the grid: drawing out a new event, or moving an event or changing its length.
@@ -266,6 +290,37 @@ func (d *Days) EventBox(id string) (geom.Rect, bool) {
 	return geom.Rect{}, false
 }
 
+// Focusable implements [gunim.Focusable]: the keys move between the events.
+func (d *Days) Focusable() bool { return true }
+
+// stops returns the events the keys move between, those showing.
+func (d *Days) stops() []stop {
+	var out []stop
+	for _, k := range d.order {
+		s := d.sprites[k]
+		if s == nil || s.gone {
+			continue
+		}
+		day := 0
+		for i := range d.Count {
+			if s.e.covers(d.day(i)) {
+				day = i
+				break
+			}
+		}
+		out = append(out, stop{id: s.e.ID, day: day, start: s.e.Start, box: d.onScreen(s, s.rect.Target())})
+	}
+	return out
+}
+
+// choose chooses the event id by the keys, and scrolls it into sight.
+func (d *Days) choose(id string, u *gunim.UI) {
+	d.Select(id, u)
+	if id != "" {
+		d.Reveal(id, u)
+	}
+}
+
 // EventAt returns the ID of the event at pt, in the grid's space, and false where there is none.
 func (d *Days) EventAt(pt geom.Point) (string, bool) {
 	e, _, _, ok := d.eventAt(pt)
@@ -388,7 +443,7 @@ func (d *Days) place(th *theme.Live, jump, drop bool) {
 		s, ok := d.sprites[t.key]
 		switch {
 		case !ok:
-			s = &sprite{rect: anim.NewRect(t.box), in: anim.NewFloat(0), lift: anim.NewFloat(0)}
+			s = newSprite(t.box, t.e)
 			if jump {
 				s.in.Jump(1)
 			} else {
@@ -409,7 +464,8 @@ func (d *Days) place(th *theme.Live, jump, drop bool) {
 			}
 			s.rect.Animate(t.box, motion)
 		}
-		s.e, s.long, s.top, s.bottom = t.e, t.long, t.top, t.bottom
+		s.show(t.e, th)
+		s.long, s.top, s.bottom = t.long, t.top, t.bottom
 	}
 	for k, s := range d.sprites {
 		if seen[k] {
@@ -717,13 +773,11 @@ func (d *Days) paintHeads(p *paint.Painter, th *theme.Live, now time.Time) {
 	}
 }
 
-// eventColors returns an event's fill, the bar down its side, and its text's ink, lit by lift from 0 to 1.
-func eventColors(th *theme.Live, e Event, lift float32) (fill, bar, ink, sub color.NRGBA) {
+// eventColors returns an event's fill, the bar down its side, and its text's ink, lit by lift and waiting for an
+// answer by wait, each from 0 to 1.
+func eventColors(th *theme.Live, e Event, lift, wait float32) (fill, bar, ink, sub color.NRGBA) {
 	c := e.Color
-	a := 0.42 + 0.18*lift
-	if e.Faint {
-		a = 0.10 + 0.12*lift
-	}
+	a := (0.42+0.18*lift)*(1-wait) + (0.10+0.12*lift)*wait
 	fill = color.NRGBA{R: c.R, G: c.G, B: c.B, A: uint8(255 * a)}
 	bar = c
 	ink = widget.Ink.Get(th)
@@ -747,7 +801,8 @@ func (d *Days) paintSprite(p *paint.Painter, th *theme.Live, s *sprite) {
 		defer p.Layer(paint.LayerOpts{Bounds: r.Inset(geom.Uniform(-12)), Opacity: in})()
 	}
 	e := s.e
-	fill, bar, ink, sub := eventColors(th, e, lift)
+	wait := min(max(s.wait.Value(), 0), 1)
+	fill, bar, ink, sub := eventColors(th, e, lift, wait)
 	shadow := paint.Shadow{}
 	if lift > 0.01 {
 		shadow = paint.Shadow{Color: color.NRGBA{A: uint8(0x60 * lift)}, Blur: 12 * lift, Offset: geom.Pt(0, 3*lift)}
@@ -756,8 +811,8 @@ func (d *Days) paintSprite(p *paint.Painter, th *theme.Live, s *sprite) {
 	base := EventBase.Get(th)
 	p.ShadowRRect(r.Inset(geom.Uniform(-1)), 7, paint.Solid(base), shadow)
 	p.RRect(r, 6, paint.Solid(fill))
-	if e.Faint {
-		stripes(p, r, 6, bar)
+	if wait > 0.01 {
+		stripes(p, r, 6, bar, wait)
 	}
 	if hover := e.ID == d.hover && d.drag == nil; hover && s.resizable() && r.Size().H >= 44 {
 		// A grip at the bottom says the event's length can be pulled.
@@ -804,10 +859,11 @@ func (d *Days) paintSprite(p *paint.Painter, th *theme.Live, s *sprite) {
 	st.Paint(p, geom.Pt(r.Min.X+9, r.Min.Y+4+t.Size.H), sub)
 }
 
-// stripes shades r, rounded by radius, with thin diagonal stripes of c, for an event waiting for an answer.
-func stripes(p *paint.Painter, r geom.Rect, radius float32, c color.NRGBA) {
+// stripes shades r, rounded by radius, with thin diagonal stripes of c at strength from 0 to 1, for an event waiting
+// for an answer.
+func stripes(p *paint.Painter, r geom.Rect, radius float32, c color.NRGBA, strength float32) {
 	defer p.Layer(paint.LayerOpts{Bounds: r, Opacity: 1, Clip: true, Radius: radius})()
-	c.A = 0x55
+	c.A = uint8(0x55 * strength)
 	diag := r.Size().W + r.Size().H
 	defer p.Push(paint.Rotate(-math.Pi/4, r.Center()))()
 	for x := r.Center().X - diag/2; x < r.Center().X+diag/2; x += 9 {
@@ -914,11 +970,52 @@ func (d *Days) eventAt(pt geom.Point) (Event, geom.Rect, edge, bool) {
 	return Event{}, geom.Rect{}, noEdge, false
 }
 
+// tipText returns the tooltip for the event at pt: its title, time and place in full, when its box cuts them short,
+// and nothing otherwise.
+func (d *Days) tipText(pt geom.Point, th *theme.Live) string {
+	if d.drag != nil || d.th == nil {
+		return ""
+	}
+	ev, r, _, ok := d.eventAt(pt)
+	if !ok {
+		return ""
+	}
+	title := widget.BoldFont.Get(th).Shape(ev.Title, EventText.Get(th))
+	if title.Advance <= r.Size().W-12 && (ev.long() || r.Size().H >= 36) {
+		return ""
+	}
+	return eventTip(ev)
+}
+
+// eventTip is the tooltip for e: its title, its time and its place.
+func eventTip(e Event) string {
+	s := e.Title
+	if !e.long() {
+		s += " · " + clock(e.Start.Hour(), e.Start.Minute()) + "–" + clock(e.End.Hour(), e.End.Minute())
+	}
+	if e.Location != "" {
+		s += " · " + e.Location
+	}
+	return s
+}
+
 // Handle implements [gunim.Handler].
 func (d *Days) Handle(e input.Event, u *gunim.UI) bool {
 	th := u.Theme()
 	switch e := e.(type) {
+	case input.PointerMove:
+		d.tip.Handle(e, u, d, d.tipText(e.Pos, th))
+	case input.PointerLeave, input.PointerDown, input.Scroll:
+		d.tip.Handle(e, u, d, "")
+	}
+	switch e := e.(type) {
 	case input.Scroll:
+		if sideways := e.Mods.Has(input.ModShift) || abs(e.Delta.X) > abs(e.Delta.Y); sideways && d.OnStep != nil {
+			if by := d.swipe.step(e, false); by != 0 {
+				u.Send(d, d.OnStep(by))
+			}
+			return true
+		}
 		if e.Pos.Y < d.bodyTop() {
 			return false
 		}
@@ -958,6 +1055,14 @@ func (d *Days) Handle(e input.Event, u *gunim.UI) bool {
 			d.aimLifts(th)
 			u.Invalidate()
 			return true
+		}
+		return eventKeys(e, u, d, d.stops(), d.selected, func(id string) { d.choose(id, u) }, d.Open, d.OnDelete)
+	case input.FocusGained:
+		// Tabbing in chooses the first event, for the keys to move on from.
+		if e.Keyed && d.selected == "" {
+			if s, ok := nextStop(d.stops(), "", input.KeyDown); ok {
+				d.choose(s.id, u)
+			}
 		}
 	}
 	return false

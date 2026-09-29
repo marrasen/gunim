@@ -139,13 +139,92 @@ func (f *DateField) Focusable() bool { return true }
 func (f *DateField) Cursor(geom.Point) input.Cursor { return input.CursorHand }
 
 // TimeField holds a time of day, typed as 9:30, 0930 or 9. The Up and Down keys move it by Step, and leaving the
-// field writes what it holds out in full.
+// field writes what it holds out in full. A click opens a list of times near it to pick from; the keyboard stays in
+// the field, so typing goes on as before and closes the list.
 type TimeField struct {
 	*widget.TextField
 	// Step is how far Up and Down move the time; zero is 15 minutes.
 	Step time.Duration
-	// OnChange runs when the time changes by the keys, or as the field is left.
+	// OnChange runs when the time changes by the keys, the list, or as the field is left.
 	OnChange func(t time.Duration, u *gunim.UI)
+	// From, when set, makes the list start just after the time it returns, with each time's length from it, as for
+	// the end of an event.
+	From func() (time.Duration, bool)
+
+	list  *gunim.Popup
+	times []time.Duration
+}
+
+// listTimes is how many times the list offers, half an hour apart.
+const listTimes = 12
+
+// openList opens the list of times under the field: from half an hour after From, or around the time the field
+// holds, half an hour apart.
+func (f *TimeField) openList(u *gunim.UI) {
+	if f.list != nil && f.list.Open() {
+		return
+	}
+	now, ok := f.Value()
+	if !ok {
+		now = 9 * time.Hour
+	}
+	from, hasFrom := time.Duration(0), false
+	if f.From != nil {
+		from, hasFrom = f.From()
+	}
+	first := (now - time.Hour).Truncate(30 * time.Minute)
+	if hasFrom {
+		first = from + 30*time.Minute
+	}
+	f.times = f.times[:0]
+	var items []string
+	checked := make([]bool, 0, listTimes)
+	for i := range listTimes {
+		t := first + time.Duration(i)*30*time.Minute
+		if t < 0 || t >= 24*time.Hour {
+			continue
+		}
+		label := clockOf(t)
+		if hasFrom {
+			label += "  (" + spanText(t-from) + ")"
+		}
+		f.times = append(f.times, t)
+		items = append(items, label)
+		checked = append(checked, t == now)
+	}
+	m := widget.NewMenu(items...)
+	m.Checked = checked
+	m.Pick = func(i int, u *gunim.UI) {
+		f.closeList()
+		if i < len(f.times) {
+			f.SetValue(f.times[i], u)
+			if f.OnChange != nil {
+				f.OnChange(f.times[i], u)
+			}
+		}
+	}
+	f.list = u.OpenPopup(f, m, gunim.PopupOptions{Anchor: geom.Rc(0, 0, 90, widget.FieldHeight.Get(u.Theme())+2),
+		Max: geom.Sz(240, 480), Dismiss: func(*gunim.UI) { f.closeList() }})
+}
+
+// closeList takes the list of times away.
+func (f *TimeField) closeList() {
+	if f.list != nil {
+		f.list.Close()
+		f.list = nil
+	}
+}
+
+// spanText says how long d is, such as "1 h 30 min".
+func spanText(d time.Duration) string {
+	h, m := int(d.Hours()), int(d.Minutes())%60
+	switch {
+	case h == 0:
+		return strconv.Itoa(m) + " min"
+	case m == 0:
+		return strconv.Itoa(h) + " h"
+	}
+	return strconv.Itoa(h) + " h " + strconv.Itoa(m) + " min"
 }
 
 // NewTimeField returns a field holding the time of day t, as a span from midnight.
@@ -181,11 +260,29 @@ func (f *TimeField) Handle(e input.Event, u *gunim.UI) bool {
 		step = 15 * time.Minute
 	}
 	switch e := e.(type) {
+	case input.PointerDown:
+		if e.Button == input.ButtonPrimary {
+			f.openList(u)
+		}
+	case input.TextInput:
+		f.closeList()
 	case input.KeyPress:
+		if e.Key == input.KeyEscape && f.list != nil {
+			f.closeList()
+			return true
+		}
+		if e.Key == input.KeyTab {
+			f.closeList()
+		}
+		if e.Key == input.KeyDown && e.Mods.Has(input.ModAlt) {
+			f.openList(u)
+			return true
+		}
 		by := map[input.Key]time.Duration{input.KeyUp: -step, input.KeyDown: step}[e.Key]
 		if by == 0 {
 			break
 		}
+		f.closeList()
 		t, ok := f.Value()
 		if !ok {
 			return true
