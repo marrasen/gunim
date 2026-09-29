@@ -266,6 +266,12 @@ func (d *Days) EventBox(id string) (geom.Rect, bool) {
 	return geom.Rect{}, false
 }
 
+// EventAt returns the ID of the event at pt, in the grid's space, and false where there is none.
+func (d *Days) EventAt(pt geom.Point) (string, bool) {
+	e, _, _, ok := d.eventAt(pt)
+	return e.ID, ok
+}
+
 // Reveal scrolls the grid so the event id shows, with an hour above it, unless it shows already.
 func (d *Days) Reveal(id string, u *gunim.UI) {
 	for _, e := range d.shown() {

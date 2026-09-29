@@ -167,9 +167,12 @@ type (
 	EventShown  struct{ ID string }
 	// UndoAsked undoes the last change, InvitesAsked shows the next invitation waiting for an answer, and
 	// MoreAsked opens the full editor on what a quick one holds.
-	UndoAsked    struct{}
-	InvitesAsked struct{}
-	MoreAsked    struct{ Draft Draft }
+	UndoAsked struct{}
+	// DuplicateAsked opens the editor on a copy of an event, and CalendarSet moves an event to another calendar.
+	DuplicateAsked struct{ ID string }
+	CalendarSet    struct{ ID, Calendar string }
+	InvitesAsked   struct{}
+	MoreAsked      struct{ Draft Draft }
 	// ChangeAnswered answers a ChangeAsk: OK keeps the move, and All moves every time.
 	ChangeAnswered struct {
 		ID      string
@@ -204,6 +207,8 @@ func init() {
 	gunim.RegisterType[EventShown]("cal.show")
 	gunim.RegisterType[ChangeAsk]("cal.change.ask")
 	gunim.RegisterType[UndoAsked]("cal.undo")
+	gunim.RegisterType[DuplicateAsked]("cal.duplicate")
+	gunim.RegisterType[CalendarSet]("cal.calendar.set")
 	gunim.RegisterType[InvitesAsked]("cal.invites")
 	gunim.RegisterType[MoreAsked]("cal.more")
 	gunim.RegisterType[ChangeAnswered]("cal.change.answer")

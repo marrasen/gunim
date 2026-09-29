@@ -292,3 +292,16 @@ func TestMovingOneTimeOfARepeatingEventAsksAndCanMoveEveryTime(t *testing.T) {
 		t.Fatalf("after undo, the stand-up is at %v", e.Start)
 	}
 }
+
+func TestMovingAnEventToAnotherCalendarAndCopyingIt(t *testing.T) {
+	h := newHarness(t)
+	dentist := h.events("Dentist")[0]
+	h.a.handle(CalendarSet{ID: dentist.ID, Calendar: "work"})
+	if d := h.a.state().Details[dentist.ID]; d.Calendar != "Work" {
+		t.Fatalf("the dentist is in %q, want Work", d.Calendar)
+	}
+	h.a.handle(DuplicateAsked{ID: dentist.ID})
+	if h.a.editing == nil || h.a.editing.ID != "" || h.a.editing.Title != "Dentist" {
+		t.Fatalf("making a copy opened the editor on %+v, want a new event titled Dentist", h.a.editing)
+	}
+}

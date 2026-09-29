@@ -352,6 +352,28 @@ func (a *app) handle(v gunim.Intent) {
 		a.edit(Draft{Start: v.Start, End: v.End, AllDay: v.AllDay, Calendar: a.defaultCal()})
 	case MoreAsked:
 		a.edit(v.Draft)
+	case DuplicateAsked:
+		if d, ok := a.draftOf(v.ID); ok {
+			d.ID, d.Series, d.Repeat = "", false, Never
+			a.edit(d)
+		}
+	case CalendarSet:
+		s, _, ok := a.find(v.ID)
+		c, found := a.calendarOf(v.Calendar)
+		if !ok || !found || s.fixed || s.cal == v.Calendar {
+			return
+		}
+		a.remember()
+		s.cal, a.lastCal = v.Calendar, v.Calendar
+		if !c.Shown {
+			// A calendar hidden would hide the event just moved to it.
+			for i := range a.cals {
+				if a.cals[i].ID == c.ID {
+					a.cals[i].Shown = true
+				}
+			}
+		}
+		a.tell("Moved “"+s.title+"” to "+c.Name, "")
 	case UndoAsked:
 		if len(a.undo) == 0 {
 			a.patch(Notice{Title: "Nothing to undo"})

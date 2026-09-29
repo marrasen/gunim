@@ -19,7 +19,7 @@ const scriptPause = 500 * time.Millisecond
 // "month" to pick the view, "next" or "back" to step it, "today", "new" to open the editor for a new event,
 // "edit:title" to open it on the first event shown with that title, "draw:hh:mm-hh:mm" to draw out an event today,
 // "hide:calendar" to toggle a calendar by its ID, "theme" to switch the theme, "shot:path" to write the window to
-// a PNG file, "click:x,y" or "dblclick:x,y" to click there, "show:words" to show the first event a search for
+// a PNG file, "click:x,y", "dblclick:x,y" or "rclick:x,y" to click there, "show:words" to show the first event a search for
 // the words finds, "invite" to have a colleague send an invitation, and "wait" to do nothing for a step.
 func (a *app) runScript(steps []string) {
 	if len(steps) == 0 {
@@ -70,7 +70,7 @@ func (a *app) scriptStep(step string) {
 		if err := writeShot(a.ctx, a.c, arg); err != nil {
 			log.Printf("script: %s: %v", step, err)
 		}
-	case "click", "dblclick":
+	case "click", "dblclick", "rclick":
 		xs, ys, _ := strings.Cut(arg, ",")
 		x, err1 := strconv.ParseFloat(xs, 32)
 		y, err2 := strconv.ParseFloat(ys, 32)
@@ -79,12 +79,16 @@ func (a *app) scriptStep(step string) {
 			return
 		}
 		at := geom.Pt(float32(x), float32(y))
-		clicks := map[string]int{"click": 1, "dblclick": 2}[verb]
+		clicks := map[string]int{"click": 1, "dblclick": 2, "rclick": 1}[verb]
+		button := input.ButtonPrimary
+		if verb == "rclick" {
+			button = input.ButtonSecondary
+		}
 		for c := 1; c <= clicks; c++ {
 			if err := errors.Join(
 				a.c.Input(a.ctx, input.PointerMove{Pos: at}),
-				a.c.Input(a.ctx, input.PointerDown{Pos: at, Button: input.ButtonPrimary, Clicks: c}),
-				a.c.Input(a.ctx, input.PointerUp{Pos: at, Button: input.ButtonPrimary})); err != nil {
+				a.c.Input(a.ctx, input.PointerDown{Pos: at, Button: button, Clicks: c}),
+				a.c.Input(a.ctx, input.PointerUp{Pos: at, Button: button})); err != nil {
 				log.Printf("script: %s: %v", step, err)
 			}
 		}

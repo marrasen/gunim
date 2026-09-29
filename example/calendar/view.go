@@ -132,7 +132,7 @@ func buildCal(s Cal) *calView {
 	v.month.Open = func(id string, box geom.Rect, u *gunim.UI) { v.openCard(v.month, id, box, u) }
 	v.month.OnEdit = func(id string) gunim.Intent { return EditAsked{ID: id} }
 	v.month.Busy = busy
-	v.area = newSwitcher(v.days, v.month)
+	v.area = newSwitcher(v.eventMenu(v.days, v.days.EventAt), v.eventMenu(v.month, v.month.EventAt))
 
 	main := widget.Column(widget.NewPad(bar), v.area).Grow(v.area, 1)
 	main.Cross = widget.CrossStretch
@@ -345,6 +345,47 @@ func (v *calView) openCard(from gunim.Node, id string, box geom.Rect, u *gunim.U
 	u.Focus(c)
 	v.days.Select(id, u)
 	v.month.Select(id, u)
+}
+
+// eventMenu wraps view in the menu a right click on one of its events opens: edit it, make a copy of it, delete
+// it, or move it to another calendar.
+func (v *calView) eventMenu(view gunim.Node, at func(geom.Point) (string, bool)) *widget.ContextMenu {
+	c := widget.NewContextMenu(view)
+	var id string
+	var cals []Calendar
+	c.Prepare = func(pt geom.Point, u *gunim.UI) bool {
+		ev, ok := at(pt)
+		e, shown := v.event(ev)
+		if !ok || !shown || e.Fixed {
+			return false
+		}
+		v.closeCard(u)
+		v.closeQuick(u)
+		id, cals = ev, v.state.Calendars
+		c.Items = []string{"Edit", "Make a copy", "Delete"}
+		c.Icons = []*icon.Icon{icon.Pencil, icon.Copy, icon.Trash2}
+		c.Breaks, c.Checked = []int{3}, make([]bool, 3)
+		for _, cal := range cals {
+			c.Items = append(c.Items, "In "+cal.Name)
+			c.Icons = append(c.Icons, nil)
+			c.Checked = append(c.Checked, cal.Name == v.state.Details[ev].Calendar)
+		}
+		return true
+	}
+	c.OnPick = func(i int) gunim.Intent {
+		switch {
+		case i == 0:
+			return EditAsked{ID: id}
+		case i == 1:
+			return DuplicateAsked{ID: id}
+		case i == 2:
+			return DeleteAsked{ID: id}
+		case i-3 < len(cals):
+			return CalendarSet{ID: id, Calendar: cals[i-3].ID}
+		}
+		return nil
+	}
+	return c
 }
 
 // dismiss wraps what closes a popup on a press outside it, so the rest of that press begins nothing.

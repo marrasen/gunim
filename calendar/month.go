@@ -132,6 +132,15 @@ func (m *Month) SetMonth(day time.Time, u *gunim.UI) {
 	u.Invalidate()
 }
 
+// EventAt returns the ID of the event at pt, in the month's space, and false where there is none.
+func (m *Month) EventAt(pt geom.Point) (string, bool) {
+	ch, ok := m.chipAt(pt)
+	if !ok || ch.more > 0 {
+		return "", false
+	}
+	return ch.e.ID, true
+}
+
 // EventBox returns where the event id first shows, in the month's space, and false when it does not show.
 func (m *Month) EventBox(id string) (geom.Rect, bool) {
 	for _, k := range m.order {
