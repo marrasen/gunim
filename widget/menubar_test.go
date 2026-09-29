@@ -567,3 +567,25 @@ func TestACompactMenubarsListFitsItselfAgainWhereTheWindowMoves(t *testing.T) {
 		t.Fatalf("after the window moved down, Font's first line is at %v, not above its line, at %v", first, level)
 	}
 }
+
+// A line picked by its access key in a compact menubar's menu is picked,
+// and the list that closed with it is not asked to light its line.
+func TestACompactMenubarsLinePickedByItsKeyIsPicked(t *testing.T) {
+	var picks []barPick
+	b := NewMenubar(
+		BarMenu{Title: "&File", Items: []string{"&New", "&Open"}},
+		BarMenu{Title: "&Edit", Items: []string{"&Copy", "&Paste"}},
+	)
+	b.Compact = true
+	b.Pick = func(m, i int, _ *gunim.UI) { picks = append(picks, barPick{m, i}) }
+	col := Column(b)
+	col.Cross = CrossStretch
+	w, run := stage(t, &frame{child: col, size: geom.Sz(600, 400), keysGoOn: true})
+	w.Input(input.KeyPress{Key: input.KeyE, Mods: input.ModAlt, Char: 'e'})
+	run(3)
+	w.Input(input.KeyPress{Key: input.KeyP, Char: 'p'})
+	run(20)
+	if len(picks) != 1 || picks[0] != (barPick{1, 1}) {
+		t.Fatalf("picked %v, want Edit's Paste", picks)
+	}
+}

@@ -60,6 +60,9 @@ type Menu struct {
 	cues bool
 
 	hot   int
+	// picks counts the lines picked, so a highlight moved on the way to
+	// a pick is not told of after it: the pick has closed the menu.
+	picks int
 	glide bool
 	hotY  *anim.Float
 	hotOn *anim.Float
@@ -143,7 +146,7 @@ func (m *Menu) Highlighted() int { return m.hot }
 // It is for the node that opened the menu, which keeps the keyboard, to
 // pass keys on. It reports whether it used the key.
 func (m *Menu) Key(k input.KeyPress, u *gunim.UI) bool {
-	defer m.told(m.hot, u)
+	defer m.toldUnlessPicked(m.hot, m.picks, u)
 	switch k.Key {
 	case input.KeyDown:
 		m.Highlight(m.step(m.hot, m.hot+1, 1))
@@ -159,7 +162,7 @@ func (m *Menu) Key(k input.KeyPress, u *gunim.UI) bool {
 		m.Highlight(m.step(m.hot, len(m.Items)-1, -1))
 	case input.KeyEnter, input.KeyKPEnter, input.KeySpace:
 		if m.enabled(m.hot) && m.Pick != nil {
-			m.Pick(m.hot, u)
+			m.pick(m.hot, u)
 		}
 	default:
 		return m.AccessKeys && m.pickByKey(k, u)
@@ -191,7 +194,7 @@ func (m *Menu) pickByKey(k input.KeyPress, u *gunim.UI) bool {
 	}
 	m.Highlight(next)
 	if len(hits) == 1 && m.Pick != nil {
-		m.Pick(next, u)
+		m.pick(next, u)
 	}
 	return true
 }
@@ -223,7 +226,7 @@ func (m *Menu) Transition(p gunim.Presence, f gunim.Frame) bool {
 
 // Handle implements [gunim.Handler].
 func (m *Menu) Handle(e input.Event, u *gunim.UI) bool {
-	defer m.told(m.hot, u)
+	defer m.toldUnlessPicked(m.hot, m.picks, u)
 	switch e := e.(type) {
 	case input.PointerEnter:
 		// The pointer arriving without moving, as when the menu opens
@@ -237,13 +240,29 @@ func (m *Menu) Handle(e input.Event, u *gunim.UI) bool {
 	case input.PointerDown:
 	case input.PointerUp:
 		if i := m.rowAt(e.Pos); m.enabled(i) && m.Pick != nil {
-			m.Pick(i, u)
+			m.pick(i, u)
 		}
 	default:
 		return false
 	}
 	u.Invalidate()
 	return true
+}
+
+// pick picks item i, counting it.
+func (m *Menu) pick(i int, u *gunim.UI) {
+	m.picks++
+	m.Pick(i, u)
+}
+
+// toldUnlessPicked runs OnHighlight when the highlight has moved from
+// was, unless a line was picked since picks was counted: the owner is
+// told of the pick, and whatever the pick closed is not asked about
+// the highlight on the way to it.
+func (m *Menu) toldUnlessPicked(was, picks int, u *gunim.UI) {
+	if m.picks == picks {
+		m.told(was, u)
+	}
 }
 
 // told runs OnHighlight when the highlight has moved from was.
