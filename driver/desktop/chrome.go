@@ -46,12 +46,6 @@ func (w *Window) setChromeless() {
 		}
 		return glfw.HitClient
 	})
-	_, _ = w.gw.SetMaximizeCallback(func(_ *glfw.Window, maximized bool) {
-		w.chrome.mu.Lock()
-		w.chrome.maximized = maximized
-		w.chrome.mu.Unlock()
-		w.in.push(driver.WindowMaximized{Maximized: maximized})
-	})
 }
 
 // Chromeless implements [driver.Framer].
