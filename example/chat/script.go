@@ -16,9 +16,10 @@ const scriptPause = 500 * time.Millisecond
 
 // runScript runs the steps of a script from -do one after another, each after a pause. A step is "reply" to reply
 // to the second latest message, "type:text" to type text, read as a Go string, in the message box, "send" to press
-// Enter, "paste" to press Ctrl+V, "offline" and "online" to drop and restore the connection, "typing:name" to have
-// name type, "hover:x,y" to move the pointer there, "drag:x,y,x,y" to press at the first place and drag to the
-// second, and "theme:light" or "theme:dark" to switch the theme.
+// Enter, "paste" to press Ctrl+V, "react:emoji" to react to the latest message, "click:x,y" to click there,
+// "offline" and "online" to drop and restore the connection, "typing:name" to have name type, "hover:x,y" to move
+// the pointer there, "drag:x,y,x,y" to press at the first place and drag to the second, and "theme:light" or
+// "theme:dark" to switch the theme.
 func (a *app) runScript(steps []string) {
 	if len(steps) == 0 {
 		return
@@ -38,11 +39,7 @@ func (a *app) scriptStep(step string) {
 			a.handle(ReplyAsked{ID: a.current.msgs[n-2].ID})
 		}
 	case "type":
-		// The text reads as a Go string does, so \n breaks a line and \U0001F44D is an emoji.
-		if s, uerr := strconv.Unquote(`"` + strings.ReplaceAll(arg, `"`, `\"`) + `"`); uerr == nil {
-			arg = s
-		}
-		err = a.c.Input(a.ctx, input.TextInput{Text: arg})
+		err = a.c.Input(a.ctx, input.TextInput{Text: unquote(arg)})
 	case "send":
 		err = a.c.Input(a.ctx, input.KeyPress{Key: input.KeyEnter})
 	case "paste":
@@ -53,6 +50,16 @@ func (a *app) scriptStep(step string) {
 		}
 	case "typing":
 		a.setTyping(arg)
+	case "react":
+		if n := len(a.current.msgs); n > 0 {
+			a.handle(ReactionToggled{ID: a.current.msgs[n-1].ID, Emoji: unquote(arg)})
+		}
+	case "click":
+		at := points(arg)[0]
+		err = errors.Join(
+			a.c.Input(a.ctx, input.PointerMove{Pos: at}),
+			a.c.Input(a.ctx, input.PointerDown{Pos: at, Button: input.ButtonPrimary, Clicks: 1}),
+			a.c.Input(a.ctx, input.PointerUp{Pos: at, Button: input.ButtonPrimary}))
 	case "hover":
 		err = a.c.Input(a.ctx, input.PointerMove{Pos: points(arg)[0]})
 	case "drag":
@@ -86,4 +93,12 @@ func points(s string) []geom.Point {
 		out = append(out, geom.Pt(float32(x), float32(y)))
 	}
 	return out
+}
+
+// unquote reads s as a Go string reads, so \n breaks a line and \U0001F44D is an emoji, or leaves it as it is.
+func unquote(s string) string {
+	if u, err := strconv.Unquote(`"` + strings.ReplaceAll(s, `"`, `\"`) + `"`); err == nil {
+		return u
+	}
+	return s
 }

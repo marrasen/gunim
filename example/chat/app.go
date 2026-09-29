@@ -74,7 +74,54 @@ type msg struct {
 	Withdrawn  bool
 	ReplyTo    string
 	Pictures   []Picture
+	// reactions are the emoji people reacted with, in the order they first came, each with who reacted.
+	reactions []reaction
 }
+
+// reaction is an emoji and the people who reacted with it, in order.
+type reaction struct {
+	emoji string
+	who   []string
+}
+
+// toggle adds who's reaction of emoji to m, or takes it back when who had it.
+func (m *msg) toggle(emoji, who string) {
+	for i := range m.reactions {
+		r := &m.reactions[i]
+		if r.emoji != emoji {
+			continue
+		}
+		if j := slices.Index(r.who, who); j >= 0 {
+			r.who = slices.Delete(r.who, j, j+1)
+			if len(r.who) == 0 {
+				m.reactions = slices.Delete(m.reactions, i, i+1)
+			}
+			return
+		}
+		r.who = append(r.who, who)
+		return
+	}
+	m.reactions = append(m.reactions, reaction{emoji: emoji, who: []string{who}})
+}
+
+// reactionsOf returns m's reactions as the timeline shows them.
+func reactionsOf(m *msg) []Reaction {
+	var out []Reaction
+	for _, r := range m.reactions {
+		names := make([]string, len(r.who))
+		for i, w := range r.who {
+			names[i] = w
+			if w == me {
+				names[i] = "You"
+			}
+		}
+		out = append(out, Reaction{Emoji: r.emoji, Count: len(r.who), Mine: slices.Contains(r.who, me), Who: strings.Join(names, ", ")})
+	}
+	return out
+}
+
+// reactionEmoji are the emoji the pretend colleagues react with.
+var reactionEmoji = []string{"\U0001F44D", "\U0001F389", "\u2764\uFE0F", "\U0001F602", "\U0001F680", "\U0001F440", "\u2705"}
 
 func newApp(ctx context.Context, c gunim.Client, seed uint64, history int, failRate float64) *app {
 	a := &app{ctx: ctx, c: c, rng: rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15)), later: make(chan func(), 16),
@@ -210,6 +257,10 @@ func (a *app) handle(v gunim.Intent) {
 		return
 	case ImagePasted:
 		a.pastePicture(v.PNG)
+	case ReactionToggled:
+		if m, ok := a.current.byID[v.ID]; ok && !m.Withdrawn {
+			m.toggle(v.Emoji, me)
+		}
 	case PictureRemoved:
 		a.pending = slices.DeleteFunc(a.pending, func(p Picture) bool { return p.ID == v.ID })
 	case Submitted:
@@ -381,20 +432,30 @@ func (a *app) colleague() {
 	c := a.current
 	who := a.pick(c.people)
 	switch r := a.rng.Float64(); {
-	case r < 0.55:
+	case r < 0.45:
 		a.say(c, who, a.pick(chatter), "")
-	case r < 0.68:
+	case r < 0.56:
 		if m := a.lastBy(c, func(m *msg) bool { return m.Author != who }); m != nil {
 			a.say(c, who, a.pick(answers), m.ID)
 		}
-	case r < 0.78:
+	case r < 0.63:
 		// A colleague edits a message once, adding a paragraph.
 		if m := a.lastBy(c, func(m *msg) bool { return m.Author == who && !m.Edited }); m != nil {
 			m.Body += "\n\n" + a.pick(afterthoughts)
 			m.Edited = true
 			a.publish()
 		}
-	case r < 0.82:
+	case r < 0.83:
+		// Somebody reacts, mostly to one of the user's messages.
+		m := a.lastBy(c, func(m *msg) bool { return m.Author == me })
+		if m == nil || a.rng.Float64() < 0.3 {
+			m = a.lastBy(c, func(m *msg) bool { return m.Author != who })
+		}
+		if m != nil {
+			m.toggle(a.pick(reactionEmoji), who)
+			a.publish()
+		}
+	case r < 0.86:
 		if m := a.lastBy(c, func(m *msg) bool { return m.Author == who }); m != nil {
 			m.Withdrawn = true
 			a.publish()
@@ -424,11 +485,15 @@ func (a *app) lastBy(c *conv, keep func(*msg) bool) *msg {
 
 // say has who type for a moment in c, then send body, replying to replyTo when it is set.
 func (a *app) say(c *conv, who, body, replyTo string) {
+	if a.link != Online {
+		return // nobody's typing reaches a user who is offline
+	}
 	if c == a.current {
 		a.setTyping(who)
 	}
 	a.after(a.between(1200*time.Millisecond, 3500*time.Millisecond), func() {
 		if a.link != Online {
+			a.setTyping("")
 			return
 		}
 		if c == a.current {
@@ -499,7 +564,8 @@ func timeline(c *conv, now time.Time) []Item {
 			out = append(out, Item{Key: "day:" + c.ID + ":" + d, Day: dayName(m.At, now)})
 		}
 		it := Item{Key: m.ID, Message: Message{ID: m.ID, Author: m.Author, Mine: m.Author == me, At: m.At, Body: m.Body,
-			State: m.State, Edited: m.Edited, Withdrawn: m.Withdrawn, Pictures: slices.Clone(m.Pictures)}}
+			State: m.State, Edited: m.Edited, Withdrawn: m.Withdrawn, Pictures: slices.Clone(m.Pictures),
+			Reactions: reactionsOf(m)}}
 		it.Continued = prev != nil && prev.Author == m.Author && m.At.Sub(groupAt) < groupFor && m.ReplyTo == ""
 		if !it.Continued {
 			groupAt = m.At

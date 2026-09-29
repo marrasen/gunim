@@ -87,6 +87,8 @@ func run(history int, fail float64, seed uint64, script []string, runFor time.Du
 				c.Close()
 			}()
 		}
+		// Finding which emoji the fonts draw takes a moment, so it starts now, before the picker needs it.
+		go widget.LoadEmoji()
 		app := newApp(ctx, c, seed, history, fail)
 		app.runScript(script)
 		return app.serve()

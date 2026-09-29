@@ -55,6 +55,8 @@ type chatView struct {
 	// go with the next message.
 	images map[string]*paint.Image
 	strip  *pictureStrip
+	// picker is the emoji picker reactions come from.
+	picker widget.EmojiPicker
 	// order is the timeline's keys, and at where each is in it; group lets a selection run across its messages.
 	order    []widget.Key
 	at       map[widget.Key]int
@@ -139,12 +141,21 @@ func (v *chatView) newList() *widget.VirtualList {
 		return ""
 	})
 	l := widget.NewVirtualList(func(k widget.Key) gunim.Node {
-		return newMsgRow(v.items[k], v.jump, v.group, func(id string) *paint.Image { return v.images[id] })
+		return newMsgRow(v.items[k], v.jump, v.group, func(id string) *paint.Image { return v.images[id] }, v.react)
 	})
 	l.StickToEnd = true
 	l.Estimate = 44
 	l.Spacing = TimelineSpacing
 	return l
+}
+
+// react opens the emoji picker below opener, to react to the message id.
+func (v *chatView) react(opener gunim.Node, id string, u *gunim.UI) {
+	if v.picker.IsOpen() {
+		v.picker.Close(u)
+	}
+	v.picker.Pick = func(emoji string, u *gunim.UI) { u.Send(v, ReactionToggled{ID: id, Emoji: emoji}) }
+	v.picker.Open(opener, geom.Rc(0, 0, 28, 28), u)
 }
 
 // messagesBetween returns the keys of the messages from one to another, both included, in the timeline's order.

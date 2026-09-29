@@ -70,6 +70,15 @@ type (
 		Continued bool
 		Reply     Quote
 		Pictures  []Picture
+		Reactions []Reaction
+	}
+
+	// Reaction is an emoji people reacted to a message with: how many, whether the user is one, and who, by name.
+	Reaction struct {
+		Emoji string
+		Count int
+		Mine  bool
+		Who   string
 	}
 
 	// Quote is the message a reply cites.
@@ -92,7 +101,8 @@ type (
 
 // same reports whether two rows show the same.
 func same(a, b Item) bool {
-	return a.Key == b.Key && a.Day == b.Day && a.Message.equal(b.Message) && slices.Equal(a.Pictures, b.Pictures)
+	return a.Key == b.Key && a.Day == b.Day && a.Message.equal(b.Message) && slices.Equal(a.Pictures, b.Pictures) &&
+		slices.Equal(a.Reactions, b.Reactions)
 }
 
 // equal compares two messages but for their pictures, which same compares.
@@ -141,10 +151,12 @@ type (
 	// off the next message.
 	ImagePasted    struct{ PNG []byte }
 	PictureRemoved struct{ ID string }
-	ReplyAsked     struct{ ID string }
-	EditAsked      struct{ ID string }
-	WithdrawAsked  struct{ ID string }
-	RetryAsked     struct{ ID string }
+	// ReactionToggled travels when the user adds a reaction to a message, or takes theirs back.
+	ReactionToggled struct{ ID, Emoji string }
+	ReplyAsked      struct{ ID string }
+	EditAsked       struct{ ID string }
+	WithdrawAsked   struct{ ID string }
+	RetryAsked      struct{ ID string }
 	// Cancelled travels when the user drops a reply or an edit.
 	Cancelled    struct{}
 	LinkToggled  struct{}
@@ -160,6 +172,7 @@ func init() {
 	gunim.RegisterType[Drafted]("chat.draft")
 	gunim.RegisterType[ImagePasted]("chat.image")
 	gunim.RegisterType[PictureRemoved]("chat.image.remove")
+	gunim.RegisterType[ReactionToggled]("chat.react")
 	gunim.RegisterType[ReplyAsked]("chat.reply")
 	gunim.RegisterType[EditAsked]("chat.edit")
 	gunim.RegisterType[WithdrawAsked]("chat.withdraw")

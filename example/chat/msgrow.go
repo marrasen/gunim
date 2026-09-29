@@ -40,12 +40,13 @@ type msgRow struct {
 	jump func(id string, u *gunim.UI)
 
 	// body shows the message's text, pictures its pictures, and tools its toolbar; all are nil in a day's heading.
-	body     *markdown.View
-	pictures []*widget.Image
-	tools    gunim.Node
-	toolsAt  geom.Point
-	hover    *anim.Float
-	flash    *anim.Float
+	body      *markdown.View
+	pictures  []*widget.Image
+	reactions *reactionBar
+	tools     gunim.Node
+	toolsAt   geom.Point
+	hover     *anim.Float
+	flash     *anim.Float
 
 	// laidFor is what the texts below were laid out for.
 	laidFor struct {
@@ -62,7 +63,9 @@ type msgRow struct {
 	height float32
 }
 
-func newMsgRow(item Item, jump func(string, *gunim.UI), group *markdown.Group, image func(id string) *paint.Image) *msgRow {
+func newMsgRow(item Item, jump func(string, *gunim.UI), group *markdown.Group, image func(id string) *paint.Image,
+	react func(opener gunim.Node, id string, u *gunim.UI),
+) *msgRow {
 	r := &msgRow{item: item, jump: jump, hover: anim.NewFloat(0), flash: anim.NewFloat(0)}
 	r.Add(r.hover, r.flash)
 	if item.Day == "" {
@@ -77,7 +80,8 @@ func newMsgRow(item Item, jump func(string, *gunim.UI), group *markdown.Group, i
 				r.pictures = append(r.pictures, img)
 			}
 		}
-		r.tools = newTools(item.Message)
+		r.reactions = newReactionBar(item.ID, item.Reactions, react)
+		r.tools = newTools(item.Message, react)
 	}
 	return r
 }
@@ -93,14 +97,17 @@ func (r *msgRow) setBody() {
 	r.body.Ink = theme.Token[color.NRGBA]{}
 }
 
-// newTools makes a message's toolbar: reply, and for the user's own messages edit and withdraw.
-func newTools(m Message) gunim.Node {
+// newTools makes a message's toolbar: react and reply, and for the user's own messages edit and withdraw.
+func newTools(m Message, react func(opener gunim.Node, id string, u *gunim.UI)) gunim.Node {
 	button := func(ic *icon.Icon, tip string, on gunim.Intent) gunim.Node {
 		b := widget.NewIconButton(ic, tip)
 		b.IconSize, b.KeepFocus, b.On = ToolIcon, true, on
 		return b
 	}
-	buttons := []gunim.Node{button(icon.Reply, "Reply", ReplyAsked{ID: m.ID})}
+	smile := widget.NewIconButton(icon.SmilePlus, "React")
+	smile.IconSize, smile.KeepFocus = ToolIcon, true
+	smile.OnActivate(func(u *gunim.UI) { react(smile, m.ID, u) })
+	buttons := []gunim.Node{smile, button(icon.Reply, "Reply", ReplyAsked{ID: m.ID})}
 	if m.Mine {
 		buttons = append(buttons,
 			button(icon.Pencil, "Edit", EditAsked{ID: m.ID}),
@@ -114,6 +121,7 @@ func (r *msgRow) set(item Item, u *gunim.UI) {
 	r.item = item
 	if r.body != nil {
 		r.setBody()
+		r.reactions.set(item.ID, item.Reactions, u)
 	}
 	u.Invalidate()
 }
@@ -133,7 +141,7 @@ func (r *msgRow) Children() []gunim.Node {
 	for _, p := range r.pictures {
 		out = append(out, p)
 	}
-	return append(out, r.tools)
+	return append(out, r.reactions, r.tools)
 }
 
 // showsTools reports whether the toolbar can show: on a message still there.
@@ -161,6 +169,13 @@ func (r *msgRow) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children)
 		ps := kid.Layout(gunim.Loose(geom.Sz(textW, 1000)))
 		kid.Place(geom.Pt(gutter, y+6))
 		y += ps.H + 6
+	}
+	bar := kids.At(1 + len(r.pictures))
+	if bs := bar.Layout(gunim.Loose(geom.Sz(textW, 400))); bs.H > 0 {
+		bar.Place(geom.Pt(gutter, y+6))
+		y += bs.H + 6
+	} else {
+		bar.Place(geom.Pt(gutter, y))
 	}
 	r.footBox = geom.Rect{}
 	if footText(r.item.Message) != "" {
@@ -300,6 +315,7 @@ func (r *msgRow) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids guni
 			kids.At(1 + i).Paint(p)
 		}
 	}()
+	kids.At(1 + len(r.pictures)).Paint(p)
 	if !r.footBox.Empty() {
 		r.foot.Paint(p, r.footBox.Min, faint)
 	}
