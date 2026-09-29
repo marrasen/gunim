@@ -195,9 +195,9 @@ type Window struct {
 	// events to the UI goroutine.
 	open    func(driver.Options) (driver.Window, error)
 	popupIn chan popupEvent
-	// redraw asks for a frame, for Client.Shot, and injected carries
-	// input from Client.Input.
-	redraw   chan struct{}
+	// shots carries Client.Shot's requests, and injected input from
+	// Client.Input.
+	shots    chan shotRequest
 	injected chan input.Event
 	// leave asks the window to animate out and close.
 	leave chan struct{}
@@ -273,7 +273,7 @@ func newWindow(dw driver.Window, root Node) *Window {
 			return ow, nil
 		},
 		popupIn:  make(chan popupEvent, 16),
-		redraw:   make(chan struct{}, 1),
+		shots:    make(chan shotRequest),
 		leave:    make(chan struct{}, 1),
 		injected: make(chan input.Event),
 		dragIn:   make(chan dragMsg, 64),
@@ -432,35 +432,6 @@ func (c Client) Input(ctx context.Context, ev input.Event) error {
 		return ErrWindowClosed
 	case <-ctx.Done():
 		return ctx.Err()
-	}
-}
-
-// ErrNoPixels is returned by [Client.Shot] for a window whose driver
-// draws nothing to read back, such as one from [NewOffscreen].
-var ErrNoPixels = errors.New("gunim: this window draws no pixels to read")
-
-// Shot returns the window's next frame as a picture, for a tool that
-// drives the window through a script and keeps what it shows. It draws
-// a frame for the purpose, and waits for it, or for ctx to end.
-func (c Client) Shot(ctx context.Context) (*image.RGBA, error) {
-	s, ok := c.w.dw.(driver.Shooter)
-	if !ok {
-		return nil, ErrNoPixels
-	}
-	got := make(chan *image.RGBA, 1)
-	s.Shoot(func(img *image.RGBA) { got <- img })
-	select {
-	case c.w.redraw <- struct{}{}:
-	default:
-		// A frame is asked for already.
-	}
-	select {
-	case img := <-got:
-		return img, nil
-	case <-c.w.done:
-		return nil, ErrWindowClosed
-	case <-ctx.Done():
-		return nil, ctx.Err()
 	}
 }
 
@@ -718,8 +689,8 @@ func (w *Window) wait() bool {
 		w.ui.popupEvent(e)
 	case m := <-w.dragIn:
 		w.ui.dragMsg(m)
-	case <-w.redraw:
-		w.ui.invalid = true
+	case req := <-w.shots:
+		w.ui.shoot(req)
 	case <-w.leave:
 		w.ui.startLeaving()
 	case ev := <-w.injected:
@@ -872,6 +843,9 @@ type windowStats struct {
 // that call.
 // Use it and let it go.
 type UI struct {
+	// shotsOwed counts the frames a shot waits for, from windows that have yet to draw them.
+	shotsOwed atomic.Int32
+
 	w     *Window
 	root  *state
 	index map[Node]*state
@@ -1556,6 +1530,10 @@ func (u *UI) needsFrame() bool { return u.animating || u.invalid }
 func (u *UI) frame(now time.Time, delta time.Duration) {
 	u.now = now
 	u.invalid = false
+	if u.shotsOwed.Load() > 0 {
+		// A shot waits on the windows' next frames: keep drawing them.
+		u.invalid = true
+	}
 	u.runTimers()
 	u.flush()
 	// Scroll what a held drag is near the edge of, while the nodes are

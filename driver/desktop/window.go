@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"math"
 	"os"
 	"runtime"
 	"slices"
@@ -837,6 +838,25 @@ func (w *Window) install() {
 	})
 	installText(w)
 }
+
+// ContentOrigin implements [driver.Positioner]. It asks GLFW on the main thread, where it has to.
+func (w *Window) ContentOrigin() (image.Point, error) {
+	var x, y int
+	err := w.d.call(func() error {
+		var err error
+		x, y, err = w.gw.GetPos()
+		return err
+	})
+	if err != nil {
+		return image.Point{}, fmt.Errorf("desktop: window position: %w", err)
+	}
+	w.mu.Lock()
+	f := float64(w.perCoord)
+	w.mu.Unlock()
+	return image.Pt(int(math.Round(float64(x)*f)), int(math.Round(float64(y)*f))), nil
+}
+
+var _ driver.Positioner = (*Window)(nil)
 
 // Shoot implements [driver.Shooter].
 func (w *Window) Shoot(fn func(*image.RGBA)) {

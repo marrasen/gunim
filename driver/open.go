@@ -72,6 +72,13 @@ type Recycler interface {
 // the keyboard.
 type WindowFocus struct{ Focused bool }
 
+// A Positioner is a [Window] that says where its content sits on the
+// screen: the top-left corner of what it draws, in device pixels, so a
+// screenshot can put a popup where it shows over its parent.
+type Positioner interface {
+	ContentOrigin() (image.Point, error)
+}
+
 // Shooter is a [Window] that can hand over what it draws: fn receives
 // the next frame's pixels, the right way up, on a goroutine of the
 // driver's. A driver that draws nothing, such as the offscreen one,
