@@ -189,3 +189,33 @@ func TestADialogsExtraButtonSendsItsAnswer(t *testing.T) {
 		t.Fatalf("intents %v, want leave", got)
 	}
 }
+
+// With DefaultFirst, Tab from the fields reaches OK before an extra
+// button, so Tab then Enter does what Enter alone does.
+func TestADefaultFirstDialogTabsToOKFirst(t *testing.T) {
+	d := NewDialog("Replace notes.txt?")
+	d.SetButtons("Leave It", "Stop")
+	d.Accept = answered{"leave"}
+	d.AddButton("Replace", func() gunim.Intent { return answered{"replace"} })
+	d.DefaultFirst = true
+	w := gunimtest.New(t, geom.Sz(800, 600), nil)
+	gunim.RegisterView(w, "d", func(struct{}) gunim.Node { return d }, nil)
+	if err := w.Client().Mount(gunim.Root, "d", "d", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Client().Focus("d"); err != nil {
+		t.Fatal(err)
+	}
+	run := func(n int) {
+		for range n {
+			w.Frame(time.Second / 60)
+		}
+	}
+	run(30)
+	w.Input(input.KeyPress{Key: input.KeyTab})
+	w.Input(input.KeyPress{Key: input.KeyEnter})
+	run(30)
+	if got := sent(w); len(got) != 1 || got[0] != (answered{"leave"}) {
+		t.Fatalf("intents %v, want leave", got)
+	}
+}

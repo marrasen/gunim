@@ -343,6 +343,17 @@ func (l *Live) Under(parent *Live) { l.parent = parent }
 // Active returns the theme the values are heading for.
 func (l *Live) Active() Theme { return l.active }
 
+// Sets reports whether the theme in use, or one around it, sets key,
+// for a token that falls back to another where none does.
+func (l *Live) Sets(key string) bool {
+	for ; l != nil; l = l.parent {
+		if l.active.has(key) {
+			return true
+		}
+	}
+	return false
+}
+
 // motion returns the motion a switch to th runs with: th's own, or the
 // one around it.
 func (l *Live) motion(th Theme) anim.Motion {

@@ -136,3 +136,41 @@ func TestALabelThatIsNotSelectableIgnoresDrags(t *testing.T) {
 		t.Fatalf("cursor %v, want the arrow", c)
 	}
 }
+
+// A NoWrap label keeps a long line whole, and scrolls sideways to show
+// the rest of it.
+func TestANoWrapLabelKeepsItsLinesAndScrollsAcross(t *testing.T) {
+	long := "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGx0bG9uZ2tleWxvbmdrZXlsb25na2V5bG9uZ2tleQ me@desk"
+	wrapped, whole := NewLabel(long), NewLabel(long)
+	whole.NoWrap = true
+	f := gunim.Frame{Scale: 1}
+	a := wrapped.Layout(gunim.Constraints{Max: geom.Sz(150, 400)}, f, gunim.Children{})
+	b := whole.Layout(gunim.Constraints{Max: geom.Sz(150, 400)}, f, gunim.Children{})
+	if b.H >= a.H {
+		t.Fatalf("unwrapped, the label is %v high, and %v wrapped", b.H, a.H)
+	}
+	w, run := stage(t, &frame{child: whole, size: geom.Sz(150, 100)})
+	run(1)
+	if whole.over <= 0 {
+		t.Fatal("the long line left nothing to scroll to")
+	}
+	w.Input(input.Scroll{Pos: geom.Pt(20, 5), Delta: geom.Pt(0, -40), Mods: input.ModShift})
+	run(1)
+	if whole.across <= 0 {
+		t.Fatal("Shift and the wheel did not scroll the label sideways")
+	}
+	// From the keyboard too, with the label focused.
+	whole.Selectable = true
+	w.Input(input.PointerDown{Pos: geom.Pt(20, 5), Button: input.ButtonPrimary, Clicks: 1})
+	w.Input(input.PointerUp{Pos: geom.Pt(20, 5), Button: input.ButtonPrimary})
+	w.Input(input.KeyPress{Key: input.KeyEnd})
+	run(1)
+	if whole.across != whole.over {
+		t.Fatalf("End scrolled to %v, want the end at %v", whole.across, whole.over)
+	}
+	w.Input(input.KeyPress{Key: input.KeyHome})
+	run(1)
+	if whole.across != 0 {
+		t.Fatalf("Home scrolled to %v", whole.across)
+	}
+}

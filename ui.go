@@ -139,6 +139,11 @@ type WindowOptions struct {
 	// ZoomKeys zooms the window with Ctrl and +, - or 0, and with Ctrl and the wheel, and reports each change as
 	// [Zoomed].
 	ZoomKeys bool
+	// Place opens an ordinary window where [Window.Placement] said it was, such as when the application last closed,
+	// in place of Size and Monitor. A placement no attached monitor can show the title bar of is centred on the
+	// primary monitor instead, and one larger than its monitor's work area shrinks to fit; see
+	// [driver.FitPlacement]. A maximized placement opens maximized, and goes back to its bounds when restored.
+	Place *driver.Placement
 }
 
 // NewWindow opens a window and starts its UI goroutine.
@@ -149,7 +154,7 @@ func (a *App) NewWindow(o WindowOptions) (*Window, error) {
 	do := driver.Options{
 		Title: o.Title, Size: o.Size, Monitor: o.Monitor,
 		Kind: o.Kind, Anchor: geom.Rect{Min: o.Anchor, Max: o.Anchor}, Icons: o.Icons,
-		Chromeless: !o.SystemFrame && newTitleBar != nil, Border: o.Border, Text: o.Text,
+		Chromeless: !o.SystemFrame && newTitleBar != nil, Border: o.Border, Text: o.Text, Place: o.Place,
 	}
 	if o.Parent != nil {
 		do.Parent = o.Parent.dw
@@ -577,6 +582,21 @@ func (w *Window) Input(ev any) { w.ui.handlePlatform(ev) }
 // Err returns the error that ended the window. Read it once
 // [Client.Intents] has closed.
 func (w *Window) Err() error { return w.err }
+
+// Placement is where the window is on the screen and whether it is maximized, for the application to save as it
+// quits, and open the window there next time with [WindowOptions.Place]. The bounds are in screen coordinates,
+// as [driver.Monitor.Bounds] are, and for a maximized or minimized window they are where it goes back to when
+// restored. ok is false where the platform cannot say, or the window has closed.
+//
+// Read it before closing the window, such as on its [WindowOptions.AskToClose] intent: once the window has closed
+// there is nothing left to ask. It waits on the main goroutine, which runs the platform's events, so call it from the
+// function given to [Main] or a goroutine of the application's, not from the main goroutine itself.
+func (w *Window) Placement() (p driver.Placement, ok bool) {
+	if r, is := w.dw.(driver.PlacementReader); is {
+		return r.Placement()
+	}
+	return p, false
+}
 
 // RefreshRate is the rate of the monitor the window is currently on.
 func (w *Window) RefreshRate() float64 { return w.dw.RefreshRate() }
@@ -1098,6 +1118,11 @@ func (u *UI) Clipboard() string {
 	}
 	return s
 }
+
+// ReadClipboard returns the text on the system clipboard, "" with no
+// error when it holds none, and an error when it could not be read, so
+// an application can tell an empty clipboard from one that failed.
+func (u *UI) ReadClipboard() (string, error) { return u.w.dw.Clipboard() }
 
 // SetClipboard puts s on the system clipboard.
 func (u *UI) SetClipboard(s string) { _ = u.w.dw.SetClipboard(s) }

@@ -50,9 +50,16 @@ var (
 	ButtonDangerFill   = theme.Color("button.danger", color.NRGBA{R: 0xc2, G: 0x3f, B: 0x38, A: 0xff})
 	ButtonDangerHover  = theme.Color("button.danger.hover", color.NRGBA{R: 0xd6, G: 0x53, B: 0x4b, A: 0xff})
 	ButtonStrongInk    = theme.Foreground("button.strong.ink", color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff})
-	ButtonRadius       = theme.Length("button.radius", 8)
-	ButtonPadding      = theme.Length("button.padding", 16)
-	ButtonHeight       = theme.Length("button.height", 36)
+	// ButtonPrimaryInk is the ink on a primary button, for a theme that
+	// wants it apart from a dangerous one's.
+	ButtonPrimaryInk = theme.Foreground("button.primary.ink", color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff})
+	// ButtonShadow is the shadow a button casts down and to the right,
+	// as a theme drawn in the old boxes of a text screen has. Clear, as
+	// it is unless a theme sets it, casts none.
+	ButtonShadow  = theme.Color("button.shadow", color.NRGBA{})
+	ButtonRadius  = theme.Length("button.radius", 8)
+	ButtonPadding = theme.Length("button.padding", 16)
+	ButtonHeight  = theme.Length("button.height", 36)
 	// ButtonSquash is how far a press shrinks the button, as a fraction
 	// of its size.
 	ButtonSquash = theme.Length("button.squash", 0.035)
@@ -62,8 +69,11 @@ var (
 var (
 	DialogFill   = theme.Color("dialog.fill", color.NRGBA{R: 0x1d, G: 0x20, B: 0x28, A: 0xff})
 	DialogBorder = theme.Color("dialog.border", color.NRGBA{R: 0x3a, G: 0x40, B: 0x50, A: 0xff})
-	DialogShadow = theme.Color("dialog.shadow", color.NRGBA{A: 0x80})
-	Scrim        = theme.Color("dialog.scrim", color.NRGBA{A: 0x99})
+	// DialogBorderLines is how many lines the rule round a dialog has:
+	// 2 draws a double rule, as a text screen's double-line box does.
+	DialogBorderLines = theme.Number("dialog.border.lines", 1)
+	DialogShadow      = theme.Color("dialog.shadow", color.NRGBA{A: 0x80})
+	Scrim             = theme.Color("dialog.scrim", color.NRGBA{A: 0x99})
 	// DialogProblem colours what stands in the way of confirming a dialog.
 	DialogProblem = theme.Color("dialog.problem", color.NRGBA{R: 0xff, G: 0x8a, B: 0x80, A: 0xff})
 	// DialogDangerInk colours the icon of a danger dialog.

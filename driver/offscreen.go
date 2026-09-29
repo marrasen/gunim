@@ -46,6 +46,8 @@ type OffscreenWindow struct {
 	clip   string
 	// clipImage is the clipboard's picture, as PNG.
 	clipImage []byte
+	// clipErr is what reading the clipboard fails with, for a test.
+	clipErr error
 	// chooser answers ChooseFiles; see SetChooser.
 	chooser func(ChooseOptions) ([]string, error)
 	// saver answers SaveFile; see SetSaver.
@@ -288,6 +290,18 @@ func (w *OffscreenWindow) SetOrigin(p geom.Point) {
 	w.origin = p
 }
 
+// Placement implements [PlacementReader]: the window at its origin on the pretend screen, at its size in device
+// pixels, maximized where its pretend frame is.
+func (w *OffscreenWindow) Placement() (Placement, bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	size := w.size.Point().Mul(w.scale)
+	return Placement{
+		Bounds:    geom.Rect{Min: w.origin, Max: w.origin.Add(size)},
+		Maximized: w.frame != nil && w.frame.IsMaximized,
+	}, true
+}
+
 // ToScreen implements [Screener].
 func (w *OffscreenWindow) ToScreen(p geom.Point) geom.Point {
 	w.mu.Lock()
@@ -377,7 +391,19 @@ func (w *OffscreenWindow) RefreshRate() float64 { return w.rate }
 func (w *OffscreenWindow) Clipboard() (string, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if w.clipErr != nil {
+		return "", w.clipErr
+	}
 	return w.clip, nil
+}
+
+// SetClipboardError makes reading the clipboard fail with err, as a
+// test's stand-in for a clipboard that cannot be read; nil reads it
+// again.
+func (w *OffscreenWindow) SetClipboardError(err error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.clipErr = err
 }
 
 // SetClipboard implements [Window].

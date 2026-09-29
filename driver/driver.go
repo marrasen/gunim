@@ -115,6 +115,13 @@ type Options struct {
 	// Text says how the window draws text. Its zero value follows the
 	// system, and a window with a Parent takes the parent's.
 	Text text.Rendering
+	// Place, for a [KindNormal] window, opens it at a placement saved
+	// from [PlacementReader], in place of Size and Monitor. It is first
+	// made safe with [FitPlacement], so a window saved on a monitor
+	// since unplugged opens on the primary one. A maximized placement
+	// opens at its bounds, then maximizes, so restoring it later gives
+	// those bounds back.
+	Place *Placement
 }
 
 // Kind is what sort of window to open. Each one maps onto a real window
@@ -195,9 +202,21 @@ type Frame struct {
 
 // Monitor is an attached display.
 type Monitor struct {
-	Name        string
-	Bounds      geom.Rect
+	Name string
+	// Bounds is the whole display in screen coordinates: device pixels
+	// on Windows and X11, and points on macOS.
+	Bounds geom.Rect
+	// WorkArea is the part of Bounds windows may use, without the task
+	// bar, the dock or the menu bar, in screen coordinates. It is empty
+	// where the platform cannot say.
+	WorkArea geom.Rect
+	// RefreshRate is in Hz.
 	RefreshRate float64
-	Scale       float32
-	Primary     bool
+	// Scale is device pixels per logical pixel.
+	Scale float32
+	// CoordsPerLogical is screen coordinates per logical pixel: Scale on
+	// Windows and X11, where screen coordinates are device pixels, and 1
+	// on macOS, where they are points already. Zero is taken as 1.
+	CoordsPerLogical float32
+	Primary          bool
 }

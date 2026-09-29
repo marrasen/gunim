@@ -168,6 +168,11 @@ type Window struct {
 	lastButton input.Button
 	lastPos    geom.Point
 	clicks     int
+	// normals are the last few places and sizes the window had while it
+	// was neither maximized, minimized nor full screen, the latest last,
+	// in screen coordinates as x, y, width, height. The latest is where
+	// the window goes back to; see noteNormal.
+	normals [][4]int
 }
 
 func newWindow(d *Driver, gw *glfw.Window) *Window {
@@ -335,6 +340,11 @@ func (w *Window) Clipboard() (string, error) {
 		s, err = glfw.GetClipboardString()
 		return err
 	})
+	// Nothing in a form that reads as text is an empty clipboard, not a
+	// failure: only a clipboard that could not be read is one.
+	if errors.Is(err, glfw.FormatUnavailable) {
+		return "", nil
+	}
 	return s, err
 }
 
@@ -754,6 +764,7 @@ func (w *Window) install() {
 	_, _ = gw.SetFramebufferSizeCallback(func(_ *glfw.Window, width, height int) {
 		w.debugf("framebuffer %dx%d", width, height)
 		remeasure()
+		w.noteNormal()
 		// A minimized window draws nothing to wait for, and a popup being placed draws only once Place returns.
 		if holdResize && width > 0 && height > 0 && !w.placing {
 			w.awaitFrameAtSize()
@@ -766,9 +777,19 @@ func (w *Window) install() {
 	_, _ = gw.SetPosCallback(func(_ *glfw.Window, x, y int) {
 		w.debugf("moved to %d,%d", x, y)
 		remeasure()
+		w.noteNormal()
 		for _, c := range w.popups {
 			_ = c.attach(c.anchor)
 		}
+	})
+	_, _ = gw.SetMaximizeCallback(func(_ *glfw.Window, maximized bool) {
+		w.chrome.mu.Lock()
+		w.chrome.maximized = maximized
+		w.chrome.mu.Unlock()
+		if maximized {
+			w.forgetMaximized()
+		}
+		w.in.push(driver.WindowMaximized{Maximized: maximized})
 	})
 	_, _ = gw.SetRefreshCallback(func(*glfw.Window) { w.in.push(driver.Redraw{}) })
 	_, _ = gw.SetFocusCallback(func(_ *glfw.Window, focused bool) {

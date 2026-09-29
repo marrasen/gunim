@@ -265,8 +265,8 @@ func (b *Button) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 		)
 	}
 
-	fromRest, fromHover, fromInk := kindColours(b.was)
-	rest, hover, ink := kindColours(b.is)
+	fromRest, fromHover, fromInk := kindColours(b.was, th)
+	rest, hover, ink := kindColours(b.is, th)
 	t := min(max(b.tone.Value(), 0), 1)
 	mix := func(from, to theme.Token[color.NRGBA]) color.NRGBA {
 		return anim.Mix(anim.ColorCodec, from.Get(th), to.Get(th), t)
@@ -279,6 +279,12 @@ func (b *Button) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 	fill := anim.Mix(anim.ColorCodec, restFill, hoverFill, b.hover.Value())
 	faint := 1 - 0.6*min(max(b.dim.Value(), 0), 1)
 	fill.A = uint8(float32(fill.A) * faint)
+	if shadow := ButtonShadow.Get(th); shadow.A > 0 && !b.Ghost {
+		// Cast down and to the right, and pressed into it while held.
+		off := 4 * (1 - min(max(b.press.Value(), 0), 1))
+		shadow.A = uint8(float32(shadow.A) * faint)
+		p.RRect(geom.Rect{Min: geom.Pt(r.Min.X+off, r.Min.Y+off), Max: geom.Pt(r.Max.X+off, r.Max.Y+off)}, min(radius, box.H/2), paint.Solid(shadow))
+	}
 	p.RRect(r, min(radius, box.H/2), paint.Solid(fill))
 	inked := mix(fromInk, ink)
 	if b.Ink.Key() != "" {
@@ -328,9 +334,14 @@ func (b *Button) content(th *theme.Live) float32 {
 const toneTime = 350 * time.Millisecond
 
 // kindColours returns the rest fill, hover fill and ink of a kind.
-func kindColours(k ButtonKind) (rest, hover, ink theme.Token[color.NRGBA]) {
+func kindColours(k ButtonKind, th *theme.Live) (rest, hover, ink theme.Token[color.NRGBA]) {
 	switch k {
 	case ButtonPrimary:
+		// Its own ink where the theme sets one, and the strong ink a
+		// theme may have set for both before there was one.
+		if th.Sets(ButtonPrimaryInk.Key()) {
+			return ButtonPrimaryFill, ButtonPrimaryHover, ButtonPrimaryInk
+		}
 		return ButtonPrimaryFill, ButtonPrimaryHover, ButtonStrongInk
 	case ButtonDanger:
 		return ButtonDangerFill, ButtonDangerHover, ButtonStrongInk
