@@ -161,3 +161,35 @@ func TestOnlyTabShowsTheRingsAndTheArrowsShowTheCursor(t *testing.T) {
 		t.Fatal("a list in a group draws its own ring round all of it, as well as the group's")
 	}
 }
+
+// A button the arrows walk to in a group lights, with no ring of its
+// own; Tab into the group rings the group, and the button lights.
+func TestAButtonTheArrowsReachLightsWithoutARing(t *testing.T) {
+	one, two := NewButton("OK"), NewButton("Cancel")
+	g := NewGroup(Horizontal, Row(one, two))
+	before := NewButton("Before")
+	w, run := stage(t, Column(before, g))
+	var u *gunim.UI
+	gunim.RegisterPatch(w, "stage", func(_ gunim.Node, _ probeFocus, ui *gunim.UI) { u = ui })
+	if err := w.Client().Patch("stage", probeFocus{}); err != nil {
+		t.Fatal(err)
+	}
+	run(2)
+	u.Focus(one)
+	run(20)
+	w.Input(input.KeyPress{Key: input.KeyRight})
+	run(20)
+	if u.Focused() != two || two.walked.Value() < 0.9 || two.ring.Value() > 0.01 {
+		t.Fatalf("Right put the keyboard on %T, lit %v, ring %v", u.Focused(), two.walked.Value(), two.ring.Value())
+	}
+	if one.walked.Value() > 0.01 {
+		t.Fatal("the button left stays lit")
+	}
+	u.Focus(before)
+	run(2)
+	w.Input(input.KeyPress{Key: input.KeyTab})
+	run(20)
+	if f := u.Focused(); f != two || g.ring.Value() < 0.9 || two.ring.Value() > 0.01 || two.walked.Value() < 0.9 {
+		t.Fatalf("Tab into the group: on %T, group ring %v, button ring %v, lit %v", f, g.ring.Value(), two.ring.Value(), two.walked.Value())
+	}
+}

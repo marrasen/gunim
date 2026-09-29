@@ -71,6 +71,10 @@ type Button struct {
 	// release over it from one outside.
 	size geom.Size
 	ring *anim.Float
+	// walked runs from 0 to 1 while the keyboard is on the button by a
+	// group's arrow keys: it lights as under the pointer, with no ring,
+	// which is for Tab.
+	walked *anim.Float
 	// lit runs from 0 to 1 as Active turns on.
 	lit *anim.Float
 	// tone fades the colours from kind was to kind is, so a primary or
@@ -90,15 +94,16 @@ type Button struct {
 // NewButton returns a button showing label.
 func NewButton(label string) *Button {
 	b := &Button{
-		Label: label,
-		hover: anim.NewFloat(0),
-		press: anim.NewFloat(0),
-		ring:  anim.NewFloat(0),
-		lit:   anim.NewFloat(0),
-		tone:  anim.NewFloat(1),
-		dim:   anim.NewFloat(0),
+		Label:  label,
+		hover:  anim.NewFloat(0),
+		press:  anim.NewFloat(0),
+		ring:   anim.NewFloat(0),
+		walked: anim.NewFloat(0),
+		lit:    anim.NewFloat(0),
+		tone:   anim.NewFloat(1),
+		dim:    anim.NewFloat(0),
 	}
-	b.Add(b.hover, b.press, b.ring, b.lit, b.tone, b.dim)
+	b.Add(b.hover, b.press, b.ring, b.walked, b.lit, b.tone, b.dim)
 	return b
 }
 
@@ -154,10 +159,24 @@ func (b *Button) Handle(e input.Event, u *gunim.UI) bool {
 		b.press.Retarget(1, Quick.Get(th))
 		b.press.Animate(0, Bounce.Get(th))
 		b.fire(u)
+	case input.FocusGained:
+		// Walked to by a group's arrows: lit, as the group's ring, if
+		// any, says where the keyboard is.
+		if e.Step != 0 {
+			b.walked.Animate(1, Quick.Get(th))
+		}
+		return false
 	case input.FocusRing:
+		if e.On && e.Grouped {
+			// The group round it rings the whole; the button lights.
+			b.ring.Animate(0, Quick.Get(th))
+			b.walked.Animate(1, Quick.Get(th))
+			break
+		}
 		b.ring.Animate(ringTo(e), Quick.Get(th))
 	case input.FocusLost:
 		b.ring.Animate(0, Settle.Get(th))
+		b.walked.Animate(0, Settle.Get(th))
 	default:
 		return false
 	}
@@ -276,7 +295,7 @@ func (b *Button) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 		restFill = hoverFill
 		restFill.A = 0
 	}
-	fill := anim.Mix(anim.ColorCodec, restFill, hoverFill, b.hover.Value())
+	fill := anim.Mix(anim.ColorCodec, restFill, hoverFill, max(b.hover.Value(), min(b.walked.Value(), 1)))
 	faint := 1 - 0.6*min(max(b.dim.Value(), 0), 1)
 	fill.A = uint8(float32(fill.A) * faint)
 	if shadow := ButtonShadow.Get(th); shadow.A > 0 && !b.Ghost {
