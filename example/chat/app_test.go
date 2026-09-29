@@ -194,3 +194,36 @@ func TestAnotherConversationOpensAtItsEnd(t *testing.T) {
 		t.Fatalf("offset %v, want the timeline scrolled to its end", h.v.list.Offset())
 	}
 }
+
+// height returns the laid-out height of the row for the user's message with body.
+func (h *harness) height(body string) float32 {
+	h.t.Helper()
+	it, ok := h.item(body)
+	if !ok {
+		h.t.Fatalf("no message %q in the timeline", body)
+	}
+	n, ok := h.v.list.Row(widget.Key(it.Key))
+	if !ok {
+		h.t.Fatalf("message %q is not built", body)
+	}
+	return n.(*msgRow).height
+}
+
+func TestAMessageKeepsItsHeightAsItArrives(t *testing.T) {
+	h := newHarness(t)
+	h.typeAndSend("With a heading")
+	h.typeAndSend("Sharing it")
+	h.frames(5)
+	if it, _ := h.item("Sharing it"); !it.Continued {
+		t.Fatal("the second message has a heading of its own")
+	}
+	headed, shared := h.height("With a heading"), h.height("Sharing it")
+	h.until("both are sent", func() bool { return h.state("With a heading") == Sent && h.state("Sharing it") == Sent })
+	h.frames(5)
+	if got := h.height("With a heading"); got != headed {
+		t.Fatalf("the message with a heading went from %v to %v tall as it arrived", headed, got)
+	}
+	if got := h.height("Sharing it"); got != shared {
+		t.Fatalf("the message sharing a heading went from %v to %v tall as it arrived", shared, got)
+	}
+}

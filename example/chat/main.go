@@ -3,8 +3,8 @@
 // A rail of projects runs down the left, then the project's conversations, then the open conversation: a timeline
 // that opens at its latest message and stays there as messages arrive, and a message box under it. Enter sends and
 // Shift+Enter starts a line. Colleagues type, send, reply, edit and withdraw. The button in the header drops the
-// connection: messages sent while offline wait, and go when it is back. Some sends fail, and a click on the note
-// under one sends it again. Under the pointer a message shows a toolbar to reply, and for your own to edit or
+// connection: messages sent while offline wait, and go when it is back. Some sends fail, and a click on the red note
+// beside one sends it again. Under the pointer a message shows a toolbar to reply, and for your own to edit or
 // withdraw it.
 //
 //	CGO_ENABLED=0 go run ./example/chat

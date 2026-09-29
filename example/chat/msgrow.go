@@ -49,10 +49,13 @@ type msgRow struct {
 		width, size float32
 	}
 	name, time, foot, quote, initials text.Run
-	body                              text.Paragraph
-	bodyAt                            float32
-	quoteBox, footBox                 geom.Rect
-	height                            float32
+	// status says how far one of the user's own messages got, after the time, or as a mark in the gutter when the
+	// message shares the heading of the one before; statusBox is where it shows.
+	status, bang                 text.Run
+	body                         text.Paragraph
+	bodyAt                       float32
+	quoteBox, footBox, statusBox geom.Rect
+	height                       float32
 }
 
 func newMsgRow(item Item, jump func(string, *gunim.UI)) *msgRow {
@@ -161,6 +164,18 @@ func (r *msgRow) lay(th *theme.Live, w float32) {
 	r.body = face.Layout(body, text.Style{Size: size}, textW)
 	r.bodyAt = y
 	y += r.body.Size.H
+	r.statusBox = geom.Rect{}
+	if status := statusText(m); status != "" {
+		if m.Continued {
+			const mark = 14
+			r.bang = bold.Shape("!", 11)
+			r.statusBox = geom.Rc(gutter-12-mark, r.bodyAt+(r.body.LineHeight-mark)/2, mark, mark)
+		} else {
+			r.status = regular.Shape(status, small)
+			x := gutter + r.name.Advance + 8 + r.time.Advance + 10
+			r.statusBox = geom.Rc(x, rowPad+r.name.Ascent-r.status.Ascent, r.status.Advance, r.status.Height())
+		}
+	}
 	r.footBox = geom.Rect{}
 	if foot := footText(m); foot != "" {
 		r.foot = regular.Shape(foot, small)
@@ -170,8 +185,8 @@ func (r *msgRow) lay(th *theme.Live, w float32) {
 	r.height = y + rowPad
 }
 
-// footText is the line under a message: how far one of the user's own got, and whether it was edited.
-func footText(m Message) string {
+// statusText says how far one of the user's own messages got, or nothing once it arrived.
+func statusText(m Message) string {
 	switch {
 	case m.Withdrawn:
 		return ""
@@ -179,7 +194,13 @@ func footText(m Message) string {
 		return "Sending…"
 	case m.State == Failed:
 		return "Not sent. Click to try again."
-	case m.Edited:
+	}
+	return ""
+}
+
+// footText is the line under a message: whether it was edited.
+func footText(m Message) string {
+	if m.Edited && !m.Withdrawn {
 		return "(edited)"
 	}
 	return ""
@@ -205,9 +226,10 @@ func (r *msgRow) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids guni
 		r.paintAvatar(p, geom.Rc(16, rowPad+2, avatarSize, avatarSize), avatarTint(m.Author))
 		r.name.Paint(p, geom.Pt(gutter, rowPad), ink)
 		r.time.Paint(p, geom.Pt(gutter+r.name.Advance+8, rowPad+r.name.Ascent-r.time.Ascent), faint)
-	} else if h := min(r.hover.Value(), 1); h > 0.01 {
+	} else if h := min(r.hover.Value(), 1); h > 0.01 && r.statusBox.Empty() {
 		r.time.Paint(p, geom.Pt(gutter-12-r.time.Advance, r.bodyAt+2), fade(faint, h))
 	}
+	r.paintStatus(p, th)
 	if !r.quoteBox.Empty() {
 		q := r.quoteBox
 		p.RRect(q, 6, paint.Solid(QuoteFill.Get(th)))
@@ -226,17 +248,39 @@ func (r *msgRow) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids guni
 	}
 	r.body.Paint(p, geom.Pt(gutter, r.bodyAt), bodyInk)
 	if !r.footBox.Empty() {
-		footInk := faint
-		if m.State == Failed {
-			footInk = ErrorInk.Get(th)
-		}
-		r.foot.Paint(p, r.footBox.Min, footInk)
+		r.foot.Paint(p, r.footBox.Min, faint)
 	}
 	if h := min(r.hover.Value(), 1); h > 0.01 && kids.Len() > 0 && r.showsTools() {
 		tools := kids.At(0)
 		defer p.Layer(paint.LayerOpts{Bounds: geom.Rect{Min: r.toolsAt, Max: r.toolsAt.Add(tools.Size().Point())}, Opacity: h})()
 		tools.Paint(p)
 	}
+}
+
+// paintStatus draws how far one of the user's own messages got: words after the time, or in the gutter a ring
+// while it is on its way and a red mark once it failed.
+func (r *msgRow) paintStatus(p *paint.Painter, th *theme.Live) {
+	b := r.statusBox
+	if b.Empty() {
+		return
+	}
+	failed := r.item.State == Failed
+	ink := Faint.Get(th)
+	if failed {
+		ink = ErrorInk.Get(th)
+	}
+	if !r.item.Continued {
+		r.status.Paint(p, b.Min, ink)
+		return
+	}
+	radius := b.Size().W / 2
+	if !failed {
+		p.RRectStroke(b.Inset(geom.Uniform(1.5)), radius, paint.Fill{}, paint.Stroke{Width: 1.5, Color: ink})
+		return
+	}
+	p.RRect(b, radius, paint.Solid(ink))
+	c := b.Center()
+	r.bang.Paint(p, geom.Pt(c.X-r.bang.Advance/2, c.Y-r.bang.Height()/2), widget.ButtonStrongInk.Get(th))
 }
 
 // paintDay draws a day's heading: its name in a pill on a line across the row.
@@ -257,7 +301,7 @@ func (r *msgRow) paintAvatar(p *paint.Painter, at geom.Rect, tint color.NRGBA) {
 }
 
 // Handle implements [gunim.Handler]: the row lights under the pointer, a click on a quote jumps to the message it
-// quotes, and a click on a failed message's note sends it again.
+// quotes, and a click on a failed message's status sends it again.
 func (r *msgRow) Handle(e input.Event, u *gunim.UI) bool {
 	switch e := e.(type) {
 	case input.PointerEnter:
@@ -273,7 +317,7 @@ func (r *msgRow) Handle(e input.Event, u *gunim.UI) bool {
 		case r.quoteBox.Contains(e.Pos) && !m.Reply.Gone:
 			r.jump(m.Reply.ID, u)
 			return true
-		case r.footBox.Contains(e.Pos) && m.State == Failed:
+		case r.statusBox.Contains(e.Pos) && m.State == Failed:
 			u.Send(r, RetryAsked{ID: m.ID})
 			return true
 		}
@@ -284,7 +328,7 @@ func (r *msgRow) Handle(e input.Event, u *gunim.UI) bool {
 // Cursor implements [gunim.CursorShaper]: a hand over what takes a click.
 func (r *msgRow) Cursor(p geom.Point) input.Cursor {
 	m := r.item.Message
-	if (r.quoteBox.Contains(p) && !m.Reply.Gone) || (r.footBox.Contains(p) && m.State == Failed) {
+	if (r.quoteBox.Contains(p) && !m.Reply.Gone) || (r.statusBox.Contains(p) && m.State == Failed) {
 		return input.CursorHand
 	}
 	return input.CursorArrow
