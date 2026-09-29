@@ -362,7 +362,7 @@ func (v *calView) openCard(from gunim.Node, id string, box geom.Rect, u *gunim.U
 	}
 	v.cardID = id
 	anchor, left := v.beside(from, box, cardW, u)
-	c := newEventCard(ev, v.state.Details[id], left, func(u *gunim.UI) { v.closeCard(u) })
+	c := newEventCard(ev, v.state.Details[id], left, func(u *gunim.UI) { v.backFromCard(u) })
 	v.card = u.OpenPopup(from, c, gunim.PopupOptions{Anchor: anchor, Max: geom.Sz(cardW+80, 700),
 		Dismiss: v.dismiss(func(u *gunim.UI) { v.closeCard(u) })})
 	u.Focus(c)
@@ -421,6 +421,7 @@ func (v *calView) dismiss(close func(*gunim.UI)) func(*gunim.UI) {
 	}
 }
 
+// closeCard takes the card away, and lets its event go.
 func (v *calView) closeCard(u *gunim.UI) {
 	if v.card == nil {
 		return
@@ -429,7 +430,16 @@ func (v *calView) closeCard(u *gunim.UI) {
 	v.card, v.cardID = nil, ""
 	v.days.Select("", u)
 	v.month.Select("", u)
-	// The keys go back to the days, to move on from the event.
+}
+
+// backFromCard takes the card away from inside it, as Escape or its close button does. The keyboard goes back to
+// the days with the event still chosen, for the keys to move on from it.
+func (v *calView) backFromCard(u *gunim.UI) {
+	if v.card == nil {
+		return
+	}
+	v.card.Close()
+	v.card, v.cardID = nil, ""
 	if v.state.View == MonthView {
 		u.Focus(v.month)
 	} else {

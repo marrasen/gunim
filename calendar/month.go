@@ -118,6 +118,9 @@ func (m *Month) Step(dt time.Duration) bool {
 	return moving
 }
 
+// Selected returns the ID of the event chosen, or an empty ID.
+func (m *Month) Selected() string { return m.selected }
+
 // Select marks the event id as chosen, lifting it, or marks none for an empty id.
 func (m *Month) Select(id string, u *gunim.UI) {
 	m.selected = id

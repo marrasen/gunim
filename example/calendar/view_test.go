@@ -141,3 +141,36 @@ func TestANewEventIsNamedBesideWhereItWasDrawn(t *testing.T) {
 		t.Fatalf("the new event shows as %+v, want one on Saturday about an hour long", picnic)
 	}
 }
+
+func TestTheKeysGoOnFromTheEventWhoseCardClosed(t *testing.T) {
+	h := newHarness(t)
+	var chosen func() string
+	h.ui(func(v *calView, u *gunim.UI) {
+		u.Focus(v.days)
+		chosen = func() string {
+			var id string
+			h.ui(func(v *calView, u *gunim.UI) { id = v.days.Selected() })
+			return id
+		}
+	})
+	key := func(k input.Key) {
+		h.w.Input(input.KeyPress{Key: k})
+		h.frames(3)
+	}
+	key(input.KeyDown)
+	key(input.KeyRight)
+	key(input.KeyDown)
+	was := chosen()
+	if was == "" {
+		t.Fatal("the keys chose no event")
+	}
+	key(input.KeyEnter)
+	if id, open := h.cardOpen(); !open || id != was {
+		t.Fatalf("Enter opened the card on %q, open %v, want %q", id, open, was)
+	}
+	key(input.KeyEscape)
+	h.frames(20)
+	if got := chosen(); got != was {
+		t.Fatalf("after Escape closed the card, %q is chosen, want %q still", got, was)
+	}
+}
