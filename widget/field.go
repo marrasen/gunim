@@ -43,6 +43,9 @@ type TextField struct {
 	// keeps the text off the clipboard, and gives a screen reader no
 	// value to read.
 	Secret bool
+	// Disabled shows the field faint, and it takes no clicks, keys or
+	// focus, for a value that cannot be set now.
+	Disabled bool
 	// OnChange and OnSubmit turn the text into an intent to send when
 	// it changes, and when Enter is pressed. They run on the UI
 	// goroutine; what reaches the application is the value they return.
@@ -105,7 +108,7 @@ func NewTextField() *TextField {
 }
 
 // Focusable implements [gunim.Focusable].
-func (t *TextField) Focusable() bool { return true }
+func (t *TextField) Focusable() bool { return !t.Disabled }
 
 // TakesText implements [gunim.TextTaker], so an input method composes
 // into the field.
@@ -164,6 +167,9 @@ func (t *TextField) Step(dt time.Duration) bool {
 
 // Handle implements [gunim.Handler].
 func (t *TextField) Handle(e input.Event, u *gunim.UI) bool {
+	if t.Disabled {
+		return false
+	}
 	if t.blink.windowFocus(e, u) {
 		return false
 	}
@@ -356,6 +362,7 @@ func (t *TextField) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children)
 
 // Paint implements [gunim.Node].
 func (t *TextField) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
+	defer faintIf(p, box, t.Disabled)()
 	th := f.Theme
 	focus := t.focus.Value()
 	r := geom.Rect{Max: box.Point()}
