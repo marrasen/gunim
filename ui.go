@@ -1423,6 +1423,7 @@ func (u *UI) Focus(n Node) bool {
 	prev := u.focus
 	u.focus = next
 	u.focusMoved = true
+	u.crossGroups(prev, next)
 	// Each group round the node remembers it as its stop for Tab
 	for a := next; a != nil; a = a.parent {
 		if _, ok := a.node.(TabGroup); ok {
@@ -1435,6 +1436,30 @@ func (u *UI) Focus(n Node) bool {
 	}
 	u.invalid = true
 	return true
+}
+
+// crossGroups tells the tab groups the focus left, going from prev to next, and the ones it entered.
+func (u *UI) crossGroups(prev, next *state) {
+	groups := func(s *state) []*state {
+		var out []*state
+		for a := s; a != nil; a = a.parent {
+			if _, ok := a.node.(TabGroup); ok {
+				out = append(out, a)
+			}
+		}
+		return out
+	}
+	from, to := groups(prev), groups(next)
+	for _, g := range from {
+		if !slices.Contains(to, g) {
+			u.deliver(g, input.FocusLeft{Time: u.now})
+		}
+	}
+	for _, g := range to {
+		if !slices.Contains(from, g) {
+			u.deliver(g, input.FocusEntered{Time: u.now})
+		}
+	}
 }
 
 // takeText tells the driver whether the newly focused node takes typed

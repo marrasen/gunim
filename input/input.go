@@ -146,6 +146,13 @@ type FocusGained struct{ Time time.Time }
 // FocusLost arrives when a node gives keyboard focus up.
 type FocusLost struct{ Time time.Time }
 
+// FocusEntered arrives at a tab group, a node Tab visits as one stop, when the keyboard focus moves onto a node in
+// it from outside, and FocusLeft when the focus moves out of it.
+type FocusEntered struct{ Time time.Time }
+
+// FocusLeft arrives at a tab group when the keyboard focus moves out of it; see [FocusEntered].
+type FocusLeft struct{ Time time.Time }
+
 // WindowFocusLost arrives when the window gives the keyboard to another
 // program. It goes to the focused node and bubbles, as a key does. A
 // key held as the keyboard went sends no release here, so a node
@@ -228,6 +235,8 @@ func (TextInput) isEvent()    {}
 func (Composing) isEvent()    {}
 func (FocusGained) isEvent()  {}
 func (FocusLost) isEvent()    {}
+func (FocusEntered) isEvent() {}
+func (FocusLeft) isEvent()    {}
 func (DragOver) isEvent()     {}
 func (DragLeave) isEvent()    {}
 func (Drop) isEvent()         {}

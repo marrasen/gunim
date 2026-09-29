@@ -37,7 +37,7 @@ func newPathBar(b *browser) *pathBar {
 	p.back = newNavButton(icon.ArrowLeft, "Back (Alt+Left)", CmdBack)
 	p.fwd = newNavButton(icon.ArrowRight, "Forward (Alt+Right)", CmdForward)
 	p.up = newNavButton(icon.ArrowUp, "Up (Alt+Up)", CmdUp)
-	p.crumbs = &crumbBar{bar: p}
+	p.crumbs = newCrumbBar(p)
 	p.field = &pathField{TextField: widget.NewTextField(), bar: p}
 	p.slot = newPathSlot(widget.NewThemed(p.crumbs, crumbTheme), p.field)
 	p.filter = &filterField{TextField: widget.NewTextField(), bar: p}
@@ -222,8 +222,17 @@ func (f *filterField) Handle(e input.Event, u *gunim.UI) bool {
 // one at the right edge when they do not all fit. A click beside them
 // edits the path.
 type crumbBar struct {
+	anim.Group
 	bar    *pathBar
 	crumbs []*crumb
+	// focus runs from 0 to 1 as the keyboard comes onto the folders.
+	focus *anim.Float
+}
+
+func newCrumbBar(p *pathBar) *crumbBar {
+	c := &crumbBar{bar: p, focus: anim.NewFloat(0)}
+	c.Add(c.focus)
+	return c
 }
 
 // set shows the folders of cs. The folders both paths share stay, and
@@ -279,9 +288,18 @@ func (c *crumbBar) Layout(cs gunim.Constraints, _ gunim.Frame, kids gunim.Childr
 
 // Paint implements [gunim.Node].
 func (c *crumbBar) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.Children) {
+	th := f.Theme
 	r := geom.Rect{Max: box.Point()}
-	p.RRect(r, widget.FieldRadius.Get(f.Theme), paint.Solid(widget.FieldFill.Get(f.Theme)))
-	defer p.Layer(paint.LayerOpts{Bounds: r, Opacity: 1, Clip: true, Radius: widget.FieldRadius.Get(f.Theme)})()
+	fill := widget.FieldFill.Get(th)
+	// With the keyboard on the folders, the box has the edge a focused field has
+	if t := min(max(c.focus.Value(), 0), 1); t > 0.001 {
+		edge := widget.Accent.Get(th)
+		edge.A = uint8(float32(edge.A) * t)
+		p.RRectStroke(r, widget.FieldRadius.Get(th), paint.Solid(fill), paint.Stroke{Width: 1 + t, Color: edge})
+	} else {
+		p.RRect(r, widget.FieldRadius.Get(th), paint.Solid(fill))
+	}
+	defer p.Layer(paint.LayerOpts{Bounds: r, Opacity: 1, Clip: true, Radius: widget.FieldRadius.Get(th)})()
 	for k := range kids.All {
 		k.Paint(p)
 	}
@@ -291,6 +309,12 @@ func (c *crumbBar) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gu
 // the path, and the arrow keys, Home and End move between the folders.
 func (c *crumbBar) Handle(e input.Event, u *gunim.UI) bool {
 	switch e := e.(type) {
+	case input.FocusEntered:
+		c.focus.Animate(1, widget.Quick.Get(u.Theme()))
+		return true
+	case input.FocusLeft:
+		c.focus.Animate(0, widget.Settle.Get(u.Theme()))
+		return true
 	case input.PointerDown:
 		if e.Button != input.ButtonPrimary {
 			return false

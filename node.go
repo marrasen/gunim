@@ -172,7 +172,8 @@ type TabSkipper interface {
 }
 
 // A TabGroup is a node whose [Focusable] nodes Tab visits as one stop: the one that last had the focus, or the first.
-// The group moves the focus among them itself, such as with the arrow keys, through [UI.FocusWithin].
+// The group moves the focus among them itself, such as with the arrow keys, through [UI.FocusWithin]. It hears
+// [input.FocusEntered] and [input.FocusLeft] as the focus comes into it and goes, to show that it has the keyboard.
 type TabGroup interface {
 	TabGroup()
 }
