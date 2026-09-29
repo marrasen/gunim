@@ -978,7 +978,7 @@ func (w *Window) render() {
 			}
 			synced := vb.wait()
 			if w.pres != nil {
-				if err := w.pres.present(); err != nil {
+				if err := w.pres.present(r.redrawn); err != nil {
 					w.fail(err)
 				}
 			} else if err := w.gw.SwapBuffers(); err != nil {

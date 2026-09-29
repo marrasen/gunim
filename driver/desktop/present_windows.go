@@ -5,13 +5,16 @@ package desktop
 import (
 	"errors"
 	"fmt"
+	"math"
 	"os"
+	"runtime"
 	"strings"
 	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 
+	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/internal/gl"
 	"github.com/marrasen/gunim/internal/glfw"
 )
@@ -52,18 +55,18 @@ var (
 )
 
 const (
-	d3dDriverTypeHardware     = 1
-	d3d11CreateDeviceBGRA     = 0x20
-	d3d11SDKVersion           = 7
-	dxgiFormatR8G8B8A8        = 28
-	dxgiUsageRenderTarget     = 0x20
-	dxgiScalingStretch        = 0
-	dxgiSwapEffectFlipDiscard = 4
-	dxgiAlphaPremultiplied    = 1
-	d3d11BindRenderTarget     = 0x20
-	d3d11BindShaderResource   = 0x8
-	glTexture2D               = 0x0DE1
-	wglAccessWriteDiscardNV   = 0x0002
+	d3dDriverTypeHardware        = 1
+	d3d11CreateDeviceBGRA        = 0x20
+	d3d11SDKVersion              = 7
+	dxgiFormatR8G8B8A8           = 28
+	dxgiUsageRenderTarget        = 0x20
+	dxgiScalingStretch           = 0
+	dxgiSwapEffectFlipSequential = 3
+	dxgiAlphaPremultiplied       = 1
+	d3d11BindRenderTarget        = 0x20
+	d3d11BindShaderResource      = 0x8
+	glTexture2D                  = 0x0DE1
+	wglAccessWriteDiscardNV      = 0x0002
 )
 
 // Method numbers in the COM interfaces used here.
@@ -76,6 +79,7 @@ const (
 	dxgiSwapChainPresent         = 8
 	dxgiSwapChainGetBuffer       = 9
 	dxgiSwapChainResizeBuffers   = 13
+	dxgiSwapChain1Present1       = 22
 	d3d11DeviceCreateTexture2D   = 5
 	d3d11ContextCopyResource     = 47
 	d3d11ContextFlush            = 111
@@ -192,6 +196,8 @@ type presenter struct {
 	share    uintptr
 	object   uintptr
 	w, h     int
+	// whole is set until a frame of the swap chain's size has been shown, which must cover all of it.
+	whole bool
 
 	wglDXOpenDevice, wglDXCloseDevice       uintptr
 	wglDXRegisterObject, wglDXUnregisterObj uintptr
@@ -244,7 +250,7 @@ func newPresenter(g gl.Context, hwnd windows.HWND) (*presenter, error) {
 	desc := swapChainDesc{
 		Width: 1, Height: 1, Format: dxgiFormatR8G8B8A8,
 		SampleCount: 1, BufferUsage: dxgiUsageRenderTarget, BufferCount: 2,
-		Scaling: dxgiScalingStretch, SwapEffect: dxgiSwapEffectFlipDiscard, AlphaMode: dxgiAlphaPremultiplied,
+		Scaling: dxgiScalingStretch, SwapEffect: dxgiSwapEffectFlipSequential, AlphaMode: dxgiAlphaPremultiplied,
 	}
 	if hr := call(factory, dxgiFactory2SwapChainForComp, p.device, uintptr(unsafe.Pointer(&desc)), 0,
 		uintptr(unsafe.Pointer(&p.swap))); failed(hr) {
@@ -331,8 +337,9 @@ func (p *presenter) begin(w, h int) (uint32, error) {
 	return p.fbo, nil
 }
 
-// present hands the frame drawn since begin to the window.
-func (p *presenter) present() error {
+// present hands the frame drawn since begin to the window, where it differs from the last one within dirty, in
+// device pixels from the top left.
+func (p *presenter) present(dirty geom.Rect) error {
 	obj := p.object
 	if r, _, _ := syscall.SyscallN(p.wglDXUnlockObjects, p.share, 1, uintptr(unsafe.Pointer(&obj))); r == 0 {
 		return errors.New("desktop: wglDXUnlockObjectsNV failed")
@@ -344,10 +351,34 @@ func (p *presenter) present() error {
 	call(p.context, d3d11ContextCopyResource, back, p.texture)
 	release(back)
 	// The pacing is the vertical blank wait's, so present at once.
-	if hr := call(p.swap, dxgiSwapChainPresent, 0, 0); failed(hr) {
-		return fmt.Errorf("desktop: Present: HRESULT %#x", uint32(hr))
+	rect := &[4]int32{
+		max(int32(dirty.Min.X), 0), max(int32(dirty.Min.Y), 0),
+		min(int32(math.Ceil(float64(dirty.Max.X))), int32(p.w)), min(int32(math.Ceil(float64(dirty.Max.Y))), int32(p.h)),
+	}
+	if p.whole || rect[2] <= rect[0] || rect[3] <= rect[1] {
+		if hr := call(p.swap, dxgiSwapChainPresent, 0, 0); failed(hr) {
+			return fmt.Errorf("desktop: Present: HRESULT %#x", uint32(hr))
+		}
+		p.whole = false
+		return nil
+	}
+	// Tells the compositor which part of the window changed.
+	// The rectangle is on the heap, which Go does not move, and kept alive past the call.
+	params := presentParameters{DirtyRectsCount: 1, DirtyRects: uintptr(unsafe.Pointer(rect))}
+	hr := call(p.swap, dxgiSwapChain1Present1, 0, 0, uintptr(unsafe.Pointer(&params)))
+	runtime.KeepAlive(rect)
+	if failed(hr) {
+		return fmt.Errorf("desktop: Present1: HRESULT %#x", uint32(hr))
 	}
 	return nil
+}
+
+// presentParameters is DXGI_PRESENT_PARAMETERS.
+type presentParameters struct {
+	DirtyRectsCount uint32
+	DirtyRects      uintptr
+	ScrollRect      uintptr
+	ScrollOffset    uintptr
 }
 
 // resize sizes the swap chain and the shared texture to w by h.
@@ -370,7 +401,7 @@ func (p *presenter) resize(w, h int) error {
 		return errors.New("desktop: wglDXRegisterObjectNV failed")
 	}
 	p.object = obj
-	p.w, p.h = w, h
+	p.w, p.h, p.whole = w, h, true
 	return nil
 }
 

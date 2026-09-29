@@ -117,9 +117,9 @@ type renderer struct {
 	// draws; see shape.
 	corner, edge float32
 	// cull is the device-pixel area a frame redraws in part, while its
-	// commands are queued, and empty otherwise. A quad drawn straight
-	// to the canvas wholly outside it is left out: the scissor would
-	// throw all of it away, after it had been sent and set up.
+	// commands are queued, and empty otherwise. A quad wholly outside it,
+	// or outside the clip, is left out, since every target shares the
+	// window's pixels.
 	cull geom.Rect
 	// windowFBO is the framebuffer the window shows: 0, or on Windows
 	// the texture DXGI presents. flipWindow is set for that texture,
@@ -793,13 +793,13 @@ func (r *renderer) quad(corners [4]quadVert, t paint.Transform, scale float32, l
 	for i, c := range corners {
 		at[i] = t.Apply(c.local)
 	}
-	if !r.cull.Empty() && len(r.stack) == 0 {
+	if !r.cull.Empty() {
 		lo, hi := at[0], at[0]
 		for _, p := range at[1:] {
 			lo = geom.Pt(min(lo.X, p.X), min(lo.Y, p.Y))
 			hi = geom.Pt(max(hi.X, p.X), max(hi.Y, p.Y))
 		}
-		if hi.X*scale < r.cull.Min.X || lo.X*scale > r.cull.Max.X || hi.Y*scale < r.cull.Min.Y || lo.Y*scale > r.cull.Max.Y {
+		if r.outside(geom.Rect{Min: lo.Mul(scale), Max: hi.Mul(scale)}) {
 			return
 		}
 	}
@@ -820,6 +820,12 @@ func (r *renderer) quad(corners [4]quadVert, t paint.Transform, scale float32, l
 			l.strokeColor[0], l.strokeColor[1], l.strokeColor[2], l.strokeColor[3],
 		)
 	}
+}
+
+// outside reports whether b, in device pixels, misses what a frame drawn in part redraws within the clip.
+func (r *renderer) outside(b geom.Rect) bool {
+	c := intersect(r.cull, r.clip)
+	return b.Max.X < c.Min.X || b.Min.X > c.Max.X || b.Max.Y < c.Min.Y || b.Min.Y > c.Max.Y
 }
 
 // corners returns a rectangle's corners in the order the index buffer

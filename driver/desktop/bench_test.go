@@ -97,6 +97,11 @@ var runs = func() galleryRuns {
 // fill warmed by hover, from 0 to 1.
 func recordGallery(p *paint.Painter, rows int, hover float32) {
 	p.Reset()
+	paintGallery(p, rows, hover)
+}
+
+// paintGallery paints the gallery into p after what p holds.
+func paintGallery(p *paint.Painter, rows int, hover float32) {
 	ink := color.NRGBA{R: 0xec, G: 0xef, B: 0xf4, A: 0xff}
 	card := color.NRGBA{R: 0x22, G: 0x26, B: 0x30, A: 0xff}
 	button := color.NRGBA{R: 0x2b, G: 0x2f, B: 0x3a, A: 0xff}
@@ -194,6 +199,38 @@ func TestPartialRedrawMatchesAFullOne(t *testing.T) {
 	if r.redrawn.Size() != benchSize {
 		t.Fatalf("a frame after the canvas went stale redrew %v, want all of it", r.redrawn)
 	}
+	full := canvas(r)
+	for i := range full {
+		if d := int(full[i]) - int(partial[i]); d > 1 || d < -1 {
+			px := i / 4
+			t.Fatalf("pixel (%d, %d) is %d redrawn in part and %d in full", px%w, h-1-px/w, partial[i], full[i])
+		}
+	}
+}
+
+func TestPartialRedrawInAFadedLayerMatchesAFullOne(t *testing.T) {
+	r, done := hiddenGL(t)
+	defer done()
+	w, h := int(benchSize.W), int(benchSize.H)
+	var p paint.Painter
+	record := func(hover float32) {
+		p.Reset()
+		end := p.Layer(paint.LayerOpts{Bounds: geom.Rect{Max: benchSize.Point()}, Opacity: 0.8})
+		pop := p.Push(paint.Translate(geom.Pt(3, 5)))
+		paintGallery(&p, 40, hover)
+		pop()
+		end()
+	}
+	for _, hover := range []float32{0, 1, 0} {
+		record(hover)
+		r.draw(p.Ops(), p.Damage(), w, h, 1)
+	}
+	if s := r.redrawn.Size(); s.W > 100 || s.H > 50 {
+		t.Fatalf("a button's hover redrew %v, want about the button", r.redrawn)
+	}
+	partial := canvas(r)
+	r.canvasOK = false
+	r.draw(p.Ops(), p.Damage(), w, h, 1)
 	full := canvas(r)
 	for i := range full {
 		if d := int(full[i]) - int(partial[i]); d > 1 || d < -1 {

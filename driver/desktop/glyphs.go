@@ -110,6 +110,9 @@ func (r *renderer) text(op *paint.TextOp) {
 	t := op.Transform
 	plain := t.A == 1 && t.B == 0 && t.D == 0 && t.E == 1
 	sizePx := op.Size * r.scale
+	if plain && !r.cull.Empty() && r.outside(r.textBox(op)) {
+		return
+	}
 	raster := text.Raster{Hint: r.textRendering.Hinting == text.HintingLight}
 	l := look{kind: kindGlyph, color0: rgba(op.Color), color1: r.gamma, stroke: greyContrast}
 	if r.subpixels && plain && r.depth == 0 {
@@ -171,6 +174,20 @@ func (r *renderer) text(op *paint.TextOp) {
 		r.uses(0)
 		shape.C, shape.F = ox, oy
 		r.quad(corners(slot.rect(), slot.uv()), shape, 1, &l)
+	}
+}
+
+// textBox returns a box in device pixels that holds a run under a plain translation, with room for any glyph.
+func (r *renderer) textBox(op *paint.TextOp) geom.Rect {
+	lo, hi := op.Glyphs[0].At, op.Glyphs[0].At
+	for _, g := range op.Glyphs[1:] {
+		lo = geom.Pt(min(lo.X, g.At.X), min(lo.Y, g.At.Y))
+		hi = geom.Pt(max(hi.X, g.At.X), max(hi.Y, g.At.Y))
+	}
+	pad, t := 2*op.Size, op.Transform
+	return geom.Rect{
+		Min: geom.Pt((lo.X+t.C-pad)*r.scale, (lo.Y+t.F-pad)*r.scale),
+		Max: geom.Pt((hi.X+t.C+pad)*r.scale, (hi.Y+t.F+pad)*r.scale),
 	}
 }
 
