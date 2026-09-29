@@ -95,3 +95,45 @@ func TestAGroupShowsItsRingWhileTheKeyboardIsInIt(t *testing.T) {
 		t.Fatalf("the group's ring went %v, want on again, then off after the click", got)
 	}
 }
+
+// mover sends the focus to another node when a key reaches it.
+type mover struct {
+	focusRecorder
+	to Node
+}
+
+func (m *mover) Handle(e input.Event, u *UI) bool {
+	if _, ok := e.(input.KeyPress); ok {
+		u.Focus(m.to)
+		return true
+	}
+	return false
+}
+
+func TestFocusAKeyMovesIsKeyed(t *testing.T) {
+	w := newTestWindow()
+	target := &focusRecorder{}
+	m := &mover{to: target}
+	w.ui.Insert(w.ui.Root(), m)
+	w.ui.Insert(w.ui.Root(), target)
+	run(w, 1)
+	gained := func() []input.FocusGained {
+		var out []input.FocusGained
+		for _, e := range target.events {
+			if g, ok := e.(input.FocusGained); ok {
+				out = append(out, g)
+			}
+		}
+		return out
+	}
+	w.ui.Focus(m)
+	w.Input(input.KeyPress{Key: input.KeyDown})
+	if g := gained(); len(g) != 1 || !g[0].Keyed {
+		t.Fatalf("the node a key moved the focus to heard %v, want one keyed FocusGained", g)
+	}
+	w.ui.Focus(m)
+	w.ui.Focus(target)
+	if g := gained(); len(g) != 2 || g[1].Keyed {
+		t.Fatalf("the node focused with no key heard %v, want the second FocusGained not keyed", g)
+	}
+}

@@ -140,11 +140,13 @@ type Composing struct {
 	Selected [2]int
 }
 
-// FocusGained arrives when a node takes keyboard focus. Step is 1 when a group's arrow keys walked the focus here
-// from the node before it, -1 from the node after it, and 0 otherwise.
+// FocusGained arrives when a node takes keyboard focus. Keyed says a key press moved the focus here, such as an arrow
+// key or a shortcut, for a node that is one of several the keys walk to show where they are. Step is 1 when a group's
+// arrow keys walked the focus here from the node before it, -1 from the node after it, and 0 otherwise.
 type FocusGained struct {
-	Step int
-	Time time.Time
+	Keyed bool
+	Step  int
+	Time  time.Time
 }
 
 // FocusLost arrives when a node gives keyboard focus up.

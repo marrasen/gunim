@@ -41,7 +41,7 @@ func (l *List) Handle(e input.Event, u *gunim.UI) bool {
 	case input.KeyPress:
 		return l.key(e, u)
 	case input.FocusGained:
-		l.enter(e.Step, u)
+		l.enter(e, u)
 		return true
 	case input.FocusLost:
 		l.walk.Animate(0, Settle.Get(th))

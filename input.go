@@ -213,6 +213,11 @@ func (u *UI) keyEvent(ev any) {
 		if target == nil {
 			target = u.appRoot()
 		}
+		// Focus a key press moves is keyed
+		if _, ok := ev.(input.KeyPress); ok {
+			u.keyed = true
+			defer func() { u.keyed = false }()
+		}
 		if !u.bubble(target, ev) && !u.catchKey(ev) {
 			u.tab(ev)
 		}

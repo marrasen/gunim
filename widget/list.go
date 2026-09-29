@@ -384,20 +384,21 @@ func (l *List) key(e input.KeyPress, u *gunim.UI) bool {
 }
 
 // enter puts the cursor on a row as the list takes the keyboard: the first row, or the last one when the arrow keys
-// walked up into the list, and otherwise the row it was on.
-func (l *List) enter(step int, u *gunim.UI) {
+// walked up into the list, and otherwise the row it was on. A key that moved the keyboard here shows the cursor.
+func (l *List) enter(e input.FocusGained, u *gunim.UI) {
 	keys := l.live()
 	switch {
 	case len(keys) == 0:
 		return
-	case step > 0:
+	case e.Step > 0:
 		l.cursor = keys[0]
-		l.walk.Animate(1, Quick.Get(u.Theme()))
-	case step < 0:
+	case e.Step < 0:
 		l.cursor = keys[len(keys)-1]
-		l.walk.Animate(1, Quick.Get(u.Theme()))
 	case !slices.Contains(keys, l.cursor):
 		l.cursor = keys[0]
+	}
+	if e.Keyed {
+		l.walk.Animate(1, Quick.Get(u.Theme()))
 	}
 	u.Invalidate()
 }

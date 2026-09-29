@@ -892,6 +892,8 @@ type UI struct {
 	keyboardCue bool
 	ringed      []ringed
 	focusStep   int
+	// keyed says a key press is being delivered, so focus it moves is keyed.
+	keyed bool
 	// goingAway says the window is animating out, and leftAt is the frame
 	// it began in.
 	goingAway bool
@@ -1436,7 +1438,7 @@ func (u *UI) Focus(n Node) bool {
 	}
 	u.takeText(prev, next)
 	if next != nil {
-		u.deliver(next, input.FocusGained{Step: u.focusStep, Time: u.now})
+		u.deliver(next, input.FocusGained{Keyed: u.keyed, Step: u.focusStep, Time: u.now})
 	}
 	u.ring()
 	u.invalid = true
