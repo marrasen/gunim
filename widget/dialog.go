@@ -287,6 +287,9 @@ func (d *Dialog) cycle(u *gunim.UI, forward bool) {
 		next = (at - 1 + len(kids)) % len(kids)
 	}
 	u.Focus(kids[next])
+	// A field out of sight in a body that scrolls, such as a long form,
+	// is brought into view, as Tab does outside a dialog.
+	u.Reveal(kids[next])
 }
 
 // Layout implements [gunim.Node]. The dialog fills the space it is

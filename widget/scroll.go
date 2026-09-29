@@ -59,7 +59,12 @@ func (s *Scroll) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children)
 	// parent measure the content first and then hand back the room it
 	// can spare, as [Dialog] does with a long form.
 	if own.H <= 0 {
-		own.H = max(size.H, c.Min.H)
+		// Only measured: how far it is scrolled is left as it is, for
+		// the layout with the room it is given, which follows. Fitted
+		// to the whole of what it holds, it would scroll back to the
+		// top every frame.
+		kid.Place(geom.Pt(0, -s.offset.Value()))
+		return geom.Sz(own.W, max(size.H, c.Min.H))
 	}
 	s.fit(size.H, own, f.Theme)
 	kid.Place(geom.Pt(0, -s.offset.Value()))
