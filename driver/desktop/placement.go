@@ -36,7 +36,7 @@ func (w *Window) Placement() (p driver.Placement, ok bool) {
 		}
 		n := w.normals[len(w.normals)-1]
 		p.Bounds = geom.Rc(float32(n[0]), float32(n[1]), float32(n[2]), float32(n[3]))
-		p.Maximized = !w.FullScreen() && attrib(w.gw, glfw.Maximized)
+		p.Maximized = !w.FullScreen() && !w.gw.SystemFullScreen() && attrib(w.gw, glfw.Maximized)
 		ok = true
 		return nil
 	})
@@ -47,7 +47,9 @@ func (w *Window) Placement() (p driver.Placement, ok bool) {
 // maximized, minimized nor full screen: the place it goes back to from
 // any of those. It runs on the main thread.
 func (w *Window) noteNormal() {
-	if w.closed || w.popup || w.FullScreen() || attrib(w.gw, glfw.Maximized) || attrib(w.gw, glfw.Iconified) {
+	// The system's own full screen too, which macOS's green button puts
+	// a window in without the application asking.
+	if w.closed || w.popup || w.FullScreen() || w.gw.SystemFullScreen() || attrib(w.gw, glfw.Maximized) || attrib(w.gw, glfw.Iconified) {
 		return
 	}
 	n, ok := bounds(w.gw)
@@ -104,7 +106,7 @@ func attrib(gw *glfw.Window, a glfw.Hint) bool {
 // [driver.FitPlacement] for the monitors attached now. It returns the
 // placement it used, and false where there was none to use. It runs on
 // the main thread, before the window shows.
-func (w *Window) placeAt(saved driver.Placement) (driver.Placement, bool) {
+func (w *Window) placeAt(saved driver.Placement) (driver.Placement, [4]int, bool) {
 	var frame geom.Insets
 	if !w.Chromeless() {
 		// Where the system cannot say how wide its frame is, the window is fitted without it
@@ -114,7 +116,7 @@ func (w *Window) placeAt(saved driver.Placement) (driver.Placement, bool) {
 	}
 	p, ok := driver.FitPlacement(saved, monitors(), frame)
 	if !ok {
-		return p, false
+		return p, [4]int{}, false
 	}
 	n := [4]int{
 		roundInt(p.Bounds.Min.X), roundInt(p.Bounds.Min.Y),
@@ -123,7 +125,7 @@ func (w *Window) placeAt(saved driver.Placement) (driver.Placement, bool) {
 	w.debugf("placed at %v, saved at %v", n, saved.Bounds)
 	w.applyBounds(n)
 	w.normals = append(w.normals[:0], n)
-	return p, true
+	return p, n, true
 }
 
 // applyBounds moves and sizes the window's client area to b: x, y,

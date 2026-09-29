@@ -158,6 +158,9 @@ func (l *Label) Handle(e input.Event, u *gunim.UI) bool {
 		}
 		l.sel.held = false
 	case input.KeyPress:
+		if l.NoWrap && !e.Typed && e.Mods == 0 && l.keyAcross(e.Key, u) {
+			return true
+		}
 		if e.Typed || !e.Mods.Has(input.ModControl) && !e.Mods.Has(input.ModSuper) {
 			return false
 		}
@@ -188,6 +191,33 @@ func (l *Label) scrollAcross(e input.Scroll, u *gunim.UI) bool {
 		return false
 	}
 	to := max(0, min(l.across-dx, l.over))
+	if to == l.across {
+		return false
+	}
+	l.across = to
+	u.Invalidate()
+	return true
+}
+
+// keyAcross scrolls a NoWrap label sideways from the keyboard, for
+// whoever reads it without a wheel: Left and Right a step, Home and End
+// to either end. It reports whether the key moved it.
+func (l *Label) keyAcross(k input.Key, u *gunim.UI) bool {
+	const step = 40
+	to := l.across
+	switch k {
+	case input.KeyLeft:
+		to -= step
+	case input.KeyRight:
+		to += step
+	case input.KeyHome:
+		to = 0
+	case input.KeyEnd:
+		to = l.over
+	default:
+		return false
+	}
+	to = max(0, min(to, l.over))
 	if to == l.across {
 		return false
 	}

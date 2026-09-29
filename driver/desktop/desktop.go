@@ -421,8 +421,9 @@ func (d *Driver) openWindow(o driver.Options) (*Window, error) {
 	// A saved placement, for an ordinary window, takes the place of Size and Monitor
 	var placed driver.Placement
 	var place bool
+	var bounds [4]int
 	if o.Place != nil && o.Kind == driver.KindNormal && o.Parent == nil {
-		placed, place = w.placeAt(*o.Place)
+		placed, bounds, place = w.placeAt(*o.Place)
 	}
 	if place && placed.Maximized && maximizeHidden {
 		_ = gw.Maximize()
@@ -447,7 +448,10 @@ func (d *Driver) openWindow(o driver.Options) (*Window, error) {
 		w.debugf("shown")
 	}
 	if place && placeAgainShown && !o.Hidden {
-		w.applyBounds(w.normals[len(w.normals)-1])
+		// The bounds chosen, not the newest ones noted: a window sized
+		// again for a monitor's scale as it showed noted those too.
+		w.applyBounds(bounds)
+		w.normals = append(w.normals[:0], bounds)
 	}
 	if place && placed.Maximized && !maximizeHidden {
 		_ = gw.Maximize()

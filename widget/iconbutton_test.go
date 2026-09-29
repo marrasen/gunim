@@ -232,3 +232,17 @@ func TestAButtonCastsTheThemesShadow(t *testing.T) {
 		t.Fatalf("with a shadow, the button paints %d ops, and %d without", len(p.Ops()), plain)
 	}
 }
+
+// A primary button's words are in the theme's primary ink where it sets
+// one, and in the strong ink otherwise, as they were before there was a
+// primary ink.
+func TestAPrimaryButtonsInkFallsBackToTheStrongInk(t *testing.T) {
+	strong := theme.NewLive(theme.Make("strong", theme.Set(ButtonStrongInk, color.NRGBA{A: 0xff})))
+	if _, _, ink := kindColours(ButtonPrimary, strong); ink.Key() != ButtonStrongInk.Key() {
+		t.Fatalf("with only the strong ink set, a primary button uses %q", ink.Key())
+	}
+	own := theme.NewLive(theme.Make("own", theme.Set(ButtonPrimaryInk, color.NRGBA{R: 0xff, A: 0xff})))
+	if _, _, ink := kindColours(ButtonPrimary, own); ink.Key() != ButtonPrimaryInk.Key() {
+		t.Fatalf("with a primary ink set, a primary button uses %q", ink.Key())
+	}
+}

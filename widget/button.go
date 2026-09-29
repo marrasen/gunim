@@ -265,8 +265,8 @@ func (b *Button) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 		)
 	}
 
-	fromRest, fromHover, fromInk := kindColours(b.was)
-	rest, hover, ink := kindColours(b.is)
+	fromRest, fromHover, fromInk := kindColours(b.was, th)
+	rest, hover, ink := kindColours(b.is, th)
 	t := min(max(b.tone.Value(), 0), 1)
 	mix := func(from, to theme.Token[color.NRGBA]) color.NRGBA {
 		return anim.Mix(anim.ColorCodec, from.Get(th), to.Get(th), t)
@@ -334,10 +334,15 @@ func (b *Button) content(th *theme.Live) float32 {
 const toneTime = 350 * time.Millisecond
 
 // kindColours returns the rest fill, hover fill and ink of a kind.
-func kindColours(k ButtonKind) (rest, hover, ink theme.Token[color.NRGBA]) {
+func kindColours(k ButtonKind, th *theme.Live) (rest, hover, ink theme.Token[color.NRGBA]) {
 	switch k {
 	case ButtonPrimary:
-		return ButtonPrimaryFill, ButtonPrimaryHover, ButtonPrimaryInk
+		// Its own ink where the theme sets one, and the strong ink a
+		// theme may have set for both before there was one.
+		if th.Sets(ButtonPrimaryInk.Key()) {
+			return ButtonPrimaryFill, ButtonPrimaryHover, ButtonPrimaryInk
+		}
+		return ButtonPrimaryFill, ButtonPrimaryHover, ButtonStrongInk
 	case ButtonDanger:
 		return ButtonDangerFill, ButtonDangerHover, ButtonStrongInk
 	case ButtonPlain:

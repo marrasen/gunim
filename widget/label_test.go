@@ -159,4 +159,18 @@ func TestANoWrapLabelKeepsItsLinesAndScrollsAcross(t *testing.T) {
 	if whole.across <= 0 {
 		t.Fatal("Shift and the wheel did not scroll the label sideways")
 	}
+	// From the keyboard too, with the label focused.
+	whole.Selectable = true
+	w.Input(input.PointerDown{Pos: geom.Pt(20, 5), Button: input.ButtonPrimary, Clicks: 1})
+	w.Input(input.PointerUp{Pos: geom.Pt(20, 5), Button: input.ButtonPrimary})
+	w.Input(input.KeyPress{Key: input.KeyEnd})
+	run(1)
+	if whole.across != whole.over {
+		t.Fatalf("End scrolled to %v, want the end at %v", whole.across, whole.over)
+	}
+	w.Input(input.KeyPress{Key: input.KeyHome})
+	run(1)
+	if whole.across != 0 {
+		t.Fatalf("Home scrolled to %v", whole.across)
+	}
 }
