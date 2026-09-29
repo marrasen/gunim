@@ -1032,6 +1032,18 @@ func Local[T any](f Frame, key any, fresh func() T) T {
 type timer struct {
 	at time.Time
 	fn func(u *UI)
+	// redraw marks a timer from redrawAt.
+	redraw bool
+}
+
+// redrawAt sets a timer that draws a frame at t, unless one due by then is already set.
+func (u *UI) redrawAt(t time.Time) {
+	for _, o := range u.timers {
+		if o.redraw && !o.at.After(t) {
+			return
+		}
+	}
+	u.timers = append(u.timers, &timer{at: t, redraw: true, fn: func(u *UI) { u.Invalidate() }})
 }
 
 // After runs fn on the UI goroutine at the first frame d or more after

@@ -21,6 +21,8 @@ import (
 // between lines, and the text scrolls to keep it in view.
 type TextArea struct {
 	Placeholder string
+	// Placeholders are shown in turn after Placeholder while the area is empty, each for [PlaceholderHold].
+	Placeholders []string
 	// Face is the face the text is set in, and the theme's [Font] when unset.
 	Face theme.Token[*text.Face]
 	// OnChange turns the text into an intent to send when it changes.
@@ -53,7 +55,15 @@ type TextArea struct {
 	view float32
 	// followed is the caret the view last scrolled to keep in sight.
 	followed int
+	// shownFrom is when the placeholders started taking turns.
+	shownFrom time.Time
 }
+
+// PlaceholderHold is how long, in seconds, a text area shows each of its placeholders.
+var PlaceholderHold = theme.Number("field.placeholder.hold", 15)
+
+// placeholderTurn is how long one placeholder takes to give way to the next.
+const placeholderTurn = 400 * time.Millisecond
 
 // NewTextArea returns an empty text area five lines tall.
 func NewTextArea() *TextArea {
@@ -325,6 +335,54 @@ func (a *TextArea) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) 
 	return own
 }
 
+// paintPlaceholder draws the placeholder at o, and with several, turns to the next after each hold, the old one
+// rising away as the new one rises into its place.
+func (a *TextArea) paintPlaceholder(p *paint.Painter, f gunim.Frame, o geom.Point, width float32) {
+	th := f.Theme
+	all := a.Placeholders
+	if a.Placeholder != "" {
+		all = append([]string{a.Placeholder}, all...)
+	}
+	show := func(s string, at geom.Point, alpha float32) {
+		c := Placeholder.Get(th)
+		c.A = uint8(float32(c.A)*alpha + 0.5)
+		faceIn(a.Face, th).Layout(s, text.Style{Size: TextSize.Get(th)}, width).Paint(p, at, c)
+	}
+	hold := time.Duration(PlaceholderHold.Get(th) * float32(time.Second))
+	switch {
+	case len(all) == 0:
+		return
+	case len(all) == 1 || hold <= placeholderTurn:
+		show(all[0], o, 1)
+		return
+	}
+	if a.shownFrom.IsZero() {
+		a.shownFrom = f.Now
+	}
+	was, now, t, next := placeholderTurnAt(len(all), hold, f.Now.Sub(a.shownFrom))
+	f.RedrawAt(a.shownFrom.Add(next))
+	if t >= 1 {
+		show(all[now], o, 1)
+		return
+	}
+	const rise = 8
+	show(all[was], o.Add(geom.Pt(0, -rise*t)), 1-t)
+	show(all[now], o.Add(geom.Pt(0, rise*(1-t))), t)
+}
+
+// placeholderTurnAt returns which of n placeholders held for hold each show since after they start: the one giving
+// way and the one taking over, how far the turn has got, eased from 0 to 1, and when, since the start, to draw next.
+func placeholderTurnAt(n int, hold, since time.Duration) (was, now int, t float32, next time.Duration) {
+	k := int(since / hold)
+	in := since - time.Duration(k)*hold
+	now = k % n
+	if k == 0 || in >= placeholderTurn {
+		return now, now, 1, time.Duration(k+1) * hold
+	}
+	t = float32(in) / float32(placeholderTurn)
+	return (k - 1) % n, now, t * t * (3 - 2*t), since
+}
+
 // Paint implements [gunim.Node].
 func (a *TextArea) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
 	th := f.Theme
@@ -338,9 +396,8 @@ func (a *TextArea) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 	defer p.Layer(paint.LayerOpts{Bounds: inner, Opacity: 1, Clip: true})()
 
 	o := a.origin(pad)
-	if len(a.text) == 0 && len(a.preedit) == 0 && a.Placeholder != "" {
-		ph := faceIn(a.Face, th).Layout(a.Placeholder, text.Style{Size: TextSize.Get(th)}, box.W-2*pad)
-		ph.Paint(p, o, Placeholder.Get(th))
+	if len(a.text) == 0 && len(a.preedit) == 0 {
+		a.paintPlaceholder(p, f, o, box.W-2*pad)
 	}
 
 	caret, anchor := a.drawnCaret()

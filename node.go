@@ -350,6 +350,14 @@ func (f Frame) Send(n Node, v Intent) {
 	}
 }
 
+// RedrawAt asks for a frame at t or soon after, for a node whose look changes with the time, such as one that shows
+// several things in turn.
+func (f Frame) RedrawAt(t time.Time) {
+	if f.u != nil {
+		f.u.redrawAt(t)
+	}
+}
+
 // Children is a node's children, in order. It is valid only for the
 // duration of the call it was passed to.
 type Children struct {

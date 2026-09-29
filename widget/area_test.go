@@ -2,6 +2,7 @@ package widget
 
 import (
 	"testing"
+	"time"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
@@ -263,4 +264,27 @@ func TestCtrlVPastesAPictureWhenTheClipboardHasOne(t *testing.T) {
 	wr.w.Offscreen().SetClipboardImage(nil)
 	wr.key(input.KeyV, input.ModControl)
 	wr.want("words", 5)
+}
+
+func TestPlaceholdersTakeTurns(t *testing.T) {
+	const hold = 15 * time.Second
+	cases := []struct {
+		since     time.Duration
+		was, now  int
+		turning   bool
+		nextAfter time.Duration
+	}{
+		{0, 0, 0, false, hold},
+		{10 * time.Second, 0, 0, false, hold},
+		{hold + placeholderTurn/2, 0, 1, true, hold + placeholderTurn/2},
+		{hold + placeholderTurn, 1, 1, false, 2 * hold},
+		{2*hold + time.Millisecond, 1, 0, true, 2*hold + time.Millisecond},
+	}
+	for _, c := range cases {
+		was, now, turn, next := placeholderTurnAt(2, hold, c.since)
+		if was != c.was || now != c.now || (turn < 1) != c.turning || next != c.nextAfter {
+			t.Errorf("at %v: %d to %d at %v, next at %v; want %d to %d, turning %v, next at %v",
+				c.since, was, now, turn, next, c.was, c.now, c.turning, c.nextAfter)
+		}
+	}
 }
