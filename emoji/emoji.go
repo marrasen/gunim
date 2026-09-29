@@ -6,6 +6,7 @@ package emoji
 //go:generate go run gen.go emoji-test.txt
 
 import (
+	"slices"
 	"strings"
 	"sync"
 )
@@ -24,27 +25,48 @@ type Group struct {
 // Groups returns the emoji in their groups, in Unicode's order. The slices are shared: do not change them.
 func Groups() []Group { return groups }
 
-// Search returns the emoji whose names hold every word of query, in Unicode's order, those whose name starts
-// with the query's first word first. An empty query finds none.
+// Search returns the emoji whose names hold every word of query, each at the start of one of the name's words,
+// best first: a name that is the query, then one with the query's first word as a whole word of its own, as "red
+// heart" for "heart", then one that starts with it, then the rest; the first two shortest name first, as closest to
+// what was typed, and each otherwise in Unicode's order. An empty query finds none.
 func Search(query string) []Emoji {
 	words := strings.Fields(strings.ToLower(query))
 	if len(words) == 0 {
 		return nil
 	}
-	var first, rest []Emoji
+	q := strings.Join(words, " ")
+	var tiers [4][]Emoji
 	for _, g := range groups {
 		for _, e := range g.Emoji {
 			if !matches(e.Name, words) {
 				continue
 			}
-			if strings.HasPrefix(e.Name, words[0]) {
-				first = append(first, e)
-			} else {
-				rest = append(rest, e)
+			tier := 3
+			switch {
+			case e.Name == q:
+				tier = 0
+			case hasWord(e.Name, words[0]):
+				tier = 1
+			case strings.HasPrefix(e.Name, words[0]):
+				tier = 2
 			}
+			tiers[tier] = append(tiers[tier], e)
 		}
 	}
-	return append(first, rest...)
+	for _, t := range tiers[1:3] {
+		slices.SortStableFunc(t, func(a, b Emoji) int { return len(a.Name) - len(b.Name) })
+	}
+	return append(append(append(tiers[0], tiers[1]...), tiers[2]...), tiers[3]...)
+}
+
+// hasWord reports whether w is a whole word of name.
+func hasWord(name, w string) bool {
+	for _, part := range strings.FieldsFunc(name, func(r rune) bool { return r == ' ' || r == '-' || r == ':' }) {
+		if part == w {
+			return true
+		}
+	}
+	return false
 }
 
 // matches reports whether name holds every word, each at the start of one of its words.

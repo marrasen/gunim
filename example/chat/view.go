@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/marrasen/gunim/emoji"
 	"image/color"
 	"strings"
 
@@ -69,6 +70,10 @@ type chatView struct {
 	draftSeq int
 	// solo says the window shows its conversation alone, without the projects and the conversations.
 	solo bool
+	// people are who take part in the open conversation, for mentions.
+	people []string
+	// loading says older messages are on their way.
+	loading *loadingPill
 	// areas holds the conversation and the project's files, and shows one of them; files is the second.
 	areas *areas
 	files *filesPane
@@ -120,6 +125,8 @@ func buildChat(s Chat) *chatView {
 	v.composer = widget.NewTextArea()
 	v.composer.Rows, v.composer.MaxRows = 1, 8
 	v.composer.Placeholders = []string{"/help to show commands"}
+	v.composer.Triggers, v.composer.CompleteAbove = "@:", true
+	v.composer.Complete = v.complete
 	v.composer.OnSubmit = func(s string) gunim.Intent { return Submitted{Text: s} }
 	v.composer.OnChange = func(s string) gunim.Intent { return Drafted{Text: s} }
 	v.composer.OnPasteImage = func(png []byte) gunim.Intent { return ImagePasted{PNG: png} }
@@ -135,7 +142,8 @@ func buildChat(s Chat) *chatView {
 	bottom.Cross = widget.CrossStretch
 	bottomPad := widget.NewPad(bottom)
 	bottomPad.Padding = composerPad
-	timeline := &timelineBox{list: v.timeline, pill: v.catchUp}
+	v.loading = newLoadingPill()
+	timeline := &timelineBox{list: v.timeline, pill: v.catchUp, loading: v.loading}
 	parts := []gunim.Node{timeline, bottomPad}
 	if s.Solo {
 		// A window of its own names the conversation in its title bar
@@ -167,6 +175,49 @@ var (
 	zeroGap      = theme.Length("chat.gap.none", 0)
 	composerPad  = theme.Insets("chat.composer.pad", geom.Insets{Top: 0, Right: 16, Bottom: 16, Left: 16})
 )
+
+// maxSuggestions is how many people or emoji the message box suggests at once.
+const maxSuggestions = 8
+
+// complete suggests, for a word typed after @, the people of the conversation whose names have a word starting
+// with it, and after :, the emoji whose names hold it, of those the system draws.
+func (v *chatView) complete(trigger rune, query string) []widget.Completion {
+	var out []widget.Completion
+	q := strings.ToLower(query)
+	switch trigger {
+	case '@':
+		for _, p := range v.people {
+			if matchesName(p, q) {
+				out = append(out, widget.Completion{Text: "@" + p, Label: p, Swatch: avatarTint(p)})
+			}
+		}
+	case ':':
+		if len([]rune(q)) < 2 {
+			// A colon and one letter is too often a smiley or the end of a sentence.
+			return nil
+		}
+		for _, e := range emoji.Search(strings.ReplaceAll(q, "_", " ")) {
+			if !text.EmojiShows(e.Text) {
+				continue
+			}
+			out = append(out, widget.Completion{Text: e.Text, Label: e.Text + "  " + e.Name})
+			if len(out) == maxSuggestions {
+				break
+			}
+		}
+	}
+	return out[:min(len(out), maxSuggestions)]
+}
+
+// matchesName reports whether a word of name starts with q, or q is empty.
+func matchesName(name, q string) bool {
+	for _, w := range strings.Fields(strings.ToLower(name)) {
+		if strings.HasPrefix(w, q) {
+			return true
+		}
+	}
+	return q == ""
+}
 
 // newList makes an empty timeline, which starts at its end and stays there as messages arrive.
 func (v *chatView) newList() *widget.VirtualList {
@@ -232,6 +283,8 @@ func (v *chatView) set(s Chat, u *gunim.UI) {
 			func(r *convRow, c Conversation, u *gunim.UI) { r.set(c, chosen(s, c), u) })
 		v.setArea(s, u)
 	}
+	v.people = s.People
+	v.loading.set(s.Loading, u)
 	v.title.SetText(s.Title)
 	v.composer.Placeholder = "Message " + s.Title
 	if s.Title != "" && !isDirect(s) {

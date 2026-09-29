@@ -100,6 +100,9 @@ type Options struct {
 	// popup laid over its parent, such as a glow reaching past the
 	// parent's edges. It stays there even where the screen runs out.
 	Over bool
+	// Above puts a popup above Anchor, or below it where the room above runs out and there is more below, as for a
+	// list of suggestions at the bottom of a window.
+	Above bool
 	// Icons are the window's icon at several sizes, for the title bar
 	// and the taskbar to pick from. None leaves the system's own.
 	Icons []image.Image

@@ -33,6 +33,14 @@ type TextArea struct {
 	// OnPasteImage, when set, turns a picture pasted with Ctrl+V, as PNG, into an intent to send. Without a
 	// picture on the clipboard, Ctrl+V pastes text.
 	OnPasteImage func(png []byte) gunim.Intent
+	// Triggers are the characters that begin a word to complete, such as "@:" for mentions and emoji, at the start
+	// of the text or after a space. Complete, when set, returns what the word typed after the trigger may become.
+	// The suggestions open in a list at the caret, and while it is open Up and Down move through them, Enter or Tab
+	// puts one in, and Escape closes the list; the keyboard stays in the text.
+	Triggers string
+	Complete func(trigger rune, query string) []Completion
+	// CompleteAbove opens the suggestions above the caret, for a message box along the bottom of a window.
+	CompleteAbove bool
 	// Rows is how many lines tall the area is. MaxRows, when above Rows, lets the area grow with its text up to
 	// that many lines, and scroll past them, as a chat's message box does.
 	Rows, MaxRows int
@@ -55,6 +63,10 @@ type TextArea struct {
 	view float32
 	// followed is the caret the view last scrolled to keep in sight.
 	followed int
+	// completing is the list of suggestions open at the caret, and dismissedAt where the trigger was of the word
+	// Escape closed it for, or -1.
+	completing  *completing
+	dismissedAt int
 	// shownFrom is when the placeholders started taking turns.
 	shownFrom time.Time
 }
@@ -68,11 +80,12 @@ const placeholderTurn = 400 * time.Millisecond
 // NewTextArea returns an empty text area five lines tall.
 func NewTextArea() *TextArea {
 	a := &TextArea{
-		Rows:    5,
-		focus:   anim.NewFloat(0),
-		caretAt: anim.NewPoint(geom.Point{}),
-		scroll:  anim.NewFloat(0),
-		lines:   anim.NewFloat(0),
+		dismissedAt: -1,
+		Rows:        5,
+		focus:       anim.NewFloat(0),
+		caretAt:     anim.NewPoint(geom.Point{}),
+		scroll:      anim.NewFloat(0),
+		lines:       anim.NewFloat(0),
 	}
 	a.multiline = true
 	a.pasteImage = func(u *gunim.UI) bool {
@@ -142,9 +155,11 @@ func (a *TextArea) Handle(e input.Event, u *gunim.UI) bool {
 		a.blink.halt()
 		a.anchor = a.caret
 		a.preedit = nil
+		// The list stays for a click on it, which takes the keyboard for a moment; a press elsewhere closes it.
 	case input.PointerDown:
 		a.press(a.indexAt(e.Pos, u), e.Clicks, e.Mods.Has(input.ModShift))
 		a.held = true
+		a.complete(u)
 	case input.PointerMove:
 		if !a.held {
 			return false
@@ -161,9 +176,13 @@ func (a *TextArea) Handle(e input.Event, u *gunim.UI) bool {
 	case input.TextInput:
 		a.preedit = nil
 		a.insert(e.Text, u)
+		a.complete(u)
 	case input.Composing:
 		a.compose(e)
 	case input.KeyPress:
+		if a.completionKey(e, u) {
+			return true
+		}
 		if a.submits(e) {
 			u.Send(a, a.OnSubmit(a.Text()))
 			return true
@@ -171,6 +190,7 @@ func (a *TextArea) Handle(e input.Event, u *gunim.UI) bool {
 		if !a.key(e, u, areaNav{a}) {
 			return false
 		}
+		a.complete(u)
 	default:
 		return false
 	}

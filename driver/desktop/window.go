@@ -148,6 +148,8 @@ type Window struct {
 	// over puts a popup's corner at its anchor's, as
 	// [driver.Options.Over] asks.
 	over bool
+	// above puts a popup above its anchor where there is room; see [driver.Options.Above].
+	above bool
 	// transparent is whether the window blends with what is behind it,
 	// read once as it opens.
 	transparent bool
@@ -448,7 +450,7 @@ func (w *Window) stopRender() { w.quitOnce.Do(func() { close(w.quit) }) }
 func (w *Window) position(o driver.Options) error {
 	if p, ok := o.Parent.(*Window); ok {
 		if o.Kind == driver.KindPopup {
-			w.parent, w.popup, w.over = p, true, o.Over
+			w.parent, w.popup, w.over, w.above = p, true, o.Over, o.Above
 			return w.attach(o.Anchor)
 		}
 		px, py, err := p.gw.GetPos()
@@ -510,7 +512,7 @@ func (w *Window) attach(anchor geom.Rect) error {
 		return err
 	}
 	area := popupArea(a, workArea)
-	x, y := popupAt(a, float32(ww), float32(wh), area)
+	x, y := popupAt(a, float32(ww), float32(wh), area, w.above)
 	if w.over {
 		x, y = a.Min.X, a.Min.Y
 	}
@@ -573,13 +575,22 @@ func popupArea(a geom.Rect, areaAt func(geom.Point) geom.Rect) geom.Rect {
 // popupAt returns where a popup of size w×h goes for anchor a, all in
 // screen coordinates: below a, or above it when the room below runs
 // out and there is more above, and slid sideways to stay inside area.
-func popupAt(a geom.Rect, w, h float32, area geom.Rect) (x, y float32) {
+// With above it prefers above a, and goes below where the room above
+// runs out and there is more below.
+func popupAt(a geom.Rect, w, h float32, area geom.Rect, above bool) (x, y float32) {
 	x, y = a.Min.X, a.Max.Y
+	if above {
+		y = a.Min.Y - h
+	}
 	if area.Empty() {
 		return x, y
 	}
-	if y+h > area.Max.Y && a.Min.Y-area.Min.Y > area.Max.Y-a.Max.Y {
+	roomAbove, roomBelow := a.Min.Y-area.Min.Y, area.Max.Y-a.Max.Y
+	switch {
+	case !above && y+h > area.Max.Y && roomAbove > roomBelow:
 		y = a.Min.Y - h
+	case above && y < area.Min.Y && roomBelow > roomAbove:
+		y = a.Max.Y
 	}
 	x = max(area.Min.X, min(x, area.Max.X-w))
 	y = max(area.Min.Y, min(y, area.Max.Y-h))

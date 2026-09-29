@@ -47,3 +47,13 @@ func TestLookupFindsAnEmojiByItsText(t *testing.T) {
 		t.Fatal("Lookup(A) found an emoji")
 	}
 }
+
+func TestSearchPutsWholeWordsFirst(t *testing.T) {
+	got := Search("heart")
+	if len(got) == 0 || got[0].Name != "red heart" {
+		t.Fatalf("a search for heart starts with %q, want red heart", got[0].Name)
+	}
+	if got := Search("thumbs up"); got[0].Name != "thumbs up" {
+		t.Fatalf("a search for thumbs up starts with %q", got[0].Name)
+	}
+}
