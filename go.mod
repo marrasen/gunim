@@ -7,8 +7,11 @@ require (
 	github.com/go-text/typesetting v0.3.5
 	github.com/godbus/dbus/v5 v5.2.2
 	golang.org/x/image v0.45.0
-	golang.org/x/sys v0.47.0
+	golang.org/x/sys v0.48.0
 	golang.org/x/text v0.42.0
 )
 
-require github.com/yuin/goldmark v1.8.6 // indirect
+require (
+	github.com/yuin/goldmark v1.8.6 // indirect
+	golang.org/x/net v0.59.0 // indirect
+)

@@ -7,6 +7,7 @@ import (
 	"log"
 	"maps"
 	"math/rand/v2"
+	"net/http"
 	"slices"
 	"strconv"
 	"strings"
@@ -47,6 +48,8 @@ type app struct {
 	// images holds every picture pasted, by ID, and pending the ones waiting to go with the next message.
 	images  map[string]*paint.Image
 	pending []Picture
+	// web fetches link previews.
+	web *http.Client
 }
 
 type project struct {
@@ -76,6 +79,8 @@ type msg struct {
 	Pictures   []Picture
 	// reactions are the emoji people reacted with, in the order they first came, each with who reacted.
 	reactions []reaction
+	// preview is the card for the first link in the text, once the sender's app has fetched it.
+	preview Preview
 }
 
 // reaction is an emoji and the people who reacted with it, in order.
@@ -125,7 +130,7 @@ var reactionEmoji = []string{"\U0001F44D", "\U0001F389", "\u2764\uFE0F", "\U0001
 
 func newApp(ctx context.Context, c gunim.Client, seed uint64, history int, failRate float64) *app {
 	a := &app{ctx: ctx, c: c, rng: rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15)), later: make(chan func(), 16),
-		failRate: failRate, images: map[string]*paint.Image{}}
+		failRate: failRate, images: map[string]*paint.Image{}, web: &http.Client{}}
 	a.projects = []*project{
 		a.newProject("Atlas", "AT",
 			a.newConv("general", false, "Anna Berg", "Erik Lund", "Sara Nyström"),
@@ -319,6 +324,41 @@ func (a *app) openLink(url string) {
 	}
 }
 
+// post runs fn on the loop in serve, as soon as the loop gets to it.
+func (a *app) post(fn func()) {
+	select {
+	case a.later <- fn:
+	case <-a.ctx.Done():
+	}
+}
+
+// fetchPreview fetches the card for the first link in m, as the sender's app does, and puts it in m when it comes.
+// A link with no card to make, or a fetch that fails, leaves m without one.
+func (a *app) fetchPreview(m *msg) {
+	link := firstLink(m.Body)
+	if link == "" || a.link != Online {
+		return
+	}
+	web := a.web
+	go func() {
+		p, err := fetchPage(a.ctx, web, link)
+		if err != nil {
+			log.Printf("preview of %s: %v", link, err)
+			return
+		}
+		a.post(func() {
+			pv := Preview{URL: p.url, Site: p.site, Title: p.title, Description: p.description}
+			if p.picture != nil {
+				a.nextID++
+				pv.Picture = "p" + strconv.Itoa(a.nextID)
+				a.images[pv.Picture] = paint.NewImage(p.picture)
+			}
+			m.preview = pv
+			a.publish()
+		})
+	}()
+}
+
 // pastePicture puts a pasted picture, as PNG, with the pictures waiting to go with the next message.
 func (a *app) pastePicture(b []byte) {
 	img, err := png.Decode(bytes.NewReader(b))
@@ -372,6 +412,7 @@ func (a *app) submit(text string) {
 	m.Pictures, a.pending = a.pending, nil
 	a.setDraft("")
 	a.send(m)
+	a.fetchPreview(m)
 	// Somebody usually answers.
 	if a.rng.Float64() < 0.6 {
 		c := a.current
@@ -504,6 +545,8 @@ func (a *app) say(c *conv, who, body, replyTo string) {
 		m := a.add(c, who, body, time.Now().Round(0))
 		m.ReplyTo = replyTo
 		a.publish()
+		// The colleague's own app fetches the card for a link they send.
+		a.fetchPreview(m)
 	})
 }
 
@@ -565,7 +608,7 @@ func timeline(c *conv, now time.Time) []Item {
 		}
 		it := Item{Key: m.ID, Message: Message{ID: m.ID, Author: m.Author, Mine: m.Author == me, At: m.At, Body: m.Body,
 			State: m.State, Edited: m.Edited, Withdrawn: m.Withdrawn, Pictures: slices.Clone(m.Pictures),
-			Reactions: reactionsOf(m)}}
+			Reactions: reactionsOf(m), Preview: m.preview}}
 		it.Continued = prev != nil && prev.Author == m.Author && m.At.Sub(groupAt) < groupFor && m.ReplyTo == ""
 		if !it.Continued {
 			groupAt = m.At
@@ -614,6 +657,7 @@ var chatter = []string{
 	"```\ngo test ./... -run TestSync -count 50\n```\nfails about one time in twenty for me.",
 	"Back in an hour.",
 	"Thanks!",
+	"Good read on how range over functions works: https://go.dev/blog/range-functions",
 	"Build times this week:\n\n| Runner | Mon | Fri |\n|:--|--:|--:|\n| Windows | 14 min | 9 min |\n| Linux | 6 min | 6 min |",
 	"The flaky one:\n```\nwidget/virtual_test.go:377: offset 4712, want the end at 6392 (TestVirtualListThatSticksFollowsNewRows, seed 1817263)\n```",
 }

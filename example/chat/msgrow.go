@@ -42,6 +42,7 @@ type msgRow struct {
 	// body shows the message's text, pictures its pictures, and tools its toolbar; all are nil in a day's heading.
 	body      *markdown.View
 	pictures  []*widget.Image
+	preview   *previewCard
 	reactions *reactionBar
 	tools     gunim.Node
 	toolsAt   geom.Point
@@ -80,6 +81,7 @@ func newMsgRow(item Item, jump func(string, *gunim.UI), group *markdown.Group, i
 				r.pictures = append(r.pictures, img)
 			}
 		}
+		r.preview = newPreviewCard(item.Preview, image)
 		r.reactions = newReactionBar(item.ID, item.Reactions, react)
 		r.tools = newTools(item.Message, react)
 	}
@@ -121,6 +123,7 @@ func (r *msgRow) set(item Item, u *gunim.UI) {
 	r.item = item
 	if r.body != nil {
 		r.setBody()
+		r.preview.set(item.Preview, u)
 		r.reactions.set(item.ID, item.Reactions, u)
 	}
 	u.Invalidate()
@@ -141,7 +144,7 @@ func (r *msgRow) Children() []gunim.Node {
 	for _, p := range r.pictures {
 		out = append(out, p)
 	}
-	return append(out, r.reactions, r.tools)
+	return append(out, r.preview, r.reactions, r.tools)
 }
 
 // showsTools reports whether the toolbar can show: on a message still there.
@@ -170,7 +173,11 @@ func (r *msgRow) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children)
 		kid.Place(geom.Pt(gutter, y+6))
 		y += ps.H + 6
 	}
-	bar := kids.At(1 + len(r.pictures))
+	card := kids.At(1 + len(r.pictures))
+	cs := card.Layout(gunim.Loose(geom.Sz(textW, 400)))
+	card.Place(geom.Pt(gutter, y))
+	y += cs.H
+	bar := kids.At(2 + len(r.pictures))
 	if bs := bar.Layout(gunim.Loose(geom.Sz(textW, 400))); bs.H > 0 {
 		bar.Place(geom.Pt(gutter, y+6))
 		y += bs.H + 6
@@ -316,6 +323,7 @@ func (r *msgRow) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids guni
 		}
 	}()
 	kids.At(1 + len(r.pictures)).Paint(p)
+	kids.At(2 + len(r.pictures)).Paint(p)
 	if !r.footBox.Empty() {
 		r.foot.Paint(p, r.footBox.Min, faint)
 	}

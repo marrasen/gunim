@@ -71,6 +71,14 @@ type (
 		Reply     Quote
 		Pictures  []Picture
 		Reactions []Reaction
+		Preview   Preview
+	}
+
+	// Preview is the card for a link in a message: what the page says of itself, and its picture, by ID. The
+	// sender's app fetches it, so neither the server nor the readers ask the page.
+	Preview struct {
+		URL, Site, Title, Description string
+		Picture                       string
 	}
 
 	// Reaction is an emoji people reacted to a message with: how many, whether the user is one, and who, by name.
@@ -115,9 +123,11 @@ func (m Message) equal(o Message) bool {
 		State                        State
 		Edited, Withdrawn, Continued bool
 		Reply                        Quote
+		Preview                      Preview
 	}
 	flat := func(m Message) plain {
-		return plain{m.ID, m.Author, m.Mine, m.At, m.Body, m.State, m.Edited, m.Withdrawn, m.Continued, m.Reply}
+		return plain{m.ID, m.Author, m.Mine, m.At, m.Body, m.State, m.Edited, m.Withdrawn, m.Continued, m.Reply,
+			m.Preview}
 	}
 	return flat(m) == flat(o)
 }
