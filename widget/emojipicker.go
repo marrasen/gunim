@@ -245,8 +245,8 @@ func (c *emojiCard) Handle(e input.Event, u *gunim.UI) bool {
 	return true
 }
 
-// shownGroup returns the tab of the group the list shows: the last whose title is at or above the list's top, or
-// the last group once the list is at its end.
+// shownGroup returns the tab of the group the list shows, or scrolls to: the last whose title is at or above the
+// list's target top, or the last group once the list is at its end.
 func (c *emojiCard) shownGroup() int {
 	l := c.list
 	if len(c.tabs.groups) == 0 || len(l.order) == 0 {
@@ -257,7 +257,7 @@ func (c *emojiCard) shownGroup() int {
 	}
 	shown := 0
 	for i, g := range c.tabs.groups {
-		if at := slices.Index(l.order, g.key); at >= 0 && at < len(l.entry) && float32(l.tops.sum(at)) <= l.Offset()+2 {
+		if at := slices.Index(l.order, g.key); at >= 0 && at < len(l.entry) && float32(l.tops.sum(at)) <= l.target+2 {
 			shown = i
 		}
 	}

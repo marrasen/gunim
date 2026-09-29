@@ -121,3 +121,29 @@ func TestTheTabsBarFollowsTheGroupShown(t *testing.T) {
 		t.Fatalf("the bar is under tab %d, want the third, scrolled to", got)
 	}
 }
+
+func TestTheTabsBarGoesStraightToAGroupToTheLeft(t *testing.T) {
+	picker, _, run, _ := openPicker(t)
+	c := picker.card
+	scrollTo := func(g int) {
+		at := slices.Index(c.list.order, c.tabs.groups[g].key)
+		c.list.ScrollTo(float32(c.list.tops.sum(at)), Quick.Default())
+	}
+	scrollTo(4)
+	run(90)
+	// Scroll back to the third group, as its tab does. The bar may settle with a sliver of overshoot, but never
+	// visits the second tab.
+	scrollTo(2)
+	last := float32(4)
+	for range 90 {
+		run(1)
+		v := c.tabs.at.Value()
+		if v < 2-0.05 || v > last+0.05 {
+			t.Fatalf("the bar went to %v on its way from the fifth tab to the third", v)
+		}
+		last = v
+	}
+	if c.tabs.shown != 2 {
+		t.Fatalf("the bar is under tab %d, want the third", c.tabs.shown)
+	}
+}
