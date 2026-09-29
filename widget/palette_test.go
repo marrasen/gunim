@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/marrasen/gunim"
+	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
@@ -246,5 +247,40 @@ func TestAPaletteShowsItemsFoundElsewhere(t *testing.T) {
 	run(10)
 	if len(ctrl) != 1 || ctrl[0] != 2 || len(o.picked) != 0 {
 		t.Fatalf("Ctrl+Enter picked %v and %v, want CtrlPick with 2", ctrl, o.picked)
+	}
+}
+
+// A key the palette does not use goes to its Key, which can close it,
+// as the shortcut that opened it does again.
+func TestAPalettesUnusedKeyGoesToItsKey(t *testing.T) {
+	w, o, run := newPaletteStage(t)
+	o.p.Key = func(k input.KeyPress, u *gunim.UI) bool {
+		if k.Key != input.KeyF1 {
+			return false
+		}
+		o.p.Close(u)
+		return true
+	}
+	focusOpener(w, run)
+	w.Input(input.KeyPress{Key: input.KeyF1})
+	run(20)
+	if !o.p.IsOpen() {
+		t.Fatal("F1 did not open the palette")
+	}
+	w.Input(input.KeyPress{Key: input.KeyF1})
+	run(20)
+	if o.p.IsOpen() {
+		t.Fatal("F1 again left the palette open")
+	}
+}
+
+// A checked item draws a tick, as a menu's checked item does.
+func TestACheckedPaletteItemDrawsATick(t *testing.T) {
+	card := &paletteCard{p: &Palette{}}
+	plain := &paletteRow{c: card, hot: anim.NewFloat(0), item: PaletteItem{Title: "Show Sidebar"}}
+	ticked := &paletteRow{c: card, hot: anim.NewFloat(0), item: PaletteItem{Title: "Show Sidebar", Checked: true}}
+	box := geom.Sz(400, 30)
+	if a, b := len(masksIn(painted(plain, box))), len(masksIn(painted(ticked, box))); b <= a {
+		t.Fatalf("checked, the row paints %d masks, and %d unchecked", b, a)
 	}
 }

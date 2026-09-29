@@ -45,6 +45,10 @@ type PaletteItem struct {
 	At []int
 	// Problem draws the title in the colour of something wrong.
 	Problem bool
+	// Checked draws a tick at the row's end, before the hint, as a menu
+	// ticks an item: for a command that switches something, such as
+	// Show Sidebar, to say which way it stands.
+	Checked bool
 }
 
 // Palette finds one of a list of items as the user types part of its
@@ -75,6 +79,11 @@ type Palette struct {
 	CtrlPick func(i int, u *gunim.UI)
 	// Status is a line under the field, such as how far a search has got.
 	Status string
+	// Key, when set, hears a key the palette and its field do not use,
+	// such as a shortcut of the application's, and reports whether it
+	// took it. A popup's keys reach only the popup, so this is how the
+	// shortcut that opened the palette can close it again.
+	Key func(k input.KeyPress, u *gunim.UI) bool
 
 	popup *gunim.Popup
 	card  *paletteCard
@@ -352,7 +361,7 @@ func (c *paletteCard) Handle(e input.Event, u *gunim.UI) bool {
 	case input.KeyEscape:
 		c.p.Close(u)
 	default:
-		return false
+		return c.p.Key != nil && c.p.Key(k, u)
 	}
 	u.Invalidate()
 	return true
@@ -522,6 +531,11 @@ func (r *paletteRow) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gun
 		hint := r.hint.shape(faceIn(Font, th), item.Hint, size*0.9)
 		end -= hint.Advance + pad
 		hint.Paint(p, geom.Pt(box.W-pad-hint.Advance, (box.H-hint.Height())/2), PaletteHint.Get(th))
+	}
+	if item.Checked {
+		s := IconSize.Get(th)
+		paintIcon(p, th, icon.Check, geom.Rc(end-s, (box.H-s)/2, s, s), ink, 1)
+		end -= s + pad
 	}
 	if x := lead + run.Advance + size*0.8; item.Detail != "" && end-x > size {
 		face := faceIn(Font, th)
