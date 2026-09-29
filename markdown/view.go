@@ -466,6 +466,9 @@ func (v *View) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Chi
 				lp.p.Select(start-lp.base, end-lp.base, func(r geom.Rect) { p.RRect(r.Add(lp.at), 3, sel) })
 			}
 			for _, l := range lp.p.Lines {
+				if !lp.code {
+					v.paintCodeFills(p, th, lp, l.Pieces)
+				}
 				for _, pc := range l.Pieces {
 					v.paintPiece(p, th, lp, i, pc, ink)
 				}
@@ -489,14 +492,28 @@ func (v *View) paintScrollBar(p *paint.Painter, th *theme.Live, lp laidPara) {
 	p.RRect(geom.Rc(x, track.Min.Y, w, track.Size().H), 1.5, paint.Solid(widget.QuoteBar.Get(th)))
 }
 
+// paintCodeFills draws the fill behind the inline code on a line of pieces, one for each run of pieces of a code span.
+func (v *View) paintCodeFills(p *paint.Painter, th *theme.Live, lp laidPara, pieces []text.Piece) {
+	for i := 0; i < len(pieces); {
+		pc := pieces[i]
+		j := i + 1
+		for j < len(pieces) && pieces[j].Span == pc.Span {
+			j++
+		}
+		if lp.spans[pc.Span].style&mono != 0 {
+			last := pieces[j-1]
+			x0, x1 := pc.At.X+lp.at.X, last.At.X+last.Run.Advance+lp.at.X
+			p.RRect(geom.Rc(x0-2, pc.At.Y+lp.at.Y, x1-x0+4, pc.Run.Height()), 3, paint.Solid(widget.CodeFill.Get(th)))
+		}
+		i = j
+	}
+}
+
 // paintPiece draws one piece of paragraph i's text.
 func (v *View) paintPiece(p *paint.Painter, th *theme.Live, lp laidPara, i int, pc text.Piece, ink color.NRGBA) {
 	s := lp.spans[pc.Span]
 	at := pc.At.Add(lp.at)
 	box := geom.Rc(at.X, at.Y, pc.Run.Advance, pc.Run.Height())
-	if s.style&mono != 0 && !lp.code {
-		p.RRect(geom.Rc(box.Min.X-2, box.Min.Y, box.Size().W+4, box.Size().H), 3, paint.Solid(widget.CodeFill.Get(th)))
-	}
 	c := ink
 	if s.url != "" {
 		c = widget.LinkInk.Get(th)

@@ -8,6 +8,8 @@ import (
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/gunimtest"
 	"github.com/marrasen/gunim/input"
+	"github.com/marrasen/gunim/paint"
+	"github.com/marrasen/gunim/widget"
 )
 
 // stage shows v in an offscreen window, 400 wide, and returns the window and a way to draw frames.
@@ -113,5 +115,19 @@ func TestNewTextDropsTheSelection(t *testing.T) {
 	run(1)
 	if s, e := v.Selection(); s != e {
 		t.Fatalf("selection %d..%d after new text, want none", s, e)
+	}
+}
+
+func TestInlineCodeHasOneFillAcrossItsSpaces(t *testing.T) {
+	w, _ := stage(t, New("Try `/poll Question | option | option` now"))
+	fill := widget.CodeFill.Default()
+	n := 0
+	for _, op := range w.Offscreen().Ops() {
+		if r, ok := op.(*paint.RRectOp); ok && r.Fill.Solid == fill {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("the code has %d fills, want one", n)
 	}
 }
