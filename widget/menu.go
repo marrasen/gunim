@@ -36,6 +36,9 @@ type Menu struct {
 	Disabled []bool
 	// Icons shows an icon before each item's text, in the same order, and may be shorter than Items.
 	Icons []*icon.Icon
+	// Swatches shows a dot of each colour before its item's text, in place of an icon, as for a choice of calendars
+	// or labels by their colours. It may be shorter than Items, and a colour with no alpha shows none.
+	Swatches []color.NRGBA
 	// Breaks lists the items a line goes above, grouping the menu.
 	Breaks []int
 	// Captions lists the items that are captions over the group below
@@ -392,6 +395,8 @@ func (m *Menu) Paint(p *paint.Painter, f gunim.Frame, _ geom.Size, _ gunim.Child
 		if i < len(m.Icons) && m.Icons[i] != nil {
 			s := IconSize.Get(th)
 			paintIcon(p, th, m.Icons[i], geom.Rc(x, m.rowY(i)+(m.row-s)/2, s, s), col, 1)
+		} else if i < len(m.Swatches) && m.Swatches[i].A > 0 {
+			paintSwatch(p, th, m.Swatches[i], geom.Pt(x, m.rowY(i)+m.row/2))
 		}
 		run.Paint(p, geom.Pt(x+m.iconRoom(th), y), col)
 		if m.cues && m.AccessKeys {
@@ -409,14 +414,26 @@ func (m *Menu) Paint(p *paint.Painter, f gunim.Frame, _ geom.Size, _ gunim.Child
 	}
 }
 
-// iconRoom is the room icons take before the items' text, when any item has one.
+// iconRoom is the room icons take before the items' text, when any item has one or a swatch.
 func (m *Menu) iconRoom(th *theme.Live) float32 {
 	for _, ic := range m.Icons {
 		if ic != nil {
 			return IconSize.Get(th) + IconGap.Get(th)
 		}
 	}
+	for _, c := range m.Swatches {
+		if c.A > 0 {
+			return IconSize.Get(th) + IconGap.Get(th)
+		}
+	}
 	return 0
+}
+
+// paintSwatch draws a dot of c in the room of an icon whose left edge's middle is at.
+func paintSwatch(p *paint.Painter, th *theme.Live, c color.NRGBA, at geom.Point) {
+	s := IconSize.Get(th)
+	d := s * 0.62
+	p.RRect(geom.Rc(at.X+(s-d)/2, at.Y-d/2, d, d), d/2, paint.Solid(c))
 }
 
 // gutter is the room before the items' titles: a tick's, when any item has one.
@@ -439,8 +456,10 @@ type Dropdown struct {
 
 	Items    []string
 	Selected int
-	// Icons shows an icon before each item, as in a [Menu], and before the chosen one on the drop-down itself.
-	Icons []*icon.Icon
+	// Icons shows an icon before each item, as in a [Menu], and before the chosen one on the drop-down itself, and
+	// Swatches a dot of a colour.
+	Icons    []*icon.Icon
+	Swatches []color.NRGBA
 	// Label names the drop-down for a screen reader, as the label
 	// beside it does on screen.
 	Label string
@@ -546,7 +565,7 @@ func (d *Dropdown) key(k input.KeyPress, u *gunim.UI) bool {
 
 func (d *Dropdown) open(u *gunim.UI) {
 	m := NewMenu(d.Items...)
-	m.Icons = d.Icons
+	m.Icons, m.Swatches = d.Icons, d.Swatches
 	m.MinWidth = d.size.W
 	m.Highlight(d.Selected)
 	m.Pick = func(i int, u *gunim.UI) {
@@ -612,6 +631,11 @@ func (d *Dropdown) iconRoom(th *theme.Live) float32 {
 			return IconSize.Get(th) + IconGap.Get(th)
 		}
 	}
+	for _, c := range d.Swatches {
+		if c.A > 0 {
+			return IconSize.Get(th) + IconGap.Get(th)
+		}
+	}
 	return 0
 }
 
@@ -640,6 +664,8 @@ func (d *Dropdown) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 		if ic := d.icon(d.Selected); ic != nil {
 			s := IconSize.Get(th)
 			paintIcon(p, th, ic, geom.Rc(x, (box.H-s)/2, s, s), Ink.Get(th), 1)
+		} else if d.Selected < len(d.Swatches) && d.Swatches[d.Selected].A > 0 {
+			paintSwatch(p, th, d.Swatches[d.Selected], geom.Pt(x, box.H/2))
 		}
 		x += d.iconRoom(th)
 		run := d.shown.shape(faceIn(Font, th), d.Items[d.Selected], TextSize.Get(th))
@@ -824,6 +850,36 @@ func (t *Tooltip) Handle(e input.Event, u *gunim.UI) bool {
 	t.tip.handle(e, u, t, t.Text, t.Delay)
 	return false
 }
+
+// PartTip shows a tooltip about the part of a node under the pointer, such as an event in a calendar, once the
+// pointer rests on it. The node passes each pointer event to Handle with the text for the part under the pointer,
+// or an empty text where there is none. Moving to another part hides the tooltip and waits again.
+type PartTip struct {
+	tip tipper
+}
+
+// Handle follows the pointer event e over owner, with text the tooltip of the part under it.
+func (p *PartTip) Handle(e input.Event, u *gunim.UI, owner gunim.Node, text string) {
+	if text != p.tip.text {
+		p.tip.hide(u)
+		p.tip.text = text
+	}
+	if text == "" {
+		if _, left := e.(input.PointerLeave); left {
+			p.tip.quiet = false
+		}
+		return
+	}
+	if _, moved := e.(input.PointerMove); moved && p.tip.popup == nil && p.tip.stop == nil && !p.tip.quiet {
+		p.tip.owner, p.tip.delay, p.tip.at = owner, tipDelay, e.(input.PointerMove).Pos
+		p.tip.wait(u)
+		return
+	}
+	p.tip.handle(e, u, owner, text, tipDelay)
+}
+
+// Hide hides the tooltip, such as while the part under the pointer is dragged.
+func (p *PartTip) Hide(u *gunim.UI) { p.tip.hide(u) }
 
 // tipper shows a tooltip for the node it serves.
 type tipper struct {
