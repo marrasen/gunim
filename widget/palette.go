@@ -79,6 +79,14 @@ type Palette struct {
 	CtrlPick func(i int, u *gunim.UI)
 	// Status is a line under the field, such as how far a search has got.
 	Status string
+	// Hot, when set, hears the item the highlight has moved to, by the
+	// keys, the pointer or the list narrowing, as Pick would be given it,
+	// and -1 when no item is highlighted: for a palette that shows what
+	// an item would do before it is picked, such as a theme.
+	Hot func(i int, u *gunim.UI)
+	// Cancel, when set, runs as the palette closes with nothing picked:
+	// Escape, a click outside, or Close. It undoes what Hot showed.
+	Cancel func(u *gunim.UI)
 	// Key, when set, hears a key the palette and its field do not use,
 	// such as a shortcut of the application's, and reports whether it
 	// took it. A popup's keys reach only the popup, so this is how the
@@ -90,6 +98,10 @@ type Palette struct {
 	back  gunim.Node
 	// typedItems holds Typed's items for the query last typed.
 	typedItems []PaletteItem
+	// told is the item Hot was last told of, and picking says a pick
+	// is closing the palette, which is no cancel.
+	told    int
+	picking bool
 }
 
 // Open opens the palette in a popup attached to anchor, a rectangle in
@@ -99,6 +111,7 @@ func (p *Palette) Open(opener gunim.Node, anchor geom.Rect, u *gunim.UI) {
 		return
 	}
 	p.back = u.Focused()
+	p.told = -2
 	p.card = newPaletteCard(p)
 	w := PaletteWidth.Get(u.Theme())
 	x := anchor.Center().X - w/2
@@ -120,6 +133,9 @@ func (p *Palette) Close(u *gunim.UI) {
 	p.popup = nil
 	if p.back != nil {
 		u.Focus(p.back)
+	}
+	if !p.picking && p.Cancel != nil {
+		p.Cancel(u)
 	}
 }
 
@@ -166,7 +182,9 @@ func (p *Palette) SetQuery(q string, u *gunim.UI) {
 }
 
 func (p *Palette) choose(i int, ctrl bool, u *gunim.UI) {
+	p.picking = true
 	p.Close(u)
+	p.picking = false
 	switch {
 	case ctrl && p.CtrlPick != nil:
 		p.CtrlPick(i, u)
@@ -323,6 +341,10 @@ func (c *paletteCard) light(u *gunim.UI) {
 		step := c.rowOr(u) + ListSpacing.Get(u.Theme())
 		y := float32(c.hot) * step
 		c.list.revealContent(geom.Rc(0, y, 1, step), u)
+	}
+	if i := c.hotIndex(); c.p.Hot != nil && i != c.p.told {
+		c.p.told = i
+		c.p.Hot(i, u)
 	}
 	u.Invalidate()
 }
