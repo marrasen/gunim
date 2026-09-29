@@ -102,9 +102,11 @@ type conv struct {
 	ID, Name string
 	Direct   bool
 	people   []string
-	msgs     []*msg
-	byID     map[string]*msg
-	unread   int
+	// lastWrote is when each person last wrote, for their presence.
+	lastWrote map[string]time.Time
+	msgs      []*msg
+	byID      map[string]*msg
+	unread    int
 	// readTo is the ID of the last message the user has seen, or "" for none.
 	readTo  string
 	project *project
@@ -427,6 +429,12 @@ func (a *app) add(c *conv, author, body string, at time.Time) *msg {
 	}
 	c.msgs = append(c.msgs, m)
 	c.byID[m.ID] = m
+	if at.After(c.lastWrote[author]) {
+		if c.lastWrote == nil {
+			c.lastWrote = map[string]time.Time{}
+		}
+		c.lastWrote[author] = at
+	}
 	return m
 }
 
@@ -454,6 +462,7 @@ func (a *app) serve() error {
 	}
 	a.listen(a.window)
 	a.after(a.between(3*time.Second, 6*time.Second), a.colleague)
+	a.after(time.Minute, a.presenceTick)
 	for {
 		select {
 		case <-a.ctx.Done():
@@ -471,6 +480,12 @@ func (a *app) serve() error {
 			a.handleIn(wi.w, wi.intent)
 		}
 	}
+}
+
+// presenceTick publishes the state once a minute, so a person who has been quiet stops showing as active.
+func (a *app) presenceTick() {
+	a.publish()
+	a.after(time.Minute, a.presenceTick)
 }
 
 // listen passes w's intents on to the loop in serve, and says when w closes.

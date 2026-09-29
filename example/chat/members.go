@@ -22,13 +22,8 @@ const activeFor = 10 * time.Minute
 // membersOf returns the people of c as the panel lists them: the user first, then those active, then the rest,
 // each part by name.
 func (a *app) membersOf(c *conv, now time.Time) []Member {
-	seen := map[string]time.Time{}
-	for _, m := range c.msgs {
-		if m.At.After(seen[m.Author]) {
-			seen[m.Author] = m.At
-		}
-	}
-	out := []Member{{Name: me, Active: a.link == Online, Status: "You"}}
+	seen := c.lastWrote
+	out := []Member{{Name: me, Active: a.link == Online, Status: "You", You: true}}
 	var active, away []Member
 	for _, p := range c.people {
 		m := Member{Name: p, Status: "Away"}
@@ -87,9 +82,17 @@ func newMembersPanel(close func(*gunim.UI)) *membersPanel {
 func (m *membersPanel) set(members []Member, u *gunim.UI) {
 	m.title.SetText("Members · " + strconv.Itoa(len(members)))
 	widget.Sync(m.list, u, members,
-		func(p Member) widget.Key { return widget.Key(p.Name) },
+		memberKey,
 		newMemberRow,
 		func(r *memberRow, p Member, u *gunim.UI) { r.set(p, u) })
+}
+
+// memberKey keys a member's row: the user's apart from anyone else of the same name.
+func memberKey(m Member) widget.Key {
+	if m.You {
+		return "you"
+	}
+	return widget.Key("p:" + m.Name)
 }
 
 // memberRow is a person in the panel: their avatar with a dot that is green while they are active, their name,
@@ -119,8 +122,9 @@ func (r *memberRow) set(m Member, u *gunim.UI) {
 // Layout implements [gunim.Node].
 func (r *memberRow) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
 	th := f.Theme
-	r.name = widget.Font.Get(th).Shape(r.m.Name, widget.TextSize.Get(th))
-	r.status = widget.Font.Get(th).Shape(r.m.Status, SmallText.Get(th))
+	textW := c.Max.W - 58
+	r.name = shapeFit(widget.Font.Get(th), r.m.Name, widget.TextSize.Get(th), textW)
+	r.status = shapeFit(widget.Font.Get(th), r.m.Status, SmallText.Get(th), textW)
 	r.initials = widget.BoldFont.Get(th).Shape(initials(r.m.Name), 12)
 	return geom.Sz(c.Max.W, 44)
 }

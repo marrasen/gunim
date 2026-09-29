@@ -74,9 +74,10 @@ type chatView struct {
 	people []string
 	// loading says older messages are on their way.
 	loading *loadingPill
-	// drawer slides the members of the conversation in beside it.
-	drawer  *widget.Drawer
-	members *membersPanel
+	// drawer slides the members of the conversation in beside it, which people opens and closes.
+	drawer        *widget.Drawer
+	members       *membersPanel
+	membersButton *widget.IconButton
 	// areas holds the conversation and the project's files, and shows one of them; files is the second.
 	areas *areas
 	files *filesPane
@@ -113,7 +114,8 @@ func buildChat(s Chat) *chatView {
 	popOut := widget.NewIconButton(icon.SquareArrowOutUpRight, "Open in a window of its own")
 	popOut.On = PopOut{}
 	people := widget.NewIconButton(icon.Users, "Members")
-	people.OnActivate(func(u *gunim.UI) { v.drawer.SetOpen(!v.drawer.Open(), u) })
+	people.OnActivate(func(u *gunim.UI) { v.openMembers(!v.drawer.Open(), u) })
+	v.membersButton = people
 	header := widget.Row(hash, v.title, spacer, v.link, people, popOut, themeButton).Grow(spacer, 1)
 	header.Cross = widget.CrossCenter
 
@@ -164,7 +166,7 @@ func buildChat(s Chat) *chatView {
 		v.root = widget.Row(pane).Grow(pane, 1)
 	} else {
 		v.files = newFilesPane()
-		v.members = newMembersPanel(func(u *gunim.UI) { v.drawer.SetOpen(false, u) })
+		v.members = newMembersPanel(func(u *gunim.UI) { v.openMembers(false, u) })
 		v.drawer = widget.NewDrawer(pane, v.members.root)
 		v.areas = newAreas(v.drawer, v.files.root)
 		// The bar saying the connection is down spans every area
@@ -182,6 +184,16 @@ var (
 	zeroGap      = theme.Length("chat.gap.none", 0)
 	composerPad  = theme.Insets("chat.composer.pad", geom.Insets{Top: 0, Right: 16, Bottom: 16, Left: 16})
 )
+
+// openMembers slides the members in, or out, and lights the button that does it while they show.
+func (v *chatView) openMembers(on bool, u *gunim.UI) {
+	v.drawer.SetOpen(on, u)
+	v.membersButton.Active = on
+	if !on {
+		u.Focus(v.composer)
+	}
+	u.Invalidate()
+}
 
 // maxSuggestions is how many people or emoji the message box suggests at once.
 const maxSuggestions = 8

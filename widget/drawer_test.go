@@ -5,6 +5,7 @@ import (
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 )
 
@@ -32,5 +33,29 @@ func TestADrawerSlidesItsPanelInBesideTheMain(t *testing.T) {
 	want := 800 - DrawerWidth.Default()
 	if main.box.W != want || panel.at.X != want {
 		t.Fatalf("open, the main is %v wide and the panel at %v; want %v and beside it", main.box.W, panel.at.X, want)
+	}
+}
+
+func TestClosingADrawerTakesTheKeyboardOutOfItsPanel(t *testing.T) {
+	field := NewTextField()
+	var d *Drawer
+	closer := NewButton("Close")
+	closer.OnActivate(func(u *gunim.UI) { d.SetOpen(false, u) })
+	d = NewDrawer(field, closer)
+	w, run := stage(t, &frame{child: d, size: geom.Sz(800, 400)})
+	d.open.Jump(1)
+	run(5)
+	// Press the panel's button, which takes the keyboard, and closes the panel.
+	at := geom.Pt(800-DrawerWidth.Default()+20, 15)
+	w.Input(input.PointerDown{Pos: at, Button: input.ButtonPrimary, Clicks: 1})
+	w.Input(input.PointerUp{Pos: at, Button: input.ButtonPrimary})
+	run(60)
+	if d.Open() {
+		t.Fatal("the panel did not close")
+	}
+	w.Input(input.TextInput{Text: "hi"})
+	run(1)
+	if field.Text() != "hi" {
+		t.Fatalf("after the panel closed, typing gave the field %q, want it", field.Text())
 	}
 }

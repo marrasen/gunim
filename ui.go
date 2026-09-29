@@ -1449,6 +1449,12 @@ func (u *UI) Focused() Node {
 	return u.focus.node
 }
 
+// HasFocus reports whether the keyboard is on n or on a node inside it.
+func (u *UI) HasFocus(n Node) bool {
+	s, ok := u.index[n]
+	return ok && u.focus != nil && u.focus.within(s)
+}
+
 // Focus moves keyboard focus to n, sending [input.FocusLost] and
 // [input.FocusGained] to the nodes concerned. Pass nil to drop focus.
 //

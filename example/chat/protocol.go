@@ -86,6 +86,8 @@ type (
 	Member struct {
 		Name, Status string
 		Active       bool
+		// You marks the user's own row.
+		You bool
 	}
 
 	// Picture is a picture in a message, or waiting to go with one: its ID and its size in pixels.

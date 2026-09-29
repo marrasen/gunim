@@ -408,6 +408,27 @@ func (u *UI) FocusWithin(group Node, forward bool) bool {
 	return true
 }
 
+// FocusFirst moves the focus to n, or to the first node inside it that Tab could visit, or takes it away when there is none,
+// and reports whether a node took it.
+func (u *UI) FocusFirst(n Node) bool {
+	g, ok := u.index[n]
+	if !ok {
+		return false
+	}
+	if f, ok := n.(Focusable); ok && f.Focusable() {
+		u.Focus(n)
+		u.revealState(g)
+		return true
+	}
+	if stops := u.focusables(g); len(stops) > 0 {
+		u.Focus(stops[0].node)
+		u.revealState(stops[0])
+		return true
+	}
+	u.Focus(nil)
+	return false
+}
+
 // Reveal scrolls n into view through every [Revealer] around it, as
 // focusing it does, and leaves the keyboard where it is: for a list
 // that follows what the user works in, such as a row for the pane in
