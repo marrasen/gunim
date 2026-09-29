@@ -30,6 +30,10 @@ type View struct {
 	Ink theme.Token[color.NRGBA]
 	// OnLink turns a click on a link into an intent. Unset, the view sends [Link].
 	OnLink func(url string) gunim.Intent
+	// Group, when set, lets a selection run on from this view into the group's others, and Key names this view
+	// in it.
+	Group *Group
+	Key   string
 
 	src string
 	// parsed is the source and the breaks the blocks come from.
@@ -59,6 +63,9 @@ type View struct {
 
 	caret, anchor int
 	held          bool
+	// origin is where the view was last drawn, in the window's space, and drawnIn the frame, for its group.
+	origin  geom.Point
+	drawnIn uint64
 	// hover is the link under the pointer, as a paragraph and a span, or -1.
 	hover [2]int
 }
@@ -122,14 +129,22 @@ func (v *View) SetText(src string) {
 // Text returns the document's Markdown.
 func (v *View) Text() string { return v.src }
 
-// Selection returns the selected runes' range in the text the view shows, start before end.
+// Selection returns the selected runes' range in the text the view shows, start before end. In a group, it is the
+// part of the group's selection in this view.
 func (v *View) Selection() (start, end int) {
+	if v.Group != nil {
+		return v.Group.selection(v)
+	}
 	n := len(v.plain)
 	return min(v.caret, v.anchor, n), min(max(v.caret, v.anchor), n)
 }
 
-// SelectedText returns the selected text, without its Markdown.
+// SelectedText returns the selected text, without its Markdown. In a group, it is all the group's selection, a line
+// break between two views.
 func (v *View) SelectedText() string {
+	if v.Group != nil {
+		return v.Group.text()
+	}
 	start, end := v.Selection()
 	return string(v.plain[start:end])
 }
@@ -424,6 +439,9 @@ func (v *View) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom
 func (v *View) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
 	th := f.Theme
 	v.lay(th, box.W)
+	if v.Group != nil {
+		v.Group.drawn(v, f.Number(), p.Transform().Apply(geom.Point{}))
+	}
 	ink := widget.Ink.Get(th)
 	if v.Ink.Key() != "" {
 		ink = v.Ink.Get(th)
@@ -591,6 +609,10 @@ func (v *View) Handle(e input.Event, u *gunim.UI) bool {
 	switch e := e.(type) {
 	case input.FocusLost:
 		v.anchor, v.held = v.caret, false
+		// The view with the keyboard is where the group's selection started.
+		if g := v.Group; g != nil && g.anchor.key == v.Key {
+			g.on = false
+		}
 	case input.PointerMove:
 		if at := v.linkAt(e.Pos); at != v.hover {
 			v.hover = at
@@ -600,6 +622,11 @@ func (v *View) Handle(e input.Event, u *gunim.UI) bool {
 			return false
 		}
 		v.caret = v.index(e.Pos)
+		if g := v.Group; g != nil {
+			if at, ok := g.at(v.origin.Add(e.Pos)); ok {
+				g.caret = at
+			}
+		}
 	case input.Scroll:
 		return v.scrollCode(e, u)
 	case input.PointerLeave:
@@ -633,6 +660,12 @@ func (v *View) Handle(e input.Event, u *gunim.UI) bool {
 			v.anchor, v.caret = i, i
 		}
 		v.held = true
+		if g := v.Group; g != nil {
+			if !g.on || e.Clicks >= 2 || !e.Mods.Has(input.ModShift) {
+				g.anchor = point{v.Key, v.anchor}
+			}
+			g.caret, g.on = point{v.Key, v.caret}, true
+		}
 	case input.PointerUp:
 		if !v.held {
 			return false
@@ -644,11 +677,14 @@ func (v *View) Handle(e input.Event, u *gunim.UI) bool {
 		}
 		switch e.Key {
 		case input.KeyC:
-			if start, end := v.Selection(); start != end {
-				u.SetClipboard(v.SelectedText())
+			if text := v.SelectedText(); text != "" {
+				u.SetClipboard(text)
 			}
 		case input.KeyA:
 			v.anchor, v.caret = 0, len(v.plain)
+			if g := v.Group; g != nil {
+				g.anchor, g.caret, g.on = point{v.Key, 0}, point{v.Key, len(v.plain)}, true
+			}
 		default:
 			return false
 		}
