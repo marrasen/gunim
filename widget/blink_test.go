@@ -2,11 +2,12 @@ package widget
 
 import (
 	"testing"
+	"time"
 
 	"github.com/marrasen/gunim/input"
 )
 
-func TestTheCaretBlinksOnAndOffForAsLongAsItHasTheKeyboard(t *testing.T) {
+func TestTheCaretBlinksForAsLongAsItHasTheKeyboard(t *testing.T) {
 	wr := newWriter(t, 400)
 	b := &wr.area.blink
 	if b.value() != 1 {
@@ -56,5 +57,30 @@ func TestTheCaretHidesWhileTheWindowIsInactive(t *testing.T) {
 	}
 	if b.stop == nil {
 		t.Fatal("the caret does not blink again with the window back")
+	}
+}
+
+func TestTheCaretFadesInAFewStepsAtAnyRefreshRate(t *testing.T) {
+	wr := newWriter(t, 400)
+	b := &wr.area.blink
+	// Frames at 240 a second: a blink's fades take few of them, and the caret passes through levels between lit
+	// and dark on the way.
+	levels := map[float32]bool{}
+	changes := 0
+	last := b.value()
+	for range 240 * 3 {
+		wr.w.Frame(time.Second / 240)
+		if v := b.value(); v != last {
+			changes++
+			levels[v] = true
+			last = v
+		}
+	}
+	if len(levels) < 4 {
+		t.Fatalf("the caret took %d levels, want it to fade through some between lit and dark", len(levels))
+	}
+	// Three seconds hold at most six fades, of fadeSteps changes each.
+	if max := 3 * 2 * fadeSteps; changes > max {
+		t.Fatalf("the caret changed %d times in three seconds, want at most %d, however fast the frames", changes, max)
 	}
 }

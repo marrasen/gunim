@@ -8,41 +8,66 @@ import (
 	"github.com/marrasen/gunim/theme"
 )
 
-// CaretBlink is how long the caret shows, and hides, in each blink, in seconds. 0 keeps the caret lit.
+// CaretBlink is how long the caret shows, and hides, in each blink, in seconds, fades included. 0 keeps the caret
+// lit.
 var CaretBlink = theme.Number("caret.blink", 0.53)
 
-// blinker blinks a caret while its widget has the keyboard and its window is active. The caret turns on and off
-// rather than fading, so a blink costs two frames a second.
+// The caret fades out and in over blinkFade, in fadeSteps steps on timers rather than on every frame, so a blink
+// costs the same few frames a second at any refresh rate.
+const (
+	blinkFade = 120 * time.Millisecond
+	fadeSteps = 4
+)
+
+// blinker blinks a caret while its widget has the keyboard and its window is active, fading it out and back in.
 type blinker struct {
-	dark bool
-	stop func()
+	// level is how lit the caret is, from 0 to 1, while it blinks.
+	level float32
+	on    bool
+	stop  func()
 	// away hides the caret while the window does not have the keyboard.
 	away bool
 }
 
-// value returns how lit the caret is: 1 or 0.
+// value returns how lit the caret is, from 0 to 1.
 func (b *blinker) value() float32 {
-	if b.away || b.dark {
+	if b.away {
 		return 0
 	}
-	return 1
+	if !b.on {
+		return 1
+	}
+	return b.level
 }
 
 // restart lights the caret at once and starts it blinking again, after a key, a click or the keyboard arriving.
 func (b *blinker) restart(u *gunim.UI) {
 	b.halt()
-	if half := CaretBlink.Get(u.Theme()); half > 0 {
-		b.next(u, half)
+	half := CaretBlink.Get(u.Theme())
+	if half <= 0 {
+		return
 	}
+	b.on, b.level = true, 1
+	b.hold(u, time.Duration(half*float32(time.Second)))
 }
 
-// next turns the caret the other way after half a blink, and goes on.
-func (b *blinker) next(u *gunim.UI, half float32) {
-	b.stop = u.After(time.Duration(half*float32(time.Second)), func(u *gunim.UI) {
-		b.dark = !b.dark
-		u.Invalidate()
-		b.next(u, half)
-	})
+// hold keeps the caret as it is for what half a blink leaves after its fade, then fades it the other way.
+func (b *blinker) hold(u *gunim.UI, half time.Duration) {
+	from := b.level
+	b.stop = u.After(max(half-blinkFade, 0), func(u *gunim.UI) { b.fade(u, half, from, 1) })
+}
+
+// fade takes step i of the fade away from level from, and goes on to the next step, or to holding at the end.
+func (b *blinker) fade(u *gunim.UI, half time.Duration, from float32, i int) {
+	t := float32(i) / fadeSteps
+	eased := t * t * (3 - 2*t)
+	b.level = from + (1-2*from)*eased
+	u.Invalidate()
+	if i < fadeSteps {
+		b.stop = u.After(blinkFade/fadeSteps, func(u *gunim.UI) { b.fade(u, half, from, i+1) })
+		return
+	}
+	b.hold(u, half)
 }
 
 // windowFocus hides the caret while the window is without the keyboard, and shows it blinking again when the window
@@ -68,8 +93,8 @@ func (b *blinker) halt() {
 		b.stop()
 		b.stop = nil
 	}
-	b.dark = false
+	b.on, b.level = false, 1
 }
 
-// step implements the blinker's part of an [gunim.Animator]: the caret has nothing to animate.
+// step implements the blinker's part of an [gunim.Animator]: the fade steps on timers, so it has nothing to animate.
 func (b *blinker) step(time.Duration) bool { return false }
