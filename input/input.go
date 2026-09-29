@@ -151,8 +151,8 @@ type FocusGained struct {
 type FocusLost struct{ Time time.Time }
 
 // FocusRing says whether a node shows that it has the keyboard. The focused node hears it, and so does the outermost
-// tab group around it, with Within set. Rings show while the keyboard is in use: a key press turns them on and a
-// click turns them off. Grouped says a group around the focused node draws the ring round the whole.
+// tab group around it, with Within set. Rings show once Tab has moved the focus, until a click. Grouped says a
+// group around the focused node draws the ring round the whole.
 type FocusRing struct {
 	On      bool
 	Within  bool

@@ -43,6 +43,9 @@ func (l *List) Handle(e input.Event, u *gunim.UI) bool {
 	case input.FocusGained:
 		l.enter(e.Step, u)
 		return true
+	case input.FocusLost:
+		l.walk.Animate(0, Settle.Get(th))
+		return true
 	case input.FocusRing:
 		l.whole = e.On && !e.Grouped
 		l.ring.Animate(ringTo(e), Quick.Get(th))
@@ -58,6 +61,7 @@ func (l *List) Handle(e input.Event, u *gunim.UI) bool {
 		}
 		l.drag = reorder{key: k, pressed: true, from: e.Pos.Y, grab: e.Pos.Y - top, y: top}
 		l.cursor = k
+		l.walk.Animate(0, Settle.Get(th))
 	case input.PointerMove:
 		if !l.drag.pressed {
 			return false

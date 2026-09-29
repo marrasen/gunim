@@ -887,8 +887,8 @@ type UI struct {
 	chrome *titleBar
 	// titleBar is the title bar the engine gave the window, or nil; see giveTitleBar.
 	titleBar TitleBar
-	// keyboardCue says the keyboard is in use, which shows the focus rings, and ringed are the nodes told to show
-	// one. focusStep is the Step of the next FocusGained.
+	// keyboardCue says Tab has moved the focus since the last click, which shows the focus rings, and ringed are the
+	// nodes told to show one. focusStep is the Step of the next FocusGained.
 	keyboardCue bool
 	ringed      []ringed
 	focusStep   int
@@ -1480,7 +1480,7 @@ func (u *UI) ring() {
 	u.ringed = want
 }
 
-// cue says whether the keyboard is in use, which shows the focus rings, from a key press or a click.
+// cue says whether the focus rings show: on from Tab, and off from a click.
 func (u *UI) cue(keyboard bool) {
 	if u.keyboardCue == keyboard {
 		return

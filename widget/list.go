@@ -63,14 +63,16 @@ type List struct {
 	cursor Key
 	ring   *anim.Float
 	whole  bool
-	mark   *anim.Rect
+	// walk shows the cursor while the arrow keys move it, with no focus ring showing, until a click.
+	walk *anim.Float
+	mark *anim.Rect
 }
 
 // NewList returns an empty list.
 func NewList() *List {
 	l := &List{rows: map[Key]*row{}, slots: map[Key][2]float32{}, lift: anim.NewFloat(0), ring: anim.NewFloat(0),
-		mark: anim.NewRect(geom.Rect{})}
-	l.Add(l.lift, l.ring, l.mark)
+		walk: anim.NewFloat(0), mark: anim.NewRect(geom.Rect{})}
+	l.Add(l.lift, l.ring, l.walk, l.mark)
 	return l
 }
 
@@ -269,7 +271,7 @@ func (l *List) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) g
 	l.height = y
 	if s, ok := l.slots[l.cursor]; ok {
 		to := geom.Rc(0, s[0], width, s[1])
-		if l.ring.Value() < 0.01 {
+		if l.cursorShown() < 0.01 {
 			l.mark.Jump(to)
 		} else {
 			l.mark.Animate(to, move)
@@ -296,7 +298,7 @@ func (l *List) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.
 	if _, ok := l.slots[l.cursor]; ok && !l.drag.active {
 		r := l.mark.Value()
 		focusRing(p, geom.Rect{Min: geom.Pt(r.Min.X+3, r.Min.Y), Max: geom.Pt(r.Max.X-3, r.Max.Y)},
-			RowRadius.Get(f.Theme), l.ring.Value(), f.Theme)
+			RowRadius.Get(f.Theme), l.cursorShown(), f.Theme)
 	}
 	if l.whole {
 		groupRing(p, geom.Rect{Max: box.Point()}, RowRadius.Get(f.Theme), l.ring.Value(), f.Theme)
@@ -326,11 +328,15 @@ func (l *List) live() []Key {
 	return out
 }
 
-// moveCursor puts the cursor on keys[i], within the list, and brings its row into view.
+// cursorShown is how far the cursor shows: with the focus ring, or while the arrow keys move it.
+func (l *List) cursorShown() float32 { return max(l.ring.Value(), l.walk.Value()) }
+
+// moveCursor puts the cursor on keys[i], within the list, shows it, and brings its row into view.
 func (l *List) moveCursor(keys []Key, i int, u *gunim.UI) {
 	if len(keys) == 0 {
 		return
 	}
+	l.walk.Animate(1, Quick.Get(u.Theme()))
 	l.cursor = keys[min(max(i, 0), len(keys)-1)]
 	if r, ok := l.rows[l.cursor]; ok {
 		u.Reveal(r)
@@ -386,8 +392,10 @@ func (l *List) enter(step int, u *gunim.UI) {
 		return
 	case step > 0:
 		l.cursor = keys[0]
+		l.walk.Animate(1, Quick.Get(u.Theme()))
 	case step < 0:
 		l.cursor = keys[len(keys)-1]
+		l.walk.Animate(1, Quick.Get(u.Theme()))
 	case !slices.Contains(keys, l.cursor):
 		l.cursor = keys[0]
 	}

@@ -70,16 +70,20 @@ func TestAGroupShowsItsRingWhileTheKeyboardIsInIt(t *testing.T) {
 		}
 		return out
 	}
-	// A click puts the focus in the group with no ring; a key shows it
+	// Focus put in the group with no Tab shows no ring; Tab shows it
 	w.ui.Focus(g.fa)
 	if len(g.heard) != 0 {
 		t.Fatalf("with the mouse in use the group heard %v, want nothing", g.heard)
 	}
 	w.Input(input.KeyPress{Key: input.KeyDown})
+	if len(g.heard) != 0 {
+		t.Fatalf("an arrow key showed the group's ring: %v", g.heard)
+	}
+	w.Input(input.KeyPress{Key: input.KeyTab})
 	w.ui.FocusWithin(g, true)
 	w.ui.Focus(before)
 	if got := on(); len(got) != 2 || !got[0] || got[1] {
-		t.Fatalf("the group's ring went %v, want on as a key was pressed, and off as the focus left", got)
+		t.Fatalf("the group's ring went %v, want on as Tab was pressed, and off as the focus left", got)
 	}
 	if !g.heard[0].Within {
 		t.Fatal("the group's ring is not for the focus within it")

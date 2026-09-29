@@ -129,7 +129,7 @@ func TestAGroupIsOneTabStopAndTheArrowsWalkThroughIt(t *testing.T) {
 	}
 }
 
-func TestAClickShowsNoRingAndAKeyShowsIt(t *testing.T) {
+func TestOnlyTabShowsTheRingsAndTheArrowsShowTheCursor(t *testing.T) {
 	st := newGroupStage(t, 2, 2)
 	w, g, a, run, focused := st.w, st.g, st.a, st.run, st.focused
 	// The first list's first row is at the top
@@ -141,10 +141,21 @@ func TestAClickShowsNoRingAndAKeyShowsIt(t *testing.T) {
 	if g.ring.Value() > 0.01 || a.ring.Value() > 0.01 {
 		t.Fatal("a click showed a focus ring")
 	}
+	// After a click the arrows show the list's cursor, and no ring
 	w.Input(input.KeyPress{Key: input.KeyDown})
 	run(20)
-	if g.ring.Value() < 0.9 || a.ring.Value() < 0.9 {
-		t.Fatal("a key did not show the focus rings")
+	if g.ring.Value() > 0.01 || a.ring.Value() > 0.01 {
+		t.Fatal("an arrow key showed a focus ring")
+	}
+	if a.cursorShown() < 0.9 {
+		t.Fatal("the arrow key moved the list's cursor out of sight")
+	}
+	// Tab out and back in shows the group's ring
+	w.Input(input.KeyPress{Key: input.KeyTab, Mods: input.ModShift})
+	w.Input(input.KeyPress{Key: input.KeyTab})
+	run(20)
+	if focused() != a || g.ring.Value() < 0.9 {
+		t.Fatal("Tab back into the group did not show its ring")
 	}
 	if a.whole {
 		t.Fatal("a list in a group draws its own ring round all of it, as well as the group's")

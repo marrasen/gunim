@@ -157,7 +157,7 @@ func (u *UI) handleOn(root *state, ev any) {
 			return input.Drop{Pos: local, Data: e.Data, Paths: e.Paths, Mods: e.Mods, Time: e.Time}
 		})
 	case input.KeyPress, input.KeyRelease:
-		if k, ok := ev.(input.KeyPress); ok && !modifierKey(k.Key) {
+		if k, ok := ev.(input.KeyPress); ok && k.Key == input.KeyTab {
 			u.cue(true)
 		}
 		tapped := u.altTap(ev)
@@ -194,17 +194,6 @@ func (u *UI) altTap(ev any) bool {
 		}
 	}
 	return false
-}
-
-// modifierKey reports whether k is Shift, Control, Alt or Super, which alone do not say the keyboard is in use.
-func modifierKey(k input.Key) bool {
-	switch k {
-	case input.KeyLeftShift, input.KeyRightShift, input.KeyLeftControl, input.KeyRightControl,
-		input.KeyLeftAlt, input.KeyRightAlt, input.KeyLeftSuper, input.KeyRightSuper:
-		return true
-	default:
-		return false
-	}
 }
 
 // isAlt reports whether k is either Alt key.
