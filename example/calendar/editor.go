@@ -37,6 +37,9 @@ func newEditor(d Draft) *widget.Dialog {
 	}
 	cal := widget.NewDropdown(calNames...)
 	cal.Selected = max(slices.IndexFunc(d.Calendars, func(c Calendar) bool { return c.ID == d.Calendar }), 0)
+	for _, c := range d.Calendars {
+		cal.Swatches = append(cal.Swatches, c.Color)
+	}
 	allDay := widget.NewCheckbox("All day")
 	allDay.On = d.AllDay
 	end := d.End
@@ -96,6 +99,11 @@ func newEditor(d Draft) *widget.Dialog {
 		showLength(u)
 	}
 	endDay.OnChange = func(_ time.Time, u *gunim.UI) { endTime.OnChange(0, u) }
+	// The end's list of times starts after the start, with each time's length, while both are on one day.
+	endTime.From = func() (time.Duration, bool) {
+		st, ok := startTime.Value()
+		return st, ok && startDay.Value().Equal(endDay.Value())
+	}
 	startClock, endClock := newFold(startTime, !d.AllDay), newFold(endTime, !d.AllDay)
 	allDay.OnFlip(func(on bool, u *gunim.UI) {
 		startClock.open(!on, u)

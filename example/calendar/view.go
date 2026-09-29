@@ -53,16 +53,17 @@ func registerViews(w *gunim.Window) {
 type calView struct {
 	root *widget.Flex
 
-	title   *fadeLabel
-	views   *widget.Segmented
-	invites *widget.Link
-	mini    *calendar.MiniMonth
-	cals    *widget.List
-	days    *calendar.Days
-	month   *calendar.Month
-	area    *switcher
-	toasts  *widget.Toasts
-	palette *widget.Palette
+	title    *fadeLabel
+	views    *widget.Segmented
+	weekends *widget.Checkbox
+	invites  *widget.Link
+	mini     *calendar.MiniMonth
+	cals     *widget.List
+	days     *calendar.Days
+	month    *calendar.Month
+	area     *switcher
+	toasts   *widget.Toasts
+	palette  *widget.Palette
 	// found are the events the search last found, in the palette's order.
 	found []FoundEvent
 
@@ -71,6 +72,9 @@ type calView struct {
 	card   *gunim.Popup
 	cardID string
 	quick  *gunim.Popup
+	more   *gunim.Popup
+	// ghostKept says the event drawn out stays shown while the full editor opened on it is open.
+	ghostKept bool
 	// swallow is set for the rest of a press that closed a popup, so the press begins nothing else.
 	swallow bool
 }
@@ -104,7 +108,10 @@ func buildCal(s Cal) *calView {
 	v.cals.OnClick = func(k widget.Key) gunim.Intent { return CalendarToggled{ID: string(k)} }
 	v.invites = widget.NewLink("")
 	v.invites.Icon, v.invites.On = icon.Mail, InvitesAsked{}
-	side := widget.Column(add, v.mini, caption, v.cals, v.invites)
+	v.weekends = widget.NewCheckbox("Show weekends")
+	v.weekends.On = !s.HideWeekends
+	v.weekends.OnChange = func(bool) gunim.Intent { return WeekendsToggled{} }
+	side := widget.Column(add, v.mini, caption, v.cals, v.weekends, v.invites)
 	side.Cross = widget.CrossStretch
 	sidebar := &panel{child: widget.NewPad(side), fill: SidebarFill, width: sidebarW}
 
@@ -120,6 +127,8 @@ func buildCal(s Cal) *calView {
 	}
 	v.days.Open = func(id string, box geom.Rect, u *gunim.UI) { v.openCard(v.days, id, box, u) }
 	v.days.OnEdit = func(id string) gunim.Intent { return EditAsked{ID: id} }
+	v.days.OnDelete = func(id string) gunim.Intent { return DeleteAsked{ID: id} }
+	v.days.OnStep = func(by int) gunim.Intent { return Stepped{By: by} }
 	v.days.Busy = busy
 	v.month = calendar.NewMonth(s.Day)
 	v.month.OnDay = func(day time.Time) gunim.Intent { return DayOpened{Day: day} }
@@ -131,6 +140,9 @@ func buildCal(s Cal) *calView {
 	}
 	v.month.Open = func(id string, box geom.Rect, u *gunim.UI) { v.openCard(v.month, id, box, u) }
 	v.month.OnEdit = func(id string) gunim.Intent { return EditAsked{ID: id} }
+	v.month.OnDelete = func(id string) gunim.Intent { return DeleteAsked{ID: id} }
+	v.month.OnStep = func(by int) gunim.Intent { return Stepped{By: by} }
+	v.month.More = func(day time.Time, box geom.Rect, u *gunim.UI) { v.openMore(day, box, u) }
 	v.month.Busy = busy
 	v.area = newSwitcher(v.eventMenu(v.days, v.days.EventAt), v.eventMenu(v.month, v.month.EventAt))
 
@@ -157,13 +169,20 @@ func (v *calView) set(s Cal, u *gunim.UI) {
 	moved := s.View != was.View || !s.Day.Equal(was.Day)
 	if moved || s.Busy {
 		v.closeCard(u)
-		v.closeQuick(u)
+		v.closeQuick(u, s.Busy && v.quick != nil)
+		v.closeMore()
 	} else if v.card != nil {
 		if _, ok := v.event(v.cardID); !ok {
 			v.closeCard(u)
 		}
 	}
+	if v.ghostKept && !s.Busy {
+		v.ghostKept = false
+		v.days.ClearGhost(u)
+	}
 	v.title.set(s.Title, u)
+	v.weekends.SetOn(!s.HideWeekends, u)
+	v.month.HideWeekends = s.HideWeekends
 	v.views.SetSelected(int(s.View), u)
 	from, to := shown(s)
 	v.mini.SetMarked(from, calendar.AddDays(to, -1), u)
@@ -184,7 +203,7 @@ func (v *calView) set(s Cal, u *gunim.UI) {
 		v.month.SetEvents(s.Events, u)
 		v.area.show(1, u)
 	} else {
-		v.days.SetDays(from, map[View]int{DayView: 1, WeekView: 7}[s.View], u)
+		v.days.SetDays(from, int(to.Sub(from).Hours()/24+0.5), u)
 		v.days.SetEvents(s.Events, u)
 		v.area.show(0, u)
 	}
@@ -198,6 +217,9 @@ func shown(s Cal) (time.Time, time.Time) {
 		return s.Day, calendar.AddDays(s.Day, 1)
 	case WeekView:
 		f := calendar.WeekStart(s.Day, time.Monday)
+		if s.HideWeekends {
+			return f, calendar.AddDays(f, 5)
+		}
 		return f, calendar.AddDays(f, 7)
 	}
 	return calendar.MonthStart(s.Day), calendar.MonthStart(s.Day).AddDate(0, 1, 0)
@@ -332,7 +354,8 @@ func (v *calView) openCard(from gunim.Node, id string, box geom.Rect, u *gunim.U
 			return
 		}
 	}
-	v.closeQuick(u)
+	v.closeQuick(u, false)
+	v.closeMore()
 	ev, ok := v.event(id)
 	if !ok {
 		return
@@ -360,7 +383,8 @@ func (v *calView) eventMenu(view gunim.Node, at func(geom.Point) (string, bool))
 			return false
 		}
 		v.closeCard(u)
-		v.closeQuick(u)
+		v.closeQuick(u, false)
+		v.closeMore()
 		id, cals = ev, v.state.Calendars
 		c.Items = []string{"Edit", "Make a copy", "Delete"}
 		c.Icons = []*icon.Icon{icon.Pencil, icon.Copy, icon.Trash2}
@@ -398,32 +422,75 @@ func (v *calView) dismiss(close func(*gunim.UI)) func(*gunim.UI) {
 }
 
 func (v *calView) closeCard(u *gunim.UI) {
-	if v.card != nil {
-		v.card.Close()
-		v.card, v.cardID = nil, ""
-		v.days.Select("", u)
-		v.month.Select("", u)
+	if v.card == nil {
+		return
+	}
+	v.card.Close()
+	v.card, v.cardID = nil, ""
+	v.days.Select("", u)
+	v.month.Select("", u)
+	// The keys go back to the days, to move on from the event.
+	if v.state.View == MonthView {
+		u.Focus(v.month)
+	} else {
+		u.Focus(v.days)
+	}
+}
+
+// openMore opens the list of the events of day beside box in the month.
+func (v *calView) openMore(day time.Time, box geom.Rect, u *gunim.UI) {
+	v.closeCard(u)
+	v.closeQuick(u, false)
+	v.closeMore()
+	var evs []calendar.Event
+	for _, e := range v.state.Events {
+		if e.Start.Before(calendar.AddDays(day, 1)) && e.End.After(day) {
+			evs = append(evs, e)
+		}
+	}
+	anchor, left := v.beside(v.month, box, moreW, u)
+	m := newMoreCard(day, evs, left, func(id string, u *gunim.UI) {
+		v.closeMore()
+		v.openCard(v.month, id, box, u)
+	}, func(*gunim.UI) { v.closeMore() })
+	v.more = u.OpenPopup(v.month, m, gunim.PopupOptions{Anchor: anchor, Max: geom.Sz(moreW+80, 700),
+		Dismiss: v.dismiss(func(*gunim.UI) { v.closeMore() })})
+	u.Focus(m)
+}
+
+func (v *calView) closeMore() {
+	if v.more != nil {
+		v.more.Close()
+		v.more = nil
 	}
 }
 
 // openQuick opens the popover that names a new event drawn out in from, beside its box.
 func (v *calView) openQuick(from gunim.Node, d Draft, box geom.Rect, u *gunim.UI) {
 	v.closeCard(u)
-	v.closeQuick(u)
+	v.closeQuick(u, false)
+	v.closeMore()
 	d.Calendars, d.Calendar = v.state.Calendars, v.state.LastCalendar
 	anchor, left := v.beside(from, box, quickW, u)
-	q := newQuickCard(d, left, func(u *gunim.UI) { v.closeQuick(u) })
+	q := newQuickCard(d, left, func(u *gunim.UI) { v.closeQuick(u, false) }, func(u *gunim.UI) { v.closeQuick(u, true) })
 	v.quick = u.OpenPopup(from, q, gunim.PopupOptions{Anchor: anchor, Max: geom.Sz(quickW+80, 500),
-		Dismiss: v.dismiss(func(u *gunim.UI) { v.closeQuick(u) })})
+		Dismiss: v.dismiss(func(u *gunim.UI) { v.closeQuick(u, false) })})
 	u.Focus(q.name)
 }
 
-func (v *calView) closeQuick(u *gunim.UI) {
-	if v.quick != nil {
-		v.quick.Close()
-		v.quick = nil
-		v.days.ClearGhost(u)
+// closeQuick takes the popover naming a new event away, and the event drawn out with it, unless keep keeps that
+// showing behind the full editor, until the editor closes.
+func (v *calView) closeQuick(u *gunim.UI, keep bool) {
+	if v.quick == nil {
+		return
 	}
+	v.quick.Close()
+	v.quick = nil
+	if keep {
+		v.ghostKept = true
+		return
+	}
+	v.days.ClearGhost(u)
 }
 
 // event returns the event with id in the state shown.

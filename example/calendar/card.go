@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/marrasen/gunim"
-	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/calendar"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/icon"
@@ -26,22 +25,15 @@ var cardIndent = theme.Insets("cal.card.indent", geom.Insets{Left: 32})
 // the card; an invitation has buttons to answer it at the foot. Escape closes the card, Delete deletes the event,
 // and Enter or E edits it. The card grows out of the side it opens on.
 type eventCard struct {
-	anim.Group
-	child gunim.Node
+	popCard
 	id    string
 	fixed bool
-	// left says the card opens to the left of its event, so it grows from its right edge.
-	left bool
-	done func(*gunim.UI)
-	in   *anim.Float
-	// margin is room round the card for its shadow, where the window can show one.
-	margin float32
+	done  func(*gunim.UI)
 }
 
 // newEventCard makes the card about e. The buttons run done as they act.
 func newEventCard(e calendar.Event, d Details, left bool, done func(*gunim.UI)) *eventCard {
-	c := &eventCard{id: e.ID, fixed: e.Fixed, left: left, done: done, in: anim.NewFloat(0)}
-	c.Add(c.in)
+	c := &eventCard{id: e.ID, fixed: e.Fixed, done: done}
 	act := func(ic *icon.Icon, tip string, v gunim.Intent) *widget.IconButton {
 		b := widget.NewIconButton(ic, tip)
 		b.OnActivate(func(u *gunim.UI) {
@@ -107,7 +99,7 @@ func newEventCard(e calendar.Event, d Details, left bool, done func(*gunim.UI)) 
 	}
 	col := widget.Column(rows...)
 	col.Cross = widget.CrossStretch
-	c.child = widget.NewPad(col)
+	c.popCard = newPopCard(widget.NewPad(col), cardW, left)
 	return c
 }
 
@@ -162,59 +154,6 @@ func indent(n gunim.Node) gunim.Node {
 	p := widget.NewPad(n)
 	p.Padding = cardIndent
 	return p
-}
-
-// Children implements [gunim.Composite].
-func (c *eventCard) Children() []gunim.Node { return []gunim.Node{c.child} }
-
-// PopupPadding implements [gunim.PopupPadder]: room for the shadow.
-func (c *eventCard) PopupPadding() geom.Insets { return geom.Uniform(c.margin) }
-
-// Layout implements [gunim.Node].
-func (c *eventCard) Layout(cs gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
-	c.margin = 0
-	if f.Transparent {
-		c.margin = widget.MenuMargin.Get(f.Theme)
-	}
-	kid := kids.At(0)
-	s := kid.Layout(gunim.Constraints{Min: geom.Sz(cardW, 0), Max: geom.Sz(cardW, max(cs.Max.H-2*c.margin, 0))})
-	kid.Place(geom.Pt(c.margin, c.margin))
-	return geom.Sz(s.W+2*c.margin, s.H+2*c.margin)
-}
-
-// Paint implements [gunim.Node]: the card grows out of the side facing its event as it opens, and shrinks back as
-// it closes.
-func (c *eventCard) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.Children) {
-	th := f.Theme
-	t := min(max(c.in.Value(), 0), 1)
-	card := geom.Rect{Min: geom.Pt(c.margin, c.margin), Max: geom.Pt(box.W-c.margin, box.H-c.margin)}
-	defer p.Layer(paint.LayerOpts{Bounds: geom.Rect{Max: box.Point()}, Opacity: t})()
-	pivot := geom.Pt(card.Min.X, card.Min.Y+24)
-	if c.left {
-		pivot.X = card.Max.X
-	}
-	defer p.Push(paint.Scale(0.92+0.08*t, pivot))()
-	radius := widget.MenuRadius.Get(th)
-	if c.margin > 0 {
-		p.ShadowRRect(card, radius, paint.Solid(widget.MenuFill.Get(th)), paint.Shadow{Offset: geom.Pt(0, 4),
-			Blur: c.margin * 0.7, Color: widget.MenuShadow.Get(th)})
-	} else {
-		p.RRect(card, radius, paint.Solid(widget.MenuFill.Get(th)))
-	}
-	p.RRectStroke(card, radius, paint.Fill{}, paint.Stroke{Width: 1, Color: widget.MenuBorder.Get(th)})
-	kids.At(0).Paint(p)
-}
-
-// Transition implements [gunim.Transitioner].
-func (c *eventCard) Transition(pr gunim.Presence, f gunim.Frame) bool {
-	switch pr {
-	case gunim.Entering:
-		c.in.Animate(1, widget.Bounce.Get(f.Theme))
-	case gunim.Exiting:
-		c.in.Animate(0, widget.Quick.Get(f.Theme))
-	case gunim.Present:
-	}
-	return !c.in.Active()
 }
 
 // Focusable implements [gunim.Focusable]: the card takes the keyboard as it opens, for its keys.

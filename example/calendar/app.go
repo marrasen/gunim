@@ -59,8 +59,9 @@ type app struct {
 	changing *change
 	// undo holds the events as they were before each of the last changes, the latest last.
 	undo [][]*series
-	// lastCal is the calendar the user last put an event in.
-	lastCal string
+	// lastCal is the calendar the user last put an event in, and hideWeekends leaves out Saturdays and Sundays.
+	lastCal      string
+	hideWeekends bool
 }
 
 // change is a move of one time of an event, from where it was to where it went.
@@ -201,6 +202,9 @@ func (a *app) shownDays() (time.Time, time.Time) {
 		return a.day, calendar.AddDays(a.day, 1)
 	case WeekView:
 		f := calendar.WeekStart(a.day, time.Monday)
+		if a.hideWeekends {
+			return f, calendar.AddDays(f, 5)
+		}
 		return f, calendar.AddDays(f, 7)
 	}
 	f := calendar.WeekStart(calendar.MonthStart(a.day), time.Monday)
@@ -240,7 +244,8 @@ func (a *app) calendarOf(id string) (Calendar, bool) {
 // state returns what the window shows.
 func (a *app) state() Cal {
 	s := Cal{View: a.view, Day: a.day, Title: a.title(), Calendars: a.cals, Details: map[string]Details{},
-		Busy: a.editing != nil || a.deleting != "" || a.changing != nil, LastCalendar: a.lastCal}
+		Busy: a.editing != nil || a.deleting != "" || a.changing != nil, LastCalendar: a.lastCal,
+		HideWeekends: a.hideWeekends}
 	from, to := a.shownDays()
 	for _, sr := range a.series {
 		if sr.answer == NoAnswer {
@@ -350,6 +355,8 @@ func (a *app) handle(v gunim.Intent) {
 		}
 	case EventDrawn:
 		a.edit(Draft{Start: v.Start, End: v.End, AllDay: v.AllDay, Calendar: a.defaultCal()})
+	case WeekendsToggled:
+		a.hideWeekends = !a.hideWeekends
 	case MoreAsked:
 		a.edit(v.Draft)
 	case DuplicateAsked:

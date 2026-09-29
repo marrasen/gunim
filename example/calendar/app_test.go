@@ -305,3 +305,16 @@ func TestMovingAnEventToAnotherCalendarAndCopyingIt(t *testing.T) {
 		t.Fatalf("making a copy opened the editor on %+v, want a new event titled Dentist", h.a.editing)
 	}
 }
+
+func TestHidingWeekendsLeavesThemOutOfTheWeek(t *testing.T) {
+	h := newHarness(t)
+	h.a.handle(WeekendsToggled{})
+	h.frames(5)
+	from, to := h.a.shownDays()
+	if days := int(to.Sub(from).Hours() / 24); days != 5 {
+		t.Fatalf("the week shows %d days with weekends hidden, want five", days)
+	}
+	if got := h.a.title(); got != "Week 40 · 28 Sep – 2 Oct 2026" {
+		t.Fatalf("the week is titled %q", got)
+	}
+}

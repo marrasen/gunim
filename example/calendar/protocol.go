@@ -24,6 +24,8 @@ type (
 		Busy    bool
 		// LastCalendar is the calendar the user last put an event in, for the next to go in too.
 		LastCalendar string
+		// HideWeekends leaves Saturdays and Sundays out of the week and the month.
+		HideWeekends bool
 	}
 
 	// Calendar is one of the user's calendars, such as their work's: its colour, and whether its events show.
@@ -168,6 +170,8 @@ type (
 	// UndoAsked undoes the last change, InvitesAsked shows the next invitation waiting for an answer, and
 	// MoreAsked opens the full editor on what a quick one holds.
 	UndoAsked struct{}
+	// WeekendsToggled shows or hides Saturdays and Sundays.
+	WeekendsToggled struct{}
 	// DuplicateAsked opens the editor on a copy of an event, and CalendarSet moves an event to another calendar.
 	DuplicateAsked struct{ ID string }
 	CalendarSet    struct{ ID, Calendar string }
@@ -207,6 +211,7 @@ func init() {
 	gunim.RegisterType[EventShown]("cal.show")
 	gunim.RegisterType[ChangeAsk]("cal.change.ask")
 	gunim.RegisterType[UndoAsked]("cal.undo")
+	gunim.RegisterType[WeekendsToggled]("cal.weekends")
 	gunim.RegisterType[DuplicateAsked]("cal.duplicate")
 	gunim.RegisterType[CalendarSet]("cal.calendar.set")
 	gunim.RegisterType[InvitesAsked]("cal.invites")

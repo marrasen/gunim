@@ -20,7 +20,8 @@ const scriptPause = 500 * time.Millisecond
 // "edit:title" to open it on the first event shown with that title, "draw:hh:mm-hh:mm" to draw out an event today,
 // "hide:calendar" to toggle a calendar by its ID, "theme" to switch the theme, "shot:path" to write the window to
 // a PNG file, "click:x,y", "dblclick:x,y" or "rclick:x,y" to click there, "show:words" to show the first event a search for
-// the words finds, "invite" to have a colleague send an invitation, and "wait" to do nothing for a step.
+// the words finds, "invite" to have a colleague send an invitation, "weekends" to show or hide the weekends,
+// "hover:x,y" to move the pointer there, and "wait" to do nothing for a step.
 func (a *app) runScript(steps []string) {
 	if len(steps) == 0 {
 		return
@@ -102,6 +103,19 @@ func (a *app) scriptStep(step string) {
 		log.Printf("script: nothing found for %q", arg)
 	case "invite":
 		a.invite()
+	case "weekends":
+		a.handle(WeekendsToggled{})
+	case "hover":
+		xs, ys, _ := strings.Cut(arg, ",")
+		x, err1 := strconv.ParseFloat(xs, 32)
+		y, err2 := strconv.ParseFloat(ys, 32)
+		if err1 != nil || err2 != nil {
+			log.Printf("script: %s: want a place as x,y", step)
+			return
+		}
+		if err := a.c.Input(a.ctx, input.PointerMove{Pos: geom.Pt(float32(x), float32(y))}); err != nil {
+			log.Printf("script: %s: %v", step, err)
+		}
 	case "wait":
 	default:
 		log.Printf("script: no step %q (%s)", step, strconv.Quote(step))
