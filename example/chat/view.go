@@ -94,7 +94,7 @@ func buildChat(Chat) *chatView {
 	v.reply = &replyBar{open: anim.NewFloat(0)}
 	v.reply.Add(v.reply.open)
 	v.composer = widget.NewTextArea()
-	v.composer.Rows = 2
+	v.composer.Rows, v.composer.MaxRows = 1, 8
 	v.composer.OnSubmit = func(s string) gunim.Intent { return Submitted{Text: s} }
 	v.composer.OnChange = func(s string) gunim.Intent { return Drafted{Text: s} }
 	send := widget.NewIconButton(icon.SendHorizontal, "Send")
@@ -174,6 +174,10 @@ func (v *chatView) set(s Chat, u *gunim.UI) {
 		func(c Conversation) *convRow { return newConvRow(c, c.ID == s.Current) },
 		func(r *convRow, c Conversation, u *gunim.UI) { r.set(c, c.ID == s.Current, u) })
 	v.title.SetText(s.Title)
+	v.composer.Placeholder = "Message " + s.Title
+	if s.Title != "" && !isDirect(s) {
+		v.composer.Placeholder = "Message #" + s.Title
+	}
 	v.setLink(s.Link, u)
 	v.reply.set(s.Replying, s.Editing != "", u)
 
@@ -215,6 +219,16 @@ func (v *chatView) set(s Chat, u *gunim.UI) {
 		v.composer.SetText(s.Draft.Text)
 		u.Focus(v.composer)
 	}
+}
+
+// isDirect reports whether the open conversation is with one person.
+func isDirect(s Chat) bool {
+	for _, c := range s.Conversations {
+		if c.ID == s.Current {
+			return c.Direct
+		}
+	}
+	return false
 }
 
 // setTyping shows who is typing, or nobody.

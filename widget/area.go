@@ -28,8 +28,9 @@ type TextArea struct {
 	// OnSubmit, when set, turns the text into an intent to send when Enter is pressed, and Shift+Enter starts a
 	// line instead.
 	OnSubmit func(text string) gunim.Intent
-	// Rows is how many lines tall the area is.
-	Rows int
+	// Rows is how many lines tall the area is. MaxRows, when above Rows, lets the area grow with its text up to
+	// that many lines, and scroll past them, as a chat's message box does.
+	Rows, MaxRows int
 
 	editor
 	held bool
@@ -37,6 +38,10 @@ type TextArea struct {
 	focus   *anim.Float
 	caretAt *anim.Point
 	scroll  *anim.Float
+	// lines carries how many lines tall the area is, as it grows and shrinks with its text; laid says it has been
+	// laid out once.
+	lines *anim.Float
+	laid0 bool
 
 	laid laidText
 	// para is the text as last laid out, and view how tall its window
@@ -54,6 +59,7 @@ func NewTextArea() *TextArea {
 		focus:   anim.NewFloat(0),
 		caretAt: anim.NewPoint(geom.Point{}),
 		scroll:  anim.NewFloat(0),
+		lines:   anim.NewFloat(0),
 	}
 	a.multiline = true
 	a.changed = func(u *gunim.UI) {
@@ -93,8 +99,8 @@ func (a *TextArea) SetText(s string) {
 
 // Step implements [gunim.Animator].
 func (a *TextArea) Step(dt time.Duration) bool {
-	f, c, s, b := a.focus.Step(dt), a.caretAt.Step(dt), a.scroll.Step(dt), a.blink.step(dt)
-	return f || c || s || b
+	f, c, s, b, l := a.focus.Step(dt), a.caretAt.Step(dt), a.scroll.Step(dt), a.blink.step(dt), a.lines.Step(dt)
+	return f || c || s || b || l
 }
 
 // Handle implements [gunim.Handler].
@@ -253,7 +259,18 @@ func (a *TextArea) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) 
 	}
 	shown, _ := a.shown()
 	a.para = a.laid.layout(faceIn(a.Face, th), string(shown), text.Style{Size: TextSize.Get(th)}, w-2*pad)
-	own := c.Constrain(geom.Sz(w, float32(max(a.Rows, 1))*a.para.LineHeight+2*pad))
+	rows := float32(max(a.Rows, 1))
+	if a.MaxRows > a.Rows {
+		want := float32(min(max(len(a.para.Lines), a.Rows, 1), a.MaxRows))
+		if !a.laid0 {
+			a.lines.Jump(want)
+		} else {
+			a.lines.Animate(want, Quick.Get(th))
+		}
+		rows = a.lines.Value()
+	}
+	a.laid0 = true
+	own := c.Constrain(geom.Sz(w, rows*a.para.LineHeight+2*pad))
 	a.view = own.H - 2*pad
 
 	// Aim the caret, then scroll so its line shows.

@@ -205,3 +205,41 @@ func TestEnterSubmitsAndShiftEnterStartsALine(t *testing.T) {
 		t.Fatalf("intents %v, want a submit of the two lines", got)
 	}
 }
+
+// shownLines returns how many lines tall the area shows.
+func (wr *writer) shownLines() float32 { return wr.area.view / wr.area.para.LineHeight }
+
+func TestAnAreaGrowsWithItsTextUpToMaxRows(t *testing.T) {
+	area := NewTextArea()
+	area.Rows, area.MaxRows = 1, 3
+	col := Column(area)
+	col.Cross = CrossStretch
+	w, run := stage(t, col)
+	w.Input(input.PointerDown{Pos: geom.Pt(20, 10), Clicks: 1})
+	w.Input(input.PointerUp{Pos: geom.Pt(20, 10)})
+	run(60)
+	wr := &writer{t: t, w: w, run: run, area: area}
+	if n := wr.shownLines(); abs32(n-1) > 0.01 {
+		t.Fatalf("an empty area shows %v lines, want 1", n)
+	}
+	wr.typeText("one")
+	wr.key(input.KeyEnter, input.ModShift)
+	wr.typeText("two")
+	wr.run(60)
+	if n := wr.shownLines(); abs32(n-2) > 0.01 {
+		t.Fatalf("two lines of text show %v lines, want 2", n)
+	}
+	for range 4 {
+		wr.key(input.KeyEnter, input.ModShift)
+		wr.typeText("more")
+	}
+	wr.run(60)
+	if n := wr.shownLines(); abs32(n-3) > 0.01 {
+		t.Fatalf("six lines of text show %v lines, want MaxRows, 3", n)
+	}
+	wr.area.SetText("")
+	wr.run(60)
+	if n := wr.shownLines(); abs32(n-1) > 0.01 {
+		t.Fatalf("emptied, the area shows %v lines, want 1", n)
+	}
+}
