@@ -334,6 +334,11 @@ func (w *Window) Clipboard() (string, error) {
 		s, err = glfw.GetClipboardString()
 		return err
 	})
+	// Nothing in a form that reads as text is an empty clipboard, not a
+	// failure: only a clipboard that could not be read is one.
+	if errors.Is(err, glfw.FormatUnavailable) {
+		return "", nil
+	}
 	return s, err
 }
 

@@ -1125,6 +1125,11 @@ func (u *UI) Clipboard() string {
 	return s
 }
 
+// ReadClipboard returns the text on the system clipboard, "" with no
+// error when it holds none, and an error when it could not be read, so
+// an application can tell an empty clipboard from one that failed.
+func (u *UI) ReadClipboard() (string, error) { return u.w.dw.Clipboard() }
+
 // SetClipboard puts s on the system clipboard.
 func (u *UI) SetClipboard(s string) { _ = u.w.dw.SetClipboard(s) }
 
