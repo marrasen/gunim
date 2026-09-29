@@ -337,6 +337,19 @@ func (w *Window) Clipboard() (string, error) {
 	return s, err
 }
 
+// ClipboardImage implements [driver.ImageClipboard]. It reads the clipboard on the main thread, where GLFW has to.
+func (w *Window) ClipboardImage() ([]byte, error) {
+	var b []byte
+	err := w.d.call(func() error {
+		var err error
+		b, err = glfw.GetClipboardImage()
+		return err
+	})
+	return b, err
+}
+
+var _ driver.ImageClipboard = (*Window)(nil)
+
 // SetClipboard implements [driver.Window].
 func (w *Window) SetClipboard(s string) error {
 	return w.d.call(func() error { return w.gw.SetClipboardString(s) })

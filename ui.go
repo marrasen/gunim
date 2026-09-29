@@ -1128,6 +1128,16 @@ func (u *UI) Clipboard() string {
 // SetClipboard puts s on the system clipboard.
 func (u *UI) SetClipboard(s string) { _ = u.w.dw.SetClipboard(s) }
 
+// ClipboardImage returns the picture on the clipboard as PNG, or nil when it holds none or the platform cannot read
+// pictures from it.
+func (u *UI) ClipboardImage() ([]byte, error) {
+	c, ok := u.w.dw.(driver.ImageClipboard)
+	if !ok {
+		return nil, nil
+	}
+	return c.ClipboardImage()
+}
+
 // SetTitle changes the window's title, where the platform can.
 func (u *UI) SetTitle(title string) {
 	if t, ok := u.w.dw.(driver.Titler); ok {

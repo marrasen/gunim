@@ -28,6 +28,9 @@ type TextArea struct {
 	// OnSubmit, when set, turns the text into an intent to send when Enter is pressed, and Shift+Enter starts a
 	// line instead.
 	OnSubmit func(text string) gunim.Intent
+	// OnPasteImage, when set, turns a picture pasted with Ctrl+V, as PNG, into an intent to send. Without a
+	// picture on the clipboard, Ctrl+V pastes text.
+	OnPasteImage func(png []byte) gunim.Intent
 	// Rows is how many lines tall the area is. MaxRows, when above Rows, lets the area grow with its text up to
 	// that many lines, and scroll past them, as a chat's message box does.
 	Rows, MaxRows int
@@ -62,6 +65,18 @@ func NewTextArea() *TextArea {
 		lines:   anim.NewFloat(0),
 	}
 	a.multiline = true
+	a.pasteImage = func(u *gunim.UI) bool {
+		if a.OnPasteImage == nil {
+			return false
+		}
+		b, err := u.ClipboardImage()
+		if err != nil || len(b) == 0 {
+			// With no picture to read, the paste is the clipboard's text.
+			return false
+		}
+		u.Send(a, a.OnPasteImage(b))
+		return true
+	}
 	a.changed = func(u *gunim.UI) {
 		if a.OnChange != nil {
 			u.Send(a, a.OnChange(a.Text()))

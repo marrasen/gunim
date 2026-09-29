@@ -541,3 +541,11 @@ func GetClipboardString() (string, error) {
 	}
 	return platformGetClipboardString()
 }
+
+// GetClipboardImage returns the picture on the clipboard as PNG, or nil when it holds none.
+func GetClipboardImage() ([]byte, error) {
+	if !_glfw.initialized {
+		return nil, NotInitialized
+	}
+	return platformGetClipboardImage()
+}

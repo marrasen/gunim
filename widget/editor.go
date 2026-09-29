@@ -51,6 +51,8 @@ type editor struct {
 
 	// pasting is set while a paste goes in, which is a step of undo of its own.
 	pasting bool
+	// pasteImage, when set, takes a picture on the clipboard in place of its text, and reports whether it did.
+	pasteImage func(u *gunim.UI) bool
 
 	// changed is called after every edit.
 	changed func(u *gunim.UI)
@@ -346,6 +348,9 @@ func (e *editor) clipboard(k input.Key, start, end int, u *gunim.UI) {
 			e.replace(start, end, nil, u)
 		}
 	case input.KeyV:
+		if e.pasteImage != nil && e.pasteImage(u) {
+			return
+		}
 		e.last = otherEdit
 		e.paste(u.Clipboard(), u)
 	default:

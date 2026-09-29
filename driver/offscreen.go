@@ -44,6 +44,8 @@ type OffscreenWindow struct {
 	// cursor is the pointer's shape last set.
 	cursor input.Cursor
 	clip   string
+	// clipImage is the clipboard's picture, as PNG.
+	clipImage []byte
 	// chooser answers ChooseFiles; see SetChooser.
 	chooser func(ChooseOptions) ([]string, error)
 	// saver answers SaveFile; see SetSaver.
@@ -384,6 +386,21 @@ func (w *OffscreenWindow) SetClipboard(s string) error {
 	defer w.mu.Unlock()
 	w.clip = s
 	return nil
+}
+
+// ClipboardImage implements [ImageClipboard].
+func (w *OffscreenWindow) ClipboardImage() ([]byte, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.clipImage, nil
+}
+
+// SetClipboardImage puts a picture, as PNG, on the window's clipboard, as a test's stand-in for copying one; nil
+// takes it off.
+func (w *OffscreenWindow) SetClipboardImage(png []byte) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.clipImage = png
 }
 
 // Close implements [Window].

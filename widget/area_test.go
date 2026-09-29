@@ -243,3 +243,24 @@ func TestAnAreaGrowsWithItsTextUpToMaxRows(t *testing.T) {
 		t.Fatalf("emptied, the area shows %v lines, want 1", n)
 	}
 }
+
+// pastedImage is the intent a test's area sends for a pasted picture.
+type pastedImage struct{ PNG string }
+
+func TestCtrlVPastesAPictureWhenTheClipboardHasOne(t *testing.T) {
+	wr := newWriter(t, 400)
+	wr.area.OnPasteImage = func(png []byte) gunim.Intent { return pastedImage{string(png)} }
+	if err := wr.w.Offscreen().SetClipboard("words"); err != nil {
+		t.Fatal(err)
+	}
+	wr.w.Offscreen().SetClipboardImage([]byte("\x89PNG..."))
+	sent(wr.w)
+	wr.key(input.KeyV, input.ModControl)
+	if got := sent(wr.w); len(got) != 1 || got[0] != (pastedImage{"\x89PNG..."}) {
+		t.Fatalf("intents %v, want the picture", got)
+	}
+	wr.want("", 0)
+	wr.w.Offscreen().SetClipboardImage(nil)
+	wr.key(input.KeyV, input.ModControl)
+	wr.want("words", 5)
+}
