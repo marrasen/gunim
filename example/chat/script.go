@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"log"
 	"strconv"
 	"strings"
@@ -16,7 +17,8 @@ const scriptPause = 500 * time.Millisecond
 // runScript runs the steps of a script from -do one after another, each after a pause. A step is "reply" to reply
 // to the second latest message, "type:text" to type in the message box, "send" to press Enter, "offline" and
 // "online" to drop and restore the connection, "typing:name" to have name type, "hover:x,y" to move the pointer
-// there, and "theme:light" or "theme:dark" to switch the theme.
+// there, "drag:x,y,x,y" to press at the first place and drag to the second, and "theme:light" or "theme:dark" to
+// switch the theme.
 func (a *app) runScript(steps []string) {
 	if len(steps) == 0 {
 		return
@@ -46,10 +48,17 @@ func (a *app) scriptStep(step string) {
 	case "typing":
 		a.setTyping(arg)
 	case "hover":
-		xs, ys, _ := strings.Cut(arg, ",")
-		x, _ := strconv.ParseFloat(xs, 32)
-		y, _ := strconv.ParseFloat(ys, 32)
-		err = a.c.Input(a.ctx, input.PointerMove{Pos: geom.Pt(float32(x), float32(y))})
+		err = a.c.Input(a.ctx, input.PointerMove{Pos: points(arg)[0]})
+	case "drag":
+		pts := points(arg)
+		if len(pts) < 2 {
+			log.Printf("script: %s: want two places", step)
+			return
+		}
+		err = errors.Join(
+			a.c.Input(a.ctx, input.PointerMove{Pos: pts[0]}),
+			a.c.Input(a.ctx, input.PointerDown{Pos: pts[0], Button: input.ButtonPrimary, Clicks: 1}),
+			a.c.Input(a.ctx, input.PointerMove{Pos: pts[1]}))
 	case "theme":
 		a.light = arg == "light"
 		err = a.c.SetTheme(arg)
@@ -59,4 +68,16 @@ func (a *app) scriptStep(step string) {
 	if err != nil {
 		log.Printf("script: %s: %v", step, err)
 	}
+}
+
+// points reads places written as x,y,x,y and so on.
+func points(s string) []geom.Point {
+	var out []geom.Point
+	parts := strings.Split(s, ",")
+	for i := 0; i+1 < len(parts); i += 2 {
+		x, _ := strconv.ParseFloat(strings.TrimSpace(parts[i]), 32)
+		y, _ := strconv.ParseFloat(strings.TrimSpace(parts[i+1]), 32)
+		out = append(out, geom.Pt(float32(x), float32(y)))
+	}
+	return out
 }

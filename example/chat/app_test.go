@@ -284,3 +284,33 @@ func TestTypingAfterAClickInAMessageGoesToTheMessageBox(t *testing.T) {
 		t.Fatalf("message box holds %q after typing, want hi", got)
 	}
 }
+
+func TestASelectionRunsAcrossTheTimelinesMessages(t *testing.T) {
+	h := newHarness(t)
+	var first, last Item
+	for _, it := range h.a.state().Items {
+		if it.Day != "" {
+			continue
+		}
+		if first.Key == "" {
+			first = it
+		}
+		last = it
+	}
+	keys := h.v.group.Keys(first.Key, last.Key)
+	if keys[0] != first.Key || keys[len(keys)-1] != last.Key {
+		t.Fatalf("keys run from %s to %s, want %s to %s", keys[0], keys[len(keys)-1], first.Key, last.Key)
+	}
+	for _, k := range keys {
+		if h.v.items[widget.Key(k)].Day != "" {
+			t.Fatalf("the selection's keys hold the day heading %s", k)
+		}
+	}
+	n, ok := h.v.list.Row(h.v.last)
+	if !ok {
+		t.Fatal("the last message is not built")
+	}
+	if body := n.(*msgRow).body; body.Group != h.v.group || body.Key != string(h.v.last) {
+		t.Fatal("the last message is not in the timeline's group")
+	}
+}

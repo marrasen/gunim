@@ -50,7 +50,11 @@ type chatView struct {
 	composer *widget.TextArea
 
 	// items holds the timeline's rows by key, for building them.
-	items    map[widget.Key]Item
+	items map[widget.Key]Item
+	// order is the timeline's keys, and at where each is in it; group lets a selection run across its messages.
+	order    []widget.Key
+	at       map[widget.Key]int
+	group    *markdown.Group
 	current  string
 	last     widget.Key
 	draftSeq int
@@ -122,11 +126,33 @@ var (
 
 // newList makes an empty timeline, which starts at its end and stays there as messages arrive.
 func (v *chatView) newList() *widget.VirtualList {
-	l := widget.NewVirtualList(func(k widget.Key) gunim.Node { return newMsgRow(v.items[k], v.jump) })
+	v.group = markdown.NewGroup(v.messagesBetween, func(key string) string {
+		if it := v.items[widget.Key(key)]; !it.Withdrawn {
+			return markdown.Plain(it.Body)
+		}
+		return ""
+	})
+	l := widget.NewVirtualList(func(k widget.Key) gunim.Node { return newMsgRow(v.items[k], v.jump, v.group) })
 	l.StickToEnd = true
 	l.Estimate = 44
 	l.Spacing = TimelineSpacing
 	return l
+}
+
+// messagesBetween returns the keys of the messages from one to another, both included, in the timeline's order.
+func (v *chatView) messagesBetween(from, to string) []string {
+	i, ok1 := v.at[widget.Key(from)]
+	j, ok2 := v.at[widget.Key(to)]
+	if !ok1 || !ok2 || i > j {
+		return nil
+	}
+	var out []string
+	for _, k := range v.order[i : j+1] {
+		if v.items[k].Day == "" {
+			out = append(out, string(k))
+		}
+	}
+	return out
 }
 
 // jump scrolls the timeline to the message id and flashes it.
@@ -170,7 +196,11 @@ func (v *chatView) set(s Chat, u *gunim.UI) {
 			}
 		}
 	}
-	v.items = items
+	v.items, v.order = items, keys
+	v.at = make(map[widget.Key]int, len(keys))
+	for i, k := range keys {
+		v.at[k] = i
+	}
 	v.list.SetKeys(keys, u)
 	if n := len(keys); n > 0 && keys[n-1] != v.last {
 		// The user's own message brings the timeline back to its end.

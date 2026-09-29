@@ -61,12 +61,13 @@ type msgRow struct {
 	height float32
 }
 
-func newMsgRow(item Item, jump func(string, *gunim.UI)) *msgRow {
+func newMsgRow(item Item, jump func(string, *gunim.UI), group *markdown.Group) *msgRow {
 	r := &msgRow{item: item, jump: jump, hover: anim.NewFloat(0), flash: anim.NewFloat(0)}
 	r.Add(r.hover, r.flash)
 	if item.Day == "" {
 		r.body = markdown.New("")
 		r.body.Breaks = true
+		r.body.Group, r.body.Key = group, item.Key
 		r.setBody()
 		r.tools = newTools(item.Message)
 	}
