@@ -29,8 +29,9 @@ const (
 // days they cover, and the rest as a line each with its time. A day with more than it has room for says how many
 // more.
 //
-// A click on a day's number, or on how many more it has, picks the day. A double click on free room in a day
-// begins an event there. Dragging an event to another day moves it there, keeping its time of day.
+// A click on a day's number, or on how many more it has, picks the day, and a click on free room in a day begins an
+// event there. Dragging an event to another day moves it there, keeping its time of day; it glides from day to day
+// as it goes. Events fade in as they come and out as they go, and lift under the pointer.
 type Month struct {
 	anim.Group
 	// Month is any day of the month shown, and FirstWeekday the day weeks start on.
@@ -38,8 +39,15 @@ type Month struct {
 	FirstWeekday time.Weekday
 	// OnDay turns a click on a day's number into an intent, such as to show that day alone.
 	OnDay func(day time.Time) gunim.Intent
-	// OnCreate turns a double click on a day into an intent, to make an event that day.
+	// OnCreate turns a click on free room in a day into an intent, to make an event that day.
 	OnCreate func(day time.Time) gunim.Intent
+	// Create, when set, runs in place of OnCreate with the day and its box in the month's space, such as to ask for
+	// a title beside it.
+	Create func(day time.Time, box geom.Rect, u *gunim.UI)
+	// OnEdit turns a double click on an event into an intent, such as to open it in an editor.
+	OnEdit func(id string) gunim.Intent
+	// Busy, when set, is asked before a press on free room begins an event, as [Days.Busy] is.
+	Busy func() bool
 	// OnChange turns an event dragged to another day into an intent.
 	OnChange func(id string, start, end time.Time) gunim.Intent
 	// Open runs when the user clicks an event, with its box in the month's space.
@@ -50,9 +58,19 @@ type Month struct {
 	// slide carries the days in from the side they came from, as the month steps.
 	slide *anim.Float
 	laid  bool
-	hover string
-	drag  *monthDrag
-	texts map[textKey]text.Paragraph
+	// sprites are the events as drawn, by key, and order the order they are drawn in; was is the month and size
+	// at the last layout.
+	sprites map[string]*sprite
+	order   []string
+	more    []chip
+	was     struct {
+		month time.Time
+		box   geom.Size
+	}
+	selected string
+	hover    string
+	drag     *monthDrag
+	texts    map[textKey]text.Paragraph
 }
 
 // monthDrag is an event taken hold of: where the pointer took it, and the day it is over.
@@ -68,9 +86,39 @@ type monthDrag struct {
 
 // NewMonth returns the month holding day, with weeks starting on Monday.
 func NewMonth(day time.Time) *Month {
-	m := &Month{Month: MonthStart(day), FirstWeekday: time.Monday, slide: anim.NewFloat(0)}
+	m := &Month{Month: MonthStart(day), FirstWeekday: time.Monday, slide: anim.NewFloat(0),
+		sprites: map[string]*sprite{}}
 	m.Add(m.slide)
 	return m
+}
+
+// Step implements [gunim.Animator], stepping the events as drawn too.
+func (m *Month) Step(dt time.Duration) bool {
+	moving := m.Group.Step(dt)
+	for k, s := range m.sprites {
+		if s.step(dt) {
+			moving = true
+		}
+		if s.gone && !s.in.Active() {
+			delete(m.sprites, k)
+		}
+	}
+	return moving
+}
+
+// Select marks the event id as chosen, lifting it, or marks none for an empty id.
+func (m *Month) Select(id string, u *gunim.UI) {
+	m.selected = id
+	m.aimLifts(u.Theme())
+	u.Invalidate()
+}
+
+// aimLifts lifts the event under the pointer, the one chosen and the one dragged, and lets the rest down.
+func (m *Month) aimLifts(th *theme.Live) {
+	for _, s := range m.sprites {
+		up := !s.gone && (s.e.ID == m.hover || s.e.ID == m.selected || (m.drag != nil && m.drag.moved && s.e.ID == m.drag.id))
+		s.lift.Animate(map[bool]float32{false: 0, true: 1}[up], widget.Quick.Get(th))
+	}
 }
 
 // SetMonth shows the month holding day, sliding it in from its side.
@@ -86,9 +134,9 @@ func (m *Month) SetMonth(day time.Time, u *gunim.UI) {
 
 // EventBox returns where the event id first shows, in the month's space, and false when it does not show.
 func (m *Month) EventBox(id string) (geom.Rect, bool) {
-	for _, ch := range m.chips() {
-		if ch.more == 0 && ch.e.ID == id {
-			return ch.box, true
+	for _, k := range m.order {
+		if s := m.sprites[k]; s != nil && !s.gone && s.e.ID == id {
+			return s.rect.Target(), true
 		}
 	}
 	return geom.Rect{}, false
@@ -124,9 +172,75 @@ func (m *Month) cellAt(pt geom.Point) int {
 }
 
 // Layout implements [gunim.Node].
-func (m *Month) Layout(c gunim.Constraints, _ gunim.Frame, _ gunim.Children) geom.Size {
-	m.box, m.laid = c.Max, true
+func (m *Month) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
+	m.box = c.Max
+	stepped := m.laid && !m.Month.Equal(m.was.month)
+	jump := !m.laid || m.box != m.was.box || stepped
+	m.place(f.Theme, jump, stepped)
+	m.laid = true
+	m.was.month, m.was.box = m.Month, m.box
 	return m.box
+}
+
+// place sends each event's sprite to where it goes, as [Days.place] does.
+func (m *Month) place(th *theme.Live, jump, drop bool) {
+	seen := map[string]bool{}
+	m.order, m.more = m.order[:0], m.more[:0]
+	count := map[string]int{}
+	for _, ch := range m.chips() {
+		if ch.more > 0 {
+			m.more = append(m.more, ch)
+			continue
+		}
+		// An event keeps its key as it moves from day to day, so it glides there.
+		key := ch.e.ID
+		if ch.bar {
+			key += "#bar"
+		}
+		count[key]++
+		key += "@" + strconv.Itoa(count[key])
+		seen[key] = true
+		m.order = append(m.order, key)
+		s, ok := m.sprites[key]
+		switch {
+		case !ok:
+			s = &sprite{rect: anim.NewRect(ch.box), in: anim.NewFloat(0), lift: anim.NewFloat(0)}
+			if jump {
+				s.in.Jump(1)
+			} else {
+				s.in.Animate(1, widget.Bounce.Get(th))
+			}
+			m.sprites[key] = s
+		case s.gone:
+			s.gone = false
+			s.in.Animate(1, widget.Bounce.Get(th))
+			s.rect.Jump(ch.box)
+		case jump:
+			s.rect.Jump(ch.box)
+		case s.rect.Target() != ch.box:
+			motion := widget.Settle.Get(th)
+			if m.drag != nil && m.drag.id == ch.e.ID {
+				motion = widget.Quick.Get(th)
+			}
+			s.rect.Animate(ch.box, motion)
+		}
+		s.e, s.long = ch.e, ch.bar
+	}
+	for k, s := range m.sprites {
+		if seen[k] {
+			continue
+		}
+		if drop {
+			delete(m.sprites, k)
+			continue
+		}
+		if !s.gone {
+			s.gone = true
+			s.in.Animate(0, widget.Quick.Get(th))
+		}
+		m.order = append(m.order, k)
+	}
+	m.aimLifts(th)
 }
 
 // chip is an event laid out in the month: its box, and whether it is a bar across whole days.
@@ -259,7 +373,9 @@ func (m *Month) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Ch
 	for i := range 42 {
 		c := m.cell(i)
 		day := m.day(i)
-		if day.Weekday() == time.Saturday || day.Weekday() == time.Sunday {
+		if day.Month() != m.Month.Month() {
+			p.RRect(c, 0, paint.Solid(OtherMonthFill.Get(th)))
+		} else if day.Weekday() == time.Saturday || day.Weekday() == time.Sunday {
 			p.RRect(c, 0, paint.Solid(WeekendFill.Get(th)))
 		}
 		p.RRect(geom.Rc(c.Min.X, c.Min.Y, c.Size().W, 1), 0, paint.Solid(line))
@@ -286,47 +402,71 @@ func (m *Month) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Ch
 	}
 	defer p.Layer(paint.LayerOpts{Bounds: geom.Rect{Max: box.Point()}, Opacity: 1, Clip: true})()
 	moving(p, box, m.slide.Value(), func() {
-		for _, ch := range m.chips() {
+		for _, k := range m.order {
+			if s := m.sprites[k]; s != nil {
+				m.paintSprite(p, th, s)
+			}
+		}
+		for _, ch := range m.more {
 			m.paintChip(p, th, ch)
 		}
 	})
 	f.RedrawAt(AddDays(Day(now), 1))
 }
 
-// paintChip draws a chip: a bar filled with the event's colour, a line with a dot of it and the time, or how many
-// more a day has.
+// paintChip draws how many more a day has.
 func (m *Month) paintChip(p *paint.Painter, th *theme.Live, ch chip) {
 	size := EventText.Get(th)
 	r := ch.box
-	ink := widget.Ink.Get(th)
-	if ch.more > 0 {
-		t := m.paragraph(th, strconv.Itoa(ch.more)+" more", r.Size().W-8, true, size)
-		t.Paint(p, geom.Pt(r.Min.X+6, r.Center().Y-t.Size.H/2), widget.PaletteHint.Get(th))
+	t := m.paragraph(th, strconv.Itoa(ch.more)+" more", r.Size().W-8, true, size)
+	t.Paint(p, geom.Pt(r.Min.X+6, r.Center().Y-t.Size.H/2), widget.PaletteHint.Get(th))
+}
+
+// paintSprite draws an event as it moves: a bar filled with its colour, or a line with a dot of it and its time,
+// faded while it comes in or goes out, and lifted under the pointer, while dragged, or chosen.
+func (m *Month) paintSprite(p *paint.Painter, th *theme.Live, s *sprite) {
+	in := min(max(s.in.Value(), 0), 1)
+	if in <= 0.01 {
 		return
 	}
-	e := ch.e
-	lifted := m.drag != nil && m.drag.moved && m.drag.id == e.ID
-	if lifted || m.hover == e.ID {
-		p.RRect(r, 4, paint.Solid(widget.MenuHot.Get(th)))
+	lift := min(max(s.lift.Value(), 0), 1)
+	r := s.rect.Value()
+	if in < 0.99 {
+		defer p.Layer(paint.LayerOpts{Bounds: r.Inset(geom.Uniform(-10)), Opacity: in})()
 	}
-	c := e.Color
-	if e.Faint {
-		ink = widget.PaletteHint.Get(th)
-	}
-	if ch.bar {
-		a := uint8(0x55)
-		if e.Faint {
-			a = 0x22
+	e := s.e
+	size := EventText.Get(th)
+	fill, bar, ink, _ := eventColors(th, e, lift)
+	if s.long {
+		shadow := paint.Shadow{}
+		if lift > 0.01 {
+			shadow = paint.Shadow{Color: color.NRGBA{A: uint8(0x50 * lift)}, Blur: 8 * lift, Offset: geom.Pt(0, 2*lift)}
 		}
-		p.RRect(r, 4, paint.Solid(color.NRGBA{R: c.R, G: c.G, B: c.B, A: a}))
+		p.ShadowRRect(r, 5, paint.Solid(fill), shadow)
+		if e.Faint {
+			stripes(p, r, 5, bar)
+		}
 		t := m.paragraph(th, e.Title, r.Size().W-12, true, size)
-		t.Paint(p, geom.Pt(r.Min.X+6, r.Center().Y-t.Size.H/2), ink)
-		return
+		t.Paint(p, geom.Pt(r.Min.X+7, r.Center().Y-t.Size.H/2), ink)
+	} else {
+		if lift > 0.01 {
+			hot := widget.MenuHot.Get(th)
+			hot.A = uint8(float32(hot.A) * lift)
+			p.ShadowRRect(r, 5, paint.Solid(hot), paint.Shadow{Color: color.NRGBA{A: uint8(0x40 * lift)}, Blur: 8 * lift,
+				Offset: geom.Pt(0, 2*lift)})
+		}
+		dot := geom.Rc(r.Min.X+5, r.Center().Y-4, 8, 8)
+		if e.Faint {
+			p.RRectStroke(dot, 4, paint.Fill{}, paint.Stroke{Width: 1.5, Color: bar})
+		} else {
+			p.RRect(dot, 4, paint.Solid(bar))
+		}
+		t := m.paragraph(th, clock(e.Start.Hour(), e.Start.Minute())+" "+e.Title, r.Size().W-20, false, size)
+		t.Paint(p, geom.Pt(r.Min.X+18, r.Center().Y-t.Size.H/2), ink)
 	}
-	p.RRect(geom.Rc(r.Min.X+5, r.Center().Y-3.5, 7, 7), 3.5, paint.Solid(c))
-	s := clock(e.Start.Hour(), e.Start.Minute()) + " " + e.Title
-	t := m.paragraph(th, s, r.Size().W-20, false, size)
-	t.Paint(p, geom.Pt(r.Min.X+17, r.Center().Y-t.Size.H/2), ink)
+	if e.ID == m.selected {
+		p.RRectStroke(r.Inset(geom.Uniform(-1.5)), 6.5, paint.Fill{}, paint.Stroke{Width: 2, Color: widget.Accent.Get(th)})
+	}
 }
 
 // paragraph lays s out on one line w wide, keeping it for the next frame.
@@ -347,12 +487,16 @@ func (m *Month) paragraph(th *theme.Live, s string, w float32, bold bool, size f
 	return t
 }
 
-// chipAt returns the chip under pt.
+// chipAt returns the chip under pt: an event, or how many more a day has.
 func (m *Month) chipAt(pt geom.Point) (chip, bool) {
-	cs := m.chips()
-	for k := len(cs) - 1; k >= 0; k-- {
-		if cs[k].box.Contains(pt) {
-			return cs[k], true
+	for _, ch := range m.more {
+		if ch.box.Contains(pt) {
+			return ch, true
+		}
+	}
+	for k := len(m.order) - 1; k >= 0; k-- {
+		if s := m.sprites[m.order[k]]; s != nil && !s.gone && s.rect.Target().Contains(pt) {
+			return chip{e: s.e, bar: s.long, box: s.rect.Target()}, true
 		}
 	}
 	return chip{}, false
@@ -363,10 +507,13 @@ func (m *Month) Handle(e input.Event, u *gunim.UI) bool {
 	switch e := e.(type) {
 	case input.PointerMove:
 		if g := m.drag; g != nil {
-			if !g.moved && math.Abs(float64(e.Pos.X-g.from.X))+math.Abs(float64(e.Pos.Y-g.from.Y)) < dragSlack {
+			if !g.moved && math.Hypot(float64(e.Pos.X-g.from.X), float64(e.Pos.Y-g.from.Y)) < dragSlack {
 				return true
 			}
-			g.moved = true
+			if !g.moved {
+				g.moved = true
+				m.aimLifts(u.Theme())
+			}
 			if c := m.cellAt(e.Pos); c >= 0 {
 				g.to = c
 			}
@@ -379,13 +526,20 @@ func (m *Month) Handle(e input.Event, u *gunim.UI) bool {
 		}
 		if id != m.hover {
 			m.hover = id
-			u.Invalidate()
+			m.aimLifts(u.Theme())
 		}
 	case input.PointerLeave:
-		if m.hover != "" {
+		if m.hover != "" && m.drag == nil {
 			m.hover = ""
-			u.Invalidate()
+			m.aimLifts(u.Theme())
 		}
+	case input.KeyPress:
+		if e.Key == input.KeyEscape && m.drag != nil {
+			m.drag = nil
+			m.aimLifts(u.Theme())
+			return true
+		}
+		return false
 	case input.PointerDown:
 		if e.Button != input.ButtonPrimary {
 			return false
@@ -398,8 +552,9 @@ func (m *Month) Handle(e input.Event, u *gunim.UI) bool {
 			return false
 		}
 		m.drag = nil
+		m.aimLifts(u.Theme())
 		u.Invalidate()
-		if !g.moved {
+		if !g.moved || g.to == g.start {
 			if m.Open != nil {
 				m.Open(g.id, g.box, u)
 			}
@@ -429,6 +584,10 @@ func (m *Month) press(e input.PointerDown, u *gunim.UI) {
 			}
 			return
 		}
+		if e.Clicks == 2 && m.OnEdit != nil && !ch.e.Fixed {
+			u.Send(m, m.OnEdit(ch.e.ID))
+			return
+		}
 		c := m.cellAt(e.Pos)
 		m.drag = &monthDrag{id: ch.e.ID, fixed: ch.e.Fixed, from: e.Pos, box: ch.box, start: c, to: c}
 		return
@@ -440,7 +599,10 @@ func (m *Month) press(e input.PointerDown, u *gunim.UI) {
 	switch {
 	case e.Pos.Y < m.cell(c).Min.Y+dayNumH && m.OnDay != nil:
 		u.Send(m, m.OnDay(m.day(c)))
-	case e.Clicks == 2 && m.OnCreate != nil:
+	case m.Busy != nil && m.Busy():
+	case m.Create != nil:
+		m.Create(m.day(c), m.cell(c), u)
+	case m.OnCreate != nil:
 		u.Send(m, m.OnCreate(m.day(c)))
 	}
 }

@@ -36,6 +36,12 @@ type MiniMonth struct {
 	// month is the month showing, which the arrows move without picking anything.
 	month time.Time
 	hover int
+	// band is the marked days' band while they lie in one week, gliding from week to week; hot is the light under
+	// the pointer, gliding from day to day, and hotIn how much of it shows.
+	band  *anim.Rect
+	laid  bool
+	hot   *anim.Rect
+	hotIn *anim.Float
 	// slide eases the days in from the side the month came from.
 	slide *anim.Float
 	// side is a day's cell's side at the last layout.
@@ -45,8 +51,8 @@ type MiniMonth struct {
 // NewMiniMonth returns a small month showing day's month, with day marked, and weeks starting on Monday.
 func NewMiniMonth(day time.Time) *MiniMonth {
 	m := &MiniMonth{From: Day(day), To: Day(day), FirstWeekday: time.Monday, month: MonthStart(day), hover: -1,
-		slide: anim.NewFloat(0)}
-	m.Add(m.slide)
+		slide: anim.NewFloat(0), band: anim.NewRect(geom.Rect{}), hot: anim.NewRect(geom.Rect{}), hotIn: anim.NewFloat(0)}
+	m.Add(m.slide, m.band, m.hot, m.hotIn)
 	return m
 }
 
@@ -88,13 +94,49 @@ func (m *MiniMonth) arrows() (back, next geom.Rect) {
 	return geom.Rc(right-2*28, 4, 28, 28), geom.Rc(right-28, 4, 28, 28)
 }
 
-// Layout implements [gunim.Node]: cells as large as the width allows, up to miniCell.
-func (m *MiniMonth) Layout(c gunim.Constraints, _ gunim.Frame, _ gunim.Children) geom.Size {
-	m.side = miniCell
+// Layout implements [gunim.Node]: cells as large as the width allows, up to miniCell. The band over the marked days
+// glides to them when they lie in one week.
+func (m *MiniMonth) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
+	side := float32(miniCell)
 	if c.Max.W > 0 {
-		m.side = min(miniCell, float32(int((c.Max.W-miniWeekW)/7)))
+		side = min(miniCell, float32(int((c.Max.W-miniWeekW)/7)))
 	}
+	resized := side != m.side
+	m.side = side
+	if b, ok := m.oneWeekBand(); ok {
+		if !m.laid || resized || m.band.Target().Empty() {
+			m.band.Jump(b)
+		} else if m.band.Target() != b {
+			m.band.Animate(b, widget.Settle.Get(f.Theme))
+		}
+	} else {
+		m.band.Jump(geom.Rect{})
+	}
+	m.laid = true
 	return c.Constrain(geom.Sz(miniWeekW+7*m.side, miniHeadH+22+6*m.side))
+}
+
+// oneWeekBand returns the band over the marked days, and false unless they show and lie in one week.
+func (m *MiniMonth) oneWeekBand() (geom.Rect, bool) {
+	first, last := -1, -1
+	for i := range 42 {
+		if day := m.day(i); !day.Before(m.From) && !day.After(m.To) {
+			if first < 0 {
+				first = i
+			}
+			last = i
+		}
+	}
+	if first < 0 || first/7 != last/7 {
+		return geom.Rect{}, false
+	}
+	return m.bandOf(first, last), true
+}
+
+// bandOf returns the band over cells first to last, in one week.
+func (m *MiniMonth) bandOf(first, last int) geom.Rect {
+	a, b := m.cell(first), m.cell(last)
+	return geom.Rect{Min: geom.Pt(a.Min.X+2, a.Min.Y+3), Max: geom.Pt(b.Max.X-2, b.Max.Y-3)}
 }
 
 // Paint implements [gunim.Node].
@@ -125,7 +167,19 @@ func (m *MiniMonth) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ guni
 	}
 	// The marked days join into one band along each week.
 	marked := widget.MenuHot.Get(th)
+	if b := m.band.Value(); !b.Empty() {
+		p.RRect(b, b.Size().H/2, paint.Solid(marked))
+	}
+	if h := min(max(m.hotIn.Value(), 0), 1); h > 0.01 {
+		hot := widget.WindowButtonHot.Get(th)
+		hot.A = uint8(float32(hot.A) * h)
+		r := m.hot.Value()
+		p.RRect(r, r.Size().H/2, paint.Solid(hot))
+	}
 	for w := range 6 {
+		if !m.band.Target().Empty() {
+			break
+		}
 		first, last := -1, -1
 		for dd := range 7 {
 			if day := m.day(w*7 + dd); !day.Before(m.From) && !day.After(m.To) {
@@ -136,17 +190,12 @@ func (m *MiniMonth) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ guni
 			}
 		}
 		if first >= 0 {
-			a, b := m.cell(w*7+first), m.cell(w*7+last)
-			band := geom.Rect{Min: geom.Pt(a.Min.X+2, a.Min.Y+3), Max: geom.Pt(b.Max.X-2, b.Max.Y-3)}
+			band := m.bandOf(w*7+first, w*7+last)
 			p.RRect(band, band.Size().H/2, paint.Solid(marked))
 		}
 	}
 	for i := range 42 {
 		day, c := m.day(i), m.cell(i)
-		in := !day.Before(m.From) && !day.After(m.To)
-		if i == m.hover && !in {
-			p.RRect(c.Inset(geom.Uniform(3)), 13, paint.Solid(widget.WindowButtonHot.Get(th)))
-		}
 		dayInk := ink
 		if day.Month() != m.month.Month() {
 			dayInk = faint
@@ -170,6 +219,24 @@ func (m *MiniMonth) at(pt geom.Point) int {
 	return -1
 }
 
+// lightCell moves the light under the pointer to cell i, gliding from the one before, or fades it for -1.
+func (m *MiniMonth) lightCell(i int, u *gunim.UI) {
+	th := u.Theme()
+	if i >= 0 {
+		r := m.cell(i).Inset(geom.Uniform(3))
+		if m.hover < 0 || m.hotIn.Target() == 0 {
+			m.hot.Jump(r)
+		} else {
+			m.hot.Animate(r, widget.Quick.Get(th))
+		}
+		m.hotIn.Animate(1, widget.Quick.Get(th))
+	} else {
+		m.hotIn.Animate(0, widget.Settle.Get(th))
+	}
+	m.hover = i
+	u.Invalidate()
+}
+
 // pick picks day, turning to its month.
 func (m *MiniMonth) pick(day time.Time, u *gunim.UI) {
 	if !SameDay(MonthStart(day), m.month) {
@@ -188,12 +255,10 @@ func (m *MiniMonth) Handle(e input.Event, u *gunim.UI) bool {
 	switch e := e.(type) {
 	case input.PointerMove:
 		if i := m.at(e.Pos); i != m.hover {
-			m.hover = i
-			u.Invalidate()
+			m.lightCell(i, u)
 		}
 	case input.PointerLeave:
-		m.hover = -1
-		u.Invalidate()
+		m.lightCell(-1, u)
 	case input.PointerDown:
 		if e.Button != input.ButtonPrimary {
 			return false
