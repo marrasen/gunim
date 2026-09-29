@@ -160,9 +160,11 @@ func (b *Button) Handle(e input.Event, u *gunim.UI) bool {
 		b.press.Animate(0, Bounce.Get(th))
 		b.fire(u)
 	case input.FocusGained:
-		// Walked to by a group's arrows: lit, as the group's ring, if
-		// any, says where the keyboard is.
-		if e.Step != 0 {
+		// In a group, the button with the keyboard is the one the group
+		// has selected, lit however the keyboard came: the arrows, or
+		// the application putting it there. The group's ring, if any,
+		// says where the keyboard is.
+		if e.Step != 0 || e.Grouped {
 			b.walked.Animate(1, Quick.Get(th))
 		}
 		return false

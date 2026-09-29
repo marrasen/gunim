@@ -182,6 +182,7 @@ func TestAButtonTheArrowsReachLightsWithoutARing(t *testing.T) {
 	if u.Focused() != two || two.walked.Value() < 0.9 || two.ring.Value() > 0.01 {
 		t.Fatalf("Right put the keyboard on %T, lit %v, ring %v", u.Focused(), two.walked.Value(), two.ring.Value())
 	}
+	run(40)
 	if one.walked.Value() > 0.01 {
 		t.Fatal("the button left stays lit")
 	}
@@ -191,5 +192,30 @@ func TestAButtonTheArrowsReachLightsWithoutARing(t *testing.T) {
 	run(20)
 	if f := u.Focused(); f != two || g.ring.Value() < 0.9 || two.ring.Value() > 0.01 || two.walked.Value() < 0.9 {
 		t.Fatalf("Tab into the group: on %T, group ring %v, button ring %v, lit %v", f, g.ring.Value(), two.ring.Value(), two.walked.Value())
+	}
+}
+
+// A button in a group given the keyboard by the application, not the
+// arrows, is lit as the group's selected one; one on its own is not.
+func TestAButtonGivenTheKeyboardInAGroupLights(t *testing.T) {
+	one, two := NewButton("OK"), NewButton("Cancel")
+	g := NewGroup(Horizontal, Row(one, two))
+	alone := NewButton("Alone")
+	w, run := stage(t, Column(alone, g))
+	var u *gunim.UI
+	gunim.RegisterPatch(w, "stage", func(_ gunim.Node, _ probeFocus, ui *gunim.UI) { u = ui })
+	if err := w.Client().Patch("stage", probeFocus{}); err != nil {
+		t.Fatal(err)
+	}
+	run(2)
+	u.Focus(one)
+	run(20)
+	if one.walked.Value() < 0.9 || one.ring.Value() > 0.01 {
+		t.Fatalf("given the keyboard in a group, the button is lit %v, ring %v", one.walked.Value(), one.ring.Value())
+	}
+	u.Focus(alone)
+	run(20)
+	if alone.walked.Value() > 0.01 {
+		t.Fatal("a button on its own given the keyboard is lit")
 	}
 }
