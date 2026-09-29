@@ -99,9 +99,8 @@ func (a *TextArea) complete(u *gunim.UI) {
 		c = &completing{}
 		c.menu = NewMenu(labels...)
 		c.menu.Pick = func(i int, u *gunim.UI) { a.accept(i, u) }
-		caret := a.TextCaret()
 		c.popup = u.OpenPopup(a, c.menu, gunim.PopupOptions{
-			Anchor:  geom.Rc(caret.Min.X, caret.Min.Y, 1, caret.Size().H+2),
+			Anchor:  a.triggerBox(start),
 			Max:     geom.Sz(360, 320),
 			Above:   a.CompleteAbove,
 			Dismiss: func(*gunim.UI) { a.closeCompletion() },
@@ -114,18 +113,42 @@ func (a *TextArea) complete(u *gunim.UI) {
 	u.Invalidate()
 }
 
+// triggerBox returns where the trigger at index i is in the area, from the text as last laid out, for the list to
+// hang from.
+func (a *TextArea) triggerBox(i int) geom.Rect {
+	_, at := a.para.Caret(i)
+	at = at.Add(a.origin(FieldPadding.Default()))
+	h := a.para.LineHeight
+	if len(a.para.Lines) > 0 {
+		h = a.para.Lines[0].Run.Height()
+	}
+	return geom.Rc(at.X, at.Y, 1, h+2)
+}
+
+// followTrigger moves the open list to where its trigger is now, as the text wraps, scrolls or grows.
+func (a *TextArea) followTrigger() {
+	if c := a.completing; c != nil && c.popup != nil && c.popup.Open() && c.start <= len(a.text) {
+		c.popup.Move(a.triggerBox(c.start))
+	}
+}
+
 // completionKey works the open list with k, and reports whether it took the key: Up and Down move the highlight,
-// Enter and Tab put the highlighted suggestion in, and Escape closes the list.
+// Enter and Tab without modifiers put the highlighted suggestion in, and Escape closes the list.
 func (a *TextArea) completionKey(k input.KeyPress, u *gunim.UI) bool {
 	c := a.completing
-	if c == nil || c.popup == nil || !c.popup.Open() {
+	if c == nil || c.popup == nil || !c.popup.Open() || len(a.preedit) > 0 {
 		return false
 	}
+	plain := k.Mods&(input.ModShift|input.ModControl|input.ModAlt) == 0
 	switch k.Key {
 	case input.KeyUp, input.KeyDown:
 		c.menu.Key(k, u)
 	case input.KeyEnter, input.KeyKPEnter, input.KeyTab:
-		a.accept(max(c.menu.Highlighted(), 0), u)
+		if !plain {
+			a.closeCompletion()
+			return false
+		}
+		return a.accept(max(c.menu.Highlighted(), 0), u)
 	case input.KeyEscape:
 		a.dismissedAt = c.start
 		a.closeCompletion()
@@ -135,18 +158,21 @@ func (a *TextArea) completionKey(k input.KeyPress, u *gunim.UI) bool {
 	return true
 }
 
-// accept puts suggestion i in place of the word it completes.
-func (a *TextArea) accept(i int, u *gunim.UI) {
+// accept puts suggestion i in place of the word it completes, and reports whether it did: not when the word has
+// changed under the list, which then closes.
+func (a *TextArea) accept(i int, u *gunim.UI) bool {
 	c := a.completing
-	if c == nil || i < 0 || i >= len(c.items) {
-		return
-	}
-	text := []rune(c.items[i].Text + " ")
-	start := c.start
 	a.closeCompletion()
-	a.replace(start, a.caret, text, u)
+	if c == nil || i < 0 || i >= len(c.items) {
+		return false
+	}
+	if start, _, _, ok := a.completionAt(); !ok || start != c.start {
+		return false
+	}
+	a.replace(c.start, a.caret, []rune(c.items[i].Text+" "), u)
 	u.Focus(a)
 	u.Invalidate()
+	return true
 }
 
 // closeCompletion closes the list of suggestions.

@@ -130,6 +130,8 @@ func (a *TextArea) Text() string { return string(a.text) }
 // SetText replaces the text and puts the caret at its end. Call it from
 // a view's update function; see [TextField.SetText].
 func (a *TextArea) SetText(s string) {
+	a.closeCompletion()
+	a.dismissedAt = -1
 	a.text = []rune(s)
 	a.set(len(a.text), false)
 	a.forget()
@@ -155,7 +157,7 @@ func (a *TextArea) Handle(e input.Event, u *gunim.UI) bool {
 		a.blink.halt()
 		a.anchor = a.caret
 		a.preedit = nil
-		// The list stays for a click on it, which takes the keyboard for a moment; a press elsewhere closes it.
+		a.closeCompletion()
 	case input.PointerDown:
 		a.press(a.indexAt(e.Pos, u), e.Clicks, e.Mods.Has(input.ModShift))
 		a.held = true
@@ -167,6 +169,7 @@ func (a *TextArea) Handle(e input.Event, u *gunim.UI) bool {
 		a.set(a.indexAt(e.Pos, u), true)
 	case input.PointerUp:
 		a.held = false
+		a.complete(u)
 	case input.Scroll:
 		to := max(0, min(a.scroll.Target()-e.Delta.Y, a.para.Size.H-a.view))
 		if to == a.scroll.Target() {
@@ -178,6 +181,7 @@ func (a *TextArea) Handle(e input.Event, u *gunim.UI) bool {
 		a.insert(e.Text, u)
 		a.complete(u)
 	case input.Composing:
+		a.closeCompletion()
 		a.compose(e)
 	case input.KeyPress:
 		if a.completionKey(e, u) {
@@ -352,6 +356,7 @@ func (a *TextArea) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) 
 	a.followed = caret
 	a.aim(a.scroll, max(0, min(scroll, a.para.Size.H-a.view)), motion)
 	a.edited = false
+	a.followTrigger()
 	return own
 }
 

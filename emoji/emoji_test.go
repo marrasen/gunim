@@ -57,3 +57,9 @@ func TestSearchPutsWholeWordsFirst(t *testing.T) {
 		t.Fatalf("a search for thumbs up starts with %q", got[0].Name)
 	}
 }
+
+func TestSearchIgnoresCapitals(t *testing.T) {
+	if got := Search("ok"); len(got) == 0 || got[0].Name != "OK hand" {
+		t.Fatalf("a search for ok found %v, want OK hand first", got)
+	}
+}

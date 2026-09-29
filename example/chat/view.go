@@ -1,12 +1,12 @@
 package main
 
 import (
-	"github.com/marrasen/gunim/emoji"
 	"image/color"
 	"strings"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
+	"github.com/marrasen/gunim/emoji"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/input"

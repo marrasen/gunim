@@ -38,23 +38,24 @@ func Search(query string) []Emoji {
 	var tiers [4][]Emoji
 	for _, g := range groups {
 		for _, e := range g.Emoji {
-			if !matches(e.Name, words) {
+			name := strings.ToLower(e.Name)
+			if !matches(name, words) {
 				continue
 			}
 			tier := 3
 			switch {
-			case e.Name == q:
+			case name == q:
 				tier = 0
-			case hasWord(e.Name, words[0]):
+			case hasWord(name, words[0]):
 				tier = 1
-			case strings.HasPrefix(e.Name, words[0]):
+			case strings.HasPrefix(name, words[0]):
 				tier = 2
 			}
 			tiers[tier] = append(tiers[tier], e)
 		}
 	}
 	for _, t := range tiers[1:3] {
-		slices.SortStableFunc(t, func(a, b Emoji) int { return len(a.Name) - len(b.Name) })
+		slices.SortStableFunc(t, func(a, b Emoji) int { return len([]rune(a.Name)) - len([]rune(b.Name)) })
 	}
 	return append(append(append(tiers[0], tiers[1]...), tiers[2]...), tiers[3]...)
 }

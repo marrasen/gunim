@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/input"
 )
 
@@ -64,5 +65,53 @@ func TestEscapeClosesTheListForTheWordAndATriggerInAWordBeginsNothing(t *testing
 	wr.typeText(" @")
 	if wr.area.completing == nil || len(wr.area.completing.items) != 3 {
 		t.Fatal("a new @ after a space did not offer everyone")
+	}
+}
+
+func TestNewTextClosesTheListAndEnterSends(t *testing.T) {
+	wr := newMentioner(t)
+	sent := ""
+	wr.area.OnSubmit = func(s string) gunim.Intent { sent = s; return nil }
+	wr.typeText("Ask @an")
+	wr.area.SetText("hi")
+	wr.run(1)
+	if wr.area.completing != nil {
+		t.Fatal("the list stayed open over new text")
+	}
+	wr.w.Input(input.KeyPress{Key: input.KeyEnter})
+	wr.run(1)
+	if sent != "hi" {
+		t.Fatalf("Enter sent %q, want the new text", sent)
+	}
+}
+
+func TestEscapeIsForgottenWithTheText(t *testing.T) {
+	wr := newMentioner(t)
+	wr.typeText("@xy")
+	wr.w.Input(input.KeyPress{Key: input.KeyEscape})
+	wr.run(1)
+	wr.area.SetText("")
+	wr.run(1)
+	wr.typeText("@")
+	if wr.area.completing == nil {
+		t.Fatal("a new @ at the start of new text opened no list")
+	}
+}
+
+func TestTheListHangsFromItsTriggerAndShiftEnterIsANewLine(t *testing.T) {
+	wr := newMentioner(t)
+	wr.typeText("Hello there @an")
+	wr.run(5)
+	c := wr.area.completing
+	if c == nil {
+		t.Fatal("no list")
+	}
+	if got, want := wr.area.triggerBox(c.start).Min.X, wr.area.TextCaret().Min.X; got >= want {
+		t.Fatalf("the list hangs at x=%v, want at the @, left of the caret at %v", got, want)
+	}
+	wr.w.Input(input.KeyPress{Key: input.KeyEnter, Mods: input.ModShift})
+	wr.run(1)
+	if got := wr.area.Text(); got != "Hello there @an\n" {
+		t.Fatalf("Shift+Enter left %q, want a new line", got)
 	}
 }
