@@ -105,7 +105,11 @@ func run(history int, fail float64, seed uint64, script []string, runFor time.Du
 		go widget.LoadEmoji()
 		app := newApp(ctx, c, seed, history, fail)
 		app.openWindow = func(title string) (gunim.Client, error) {
-			pw, err := a.NewWindow(gunim.WindowOptions{Title: title, Size: geom.Sz(560, 720), Root: widget.NewSurface()})
+			bar := widget.NewTitleBar(title)
+			bar.Compact, bar.Pin = true, true
+			pw, err := a.NewWindow(gunim.WindowOptions{
+				Title: title, Size: geom.Sz(560, 720), Root: widget.NewSurface(), TitleBar: bar,
+			})
 			if err != nil {
 				return gunim.Client{}, err
 			}

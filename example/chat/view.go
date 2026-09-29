@@ -95,11 +95,7 @@ func buildChat(s Chat) *chatView {
 	spacer := widget.NewSpacer()
 	popOut := widget.NewIconButton(icon.SquareArrowOutUpRight, "Open in a window of its own")
 	popOut.On = PopOut{}
-	heads := []gunim.Node{hash, v.title, spacer, v.link}
-	if !s.Solo {
-		heads = append(heads, popOut)
-	}
-	header := widget.Row(append(heads, themeButton)...).Grow(spacer, 1)
+	header := widget.Row(hash, v.title, spacer, v.link, popOut, themeButton).Grow(spacer, 1)
 	header.Cross = widget.CrossCenter
 
 	v.linkBar = &linkBar{open: anim.NewFloat(0)}
@@ -125,13 +121,17 @@ func buildChat(s Chat) *chatView {
 	composer := &composerBox{child: widget.Column(v.strip, v.reply, box)}
 	composer.child.Cross = widget.CrossStretch
 
-	top := widget.NewPad(header)
 	bottom := widget.Column(v.typing, composer)
 	bottom.Cross = widget.CrossStretch
 	bottomPad := widget.NewPad(bottom)
 	bottomPad.Padding = composerPad
 	timeline := &timelineBox{list: v.timeline, pill: v.catchUp}
-	main := widget.Column(top, v.linkBar, timeline, bottomPad).Grow(timeline, 1)
+	parts := []gunim.Node{v.linkBar, timeline, bottomPad}
+	if !s.Solo {
+		// A window of its own names the conversation in its title bar
+		parts = append([]gunim.Node{widget.NewPad(header)}, parts...)
+	}
+	main := widget.Column(parts...).Grow(timeline, 1)
 	main.Cross, main.Gap = widget.CrossStretch, zeroGap
 	pane := &panel{child: main, fill: PaneFill}
 

@@ -19,7 +19,8 @@ const scriptPause = 500 * time.Millisecond
 // Enter, "paste" to press Ctrl+V, "react:emoji" to react to the latest message, "vote:n" to vote for option n of
 // its poll, "click:x,y" to click there, "offline" and "online" to drop and restore the connection, "typing:name" to
 // have name type, "hover:x,y" to move the pointer there, "drag:x,y,x,y" to press at the first place and drag to
-// the second, and "theme:light" or "theme:dark" to switch the theme.
+// the second, "theme:light" or "theme:dark" to switch the theme, "popout" to open the conversation in a window of
+// its own, and "shot:path" to write the newest window to a PNG file.
 func (a *app) runScript(steps []string) {
 	if len(steps) == 0 {
 		return
@@ -77,6 +78,10 @@ func (a *app) scriptStep(step string) {
 			a.c.Input(a.ctx, input.PointerMove{Pos: pts[0]}),
 			a.c.Input(a.ctx, input.PointerDown{Pos: pts[0], Button: input.ButtonPrimary, Clicks: 1}),
 			a.c.Input(a.ctx, input.PointerMove{Pos: pts[1]}))
+	case "popout":
+		a.handle(PopOut{})
+	case "shot":
+		err = writeShot(a.ctx, a.windows[len(a.windows)-1].c, arg)
 	case "theme":
 		a.light = arg == "light"
 		err = a.c.SetTheme(arg)
