@@ -21,6 +21,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"runtime/pprof"
 	"strings"
 	"time"
 
@@ -29,7 +30,11 @@ import (
 	"github.com/marrasen/gunim/widget"
 )
 
+// exit is the status main ends with, once a CPU profile is written.
+var exit int
+
 func main() {
+	defer func() { os.Exit(exit) }()
 	history := flag.Int("history", 300, "how many messages the first conversation starts with")
 	fail := flag.Float64("fail", 0.1, "the share of sends the pretend server turns down")
 	seed := flag.Uint64("seed", 1, "seeds the pretend history and colleagues")
@@ -38,13 +43,22 @@ func main() {
 	after := flag.Duration("after", 2*time.Second, "how long -shot waits")
 	zoom := flag.Float64("zoom", 1, "zoom the window, as Ctrl with + and - does")
 	do := flag.String("do", "", "a script of steps separated by semicolons to run at the start; see runScript")
+	cpuProfile := flag.String("cpuprofile", "", "write a CPU profile of the whole run to this file")
 	flag.Parse()
+	if *cpuProfile != "" {
+		stop, err := profile(*cpuProfile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer stop()
+	}
 	var script []string
 	if *do != "" {
 		script = strings.Split(*do, ";")
 	}
 	if err := run(*history, *fail, *seed, script, *runFor, *shot, *after, float32(*zoom)); err != nil {
-		log.Fatal(err)
+		log.Print(err)
+		exit = 1
 	}
 }
 
@@ -114,4 +128,22 @@ func writeShot(ctx context.Context, c gunim.Client, path string) error {
 		return err
 	}
 	return errors.Join(png.Encode(f, img), f.Close())
+}
+
+// profile starts a CPU profile to path, and returns what stops it and writes it out.
+func profile(path string) (func(), error) {
+	f, err := os.Create(path)
+	if err != nil {
+		return nil, err
+	}
+	if err := pprof.StartCPUProfile(f); err != nil {
+		return nil, errors.Join(err, f.Close())
+	}
+	return func() {
+		pprof.StopCPUProfile()
+		if err := f.Close(); err != nil {
+			log.Print(err)
+			exit = 1
+		}
+	}, nil
 }
