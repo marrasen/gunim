@@ -1,6 +1,8 @@
 package gunim
 
 import (
+	"errors"
+	"fmt"
 	"image/color"
 	"slices"
 
@@ -28,12 +30,15 @@ type titleBar struct {
 const resizeMargin = 6
 
 // startChrome looks at whether the window's driver has taken the title
-// bar away.
-func (u *UI) startChrome() {
+// bar away, and gives the window bar, or the registered title bar when
+// bar is nil.
+func (u *UI) startChrome(bar TitleBar) {
 	if fr, ok := u.w.dw.(driver.Framer); ok && fr.Chromeless() {
 		u.chrome = &titleBar{fr: fr, maximized: fr.Maximized()}
-		if newTitleBar != nil && u.titleBar == nil {
-			bar := newTitleBar()
+		if bar == nil && newTitleBar != nil {
+			bar = newTitleBar()
+		}
+		if bar != nil && u.titleBar == nil {
 			bar.SetTitle(u.w.title)
 			u.giveTitleBar(bar)
 		}
@@ -62,6 +67,23 @@ func (u *UI) ToggleMaximize() {
 		_ = u.chrome.fr.SetMaximized(!u.chrome.maximized)
 	}
 }
+
+// SetPinned keeps the window above other windows, or lets it go back among them.
+func (u *UI) SetPinned(on bool) error {
+	p, ok := u.w.dw.(driver.Pinner)
+	if !ok {
+		return fmt.Errorf("gunim: pin window: %w", errors.ErrUnsupported)
+	}
+	if err := p.SetPinned(on); err != nil {
+		return fmt.Errorf("gunim: pin window: %w", err)
+	}
+	u.pinned = on
+	u.Invalidate()
+	return nil
+}
+
+// Pinned reports whether the window is kept above other windows.
+func (u *UI) Pinned() bool { return u.pinned }
 
 // AskToClose does what the system's close button does: asks the
 // application, with the window's AskToClose, or closes the window,
@@ -196,6 +218,9 @@ func edgeCursor(e driver.Edge) input.Cursor {
 // maximize button to draw restore as it paints.
 func (f Frame) Maximized() bool { return f.u != nil && f.u.Maximized() }
 
+// Pinned reports whether the window is kept above other windows, for a pin button to show it.
+func (f Frame) Pinned() bool { return f.u != nil && f.u.Pinned() }
+
 // Chromeless reports whether the window's title bar is the
 // application's to draw, for a part of one to take no room otherwise.
 func (f Frame) Chromeless() bool { return f.u != nil && f.u.Chromeless() }
@@ -210,7 +235,7 @@ func (w *Window) MakeChromeless(native bool) *driver.OffscreenFrame {
 		return nil
 	}
 	fr := o.MakeChromeless(native)
-	w.ui.startChrome()
+	w.ui.startChrome(nil)
 	return fr
 }
 

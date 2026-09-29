@@ -40,38 +40,44 @@ func (b *Menubar) AccessAct(r access.Request, u *gunim.UI) bool {
 	return true
 }
 
-// Access implements [gunim.Accessible]: the three buttons.
+// Access implements [gunim.Accessible]: the buttons.
 func (c *WindowControls) Access() access.Info {
 	info := access.Info{Role: access.RoleGroup}
 	if c.size.W <= 0 {
 		return info
 	}
-	maximize := "Maximize"
-	if c.maxed {
-		maximize = "Restore"
-	}
-	for i, name := range []string{"Minimize", maximize, "Close"} {
+	bw := c.width()
+	for i, b := range c.buttons() {
+		var name string
+		switch b {
+		case pinButton:
+			name = "Keep on top"
+			if c.pinned {
+				name = "Stop keeping on top"
+			}
+		case minimizeButton:
+			name = "Minimize"
+		case maximizeButton:
+			name = "Maximize"
+			if c.maxed {
+				name = "Restore"
+			}
+		case closeButton:
+			name = "Close"
+		}
 		info.Parts = append(info.Parts, access.Info{Role: access.RoleButton, Name: name,
-			Actions: []string{access.ActionPress}, Bounds: geom.Rc(float32(i)*windowButtonWidth, 0, windowButtonWidth, c.size.H)})
+			Actions: []string{access.ActionPress}, Bounds: geom.Rc(float32(i)*bw, 0, bw, c.size.H)})
 	}
 	return info
 }
 
 // AccessAct implements [gunim.AccessActor].
 func (c *WindowControls) AccessAct(r access.Request, u *gunim.UI) bool {
-	if r.Action != access.ActionPress {
+	bs := c.buttons()
+	if r.Action != access.ActionPress || r.Part < 0 || r.Part >= len(bs) {
 		return false
 	}
-	switch r.Part {
-	case 0:
-		u.Minimize()
-	case 1:
-		u.ToggleMaximize()
-	case 2:
-		u.AskToClose()
-	default:
-		return false
-	}
+	c.act(bs[r.Part], u)
 	return true
 }
 

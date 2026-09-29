@@ -210,6 +210,11 @@ type Framer interface {
 	Maximized() bool
 }
 
+// A Pinner is a [Window] that can be kept above other windows.
+type Pinner interface {
+	SetPinned(on bool) error
+}
+
 // MoveStarted is sent on [Window.Input] when the user starts moving or sizing the window by its frame or its title
 // bar, where the system takes the press that starts it for itself. It closes what a press outside would.
 type MoveStarted struct{}

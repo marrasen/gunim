@@ -144,6 +144,10 @@ type WindowOptions struct {
 	// primary monitor instead, and one larger than its monitor's work area shrinks to fit; see
 	// [driver.FitPlacement]. A maximized placement opens maximized, and goes back to its bounds when restored.
 	Place *driver.Placement
+	// TitleBar is the title bar a chromeless window gets, in place of the one registered with [RegisterTitleBar].
+	TitleBar TitleBar
+	// Pinned opens the window kept above other windows; see [UI.SetPinned].
+	Pinned bool
 }
 
 // NewWindow opens a window and starts its UI goroutine.
@@ -154,7 +158,7 @@ func (a *App) NewWindow(o WindowOptions) (*Window, error) {
 	do := driver.Options{
 		Title: o.Title, Size: o.Size, Monitor: o.Monitor,
 		Kind: o.Kind, Anchor: geom.Rect{Min: o.Anchor, Max: o.Anchor}, Icons: o.Icons,
-		Chromeless: !o.SystemFrame && newTitleBar != nil, Border: o.Border, Text: o.Text, Place: o.Place,
+		Chromeless: !o.SystemFrame && (newTitleBar != nil || o.TitleBar != nil), Border: o.Border, Text: o.Text, Place: o.Place,
 	}
 	if o.Parent != nil {
 		do.Parent = o.Parent.dw
@@ -167,7 +171,12 @@ func (a *App) NewWindow(o WindowOptions) (*Window, error) {
 	w := newWindow(dw, o.Root)
 	w.title = o.Title
 	w.askToClose = o.AskToClose
-	w.ui.startChrome()
+	w.ui.startChrome(o.TitleBar)
+	if o.Pinned {
+		if err := w.ui.SetPinned(true); err != nil {
+			return nil, errors.Join(err, dw.Close())
+		}
+	}
 	animated := w.ui.chrome != nil && !o.Instant
 	w.ui.arriving, w.ui.animated = animated, animated
 	w.ui.zoomKeys = o.ZoomKeys
@@ -891,6 +900,8 @@ type UI struct {
 	chrome *titleBar
 	// titleBar is the title bar the engine gave the window, or nil; see giveTitleBar.
 	titleBar TitleBar
+	// pinned says the window is kept above other windows; see SetPinned.
+	pinned bool
 	// keyboardCue says Tab has moved the focus since the last click, which shows the focus rings, and ringed are the
 	// nodes told to show one. focusStep is the Step of the next FocusGained.
 	keyboardCue bool

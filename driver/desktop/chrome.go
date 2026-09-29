@@ -82,6 +82,15 @@ func (w *Window) Minimize() error {
 	return w.d.call(func() error { return w.gw.Iconify() })
 }
 
+// SetPinned implements [driver.Pinner].
+func (w *Window) SetPinned(on bool) error {
+	v := glfw.False
+	if on {
+		v = glfw.True
+	}
+	return w.d.call(func() error { return w.gw.SetAttrib(glfw.Floating, v) })
+}
+
 // SetMaximized implements [driver.Framer]. It returns before the window has changed size, so the caller can draw the
 // window at its new size meanwhile; an error fails the window.
 func (w *Window) SetMaximized(on bool) error {

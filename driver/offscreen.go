@@ -35,6 +35,8 @@ type OffscreenWindow struct {
 	mu    sync.Mutex
 	size  geom.Size
 	scale float32
+	// pinned says the window was last asked to stay above other windows.
+	pinned bool
 	// zoom multiplies scale, and divides the size the content is laid out in.
 	zoom float32
 	rate float64
@@ -552,6 +554,21 @@ func (w *OffscreenWindow) Maximized() bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.frame != nil && w.frame.IsMaximized
+}
+
+// SetPinned implements [Pinner].
+func (w *OffscreenWindow) SetPinned(on bool) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.pinned = on
+	return nil
+}
+
+// Pinned reports whether the window was last asked to stay above other windows.
+func (w *OffscreenWindow) Pinned() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.pinned
 }
 
 // SetChooser sets what ChooseFiles answers, for a test standing in for

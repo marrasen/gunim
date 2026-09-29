@@ -56,3 +56,46 @@ func TestWindowControlsWorkTheWindow(t *testing.T) {
 		t.Fatalf("after close, the window takes input: %v", err)
 	}
 }
+
+// The pin button keeps the window on top, and a second click lets it go; compact buttons are narrower.
+func TestThePinButtonKeepsTheWindowOnTop(t *testing.T) {
+	c := NewWindowControls()
+	c.Pin, c.Compact = true, true
+	w := gunimtest.New(t, geom.Sz(600, 300), nil)
+	fr := w.MakeChromeless(true)
+	sp := NewSpacer()
+	row := Row(sp, c).Grow(sp, 1)
+	gunim.RegisterView(w, "bar", func(struct{}) gunim.Node { return &frame{child: row, size: geom.Sz(600, 26)} }, nil)
+	if err := w.Client().Mount(gunim.Root, "bar", "bar", nil); err != nil {
+		t.Fatal(err)
+	}
+	run := func(n int) {
+		for range n {
+			w.Frame(time.Second / 60)
+		}
+	}
+	run(2)
+	x0 := float32(600 - 4*compactButtonWidth)
+	if want := geom.Rc(x0+2*compactButtonWidth, 0, compactButtonWidth, 26); fr.Maximize != want {
+		t.Fatalf("the system was told the maximize button is at %v, want %v", fr.Maximize, want)
+	}
+	click := func(i int) {
+		p := geom.Pt(x0+float32(i)*compactButtonWidth+10, 13)
+		w.Input(input.PointerMove{Pos: p, Time: time.Now()})
+		w.Input(input.PointerDown{Pos: p, Button: input.ButtonPrimary, Clicks: 1, Time: time.Now()})
+		w.Input(input.PointerUp{Pos: p, Button: input.ButtonPrimary, Time: time.Now()})
+		run(1)
+	}
+	click(0)
+	if !w.Offscreen().Pinned() || !c.pinned {
+		t.Fatalf("after the pin: window pinned %v, button shows %v", w.Offscreen().Pinned(), c.pinned)
+	}
+	click(0)
+	if w.Offscreen().Pinned() {
+		t.Fatal("a second click left the window pinned")
+	}
+	click(1)
+	if fr.Minimized != 1 {
+		t.Fatalf("minimize, after the pin, minimized %d times", fr.Minimized)
+	}
+}
