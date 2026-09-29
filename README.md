@@ -52,6 +52,14 @@ CGO_ENABLED=0 go run ./example/chat
 CGO_ENABLED=0 go run ./example/chat -history 50000
 ```
 
+`example/calendar` is a calendar with a pretend back end, built on the `calendar` package: a day, a week or a
+month, events that repeat, and invitations from colleagues. Drag on free time to draw out an event, drag an event
+to move it, and drag its bottom edge to change its length.
+
+```sh
+CGO_ENABLED=0 go run ./example/calendar
+```
+
 `example/files` is a file manager that does real work: it copies, moves,
 renames, makes folders, and moves items to the trash, each in the
 background with progress, cancel and undo.
