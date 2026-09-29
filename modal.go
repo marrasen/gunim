@@ -1,5 +1,7 @@
 package gunim
 
+import "github.com/marrasen/gunim/input"
+
 // A Modal is a node that holds the keyboard while it is in the tree, such as a dialog. It takes the focus as it
 // arrives. While it stays, the focus and Tab keep to it and to the popups opened from inside it, and when it leaves,
 // the focus goes back to where it was before.
@@ -55,6 +57,20 @@ func (u *UI) left() {
 	if u.focus == nil || u.focus.leaving() {
 		u.Focus(back.node)
 	}
+}
+
+// stopsAtModal reports whether ev is a key a modal holds: a press or
+// typed text, while one is open and has the focus. A release goes on,
+// so a node that saw a key go down before the modal came hears it come
+// up.
+func (u *UI) stopsAtModal(ev input.Event) bool {
+	switch ev.(type) {
+	case input.KeyPress, input.TextInput:
+	default:
+		return false
+	}
+	m := u.modal()
+	return m != nil && u.focus != nil && inside(u.focus, m)
 }
 
 // inside reports whether s is m or lies within it, counting a popup's tree as within the node that opened it.
