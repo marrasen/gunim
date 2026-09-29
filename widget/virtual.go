@@ -43,6 +43,8 @@ type VirtualList struct {
 	// StickToEnd starts the view at the end of the list and keeps it there while rows arrive and grow, as a chat's
 	// timeline does. A view scrolled away from the end stays where it is.
 	StickToEnd bool
+	// openAt is the row the view opens at, in place of the end; see OpenAt.
+	openAt Key
 	// stuck says the view is held at the end, and laidOut that the list has been laid out once. again asks for
 	// another frame, to build the rows a move to the end brought into view.
 	stuck, laidOut, again bool
@@ -260,6 +262,11 @@ func (l *VirtualList) SetKeys(keys []Key, u *gunim.UI) {
 	u.Invalidate()
 }
 
+// OpenAt opens the view with key's row at its top, rather than at the start or, for a list that sticks to its end,
+// at the end: for a timeline that opens at the first message not yet read. Call it before the list is first laid
+// out. The view sticks to the end once the user brings it there.
+func (l *VirtualList) OpenAt(key Key) { l.openAt = key }
+
 // AtEnd reports whether the view is at the end of the list, or heading there.
 func (l *VirtualList) AtEnd() bool { return l.target >= l.end()-0.5 }
 
@@ -339,7 +346,7 @@ func (l *VirtualList) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Chil
 	move := Quick.Get(f.Theme)
 	if l.StickToEnd {
 		// A view the pointer holds, or that coasts, goes where it is taken.
-		l.stuck = !l.held && !l.gripped && !l.flinging && (!l.laidOut || l.AtEnd())
+		l.stuck = !l.held && !l.gripped && !l.flinging && (!l.laidOut && l.openAt == "" || l.laidOut && l.AtEnd())
 	}
 	l.th, l.viewport = f.Theme, own.H
 
@@ -383,6 +390,11 @@ func (l *VirtualList) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Chil
 		}
 	}
 
+	if !l.laidOut && l.openAt != "" {
+		if i := slices.Index(l.order, l.openAt); i >= 0 {
+			l.jumpTo(float32(l.tops.sum(i)))
+		}
+	}
 	if l.stuck {
 		l.stickTo(float32(l.tops.sum(len(l.order)))-spacing, own.H)
 	}

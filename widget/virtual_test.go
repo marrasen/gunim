@@ -419,3 +419,35 @@ func TestVirtualListThatSticksLetsADragHoldIt(t *testing.T) {
 	w.Input(input.PointerUp{Pos: geom.Pt(100, 200), Button: input.ButtonPrimary})
 	run(120)
 }
+
+func TestAListThatSticksCanOpenAtARow(t *testing.T) {
+	l := NewVirtualList(func(k Key) gunim.Node { return &block{key: k, h: 60} })
+	l.StickToEnd = true
+	l.Estimate = 60
+	l.OpenAt("50")
+	w := gunimtest.New(t, geom.Sz(300, 400), nil)
+	gunim.RegisterView(w, "v", func(shownKeys) gunim.Node { return l },
+		func(_ gunim.Node, s shownKeys, u *gunim.UI) { l.SetKeys(s.Keys, u) })
+	if err := w.Client().Mount(gunim.Root, "v", "v", shownKeys{keys(100)}); err != nil {
+		t.Fatal(err)
+	}
+	for range 10 {
+		w.Frame(time.Second / 60)
+	}
+	if want := float32(50 * 66); abs32(l.Offset()-want) > 0.5 {
+		t.Fatalf("offset %v, want row 50 at the top, %v", l.Offset(), want)
+	}
+	if l.AtEnd() {
+		t.Fatal("the view opened at the end")
+	}
+	// Rows arriving below leave it where it is.
+	if err := w.Client().Update("v", shownKeys{keys(103)}); err != nil {
+		t.Fatal(err)
+	}
+	for range 60 {
+		w.Frame(time.Second / 60)
+	}
+	if want := float32(50 * 66); abs32(l.Offset()-want) > 0.5 {
+		t.Fatalf("offset %v after rows arrived, want it to stay at %v", l.Offset(), want)
+	}
+}
