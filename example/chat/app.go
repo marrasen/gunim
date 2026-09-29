@@ -74,6 +74,8 @@ type window struct {
 	// loading says older ones are on their way.
 	first   string
 	loading bool
+	// loads numbers the loads of older messages, so a load the window has moved on from does nothing.
+	loads int
 	// area is what the pane shows: "" for the conversation, or "files", and path the folder of files open.
 	area string
 	path string
@@ -342,6 +344,7 @@ func (a *app) enter(w *window, c *conv) {
 		from = max(0, min(from, i-10))
 	}
 	w.first, w.loading = "", false
+	w.loads++
 	if len(c.msgs) > 0 {
 		w.first = c.msgs[from].ID
 	}
@@ -363,11 +366,15 @@ func (a *app) loadOlder(w *window) {
 		return
 	}
 	w.loading = true
+	w.loads++
+	load := w.loads
 	a.after(a.between(300*time.Millisecond, 700*time.Millisecond), func() {
-		w.loading = false
-		if w.current == c {
-			w.first = c.msgs[max(0, from-pageSize)].ID
+		if w.loads != load || w.current != c {
+			return
 		}
+		w.loading = false
+		// The first message shown only ever moves back.
+		w.first = c.msgs[max(0, min(w.shownFrom(c), from)-pageSize)].ID
 		a.publish()
 	})
 }
@@ -949,11 +956,10 @@ func (a *app) stateOf(w *window) Chat {
 	if m, ok := w.current.byID[w.replying]; ok {
 		s.Replying = quote(m)
 	}
+	s.People = w.current.people
 	from := w.shownFrom(w.current)
 	s.Items = timeline(w.current, time.Now(), w.newFrom, from)
-	if w.loading {
-		s.Items = append([]Item{{Key: "loading:" + w.current.ID, Day: "Loading older messages…"}}, s.Items...)
-	}
+	s.Loading = w.loading
 	if w.newFrom != "" {
 		s.NewKey, s.Unread = newKey(w.current), w.unread
 	}
@@ -978,7 +984,9 @@ func timeline(c *conv, now time.Time, newFrom string, from int) []Item {
 	for _, m := range c.msgs[from:] {
 		if d := m.At.Format(time.DateOnly); d != day {
 			day, prev = d, nil
-			out = append(out, Item{Key: "day:" + c.ID + ":" + d, Day: dayName(m.At, now)})
+			// Keyed by the day's first message shown, so the heading that older messages push up is a new one, and
+			// the timeline holds the message the user was reading still.
+			out = append(out, Item{Key: "day:" + m.ID, Day: dayName(m.At, now)})
 		}
 		if m.ID == newFrom {
 			out = append(out, Item{Key: newKey(c), New: true})

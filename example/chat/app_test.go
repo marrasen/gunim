@@ -359,8 +359,9 @@ func TestAConversationOpensOnItsLatestMessagesAndLoadsOlderOnes(t *testing.T) {
 	}
 	before := count()
 	h.a.handle(OlderAsked{})
-	if first := h.a.state().Items[0]; first.Day != "Loading older messages…" {
-		t.Fatalf("while older messages load, the timeline starts with %+v", first)
+	if !h.a.state().Loading {
+		t.Fatal("the state does not say older messages are on their way")
 	}
+	h.a.handle(OlderAsked{})
 	h.until("older messages arrive", func() bool { return count() == before+pageSize })
 }

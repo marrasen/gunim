@@ -98,25 +98,69 @@ func (c *catchUp) Cursor(geom.Point) input.Cursor { return input.CursorHand }
 
 // timelineBox is the timeline with the catch up pill over its foot.
 type timelineBox struct {
-	list gunim.Node
-	pill *catchUp
+	list    gunim.Node
+	pill    *catchUp
+	loading *loadingPill
 }
 
 // Children implements [gunim.Composite].
-func (b *timelineBox) Children() []gunim.Node { return []gunim.Node{b.list, b.pill} }
+func (b *timelineBox) Children() []gunim.Node { return []gunim.Node{b.list, b.pill, b.loading} }
 
 // Layout implements [gunim.Node].
 func (b *timelineBox) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
-	list, pill := kids.At(0), kids.At(1)
+	list, pill, loading := kids.At(0), kids.At(1), kids.At(2)
 	list.Layout(gunim.Tight(c.Max))
 	list.Place(geom.Point{})
 	ps := pill.Layout(gunim.Loose(c.Max))
 	pill.Place(geom.Pt((c.Max.W-ps.W)/2, c.Max.H-ps.H-12))
+	ls := loading.Layout(gunim.Loose(c.Max))
+	loading.Place(geom.Pt((c.Max.W-ls.W)/2, 10))
 	return c.Max
 }
 
 // Paint implements [gunim.Node].
 func (b *timelineBox) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim.Children) {
-	kids.At(0).Paint(p)
-	kids.At(1).Paint(p)
+	for kid := range kids.All {
+		kid.Paint(p)
+	}
+}
+
+// loadingPill says, at the top of the timeline, that older messages are on their way, fading in and out.
+type loadingPill struct {
+	anim.Group
+	in   *anim.Float
+	text text.Run
+}
+
+func newLoadingPill() *loadingPill {
+	l := &loadingPill{in: anim.NewFloat(0)}
+	l.Add(l.in)
+	return l
+}
+
+// set shows the pill while loading.
+func (l *loadingPill) set(loading bool, u *gunim.UI) {
+	l.in.Animate(map[bool]float32{false: 0, true: 1}[loading], widget.Quick.Get(u.Theme()))
+	u.Invalidate()
+}
+
+// Layout implements [gunim.Node].
+func (l *loadingPill) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
+	l.text = widget.Font.Get(f.Theme).Shape("Loading older messages…", SmallText.Get(f.Theme))
+	return geom.Sz(l.text.Advance+28, 28)
+}
+
+// Paint implements [gunim.Node].
+func (l *loadingPill) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
+	t := min(max(l.in.Value(), 0), 1)
+	if t <= 0.01 {
+		return
+	}
+	th := f.Theme
+	defer p.Layer(paint.LayerOpts{Bounds: geom.Rect{Max: box.Point()}.Inset(geom.Uniform(-12)), Opacity: t})()
+	defer p.Push(paint.Translate(geom.Pt(0, -8*(1-t))))()
+	r := geom.Rect{Max: box.Point()}
+	p.ShadowRRect(r, box.H/2, paint.Solid(widget.MenuFill.Get(th)),
+		paint.Shadow{Color: widget.MenuShadow.Get(th), Blur: 10, Offset: geom.Pt(0, 2)})
+	l.text.Paint(p, geom.Pt(14, (box.H-l.text.Height())/2), Faint.Get(th))
 }

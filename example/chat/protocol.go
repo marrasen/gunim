@@ -35,6 +35,10 @@ type (
 		// how many messages from others came after it; the timeline opens at the line.
 		NewKey string
 		Unread int
+		// People are who take part in the open conversation, for mentions.
+		People []string
+		// Loading says older messages are on their way.
+		Loading bool
 		// Area is what the pane shows: the conversation, or "files" for the project's files, which Files holds.
 		Area  string
 		Files Files

@@ -518,3 +518,83 @@ func TestVirtualListLoadsOlderItemsAtTheTopWithoutMoving(t *testing.T) {
 		t.Fatalf("back at the top, the list asked %d times, want once more", n)
 	}
 }
+
+// mountTimeline mounts a 300 by 400 list of 40-pixel rows that sticks to its end and asks for older items, holding
+// its view as they arrive when hold is set, and returns a way to count the asks.
+func mountTimeline(t *testing.T, hold bool, ks []Key) (*gunim.Window, *VirtualList, func(int), func() int) {
+	t.Helper()
+	l := NewVirtualList(func(k Key) gunim.Node { return &block{key: k, h: 40} })
+	l.StickToEnd, l.HoldOnPrepend = true, hold
+	l.OnReachStart = func() gunim.Intent { return olderAsked{} }
+	w := gunimtest.New(t, geom.Sz(300, 400), nil)
+	gunim.RegisterView(w, "v", func(shownKeys) gunim.Node { return l },
+		func(_ gunim.Node, s shownKeys, u *gunim.UI) { l.SetKeys(s.Keys, u) })
+	if err := w.Client().Mount(gunim.Root, "v", "v", shownKeys{ks}); err != nil {
+		t.Fatal(err)
+	}
+	run := func(n int) {
+		for range n {
+			w.Frame(time.Second / 60)
+		}
+	}
+	run(5)
+	asked := func() int {
+		n := 0
+		for {
+			select {
+			case e := <-w.Client().Intents():
+				if e.Intent == (olderAsked{}) {
+					n++
+				}
+			default:
+				return n
+			}
+		}
+	}
+	return w, l, run, asked
+}
+
+func TestVirtualListHoldsTheRowReadAsADayHeadingMovesUp(t *testing.T) {
+	// The heading over the day's first shown message is keyed by it, so the older page brings a new one.
+	w, l, run, _ := mountTimeline(t, true, append([]Key{"day:30"}, keys(60)[30:]...))
+	scrollBy(w, run, -40)
+	run(90)
+	before := screenTop(l, "30")
+	older := append(append(append([]Key{"day:0"}, keys(20)...), "day:20"), keys(60)[20:]...)
+	if err := w.Client().Update("v", shownKeys{older}); err != nil {
+		t.Fatal(err)
+	}
+	run(60)
+	if _, built := l.live["30"]; !built {
+		t.Fatal("the row read went out of view")
+	}
+	if after := screenTop(l, "30"); after != before {
+		t.Fatalf("the row read moved from %v to %v on screen", before, after)
+	}
+}
+
+func TestVirtualListShorterThanItsViewAsksForOlderItems(t *testing.T) {
+	_, _, run, asked := mountTimeline(t, true, keys(5))
+	run(3)
+	if n := asked(); n != 1 {
+		t.Fatalf("a list shorter than its view asked for older items %d times, want once", n)
+	}
+}
+
+func TestVirtualListWithoutHoldingAsksAgainAfterOlderItems(t *testing.T) {
+	w, _, run, asked := mountTimeline(t, false, keys(60)[40:])
+	scrollBy(w, run, -40)
+	run(60)
+	if n := asked(); n != 1 {
+		t.Fatalf("at the top the list asked %d times, want once", n)
+	}
+	if err := w.Client().Update("v", shownKeys{keys(60)[20:]}); err != nil {
+		t.Fatal(err)
+	}
+	run(10)
+	scrollBy(w, run, -40)
+	run(60)
+	if n := asked(); n != 1 {
+		t.Fatalf("back at the top after older items came, the list asked %d times, want once more", n)
+	}
+}

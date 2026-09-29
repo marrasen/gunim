@@ -261,18 +261,19 @@ func (l *VirtualList) SetKeys(keys []Key, u *gunim.UI) {
 	for _, k := range l.order {
 		known[k] = true
 	}
-	// Items before what was the first, with HoldOnPrepend, come at once.
+	// Items before what was the first re-arm OnReachStart, and with HoldOnPrepend come at once.
 	head := 0
-	if l.HoldOnPrepend {
-		for head < len(next) && !known[next[head]] {
-			head++
-		}
-		if head == len(next) {
-			head = 0
-		}
+	for head < len(next) && !known[next[head]] {
+		head++
+	}
+	if head == len(next) {
+		head = 0
 	}
 	if head > 0 {
 		l.reached = false
+	}
+	if !l.HoldOnPrepend {
+		head = 0
 	}
 	for i, k := range next {
 		if !known[k] && !first && i >= head {
@@ -496,7 +497,7 @@ func (l *VirtualList) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Chil
 	// Near the start, ask for what comes before it; well away, be ready to ask again.
 	if l.OnReachStart != nil && l.laidOut && len(l.order) > 0 {
 		switch at := l.offset.Value(); {
-		case !l.reached && at < own.H && content > own.H:
+		case !l.reached && at < own.H:
 			l.reached = true
 			f.Send(l, l.OnReachStart())
 		case l.reached && at > 3*own.H:
