@@ -245,3 +245,42 @@ func TestOnlyWebAndMailLinksOpen(t *testing.T) {
 		t.Fatalf("opened %v, want %v", opened, want)
 	}
 }
+
+func TestSwitchingConversationCrossfades(t *testing.T) {
+	h := newHarness(t)
+	old := h.v.timeline.child.(*fader)
+	h.a.handle(ConversationChosen{ID: h.a.projects[0].convs[1].ID})
+	h.frames(4)
+	next := h.v.timeline.child.(*fader)
+	if next == old {
+		t.Fatal("the timeline was not swapped")
+	}
+	if o, n := old.in.Value(), next.in.Value(); o <= 0 || o >= 1 || n <= 0 || n >= 1 {
+		t.Fatalf("part way through, the old timeline is at %v and the new at %v; want both between 0 and 1", o, n)
+	}
+	h.frames(90)
+	if o, n := old.in.Value(), next.in.Value(); o > 0.01 || n < 0.99 {
+		t.Fatalf("after the switch, the old timeline is at %v and the new at %v", o, n)
+	}
+}
+
+// focusOn is a patch that gives a node the keyboard, as a click on it would.
+type focusOn struct{ n gunim.Node }
+
+func TestTypingAfterAClickInAMessageGoesToTheMessageBox(t *testing.T) {
+	h := newHarness(t)
+	gunim.RegisterPatch(h.w, "chat", func(_ *chatView, f focusOn, u *gunim.UI) { u.Focus(f.n) })
+	n, ok := h.v.list.Row(h.v.last)
+	if !ok {
+		t.Fatal("the last message is not built")
+	}
+	if err := h.w.Client().Patch("chat", focusOn{n.(*msgRow).body}); err != nil {
+		t.Fatal(err)
+	}
+	h.frames(1)
+	h.w.Input(input.TextInput{Text: "hi"})
+	h.frames(2)
+	if got := h.v.composer.Text(); got != "hi" {
+		t.Fatalf("message box holds %q after typing, want hi", got)
+	}
+}

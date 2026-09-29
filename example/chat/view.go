@@ -83,7 +83,7 @@ func buildChat(Chat) *chatView {
 	v.linkBar = &linkBar{open: anim.NewFloat(0)}
 	v.linkBar.Add(v.linkBar.open)
 	v.list = v.newList()
-	v.timeline = &slot{child: v.list}
+	v.timeline = &slot{child: newFader(v.list)}
 
 	v.typing = widget.NewLabel(" ")
 	v.typing.Color, v.typing.Size = Faint, SmallText
@@ -155,7 +155,7 @@ func (v *chatView) set(s Chat, u *gunim.UI) {
 		// A new conversation gets a new timeline, which opens at its end.
 		v.current = s.Current
 		v.list = v.newList()
-		v.timeline.swap(v.list, u)
+		v.timeline.swap(newFader(v.list), u)
 		v.items = map[widget.Key]Item{}
 		v.last = ""
 	}
@@ -229,6 +229,17 @@ func (v *chatView) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids guni
 	kids.At(0).Paint(p)
 }
 
+// Handle implements [gunim.Handler]: typing that nothing else takes, as after a click in a message, goes to the
+// message box.
+func (v *chatView) Handle(e input.Event, u *gunim.UI) bool {
+	switch e.(type) {
+	case input.TextInput, input.Composing:
+		u.Focus(v.composer)
+		return v.composer.Handle(e, u)
+	}
+	return false
+}
+
 // panel fills its box with a colour behind its child, and is width wide when width is set.
 type panel struct {
 	child gunim.Node
@@ -257,7 +268,7 @@ func (p *panel) Paint(pt *paint.Painter, f gunim.Frame, box geom.Size, kids guni
 	kids.At(0).Paint(pt)
 }
 
-// slot holds one child at a time, and swaps it for another at once.
+// slot holds one child at a time. A child swapped in fades in over the one leaving, which fades out.
 type slot struct{ child gunim.Node }
 
 // Children implements [gunim.Composite].
@@ -270,7 +281,7 @@ func (s *slot) swap(n gunim.Node, u *gunim.UI) {
 	u.Insert(s, n)
 }
 
-// Layout implements [gunim.Node]: the child fills the slot, and a child leaving is left out.
+// Layout implements [gunim.Node]: each child, the one leaving too, fills the slot.
 func (s *slot) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
 	for kid := range kids.All {
 		kid.Layout(gunim.Tight(c.Max))
@@ -282,10 +293,50 @@ func (s *slot) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) g
 // Paint implements [gunim.Node].
 func (s *slot) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim.Children) {
 	for kid := range kids.All {
-		if kid.Node() == s.child {
-			kid.Paint(p)
-		}
+		kid.Paint(p)
 	}
+}
+
+// fader fades its child in, rising a little, as it arrives, and fades it out as it leaves.
+type fader struct {
+	anim.Group
+	child gunim.Node
+	in    *anim.Float
+}
+
+func newFader(child gunim.Node) *fader {
+	f := &fader{child: child, in: anim.NewFloat(0)}
+	f.Add(f.in)
+	return f
+}
+
+// Children implements [gunim.Composite].
+func (f *fader) Children() []gunim.Node { return []gunim.Node{f.child} }
+
+// Transition implements [gunim.Transitioner].
+func (f *fader) Transition(pr gunim.Presence, fr gunim.Frame) bool {
+	switch pr {
+	case gunim.Entering:
+		f.in.Animate(1, widget.Settle.Get(fr.Theme))
+	case gunim.Exiting:
+		f.in.Animate(0, widget.Quick.Get(fr.Theme))
+	case gunim.Present:
+	}
+	return !f.in.Active()
+}
+
+// Layout implements [gunim.Node].
+func (f *fader) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
+	kid := kids.At(0)
+	kid.Layout(gunim.Tight(c.Max))
+	kid.Place(geom.Pt(0, 14*(1-min(max(f.in.Value(), 0), 1))))
+	return c.Max
+}
+
+// Paint implements [gunim.Node].
+func (f *fader) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, kids gunim.Children) {
+	defer p.Layer(paint.LayerOpts{Bounds: geom.Rect{Max: box.Point()}, Opacity: min(max(f.in.Value(), 0), 1), Clip: true})()
+	kids.At(0).Paint(p)
 }
 
 // composerBox is the message box with the reply bar over it. Escape in it drops a reply or an edit.
