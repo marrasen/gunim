@@ -288,6 +288,18 @@ func (w *OffscreenWindow) SetOrigin(p geom.Point) {
 	w.origin = p
 }
 
+// Placement implements [PlacementReader]: the window at its origin on the pretend screen, at its size in device
+// pixels, maximized where its pretend frame is.
+func (w *OffscreenWindow) Placement() (Placement, bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	size := w.size.Point().Mul(w.scale)
+	return Placement{
+		Bounds:    geom.Rect{Min: w.origin, Max: w.origin.Add(size)},
+		Maximized: w.frame != nil && w.frame.IsMaximized,
+	}, true
+}
+
 // ToScreen implements [Screener].
 func (w *OffscreenWindow) ToScreen(p geom.Point) geom.Point {
 	w.mu.Lock()

@@ -188,21 +188,32 @@ func (d *Driver) NewWindow(o driver.Options) (driver.Window, error) {
 func (d *Driver) Monitors() []driver.Monitor {
 	var out []driver.Monitor
 	_ = d.call(func() error {
-		ms, err := glfw.GetMonitors()
-		if err != nil {
-			return err
-		}
-		primary, _ := glfw.GetPrimaryMonitor()
-		for _, m := range ms {
-			info, ok := monitorInfo(m)
-			if !ok {
-				continue
-			}
-			info.Primary = m == primary
-			out = append(out, info)
-		}
+		out = monitors()
 		return nil
 	})
+	return out
+}
+
+// monitors lists the attached displays. It runs on the main thread.
+func monitors() []driver.Monitor {
+	ms, err := glfw.GetMonitors()
+	if err != nil {
+		return nil
+	}
+	primary, _ := glfw.GetPrimaryMonitor()
+	var out []driver.Monitor
+	for _, m := range ms {
+		info, ok := monitorInfo(m)
+		if !ok {
+			continue
+		}
+		info.Primary = m == primary
+		// Asked here, not in monitorInfo, which a window asks each time it moves
+		if x, y, w, h, err := m.GetWorkarea(); err == nil && w > 0 && h > 0 {
+			info.WorkArea = geom.Rc(float32(x), float32(y), float32(w), float32(h))
+		}
+		out = append(out, info)
+	}
 	return out
 }
 
@@ -222,11 +233,17 @@ func monitorInfo(m *glfw.Monitor) (driver.Monitor, bool) {
 	if scale <= 0 {
 		scale = 1
 	}
+	// Screen coordinates are points on macOS, which the scale has already been taken out of
+	perLogical := scale
+	if runtime.GOOS == "darwin" {
+		perLogical = 1
+	}
 	return driver.Monitor{
-		Name:        name,
-		Bounds:      geom.Rc(float32(x), float32(y), float32(mode.Width), float32(mode.Height)),
-		RefreshRate: float64(mode.RefreshRate),
-		Scale:       scale,
+		Name:             name,
+		Bounds:           geom.Rc(float32(x), float32(y), float32(mode.Width), float32(mode.Height)),
+		RefreshRate:      float64(mode.RefreshRate),
+		Scale:            scale,
+		CoordsPerLogical: perLogical,
 	}, true
 }
 
@@ -401,6 +418,15 @@ func (d *Driver) openWindow(o driver.Options) (*Window, error) {
 			return nil, err
 		}
 	}
+	// A saved placement, for an ordinary window, takes the place of Size and Monitor
+	var placed driver.Placement
+	var place bool
+	if o.Place != nil && o.Kind == driver.KindNormal && o.Parent == nil {
+		placed, place = w.placeAt(*o.Place)
+	}
+	if place && placed.Maximized && maximizeHidden {
+		_ = gw.Maximize()
+	}
 	w.accessOpen()
 	if x, y, err := gw.GetPos(); err == nil {
 		fw, fh, _ := gw.GetFramebufferSize()
@@ -419,6 +445,12 @@ func (d *Driver) openWindow(o driver.Options) (*Window, error) {
 			return nil, err
 		}
 		w.debugf("shown")
+	}
+	if place && placeAgainShown && !o.Hidden {
+		w.applyBounds(w.normals[len(w.normals)-1])
+	}
+	if place && placed.Maximized && !maximizeHidden {
+		_ = gw.Maximize()
 	}
 	w.measure()
 	d.windows[gw] = w
