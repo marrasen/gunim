@@ -54,8 +54,17 @@ func TestAPollSentShowsItsCardAndTakesVotes(t *testing.T) {
 		t.Fatal("the poll's message is not built")
 	}
 	card := n.(*msgRow).poll
-	if s := card.share[0].Value(); s < 0.99 {
+	if s := card.opts[0].share.Value(); s < 0.99 {
 		t.Fatalf("Yes's bar is at %v, want all of it", s)
+	}
+	last.poll.vote("Anna Berg", 0)
+	h.a.publish()
+	h.frames(5)
+	if got := card.tips[0].Text; got != "You, Anna Berg" {
+		t.Fatalf("Yes's tooltip says %q, want who voted for it", got)
+	}
+	if got := card.tips[1].Text; got != "" {
+		t.Fatalf("No's tooltip says %q, want nothing", got)
 	}
 }
 
