@@ -158,7 +158,7 @@ func (t *TextField) Step(dt time.Duration) bool {
 			moving = true
 		}
 	}
-	return moving
+	return t.blink.step(dt) || moving
 }
 
 // Handle implements [gunim.Handler].
@@ -166,8 +166,10 @@ func (t *TextField) Handle(e input.Event, u *gunim.UI) bool {
 	switch e := e.(type) {
 	case input.FocusGained:
 		t.focus.Animate(1, Quick.Get(u.Theme()))
+		t.blink.restart(u)
 	case input.FocusLost:
 		t.focus.Animate(0, Settle.Get(u.Theme()))
+		t.blink.halt()
 		t.anchor = t.caret
 		t.preedit = nil // the driver ends the composition too
 	case input.PointerDown:
@@ -226,6 +228,9 @@ func (t *TextField) Handle(e input.Event, u *gunim.UI) bool {
 		}
 	default:
 		return false
+	}
+	if _, lost := e.(input.FocusLost); !lost {
+		t.blink.restart(u)
 	}
 	u.Invalidate()
 	return true
@@ -396,7 +401,7 @@ func (t *TextField) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ guni
 
 	if focus > 0.01 {
 		c := Accent.Get(th)
-		c.A = uint8(float32(c.A) * min(focus, 1))
+		c.A = uint8(float32(c.A) * min(focus, 1) * t.blink.value())
 		p.RRect(geom.Rc(x+t.caretAt.Value()-0.75, y, 1.5, run.Height()), 0.75, paint.Solid(c))
 	}
 }

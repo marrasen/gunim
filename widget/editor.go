@@ -36,6 +36,9 @@ type editor struct {
 	preedit []rune
 	preSel  [2]int
 
+	// blink blinks the caret while the widget has the keyboard.
+	blink blinker
+
 	// changed is called after every edit.
 	changed func(u *gunim.UI)
 	// edited is set by typing, deleting and composing, and cleared by

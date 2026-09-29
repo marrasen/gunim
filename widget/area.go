@@ -92,8 +92,8 @@ func (a *TextArea) SetText(s string) {
 
 // Step implements [gunim.Animator].
 func (a *TextArea) Step(dt time.Duration) bool {
-	f, c, s := a.focus.Step(dt), a.caretAt.Step(dt), a.scroll.Step(dt)
-	return f || c || s
+	f, c, s, b := a.focus.Step(dt), a.caretAt.Step(dt), a.scroll.Step(dt), a.blink.step(dt)
+	return f || c || s || b
 }
 
 // Handle implements [gunim.Handler].
@@ -101,8 +101,10 @@ func (a *TextArea) Handle(e input.Event, u *gunim.UI) bool {
 	switch e := e.(type) {
 	case input.FocusGained:
 		a.focus.Animate(1, Quick.Get(u.Theme()))
+		a.blink.restart(u)
 	case input.FocusLost:
 		a.focus.Animate(0, Settle.Get(u.Theme()))
+		a.blink.halt()
 		a.anchor = a.caret
 		a.preedit = nil
 	case input.PointerDown:
@@ -136,6 +138,9 @@ func (a *TextArea) Handle(e input.Event, u *gunim.UI) bool {
 		}
 	default:
 		return false
+	}
+	if _, lost := e.(input.FocusLost); !lost {
+		a.blink.restart(u)
 	}
 	u.Invalidate()
 	return true
@@ -320,7 +325,7 @@ func (a *TextArea) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 
 	if focus > 0.01 {
 		c := Accent.Get(th)
-		c.A = uint8(float32(c.A) * min(focus, 1))
+		c.A = uint8(float32(c.A) * min(focus, 1) * a.blink.value())
 		at := a.caretAt.Value().Add(o)
 		h := a.para.LineHeight
 		if len(a.para.Lines) > 0 {
