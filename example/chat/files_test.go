@@ -89,3 +89,30 @@ func TestUploadsWaitForTheConnection(t *testing.T) {
 		return slices.ContainsFunc(h.a.state().Files.Entries, func(e FileEntry) bool { return e.Name == "plan.md" })
 	})
 }
+
+func TestASharedFileShowsInTheConversationAndOpensFromIt(t *testing.T) {
+	h := newHarness(t)
+	general := h.a.current
+	h.a.handle(AreaChosen{Area: "files"})
+	h.a.handle(FileShared{Folder: "Design", Name: "Colours.pdf", Conversation: general.ID})
+	h.frames(5)
+	s := h.a.state()
+	if s.Area != "" || s.Current != general.ID {
+		t.Fatalf("after sharing, the pane shows %q %q, want the conversation shared in", s.Area, s.Current)
+	}
+	last := s.Items[len(s.Items)-1]
+	if last.File.Name != "Colours.pdf" || last.File.Folder != "Design" || last.File.Size != 1_204_551 || !last.Mine {
+		t.Fatalf("the last message shares %+v, want the file", last.File)
+	}
+
+	h.a.handle(FileOpened{Folder: last.File.Folder, Name: last.File.Name})
+	h.frames(5)
+	s = h.a.state()
+	if s.Area != "files" || s.Files.Path != "Design" || s.Files.Selected != "Colours.pdf" {
+		t.Fatalf("opening the file shows %q at %q with %q selected", s.Area, s.Files.Path, s.Files.Selected)
+	}
+	row, ok := h.v.files.grid.Selected()
+	if !ok || s.Files.Entries[row].Name != "Colours.pdf" {
+		t.Fatal("the grid does not have the file selected")
+	}
+}

@@ -313,7 +313,7 @@ func (v *chatView) setArea(s Chat, u *gunim.UI) {
 		if s.Project < len(s.Projects) {
 			name = s.Projects[s.Project].Name
 		}
-		v.files.set(name, s.Files, u)
+		v.files.set(name, s.Files, s.Conversations, u)
 		v.areas.show(1, u)
 		if was != 1 {
 			u.Focus(v.files.grid)

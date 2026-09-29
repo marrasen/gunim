@@ -47,6 +47,14 @@ type (
 		Entries []FileEntry
 		// Transfers are the files on their way up to the project, and those that did not make it.
 		Transfers []Transfer
+		// Selected is the name of the entry to select, such as a file opened from a message.
+		Selected string
+	}
+
+	// FileRef is a file of the project's, by the folder it is in and its name, with its size.
+	FileRef struct {
+		Folder, Name string
+		Size         int64
 	}
 
 	// Transfer is a file on its way up to the project's files: its name, the folder it goes to, its size and how much
@@ -115,6 +123,8 @@ type (
 		Reactions []Reaction
 		Preview   Preview
 		Poll      Poll
+		// File is a file of the project's the message shares, or has no name.
+		File FileRef
 		// Private says only the user sees the message, as the answer to a command.
 		Private bool
 	}
@@ -244,7 +254,13 @@ type (
 	}
 	TransferRetried   struct{ ID string }
 	TransferDismissed struct{ ID string }
-	Submitted         struct{ Text string }
+	// FileShared travels when the user shares a file of the project's in a conversation, and FileOpened when they
+	// open one from a message.
+	FileShared struct {
+		Folder, Name, Conversation string
+	}
+	FileOpened struct{ Folder, Name string }
+	Submitted  struct{ Text string }
 	// Drafted travels as the user types in the message box.
 	Drafted struct{ Text string }
 	// ImagePasted travels when the user pastes a picture, as PNG, and PictureRemoved when they take one waiting
@@ -280,6 +296,8 @@ func init() {
 	gunim.RegisterType[FilesDropped]("chat.files.drop")
 	gunim.RegisterType[TransferRetried]("chat.transfer.retry")
 	gunim.RegisterType[TransferDismissed]("chat.transfer.dismiss")
+	gunim.RegisterType[FileShared]("chat.file.share")
+	gunim.RegisterType[FileOpened]("chat.file.open")
 	gunim.RegisterType[Submitted]("chat.submit")
 	gunim.RegisterType[Drafted]("chat.draft")
 	gunim.RegisterType[ImagePasted]("chat.image")

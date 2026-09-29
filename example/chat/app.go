@@ -73,6 +73,8 @@ type window struct {
 	// area is what the pane shows: "" for the conversation, or "files", and path the folder of files open.
 	area string
 	path string
+	// selected is the entry of the folder open to select, such as a file opened from a message.
+	selected string
 }
 
 // windowIntent is an intent from one of the windows, or word that the window closed.
@@ -120,6 +122,8 @@ type msg struct {
 	poll *poll
 	// private says only the user sees the message, as the answer to a command.
 	private bool
+	// file is a file of the project's the message shares, or has no name.
+	file FileRef
 }
 
 // commands are the commands the message box takes, for /help to list.
@@ -465,7 +469,13 @@ func (a *app) handleIn(w *window, v gunim.Intent) {
 		}
 	case FolderOpened:
 		if _, ok := a.projects[w.project].folderAt(v.Path); ok {
-			w.path = v.Path
+			w.path, w.selected = v.Path, ""
+		}
+	case FileShared:
+		a.share(w, v)
+	case FileOpened:
+		if _, ok := a.projects[w.project].folderAt(v.Folder); ok {
+			w.area, w.path, w.selected = "files", v.Folder, v.Name
 		}
 	case FilesDropped:
 		a.upload(a.projects[w.project], v.Folder, v.Paths)
@@ -893,7 +903,8 @@ func (a *app) stateOf(w *window) Chat {
 			// The folder open went away: back to the top.
 			w.path, f = "", p.files
 		}
-		s.Area, s.Files = w.area, Files{Path: w.path, Entries: entriesOf(f), Transfers: transfersOf(p)}
+		s.Area, s.Files = w.area, Files{Path: w.path, Entries: entriesOf(f), Transfers: transfersOf(p),
+			Selected: w.selected}
 	}
 	if m, ok := w.current.byID[w.replying]; ok {
 		s.Replying = quote(m)
@@ -931,7 +942,7 @@ func timeline(c *conv, now time.Time, newFrom string) []Item {
 		}
 		it := Item{Key: m.ID, Message: Message{ID: m.ID, Author: m.Author, Mine: m.Author == me, At: m.At, Body: m.Body,
 			State: m.State, Edited: m.Edited, Withdrawn: m.Withdrawn, Pictures: slices.Clone(m.Pictures),
-			Reactions: reactionsOf(m), Preview: m.preview, Poll: pollOf(m), Private: m.private}}
+			Reactions: reactionsOf(m), Preview: m.preview, Poll: pollOf(m), Private: m.private, File: m.file}}
 		it.Continued = prev != nil && prev.Author == m.Author && m.At.Sub(groupAt) < groupFor && m.ReplyTo == "" &&
 			!m.private
 		if !it.Continued {
@@ -946,7 +957,13 @@ func timeline(c *conv, now time.Time, newFrom string) []Item {
 	return out
 }
 
-func quote(m *msg) Quote { return Quote{ID: m.ID, Author: m.Author, Text: m.Body, Gone: m.Withdrawn} }
+func quote(m *msg) Quote {
+	text := m.Body
+	if text == "" && m.file.Name != "" {
+		text = "File: " + m.file.Name
+	}
+	return Quote{ID: m.ID, Author: m.Author, Text: text, Gone: m.Withdrawn}
+}
 
 // dayName names the day of t: today, yesterday, or its weekday and date.
 func dayName(t, now time.Time) string {

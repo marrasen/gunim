@@ -20,8 +20,12 @@ type filesPane struct {
 	address   *widget.AddressBar
 	grid      *widget.DataGrid
 	transfers *widget.List
+	share     *widget.MenuButton
 	files     Files
 	project   string
+	// convs are the conversations the share button offers, by ID; selected is the entry last selected for Files.
+	convs    []string
+	selected string
 }
 
 func newFilesPane() *filesPane {
@@ -45,7 +49,16 @@ func newFilesPane() *filesPane {
 		return FolderOpened{Path: joinPath(f.files.Path, e.Name)}
 	}
 	folderIcon := widget.NewIcon(icon.FolderOpen, "Files")
-	header := widget.Row(folderIcon, f.address).Grow(f.address, 1)
+	f.share = widget.NewMenuButton("Share")
+	f.share.Icon = icon.Share2
+	f.share.OnPick = func(i int) gunim.Intent {
+		row, ok := f.grid.Selected()
+		if !ok || row >= len(f.files.Entries) || f.files.Entries[row].Folder || i >= len(f.convs) {
+			return nil
+		}
+		return FileShared{Folder: f.files.Path, Name: f.files.Entries[row].Name, Conversation: f.convs[i]}
+	}
+	header := widget.Row(folderIcon, f.address, f.share).Grow(f.address, 1)
 	header.Cross = widget.CrossCenter
 	// Files dropped from another program anywhere on the list go to the folder open.
 	drop := widget.NewDropZone(f.grid)
@@ -66,8 +79,20 @@ func newFilesPane() *filesPane {
 	return f
 }
 
-// set shows files, the files of the project named project.
-func (f *filesPane) set(project string, files Files, u *gunim.UI) {
+// set shows files, the files of the project named project, and offers to share them in convs.
+func (f *filesPane) set(project string, files Files, convs []Conversation, u *gunim.UI) {
+	f.convs, f.share.Items = f.convs[:0], f.share.Items[:0]
+	for _, c := range convs {
+		if c.Area != "" {
+			continue
+		}
+		f.convs = append(f.convs, c.ID)
+		name := c.Name
+		if !c.Direct {
+			name = "#" + name
+		}
+		f.share.Items = append(f.share.Items, name)
+	}
 	moved := files.Path != f.files.Path || project != f.project
 	f.files, f.project = files, project
 	crumbs := []widget.Crumb{{Name: project, Path: "/"}}
@@ -86,6 +111,14 @@ func (f *filesPane) set(project string, files Files, u *gunim.UI) {
 		func(r *transferRow, t Transfer, u *gunim.UI) { r.set(t, u) })
 	if moved {
 		f.grid.JumpTo(0, false, u)
+	}
+	if files.Selected != f.selected {
+		f.selected = files.Selected
+		for i, e := range files.Entries {
+			if e.Name == files.Selected {
+				f.grid.Select(i, true, u)
+			}
+		}
 	}
 	u.Invalidate()
 }

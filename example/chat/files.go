@@ -85,6 +85,26 @@ func entriesOf(f *folder) []FileEntry {
 	return out
 }
 
+// share posts a message sharing the file v names in the conversation it names, and shows w the conversation.
+func (a *app) share(w *window, v FileShared) {
+	p := a.projects[w.project]
+	f, ok := p.folderAt(v.Folder)
+	if !ok {
+		return
+	}
+	i := slices.IndexFunc(f.files, func(x *file) bool { return x.name == v.Name })
+	c := slices.IndexFunc(p.convs, func(c *conv) bool { return c.ID == v.Conversation })
+	if i < 0 || c < 0 {
+		return
+	}
+	m := a.add(p.convs[c], me, "", time.Now().Round(0))
+	m.file = FileRef{Folder: v.Folder, Name: v.Name, Size: f.files[i].size}
+	p.convs[c].readTo = m.ID
+	a.send(m)
+	w.area = ""
+	a.open(w, p.convs[c])
+}
+
 // newest returns when anything in f last changed, or the zero time for an empty folder.
 func newest(f *folder) time.Time {
 	var t time.Time

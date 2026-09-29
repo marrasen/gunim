@@ -21,7 +21,7 @@ const scriptPause = 500 * time.Millisecond
 // have name type, "hover:x,y" to move the pointer there, "drag:x,y,x,y" to press at the first place and drag to
 // the second, "theme:light" or "theme:dark" to switch the theme, "popout" to open the conversation in a window of
 // its own, "files" to open the project's files, "folder:path" to open one of their folders, "drop:path|path" to drop files
-// there as if from another program, and "shot:path" to
+// there as if from another program, "share:folder|name" to share a file in the conversation, and "shot:path" to
 // write the newest window to a PNG file.
 func (a *app) runScript(steps []string) {
 	if len(steps) == 0 {
@@ -84,6 +84,9 @@ func (a *app) scriptStep(step string) {
 		a.handle(AreaChosen{Area: "files"})
 	case "folder":
 		a.handle(FolderOpened{Path: arg})
+	case "share":
+		folder, name, _ := strings.Cut(arg, "|")
+		a.handle(FileShared{Folder: folder, Name: name, Conversation: a.current.ID})
 	case "drop":
 		a.handle(FilesDropped{Folder: a.path, Paths: strings.Split(arg, "|")})
 	case "popout":

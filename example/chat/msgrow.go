@@ -45,6 +45,7 @@ type msgRow struct {
 	pictures  []*widget.Image
 	poll      *pollCard
 	preview   *previewCard
+	file      *fileCard
 	reactions *reactionBar
 	tools     gunim.Node
 	toolsAt   geom.Point
@@ -85,6 +86,7 @@ func newMsgRow(item Item, jump func(string, *gunim.UI), group *markdown.Group, i
 		}
 		r.poll = newPollCard(item.ID, item.Poll)
 		r.preview = newPreviewCard(item.Preview, image)
+		r.file = newFileCard(item.File)
 		r.reactions = newReactionBar(item.ID, item.Reactions, react)
 		r.tools = newTools(item.Message, react)
 	}
@@ -148,7 +150,7 @@ func (r *msgRow) Children() []gunim.Node {
 	for _, p := range r.pictures {
 		out = append(out, p)
 	}
-	return append(out, r.poll, r.preview, r.reactions, r.tools)
+	return append(out, r.poll, r.preview, r.file, r.reactions, r.tools)
 }
 
 // showsTools reports whether the toolbar can show: on a message still there.
