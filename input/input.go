@@ -154,6 +154,12 @@ type FocusGained struct {
 // FocusLost arrives when a node gives keyboard focus up.
 type FocusLost struct{ Time time.Time }
 
+// FocusEntered arrives at each node round the focused one that the
+// focus has just come into from outside it, after the node itself hears
+// [FocusGained]. A pane of several controls hears it once, as the
+// keyboard comes to any of them, and not as it moves among them.
+type FocusEntered struct{ Time time.Time }
+
 // FocusRing says whether a node shows that it has the keyboard. The focused node hears it, and so does the outermost
 // tab group around it, with Within set. Rings show once Tab has moved the focus, until a click. Grouped says a
 // group around the focused node draws the ring round the whole.
@@ -246,6 +252,7 @@ func (TextInput) isEvent()    {}
 func (Composing) isEvent()    {}
 func (FocusGained) isEvent()  {}
 func (FocusLost) isEvent()    {}
+func (FocusEntered) isEvent() {}
 func (FocusRing) isEvent()    {}
 func (DragOver) isEvent()     {}
 func (DragLeave) isEvent()    {}
