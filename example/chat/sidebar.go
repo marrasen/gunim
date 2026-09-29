@@ -6,6 +6,7 @@ import (
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/text"
@@ -187,7 +188,9 @@ func (r *convRow) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.
 		ink = widget.Ink.Get(th)
 	}
 	mid := box.H / 2
-	if r.conv.Direct {
+	if ic := areaIcon(r.conv.Area); ic != nil {
+		widget.PaintIcon(p, th, ic, geom.Rc(11, mid-8, 16, 16), Faint.Get(th))
+	} else if r.conv.Direct {
 		p.RRect(geom.Rc(14, mid-5, 10, 10), 5, paint.Solid(avatarTint(r.conv.Name)))
 	} else {
 		hash := widget.Font.Get(th).Shape("#", widget.TextSize.Get(th))
@@ -200,6 +203,15 @@ func (r *convRow) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.
 		p.RRect(badge, 9, paint.Solid(BadgeFill.Get(th)))
 		r.count.Paint(p, geom.Pt(badge.Center().X-r.count.Advance/2, mid-r.count.Height()/2), widget.ButtonStrongInk.Get(th))
 	}
+}
+
+// areaIcon returns the icon of a row that opens an area of the project, or nil for a conversation.
+func areaIcon(area string) *icon.Icon {
+	switch area {
+	case "files":
+		return icon.Folder
+	}
+	return nil
 }
 
 // Handle implements [gunim.Handler]: the row lights under the pointer, and leaves clicks to the list.

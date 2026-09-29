@@ -70,6 +70,9 @@ type window struct {
 	// from others it had then.
 	newFrom string
 	unread  int
+	// area is what the pane shows: "" for the conversation, or "files", and path the folder of files open.
+	area string
+	path string
 }
 
 // windowIntent is an intent from one of the windows, or word that the window closed.
@@ -82,6 +85,8 @@ type windowIntent struct {
 type project struct {
 	Name, Short string
 	convs       []*conv
+	// files is the project's top folder.
+	files *folder
 }
 
 type conv struct {
@@ -274,6 +279,9 @@ func newApp(ctx context.Context, c gunim.Client, seed uint64, history int, failR
 			a.newConv("general", false, "Lena Holm", "Anna Berg")),
 	}
 	now := time.Now().Round(0)
+	for _, p := range a.projects {
+		a.seedFiles(p)
+	}
 	for pi, p := range a.projects {
 		for ci, cv := range p.convs {
 			n := 30
@@ -440,14 +448,23 @@ func (a *app) handleIn(w *window, v gunim.Intent) {
 	switch v := v.(type) {
 	case ProjectChosen:
 		if v.Index >= 0 && v.Index < len(a.projects) {
-			w.project = v.Index
+			w.project, w.path = v.Index, ""
 			a.open(w, a.projects[v.Index].convs[0])
 		}
 	case ConversationChosen:
 		for _, c := range a.projects[w.project].convs {
 			if c.ID == v.ID {
+				w.area = ""
 				a.open(w, c)
 			}
+		}
+	case AreaChosen:
+		if v.Area == "files" && !w.solo {
+			w.area = v.Area
+		}
+	case FolderOpened:
+		if _, ok := a.projects[w.project].folderAt(v.Path); ok {
+			w.path = v.Path
 		}
 	case PopOut:
 		a.popOut(w.current)
@@ -848,8 +865,20 @@ func (a *app) stateOf(w *window) Chat {
 		}
 		s.Projects = append(s.Projects, Project{Name: p.Name, Short: p.Short, Unread: unread})
 	}
+	if !w.solo {
+		s.Conversations = append(s.Conversations, Conversation{ID: "area:files", Name: "Files", Area: "files"})
+	}
 	for _, c := range a.projects[w.project].convs {
 		s.Conversations = append(s.Conversations, Conversation{ID: c.ID, Name: c.Name, Direct: c.Direct, Unread: c.unread})
+	}
+	if w.area == "files" {
+		p := a.projects[w.project]
+		f, ok := p.folderAt(w.path)
+		if !ok {
+			// The folder open went away: back to the top.
+			w.path, f = "", p.files
+		}
+		s.Area, s.Files = w.area, Files{Path: w.path, Entries: entriesOf(f)}
 	}
 	if m, ok := w.current.byID[w.replying]; ok {
 		s.Replying = quote(m)

@@ -35,6 +35,27 @@ type (
 		// how many messages from others came after it; the timeline opens at the line.
 		NewKey string
 		Unread int
+		// Area is what the pane shows: the conversation, or "files" for the project's files, which Files holds.
+		Area  string
+		Files Files
+	}
+
+	// Files is a folder of the project's files: its path, its folders' names joined by slashes from the project's
+	// top, and what it holds.
+	Files struct {
+		Path    string
+		Entries []FileEntry
+	}
+
+	// FileEntry is a file or a folder: its name, its size in bytes or how many things it holds, when it last changed
+	// and who changed it.
+	FileEntry struct {
+		Name   string
+		Folder bool
+		Size   int64
+		Items  int
+		At     time.Time
+		By     string
 	}
 
 	// Picture is a picture in a message, or waiting to go with one: its ID and its size in pixels.
@@ -54,6 +75,8 @@ type (
 		ID, Name string
 		Direct   bool
 		Unread   int
+		// Area is set for a row that opens an area of the project in place of a conversation, such as "files".
+		Area string
 	}
 
 	// Item is a row of the timeline: a day's heading when Day is set, the line over the messages not yet read when
@@ -185,7 +208,11 @@ const (
 type (
 	ProjectChosen      struct{ Index int }
 	ConversationChosen struct{ ID string }
-	Submitted          struct{ Text string }
+	// AreaChosen travels when the user opens an area of the project, such as "files", and FolderOpened when they
+	// open a folder of its files, by path.
+	AreaChosen   struct{ Area string }
+	FolderOpened struct{ Path string }
+	Submitted    struct{ Text string }
 	// Drafted travels as the user types in the message box.
 	Drafted struct{ Text string }
 	// ImagePasted travels when the user pastes a picture, as PNG, and PictureRemoved when they take one waiting
@@ -216,6 +243,8 @@ func init() {
 	gunim.RegisterType[Typing]("chat.typing")
 	gunim.RegisterType[ProjectChosen]("chat.project")
 	gunim.RegisterType[ConversationChosen]("chat.conversation")
+	gunim.RegisterType[AreaChosen]("chat.area")
+	gunim.RegisterType[FolderOpened]("chat.folder")
 	gunim.RegisterType[Submitted]("chat.submit")
 	gunim.RegisterType[Drafted]("chat.draft")
 	gunim.RegisterType[ImagePasted]("chat.image")

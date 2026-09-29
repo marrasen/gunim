@@ -2,6 +2,7 @@ package main
 
 import (
 	"image/color"
+	"strings"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
@@ -68,6 +69,9 @@ type chatView struct {
 	draftSeq int
 	// solo says the window shows its conversation alone, without the projects and the conversations.
 	solo bool
+	// areas holds the conversation and the project's files, and shows one of them; files is the second.
+	areas *areas
+	files *filesPane
 }
 
 // buildChat builds the chat's window: the projects, the conversations and the one open, or for a window popped out
@@ -79,7 +83,12 @@ func buildChat(s Chat) *chatView {
 	v.projectName = widget.NewLabel("")
 	v.projectName.Face, v.projectName.Size = widget.BoldFont, sidebarTitle
 	v.convs = widget.NewList()
-	v.convs.OnClick = func(k widget.Key) gunim.Intent { return ConversationChosen{ID: string(k)} }
+	v.convs.OnClick = func(k widget.Key) gunim.Intent {
+		if area, ok := strings.CutPrefix(string(k), "area:"); ok {
+			return AreaChosen{Area: area}
+		}
+		return ConversationChosen{ID: string(k)}
+	}
 	side := widget.Column(v.projectName, v.convs)
 	side.Cross = widget.CrossStretch
 	sideTheme := theme.Make("chat.side", theme.Set(widget.ListSpacing, 2))
@@ -139,7 +148,9 @@ func buildChat(s Chat) *chatView {
 	if s.Solo {
 		v.root = widget.Row(pane).Grow(pane, 1)
 	} else {
-		v.root = widget.Row(v.rail, sidebar, pane).Grow(pane, 1)
+		v.files = newFilesPane()
+		v.areas = newAreas(pane, v.files.root)
+		v.root = widget.Row(v.rail, sidebar, v.areas).Grow(v.areas, 1)
 	}
 	v.root.Cross, v.root.Gap = widget.CrossStretch, zeroGap
 	return v
@@ -210,8 +221,9 @@ func (v *chatView) set(s Chat, u *gunim.UI) {
 		}
 		widget.Sync(v.convs, u, s.Conversations,
 			func(c Conversation) widget.Key { return widget.Key(c.ID) },
-			func(c Conversation) *convRow { return newConvRow(c, c.ID == s.Current) },
-			func(r *convRow, c Conversation, u *gunim.UI) { r.set(c, c.ID == s.Current, u) })
+			func(c Conversation) *convRow { return newConvRow(c, chosen(s, c)) },
+			func(r *convRow, c Conversation, u *gunim.UI) { r.set(c, chosen(s, c), u) })
+		v.setArea(s, u)
 	}
 	v.title.SetText(s.Title)
 	v.composer.Placeholder = "Message " + s.Title
@@ -275,6 +287,36 @@ func (v *chatView) set(s Chat, u *gunim.UI) {
 		v.draftSeq = s.Draft.Seq
 		v.composer.SetText(s.Draft.Text)
 		u.Focus(v.composer)
+	}
+}
+
+// chosen reports whether c is the row the pane shows: the area open, or the conversation when none is.
+func chosen(s Chat, c Conversation) bool {
+	if c.Area != "" || s.Area != "" {
+		return c.Area == s.Area
+	}
+	return c.ID == s.Current
+}
+
+// setArea shows the area of the project s says, and hands it the keyboard as it arrives.
+func (v *chatView) setArea(s Chat, u *gunim.UI) {
+	was := v.areas.shown
+	switch s.Area {
+	case "files":
+		name := ""
+		if s.Project < len(s.Projects) {
+			name = s.Projects[s.Project].Name
+		}
+		v.files.set(name, s.Files, u)
+		v.areas.show(1, u)
+		if was != 1 {
+			u.Focus(v.files.grid)
+		}
+	default:
+		v.areas.show(0, u)
+		if was != 0 {
+			u.Focus(v.composer)
+		}
 	}
 }
 

@@ -20,7 +20,8 @@ const scriptPause = 500 * time.Millisecond
 // its poll, "click:x,y" to click there, "offline" and "online" to drop and restore the connection, "typing:name" to
 // have name type, "hover:x,y" to move the pointer there, "drag:x,y,x,y" to press at the first place and drag to
 // the second, "theme:light" or "theme:dark" to switch the theme, "popout" to open the conversation in a window of
-// its own, and "shot:path" to write the newest window to a PNG file.
+// its own, "files" to open the project's files, "folder:path" to open one of their folders, and "shot:path" to
+// write the newest window to a PNG file.
 func (a *app) runScript(steps []string) {
 	if len(steps) == 0 {
 		return
@@ -78,6 +79,10 @@ func (a *app) scriptStep(step string) {
 			a.c.Input(a.ctx, input.PointerMove{Pos: pts[0]}),
 			a.c.Input(a.ctx, input.PointerDown{Pos: pts[0], Button: input.ButtonPrimary, Clicks: 1}),
 			a.c.Input(a.ctx, input.PointerMove{Pos: pts[1]}))
+	case "files":
+		a.handle(AreaChosen{Area: "files"})
+	case "folder":
+		a.handle(FolderOpened{Path: arg})
 	case "popout":
 		a.handle(PopOut{})
 	case "shot":
