@@ -15,7 +15,8 @@ import (
 const scriptPause = 500 * time.Millisecond
 
 // runScript runs the steps of a script from -do one after another, each after a pause. A step is "reply" to reply
-// to the second latest message, "type:text" to type in the message box, "send" to press Enter, "offline" and
+// to the second latest message, "type:text" to type in the message box, "send" to press Enter, "paste" to press
+// Ctrl+V, "offline" and
 // "online" to drop and restore the connection, "typing:name" to have name type, "hover:x,y" to move the pointer
 // there, "drag:x,y,x,y" to press at the first place and drag to the second, and "theme:light" or "theme:dark" to
 // switch the theme.
@@ -41,6 +42,8 @@ func (a *app) scriptStep(step string) {
 		err = a.c.Input(a.ctx, input.TextInput{Text: strings.ReplaceAll(arg, `\n`, "\n")})
 	case "send":
 		err = a.c.Input(a.ctx, input.KeyPress{Key: input.KeyEnter})
+	case "paste":
+		err = a.c.Input(a.ctx, input.KeyPress{Key: input.KeyV, Mods: input.ModControl})
 	case "offline", "online":
 		if (a.link == Online) == (verb == "offline") {
 			a.handle(LinkToggled{})

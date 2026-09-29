@@ -1,9 +1,11 @@
 package main
 
 import (
+	"slices"
 	"time"
 
 	"github.com/marrasen/gunim"
+	"github.com/marrasen/gunim/paint"
 )
 
 // The vocabulary the two halves share.
@@ -23,6 +25,16 @@ type (
 		Replying Quote
 		Editing  string
 		Draft    Draft
+		// Pending are the pictures waiting to go with the next message, and Images every picture the view shows,
+		// by ID.
+		Pending []Picture
+		Images  map[string]*paint.Image
+	}
+
+	// Picture is a picture in a message, or waiting to go with one: its ID and its size in pixels.
+	Picture struct {
+		ID   string
+		W, H int
 	}
 
 	// Project is a project in the rail.
@@ -57,6 +69,7 @@ type (
 		// Continued says the message follows one by the same author closely enough to share its heading.
 		Continued bool
 		Reply     Quote
+		Pictures  []Picture
 	}
 
 	// Quote is the message a reply cites.
@@ -76,6 +89,28 @@ type (
 	// Typing is the patch that says who is typing in the open conversation. Who is empty when nobody is.
 	Typing struct{ Who string }
 )
+
+// same reports whether two rows show the same.
+func same(a, b Item) bool {
+	return a.Key == b.Key && a.Day == b.Day && a.Message.equal(b.Message) && slices.Equal(a.Pictures, b.Pictures)
+}
+
+// equal compares two messages but for their pictures, which same compares.
+func (m Message) equal(o Message) bool {
+	type plain struct {
+		ID, Author                   string
+		Mine                         bool
+		At                           time.Time
+		Body                         string
+		State                        State
+		Edited, Withdrawn, Continued bool
+		Reply                        Quote
+	}
+	flat := func(m Message) plain {
+		return plain{m.ID, m.Author, m.Mine, m.At, m.Body, m.State, m.Edited, m.Withdrawn, m.Continued, m.Reply}
+	}
+	return flat(m) == flat(o)
+}
 
 // State is where a message of the user's own is on its way to the server.
 type State uint8
@@ -101,11 +136,15 @@ type (
 	ConversationChosen struct{ ID string }
 	Submitted          struct{ Text string }
 	// Drafted travels as the user types in the message box.
-	Drafted       struct{ Text string }
-	ReplyAsked    struct{ ID string }
-	EditAsked     struct{ ID string }
-	WithdrawAsked struct{ ID string }
-	RetryAsked    struct{ ID string }
+	Drafted struct{ Text string }
+	// ImagePasted travels when the user pastes a picture, as PNG, and PictureRemoved when they take one waiting
+	// off the next message.
+	ImagePasted    struct{ PNG []byte }
+	PictureRemoved struct{ ID string }
+	ReplyAsked     struct{ ID string }
+	EditAsked      struct{ ID string }
+	WithdrawAsked  struct{ ID string }
+	RetryAsked     struct{ ID string }
 	// Cancelled travels when the user drops a reply or an edit.
 	Cancelled    struct{}
 	LinkToggled  struct{}
@@ -119,6 +158,8 @@ func init() {
 	gunim.RegisterType[ConversationChosen]("chat.conversation")
 	gunim.RegisterType[Submitted]("chat.submit")
 	gunim.RegisterType[Drafted]("chat.draft")
+	gunim.RegisterType[ImagePasted]("chat.image")
+	gunim.RegisterType[PictureRemoved]("chat.image.remove")
 	gunim.RegisterType[ReplyAsked]("chat.reply")
 	gunim.RegisterType[EditAsked]("chat.edit")
 	gunim.RegisterType[WithdrawAsked]("chat.withdraw")

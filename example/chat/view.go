@@ -51,6 +51,10 @@ type chatView struct {
 
 	// items holds the timeline's rows by key, for building them.
 	items map[widget.Key]Item
+	// images holds every picture the timeline and the message box show, by ID, and strip the pictures waiting to
+	// go with the next message.
+	images map[string]*paint.Image
+	strip  *pictureStrip
 	// order is the timeline's keys, and at where each is in it; group lets a selection run across its messages.
 	order    []widget.Key
 	at       map[widget.Key]int
@@ -97,11 +101,13 @@ func buildChat(Chat) *chatView {
 	v.composer.Rows, v.composer.MaxRows = 1, 8
 	v.composer.OnSubmit = func(s string) gunim.Intent { return Submitted{Text: s} }
 	v.composer.OnChange = func(s string) gunim.Intent { return Drafted{Text: s} }
+	v.composer.OnPasteImage = func(png []byte) gunim.Intent { return ImagePasted{PNG: png} }
 	send := widget.NewIconButton(icon.SendHorizontal, "Send")
 	send.OnActivate(func(u *gunim.UI) { u.Send(send, Submitted{Text: v.composer.Text()}) })
 	box := widget.Row(v.composer, send).Grow(v.composer, 1)
 	box.Cross = widget.CrossEnd
-	composer := &composerBox{child: widget.Column(v.reply, box)}
+	v.strip = newPictureStrip()
+	composer := &composerBox{child: widget.Column(v.strip, v.reply, box)}
 	composer.child.Cross = widget.CrossStretch
 
 	top := widget.NewPad(header)
@@ -132,7 +138,9 @@ func (v *chatView) newList() *widget.VirtualList {
 		}
 		return ""
 	})
-	l := widget.NewVirtualList(func(k widget.Key) gunim.Node { return newMsgRow(v.items[k], v.jump, v.group) })
+	l := widget.NewVirtualList(func(k widget.Key) gunim.Node {
+		return newMsgRow(v.items[k], v.jump, v.group, func(id string) *paint.Image { return v.images[id] })
+	})
 	l.StickToEnd = true
 	l.Estimate = 44
 	l.Spacing = TimelineSpacing
@@ -180,6 +188,8 @@ func (v *chatView) set(s Chat, u *gunim.UI) {
 	}
 	v.setLink(s.Link, u)
 	v.reply.set(s.Replying, s.Editing != "", u)
+	v.images = s.Images
+	v.strip.set(s.Pending, s.Images, u)
 
 	if s.Current != v.current {
 		// A new conversation gets a new timeline, which opens at its end.
@@ -194,7 +204,7 @@ func (v *chatView) set(s Chat, u *gunim.UI) {
 	for i, it := range s.Items {
 		k := widget.Key(it.Key)
 		keys[i], items[k] = k, it
-		if old, ok := v.items[k]; ok && old != it {
+		if old, ok := v.items[k]; ok && !same(old, it) {
 			if n, built := v.list.Row(k); built {
 				n.(*msgRow).set(it, u)
 			}
@@ -381,6 +391,99 @@ func (f *fader) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) 
 func (f *fader) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, kids gunim.Children) {
 	defer p.Layer(paint.LayerOpts{Bounds: geom.Rect{Max: box.Point()}, Opacity: min(max(f.in.Value(), 0), 1), Clip: true})()
 	kids.At(0).Paint(p)
+}
+
+// thumbSize is the size of a picture waiting to go with the next message.
+const thumbSize = 72
+
+// pictureStrip shows the pictures waiting to go with the next message, each with a button that takes it off. It
+// opens over the message box while there are any.
+type pictureStrip struct {
+	anim.Group
+	open   *anim.Float
+	row    *widget.Flex
+	thumbs map[string]*thumb
+}
+
+func newPictureStrip() *pictureStrip {
+	s := &pictureStrip{open: anim.NewFloat(0), row: widget.Row(), thumbs: map[string]*thumb{}}
+	s.Add(s.open)
+	return s
+}
+
+// set shows ps, whose pictures images holds: new ones arrive in the row, and ones gone leave it.
+func (s *pictureStrip) set(ps []Picture, images map[string]*paint.Image, u *gunim.UI) {
+	keep := make(map[string]bool, len(ps))
+	for _, p := range ps {
+		keep[p.ID] = true
+		if _, ok := s.thumbs[p.ID]; ok || images[p.ID] == nil {
+			continue
+		}
+		t := newThumb(p.ID, images[p.ID])
+		s.thumbs[p.ID] = t
+		u.Insert(s.row, t)
+	}
+	for id, t := range s.thumbs {
+		if !keep[id] {
+			u.Remove(t)
+			delete(s.thumbs, id)
+		}
+	}
+	s.open.Animate(map[bool]float32{false: 0, true: 1}[len(s.thumbs) > 0], widget.Quick.Get(u.Theme()))
+}
+
+// Children implements [gunim.Composite].
+func (s *pictureStrip) Children() []gunim.Node { return []gunim.Node{s.row} }
+
+// Layout implements [gunim.Node].
+func (s *pictureStrip) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
+	kid := kids.At(0)
+	kid.Layout(gunim.Loose(geom.Sz(c.Max.W, thumbSize)))
+	kid.Place(geom.Pt(0, 2))
+	return geom.Sz(c.Max.W, (thumbSize+10)*max(0, s.open.Value()))
+}
+
+// Paint implements [gunim.Node].
+func (s *pictureStrip) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, kids gunim.Children) {
+	if box.H < 0.5 {
+		return
+	}
+	defer p.Layer(paint.LayerOpts{Bounds: geom.Rect{Max: box.Point()}, Opacity: min(1, s.open.Value()), Clip: true})()
+	kids.At(0).Paint(p)
+}
+
+// thumb is a picture waiting to go with the next message, and a button at its corner that takes it off.
+type thumb struct {
+	img    *widget.Image
+	remove *widget.IconButton
+}
+
+func newThumb(id string, src *paint.Image) *thumb {
+	img := widget.NewImage(src)
+	img.Fit, img.Radius, img.Size = widget.FitCover, 8, geom.Sz(thumbSize, thumbSize)
+	remove := widget.NewIconButton(icon.X, "Remove the picture")
+	remove.IconSize, remove.Ghost, remove.KeepFocus, remove.On = ToolIcon, false, true, PictureRemoved{ID: id}
+	return &thumb{img: img, remove: remove}
+}
+
+// Children implements [gunim.Composite].
+func (t *thumb) Children() []gunim.Node { return []gunim.Node{t.img, t.remove} }
+
+// Layout implements [gunim.Node].
+func (t *thumb) Layout(_ gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
+	img, remove := kids.At(0), kids.At(1)
+	img.Layout(gunim.Tight(geom.Sz(thumbSize, thumbSize)))
+	img.Place(geom.Point{})
+	bs := remove.Layout(gunim.Loose(geom.Sz(thumbSize, thumbSize)))
+	remove.Place(geom.Pt(thumbSize-bs.W-3, 3))
+	return geom.Sz(thumbSize, thumbSize)
+}
+
+// Paint implements [gunim.Node].
+func (t *thumb) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim.Children) {
+	for k := range kids.All {
+		k.Paint(p)
+	}
 }
 
 // composerBox is the message box with the reply bar over it. Escape in it drops a reply or an edit.

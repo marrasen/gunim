@@ -39,12 +39,13 @@ type msgRow struct {
 	// jump scrolls the timeline to a message and flashes it.
 	jump func(id string, u *gunim.UI)
 
-	// body shows the message's text, and tools its toolbar; both are nil in a day's heading.
-	body    *markdown.View
-	tools   gunim.Node
-	toolsAt geom.Point
-	hover   *anim.Float
-	flash   *anim.Float
+	// body shows the message's text, pictures its pictures, and tools its toolbar; all are nil in a day's heading.
+	body     *markdown.View
+	pictures []*widget.Image
+	tools    gunim.Node
+	toolsAt  geom.Point
+	hover    *anim.Float
+	flash    *anim.Float
 
 	// laidFor is what the texts below were laid out for.
 	laidFor struct {
@@ -61,7 +62,7 @@ type msgRow struct {
 	height float32
 }
 
-func newMsgRow(item Item, jump func(string, *gunim.UI), group *markdown.Group) *msgRow {
+func newMsgRow(item Item, jump func(string, *gunim.UI), group *markdown.Group, image func(id string) *paint.Image) *msgRow {
 	r := &msgRow{item: item, jump: jump, hover: anim.NewFloat(0), flash: anim.NewFloat(0)}
 	r.Add(r.hover, r.flash)
 	if item.Day == "" {
@@ -69,6 +70,13 @@ func newMsgRow(item Item, jump func(string, *gunim.UI), group *markdown.Group) *
 		r.body.Breaks = true
 		r.body.Group, r.body.Key = group, item.Key
 		r.setBody()
+		for _, p := range item.Pictures {
+			if src := image(p.ID); src != nil {
+				img := widget.NewImage(src)
+				img.Fit, img.Radius, img.Size = widget.FitCover, 8, pictureSize(p)
+				r.pictures = append(r.pictures, img)
+			}
+		}
 		r.tools = newTools(item.Message)
 	}
 	return r
@@ -121,7 +129,11 @@ func (r *msgRow) Children() []gunim.Node {
 	if r.body == nil {
 		return nil
 	}
-	return []gunim.Node{r.body, r.tools}
+	out := []gunim.Node{r.body}
+	for _, p := range r.pictures {
+		out = append(out, p)
+	}
+	return append(out, r.tools)
 }
 
 // showsTools reports whether the toolbar can show: on a message still there.
@@ -136,11 +148,20 @@ func (r *msgRow) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children)
 		return geom.Sz(w, dayH)
 	}
 	r.lay(th, w)
-	body, tools := kids.At(0), kids.At(1)
+	body, tools := kids.At(0), kids.At(kids.Len()-1)
 	textW := textWidth(w)
 	bs := body.Layout(gunim.Constraints{Min: geom.Sz(textW, 0), Max: geom.Sz(textW, 0)})
 	body.Place(geom.Pt(gutter, r.bodyAt))
 	y := r.bodyAt + bs.H
+	if len(r.pictures) > 0 && r.item.Body == "" {
+		y = r.bodyAt
+	}
+	for i := range r.pictures {
+		kid := kids.At(1 + i)
+		ps := kid.Layout(gunim.Loose(geom.Sz(textW, 1000)))
+		kid.Place(geom.Pt(gutter, y+6))
+		y += ps.H + 6
+	}
 	r.footBox = geom.Rect{}
 	if footText(r.item.Message) != "" {
 		r.footBox = geom.Rc(gutter, y+2, r.foot.Advance, r.foot.Height())
@@ -153,13 +174,21 @@ func (r *msgRow) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children)
 	return geom.Sz(w, r.height)
 }
 
+// pictureSize is how large a picture shows in the timeline: its own size, shrunk to fit 360 by 260 and keeping its
+// shape.
+func pictureSize(p Picture) geom.Size {
+	w, h := float32(max(p.W, 1)), float32(max(p.H, 1))
+	scale := min(1, 360/w, 260/h)
+	return geom.Sz(w*scale, h*scale)
+}
+
 // textWidth is how wide a message's text is in a row w wide.
 func textWidth(w float32) float32 { return max(w-gutter-24, 40) }
 
 // lay lays the row's texts out for a row w wide, unless they already are.
 func (r *msgRow) lay(th *theme.Live, w float32) {
 	size := widget.TextSize.Get(th)
-	if r.laidFor.item == r.item && r.laidFor.width == w && r.laidFor.size == size {
+	if same(r.laidFor.item, r.item) && r.laidFor.width == w && r.laidFor.size == size {
 		return
 	}
 	r.laidFor.item, r.laidFor.width, r.laidFor.size = r.item, w, size
@@ -267,12 +296,15 @@ func (r *msgRow) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids guni
 			defer p.Layer(paint.LayerOpts{Bounds: geom.Rect{Max: box.Point()}, Opacity: 0.6})()
 		}
 		body.Paint(p)
+		for i := range r.pictures {
+			kids.At(1 + i).Paint(p)
+		}
 	}()
 	if !r.footBox.Empty() {
 		r.foot.Paint(p, r.footBox.Min, faint)
 	}
 	if h := min(r.hover.Value(), 1); h > 0.01 && r.showsTools() {
-		tools := kids.At(1)
+		tools := kids.At(kids.Len() - 1)
 		defer p.Layer(paint.LayerOpts{Bounds: geom.Rect{Min: r.toolsAt, Max: r.toolsAt.Add(tools.Size().Point())}, Opacity: h})()
 		tools.Paint(p)
 	}

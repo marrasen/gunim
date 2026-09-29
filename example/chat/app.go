@@ -1,15 +1,20 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"image/png"
 	"log"
+	"maps"
 	"math/rand/v2"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/markdown"
+	"github.com/marrasen/gunim/paint"
 )
 
 // me is the user's name.
@@ -39,6 +44,9 @@ type app struct {
 	nextID int
 	// failRate is the share of sends the server turns down.
 	failRate float64
+	// images holds every picture pasted, by ID, and pending the ones waiting to go with the next message.
+	images  map[string]*paint.Image
+	pending []Picture
 }
 
 type project struct {
@@ -65,11 +73,12 @@ type msg struct {
 	Edited     bool
 	Withdrawn  bool
 	ReplyTo    string
+	Pictures   []Picture
 }
 
 func newApp(ctx context.Context, c gunim.Client, seed uint64, history int, failRate float64) *app {
 	a := &app{ctx: ctx, c: c, rng: rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15)), later: make(chan func(), 16),
-		failRate: failRate}
+		failRate: failRate, images: map[string]*paint.Image{}}
 	a.projects = []*project{
 		a.newProject("Atlas", "AT",
 			a.newConv("general", false, "Anna Berg", "Erik Lund", "Sara Nyström"),
@@ -199,6 +208,10 @@ func (a *app) handle(v gunim.Intent) {
 	case Drafted:
 		a.text = v.Text
 		return
+	case ImagePasted:
+		a.pastePicture(v.PNG)
+	case PictureRemoved:
+		a.pending = slices.DeleteFunc(a.pending, func(p Picture) bool { return p.ID == v.ID })
 	case Submitted:
 		a.submit(v.Text)
 	case ReplyAsked:
@@ -255,6 +268,20 @@ func (a *app) openLink(url string) {
 	}
 }
 
+// pastePicture puts a pasted picture, as PNG, with the pictures waiting to go with the next message.
+func (a *app) pastePicture(b []byte) {
+	img, err := png.Decode(bytes.NewReader(b))
+	if err != nil {
+		log.Printf("pasted picture: %v", err)
+		return
+	}
+	a.nextID++
+	id := "p" + strconv.Itoa(a.nextID)
+	a.images[id] = paint.NewImage(img)
+	size := img.Bounds().Size()
+	a.pending = append(a.pending, Picture{ID: id, W: size.X, H: size.Y})
+}
+
 // open makes c the open conversation.
 func (a *app) open(c *conv) {
 	if c == a.current {
@@ -275,10 +302,10 @@ func (a *app) setDraft(s string) {
 // submit sends the message box's text as a new message, a reply or an edit.
 func (a *app) submit(text string) {
 	text = strings.TrimSpace(text)
-	if text == "" {
-		return
-	}
 	if a.editing != "" {
+		if text == "" {
+			return
+		}
 		if m, ok := a.current.byID[a.editing]; ok && m.Body != text {
 			m.Body, m.Edited = text, true
 		}
@@ -286,8 +313,12 @@ func (a *app) submit(text string) {
 		a.setDraft("")
 		return
 	}
+	if text == "" && len(a.pending) == 0 {
+		return
+	}
 	m := a.add(a.current, me, text, time.Now().Round(0))
 	m.ReplyTo, a.replying = a.replying, ""
+	m.Pictures, a.pending = a.pending, nil
 	a.setDraft("")
 	a.send(m)
 	// Somebody usually answers.
@@ -446,6 +477,7 @@ func (a *app) state() Chat {
 		s.Replying = quote(m)
 	}
 	s.Items = timeline(a.current, time.Now())
+	s.Pending, s.Images = slices.Clone(a.pending), maps.Clone(a.images)
 	return s
 }
 
@@ -460,7 +492,7 @@ func timeline(c *conv, now time.Time) []Item {
 			out = append(out, Item{Key: "day:" + c.ID + ":" + d, Day: dayName(m.At, now)})
 		}
 		it := Item{Key: m.ID, Message: Message{ID: m.ID, Author: m.Author, Mine: m.Author == me, At: m.At, Body: m.Body,
-			State: m.State, Edited: m.Edited, Withdrawn: m.Withdrawn}}
+			State: m.State, Edited: m.Edited, Withdrawn: m.Withdrawn, Pictures: slices.Clone(m.Pictures)}}
 		it.Continued = prev != nil && prev.Author == m.Author && m.At.Sub(prev.At) < 5*time.Minute && m.ReplyTo == ""
 		if q, ok := c.byID[m.ReplyTo]; ok {
 			it.Reply = quote(q)
