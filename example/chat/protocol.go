@@ -81,6 +81,8 @@ type (
 		Reactions []Reaction
 		Preview   Preview
 		Poll      Poll
+		// Private says only the user sees the message, as the answer to a command.
+		Private bool
 	}
 
 	// Poll is a question in a message, with its options and the votes for them, and how many people voted. A

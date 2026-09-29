@@ -266,11 +266,14 @@ func (r *msgRow) lay(th *theme.Live, w float32) {
 	r.foot = regular.Shape(footText(m), small)
 }
 
-// statusText says how far one of the user's own messages got, or nothing once it arrived.
+// statusText says how far one of the user's own messages got, or nothing once it arrived, or that only the user sees
+// the message.
 func statusText(m Message) string {
 	switch {
 	case m.Withdrawn:
 		return ""
+	case m.Private:
+		return "Only visible to you"
 	case m.State == Pending:
 		return "Sending…"
 	case m.State == Failed:

@@ -110,6 +110,7 @@ func buildChat(s Chat) *chatView {
 	v.reply.Add(v.reply.open)
 	v.composer = widget.NewTextArea()
 	v.composer.Rows, v.composer.MaxRows = 1, 8
+	v.composer.Placeholders = []string{"/help to show commands"}
 	v.composer.OnSubmit = func(s string) gunim.Intent { return Submitted{Text: s} }
 	v.composer.OnChange = func(s string) gunim.Intent { return Drafted{Text: s} }
 	v.composer.OnPasteImage = func(png []byte) gunim.Intent { return ImagePasted{PNG: png} }

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -313,5 +314,23 @@ func TestASelectionRunsAcrossTheTimelinesMessages(t *testing.T) {
 	}
 	if body := n.(*msgRow).body; body.Group != h.v.group || body.Key != string(h.v.last) {
 		t.Fatal("the last message is not in the timeline's group")
+	}
+}
+
+func TestHelpListsTheCommandsForTheUserAlone(t *testing.T) {
+	h := newHarness(t)
+	before := len(h.a.current.msgs)
+	h.a.handle(Submitted{Text: "/help"})
+	h.frames(5)
+	msgs := h.a.current.msgs
+	if len(msgs) != before+1 {
+		t.Fatalf("/help added %d messages, want one", len(msgs)-before)
+	}
+	m := msgs[len(msgs)-1]
+	if !m.private || m.State != 0 || !strings.Contains(m.Body, "/poll") {
+		t.Fatalf("/help answered %+v, want a private list with /poll in it", m)
+	}
+	if it := h.v.items[widget.Key(m.ID)]; statusText(it.Message) != "Only visible to you" {
+		t.Fatalf("the answer's status says %q", statusText(it.Message))
 	}
 }

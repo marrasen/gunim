@@ -112,6 +112,24 @@ type msg struct {
 	preview Preview
 	// poll is the message's poll, or nil.
 	poll *poll
+	// private says only the user sees the message, as the answer to a command.
+	private bool
+}
+
+// commands are the commands the message box takes, for /help to list.
+var commands = []struct{ usage, what string }{
+	{"/poll Question | option | option", "starts a poll, with two options or more"},
+	{"/help", "shows this list"},
+}
+
+// helpText is the list /help answers with, in Markdown.
+func helpText() string {
+	var b strings.Builder
+	b.WriteString("**Commands**\n")
+	for _, c := range commands {
+		b.WriteString("\n- `" + c.usage + "` " + c.what)
+	}
+	return b.String()
 }
 
 // poll is a question, its options, and each voter's choice.
@@ -624,6 +642,12 @@ func (a *app) submit(w *window, text string) {
 	if text == "" && len(w.pending) == 0 {
 		return
 	}
+	if text == "/help" {
+		h := a.add(c, "Help", helpText(), time.Now().Round(0))
+		h.private, c.readTo = true, h.ID
+		w.setDraft("")
+		return
+	}
 	m := a.add(c, me, text, time.Now().Round(0))
 	c.readTo = m.ID
 	m.ReplyTo, w.replying = w.replying, ""
@@ -862,8 +886,9 @@ func timeline(c *conv, now time.Time, newFrom string) []Item {
 		}
 		it := Item{Key: m.ID, Message: Message{ID: m.ID, Author: m.Author, Mine: m.Author == me, At: m.At, Body: m.Body,
 			State: m.State, Edited: m.Edited, Withdrawn: m.Withdrawn, Pictures: slices.Clone(m.Pictures),
-			Reactions: reactionsOf(m), Preview: m.preview, Poll: pollOf(m)}}
-		it.Continued = prev != nil && prev.Author == m.Author && m.At.Sub(groupAt) < groupFor && m.ReplyTo == ""
+			Reactions: reactionsOf(m), Preview: m.preview, Poll: pollOf(m), Private: m.private}}
+		it.Continued = prev != nil && prev.Author == m.Author && m.At.Sub(groupAt) < groupFor && m.ReplyTo == "" &&
+			!m.private
 		if !it.Continued {
 			groupAt = m.At
 		}
