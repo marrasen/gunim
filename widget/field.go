@@ -128,6 +128,7 @@ func (t *TextField) Text() string { return string(t.text) }
 func (t *TextField) SetText(s string) {
 	t.text = []rune(s)
 	t.set(len(t.text), false)
+	t.forget()
 }
 
 // Select selects the text from rune start to rune end, with the caret at

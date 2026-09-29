@@ -2,6 +2,7 @@ package widget
 
 import (
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/marrasen/gunim"
@@ -39,12 +40,88 @@ type editor struct {
 	// blink blinks the caret while the widget has the keyboard.
 	blink blinker
 
+	// undo and redo hold the text as it was before each step of edits, and after each step undone.
+	undo, redo []snapshot
+	// last is the kind of the latest edit, which the next one of the same kind joins in one step, lastEnd where
+	// the caret was after it, lastAt when it was, and lastSpace whether it typed a space, which ends a word.
+	last      editKind
+	lastEnd   int
+	lastAt    time.Time
+	lastSpace bool
+
+	// pasting is set while a paste goes in, which is a step of undo of its own.
+	pasting bool
+
 	// changed is called after every edit.
 	changed func(u *gunim.UI)
 	// edited is set by typing, deleting and composing, and cleared by
 	// the widget's next layout. The caret jumps after an edit, so it
 	// keeps up with the text; it glides when it only moves.
 	edited bool
+}
+
+// snapshot is the text and the selection at one point in an editor's history.
+type snapshot struct {
+	text          []rune
+	caret, anchor int
+}
+
+// editKind is what an edit did, for grouping edits into steps of undo.
+type editKind uint8
+
+const (
+	otherEdit editKind = iota
+	typing
+	deleting
+)
+
+// Undo history limits: at most maxUndo steps, and edits further apart than undoPause make steps of their own.
+const (
+	maxUndo   = 500
+	undoPause = 2 * time.Second
+)
+
+// remember saves the text before an edit of kind that replaces start to end with with, as a new step of undo
+// unless it carries on the step before: typing on, or deleting on, with nothing else in between.
+func (e *editor) remember(kind editKind, start, end int, with []rune) {
+	joins := kind != otherEdit && kind == e.last && time.Since(e.lastAt) < undoPause &&
+		(kind == deleting && (end == e.lastEnd || start == e.lastEnd) ||
+			kind == typing && start == e.lastEnd && !(e.lastSpace && !unicode.IsSpace(with[0])))
+	if !joins {
+		e.undo = append(e.undo, snapshot{text: e.text, caret: e.caret, anchor: e.anchor})
+		if len(e.undo) > maxUndo {
+			e.undo = e.undo[len(e.undo)-maxUndo:]
+		}
+	}
+	e.redo = e.redo[:0]
+	e.last, e.lastAt = kind, time.Now()
+	e.lastSpace = kind == typing && unicode.IsSpace(with[0])
+}
+
+// undoEdit puts the text back as it was before the latest step, and redoEdit puts back the step undone last.
+func (e *editor) undoEdit(u *gunim.UI) { e.travel(&e.undo, &e.redo, u) }
+func (e *editor) redoEdit(u *gunim.UI) { e.travel(&e.redo, &e.undo, u) }
+
+// travel restores the latest snapshot of from, saving the text as it is on to.
+func (e *editor) travel(from, to *[]snapshot, u *gunim.UI) {
+	if len(*from) == 0 {
+		return
+	}
+	s := (*from)[len(*from)-1]
+	*from = (*from)[:len(*from)-1]
+	*to = append(*to, snapshot{text: e.text, caret: e.caret, anchor: e.anchor})
+	e.text, e.caret, e.anchor = s.text, s.caret, s.anchor
+	e.hinted, e.goal = false, false
+	e.last = otherEdit
+	e.edited = true
+	if e.changed != nil {
+		e.changed(u)
+	}
+}
+
+// forget drops the history, for text set from outside.
+func (e *editor) forget() {
+	e.undo, e.redo, e.last = nil, nil, otherEdit
 }
 
 // navigator is what the editor needs from laid-out text.
@@ -236,6 +313,15 @@ func (e *editor) key(k input.KeyPress, u *gunim.UI, n navigator) bool {
 			return true // typing: the letter arrives as TextInput
 		}
 		e.clipboard(k.Key, start, end, u)
+	case input.KeyZ, input.KeyY:
+		if !ctrl {
+			return true
+		}
+		if k.Key == input.KeyY || shift {
+			e.redoEdit(u)
+		} else {
+			e.undoEdit(u)
+		}
 	default:
 		// Keys with a modifier are shortcuts for someone else, as are the
 		// function keys; the rest are typing, which arrives as TextInput.
@@ -256,12 +342,21 @@ func (e *editor) clipboard(k input.Key, start, end int, u *gunim.UI) {
 	case input.KeyX:
 		if start != end && !e.secret {
 			u.SetClipboard(string(e.text[start:end]))
+			e.last = otherEdit
 			e.replace(start, end, nil, u)
 		}
 	case input.KeyV:
-		e.insert(u.Clipboard(), u)
+		e.last = otherEdit
+		e.paste(u.Clipboard(), u)
 	default:
 	}
+}
+
+// paste puts pasted text in place of the selection, as a step of undo of its own.
+func (e *editor) paste(s string, u *gunim.UI) {
+	e.pasting = true
+	e.insert(s, u)
+	e.pasting = false
 }
 
 // insert puts s in place of the selection. A single line turns
@@ -291,12 +386,22 @@ func (e *editor) replace(start, end int, with []rune, u *gunim.UI) {
 	if start < 0 || end > len(e.text) || start > end {
 		return
 	}
+	kind := otherEdit
+	switch {
+	case e.pasting:
+	case start == end && len(with) == 1:
+		kind = typing
+	case len(with) == 0 && end-start == 1:
+		kind = deleting
+	}
+	e.remember(kind, start, end, with)
 	out := make([]rune, 0, len(e.text)-(end-start)+len(with))
 	out = append(out, e.text[:start]...)
 	out = append(out, with...)
 	out = append(out, e.text[end:]...)
 	e.text = out
 	e.set(start+len(with), false)
+	e.lastEnd = e.caret
 	e.edited = true
 	if e.changed != nil {
 		e.changed(u)
