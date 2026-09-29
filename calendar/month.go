@@ -47,9 +47,12 @@ type Month struct {
 
 	events []Event
 	box    geom.Size
-	hover  string
-	drag   *monthDrag
-	texts  map[textKey]text.Paragraph
+	// slide carries the days in from the side they came from, as the month steps.
+	slide *anim.Float
+	laid  bool
+	hover string
+	drag  *monthDrag
+	texts map[textKey]text.Paragraph
 }
 
 // monthDrag is an event taken hold of: where the pointer took it, and the day it is over.
@@ -65,13 +68,30 @@ type monthDrag struct {
 
 // NewMonth returns the month holding day, with weeks starting on Monday.
 func NewMonth(day time.Time) *Month {
-	return &Month{Month: MonthStart(day), FirstWeekday: time.Monday}
+	m := &Month{Month: MonthStart(day), FirstWeekday: time.Monday, slide: anim.NewFloat(0)}
+	m.Add(m.slide)
+	return m
 }
 
-// SetMonth shows the month holding day.
+// SetMonth shows the month holding day, sliding it in from its side.
 func (m *Month) SetMonth(day time.Time, u *gunim.UI) {
-	m.Month = MonthStart(day)
+	month := MonthStart(day)
+	if m.laid && !month.Equal(m.Month) {
+		m.slide.Jump(map[bool]float32{false: -1, true: 1}[month.After(m.Month)])
+		m.slide.Animate(0, widget.Quick.Get(u.Theme()))
+	}
+	m.Month = month
 	u.Invalidate()
+}
+
+// EventBox returns where the event id first shows, in the month's space, and false when it does not show.
+func (m *Month) EventBox(id string) (geom.Rect, bool) {
+	for _, ch := range m.chips() {
+		if ch.more == 0 && ch.e.ID == id {
+			return ch.box, true
+		}
+	}
+	return geom.Rect{}, false
 }
 
 // SetEvents shows events, which may hold events outside the weeks shown.
@@ -105,7 +125,7 @@ func (m *Month) cellAt(pt geom.Point) int {
 
 // Layout implements [gunim.Node].
 func (m *Month) Layout(c gunim.Constraints, _ gunim.Frame, _ gunim.Children) geom.Size {
-	m.box = c.Max
+	m.box, m.laid = c.Max, true
 	return m.box
 }
 
@@ -265,9 +285,11 @@ func (m *Month) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Ch
 		num.Paint(p, at, numInk)
 	}
 	defer p.Layer(paint.LayerOpts{Bounds: geom.Rect{Max: box.Point()}, Opacity: 1, Clip: true})()
-	for _, ch := range m.chips() {
-		m.paintChip(p, th, ch)
-	}
+	moving(p, box, m.slide.Value(), func() {
+		for _, ch := range m.chips() {
+			m.paintChip(p, th, ch)
+		}
+	})
 	f.RedrawAt(AddDays(Day(now), 1))
 }
 

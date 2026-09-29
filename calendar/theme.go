@@ -14,7 +14,9 @@ var (
 	NowInk = theme.Color("calendar.now", color.NRGBA{R: 0xf0, G: 0x5a, B: 0x4f, A: 0xff})
 	// TodayFill tints today's column, and WeekendFill the columns of Saturdays and Sundays.
 	TodayFill   = theme.Color("calendar.today", color.NRGBA{R: 0x5e, G: 0x9c, B: 0xff, A: 0x0c})
-	WeekendFill = theme.Color("calendar.weekend", color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x14})
+	WeekendFill = theme.Color("calendar.weekend", color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x20})
+	// OffHoursFill shades the hours outside a [Days] grid's working day.
+	OffHoursFill = theme.Color("calendar.offhours", color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x18})
 	// EventText is the size of the text on an event.
 	EventText = theme.Length("calendar.event.text", 12.5)
 )
@@ -24,4 +26,5 @@ var Light = []theme.Entry{
 	theme.Set(NowInk, color.NRGBA{R: 0xd9, G: 0x3d, B: 0x32, A: 0xff}),
 	theme.Set(TodayFill, color.NRGBA{R: 0x2f, G: 0x6f, B: 0xe0, A: 0x0a}),
 	theme.Set(WeekendFill, color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x06}),
+	theme.Set(OffHoursFill, color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x05}),
 }

@@ -40,6 +40,8 @@ type Days struct {
 	Count int
 	// Step is how finely times snap under the pointer; zero is 15 minutes.
 	Step time.Duration
+	// WorkDay is the working day, from its start to its end; the hours outside it are shaded. Zero shades none.
+	WorkDay [2]time.Duration
 	// OnDay turns a click on a day's heading into an intent, such as to show that day alone.
 	OnDay func(day time.Time) gunim.Intent
 	// OnCreate turns a span drawn out on free time into an intent, to make an event there.
@@ -55,8 +57,10 @@ type Days struct {
 	held map[string]heldEvent
 
 	scroll *anim.Float
-	laid   bool
-	box    geom.Size
+	// slide carries the days in from the side they came from, as the grid steps to other days.
+	slide *anim.Float
+	laid  bool
+	box   geom.Size
 	// hourH is how tall an hour was at the last layout.
 	hourH float32
 	// longRows is how many rows the whole-day events take.
@@ -105,8 +109,9 @@ type textKey struct {
 
 // NewDays returns a grid of count days from first.
 func NewDays(first time.Time, count int) *Days {
-	d := &Days{First: Day(first), Count: count, scroll: anim.NewFloat(0), held: map[string]heldEvent{}}
-	d.Add(d.scroll)
+	d := &Days{First: Day(first), Count: count, scroll: anim.NewFloat(0), slide: anim.NewFloat(0),
+		held: map[string]heldEvent{}}
+	d.Add(d.scroll, d.slide)
 	return d
 }
 
@@ -128,10 +133,55 @@ func (d *Days) SetEvents(events []Event, u *gunim.UI) {
 	u.Invalidate()
 }
 
-// SetDays shows count days from first.
+// SetDays shows count days from first. Stepping to other days of the same count slides them in from their side.
 func (d *Days) SetDays(first time.Time, count int, u *gunim.UI) {
-	d.First, d.Count = Day(first), max(count, 1)
+	first, count = Day(first), max(count, 1)
+	if d.laid && count == d.Count && !first.Equal(d.First) {
+		d.slide.Jump(map[bool]float32{false: -1, true: 1}[first.After(d.First)])
+		d.slide.Animate(0, widget.Quick.Get(u.Theme()))
+	}
+	d.First, d.Count = first, count
 	u.Invalidate()
+}
+
+// EventBox returns where the event id shows, in the grid's space, and false when it does not show.
+func (d *Days) EventBox(id string) (geom.Rect, bool) {
+	for _, row := range d.longPlaces() {
+		for _, lp := range row {
+			if lp.e.ID == id {
+				return d.longBox(lp), true
+			}
+		}
+	}
+	for i := range d.Count {
+		for _, b := range d.timedBoxes(i) {
+			if b.e.ID == id {
+				return b.box, true
+			}
+		}
+	}
+	return geom.Rect{}, false
+}
+
+// Reveal scrolls the grid at once so the event id shows, with an hour above it.
+func (d *Days) Reveal(id string) {
+	for _, e := range d.shown() {
+		if e.ID == id && !e.long() {
+			d.scroll.Jump(d.clampScroll((float32(dayOffset(e.Start).Hours()) - 1) * d.hour()))
+			return
+		}
+	}
+}
+
+// moving draws what paint draws slid and faded as the days step.
+func moving(p *paint.Painter, box geom.Size, slide float32, draw func()) {
+	if slide == 0 {
+		draw()
+		return
+	}
+	defer p.Layer(paint.LayerOpts{Bounds: geom.Rect{Max: box.Point()}, Opacity: 1 - min(abs(slide), 1)*0.7})()
+	defer p.Push(paint.Translate(geom.Pt(slide*48, 0)))()
+	draw()
 }
 
 // ScrollToHour scrolls the grid so the hour h, such as 7.5 for half past seven, is at its top.
@@ -303,7 +353,6 @@ func (d *Days) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Chi
 	th := f.Theme
 	line := widget.MenuBorder.Get(th)
 	faint := widget.PaletteHint.Get(th)
-	ink := widget.Ink.Get(th)
 	hourH := HourHeight.Get(th)
 	now := f.Now.In(d.First.Location())
 	body := geom.Rect{Min: geom.Pt(0, d.bodyTop()), Max: box.Point()}
@@ -321,6 +370,14 @@ func (d *Days) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Chi
 				p.RRect(col, 0, paint.Solid(WeekendFill.Get(th)))
 			}
 		}
+		if w := d.WorkDay; w[1] > w[0] {
+			for i := range d.Count {
+				off := OffHoursFill.Get(th)
+				y0, y1 := d.timeY(w[0]), d.timeY(w[1])
+				p.RRect(geom.Rect{Min: geom.Pt(d.colX(i), body.Min.Y), Max: geom.Pt(d.colX(i+1), y0)}, 0, paint.Solid(off))
+				p.RRect(geom.Rect{Min: geom.Pt(d.colX(i), y1), Max: geom.Pt(d.colX(i+1), body.Max.Y)}, 0, paint.Solid(off))
+			}
+		}
 		small := widget.Font.Get(th)
 		for h := 0; h <= 24; h++ {
 			y := d.timeY(time.Duration(h) * time.Hour)
@@ -336,11 +393,13 @@ func (d *Days) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Chi
 		for i := 1; i < d.Count; i++ {
 			p.RRect(geom.Rc(d.colX(i), body.Min.Y, 1, body.Size().H), 0, paint.Solid(line))
 		}
-		for i := range d.Count {
-			for _, b := range d.timedBoxes(i) {
-				d.paintEvent(p, th, b.e, b.box, false)
+		moving(p, box, d.slide.Value(), func() {
+			for i := range d.Count {
+				for _, b := range d.timedBoxes(i) {
+					d.paintEvent(p, th, b.e, b.box, false)
+				}
 			}
-		}
+		})
 		if d.drag != nil && d.drag.kind == dragCreate && !d.drag.allDay {
 			d.paintGhost(p, th)
 		}
@@ -359,6 +418,16 @@ func (d *Days) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Chi
 
 	// The headings and the row of whole days, over the hours.
 	bold, regular := widget.BoldFont.Get(th), widget.Font.Get(th)
+	for i := 1; i < d.Count; i++ {
+		p.RRect(geom.Rc(d.colX(i), headerH-10, 1, d.bodyTop()-headerH+10), 0, paint.Solid(line))
+	}
+	p.RRect(geom.Rc(0, d.bodyTop()-1, box.W, 1), 0, paint.Solid(line))
+	moving(p, box, d.slide.Value(), func() { d.paintHeads(p, th, now, bold, regular) })
+}
+
+// paintHeads draws the days' headings and the events that last whole days.
+func (d *Days) paintHeads(p *paint.Painter, th *theme.Live, now time.Time, bold, regular *text.Face) {
+	ink, faint := widget.Ink.Get(th), widget.PaletteHint.Get(th)
 	for i := range d.Count {
 		day := d.day(i)
 		x := d.colX(i)
@@ -376,11 +445,7 @@ func (d *Days) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Chi
 			numInk = widget.ButtonStrongInk.Get(th)
 		}
 		num.Paint(p, geom.Pt(c-num.Advance/2, 36-num.Height()/2), numInk)
-		if i > 0 {
-			p.RRect(geom.Rc(x, headerH-10, 1, d.bodyTop()-headerH+10), 0, paint.Solid(line))
-		}
 	}
-	p.RRect(geom.Rc(0, d.bodyTop()-1, box.W, 1), 0, paint.Solid(line))
 	for _, row := range d.longPlaces() {
 		for _, lp := range row {
 			d.paintEvent(p, th, lp.e, d.longBox(lp), true)

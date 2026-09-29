@@ -58,6 +58,13 @@ func SameDay(a, b time.Time) bool {
 	return ay == by && am == bm && ad == bd
 }
 
+func abs(v float32) float32 {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
 // dayOffset returns how far into its day t is.
 func dayOffset(t time.Time) time.Duration { return t.Sub(Day(t)) }
 
