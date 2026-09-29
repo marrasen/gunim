@@ -262,6 +262,9 @@ func (d *Dialog) Handle(e input.Event, u *gunim.UI) bool {
 	return false
 }
 
+// Modal implements [gunim.Modal]: the dialog holds the keyboard while it is open.
+func (d *Dialog) Modal() bool { return true }
+
 // Focusable implements [gunim.Focusable]. A click on the dialog's
 // empty space focuses the dialog itself, so Escape and Tab still reach
 // it.

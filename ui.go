@@ -900,6 +900,8 @@ type UI struct {
 	chrome *titleBar
 	// titleBar is the title bar the engine gave the window, or nil; see giveTitleBar.
 	titleBar TitleBar
+	// modals are the modals in the tree, in the order they came; see Modal.
+	modals []modalHold
 	// pinned says the window is kept above other windows; see SetPinned.
 	pinned bool
 	// keyboardCue says Tab has moved the focus since the last click, which shows the focus rings, and ringed are the
@@ -1317,6 +1319,7 @@ func (u *UI) InsertAt(parent Node, i int, child Node) {
 		if wasLeaving {
 			reenter(cs)
 			u.invalid = true
+			u.arrived(cs)
 		}
 		return
 	}
@@ -1339,6 +1342,7 @@ func (u *UI) InsertAt(parent Node, i int, child Node) {
 			cs.aliases = append(cs.aliases, e)
 		}
 	}
+	u.arrived(cs)
 }
 
 // move puts s at index i under ps and reports whether it moved. A
@@ -1414,6 +1418,7 @@ func (u *UI) Remove(n Node) bool {
 	if u.capture != nil && u.capture.within(s) {
 		u.capture = nil
 	}
+	u.left()
 	return true
 }
 
@@ -1460,6 +1465,10 @@ func (u *UI) Focus(n Node) bool {
 			return false
 		}
 		if next.leaving() {
+			return false
+		}
+		// A modal keeps the keyboard.
+		if m := u.modal(); m != nil && !inside(next, m) {
 			return false
 		}
 	}

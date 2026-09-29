@@ -352,3 +352,48 @@ func hasRole(n *access.Node, r access.Role) bool {
 	}
 	return false
 }
+
+// A dialog takes the keyboard as it opens, keeps it from what lies behind, and gives it back as it closes.
+func TestADialogHoldsTheKeyboardWhileItIsOpen(t *testing.T) {
+	behind := NewTextField()
+	w, run := stage(t, &frame{child: behind, size: geom.Sz(300, 36)})
+	w.Input(input.PointerDown{Pos: geom.Pt(20, 18), Button: input.ButtonPrimary, Clicks: 1})
+	w.Input(input.PointerUp{Pos: geom.Pt(20, 18), Button: input.ButtonPrimary})
+	run(1)
+	field := NewTextField()
+	gunim.RegisterView(w, "ask", func(string) *Dialog {
+		d := NewDialog("Name")
+		d.Body = NewForm().Add("Name", field)
+		d.Accept, d.Dismiss = "ok", "cancel"
+		return d
+	}, nil)
+	c := w.Client()
+	if err := c.Mount(gunim.Root, "ask", "ask", ""); err != nil {
+		t.Fatal(err)
+	}
+	run(3)
+	w.Input(input.TextInput{Text: "Ada"})
+	run(1)
+	if field.Text() != "Ada" || behind.Text() != "" {
+		t.Fatalf("typing went to %q in the dialog and %q behind it, want the dialog's field", field.Text(), behind.Text())
+	}
+	// Tab goes round the dialog, and never behind it.
+	for range 7 {
+		w.Input(input.KeyPress{Key: input.KeyTab})
+		run(1)
+		w.Input(input.TextInput{Text: "!"})
+		run(1)
+		if behind.Text() != "" {
+			t.Fatal("Tab went behind the dialog")
+		}
+	}
+	if err := c.Unmount("ask"); err != nil {
+		t.Fatal(err)
+	}
+	run(40)
+	w.Input(input.TextInput{Text: "x"})
+	run(1)
+	if behind.Text() != "x" {
+		t.Fatalf("after the dialog closed, typing did not go back to the field behind it: %q", behind.Text())
+	}
+}

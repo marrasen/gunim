@@ -302,7 +302,12 @@ func (u *UI) FocusNext(forward bool) {
 			walk(k)
 		}
 	}
-	walk(u.root)
+	// Tab keeps to a modal while there is one.
+	if m := u.modal(); m != nil {
+		walk(m)
+	} else {
+		walk(u.root)
+	}
 	if len(order) == 0 {
 		return
 	}

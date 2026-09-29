@@ -386,6 +386,10 @@ func (u *UI) focusID(id ID) error {
 	if s.leaving() {
 		return fmt.Errorf("id %q is leaving", id)
 	}
+	// The keyboard already in the view stays where it is, as in a dialog that gave it to its first field.
+	if u.focus != nil && u.focus.within(s) {
+		return nil
+	}
 	u.Focus(s.node)
 	return nil
 }
