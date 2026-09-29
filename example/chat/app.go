@@ -765,10 +765,11 @@ func (a *app) colleague() {
 	}
 }
 
-// lastBy returns the latest message in c, of the last ten, that keep accepts and that is still there.
+// lastBy returns the latest message in c, of the last ten, that keep accepts, that is still there, and that others
+// can see.
 func (a *app) lastBy(c *conv, keep func(*msg) bool) *msg {
 	for i := len(c.msgs) - 1; i >= 0 && i >= len(c.msgs)-10; i-- {
-		if m := c.msgs[i]; !m.Withdrawn && keep(m) {
+		if m := c.msgs[i]; !m.Withdrawn && !m.private && keep(m) {
 			return m
 		}
 	}

@@ -334,3 +334,11 @@ func TestHelpListsTheCommandsForTheUserAlone(t *testing.T) {
 		t.Fatalf("the answer's status says %q", statusText(it.Message))
 	}
 }
+
+func TestColleaguesLeaveTheHelpAlone(t *testing.T) {
+	h := newHarness(t)
+	h.a.handle(Submitted{Text: "/help"})
+	if m := h.a.lastBy(h.a.current, func(*msg) bool { return true }); m != nil && m.private {
+		t.Fatal("colleagues can pick the private /help answer to reply or react to")
+	}
+}
