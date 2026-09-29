@@ -218,6 +218,16 @@ func (u *UI) keyEvent(ev any) {
 			u.keyed = true
 			defer func() { u.keyed = false }()
 		}
+		if u.stopsAtModal(ev) {
+			// A modal holds the keys: what it and its contents leave
+			// goes no further, to the window's shortcuts or the
+			// catchers behind it. Tab still walks it.
+			m := u.modal()
+			if !u.bubbleTo(target, ev, m) && !u.catchKeyIn(ev, m) {
+				u.tab(ev)
+			}
+			return
+		}
 		if !u.bubble(target, ev) && !u.catchKey(ev) {
 			u.tab(ev)
 		}
@@ -225,14 +235,18 @@ func (u *UI) keyEvent(ev any) {
 }
 
 // catchKey offers ev to the [KeyCatcher]s the last frame drew, in paint order, and reports whether one took it.
-func (u *UI) catchKey(ev input.Event) bool {
+func (u *UI) catchKey(ev input.Event) bool { return u.catchKeyIn(ev, nil) }
+
+// catchKeyIn is catchKey keeping to the catchers inside m, popups
+// opened from it included; a nil m offers ev to them all.
+func (u *UI) catchKeyIn(ev input.Event, m *state) bool {
 	var took bool
 	var walk func(s *state)
 	walk = func(s *state) {
 		if took || s.presence == Exiting || (s != u.root && s.drawn != u.seq) {
 			return
 		}
-		if c, ok := s.node.(KeyCatcher); ok {
+		if c, ok := s.node.(KeyCatcher); ok && (m == nil || inside(s, m)) {
 			u.on(s, func() { took = c.CatchKey(ev, u) })
 		}
 		for _, k := range s.kids {
@@ -496,8 +510,15 @@ func (u *UI) dispatchAt(root *state, p geom.Point, mk func(local geom.Point) inp
 
 // bubble offers e to s and then to each of its ancestors, and reports
 // whether one took it.
-func (u *UI) bubble(s *state, e input.Event) bool {
+func (u *UI) bubble(s *state, e input.Event) bool { return u.bubbleTo(s, e, nil) }
+
+// bubbleTo is bubble stopping at top, which is the last node offered e;
+// a nil top goes all the way up.
+func (u *UI) bubbleTo(s *state, e input.Event, top *state) bool {
 	for ; s != nil; s = s.parent {
+		if top != nil && s == top.parent {
+			return false
+		}
 		if h, ok := s.node.(Handler); ok {
 			var took bool
 			u.on(s, func() { took = h.Handle(e, u) })

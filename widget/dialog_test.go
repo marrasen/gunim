@@ -397,3 +397,51 @@ func TestADialogHoldsTheKeyboardWhileItIsOpen(t *testing.T) {
 		t.Fatalf("after the dialog closed, typing did not go back to the field behind it: %q", behind.Text())
 	}
 }
+
+// shortcuts is a window's own keys, round what it shows: it counts the
+// key presses, text and releases that reach it.
+type shortcuts struct {
+	*Flex
+	presses, texts, releases int
+}
+
+func (s *shortcuts) Handle(e input.Event, _ *gunim.UI) bool {
+	switch e.(type) {
+	case input.KeyPress:
+		s.presses++
+		return true
+	case input.TextInput:
+		s.texts++
+		return true
+	case input.KeyRelease:
+		s.releases++
+		return true
+	}
+	return false
+}
+
+// A key a dialog and its fields leave goes no further: the window it is
+// open in does not see it as a shortcut. A key coming up still reaches
+// the window, which may have seen it go down before the dialog came.
+func TestADialogKeepsItsKeysFromTheWindowBehind(t *testing.T) {
+	keys := &shortcuts{Flex: Column()}
+	w := gunimtest.New(t, geom.Sz(800, 600), nil)
+	d := NewDialog("Edit")
+	d.Body = NewForm().Add("Name", NewTextField())
+	d.Accept, d.Dismiss = "ok", "cancel"
+	gunim.RegisterView(w, "window", func(struct{}) gunim.Node { return keys },
+		func(n gunim.Node, _ struct{}, u *gunim.UI) { u.Insert(n, d) })
+	if err := w.Client().Mount(gunim.Root, "window", "window", nil); err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		w.Frame(time.Second / 60)
+	}
+	w.Input(input.KeyPress{Key: input.KeyK, Mods: input.ModControl | input.ModShift})
+	w.Input(input.TextInput{Text: "a"})
+	w.Input(input.KeyRelease{Key: input.KeyLeftControl})
+	w.Frame(time.Second / 60)
+	if keys.presses != 0 || keys.texts != 0 || keys.releases != 1 {
+		t.Fatalf("the window behind saw %d presses and %d texts, and %d releases, want only the release", keys.presses, keys.texts, keys.releases)
+	}
+}
