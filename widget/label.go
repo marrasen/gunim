@@ -31,9 +31,18 @@ type Label struct {
 	// Selectable lets the mouse select the text and Ctrl+C copy it: a
 	// drag selects a range, a double click a word and a triple click all.
 	Selectable bool
+	// NoWrap keeps each line whole, however long, for text whose lines
+	// mean something as they are, such as a key or a table of columns.
+	// The label is as wide as its longest line where there is room.
+	// Where there is not, it shows what fits and scrolls sideways with a
+	// sideways scroll, or Shift and the wheel.
+	NoWrap bool
 
 	laid laidText
 	sel  textSelection
+	// across is how far a NoWrap label is scrolled sideways, and over
+	// how far it can be: its longest line's width past the box's.
+	across, over float32
 }
 
 // textSelection is the selection in text that is read but not edited.
@@ -52,6 +61,10 @@ func NewLabel(s string) *Label { return &Label{Text: s, Size: TextSize, Color: I
 func (l *Label) SetText(s string) { l.Text = s }
 
 func (l *Label) paragraph(f gunim.Frame, width float32) text.Paragraph {
+	if l.NoWrap {
+		// A width of zero sets each line unbroken.
+		width = 0
+	}
 	return l.laid.layout(faceIn(l.Face, f.Theme), l.Text, text.Style{Size: l.Size.Get(f.Theme), Align: l.Align, MaxLines: l.MaxLines}, width)
 }
 
@@ -71,6 +84,14 @@ func (l *Label) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Ch
 	case text.AlignEnd:
 		x = box.W - para.Size.W
 	case text.AlignStart:
+	}
+	if l.NoWrap {
+		l.over = max(para.Size.W-box.W, 0)
+		l.across = min(l.across, l.over)
+		if l.over > 0 {
+			x = -l.across
+			defer p.Layer(paint.LayerOpts{Bounds: geom.Rect{Max: box.Point()}, Opacity: 1, Clip: true})()
+		}
 	}
 	l.sel.x = x
 	if start, end := l.Selection(); start != end {
@@ -106,6 +127,9 @@ func (l *Label) DragHeld() bool { return l.sel.held }
 // Handle implements [gunim.Handler]: on a selectable label, the mouse
 // selects, Ctrl+C copies and Ctrl+A selects all.
 func (l *Label) Handle(e input.Event, u *gunim.UI) bool {
+	if s, ok := e.(input.Scroll); ok {
+		return l.scrollAcross(s, u)
+	}
 	if !l.Selectable {
 		return false
 	}
@@ -148,6 +172,26 @@ func (l *Label) Handle(e input.Event, u *gunim.UI) bool {
 	default:
 		return false
 	}
+	u.Invalidate()
+	return true
+}
+
+// scrollAcross scrolls a NoWrap label wider than its box sideways, for
+// a sideways scroll or Shift with the wheel, and reports false at its
+// end, or with nothing to scroll, for whatever scrolls outside.
+func (l *Label) scrollAcross(e input.Scroll, u *gunim.UI) bool {
+	dx := e.Delta.X
+	if dx == 0 && e.Mods.Has(input.ModShift) {
+		dx = e.Delta.Y
+	}
+	if !l.NoWrap || dx == 0 || l.over <= 0 {
+		return false
+	}
+	to := max(0, min(l.across-dx, l.over))
+	if to == l.across {
+		return false
+	}
+	l.across = to
 	u.Invalidate()
 	return true
 }
