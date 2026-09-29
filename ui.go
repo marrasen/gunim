@@ -1498,6 +1498,13 @@ func (u *UI) Focus(n Node) bool {
 	u.takeText(prev, next)
 	if next != nil {
 		u.deliver(next, input.FocusGained{Keyed: u.keyed, Step: u.focusStep, Grouped: grouped, Time: u.now})
+		// The nodes round it that it has come into, innermost first.
+		for a := next.parent; a != nil; a = a.parent {
+			if prev != nil && prev.within(a) {
+				break
+			}
+			u.deliver(a, input.FocusEntered{Time: u.now})
+		}
 	}
 	u.ring()
 	u.invalid = true
