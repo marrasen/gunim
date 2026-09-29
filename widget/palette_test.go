@@ -284,3 +284,33 @@ func TestACheckedPaletteItemDrawsATick(t *testing.T) {
 		t.Fatalf("checked, the row paints %d masks, and %d unchecked", b, a)
 	}
 }
+
+// Hot hears the item the highlight moves to, and Cancel runs as the
+// palette closes with nothing picked, not when an item is picked.
+func TestAPaletteTellsWhereItsHighlightIs(t *testing.T) {
+	w, o, run := newPaletteStage(t)
+	var hot []int
+	cancelled := 0
+	o.p.Hot = func(i int, _ *gunim.UI) { hot = append(hot, i) }
+	o.p.Cancel = func(*gunim.UI) { cancelled++ }
+	focusOpener(w, run)
+	w.Input(input.KeyPress{Key: input.KeyF1})
+	run(20)
+	w.Input(input.KeyPress{Key: input.KeyDown})
+	run(5)
+	if len(hot) < 2 || hot[0] != 0 || hot[len(hot)-1] != 1 {
+		t.Fatalf("the highlight was said to be on %v, want 0 then 1", hot)
+	}
+	w.Input(input.KeyPress{Key: input.KeyEscape})
+	run(20)
+	if cancelled != 1 {
+		t.Fatalf("closed with Escape, Cancel ran %d times", cancelled)
+	}
+	w.Input(input.KeyPress{Key: input.KeyF1})
+	run(20)
+	w.Input(input.KeyPress{Key: input.KeyEnter})
+	run(20)
+	if cancelled != 1 || len(o.picked) != 1 {
+		t.Fatalf("picked, Cancel ran %d times and %v was picked", cancelled, o.picked)
+	}
+}
