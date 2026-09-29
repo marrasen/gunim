@@ -388,8 +388,9 @@ func (a *app) colleague() {
 			a.say(c, who, a.pick(answers), m.ID)
 		}
 	case r < 0.78:
-		if m := a.lastBy(c, func(m *msg) bool { return m.Author == who }); m != nil {
-			m.Body += "\n" + a.pick(afterthoughts)
+		// A colleague edits a message once, adding a paragraph.
+		if m := a.lastBy(c, func(m *msg) bool { return m.Author == who && !m.Edited }); m != nil {
+			m.Body += "\n\n" + a.pick(afterthoughts)
 			m.Edited = true
 			a.publish()
 		}
@@ -481,10 +482,16 @@ func (a *app) state() Chat {
 	return s
 }
 
-// timeline returns c's messages as the timeline's rows, with a heading for each day.
+// groupFor is how long a message shares the heading of the one that started its group, by the same author.
+const groupFor = 5 * time.Minute
+
+// timeline returns c's messages as the timeline's rows, with a heading for each day. A message shares the heading
+// of the one before when both are by the same author and its group started under groupFor ago, so even a steady
+// stream from one person shows a heading every few minutes.
 func timeline(c *conv, now time.Time) []Item {
 	out := make([]Item, 0, len(c.msgs)+len(c.msgs)/20)
 	var prev *msg
+	var groupAt time.Time
 	day := ""
 	for _, m := range c.msgs {
 		if d := m.At.Format(time.DateOnly); d != day {
@@ -493,7 +500,10 @@ func timeline(c *conv, now time.Time) []Item {
 		}
 		it := Item{Key: m.ID, Message: Message{ID: m.ID, Author: m.Author, Mine: m.Author == me, At: m.At, Body: m.Body,
 			State: m.State, Edited: m.Edited, Withdrawn: m.Withdrawn, Pictures: slices.Clone(m.Pictures)}}
-		it.Continued = prev != nil && prev.Author == m.Author && m.At.Sub(prev.At) < 5*time.Minute && m.ReplyTo == ""
+		it.Continued = prev != nil && prev.Author == m.Author && m.At.Sub(groupAt) < groupFor && m.ReplyTo == ""
+		if !it.Continued {
+			groupAt = m.At
+		}
 		if q, ok := c.byID[m.ReplyTo]; ok {
 			it.Reply = quote(q)
 		}
