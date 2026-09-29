@@ -59,7 +59,7 @@ type Menu struct {
 	// cues underlines the access keys.
 	cues bool
 
-	hot   int
+	hot int
 	// picks counts the lines picked, so a highlight moved on the way to
 	// a pick is not told of after it: the pick has closed the menu.
 	picks int
