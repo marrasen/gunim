@@ -35,8 +35,9 @@ type (
 		// how many messages from others came after it; the timeline opens at the line.
 		NewKey string
 		Unread int
-		// People are who take part in the open conversation, for mentions.
-		People []string
+		// People are who take part in the open conversation, for mentions, and Members how each stands.
+		People  []string
+		Members []Member
 		// Loading says older messages are on their way.
 		Loading bool
 		// Area is what the pane shows: the conversation, or "files" for the project's files, which Files holds.
@@ -79,6 +80,12 @@ type (
 		Items  int
 		At     time.Time
 		By     string
+	}
+
+	// Member is a person in a conversation: whether they are active, and a word on how they stand.
+	Member struct {
+		Name, Status string
+		Active       bool
 	}
 
 	// Picture is a picture in a message, or waiting to go with one: its ID and its size in pixels.

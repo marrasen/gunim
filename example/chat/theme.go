@@ -19,6 +19,7 @@ var (
 	Faint       = theme.Foreground("chat.faint", color.NRGBA{R: 0x8a, G: 0x93, B: 0xa6, A: 0xff})
 	ErrorInk    = theme.Foreground("chat.error", color.NRGBA{R: 0xff, G: 0x8a, B: 0x80, A: 0xff})
 	WarnFill    = theme.Color("chat.warn", color.NRGBA{R: 0x5a, G: 0x45, B: 0x1c, A: 0xff})
+	ActiveInk   = theme.Color("chat.active", color.NRGBA{R: 0x3f, G: 0xb9, B: 0x6f, A: 0xff})
 	BadgeFill   = theme.Color("chat.badge", color.NRGBA{R: 0xe0, G: 0x4f, B: 0x4f, A: 0xff})
 	SmallText   = theme.Length("chat.small", 12)
 )

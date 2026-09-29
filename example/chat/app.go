@@ -957,6 +957,7 @@ func (a *app) stateOf(w *window) Chat {
 		s.Replying = quote(m)
 	}
 	s.People = w.current.people
+	s.Members = a.membersOf(w.current, time.Now())
 	from := w.shownFrom(w.current)
 	s.Items = timeline(w.current, time.Now(), w.newFrom, from)
 	s.Loading = w.loading

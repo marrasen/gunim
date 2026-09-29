@@ -365,3 +365,18 @@ func TestAConversationOpensOnItsLatestMessagesAndLoadsOlderOnes(t *testing.T) {
 	h.a.handle(OlderAsked{})
 	h.until("older messages arrive", func() bool { return count() == before+pageSize })
 }
+
+func TestMembersListTheUserFirstThenThoseActive(t *testing.T) {
+	h := newHarness(t)
+	c := h.a.current
+	// The last of the conversation's people wrote just now.
+	last := c.people[len(c.people)-1]
+	h.a.add(c, last, "Here", time.Now())
+	ms := h.a.membersOf(c, time.Now())
+	if ms[0].Name != me || ms[1].Name != last || !ms[1].Active || ms[1].Status != "Active now" {
+		t.Fatalf("the members are %+v, want the user, then %s active", ms, last)
+	}
+	if len(ms) != len(c.people)+1 {
+		t.Fatalf("%d members, want the conversation's people and the user", len(ms))
+	}
+}

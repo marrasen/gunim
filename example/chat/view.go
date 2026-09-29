@@ -74,6 +74,9 @@ type chatView struct {
 	people []string
 	// loading says older messages are on their way.
 	loading *loadingPill
+	// drawer slides the members of the conversation in beside it.
+	drawer  *widget.Drawer
+	members *membersPanel
 	// areas holds the conversation and the project's files, and shows one of them; files is the second.
 	areas *areas
 	files *filesPane
@@ -109,7 +112,9 @@ func buildChat(s Chat) *chatView {
 	spacer := widget.NewSpacer()
 	popOut := widget.NewIconButton(icon.SquareArrowOutUpRight, "Open in a window of its own")
 	popOut.On = PopOut{}
-	header := widget.Row(hash, v.title, spacer, v.link, popOut, themeButton).Grow(spacer, 1)
+	people := widget.NewIconButton(icon.Users, "Members")
+	people.OnActivate(func(u *gunim.UI) { v.drawer.SetOpen(!v.drawer.Open(), u) })
+	header := widget.Row(hash, v.title, spacer, v.link, people, popOut, themeButton).Grow(spacer, 1)
 	header.Cross = widget.CrossCenter
 
 	v.linkBar = &linkBar{open: anim.NewFloat(0)}
@@ -159,7 +164,9 @@ func buildChat(s Chat) *chatView {
 		v.root = widget.Row(pane).Grow(pane, 1)
 	} else {
 		v.files = newFilesPane()
-		v.areas = newAreas(pane, v.files.root)
+		v.members = newMembersPanel(func(u *gunim.UI) { v.drawer.SetOpen(false, u) })
+		v.drawer = widget.NewDrawer(pane, v.members.root)
+		v.areas = newAreas(v.drawer, v.files.root)
 		// The bar saying the connection is down spans every area
 		right := widget.Column(v.linkBar, v.areas).Grow(v.areas, 1)
 		right.Cross, right.Gap = widget.CrossStretch, zeroGap
@@ -284,6 +291,9 @@ func (v *chatView) set(s Chat, u *gunim.UI) {
 		v.setArea(s, u)
 	}
 	v.people = s.People
+	if v.members != nil {
+		v.members.set(s.Members, u)
+	}
 	v.loading.set(s.Loading, u)
 	v.title.SetText(s.Title)
 	v.composer.Placeholder = "Message " + s.Title
