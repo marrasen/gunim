@@ -19,6 +19,8 @@ var (
 	OffHoursFill = theme.Color("calendar.offhours", color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x0e})
 	// OtherMonthFill tints the days of a [Month] outside the month it shows.
 	OtherMonthFill = theme.Color("calendar.othermonth", color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x30})
+	// EventBase is the solid colour under an event's tint, the colour of what the grid sits on.
+	EventBase = theme.Color("calendar.event.base", color.NRGBA{R: 0x1d, G: 0x20, B: 0x28, A: 0xff})
 	// EventText is the size of the text on an event.
 	EventText = theme.Length("calendar.event.text", 12.5)
 )
@@ -30,4 +32,5 @@ var Light = []theme.Entry{
 	theme.Set(WeekendFill, color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x06}),
 	theme.Set(OffHoursFill, color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x05}),
 	theme.Set(OtherMonthFill, color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x07}),
+	theme.Set(EventBase, color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}),
 }

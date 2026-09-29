@@ -7,7 +7,7 @@ import (
 
 func at(h, m int) time.Time { return time.Date(2026, 9, 29, h, m, 0, 0, time.UTC) }
 
-func TestLanesSetOverlappingEventsSideBySide(t *testing.T) {
+func TestLanesKeepOverlappingEventsReadable(t *testing.T) {
 	type ev struct{ from, to [2]int }
 	cases := []struct {
 		name string
@@ -15,18 +15,19 @@ func TestLanesSetOverlappingEventsSideBySide(t *testing.T) {
 		want []placed
 	}{
 		{"one alone takes the whole column", []ev{{[2]int{9, 0}, [2]int{10, 0}}},
-			[]placed{{0, 0, 1, 1}}},
+			[]placed{{0, 0, 0, 1, 1}}},
 		{"one after another each take it whole", []ev{{[2]int{9, 0}, [2]int{10, 0}}, {[2]int{10, 0}, [2]int{11, 0}}},
-			[]placed{{0, 0, 1, 1}, {1, 0, 1, 1}}},
-		{"two at once split it", []ev{{[2]int{9, 0}, [2]int{11, 0}}, {[2]int{10, 0}, [2]int{12, 0}}},
-			[]placed{{0, 0, 1, 2}, {1, 1, 1, 2}}},
-		{"a third after the first reuses its lane", []ev{
-			{[2]int{9, 0}, [2]int{10, 0}}, {[2]int{9, 30}, [2]int{12, 0}}, {[2]int{10, 0}, [2]int{11, 0}}},
-			[]placed{{0, 0, 1, 2}, {1, 1, 1, 2}, {2, 0, 1, 2}}},
-		{"a short one beside two widens over the lane they leave", []ev{
-			{[2]int{9, 0}, [2]int{12, 0}}, {[2]int{9, 0}, [2]int{10, 0}}, {[2]int{9, 30}, [2]int{10, 0}},
-			{[2]int{10, 30}, [2]int{11, 0}}},
-			[]placed{{0, 0, 1, 3}, {1, 1, 1, 3}, {2, 2, 1, 3}, {3, 1, 2, 3}}},
+			[]placed{{0, 0, 0, 1, 1}, {1, 0, 0, 1, 1}}},
+		{"two starting close together sit side by side", []ev{{[2]int{9, 0}, [2]int{11, 0}}, {[2]int{9, 15}, [2]int{12, 0}}},
+			[]placed{{0, 0, 0, 1, 2}, {1, 0, 1, 1, 2}}},
+		{"a later one sits on top, indented", []ev{{[2]int{9, 0}, [2]int{11, 0}}, {[2]int{10, 0}, [2]int{12, 0}}},
+			[]placed{{0, 0, 0, 1, 1}, {1, 1, 0, 1, 1}}},
+		{"each later one indents a step further", []ev{
+			{[2]int{9, 0}, [2]int{13, 0}}, {[2]int{10, 0}, [2]int{12, 0}}, {[2]int{11, 0}, [2]int{11, 30}}},
+			[]placed{{0, 0, 0, 1, 1}, {1, 1, 0, 1, 1}, {2, 2, 0, 1, 1}}},
+		{"two close together on top share the indent", []ev{
+			{[2]int{9, 0}, [2]int{12, 0}}, {[2]int{10, 0}, [2]int{11, 0}}, {[2]int{10, 15}, [2]int{11, 0}}},
+			[]placed{{0, 0, 0, 1, 1}, {1, 1, 0, 1, 2}, {2, 1, 1, 1, 2}}},
 	}
 	for _, c := range cases {
 		var starts, ends []time.Time
@@ -34,10 +35,15 @@ func TestLanesSetOverlappingEventsSideBySide(t *testing.T) {
 			starts = append(starts, at(e.from[0], e.from[1]))
 			ends = append(ends, at(e.to[0], e.to[1]))
 		}
-		got := lanes(starts, ends)
+		got, order := lanes(starts, ends)
 		for i := range c.want {
 			if got[i] != c.want[i] {
 				t.Errorf("%s: event %d at %+v, want %+v", c.name, i, got[i], c.want[i])
+			}
+		}
+		for k := 1; k < len(order); k++ {
+			if starts[order[k]].Before(starts[order[k-1]]) {
+				t.Errorf("%s: drawn in the order %v, want the earliest first", c.name, order)
 			}
 		}
 	}

@@ -522,7 +522,7 @@ type timedBox struct {
 	top, bottom bool
 }
 
-// timedBoxes lays out the events of day i by the hour, in the hours' own space.
+// timedBoxes lays out the events of day i by the hour, in the hours' own space, in the order to draw them.
 func (d *Days) timedBoxes(i int) []timedBox {
 	day, next := d.day(i), d.day(i+1)
 	var evs []Event
@@ -540,16 +540,20 @@ func (d *Days) timedBoxes(i int) []timedBox {
 		}
 		evs, starts, ends = append(evs, e), append(starts, s), append(ends, en)
 	}
-	places := lanes(starts, ends)
+	places, order := lanes(starts, ends)
 	w := d.colW() - dayMargin
-	out := make([]timedBox, len(evs))
-	for k, p := range places {
-		laneW := w / float32(max(p.lanes, 1))
-		x := d.colX(i) + float32(p.lane)*laneW
+	// Each step of indent moves an event over by a fifth of the column, up to 28 pixels.
+	step := min(w/5, 28)
+	out := make([]timedBox, 0, len(evs))
+	for _, k := range order {
+		p := places[k]
+		inW := max(w-float32(p.indent)*step, w/3)
+		laneW := inW / float32(max(p.lanes, 1))
+		x := d.colX(i) + (w - inW) + float32(p.lane)*laneW
 		y0 := d.hourY(starts[k].Sub(day))
 		y1 := max(d.hourY(ends[k].Sub(day)), y0+minEventH)
-		out[k] = timedBox{e: evs[k], box: geom.Rc(x+1, y0+1, float32(p.span)*laneW-2, y1-y0-2),
-			top: evs[k].Start.Before(day), bottom: evs[k].End.After(next)}
+		out = append(out, timedBox{e: evs[k], box: geom.Rc(x+1, y0+1, float32(p.span)*laneW-2, y1-y0-2),
+			top: evs[k].Start.Before(day), bottom: evs[k].End.After(next)})
 	}
 	return out
 }
@@ -742,7 +746,10 @@ func (d *Days) paintSprite(p *paint.Painter, th *theme.Live, s *sprite) {
 	if lift > 0.01 {
 		shadow = paint.Shadow{Color: color.NRGBA{A: uint8(0x60 * lift)}, Blur: 12 * lift, Offset: geom.Pt(0, 3*lift)}
 	}
-	p.ShadowRRect(r, 6, paint.Solid(fill), shadow)
+	// A solid base under the tint, edged in the base's colour, keeps an event on top of another readable.
+	base := EventBase.Get(th)
+	p.ShadowRRect(r.Inset(geom.Uniform(-1)), 7, paint.Solid(base), shadow)
+	p.RRect(r, 6, paint.Solid(fill))
 	if e.Faint {
 		stripes(p, r, 6, bar)
 	}
