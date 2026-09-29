@@ -50,6 +50,10 @@ type app struct {
 	pending []Picture
 	// web fetches link previews.
 	web *http.Client
+	// newFrom is the first message of the open conversation not read when it opened, and unread how many messages
+	// from others it had then.
+	newFrom string
+	unread  int
 }
 
 type project struct {
@@ -64,7 +68,9 @@ type conv struct {
 	msgs     []*msg
 	byID     map[string]*msg
 	unread   int
-	project  *project
+	// readTo is the ID of the last message the user has seen, or "" for none.
+	readTo  string
+	project *project
 }
 
 // msg is a message as the application keeps it.
@@ -232,10 +238,44 @@ func newApp(ctx context.Context, c gunim.Client, seed uint64, history int, failR
 				n = history
 			}
 			a.fill(cv, n, now)
+			a.leaveUnread(cv, a.rng.IntN(7))
 		}
 	}
-	a.current = a.projects[0].convs[0]
+	a.enter(a.projects[0].convs[0])
 	return a
+}
+
+// leaveUnread marks all but the last n messages of c read, and counts those from others as unread.
+func (a *app) leaveUnread(c *conv, n int) {
+	c.readTo, c.unread = "", 0
+	if i := len(c.msgs) - 1 - n; i >= 0 {
+		c.readTo = c.msgs[i].ID
+	}
+	for _, m := range c.msgs[max(0, len(c.msgs)-n):] {
+		if m.Author != me {
+			c.unread++
+		}
+	}
+}
+
+// enter makes c the open conversation: the line over new messages goes over the first from someone else since the
+// user last read it, and all of it is read from now on.
+func (a *app) enter(c *conv) {
+	a.current, a.newFrom, a.unread = c, "", c.unread
+	past := c.readTo == ""
+	for _, m := range c.msgs {
+		if past && m.Author != me {
+			a.newFrom = m.ID
+			break
+		}
+		if m.ID == c.readTo {
+			past = true
+		}
+	}
+	if len(c.msgs) > 0 {
+		c.readTo = c.msgs[len(c.msgs)-1].ID
+	}
+	c.unread = 0
 }
 
 func (a *app) newProject(name, short string, convs ...*conv) *project {
@@ -466,7 +506,7 @@ func (a *app) open(c *conv) {
 	if c == a.current {
 		return
 	}
-	a.current, c.unread = c, 0
+	a.enter(c)
 	a.replying, a.editing = "", ""
 	a.setTyping("")
 	a.setDraft("")
@@ -496,6 +536,7 @@ func (a *app) submit(text string) {
 		return
 	}
 	m := a.add(a.current, me, text, time.Now().Round(0))
+	a.current.readTo = m.ID
 	m.ReplyTo, a.replying = a.replying, ""
 	m.Pictures, a.pending = a.pending, nil
 	a.setDraft("")
@@ -639,6 +680,9 @@ func (a *app) say(c *conv, who, body, replyTo string) {
 			c.unread++
 		}
 		m := a.add(c, who, body, time.Now().Round(0))
+		if c == a.current {
+			c.readTo = m.ID
+		}
 		m.ReplyTo = replyTo
 		a.publish()
 		// The colleague's own app fetches the card for a link they send.
@@ -681,7 +725,10 @@ func (a *app) state() Chat {
 	if m, ok := a.current.byID[a.replying]; ok {
 		s.Replying = quote(m)
 	}
-	s.Items = timeline(a.current, time.Now())
+	s.Items = timeline(a.current, time.Now(), a.newFrom)
+	if a.newFrom != "" {
+		s.NewKey, s.Unread = newKey(a.current), a.unread
+	}
 	s.Pending, s.Images = slices.Clone(a.pending), maps.Clone(a.images)
 	return s
 }
@@ -689,10 +736,13 @@ func (a *app) state() Chat {
 // groupFor is how long a message shares the heading of the one that started its group, by the same author.
 const groupFor = 5 * time.Minute
 
+// newKey is the key of the line over c's new messages.
+func newKey(c *conv) string { return "new:" + c.ID }
+
 // timeline returns c's messages as the timeline's rows, with a heading for each day. A message shares the heading
 // of the one before when both are by the same author and its group started under groupFor ago, so even a steady
-// stream from one person shows a heading every few minutes.
-func timeline(c *conv, now time.Time) []Item {
+// stream from one person shows a heading every few minutes. The line over new messages goes before newFrom.
+func timeline(c *conv, now time.Time, newFrom string) []Item {
 	out := make([]Item, 0, len(c.msgs)+len(c.msgs)/20)
 	var prev *msg
 	var groupAt time.Time
@@ -701,6 +751,10 @@ func timeline(c *conv, now time.Time) []Item {
 		if d := m.At.Format(time.DateOnly); d != day {
 			day, prev = d, nil
 			out = append(out, Item{Key: "day:" + c.ID + ":" + d, Day: dayName(m.At, now)})
+		}
+		if m.ID == newFrom {
+			out = append(out, Item{Key: newKey(c), New: true})
+			prev = nil
 		}
 		it := Item{Key: m.ID, Message: Message{ID: m.ID, Author: m.Author, Mine: m.Author == me, At: m.At, Body: m.Body,
 			State: m.State, Edited: m.Edited, Withdrawn: m.Withdrawn, Pictures: slices.Clone(m.Pictures),

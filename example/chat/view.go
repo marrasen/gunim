@@ -55,6 +55,8 @@ type chatView struct {
 	// go with the next message.
 	images map[string]*paint.Image
 	strip  *pictureStrip
+	// catchUp says how many new messages lie below the view.
+	catchUp *catchUp
 	// picker is the emoji picker reactions come from.
 	picker widget.EmojiPicker
 	// order is the timeline's keys, and at where each is in it; group lets a selection run across its messages.
@@ -94,6 +96,7 @@ func buildChat(Chat) *chatView {
 	v.linkBar.Add(v.linkBar.open)
 	v.list = v.newList()
 	v.timeline = &slot{child: newFader(v.list)}
+	v.catchUp = newCatchUp(v)
 
 	v.typing = widget.NewLabel(" ")
 	v.typing.Color, v.typing.Size = Faint, SmallText
@@ -117,7 +120,8 @@ func buildChat(Chat) *chatView {
 	bottom.Cross = widget.CrossStretch
 	bottomPad := widget.NewPad(bottom)
 	bottomPad.Padding = composerPad
-	main := widget.Column(top, v.linkBar, v.timeline, bottomPad).Grow(v.timeline, 1)
+	timeline := &timelineBox{list: v.timeline, pill: v.catchUp}
+	main := widget.Column(top, v.linkBar, timeline, bottomPad).Grow(timeline, 1)
 	main.Cross, main.Gap = widget.CrossStretch, zeroGap
 	pane := &panel{child: main, fill: PaneFill}
 
@@ -167,7 +171,7 @@ func (v *chatView) messagesBetween(from, to string) []string {
 	}
 	var out []string
 	for _, k := range v.order[i : j+1] {
-		if v.items[k].Day == "" {
+		if !v.items[k].heading() {
 			out = append(out, string(k))
 		}
 	}
@@ -206,6 +210,11 @@ func (v *chatView) set(s Chat, u *gunim.UI) {
 		// A new conversation gets a new timeline, which opens at its end.
 		v.current = s.Current
 		v.list = v.newList()
+		if s.NewKey != "" {
+			// It opens at the first message not read, for reading on from there.
+			v.list.OpenAt(widget.Key(s.NewKey))
+		}
+		v.catchUp.set(s.Unread, u)
 		v.timeline.swap(newFader(v.list), u)
 		v.items = map[widget.Key]Item{}
 		v.last = ""
@@ -225,6 +234,16 @@ func (v *chatView) set(s Chat, u *gunim.UI) {
 	v.at = make(map[widget.Key]int, len(keys))
 	for i, k := range keys {
 		v.at[k] = i
+	}
+	if v.last != "" && !v.list.AtEnd() {
+		// Messages from others that come while the view is up the timeline wait below it.
+		came := 0
+		for i := len(s.Items) - 1; i >= 0 && s.Items[i].Key != string(v.last); i-- {
+			if it := s.Items[i]; !it.heading() && !it.Mine {
+				came++
+			}
+		}
+		v.catchUp.set(v.catchUp.count+came, u)
 	}
 	v.list.SetKeys(keys, u)
 	if n := len(keys); n > 0 && keys[n-1] != v.last {

@@ -26,6 +26,7 @@ const (
 	quoteH     = 26
 	maxQuoteW  = 560
 	dayH       = 40
+	newH       = 24
 )
 
 // ToolIcon is the size of the icons in a message's toolbar.
@@ -70,7 +71,7 @@ func newMsgRow(item Item, jump func(string, *gunim.UI), group *markdown.Group, i
 ) *msgRow {
 	r := &msgRow{item: item, jump: jump, hover: anim.NewFloat(0), flash: anim.NewFloat(0)}
 	r.Add(r.hover, r.flash)
-	if item.Day == "" {
+	if !item.heading() {
 		r.body = markdown.New("")
 		r.body.Breaks = true
 		r.body.Group, r.body.Key = group, item.Key
@@ -157,8 +158,11 @@ func (r *msgRow) showsTools() bool { return r.tools != nil && !r.item.Withdrawn 
 func (r *msgRow) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
 	th := f.Theme
 	w := c.Max.W
-	if r.item.Day != "" {
+	if r.item.heading() {
 		r.lay(th, w)
+		if r.item.New {
+			return geom.Sz(w, newH)
+		}
 		return geom.Sz(w, dayH)
 	}
 	r.lay(th, w)
@@ -217,7 +221,11 @@ func (r *msgRow) lay(th *theme.Live, w float32) {
 	r.laidFor.item, r.laidFor.width, r.laidFor.size = r.item, w, size
 	small := SmallText.Get(th)
 	regular, bold := widget.Font.Get(th), widget.BoldFont.Get(th)
-	if r.item.Day != "" {
+	switch {
+	case r.item.New:
+		r.name = bold.Shape("New", small)
+		return
+	case r.item.Day != "":
 		r.name = bold.Shape(r.item.Day, small)
 		return
 	}
@@ -282,7 +290,11 @@ func footText(m Message) string {
 // Paint implements [gunim.Node].
 func (r *msgRow) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.Children) {
 	th := f.Theme
-	if r.item.Day != "" {
+	switch {
+	case r.item.New:
+		r.paintNew(p, th, box)
+		return
+	case r.item.Day != "":
 		r.paintDay(p, th, box)
 		return
 	}
@@ -355,6 +367,17 @@ func (r *msgRow) paintStatus(p *paint.Painter, th *theme.Live) {
 	p.RRect(b, radius, paint.Solid(ink))
 	c := b.Center()
 	r.bang.Paint(p, geom.Pt(c.X-r.bang.Advance/2, c.Y-r.bang.Height()/2), widget.ButtonStrongInk.Get(th))
+}
+
+// paintNew draws the line over the messages not yet read: a line across the row, and "New" at its end.
+func (r *msgRow) paintNew(p *paint.Painter, th *theme.Live, box geom.Size) {
+	red := BadgeFill.Get(th)
+	mid := box.H / 2
+	w := r.name.Advance + 16
+	pill := geom.Rc(box.W-16-w, mid-10, w, 20)
+	p.RRect(geom.Rc(16, mid-0.5, pill.Min.X-16, 1), 0, paint.Solid(red))
+	p.RRect(pill, 10, paint.Solid(red))
+	r.name.Paint(p, geom.Pt(pill.Min.X+8, mid-r.name.Height()/2), widget.ButtonStrongInk.Get(th))
 }
 
 // paintDay draws a day's heading: its name in a pill on a line across the row.

@@ -184,6 +184,7 @@ func TestEditingReplacesTheText(t *testing.T) {
 func TestAnotherConversationOpensAtItsEnd(t *testing.T) {
 	h := newHarness(t)
 	before := h.v.list
+	h.a.leaveUnread(h.a.projects[0].convs[1], 0)
 	h.a.handle(ConversationChosen{ID: h.a.projects[0].convs[1].ID})
 	h.frames(30)
 	if h.v.list == before {

@@ -29,6 +29,10 @@ type (
 		// by ID.
 		Pending []Picture
 		Images  map[string]*paint.Image
+		// NewKey is the key of the line over the first message not read when the conversation opened, and Unread
+		// how many messages from others came after it; the timeline opens at the line.
+		NewKey string
+		Unread int
 	}
 
 	// Picture is a picture in a message, or waiting to go with one: its ID and its size in pixels.
@@ -50,10 +54,12 @@ type (
 		Unread   int
 	}
 
-	// Item is a row of the timeline: a day's heading when Day is set, and a message otherwise.
+	// Item is a row of the timeline: a day's heading when Day is set, the line over the messages not yet read when
+	// New is set, and a message otherwise.
 	Item struct {
 		Key string
 		Day string
+		New bool
 		Message
 	}
 
@@ -124,9 +130,12 @@ type (
 	Typing struct{ Who string }
 )
 
+// heading reports whether the row is a day's heading or the line over new messages, rather than a message.
+func (it Item) heading() bool { return it.Day != "" || it.New }
+
 // same reports whether two rows show the same.
 func same(a, b Item) bool {
-	return a.Key == b.Key && a.Day == b.Day && a.Message.equal(b.Message) && slices.Equal(a.Pictures, b.Pictures) &&
+	return a.Key == b.Key && a.Day == b.Day && a.New == b.New && a.Message.equal(b.Message) && slices.Equal(a.Pictures, b.Pictures) &&
 		slices.Equal(a.Reactions, b.Reactions) && a.Poll.Question == b.Poll.Question && a.Poll.Voters == b.Poll.Voters &&
 		slices.Equal(a.Poll.Options, b.Poll.Options)
 }

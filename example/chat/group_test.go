@@ -16,7 +16,7 @@ func TestASteadyStreamStillShowsHeadings(t *testing.T) {
 		c.byID[m.ID] = m
 	}
 	var headed []time.Time
-	for _, it := range timeline(c, start) {
+	for _, it := range timeline(c, start, "") {
 		if it.Day == "" && !it.Continued {
 			headed = append(headed, it.At)
 		}
