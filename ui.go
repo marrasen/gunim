@@ -1473,14 +1473,16 @@ func (u *UI) Focus(n Node) bool {
 	u.focus = next
 	u.focusMoved = true
 	// Each group round the node remembers it as its stop for Tab
+	grouped := false
 	for a := next; a != nil; a = a.parent {
 		if _, ok := a.node.(TabGroup); ok {
 			a.tabStop = next
+			grouped = grouped || a != next
 		}
 	}
 	u.takeText(prev, next)
 	if next != nil {
-		u.deliver(next, input.FocusGained{Keyed: u.keyed, Step: u.focusStep, Time: u.now})
+		u.deliver(next, input.FocusGained{Keyed: u.keyed, Step: u.focusStep, Grouped: grouped, Time: u.now})
 	}
 	u.ring()
 	u.invalid = true
