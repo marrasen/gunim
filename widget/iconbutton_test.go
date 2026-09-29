@@ -1,6 +1,7 @@
 package widget
 
 import (
+	"image/color"
 	"testing"
 	"time"
 
@@ -215,5 +216,19 @@ func TestAButtonWithAnIconAloneHasAName(t *testing.T) {
 	ib.Active = true
 	if st := ib.Access().State; st&access.StateChecked == 0 {
 		t.Fatal("an active icon button does not read as checked")
+	}
+}
+
+// A theme's button shadow is cast under a button, and none without it.
+func TestAButtonCastsTheThemesShadow(t *testing.T) {
+	b := NewButton("OK")
+	f := gunim.Frame{Scale: 1}
+	box := b.Layout(gunim.Constraints{Max: geom.Sz(400, 100)}, f, gunim.Children{})
+	plain := len(painted(b, box))
+	var p paint.Painter
+	th := theme.Make("shadowed", theme.Set(ButtonShadow, color.NRGBA{A: 0xff}))
+	b.Paint(&p, gunim.Frame{Scale: 1, Theme: theme.NewLive(th)}, box, gunim.Children{})
+	if len(p.Ops()) <= plain {
+		t.Fatalf("with a shadow, the button paints %d ops, and %d without", len(p.Ops()), plain)
 	}
 }

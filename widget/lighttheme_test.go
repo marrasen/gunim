@@ -12,7 +12,9 @@ import (
 var bothThemes = map[string]bool{
 	// Strong fills with white on them.
 	"button.primary": true, "button.primary.hover": true, "button.danger": true, "button.danger.hover": true,
-	"button.strong.ink": true, "check.mark": true, "window.close.hot": true,
+	"button.strong.ink": true, "button.primary.ink": true, "check.mark": true, "window.close.hot": true,
+	// None, unless a theme casts one.
+	"button.shadow": true,
 	// Tints over content, the same on dark and light.
 	"grid.mark": true, "table.mark": true,
 	// Rings drawn on the desktop around the window, not on the window's background.

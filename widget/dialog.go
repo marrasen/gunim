@@ -414,6 +414,12 @@ func (d *Dialog) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids guni
 		Color:  shadow,
 	})
 	p.RRectStroke(panel, radius, paint.Fill{}, paint.Stroke{Width: 1, Color: DialogBorder.Get(th)})
+	if DialogBorderLines.Get(th) >= 2 {
+		// A second rule just inside the first, as a double-line box.
+		const gap = 3
+		inner := geom.Rect{Min: geom.Pt(panel.Min.X+gap, panel.Min.Y+gap), Max: geom.Pt(panel.Max.X-gap, panel.Max.Y-gap)}
+		p.RRectStroke(inner, max(radius-gap, 0), paint.Fill{}, paint.Stroke{Width: 1, Color: DialogBorder.Get(th)})
+	}
 	title := d.title(th, panel.Size().W)
 	if ic, ink := d.mark(); ic != nil {
 		s := IconSize.Get(th)
