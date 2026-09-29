@@ -25,6 +25,9 @@ type TextArea struct {
 	Face theme.Token[*text.Face]
 	// OnChange turns the text into an intent to send when it changes.
 	OnChange func(text string) gunim.Intent
+	// OnSubmit, when set, turns the text into an intent to send when Enter is pressed, and Shift+Enter starts a
+	// line instead.
+	OnSubmit func(text string) gunim.Intent
 	// Rows is how many lines tall the area is.
 	Rows int
 
@@ -124,6 +127,10 @@ func (a *TextArea) Handle(e input.Event, u *gunim.UI) bool {
 	case input.Composing:
 		a.compose(e)
 	case input.KeyPress:
+		if a.submits(e) {
+			u.Send(a, a.OnSubmit(a.Text()))
+			return true
+		}
 		if !a.key(e, u, areaNav{a}) {
 			return false
 		}
@@ -132,6 +139,12 @@ func (a *TextArea) Handle(e input.Event, u *gunim.UI) bool {
 	}
 	u.Invalidate()
 	return true
+}
+
+// submits reports whether k is an Enter that sends OnSubmit.
+func (a *TextArea) submits(k input.KeyPress) bool {
+	enter := k.Key == input.KeyEnter || k.Key == input.KeyKPEnter
+	return enter && a.OnSubmit != nil && !k.Mods.Has(input.ModShift) && len(a.preedit) == 0
 }
 
 // origin returns where the paragraph's top-left sits in the area.

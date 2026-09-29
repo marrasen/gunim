@@ -189,3 +189,19 @@ func TestTheWheelScrollsAnAreaAwayFromItsCaret(t *testing.T) {
 		t.Fatalf("after typing, the area sits at %v, want back at the caret, %v", got, bottom)
 	}
 }
+
+func TestEnterSubmitsAndShiftEnterStartsALine(t *testing.T) {
+	wr := newWriter(t, 400)
+	wr.area.OnSubmit = func(s string) gunim.Intent { return submitted{s} }
+	wr.typeText("one")
+	wr.key(input.KeyEnter, input.ModShift)
+	wr.typeText("two")
+	wr.want("one\ntwo", 7)
+	sent(wr.w)
+	wr.key(input.KeyEnter, 0)
+	wr.want("one\ntwo", 7)
+	got := sent(wr.w)
+	if len(got) != 1 || got[0] != (submitted{"one\ntwo"}) {
+		t.Fatalf("intents %v, want a submit of the two lines", got)
+	}
+}

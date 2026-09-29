@@ -43,6 +43,15 @@ curve kept on the graph a green one.
 ![The calculator](example/calculator/calculator.png)
 ![The graph](example/calculator/graph.png)
 
+`example/chat` is a chat client with a pretend server behind it, for trying the widgets in a chat. The
+timeline opens at its latest message and stays there as messages arrive. Colleagues type, reply, edit and withdraw,
+some sends fail, and the button in the header drops the connection so messages wait until it is back.
+
+```sh
+CGO_ENABLED=0 go run ./example/chat
+CGO_ENABLED=0 go run ./example/chat -history 50000
+```
+
 `example/files` is a file manager that does real work: it copies, moves,
 renames, makes folders, and moves items to the trash, each in the
 background with progress, cancel and undo.

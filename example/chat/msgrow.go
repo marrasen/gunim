@@ -1,0 +1,346 @@
+package main
+
+import (
+	"hash/fnv"
+	"image/color"
+	"strings"
+	"unicode"
+
+	"github.com/marrasen/gunim"
+	"github.com/marrasen/gunim/anim"
+	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/icon"
+	"github.com/marrasen/gunim/input"
+	"github.com/marrasen/gunim/paint"
+	"github.com/marrasen/gunim/text"
+	"github.com/marrasen/gunim/theme"
+	"github.com/marrasen/gunim/widget"
+)
+
+// Sizes of a message row.
+const (
+	gutter     = 64 // the room left of the text, for the avatar
+	avatarSize = 36
+	rowPad     = 6
+	quoteH     = 26
+	maxQuoteW  = 560
+	dayH       = 40
+)
+
+// ToolIcon is the size of the icons in a message's toolbar.
+var ToolIcon = theme.Length("chat.tool.icon", 15)
+
+// msgRow is a row of the timeline: a day's heading, or a message with its author, its time, the message it replies
+// to, its text and, for the user's own, how far it got. Under the pointer it lights and shows a toolbar.
+type msgRow struct {
+	anim.Group
+	item Item
+	// jump scrolls the timeline to a message and flashes it.
+	jump func(id string, u *gunim.UI)
+
+	tools   gunim.Node
+	toolsAt geom.Point
+	hover   *anim.Float
+	flash   *anim.Float
+
+	// laidFor is what the texts below were laid out for.
+	laidFor struct {
+		item        Item
+		width, size float32
+	}
+	name, time, foot, quote, initials text.Run
+	body                              text.Paragraph
+	bodyAt                            float32
+	quoteBox, footBox                 geom.Rect
+	height                            float32
+}
+
+func newMsgRow(item Item, jump func(string, *gunim.UI)) *msgRow {
+	r := &msgRow{item: item, jump: jump, hover: anim.NewFloat(0), flash: anim.NewFloat(0)}
+	r.Add(r.hover, r.flash)
+	if item.Day == "" {
+		r.tools = newTools(item.Message)
+	}
+	return r
+}
+
+// newTools makes a message's toolbar: reply, and for the user's own messages edit and withdraw.
+func newTools(m Message) gunim.Node {
+	button := func(ic *icon.Icon, tip string, on gunim.Intent) gunim.Node {
+		b := widget.NewIconButton(ic, tip)
+		b.IconSize, b.KeepFocus, b.On = ToolIcon, true, on
+		return b
+	}
+	buttons := []gunim.Node{button(icon.Reply, "Reply", ReplyAsked{ID: m.ID})}
+	if m.Mine {
+		buttons = append(buttons,
+			button(icon.Pencil, "Edit", EditAsked{ID: m.ID}),
+			button(icon.Trash2, "Withdraw", WithdrawAsked{ID: m.ID}))
+	}
+	return widget.NewToolbar(buttons...)
+}
+
+// set shows item in place of the row's old one.
+func (r *msgRow) set(item Item, u *gunim.UI) {
+	r.item = item
+	u.Invalidate()
+}
+
+// Flash lights the row for a moment, for a message the timeline jumped to.
+func (r *msgRow) Flash() {
+	r.flash.Jump(1)
+	r.flash.Animate(0, anim.Tween{Duration: 1400_000_000, Ease: anim.EaseInOut})
+}
+
+// Children implements [gunim.Composite].
+func (r *msgRow) Children() []gunim.Node {
+	if r.tools == nil {
+		return nil
+	}
+	return []gunim.Node{r.tools}
+}
+
+// showsTools reports whether the toolbar can show: on a message still there and on its way or arrived.
+func (r *msgRow) showsTools() bool { return r.tools != nil && !r.item.Withdrawn }
+
+// Layout implements [gunim.Node].
+func (r *msgRow) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
+	th := f.Theme
+	w := c.Max.W
+	if r.item.Day != "" {
+		r.lay(th, w)
+		return geom.Sz(w, dayH)
+	}
+	r.lay(th, w)
+	var ts geom.Size
+	if kids.Len() > 0 {
+		tools := kids.At(0)
+		ts = tools.Layout(gunim.Loose(geom.Sz(w, 60)))
+		r.toolsAt = geom.Pt(w-ts.W-16, 2)
+		tools.Place(r.toolsAt)
+	}
+	return geom.Sz(w, max(r.height, ts.H+4))
+}
+
+// lay lays the row's texts out for a row w wide, unless they already are.
+func (r *msgRow) lay(th *theme.Live, w float32) {
+	size := widget.TextSize.Get(th)
+	if r.laidFor.item == r.item && r.laidFor.width == w && r.laidFor.size == size {
+		return
+	}
+	r.laidFor.item, r.laidFor.width, r.laidFor.size = r.item, w, size
+	small := SmallText.Get(th)
+	regular, bold := widget.Font.Get(th), widget.BoldFont.Get(th)
+	if r.item.Day != "" {
+		r.name = bold.Shape(r.item.Day, small)
+		return
+	}
+	m := r.item.Message
+	textW := max(w-gutter-24, 40)
+	y := float32(rowPad)
+	r.initials = bold.Shape(initials(m.Author), size)
+	r.time = regular.Shape(m.At.Format("15:04"), small)
+	if !m.Continued {
+		r.name = bold.Shape(m.Author, size)
+		y += r.name.Height() + 2
+	}
+	r.quoteBox = geom.Rect{}
+	if m.Reply.ID != "" {
+		q := m.Reply.Author + "  " + firstLine(m.Reply.Text)
+		if m.Reply.Gone {
+			q = "Message withdrawn"
+		}
+		r.quote = shapeFit(regular, q, small, min(textW, maxQuoteW)-24)
+		r.quoteBox = geom.Rc(gutter, y, r.quote.Advance+24, quoteH)
+		y += quoteH + 4
+	}
+	body, face := m.Body, regular
+	if m.Withdrawn {
+		body, face = "This message was withdrawn.", text.GoSans(false, true)
+	}
+	r.body = face.Layout(body, text.Style{Size: size}, textW)
+	r.bodyAt = y
+	y += r.body.Size.H
+	r.footBox = geom.Rect{}
+	if foot := footText(m); foot != "" {
+		r.foot = regular.Shape(foot, small)
+		r.footBox = geom.Rc(gutter, y+2, r.foot.Advance, r.foot.Height())
+		y += r.foot.Height() + 2
+	}
+	r.height = y + rowPad
+}
+
+// footText is the line under a message: how far one of the user's own got, and whether it was edited.
+func footText(m Message) string {
+	switch {
+	case m.Withdrawn:
+		return ""
+	case m.State == Pending:
+		return "Sending…"
+	case m.State == Failed:
+		return "Not sent. Click to try again."
+	case m.Edited:
+		return "(edited)"
+	}
+	return ""
+}
+
+// Paint implements [gunim.Node].
+func (r *msgRow) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.Children) {
+	th := f.Theme
+	if r.item.Day != "" {
+		r.paintDay(p, th, box)
+		return
+	}
+	m := r.item.Message
+	full := geom.Rect{Max: box.Point()}
+	if h := min(r.hover.Value(), 1); h > 0.01 {
+		p.RRect(full, 6, paint.Solid(fade(RowHot.Get(th), h)))
+	}
+	if fl := min(r.flash.Value(), 1); fl > 0.01 {
+		p.RRect(full, 6, paint.Solid(fade(widget.Accent.Get(th), 0.25*fl)))
+	}
+	ink, faint := widget.Ink.Get(th), Faint.Get(th)
+	if !m.Continued {
+		r.paintAvatar(p, geom.Rc(16, rowPad+2, avatarSize, avatarSize), avatarTint(m.Author))
+		r.name.Paint(p, geom.Pt(gutter, rowPad), ink)
+		r.time.Paint(p, geom.Pt(gutter+r.name.Advance+8, rowPad+r.name.Ascent-r.time.Ascent), faint)
+	} else if h := min(r.hover.Value(), 1); h > 0.01 {
+		r.time.Paint(p, geom.Pt(gutter-12-r.time.Advance, r.bodyAt+2), fade(faint, h))
+	}
+	if !r.quoteBox.Empty() {
+		q := r.quoteBox
+		p.RRect(q, 6, paint.Solid(QuoteFill.Get(th)))
+		p.RRect(geom.Rc(q.Min.X, q.Min.Y, 3, q.Size().H), 1.5, paint.Solid(avatarTint(m.Reply.Author)))
+		func() {
+			defer p.Layer(paint.LayerOpts{Bounds: q, Opacity: 1, Clip: true})()
+			r.quote.Paint(p, geom.Pt(q.Min.X+12, q.Min.Y+(quoteH-r.quote.Height())/2), faint)
+		}()
+	}
+	bodyInk := ink
+	switch {
+	case m.Withdrawn:
+		bodyInk = faint
+	case m.State != Sent:
+		bodyInk = fade(ink, 0.6)
+	}
+	r.body.Paint(p, geom.Pt(gutter, r.bodyAt), bodyInk)
+	if !r.footBox.Empty() {
+		footInk := faint
+		if m.State == Failed {
+			footInk = ErrorInk.Get(th)
+		}
+		r.foot.Paint(p, r.footBox.Min, footInk)
+	}
+	if h := min(r.hover.Value(), 1); h > 0.01 && kids.Len() > 0 && r.showsTools() {
+		tools := kids.At(0)
+		defer p.Layer(paint.LayerOpts{Bounds: geom.Rect{Min: r.toolsAt, Max: r.toolsAt.Add(tools.Size().Point())}, Opacity: h})()
+		tools.Paint(p)
+	}
+}
+
+// paintDay draws a day's heading: its name in a pill on a line across the row.
+func (r *msgRow) paintDay(p *paint.Painter, th *theme.Live, box geom.Size) {
+	mid := box.H / 2
+	p.RRect(geom.Rc(16, mid, box.W-32, 1), 0, paint.Solid(widget.FieldBorder.Get(th)))
+	w := r.name.Advance + 24
+	pill := geom.Rc((box.W-w)/2, mid-12, w, 24)
+	p.RRectStroke(pill, 12, paint.Solid(PaneFill.Get(th)), paint.Stroke{Width: 1, Color: widget.FieldBorder.Get(th)})
+	r.name.Paint(p, geom.Pt(pill.Min.X+12, mid-r.name.Height()/2), Faint.Get(th))
+}
+
+// paintAvatar draws an author's initials in a circle of their colour.
+func (r *msgRow) paintAvatar(p *paint.Painter, at geom.Rect, tint color.NRGBA) {
+	p.RRect(at, at.Size().W/2, paint.Solid(tint))
+	c := at.Center()
+	r.initials.Paint(p, geom.Pt(c.X-r.initials.Advance/2, c.Y-r.initials.Height()/2), color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff})
+}
+
+// Handle implements [gunim.Handler]: the row lights under the pointer, a click on a quote jumps to the message it
+// quotes, and a click on a failed message's note sends it again.
+func (r *msgRow) Handle(e input.Event, u *gunim.UI) bool {
+	switch e := e.(type) {
+	case input.PointerEnter:
+		r.hover.Animate(1, widget.Quick.Get(u.Theme()))
+	case input.PointerLeave:
+		r.hover.Animate(0, widget.Settle.Get(u.Theme()))
+	case input.PointerDown:
+		if e.Button != input.ButtonPrimary {
+			return false
+		}
+		m := r.item.Message
+		switch {
+		case r.quoteBox.Contains(e.Pos) && !m.Reply.Gone:
+			r.jump(m.Reply.ID, u)
+			return true
+		case r.footBox.Contains(e.Pos) && m.State == Failed:
+			u.Send(r, RetryAsked{ID: m.ID})
+			return true
+		}
+	}
+	return false
+}
+
+// Cursor implements [gunim.CursorShaper]: a hand over what takes a click.
+func (r *msgRow) Cursor(p geom.Point) input.Cursor {
+	m := r.item.Message
+	if (r.quoteBox.Contains(p) && !m.Reply.Gone) || (r.footBox.Contains(p) && m.State == Failed) {
+		return input.CursorHand
+	}
+	return input.CursorArrow
+}
+
+// fade returns c with its alpha scaled by t.
+func fade(c color.NRGBA, t float32) color.NRGBA {
+	c.A = uint8(float32(c.A) * max(0, min(t, 1)))
+	return c
+}
+
+// avatarTint returns the colour of an author's avatar.
+func avatarTint(author string) color.NRGBA {
+	h := fnv.New32a()
+	h.Write([]byte(author))
+	return avatarTints[h.Sum32()%uint32(len(avatarTints))]
+}
+
+// initials returns the first letters of the first two words of a name.
+func initials(name string) string {
+	var out []rune
+	for _, word := range strings.Fields(name) {
+		for _, c := range word {
+			out = append(out, unicode.ToUpper(c))
+			break
+		}
+		if len(out) == 2 {
+			break
+		}
+	}
+	return string(out)
+}
+
+// shapeFit shapes s in face at size, cut short with an ellipsis where it would run wider than w.
+func shapeFit(face *text.Face, s string, size, w float32) text.Run {
+	run := face.Shape(s, size)
+	if run.Advance <= w {
+		return run
+	}
+	rs := []rune(s)
+	lo, hi := 0, len(rs)
+	for lo < hi {
+		mid := (lo + hi + 1) / 2
+		if face.Shape(strings.TrimRight(string(rs[:mid]), " ")+"…", size).Advance <= w {
+			lo = mid
+		} else {
+			hi = mid - 1
+		}
+	}
+	return face.Shape(strings.TrimRight(string(rs[:lo]), " ")+"…", size)
+}
+
+// firstLine returns s up to its first line break.
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return s[:i] + " …"
+	}
+	return s
+}

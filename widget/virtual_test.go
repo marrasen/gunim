@@ -318,3 +318,104 @@ func TestVirtualListHoldsEveryFrameStillAsItemsArriveAbove(t *testing.T) {
 		prev = now
 	}
 }
+
+func TestVirtualListRowFindsOnlyBuiltRows(t *testing.T) {
+	_, l, _ := newVirtual(t, keys(1000), 40)
+	n, ok := l.Row("0")
+	if b, isBlock := n.(*block); !ok || !isBlock || b.key != "0" {
+		t.Fatalf("Row(0) = %v, %v, want the first row's block", n, ok)
+	}
+	if n, ok := l.Row("999"); ok {
+		t.Fatalf("Row(999) = %v for a row out of view, want none", n)
+	}
+}
+
+// newStuckVirtual is newVirtual for a list that sticks to its end.
+func newStuckVirtual(t *testing.T, ks []Key, height float32) (*gunim.Window, *VirtualList, func(int)) {
+	t.Helper()
+	l := NewVirtualList(func(k Key) gunim.Node { return &block{key: k, h: height} })
+	l.StickToEnd = true
+	w := gunimtest.New(t, geom.Sz(300, 400), nil)
+	gunim.RegisterView(w, "v", func(shownKeys) gunim.Node { return l },
+		func(_ gunim.Node, s shownKeys, u *gunim.UI) { l.SetKeys(s.Keys, u) })
+	if err := w.Client().Mount(gunim.Root, "v", "v", shownKeys{ks}); err != nil {
+		t.Fatal(err)
+	}
+	run := func(n int) {
+		for range n {
+			w.Frame(time.Second / 60)
+		}
+	}
+	run(2)
+	return w, l, run
+}
+
+// wantEnd fails unless the list's last row, key last and 60 tall, sits at the bottom of the 400 tall view.
+func wantEnd(t *testing.T, l *VirtualList, last Key) {
+	t.Helper()
+	r, ok := l.live[last]
+	if !ok {
+		t.Fatalf("the last row, %s, is not built", last)
+	}
+	if bottom := r.y.Value() + 60 - l.Offset(); abs32(bottom-400) > 0.5 {
+		t.Fatalf("the last row ends at %v in the view, want 400", bottom)
+	}
+}
+
+func TestVirtualListThatSticksStartsAtTheEnd(t *testing.T) {
+	// Rows are 60 tall against an estimate of 40, so the end moves as rows are measured.
+	_, l, run := newStuckVirtual(t, keys(10_000), 60)
+	run(10)
+	wantEnd(t, l, "9999")
+}
+
+func TestVirtualListThatSticksFollowsNewRows(t *testing.T) {
+	w, l, run := newStuckVirtual(t, keys(100), 60)
+	if err := w.Client().Update("v", shownKeys{keys(103)}); err != nil {
+		t.Fatal(err)
+	}
+	run(120)
+	wantEnd(t, l, "102")
+	if !l.AtEnd() {
+		t.Fatal("AtEnd is false at the end")
+	}
+}
+
+func TestVirtualListThatSticksStaysPutWhenScrolledUp(t *testing.T) {
+	w, l, run := newStuckVirtual(t, keys(100), 60)
+	run(10)
+	w.Input(input.Scroll{Pos: geom.Pt(100, 100), Delta: geom.Pt(0, 500)})
+	run(120)
+	at := l.Offset()
+	if l.AtEnd() {
+		t.Fatalf("AtEnd at %v after scrolling up", at)
+	}
+	if err := w.Client().Update("v", shownKeys{keys(103)}); err != nil {
+		t.Fatal(err)
+	}
+	run(120)
+	if l.Offset() != at {
+		t.Fatalf("offset moved from %v to %v as rows arrived below", at, l.Offset())
+	}
+	l.ScrollToEnd(Quick.Default())
+	run(120)
+	wantEnd(t, l, "102")
+}
+
+func TestVirtualListThatSticksLetsADragHoldIt(t *testing.T) {
+	w, l, run := newStuckVirtual(t, keys(100), 60)
+	l.DragScroll = true
+	run(10)
+	w.Input(input.PointerDown{Pos: geom.Pt(100, 200), Button: input.ButtonPrimary, Clicks: 1})
+	run(2)
+	at := l.Offset()
+	if err := w.Client().Update("v", shownKeys{keys(103)}); err != nil {
+		t.Fatal(err)
+	}
+	run(60)
+	if l.Offset() != at {
+		t.Fatalf("offset moved from %v to %v under a held drag", at, l.Offset())
+	}
+	w.Input(input.PointerUp{Pos: geom.Pt(100, 200), Button: input.ButtonPrimary})
+	run(120)
+}

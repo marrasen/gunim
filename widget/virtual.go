@@ -40,6 +40,12 @@ type VirtualList struct {
 	// Spacing is the room between rows. It defaults to the theme's
 	// [ListSpacing]; a table's rows sit against each other.
 	Spacing theme.Token[float32]
+	// StickToEnd starts the view at the end of the list and keeps it there while rows arrive and grow, as a chat's
+	// timeline does. A view scrolled away from the end stays where it is.
+	StickToEnd bool
+	// stuck says the view is held at the end, and laidOut that the list has been laid out once. again asks for
+	// another frame, to build the rows a move to the end brought into view.
+	stuck, laidOut, again bool
 
 	build func(Key) gunim.Node
 
@@ -195,6 +201,15 @@ func (l *VirtualList) Len() int { return len(l.order) - len(l.gone) }
 // Built returns how many rows are built right now.
 func (l *VirtualList) Built() int { return len(l.live) }
 
+// Row returns the node built for key's row, while the row is built.
+func (l *VirtualList) Row(key Key) (gunim.Node, bool) {
+	r, ok := l.live[key]
+	if !ok || l.gone[key] {
+		return nil, false
+	}
+	return r.child, true
+}
+
 // SetKeys makes keys the list's items, in order. Call it from a view's
 // update function. Rows already built stay built and spring to their
 // new places; a new item in view grows in, and a removed one in view
@@ -245,6 +260,28 @@ func (l *VirtualList) SetKeys(keys []Key, u *gunim.UI) {
 	u.Invalidate()
 }
 
+// AtEnd reports whether the view is at the end of the list, or heading there.
+func (l *VirtualList) AtEnd() bool { return l.target >= l.end()-0.5 }
+
+// ScrollToEnd glides the view to the end of the list, where a list that sticks to its end stays.
+func (l *VirtualList) ScrollToEnd(motion anim.Motion) {
+	l.ScrollTo(l.end(), motion)
+	l.stuck = l.StickToEnd
+}
+
+// stickTo holds a stuck view at the end of content rows tall, in a view viewport tall. The first time it jumps
+// there, and after that it moves by as much as the end did, so a glide toward the end carries on.
+func (l *VirtualList) stickTo(content, viewport float32) float32 {
+	end := max(0, content-viewport)
+	switch {
+	case !l.laidOut:
+		l.jumpTo(end)
+	case end != l.target:
+		l.shift(end - l.target)
+	}
+	return l.offset.Value()
+}
+
 // ScrollToKey glides the list so key's row is at the top of the view,
 // or as near as the list's end allows.
 func (l *VirtualList) ScrollToKey(key Key, u *gunim.UI) {
@@ -267,6 +304,14 @@ func (l *VirtualList) height(k Key) float32 {
 		return l.Estimate
 	}
 	return 40
+}
+
+// Step implements [gunim.Animator].
+func (l *VirtualList) Step(dt time.Duration) bool {
+	moving := l.scrolling.Step(dt)
+	again := l.again
+	l.again = false
+	return moving || again
 }
 
 // Handle implements [gunim.Handler].
@@ -292,6 +337,10 @@ func (l *VirtualList) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Chil
 	width := own.W
 	spacing := l.Spacing.Get(f.Theme)
 	move := Quick.Get(f.Theme)
+	if l.StickToEnd {
+		// A view the pointer holds, or that coasts, goes where it is taken.
+		l.stuck = !l.held && !l.gripped && !l.flinging && (!l.laidOut || l.AtEnd())
+	}
 	l.th, l.viewport = f.Theme, own.H
 
 	// Rows the engine has taken out are gone for good.
@@ -334,6 +383,9 @@ func (l *VirtualList) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Chil
 		}
 	}
 
+	if l.stuck {
+		l.stickTo(float32(l.tops.sum(len(l.order)))-spacing, own.H)
+	}
 	offset := l.offset.Value()
 	top, bottom := offset-overscan, offset+own.H+overscan
 	keep := make(map[Key]bool, len(l.live))
@@ -406,8 +458,20 @@ func (l *VirtualList) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Chil
 			delete(l.live, k)
 		}
 	}
-	l.fit(max(0, float32(l.tops.sum(len(l.order)))-spacing), own, f.Theme)
+	content := max(0, float32(l.tops.sum(len(l.order)))-spacing)
+	if l.stuck {
+		// Rows measured in view moved the end: follow it, and the rows with it.
+		if at := l.stickTo(content, own.H); at != offset {
+			for k := range keep {
+				r := l.live[k]
+				children[r].Place(geom.Pt(0, r.y.Value()-at))
+			}
+			l.again = true
+		}
+	}
+	l.fit(content, own, f.Theme)
 	l.still = false
+	l.laidOut = true
 	return own
 }
 
