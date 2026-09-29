@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/marrasen/gunim"
+	"github.com/marrasen/gunim/markdown"
 )
 
 // me is the user's name.
@@ -229,6 +230,9 @@ func (a *app) handle(v gunim.Intent) {
 			log.Print(err)
 		}
 		return
+	case markdown.Link:
+		a.openLink(v.URL)
+		return
 	case gunim.CommandFailed:
 		log.Printf("command %s failed: %s", v.Command, v.Reason)
 		return
@@ -236,6 +240,19 @@ func (a *app) handle(v gunim.Intent) {
 		return
 	}
 	a.publish()
+}
+
+// openLink opens a web or mail address from a message in the system's browser or mail program. Anything else,
+// such as a path to a file, stays closed: messages come from other people.
+func (a *app) openLink(url string) {
+	lower := strings.ToLower(url)
+	if !strings.HasPrefix(lower, "https://") && !strings.HasPrefix(lower, "http://") && !strings.HasPrefix(lower, "mailto:") {
+		log.Printf("not opening %q: only web and mail addresses open", url)
+		return
+	}
+	if err := a.c.Open(url); err != nil {
+		log.Printf("opening %s: %v", url, err)
+	}
 }
 
 // open makes c the open conversation.

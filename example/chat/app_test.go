@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/gunimtest"
 	"github.com/marrasen/gunim/input"
+	"github.com/marrasen/gunim/markdown"
 	"github.com/marrasen/gunim/widget"
 )
 
@@ -225,5 +227,21 @@ func TestAMessageKeepsItsHeightAsItArrives(t *testing.T) {
 	}
 	if got := h.height("Sharing it"); got != shared {
 		t.Fatalf("the message sharing a heading went from %v to %v tall as it arrived", shared, got)
+	}
+}
+
+func TestOnlyWebAndMailLinksOpen(t *testing.T) {
+	h := newHarness(t)
+	var opened []string
+	h.w.Offscreen().SetLauncher(func(path string) error {
+		opened = append(opened, path)
+		return nil
+	}, nil)
+	for _, url := range []string{"https://example.com/x", "mailto:anna@example.com", `C:\Windows\notepad.exe`,
+		"file:///etc/passwd"} {
+		h.a.handle(markdown.Link{URL: url})
+	}
+	if want := []string{"https://example.com/x", "mailto:anna@example.com"}; !slices.Equal(opened, want) {
+		t.Fatalf("opened %v, want %v", opened, want)
 	}
 }

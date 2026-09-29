@@ -8,6 +8,7 @@ import (
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/input"
+	"github.com/marrasen/gunim/markdown"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/text"
 	"github.com/marrasen/gunim/theme"
@@ -369,7 +370,7 @@ func (b *replyBar) set(q Quote, editing bool, u *gunim.UI) {
 	case editing:
 		b.msg = "Editing a message. Escape stops."
 	case q.ID != "":
-		b.msg = "Replying to " + q.Author + ": " + firstLine(q.Text)
+		b.msg = "Replying to " + q.Author + ": " + firstLine(markdown.Plain(q.Text))
 	}
 	b.open.Animate(map[bool]float32{false: 0, true: 1}[editing || q.ID != ""], widget.Quick.Get(u.Theme()))
 	u.Invalidate()
