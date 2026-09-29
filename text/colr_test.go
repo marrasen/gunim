@@ -113,3 +113,15 @@ func TestAnEmojiInTextComesFromTheColourFont(t *testing.T) {
 		t.Fatalf("%d plain glyphs, want the words", plain)
 	}
 }
+
+func readEmojiFont() ([]byte, error) { return os.ReadFile(`C:\Windows\Fonts\seguiemj.ttf`) }
+
+func TestEmojiShowsTellsWhatTheSystemDraws(t *testing.T) {
+	emojiFace(t)
+	if !EmojiShows("\U0001F44D") {
+		t.Fatal("thumbs up does not show")
+	}
+	if EmojiShows("A") {
+		t.Fatal("the letter A shows as an emoji")
+	}
+}

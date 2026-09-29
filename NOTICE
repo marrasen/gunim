@@ -6,3 +6,7 @@ Ebitengine, Copyright The Ebitengine Authors, under the Apache License 2.0.
 
 The icons in icon/lucide.go are generated from Lucide, Copyright Lucide
 Icons and Contributors, under the ISC License in icon/LICENSE-lucide.
+
+The emoji and their names in emoji/data.go are generated from Unicode's
+emoji-test.txt, Copyright Unicode, Inc., under the Unicode License v3,
+https://www.unicode.org/license.txt.

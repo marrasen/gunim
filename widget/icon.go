@@ -133,3 +133,8 @@ func paintSmallIcon(p *paint.Painter, th *theme.Live, ic *icon.Icon, r geom.Rect
 	}
 	p.Mask(icon.Stroke{Icon: ic, Width: IconStroke.Get(th) * IconSize.Get(th) / w, Progress: 1}, r, c)
 }
+
+// PaintIcon draws ic in r, in c, as widgets draw their icons, for a node of an application's own.
+func PaintIcon(p *paint.Painter, th *theme.Live, ic *icon.Icon, r geom.Rect, c color.NRGBA) {
+	paintIcon(p, th, ic, r, c, 1)
+}

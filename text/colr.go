@@ -563,3 +563,27 @@ func (c *colr) composite(p tables.PaintComposite, m affine, dst layer) {
 		over(dst[i:i+4], out[0], out[1], out[2], out[3])
 	}
 }
+
+// shows remembers, for each emoji asked about, whether the system draws it in colour.
+var shows = map[string]bool{}
+
+// EmojiShows reports whether s, one emoji, draws in colour as one picture: whether the fonts at hand have it.
+// A picker shows only such emoji, since one newer than the system's emoji font would draw as a box.
+func EmojiShows(s string) bool {
+	mu.Lock()
+	known, ok := shows[s]
+	mu.Unlock()
+	if ok {
+		return known
+	}
+	run := Default().Shape(s, 16)
+	show := len(run.Glyphs) == 1
+	if show {
+		f, found := Lookup(run.Glyphs[0].Face)
+		show = found && f.IsColor(run.Glyphs[0].ID)
+	}
+	mu.Lock()
+	shows[s] = show
+	mu.Unlock()
+	return show
+}
