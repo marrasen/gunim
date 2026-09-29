@@ -69,6 +69,7 @@ type glyphTexture struct {
 func (r *renderer) initGlyphs() {
 	r.glyphs.have = map[glyphKey]bool{}
 	r.lcdGlyphs.have = map[glyphKey]bool{}
+	r.colorGlyphs.have = map[glyphKey]bool{}
 	r.glyphs.tex = r.newAtlas(gl.TEXTURE0, glR8, glRed, 1)
 }
 
@@ -121,6 +122,8 @@ func (r *renderer) text(op *paint.TextOp) {
 	// Corners arrive in device pixels, placed by the glyph's own
 	// transform: the op's without its translation.
 	shape := paint.Transform{A: t.A, B: t.B, D: t.D, E: t.E}
+	// A colour glyph keeps its own colours, and fades with the text.
+	colorLook := look{kind: kindGlyph, color0: [4]float32{1, 1, 1, float32(op.Color.A) / 255}, radius: 3}
 
 	var (
 		face   *text.Face
@@ -136,6 +139,19 @@ func (r *renderer) text(op *paint.TextOp) {
 		}
 		o := t.Apply(gly.At)
 		ox, oy := o.X*r.scale, o.Y*r.scale
+		if face.IsColor(gly.ID) {
+			if plain {
+				ox, oy = float32(math.Round(float64(ox))), float32(math.Round(float64(oy)))
+			}
+			key := glyphKey{face: faceID, id: gly.ID, size: int32(math.Round(float64(sizePx) * 64)), color: true}
+			slot, ok := r.glyph(key, func() text.Mask { return face.RasterizeColor(key.id, sizePx) })
+			if !ok {
+				continue
+			}
+			shape.C, shape.F = ox, oy
+			r.quad(corners(slot.rect(), slot.uv()), shape, 1, &colorLook)
+			continue
+		}
 		var shift uint8
 		if plain {
 			fx := float32(math.Floor(float64(ox)))
@@ -153,14 +169,22 @@ func (r *renderer) text(op *paint.TextOp) {
 			continue
 		}
 		r.uses(0)
-		x0, y0 := float32(slot.off.X), float32(slot.off.Y)
-		q := geom.Rect{Min: geom.Pt(x0, y0), Max: geom.Pt(x0+float32(slot.w), y0+float32(slot.h))}
-		uv := geom.Rect{
-			Min: geom.Pt(float32(slot.x)/atlasSize, float32(slot.y)/atlasSize),
-			Max: geom.Pt(float32(slot.x+slot.w)/atlasSize, float32(slot.y+slot.h)/atlasSize),
-		}
 		shape.C, shape.F = ox, oy
-		r.quad(corners(q, uv), shape, 1, &l)
+		r.quad(corners(slot.rect(), slot.uv()), shape, 1, &l)
+	}
+}
+
+// rect returns the glyph's box, in device pixels from its origin.
+func (s glyphSlot) rect() geom.Rect {
+	x0, y0 := float32(s.off.X), float32(s.off.Y)
+	return geom.Rect{Min: geom.Pt(x0, y0), Max: geom.Pt(x0+float32(s.w), y0+float32(s.h))}
+}
+
+// uv returns where the glyph sits in its atlas, as texture coordinates.
+func (s glyphSlot) uv() geom.Rect {
+	return geom.Rect{
+		Min: geom.Pt(float32(s.x)/atlasSize, float32(s.y)/atlasSize),
+		Max: geom.Pt(float32(s.x+s.w)/atlasSize, float32(s.y+s.h)/atlasSize),
 	}
 }
 
@@ -170,7 +194,13 @@ func (r *renderer) text(op *paint.TextOp) {
 func (r *renderer) glyph(key glyphKey, raster func() text.Mask) (glyphSlot, bool) {
 	slot, epoch, ok := r.shared.glyph(key, raster)
 	a, unit, format, channels := &r.glyphs, uint32(gl.TEXTURE0), uint32(glRed), 1
-	if key.raster.LCD {
+	switch {
+	case key.color:
+		a, unit, format, channels = &r.colorGlyphs, glTexture3, gl.RGBA, 4
+		if a.tex == 0 {
+			a.tex, a.epoch = r.newAtlas(unit, glRGBA8, format, channels), epoch
+		}
+	case key.raster.LCD:
 		a, unit, format, channels = &r.lcdGlyphs, glTexture2, glRGB, 3
 		if a.tex == 0 {
 			a.tex, a.epoch = r.newAtlas(unit, glRGB8, format, channels), epoch

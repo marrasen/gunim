@@ -79,6 +79,44 @@ func systemFace(r rune) *font.Face {
 	return ff
 }
 
+// systemEmoji returns the system's emoji font when it covers r, or nil. It runs with mu held.
+func systemEmoji(r rune) *font.Face {
+	fm := loadSystem()
+	if fm == nil {
+		return nil
+	}
+	fm.SetQuery(fontscan.Query{Families: []string{"emoji"}})
+	ff := fm.ResolveFace(r)
+	fm.SetQuery(fontscan.Query{Families: []string{"sans-serif"}})
+	if ff == nil {
+		return nil
+	}
+	if _, ok := ff.NominalGlyph(r); !ok {
+		return nil
+	}
+	faceOf(ff)
+	return ff
+}
+
+// isEmoji reports whether r is a pictograph that shows best in an emoji font: faces, hands, objects, flags, and
+// the symbols of the Miscellaneous Symbols and Dingbats blocks. Letters and marks such as the copyright sign stay
+// text.
+func isEmoji(r rune) bool {
+	switch {
+	case r >= 0x1F000 && r <= 0x1FAFF, r >= 0x2600 && r <= 0x27BF:
+		return true
+	case r == 0x231A, r == 0x231B, r >= 0x23E9 && r <= 0x23FA, r == 0x2B1B, r == 0x2B1C, r == 0x2B50, r == 0x2B55:
+		return true
+	}
+	return false
+}
+
+// joinsEmoji reports whether r joins the emoji before it into one: the zero width joiner, a variation selector,
+// a skin tone, or a tag of a subdivision flag.
+func joinsEmoji(r rune) bool {
+	return r == 0x200D || r >= 0xFE00 && r <= 0xFE0F || r >= 0x1F3FB && r <= 0x1F3FF || r >= 0xE0020 && r <= 0xE007F
+}
+
 // quiet drops the font scanner's log, which reports every font it
 // passes over.
 type quiet struct{}

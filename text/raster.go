@@ -22,6 +22,9 @@ type Mask struct {
 	// LCD says each pixel holds the coverage of its left, middle and
 	// right thirds, in that order.
 	LCD bool
+	// Color says each pixel holds a colour, four bytes of premultiplied
+	// red, green, blue and alpha, as [Face.RasterizeColor] draws.
+	Color bool
 }
 
 // Raster says how [Face.Rasterize] renders a glyph.

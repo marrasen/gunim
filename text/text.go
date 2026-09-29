@@ -66,6 +66,8 @@ type Face struct {
 	// zones are where hinted edges line up, measured on first use.
 	zones    []zone
 	zonesSet bool
+	// colored says which glyphs draw in colours of their own, as they are asked about.
+	colored map[uint32]bool
 }
 
 // Parse reads a TrueType or OpenType font.
@@ -165,6 +167,12 @@ type fontmap struct {
 
 // ResolveFace implements [shaping.Fontmap].
 func (m *fontmap) ResolveFace(r rune) *font.Face {
+	if m.lastFace != nil && joinsEmoji(r) {
+		// The parts of an emoji sequence stay in the emoji's face, which draws the sequence as one picture.
+		if _, ok := m.lastFace.NominalGlyph(r); ok {
+			return m.lastFace
+		}
+	}
 	if m.lastFace != nil && unicode.In(r, unicode.Mn, unicode.Me, unicode.Mc) {
 		if _, ok := m.lastFace.NominalGlyph(r); ok {
 			return m.lastFace
@@ -180,8 +188,13 @@ func (m *fontmap) ResolveFace(r rune) *font.Face {
 	return m.lastFace
 }
 
-// resolve is the first face that has r.
+// resolve is the first face that has r: for an emoji, the system's emoji font first.
 func (m *fontmap) resolve(r rune) *font.Face {
+	if isEmoji(r) {
+		if ff := systemEmoji(r); ff != nil {
+			return ff
+		}
+	}
 	if _, ok := m.f.face.NominalGlyph(r); ok {
 		return m.f.face
 	}

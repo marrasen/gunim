@@ -26,9 +26,11 @@ const (
 	glRed                = 0x1903
 	glRGB8               = 0x8051
 	glRGB                = 0x1907
+	glRGBA8              = 0x8058
 	glStaticDraw         = 0x88E4
 	glTexture1           = 0x84C1
 	glTexture2           = 0x84C2
+	glTexture3           = 0x84C3
 	glOneMinusSrc1Color  = 0x88FA
 	glOneMinusSrc1Alpha  = 0x88FB
 )
@@ -72,8 +74,8 @@ type renderer struct {
 	// draws counts draw calls, for tests and benchmarks.
 	draws int
 
-	glyphs, lcdGlyphs glyphTexture
-	images            map[*paint.Image]*imageTexture
+	glyphs, lcdGlyphs, colorGlyphs glyphTexture
+	images                         map[*paint.Image]*imageTexture
 	// scratchX is where the next mask goes in the scratch strip, and scratches counts the masks put there, for tests.
 	scratchX, scratches int
 	// dual says the draw program blends each channel by a colour of its
@@ -271,17 +273,24 @@ flat in vec4 v_stroke;
 in vec2 v_uv;
 uniform sampler2D u_atlas;
 uniform sampler2D u_lcd;
+uniform sampler2D u_color;
 uniform sampler2D u_tex;
 
 // glyph returns a glyph's colour, with its coverage enhanced by the
 // contrast in v_param.y and corrected for gamma by the ratios in
-// v_color1. v_param.x is 0 for a greyscale glyph, and 1 or 2 for one
-// on subpixels that run red to blue or blue to red; cover gets the
-// coverage of each channel.
+// v_color1. v_param.x is 0 for a greyscale glyph, 1 or 2 for one
+// on subpixels that run red to blue or blue to red, and 3 for a colour
+// glyph, whose own colours only fade with the text's alpha; cover gets
+// the coverage of each channel.
 vec4 glyph(out vec4 cover) {
 	vec4 c = v_color0;
 	vec4 g = v_color1;
 	float k = v_param.y;
+	if (v_param.x > 2.5) {
+		vec4 col = texture(u_color, v_extra.xy) * c.a;
+		cover = vec4(col.a);
+		return col;
+	}
 	if (v_param.x < 0.5) {
 		float a = texture(u_atlas, v_extra.xy).r;
 		// The contrast applies to dark text and fades out for light.
@@ -428,6 +437,7 @@ func buildPrograms(g gl.Context, isES bool) (draw, blur program, dual bool, err 
 	g.Uniform1i(g.GetUniformLocation(draw.id, "u_atlas"), 0)
 	g.Uniform1i(g.GetUniformLocation(draw.id, "u_tex"), 1)
 	g.Uniform1i(g.GetUniformLocation(draw.id, "u_lcd"), 2)
+	g.Uniform1i(g.GetUniformLocation(draw.id, "u_color"), 3)
 	if blur, err = link(g, header+vertexShader, header+blurShader); err != nil {
 		return program{}, program{}, false, err
 	}
@@ -499,6 +509,9 @@ func (r *renderer) release() {
 	g.DeleteTexture(r.glyphs.tex)
 	if r.lcdGlyphs.tex != 0 {
 		g.DeleteTexture(r.lcdGlyphs.tex)
+	}
+	if r.colorGlyphs.tex != 0 {
+		g.DeleteTexture(r.colorGlyphs.tex)
 	}
 	g.DeleteBuffer(r.vbo)
 	g.DeleteBuffer(r.ibo)

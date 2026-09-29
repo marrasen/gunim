@@ -37,9 +37,9 @@ type shared struct {
 	// dual says the draw program gives a second colour to blend by, for
 	// glyphs on subpixels.
 	dual bool
-	// atlas holds greyscale glyphs, and lcd glyphs rendered for
-	// subpixels.
-	atlas, lcd sharedAtlas
+	// atlas holds greyscale glyphs, lcd glyphs rendered for
+	// subpixels, and color glyphs in colours of their own.
+	atlas, lcd, color sharedAtlas
 }
 
 // programs returns the shared programs, building them on first use
@@ -86,6 +86,8 @@ type glyphKey struct {
 	// shape is the shape a mask draws, w by h device pixels, in place of a glyph.
 	shape paint.Shape
 	w, h  int32
+	// color marks a glyph in colours of its own, such as an emoji.
+	color bool
 }
 
 // glyphSlot is where a glyph sits in the atlas. A zero w marks a glyph
@@ -102,7 +104,10 @@ func (s *shared) glyph(key glyphKey, raster func() text.Mask) (sharedSlot, int, 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	a := &s.atlas
-	if key.raster.LCD {
+	switch {
+	case key.color:
+		a = &s.color
+	case key.raster.LCD:
 		a = &s.lcd
 	}
 	if a.slots == nil {
