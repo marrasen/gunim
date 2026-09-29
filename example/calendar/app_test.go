@@ -26,6 +26,7 @@ func newHarness(t *testing.T) *harness {
 	t.Helper()
 	h := &harness{t: t, w: gunimtest.New(t, geom.Sz(1280, 800), widget.NewSurface())}
 	registerViews(h.w)
+	gunim.RegisterPatch(h.w, "cal", func(v *calView, p probe, u *gunim.UI) { p.fn(v, u) })
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	h.a = newApp(ctx, h.w.Client(), 1, tuesday)
@@ -217,7 +218,7 @@ func TestSearchFindsTheNextTimeFirst(t *testing.T) {
 	if len(found) != 1 || found[0].Title != "Stand-up" {
 		t.Fatalf("a search for stand found %+v, want the stand-up once", found)
 	}
-	if want := "Every weekday · next Wednesday 30 September · 09:15–09:30"; found[0].When != want {
+	if want := "Every weekday · next Wednesday 30 September · 09:15 – 09:30 · 15 min"; found[0].When != want {
 		t.Fatalf("the stand-up is found as %q, want %q", found[0].When, want)
 	}
 	if found := h.a.search("congress hall", tuesday); len(found) != 1 || found[0].Title != "Conference" {
@@ -238,5 +239,56 @@ func TestShowingAnEventMovesTheViewToIt(t *testing.T) {
 	}
 	if len(h.events("Conference")) != 1 {
 		t.Fatal("the conference does not show in the week shown")
+	}
+}
+
+func TestDeletingAOneOffEventAtOnceAndUndoingIt(t *testing.T) {
+	h := newHarness(t)
+	dentist := h.events("Dentist")[0]
+	h.a.handle(DeleteAsked{ID: dentist.ID})
+	if h.a.deleting != "" {
+		t.Fatal("deleting an event that happens once asked first")
+	}
+	if len(h.events("Dentist")) != 0 {
+		t.Fatal("the dentist still shows after it was deleted")
+	}
+	h.a.handle(UndoAsked{})
+	if len(h.events("Dentist")) != 1 {
+		t.Fatal("undo did not bring the dentist back")
+	}
+}
+
+func TestMovingOneTimeOfARepeatingEventAsksAndCanMoveEveryTime(t *testing.T) {
+	h := newHarness(t)
+	ups := h.events("Stand-up")
+	later := func(e calendar.Event) EventChanged {
+		return EventChanged{ID: e.ID, Start: e.Start.Add(time.Hour), End: e.End.Add(time.Hour)}
+	}
+
+	// Cancelled, nothing moves.
+	h.a.handle(later(ups[1]))
+	if h.a.changing == nil || !h.a.state().Busy {
+		t.Fatal("moving a repeating event did not ask whether every time moves")
+	}
+	h.a.handle(ChangeAnswered{ID: ups[1].ID})
+	for _, e := range h.events("Stand-up") {
+		if e.Start.Hour() != 9 {
+			t.Fatalf("after cancelling, a stand-up is at %v", e.Start)
+		}
+	}
+
+	// Every time moves an hour later.
+	h.a.handle(later(ups[1]))
+	h.a.handle(ChangeAnswered{ID: ups[1].ID, OK: true, All: true})
+	for _, e := range h.events("Stand-up") {
+		if e.Start.Hour() != 10 || e.Start.Minute() != 15 {
+			t.Fatalf("after moving every time, a stand-up is at %v, want 10:15", e.Start)
+		}
+	}
+
+	// Undo puts them all back.
+	h.a.handle(UndoAsked{})
+	if e := h.events("Stand-up")[0]; e.Start.Hour() != 9 {
+		t.Fatalf("after undo, the stand-up is at %v", e.Start)
 	}
 }

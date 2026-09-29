@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"maps"
 	"math/rand/v2"
 	"slices"
 	"strconv"
@@ -53,6 +54,46 @@ type app struct {
 	// editing is the editor's draft, while it is open, and deleting the event a delete dialog asks about.
 	editing  *Draft
 	deleting string
+	// changing is a move of one time of a repeating event, kept for now as that time alone, while a dialog asks
+	// whether every time moves.
+	changing *change
+	// undo holds the events as they were before each of the last changes, the latest last.
+	undo [][]*series
+	// lastCal is the calendar the user last put an event in.
+	lastCal string
+}
+
+// change is a move of one time of an event, from where it was to where it went.
+type change struct {
+	id                 string
+	fromStart, fromEnd time.Time
+	start, end         time.Time
+	hadMoved           bool
+	wasStart, wasEnd   time.Time
+	day                time.Time
+}
+
+// maxUndo is how many changes back undo goes.
+const maxUndo = 30
+
+// remember keeps the events as they are, for undo to go back to.
+func (a *app) remember() {
+	snap := make([]*series, len(a.series))
+	for i, s := range a.series {
+		c := *s
+		c.moved = maps.Clone(s.moved)
+		c.gone = maps.Clone(s.gone)
+		snap[i] = &c
+	}
+	a.undo = append(a.undo, snap)
+	if len(a.undo) > maxUndo {
+		a.undo = a.undo[1:]
+	}
+}
+
+// tell shows a notice of what just changed, with Undo.
+func (a *app) tell(title, body string) {
+	a.patch(Notice{Title: title, Body: body, Undo: true})
 }
 
 func newApp(ctx context.Context, c gunim.Client, seed uint64, now time.Time) *app {
@@ -198,7 +239,8 @@ func (a *app) calendarOf(id string) (Calendar, bool) {
 
 // state returns what the window shows.
 func (a *app) state() Cal {
-	s := Cal{View: a.view, Day: a.day, Title: a.title(), Calendars: a.cals, Details: map[string]Details{}}
+	s := Cal{View: a.view, Day: a.day, Title: a.title(), Calendars: a.cals, Details: map[string]Details{},
+		Busy: a.editing != nil || a.deleting != "" || a.changing != nil, LastCalendar: a.lastCal}
 	from, to := a.shownDays()
 	for _, sr := range a.series {
 		if sr.answer == NoAnswer {
@@ -307,7 +349,25 @@ func (a *app) handle(v gunim.Intent) {
 			}
 		}
 	case EventDrawn:
-		a.edit(Draft{Start: v.Start, End: v.End, AllDay: v.AllDay, Calendar: a.cals[0].ID})
+		a.edit(Draft{Start: v.Start, End: v.End, AllDay: v.AllDay, Calendar: a.defaultCal()})
+	case MoreAsked:
+		a.edit(v.Draft)
+	case UndoAsked:
+		if len(a.undo) == 0 {
+			a.patch(Notice{Title: "Nothing to undo"})
+			return
+		}
+		a.series = a.undo[len(a.undo)-1]
+		a.undo = a.undo[:len(a.undo)-1]
+		a.patch(Notice{Title: "Undone"})
+	case InvitesAsked:
+		if id, ok := a.nextInvite(time.Now()); ok && a.show(id) {
+			a.publish()
+			a.patch(Reveal{ID: id})
+		}
+		return
+	case ChangeAnswered:
+		a.changed(v)
 	case NewAsked:
 		// The next hour today, or nine in the morning when that is outside the working day, or not today.
 		h := time.Now().Hour() + 1
@@ -315,7 +375,7 @@ func (a *app) handle(v gunim.Intent) {
 			h = 9
 		}
 		start := a.day.Add(time.Duration(h) * time.Hour)
-		a.edit(Draft{Start: start, End: start.Add(time.Hour), Calendar: a.cals[0].ID})
+		a.edit(Draft{Start: start, End: start.Add(time.Hour), Calendar: a.defaultCal()})
 	case EventChanged:
 		a.change(v.ID, v.Start, v.End)
 	case EditAsked:
@@ -323,8 +383,13 @@ func (a *app) handle(v gunim.Intent) {
 			a.edit(d)
 		}
 	case Saved:
-		a.save(v.Draft)
 		a.closeEditor()
+		id := a.save(v.Draft)
+		if id != "" && a.show(id) {
+			a.publish()
+			a.patch(Reveal{ID: id})
+			return
+		}
 	case EditorClosed:
 		a.closeEditor()
 	case DeleteAsked:
@@ -332,7 +397,8 @@ func (a *app) handle(v gunim.Intent) {
 	case DeleteAnswered:
 		a.delete(v)
 	case Answered:
-		if s, _, ok := a.find(v.ID); ok && s.answer != NotInvited {
+		if s, _, ok := a.find(v.ID); ok && s.answer != NotInvited && s.answer != v.Answer {
+			a.remember()
 			s.answer = v.Answer
 		}
 	case SearchAsked:
@@ -357,23 +423,111 @@ func (a *app) handle(v gunim.Intent) {
 	a.publish()
 }
 
-// change moves the time id names to start and end. For a series that repeats only that time moves.
+// change moves the time id names to start and end. For an event that repeats, the time moves alone for now, and a
+// dialog asks whether every time moves.
 func (a *app) change(id string, start, end time.Time) {
 	s, day, ok := a.find(id)
-	if !ok || s.fixed {
+	if !ok || s.fixed || a.changing != nil {
 		return
 	}
 	if s.repeat == Never {
+		a.remember()
 		s.start, s.length = start, end.Sub(start)
 		if s.allDay {
 			s.start = calendar.Day(start)
 		}
+		a.tell("Moved “"+s.title+"”", when(calendar.Event{Start: start, End: end, AllDay: s.allDay}))
 		return
+	}
+	a.remember()
+	c := &change{id: id, day: day, start: start, end: end}
+	if m, ok := s.moved[dayKey(day)]; ok {
+		c.hadMoved, c.wasStart, c.wasEnd = true, m.start, m.end
+	}
+	for _, o := range s.times(day, calendar.AddDays(day, 1)) {
+		if o.day.Equal(day) {
+			c.fromStart, c.fromEnd = o.start, o.end
+		}
 	}
 	if s.moved == nil {
 		s.moved = map[string]span{}
 	}
 	s.moved[dayKey(day)] = span{start, end}
+	a.changing = c
+	if err := a.c.Mount(gunim.Root, "change", "change", ChangeAsk{ID: id, Title: s.title}); err != nil {
+		log.Print(err)
+		a.changing = nil
+	}
+}
+
+// changed acts on the answer to the dialog about moving a repeating event: keep the move to this time alone, move
+// every time by as much, or put this time back.
+func (a *app) changed(v ChangeAnswered) {
+	c := a.changing
+	if c == nil {
+		return
+	}
+	a.changing = nil
+	if err := a.c.Unmount("change"); err != nil {
+		log.Print(err)
+	}
+	s, _, ok := a.find(c.id)
+	if !ok {
+		return
+	}
+	key := dayKey(c.day)
+	if !v.OK || v.All {
+		// This time goes back to where it was.
+		if c.hadMoved {
+			s.moved[key] = span{c.wasStart, c.wasEnd}
+		} else {
+			delete(s.moved, key)
+		}
+	}
+	switch {
+	case !v.OK:
+		// Nothing moved, so nothing to undo.
+		a.undo = a.undo[:len(a.undo)-1]
+	case v.All:
+		s.start = s.start.Add(c.start.Sub(c.fromStart))
+		s.length = c.end.Sub(c.start)
+		a.tell("Moved every “"+s.title+"”", repeatNames[s.repeat])
+	default:
+		a.tell("Moved this “"+s.title+"”", when(calendar.Event{Start: c.start, End: c.end, AllDay: s.allDay}))
+	}
+}
+
+// defaultCal returns the calendar a new event goes in: the one the user last used, when it still shows, or the
+// first that shows.
+func (a *app) defaultCal() string {
+	for _, c := range a.cals {
+		if c.ID == a.lastCal && c.Shown {
+			return c.ID
+		}
+	}
+	for _, c := range a.cals {
+		if c.Shown && c.ID != "holidays" {
+			return c.ID
+		}
+	}
+	return a.cals[0].ID
+}
+
+// nextInvite returns the next invitation from now waiting for an answer.
+func (a *app) nextInvite(now time.Time) (string, bool) {
+	best, id := time.Time{}, ""
+	for _, s := range a.series {
+		if s.answer != NoAnswer {
+			continue
+		}
+		for _, o := range s.times(calendar.Day(now), now.AddDate(1, 0, 0)) {
+			if best.IsZero() || o.start.Before(best) {
+				best, id = o.start, occurrenceID(s, o.day)
+			}
+			break
+		}
+	}
+	return id, id != ""
 }
 
 // draftOf returns the editor's draft for the time id names.
@@ -418,8 +572,10 @@ func (a *app) closeEditor() {
 }
 
 // save keeps what the editor holds: a new event, or a change to one, which for a series goes to every time it
-// happens.
-func (a *app) save(d Draft) {
+// happens. It returns the ID of the time saved.
+func (a *app) save(d Draft) string {
+	a.remember()
+	a.lastCal = d.Calendar
 	if d.AllDay {
 		d.Start, d.End = calendar.Day(d.Start), calendar.AddDays(calendar.Day(d.End), 1)
 		if !d.End.After(d.Start) {
@@ -428,15 +584,19 @@ func (a *app) save(d Draft) {
 	}
 	if d.ID == "" {
 		a.nextID++
-		a.series = append(a.series, &series{id: "e" + strconv.Itoa(a.nextID), title: d.Title, location: d.Location,
+		s := &series{id: "e" + strconv.Itoa(a.nextID), title: d.Title, location: d.Location,
 			notes: d.Notes, cal: d.Calendar, start: d.Start, length: d.End.Sub(d.Start), allDay: d.AllDay,
-			repeat: d.Repeat})
-		return
+			repeat: d.Repeat}
+		a.series = append(a.series, s)
+		a.tell("Added “"+d.Title+"”", when(calendar.Event{Start: d.Start, End: d.End, AllDay: d.AllDay}))
+		return occurrenceID(s, calendar.Day(d.Start))
 	}
 	s, day, ok := a.find(d.ID)
 	if !ok {
-		return
+		a.undo = a.undo[:len(a.undo)-1]
+		return ""
 	}
+	defer a.tell("Saved “"+d.Title+"”", "")
 	s.title, s.location, s.notes, s.cal, s.allDay = d.Title, d.Location, d.Notes, d.Calendar, d.AllDay
 	s.length = d.End.Sub(d.Start)
 	if s.repeat == Never {
@@ -451,12 +611,19 @@ func (a *app) save(d Draft) {
 		delete(s.moved, dayKey(day))
 	}
 	s.repeat = d.Repeat
+	return occurrenceID(s, calendar.Day(d.Start))
 }
 
-// askDelete asks whether to delete the time id names.
+// askDelete deletes the event id names, with undo, or for one that repeats asks whether to delete only this time.
 func (a *app) askDelete(id string) {
 	s, _, ok := a.find(id)
 	if !ok || s.fixed || a.deleting != "" {
+		return
+	}
+	if s.repeat == Never {
+		a.remember()
+		a.series = slices.DeleteFunc(a.series, func(o *series) bool { return o == s })
+		a.tell("Deleted “"+s.title+"”", "")
 		return
 	}
 	a.deleting = id
@@ -483,10 +650,13 @@ func (a *app) delete(v DeleteAnswered) {
 	if !ok {
 		return
 	}
+	a.remember()
 	if s.repeat == Never || v.All {
 		a.series = slices.DeleteFunc(a.series, func(o *series) bool { return o == s })
+		a.tell("Deleted every “"+s.title+"”", "")
 		return
 	}
+	defer a.tell("Deleted this “"+s.title+"”", "")
 	if s.gone == nil {
 		s.gone = map[string]bool{}
 	}

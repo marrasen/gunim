@@ -19,8 +19,11 @@ type (
 		Calendars []Calendar
 		Events    []calendar.Event
 		Details   map[string]Details
-		// Invites is how many invitations wait for an answer.
+		// Invites is how many invitations wait for an answer, and Busy says a dialog is open.
 		Invites int
+		Busy    bool
+		// LastCalendar is the calendar the user last put an event in, for the next to go in too.
+		LastCalendar string
 	}
 
 	// Calendar is one of the user's calendars, such as their work's: its colour, and whether its events show.
@@ -57,6 +60,8 @@ type (
 	// Notice is a patch that shows a short notice about an event, such as an invitation that came.
 	Notice struct {
 		Title, Body, ID string
+		// Undo offers to undo what the notice tells of, in place of showing the event.
+		Undo bool
 	}
 
 	// Found is a patch that answers a search with the events found.
@@ -70,6 +75,11 @@ type (
 
 	// Reveal is a patch that brings the event ID into sight and opens its card.
 	Reveal struct{ ID string }
+
+	// ChangeAsk asks whether moving one time of a repeating event moves only that time or every time.
+	ChangeAsk struct {
+		ID, Title string
+	}
 
 	// DeleteAsk asks whether to delete an event, and for one that repeats, whether only this time or every time.
 	DeleteAsk struct {
@@ -155,6 +165,16 @@ type (
 	// search or a notice.
 	SearchAsked struct{ Query string }
 	EventShown  struct{ ID string }
+	// UndoAsked undoes the last change, InvitesAsked shows the next invitation waiting for an answer, and
+	// MoreAsked opens the full editor on what a quick one holds.
+	UndoAsked    struct{}
+	InvitesAsked struct{}
+	MoreAsked    struct{ Draft Draft }
+	// ChangeAnswered answers a ChangeAsk: OK keeps the move, and All moves every time.
+	ChangeAnswered struct {
+		ID      string
+		OK, All bool
+	}
 )
 
 func init() {
@@ -182,4 +202,9 @@ func init() {
 	gunim.RegisterType[Reveal]("cal.reveal")
 	gunim.RegisterType[SearchAsked]("cal.search")
 	gunim.RegisterType[EventShown]("cal.show")
+	gunim.RegisterType[ChangeAsk]("cal.change.ask")
+	gunim.RegisterType[UndoAsked]("cal.undo")
+	gunim.RegisterType[InvitesAsked]("cal.invites")
+	gunim.RegisterType[MoreAsked]("cal.more")
+	gunim.RegisterType[ChangeAnswered]("cal.change.answer")
 }
