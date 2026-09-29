@@ -66,10 +66,14 @@ type chatView struct {
 	current  string
 	last     widget.Key
 	draftSeq int
+	// solo says the window shows its conversation alone, without the projects and the conversations.
+	solo bool
 }
 
-func buildChat(Chat) *chatView {
-	v := &chatView{items: map[widget.Key]Item{}, draftSeq: -1}
+// buildChat builds the chat's window: the projects, the conversations and the one open, or for a window popped out
+// of the main one, its conversation alone.
+func buildChat(s Chat) *chatView {
+	v := &chatView{items: map[widget.Key]Item{}, draftSeq: -1, solo: s.Solo}
 
 	v.rail = &rail{hover: -1}
 	v.projectName = widget.NewLabel("")
@@ -89,7 +93,13 @@ func buildChat(Chat) *chatView {
 	themeButton := widget.NewIconButton(icon.SunMoon, "Switch theme")
 	themeButton.On = ThemeToggled{}
 	spacer := widget.NewSpacer()
-	header := widget.Row(hash, v.title, spacer, v.link, themeButton).Grow(spacer, 1)
+	popOut := widget.NewIconButton(icon.SquareArrowOutUpRight, "Open in a window of its own")
+	popOut.On = PopOut{}
+	heads := []gunim.Node{hash, v.title, spacer, v.link}
+	if !s.Solo {
+		heads = append(heads, popOut)
+	}
+	header := widget.Row(append(heads, themeButton)...).Grow(spacer, 1)
 	header.Cross = widget.CrossCenter
 
 	v.linkBar = &linkBar{open: anim.NewFloat(0)}
@@ -125,7 +135,11 @@ func buildChat(Chat) *chatView {
 	main.Cross, main.Gap = widget.CrossStretch, zeroGap
 	pane := &panel{child: main, fill: PaneFill}
 
-	v.root = widget.Row(v.rail, sidebar, pane).Grow(pane, 1)
+	if s.Solo {
+		v.root = widget.Row(pane).Grow(pane, 1)
+	} else {
+		v.root = widget.Row(v.rail, sidebar, pane).Grow(pane, 1)
+	}
 	v.root.Cross, v.root.Gap = widget.CrossStretch, zeroGap
 	return v
 }
@@ -188,14 +202,16 @@ func (v *chatView) jump(id string, u *gunim.UI) {
 
 // set shows the state s.
 func (v *chatView) set(s Chat, u *gunim.UI) {
-	v.rail.set(s.Projects, s.Project, u)
-	if s.Project < len(s.Projects) {
-		v.projectName.SetText(s.Projects[s.Project].Name)
+	if !v.solo {
+		v.rail.set(s.Projects, s.Project, u)
+		if s.Project < len(s.Projects) {
+			v.projectName.SetText(s.Projects[s.Project].Name)
+		}
+		widget.Sync(v.convs, u, s.Conversations,
+			func(c Conversation) widget.Key { return widget.Key(c.ID) },
+			func(c Conversation) *convRow { return newConvRow(c, c.ID == s.Current) },
+			func(r *convRow, c Conversation, u *gunim.UI) { r.set(c, c.ID == s.Current, u) })
 	}
-	widget.Sync(v.convs, u, s.Conversations,
-		func(c Conversation) widget.Key { return widget.Key(c.ID) },
-		func(c Conversation) *convRow { return newConvRow(c, c.ID == s.Current) },
-		func(r *convRow, c Conversation, u *gunim.UI) { r.set(c, c.ID == s.Current, u) })
 	v.title.SetText(s.Title)
 	v.composer.Placeholder = "Message " + s.Title
 	if s.Title != "" && !isDirect(s) {

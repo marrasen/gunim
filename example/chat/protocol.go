@@ -13,6 +13,8 @@ type (
 	// Chat is the state the chat view renders: the projects, the current project's conversations, and the open
 	// conversation's timeline and message box.
 	Chat struct {
+		// Solo says the window shows one conversation alone, popped out of the main window.
+		Solo          bool
 		Projects      []Project
 		Project       int
 		Conversations []Conversation
@@ -199,6 +201,8 @@ type (
 	EditAsked     struct{ ID string }
 	WithdrawAsked struct{ ID string }
 	RetryAsked    struct{ ID string }
+	// PopOut travels when the user asks for the conversation in a window of its own.
+	PopOut struct{}
 	// Cancelled travels when the user drops a reply or an edit.
 	Cancelled    struct{}
 	LinkToggled  struct{}
@@ -221,6 +225,7 @@ func init() {
 	gunim.RegisterType[WithdrawAsked]("chat.withdraw")
 	gunim.RegisterType[RetryAsked]("chat.retry")
 	gunim.RegisterType[Cancelled]("chat.cancel")
+	gunim.RegisterType[PopOut]("chat.popout")
 	gunim.RegisterType[LinkToggled]("chat.link")
 	gunim.RegisterType[ThemeToggled]("chat.theme")
 }

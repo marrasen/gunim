@@ -4,8 +4,8 @@
 // that opens at its latest message and stays there as messages arrive, and a message box under it. Enter sends and
 // Shift+Enter starts a line. Colleagues type, send, reply, edit and withdraw. The button in the header drops the
 // connection: messages sent while offline wait, and go when it is back. Some sends fail, and a click on the red note
-// beside one sends it again. Under the pointer a message shows a toolbar to reply, and for your own to edit or
-// withdraw it.
+// beside one sends it again. Under the pointer a message shows a toolbar to react and reply, and for your own to
+// edit or withdraw it. A button in the header opens the conversation in a window of its own.
 //
 //	CGO_ENABLED=0 go run ./example/chat
 //	CGO_ENABLED=0 go run ./example/chat -history 50000
@@ -90,6 +90,14 @@ func run(history int, fail float64, seed uint64, script []string, runFor time.Du
 		// Finding which emoji the fonts draw takes a moment, so it starts now, before the picker needs it.
 		go widget.LoadEmoji()
 		app := newApp(ctx, c, seed, history, fail)
+		app.openWindow = func(title string) (gunim.Client, error) {
+			pw, err := a.NewWindow(gunim.WindowOptions{Title: title, Size: geom.Sz(560, 720), Root: widget.NewSurface()})
+			if err != nil {
+				return gunim.Client{}, err
+			}
+			registerViews(pw)
+			return pw.Client(), nil
+		}
 		app.runScript(script)
 		return app.serve()
 	})

@@ -26,34 +26,57 @@ const me = "Marcus"
 // and withdraw.
 type app struct {
 	ctx context.Context
-	c   gunim.Client
 	rng *rand.Rand
 	// later carries work from timers back to the loop in serve, which owns the state.
 	later chan func()
 
+	// window is the main window, and windows every window open, the main one first.
+	*window
+	windows []*window
+	// openWindow opens a window for a conversation popped out of the main one, titled title.
+	openWindow func(title string) (gunim.Client, error)
+	// in carries every window's intents to the loop in serve.
+	in chan windowIntent
+
 	projects []*project
-	project  int
-	current  *conv
 	link     Link
+	light    bool
+	nextID   int
+	// failRate is the share of sends the server turns down.
+	failRate float64
+	// images holds every picture pasted or fetched, by ID.
+	images map[string]*paint.Image
+	// web fetches link previews.
+	web *http.Client
+}
+
+// window is one window of the chat: the conversation it shows, and what the user is writing there. The main
+// window shows the projects and their conversations; a popped out one shows its conversation alone.
+type window struct {
+	c    gunim.Client
+	solo bool
+	// project is the project whose conversations the main window lists.
+	project int
+	current *conv
 	// replying and editing are the IDs of the message the next one replies to and the one being edited.
 	replying, editing string
 	// text is what the message box holds, and draft what the application last put there.
 	text   string
 	draft  Draft
 	typing string
-	light  bool
-	nextID int
-	// failRate is the share of sends the server turns down.
-	failRate float64
-	// images holds every picture pasted, by ID, and pending the ones waiting to go with the next message.
-	images  map[string]*paint.Image
+	// pending are the pictures waiting to go with the next message.
 	pending []Picture
-	// web fetches link previews.
-	web *http.Client
-	// newFrom is the first message of the open conversation not read when it opened, and unread how many messages
+	// newFrom is the first message of the conversation not read when it opened, and unread how many messages
 	// from others it had then.
 	newFrom string
 	unread  int
+}
+
+// windowIntent is an intent from one of the windows, or word that the window closed.
+type windowIntent struct {
+	w      *window
+	intent gunim.Intent
+	closed bool
 }
 
 type project struct {
@@ -216,7 +239,9 @@ func (m *msg) pollVote(who string) (int, bool) {
 var reactionEmoji = []string{"\U0001F44D", "\U0001F389", "\u2764\uFE0F", "\U0001F602", "\U0001F680", "\U0001F440", "\u2705"}
 
 func newApp(ctx context.Context, c gunim.Client, seed uint64, history int, failRate float64) *app {
-	a := &app{ctx: ctx, c: c, rng: rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15)), later: make(chan func(), 16),
+	main := &window{c: c}
+	a := &app{ctx: ctx, rng: rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15)), later: make(chan func(), 16),
+		window: main, windows: []*window{main}, in: make(chan windowIntent, 16),
 		failRate: failRate, images: map[string]*paint.Image{}, web: &http.Client{}}
 	a.projects = []*project{
 		a.newProject("Atlas", "AT",
@@ -241,7 +266,7 @@ func newApp(ctx context.Context, c gunim.Client, seed uint64, history int, failR
 			a.leaveUnread(cv, a.rng.IntN(7))
 		}
 	}
-	a.enter(a.projects[0].convs[0])
+	a.enter(main, a.projects[0].convs[0])
 	return a
 }
 
@@ -258,14 +283,14 @@ func (a *app) leaveUnread(c *conv, n int) {
 	}
 }
 
-// enter makes c the open conversation: the line over new messages goes over the first from someone else since the
-// user last read it, and all of it is read from now on.
-func (a *app) enter(c *conv) {
-	a.current, a.newFrom, a.unread = c, "", c.unread
+// enter makes c the conversation w shows: the line over new messages goes over the first from someone else since
+// the user last read it, and all of it is read from now on.
+func (a *app) enter(w *window, c *conv) {
+	w.current, w.newFrom, w.unread = c, "", c.unread
 	past := c.readTo == ""
 	for _, m := range c.msgs {
 		if past && m.Author != me {
-			a.newFrom = m.ID
+			w.newFrom = m.ID
 			break
 		}
 		if m.ID == c.readTo {
@@ -346,11 +371,12 @@ func (a *app) after(d time.Duration, fn func()) {
 	})
 }
 
-// serve runs the application until the context ends or the window closes.
+// serve runs the application until the context ends or the main window closes.
 func (a *app) serve() error {
-	if err := a.c.Mount(gunim.Root, "chat", "chat", a.state()); err != nil {
+	if err := a.c.Mount(gunim.Root, "chat", "chat", a.stateOf(a.window)); err != nil {
 		return err
 	}
+	a.listen(a.window)
 	a.after(a.between(3*time.Second, 6*time.Second), a.colleague)
 	for {
 		select {
@@ -358,77 +384,106 @@ func (a *app) serve() error {
 			return nil
 		case fn := <-a.later:
 			fn()
-		case ev, ok := <-a.c.Intents():
-			if !ok {
-				return a.c.Err()
+		case wi := <-a.in:
+			if wi.closed {
+				if wi.w == a.window {
+					return a.c.Err()
+				}
+				a.windows = slices.DeleteFunc(a.windows, func(w *window) bool { return w == wi.w })
+				continue
 			}
-			a.handle(ev.Intent)
+			a.handleIn(wi.w, wi.intent)
 		}
 	}
 }
 
-// handle acts on an intent from the window.
-func (a *app) handle(v gunim.Intent) {
+// listen passes w's intents on to the loop in serve, and says when w closes.
+func (a *app) listen(w *window) {
+	go func() {
+		for ev := range w.c.Intents() {
+			select {
+			case a.in <- windowIntent{w: w, intent: ev.Intent}:
+			case <-a.ctx.Done():
+				return
+			}
+		}
+		select {
+		case a.in <- windowIntent{w: w, closed: true}:
+		case <-a.ctx.Done():
+		}
+	}()
+}
+
+// handle acts on an intent from the main window.
+func (a *app) handle(v gunim.Intent) { a.handleIn(a.window, v) }
+
+// handleIn acts on an intent from w.
+func (a *app) handleIn(w *window, v gunim.Intent) {
 	switch v := v.(type) {
 	case ProjectChosen:
 		if v.Index >= 0 && v.Index < len(a.projects) {
-			a.project = v.Index
-			a.open(a.projects[v.Index].convs[0])
+			w.project = v.Index
+			a.open(w, a.projects[v.Index].convs[0])
 		}
 	case ConversationChosen:
-		for _, c := range a.projects[a.project].convs {
+		for _, c := range a.projects[w.project].convs {
 			if c.ID == v.ID {
-				a.open(c)
+				a.open(w, c)
 			}
 		}
+	case PopOut:
+		a.popOut(w.current)
+		return
 	case Drafted:
-		a.text = v.Text
+		w.text = v.Text
 		return
 	case ImagePasted:
-		a.pastePicture(v.PNG)
+		a.pastePicture(w, v.PNG)
 	case PollVoted:
-		if m, ok := a.current.byID[v.ID]; ok && m.poll != nil && !m.Withdrawn {
+		if m, ok := w.current.byID[v.ID]; ok && m.poll != nil && !m.Withdrawn {
 			m.poll.vote(me, v.Option)
 		}
 	case ReactionToggled:
-		if m, ok := a.current.byID[v.ID]; ok && !m.Withdrawn {
+		if m, ok := w.current.byID[v.ID]; ok && !m.Withdrawn {
 			m.toggle(v.Emoji, me)
 		}
 	case PictureRemoved:
-		a.pending = slices.DeleteFunc(a.pending, func(p Picture) bool { return p.ID == v.ID })
+		w.pending = slices.DeleteFunc(w.pending, func(p Picture) bool { return p.ID == v.ID })
 	case Submitted:
-		a.submit(v.Text)
+		a.submit(w, v.Text)
 	case ReplyAsked:
-		a.replying, a.editing = v.ID, ""
-		a.setDraft(a.text)
+		w.replying, w.editing = v.ID, ""
+		w.setDraft(w.text)
 	case EditAsked:
-		if m, ok := a.current.byID[v.ID]; ok && m.Author == me && !m.Withdrawn {
-			a.editing, a.replying = v.ID, ""
-			a.setDraft(m.Body)
+		if m, ok := w.current.byID[v.ID]; ok && m.Author == me && !m.Withdrawn {
+			w.editing, w.replying = v.ID, ""
+			w.setDraft(m.Body)
 		}
 	case WithdrawAsked:
-		if m, ok := a.current.byID[v.ID]; ok && m.Author == me {
+		if m, ok := w.current.byID[v.ID]; ok && m.Author == me {
 			m.Withdrawn = true
 		}
 	case RetryAsked:
-		if m, ok := a.current.byID[v.ID]; ok && m.State == Failed {
+		if m, ok := w.current.byID[v.ID]; ok && m.State == Failed {
 			a.send(m)
 		}
 	case Cancelled:
-		if a.editing != "" {
-			a.setDraft("")
+		if w.editing != "" {
+			w.setDraft("")
 		}
-		a.replying, a.editing = "", ""
+		w.replying, w.editing = "", ""
 	case LinkToggled:
 		a.toggleLink()
 	case ThemeToggled:
 		a.light = !a.light
-		if err := a.c.SetTheme(map[bool]string{false: "dark", true: "light"}[a.light]); err != nil {
-			log.Print(err)
+		for _, o := range a.windows {
+			if err := o.c.SetTheme(themeName(a.light)); err != nil {
+				log.Print(err)
+			}
 		}
 		return
 	case markdown.Link:
-		a.openLink(v.URL)
+		a.openLink(w, v.URL)
 		return
 	case gunim.CommandFailed:
 		log.Printf("command %s failed: %s", v.Command, v.Reason)
@@ -439,15 +494,48 @@ func (a *app) handle(v gunim.Intent) {
 	a.publish()
 }
 
+// themeName names the theme to show.
+func themeName(light bool) string { return map[bool]string{false: "dark", true: "light"}[light] }
+
+// popOut opens c in a window of its own, beside the main one.
+func (a *app) popOut(c *conv) {
+	if a.openWindow == nil {
+		return
+	}
+	title := c.Name
+	if !c.Direct {
+		title = "#" + c.Name
+	}
+	cl, err := a.openWindow(title)
+	if err != nil {
+		log.Printf("popping out %s: %v", title, err)
+		return
+	}
+	w := &window{c: cl, solo: true}
+	a.enter(w, c)
+	if a.light {
+		if err := cl.SetTheme(themeName(true)); err != nil {
+			log.Print(err)
+		}
+	}
+	if err := cl.Mount(gunim.Root, "chat", "chat", a.stateOf(w)); err != nil {
+		log.Printf("popping out %s: %v", title, err)
+		cl.Close()
+		return
+	}
+	a.windows = append(a.windows, w)
+	a.listen(w)
+}
+
 // openLink opens a web or mail address from a message in the system's browser or mail program. Anything else,
 // such as a path to a file, stays closed: messages come from other people.
-func (a *app) openLink(url string) {
+func (a *app) openLink(w *window, url string) {
 	lower := strings.ToLower(url)
 	if !strings.HasPrefix(lower, "https://") && !strings.HasPrefix(lower, "http://") && !strings.HasPrefix(lower, "mailto:") {
 		log.Printf("not opening %q: only web and mail addresses open", url)
 		return
 	}
-	if err := a.c.Open(url); err != nil {
+	if err := w.c.Open(url); err != nil {
 		log.Printf("opening %s: %v", url, err)
 	}
 }
@@ -487,8 +575,8 @@ func (a *app) fetchPreview(m *msg) {
 	}()
 }
 
-// pastePicture puts a pasted picture, as PNG, with the pictures waiting to go with the next message.
-func (a *app) pastePicture(b []byte) {
+// pastePicture puts a pasted picture, as PNG, with the pictures waiting to go with w's next message.
+func (a *app) pastePicture(w *window, b []byte) {
 	img, err := png.Decode(bytes.NewReader(b))
 	if err != nil {
 		log.Printf("pasted picture: %v", err)
@@ -498,53 +586,53 @@ func (a *app) pastePicture(b []byte) {
 	id := "p" + strconv.Itoa(a.nextID)
 	a.images[id] = paint.NewImage(img)
 	size := img.Bounds().Size()
-	a.pending = append(a.pending, Picture{ID: id, W: size.X, H: size.Y})
+	w.pending = append(w.pending, Picture{ID: id, W: size.X, H: size.Y})
 }
 
-// open makes c the open conversation.
-func (a *app) open(c *conv) {
-	if c == a.current {
+// open makes c the conversation w shows.
+func (a *app) open(w *window, c *conv) {
+	if c == w.current {
 		return
 	}
-	a.enter(c)
-	a.replying, a.editing = "", ""
-	a.setTyping("")
-	a.setDraft("")
+	a.enter(w, c)
+	w.replying, w.editing = "", ""
+	w.setTyping("")
+	w.setDraft("")
 }
 
-// setDraft puts s in the message box.
-func (a *app) setDraft(s string) {
-	a.text = s
-	a.draft = Draft{Text: s, Seq: a.draft.Seq + 1}
+// setDraft puts s in w's message box.
+func (w *window) setDraft(s string) {
+	w.text = s
+	w.draft = Draft{Text: s, Seq: w.draft.Seq + 1}
 }
 
-// submit sends the message box's text as a new message, a reply or an edit.
-func (a *app) submit(text string) {
+// submit sends w's message box's text as a new message, a reply or an edit.
+func (a *app) submit(w *window, text string) {
 	text = strings.TrimSpace(text)
-	if a.editing != "" {
+	c := w.current
+	if w.editing != "" {
 		if text == "" {
 			return
 		}
-		if m, ok := a.current.byID[a.editing]; ok && m.Body != text {
+		if m, ok := c.byID[w.editing]; ok && m.Body != text {
 			m.Body, m.Edited = text, true
 		}
-		a.editing = ""
-		a.setDraft("")
+		w.editing = ""
+		w.setDraft("")
 		return
 	}
-	if text == "" && len(a.pending) == 0 {
+	if text == "" && len(w.pending) == 0 {
 		return
 	}
-	m := a.add(a.current, me, text, time.Now().Round(0))
-	a.current.readTo = m.ID
-	m.ReplyTo, a.replying = a.replying, ""
-	m.Pictures, a.pending = a.pending, nil
-	a.setDraft("")
+	m := a.add(c, me, text, time.Now().Round(0))
+	c.readTo = m.ID
+	m.ReplyTo, w.replying = w.replying, ""
+	m.Pictures, w.pending = w.pending, nil
+	w.setDraft("")
 	a.send(m)
 	a.fetchPreview(m)
 	// Somebody usually answers.
 	if a.rng.Float64() < 0.6 {
-		c := a.current
 		a.after(a.between(700*time.Millisecond, 2*time.Second), func() {
 			a.say(c, a.pick(c.people), a.pick(answers), m.ID)
 		})
@@ -574,7 +662,9 @@ func (a *app) send(m *msg) {
 func (a *app) toggleLink() {
 	if a.link == Online {
 		a.link = Offline
-		a.setTyping("")
+		for _, w := range a.windows {
+			w.setTyping("")
+		}
 		return
 	}
 	a.link = Reconnecting
@@ -642,7 +732,7 @@ func (a *app) colleague() {
 		// Somewhere else: the message waits unread.
 		p := a.projects[a.rng.IntN(len(a.projects))]
 		other := p.convs[a.rng.IntN(len(p.convs))]
-		if other == a.current {
+		if a.shown(other) {
 			return
 		}
 		a.add(other, a.pick(other.people), a.pick(chatter), time.Now().Round(0))
@@ -666,22 +756,17 @@ func (a *app) say(c *conv, who, body, replyTo string) {
 	if a.link != Online {
 		return // nobody's typing reaches a user who is offline
 	}
-	if c == a.current {
-		a.setTyping(who)
-	}
+	a.typingIn(c, who)
 	a.after(a.between(1200*time.Millisecond, 3500*time.Millisecond), func() {
+		a.typingIn(c, "")
 		if a.link != Online {
-			a.setTyping("")
 			return
 		}
-		if c == a.current {
-			a.setTyping("")
+		m := a.add(c, who, body, time.Now().Round(0))
+		if a.shown(c) {
+			c.readTo = m.ID
 		} else {
 			c.unread++
-		}
-		m := a.add(c, who, body, time.Now().Round(0))
-		if c == a.current {
-			c.readTo = m.ID
 		}
 		m.ReplyTo = replyTo
 		a.publish()
@@ -690,28 +775,47 @@ func (a *app) say(c *conv, who, body, replyTo string) {
 	})
 }
 
-// setTyping shows who is typing in the open conversation.
-func (a *app) setTyping(who string) {
-	if who == a.typing {
+// shown reports whether a window shows c, so the user sees what comes in it.
+func (a *app) shown(c *conv) bool {
+	return slices.ContainsFunc(a.windows, func(w *window) bool { return w.current == c })
+}
+
+// typingIn shows who is typing in every window that shows c.
+func (a *app) typingIn(c *conv, who string) {
+	for _, w := range a.windows {
+		if w.current == c {
+			w.setTyping(who)
+		}
+	}
+}
+
+// setTyping shows who is typing in w's conversation.
+func (w *window) setTyping(who string) {
+	if who == w.typing {
 		return
 	}
-	a.typing = who
-	if err := a.c.Patch("chat", Typing{Who: who}); err != nil {
+	w.typing = who
+	if err := w.c.Patch("chat", Typing{Who: who}); err != nil {
 		log.Print(err)
 	}
 }
 
-// publish sends the window the state as it is now.
+// publish sends each window the state as it is now.
 func (a *app) publish() {
-	if err := a.c.Update("chat", a.state()); err != nil {
-		log.Print(err)
+	for _, w := range a.windows {
+		if err := w.c.Update("chat", a.stateOf(w)); err != nil {
+			log.Print(err)
+		}
 	}
 }
 
-// state returns what the window shows, in values of its own.
-func (a *app) state() Chat {
-	s := Chat{Project: a.project, Current: a.current.ID, Title: a.current.Name, Link: a.link, Editing: a.editing,
-		Draft: a.draft}
+// state returns what the main window shows.
+func (a *app) state() Chat { return a.stateOf(a.window) }
+
+// stateOf returns what w shows, in values of its own.
+func (a *app) stateOf(w *window) Chat {
+	s := Chat{Solo: w.solo, Project: w.project, Current: w.current.ID, Title: w.current.Name, Link: a.link,
+		Editing: w.editing, Draft: w.draft}
 	for _, p := range a.projects {
 		unread := 0
 		for _, c := range p.convs {
@@ -719,17 +823,17 @@ func (a *app) state() Chat {
 		}
 		s.Projects = append(s.Projects, Project{Name: p.Name, Short: p.Short, Unread: unread})
 	}
-	for _, c := range a.projects[a.project].convs {
+	for _, c := range a.projects[w.project].convs {
 		s.Conversations = append(s.Conversations, Conversation{ID: c.ID, Name: c.Name, Direct: c.Direct, Unread: c.unread})
 	}
-	if m, ok := a.current.byID[a.replying]; ok {
+	if m, ok := w.current.byID[w.replying]; ok {
 		s.Replying = quote(m)
 	}
-	s.Items = timeline(a.current, time.Now(), a.newFrom)
-	if a.newFrom != "" {
-		s.NewKey, s.Unread = newKey(a.current), a.unread
+	s.Items = timeline(w.current, time.Now(), w.newFrom)
+	if w.newFrom != "" {
+		s.NewKey, s.Unread = newKey(w.current), w.unread
 	}
-	s.Pending, s.Images = slices.Clone(a.pending), maps.Clone(a.images)
+	s.Pending, s.Images = slices.Clone(w.pending), maps.Clone(a.images)
 	return s
 }
 
