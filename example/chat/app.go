@@ -85,8 +85,9 @@ type windowIntent struct {
 type project struct {
 	Name, Short string
 	convs       []*conv
-	// files is the project's top folder.
-	files *folder
+	// files is the project's top folder, and transfers the files on their way up to it.
+	files     *folder
+	transfers []*transfer
 }
 
 type conv struct {
@@ -466,6 +467,19 @@ func (a *app) handleIn(w *window, v gunim.Intent) {
 		if _, ok := a.projects[w.project].folderAt(v.Path); ok {
 			w.path = v.Path
 		}
+	case FilesDropped:
+		a.upload(a.projects[w.project], v.Folder, v.Paths)
+	case TransferRetried:
+		p := a.projects[w.project]
+		if i := slices.IndexFunc(p.transfers, func(t *transfer) bool { return t.id == v.ID }); i >= 0 &&
+			p.transfers[i].state == TransferFailed && p.transfers[i].size > 0 {
+			a.startTransfer(p, p.transfers[i])
+		}
+	case TransferDismissed:
+		p := a.projects[w.project]
+		p.transfers = slices.DeleteFunc(p.transfers, func(t *transfer) bool {
+			return t.id == v.ID && t.state == TransferFailed
+		})
 	case PopOut:
 		a.popOut(w.current)
 		return
@@ -711,6 +725,7 @@ func (a *app) toggleLink() {
 	a.link = Reconnecting
 	a.after(a.between(800*time.Millisecond, 1600*time.Millisecond), func() {
 		a.link = Online
+		a.resumeTransfers()
 		for _, p := range a.projects {
 			for _, c := range p.convs {
 				for _, m := range c.msgs {
@@ -878,7 +893,7 @@ func (a *app) stateOf(w *window) Chat {
 			// The folder open went away: back to the top.
 			w.path, f = "", p.files
 		}
-		s.Area, s.Files = w.area, Files{Path: w.path, Entries: entriesOf(f)}
+		s.Area, s.Files = w.area, Files{Path: w.path, Entries: entriesOf(f), Transfers: transfersOf(p)}
 	}
 	if m, ok := w.current.byID[w.replying]; ok {
 		s.Replying = quote(m)

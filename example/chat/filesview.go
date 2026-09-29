@@ -9,17 +9,19 @@ import (
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/icon"
+	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/widget"
 )
 
 // filesPane is a project's files: the folders along the way to the one open, and what that folder holds.
 type filesPane struct {
-	root    *panel
-	address *widget.AddressBar
-	grid    *widget.DataGrid
-	files   Files
-	project string
+	root      *panel
+	address   *widget.AddressBar
+	grid      *widget.DataGrid
+	transfers *widget.List
+	files     Files
+	project   string
 }
 
 func newFilesPane() *filesPane {
@@ -45,7 +47,20 @@ func newFilesPane() *filesPane {
 	folderIcon := widget.NewIcon(icon.FolderOpen, "Files")
 	header := widget.Row(folderIcon, f.address).Grow(f.address, 1)
 	header.Cross = widget.CrossCenter
-	body := widget.Column(widget.NewPad(header), f.grid).Grow(f.grid, 1)
+	// Files dropped from another program anywhere on the list go to the folder open.
+	drop := widget.NewDropZone(f.grid)
+	drop.Spot = func(d input.Drop, u *gunim.UI) (widget.DropSpot, bool) {
+		b, ok := u.Bounds(drop)
+		if len(d.Paths) == 0 || !ok {
+			return widget.DropSpot{}, false
+		}
+		return widget.DropSpot{Key: "folder", Rect: geom.Rect{Max: b.Size().Point()}.Inset(geom.Uniform(4)), Radius: 8}, true
+	}
+	drop.OnDrop = func(_ widget.DropSpot, d input.Drop) gunim.Intent {
+		return FilesDropped{Folder: f.files.Path, Paths: d.Paths}
+	}
+	f.transfers = widget.NewList()
+	body := widget.Column(widget.NewPad(header), drop, widget.NewPad(f.transfers)).Grow(drop, 1)
 	body.Cross, body.Gap = widget.CrossStretch, zeroGap
 	f.root = &panel{child: body, fill: PaneFill}
 	return f
@@ -65,6 +80,10 @@ func (f *filesPane) set(project string, files Files, u *gunim.UI) {
 	}
 	f.address.SetPath("/"+files.Path, crumbs, u)
 	f.grid.SetRows(len(files.Entries), u)
+	widget.Sync(f.transfers, u, files.Transfers,
+		func(t Transfer) widget.Key { return widget.Key(t.ID) },
+		newTransferRow,
+		func(r *transferRow, t Transfer, u *gunim.UI) { r.set(t, u) })
 	if moved {
 		f.grid.JumpTo(0, false, u)
 	}

@@ -136,9 +136,11 @@ func buildChat(s Chat) *chatView {
 	bottomPad := widget.NewPad(bottom)
 	bottomPad.Padding = composerPad
 	timeline := &timelineBox{list: v.timeline, pill: v.catchUp}
-	parts := []gunim.Node{v.linkBar, timeline, bottomPad}
-	if !s.Solo {
+	parts := []gunim.Node{timeline, bottomPad}
+	if s.Solo {
 		// A window of its own names the conversation in its title bar
+		parts = append([]gunim.Node{v.linkBar}, parts...)
+	} else {
 		parts = append([]gunim.Node{widget.NewPad(header)}, parts...)
 	}
 	main := widget.Column(parts...).Grow(timeline, 1)
@@ -150,7 +152,11 @@ func buildChat(s Chat) *chatView {
 	} else {
 		v.files = newFilesPane()
 		v.areas = newAreas(pane, v.files.root)
-		v.root = widget.Row(v.rail, sidebar, v.areas).Grow(v.areas, 1)
+		// The bar saying the connection is down spans every area
+		right := widget.Column(v.linkBar, v.areas).Grow(v.areas, 1)
+		right.Cross, right.Gap = widget.CrossStretch, zeroGap
+		rightPane := &panel{child: right, fill: PaneFill}
+		v.root = widget.Row(v.rail, sidebar, rightPane).Grow(rightPane, 1)
 	}
 	v.root.Cross, v.root.Gap = widget.CrossStretch, zeroGap
 	return v
@@ -618,7 +624,7 @@ func (b *linkBar) set(l Link, u *gunim.UI) {
 	b.link = l
 	switch l {
 	case Offline:
-		b.msg = "You are offline. Messages you send wait here and go when the connection is back."
+		b.msg = "You are offline. Messages and files you send wait, and go when the connection is back."
 	case Reconnecting:
 		b.msg = "Connecting…"
 	}

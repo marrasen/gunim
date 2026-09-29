@@ -1,6 +1,11 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"slices"
+	"testing"
+)
 
 func TestTheFilesAreaOpensFromTheSidebarAndWalksFolders(t *testing.T) {
 	h := newHarness(t)
@@ -30,4 +35,57 @@ func TestTheFilesAreaOpensFromTheSidebarAndWalksFolders(t *testing.T) {
 	if s := h.a.state(); s.Area != "" || h.v.areas.shown != 0 {
 		t.Fatal("choosing a conversation left the files showing")
 	}
+}
+
+func TestDroppedFilesUploadIntoTheFolderOpen(t *testing.T) {
+	h := newHarness(t)
+	dir := t.TempDir()
+	notes := filepath.Join(dir, "notes.txt")
+	if err := os.WriteFile(notes, make([]byte, 700_000), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.a.handle(AreaChosen{Area: "files"})
+	h.a.handle(FolderOpened{Path: "Design"})
+	h.a.handle(FilesDropped{Folder: "Design", Paths: []string{notes, filepath.Join(dir, "missing.txt"), dir}})
+	h.frames(2)
+
+	s := h.a.state().Files
+	if len(s.Transfers) != 3 {
+		t.Fatalf("%d transfers, want one for each file dropped", len(s.Transfers))
+	}
+	if s.Transfers[1].State != TransferFailed || s.Transfers[1].Reason == "" {
+		t.Fatalf("a file that is not there stands at %+v, want failed with the reason", s.Transfers[1])
+	}
+	if s.Transfers[2].State != TransferFailed {
+		t.Fatalf("a folder dropped stands at %+v, want failed", s.Transfers[2])
+	}
+	h.until("the file is uploaded", func() bool {
+		return slices.ContainsFunc(h.a.state().Files.Entries, func(e FileEntry) bool {
+			return e.Name == "notes.txt" && e.Size == 700_000 && e.By == me
+		})
+	})
+
+	h.a.handle(TransferDismissed{ID: s.Transfers[1].ID})
+	if n := len(h.a.state().Files.Transfers); n != 2 {
+		t.Fatalf("%d transfers after taking a failed one away, want two", n)
+	}
+}
+
+func TestUploadsWaitForTheConnection(t *testing.T) {
+	h := newHarness(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "plan.md")
+	if err := os.WriteFile(path, make([]byte, 300_000), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.a.handle(LinkToggled{})
+	h.a.handle(AreaChosen{Area: "files"})
+	h.a.handle(FilesDropped{Paths: []string{path}})
+	if st := h.a.state().Files.Transfers[0].State; st != TransferWaiting {
+		t.Fatalf("offline, the upload stands at %v, want waiting", st)
+	}
+	h.a.handle(LinkToggled{})
+	h.until("the file is uploaded once the connection is back", func() bool {
+		return slices.ContainsFunc(h.a.state().Files.Entries, func(e FileEntry) bool { return e.Name == "plan.md" })
+	})
 }

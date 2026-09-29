@@ -45,6 +45,17 @@ type (
 	Files struct {
 		Path    string
 		Entries []FileEntry
+		// Transfers are the files on their way up to the project, and those that did not make it.
+		Transfers []Transfer
+	}
+
+	// Transfer is a file on its way up to the project's files: its name, the folder it goes to, its size and how much
+	// of it has gone, how it stands, and why it failed.
+	Transfer struct {
+		ID, Name, Folder string
+		Size, Done       int64
+		State            TransferState
+		Reason           string
 	}
 
 	// FileEntry is a file or a folder: its name, its size in bytes or how many things it holds, when it last changed
@@ -204,6 +215,18 @@ const (
 	Reconnecting
 )
 
+// TransferState is how a file on its way up stands.
+type TransferState uint8
+
+// A file is encrypted, then sent. While the connection is down it waits, and goes when it is back.
+const (
+	TransferEncrypting TransferState = iota
+	TransferUploading
+	TransferWaiting
+	TransferUploaded
+	TransferFailed
+)
+
 // Intents.
 type (
 	ProjectChosen      struct{ Index int }
@@ -212,7 +235,16 @@ type (
 	// open a folder of its files, by path.
 	AreaChosen   struct{ Area string }
 	FolderOpened struct{ Path string }
-	Submitted    struct{ Text string }
+	// FilesDropped travels when the user drops files from another program on a folder of the project's files, by
+	// the folder's path. TransferRetried and TransferDismissed travel when they try a failed upload again, or take
+	// it away.
+	FilesDropped struct {
+		Folder string
+		Paths  []string
+	}
+	TransferRetried   struct{ ID string }
+	TransferDismissed struct{ ID string }
+	Submitted         struct{ Text string }
 	// Drafted travels as the user types in the message box.
 	Drafted struct{ Text string }
 	// ImagePasted travels when the user pastes a picture, as PNG, and PictureRemoved when they take one waiting
@@ -245,6 +277,9 @@ func init() {
 	gunim.RegisterType[ConversationChosen]("chat.conversation")
 	gunim.RegisterType[AreaChosen]("chat.area")
 	gunim.RegisterType[FolderOpened]("chat.folder")
+	gunim.RegisterType[FilesDropped]("chat.files.drop")
+	gunim.RegisterType[TransferRetried]("chat.transfer.retry")
+	gunim.RegisterType[TransferDismissed]("chat.transfer.dismiss")
 	gunim.RegisterType[Submitted]("chat.submit")
 	gunim.RegisterType[Drafted]("chat.draft")
 	gunim.RegisterType[ImagePasted]("chat.image")
