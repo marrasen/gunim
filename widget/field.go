@@ -164,6 +164,9 @@ func (t *TextField) Step(dt time.Duration) bool {
 
 // Handle implements [gunim.Handler].
 func (t *TextField) Handle(e input.Event, u *gunim.UI) bool {
+	if t.blink.windowFocus(e, u) {
+		return false
+	}
 	switch e := e.(type) {
 	case input.FocusGained:
 		t.focus.Animate(1, Quick.Get(u.Theme()))

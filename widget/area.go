@@ -120,6 +120,9 @@ func (a *TextArea) Step(dt time.Duration) bool {
 
 // Handle implements [gunim.Handler].
 func (a *TextArea) Handle(e input.Event, u *gunim.UI) bool {
+	if a.blink.windowFocus(e, u) {
+		return false
+	}
 	switch e := e.(type) {
 	case input.FocusGained:
 		a.focus.Animate(1, Quick.Get(u.Theme()))

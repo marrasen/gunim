@@ -5,6 +5,7 @@ import (
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
+	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/theme"
 )
 
@@ -25,10 +26,15 @@ type blinker struct {
 	stop func()
 	// left counts the fades still to come before the caret stays lit.
 	left int
+	// away hides the caret while the window does not have the keyboard.
+	away bool
 }
 
 // value returns how lit the caret is, from 0 to 1.
 func (b *blinker) value() float32 {
+	if b.away {
+		return 0
+	}
 	if b.lit == nil {
 		return 1
 	}
@@ -63,6 +69,23 @@ func (b *blinker) next(u *gunim.UI, half float32) {
 		u.Invalidate()
 		b.next(u, half)
 	})
+}
+
+// windowFocus hides the caret while the window is without the keyboard, and shows it blinking again when the window
+// has it back. It reports whether e was such a change, which goes on to the nodes around the widget too.
+func (b *blinker) windowFocus(e input.Event, u *gunim.UI) bool {
+	switch e.(type) {
+	case input.WindowFocusLost:
+		b.halt()
+		b.away = true
+	case input.WindowFocusGained:
+		b.away = false
+		b.restart(u)
+	default:
+		return false
+	}
+	u.Invalidate()
+	return true
 }
 
 // halt stops the blinking and leaves the caret lit, as the keyboard leaves.

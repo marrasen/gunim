@@ -1,6 +1,10 @@
 package widget
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/marrasen/gunim/input"
+)
 
 func TestTheCaretBlinksThenStaysLit(t *testing.T) {
 	wr := newWriter(t, 400)
@@ -32,5 +36,26 @@ func TestTheCaretBlinksThenStaysLit(t *testing.T) {
 	}
 	if b.stop != nil {
 		t.Fatal("a blink is still waiting long after the last key")
+	}
+}
+
+func TestTheCaretHidesWhileTheWindowIsInactive(t *testing.T) {
+	wr := newWriter(t, 400)
+	b := &wr.area.blink
+	wr.w.Input(input.WindowFocusLost{})
+	wr.run(1)
+	if v := b.value(); v != 0 {
+		t.Fatalf("caret at %v with the window inactive, want hidden", v)
+	}
+	if b.stop != nil {
+		t.Fatal("the caret still blinks with the window inactive")
+	}
+	wr.w.Input(input.WindowFocusGained{})
+	wr.run(1)
+	if v := b.value(); v != 1 {
+		t.Fatalf("caret at %v with the window back, want lit", v)
+	}
+	if b.stop == nil {
+		t.Fatal("the caret does not blink again with the window back")
 	}
 }
