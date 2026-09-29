@@ -1,6 +1,7 @@
 package widget
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -70,5 +71,53 @@ func TestEscapeClosesThePicker(t *testing.T) {
 	run(3)
 	if picker.IsOpen() || len(*picked) != 0 {
 		t.Fatalf("after Escape: open %v, picked %q", picker.IsOpen(), *picked)
+	}
+}
+
+func TestPickedEmojiGoFirstInRecentlyUsed(t *testing.T) {
+	picker, w, run, picked := openPicker(t)
+	pick := func(q string) {
+		w.Input(input.TextInput{Text: q})
+		run(3)
+		w.Input(input.KeyPress{Key: input.KeyEnter})
+		run(3)
+	}
+	pick("thumbs")
+	reopen := func() {
+		w.Input(input.PointerDown{Pos: geom.Pt(20, 18), Button: input.ButtonPrimary, Clicks: 1})
+		w.Input(input.PointerUp{Pos: geom.Pt(20, 18), Button: input.ButtonPrimary})
+		run(10)
+	}
+	reopen()
+	pick("rocket")
+	reopen()
+	pick("thumbs")
+	if want := []string{"\U0001F44D", "\U0001F680"}; !slices.Equal(picker.Recent, want) {
+		t.Fatalf("recent %q, want thumbs up before the rocket, once each", picker.Recent)
+	}
+	if len(*picked) != 3 {
+		t.Fatalf("picked %q, want three picks", *picked)
+	}
+	reopen()
+	c := picker.card
+	if len(c.tabs.groups) == 0 || c.tabs.groups[0].name != "Recently used" || c.first.Text != "\U0001F44D" {
+		t.Fatalf("first tab %+v and first emoji %q, want the recently used group first", c.tabs.groups[0], c.first.Text)
+	}
+	if r := c.rows["r:0"]; len(r.emoji) != 2 {
+		t.Fatalf("recently used row %+v, want the two picked", r)
+	}
+}
+
+func TestTheTabsBarFollowsTheGroupShown(t *testing.T) {
+	picker, _, run, _ := openPicker(t)
+	c := picker.card
+	if got := c.shownGroup(); got != 0 {
+		t.Fatalf("group %d shows at the start, want the first", got)
+	}
+	at := slices.Index(c.list.order, c.tabs.groups[2].key)
+	c.list.ScrollTo(float32(c.list.tops.sum(at)), Quick.Default())
+	run(90)
+	if got := c.tabs.shown; got != 2 {
+		t.Fatalf("the bar is under tab %d, want the third, scrolled to", got)
 	}
 }

@@ -7,6 +7,7 @@ package emoji
 
 import (
 	"strings"
+	"sync"
 )
 
 // Emoji is one emoji: its text, its short name, and the version of Emoji it arrived in, such as "15.0".
@@ -61,4 +62,23 @@ func matches(name string, words []string) bool {
 		}
 	}
 	return true
+}
+
+var (
+	byText     map[string]Emoji
+	byTextOnce sync.Once
+)
+
+// Lookup returns the emoji whose text is s, with its name, and false for text that is not one of them.
+func Lookup(s string) (Emoji, bool) {
+	byTextOnce.Do(func() {
+		byText = map[string]Emoji{}
+		for _, g := range groups {
+			for _, e := range g.Emoji {
+				byText[e.Text] = e
+			}
+		}
+	})
+	e, ok := byText[s]
+	return e, ok
 }

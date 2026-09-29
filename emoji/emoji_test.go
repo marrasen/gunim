@@ -38,3 +38,12 @@ func TestSearchFindsByTheStartsOfWords(t *testing.T) {
 		t.Fatal("an empty search found emoji")
 	}
 }
+
+func TestLookupFindsAnEmojiByItsText(t *testing.T) {
+	if e, ok := Lookup("\U0001F44D"); !ok || e.Name != "thumbs up" {
+		t.Fatalf("Lookup(thumbs up) = %+v, %v", e, ok)
+	}
+	if _, ok := Lookup("A"); ok {
+		t.Fatal("Lookup(A) found an emoji")
+	}
+}

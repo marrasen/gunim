@@ -1,6 +1,7 @@
 package widget
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/emoji"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/text"
@@ -35,6 +37,9 @@ const (
 type EmojiPicker struct {
 	// Pick runs with the emoji chosen, once the picker has closed.
 	Pick func(emoji string, u *gunim.UI)
+	// Recent holds the emoji picked last, the latest first, which show in a group of their own at the top. The
+	// picker keeps it; an application may set it from what it saved, to keep it from one run to the next.
+	Recent []string
 
 	popup *gunim.Popup
 	card  *emojiCard
@@ -68,8 +73,13 @@ func (e *EmojiPicker) Close(u *gunim.UI) {
 // IsOpen reports whether the picker is open.
 func (e *EmojiPicker) IsOpen() bool { return e.popup != nil && e.popup.Open() }
 
-// pick closes the picker and hands over the emoji chosen.
+// maxRecent is how many emoji the recently used group holds: three rows.
+const maxRecent = 3 * emojiColumns
+
+// pick closes the picker and hands over the emoji chosen, which goes to the front of the recently used.
 func (e *EmojiPicker) pick(s string, u *gunim.UI) {
+	e.Recent = append([]string{s}, slices.DeleteFunc(slices.Clone(e.Recent), func(r string) bool { return r == s })...)
+	e.Recent = e.Recent[:min(len(e.Recent), maxRecent)]
 	e.Close(u)
 	if e.Pick != nil {
 		e.Pick(s, u)
@@ -121,7 +131,8 @@ func newEmojiCard(p *EmojiPicker) *emojiCard {
 	c.list = NewVirtualList(func(k Key) gunim.Node { return &emojiRow{c: c, row: c.rows[k], hover: -1} })
 	c.list.Spacing = zeroSpacing
 	c.list.Estimate = EmojiCell.Default()
-	c.tabs = &emojiTabs{c: c, hover: -1}
+	c.tabs = &emojiTabs{c: c, hover: -1, at: anim.NewFloat(0)}
+	c.tabs.Add(c.tabs.at)
 	c.shown = c.list
 	c.Add(c.in)
 	return c
@@ -146,6 +157,18 @@ func (c *emojiCard) filter(q string, u *gunim.UI) {
 	c.first = emoji.Emoji{}
 	c.tabs.groups = c.tabs.groups[:0]
 	if strings.TrimSpace(q) == "" {
+		var recent []emoji.Emoji
+		for _, r := range c.p.Recent {
+			if e, ok := emoji.Lookup(r); ok && text.EmojiShows(r) {
+				recent = append(recent, e)
+			}
+		}
+		if len(recent) > 0 {
+			c.first = recent[0]
+			add("h:recent", pickerRow{title: "Recently used"})
+			c.tabs.groups = append(c.tabs.groups, tabGroup{key: "h:recent", icon: icon.Clock, name: "Recently used"})
+			rowsOf("r:", recent)
+		}
 		for gi, g := range emoji.Groups() {
 			shown := emojiShown(g.Emoji)
 			if len(shown) == 0 {
@@ -156,7 +179,7 @@ func (c *emojiCard) filter(q string, u *gunim.UI) {
 			}
 			head := Key("h:" + strconv.Itoa(gi))
 			add(head, pickerRow{title: g.Name})
-			c.tabs.groups = append(c.tabs.groups, tabGroup{key: head, face: shown[0].Text})
+			c.tabs.groups = append(c.tabs.groups, tabGroup{key: head, icon: iconOf(g.Name), name: g.Name})
 			rowsOf("g:"+strconv.Itoa(gi)+":", shown)
 		}
 	} else {
@@ -172,7 +195,7 @@ func (c *emojiCard) filter(q string, u *gunim.UI) {
 	c.list.Estimate = EmojiCell.Get(u.Theme())
 	c.list.SetKeys(keys, u)
 	c.swapList(u)
-	c.tabs.shaped = false
+	c.tabs.laid = false
 	u.Invalidate()
 }
 
@@ -222,7 +245,26 @@ func (c *emojiCard) Handle(e input.Event, u *gunim.UI) bool {
 	return true
 }
 
-// setHot shows e large, with its name, at the foot.
+// shownGroup returns the tab of the group the list shows: the last whose title is at or above the list's top, or
+// the last group once the list is at its end.
+func (c *emojiCard) shownGroup() int {
+	l := c.list
+	if len(c.tabs.groups) == 0 || len(l.order) == 0 {
+		return 0
+	}
+	if l.AtEnd() && l.Offset() > 0 {
+		return len(c.tabs.groups) - 1
+	}
+	shown := 0
+	for i, g := range c.tabs.groups {
+		if at := slices.Index(l.order, g.key); at >= 0 && at < len(l.entry) && float32(l.tops.sum(at)) <= l.Offset()+2 {
+			shown = i
+		}
+	}
+	return shown
+}
+
+// setHot shows e large, with its name, at the foot; a group's tab shows its name alone.
 func (c *emojiCard) setHot(e emoji.Emoji, u *gunim.UI) {
 	if e == c.hot {
 		return
@@ -294,7 +336,7 @@ func (c *emojiCard) Paint(p *paint.Painter, f gunim.Frame, _ geom.Size, kids gun
 	}
 	foot := geom.Rc(c.card.Min.X+c.pad, c.card.Max.Y-c.pad-c.footH, c.card.Size().W-2*c.pad, c.footH)
 	p.RRect(geom.Rc(foot.Min.X, foot.Min.Y, foot.Size().W, 1), 0, paint.Solid(MenuBorder.Get(th)))
-	if c.hot.Text == "" {
+	if c.hot.Name == "" {
 		if c.first.Text == "" {
 			none := faceIn(Font, th).Shape("No emoji found", TextSize.Get(th))
 			none.Paint(p, geom.Pt(foot.Min.X+4, foot.Center().Y-none.Height()/2), PaletteHint.Get(th))
@@ -302,56 +344,98 @@ func (c *emojiCard) Paint(p *paint.Painter, f gunim.Frame, _ geom.Size, kids gun
 		return
 	}
 	mid := foot.Center().Y + 2
-	c.hotRun.Paint(p, geom.Pt(foot.Min.X+2, mid-c.hotRun.Height()/2), Ink.Get(th))
-	c.name.Paint(p, geom.Pt(foot.Min.X+c.hotRun.Advance+10, mid-c.name.Height()/2), Ink.Get(th))
+	x := foot.Min.X + 2
+	if c.hot.Text != "" {
+		c.hotRun.Paint(p, geom.Pt(x, mid-c.hotRun.Height()/2), Ink.Get(th))
+		x += c.hotRun.Advance + 8
+	}
+	c.name.Paint(p, geom.Pt(x, mid-c.name.Height()/2), Ink.Get(th))
 }
 
-// tabGroup is a group's tab: the key of its title's row, and the emoji that stands for it.
+// tabGroup is a group's tab: the key of its title's row, its icon, and its name.
 type tabGroup struct {
 	key  Key
-	face string
+	icon *icon.Icon
+	name string
 }
 
-// emojiTabs is the row of the picker's groups, each shown by its first emoji; a click scrolls to the group.
+// groupIcons are the icons of the groups' tabs, by the groups' names.
+var groupIcons = map[string]*icon.Icon{
+	"Smileys & Emotion": icon.Smile,
+	"People & Body":     icon.Users,
+	"Animals & Nature":  icon.PawPrint,
+	"Food & Drink":      icon.Coffee,
+	"Travel & Places":   icon.Plane,
+	"Activities":        icon.Trophy,
+	"Objects":           icon.Lightbulb,
+	"Symbols":           icon.Heart,
+	"Flags":             icon.Flag,
+}
+
+// iconOf returns the icon of the group named name.
+func iconOf(name string) *icon.Icon {
+	if ic, ok := groupIcons[name]; ok {
+		return ic
+	}
+	return icon.Shapes
+}
+
+// emojiTabs is the row of the picker's groups, each an icon, with a bar under the group the list shows. A click
+// scrolls to the group, and the pointer on a tab names its group at the foot.
 type emojiTabs struct {
+	anim.Group
 	c      *emojiCard
 	groups []tabGroup
-	runs   []text.Run
-	shaped bool
 	hover  int
 	cell   float32
+	// at carries the bar to the group the list shows, by the group's place in the row.
+	at    *anim.Float
+	laid  bool
+	shown int
 }
 
 // Layout implements [gunim.Node].
 func (t *emojiTabs) Layout(cs gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
 	t.cell = cs.Max.W / float32(max(len(t.groups), emojiColumns))
-	if !t.shaped || len(t.runs) != len(t.groups) {
-		t.runs = t.runs[:0]
-		for _, g := range t.groups {
-			t.runs = append(t.runs, text.Default().Shape(g.face, EmojiSize.Get(f.Theme)*0.8))
-		}
-		t.shaped = true
-	}
 	if len(t.groups) == 0 {
 		return geom.Sz(cs.Max.W, 0)
 	}
+	now := t.c.shownGroup()
+	switch {
+	case !t.laid:
+		t.at.Jump(float32(now))
+	case now != t.shown:
+		t.at.Animate(float32(now), Quick.Get(f.Theme))
+	}
+	t.laid, t.shown = true, now
 	return geom.Sz(cs.Max.W, EmojiCell.Get(f.Theme))
 }
 
 // Paint implements [gunim.Node].
 func (t *emojiTabs) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
-	for i, r := range t.runs {
-		cellBox := geom.Rc(float32(i)*t.cell, 0, t.cell, box.H)
+	th := f.Theme
+	s := IconSize.Get(th)
+	for i, g := range t.groups {
+		cellBox := geom.Rc(float32(i)*t.cell, 0, t.cell, box.H-3)
 		if i == t.hover {
-			p.RRect(cellBox.Inset(geom.Uniform(2)), 6, paint.Solid(MenuHot.Get(f.Theme)))
+			p.RRect(cellBox.Inset(geom.Uniform(2)), 6, paint.Solid(MenuHot.Get(th)))
+		}
+		ink := PaletteHint.Get(th)
+		if i == t.shown {
+			ink = Ink.Get(th)
 		}
 		c := cellBox.Center()
-		r.Paint(p, geom.Pt(c.X-r.Advance/2, c.Y-r.Height()/2), Ink.Get(f.Theme))
+		paintIcon(p, th, g.icon, geom.Rc(c.X-s/2, c.Y-s/2, s, s), ink, 1)
 	}
+	// A rule under the row, and the accent's bar on it under the group shown.
+	p.RRect(geom.Rc(0, box.H-1, box.W, 1), 0, paint.Solid(MenuBorder.Get(th)))
+	w := t.cell * 0.6
+	x := t.at.Value()*t.cell + (t.cell-w)/2
+	p.RRect(geom.Rc(x, box.H-3, w, 3), 1.5, paint.Solid(Accent.Get(th)))
 }
 
 // at returns the tab under pt, or -1.
-func (t *emojiTabs) at(pt geom.Point) int {
+func (t *emojiTabs) tabAt(pt geom.Point) int {
 	if t.cell <= 0 || pt.X < 0 {
 		return -1
 	}
@@ -365,15 +449,18 @@ func (t *emojiTabs) at(pt geom.Point) int {
 func (t *emojiTabs) Handle(e input.Event, u *gunim.UI) bool {
 	switch e := e.(type) {
 	case input.PointerMove:
-		if i := t.at(e.Pos); i != t.hover {
+		if i := t.tabAt(e.Pos); i != t.hover {
 			t.hover = i
+			if i >= 0 {
+				t.c.setHot(emoji.Emoji{Name: t.groups[i].name}, u)
+			}
 			u.Invalidate()
 		}
 	case input.PointerLeave:
 		t.hover = -1
 		u.Invalidate()
 	case input.PointerDown:
-		if i := t.at(e.Pos); i >= 0 && e.Button == input.ButtonPrimary {
+		if i := t.tabAt(e.Pos); i >= 0 && e.Button == input.ButtonPrimary {
 			t.c.list.ScrollToKey(t.groups[i].key, u)
 			return true
 		}
