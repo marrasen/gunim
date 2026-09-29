@@ -231,6 +231,22 @@ func TestNextVsyncFollowsThePhaseOfTheLastFrame(t *testing.T) {
 	}
 }
 
+func TestATimerWakesTheLoopForTheFrameThatRunsIt(t *testing.T) {
+	const iv = 10 * time.Millisecond
+	shown := time.Unix(100, 0)
+	for _, due := range []time.Duration{1, 3, 9, 10, 11, 20, 47} {
+		at := shown.Add(due * time.Millisecond)
+		wake := wakeFor(at, shown, iv)
+		// Woken on time, or a little late, the frame is stamped at or after the timer, and a refresh at most after it.
+		for _, late := range []time.Duration{0, time.Millisecond, iv - 1} {
+			stamp := nextVsync(shown, iv, wake.Add(late))
+			if stamp.Before(at) || stamp.Sub(at) >= iv {
+				t.Errorf("timer %v after shown, woken %v late: frame stamped %v after shown", due, late, stamp.Sub(shown))
+			}
+		}
+	}
+}
+
 // mustPublish sends state to the topic these tests share.
 func mustPublish(t *testing.T, c Client, label string) {
 	t.Helper()

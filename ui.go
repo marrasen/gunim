@@ -670,8 +670,8 @@ func (w *Window) wait() bool {
 	if len(w.ui.pending) > 0 {
 		out, next = w.out, w.ui.pending[0]
 	}
-	// A timer wakes the loop for the frame it runs in. Frames are
-	// stamped a refresh ahead, so it wakes a refresh early. One timer
+	// A timer wakes the loop a refresh before the first refresh at or
+	// after it is due, so the frame drawn then runs it. One timer
 	// serves every wait: a terminal's output wakes the loop hundreds of
 	// times a second, and a new timer each time is garbage each time.
 	//
@@ -681,7 +681,7 @@ func (w *Window) wait() bool {
 	// it waits for the wait after.
 	var alarm <-chan time.Time
 	if at, ok := w.ui.nextTimer(); ok && !w.inFlight {
-		d := time.Until(at) - refreshInterval(w.dw.RefreshRate())
+		d := time.Until(wakeFor(at, w.shown, refreshInterval(w.dw.RefreshRate())))
 		if w.alarm == nil {
 			w.alarm = time.NewTimer(d)
 		} else {
@@ -772,6 +772,16 @@ func nextVsync(shown time.Time, interval time.Duration, now time.Time) time.Time
 		n = 1
 	}
 	return shown.Add(time.Duration(n) * interval)
+}
+
+// wakeFor returns when to draw the frame that runs a timer due at: a refresh before the first refresh at or after
+// at, in step with the last frame shown, so [nextVsync] stamps the frame at or after at.
+func wakeFor(at, shown time.Time, interval time.Duration) time.Time {
+	if shown.IsZero() {
+		return at.Add(-interval)
+	}
+	n := max(int64((at.Sub(shown)+interval-1)/interval), 1)
+	return shown.Add(time.Duration(n-1) * interval)
 }
 
 // queue adds cmd to the batch for the next frame.
@@ -1554,12 +1564,13 @@ func (u *UI) needsFrame() bool { return u.animating || u.invalid }
 // out, paint, present.
 func (u *UI) frame(now time.Time, delta time.Duration) {
 	u.now = now
+	// Timers run first, so what they invalidate is drawn in this frame
+	u.runTimers()
 	u.invalid = false
 	if u.shotsOwed.Load() > 0 {
 		// A shot waits on the windows' next frames: keep drawing them.
 		u.invalid = true
 	}
-	u.runTimers()
 	u.flush()
 	// Scroll what a held drag is near the edge of, while the nodes are
 	// still where the last frame drew them, to find what the pointer is
