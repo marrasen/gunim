@@ -51,6 +51,12 @@ type Dialog struct {
 	// the answer that cannot be taken back, such as trusting a server's
 	// new key.
 	Careful bool
+	// DefaultFirst has Tab go from the fields to OK first, then along
+	// the buttons to the left, for a dialog whose OK is the safe answer
+	// and whose extra buttons are not, such as Leave It beside Replace:
+	// Tab then Enter does what Enter alone does. Without it Tab goes
+	// along the buttons from the left.
+	DefaultFirst bool
 	// Check, when set, runs as the user confirms, and says what stands
 	// in the way, or nothing. With something in the way the dialog stays
 	// open, gives a shake, and says it under the body.
@@ -150,11 +156,22 @@ func (d *Dialog) accept(u *gunim.UI) {
 }
 
 // focusables returns what Tab moves through: the body's fields, then
-// the buttons.
+// the buttons, left to right. With DefaultFirst, the buttons from the
+// right instead, OK first.
 func (d *Dialog) focusables() []gunim.Node {
 	var out []gunim.Node
 	if b, ok := d.Body.(interface{ Focusables() []gunim.Node }); ok {
 		out = append(out, b.Focusables()...)
+	}
+	if d.DefaultFirst {
+		buttons := d.buttons()
+		for i := len(buttons) - 1; i >= 0; i-- {
+			out = append(out, buttons[i])
+		}
+		for i := len(d.extra) - 1; i >= 0; i-- {
+			out = append(out, d.extra[i])
+		}
+		return out
 	}
 	for _, b := range d.extra {
 		out = append(out, b)
