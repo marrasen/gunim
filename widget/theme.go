@@ -154,6 +154,9 @@ var (
 var (
 	ScrollbarColor = theme.Color("scroll.bar", color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x50})
 	ScrollbarWidth = theme.Length("scroll.bar.width", 6)
+	// ScrollbarGrabWidth is how wide the bar grows while the pointer is
+	// on it.
+	ScrollbarGrabWidth = theme.Length("scroll.bar.grab.width", 10)
 	// ScrollLine is how far an arrow key scrolls.
 	ScrollLine = theme.Length("scroll.line", 40)
 )

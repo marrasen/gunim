@@ -216,6 +216,15 @@ type Shaped interface {
 	Covers(p geom.Point) bool
 }
 
+// A PointerClaimer takes the pointer over part of itself ahead of its
+// children: a scroll view's bar, drawn over the content. Where
+// ClaimsPointer reports true, p in the node's own space, the node is
+// the one under the pointer, for hover, presses and the wheel alike.
+type PointerClaimer interface {
+	Node
+	ClaimsPointer(p geom.Point) bool
+}
+
 // A Caption is part of the title bar of a chromeless window, one the
 // application draws. CaptionRects are the parts of the node, in its own
 // space, with nothing else on them: a press there moves the window and

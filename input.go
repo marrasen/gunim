@@ -459,6 +459,17 @@ func (u *UI) updateHover(root *state, p geom.Point, t time.Time) {
 	for _, s := range slices.Backward(entered) {
 		u.deliver(s, input.PointerEnter{Pos: u.local(s, p), Time: t})
 	}
+	// A claimer the pointer crosses between its claimed part and its
+	// children stays hovered, and hears where the pointer went by a
+	// move, even when a child takes the moves.
+	for _, s := range []*state{prev, next} {
+		if prev == nil || next == nil || !prev.within(s) || !next.within(s) {
+			continue
+		}
+		if _, ok := s.node.(PointerClaimer); ok {
+			u.deliver(s, input.PointerMove{Pos: u.local(s, p), Time: t})
+		}
+	}
 }
 
 // dispatchAt finds the topmost node under p and offers it the event
@@ -510,7 +521,8 @@ func (u *UI) deliver(s *state, e input.Event) {
 // hides takes none, and neither does a node that frame left unpainted.
 //
 // Children are tested last-first because the last child painted is the
-// one on top. Exiting nodes are skipped, so a click aimed at what lies
+// one on top. A [PointerClaimer] keeps the points it claims from its
+// children. Exiting nodes are skipped, so a click aimed at what lies
 // behind a fading dialog reaches it.
 func (u *UI) hit(s *state, p geom.Point) *state {
 	for _, k := range slices.Backward(s.kids) {
@@ -523,6 +535,9 @@ func (u *UI) hit(s *state, p geom.Point) *state {
 		}
 		if sh, ok := k.node.(Shaped); ok && !sh.Covers(local) {
 			continue
+		}
+		if c, ok := k.node.(PointerClaimer); ok && c.ClaimsPointer(local) {
+			return k
 		}
 		if deep := u.hit(k, p); deep != nil {
 			return deep

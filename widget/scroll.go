@@ -16,7 +16,8 @@ import (
 // mid-glide carries on from the current speed. With DragScroll, the
 // pointer drags the content and flings it, and it stretches past
 // either end and springs back. A thin bar fades in while the content
-// moves and out once it rests. At either end the wheel passes on to
+// moves or the pointer is over it, and out once both stop; the pointer
+// can drag the bar's thumb and press its track to page. At either end the wheel passes on to
 // whatever scrolls outside, so scroll views nest.
 //
 // The child is laid out with unbounded height and the width the Scroll
@@ -53,7 +54,7 @@ func (s *Scroll) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children)
 	own := c.Max
 	kid := kids.At(0)
 	size := kid.Layout(gunim.Constraints{Min: geom.Sz(own.W, 0), Max: geom.Sz(own.W, 0)})
-	s.fit(size.H, own.H, f.Theme)
+	s.fit(size.H, own, f.Theme)
 	kid.Place(geom.Pt(0, -s.offset.Value()))
 	return own
 }
@@ -64,5 +65,5 @@ func (s *Scroll) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids guni
 		defer p.Layer(paint.LayerOpts{Bounds: geom.Rect{Max: box.Point()}, Opacity: 1, Clip: true})()
 		kids.At(0).Paint(p)
 	}()
-	s.paintBar(p, f, box)
+	s.paintBar(p, f)
 }

@@ -406,7 +406,7 @@ func (l *VirtualList) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Chil
 			delete(l.live, k)
 		}
 	}
-	l.fit(max(0, float32(l.tops.sum(len(l.order)))-spacing), own.H, f.Theme)
+	l.fit(max(0, float32(l.tops.sum(len(l.order)))-spacing), own, f.Theme)
 	l.still = false
 	return own
 }
@@ -430,7 +430,7 @@ func (l *VirtualList) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids
 			kid.Paint(p)
 		}
 	}()
-	l.paintBar(p, f, box)
+	l.paintBar(p, f)
 }
 
 func deleteKey(keys []Key, k Key) []Key {

@@ -30,6 +30,11 @@ var flingDecay = anim.Decay{Tau: 0.33}
 // either end a drag stretches, with less give the further it goes, and
 // the content springs back on release; a fling that runs past an end
 // carries on a little and springs back the same way.
+//
+// The bar shows while the content moves and while the pointer is over
+// the widget, and fades a moment after both stop. The pointer on the
+// bar widens it; dragging the thumb scrolls with it, and a press on
+// the track either side of the thumb pages toward the press.
 type scrolling struct {
 	// DragScroll lets the pointer drag the content and fling it. A
 	// press the content's own nodes take, such as a button's, is
@@ -44,7 +49,7 @@ type scrolling struct {
 	// has no frame. It is a handle to the live values, never a copy.
 	th *theme.Live
 
-	content, viewport float32
+	content, viewport, width float32
 
 	// held is set while the pointer drags the content. grabY and
 	// grabAt are where the drag started and the offset then, and
@@ -59,6 +64,14 @@ type scrolling struct {
 	// jumped says the view was put somewhere at once, since the last
 	// layout: bringing it back inside new content then jumps too.
 	jumped bool
+
+	// over is set while the pointer is over the widget, and onBar
+	// while it is over the bar's strip. gripped is set while the
+	// pointer drags the thumb, from grabY and grabAt as a drag of the
+	// content does.
+	over, onBar, gripped bool
+	// wide grows the bar from 0 to 1 while the pointer is on it.
+	wide *anim.Float
 }
 
 type sample struct {
@@ -67,7 +80,7 @@ type sample struct {
 }
 
 func newScrolling() scrolling {
-	return scrolling{offset: anim.NewFloat(0), bar: anim.NewFloat(0)}
+	return scrolling{offset: anim.NewFloat(0), bar: anim.NewFloat(0), wide: anim.NewFloat(0)}
 }
 
 // Offset returns how far the content is scrolled right now.
@@ -136,7 +149,10 @@ func (s *scrolling) Step(dt time.Duration) bool {
 			s.offset.Retarget(s.target, Settle.Get(s.th))
 		}
 	}
-	if moving || s.held {
+	// The pointer keeps the bar up without drawing frames; the linger
+	// counts from when it leaves.
+	kept := s.over || s.gripped
+	if moving || s.held || kept {
 		s.idle = 0
 	} else if s.bar.Target() > 0 {
 		s.idle += dt
@@ -145,11 +161,119 @@ func (s *scrolling) Step(dt time.Duration) bool {
 		}
 	}
 	barMoving := s.bar.Step(dt)
-	return moving || barMoving || s.bar.Target() > 0
+	wideMoving := s.wide.Step(dt)
+	return moving || barMoving || wideMoving || (s.bar.Target() > 0 && !kept)
 }
 
-// handle takes the wheel, the keys, and, with DragScroll, drags.
+// scrollable reports whether the content is taller than the view.
+func (s *scrolling) scrollable() bool { return s.content > s.viewport }
+
+// ClaimsPointer implements [gunim.PointerClaimer]: the strip along the
+// right edge is the bar's, over whatever content lies under it.
+func (s *scrolling) ClaimsPointer(p geom.Point) bool {
+	if s.gripped {
+		return true
+	}
+	if !s.scrollable() || s.th == nil {
+		return false
+	}
+	return p.X >= s.width-ScrollbarGrabWidth.Get(s.th)-4
+}
+
+// barWidth returns the bar's width now, between its resting width and
+// the width it grows to under the pointer.
+func (s *scrolling) barWidth(th *theme.Live) float32 {
+	rest, grab := ScrollbarWidth.Get(th), ScrollbarGrabWidth.Get(th)
+	return rest + (grab-rest)*s.wide.Value()
+}
+
+// thumb returns the part of the bar that stands for the view, w wide,
+// in the widget's space.
+func (s *scrolling) thumb(w float32) geom.Rect {
+	length := min(s.viewport, max(s.viewport*s.viewport/s.content, 2*w, 24))
+	at := max(0, min(s.offset.Value(), s.end()))
+	top := (s.viewport - length) * at / s.end()
+	return geom.Rc(s.width-w-2, top, w, length)
+}
+
+// setOnBar notes whether the pointer is on the bar, and grows or
+// shrinks the bar to match.
+func (s *scrolling) setOnBar(on bool, u *gunim.UI) {
+	s.onBar = on
+	var to float32
+	if on || s.gripped {
+		to = 1
+	}
+	if s.wide.Target() != to {
+		s.wide.Animate(to, Quick.Get(u.Theme()))
+		u.Invalidate()
+	}
+}
+
+// barEvent follows the pointer over the widget and takes what is aimed
+// at the bar: presses on it and drags of its thumb. It reports whether
+// it took e. Other moves, enter and leave it only watches.
+func (s *scrolling) barEvent(e input.Event, u *gunim.UI) bool {
+	switch e := e.(type) {
+	case input.PointerEnter:
+		s.over = true
+		s.showBar()
+		s.setOnBar(s.ClaimsPointer(e.Pos), u)
+		u.Invalidate()
+	case input.PointerLeave:
+		s.over = false
+		s.setOnBar(false, u)
+		u.Invalidate()
+	case input.PointerMove:
+		if s.gripped {
+			span := s.viewport - s.thumb(s.barWidth(u.Theme())).Size().H
+			if span > 0 {
+				s.target = s.clamp(s.grabAt + (e.Pos.Y-s.grabY)*s.end()/span)
+				s.offset.Jump(s.target)
+			}
+			u.Invalidate()
+			return true
+		}
+		// A move only passes over the bar: a drag of the content, or
+		// the widget's own, goes on under it.
+		s.setOnBar(s.ClaimsPointer(e.Pos), u)
+	case input.PointerDown:
+		if e.Button != input.ButtonPrimary || !s.ClaimsPointer(e.Pos) {
+			return false
+		}
+		s.flinging = false
+		s.showBar()
+		thumb := s.thumb(s.barWidth(u.Theme()))
+		switch {
+		case e.Pos.Y < thumb.Min.Y:
+			s.ScrollTo(s.base()-s.viewport*0.9, Quick.Get(u.Theme()))
+		case e.Pos.Y >= thumb.Max.Y:
+			s.ScrollTo(s.base()+s.viewport*0.9, Quick.Get(u.Theme()))
+		default:
+			s.gripped = true
+			s.grabY, s.grabAt = e.Pos.Y, s.clamp(s.offset.Value())
+			s.target = s.grabAt
+			s.offset.Jump(s.grabAt)
+		}
+		u.Invalidate()
+		return true
+	case input.PointerUp:
+		if !s.gripped {
+			return false
+		}
+		s.gripped = false
+		s.setOnBar(s.over && s.ClaimsPointer(e.Pos), u)
+		return true
+	}
+	return false
+}
+
+// handle takes the bar, the wheel, the keys, and, with DragScroll,
+// drags.
 func (s *scrolling) handle(e input.Event, u *gunim.UI) bool {
+	if s.barEvent(e, u) {
+		return true
+	}
 	th := u.Theme()
 	var to float32
 	switch e := e.(type) {
@@ -339,11 +463,12 @@ func (s *scrolling) revealContent(r geom.Rect, u *gunim.UI) {
 	s.reveal(geom.Rect{Min: geom.Pt(r.Min.X, r.Min.Y-off), Max: geom.Pt(r.Max.X, r.Max.Y-off)}, u)
 }
 
-// fit takes the content's height and the view's from a layout, and
-// brings the offset back inside when the content has shrunk under it.
-func (s *scrolling) fit(content, viewport float32, th *theme.Live) {
+// fit takes the content's height and the view's size from a layout,
+// and brings the offset back inside when the content has shrunk under
+// it.
+func (s *scrolling) fit(content float32, view geom.Size, th *theme.Live) {
 	s.th = th
-	s.content, s.viewport = content, viewport
+	s.content, s.viewport, s.width = content, view.H, view.W
 	if s.held || s.flinging {
 		return
 	}
@@ -358,17 +483,16 @@ func (s *scrolling) fit(content, viewport float32, th *theme.Live) {
 	s.jumped = false
 }
 
-// paintBar draws the bar, fading with the content's motion.
-func (s *scrolling) paintBar(p *paint.Painter, f gunim.Frame, box geom.Size) {
+// paintBar draws the bar, fading in and out, and stronger while the
+// pointer is on it.
+func (s *scrolling) paintBar(p *paint.Painter, f gunim.Frame) {
 	t := s.bar.Value()
-	if t <= 0 || s.content <= s.viewport {
+	if t <= 0 || !s.scrollable() {
 		return
 	}
-	w := ScrollbarWidth.Get(f.Theme)
-	length := max(box.H*s.viewport/s.content, 2*w)
-	at := max(0, min(s.offset.Value(), s.end()))
-	top := (box.H - length) * at / s.end()
+	w := s.barWidth(f.Theme)
 	col := ScrollbarColor.Get(f.Theme)
-	col.A = uint8(float32(col.A) * min(t, 1))
-	p.RRect(geom.Rc(box.W-w-2, top, w, length), w/2, paint.Solid(col))
+	strength := min(t, 1) * (1 + max(0, s.wide.Value()))
+	col.A = uint8(min(255, float32(col.A)*strength))
+	p.RRect(s.thumb(w), w/2, paint.Solid(col))
 }

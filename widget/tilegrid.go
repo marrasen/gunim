@@ -280,6 +280,9 @@ func (g *TileGrid) inBand(band geom.Rect) [][2]int {
 
 // Handle implements [gunim.Handler].
 func (g *TileGrid) Handle(e input.Event, u *gunim.UI) bool {
+	if g.barEvent(e, u) {
+		return true
+	}
 	switch e := e.(type) {
 	case input.FocusGained:
 		g.focused = true
@@ -312,7 +315,11 @@ func (g *TileGrid) Handle(e input.Event, u *gunim.UI) bool {
 			}
 			return true
 		}
-		if i := g.at(e.Pos); i != g.hover {
+		i := g.at(e.Pos)
+		if g.onBar {
+			i = -1
+		}
+		if i != g.hover {
 			g.hover = i
 			u.Invalidate()
 		}
@@ -568,7 +575,7 @@ func (g *TileGrid) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Childre
 		g.jumpTo(g.target(i).Min.Y - pad)
 	}
 	g.jumpRow = -1
-	g.fit(max(content, 0), own.H, th)
+	g.fit(max(content, 0), own, th)
 	if i := g.revealNext; i >= 0 && i < g.n {
 		g.revealNext = -1
 		r := g.target(i)
@@ -727,7 +734,7 @@ func (g *TileGrid) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gu
 			p.RRectStroke(b, 3, paint.Solid(scaleAlpha(fill, t)), paint.Stroke{Width: 1, Color: scaleAlpha(edge, t)})
 		}
 	}()
-	g.paintBar(p, f, box)
+	g.paintBar(p, f)
 }
 
 func scaleAlpha(c color.NRGBA, t float32) color.NRGBA {
