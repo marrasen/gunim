@@ -210,3 +210,33 @@ func TestSteppingMovesByTheView(t *testing.T) {
 	}
 	h.frames(5)
 }
+
+func TestSearchFindsTheNextTimeFirst(t *testing.T) {
+	h := newHarness(t)
+	found := h.a.search("stand", tuesday)
+	if len(found) != 1 || found[0].Title != "Stand-up" {
+		t.Fatalf("a search for stand found %+v, want the stand-up once", found)
+	}
+	if want := "Every weekday · next Wednesday 30 September · 09:15–09:30"; found[0].When != want {
+		t.Fatalf("the stand-up is found as %q, want %q", found[0].When, want)
+	}
+	if found := h.a.search("congress hall", tuesday); len(found) != 1 || found[0].Title != "Conference" {
+		t.Fatalf("a search by place found %+v, want the conference", found)
+	}
+	if found := h.a.search("", tuesday); len(found) != 0 {
+		t.Fatalf("an empty search found %d events", len(found))
+	}
+}
+
+func TestShowingAnEventMovesTheViewToIt(t *testing.T) {
+	h := newHarness(t)
+	found := h.a.search("conference", tuesday)
+	h.a.handle(EventShown{ID: found[0].ID})
+	h.frames(5)
+	if want := calendar.AddDays(calendar.WeekStart(tuesday, time.Monday), 9); !h.a.day.Equal(want) {
+		t.Fatalf("showing the conference moved the view to %v, want %v", h.a.day, want)
+	}
+	if len(h.events("Conference")) != 1 {
+		t.Fatal("the conference does not show in the week shown")
+	}
+}

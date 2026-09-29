@@ -227,6 +227,13 @@ func (a *app) publish() {
 	}
 }
 
+// patch sends the window a patch.
+func (a *app) patch(v any) {
+	if err := a.c.Patch("cal", v); err != nil {
+		log.Print(err)
+	}
+}
+
 // after runs fn on the loop in serve after d.
 func (a *app) after(d time.Duration, fn func()) {
 	time.AfterFunc(d, func() {
@@ -328,6 +335,16 @@ func (a *app) handle(v gunim.Intent) {
 		if s, _, ok := a.find(v.ID); ok && s.answer != NotInvited {
 			s.answer = v.Answer
 		}
+	case SearchAsked:
+		a.patch(Found{Items: a.search(v.Query, time.Now())})
+		return
+	case EventShown:
+		if !a.show(v.ID) {
+			return
+		}
+		a.publish()
+		a.patch(Reveal{ID: v.ID})
+		return
 	case ThemeToggled:
 		a.light = !a.light
 		if err := a.c.SetTheme(map[bool]string{false: "dark", true: "light"}[a.light]); err != nil {

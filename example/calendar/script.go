@@ -19,7 +19,8 @@ const scriptPause = 500 * time.Millisecond
 // "month" to pick the view, "next" or "back" to step it, "today", "new" to open the editor for a new event,
 // "edit:title" to open it on the first event shown with that title, "draw:hh:mm-hh:mm" to draw out an event today,
 // "hide:calendar" to toggle a calendar by its ID, "theme" to switch the theme, "shot:path" to write the window to
-// a PNG file, "click:x,y" or "dblclick:x,y" to click there, and "wait" to do nothing for a step.
+// a PNG file, "click:x,y" or "dblclick:x,y" to click there, "show:words" to show the first event a search for
+// the words finds, "invite" to have a colleague send an invitation, and "wait" to do nothing for a step.
 func (a *app) runScript(steps []string) {
 	if len(steps) == 0 {
 		return
@@ -87,6 +88,16 @@ func (a *app) scriptStep(step string) {
 				log.Printf("script: %s: %v", step, err)
 			}
 		}
+	case "find":
+		a.handle(SearchAsked{Query: arg})
+	case "show":
+		for _, f := range a.search(arg, time.Now()) {
+			a.handle(EventShown{ID: f.ID})
+			return
+		}
+		log.Printf("script: nothing found for %q", arg)
+	case "invite":
+		a.invite()
 	case "wait":
 	default:
 		log.Printf("script: no step %q (%s)", step, strconv.Quote(step))

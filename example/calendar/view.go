@@ -41,6 +41,12 @@ func registerViews(w *gunim.Window) {
 	w.RegisterTheme(darkTheme())
 	w.RegisterTheme(lightTheme())
 	gunim.RegisterView(w, "cal", buildCal, (*calView).set)
+	gunim.RegisterPatch(w, "cal", func(v *calView, n Notice, u *gunim.UI) {
+		v.toasts.Show(widget.Toast{Title: n.Title, Body: n.Body, Action: "Show", On: EventShown{ID: n.ID},
+			Kind: widget.ToastInfo, Icon: icon.Mail}, u)
+	})
+	gunim.RegisterPatch(w, "cal", func(v *calView, f Found, u *gunim.UI) { v.setFound(f.Items, u) })
+	gunim.RegisterPatch(w, "cal", func(v *calView, r Reveal, u *gunim.UI) { v.reveal(r.ID, u) })
 	gunim.RegisterView(w, "editor", newEditor, nil)
 	gunim.RegisterView(w, "delete", newDeleteDialog, nil)
 }
@@ -57,6 +63,10 @@ type calView struct {
 	days    *calendar.Days
 	month   *calendar.Month
 	area    *switcher
+	toasts  *widget.Toasts
+	palette *widget.Palette
+	// found are the events the search last found, in the palette's order.
+	found []FoundEvent
 
 	state Cal
 	// card is the card about the event cardID, while it is open.
@@ -78,8 +88,10 @@ func buildCal(s Cal) *calView {
 	v.views.OnChange = func(i int) gunim.Intent { return ViewChosen{View: View(i)} }
 	themeButton := widget.NewIconButton(icon.SunMoon, "Switch theme")
 	themeButton.On = ThemeToggled{}
+	find := widget.NewIconButton(icon.Search, "Find an event (Ctrl+F)")
+	find.OnActivate(func(u *gunim.UI) { v.openSearch(u) })
 	spacer := widget.NewSpacer()
-	bar := widget.Row(today, back, next, v.title, spacer, v.views, themeButton).Grow(spacer, 1)
+	bar := widget.Row(today, back, next, v.title, spacer, find, v.views, themeButton).Grow(spacer, 1)
 	bar.Cross = widget.CrossCenter
 
 	add := widget.NewButton("New event")
@@ -97,6 +109,7 @@ func buildCal(s Cal) *calView {
 	sidebar := &panel{child: widget.NewPad(side), fill: SidebarFill, width: sidebarW}
 
 	v.days = calendar.NewDays(s.Day, 7)
+	v.days.WorkDay = [2]time.Duration{8 * time.Hour, 17 * time.Hour}
 	v.days.OnDay = func(day time.Time) gunim.Intent { return DayOpened{Day: day} }
 	v.days.OnCreate = func(start, end time.Time, allDay bool) gunim.Intent {
 		return EventDrawn{Start: start, End: end, AllDay: allDay}
@@ -121,7 +134,52 @@ func buildCal(s Cal) *calView {
 	pane := &panel{child: main, fill: PaneFill}
 	v.root = widget.Row(sidebar, pane).Grow(pane, 1)
 	v.root.Cross, v.root.Gap = widget.CrossStretch, noGap
+	v.toasts = &widget.Toasts{}
+	v.palette = &widget.Palette{Placeholder: "Find an event by its title, place or notes"}
+	v.palette.Search = func(q string, u *gunim.UI) { u.Send(v, SearchAsked{Query: q}) }
+	v.palette.Pick = func(i int, u *gunim.UI) {
+		if i < len(v.found) {
+			u.Send(v, EventShown{ID: v.found[i].ID})
+		}
+	}
 	return v
+}
+
+// openSearch opens the search at the top of the window.
+func (v *calView) openSearch(u *gunim.UI) {
+	if v.palette.IsOpen() {
+		return
+	}
+	b, ok := u.Bounds(v)
+	if !ok {
+		return
+	}
+	w := float32(560)
+	v.palette.Open(v, geom.Rc((b.Size().W-w)/2, 60, w, 0), u)
+}
+
+// setFound shows the events a search found.
+func (v *calView) setFound(found []FoundEvent, u *gunim.UI) {
+	v.found = found
+	items := make([]widget.PaletteItem, len(found))
+	for i, f := range found {
+		items[i] = widget.PaletteItem{Title: f.Title, Detail: f.When, Icon: icon.Calendar, Key: widget.Key(f.ID)}
+	}
+	v.palette.SetItems(items, u)
+}
+
+// reveal brings the event id into sight and opens its card.
+func (v *calView) reveal(id string, u *gunim.UI) {
+	if v.state.View == MonthView {
+		if b, ok := v.month.EventBox(id); ok {
+			v.openCard(v.month, id, b, u)
+		}
+		return
+	}
+	v.days.Reveal(id)
+	if b, ok := v.days.EventBox(id); ok {
+		v.openCard(v.days, id, b, u)
+	}
 }
 
 // set shows s.
@@ -173,25 +231,36 @@ func shown(s Cal) (time.Time, time.Time) {
 }
 
 // Children implements [gunim.Composite].
-func (v *calView) Children() []gunim.Node { return []gunim.Node{v.root} }
+func (v *calView) Children() []gunim.Node { return []gunim.Node{v.root, v.toasts} }
 
-// Layout implements [gunim.Node].
+// Layout implements [gunim.Node]: the notices sit at the bottom right, over the days.
 func (v *calView) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
-	kid := kids.At(0)
-	kid.Layout(gunim.Tight(c.Max))
-	kid.Place(geom.Point{})
+	root, toasts := kids.At(0), kids.At(1)
+	root.Layout(gunim.Tight(c.Max))
+	root.Place(geom.Point{})
+	ts := toasts.Layout(gunim.Loose(geom.Sz(c.Max.W-32, c.Max.H)))
+	toasts.Place(geom.Pt(c.Max.W-ts.W-20, c.Max.H-ts.H-20))
 	return c.Max
 }
 
 // Paint implements [gunim.Node].
 func (v *calView) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim.Children) {
-	kids.At(0).Paint(p)
+	for kid := range kids.All {
+		kid.Paint(p)
+	}
 }
 
 // Handle implements [gunim.Handler]: the keys that move about in time, pick the view, and begin an event.
 func (v *calView) Handle(e input.Event, u *gunim.UI) bool {
 	k, ok := e.(input.KeyPress)
-	if !ok || k.Mods&(input.ModControl|input.ModAlt) != 0 {
+	if !ok {
+		return false
+	}
+	if k.Mods&input.ModControl != 0 && (k.Key == input.KeyF || k.Key == input.KeyK) {
+		v.openSearch(u)
+		return true
+	}
+	if k.Mods&(input.ModControl|input.ModAlt) != 0 {
 		return false
 	}
 	var intent gunim.Intent

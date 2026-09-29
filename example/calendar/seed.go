@@ -123,9 +123,12 @@ func (a *app) invite() {
 	}
 	slot := 18 + a.rng.IntN(18)
 	a.nextID++
-	a.series = append(a.series, &series{id: "s" + strconv.Itoa(a.nextID), title: invites[a.rng.IntN(len(invites))],
+	s := &series{id: "s" + strconv.Itoa(a.nextID), title: invites[a.rng.IntN(len(invites))],
 		cal: "work", start: day.Add(time.Duration(slot) * 30 * time.Minute), length: time.Hour,
-		from: people[a.rng.IntN(len(people))], answer: NoAnswer})
+		from: people[a.rng.IntN(len(people))], answer: NoAnswer}
+	a.series = append(a.series, s)
 	a.publish()
+	a.patch(Notice{Title: s.from + " invited you", ID: s.id,
+		Body: s.title + " · " + s.start.Format("Monday 2 January 15:04")})
 	a.after(a.between(45*time.Second, 90*time.Second), a.invite)
 }

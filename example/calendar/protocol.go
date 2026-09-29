@@ -54,6 +54,23 @@ type (
 		Calendars []Calendar
 	}
 
+	// Notice is a patch that shows a short notice about an event, such as an invitation that came.
+	Notice struct {
+		Title, Body, ID string
+	}
+
+	// Found is a patch that answers a search with the events found.
+	Found struct{ Items []FoundEvent }
+
+	// FoundEvent is an event a search found: when it is, and its calendar's colour.
+	FoundEvent struct {
+		ID, Title, When string
+		Color           color.NRGBA
+	}
+
+	// Reveal is a patch that brings the event ID into sight and opens its card.
+	Reveal struct{ ID string }
+
 	// DeleteAsk asks whether to delete an event, and for one that repeats, whether only this time or every time.
 	DeleteAsk struct {
 		ID, Title string
@@ -134,6 +151,10 @@ type (
 		OK, All bool
 	}
 	ThemeToggled struct{}
+	// SearchAsked travels as the user types in the search, and EventShown when they pick an event to see, from the
+	// search or a notice.
+	SearchAsked struct{ Query string }
+	EventShown  struct{ ID string }
 )
 
 func init() {
@@ -156,4 +177,9 @@ func init() {
 	gunim.RegisterType[EditorClosed]("cal.editor.close")
 	gunim.RegisterType[DeleteAnswered]("cal.delete.answer")
 	gunim.RegisterType[ThemeToggled]("cal.theme")
+	gunim.RegisterType[Notice]("cal.notice")
+	gunim.RegisterType[Found]("cal.found")
+	gunim.RegisterType[Reveal]("cal.reveal")
+	gunim.RegisterType[SearchAsked]("cal.search")
+	gunim.RegisterType[EventShown]("cal.show")
 }
