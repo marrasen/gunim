@@ -887,6 +887,11 @@ type UI struct {
 	chrome *titleBar
 	// titleBar is the title bar the engine gave the window, or nil; see giveTitleBar.
 	titleBar TitleBar
+	// keyboardCue says the keyboard is in use, which shows the focus rings, and ringed are the nodes told to show
+	// one. focusStep is the Step of the next FocusGained.
+	keyboardCue bool
+	ringed      []ringed
+	focusStep   int
 	// goingAway says the window is animating out, and leftAt is the frame
 	// it began in.
 	goingAway bool
@@ -1423,7 +1428,6 @@ func (u *UI) Focus(n Node) bool {
 	prev := u.focus
 	u.focus = next
 	u.focusMoved = true
-	u.crossGroups(prev, next)
 	// Each group round the node remembers it as its stop for Tab
 	for a := next; a != nil; a = a.parent {
 		if _, ok := a.node.(TabGroup); ok {
@@ -1432,34 +1436,58 @@ func (u *UI) Focus(n Node) bool {
 	}
 	u.takeText(prev, next)
 	if next != nil {
-		u.deliver(next, input.FocusGained{Time: u.now})
+		u.deliver(next, input.FocusGained{Step: u.focusStep, Time: u.now})
 	}
+	u.ring()
 	u.invalid = true
 	return true
 }
 
-// crossGroups tells the tab groups the focus left, going from prev to next, and the ones it entered.
-func (u *UI) crossGroups(prev, next *state) {
-	groups := func(s *state) []*state {
-		var out []*state
-		for a := s; a != nil; a = a.parent {
+// ringed is a node told to show its focus ring, and how.
+type ringed struct {
+	s  *state
+	ev input.FocusRing
+}
+
+// ring tells the nodes that show the focus, the focused node and the outermost tab group round it, to show it while
+// the keyboard is in use, and the ones that no longer do to stop.
+func (u *UI) ring() {
+	var want []ringed
+	if u.keyboardCue && u.focus != nil {
+		var group *state
+		for a := u.focus.parent; a != nil; a = a.parent {
 			if _, ok := a.node.(TabGroup); ok {
-				out = append(out, a)
+				group = a
 			}
 		}
-		return out
-	}
-	from, to := groups(prev), groups(next)
-	for _, g := range from {
-		if !slices.Contains(to, g) {
-			u.deliver(g, input.FocusLeft{Time: u.now})
+		want = append(want, ringed{u.focus, input.FocusRing{On: true, Grouped: group != nil}})
+		if group != nil {
+			want = append(want, ringed{group, input.FocusRing{On: true, Within: true}})
 		}
 	}
-	for _, g := range to {
-		if !slices.Contains(from, g) {
-			u.deliver(g, input.FocusEntered{Time: u.now})
+	for _, r := range u.ringed {
+		if !slices.ContainsFunc(want, func(w ringed) bool { return w == r }) {
+			u.deliver(r.s, input.FocusRing{Within: r.ev.Within, Time: u.now})
 		}
 	}
+	for _, w := range want {
+		if !slices.Contains(u.ringed, w) {
+			ev := w.ev
+			ev.Time = u.now
+			u.deliver(w.s, ev)
+		}
+	}
+	u.ringed = want
+}
+
+// cue says whether the keyboard is in use, which shows the focus rings, from a key press or a click.
+func (u *UI) cue(keyboard bool) {
+	if u.keyboardCue == keyboard {
+		return
+	}
+	u.keyboardCue = keyboard
+	u.ring()
+	u.invalid = true
 }
 
 // takeText tells the driver whether the newly focused node takes typed

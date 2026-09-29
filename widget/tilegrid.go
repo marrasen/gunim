@@ -66,6 +66,7 @@ type TileGrid struct {
 	cursor     int
 	anchor     int
 	focused    bool
+	cue        ringCue
 	hover      int
 	banding    bool
 	bandFrom   geom.Point
@@ -282,6 +283,10 @@ func (g *TileGrid) Handle(e input.Event, u *gunim.UI) bool {
 	switch e := e.(type) {
 	case input.FocusGained:
 		g.focused = true
+		u.Invalidate()
+		return true
+	case input.FocusRing:
+		g.cue.follow(e)
 		u.Invalidate()
 		return true
 	case input.FocusLost:
@@ -621,7 +626,7 @@ func (g *TileGrid) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Childre
 		tc.selected = hasRun(g.runs, i)
 		tc.sel.Animate(map[bool]float32{false: 0, true: 1}[tc.selected], Quick.Get(th))
 		tc.hot.Animate(map[bool]float32{false: 0, true: 1}[i == g.hover && !g.banding], Quick.Get(th))
-		tc.cursor = g.focused && i == g.cursor
+		tc.cursor = g.cue.on && i == g.cursor
 		r := tc.rect()
 		kid.Layout(gunim.Tight(geom.Sz(max(r.Size().W, 0), max(r.Size().H, 0))))
 		kid.Place(geom.Pt(r.Min.X, r.Min.Y-offset))
@@ -696,6 +701,12 @@ func (g *TileGrid) hold(oldCols int, oldStep geom.Size, oldPad float32) {
 // Paint implements [gunim.Node].
 func (g *TileGrid) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.Children) {
 	th := f.Theme
+	// Drawn last, over the rest
+	defer func() {
+		if g.cue.whole {
+			groupRing(p, geom.Rect{Max: box.Point()}, 0, 1, th)
+		}
+	}()
 	func() {
 		defer p.Layer(paint.LayerOpts{Bounds: geom.Rect{Max: box.Point()}, Opacity: 1, Clip: true})()
 		offset := g.offset.Value()

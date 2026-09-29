@@ -5,9 +5,6 @@ import (
 	"github.com/marrasen/gunim/access"
 )
 
-// Access implements [gunim.Accessible]: the folders of the path.
-func (c *crumbBar) Access() access.Info { return access.Info{Role: access.RoleGroup, Name: "Path"} }
-
 // Access implements [gunim.Accessible]: a link to the place, with its
 // free space or why it cannot be read.
 func (r *placeRow) Access() access.Info {

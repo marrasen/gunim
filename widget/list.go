@@ -58,9 +58,11 @@ type List struct {
 	// spacing is the gap between rows at the last layout.
 	spacing float32
 
-	// cursor is the row the keys work on; ring grows while the list has focus, and mark carries it to the cursor.
+	// cursor is the row the keys work on; ring grows while the list shows it has the keyboard, and mark carries it to
+	// the cursor. whole says the list draws the ring round all of itself too, as no group round it does.
 	cursor Key
 	ring   *anim.Float
+	whole  bool
 	mark   *anim.Rect
 }
 
@@ -296,6 +298,9 @@ func (l *List) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.
 		focusRing(p, geom.Rect{Min: geom.Pt(r.Min.X+3, r.Min.Y), Max: geom.Pt(r.Max.X-3, r.Max.Y)},
 			RowRadius.Get(f.Theme), l.ring.Value(), f.Theme)
 	}
+	if l.whole {
+		groupRing(p, geom.Rect{Max: box.Point()}, RowRadius.Get(f.Theme), l.ring.Value(), f.Theme)
+	}
 }
 
 // Focusable implements [gunim.Focusable]: a list with OnClick set takes focus.
@@ -342,11 +347,18 @@ func (l *List) key(e input.KeyPress, u *gunim.UI) bool {
 	at := slices.Index(keys, l.cursor)
 	switch e.Key {
 	case input.KeyUp:
+		// At the first row the key goes on, for a group round the list to move on
+		if at == 0 {
+			return false
+		}
 		if at < 0 {
 			at = len(keys)
 		}
 		l.moveCursor(keys, at-1, u)
 	case input.KeyDown:
+		if at >= len(keys)-1 {
+			return false
+		}
 		l.moveCursor(keys, at+1, u)
 	case input.KeyHome:
 		l.moveCursor(keys, 0, u)
@@ -365,14 +377,18 @@ func (l *List) key(e input.KeyPress, u *gunim.UI) bool {
 	return true
 }
 
-// focus grows or shrinks the ring, and on focus puts the cursor on the first row when it is on none.
-func (l *List) focus(on bool, u *gunim.UI) {
-	if !on {
-		l.ring.Animate(0, Settle.Get(u.Theme()))
+// enter puts the cursor on a row as the list takes the keyboard: the first row, or the last one when the arrow keys
+// walked up into the list, and otherwise the row it was on.
+func (l *List) enter(step int, u *gunim.UI) {
+	keys := l.live()
+	switch {
+	case len(keys) == 0:
 		return
-	}
-	l.ring.Animate(1, Quick.Get(u.Theme()))
-	if keys := l.live(); len(keys) > 0 && !slices.Contains(keys, l.cursor) {
+	case step > 0:
+		l.cursor = keys[0]
+	case step < 0:
+		l.cursor = keys[len(keys)-1]
+	case !slices.Contains(keys, l.cursor):
 		l.cursor = keys[0]
 	}
 	u.Invalidate()

@@ -140,18 +140,25 @@ type Composing struct {
 	Selected [2]int
 }
 
-// FocusGained arrives when a node takes keyboard focus.
-type FocusGained struct{ Time time.Time }
+// FocusGained arrives when a node takes keyboard focus. Step is 1 when a group's arrow keys walked the focus here
+// from the node before it, -1 from the node after it, and 0 otherwise.
+type FocusGained struct {
+	Step int
+	Time time.Time
+}
 
 // FocusLost arrives when a node gives keyboard focus up.
 type FocusLost struct{ Time time.Time }
 
-// FocusEntered arrives at a tab group, a node Tab visits as one stop, when the keyboard focus moves onto a node in
-// it from outside, and FocusLeft when the focus moves out of it.
-type FocusEntered struct{ Time time.Time }
-
-// FocusLeft arrives at a tab group when the keyboard focus moves out of it; see [FocusEntered].
-type FocusLeft struct{ Time time.Time }
+// FocusRing says whether a node shows that it has the keyboard. The focused node hears it, and so does the outermost
+// tab group around it, with Within set. Rings show while the keyboard is in use: a key press turns them on and a
+// click turns them off. Grouped says a group around the focused node draws the ring round the whole.
+type FocusRing struct {
+	On      bool
+	Within  bool
+	Grouped bool
+	Time    time.Time
+}
 
 // WindowFocusLost arrives when the window gives the keyboard to another
 // program. It goes to the focused node and bubbles, as a key does. A
@@ -235,8 +242,7 @@ func (TextInput) isEvent()    {}
 func (Composing) isEvent()    {}
 func (FocusGained) isEvent()  {}
 func (FocusLost) isEvent()    {}
-func (FocusEntered) isEvent() {}
-func (FocusLeft) isEvent()    {}
+func (FocusRing) isEvent()    {}
 func (DragOver) isEvent()     {}
 func (DragLeave) isEvent()    {}
 func (Drop) isEvent()         {}

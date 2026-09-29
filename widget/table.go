@@ -82,6 +82,7 @@ type Table struct {
 	// xs holds each column's left edge and width, from the last layout.
 	xs      [][2]float32
 	focused bool
+	cue     ringCue
 	// typed is what has been typed to find a row, and typedAt when the
 	// last of it was.
 	typed   string
@@ -227,6 +228,10 @@ func (t *Table) Handle(e input.Event, u *gunim.UI) bool {
 	switch e := e.(type) {
 	case input.FocusGained:
 		t.focused = true
+		u.Invalidate()
+		return true
+	case input.FocusRing:
+		t.cue.follow(e)
 		u.Invalidate()
 		return true
 	case input.FocusLost:
@@ -392,7 +397,14 @@ func (t *Table) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) 
 }
 
 // Paint implements [gunim.Node].
-func (t *Table) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim.Children) {
+func (t *Table) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.Children) {
+	th := f.Theme
+	// Drawn last, over the rest
+	defer func() {
+		if t.cue.whole {
+			groupRing(p, geom.Rect{Max: box.Point()}, 0, 1, th)
+		}
+	}()
 	for k := range kids.All {
 		k.Paint(p)
 	}

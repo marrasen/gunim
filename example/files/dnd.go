@@ -268,14 +268,9 @@ func (v *dndView) crumbSpot(d input.Drop, u *gunim.UI) (widget.DropSpot, bool) {
 		return widget.DropSpot{}, false
 	}
 	at := d.Pos.Add(zr.Min)
-	for _, c := range v.b.path.crumbs.crumbs {
-		r, ok := u.Bounds(c)
-		if !ok {
-			continue
-		}
-		pill := geom.Rc(r.Min.X, r.Min.Y, c.pill, r.Size().H)
-		if pill.Contains(at) {
-			return v.spot(d, spotKey{"crumb", c.path}, pill.Add(zr.Min.Mul(-1)), c.path, c.path, !c.last), true
+	for _, c := range v.b.path.addr.Places(u) {
+		if c.Rect.Contains(at) {
+			return v.spot(d, spotKey{"crumb", c.Path}, c.Rect.Add(zr.Min.Mul(-1)), c.Path, c.Path, !c.Last), true
 		}
 	}
 	return widget.DropSpot{}, false
@@ -395,11 +390,9 @@ func scriptTarget(b *browser, name string, u *gunim.UI) (geom.Point, bool) {
 			}
 		}
 	}
-	for _, c := range b.path.crumbs.crumbs {
-		if c.name == name {
-			if r, ok := u.Bounds(c); ok {
-				return geom.Pt(r.Min.X+8, r.Center().Y), true
-			}
+	for _, c := range b.path.addr.Places(u) {
+		if c.Name == name {
+			return geom.Pt(c.Rect.Min.X+8, c.Rect.Center().Y), true
 		}
 	}
 	if name == "favourites" {

@@ -117,8 +117,8 @@ func (t *toggle) handle(n gunim.Node, e input.Event, u *gunim.UI) bool {
 		t.press.Retarget(1, Quick.Get(th))
 		t.press.Animate(0, Bounce.Get(th))
 		t.flip(n, u)
-	case input.FocusGained:
-		t.ring.Animate(1, Quick.Get(th))
+	case input.FocusRing:
+		t.ring.Animate(ringTo(e), Quick.Get(th))
 	case input.FocusLost:
 		t.ring.Animate(0, Settle.Get(th))
 	default:
@@ -387,8 +387,8 @@ func (s *Slider) Handle(e input.Event, u *gunim.UI) bool {
 		default:
 			return false
 		}
-	case input.FocusGained:
-		s.ring.Animate(1, Quick.Get(th))
+	case input.FocusRing:
+		s.ring.Animate(ringTo(e), Quick.Get(th))
 	case input.FocusLost:
 		s.ring.Animate(0, Settle.Get(th))
 	default:
@@ -557,8 +557,8 @@ func (b *tabBar) Handle(e input.Event, u *gunim.UI) bool {
 		default:
 			return false
 		}
-	case input.FocusGained:
-		t.ring.Animate(1, Quick.Get(th))
+	case input.FocusRing:
+		t.ring.Animate(ringTo(e), Quick.Get(th))
 	case input.FocusLost:
 		t.ring.Animate(0, Settle.Get(th))
 	default:
@@ -692,6 +692,34 @@ func focusRing(p *paint.Painter, r geom.Rect, radius, t float32, th *theme.Live)
 	grow := 3 * t
 	p.RRectStroke(geom.Rect{Min: geom.Pt(r.Min.X-grow, r.Min.Y-grow), Max: geom.Pt(r.Max.X+grow, r.Max.Y+grow)},
 		radius+grow, paint.Fill{}, paint.Stroke{Width: 2, Color: ring})
+}
+
+// ringTo is where a focus ring goes for e: 1 for an [input.FocusRing] that turns it on, and 0 otherwise.
+func ringTo(e input.Event) float32 {
+	if r, ok := e.(input.FocusRing); ok && r.On {
+		return 1
+	}
+	return 0
+}
+
+// ringCue follows [input.FocusRing] for a widget with a cursor inside it: on says it shows it has the keyboard, and
+// whole that it draws the ring round all of itself, as no group round it does.
+type ringCue struct {
+	on, whole bool
+}
+
+// follow takes e.
+func (c *ringCue) follow(e input.FocusRing) { c.on, c.whole = e.On, e.On && !e.Grouped }
+
+// groupRing draws the ring round a whole group or list that has the keyboard: an accent edge just inside r, t of the
+// way in.
+func groupRing(p *paint.Painter, r geom.Rect, radius, t float32, th *theme.Live) {
+	if t <= 0.01 {
+		return
+	}
+	c := Accent.Get(th)
+	c.A = uint8(float32(c.A) * min(t, 1))
+	p.RRectStroke(r.Inset(geom.Uniform(1)), max(radius-1, 0), paint.Fill{}, paint.Stroke{Width: 2, Color: c})
 }
 
 // bar draws a straight stroke from a to b, thick wide, with round ends.

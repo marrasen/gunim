@@ -11,6 +11,25 @@ import (
 	"github.com/marrasen/gunim/widget"
 )
 
+// places returns the folders the path bar shows.
+func (h *harness) places() []widget.AddressPlace {
+	h.t.Helper()
+	type ask struct{}
+	var out []widget.AddressPlace
+	gunim.RegisterPatch(h.w, "browser", func(b *browser, _ ask, u *gunim.UI) { out = b.path.addr.Places(u) })
+	if err := h.w.Client().Patch(string(browserID), ask{}); err != nil {
+		h.t.Fatal(err)
+	}
+	h.frames(1)
+	return out
+}
+
+// onPlace is the index of the folder of the path with the keyboard, or -1.
+func (h *harness) onPlace() int {
+	h.t.Helper()
+	return slices.IndexFunc(h.places(), func(p widget.AddressPlace) bool { return p.Focused })
+}
+
 // press presses k and lets it go.
 func (h *harness) press(k input.Key, mods input.Mods) {
 	h.w.Input(input.KeyPress{Key: k, Mods: mods, Time: time.Now()})
@@ -30,16 +49,15 @@ func TestTabReachesEveryPartOfTheWindowAndTheSidebarOpensAPlace(t *testing.T) {
 
 	b := h.b
 	want := map[gunim.Node]string{
-		b.path.back:                 "Back",
-		b.path.filter:               "the filter",
-		b.side.places:               "the places",
-		b.side.favs:                 "the favourites",
-		b.listing.cur.focusNode():   "the listing",
-		b.status.views.modes:        "the view switch",
-		b.path.crumbs.crumbs[0].btn: "the first folder of the path",
+		b.path.back:               "Back",
+		b.path.filter:             "the filter",
+		b.side.places:             "the sidebar",
+		b.listing.cur.focusNode(): "the listing",
+		b.status.views.modes:      "the view switch",
 	}
 	seen := map[gunim.Node]bool{}
 	var order []gunim.Node
+	placeStops := 0
 	for range 40 {
 		h.press(input.KeyTab, 0)
 		f := h.focused()
@@ -51,6 +69,12 @@ func TestTabReachesEveryPartOfTheWindowAndTheSidebarOpensAPlace(t *testing.T) {
 		}
 		seen[f] = true
 		order = append(order, f)
+		if h.onPlace() >= 0 {
+			placeStops++
+		}
+	}
+	if seen[b.side.favs] {
+		t.Error("Tab stopped at the favourites, want the sidebar one stop")
 	}
 	for n, name := range want {
 		if !seen[n] {
@@ -66,26 +90,24 @@ func TestTabReachesEveryPartOfTheWindowAndTheSidebarOpensAPlace(t *testing.T) {
 		t.Error("Forward is enabled with nowhere to go")
 	}
 	// The folders of the path are one stop
-	crumbs := 0
-	for _, c := range b.path.crumbs.crumbs {
-		if seen[c.btn] {
-			crumbs++
-		}
-	}
-	if crumbs != 1 {
-		t.Errorf("Tab stopped at %d folders of the path, want 1", crumbs)
+	if placeStops != 1 {
+		t.Errorf("Tab stopped at %d folders of the path, want 1", placeStops)
 	}
 	// The path bar comes before the sidebar, and the sidebar before the listing.
 	at := func(n gunim.Node) int { return slices.Index(order, n) }
-	if at(b.path.back) > at(b.side.places) || at(b.side.favs) > at(b.listing.cur.focusNode()) {
+	if at(b.path.back) > at(b.side.places) || at(b.side.places) > at(b.listing.cur.focusNode()) {
 		t.Errorf("Tab went round in the order %v", order)
 	}
 
-	// The favourites take the arrows and Enter.
-	for h.focused() != b.side.favs {
+	// Down walks from the places on into the favourites, which take Enter.
+	for h.focused() != b.side.places {
 		h.press(input.KeyTab, 0)
 	}
-	h.press(input.KeyHome, 0)
+	h.press(input.KeyEnd, 0)
+	h.press(input.KeyDown, 0)
+	if h.focused() != b.side.favs {
+		t.Fatal("Down from the last place did not go on into the favourites")
+	}
 	h.press(input.KeyEnter, 0)
 	h.until("Enter on the favourite opens it", func() bool { return slices.Equal(h.shown(), []string{"report.txt"}) })
 }
@@ -108,30 +130,36 @@ func TestAltAndALetterOpenTheFilesMenus(t *testing.T) {
 
 func TestTheArrowsMoveAlongThePathAndTabComesBackThere(t *testing.T) {
 	h := newHarness(t, "a.txt")
-	cs := h.b.path.crumbs.crumbs
-	if len(cs) < 3 {
-		t.Fatalf("the path has %d folders, want at least 3", len(cs))
+	n := len(h.places())
+	if n < 3 {
+		t.Fatalf("the path has %d folders, want at least 3", n)
 	}
-	for h.focused() != cs[0].btn {
+	for range 40 {
+		if h.onPlace() == 0 {
+			break
+		}
 		h.press(input.KeyTab, 0)
 	}
+	if h.onPlace() != 0 {
+		t.Fatal("Tab never reached the first folder of the path")
+	}
 	h.press(input.KeyRight, 0)
-	if h.focused() != cs[1].btn {
+	if h.onPlace() != 1 {
 		t.Fatal("Right did not move to the second folder")
 	}
 	h.press(input.KeyEnd, 0)
-	if h.focused() != cs[len(cs)-1].btn {
+	if h.onPlace() != n-1 {
 		t.Fatal("End did not move to the last folder")
 	}
 	h.press(input.KeyLeft, 0)
-	at := h.focused()
+	at := h.onPlace()
 	h.press(input.KeyTab, 0)
 	h.press(input.KeyTab, input.ModShift)
-	if h.focused() != at {
+	if h.onPlace() != at {
 		t.Fatal("Shift+Tab back into the path did not come back to the folder it left")
 	}
 	h.press(input.KeyHome, 0)
-	if h.focused() != cs[0].btn {
+	if h.onPlace() != 0 {
 		t.Fatal("Home did not move to the first folder")
 	}
 }

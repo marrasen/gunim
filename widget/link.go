@@ -129,8 +129,8 @@ func (l *Link) Handle(e input.Event, u *gunim.UI) bool {
 		}
 		l.fire(u)
 		return true
-	case input.FocusGained:
-		l.ring.Animate(1, Quick.Get(u.Theme()))
+	case input.FocusRing:
+		l.ring.Animate(ringTo(e), Quick.Get(u.Theme()))
 		return true
 	case input.FocusLost:
 		l.ring.Animate(0, Settle.Get(u.Theme()))

@@ -9,15 +9,14 @@ import (
 // tabGroupPair is a focus pair that Tab visits as one stop, and that records the focus coming and going.
 type tabGroupPair struct {
 	focusPair
-	heard []input.Event
+	heard []input.FocusRing
 }
 
 func (*tabGroupPair) TabGroup() {}
 
 func (g *tabGroupPair) Handle(e input.Event, _ *UI) bool {
-	switch e.(type) {
-	case input.FocusEntered, input.FocusLeft:
-		g.heard = append(g.heard, e)
+	if r, ok := e.(input.FocusRing); ok {
+		g.heard = append(g.heard, r)
 	}
 	return false
 }
@@ -57,24 +56,38 @@ func TestTabVisitsAGroupAsOneStopAndComesBackToWhereItWas(t *testing.T) {
 	}
 }
 
-func TestAGroupHearsTheFocusComeInAndGoOnce(t *testing.T) {
+func TestAGroupShowsItsRingWhileTheKeyboardIsInIt(t *testing.T) {
 	w := newTestWindow()
 	before := &focusRecorder{}
 	g := &tabGroupPair{focusPair: focusPair{fa: &focusRecorder{}, fb: &focusRecorder{}}}
 	w.ui.Insert(w.ui.Root(), before)
 	w.ui.Insert(w.ui.Root(), g)
 	run(w, 1)
-	w.ui.Focus(before)
+	on := func() []bool {
+		out := make([]bool, 0, len(g.heard))
+		for _, e := range g.heard {
+			out = append(out, e.On)
+		}
+		return out
+	}
+	// A click puts the focus in the group with no ring; a key shows it
 	w.ui.Focus(g.fa)
+	if len(g.heard) != 0 {
+		t.Fatalf("with the mouse in use the group heard %v, want nothing", g.heard)
+	}
+	w.Input(input.KeyPress{Key: input.KeyDown})
 	w.ui.FocusWithin(g, true)
 	w.ui.Focus(before)
-	if len(g.heard) != 2 {
-		t.Fatalf("the group heard %v, want the focus entering and leaving, once each", g.heard)
+	if got := on(); len(got) != 2 || !got[0] || got[1] {
+		t.Fatalf("the group's ring went %v, want on as a key was pressed, and off as the focus left", got)
 	}
-	if _, ok := g.heard[0].(input.FocusEntered); !ok {
-		t.Fatalf("the group first heard %v, want FocusEntered", g.heard[0])
+	if !g.heard[0].Within {
+		t.Fatal("the group's ring is not for the focus within it")
 	}
-	if _, ok := g.heard[1].(input.FocusLeft); !ok {
-		t.Fatalf("the group then heard %v, want FocusLeft", g.heard[1])
+	// A click hides the ring of the node with the focus
+	w.ui.Focus(g.fa)
+	w.Input(input.PointerDown{Button: input.ButtonPrimary})
+	if got := on(); len(got) != 4 || !got[2] || got[3] {
+		t.Fatalf("the group's ring went %v, want on again, then off after the click", got)
 	}
 }

@@ -137,8 +137,8 @@ func (s *Segmented) Handle(e input.Event, u *gunim.UI) bool {
 		default:
 			return false
 		}
-	case input.FocusGained:
-		s.ring.Animate(1, Quick.Get(th))
+	case input.FocusRing:
+		s.ring.Animate(ringTo(e), Quick.Get(th))
 	case input.FocusLost:
 		s.ring.Animate(0, Settle.Get(th))
 	default:

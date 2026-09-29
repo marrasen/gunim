@@ -96,6 +96,7 @@ func (u *UI) handleOn(root *state, ev any) {
 		}
 	case input.PointerDown:
 		u.altAlone = false
+		u.cue(false)
 		if root == u.root {
 			u.pointer = e.Pos
 		}
@@ -156,6 +157,9 @@ func (u *UI) handleOn(root *state, ev any) {
 			return input.Drop{Pos: local, Data: e.Data, Paths: e.Paths, Mods: e.Mods, Time: e.Time}
 		})
 	case input.KeyPress, input.KeyRelease:
+		if k, ok := ev.(input.KeyPress); ok && !modifierKey(k.Key) {
+			u.cue(true)
+		}
 		tapped := u.altTap(ev)
 		if u.drag != nil {
 			// Keys speak to the drag while it lasts.
@@ -190,6 +194,17 @@ func (u *UI) altTap(ev any) bool {
 		}
 	}
 	return false
+}
+
+// modifierKey reports whether k is Shift, Control, Alt or Super, which alone do not say the keyboard is in use.
+func modifierKey(k input.Key) bool {
+	switch k {
+	case input.KeyLeftShift, input.KeyRightShift, input.KeyLeftControl, input.KeyRightControl,
+		input.KeyLeftAlt, input.KeyRightAlt, input.KeyLeftSuper, input.KeyRightSuper:
+		return true
+	default:
+		return false
+	}
 }
 
 // isAlt reports whether k is either Alt key.
@@ -373,7 +388,9 @@ func (u *UI) FocusWithin(group Node, forward bool) bool {
 	if at < 0 || next < 0 || next >= len(stops) {
 		return false
 	}
+	u.focusStep = map[bool]int{true: 1, false: -1}[forward]
 	u.Focus(stops[next].node)
+	u.focusStep = 0
 	u.revealState(stops[next])
 	return true
 }

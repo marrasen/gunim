@@ -41,10 +41,12 @@ func (l *List) Handle(e input.Event, u *gunim.UI) bool {
 	case input.KeyPress:
 		return l.key(e, u)
 	case input.FocusGained:
-		l.focus(true, u)
+		l.enter(e.Step, u)
 		return true
-	case input.FocusLost:
-		l.focus(false, u)
+	case input.FocusRing:
+		l.whole = e.On && !e.Grouped
+		l.ring.Animate(ringTo(e), Quick.Get(th))
+		u.Invalidate()
 		return true
 	case input.PointerDown:
 		if e.Button != input.ButtonPrimary {

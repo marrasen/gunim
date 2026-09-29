@@ -154,8 +154,8 @@ func (b *Button) Handle(e input.Event, u *gunim.UI) bool {
 		b.press.Retarget(1, Quick.Get(th))
 		b.press.Animate(0, Bounce.Get(th))
 		b.fire(u)
-	case input.FocusGained:
-		b.ring.Animate(1, Quick.Get(th))
+	case input.FocusRing:
+		b.ring.Animate(ringTo(e), Quick.Get(th))
 	case input.FocusLost:
 		b.ring.Animate(0, Settle.Get(th))
 	default:

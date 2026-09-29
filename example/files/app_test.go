@@ -170,21 +170,21 @@ func TestEditingThePathGoesThere(t *testing.T) {
 	h := newHarness(t, "sub/x.txt")
 	h.w.Input(input.KeyPress{Key: input.KeyL, Mods: input.ModControl})
 	h.frames(2)
-	if !h.b.path.slot.editing || h.b.path.field.Text() != h.dir {
-		t.Fatalf("Ctrl+L left the path bar editing %v with %q", h.b.path.slot.editing, h.b.path.field.Text())
+	if !h.b.path.addr.Editing() || h.b.path.addr.Text() != h.dir {
+		t.Fatalf("Ctrl+L left the path bar editing %v with %q", h.b.path.addr.Editing(), h.b.path.addr.Text())
 	}
 	h.w.Input(input.KeyPress{Key: input.KeyEnd})
 	h.w.Input(input.TextInput{Text: string(filepath.Separator) + "sub"})
 	h.w.Input(input.KeyPress{Key: input.KeyEnter})
 	h.until("the typed folder opens", func() bool { return slices.Equal(h.shown(), []string{"x.txt"}) })
-	if h.b.path.slot.editing {
+	if h.b.path.addr.Editing() {
 		t.Fatal("the path bar is still editing after Enter")
 	}
 	h.w.Input(input.KeyPress{Key: input.KeyL, Mods: input.ModControl})
 	h.w.Input(input.TextInput{Text: "nonsense"})
 	h.w.Input(input.KeyPress{Key: input.KeyEscape})
 	h.frames(2)
-	if h.b.path.slot.editing || !samePath(h.a.nav.path, filepath.Join(h.dir, "sub")) {
+	if h.b.path.addr.Editing() || !samePath(h.a.nav.path, filepath.Join(h.dir, "sub")) {
 		t.Fatal("Escape did not leave the path as it was")
 	}
 }
@@ -453,21 +453,20 @@ func TestAClickOnAFolderOfThePathGoesThere(t *testing.T) {
 	h.do(Navigate{Path: filepath.Join(h.dir, "a", "b")})
 	h.until("the deep folder shows", func() bool { return slices.Equal(h.shown(), []string{"c.txt"}) })
 	h.frames(30)
-	crumbs := h.b.path.crumbs.crumbs
-	parent := crumbs[len(crumbs)-2]
-	if parent.name != "a" {
-		t.Fatalf("the crumb before the last is %q, want a", parent.name)
+	places := h.places()
+	parent := places[len(places)-2]
+	if parent.Name != "a" {
+		t.Fatalf("the place before the last is %q, want a", parent.Name)
 	}
-	r := h.bounds(func(*browser) gunim.Node { return parent })
-	h.click(geom.Pt(r.Min.X+8, r.Center().Y))
+	h.click(geom.Pt(parent.Rect.Min.X+8, parent.Rect.Center().Y))
 	h.until("the folder a opens", func() bool { return slices.Equal(h.shown(), []string{"b"}) })
-	if h.b.path.slot.editing {
+	if h.b.path.addr.Editing() {
 		t.Fatal("a click on a folder of the path started editing it")
 	}
 	// A click beside the folders, or on the folder showing, edits the path.
-	bar := h.bounds(func(b *browser) gunim.Node { return b.path.crumbs })
+	bar := h.bounds(func(b *browser) gunim.Node { return b.path.addr })
 	h.click(geom.Pt(bar.Max.X-10, bar.Center().Y))
-	if !h.b.path.slot.editing {
+	if !h.b.path.addr.Editing() {
 		t.Fatal("a click beside the folders did not edit the path")
 	}
 }

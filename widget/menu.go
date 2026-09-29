@@ -509,8 +509,8 @@ func (d *Dropdown) Handle(e input.Event, u *gunim.UI) bool {
 			d.open(u)
 		}
 	case input.PointerUp:
-	case input.FocusGained:
-		d.ring.Animate(1, Quick.Get(th))
+	case input.FocusRing:
+		d.ring.Animate(ringTo(e), Quick.Get(th))
 	case input.FocusLost:
 		d.ring.Animate(0, Settle.Get(th))
 		d.close(u)

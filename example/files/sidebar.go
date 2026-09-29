@@ -25,6 +25,8 @@ type sidebar struct {
 	hint   *widget.Label
 	col    *widget.Flex
 	scroll *widget.Scroll
+	// group makes the places and the favourites one stop for Tab, walked with Up and Down.
+	group *widget.Group
 }
 
 // placeItem is a place and whether it is the folder showing.
@@ -58,6 +60,7 @@ func newSidebar() *sidebar {
 	s.col.Cross = widget.CrossStretch
 	s.col.Gap = sideSpacing
 	s.scroll = widget.NewScroll(&sidePad{child: widget.NewThemed(s.col, sideTheme())})
+	s.group = widget.NewGroup(widget.Vertical, s.scroll)
 	return s
 }
 
@@ -80,7 +83,7 @@ func (s *sidebar) set(p Places, u *gunim.UI) {
 }
 
 // Children implements [gunim.Composite].
-func (s *sidebar) Children() []gunim.Node { return []gunim.Node{s.scroll} }
+func (s *sidebar) Children() []gunim.Node { return []gunim.Node{s.group} }
 
 // Layout implements [gunim.Node].
 func (s *sidebar) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {

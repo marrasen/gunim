@@ -190,6 +190,7 @@ type DataGrid struct {
 	rows     int
 	selected int
 	focused  bool
+	cue      ringCue
 	// runs are the rows selected with Multi, and anchor the row a
 	// selection with Shift runs from.
 	runs   [][2]int
@@ -647,6 +648,12 @@ func (g *DataGrid) bodyWidth(th *theme.Live) float32 {
 // Paint implements [gunim.Node].
 func (g *DataGrid) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
 	th := f.Theme
+	// Drawn last, over the rest
+	defer func() {
+		if g.cue.whole {
+			groupRing(p, geom.Rect{Max: box.Point()}, 0, 1, th)
+		}
+	}()
 	g.frame++
 	g.pending = false
 	g.links = g.links[:0]
@@ -740,7 +747,7 @@ func (g *DataGrid) paintRow(p *paint.Painter, th *theme.Live, i int, y, bodyW, s
 		defer p.Layer(paint.LayerOpts{Bounds: band, Opacity: in})()
 		defer p.Push(paint.Translate(geom.Pt(0, -6*(1-in))))()
 	}
-	cursor := g.Multi && g.focused && i == g.selected && countRuns(g.runs) > 1
+	cursor := g.Multi && g.cue.on && i == g.selected && countRuns(g.runs) > 1
 	g.paintContent(p, th, i, row, g.IsSelected(i), cursor, y, bodyW, size, pad)
 }
 
@@ -1122,6 +1129,10 @@ func (g *DataGrid) Handle(e input.Event, u *gunim.UI) bool {
 	switch e := e.(type) {
 	case input.FocusGained:
 		g.focused = true
+		u.Invalidate()
+		return true
+	case input.FocusRing:
+		g.cue.follow(e)
 		u.Invalidate()
 		return true
 	case input.FocusLost:
