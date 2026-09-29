@@ -284,7 +284,7 @@ func (b *Menubar) openBeside(i int, u *gunim.UI) {
 	menu := b.newMenu(i)
 	menu.bare = true
 	menu.OnHighlight = func(item int, u *gunim.UI) {
-		if item >= 0 {
+		if item >= 0 && b.list != nil {
 			// The pointer on the menu: the keys follow it there, and the list keeps its line lit.
 			b.inMenu = true
 			b.list.Highlight(i)
