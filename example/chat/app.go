@@ -70,6 +70,10 @@ type window struct {
 	// from others it had then.
 	newFrom string
 	unread  int
+	// first is the first message of the conversation the window shows, which older ones load in before, and
+	// loading says older ones are on their way.
+	first   string
+	loading bool
 	// area is what the pane shows: "" for the conversation, or "files", and path the folder of files open.
 	area string
 	path string
@@ -332,6 +336,40 @@ func (a *app) enter(w *window, c *conv) {
 		c.readTo = c.msgs[len(c.msgs)-1].ID
 	}
 	c.unread = 0
+	// The window opens on the latest messages, reaching back to the first not read.
+	from := max(0, len(c.msgs)-pageSize)
+	if i := slices.IndexFunc(c.msgs, func(m *msg) bool { return m.ID == w.newFrom }); i >= 0 {
+		from = max(0, min(from, i-10))
+	}
+	w.first, w.loading = "", false
+	if len(c.msgs) > 0 {
+		w.first = c.msgs[from].ID
+	}
+}
+
+// pageSize is how many messages a conversation opens with, and how many more each load of older ones brings.
+const pageSize = 60
+
+// shownFrom returns the index in c of the first message w shows.
+func (w *window) shownFrom(c *conv) int {
+	return max(0, slices.IndexFunc(c.msgs, func(m *msg) bool { return m.ID == w.first }))
+}
+
+// loadOlder fetches the page of messages before the first w shows, taking a moment as a server would.
+func (a *app) loadOlder(w *window) {
+	c := w.current
+	from := w.shownFrom(c)
+	if w.loading || from == 0 {
+		return
+	}
+	w.loading = true
+	a.after(a.between(300*time.Millisecond, 700*time.Millisecond), func() {
+		w.loading = false
+		if w.current == c {
+			w.first = c.msgs[max(0, from-pageSize)].ID
+		}
+		a.publish()
+	})
 }
 
 func (a *app) newProject(name, short string, convs ...*conv) *project {
@@ -490,6 +528,8 @@ func (a *app) handleIn(w *window, v gunim.Intent) {
 		p.transfers = slices.DeleteFunc(p.transfers, func(t *transfer) bool {
 			return t.id == v.ID && t.state == TransferFailed
 		})
+	case OlderAsked:
+		a.loadOlder(w)
 	case PopOut:
 		a.popOut(w.current)
 		return
@@ -909,7 +949,11 @@ func (a *app) stateOf(w *window) Chat {
 	if m, ok := w.current.byID[w.replying]; ok {
 		s.Replying = quote(m)
 	}
-	s.Items = timeline(w.current, time.Now(), w.newFrom)
+	from := w.shownFrom(w.current)
+	s.Items = timeline(w.current, time.Now(), w.newFrom, from)
+	if w.loading {
+		s.Items = append([]Item{{Key: "loading:" + w.current.ID, Day: "Loading older messages…"}}, s.Items...)
+	}
 	if w.newFrom != "" {
 		s.NewKey, s.Unread = newKey(w.current), w.unread
 	}
@@ -926,12 +970,12 @@ func newKey(c *conv) string { return "new:" + c.ID }
 // timeline returns c's messages as the timeline's rows, with a heading for each day. A message shares the heading
 // of the one before when both are by the same author and its group started under groupFor ago, so even a steady
 // stream from one person shows a heading every few minutes. The line over new messages goes before newFrom.
-func timeline(c *conv, now time.Time, newFrom string) []Item {
-	out := make([]Item, 0, len(c.msgs)+len(c.msgs)/20)
+func timeline(c *conv, now time.Time, newFrom string, from int) []Item {
+	out := make([]Item, 0, len(c.msgs)-from+(len(c.msgs)-from)/20)
 	var prev *msg
 	var groupAt time.Time
 	day := ""
-	for _, m := range c.msgs {
+	for _, m := range c.msgs[from:] {
 		if d := m.At.Format(time.DateOnly); d != day {
 			day, prev = d, nil
 			out = append(out, Item{Key: "day:" + c.ID + ":" + d, Day: dayName(m.At, now)})

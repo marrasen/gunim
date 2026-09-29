@@ -278,6 +278,8 @@ type (
 	EditAsked     struct{ ID string }
 	WithdrawAsked struct{ ID string }
 	RetryAsked    struct{ ID string }
+	// OlderAsked travels when the timeline comes near its start, for the messages before it.
+	OlderAsked struct{}
 	// PopOut travels when the user asks for the conversation in a window of its own.
 	PopOut struct{}
 	// Cancelled travels when the user drops a reply or an edit.
@@ -310,6 +312,7 @@ func init() {
 	gunim.RegisterType[RetryAsked]("chat.retry")
 	gunim.RegisterType[Cancelled]("chat.cancel")
 	gunim.RegisterType[PopOut]("chat.popout")
+	gunim.RegisterType[OlderAsked]("chat.older")
 	gunim.RegisterType[LinkToggled]("chat.link")
 	gunim.RegisterType[ThemeToggled]("chat.theme")
 }

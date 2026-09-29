@@ -451,3 +451,70 @@ func TestAListThatSticksCanOpenAtARow(t *testing.T) {
 		t.Fatalf("offset %v after rows arrived, want it to stay at %v", l.Offset(), want)
 	}
 }
+
+// olderAsked is the intent the tests' timelines send for older items.
+type olderAsked struct{}
+
+func TestVirtualListLoadsOlderItemsAtTheTopWithoutMoving(t *testing.T) {
+	l := NewVirtualList(func(k Key) gunim.Node { return &block{key: k, h: 40} })
+	l.StickToEnd, l.HoldOnPrepend = true, true
+	l.OnReachStart = func() gunim.Intent { return olderAsked{} }
+	w := gunimtest.New(t, geom.Sz(300, 400), nil)
+	gunim.RegisterView(w, "v", func(shownKeys) gunim.Node { return l },
+		func(_ gunim.Node, s shownKeys, u *gunim.UI) { l.SetKeys(s.Keys, u) })
+	recent := keys(60)[30:]
+	if err := w.Client().Mount(gunim.Root, "v", "v", shownKeys{recent}); err != nil {
+		t.Fatal(err)
+	}
+	run := func(n int) {
+		for range n {
+			w.Frame(time.Second / 60)
+		}
+	}
+	run(5)
+	asked := func() int {
+		n := 0
+		for {
+			select {
+			case e := <-w.Client().Intents():
+				if e.Intent == (olderAsked{}) {
+					n++
+				}
+			default:
+				return n
+			}
+		}
+	}
+	if n := asked(); n != 0 {
+		t.Fatalf("at the end, the list asked for older items %d times", n)
+	}
+	// Scroll to the very top.
+	scrollBy(w, run, -40)
+	run(90)
+	if l.Offset() != 0 {
+		t.Fatalf("the list is at %v, want its top", l.Offset())
+	}
+	if n := asked(); n != 1 {
+		t.Fatalf("at the top, the list asked for older items %d times, want once", n)
+	}
+	first := screenTop(l, "30")
+	if err := w.Client().Update("v", shownKeys{keys(60)}); err != nil {
+		t.Fatal(err)
+	}
+	run(60)
+	if _, built := l.live["30"]; !built {
+		t.Fatal("the first row went out of view as older items arrived above it")
+	}
+	if after := screenTop(l, "30"); after != first {
+		t.Fatalf("the first row moved from %v to %v on screen as older items arrived above it", first, after)
+	}
+	if _, built := l.live["29"]; built && l.live["29"].fade.Value() < 1 {
+		t.Fatal("an older item above the view grows in")
+	}
+	// Scrolling up to the new top asks again.
+	scrollBy(w, run, -40)
+	run(90)
+	if n := asked(); n != 1 {
+		t.Fatalf("back at the top, the list asked %d times, want once more", n)
+	}
+}

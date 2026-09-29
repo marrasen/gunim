@@ -342,3 +342,25 @@ func TestColleaguesLeaveTheHelpAlone(t *testing.T) {
 		t.Fatal("colleagues can pick the private /help answer to reply or react to")
 	}
 }
+
+func TestAConversationOpensOnItsLatestMessagesAndLoadsOlderOnes(t *testing.T) {
+	h := newHarness(t)
+	count := func() int {
+		n := 0
+		for _, it := range h.a.state().Items {
+			if !it.heading() {
+				n++
+			}
+		}
+		return n
+	}
+	if n, all := count(), len(h.a.current.msgs); n >= all || n < pageSize {
+		t.Fatalf("the conversation opens showing %d of %d messages, want the latest page", n, all)
+	}
+	before := count()
+	h.a.handle(OlderAsked{})
+	if first := h.a.state().Items[0]; first.Day != "Loading older messages…" {
+		t.Fatalf("while older messages load, the timeline starts with %+v", first)
+	}
+	h.until("older messages arrive", func() bool { return count() == before+pageSize })
+}

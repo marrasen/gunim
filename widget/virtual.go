@@ -43,6 +43,15 @@ type VirtualList struct {
 	// StickToEnd starts the view at the end of the list and keeps it there while rows arrive and grow, as a chat's
 	// timeline does. A view scrolled away from the end stays where it is.
 	StickToEnd bool
+	// HoldOnPrepend keeps what is in view still when items arrive before the first one, even with the view at the
+	// top of the list, as older messages loaded above a timeline should. Such items come at once, without growing in.
+	HoldOnPrepend bool
+	// OnReachStart, when set, is sent as the view comes within a screen of the start of the list, for loading the
+	// items before the first. It is sent once, and again after items arrive before the first or the view has
+	// gone well away from the start.
+	OnReachStart func() gunim.Intent
+	// reached says OnReachStart was sent and waits for older items.
+	reached bool
 	// openAt is the row the view opens at, in place of the end; see OpenAt.
 	openAt Key
 	// stuck says the view is held at the end, and laidOut that the list has been laid out once. again asks for
@@ -78,7 +87,7 @@ type VirtualList struct {
 // where it sits in the content, when the list is scrolled from its top.
 func (l *VirtualList) anchor() (Key, float32, bool) {
 	offset := l.offset.Value()
-	if offset <= 0 {
+	if offset <= 0 && !l.HoldOnPrepend {
 		return "", 0, false
 	}
 	var best Key
@@ -252,8 +261,21 @@ func (l *VirtualList) SetKeys(keys []Key, u *gunim.UI) {
 	for _, k := range l.order {
 		known[k] = true
 	}
-	for _, k := range next {
-		if !known[k] && !first {
+	// Items before what was the first, with HoldOnPrepend, come at once.
+	head := 0
+	if l.HoldOnPrepend {
+		for head < len(next) && !known[next[head]] {
+			head++
+		}
+		if head == len(next) {
+			head = 0
+		}
+	}
+	if head > 0 {
+		l.reached = false
+	}
+	for i, k := range next {
+		if !known[k] && !first && i >= head {
 			l.animate[k] = true
 		}
 	}
@@ -471,6 +493,16 @@ func (l *VirtualList) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Chil
 		}
 	}
 	content := max(0, float32(l.tops.sum(len(l.order)))-spacing)
+	// Near the start, ask for what comes before it; well away, be ready to ask again.
+	if l.OnReachStart != nil && l.laidOut && len(l.order) > 0 {
+		switch at := l.offset.Value(); {
+		case !l.reached && at < own.H && content > own.H:
+			l.reached = true
+			f.Send(l, l.OnReachStart())
+		case l.reached && at > 3*own.H:
+			l.reached = false
+		}
+	}
 	if l.stuck {
 		// Rows measured in view moved the end: follow it, and the rows with it.
 		if at := l.stickTo(content, own.H); at != offset {

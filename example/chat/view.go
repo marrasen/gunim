@@ -179,7 +179,8 @@ func (v *chatView) newList() *widget.VirtualList {
 	l := widget.NewVirtualList(func(k widget.Key) gunim.Node {
 		return newMsgRow(v.items[k], v.jump, v.group, func(id string) *paint.Image { return v.images[id] }, v.react)
 	})
-	l.StickToEnd = true
+	l.StickToEnd, l.HoldOnPrepend = true, true
+	l.OnReachStart = func() gunim.Intent { return OlderAsked{} }
 	l.Estimate = 44
 	l.Spacing = TimelineSpacing
 	return l
