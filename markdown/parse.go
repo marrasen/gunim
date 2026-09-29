@@ -22,6 +22,7 @@ const (
 	quote
 	list
 	rule
+	table
 )
 
 // block is one block of a document.
@@ -39,7 +40,19 @@ type block struct {
 	items   []item
 	ordered bool
 	start   int
+	// rows are a table's cells, the header first, and aligns how each column sets its text.
+	rows   [][][]span
+	aligns []align
 }
+
+// align is how a table's column sets its text.
+type align uint8
+
+const (
+	alignStart align = iota
+	alignCenter
+	alignEnd
+)
 
 // item is one item of a list: its blocks, and whether it is a task and done.
 type item struct {
@@ -72,16 +85,44 @@ const (
 	strike
 )
 
-// markdown parses with the extensions a chat wants: strikethrough, task lists, and bare addresses as links.
-var markdown = goldmark.New(goldmark.WithExtensions(extension.Strikethrough, extension.TaskList, extension.Linkify))
+// markdown parses with the extensions a chat wants: strikethrough, task lists, bare addresses as links, and tables.
+var markdown = goldmark.New(goldmark.WithExtensions(extension.Strikethrough, extension.TaskList, extension.Linkify,
+	extension.Table))
 
-// parse returns src's blocks. With breaks set, a single line break in a paragraph breaks the line, as it does in a
-// chat, where CommonMark would join the lines.
+// parse returns src's blocks. With breaks set, it reads src as a chat does: a single line break in a paragraph
+// breaks the line, where CommonMark would join the lines, and a quote holds only the lines that start with >.
 func parse(src string, breaks bool) []block {
+	if breaks {
+		src = endQuotes(src)
+	}
 	b := []byte(src)
 	doc := markdown.Parser().Parse(gtext.NewReader(b))
 	p := parser{src: b, breaks: breaks}
 	return p.blocks(doc)
+}
+
+// endQuotes puts a blank line after each quote, before the first line after it that does not start with >, so
+// that line is not part of the quote. Code blocks stay as they are.
+func endQuotes(src string) string {
+	lines := strings.Split(src, "\n")
+	out := make([]string, 0, len(lines))
+	fence, quoted := "", false
+	for _, line := range lines {
+		trimmed := strings.TrimLeft(line, " ")
+		switch {
+		case fence != "":
+			if strings.HasPrefix(trimmed, fence) {
+				fence = ""
+			}
+		case strings.HasPrefix(trimmed, "```"), strings.HasPrefix(trimmed, "~~~"):
+			fence = trimmed[:3]
+		case quoted && trimmed != "" && !strings.HasPrefix(trimmed, ">"):
+			out = append(out, "")
+		}
+		out = append(out, line)
+		quoted = fence == "" && strings.HasPrefix(trimmed, ">")
+	}
+	return strings.Join(out, "\n")
 }
 
 type parser struct {
@@ -116,9 +157,34 @@ func (p parser) blocks(n ast.Node) []block {
 			out = append(out, l)
 		case *ast.ThematicBreak:
 			out = append(out, block{kind: rule})
+		case *east.Table:
+			out = append(out, p.table(c))
 		}
 	}
 	return out
+}
+
+// table returns a table's rows of cells and its columns' alignments.
+func (p parser) table(n *east.Table) block {
+	t := block{kind: table}
+	for _, a := range n.Alignments {
+		switch a {
+		case east.AlignCenter:
+			t.aligns = append(t.aligns, alignCenter)
+		case east.AlignRight:
+			t.aligns = append(t.aligns, alignEnd)
+		default:
+			t.aligns = append(t.aligns, alignStart)
+		}
+	}
+	for row := n.FirstChild(); row != nil; row = row.NextSibling() {
+		var cells [][]span
+		for cell := row.FirstChild(); cell != nil; cell = cell.NextSibling() {
+			cells = append(cells, p.inlines(cell, 0, ""))
+		}
+		t.rows = append(t.rows, cells)
+	}
+	return t
 }
 
 // item returns a list item's blocks, taking a task's box off the front of its first paragraph.
@@ -246,6 +312,18 @@ func Plain(src string) string {
 			case list:
 				for _, it := range bl.items {
 					walk(it.blocks)
+				}
+			case table:
+				for _, row := range bl.rows {
+					for i, cell := range row {
+						if i > 0 {
+							b.WriteByte('\t')
+						}
+						for _, s := range cell {
+							b.WriteString(s.text)
+						}
+					}
+					b.WriteByte('\n')
 				}
 			case rule:
 			}

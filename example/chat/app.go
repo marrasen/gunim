@@ -506,6 +506,8 @@ var chatter = []string{
 	"```\ngo test ./... -run TestSync -count 50\n```\nfails about one time in twenty for me.",
 	"Back in an hour.",
 	"Thanks!",
+	"Build times this week:\n\n| Runner | Mon | Fri |\n|:--|--:|--:|\n| Windows | 14 min | 9 min |\n| Linux | 6 min | 6 min |",
+	"The flaky one:\n```\nwidget/virtual_test.go:377: offset 4712, want the end at 6392 (TestVirtualListThatSticksFollowsNewRows, seed 1817263)\n```",
 }
 
 var answers = []string{
