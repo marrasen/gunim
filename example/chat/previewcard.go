@@ -13,12 +13,11 @@ import (
 
 // Sizes of a link's card.
 const (
-	cardMaxW   = 480
-	cardThumb  = 72
-	cardPad    = 10
-	cardBarW   = 3
-	cardLines  = 3
-	cardGapTop = 6
+	cardMaxW  = 480
+	cardThumb = 72
+	cardPad   = 10
+	cardBarW  = 3
+	cardLines = 3
 )
 
 // previewCard is a link's card under the message that holds it: the site, the page's title as a link, a few lines
@@ -80,8 +79,8 @@ func (c *previewCard) Layout(cs gunim.Constraints, f gunim.Frame, _ gunim.Childr
 	if c.p.Picture != "" {
 		c.thumb = geom.Rc(w-cardPad-cardThumb, cardPad, cardThumb, cardThumb)
 	}
-	c.card = geom.Rc(0, cardGapTop, w, h)
-	return geom.Sz(cs.Max.W, (h+cardGapTop)*min(max(c.in.Value(), 0), 1))
+	c.card = geom.Rc(0, 0, w, h)
+	return geom.Sz(cs.Max.W, h*min(max(c.in.Value(), 0), 1))
 }
 
 // Paint implements [gunim.Node].

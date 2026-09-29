@@ -72,6 +72,23 @@ type (
 		Pictures  []Picture
 		Reactions []Reaction
 		Preview   Preview
+		Poll      Poll
+	}
+
+	// Poll is a question in a message, with its options and the votes for them, and how many people voted. A
+	// message without a poll has no question.
+	Poll struct {
+		Question string
+		Options  []PollOption
+		Voters   int
+	}
+
+	// PollOption is one of a poll's options: its text, its votes, whether one is the user's, and who, by name.
+	PollOption struct {
+		Text  string
+		Votes int
+		Mine  bool
+		Who   string
 	}
 
 	// Preview is the card for a link in a message: what the page says of itself, and its picture, by ID. The
@@ -110,7 +127,8 @@ type (
 // same reports whether two rows show the same.
 func same(a, b Item) bool {
 	return a.Key == b.Key && a.Day == b.Day && a.Message.equal(b.Message) && slices.Equal(a.Pictures, b.Pictures) &&
-		slices.Equal(a.Reactions, b.Reactions)
+		slices.Equal(a.Reactions, b.Reactions) && a.Poll.Question == b.Poll.Question && a.Poll.Voters == b.Poll.Voters &&
+		slices.Equal(a.Poll.Options, b.Poll.Options)
 }
 
 // equal compares two messages but for their pictures, which same compares.
@@ -163,10 +181,15 @@ type (
 	PictureRemoved struct{ ID string }
 	// ReactionToggled travels when the user adds a reaction to a message, or takes theirs back.
 	ReactionToggled struct{ ID, Emoji string }
-	ReplyAsked      struct{ ID string }
-	EditAsked       struct{ ID string }
-	WithdrawAsked   struct{ ID string }
-	RetryAsked      struct{ ID string }
+	// PollVoted travels when the user votes for an option of a poll, or takes their vote back.
+	PollVoted struct {
+		ID     string
+		Option int
+	}
+	ReplyAsked    struct{ ID string }
+	EditAsked     struct{ ID string }
+	WithdrawAsked struct{ ID string }
+	RetryAsked    struct{ ID string }
 	// Cancelled travels when the user drops a reply or an edit.
 	Cancelled    struct{}
 	LinkToggled  struct{}
@@ -183,6 +206,7 @@ func init() {
 	gunim.RegisterType[ImagePasted]("chat.image")
 	gunim.RegisterType[PictureRemoved]("chat.image.remove")
 	gunim.RegisterType[ReactionToggled]("chat.react")
+	gunim.RegisterType[PollVoted]("chat.vote")
 	gunim.RegisterType[ReplyAsked]("chat.reply")
 	gunim.RegisterType[EditAsked]("chat.edit")
 	gunim.RegisterType[WithdrawAsked]("chat.withdraw")

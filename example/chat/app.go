@@ -81,6 +81,78 @@ type msg struct {
 	reactions []reaction
 	// preview is the card for the first link in the text, once the sender's app has fetched it.
 	preview Preview
+	// poll is the message's poll, or nil.
+	poll *poll
+}
+
+// poll is a question, its options, and each voter's choice.
+type poll struct {
+	question string
+	options  []string
+	votes    map[string]int
+	// order is the voters in the order they first voted.
+	order []string
+}
+
+// newPoll reads a poll from text written as "/poll Question | option | option", and reports false for text that
+// is not one, or has fewer than two options.
+func newPoll(text string) (*poll, bool) {
+	rest, ok := strings.CutPrefix(strings.TrimSpace(text), "/poll ")
+	if !ok {
+		return nil, false
+	}
+	var parts []string
+	for _, s := range strings.Split(rest, "|") {
+		if s = strings.TrimSpace(s); s != "" {
+			parts = append(parts, s)
+		}
+	}
+	if len(parts) < 3 {
+		return nil, false
+	}
+	return &poll{question: parts[0], options: parts[1:], votes: map[string]int{}}, true
+}
+
+// vote gives who's vote to option i, or takes it back when it was there already.
+func (p *poll) vote(who string, i int) {
+	if i < 0 || i >= len(p.options) {
+		return
+	}
+	if was, ok := p.votes[who]; ok && was == i {
+		delete(p.votes, who)
+		p.order = slices.DeleteFunc(p.order, func(s string) bool { return s == who })
+		return
+	}
+	if _, ok := p.votes[who]; !ok {
+		p.order = append(p.order, who)
+	}
+	p.votes[who] = i
+}
+
+// pollOf returns m's poll as the timeline shows it.
+func pollOf(m *msg) Poll {
+	if m.poll == nil {
+		return Poll{}
+	}
+	out := Poll{Question: m.poll.question, Voters: len(m.poll.votes)}
+	for i, text := range m.poll.options {
+		o := PollOption{Text: text}
+		var who []string
+		for _, v := range m.poll.order {
+			if m.poll.votes[v] != i {
+				continue
+			}
+			o.Votes++
+			if v == me {
+				o.Mine = true
+				v = "You"
+			}
+			who = append(who, v)
+		}
+		o.Who = strings.Join(who, ", ")
+		out.Options = append(out.Options, o)
+	}
+	return out
 }
 
 // reaction is an emoji and the people who reacted with it, in order.
@@ -123,6 +195,15 @@ func reactionsOf(m *msg) []Reaction {
 		out = append(out, Reaction{Emoji: r.emoji, Count: len(r.who), Mine: slices.Contains(r.who, me), Who: strings.Join(names, ", ")})
 	}
 	return out
+}
+
+// pollVote returns who's choice on m's poll, and whether they chose.
+func (m *msg) pollVote(who string) (int, bool) {
+	if m.poll == nil {
+		return 0, false
+	}
+	i, ok := m.poll.votes[who]
+	return i, ok
 }
 
 // reactionEmoji are the emoji the pretend colleagues react with.
@@ -196,10 +277,13 @@ func (a *app) fill(c *conv, n int, now time.Time) {
 	}
 }
 
-// add appends a message to c and returns it.
+// add appends a message to c and returns it. Text written as "/poll Question | option | option" makes a poll.
 func (a *app) add(c *conv, author, body string, at time.Time) *msg {
 	a.nextID++
 	m := &msg{ID: "m" + strconv.Itoa(a.nextID), Author: author, At: at, Body: body}
+	if pl, ok := newPoll(body); ok {
+		m.Body, m.poll = "", pl
+	}
 	c.msgs = append(c.msgs, m)
 	c.byID[m.ID] = m
 	return m
@@ -262,6 +346,10 @@ func (a *app) handle(v gunim.Intent) {
 		return
 	case ImagePasted:
 		a.pastePicture(v.PNG)
+	case PollVoted:
+		if m, ok := a.current.byID[v.ID]; ok && m.poll != nil && !m.Withdrawn {
+			m.poll.vote(me, v.Option)
+		}
 	case ReactionToggled:
 		if m, ok := a.current.byID[v.ID]; ok && !m.Withdrawn {
 			m.toggle(v.Emoji, me)
@@ -486,6 +574,14 @@ func (a *app) colleague() {
 			m.Edited = true
 			a.publish()
 		}
+	case r < 0.7:
+		// Somebody votes on a poll they have not voted on.
+		if m := a.lastBy(c, func(m *msg) bool { _, voted := m.pollVote(who); return m.poll != nil && !voted }); m != nil {
+			m.poll.vote(who, a.rng.IntN(len(m.poll.options)))
+			a.publish()
+			return
+		}
+		fallthrough
 	case r < 0.83:
 		// Somebody reacts, mostly to one of the user's messages.
 		m := a.lastBy(c, func(m *msg) bool { return m.Author == me })
@@ -608,7 +704,7 @@ func timeline(c *conv, now time.Time) []Item {
 		}
 		it := Item{Key: m.ID, Message: Message{ID: m.ID, Author: m.Author, Mine: m.Author == me, At: m.At, Body: m.Body,
 			State: m.State, Edited: m.Edited, Withdrawn: m.Withdrawn, Pictures: slices.Clone(m.Pictures),
-			Reactions: reactionsOf(m), Preview: m.preview}}
+			Reactions: reactionsOf(m), Preview: m.preview, Poll: pollOf(m)}}
 		it.Continued = prev != nil && prev.Author == m.Author && m.At.Sub(groupAt) < groupFor && m.ReplyTo == ""
 		if !it.Continued {
 			groupAt = m.At
@@ -657,6 +753,7 @@ var chatter = []string{
 	"```\ngo test ./... -run TestSync -count 50\n```\nfails about one time in twenty for me.",
 	"Back in an hour.",
 	"Thanks!",
+	"/poll Where do we go for the team lunch on Friday? | Thai | Pizza | Sushi | Something new",
 	"Good read on how range over functions works: https://go.dev/blog/range-functions",
 	"Build times this week:\n\n| Runner | Mon | Fri |\n|:--|--:|--:|\n| Windows | 14 min | 9 min |\n| Linux | 6 min | 6 min |",
 	"The flaky one:\n```\nwidget/virtual_test.go:377: offset 4712, want the end at 6392 (TestVirtualListThatSticksFollowsNewRows, seed 1817263)\n```",

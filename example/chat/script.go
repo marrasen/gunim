@@ -16,10 +16,10 @@ const scriptPause = 500 * time.Millisecond
 
 // runScript runs the steps of a script from -do one after another, each after a pause. A step is "reply" to reply
 // to the second latest message, "type:text" to type text, read as a Go string, in the message box, "send" to press
-// Enter, "paste" to press Ctrl+V, "react:emoji" to react to the latest message, "click:x,y" to click there,
-// "offline" and "online" to drop and restore the connection, "typing:name" to have name type, "hover:x,y" to move
-// the pointer there, "drag:x,y,x,y" to press at the first place and drag to the second, and "theme:light" or
-// "theme:dark" to switch the theme.
+// Enter, "paste" to press Ctrl+V, "react:emoji" to react to the latest message, "vote:n" to vote for option n of
+// its poll, "click:x,y" to click there, "offline" and "online" to drop and restore the connection, "typing:name" to
+// have name type, "hover:x,y" to move the pointer there, "drag:x,y,x,y" to press at the first place and drag to
+// the second, and "theme:light" or "theme:dark" to switch the theme.
 func (a *app) runScript(steps []string) {
 	if len(steps) == 0 {
 		return
@@ -50,6 +50,11 @@ func (a *app) scriptStep(step string) {
 		}
 	case "typing":
 		a.setTyping(arg)
+	case "vote":
+		if n := len(a.current.msgs); n > 0 {
+			i, _ := strconv.Atoi(arg)
+			a.handle(PollVoted{ID: a.current.msgs[n-1].ID, Option: i})
+		}
 	case "react":
 		if n := len(a.current.msgs); n > 0 {
 			a.handle(ReactionToggled{ID: a.current.msgs[n-1].ID, Emoji: unquote(arg)})

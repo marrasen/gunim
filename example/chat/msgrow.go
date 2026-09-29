@@ -42,6 +42,7 @@ type msgRow struct {
 	// body shows the message's text, pictures its pictures, and tools its toolbar; all are nil in a day's heading.
 	body      *markdown.View
 	pictures  []*widget.Image
+	poll      *pollCard
 	preview   *previewCard
 	reactions *reactionBar
 	tools     gunim.Node
@@ -81,6 +82,7 @@ func newMsgRow(item Item, jump func(string, *gunim.UI), group *markdown.Group, i
 				r.pictures = append(r.pictures, img)
 			}
 		}
+		r.poll = newPollCard(item.ID, item.Poll)
 		r.preview = newPreviewCard(item.Preview, image)
 		r.reactions = newReactionBar(item.ID, item.Reactions, react)
 		r.tools = newTools(item.Message, react)
@@ -123,6 +125,7 @@ func (r *msgRow) set(item Item, u *gunim.UI) {
 	r.item = item
 	if r.body != nil {
 		r.setBody()
+		r.poll.set(item.Poll, u)
 		r.preview.set(item.Preview, u)
 		r.reactions.set(item.ID, item.Reactions, u)
 	}
@@ -144,7 +147,7 @@ func (r *msgRow) Children() []gunim.Node {
 	for _, p := range r.pictures {
 		out = append(out, p)
 	}
-	return append(out, r.preview, r.reactions, r.tools)
+	return append(out, r.poll, r.preview, r.reactions, r.tools)
 }
 
 // showsTools reports whether the toolbar can show: on a message still there.
@@ -164,25 +167,20 @@ func (r *msgRow) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children)
 	bs := body.Layout(gunim.Constraints{Min: geom.Sz(textW, 0), Max: geom.Sz(textW, 0)})
 	body.Place(geom.Pt(gutter, r.bodyAt))
 	y := r.bodyAt + bs.H
-	if len(r.pictures) > 0 && r.item.Body == "" {
-		y = r.bodyAt
+	if r.item.Body == "" && !r.item.Withdrawn {
+		y = r.bodyAt - blockGap
 	}
-	for i := range r.pictures {
-		kid := kids.At(1 + i)
-		ps := kid.Layout(gunim.Loose(geom.Sz(textW, 1000)))
-		kid.Place(geom.Pt(gutter, y+6))
-		y += ps.H + 6
-	}
-	card := kids.At(1 + len(r.pictures))
-	cs := card.Layout(gunim.Loose(geom.Sz(textW, 400)))
-	card.Place(geom.Pt(gutter, y))
-	y += cs.H
-	bar := kids.At(2 + len(r.pictures))
-	if bs := bar.Layout(gunim.Loose(geom.Sz(textW, 400))); bs.H > 0 {
-		bar.Place(geom.Pt(gutter, y+6))
-		y += bs.H + 6
-	} else {
-		bar.Place(geom.Pt(gutter, y))
+	// Under the text come its pictures, its poll, its link's card and its reactions, each after a gap, and those
+	// with nothing to show take no room.
+	for i := 1; i < kids.Len()-1; i++ {
+		kid := kids.At(i)
+		s := kid.Layout(gunim.Loose(geom.Sz(textW, 1000)))
+		if s.H <= 0 {
+			kid.Place(geom.Pt(gutter, y))
+			continue
+		}
+		kid.Place(geom.Pt(gutter, y+blockGap))
+		y += s.H + blockGap
 	}
 	r.footBox = geom.Rect{}
 	if footText(r.item.Message) != "" {
@@ -203,6 +201,9 @@ func pictureSize(p Picture) geom.Size {
 	scale := min(1, 360/w, 260/h)
 	return geom.Sz(w*scale, h*scale)
 }
+
+// blockGap is the room above each block under a message's text.
+const blockGap = 6
 
 // textWidth is how wide a message's text is in a row w wide.
 func textWidth(w float32) float32 { return max(w-gutter-24, 40) }
@@ -312,18 +313,14 @@ func (r *msgRow) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids guni
 		}()
 	}
 	func() {
-		body := kids.At(0)
 		if m.State != Sent && !m.Withdrawn {
-			// Text on its way is paler.
+			// A message on its way is paler.
 			defer p.Layer(paint.LayerOpts{Bounds: geom.Rect{Max: box.Point()}, Opacity: 0.6})()
 		}
-		body.Paint(p)
-		for i := range r.pictures {
-			kids.At(1 + i).Paint(p)
+		for i := range kids.Len() - 1 {
+			kids.At(i).Paint(p)
 		}
 	}()
-	kids.At(1 + len(r.pictures)).Paint(p)
-	kids.At(2 + len(r.pictures)).Paint(p)
 	if !r.footBox.Empty() {
 		r.foot.Paint(p, r.footBox.Min, faint)
 	}
