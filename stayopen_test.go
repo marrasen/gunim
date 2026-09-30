@@ -2,6 +2,7 @@ package gunim
 
 import (
 	"context"
+	"errors"
 	"testing"
 )
 
@@ -29,6 +30,21 @@ func TestStayOpenReachesTheDriver(t *testing.T) {
 	}
 	if err := runApp(context.Background(), &pumpDriver{}, func(a *App) error {
 		a.StayOpen(true)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Where the platform has no keys for every program, registering one
+// says so.
+func TestAHotKeyWithoutADriverForIt(t *testing.T) {
+	if err := runApp(context.Background(), &pumpDriver{}, func(a *App) error {
+		release, err := a.RegisterHotKey(HotKey{}, func() {})
+		release()
+		if !errors.Is(err, ErrNoHotKeys) {
+			t.Errorf("registering said %v", err)
+		}
 		return nil
 	}); err != nil {
 		t.Fatal(err)

@@ -112,6 +112,29 @@ func (a *App) SetTray(t Tray) error {
 	return tr.SetTray(t)
 }
 
+// HotKey is a key that reaches the application from any program; see
+// [driver.HotKey].
+type HotKey = driver.HotKey
+
+// ErrHotKeyTaken says another program holds a key already, and
+// ErrNoHotKeys that the platform gives an application none.
+var (
+	ErrHotKeyTaken = driver.ErrHotKeyTaken
+	ErrNoHotKeys   = driver.ErrNoHotKeys
+)
+
+// RegisterHotKey calls fn, on a goroutine of gunim's, each time k is
+// pressed, whatever program has the keyboard, until release is called.
+// It returns ErrHotKeyTaken when another program has the key, and
+// ErrNoHotKeys where the platform gives an application none.
+func (a *App) RegisterHotKey(k HotKey, fn func()) (release func(), err error) {
+	h, ok := a.drv.(driver.HotKeyer)
+	if !ok {
+		return func() {}, ErrNoHotKeys
+	}
+	return h.RegisterHotKey(k, fn)
+}
+
 // StayOpen keeps the application running after its last window
 // closes, as one that lives in the tray does, until it is turned off
 // again with no window open, or the application's context ends. It is
