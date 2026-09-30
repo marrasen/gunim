@@ -9,6 +9,7 @@ import (
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/text"
@@ -49,6 +50,10 @@ type TableRow struct {
 	Faint  bool
 	// Accent draws the row in the theme's accent colour, as for a link.
 	Accent bool
+	// Icon, when set, is drawn before the first cell's text, in IconInk
+	// or else the row's ink, as a file's kind is.
+	Icon    *icon.Icon
+	IconInk *theme.Token[color.NRGBA]
 }
 
 // Table shows rows of cells under a header of column titles, and
@@ -68,6 +73,14 @@ type Table struct {
 	OnActivate func(key Key, u *gunim.UI)
 	// OnSort runs with the column clicked and the direction asked for.
 	OnSort func(column int, descending bool, u *gunim.UI)
+	// DragRows, when set, lets rows be dragged: a press on a row and a
+	// move of a few pixels drags the data it returns, with ghost under
+	// the pointer, held grab from its top left. keys are the rows
+	// marked when the row pressed is one of them, and that row alone
+	// otherwise; at is where the press was, in the table's space. A nil
+	// data drags nothing. DragEnded hears how the drag ended.
+	DragRows  func(keys []Key, at geom.Point) (data any, ghost gunim.Node, grab geom.Point)
+	DragEnded func(e input.DragEnd, u *gunim.UI)
 
 	list   *VirtualList
 	header *tableHeader
@@ -87,7 +100,46 @@ type Table struct {
 	// last of it was.
 	typed   string
 	typedAt time.Time
+	// rowH and headH are a row's height and the header's, from the last
+	// layout. lift is a press on a row that may become a drag.
+	rowH, headH, width float32
+	lift               tableLift
 }
+
+// tableLift is a press on a row, at, in the table's space, which a move
+// far enough makes a drag; dragging says it has.
+type tableLift struct {
+	key      Key
+	at       geom.Point
+	armed    bool
+	dragging bool
+}
+
+// RowAt returns the row at p, in the table's space, as last laid out.
+func (t *Table) RowAt(p geom.Point) (Key, bool) {
+	if t.rowH <= 0 || p.Y < t.headH {
+		return "", false
+	}
+	i := int((p.Y - t.headH + t.list.Offset()) / t.rowH)
+	if i < 0 || i >= len(t.keys) {
+		return "", false
+	}
+	return t.keys[i], true
+}
+
+// RowRect returns where row key is, in the table's space, as last laid
+// out, which may be outside the part in view.
+func (t *Table) RowRect(key Key) (geom.Rect, bool) {
+	i, ok := t.index[key]
+	if !ok || t.rowH <= 0 {
+		return geom.Rect{}, false
+	}
+	y := t.headH + float32(i)*t.rowH - t.list.Offset()
+	return geom.Rc(0, y, t.width, t.rowH), true
+}
+
+// Header returns the height of the column titles, as last laid out.
+func (t *Table) Header() float32 { return t.headH }
 
 // NewTable returns an empty table of columns.
 func NewTable(columns ...TableColumn) *Table {
@@ -226,6 +278,13 @@ func (t *Table) Focusable() bool { return true }
 // mark and activate. Other keys go on, to the application's shortcuts.
 func (t *Table) Handle(e input.Event, u *gunim.UI) bool {
 	switch e := e.(type) {
+	case input.DragEnd:
+		t.lift = tableLift{}
+		u.Invalidate()
+		if t.DragEnded != nil {
+			t.DragEnded(e, u)
+		}
+		return true
 	case input.FocusGained:
 		t.focused = true
 		u.Invalidate()
@@ -389,6 +448,7 @@ func (t *Table) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) 
 		x += w
 	}
 	hh := TableRowHeight.Get(f.Theme)
+	t.rowH, t.headH, t.width = hh, hh, own.W
 	kids.At(0).Layout(gunim.Tight(geom.Sz(own.W, hh)))
 	kids.At(0).Place(geom.Point{})
 	kids.At(1).Layout(gunim.Tight(geom.Sz(own.W, max(0, own.H-hh))))
@@ -552,11 +612,26 @@ func (r *tableRow) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 		ink.A /= 2
 	}
 	size := TextSize.Get(th)
+	if t.lift.dragging && (t.lift.key == r.key || t.marked[t.lift.key] && t.marked[r.key]) {
+		// On its way elsewhere: dimmed while it is dragged.
+		ink.A /= 2
+	}
 	for i, s := range row.Cells {
 		if i >= len(t.xs) {
 			break
 		}
 		x, w := t.xs[i][0], t.xs[i][1]
+		if i == 0 && row.Icon != nil {
+			// The icon first, the text after it.
+			const side = 16
+			c := ink
+			if row.IconInk != nil {
+				c = row.IconInk.Get(th)
+				c.A = min(c.A, ink.A)
+			}
+			paintIcon(p, th, row.Icon, geom.Rc(x, (box.H-side)/2, side, side), c, 1)
+			x, w = x+side+6, w-side-6
+		}
 		para := cellText(&r.cells[i], faceIn(t.Columns[i].Face, th), s, size, w-12)
 		at := x
 		if t.Columns[i].End {
@@ -568,18 +643,69 @@ func (r *tableRow) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 
 // Handle implements [gunim.Handler]: a press puts the cursor on the
 // row, and a double click activates it.
+//
+// With DragRows set, a press and a move of a few pixels drags the row,
+// or the rows marked when it is one of them.
 func (r *tableRow) Handle(e input.Event, u *gunim.UI) bool {
-	d, ok := e.(input.PointerDown)
-	if !ok || d.Button != input.ButtonPrimary {
-		return false
-	}
 	t := r.t
-	if i, ok := t.index[r.key]; ok {
-		t.cursor = i
-		u.Invalidate()
+	switch e := e.(type) {
+	case input.PointerMove:
+		if !t.lift.armed || t.lift.dragging || t.lift.key != r.key {
+			return false
+		}
+		if d := r.inTable(e.Pos, u).Sub(t.lift.at); d.X*d.X+d.Y*d.Y >= pickUp*pickUp {
+			t.startDrag(u)
+		}
+		return true
+	case input.PointerUp:
+		armed := t.lift.armed
+		if !t.lift.dragging {
+			t.lift = tableLift{}
+		}
+		return armed
+	case input.PointerDown:
+		if e.Button != input.ButtonPrimary {
+			return false
+		}
+		if i, ok := t.index[r.key]; ok {
+			t.cursor = i
+			u.Invalidate()
+		}
+		if e.Clicks == 2 && t.OnActivate != nil {
+			t.lift = tableLift{}
+			t.OnActivate(r.key, u)
+			return true
+		}
+		if t.DragRows != nil {
+			t.lift = tableLift{key: r.key, at: r.inTable(e.Pos, u), armed: true}
+		}
+		return true
 	}
-	if d.Clicks == 2 && t.OnActivate != nil {
-		t.OnActivate(r.key, u)
+	return false
+}
+
+// inTable returns p, in the row's space, in the table's.
+func (r *tableRow) inTable(p geom.Point, u *gunim.UI) geom.Point {
+	rb, ok1 := u.Bounds(r)
+	tb, ok2 := u.Bounds(r.t)
+	if !ok1 || !ok2 {
+		return p
 	}
-	return true
+	return p.Add(rb.Min.Sub(tb.Min))
+}
+
+// startDrag drags the row pressed, or the rows marked with it.
+func (t *Table) startDrag(u *gunim.UI) {
+	keys := []Key{t.lift.key}
+	if t.marked[t.lift.key] {
+		keys = t.Marked()
+	}
+	data, ghost, grab := t.DragRows(keys, t.lift.at)
+	if data == nil {
+		t.lift = tableLift{}
+		return
+	}
+	t.lift.dragging = true
+	u.StartDrag(t, data, ghost, grab)
+	u.Invalidate()
 }
