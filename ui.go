@@ -92,6 +92,26 @@ type App struct {
 // window on a chosen one.
 func (a *App) Monitors() []driver.Monitor { return a.drv.Monitors() }
 
+// Tray is an icon in the system tray with a menu; see [driver.Tray].
+type Tray = driver.Tray
+
+// TrayItem is a line of a tray icon's menu; see [driver.TrayItem].
+type TrayItem = driver.TrayItem
+
+// ErrNoTray says the platform has no tray to show an icon in.
+var ErrNoTray = driver.ErrNoTray
+
+// SetTray shows t in the system tray, in place of the icon shown before;
+// a Tray with no Icon takes it away. It returns ErrNoTray, or why the
+// icon could not be shown, where it cannot be.
+func (a *App) SetTray(t Tray) error {
+	tr, ok := a.drv.(driver.Trayer)
+	if !ok {
+		return ErrNoTray
+	}
+	return tr.SetTray(t)
+}
+
 // StayOpen keeps the application running after its last window
 // closes, as one that lives in the tray does, until it is turned off
 // again with no window open, or the application's context ends. It is

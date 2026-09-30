@@ -1,0 +1,52 @@
+package driver
+
+import (
+	"errors"
+	"image"
+)
+
+// ErrNoTray says the platform has no tray to show an icon in.
+var ErrNoTray = errors.New("there is no system tray here")
+
+// Tray is an icon in the system tray, the notification area on Windows,
+// with a menu, for an application that runs without a window in front.
+type Tray struct {
+	// Icon is the icon at several sizes, for the tray to pick from, and
+	// Tooltip what shows as the pointer rests on it.
+	Icon    []image.Image
+	Tooltip string
+	// Items are the lines of its menu.
+	Items []TrayItem
+	// OnPick runs with the ID of the line picked from the menu, and
+	// OnClick with a click on the icon itself, where the tray has one
+	// apart from the menu's. Both run on a goroutine of the driver's,
+	// and are to hand the work on rather than do it there.
+	OnPick  func(id int)
+	OnClick func()
+}
+
+// TrayItem is a line of a tray icon's menu: a command, a submenu, or a
+// line between groups.
+type TrayItem struct {
+	// Title is what the line says. ID is what OnPick hears when it is
+	// picked, and means nothing for a submenu or a separator.
+	Title string
+	ID    int
+	// Items make the line a submenu of them.
+	Items []TrayItem
+	// Checked ticks the line, Disabled greys it out, and Separator makes
+	// it a line between groups and nothing else.
+	Checked   bool
+	Disabled  bool
+	Separator bool
+	// Default draws the line in bold, as what a click on the icon does.
+	Default bool
+}
+
+// A Trayer is a [Driver] that can show a tray icon.
+type Trayer interface {
+	// SetTray shows t in place of the tray icon shown before, and a
+	// Tray with no Icon takes it away. It returns an error where the
+	// platform has no tray to show one in.
+	SetTray(t Tray) error
+}
