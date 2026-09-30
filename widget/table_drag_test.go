@@ -63,3 +63,14 @@ func TestATableDragsItsRows(t *testing.T) {
 		t.Fatalf("dragging a marked row dragged %v", dragged)
 	}
 }
+
+// Marks set from outside mark those rows alone, and only rows the
+// table holds.
+func TestATableTakesMarksFromOutside(t *testing.T) {
+	_, tbl, _, _ := newTableStage(t, 10)
+	tbl.marked["1"] = true
+	tbl.SetMarked([]Key{"3", "4", "nope"})
+	if got := tbl.Marked(); !slices.Equal(got, []Key{"3", "4"}) {
+		t.Fatalf("the rows marked are %v", got)
+	}
+}
