@@ -42,6 +42,20 @@ func (w *Window) RequestAttention() {
 	})
 }
 
+// ToFront implements [driver.Fronter].
+func (w *Window) ToFront() {
+	w.d.post(func() {
+		if w.closed {
+			return
+		}
+		if on, err := w.gw.GetAttrib(glfw.Iconified); err == nil && on != 0 {
+			_ = w.gw.Restore()
+		}
+		_ = w.gw.Show()
+		_ = w.gw.Focus()
+	})
+}
+
 // SetFullScreen implements [driver.FullScreener]. The window fills the
 // monitor its middle is on, at that monitor's own mode, and going back
 // puts it where it was, at the size it was.
