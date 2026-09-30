@@ -21,8 +21,8 @@ func TestATrayIconIsOnTheBusWithItsMenu(t *testing.T) {
 		t.Skip("no session bus:", err)
 	}
 	defer func() { _ = bus.Close() }()
-	if err := bus.Object(sniWatcher, sniWatcherAt).Call("org.freedesktop.DBus.Peer.Ping", 0).Err; err != nil {
-		t.Skip("no tray on the session bus:", err)
+	if e := bus.Object(sniWatcher, sniWatcherAt).Call("org.freedesktop.DBus.Peer.Ping", 0).Err; e != nil {
+		t.Skip("no tray on the session bus:", e)
 	}
 	picked := make(chan int, 1)
 	d := &Driver{}

@@ -116,6 +116,9 @@ func (d *Driver) Run(ctx context.Context, ready func()) error {
 	d.stopped = true
 	d.mu.Unlock()
 	d.runTasks()
+	// The tray's icon goes with the application, rather than staying in
+	// the tray until the pointer passes over it.
+	closeTray()
 	for _, w := range d.windows {
 		w.shutdown()
 	}
@@ -129,10 +132,12 @@ func (d *Driver) Run(ctx context.Context, ready func()) error {
 // StayOpen implements [driver.StayOpener].
 func (d *Driver) StayOpen(on bool) {
 	d.post(func() {
+		// Turning it off with none open ends the loop, once it was on:
+		// not before the first window opens.
+		if on {
+			d.opened = true
+		}
 		d.stayOpen = on
-		// Seen as a window having opened, so turning it off with none
-		// open ends the loop.
-		d.opened = true
 	})
 }
 
