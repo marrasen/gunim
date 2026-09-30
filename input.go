@@ -24,6 +24,7 @@ func (u *UI) handlePlatform(ev any) { u.handleOn(u.root, ev) }
 // menu keeps the keyboard while the menu is clicked.
 func (u *UI) handleOn(root *state, ev any) {
 	u.invalid = true
+	u.heldMods(ev)
 	if u.goingAway {
 		// A window on its way out takes nothing more.
 		return
@@ -207,6 +208,27 @@ func (u *UI) altTap(ev any) bool {
 		}
 	}
 	return false
+}
+
+// heldMods follows the modifier keys held from the input ev: what a press, a move or a key says, and a modifier's
+// own key going down or up.
+func (u *UI) heldMods(ev any) {
+	switch e := ev.(type) {
+	case input.PointerDown:
+		u.mods = e.Mods
+	case input.PointerUp:
+		u.mods = e.Mods
+	case input.PointerMove:
+		u.mods = e.Mods
+	case input.Scroll:
+		u.mods = e.Mods
+	case input.KeyPress:
+		u.mods = e.Mods | modKeys[e.Key]
+	case input.KeyRelease:
+		u.mods = e.Mods &^ modKeys[e.Key]
+	case input.WindowFocusLost:
+		u.mods = 0
+	}
 }
 
 // sideButton reports whether b is a mouse's back or forward button.

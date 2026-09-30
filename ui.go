@@ -909,6 +909,8 @@ type UI struct {
 	keyboardCue bool
 	ringed      []ringed
 	focusStep   int
+	// mods are the modifier keys held, as the last input said, for the intents sent.
+	mods input.Mods
 	// keyed says a key press is being delivered, so focus it moves is keyed, and clicking that a press is moving
 	// the focus.
 	keyed    bool
@@ -1242,12 +1244,12 @@ func (u *UI) Send(n Node, v Intent) bool {
 	if !ok && n != nil {
 		u.stray("Send", n)
 	}
-	u.post(Envelope{From: u.idOf(n), Intent: v})
+	u.post(Envelope{From: u.idOf(n), Intent: v, Mods: u.mods})
 	return ok || n == nil
 }
 
 // report sends a gunim-generated intent.
-func (u *UI) report(v Intent) { u.post(Envelope{Intent: v}) }
+func (u *UI) report(v Intent) { u.post(Envelope{Intent: v, Mods: u.mods}) }
 
 // post queues an envelope for the application.
 //

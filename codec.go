@@ -5,6 +5,8 @@ import (
 	json "encoding/json/v2"
 	"fmt"
 	"reflect"
+
+	"github.com/marrasen/gunim/input"
 )
 
 // wireOptions are the encoding rules for everything a socket transport
@@ -159,6 +161,7 @@ func UnmarshalCommand(data []byte) (Command, error) {
 type wireEnvelope struct {
 	From  ID
 	Value wireValue
+	Mods  input.Mods
 }
 
 // MarshalEnvelope encodes an intent for a socket transport. The intent
@@ -168,7 +171,7 @@ func MarshalEnvelope(e Envelope) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return encode(wireEnvelope{From: e.From, Value: v})
+	return encode(wireEnvelope{From: e.From, Value: v, Mods: e.Mods})
 }
 
 // UnmarshalEnvelope decodes what [MarshalEnvelope] produced.
@@ -181,5 +184,5 @@ func UnmarshalEnvelope(data []byte) (Envelope, error) {
 	if err != nil {
 		return Envelope{}, err
 	}
-	return Envelope{From: w.From, Intent: v}, nil
+	return Envelope{From: w.From, Intent: v, Mods: w.Mods}, nil
 }

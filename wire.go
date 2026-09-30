@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"reflect"
 	"sync"
+
+	"github.com/marrasen/gunim/input"
 )
 
 // An ID names a mounted view so that a [Command] can address it and an
@@ -164,6 +166,8 @@ type Envelope struct {
 	From ID
 	// Intent is the value the widget sent, as it sent it.
 	Intent Intent
+	// Mods are the modifier keys held as the intent was sent, such as Control for an item Ctrl+clicked.
+	Mods input.Mods
 }
 
 // An Intent is what a widget reports when the user does something the

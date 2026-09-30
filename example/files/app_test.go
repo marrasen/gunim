@@ -66,7 +66,7 @@ func (h *harness) pump() {
 			fn()
 			continue
 		case ev := <-h.w.Client().Intents():
-			h.a.handle(h.a.handlers, ev.Intent)
+			h.a.take(h.a.handlers, ev)
 			continue
 		default:
 		}

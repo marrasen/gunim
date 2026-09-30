@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/marrasen/gunim"
+	"github.com/marrasen/gunim/input"
 )
 
 // pollEvery is how often the folder showing is checked for changes.
@@ -31,8 +32,10 @@ type options struct {
 // app is the application half. Everything on it runs on the serve loop;
 // work done elsewhere comes back through done.
 type app struct {
-	ctx   context.Context
-	c     gunim.Client
+	ctx context.Context
+	c   gunim.Client
+	// mods are the modifier keys held as the intent being handled was sent.
+	mods  input.Mods
 	done  chan func()
 	trash trasher
 	// stopped closes once the serve loop has stopped reading done.
@@ -94,7 +97,7 @@ func serve(ctx context.Context, c gunim.Client, o options) error {
 				a.stopAll()
 				return c.Err()
 			}
-			a.handle(handlers, ev.Intent)
+			a.take(handlers, ev)
 		}
 	}
 }
@@ -157,6 +160,13 @@ func (a *app) startup(o options) {
 	}
 	a.startNav(o.dir)
 	a.nav.pick = o.pick
+}
+
+// take handles the intent ev carries, with the modifier keys held as it was sent.
+func (a *app) take(handlers []handler, ev gunim.Envelope) {
+	a.mods = ev.Mods
+	defer func() { a.mods = 0 }()
+	a.handle(handlers, ev.Intent)
 }
 
 func (a *app) handle(handlers []handler, in gunim.Intent) {

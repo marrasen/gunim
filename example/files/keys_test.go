@@ -1,12 +1,15 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/marrasen/gunim"
+	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/widget"
 )
@@ -204,4 +207,52 @@ func TestTypingAtTheListingGoesToTheNameTyped(t *testing.T) {
 	h.frames(70)
 	typeText("a")
 	h.until("after a pause, a goes to apple", func() bool { return h.a.nav.cursor == "apple.txt" })
+}
+
+func TestCtrlAndAClickOpenAFolderInANewWindow(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "a", "b")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var opened []string
+	hb := &hub{open: func(dir string) error {
+		mu.Lock()
+		defer mu.Unlock()
+		opened = append(opened, dir)
+		return nil
+	}}
+	h := openHarness(t, hb, root, dir)
+	got := func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return slices.Clone(opened)
+	}
+	click := func(at geom.Point, mods input.Mods) {
+		h.w.Input(input.PointerMove{Pos: at, Mods: mods, Time: time.Now()})
+		h.w.Input(input.PointerDown{Pos: at, Button: input.ButtonPrimary, Clicks: 1, Mods: mods, Time: time.Now()})
+		h.w.Input(input.PointerUp{Pos: at, Button: input.ButtonPrimary, Mods: mods, Time: time.Now()})
+		h.frames(2)
+	}
+	up := h.bounds(func(b *browser) gunim.Node { return b.path.up })
+	click(up.Center(), input.ModControl)
+	h.until("Ctrl and Up ask for the parent in a new window", func() bool {
+		o := got()
+		return len(o) == 1 && samePath(o[0], filepath.Join(root, "a"))
+	})
+	if !samePath(h.a.nav.path, dir) {
+		t.Fatalf("Ctrl and Up moved this window to %s", h.a.nav.path)
+	}
+	// A folder of the path, Ctrl+clicked
+	places := h.places()
+	a := places[len(places)-2]
+	click(geom.Pt(a.Rect.Min.X+8, a.Rect.Center().Y), input.ModControl)
+	h.until("Ctrl and a folder of the path ask for it in a new window", func() bool { return len(got()) == 2 })
+	// A plain click on Up goes up here
+	click(up.Center(), 0)
+	h.until("a plain click on Up goes up in this window", func() bool { return samePath(h.a.nav.path, filepath.Join(root, "a")) })
+	if len(got()) != 2 {
+		t.Fatalf("a plain click asked for a window: %v", got())
+	}
 }

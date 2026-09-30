@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/marrasen/gunim"
+	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/widget"
 )
 
@@ -91,6 +92,10 @@ func (a *app) handleNav(in gunim.Intent) bool {
 	case Typed:
 		a.typed(v)
 	case Navigate:
+		if a.newWindowAsked() {
+			a.openWindow(v.Path)
+			break
+		}
 		a.navigate(v.Path, 0, true)
 	case SortClicked:
 		a.sortBy(SortBy(v.Column), true)
@@ -127,6 +132,10 @@ func (a *app) navCommand(name string) bool {
 		}
 	case CmdUp:
 		if parent := filepath.Dir(n.path); parent != n.path {
+			if a.newWindowAsked() {
+				a.openWindow(parent)
+				break
+			}
 			from := filepath.Base(n.path)
 			a.navigate(parent, -1, true)
 			n.pick = from
@@ -517,6 +526,10 @@ func (a *app) publishSelection() {
 	a.patch(s)
 }
 
+// newWindowAsked reports whether the folder the intent being handled opens goes in a new window: Ctrl was held, as in
+// Explorer.
+func (a *app) newWindowAsked() bool { return a.mods.Has(input.ModControl) }
+
 // typed selects the item the text typed at the listing names, as Explorer does.
 func (a *app) typed(v Typed) {
 	n := &a.nav
@@ -564,6 +577,10 @@ func (a *app) selectedPaths() []string {
 // activate opens e: a folder in the window, and a file with its program.
 func (a *app) activate(e entry) {
 	path := filepath.Join(a.nav.path, e.Name)
+	if e.Dir && a.newWindowAsked() {
+		a.openWindow(path)
+		return
+	}
 	if e.Dir {
 		a.navigate(path, 1, true)
 		return
