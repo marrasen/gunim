@@ -126,6 +126,16 @@ func (d *Driver) Run(ctx context.Context, ready func()) error {
 	return errors.Join(err, glfw.Terminate())
 }
 
+// StayOpen implements [driver.StayOpener].
+func (d *Driver) StayOpen(on bool) {
+	d.post(func() {
+		d.stayOpen = on
+		// Seen as a window having opened, so turning it off with none
+		// open ends the loop.
+		d.opened = true
+	})
+}
+
 // post queues f for the main thread and wakes the event loop.
 //
 // The wake-up happens under the lock that Run takes to stop, so Run
