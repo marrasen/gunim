@@ -92,6 +92,16 @@ type App struct {
 // window on a chosen one.
 func (a *App) Monitors() []driver.Monitor { return a.drv.Monitors() }
 
+// StayOpen keeps the application running after its last window
+// closes, as one that lives in the tray does, until it is turned off
+// again with no window open, or the application's context ends. It is
+// off to begin with: the last window closing ends the application.
+func (a *App) StayOpen(on bool) {
+	if s, ok := a.drv.(driver.StayOpener); ok {
+		s.StayOpen(on)
+	}
+}
+
 // WindowOptions describes a window to open.
 type WindowOptions struct {
 	Title   string

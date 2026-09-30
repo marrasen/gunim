@@ -77,6 +77,13 @@ type Driver interface {
 	Monitors() []Monitor
 }
 
+// A StayOpener is a [Driver] that can keep running after its last
+// window closes, until StayOpen(false) with no window open, or its
+// context ends.
+type StayOpener interface {
+	StayOpen(on bool)
+}
+
 // Options describes a window to open.
 type Options struct {
 	Title   string
