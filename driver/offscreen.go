@@ -80,11 +80,12 @@ type OffscreenWindow struct {
 	// workArea is the pretend screen's work area, in screen space, for
 	// the room it leaves a popup; see SetWorkArea.
 	workArea geom.Rect
-	// title, full, attention and border are what the application last
-	// asked of the window's frame.
+	// title, full, attention, raised and border are what the
+	// application last asked of the window's frame.
 	title     string
 	full      bool
 	attention int
+	raised    int
 	border    Border
 
 	presented chan Frame
@@ -158,6 +159,20 @@ func (w *OffscreenWindow) RequestAttention() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.attention++
+}
+
+// ToFront implements [Fronter].
+func (w *OffscreenWindow) ToFront() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.raised++
+}
+
+// Raised returns how many times the window was brought to the front.
+func (w *OffscreenWindow) Raised() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.raised
 }
 
 // Attention returns how many times attention was asked for.

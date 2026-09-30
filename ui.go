@@ -415,6 +415,15 @@ func (c Client) Err() error { return c.w.err }
 // Close shuts the window down.
 func (c Client) Close() { c.w.Close() }
 
+// ToFront brings the window to the front with the keyboard, shown again
+// first if it was minimized, where the platform can. It may be called
+// from any goroutine.
+func (c Client) ToFront() {
+	if f, ok := c.w.dw.(driver.Fronter); ok {
+		f.ToFront()
+	}
+}
+
 // Leave closes the window the way an application quitting does: its
 // content shrinks a little and fades, over [LeaveTime], and then the
 // window closes, as [Client.Close] does. Input is ignored meanwhile, and
@@ -1215,6 +1224,14 @@ func (u *UI) FullScreen() bool {
 func (u *UI) RequestAttention() {
 	if a, ok := u.w.dw.(driver.Attender); ok {
 		a.RequestAttention()
+	}
+}
+
+// ToFront brings the window to the front with the keyboard, shown again
+// first if it was minimized, where the platform can.
+func (u *UI) ToFront() {
+	if f, ok := u.w.dw.(driver.Fronter); ok {
+		f.ToFront()
 	}
 }
 

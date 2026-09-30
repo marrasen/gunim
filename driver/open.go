@@ -184,6 +184,15 @@ type Attender interface {
 	RequestAttention()
 }
 
+// A Fronter is a [Window] that can come to the front with the keyboard,
+// shown again first if it was minimized: one of an application's
+// windows the user asked for from another. Where the platform keeps a
+// program in the background from taking the keyboard, it asks for the
+// user's attention instead.
+type Fronter interface {
+	ToFront()
+}
+
 // A Framer is a [Window] opened with [Options.Chromeless]: its
 // application draws the title bar, and the system goes on moving,
 // sizing and maximizing it as it would by its own.
