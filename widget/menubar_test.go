@@ -118,9 +118,14 @@ func TestTheKeysPassACaptionBy(t *testing.T) {
 	if m.Highlighted() != 1 {
 		t.Fatalf("Down from nothing highlighted %d, want Right, past the caption", m.Highlighted())
 	}
+	// Up from the first item goes round to the last, as on Windows, and Down comes back round
 	m.Key(input.KeyPress{Key: input.KeyUp}, nil)
+	if m.Highlighted() != 2 {
+		t.Fatalf("Up from the first item moved to %d, want round to Down, the last", m.Highlighted())
+	}
+	m.Key(input.KeyPress{Key: input.KeyDown}, nil)
 	if m.Highlighted() != 1 {
-		t.Fatalf("Up from the first item moved to %d, want it to stay", m.Highlighted())
+		t.Fatalf("Down from the last item moved to %d, want round to Right, past the caption", m.Highlighted())
 	}
 }
 

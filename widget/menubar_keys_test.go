@@ -156,3 +156,15 @@ func TestHeldAltUnderlinesTheTitles(t *testing.T) {
 		t.Fatalf("with Alt held the bar drew %d ops, want %d: two more for the underlines", cued, plain+2)
 	}
 }
+
+func TestAltAndATitleThenUpGoesToTheMenusLastItem(t *testing.T) {
+	w, b, _, _, run := newBarStage(t)
+	w.Input(input.KeyPress{Key: input.KeyLeftAlt, Mods: input.ModAlt})
+	key(w, run, input.KeyF, input.ModAlt)
+	w.Input(input.KeyRelease{Key: input.KeyLeftAlt})
+	run(1)
+	key(w, run, input.KeyUp, 0)
+	if b.open != 0 || b.menu.Highlighted() != 2 {
+		t.Fatalf("Alt+F and Up left menu %d open with item %d lit; want File's last, Quit", b.open, b.menu.Highlighted())
+	}
+}

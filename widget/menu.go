@@ -115,6 +115,23 @@ func (m *Menu) step(from, i, dir int) int {
 	return from
 }
 
+// around returns the next enabled item from the highlight, going dir, and round from one end to the other, as menus
+// do on Windows. With nothing highlighted, Down starts at the first item and Up at the last.
+func (m *Menu) around(dir int) int {
+	n := len(m.Items)
+	at := m.hot
+	if at < 0 && dir < 0 {
+		at = n
+	}
+	for k := 1; k <= n; k++ {
+		i := ((at+dir*k)%n + n) % n
+		if m.enabled(i) {
+			return i
+		}
+	}
+	return m.hot
+}
+
 // Highlight moves the highlight to item i, gliding from where it was.
 // A negative i, or a disabled item, takes it away.
 func (m *Menu) Highlight(i int) {
@@ -149,13 +166,9 @@ func (m *Menu) Key(k input.KeyPress, u *gunim.UI) bool {
 	defer m.toldUnlessPicked(m.hot, m.picks, u)
 	switch k.Key {
 	case input.KeyDown:
-		m.Highlight(m.step(m.hot, m.hot+1, 1))
+		m.Highlight(m.around(1))
 	case input.KeyUp:
-		if m.hot < 0 {
-			m.Highlight(m.step(m.hot, len(m.Items)-1, -1))
-		} else {
-			m.Highlight(m.step(m.hot, m.hot-1, -1))
-		}
+		m.Highlight(m.around(-1))
 	case input.KeyHome:
 		m.Highlight(m.step(m.hot, 0, 1))
 	case input.KeyEnd:
