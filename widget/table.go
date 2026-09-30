@@ -258,6 +258,17 @@ func (t *Table) Marked() []Key {
 // ClearMarks unmarks every row.
 func (t *Table) ClearMarks() { clear(t.marked) }
 
+// SetMarked marks the rows keys, and no others; a key the table does
+// not hold is left out.
+func (t *Table) SetMarked(keys []Key) {
+	clear(t.marked)
+	for _, k := range keys {
+		if _, ok := t.index[k]; ok {
+			t.marked[k] = true
+		}
+	}
+}
+
 func (t *Table) move(i int, u *gunim.UI) {
 	if len(t.keys) == 0 {
 		return
