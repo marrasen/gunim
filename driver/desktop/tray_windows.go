@@ -24,10 +24,14 @@ func (d *Driver) SetTray(t driver.Tray) error {
 	}
 	done := make(chan error, 1)
 	if !d.post(func() { done <- glfw.SetTrayIcon(icon) }) {
-		return driver.ErrNoTray
+		return errClosed
 	}
 	return <-done
 }
+
+// closeTray takes the icon away, as the application ends, on the main
+// thread.
+func closeTray() { glfw.CloseTrayIcon() }
 
 // trayItems are a menu's lines as glfw has them.
 func trayItems(items []driver.TrayItem) []glfw.TrayMenuItem {

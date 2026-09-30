@@ -1,8 +1,11 @@
 package glfw
 
 import (
+	"errors"
 	"image"
 	"image/draw"
+	"strings"
+	"unicode/utf16"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -44,6 +47,8 @@ const (
 	ninSelect     = 0x400
 	ninKeySelect  = 0x401
 	wmContextMenu = 0x007b
+	wsPopup       = 0x80000000
+	wsExTool      = 0x00000080
 
 	mfString    = 0x0
 	mfGrayed    = 0x1
@@ -104,7 +109,8 @@ type trayState struct {
 
 // SetTrayIcon shows t in the notification area in place of the icon
 // shown before, or takes it away when t is nil. It must be called on
-// the main thread.
+// the main thread. An icon the taskbar would not take, as one not up
+// yet at login, is tried again when Explorer says the taskbar is.
 func SetTrayIcon(t *TrayIcon) error {
 	if !_glfw.initialized {
 		return NotInitialized
@@ -124,6 +130,14 @@ func SetTrayIcon(t *TrayIcon) error {
 		trayNow = s
 	}
 	return trayNow.show(*t)
+}
+
+// CloseTrayIcon takes the icon away, as the application ends.
+func CloseTrayIcon() {
+	if trayNow != nil {
+		trayNow.remove()
+		trayNow = nil
+	}
 }
 
 func newTrayState() (*trayState, error) {
@@ -146,7 +160,11 @@ func newTrayState() (*trayState, error) {
 			trayTaskbarCreated = uint32(r)
 		}
 	}
-	h, err := _CreateWindowExW(0, trayClassName, "", 0, 0, 0, 0, 0, trayHWNDMessage, 0, _glfw.platformWindow.instance, nil)
+	// A hidden window of the top level, not one for messages alone: the
+	// taskbar's TaskbarCreated reaches only the top level, and the menu
+	// closes on a click elsewhere only when its window can come to the
+	// front.
+	h, err := _CreateWindowExW(wsExTool, trayClassName, "", wsPopup, 0, 0, 0, 0, 0, 0, _glfw.platformWindow.instance, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -157,8 +175,15 @@ func newTrayState() (*trayState, error) {
 func (s *trayState) data(flags uint32) *notifyIconData {
 	d := &notifyIconData{hWnd: s.hwnd, uID: 1, uFlags: flags, uCallbackMessage: trayMessage, hIcon: s.icon}
 	d.cbSize = uint32(unsafe.Sizeof(*d))
-	tip, _ := windows.UTF16FromString(s.t.Tooltip)
-	copy(d.szTip[:len(d.szTip)-1], tip)
+	// Cut at a whole character, and never at half of one.
+	tip := utf16.Encode([]rune(strings.ReplaceAll(s.t.Tooltip, "\x00", "")))
+	if len(tip) > len(d.szTip)-1 {
+		tip = tip[:len(d.szTip)-1]
+		if n := len(tip); n > 0 && utf16.IsSurrogate(rune(tip[n-1])) {
+			tip = tip[:n-1]
+		}
+	}
+	copy(d.szTip[:], tip)
 	return d
 }
 
@@ -202,28 +227,37 @@ func (s *trayState) remove() {
 func shellNotify(msg uint32, d *notifyIconData) error {
 	r, _, e := procShellNotifyIconW.Call(uintptr(msg), uintptr(unsafe.Pointer(d)))
 	if r == 0 {
+		if errno, ok := e.(windows.Errno); ok && errno == 0 {
+			return errors.New("glfw: the taskbar did not take the tray icon")
+		}
 		return e
 	}
 	return nil
 }
 
-// trayImage is the image nearest the size of a small icon, as glfw
-// has images, or nil for none.
+// trayImage is the smallest image as big as a small icon, or else the
+// biggest, as glfw has images, or nil for none: shrunk, an image stays
+// sharp, and grown it blurs.
 func trayImage(images []image.Image) *Image {
 	want := 16
 	if n, err := _GetSystemMetrics(_SM_CXSMICON); err == nil && n > 0 {
 		want = int(n)
 	}
 	var best image.Image
-	gap := func(m image.Image) int {
-		d := m.Bounds().Dx() - want
-		if d < 0 {
-			return -d
+	better := func(m image.Image) bool {
+		w, b := m.Bounds().Dx(), best.Bounds().Dx()
+		switch {
+		case w >= want && b >= want:
+			return w < b
+		case w >= want:
+			return true
+		case b >= want:
+			return false
 		}
-		return d
+		return w > b
 	}
 	for _, m := range images {
-		if m.Bounds().Dx() > 0 && m.Bounds().Dy() > 0 && (best == nil || gap(m) < gap(best)) {
+		if m.Bounds().Dx() > 0 && m.Bounds().Dy() > 0 && (best == nil || better(m)) {
 			best = m
 		}
 	}
@@ -242,14 +276,17 @@ func trayProc(hWnd windows.HWND, uMsg uint32, wParam _WPARAM, lParam _LPARAM) ui
 	switch {
 	case s == nil || s.hwnd != hWnd:
 	case uMsg == trayMessage:
+		// Under NOTIFYICON_VERSION_4 a click ends in NIN_SELECT, and a
+		// right click in WM_CONTEXTMENU, each after its button's own
+		// messages: those alone are heard, or one click would act twice.
 		switch uint32(lParam) & 0xffff {
-		case ninSelect, ninKeySelect, _WM_LBUTTONUP:
+		case ninSelect, ninKeySelect:
 			if s.t.OnClick != nil {
 				s.t.OnClick()
 				return 0
 			}
 			s.showMenu(int32(int16(wParam&0xffff)), int32(int16(wParam>>16&0xffff)))
-		case wmContextMenu, _WM_RBUTTONUP:
+		case wmContextMenu:
 			s.showMenu(int32(int16(wParam&0xffff)), int32(int16(wParam>>16&0xffff)))
 		}
 		return 0
@@ -272,7 +309,8 @@ func (s *trayState) showMenu(x, y int32) {
 	build = func(items []TrayMenuItem) uintptr {
 		m, _, _ := procCreatePopupMenu.Call()
 		for _, it := range items {
-			title, _ := windows.UTF16PtrFromString(it.Title)
+			// An ampersand marks a menu's access key; one meant is two.
+			title, _ := windows.UTF16PtrFromString(strings.ReplaceAll(strings.ReplaceAll(it.Title, "\x00", ""), "&", "&&"))
 			switch {
 			case it.Separator:
 				_, _, _ = procAppendMenuW.Call(m, mfSeparator, 0, 0)

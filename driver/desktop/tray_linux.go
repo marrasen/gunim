@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"image"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -52,6 +54,16 @@ type sniTray struct {
 	// id's children, the root's under 0.
 	items map[int32]driver.TrayItem
 	kids  map[int32][]int32
+}
+
+// closeTray takes the icon off the bus, as the application ends.
+func closeTray() {
+	tray.mu.Lock()
+	defer tray.mu.Unlock()
+	if tray.s != nil {
+		tray.s.close()
+		tray.s = nil
+	}
 }
 
 // SetTray implements [driver.Trayer].
@@ -110,17 +122,45 @@ func newSNITray(t driver.Tray) (*sniTray, error) {
 	if reply, err := conn.RequestName(s.name, dbus.NameFlagDoNotQueue); err != nil || reply != dbus.RequestNameReplyPrimaryOwner {
 		return fail(fmt.Errorf("could not take the name %s", s.name))
 	}
-	if err := conn.Object(sniWatcher, sniWatcherAt).Call(sniWatcher+".RegisterStatusNotifierItem", 0, s.name).Err; err != nil {
+	if err := s.register(); err != nil {
 		return fail(err)
 	}
+	s.watchWatcher()
 	return s, nil
+}
+
+// register hands the item to the watcher.
+func (s *sniTray) register() error {
+	return s.conn.Object(sniWatcher, sniWatcherAt).Call(sniWatcher+".RegisterStatusNotifierItem", 0, s.name).Err
+}
+
+// watchWatcher hands the item to the watcher again each time one comes
+// on the bus, as when the panel restarts: a new one knows nothing of
+// the items the last one had.
+func (s *sniTray) watchWatcher() {
+	if err := s.conn.AddMatchSignal(dbus.WithMatchInterface("org.freedesktop.DBus"), dbus.WithMatchMember("NameOwnerChanged"),
+		dbus.WithMatchArg(0, sniWatcher)); err != nil {
+		return
+	}
+	signals := make(chan *dbus.Signal, 8)
+	s.conn.Signal(signals)
+	go func() {
+		for sig := range signals {
+			if sig.Name != "org.freedesktop.DBus.NameOwnerChanged" || len(sig.Body) < 3 {
+				continue
+			}
+			if owner, _ := sig.Body[2].(string); owner != "" {
+				_ = s.register()
+			}
+		}
+	}()
 }
 
 // itemProps are the item's properties for t.
 func (s *sniTray) itemProps(t driver.Tray) map[string]*prop.Prop {
 	return map[string]*prop.Prop{
 		"Category":   {Value: "ApplicationStatus"},
-		"Id":         {Value: "gunim-tray"},
+		"Id":         {Value: programID()},
 		"Title":      {Value: t.Tooltip},
 		"Status":     {Value: "Active"},
 		"WindowId":   {Value: int32(0)},
@@ -130,6 +170,17 @@ func (s *sniTray) itemProps(t driver.Tray) map[string]*prop.Prop {
 		"ItemIsMenu": {Value: t.OnClick == nil},
 		"Menu":       {Value: sniMenuPath},
 	}
+}
+
+// programID names the item after the program, as a panel keeps what it
+// knows of an item, such as whether it shows, by that.
+func programID() string {
+	name := filepath.Base(os.Args[0])
+	name = strings.TrimSuffix(name, filepath.Ext(name))
+	if name == "" || name == "." {
+		return "gunim"
+	}
+	return name
 }
 
 // update shows t in place of what the item showed.
@@ -265,7 +316,8 @@ func (s *sniTray) lineProps(id int32) map[string]dbus.Variant {
 		out["type"] = dbus.MakeVariant("separator")
 		return out
 	}
-	out["label"] = dbus.MakeVariant(it.Title)
+	// An underscore marks a menu's access key; one meant is two.
+	out["label"] = dbus.MakeVariant(strings.ReplaceAll(it.Title, "_", "__"))
 	out["enabled"] = dbus.MakeVariant(!it.Disabled)
 	if len(it.Items) > 0 {
 		out["children-display"] = dbus.MakeVariant("submenu")
@@ -320,7 +372,7 @@ func (m sniMenu) GetProperty(id int32, name string) (dbus.Variant, *dbus.Error) 
 	if v, ok := m.s.lineProps(id)[name]; ok {
 		return v, nil
 	}
-	return dbus.MakeVariant(""), nil
+	return dbus.Variant{}, dbus.NewError("com.canonical.dbusmenu.Error", []any{"no such property: " + name})
 }
 
 // Event hears a line clicked.

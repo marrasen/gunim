@@ -138,7 +138,8 @@ func (a *App) RegisterHotKey(k HotKey, fn func()) (release func(), err error) {
 // StayOpen keeps the application running after its last window
 // closes, as one that lives in the tray does, until it is turned off
 // again with no window open, or the application's context ends. It is
-// off to begin with: the last window closing ends the application.
+// off to begin with: the last window closing ends the application. The
+// function Main runs ending ends the application whatever this says.
 func (a *App) StayOpen(on bool) {
 	if s, ok := a.drv.(driver.StayOpener); ok {
 		s.StayOpen(on)
