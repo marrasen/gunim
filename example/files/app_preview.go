@@ -45,6 +45,8 @@ type previewState struct {
 	// subject is what the pane shows, so a selection that changes back
 	// and forth costs nothing.
 	subject string
+	// fetch is the path of a file kept online only that the user asked to download to preview.
+	fetch string
 }
 
 func (p *previewState) stop() {
@@ -58,6 +60,9 @@ func (a *app) handlePreview(in gunim.Intent) bool {
 	switch v := in.(type) {
 	case RevealPath:
 		a.reveal(v.Path)
+	case FetchPreview:
+		a.preview.fetch, a.preview.subject = v.Path, ""
+		a.showPreview()
 	case Command:
 		if v.Name != CmdReveal {
 			return false
@@ -125,7 +130,7 @@ func (a *app) showPreview() {
 			case <-ctx.Done():
 				return
 			}
-			pv := itemPreview(ctx, seq, path, e)
+			pv := itemPreview(ctx, seq, path, e, a.preview.fetch == path)
 			if ctx.Err() != nil {
 				return
 			}
@@ -168,8 +173,9 @@ func manyPreview(seq int, sel []entry) Preview {
 	return pv
 }
 
-// itemPreview reads what the pane shows for the item at path.
-func itemPreview(ctx context.Context, seq int, path string, e entry) Preview {
+// itemPreview reads what the pane shows for the item at path. A file kept online only is read, and so downloaded,
+// only when fetch says the user asked.
+func itemPreview(ctx context.Context, seq int, path string, e entry, fetch bool) Preview {
 	pv := Preview{Seq: seq, Title: e.Name, Type: e.Type, Path: path, Tint: tintOf(e)}
 	if !e.Dir {
 		size := humanBytes(e.Size)
@@ -192,6 +198,15 @@ func itemPreview(ctx context.Context, seq int, path string, e entry) Preview {
 	case e.Dir:
 		pv.Counting = true
 	case e.Broken:
+	case e.Online && !fetch:
+		pv.Online = true
+		img, err := cachedShellThumb(path, thumbSize)
+		switch {
+		case err != nil:
+			pv.Err = err.Error()
+		case img != nil:
+			pv.Image = paint.NewImageFit(img, thumbSize, thumbSize)
+		}
 	case tintOf(e) == TintImage:
 		img, size, err := thumbnail(path, e.Size)
 		switch {

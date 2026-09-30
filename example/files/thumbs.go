@@ -63,10 +63,12 @@ type thumbDone struct {
 	err  error
 }
 
-// thumbJob is a thumbnail to make.
+// thumbJob is a thumbnail to make. online says the file keeps its contents online only, so the thumbnail comes from
+// the system's cache or not at all.
 type thumbJob struct {
 	key       thumbKey
 	dir, name string
+	online    bool
 }
 
 // thumbState is the thumbnails the app has made, and those waiting for a worker.
@@ -157,7 +159,7 @@ func (a *app) needThumbs(v NeedThumbs) {
 			continue
 		}
 		job := thumbJob{key: thumbKey{path: filepath.Join(n.path, e.Name), size: size, mod: e.Mod.UnixNano()},
-			dir: n.path, name: e.Name}
+			dir: n.path, name: e.Name, online: e.Online}
 		if done, ok := t.cache[job.key]; ok {
 			a.sendThumb(job, done)
 			continue
@@ -177,7 +179,7 @@ func (a *app) pumpThumbs() {
 		t.queue = t.queue[1:]
 		t.busy[job.key] = true
 		go func() {
-			img, full, err := makeThumb(job.key.path, job.key.size)
+			img, full, err := makeThumb(job.key.path, job.key.size, job.online)
 			a.post(func() { a.thumbMade(job, thumbDone{img: img, full: full, err: err}) })
 		}()
 	}
@@ -229,7 +231,15 @@ func (a *app) cachedThumb(path string, mod int64) (*paint.Image, image.Point) {
 }
 
 // makeThumb reads the picture at path and makes it at most size pixels across, and returns the picture's own size.
-func makeThumb(path string, size int) (*paint.Image, image.Point, error) {
+// A file kept online only is not read: its thumbnail is the one the system keeps, if any, and its size is unknown.
+func makeThumb(path string, size int, online bool) (*paint.Image, image.Point, error) {
+	if online {
+		img, err := cachedShellThumb(path, size)
+		if err != nil || img == nil {
+			return nil, image.Point{}, err
+		}
+		return paint.NewImageFit(img, size, size), image.Point{}, nil
+	}
 	img, full, err := decodePicture(path)
 	if err != nil {
 		return nil, full, err

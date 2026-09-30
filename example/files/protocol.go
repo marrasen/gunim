@@ -53,11 +53,13 @@ type Listing struct {
 
 // Row is one entry as the grid shows it.
 type Row struct {
-	Name     string
-	Kind     Kind
-	Dir      bool
-	Hidden   bool
-	Broken   bool
+	Name   string
+	Kind   Kind
+	Dir    bool
+	Hidden bool
+	Broken bool
+	// Online says the file's contents are online only.
+	Online   bool
 	Size     string
 	Modified string
 	Type     string

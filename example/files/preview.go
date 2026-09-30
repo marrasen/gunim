@@ -6,6 +6,7 @@ import (
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/text"
 	"github.com/marrasen/gunim/widget"
@@ -113,6 +114,15 @@ func newPreviewPage(s Preview) *previewPage {
 		links := &linkWrap{Wrap: widget.NewWrap(), kids: []gunim.Node{reveal, copyPath}}
 		links.Gap = sideGap
 		kids = append(kids, links)
+	}
+	if s.Online {
+		note := widget.NewLabel("This file is kept online only. Download it to preview it.")
+		note.Color, note.Size = Faint, SmallText
+		fetch := widget.NewButton("Download")
+		fetch.Icon = icon.CloudDownload
+		fetch.On = FetchPreview{Path: s.Path}
+		row := widget.Row(fetch, widget.NewSpacer())
+		kids = append(kids, note, row)
 	}
 	if s.Err != "" {
 		e := widget.NewLabel(s.Err)

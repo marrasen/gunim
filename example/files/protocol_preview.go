@@ -28,6 +28,9 @@ type Preview struct {
 	Cut   bool
 	// Counting is set while a folder's contents are still being counted.
 	Counting bool
+	// Online says the file's contents are online only, and the preview left them there: reading them would download
+	// the file. Image may still be the thumbnail the system keeps.
+	Online bool
 	// Err says why the preview is incomplete.
 	Err string
 }
@@ -41,6 +44,11 @@ type Counted struct {
 	Err      string
 }
 
+// FetchPreview asks to download the file at Path, kept online only, and preview it.
+type FetchPreview struct {
+	Path string
+}
+
 // RevealPath asks to show a path in the system's file manager.
 type RevealPath struct {
 	Path string
@@ -50,4 +58,5 @@ func init() {
 	gunim.RegisterType[Preview]("files.preview")
 	gunim.RegisterType[Counted]("files.counted")
 	gunim.RegisterType[RevealPath]("files.reveal")
+	gunim.RegisterType[FetchPreview]("files.fetchpreview")
 }

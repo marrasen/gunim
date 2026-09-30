@@ -60,14 +60,14 @@ func TestADecodeErrorReachesTheTile(t *testing.T) {
 
 func TestAPictureThatCannotBeOpenedSaysSo(t *testing.T) {
 	dir := t.TempDir()
-	_, _, err := makeThumb(filepath.Join(dir, "gone.png"), 128)
+	_, _, err := makeThumb(filepath.Join(dir, "gone.png"), 128, false)
 	if err == nil || !os.IsNotExist(unwrapAll(err)) {
 		t.Fatalf("a missing picture gave %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "cut.png"), []byte("\x89PNG\r\n\x1a\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := makeThumb(filepath.Join(dir, "cut.png"), 128); err == nil {
+	if _, _, err := makeThumb(filepath.Join(dir, "cut.png"), 128, false); err == nil {
 		t.Fatal("a picture cut short made a thumbnail")
 	}
 }

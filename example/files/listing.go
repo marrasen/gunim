@@ -7,6 +7,7 @@ import (
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/widget"
 )
@@ -357,6 +358,9 @@ func (pg *listingPage) row(i int) (widget.GridRow, bool) {
 	}
 	if r.Kind == KindLink {
 		name = append(name, widget.GridSpan{Text: "  ↗", Ink: Caption})
+	}
+	if r.Online {
+		name = append(name, widget.GridSpan{Text: "  "}, widget.GridSpan{Icon: icon.Cloud, Ink: Caption})
 	}
 	if r.Dir {
 		name[2].Face = widget.BoldFont

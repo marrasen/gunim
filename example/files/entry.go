@@ -31,6 +31,8 @@ type entry struct {
 	Size   int64
 	Mod    time.Time
 	Hidden bool
+	// Online says the file keeps its contents online only, with a cloud provider, so reading them downloads them.
+	Online bool
 	// Broken is set for a link whose target is missing, and for an item
 	// that cannot be read.
 	Broken bool
@@ -123,6 +125,7 @@ func makeEntry(dir string, info fs.FileInfo) entry {
 		}
 	default:
 		e.Type = typeLabel(name)
+		e.Online = onlineOnly(info)
 	}
 	return e
 }

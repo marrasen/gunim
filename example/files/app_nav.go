@@ -404,7 +404,7 @@ func (a *app) sendRows(v NeedRows) {
 
 // rowOf is how the grid shows e.
 func rowOf(e entry) Row {
-	r := Row{Name: e.Name, Kind: e.Kind, Dir: e.Dir, Hidden: e.Hidden, Broken: e.Broken, Type: e.Type,
+	r := Row{Name: e.Name, Kind: e.Kind, Dir: e.Dir, Hidden: e.Hidden, Broken: e.Broken, Online: e.Online, Type: e.Type,
 		Modified: e.Mod.Format("2006-01-02 15:04"), Tint: tintOf(e)}
 	if !e.Dir && !e.Broken {
 		r.Size = humanBytes(e.Size)
