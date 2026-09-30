@@ -169,3 +169,26 @@ func TestThemedGivesItsSubtreeItsOwnTheme(t *testing.T) {
 		t.Fatalf("handled with %v inside, want red", inside.handled)
 	}
 }
+
+func TestFocusingADialogFromCodeLeavesTheKeyboardInItsField(t *testing.T) {
+	host := &frame{child: NewSpacer(), size: geom.Sz(800, 600)}
+	w, run := stage(t, host)
+	field := NewTextField()
+	d := NewDialog("Go to a folder")
+	d.Body = NewForm().Add("Folder", field)
+	type open struct{}
+	gunim.RegisterPatch(w, "stage", func(_ gunim.Node, _ open, u *gunim.UI) {
+		// As an application does that inserts a dialog and then focuses it
+		u.Insert(host, d)
+		u.Focus(d)
+	})
+	if err := w.Client().Patch("stage", open{}); err != nil {
+		t.Fatal(err)
+	}
+	run(5)
+	w.Input(input.TextInput{Text: "rd"})
+	run(1)
+	if field.Text() != "rd" {
+		t.Fatalf("typing reached the field as %q, want the dialog to have left the keyboard in it", field.Text())
+	}
+}

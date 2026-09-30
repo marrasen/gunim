@@ -267,7 +267,9 @@ func (u *UI) focusAt(p geom.Point) {
 	for s := target; s != nil; s = s.parent {
 		if f, ok := s.node.(Focusable); ok && f.Focusable() {
 			if pf, ok := s.node.(PressFocuser); !ok || pf.FocusOnPress() {
+				u.clicking = true
 				u.Focus(s.node)
+				u.clicking = false
 			}
 			return
 		}

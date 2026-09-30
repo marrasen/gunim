@@ -909,8 +909,10 @@ type UI struct {
 	keyboardCue bool
 	ringed      []ringed
 	focusStep   int
-	// keyed says a key press is being delivered, so focus it moves is keyed.
-	keyed bool
+	// keyed says a key press is being delivered, so focus it moves is keyed, and clicking that a press is moving
+	// the focus.
+	keyed    bool
+	clicking bool
 	// goingAway says the window is animating out, and leftAt is the frame
 	// it began in.
 	goingAway bool
@@ -1479,6 +1481,11 @@ func (u *UI) Focus(n Node) bool {
 		}
 	}
 	if next == u.focus {
+		return true
+	}
+	// Focused from code, a modal already holding the keyboard, as a dialog that gave it to its first field, keeps it
+	// where it is
+	if m, ok := n.(Modal); ok && m.Modal() && !u.clicking && u.focus != nil && u.focus.within(next) {
 		return true
 	}
 	if u.focus != nil {
