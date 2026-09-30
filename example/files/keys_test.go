@@ -163,3 +163,23 @@ func TestTheArrowsMoveAlongThePathAndTabComesBackThere(t *testing.T) {
 		t.Fatal("Home did not move to the first folder")
 	}
 }
+
+func TestTheMousesSideButtonsGoBackAndForward(t *testing.T) {
+	h := newHarness(t, "sub/x.txt")
+	h.do(Navigate{Path: filepath.Join(h.dir, "sub")})
+	h.until("the folder opens", func() bool { return slices.Equal(h.shown(), []string{"x.txt"}) })
+	side := func(b input.Button, over gunim.Node) {
+		r := h.bounds(func(*browser) gunim.Node { return over })
+		at := r.Center()
+		h.w.Input(input.PointerDown{Pos: at, Button: b, Time: time.Now()})
+		h.w.Input(input.PointerUp{Pos: at, Button: b, Time: time.Now()})
+		h.frames(2)
+	}
+	// Back over the listing, forward over the sidebar, and back again over the preview
+	side(input.ButtonBack, h.b.listing)
+	h.until("Back goes to the folder before", func() bool { return slices.Equal(h.shown(), []string{"sub"}) })
+	side(input.ButtonForward, h.b.side)
+	h.until("Forward goes into the folder again", func() bool { return slices.Equal(h.shown(), []string{"x.txt"}) })
+	side(input.ButtonBack, h.b.preview)
+	h.until("Back over the preview goes back", func() bool { return slices.Equal(h.shown(), []string{"sub"}) })
+}

@@ -66,6 +66,8 @@ type platformWindowState struct {
 	shadow *drawnShadow
 	// moveSize is told when the user starts moving or sizing the window by its frame (gunim).
 	moveSize func(w *Window)
+	// history is told of a Browser Back or Forward command (gunim).
+	history func(w *Window, forward bool)
 	// border is the window's border, or nil, and ncActive whether the window is drawn active (gunim).
 	border       *windowBorder
 	ncActive     bool

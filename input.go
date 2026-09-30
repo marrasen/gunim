@@ -97,6 +97,11 @@ func (u *UI) handleOn(root *state, ev any) {
 	case input.PointerDown:
 		u.altAlone = false
 		u.cue(false)
+		// A side button presses nothing: it closes what a press closes, and goes back or forward as it is let go
+		if sideButton(e.Button) {
+			u.dismissFor(u.hit(root, e.Pos), u.onAnchorOf(root, e.Pos))
+			return
+		}
 		if root == u.root {
 			u.pointer = e.Pos
 		}
@@ -121,6 +126,14 @@ func (u *UI) handleOn(root *state, ev any) {
 		})
 		u.shapePointer(root, e.Pos)
 	case input.PointerUp:
+		if sideButton(e.Button) {
+			from := u.hit(root, e.Pos)
+			if from == nil {
+				from = u.appRoot()
+			}
+			u.bubble(from, input.HistoryStep{Forward: e.Button == input.ButtonForward, Time: e.Time})
+			return
+		}
 		if root == u.root && u.drag != nil {
 			u.drag.mods = e.Mods
 			u.capture = nil
@@ -195,6 +208,9 @@ func (u *UI) altTap(ev any) bool {
 	}
 	return false
 }
+
+// sideButton reports whether b is a mouse's back or forward button.
+func sideButton(b input.Button) bool { return b == input.ButtonBack || b == input.ButtonForward }
 
 // isAlt reports whether k is either Alt key.
 func isAlt(k input.Key) bool { return k == input.KeyLeftAlt || k == input.KeyRightAlt }

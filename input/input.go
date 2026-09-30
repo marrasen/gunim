@@ -254,6 +254,7 @@ func (FocusGained) isEvent()  {}
 func (FocusLost) isEvent()    {}
 func (FocusEntered) isEvent() {}
 func (FocusRing) isEvent()    {}
+func (HistoryStep) isEvent()  {}
 func (DragOver) isEvent()     {}
 func (DragLeave) isEvent()    {}
 func (Drop) isEvent()         {}
@@ -273,10 +274,20 @@ const (
 	ButtonSecondary
 	ButtonMiddle
 	// ButtonBack and ButtonForward are a mouse's side buttons, which go
-	// back and forward through where one has been, as in a browser.
+	// back and forward through where one has been, as in a browser. Nodes
+	// hear them as [HistoryStep], never as a press.
 	ButtonBack
 	ButtonForward
 )
+
+// HistoryStep asks to go back through where the user has been, or forward with Forward set: from a mouse's side
+// buttons as they are let go, or on Windows from a keyboard's Browser Back and Forward keys. It bubbles as a key does,
+// from the node under the pointer for a mouse button and from the focused node for a key, so the view that keeps the
+// history takes it wherever it is.
+type HistoryStep struct {
+	Forward bool
+	Time    time.Time
+}
 
 // Mods is the set of modifier keys held when an event happened.
 type Mods uint8

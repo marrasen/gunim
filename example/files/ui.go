@@ -145,9 +145,18 @@ func (b *browser) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim
 	}
 }
 
-// Handle implements [gunim.Handler]: the keys that work anywhere in the
+// Handle implements [gunim.Handler]: going back and forward, and the keys that work anywhere in the
 // window.
 func (b *browser) Handle(e input.Event, u *gunim.UI) bool {
+	// The mouse's side buttons, and a keyboard's Browser Back and Forward keys
+	if h, ok := e.(input.HistoryStep); ok {
+		cmd := CmdBack
+		if h.Forward {
+			cmd = CmdForward
+		}
+		u.Send(b, Command{Name: cmd})
+		return true
+	}
 	k, ok := e.(input.KeyPress)
 	if !ok {
 		return false

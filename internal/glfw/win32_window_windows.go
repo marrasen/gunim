@@ -629,6 +629,9 @@ func windowProc(hWnd windows.HWND, uMsg uint32, wParam _WPARAM, lParam _LPARAM) 
 	window.shadowMessage(uMsg, wParam)
 	window.borderMessage(uMsg, wParam)
 	window.moveSizeMessage(uMsg)
+	if window.historyMessage(uMsg, lParam) {
+		return _APPCOMMAND_HANDLED
+	}
 	if r, ok := window.chromeMessage(uMsg, wParam, lParam); ok {
 		return r
 	}
