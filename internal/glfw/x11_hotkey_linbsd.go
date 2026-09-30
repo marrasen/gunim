@@ -28,6 +28,9 @@ type x11HotKey struct {
 	keycode int32
 	mods    uint32
 	fn      func()
+	// down says the key is held, so the presses a held key repeats are
+	// not heard again until it is let go, as on Windows.
+	down bool
 }
 
 // x11LockMasks are the modifiers a key is grabbed under as well, so it
@@ -78,12 +81,15 @@ func RegisterHotKeyX11(mods uint32, keysym uint32) (uintptr, func(fn func()), er
 		xGrabKey(display, keycode, mods|lock, root, false, _GrabModeAsync, _GrabModeAsync)
 	}
 	releaseErrorHandlerX11()
-	if _glfw.platformWindow.errorCode == badAccess {
+	if code := _glfw.platformWindow.errorCode; code != _Success {
 		for _, lock := range x11LockMasks {
 			xUngrabKey(display, keycode, mods|lock, root)
 		}
 		xSync(display, false)
-		return 0, nil, ErrX11HotKeyTaken
+		if code == badAccess {
+			return 0, nil, ErrX11HotKeyTaken
+		}
+		return 0, nil, errors.New("glfw: x11: the key could not be grabbed")
 	}
 	x11HotKeyNext++
 	id := x11HotKeyNext
@@ -107,16 +113,32 @@ func UnregisterHotKeyX11(id uintptr) {
 }
 
 // x11HotKeyPressed calls the key grabbed that a press on the root
-// window is, and reports whether it was one.
+// window is, once until it is let go, and reports whether it was one.
 func x11HotKeyPressed(keycode int32, state uint32) bool {
 	state &^= _LockMask | _Mod2Mask
-	for _, k := range x11HotKeys {
+	for id, k := range x11HotKeys {
 		if k.keycode == keycode && k.mods == state&(X11Shift|X11Control|X11Alt|X11Super) {
-			if k.fn != nil {
+			if !k.down && k.fn != nil {
 				k.fn()
 			}
+			k.down = true
+			x11HotKeys[id] = k
 			return true
 		}
 	}
 	return false
+}
+
+// x11HotKeyReleased notes a key grabbed let go, and reports whether a
+// release on the root window was one.
+func x11HotKeyReleased(keycode int32) bool {
+	found := false
+	for id, k := range x11HotKeys {
+		if k.keycode == keycode {
+			k.down = false
+			x11HotKeys[id] = k
+			found = true
+		}
+	}
+	return found
 }

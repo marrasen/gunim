@@ -15,7 +15,7 @@ import (
 // the root window. Under Wayland a grab through XWayland only sees keys
 // while an X window has the keyboard, so there are none there.
 func (d *Driver) RegisterHotKey(k driver.HotKey, fn func()) (func(), error) {
-	if os.Getenv("WAYLAND_DISPLAY") != "" {
+	if os.Getenv("WAYLAND_DISPLAY") != "" || os.Getenv("XDG_SESSION_TYPE") == "wayland" {
 		return func() {}, driver.ErrNoHotKeys
 	}
 	sym, ok := keysym(k.Key)

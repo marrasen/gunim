@@ -1232,9 +1232,13 @@ func processEvent(event *_XEvent) error {
 	}
 
 	// gunim change: a key grabbed for every program, pressed.
-	if event.EventType() == _KeyPress && event.xany().Window == _glfw.platformWindow.root &&
-		x11HotKeyPressed(int32(keycode), event.xkey().State) {
-		return nil
+	if event.xany().Window == _glfw.platformWindow.root {
+		switch {
+		case event.EventType() == _KeyPress && x11HotKeyPressed(int32(keycode), event.xkey().State):
+			return nil
+		case event.EventType() == _KeyRelease && x11HotKeyReleased(int32(keycode)):
+			return nil
+		}
 	}
 
 	window := _glfw.platformWindow.windowsByXID[event.xany().Window]
