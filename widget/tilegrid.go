@@ -46,6 +46,10 @@ type TileGrid struct {
 	OnSelect func(sel [][2]int, cursor int) gunim.Intent
 	// OnActivate reports a double click on a tile, or Enter.
 	OnActivate func(i int) gunim.Intent
+	// OnType, when set, turns the text typed at the grid into an intent, to find the tile it names: text typed close
+	// together adds up, as [TypeAhead] gathers it, and [FindTyped] finds it.
+	OnType func(text string) gunim.Intent
+	typed  TypeAhead
 	// OnZoom, when set, takes Ctrl with the wheel over the grid, in notches up, from the window's zoom.
 	OnZoom func(notches float32, u *gunim.UI)
 	// DragTiles, when set, lets the tiles selected be dragged, as [DataGrid.DragRows] does for rows.
@@ -281,6 +285,9 @@ func (g *TileGrid) inBand(band geom.Rect) [][2]int {
 // Handle implements [gunim.Handler].
 func (g *TileGrid) Handle(e input.Event, u *gunim.UI) bool {
 	if g.barEvent(e, u) {
+		return true
+	}
+	if g.typed.take(e, u, g, g.OnType) {
 		return true
 	}
 	switch e := e.(type) {

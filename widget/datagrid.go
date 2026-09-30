@@ -151,6 +151,10 @@ type DataGrid struct {
 	OnClick func(row int) gunim.Intent
 	// OnActivate turns a double click or Enter on a row into an intent.
 	OnActivate func(row int) gunim.Intent
+	// OnType, when set, turns the text typed at the grid into an intent, to find the row it names: text typed close
+	// together adds up, as [TypeAhead] gathers it, and [FindTyped] finds it.
+	OnType func(text string) gunim.Intent
+	typed  TypeAhead
 	// OnResize turns a column resized by a drag into an intent.
 	OnResize func(column int, width float32) gunim.Intent
 	// OnHeader turns a click on a column's title into an intent, as to sort by it.
@@ -1126,6 +1130,9 @@ func (g *DataGrid) send(v gunim.Intent, u *gunim.UI) {
 // Handle implements [gunim.Handler].
 func (g *DataGrid) Handle(e input.Event, u *gunim.UI) bool {
 	th := u.Theme()
+	if g.typed.take(e, u, g, g.OnType) {
+		return true
+	}
 	switch e := e.(type) {
 	case input.FocusGained:
 		g.focused = true

@@ -96,6 +96,7 @@ func newIconView(pg *listingPage) *iconView {
 		return pg.need(first, count)
 	}
 	g.OnSelect = func(sel [][2]int, cursor int) gunim.Intent { return Selected{Gen: pg.gen, Runs: sel, Cursor: cursor} }
+	g.OnType = func(text string) gunim.Intent { return Typed{Gen: pg.gen, Text: text} }
 	g.OnActivate = func(i int) gunim.Intent {
 		if r, ok := pg.view(i); ok && !r.Dir && viewable(r.Name) {
 			return OpenViewer{Gen: pg.gen, Row: i}

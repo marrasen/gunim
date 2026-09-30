@@ -142,6 +142,12 @@ type Activated struct {
 	Gen, Row int
 }
 
+// Typed says Text was typed at listing Gen, to go to the item it names.
+type Typed struct {
+	Gen  int
+	Text string
+}
+
 // Navigate asks to show the folder at Path.
 type Navigate struct {
 	Path string
@@ -218,6 +224,7 @@ func init() {
 	gunim.RegisterType[NeedRows]("files.need-rows")
 	gunim.RegisterType[Selected]("files.selected")
 	gunim.RegisterType[Activated]("files.activated")
+	gunim.RegisterType[Typed]("files.typed")
 	gunim.RegisterType[Navigate]("files.navigate")
 	gunim.RegisterType[Command]("files.command")
 	gunim.RegisterType[SortClicked]("files.sort")

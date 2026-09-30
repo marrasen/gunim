@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/marrasen/gunim"
+	"github.com/marrasen/gunim/widget"
 )
 
 // blockRows is how many rows one RowBlock carries.
@@ -87,6 +88,8 @@ func (a *app) handleNav(in gunim.Intent) bool {
 		if v.Gen == a.nav.gen && v.Row >= 0 && v.Row < len(a.nav.rows) {
 			a.activate(a.nav.rows[v.Row])
 		}
+	case Typed:
+		a.typed(v)
 	case Navigate:
 		a.navigate(v.Path, 0, true)
 	case SortClicked:
@@ -512,6 +515,25 @@ func (a *app) publishSelection() {
 		}
 	}
 	a.patch(s)
+}
+
+// typed selects the item the text typed at the listing names, as Explorer does.
+func (a *app) typed(v Typed) {
+	n := &a.nav
+	if v.Gen != n.gen {
+		return
+	}
+	from := slices.IndexFunc(n.rows, func(e entry) bool { return e.Name == n.cursor })
+	i := widget.FindTyped(v.Text, len(n.rows), from, func(i int) string { return n.rows[i].Name })
+	if i < 0 {
+		return
+	}
+	clear(n.sel)
+	n.sel[n.rows[i].Name] = true
+	n.cursor = n.rows[i].Name
+	a.publishSelection()
+	a.publishStatus()
+	a.showPreview()
 }
 
 // selectedEntries returns the rows selected, in order.

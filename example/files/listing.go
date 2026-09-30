@@ -209,6 +209,7 @@ func newListingPage(b *browser, widths []float32) *listingPage {
 		return Selected{Gen: pg.gen, Runs: sel, Cursor: cursor}
 	}
 	g.OnActivate = func(row int) gunim.Intent { return Activated{Gen: pg.gen, Row: row} }
+	g.OnType = func(text string) gunim.Intent { return Typed{Gen: pg.gen, Text: text} }
 	g.OnHeader = func(c int) gunim.Intent { return SortClicked{Column: c} }
 	g.OnCopy = func([][2]int) gunim.Intent { return Command{Name: CmdCopy} }
 	g.DragRows = pg.dragRows

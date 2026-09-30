@@ -183,3 +183,25 @@ func TestTheMousesSideButtonsGoBackAndForward(t *testing.T) {
 	side(input.ButtonBack, h.b.preview)
 	h.until("Back over the preview goes back", func() bool { return slices.Equal(h.shown(), []string{"sub"}) })
 }
+
+func TestTypingAtTheListingGoesToTheNameTyped(t *testing.T) {
+	h := newHarness(t, "apple.txt", "banana.txt", "berry.txt", "cherry.txt")
+	h.until("the rows arrive", func() bool { return len(h.shown()) == 4 })
+	h.do(FocusListing{})
+	h.frames(2)
+	typeText := func(s string) {
+		h.w.Input(input.TextInput{Text: s, Time: time.Now()})
+		h.frames(2)
+	}
+	typeText("b")
+	h.until("b goes to banana", func() bool { return h.a.nav.cursor == "banana.txt" })
+	typeText("e")
+	h.until("be goes on to berry", func() bool { return h.a.nav.cursor == "berry.txt" })
+	if len(h.a.nav.sel) != 1 || !h.a.nav.sel["berry.txt"] {
+		t.Fatalf("the selection is %v, want berry alone", h.a.nav.sel)
+	}
+	// A pause starts the text again
+	h.frames(70)
+	typeText("a")
+	h.until("after a pause, a goes to apple", func() bool { return h.a.nav.cursor == "apple.txt" })
+}
