@@ -1231,6 +1231,12 @@ func processEvent(event *_XEvent) error {
 		return nil
 	}
 
+	// gunim change: a key grabbed for every program, pressed.
+	if event.EventType() == _KeyPress && event.xany().Window == _glfw.platformWindow.root &&
+		x11HotKeyPressed(int32(keycode), event.xkey().State) {
+		return nil
+	}
+
 	window := _glfw.platformWindow.windowsByXID[event.xany().Window]
 	if window == nil {
 		// This is an event for a window that has already been destroyed
