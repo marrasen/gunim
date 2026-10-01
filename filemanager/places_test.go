@@ -167,8 +167,15 @@ func TestAnOlderLookupOfThePlacesIsDropped(t *testing.T) {
 		}
 	}, "a.txt")
 	h.until("the first lookup answers", func() bool { return len(h.a.places) == 1 })
-	h.a.loadPlaces()
-	h.a.loadPlaces()
+	// One lookup at a time, on the window's own goroutine: the second
+	// begins once the first is waiting, so the one waiting is the older.
+	h.a.post(h.a.loadPlaces)
+	h.until("the older lookup asks", func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return calls == 2
+	})
+	h.a.post(h.a.loadPlaces)
 	h.until("the newest lookup answers", func() bool {
 		mu.Lock()
 		defer mu.Unlock()
