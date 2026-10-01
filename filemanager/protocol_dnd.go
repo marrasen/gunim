@@ -11,7 +11,9 @@ const (
 )
 
 // DropFiles asks to move Paths into the folder Into, or to copy them
-// there with Copy. FS is the ID of the file system the items are on.
+// there with Copy. FS is the ID of the file system the items are on,
+// and Into is on the window's: where they differ, the program carries
+// the items across, through [Options.Transfer].
 type DropFiles struct {
 	Paths []string
 	Into  string
@@ -32,8 +34,9 @@ type Volumes struct {
 	Errs map[string]string
 }
 
-// ClipState says how many items the app's clipboard holds, and whether
-// they were cut, for the menus to offer Paste.
+// ClipState says how many items Paste would paste, and whether they were
+// cut, for the menus to offer Paste. The items may be on another file
+// system, where the program carries them across.
 type ClipState struct {
 	Count int
 	Cut   bool

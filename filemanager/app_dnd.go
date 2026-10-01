@@ -57,13 +57,20 @@ func (a *app) handleDnd(in gunim.Intent) bool {
 }
 
 // dropFiles moves or copies what was dropped into the folder it was
-// dropped on, as an operation with progress and undo.
+// dropped on, as an operation with progress and undo. Items from another
+// file system go to the program to carry across.
 func (a *app) dropFiles(v DropFiles) {
 	if len(v.Paths) == 0 || v.Into == "" {
 		return
 	}
 	if v.FS != a.fs.ID() {
-		a.fail("Items cannot go between file systems yet.")
+		if a.opts.Transfer == nil {
+			a.fail("Items cannot go between file systems yet.")
+			return
+		}
+		// Files from another program are the computer's own; a drag of
+		// a window holds the items of one folder.
+		a.transfer(v.FS, SystemPaths, v.Paths, v.Into, !v.Copy)
 		return
 	}
 	for _, p := range v.Paths {

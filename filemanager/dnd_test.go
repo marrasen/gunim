@@ -326,16 +326,16 @@ func TestDropPlansFollowTheVolumesAndTheKeys(t *testing.T) {
 		{"two", input.ModShift, false},
 		{"", 0, true},
 	} {
-		plan, _, ok := dropPlan(SystemPaths, "", d, dir, c.vol, "", c.mods)
+		plan, _, ok := dropPlan(SystemPaths, "", false, d, dir, c.vol, "", c.mods)
 		if !ok || plan.Copy != c.copy {
 			t.Fatalf("to volume %q with %v the plan copies %v, want %v", c.vol, c.mods, plan.Copy, c.copy)
 		}
 	}
-	if _, hint, ok := dropPlan(SystemPaths, "", d, dir, "one", "denied", 0); ok || hint.Text != "Cannot read b" {
+	if _, hint, ok := dropPlan(SystemPaths, "", false, d, dir, "one", "denied", 0); ok || hint.Text != "Cannot read b" {
 		t.Fatalf("a folder whose volume cannot be read says %q", hint.Text)
 	}
 	folder := FileDrag{Paths: []string{filepath.FromSlash("/a/f")}, Dirs: []bool{true}}
-	if _, _, ok := dropPlan(SystemPaths, "", folder, filepath.FromSlash("/a/f/deeper"), "", "", 0); ok {
+	if _, _, ok := dropPlan(SystemPaths, "", false, folder, filepath.FromSlash("/a/f/deeper"), "", "", 0); ok {
 		t.Fatal("a folder may go inside itself")
 	}
 	if _, _, ok := pinPlan(SystemPaths, "", folder, []string{filepath.FromSlash("/a/f")}); ok {

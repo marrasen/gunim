@@ -30,8 +30,12 @@ type opsState struct {
 	// their IDs in the order Ctrl+Z takes them back.
 	records map[int]*finished
 	undo    []int
-	clip    []string
-	cut     bool
+	// clip is what Paste would paste of the window's own file system,
+	// and cut whether it was cut. away is the clipboard of another file
+	// system, newer than clip, which Paste hands to the program instead.
+	clip []string
+	cut  bool
+	away clipboard
 	// limit holds copies to that many bytes a second, for the demo.
 	limit float64
 	// dialogs are the dialogs to show, the first showing.
@@ -112,7 +116,20 @@ func (a *app) opsCommand(name string) bool {
 		a.patch(Notice{Title: plural(len(paths), "item") + " ready to " + verb, Body: "Go to a folder and paste with Ctrl+V.",
 			Kind: "info"})
 	case CmdPaste:
-		if len(a.ops.clip) == 0 || here == "" {
+		if here == "" {
+			return true
+		}
+		if c := a.ops.away; len(c.paths) > 0 {
+			if c.cut {
+				// A cut is pasted once.
+				a.hub.clearClip(c)
+				a.syncClip()
+				a.hub.others(a, func(o *app) { o.syncClip() })
+			}
+			a.transfer(c.fs, c.ps, c.paths, here, c.cut)
+			return true
+		}
+		if len(a.ops.clip) == 0 {
 			return true
 		}
 		srcs := slices.Clone(a.ops.clip)

@@ -11,6 +11,11 @@
 // may be on other file systems than the window's, as with
 // [AnyFSFavourites].
 //
+// A window copies and moves items only on its own file system. Items go
+// between file systems, by a drop or a paste, only where the program
+// carries them, through [Options.Transfer]; without it, such a drop is
+// refused, and Paste offers only items of the window's own file system.
+//
 // The window and the program are two halves that speak only in values.
 // The protocol files hold the vocabulary, one file per area. The app
 // files are the program half, which does all the disk work. The view
@@ -42,6 +47,9 @@ type Shell struct {
 	// NoTrash says the file system has no trash, so the key that trashes
 	// deletes, after asking.
 	NoTrash bool
+	// Transfers says the program can copy and move items between file
+	// systems, so the window takes drops from another.
+	Transfers bool
 	// Name is what the title calls the program, and Files when empty.
 	Name string
 }
