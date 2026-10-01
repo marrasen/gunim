@@ -102,17 +102,7 @@ func (a *app) pinFolders(paths []string) {
 			}
 		}
 		a.post(func() {
-			added := 0
-			for _, p := range dirs {
-				if !slices.ContainsFunc(a.prefs.Favourites, func(f string) bool { return a.ps.Same(f, p) }) {
-					a.prefs.Favourites = append(a.prefs.Favourites, p)
-					added++
-				}
-			}
-			if added > 0 {
-				a.savePrefs()
-				a.publishPlaces()
-			}
+			added := a.addFavourites(dirs)
 			n := Notice{Title: "Pinned " + plural(added, "folder"), Kind: "success"}
 			if len(files) > 0 {
 				n.Body = strings.Join(files, ", ") + " left out: only folders can be pinned."
@@ -126,17 +116,17 @@ func (a *app) pinFolders(paths []string) {
 func (a *app) renameFavourite(path string) {
 	name := a.favName(path)
 	a.prompt(Prompt{Title: "Rename favourite", Text: name, OK: "Rename", Stem: utf8.RuneCountInString(name)}, func(n string) {
-		if a.prefs.FavNames == nil {
-			a.prefs.FavNames = map[string]string{}
+		i := a.favourite(path)
+		if i < 0 {
+			return
 		}
 		n = strings.TrimSpace(n)
-		if n == "" || n == a.ps.placeName(path) {
-			delete(a.prefs.FavNames, path)
-		} else {
-			a.prefs.FavNames[path] = n
+		if n == a.ps.placeName(path) {
+			n = ""
 		}
-		a.savePrefs()
-		a.publishPlaces()
+		favs := slices.Clone(a.favs)
+		favs[i].Name = n
+		a.setFavourites(favs)
 	})
 }
 
@@ -190,7 +180,9 @@ func (a *app) publishVolumes(s Places) {
 		}
 	}
 	for _, p := range slices.Concat(s.Places, s.Favourites) {
-		add(p.Path)
+		if p.FS == a.fs.ID() {
+			add(p.Path)
+		}
 	}
 	if len(missing) > 0 && d.finding {
 		d.again = true

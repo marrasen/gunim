@@ -255,7 +255,7 @@ func newSideMenu(b *browser) *widget.ContextMenu {
 		for _, l := range []*widget.List{b.side.places, b.side.favs} {
 			for _, k := range l.Keys() {
 				n, ok := l.Row(k)
-				if !ok {
+				if pr, isPlace := n.(*placeRow); !ok || !isPlace || pr.item.heading || pr.item.away {
 					continue
 				}
 				if r, ok := u.Bounds(n); ok && r.Contains(p) {

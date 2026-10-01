@@ -239,7 +239,8 @@ func (v *dndView) sideSpot(d input.Drop, u *gunim.UI) (widget.DropSpot, bool) {
 	for _, l := range []*widget.List{s.places, s.favs} {
 		for _, k := range l.Keys() {
 			n, found := l.Row(k)
-			if !found {
+			if pr, isPlace := n.(*placeRow); !found || !isPlace || pr.item.heading || pr.item.away {
+				// A heading takes nothing, and a place elsewhere nothing yet.
 				continue
 			}
 			if r, drawn := u.Bounds(n); drawn && r.Contains(at) {
@@ -395,7 +396,7 @@ func scriptTarget(b *browser, name string, u *gunim.UI) (geom.Point, bool) {
 	for _, lst := range []*widget.List{b.side.places, b.side.favs} {
 		for _, k := range lst.Keys() {
 			n, _ := lst.Row(k)
-			if pr, ok := n.(*placeRow); ok && pr.item.Name == name {
+			if pr, ok := n.(*placeRow); ok && !pr.item.heading && pr.item.Name == name {
 				if r, ok := u.Bounds(n); ok {
 					return geom.Pt(r.Min.X+40, r.Center().Y), true
 				}

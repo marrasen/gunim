@@ -30,12 +30,12 @@ type grab struct{}
 
 func newHarness(t *testing.T, spec ...string) *harness {
 	t.Helper()
-	return newHarnessOn(t, nil, spec...)
+	return newHarnessWith(t, nil, spec...)
 }
 
-// newHarnessOn runs the app half on fsys, or the computer's own file
-// system when it is nil, with no trash but the one fsys has.
-func newHarnessOn(t *testing.T, fsys FS, spec ...string) *harness {
+// newHarnessWith runs the app half with the options set changes. Where
+// it sets a file system, the trash is the file system's own.
+func newHarnessWith(t *testing.T, set func(o *Options), spec ...string) *harness {
 	t.Helper()
 	h := &harness{t: t, root: t.TempDir()}
 	h.dir = filepath.Join(h.root, "dir")
@@ -47,8 +47,11 @@ func newHarnessOn(t *testing.T, fsys FS, spec ...string) *harness {
 	RegisterViews(h.w)
 	gunim.RegisterPatch(h.w, "browser", func(b *browser, _ grab, _ *gunim.UI) { h.b = b })
 	ctx, cancel := context.WithCancel(context.Background())
-	o := Options{FS: fsys, Dir: h.dir, PrefsPath: filepath.Join(h.root, "prefs.json"), Poll: -1}
-	if fsys == nil {
+	o := Options{Dir: h.dir, PrefsPath: filepath.Join(h.root, "prefs.json"), Poll: -1}
+	if set != nil {
+		set(&o)
+	}
+	if o.FS == nil {
 		o.trash = xdgTrash{dir: filepath.Join(h.root, "Trash")}
 	}
 	a, err := launch(ctx, h.w.Client(), o, nil)

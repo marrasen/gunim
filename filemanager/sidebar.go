@@ -2,6 +2,7 @@ package filemanager
 
 import (
 	"image/color"
+	"strings"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
@@ -18,31 +19,69 @@ func registerSidebar(w *gunim.Window) {
 }
 
 // sidebar lists the places to go: the user's folders and the volumes,
-// then the favourites, which a drag puts in order.
+// under headings of their groups after the first, then the favourites,
+// which a drag puts in order.
 type sidebar struct {
 	places *widget.List
 	favs   *widget.List
 	hint   *widget.Label
+	// first is the heading of the first group of places.
+	first  *widget.Label
 	col    *widget.Flex
 	scroll *widget.Scroll
 	// group makes the places and the favourites one stop for Tab, walked with Up and Down.
 	group *widget.Group
-	// ps is how the window's file system writes paths.
+	// fs is the ID of the window's file system, and ps how it writes
+	// paths.
+	fs string
 	ps PathStyle
+	// items holds the rows of both lists by their keys.
+	items map[widget.Key]placeItem
 }
 
-// placeItem is a place and whether it is the folder showing.
+// placeItem is a place and whether it is the folder showing. A heading
+// is a row that names the group of the places after it.
 type placeItem struct {
 	Place
 	current bool
+	heading bool
+	// away is set for a place on another file system than the window's.
+	away bool
+}
+
+// key is the row's key in its list: its path, for a place on the
+// window's file system, as the drops and the favourites need.
+func (i placeItem) key() widget.Key {
+	switch {
+	case i.heading:
+		return widget.Key("\x00group\x00" + i.Group)
+	case i.away:
+		return widget.Key("\x00" + i.FS + "\x00" + i.Path)
+	}
+	return widget.Key(i.Path)
+}
+
+// goes says where a click on the row with key k goes: a place on the
+// window's file system, one on another, or for a heading nowhere.
+func (s *sidebar) goes(k widget.Key) gunim.Intent {
+	i, ok := s.items[k]
+	switch {
+	case !ok:
+		return Navigate{Path: string(k)}
+	case i.heading:
+		return nil
+	case i.away:
+		return Visit{FS: i.FS, Path: i.Path}
+	}
+	return Navigate{Path: i.Path}
 }
 
 // sideSpacing is the gap between the sidebar's rows.
 var sideSpacing = theme.Length("files.side.spacing", 2)
 
 func newSidebar() *sidebar {
-	s := &sidebar{places: widget.NewList(), favs: widget.NewList()}
-	s.places.OnClick = func(k widget.Key) gunim.Intent { return Navigate{Path: string(k)} }
+	s := &sidebar{places: widget.NewList(), favs: widget.NewList(), items: map[widget.Key]placeItem{}}
+	s.places.OnClick = s.goes
 	s.favs.OnClick = s.places.OnClick
 	s.favs.Reorder = func(keys []widget.Key) gunim.Intent {
 		paths := make([]string, len(keys))
@@ -58,6 +97,7 @@ func newSidebar() *sidebar {
 	for _, l := range []*widget.Label{places, favs} {
 		l.Color, l.Size, l.Face = Caption, SmallText, widget.BoldFont
 	}
+	s.first = places
 	s.col = widget.Column(places, s.places, widget.NewSized(widget.NewSpacer(), 0, 6), favs, s.favs, s.hint)
 	s.col.Cross = widget.CrossStretch
 	s.col.Gap = sideSpacing
@@ -67,16 +107,29 @@ func newSidebar() *sidebar {
 }
 
 func (s *sidebar) set(p Places, u *gunim.UI) {
-	items := func(ps []Place) []placeItem {
-		out := make([]placeItem, len(ps))
+	clear(s.items)
+	items := func(ps []Place, headed bool) []placeItem {
+		out := make([]placeItem, 0, len(ps))
 		for i, pl := range ps {
-			out[i] = placeItem{Place: pl, current: s.ps.Same(pl.Path, p.Current)}
+			if headed && i > 0 && pl.Group != ps[i-1].Group {
+				out = append(out, placeItem{Place: Place{Name: strings.ToUpper(pl.Group), Group: pl.Group}, heading: true})
+			}
+			away := pl.FS != s.fs
+			out = append(out, placeItem{Place: pl, away: away, current: !away && s.ps.Same(pl.Path, p.Current)})
+		}
+		for _, it := range out {
+			s.items[it.key()] = it
 		}
 		return out
 	}
-	key := func(i placeItem) widget.Key { return widget.Key(i.Path) }
-	widget.Sync(s.places, u, items(p.Places), key, newPlaceRow, (*placeRow).set)
-	widget.Sync(s.favs, u, items(p.Favourites), key, newPlaceRow, (*placeRow).set)
+	first := "PLACES"
+	if len(p.Places) > 0 && p.Places[0].Group != "" {
+		first = strings.ToUpper(p.Places[0].Group)
+	}
+	s.first.SetText(first)
+	key := placeItem.key
+	widget.Sync(s.places, u, items(p.Places, true), key, newPlaceRow, (*placeRow).set)
+	widget.Sync(s.favs, u, items(p.Favourites, false), key, newPlaceRow, (*placeRow).set)
 	if len(p.Favourites) == 0 {
 		s.hint.SetText("Pin a folder here with Ctrl+D.")
 	} else {
@@ -152,15 +205,17 @@ func (r *placeRow) set(i placeItem, u *gunim.UI) {
 	u.Invalidate()
 }
 
-// note is the small line under a volume's name.
+// note is the small line under a volume's name, or a place's note.
 func (r *placeRow) noteText() string {
 	switch {
+	case r.item.heading:
+		return ""
 	case r.item.Err != "":
 		return r.item.Err
 	case r.item.Total > 0:
 		return humanBytes(int64(r.item.Free)) + " free of " + humanBytes(int64(r.item.Total))
 	}
-	return ""
+	return r.item.Note
 }
 
 func (r *placeRow) shape(th *theme.Live) {
@@ -170,16 +225,31 @@ func (r *placeRow) shape(th *theme.Live) {
 		return
 	}
 	r.shown, r.size = key, size
-	r.name = text.Default().Shape(r.item.Name, size)
+	face := text.Default()
+	if r.item.heading {
+		// A heading looks as the Places and Favourites labels do.
+		size = SmallText.Get(th)
+		if f := widget.BoldFont.Get(th); f != nil {
+			face = f
+		}
+	}
+	r.name = face.Shape(r.item.Name, size)
 	r.note = text.Default().Shape(r.noteText(), SmallText.Get(th))
 }
 
 // tall reports whether the row has a second line.
-func (r *placeRow) tall() bool { return r.item.Total > 0 || r.item.Err != "" }
+func (r *placeRow) tall() bool { return r.noteText() != "" }
+
+// headingGap is the room above a heading, as above the heading of the
+// favourites.
+const headingGap = 8
 
 // Layout implements [gunim.Node].
 func (r *placeRow) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
 	r.shape(f.Theme)
+	if r.item.heading {
+		return geom.Sz(c.Max.W, headingGap+r.name.Height())
+	}
 	h := float32(30)
 	if r.tall() {
 		h = 48
@@ -193,6 +263,10 @@ func (r *placeRow) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) 
 // Paint implements [gunim.Node].
 func (r *placeRow) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
 	th := f.Theme
+	if r.item.heading {
+		r.name.Paint(p, geom.Pt(0, headingGap), Caption.Get(th))
+		return
+	}
 	full := geom.Rect{Max: box.Point()}
 	if h := r.hover.Value(); h > 0.01 {
 		c := SidebarHot.Get(th)
@@ -255,6 +329,9 @@ func placeTint(kind string) theme.Token[color.NRGBA] {
 // Handle implements [gunim.Handler]: the row lights under the pointer,
 // and leaves presses to the list, which tells a click from a drag.
 func (r *placeRow) Handle(e input.Event, u *gunim.UI) bool {
+	if r.item.heading {
+		return false
+	}
 	switch e.(type) {
 	case input.PointerEnter:
 		r.hover.Animate(1, widget.Quick.Get(u.Theme()))
@@ -265,4 +342,9 @@ func (r *placeRow) Handle(e input.Event, u *gunim.UI) bool {
 }
 
 // Cursor implements [gunim.CursorShaper].
-func (r *placeRow) Cursor(geom.Point) input.Cursor { return input.CursorHand }
+func (r *placeRow) Cursor(geom.Point) input.Cursor {
+	if r.item.heading {
+		return input.CursorArrow
+	}
+	return input.CursorHand
+}

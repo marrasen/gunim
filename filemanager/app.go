@@ -26,6 +26,19 @@ type Options struct {
 	// gunim-files/prefs.json in the user's configuration folder when
 	// empty.
 	PrefsPath string
+	// Places finds the places the sidebar offers, on a goroutine of its
+	// own, as the window opens and each time it gets the keyboard back.
+	// When nil, they are those LocalPlaces finds on the computer's own
+	// file system, and the home folder and the top on another.
+	Places func() ([]Place, error)
+	// Favourites keeps the favourites. When nil, they are kept in the
+	// settings file on the computer's own file system, and for as long
+	// as the window is open on another.
+	Favourites FavouriteStore
+	// Visit goes to the folder at path on the file system of ID fs, for
+	// a place on another file system than the window's, on a goroutine
+	// of its own. A window whose Visit is nil says it cannot go there.
+	Visit func(fs, path string)
 	// Poll is how often the folder showing is checked for changes: every
 	// two seconds when zero, and never when below zero.
 	Poll time.Duration
@@ -69,6 +82,7 @@ type app struct {
 	viewer  viewerState
 	search  searchState
 	places  []Place
+	favs    []Favourite
 	banner  int
 	// script is what is left of the steps to run, once the first folder
 	// is read.
@@ -177,6 +191,7 @@ func (a *app) startup(o Options) {
 	if a.prefs.Zoom > 0 {
 		a.send(a.c.SetZoom(a.prefs.Zoom))
 	}
+	a.loadFavourites()
 	a.loadPlaces()
 	if o.Script != "" {
 		a.script = strings.Split(o.Script, ",")
@@ -291,9 +306,7 @@ func (a *app) savePrefs() {
 	}
 	if err := savePrefs(a.prefsPath, a.prefs); err != nil {
 		a.fail(err.Error())
-		return
 	}
-	a.prefsSaved()
 }
 
 // stopAll cancels what is running, and waits for the operations to stop,

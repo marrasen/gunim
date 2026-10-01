@@ -10,13 +10,19 @@ import (
 func (a *app) handlePlaces(in gunim.Intent) bool {
 	switch v := in.(type) {
 	case FavouritesReordered:
-		a.prefs.Favourites = slices.Clone(v.Paths)
-		a.savePrefs()
-		a.publishPlaces()
+		favs := make([]Favourite, 0, len(v.Paths))
+		for _, p := range v.Paths {
+			f := Favourite{Path: p}
+			if i := a.favourite(p); i >= 0 {
+				f = a.favs[i]
+			}
+			favs = append(favs, f)
+		}
+		a.setFavourites(favs)
 	case Unpin:
-		a.prefs.Favourites = slices.DeleteFunc(a.prefs.Favourites, func(p string) bool { return a.ps.Same(p, v.Path) })
-		a.savePrefs()
-		a.publishPlaces()
+		a.setFavourites(slices.DeleteFunc(slices.Clone(a.favs), func(f Favourite) bool { return a.ps.Same(f.Path, v.Path) }))
+	case Visit:
+		a.visit(v)
 	case Command:
 		if v.Name != CmdPin {
 			return false
@@ -40,20 +46,28 @@ func (a *app) pin() {
 	if len(paths) == 0 {
 		paths = []string{a.nav.path}
 	}
-	for _, p := range paths {
-		if !slices.ContainsFunc(a.prefs.Favourites, func(f string) bool { return a.ps.Same(f, p) }) {
-			a.prefs.Favourites = append(a.prefs.Favourites, p)
-		}
+	a.addFavourites(paths)
+}
+
+// visit goes to a place on another file system, as the options say, on a
+// goroutine of its own, as it may open a window.
+func (a *app) visit(v Visit) {
+	if a.opts.Visit == nil {
+		a.fail(v.Path + " is on another file system, which this window cannot show.")
+		return
 	}
-	a.savePrefs()
-	a.publishPlaces()
+	go a.opts.Visit(v.FS, v.Path)
 }
 
 // loadPlaces finds the places in the background, as a drive can be slow
 // to answer.
 func (a *app) loadPlaces() {
+	find := a.opts.Places
+	if find == nil {
+		find = a.defaultPlaces
+	}
 	go func() {
-		ps, err := gatherPlaces()
+		ps, err := find()
 		a.post(func() {
 			if err != nil {
 				a.fail("Finding the places for the sidebar: " + err.Error())
@@ -64,10 +78,33 @@ func (a *app) loadPlaces() {
 	}()
 }
 
+// defaultPlaces are the places of a window whose options give none: the
+// user's folders and the drives of the computer, for its own file
+// system, and the home folder and the top for another.
+func (a *app) defaultPlaces() ([]Place, error) {
+	if a.fs.ID() == "" {
+		return LocalPlaces()
+	}
+	home, err := a.fs.Home()
+	if err != nil {
+		return nil, err
+	}
+	top := a.ps.VolumeName(home) + a.ps.Sep()
+	out := []Place{{Name: "Home", Path: home, Kind: "home", FS: a.fs.ID()}, {Name: top, Path: top, Kind: "drive", FS: a.fs.ID()}}
+	if sr, ok := a.fs.(SpaceReporter); ok {
+		if free, total, err := sr.Space(top); err != nil {
+			out[1].Err = rootCause(err).Error()
+		} else {
+			out[1].Free, out[1].Total = free, total
+		}
+	}
+	return out, nil
+}
+
 func (a *app) publishPlaces() {
 	s := Places{Places: a.places, Current: a.nav.path}
-	for _, f := range a.prefs.Favourites {
-		s.Favourites = append(s.Favourites, Place{Name: a.favName(f), Path: f, Kind: "favourite"})
+	for _, f := range a.favs {
+		s.Favourites = append(s.Favourites, Place{Name: a.favName(f.Path), Path: f.Path, Kind: "favourite", FS: a.fs.ID()})
 	}
 	a.patch(s)
 	a.publishVolumes(s)

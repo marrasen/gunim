@@ -19,7 +19,7 @@ type bareFS struct{ FS }
 func (bareFS) ID() string { return "elsewhere" }
 
 func TestAFileSystemWithoutATrashDeletesForGoodAfterAsking(t *testing.T) {
-	h := newHarnessOn(t, bareFS{LocalFS()}, "keep.txt", "gone.txt")
+	h := newHarnessWith(t, onBareFS, "keep.txt", "gone.txt")
 	h.until("the rows arrive", func() bool { return len(h.shown()) == 2 })
 	h.pick("gone.txt")
 	h.w.Input(input.KeyPress{Key: input.KeyDelete})
@@ -37,7 +37,7 @@ func TestAFileSystemWithoutATrashDeletesForGoodAfterAsking(t *testing.T) {
 }
 
 func TestAFileSystemWithoutATrashCopiesWithoutUndo(t *testing.T) {
-	h := newHarnessOn(t, bareFS{LocalFS()}, "a.txt", "sub/")
+	h := newHarnessWith(t, onBareFS, "a.txt", "sub/")
 	h.until("the rows arrive", func() bool { return len(h.shown()) == 2 })
 	h.pick("a.txt")
 	h.do(Command{Name: CmdCopy})
@@ -57,7 +57,7 @@ func TestAFileSystemWithoutATrashCopiesWithoutUndo(t *testing.T) {
 }
 
 func TestAFileSystemElsewhereOpensNothingWithTheSystem(t *testing.T) {
-	h := newHarnessOn(t, bareFS{LocalFS()}, "a.txt")
+	h := newHarnessWith(t, onBareFS, "a.txt")
 	h.until("the rows arrive", func() bool { return len(h.shown()) == 1 })
 	h.pick("a.txt")
 	h.do(Command{Name: CmdOpen})
@@ -112,3 +112,6 @@ func TestSlashPathsJoinAndSplitWithSlashes(t *testing.T) {
 		t.Fatalf("a slash path's name may hold a colon: %v", err)
 	}
 }
+
+// onBareFS sets a window's file system to a bare one.
+func onBareFS(o *Options) { o.FS = bareFS{LocalFS()} }

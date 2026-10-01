@@ -17,9 +17,12 @@ type userPlace struct {
 	name, kind, path string
 }
 
-// gatherPlaces returns the user's folders, and the volumes with their
-// space. A volume whose space cannot be read carries the error.
-func gatherPlaces() ([]Place, error) {
+// LocalPlaces returns the places of the computer's own file system: the
+// user's home and the folders in it the system knows, and the volumes with
+// their space. A volume whose space cannot be read carries the error.
+// It is what a window on the computer's own file system offers when its
+// options give no places, and a start for a caller that adds its own.
+func LocalPlaces() ([]Place, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("finding your home folder: %w", err)

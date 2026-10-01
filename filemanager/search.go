@@ -208,7 +208,8 @@ func (a *app) rank() {
 	s.reranked = time.Now()
 	seq, text := s.seq, s.text
 	if strings.HasPrefix(text, ">") {
-		hits := rankCommands(strings.TrimSpace(strings.TrimPrefix(text, ">")), a.ps, a.places, a.prefs.Favourites)
+		here := slices.DeleteFunc(slices.Clone(a.places), func(p Place) bool { return p.FS != a.fs.ID() })
+		hits := rankCommands(strings.TrimSpace(strings.TrimPrefix(text, ">")), a.ps, here, a.favPaths())
 		a.patch(PaletteResults{Seq: seq, Hits: hits, Status: "Commands. Delete the > to look for files."})
 		return
 	}

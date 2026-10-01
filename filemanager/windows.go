@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 	"sync"
 
 	"github.com/marrasen/gunim"
@@ -92,6 +91,21 @@ func Serve(ctx context.Context, ga *gunim.App, o Options) error {
 	return h.Wait()
 }
 
+// Refresh has every window of h find its places and read its favourites
+// again, as when a caller's places or favourites have changed: a server
+// that connected, say.
+func (h *Hub) Refresh() {
+	h.mu.Lock()
+	list := slices.Clone(h.apps)
+	h.mu.Unlock()
+	for _, a := range list {
+		go a.post(func() {
+			a.loadFavourites()
+			a.loadPlaces()
+		})
+	}
+}
+
 // joinHub adds a to h, or to a hub of its own when h is nil.
 func joinHub(a *app, h *Hub) *Hub {
 	if h == nil {
@@ -161,15 +175,6 @@ func (a *app) clipChanged() {
 
 func (a *app) publishClip() { a.patch(ClipState{Count: len(a.ops.clip), Cut: a.ops.cut}) }
 
-// prefsSaved shares the favourites with the other windows.
-func (a *app) prefsSaved() {
-	favs, names := slices.Clone(a.prefs.Favourites), cloneNames(a.prefs.FavNames)
-	a.hub.others(a, func(o *app) {
-		o.prefs.Favourites, o.prefs.FavNames = favs, cloneNames(names)
-		o.publishPlaces()
-	})
-}
-
 func cloneNames(m map[string]string) map[string]string {
 	if m == nil {
 		return nil
@@ -225,13 +230,4 @@ func WindowOptions() gunim.WindowOptions {
 		Icons:      icons(),
 		AskToClose: CloseAsked{},
 	}
-}
-
-// favName is what the sidebar calls the favourite at path: the name the
-// user gave it, or the folder's.
-func (a *app) favName(path string) string {
-	if n := strings.TrimSpace(a.prefs.FavNames[path]); n != "" {
-		return n
-	}
-	return a.ps.placeName(path)
 }
