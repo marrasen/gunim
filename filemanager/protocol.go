@@ -2,6 +2,13 @@
 // moves, renames and trashes, built on gunim. A program opens it with
 // [Serve], or with a [Hub] for more say over its windows.
 //
+// A window shows one file system, an [FS]: the computer's own, as
+// [LocalFS] returns it, or one the program brings, such as a server's
+// over SFTP. What only some file systems can do, such as a trash or
+// free space, is in smaller interfaces the window looks for, and does
+// without where they are missing. The program can give the sidebar's
+// places and keep the favourites itself, through [Options].
+//
 // The window and the program are two halves that speak only in values.
 // The protocol files hold the vocabulary, one file per area. The app
 // files are the program half, which does all the disk work. The view

@@ -34,7 +34,9 @@ func main() {
 	big := flag.Bool("big", false, "put a 2 GB file in the demo folder, to watch a long copy")
 	runFor := flag.Duration("for", 0, "quit after this long; zero runs until the window closes")
 	flag.Parse()
-	o := filemanager.Options{Dir: *dir, PrefsPath: *prefsPath, Select: *pick, Script: *keys}
+	// The computer's own disk, with the places and favourites the package
+	// keeps for it when the options name none.
+	o := filemanager.Options{FS: filemanager.LocalFS(), Dir: *dir, PrefsPath: *prefsPath, Select: *pick, Script: *keys}
 	if err := start(o, *demo || *shot != "" && o.Dir == "", *big, *shot, *after, *runFor); err != nil {
 		log.Fatal(err)
 	}
