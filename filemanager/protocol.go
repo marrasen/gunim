@@ -7,7 +7,9 @@
 // over SFTP. What only some file systems can do, such as a trash or
 // free space, is in smaller interfaces the window looks for, and does
 // without where they are missing. The program can give the sidebar's
-// places and keep the favourites itself, through [Options].
+// places and keep the favourites itself, through [Options], and both
+// may be on other file systems than the window's, as with
+// [AnyFSFavourites].
 //
 // The window and the program are two halves that speak only in values.
 // The protocol files hold the vocabulary, one file per area. The app

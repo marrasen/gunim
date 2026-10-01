@@ -74,13 +74,24 @@ var (
 		{"Rename favourite", "", localRenameFav},
 		{"Unpin", "", localUnpin},
 	}
+	// awayFavItems are the context menu of a favourite on another file
+	// system than the window's, whose Open asks for a Visit.
+	awayFavItems = []menuItem{
+		{"Open", "", localOpenPlace},
+		{"-", "", ""},
+		{"Rename favourite", "", localRenameFav},
+		{"Unpin", "", localUnpin},
+	}
 )
 
 // menuState is what a context menu offers, worked out as it opens.
 type menuState struct {
 	cmds []string
-	// path is the item or place the menu is about.
-	path string
+	// path is the item or place the menu is about, and fs the ID of
+	// the file system of a place.
+	path, fs string
+	// away is set for a place on another file system than the window's.
+	away bool
 }
 
 // fill sets c's items from items, dimming those off says are off and
@@ -218,11 +229,15 @@ func (v *dndView) menuPicked(m *widget.ContextMenu, st menuState, i int, u *guni
 	case localOpenWindow:
 		u.Send(m, OpenWindow{Path: st.path})
 	case localOpenPlace:
+		if st.away {
+			u.Send(m, Visit{FS: st.fs, Path: st.path})
+			return
+		}
 		u.Send(m, Navigate{Path: st.path})
 	case localUnpin:
-		u.Send(m, Unpin{Path: st.path})
+		u.Send(m, Unpin{FS: st.fs, Path: st.path})
 	case localRenameFav:
-		u.Send(m, RenameFavourite{Path: st.path})
+		u.Send(m, RenameFavourite{FS: st.fs, Path: st.path})
 	default:
 		u.Send(m, Command{Name: cmd})
 	}
@@ -260,13 +275,18 @@ func newSideMenu(b *browser) *widget.ContextMenu {
 			for _, k := range l.Keys() {
 				n, ok := l.Row(k)
 				pr, isPlace := n.(*placeRow)
-				if !ok || !isPlace || pr.item.away {
+				// A place elsewhere has no menu yet, but a favourite
+				// elsewhere has one to open, rename and unpin it.
+				if !ok || !isPlace || pr.item.away && l != b.side.favs {
 					continue
 				}
 				if r, ok := u.Bounds(n); ok && r.Contains(p) {
-					st = menuState{path: pr.item.Path}
+					st = menuState{path: pr.item.Path, fs: pr.item.FS, away: pr.item.away}
 					items := placeItems
-					if l == b.side.favs {
+					switch {
+					case l == b.side.favs && pr.item.away:
+						items = awayFavItems
+					case l == b.side.favs:
 						items = favItems
 					}
 					st.cmds = fill(m, items, func(string) bool { return false }, func(string) bool { return false })

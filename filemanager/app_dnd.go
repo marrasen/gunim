@@ -32,7 +32,7 @@ func (a *app) handleDnd(in gunim.Intent) bool {
 	case OpenWindow:
 		a.openWindow(v.Path)
 	case RenameFavourite:
-		a.renameFavourite(v.Path)
+		a.renameFavourite(v.FS, v.Path)
 	case PropsApplied:
 		a.answered(v)
 	case Command:
@@ -114,16 +114,17 @@ func (a *app) pinFolders(paths []string) {
 	}()
 }
 
-// renameFavourite asks for a name for the favourite at path.
-func (a *app) renameFavourite(path string) {
-	name := a.favName(path)
+// renameFavourite asks for a name for the favourite at path on the file
+// system of ID fs.
+func (a *app) renameFavourite(fs, path string) {
+	name := a.favName(fs, path)
 	a.prompt(Prompt{Title: "Rename favourite", Text: name, OK: "Rename", Stem: utf8.RuneCountInString(name)}, func(n string) {
-		i := a.favourite(path)
+		i := a.favourite(fs, path)
 		if i < 0 {
 			return
 		}
 		n = strings.TrimSpace(n)
-		if n == a.ps.placeName(path) {
+		if n == a.folderName(fs, path) {
 			n = ""
 		}
 		favs := slices.Clone(a.favs)

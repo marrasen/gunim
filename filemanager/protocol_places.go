@@ -34,15 +34,22 @@ type Places struct {
 	Current    string
 }
 
-// FavouritesReordered carries the favourites' paths in the order a drag
-// left them in.
+// FavouritesReordered carries the favourites in the order a drag left
+// them in.
 type FavouritesReordered struct {
-	Paths []string
+	Favourites []FavouriteAt
 }
 
-// Unpin takes a favourite off the sidebar.
+// FavouriteAt names a favourite: the folder at Path on the file system
+// of ID FS.
+type FavouriteAt struct {
+	FS, Path string
+}
+
+// Unpin takes the favourite at Path on the file system of ID FS off the
+// sidebar.
 type Unpin struct {
-	Path string
+	FS, Path string
 }
 
 // Visit asks to go to the folder at Path on the file system of ID FS,

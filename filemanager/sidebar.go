@@ -54,8 +54,8 @@ type placeItem struct {
 }
 
 // placeKey is the key of the row of p: its path, for a place on the
-// window's file system, as the drops and the favourites need, and its
-// file system and path for one elsewhere.
+// window's file system, and its file system and path for one elsewhere,
+// so a favourite on one is not taken for one on another.
 func placeKey(p Place, away bool) widget.Key {
 	if away {
 		return widget.Key("\x00" + p.FS + "\x00" + p.Path)
@@ -76,6 +76,14 @@ func (s *sidebar) goes(k widget.Key) gunim.Intent {
 	return Navigate{Path: i.Path}
 }
 
+// favAt names the favourite of the row with key k.
+func (s *sidebar) favAt(k widget.Key) FavouriteAt {
+	if i, ok := s.items[k]; ok {
+		return FavouriteAt{FS: i.FS, Path: i.Path}
+	}
+	return FavouriteAt{FS: s.fs, Path: string(k)}
+}
+
 // sideSpacing is the gap between the sidebar's rows.
 var sideSpacing = theme.Length("files.side.spacing", 2)
 
@@ -84,11 +92,11 @@ func newSidebar() *sidebar {
 	s.places.OnClick = s.goes
 	s.favs.OnClick = s.places.OnClick
 	s.favs.Reorder = func(keys []widget.Key) gunim.Intent {
-		paths := make([]string, len(keys))
+		favs := make([]FavouriteAt, len(keys))
 		for i, k := range keys {
-			paths[i] = string(k)
+			favs[i] = s.favAt(k)
 		}
-		return FavouritesReordered{Paths: paths}
+		return FavouritesReordered{Favourites: favs}
 	}
 	s.hint = widget.NewLabel("Pin a folder here with Ctrl+D.")
 	s.hint.Color = Caption

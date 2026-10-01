@@ -12,6 +12,10 @@ type Favourite struct {
 	Path string
 	// Name is the name the user gave it, and empty for the folder's own.
 	Name string
+	// FS is the ID of the file system the folder is on. A store that is
+	// not an AnyFSFavourites leaves it empty, and its favourites are on
+	// the window's file system.
+	FS string
 }
 
 // FavouriteStore keeps a window's favourites between runs. A window
@@ -20,10 +24,23 @@ type Favourite struct {
 // Its methods are called on the window's own goroutine, so they should
 // be quick. Windows of a hub given the same store share its favourites
 // as they change; a store that cannot be compared with ==, as a pointer
-// can, is not shared.
+// can, is not shared, and a window's save may then undo another's. A
+// store keeps the favourites of the window's file system, unless it is
+// an [AnyFSFavourites].
 type FavouriteStore interface {
 	Load() ([]Favourite, error)
 	Save(favs []Favourite) error
+}
+
+// AnyFSFavourites is a FavouriteStore whose favourites may be on any file
+// system, each naming its own in FS, empty for the computer's own. A
+// window lists them all; one on another file system than the window's
+// is shown as elsewhere, and a click on it asks for a Visit.
+type AnyFSFavourites interface {
+	FavouriteStore
+	// Where names the file system of ID fs, as a favourite on another
+	// file system than the window's says where it is.
+	Where(fs string) string
 }
 
 // prefsFavourites keeps the favourites of a window on the computer's own
@@ -133,43 +150,88 @@ func (a *app) loadFavourites() {
 		a.fail("Reading the favourites: " + err.Error())
 		return
 	}
-	a.favs = favs
+	a.favs = a.fromStore(favs)
+}
+
+// fromStore returns favs as loaded from a's store, each with its file
+// system: those of a store that is not an AnyFSFavourites are on the
+// window's.
+func (a *app) fromStore(favs []Favourite) []Favourite {
+	favs = slices.Clone(favs)
+	if _, anyFS := a.favStore().(AnyFSFavourites); !anyFS {
+		for i := range favs {
+			favs[i].FS = a.fs.ID()
+		}
+	}
+	return favs
+}
+
+// toStore returns favs as a's store keeps them: all of them for an
+// AnyFSFavourites, and otherwise those on the window's file system, with
+// FS empty, as such a store keeps them.
+func (a *app) toStore(favs []Favourite) []Favourite {
+	if _, anyFS := a.favStore().(AnyFSFavourites); anyFS {
+		return slices.Clone(favs)
+	}
+	out := make([]Favourite, 0, len(favs))
+	for _, f := range favs {
+		if f.FS == a.fs.ID() {
+			f.FS = ""
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
 // setFavourites makes favs the favourites: it saves them, shows them,
-// and has the windows that keep theirs in the same store show them too.
+// and has the windows that keep theirs in the same store show them too,
+// each as it would load them.
 func (a *app) setFavourites(favs []Favourite) {
 	a.favs = slices.Clone(favs)
-	if err := a.favStore().Save(slices.Clone(favs)); err != nil {
+	saved := a.toStore(favs)
+	if err := a.favStore().Save(slices.Clone(saved)); err != nil {
 		a.fail("Saving the favourites: " + err.Error())
 	}
 	a.publishPlaces()
-	shared := slices.Clone(favs)
 	a.hub.others(a, func(o *app) {
 		if !a.sharesFavourites(o) {
 			return
 		}
-		o.favs = slices.Clone(shared)
+		o.favs = o.fromStore(saved)
 		if o.opts.Favourites == nil && o.fs.ID() == "" {
-			o.prefs.Favourites, o.prefs.FavNames = mergeFavourites(o.prefs.FavNames, shared)
+			o.prefs.Favourites, o.prefs.FavNames = mergeFavourites(o.prefs.FavNames, saved)
 		}
 		o.publishPlaces()
 	})
 }
 
-// favourite returns the index of the favourite at path, or -1.
-func (a *app) favourite(path string) int {
-	return slices.IndexFunc(a.favs, func(f Favourite) bool { return a.ps.Same(f.Path, path) })
+// isFav reports whether f is the favourite at path on the file system
+// of ID fs: paths on the window's file system compare as it writes them,
+// and others as they are.
+func (a *app) isFav(f Favourite, fs, path string) bool {
+	switch {
+	case f.FS != fs:
+		return false
+	case fs == a.fs.ID():
+		return a.ps.Same(f.Path, path)
+	}
+	return f.Path == path
 }
 
-// addFavourites adds the folders at paths that are not favourites yet,
-// and returns how many it added.
+// favourite returns the index of the favourite at path on the file
+// system of ID fs, or -1.
+func (a *app) favourite(fs, path string) int {
+	return slices.IndexFunc(a.favs, func(f Favourite) bool { return a.isFav(f, fs, path) })
+}
+
+// addFavourites adds the folders at paths on the window's file system
+// that are not favourites yet, and returns how many it added.
 func (a *app) addFavourites(paths []string) int {
 	favs := slices.Clone(a.favs)
 	added := 0
 	for _, p := range paths {
-		if !slices.ContainsFunc(favs, func(f Favourite) bool { return a.ps.Same(f.Path, p) }) {
-			f := Favourite{Path: p}
+		if !slices.ContainsFunc(favs, func(f Favourite) bool { return a.isFav(f, a.fs.ID(), p) }) {
+			f := Favourite{Path: p, FS: a.fs.ID()}
 			if s, ok := a.favStore().(prefsFavourites); ok {
 				f.Name = s.name(p)
 			}
@@ -183,22 +245,41 @@ func (a *app) addFavourites(paths []string) int {
 	return added
 }
 
-// favName is what the sidebar calls the favourite at path: the name the
-// user gave it, or the folder's.
-func (a *app) favName(path string) string {
-	if i := a.favourite(path); i >= 0 {
+// favName is what the sidebar calls the favourite at path on the file
+// system of ID fs: the name the user gave it, or the folder's.
+func (a *app) favName(fs, path string) string {
+	if i := a.favourite(fs, path); i >= 0 {
 		if n := strings.TrimSpace(a.favs[i].Name); n != "" {
 			return n
 		}
 	}
-	return a.ps.placeName(path)
+	return a.folderName(fs, path)
 }
 
-// favPaths returns the paths of the favourites.
-func (a *app) favPaths() []string {
-	out := make([]string, len(a.favs))
+// folderName is the name of the folder at path on the file system of ID
+// fs. How another file system writes paths is not known, so its paths
+// are taken to end in a name after the last slash or backslash.
+func (a *app) folderName(fs, path string) string {
+	if fs == a.fs.ID() {
+		return a.ps.placeName(path)
+	}
+	if name := path[strings.LastIndexAny(path, `/\`)+1:]; name != "" {
+		return name
+	}
+	return path
+}
+
+// favPlaces returns the favourites as places, as the sidebar and the
+// palette list them: one on another file system than the window's says
+// where it is, as its store names it.
+func (a *app) favPlaces() []Place {
+	where, _ := a.favStore().(AnyFSFavourites)
+	out := make([]Place, len(a.favs))
 	for i, f := range a.favs {
-		out[i] = f.Path
+		out[i] = Place{Name: a.favName(f.FS, f.Path), Path: f.Path, Kind: "favourite", FS: f.FS}
+		if f.FS != a.fs.ID() && where != nil {
+			out[i].Note = where.Where(f.FS)
+		}
 	}
 	return out
 }

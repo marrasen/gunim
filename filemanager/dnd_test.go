@@ -305,7 +305,7 @@ func TestTheSidebarMenuUnpinsAndRenamesFavourites(t *testing.T) {
 	}
 	h.do(RenameFavourite{Path: fav})
 	h.answer(Prompted{Token: h.a.ops.tokens, Text: "My stuff", OK: true})
-	h.until("the favourite takes its name", func() bool { return h.a.favName(fav) == "My stuff" })
+	h.until("the favourite takes its name", func() bool { return h.a.favName("", fav) == "My stuff" })
 	h.do(Unpin{Path: fav})
 	if len(h.a.prefs.Favourites) != 0 {
 		t.Fatal("Unpin left the favourite")
@@ -470,7 +470,7 @@ func TestDndWire(t *testing.T) {
 		Volumes{Of: map[string]string{"/a": "C:"}, Errs: map[string]string{"/b": "denied"}},
 		ClipState{Count: 2, Cut: true},
 		OpenWindow{Path: "/a"},
-		RenameFavourite{Path: "/a"},
+		RenameFavourite{FS: "box", Path: "/a"},
 		Props{Token: 1, Title: "Properties of a", Name: "a", Size: "1 KB", Attrs: true, ReadOnly: true},
 		PropsCounted{Token: 1, Size: "2 KB", Holds: "3 items", Counting: true},
 		PropsApplied{Token: 1, Hidden: true},

@@ -11,17 +11,17 @@ import (
 func (a *app) handlePlaces(in gunim.Intent) bool {
 	switch v := in.(type) {
 	case FavouritesReordered:
-		favs := make([]Favourite, 0, len(v.Paths))
-		for _, p := range v.Paths {
-			f := Favourite{Path: p}
-			if i := a.favourite(p); i >= 0 {
+		favs := make([]Favourite, 0, len(v.Favourites))
+		for _, at := range v.Favourites {
+			f := Favourite{Path: at.Path, FS: at.FS}
+			if i := a.favourite(at.FS, at.Path); i >= 0 {
 				f = a.favs[i]
 			}
 			favs = append(favs, f)
 		}
 		a.setFavourites(favs)
 	case Unpin:
-		a.setFavourites(slices.DeleteFunc(slices.Clone(a.favs), func(f Favourite) bool { return a.ps.Same(f.Path, v.Path) }))
+		a.setFavourites(slices.DeleteFunc(slices.Clone(a.favs), func(f Favourite) bool { return a.isFav(f, v.FS, v.Path) }))
 	case Visit:
 		a.visit(v)
 	case Command:
@@ -111,10 +111,7 @@ func (a *app) defaultPlaces() ([]Place, error) {
 }
 
 func (a *app) publishPlaces() {
-	s := Places{Places: a.places, Current: a.nav.path}
-	for _, f := range a.favs {
-		s.Favourites = append(s.Favourites, Place{Name: a.favName(f.Path), Path: f.Path, Kind: "favourite", FS: a.fs.ID()})
-	}
+	s := Places{Places: a.places, Favourites: a.favPlaces(), Current: a.nav.path}
 	a.patch(s)
 	a.publishVolumes(s)
 }
