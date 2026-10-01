@@ -56,6 +56,16 @@ type TextStater interface {
 	SetTextState(s *input.TextState, seq uint64)
 }
 
+// A KeyboardShower is a [Window] with a keyboard on the screen, as a
+// phone has. The engine calls ShowKeyboard when a press lands on the
+// focused node while it takes text, as a tap on a text field asks for
+// the keyboard. Text input turning on leaves the keyboard down, so a
+// field focused as a window opens waits for its tap, and turning off
+// puts it away.
+type KeyboardShower interface {
+	ShowKeyboard()
+}
+
 // A CaretPlacer is a [Window] that can tell the platform's input method
 // where the text caret is, in logical pixels of window space, so its
 // candidate window opens beside the text being composed.

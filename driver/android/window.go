@@ -217,8 +217,9 @@ func (w *Window) Show() error {
 	return nil
 }
 
-// SetTextInput implements [driver.TextInputter]: the soft keyboard
-// shows while the window takes text.
+// SetTextInput implements [driver.TextInputter]. The window takes the
+// keyboard's input while it takes text, and the soft keyboard goes away
+// as it stops; a tap brings the keyboard up, through ShowKeyboard.
 func (w *Window) SetTextInput(active bool) {
 	w.d.mu.Lock()
 	if active {
@@ -230,8 +231,13 @@ func (w *Window) SetTextInput(active bool) {
 		return
 	}
 	w.d.mu.Unlock()
-	showKeyboard(active)
+	if !active {
+		showKeyboard(false)
+	}
 }
+
+// ShowKeyboard implements [driver.KeyboardShower].
+func (w *Window) ShowKeyboard() { showKeyboard(true) }
 
 // SetTextState implements [driver.TextStater]. Java keeps the copy,
 // and decides from seq whether the state is behind the keyboard's
@@ -246,12 +252,13 @@ func (w *Window) SetTextState(s *input.TextState, seq uint64) {
 }
 
 var (
-	_ driver.Placer       = (*Window)(nil)
-	_ driver.PopupRoomer  = (*Window)(nil)
-	_ driver.Screener     = (*Window)(nil)
-	_ driver.Transparent  = (*Window)(nil)
-	_ driver.Backgrounder = (*Window)(nil)
-	_ driver.Recycler     = (*Window)(nil)
-	_ driver.TextInputter = (*Window)(nil)
-	_ driver.TextStater   = (*Window)(nil)
+	_ driver.Placer         = (*Window)(nil)
+	_ driver.PopupRoomer    = (*Window)(nil)
+	_ driver.Screener       = (*Window)(nil)
+	_ driver.Transparent    = (*Window)(nil)
+	_ driver.Backgrounder   = (*Window)(nil)
+	_ driver.Recycler       = (*Window)(nil)
+	_ driver.TextInputter   = (*Window)(nil)
+	_ driver.TextStater     = (*Window)(nil)
+	_ driver.KeyboardShower = (*Window)(nil)
 )

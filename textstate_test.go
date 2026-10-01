@@ -112,3 +112,47 @@ func TestEachTextNodeTakingTheFocusStartsTheKeyboardOver(t *testing.T) {
 		t.Fatalf("the driver heard %+v, want a state for each field", got)
 	}
 }
+
+// keyboardWindow is an offscreen window with a keyboard on the screen,
+// that counts the times the engine asks for it.
+type keyboardWindow struct {
+	*driver.OffscreenWindow
+	asked int
+}
+
+func (w *keyboardWindow) ShowKeyboard() { w.asked++ }
+
+// box is a recorder of a fixed size, so presses can land on it or miss.
+type box struct {
+	editsText
+	size geom.Size
+}
+
+func (b *box) Layout(Constraints, Frame, Children) geom.Size { return b.size }
+func (*box) Focusable() bool                                 { return true }
+
+func TestATapOnTheFocusedTextAsksForTheKeyboard(t *testing.T) {
+	kw := &keyboardWindow{OffscreenWindow: driver.Offscreen(geom.Sz(800, 600))}
+	w := newWindow(kw, nil)
+	field := &box{size: geom.Sz(200, 40)}
+	w.ui.Insert(w.ui.Root(), field)
+	w.ui.Focus(field)
+	w.Frame(time.Second / 60)
+	if kw.asked != 0 {
+		t.Fatalf("focus alone asked for the keyboard %d times, want none until a tap", kw.asked)
+	}
+
+	tap := func(p geom.Point) {
+		w.Input(input.PointerDown{Pos: p, Button: input.ButtonPrimary, Clicks: 1})
+		w.Input(input.PointerUp{Pos: p, Button: input.ButtonPrimary})
+		w.Frame(time.Second / 60)
+	}
+	tap(geom.Pt(20, 20))
+	if kw.asked != 1 {
+		t.Fatalf("a tap on the focused field asked %d times, want once", kw.asked)
+	}
+	tap(geom.Pt(500, 500))
+	if kw.asked != 1 {
+		t.Fatalf("a tap beside the field asked for the keyboard, %d times in all", kw.asked)
+	}
+}

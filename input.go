@@ -125,6 +125,9 @@ func (u *UI) handleOn(root *state, ev any) {
 		u.capture = u.dispatchAt(root, e.Pos, func(local geom.Point) input.Event {
 			return input.PointerDown{Pos: local, Button: e.Button, Mods: e.Mods, Clicks: e.Clicks, Focusing: focusing, Time: e.Time}
 		})
+		if root == u.root {
+			u.askKeyboard(u.hit(root, e.Pos))
+		}
 		u.shapePointer(root, e.Pos)
 	case input.PointerUp:
 		if sideButton(e.Button) {

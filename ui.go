@@ -1695,6 +1695,18 @@ func (u *UI) syncText(s *state, fresh bool) {
 	ts.SetTextState(st, u.textSeq)
 }
 
+// askKeyboard shows the on-screen keyboard, where the window has one,
+// for a press on hit that lands on the focused node, or inside it, while
+// that node takes text: a tap on a text field asks for the keyboard,
+// though the field had the focus already.
+func (u *UI) askKeyboard(hit *state) {
+	ks, ok := u.w.dw.(driver.KeyboardShower)
+	if !ok || hit == nil || u.focus == nil || !hit.within(u.focus) || !takingText(u.focus) {
+		return
+	}
+	ks.ShowKeyboard()
+}
+
 // takingText reports whether s is a node that takes typed text.
 func takingText(s *state) bool {
 	if s == nil {
