@@ -810,7 +810,7 @@ func (o *object) text() map[string]*method {
 // request hands a request for o's node to its window.
 func (o *object) request(r access.Request) {
 	r.ID = o.node.ID
-	o.aw.win.in.push(r)
+	o.aw.win.in.Push(r)
 }
 
 // properties is org.freedesktop.DBus.Properties for o.

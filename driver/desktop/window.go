@@ -5,6 +5,7 @@ package desktop
 import (
 	"errors"
 	"fmt"
+	"github.com/marrasen/gunim/driver/internal/inbox"
 	"github.com/marrasen/gunim/driver/internal/render"
 	"image"
 	"image/color"
@@ -57,7 +58,7 @@ type Window struct {
 	// see chrome.go.
 	chrome chrome
 
-	in        *inbox
+	in        *inbox.Inbox
 	presented chan driver.Frame
 	frames    chan frame
 	quit      chan struct{}
@@ -194,7 +195,7 @@ func newWindow(d *Driver, gw *glfw.Window) *Window {
 		rate:      60,
 		perCoord:  1,
 	}
-	w.in = newInbox(w.quit)
+	w.in = inbox.New(w.quit)
 	return w
 }
 
@@ -202,7 +203,7 @@ func newWindow(d *Driver, gw *glfw.Window) *Window {
 func (w *Window) Presented() <-chan driver.Frame { return w.presented }
 
 // Input implements [driver.Window].
-func (w *Window) Input() <-chan any { return w.in.out }
+func (w *Window) Input() <-chan any { return w.in.Out() }
 
 // Present implements [driver.Window]. It hands ops to the render thread
 // and returns at once.
@@ -280,7 +281,7 @@ func (w *Window) SetZoom(z float32) {
 	w.zoom = z
 	w.scale = w.content * z
 	w.mu.Unlock()
-	w.in.push(driver.Redraw{})
+	w.in.Push(driver.Redraw{})
 	w.d.post(w.pointerAgain)
 }
 
@@ -300,7 +301,7 @@ func (w *Window) pointerAgain() {
 		return
 	}
 	w.cursor = w.logical(x, y)
-	w.in.push(input.PointerMove{Pos: w.cursor, Mods: w.mods, Time: time.Now()})
+	w.in.Push(input.PointerMove{Pos: w.cursor, Mods: w.mods, Time: time.Now()})
 }
 
 // Scale implements [driver.Window].
@@ -400,7 +401,7 @@ func (w *Window) shutdown() {
 	if w.parent != nil {
 		w.parent.popups = slices.DeleteFunc(w.parent.popups, func(c *Window) bool { return c == w })
 	}
-	w.in.close()
+	w.in.Close()
 	w.stopRender()
 	<-w.done
 	delete(w.d.windows, w.gw)
@@ -620,7 +621,7 @@ func (w *Window) DragOut(paths []string) error {
 				}
 				e.At = w.logical(x, y)
 			}
-			w.in.push(e)
+			w.in.Push(e)
 		}
 		if err := w.gw.StartDragOut(paths, end); err != nil {
 			end(false, false)
@@ -766,7 +767,7 @@ func (w *Window) install() {
 	remeasure := func() {
 		was := w.Scale()
 		w.measure()
-		w.in.push(driver.Redraw{})
+		w.in.Push(driver.Redraw{})
 		if w.Scale() != was {
 			// Onto a monitor of another scale: the pointer resting over
 			// the window is at another logical point.
@@ -801,9 +802,9 @@ func (w *Window) install() {
 		if maximized {
 			w.forgetMaximized()
 		}
-		w.in.push(driver.WindowMaximized{Maximized: maximized})
+		w.in.Push(driver.WindowMaximized{Maximized: maximized})
 	})
-	_, _ = gw.SetRefreshCallback(func(*glfw.Window) { w.in.push(driver.Redraw{}) })
+	_, _ = gw.SetRefreshCallback(func(*glfw.Window) { w.in.Push(driver.Redraw{}) })
 	_, _ = gw.SetFocusCallback(func(_ *glfw.Window, focused bool) {
 		w.focused.Store(focused)
 		if focused {
@@ -812,22 +813,22 @@ func (w *Window) install() {
 			w.mods = modsOf(gw.HeldModifiers())
 		}
 		w.accessFocus(focused)
-		w.in.push(driver.WindowFocus{Focused: focused})
+		w.in.Push(driver.WindowFocus{Focused: focused})
 	})
 	_, _ = gw.SetCloseCallback(func(gw *glfw.Window) {
 		// The engine decides: it closes the window, or asks the
 		// application first.
 		_ = gw.SetShouldClose(false)
-		w.in.push(driver.CloseAsked{})
+		w.in.Push(driver.CloseAsked{})
 	})
 
 	_, _ = gw.SetCursorPosCallback(func(_ *glfw.Window, x, y float64) {
 		w.cursor = w.logical(x, y)
-		w.in.push(input.PointerMove{Pos: w.cursor, Mods: w.mods, Time: time.Now()})
+		w.in.Push(input.PointerMove{Pos: w.cursor, Mods: w.mods, Time: time.Now()})
 	})
 	_, _ = gw.SetCursorEnterCallback(func(_ *glfw.Window, entered bool) {
 		if !entered {
-			w.in.push(input.PointerLeave{Time: time.Now()})
+			w.in.Push(input.PointerLeave{Time: time.Now()})
 		}
 	})
 	_, _ = gw.SetMouseButtonCallback(func(_ *glfw.Window, b glfw.MouseButton, action glfw.Action, mods glfw.ModifierKey) {
@@ -838,7 +839,7 @@ func (w *Window) install() {
 		w.mods = modsOf(mods)
 		now := time.Now()
 		if action == glfw.Release {
-			w.in.push(input.PointerUp{Pos: w.cursor, Button: button, Mods: w.mods, Time: now})
+			w.in.Push(input.PointerUp{Pos: w.cursor, Button: button, Mods: w.mods, Time: now})
 			return
 		}
 		d := w.cursor.Sub(w.lastPos)
@@ -849,18 +850,18 @@ func (w *Window) install() {
 			w.clicks = 1
 		}
 		w.lastPress, w.lastButton, w.lastPos = now, button, w.cursor
-		w.in.push(input.PointerDown{Pos: w.cursor, Button: button, Mods: w.mods, Clicks: w.clicks, Time: now})
+		w.in.Push(input.PointerDown{Pos: w.cursor, Button: button, Mods: w.mods, Clicks: w.clicks, Time: now})
 	})
 	_, _ = gw.SetDropCallback(func(gw *glfw.Window, names []string) {
 		// GLFW moves the cursor to where the files were let go first.
-		w.in.push(input.Drop{Pos: w.cursor, Paths: names, Mods: modsOf(gw.HeldModifiers()), Time: time.Now()})
+		w.in.Push(input.Drop{Pos: w.cursor, Paths: names, Mods: modsOf(gw.HeldModifiers()), Time: time.Now()})
 	})
 	_, _ = gw.SetScrollCallback(func(gw *glfw.Window, x, y float64) {
 		// Asked of the system, as a wheel turns with no key event to
 		// say what is held: Ctrl pressed just before, or let go
 		// elsewhere, is known all the same.
 		w.mods = modsOf(gw.HeldModifiers())
-		w.in.push(input.Scroll{
+		w.in.Push(input.Scroll{
 			Pos:     w.cursor,
 			Delta:   geom.Pt(float32(x)*scrollLine, float32(y)*scrollLine),
 			Notches: geom.Pt(float32(x), float32(y)),
@@ -873,9 +874,9 @@ func (w *Window) install() {
 		now := time.Now()
 		switch action {
 		case glfw.Press, glfw.Repeat:
-			w.in.push(input.KeyPress{Key: keyOf(k), Mods: w.mods, Repeat: action == glfw.Repeat, Typed: gw.KeyTyped(), Char: charOf(k, scancode), Time: now})
+			w.in.Push(input.KeyPress{Key: keyOf(k), Mods: w.mods, Repeat: action == glfw.Repeat, Typed: gw.KeyTyped(), Char: charOf(k, scancode), Time: now})
 		case glfw.Release:
-			w.in.push(input.KeyRelease{Key: keyOf(k), Mods: w.mods, Time: now})
+			w.in.Push(input.KeyRelease{Key: keyOf(k), Mods: w.mods, Time: now})
 		}
 	})
 	installText(w)
@@ -1107,82 +1108,6 @@ func abs(v float32) float32 {
 		return -v
 	}
 	return v
-}
-
-// inbox carries input from the main thread to the engine.
-//
-// It queues without bound, and a goroutine of its own feeds the
-// channel. So the main thread, which pumps events for every window,
-// always hands input over at once, and a window slow to read its input
-// leaves the others running.
-type inbox struct {
-	out  chan any
-	quit <-chan struct{}
-	wake chan struct{}
-
-	mu     sync.Mutex
-	items  []any
-	closed bool
-}
-
-func newInbox(quit <-chan struct{}) *inbox {
-	q := &inbox{out: make(chan any), quit: quit, wake: make(chan struct{}, 1)}
-	go q.feed()
-	return q
-}
-
-func (q *inbox) push(ev any) {
-	q.mu.Lock()
-	if q.closed {
-		q.mu.Unlock()
-		return
-	}
-	q.items = append(q.items, ev)
-	q.mu.Unlock()
-	q.nudge()
-}
-
-// close ends the stream once what is queued has been delivered.
-func (q *inbox) close() {
-	q.mu.Lock()
-	q.closed = true
-	q.mu.Unlock()
-	q.nudge()
-}
-
-func (q *inbox) nudge() {
-	select {
-	case q.wake <- struct{}{}:
-	default:
-	}
-}
-
-func (q *inbox) feed() {
-	for {
-		q.mu.Lock()
-		if len(q.items) == 0 {
-			closed := q.closed
-			q.mu.Unlock()
-			if closed {
-				close(q.out)
-				return
-			}
-			select {
-			case <-q.wake:
-			case <-q.quit:
-				return
-			}
-			continue
-		}
-		ev := q.items[0]
-		q.items = q.items[1:]
-		q.mu.Unlock()
-		select {
-		case q.out <- ev:
-		case <-q.quit:
-			return
-		}
-	}
 }
 
 // charOf is the character a key types on the layout in use, without

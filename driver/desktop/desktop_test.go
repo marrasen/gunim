@@ -98,28 +98,6 @@ func TestPaceLeavesAPacedSwapAlone(t *testing.T) {
 	}
 }
 
-func TestInboxDeliversInOrderAndCloses(t *testing.T) {
-	quit := make(chan struct{})
-	defer close(quit)
-	q := newInbox(quit)
-	for i := range 100 {
-		q.push(i)
-	}
-	q.close()
-	q.push("after close")
-
-	want := 0
-	for ev := range q.out {
-		if ev != want {
-			t.Fatalf("got %v, want %d", ev, want)
-		}
-		want++
-	}
-	if want != 100 {
-		t.Fatalf("delivered %d events, want 100", want)
-	}
-}
-
 // TestBackdropFramesStayUpright draws a frame that is white on top and
 // black below, under a full-window backdrop layer followed by an
 // unclipped layer, the way the confirm dialog paints. Under one software

@@ -30,7 +30,7 @@ func (w *Window) SetBorder(b driver.Border) {
 		}
 	})
 	// The edge the window leaves for the border changes with it
-	w.in.push(driver.Redraw{})
+	w.in.Push(driver.Redraw{})
 }
 
 // RequestAttention implements [driver.Attender].

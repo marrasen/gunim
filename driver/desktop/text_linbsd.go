@@ -16,10 +16,10 @@ import (
 func installText(w *Window) {
 	gw := w.gw
 	_, _ = gw.SetTextInputCallback(func(_ *glfw.Window, s string) {
-		w.in.push(input.TextInput{Text: s, Time: time.Now()})
+		w.in.Push(input.TextInput{Text: s, Time: time.Now()})
 	})
 	_, _ = gw.SetPreeditCallback(func(_ *glfw.Window, s string, start, end int) {
-		w.in.push(input.Composing{Text: s, Selected: [2]int{start, end}})
+		w.in.Push(input.Composing{Text: s, Selected: [2]int{start, end}})
 	})
 	_, _ = gw.SetTextInputActiveCallback(func(*glfw.Window) bool { return w.textInput.Load() })
 }

@@ -397,13 +397,20 @@ func New(g gl.Context, isES bool, sh *Shared) (*Renderer, error) {
 	g.BufferSubData(gl.ELEMENT_ARRAY_BUFFER, 0, idx)
 
 	r.initGlyphs()
+	r.Rebind()
+	return r, nil
+}
+
+// Rebind sets the blending every frame takes as given, for a driver
+// that has drawn with the context itself since the last frame.
+func (r *Renderer) Rebind() {
+	g := r.GL
 	g.Enable(gl.BLEND)
 	if r.dual {
 		g.BlendFuncSeparate(gl.ONE, glOneMinusSrc1Color, gl.ONE, glOneMinusSrc1Alpha)
 	} else {
 		g.BlendFuncSeparate(gl.ONE, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
 	}
-	return r, nil
 }
 
 // SetText sets how the renderer draws text, for a window whose surface
