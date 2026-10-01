@@ -1009,6 +1009,11 @@ type UI struct {
 	current *state
 	// caretAt is the text caret last told to the driver.
 	caretAt geom.Rect
+	// textState is the focused node's text state last told to the
+	// driver, nil for none, and textSent the seq it went with. textSeq
+	// is the seq of the last [input.TextEdit] the focus took.
+	textState         *input.TextState
+	textSent, textSeq uint64
 
 	now time.Time
 	// theme is the window's live theme, stepped every frame.
@@ -1651,17 +1656,44 @@ func (u *UI) cue(keyboard bool) {
 // text, so the input method composes into the window only then. A
 // composition belongs to the node it was typed into, so focus moving
 // between two nodes that take text turns text input off on the way,
-// which ends it.
+// which ends it. The new node's text state reaches the driver before
+// text input turns on, so the input method starts from it.
 func (u *UI) takeText(prev, next *state) {
 	ti, ok := u.w.dw.(driver.TextInputter)
+	takes := takingText(next)
+	if ok && takes && takingText(prev) {
+		ti.SetTextInput(false)
+	}
+	u.syncText(next, true)
+	if ok {
+		ti.SetTextInput(takes)
+	}
+}
+
+// syncText tells the driver the state of s's text when s is a
+// [TextEditor] that takes text, and nil when s is something else. It
+// tells only a change since the driver last heard, unless fresh says s
+// has just taken the focus: a text node taking the focus always starts
+// the input method over, though its text matches the last one's.
+func (u *UI) syncText(s *state, fresh bool) {
+	ts, ok := u.w.dw.(driver.TextStater)
 	if !ok {
 		return
 	}
-	takes := takingText(next)
-	if takes && takingText(prev) {
-		ti.SetTextInput(false)
+	var st *input.TextState
+	if s != nil {
+		if ed, ok := s.node.(TextEditor); ok && ed.TakesText() {
+			v := ed.TextState()
+			st = &v
+		}
 	}
-	ti.SetTextInput(takes)
+	same := st == nil && u.textState == nil ||
+		st != nil && u.textState != nil && *st == *u.textState && u.textSent == u.textSeq
+	if same && !(fresh && st != nil) {
+		return
+	}
+	u.textState, u.textSent = st, u.textSeq
+	ts.SetTextState(st, u.textSeq)
 }
 
 // takingText reports whether s is a node that takes typed text.
@@ -1817,6 +1849,7 @@ func (u *UI) frame(now time.Time, delta time.Duration) {
 	}
 	u.sendTitleBar()
 	u.placeCaret()
+	u.syncText(u.focus, false)
 	u.hoverAgain(now)
 	u.framePopups(f)
 	u.publishAccess(u.w.dw, u.root, u.w.title)

@@ -401,13 +401,17 @@ func (c *CodeEditor) Handle(e input.Event, u *gunim.UI) bool {
 		if c.readOnly {
 			return true
 		}
-		c.preedit = nil
 		c.typed(e.Text, u)
 	case input.Composing:
 		if c.readOnly {
 			return true
 		}
-		c.compose(e)
+		c.compose(e, u)
+	case input.TextEdit:
+		if c.readOnly {
+			return true
+		}
+		c.edit(e, u)
 	case input.KeyPress:
 		if !c.codeKey(e, u) && !c.key(e, u, codeNav{c}) {
 			return false
@@ -426,14 +430,14 @@ func (c *CodeEditor) Handle(e input.Event, u *gunim.UI) bool {
 // typed at the start of a line.
 func (c *CodeEditor) typed(s string, u *gunim.UI) {
 	start, end := c.Selection()
-	if s == "}" && start == end {
+	if s == "}" && start == end && len(c.preedit) == 0 {
 		ls := c.lineStartOf(start)
 		if before := c.text[ls:start]; len(before) > 0 && onlyIndent(before) && before[len(before)-1] == '\t' {
 			c.replace(start-1, start, []rune("}"), u)
 			return
 		}
 	}
-	c.insert(s, u)
+	c.commit(s, u)
 }
 
 // codeKey takes the keys code edits differently, and reports whether

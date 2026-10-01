@@ -39,6 +39,23 @@ type TextInputter interface {
 	SetTextInput(active bool)
 }
 
+// A TextStater is a [Window] that keeps a copy of the focused text
+// node's state, so it can answer an input method that asks about the
+// text, as a phone's keyboard does, at once. The engine calls
+// SetTextState when the state changes, and with nil when the focus
+// moves to a node that keeps no text.
+//
+// The driver sends the input method's changes as
+// [github.com/marrasen/gunim/input.TextEdit], numbered from 1. seq is
+// the number of the last edit the state includes. A state with seq
+// behind the driver's latest edit is out of date: the edits after it
+// are still on their way to the node. A state with seq level with it
+// that differs from the copy is a change the node made, such as text
+// set by the program, and the input method starts over from it.
+type TextStater interface {
+	SetTextState(s *input.TextState, seq uint64)
+}
+
 // A CaretPlacer is a [Window] that can tell the platform's input method
 // where the text caret is, in logical pixels of window space, so its
 // candidate window opens beside the text being composed.

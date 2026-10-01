@@ -177,12 +177,18 @@ func (a *TextArea) Handle(e input.Event, u *gunim.UI) bool {
 		}
 		a.scroll.Animate(to, Quick.Get(u.Theme()))
 	case input.TextInput:
-		a.preedit = nil
-		a.insert(e.Text, u)
+		a.commit(e.Text, u)
 		a.complete(u)
 	case input.Composing:
 		a.closeCompletion()
-		a.compose(e)
+		a.compose(e, u)
+	case input.TextEdit:
+		a.edit(e, u)
+		if len(a.preedit) > 0 {
+			a.closeCompletion()
+		} else {
+			a.complete(u)
+		}
 	case input.KeyPress:
 		if a.completionKey(e, u) {
 			return true

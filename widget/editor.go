@@ -1,9 +1,11 @@
 package widget
 
 import (
+	"slices"
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
@@ -194,16 +196,167 @@ func (e *editor) set(i int, extend bool) {
 	e.hinted, e.goal = false, false
 }
 
+// textWindow is how many runes either side of the selection a long
+// text shows the input method.
+const textWindow = 2048
+
+// TextState implements [gunim.TextEditor] for the widgets built on the
+// editor. It returns the text as the input method sees it: as drawn, with
+// any composition in place, and cut to textWindow runes either side of
+// the selection.
+func (e *editor) TextState() input.TextState {
+	rs, at := e.shown()
+	caret, anchor := e.drawnCaret()
+	lo := max(0, min(caret, anchor)-textWindow)
+	hi := min(len(rs), max(caret, anchor)+textWindow)
+	start := byteLen(rs[:lo])
+	s := input.TextState{
+		Text:      string(rs[lo:hi]),
+		Start:     start,
+		Multiline: e.multiline,
+		Secret:    e.secret,
+	}
+	b := func(i int) int { return start + byteLen(rs[lo:i]) }
+	s.Selection = [2]int{b(anchor), b(caret)}
+	if len(e.preedit) > 0 {
+		s.Composing = [2]int{b(at), b(at + len(e.preedit))}
+	} else {
+		s.Composing = [2]int{s.Selection[1], s.Selection[1]}
+	}
+	return s
+}
+
+// commit puts typed or composed text in, as [input.TextInput] brings it.
+func (e *editor) commit(s string, u *gunim.UI) { e.edit(e.TextState().Commit(s), u) }
+
 // compose takes the input method's latest composition, whose selection
 // arrives in bytes.
-func (e *editor) compose(c input.Composing) {
-	e.preedit = []rune(c.Text)
-	runeAt := func(b int) int {
-		b = max(0, min(b, len(c.Text)))
-		return len([]rune(c.Text[:b]))
+func (e *editor) compose(c input.Composing, u *gunim.UI) {
+	e.edit(e.TextState().Compose(c.Text, c.Selected), u)
+}
+
+// edit makes an input method's edit. The composition is drawn over
+// the text, in place of the selection, and stays out of the text
+// itself: a word the input method takes up again to compose stays in
+// the text until the composition commits. So only what the text itself
+// gains or loses is a change and a step of undo, and it reaches the
+// text as one replace of the runes that differ.
+func (e *editor) edit(t input.TextEdit, u *gunim.UI) {
+	if e.readOnly {
+		return
 	}
-	e.preSel = [2]int{runeAt(c.Selected[0]), runeAt(c.Selected[1])}
+	rs, _ := e.shown()
+	a, b := runeOfByte(rs, t.Replace[0]), runeOfByte(rs, t.Replace[1])
+	if a < 0 || b < a {
+		return
+	}
+	with := []rune(t.With)
+	next := make([]rune, 0, len(rs)-(b-a)+len(with))
+	next = append(next, rs[:a]...)
+	next = append(next, with...)
+	next = append(next, rs[b:]...)
+	at := func(i int) int { return max(0, runeOfByte(next, i)) }
+	c0, c1 := at(min(t.Composing[0], t.Composing[1])), at(max(t.Composing[0], t.Composing[1]))
+	anchor, caret := at(t.Selection[0]), at(t.Selection[1])
+	var pre []rune
+	// clip moves a place in next into the composition.
+	clip := func(i int) int { return max(0, min(i-c0, len(pre))) }
+	if c0 < c1 {
+		pre = slices.Clone(next[c0:c1])
+		before, after := next[:c0], next[c1:]
+		if len(before)+len(after) <= len(e.text) &&
+			slices.Equal(e.text[:len(before)], before) && slices.Equal(e.text[len(e.text)-len(after):], after) {
+			// The text around the composition is as it was: the
+			// composition covers the runes between.
+			e.anchor, e.caret = len(before), len(e.text)-len(after)
+			e.preedit, e.preSel = pre, [2]int{clip(anchor), clip(caret)}
+			e.hinted, e.goal = false, false
+			e.edited = true
+			return
+		}
+		// The edit changed the text around it too: that change goes in,
+		// and the composition covers nothing.
+		next = append(slices.Clone(before), after...)
+	}
+
+	// The runes that differ between the text and next.
+	p := 0
+	for p < len(e.text) && p < len(next) && e.text[p] == next[p] {
+		p++
+	}
+	q := 0
+	for q < len(e.text)-p && q < len(next)-p && e.text[len(e.text)-1-q] == next[len(next)-1-q] {
+		q++
+	}
+	added := next[p : len(next)-q]
+	kept := added
+	if len(added) > 0 {
+		kept = []rune(e.clean(string(added)))
+	}
+	if p+q != len(e.text) || len(kept) > 0 {
+		e.preedit = nil
+		e.replace(p, len(e.text)-q, kept, u)
+	}
+	// Places in next, moved to the text as cleaning left it.
+	moved := func(i int) int {
+		switch {
+		case i <= p:
+			return i
+		case i >= p+len(added):
+			return i - len(added) + len(kept)
+		}
+		return min(i, p+len(kept))
+	}
+	if c0 < c1 {
+		e.set(moved(c0), false)
+		e.preedit, e.preSel = pre, [2]int{clip(anchor), clip(caret)}
+	} else {
+		e.preedit = nil
+		e.set(moved(anchor), false)
+		e.set(moved(caret), true)
+	}
 	e.edited = true
+}
+
+// byteLen returns how many bytes rs takes as UTF-8.
+func byteLen(rs []rune) int {
+	n := 0
+	for _, r := range rs {
+		n += runeBytes(r)
+	}
+	return n
+}
+
+// runeBytes returns how many bytes r takes as UTF-8, where an invalid
+// rune becomes the replacement character.
+func runeBytes(r rune) int {
+	if n := utf8.RuneLen(r); n > 0 {
+		return n
+	}
+	return utf8.RuneLen(utf8.RuneError)
+}
+
+// runeOfByte returns the rune that byte b of rs as UTF-8 starts, len(rs)
+// for its end, and -1 for a byte past it. A byte inside a rune counts
+// as that rune's start.
+func runeOfByte(rs []rune, b int) int {
+	if b < 0 {
+		return -1
+	}
+	n := 0
+	for i, r := range rs {
+		if n >= b {
+			return i
+		}
+		n += runeBytes(r)
+		if n > b {
+			return i
+		}
+	}
+	if b == n {
+		return len(rs)
+	}
+	return -1
 }
 
 // press places the caret for a click at rune i: selecting a word on a
@@ -370,10 +523,20 @@ func (e *editor) paste(s string, u *gunim.UI) {
 	e.pasting = false
 }
 
-// insert puts s in place of the selection. A single line turns
-// newlines and tabs into spaces; both keep printable text only.
+// insert puts s in place of the selection.
 func (e *editor) insert(s string, u *gunim.UI) {
-	s = strings.Map(func(r rune) rune {
+	s = e.clean(s)
+	if s == "" {
+		return
+	}
+	start, end := e.Selection()
+	e.replace(start, end, []rune(s), u)
+}
+
+// clean returns s as the text keeps it. A single line turns newlines
+// and tabs into spaces; both keep printable text only.
+func (e *editor) clean(s string) string {
+	return strings.Map(func(r rune) rune {
 		switch {
 		case r == '\n' && e.multiline, r == '\t' && e.tabs:
 			return r
@@ -384,11 +547,6 @@ func (e *editor) insert(s string, u *gunim.UI) {
 		}
 		return r
 	}, s)
-	if s == "" {
-		return
-	}
-	start, end := e.Selection()
-	e.replace(start, end, []rune(s), u)
 }
 
 // replace swaps runes start to end for with, and leaves the caret after

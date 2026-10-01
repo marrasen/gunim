@@ -115,10 +115,20 @@ type Focusable interface {
 // A TextTaker is a node that takes typed text while it has focus, as a
 // text field does. While one has focus, the platform's input method
 // composes into the window and reports its composition as
-// [input.Composing].
+// [input.Composing], or as [input.TextEdit] to a [TextEditor].
 type TextTaker interface {
 	Node
 	TakesText() bool
+}
+
+// A TextEditor is a [TextTaker] that edits a text of its own, as a text
+// field does, and shows it to the platform's input method. The engine
+// asks for its state after every frame while it has focus, and hands
+// a changed state to the driver. The input method's changes come back
+// as [input.TextEdit].
+type TextEditor interface {
+	TextTaker
+	TextState() input.TextState
 }
 
 // A ThemeScope is a node that gives its subtree a theme of its own. The

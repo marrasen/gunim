@@ -65,7 +65,7 @@ func (u *UI) left() {
 // up.
 func (u *UI) stopsAtModal(ev input.Event) bool {
 	switch ev.(type) {
-	case input.KeyPress, input.TextInput:
+	case input.KeyPress, input.TextInput, input.Composing, input.TextEdit:
 	default:
 		return false
 	}

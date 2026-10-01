@@ -217,10 +217,11 @@ func (t *TextField) Handle(e input.Event, u *gunim.UI) bool {
 			}
 		}
 	case input.TextInput:
-		t.preedit = nil
-		t.insert(e.Text, u)
+		t.commit(e.Text, u)
 	case input.Composing:
-		t.compose(e)
+		t.compose(e, u)
+	case input.TextEdit:
+		t.edit(e, u)
 	case input.KeyPress:
 		if e.Key == input.KeyEnter || e.Key == input.KeyKPEnter {
 			// With nothing to submit to, Enter is for the nodes around

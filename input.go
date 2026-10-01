@@ -251,6 +251,9 @@ func (u *UI) keyEvent(ev any) {
 		if target == nil {
 			target = u.appRoot()
 		}
+		if te, ok := ev.(input.TextEdit); ok && te.Seq != 0 {
+			u.textSeq = te.Seq
+		}
 		// Focus a key press moves is keyed
 		if _, ok := ev.(input.KeyPress); ok {
 			u.keyed = true
