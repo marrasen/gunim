@@ -393,8 +393,12 @@ func (a *app) palettePicked(v PalettePicked) {
 	case "go":
 		a.navigate(rest, 0, true)
 	case "visit":
-		id, path, _ := strings.Cut(rest, "\x00")
-		a.visit(Visit{FS: id, Path: path})
+		// A path holds no NUL, though a file system's ID may.
+		cut := strings.LastIndexByte(rest, 0)
+		if cut < 0 {
+			return
+		}
+		a.visit(Visit{FS: rest[:cut], Path: rest[cut+1:]})
 	case "file":
 		info, err := a.fs.Lstat(rest)
 		if err != nil {

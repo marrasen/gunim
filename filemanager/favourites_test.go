@@ -88,6 +88,14 @@ func TestFavouritesOnAnyFileSystemAreListedAndVisited(t *testing.T) {
 	if !SystemPaths.Same(h.a.nav.path, h.dir) {
 		t.Fatalf("the palette went to %s itself", h.a.nav.path)
 	}
+	// A file system's ID may hold a NUL, as a machine beyond another's
+	// does; the path is what follows the last.
+	h.do(PalettePicked{Key: "visit:far\x00k1\x00/var/log"})
+	h.until("the palette asks to visit the far machine", func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(visits) == 3 && visits[2] == "far\x00k1 /var/log"
+	})
 }
 
 func TestPinningKeepsTheFavouritesElsewhere(t *testing.T) {
