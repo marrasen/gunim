@@ -445,3 +445,54 @@ func TestADialogKeepsItsKeysFromTheWindowBehind(t *testing.T) {
 		t.Fatalf("the window behind saw %d presses and %d texts, and %d releases, want only the release", keys.presses, keys.texts, keys.releases)
 	}
 }
+
+// A danger dialog shows the ring on Cancel as it opens, however it was
+// opened, and the arrows go along its buttons: Right to the action,
+// whose Enter then does it, and Left back to Cancel.
+func TestADangerDialogRingsCancelAndTheArrowsMoveAlong(t *testing.T) {
+	w := gunimtest.New(t, geom.Sz(800, 600), nil)
+	var d *Dialog
+	gunim.RegisterView(w, "confirm", func(title string) *Dialog {
+		d = NewDialog(title)
+		d.Danger = true
+		d.Body = NewLabel("It goes for good.")
+		d.Accept, d.Dismiss = "delete", "keep"
+		return d
+	}, nil)
+	c := w.Client()
+	// A click first, as the button that opened it took one: the rings
+	// are off.
+	w.Input(input.PointerDown{Pos: geom.Pt(5, 5), Button: input.ButtonPrimary, Clicks: 1})
+	w.Input(input.PointerUp{Pos: geom.Pt(5, 5), Button: input.ButtonPrimary})
+	if err := c.Mount(gunim.Root, "confirm", "confirm", "Delete?"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Focus("confirm"); err != nil {
+		t.Fatal(err)
+	}
+	for range 30 {
+		w.Frame(time.Second / 60)
+	}
+	if d.cancel.ring.Value() <= 0 {
+		t.Fatal("opened on Cancel, it shows no ring")
+	}
+	w.Input(input.KeyPress{Key: input.KeyRight})
+	for range 30 {
+		w.Frame(time.Second / 60)
+	}
+	if d.ok.ring.Value() < 0.9 || d.cancel.ring.Value() > 0.1 {
+		t.Fatalf("after Right, the rings are %v on OK and %v on Cancel", d.ok.ring.Value(), d.cancel.ring.Value())
+	}
+	w.Input(input.KeyPress{Key: input.KeyLeft})
+	w.Input(input.KeyPress{Key: input.KeyRight})
+	w.Input(input.KeyPress{Key: input.KeyEnter})
+	w.Frame(time.Second / 60)
+	select {
+	case env := <-c.Intents():
+		if env.Intent != "delete" {
+			t.Fatalf("Enter on the action sent %v, want delete", env.Intent)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Enter on the action sent nothing")
+	}
+}

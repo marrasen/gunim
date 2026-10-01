@@ -9,6 +9,7 @@ import (
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/text"
 	"github.com/marrasen/gunim/theme"
@@ -42,6 +43,10 @@ type CellGrid struct {
 	// Foreground colours a cell whose own colour is clear. It defaults
 	// to the theme's [Ink].
 	Foreground theme.Token[color.NRGBA]
+	// Pointer names the pointer's shape at p, in the grid's space, in
+	// place of the I-beam: a hand over a link, say. CursorInherit
+	// leaves it to the nodes around the grid.
+	Pointer func(p geom.Point) input.Cursor
 
 	cols, rows int
 	lines      []cellRow

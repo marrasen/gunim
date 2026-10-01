@@ -1632,6 +1632,11 @@ func (u *UI) ring() {
 	u.ringed = want
 }
 
+// ShowFocusRing shows the focus rings, as Tab does, until the next
+// click: for a widget that moves the keyboard somewhere the user has to
+// see, such as a dialog that opens on Cancel.
+func (u *UI) ShowFocusRing() { u.cue(true) }
+
 // cue says whether the focus rings show: on from Tab, and off from a click.
 func (u *UI) cue(keyboard bool) {
 	if u.keyboardCue == keyboard {
