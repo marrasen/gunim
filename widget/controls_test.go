@@ -27,6 +27,7 @@ var (
 	_ gunim.Animator = (*Scroll)(nil)
 	_ gunim.Animator = (*VirtualList)(nil)
 	_ gunim.Animator = (*Hero)(nil)
+	_ gunim.Animator = (*CodeEditor)(nil)
 )
 
 type (

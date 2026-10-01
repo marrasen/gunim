@@ -25,6 +25,19 @@ that puts `widget.WindowControls` in its own tree draws its own title
 bar instead. `WindowOptions.SystemFrame` keeps the system's frame, and
 `WindowOptions.Instant` turns the fade off.
 
+`example/tutorial` teaches how to build a gunim application, six
+lessons in a window: the node tree, a button and the two halves, a
+keyed list, a node of your own, themes, and a dialog. Each lesson has
+something to try, and its own source in a code editor under it. Edit
+the source and press Run: the tutorial builds again with the file as
+edited and opens on that lesson, and a build error marks its line.
+[example/tutorial/README.md](example/tutorial/README.md) walks the
+same lessons in prose.
+
+```sh
+CGO_ENABLED=0 go run ./example/tutorial
+```
+
 `example/calculator` shows the animation: a calculator with a graph, in
 a window that draws its own title bar.
 
@@ -326,13 +339,14 @@ writes them again from a newer Lucide.
 | `gunim/paint` | The per-frame draw list: rounded rects, shadows, text, images, tinted masks, layers |
 | `gunim/icon` | Lucide's icons as strokes, drawn as tinted masks; `icon/byname` looks them up by name |
 | `gunim/geom` | float32 points, sizes, rectangles |
+| `gunim/syntax` | Splits source code into tokens to colour; `syntax.Go` reads Go with `go/scanner` |
 | `gunim/input` | Pointer, keyboard and focus events, keys, buttons, modifiers |
 | `gunim/theme` | Tokens, themes, and animated theme switching |
 | `gunim/text` | Fonts and fallback, shaping, paragraph layout, glyph rasterizing |
 | `gunim/access` | What a window says to screen readers: roles, names, states, actions |
 | `gunim/driver` | The seam with the operating system, and an offscreen window |
 | `gunim/driver/desktop` | The driver for Linux, Windows and macOS, on GLFW and OpenGL |
-| `gunim/widget` | `Row`, `Column`, `Scroll`, a `TileGrid` that builds only the tiles in view and selects with a band, `Label` whose text the mouse can select and copy when `Selectable`, `TextField`, `NumberField` that steps with the arrows and the wheel and holds itself to its bounds, `TextArea`, `Card`, `Button`, `Icon`, `IconButton`, `Checkbox`, `Switch`, `Slider`, which runs up the height as a fader when its `Axis` is vertical, `Tabs`, a `Segmented` control whose pill springs to the option chosen, `Dropdown`, `ContextMenu`, `Tooltip`, `Image`, `Hero` for elements that fly between screens, `Draggable` and `DropTarget` for drag and drop within and between windows and to and from file managers, a `DragGhost` that trails the pointer and says what a drop would do, a `DropZone` that lights the spot under a drag and springs it open, `Dialog`, a keyed `List`, a `VirtualList` that builds only the rows in view, a `DataGrid` that draws millions of rows of styled cells by index and drags the rows selected, an `Overview` strip that maps and scrolls it, a `MenuButton` whose menu can stay open to tick several items, removable `Chip`s and a `Wrap` that flows them onto lines, `RichText` that wraps text in several styles with links, and their theme tokens |
+| `gunim/widget` | `Row`, `Column`, `Scroll`, a `TileGrid` that builds only the tiles in view and selects with a band, `Label` whose text the mouse can select and copy when `Selectable`, `TextField`, `NumberField` that steps with the arrows and the wheel and holds itself to its bounds, `TextArea`, `Card`, `Button`, `Icon`, `IconButton`, `Checkbox`, `Switch`, `Slider`, which runs up the height as a fader when its `Axis` is vertical, `Tabs`, a `Segmented` control whose pill springs to the option chosen, `Dropdown`, `ContextMenu`, `Tooltip`, `Image`, `Hero` for elements that fly between screens, `Draggable` and `DropTarget` for drag and drop within and between windows and to and from file managers, a `DragGhost` that trails the pointer and says what a drop would do, a `DropZone` that lights the spot under a drag and springs it open, `Dialog`, a keyed `List`, a `VirtualList` that builds only the rows in view, a `DataGrid` that draws millions of rows of styled cells by index and drags the rows selected, an `Overview` strip that maps and scrolls it, a `MenuButton` whose menu can stay open to tick several items, removable `Chip`s and a `Wrap` that flows them onto lines, `RichText` that wraps text in several styles with links, a `CodeEditor` with line numbers, tab stops, highlighting and marks such as a compiler's errors, and their theme tokens |
 
 Commands, intents, topics and the `Client` live in `wire.go` and
 `view.go`. `driver.Offscreen` plus `Window.Frame` run a window with no

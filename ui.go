@@ -202,6 +202,9 @@ type WindowOptions struct {
 	TitleBar TitleBar
 	// Pinned opens the window kept above other windows; see [UI.SetPinned].
 	Pinned bool
+	// Hidden opens the window without showing it, as for an application
+	// that starts in the tray and may close it unseen.
+	Hidden bool
 }
 
 // NewWindow opens a window and starts its UI goroutine.
@@ -213,6 +216,7 @@ func (a *App) NewWindow(o WindowOptions) (*Window, error) {
 		Title: o.Title, Size: o.Size, Monitor: o.Monitor,
 		Kind: o.Kind, Anchor: geom.Rect{Min: o.Anchor, Max: o.Anchor}, Icons: o.Icons,
 		Chromeless: !o.SystemFrame && (newTitleBar != nil || o.TitleBar != nil), Border: o.Border, Text: o.Text, Place: o.Place,
+		Hidden: o.Hidden,
 	}
 	if o.Parent != nil {
 		do.Parent = o.Parent.dw

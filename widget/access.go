@@ -79,6 +79,17 @@ func (a *TextArea) Access() access.Info {
 	}
 }
 
+// Access implements [gunim.Accessible].
+func (c *CodeEditor) Access() access.Info {
+	state := access.StateMultiline
+	if c.readOnly {
+		state |= access.StateReadOnly
+	} else {
+		state |= access.StateEditable
+	}
+	return access.Info{Role: access.RoleTextField, Name: c.Label, Value: string(c.text), State: state}
+}
+
 // access is what a checkbox or a switch says.
 func (t *toggle) access(role access.Role) access.Info {
 	s := access.StateCheckable

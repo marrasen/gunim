@@ -20,6 +20,12 @@ type editor struct {
 	multiline     bool
 	// secret keeps the text off the clipboard.
 	secret bool
+	// tabs keeps typed and pasted tabs, as code needs; otherwise a tab
+	// becomes a space.
+	tabs bool
+	// readOnly keeps the text as it is: the caret moves and the text
+	// selects and copies, and every edit is skipped.
+	readOnly bool
 
 	// hintX is the caret's x as an arrow key left it. Where text of two
 	// directions meets, one rune index has two places on screen, and
@@ -106,7 +112,7 @@ func (e *editor) redoEdit(u *gunim.UI) { e.travel(&e.redo, &e.undo, u) }
 
 // travel restores the latest snapshot of from, saving the text as it is on to.
 func (e *editor) travel(from, to *[]snapshot, u *gunim.UI) {
-	if len(*from) == 0 {
+	if len(*from) == 0 || e.readOnly {
 		return
 	}
 	s := (*from)[len(*from)-1]
@@ -369,7 +375,7 @@ func (e *editor) paste(s string, u *gunim.UI) {
 func (e *editor) insert(s string, u *gunim.UI) {
 	s = strings.Map(func(r rune) rune {
 		switch {
-		case r == '\n' && e.multiline:
+		case r == '\n' && e.multiline, r == '\t' && e.tabs:
 			return r
 		case r == '\n' || r == '\t':
 			return ' '
@@ -388,7 +394,7 @@ func (e *editor) insert(s string, u *gunim.UI) {
 // replace swaps runes start to end for with, and leaves the caret after
 // it.
 func (e *editor) replace(start, end int, with []rune, u *gunim.UI) {
-	if start < 0 || end > len(e.text) || start > end {
+	if start < 0 || end > len(e.text) || start > end || e.readOnly {
 		return
 	}
 	kind := otherEdit

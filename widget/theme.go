@@ -197,6 +197,20 @@ func Light() theme.Theme {
 		theme.Set(TileCursor, color.NRGBA{R: 0x2f, G: 0x6f, B: 0xe0, A: 0xc0}),
 		theme.Set(TileHover, color.NRGBA{R: 0x2f, G: 0x6f, B: 0xe0, A: 0x14}),
 		theme.Set(TileSelected, color.NRGBA{R: 0x2f, G: 0x6f, B: 0xe0, A: 0x38}),
+		// Code, in the colours of a light editor.
+		theme.Set(CodeEditorFill, color.NRGBA{R: 0xfa, G: 0xfb, B: 0xfc, A: 0xff}),
+		theme.Set(CodeGutterFill, color.NRGBA{R: 0xf0, G: 0xf2, B: 0xf6, A: 0xff}),
+		theme.Set(CodeGutterInk, color.NRGBA{R: 0x9d, G: 0xa5, B: 0xb4, A: 0xff}),
+		theme.Set(CodeLineFill, color.NRGBA{R: 0x2f, G: 0x6f, B: 0xe0, A: 0x0c}),
+		theme.Set(CodeProblem, color.NRGBA{R: 0xc8, G: 0x34, B: 0x2c, A: 0xff}),
+		theme.Set(SyntaxKeyword, color.NRGBA{R: 0xa6, G: 0x26, B: 0xa4, A: 0xff}),
+		theme.Set(SyntaxBuiltin, color.NRGBA{R: 0x01, G: 0x84, B: 0xbc, A: 0xff}),
+		theme.Set(SyntaxType, color.NRGBA{R: 0xa0, G: 0x6c, B: 0x00, A: 0xff}),
+		theme.Set(SyntaxFunction, color.NRGBA{R: 0x40, G: 0x78, B: 0xf2, A: 0xff}),
+		theme.Set(SyntaxString, color.NRGBA{R: 0x50, G: 0xa1, B: 0x4f, A: 0xff}),
+		theme.Set(SyntaxNumber, color.NRGBA{R: 0x98, G: 0x68, B: 0x01, A: 0xff}),
+		theme.Set(SyntaxComment, color.NRGBA{R: 0x8a, G: 0x8f, B: 0x98, A: 0xff}),
+		theme.Set(SyntaxOperator, color.NRGBA{R: 0x5f, G: 0x67, B: 0x75, A: 0xff}),
 	)
 }
 

@@ -90,3 +90,13 @@ func TestALongCodeLineScrollsSideways(t *testing.T) {
 		t.Fatalf("Shift and the wheel scrolled to %v, want the end at %v", v.scrolls[0], lp.over)
 	}
 }
+
+func TestTabsInCodeShowAsSpacesToTheNextTabStop(t *testing.T) {
+	v := New("```\nif x {\n\ty()\n\ta\tb\n}\n```")
+	stage(t, v)
+	got := string(v.plain)
+	want := "if x {\n    y()\n    a   b\n}"
+	if got != want {
+		t.Fatalf("the code block reads %q, want %q", got, want)
+	}
+}
