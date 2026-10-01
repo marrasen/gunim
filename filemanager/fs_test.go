@@ -74,7 +74,7 @@ func TestAFileSystemElsewhereOpensNothingWithTheSystem(t *testing.T) {
 
 func TestADropFromAnotherFileSystemIsRefused(t *testing.T) {
 	d := FileDrag{Paths: []string{"/a/x"}, FS: "elsewhere"}
-	if _, hint, ok := dropPlan(SystemPaths, "", d, "/b", "", "", 0); ok || !strings.Contains(hint.Text, "another file system") {
+	if _, hint, ok := dropPlan(SystemPaths, "", false, d, "/b", "", "", 0); ok || !strings.Contains(hint.Text, "another file system") {
 		t.Fatalf("a drop from elsewhere is planned, saying %q", hint.Text)
 	}
 	if _, err := d.ExportFiles(); err == nil {

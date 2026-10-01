@@ -27,11 +27,7 @@ func (a *app) showFS(fsys FS, dir string) {
 	a.nav.back, a.nav.fwd, a.nav.path = nil, nil, ""
 	a.nav.space, a.nav.spaceErr = space{}, nil
 
-	a.hub.mu.Lock()
-	clip := a.hub.clips[fsys.ID()]
-	a.hub.mu.Unlock()
-	a.ops.clip, a.ops.cut = clip.paths, clip.cut
-	a.publishClip()
+	a.syncClip()
 
 	a.shell.FS, a.shell.Paths, a.shell.NoTrash = fsys.ID(), a.ps, a.trash == nil
 	a.publishShell()

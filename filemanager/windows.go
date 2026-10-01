@@ -21,10 +21,15 @@ type Hub struct {
 	mu   sync.Mutex
 	apps []*app
 	// clips holds the clipboard of the windows on each file system, by
-	// its ID, as paths of one mean nothing on another, and favs the
-	// favourites of each file system other than the computer's own,
-	// for the windows whose options keep them nowhere.
+	// its ID, as paths of one mean nothing on another, and last the
+	// clipboard most recently cut, copied or emptied anywhere, which a
+	// window that can transfer pastes from another file system. seq
+	// counts the clipboards. favs holds the favourites of each file
+	// system other than the computer's own, for the windows whose
+	// options keep them nowhere.
 	clips map[string]clipboard
+	last  clipboard
+	seq   int
 	favs  map[string]*memFavourites
 	// open opens a window with o and serves it, and is nil where no
 	// window can open, as in a test.
@@ -86,6 +91,12 @@ func (w *Window) Close() {
 // running carry on where they started.
 func (w *Window) Show(fsys FS, dir string) {
 	w.do(func(a *app) { a.showFS(fsys, dir) })
+}
+
+// Notify shows a notice in the window, as the window shows its own: a
+// title, a body, and a kind, success, warning or info, for its icon.
+func (w *Window) Notify(title, body, kind string) {
+	w.do(func(a *app) { a.patch(Notice{Title: title, Body: body, Kind: kind}) })
 }
 
 // do runs fn on the window's serve loop, unless it has stopped.
@@ -190,15 +201,19 @@ func joinHub(a *app, h *Hub) *Hub {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.apps = append(h.apps, a)
-	clip := h.clips[a.fs.ID()]
-	a.ops.clip, a.ops.cut = slices.Clone(clip.paths), clip.cut
+	a.takeClip(h)
 	return h
 }
 
-// clipboard is the paths cut or copied, and whether they were cut.
+// clipboard is the paths cut or copied, and whether they were cut: on
+// the file system of ID fs, which writes them as ps. seq tells one
+// clipboard from another.
 type clipboard struct {
 	paths []string
 	cut   bool
+	fs    string
+	ps    PathStyle
+	seq   int
 }
 
 // leave takes a off h.
@@ -239,17 +254,85 @@ func (a *app) clipChanged() {
 	if h.clips == nil {
 		h.clips = map[string]clipboard{}
 	}
-	h.clips[a.fs.ID()] = clipboard{paths: slices.Clone(a.ops.clip), cut: a.ops.cut}
+	h.seq++
+	c := clipboard{paths: slices.Clone(a.ops.clip), cut: a.ops.cut, fs: a.fs.ID(), ps: a.ps, seq: h.seq}
+	h.clips[c.fs], h.last = c, c
 	h.mu.Unlock()
-	clip, cut := slices.Clone(a.ops.clip), a.ops.cut
-	a.publishClip()
-	h.neighbours(a, func(o *app) {
-		o.ops.clip, o.ops.cut = slices.Clone(clip), cut
-		o.publishClip()
-	})
+	a.syncClip()
+	h.others(a, func(o *app) { o.syncClip() })
 }
 
-func (a *app) publishClip() { a.patch(ClipState{Count: len(a.ops.clip), Cut: a.ops.cut}) }
+// clearClip empties the clipboard c, once its items are pasted, wherever
+// it is still kept. It reports false when c was kept nowhere any more:
+// pasted, or replaced, meanwhile.
+func (h *Hub) clearClip(c clipboard) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.clips[c.fs].seq != c.seq && h.last.seq != c.seq {
+		// Pasted or replaced already, by another window.
+		return false
+	}
+	h.seq++
+	empty := clipboard{fs: c.fs, ps: c.ps, seq: h.seq}
+	if h.clips[c.fs].seq == c.seq {
+		h.clips[c.fs] = empty
+	}
+	if h.last.seq == c.seq {
+		h.last = empty
+	}
+	return true
+}
+
+// syncClip takes what the hub's clipboards say Paste would paste, and
+// tells a's window.
+func (a *app) syncClip() {
+	a.hub.mu.Lock()
+	a.takeClip(a.hub)
+	a.hub.mu.Unlock()
+	a.publishClip()
+}
+
+// takeClip takes what Paste would paste from h, whose lock is held: the
+// clipboard of a's file system, or the most recent one where it is of
+// another and a's program can carry its items across.
+func (a *app) takeClip(h *Hub) {
+	own := h.clips[a.fs.ID()]
+	a.ops.clip, a.ops.cut, a.ops.away = slices.Clone(own.paths), own.cut, clipboard{}
+	if a.opts.Transfer != nil && h.last.seq > 0 && h.last.fs != a.fs.ID() {
+		a.ops.away = h.last
+		a.ops.away.paths = slices.Clone(h.last.paths)
+		a.ops.clip, a.ops.cut = nil, false
+	}
+}
+
+func (a *app) publishClip() {
+	if c := a.ops.away; c.seq > 0 {
+		a.patch(ClipState{Count: len(c.paths), Cut: c.cut})
+		return
+	}
+	a.patch(ClipState{Count: len(a.ops.clip), Cut: a.ops.cut})
+}
+
+// transfer hands the items at paths on the file system of ID from, which
+// writes them as ps, to the program to copy into the folder into on a's,
+// or to move there with move: one transfer for each folder they are in.
+func (a *app) transfer(from string, ps PathStyle, paths []string, into string, move bool) {
+	var ts []Transfer
+	for _, p := range paths {
+		i := slices.IndexFunc(ts, func(t Transfer) bool { return ps.Same(ps.Dir(t.Paths[0]), ps.Dir(p)) })
+		if i < 0 {
+			ts = append(ts, Transfer{FromFS: from, ToFS: a.fs.ID(), Into: into, Move: move})
+			i = len(ts) - 1
+		}
+		ts[i].Paths = append(ts[i].Paths, p)
+	}
+	do, w := a.opts.Transfer, a.win
+	go func() {
+		for _, t := range ts {
+			do(w, t)
+		}
+	}()
+}
 
 func cloneNames(m map[string]string) map[string]string {
 	if m == nil {

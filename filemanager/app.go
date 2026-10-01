@@ -42,6 +42,10 @@ type Options struct {
 	// can turn to the file system with Show, or leave as it is and open
 	// another. A window whose Visit is nil says it cannot go there.
 	Visit func(w *Window, fs, path string)
+	// Transfer copies or moves items between file systems, on a
+	// goroutine of its own, as a drop or a paste asks: w is the window
+	// they go to. When nil, items cannot go between file systems.
+	Transfer func(w *Window, t Transfer)
 	// Name is what the window's title calls the program, and Files when
 	// empty.
 	Name string
@@ -56,6 +60,20 @@ type Options struct {
 
 	// trash stands in for the file system's trash, for tests.
 	trash Trasher
+}
+
+// Transfer is items going from one file system to another, which the
+// window cannot do itself: copied, or moved when Move is set.
+type Transfer struct {
+	// FromFS is the ID of the file system the items are on, and Paths
+	// the items, all in one folder.
+	FromFS string
+	Paths  []string
+	// ToFS is the ID of the file system they go to, and Into the folder
+	// there they go into.
+	ToFS string
+	Into string
+	Move bool
 }
 
 // app is the application half. Everything on it runs on the serve loop;
@@ -197,7 +215,8 @@ func newApp(ctx context.Context, c gunim.Client, o Options) (*app, error) {
 	}
 	a.prefs, a.prefsErr = loadPrefs(a.prefsPath)
 	a.shell = Shell{Light: a.prefs.Light, ShowHidden: a.prefs.ShowHidden, ShowPreview: !a.prefs.HidePreview,
-		Sidebar: a.prefs.Sidebar, FS: a.fs.ID(), Paths: a.ps, NoTrash: tr == nil, Name: o.Name}
+		Sidebar: a.prefs.Sidebar, FS: a.fs.ID(), Paths: a.ps, NoTrash: tr == nil,
+		Transfers: o.Transfer != nil, Name: o.Name}
 	a.nav.sort, a.nav.desc = a.prefs.Sort, a.prefs.Desc
 	return a, nil
 }

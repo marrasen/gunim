@@ -62,18 +62,25 @@ func fileDragOf(d input.Drop) (FileDrag, bool) {
 
 // dropPlan works out what dropping d into the folder dir, on volume vol
 // of the file system of ID fs, does with mods held: a move on one volume
-// and a copy across volumes, Ctrl forcing a copy and Shift a move. It
-// returns false with the reason in the hint when the drop is refused, as
-// one from another file system is.
-func dropPlan(ps PathStyle, fs string, d FileDrag, dir, vol, volErr string, mods input.Mods) (DropFiles, widget.DropHint, bool) {
+// and a copy across volumes, Ctrl forcing a copy and Shift a move. Items
+// from another file system are copied unless Shift is held, where
+// transfers says the program carries them across, and refused where it
+// cannot. It returns false with the reason in the hint when the drop is
+// refused.
+func dropPlan(ps PathStyle, fs string, transfers bool, d FileDrag, dir, vol, volErr string, mods input.Mods) (DropFiles, widget.DropHint, bool) {
 	name := ps.placeName(dir)
+	across := d.FS != fs
 	switch {
-	case d.FS != fs:
+	case across && !transfers:
 		return DropFiles{}, widget.DropHint{Text: "Cannot drop from another file system"}, false
 	case volErr != "":
 		return DropFiles{}, widget.DropHint{Text: "Cannot read " + name}, false
 	}
 	for _, p := range d.Paths {
+		// Paths of another file system say nothing of folders here.
+		if across {
+			break
+		}
 		if ps.Same(ps.Dir(p), dir) {
 			return DropFiles{}, widget.DropHint{Text: "Already in " + name}, false
 		}
@@ -81,14 +88,14 @@ func dropPlan(ps PathStyle, fs string, d FileDrag, dir, vol, volErr string, mods
 			return DropFiles{}, widget.DropHint{Text: "Cannot go inside itself"}, false
 		}
 	}
-	copying := d.Volume == "" || vol == "" || d.Volume != vol
+	copying := across || d.Volume == "" || vol == "" || d.Volume != vol
 	switch {
 	case mods.Has(input.ModControl):
 		copying = true
 	case mods.Has(input.ModShift):
 		copying = false
 	}
-	plan := DropFiles{Paths: slices.Clone(d.Paths), Into: dir, Copy: copying, FS: fs}
+	plan := DropFiles{Paths: slices.Clone(d.Paths), Into: dir, Copy: copying, FS: d.FS, To: fs}
 	if copying {
 		return plan, widget.DropHint{Text: "Copy to " + name, Effect: widget.DropCopy}, true
 	}
@@ -186,7 +193,7 @@ func registerDnd(w *gunim.Window) {
 func (v *dndView) spot(d input.Drop, key spotKey, r geom.Rect, dir, vol string, opens bool) widget.DropSpot {
 	fd, _ := fileDragOf(d)
 	sh := v.b.shell
-	plan, hint, ok := dropPlan(sh.Paths, sh.FS, fd, dir, v.vols[vol], v.volErrs[vol], d.Mods)
+	plan, hint, ok := dropPlan(sh.Paths, sh.FS, sh.Transfers, fd, dir, v.vols[vol], v.volErrs[vol], d.Mods)
 	v.plan = plan
 	if !ok {
 		v.plan = nil
@@ -245,7 +252,7 @@ func (v *dndView) sideSpot(d input.Drop, u *gunim.UI) (widget.DropSpot, bool) {
 			}
 			if r, drawn := u.Bounds(n); drawn && r.Contains(at) {
 				if pr.item.away {
-					// A place elsewhere takes nothing yet, and a drop
+					// A place on another file system takes nothing, and a drop
 					// there pins nothing either.
 					v.plan = nil
 					return widget.DropSpot{Key: spotKey{"away", string(k)}, Rect: r.Add(zr.Min.Mul(-1)), Radius: 6,
