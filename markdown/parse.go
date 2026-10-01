@@ -142,9 +142,9 @@ func (p parser) blocks(n ast.Node) []block {
 		case *ast.Heading:
 			out = append(out, block{kind: heading, level: c.Level, spans: p.inlines(c, 0, "")})
 		case *ast.FencedCodeBlock:
-			out = append(out, block{kind: code, text: p.lines(c)})
+			out = append(out, block{kind: code, text: expandTabs(p.lines(c))})
 		case *ast.CodeBlock:
-			out = append(out, block{kind: code, text: p.lines(c)})
+			out = append(out, block{kind: code, text: expandTabs(p.lines(c))})
 		case *ast.HTMLBlock:
 			out = append(out, block{kind: paragraph, spans: []span{{text: p.lines(c)}}})
 		case *ast.Blockquote:
@@ -215,6 +215,35 @@ func (p parser) lines(n ast.Node) string {
 		b.Write(seg.Value(p.src))
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// tabStop is how many columns apart a code block's tab stops are.
+const tabStop = 4
+
+// expandTabs replaces each tab in code with the spaces that take the
+// line to its next tab stop, so code indented with tabs, as Go is,
+// shows indented.
+func expandTabs(code string) string {
+	if !strings.Contains(code, "\t") {
+		return code
+	}
+	var b strings.Builder
+	col := 0
+	for _, r := range code {
+		switch r {
+		case '\t':
+			n := tabStop - col%tabStop
+			b.WriteString(strings.Repeat(" ", n))
+			col += n
+		case '\n':
+			b.WriteRune(r)
+			col = 0
+		default:
+			b.WriteRune(r)
+			col++
+		}
+	}
+	return b.String()
 }
 
 // inlines returns the spans of n's inline children, in style st and linking to url.
