@@ -131,3 +131,21 @@ func TestAPaletteOffersTypedItemsFirst(t *testing.T) {
 		t.Fatalf("picked %v, want the typed item at %d", o.picked, len(o.p.Items))
 	}
 }
+
+// Picked hears a pick on the UI goroutine, for a pick that works in the
+// window.
+func TestAMenuButtonsPickedHearsThePick(t *testing.T) {
+	b := NewMenuButton("Add", "Server", "Window")
+	got := -1
+	b.Picked = func(i int, u *gunim.UI) { got = i }
+	w, run := stage(t, &frame{child: Row(b), size: geom.Sz(400, 300)})
+	click(w, 10, 10)
+	run(10)
+	w.Input(input.KeyPress{Key: input.KeyDown})
+	w.Input(input.KeyPress{Key: input.KeyDown})
+	w.Input(input.KeyPress{Key: input.KeyEnter})
+	run(1)
+	if got != 1 || b.IsOpen() {
+		t.Fatalf("picked %d, open %v; want the second, closed", got, b.IsOpen())
+	}
+}
