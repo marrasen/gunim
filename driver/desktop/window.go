@@ -805,6 +805,11 @@ func (w *Window) install() {
 	_, _ = gw.SetRefreshCallback(func(*glfw.Window) { w.in.push(driver.Redraw{}) })
 	_, _ = gw.SetFocusCallback(func(_ *glfw.Window, focused bool) {
 		w.focused.Store(focused)
+		if focused {
+			// A modifier let go while another window had the keyboard
+			// sent this one no event.
+			w.mods = modsOf(gw.HeldModifiers())
+		}
 		w.accessFocus(focused)
 		w.in.push(driver.WindowFocus{Focused: focused})
 	})
@@ -849,7 +854,11 @@ func (w *Window) install() {
 		// GLFW moves the cursor to where the files were let go first.
 		w.in.push(input.Drop{Pos: w.cursor, Paths: names, Mods: modsOf(gw.HeldModifiers()), Time: time.Now()})
 	})
-	_, _ = gw.SetScrollCallback(func(_ *glfw.Window, x, y float64) {
+	_, _ = gw.SetScrollCallback(func(gw *glfw.Window, x, y float64) {
+		// Asked of the system, as a wheel turns with no key event to
+		// say what is held: Ctrl pressed just before, or let go
+		// elsewhere, is known all the same.
+		w.mods = modsOf(gw.HeldModifiers())
 		w.in.push(input.Scroll{
 			Pos:     w.cursor,
 			Delta:   geom.Pt(float32(x)*scrollLine, float32(y)*scrollLine),
@@ -859,7 +868,7 @@ func (w *Window) install() {
 		})
 	})
 	_, _ = gw.SetKeyCallback(func(gw *glfw.Window, k glfw.Key, scancode int, action glfw.Action, mods glfw.ModifierKey) {
-		w.mods = modsOf(mods)
+		w.mods = modsOf(modsAfter(k, action, mods))
 		now := time.Now()
 		switch action {
 		case glfw.Press, glfw.Repeat:

@@ -131,6 +131,31 @@ var keys = map[glfw.Key]input.Key{
 
 func keyOf(k glfw.Key) input.Key { return keys[k] }
 
+// modsAfter is the modifiers held once key k has gone down or up. X11
+// gives a key's event the modifiers as they were before it: Ctrl going
+// down comes without Ctrl, and Ctrl let go with it, which left Ctrl held
+// for every scroll and click after. Elsewhere the modifiers come as they
+// are after the key, and this changes nothing.
+func modsAfter(k glfw.Key, action glfw.Action, mods glfw.ModifierKey) glfw.ModifierKey {
+	var m glfw.ModifierKey
+	switch k {
+	case glfw.KeyLeftShift, glfw.KeyRightShift:
+		m = glfw.ModShift
+	case glfw.KeyLeftControl, glfw.KeyRightControl:
+		m = glfw.ModControl
+	case glfw.KeyLeftAlt, glfw.KeyRightAlt:
+		m = glfw.ModAlt
+	case glfw.KeyLeftSuper, glfw.KeyRightSuper:
+		m = glfw.ModSuper
+	default:
+		return mods
+	}
+	if action == glfw.Release {
+		return mods &^ m
+	}
+	return mods | m
+}
+
 func modsOf(m glfw.ModifierKey) input.Mods {
 	var out input.Mods
 	if m&glfw.ModShift != 0 {
