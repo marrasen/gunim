@@ -73,8 +73,11 @@ const (
 	_GCLP_HICONSM                                              = -34
 	_GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS                    = 0x00000004
 	_GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT              = 0x00000002
+	_GW_HWNDPREV                                               = 3
+	_GW_OWNER                                                  = 4
 	_GWL_EXSTYLE                                               = -20
 	_GWL_STYLE                                                 = -16
+	_GWLP_HWNDPARENT                                           = -8
 	_HTCLIENT                                                  = 1
 	_HORZSIZE                                                  = 4
 	_HWND_NOTOPMOST                               windows.HWND = (1 << intSize) - 2
@@ -821,6 +824,7 @@ var (
 	procGetRawInputData               = user32.NewProc("GetRawInputData")
 	procGetSystemMetrics              = user32.NewProc("GetSystemMetrics")
 	procGetSystemMetricsForDpi        = user32.NewProc("GetSystemMetricsForDpi")
+	procGetWindow                     = user32.NewProc("GetWindow")
 	procGetWindowLongW                = user32.NewProc("GetWindowLongW")
 	procGetWindowPlacement            = user32.NewProc("GetWindowPlacement")
 	procGetWindowRect                 = user32.NewProc("GetWindowRect")
@@ -853,6 +857,7 @@ var (
 	procSetLayeredWindowAttributes    = user32.NewProc("SetLayeredWindowAttributes")
 	procSetProcessDPIAware            = user32.NewProc("SetProcessDPIAware")
 	procSetProcessDpiAwarenessContext = user32.NewProc("SetProcessDpiAwarenessContext")
+	procSetWindowLongPtrW             = user32.NewProc("SetWindowLongPtrW")
 	procSetWindowLongW                = user32.NewProc("SetWindowLongW")
 	procSetWindowPlacement            = user32.NewProc("SetWindowPlacement")
 	procSetWindowPos                  = user32.NewProc("SetWindowPos")
@@ -1394,6 +1399,12 @@ func _GetSystemMetricsForDpi(nIndex int32, dpi uint32) (int32, error) {
 	return int32(r), nil
 }
 
+// _GetWindow returns the window in relation cmd to hWnd, or 0 where there is none.
+func _GetWindow(hWnd windows.HWND, cmd uint32) windows.HWND {
+	r, _, _ := procGetWindow.Call(uintptr(hWnd), uintptr(cmd))
+	return windows.HWND(r)
+}
+
 func _GetWindowLongW(hWnd windows.HWND, nIndex int32) (int32, error) {
 	r, _, e := procGetWindowLongW.Call(uintptr(hWnd), uintptr(nIndex))
 	if int32(r) == 0 && !errors.Is(e, windows.ERROR_SUCCESS) {
@@ -1668,6 +1679,17 @@ func _SetWindowLongW(hWnd windows.HWND, nIndex int32, dwNewLong int32) (int32, e
 		return 0, fmt.Errorf("glfw: SetWindowLongW failed: %w", e)
 	}
 	return int32(r), nil
+}
+
+// _SetWindowLongPtrW sets a pointer-sized value of hWnd's, through SetWindowLongW on 32-bit Windows, and returns the
+// value before.
+func _SetWindowLongPtrW(hWnd windows.HWND, nIndex int32, v uintptr) uintptr {
+	proc := procSetWindowLongPtrW
+	if intSize == 32 {
+		proc = procSetWindowLongW
+	}
+	r, _, _ := proc.Call(uintptr(hWnd), uintptr(nIndex), v)
+	return r
 }
 
 func _SetWindowPlacement(hWnd windows.HWND, lpwndpl *_WINDOWPLACEMENT) error {

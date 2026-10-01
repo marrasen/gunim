@@ -33,6 +33,10 @@ type platformWindowState struct {
 	// popup is set for a window made with the Popup hint. A gunim change.
 	popup bool
 
+	// owner is the window a popup stays just above, set by SetOwner, or 0 for a popup above every window. A gunim
+	// change.
+	owner windows.HWND
+
 	// Cached size used to filter out duplicate events
 	width  int
 	height int

@@ -54,7 +54,10 @@ func (w *Window) getWindowExStyle() uint32 {
 	if w.platform.popup {
 		// A tool window keeps off the taskbar, and a no-activate window
 		// leaves the keyboard with the window that opened it.
-		style = _WS_EX_TOOLWINDOW | _WS_EX_NOACTIVATE | _WS_EX_TOPMOST
+		style = _WS_EX_TOOLWINDOW | _WS_EX_NOACTIVATE
+		if w.platform.owner == 0 {
+			style |= _WS_EX_TOPMOST
+		}
 	}
 
 	if w.floating {
@@ -1953,6 +1956,9 @@ func (w *Window) platformMaximizeWindow() error {
 
 func (w *Window) platformShowWindow() {
 	_ShowWindow(w.platform.handle, _SW_SHOWNA)
+	if w.platform.owner != 0 {
+		_ = w.raiseToOwner()
+	}
 }
 
 func (w *Window) platformHideWindow() {

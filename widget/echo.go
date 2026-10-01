@@ -112,7 +112,7 @@ func (e *Echo) send(u *gunim.UI, rings ...echoRing) {
 	m := reach + 16
 	if e.pop == nil || !e.pop.Open() {
 		e.view = &echoView{}
-		e.pop = u.OpenPopup(u.Root(), e.view, gunim.PopupOptions{Passthrough: true, Over: true})
+		e.pop = u.OpenPopup(u.Root(), e.view, gunim.PopupOptions{Passthrough: true, Over: true, Owned: true})
 		e.close(u)
 	}
 	v := e.view

@@ -46,6 +46,9 @@ type PopupOptions struct {
 	// Above opens the popup above the anchor, or below it where the screen runs out above and there is more room
 	// below, as for suggestions at a message box along the bottom of a window.
 	Above bool
+	// Owned keeps the popup just above its window, under any window in front of it, as for a glow round the window.
+	// Without it a popup stays above every window, as a menu does. Only Windows tells the two apart.
+	Owned bool
 	// Dismiss runs when the pointer is pressed outside the popup and
 	// its anchor, or when the window loses the keyboard. It usually
 	// closes the popup. A press on the anchor is left to the opener, so
@@ -312,7 +315,7 @@ func (u *UI) framePopup(s *surface, f Frame) {
 		dw, err := u.reuse(parent, s.opts, anchor, size), error(nil)
 		s.window = "a spare window"
 		if dw == nil {
-			dw, err = u.w.open(driver.Options{Kind: driver.KindPopup, Parent: parent, Anchor: anchor, Size: size, Passthrough: s.opts.Passthrough, Over: s.opts.Over, Above: s.opts.Above})
+			dw, err = u.w.open(driver.Options{Kind: driver.KindPopup, Parent: parent, Anchor: anchor, Size: size, Passthrough: s.opts.Passthrough, Over: s.opts.Over, Above: s.opts.Above, Owned: s.opts.Owned})
 			s.window = "a new window"
 		}
 		s.window += fmt.Sprintf(", got in %.1f ms", float64(time.Since(start).Microseconds())/1000)
@@ -445,7 +448,7 @@ func (u *UI) dropPopup(s *surface) {
 	// way to it, whose report would reach that popup instead. Each kind
 	// of window keeps its own few.
 	sp := spareWindow{dw: s.dw, parent: u.windowOf(s.root.opener), passthrough: s.opts.Passthrough, over: s.opts.Over,
-		above: s.opts.Above}
+		above: s.opts.Above, owned: s.opts.Owned}
 	alike := 0
 	for _, o := range u.spare {
 		if o.fits(sp.parent, s.opts) {
@@ -482,18 +485,20 @@ const (
 var warmSize = geom.Sz(320, 360)
 
 // spareWindow is a popup's window, hidden, kept for the next popup
-// with the same parent, the same Passthrough, the same Over and the same Above.
+// with the same parent and the same Passthrough, Over, Above and Owned.
 type spareWindow struct {
 	dw          driver.Window
 	parent      driver.Window
 	passthrough bool
 	over        bool
 	above       bool
+	owned       bool
 }
 
 // fits reports whether sp serves a popup with parent and options o.
 func (sp spareWindow) fits(parent driver.Window, o PopupOptions) bool {
-	return sp.parent == parent && sp.passthrough == o.Passthrough && sp.over == o.Over && sp.above == o.Above
+	return sp.parent == parent && sp.passthrough == o.Passthrough && sp.over == o.Over && sp.above == o.Above &&
+		sp.owned == o.Owned
 }
 
 // reuse puts a spare window at anchor, at size, and shows it. It

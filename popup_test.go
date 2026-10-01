@@ -309,3 +309,36 @@ func TestAPressWhereAPopupDrawsNothingDismisses(t *testing.T) {
 		t.Fatalf("a press below the card dismissed %d times, and the card saw it %v", dismissed, c.got(input.PointerDown{}))
 	}
 }
+
+// An owned popup opens in an owned window, and a menu after it does not open in that window once it is kept.
+func TestAnOwnedPopupKeepsItsWindowToItself(t *testing.T) {
+	w, _, opener := newStage(t, paint.Identity)
+	var asked []driver.Options
+	open := w.open
+	w.open = func(o driver.Options) (driver.Window, error) {
+		asked = append(asked, o)
+		return open(o)
+	}
+	pop := w.ui.OpenPopup(opener, newMenu(), PopupOptions{Anchor: geom.Rect{Max: geom.Pt(100, 50)}, Owned: true})
+	run(w, 1)
+	if len(asked) == 0 || !asked[len(asked)-1].Owned {
+		t.Fatalf("the owned popup asked for %+v, want a new owned window", asked)
+	}
+	owned := popupWindow(t, w)
+	pop.Close()
+	for range 120 {
+		if len(w.ui.popups) == 0 {
+			break
+		}
+		shown(w, owned)
+		run(w, 1)
+	}
+	if !owned.Hidden() {
+		t.Fatal("the owned popup's window was not kept")
+	}
+	w.ui.OpenPopup(opener, newMenu(), PopupOptions{Anchor: geom.Rect{Max: geom.Pt(100, 50)}})
+	run(w, 1)
+	if popupWindow(t, w) == owned {
+		t.Fatal("the menu opened in the owned popup's window")
+	}
+}
