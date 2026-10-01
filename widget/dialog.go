@@ -67,6 +67,12 @@ type Dialog struct {
 	// in the body confirms, and Tab moves through the body's fields and
 	// the buttons.
 	Body gunim.Node
+	// Keys, when set, hears the keys pressed and the text typed in the
+	// dialog that its body and buttons leave, before the dialog's own
+	// keys: a body that works the dialog from the keyboard in its own
+	// way, as a list picked from with Up and Down whatever has the
+	// keyboard. It reports whether it took the event.
+	Keys func(e input.Event, u *gunim.UI) bool
 	// Width, when set, is the panel's width in place of the theme's
 	// [DialogWidth], for a body that needs the room: a table, or a bank
 	// of faders. It is still capped at the window's width.
@@ -222,6 +228,14 @@ func (d *Dialog) finish(u *gunim.UI, what gunim.Intent) {
 
 // Handle implements [gunim.Handler]. Escape dismisses.
 func (d *Dialog) Handle(e input.Event, u *gunim.UI) bool {
+	if d.Keys != nil {
+		switch e.(type) {
+		case input.KeyPress, input.TextInput:
+			if d.Keys(e, u) {
+				return true
+			}
+		}
+	}
 	if k, ok := e.(input.KeyPress); ok {
 		switch k.Key {
 		case input.KeyEscape:
@@ -280,6 +294,10 @@ func (d *Dialog) Modal() bool { return true }
 // empty space focuses the dialog itself, so Escape and Tab still reach
 // it.
 func (d *Dialog) Focusable() bool { return true }
+
+// Buttons are the dialog's buttons, left to right as they stand: its
+// extra ones, then Cancel, then OK.
+func (d *Dialog) Buttons() []gunim.Node { return d.row() }
 
 // row is the dialog's buttons, left to right.
 func (d *Dialog) row() []gunim.Node {
