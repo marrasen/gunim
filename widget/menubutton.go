@@ -38,6 +38,9 @@ type MenuButton struct {
 	Active bool
 	// OnPick turns the item picked into an intent.
 	OnPick func(i int) gunim.Intent
+	// Picked runs on the UI goroutine as an item is picked, for a pick
+	// that does its work in the window, such as opening a dialog.
+	Picked func(i int, u *gunim.UI)
 
 	hover *anim.Float
 	ring  *anim.Float
@@ -137,6 +140,9 @@ func (b *MenuButton) open(u *gunim.UI) {
 			if v := b.OnPick(i); v != nil {
 				u.Send(b, v)
 			}
+		}
+		if b.Picked != nil {
+			b.Picked(i, u)
 		}
 		u.Invalidate()
 	}
