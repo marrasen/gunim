@@ -226,8 +226,8 @@ func (v *dndView) listingSpot(d input.Drop, u *gunim.UI) (widget.DropSpot, bool)
 }
 
 // sideSpot finds the spot of the sidebar under a drop: a place or a
-// favourite, which takes the items, or the rest of the favourites, which
-// pins them.
+// favourite, which takes the items unless it is on another file system,
+// or the rest of the favourites, which pins them.
 func (v *dndView) sideSpot(d input.Drop, u *gunim.UI) (widget.DropSpot, bool) {
 	s := v.b.side
 	fd, ok := fileDragOf(d)
@@ -240,11 +240,17 @@ func (v *dndView) sideSpot(d input.Drop, u *gunim.UI) (widget.DropSpot, bool) {
 		for _, k := range l.Keys() {
 			n, found := l.Row(k)
 			pr, isPlace := n.(*placeRow)
-			if !found || !isPlace || pr.item.away {
-				// A place elsewhere takes nothing yet.
+			if !found || !isPlace {
 				continue
 			}
 			if r, drawn := u.Bounds(n); drawn && r.Contains(at) {
+				if pr.item.away {
+					// A place elsewhere takes nothing yet, and a drop
+					// there pins nothing either.
+					v.plan = nil
+					return widget.DropSpot{Key: spotKey{"away", string(k)}, Rect: r.Add(zr.Min.Mul(-1)), Radius: 6,
+						Hint: widget.DropHint{Text: "Cannot drop on another file system"}, Refused: true}, true
+				}
 				dir := pr.item.Path
 				return v.spot(d, spotKey{"place", dir}, r.Add(zr.Min.Mul(-1)), dir, dir, true), true
 			}
@@ -264,7 +270,9 @@ func (v *dndView) sideSpot(d input.Drop, u *gunim.UI) (widget.DropSpot, bool) {
 	}
 	var favs []string
 	for _, k := range s.favs.Keys() {
-		favs = append(favs, string(k))
+		if i, known := s.items[k]; known && !i.away {
+			favs = append(favs, i.Path)
+		}
 	}
 	plan, hint, ok := pinPlan(v.b.shell.Paths, v.b.shell.FS, fd, favs)
 	v.plan = plan

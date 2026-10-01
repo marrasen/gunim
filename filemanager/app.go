@@ -33,13 +33,14 @@ type Options struct {
 	Places func() ([]Place, error)
 	// Favourites keeps the favourites. When nil, they are kept in the
 	// settings file on the computer's own file system, and for as long
-	// as the window is open on another.
+	// as the window is open on another. An AnyFSFavourites keeps them
+	// on any file system, and the window lists them all.
 	Favourites FavouriteStore
 	// Visit goes to the folder at path on the file system of ID fs, for
-	// a place on another file system than the window's, on a goroutine
-	// of its own. w is the window that asks, which Visit can turn to
-	// the file system with Show, or leave as it is and open another. A
-	// window whose Visit is nil says it cannot go there.
+	// a place or a favourite on another file system than the window's,
+	// on a goroutine of its own. w is the window that asks, which Visit
+	// can turn to the file system with Show, or leave as it is and open
+	// another. A window whose Visit is nil says it cannot go there.
 	Visit func(w *Window, fs, path string)
 	// Name is what the window's title calls the program, and Files when
 	// empty.

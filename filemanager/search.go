@@ -209,7 +209,7 @@ func (a *app) rank() {
 	seq, text := s.seq, s.text
 	if strings.HasPrefix(text, ">") {
 		here := slices.DeleteFunc(slices.Clone(a.places), func(p Place) bool { return p.FS != a.fs.ID() })
-		hits := rankCommands(strings.TrimSpace(strings.TrimPrefix(text, ">")), a.ps, here, a.favPaths())
+		hits := rankCommands(strings.TrimSpace(strings.TrimPrefix(text, ">")), here, a.favPlaces(), a.fs.ID())
 		a.patch(PaletteResults{Seq: seq, Hits: hits, Status: "Commands. Delete the > to look for files."})
 		return
 	}
@@ -345,8 +345,9 @@ func subsequence(q, s string) bool {
 }
 
 // rankCommands returns the commands of the menus and the places to go
-// that query finds, best first.
-func rankCommands(query string, ps PathStyle, places []Place, favourites []string) []PaletteHit {
+// that query finds, best first. A favourite on another file system than
+// own, the window's, is visited and says where it is.
+func rankCommands(query string, places, favourites []Place, own string) []PaletteHit {
 	var hits []PaletteHit
 	var items []match.Item
 	for _, m := range menus {
@@ -364,9 +365,15 @@ func rankCommands(query string, ps PathStyle, places []Place, favourites []strin
 		items = append(items, match.Item{Title: "Go to " + p.Name, Also: []string{p.Path}})
 	}
 	for _, f := range favourites {
-		hits = append(hits, PaletteHit{Title: "Go to " + ps.placeName(f), Detail: f, Hint: "Favourite", Key: "go:" + f,
-			Mark: "place"})
-		items = append(items, match.Item{Title: "Go to " + ps.placeName(f), Also: []string{f}})
+		hit := PaletteHit{Title: "Go to " + f.Name, Detail: f.Path, Hint: "Favourite", Key: "go:" + f.Path, Mark: "place"}
+		if f.FS != own {
+			hit.Key = "visit:" + f.FS + "\x00" + f.Path
+			if f.Note != "" {
+				hit.Detail = f.Note + ": " + f.Path
+			}
+		}
+		hits = append(hits, hit)
+		items = append(items, match.Item{Title: hit.Title, Also: []string{hit.Detail}})
 	}
 	found := match.Rank(items, query)
 	out := make([]PaletteHit, len(found))
@@ -385,6 +392,9 @@ func (a *app) palettePicked(v PalettePicked) {
 		a.handle(a.handlers, Command{Name: rest})
 	case "go":
 		a.navigate(rest, 0, true)
+	case "visit":
+		id, path, _ := strings.Cut(rest, "\x00")
+		a.visit(Visit{FS: id, Path: path})
 	case "file":
 		info, err := a.fs.Lstat(rest)
 		if err != nil {

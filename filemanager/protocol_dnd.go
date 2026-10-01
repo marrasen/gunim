@@ -44,9 +44,10 @@ type OpenWindow struct {
 	Path string
 }
 
-// RenameFavourite asks for a new name for the favourite at Path.
+// RenameFavourite asks for a new name for the favourite at Path on the
+// file system of ID FS.
 type RenameFavourite struct {
-	Path string
+	FS, Path string
 }
 
 // Props is the state of the Properties dialog: what the items are, where
