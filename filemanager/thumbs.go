@@ -48,8 +48,9 @@ func viewable(name string) bool {
 	return false
 }
 
-// thumbKey names a thumbnail: of the file at path, as it was at mod, made at size.
+// thumbKey names a thumbnail: of the file at path on the file system of ID fs, as it was at mod, made at size.
 type thumbKey struct {
+	fs   string
 	path string
 	size int
 	mod  int64
@@ -114,7 +115,7 @@ func (a *app) handleIcons(in gunim.Intent) bool {
 
 // viewMode is how the folder at path shows.
 func (a *app) viewMode(path string) ViewMode {
-	icons, ok := a.prefs.Views[path]
+	icons, ok := a.prefs.Views[a.viewKey(path)]
 	if !ok {
 		icons = a.prefs.Icons
 	}
@@ -125,18 +126,31 @@ func (a *app) viewMode(path string) ViewMode {
 	return ViewMode{Path: path, Icons: icons, Tile: tile}
 }
 
+// viewKey is the key the settings keep the view of the folder at path
+// under: the path, on the computer's own file system, and the path after
+// the file system's ID on another, so a server's folder does not take the
+// view of the computer's folder of the same path.
+func (a *app) viewKey(path string) string {
+	if id := a.fs.ID(); id != "" {
+		return id + "\x00" + path
+	}
+	return path
+}
+
 // publishView tells the window how the folder showing shows.
 func (a *app) publishView() { a.patch(a.viewMode(a.nav.path)) }
 
 // setView shows the folder showing as icons or as details, and remembers that for it and for folders not seen yet.
 func (a *app) setView(icons bool) {
-	if a.prefs.Views == nil {
-		a.prefs.Views = map[string]bool{}
-	}
-	a.prefs.Views[a.nav.path] = icons
-	a.prefs.Icons = icons
+	key := a.viewKey(a.nav.path)
+	a.savePrefs(func(p *prefs) {
+		if p.Views == nil {
+			p.Views = map[string]bool{}
+		}
+		p.Views[key] = icons
+		p.Icons = icons
+	})
 	a.publishView()
-	a.savePrefs()
 }
 
 // needThumbs makes the thumbnails the window asks for: at once from the cache, and the rest in the background, in
@@ -157,7 +171,7 @@ func (a *app) needThumbs(v NeedThumbs) {
 		if e.Dir || !viewable(e.Name) {
 			continue
 		}
-		job := thumbJob{key: thumbKey{path: a.ps.Join(n.path, e.Name), size: size, mod: e.Mod.UnixNano()},
+		job := thumbJob{key: thumbKey{fs: a.fs.ID(), path: a.ps.Join(n.path, e.Name), size: size, mod: e.Mod.UnixNano()},
 			dir: n.path, name: e.Name, online: e.Online}
 		if done, ok := t.cache[job.key]; ok {
 			a.sendThumb(job, done)
@@ -177,8 +191,9 @@ func (a *app) pumpThumbs() {
 		job := t.queue[0]
 		t.queue = t.queue[1:]
 		t.busy[job.key] = true
+		fsys := a.fs
 		go func() {
-			img, full, err := makeThumb(a.fs, job.key.path, job.key.size, job.online)
+			img, full, err := makeThumb(fsys, job.key.path, job.key.size, job.online)
 			a.post(func() { a.thumbMade(job, thumbDone{img: img, full: full, err: err}) })
 		}()
 	}
@@ -222,7 +237,7 @@ func (a *app) sendThumb(job thumbJob, done thumbDone) {
 // or nil.
 func (a *app) cachedThumb(path string, mod int64) (*paint.Image, image.Point) {
 	for i := len(thumbSizes) - 1; i >= 0; i-- {
-		if d, ok := a.thumbs.cache[thumbKey{path: path, size: thumbSizes[i], mod: mod}]; ok && d.img != nil {
+		if d, ok := a.thumbs.cache[thumbKey{fs: a.fs.ID(), path: path, size: thumbSizes[i], mod: mod}]; ok && d.img != nil {
 			return d.img, d.full
 		}
 	}
@@ -297,13 +312,14 @@ func (a *app) enteredFolder() {
 
 // tileSized takes a new tile size, and saves it once the slider or the wheel has rested.
 func (a *app) tileSized(size float32) {
-	a.prefs.Tile = min(max(size, minTile), maxTile)
+	tile := min(max(size, minTile), maxTile)
+	a.prefs.Tile = tile
 	a.thumbs.tileSeq++
 	seq := a.thumbs.tileSeq
 	time.AfterFunc(tileSettle, func() {
 		a.post(func() {
 			if seq == a.thumbs.tileSeq {
-				a.savePrefs()
+				a.savePrefs(func(p *prefs) { p.Tile = tile })
 			}
 		})
 	})

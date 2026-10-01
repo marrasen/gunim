@@ -26,14 +26,28 @@ type inUI struct {
 // settings and the trash under root.
 func openHarness(t *testing.T, h *Hub, base, dir string) *harness {
 	t.Helper()
+	return openHarnessWith(t, h, base, dir, nil)
+}
+
+// openHarnessWith opens a window as openHarness does, with the options
+// set changes. Where it sets a file system, the trash is the file
+// system's own, and the volumes are not waited for.
+func openHarnessWith(t *testing.T, h *Hub, base, dir string, set func(o *Options)) *harness {
+	t.Helper()
 	hs := &harness{t: t, root: base, dir: dir}
 	hs.w = gunim.NewOffscreen(geom.Sz(1100, 700), &root{})
 	RegisterViews(hs.w)
 	gunim.RegisterPatch(hs.w, "browser", func(b *browser, _ grab, _ *gunim.UI) { hs.b = b })
 	gunim.RegisterPatch(hs.w, "browser", func(b *browser, p inUI, u *gunim.UI) { p.fn(b, u) })
 	ctx, cancel := context.WithCancel(context.Background())
-	a, err := launch(ctx, hs.w.Client(), Options{Dir: dir, PrefsPath: filepath.Join(base, "prefs.json"),
-		Poll: -1, trash: xdgTrash{dir: filepath.Join(base, "Trash")}}, h)
+	o := Options{Dir: dir, PrefsPath: filepath.Join(base, "prefs.json"), Poll: -1}
+	if set != nil {
+		set(&o)
+	}
+	if o.FS == nil {
+		o.trash = xdgTrash{dir: filepath.Join(base, "Trash")}
+	}
+	a, err := launch(ctx, hs.w.Client(), o, h)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +60,9 @@ func openHarness(t *testing.T, h *Hub, base, dir string) *harness {
 		t.Fatal(err)
 	}
 	hs.until("the folder shows", func() bool { return !a.nav.loading && hs.b != nil && hs.b.listing.cur != nil })
-	hs.until("the places and their volumes are known", func() bool { return len(a.places) > 0 && len(hs.b.dnd.vols) > len(a.places) })
+	if o.FS == nil {
+		hs.until("the places and their volumes are known", func() bool { return len(a.places) > 0 && len(hs.b.dnd.vols) > len(a.places) })
+	}
 	hs.frames(60)
 	return hs
 }
@@ -342,7 +358,7 @@ func TestTwoWindowsShareTheClipboardAndSeeEachOthersOperations(t *testing.T) {
 	tree(t, left, "a.txt", "b.txt")
 	tree(t, right, "c.txt")
 	opened := make(chan string, 1)
-	h := &Hub{open: func(_ context.Context, o Options) error { opened <- o.Dir; return nil }}
+	h := &Hub{open: func(o Options) error { opened <- o.Dir; return nil }}
 	one := openHarness(t, h, root, left)
 	two := openHarness(t, h, root, right)
 	one.choose("a.txt")

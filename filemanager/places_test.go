@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/marrasen/gunim"
+	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/widget"
 )
 
@@ -47,29 +48,30 @@ func TestTheCallerGivesThePlacesWithTheirGroups(t *testing.T) {
 				{Name: "Server home", Path: "/home/me", Kind: "home", Group: "server", Note: "Connected", FS: "sftp://server"},
 			}, nil
 		}
-		o.Visit = func(fs, path string) {
+		o.Visit = func(w *Window, fs, path string) {
 			mu.Lock()
 			defer mu.Unlock()
+			if w == nil {
+				t.Error("Visit is not told which window asked")
+			}
 			visits = append(visits, fs+" "+path)
 		}
 	}, "a.txt")
-	h.until("the places arrive", func() bool { return h.b.side.places.Len() == 3 })
+	h.until("the places arrive", func() bool { return h.b.side.places.Len() == 2 })
 	if got := h.b.side.first.Text; got != "THIS COMPUTER" {
 		t.Fatalf("the first heading says %q", got)
 	}
 	keys := h.b.side.places.Keys()
-	if heading := h.b.side.items[keys[1]]; !heading.heading || heading.Name != "SERVER" {
-		t.Fatalf("the second row is %+v, want the heading of the server", heading)
-	}
-	if away := h.b.side.items[keys[2]]; !away.away || away.Note != "Connected" {
-		t.Fatalf("the server's place is %+v", away)
+	away := h.b.side.items[keys[1]]
+	if !away.away || away.Note != "Connected" || away.head != "SERVER" {
+		t.Fatalf("the server's place is %+v, want it away and under its heading", away)
 	}
 	h.frames(30)
 	row := h.bounds(func(b *browser) gunim.Node {
-		n, _ := b.side.places.Row(keys[2])
+		n, _ := b.side.places.Row(keys[1])
 		return n
 	})
-	h.click(row.Center())
+	h.click(geom.Pt(row.Center().X, row.Max.Y-10))
 	h.until("the click asks to visit the server", func() bool {
 		mu.Lock()
 		defer mu.Unlock()
@@ -123,4 +125,150 @@ func TestRefreshFindsThePlacesAgain(t *testing.T) {
 		}
 		return false
 	})
+}
+
+func TestAGroupListedTwiceKeepsBothHeadings(t *testing.T) {
+	h := newHarnessWith(t, func(o *Options) {
+		dir := o.Dir
+		o.Places = func() ([]Place, error) {
+			return []Place{
+				{Name: "One", Path: dir, Group: "A"},
+				{Name: "Two", Path: "/", Group: "B"},
+				{Name: "One again", Path: dir, Group: "A"},
+			}, nil
+		}
+	}, "a.txt")
+	h.until("the places arrive", func() bool { return h.b.side.places.Len() == 3 })
+	keys := h.b.side.places.Keys()
+	heads := make([]string, 0, len(keys))
+	for _, k := range keys {
+		heads = append(heads, h.b.side.items[k].head)
+	}
+	if !slices.Equal(heads, []string{"", "B", "A"}) {
+		t.Fatalf("the headings are %q", heads)
+	}
+}
+
+func TestAnOlderLookupOfThePlacesIsDropped(t *testing.T) {
+	release := make(chan struct{})
+	var mu sync.Mutex
+	calls := 0
+	h := newHarnessWith(t, func(o *Options) {
+		o.Places = func() ([]Place, error) {
+			mu.Lock()
+			calls++
+			n := calls
+			mu.Unlock()
+			if n == 2 {
+				<-release
+				return []Place{{Name: "Old", Path: "/"}}, nil
+			}
+			return []Place{{Name: "New", Path: "/"}}, nil
+		}
+	}, "a.txt")
+	h.until("the first lookup answers", func() bool { return len(h.a.places) == 1 })
+	h.a.loadPlaces()
+	h.a.loadPlaces()
+	h.until("the newest lookup answers", func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return calls == 3 && len(h.a.places) == 1 && h.a.placesGen == 3
+	})
+	h.idle()
+	close(release)
+	h.idle()
+	if h.a.places[0].Name != "New" {
+		t.Fatalf("the places are %+v, from the older lookup", h.a.places)
+	}
+}
+
+// funcStore is a favourites store that cannot be compared, as it holds a
+// func.
+type funcStore struct {
+	m    *memStore
+	note func()
+}
+
+func (s funcStore) Load() ([]Favourite, error) { return s.m.Load() }
+
+func (s funcStore) Save(favs []Favourite) error { return s.m.Save(favs) }
+
+func TestWindowsShareAStoreAndSkipOneThatCannotBeCompared(t *testing.T) {
+	root := t.TempDir()
+	one, two, three := filepath.Join(root, "one"), filepath.Join(root, "two"), filepath.Join(root, "three")
+	for _, d := range []string{one, two, three} {
+		tree(t, d, "work/")
+	}
+	shared := &memStore{}
+	odd := funcStore{m: &memStore{}, note: func() {}}
+	hub := &Hub{}
+	w1 := openHarnessWith(t, hub, root, one, func(o *Options) { o.Favourites = shared })
+	w2 := openHarnessWith(t, hub, root, two, func(o *Options) { o.Favourites = shared })
+	w3 := openHarnessWith(t, hub, root, three, func(o *Options) { o.Favourites = odd })
+	w1.pick("work")
+	w1.do(Command{Name: CmdPin})
+	w2.until("the other window of the store shows the favourite", func() bool { return w2.b.side.favs.Len() == 1 })
+	w3.pick("work")
+	w3.do(Command{Name: CmdPin})
+	w3.until("the odd store's window shows its own", func() bool { return w3.b.side.favs.Len() == 1 })
+	w1.idle()
+	if len(w1.a.favs) != 1 || !SystemPaths.Same(w1.a.favs[0].Path, filepath.Join(one, "work")) {
+		t.Fatalf("the odd store's favourite reached a window of another store: %+v", w1.a.favs)
+	}
+}
+
+func TestAnUnpinnedFavouriteKeepsItsName(t *testing.T) {
+	h := newHarness(t, "work/")
+	work := filepath.Join(h.dir, "work")
+	h.pick("work")
+	h.do(Command{Name: CmdPin})
+	h.do(RenameFavourite{Path: work})
+	h.until("the prompt shows", func() bool { return len(h.a.ops.dialogs) == 1 })
+	p, _ := h.a.ops.dialogs[0].state.(Prompt)
+	h.answer(Prompted{Token: p.Token, Text: "Job", OK: true})
+	h.do(Unpin{Path: work})
+	h.do(Command{Name: CmdPin})
+	if len(h.a.favs) != 1 || h.a.favs[0].Name != "Job" {
+		t.Fatalf("the favourite came back as %+v", h.a.favs)
+	}
+}
+
+func TestAWindowOnAnotherFileSystemLeavesTheSettingsItDidNotChange(t *testing.T) {
+	root := t.TempDir()
+	local, other := filepath.Join(root, "local"), filepath.Join(root, "other")
+	tree(t, local, "work/")
+	tree(t, other, "a.txt")
+	hub := &Hub{}
+	l := openHarnessWith(t, hub, root, local, nil)
+	o := openHarnessWith(t, hub, root, other, onBareFS)
+	o.do(Command{Name: CmdViewIcons})
+	l.pick("work")
+	l.do(Command{Name: CmdPin})
+	o.do(Command{Name: CmdHidden})
+	o.idle()
+	p, err := loadPrefs(filepath.Join(root, "prefs.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(p.Favourites, []string{filepath.Join(local, "work")}) || !p.ShowHidden {
+		t.Fatalf("the settings hold %v and ShowHidden %v", p.Favourites, p.ShowHidden)
+	}
+	if l.a.viewMode(other).Icons {
+		t.Fatal("the folder of the other file system set the view of the computer's own of the same path")
+	}
+}
+
+func TestShowTurnsAWindowToAnotherFileSystem(t *testing.T) {
+	h := newHarness(t, "a.txt")
+	h.until("the rows arrive", func() bool { return len(h.shown()) == 1 })
+	other := t.TempDir()
+	tree(t, other, "x.txt", "y.txt")
+	h.a.showFS(slashFS{root: other}, "/")
+	h.until("the other file system shows", func() bool { return slices.Equal(h.shown(), []string{"x.txt", "y.txt"}) })
+	if h.b.shell.FS != "slash" || h.b.shell.Paths != SlashPaths || !h.b.shell.NoTrash {
+		t.Fatalf("the window's shell is %+v", h.b.shell)
+	}
+	if len(h.a.nav.back) != 0 {
+		t.Fatal("the history goes back to another file system")
+	}
 }

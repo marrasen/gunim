@@ -124,7 +124,7 @@ func (a *app) showPreview() {
 		a.patch(manyPreview(seq, sel))
 	case len(sel) == 1:
 		path := a.ps.Join(n.path, sel[0].Name)
-		e := sel[0]
+		e, fsys, fetch := sel[0], a.fs, a.preview.fetch == path
 		go func() {
 			// A selection moving fast with the arrow keys settles first.
 			select {
@@ -132,7 +132,7 @@ func (a *app) showPreview() {
 			case <-ctx.Done():
 				return
 			}
-			pv := itemPreview(ctx, a.fs, seq, path, e, a.preview.fetch == path)
+			pv := itemPreview(ctx, fsys, seq, path, e, fetch)
 			if ctx.Err() != nil {
 				return
 			}
@@ -309,6 +309,7 @@ func textStart(ctx context.Context, fsys FS, path string) (head string, more boo
 // count counts what the folder at path holds, and patches the preview as
 // it goes.
 func (a *app) count(ctx context.Context, seq int, path string) {
+	fsys := a.fs
 	go func() {
 		var items int
 		var size int64
@@ -324,7 +325,7 @@ func (a *app) count(ctx context.Context, seq int, path string) {
 				}
 			})
 		}
-		err := walkTree(ctx, a.fs, path, func(p string, d fs.DirEntry, err error) error {
+		err := walkTree(ctx, fsys, path, func(p string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return fmt.Errorf("reading %s: %w", p, err)
 			}

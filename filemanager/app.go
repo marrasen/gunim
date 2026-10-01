@@ -37,8 +37,13 @@ type Options struct {
 	Favourites FavouriteStore
 	// Visit goes to the folder at path on the file system of ID fs, for
 	// a place on another file system than the window's, on a goroutine
-	// of its own. A window whose Visit is nil says it cannot go there.
-	Visit func(fs, path string)
+	// of its own. w is the window that asks, which Visit can turn to
+	// the file system with Show, or leave as it is and open another. A
+	// window whose Visit is nil says it cannot go there.
+	Visit func(w *Window, fs, path string)
+	// Name is what the window's title calls the program, and Files when
+	// empty.
+	Name string
 	// Poll is how often the folder showing is checked for changes: every
 	// two seconds when zero, and never when below zero.
 	Poll time.Duration
@@ -92,22 +97,34 @@ type app struct {
 	// opts are the options the window opened with, which a window it
 	// opens takes too.
 	opts Options
-	// hub is the windows of the process, and dnd what drops need.
+	// hub is the windows of the process, win the handle of this one,
+	// and dnd what drops need.
 	hub *Hub
-	dnd dndState
+	win *Window
+	// placesGen counts the lookups of the places, so an older one that
+	// answers late is dropped.
+	placesGen int
+	dnd       dndState
 }
 
 // handler is one area's share of the intents: it reports whether it
 // took in.
 type handler func(in gunim.Intent) bool
 
-// serveWindow runs the application half, in hub h, until ctx ends or the
-// window closes.
-func serveWindow(ctx context.Context, c gunim.Client, o Options, h *Hub) error {
+// serveWindow runs the application half of window w, in hub h, until ctx
+// ends or the window closes.
+func serveWindow(ctx context.Context, w *Window, o Options, h *Hub) (err error) {
+	defer func() {
+		w.err = err
+		close(w.done)
+	}()
+	c := w.c
 	a, err := launch(ctx, c, o, h)
 	if err != nil {
 		return err
 	}
+	a.win, w.a = w, a
+	close(w.ready)
 	handlers := a.handlers
 	var tick <-chan time.Time
 	if o.Poll >= 0 {
@@ -149,6 +166,7 @@ func launch(ctx context.Context, c gunim.Client, o Options, h *Hub) (*app, error
 		return nil, err
 	}
 	a.hub = joinHub(a, h)
+	a.win = newWindow(c)
 	a.publishClip()
 	a.handlers = []handler{a.handleDnd, a.handleNav, a.handleOps, a.handlePreview, a.handlePlaces, a.handleShell,
 		a.handleIcons, a.handleViewer, a.handleSearch, a.handleTheme}
@@ -178,7 +196,7 @@ func newApp(ctx context.Context, c gunim.Client, o Options) (*app, error) {
 	}
 	a.prefs, a.prefsErr = loadPrefs(a.prefsPath)
 	a.shell = Shell{Light: a.prefs.Light, ShowHidden: a.prefs.ShowHidden, ShowPreview: !a.prefs.HidePreview,
-		Sidebar: a.prefs.Sidebar, FS: a.fs.ID(), Paths: a.ps}
+		Sidebar: a.prefs.Sidebar, FS: a.fs.ID(), Paths: a.ps, NoTrash: tr == nil, Name: o.Name}
 	a.nav.sort, a.nav.desc = a.prefs.Sort, a.prefs.Desc
 	return a, nil
 }
@@ -217,8 +235,7 @@ func (a *app) handle(handlers []handler, in gunim.Intent) {
 	case gunim.CommandFailed:
 		log.Printf("command %s failed on %q%q: %s", v.Command, v.ID, v.Key, v.Reason)
 	case gunim.Zoomed:
-		a.prefs.Zoom = v.Zoom
-		a.savePrefs()
+		a.savePrefs(func(p *prefs) { p.Zoom = v.Zoom })
 	}
 }
 
@@ -229,10 +246,12 @@ func (a *app) handleShell(in gunim.Intent) bool {
 		switch v.Name {
 		case CmdTheme:
 			a.shell.Light = !a.shell.Light
-			a.prefs.Light = a.shell.Light
+			light := a.shell.Light
+			a.savePrefs(func(p *prefs) { p.Light = light })
 		case CmdPreview:
 			a.shell.ShowPreview = !a.shell.ShowPreview
-			a.prefs.HidePreview = !a.shell.ShowPreview
+			hide := !a.shell.ShowPreview
+			a.savePrefs(func(p *prefs) { p.HidePreview = hide })
 		case CmdCloseApp:
 			a.close()
 			return true
@@ -240,15 +259,13 @@ func (a *app) handleShell(in gunim.Intent) bool {
 			return false
 		}
 		a.publishShell()
-		a.savePrefs()
 		return true
 	case CloseAsked:
 		a.close()
 		return true
 	case SidebarMoved:
 		a.shell.Sidebar = v.Width
-		a.prefs.Sidebar = v.Width
-		a.savePrefs()
+		a.savePrefs(func(p *prefs) { p.Sidebar = v.Width })
 		return true
 	}
 	return false
@@ -299,12 +316,16 @@ func (a *app) fail(msg string) {
 	a.patch(Banner{Seq: a.banner, Text: msg})
 }
 
-// savePrefs writes the settings, unless they could not be read.
-func (a *app) savePrefs() {
+// savePrefs makes change to the settings, and writes it to the settings
+// file, unless the file could not be read. Several windows can keep their
+// settings in the one file, so it reads the file again and makes only
+// change to it, leaving what another window wrote there.
+func (a *app) savePrefs(change func(p *prefs)) {
+	change(&a.prefs)
 	if a.prefsErr != nil {
 		return
 	}
-	if err := savePrefs(a.prefsPath, a.prefs); err != nil {
+	if err := updatePrefs(a.prefsPath, change); err != nil {
 		a.fail(err.Error())
 	}
 }

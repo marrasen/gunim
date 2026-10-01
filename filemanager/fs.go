@@ -45,10 +45,11 @@ type FS interface {
 	// Mkdir makes a folder at path, with perm, and fails with an error
 	// that matches fs.ErrExist where something is there already.
 	Mkdir(path string, perm fs.FileMode) error
-	// Rename moves the item at from to to, in place of a file there. Where
-	// the two are on different volumes and it cannot, it fails with an
-	// error that matches ErrCrossDevice, and a move copies and deletes
-	// instead.
+	// Rename moves the item at from to to. It must replace a file
+	// already at to, as os.Rename does, since a copy writes to a part
+	// file and renames it over the file it replaces. Where the two are
+	// on different volumes and it cannot, it fails with an error that
+	// matches ErrCrossDevice, and a move copies and deletes instead.
 	Rename(from, to string) error
 	// Remove removes the file, the link or the empty folder at path.
 	Remove(path string) error
@@ -58,7 +59,10 @@ type FS interface {
 var ErrCrossDevice = errors.New("the rename crosses volumes")
 
 // Trasher is a file system with a trash. Without one, deleting asks first
-// and deletes for good, and a copy cannot be undone.
+// and deletes for good, and a copy cannot be undone. A file system that
+// finds only when it tries that it has no trash, as a server may, fails
+// Trash with an error that matches errors.ErrUnsupported, and the window
+// then does without.
 type Trasher interface {
 	// Trash moves path to the trash and returns where it went there, or
 	// "" where the system does not say.
@@ -72,7 +76,8 @@ type Trasher interface {
 }
 
 // SpaceReporter is a file system that knows how much room its volumes
-// have. Without one, the window says nothing of free space.
+// have. Without one, or when Space fails with an error that matches
+// errors.ErrUnsupported, the window says nothing of free space.
 type SpaceReporter interface {
 	// Space returns the bytes free and in all on the volume that holds
 	// path.

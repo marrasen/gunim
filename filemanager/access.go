@@ -8,9 +8,6 @@ import (
 // Access implements [gunim.Accessible]: a link to the place, with its
 // free space or why it cannot be read.
 func (r *placeRow) Access() access.Info {
-	if r.item.heading {
-		return access.Info{Role: access.RoleHeading, Name: r.item.Name}
-	}
 	info := access.Info{Role: access.RoleLink, Name: r.item.Name, Description: r.noteText(),
 		Actions: []string{access.ActionPress}}
 	if r.item.current {
@@ -22,7 +19,7 @@ func (r *placeRow) Access() access.Info {
 // AccessAct implements [gunim.AccessActor].
 func (r *placeRow) AccessAct(req access.Request, u *gunim.UI) bool {
 	switch {
-	case req.Action != access.ActionPress || r.item.heading:
+	case req.Action != access.ActionPress:
 		return false
 	case r.item.away:
 		u.Send(r, Visit{FS: r.item.FS, Path: r.item.Path})

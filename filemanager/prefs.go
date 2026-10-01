@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sync"
 )
 
 // prefs are the settings the app keeps between runs.
@@ -52,6 +53,26 @@ func loadPrefs(path string) (prefs, error) {
 		return prefs{}, fmt.Errorf("reading the settings in %s: %w", path, err)
 	}
 	return p, nil
+}
+
+// prefsLocks holds a lock for each settings file, by path, so windows
+// that change one at once take turns.
+var prefsLocks sync.Map
+
+// updatePrefs makes change to the settings in the file at path: it reads
+// them, changes them, and writes them back, while no other window of the
+// process does.
+func updatePrefs(path string, change func(p *prefs)) error {
+	l, _ := prefsLocks.LoadOrStore(path, &sync.Mutex{})
+	mu, _ := l.(*sync.Mutex)
+	mu.Lock()
+	defer mu.Unlock()
+	p, err := loadPrefs(path)
+	if err != nil {
+		return err
+	}
+	change(&p)
+	return savePrefs(path, p)
 }
 
 // savePrefs writes the settings to path through a file beside it, so a

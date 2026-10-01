@@ -16,14 +16,19 @@ import (
 // favourites, and word of folders an operation changed. A window opens
 // another in its hub, as Ctrl and a click on a folder do.
 type Hub struct {
+	// ctx ends every window of the hub.
+	ctx  context.Context
 	mu   sync.Mutex
 	apps []*app
 	// clips holds the clipboard of the windows on each file system, by
-	// its ID, as paths of one mean nothing on another.
+	// its ID, as paths of one mean nothing on another, and favs the
+	// favourites of each file system other than the computer's own,
+	// for the windows whose options keep them nowhere.
 	clips map[string]clipboard
-	// open opens a window with o and serves it until ctx ends, and is nil
-	// where no window can open, as in a test.
-	open func(ctx context.Context, o Options) error
+	favs  map[string]*memFavourites
+	// open opens a window with o and serves it, and is nil where no
+	// window can open, as in a test.
+	open func(o Options) error
 	// wg counts the windows Open opened that are still open, and errs
 	// holds what they ended with.
 	wg   sync.WaitGroup
@@ -31,45 +36,100 @@ type Hub struct {
 	ga   *gunim.App
 }
 
-// NewHub makes a hub whose windows open on ga.
-func NewHub(ga *gunim.App) *Hub {
-	h := &Hub{ga: ga}
-	h.open = func(ctx context.Context, o Options) error {
-		_, err := h.Open(ctx, o)
+// NewHub makes a hub whose windows open on ga, and close when ctx ends.
+func NewHub(ctx context.Context, ga *gunim.App) *Hub {
+	h := &Hub{ctx: ctx, ga: ga}
+	h.open = func(o Options) error {
+		_, err := h.Open(o)
 		return err
 	}
 	return h
 }
 
-// Open opens a window with o, and serves it in the background
-// until ctx ends or the window closes. It returns the window's client,
-// for what the caller does with the window itself, such as a
-// screenshot. Wait waits for the window to close.
-func (h *Hub) Open(ctx context.Context, o Options) (gunim.Client, error) {
+// Window is a window of a hub, which its program can watch, close, and
+// turn to another file system.
+type Window struct {
+	c gunim.Client
+	// ready closes once the window's program half runs, and done once
+	// it has stopped, with err what it stopped with.
+	ready, done chan struct{}
+	a           *app
+	err         error
+}
+
+func newWindow(c gunim.Client) *Window {
+	return &Window{c: c, ready: make(chan struct{}), done: make(chan struct{})}
+}
+
+// Client is the window's client, for what the program does with the
+// window itself, such as a screenshot.
+func (w *Window) Client() gunim.Client { return w.c }
+
+// Done closes once the window has closed.
+func (w *Window) Done() <-chan struct{} { return w.done }
+
+// Err is what the window stopped with, once Done has closed.
+func (w *Window) Err() error {
+	<-w.done
+	return w.err
+}
+
+// Close closes the window, once the user agrees to stop what is running
+// in it.
+func (w *Window) Close() {
+	w.do(func(a *app) { a.close() })
+}
+
+// Show turns the window to the folder dir on fsys, or its home folder
+// when dir is empty, as a Visit may want: the history, the clipboard,
+// the places and the favourites become those of fsys. Operations still
+// running carry on where they started.
+func (w *Window) Show(fsys FS, dir string) {
+	w.do(func(a *app) { a.showFS(fsys, dir) })
+}
+
+// do runs fn on the window's serve loop, unless it has stopped.
+func (w *Window) do(fn func(a *app)) {
+	select {
+	case <-w.ready:
+	case <-w.done:
+		return
+	}
+	w.a.post(func() { fn(w.a) })
+}
+
+// Open opens a window with o, and serves it in the background until the
+// hub's context ends or the window closes. Wait waits for it to close.
+func (h *Hub) Open(o Options) (*Window, error) {
 	if h.ga == nil {
-		return gunim.Client{}, errors.New("files: the hub has no app to open windows on")
+		return nil, errors.New("files: the hub has no app to open windows on")
 	}
-	w, err := h.ga.NewWindow(WindowOptions())
+	wo := WindowOptions()
+	if o.Name != "" {
+		wo.Title = o.Name
+	}
+	gw, err := h.ga.NewWindow(wo)
 	if err != nil {
-		return gunim.Client{}, fmt.Errorf("files: %w", err)
+		return nil, fmt.Errorf("files: %w", err)
 	}
-	RegisterViews(w)
-	c := w.Client()
+	RegisterViews(gw)
+	w := newWindow(gw.Client())
 	h.wg.Go(func() {
-		if err := serveWindow(ctx, c, o, h); err != nil {
+		if err := serveWindow(h.ctx, w, o, h); err != nil {
 			h.mu.Lock()
 			h.errs = append(h.errs, err)
 			h.mu.Unlock()
 		}
 	})
-	return c, nil
+	return w, nil
 }
 
-// Serve serves a window the caller opened, on c, until ctx ends or the
-// window closes. The window must have the views RegisterViews registers,
-// and should open with WindowOptions or options like them.
-func (h *Hub) Serve(ctx context.Context, c gunim.Client, o Options) error {
-	return serveWindow(ctx, c, o, h)
+// Serve serves a window the caller opened, on c, until the hub's context
+// ends or the window closes. The window must have the views
+// RegisterViews registers, and should open with WindowOptions or options
+// like them.
+func (h *Hub) Serve(c gunim.Client, o Options) error {
+	return serveWindow(h.ctx, newWindow(c), o, h)
 }
 
 // Wait waits for every window Open opened to close, and returns the
@@ -84,11 +144,27 @@ func (h *Hub) Wait() error {
 // Serve opens a window on ga with o, and serves it and every window
 // opened from it until ctx ends or they have all closed.
 func Serve(ctx context.Context, ga *gunim.App, o Options) error {
-	h := NewHub(ga)
-	if _, err := h.Open(ctx, o); err != nil {
+	h := NewHub(ctx, ga)
+	if _, err := h.Open(o); err != nil {
 		return err
 	}
 	return h.Wait()
+}
+
+// memFavourites returns the hub's store of the favourites of the file
+// system of ID id.
+func (h *Hub) memFavourites(id string) *memFavourites {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.favs == nil {
+		h.favs = map[string]*memFavourites{}
+	}
+	m, ok := h.favs[id]
+	if !ok {
+		m = &memFavourites{}
+		h.favs[id] = m
+	}
+	return m
 }
 
 // Refresh has every window of h find its places and read its favourites
@@ -214,7 +290,7 @@ func (a *app) openWindow(dir string) {
 	o := a.opts
 	o.Dir, o.Select, o.Script = dir, "", ""
 	go func() {
-		if err := a.hub.open(a.ctx, o); err != nil {
+		if err := a.hub.open(o); err != nil {
 			a.post(func() { a.fail("Opening a new window: " + err.Error()) })
 		}
 	}()

@@ -1,6 +1,7 @@
 package filemanager
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -87,10 +88,11 @@ func (a *app) dropFiles(v DropFiles) {
 // is read, and says which items were left out as not folders.
 func (a *app) pinFolders(paths []string) {
 	paths = slices.Clone(paths)
+	fsys := a.fs
 	go func() {
 		var dirs, files []string
 		for _, p := range paths {
-			info, err := a.fs.Stat(p)
+			info, err := fsys.Stat(p)
 			if err != nil {
 				a.post(func() { a.fail("Pinning to favourites: " + err.Error()) })
 				return
@@ -98,7 +100,7 @@ func (a *app) pinFolders(paths []string) {
 			if info.IsDir() {
 				dirs = append(dirs, p)
 			} else {
-				files = append(files, a.ps.Base(p))
+				files = append(files, fsys.Paths().Base(p))
 			}
 		}
 		a.post(func() {
@@ -192,10 +194,11 @@ func (a *app) publishVolumes(s Places) {
 		return
 	}
 	d.finding = true
+	fsys := a.fs
 	go func() {
 		vols, errs := map[string]string{}, map[string]string{}
 		for _, p := range missing {
-			v, err := a.volumeOf(p)
+			v, err := volumeName(fsys, p)
 			if err != nil {
 				errs[p] = err.Error()
 				continue
@@ -204,6 +207,11 @@ func (a *app) publishVolumes(s Places) {
 		}
 		a.post(func() {
 			d.finding = false
+			if fsys.ID() != a.fs.ID() {
+				// The window turned to another file system meanwhile.
+				a.publishPlaces()
+				return
+			}
 			for p, v := range vols {
 				d.vols[p] = v
 				delete(d.volErrs, p)
@@ -242,13 +250,16 @@ func (a *app) scriptDnd(verb, arg string) bool {
 	return true
 }
 
-// volumeOf names the volume the folder at path is on: the file system's
-// own name for it, or for a file system of one volume its ID.
-func (a *app) volumeOf(path string) (string, error) {
-	if v, ok := a.fs.(VolumeNamer); ok {
-		return v.Volume(path)
+// volumeName names the volume the folder at path on fsys is on: the file
+// system's own name for it, or for a file system of one volume its ID.
+func volumeName(fsys FS, path string) (string, error) {
+	if v, ok := fsys.(VolumeNamer); ok {
+		name, err := v.Volume(path)
+		if !errors.Is(err, errors.ErrUnsupported) {
+			return name, err
+		}
 	}
-	return a.fs.ID(), nil
+	return fsys.ID(), nil
 }
 
 // systemOpen returns what opens a file or a folder with the system's

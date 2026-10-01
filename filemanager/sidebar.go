@@ -1,6 +1,7 @@
 package filemanager
 
 import (
+	"fmt"
 	"image/color"
 	"strings"
 
@@ -39,37 +40,36 @@ type sidebar struct {
 	items map[widget.Key]placeItem
 }
 
-// placeItem is a place and whether it is the folder showing. A heading
-// is a row that names the group of the places after it.
+// placeItem is a place and whether it is the folder showing.
 type placeItem struct {
 	Place
 	current bool
-	heading bool
 	// away is set for a place on another file system than the window's.
 	away bool
+	// head is the heading of the group the place starts, shown above
+	// it, so the keyboard walks the places alone.
+	head string
+	// key is the row's key in its list.
+	key widget.Key
 }
 
-// key is the row's key in its list: its path, for a place on the
-// window's file system, as the drops and the favourites need.
-func (i placeItem) key() widget.Key {
-	switch {
-	case i.heading:
-		return widget.Key("\x00group\x00" + i.Group)
-	case i.away:
-		return widget.Key("\x00" + i.FS + "\x00" + i.Path)
+// placeKey is the key of the row of p: its path, for a place on the
+// window's file system, as the drops and the favourites need, and its
+// file system and path for one elsewhere.
+func placeKey(p Place, away bool) widget.Key {
+	if away {
+		return widget.Key("\x00" + p.FS + "\x00" + p.Path)
 	}
-	return widget.Key(i.Path)
+	return widget.Key(p.Path)
 }
 
 // goes says where a click on the row with key k goes: a place on the
-// window's file system, one on another, or for a heading nowhere.
+// window's file system, or one on another.
 func (s *sidebar) goes(k widget.Key) gunim.Intent {
 	i, ok := s.items[k]
 	switch {
 	case !ok:
 		return Navigate{Path: string(k)}
-	case i.heading:
-		return nil
 	case i.away:
 		return Visit{FS: i.FS, Path: i.Path}
 	}
@@ -111,14 +111,20 @@ func (s *sidebar) set(p Places, u *gunim.UI) {
 	items := func(ps []Place, headed bool) []placeItem {
 		out := make([]placeItem, 0, len(ps))
 		for i, pl := range ps {
-			if headed && i > 0 && pl.Group != ps[i-1].Group {
-				out = append(out, placeItem{Place: Place{Name: strings.ToUpper(pl.Group), Group: pl.Group}, heading: true})
-			}
 			away := pl.FS != s.fs
-			out = append(out, placeItem{Place: pl, away: away, current: !away && s.ps.Same(pl.Path, p.Current)})
-		}
-		for _, it := range out {
-			s.items[it.key()] = it
+			it := placeItem{Place: pl, away: away, current: !away && s.ps.Same(pl.Path, p.Current), key: placeKey(pl, away)}
+			if headed && i > 0 && pl.Group != ps[i-1].Group {
+				it.head = strings.ToUpper(pl.Group)
+			}
+			// A place listed twice, as in two groups, takes a key of its own.
+			for n := 2; ; n++ {
+				if _, taken := s.items[it.key]; !taken {
+					break
+				}
+				it.key = placeKey(pl, away) + widget.Key(fmt.Sprintf("\x00%d", n))
+			}
+			s.items[it.key] = it
+			out = append(out, it)
 		}
 		return out
 	}
@@ -127,7 +133,7 @@ func (s *sidebar) set(p Places, u *gunim.UI) {
 		first = strings.ToUpper(p.Places[0].Group)
 	}
 	s.first.SetText(first)
-	key := placeItem.key
+	key := func(i placeItem) widget.Key { return i.key }
 	widget.Sync(s.places, u, items(p.Places, true), key, newPlaceRow, (*placeRow).set)
 	widget.Sync(s.favs, u, items(p.Favourites, false), key, newPlaceRow, (*placeRow).set)
 	if len(p.Favourites) == 0 {
@@ -185,8 +191,10 @@ type placeRow struct {
 	used  *anim.Float
 	name  text.Run
 	note  text.Run
-	shown string
-	size  float32
+	// heading is the heading above the place, when it starts a group.
+	heading text.Run
+	shown   string
+	size    float32
 }
 
 func newPlaceRow(i placeItem) *placeRow {
@@ -208,8 +216,6 @@ func (r *placeRow) set(i placeItem, u *gunim.UI) {
 // note is the small line under a volume's name, or a place's note.
 func (r *placeRow) noteText() string {
 	switch {
-	case r.item.heading:
-		return ""
 	case r.item.Err != "":
 		return r.item.Err
 	case r.item.Total > 0:
@@ -220,39 +226,42 @@ func (r *placeRow) noteText() string {
 
 func (r *placeRow) shape(th *theme.Live) {
 	size := widget.TextSize.Get(th)
-	key := r.item.Name + "\x00" + r.noteText()
+	key := r.item.head + "\x00" + r.item.Name + "\x00" + r.noteText()
 	if key == r.shown && size == r.size {
 		return
 	}
 	r.shown, r.size = key, size
-	face := text.Default()
-	if r.item.heading {
-		// A heading looks as the Places and Favourites labels do.
-		size = SmallText.Get(th)
-		if f := widget.BoldFont.Get(th); f != nil {
-			face = f
-		}
-	}
-	r.name = face.Shape(r.item.Name, size)
+	r.name = text.Default().Shape(r.item.Name, size)
 	r.note = text.Default().Shape(r.noteText(), SmallText.Get(th))
+	// A heading looks as the Places and Favourites labels do.
+	face := text.Default()
+	if f := widget.BoldFont.Get(th); f != nil {
+		face = f
+	}
+	r.heading = face.Shape(r.item.head, SmallText.Get(th))
 }
 
 // tall reports whether the row has a second line.
 func (r *placeRow) tall() bool { return r.noteText() != "" }
 
 // headingGap is the room above a heading, as above the heading of the
-// favourites.
-const headingGap = 8
+// favourites, and below it, as between rows.
+const headingGap, headingBelow = 8, 2
+
+// top is how far down the row the place starts, below its heading.
+func (r *placeRow) top() float32 {
+	if r.item.head == "" {
+		return 0
+	}
+	return headingGap + r.heading.Height() + headingBelow
+}
 
 // Layout implements [gunim.Node].
 func (r *placeRow) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
 	r.shape(f.Theme)
-	if r.item.heading {
-		return geom.Sz(c.Max.W, headingGap+r.name.Height())
-	}
-	h := float32(30)
+	h := r.top() + 30
 	if r.tall() {
-		h = 48
+		h += 18
 	}
 	if r.item.Total > 0 {
 		r.used.Animate(1-float32(float64(r.item.Free)/float64(r.item.Total)), widget.Settle.Get(f.Theme))
@@ -263,11 +272,11 @@ func (r *placeRow) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) 
 // Paint implements [gunim.Node].
 func (r *placeRow) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
 	th := f.Theme
-	if r.item.heading {
-		r.name.Paint(p, geom.Pt(0, headingGap), Caption.Get(th))
-		return
+	t := r.top()
+	if t > 0 {
+		r.heading.Paint(p, geom.Pt(0, headingGap), Caption.Get(th))
 	}
-	full := geom.Rect{Max: box.Point()}
+	full := geom.Rect{Min: geom.Pt(0, t), Max: box.Point()}
 	if h := r.hover.Value(); h > 0.01 {
 		c := SidebarHot.Get(th)
 		c.A = uint8(float32(c.A) * min(h, 1))
@@ -278,14 +287,15 @@ func (r *placeRow) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 		c.A = uint8(float32(c.A) * min(on, 1))
 		p.RRect(full, 7, paint.Solid(c))
 		// The accent edge grows from the middle.
-		bar := geom.Rc(0, box.H/2*(1-on)+4*on, 3, (box.H-8)*on)
+		h := box.H - t
+		bar := geom.Rc(0, t+h/2*(1-on)+4*on, 3, (h-8)*on)
 		p.RRect(bar, 1.5, paint.Solid(widget.Accent.Get(th)))
 	}
 	mark := placeTint(r.item.Kind).Get(th)
 	line := float32(30)
-	p.RRect(geom.Rc(12, (line-12)/2, 12, 12), 3.5, paint.Solid(mark))
+	p.RRect(geom.Rc(12, t+(line-12)/2, 12, 12), 3.5, paint.Solid(mark))
 	ink := widget.Ink.Get(th)
-	r.name.Paint(p, geom.Pt(34, (line-r.name.Height())/2), ink)
+	r.name.Paint(p, geom.Pt(34, t+(line-r.name.Height())/2), ink)
 	if !r.tall() {
 		return
 	}
@@ -293,7 +303,7 @@ func (r *placeRow) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 	if r.item.Err != "" {
 		noteInk = ErrorInk.Get(th)
 	}
-	y := line - 2
+	y := t + line - 2
 	if r.item.Total > 0 {
 		track := geom.Rc(34, y, box.W-46, 4)
 		p.RRect(track, 2, paint.Solid(widget.ProgressTrack.Get(th)))
@@ -329,9 +339,6 @@ func placeTint(kind string) theme.Token[color.NRGBA] {
 // Handle implements [gunim.Handler]: the row lights under the pointer,
 // and leaves presses to the list, which tells a click from a drag.
 func (r *placeRow) Handle(e input.Event, u *gunim.UI) bool {
-	if r.item.heading {
-		return false
-	}
 	switch e.(type) {
 	case input.PointerEnter:
 		r.hover.Animate(1, widget.Quick.Get(u.Theme()))
@@ -342,8 +349,8 @@ func (r *placeRow) Handle(e input.Event, u *gunim.UI) bool {
 }
 
 // Cursor implements [gunim.CursorShaper].
-func (r *placeRow) Cursor(geom.Point) input.Cursor {
-	if r.item.heading {
+func (r *placeRow) Cursor(at geom.Point) input.Cursor {
+	if at.Y < r.top() {
 		return input.CursorArrow
 	}
 	return input.CursorHand

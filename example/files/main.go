@@ -75,11 +75,12 @@ func run(o filemanager.Options, shot string, after, runFor time.Duration) error 
 		defer cancel()
 	}
 	err := gunim.Main(ctx, func(a *gunim.App) error {
-		h := filemanager.NewHub(a)
-		c, err := h.Open(ctx, o)
+		h := filemanager.NewHub(ctx, a)
+		w, err := h.Open(o)
 		if err != nil {
 			return err
 		}
+		c := w.Client()
 		if shot != "" {
 			go func() {
 				select {

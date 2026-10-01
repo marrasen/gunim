@@ -327,6 +327,14 @@ func (a *app) finish(id int, j job, rec record, err error) {
 		undo = id
 	}
 	switch {
+	case j.kind == OpTrash && len(rec.steps) == 0 && errors.Is(err, errors.ErrUnsupported):
+		// The file system turned out to have no trash: from now on the
+		// key that trashes deletes, and this time it asks to.
+		a.trashless()
+		paths := j.srcs
+		a.confirm(Confirm{Title: "Delete " + a.what(paths) + " for good?",
+			Body: "There is no trash here, so they cannot come back.", OK: "Delete"},
+			func() { a.startOp(job{kind: OpDelete, srcs: paths}, "Deleting "+a.what(paths)) })
 	case err == nil && j.kind == OpUndo:
 		a.patch(Notice{Title: "Undone", Body: r.title, Kind: "success"})
 	case err == nil:

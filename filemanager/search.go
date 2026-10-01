@@ -214,9 +214,9 @@ func (a *app) rank() {
 		return
 	}
 	items, errs, root := s.items, s.errs, s.root
-	status := a.searchStatus()
+	status, ps := a.searchStatus(), a.ps
 	go func() {
-		hits := rankIndex(ctx, a.ps, root, items, errs, text)
+		hits := rankIndex(ctx, ps, root, items, errs, text)
 		if ctx.Err() != nil {
 			return
 		}

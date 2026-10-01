@@ -154,9 +154,9 @@ func (a *app) navCommand(name string) bool {
 		}
 	case CmdHidden:
 		a.shell.ShowHidden = !a.shell.ShowHidden
-		a.prefs.ShowHidden = a.shell.ShowHidden
+		show := a.shell.ShowHidden
 		a.publishShell()
-		a.savePrefs()
+		a.savePrefs(func(p *prefs) { p.ShowHidden = show })
 		a.refilter()
 	case CmdSortName, CmdSortSize, CmdSortTime, CmdSortType:
 		by := map[string]SortBy{CmdSortName: SortName, CmdSortSize: SortSize, CmdSortTime: SortModified, CmdSortType: SortType}[name]
@@ -214,14 +214,14 @@ func (a *app) list() {
 	ctx, cancel := context.WithCancel(a.ctx)
 	n.cancelList = cancel
 	n.gen++
-	gen, path := n.gen, n.path
+	gen, path, fsys := n.gen, n.path, a.fs
 	n.loading = true
 	a.publishListing()
 	go func() {
-		mod, err := dirTime(a.fs, path)
+		mod, err := dirTime(fsys, path)
 		var es []entry
 		if err == nil {
-			es, err = listDir(ctx, a.fs, path)
+			es, err = listDir(ctx, fsys, path)
 		}
 		if errors.Is(err, context.Canceled) {
 			return
@@ -235,12 +235,12 @@ func (a *app) relist() {
 	n := &a.nav
 	path := n.path
 	ctx := a.ctx
-	gen := n.gen
+	gen, fsys := n.gen, a.fs
 	go func() {
-		mod, err := dirTime(a.fs, path)
+		mod, err := dirTime(fsys, path)
 		var es []entry
 		if err == nil {
-			es, err = listDir(ctx, a.fs, path)
+			es, err = listDir(ctx, fsys, path)
 		}
 		a.post(func() {
 			if n.gen == gen && a.ps.Same(n.path, path) {
@@ -353,8 +353,8 @@ func (a *app) sortBy(by SortBy, toggle bool) {
 	} else {
 		n.sort, n.desc = by, false
 	}
-	a.prefs.Sort, a.prefs.Desc = n.sort, n.desc
-	a.savePrefs()
+	by, desc := n.sort, n.desc
+	a.savePrefs(func(p *prefs) { p.Sort, p.Desc = by, desc })
 	sortEntries(n.all, n.sort, n.desc)
 	a.refilter()
 }
@@ -666,6 +666,11 @@ func (a *app) readSpace() {
 		var s space
 		var err error
 		s.free, s.total, err = sr.Space(path)
+		if errors.Is(err, errors.ErrUnsupported) {
+			// The file system cannot say after all, and the status bar
+			// says nothing of it.
+			s, err = space{}, nil
+		}
 		a.post(func() {
 			if a.ps.Same(a.nav.path, path) {
 				a.nav.space, a.nav.spaceErr = s, err
@@ -684,9 +689,9 @@ func (a *app) poll() {
 	}
 	n.checking = true
 	path, gen, mod, sig, small := n.path, n.gen, n.mod, n.sig, len(n.all) <= smallFolder
-	failed := n.err != nil
+	failed, fsys := n.err != nil, a.fs
 	go func() {
-		changed, es, newMod, err := checkFolder(a.ctx, a.fs, path, mod, sig, small || failed)
+		changed, es, newMod, err := checkFolder(a.ctx, fsys, path, mod, sig, small || failed)
 		a.post(func() {
 			n.checking = false
 			if n.gen != gen || !a.ps.Same(n.path, path) {

@@ -1,7 +1,6 @@
 package filemanager
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"slices"
@@ -218,7 +217,7 @@ func TestCtrlAndAClickOpenAFolderInANewWindow(t *testing.T) {
 	}
 	var mu sync.Mutex
 	var opened []string
-	hb := &Hub{open: func(_ context.Context, o Options) error {
+	hb := &Hub{open: func(o Options) error {
 		mu.Lock()
 		defer mu.Unlock()
 		opened = append(opened, o.Dir)

@@ -17,8 +17,9 @@ func (a *app) properties() {
 	if len(paths) == 0 {
 		paths = []string{a.nav.path}
 	}
+	fsys := a.fs
 	go func() {
-		p, count, err := readProps(a.fs, paths)
+		p, count, err := readProps(fsys, paths)
 		a.post(func() {
 			if err != nil {
 				a.fail("Reading the properties: " + err.Error())
@@ -125,6 +126,7 @@ func (a *app) showProps(paths []string, p Props, count bool) {
 
 // countProps counts what paths hold, and tells dialog d as it goes.
 func (a *app) countProps(ctx context.Context, d *dialog, paths []string) {
+	fsys := a.fs
 	go func() {
 		var items int
 		var size int64
@@ -149,7 +151,7 @@ func (a *app) countProps(ctx context.Context, d *dialog, paths []string) {
 		}
 		var err error
 		for _, root := range paths {
-			err = walkTree(ctx, a.fs, root, func(p string, e fs.DirEntry, err error) error {
+			err = walkTree(ctx, fsys, root, func(p string, e fs.DirEntry, err error) error {
 				if err != nil {
 					return fmt.Errorf("reading %s: %w", p, err)
 				}
@@ -188,9 +190,10 @@ var errNoAttrs = errors.New("the items here have no read-only and hidden attribu
 
 // applyAttrs sets the read-only and hidden attributes of path.
 func (a *app) applyAttrs(path string, readOnly, hidden bool) {
+	fsys := a.fs
 	go func() {
 		err := errNoAttrs
-		if at, ok := a.fs.(Attributer); ok {
+		if at, ok := fsys.(Attributer); ok {
 			err = at.SetAttrs(path, readOnly, hidden)
 		}
 		a.post(func() {

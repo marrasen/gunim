@@ -148,9 +148,9 @@ func (a *app) viewerWants(w ViewerWants) {
 	v.stop()
 	ctx, cancel := context.WithCancel(a.ctx)
 	v.cancel = cancel
-	seq, path, fit := v.seq, v.view.Path, v.asked
+	seq, path, fit, fsys := v.seq, v.view.Path, v.asked, a.fs
 	go func() {
-		img, size, err := decodePicture(a.fs, path)
+		img, size, err := decodePicture(fsys, path)
 		var pic *paint.Image
 		if err == nil && ctx.Err() == nil {
 			pic = paint.NewImageFit(img, fit[0], fit[1])

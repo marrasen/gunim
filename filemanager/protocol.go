@@ -37,6 +37,11 @@ type Shell struct {
 	// carries, and Paths how it writes paths.
 	FS    string
 	Paths PathStyle
+	// NoTrash says the file system has no trash, so the key that trashes
+	// deletes, after asking.
+	NoTrash bool
+	// Name is what the title calls the program, and Files when empty.
+	Name string
 }
 
 // Crumb is one folder of the path bar.

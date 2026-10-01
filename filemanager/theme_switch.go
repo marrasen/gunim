@@ -34,7 +34,6 @@ func (a *app) setLight(light bool) {
 		return
 	}
 	a.shell.Light = light
-	a.prefs.Light = light
 	a.publishShell()
-	a.savePrefs()
+	a.savePrefs(func(p *prefs) { p.Light = light })
 }

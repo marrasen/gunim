@@ -142,6 +142,16 @@ func (t *titleBar) check(cmd string, on bool) {
 }
 
 func (t *titleBar) setShell(s Shell) {
+	for m, cmds := range t.cmds {
+		for i, c := range cmds {
+			if c == CmdTrash {
+				t.bar.Menus[m].Items[i] = trashLabel(s.NoTrash)
+			}
+		}
+	}
+	if t.bar.Title == "" || t.bar.Title == "Files" {
+		t.bar.Title = s.appName()
+	}
 	t.check(CmdHidden, s.ShowHidden)
 	t.check(CmdPreview, s.ShowPreview)
 	t.check(CmdThemeDark, !s.Light)
@@ -150,10 +160,27 @@ func (t *titleBar) setShell(s Shell) {
 
 // setListing names the folder in the title, and ticks the sort.
 func (t *titleBar) setListing(l Listing) {
-	t.bar.Title = l.Title + " — Files"
+	t.bar.Title = l.Title + " — " + t.b.shell.appName()
 	for by, cmd := range []string{CmdSortName, CmdSortSize, CmdSortTime, CmdSortType} {
 		t.check(cmd, SortBy(by) == l.Sort)
 	}
+}
+
+// appName is what the title calls the program.
+func (s Shell) appName() string {
+	if s.Name == "" {
+		return "Files"
+	}
+	return s.Name
+}
+
+// trashLabel names the command that trashes: on a file system without a
+// trash it deletes for good, after asking.
+func trashLabel(noTrash bool) string {
+	if noTrash {
+		return "Delete…"
+	}
+	return "Move to trash"
 }
 
 // Children implements [gunim.Composite].

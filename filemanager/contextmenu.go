@@ -1,6 +1,7 @@
 package filemanager
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/marrasen/gunim"
@@ -149,6 +150,9 @@ func (pg *listingPage) contextMenu(g gunim.Node, rowAt func(geom.Point) int, sel
 			}
 			return false
 		}, func(string) bool { return false })
+		if i := slices.Index(st.cmds, CmdTrash); i >= 0 {
+			m.Items[i] = trashLabel(b.shell.NoTrash)
+		}
 		return true
 	}
 	m.Picked = func(i int, u *gunim.UI) { pg.b.dnd.menuPicked(m, st, i, u) }
@@ -255,11 +259,12 @@ func newSideMenu(b *browser) *widget.ContextMenu {
 		for _, l := range []*widget.List{b.side.places, b.side.favs} {
 			for _, k := range l.Keys() {
 				n, ok := l.Row(k)
-				if pr, isPlace := n.(*placeRow); !ok || !isPlace || pr.item.heading || pr.item.away {
+				pr, isPlace := n.(*placeRow)
+				if !ok || !isPlace || pr.item.away {
 					continue
 				}
 				if r, ok := u.Bounds(n); ok && r.Contains(p) {
-					st = menuState{path: string(k)}
+					st = menuState{path: pr.item.Path}
 					items := placeItems
 					if l == b.side.favs {
 						items = favItems
