@@ -93,6 +93,12 @@ func (w *Window) Show(fsys FS, dir string) {
 	w.do(func(a *app) { a.showFS(fsys, dir) })
 }
 
+// Notify shows a notice in the window, as the window shows its own: a
+// title, a body, and a kind, success, warning or info, for its icon.
+func (w *Window) Notify(title, body, kind string) {
+	w.do(func(a *app) { a.patch(Notice{Title: title, Body: body, Kind: kind}) })
+}
+
 // do runs fn on the window's serve loop, unless it has stopped.
 func (w *Window) do(fn func(a *app)) {
 	select {
