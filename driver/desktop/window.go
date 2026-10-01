@@ -5,6 +5,7 @@ package desktop
 import (
 	"errors"
 	"fmt"
+	"github.com/marrasen/gunim/driver/internal/render"
 	"image"
 	"image/color"
 	"math"
@@ -949,7 +950,7 @@ func (w *Window) render() {
 			if w.pres != nil {
 				w.pres.close()
 			}
-			r.release()
+			r.Release()
 			_ = (*glfw.Window)(nil).MakeContextCurrent()
 		}()
 	}
@@ -968,10 +969,10 @@ func (w *Window) render() {
 		case f = <-w.frames:
 		}
 		if r != nil {
-			r.corner, r.edge = w.cornerRadius()
+			r.Corner, r.Edge = w.cornerRadius()
 			w.mu.Lock()
 			fbW, fbH, scale, rate := w.fbW, w.fbH, w.scale, w.rate
-			r.under = w.under
+			r.Under = w.under
 			readback, shot := w.readback, w.shot
 			w.shot = nil
 			w.mu.Unlock()
@@ -983,30 +984,30 @@ func (w *Window) render() {
 				if err != nil {
 					w.fail(err)
 				}
-				r.windowFBO = fbo
+				r.WindowFBO = fbo
 			}
-			r.draw(f.ops, f.damage, fbW, fbH, scale)
+			r.Draw(f.ops, f.damage, fbW, fbH, scale)
 			if readback != nil {
 				if w.pres != nil {
 					// The window's texture is upside down for Direct3D;
 					// the canvas holds the frame the right way up.
-					r.gl.BindFramebuffer(gl.FRAMEBUFFER, r.layers[0].fbo)
+					r.GL.BindFramebuffer(gl.FRAMEBUFFER, r.Canvas())
 				}
 				pix := make([]byte, fbW*fbH*4)
-				r.gl.ReadPixels(pix, 0, 0, int32(fbW), int32(fbH), gl.RGBA, gl.UNSIGNED_BYTE)
+				r.GL.ReadPixels(pix, 0, 0, int32(fbW), int32(fbH), gl.RGBA, gl.UNSIGNED_BYTE)
 				readback(pix, fbW, fbH)
 			}
 			synced := vb.wait()
 			if w.pres != nil {
-				if err := w.pres.present(r.redrawn); err != nil {
+				if err := w.pres.present(r.Redrawn); err != nil {
 					w.fail(err)
 				}
 			} else if err := w.gw.SwapBuffers(); err != nil {
 				w.fail(fmt.Errorf("desktop: swap buffers: %w", err))
 			}
 			w.uncover()
-			if r.edge != shownEdge {
-				shownEdge = r.edge
+			if r.Edge != shownEdge {
+				shownEdge = r.Edge
 				edgeShown(w, shownEdge)
 			}
 			w.mu.Lock()
@@ -1060,7 +1061,7 @@ func pace(last time.Time, rate float64) time.Time {
 
 // startGL makes the context current on this thread, turns on vsync and
 // builds the renderer.
-func (w *Window) startGL() (*renderer, error) {
+func (w *Window) startGL() (*render.Renderer, error) {
 	holder := w.gw
 	if w.ctx != nil {
 		holder = w.ctx
@@ -1077,17 +1078,17 @@ func (w *Window) startGL() (*renderer, error) {
 	if err = ctx.LoadFunctions(); err != nil {
 		return nil, fmt.Errorf("desktop: %w", err)
 	}
-	r, err := newRenderer(ctx, w.d.isES, &w.d.shared)
+	r, err := render.New(ctx, w.d.isES, &w.d.shared)
 	if err != nil {
 		return nil, err
 	}
-	r.setText(w.textRendering, w.transparent)
+	r.SetText(w.textRendering, w.transparent)
 	if w.ctx != nil {
 		if w.pres, err = w.startPresenter(ctx); err != nil {
-			r.release()
+			r.Release()
 			return nil, err
 		}
-		r.flipWindow = true
+		r.FlipWindow = true
 	}
 	return r, nil
 }

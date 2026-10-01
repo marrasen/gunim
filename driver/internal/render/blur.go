@@ -1,6 +1,6 @@
 //go:build linux || windows || darwin
 
-package desktop
+package render
 
 import (
 	"math"
@@ -53,7 +53,7 @@ void main() {
 //
 // The result lives in scratch targets that the next blur at the same
 // resolution overwrites.
-func (r *renderer) blur(src uint32, region geom.Rect, sigma float32) uint32 {
+func (r *Renderer) blur(src uint32, region geom.Rect, sigma float32) uint32 {
 	fi := 0
 	for fi < len(blurFactors)-1 && sigma/float32(blurFactors[fi]) > 8 {
 		fi++
@@ -66,7 +66,7 @@ func (r *renderer) blur(src uint32, region geom.Rect, sigma float32) uint32 {
 	s := sigma / float32(k)
 	reach := float32(math.Ceil(float64(min(3*s, maxTaps)))) + 1
 
-	g := r.gl
+	g := r.GL
 	r.flush()
 	g.UseProgram(r.blurProg.id)
 	g.Viewport(0, 0, int32(w), int32(h))

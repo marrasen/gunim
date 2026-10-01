@@ -1,6 +1,6 @@
 //go:build linux || windows || darwin
 
-package desktop
+package render
 
 import (
 	"image/color"
@@ -28,14 +28,14 @@ func (s countedSquare) Coverage(w, h int) []byte {
 func (s countedSquare) Settled() bool { return s.settled }
 
 // drawMask draws s into r on black and returns the canvas, its rows from the bottom.
-func drawMask(rr *renderer, s paint.Shape, r geom.Rect, c color.NRGBA) []byte {
+func drawMask(rr *Renderer, s paint.Shape, r geom.Rect, c color.NRGBA) []byte {
 	var p paint.Painter
 	p.RRect(geom.Rect{Max: benchSize.Point()}, 0, paint.Solid(black))
 	p.Mask(s, r, c)
 	rr.canvasOK, rr.direct = false, false
 	w, h := int(benchSize.W), int(benchSize.H)
-	rr.draw(p.Ops(), paint.Everything, w, h, 1)
-	rr.draw(p.Ops(), geom.Rc(0, 0, 1, 1), w, h, 1)
+	rr.Draw(p.Ops(), paint.Everything, w, h, 1)
+	rr.Draw(p.Ops(), geom.Rc(0, 0, 1, 1), w, h, 1)
 	return canvas(rr)
 }
 

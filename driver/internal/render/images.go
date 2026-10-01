@@ -1,6 +1,6 @@
 //go:build linux || windows || darwin
 
-package desktop
+package render
 
 import (
 	"time"
@@ -27,7 +27,7 @@ type imageTexture struct {
 }
 
 // image queues an image, uploading it on first use.
-func (r *renderer) image(op *paint.ImageOp) {
+func (r *Renderer) image(op *paint.ImageOp) {
 	iw, ih := op.Image.Size()
 	if iw == 0 || ih == 0 || op.Opacity <= 0 {
 		return
@@ -50,14 +50,14 @@ func (r *renderer) image(op *paint.ImageOp) {
 
 // texture returns img's texture, uploading it with mipmaps on first
 // use, so it stays smooth drawn at a fraction of its size.
-func (r *renderer) texture(img *paint.Image) uint32 {
+func (r *Renderer) texture(img *paint.Image) uint32 {
 	now := time.Now()
 	if t, ok := r.images[img]; ok {
 		t.used = now
 		return t.tex
 	}
 	w, h := img.Size()
-	g := r.gl
+	g := r.GL
 	t := &imageTexture{tex: g.CreateTexture(), bytes: w * h * 4 * 4 / 3, used: now}
 	g.ActiveTexture(glTexture1)
 	g.BindTexture(gl.TEXTURE_2D, t.tex)
@@ -76,7 +76,7 @@ func (r *renderer) texture(img *paint.Image) uint32 {
 
 // evictImages lets go of textures the window has stopped drawing, and
 // of the least recently drawn when they fill the budget.
-func (r *renderer) evictImages() {
+func (r *Renderer) evictImages() {
 	now := time.Now()
 	total := 0
 	for m, t := range r.images {
@@ -98,7 +98,7 @@ func (r *renderer) evictImages() {
 	}
 }
 
-func (r *renderer) dropImage(m *paint.Image) {
-	r.gl.DeleteTexture(r.images[m].tex)
+func (r *Renderer) dropImage(m *paint.Image) {
+	r.GL.DeleteTexture(r.images[m].tex)
 	delete(r.images, m)
 }

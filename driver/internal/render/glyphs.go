@@ -1,6 +1,6 @@
 //go:build linux || windows || darwin
 
-package desktop
+package render
 
 import (
 	"math"
@@ -66,7 +66,7 @@ type glyphTexture struct {
 	have  map[glyphKey]bool
 }
 
-func (r *renderer) initGlyphs() {
+func (r *Renderer) initGlyphs() {
 	r.glyphs.have = map[glyphKey]bool{}
 	r.lcdGlyphs.have = map[glyphKey]bool{}
 	r.colorGlyphs.have = map[glyphKey]bool{}
@@ -75,8 +75,8 @@ func (r *renderer) initGlyphs() {
 
 // newAtlas makes an empty atlas texture on unit, with channels bytes a
 // pixel.
-func (r *renderer) newAtlas(unit uint32, internal int32, format uint32, channels int) uint32 {
-	g := r.gl
+func (r *Renderer) newAtlas(unit uint32, internal int32, format uint32, channels int) uint32 {
+	g := r.GL
 	tex := g.CreateTexture()
 	g.ActiveTexture(unit)
 	g.BindTexture(gl.TEXTURE_2D, tex)
@@ -102,7 +102,7 @@ func (r *renderer) newAtlas(unit uint32, internal int32, format uint32, channels
 //
 // Glyphs use the panel's subpixels only at rest, and straight on the
 // canvas or the window, whose pixels behind them are opaque.
-func (r *renderer) text(op *paint.TextOp) {
+func (r *Renderer) text(op *paint.TextOp) {
 	if len(op.Glyphs) == 0 || op.Size <= 0 || op.Color.A == 0 {
 		return
 	}
@@ -178,7 +178,7 @@ func (r *renderer) text(op *paint.TextOp) {
 }
 
 // textBox returns a box in device pixels that holds a run under a plain translation, with room for any glyph.
-func (r *renderer) textBox(op *paint.TextOp) geom.Rect {
+func (r *Renderer) textBox(op *paint.TextOp) geom.Rect {
 	lo, hi := op.Glyphs[0].At, op.Glyphs[0].At
 	for _, g := range op.Glyphs[1:] {
 		lo = geom.Pt(min(lo.X, g.At.X), min(lo.Y, g.At.Y))
@@ -208,7 +208,7 @@ func (s glyphSlot) uv() geom.Rect {
 // glyph returns where a glyph sits in its atlas, rasterizing it with raster and copying it into this
 // renderer's texture on first use. It reports false for a glyph with
 // nothing to draw.
-func (r *renderer) glyph(key glyphKey, raster func() text.Mask) (glyphSlot, bool) {
+func (r *Renderer) glyph(key glyphKey, raster func() text.Mask) (glyphSlot, bool) {
 	slot, epoch, ok := r.shared.glyph(key, raster)
 	a, unit, format, channels := &r.glyphs, uint32(gl.TEXTURE0), uint32(glRed), 1
 	switch {
@@ -223,7 +223,7 @@ func (r *renderer) glyph(key glyphKey, raster func() text.Mask) (glyphSlot, bool
 			a.tex, a.epoch = r.newAtlas(unit, glRGB8, format, channels), epoch
 		}
 	}
-	g := r.gl
+	g := r.GL
 	if epoch != a.epoch {
 		// The atlas started again, here or in another window. What is
 		// queued was placed in the old one, so it draws first.

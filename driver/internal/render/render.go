@@ -1,6 +1,9 @@
 //go:build linux || windows || darwin
 
-package desktop
+// Package render draws a [paint] op list with OpenGL 3.2 or OpenGL ES
+// 3.0. Every driver that draws with GL shares it: the desktop one, and
+// the Android one.
+package render
 
 import (
 	"encoding/binary"
@@ -35,7 +38,7 @@ const (
 	glOneMinusSrc1Alpha  = 0x88FB
 )
 
-// A renderer replays a [paint] op list with OpenGL. It lives on one
+// A Renderer replays a [paint] op list with OpenGL. It lives on one
 // window's render thread, with that window's context current.
 //
 // Every shape is one quad and one signed distance field, so a rounded
@@ -58,9 +61,9 @@ const (
 // and quarter-pixel shift; see glyphs.go. Masks, such as icons, share
 // the greyscale atlas; see masks.go. Images upload once and stay
 // on the GPU while frames use them; see images.go.
-type renderer struct {
-	gl     gl.Context
-	shared *shared
+type Renderer struct {
+	GL     gl.Context
+	shared *Shared
 
 	vao, vbo, ibo uint32
 	drawProg      program
@@ -105,28 +108,28 @@ type renderer struct {
 	// quicker when most of it changed: it saves the copy. big says the
 	// frame before changed most of the window too.
 	direct, big bool
-	// redrawn is the device-pixel area the last frame redrew, for
+	// Redrawn is the device-pixel area the last frame redrew, for
 	// tests.
-	redrawn geom.Rect
-	// under is the window's background, where a frame's first op leaves
+	Redrawn geom.Rect
+	// Under is the window's background, where a frame's first op leaves
 	// it uncovered; see driver.Backgrounder.
-	under color.NRGBA
-	// corner is the radius, in device pixels, the window's corners are
-	// cut to on the screen, or 0 for square corners, and edge the width
+	Under color.NRGBA
+	// Corner is the radius, in device pixels, the window's corners are
+	// cut to on the screen, or 0 for square corners, and Edge the width
 	// of the edge a cut window leaves for the border its drawn shadow
 	// draws; see shape.
-	corner, edge float32
+	Corner, Edge float32
 	// cull is the device-pixel area a frame redraws in part, while its
 	// commands are queued, and empty otherwise. A quad wholly outside it,
 	// or outside the clip, is left out, since every target shares the
 	// window's pixels.
 	cull geom.Rect
-	// windowFBO is the framebuffer the window shows: 0, or on Windows
-	// the texture DXGI presents. flipWindow is set for that texture,
+	// WindowFBO is the framebuffer the window shows: 0, or on Windows
+	// the texture DXGI presents. FlipWindow is set for that texture,
 	// whose rows Direct3D reads from the top where OpenGL writes them
 	// from the bottom, so the canvas goes to it upside down.
-	windowFBO  uint32
-	flipWindow bool
+	WindowFBO  uint32
+	FlipWindow bool
 	// blurs holds two scratch targets for each downsampling factor.
 	blurs [len(blurFactors)][2]target
 	// stack is the layers open, innermost last. depth is the target
@@ -363,8 +366,8 @@ void main() {
 }
 `
 
-func newRenderer(g gl.Context, isES bool, sh *shared) (*renderer, error) {
-	r := &renderer{gl: g, shared: sh, images: map[*paint.Image]*imageTexture{}}
+func New(g gl.Context, isES bool, sh *Shared) (*Renderer, error) {
+	r := &Renderer{GL: g, shared: sh, images: map[*paint.Image]*imageTexture{}}
 	var err error
 	if r.drawProg, r.blurProg, r.dual, err = sh.programs(g, isES); err != nil {
 		return nil, err
@@ -403,9 +406,9 @@ func newRenderer(g gl.Context, isES bool, sh *shared) (*renderer, error) {
 	return r, nil
 }
 
-// setText sets how the renderer draws text, for a window whose surface
+// SetText sets how the renderer draws text, for a window whose surface
 // blends with what is behind it when transparent.
-func (r *renderer) setText(tr text.Rendering, transparent bool) {
+func (r *Renderer) SetText(tr text.Rendering, transparent bool) {
 	r.textRendering = tr
 	r.subpixels = tr.Smoothing.Subpixel() && r.dual && !transparent
 	r.gamma = ratiosFor(tr.Gamma)
@@ -489,10 +492,14 @@ func compile(g gl.Context, kind uint32, src string) (uint32, error) {
 	return s, nil
 }
 
-// release frees the renderer's GL objects. The programs belong to every
+// Canvas returns the framebuffer the frame is drawn in, the right way
+// up, for reading a frame back.
+func (r *Renderer) Canvas() uint32 { return r.layers[0].fbo }
+
+// Release frees the renderer's GL objects. The programs belong to every
 // window and stay.
-func (r *renderer) release() {
-	g := r.gl
+func (r *Renderer) Release() {
+	g := r.GL
 	for _, t := range r.layers {
 		g.DeleteFramebuffer(t.fbo)
 		g.DeleteTexture(t.tex)
@@ -518,14 +525,14 @@ func (r *renderer) release() {
 	g.DeleteVertexArray(r.vao)
 }
 
-// draw replays ops into the canvas, within damage, the logical-pixel
+// Draw replays ops into the canvas, within damage, the logical-pixel
 // area that changed since the last frame, and copies the canvas to the
 // window.
-func (r *renderer) draw(ops []paint.Op, damage geom.Rect, fbW, fbH int, scale float32) {
+func (r *Renderer) Draw(ops []paint.Op, damage geom.Rect, fbW, fbH int, scale float32) {
 	if fbW <= 0 || fbH <= 0 {
 		return
 	}
-	g := r.gl
+	g := r.GL
 	r.fbW, r.fbH, r.scale = fbW, fbH, scale
 	r.stack, r.depth = r.stack[:0], 0
 	r.scratchX = 0
@@ -552,14 +559,14 @@ func (r *renderer) draw(ops []paint.Op, damage geom.Rect, fbW, fbH int, scale fl
 	// next small one to draw the whole window.
 	s, ws := box.Size(), window.Size()
 	big := s.W*s.H > ws.W*ws.H/2
-	r.direct = !backdrop && !r.flipWindow && big && r.big && r.corner == 0
+	r.direct = !backdrop && !r.FlipWindow && big && r.big && r.Corner == 0
 	r.big = big
 	if r.fit(&r.layers[0]) || !r.canvasOK || scale != r.canvasScale {
 		if !r.direct {
 			box = window
 		}
 	}
-	r.redrawn = box
+	r.Redrawn = box
 	if r.direct {
 		// Straight to the window, which holds nothing after a swap.
 		box = window
@@ -569,8 +576,8 @@ func (r *renderer) draw(ops []paint.Op, damage geom.Rect, fbW, fbH int, scale fl
 	g.Viewport(0, 0, int32(fbW), int32(fbH))
 	r.bindDraw()
 	bg, alpha := background(ops)
-	if alpha == 0 && r.under.A > 0 {
-		bg, alpha = rgba(r.under), float32(r.under.A)/0xff
+	if alpha == 0 && r.Under.A > 0 {
+		bg, alpha = rgba(r.Under), float32(r.Under.A)/0xff
 	}
 	if r.direct {
 		clearWindow(g, bg, alpha)
@@ -589,8 +596,8 @@ func (r *renderer) draw(ops []paint.Op, damage geom.Rect, fbW, fbH int, scale fl
 	}
 	if !r.direct {
 		r.canvasOK, r.canvasScale = true, scale
-		g.BindFramebuffer(gl.FRAMEBUFFER, r.windowFBO)
-		if r.corner > 0 {
+		g.BindFramebuffer(gl.FRAMEBUFFER, r.WindowFBO)
+		if r.Corner > 0 {
 			// Transparent outside the rounded corners, the background inside them
 			g.Clear(glColorBufferBit)
 			if alpha > 0 {
@@ -652,8 +659,8 @@ func background(ops []paint.Op) (bg [4]float32, alpha float32) {
 
 // present queues the canvas's copy to the window, upside down for a
 // window that reads its rows from the top.
-func (r *renderer) present(canvas uint32) {
-	if !r.flipWindow {
+func (r *Renderer) present(canvas uint32) {
+	if !r.FlipWindow {
 		r.composite(canvas, nil, 1, false, 0)
 		return
 	}
@@ -664,7 +671,7 @@ func (r *renderer) present(canvas uint32) {
 	// would take its last.
 	uv := geom.Rect{Max: geom.Pt(1, 1)}
 	rect, radius := win, float32(0)
-	if r.corner > 0 {
+	if r.Corner > 0 {
 		rect, radius = r.shape()
 	}
 	r.quad(corners(win, uv), paint.Identity, r.scale, &look{
@@ -674,15 +681,15 @@ func (r *renderer) present(canvas uint32) {
 
 // shape is the part of a window with cut corners that shows its frame, in logical pixels: the window less its edge,
 // with corners that much tighter.
-func (r *renderer) shape() (rect geom.Rect, radius float32) {
+func (r *Renderer) shape() (rect geom.Rect, radius float32) {
 	w := r.window()
-	e := r.edge / r.scale
-	return geom.Rect{Min: geom.Pt(w.Min.X+e, w.Min.Y+e), Max: geom.Pt(w.Max.X-e, w.Max.Y-e)}, max(r.corner-r.edge, 0) / r.scale
+	e := r.Edge / r.scale
+	return geom.Rect{Min: geom.Pt(w.Min.X+e, w.Min.Y+e), Max: geom.Pt(w.Max.X-e, w.Max.Y-e)}, max(r.Corner-r.Edge, 0) / r.scale
 }
 
 // deviceBox turns damage in logical pixels into the whole device pixels
 // it touches, within the window.
-func (r *renderer) deviceBox(d geom.Rect) geom.Rect {
+func (r *Renderer) deviceBox(d geom.Rect) geom.Rect {
 	x0 := max(0, float32(math.Floor(float64(d.Min.X*r.scale)))-1)
 	y0 := max(0, float32(math.Floor(float64(d.Min.Y*r.scale)))-1)
 	x1 := min(float32(r.fbW), float32(math.Ceil(float64(d.Max.X*r.scale)))+1)
@@ -694,7 +701,7 @@ func (r *renderer) deviceBox(d geom.Rect) geom.Rect {
 }
 
 // replay queues ops into the canvas.
-func (r *renderer) replay(ops []paint.Op) {
+func (r *Renderer) replay(ops []paint.Op) {
 	for _, op := range ops {
 		switch op := op.(type) {
 		case *paint.RRectOp:
@@ -719,8 +726,8 @@ func (r *renderer) replay(ops []paint.Op) {
 
 // bindDraw makes the draw program and the renderer's vertices current,
 // with the glyph atlas on unit 0.
-func (r *renderer) bindDraw() {
-	g := r.gl
+func (r *Renderer) bindDraw() {
+	g := r.GL
 	g.UseProgram(r.drawProg.id)
 	g.BindVertexArray(r.vao)
 	g.BindBuffer(gl.ARRAY_BUFFER, r.vbo)
@@ -729,12 +736,12 @@ func (r *renderer) bindDraw() {
 }
 
 // flush draws the batch.
-func (r *renderer) flush() {
+func (r *Renderer) flush() {
 	n := len(r.verts) / (4 * vertFloats)
 	if n == 0 {
 		return
 	}
-	g := r.gl
+	g := r.GL
 	if r.tex != 0 {
 		g.ActiveTexture(glTexture1)
 		g.BindTexture(gl.TEXTURE_2D, r.tex)
@@ -753,7 +760,7 @@ func (r *renderer) flush() {
 
 // uses readies the batch for a quad that reads tex on unit 1, drawing
 // what is queued first when it reads another texture or is full.
-func (r *renderer) uses(tex uint32) {
+func (r *Renderer) uses(tex uint32) {
 	if len(r.verts)/(4*vertFloats) >= maxQuads || (tex != 0 && r.tex != 0 && r.tex != tex) {
 		r.flush()
 	}
@@ -783,7 +790,7 @@ type look struct {
 // quad queues a quad with corners in the shape's own space, placed
 // through t. Glyph quads arrive already in device pixels, with t the
 // identity and scale 1.
-func (r *renderer) quad(corners [4]quadVert, t paint.Transform, scale float32, l *look) {
+func (r *Renderer) quad(corners [4]quadVert, t paint.Transform, scale float32, l *look) {
 	flag := float32(0)
 	if l.flag {
 		flag = 1
@@ -823,7 +830,7 @@ func (r *renderer) quad(corners [4]quadVert, t paint.Transform, scale float32, l
 }
 
 // outside reports whether b, in device pixels, misses what a frame drawn in part redraws within the clip.
-func (r *renderer) outside(b geom.Rect) bool {
+func (r *Renderer) outside(b geom.Rect) bool {
 	c := intersect(r.cull, r.clip)
 	return b.Max.X < c.Min.X || b.Min.X > c.Max.X || b.Max.Y < c.Min.Y || b.Min.Y > c.Max.Y
 }
@@ -839,7 +846,7 @@ func corners(q, uv geom.Rect) [4]quadVert {
 	}
 }
 
-func (r *renderer) rrect(op *paint.RRectOp) {
+func (r *Renderer) rrect(op *paint.RRectOp) {
 	r.uses(0)
 	// The shadow goes first, underneath, on a quad grown to hold it.
 	if sh := op.Shadow; sh.Color.A > 0 {
@@ -868,7 +875,7 @@ func (r *renderer) rrect(op *paint.RRectOp) {
 // openLayer starts drawing into a fresh offscreen target, or goes on
 // drawing into the current one, scissored, for a layer that can draw
 // in place.
-func (r *renderer) openLayer(op *paint.LayerOp) {
+func (r *Renderer) openLayer(op *paint.LayerOp) {
 	r.flush()
 	r.stack = append(r.stack, openLayer{op: op, clip: r.clip})
 	if box, ok := r.inPlace(op); ok {
@@ -882,7 +889,7 @@ func (r *renderer) openLayer(op *paint.LayerOp) {
 	}
 	t := &r.layers[r.depth]
 	r.fit(t)
-	g := r.gl
+	g := r.GL
 	g.BindFramebuffer(gl.FRAMEBUFFER, t.fbo)
 	g.Clear(glColorBufferBit)
 }
@@ -891,7 +898,7 @@ func (r *renderer) openLayer(op *paint.LayerOp) {
 // target around it as composited from a target of its own, and the
 // device-pixel box it clips to: it is opaque, blurs nothing, and clips
 // to an upright rectangle or not at all.
-func (r *renderer) inPlace(op *paint.LayerOp) (geom.Rect, bool) {
+func (r *Renderer) inPlace(op *paint.LayerOp) (geom.Rect, bool) {
 	o, t := op.Opts, op.Transform
 	switch {
 	case o.Opacity < 1 || o.Blur > 0 || o.Backdrop > 0:
@@ -912,7 +919,7 @@ func (r *renderer) inPlace(op *paint.LayerOp) (geom.Rect, bool) {
 // drawn back over itself within the layer's bounds, rounded when the
 // layer clips. The layer's contents go on top, blurred first when the
 // layer asks for Blur.
-func (r *renderer) closeLayer() {
+func (r *Renderer) closeLayer() {
 	r.flush()
 	top := r.stack[len(r.stack)-1]
 	r.stack = r.stack[:len(r.stack)-1]
@@ -931,7 +938,7 @@ func (r *renderer) closeLayer() {
 
 	if o.Backdrop > 0 {
 		behind := r.blur(r.layers[depth-1].tex, r.region(op, true), o.Backdrop*r.scale)
-		r.gl.BindFramebuffer(gl.FRAMEBUFFER, r.fbo(depth-1))
+		r.GL.BindFramebuffer(gl.FRAMEBUFFER, r.fbo(depth-1))
 		r.composite(behind, op, o.Opacity, true, radius)
 		// The next blur at this resolution reuses the texture.
 		r.flush()
@@ -941,7 +948,7 @@ func (r *renderer) closeLayer() {
 	if o.Blur > 0 {
 		contents = r.blur(contents, r.region(op, o.Clip), o.Blur*r.scale)
 	}
-	r.gl.BindFramebuffer(gl.FRAMEBUFFER, r.fbo(depth-1))
+	r.GL.BindFramebuffer(gl.FRAMEBUFFER, r.fbo(depth-1))
 	r.composite(contents, op, o.Opacity, o.Clip, radius)
 	// The next layer at this depth draws into the same texture.
 	r.flush()
@@ -951,7 +958,7 @@ func (r *renderer) closeLayer() {
 // target at opacity. With clip it covers op's bounds, rounded by
 // radius; without, the whole window. A nil op composites the whole
 // window unclipped.
-func (r *renderer) composite(tex uint32, op *paint.LayerOp, opacity float32, clip bool, radius float32) {
+func (r *Renderer) composite(tex uint32, op *paint.LayerOp, opacity float32, clip bool, radius float32) {
 	r.uses(tex)
 	l := look{kind: kindLayer, color0: [4]float32{0, 0, 0, opacity}}
 	if clip && op != nil {
@@ -966,21 +973,21 @@ func (r *renderer) composite(tex uint32, op *paint.LayerOp, opacity float32, cli
 // fbo returns the framebuffer for nesting depth d: the canvas, or the
 // window for a frame drawn straight to it, at depth 0, and a layer's
 // target beneath it.
-func (r *renderer) fbo(d int) uint32 {
+func (r *Renderer) fbo(d int) uint32 {
 	if d == 0 && r.direct {
-		return r.windowFBO
+		return r.WindowFBO
 	}
 	return r.layers[d].fbo
 }
 
 // window returns the whole window in logical pixels.
-func (r *renderer) window() geom.Rect {
+func (r *Renderer) window() geom.Rect {
 	return geom.Rect{Max: geom.Pt(float32(r.fbW)/r.scale, float32(r.fbH)/r.scale)}
 }
 
 // region returns the device-pixel rectangle a layer covers: its bounds
 // under its transform when bounded, or the whole window.
-func (r *renderer) region(op *paint.LayerOp, bounded bool) geom.Rect {
+func (r *Renderer) region(op *paint.LayerOp, bounded bool) geom.Rect {
 	if !bounded {
 		return geom.Rect{Max: geom.Pt(float32(r.fbW), float32(r.fbH))}
 	}
@@ -997,12 +1004,12 @@ func (r *renderer) region(op *paint.LayerOp, bounded bool) geom.Rect {
 
 // fit sizes t to the window, creating it on first use, and reports
 // whether it changed.
-func (r *renderer) fit(t *target) bool { return r.fitSize(t, r.fbW, r.fbH) }
+func (r *Renderer) fit(t *target) bool { return r.fitSize(t, r.fbW, r.fbH) }
 
 // fitSize sizes t to w by h pixels, creating it on first use, and
 // reports whether it changed. A changed target holds nothing.
-func (r *renderer) fitSize(t *target, w, h int) bool {
-	g := r.gl
+func (r *Renderer) fitSize(t *target, w, h int) bool {
+	g := r.GL
 	if t.tex != 0 && t.w == w && t.h == h {
 		return false
 	}
@@ -1037,15 +1044,15 @@ func rgba(c color.NRGBA) [4]float32 {
 
 // setClip scissors drawing to c, a device-pixel box with its origin at
 // the top left.
-func (r *renderer) setClip(c geom.Rect) {
+func (r *Renderer) setClip(c geom.Rect) {
 	r.clip = c
 	r.applyClip()
 }
 
 // applyClip sets GL's scissor to the renderer's clip, or turns it off
 // where the clip holds the whole target.
-func (r *renderer) applyClip() {
-	g, c := r.gl, r.clip
+func (r *Renderer) applyClip() {
+	g, c := r.GL, r.clip
 	if c.Min.X <= 0 && c.Min.Y <= 0 && c.Max.X >= float32(r.fbW) && c.Max.Y >= float32(r.fbH) {
 		g.Disable(gl.SCISSOR_TEST)
 		return

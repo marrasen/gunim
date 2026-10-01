@@ -1,6 +1,6 @@
 //go:build linux || windows || darwin
 
-package desktop
+package render
 
 import (
 	"image"
@@ -12,7 +12,7 @@ import (
 	"github.com/marrasen/gunim/text"
 )
 
-// shared is what every window's renderer shares: the shader programs,
+// Shared is what every window's renderer shares: the shader programs,
 // and the glyph atlas as the CPU sees it.
 //
 // A program is compiled once, by the first render thread to need it,
@@ -28,7 +28,7 @@ import (
 // the glyphs it draws into a texture of its own. Changing one texture
 // from several threads at once would need fences between them; copying
 // into textures of their own needs none.
-type shared struct {
+type Shared struct {
 	mu    sync.Mutex
 	built bool
 	err   error
@@ -44,7 +44,7 @@ type shared struct {
 
 // programs returns the shared programs, building them on first use
 // with the calling thread's context.
-func (s *shared) programs(g gl.Context, isES bool) (draw, blur program, dual bool, err error) {
+func (s *Shared) programs(g gl.Context, isES bool) (draw, blur program, dual bool, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.built {
@@ -100,7 +100,7 @@ type glyphSlot struct {
 // glyph returns a glyph's place in the atlas, rasterizing it with raster on first
 // use, and the atlas's epoch. It reports false for a glyph with nothing
 // to draw.
-func (s *shared) glyph(key glyphKey, raster func() text.Mask) (sharedSlot, int, bool) {
+func (s *Shared) glyph(key glyphKey, raster func() text.Mask) (sharedSlot, int, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	a := &s.atlas

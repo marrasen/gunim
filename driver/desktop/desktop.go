@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/marrasen/gunim/driver/internal/render"
 	"runtime"
 	"sync"
 	"time"
@@ -62,7 +63,7 @@ type Driver struct {
 	stayOpen bool
 
 	// shared is what every window's renderer shares.
-	shared shared
+	shared render.Shared
 	// dxgi is set where windows present through DXGI; see
 	// present_windows.go.
 	dxgi bool
