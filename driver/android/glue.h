@@ -19,3 +19,6 @@ int gunim_egl_attach(ANativeWindow *w);
 void gunim_egl_detach(void);
 int gunim_egl_swap(void);
 void gunim_window_release(ANativeWindow *w);
+
+// gunim_log writes a line to the system log.
+void gunim_log(const char *line);

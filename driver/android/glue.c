@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <android/native_window_jni.h>
+#include <android/log.h>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include "_cgo_export.h"
@@ -171,6 +172,9 @@ static EGLDisplay dpy = EGL_NO_DISPLAY;
 static EGLConfig cfg;
 static EGLContext ctx = EGL_NO_CONTEXT;
 static EGLSurface surf = EGL_NO_SURFACE;
+// idle is a 1×1 pbuffer the context is current on while there is no
+// window surface: not every EGL can make a context current on none.
+static EGLSurface idle = EGL_NO_SURFACE;
 
 int gunim_egl_init(void) {
 	dpy = eglGetDisplay(EGL_DEFAULT_DISPLAY);
@@ -179,7 +183,7 @@ int gunim_egl_init(void) {
 	}
 	const EGLint attribs[] = {
 		EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT_KHR,
-		EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
+		EGL_SURFACE_TYPE, EGL_WINDOW_BIT | EGL_PBUFFER_BIT,
 		EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8, EGL_ALPHA_SIZE, 8,
 		EGL_NONE,
 	};
@@ -192,7 +196,12 @@ int gunim_egl_init(void) {
 	if (ctx == EGL_NO_CONTEXT) {
 		return eglGetError();
 	}
-	if (!eglMakeCurrent(dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, ctx)) {
+	const EGLint pbAttribs[] = {EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE};
+	idle = eglCreatePbufferSurface(dpy, cfg, pbAttribs);
+	if (idle == EGL_NO_SURFACE) {
+		return eglGetError();
+	}
+	if (!eglMakeCurrent(dpy, idle, idle, ctx)) {
 		return eglGetError();
 	}
 	return 0;
@@ -215,7 +224,7 @@ void gunim_egl_detach(void) {
 	if (surf == EGL_NO_SURFACE) {
 		return;
 	}
-	eglMakeCurrent(dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, ctx);
+	eglMakeCurrent(dpy, idle, idle, ctx);
 	eglDestroySurface(dpy, surf);
 	surf = EGL_NO_SURFACE;
 }
@@ -229,4 +238,8 @@ int gunim_egl_swap(void) {
 
 void gunim_window_release(ANativeWindow *w) {
 	ANativeWindow_release(w);
+}
+
+void gunim_log(const char *line) {
+	__android_log_write(ANDROID_LOG_INFO, "gunim", line);
 }

@@ -19,6 +19,9 @@ final class GunimView extends SurfaceView implements SurfaceHolder.Callback {
 	private final InputMethodManager imm;
 	// pointer is the id of the finger that drives the pointer, or -1.
 	private int pointer = -1;
+	// tapped is when a finger last touched, for showing the keyboard
+	// only for a text field the user tapped.
+	private long tapped;
 
 	GunimView(Context c) {
 		super(c);
@@ -51,6 +54,7 @@ final class GunimView extends SurfaceView implements SurfaceHolder.Callback {
 		switch (action) {
 		case MotionEvent.ACTION_DOWN:
 			pointer = e.getPointerId(0);
+			tapped = android.os.SystemClock.uptimeMillis();
 			requestFocus();
 			Native.touch(0, e.getX(0), e.getY(0), e.getEventTime());
 			return true;
@@ -106,7 +110,7 @@ final class GunimView extends SurfaceView implements SurfaceHolder.Callback {
 
 	@Override
 	public boolean onCheckIsTextEditor() {
-		return true;
+		return input.hasState();
 	}
 
 	@Override
@@ -114,13 +118,24 @@ final class GunimView extends SurfaceView implements SurfaceHolder.Callback {
 		return input.connect(out);
 	}
 
+	/**
+	 * showKeyboard shows the soft keyboard for a text field the user has
+	 * just tapped, as Android's own fields do, and hides it. A field
+	 * focused some other way, as when a window opens, leaves the
+	 * keyboard down until it is tapped, and a node with no text of its
+	 * own, which takes keys from a hardware keyboard, never shows it.
+	 */
 	void showKeyboard(boolean show) {
-		if (show) {
+		long since = android.os.SystemClock.uptimeMillis() - tapped;
+		if (show && input.hasState() && since < tapWindow) {
 			requestFocus();
-			imm.restartInput(this);
 			imm.showSoftInput(this, 0);
-		} else {
+		} else if (!show) {
 			imm.hideSoftInputFromWindow(getWindowToken(), 0);
 		}
 	}
+
+	// tapWindow is how long after a tap a field taking the keyboard
+	// counts as tapped, in milliseconds.
+	private static final long tapWindow = 1500;
 }

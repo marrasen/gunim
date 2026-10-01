@@ -53,6 +53,11 @@ final class GunimInput {
 		this.imm = imm;
 	}
 
+	/** hasState reports whether a node with text of its own has focus. */
+	boolean hasState() {
+		return hasState;
+	}
+
 	/** connect describes the text to the keyboard and connects it. */
 	InputConnection connect(EditorInfo out) {
 		if (!hasState) {

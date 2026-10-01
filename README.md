@@ -103,6 +103,23 @@ favourites, or nothing, with a shake. A folder the drag rests on springs
 open. Files drag between windows, out to other programs, and in from
 them. Ctrl+N opens another window on the same folder.
 
+### Android
+
+The same programs build for Android. `tools/gunimapk` turns one into an
+APK with the Android SDK's own tools, and `-run` installs and starts it
+on the device or emulator adb sees:
+
+```sh
+go run ./tools/gunimapk -run ./example/calculator
+```
+
+Android loads a Go program as a library, which needs cgo, so the
+Android build uses cgo and the NDK's compiler. The desktop builds stay
+pure Go. A tap is a click, a popup opens over the window that opened
+it, and a text field opens the soft keyboard, whose edits, autocorrect
+and composition reach the field as `input.TextEdit`s.
+[driver/android](driver/android/android.go) says how it fits together.
+
 ## The split
 
 A gunim program is two halves that speak only in values.

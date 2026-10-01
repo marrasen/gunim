@@ -124,6 +124,7 @@ func (d *Driver) start() {
 	}
 	d.started = true
 	d.mu.Unlock()
+	toLogcat()
 	go d.render()
 	go func() {
 		mainMain()

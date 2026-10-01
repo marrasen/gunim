@@ -340,7 +340,7 @@ func manifestFor(id, name string) string {
 	<application android:label="` + xmlEscape(name) + `" android:hasCode="true" android:extractNativeLibs="true">
 		<activity android:name="gunim.android.GunimActivity" android:exported="true"
 			android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density"
-			android:windowSoftInputMode="adjustResize"
+			android:windowSoftInputMode="adjustResize|stateAlwaysHidden"
 			android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
 			<intent-filter>
 				<action android:name="android.intent.action.MAIN"/>
