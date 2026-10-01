@@ -138,8 +138,16 @@ func (a *app) opsCommand(name string) bool {
 		}
 		srcs := slices.Clone(a.ops.clip)
 		if a.ops.cut {
-			a.ops.clip, a.ops.cut = nil, false
-			a.clipChanged()
+			// Once, here too: a window elsewhere may have pasted it.
+			a.hub.mu.Lock()
+			kept := a.hub.clips[a.fs.ID()]
+			a.hub.mu.Unlock()
+			if !kept.cut || !slices.Equal(kept.paths, srcs) || !a.hub.clearClip(kept) {
+				a.syncClip()
+				return true
+			}
+			a.syncClip()
+			a.hub.others(a, func(o *app) { o.syncClip() })
 			a.startOp(job{kind: OpMove, srcs: srcs, dest: here}, "Moving "+a.what(srcs)+" to "+a.ps.placeName(here))
 		} else {
 			a.startOp(job{kind: OpCopy, srcs: srcs, dest: here}, "Copying "+a.what(srcs)+" to "+a.ps.placeName(here))
