@@ -5,6 +5,7 @@ import (
 	"slices"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/input"
@@ -180,6 +181,10 @@ func TestPasteFromAnotherFileSystemGoesToTheProgram(t *testing.T) {
 	other.until("the window elsewhere has nothing to paste", func() bool { return other.b.dnd.clip.Count == 0 })
 	local.until("the cut is gone where it was cut", func() bool { return len(local.a.ops.clip) == 0 && local.b.dnd.clip.Count == 0 })
 	other.do(Command{Name: CmdPaste})
+	// A transfer is handed over on a goroutine of its own: time for a
+	// wrong one to come.
+	other.frames(2)
+	time.Sleep(100 * time.Millisecond)
 	if len(ts.list()) != 2 || len(other.a.ops.undo) != 0 || len(local.a.ops.undo) != 0 {
 		t.Fatal("the cut was pasted twice, or a transfer may be undone")
 	}
@@ -226,5 +231,24 @@ func TestTransfersPassOverTheWire(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A cut is cleared once: a window that had not heard it was pasted
+// finds it gone, and does not paste it again.
+func TestACutIsClearedOnce(t *testing.T) {
+	h := &Hub{}
+	h.seq++
+	c := clipboard{fs: "server", paths: []string{"/a"}, cut: true, seq: h.seq}
+	h.clips = map[string]clipboard{"server": c}
+	h.last = c
+	if !h.clearClip(c) {
+		t.Fatal("the cut was not there to clear")
+	}
+	if h.clearClip(c) {
+		t.Fatal("the cut was cleared twice")
+	}
+	if len(h.last.paths) != 0 || len(h.clips["server"].paths) != 0 {
+		t.Fatalf("the cut is still kept: %+v, %+v", h.last, h.clips)
 	}
 }

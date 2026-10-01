@@ -121,9 +121,13 @@ func (a *app) opsCommand(name string) bool {
 		}
 		if c := a.ops.away; len(c.paths) > 0 {
 			if c.cut {
-				// A cut is pasted once.
-				a.hub.clearClip(c)
+				// A cut is pasted once: not again, by a window that had
+				// not heard it was.
+				pasted := !a.hub.clearClip(c)
 				a.syncClip()
+				if pasted {
+					return true
+				}
 				a.hub.others(a, func(o *app) { o.syncClip() })
 			}
 			a.transfer(c.fs, c.ps, c.paths, here, c.cut)

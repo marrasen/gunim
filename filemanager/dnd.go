@@ -95,7 +95,7 @@ func dropPlan(ps PathStyle, fs string, transfers bool, d FileDrag, dir, vol, vol
 	case mods.Has(input.ModShift):
 		copying = false
 	}
-	plan := DropFiles{Paths: slices.Clone(d.Paths), Into: dir, Copy: copying, FS: d.FS}
+	plan := DropFiles{Paths: slices.Clone(d.Paths), Into: dir, Copy: copying, FS: d.FS, To: fs}
 	if copying {
 		return plan, widget.DropHint{Text: "Copy to " + name, Effect: widget.DropCopy}, true
 	}

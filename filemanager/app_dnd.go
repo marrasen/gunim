@@ -63,6 +63,10 @@ func (a *app) dropFiles(v DropFiles) {
 	if len(v.Paths) == 0 || v.Into == "" {
 		return
 	}
+	if v.To != a.fs.ID() {
+		a.fail("The window went to another file system before the drop, so nothing was dropped.")
+		return
+	}
 	if v.FS != a.fs.ID() {
 		if a.opts.Transfer == nil {
 			a.fail("Items cannot go between file systems yet.")

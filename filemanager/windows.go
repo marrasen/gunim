@@ -257,10 +257,15 @@ func (a *app) clipChanged() {
 }
 
 // clearClip empties the clipboard c, once its items are pasted, wherever
-// it is still kept.
-func (h *Hub) clearClip(c clipboard) {
+// it is still kept. It reports false when c was kept nowhere any more:
+// pasted, or replaced, meanwhile.
+func (h *Hub) clearClip(c clipboard) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if h.clips[c.fs].seq != c.seq && h.last.seq != c.seq {
+		// Pasted or replaced already, by another window.
+		return false
+	}
 	h.seq++
 	empty := clipboard{fs: c.fs, ps: c.ps, seq: h.seq}
 	if h.clips[c.fs].seq == c.seq {
@@ -269,6 +274,7 @@ func (h *Hub) clearClip(c clipboard) {
 	if h.last.seq == c.seq {
 		h.last = empty
 	}
+	return true
 }
 
 // syncClip takes what the hub's clipboards say Paste would paste, and
