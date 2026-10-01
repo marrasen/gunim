@@ -17,7 +17,7 @@ func TestTheSystemTrashFollowsXDGDataHome(t *testing.T) {
 		t.Fatal(err)
 	}
 	tree(t, root, "work/a.txt")
-	rec, err := runJob(context.Background(), job{kind: OpTrash, srcs: []string{at(root, "work/a.txt")}}, env{trash: tr})
+	rec, err := runJob(context.Background(), job{kind: OpTrash, srcs: []string{at(root, "work/a.txt")}}, env{fs: LocalFS(), trash: tr})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,7 +32,7 @@ func TestTheSystemTrashFollowsXDGDataHome(t *testing.T) {
 	if _, err := os.Stat(at(root, "work/a.txt")); err == nil {
 		t.Fatal("the file is still where it was")
 	}
-	if _, err := runJob(context.Background(), job{kind: OpUndo, undo: &rec}, env{trash: tr}); err != nil {
+	if _, err := runJob(context.Background(), job{kind: OpUndo, undo: &rec}, env{fs: LocalFS(), trash: tr}); err != nil {
 		t.Fatal(err)
 	}
 	if contents(t, at(root, "work/a.txt")) != "work/a.txt" {

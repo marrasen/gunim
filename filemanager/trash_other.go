@@ -20,4 +20,4 @@ func (noTrash) Restore(string, string, time.Time, string) error { return errNoTr
 func (noTrash) Describe(string) string { return "" }
 
 // systemTrash returns a trash that says the system has none the app knows.
-func systemTrash() (trasher, error) { return noTrash{}, nil }
+func systemTrash() (Trasher, error) { return noTrash{}, nil }

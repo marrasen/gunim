@@ -3,7 +3,6 @@ package filemanager
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/paint"
@@ -112,7 +111,7 @@ func (a *app) showPicture(travel int) {
 	v := &a.viewer
 	n := &a.nav
 	e := v.pics[v.at]
-	path := filepath.Join(n.path, e.Name)
+	path := a.ps.Join(n.path, e.Name)
 	v.stop()
 	v.seq++
 	v.asked = [2]int{}
@@ -151,7 +150,7 @@ func (a *app) viewerWants(w ViewerWants) {
 	v.cancel = cancel
 	seq, path, fit := v.seq, v.view.Path, v.asked
 	go func() {
-		img, size, err := decodePicture(path)
+		img, size, err := decodePicture(a.fs, path)
 		var pic *paint.Image
 		if err == nil && ctx.Err() == nil {
 			pic = paint.NewImageFit(img, fit[0], fit[1])

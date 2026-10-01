@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"image"
 	"io"
-	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -158,7 +157,7 @@ func (a *app) needThumbs(v NeedThumbs) {
 		if e.Dir || !viewable(e.Name) {
 			continue
 		}
-		job := thumbJob{key: thumbKey{path: filepath.Join(n.path, e.Name), size: size, mod: e.Mod.UnixNano()},
+		job := thumbJob{key: thumbKey{path: a.ps.Join(n.path, e.Name), size: size, mod: e.Mod.UnixNano()},
 			dir: n.path, name: e.Name, online: e.Online}
 		if done, ok := t.cache[job.key]; ok {
 			a.sendThumb(job, done)
@@ -179,7 +178,7 @@ func (a *app) pumpThumbs() {
 		t.queue = t.queue[1:]
 		t.busy[job.key] = true
 		go func() {
-			img, full, err := makeThumb(job.key.path, job.key.size, job.online)
+			img, full, err := makeThumb(a.fs, job.key.path, job.key.size, job.online)
 			a.post(func() { a.thumbMade(job, thumbDone{img: img, full: full, err: err}) })
 		}()
 	}
@@ -230,28 +229,29 @@ func (a *app) cachedThumb(path string, mod int64) (*paint.Image, image.Point) {
 	return nil, image.Point{}
 }
 
-// makeThumb reads the picture at path and makes it at most size pixels across, and returns the picture's own size.
-// A file kept online only is not read: its thumbnail is the one the system keeps, if any, and its size is unknown.
-func makeThumb(path string, size int, online bool) (*paint.Image, image.Point, error) {
+// makeThumb reads the picture at path on fsys and makes it at most size pixels across, and returns the picture's own
+// size. A file kept online only is not read: its thumbnail is the one the system keeps, if any, and its size is
+// unknown.
+func makeThumb(fsys FS, path string, size int, online bool) (*paint.Image, image.Point, error) {
 	if online {
-		img, err := cachedShellThumb(path, size)
+		img, err := systemThumb(fsys, path, size)
 		if err != nil || img == nil {
 			return nil, image.Point{}, err
 		}
 		return paint.NewImageFit(img, size, size), image.Point{}, nil
 	}
-	img, full, err := decodePicture(path)
+	img, full, err := decodePicture(fsys, path)
 	if err != nil {
 		return nil, full, err
 	}
 	return paint.NewImageFit(img, size, size), full, nil
 }
 
-// decodePicture reads the picture at path, and returns it with its size. A picture of more than maxPixels is refused,
-// with its size in the error.
-func decodePicture(path string) (img image.Image, size image.Point, err error) {
-	name := filepath.Base(path)
-	f, err := os.Open(path)
+// decodePicture reads the picture at path on fsys, and returns it with its size. A picture of more than maxPixels is
+// refused, with its size in the error.
+func decodePicture(fsys FS, path string) (img image.Image, size image.Point, err error) {
+	name := fsys.Paths().Base(path)
+	f, err := fsys.Open(path)
 	if err != nil {
 		return nil, image.Point{}, fmt.Errorf("reading %s: %w", name, err)
 	}
@@ -279,6 +279,14 @@ func decodePicture(path string) (img image.Image, size image.Point, err error) {
 		return nil, size, fmt.Errorf("reading the picture %s: %w", name, err)
 	}
 	return img, size, nil
+}
+
+// systemThumb returns the thumbnail the system keeps of the file at path on fsys, or nil where it keeps none.
+func systemThumb(fsys FS, path string, size int) (image.Image, error) {
+	if o, ok := fsys.(OnlineReporter); ok {
+		return o.SystemThumb(path, size)
+	}
+	return nil, nil
 }
 
 // enteredFolder closes the viewer, and tells the window how the folder about to show shows.

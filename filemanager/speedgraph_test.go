@@ -18,7 +18,7 @@ func TestTheSpeedComesFromACopysProgress(t *testing.T) {
 		t.Fatal(err)
 	}
 	var reports []progress
-	e := env{report: func(p progress) { reports = append(reports, p) }, reportEvery: time.Nanosecond}
+	e := env{fs: LocalFS(), report: func(p progress) { reports = append(reports, p) }, reportEvery: time.Nanosecond}
 	if _, err := runJob(context.Background(), job{kind: OpCopy, srcs: []string{src}, dest: root}, e); err != nil {
 		t.Fatal(err)
 	}

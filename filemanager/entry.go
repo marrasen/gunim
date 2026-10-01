@@ -3,10 +3,7 @@ package filemanager
 import (
 	"context"
 	"errors"
-	"fmt"
-	"io"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -44,45 +41,26 @@ type entry struct {
 	lower string
 }
 
-// listDir reads the entries of dir. An entry it cannot read lists with
-// its name and why, and an entry deleted while it lists is left out, so
-// the errors it returns are about dir itself.
-func listDir(ctx context.Context, dir string) (es []entry, err error) {
-	f, err := os.Open(dir)
+// listDir reads the entries of dir on fsys. An entry it cannot read
+// lists with its name and why, and an entry deleted while it lists is
+// left out, so the errors it returns are about dir itself.
+func listDir(ctx context.Context, fsys FS, dir string) ([]entry, error) {
+	ds, err := fsys.ReadDir(ctx, dir)
 	if err != nil {
 		return nil, err
 	}
-	defer func() {
-		if cerr := f.Close(); cerr != nil && err == nil {
-			es, err = nil, fmt.Errorf("reading %s: %w", dir, cerr)
-		}
-	}()
-	var out []entry
-	for {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		batch, rerr := f.ReadDir(1024)
-		for _, d := range batch {
-			if e, ok := readEntry(dir, d); ok {
-				out = append(out, e)
-			}
-		}
-		if errors.Is(rerr, io.EOF) {
-			return out, nil
-		}
-		if rerr != nil {
-			return nil, fmt.Errorf("reading %s: %w", dir, rerr)
-		}
-		if len(batch) == 0 {
-			return out, nil
+	out := make([]entry, 0, len(ds))
+	for _, d := range ds {
+		if e, ok := readEntry(fsys, dir, d); ok {
+			out = append(out, e)
 		}
 	}
+	return out, nil
 }
 
-// readEntry turns a directory entry into an entry. ok is false for an
-// entry deleted since dir was read.
-func readEntry(dir string, d fs.DirEntry) (e entry, ok bool) {
+// readEntry turns a directory entry of dir on fsys into an entry. ok is
+// false for an entry deleted since dir was read.
+func readEntry(fsys FS, dir string, d fs.DirEntry) (e entry, ok bool) {
 	info, err := d.Info()
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
@@ -92,21 +70,25 @@ func readEntry(dir string, d fs.DirEntry) (e entry, ok bool) {
 		return entry{Name: name, Kind: KindFile, Hidden: strings.HasPrefix(name, "."), Broken: true,
 			Type: "Cannot be read", Err: err.Error(), lower: strings.ToLower(name)}, true
 	}
-	return makeEntry(dir, info), true
+	return makeEntry(fsys, dir, info), true
 }
 
-// makeEntry turns what Lstat says about an item of dir into an entry.
-func makeEntry(dir string, info fs.FileInfo) entry {
+// makeEntry turns what Lstat says about an item of dir on fsys into an
+// entry.
+func makeEntry(fsys FS, dir string, info fs.FileInfo) entry {
 	name := info.Name()
 	e := entry{Name: name, Size: info.Size(), Mod: info.ModTime(), lower: strings.ToLower(name)}
-	e.Hidden = strings.HasPrefix(name, ".") || hiddenAttr(info)
+	e.Hidden = strings.HasPrefix(name, ".")
+	if h, ok := fsys.(HiddenReporter); ok && !e.Hidden {
+		e.Hidden = h.Hidden(info)
+	}
 	switch {
 	case info.IsDir():
 		e.Kind, e.Dir, e.Size = KindFolder, true, 0
 		e.Type = "Folder"
 	case isLink(info):
 		e.Kind = KindLink
-		target, err := os.Stat(filepath.Join(dir, name))
+		target, err := fsys.Stat(fsys.Paths().Join(dir, name))
 		switch {
 		case errors.Is(err, fs.ErrNotExist):
 			e.Broken = true
@@ -125,7 +107,9 @@ func makeEntry(dir string, info fs.FileInfo) entry {
 		}
 	default:
 		e.Type = typeLabel(name)
-		e.Online = onlineOnly(info)
+		if o, ok := fsys.(OnlineReporter); ok {
+			e.Online = o.OnlineOnly(info)
+		}
 	}
 	return e
 }
@@ -135,13 +119,13 @@ func isLink(info fs.FileInfo) bool {
 	return info.Mode()&(fs.ModeSymlink|fs.ModeIrregular) != 0
 }
 
-// statEntry reads one entry by its path.
-func statEntry(path string) (entry, error) {
-	info, err := os.Lstat(path)
+// statEntry reads one entry of fsys by its path.
+func statEntry(fsys FS, path string) (entry, error) {
+	info, err := fsys.Lstat(path)
 	if err != nil {
 		return entry{}, err
 	}
-	return makeEntry(filepath.Dir(path), info), nil
+	return makeEntry(fsys, fsys.Paths().Dir(path), info), nil
 }
 
 // typeLabel names the type of a file from its extension.

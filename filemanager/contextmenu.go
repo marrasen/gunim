@@ -1,7 +1,6 @@
 package filemanager
 
 import (
-	"path/filepath"
 	"strings"
 
 	"github.com/marrasen/gunim"
@@ -135,7 +134,7 @@ func (pg *listingPage) contextMenu(g gunim.Node, rowAt func(geom.Point) int, sel
 		one := len(sel) == 1
 		st = menuState{}
 		if one {
-			st.path = filepath.Join(b.listing.path, sel[0].Name)
+			st.path = b.shell.Paths.Join(b.listing.path, sel[0].Name)
 		}
 		st.cmds = fill(m, rowItems, func(cmd string) bool {
 			switch cmd {
@@ -233,7 +232,7 @@ func (v *dndView) copyPaths(u *gunim.UI) {
 	if l.cur != nil {
 		rows, _ := l.cur.selectedRows(l.cur.selection())
 		for _, r := range rows {
-			paths = append(paths, filepath.Join(l.path, r.Name))
+			paths = append(paths, v.b.shell.Paths.Join(l.path, r.Name))
 		}
 	}
 	if len(paths) == 0 {

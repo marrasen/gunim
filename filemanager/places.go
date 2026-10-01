@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"path/filepath"
 )
 
 // space is how much room a volume has, in bytes.
@@ -67,13 +66,4 @@ func rootCause(err error) error {
 		}
 		err = inner
 	}
-}
-
-// placeName is what the sidebar calls the folder at path.
-func placeName(path string) string {
-	name := filepath.Base(path)
-	if name == "." || name == string(filepath.Separator) || name == "" {
-		return path
-	}
-	return name
 }

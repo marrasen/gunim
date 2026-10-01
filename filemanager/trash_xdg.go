@@ -17,7 +17,7 @@ type xdgTrash struct {
 	dir string
 }
 
-// Trash implements [trasher].
+// Trash implements [Trasher].
 func (t xdgTrash) Trash(path string) (string, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
@@ -88,7 +88,7 @@ func (t xdgTrash) claim(abs, name string) (dest string, ok bool, err error) {
 	return dest, true, nil
 }
 
-// Restore implements [trasher]: it checks the item's .trashinfo record
+// Restore implements [Trasher]: it checks the item's .trashinfo record
 // says it came from original, moves it to to, and removes the record.
 func (t xdgTrash) Restore(original, trashed string, _ time.Time, to string) error {
 	if trashed == "" {
@@ -99,7 +99,7 @@ func (t xdgTrash) Restore(original, trashed string, _ time.Time, to string) erro
 	if err != nil {
 		return err
 	}
-	if !samePath(from, original) {
+	if !SystemPaths.Same(from, original) {
 		return fmt.Errorf("the trash record %s says the item came from %s, not %s", record, from, original)
 	}
 	if _, err := os.Lstat(to); err == nil {
@@ -144,8 +144,10 @@ func (t xdgTrash) origin(path string) (string, error) {
 	return "", fmt.Errorf("the trash record %s says nothing of where the item came from", path)
 }
 
-// Describe implements [trasher].
-func (xdgTrash) Describe(trashed string) string { return "in the trash, " + describe(trashed) }
+// Describe implements [Trasher].
+func (xdgTrash) Describe(trashed string) string {
+	return "in the trash, " + describe(LocalFS(), trashed)
+}
 
 // numbered returns name with " (n)" put before its extension.
 func numbered(name string, n int) string {

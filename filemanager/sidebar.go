@@ -27,6 +27,8 @@ type sidebar struct {
 	scroll *widget.Scroll
 	// group makes the places and the favourites one stop for Tab, walked with Up and Down.
 	group *widget.Group
+	// ps is how the window's file system writes paths.
+	ps PathStyle
 }
 
 // placeItem is a place and whether it is the folder showing.
@@ -68,7 +70,7 @@ func (s *sidebar) set(p Places, u *gunim.UI) {
 	items := func(ps []Place) []placeItem {
 		out := make([]placeItem, len(ps))
 		for i, pl := range ps {
-			out[i] = placeItem{Place: pl, current: samePath(pl.Path, p.Current)}
+			out[i] = placeItem{Place: pl, current: s.ps.Same(pl.Path, p.Current)}
 		}
 		return out
 	}

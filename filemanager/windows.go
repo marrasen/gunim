@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -20,8 +19,9 @@ import (
 type Hub struct {
 	mu   sync.Mutex
 	apps []*app
-	clip []string
-	cut  bool
+	// clips holds the clipboard of the windows on each file system, by
+	// its ID, as paths of one mean nothing on another.
+	clips map[string]clipboard
 	// open opens a window with o and serves it until ctx ends, and is nil
 	// where no window can open, as in a test.
 	open func(ctx context.Context, o Options) error
@@ -57,7 +57,7 @@ func (h *Hub) Open(ctx context.Context, o Options) (gunim.Client, error) {
 	RegisterViews(w)
 	c := w.Client()
 	h.wg.Go(func() {
-		if err := serve(ctx, c, o, h); err != nil {
+		if err := serveWindow(ctx, c, o, h); err != nil {
 			h.mu.Lock()
 			h.errs = append(h.errs, err)
 			h.mu.Unlock()
@@ -70,7 +70,7 @@ func (h *Hub) Open(ctx context.Context, o Options) (gunim.Client, error) {
 // window closes. The window must have the views RegisterViews registers,
 // and should open with WindowOptions or options like them.
 func (h *Hub) Serve(ctx context.Context, c gunim.Client, o Options) error {
-	return serve(ctx, c, o, h)
+	return serveWindow(ctx, c, o, h)
 }
 
 // Wait waits for every window Open opened to close, and returns the
@@ -100,8 +100,15 @@ func joinHub(a *app, h *Hub) *Hub {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.apps = append(h.apps, a)
-	a.ops.clip, a.ops.cut = slices.Clone(h.clip), h.cut
+	clip := h.clips[a.fs.ID()]
+	a.ops.clip, a.ops.cut = slices.Clone(clip.paths), clip.cut
 	return h
+}
+
+// clipboard is the paths cut or copied, and whether they were cut.
+type clipboard struct {
+	paths []string
+	cut   bool
 }
 
 // leave takes a off h.
@@ -123,16 +130,30 @@ func (h *Hub) others(a *app, fn func(o *app)) {
 	}
 }
 
+// neighbours runs fn on the serve loop of each app of h but a that shows
+// the file system a does.
+func (h *Hub) neighbours(a *app, fn func(o *app)) {
+	id := a.fs.ID()
+	h.others(a, func(o *app) {
+		if o.fs.ID() == id {
+			fn(o)
+		}
+	})
+}
+
 // clipChanged shares a's clipboard with the other windows, and tells a's
 // window what Paste would paste.
 func (a *app) clipChanged() {
 	h := a.hub
 	h.mu.Lock()
-	h.clip, h.cut = slices.Clone(a.ops.clip), a.ops.cut
+	if h.clips == nil {
+		h.clips = map[string]clipboard{}
+	}
+	h.clips[a.fs.ID()] = clipboard{paths: slices.Clone(a.ops.clip), cut: a.ops.cut}
 	h.mu.Unlock()
 	clip, cut := slices.Clone(a.ops.clip), a.ops.cut
 	a.publishClip()
-	h.others(a, func(o *app) {
+	h.neighbours(a, func(o *app) {
 		o.ops.clip, o.ops.cut = slices.Clone(clip), cut
 		o.publishClip()
 	})
@@ -165,15 +186,15 @@ func cloneNames(m map[string]string) map[string]string {
 func (a *app) touched(j job) {
 	dirs := []string{j.dest}
 	for _, s := range j.srcs {
-		dirs = append(dirs, filepath.Dir(s))
+		dirs = append(dirs, a.ps.Dir(s))
 	}
 	if j.undo != nil {
 		for _, s := range j.undo.steps {
-			dirs = append(dirs, filepath.Dir(s.from), filepath.Dir(s.to))
+			dirs = append(dirs, a.ps.Dir(s.from), a.ps.Dir(s.to))
 		}
 	}
-	a.hub.others(a, func(o *app) {
-		if slices.ContainsFunc(dirs, func(d string) bool { return d != "" && samePath(d, o.nav.path) }) {
+	a.hub.neighbours(a, func(o *app) {
+		if slices.ContainsFunc(dirs, func(d string) bool { return d != "" && o.ps.Same(d, o.nav.path) }) {
 			o.relist()
 		}
 	})
@@ -212,5 +233,5 @@ func (a *app) favName(path string) string {
 	if n := strings.TrimSpace(a.prefs.FavNames[path]); n != "" {
 		return n
 	}
-	return placeName(path)
+	return a.ps.placeName(path)
 }

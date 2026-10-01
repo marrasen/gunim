@@ -168,7 +168,7 @@ func TestDraggingAFolderOntoTheFavouritesPinsIt(t *testing.T) {
 	}
 	h.script("drop")
 	h.until("the folder is pinned", func() bool {
-		return slices.ContainsFunc(h.a.prefs.Favourites, func(f string) bool { return samePath(f, filepath.Join(h.dir, "sub")) })
+		return slices.ContainsFunc(h.a.prefs.Favourites, func(f string) bool { return SystemPaths.Same(f, filepath.Join(h.dir, "sub")) })
 	})
 	if !h.exists("sub") {
 		t.Fatal("pinning moved the folder")
@@ -310,19 +310,19 @@ func TestDropPlansFollowTheVolumesAndTheKeys(t *testing.T) {
 		{"two", input.ModShift, false},
 		{"", 0, true},
 	} {
-		plan, _, ok := dropPlan(d, dir, c.vol, "", c.mods)
+		plan, _, ok := dropPlan(SystemPaths, "", d, dir, c.vol, "", c.mods)
 		if !ok || plan.Copy != c.copy {
 			t.Fatalf("to volume %q with %v the plan copies %v, want %v", c.vol, c.mods, plan.Copy, c.copy)
 		}
 	}
-	if _, hint, ok := dropPlan(d, dir, "one", "denied", 0); ok || hint.Text != "Cannot read b" {
+	if _, hint, ok := dropPlan(SystemPaths, "", d, dir, "one", "denied", 0); ok || hint.Text != "Cannot read b" {
 		t.Fatalf("a folder whose volume cannot be read says %q", hint.Text)
 	}
 	folder := FileDrag{Paths: []string{filepath.FromSlash("/a/f")}, Dirs: []bool{true}}
-	if _, _, ok := dropPlan(folder, filepath.FromSlash("/a/f/deeper"), "", "", 0); ok {
+	if _, _, ok := dropPlan(SystemPaths, "", folder, filepath.FromSlash("/a/f/deeper"), "", "", 0); ok {
 		t.Fatal("a folder may go inside itself")
 	}
-	if _, _, ok := pinPlan(folder, []string{filepath.FromSlash("/a/f")}); ok {
+	if _, _, ok := pinPlan(SystemPaths, "", folder, []string{filepath.FromSlash("/a/f")}); ok {
 		t.Fatal("a favourite may be pinned again")
 	}
 }
@@ -371,7 +371,7 @@ func TestTwoWindowsShareTheClipboardAndSeeEachOthersOperations(t *testing.T) {
 			return false
 		}
 	})
-	if !samePath(dir, left) {
+	if !SystemPaths.Same(dir, left) {
 		t.Fatalf("the new window opens on %s, want %s", dir, left)
 	}
 }

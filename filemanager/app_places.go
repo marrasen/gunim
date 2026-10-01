@@ -1,7 +1,6 @@
 package filemanager
 
 import (
-	"path/filepath"
 	"slices"
 
 	"github.com/marrasen/gunim"
@@ -15,7 +14,7 @@ func (a *app) handlePlaces(in gunim.Intent) bool {
 		a.savePrefs()
 		a.publishPlaces()
 	case Unpin:
-		a.prefs.Favourites = slices.DeleteFunc(a.prefs.Favourites, func(p string) bool { return samePath(p, v.Path) })
+		a.prefs.Favourites = slices.DeleteFunc(a.prefs.Favourites, func(p string) bool { return a.ps.Same(p, v.Path) })
 		a.savePrefs()
 		a.publishPlaces()
 	case Command:
@@ -35,14 +34,14 @@ func (a *app) pin() {
 	var paths []string
 	for _, e := range a.selectedEntries() {
 		if e.Dir {
-			paths = append(paths, filepath.Join(a.nav.path, e.Name))
+			paths = append(paths, a.ps.Join(a.nav.path, e.Name))
 		}
 	}
 	if len(paths) == 0 {
 		paths = []string{a.nav.path}
 	}
 	for _, p := range paths {
-		if !slices.ContainsFunc(a.prefs.Favourites, func(f string) bool { return samePath(f, p) }) {
+		if !slices.ContainsFunc(a.prefs.Favourites, func(f string) bool { return a.ps.Same(f, p) }) {
 			a.prefs.Favourites = append(a.prefs.Favourites, p)
 		}
 	}

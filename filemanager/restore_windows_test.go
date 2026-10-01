@@ -22,7 +22,7 @@ func TestTheRecycleBinGivesBackATempFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	tr := recycleBin{}
-	rec, err := runJob(context.Background(), job{kind: OpTrash, srcs: []string{path}}, env{trash: tr})
+	rec, err := runJob(context.Background(), job{kind: OpTrash, srcs: []string{path}}, env{fs: LocalFS(), trash: tr})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,7 +32,7 @@ func TestTheRecycleBinGivesBackATempFile(t *testing.T) {
 	if !restorable(rec) {
 		t.Fatal("the record of the trash says it cannot be restored")
 	}
-	if _, err := runJob(context.Background(), job{kind: OpUndo, undo: &rec}, env{trash: tr}); err != nil {
+	if _, err := runJob(context.Background(), job{kind: OpUndo, undo: &rec}, env{fs: LocalFS(), trash: tr}); err != nil {
 		t.Fatal(err)
 	}
 	if got := contents(t, path); got != "come back" {
@@ -56,11 +56,11 @@ func TestTheRecycleBinGivesBackTwoFilesOfOneStem(t *testing.T) {
 		}
 	}
 	tr := recycleBin{}
-	rec, err := runJob(context.Background(), job{kind: OpTrash, srcs: []string{txt, log}}, env{trash: tr})
+	rec, err := runJob(context.Background(), job{kind: OpTrash, srcs: []string{txt, log}}, env{fs: LocalFS(), trash: tr})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runJob(context.Background(), job{kind: OpUndo, undo: &rec}, env{trash: tr}); err != nil {
+	if _, err := runJob(context.Background(), job{kind: OpUndo, undo: &rec}, env{fs: LocalFS(), trash: tr}); err != nil {
 		t.Fatal(err)
 	}
 	if got := contents(t, txt); got != "the text" {

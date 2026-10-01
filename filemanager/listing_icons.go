@@ -36,14 +36,14 @@ func registerIcons(w *gunim.Window) {
 // setView shows the folder at v.Path as icons or as details, sliding from one to the other on the page showing.
 func (a *listingArea) setView(v ViewMode, u *gunim.UI) {
 	a.view = v
-	if a.cur != nil && samePath(a.path, v.Path) {
+	if a.cur != nil && a.b.shell.Paths.Same(a.path, v.Path) {
 		a.cur.icons.show(v.Icons, true, u)
 	}
 }
 
 // thumb hands a thumbnail to the page of its folder.
 func (a *listingArea) thumb(t Thumb, u *gunim.UI) {
-	if a.cur != nil && samePath(a.path, t.Dir) {
+	if a.cur != nil && a.b.shell.Paths.Same(a.path, t.Dir) {
 		a.cur.icons.thumbs[t.Name] = tileThumb{img: t.Image, size: t.Size, err: t.Err}
 		u.Invalidate()
 	}
@@ -307,7 +307,7 @@ func (t *iconTile) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Childre
 	if ok && r.Name != t.name {
 		t.name = r.Name
 		t.label.SetText(r.Name)
-		t.hero.Tag = filepath.Join(t.iv.dir, r.Name)
+		t.hero.Tag = t.iv.pg.b.shell.Paths.Join(t.iv.dir, r.Name)
 		t.aspect.Jump(1)
 		t.pic.reset()
 	}

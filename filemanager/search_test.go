@@ -20,7 +20,7 @@ func walk(t *testing.T, root string, b bounds, read func(string) ([]os.DirEntry,
 	var items []indexed
 	var errs []walkError
 	stopped, done := "", false
-	walkIndex(context.Background(), root, b, read, func(is []indexed, es []walkError, s string, d bool) {
+	walkIndex(context.Background(), SystemPaths, root, b, read, func(is []indexed, es []walkError, s string, d bool) {
 		items, errs = append(items, is...), append(errs, es...)
 		stopped, done = s, d
 	})
@@ -75,7 +75,7 @@ func TestAFolderTheWalkCannotReadIsListed(t *testing.T) {
 	if len(errs) != 1 || errs[0].rel != "locked" || !errors.Is(errs[0].err, denied) {
 		t.Fatalf("the walk reported %v", errs)
 	}
-	hits := rankIndex(context.Background(), root, items, errs, "")
+	hits := rankIndex(context.Background(), SystemPaths, root, items, errs, "")
 	last := hits[len(hits)-1]
 	if !last.Problem || last.Title != "Could not read locked" || last.Detail != "access is denied" {
 		t.Fatalf("the palette shows the folder as %+v", last)
@@ -86,7 +86,7 @@ func TestThePaletteRanksNamesAndShortPathsFirst(t *testing.T) {
 	root := t.TempDir()
 	tree(t, root, "reports/q1.txt", "deep/down/report.txt", "report.txt", "old/report-2019.txt", "repo/x.txt")
 	items, _, _ := walk(t, root, bounds{items: 100, time: time.Minute}, os.ReadDir)
-	hits := rankIndex(context.Background(), root, items, nil, "report")
+	hits := rankIndex(context.Background(), SystemPaths, root, items, nil, "report")
 	got := make([]string, 0, len(hits))
 	for _, h := range hits {
 		got = append(got, h.Title+" in "+filepath.ToSlash(h.Detail))
@@ -110,11 +110,11 @@ func TestThePaletteRanksNamesAndShortPathsFirst(t *testing.T) {
 }
 
 func TestAGreaterThanSignFindsCommands(t *testing.T) {
-	hits := rankCommands("hidden", []Place{{Name: "Home", Path: "/home/me"}}, nil)
+	hits := rankCommands("hidden", SystemPaths, []Place{{Name: "Home", Path: "/home/me"}}, nil)
 	if len(hits) == 0 || hits[0].Key != "cmd:"+CmdHidden || hits[0].Hint != "Ctrl+H" {
 		t.Fatalf("hidden finds %+v first", hits)
 	}
-	hits = rankCommands("go home", []Place{{Name: "Home", Path: "/home/me"}}, nil)
+	hits = rankCommands("go home", SystemPaths, []Place{{Name: "Home", Path: "/home/me"}}, nil)
 	if len(hits) == 0 || hits[0].Key != "go:/home/me" {
 		t.Fatalf("go home finds %+v first", hits)
 	}
@@ -136,7 +136,7 @@ func TestThePaletteGoesToAFileAndSelectsIt(t *testing.T) {
 	}
 	h.w.Input(input.KeyPress{Key: input.KeyEnter})
 	h.until("the file's folder opens with it selected", func() bool {
-		return samePath(h.a.nav.path, filepath.Join(h.dir, "sub", "inner")) && h.a.nav.sel["needle.txt"] &&
+		return SystemPaths.Same(h.a.nav.path, filepath.Join(h.dir, "sub", "inner")) && h.a.nav.sel["needle.txt"] &&
 			slices.Equal(h.shown(), []string{"needle.txt"})
 	})
 }
@@ -163,7 +163,7 @@ func TestANameIsFoundUnderAFolderWhoseLowerCaseChangesLength(t *testing.T) {
 	tree(t, root, "KKK/alpha.txt", "İİİİ/beta.txt")
 	items, _, _ := walk(t, root, bounds{items: 100, time: time.Minute}, os.ReadDir)
 	for _, q := range []string{"alpha", "beta"} {
-		hits := rankIndex(context.Background(), root, items, nil, q)
+		hits := rankIndex(context.Background(), SystemPaths, root, items, nil, q)
 		if len(hits) == 0 || hits[0].Title != q+".txt" || hits[0].At == nil {
 			t.Fatalf("%s found %+v, want %s.txt found by its name", q, hits, q)
 		}

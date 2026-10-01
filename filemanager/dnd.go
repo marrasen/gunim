@@ -2,9 +2,7 @@ package filemanager
 
 import (
 	"errors"
-	"path/filepath"
 	"slices"
-	"strings"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
@@ -20,6 +18,9 @@ import (
 type FileDrag struct {
 	Paths []string
 	Dirs  []bool
+	// FS is the ID of the file system the items are on: empty for the
+	// computer's own, as for files from another program.
+	FS string
 	// Volume is the volume the items are on, and empty where it is not
 	// known, as for files from another program.
 	Volume string
@@ -31,14 +32,21 @@ type FileDrag struct {
 // ExportFiles implements [gunim.FileExporter]: the files go to other
 // programs as they are.
 func (d FileDrag) ExportFiles() ([]string, error) {
-	if d.scripted {
+	switch {
+	case d.scripted:
 		return nil, errScripted
+	case d.FS != "":
+		return nil, errElsewhere
 	}
 	return d.Paths, nil
 }
 
-// errScripted keeps a drag a script started inside the window.
-var errScripted = errors.New("a drag a script started stays in the window")
+// errScripted keeps a drag a script started inside the window, and
+// errElsewhere a drag of files other programs cannot reach.
+var (
+	errScripted  = errors.New("a drag a script started stays in the window")
+	errElsewhere = errors.New("files of another file system than the computer's own stay in the window")
+)
 
 // fileDragOf returns what a drop carries as files: a drag from a window
 // of the app, or files from another program.
@@ -52,20 +60,24 @@ func fileDragOf(d input.Drop) (FileDrag, bool) {
 	return FileDrag{}, false
 }
 
-// dropPlan works out what dropping d into the folder dir, on volume vol,
-// does with mods held: a move on one volume and a copy across volumes,
-// Ctrl forcing a copy and Shift a move. It returns false with the reason
-// in the hint when the drop is refused.
-func dropPlan(d FileDrag, dir, vol, volErr string, mods input.Mods) (DropFiles, widget.DropHint, bool) {
-	name := placeName(dir)
-	if volErr != "" {
+// dropPlan works out what dropping d into the folder dir, on volume vol
+// of the file system of ID fs, does with mods held: a move on one volume
+// and a copy across volumes, Ctrl forcing a copy and Shift a move. It
+// returns false with the reason in the hint when the drop is refused, as
+// one from another file system is.
+func dropPlan(ps PathStyle, fs string, d FileDrag, dir, vol, volErr string, mods input.Mods) (DropFiles, widget.DropHint, bool) {
+	name := ps.placeName(dir)
+	switch {
+	case d.FS != fs:
+		return DropFiles{}, widget.DropHint{Text: "Cannot drop from another file system"}, false
+	case volErr != "":
 		return DropFiles{}, widget.DropHint{Text: "Cannot read " + name}, false
 	}
 	for _, p := range d.Paths {
-		if samePath(filepath.Dir(p), dir) {
+		if ps.Same(ps.Dir(p), dir) {
 			return DropFiles{}, widget.DropHint{Text: "Already in " + name}, false
 		}
-		if within(dir, p) {
+		if within(ps, dir, p) {
 			return DropFiles{}, widget.DropHint{Text: "Cannot go inside itself"}, false
 		}
 	}
@@ -76,7 +88,7 @@ func dropPlan(d FileDrag, dir, vol, volErr string, mods input.Mods) (DropFiles, 
 	case mods.Has(input.ModShift):
 		copying = false
 	}
-	plan := DropFiles{Paths: slices.Clone(d.Paths), Into: dir, Copy: copying}
+	plan := DropFiles{Paths: slices.Clone(d.Paths), Into: dir, Copy: copying, FS: fs}
 	if copying {
 		return plan, widget.DropHint{Text: "Copy to " + name, Effect: widget.DropCopy}, true
 	}
@@ -84,24 +96,23 @@ func dropPlan(d FileDrag, dir, vol, volErr string, mods input.Mods) (DropFiles, 
 }
 
 // within reports whether path is dir itself or lies inside it.
-func within(path, dir string) bool {
-	if samePath(path, dir) {
-		return true
-	}
-	rel, err := filepath.Rel(dir, path)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+func within(ps PathStyle, path, dir string) bool {
+	return ps.Same(path, dir) || ps.inside(path, dir)
 }
 
-// pinPlan works out what dropping d on the favourites does: it pins the
-// folders not pinned yet.
-func pinPlan(d FileDrag, favs []string) (PinFolders, widget.DropHint, bool) {
+// pinPlan works out what dropping d on the favourites of a window on the
+// file system of ID fs does: it pins the folders not pinned yet.
+func pinPlan(ps PathStyle, fs string, d FileDrag, favs []string) (PinFolders, widget.DropHint, bool) {
+	if d.FS != fs {
+		return PinFolders{}, widget.DropHint{Text: "Cannot pin from another file system"}, false
+	}
 	known := len(d.Dirs) == len(d.Paths)
 	var paths []string
 	for i, p := range d.Paths {
 		if known && !d.Dirs[i] {
 			continue
 		}
-		if !slices.ContainsFunc(favs, func(f string) bool { return samePath(f, p) }) {
+		if !slices.ContainsFunc(favs, func(f string) bool { return ps.Same(f, p) }) {
 			paths = append(paths, p)
 		}
 	}
@@ -174,7 +185,8 @@ func registerDnd(w *gunim.Window) {
 // spot fills in a spot for dropping d into the folder dir.
 func (v *dndView) spot(d input.Drop, key spotKey, r geom.Rect, dir, vol string, opens bool) widget.DropSpot {
 	fd, _ := fileDragOf(d)
-	plan, hint, ok := dropPlan(fd, dir, v.vols[vol], v.volErrs[vol], d.Mods)
+	sh := v.b.shell
+	plan, hint, ok := dropPlan(sh.Paths, sh.FS, fd, dir, v.vols[vol], v.volErrs[vol], d.Mods)
 	v.plan = plan
 	if !ok {
 		v.plan = nil
@@ -198,7 +210,7 @@ func (v *dndView) listingSpot(d input.Drop, u *gunim.UI) (widget.DropSpot, bool)
 	if row := l.cur.itemAt(d.Pos.Sub(off)); row >= 0 {
 		if r, ok := l.cur.view(row); ok && r.Dir {
 			rr, _ := l.cur.itemRect(row)
-			dir := filepath.Join(l.path, r.Name)
+			dir := v.b.shell.Paths.Join(l.path, r.Name)
 			// A folder is on the volume of the folder showing. A link
 			// to one is on the volume the app found for it, or on none
 			// known while it looks.
@@ -252,7 +264,7 @@ func (v *dndView) sideSpot(d input.Drop, u *gunim.UI) (widget.DropSpot, bool) {
 	for _, k := range s.favs.Keys() {
 		favs = append(favs, string(k))
 	}
-	plan, hint, ok := pinPlan(fd, favs)
+	plan, hint, ok := pinPlan(v.b.shell.Paths, v.b.shell.FS, fd, favs)
 	v.plan = plan
 	if !ok {
 		v.plan = nil
@@ -280,7 +292,7 @@ func (v *dndView) crumbSpot(d input.Drop, u *gunim.UI) (widget.DropSpot, bool) {
 // picture of their names.
 func (pg *listingPage) dragRows(sel [][2]int, _ geom.Point) (any, gunim.Node, geom.Point) {
 	dir := pg.b.listing.path
-	d := FileDrag{Volume: pg.b.dnd.vols[dir], scripted: pg.b.dnd.scripting}
+	d := FileDrag{Volume: pg.b.dnd.vols[dir], FS: pg.b.shell.FS, scripted: pg.b.dnd.scripting}
 	var items []Row
 	for _, r := range sel {
 		for i := r[0]; i < r[1]; i++ {
@@ -289,7 +301,7 @@ func (pg *listingPage) dragRows(sel [][2]int, _ geom.Point) (any, gunim.Node, ge
 				// A row not read yet cannot be named.
 				return nil, nil, geom.Point{}
 			}
-			d.Paths = append(d.Paths, filepath.Join(dir, row.Name))
+			d.Paths = append(d.Paths, pg.b.shell.Paths.Join(dir, row.Name))
 			d.Dirs = append(d.Dirs, row.Dir)
 			items = append(items, row)
 		}

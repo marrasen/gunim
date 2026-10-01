@@ -87,7 +87,7 @@ func newPromptDialog(s Prompt) *widget.Dialog {
 	d.Body = field
 	d.SetButtons(s.OK, "Cancel")
 	d.Check = func() string {
-		if err := checkName(field.Text()); err != nil {
+		if err := checkName(s.Paths, field.Text()); err != nil {
 			return err.Error()
 		}
 		return ""

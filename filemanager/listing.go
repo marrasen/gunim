@@ -71,7 +71,7 @@ func (a *listingArea) setListing(l Listing, u *gunim.UI) {
 		}
 		a.path = l.Path
 		a.cur = newListingPage(a.b, a.widths)
-		a.cur.icons.show(a.view.Icons && samePath(a.view.Path, l.Path), false, u)
+		a.cur.icons.show(a.view.Icons && a.b.shell.Paths.Same(a.view.Path, l.Path), false, u)
 		a.deck.show(a.cur, l.Travel, u)
 		if focused {
 			u.Focus(a.cur.focusNode())

@@ -30,6 +30,13 @@ type grab struct{}
 
 func newHarness(t *testing.T, spec ...string) *harness {
 	t.Helper()
+	return newHarnessOn(t, nil, spec...)
+}
+
+// newHarnessOn runs the app half on fsys, or the computer's own file
+// system when it is nil, with no trash but the one fsys has.
+func newHarnessOn(t *testing.T, fsys FS, spec ...string) *harness {
+	t.Helper()
 	h := &harness{t: t, root: t.TempDir()}
 	h.dir = filepath.Join(h.root, "dir")
 	if err := os.MkdirAll(h.dir, 0o755); err != nil {
@@ -40,8 +47,11 @@ func newHarness(t *testing.T, spec ...string) *harness {
 	RegisterViews(h.w)
 	gunim.RegisterPatch(h.w, "browser", func(b *browser, _ grab, _ *gunim.UI) { h.b = b })
 	ctx, cancel := context.WithCancel(context.Background())
-	a, err := launch(ctx, h.w.Client(), Options{Dir: h.dir, PrefsPath: filepath.Join(h.root, "prefs.json"),
-		Poll: -1, trash: xdgTrash{dir: filepath.Join(h.root, "Trash")}}, nil)
+	o := Options{FS: fsys, Dir: h.dir, PrefsPath: filepath.Join(h.root, "prefs.json"), Poll: -1}
+	if fsys == nil {
+		o.trash = xdgTrash{dir: filepath.Join(h.root, "Trash")}
+	}
+	a, err := launch(ctx, h.w.Client(), o, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +194,7 @@ func TestEditingThePathGoesThere(t *testing.T) {
 	h.w.Input(input.TextInput{Text: "nonsense"})
 	h.w.Input(input.KeyPress{Key: input.KeyEscape})
 	h.frames(2)
-	if h.b.path.addr.Editing() || !samePath(h.a.nav.path, filepath.Join(h.dir, "sub")) {
+	if h.b.path.addr.Editing() || !SystemPaths.Same(h.a.nav.path, filepath.Join(h.dir, "sub")) {
 		t.Fatal("Escape did not leave the path as it was")
 	}
 }

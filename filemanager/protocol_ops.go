@@ -100,6 +100,9 @@ type Prompt struct {
 	// without its extension, counted in runes, as TextField.Select
 	// counts.
 	Stem int
+	// Paths is how the file system the name is for writes paths, which
+	// says what a name cannot hold.
+	Paths PathStyle
 }
 
 // Prompted answers a Prompt.

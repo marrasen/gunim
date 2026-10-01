@@ -6,7 +6,6 @@ import (
 	"io/fs"
 	"math"
 	"os"
-	"path/filepath"
 	"strconv"
 	"time"
 
@@ -106,9 +105,12 @@ func (a *app) bigCopy(mbps string) {
 		}
 		rate = v
 	}
-	src := filepath.Join(a.nav.path, "Big video.mp4")
-	_, err := os.Lstat(src)
+	src := a.ps.Join(a.nav.path, "Big video.mp4")
+	_, err := a.fs.Lstat(src)
 	switch {
+	case errors.Is(err, fs.ErrNotExist) && a.fs.ID() != "":
+		a.fail("big-copy makes its big file on the computer's own disk only.")
+		return
 	case errors.Is(err, fs.ErrNotExist):
 		if merr := makeBig(src, 2<<30); merr != nil {
 			a.fail("Making the big file: " + merr.Error())

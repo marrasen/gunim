@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/marrasen/gunim"
@@ -20,7 +18,7 @@ func (a *app) properties() {
 		paths = []string{a.nav.path}
 	}
 	go func() {
-		p, count, err := readProps(paths)
+		p, count, err := readProps(a.fs, paths)
 		a.post(func() {
 			if err != nil {
 				a.fail("Reading the properties: " + err.Error())
@@ -31,14 +29,15 @@ func (a *app) properties() {
 	}()
 }
 
-// readProps reads what the Properties dialog says of paths, and whether
-// what they hold is still to be counted.
-func readProps(paths []string) (p Props, count bool, err error) {
-	p.Location = filepath.Dir(paths[0])
+// readProps reads what the Properties dialog says of paths on fsys, and
+// whether what they hold is still to be counted.
+func readProps(fsys FS, paths []string) (p Props, count bool, err error) {
+	ps := fsys.Paths()
+	p.Location = ps.Dir(paths[0])
 	if len(paths) > 1 {
 		dirs := 0
 		for _, path := range paths {
-			info, lerr := os.Lstat(path)
+			info, lerr := fsys.Lstat(path)
 			if lerr != nil {
 				return p, false, lerr
 			}
@@ -60,15 +59,15 @@ func readProps(paths []string) (p Props, count bool, err error) {
 		return p, true, nil
 	}
 	path := paths[0]
-	info, err := os.Lstat(path)
+	info, err := fsys.Lstat(path)
 	if err != nil {
 		return p, false, err
 	}
-	e, err := statEntry(path)
+	e, err := statEntry(fsys, path)
 	if err != nil {
 		return p, false, err
 	}
-	p.Name, p.Title = placeName(path), "Properties of "+placeName(path)
+	p.Name, p.Title = ps.placeName(path), "Properties of "+ps.placeName(path)
 	p.Type = e.Type
 	if e.Dir {
 		p.Counting = true
@@ -76,16 +75,20 @@ func readProps(paths []string) (p Props, count bool, err error) {
 		p.Size = sizeWords(info.Size())
 	}
 	p.Modified = fmtTime(info.ModTime())
-	if created, accessed, ok := fileTimes(info); ok {
-		if !created.IsZero() {
-			p.Created = fmtTime(created)
+	if tr, ok := fsys.(TimesReporter); ok {
+		if created, accessed, ok := tr.Times(info); ok {
+			if !created.IsZero() {
+				p.Created = fmtTime(created)
+			}
+			p.Accessed = fmtTime(accessed)
 		}
-		p.Accessed = fmtTime(accessed)
 	}
-	if ro, hidden, ok, err := readAttrs(path); err != nil {
-		return p, false, err
-	} else if ok {
-		p.Attrs, p.ReadOnly, p.Hidden = true, ro, hidden
+	if at, ok := fsys.(Attributer); ok {
+		if ro, hidden, ok, err := at.Attrs(path); err != nil {
+			return p, false, err
+		} else if ok {
+			p.Attrs, p.ReadOnly, p.Hidden = true, ro, hidden
+		}
 	}
 	return p, p.Counting, nil
 }
@@ -146,7 +149,7 @@ func (a *app) countProps(ctx context.Context, d *dialog, paths []string) {
 		}
 		var err error
 		for _, root := range paths {
-			err = filepath.WalkDir(root, func(p string, e fs.DirEntry, err error) error {
+			err = walkTree(ctx, a.fs, root, func(p string, e fs.DirEntry, err error) error {
 				if err != nil {
 					return fmt.Errorf("reading %s: %w", p, err)
 				}
@@ -180,16 +183,22 @@ func (a *app) countProps(ctx context.Context, d *dialog, paths []string) {
 	}()
 }
 
+// errNoAttrs says a file system has no attributes to set.
+var errNoAttrs = errors.New("the items here have no read-only and hidden attributes")
+
 // applyAttrs sets the read-only and hidden attributes of path.
 func (a *app) applyAttrs(path string, readOnly, hidden bool) {
 	go func() {
-		err := setAttrs(path, readOnly, hidden)
+		err := errNoAttrs
+		if at, ok := a.fs.(Attributer); ok {
+			err = at.SetAttrs(path, readOnly, hidden)
+		}
 		a.post(func() {
 			if err != nil {
 				a.showError(ErrorBox{Title: "The attributes were not changed", Body: err.Error()})
 				return
 			}
-			a.patch(Notice{Title: "Changed the attributes of " + placeName(path), Kind: "success"})
+			a.patch(Notice{Title: "Changed the attributes of " + a.ps.placeName(path), Kind: "success"})
 			a.relist()
 		})
 	}()

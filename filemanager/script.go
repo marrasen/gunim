@@ -1,7 +1,6 @@
 package filemanager
 
 import (
-	"path/filepath"
 	"strings"
 	"time"
 )
@@ -35,7 +34,7 @@ func (a *app) scriptStep(step string) {
 	verb, arg, _ := strings.Cut(step, ":")
 	switch verb {
 	case "into":
-		a.navigate(filepath.Join(a.nav.path, arg), 1, true)
+		a.navigate(a.ps.Join(a.nav.path, arg), 1, true)
 	case "select":
 		clear(a.nav.sel)
 		a.nav.sel[arg] = true

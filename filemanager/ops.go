@@ -6,9 +6,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"os"
-	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -102,7 +99,10 @@ var errStopped = errors.New("stopped")
 
 // env is what an operation reaches outside itself.
 type env struct {
-	trash trasher
+	// fs is the file system the operation works on, and trash its trash,
+	// or nil where it has none.
+	fs    FS
+	trash Trasher
 	// ask asks the user about a clash, and waits for the answer.
 	ask func(ctx context.Context, c clash) (answer, error)
 	// report hears how far the operation has got, every reportEvery, or
@@ -173,7 +173,7 @@ func (r *runner) did(from, to string) { r.rec.steps = append(r.rec.steps, step{f
 // measure counts the items and bytes under path, stopping at the first
 // error.
 func (r *runner) measure(path string) (items int, bytes int64, err error) {
-	err = filepath.WalkDir(path, func(p string, d fs.DirEntry, err error) error {
+	err = walkTree(r.ctx, r.env.fs, path, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return fmt.Errorf("reading %s: %w", p, err)
 		}
@@ -207,51 +207,30 @@ func (r *runner) planBytes(srcs []string) error {
 	return nil
 }
 
-// into checks that src is not a folder that dir lies inside. It checks
-// the paths as written and with the links along them followed. src
-// itself stays as it is, as a link can go into the folder it leads to.
-func into(src, dir string) error {
-	followed := filepath.Join(realPath(filepath.Dir(src)), filepath.Base(src))
-	if inside(dir, src) || inside(realPath(dir), followed) {
-		return fmt.Errorf("%s cannot go inside itself", filepath.Base(src))
+// into checks that src on fsys is not a folder that dir lies inside. It
+// checks the paths as written and with the links along them followed.
+// src itself stays as it is, as a link can go into the folder it leads
+// to.
+func into(fsys FS, src, dir string) error {
+	ps := fsys.Paths()
+	followed := ps.Join(realPath(fsys, ps.Dir(src)), ps.Base(src))
+	if ps.inside(dir, src) || ps.inside(realPath(fsys, dir), followed) {
+		return fmt.Errorf("%s cannot go inside itself", ps.Base(src))
 	}
 	return nil
 }
 
-// inside reports whether path is dir or lies inside it. Paths on
-// different volumes are apart.
-func inside(path, dir string) bool {
-	rel, err := filepath.Rel(dir, path)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
-}
-
-// realPath returns path with the links along it followed, or path as it
-// is where they cannot be.
-func realPath(path string) string {
-	if p, err := filepath.EvalSymlinks(path); err == nil {
-		return p
-	}
-	return path
-}
-
-// samePath reports whether a and b name the same place.
-func samePath(a, b string) bool {
-	a, b = filepath.Clean(a), filepath.Clean(b)
-	if runtime.GOOS == "windows" {
-		return strings.EqualFold(a, b)
-	}
-	return a == b
-}
-
-// freeName returns path, or path with the first " (n)" that is free.
-func freeName(path string) (string, error) {
-	dir, base := filepath.Split(path)
+// freeName returns path on fsys, or path with the first " (n)" that is
+// free.
+func freeName(fsys FS, path string) (string, error) {
+	ps := fsys.Paths()
+	dir, base := ps.Split(path)
 	for n := 1; ; n++ {
 		p := path
 		if n > 1 {
-			p = filepath.Join(dir, numbered(base, n))
+			p = ps.Join(dir, numbered(base, n))
 		}
-		_, err := os.Lstat(p)
+		_, err := fsys.Lstat(p)
 		if errors.Is(err, fs.ErrNotExist) {
 			return p, nil
 		}
@@ -265,14 +244,14 @@ func freeName(path string) (string, error) {
 // beside it, or nowhere. merge says dst is a folder src's contents go
 // into, and replace that dst is a file src takes the place of.
 func (r *runner) resolve(src, dst string) (to string, skip, merge, replace bool, err error) {
-	dInfo, err := os.Lstat(dst)
+	dInfo, err := r.env.fs.Lstat(dst)
 	if errors.Is(err, fs.ErrNotExist) {
 		return dst, false, false, false, nil
 	}
 	if err != nil {
 		return "", false, false, false, err
 	}
-	sInfo, err := os.Lstat(src)
+	sInfo, err := r.env.fs.Lstat(src)
 	if err != nil {
 		return "", false, false, false, err
 	}
@@ -296,7 +275,7 @@ func (r *runner) resolve(src, dst string) (to string, skip, merge, replace bool,
 	case choiceSkip:
 		return "", true, false, false, nil
 	case choiceKeepBoth:
-		to, err := freeName(dst)
+		to, err := freeName(r.env.fs, dst)
 		return to, false, false, false, err
 	case choiceReplace:
 	}
@@ -314,16 +293,17 @@ func (r *runner) copyAll(srcs []string, dest string) error {
 	if err := r.planBytes(srcs); err != nil {
 		return err
 	}
+	ps := r.env.fs.Paths()
 	for _, src := range srcs {
-		if err := into(src, dest); err != nil {
+		if err := into(r.env.fs, src, dest); err != nil {
 			return err
 		}
-		dst := filepath.Join(dest, filepath.Base(src))
+		dst := ps.Join(dest, ps.Base(src))
 		var skip, merge, replace bool
 		var err error
-		if samePath(filepath.Dir(src), dest) {
+		if ps.Same(ps.Dir(src), dest) {
 			// A copy into the folder it is in takes a name of its own.
-			dst, err = freeName(dst)
+			dst, err = freeName(r.env.fs, dst)
 		} else {
 			dst, skip, merge, replace, err = r.resolve(src, dst)
 		}
@@ -362,17 +342,17 @@ func (r *runner) copyItem(src, dst string, merge, replace, top bool) error {
 	if err := r.ctx.Err(); err != nil {
 		return err
 	}
-	info, err := os.Lstat(src)
+	info, err := r.env.fs.Lstat(src)
 	if err != nil {
 		return fmt.Errorf("reading %s: %w", src, err)
 	}
 	r.p.current = src
 	switch {
 	case info.Mode()&fs.ModeSymlink != 0:
-		err = copyLink(src, dst, replace)
+		err = copyLink(r.env.fs, src, dst, replace)
 	case info.IsDir():
-		if slices.ContainsFunc(r.made, func(m fs.FileInfo) bool { return os.SameFile(m, info) }) {
-			return fmt.Errorf("%s cannot go inside itself", filepath.Base(src))
+		if slices.ContainsFunc(r.made, func(m fs.FileInfo) bool { return sameFile(r.env.fs, m, info) }) {
+			return fmt.Errorf("%s cannot go inside itself", r.env.fs.Paths().Base(src))
 		}
 		err = r.copyDir(src, dst, info, merge, top)
 	case info.Mode().IsRegular():
@@ -397,20 +377,22 @@ func (r *runner) copyItem(src, dst string, merge, replace, top bool) error {
 // copyDir copies the folder src to dst, into the folder there with merge.
 // top keeps dst in made, where the copy makes it.
 func (r *runner) copyDir(src, dst string, info fs.FileInfo, merge, top bool) error {
+	fsys := r.env.fs
 	if !merge {
-		if err := os.Mkdir(dst, info.Mode().Perm()|0o700); err != nil {
+		if err := fsys.Mkdir(dst, info.Mode().Perm()|0o700); err != nil {
 			return fmt.Errorf("making %s: %w", dst, err)
 		}
-		if made, err := os.Lstat(dst); err == nil && top {
+		if made, err := fsys.Lstat(dst); err == nil && top {
 			r.made = append(r.made, made)
 		}
 	}
-	kids, err := os.ReadDir(src)
+	kids, err := readDirSorted(r.ctx, fsys, src)
 	if err != nil {
 		return fmt.Errorf("reading %s: %w", src, err)
 	}
+	ps := fsys.Paths()
 	for _, k := range kids {
-		s, d := filepath.Join(src, k.Name()), filepath.Join(dst, k.Name())
+		s, d := ps.Join(src, k.Name()), ps.Join(dst, k.Name())
 		if !merge {
 			if err := r.copyItem(s, d, false, false, false); err != nil {
 				return err
@@ -431,26 +413,33 @@ func (r *runner) copyDir(src, dst string, info fs.FileInfo, merge, top bool) err
 			return err
 		}
 	}
-	if !merge {
-		if err := os.Chtimes(dst, time.Time{}, info.ModTime()); err != nil {
+	if st, ok := fsys.(Stamper); ok && !merge {
+		if err := st.Chtimes(dst, info.ModTime()); err != nil {
 			return fmt.Errorf("setting the time of %s: %w", dst, err)
 		}
 	}
 	return nil
 }
 
-// copyLink makes a link at dst to what the link src points to.
-func copyLink(src, dst string, replace bool) error {
-	target, err := os.Readlink(src)
+// errNoLinks says a file system has no links to copy.
+var errNoLinks = errors.New("this file system has no links")
+
+// copyLink makes a link at dst on fsys to what the link src points to.
+func copyLink(fsys FS, src, dst string, replace bool) error {
+	l, ok := fsys.(Linker)
+	if !ok {
+		return fmt.Errorf("copying the link %s: %w", src, errNoLinks)
+	}
+	target, err := l.Readlink(src)
 	if err != nil {
 		return fmt.Errorf("reading the link %s: %w", src, err)
 	}
 	if replace {
-		if err := os.Remove(dst); err != nil {
+		if err := fsys.Remove(dst); err != nil {
 			return fmt.Errorf("replacing %s: %w", dst, err)
 		}
 	}
-	if err := os.Symlink(target, dst); err != nil {
+	if err := l.Symlink(target, dst); err != nil {
 		return fmt.Errorf("making the link %s: %w", dst, err)
 	}
 	return nil
@@ -462,7 +451,8 @@ const copyBuffer = 1 << 20
 // copyFile copies the file src to dst through a part file beside dst, so
 // dst is never left half written.
 func (r *runner) copyFile(src, dst string, info fs.FileInfo) (err error) {
-	in, err := os.Open(src)
+	fsys := r.env.fs
+	in, err := fsys.Open(src)
 	if err != nil {
 		return fmt.Errorf("reading %s: %w", src, err)
 	}
@@ -473,18 +463,17 @@ func (r *runner) copyFile(src, dst string, info fs.FileInfo) (err error) {
 	}()
 	// The part file's name is short, so a dst whose name is near the
 	// longest a name can be fits too.
-	out, err := os.CreateTemp(filepath.Dir(dst), ".files-*.part")
+	out, part, err := createTemp(fsys, fsys.Paths().Dir(dst), ".files-*.part")
 	if err != nil {
 		return fmt.Errorf("writing %s: %w", dst, err)
 	}
-	part := out.Name()
 	fail := func(e error) error {
-		return errors.Join(e, out.Close(), os.Remove(part))
+		return errors.Join(e, out.Close(), fsys.Remove(part))
 	}
 	buf := make([]byte, copyBuffer)
 	for {
 		if err := r.ctx.Err(); err != nil {
-			return errors.Join(err, out.Close(), os.Remove(part))
+			return errors.Join(err, out.Close(), fsys.Remove(part))
 		}
 		n, rerr := in.Read(buf)
 		if n > 0 {
@@ -505,16 +494,18 @@ func (r *runner) copyFile(src, dst string, info fs.FileInfo) (err error) {
 		}
 	}
 	if err := out.Close(); err != nil {
-		return errors.Join(fmt.Errorf("writing %s: %w", dst, err), os.Remove(part))
+		return errors.Join(fmt.Errorf("writing %s: %w", dst, err), fsys.Remove(part))
 	}
-	if err := os.Chmod(part, info.Mode().Perm()); err != nil {
-		return errors.Join(fmt.Errorf("setting the mode of %s: %w", dst, err), os.Remove(part))
+	if st, ok := fsys.(Stamper); ok {
+		if err := st.Chmod(part, info.Mode().Perm()); err != nil {
+			return errors.Join(fmt.Errorf("setting the mode of %s: %w", dst, err), fsys.Remove(part))
+		}
+		if err := st.Chtimes(part, info.ModTime()); err != nil {
+			return errors.Join(fmt.Errorf("setting the time of %s: %w", dst, err), fsys.Remove(part))
+		}
 	}
-	if err := os.Chtimes(part, time.Time{}, info.ModTime()); err != nil {
-		return errors.Join(fmt.Errorf("setting the time of %s: %w", dst, err), os.Remove(part))
-	}
-	if err := os.Rename(part, dst); err != nil {
-		return errors.Join(fmt.Errorf("writing %s: %w", dst, err), os.Remove(part))
+	if err := fsys.Rename(part, dst); err != nil {
+		return errors.Join(fmt.Errorf("writing %s: %w", dst, err), fsys.Remove(part))
 	}
 	return nil
 }
@@ -523,13 +514,14 @@ func (r *runner) copyFile(src, dst string, info fs.FileInfo) (err error) {
 func (r *runner) moveAll(srcs []string, dest string) error {
 	r.p.itemsTotal = len(srcs)
 	r.tell(true)
+	ps := r.env.fs.Paths()
 	for _, src := range srcs {
-		dst := filepath.Join(dest, filepath.Base(src))
-		if samePath(src, dst) {
+		dst := ps.Join(dest, ps.Base(src))
+		if ps.Same(src, dst) {
 			r.p.items++
 			continue
 		}
-		if err := into(src, dest); err != nil {
+		if err := into(r.env.fs, src, dest); err != nil {
 			return err
 		}
 		to, skip, merge, _, err := r.resolve(src, dst)
@@ -559,17 +551,17 @@ func (r *runner) moveItem(src, dst string, merge, top bool) error {
 		_, err := r.mergeInto(src, dst)
 		return err
 	}
-	_, statErr := os.Lstat(dst)
+	_, statErr := r.env.fs.Lstat(dst)
 	if statErr != nil && !errors.Is(statErr, fs.ErrNotExist) {
 		return fmt.Errorf("moving %s: %w", src, statErr)
 	}
 	replacing := statErr == nil
-	err := os.Rename(src, dst)
+	err := r.env.fs.Rename(src, dst)
 	switch {
 	case err == nil && replacing:
 		r.rec.replaced++
 	case err == nil:
-	case !isCrossDevice(err):
+	case !errors.Is(err, ErrCrossDevice):
 		return fmt.Errorf("moving %s: %w", src, err)
 	default:
 		// A copy that replaces counts the file it replaced.
@@ -587,12 +579,13 @@ func (r *runner) moveItem(src, dst string, merge, top bool) error {
 // removes src once nothing in it was skipped, at any depth. kept reports
 // that something was skipped, and src kept.
 func (r *runner) mergeInto(src, dst string) (kept bool, err error) {
-	kids, err := os.ReadDir(src)
+	kids, err := readDirSorted(r.ctx, r.env.fs, src)
 	if err != nil {
 		return false, fmt.Errorf("reading %s: %w", src, err)
 	}
+	ps := r.env.fs.Paths()
 	for _, k := range kids {
-		s, d := filepath.Join(src, k.Name()), filepath.Join(dst, k.Name())
+		s, d := ps.Join(src, k.Name()), ps.Join(dst, k.Name())
 		to, skip, m, _, err := r.resolve(s, d)
 		if err != nil {
 			return false, err
@@ -619,7 +612,7 @@ func (r *runner) mergeInto(src, dst string) (kept bool, err error) {
 	if kept {
 		return true, nil
 	}
-	if err := os.Remove(src); err != nil {
+	if err := r.env.fs.Remove(src); err != nil {
 		return false, fmt.Errorf("removing %s after moving what it held: %w", src, err)
 	}
 	return false, nil
@@ -633,7 +626,7 @@ func (r *runner) moveAcross(src, dst string, replacing bool) error {
 		return err
 	}
 	r.p.bytesTotal += b
-	info, err := os.Lstat(src)
+	info, err := r.env.fs.Lstat(src)
 	if err != nil {
 		return fmt.Errorf("reading %s: %w", src, err)
 	}
@@ -644,13 +637,19 @@ func (r *runner) moveAcross(src, dst string, replacing bool) error {
 			return err
 		}
 		// The cleanup runs even when the operation was cancelled.
-		return errors.Join(err, os.RemoveAll(dst))
+		return errors.Join(err, removeAll(context.WithoutCancel(r.ctx), r.env.fs, dst))
 	}
 	return r.removeTree(src)
 }
 
+// errTrashless says a file system has no trash.
+var errTrashless = errors.New("this file system has no trash; delete permanently instead")
+
 // trashAll moves srcs to the trash.
 func (r *runner) trashAll(srcs []string) error {
+	if r.env.trash == nil {
+		return errTrashless
+	}
 	r.p.itemsTotal = len(srcs)
 	r.tell(true)
 	for _, src := range srcs {
@@ -694,23 +693,24 @@ func (r *runner) removeTree(path string) error {
 	if err := r.ctx.Err(); err != nil {
 		return err
 	}
-	info, err := os.Lstat(path)
+	fsys := r.env.fs
+	info, err := fsys.Lstat(path)
 	if err != nil {
 		return fmt.Errorf("deleting %s: %w", path, err)
 	}
 	if realDir(info) {
-		kids, err := os.ReadDir(path)
+		kids, err := readDirSorted(r.ctx, fsys, path)
 		if err != nil {
 			return fmt.Errorf("reading %s: %w", path, err)
 		}
 		for _, k := range kids {
-			if err := r.removeTree(filepath.Join(path, k.Name())); err != nil {
+			if err := r.removeTree(fsys.Paths().Join(path, k.Name())); err != nil {
 				return err
 			}
 		}
 	}
 	r.p.current = path
-	if err := os.Remove(path); err != nil {
+	if err := fsys.Remove(path); err != nil {
 		return fmt.Errorf("deleting %s: %w", path, err)
 	}
 	r.p.items++
@@ -718,17 +718,17 @@ func (r *runner) removeTree(path string) error {
 	return nil
 }
 
-// checkName says what is wrong with name as the name of an item, or
-// nothing.
-func checkName(name string) error {
+// checkName says what is wrong with name as the name of an item in paths
+// of style ps, or nothing.
+func checkName(ps PathStyle, name string) error {
 	switch {
 	case strings.TrimSpace(name) == "":
 		return errors.New("a name cannot be empty")
 	case name == "." || name == "..":
 		return fmt.Errorf("%q is not a name an item can have", name)
-	case strings.ContainsAny(name, `/`+string(filepath.Separator)):
-		return fmt.Errorf("a name cannot hold %q", string(filepath.Separator))
-	case runtime.GOOS == "windows" && strings.ContainsAny(name, `<>:"|?*`):
+	case strings.ContainsAny(name, `/`+ps.Sep()):
+		return fmt.Errorf("a name cannot hold %q", ps.Sep())
+	case ps.windowsNames() && strings.ContainsAny(name, `<>:"|?*`):
 		return errors.New(`a name cannot hold any of < > : " | ? *`)
 	}
 	return nil
@@ -736,25 +736,27 @@ func checkName(name string) error {
 
 // rename gives src a new name in its folder.
 func (r *runner) rename(src, name string) error {
-	if err := checkName(name); err != nil {
+	fsys := r.env.fs
+	ps := fsys.Paths()
+	if err := checkName(ps, name); err != nil {
 		return err
 	}
-	dst := filepath.Join(filepath.Dir(src), name)
+	dst := ps.Join(ps.Dir(src), name)
 	if dst == src {
 		return nil
 	}
-	sInfo, err := os.Lstat(src)
+	sInfo, err := fsys.Lstat(src)
 	if err != nil {
 		return fmt.Errorf("renaming %s: %w", src, err)
 	}
-	dInfo, err := os.Lstat(dst)
+	dInfo, err := fsys.Lstat(dst)
 	switch {
-	case err == nil && !os.SameFile(sInfo, dInfo):
+	case err == nil && !sameFile(fsys, sInfo, dInfo):
 		return fmt.Errorf("%s already exists", dst)
 	case err != nil && !errors.Is(err, fs.ErrNotExist):
 		return fmt.Errorf("renaming %s: %w", src, err)
 	}
-	if err := os.Rename(src, dst); err != nil {
+	if err := fsys.Rename(src, dst); err != nil {
 		return fmt.Errorf("renaming %s: %w", src, err)
 	}
 	r.did(src, dst)
@@ -763,11 +765,12 @@ func (r *runner) rename(src, name string) error {
 
 // newFolder makes a folder called name in dir.
 func (r *runner) newFolder(dir, name string) error {
-	if err := checkName(name); err != nil {
+	ps := r.env.fs.Paths()
+	if err := checkName(ps, name); err != nil {
 		return err
 	}
-	path := filepath.Join(dir, name)
-	if err := os.Mkdir(path, 0o777); err != nil {
+	path := ps.Join(dir, name)
+	if err := r.env.fs.Mkdir(path, 0o777); err != nil {
 		if errors.Is(err, fs.ErrExist) {
 			return fmt.Errorf("%s already exists", path)
 		}
@@ -805,29 +808,34 @@ func (r *runner) undo(rec *record) error {
 
 // undoStep reverses one step of an operation of kind k.
 func (r *runner) undoStep(k OpKind, s step) error {
+	fsys := r.env.fs
+	ps := fsys.Paths()
 	switch k {
 	case OpCopy, OpNewFolder:
+		if r.env.trash == nil {
+			return errTrashless
+		}
 		to, err := r.env.trash.Trash(s.to)
 		if err != nil {
 			return err
 		}
 		r.did(s.to, to)
 	case OpMove, OpRename:
-		info, err := os.Lstat(s.from)
+		info, err := fsys.Lstat(s.from)
 		switch {
-		case err == nil && caseOnly(s, info):
-			if err = os.Rename(s.to, s.from); err != nil {
+		case err == nil && caseOnly(fsys, s, info):
+			if err = fsys.Rename(s.to, s.from); err != nil {
 				return fmt.Errorf("renaming %s back: %w", s.to, err)
 			}
 			r.did(s.to, s.from)
 			return nil
 		case err == nil:
-			return fmt.Errorf("%s exists again, so %s cannot go back there", s.from, filepath.Base(s.to))
+			return fmt.Errorf("%s exists again, so %s cannot go back there", s.from, ps.Base(s.to))
 		case !errors.Is(err, fs.ErrNotExist):
 			return fmt.Errorf("moving %s back: %w", s.to, err)
 		}
 		// A move that merged a folder removed the folder it emptied.
-		if err := os.MkdirAll(filepath.Dir(s.from), 0o777); err != nil {
+		if err := mkdirAll(fsys, ps.Dir(s.from), 0o777); err != nil {
 			return fmt.Errorf("moving %s back: %w", s.to, err)
 		}
 		if err := r.moveItem(s.to, s.from, false, true); err != nil {
@@ -843,16 +851,21 @@ func (r *runner) undoStep(k OpKind, s step) error {
 
 // caseOnly reports whether step s changed only the case of a name, on a
 // file system that ignores case: from, found as info, is the item at to.
-func caseOnly(s step, info fs.FileInfo) bool {
-	if !samePath(filepath.Dir(s.from), filepath.Dir(s.to)) ||
-		!strings.EqualFold(filepath.Base(s.from), filepath.Base(s.to)) {
+func caseOnly(fsys FS, s step, info fs.FileInfo) bool {
+	ps := fsys.Paths()
+	if !ps.Same(ps.Dir(s.from), ps.Dir(s.to)) || !strings.EqualFold(ps.Base(s.from), ps.Base(s.to)) {
 		return false
 	}
-	now, err := os.Lstat(s.to)
-	return err == nil && os.SameFile(info, now)
+	now, err := fsys.Lstat(s.to)
+	return err == nil && sameFile(fsys, info, now)
 }
 
-// undoable reports whether rec can be undone.
-func undoable(rec record) bool {
+// undoable reports whether rec can be undone, on a file system with a
+// trash when trash is set. Undoing a copy or a new folder moves what it
+// made to the trash.
+func undoable(rec record, trash bool) bool {
+	if !trash && (rec.kind == OpCopy || rec.kind == OpNewFolder) {
+		return false
+	}
 	return len(rec.steps) > 0 && rec.kind != OpDelete && rec.kind != OpUndo
 }

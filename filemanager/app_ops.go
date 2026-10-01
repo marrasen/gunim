@@ -119,28 +119,32 @@ func (a *app) opsCommand(name string) bool {
 		if a.ops.cut {
 			a.ops.clip, a.ops.cut = nil, false
 			a.clipChanged()
-			a.startOp(job{kind: OpMove, srcs: srcs, dest: here}, "Moving "+what(srcs)+" to "+placeName(here))
+			a.startOp(job{kind: OpMove, srcs: srcs, dest: here}, "Moving "+a.what(srcs)+" to "+a.ps.placeName(here))
 		} else {
-			a.startOp(job{kind: OpCopy, srcs: srcs, dest: here}, "Copying "+what(srcs)+" to "+placeName(here))
+			a.startOp(job{kind: OpCopy, srcs: srcs, dest: here}, "Copying "+a.what(srcs)+" to "+a.ps.placeName(here))
 		}
 	case CmdTrash:
+		if a.trash == nil {
+			// Without a trash, the key that trashes deletes, and asks first.
+			return a.opsCommand(CmdDelete)
+		}
 		if paths := a.selectedPaths(); len(paths) > 0 {
-			a.startOp(job{kind: OpTrash, srcs: paths}, "Moving "+what(paths)+" to the trash")
+			a.startOp(job{kind: OpTrash, srcs: paths}, "Moving "+a.what(paths)+" to the trash")
 		}
 	case CmdDelete:
 		paths := a.selectedPaths()
 		if len(paths) == 0 {
 			return true
 		}
-		a.confirm(Confirm{Title: "Delete " + what(paths) + " for good?",
+		a.confirm(Confirm{Title: "Delete " + a.what(paths) + " for good?",
 			Body: "They will not go to the trash, and this cannot be undone.", OK: "Delete"},
-			func() { a.startOp(job{kind: OpDelete, srcs: paths}, "Deleting "+what(paths)) })
+			func() { a.startOp(job{kind: OpDelete, srcs: paths}, "Deleting "+a.what(paths)) })
 	case CmdRename:
 		es := a.selectedEntries()
 		if len(es) != 1 {
 			return true
 		}
-		src := filepath.Join(here, es[0].Name)
+		src := a.ps.Join(here, es[0].Name)
 		stem := utf8.RuneCountInString(es[0].Name)
 		if !es[0].Dir {
 			stem = utf8.RuneCountInString(strings.TrimSuffix(es[0].Name, filepath.Ext(es[0].Name)))
@@ -153,12 +157,12 @@ func (a *app) opsCommand(name string) bool {
 		if here == "" {
 			return true
 		}
-		name, err := freeName(filepath.Join(here, "New folder"))
+		name, err := freeName(a.fs, a.ps.Join(here, "New folder"))
 		if err != nil {
 			a.fail("Looking for a free name: " + err.Error())
 			return true
 		}
-		base := filepath.Base(name)
+		base := a.ps.Base(name)
 		a.prompt(Prompt{Title: "New folder", Text: base, OK: "Make", Stem: utf8.RuneCountInString(base)}, func(name string) {
 			a.nav.pick = name
 			a.startOp(job{kind: OpNewFolder, dest: here, name: name}, "Making "+name)
@@ -174,9 +178,9 @@ func (a *app) opsCommand(name string) bool {
 }
 
 // what says how many items paths are, or names the one.
-func what(paths []string) string {
+func (a *app) what(paths []string) string {
 	if len(paths) == 1 {
-		return filepath.Base(paths[0])
+		return a.ps.Base(paths[0])
 	}
 	return plural(len(paths), "item")
 }
@@ -198,6 +202,7 @@ func (a *app) startOp(j job, title string) {
 		})
 	})
 	e := env{
+		fs:     a.fs,
 		trash:  a.trash,
 		ask:    func(ctx context.Context, c clash) (answer, error) { return a.askClash(ctx, id, c) },
 		report: func(p progress) { a.post(func() { a.progressed(id, p) }) },
@@ -230,15 +235,15 @@ func (a *app) progressed(id int, p progress) {
 	sampled := r.meter.add(time.Now(), p.bytes)
 	r.last = p
 	if r.visible {
-		a.patch(r.tick())
+		a.patch(r.tick(a.ps))
 		if sampled && p.bytesTotal > 0 {
 			a.patch(OpSpeed{ID: id, Rate: r.meter.rate, Left: r.meter.left(p.bytes, p.bytesTotal), File: p.current})
 		}
 	}
 }
 
-// tick is how the panel shows r now.
-func (r *opRun) tick() OpTick {
+// tick is how the panel shows r now, with paths of style ps.
+func (r *opRun) tick(ps PathStyle) OpTick {
 	p := r.last
 	t := OpTick{ID: r.id}
 	switch {
@@ -259,7 +264,7 @@ func (r *opRun) tick() OpTick {
 		t.Detail = "Counting…"
 	}
 	if p.current != "" {
-		t.Detail = filepath.Base(p.current) + "  ·  " + t.Detail
+		t.Detail = ps.Base(p.current) + "  ·  " + t.Detail
 	}
 	return t
 }
@@ -282,7 +287,7 @@ func (a *app) publishOps() {
 		if !r.visible {
 			continue
 		}
-		t := r.tick()
+		t := r.tick(a.ps)
 		if !ok {
 			t = OpTick{ID: id, Done: 1, Detail: "Done"}
 		}
@@ -306,13 +311,13 @@ func (a *app) finish(id int, j job, rec record, err error) {
 	if r.visible {
 		a.patch(OpDone{ID: id, OK: err == nil})
 		if err == nil {
-			r.title = doneTitle(j, rec)
+			r.title = a.doneTitle(j, rec)
 			a.cheer(id, r)
 		}
 		a.publishOps()
 	}
 	done := plural(len(rec.steps), "item")
-	keep := undoable(rec)
+	keep := undoable(rec, a.trash != nil)
 	if keep {
 		a.ops.records[id] = &finished{title: r.title, rec: rec}
 		a.ops.undo = append(a.ops.undo, id)
@@ -325,7 +330,7 @@ func (a *app) finish(id int, j job, rec record, err error) {
 	case err == nil && j.kind == OpUndo:
 		a.patch(Notice{Title: "Undone", Body: r.title, Kind: "success"})
 	case err == nil:
-		n := Notice{Title: doneTitle(j, rec), Undo: undo, Kind: "success"}
+		n := Notice{Title: a.doneTitle(j, rec), Undo: undo, Kind: "success"}
 		switch {
 		case rec.replaced > 0:
 			n.Body = plural(rec.replaced, "file") + " replaced, which undo cannot bring back."
@@ -370,13 +375,13 @@ func restorable(rec record) bool {
 }
 
 // doneTitle says what a finished job did.
-func doneTitle(j job, rec record) string {
+func (a *app) doneTitle(j job, rec record) string {
 	n := len(rec.steps) + rec.replaced
 	switch j.kind {
 	case OpCopy:
-		return "Copied " + plural(n, "item") + " to " + placeName(j.dest)
+		return "Copied " + plural(n, "item") + " to " + a.ps.placeName(j.dest)
 	case OpMove:
-		return "Moved " + plural(n, "item") + " to " + placeName(j.dest)
+		return "Moved " + plural(n, "item") + " to " + a.ps.placeName(j.dest)
 	case OpTrash:
 		return "Moved " + plural(n, "item") + " to the trash"
 	case OpDelete:
@@ -433,10 +438,10 @@ func (a *app) undone(id int, rec record) {
 func (a *app) askClash(ctx context.Context, op int, c clash) (answer, error) {
 	reply := make(chan ClashAnswered, 1)
 	a.post(func() {
-		ask := ClashAsk{Op: op, Name: filepath.Base(c.dst), Where: placeName(filepath.Dir(c.dst)),
-			New: c.from, Old: describe(c.dst), SameKind: c.sameKind, CanForAll: true}
+		ask := ClashAsk{Op: op, Name: a.ps.Base(c.dst), Where: a.ps.placeName(a.ps.Dir(c.dst)),
+			New: c.from, Old: describe(a.fs, c.dst), SameKind: c.sameKind, CanForAll: true}
 		if ask.New == "" {
-			ask.New = describe(c.src)
+			ask.New = describe(a.fs, c.src)
 		}
 		a.showDialog(&dialog{view: "clash", state: ask, op: op, answer: func(in gunim.Intent) {
 			if v, ok := in.(ClashAnswered); ok {
@@ -457,9 +462,9 @@ func (a *app) askClash(ctx context.Context, op int, c clash) (answer, error) {
 	}
 }
 
-// describe says what is at path, for a clash dialog.
-func describe(path string) string {
-	e, err := statEntry(path)
+// describe says what is at path on fsys, for a clash dialog.
+func describe(fsys FS, path string) string {
+	e, err := statEntry(fsys, path)
 	if err != nil {
 		return "cannot be read: " + err.Error()
 	}
@@ -484,7 +489,7 @@ func (a *app) confirm(c Confirm, yes func()) {
 // prompt asks for a name, and runs got with it once the user gives one.
 func (a *app) prompt(p Prompt, got func(name string)) {
 	a.ops.tokens++
-	p.Token = a.ops.tokens
+	p.Token, p.Paths = a.ops.tokens, a.ps
 	a.showDialog(&dialog{view: "prompt", state: p, answer: func(in gunim.Intent) {
 		if v, ok := in.(Prompted); ok && v.OK {
 			got(v.Text)

@@ -23,7 +23,7 @@ func entryNames(es []entry) []string {
 func TestListDirReadsKindsSizesAndHiddenFiles(t *testing.T) {
 	root := t.TempDir()
 	tree(t, root, "notes.txt", "photo.JPG", "sub/", ".secret", "Makefile")
-	es, err := listDir(context.Background(), root)
+	es, err := listDir(context.Background(), LocalFS(), root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func TestListDirReadsKindsSizesAndHiddenFiles(t *testing.T) {
 
 func TestListDirSaysWhatItCannotRead(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "gone")
-	if _, err := listDir(context.Background(), missing); err == nil || !strings.Contains(err.Error(), "gone") {
+	if _, err := listDir(context.Background(), LocalFS(), missing); err == nil || !strings.Contains(err.Error(), "gone") {
 		t.Fatalf("listing a missing folder returned %v", err)
 	}
 }
@@ -67,7 +67,7 @@ func TestListDirFollowsLinks(t *testing.T) {
 	if err := os.Symlink(filepath.Join(root, "nowhere"), filepath.Join(root, "broken")); err != nil {
 		t.Fatal(err)
 	}
-	es, err := listDir(context.Background(), root)
+	es, err := listDir(context.Background(), LocalFS(), root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestListDirShowsWhatItCannotReadOfAnEntry(t *testing.T) {
 	if err := os.Symlink("loop", filepath.Join(root, "loop")); err != nil {
 		t.Skipf("this system will not make a link here: %v", err)
 	}
-	es, err := listDir(context.Background(), root)
+	es, err := listDir(context.Background(), LocalFS(), root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestListDirShowsALinkIntoAFolderItCannotRead(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(filepath.Join(root, "locked"), 0o755) })
-	es, err := listDir(context.Background(), root)
+	es, err := listDir(context.Background(), LocalFS(), root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,10 +163,10 @@ func (d failingEntry) Info() (fs.FileInfo, error) {
 }
 
 func TestAnEntryDeletedWhileListingIsLeftOut(t *testing.T) {
-	if _, ok := readEntry(t.TempDir(), failingEntry{err: fs.ErrNotExist}); ok {
+	if _, ok := readEntry(LocalFS(), t.TempDir(), failingEntry{err: fs.ErrNotExist}); ok {
 		t.Fatal("an entry deleted while the folder was listed is kept")
 	}
-	e, ok := readEntry(t.TempDir(), failingEntry{err: fs.ErrPermission})
+	e, ok := readEntry(LocalFS(), t.TempDir(), failingEntry{err: fs.ErrPermission})
 	if !ok || e.Name != "x.txt" || e.Err == "" || !e.Broken {
 		t.Fatalf("an entry that cannot be read reads as %+v, kept %v", e, ok)
 	}

@@ -16,8 +16,11 @@ const pollEvery = 2 * time.Second
 
 // Options set up the program half of one window.
 type Options struct {
-	// Dir is the folder the window opens on, and the home folder when
-	// empty.
+	// FS is the file system the window shows, and the computer's own,
+	// as LocalFS returns it, when nil.
+	FS FS
+	// Dir is the folder the window opens on, and the file system's home
+	// folder when empty.
 	Dir string
 	// PrefsPath is the file the settings are kept in, and
 	// gunim-files/prefs.json in the user's configuration folder when
@@ -32,8 +35,8 @@ type Options struct {
 	// and tests; see runScript for the steps.
 	Select, Script string
 
-	// trash stands in for the system's trash, for tests.
-	trash trasher
+	// trash stands in for the file system's trash, for tests.
+	trash Trasher
 }
 
 // app is the application half. Everything on it runs on the serve loop;
@@ -42,9 +45,13 @@ type app struct {
 	ctx context.Context
 	c   gunim.Client
 	// mods are the modifier keys held as the intent being handled was sent.
-	mods  input.Mods
-	done  chan func()
-	trash trasher
+	mods input.Mods
+	done chan func()
+	// fs is the file system the window shows, ps how it writes paths,
+	// and trash its trash, or nil where it has none.
+	fs    FS
+	ps    PathStyle
+	trash Trasher
 	// stopped closes once the serve loop has stopped reading done.
 	stopped chan struct{}
 
@@ -80,9 +87,9 @@ type app struct {
 // took in.
 type handler func(in gunim.Intent) bool
 
-// serve runs the application half, in hub h, until ctx ends or the
+// serveWindow runs the application half, in hub h, until ctx ends or the
 // window closes.
-func serve(ctx context.Context, c gunim.Client, o Options, h *Hub) error {
+func serveWindow(ctx context.Context, c gunim.Client, o Options, h *Hub) error {
 	a, err := launch(ctx, c, o, h)
 	if err != nil {
 		return err
@@ -137,16 +144,16 @@ func launch(ctx context.Context, c gunim.Client, o Options, h *Hub) (*app, error
 
 // newApp makes the application half, with the settings read.
 func newApp(ctx context.Context, c gunim.Client, o Options) (*app, error) {
+	if o.FS == nil {
+		o.FS = LocalFS()
+	}
 	tr := o.trash
 	if tr == nil {
-		var err error
-		if tr, err = systemTrash(); err != nil {
-			return nil, err
-		}
+		tr, _ = o.FS.(Trasher)
 	}
 	var err error
-	a := &app{ctx: ctx, c: c, done: make(chan func(), 256), stopped: make(chan struct{}), trash: tr,
-		prefsPath: o.PrefsPath, opts: o}
+	a := &app{ctx: ctx, c: c, done: make(chan func(), 256), stopped: make(chan struct{}), fs: o.FS, ps: o.FS.Paths(),
+		trash: tr, prefsPath: o.PrefsPath, opts: o}
 	a.nav.init()
 	a.ops.init()
 	a.thumbs.init()
@@ -157,7 +164,7 @@ func newApp(ctx context.Context, c gunim.Client, o Options) (*app, error) {
 	}
 	a.prefs, a.prefsErr = loadPrefs(a.prefsPath)
 	a.shell = Shell{Light: a.prefs.Light, ShowHidden: a.prefs.ShowHidden, ShowPreview: !a.prefs.HidePreview,
-		Sidebar: a.prefs.Sidebar}
+		Sidebar: a.prefs.Sidebar, FS: a.fs.ID(), Paths: a.ps}
 	a.nav.sort, a.nav.desc = a.prefs.Sort, a.prefs.Desc
 	return a, nil
 }

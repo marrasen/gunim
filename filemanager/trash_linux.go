@@ -7,7 +7,7 @@ import (
 )
 
 // systemTrash returns the user's home trash, in $XDG_DATA_HOME/Trash.
-func systemTrash() (trasher, error) {
+func systemTrash() (Trasher, error) {
 	data := os.Getenv("XDG_DATA_HOME")
 	if data == "" {
 		home, err := os.UserHomeDir()

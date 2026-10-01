@@ -28,16 +28,16 @@ func rankRecycled(item binItem, want string, at time.Time) int {
 		return 0
 	}
 	if item.extKnown {
-		if samePath(item.path+item.ext, want) ||
-			samePath(item.path, want) && strings.EqualFold(filepath.Ext(want), item.ext) {
+		if SystemPaths.Same(item.path+item.ext, want) ||
+			SystemPaths.Same(item.path, want) && strings.EqualFold(filepath.Ext(want), item.ext) {
 			return 2
 		}
 		return 0
 	}
 	switch {
-	case samePath(item.path, want):
+	case SystemPaths.Same(item.path, want):
 		return 2
-	case samePath(item.path, strings.TrimSuffix(want, filepath.Ext(want))):
+	case SystemPaths.Same(item.path, strings.TrimSuffix(want, filepath.Ext(want))):
 		return 1
 	}
 	return 0

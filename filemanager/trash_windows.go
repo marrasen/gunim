@@ -42,9 +42,9 @@ type shFileOpStruct struct {
 type recycleBin struct{}
 
 // systemTrash returns the Recycle Bin.
-func systemTrash() (trasher, error) { return recycleBin{}, nil }
+func systemTrash() (Trasher, error) { return recycleBin{}, nil }
 
-// Trash implements [trasher] with SHFileOperation, which asks first where
+// Trash implements [Trasher] with SHFileOperation, which asks first where
 // an item is too large for the Recycle Bin and would be deleted for good.
 func (recycleBin) Trash(path string) (string, error) {
 	abs, err := filepath.Abs(path)

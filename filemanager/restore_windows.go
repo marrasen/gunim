@@ -107,7 +107,7 @@ func onCOM(fn func() error) error {
 	return fn()
 }
 
-// Restore implements [trasher]: it finds the item that came from original
+// Restore implements [Trasher]: it finds the item that came from original
 // closest to time at in the Recycle Bin, and moves it to the path to with
 // the shell, which clears its record.
 func (recycleBin) Restore(original, _ string, at time.Time, to string) error {
@@ -136,7 +136,7 @@ func (recycleBin) Restore(original, _ string, at time.Time, to string) error {
 	return nil
 }
 
-// Describe implements [trasher].
+// Describe implements [Trasher].
 func (recycleBin) Describe(string) string { return "in the Recycle Bin" }
 
 // recycled is an item in the Recycle Bin, and what the bin says of it.

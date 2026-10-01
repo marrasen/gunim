@@ -4,8 +4,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
+	"io/fs"
 	"slices"
 	"strings"
 	"time"
@@ -107,7 +106,7 @@ func (a *app) paletteQuery(q PaletteQuery) {
 	s.seq, s.text = q.Seq, q.Text
 	here := a.nav.path
 	stale := !s.walking && time.Since(s.done) > indexFresh
-	if here != "" && (!samePath(s.root, here) || stale) && !strings.HasPrefix(q.Text, ">") {
+	if here != "" && (!a.ps.Same(s.root, here) || stale) && !strings.HasPrefix(q.Text, ">") {
 		a.startIndex(here)
 	}
 	a.rank()
@@ -123,7 +122,8 @@ func (a *app) startIndex(root string) {
 	s.gen++
 	s.root, s.items, s.errs, s.walking, s.stopped, s.cancel = root, nil, nil, true, "", cancel
 	gen := s.gen
-	go walkIndex(ctx, root, indexBounds, os.ReadDir, func(items []indexed, errs []walkError, stopped string, done bool) {
+	read := func(dir string) ([]fs.DirEntry, error) { return readDirSorted(ctx, a.fs, dir) }
+	go walkIndex(ctx, a.ps, root, indexBounds, read, func(items []indexed, errs []walkError, stopped string, done bool) {
 		a.post(func() { a.indexed(gen, items, errs, stopped, done) })
 	})
 }
@@ -145,10 +145,11 @@ func (a *app) indexed(gen int, items []indexed, errs []walkError, stopped string
 	}
 }
 
-// walkIndex walks the tree under root with read, a folder at a time, and
-// hands tell what it found every indexReport, stopping at the bounds. A
-// folder it cannot read goes to tell as an error.
-func walkIndex(ctx context.Context, root string, b bounds, read func(string) ([]os.DirEntry, error),
+// walkIndex walks the tree under root, of path style ps, with read, a
+// folder at a time, and hands tell what it found every indexReport,
+// stopping at the bounds. A folder it cannot read goes to tell as an
+// error.
+func walkIndex(ctx context.Context, ps PathStyle, root string, b bounds, read func(string) ([]fs.DirEntry, error),
 	tell func([]indexed, []walkError, string, bool)) {
 	start := time.Now()
 	last := start
@@ -164,16 +165,16 @@ func walkIndex(ctx context.Context, root string, b bounds, read func(string) ([]
 		}
 		rel := queue[0]
 		queue = queue[1:]
-		es, err := read(filepath.Join(root, rel))
+		es, err := read(ps.Join(root, rel))
 		if err != nil {
 			errs = append(errs, walkError{rel: rel, err: err})
 		}
 		for _, e := range es {
-			p := filepath.Join(rel, e.Name())
+			p := ps.Join(rel, e.Name())
 			dir := e.IsDir()
 			batch = append(batch, indexed{rel: p, lower: strings.ToLower(p), nameAt: len(p) - len(e.Name()),
 				lowerName: strings.ToLower(e.Name()), dir: dir,
-				depth: strings.Count(p, string(filepath.Separator))})
+				depth: strings.Count(p, ps.Sep())})
 			if dir {
 				queue = append(queue, p)
 			}
@@ -207,14 +208,14 @@ func (a *app) rank() {
 	s.reranked = time.Now()
 	seq, text := s.seq, s.text
 	if strings.HasPrefix(text, ">") {
-		hits := rankCommands(strings.TrimSpace(strings.TrimPrefix(text, ">")), a.places, a.prefs.Favourites)
+		hits := rankCommands(strings.TrimSpace(strings.TrimPrefix(text, ">")), a.ps, a.places, a.prefs.Favourites)
 		a.patch(PaletteResults{Seq: seq, Hits: hits, Status: "Commands. Delete the > to look for files."})
 		return
 	}
 	items, errs, root := s.items, s.errs, s.root
 	status := a.searchStatus()
 	go func() {
-		hits := rankIndex(ctx, root, items, errs, text)
+		hits := rankIndex(ctx, a.ps, root, items, errs, text)
 		if ctx.Err() != nil {
 			return
 		}
@@ -232,11 +233,11 @@ func (a *app) searchStatus() string {
 	var b strings.Builder
 	switch {
 	case s.walking:
-		fmt.Fprintf(&b, "Looking through %s: %s items so far…", placeName(s.root), count(len(s.items)))
+		fmt.Fprintf(&b, "Looking through %s: %s items so far…", a.ps.placeName(s.root), count(len(s.items)))
 	case s.stopped != "":
-		fmt.Fprintf(&b, "%s in %s. Type more to narrow it down.", s.stopped, placeName(s.root))
+		fmt.Fprintf(&b, "%s in %s. Type more to narrow it down.", s.stopped, a.ps.placeName(s.root))
 	default:
-		fmt.Fprintf(&b, "%s under %s. Type > for commands.", plural(len(s.items), "item"), placeName(s.root))
+		fmt.Fprintf(&b, "%s under %s. Type > for commands.", plural(len(s.items), "item"), a.ps.placeName(s.root))
 	}
 	if n := len(s.errs); n > 0 {
 		fmt.Fprintf(&b, " %s could not be read.", plural(n, "folder"))
@@ -258,7 +259,7 @@ type scored struct {
 // first, then in the path, each by how well they match and then by how
 // shallow and short the path is. The folders that could not be read
 // follow.
-func rankIndex(ctx context.Context, root string, items []indexed, errs []walkError, query string) []PaletteHit {
+func rankIndex(ctx context.Context, ps PathStyle, root string, items []indexed, errs []walkError, query string) []PaletteHit {
 	q := strings.ToLower(strings.TrimSpace(query))
 	var found []scored
 	for i, it := range items {
@@ -304,7 +305,7 @@ func rankIndex(ctx context.Context, root string, items []indexed, errs []walkErr
 	hits := make([]PaletteHit, 0, min(len(found), paletteHits)+len(errs))
 	for _, f := range found[:min(len(found), paletteHits)] {
 		it := items[f.i]
-		h := PaletteHit{Title: it.name(), Detail: folderOf(root, it), Key: "file:" + filepath.Join(root, it.rel), At: f.at,
+		h := PaletteHit{Title: it.name(), Detail: folderOf(ps, root, it), Key: "file:" + ps.Join(root, it.rel), At: f.at,
 			Mark: "file"}
 		if it.dir {
 			h.Hint, h.Mark = "Folder", "folder"
@@ -312,22 +313,22 @@ func rankIndex(ctx context.Context, root string, items []indexed, errs []walkErr
 		hits = append(hits, h)
 	}
 	for _, e := range errs {
-		where := filepath.Join(root, e.rel)
+		where := ps.Join(root, e.rel)
 		if q != "" && !subsequence(q, strings.ToLower(e.rel)) {
 			continue
 		}
-		hits = append(hits, PaletteHit{Title: "Could not read " + placeName(where), Detail: rootCause(e.err).Error(),
+		hits = append(hits, PaletteHit{Title: "Could not read " + ps.placeName(where), Detail: rootCause(e.err).Error(),
 			Key: "go:" + where, Problem: true, Mark: "problem"})
 	}
 	return hits
 }
 
 // folderOf is the folder an item is in, as the palette shows it.
-func folderOf(root string, it indexed) string {
+func folderOf(ps PathStyle, root string, it indexed) string {
 	if it.nameAt == 0 {
-		return placeName(root)
+		return ps.placeName(root)
 	}
-	return filepath.Join(placeName(root), it.rel[:it.nameAt-1])
+	return ps.Join(ps.placeName(root), it.rel[:it.nameAt-1])
 }
 
 // subsequence reports whether the runes of q appear in s in order.
@@ -344,7 +345,7 @@ func subsequence(q, s string) bool {
 
 // rankCommands returns the commands of the menus and the places to go
 // that query finds, best first.
-func rankCommands(query string, places []Place, favourites []string) []PaletteHit {
+func rankCommands(query string, ps PathStyle, places []Place, favourites []string) []PaletteHit {
 	var hits []PaletteHit
 	var items []match.Item
 	for _, m := range menus {
@@ -362,9 +363,9 @@ func rankCommands(query string, places []Place, favourites []string) []PaletteHi
 		items = append(items, match.Item{Title: "Go to " + p.Name, Also: []string{p.Path}})
 	}
 	for _, f := range favourites {
-		hits = append(hits, PaletteHit{Title: "Go to " + placeName(f), Detail: f, Hint: "Favourite", Key: "go:" + f,
+		hits = append(hits, PaletteHit{Title: "Go to " + ps.placeName(f), Detail: f, Hint: "Favourite", Key: "go:" + f,
 			Mark: "place"})
-		items = append(items, match.Item{Title: "Go to " + placeName(f), Also: []string{f}})
+		items = append(items, match.Item{Title: "Go to " + ps.placeName(f), Also: []string{f}})
 	}
 	found := match.Rank(items, query)
 	out := make([]PaletteHit, len(found))
@@ -384,7 +385,7 @@ func (a *app) palettePicked(v PalettePicked) {
 	case "go":
 		a.navigate(rest, 0, true)
 	case "file":
-		info, err := os.Lstat(rest)
+		info, err := a.fs.Lstat(rest)
 		if err != nil {
 			a.fail(fmt.Sprintf("Opening %s: %v", rest, err))
 			return
@@ -397,15 +398,19 @@ func (a *app) palettePicked(v PalettePicked) {
 			a.openWith(rest)
 			return
 		}
-		a.navigate(filepath.Dir(rest), 0, true)
-		a.nav.pick = filepath.Base(rest)
+		a.navigate(a.ps.Dir(rest), 0, true)
+		a.nav.pick = a.ps.Base(rest)
 	}
 }
 
 // openWith opens the file at path with its program.
 func (a *app) openWith(path string) {
+	open, ok := a.systemOpen()
+	if !ok {
+		return
+	}
 	go func() {
-		if err := a.c.Open(path); err != nil {
+		if err := open(path); err != nil {
 			a.post(func() { a.fail(fmt.Sprintf("Opening %s: %v", path, err)) })
 		}
 	}()

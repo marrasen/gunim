@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
 )
 
 // restore takes the item of trash step s back out of the trash to where it
@@ -12,6 +11,9 @@ import (
 func (r *runner) restore(s step) error {
 	if s.to == "" {
 		return errNoRestore
+	}
+	if r.env.trash == nil {
+		return errTrashless
 	}
 	to, skip, err := r.restoreTarget(s)
 	if err != nil || skip {
@@ -28,7 +30,7 @@ func (r *runner) restore(s step) error {
 // was, a free name beside it, or nowhere with skip. A replace moves what
 // is there now to the trash first.
 func (r *runner) restoreTarget(s step) (to string, skip bool, err error) {
-	_, err = os.Lstat(s.from)
+	_, err = r.env.fs.Lstat(s.from)
 	if errors.Is(err, fs.ErrNotExist) {
 		return s.from, false, nil
 	}
@@ -54,7 +56,7 @@ func (r *runner) restoreTarget(s step) (to string, skip bool, err error) {
 	case choiceSkip:
 		return "", true, nil
 	case choiceKeepBoth:
-		to, err := freeName(s.from)
+		to, err := freeName(r.env.fs, s.from)
 		return to, false, err
 	case choiceReplace:
 	}

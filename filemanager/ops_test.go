@@ -67,6 +67,7 @@ func names(t *testing.T, dir string) []string {
 // with ans and counts the questions in asked.
 func testEnv(root string, ans answer, asked *int) env {
 	return env{
+		fs:    LocalFS(),
 		trash: xdgTrash{dir: filepath.Join(root, "Trash")},
 		ask: func(context.Context, clash) (answer, error) {
 			if asked != nil {

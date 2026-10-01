@@ -11,11 +11,12 @@ const (
 )
 
 // DropFiles asks to move Paths into the folder Into, or to copy them
-// there with Copy.
+// there with Copy. FS is the ID of the file system the items are on.
 type DropFiles struct {
 	Paths []string
 	Into  string
 	Copy  bool
+	FS    string
 }
 
 // PinFolders asks to add the folders at Paths to the favourites.

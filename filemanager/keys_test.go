@@ -240,9 +240,9 @@ func TestCtrlAndAClickOpenAFolderInANewWindow(t *testing.T) {
 	click(up.Center(), input.ModControl)
 	h.until("Ctrl and Up ask for the parent in a new window", func() bool {
 		o := got()
-		return len(o) == 1 && samePath(o[0], filepath.Join(root, "a"))
+		return len(o) == 1 && SystemPaths.Same(o[0], filepath.Join(root, "a"))
 	})
-	if !samePath(h.a.nav.path, dir) {
+	if !SystemPaths.Same(h.a.nav.path, dir) {
 		t.Fatalf("Ctrl and Up moved this window to %s", h.a.nav.path)
 	}
 	// A folder of the path, Ctrl+clicked
@@ -252,7 +252,7 @@ func TestCtrlAndAClickOpenAFolderInANewWindow(t *testing.T) {
 	h.until("Ctrl and a folder of the path ask for it in a new window", func() bool { return len(got()) == 2 })
 	// A plain click on Up goes up here
 	click(up.Center(), 0)
-	h.until("a plain click on Up goes up in this window", func() bool { return samePath(h.a.nav.path, filepath.Join(root, "a")) })
+	h.until("a plain click on Up goes up in this window", func() bool { return SystemPaths.Same(h.a.nav.path, filepath.Join(root, "a")) })
 	if len(got()) != 2 {
 		t.Fatalf("a plain click asked for a window: %v", got())
 	}

@@ -32,18 +32,18 @@ func offlineFile(t *testing.T, name, text string) string {
 
 func TestAFileKeptOnlineIsPreviewedOnlyWhenAsked(t *testing.T) {
 	path := offlineFile(t, "notes.txt", "hello from the cloud\n")
-	e, err := statEntry(path)
+	e, err := statEntry(LocalFS(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !e.Online || !rowOf(e).Online {
 		t.Fatal("a file marked offline is not listed as kept online")
 	}
-	pv := itemPreview(context.Background(), 1, path, e, false)
+	pv := itemPreview(context.Background(), LocalFS(), 1, path, e, false)
 	if !pv.Online || pv.Text != "" {
 		t.Fatalf("the preview of a file kept online says online %v and shows %q; want it left unread", pv.Online, pv.Text)
 	}
-	pv = itemPreview(context.Background(), 2, path, e, true)
+	pv = itemPreview(context.Background(), LocalFS(), 2, path, e, true)
 	if pv.Online || pv.Text != "hello from the cloud\n" {
 		t.Fatalf("asked to download, the preview says online %v and shows %q; want the text", pv.Online, pv.Text)
 	}
@@ -52,7 +52,7 @@ func TestAFileKeptOnlineIsPreviewedOnlyWhenAsked(t *testing.T) {
 func TestAPictureKeptOnlineGetsNoThumbnailReadFromIt(t *testing.T) {
 	// Not a picture at all, so a thumbnail read from it would fail
 	path := offlineFile(t, "photo.png", "not a picture")
-	img, _, err := makeThumb(path, 128, true)
+	img, _, err := makeThumb(LocalFS(), path, 128, true)
 	if err != nil || img != nil {
 		t.Fatalf("the thumbnail of a picture kept online is %v, %v; want none, with no reading", img, err)
 	}

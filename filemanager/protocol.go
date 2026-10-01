@@ -26,6 +26,10 @@ type Shell struct {
 	ShowPreview bool
 	// Sidebar is the sidebar's width.
 	Sidebar float32
+	// FS is the ID of the file system the window shows, which a drag
+	// carries, and Paths how it writes paths.
+	FS    string
+	Paths PathStyle
 }
 
 // Crumb is one folder of the path bar.

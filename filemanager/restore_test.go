@@ -14,10 +14,10 @@ import (
 
 // trashAndRefill trashes a.txt in root, puts a new a.txt in its place,
 // and returns the record of the trash.
-func trashAndRefill(t *testing.T, root string, tr trasher) record {
+func trashAndRefill(t *testing.T, root string, tr Trasher) record {
 	t.Helper()
 	tree(t, root, "work/a.txt")
-	rec, err := runJob(context.Background(), job{kind: OpTrash, srcs: []string{at(root, "work/a.txt")}}, env{trash: tr})
+	rec, err := runJob(context.Background(), job{kind: OpTrash, srcs: []string{at(root, "work/a.txt")}}, env{fs: LocalFS(), trash: tr})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,10 +29,10 @@ func trashAndRefill(t *testing.T, root string, tr trasher) record {
 
 // undoWith undoes rec, answering a clash with c, and returns how many
 // clashes were asked about.
-func undoWith(t *testing.T, rec record, tr trasher, c choice) int {
+func undoWith(t *testing.T, rec record, tr Trasher, c choice) int {
 	t.Helper()
 	asked := 0
-	e := env{trash: tr, ask: func(_ context.Context, cl clash) (answer, error) {
+	e := env{fs: LocalFS(), trash: tr, ask: func(_ context.Context, cl clash) (answer, error) {
 		asked++
 		if !strings.HasPrefix(cl.from, "in the trash, ") || !strings.HasSuffix(cl.dst, "a.txt") {
 			t.Fatalf("the clash says the arriving item is %q, going to %s", cl.from, cl.dst)

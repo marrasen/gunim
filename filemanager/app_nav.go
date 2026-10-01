@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"hash/fnv"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -67,7 +66,7 @@ func (n *navState) stop() {
 // startNav shows the first folder: dir, or the home folder.
 func (a *app) startNav(dir string) {
 	if dir == "" {
-		home, err := os.UserHomeDir()
+		home, err := a.fs.Home()
 		if err != nil {
 			a.fail("Finding your home folder: " + err.Error())
 			return
@@ -131,17 +130,17 @@ func (a *app) navCommand(name string) bool {
 			a.navigate(to, 1, false)
 		}
 	case CmdUp:
-		if parent := filepath.Dir(n.path); parent != n.path {
+		if parent := a.ps.Dir(n.path); parent != n.path {
 			if a.newWindowAsked() {
 				a.openWindow(parent)
 				break
 			}
-			from := filepath.Base(n.path)
+			from := a.ps.Base(n.path)
 			a.navigate(parent, -1, true)
 			n.pick = from
 		}
 	case CmdHome:
-		home, err := os.UserHomeDir()
+		home, err := a.fs.Home()
 		if err != nil {
 			a.fail("Finding your home folder: " + err.Error())
 			return true
@@ -172,17 +171,17 @@ func (a *app) navCommand(name string) bool {
 // and record keeps the folder left in the history.
 func (a *app) navigate(path string, travel int, record bool) {
 	n := &a.nav
-	abs, err := filepath.Abs(path)
+	abs, err := a.ps.Abs(path)
 	if err != nil {
 		a.fail(fmt.Sprintf("Opening %s: %v", path, err))
 		return
 	}
-	if record && n.path != "" && !samePath(abs, n.path) {
+	if record && n.path != "" && !a.ps.Same(abs, n.path) {
 		n.back = append(n.back, n.path)
 		n.fwd = nil
 	}
 	if travel == 0 && n.path != "" {
-		travel = direction(n.path, abs)
+		travel = direction(a.ps, n.path, abs)
 	}
 	n.path, n.travel = abs, travel
 	n.all, n.rows, n.err = nil, nil, nil
@@ -197,12 +196,12 @@ func (a *app) navigate(path string, travel int, record bool) {
 }
 
 // direction is 1 when to lies inside from, -1 when from lies inside to,
-// and 0 otherwise.
-func direction(from, to string) int {
-	if rel, err := filepath.Rel(from, to); err == nil && rel != "." && !strings.HasPrefix(rel, "..") {
+// and 0 otherwise, for paths of style ps.
+func direction(ps PathStyle, from, to string) int {
+	if rel, err := ps.Rel(from, to); err == nil && rel != "." && !strings.HasPrefix(rel, "..") {
 		return 1
 	}
-	if rel, err := filepath.Rel(to, from); err == nil && rel != "." && !strings.HasPrefix(rel, "..") {
+	if rel, err := ps.Rel(to, from); err == nil && rel != "." && !strings.HasPrefix(rel, "..") {
 		return -1
 	}
 	return 0
@@ -219,10 +218,10 @@ func (a *app) list() {
 	n.loading = true
 	a.publishListing()
 	go func() {
-		mod, err := dirTime(path)
+		mod, err := dirTime(a.fs, path)
 		var es []entry
 		if err == nil {
-			es, err = listDir(ctx, path)
+			es, err = listDir(ctx, a.fs, path)
 		}
 		if errors.Is(err, context.Canceled) {
 			return
@@ -238,22 +237,22 @@ func (a *app) relist() {
 	ctx := a.ctx
 	gen := n.gen
 	go func() {
-		mod, err := dirTime(path)
+		mod, err := dirTime(a.fs, path)
 		var es []entry
 		if err == nil {
-			es, err = listDir(ctx, path)
+			es, err = listDir(ctx, a.fs, path)
 		}
 		a.post(func() {
-			if n.gen == gen && samePath(n.path, path) {
+			if n.gen == gen && a.ps.Same(n.path, path) {
 				a.listed(gen, path, es, mod, err)
 			}
 		})
 	}()
 }
 
-// dirTime returns when the folder at path last changed.
-func dirTime(path string) (time.Time, error) {
-	info, err := os.Stat(path)
+// dirTime returns when the folder at path on fsys last changed.
+func dirTime(fsys FS, path string) (time.Time, error) {
+	info, err := fsys.Stat(path)
 	if err != nil {
 		return time.Time{}, err
 	}
@@ -266,7 +265,7 @@ func dirTime(path string) (time.Time, error) {
 // listed takes a listing of path made for listing gen.
 func (a *app) listed(gen int, path string, es []entry, mod time.Time, err error) {
 	n := &a.nav
-	if gen != n.gen || !samePath(path, n.path) {
+	if gen != n.gen || !a.ps.Same(path, n.path) {
 		return
 	}
 	n.loading = false
@@ -363,10 +362,10 @@ func (a *app) sortBy(by SortBy, toggle bool) {
 func (a *app) publishListing() {
 	n := &a.nav
 	l := Listing{
-		Gen: n.gen, Path: n.path, Title: placeName(n.path), Crumbs: crumbs(n.path),
+		Gen: n.gen, Path: n.path, Title: a.ps.placeName(n.path), Crumbs: crumbs(a.ps, n.path),
 		Total: len(n.rows), All: len(n.all), Sort: n.sort, Desc: n.desc, Filter: n.filter,
 		Travel: n.travel, Loading: n.loading,
-		CanBack: len(n.back) > 0, CanForward: len(n.fwd) > 0, CanUp: filepath.Dir(n.path) != n.path,
+		CanBack: len(n.back) > 0, CanForward: len(n.fwd) > 0, CanUp: a.ps.Dir(n.path) != n.path,
 	}
 	if n.err != nil {
 		l.Err = n.err.Error()
@@ -374,22 +373,22 @@ func (a *app) publishListing() {
 	a.patch(l)
 }
 
-// crumbs splits path into the folders along it.
-func crumbs(path string) []Crumb {
-	vol := filepath.VolumeName(path)
+// crumbs splits path, of style ps, into the folders along it.
+func crumbs(ps PathStyle, path string) []Crumb {
+	vol := ps.VolumeName(path)
 	rest := strings.TrimPrefix(path, vol)
-	root := vol + string(filepath.Separator)
+	root := vol + ps.Sep()
 	name := vol
 	if name == "" {
-		name = string(filepath.Separator)
+		name = ps.Sep()
 	}
 	out := []Crumb{{Name: name, Path: root}}
 	at := root
-	for _, part := range strings.Split(strings.Trim(rest, string(filepath.Separator)), string(filepath.Separator)) {
+	for _, part := range strings.Split(strings.Trim(rest, ps.Sep()), ps.Sep()) {
 		if part == "" {
 			continue
 		}
-		at = filepath.Join(at, part)
+		at = ps.Join(at, part)
 		out = append(out, Crumb{Name: part, Path: at})
 	}
 	return out
@@ -569,14 +568,14 @@ func (a *app) selectedPaths() []string {
 	es := a.selectedEntries()
 	out := make([]string, len(es))
 	for i, e := range es {
-		out[i] = filepath.Join(a.nav.path, e.Name)
+		out[i] = a.ps.Join(a.nav.path, e.Name)
 	}
 	return out
 }
 
 // activate opens e: a folder in the window, and a file with its program.
 func (a *app) activate(e entry) {
-	path := filepath.Join(a.nav.path, e.Name)
+	path := a.ps.Join(a.nav.path, e.Name)
 	if e.Dir && a.newWindowAsked() {
 		a.openWindow(path)
 		return
@@ -593,11 +592,7 @@ func (a *app) activate(e entry) {
 		a.fail(path + " is a link to something that is gone.")
 		return
 	}
-	go func() {
-		if err := a.c.Open(path); err != nil {
-			a.post(func() { a.fail(fmt.Sprintf("Opening %s: %v", path, err)) })
-		}
-	}()
+	a.openWith(path)
 }
 
 // publishStatus sends the status bar.
@@ -660,13 +655,19 @@ func count(n int) string {
 }
 
 // readSpace reads the free space of the folder's volume in the
-// background.
+// background, on a file system that knows it.
 func (a *app) readSpace() {
+	sr, ok := a.fs.(SpaceReporter)
+	if !ok {
+		return
+	}
 	path := a.nav.path
 	go func() {
-		s, err := volumeSpace(path)
+		var s space
+		var err error
+		s.free, s.total, err = sr.Space(path)
 		a.post(func() {
-			if samePath(a.nav.path, path) {
+			if a.ps.Same(a.nav.path, path) {
 				a.nav.space, a.nav.spaceErr = s, err
 				a.publishStatus()
 			}
@@ -685,10 +686,10 @@ func (a *app) poll() {
 	path, gen, mod, sig, small := n.path, n.gen, n.mod, n.sig, len(n.all) <= smallFolder
 	failed := n.err != nil
 	go func() {
-		changed, es, newMod, err := checkFolder(a.ctx, path, mod, sig, small || failed)
+		changed, es, newMod, err := checkFolder(a.ctx, a.fs, path, mod, sig, small || failed)
 		a.post(func() {
 			n.checking = false
-			if n.gen != gen || !samePath(n.path, path) {
+			if n.gen != gen || !a.ps.Same(n.path, path) {
 				return
 			}
 			switch {
@@ -706,18 +707,18 @@ func (a *app) poll() {
 	}()
 }
 
-// checkFolder reports whether the folder at path changed since it was
-// listed with time mod and signature sig. With full, it lists the folder
-// and returns the entries.
-func checkFolder(ctx context.Context, path string, mod time.Time, sig uint64, full bool) (bool, []entry, time.Time, error) {
-	now, err := dirTime(path)
+// checkFolder reports whether the folder at path on fsys changed since it
+// was listed with time mod and signature sig. With full, it lists the
+// folder and returns the entries.
+func checkFolder(ctx context.Context, fsys FS, path string, mod time.Time, sig uint64, full bool) (bool, []entry, time.Time, error) {
+	now, err := dirTime(fsys, path)
 	if err != nil {
 		return true, nil, now, err
 	}
 	if !full {
 		return !now.Equal(mod), nil, now, nil
 	}
-	es, err := listDir(ctx, path)
+	es, err := listDir(ctx, fsys, path)
 	if err != nil {
 		return true, nil, now, err
 	}
