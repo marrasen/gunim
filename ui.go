@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/marrasen/gunim/driver"
-	"github.com/marrasen/gunim/driver/desktop"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
@@ -47,7 +46,7 @@ import (
 // The error Main returns is the one fn returned, joined with any error
 // the platform event loop ended on.
 func Main(ctx context.Context, fn func(*App) error) error {
-	drv, err := desktop.Open()
+	drv, err := openDriver()
 	if err != nil {
 		return fmt.Errorf("gunim: open display: %w", err)
 	}

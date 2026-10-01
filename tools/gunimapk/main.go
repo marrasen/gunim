@@ -1,0 +1,405 @@
+// Command gunimapk builds a gunim program into an Android APK.
+//
+//	go run ./tools/gunimapk -o calculator.apk ./example/calculator
+//
+// It builds the program as libgunim.so for each ABI asked for, with cgo
+// and the NDK's clang, compiles the Java half of the Android driver,
+// links a manifest that starts gunim's activity, and signs the APK with
+// the debug key. -install installs it on the device adb sees, and -run
+// starts it there too.
+//
+// It finds the Android SDK at $ANDROID_HOME, $ANDROID_SDK_ROOT or
+// ~/Android/sdk, and takes the newest NDK, build tools and platform
+// installed there. Java comes from $JAVA_HOME, or the PATH.
+package main
+
+import (
+	"archive/zip"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"io/fs"
+	"log"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"runtime"
+	"slices"
+	"strconv"
+	"strings"
+
+	"github.com/marrasen/gunim/driver/android/java"
+)
+
+// minSDK is the oldest Android the APK runs on: 8.0. targetSDK is the
+// one it is built for. Android 15 makes an app built for it draw under
+// the system bars, which the driver leaves to the system for now.
+const (
+	minSDK    = 26
+	targetSDK = 34
+)
+
+// abis maps an Android ABI to its GOARCH and its clang target.
+var abis = map[string]struct{ goarch, clang string }{
+	"arm64-v8a":   {"arm64", "aarch64-linux-android"},
+	"x86_64":      {"amd64", "x86_64-linux-android"},
+	"armeabi-v7a": {"arm", "armv7a-linux-androideabi"},
+	"x86":         {"386", "i686-linux-android"},
+}
+
+func main() {
+	log.SetFlags(0)
+	log.SetPrefix("gunimapk: ")
+	out := flag.String("o", "", "the APK to write; the package's name and .apk by default")
+	id := flag.String("id", "", "the application ID; org.gunim.<name> by default")
+	name := flag.String("name", "", "the application's label; the package's name by default")
+	abiList := flag.String("abi", "arm64-v8a,x86_64", "the ABIs to build for, comma separated")
+	install := flag.Bool("install", false, "install the APK with adb")
+	run := flag.Bool("run", false, "install the APK with adb and start it")
+	flag.Usage = func() {
+		fmt.Fprintf(flag.CommandLine.Output(), "usage: gunimapk [flags] package\n")
+		flag.PrintDefaults()
+	}
+	flag.Parse()
+	if flag.NArg() != 1 {
+		flag.Usage()
+		os.Exit(2)
+	}
+	pkg := flag.Arg(0)
+	base := filepath.Base(pkg)
+	if base == "." || base == "/" {
+		wd, _ := os.Getwd()
+		base = filepath.Base(wd)
+	}
+	if *out == "" {
+		*out = base + ".apk"
+	}
+	if *name == "" {
+		*name = base
+	}
+	if *id == "" {
+		*id = "org.gunim." + regexp.MustCompile(`[^a-z0-9_]`).ReplaceAllString(strings.ToLower(base), "_")
+	}
+	b, err := newBuilder()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer os.RemoveAll(b.tmp)
+	if err := b.build(pkg, *out, *id, *name, strings.Split(*abiList, ",")); err != nil {
+		log.Fatal(err)
+	}
+	if *install || *run {
+		if err := b.tool(filepath.Join(b.sdk, "platform-tools", "adb"), "install", "-r", *out); err != nil {
+			log.Fatal(err)
+		}
+	}
+	if *run {
+		if err := b.tool(filepath.Join(b.sdk, "platform-tools", "adb"), "shell", "am", "start", "-n",
+			*id+"/gunim.android.GunimActivity"); err != nil {
+			log.Fatal(err)
+		}
+	}
+}
+
+// builder holds where the tools are, and the directory it works in.
+type builder struct {
+	sdk, ndk, buildTools, androidJar, javaBin string
+	tmp                                       string
+}
+
+func newBuilder() (*builder, error) {
+	b := &builder{}
+	for _, dir := range []string{os.Getenv("ANDROID_HOME"), os.Getenv("ANDROID_SDK_ROOT"), home("Android", "sdk")} {
+		if dir != "" && exists(filepath.Join(dir, "platforms")) {
+			b.sdk = dir
+			break
+		}
+	}
+	if b.sdk == "" {
+		return nil, errors.New("no Android SDK: set ANDROID_HOME")
+	}
+	var err error
+	if b.ndk = os.Getenv("ANDROID_NDK_HOME"); b.ndk == "" {
+		if b.ndk, err = newest(filepath.Join(b.sdk, "ndk")); err != nil {
+			return nil, fmt.Errorf("no NDK: %w", err)
+		}
+	}
+	if b.buildTools, err = newest(filepath.Join(b.sdk, "build-tools")); err != nil {
+		return nil, fmt.Errorf("no build tools: %w", err)
+	}
+	platform, err := newest(filepath.Join(b.sdk, "platforms"))
+	if err != nil {
+		return nil, fmt.Errorf("no platform: %w", err)
+	}
+	b.androidJar = filepath.Join(platform, "android.jar")
+	if jh := os.Getenv("JAVA_HOME"); jh != "" {
+		b.javaBin = filepath.Join(jh, "bin")
+	} else if javac, err := exec.LookPath("javac"); err == nil {
+		b.javaBin = filepath.Dir(javac)
+	} else {
+		return nil, errors.New("no Java: set JAVA_HOME")
+	}
+	if b.tmp, err = os.MkdirTemp("", "gunimapk"); err != nil {
+		return nil, err
+	}
+	return b, nil
+}
+
+// build writes the APK for pkg to out.
+func (b *builder) build(pkg, out, id, name string, abiNames []string) error {
+	var libs []string
+	for _, abi := range abiNames {
+		lib, err := b.goLib(pkg, abi)
+		if err != nil {
+			return err
+		}
+		libs = append(libs, lib)
+	}
+	dex, err := b.dex()
+	if err != nil {
+		return err
+	}
+	manifest := filepath.Join(b.tmp, "AndroidManifest.xml")
+	if err := os.WriteFile(manifest, []byte(manifestFor(id, name)), 0o644); err != nil {
+		return err
+	}
+	linked := filepath.Join(b.tmp, "linked.apk")
+	if err := b.tool(filepath.Join(b.buildTools, "aapt2"), "link", "-o", linked, "-I", b.androidJar,
+		"--manifest", manifest, "--min-sdk-version", strconv.Itoa(minSDK),
+		"--target-sdk-version", strconv.Itoa(targetSDK), "--version-code", "1", "--version-name", "1.0"); err != nil {
+		return err
+	}
+	unaligned := filepath.Join(b.tmp, "unaligned.apk")
+	if err := pack(unaligned, linked, dex, libs, b.tmp); err != nil {
+		return err
+	}
+	aligned := filepath.Join(b.tmp, "aligned.apk")
+	if err := b.tool(filepath.Join(b.buildTools, "zipalign"), "-f", "-p", "4", unaligned, aligned); err != nil {
+		return err
+	}
+	ks, err := b.debugKey()
+	if err != nil {
+		return err
+	}
+	return b.tool(filepath.Join(b.buildTools, "apksigner"), "sign", "--ks", ks, "--ks-pass", "pass:android",
+		"--key-pass", "pass:android", "--out", out, aligned)
+}
+
+// goLib builds pkg as lib/<abi>/libgunim.so under the working directory.
+func (b *builder) goLib(pkg, abi string) (string, error) {
+	a, ok := abis[abi]
+	if !ok {
+		return "", fmt.Errorf("unknown ABI %q", abi)
+	}
+	host := runtime.GOOS + "-x86_64"
+	cc := filepath.Join(b.ndk, "toolchains", "llvm", "prebuilt", host, "bin", fmt.Sprintf("%s%d-clang", a.clang, minSDK))
+	lib := filepath.Join(b.tmp, "lib", abi, "libgunim.so")
+	cmd := exec.Command("go", "build", "-buildmode=c-shared", "-trimpath", "-ldflags=-s -w", "-o", lib, pkg)
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=1", "GOOS=android", "GOARCH="+a.goarch, "CC="+cc)
+	if a.goarch == "arm" {
+		cmd.Env = append(cmd.Env, "GOARM=7")
+	}
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("build %s for %s: %w", pkg, abi, err)
+	}
+	return lib, nil
+}
+
+// dex compiles the Java half of the driver into classes.dex.
+func (b *builder) dex() (string, error) {
+	src := filepath.Join(b.tmp, "java")
+	classes := filepath.Join(b.tmp, "classes")
+	dexDir := filepath.Join(b.tmp, "dex")
+	for _, d := range []string{src, classes, dexDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			return "", err
+		}
+	}
+	files, err := fs.Glob(java.Sources, "*.java")
+	if err != nil {
+		return "", err
+	}
+	args := []string{"--release", "11", "-nowarn", "-classpath", b.androidJar, "-d", classes}
+	for _, f := range files {
+		data, err := java.Sources.ReadFile(f)
+		if err != nil {
+			return "", err
+		}
+		path := filepath.Join(src, f)
+		if err := os.WriteFile(path, data, 0o644); err != nil {
+			return "", err
+		}
+		args = append(args, path)
+	}
+	if err := b.tool(filepath.Join(b.javaBin, "javac"), args...); err != nil {
+		return "", err
+	}
+	var compiled []string
+	err = filepath.WalkDir(classes, func(p string, d fs.DirEntry, err error) error {
+		if err == nil && strings.HasSuffix(p, ".class") {
+			compiled = append(compiled, p)
+		}
+		return err
+	})
+	if err != nil {
+		return "", err
+	}
+	args = append([]string{"--release", "--min-api", strconv.Itoa(minSDK), "--lib", b.androidJar, "--output", dexDir}, compiled...)
+	if err := b.tool(filepath.Join(b.buildTools, "d8"), args...); err != nil {
+		return "", err
+	}
+	return filepath.Join(dexDir, "classes.dex"), nil
+}
+
+// debugKey returns the debug keystore, which it makes as Android
+// Studio would where there is none.
+func (b *builder) debugKey() (string, error) {
+	ks := home(".android", "debug.keystore")
+	if exists(ks) {
+		return ks, nil
+	}
+	if err := os.MkdirAll(filepath.Dir(ks), 0o755); err != nil {
+		return "", err
+	}
+	err := b.tool(filepath.Join(b.javaBin, "keytool"), "-genkeypair", "-keystore", ks, "-storepass", "android",
+		"-alias", "androiddebugkey", "-keypass", "android", "-keyalg", "RSA", "-keysize", "2048",
+		"-validity", "10000", "-dname", "CN=Android Debug,O=Android,C=US")
+	return ks, err
+}
+
+// tool runs a tool, with Java on the PATH for the tools that are Java
+// programs.
+func (b *builder) tool(name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	cmd.Env = append(os.Environ(), "PATH="+b.javaBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if filepath.IsAbs(b.javaBin) {
+		cmd.Env = append(cmd.Env, "JAVA_HOME="+filepath.Dir(b.javaBin))
+	}
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("%s: %w", filepath.Base(name), err)
+	}
+	return nil
+}
+
+// pack writes the APK: what aapt2 linked, the dex, and the libraries.
+func pack(out, linked, dex string, libs []string, root string) error {
+	f, err := os.Create(out)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	zw := zip.NewWriter(f)
+	zr, err := zip.OpenReader(linked)
+	if err != nil {
+		return err
+	}
+	defer zr.Close()
+	for _, e := range zr.File {
+		if err := zw.Copy(e); err != nil {
+			return err
+		}
+	}
+	add := func(name, path string) error {
+		w, err := zw.CreateHeader(&zip.FileHeader{Name: name, Method: zip.Deflate})
+		if err != nil {
+			return err
+		}
+		r, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer r.Close()
+		_, err = io.Copy(w, r)
+		return err
+	}
+	if err := add("classes.dex", dex); err != nil {
+		return err
+	}
+	for _, lib := range libs {
+		rel, err := filepath.Rel(root, lib)
+		if err != nil {
+			return err
+		}
+		if err := add(filepath.ToSlash(rel), lib); err != nil {
+			return err
+		}
+	}
+	return zw.Close()
+}
+
+// manifestFor returns the manifest of an APK that starts gunim's
+// activity. The activity keeps itself across rotation and a keyboard
+// coming and going, and the soft keyboard shrinks it.
+func manifestFor(id, name string) string {
+	return `<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="` + id + `">
+	<application android:label="` + xmlEscape(name) + `" android:hasCode="true" android:extractNativeLibs="true">
+		<activity android:name="gunim.android.GunimActivity" android:exported="true"
+			android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density"
+			android:windowSoftInputMode="adjustResize"
+			android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+			<intent-filter>
+				<action android:name="android.intent.action.MAIN"/>
+				<category android:name="android.intent.category.LAUNCHER"/>
+			</intent-filter>
+		</activity>
+	</application>
+</manifest>
+`
+}
+
+func xmlEscape(s string) string {
+	return strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;").Replace(s)
+}
+
+// newest returns the subdirectory of dir whose name sorts last as a
+// version.
+func newest(dir string) (string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", err
+	}
+	var names []string
+	for _, e := range entries {
+		if e.IsDir() {
+			names = append(names, e.Name())
+		}
+	}
+	if len(names) == 0 {
+		return "", fmt.Errorf("%s is empty", dir)
+	}
+	slices.SortFunc(names, compareVersions)
+	return filepath.Join(dir, names[len(names)-1]), nil
+}
+
+// compareVersions orders names such as 29.0.14206865 and android-36 by
+// the numbers in them.
+func compareVersions(a, b string) int {
+	num := regexp.MustCompile(`\d+`)
+	x, y := num.FindAllString(a, -1), num.FindAllString(b, -1)
+	for i := 0; i < len(x) && i < len(y); i++ {
+		n, _ := strconv.Atoi(x[i])
+		m, _ := strconv.Atoi(y[i])
+		if n != m {
+			return n - m
+		}
+	}
+	return len(x) - len(y)
+}
+
+func home(parts ...string) string {
+	h, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(append([]string{h}, parts...)...)
+}
+
+func exists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}

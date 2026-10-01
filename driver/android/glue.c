@@ -1,0 +1,232 @@
+//go:build android
+
+#include <jni.h>
+#include <stdlib.h>
+#include <string.h>
+#include <android/native_window_jni.h>
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
+#include "_cgo_export.h"
+#include "glue.h"
+
+static JavaVM *vm;
+static jclass nativeClass;
+static jmethodID midShowKeyboard, midTextState, midClearTextState, midGetClipboard, midSetClipboard, midFinish;
+
+// JNI_OnLoad runs on the thread that loads the library, which has the
+// application's class loader, so it looks up the class Go calls back.
+JNIEXPORT jint JNI_OnLoad(JavaVM *v, void *reserved) {
+	vm = v;
+	JNIEnv *env;
+	if ((*vm)->GetEnv(vm, (void **)&env, JNI_VERSION_1_6) != JNI_OK) {
+		return -1;
+	}
+	jclass c = (*env)->FindClass(env, "gunim/android/Native");
+	if (c == NULL) {
+		return -1;
+	}
+	nativeClass = (*env)->NewGlobalRef(env, c);
+	midShowKeyboard = (*env)->GetStaticMethodID(env, c, "showKeyboard", "(Z)V");
+	midTextState = (*env)->GetStaticMethodID(env, c, "textState", "([CIIIIIZZJ)V");
+	midClearTextState = (*env)->GetStaticMethodID(env, c, "clearTextState", "()V");
+	midGetClipboard = (*env)->GetStaticMethodID(env, c, "getClipboard", "()Ljava/lang/String;");
+	midSetClipboard = (*env)->GetStaticMethodID(env, c, "setClipboard", "(Ljava/lang/String;)V");
+	midFinish = (*env)->GetStaticMethodID(env, c, "finish", "()V");
+	return JNI_VERSION_1_6;
+}
+
+// envGet returns the calling thread's JNIEnv, attaching the thread to
+// the VM when it is a thread of Go's, and envPut detaches it again.
+static JNIEnv *envGet(int *attached) {
+	JNIEnv *env = NULL;
+	*attached = 0;
+	if ((*vm)->GetEnv(vm, (void **)&env, JNI_VERSION_1_6) == JNI_EDETACHED) {
+		(*vm)->AttachCurrentThread(vm, &env, NULL);
+		*attached = 1;
+	}
+	return env;
+}
+
+static void envPut(int attached) {
+	if (attached) {
+		(*vm)->DetachCurrentThread(vm);
+	}
+}
+
+void gunim_show_keyboard(int show) {
+	int a;
+	JNIEnv *env = envGet(&a);
+	(*env)->CallStaticVoidMethod(env, nativeClass, midShowKeyboard, (jboolean)(show != 0));
+	envPut(a);
+}
+
+void gunim_text_state(const uint16_t *text, int n, int start, int selA, int selB, int compA, int compB,
+	int multiline, int secret, long long seq) {
+	int a;
+	JNIEnv *env = envGet(&a);
+	jcharArray chars = (*env)->NewCharArray(env, n);
+	(*env)->SetCharArrayRegion(env, chars, 0, n, (const jchar *)text);
+	(*env)->CallStaticVoidMethod(env, nativeClass, midTextState, chars, start, selA, selB, compA, compB,
+		(jboolean)(multiline != 0), (jboolean)(secret != 0), (jlong)seq);
+	(*env)->DeleteLocalRef(env, chars);
+	envPut(a);
+}
+
+void gunim_clear_text_state(void) {
+	int a;
+	JNIEnv *env = envGet(&a);
+	(*env)->CallStaticVoidMethod(env, nativeClass, midClearTextState);
+	envPut(a);
+}
+
+uint16_t *gunim_get_clipboard(int *n) {
+	int a;
+	JNIEnv *env = envGet(&a);
+	jstring s = (jstring)(*env)->CallStaticObjectMethod(env, nativeClass, midGetClipboard);
+	uint16_t *out = NULL;
+	*n = 0;
+	if (s != NULL) {
+		*n = (*env)->GetStringLength(env, s);
+		out = malloc((*n + 1) * sizeof(uint16_t));
+		(*env)->GetStringRegion(env, s, 0, *n, (jchar *)out);
+		(*env)->DeleteLocalRef(env, s);
+	}
+	envPut(a);
+	return out;
+}
+
+void gunim_set_clipboard(const uint16_t *s, int n) {
+	int a;
+	JNIEnv *env = envGet(&a);
+	jstring js = (*env)->NewString(env, (const jchar *)s, n);
+	(*env)->CallStaticVoidMethod(env, nativeClass, midSetClipboard, js);
+	(*env)->DeleteLocalRef(env, js);
+	envPut(a);
+}
+
+void gunim_finish(void) {
+	int a;
+	JNIEnv *env = envGet(&a);
+	(*env)->CallStaticVoidMethod(env, nativeClass, midFinish);
+	envPut(a);
+}
+
+// The JNI methods of gunim.android.Native, which Java calls on its UI
+// thread. Each hands over to Go.
+
+JNIEXPORT void JNICALL Java_gunim_android_Native_start(JNIEnv *env, jclass c) {
+	goStart();
+}
+
+JNIEXPORT void JNICALL Java_gunim_android_Native_surfaceChanged(JNIEnv *env, jclass c, jobject surface, jint w, jint h) {
+	goSurfaceChanged(ANativeWindow_fromSurface(env, surface), w, h);
+}
+
+JNIEXPORT void JNICALL Java_gunim_android_Native_surfaceDestroyed(JNIEnv *env, jclass c) {
+	goSurfaceDestroyed();
+}
+
+JNIEXPORT void JNICALL Java_gunim_android_Native_metrics(JNIEnv *env, jclass c, jfloat density, jfloat rate) {
+	goMetrics(density, rate);
+}
+
+JNIEXPORT void JNICALL Java_gunim_android_Native_touch(JNIEnv *env, jclass c, jint action, jfloat x, jfloat y, jlong ms) {
+	goTouch(action, x, y, ms);
+}
+
+JNIEXPORT void JNICALL Java_gunim_android_Native_key(JNIEnv *env, jclass c, jboolean down, jint code, jint meta, jint ch, jint repeat) {
+	goKey(down, code, meta, ch, repeat);
+}
+
+JNIEXPORT void JNICALL Java_gunim_android_Native_focus(JNIEnv *env, jclass c, jboolean focused) {
+	goFocus(focused);
+}
+
+JNIEXPORT void JNICALL Java_gunim_android_Native_edit(JNIEnv *env, jclass c, jstring with, jint r0, jint r1,
+	jint s0, jint s1, jint c0, jint c1, jlong seq) {
+	jsize n = (*env)->GetStringLength(env, with);
+	const jchar *chars = (*env)->GetStringChars(env, with, NULL);
+	goEdit((uint16_t *)chars, n, r0, r1, s0, s1, c0, c1, seq);
+	(*env)->ReleaseStringChars(env, with, chars);
+}
+
+JNIEXPORT void JNICALL Java_gunim_android_Native_text(JNIEnv *env, jclass c, jstring s) {
+	jsize n = (*env)->GetStringLength(env, s);
+	const jchar *chars = (*env)->GetStringChars(env, s, NULL);
+	goText((uint16_t *)chars, n);
+	(*env)->ReleaseStringChars(env, s, chars);
+}
+
+JNIEXPORT void JNICALL Java_gunim_android_Native_composing(JNIEnv *env, jclass c, jstring s, jint selA, jint selB) {
+	jsize n = (*env)->GetStringLength(env, s);
+	const jchar *chars = (*env)->GetStringChars(env, s, NULL);
+	goComposing((uint16_t *)chars, n, selA, selB);
+	(*env)->ReleaseStringChars(env, s, chars);
+}
+
+// EGL. One context serves every window: they all draw on the render
+// thread, into the one surface Android gives the activity.
+
+static EGLDisplay dpy = EGL_NO_DISPLAY;
+static EGLConfig cfg;
+static EGLContext ctx = EGL_NO_CONTEXT;
+static EGLSurface surf = EGL_NO_SURFACE;
+
+int gunim_egl_init(void) {
+	dpy = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+	if (dpy == EGL_NO_DISPLAY || !eglInitialize(dpy, NULL, NULL)) {
+		return eglGetError();
+	}
+	const EGLint attribs[] = {
+		EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT_KHR,
+		EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
+		EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8, EGL_ALPHA_SIZE, 8,
+		EGL_NONE,
+	};
+	EGLint n;
+	if (!eglChooseConfig(dpy, attribs, &cfg, 1, &n) || n < 1) {
+		return eglGetError() != EGL_SUCCESS ? eglGetError() : EGL_BAD_CONFIG;
+	}
+	const EGLint ctxAttribs[] = {EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE};
+	ctx = eglCreateContext(dpy, cfg, EGL_NO_CONTEXT, ctxAttribs);
+	if (ctx == EGL_NO_CONTEXT) {
+		return eglGetError();
+	}
+	if (!eglMakeCurrent(dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, ctx)) {
+		return eglGetError();
+	}
+	return 0;
+}
+
+int gunim_egl_attach(ANativeWindow *w) {
+	gunim_egl_detach();
+	surf = eglCreateWindowSurface(dpy, cfg, w, NULL);
+	if (surf == EGL_NO_SURFACE) {
+		return eglGetError();
+	}
+	if (!eglMakeCurrent(dpy, surf, surf, ctx)) {
+		return eglGetError();
+	}
+	eglSwapInterval(dpy, 1);
+	return 0;
+}
+
+void gunim_egl_detach(void) {
+	if (surf == EGL_NO_SURFACE) {
+		return;
+	}
+	eglMakeCurrent(dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, ctx);
+	eglDestroySurface(dpy, surf);
+	surf = EGL_NO_SURFACE;
+}
+
+int gunim_egl_swap(void) {
+	if (!eglSwapBuffers(dpy, surf)) {
+		return eglGetError();
+	}
+	return 0;
+}
+
+void gunim_window_release(ANativeWindow *w) {
+	ANativeWindow_release(w);
+}
