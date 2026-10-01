@@ -2,6 +2,7 @@ package widget
 
 import (
 	"image/color"
+	"slices"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
@@ -233,6 +234,12 @@ func (d *Dialog) Handle(e input.Event, u *gunim.UI) bool {
 			// A modal keeps focus among its own buttons.
 			d.cycle(u, !k.Mods.Has(input.ModShift))
 			return true
+		case input.KeyLeft, input.KeyRight, input.KeyUp, input.KeyDown:
+			// From a button, the arrows go along the row of buttons, as
+			// in the system's own dialogs. A field keeps its arrows.
+			if d.step(u, k.Key == input.KeyRight || k.Key == input.KeyDown) {
+				return true
+			}
 		default:
 		}
 	}
@@ -241,7 +248,11 @@ func (d *Dialog) Handle(e input.Event, u *gunim.UI) bool {
 	if _, ok := e.(input.FocusGained); ok && !d.focused {
 		d.focused = true
 		if d.Danger || d.Careful {
+			// Cancel has the keyboard, and Enter presses it rather than
+			// the action the dialog stands out with: its ring says so,
+			// however the dialog was opened.
 			u.Focus(d.buttons()[0])
+			u.ShowFocusRing()
 			return true
 		}
 		if b, ok := d.Body.(interface{ Focusables() []gunim.Node }); ok {
@@ -269,6 +280,33 @@ func (d *Dialog) Modal() bool { return true }
 // empty space focuses the dialog itself, so Escape and Tab still reach
 // it.
 func (d *Dialog) Focusable() bool { return true }
+
+// row is the dialog's buttons, left to right.
+func (d *Dialog) row() []gunim.Node {
+	var out []gunim.Node
+	for _, b := range d.extra {
+		out = append(out, b)
+	}
+	return append(out, d.buttons()...)
+}
+
+// step moves focus from the button that has it to the next along the
+// row, or the one before, wrapping around, and shows the focus ring. It
+// reports false while no button has the keyboard.
+func (d *Dialog) step(u *gunim.UI, forward bool) bool {
+	row := d.row()
+	at := slices.Index(row, u.Focused())
+	if at < 0 {
+		return false
+	}
+	next := (at + 1) % len(row)
+	if !forward {
+		next = (at - 1 + len(row)) % len(row)
+	}
+	u.Focus(row[next])
+	u.ShowFocusRing()
+	return true
+}
 
 // cycle moves focus to the next of the dialog's buttons, or the
 // previous, wrapping around.
