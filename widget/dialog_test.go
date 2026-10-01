@@ -496,3 +496,45 @@ func TestADangerDialogRingsCancelAndTheArrowsMoveAlong(t *testing.T) {
 		t.Fatal("Enter on the action sent nothing")
 	}
 }
+
+// Keys hears what the dialog's own nodes leave, before the dialog does,
+// and Buttons are its buttons as they stand.
+func TestADialogsKeysComeFirst(t *testing.T) {
+	w := gunimtest.New(t, geom.Sz(800, 600), nil)
+	var d *Dialog
+	var heard []input.Key
+	gunim.RegisterView(w, "confirm", func(title string) *Dialog {
+		d = NewDialog(title)
+		d.Body = NewLabel("Pick one.")
+		d.SetButtons("Type", "")
+		d.AddButton("Cancel", func() gunim.Intent { return "cancel" })
+		d.AddButton("Copy", func() gunim.Intent { return "copy" })
+		d.Keys = func(e input.Event, u *gunim.UI) bool {
+			if k, ok := e.(input.KeyPress); ok && k.Key == input.KeyDown {
+				heard = append(heard, k.Key)
+				return true
+			}
+			return false
+		}
+		return d
+	}, nil)
+	c := w.Client()
+	if err := c.Mount(gunim.Root, "confirm", "confirm", "Use"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Focus("confirm"); err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		w.Frame(time.Second / 60)
+	}
+	w.Input(input.KeyPress{Key: input.KeyDown})
+	w.Frame(time.Second / 60)
+	if len(heard) != 1 {
+		t.Fatalf("Keys heard %v", heard)
+	}
+	row := d.Buttons()
+	if len(row) != 3 || row[0].(*Button).Label != "Cancel" || row[1].(*Button).Label != "Copy" || row[2] != gunim.Node(d.ok) {
+		t.Fatalf("the buttons are %v", row)
+	}
+}
