@@ -318,3 +318,29 @@ func TestSelectPicksARunOfText(t *testing.T) {
 		t.Fatalf("a selection past both ends became %d to %d", start, end)
 	}
 }
+
+// Keys hears a key before the field uses it, and takes it from the
+// field when it reports true.
+func TestAFieldsKeysComeFirst(t *testing.T) {
+	f := NewTextField()
+	f.SetText("ab")
+	took := 0
+	f.Keys = func(e input.KeyPress, u *gunim.UI) bool {
+		if e.Key == input.KeyLeft {
+			took++
+			return true
+		}
+		return false
+	}
+	w, run := stage(t, &frame{child: Row(f), size: geom.Sz(300, 100)})
+	click(w, 10, 10)
+	run(2)
+	w.Input(input.KeyPress{Key: input.KeyEnd})
+	w.Input(input.KeyPress{Key: input.KeyLeft})
+	w.Input(input.KeyPress{Key: input.KeyBackspace})
+	run(1)
+	// Left was taken, so the caret stayed at the end.
+	if took != 1 || f.Text() != "a" {
+		t.Fatalf("Keys took %d, and the field holds %q", took, f.Text())
+	}
+}

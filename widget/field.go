@@ -51,6 +51,11 @@ type TextField struct {
 	// goroutine; what reaches the application is the value they return.
 	OnChange func(text string) gunim.Intent
 	OnSubmit func(text string) gunim.Intent
+	// Keys, when set, hears each key pressed in the field before the
+	// field uses it, and takes it from the field by reporting true: for
+	// a field that lends some of its keys to what is around it, as Left
+	// and Right to a row of buttons.
+	Keys func(e input.KeyPress, u *gunim.UI) bool
 	// OnEdit runs on the UI goroutine each time the text changes, for a
 	// widget around the field that reacts at once, as a palette filters
 	// its list.
@@ -169,6 +174,9 @@ func (t *TextField) Step(dt time.Duration) bool {
 func (t *TextField) Handle(e input.Event, u *gunim.UI) bool {
 	if t.Disabled {
 		return false
+	}
+	if k, ok := e.(input.KeyPress); ok && t.Keys != nil && t.Keys(k, u) {
+		return true
 	}
 	if t.blink.windowFocus(e, u) {
 		return false
