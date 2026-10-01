@@ -1,3 +1,10 @@
+// Command files is a file manager: a real one, which copies, moves,
+// renames and trashes, built on gunim. It is a thin program over the
+// filemanager package, which holds the window and the work; this adds
+// the command line, and a folder of sample files to try it on.
+//
+//	CGO_ENABLED=0 go run ./example/files
+//	go run ./example/files -dir /some/folder
 package main
 
 import (
@@ -13,6 +20,7 @@ import (
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/driver"
+	"github.com/marrasen/gunim/filemanager"
 )
 
 func main() {
@@ -26,37 +34,39 @@ func main() {
 	big := flag.Bool("big", false, "put a 2 GB file in the demo folder, to watch a long copy")
 	runFor := flag.Duration("for", 0, "quit after this long; zero runs until the window closes")
 	flag.Parse()
-	o := options{dir: *dir, prefsPath: *prefsPath, pick: *pick, do: *keys}
-	if err := start(o, *demo || *shot != "" && o.dir == "", *big, *shot, *after, *runFor); err != nil {
+	// The computer's own disk, with the places and favourites the package
+	// keeps for it when the options name none.
+	o := filemanager.Options{FS: filemanager.LocalFS(), Dir: *dir, PrefsPath: *prefsPath, Select: *pick, Script: *keys}
+	if err := start(o, *demo || *shot != "" && o.Dir == "", *big, *shot, *after, *runFor); err != nil {
 		log.Fatal(err)
 	}
 }
 
 // start runs the window, on a demo folder made for the purpose with demo,
 // which it removes once the window closes.
-func start(o options, demo, big bool, shot string, after, runFor time.Duration) (err error) {
+func start(o filemanager.Options, demo, big bool, shot string, after, runFor time.Duration) (err error) {
 	if demo {
 		root, merr := os.MkdirTemp("", "gunim-files-demo-")
 		if merr != nil {
 			return merr
 		}
 		defer func() { err = errors.Join(err, os.RemoveAll(root)) }()
-		if o.dir, err = makeDemo(root); err != nil {
+		if o.Dir, err = makeDemo(root); err != nil {
 			return err
 		}
 		if big {
-			if err := makeBig(filepath.Join(o.dir, "Big video.mp4"), 2<<30); err != nil {
+			if err := makeBig(filepath.Join(o.Dir, "Big video.mp4"), 2<<30); err != nil {
 				return err
 			}
 		}
-		if o.prefsPath == "" {
-			o.prefsPath = filepath.Join(root, "prefs.json")
+		if o.PrefsPath == "" {
+			o.PrefsPath = filepath.Join(root, "prefs.json")
 		}
 	}
 	return run(o, shot, after, runFor)
 }
 
-func run(o options, shot string, after, runFor time.Duration) error {
+func run(o filemanager.Options, shot string, after, runFor time.Duration) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	if runFor > 0 {
@@ -65,10 +75,13 @@ func run(o options, shot string, after, runFor time.Duration) error {
 		defer cancel()
 	}
 	err := gunim.Main(ctx, func(a *gunim.App) error {
-		return serveWindows(ctx, a, o, func(c gunim.Client) {
-			if shot == "" {
-				return
-			}
+		h := filemanager.NewHub(ctx, a)
+		w, err := h.Open(o)
+		if err != nil {
+			return err
+		}
+		c := w.Client()
+		if shot != "" {
 			go func() {
 				select {
 				case <-time.After(after):
@@ -80,7 +93,8 @@ func run(o options, shot string, after, runFor time.Duration) error {
 				}
 				c.Close()
 			}()
-		})
+		}
+		return h.Wait()
 	})
 	if errors.Is(err, driver.ErrNoDriver) {
 		log.Print("gunim has no driver for this operating system yet")

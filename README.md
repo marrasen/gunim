@@ -75,7 +75,9 @@ CGO_ENABLED=0 go run ./example/calendar
 
 `example/files` is a file manager that does real work: it copies, moves,
 renames, makes folders, and moves items to the trash, each in the
-background with progress, cancel and undo.
+background with progress, cancel and undo. It is a thin program over the
+`filemanager` package, which any gunim program can open on a file system
+of its own, such as a server's, with its own places and favourites.
 
 ```sh
 CGO_ENABLED=0 go run ./example/files
