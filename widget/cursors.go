@@ -18,8 +18,14 @@ func (t *TextField) Cursor(p geom.Point) input.Cursor {
 // Cursor implements [gunim.CursorShaper]: the I-beam, over text.
 func (a *TextArea) Cursor(geom.Point) input.Cursor { return input.CursorText }
 
-// Cursor implements [gunim.CursorShaper]: the I-beam, over text.
-func (g *CellGrid) Cursor(geom.Point) input.Cursor { return input.CursorText }
+// Cursor implements [gunim.CursorShaper]: the I-beam, over text, or
+// what Pointer names when it is set.
+func (g *CellGrid) Cursor(p geom.Point) input.Cursor {
+	if g.Pointer != nil {
+		return g.Pointer(p)
+	}
+	return input.CursorText
+}
 
 // Cursor implements [gunim.CursorShaper]: the I-beam over a selectable
 // label, and the shape around it otherwise.
