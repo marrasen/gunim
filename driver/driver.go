@@ -110,6 +110,9 @@ type Options struct {
 	// Above puts a popup above Anchor, or below it where the room above runs out and there is more below, as for a
 	// list of suggestions at the bottom of a window.
 	Above bool
+	// Owned keeps a popup just above Parent, under any window in front of Parent, in place of above every window, as
+	// for a glow round Parent. Only Windows does so; elsewhere a popup stays as it is.
+	Owned bool
 	// Icons are the window's icon at several sizes, for the title bar
 	// and the taskbar to pick from. None leaves the system's own.
 	Icons []image.Image

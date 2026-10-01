@@ -407,6 +407,12 @@ func (d *Driver) openWindow(o driver.Options) (*Window, error) {
 		_ = gw.Destroy()
 		return nil, err
 	}
+	if p, ok := o.Parent.(*Window); ok && o.Kind == driver.KindPopup && o.Owned {
+		if err := own(w, p); err != nil {
+			_ = gw.Destroy()
+			return nil, fmt.Errorf("desktop: own popup: %w", err)
+		}
+	}
 	if p, ok := o.Parent.(*Window); ok {
 		w.textRendering = o.Text.Or(p.textRendering)
 	} else {
