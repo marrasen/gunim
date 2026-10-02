@@ -34,7 +34,7 @@ func (p *TransferProgress) Report(bytes, bytesTotal int64, items, itemsTotal int
 }
 
 // Clash asks the user what to do about an item going to dst, a path on
-// the window's file system, where one of its name already is. coming
+// the file system the items go to, where one of its name already is. coming
 // describes the item on its way, as the dialog shows it (for example
 // "12 KB, modified 2 Oct 2026"), and sameKind says both are folders or
 // both are not, which Replace needs. It returns the answer, and whether
@@ -74,15 +74,15 @@ func lastName(path string) string {
 }
 
 // transfer has the program copy the items at paths on the file system of
-// ID from, which writes them as ps, into the folder into on a's, or move
-// them there with move: one transfer for each folder they are in, each
-// an operation of the window.
-func (a *app) transfer(from string, ps PathStyle, paths []string, into string, move bool) {
+// ID from, which writes them as ps, into the folder into on the file
+// system of ID to, or move them there with move: one transfer for each
+// folder they are in, each an operation of the window.
+func (a *app) transfer(from string, ps PathStyle, paths []string, to, into string, move bool) {
 	var ts []Transfer
 	for _, p := range paths {
 		i := slices.IndexFunc(ts, func(t Transfer) bool { return ps.Same(ps.Dir(t.Paths[0]), ps.Dir(p)) })
 		if i < 0 {
-			ts = append(ts, Transfer{FromFS: from, ToFS: a.fs.ID(), Into: into, Move: move})
+			ts = append(ts, Transfer{FromFS: from, ToFS: to, Into: into, Move: move})
 			i = len(ts) - 1
 		}
 		ts[i].Paths = append(ts[i].Paths, p)
@@ -92,11 +92,26 @@ func (a *app) transfer(from string, ps PathStyle, paths []string, into string, m
 	}
 }
 
+// placeLabel names the folder at path on the file system of ID fs, as
+// the window calls it: by the place or the favourite it is, where it is
+// one on another file system, or else by its own name.
+func (a *app) placeLabel(fs, path string) string {
+	if fs == a.fs.ID() {
+		return a.ps.placeName(path)
+	}
+	for _, p := range a.places {
+		if p.FS == fs && p.Path == path && p.Name != "" {
+			return p.Name
+		}
+	}
+	return a.favName(fs, path)
+}
+
 // startTransfer runs t through the program in the background, as an
 // operation of the window, with paths of the file system it comes from
 // written as ps.
 func (a *app) startTransfer(t Transfer, ps PathStyle) {
-	what, where := whatIn(ps, t.Paths), a.ps.placeName(t.Into)
+	what, where := whatIn(ps, t.Paths), a.placeLabel(t.ToFS, t.Into)
 	title, done, kind := "Copying "+what+" to "+where, "Copied "+what+" to "+where, OpCopy
 	if t.Move {
 		title, done, kind = "Moving "+what+" to "+where, "Moved "+what+" to "+where, OpMove

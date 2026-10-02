@@ -468,7 +468,10 @@ func TestPropertiesSetTheAttributesForReal(t *testing.T) {
 // exchange would also cross a socket.
 func TestDndWire(t *testing.T) {
 	err := gunim.CheckWire(
-		DropFiles{Paths: []string{"/a/x"}, Into: "/b", Copy: true},
+		DropFiles{Paths: []string{"/a/x"}, Into: "/b", Copy: true, Away: true, Style: SlashPaths},
+		DragFetch{ID: 1, Paths: []string{"/a/x"}},
+		DragFetched{ID: 1, Paths: []string{"/tmp/x"}, Err: "Too big to drag out"},
+		DragFetchEnd{ID: 1},
 		PinFolders{Paths: []string{"/a"}},
 		Volumes{Of: map[string]string{"/a": "C:"}, Errs: map[string]string{"/b": "denied"}},
 		ClipState{Count: 2, Cut: true},

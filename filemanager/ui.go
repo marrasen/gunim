@@ -121,6 +121,7 @@ func (b *browser) setShell(s Shell, u *gunim.UI) {
 	}
 	b.title.setShell(s, u)
 	b.side.fs, b.side.ps = s.FS, s.Paths
+	b.dnd.u = u
 	b.shown = true
 }
 

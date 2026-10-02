@@ -132,7 +132,7 @@ func (a *app) opsCommand(name string) bool {
 				}
 				a.hub.others(a, func(o *app) { o.syncClip() })
 			}
-			a.transfer(c.fs, c.ps, c.paths, here, c.cut)
+			a.transfer(c.fs, c.ps, c.paths, a.fs.ID(), here, c.cut)
 			return true
 		}
 		if len(a.ops.clip) == 0 {

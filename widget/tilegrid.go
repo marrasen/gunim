@@ -54,6 +54,8 @@ type TileGrid struct {
 	OnZoom func(notches float32, u *gunim.UI)
 	// DragTiles, when set, lets the tiles selected be dragged, as [DataGrid.DragRows] does for rows.
 	DragTiles func(sel [][2]int, at geom.Point) (data any, ghost gunim.Node, grab geom.Point)
+	// OnDragEnd, when set, hears how a drag of the tiles ended.
+	OnDragEnd func(e input.DragEnd) gunim.Intent
 
 	n int
 	// Size is the size of each tile. Change it and the tiles spring to their new places and sizes.
@@ -355,6 +357,11 @@ func (g *TileGrid) Handle(e input.Event, u *gunim.UI) bool {
 		return false
 	case input.DragEnd:
 		g.lift = tileLift{}
+		if g.OnDragEnd != nil {
+			if in := g.OnDragEnd(e); in != nil {
+				u.Send(g, in)
+			}
+		}
 		return true
 	case input.KeyPress:
 		return g.key(e, u)
