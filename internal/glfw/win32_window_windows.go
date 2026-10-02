@@ -635,6 +635,12 @@ func windowProc(hWnd windows.HWND, uMsg uint32, wParam _WPARAM, lParam _LPARAM) 
 	if window.historyMessage(uMsg, lParam) {
 		return _APPCOMMAND_HANDLED
 	}
+	if uMsg == _WM_NCHITTEST {
+		// gunim change: outside its input region, the pointer goes to the window under this one.
+		if r, ok := window.inputRegionHit(lParam); ok {
+			return r
+		}
+	}
 	if r, ok := window.chromeMessage(uMsg, wParam, lParam); ok {
 		return r
 	}

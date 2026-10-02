@@ -58,6 +58,18 @@ type Placer interface {
 	Place(anchor geom.Rect, size geom.Size) error
 }
 
+// A PointerRegioner is a popup [Window] that can take the pointer on part of itself only, so the pointer goes to
+// the window under the rest: a menu whose window reaches past its card, for the shadow, over the menu bar that opened
+// it, leaves the bar its hover and clicks. rects are in the window's logical pixels; nil gives the whole window the
+// pointer again, and an empty, non-nil rects none of it.
+//
+// On X11 it is the window's input shape. On Windows the window tells the system the point is not its own, which
+// passes the pointer to a window of the same program under it, but not to another program's. macOS has no such
+// region, and the whole window goes on taking the pointer there.
+type PointerRegioner interface {
+	SetPointerRegion(rects []geom.Rect)
+}
+
 // A Recycler is a popup [Window] that can be hidden and shown again,
 // so a popup that opens often, such as a menu or a palette, need not
 // make a window and its surface each time: on Windows that is the

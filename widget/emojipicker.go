@@ -314,6 +314,18 @@ func (c *emojiCard) Layout(cs gunim.Constraints, f gunim.Frame, kids gunim.Child
 // Covers implements [gunim.Shaped].
 func (c *emojiCard) Covers(p geom.Point) bool { return !c.transparent || c.card.Contains(p) }
 
+// CoverRects implements [gunim.RegionShaped].
+func (c *emojiCard) CoverRects() []geom.Rect { return coverCard(c.transparent, c.card) }
+
+// coverCard is where a popup's card kept in a window at its largest takes the pointer: the card, where the window
+// shows what is behind it, and else, nil, the whole window, which is the card's colour all over.
+func coverCard(transparent bool, card geom.Rect) []geom.Rect {
+	if !transparent {
+		return nil
+	}
+	return []geom.Rect{card}
+}
+
 // Paint implements [gunim.Node]: a card like a menu's, fading in and unfolding from its top edge, with the emoji
 // under the pointer and its name at its foot.
 func (c *emojiCard) Paint(p *paint.Painter, f gunim.Frame, _ geom.Size, kids gunim.Children) {

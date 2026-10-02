@@ -106,6 +106,19 @@ func (p *barPanel) Covers(at geom.Point) bool {
 	return p.listCard().Contains(at) || (p.cardOn.Target() > 0 && p.sideCard().Contains(at))
 }
 
+// CoverRects implements [gunim.RegionShaped]: the list's card, and the card beside it as it springs to the open
+// menu's line and size.
+func (p *barPanel) CoverRects() []geom.Rect {
+	if !p.transparent {
+		return nil
+	}
+	rects := []geom.Rect{p.listCard()}
+	if p.cardOn.Target() > 0 {
+		rects = append(rects, p.sideCard())
+	}
+	return rects
+}
+
 // Layout implements [gunim.Node]: the list, and beside it the card, as large as the window needs for the bar's largest
 // menu beside its line, within the room the screen leaves. Below the button the list is at the top; above it, at the
 // bottom, against the button. A menu too wide for the room right of the list opens on its left.

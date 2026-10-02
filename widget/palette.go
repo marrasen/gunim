@@ -429,6 +429,9 @@ func (c *paletteCard) Covers(p geom.Point) bool {
 	return !c.transparent || c.card.Contains(p)
 }
 
+// CoverRects implements [gunim.RegionShaped].
+func (c *paletteCard) CoverRects() []geom.Rect { return coverCard(c.transparent, c.card) }
+
 // Paint implements [gunim.Node]: a card like a menu's, fading in and
 // unfolding from its top edge.
 func (c *paletteCard) Paint(p *paint.Painter, f gunim.Frame, _ geom.Size, kids gunim.Children) {
