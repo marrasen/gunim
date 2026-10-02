@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
@@ -97,6 +98,23 @@ func (w *Window) Show(fsys FS, dir string) {
 // title, a body, and a kind, success, warning or info, for its icon.
 func (w *Window) Notify(title, body, kind string) {
 	w.do(func(a *app) { a.patch(Notice{Title: title, Body: body, Kind: kind}) })
+}
+
+// Running is how many operations the window is running: its own, such
+// as a copy, and the transfers it has asked the program for. A program
+// asks before it closes the window, as closing stops them. It is zero
+// once the window has closed, and when the window takes longer than a
+// second to say.
+func (w *Window) Running() int {
+	got := make(chan int, 1)
+	go w.do(func(a *app) { got <- len(a.ops.running) })
+	select {
+	case n := <-got:
+		return n
+	case <-w.done:
+	case <-time.After(time.Second):
+	}
+	return 0
 }
 
 // do runs fn on the window's serve loop, unless it has stopped.
