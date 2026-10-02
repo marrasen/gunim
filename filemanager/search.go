@@ -410,23 +410,10 @@ func (a *app) palettePicked(v PalettePicked) {
 				a.navigate(rest, 0, true)
 				return
 			}
-			a.openWith(rest)
+			a.openFiles([]string{rest})
 			return
 		}
 		a.navigate(a.ps.Dir(rest), 0, true)
 		a.nav.pick = a.ps.Base(rest)
 	}
-}
-
-// openWith opens the file at path with its program.
-func (a *app) openWith(path string) {
-	open, ok := a.systemOpen()
-	if !ok {
-		return
-	}
-	go func() {
-		if err := open(path); err != nil {
-			a.post(func() { a.fail(fmt.Sprintf("Opening %s: %v", path, err)) })
-		}
-	}()
 }

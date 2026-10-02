@@ -241,7 +241,7 @@ func newApp(ctx context.Context, c gunim.Client, o Options) (*app, error) {
 	a.shell = Shell{Light: a.prefs.Light, ShowHidden: a.prefs.ShowHidden, ShowPreview: !a.prefs.HidePreview,
 		Sidebar: a.prefs.Sidebar, FS: a.fs.ID(), Paths: a.ps, NoTrash: tr == nil,
 		Transfers: o.Transfer != nil, PlaceMenu: o.PlaceMenu != nil, Name: o.Name}
-	a.shell.Where = a.where()
+	a.shell.Where, a.shell.Fetches = a.where(), a.fetches()
 	a.nav.sort, a.nav.desc = a.prefs.Sort, a.prefs.Desc
 	return a, nil
 }

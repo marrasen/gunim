@@ -152,8 +152,16 @@ func (pg *listingPage) contextMenu(g gunim.Node, rowAt func(geom.Point) int, sel
 		if one {
 			st.path = b.shell.Paths.Join(b.listing.path, sel[0].Name)
 		}
-		st.cmds = fill(m, rowItems, func(cmd string) bool {
+		items := rowItems
+		if b.shell.Fetches {
+			items = without(items, CmdReveal)
+		}
+		st.cmds = fill(m, items, func(cmd string) bool {
 			switch cmd {
+			case CmdOpenSystem:
+				// Folders elsewhere do not open with this computer's
+				// programs; their files are fetched to.
+				return b.shell.Fetches && dirs > 0
 			case CmdPaste:
 				return clipEmpty
 			case CmdRename:

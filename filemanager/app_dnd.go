@@ -2,7 +2,6 @@ package filemanager
 
 import (
 	"errors"
-	"fmt"
 	"slices"
 	"strings"
 	"unicode/utf8"
@@ -151,18 +150,7 @@ func (a *app) openSystem() {
 	if len(paths) == 0 {
 		paths = []string{a.nav.path}
 	}
-	open, ok := a.systemOpen()
-	if !ok {
-		return
-	}
-	go func() {
-		for _, p := range paths {
-			if err := open(p); err != nil {
-				a.post(func() { a.fail(fmt.Sprintf("Opening %s: %v", p, err)) })
-				return
-			}
-		}
-	}()
+	a.openFiles(paths)
 }
 
 // publishVolumes finds the volume of each folder in s the window can

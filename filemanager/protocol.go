@@ -52,6 +52,11 @@ type Shell struct {
 	// NoTrash says the file system has no trash, so the key that trashes
 	// deletes, after asking.
 	NoTrash bool
+	// Fetches says the file system's files open with this computer's
+	// programs only by a copy fetched to it first, so its folders do not
+	// open with them, and nothing of it shows in the system's file
+	// manager.
+	Fetches bool
 	// Transfers says the program can copy and move items between file
 	// systems, so the window takes drops from another.
 	Transfers bool

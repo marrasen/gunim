@@ -103,15 +103,22 @@ func newPreviewPage(s Preview) *previewPage {
 		full := widget.NewLabel(s.Path)
 		full.Size, full.Color, full.Selectable = SmallText, Caption, true
 		kids = append(kids, full)
-		reveal := widget.NewLink("Show in system file manager")
-		reveal.Size = SmallText
-		reveal.On = RevealPath{Path: s.Path}
+		if !s.NoReveal {
+			reveal := widget.NewLink("Show in system file manager")
+			reveal.Size = SmallText
+			reveal.On = RevealPath{Path: s.Path}
+			pg.links = append(pg.links, reveal)
+		}
 		copyPath := widget.NewLink("Copy path")
 		copyPath.Size = SmallText
 		path := s.Path
 		copyPath.OnActivate(func(u *gunim.UI) { u.SetClipboard(path) })
-		pg.links = []*widget.Link{reveal, copyPath}
-		links := &linkWrap{Wrap: widget.NewWrap(), kids: []gunim.Node{reveal, copyPath}}
+		pg.links = append(pg.links, copyPath)
+		nodes := make([]gunim.Node, len(pg.links))
+		for i, l := range pg.links {
+			nodes[i] = l
+		}
+		links := &linkWrap{Wrap: widget.NewWrap(), kids: nodes}
 		links.Gap = sideGap
 		kids = append(kids, links)
 	}

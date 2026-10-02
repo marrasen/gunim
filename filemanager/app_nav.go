@@ -149,9 +149,16 @@ func (a *app) navCommand(name string) bool {
 	case CmdRefresh:
 		a.relist()
 	case CmdOpen:
+		// The files open together, so a fetch to open them asks once.
+		var files []string
 		for _, e := range a.selectedEntries() {
-			a.activate(e)
+			if e.Dir || e.Err != "" || e.Broken {
+				a.activate(e)
+				continue
+			}
+			files = append(files, a.ps.Join(a.nav.path, e.Name))
 		}
+		a.openFiles(files)
 	case CmdHidden:
 		a.shell.ShowHidden = !a.shell.ShowHidden
 		show := a.shell.ShowHidden
@@ -592,7 +599,7 @@ func (a *app) activate(e entry) {
 		a.fail(path + " is a link to something that is gone.")
 		return
 	}
-	a.openWith(path)
+	a.openFiles([]string{path})
 }
 
 // publishStatus sends the status bar.
