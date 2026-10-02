@@ -536,12 +536,14 @@ func (d *Dialog) iconRoom(th *theme.Live) float32 {
 // and the host has not left the bar out.
 func (d *Dialog) hasBar() bool { return d.Title != "" && !d.NoTitleBar }
 
-// barHeight is the title bar's height, or 0 without one.
+// barHeight is the title bar's height, or 0 without one: a compact
+// window title bar's, or four fifths of a button's where the theme's
+// buttons stand taller, so the bar holds its own beside them.
 func (d *Dialog) barHeight(th *theme.Live) float32 {
 	if !d.hasBar() {
 		return 0
 	}
-	return TitleBarCompactHeight.Get(th)
+	return max(TitleBarCompactHeight.Get(th), 0.8*ButtonHeight.Get(th))
 }
 
 // title lays the title out on one line, for a panel width wide, after

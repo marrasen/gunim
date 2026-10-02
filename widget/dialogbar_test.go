@@ -66,7 +66,7 @@ func textsIn(ops []paint.Op, top, bottom float32) int {
 
 func TestADialogShowsItsTitleInATitleBar(t *testing.T) {
 	body, panel, ops := barStage(t, "Rename the file", func(*Dialog) {})
-	bar, pad := TitleBarCompactHeight.Default(), DialogPadding.Default()
+	bar, pad := max(TitleBarCompactHeight.Default(), 0.8*ButtonHeight.Default()), DialogPadding.Default()
 	fills := barFills(ops)
 	if len(fills) == 0 || near(fills[0].Min.Y, panel.Min.Y) != nil || fills[0].Min.X != panel.Min.X || fills[0].Max.X != panel.Max.X {
 		t.Fatalf("the title bar's fill is at %v, want across the top of the panel %v", fills, panel)
@@ -191,8 +191,9 @@ func titleOp(t *testing.T, ops []paint.Op, top, bottom float32) *paint.TextOp {
 	return found[0]
 }
 
-// A dialog's title bar is a compact window title bar's twin: as tall, in its fill, with the title in the same size,
-// face, colour and height in it, and no line under it.
+// A dialog's title bar is a compact window title bar's twin: in its fill, with the title in the same size, face and
+// colour, in the middle of it, and no line under it. Where the theme's buttons stand taller, the bar stands taller
+// with them, to four fifths of a button.
 func TestADialogsTitleBarMatchesACompactWindowTitleBar(t *testing.T) {
 	ops, windowBar := compactTitleBar(t, "Rename the file")
 	win := titleOp(t, ops, 0, windowBar)
@@ -204,14 +205,15 @@ func TestADialogsTitleBarMatchesACompactWindowTitleBar(t *testing.T) {
 	}
 	// The first fill runs below the bar by the panel's corners, and the panel's own fill covers that part again.
 	if h := TitleBarCompactHeight.Default(); h != windowBar {
-		t.Fatalf("the dialog's bar is %v tall and the window's %v", h, windowBar)
+		t.Fatalf("a compact window bar is %v tall, the window's %v", h, windowBar)
 	}
-	dlg := titleOp(t, dops, panel.Min.Y, panel.Min.Y+windowBar)
+	dialogBar := max(windowBar, 0.8*ButtonHeight.Default())
+	dlg := titleOp(t, dops, panel.Min.Y, panel.Min.Y+max(windowBar, 0.8*ButtonHeight.Default()))
 	if dlg.Size != win.Size || dlg.Color != win.Color || dlg.Glyphs[0].Face != win.Glyphs[0].Face {
 		t.Fatalf("the dialog's title is %v in %v, face %d, and the window's %v in %v, face %d",
 			dlg.Size, dlg.Color, dlg.Glyphs[0].Face, win.Size, win.Color, win.Glyphs[0].Face)
 	}
-	if err := near(dlg.Transform.F-panel.Min.Y, win.Transform.F); err != nil {
+	if err := near(dlg.Transform.F-panel.Min.Y, win.Transform.F+(dialogBar-windowBar)/2); err != nil {
 		t.Fatalf("the dialog's title sits %v down its bar, and the window's %v: %v", dlg.Transform.F-panel.Min.Y, win.Transform.F, err)
 	}
 	for _, op := range dops {
