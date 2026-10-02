@@ -84,10 +84,31 @@ func (s PathStyle) Abs(p string) (string, error) {
 	if s != SlashPaths {
 		return filepath.Abs(p)
 	}
+	if d, ok := drivePath(p); ok {
+		p = d
+	}
 	if !strings.HasPrefix(p, "/") {
 		return "", errNotAbsolute
 	}
 	return path.Clean(p), nil
+}
+
+// drivePath is a Windows path typed for a file system of slash paths,
+// G:\Users or G:/Users, as SFTP writes it from a Windows machine:
+// /G:/Users. A drive alone, G:, is its top. It is false for anything
+// else.
+func drivePath(p string) (string, bool) {
+	if len(p) < 2 || p[1] != ':' || !(p[0] >= 'A' && p[0] <= 'Z' || p[0] >= 'a' && p[0] <= 'z') {
+		return "", false
+	}
+	if len(p) > 2 && p[2] != '\\' && p[2] != '/' {
+		return "", false
+	}
+	rest := strings.ReplaceAll(p[2:], `\`, "/")
+	if rest == "" {
+		rest = "/"
+	}
+	return "/" + strings.ToUpper(p[:1]) + ":" + rest, true
 }
 
 // VolumeName is the drive or share p starts with, as C: on Windows, and
