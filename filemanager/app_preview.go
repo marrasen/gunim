@@ -138,6 +138,7 @@ func (a *app) showPreview() {
 			}
 			a.post(func() {
 				if a.preview.seq == seq {
+					pv.NoReveal = a.fetches()
 					a.patch(pv)
 					if e.Dir {
 						a.count(ctx, seq, path)
@@ -148,7 +149,7 @@ func (a *app) showPreview() {
 	default:
 		info := entry{Name: a.ps.placeName(n.path), Dir: true, Type: "Folder", Mod: n.mod}
 		pv := Preview{Seq: seq, Title: info.Name, Type: "This folder", Path: n.path, Tint: TintFolder,
-			Facts: []Fact{{"Holds", plural(len(n.all), "item")}, {"Modified", fmtTime(n.mod)}, {"In", a.ps.placeName(a.ps.Dir(n.path))}}}
+			Facts: []Fact{{"Holds", plural(len(n.all), "item")}, {"Modified", fmtTime(n.mod)}, {"In", a.ps.placeName(a.ps.Dir(n.path))}}, NoReveal: a.fetches()}
 		a.patch(pv)
 	}
 }

@@ -91,31 +91,75 @@ type titleBar struct {
 	// folder is the name of the folder showing, once one is, and native
 	// the title the window was given last.
 	folder, native string
+	// fetches says the menus are those of a file system whose files are
+	// fetched to open.
+	fetches bool
 }
 
 func newTitleBar(b *browser) *titleBar {
 	t := &titleBar{b: b, controls: widget.NewWindowControls()}
+	t.bar = widget.NewMenubar(t.build(false)...)
+	t.bar.Title = "Files"
+	t.bar.Pick = t.pick
+	return t
+}
+
+// build makes the bar's menus, and sets the commands of their items. On
+// a file system whose files are fetched to open, nothing shows in the
+// system's file manager, so the menus leave that out. The items keep
+// their ticks.
+func (t *titleBar) build(fetches bool) []widget.BarMenu {
+	var was map[string]bool
+	if t.bar != nil {
+		was = map[string]bool{}
+		for m, cmds := range t.cmds {
+			for i, c := range cmds {
+				was[c] = t.bar.Menus[m].Checked[i]
+			}
+		}
+	}
 	bars := make([]widget.BarMenu, 0, len(menus))
+	t.cmds = t.cmds[:0]
 	for _, m := range menus {
+		items := m.items
+		if fetches {
+			items = without(items, CmdReveal)
+		}
 		bm := widget.BarMenu{Title: m.title}
 		var cmds []string
-		for _, it := range m.items {
+		for _, it := range items {
 			if it.label == "-" {
 				bm.Breaks = append(bm.Breaks, len(bm.Items))
 				continue
 			}
 			bm.Items = append(bm.Items, it.label)
 			bm.Hints = append(bm.Hints, it.hint)
+			bm.Checked = append(bm.Checked, was[it.cmd])
 			cmds = append(cmds, it.cmd)
 		}
-		bm.Checked = make([]bool, len(bm.Items))
 		bars = append(bars, bm)
 		t.cmds = append(t.cmds, cmds)
 	}
-	t.bar = widget.NewMenubar(bars...)
-	t.bar.Title = "Files"
-	t.bar.Pick = t.pick
-	return t
+	t.fetches = fetches
+	return bars
+}
+
+// without returns items without the one that sends cmd, and without a
+// line that would then start or end the menu, or follow another.
+func without(items []menuItem, cmd string) []menuItem {
+	var out []menuItem
+	for _, it := range items {
+		switch {
+		case it.cmd == cmd && it.label != "-":
+		case it.label == "-" && (len(out) == 0 || out[len(out)-1].label == "-"):
+		default:
+			out = append(out, it)
+		}
+	}
+	if n := len(out); n > 0 && out[n-1].label == "-" {
+		out = out[:n-1]
+	}
+	return out
 }
 
 // pick runs the command of item i of menu m.
@@ -147,6 +191,9 @@ func (t *titleBar) check(cmd string, on bool) {
 }
 
 func (t *titleBar) setShell(s Shell, u *gunim.UI) {
+	if s.Fetches != t.fetches {
+		t.bar.Menus = t.build(s.Fetches)
+	}
 	for m, cmds := range t.cmds {
 		for i, c := range cmds {
 			if c == CmdTrash {

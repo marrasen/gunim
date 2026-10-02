@@ -64,14 +64,6 @@ func TestAFileSystemWithoutATrashCopiesWithoutUndo(t *testing.T) {
 	}
 }
 
-func TestAFileSystemElsewhereOpensNothingWithTheSystem(t *testing.T) {
-	h := newHarnessWith(t, onBareFS, "a.txt")
-	h.until("the rows arrive", func() bool { return len(h.shown()) == 1 })
-	h.pick("a.txt")
-	h.do(Command{Name: CmdOpen})
-	h.until("the banner says why", func() bool { return strings.Contains(h.b.banner.label.Text, "cannot open") })
-}
-
 func TestADropFromAnotherFileSystemIsRefused(t *testing.T) {
 	d := FileDrag{Paths: []string{"/a/x"}, FS: "elsewhere"}
 	if _, hint, ok := dropPlan(SystemPaths, "", false, d, "/b", "", "", 0); ok || !strings.Contains(hint.Text, "another file system") {

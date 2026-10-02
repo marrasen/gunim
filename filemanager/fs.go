@@ -158,10 +158,12 @@ type Attributer interface {
 	SetAttrs(path string, readOnly, hidden bool) error
 }
 
-// SystemOpener is a file system other than the computer's own whose
-// files can still open with the computer's programs, as by fetching
-// them first. The computer's own files open through the window; those
-// of a file system that is neither open nowhere.
+// SystemOpener is a file system other than the computer's own that
+// opens its files with the computer's programs itself. The computer's
+// own files open through the window. The files of a file system that is
+// neither are fetched to a temporary folder on the computer and open
+// from there; its folders do not open with the computer's programs, and
+// nothing of it shows in the system's file manager.
 type SystemOpener interface {
 	// OpenInSystem opens the file or folder at path with the program the
 	// system has for it.

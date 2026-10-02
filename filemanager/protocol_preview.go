@@ -18,9 +18,12 @@ type Preview struct {
 	Type  string
 	// Path is the item's path, for the Reveal and Copy path links; empty
 	// for several items.
-	Path  string
-	Tint  Tint
-	Facts []Fact
+	Path string
+	// NoReveal leaves out the link that shows the item in the system's
+	// file manager, for an item of a file system that cannot.
+	NoReveal bool
+	Tint     Tint
+	Facts    []Fact
 	// Image is a picture's thumbnail, and Text the start of a text file,
 	// Cut set when there is more.
 	Image *paint.Image

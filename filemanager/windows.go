@@ -40,11 +40,17 @@ type Hub struct {
 	wg   sync.WaitGroup
 	errs []error
 	ga   *gunim.App
+	// copies are the files of other file systems fetched to open with
+	// the computer's programs, kept until the hub ends.
+	copies *openCopies
 }
 
 // NewHub makes a hub whose windows open on ga, and close when ctx ends.
 func NewHub(ctx context.Context, ga *gunim.App) *Hub {
 	h := &Hub{ctx: ctx, ga: ga}
+	// The copies fetched to open go with the hub, those no program
+	// holds; a hub that starts takes away what is left a day later.
+	context.AfterFunc(ctx, h.removeCopies)
 	h.open = func(o Options) error {
 		_, err := h.Open(o)
 		return err
@@ -165,6 +171,7 @@ func (h *Hub) Serve(c gunim.Client, o Options) error {
 // errors they ended with.
 func (h *Hub) Wait() error {
 	h.wg.Wait()
+	h.removeCopies()
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return errors.Join(h.errs...)
