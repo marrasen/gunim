@@ -820,6 +820,7 @@ func (w *Window) install() {
 			w.mods = modsOf(gw.HeldModifiers())
 		}
 		w.accessFocus(focused)
+		w.pointerf("keyboard %v", focused)
 		w.in.push(driver.WindowFocus{Focused: focused})
 	})
 	_, _ = gw.SetCloseCallback(func(gw *glfw.Window) {
@@ -831,6 +832,7 @@ func (w *Window) install() {
 
 	_, _ = gw.SetCursorPosCallback(func(_ *glfw.Window, x, y float64) {
 		w.cursor = w.logical(x, y)
+		w.pointerf("move to %.1f,%.1f", w.cursor.X, w.cursor.Y)
 		if w.behind {
 			w.mods = modsOf(gw.HeldModifiers())
 			esc := gw.EscapeHeld()
@@ -842,6 +844,7 @@ func (w *Window) install() {
 		w.in.push(input.PointerMove{Pos: w.cursor, Mods: w.mods, Time: time.Now()})
 	})
 	_, _ = gw.SetCursorEnterCallback(func(_ *glfw.Window, entered bool) {
+		w.pointerf("entered %v", entered)
 		if !entered {
 			w.in.push(input.PointerLeave{Time: time.Now()})
 		}
@@ -853,6 +856,7 @@ func (w *Window) install() {
 		}
 		w.mods = modsOf(mods)
 		now := time.Now()
+		w.pointerf("button %v %v at %.1f,%.1f", button, action == glfw.Release, w.cursor.X, w.cursor.Y)
 		if action == glfw.Release {
 			if w.behind {
 				w.mods = modsOf(gw.HeldModifiers())
@@ -1304,6 +1308,23 @@ func (w *Window) uncover() {
 var windowDebug = os.Getenv("GUNIM_DEBUG_WINDOW") == "1"
 
 // debugf logs one line about the window, with GUNIM_DEBUG_WINDOW set.
+// pointerDebug is set by GUNIM_DEBUG_POINTER=1, which logs to standard
+// error each pointer event a window hears, and when it gains and loses
+// the keyboard, to find where the pointer goes astray.
+var pointerDebug = os.Getenv("GUNIM_DEBUG_POINTER") == "1"
+
+// pointerf logs a pointer event of w, under GUNIM_DEBUG_POINTER=1.
+func (w *Window) pointerf(format string, args ...any) {
+	if !pointerDebug {
+		return
+	}
+	kind := "window"
+	if w.popup {
+		kind = "popup"
+	}
+	fmt.Fprintf(os.Stderr, "gunim pointer %s %p %s: %s\n", kind, w, time.Now().Format("15:04:05.000"), fmt.Sprintf(format, args...))
+}
+
 func (w *Window) debugf(format string, args ...any) {
 	if !windowDebug {
 		return
