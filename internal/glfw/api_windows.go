@@ -73,6 +73,7 @@ const (
 	_GCLP_HICONSM                                              = -34
 	_GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS                    = 0x00000004
 	_GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT              = 0x00000002
+	_GW_HWNDNEXT                                               = 2
 	_GW_HWNDPREV                                               = 3
 	_GW_OWNER                                                  = 4
 	_GWL_EXSTYLE                                               = -20
@@ -824,6 +825,7 @@ var (
 	procGetRawInputData               = user32.NewProc("GetRawInputData")
 	procGetSystemMetrics              = user32.NewProc("GetSystemMetrics")
 	procGetSystemMetricsForDpi        = user32.NewProc("GetSystemMetricsForDpi")
+	procGetTopWindow                  = user32.NewProc("GetTopWindow")
 	procGetWindow                     = user32.NewProc("GetWindow")
 	procGetWindowLongW                = user32.NewProc("GetWindowLongW")
 	procGetWindowPlacement            = user32.NewProc("GetWindowPlacement")
@@ -1397,6 +1399,13 @@ func _GetSystemMetricsForDpi(nIndex int32, dpi uint32) (int32, error) {
 		return 0, fmt.Errorf("glfw: GetSystemMetricsForDpi failed: %w", e)
 	}
 	return int32(r), nil
+}
+
+// _GetTopWindow returns the top-level window highest in the Z order,
+// topmost windows included, or 0 where there is none.
+func _GetTopWindow() windows.HWND {
+	r, _, _ := procGetTopWindow.Call(0)
+	return windows.HWND(r)
 }
 
 // _GetWindow returns the window in relation cmd to hWnd, or 0 where there is none.

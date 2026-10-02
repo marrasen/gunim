@@ -84,6 +84,18 @@ type StayOpener interface {
 	StayOpen(on bool)
 }
 
+// A Stacker is a [Driver] that knows how the system stacks windows on
+// the screen, so that where two of the application's windows overlap a
+// drag goes to the one in front.
+type Stacker interface {
+	// Depths returns, for each of ws, how deep it lies in the stack:
+	// 0 for the frontmost window on the screen, larger further back.
+	// Only the order of the numbers means anything. A window the
+	// driver cannot place, such as a hidden one or one it did not
+	// open, gets -1. It is safe to call from any goroutine.
+	Depths(ws []Window) []int
+}
+
 // Options describes a window to open.
 type Options struct {
 	Title   string

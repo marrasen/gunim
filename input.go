@@ -60,6 +60,8 @@ func (u *UI) handleOn(root *state, ev any) {
 		u.altAlone = false
 		if !e.Focused {
 			u.dismissFor(nil, nil)
+		} else if u.w.app != nil {
+			u.w.app.windows.focus(u.w)
 		}
 		var ev input.Event = input.WindowFocusGained{Time: time.Now()}
 		if !e.Focused {
