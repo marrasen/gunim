@@ -271,11 +271,11 @@ func (v *dndView) copyPaths(u *gunim.UI) {
 	if l.cur != nil {
 		rows, _ := l.cur.selectedRows(l.cur.selection())
 		for _, r := range rows {
-			paths = append(paths, v.b.shell.Paths.Join(l.path, r.Name))
+			paths = append(paths, v.b.shell.Paths.Show(v.b.shell.Paths.Join(l.path, r.Name)))
 		}
 	}
 	if len(paths) == 0 {
-		paths = []string{l.path}
+		paths = []string{v.b.shell.Paths.Show(l.path)}
 	}
 	u.SetClipboard(strings.Join(paths, "\n"))
 }

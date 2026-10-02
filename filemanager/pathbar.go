@@ -34,7 +34,8 @@ func newPathBar(b *browser) *pathBar {
 	p.fwd = newNavButton(icon.ArrowRight, "Forward (Alt+Right)", CmdForward)
 	p.up = newNavButton(icon.ArrowUp, "Up (Alt+Up)", CmdUp)
 	p.addr = widget.NewAddressBar()
-	p.addr.OnGo = func(path string) gunim.Intent { return Navigate{Path: path} }
+	// A path entered in the field was typed; one of the places was not.
+	p.addr.OnGo = func(path string) gunim.Intent { return Navigate{Path: path, Typed: p.addr.Editing()} }
 	p.addr.OnDone = b.focusListing
 	p.filter = &filterField{TextField: widget.NewTextField(), bar: p}
 	p.filter.Placeholder = "Filter this folder"
@@ -70,7 +71,7 @@ func (p *pathBar) setListing(l Listing, u *gunim.UI) {
 		for i, c := range l.Crumbs {
 			cs[i] = widget.Crumb{Name: c.Name, Path: c.Path}
 		}
-		p.addr.SetPath(l.Path, cs, u)
+		p.addr.SetPath(p.b.shell.Paths.Show(l.Path), cs, u)
 		p.filter.SetText(l.Filter)
 	}
 }

@@ -75,7 +75,7 @@ func TestFavouritesOnAnyFileSystemAreListedAndVisited(t *testing.T) {
 		t.Fatalf("the window went to %s itself", h.a.nav.path)
 	}
 
-	hits := rankCommands("data", nil, h.a.favPlaces(), h.a.fs.ID())
+	hits := rankCommands("data", nil, h.a.favPlaces(), h.a.fs.ID(), h.a.ps)
 	if len(hits) == 0 || hits[0].Key != "visit:"+server+"\x00/srv/data" || hits[0].Detail != "Server: /srv/data" {
 		t.Fatalf("the palette offers %+v for the favourite on the server", hits)
 	}

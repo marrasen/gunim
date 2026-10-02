@@ -261,7 +261,7 @@ func (r *runner) resolve(src, dst string) (to string, skip, merge, replace bool,
 		ans = *r.all
 	} else {
 		if r.env.ask == nil {
-			return "", false, false, false, fmt.Errorf("%s already exists", dst)
+			return "", false, false, false, fmt.Errorf("%s already exists", r.env.fs.Paths().Show(dst))
 		}
 		ans, err = r.env.ask(r.ctx, clash{src: src, dst: dst, sameKind: sDir == dDir})
 		if err != nil {
@@ -280,7 +280,8 @@ func (r *runner) resolve(src, dst string) (to string, skip, merge, replace bool,
 	case choiceReplace:
 	}
 	if sDir != dDir {
-		return "", false, false, false, fmt.Errorf("%s cannot replace %s: one is a folder and the other is not", src, dst)
+		return "", false, false, false, fmt.Errorf("%s cannot replace %s: one is a folder and the other is not", r.env.fs.Paths().Show(src),
+			r.env.fs.Paths().Show(dst))
 	}
 	return dst, false, sDir, !sDir, nil
 }
@@ -358,7 +359,7 @@ func (r *runner) copyItem(src, dst string, merge, replace, top bool) error {
 	case info.Mode().IsRegular():
 		err = r.copyFile(src, dst, info)
 	default:
-		err = fmt.Errorf("%s is not a file, a folder or a link, and cannot be copied", src)
+		err = fmt.Errorf("%s is not a file, a folder or a link, and cannot be copied", r.env.fs.Paths().Show(src))
 	}
 	if err != nil {
 		return err
@@ -705,12 +706,12 @@ func (r *runner) removeTree(path string) error {
 	fsys := r.env.fs
 	info, err := fsys.Lstat(path)
 	if err != nil {
-		return fmt.Errorf("deleting %s: %w", path, err)
+		return fmt.Errorf("deleting %s: %w", fsys.Paths().Show(path), err)
 	}
 	if realDir(info) {
 		kids, err := readDirSorted(r.ctx, fsys, path)
 		if err != nil {
-			return fmt.Errorf("reading %s: %w", path, err)
+			return fmt.Errorf("reading %s: %w", fsys.Paths().Show(path), err)
 		}
 		for _, k := range kids {
 			if err := r.removeTree(fsys.Paths().Join(path, k.Name())); err != nil {
@@ -720,7 +721,7 @@ func (r *runner) removeTree(path string) error {
 	}
 	r.p.current = path
 	if err := fsys.Remove(path); err != nil {
-		return fmt.Errorf("deleting %s: %w", path, err)
+		return fmt.Errorf("deleting %s: %w", fsys.Paths().Show(path), err)
 	}
 	r.p.items++
 	r.tell(false)
@@ -756,17 +757,17 @@ func (r *runner) rename(src, name string) error {
 	}
 	sInfo, err := fsys.Lstat(src)
 	if err != nil {
-		return fmt.Errorf("renaming %s: %w", src, err)
+		return fmt.Errorf("renaming %s: %w", ps.Show(src), err)
 	}
 	dInfo, err := fsys.Lstat(dst)
 	switch {
 	case err == nil && !sameFile(fsys, sInfo, dInfo):
-		return fmt.Errorf("%s already exists", dst)
+		return fmt.Errorf("%s already exists", ps.Show(dst))
 	case err != nil && !errors.Is(err, fs.ErrNotExist):
-		return fmt.Errorf("renaming %s: %w", src, err)
+		return fmt.Errorf("renaming %s: %w", ps.Show(src), err)
 	}
 	if err := fsys.Rename(src, dst); err != nil {
-		return fmt.Errorf("renaming %s: %w", src, err)
+		return fmt.Errorf("renaming %s: %w", ps.Show(src), err)
 	}
 	r.did(src, dst)
 	return nil
@@ -781,9 +782,9 @@ func (r *runner) newFolder(dir, name string) error {
 	path := ps.Join(dir, name)
 	if err := r.env.fs.Mkdir(path, 0o777); err != nil {
 		if errors.Is(err, fs.ErrExist) {
-			return fmt.Errorf("%s already exists", path)
+			return fmt.Errorf("%s already exists", ps.Show(path))
 		}
-		return fmt.Errorf("making %s: %w", path, err)
+		return fmt.Errorf("making %s: %w", ps.Show(path), err)
 	}
 	r.did("", path)
 	return nil

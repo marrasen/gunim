@@ -198,9 +198,12 @@ type Typed struct {
 	Text string
 }
 
-// Navigate asks to show the folder at Path.
+// Navigate asks to show the folder at Path. Typed says the user typed
+// it, as Windows writes it on a file system of drive paths, and maybe in
+// another case than the folders have.
 type Navigate struct {
-	Path string
+	Path  string
+	Typed bool
 }
 
 // Command asks for one of the commands of the menus and keys, by name.
