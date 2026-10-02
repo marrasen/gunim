@@ -276,6 +276,35 @@ func TestADragLeavesOnlyOnceFarFromEveryWindow(t *testing.T) {
 	}
 }
 
+// fakeCoverer says another program's window lies in front of the
+// application's windows within the screen rectangle over.
+type fakeCoverer struct{ over geom.Rect }
+
+func (f fakeCoverer) Covered(_ []driver.Window, p geom.Point) (bool, bool) {
+	return f.over.Contains(p), true
+}
+
+func TestADragOverAnotherProgramsWindowInFrontLeavesAtOnce(t *testing.T) {
+	a, _, c, _ := twoWindows(t)
+	// Another program's window lies over the right one, from 1000 to
+	// 1200 across.
+	a.app.windows.coverer = fakeCoverer{over: geom.Rc(1000, 0, 200, 600)}
+	x := &exporter{carrier: c, data: exportable{"/tmp/apple.png"}}
+	a.ui.Remove(c)
+	a.ui.Insert(a.ui.root.kids[0].node, x)
+	run(a, 60)
+	a.Input(input.PointerDown{Pos: geom.Pt(30, 30), Time: time.Now()})
+	a.Input(input.PointerMove{Pos: geom.Pt(40, 30), Time: time.Now()})
+	a.Input(input.PointerMove{Pos: geom.Pt(900, 50), Time: time.Now()})
+	if len(a.mustOffscreen(t).DraggedOut()) != 0 {
+		t.Fatal("handed out over a window of the application in front")
+	}
+	a.Input(input.PointerMove{Pos: geom.Pt(1100, 50), Time: time.Now()})
+	if out := a.mustOffscreen(t).DraggedOut(); len(out) != 1 {
+		t.Fatalf("over another program's window in front, handed out %v, want the file once", out)
+	}
+}
+
 // answerer is a basket that says what a drop on it would do.
 type answerer struct {
 	basket

@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"reflect"
 	"runtime"
@@ -248,6 +249,26 @@ func (d *Driver) Monitors() []driver.Monitor {
 		return nil
 	})
 	return out
+}
+
+// Covered implements [driver.Coverer].
+func (d *Driver) Covered(ws []driver.Window, p geom.Point) (covered, ok bool) {
+	gws := make([]*glfw.Window, len(ws))
+	for i, w := range ws {
+		if dw, mine := w.(*Window); mine && dw.d == d {
+			gws[i] = dw.gw
+		}
+	}
+	_ = d.call(func() error {
+		for i, w := range ws {
+			if dw, mine := w.(*Window); mine && dw.closed {
+				gws[i] = nil
+			}
+		}
+		covered, ok = glfw.Covered(gws, int(math.Floor(float64(p.X))), int(math.Floor(float64(p.Y))))
+		return nil
+	})
+	return covered, ok
 }
 
 // Depths implements [driver.Stacker].
