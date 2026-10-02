@@ -36,7 +36,7 @@ func TestADialogShowsItsIconBeforeItsTitle(t *testing.T) {
 		t.Fatalf("the dialog drew %d icons, want its icon in the ink", len(ms))
 	}
 	panel := d.panel(geom.Sz(800, 600), gunim.Frame{})
-	pad, bar := DialogPadding.Default(), TitleBarCompactHeight.Default()
+	pad, bar := DialogPadding.Default(), max(TitleBarCompactHeight.Default(), 0.8*ButtonHeight.Default())
 	at := ms[0].Transform.Apply(ms[0].Rect.Min)
 	end := ms[0].Transform.Apply(ms[0].Rect.Max)
 	if at.Y < panel.Min.Y || end.Y > panel.Min.Y+bar {

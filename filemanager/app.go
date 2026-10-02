@@ -45,6 +45,13 @@ type Options struct {
 	// leaves w as it is. A window whose Visit is nil says it cannot go
 	// there.
 	Visit func(w *Window, fs, path string, newWindow bool)
+	// PlaceMenu adds the program's own items to the context menu of a
+	// place, such as Disconnect for a machine. It is called on the
+	// window's serve loop as the menu opens, so it must be quick.
+	PlaceMenu func(p Place) []PlaceItem
+	// PlaceCommand does what the program's item id of place p asks, on a
+	// goroutine of its own. w is the window the menu opened in.
+	PlaceCommand func(w *Window, p Place, id string)
 	// Transfer copies or moves items between file systems, as a drop or a
 	// paste asks, as one of the window's operations: its progress and a
 	// way to stop it show with the window's own, and it asks about names
@@ -233,7 +240,7 @@ func newApp(ctx context.Context, c gunim.Client, o Options) (*app, error) {
 	a.prefs, a.prefsErr = loadPrefs(a.prefsPath)
 	a.shell = Shell{Light: a.prefs.Light, ShowHidden: a.prefs.ShowHidden, ShowPreview: !a.prefs.HidePreview,
 		Sidebar: a.prefs.Sidebar, FS: a.fs.ID(), Paths: a.ps, NoTrash: tr == nil,
-		Transfers: o.Transfer != nil, Name: o.Name}
+		Transfers: o.Transfer != nil, PlaceMenu: o.PlaceMenu != nil, Name: o.Name}
 	a.shell.Where = a.where()
 	a.nav.sort, a.nav.desc = a.prefs.Sort, a.prefs.Desc
 	return a, nil

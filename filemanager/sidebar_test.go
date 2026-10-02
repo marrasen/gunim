@@ -10,6 +10,7 @@ import (
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
+	"github.com/marrasen/gunim/theme"
 	"github.com/marrasen/gunim/widget"
 )
 
@@ -173,5 +174,153 @@ func TestTurningToAnotherFileSystemKeepsTheSidebarRows(t *testing.T) {
 	}
 	if fav := h.b.side.items[before[3].key]; !fav.away {
 		t.Fatalf("the favourite of the computer is %+v, want it away", fav)
+	}
+}
+
+// newMenuHarness opens a window on a folder made of spec, with the
+// options set changes.
+func newMenuHarness(t *testing.T, set func(o *Options), spec ...string) *harness {
+	t.Helper()
+	root := t.TempDir()
+	dir := filepath.Join(root, "dir")
+	tree(t, dir, spec...)
+	return openHarnessWith(t, nil, root, dir, set)
+}
+
+// rightClick presses and lets go of the secondary button at p.
+func (h *harness) rightClick(p geom.Point) {
+	h.w.Input(input.PointerMove{Pos: p, Time: time.Now()})
+	h.w.Input(input.PointerDown{Pos: p, Button: input.ButtonSecondary, Clicks: 1, Time: time.Now()})
+	h.w.Input(input.PointerUp{Pos: p, Button: input.ButtonSecondary, Time: time.Now()})
+	h.frames(4)
+}
+
+// sideMenuShown returns the items of the sidebar's menu and where its
+// lines go, or fails the test when it is not open.
+func (h *harness) sideMenuShown() (items []string, breaks []int) {
+	h.t.Helper()
+	var open bool
+	h.ui(func(b *browser, _ *gunim.UI) {
+		m := b.dnd.sideMenu.m
+		items, breaks, open = slices.Clone(m.Items), slices.Clone(m.Breaks), m.Focusable()
+	})
+	if !open {
+		h.t.Fatal("the sidebar's menu did not open")
+	}
+	return items, breaks
+}
+
+// closeSideMenu closes the sidebar's menu with Escape.
+func (h *harness) closeSideMenu() {
+	h.w.Input(input.KeyPress{Key: input.KeyEscape})
+	h.frames(3)
+}
+
+func TestEveryPlaceHasAMenuWithTheProgramsItems(t *testing.T) {
+	type command struct {
+		w     *Window
+		place Place
+		id    string
+	}
+	commands := make(chan command, 1)
+	h := newMenuHarness(t, func(o *Options) {
+		dir := o.Dir
+		o.Places = func() ([]Place, error) {
+			return []Place{
+				{Name: "Here", Path: dir, Kind: "home"},
+				{Name: "Sub", Path: filepath.Join(dir, "sub"), Kind: "documents"},
+				{Name: "Server", Path: "/", Kind: "drive", Group: "Servers", FS: "srv", Lit: true},
+			}, nil
+		}
+		o.PlaceMenu = func(p Place) []PlaceItem {
+			switch {
+			case p.Kind == "drive" && p.FS == "srv" && p.Lit:
+				return []PlaceItem{{Label: "Disconnect", ID: "disconnect"}}
+			case p.Kind == "favourite":
+				return []PlaceItem{{Label: "Forget", ID: "forget"}}
+			}
+			return nil
+		}
+		o.PlaceCommand = func(w *Window, p Place, id string) { commands <- command{w, p, id} }
+	}, "sub/")
+	h.do(Navigate{Path: filepath.Join(h.dir, "sub")})
+	h.do(Command{Name: CmdPin})
+	h.do(Command{Name: CmdUp})
+	h.until("the places and the favourite show", func() bool { return h.b.side.places.Len() == 3 && h.b.side.favs.Len() == 1 })
+	h.frames(30)
+	keys := h.b.side.places.Keys()
+
+	// A place that is not the folder showing has its menu, and one on
+	// another file system too.
+	h.rightClick(h.placeAt(keys[1]))
+	if items, _ := h.sideMenuShown(); !slices.Equal(items, []string{"Open", "Open in new window"}) {
+		t.Fatalf("the menu of Sub is %v", items)
+	}
+	h.closeSideMenu()
+	h.rightClick(h.placeAt(keys[2]))
+	items, breaks := h.sideMenuShown()
+	if !slices.Equal(items, []string{"Open", "Open in new window", "Disconnect"}) || !slices.Equal(breaks, []int{2}) {
+		t.Fatalf("the menu of the server is %v with lines at %v", items, breaks)
+	}
+	h.ui(func(b *browser, u *gunim.UI) { b.dnd.sideMenu.m.Picked(2, u) })
+	h.frames(2)
+	select {
+	case c := <-commands:
+		if c.id != "disconnect" || c.place.FS != "srv" || c.place.Name != "Server" || c.w == nil {
+			t.Fatalf("PlaceCommand got %+v", c)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Disconnect did not reach PlaceCommand")
+	}
+
+	// A favourite gets the program's items too.
+	fav := h.bounds(func(b *browser) gunim.Node {
+		n, _ := b.side.favs.Row(b.side.favs.Keys()[0])
+		return n
+	})
+	h.rightClick(fav.Center())
+	items, _ = h.sideMenuShown()
+	if !slices.Equal(items, []string{"Open", "Open in new window", "Rename favourite", "Unpin", "Forget"}) {
+		t.Fatalf("the favourite's menu is %v", items)
+	}
+	h.ui(func(b *browser, u *gunim.UI) { b.dnd.sideMenu.m.Picked(4, u) })
+	h.frames(2)
+	select {
+	case c := <-commands:
+		if c.id != "forget" || c.place.Kind != "favourite" || !SystemPaths.Same(c.place.Path, filepath.Join(h.dir, "sub")) {
+			t.Fatalf("PlaceCommand got %+v", c)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Forget did not reach PlaceCommand")
+	}
+}
+
+func TestAPlaceElsewhereHasAMenuWithoutTheProgramsItems(t *testing.T) {
+	h := newMenuHarness(t, func(o *Options) {
+		dir := o.Dir
+		o.Places = func() ([]Place, error) {
+			return []Place{
+				{Name: "Here", Path: dir, Kind: "home"},
+				{Name: "Server", Path: "/", Kind: "drive", FS: "srv"},
+			}, nil
+		}
+	}, "a.txt")
+	h.until("the places show", func() bool { return h.b.side.places.Len() == 2 })
+	h.frames(30)
+	h.rightClick(h.placeAt(h.b.side.places.Keys()[1]))
+	if items, _ := h.sideMenuShown(); !slices.Equal(items, []string{"Open", "Open in new window"}) {
+		t.Fatalf("the menu of the server is %v", items)
+	}
+}
+
+func TestALitPlaceIsMarkedGreen(t *testing.T) {
+	th := theme.NewLive(darkTheme())
+	server := Place{Name: "Server", Kind: "drive"}
+	if got := placeMark(server).Get(th); got == PlaceLit.Get(th) {
+		t.Fatal("a machine not connected is marked as lit")
+	}
+	server.Lit = true
+	if got := placeMark(server).Get(th); got != PlaceLit.Get(th) {
+		t.Fatalf("a machine connected is marked %v", got)
 	}
 }

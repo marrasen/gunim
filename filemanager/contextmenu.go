@@ -60,8 +60,9 @@ var emptyItems = []menuItem{
 	{"Properties", "Alt+Enter", CmdProperties},
 }
 
-// placeItems are the context menu of a place in the sidebar, and
-// favItems of a favourite.
+// placeItems are the context menu of a place in the sidebar, on any file
+// system, and favItems of a favourite. Open on another file system than
+// the window's asks for a Visit.
 var (
 	placeItems = []menuItem{
 		{"Open", "", localOpenPlace},
@@ -93,6 +94,8 @@ type menuState struct {
 	path, fs string
 	// away is set for a place on another file system than the window's.
 	away bool
+	// place is the place or favourite of the sidebar the menu is about.
+	place Place
 }
 
 // fill sets c's items from items, dimming those off says are off and
@@ -244,6 +247,10 @@ func (v *dndView) menuPicked(m *widget.ContextMenu, st menuState, i int, u *guni
 	case localRenameFav:
 		u.Send(m, RenameFavourite{FS: st.fs, Path: st.path})
 	default:
+		if id, ok := strings.CutPrefix(cmd, placeCmd); ok {
+			u.Send(m, PlaceCommanded{Place: st.place, ID: id})
+			return
+		}
 		u.Send(m, Command{Name: cmd})
 	}
 }
@@ -265,44 +272,103 @@ func (v *dndView) copyPaths(u *gunim.UI) {
 	u.SetClipboard(strings.Join(paths, "\n"))
 }
 
+// placeCmd starts the command of an item of the program's own in a
+// place's menu, before the item's ID.
+const placeCmd = "place:"
+
+// sideMenu is the sidebar's context menu for its places and favourites.
+// Where the program adds items of its own, the menu asks it for them as
+// the secondary button goes down, and opens once they come.
+type sideMenu struct {
+	b  *browser
+	m  *widget.ContextMenu
+	st menuState
+	// seq counts the menus asked of the program. asked is the one waiting
+	// for its items, at where it was pressed, about the row of key.
+	seq   int
+	asked bool
+	at    geom.Point
+	key   widget.Key
+	// given are the program's items for the menu opening now.
+	given []PlaceItem
+	// giving is set while the menu opens with the items the program gave.
+	giving bool
+}
+
 // newSideMenu wraps the sidebar in a context menu for its places and
 // favourites.
-func newSideMenu(b *browser) *widget.ContextMenu {
-	m := widget.NewContextMenu(b.side)
-	var st menuState
-	m.Prepare = func(at geom.Point, u *gunim.UI) bool {
-		mr, ok := u.Bounds(m)
-		if !ok {
-			return false
-		}
-		p := at.Add(mr.Min)
-		for _, l := range []*widget.List{b.side.places, b.side.favs} {
-			for _, k := range l.Keys() {
-				n, ok := l.Row(k)
-				pr, isPlace := n.(*placeRow)
-				// A place elsewhere has no menu yet, but a favourite
-				// elsewhere has one to open, rename and unpin it.
-				if !ok || !isPlace || pr.item.away && l != b.side.favs {
-					continue
-				}
-				if r, ok := u.Bounds(n); ok && r.Contains(p) {
-					st = menuState{path: pr.item.Path, fs: pr.item.FS, away: pr.item.away}
-					items := placeItems
-					switch {
-					case l == b.side.favs && pr.item.away:
-						items = awayFavItems
-					case l == b.side.favs:
-						items = favItems
-					}
-					st.cmds = fill(m, items, func(string) bool { return false }, func(string) bool { return false })
-					return true
-				}
+func newSideMenu(b *browser) *sideMenu {
+	s := &sideMenu{b: b, m: widget.NewContextMenu(b.side)}
+	s.m.Prepare = s.prepare
+	s.m.Picked = func(i int, u *gunim.UI) { b.dnd.menuPicked(s.m, s.st, i, u) }
+	return s
+}
+
+// rowAt returns the place or favourite under at, in the menu's space, and
+// whether it is a favourite.
+func (s *sideMenu) rowAt(at geom.Point, u *gunim.UI) (*placeRow, bool) {
+	mr, ok := u.Bounds(s.m)
+	if !ok {
+		return nil, false
+	}
+	p := at.Add(mr.Min)
+	for _, l := range []*widget.List{s.b.side.places, s.b.side.favs} {
+		for _, k := range l.Keys() {
+			n, ok := l.Row(k)
+			pr, isPlace := n.(*placeRow)
+			if !ok || !isPlace {
+				continue
+			}
+			if r, ok := u.Bounds(n); ok && r.Contains(p) {
+				return pr, l == s.b.side.favs
 			}
 		}
+	}
+	return nil, false
+}
+
+// prepare fills the menu for the place pressed at at. Where the program
+// adds items, it asks for them first, and opens no menu until they come.
+func (s *sideMenu) prepare(at geom.Point, u *gunim.UI) bool {
+	pr, fav := s.rowAt(at, u)
+	if pr == nil {
 		return false
 	}
-	m.Picked = func(i int, u *gunim.UI) { b.dnd.menuPicked(m, st, i, u) }
-	return m
+	if s.b.shell.PlaceMenu && !s.giving {
+		s.seq++
+		s.asked, s.at, s.key = true, at, pr.item.key
+		u.Send(s.m, PlaceMenuAsked{Seq: s.seq, Place: pr.item.Place})
+		return false
+	}
+	s.st = menuState{path: pr.item.Path, fs: pr.item.FS, away: pr.item.away, place: pr.item.Place}
+	items := placeItems
+	switch {
+	case fav && pr.item.away:
+		items = awayFavItems
+	case fav:
+		items = favItems
+	}
+	if s.giving && pr.item.key == s.key && len(s.given) > 0 {
+		items = slices.Clone(items)
+		items = append(items, menuItem{"-", "", ""})
+		for _, it := range s.given {
+			items = append(items, menuItem{it.Label, "", placeCmd + it.ID})
+		}
+	}
+	s.st.cmds = fill(s.m, items, func(string) bool { return false }, func(string) bool { return false })
+	return true
+}
+
+// give opens the menu the program has given its items for, unless
+// another has been asked for since.
+func (s *sideMenu) give(v PlaceMenuItems, u *gunim.UI) {
+	if !s.asked || v.Seq != s.seq {
+		return
+	}
+	s.asked = false
+	s.given, s.giving = v.Items, true
+	defer func() { s.given, s.giving = nil, false }()
+	s.m.Open(s.at, u)
 }
 
 // keys takes the keys of drag and drop, the context menus and the

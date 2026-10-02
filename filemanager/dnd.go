@@ -147,9 +147,11 @@ type dndView struct {
 	listing *widget.DropZone
 	side    *widget.DropZone
 	crumbs  *widget.DropZone
-	vols    map[string]string
-	volErrs map[string]string
-	clip    ClipState
+	// sideMenu is the context menu of the sidebar's places.
+	sideMenu *sideMenu
+	vols     map[string]string
+	volErrs  map[string]string
+	clip     ClipState
 	// plan is what a drop on the spot found last does: a DropFiles or a
 	// PinFolders.
 	plan gunim.Intent
@@ -162,7 +164,8 @@ type dndView struct {
 func newDndView(b *browser) *dndView {
 	v := &dndView{b: b, vols: map[string]string{}, volErrs: map[string]string{}}
 	v.listing = v.zone(b.listing, v.listingSpot)
-	v.side = v.zone(newSideMenu(b), v.sideSpot)
+	v.sideMenu = newSideMenu(b)
+	v.side = v.zone(v.sideMenu.m, v.sideSpot)
 	v.crumbs = v.zone(b.path, v.crumbSpot)
 	return v
 }

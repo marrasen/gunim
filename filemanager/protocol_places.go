@@ -24,6 +24,34 @@ type Place struct {
 	// computer's own. A click on a place on another file system than
 	// the window's asks for a Visit.
 	FS string
+	// Lit draws the place's icon green, as a machine connected is.
+	Lit bool
+}
+
+// PlaceItem is an item of the program's own in a place's context menu.
+type PlaceItem struct {
+	Label, ID string
+}
+
+// PlaceMenuAsked asks the program for its items in the context menu of
+// Place, which opens once PlaceMenuItems with the same Seq answers.
+type PlaceMenuAsked struct {
+	Seq   int
+	Place Place
+}
+
+// PlaceMenuItems are the program's items in the context menu asked for
+// as Seq.
+type PlaceMenuItems struct {
+	Seq   int
+	Items []PlaceItem
+}
+
+// PlaceCommanded says the user picked the program's item ID in the
+// context menu of Place.
+type PlaceCommanded struct {
+	Place Place
+	ID    string
 }
 
 // Places is the sidebar: the places the system has, the user's
@@ -65,4 +93,7 @@ func init() {
 	gunim.RegisterType[FavouritesReordered]("files.favourites-reordered")
 	gunim.RegisterType[Unpin]("files.unpin")
 	gunim.RegisterType[Visit]("files.visit")
+	gunim.RegisterType[PlaceMenuAsked]("files.place-menu-asked")
+	gunim.RegisterType[PlaceMenuItems]("files.place-menu-items")
+	gunim.RegisterType[PlaceCommanded]("files.place-commanded")
 }

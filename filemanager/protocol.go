@@ -55,6 +55,9 @@ type Shell struct {
 	// Transfers says the program can copy and move items between file
 	// systems, so the window takes drops from another.
 	Transfers bool
+	// PlaceMenu says the program adds items to the context menus of the
+	// places, so a menu asks it for them as it opens.
+	PlaceMenu bool
 	// Name is what the title calls the program, and Files when empty.
 	Name string
 	// Where names the file system, as the title says first, and is empty

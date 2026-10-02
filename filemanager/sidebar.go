@@ -17,6 +17,7 @@ import (
 
 func registerSidebar(w *gunim.Window) {
 	gunim.RegisterPatch(w, "browser", func(b *browser, s Places, u *gunim.UI) { b.side.set(s, u) })
+	gunim.RegisterPatch(w, "browser", func(b *browser, v PlaceMenuItems, u *gunim.UI) { b.dnd.sideMenu.give(v, u) })
 }
 
 // sidebar lists the places to go: the user's folders and the volumes,
@@ -304,7 +305,7 @@ func (r *placeRow) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 		bar := geom.Rc(0, t+h/2*(1-on)+4*on, 3, (h-8)*on)
 		p.RRect(bar, 1.5, paint.Solid(widget.Accent.Get(th)))
 	}
-	mark := placeTint(r.item.Kind).Get(th)
+	mark := placeMark(r.item.Place).Get(th)
 	line := float32(30)
 	p.RRect(geom.Rc(12, t+(line-12)/2, 12, 12), 3.5, paint.Solid(mark))
 	ink := widget.Ink.Get(th)
@@ -330,6 +331,15 @@ func (r *placeRow) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 	}
 	defer p.Layer(paint.LayerOpts{Bounds: geom.Rc(34, y, box.W-40, box.H-y), Opacity: 1, Clip: true})()
 	r.note.Paint(p, geom.Pt(34, y), noteInk)
+}
+
+// placeMark is the colour of the mark of p: green while it is lit, and
+// else that of its kind.
+func placeMark(p Place) theme.Token[color.NRGBA] {
+	if p.Lit {
+		return PlaceLit
+	}
+	return placeTint(p.Kind)
 }
 
 // placeTint is the colour of a place's mark.

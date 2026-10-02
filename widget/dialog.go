@@ -29,9 +29,9 @@ type Dialog struct {
 
 	// Title shows in a title bar across the top of the panel, drawn as a
 	// compact window title bar is: [TitleBarCompactHeight] tall, in
-	// [MenubarFill], the title centred in the text size. The bar has no
-	// buttons; Escape and Cancel close the dialog. A dialog without a
-	// title has no bar.
+	// [MenubarFill], the title centred in the text size, and no line
+	// under it. The bar has no buttons; Escape and Cancel close the
+	// dialog. A dialog without a title has no bar.
 	Title string
 	// Icon shows before the title, in the ink, or in [DialogDangerInk] for a danger dialog. A danger dialog
 	// without one shows icon.TriangleAlert.
@@ -536,12 +536,14 @@ func (d *Dialog) iconRoom(th *theme.Live) float32 {
 // and the host has not left the bar out.
 func (d *Dialog) hasBar() bool { return d.Title != "" && !d.NoTitleBar }
 
-// barHeight is the title bar's height, or 0 without one.
+// barHeight is the title bar's height, or 0 without one: a compact
+// window title bar's, or four fifths of a button's where the theme's
+// buttons stand taller, so the bar holds its own beside them.
 func (d *Dialog) barHeight(th *theme.Live) float32 {
 	if !d.hasBar() {
 		return 0
 	}
-	return TitleBarCompactHeight.Get(th)
+	return max(TitleBarCompactHeight.Get(th), 0.8*ButtonHeight.Get(th))
 }
 
 // title lays the title out on one line, for a panel width wide, after
@@ -552,8 +554,10 @@ func (d *Dialog) title(th *theme.Live, width float32) text.Paragraph {
 }
 
 // paintBar paints the title bar across the top of panel, whose corners
-// are rounded by radius: the bar's fill, cut to the panel's round top
-// corners, and the icon and title centred in it.
+// are rounded by radius: the bar's fill, in the colour of a window's
+// title bar, cut to the panel's round top corners, and the icon and
+// title centred in it. No line sets it off: its fill, darker than the
+// panel's, does.
 func (d *Dialog) paintBar(p *paint.Painter, th *theme.Live, panel geom.Rect, radius float32) {
 	if !d.hasBar() {
 		return
@@ -561,9 +565,6 @@ func (d *Dialog) paintBar(p *paint.Painter, th *theme.Live, panel geom.Rect, rad
 	h := d.barHeight(th)
 	fill := DialogFill.Get(th)
 	strip := geom.Rect{Min: panel.Min, Max: geom.Pt(panel.Max.X, panel.Min.Y+h)}
-	// A rule under the bar, in the border's colour, sets it off where
-	// its fill is near the panel's.
-	rule := geom.Rect{Min: geom.Pt(strip.Min.X, strip.Max.Y-1), Max: strip.Max}
 	if radius <= h && fill.A == 0xff {
 		// The bar with every corner round, as tall again as the
 		// corners, and the panel's fill painted back over the part
@@ -571,14 +572,12 @@ func (d *Dialog) paintBar(p *paint.Painter, th *theme.Live, panel geom.Rect, rad
 		// round with the panel's.
 		p.RRect(geom.Rect{Min: strip.Min, Max: geom.Pt(strip.Max.X, strip.Max.Y+radius)}, radius, paint.Solid(MenubarFill.Get(th)))
 		p.RRect(geom.Rect{Min: geom.Pt(strip.Min.X, strip.Max.Y), Max: geom.Pt(strip.Max.X, strip.Max.Y+radius)}, 0, paint.Solid(fill))
-		p.RRect(rule, 0, paint.Solid(DialogBorder.Get(th)))
 	} else {
 		// Corners rounder than the bar is tall: the bar cut to the
 		// panel's shape.
 		func() {
 			defer p.Layer(paint.LayerOpts{Bounds: panel, Opacity: 1, Clip: true, Radius: radius})()
 			p.RRect(strip, 0, paint.Solid(MenubarFill.Get(th)))
-			p.RRect(rule, 0, paint.Solid(DialogBorder.Get(th)))
 		}()
 	}
 	title := d.title(th, panel.Size().W)
