@@ -44,6 +44,8 @@ const (
 	nifIcon       = 0x2
 	nifTip        = 0x4
 	nifShowTip    = 0x80
+	nifInfo       = 0x10
+	niifUser      = 0x4
 	ninSelect     = 0x400
 	ninKeySelect  = 0x401
 	wmContextMenu = 0x007b
@@ -130,6 +132,33 @@ func SetTrayIcon(t *TrayIcon) error {
 		trayNow = s
 	}
 	return trayNow.show(*t)
+}
+
+// TrayNotify shows a message from the tray icon, as the system shows
+// one: title and body, with the icon's own picture. It fails where no
+// icon is up. It must be called on the main thread.
+func TrayNotify(title, body string) error {
+	if !_glfw.initialized {
+		return NotInitialized
+	}
+	if trayNow == nil || !trayNow.added {
+		return errors.New("glfw: there is no tray icon to show a message from")
+	}
+	d := trayNow.data(nifInfo)
+	put := func(dst []uint16, s string) {
+		u := utf16.Encode([]rune(strings.ReplaceAll(s, "\x00", "")))
+		if len(u) > len(dst)-1 {
+			u = u[:len(dst)-1]
+			if n := len(u); n > 0 && utf16.IsSurrogate(rune(u[n-1])) {
+				u = u[:n-1]
+			}
+		}
+		copy(dst, u)
+	}
+	put(d.szInfoTitle[:], title)
+	put(d.szInfo[:], body)
+	d.dwInfoFlags = niifUser
+	return shellNotify(nimModify, d)
 }
 
 // CloseTrayIcon takes the icon away, as the application ends.

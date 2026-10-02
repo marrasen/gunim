@@ -137,6 +137,17 @@ func (a *App) SetTray(t Tray) error {
 	return tr.SetTray(t)
 }
 
+// TrayNotify shows a message from the application's tray icon, as the
+// system shows one, against the icon already there rather than one of
+// its own. It returns ErrNoTray where the platform shows none so.
+func (a *App) TrayNotify(title, body string) error {
+	tn, ok := a.drv.(driver.TrayNotifier)
+	if !ok {
+		return ErrNoTray
+	}
+	return tn.TrayNotify(title, body)
+}
+
 // HotKey is a key that reaches the application from any program; see
 // [driver.HotKey].
 type HotKey = driver.HotKey

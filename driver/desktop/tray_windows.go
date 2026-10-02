@@ -29,6 +29,15 @@ func (d *Driver) SetTray(t driver.Tray) error {
 	return <-done
 }
 
+// TrayNotify implements [driver.TrayNotifier], on the main thread.
+func (d *Driver) TrayNotify(title, body string) error {
+	done := make(chan error, 1)
+	if !d.post(func() { done <- glfw.TrayNotify(title, body) }) {
+		return errClosed
+	}
+	return <-done
+}
+
 // closeTray takes the icon away, as the application ends, on the main
 // thread.
 func closeTray() { glfw.CloseTrayIcon() }
