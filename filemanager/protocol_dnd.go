@@ -12,16 +12,44 @@ const (
 
 // DropFiles asks to move Paths into the folder Into, or to copy them
 // there with Copy. FS is the ID of the file system the items are on,
-// and To that of the one Into is on, the window's: where they differ,
-// the program carries the items across, through [Options.Transfer].
+// and To that of the one Into is on: the window's, unless Away. Where
+// the items or Into are on another file system than the window's, the
+// program carries the items, through [Options.Transfer].
 type DropFiles struct {
 	Paths []string
 	Into  string
 	Copy  bool
 	FS    string
 	// To is the ID of the file system Into is on: the window's when the
-	// drop was planned.
+	// drop was planned, unless Away.
 	To string
+	// Away says Into is a place or a favourite on To, another file
+	// system than the window's.
+	Away bool
+	// Style is how the items' file system writes their paths.
+	Style PathStyle
+}
+
+// DragFetch asks the program to fetch the items at Paths, on the
+// window's file system, to this computer, for drag ID to carry out to
+// other programs: the window's file system is one they cannot reach.
+type DragFetch struct {
+	ID    int
+	Paths []string
+}
+
+// DragFetched says drag ID's items are fetched, to Paths on this
+// computer, or why not, in a few words for the drag to show, in Err.
+type DragFetched struct {
+	ID    int
+	Paths []string
+	Err   string
+}
+
+// DragFetchEnd says drag ID has ended, so its fetch, where it still
+// runs, may stop.
+type DragFetchEnd struct {
+	ID int
 }
 
 // PinFolders asks to add the folders at Paths to the favourites.
@@ -131,6 +159,9 @@ type ScriptDrag struct {
 
 func init() {
 	gunim.RegisterType[DropFiles]("files.drop")
+	gunim.RegisterType[DragFetch]("files.drag-fetch")
+	gunim.RegisterType[DragFetched]("files.drag-fetched")
+	gunim.RegisterType[DragFetchEnd]("files.drag-fetch-end")
 	gunim.RegisterType[PinFolders]("files.pin-folders")
 	gunim.RegisterType[Volumes]("files.volumes")
 	gunim.RegisterType[ClipState]("files.clip")

@@ -563,3 +563,56 @@ func TestADragThatWentOutCarriesOnWhenThePointerComesBack(t *testing.T) {
 		t.Fatalf("the source heard %v, want one DragEnd, taken", x.ended)
 	}
 }
+
+// lateExport is drag data whose files are on their way until ready is
+// set, and which says so meanwhile.
+type lateExport struct{ ready *bool }
+
+func (e lateExport) ExportFiles() ([]string, error) {
+	if !*e.ready {
+		return nil, &ExportError{Hint: "fetching", Wait: true}
+	}
+	return []string{"/tmp/late.png"}, nil
+}
+
+func TestADragOfFilesOnTheirWayLeavesOnceTheyArrive(t *testing.T) {
+	a, _, c, _ := twoWindows(t)
+	ready := false
+	x := &exporter{carrier: c, data: lateExport{&ready}}
+	a.ui.Remove(c)
+	a.ui.Insert(a.ui.root.kids[0].node, x)
+	run(a, 60)
+	a.Input(input.PointerDown{Pos: geom.Pt(30, 30), Time: time.Now()})
+	a.Input(input.PointerMove{Pos: geom.Pt(40, 30), Time: time.Now()})
+	run(a, 1)
+	a.Input(input.PointerMove{Pos: geom.Pt(3000, 50), Time: time.Now()})
+	run(a, 10)
+	if out := a.mustOffscreen(t).DraggedOut(); len(out) != 0 {
+		t.Fatalf("handed out files not there yet: %v", out)
+	}
+	if a.ui.drag == nil {
+		t.Fatal("the drag ended while its files were on their way")
+	}
+	ghost, ok := a.ui.drag.picture.(*sized)
+	if !ok {
+		t.Fatal("the drag carries another picture")
+	}
+	var hint any
+	for _, e := range ghost.events {
+		if da, ok := e.(input.DragAnswer); ok {
+			hint = da.Answer
+		}
+	}
+	if hint != "fetching" {
+		t.Fatalf("the picture says %v, want the hint of the files on their way", hint)
+	}
+	// The files arrive with the pointer still: the drag asks again by
+	// itself.
+	ready = true
+	time.Sleep(2 * exportRetry)
+	run(a, 30)
+	out := a.mustOffscreen(t).DraggedOut()
+	if len(out) != 1 || len(out[0]) != 1 || out[0][0] != "/tmp/late.png" {
+		t.Fatalf("handed out %v, want the file once it arrived", out)
+	}
+}

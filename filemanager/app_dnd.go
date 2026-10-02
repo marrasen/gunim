@@ -1,6 +1,7 @@
 package filemanager
 
 import (
+	"context"
 	"errors"
 	"slices"
 	"strings"
@@ -17,6 +18,8 @@ type dndState struct {
 	// finding is set while volumes are being read, and again when more
 	// were asked for meanwhile.
 	finding, again bool
+	// fetches stop the fetches of the drags going on, by the drags' IDs.
+	fetches map[int]context.CancelFunc
 }
 
 // handleDnd takes the intents of drag and drop, the context menus and
@@ -25,6 +28,10 @@ func (a *app) handleDnd(in gunim.Intent) bool {
 	switch v := in.(type) {
 	case DropFiles:
 		a.dropFiles(v)
+	case DragFetch:
+		a.fetchForDrag(v)
+	case DragFetchEnd:
+		a.dragFetchEnded(v.ID)
 	case PinFolders:
 		a.pinFolders(v.Paths)
 	case OpenWindow:
@@ -63,18 +70,18 @@ func (a *app) dropFiles(v DropFiles) {
 	if len(v.Paths) == 0 || v.Into == "" {
 		return
 	}
-	if v.To != a.fs.ID() {
+	if !v.Away && v.To != a.fs.ID() {
 		a.fail("The window went to another file system before the drop, so nothing was dropped.")
 		return
 	}
-	if v.FS != a.fs.ID() {
+	if v.FS != a.fs.ID() || v.To != a.fs.ID() {
 		if a.opts.Transfer == nil {
 			a.fail("Items cannot go between file systems yet.")
 			return
 		}
-		// Files from another program are the computer's own; a drag of
-		// a window holds the items of one folder.
-		a.transfer(v.FS, SystemPaths, v.Paths, v.Into, !v.Copy)
+		// Files from another program are the computer's own, written as
+		// it writes paths, which Style is by default.
+		a.transfer(v.FS, v.Style, v.Paths, v.To, v.Into, !v.Copy)
 		return
 	}
 	for _, p := range v.Paths {

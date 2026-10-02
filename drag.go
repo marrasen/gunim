@@ -1,6 +1,7 @@
 package gunim
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -32,6 +33,39 @@ import (
 type FileExporter interface {
 	ExportFiles() ([]string, error)
 }
+
+// ExportError is an error ExportFiles can return to say why the files
+// cannot leave the application yet, or at all. While the drag is over
+// no window, the picture it carries hears Hint as an
+// [input.DragAnswer], such as a widget.DropHint saying so.
+//
+// With Wait set, the files are on their way, as files fetched from
+// elsewhere are: the drag stays the application's, and ExportFiles is
+// asked again every exportRetry, and with each move, for as long as the
+// button stays down and the drag over no window. ExportFiles is called
+// on the window's UI goroutine, so it must not wait for the files
+// itself.
+type ExportError struct {
+	Hint any
+	Wait bool
+	Err  error
+}
+
+func (e *ExportError) Error() string {
+	switch {
+	case e.Err != nil:
+		return e.Err.Error()
+	case e.Wait:
+		return "gunim: the files are not ready to leave yet"
+	}
+	return "gunim: the files cannot leave the application"
+}
+
+func (e *ExportError) Unwrap() error { return e.Err }
+
+// exportRetry is how often a drag over no window asks again for files
+// that are on their way.
+const exportRetry = 100 * time.Millisecond
 
 // windows is the application's open windows, which drags look through
 // for the one under the pointer.
@@ -266,6 +300,11 @@ type drag struct {
 	over *Window
 	// mods are the modifier keys held.
 	mods input.Mods
+	// retrying is set while a call to ask again for files on their way
+	// waits.
+	retrying bool
+	// hinted is set while the picture shows why the files cannot leave.
+	hinted bool
 }
 
 // leaveReach is how far a drag of files must go from every window of
@@ -382,8 +421,14 @@ func (u *UI) dragTo(p geom.Point) {
 		u.w.app.debugDrag(at, over)
 	}
 	d.over = over
-	if over == nil && u.leaving(at) && u.dragOut(d) {
-		return
+	if over == nil && u.leaving(at) {
+		if u.dragOut(d) {
+			return
+		}
+	} else if d.hinted {
+		// Back near a window, the hint of files that cannot leave goes.
+		d.hinted = false
+		u.toGhost(d.ghost, input.DragAnswer{Time: time.Now()})
 	}
 	if d.ghost != nil {
 		g := u.local(u.root, p).Sub(d.grab)
@@ -470,6 +515,7 @@ func (u *UI) dragOut(d *drag) bool {
 	}
 	paths, err := fe.ExportFiles()
 	if err != nil || len(paths) == 0 {
+		u.exportWaits(d, err)
 		return false
 	}
 	if d.ghost != nil {
@@ -487,6 +533,30 @@ func (u *UI) dragOut(d *drag) bool {
 	}
 	u.outDrags[id] = d
 	return true
+}
+
+// exportWaits shows the hint of err, an ExportError, under the pointer,
+// and where the files are on their way, asks for them again shortly,
+// unless the button is let go, or the drag goes over a window, first.
+func (u *UI) exportWaits(d *drag, err error) {
+	var ee *ExportError
+	if !errors.As(err, &ee) {
+		return
+	}
+	if ee.Hint != nil {
+		d.hinted = true
+		u.toGhost(d.ghost, input.DragAnswer{Answer: ee.Hint, Time: time.Now()})
+	}
+	if !ee.Wait || d.retrying {
+		return
+	}
+	d.retrying = true
+	u.After(exportRetry, func(u *UI) {
+		d.retrying = false
+		if u.drag == d && d.over == nil {
+			u.dragTo(u.pointer)
+		}
+	})
 }
 
 // dragDrop lets the drag go at p, in the window's space. The picture
