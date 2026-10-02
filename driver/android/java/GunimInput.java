@@ -5,6 +5,7 @@ import android.text.Editable;
 import android.text.InputType;
 import android.text.Selection;
 import android.text.SpannableStringBuilder;
+import android.util.Log;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.inputmethod.BaseInputConnection;
@@ -48,6 +49,16 @@ final class GunimInput {
 	private long seq;
 	private int batch;
 
+	// debug logs the keyboard's calls and the edits sent, under the tag
+	// gunimime: adb shell setprop log.tag.gunimime DEBUG turns it on.
+	private static final String tag = "gunimime";
+
+	private static void debug(String msg) {
+		if (Log.isLoggable(tag, Log.DEBUG)) {
+			Log.d(tag, msg);
+		}
+	}
+
 	GunimInput(View view, InputMethodManager imm) {
 		this.view = view;
 		this.imm = imm;
@@ -78,6 +89,9 @@ final class GunimInput {
 			| (multiline ? EditorInfo.IME_FLAG_NO_ENTER_ACTION : EditorInfo.IME_ACTION_DONE);
 		out.initialSelStart = Math.min(selA, selB);
 		out.initialSelEnd = Math.max(selA, selB);
+		if (hasState) {
+			out.initialCapsMode = android.text.TextUtils.getCapsMode(editable, out.initialSelEnd, out.inputType);
+		}
 		if (Build.VERSION.SDK_INT >= 30) {
 			out.setInitialSurroundingText(editable);
 		}
@@ -87,6 +101,8 @@ final class GunimInput {
 
 	/** setState takes a state of the node's text from Go. */
 	void setState(String s, int start, int a, int b, int ca, int cb, boolean multiline, boolean secret, long seq) {
+		debug("state seq=" + seq + " (sent " + this.seq + ", batch " + batch + ") text=\"" + s + "\" sel=" + a + "," + b
+			+ " comp=" + ca + "," + cb);
 		boolean kind = !hasState || multiline != this.multiline || secret != this.secret;
 		hasState = true;
 		this.multiline = multiline;
@@ -185,6 +201,8 @@ final class GunimInput {
 		int c0 = cs < 0 ? caret : start + utf8(now, 0, cs);
 		int c1 = cs < 0 ? caret : start + utf8(now, 0, ce);
 		seq++;
+		debug("edit seq=" + seq + " replace=" + r0 + "," + r1 + " with=\"" + with + "\" sel=" + anchor + "," + caret
+			+ " comp=" + c0 + "," + c1);
 		Native.edit(with, r0, r1, anchor, caret, c0, c1, seq);
 		text = now;
 		selA = ss;
@@ -238,12 +256,14 @@ final class GunimInput {
 
 		@Override
 		public boolean beginBatchEdit() {
+			debug("beginBatchEdit");
 			batch++;
 			return true;
 		}
 
 		@Override
 		public boolean endBatchEdit() {
+			debug("endBatchEdit");
 			if (batch > 0 && --batch == 0) {
 				sync();
 			}
@@ -252,6 +272,7 @@ final class GunimInput {
 
 		@Override
 		public boolean commitText(CharSequence s, int cursor) {
+			debug("commitText" + " " + s + " " + cursor);
 			boolean ok = super.commitText(s, cursor);
 			changed();
 			return ok;
@@ -259,6 +280,7 @@ final class GunimInput {
 
 		@Override
 		public boolean setComposingText(CharSequence s, int cursor) {
+			debug("setComposingText" + " " + s + " " + cursor);
 			boolean ok = super.setComposingText(s, cursor);
 			changed();
 			return ok;
@@ -266,6 +288,7 @@ final class GunimInput {
 
 		@Override
 		public boolean setComposingRegion(int a, int b) {
+			debug("setComposingRegion" + " " + a + " " + b);
 			boolean ok = super.setComposingRegion(a, b);
 			changed();
 			return ok;
@@ -273,6 +296,7 @@ final class GunimInput {
 
 		@Override
 		public boolean finishComposingText() {
+			debug("finishComposingText");
 			boolean ok = super.finishComposingText();
 			changed();
 			return ok;
@@ -280,6 +304,7 @@ final class GunimInput {
 
 		@Override
 		public boolean deleteSurroundingText(int before, int after) {
+			debug("deleteSurroundingText" + " " + before + " " + after);
 			boolean ok = super.deleteSurroundingText(before, after);
 			changed();
 			return ok;
@@ -287,6 +312,7 @@ final class GunimInput {
 
 		@Override
 		public boolean deleteSurroundingTextInCodePoints(int before, int after) {
+			debug("deleteSurroundingTextInCodePoints" + " " + before + " " + after);
 			boolean ok = super.deleteSurroundingTextInCodePoints(before, after);
 			changed();
 			return ok;
@@ -294,13 +320,50 @@ final class GunimInput {
 
 		@Override
 		public boolean setSelection(int a, int b) {
+			debug("setSelection" + " " + a + " " + b);
 			boolean ok = super.setSelection(a, b);
 			changed();
 			return ok;
 		}
 
 		@Override
+		public CharSequence getTextBeforeCursor(int n, int flags) {
+			CharSequence r = super.getTextBeforeCursor(n, flags);
+			debug("getTextBeforeCursor " + n + " -> \"" + r + "\"");
+			return r;
+		}
+
+		@Override
+		public CharSequence getTextAfterCursor(int n, int flags) {
+			CharSequence r = super.getTextAfterCursor(n, flags);
+			debug("getTextAfterCursor " + n + " -> \"" + r + "\"");
+			return r;
+		}
+
+		@Override
+		public int getCursorCapsMode(int reqModes) {
+			int r = super.getCursorCapsMode(reqModes);
+			debug("getCursorCapsMode " + reqModes + " -> " + r);
+			return r;
+		}
+
+		@Override
+		public android.view.inputmethod.ExtractedText getExtractedText(
+			android.view.inputmethod.ExtractedTextRequest req, int flags) {
+			android.view.inputmethod.ExtractedText r = super.getExtractedText(req, flags);
+			debug("getExtractedText -> " + (r == null ? "null" : "\"" + r.text + "\""));
+			return r;
+		}
+
+		@Override
+		public boolean sendKeyEvent(KeyEvent e) {
+			debug("sendKeyEvent " + e);
+			return super.sendKeyEvent(e);
+		}
+
+		@Override
 		public boolean performEditorAction(int action) {
+			debug("performEditorAction" + " " + action);
 			Native.key(true, KeyEvent.KEYCODE_ENTER, 0, 0, 0);
 			Native.key(false, KeyEvent.KEYCODE_ENTER, 0, 0, 0);
 			return true;

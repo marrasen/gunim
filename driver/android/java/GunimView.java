@@ -121,7 +121,11 @@ final class GunimView extends SurfaceView implements SurfaceHolder.Callback {
 	 */
 	void showKeyboard(boolean show) {
 		if (show && input.hasState()) {
+			// The keyboard starts from the text as it is now, as it would
+			// for a field it had not seen, so a word it put away while
+			// hidden, or text the program set, reads right.
 			requestFocus();
+			imm.restartInput(this);
 			imm.showSoftInput(this, 0);
 		} else if (!show) {
 			imm.hideSoftInputFromWindow(getWindowToken(), 0);
