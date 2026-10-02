@@ -139,6 +139,10 @@ type Window struct {
 	// See chrome.go.
 	hitTest HitTestCallback
 
+	// gunim change: dragFromBehind and pressedBehind. See behind.go.
+	dragFromBehind bool
+	pressedBehind  bool
+
 	resizable        bool
 	decorated        bool
 	autoIconify      bool

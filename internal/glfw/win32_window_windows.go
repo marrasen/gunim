@@ -652,6 +652,17 @@ func windowProc(hWnd windows.HWND, uMsg uint32, wParam _WPARAM, lParam _LPARAM) 
 			// A click on a popup leaves the keyboard where it was.
 			return _MA_NOACTIVATE
 		}
+		// gunim change: a left press on the content of a window that drags
+		// from behind leaves it where it is, neither active nor raised, as
+		// Explorer's windows do. The press still arrives, and the
+		// application brings the window to the front once it turns out to
+		// be a click and not a drag. The title bar, the edges and a
+		// chromeless window's caption and maximize button hit-test as
+		// something other than the client area, and activate as ever.
+		if window.dragFromBehind && _HIWORD(uint32(lParam)) == _WM_LBUTTONDOWN && _LOWORD(uint32(lParam)) == _HTCLIENT {
+			window.pressedBehind = true
+			return _MA_NOACTIVATE
+		}
 		// HACK: Postpone cursor disabling when the window was activated by
 		//       clicking a caption button
 		if _HIWORD(uint32(lParam)) == _WM_LBUTTONDOWN {

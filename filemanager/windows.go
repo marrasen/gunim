@@ -368,5 +368,7 @@ func WindowOptions() gunim.WindowOptions {
 		ZoomKeys:   true,
 		Icons:      icons(),
 		AskToClose: CloseAsked{},
+		// Items drag from a window behind another, as from Explorer's.
+		DragFromBehind: true,
 	}
 }

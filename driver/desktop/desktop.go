@@ -456,6 +456,9 @@ func (d *Driver) openWindow(o driver.Options) (*Window, error) {
 		_ = gw.SetIcon(o.Icons)
 	}
 	w.install()
+	if o.DragFromBehind && o.Kind == driver.KindNormal {
+		gw.SetDragFromBehind(true)
+	}
 	if o.Chromeless && o.Kind == driver.KindNormal {
 		w.mu.Lock()
 		w.border = o.Border

@@ -59,6 +59,10 @@ func (u *UI) handleOn(root *state, ev any) {
 		}
 		u.altAlone = false
 		u.keyboardAway = !e.Focused
+		if e.Focused {
+			// A press from behind has nothing left to bring to the front.
+			u.behind = false
+		}
 		if !e.Focused {
 			u.dismissFor(nil, nil)
 		} else if u.w.app != nil {
@@ -108,6 +112,7 @@ func (u *UI) handleOn(root *state, ev any) {
 		}
 		if root == u.root {
 			u.pointer = e.Pos
+			u.behind, u.dragged = e.Behind, false
 		}
 		// A press outside a popup dismisses it; the press still goes
 		// where it lands.
@@ -126,7 +131,7 @@ func (u *UI) handleOn(root *state, ev any) {
 		focusing := u.focus != was
 		// Whoever takes the press keeps the pointer until the release.
 		u.capture = u.dispatchAt(root, e.Pos, func(local geom.Point) input.Event {
-			return input.PointerDown{Pos: local, Button: e.Button, Mods: e.Mods, Clicks: e.Clicks, Focusing: focusing, Time: e.Time}
+			return input.PointerDown{Pos: local, Button: e.Button, Mods: e.Mods, Clicks: e.Clicks, Focusing: focusing, Behind: e.Behind, Time: e.Time}
 		})
 		u.shapePointer(root, e.Pos)
 	case input.PointerUp:
@@ -137,6 +142,15 @@ func (u *UI) handleOn(root *state, ev any) {
 			}
 			u.bubble(from, input.HistoryStep{Forward: e.Button == input.ButtonForward, Time: e.Time})
 			return
+		}
+		if root == u.root && u.behind {
+			// A press from behind that started no drag was a click, which
+			// brings the window to the front, as it would have on the
+			// press; a drag leaves it where it is.
+			u.behind = false
+			if !u.dragged {
+				u.ToFront()
+			}
 		}
 		if root == u.root && u.drag != nil {
 			u.drag.mods = e.Mods
@@ -181,6 +195,11 @@ func (u *UI) handleOn(root *state, ev any) {
 		if u.drag != nil {
 			// Keys speak to the drag while it lasts.
 			u.dragKey(ev)
+			return
+		}
+		if u.behind {
+			// A window pressed from behind has no keyboard; what comes is
+			// Escape, as the system says it is held, for a drag alone.
 			return
 		}
 		u.keyEvent(ev)

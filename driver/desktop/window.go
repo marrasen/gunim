@@ -170,6 +170,13 @@ type Window struct {
 	lastButton input.Button
 	lastPos    geom.Point
 	clicks     int
+	// behind says a press left the window behind another and the button
+	// is still down, and escaped that Escape was held at the last look;
+	// see [glfw.Window.SetDragFromBehind]. The window hears no keys then,
+	// so the modifiers and Escape are asked of the system as the pointer
+	// moves.
+	behind  bool
+	escaped bool
 	// normals are the last few places and sizes the window had while it
 	// was neither maximized, minimized nor full screen, the latest last,
 	// in screen coordinates as x, y, width, height. The latest is where
@@ -806,6 +813,8 @@ func (w *Window) install() {
 	_, _ = gw.SetFocusCallback(func(_ *glfw.Window, focused bool) {
 		w.focused.Store(focused)
 		if focused {
+			// The window hears keys itself again.
+			w.behind = false
 			// A modifier let go while another window had the keyboard
 			// sent this one no event.
 			w.mods = modsOf(gw.HeldModifiers())
@@ -822,6 +831,14 @@ func (w *Window) install() {
 
 	_, _ = gw.SetCursorPosCallback(func(_ *glfw.Window, x, y float64) {
 		w.cursor = w.logical(x, y)
+		if w.behind {
+			w.mods = modsOf(gw.HeldModifiers())
+			esc := gw.EscapeHeld()
+			if esc && !w.escaped {
+				w.in.push(input.KeyPress{Key: input.KeyEscape, Mods: w.mods, Time: time.Now()})
+			}
+			w.escaped = esc
+		}
 		w.in.push(input.PointerMove{Pos: w.cursor, Mods: w.mods, Time: time.Now()})
 	})
 	_, _ = gw.SetCursorEnterCallback(func(_ *glfw.Window, entered bool) {
@@ -837,8 +854,19 @@ func (w *Window) install() {
 		w.mods = modsOf(mods)
 		now := time.Now()
 		if action == glfw.Release {
+			if w.behind {
+				w.mods = modsOf(gw.HeldModifiers())
+				w.behind = false
+			}
 			w.in.push(input.PointerUp{Pos: w.cursor, Button: button, Mods: w.mods, Time: now})
 			return
+		}
+		behind := gw.TakePressedBehind()
+		if behind {
+			// Another program may have the keyboard, and the modifiers
+			// the press carries may be old.
+			w.mods = modsOf(gw.HeldModifiers())
+			w.behind, w.escaped = true, gw.EscapeHeld()
 		}
 		d := w.cursor.Sub(w.lastPos)
 		if button == w.lastButton && now.Sub(w.lastPress) < doubleClick &&
@@ -848,7 +876,7 @@ func (w *Window) install() {
 			w.clicks = 1
 		}
 		w.lastPress, w.lastButton, w.lastPos = now, button, w.cursor
-		w.in.push(input.PointerDown{Pos: w.cursor, Button: button, Mods: w.mods, Clicks: w.clicks, Time: now})
+		w.in.push(input.PointerDown{Pos: w.cursor, Button: button, Mods: w.mods, Clicks: w.clicks, Behind: behind, Time: now})
 	})
 	_, _ = gw.SetDropCallback(func(gw *glfw.Window, names []string) {
 		// GLFW moves the cursor to where the files were let go first.
