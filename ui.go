@@ -333,6 +333,8 @@ type Window struct {
 	inFlight bool
 	shown    time.Time
 	due      time.Time
+	// sent is when the frame in flight was handed to the driver, for GUNIM_DEBUG_POINTER to say when one is slow.
+	sent time.Time
 
 	closeOnce sync.Once
 	// clock is the synthetic frame time used by [Window.Frame], so an
@@ -838,6 +840,9 @@ func (w *Window) wait() bool {
 		}
 		w.inFlight = false
 		w.shown = f.Shown
+		if took := time.Since(w.sent); took > slowFrame {
+			pointerf("the last frame took %.0f ms to reach the screen", float64(took.Microseconds())/1000)
+		}
 		w.ui.makeSpare()
 	case out <- next:
 		w.ui.pending = w.ui.pending[1:]
@@ -863,9 +868,18 @@ func (w *Window) draw() {
 		delta = due.Sub(w.due)
 	}
 	w.due = due
+	start := time.Now()
 	w.ui.frame(due, delta)
+	w.sent = time.Now()
+	if took := w.sent.Sub(start); took > slowFrame {
+		pointerf("a frame took %.0f ms to build", float64(took.Microseconds())/1000)
+	}
 	w.inFlight = true
 }
+
+// slowFrame is how long building a frame, or its trip to the screen, may take before GUNIM_DEBUG_POINTER says so:
+// while it lasts, nothing moves, popups included, and hover seems not to follow the pointer.
+const slowFrame = 250 * time.Millisecond
 
 // refreshInterval turns a refresh rate into the time between frames,
 // assuming 60 Hz when the driver reports no rate.

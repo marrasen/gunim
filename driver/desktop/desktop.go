@@ -15,6 +15,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"reflect"
 	"runtime"
 	"sync"
 	"time"
@@ -164,10 +166,40 @@ func (d *Driver) post(f func()) bool {
 // called from any goroutine except the main one.
 func (d *Driver) call(f func() error) error {
 	done := make(chan error, 1)
+	start := time.Now()
 	if !d.post(func() { done <- f() }) {
 		return errStopped
 	}
-	return <-done
+	err := <-done
+	if took := time.Since(start); took > slowCall && (pointerDebug || windowDebug) {
+		fmt.Fprintf(os.Stderr, "gunim stall %s: a call to the main thread from %s took %.0f ms\n",
+			time.Now().Format("15:04:05.000"), caller(2), float64(took.Microseconds())/1000)
+	}
+	return err
+}
+
+// slowCall is how long a call to the main thread, or a wait on a render thread, may take before GUNIM_DEBUG_POINTER
+// or GUNIM_DEBUG_WINDOW says so. The engine waits all that time, and draws nothing.
+const slowCall = 250 * time.Millisecond
+
+// caller names the function skip calls up the stack, for a log.
+func caller(skip int) string {
+	pc, _, _, ok := runtime.Caller(skip)
+	if !ok {
+		return "somewhere"
+	}
+	if f := runtime.FuncForPC(pc); f != nil {
+		return f.Name()
+	}
+	return "somewhere"
+}
+
+// funcName names f, for a log.
+func funcName(f func()) string {
+	if fn := runtime.FuncForPC(reflect.ValueOf(f).Pointer()); fn != nil {
+		return fn.Name()
+	}
+	return "a task"
 }
 
 func (d *Driver) runTasks() {
@@ -180,7 +212,16 @@ func (d *Driver) runTasks() {
 			return
 		}
 		for _, f := range tasks {
+			if !pointerDebug && !windowDebug {
+				f()
+				continue
+			}
+			start := time.Now()
 			f()
+			if took := time.Since(start); took > slowCall {
+				fmt.Fprintf(os.Stderr, "gunim stall %s: the main thread spent %.0f ms on %s\n",
+					time.Now().Format("15:04:05.000"), float64(took.Microseconds())/1000, funcName(f))
+			}
 		}
 	}
 }
