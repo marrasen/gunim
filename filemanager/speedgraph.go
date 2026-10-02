@@ -38,7 +38,22 @@ type speedometer struct {
 	bytes int64
 	// rate is the last sample, and smooth the speed over the last few.
 	rate, smooth float64
+	// shown is the speed the panel says, which changes once a second at
+	// most so it can be read, and shownAt when it last changed.
+	shown   float64
+	shownAt time.Time
+	// eta is the seconds left as of etaAt.
+	eta   float64
+	etaAt time.Time
 }
+
+// etaDrift is how long, in seconds, the time left takes to drift most of
+// the way to a new estimate, and etaSlack the share of it an estimate
+// may be off by before it drifts at all.
+const (
+	etaDrift = 2.0
+	etaSlack = 0.1
+)
 
 // add takes the bytes moved by now, and reports whether that made a new
 // sample.
@@ -57,17 +72,34 @@ func (s *speedometer) add(now time.Time, bytes int64) bool {
 	} else {
 		s.smooth = 0.7*s.smooth + 0.3*s.rate
 	}
+	if s.shownAt.IsZero() || now.Sub(s.shownAt) >= time.Second {
+		s.shown, s.shownAt = s.smooth, now
+	}
 	s.at, s.bytes = now, bytes
 	return true
 }
 
-// left is how many seconds the rest of total takes from done at the
-// smoothed speed, or 0 when that is unknown.
-func (s *speedometer) left(done, total int64) float64 {
+// left is how many seconds the rest of total takes from done, as of
+// now, or 0 when that is unknown. It counts down a second a second, and
+// drifts toward the estimate at the smoothed speed only when that is
+// well off, rather than leaping with every swing of the speed.
+func (s *speedometer) left(now time.Time, done, total int64) float64 {
 	if s.smooth <= 0 || total <= done {
 		return 0
 	}
-	return float64(total-done) / s.smooth
+	guess := float64(total-done) / s.smooth
+	if s.etaAt.IsZero() {
+		s.eta, s.etaAt = guess, now
+		return guess
+	}
+	if dt := now.Sub(s.etaAt).Seconds(); dt > 0 {
+		s.eta = max(0, s.eta-dt)
+		if math.Abs(guess-s.eta) > etaSlack*s.eta {
+			s.eta += (guess - s.eta) * (1 - math.Exp(-dt/etaDrift))
+		}
+		s.etaAt = now
+	}
+	return s.eta
 }
 
 // pace waits so the bytes a copy moves keep to env.limit a second, n more

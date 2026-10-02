@@ -271,27 +271,28 @@ func (a *app) progressed(id int, p progress) {
 	if !ok {
 		return
 	}
-	sampled := r.meter.add(time.Now(), p.bytes)
+	now := time.Now()
+	sampled := r.meter.add(now, p.bytes)
 	r.last = p
 	if r.visible {
-		a.patch(r.tick(a.ps))
+		a.patch(r.tick(a.ps, now))
 		if sampled && p.bytesTotal > 0 {
-			a.patch(OpSpeed{ID: id, Rate: r.meter.rate, Left: r.meter.left(p.bytes, p.bytesTotal), File: p.current})
+			a.patch(OpSpeed{ID: id, Rate: r.meter.rate, Left: r.meter.left(now, p.bytes, p.bytesTotal), File: p.current})
 		}
 	}
 }
 
-// tick is how the panel shows r now, with paths of style ps.
-func (r *opRun) tick(ps PathStyle) OpTick {
+// tick is how the panel shows r at now, with paths of style ps.
+func (r *opRun) tick(ps PathStyle, now time.Time) OpTick {
 	p := r.last
 	t := OpTick{ID: r.id}
 	switch {
 	case p.bytesTotal > 0:
 		t.Done = float32(float64(p.bytes) / float64(p.bytesTotal))
 		t.Detail = humanBytes(p.bytes) + " of " + humanBytes(p.bytesTotal)
-		if speed := r.meter.smooth; speed > 0 {
+		if speed := r.meter.shown; speed > 0 {
 			t.Detail += "  ·  " + humanBytes(int64(speed)) + "/s"
-			if left := r.meter.left(p.bytes, p.bytesTotal); left >= 1 {
+			if left := r.meter.left(now, p.bytes, p.bytesTotal); left >= 1 {
 				t.Detail += fmt.Sprintf("  ·  %s left", (time.Duration(left) * time.Second).Round(time.Second))
 			}
 		}
@@ -326,7 +327,7 @@ func (a *app) publishOps() {
 		if !r.visible {
 			continue
 		}
-		t := r.tick(a.ps)
+		t := r.tick(a.ps, time.Now())
 		if !ok {
 			t = OpTick{ID: id, Done: 1, Detail: "Done"}
 		}
