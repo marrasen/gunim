@@ -8,6 +8,7 @@
 package glfw
 
 import (
+	"image"
 	"sync/atomic"
 	"unsafe"
 )
@@ -142,6 +143,11 @@ type Window struct {
 	// gunim change: dragFromBehind and pressedBehind. See behind.go.
 	dragFromBehind bool
 	pressedBehind  bool
+
+	// gunim change: inputRegion is where the window takes the pointer, and inputRegionSet says it is limited at all.
+	// See inputregion.go.
+	inputRegion    []image.Rectangle
+	inputRegionSet bool
 
 	resizable        bool
 	decorated        bool

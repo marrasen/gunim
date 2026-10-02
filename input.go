@@ -659,6 +659,10 @@ func (u *UI) hit(s *state, p geom.Point) *state {
 		if sh, ok := k.node.(Shaped); ok && !sh.Covers(local) {
 			continue
 		}
+		if card, ok := popupCard(k); ok && !card.Contains(local) {
+			// A popup's shadow, which its window does not take the pointer on
+			continue
+		}
 		if c, ok := k.node.(PointerClaimer); ok && c.ClaimsPointer(local) {
 			return k
 		}

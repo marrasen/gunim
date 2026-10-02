@@ -119,6 +119,10 @@ type Window struct {
 	// placing says Place is sizing the window, which then waits for no frame at the new size. It is used on the main
 	// thread.
 	placing bool
+	// region is where the window takes the pointer, in logical pixels, and regionSet says it is limited at all; see
+	// SetPointerRegion. They are used on the main thread.
+	region    []geom.Rect
+	regionSet bool
 	// readback, when set by a test, receives each frame's pixels as
 	// RGBA rows from the bottom up, read before the swap.
 	readback func(pix []byte, w, h int)
@@ -740,6 +744,8 @@ func (w *Window) measure() {
 		w.rate = rate
 	}
 	w.mu.Unlock()
+	// The region is in logical pixels, and the window's own may have changed size
+	w.applyRegion()
 }
 
 // monitorRate returns the refresh rate of the monitor holding the

@@ -299,6 +299,8 @@ type platformLibraryWindowState struct {
 		QueryVersion   func(display uintptr, majorVersionReturn, minorVersionReturn *int32) int32
 		CombineRegion  func(display uintptr, window _XID, destKind int32, xOff, yOff int32, region _Region, op int32)
 		CombineMask    func(display uintptr, window _XID, destKind int32, xOff, yOff int32, src _XID, op int32)
+		// gunim change: CombineRectangles sets a window's input region. See inputregion.go.
+		CombineRectangles func(display uintptr, window _XID, destKind int32, xOff, yOff int32, rects *_XRectangle, n int32, op int32, ordering int32)
 	}
 
 	// xsync holds the X Sync extension entry points used for _NET_WM_SYNC_REQUEST
