@@ -105,6 +105,7 @@ func (l *List) drop(u *gunim.UI) {
 		next := l.dropOrder()
 		if !slices.Equal(next, l.order) {
 			l.order = next
+			l.arrange(u)
 			u.Send(l, l.Reorder(slices.Clone(next)))
 		}
 		l.lift.Animate(0, Settle.Get(u.Theme()))
