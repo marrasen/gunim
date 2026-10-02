@@ -40,8 +40,11 @@ type Options struct {
 	// a place or a favourite on another file system than the window's,
 	// on a goroutine of its own. w is the window that asks, which Visit
 	// can turn to the file system with Show, or leave as it is and open
-	// another. A window whose Visit is nil says it cannot go there.
-	Visit func(w *Window, fs, path string)
+	// another. newWindow says the user asked for the place in a window
+	// of its own, as with Ctrl held: the program opens one on fs, and
+	// leaves w as it is. A window whose Visit is nil says it cannot go
+	// there.
+	Visit func(w *Window, fs, path string, newWindow bool)
 	// Transfer copies or moves items between file systems, as a drop or a
 	// paste asks, as one of the window's operations: its progress and a
 	// way to stop it show with the window's own, and it asks about names

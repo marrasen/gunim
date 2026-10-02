@@ -53,9 +53,11 @@ type Unpin struct {
 }
 
 // Visit asks to go to the folder at Path on the file system of ID FS,
-// which is not the one the window shows.
+// which is not the one the window shows. NewWindow asks for it in a
+// window of its own, as Ctrl held as the Visit is sent does too.
 type Visit struct {
-	FS, Path string
+	FS, Path  string
+	NewWindow bool
 }
 
 func init() {

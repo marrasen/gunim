@@ -51,13 +51,15 @@ func (a *app) pin() {
 }
 
 // visit goes to a place on another file system, as the options say, on a
-// goroutine of its own, as it may open a window.
+// goroutine of its own, as it may open a window. With Ctrl held, as for a
+// folder of the window's own, it asks for a new window.
 func (a *app) visit(v Visit) {
 	if a.opts.Visit == nil {
 		a.fail(v.Path + " is on another file system, which this window cannot show.")
 		return
 	}
-	go a.opts.Visit(a.win, v.FS, v.Path)
+	newWindow := v.NewWindow || a.newWindowAsked()
+	go a.opts.Visit(a.win, v.FS, v.Path, newWindow)
 }
 
 // loadPlaces finds the places in the background, as a drive can be slow
