@@ -40,9 +40,15 @@ func (b *blinker) value() float32 {
 	return b.level
 }
 
-// restart lights the caret at once and starts it blinking again, after a key, a click or the keyboard arriving.
+// restart lights the caret at once and starts it blinking again, after a key, a click or the keyboard arriving. In
+// a window without the keyboard, as a field focused in a window behind another, it stays hidden until the keyboard
+// comes.
 func (b *blinker) restart(u *gunim.UI) {
 	b.halt()
+	b.away = u.KeyboardAway()
+	if b.away {
+		return
+	}
 	half := CaretBlink.Get(u.Theme())
 	if half <= 0 {
 		return

@@ -58,6 +58,7 @@ func (u *UI) handleOn(root *state, ev any) {
 			return
 		}
 		u.altAlone = false
+		u.keyboardAway = !e.Focused
 		if !e.Focused {
 			u.dismissFor(nil, nil)
 		}
@@ -228,6 +229,9 @@ func (u *UI) heldMods(ev any) {
 		u.mods = e.Mods &^ modKeys[e.Key]
 	case input.WindowFocusLost:
 		u.mods = 0
+		u.keyboardAway = true
+	case input.WindowFocusGained:
+		u.keyboardAway = false
 	}
 }
 
