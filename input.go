@@ -1,7 +1,9 @@
 package gunim
 
 import (
+	"fmt"
 	"math"
+	"os"
 	"slices"
 	"time"
 
@@ -93,6 +95,15 @@ func (u *UI) handleOn(root *state, ev any) {
 			return input.PointerMove{Pos: local, Mods: e.Mods, Time: e.Time}
 		}
 		if u.capture != nil {
+			if !u.capture.within(root) {
+				// The press was in another window, which holds the pointer
+				// until the release and hears its moves itself. A move from
+				// this one was made up, as when a popup opens under the
+				// pointer, and its point is in this window's space, not the
+				// capture's.
+				pointerf("move to %.1f,%.1f in another window than the press, left alone", e.Pos.X, e.Pos.Y)
+				return
+			}
 			u.deliver(u.capture, mk(u.local(u.capture, e.Pos)))
 			u.shapePointer(root, e.Pos)
 			return
@@ -696,10 +707,22 @@ func (u *UI) hoverAgain(now time.Time) {
 		return
 	}
 	mods := u.movedMods
+	pointerf("move to %.1f,%.1f again, as what is under the pointer moved", u.pointer.X, u.pointer.Y)
 	u.dispatchAt(u.root, u.pointer, func(local geom.Point) input.Event {
 		return input.PointerMove{Pos: local, Mods: mods, Time: now}
 	})
 	u.movedAt(mods)
+}
+
+// pointerDebug is set by GUNIM_DEBUG_POINTER=1, which logs to standard error the moves the engine makes up or
+// leaves alone, beside the ones the driver logs, to find where the pointer goes astray.
+var pointerDebug = os.Getenv("GUNIM_DEBUG_POINTER") == "1"
+
+// pointerf logs one line about the pointer, under GUNIM_DEBUG_POINTER=1.
+func pointerf(format string, args ...any) {
+	if pointerDebug {
+		fmt.Fprintf(os.Stderr, "gunim pointer engine %s: %s\n", time.Now().Format("15:04:05.000"), fmt.Sprintf(format, args...))
+	}
 }
 
 // movedAt notes where the pointer's last move landed, for hoverAgain.

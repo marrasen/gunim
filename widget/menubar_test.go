@@ -594,3 +594,29 @@ func TestACompactMenubarsLinePickedByItsKeyIsPicked(t *testing.T) {
 		t.Fatalf("picked %v, want Edit's Paste", picks)
 	}
 }
+
+// A press on a title holds the pointer for the bar until the release. A move from the menu's own window meanwhile,
+// such as one made up as the menu opens under the pointer, is in the menu's space: read in the bar's, it lands on
+// another title, whose menu opens, and the move from that one's window lands back on the first.
+func TestAMoveFromTheMenuWhileATitleIsHeldOpensNoOtherMenu(t *testing.T) {
+	w, b, _, _, run := newBarStage(t)
+	file, view := b.span(0), b.span(2)
+	at := geom.Pt((view[0]+view[1])/2, 15)
+	w.Input(input.PointerMove{Pos: at, Time: time.Now()})
+	w.Input(input.PointerDown{Pos: at, Clicks: 1, Time: time.Now()})
+	run(2)
+	if b.open != 2 {
+		t.Fatalf("pressing View opened menu %d", b.open)
+	}
+	// The pointer, in View's menu's space, is over File in the bar's.
+	b.popup.Input(input.PointerMove{Pos: geom.Pt((file[0]+file[1])/2, 6), Time: time.Now()})
+	run(2)
+	if b.open != 2 {
+		t.Fatalf("a move from View's menu while View was held opened menu %d", b.open)
+	}
+	w.Input(input.PointerUp{Pos: at, Time: time.Now()})
+	run(2)
+	if b.open != 2 {
+		t.Fatalf("letting View go left menu %d open", b.open)
+	}
+}

@@ -279,13 +279,21 @@ func (w *Window) SetFade(opacity, scale float32) {
 	}
 }
 
-// SetZoom implements [driver.Zoomer]. The pointer is read again at the
+// SetZoom implements [driver.Zoomer]. The pointer is read again at a
 // new zoom; see pointerAgain.
+//
+// The same zoom changes nothing, so the pointer is left alone. The
+// engine gives every popup its zoom as it opens, and a menu opened by a
+// press under the pointer would otherwise hear a move nobody made.
 func (w *Window) SetZoom(z float32) {
 	w.mu.Lock()
+	same := w.zoom == z
 	w.zoom = z
 	w.scale = w.content * z
 	w.mu.Unlock()
+	if same {
+		return
+	}
 	w.in.push(driver.Redraw{})
 	w.d.post(w.pointerAgain)
 }
@@ -306,6 +314,7 @@ func (w *Window) pointerAgain() {
 		return
 	}
 	w.cursor = w.logical(x, y)
+	w.pointerf("move to %.1f,%.1f, read again at scale %.2f", w.cursor.X, w.cursor.Y, w.Scale())
 	w.in.push(input.PointerMove{Pos: w.cursor, Mods: w.mods, Time: time.Now()})
 }
 
@@ -381,7 +390,12 @@ func (w *Window) Close() error {
 	var err error
 	w.closeOnce.Do(func() {
 		w.stopRender()
+		start := time.Now()
 		<-w.done
+		if took := time.Since(start); took > slowCall && (pointerDebug || windowDebug) {
+			fmt.Fprintf(os.Stderr, "gunim stall %s: closing window %p waited %.0f ms for its render thread\n",
+				time.Now().Format("15:04:05.000"), w, float64(took.Microseconds())/1000)
+		}
 		err = w.d.call(func() error {
 			w.shutdown()
 			return nil
