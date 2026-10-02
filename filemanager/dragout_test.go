@@ -307,10 +307,17 @@ func TestADragOutWaitsForItsFilesWithoutHoldingTheWindow(t *testing.T) {
 	if !ok || f.done {
 		t.Fatal("the fetch is not on its way")
 	}
+	// It says how far the fetch has got, in words and on a bar.
+	h.until("the fetch says how big it is", func() bool { return f.total == 3*copyBuffer })
 	_, err := f.export()
 	var ee *gunim.ExportError
-	if !errors.As(err, &ee) || !ee.Wait || ee.Hint != (widget.DropHint{Text: "Fetching…", Effect: widget.DropCopy}) {
+	if !errors.As(err, &ee) || !ee.Wait {
 		t.Fatalf("a drag waiting for its file says %v", err)
+	}
+	want := widget.DropHint{Text: "Fetching… " + humanBytes(f.bytes) + " of " + humanBytes(3*copyBuffer), Effect: widget.DropCopy,
+		Bar: true, Progress: float32(f.bytes) / float32(3*copyBuffer)}
+	if ee.Hint != want {
+		t.Fatalf("a drag waiting for its file says %+v, want %+v", ee.Hint, want)
 	}
 	close(release)
 	out := h.dragOutAndWait()

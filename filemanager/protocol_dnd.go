@@ -46,6 +46,13 @@ type DragFetched struct {
 	Err   string
 }
 
+// DragFetching says how far the fetch of drag ID's items has got: Bytes
+// of Total fetched, where Total is known.
+type DragFetching struct {
+	ID           int
+	Bytes, Total int64
+}
+
 // DragFetchEnd says drag ID has ended, so its fetch, where it still
 // runs, may stop.
 type DragFetchEnd struct {
@@ -161,6 +168,7 @@ func init() {
 	gunim.RegisterType[DropFiles]("files.drop")
 	gunim.RegisterType[DragFetch]("files.drag-fetch")
 	gunim.RegisterType[DragFetched]("files.drag-fetched")
+	gunim.RegisterType[DragFetching]("files.drag-fetching")
 	gunim.RegisterType[DragFetchEnd]("files.drag-fetch-end")
 	gunim.RegisterType[PinFolders]("files.pin-folders")
 	gunim.RegisterType[Volumes]("files.volumes")

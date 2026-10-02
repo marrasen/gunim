@@ -98,3 +98,44 @@ func TestARefusedDropShakesTheGhost(t *testing.T) {
 		t.Fatalf("a refused drop sent %v", got)
 	}
 }
+
+func TestTheGhostsBarMovesOnWithoutPoppingUpAgain(t *testing.T) {
+	hint := DropHint{Text: "Fetching… 1 MB of 4 MB", Effect: DropCopy, Bar: true, Progress: 0.25}
+	w, d, target, run := dropStage(t)
+	var g *DragGhost
+	d.Ghost = func() gunim.Node {
+		g = NewDragGhost(&block{h: 30}, geom.Pt(5, 10))
+		return g
+	}
+	target.Hint = func(input.DragOver) any { return hint }
+	x := float32(300)
+	move := func() {
+		x++
+		w.Input(input.PointerMove{Pos: geom.Pt(x, 50), Time: time.Now()})
+	}
+	w.Input(input.PointerDown{Pos: geom.Pt(5, 10), Clicks: 1, Time: time.Now()})
+	w.Input(input.PointerMove{Pos: geom.Pt(20, 10), Time: time.Now()})
+	move()
+	run(60)
+	if g.hintOn.Value() != 1 || g.bar.Value() != 0.25 {
+		t.Fatalf("the hint shows %v, its bar at %v; want 1, 0.25", g.hintOn.Value(), g.bar.Value())
+	}
+	hint = DropHint{Text: "Fetching… 3 MB of 4 MB", Effect: DropCopy, Bar: true, Progress: 0.75}
+	move()
+	if g.hintOn.Value() != 1 || g.bar.Value() != 0.25 {
+		t.Fatalf("moving on, the hint went to %v and its bar jumped to %v", g.hintOn.Value(), g.bar.Value())
+	}
+	if h, _ := g.Hint(); h.Text != hint.Text {
+		t.Fatalf("the hint says %q, want %q", h.Text, hint.Text)
+	}
+	run(60)
+	if g.bar.Value() != 0.75 {
+		t.Fatalf("the bar stopped at %v, want 0.75", g.bar.Value())
+	}
+	// Another answer altogether pops up anew.
+	hint = DropHint{Text: "Copy to Desk", Effect: DropCopy}
+	move()
+	if g.hintOn.Value() > 0.4 {
+		t.Fatalf("a new answer did not pop up anew: %v", g.hintOn.Value())
+	}
+}
