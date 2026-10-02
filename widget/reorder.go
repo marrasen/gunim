@@ -19,6 +19,8 @@ type reorder struct {
 	// from is where the press was, grab how far below the row's top,
 	// and y where the row's top is now, all in the list's space.
 	from, grab, y float32
+	// again is set for a press that goes on a double or triple click.
+	again bool
 }
 
 // pickUp is how far the pointer moves before it picks a row up, so a
@@ -30,7 +32,8 @@ const pickUp = 4
 // the row up: it lifts, follows the pointer, and the other rows spring
 // aside to open a gap where it would land. Letting go drops it into the
 // gap and sends Reorder the new order. With OnClick set, a press let go
-// on the row it began on without picking it up is a click. A press puts
+// on the row it began on without picking it up is a click, unless
+// ClickOnce is set and the press goes on a double click. A press puts
 // the keys' cursor on its row.
 func (l *List) Handle(e input.Event, u *gunim.UI) bool {
 	if l.Reorder == nil && l.OnClick == nil {
@@ -59,7 +62,7 @@ func (l *List) Handle(e input.Event, u *gunim.UI) bool {
 		if !ok {
 			return false
 		}
-		l.drag = reorder{key: k, pressed: true, from: e.Pos.Y, grab: e.Pos.Y - top, y: top}
+		l.drag = reorder{key: k, pressed: true, from: e.Pos.Y, grab: e.Pos.Y - top, y: top, again: e.Clicks > 1}
 		l.cursor = k
 		l.walk.Animate(0, Settle.Get(th))
 	case input.PointerMove:
@@ -77,7 +80,8 @@ func (l *List) Handle(e input.Event, u *gunim.UI) bool {
 		if !l.drag.pressed {
 			return false
 		}
-		if k, _, ok := l.rowAt(e.Pos.Y); ok && !l.drag.active && l.OnClick != nil && k == l.drag.key {
+		once := l.ClickOnce && l.drag.again
+		if k, _, ok := l.rowAt(e.Pos.Y); ok && !l.drag.active && l.OnClick != nil && k == l.drag.key && !once {
 			if v := l.OnClick(k); v != nil {
 				u.Send(l, v)
 			}

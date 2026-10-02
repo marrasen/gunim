@@ -11,7 +11,9 @@ func (a *app) trashless() {
 // showFS turns the window to the folder dir on fsys, or its home folder
 // when dir is empty. What the window knew of the file system it showed
 // goes: the history, the index of the palette, the thumbnails, the
-// volumes, the clipboard, the places and the favourites.
+// volumes, the clipboard, the places and the favourites. The places
+// shown stay until those of fsys are found, so the sidebar does not
+// empty and fill again, and its rows that stay keep still.
 func (a *app) showFS(fsys FS, dir string) {
 	if fsys == nil {
 		fsys = LocalFS()
@@ -32,7 +34,6 @@ func (a *app) showFS(fsys FS, dir string) {
 	a.shell.FS, a.shell.Paths, a.shell.NoTrash = fsys.ID(), a.ps, a.trash == nil
 	a.shell.Where = a.where()
 	a.publishShell()
-	a.places = nil
 	a.loadFavourites()
 	a.loadPlaces()
 	a.startNav(dir)

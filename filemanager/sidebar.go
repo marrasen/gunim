@@ -54,10 +54,12 @@ type placeItem struct {
 }
 
 // placeKey is the key of the row of p: its path, for a place on the
-// window's file system, and its file system and path for one elsewhere,
-// so a favourite on one is not taken for one on another.
-func placeKey(p Place, away bool) widget.Key {
-	if away {
+// computer's own file system, and its file system and path for one
+// elsewhere, so a place on one is not taken for one on another. The key
+// does not depend on the window's file system, so a row stays as it is
+// when the window turns to another.
+func placeKey(p Place) widget.Key {
+	if p.FS != "" {
 		return widget.Key("\x00" + p.FS + "\x00" + p.Path)
 	}
 	return widget.Key(p.Path)
@@ -69,7 +71,7 @@ func (s *sidebar) goes(k widget.Key) gunim.Intent {
 	i, ok := s.items[k]
 	switch {
 	case !ok:
-		return Navigate{Path: string(k)}
+		return nil
 	case i.away:
 		return Visit{FS: i.FS, Path: i.Path}
 	}
@@ -91,6 +93,9 @@ func newSidebar() *sidebar {
 	s := &sidebar{places: widget.NewList(), favs: widget.NewList(), items: map[widget.Key]placeItem{}}
 	s.places.OnClick = s.goes
 	s.favs.OnClick = s.places.OnClick
+	// A double click on a place goes there once, and with Ctrl opens
+	// one window, as Explorer's do.
+	s.places.ClickOnce, s.favs.ClickOnce = true, true
 	s.favs.Reorder = func(keys []widget.Key) gunim.Intent {
 		favs := make([]FavouriteAt, len(keys))
 		for i, k := range keys {
@@ -120,7 +125,7 @@ func (s *sidebar) set(p Places, u *gunim.UI) {
 		out := make([]placeItem, 0, len(ps))
 		for i, pl := range ps {
 			away := pl.FS != s.fs
-			it := placeItem{Place: pl, away: away, current: !away && s.ps.Same(pl.Path, p.Current), key: placeKey(pl, away)}
+			it := placeItem{Place: pl, away: away, current: !away && s.ps.Same(pl.Path, p.Current), key: placeKey(pl)}
 			if headed && i > 0 && pl.Group != ps[i-1].Group {
 				it.head = strings.ToUpper(pl.Group)
 			}
@@ -129,7 +134,7 @@ func (s *sidebar) set(p Places, u *gunim.UI) {
 				if _, taken := s.items[it.key]; !taken {
 					break
 				}
-				it.key = placeKey(pl, away) + widget.Key(fmt.Sprintf("\x00%d", n))
+				it.key = placeKey(pl) + widget.Key(fmt.Sprintf("\x00%d", n))
 			}
 			s.items[it.key] = it
 			out = append(out, it)

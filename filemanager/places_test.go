@@ -48,7 +48,7 @@ func TestTheCallerGivesThePlacesWithTheirGroups(t *testing.T) {
 				{Name: "Server home", Path: "/home/me", Kind: "home", Group: "server", Note: "Connected", FS: "sftp://server"},
 			}, nil
 		}
-		o.Visit = func(w *Window, fs, path string) {
+		o.Visit = func(w *Window, fs, path string, _ bool) {
 			mu.Lock()
 			defer mu.Unlock()
 			if w == nil {

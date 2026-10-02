@@ -43,6 +43,10 @@ type List struct {
 	// OnClick, when set, turns a click on a row that nothing inside the
 	// row takes into an intent, so a row can be both clicked and dragged.
 	OnClick func(key Key) gunim.Intent
+	// ClickOnce takes the presses of a double or triple click on a row
+	// as one click, as a link takes them, so a row that goes somewhere
+	// goes there once.
+	ClickOnce bool
 
 	rows   map[Key]*row
 	order  []Key

@@ -34,7 +34,7 @@ func newAnyFSHarness(t *testing.T, store anyStore, visits *[]string, mu *sync.Mu
 	store.favs = []Favourite{{Path: filepath.Join(dir, "old")}, {Path: "/srv/data", FS: server}}
 	return openHarnessWith(t, nil, root, dir, func(o *Options) {
 		o.Favourites = store
-		o.Visit = func(_ *Window, fs, path string) {
+		o.Visit = func(_ *Window, fs, path string, _ bool) {
 			mu.Lock()
 			defer mu.Unlock()
 			*visits = append(*visits, fs+" "+path)
@@ -131,7 +131,7 @@ func TestAFavouriteElsewhereIsRenamedReorderedAndUnpinned(t *testing.T) {
 	var items []string
 	h.ui(func(b *browser, u *gunim.UI) {
 		m, _ := b.dnd.side.Children()[0].(*widget.ContextMenu)
-		row, found := b.side.favs.Row(placeKey(Place{FS: server, Path: "/srv/data"}, true))
+		row, found := b.side.favs.Row(placeKey(Place{FS: server, Path: "/srv/data"}))
 		if m == nil || !found {
 			t.Fatal("the sidebar has no menu, or no row for the favourite on the server")
 		}
@@ -140,7 +140,7 @@ func TestAFavouriteElsewhereIsRenamedReorderedAndUnpinned(t *testing.T) {
 		m.Open(rr.Center().Sub(mr.Min), u)
 		items = slices.Clone(m.Items)
 	})
-	if !slices.Equal(items, []string{"Open", "Rename favourite", "Unpin"}) {
+	if !slices.Equal(items, []string{"Open", "Open in new window", "Rename favourite", "Unpin"}) {
 		t.Fatalf("the menu of the favourite on the server is %v", items)
 	}
 
@@ -225,7 +225,7 @@ func TestWindowsOnTwoFileSystemsShareTheirFavourites(t *testing.T) {
 	want := []Favourite{{Path: filepath.Join(local, "work")}, {Path: filepath.Join(other, "far"), FS: "elsewhere"}}
 	o.until("the store holds both", func() bool { return slices.Equal(store.saved(), want) })
 	l.until("the computer's window shows both", func() bool { return l.b.side.favs.Len() == 2 })
-	if it := l.b.side.items[placeKey(Place{FS: "elsewhere", Path: filepath.Join(other, "far")}, true)]; !it.away {
+	if it := l.b.side.items[placeKey(Place{FS: "elsewhere", Path: filepath.Join(other, "far")})]; !it.away {
 		t.Fatalf("the other file system's favourite shows as %+v", it)
 	}
 	if !slices.Equal(l.a.favs, want) || !slices.Equal(o.a.favs, want) {

@@ -78,6 +78,7 @@ var (
 	// system than the window's, whose Open asks for a Visit.
 	awayFavItems = []menuItem{
 		{"Open", "", localOpenPlace},
+		{"Open in new window", "", localOpenWindow},
 		{"-", "", ""},
 		{"Rename favourite", "", localRenameFav},
 		{"Unpin", "", localUnpin},
@@ -227,6 +228,10 @@ func (v *dndView) menuPicked(m *widget.ContextMenu, st menuState, i int, u *guni
 	case localCopyPath:
 		v.copyPaths(u)
 	case localOpenWindow:
+		if st.away {
+			u.Send(m, Visit{FS: st.fs, Path: st.path, NewWindow: true})
+			return
+		}
 		u.Send(m, OpenWindow{Path: st.path})
 	case localOpenPlace:
 		if st.away {
