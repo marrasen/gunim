@@ -1008,7 +1008,7 @@ type UI struct {
 	altAlone bool
 	// keyboardAway says the window has given the keyboard to another; see KeyboardAway.
 	keyboardAway bool
-	hover    *state
+	hover        *state
 	// capture is the node that took the last press and keeps the
 	// pointer until its release.
 	capture *state
