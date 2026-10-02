@@ -43,7 +43,7 @@ func TestTheSpeedComesFromACopysProgress(t *testing.T) {
 			t.Fatalf("the samples are %v, want each a megabyte a quarter second, %v", rates, want)
 		}
 	}
-	if left := m.left(copyBuffer, 4*copyBuffer); left <= 0 {
+	if left := m.left(start.Add(time.Second), copyBuffer, 4*copyBuffer); left <= 0 {
 		t.Fatalf("with three quarters to go the time left is %v", left)
 	}
 }
@@ -67,4 +67,36 @@ func TestACopyDrawsItsSpeedAndCheersAsItEnds(t *testing.T) {
 		t.Fatalf("the finished row says %q and %q", row().title.Text, row().detail.Text)
 	}
 	h.until("the row leaves the panel", func() bool { return row() == nil })
+}
+
+// The time left counts down steadily while the speed swings, rather than
+// leaping by seconds with every sample, and the
+// speed the panel says holds for a second at a time.
+func TestTheTimeLeftHoldsStillAsTheSpeedSwings(t *testing.T) {
+	var m speedometer
+	now := time.Now()
+	const total = 400 << 20
+	done := int64(0)
+	m.add(now, done)
+	prev, said, changes := -1.0, 0.0, 0
+	for i := range 100 {
+		now = now.Add(200 * time.Millisecond)
+		// A fifth of a second at 2 MB a second, then one at 6.
+		done += int64(2<<20+(i%2)*4<<20) / 5
+		m.add(now, done)
+		left := m.left(now, done, total)
+		// It never goes up, and once it has settled on the speed, it
+		// goes down about a fifth of a second.
+		if d := prev - left; prev >= 0 && (d < 0 || i > 50 && (d < 0.05 || d > 0.35)) {
+			t.Fatalf("sample %d: the time left went from %.2fs to %.2fs in a fifth of a second", i, prev, left)
+		}
+		prev = left
+		if m.shown != said {
+			said = m.shown
+			changes++
+		}
+	}
+	if changes > 21 {
+		t.Fatalf("the speed shown changed %d times in 20 seconds", changes)
+	}
 }

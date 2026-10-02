@@ -8,6 +8,68 @@ import (
 	"github.com/marrasen/gunim/paint"
 )
 
+// The head glides to each new sample, even when samples swing hard and
+// come unevenly: from frame to frame it stays at the right edge and moves
+// only a little up or down, and the curve slides on at an even pace.
+func TestALiveGraphHeadGlidesToEachSample(t *testing.T) {
+	g := NewLiveGraph(200*time.Millisecond, 50)
+	g.SetRunning(true)
+	box := geom.Sz(400, 56)
+	const frame = time.Second / 60
+	// Samples between 150 and 260 milliseconds apart, swinging from 10
+	// to 100 and back.
+	gaps := []int{12, 13, 15, 11, 14, 12, 9, 16, 12, 13}
+	values := []float64{10, 100, 10, 100, 50, 100, 10, 80, 20, 100}
+	for i := range 4 {
+		g.Add(values[i])
+		for range gaps[i] {
+			g.Step(frame)
+		}
+	}
+	was := g.head(box, 14)
+	wasPos := g.pos
+	var slides []float64
+	for range 3 {
+		for i, v := range values {
+			g.Add(v)
+			for range gaps[i] {
+				g.Step(frame)
+				now := g.head(box, 14)
+				if now.X != was.X {
+					t.Fatalf("the head moved across from %v to %v", was, now)
+				}
+				// The plot is 41 pixels tall, and a swing crosses most of
+				// it: a jump would cross much of that in one frame.
+				if d := now.Y - was.Y; d > 3 || d < -3 {
+					t.Fatalf("after sample %d the head jumped from %v to %v in a frame", i, was, now)
+				}
+				slides = append(slides, g.pos-wasPos)
+				was, wasPos = now, g.pos
+			}
+		}
+	}
+	for i, s := range slides {
+		if s <= 0 {
+			t.Fatalf("frame %d: the curve stopped sliding", i)
+		}
+		if i > 0 {
+			if d := s - slides[i-1]; d > 0.02 || d < -0.02 {
+				t.Fatalf("frame %d: the slide lurched from %v to %v samples a frame", i, slides[i-1], s)
+			}
+		}
+	}
+	g.SetRunning(false)
+	for range 300 {
+		if !g.Step(frame) {
+			if g.pos != float64(len(g.samples)-1) {
+				t.Fatalf("at rest the head is at sample %v, not on the newest", g.pos)
+			}
+			return
+		}
+	}
+	t.Fatal("stopped, the graph asks for frames five seconds on")
+}
+
 // A running graph slides on every frame, not only as samples come, and
 // draws its fill and its head; stopped, it rests.
 func TestALiveGraphSlidesEveryFrame(t *testing.T) {
@@ -40,13 +102,13 @@ func TestALiveGraphSlidesEveryFrame(t *testing.T) {
 		}
 		return at
 	}
-	g.since = 0
+	g.Add(30)
 	w.Frame(time.Second / 60)
-	a := headAt()
+	headAt()
+	a := g.pos
 	w.Frame(time.Second / 60)
-	b := headAt()
-	if b.X >= a.X {
-		t.Fatalf("a frame later the head is at %v, from %v: the graph did not slide", b, a)
+	if g.pos <= a {
+		t.Fatalf("a frame later the head is at sample %v, from %v: the graph did not slide", g.pos, a)
 	}
 	g.SetRunning(false)
 	for range 300 {

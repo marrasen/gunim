@@ -343,7 +343,7 @@ func TestATransferRunsAsAnOperationWithItsProgress(t *testing.T) {
 		_, shown := widget.RowOf[*opRow](h.b.ops.list, widget.Key(strconv.Itoa(id)))
 		return shown && r.visible && r.last.bytes == 50
 	})
-	if tick := r.tick(h.a.ps); tick.Done != 0.5 || !strings.HasPrefix(tick.Detail, "x.txt  ·  50 bytes of 100 bytes") {
+	if tick := r.tick(h.a.ps, time.Now()); tick.Done != 0.5 || !strings.HasPrefix(tick.Detail, "x.txt  ·  50 bytes of 100 bytes") {
 		t.Fatalf("the transfer shows %+v", tick)
 	}
 	h.do(Command{Name: CmdCloseApp})

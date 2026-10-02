@@ -149,7 +149,7 @@ func (s *Split) AccessAct(r access.Request, u *gunim.UI) bool {
 func (g *LiveGraph) Access() access.Info {
 	info := access.Info{Role: access.RoleImage}
 	if g.Label != nil && len(g.samples) > 0 {
-		info.Name = g.Label(g.recent())
+		info.Name = g.Label(g.said)
 	}
 	return info
 }
