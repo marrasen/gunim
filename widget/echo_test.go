@@ -12,7 +12,8 @@ import (
 )
 
 // echoOpener is a node that pings when pressed, starts Wait on F2 and
-// stops it on F3, and on F4 puts on a theme with a strength of 0.
+// stops it on F3, on F4 puts on a theme with a strength of 0, and glows
+// on F5.
 type echoOpener struct{ e Echo }
 
 func (o *echoOpener) Focusable() bool { return true }
@@ -27,6 +28,9 @@ func (o *echoOpener) Handle(e input.Event, u *gunim.UI) bool {
 		switch e.Key {
 		case input.KeyF2, input.KeyF3:
 			o.e.Wait(u, EchoWait, e.Key == input.KeyF2)
+			return true
+		case input.KeyF5:
+			o.e.Glow(u, EchoCall)
 			return true
 		case input.KeyF4:
 			u.UseTheme(theme.Make("quiet", theme.Set(EchoStrength, 0)))
@@ -156,5 +160,27 @@ func TestTheRingsStayOutsideTheWindow(t *testing.T) {
 	}
 	if len(v.rings) > 0 {
 		t.Fatal("rings still travel after their time")
+	}
+}
+
+// A glow lights the edges and goes dark again, sending out no ring, and
+// closes its popup.
+func TestAGlowLightsTheEdgesAndGoesDark(t *testing.T) {
+	o := &echoOpener{}
+	w, run := stage(t, o)
+	ping(w)
+	run(frames(3 * echoLife))
+	w.Input(input.KeyPress{Key: input.KeyF5})
+	run(2)
+	pop := o.e.pop
+	if pop == nil || !pop.Open() {
+		t.Fatal("the glow opened no popup")
+	}
+	if rs := o.e.view.rings; len(rs) != 1 || !rs[0].glow {
+		t.Fatalf("the glow sent %+v, want one glow", rs)
+	}
+	run(frames(echoGlow + echoLife + 100*time.Millisecond))
+	if pop.Open() {
+		t.Fatal("the popup stayed open after the glow")
 	}
 }
