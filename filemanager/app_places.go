@@ -24,6 +24,16 @@ func (a *app) handlePlaces(in gunim.Intent) bool {
 		a.setFavourites(slices.DeleteFunc(slices.Clone(a.favs), func(f Favourite) bool { return a.isFav(f, v.FS, v.Path) }))
 	case Visit:
 		a.visit(v)
+	case PlaceMenuAsked:
+		var items []PlaceItem
+		if a.opts.PlaceMenu != nil {
+			items = a.opts.PlaceMenu(v.Place)
+		}
+		a.patch(PlaceMenuItems{Seq: v.Seq, Items: items})
+	case PlaceCommanded:
+		if a.opts.PlaceCommand != nil {
+			go a.opts.PlaceCommand(a.win, v.Place, v.ID)
+		}
 	case Command:
 		if v.Name != CmdPin {
 			return false
