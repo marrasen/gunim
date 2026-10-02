@@ -109,3 +109,23 @@ func TestAWindowTakingTheKeyboardIsRecorded(t *testing.T) {
 		t.Fatalf("focused a at %d and b at %d, want b then a", ws.focusedAt[a], ws.focusedAt[b])
 	}
 }
+
+// Where the window that last had the keyboard is, on the screen, for
+// something to open where the user works.
+func TestTheWindowWithTheKeyboardLastIsFound(t *testing.T) {
+	ws, a, b, _ := stacked(t, nil)
+	app := a.app
+	if _, ok := app.FocusedBounds(); ok {
+		t.Fatal("bounds found before any window had the keyboard")
+	}
+	a.ui.handlePlatform(driver.WindowFocus{Focused: true})
+	b.ui.handlePlatform(driver.WindowFocus{Focused: true})
+	r, ok := app.FocusedBounds()
+	if !ok || r.Min.X != 400 || r.Size().W <= 0 {
+		t.Fatalf("the window with the keyboard last is at %+v, %v", r, ok)
+	}
+	ws.remove(b)
+	if r, ok := app.FocusedBounds(); !ok || r.Min.X != 0 {
+		t.Fatalf("with that window gone, it is at %+v, %v", r, ok)
+	}
+}

@@ -93,6 +93,30 @@ type App struct {
 // window on a chosen one.
 func (a *App) Monitors() []driver.Monitor { return a.drv.Monitors() }
 
+// FocusedBounds returns where on the screen the application's window that
+// last had the keyboard is, in screen coordinates as [driver.Monitor]
+// gives them, for something to open where the user is working: false
+// when no window of it has had the keyboard yet.
+func (a *App) FocusedBounds() (geom.Rect, bool) {
+	a.windows.mu.Lock()
+	var last *Window
+	var at uint64
+	for w, n := range a.windows.focusedAt {
+		if n > at {
+			last, at = w, n
+		}
+	}
+	a.windows.mu.Unlock()
+	if last == nil {
+		return geom.Rect{}, false
+	}
+	sc, ok := last.dw.(driver.Screener)
+	if !ok {
+		return geom.Rect{}, false
+	}
+	return geom.Rect{Min: sc.ToScreen(geom.Point{}), Max: sc.ToScreen(last.dw.Size().Point())}, true
+}
+
 // Tray is an icon in the system tray with a menu; see [driver.Tray].
 type Tray = driver.Tray
 
