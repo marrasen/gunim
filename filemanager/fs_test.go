@@ -288,3 +288,26 @@ func TestAFileSystemWithoutATrashSaysDeleteInTheMenus(t *testing.T) {
 		t.Fatalf("the Edit menu says %q", got)
 	}
 }
+
+// A Windows path typed for a machine of slash paths, as one reached over
+// SFTP, goes where SFTP writes it: G:\Users is /G:/Users.
+func TestAWindowsPathTypedForSlashPaths(t *testing.T) {
+	for in, want := range map[string]string{
+		`G:\Users\me`: "/G:/Users/me",
+		`g:/Users/me`: "/G:/Users/me",
+		`C:\`:         "/C:",
+		`C:`:          "/C:",
+		"/home/me":    "/home/me",
+		`D:\a\..\b`:   "/D:/b",
+	} {
+		got, err := SlashPaths.Abs(in)
+		if err != nil || got != want {
+			t.Errorf("%q is %q, %v; want %q", in, got, err, want)
+		}
+	}
+	for _, in := range []string{"C:x", "relative", "1:/x"} {
+		if got, err := SlashPaths.Abs(in); err == nil {
+			t.Errorf("%q is %q, want refused", in, got)
+		}
+	}
+}
