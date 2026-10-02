@@ -2,8 +2,10 @@ package gunim
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -36,6 +38,14 @@ type FileExporter interface {
 type windows struct {
 	mu   sync.Mutex
 	list []*Window
+	// focused counts the times a window took the keyboard, and
+	// focusedAt is the count when each window last took it, so that
+	// where the system cannot say which window is in front, the one
+	// focused last is taken to be.
+	focused   uint64
+	focusedAt map[*Window]uint64
+	// stacker, when not nil, says how the system stacks the windows.
+	stacker driver.Stacker
 }
 
 func (ws *windows) add(w *Window) {
@@ -48,6 +58,18 @@ func (ws *windows) remove(w *Window) {
 	ws.mu.Lock()
 	defer ws.mu.Unlock()
 	ws.list = slices.DeleteFunc(ws.list, func(o *Window) bool { return o == w })
+	delete(ws.focusedAt, w)
+}
+
+// focus records that w took the keyboard.
+func (ws *windows) focus(w *Window) {
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+	if ws.focusedAt == nil {
+		ws.focusedAt = map[*Window]uint64{}
+	}
+	ws.focused++
+	ws.focusedAt[w] = ws.focused
 }
 
 // dragDebug is set by GUNIM_DEBUG_DRAG=1, which logs to standard error
@@ -56,43 +78,96 @@ func (ws *windows) remove(w *Window) {
 var dragDebug = os.Getenv("GUNIM_DEBUG_DRAG") == "1"
 
 // debugDrag logs a drag at the screen point at going over window over,
-// nil for none.
+// nil for none. Each window's depth is its place in the system's stack,
+// 0 at the front and -1 where the system cannot say, and focused is
+// when it last took the keyboard, larger for later.
 func (a *App) debugDrag(at geom.Point, over *Window) {
 	if a == nil {
 		return
 	}
 	a.windows.mu.Lock()
 	list := slices.Clone(a.windows.list)
+	focusedAt := maps.Clone(a.windows.focusedAt)
 	a.windows.mu.Unlock()
-	line := fmt.Sprintf("gunim drag at %.1f,%.1f over %p;", at.X, at.Y, over)
-	for _, w := range list {
+	depths := a.windows.depths(list)
+	var line strings.Builder
+	fmt.Fprintf(&line, "gunim drag at %.1f,%.1f over %p;", at.X, at.Y, over)
+	for i, w := range list {
 		sc, ok := w.dw.(driver.Screener)
 		if !ok {
 			continue
 		}
 		o, size := sc.ToScreen(geom.Point{}), w.dw.Size()
 		far := sc.ToScreen(size.Point())
-		line += fmt.Sprintf(" window %p at %.1f,%.1f to %.1f,%.1f (size %.1fx%.1f, holds %v);", w, o.X, o.Y, far.X, far.Y, size.W, size.H, holds(w, at))
+		fmt.Fprintf(&line, " window %p at %.1f,%.1f to %.1f,%.1f (size %.1fx%.1f, holds %v, depth %d, focused %d);", w, o.X, o.Y, far.X, far.Y, size.W, size.H, holds(w, at), depths[i], focusedAt[w])
 	}
-	fmt.Fprintln(os.Stderr, line)
+	fmt.Fprintln(os.Stderr, line.String())
 }
 
-// at returns the window holding p, a screen point, or nil. The window
-// asking comes first, so a drag inside a window stays there where
-// windows overlap.
+// depths returns each of list's depth in the system's stack of
+// windows, 0 at the front, or -1 where the system cannot say.
+func (ws *windows) depths(list []*Window) []int {
+	if ws.stacker == nil {
+		out := make([]int, len(list))
+		for i := range out {
+			out[i] = -1
+		}
+		return out
+	}
+	dws := make([]driver.Window, len(list))
+	for i, w := range list {
+		dws[i] = w.dw
+	}
+	return ws.stacker.Depths(dws)
+}
+
+// at returns the window holding p, a screen point, or nil. Where
+// windows overlap at p, it returns the one in front. Where the system
+// cannot say which that is, the window asking, first, wins, as a drag
+// inside a window stays there, and then the window that last took the
+// keyboard.
 func (ws *windows) at(p geom.Point, first *Window) *Window {
 	ws.mu.Lock()
 	list := slices.Clone(ws.list)
 	ws.mu.Unlock()
-	if first != nil && holds(first, p) {
-		return first
-	}
+	var in []*Window
 	for _, w := range list {
-		if w != first && holds(w, p) {
-			return w
+		if holds(w, p) {
+			in = append(in, w)
 		}
 	}
-	return nil
+	switch len(in) {
+	case 0:
+		return nil
+	case 1:
+		return in[0]
+	}
+	// Only now, with windows overlapping, is the system asked, as this
+	// runs on every move of a drag.
+	depths := ws.depths(in)
+	var front *Window
+	best := -1
+	for i, w := range in {
+		d := depths[i]
+		if d >= 0 && (front == nil || d < best || d == best && w == first) {
+			front, best = w, d
+		}
+	}
+	if front != nil {
+		return front
+	}
+	if slices.Contains(in, first) {
+		return first
+	}
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+	front = in[0]
+	for _, w := range in[1:] {
+		if ws.focusedAt[w] > ws.focusedAt[front] {
+			front = w
+		}
+	}
+	return front
 }
 
 // farFrom reports whether p, a screen point, is farther than reach

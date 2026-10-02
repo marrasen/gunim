@@ -112,6 +112,7 @@ var (
 	xQLength                   func(display uintptr) int32
 	xQueryExtension            func(display uintptr, name string, majorOpcodeReturn, firstEventReturn, firstErrorReturn *int32) bool
 	xQueryPointer              func(display uintptr, w _XID, rootReturn, childReturn *_XID, rootXReturn, rootYReturn, winXReturn, winYReturn *int32, maskReturn *uint32) bool
+	xQueryTree                 func(display uintptr, w _XID, rootReturn, parentReturn *_XID, childrenReturn **_XID, nchildrenReturn *uint32) int32
 	xRaiseWindow               func(display uintptr, w _XID) int32
 	xResizeWindow              func(display uintptr, w _XID, width, height uint32) int32
 	xResourceManagerString     func(display uintptr) uintptr
@@ -284,6 +285,7 @@ func initLibX11() error {
 	purego.RegisterLibFunc(&xQLength, lib, "XQLength")
 	purego.RegisterLibFunc(&xQueryExtension, lib, "XQueryExtension")
 	purego.RegisterLibFunc(&xQueryPointer, lib, "XQueryPointer")
+	purego.RegisterLibFunc(&xQueryTree, lib, "XQueryTree")
 	purego.RegisterLibFunc(&xRaiseWindow, lib, "XRaiseWindow")
 	purego.RegisterLibFunc(&xResizeWindow, lib, "XResizeWindow")
 	purego.RegisterLibFunc(&xResourceManagerString, lib, "XResourceManagerString")

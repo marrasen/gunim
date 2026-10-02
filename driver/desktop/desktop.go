@@ -209,6 +209,33 @@ func (d *Driver) Monitors() []driver.Monitor {
 	return out
 }
 
+// Depths implements [driver.Stacker].
+func (d *Driver) Depths(ws []driver.Window) []int {
+	gws := make([]*glfw.Window, len(ws))
+	for i, w := range ws {
+		if dw, ok := w.(*Window); ok && dw.d == d {
+			gws[i] = dw.gw
+		}
+	}
+	var out []int
+	err := d.call(func() error {
+		for i, w := range ws {
+			if dw, ok := w.(*Window); ok && dw.closed {
+				gws[i] = nil
+			}
+		}
+		out = glfw.Depths(gws)
+		return nil
+	})
+	if err != nil {
+		out = make([]int, len(ws))
+		for i := range out {
+			out[i] = -1
+		}
+	}
+	return out
+}
+
 // monitors lists the attached displays. It runs on the main thread.
 func monitors() []driver.Monitor {
 	ms, err := glfw.GetMonitors()
