@@ -57,6 +57,7 @@ type Echo struct {
 const (
 	echoLife  = 1100 * time.Millisecond
 	echoFlash = 420 * time.Millisecond
+	echoGlow  = 700 * time.Millisecond
 	echoBeat  = 1400 * time.Millisecond
 )
 
@@ -70,6 +71,14 @@ func (e *Echo) Ping(u *gunim.UI, tone theme.Token[color.NRGBA]) {
 		echoRing{at: 140 * time.Millisecond, tone: tone, strength: 0.7},
 		echoRing{at: 280 * time.Millisecond, tone: tone, strength: 0.45},
 	)
+}
+
+// Glow lights the window's edges in tone, softly, and lets them go
+// dark again: a quieter sign than Ping, for something that happened in
+// the window the user is looking at, such as a bell in the terminal in
+// front.
+func (e *Echo) Glow(u *gunim.UI, tone theme.Token[color.NRGBA]) {
+	e.send(u, echoRing{tone: tone, strength: 1, glow: true})
 }
 
 // Wait sends one faint ring after another in tone, EchoWait usually,
@@ -159,12 +168,17 @@ type echoRing struct {
 	tone     theme.Token[color.NRGBA]
 	strength float32
 	flash    bool
+	// glow lights the edges and lets them go dark, travelling nowhere.
+	glow bool
 }
 
 // life is how long r shows.
 func (r echoRing) life() time.Duration {
-	if r.flash {
+	switch {
+	case r.flash:
 		return echoFlash
+	case r.glow:
+		return echoGlow
 	}
 	return echoLife
 }
@@ -197,6 +211,12 @@ func (v *echoView) Paint(p *paint.Painter, f gunim.Frame, _ geom.Size, _ gunim.C
 		c := r.tone.Get(f.Theme)
 		t := float32(age) / float32(r.life())
 		fade := (1 - t) * (1 - t) * r.strength * strength
+		if r.glow {
+			// Up quickly, and down slowly, as a breath.
+			rise := float32(math.Sin(math.Pi * math.Pow(float64(t), 0.6)))
+			v.glow(p, c, rise*r.strength*strength)
+			continue
+		}
 		if r.flash {
 			v.ring(p, 1+5*t, 3, c, 0.8*fade)
 			continue
@@ -206,6 +226,22 @@ func (v *echoView) Paint(p *paint.Painter, f gunim.Frame, _ geom.Size, _ gunim.C
 		v.ring(p, 2*w+1+travel*v.reach, w, c, fade)
 	}
 }
+
+// glow paints a soft light round the window's edges, strongest at the
+// edge and fading out over glowReach, like a shadow in colour.
+func (v *echoView) glow(p *paint.Painter, c color.NRGBA, alpha float32) {
+	const step = 1.5
+	for d := float32(step / 2); d < glowReach; d += step {
+		x := 1 - d/glowReach
+		a := c
+		a.A = uint8(float32(c.A) * min(1, max(0, alpha*0.55*x*x)))
+		rect := geom.Rect{Min: geom.Pt(v.inner.Min.X-d, v.inner.Min.Y-d), Max: geom.Pt(v.inner.Max.X+d, v.inner.Max.Y+d)}
+		p.RRectStroke(rect, v.radius+d, paint.Fill{}, paint.Stroke{Width: step, Color: a})
+	}
+}
+
+// glowReach is how far past the window's edges a glow shows.
+const glowReach = 22
 
 // ring paints a ring d past the window's edges, w wide, with its glow.
 func (v *echoView) ring(p *paint.Painter, d, w float32, c color.NRGBA, alpha float32) {
