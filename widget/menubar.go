@@ -1,7 +1,9 @@
 package widget
 
 import (
+	"fmt"
 	"image/color"
+	"os"
 	"time"
 
 	"github.com/marrasen/gunim"
@@ -134,6 +136,7 @@ func (b *Menubar) Open(i int, u *gunim.UI) {
 	if i < 0 || i >= len(b.Menus) || i == b.open {
 		return
 	}
+	menuf("open %d, was %d, over %d, armed %v", i, b.open, b.over, b.armed)
 	if !b.IsOpen() && !b.armed {
 		b.back = u.Focused()
 	}
@@ -329,6 +332,7 @@ func (b *Menubar) Close(u *gunim.UI) {
 	if !b.IsOpen() && !b.armed {
 		return
 	}
+	menuf("close %d, over %d, armed %v", b.open, b.over, b.armed)
 	b.shut(u)
 	b.stopWaiting()
 	if b.listPopup != nil {
@@ -410,6 +414,9 @@ func (b *Menubar) titleAt(p geom.Point) int {
 
 // Handle implements [gunim.Handler].
 func (b *Menubar) Handle(e input.Event, u *gunim.UI) bool {
+	if menuDebug {
+		menuf("%T %+v, open %d, over %d", e, e, b.open, b.over)
+	}
 	switch e := e.(type) {
 	case input.PointerEnter:
 		b.hover(b.titleAt(e.Pos), u)
@@ -592,6 +599,17 @@ func (b *Menubar) armedKey(k input.KeyPress, u *gunim.UI) bool {
 	}
 	u.Invalidate()
 	return true
+}
+
+// menuDebug is set by GUNIM_DEBUG_MENU=1, which logs to standard error
+// what a menu bar hears and the menus it opens and closes.
+var menuDebug = os.Getenv("GUNIM_DEBUG_MENU") == "1"
+
+// menuf logs a menu bar's doing, under GUNIM_DEBUG_MENU=1.
+func menuf(format string, args ...any) {
+	if menuDebug {
+		fmt.Fprintf(os.Stderr, "gunim menu %s: %s\n", time.Now().Format("15:04:05.000"), fmt.Sprintf(format, args...))
+	}
 }
 
 // hover follows the pointer onto title i, or off the titles for -1:
