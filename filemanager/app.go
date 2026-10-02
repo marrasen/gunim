@@ -82,6 +82,8 @@ type Options struct {
 
 	// trash stands in for the file system's trash, for tests.
 	trash Trasher
+	// defaults stands in for DefaultFavourites, for tests.
+	defaults func() []Favourite
 }
 
 // Transfer is items going from one file system to another, which the

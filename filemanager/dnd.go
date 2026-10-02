@@ -3,6 +3,7 @@ package filemanager
 import (
 	"errors"
 	"slices"
+	"strings"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
@@ -237,7 +238,8 @@ func (v *dndView) listingSpot(d input.Drop, u *gunim.UI) (widget.DropSpot, bool)
 
 // sideSpot finds the spot of the sidebar under a drop: a place or a
 // favourite, which takes the items unless it is on another file system,
-// or the rest of the favourites, which pins them.
+// or the rest of the favourites' section, heading and all, which pins
+// them.
 func (v *dndView) sideSpot(d input.Drop, u *gunim.UI) (widget.DropSpot, bool) {
 	s := v.b.side
 	fd, ok := fileDragOf(d)
@@ -246,7 +248,7 @@ func (v *dndView) sideSpot(d input.Drop, u *gunim.UI) (widget.DropSpot, bool) {
 		return widget.DropSpot{}, false
 	}
 	at := d.Pos.Add(zr.Min)
-	for _, l := range []*widget.List{s.places, s.favs} {
+	for _, l := range s.lists() {
 		for _, k := range l.Keys() {
 			n, found := l.Row(k)
 			pr, isPlace := n.(*placeRow)
@@ -266,16 +268,17 @@ func (v *dndView) sideSpot(d input.Drop, u *gunim.UI) (widget.DropSpot, bool) {
 			}
 		}
 	}
-	fr, ok := u.Bounds(s.favs)
+	fr, ok := u.Bounds(s.favSec)
 	if !ok {
 		return widget.DropSpot{}, false
 	}
-	bottom := fr.Max.Y
-	if hr, drawn := u.Bounds(s.hint); drawn && s.hint.Text != "" {
-		bottom = max(bottom, hr.Max.Y)
+	// The last section reaches down to the bottom of the sidebar.
+	bottom := fr.Max.Y + 4
+	if len(s.order) > 0 && s.order[len(s.order)-1] == FavouritesSection {
+		bottom = max(bottom, zr.Max.Y-8)
 	}
-	section := geom.Rect{Min: geom.Pt(zr.Min.X+4, fr.Min.Y-24), Max: geom.Pt(zr.Max.X-4, max(bottom+8, zr.Max.Y-8))}
-	if at.Y < section.Min.Y {
+	section := geom.Rect{Min: geom.Pt(zr.Min.X+4, fr.Min.Y-4), Max: geom.Pt(zr.Max.X-4, bottom)}
+	if !section.Contains(at) {
 		return widget.DropSpot{}, false
 	}
 	var favs []string
@@ -398,7 +401,8 @@ func (c *dragCard) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 }
 
 // scriptTarget finds where in the window a script's name is: a row, a
-// place, a folder of the path, or "favourites" for below them.
+// place, a folder of the path, "favourites" for below them, or
+// "heading:" and a section's title, such as heading:Favourites.
 func scriptTarget(b *browser, name string, u *gunim.UI) (geom.Point, bool) {
 	l := b.listing
 	if l.cur != nil {
@@ -412,7 +416,17 @@ func scriptTarget(b *browser, name string, u *gunim.UI) (geom.Point, bool) {
 			}
 		}
 	}
-	for _, lst := range []*widget.List{b.side.places, b.side.favs} {
+	if title, ok := strings.CutPrefix(name, "heading:"); ok {
+		for _, c := range b.side.byID {
+			if strings.EqualFold(c.head.title, title) {
+				if r, ok := u.Bounds(c.head); ok {
+					return geom.Pt(r.Min.X+40, r.Center().Y), true
+				}
+			}
+		}
+		return geom.Point{}, false
+	}
+	for _, lst := range b.side.lists() {
 		for _, k := range lst.Keys() {
 			n, _ := lst.Row(k)
 			if pr, ok := n.(*placeRow); ok && pr.item.Name == name {
@@ -428,8 +442,8 @@ func scriptTarget(b *browser, name string, u *gunim.UI) (geom.Point, bool) {
 		}
 	}
 	if name == "favourites" {
-		if r, ok := u.Bounds(b.side.favs); ok {
-			return geom.Pt(r.Min.X+40, r.Max.Y+12), true
+		if r, ok := u.Bounds(b.side.favSec); ok {
+			return geom.Pt(r.Min.X+40, r.Max.Y-4), true
 		}
 	}
 	return geom.Point{}, false
@@ -455,6 +469,15 @@ func (v *dndView) script(w *gunim.Window, s ScriptDrag, u *gunim.UI) {
 		at = at.Add(geom.Pt(14, 8))
 		w.Input(input.PointerMove{Pos: at, Mods: mods})
 	case "over":
+		if strings.HasPrefix(s.Name, "heading:") {
+			// A heading dragged onto another goes past it, as a hand
+			// would carry it.
+			if at.Y < v.scriptAt.Y {
+				at.Y -= 8
+			} else {
+				at.Y += 8
+			}
+		}
 		// Two steps, so the picture swings.
 		mid := v.scriptAt.Add(at).Mul(0.5)
 		w.Input(input.PointerMove{Pos: mid, Mods: mods})

@@ -26,6 +26,9 @@ type Place struct {
 	FS string
 	// Lit draws the place's icon green, as a machine connected is.
 	Lit bool
+	// Color and Icon are a favourite's colour and icon, by name, as
+	// Favourite has them.
+	Color, Icon string
 }
 
 // PlaceItem is an item of the program's own in a place's context menu.
@@ -56,10 +59,45 @@ type PlaceCommanded struct {
 
 // Places is the sidebar: the places the system has, the user's
 // favourites, and the folder showing.
+//
+// The sidebar shows them in sections, each under a heading the user can
+// click to close or open it, and drag to put the sections in another
+// order: one section for each group of places, in the order the groups
+// first come, and one for the favourites. A section's ID is
+// FavouritesSection for the favourites, and from GroupSection for a
+// group. Unless Order says otherwise, the first group comes first, then
+// the favourites, then the other groups.
 type Places struct {
 	Places     []Place
 	Favourites []Place
 	Current    string
+	// Order is the order of the sections, by ID, as the user left them.
+	// A section it does not name comes after those it does, and an ID
+	// of a section not shown is passed by.
+	Order []string
+	// Collapsed are the IDs of the sections the user closed, which show
+	// their heading alone.
+	Collapsed []string
+}
+
+// FavouritesSection is the ID of the sidebar's section of favourites.
+const FavouritesSection = "favourites"
+
+// GroupSection returns the ID of the sidebar's section of the places of
+// group.
+func GroupSection(group string) string { return "group:" + group }
+
+// SectionsArranged carries the order of the sidebar's sections, by ID,
+// as a drag or the menu of a heading left them.
+type SectionsArranged struct {
+	Order []string
+}
+
+// SectionCollapsed closes the sidebar's section of ID, or opens it again
+// when Collapsed is false.
+type SectionCollapsed struct {
+	ID        string
+	Collapsed bool
 }
 
 // FavouritesReordered carries the favourites in the order a drag left
@@ -91,6 +129,8 @@ type Visit struct {
 func init() {
 	gunim.RegisterType[Places]("files.places")
 	gunim.RegisterType[FavouritesReordered]("files.favourites-reordered")
+	gunim.RegisterType[SectionsArranged]("files.sections-arranged")
+	gunim.RegisterType[SectionCollapsed]("files.section-collapsed")
 	gunim.RegisterType[Unpin]("files.unpin")
 	gunim.RegisterType[Visit]("files.visit")
 	gunim.RegisterType[PlaceMenuAsked]("files.place-menu-asked")

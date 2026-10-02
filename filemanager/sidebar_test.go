@@ -25,12 +25,43 @@ func (h *harness) clickWith(p geom.Point, mods input.Mods, clicks int) {
 // placeAt is where to click the row of the sidebar's places with key k.
 func (h *harness) placeAt(k widget.Key) geom.Point {
 	h.t.Helper()
-	r := h.bounds(func(b *browser) gunim.Node {
-		n, _ := b.side.places.Row(k)
-		return n
-	})
+	r := h.bounds(func(b *browser) gunim.Node { return b.side.placeRow(k) })
 	return geom.Pt(r.Center().X, r.Max.Y-10)
 }
+
+// placeKeys returns the keys of the places of every section but the
+// favourites, in the order shown.
+func (s *sidebar) placeKeys() []widget.Key {
+	var out []widget.Key
+	for _, l := range s.lists() {
+		if l != s.favs {
+			out = append(out, l.Keys()...)
+		}
+	}
+	return out
+}
+
+// placeRow returns the row of the place or favourite with key k, or nil.
+func (s *sidebar) placeRow(k widget.Key) gunim.Node {
+	for _, l := range s.lists() {
+		if n, ok := l.Row(k); ok {
+			return n
+		}
+	}
+	return nil
+}
+
+// titles returns the headings of the sections, in the order shown.
+func (s *sidebar) titles() []string {
+	out := make([]string, 0, len(s.order))
+	for _, id := range s.order {
+		out = append(out, s.byID[id].head.title)
+	}
+	return out
+}
+
+// firstHead returns the heading of the first section.
+func (s *sidebar) firstHead() gunim.Node { return s.byID[s.order[0]].head }
 
 func TestCtrlClickOnAPlaceOpensOneWindow(t *testing.T) {
 	var mu sync.Mutex
@@ -60,7 +91,7 @@ func TestCtrlClickOnAPlaceOpensOneWindow(t *testing.T) {
 		opened = append(opened, o.Dir)
 		return nil
 	}
-	h.until("the places arrive", func() bool { return h.b.side.places.Len() == 2 })
+	h.until("the places arrive", func() bool { return len(h.b.side.placeKeys()) == 2 })
 	h.frames(30)
 	work, srv := placeKey(Place{Path: filepath.Join(h.dir, "work")}), placeKey(Place{FS: "sftp://server", Path: "/home/me"})
 	seen := func(what string, got *[]string, want ...string) {
@@ -130,7 +161,7 @@ func TestTurningToAnotherFileSystemKeepsTheSidebarRows(t *testing.T) {
 		}, nil
 	}
 	h.a.loadPlaces()
-	h.until("the places arrive", func() bool { return h.b.side.places.Len() == 3 && h.b.side.favs.Len() == 2 })
+	h.until("the places arrive", func() bool { return len(h.b.side.placeKeys()) == 3 && h.b.side.favs.Len() == 2 })
 	h.frames(60)
 	type row struct {
 		key  widget.Key
@@ -138,11 +169,8 @@ func TestTurningToAnotherFileSystemKeepsTheSidebarRows(t *testing.T) {
 	}
 	rows := func() []row {
 		var out []row
-		for _, l := range []*widget.List{h.b.side.places, h.b.side.favs} {
-			for _, k := range l.Keys() {
-				n, _ := l.Row(k)
-				out = append(out, row{k, n})
-			}
+		for _, k := range slices.Concat(h.b.side.placeKeys(), h.b.side.favs.Keys()) {
+			out = append(out, row{k, h.b.side.placeRow(k)})
 		}
 		return out
 	}
@@ -168,7 +196,7 @@ func TestTurningToAnotherFileSystemKeepsTheSidebarRows(t *testing.T) {
 	steady()
 	close(gate)
 	steady()
-	here, slash := h.b.side.items[before[0].key], h.b.side.items[before[1].key]
+	here, slash := h.b.side.items[before[0].key], h.b.side.items[before[2].key]
 	if !here.away || slash.away || !slash.current {
 		t.Fatalf("after the turn the computer's place is %+v and the server's %+v", here, slash)
 	}
@@ -246,9 +274,9 @@ func TestEveryPlaceHasAMenuWithTheProgramsItems(t *testing.T) {
 	h.do(Navigate{Path: filepath.Join(h.dir, "sub")})
 	h.do(Command{Name: CmdPin})
 	h.do(Command{Name: CmdUp})
-	h.until("the places and the favourite show", func() bool { return h.b.side.places.Len() == 3 && h.b.side.favs.Len() == 1 })
+	h.until("the places and the favourite show", func() bool { return len(h.b.side.placeKeys()) == 3 && h.b.side.favs.Len() == 1 })
 	h.frames(30)
-	keys := h.b.side.places.Keys()
+	keys := h.b.side.placeKeys()
 
 	// A place that is not the folder showing has its menu, and one on
 	// another file system too.
@@ -280,7 +308,7 @@ func TestEveryPlaceHasAMenuWithTheProgramsItems(t *testing.T) {
 	})
 	h.rightClick(fav.Center())
 	items, _ = h.sideMenuShown()
-	if !slices.Equal(items, []string{"Open", "Open in new window", "Rename favourite", "Unpin", "Forget"}) {
+	if !slices.Equal(items, []string{"Open", "Open in new window", "Edit favourite…", "Unpin", "Forget"}) {
 		t.Fatalf("the favourite's menu is %v", items)
 	}
 	h.ui(func(b *browser, u *gunim.UI) { b.dnd.sideMenu.m.Picked(4, u) })
@@ -305,9 +333,9 @@ func TestAPlaceElsewhereHasAMenuWithoutTheProgramsItems(t *testing.T) {
 			}, nil
 		}
 	}, "a.txt")
-	h.until("the places show", func() bool { return h.b.side.places.Len() == 2 })
+	h.until("the places show", func() bool { return len(h.b.side.placeKeys()) == 2 })
 	h.frames(30)
-	h.rightClick(h.placeAt(h.b.side.places.Keys()[1]))
+	h.rightClick(h.placeAt(h.b.side.placeKeys()[1]))
 	if items, _ := h.sideMenuShown(); !slices.Equal(items, []string{"Open", "Open in new window"}) {
 		t.Fatalf("the menu of the server is %v", items)
 	}

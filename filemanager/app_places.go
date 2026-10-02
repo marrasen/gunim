@@ -20,6 +20,15 @@ func (a *app) handlePlaces(in gunim.Intent) bool {
 			favs = append(favs, f)
 		}
 		a.setFavourites(favs)
+	case SectionsArranged:
+		a.arrangeSidebar(func(p *prefs) { p.SidebarOrder = keepAbsent(p.SidebarOrder, v.Order) })
+	case SectionCollapsed:
+		a.arrangeSidebar(func(p *prefs) {
+			p.SidebarCollapsed = slices.DeleteFunc(slices.Clone(p.SidebarCollapsed), func(id string) bool { return id == v.ID })
+			if v.Collapsed {
+				p.SidebarCollapsed = append(p.SidebarCollapsed, v.ID)
+			}
+		})
 	case Unpin:
 		a.setFavourites(slices.DeleteFunc(slices.Clone(a.favs), func(f Favourite) bool { return a.isFav(f, v.FS, v.Path) }))
 	case Visit:
@@ -98,7 +107,7 @@ func (a *app) loadPlaces() {
 }
 
 // defaultPlaces are the places of a window whose options give none: the
-// user's folders and the drives of the computer, for its own file
+// home folder and the drives of the computer, for its own file
 // system, and the home folder and the top for another.
 func (a *app) defaultPlaces() ([]Place, error) {
 	if a.fs.ID() == "" {
@@ -123,8 +132,46 @@ func (a *app) defaultPlaces() ([]Place, error) {
 	return out, nil
 }
 
+// arrangeSidebar makes change to the order of the sidebar's sections or
+// to those closed, saves it, and shows it in this window and in every
+// window that keeps its settings where this one does.
+func (a *app) arrangeSidebar(change func(p *prefs)) {
+	a.savePrefs(change)
+	a.publishPlaces()
+	order, closed, path := slices.Clone(a.prefs.SidebarOrder), slices.Clone(a.prefs.SidebarCollapsed), a.prefsPath
+	a.hub.others(a, func(o *app) {
+		if o.prefsPath == path {
+			o.prefs.SidebarOrder, o.prefs.SidebarCollapsed = slices.Clone(order), slices.Clone(closed)
+			o.publishPlaces()
+		}
+	})
+}
+
+// keepAbsent returns order, the sections shown in their new order, with
+// the sections of was not shown now put back after the section they
+// came after, so a group that comes back, such as a server's, comes
+// back where it was.
+func keepAbsent(was, order []string) []string {
+	out := slices.Clone(order)
+	for i, id := range was {
+		if slices.Contains(out, id) {
+			continue
+		}
+		at := 0
+		for j := i - 1; j >= 0; j-- {
+			if k := slices.Index(out, was[j]); k >= 0 {
+				at = k + 1
+				break
+			}
+		}
+		out = slices.Insert(out, at, id)
+	}
+	return out
+}
+
 func (a *app) publishPlaces() {
-	s := Places{Places: a.places, Favourites: a.favPlaces(), Current: a.nav.path}
+	s := Places{Places: a.places, Favourites: a.favPlaces(), Current: a.nav.path,
+		Order: slices.Clone(a.prefs.SidebarOrder), Collapsed: slices.Clone(a.prefs.SidebarCollapsed)}
 	a.patch(s)
 	a.publishVolumes(s)
 }

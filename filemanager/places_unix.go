@@ -15,14 +15,16 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// userFolders returns the user's desktop, documents, downloads and
-// pictures, from user-dirs.dirs where there is one.
+// userFolders returns the user's desktop, documents, downloads,
+// pictures, music and videos, from user-dirs.dirs where there is one.
 func userFolders(home string) ([]userPlace, error) {
 	dirs := map[string]string{
 		"DESKTOP":   filepath.Join(home, "Desktop"),
 		"DOCUMENTS": filepath.Join(home, "Documents"),
 		"DOWNLOAD":  filepath.Join(home, "Downloads"),
 		"PICTURES":  filepath.Join(home, "Pictures"),
+		"MUSIC":     filepath.Join(home, "Music"),
+		"VIDEOS":    filepath.Join(home, "Videos"),
 	}
 	config := os.Getenv("XDG_CONFIG_HOME")
 	if config == "" {
@@ -32,10 +34,12 @@ func userFolders(home string) ([]userPlace, error) {
 		return nil, err
 	}
 	return []userPlace{
-		{"Desktop", "desktop", dirs["DESKTOP"]},
-		{"Documents", "documents", dirs["DOCUMENTS"]},
-		{"Downloads", "downloads", dirs["DOWNLOAD"]},
-		{"Pictures", "pictures", dirs["PICTURES"]},
+		{"desktop", dirs["DESKTOP"]},
+		{"documents", dirs["DOCUMENTS"]},
+		{"downloads", dirs["DOWNLOAD"]},
+		{"pictures", dirs["PICTURES"]},
+		{"music", dirs["MUSIC"]},
+		{"videos", dirs["VIDEOS"]},
 	}, nil
 }
 

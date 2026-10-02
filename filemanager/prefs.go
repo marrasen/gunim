@@ -24,8 +24,19 @@ type prefs struct {
 	Views map[string]bool
 	Icons bool
 	Tile  float32
-	// FavNames holds the names given to favourites, by path.
-	FavNames map[string]string
+	// FavNames holds the names given to favourites, by path, and
+	// FavColors and FavIcons their colours and icons.
+	FavNames  map[string]string
+	FavColors map[string]string `json:",omitempty"`
+	FavIcons  map[string]string `json:",omitempty"`
+	// FavSeeded says the default favourites were added, once, so those
+	// the user unpins stay unpinned.
+	FavSeeded bool `json:",omitempty"`
+	// SidebarOrder is the order the user put the sidebar's sections in,
+	// by their IDs, and SidebarCollapsed the IDs of those closed. See
+	// Places.
+	SidebarOrder     []string `json:",omitempty"`
+	SidebarCollapsed []string `json:",omitempty"`
 	// UploadEdited says what to do with a file fetched to open that
 	// changes on this computer: ask, the default when empty, upload it
 	// as always, or never.

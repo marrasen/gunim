@@ -54,7 +54,7 @@ func TestTabReachesEveryPartOfTheWindowAndTheSidebarOpensAPlace(t *testing.T) {
 	want := map[gunim.Node]string{
 		b.path.back:               "Back",
 		b.path.filter:             "the filter",
-		b.side.places:             "the sidebar",
+		b.side.firstHead():        "the sidebar",
 		b.listing.cur.focusNode(): "the listing",
 		b.status.views.modes:      "the view switch",
 	}
@@ -98,18 +98,31 @@ func TestTabReachesEveryPartOfTheWindowAndTheSidebarOpensAPlace(t *testing.T) {
 	}
 	// The path bar comes before the sidebar, and the sidebar before the listing.
 	at := func(n gunim.Node) int { return slices.Index(order, n) }
-	if at(b.path.back) > at(b.side.places) || at(b.side.places) > at(b.listing.cur.focusNode()) {
+	if at(b.path.back) > at(b.side.firstHead()) || at(b.side.firstHead()) > at(b.listing.cur.focusNode()) {
 		t.Errorf("Tab went round in the order %v", order)
 	}
 
-	// Down walks from the places on into the favourites, which take Enter.
-	for h.focused() != b.side.places {
+	// Down walks from the first heading into its places, and on past the
+	// favourites' heading into the favourites, which take Enter.
+	for range 40 {
+		if h.focused() == b.side.firstHead() {
+			break
+		}
 		h.press(input.KeyTab, 0)
+	}
+	h.press(input.KeyDown, 0)
+	places := b.side.byID[b.side.order[0]].list
+	if h.focused() != places {
+		t.Fatal("Down from the first heading did not go into its places")
 	}
 	h.press(input.KeyEnd, 0)
 	h.press(input.KeyDown, 0)
+	if h.focused() != b.side.favSec.head {
+		t.Fatal("Down from the last place did not go on to the favourites' heading")
+	}
+	h.press(input.KeyDown, 0)
 	if h.focused() != b.side.favs {
-		t.Fatal("Down from the last place did not go on into the favourites")
+		t.Fatal("Down from the favourites' heading did not go on into the favourites")
 	}
 	h.press(input.KeyEnter, 0)
 	h.until("Enter on the favourite opens it", func() bool { return slices.Equal(h.shown(), []string{"report.txt"}) })

@@ -50,7 +50,7 @@ func findNode(n *access.Node, role access.Role, name string) *access.Node {
 func TestEveryControlHasANameAndTheListingIsATable(t *testing.T) {
 	h := newHarness(t, "report.txt", "notes/")
 	h.w.Offscreen().ListenForAccess()
-	h.until("the rows and the places arrive", func() bool { return len(h.shown()) == 2 && h.b.side.places.Len() > 0 })
+	h.until("the rows and the places arrive", func() bool { return len(h.shown()) == 2 && len(h.b.side.placeKeys()) > 0 })
 	h.frames(30)
 	tree := h.w.Offscreen().AccessTree()
 	var missing []string

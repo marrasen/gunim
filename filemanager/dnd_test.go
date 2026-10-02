@@ -40,7 +40,10 @@ func openHarnessWith(t *testing.T, h *Hub, base, dir string, set func(o *Options
 	gunim.RegisterPatch(hs.w, "browser", func(b *browser, _ grab, _ *gunim.UI) { hs.b = b })
 	gunim.RegisterPatch(hs.w, "browser", func(b *browser, p inUI, u *gunim.UI) { p.fn(b, u) })
 	ctx, cancel := context.WithCancel(context.Background())
-	o := Options{Dir: dir, PrefsPath: filepath.Join(base, "prefs.json"), Poll: -1}
+	// No default favourites, unless a test gives some: those of the
+	// computer the tests run on would vary.
+	o := Options{Dir: dir, PrefsPath: filepath.Join(base, "prefs.json"), Poll: -1,
+		defaults: func() []Favourite { return nil }}
 	if set != nil {
 		set(&o)
 	}
@@ -303,8 +306,8 @@ func TestTheSidebarMenuUnpinsAndRenamesFavourites(t *testing.T) {
 	if !slices.Contains(items, "Unpin") {
 		t.Fatalf("the favourite's menu is %v", items)
 	}
-	h.do(RenameFavourite{Path: fav})
-	h.answer(Prompted{Token: h.a.ops.tokens, Text: "My stuff", OK: true})
+	h.do(EditFavourite{Path: fav})
+	h.answer(FavouriteEdited{Token: h.a.ops.tokens, Name: "My stuff", OK: true})
 	h.until("the favourite takes its name", func() bool { return h.a.favName("", fav) == "My stuff" })
 	h.do(Unpin{Path: fav})
 	if len(h.a.prefs.Favourites) != 0 {
