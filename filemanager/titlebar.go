@@ -88,8 +88,9 @@ type titleBar struct {
 	controls *widget.WindowControls
 	// cmds holds each menu's commands, in the order the bar has them.
 	cmds [][]string
-	// folder is the name of the folder showing, once one is.
-	folder string
+	// folder is the name of the folder showing, once one is, and native
+	// the title the window was given last.
+	folder, native string
 }
 
 func newTitleBar(b *browser) *titleBar {
@@ -145,7 +146,7 @@ func (t *titleBar) check(cmd string, on bool) {
 	}
 }
 
-func (t *titleBar) setShell(s Shell) {
+func (t *titleBar) setShell(s Shell, u *gunim.UI) {
 	for m, cmds := range t.cmds {
 		for i, c := range cmds {
 			if c == CmdTrash {
@@ -153,7 +154,7 @@ func (t *titleBar) setShell(s Shell) {
 			}
 		}
 	}
-	t.retitle()
+	t.retitle(u)
 	t.check(CmdHidden, s.ShowHidden)
 	t.check(CmdPreview, s.ShowPreview)
 	t.check(CmdThemeDark, !s.Light)
@@ -161,17 +162,19 @@ func (t *titleBar) setShell(s Shell) {
 }
 
 // setListing names the folder in the title, and ticks the sort.
-func (t *titleBar) setListing(l Listing) {
+func (t *titleBar) setListing(l Listing, u *gunim.UI) {
 	t.folder = l.Title
-	t.retitle()
+	t.retitle(u)
 	for by, cmd := range []string{CmdSortName, CmdSortSize, CmdSortTime, CmdSortType} {
 		t.check(cmd, SortBy(by) == l.Sort)
 	}
 }
 
 // retitle names the file system, the folder and the program in the
-// title, those it knows.
-func (t *titleBar) retitle() {
+// title, those it knows: the one drawn, and the window's own, which the
+// system shows as it switches between windows. u may be nil, as in a
+// test with no window.
+func (t *titleBar) retitle(u *gunim.UI) {
 	s := t.b.shell
 	var parts []string
 	for _, p := range []string{s.Where, t.folder, s.appName()} {
@@ -180,6 +183,10 @@ func (t *titleBar) retitle() {
 		}
 	}
 	t.bar.Title = strings.Join(parts, " — ")
+	if u != nil && t.bar.Title != t.native {
+		t.native = t.bar.Title
+		u.SetTitle(t.native)
+	}
 }
 
 // appName is what the title calls the program.

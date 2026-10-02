@@ -119,7 +119,7 @@ func (b *browser) setShell(s Shell, u *gunim.UI) {
 	} else {
 		b.main.SetShare(share, nil)
 	}
-	b.title.setShell(s)
+	b.title.setShell(s, u)
 	b.side.fs, b.side.ps = s.FS, s.Paths
 	b.shown = true
 }

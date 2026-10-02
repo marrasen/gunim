@@ -17,7 +17,7 @@ const maxBlocks = 64
 
 func registerListing(w *gunim.Window) {
 	gunim.RegisterPatch(w, "browser", func(b *browser, l Listing, u *gunim.UI) {
-		b.title.setListing(l)
+		b.title.setListing(l, u)
 		b.path.setListing(l, u)
 		b.listing.setListing(l, u)
 	})
