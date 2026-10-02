@@ -160,6 +160,13 @@ func (w *Window) chromeMessage(uMsg uint32, wParam _WPARAM, lParam _LPARAM) (uin
 		return uintptr(w.chromeHit(lParam)), true
 
 	case _WM_NCMOUSEMOVE, _WM_NCLBUTTONDOWN, _WM_NCLBUTTONUP, _WM_NCLBUTTONDBLCLK:
+		if uMsg == _WM_NCLBUTTONDBLCLK && wParam == _HTCAPTION && w.hitTest != nil {
+			// A title bar without a maximize button keeps the window
+			// as it is, where Windows would maximize it.
+			if x, y := w.clientPoint(lParam); w.hitTest(w, int(x), int(y)) == HitCaptionOnly {
+				return 0, true
+			}
+		}
 		if wParam != _HTMAXBUTTON {
 			if w.platform.overMaximize {
 				w.platform.overMaximize = false
@@ -242,7 +249,7 @@ func (w *Window) chromeHit(lParam _LPARAM) int {
 	}
 	if w.hitTest != nil {
 		switch w.hitTest(w, int(x), int(y)) {
-		case HitCaption:
+		case HitCaption, HitCaptionOnly:
 			return _HTCAPTION
 		case HitMaximize:
 			return _HTMAXBUTTON

@@ -12,11 +12,17 @@ func init() {
 
 // TitleBar is the title bar the engine gives a chromeless window: the title, centred, and the window's buttons at its
 // end. An application that puts [WindowControls] in its own tree draws its own title bar instead.
+//
+// NoMinimize, NoMaximize and NoClose leave buttons out, as [WindowControls] has them. With none left, the bar is the
+// title alone: a press on it still moves the window, and a double click no longer maximizes it.
 type TitleBar struct {
 	// Compact makes the bar [TitleBarCompactHeight] tall, with narrower buttons.
 	Compact bool
 	// Pin adds a button that keeps the window above other windows; see [WindowControls.Pin].
-	Pin      bool
+	Pin bool
+	// NoMinimize, NoMaximize and NoClose leave out the minimize, maximize and close buttons.
+	NoMinimize, NoMaximize, NoClose bool
+
 	title    *WindowTitle
 	controls *WindowControls
 }
@@ -41,6 +47,7 @@ func (t *TitleBar) Layout(cs gunim.Constraints, f gunim.Frame, kids gunim.Childr
 		return cs.Constrain(geom.Size{})
 	}
 	t.controls.Compact, t.controls.Pin = t.Compact, t.Pin
+	t.controls.NoMinimize, t.controls.NoMaximize, t.controls.NoClose = t.NoMinimize, t.NoMaximize, t.NoClose
 	h := t.controls.height(f.Theme)
 	w := cs.Max.W
 	ctl := kids.At(1).Layout(gunim.Constraints{Max: geom.Sz(w, h)})

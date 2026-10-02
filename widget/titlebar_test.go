@@ -88,3 +88,28 @@ func TestAnApplicationsOwnWindowButtonsTakeTheTitleBarsPlace(t *testing.T) {
 		t.Fatalf("the system was told the maximize button is at %v, want the application's, at %v", fr.Maximize, r)
 	}
 }
+
+// A title bar can leave its buttons out. Without maximize, the system is told there is no maximize button, and with
+// no buttons at all the title has the whole bar, all of it caption.
+func TestATitleBarCanLeaveItsButtonsOut(t *testing.T) {
+	fr, bar, run, _ := titleStage(t, newSpot(100, 50))
+	bar.Compact, bar.NoMaximize = true, true
+	run(2)
+	if got := bar.controls.buttons(); len(got) != 2 || got[0] != minimizeButton || got[1] != closeButton {
+		t.Fatalf("without maximize the bar shows buttons %v, want minimize and close", got)
+	}
+	if !fr.Maximize.Empty() {
+		t.Fatalf("without maximize the system was told the maximize button is at %v", fr.Maximize)
+	}
+	if want := float32(600 - 2*compactButtonWidth); len(fr.Caption) == 0 || fr.Caption[0].Max.X != want {
+		t.Fatalf("the system was told the caption is %v, want it to end at %v", fr.Caption, want)
+	}
+	bar.NoMinimize, bar.NoClose = true, true
+	run(2)
+	if got := bar.controls.buttons(); len(got) != 0 {
+		t.Fatalf("with every button left out the bar shows %v", got)
+	}
+	if len(fr.Caption) == 0 || fr.Caption[0] != geom.Rc(0, 0, 600, TitleBarCompactHeight.Default()) || !fr.Maximize.Empty() {
+		t.Fatalf("with no buttons the caption is %v and the maximize button %v, want the whole bar and none", fr.Caption, fr.Maximize)
+	}
+}

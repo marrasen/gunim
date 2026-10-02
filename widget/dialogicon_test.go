@@ -36,12 +36,19 @@ func TestADialogShowsItsIconBeforeItsTitle(t *testing.T) {
 		t.Fatalf("the dialog drew %d icons, want its icon in the ink", len(ms))
 	}
 	panel := d.panel(geom.Sz(800, 600), gunim.Frame{})
-	pad := DialogPadding.Default()
+	pad, bar := DialogPadding.Default(), TitleBarCompactHeight.Default()
 	at := ms[0].Transform.Apply(ms[0].Rect.Min)
-	if dx := at.X - (panel.Min.X + pad); dx < -0.5 || dx > 0.5 || at.Y < panel.Min.Y+pad {
-		t.Fatalf("the icon is at %v, want at the panel's padding, %v", at, panel.Min.Add(geom.Pt(pad, pad)))
+	end := ms[0].Transform.Apply(ms[0].Rect.Max)
+	if at.Y < panel.Min.Y || end.Y > panel.Min.Y+bar {
+		t.Fatalf("the icon runs from %v to %v, want in the title bar, %v to %v down", at.Y, end.Y, panel.Min.Y, panel.Min.Y+bar)
 	}
-	if w := d.title(nil, panel.Size().W).Size.W; w > panel.Size().W-2*pad-IconSize.Default()-IconGap.Default() {
+	// The icon and the title are centred together, the title after the icon.
+	title := d.title(nil, panel.Size().W)
+	want := panel.Min.X + (panel.Size().W-IconSize.Default()-IconGap.Default()-title.Size.W)/2
+	if dx := at.X - want; dx < -1 || dx > 1 {
+		t.Fatalf("the icon is at %v, want at %v, with the title after it centred in the bar", at.X, want)
+	}
+	if w := title.Size.W; w > panel.Size().W-2*pad-IconSize.Default()-IconGap.Default() {
 		t.Fatalf("the title is %v wide, past the room the icon leaves", w)
 	}
 	if _, ms := dialogMasks(t, func(*Dialog) {}); len(ms) != 0 {

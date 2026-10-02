@@ -73,22 +73,29 @@ var (
 	// 2 draws a double rule, as a text screen's double-line box does.
 	DialogBorderLines = theme.Number("dialog.border.lines", 1)
 	DialogShadow      = theme.Color("dialog.shadow", color.NRGBA{A: 0x80})
-	Scrim             = theme.Color("dialog.scrim", color.NRGBA{A: 0x99})
+	Scrim             = theme.Color("dialog.scrim", color.NRGBA{A: 0x66})
 	// DialogProblem colours what stands in the way of confirming a dialog.
 	DialogProblem = theme.Color("dialog.problem", color.NRGBA{R: 0xff, G: 0x8a, B: 0x80, A: 0xff})
 	// DialogDangerInk colours the icon of a danger dialog.
 	DialogDangerInk = theme.Color("dialog.danger", color.NRGBA{R: 0xe5, G: 0x5a, B: 0x52, A: 0xff})
 	DialogRadius    = theme.Length("dialog.radius", 14)
 	DialogPadding   = theme.Length("dialog.padding", 20)
+	// DialogTitleSize was the size of the heading a dialog drew its
+	// title in. A dialog now shows its title in a title bar, in
+	// [TextSize], and nothing in gunim reads this.
 	DialogTitleSize = theme.Length("dialog.title.size", 17)
 	DialogWidth     = theme.Length("dialog.width", 420)
-	DialogHeight    = theme.Length("dialog.height", 200)
-	DialogGap       = theme.Length("dialog.gap", 10)
+	// DialogHeight is a dialog's height until its first layout, which
+	// sizes it to its title bar, body and buttons.
+	DialogHeight = theme.Length("dialog.height", 200)
+	DialogGap    = theme.Length("dialog.gap", 10)
 	// DialogMargin is the room a dialog leaves around itself when its
 	// body is taller than the window.
 	DialogMargin = theme.Length("dialog.margin", 48)
-	// DialogBackdrop is how far the scrim blurs what is behind it.
-	DialogBackdrop = theme.Length("dialog.backdrop", 14)
+	// DialogBackdrop is how far the scrim blurs what is behind it, as a
+	// blur's standard deviation: a touch, so the window behind stays
+	// readable.
+	DialogBackdrop = theme.Length("dialog.backdrop", 2)
 )
 
 // List tokens.
@@ -117,7 +124,7 @@ func Light() theme.Theme {
 		theme.Set(DialogFill, color.NRGBA{R: 0xfa, G: 0xfb, B: 0xfd, A: 0xff}),
 		theme.Set(DialogBorder, color.NRGBA{R: 0xd5, G: 0xdb, B: 0xe5, A: 0xff}),
 		theme.Set(DialogShadow, color.NRGBA{A: 0x40}),
-		theme.Set(Scrim, color.NRGBA{R: 0xf0, G: 0xf2, B: 0xf6, A: 0x80}),
+		theme.Set(Scrim, color.NRGBA{R: 0xf0, G: 0xf2, B: 0xf6, A: 0x60}),
 		theme.Set(DialogRadius, 22),
 		theme.Set(DialogPadding, 28),
 		theme.Set(DialogWidth, 460),

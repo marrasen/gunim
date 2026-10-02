@@ -71,6 +71,29 @@ func TestTheEngineMovesAndSizesAChromelessWindow(t *testing.T) {
 	}
 }
 
+// fixedStrip is a title strip without a maximize button.
+type fixedStrip struct{ titleStrip }
+
+func (t *fixedStrip) MaximizeRect(geom.Size) geom.Rect { return geom.Rect{} }
+
+// A title bar without a maximize button reports none to the system,
+// and a double click on its caption leaves the window as it is.
+func TestATitleBarWithoutMaximizeKeepsTheWindowsSize(t *testing.T) {
+	w := newTestWindow()
+	fr := w.MakeChromeless(false)
+	strip := &fixedStrip{}
+	w.ui.Insert(w.ui.Root(), strip)
+	run(w, 1)
+	if !fr.Maximize.Empty() || len(fr.Caption) != 1 {
+		t.Fatalf("the system was told the caption is %v and the maximize button %v, want no button", fr.Caption, fr.Maximize)
+	}
+	w.Input(input.PointerDown{Pos: geom.Pt(150, 15), Button: input.ButtonPrimary, Clicks: 1, Time: time.Now()})
+	w.Input(input.PointerDown{Pos: geom.Pt(150, 15), Button: input.ButtonPrimary, Clicks: 2, Time: time.Now()})
+	if fr.IsMaximized || fr.Moves != 1 {
+		t.Fatalf("after a double click on the caption: maximized %v, %d moves; want 1 move and no maximize", fr.IsMaximized, fr.Moves)
+	}
+}
+
 // Where the system moves and sizes the window itself, the engine takes
 // no press.
 func TestANativeFrameLeavesPressesToTheNodes(t *testing.T) {
