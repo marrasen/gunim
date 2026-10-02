@@ -1,6 +1,8 @@
 package filemanager
 
 import (
+	"strings"
+
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/paint"
@@ -86,6 +88,8 @@ type titleBar struct {
 	controls *widget.WindowControls
 	// cmds holds each menu's commands, in the order the bar has them.
 	cmds [][]string
+	// folder is the name of the folder showing, once one is.
+	folder string
 }
 
 func newTitleBar(b *browser) *titleBar {
@@ -149,9 +153,7 @@ func (t *titleBar) setShell(s Shell) {
 			}
 		}
 	}
-	if t.bar.Title == "" || t.bar.Title == "Files" {
-		t.bar.Title = s.appName()
-	}
+	t.retitle()
 	t.check(CmdHidden, s.ShowHidden)
 	t.check(CmdPreview, s.ShowPreview)
 	t.check(CmdThemeDark, !s.Light)
@@ -160,10 +162,24 @@ func (t *titleBar) setShell(s Shell) {
 
 // setListing names the folder in the title, and ticks the sort.
 func (t *titleBar) setListing(l Listing) {
-	t.bar.Title = l.Title + " — " + t.b.shell.appName()
+	t.folder = l.Title
+	t.retitle()
 	for by, cmd := range []string{CmdSortName, CmdSortSize, CmdSortTime, CmdSortType} {
 		t.check(cmd, SortBy(by) == l.Sort)
 	}
+}
+
+// retitle names the file system, the folder and the program in the
+// title, those it knows.
+func (t *titleBar) retitle() {
+	s := t.b.shell
+	var parts []string
+	for _, p := range []string{s.Where, t.folder, s.appName()} {
+		if p != "" {
+			parts = append(parts, p)
+		}
+	}
+	t.bar.Title = strings.Join(parts, " — ")
 }
 
 // appName is what the title calls the program.

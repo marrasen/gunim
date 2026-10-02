@@ -15,6 +15,11 @@
 // between file systems, by a drop or a paste, only where the program
 // carries them, through [Options.Transfer]; without it, such a drop is
 // refused, and Paste offers only items of the window's own file system.
+// A transfer runs as one of the window's operations: it shows in the
+// progress panel with the window's own, the user can stop it, and it
+// asks about names that clash through the window's dialog, by its
+// [TransferProgress]. Through [Options.FSName] the program names each
+// file system, as the window's title says first.
 //
 // The window and the program are two halves that speak only in values.
 // The protocol files hold the vocabulary, one file per area. The app
@@ -52,6 +57,9 @@ type Shell struct {
 	Transfers bool
 	// Name is what the title calls the program, and Files when empty.
 	Name string
+	// Where names the file system, as the title says first, and is empty
+	// where the program gives it no name.
+	Where string
 }
 
 // Crumb is one folder of the path bar.

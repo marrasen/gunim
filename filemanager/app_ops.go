@@ -207,21 +207,24 @@ func (a *app) opsCommand(name string) bool {
 }
 
 // what says how many items paths are, or names the one.
-func (a *app) what(paths []string) string {
+func (a *app) what(paths []string) string { return whatIn(a.ps, paths) }
+
+// whatIn says how many items paths, written as ps, are, or names the one.
+func whatIn(ps PathStyle, paths []string) string {
 	if len(paths) == 1 {
-		return a.ps.Base(paths[0])
+		return ps.Base(paths[0])
 	}
 	return plural(len(paths), "item")
 }
 
-// startOp runs j in the background, with its progress in the panel once
-// it has run a moment.
-func (a *app) startOp(j job, title string) {
+// newOp counts a new operation running, of kind and called title, with
+// its progress in the panel once it has run a moment. It returns the
+// operation's ID, and the context it runs in, which cancel ends.
+func (a *app) newOp(title string, kind OpKind) (id int, ctx context.Context, cancel context.CancelFunc) {
 	a.ops.next++
-	id := a.ops.next
-	ctx, cancel := context.WithCancel(a.ctx)
-	r := &opRun{id: id, title: title, kind: j.kind, cancel: cancel}
-	a.ops.running[id] = r
+	id = a.ops.next
+	ctx, cancel = context.WithCancel(a.ctx)
+	a.ops.running[id] = &opRun{id: id, title: title, kind: kind, cancel: cancel}
 	time.AfterFunc(showAfter, func() {
 		a.post(func() {
 			if r, ok := a.ops.running[id]; ok {
@@ -230,6 +233,13 @@ func (a *app) startOp(j job, title string) {
 			}
 		})
 	})
+	return id, ctx, cancel
+}
+
+// startOp runs j in the background, with its progress in the panel once
+// it has run a moment.
+func (a *app) startOp(j job, title string) {
+	id, ctx, _ := a.newOp(title, j.kind)
 	e := env{
 		fs:     a.fs,
 		trash:  a.trash,
