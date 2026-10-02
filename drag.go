@@ -1,6 +1,8 @@
 package gunim
 
 import (
+	"fmt"
+	"os"
 	"slices"
 	"sync"
 	"time"
@@ -46,6 +48,33 @@ func (ws *windows) remove(w *Window) {
 	ws.mu.Lock()
 	defer ws.mu.Unlock()
 	ws.list = slices.DeleteFunc(ws.list, func(o *Window) bool { return o == w })
+}
+
+// dragDebug is set by GUNIM_DEBUG_DRAG=1, which logs to standard error
+// each time a drag goes over another window, or off them all: where the
+// pointer is on the screen, and where each window is.
+var dragDebug = os.Getenv("GUNIM_DEBUG_DRAG") == "1"
+
+// debugDrag logs a drag at the screen point at going over window over,
+// nil for none.
+func (a *App) debugDrag(at geom.Point, over *Window) {
+	if a == nil {
+		return
+	}
+	a.windows.mu.Lock()
+	list := slices.Clone(a.windows.list)
+	a.windows.mu.Unlock()
+	line := fmt.Sprintf("gunim drag at %.1f,%.1f over %p;", at.X, at.Y, over)
+	for _, w := range list {
+		sc, ok := w.dw.(driver.Screener)
+		if !ok {
+			continue
+		}
+		o, size := sc.ToScreen(geom.Point{}), w.dw.Size()
+		far := sc.ToScreen(size.Point())
+		line += fmt.Sprintf(" window %p at %.1f,%.1f to %.1f,%.1f (size %.1fx%.1f, holds %v);", w, o.X, o.Y, far.X, far.Y, size.W, size.H, holds(w, at))
+	}
+	fmt.Fprintln(os.Stderr, line)
 }
 
 // at returns the window holding p, a screen point, or nil. The window
@@ -270,6 +299,9 @@ func (u *UI) dragTo(p geom.Point) {
 			u.w.sendDrag(d.over, dragMsg{kind: dragLeave})
 		}
 		u.toGhost(d.ghost, input.DragAnswer{Time: time.Now()})
+	}
+	if dragDebug && d.over != over {
+		u.w.app.debugDrag(at, over)
 	}
 	d.over = over
 	if over == nil && u.leaving(at) && u.dragOut(d) {
