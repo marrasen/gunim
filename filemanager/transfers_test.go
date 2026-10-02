@@ -460,9 +460,9 @@ func TestTheTitleNamesTheFileSystemFirst(t *testing.T) {
 	} {
 		b := &browser{shell: Shell{Where: c.where}}
 		tb := newTitleBar(b)
-		tb.setShell(b.shell)
+		tb.setShell(b.shell, nil)
 		if c.folder != "" {
-			tb.setListing(Listing{Title: c.folder})
+			tb.setListing(Listing{Title: c.folder}, nil)
 		}
 		if tb.bar.Title != c.want {
 			t.Fatalf("the title is %q, want %q", tb.bar.Title, c.want)
