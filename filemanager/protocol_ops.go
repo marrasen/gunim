@@ -36,6 +36,29 @@ type Notice struct {
 	Undo        int
 	// Kind is success, warning or info, for the toast's icon; empty shows none.
 	Kind string
+	// Key names the notice, so NoticeGone can take it away; a notice
+	// with the key of one showing takes its place.
+	Key string
+	// Buttons are the buttons of a notice that asks, the first the one
+	// it expects. It stays until the user answers, with NoticeAnswered,
+	// and takes no keyboard. Check, when not empty, labels a tick box
+	// whose state the answer carries.
+	Buttons []string
+	Check   string
+}
+
+// NoticeAnswered answers the notice of Key that asks: Button is the
+// index of the button clicked, or -1 where the toast was closed, and
+// Checked says its tick box was ticked.
+type NoticeAnswered struct {
+	Key     string
+	Button  int
+	Checked bool
+}
+
+// NoticeGone is a patch that takes away the notice of Key, if it shows.
+type NoticeGone struct {
+	Key string
 }
 
 // CancelOp asks to stop a running operation.
@@ -83,12 +106,15 @@ type Confirm struct {
 	Token       int
 	Title, Body string
 	OK          string
+	// Alt, when not empty, labels a third answer, between OK and Cancel.
+	Alt string
 }
 
-// Confirmed answers a Confirm.
+// Confirmed answers a Confirm. Alt says the user chose its third answer.
 type Confirmed struct {
 	Token int
 	OK    bool
+	Alt   bool
 }
 
 // Prompt is the state of a dialog that asks for a name.
@@ -124,6 +150,8 @@ func init() {
 	gunim.RegisterType[Ops]("files.ops")
 	gunim.RegisterType[OpTick]("files.op-tick")
 	gunim.RegisterType[Notice]("files.notice")
+	gunim.RegisterType[NoticeAnswered]("files.notice-answered")
+	gunim.RegisterType[NoticeGone]("files.notice-gone")
 	gunim.RegisterType[CancelOp]("files.cancel-op")
 	gunim.RegisterType[UndoOp]("files.undo-op")
 	gunim.RegisterType[ClashAsk]("files.clash")

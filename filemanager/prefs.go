@@ -26,6 +26,10 @@ type prefs struct {
 	Tile  float32
 	// FavNames holds the names given to favourites, by path.
 	FavNames map[string]string
+	// UploadEdited says what to do with a file fetched to open that
+	// changes on this computer: ask, the default when empty, upload it
+	// as always, or never.
+	UploadEdited string `json:",omitempty"`
 }
 
 // defaultPrefsPath is where the settings live: gunim-files/prefs.json in

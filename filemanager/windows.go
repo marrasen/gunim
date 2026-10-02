@@ -41,8 +41,12 @@ type Hub struct {
 	errs []error
 	ga   *gunim.App
 	// copies are the files of other file systems fetched to open with
-	// the computer's programs, kept until the hub ends.
-	copies *openCopies
+	// the computer's programs, kept until the hub ends, and watching
+	// says the hub looks at them for changes. ids holds the ID of the
+	// file system each window shows, for the watch to find one to tell.
+	copies   *openCopies
+	watching bool
+	ids      map[*app]string
 }
 
 // NewHub makes a hub whose windows open on ga, and close when ctx ends.
@@ -225,10 +229,25 @@ func joinHub(a *app, h *Hub) *Hub {
 		h = &Hub{}
 	}
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	h.apps = append(h.apps, a)
+	if h.ids == nil {
+		h.ids = map[*app]string{}
+	}
+	h.ids[a] = a.fs.ID()
 	a.takeClip(h)
+	h.mu.Unlock()
+	// A change waiting for a window is offered in this one.
+	h.watchCopies()
 	return h
+}
+
+// shows notes that a shows the file system of ID id now.
+func (h *Hub) shows(a *app, id string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if _, ok := h.ids[a]; ok {
+		h.ids[a] = id
+	}
 }
 
 // clipboard is the paths cut or copied, and whether they were cut: on
@@ -242,11 +261,17 @@ type clipboard struct {
 	seq   int
 }
 
-// leave takes a off h.
+// leave takes a off h. The changes it had to offer or upload go to
+// another window.
 func (h *Hub) leave(a *app) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	h.apps = slices.DeleteFunc(h.apps, func(o *app) bool { return o == a })
+	delete(h.ids, a)
+	c := h.copies
+	h.mu.Unlock()
+	if c != nil {
+		c.releaseApp(a)
+	}
 }
 
 // others runs fn on the serve loop of each app of h but a.

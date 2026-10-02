@@ -148,6 +148,9 @@ type app struct {
 	// answers late is dropped.
 	placesGen int
 	dnd       dndState
+	// uploads holds the copies changed on this computer that the window
+	// offers to upload, by the key of the notice that offers.
+	uploads map[string]copyKey
 }
 
 // handler is one area's share of the intents: it reports whether it
@@ -240,7 +243,7 @@ func newApp(ctx context.Context, c gunim.Client, o Options) (*app, error) {
 	a.prefs, a.prefsErr = loadPrefs(a.prefsPath)
 	a.shell = Shell{Light: a.prefs.Light, ShowHidden: a.prefs.ShowHidden, ShowPreview: !a.prefs.HidePreview,
 		Sidebar: a.prefs.Sidebar, FS: a.fs.ID(), Paths: a.ps, NoTrash: tr == nil,
-		Transfers: o.Transfer != nil, PlaceMenu: o.PlaceMenu != nil, Name: o.Name}
+		Transfers: o.Transfer != nil, PlaceMenu: o.PlaceMenu != nil, Name: o.Name, UploadEdited: a.prefs.UploadEdited}
 	a.shell.Where, a.shell.Fetches = a.where(), a.fetches()
 	a.nav.sort, a.nav.desc = a.prefs.Sort, a.prefs.Desc
 	return a, nil
@@ -299,6 +302,9 @@ func (a *app) handleShell(in gunim.Intent) bool {
 			a.savePrefs(func(p *prefs) { p.HidePreview = hide })
 		case CmdCloseApp:
 			a.close()
+			return true
+		case CmdUploadAsk, CmdUploadAlways, CmdUploadNever:
+			a.setUploadEdited(strings.TrimPrefix(v.Name, "upload."))
 			return true
 		default:
 			return false

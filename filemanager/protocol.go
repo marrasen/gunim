@@ -68,6 +68,10 @@ type Shell struct {
 	// Where names the file system, as the title says first, and is empty
 	// where the program gives it no name.
 	Where string
+	// UploadEdited says what happens to a file fetched to open that
+	// changes on this computer: ask, always upload it, or never; empty
+	// asks.
+	UploadEdited string
 }
 
 // Crumb is one folder of the path bar.
@@ -232,6 +236,11 @@ const (
 	CmdSortTime   = "sort.time"
 	CmdSortType   = "sort.type"
 	CmdSelectNone = "selectnone"
+	// The commands that say what happens to a file fetched to open
+	// that changes on this computer.
+	CmdUploadAsk    = "upload." + uploadAsk
+	CmdUploadAlways = "upload." + uploadAlways
+	CmdUploadNever  = "upload." + uploadNever
 )
 
 // SortClicked says a column's title was clicked.

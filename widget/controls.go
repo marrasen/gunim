@@ -25,6 +25,9 @@ type toggle struct {
 	// Tooltip says more about the choice than its label has room for: a
 	// popup shows it once the pointer has rested on the control.
 	Tooltip string
+	// KeepFocus leaves the keyboard where it is when the control is
+	// clicked, as on a toast; Tab still reaches it.
+	KeepFocus bool
 	// OnChange turns the new state into an intent for the application.
 	OnChange func(on bool) gunim.Intent
 	// flipped is local behaviour, set by OnFlip.
@@ -83,6 +86,9 @@ func (t *toggle) flip(n gunim.Node, u *gunim.UI) {
 
 // Focusable implements [gunim.Focusable].
 func (t *toggle) Focusable() bool { return !t.Disabled }
+
+// FocusOnPress implements [gunim.PressFocuser].
+func (t *toggle) FocusOnPress() bool { return !t.KeepFocus }
 
 // handle is the Handle both controls share; n is the control itself.
 func (t *toggle) handle(n gunim.Node, e input.Event, u *gunim.UI) bool {

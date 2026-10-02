@@ -26,8 +26,10 @@ const (
 	// as each opens a program's window.
 	fetchManyAsk = 10
 	// copiesKept is how long another hub's copies stay before a hub that
-	// starts takes them away.
+	// starts takes them away, and unsentKept how long those changed
+	// on this computer and not uploaded stay.
 	copiesKept = 24 * time.Hour
+	unsentKept = 30 * 24 * time.Hour
 )
 
 // fetches reports whether the window's files open with the computer's
@@ -192,7 +194,7 @@ func (a *app) startFetch(fsys FS, copies *openCopies, want []remoteFile) {
 			}
 			report(0, true)
 			var local string
-			local, err = copies.fetch(ctx, fsys, f, report)
+			local, err = copies.fetch(ctx, fsys, f, a, report)
 			if err != nil {
 				break
 			}
@@ -202,7 +204,10 @@ func (a *app) startFetch(fsys FS, copies *openCopies, want []remoteFile) {
 			}
 		}
 		stopped := ctx.Err() != nil
-		a.post(func() { a.fetchedToOpen(id, what, err, openErr, stopped) })
+		a.post(func() {
+			a.fetchedToOpen(id, what, err, openErr, stopped)
+			a.hub.watchCopies()
+		})
 	})
 }
 
@@ -244,20 +249,51 @@ type openCopies struct {
 	// base holds the folders of every hub, and dir this hub's, made with
 	// the first copy.
 	base, dir string
-	kept      map[copyKey]openCopy
+	kept      map[copyKey]*openCopy
+	// every is how often the hub looks for copies changed on this
+	// computer, and settle how long a change stays the same before it
+	// counts as done. Zero takes copiesEvery and copiesSettle; every
+	// below zero looks only when asked, as a test does.
+	every, settle time.Duration
 }
 
 // copyKey is a file of a file system, by the system's ID and the path.
 type copyKey struct{ fs, path string }
 
 // openCopy is a file fetched: where its copy is, the size and the time
-// of the file it was fetched from, and the time the copy had once made,
-// which a program that changes it changes.
+// of the file it was fetched from, or last uploaded to, and the size and
+// the time the copy had then, which a program that changes it changes.
 type openCopy struct {
-	local    string
-	size     int64
-	mod      time.Time
-	localMod time.Time
+	local     string
+	size      int64
+	mod       time.Time
+	localSize int64
+	localMod  time.Time
+	// owner is the window that fetched it, which hears of its changes
+	// first.
+	owner *app
+	// seenSize and seenMod are the copy as last looked at, and seenAt
+	// when it was last seen to change.
+	seenSize int64
+	seenMod  time.Time
+	seenAt   time.Time
+	// askedSize and askedMod are the copy as it was when its change was
+	// last offered, so one change is offered once; askedSize is -1 to
+	// offer again.
+	askedSize int64
+	askedMod  time.Time
+	// with is the window the change is with, offered or uploading, or
+	// nil.
+	with *app
+	// marked says the copy's folder holds the mark of a change not
+	// uploaded, which keeps the copy from being taken away.
+	marked bool
+}
+
+// inSync reports whether the copy, of size and mod now, is as it was
+// fetched or last uploaded.
+func (e *openCopy) inSync(size int64, mod time.Time) bool {
+	return size == e.localSize && mod.Equal(e.localMod)
 }
 
 // copiesBase is the folder in the system's temporary folder that holds
@@ -291,19 +327,21 @@ func (h *Hub) removeCopies() {
 }
 
 // lookup returns the copy of f, of the file system of ID fsID, where one
-// was fetched while f was as it is now and is as it was made.
+// was fetched, or uploaded, while f was as it is now. A copy changed on
+// this computer since is the newer, and opens as it is.
 func (c *openCopies) lookup(fsID string, f remoteFile) (string, bool) {
 	c.mu.Lock()
 	k, ok := c.kept[copyKey{fsID, f.path}]
-	c.mu.Unlock()
 	if !ok || k.size != f.size || !k.mod.Equal(f.mod) {
+		c.mu.Unlock()
 		return "", false
 	}
-	info, err := os.Stat(k.local)
-	if err != nil || info.Size() != k.size || !info.ModTime().Equal(k.localMod) {
+	local := k.local
+	c.mu.Unlock()
+	if info, err := os.Stat(local); err != nil || !info.Mode().IsRegular() {
 		return "", false
 	}
-	return k.local, true
+	return local, true
 }
 
 // folder returns the hub's folder of copies, made with its first call,
@@ -332,26 +370,67 @@ func (c *openCopies) folder() (string, error) {
 
 // sweep takes away what in base was last changed before cutoff, as much
 // of it as it can: a program may still hold a file, which Windows will
-// not remove.
+// not remove. Copies changed on this computer and not uploaded stay,
+// until they are unsentKept old.
 func sweep(base string, cutoff time.Time) {
 	es, err := os.ReadDir(base)
 	if err != nil {
 		return
 	}
+	old := cutoff.Add(copiesKept - unsentKept)
 	for _, e := range es {
-		if info, err := e.Info(); err == nil && info.ModTime().Before(cutoff) {
-			_ = os.RemoveAll(filepath.Join(base, e.Name()))
+		info, err := e.Info()
+		if err != nil || !info.ModTime().Before(cutoff) {
+			continue
 		}
+		p := filepath.Join(base, e.Name())
+		if info.ModTime().Before(old) {
+			_ = os.RemoveAll(p)
+			continue
+		}
+		removeUnmarked(p)
 	}
 }
 
+// removeUnmarked takes away what is under dir, but for the folders that
+// hold the mark of a change not uploaded, and reports whether any did.
+func removeUnmarked(dir string) (kept bool) {
+	if _, err := os.Lstat(filepath.Join(dir, unsentMark)); err == nil {
+		return true
+	}
+	es, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range es {
+		p := filepath.Join(dir, e.Name())
+		if e.IsDir() {
+			if removeUnmarked(p) {
+				kept = true
+			}
+			continue
+		}
+		_ = os.Remove(p)
+	}
+	if !kept {
+		_ = os.Remove(dir)
+	}
+	return kept
+}
+
 // removeAll takes away the hub's folder of copies, as much of it as no
-// program holds.
+// program holds. A copy changed on this computer and not uploaded
+// stays, so the change is not lost: one a moment old too.
 func (c *openCopies) removeAll() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	for _, e := range c.kept {
+		if info, err := os.Stat(e.local); err == nil && !e.inSync(info.Size(), info.ModTime()) {
+			e.mark()
+		}
+	}
 	if c.dir != "" {
-		_ = os.RemoveAll(c.dir)
+		removeUnmarked(c.dir)
 	}
 	c.dir, c.kept = "", nil
 }
@@ -360,7 +439,8 @@ func (c *openCopies) removeAll() {
 // there, so a program shows the name and knows the file by its
 // extension. report hears the bytes copied so far, now set at the end.
 // A fetch that fails or stops leaves nothing behind.
-func (c *openCopies) fetch(ctx context.Context, fsys FS, f remoteFile, report func(n int64, now bool)) (string, error) {
+// owner is the window that asks, which hears of the copy's changes.
+func (c *openCopies) fetch(ctx context.Context, fsys FS, f remoteFile, owner *app, report func(n int64, now bool)) (string, error) {
 	dir, err := c.folder()
 	if err != nil {
 		return "", fmt.Errorf("making a temporary folder: %w", err)
@@ -376,6 +456,10 @@ func (c *openCopies) fetch(ctx context.Context, fsys FS, f remoteFile, report fu
 			d += "-" + strconv.Itoa(n)
 		}
 		t := filepath.Join(d, name)
+		if _, merr := os.Lstat(filepath.Join(d, unsentMark)); merr == nil {
+			// A copy changed here and not uploaded stays.
+			continue
+		}
 		if rerr := os.Remove(t); rerr == nil || errors.Is(rerr, fs.ErrNotExist) {
 			target = t
 			break
@@ -398,9 +482,11 @@ func (c *openCopies) fetch(ctx context.Context, fsys FS, f remoteFile, report fu
 	}
 	c.mu.Lock()
 	if c.kept == nil {
-		c.kept = map[copyKey]openCopy{}
+		c.kept = map[copyKey]*openCopy{}
 	}
-	c.kept[copyKey{fsys.ID(), f.path}] = openCopy{local: target, size: f.size, mod: f.mod, localMod: info.ModTime()}
+	c.kept[copyKey{fsys.ID(), f.path}] = &openCopy{local: target, size: f.size, mod: f.mod,
+		localSize: info.Size(), localMod: info.ModTime(), owner: owner,
+		seenSize: info.Size(), seenMod: info.ModTime(), askedSize: -1}
 	c.mu.Unlock()
 	return target, nil
 }
