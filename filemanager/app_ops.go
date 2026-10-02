@@ -91,6 +91,8 @@ func (a *app) handleOps(in gunim.Intent) bool {
 		a.undo(v.ID)
 	case ClashAnswered, Confirmed, Prompted, DialogClosed:
 		a.answered(in)
+	case NoticeAnswered:
+		a.uploadAnswered(v)
 	case Command:
 		return a.opsCommand(v.Name)
 	default:
@@ -525,12 +527,21 @@ func describe(fsys FS, path string) string {
 
 // confirm asks c, and runs yes once the user agrees.
 func (a *app) confirm(c Confirm, yes func()) {
+	a.ask(c, func(v Confirmed) {
+		if v.OK {
+			yes()
+		}
+	})
+}
+
+// ask asks c, and hands got the answer, which is neither OK nor Alt
+// where the user cancelled.
+func (a *app) ask(c Confirm, got func(v Confirmed)) {
 	a.ops.tokens++
 	c.Token = a.ops.tokens
 	a.showDialog(&dialog{view: "confirm", state: c, answer: func(in gunim.Intent) {
-		if v, ok := in.(Confirmed); ok && v.OK {
-			yes()
-		}
+		v, _ := in.(Confirmed)
+		got(v)
 	}})
 }
 

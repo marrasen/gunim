@@ -63,6 +63,9 @@ func newConfirmDialog(s Confirm) *widget.Dialog {
 	body.Color = Faint
 	d.Body = body
 	d.Danger = true
+	if s.Alt != "" {
+		d.AddButton(s.Alt, func() gunim.Intent { return Confirmed{Token: s.Token, Alt: true} })
+	}
 	d.SetButtons(s.OK, "Cancel")
 	d.Accept = Confirmed{Token: s.Token, OK: true}
 	d.Dismiss = Confirmed{Token: s.Token}

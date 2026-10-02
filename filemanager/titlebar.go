@@ -36,6 +36,10 @@ var menus = []struct {
 		{"Pin to sidebar", "Ctrl+D", CmdPin},
 		{"Show in system file manager", "", CmdReveal},
 		{"-", "", ""},
+		{"Upload edited copies: ask", "", CmdUploadAsk},
+		{"Upload edited copies: always", "", CmdUploadAlways},
+		{"Upload edited copies: never", "", CmdUploadNever},
+		{"-", "", ""},
 		{"Close", "Ctrl+W", CmdCloseApp},
 	}},
 	{"Edit", []menuItem{
@@ -124,6 +128,11 @@ func (t *titleBar) build(fetches bool) []widget.BarMenu {
 		items := m.items
 		if fetches {
 			items = without(items, CmdReveal)
+		} else {
+			// Only files fetched to open are uploaded.
+			for _, c := range []string{CmdUploadAsk, CmdUploadAlways, CmdUploadNever} {
+				items = without(items, c)
+			}
 		}
 		bm := widget.BarMenu{Title: m.title}
 		var cmds []string
@@ -206,6 +215,10 @@ func (t *titleBar) setShell(s Shell, u *gunim.UI) {
 	t.check(CmdPreview, s.ShowPreview)
 	t.check(CmdThemeDark, !s.Light)
 	t.check(CmdThemeLight, s.Light)
+	up := s.UploadEdited
+	t.check(CmdUploadAsk, up != uploadAlways && up != uploadNever)
+	t.check(CmdUploadAlways, up == uploadAlways)
+	t.check(CmdUploadNever, up == uploadNever)
 }
 
 // setListing names the folder in the title, and ticks the sort.

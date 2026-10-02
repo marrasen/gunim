@@ -461,6 +461,15 @@ func (r *runner) copyFile(src, dst string, info fs.FileInfo) (err error) {
 			err = fmt.Errorf("reading %s: %w", src, cerr)
 		}
 	}()
+	return r.writeFile(in, src, dst, info)
+}
+
+// writeFile writes what in reads of src to dst, on the runner's file
+// system, through a part file beside dst that it then renames over dst,
+// so dst is never left half written. The file takes the mode and the
+// time info gives, where the file system can set them.
+func (r *runner) writeFile(in io.Reader, src, dst string, info fs.FileInfo) error {
+	fsys := r.env.fs
 	// The part file's name is short, so a dst whose name is near the
 	// longest a name can be fits too.
 	out, part, err := createTemp(fsys, fsys.Paths().Dir(dst), ".files-*.part")
