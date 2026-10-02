@@ -90,7 +90,7 @@ func (a *app) fetchToOpen(paths []string) {
 		for _, p := range paths {
 			info, err := fsys.Stat(p)
 			if err != nil {
-				a.post(func() { a.fail(fmt.Sprintf("Opening %s: %v", p, err)) })
+				a.post(func() { a.fail(fmt.Sprintf("Opening %s: %v", fsys.Paths().Show(p), err)) })
 				return
 			}
 			if info.IsDir() {

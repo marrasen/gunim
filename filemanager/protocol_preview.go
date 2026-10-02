@@ -17,8 +17,9 @@ type Preview struct {
 	Title string
 	Type  string
 	// Path is the item's path, for the Reveal and Copy path links; empty
-	// for several items.
-	Path string
+	// for several items. Shown is the path as the user reads it, which
+	// the pane shows and Copy path copies.
+	Path, Shown string
 	// NoReveal leaves out the link that shows the item in the system's
 	// file manager, for an item of a file system that cannot.
 	NoReveal bool

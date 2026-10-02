@@ -172,3 +172,12 @@ type SystemOpener interface {
 	// manager.
 	RevealInSystem(path string) error
 }
+
+// TrueCaser is a file system whose names ignore case, which can say how
+// a path is really spelled: TrueCase returns path with each name as the
+// file system has it, for a path typed in another case, such as
+// /g:/workspace for /G:/Workspace. The window asks only of paths the
+// user typed.
+type TrueCaser interface {
+	TrueCase(path string) (string, error)
+}

@@ -53,6 +53,9 @@ type navState struct {
 	// is unknown.
 	space    space
 	spaceErr error
+	// moves counts the folders gone to, so a path typed whose true case
+	// comes after the user went elsewhere is left alone.
+	moves int
 }
 
 func (n *navState) init() { n.sel = map[string]bool{} }
@@ -93,6 +96,10 @@ func (a *app) handleNav(in gunim.Intent) bool {
 	case Navigate:
 		if a.newWindowAsked() {
 			a.openWindow(v.Path)
+			break
+		}
+		if v.Typed {
+			a.goTyped(v.Path)
 			break
 		}
 		a.navigate(v.Path, 0, true)
@@ -180,7 +187,7 @@ func (a *app) navigate(path string, travel int, record bool) {
 	n := &a.nav
 	abs, err := a.ps.Abs(path)
 	if err != nil {
-		a.fail(fmt.Sprintf("Opening %s: %v", path, err))
+		a.fail(fmt.Sprintf("Opening %s: %v", a.ps.Show(path), err))
 		return
 	}
 	if record && n.path != "" && !a.ps.Same(abs, n.path) {
@@ -191,6 +198,7 @@ func (a *app) navigate(path string, travel int, record bool) {
 		travel = direction(a.ps, n.path, abs)
 	}
 	n.path, n.travel = abs, travel
+	n.moves++
 	n.all, n.rows, n.err = nil, nil, nil
 	n.filter, n.pick = "", ""
 	clear(n.sel)
@@ -200,6 +208,31 @@ func (a *app) navigate(path string, travel int, record bool) {
 	a.readSpace()
 	a.publishPlaces()
 	a.showPreview()
+}
+
+// goTyped shows the folder at the path the user typed. On a file system
+// that can say how a path is really spelled, it goes there as spelled,
+// once the file system says; where it cannot say, the path goes as typed,
+// to show why there.
+func (a *app) goTyped(typed string) {
+	tc, ok := a.fs.(TrueCaser)
+	abs, err := a.ps.Abs(typed)
+	if !ok || err != nil {
+		a.navigate(typed, 0, true)
+		return
+	}
+	moves := a.nav.moves
+	go func() {
+		p, err := tc.TrueCase(abs)
+		if err != nil || p == "" {
+			p = abs
+		}
+		a.post(func() {
+			if a.nav.moves == moves {
+				a.navigate(p, 0, true)
+			}
+		})
+	}()
 }
 
 // direction is 1 when to lies inside from, -1 when from lies inside to,
@@ -264,7 +297,7 @@ func dirTime(fsys FS, path string) (time.Time, error) {
 		return time.Time{}, err
 	}
 	if !info.IsDir() {
-		return time.Time{}, fmt.Errorf("%s is not a folder", path)
+		return time.Time{}, fmt.Errorf("%s is not a folder", fsys.Paths().Show(path))
 	}
 	return info.ModTime(), nil
 }
@@ -280,7 +313,7 @@ func (a *app) listed(gen int, path string, es []entry, mod time.Time, err error)
 	if err != nil {
 		n.all, n.rows = nil, nil
 		if errors.Is(err, fs.ErrNotExist) {
-			n.err = fmt.Errorf("%s no longer exists", path)
+			n.err = fmt.Errorf("%s no longer exists", a.ps.Show(path))
 		}
 		a.publishListing()
 		a.publishStatus()
@@ -382,6 +415,16 @@ func (a *app) publishListing() {
 
 // crumbs splits path, of style ps, into the folders along it.
 func crumbs(ps PathStyle, path string) []Crumb {
+	if ps == DrivePaths {
+		parts := splitSlash(ps.Clean(path))
+		out := make([]Crumb, 1, 1+len(parts))
+		out[0] = Crumb{Name: drivesName, Path: "/"}
+		for _, part := range parts {
+			at := ps.Join(out[len(out)-1].Path, part)
+			out = append(out, Crumb{Name: part, Path: at})
+		}
+		return out
+	}
 	vol := ps.VolumeName(path)
 	rest := strings.TrimPrefix(path, vol)
 	root := vol + ps.Sep()
@@ -592,11 +635,11 @@ func (a *app) activate(e entry) {
 		return
 	}
 	if e.Err != "" {
-		a.fail(path + " cannot be read: " + e.Err)
+		a.fail(a.ps.Show(path) + " cannot be read: " + e.Err)
 		return
 	}
 	if e.Broken {
-		a.fail(path + " is a link to something that is gone.")
+		a.fail(a.ps.Show(path) + " is a link to something that is gone.")
 		return
 	}
 	a.openFiles([]string{path})
