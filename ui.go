@@ -473,6 +473,11 @@ func (c Client) Err() error { return c.w.err }
 // Close shuts the window down.
 func (c Client) Close() { c.w.Close() }
 
+// KeyboardAway reports whether the window has given the keyboard to another, as the system last said: a node that
+// shows the keyboard is with it, as a caret does, shows nothing while it is away. A node focused meanwhile hears
+// [input.WindowFocusGained] when it comes back, as the focused node does.
+func (u *UI) KeyboardAway() bool { return u.keyboardAway }
+
 // ToFront brings the window to the front with the keyboard, shown again
 // first if it was minimized, where the platform can. It may be called
 // from any goroutine.
@@ -1001,6 +1006,8 @@ type UI struct {
 	focus *state
 	// altAlone says Alt is down with nothing pressed since, for [input.AltTapped].
 	altAlone bool
+	// keyboardAway says the window has given the keyboard to another; see KeyboardAway.
+	keyboardAway bool
 	hover    *state
 	// capture is the node that took the last press and keeps the
 	// pointer until its release.

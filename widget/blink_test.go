@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
 )
 
@@ -57,6 +58,29 @@ func TestTheCaretHidesWhileTheWindowIsInactive(t *testing.T) {
 	}
 	if b.stop == nil {
 		t.Fatal("the caret does not blink again with the window back")
+	}
+}
+
+// A caret that gets the keyboard in a window without it, as in a dialog
+// that opens in a window behind another, stays hidden until the window
+// has the keyboard.
+func TestACaretFocusedInAWindowWithoutTheKeyboardStaysHidden(t *testing.T) {
+	wr := newWriter(t, 400)
+	b := &wr.area.blink
+	wr.w.Input(input.WindowFocusLost{})
+	wr.run(1)
+	// Focused again, as by a dialog opening, with the window still
+	// without the keyboard.
+	wr.w.Input(input.PointerDown{Pos: geom.Pt(20, 20), Clicks: 1})
+	wr.w.Input(input.PointerUp{Pos: geom.Pt(20, 20)})
+	wr.run(1)
+	if v := b.value(); v != 0 || b.stop != nil {
+		t.Fatalf("caret at %v, blinking %v, focused in a window without the keyboard", v, b.stop != nil)
+	}
+	wr.w.Input(input.WindowFocusGained{})
+	wr.run(1)
+	if v := b.value(); v != 1 || b.stop == nil {
+		t.Fatalf("caret at %v, blinking %v, with the keyboard back", v, b.stop != nil)
 	}
 }
 
