@@ -178,15 +178,16 @@ func (h *Hub) memFavourites(id string) *memFavourites {
 	return m
 }
 
-// Refresh has every window of h find its places and read its favourites
-// again, as when a caller's places or favourites have changed: a server
-// that connected, say.
+// Refresh has every window of h find its places, read its favourites
+// and ask its file system's name again, as when a caller's places,
+// favourites or names have changed: a server that connected, say.
 func (h *Hub) Refresh() {
 	h.mu.Lock()
 	list := slices.Clone(h.apps)
 	h.mu.Unlock()
 	for _, a := range list {
 		go a.post(func() {
+			a.renameFS()
 			a.loadFavourites()
 			a.loadPlaces()
 		})
@@ -311,27 +312,6 @@ func (a *app) publishClip() {
 		return
 	}
 	a.patch(ClipState{Count: len(a.ops.clip), Cut: a.ops.cut})
-}
-
-// transfer hands the items at paths on the file system of ID from, which
-// writes them as ps, to the program to copy into the folder into on a's,
-// or to move there with move: one transfer for each folder they are in.
-func (a *app) transfer(from string, ps PathStyle, paths []string, into string, move bool) {
-	var ts []Transfer
-	for _, p := range paths {
-		i := slices.IndexFunc(ts, func(t Transfer) bool { return ps.Same(ps.Dir(t.Paths[0]), ps.Dir(p)) })
-		if i < 0 {
-			ts = append(ts, Transfer{FromFS: from, ToFS: a.fs.ID(), Into: into, Move: move})
-			i = len(ts) - 1
-		}
-		ts[i].Paths = append(ts[i].Paths, p)
-	}
-	do, w := a.opts.Transfer, a.win
-	go func() {
-		for _, t := range ts {
-			do(w, t)
-		}
-	}()
 }
 
 func cloneNames(m map[string]string) map[string]string {

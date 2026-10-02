@@ -42,10 +42,22 @@ type Options struct {
 	// can turn to the file system with Show, or leave as it is and open
 	// another. A window whose Visit is nil says it cannot go there.
 	Visit func(w *Window, fs, path string)
-	// Transfer copies or moves items between file systems, on a
-	// goroutine of its own, as a drop or a paste asks: w is the window
+	// Transfer copies or moves items between file systems, as a drop or a
+	// paste asks, as one of the window's operations: its progress and a
+	// way to stop it show with the window's own, and it asks about names
+	// that clash through the window. It returns once the items are
+	// across, or why not; ctx ends when the user stops it. w is the window
 	// they go to. When nil, items cannot go between file systems.
-	Transfer func(w *Window, t Transfer)
+	//
+	// Each Transfer runs on a goroutine of its own, and the window does
+	// not close until it returns, so it should return soon once ctx ends.
+	Transfer func(ctx context.Context, w *Window, t Transfer, p *TransferProgress) error
+	// FSName names the file system of ID fs, as the window's title says
+	// first: the machine it is on, say. When nil, or where it returns "",
+	// the title names the folder and the program only. The window asks
+	// on its own goroutine, as it opens, as it turns to another file
+	// system and when its hub refreshes, so FSName must be quick.
+	FSName func(fs string) string
 	// Name is what the window's title calls the program, and Files when
 	// empty.
 	Name string
@@ -63,7 +75,9 @@ type Options struct {
 }
 
 // Transfer is items going from one file system to another, which the
-// window cannot do itself: copied, or moved when Move is set.
+// window cannot do itself: copied, or moved when Move is set. A drop or
+// a paste of items from several folders makes one Transfer for each,
+// and each runs as an operation of its own.
 type Transfer struct {
 	// FromFS is the ID of the file system the items are on, and Paths
 	// the items, all in one folder.
@@ -217,6 +231,7 @@ func newApp(ctx context.Context, c gunim.Client, o Options) (*app, error) {
 	a.shell = Shell{Light: a.prefs.Light, ShowHidden: a.prefs.ShowHidden, ShowPreview: !a.prefs.HidePreview,
 		Sidebar: a.prefs.Sidebar, FS: a.fs.ID(), Paths: a.ps, NoTrash: tr == nil,
 		Transfers: o.Transfer != nil, Name: o.Name}
+	a.shell.Where = a.where()
 	a.nav.sort, a.nav.desc = a.prefs.Sort, a.prefs.Desc
 	return a, nil
 }
@@ -306,6 +321,23 @@ func (a *app) close() {
 			}
 			a.c.Leave()
 		})
+}
+
+// where names the file system the window shows, for its title, or is
+// empty.
+func (a *app) where() string {
+	if a.opts.FSName == nil {
+		return ""
+	}
+	return a.opts.FSName(a.fs.ID())
+}
+
+// renameFS takes a new name of the file system, as FSName gives it now.
+func (a *app) renameFS() {
+	if w := a.where(); w != a.shell.Where {
+		a.shell.Where = w
+		a.publishShell()
+	}
 }
 
 func (a *app) publishShell() { a.send(a.c.Update(browserID, a.shell)) }

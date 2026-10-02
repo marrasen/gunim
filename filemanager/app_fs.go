@@ -30,6 +30,7 @@ func (a *app) showFS(fsys FS, dir string) {
 	a.syncClip()
 
 	a.shell.FS, a.shell.Paths, a.shell.NoTrash = fsys.ID(), a.ps, a.trash == nil
+	a.shell.Where = a.where()
 	a.publishShell()
 	a.places = nil
 	a.loadFavourites()
