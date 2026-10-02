@@ -52,7 +52,12 @@ func tintToken(t Tint) theme.Token[color.NRGBA] {
 func darkTheme() theme.Theme { return widget.Dark() }
 
 func lightTheme() theme.Theme {
-	return widget.Light().With(
+	entries := make([]theme.Entry, 0, 1+len(lightFavColors))
+	entries = append(entries, theme.Set(FavTile, 0.16))
+	for name, c := range lightFavColors {
+		entries = append(entries, theme.Set(favColors[name], c))
+	}
+	return widget.Light().With(entries...).With(
 		theme.Set(SidebarFill, color.NRGBA{R: 0xe9, G: 0xec, B: 0xf2, A: 0xff}),
 		theme.Set(SidebarHot, color.NRGBA{A: 0x0c}),
 		theme.Set(SidebarOn, color.NRGBA{R: 0x2f, G: 0x6f, B: 0xe0, A: 0x26}),

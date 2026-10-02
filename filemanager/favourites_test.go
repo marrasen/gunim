@@ -105,7 +105,8 @@ func TestPinningKeepsTheFavouritesElsewhere(t *testing.T) {
 	h := newAnyFSHarness(t, store, &visits, &mu)
 	h.pick("work")
 	h.do(Command{Name: CmdPin})
-	want := []Favourite{{Path: filepath.Join(h.dir, "old")}, {Path: "/srv/data", FS: server}, {Path: filepath.Join(h.dir, "work")}}
+	want := []Favourite{{Path: filepath.Join(h.dir, "old")}, {Path: "/srv/data", FS: server},
+		{Path: filepath.Join(h.dir, "work"), Color: "red"}}
 	h.until("the store holds all three", func() bool { return slices.Equal(store.saved(), want) })
 	// The same path on the server is a favourite of its own.
 	store.mu.Lock()
@@ -140,12 +141,12 @@ func TestAFavouriteElsewhereIsRenamedReorderedAndUnpinned(t *testing.T) {
 		m.Open(rr.Center().Sub(mr.Min), u)
 		items = slices.Clone(m.Items)
 	})
-	if !slices.Equal(items, []string{"Open", "Open in new window", "Rename favourite", "Unpin"}) {
+	if !slices.Equal(items, []string{"Open", "Open in new window", "Edit favourite…", "Unpin"}) {
 		t.Fatalf("the menu of the favourite on the server is %v", items)
 	}
 
-	h.do(RenameFavourite{FS: server, Path: "/srv/data"})
-	h.answer(Prompted{Token: h.a.ops.tokens, Text: "Data", OK: true})
+	h.do(EditFavourite{FS: server, Path: "/srv/data"})
+	h.answer(FavouriteEdited{Token: h.a.ops.tokens, Name: "Data", OK: true})
 	h.until("the favourite takes its name", func() bool { return h.a.favName(server, "/srv/data") == "Data" })
 
 	var reorder gunim.Intent
@@ -193,7 +194,9 @@ func TestAStoreOfOneFileSystemKeepsItsFavouritesWithoutOne(t *testing.T) {
 	h.pick("work")
 	h.do(Command{Name: CmdPin})
 	work := filepath.Join(h.dir, "work")
-	h.until("the store holds the favourite", func() bool { return slices.Equal(store.saved(), []Favourite{{Path: work}}) })
+	h.until("the store holds the favourite", func() bool {
+		return slices.Equal(store.saved(), []Favourite{{Path: work, Color: "red"}})
+	})
 	if len(h.a.favs) != 1 || h.a.favs[0].FS != "elsewhere" {
 		t.Fatalf("the window holds %+v, want the favourite on its file system", h.a.favs)
 	}
@@ -222,7 +225,8 @@ func TestWindowsOnTwoFileSystemsShareTheirFavourites(t *testing.T) {
 	l.do(Command{Name: CmdPin})
 	o.pick("far")
 	o.do(Command{Name: CmdPin})
-	want := []Favourite{{Path: filepath.Join(local, "work")}, {Path: filepath.Join(other, "far"), FS: "elsewhere"}}
+	want := []Favourite{{Path: filepath.Join(local, "work"), Color: "red"},
+		{Path: filepath.Join(other, "far"), FS: "elsewhere", Color: "orange"}}
 	o.until("the store holds both", func() bool { return slices.Equal(store.saved(), want) })
 	l.until("the computer's window shows both", func() bool { return l.b.side.favs.Len() == 2 })
 	if it := l.b.side.items[placeKey(Place{FS: "elsewhere", Path: filepath.Join(other, "far")})]; !it.away {

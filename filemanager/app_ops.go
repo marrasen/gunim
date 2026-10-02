@@ -89,7 +89,7 @@ func (a *app) handleOps(in gunim.Intent) bool {
 		}
 	case UndoOp:
 		a.undo(v.ID)
-	case ClashAnswered, Confirmed, Prompted, DialogClosed:
+	case ClashAnswered, Confirmed, Prompted, DialogClosed, FavouriteEdited:
 		a.answered(in)
 	case NoticeAnswered:
 		a.uploadAnswered(v)
@@ -609,6 +609,9 @@ func answers(in gunim.Intent, state any) bool {
 		return ok && s.Token == v.Token
 	case PropsApplied:
 		s, ok := state.(Props)
+		return ok && s.Token == v.Token
+	case FavouriteEdited:
+		s, ok := state.(FavouriteEdit)
 		return ok && s.Token == v.Token
 	case DialogClosed:
 		switch state.(type) {

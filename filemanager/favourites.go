@@ -1,6 +1,7 @@
 package filemanager
 
 import (
+	"os"
 	"reflect"
 	"slices"
 	"strings"
@@ -16,17 +17,102 @@ type Favourite struct {
 	// not an AnyFSFavourites leaves it empty, and its favourites are on
 	// the window's file system.
 	FS string
+	// Color is the favourite's colour, by name: one of FavouriteColors;
+	// empty draws the folder colour.
+	Color string
+	// Icon is the favourite's icon, by name: one of FavouriteIcons;
+	// empty draws a folder.
+	Icon string
+}
+
+// FavouriteColors are the colours a favourite can take, by name, in the
+// order the Edit favourite dialog offers them.
+var FavouriteColors = []string{"red", "orange", "yellow", "green", "teal", "blue", "indigo", "purple", "pink", "gray"}
+
+// FavouriteIcons are the icons a favourite can take, by name, in the
+// order the Edit favourite dialog offers them. The names are Lucide's,
+// as the icon package has them.
+var FavouriteIcons = []string{
+	"folder", "house", "monitor", "file-text", "download", "image", "music", "video",
+	"code", "briefcase", "book", "star", "heart", "cloud", "server", "database",
+	"archive", "camera", "gamepad", "globe", "graduation-cap", "wrench", "flask-conical", "terminal",
+}
+
+// defaultLooks are the icon and the colour of each of the user's own
+// folders, by its kind, as DefaultFavourites gives them.
+var defaultLooks = map[string][2]string{
+	"desktop":   {"monitor", "teal"},
+	"documents": {"file-text", "blue"},
+	"downloads": {"download", "green"},
+	"pictures":  {"image", "purple"},
+	"music":     {"music", "pink"},
+	"videos":    {"video", "orange"},
+}
+
+// DefaultFavourites are the favourites a new user starts with, on the
+// computer's own file system: Desktop, Documents, Downloads, Pictures,
+// Music and Videos, those that exist, each with an icon and a colour.
+func DefaultFavourites() []Favourite {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+	folders, err := userFolders(home)
+	if err != nil {
+		return nil
+	}
+	var out []Favourite
+	for _, f := range folders {
+		if info, err := os.Stat(f.path); err != nil || !info.IsDir() {
+			continue
+		}
+		look := defaultLooks[f.kind]
+		out = append(out, Favourite{Path: f.path, Icon: look[0], Color: look[1]})
+	}
+	return out
+}
+
+// defaultFavourites are the favourites the settings file starts with:
+// DefaultFavourites, unless the options say otherwise, as for tests.
+func (a *app) defaultFavourites() []Favourite {
+	if a.opts.defaults != nil {
+		return a.opts.defaults()
+	}
+	return DefaultFavourites()
+}
+
+// nextColor is the colour for a favourite added after favs: the one used
+// least, and of those the first after the colour of the last favourite,
+// so favourites added one after another take colours of their own.
+func nextColor(favs []Favourite) string {
+	uses := map[string]int{}
+	for _, f := range favs {
+		uses[f.Color]++
+	}
+	start := 0
+	if len(favs) > 0 {
+		start = slices.Index(FavouriteColors, favs[len(favs)-1].Color) + 1
+	}
+	best := ""
+	for i := range FavouriteColors {
+		c := FavouriteColors[(start+i)%len(FavouriteColors)]
+		if best == "" || uses[c] < uses[best] {
+			best = c
+		}
+	}
+	return best
 }
 
 // FavouriteStore keeps a window's favourites between runs. A window
 // loads them as it opens and when its hub is told to refresh, and saves
-// them whole each time the user pins, unpins, renames or reorders one.
+// them whole each time the user pins, unpins, edits or reorders one.
 // Its methods are called on the window's own goroutine, so they should
 // be quick. Windows of a hub given the same store share its favourites
 // as they change; a store that cannot be compared with ==, as a pointer
 // can, is not shared, and a window's save may then undo another's. A
 // store keeps the favourites of the window's file system, unless it is
-// an [AnyFSFavourites].
+// an [AnyFSFavourites]. It keeps each favourite's Name, Color and Icon as
+// it is given them.
 type FavouriteStore interface {
 	Load() ([]Favourite, error)
 	Save(favs []Favourite) error
@@ -34,12 +120,13 @@ type FavouriteStore interface {
 
 // AnyFSFavourites is a FavouriteStore whose favourites may be on any file
 // system, each naming its own in FS, empty for the computer's own. A
-// window lists them all; one on another file system than the window's
-// is shown as elsewhere, and a click on it asks for a Visit.
+// window lists them all, each with the name of its file system under
+// its own; one on another file system than the window's is shown as
+// elsewhere, and a click on it asks for a Visit.
 type AnyFSFavourites interface {
 	FavouriteStore
-	// Where names the file system of ID fs, as a favourite on another
-	// file system than the window's says where it is.
+	// Where names the file system of ID fs, as each favourite says
+	// where it is, the window's own too.
 	Where(fs string) string
 }
 
@@ -48,47 +135,97 @@ type AnyFSFavourites interface {
 // give none.
 type prefsFavourites struct{ a *app }
 
-// Load implements [FavouriteStore].
+// Load implements [FavouriteStore]. The first time, it adds the
+// default favourites, once, so those the user unpins stay unpinned.
 func (s prefsFavourites) Load() ([]Favourite, error) {
-	p := &s.a.prefs
-	out := make([]Favourite, len(p.Favourites))
-	for i, path := range p.Favourites {
-		out[i] = Favourite{Path: path, Name: p.FavNames[path]}
-	}
-	return out, nil
+	s.seed()
+	return favouritesIn(&s.a.prefs), nil
 }
 
-// Save implements [FavouriteStore]. The name given to a favourite stays
-// in the settings when it is unpinned, so it comes back with it. The
-// settings say why they could not be saved themselves.
+// favouritesIn returns the favourites the settings p keep.
+func favouritesIn(p *prefs) []Favourite {
+	out := make([]Favourite, len(p.Favourites))
+	for i, path := range p.Favourites {
+		out[i] = Favourite{Path: path, Name: p.FavNames[path], Color: p.FavColors[path], Icon: p.FavIcons[path]}
+	}
+	return out
+}
+
+// seed adds the default favourites to the settings before the user's
+// own, unless it was done before, and gives the user's own a colour
+// each. Settings that could not be read are left as they are.
+func (s prefsFavourites) seed() {
+	if s.a.prefs.FavSeeded || s.a.prefsErr != nil {
+		return
+	}
+	defaults := s.a.defaultFavourites()
+	s.a.savePrefs(func(p *prefs) {
+		if p.FavSeeded {
+			return
+		}
+		p.FavSeeded = true
+		favs := slices.Clone(defaults)
+		for _, f := range favouritesIn(p) {
+			// A default the user pinned already keeps the name they gave it.
+			if i := slices.IndexFunc(favs, func(d Favourite) bool { return SystemPaths.Same(d.Path, f.Path) }); i >= 0 {
+				if f.Name != "" {
+					favs[i].Name = f.Name
+				}
+				continue
+			}
+			if f.Color == "" {
+				f.Color = nextColor(favs)
+			}
+			favs = append(favs, f)
+		}
+		mergeFavourites(p, favs)
+	})
+}
+
+// Save implements [FavouriteStore]. The name, colour and icon given to
+// a favourite stay in the settings when it is unpinned, so it comes back
+// with them. The settings say why they could not be saved themselves.
 func (s prefsFavourites) Save(favs []Favourite) error {
-	s.a.savePrefs(func(p *prefs) { p.Favourites, p.FavNames = mergeFavourites(p.FavNames, favs) })
+	s.a.savePrefs(func(p *prefs) { mergeFavourites(p, favs) })
 	return nil
 }
 
-// name returns the name the favourite at path was given before it was
-// unpinned, if any.
-func (s prefsFavourites) name(path string) string { return s.a.prefs.FavNames[path] }
+// kept returns the favourite at path as it was before it was unpinned:
+// its name, colour and icon, those it had.
+func (s prefsFavourites) kept(path string) Favourite {
+	p := &s.a.prefs
+	return Favourite{Path: path, Name: p.FavNames[path], Color: p.FavColors[path], Icon: p.FavIcons[path]}
+}
 
-// mergeFavourites splits favs into their paths, and the names given to
-// them by path, as the settings keep them, keeping the names in was that
-// favs do not set.
-func mergeFavourites(was map[string]string, favs []Favourite) (paths []string, names map[string]string) {
-	names = cloneNames(was)
-	paths = make([]string, len(favs))
+// mergeFavourites puts favs in the settings p: their paths, and the
+// names, colours and icons given to them by path, keeping those of the
+// favourites unpinned.
+func mergeFavourites(p *prefs, favs []Favourite) {
+	p.Favourites = make([]string, len(favs))
 	for i, f := range favs {
-		paths[i] = f.Path
-		switch {
-		case f.Name != "":
-			if names == nil {
-				names = map[string]string{}
+		p.Favourites[i] = f.Path
+	}
+	p.FavNames = mergeByPath(p.FavNames, favs, func(f Favourite) string { return f.Name })
+	p.FavColors = mergeByPath(p.FavColors, favs, func(f Favourite) string { return f.Color })
+	p.FavIcons = mergeByPath(p.FavIcons, favs, func(f Favourite) string { return f.Icon })
+}
+
+// mergeByPath returns was with what of favs sets for each favourite's
+// path, and without the paths of those for which of is empty.
+func mergeByPath(was map[string]string, favs []Favourite, of func(f Favourite) string) map[string]string {
+	out := cloneNames(was)
+	for _, f := range favs {
+		switch v := of(f); {
+		case v != "":
+			if out == nil {
+				out = map[string]string{}
 			}
-			names[f.Path] = f.Name
-		case names != nil:
-			delete(names, f.Path)
+			out[f.Path] = v
+		case out != nil:
+			delete(out, f.Path)
 		}
 	}
-	return paths, names
+	return out
 }
 
 // memFavourites keeps the favourites of the windows of a hub on a file
@@ -199,7 +336,7 @@ func (a *app) setFavourites(favs []Favourite) {
 		}
 		o.favs = o.fromStore(saved)
 		if o.opts.Favourites == nil && o.fs.ID() == "" {
-			o.prefs.Favourites, o.prefs.FavNames = mergeFavourites(o.prefs.FavNames, saved)
+			mergeFavourites(&o.prefs, saved)
 		}
 		o.publishPlaces()
 	})
@@ -225,16 +362,30 @@ func (a *app) favourite(fs, path string) int {
 }
 
 // addFavourites adds the folders at paths on the window's file system
-// that are not favourites yet, and returns how many it added.
+// that are not favourites yet, and returns how many it added. Each takes
+// the name, colour and icon it had before it was unpinned, if the store
+// kept them, or else a colour of its own, and the icon of the user's
+// folder it is, if it is one.
 func (a *app) addFavourites(paths []string) int {
 	favs := slices.Clone(a.favs)
 	added := 0
+	var defaults []Favourite
+	if a.fs.ID() == "" {
+		defaults = a.defaultFavourites()
+	}
 	for _, p := range paths {
 		if !slices.ContainsFunc(favs, func(f Favourite) bool { return a.isFav(f, a.fs.ID(), p) }) {
-			f := Favourite{Path: p, FS: a.fs.ID()}
+			f := Favourite{Path: p}
 			if s, ok := a.favStore().(prefsFavourites); ok {
-				f.Name = s.name(p)
+				f = s.kept(p)
 			}
+			if i := slices.IndexFunc(defaults, func(d Favourite) bool { return a.ps.Same(d.Path, p) }); i >= 0 && f.Icon == "" {
+				f.Icon = defaults[i].Icon
+			}
+			if f.Color == "" {
+				f.Color = nextColor(favs)
+			}
+			f.FS = a.fs.ID()
 			favs = append(favs, f)
 			added++
 		}
@@ -270,14 +421,14 @@ func (a *app) folderName(fs, path string) string {
 }
 
 // favPlaces returns the favourites as places, as the sidebar and the
-// palette list them: one on another file system than the window's says
-// where it is, as its store names it.
+// palette list them: where the store keeps favourites of any file
+// system, each says which it is on, as the store names it.
 func (a *app) favPlaces() []Place {
 	where, _ := a.favStore().(AnyFSFavourites)
 	out := make([]Place, len(a.favs))
 	for i, f := range a.favs {
-		out[i] = Place{Name: a.favName(f.FS, f.Path), Path: f.Path, Kind: "favourite", FS: f.FS}
-		if f.FS != a.fs.ID() && where != nil {
+		out[i] = Place{Name: a.favName(f.FS, f.Path), Path: f.Path, Kind: "favourite", FS: f.FS, Color: f.Color, Icon: f.Icon}
+		if where != nil {
 			out[i].Note = where.Where(f.FS)
 		}
 	}

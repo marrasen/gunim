@@ -212,6 +212,10 @@ func (b *browser) Handle(e input.Event, u *gunim.UI) bool {
 	case k.Key == input.KeySpace && !shift:
 		cmd = CmdViewer
 	case k.Key == input.KeyF2:
+		if in := b.side.editFocused(u); in != nil {
+			u.Send(b, in)
+			return true
+		}
 		cmd = CmdRename
 	case shift && k.Key == input.KeyDelete:
 		cmd = CmdDelete

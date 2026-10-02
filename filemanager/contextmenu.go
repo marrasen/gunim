@@ -16,7 +16,10 @@ const (
 	localOpenWindow = "local.openwindow"
 	localOpenPlace  = "local.openplace"
 	localUnpin      = "local.unpin"
-	localRenameFav  = "local.renamefav"
+	localEditFav    = "local.editfav"
+	localCollapse   = "local.collapse"
+	localMoveUp     = "local.moveup"
+	localMoveDown   = "local.movedown"
 )
 
 // rowItems are the context menu of the items selected.
@@ -72,7 +75,7 @@ var (
 		{"Open", "", localOpenPlace},
 		{"Open in new window", "", localOpenWindow},
 		{"-", "", ""},
-		{"Rename favourite", "", localRenameFav},
+		{"Edit favourite…", "F2", localEditFav},
 		{"Unpin", "", localUnpin},
 	}
 	// awayFavItems are the context menu of a favourite on another file
@@ -81,8 +84,16 @@ var (
 		{"Open", "", localOpenPlace},
 		{"Open in new window", "", localOpenWindow},
 		{"-", "", ""},
-		{"Rename favourite", "", localRenameFav},
+		{"Edit favourite…", "F2", localEditFav},
 		{"Unpin", "", localUnpin},
+	}
+	// headItems are the context menu of a section's heading, whose first
+	// item says Expand for a section closed.
+	headItems = []menuItem{
+		{"Collapse", "Enter", localCollapse},
+		{"-", "", ""},
+		{"Move up", "", localMoveUp},
+		{"Move down", "", localMoveDown},
 	}
 )
 
@@ -96,6 +107,8 @@ type menuState struct {
 	away bool
 	// place is the place or favourite of the sidebar the menu is about.
 	place Place
+	// section is the ID of the section whose heading the menu is about.
+	section string
 }
 
 // fill sets c's items from items, dimming those off says are off and
@@ -252,8 +265,16 @@ func (v *dndView) menuPicked(m *widget.ContextMenu, st menuState, i int, u *guni
 		u.Send(m, Navigate{Path: st.path})
 	case localUnpin:
 		u.Send(m, Unpin{FS: st.fs, Path: st.path})
-	case localRenameFav:
-		u.Send(m, RenameFavourite{FS: st.fs, Path: st.path})
+	case localEditFav:
+		u.Send(m, EditFavourite{FS: st.fs, Path: st.path})
+	case localCollapse:
+		u.Send(m, v.b.side.toggle(st.section))
+		u.Invalidate()
+	case localMoveUp, localMoveDown:
+		step := map[string]int{localMoveUp: -1, localMoveDown: 1}[cmd]
+		if in := v.b.side.moved(st.section, step); in != nil {
+			u.Send(m, in)
+		}
 	default:
 		if id, ok := strings.CutPrefix(cmd, placeCmd); ok {
 			u.Send(m, PlaceCommanded{Place: st.place, ID: id})
@@ -303,13 +324,56 @@ type sideMenu struct {
 	giving bool
 }
 
-// newSideMenu wraps the sidebar in a context menu for its places and
-// favourites.
+// newSideMenu wraps the sidebar in a context menu for its places,
+// favourites and headings.
 func newSideMenu(b *browser) *sideMenu {
 	s := &sideMenu{b: b, m: widget.NewContextMenu(b.side)}
 	s.m.Prepare = s.prepare
 	s.m.Picked = func(i int, u *gunim.UI) { b.dnd.menuPicked(s.m, s.st, i, u) }
+	b.side.menuAt = func(h *sectionHead, u *gunim.UI) {
+		hr, ok := u.Bounds(h)
+		mr, ok2 := u.Bounds(s.m)
+		if ok && ok2 {
+			s.m.Open(hr.Center().Sub(mr.Min), u)
+		}
+	}
 	return s
+}
+
+// headAt returns the heading under at, in the menu's space.
+func (s *sideMenu) headAt(at geom.Point, u *gunim.UI) *sectionHead {
+	mr, ok := u.Bounds(s.m)
+	if !ok {
+		return nil
+	}
+	p := at.Add(mr.Min)
+	for _, id := range s.b.side.order {
+		if c := s.b.side.byID[id]; c != nil {
+			if r, drawn := u.Bounds(c.head); drawn && r.Contains(p) {
+				return c.head
+			}
+		}
+	}
+	return nil
+}
+
+// prepareHead fills the menu for the heading h: open or close its
+// section, or move it up or down.
+func (s *sideMenu) prepareHead(h *sectionHead) {
+	id, order := h.sec.id, s.b.side.order
+	s.st = menuState{section: id}
+	s.st.cmds = fill(s.m, headItems, func(cmd string) bool {
+		switch cmd {
+		case localMoveUp:
+			return slices.Index(order, id) <= 0
+		case localMoveDown:
+			return slices.Index(order, id) >= len(order)-1
+		}
+		return false
+	}, func(string) bool { return false })
+	if h.sec.closed() {
+		s.m.Items[0] = "Expand"
+	}
 }
 
 // rowAt returns the place or favourite under at, in the menu's space, and
@@ -320,7 +384,7 @@ func (s *sideMenu) rowAt(at geom.Point, u *gunim.UI) (*placeRow, bool) {
 		return nil, false
 	}
 	p := at.Add(mr.Min)
-	for _, l := range []*widget.List{s.b.side.places, s.b.side.favs} {
+	for _, l := range s.b.side.lists() {
 		for _, k := range l.Keys() {
 			n, ok := l.Row(k)
 			pr, isPlace := n.(*placeRow)
@@ -338,6 +402,10 @@ func (s *sideMenu) rowAt(at geom.Point, u *gunim.UI) (*placeRow, bool) {
 // prepare fills the menu for the place pressed at at. Where the program
 // adds items, it asks for them first, and opens no menu until they come.
 func (s *sideMenu) prepare(at geom.Point, u *gunim.UI) bool {
+	if h := s.headAt(at, u); h != nil {
+		s.prepareHead(h)
+		return true
+	}
 	pr, fav := s.rowAt(at, u)
 	if pr == nil {
 		return false

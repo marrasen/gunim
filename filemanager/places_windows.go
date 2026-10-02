@@ -7,24 +7,27 @@ import (
 )
 
 // userFolders returns where Windows keeps the user's desktop, documents,
-// downloads and pictures.
+// downloads, pictures, music and videos, those it can find.
 func userFolders(string) ([]userPlace, error) {
 	known := []struct {
-		name, kind string
-		id         *windows.KNOWNFOLDERID
+		kind string
+		id   *windows.KNOWNFOLDERID
 	}{
-		{"Desktop", "desktop", windows.FOLDERID_Desktop},
-		{"Documents", "documents", windows.FOLDERID_Documents},
-		{"Downloads", "downloads", windows.FOLDERID_Downloads},
-		{"Pictures", "pictures", windows.FOLDERID_Pictures},
+		{"desktop", windows.FOLDERID_Desktop},
+		{"documents", windows.FOLDERID_Documents},
+		{"downloads", windows.FOLDERID_Downloads},
+		{"pictures", windows.FOLDERID_Pictures},
+		{"music", windows.FOLDERID_Music},
+		{"videos", windows.FOLDERID_Videos},
 	}
 	out := make([]userPlace, 0, len(known))
 	for _, k := range known {
 		path, err := windows.KnownFolderPath(k.id, 0)
 		if err != nil {
-			return nil, fmt.Errorf("finding your %s folder: %w", k.name, err)
+			// A folder Windows does not have is left out.
+			continue
 		}
-		out = append(out, userPlace{name: k.name, kind: k.kind, path: path})
+		out = append(out, userPlace{kind: k.kind, path: path})
 	}
 	return out, nil
 }

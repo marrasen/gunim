@@ -10,6 +10,7 @@ func registerDialogs(w *gunim.Window) {
 	gunim.RegisterView(w, "confirm", newConfirmDialog, nil)
 	gunim.RegisterView(w, "prompt", newPromptDialog, nil)
 	gunim.RegisterView(w, "error", newErrorDialog, nil)
+	gunim.RegisterView(w, "favourite", newFavouriteDialog, nil)
 }
 
 // clashBody says what the two items are, and offers to answer the same

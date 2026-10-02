@@ -47,7 +47,8 @@ func newHarnessWith(t *testing.T, set func(o *Options), spec ...string) *harness
 	RegisterViews(h.w)
 	gunim.RegisterPatch(h.w, "browser", func(b *browser, _ grab, _ *gunim.UI) { h.b = b })
 	ctx, cancel := context.WithCancel(context.Background())
-	o := Options{Dir: h.dir, PrefsPath: filepath.Join(h.root, "prefs.json"), Poll: -1}
+	o := Options{Dir: h.dir, PrefsPath: filepath.Join(h.root, "prefs.json"), Poll: -1,
+		defaults: func() []Favourite { return nil }}
 	if set != nil {
 		set(&o)
 	}

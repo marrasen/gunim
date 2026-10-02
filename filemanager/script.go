@@ -14,8 +14,9 @@ const scriptPause = 700 * time.Millisecond
 // into a folder, "select:name" to select an item, "filter:text" to filter,
 // "palette:text" to open the palette with text typed, "theme:light" or
 // "theme:dark" to switch the theme, "big-copy" or
-// "big-copy:MB a second" to copy a 2 GB file slowly, or "wait" to do
-// nothing.
+// "big-copy:MB a second" to copy a 2 GB file slowly,
+// "edit-favourite:name" to open the Edit favourite dialog of the
+// favourite of that name, or "wait" to do nothing.
 func (a *app) runScript() {
 	time.AfterFunc(scriptPause, func() {
 		a.post(func() {
@@ -50,6 +51,13 @@ func (a *app) scriptStep(step string) {
 		a.bigCopy(arg)
 	case "palette":
 		a.patch(OpenPalette{Query: arg})
+	case "edit-favourite":
+		for _, f := range a.favs {
+			if a.favName(f.FS, f.Path) == arg {
+				a.editFavourite(f.FS, f.Path)
+				return
+			}
+		}
 	case "wait":
 	default:
 		if a.scriptDnd(verb, arg) {
