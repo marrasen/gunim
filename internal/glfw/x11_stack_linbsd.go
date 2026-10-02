@@ -10,6 +10,9 @@ import "unsafe"
 // which X lists from the back to the front. A window manager puts each
 // window in a frame of its own, so a window stands where its top-level
 // ancestor, the child of the root holding it, stands.
+// platformCovered cannot say on X11 yet.
+func platformCovered([]*Window, int, int) (bool, bool) { return false, false }
+
 func platformDepths(ws []*Window, depths []int) {
 	display, root := _glfw.platformWindow.display, _glfw.platformWindow.root
 	at := map[_XID][]int{}

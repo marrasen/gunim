@@ -96,6 +96,18 @@ type Stacker interface {
 	Depths(ws []Window) []int
 }
 
+// A Coverer is a [Driver] that knows other programs' windows too, so a
+// drag over one that lies in front of the application's windows leaves
+// the application.
+type Coverer interface {
+	// Covered reports whether, at the screen point p, a window of
+	// another program lies in front of every one of ws, and ok whether
+	// the system could say. The application's other windows, such as a
+	// drag's picture, do not count. It is safe to call from any
+	// goroutine.
+	Covered(ws []Window, p geom.Point) (covered, ok bool)
+}
+
 // Options describes a window to open.
 type Options struct {
 	Title   string

@@ -59,6 +59,7 @@ func Main(ctx context.Context, fn func(*App) error) error {
 func runApp(ctx context.Context, drv driver.Driver, fn func(*App) error) error {
 	app := &App{drv: drv}
 	app.windows.stacker, _ = drv.(driver.Stacker)
+	app.windows.coverer, _ = drv.(driver.Coverer)
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
