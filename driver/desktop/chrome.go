@@ -40,9 +40,14 @@ func (w *Window) setChromeless() {
 			return glfw.HitMaximize
 		}
 		for _, r := range w.chrome.caption {
-			if r.Contains(p) {
-				return glfw.HitCaption
+			if !r.Contains(p) {
+				continue
 			}
+			if w.chrome.maximize.Empty() {
+				// No maximize button: a double click does not maximize.
+				return glfw.HitCaptionOnly
+			}
+			return glfw.HitCaption
 		}
 		return glfw.HitClient
 	})

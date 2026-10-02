@@ -99,3 +99,36 @@ func TestThePinButtonKeepsTheWindowOnTop(t *testing.T) {
 		t.Fatalf("minimize, after the pin, minimized %d times", fr.Minimized)
 	}
 }
+
+// Controls without minimize and maximize show close alone, which still closes the window.
+func TestWindowControlsCanShowCloseAlone(t *testing.T) {
+	c := NewWindowControls()
+	c.NoMinimize, c.NoMaximize = true, true
+	w := gunimtest.New(t, geom.Sz(600, 300), nil)
+	fr := w.MakeChromeless(true)
+	sp := NewSpacer()
+	row := Row(sp, c).Grow(sp, 1)
+	gunim.RegisterView(w, "bar", func(struct{}) gunim.Node { return &frame{child: row, size: geom.Sz(600, 30)} }, nil)
+	if err := w.Client().Mount(gunim.Root, "bar", "bar", nil); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		w.Frame(time.Second / 60)
+	}
+	if !fr.Maximize.Empty() {
+		t.Fatalf("with no maximize button the system was told of one at %v", fr.Maximize)
+	}
+	if info := c.Access(); len(info.Parts) != 1 || info.Parts[0].Name != "Close" {
+		t.Fatalf("the controls tell assistive technology of %v, want Close alone", info.Parts)
+	}
+	p := geom.Pt(600-windowButtonWidth/2, 15)
+	w.Input(input.PointerMove{Pos: p, Time: time.Now()})
+	w.Input(input.PointerDown{Pos: p, Button: input.ButtonPrimary, Clicks: 1, Time: time.Now()})
+	w.Input(input.PointerUp{Pos: p, Button: input.ButtonPrimary, Time: time.Now()})
+	w.Frame(time.Second / 60)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := w.Client().Input(ctx, input.PointerMove{}); !errors.Is(err, gunim.ErrWindowClosed) {
+		t.Fatalf("after close, the window takes input: %v", err)
+	}
+}

@@ -19,6 +19,10 @@ const (
 	// HitMaximize is the maximize button, which Windows 11 hangs its
 	// snap layouts on.
 	HitMaximize
+	// HitCaptionOnly is the title bar of a window without a maximize
+	// button: a press there moves the window, and a double click leaves
+	// it as it is.
+	HitCaptionOnly
 )
 
 // HitTestCallback says what the point x, y, in the window's client
