@@ -17,7 +17,7 @@ import (
 
 // Menubar tokens.
 var (
-	MenubarFill   = theme.Color("menubar.fill", color.NRGBA{R: 0x1b, G: 0x1e, B: 0x26, A: 0xff})
+	MenubarFill   = theme.Color("menubar.fill", color.NRGBA{R: 0x17, G: 0x1a, B: 0x22, A: 0xff})
 	MenubarHeight = theme.Length("menubar.height", 30)
 	// MenubarHot lights the title under the pointer, and the title of
 	// the menu that is open.
