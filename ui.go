@@ -230,6 +230,16 @@ type WindowOptions struct {
 	// Hidden opens the window without showing it, as for an application
 	// that starts in the tray and may close it unseen.
 	Hidden bool
+	// DragFromBehind lets a drag start from the window while another
+	// window is in front of it, as from Explorer's windows: a press on
+	// the window's content leaves it where it is, a drag from the press
+	// runs with the window left behind, and a click brings the window to
+	// the front as the button comes up. Only Windows does so. On X11 the
+	// window manager raises and focuses a window on a click, and on
+	// macOS the system does, so the window comes to the front on the
+	// press there, as without it. The title bar and the edges bring the
+	// window to the front on a press as ever.
+	DragFromBehind bool
 }
 
 // NewWindow opens a window and starts its UI goroutine.
@@ -241,7 +251,7 @@ func (a *App) NewWindow(o WindowOptions) (*Window, error) {
 		Title: o.Title, Size: o.Size, Monitor: o.Monitor,
 		Kind: o.Kind, Anchor: geom.Rect{Min: o.Anchor, Max: o.Anchor}, Icons: o.Icons,
 		Chromeless: !o.SystemFrame && (newTitleBar != nil || o.TitleBar != nil), Border: o.Border, Text: o.Text, Place: o.Place,
-		Hidden: o.Hidden,
+		Hidden: o.Hidden, DragFromBehind: o.DragFromBehind,
 	}
 	if o.Parent != nil {
 		do.Parent = o.Parent.dw
@@ -1078,6 +1088,10 @@ type UI struct {
 	movedMods input.Mods
 	drag      *drag
 	dragAt    *state
+	// behind says the button went down on the window as it lay behind
+	// another, which left it there, and is still down; dragged says a
+	// drag started from that press. See [WindowOptions.DragFromBehind].
+	behind, dragged bool
 	// drops are the drags let go from here whose end is still to be
 	// heard, by number, and dropSeq the last number given. dragOuts are
 	// the drops handed to other programs, oldest first, whose ends the

@@ -137,6 +137,15 @@ type Options struct {
 	Chromeless bool
 	// Border is the line round a chromeless window's edge; see [Border].
 	Border Border
+	// DragFromBehind, for a [KindNormal] window, leaves the window where
+	// it is when the left button is pressed on its content while another
+	// window is active, so a drag can start from it as it lies behind,
+	// as from Explorer's windows. The press arrives as a
+	// [github.com/marrasen/gunim/input.PointerDown] with Behind set, and
+	// the engine brings the window to the front as the button comes up,
+	// unless a drag started. Only Windows does so; elsewhere the system
+	// raises the window on a press as it always does.
+	DragFromBehind bool
 	// Text says how the window draws text. Its zero value follows the
 	// system, and a window with a Parent takes the parent's.
 	Text text.Rendering

@@ -304,6 +304,9 @@ func (u *UI) StartDrag(n Node, data any, ghost Node, grab geom.Point) {
 		panic("gunim: StartDrag from a node that is not in the tree")
 	}
 	d := &drag{source: s, data: data, grab: grab, picture: ghost}
+	// A drag from a press on the window as it lay behind another leaves
+	// it there.
+	u.dragged = u.behind
 	u.openGhost(d)
 	u.drag = d
 	u.dragTo(u.pointer)

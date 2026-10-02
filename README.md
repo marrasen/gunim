@@ -101,7 +101,9 @@ Items drag as a stack of cards that trails the pointer and says what a
 drop will do: move or copy to the folder under it, pin it to the
 favourites, or nothing, with a shake. A folder the drag rests on springs
 open. Files drag between windows, out to other programs, and in from
-them. Ctrl+N opens another window on the same folder.
+them. On Windows an item drags from a window lying behind another, which
+stays behind, as Explorer's do; a click there brings the window to the
+front. Ctrl+N opens another window on the same folder.
 
 ## The split
 
