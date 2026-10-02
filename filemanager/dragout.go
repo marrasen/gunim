@@ -67,7 +67,12 @@ func (a *app) fetchForDrag(v DragFetch) {
 	d.fetches[v.ID] = cancel
 	paths := v.Paths
 	a.ops.wg.Go(func() {
-		local, err := fetchOut(ctx, fsys, copies, a, paths, func(p progress) { a.post(func() { a.progressed(id, p) }) })
+		local, err := fetchOut(ctx, fsys, copies, a, paths, func(p progress) {
+			a.post(func() {
+				a.progressed(id, p)
+				a.patch(DragFetching{ID: v.ID, Bytes: p.bytes, Total: p.bytesTotal})
+			})
+		})
 		stopped := ctx.Err() != nil
 		a.post(func() {
 			delete(d.fetches, v.ID)

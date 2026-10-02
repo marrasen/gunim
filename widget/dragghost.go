@@ -33,6 +33,16 @@ const (
 type DropHint struct {
 	Text   string
 	Effect DropEffect
+	// Bar shows a bar under the words, filled to Progress, from 0 to 1:
+	// how far something the drop waits for has got. Answers that differ
+	// only in Text and Progress move the bar on, rather than pop up anew.
+	Bar      bool
+	Progress float32
+}
+
+// goesOn reports whether h only moves on the bar of was.
+func (h DropHint) goesOn(was DropHint) bool {
+	return h.Bar && was.Bar && h.Effect == was.Effect
 }
 
 // DragGhost tokens.
@@ -73,9 +83,11 @@ type DragGhost struct {
 	last     geom.Point
 	moved    bool
 	// hint is the answer showing, kept as it fades.
-	hint     DropHint
-	hintOn   *anim.Float
-	hintW    *anim.Float
+	hint   DropHint
+	hintOn *anim.Float
+	hintW  *anim.Float
+	// bar is how far the hint's bar is filled.
+	bar      *anim.Float
 	in, out  *anim.Float
 	ended    bool
 	taken    bool
@@ -88,9 +100,9 @@ type DragGhost struct {
 // NewDragGhost returns a picture of child for a drag, held grab from the
 // child's top left corner: the grab given to StartDrag.
 func NewDragGhost(child gunim.Node, grab geom.Point) *DragGhost {
-	g := &DragGhost{child: child, grab: grab, hintOn: anim.NewFloat(0), hintW: anim.NewFloat(0),
+	g := &DragGhost{child: child, grab: grab, hintOn: anim.NewFloat(0), hintW: anim.NewFloat(0), bar: anim.NewFloat(0),
 		in: anim.NewFloat(0), out: anim.NewFloat(0), trail: DragGhostTrail.Default()}
-	g.Add(g.hintOn, g.hintW, g.in, g.out)
+	g.Add(g.hintOn, g.hintW, g.bar, g.in, g.out)
 	return g
 }
 
@@ -122,9 +134,14 @@ func (g *DragGhost) Handle(e input.Event, u *gunim.UI) bool {
 		g.last, g.moved = e.At, true
 	case input.DragAnswer:
 		if h, ok := e.Answer.(DropHint); ok {
-			if h != g.hint || g.hintOn.Target() == 0 {
+			switch {
+			case h.goesOn(g.hint) && g.hintOn.Target() > 0:
+				g.hint = h
+				g.bar.Animate(min(max(h.Progress, 0), 1), Quick.Get(th))
+			case h != g.hint || g.hintOn.Target() == 0:
 				g.hint = h
 				g.hintOn.Jump(min(g.hintOn.Value(), 0.4))
+				g.bar.Jump(min(max(h.Progress, 0), 1))
 			}
 			g.hintOn.Animate(1, Bounce.Get(th))
 		} else {
@@ -208,7 +225,7 @@ func (g *DragGhost) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Childr
 	}
 	g.hintW.Animate(pill, Quick.Get(th))
 	w := g.size.W + hintGap + pill + 4
-	h := max(g.size.H, g.grab.Y+hintSize/2+4)
+	h := max(g.size.H, g.grab.Y+g.hintHeight()/2+4)
 	return c.Constrain(geom.Sz(w+2*g.margin, h+2*g.margin))
 }
 
@@ -300,23 +317,61 @@ func (g *DragGhost) paintHint(p *paint.Painter, th *theme.Live, pointer geom.Poi
 	if on <= 0.01 || g.hint.Text == "" {
 		return
 	}
-	at := pointer.Add(geom.Pt(g.size.W-g.grab.X+hintGap-8*(1-min(on, 1)), -hintSize/2))
+	ph := g.hintHeight()
+	at := pointer.Add(geom.Pt(g.size.W-g.grab.X+hintGap-8*(1-min(on, 1)), -ph/2))
 	w := max(hintSize, g.hintW.Value())
-	pill := geom.Rc(at.X, at.Y, w, hintSize)
+	pill := geom.Rc(at.X, at.Y, w, ph)
 	defer p.Layer(paint.LayerOpts{Bounds: pill.Inset(geom.Uniform(-12)), Opacity: min(on, 1) * (1 - out)})()
-	defer p.Push(paint.Scale(0.7+0.3*on, geom.Pt(at.X, at.Y+hintSize/2)))()
-	p.ShadowRRect(pill, hintSize/2, paint.Solid(MenuFill.Get(th)), paint.Shadow{Offset: geom.Pt(0, 3), Blur: 10, Color: MenuShadow.Get(th)})
-	p.RRectStroke(pill, hintSize/2, paint.Fill{}, paint.Stroke{Width: 1, Color: MenuBorder.Get(th)})
+	defer p.Push(paint.Scale(0.7+0.3*on, geom.Pt(at.X, at.Y+ph/2)))()
+	p.ShadowRRect(pill, ph/2, paint.Solid(MenuFill.Get(th)), paint.Shadow{Offset: geom.Pt(0, 3), Blur: 10, Color: MenuShadow.Get(th)})
+	p.RRectStroke(pill, ph/2, paint.Fill{}, paint.Stroke{Width: 1, Color: MenuBorder.Get(th)})
 	mark := Accent.Get(th)
 	if g.hint.Effect == DropRefused {
 		mark = DropRefusedInk.Get(th)
 	}
-	dot := geom.Rc(at.X+4, at.Y+4, hintSize-8, hintSize-8)
+	dot := geom.Rc(at.X+4, at.Y+(ph-hintSize)/2+4, hintSize-8, hintSize-8)
 	p.RRect(dot, dot.Size().W/2, paint.Solid(mark))
 	paintEffect(p, th, g.hint.Effect, dot.Center(), ButtonStrongInk.Get(th))
 	run := g.hintRun.run
-	defer p.Layer(paint.LayerOpts{Bounds: pill, Opacity: 1, Clip: true, Radius: hintSize / 2})()
+	defer p.Layer(paint.LayerOpts{Bounds: pill, Opacity: 1, Clip: true, Radius: ph / 2})()
+	// With a bar, the words keep the line's top and the bar the room
+	// added below.
 	run.Paint(p, geom.Pt(at.X+hintSize, at.Y+(hintSize-run.Height())/2), Ink.Get(th))
+	if g.hint.Bar {
+		g.paintBar(p, th, geom.Rc(at.X+hintSize, at.Y+ph-hintBar-7, w-hintSize-hintSize/2, hintBar))
+	}
+}
+
+// hintBar is the height of the hint's bar, and hintBarRoom the room it
+// adds to the hint.
+const (
+	hintBar     = 3
+	hintBarRoom = 8
+)
+
+// hintHeight is the height of the hint, with the room for its bar.
+func (g *DragGhost) hintHeight() float32 {
+	if g.hint.Bar {
+		return hintSize + hintBarRoom
+	}
+	return hintSize
+}
+
+// paintBar draws the hint's bar in track, filled as far as it has got.
+func (g *DragGhost) paintBar(p *paint.Painter, th *theme.Live, track geom.Rect) {
+	if track.Size().W <= 0 {
+		return
+	}
+	faint := Ink.Get(th)
+	faint.A /= 6
+	p.RRect(track, hintBar/2, paint.Solid(faint))
+	done := min(max(g.bar.Value(), 0), 1)
+	if done <= 0 {
+		return
+	}
+	fill := track
+	fill.Max.X = track.Min.X + max(hintBar, track.Size().W*done)
+	p.RRect(fill, hintBar/2, paint.Solid(Accent.Get(th)))
 }
 
 // effectSize is the size of the sign of a drop's effect.

@@ -60,6 +60,8 @@ type dragFetch struct {
 	done  bool
 	local []string
 	err   string
+	// bytes of total are fetched so far, where total is known.
+	bytes, total int64
 }
 
 // export returns the copies' paths, or an error that says why the drag
@@ -68,7 +70,7 @@ type dragFetch struct {
 func (f *dragFetch) export() ([]string, error) {
 	switch {
 	case !f.done:
-		return nil, &gunim.ExportError{Hint: widget.DropHint{Text: "Fetching…", Effect: widget.DropCopy}, Wait: true}
+		return nil, &gunim.ExportError{Hint: f.hint(), Wait: true}
 	case f.err != "" || len(f.local) == 0:
 		why := f.err
 		if why == "" {
@@ -77,6 +79,17 @@ func (f *dragFetch) export() ([]string, error) {
 		return nil, &gunim.ExportError{Hint: widget.DropHint{Text: why}, Err: errors.New(why)}
 	}
 	return slices.Clone(f.local), nil
+}
+
+// hint says how far the fetch has got, in words and on a bar, while it
+// runs.
+func (f *dragFetch) hint() widget.DropHint {
+	h := widget.DropHint{Text: "Fetching…", Effect: widget.DropCopy}
+	if f.total > 0 {
+		h.Text = "Fetching… " + humanBytes(f.bytes) + " of " + humanBytes(f.total)
+		h.Bar, h.Progress = true, float32(min(max(float64(f.bytes)/float64(f.total), 0), 1))
+	}
+	return h
 }
 
 // errScripted keeps a drag a script started inside the window, and
@@ -264,6 +277,7 @@ func registerDnd(w *gunim.Window) {
 	gunim.RegisterPatch(w, "browser", func(b *browser, s ClipState, _ *gunim.UI) { b.dnd.clip = s })
 	gunim.RegisterPatch(w, "browser", func(b *browser, s ScriptDrag, u *gunim.UI) { b.dnd.script(w, s, u) })
 	gunim.RegisterPatch(w, "browser", func(b *browser, s DragFetched, _ *gunim.UI) { b.dnd.fetched(s) })
+	gunim.RegisterPatch(w, "browser", func(b *browser, s DragFetching, _ *gunim.UI) { b.dnd.fetching(s) })
 }
 
 // fetchOut has the program start fetching the items of d, a drag about
@@ -292,6 +306,13 @@ func (v *dndView) fetched(s DragFetched) {
 		return
 	}
 	f.done, f.local, f.err = true, s.Paths, s.Err
+}
+
+// fetching takes how far the program says a drag's fetch has got.
+func (v *dndView) fetching(s DragFetching) {
+	if f, ok := v.fetches[s.ID]; ok && !f.done {
+		f.bytes, f.total = s.Bytes, s.Total
+	}
 }
 
 // dragEnded is the end of a drag of rows: its fetch, needed no more, may
