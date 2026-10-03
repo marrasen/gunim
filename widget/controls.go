@@ -75,6 +75,11 @@ func (t *toggle) OnFlip(fn func(on bool, u *gunim.UI)) { t.flipped = fn }
 
 func (t *toggle) flip(n gunim.Node, u *gunim.UI) {
 	t.On = !t.On
+	if t.On {
+		u.Cue(gunim.CueToggleOn, n)
+	} else {
+		u.Cue(gunim.CueToggleOff, n)
+	}
 	t.lit.Animate(value(t.On), Bounce.Get(u.Theme()))
 	if t.flipped != nil {
 		t.flipped(t.On, u)
@@ -362,6 +367,9 @@ func (s *Slider) set(v float32, m anim.Motion, u *gunim.UI) {
 	if v == s.value {
 		return
 	}
+	if s.passesStep(s.value, v) {
+		u.Cue(gunim.CueTick, s)
+	}
 	s.value = v
 	s.at.Animate(s.frac(), m)
 	if s.moved != nil {
@@ -370,6 +378,20 @@ func (s *Slider) set(v float32, m anim.Motion, u *gunim.UI) {
 	if s.OnChange != nil {
 		u.Send(s, s.OnChange(v))
 	}
+}
+
+// passesStep reports whether a move from a to b passes a step: a snap,
+// on a slider that snaps, or a tenth of the track on one that does not.
+func (s *Slider) passesStep(a, b float32) bool {
+	step := s.Snap
+	if step <= 0 {
+		step = (s.Max - s.Min) / 10
+	}
+	if step <= 0 {
+		return false
+	}
+	at := func(v float32) float64 { return math.Floor(float64((v - s.Min) / step)) }
+	return at(a) != at(b) || s.Snap > 0
 }
 
 // Focusable implements [gunim.Focusable].
@@ -592,6 +614,7 @@ func (t *Tabs) choose(i int, u *gunim.UI) {
 		return
 	}
 	t.Select(i, u)
+	u.Cue(gunim.CueSelect, t)
 	if t.OnChange != nil {
 		u.Send(t, t.OnChange(i))
 	}

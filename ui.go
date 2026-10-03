@@ -85,6 +85,8 @@ func runApp(ctx context.Context, drv driver.Driver, fn func(*App) error) error {
 // only way to open a window.
 type App struct {
 	drv driver.Driver
+	// cues plays the cues of every window of the app.
+	cues atomic.Pointer[cuePlayer]
 	// windows is the open windows, for drags between them.
 	windows windows
 }
@@ -328,6 +330,8 @@ type Window struct {
 	// drags from its other windows.
 	app    *App
 	dragIn chan dragMsg
+	// cues plays the window's cues, where set; else the app's do.
+	cues atomic.Pointer[cuePlayer]
 	// blends is whether the last popup's window blended with what is
 	// behind it, the guess for the next one.
 	blends bool
@@ -1494,6 +1498,9 @@ func (u *UI) InsertAt(parent Node, i int, child Node) {
 	ps.kids = insertKid(ps.kids, i, cs)
 	u.index[child] = cs
 	u.invalid = true
+	if m, ok := child.(Modal); ok && m.Modal() {
+		u.Cue(CueOpen, nil)
+	}
 
 	// A composite arrives whole, so a view can return one node and get
 	// the widget it describes.
@@ -1566,6 +1573,9 @@ func (u *UI) Remove(n Node) bool {
 	}
 	if s == u.root {
 		return true
+	}
+	if m, ok := n.(Modal); ok && m.Modal() && s.presence != Exiting {
+		u.Cue(CueClose, nil)
 	}
 	s.presence = Exiting
 	u.invalid = true
@@ -1723,10 +1733,10 @@ func (u *UI) ring() {
 // ShowFocusRing shows the focus rings, as Tab does, until the next
 // click: for a widget that moves the keyboard somewhere the user has to
 // see, such as a dialog that opens on Cancel.
-func (u *UI) ShowFocusRing() { u.cue(true) }
+func (u *UI) ShowFocusRing() { u.showRings(true) }
 
-// cue says whether the focus rings show: on from Tab, and off from a click.
-func (u *UI) cue(keyboard bool) {
+// showRings says whether the focus rings show: on from Tab, and off from a click.
+func (u *UI) showRings(keyboard bool) {
 	if u.keyboardCue == keyboard {
 		return
 	}

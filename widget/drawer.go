@@ -35,6 +35,11 @@ func (d *Drawer) SetOpen(on bool, u *gunim.UI) {
 	if on == d.Open() {
 		return
 	}
+	if on {
+		u.Cue(gunim.CueOpen, d.panel)
+	} else {
+		u.Cue(gunim.CueClose, d.panel)
+	}
 	// No overshoot: the main child reflows as the panel slides, and should do so once each way.
 	d.open.Animate(map[bool]float32{false: 0, true: 1}[on], Settle.Get(u.Theme()))
 	if !on && u.HasFocus(d.panel) {

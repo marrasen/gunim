@@ -505,10 +505,11 @@ func (e *editor) openMenu(owner gunim.Node, at geom.Point, u *gunim.UI) {
 		u.Invalidate()
 	}
 	e.menuItems = m
+	u.Cue(gunim.CueOpen, owner)
 	e.menu = u.OpenPopup(owner, m, gunim.PopupOptions{
 		Anchor:  geom.Rect{Min: at, Max: at},
 		Max:     geom.Sz(600, 480),
-		Dismiss: func(*gunim.UI) { e.closeMenu() },
+		Dismiss: dismissed(owner, func(*gunim.UI) { e.closeMenu() }),
 	})
 }
 

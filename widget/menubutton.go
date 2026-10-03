@@ -112,6 +112,7 @@ func (b *MenuButton) key(k input.KeyPress, u *gunim.UI) bool {
 	}
 	switch k.Key {
 	case input.KeyEscape:
+		u.Cue(gunim.CueClose, b)
 		b.close(u)
 		return true
 	case input.KeyTab:
@@ -147,10 +148,11 @@ func (b *MenuButton) open(u *gunim.UI) {
 		u.Invalidate()
 	}
 	b.menu = m
+	u.Cue(gunim.CueOpen, b)
 	b.popup = u.OpenPopup(b, m, gunim.PopupOptions{
 		Anchor:  geom.Rect{Max: b.size.Point()},
 		Max:     geom.Sz(600, 560),
-		Dismiss: b.close,
+		Dismiss: dismissed(b, b.close),
 	})
 	b.turn.Animate(1, Quick.Get(u.Theme()))
 }

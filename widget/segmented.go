@@ -84,6 +84,7 @@ func (s *Segmented) choose(i int, u *gunim.UI) {
 		return
 	}
 	s.SetSelected(i, u)
+	u.Cue(gunim.CueSelect, s)
 	if s.OnChange != nil {
 		u.Send(s, s.OnChange(i))
 	}

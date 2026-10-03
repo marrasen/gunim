@@ -217,6 +217,7 @@ func (b *Button) handleDisabled(e input.Event, th *theme.Live) bool {
 // about it whenever it gets round to reading. The interface stays fluid
 // while the work queues up behind it.
 func (b *Button) fire(u *gunim.UI) {
+	u.Cue(gunim.CuePress, b)
 	if b.activate != nil {
 		b.activate(u)
 	}
