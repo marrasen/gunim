@@ -49,8 +49,13 @@ type msgRow struct {
 	reactions *reactionBar
 	tools     gunim.Node
 	toolsAt   geom.Point
-	hover     *anim.Float
-	flash     *anim.Float
+	// react opens the emoji picker for a message, and menu is the menu of
+	// what to do with this one, while it is open.
+	react    func(opener gunim.Node, id string, u *gunim.UI)
+	menu     *gunim.Popup
+	menuList *widget.Menu
+	hover    *anim.Float
+	flash    *anim.Float
 
 	// laidFor is what the texts below were laid out for.
 	laidFor struct {
@@ -70,7 +75,7 @@ type msgRow struct {
 func newMsgRow(item Item, jump func(string, *gunim.UI), group *markdown.Group, image func(id string) *paint.Image,
 	react func(opener gunim.Node, id string, u *gunim.UI),
 ) *msgRow {
-	r := &msgRow{item: item, jump: jump, hover: anim.NewFloat(0), flash: anim.NewFloat(0)}
+	r := &msgRow{item: item, jump: jump, react: react, hover: anim.NewFloat(0), flash: anim.NewFloat(0)}
 	r.Add(r.hover, r.flash)
 	if !item.heading() {
 		r.body = markdown.New("")
@@ -341,7 +346,8 @@ func (r *msgRow) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids guni
 	if !r.footBox.Empty() {
 		r.foot.Paint(p, r.footBox.Min, faint)
 	}
-	if h := min(r.hover.Value(), 1); h > 0.01 && r.showsTools() {
+	// The toolbar shows under the pointer, and gives way to the menu.
+	if h := min(r.hover.Value(), 1); h > 0.01 && r.showsTools() && r.menu == nil {
 		tools := kids.At(kids.Len() - 1)
 		defer p.Layer(paint.LayerOpts{Bounds: geom.Rect{Min: r.toolsAt, Max: r.toolsAt.Add(tools.Size().Point())}, Opacity: h})()
 		tools.Paint(p)
@@ -403,14 +409,21 @@ func (r *msgRow) paintAvatar(p *paint.Painter, at geom.Rect, tint color.NRGBA) {
 }
 
 // Handle implements [gunim.Handler]: the row lights under the pointer, a click on a quote jumps to the message it
-// quotes, and a click on a failed message's status sends it again.
+// quotes, and a click on a failed message's status sends it again. A right click, or a finger held on the
+// message, opens a menu of what the toolbar does.
 func (r *msgRow) Handle(e input.Event, u *gunim.UI) bool {
 	switch e := e.(type) {
 	case input.PointerEnter:
 		r.hover.Animate(1, widget.Quick.Get(u.Theme()))
 	case input.PointerLeave:
-		r.hover.Animate(0, widget.Settle.Get(u.Theme()))
+		if r.menu == nil {
+			r.hover.Animate(0, widget.Settle.Get(u.Theme()))
+		}
 	case input.PointerDown:
+		if e.Button == input.ButtonSecondary && r.showsTools() {
+			r.openMenu(e.Pos, u)
+			return true
+		}
 		if e.Button != input.ButtonPrimary {
 			return false
 		}
@@ -425,6 +438,52 @@ func (r *msgRow) Handle(e input.Event, u *gunim.UI) bool {
 		}
 	}
 	return false
+}
+
+// openMenu opens the menu of what to do with the message at at: react and reply, and for the user's own
+// messages edit and withdraw, as the toolbar does. The message stays lit while it is open, as the one the menu
+// is for.
+func (r *msgRow) openMenu(at geom.Point, u *gunim.UI) {
+	r.closeMenu(u)
+	m := r.item.Message
+	items := []string{"React", "Reply"}
+	icons := []*icon.Icon{icon.SmilePlus, icon.Reply}
+	if m.Mine {
+		items = append(items, "Edit", "Withdraw")
+		icons = append(icons, icon.Pencil, icon.Trash2)
+	}
+	menu := widget.NewMenu(items...)
+	menu.Icons = icons
+	menu.Pick = func(i int, u *gunim.UI) {
+		r.closeMenu(u)
+		switch items[i] {
+		case "React":
+			r.react(r, m.ID, u)
+		case "Reply":
+			u.Send(r, ReplyAsked{ID: m.ID})
+		case "Edit":
+			u.Send(r, EditAsked{ID: m.ID})
+		case "Withdraw":
+			u.Send(r, WithdrawAsked{ID: m.ID})
+		}
+	}
+	r.hover.Animate(1, widget.Quick.Get(u.Theme()))
+	r.menuList = menu
+	r.menu = u.OpenPopup(r, menu, gunim.PopupOptions{
+		Anchor:  geom.Rect{Min: at, Max: at},
+		Max:     geom.Sz(600, 480),
+		Dismiss: r.closeMenu,
+	})
+}
+
+// closeMenu closes the message's menu, if it is open, and the row stops being lit.
+func (r *msgRow) closeMenu(u *gunim.UI) {
+	if r.menu == nil {
+		return
+	}
+	r.menu.Close()
+	r.menu, r.menuList = nil, nil
+	r.hover.Animate(0, widget.Settle.Get(u.Theme()))
 }
 
 // Cursor implements [gunim.CursorShaper]: a hand over what takes a click.

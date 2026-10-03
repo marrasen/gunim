@@ -92,16 +92,21 @@ func (u *UI) handleRaw(root *state, ev any) {
 		}
 	case input.PointerMove:
 		if root == u.root {
-			u.pointer, u.pointerIn = e.Pos, true
+			// A finger has no hover: it moves the pointer for a drag, and
+			// lights nothing as it passes, nor as what is under it
+			// scrolls.
+			u.pointer, u.pointerIn = e.Pos, !e.Touch
 			if u.drag != nil {
 				u.drag.mods = e.Mods
 				u.dragTo(e.Pos)
 				return
 			}
 		}
-		u.updateHover(root, e.Pos, e.Time)
+		if !e.Touch {
+			u.updateHover(root, e.Pos, e.Time)
+		}
 		mk := func(local geom.Point) input.Event {
-			return input.PointerMove{Pos: local, Mods: e.Mods, Time: e.Time}
+			return input.PointerMove{Pos: local, Mods: e.Mods, Touch: e.Touch, Time: e.Time}
 		}
 		if u.capture != nil {
 			if !u.capture.within(root) {

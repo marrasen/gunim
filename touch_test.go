@@ -262,3 +262,23 @@ func TestAFingerMovesFocusOnlyToTextItTaps(t *testing.T) {
 		t.Fatalf("a click on the button left the focus at %v, want the button", w.ui.Focused())
 	}
 }
+
+func TestAFingerLightsNothingAsItPasses(t *testing.T) {
+	r := &recorder{}
+	w, finger := touchStage(t, r)
+	finger(input.PointerMove{Pos: geom.Pt(100, 100), Touch: true, Time: time.Now()})
+	swipe(finger, geom.Pt(100, 300), geom.Pt(100, 100), 5, time.Now(), 0)
+	for range 5 {
+		w.Frame(time.Second / 60)
+	}
+	for _, e := range r.events {
+		if _, ok := e.(input.PointerEnter); ok {
+			t.Fatal("a finger lit the node it passed over, as a mouse's hover does")
+		}
+	}
+	// A mouse lights it as ever.
+	finger(input.PointerMove{Pos: geom.Pt(100, 100), Time: time.Now()})
+	if !r.got(input.PointerEnter{}) {
+		t.Fatal("the mouse moving over the node did not light it")
+	}
+}
