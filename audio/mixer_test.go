@@ -227,4 +227,23 @@ func TestTheAnalyzerFindsAPitchInItsBand(t *testing.T) {
 	if bands[0] > 0.3 {
 		t.Errorf("the lowest band, far from the sine, is at %v, want it quiet", bands[0])
 	}
+	// A tilt lifts a band above the bass by its octaves: 1 kHz is
+	// nearly five octaves above 40 Hz, so 3 dB an octave lifts it about
+	// 14 dB, a fifth of the scale's 70.
+	low := make([]float32, 32)
+	half := make([]float32, 2*SampleRate)
+	for i := range half {
+		half[i] = sine[i] * 0.05
+	}
+	m2 := NewMixer()
+	m2.Play(NewClip(half).Source(), Options{})
+	mix(m2, SampleRate/2)
+	b2 := NewAnalyzer(m2, 32)
+	b2.Bands(low)
+	b2.Tilt = 3
+	tilted := make([]float32, 32)
+	b2.Bands(tilted)
+	if d := tilted[want] - low[want]; !near(float64(d), 14.0/70, 0.02) {
+		t.Errorf("a tilt of 3 dB an octave lifts 1 kHz by %v of the scale, want about %v", d, 14.0/70)
+	}
 }

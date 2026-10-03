@@ -20,6 +20,11 @@ type Analyzer struct {
 	// Floor is the quietest level a band shows, in decibels: a band
 	// that loud or quieter is at 0. It is -70 by default.
 	Floor float32
+	// Tilt lifts each band by this many decibels for each octave it
+	// lies above 40 Hz. Music has less in its higher pitches, so a
+	// tilt of 3 to 4.5 shows them as tall as the bass; zero, the
+	// default, shows each band as loud as it is.
+	Tilt float32
 }
 
 // NewAnalyzer returns an analyzer of m's sound that splits it into
@@ -78,7 +83,12 @@ func (a *Analyzer) Bands(out []float32) (level float32) {
 		for k := a.edges[b]; k < max(a.edges[b+1], a.edges[b]+1) && k < a.size/2; k++ {
 			peak = max(peak, cmplx.Abs(a.fft[k]))
 		}
-		out[b] = a.scale(peak / ref)
+		amp := peak / ref
+		if a.Tilt != 0 {
+			octaves := math.Log2(float64(a.edges[b]+a.edges[b+1]) / 2 * SampleRate / float64(a.size) / 40)
+			amp *= math.Pow(10, float64(a.Tilt)*max(octaves, 0)/20)
+		}
+		out[b] = a.scale(amp)
 	}
 	rms := math.Sqrt(sum / float64(len(a.in)))
 	// A full-scale sine has an RMS of 1/√2.
