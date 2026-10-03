@@ -25,6 +25,9 @@ type CellsOp struct {
 	Cells []CellPaint
 	// Patterns holds the patterns the cells name.
 	Patterns *Patterns
+	// TextSize is the size of the cells' glyphs, and Baseline how far
+	// below a row's top their baseline is, in logical pixels.
+	TextSize, Baseline float32
 	// Grid tells one grid's rows from another's, and Row is this row's
 	// number in it, so a driver knows which rows follow each other.
 	Grid uintptr
@@ -35,10 +38,16 @@ type CellsOp struct {
 
 // CellPaint is how one cell of a [CellsOp] is drawn: BG fills the cell,
 // and Pattern, when not zero, is the number of a mask in the op's
-// Patterns, counting from one, drawn over it in FG.
+// Patterns, counting from one, drawn over it in FG. Where Text is set,
+// Glyph is drawn over it in FG too, its At from the cell's left edge on
+// the row's baseline, as a [TextOp] of the op's TextSize would draw it.
+// A driver draws a glyph that reaches outside its cell as a TextOp
+// would, over the cells.
 type CellPaint struct {
 	BG, FG  color.NRGBA
 	Pattern uint16
+	Text    bool
+	Glyph   Glyph
 }
 
 // Patterns are the masks the cells of a [CellsOp] draw in their
@@ -55,16 +64,21 @@ func (*CellsOp) isOp() {}
 
 // Cells records a row of cells, of a cell size and with a grid and row
 // as [CellsOp] describes, its top left corner at at.
-func (p *Painter) Cells(at geom.Point, size geom.Size, cells []CellPaint, pats *Patterns, grid uintptr, row int) {
+//
+// Glyphs are drawn at textSize with their baseline at baseline below the
+// row's top. The op's bounds are the row's, as a run of text along it
+// would give.
+func (p *Painter) Cells(at geom.Point, size geom.Size, cells []CellPaint, pats *Patterns, grid uintptr, row int, textSize, baseline float32) {
 	if len(cells) == 0 {
 		return
 	}
 	r := geom.Rect{Min: at, Max: geom.Pt(at.X+size.W*float32(len(cells)), at.Y+size.H)}
-	p.record(&CellsOp{At: at, Size: size, Cells: cells, Patterns: pats, Grid: grid, Row: row, Transform: p.at()}, r)
+	p.record(&CellsOp{At: at, Size: size, Cells: cells, Patterns: pats, Grid: grid, Row: row,
+		TextSize: textSize, Baseline: baseline, Transform: p.at()}, r)
 }
 
 // sameCells reports whether two rows of cells draw the same thing.
 func sameCells(a, b *CellsOp) bool {
 	return a.At == b.At && a.Size == b.Size && a.Patterns == b.Patterns && a.Grid == b.Grid && a.Row == b.Row &&
-		a.Transform == b.Transform && slices.Equal(a.Cells, b.Cells)
+		a.TextSize == b.TextSize && a.Baseline == b.Baseline && a.Transform == b.Transform && slices.Equal(a.Cells, b.Cells)
 }

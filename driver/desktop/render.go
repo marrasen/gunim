@@ -703,6 +703,11 @@ func (r *renderer) deviceBox(d geom.Rect) geom.Rect {
 // replay queues ops into the canvas.
 func (r *renderer) replay(ops []paint.Op) {
 	for _, op := range ops {
+		if _, ok := op.(*paint.CellsOp); !ok && r.cellsState.pending != nil {
+			// The cells first, with the glyphs that spill out of them,
+			// beneath whatever comes after them, as a cursor.
+			r.flush()
+		}
 		switch op := op.(type) {
 		case *paint.RRectOp:
 			r.rrect(op)
