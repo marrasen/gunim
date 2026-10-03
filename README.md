@@ -109,18 +109,34 @@ front. Ctrl+N opens another window on the same folder.
 
 The same programs build for Android. `tools/gunimapk` turns one into an
 APK with the Android SDK's own tools, and `-run` installs and starts it
-on the device or emulator adb sees:
+on the device or emulator adb sees. `-name` and `-icon` give it a label
+and a launcher icon:
 
 ```sh
-go run ./tools/gunimapk -run ./example/calculator
+go run ./example/calculator -icon calc.png
+go run ./tools/gunimapk -run -name Calculator -icon calc.png ./example/calculator
 ```
 
 Android loads a Go program as a library, which needs cgo, so the
 Android build uses cgo and the NDK's compiler. The desktop builds stay
-pure Go. A tap is a click, a popup opens over the window that opened
-it, and a text field opens the soft keyboard, whose edits, autocorrect
-and composition reach the field as `input.TextEdit`s.
+pure Go.
+
+A tap is a click, and a popup opens over the window that opened it. A
+finger that moves scrolls what it came down on and flings as it lifts,
+unless what it pressed drags by touch, as a slider or the calculator's
+plot does. Two fingers pinch to zoom whatever zooms with Ctrl and the
+wheel. A finger held still is a right click, which opens a context
+menu; in text it selects a word, drags on over more words, and shows
+handles for the selection's ends and the edit menu.
+
+A tap on a text field opens the soft keyboard, whose edits, autocorrect
+and composition reach the field as `input.TextEdit`s, and the window
+slides up with the keyboard to keep the field in view.
 [driver/android](driver/android/android.go) says how it fits together.
+
+The examples lay themselves out for a phone where the window is narrow;
+the calculator and the chat take `-size 390x800` to try it on the
+desktop.
 
 ## The split
 
