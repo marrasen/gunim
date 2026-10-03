@@ -26,7 +26,7 @@ func parse(src string) (fn, error) {
 		return nil, err
 	}
 	if p.at < len(p.toks) {
-		return nil, fmt.Errorf("%q is out of place", p.toks[p.at])
+		return nil, fmt.Errorf("%s is out of place", keyOf(p.toks[p.at]))
 	}
 	return f, nil
 }
@@ -309,7 +309,27 @@ func (p *parser) atom() (fn, error) {
 	}
 	v, err := strconv.ParseFloat(t, 64)
 	if err != nil {
-		return nil, fmt.Errorf("%q is no number", t)
+		switch {
+		case t == ")":
+			return nil, errors.New("the brackets need something inside")
+		case strings.Count(t, ".") > 1:
+			return nil, fmt.Errorf("%s has more than one point", t)
+		}
+		return nil, fmt.Errorf("%s needs a number before it", keyOf(t))
 	}
 	return func(float64) float64 { return v }, nil
+}
+
+// keyOf returns the key that typed token t, as an error names it: the
+// parser reads × as *, ÷ as / and − as -.
+func keyOf(t string) string {
+	switch t {
+	case "*":
+		return "×"
+	case "/":
+		return "÷"
+	case "-":
+		return "−"
+	}
+	return t
 }

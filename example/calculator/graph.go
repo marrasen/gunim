@@ -91,9 +91,45 @@ type graphBody struct {
 	// shake throws the line being typed sideways when a sum has no
 	// curve, why says why, and errors counts the sums that had none.
 	shake  *anim.Float
-	why    string
+	why    *notice
 	errors int
 }
+
+// notice is a line of text that fades and rises into its place as it is
+// set, and fades out as it is cleared, keeping its words while it goes.
+type notice struct {
+	text string
+	a    *anim.Float
+}
+
+func newNotice() *notice { return &notice{a: anim.NewFloat(0)} }
+
+// set shows s, or with s empty takes the line away.
+func (n *notice) set(s string) {
+	if s == "" {
+		n.a.Animate(0, anim.Gentle)
+		return
+	}
+	if s != n.text {
+		// Words that change come in afresh.
+		n.text = s
+		n.a.Jump(0)
+	}
+	n.a.Animate(1, anim.Snappy)
+}
+
+// paint draws the line with its top left at at, size high, in col.
+func (n *notice) paint(p *paint.Painter, at geom.Point, size float32, col color.NRGBA) {
+	a := n.a.Value()
+	if a <= 0.01 || n.text == "" {
+		return
+	}
+	run := shaped(n.text, size)
+	run.Paint(p, at.Add(geom.Pt(0, 8*(1-a))), faded(col, min(a, 1)))
+}
+
+// errorInk is the colour a sum with no answer is told in.
+var errorInk = color.NRGBA{R: 0xff, G: 0x8a, B: 0x7a, A: 0xff}
 
 // chip is a curve in the side panel: its colour, its sum, and a cross
 // that takes it off.
@@ -108,8 +144,8 @@ type chip struct {
 const chipHeight = 40
 
 func newGraphBody(r *calcRoot) *graphBody {
-	g := &graphBody{r: r, canvas: newCanvas(), expr: newRoll(26), shake: anim.NewFloat(0)}
-	g.Add(g.shake)
+	g := &graphBody{r: r, canvas: newCanvas(), expr: newRoll(26), shake: anim.NewFloat(0), why: newNotice()}
+	g.Add(g.shake, g.why.a)
 	g.keys = newKeypad(8,
 		[]string{"x", "^", "(", ")", "⌫"},
 		[]string{"sin", "cos", "tan", "√", "C"},
@@ -141,7 +177,7 @@ func (g *graphBody) arrive() {
 // show takes the application's state.
 func (g *graphBody) show(s Calc, u *gunim.UI) {
 	g.expr.set(s.Expr)
-	g.why = s.Error
+	g.why.set(s.Error)
 	if s.Errors != g.errors {
 		g.errors = s.Errors
 		if s.Graph {
@@ -181,10 +217,17 @@ func (g *graphBody) show(s Calc, u *gunim.UI) {
 
 // Step implements [gunim.Animator].
 func (g *graphBody) Step(dt time.Duration) bool {
-	moving := g.expr.step(dt)
+	// The group holds the shake and the line saying why; the roll and
+	// the chips step on their own.
+	moving := g.Group.Step(dt)
+	if g.expr.step(dt) {
+		moving = true
+	}
 	live := g.chips[:0]
 	for _, c := range g.chips {
-		if c.y.Step(dt) || c.a.Step(dt) {
+		// Both step every frame: a chip fades as it moves.
+		y, a := c.y.Step(dt), c.a.Step(dt)
+		if y || a {
 			moving = true
 		}
 		if c.going && !c.a.Active() {
@@ -260,10 +303,7 @@ func (g *graphBody) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids g
 	// curve, with why over it.
 	keysTop := s.Max.Y - 12 - float32(graphKeysH)
 	line := geom.Rc(s.Min.X+12, keysTop-62, s.Size().W-24, 50)
-	if g.why != "" {
-		why := shaped(g.why, 14)
-		why.Paint(p, geom.Pt(line.Min.X+6, line.Min.Y-24), color.NRGBA{R: 0xff, G: 0x8a, B: 0x7a, A: 0xff})
-	}
+	g.why.paint(p, geom.Pt(line.Min.X+6, line.Min.Y-24), 14, errorInk)
 	func() {
 		defer p.Push(paint.Translate(geom.Pt(14*g.shake.Value(), 0)))()
 		p.RRect(line, 12, paint.Solid(faded(ink, 0.06)))

@@ -1,11 +1,13 @@
 package main
 
 import (
+	"math"
 	"slices"
 	"testing"
 	"time"
 
 	"github.com/marrasen/gunim"
+	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
 )
@@ -171,4 +173,29 @@ func TestTheViewsAnimateFromStateToState(t *testing.T) {
 	graph.Graph = false
 	publish(graph)
 	run(90)
+}
+
+func TestTheGraphShakesBackAndSaysWhy(t *testing.T) {
+	// A sum with no curve shakes the line being typed and says why, as
+	// show sets them going; the graph's Step runs both through.
+	g := newGraphBody(nil)
+	g.why.set("× needs a number before it")
+	g.shake.Jump(1)
+	g.shake.Animate(0, anim.Spring{Response: 0.35, Damping: 0.2})
+	for range 120 {
+		g.Step(time.Second / 60)
+	}
+	if v := g.shake.Value(); math.Abs(float64(v)) > 0.01 {
+		t.Fatalf("two seconds after a sum with no curve the line is shaken %v, want it back at rest", v)
+	}
+	if a := g.why.a.Value(); a < 0.99 {
+		t.Fatalf("two seconds after a sum with no curve why shows at %v, want it in full", a)
+	}
+	g.why.set("")
+	for range 120 {
+		g.Step(time.Second / 60)
+	}
+	if a := g.why.a.Value(); a > 0.01 {
+		t.Fatalf("two seconds after typing on why still shows at %v, want it gone", a)
+	}
 }
