@@ -183,6 +183,9 @@ func (b *builder) build(pkg, out, id, name string, abiNames []string) error {
 	if err != nil {
 		return err
 	}
+	if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
+		return err
+	}
 	return b.tool(filepath.Join(b.buildTools, "apksigner"), "sign", "--ks", ks, "--ks-pass", "pass:android",
 		"--key-pass", "pass:android", "--out", out, aligned)
 }
