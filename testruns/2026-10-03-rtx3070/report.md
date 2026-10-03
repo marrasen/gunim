@@ -129,6 +129,6 @@ The two checks from #22, on `fb1e7a1` (after `f3ed1f8`, `cc8206f` and `fb1e7a1`)
   - さくら, composed and cancelled with Escape, leaves the text as it was.
 - **Over a selection** ([rerun-2-over-selection.png](rerun-2-over-selection.png), top to bottom):
   - Double-click `word` to select it; やま, composed over it, shows in its place.
-  - **Escape** cancels it and leaves `word` there, still selected. In the first run, a cancel over a selection deleted the word.
+  - **Escape** cancels it and leaves `word` there, still selected.
   - Double-click `word` again, compose やま, convert to 山, and commit. `a b 🫠 山 x y` is left.
   - **One Ctrl+Z** brings `word` back, selected. In the first run that took two.
