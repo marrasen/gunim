@@ -347,6 +347,8 @@ type Window struct {
 	due      time.Time
 	// sent is when the frame in flight was handed to the driver, for GUNIM_DEBUG_POINTER to say when one is slow.
 	sent time.Time
+	// uiTimes sums how long frames take to build, for GUNIM_DEBUG_FRAMES.
+	uiTimes uiTimes
 
 	closeOnce sync.Once
 	// clock is the synthetic frame time used by [Window.Frame], so an
@@ -872,7 +874,9 @@ func (w *Window) wait() bool {
 // is one refresh. Carrying the time slept would push a fresh hover most
 // of the way through its animation before its first frame.
 func (w *Window) draw() {
+	t0 := time.Now()
 	w.applyPending()
+	applied := time.Since(t0)
 	interval := refreshInterval(w.dw.RefreshRate())
 	due := nextVsync(w.shown, interval, time.Now())
 	delta := interval
@@ -885,6 +889,9 @@ func (w *Window) draw() {
 	w.sent = time.Now()
 	if took := w.sent.Sub(start); took > slowFrame {
 		pointerf("a frame took %.0f ms to build", float64(took.Microseconds())/1000)
+	}
+	if uiFramesDebug {
+		w.uiTimes.add(w, applied, w.sent.Sub(start))
 	}
 	w.inFlight = true
 }
