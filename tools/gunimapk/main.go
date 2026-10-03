@@ -229,7 +229,7 @@ func (b *builder) goLib(pkg, abi string) (string, error) {
 	cc := filepath.Join(b.ndk, "toolchains", "llvm", "prebuilt", host, "bin", fmt.Sprintf("%s%d-clang", a.clang, minSDK))
 	lib := filepath.Join(b.tmp, "lib", abi, "libgunim.so")
 	cmd := exec.CommandContext(b.ctx, "go", "build", "-buildmode=c-shared", "-trimpath", "-ldflags=-s -w", "-o", lib, pkg)
-	cmd.Env = append(os.Environ(), "CGO_ENABLED=1", "GOOS=android", "GOARCH="+a.goarch, "CC="+cc)
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=1", "GOOS=android", "GOARCH="+a.goarch, "CC="+cc, "CXX="+cc+"++")
 	if a.goarch == "arm" {
 		cmd.Env = append(cmd.Env, "GOARM=7")
 	}
