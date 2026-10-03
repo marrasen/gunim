@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"log"
 	"math"
 	"os"
 	"runtime"
@@ -1010,6 +1011,7 @@ func (w *Window) render() {
 	defer vb.close()
 
 	var last time.Time
+	var ft frameTimes
 	// shownEdge is the edge the last frame presented left for the border
 	shownEdge := float32(-1)
 	for {
@@ -1030,6 +1032,7 @@ func (w *Window) render() {
 			if shot != nil {
 				readback = shotBack(readback, shot)
 			}
+			t0 := time.Now()
 			if w.pres != nil {
 				fbo, err := w.pres.begin(fbW, fbH)
 				if err != nil {
@@ -1048,13 +1051,18 @@ func (w *Window) render() {
 				r.gl.ReadPixels(pix, 0, 0, int32(fbW), int32(fbH), gl.RGBA, gl.UNSIGNED_BYTE)
 				readback(pix, fbW, fbH)
 			}
+			t1 := time.Now()
 			synced := vb.wait()
+			t2 := time.Now()
 			if w.pres != nil {
 				if err := w.pres.present(r.redrawn); err != nil {
 					w.fail(err)
 				}
 			} else if err := w.gw.SwapBuffers(); err != nil {
 				w.fail(fmt.Errorf("desktop: swap buffers: %w", err))
+			}
+			if framesDebug {
+				ft.add(w, t1.Sub(t0), t2.Sub(t1), time.Since(t2), rate, fbW, fbH)
 			}
 			w.uncover()
 			if r.edge != shownEdge {
@@ -1082,6 +1090,49 @@ func (w *Window) render() {
 			return
 		}
 	}
+}
+
+// framesDebug is set by GUNIM_DEBUG_FRAMES=1, which logs to standard
+// error, each second, how long each window took over its frames: to
+// draw one, to wait for the monitor's vertical blank, and to hand it
+// to the screen.
+var framesDebug = os.Getenv("GUNIM_DEBUG_FRAMES") == "1"
+
+// frameTimes sums a window's frame times for framesDebug.
+type frameTimes struct {
+	from                time.Time
+	n, late             int
+	draw, wait, present time.Duration
+	drawMax, presentMax time.Duration
+	waitMax             time.Duration
+}
+
+// add counts a frame that took draw, wait and present, and logs the
+// second's sums once one has passed. A frame is late where the three
+// together took longer than a refresh at rate.
+func (ft *frameTimes) add(w *Window, draw, wait, present time.Duration, rate float64, fbW, fbH int) {
+	now := time.Now()
+	if ft.from.IsZero() {
+		ft.from = now
+	}
+	ft.n++
+	ft.draw += draw
+	ft.wait += wait
+	ft.present += present
+	ft.drawMax = max(ft.drawMax, draw)
+	ft.waitMax = max(ft.waitMax, wait)
+	ft.presentMax = max(ft.presentMax, present)
+	if rate > 0 && draw+wait+present > time.Duration(float64(time.Second)/rate)*11/10 {
+		ft.late++
+	}
+	if now.Sub(ft.from) < time.Second {
+		return
+	}
+	ms := func(d time.Duration) float64 { return float64(d) / float64(time.Millisecond) }
+	n := time.Duration(ft.n)
+	log.Printf("gunim frames %p %dx%d at %.0f Hz: %d frames, %d late; draw %.1f ms (max %.1f), vblank wait %.1f (max %.1f), present %.1f (max %.1f)",
+		w, fbW, fbH, rate, ft.n, ft.late, ms(ft.draw/n), ms(ft.drawMax), ms(ft.wait/n), ms(ft.waitMax), ms(ft.present/n), ms(ft.presentMax))
+	*ft = frameTimes{from: now}
 }
 
 // pace returns the time a frame reached the screen, given when the
