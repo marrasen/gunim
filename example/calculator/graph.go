@@ -9,6 +9,7 @@ import (
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/widget"
@@ -93,6 +94,12 @@ type graphBody struct {
 	shake  *anim.Float
 	why    *notice
 	errors int
+	// full grows the plot over the whole graph, from 0 to 1, as the
+	// button in its corner asks, and fill is that button.
+	full *anim.Float
+	fill *widget.IconButton
+	// plot is where the plot was laid out, in the body's space.
+	plot geom.Rect
 }
 
 // notice is a line of text that fades and rises into its place as it is
@@ -144,8 +151,11 @@ type chip struct {
 const chipHeight = 40
 
 func newGraphBody(r *calcRoot) *graphBody {
-	g := &graphBody{r: r, canvas: newCanvas(), expr: newRoll(26), shake: anim.NewFloat(0), why: newNotice()}
-	g.Add(g.shake, g.why.a)
+	g := &graphBody{r: r, canvas: newCanvas(), expr: newRoll(26), shake: anim.NewFloat(0), why: newNotice(),
+		full: anim.NewFloat(0)}
+	g.Add(g.shake, g.why.a, g.full)
+	g.fill = widget.NewIconButton(icon.Maximize2, "Fill the window with the plot")
+	g.fill.OnActivate(func(u *gunim.UI) { g.setFull(g.full.Target() == 0, u) })
 	g.keys = newKeypad(8,
 		[]string{"x", "^", "(", ")", "⌫"},
 		[]string{"sin", "cos", "tan", "√", "C"},
@@ -240,7 +250,26 @@ func (g *graphBody) Step(dt time.Duration) bool {
 }
 
 // Children implements [gunim.Composite].
-func (g *graphBody) Children() []gunim.Node { return []gunim.Node{g.canvas, g.keys} }
+func (g *graphBody) Children() []gunim.Node { return []gunim.Node{g.canvas, g.keys, g.fill} }
+
+// fullMotion is the spring the plot grows and shrinks on.
+var fullMotion = anim.Spring{Response: 0.45, Damping: 0.82}
+
+// setFull grows the plot over the whole graph, or back to its place
+// beside the panel, which slides away and back as it does.
+func (g *graphBody) setFull(on bool, u *gunim.UI) {
+	to := float32(0)
+	g.fill.Icon, g.fill.Tooltip = icon.Maximize2, "Fill the window with the plot"
+	if on {
+		to = 1
+		g.fill.Icon, g.fill.Tooltip = icon.Minimize2, "Bring the curves and the keys back"
+	}
+	g.full.Animate(to, fullMotion)
+	u.Invalidate()
+}
+
+// isFull reports whether the plot fills the graph, or is on its way.
+func (g *graphBody) isFull() bool { return g.full.Target() == 1 }
 
 // Covers implements [gunim.Shaped]: the graph takes the pointer while
 // it is the one showing.
@@ -264,9 +293,22 @@ func (g *graphBody) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Childr
 		plot = geom.Rc(pad, pad, max(0, size.W-sideWidth-3*pad), max(0, size.H-2*pad))
 		g.side = geom.Rc(plot.Max.X+pad, pad, sideWidth, plot.Size().H)
 	}
+	// Full, the plot fills the graph, and the panel slides away the way
+	// it sits from the plot: down on a phone, right on a wider window.
+	t := g.full.Value()
+	plot = mixRect(plot, geom.Rc(pad, pad, max(0, size.W-2*pad), max(0, size.H-2*pad)), t)
+	if size.W < narrowWidth {
+		g.side = g.side.Add(geom.Pt(0, t*(size.H-g.side.Min.Y+pad)))
+	} else {
+		g.side = g.side.Add(geom.Pt(t*(size.W-g.side.Min.X+pad), 0))
+	}
+	g.plot = plot
 	canvas := kids.At(0)
 	canvas.Layout(gunim.Tight(plot.Size()))
 	canvas.Place(plot.Min)
+	fill := kids.At(2)
+	fs := fill.Layout(gunim.Loose(plot.Size()))
+	fill.Place(geom.Pt(plot.Max.X-fs.W-8, plot.Min.Y+8))
 	sideW := g.side.Size().W
 	keysH := float32(graphKeysH)
 	keys := kids.At(1)
@@ -281,6 +323,13 @@ func (g *graphBody) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids g
 	th := f.Theme
 	ink := widget.Ink.Get(th)
 	kids.At(0).Paint(p)
+	defer kids.At(2).Paint(p)
+	t := g.full.Value()
+	if t >= 0.999 {
+		return
+	}
+	// The panel fades as it slides away.
+	defer p.Layer(paint.LayerOpts{Bounds: geom.Rect{Max: box.Point()}, Opacity: 1 - t})()
 	s := g.side
 	p.RRect(s, 18, paint.Solid(widget.CardFill.Get(th)))
 	head := shaped("Curves", 13)

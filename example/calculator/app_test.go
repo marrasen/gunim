@@ -199,3 +199,47 @@ func TestTheGraphShakesBackAndSaysWhy(t *testing.T) {
 		t.Fatalf("two seconds after typing on why still shows at %v, want it gone", a)
 	}
 }
+
+func TestThePlotFillsTheGraphAndComesBack(t *testing.T) {
+	for _, size := range []geom.Size{geom.Sz(980, 660), geom.Sz(390, 800)} {
+		var root *calcRoot
+		w := gunim.NewOffscreen(size, nil)
+		gunim.RegisterView(w, "calc",
+			func(Calc) *calcRoot { root = newCalcRoot(); return root },
+			func(r *calcRoot, s Calc, u *gunim.UI) { r.show(s, u) })
+		if err := w.Client().Mount(gunim.Root, "calc", "calc", Calc{Graph: true}, calcTopic); err != nil {
+			t.Fatal(err)
+		}
+		run := func(n int) {
+			for range n {
+				w.Frame(time.Second / 60)
+			}
+		}
+		run(60)
+		g := root.graph
+		was, side := g.plot, g.side
+		// The button sits in the plot's top right corner.
+		at := geom.Pt(g.plot.Max.X-24, g.plot.Min.Y+24).Add(root.body.Min)
+		w.Input(input.PointerMove{Pos: at, Time: time.Now()})
+		w.Input(input.PointerDown{Pos: at, Button: input.ButtonPrimary, Clicks: 1, Time: time.Now()})
+		w.Input(input.PointerUp{Pos: at, Button: input.ButtonPrimary, Time: time.Now()})
+		run(5)
+		if g.plot == was || g.plot.Size().W*g.plot.Size().H <= was.Size().W*was.Size().H {
+			t.Fatalf("%v: five frames after the button the plot is %v, want it growing from %v", size, g.plot, was)
+		}
+		run(90)
+		body := root.body.Size()
+		if g.plot.Size().W < body.W-30 || g.plot.Size().H < body.H-30 {
+			t.Fatalf("%v: the plot is %v, want it filling the graph, %v", size, g.plot, body)
+		}
+		if g.side.Min.X < body.W && g.side.Min.Y < body.H {
+			t.Fatalf("%v: the panel is at %v, want it slid off the graph", size, g.side)
+		}
+		w.Input(input.KeyPress{Key: input.KeyEscape})
+		run(90)
+		if g.plot != was || g.side != side {
+			t.Fatalf("%v: after Escape the plot is %v and the panel %v, want them back at %v and %v",
+				size, g.plot, g.side, was, side)
+		}
+	}
+}
