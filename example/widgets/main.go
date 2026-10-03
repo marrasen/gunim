@@ -27,6 +27,9 @@ import (
 	"time"
 
 	"github.com/marrasen/gunim"
+	"github.com/marrasen/gunim/audio"
+	"github.com/marrasen/gunim/audio/cues"
+	"github.com/marrasen/gunim/audio/speaker"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/markdown"
@@ -77,13 +80,14 @@ func main() {
 	shot := flag.String("shot", "", "write the window to this PNG file after -after, and quit")
 	after := flag.Duration("after", 2*time.Second, "how long -shot waits")
 	zoom := flag.Float64("zoom", 1, "zoom the window, as Ctrl with + and - does")
+	sound := flag.Bool("sound", true, "play a sound as each widget is worked")
 	flag.Parse()
-	if err := run(*runFor, *shot, *after, float32(*zoom)); err != nil {
+	if err := run(*runFor, *shot, *after, float32(*zoom), *sound); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func run(runFor time.Duration, shot string, after time.Duration, zoom float32) error {
+func run(runFor time.Duration, shot string, after time.Duration, zoom float32, sound bool) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	if runFor > 0 {
@@ -92,6 +96,14 @@ func run(runFor time.Duration, shot string, after time.Duration, zoom float32) e
 		defer cancel()
 	}
 	return gunim.Main(ctx, func(a *gunim.App) error {
+		if sound {
+			mix := audio.NewMixer()
+			if _, err := speaker.Open(mix, speaker.Options{Name: "gunim widgets"}); err != nil {
+				log.Printf("widgets: no sound: %v", err)
+			} else {
+				a.SetCues(cues.New(mix))
+			}
+		}
 		w, err := a.NewWindow(gunim.WindowOptions{
 			Title: "gunim widgets",
 			Size:  geom.Sz(720, 720),

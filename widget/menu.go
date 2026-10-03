@@ -262,9 +262,19 @@ func (m *Menu) Handle(e input.Event, u *gunim.UI) bool {
 	return true
 }
 
+// dismissed returns shut for a popup's Dismiss, with [gunim.CueClose]
+// played first: the user sent the popup away without choosing in it.
+func dismissed(n gunim.Node, shut func(*gunim.UI)) func(*gunim.UI) {
+	return func(u *gunim.UI) {
+		u.Cue(gunim.CueClose, n)
+		shut(u)
+	}
+}
+
 // pick picks item i, counting it.
 func (m *Menu) pick(i int, u *gunim.UI) {
 	m.picks++
+	u.Cue(gunim.CuePress, m)
 	m.Pick(i, u)
 }
 
@@ -585,6 +595,7 @@ func (d *Dropdown) key(k input.KeyPress, u *gunim.UI) bool {
 	}
 	switch k.Key {
 	case input.KeyEscape:
+		u.Cue(gunim.CueClose, d)
 		d.close(u)
 		return true
 	case input.KeyTab:
@@ -613,10 +624,11 @@ func (d *Dropdown) open(u *gunim.UI) {
 		}
 	}
 	d.menu = m
+	u.Cue(gunim.CueOpen, d)
 	d.popup = u.OpenPopup(d, m, gunim.PopupOptions{
 		Anchor:  geom.Rect{Max: d.size.Point()},
 		Max:     geom.Sz(600, 480),
-		Dismiss: d.close,
+		Dismiss: dismissed(d, d.close),
 	})
 	d.turn.Animate(1, Quick.Get(u.Theme()))
 }
@@ -781,6 +793,7 @@ func (c *ContextMenu) Handle(e input.Event, u *gunim.UI) bool {
 		}
 		switch e.Key {
 		case input.KeyEscape, input.KeyTab:
+			u.Cue(gunim.CueClose, c)
 			c.close(u)
 		default:
 			c.menu.Key(e, u)
@@ -818,10 +831,11 @@ func (c *ContextMenu) show(at geom.Point, u *gunim.UI) {
 		}
 	}
 	c.menu = m
+	u.Cue(gunim.CueOpen, c)
 	c.popup = u.OpenPopup(c, m, gunim.PopupOptions{
 		Anchor:  geom.Rect{Min: at, Max: at},
 		Max:     geom.Sz(600, 480),
-		Dismiss: c.close,
+		Dismiss: dismissed(c, c.close),
 	})
 	if f := u.Focused(); f != c {
 		c.back = f

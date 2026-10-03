@@ -137,8 +137,11 @@ func (b *Menubar) Open(i int, u *gunim.UI) {
 		return
 	}
 	menuf("open %d, was %d, over %d, armed %v", i, b.open, b.over, b.armed)
-	if !b.IsOpen() && !b.armed {
-		b.back = u.Focused()
+	if !b.IsOpen() {
+		u.Cue(gunim.CueOpen, b)
+		if !b.armed {
+			b.back = u.Focused()
+		}
 	}
 	b.armed = false
 	if b.Compact {
@@ -162,7 +165,7 @@ func (b *Menubar) Open(i int, u *gunim.UI) {
 	b.popup = u.OpenPopup(b, menu, gunim.PopupOptions{
 		Anchor:  geom.Rect{Min: geom.Pt(span[0], 0), Max: geom.Pt(span[1], MenubarHeight.Get(u.Theme()))},
 		Max:     geom.Sz(600, 800),
-		Dismiss: b.Close,
+		Dismiss: dismissed(b, b.Close),
 	})
 	b.aim(i, u)
 	u.Focus(b)
@@ -655,6 +658,7 @@ func (b *Menubar) key(k input.KeyPress, u *gunim.UI) bool {
 	case input.KeyRight:
 		b.Open((b.open+1)%n, u)
 	case input.KeyEscape:
+		u.Cue(gunim.CueClose, b)
 		if b.byKeys {
 			b.backToBar(u)
 		} else {
@@ -686,6 +690,7 @@ func (b *Menubar) compactKey(k input.KeyPress, u *gunim.UI) bool {
 		return false
 	}
 	if k.Key == input.KeyEscape || k.Key == input.KeyF10 {
+		u.Cue(gunim.CueClose, b)
 		b.Close(u)
 		return true
 	}

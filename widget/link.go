@@ -143,6 +143,7 @@ func (l *Link) Handle(e input.Event, u *gunim.UI) bool {
 func (l *Link) Focusable() bool { return true }
 
 func (l *Link) fire(u *gunim.UI) {
+	u.Cue(gunim.CuePress, l)
 	if l.activate != nil {
 		l.activate(u)
 	}

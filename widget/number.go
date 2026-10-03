@@ -110,6 +110,9 @@ func (n *NumberField) step() float64 {
 
 // nudge moves the value by delta steps and rewrites the text.
 func (n *NumberField) nudge(delta float64, u *gunim.UI) {
+	if n.clamp(n.value+delta) != n.value {
+		u.Cue(gunim.CueTick, n)
+	}
 	n.commit(n.value+delta, u)
 }
 

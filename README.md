@@ -105,6 +105,49 @@ them. On Windows an item drags from a window lying behind another, which
 stays behind, as Explorer's do; a click there brings the window to the
 front. Ctrl+N opens another window on the same folder.
 
+`example/music` is a music player, for gunim's sound and animation
+together. The track playing is a picture disc that spins while it plays
+and runs down slowly as it pauses, ringed by bars that move with the
+music, pitch by pitch. Lights in the cover's colours drift behind
+everything and swell with the bass, and a new track's colours flow
+through the whole window. The seek bar is the track itself, drawn as its
+loudness along it.
+
+```sh
+go run ./example/music
+go run ./example/music -dir ~/Music
+```
+
+It always has four songs made in code, so it plays anywhere. `-dir`
+adds a folder's MP3, FLAC, Ogg Vorbis and WAV files, with their tags and
+covers. Space plays and pauses, the arrows seek and set the volume, and
+N and P skip.
+
+![The music player](example/music/music.png)
+
+### Sound
+
+Package `audio` plays sound: a `Mixer` sums the sounds playing into one
+stream at 48 kHz, and `audio/speaker` plays it through the computer's
+speakers, in pure Go on Linux, Windows and macOS. A voice's volume and
+pan move with `anim`'s springs and tweens, stepped in time with the
+sound. `Decode` reads WAV, MP3, Ogg Vorbis and FLAC, and an MP3 drops
+its encoder's silence, so an album plays without gaps. An `Analyzer`
+measures the sound as it is heard, for visuals that keep time with it.
+
+Widgets play cues as the user works them: a press, a switch turning on
+or off, a menu opening. They are silent until an application chooses
+the sounds; `audio/cues` has a quiet set made in code:
+
+```go
+mix := audio.NewMixer()
+if _, err := speaker.Open(mix, speaker.Options{Name: "My app"}); err == nil {
+	app.SetCues(cues.New(mix))
+}
+```
+
+`example/widgets` plays them; `-sound=false` turns them off.
+
 ### Android
 
 The same programs build for Android. `tools/gunimapk` turns one into an
@@ -373,6 +416,9 @@ writes them again from a newer Lucide.
 | --- | --- |
 | `gunim` | `Node`, the presence lifecycle, the window and its frame loop, and its zoom with Ctrl and +, - and 0 or the wheel |
 | `gunim/anim` | `Animated[T]`, springs, tweens, easings |
+| `gunim/audio` | A mixer, voices with animated volume and pan, clips, decoders for WAV, MP3, Ogg Vorbis and FLAC, and an analyzer for visuals |
+| `gunim/audio/speaker` | Plays a mixer through the speakers, with oto |
+| `gunim/audio/cues` | Quiet sounds made in code for the widgets' cues |
 | `gunim/paint` | The per-frame draw list: rounded rects, shadows, text, images, tinted masks, layers |
 | `gunim/icon` | Lucide's icons as strokes, drawn as tinted masks; `icon/byname` looks them up by name |
 | `gunim/geom` | float32 points, sizes, rectangles |

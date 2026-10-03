@@ -129,7 +129,7 @@ func (u *UI) handleRaw(root *state, ev any) {
 		}
 	case input.PointerDown:
 		u.altAlone = false
-		u.cue(false)
+		u.showRings(false)
 		// A side button presses nothing: it closes what a press closes, and goes back or forward as it is let go
 		if sideButton(e.Button) {
 			u.dismissFor(u.hit(root, e.Pos), u.onAnchorOf(root, e.Pos))
@@ -220,7 +220,7 @@ func (u *UI) handleRaw(root *state, ev any) {
 		})
 	case input.KeyPress, input.KeyRelease:
 		if k, ok := ev.(input.KeyPress); ok && k.Key == input.KeyTab {
-			u.cue(true)
+			u.showRings(true)
 		}
 		tapped := u.altTap(ev)
 		if u.drag != nil {
