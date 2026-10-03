@@ -40,7 +40,7 @@ func (k *keyboard) send(e input.TextEdit) {
 
 func TestAKeyboardFixesAWordBehindTheCaret(t *testing.T) {
 	ty := newTyper(t)
-	ty.typeText("teh cat ")
+	ty.typeText("hte cat ")
 	k := newKeyboard(ty)
 	k.send(input.TextEdit{Replace: [2]int{0, 3}, With: "the", Selection: [2]int{8, 8}, Composing: [2]int{8, 8}})
 	ty.want("the cat ", 8)
@@ -48,7 +48,7 @@ func TestAKeyboardFixesAWordBehindTheCaret(t *testing.T) {
 		t.Fatalf("caret at %d after the fix, want it left at the end, 8", ty.field.caret)
 	}
 	ty.key(input.KeyZ, input.ModControl)
-	ty.want("teh cat ", 8)
+	ty.want("hte cat ", 8)
 }
 
 func TestAKeyboardBackspaceDeletesWithAnEdit(t *testing.T) {
@@ -126,4 +126,54 @@ func TestALongTextShowsTheKeyboardAStretchAroundTheCaret(t *testing.T) {
 	if got := wr.area.Text(); got != text[:at]+"x"+text[at:] {
 		t.Fatalf("the edit landed elsewhere: %q", got[at-4:at+5])
 	}
+}
+
+func TestAnEmptyCompositionKeepsTheSelection(t *testing.T) {
+	ty := newTyper(t)
+	ty.typeText("hello")
+	ty.key(input.KeyA, input.ModControl)
+	ty.w.Input(input.Composing{})
+	ty.run(1)
+	ty.want("hello", 5)
+	if got := ty.field.TextState().Selection; got != [2]int{0, 5} {
+		t.Fatalf("selection %v after an empty composition, want it kept, [0 5]", got)
+	}
+}
+
+func TestACancelledCompositionLeavesTheSelectionItCovered(t *testing.T) {
+	ty := newTyper(t)
+	ty.typeText("hello")
+	ty.key(input.KeyA, input.ModControl)
+	ty.w.Input(input.Composing{Text: "k", Selected: [2]int{1, 1}})
+	ty.run(1)
+	ty.w.Input(input.Composing{})
+	ty.run(1)
+	ty.want("hello", 5)
+}
+
+func TestACompositionCommittedOverASelectionUndoesInOneStep(t *testing.T) {
+	ty := newTyper(t)
+	ty.typeText("hello")
+	ty.key(input.KeyA, input.ModControl)
+	ty.w.Input(input.Composing{Text: "nihon", Selected: [2]int{5, 5}})
+	ty.run(1)
+	// Windows ends the composition, then sends what it committed.
+	ty.w.Input(input.Composing{})
+	ty.w.Input(input.TextInput{Text: "日本"})
+	ty.run(1)
+	ty.want("日本", 2)
+	ty.key(input.KeyZ, input.ModControl)
+	ty.want("hello", 5)
+}
+
+func TestTypingARuneLikeTheNextUndoesAsOneStep(t *testing.T) {
+	ty := newTyper(t)
+	ty.typeText("ab")
+	ty.key(input.KeyLeft, 0)
+	for _, r := range "bbx" {
+		ty.typeText(string(r))
+	}
+	ty.want("abbxb", 4)
+	ty.key(input.KeyZ, input.ModControl)
+	ty.want("ab", 1)
 }

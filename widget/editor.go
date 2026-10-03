@@ -244,8 +244,17 @@ func (e *editor) TextState() input.TextState {
 func (e *editor) commit(s string, u *gunim.UI) { e.edit(e.TextState().Commit(s), u) }
 
 // compose takes the input method's latest composition, whose selection
-// arrives in bytes.
+// arrives in bytes. An empty one only ends the composition: the text
+// and its selection stay as they were, as a desktop input method sends
+// it when a composition is cancelled and just before one commits.
 func (e *editor) compose(c input.Composing, u *gunim.UI) {
+	if c.Text == "" {
+		if len(e.preedit) > 0 {
+			e.preedit, e.preSel = nil, [2]int{}
+			e.edited = true
+		}
+		return
+	}
 	e.edit(e.TextState().Compose(c.Text, c.Selected), u)
 }
 
@@ -300,6 +309,13 @@ func (e *editor) edit(t input.TextEdit, u *gunim.UI) {
 	}
 	q := 0
 	for q < len(e.text)-p && q < len(next)-p && e.text[len(e.text)-1-q] == next[len(next)-1-q] {
+		q++
+	}
+	// Where a run of the same rune makes two places fit, as typing "l"
+	// after "he" in "helo", the change goes where the edit put it, so a
+	// word typed mid-text undoes as one step.
+	for p > a && e.text[len(e.text)-q-1] == next[len(next)-q-1] {
+		p--
 		q++
 	}
 	added := next[p : len(next)-q]
