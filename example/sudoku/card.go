@@ -131,12 +131,13 @@ func (c *card) Handle(e input.Event, u *gunim.UI) bool {
 		c.pressing = false
 		c.press.Animate(0, anim.Spring{Response: 0.4, Damping: 0.35})
 		if c.button().Contains(e.Pos) {
-			next := c.root.state.Level
-			if c.win {
-				next++
-			}
 			c.root.sfx.tick(0)
-			u.Send(c.root, Start{Level: next})
+			if c.win {
+				// Back to the map, where the next level opens.
+				u.Send(c.root, ShowMap{})
+			} else {
+				u.Send(c.root, Start{Level: c.root.state.Level})
+			}
 		}
 	}
 	u.Invalidate()
@@ -164,7 +165,7 @@ func (c *card) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, _ gunim.Chi
 		Start: rgb(0xff, 0xf0, 0xfa), End: rgb(0xff, 0xc6, 0xe8),
 	}}, paint.Shadow{Blur: 40, Offset: geom.Pt(0, 16), Color: faded(rgb(0x20, 0, 0x40), 0.6)})
 	p.RRectStroke(pr, 28, paint.Solid(white), paint.Stroke{Width: 3})
-	title, label := "Sweet victory!", "Next level"
+	title, label := "Sweet victory!", "Continue"
 	if !c.win {
 		title, label = "Out of hearts", "Try again"
 	}

@@ -175,6 +175,43 @@ func (s *sfx) firework(pan float32) {
 	}, 0.7, pan)
 }
 
+// pop plays a soft pop, as a level is picked.
+func (s *sfx) pop(pan float32) { s.play("pop", popClip, 0.6, pan) }
+
+// unlock plays a lock bursting open: a crack and a bright run.
+func (s *sfx) unlock() {
+	s.play("unlock", func() *audio.Clip {
+		return render(1.3, func(t float64) float64 {
+			crack := noise(int64(t*hz)) * math.Exp(-t/0.02)
+			v := 0.0
+			for i, f := range []float64{783.99, 1046.5, 1318.51, 1567.98, 2093} {
+				v += bell(t-0.06-0.06*float64(i), f)
+			}
+			return 0.15*crack + 0.1*v
+		})
+	}, 0.8, 0)
+}
+
+// hop plays a boing as the heart hops along the path.
+func (s *sfx) hop() {
+	s.play("hop", func() *audio.Clip {
+		return render(0.6, func(t float64) float64 {
+			// A spring's twang: a pitch that rises, with a wobble.
+			ph := 2*math.Pi*(220*t+380*t*min(t/0.25, 1)/2) + 0.4*math.Sin(2*math.Pi*14*t)
+			return 0.25 * math.Sin(ph) * math.Exp(-t/0.25) * min(t/0.01, 1)
+		})
+	}, 0.7, 0)
+}
+
+// locked plays a dull knock, for a level not open yet.
+func (s *sfx) locked() {
+	s.play("locked", func() *audio.Clip {
+		return render(0.25, func(t float64) float64 {
+			return 0.3 * math.Sin(2*math.Pi*150*t) * math.Exp(-t/0.05)
+		})
+	}, 0.7, 0)
+}
+
 // tick plays a soft tick as a cell is picked.
 func (s *sfx) tick(pan float32) {
 	s.play("tick", func() *audio.Clip {

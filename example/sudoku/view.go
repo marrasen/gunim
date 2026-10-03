@@ -16,13 +16,6 @@ import (
 	"github.com/marrasen/gunim/widget"
 )
 
-// registerViews is the window half: the game's view.
-func registerViews(w *gunim.Window, s *sfx) {
-	gunim.RegisterView(w, "game",
-		func(Game) *gameRoot { return newGameRoot(s) },
-		func(r *gameRoot, s Game, u *gunim.UI) { r.show(s, u) })
-}
-
 // Colours the game keeps.
 var (
 	white = rgb(0xff, 0xff, 0xff)
@@ -35,6 +28,8 @@ var (
 // card that ends a game.
 type gameRoot struct {
 	anim.Group
+	// world is the world the game is played in, or nil alone.
+	world *worldRoot
 	state Game
 	// seen is the newest event played.
 	seen int
@@ -257,8 +252,9 @@ func (r *gameRoot) Children() []gunim.Node {
 	return []gunim.Node{r.sky, r.header, r.board, r.tray, r.tools, r.card, r.fxNode}
 }
 
-// Focusable implements [gunim.Focusable]: the game's keys come here.
-func (r *gameRoot) Focusable() bool { return true }
+// Covers implements [gunim.Shaped]: the game takes the pointer while it
+// shows, and lets the map have it while that does.
+func (r *gameRoot) Covers(geom.Point) bool { return r.world == nil || !r.world.state.Map }
 
 // Layout implements [gunim.Node]: a column on a phone; on a wide
 // window, the board on the left and the tray as a pad on the right.
@@ -451,11 +447,43 @@ type header struct {
 	count int
 	left  float32
 	meter *anim.Float
+	// press squashes the map's button as it is pressed.
+	press    *anim.Float
+	pressing bool
+}
+
+// mapButton is where the button back to the map lies.
+func mapButton() geom.Rect { return geom.Rc(0, 10, 44, 44) }
+
+// Handle implements [gunim.Handler]: the map's button.
+func (h *header) Handle(e input.Event, u *gunim.UI) bool {
+	switch e := e.(type) {
+	case input.PointerDown:
+		if e.Button != input.ButtonPrimary || !mapButton().Contains(e.Pos) {
+			return false
+		}
+		h.pressing = true
+		h.press.Animate(1, anim.Spring{Response: 0.1, Damping: 1})
+	case input.PointerUp:
+		if !h.pressing {
+			return false
+		}
+		h.pressing = false
+		h.press.Animate(0, anim.Spring{Response: 0.4, Damping: 0.35})
+		if mapButton().Contains(e.Pos) {
+			h.root.sfx.tick(-0.5)
+			u.Send(h.root, ShowMap{})
+		}
+	default:
+		return false
+	}
+	u.Invalidate()
+	return true
 }
 
 func newHeader(r *gameRoot) *header {
-	h := &header{root: r, score: anim.NewFloat(0), lives: startLives, meter: anim.NewFloat(0)}
-	h.Add(h.score, h.meter)
+	h := &header{root: r, score: anim.NewFloat(0), lives: startLives, meter: anim.NewFloat(0), press: anim.NewFloat(0)}
+	h.Add(h.score, h.meter, h.press)
 	for i := range h.broken {
 		h.broken[i] = anim.NewFloat(0)
 		h.Add(h.broken[i])
@@ -514,12 +542,19 @@ func (h *header) breakHeart() {
 func (h *header) Layout(c gunim.Constraints, _ gunim.Frame, _ gunim.Children) geom.Size { return c.Max }
 
 // Paint implements [gunim.Node].
-func (h *header) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, _ gunim.Children) {
+func (h *header) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
 	s := h.root.state
-	title := shaped(fmt.Sprintf("Level %d", s.Level), 24, true)
-	paintLabel(p, title, geom.Pt(4, 8), white)
+	mb := mapButton()
+	func() {
+		mid := geom.Pt(mb.Min.X+mb.Size().W/2, mb.Min.Y+mb.Size().H/2)
+		defer p.Push(paint.Scale(1-0.12*h.press.Value(), mid))()
+		p.ShadowRRect(mb, 22, paint.Solid(faded(white, 0.22)), paint.Shadow{Blur: 6, Offset: geom.Pt(0, 2), Color: faded(plum, 0.3)})
+		widget.PaintIcon(p, f.Theme, icon.Map, geom.Rc(mid.X-11, mid.Y-11, 22, 22), white)
+	}()
+	title := shaped(fmt.Sprintf("Level %d", s.Level), 22, true)
+	paintLabel(p, title, geom.Pt(54, 8), white)
 	chip := shaped(s.Difficulty.String(), 12, true)
-	cr := geom.Rc(6, 40, chip.Advance+16, 20)
+	cr := geom.Rc(56, 38, chip.Advance+16, 20)
 	p.RRect(cr, 10, paint.Solid(faded(white, 0.22)))
 	chip.Paint(p, geom.Pt(cr.Min.X+8, cr.Min.Y+3), white)
 

@@ -125,6 +125,26 @@ N and P skip.
 
 ![The music player](example/music/music.png)
 
+`example/sudoku` is a sudoku of candies, made for a phone and laid out
+for a desktop too, to see how far the animation goes. Each digit is a
+candy of its own colour and shape. Candies drop in and wobble like
+jelly; a wrong one shakes, crumbles and breaks a heart as the board
+shakes; a finished row sweeps with light; quick candies build a combo
+that calls out "Sweet!" with stars; a won board bounces under fireworks.
+Each digit is a note, so filling the board plays tunes over a marimba
+loop. A map winds through 60 levels, from Easy to Expert, and a heart
+hops along it as each level opens.
+
+```sh
+go run ./example/sudoku
+```
+
+Tap a cell, then a candy; or a candy, then each cell it goes in. On a
+desktop the arrows move, digits place, and Shift with a digit pencils a
+note. Progress is kept between runs.
+
+![The candy sudoku and its map](example/sudoku/sudoku.png)
+
 ### Sound
 
 Package `audio` plays sound: a `Mixer` sums the sounds playing into one

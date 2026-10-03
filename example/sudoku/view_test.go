@@ -9,6 +9,9 @@ import (
 	"github.com/marrasen/gunim/input"
 )
 
+// gameTopic is what a test's game view watches.
+const gameTopic = "game"
+
 // stage mounts the game view in an offscreen window of size showing g,
 // and returns the window, its root, and a way to step frames.
 func stage(t *testing.T, size geom.Size, g Game) (*gunim.Window, *gameRoot, func(int)) {
@@ -158,7 +161,7 @@ func TestWinningShowsTheCardWithItsStars(t *testing.T) {
 	b := root.card.button()
 	tapAt(w, run, geom.Pt(b.Min.X+b.Size().W/2, b.Min.Y+b.Size().H/2))
 	got := intents(w)
-	if len(got) != 1 || got[0] != (Start{Level: 2}) {
-		t.Fatalf("the card's button sent %v, want Start 2", got)
+	if len(got) != 1 || got[0] != (ShowMap{}) {
+		t.Fatalf("the card's button sent %v, want the map", got)
 	}
 }

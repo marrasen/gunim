@@ -31,7 +31,9 @@ import (
 )
 
 func main() {
-	level := flag.Int("level", 1, "the level to start on")
+	level := flag.Int("level", 0, "a level to play at once, rather than open on the map")
+	reset := flag.Bool("reset", false, "forget the levels won, and start over")
+	saveIn := flag.String("progress", configDir(), "the folder the levels won are kept in")
 	runFor := flag.Duration("for", 0, "quit after this long; zero runs until the window closes")
 	shot := flag.String("shot", "", "write the window to this PNG file after -after, and quit")
 	after := flag.Duration("after", 2*time.Second, "how long -shot waits")
@@ -42,12 +44,17 @@ func main() {
 	if _, err := fmt.Sscanf(*size, "%gx%g", &w, &h); err != nil || w <= 0 || h <= 0 {
 		log.Fatalf("sudoku: -size %q: want a width and a height, as 460x860", *size)
 	}
-	if err := run(*level, *runFor, *shot, *after, geom.Sz(w, h), *mute); err != nil {
+	if *reset {
+		if err := forget(*saveIn); err != nil {
+			log.Fatal(err)
+		}
+	}
+	if err := run(*level, *saveIn, *runFor, *shot, *after, geom.Sz(w, h), *mute); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func run(level int, runFor time.Duration, shot string, after time.Duration, size geom.Size, mute bool) error {
+func run(level int, saveIn string, runFor time.Duration, shot string, after time.Duration, size geom.Size, mute bool) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	if runFor > 0 {
@@ -84,7 +91,7 @@ func run(level int, runFor time.Duration, shot string, after time.Duration, size
 				c.Close()
 			}()
 		}
-		return serve(ctx, c, level)
+		return serve(ctx, c, level, saveIn)
 	})
 	if errors.Is(err, driver.ErrNoDriver) {
 		log.Print("gunim has no driver for this operating system yet")
