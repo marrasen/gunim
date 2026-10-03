@@ -158,7 +158,13 @@ func (a *TextArea) Handle(e input.Event, u *gunim.UI) bool {
 		a.anchor = a.caret
 		a.preedit = nil
 		a.closeCompletion()
+		a.closeMenu()
 	case input.PointerDown:
+		if e.Button == input.ButtonSecondary {
+			a.closeCompletion()
+			a.contextPress(a, a.indexAt(e.Pos, u), e.Pos, e.Touch, u)
+			break
+		}
 		a.press(a.indexAt(e.Pos, u), e.Clicks, e.Mods.Has(input.ModShift))
 		a.held = true
 		a.complete(u)

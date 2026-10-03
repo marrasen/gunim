@@ -13,6 +13,7 @@ void gunim_clear_text_state(void);
 uint16_t *gunim_get_clipboard(int *n);
 void gunim_set_clipboard(const uint16_t *s, int n);
 void gunim_finish(void);
+void gunim_buzz(void);
 
 // EGL, from the render thread. Each returns 0, or the EGL error.
 int gunim_egl_init(void);

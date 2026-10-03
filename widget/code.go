@@ -375,7 +375,12 @@ func (c *CodeEditor) Handle(e input.Event, u *gunim.UI) bool {
 		c.blink.halt()
 		c.anchor = c.caret
 		c.preedit = nil
+		c.closeMenu()
 	case input.PointerDown:
+		if e.Button == input.ButtonSecondary {
+			c.contextPress(c, c.indexAt(e.Pos), e.Pos, e.Touch, u)
+			break
+		}
 		c.press(c.indexAt(e.Pos), e.Clicks, e.Mods.Has(input.ModShift))
 		c.held = true
 	case input.PointerMove:

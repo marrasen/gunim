@@ -9,6 +9,7 @@ import (
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
+	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
 )
 
@@ -64,6 +65,10 @@ type editor struct {
 
 	// changed is called after every edit.
 	changed func(u *gunim.UI)
+	// menu is the edit menu's popup while it is open, and menuItems the
+	// menu in it.
+	menu      *gunim.Popup
+	menuItems *Menu
 	// edited is set by typing, deleting and composing, and cleared by
 	// the widget's next layout. The caret jumps after an edit, so it
 	// keeps up with the text; it glides when it only moves.
@@ -359,6 +364,76 @@ func runeOfByte(rs []rune, b int) int {
 	return -1
 }
 
+// The edit menu's items, in order.
+const (
+	editCut = iota
+	editCopy
+	editPaste
+	editSelectAll
+)
+
+// contextPress takes a press of the secondary button at rune i, at in
+// owner's space, and opens the edit menu there. A finger held still
+// selects the word under it, as a phone's text field does; a right
+// click outside the selection puts the caret there, and one inside it
+// keeps it, for the menu to act on.
+func (e *editor) contextPress(owner gunim.Node, i int, at geom.Point, touch bool, u *gunim.UI) {
+	start, end := e.Selection()
+	switch {
+	case touch:
+		e.press(i, 2, false)
+	case start == end || i < start || i > end:
+		e.set(i, false)
+	}
+	e.openMenu(owner, at, u)
+}
+
+// openMenu opens the edit menu at at, in owner's space: Cut, Copy,
+// Paste and Select all, with only Copy and Select all for text that
+// stays as it is. Cut and Copy are dimmed with nothing selected, or for
+// a secret.
+func (e *editor) openMenu(owner gunim.Node, at geom.Point, u *gunim.UI) {
+	e.closeMenu()
+	start, end := e.Selection()
+	none := start == end || e.secret
+	items := []string{"Cut", "Copy", "Paste", "Select all"}
+	disabled := []bool{none || e.readOnly, none, e.readOnly, false}
+	m := NewMenu(items...)
+	m.Disabled = disabled
+	m.Pick = func(i int, u *gunim.UI) {
+		e.closeMenu()
+		start, end := e.Selection()
+		switch i {
+		case editCut:
+			e.clipboard(input.KeyX, start, end, u)
+		case editCopy:
+			e.clipboard(input.KeyC, start, end, u)
+		case editPaste:
+			e.clipboard(input.KeyV, start, end, u)
+		case editSelectAll:
+			e.clipboard(input.KeyA, start, end, u)
+			// With everything selected, the menu stays for what to do
+			// with it.
+			e.openMenu(owner, at, u)
+		}
+		u.Invalidate()
+	}
+	e.menuItems = m
+	e.menu = u.OpenPopup(owner, m, gunim.PopupOptions{
+		Anchor:  geom.Rect{Min: at, Max: at},
+		Max:     geom.Sz(600, 480),
+		Dismiss: func(*gunim.UI) { e.closeMenu() },
+	})
+}
+
+// closeMenu closes the edit menu, if it is open.
+func (e *editor) closeMenu() {
+	if e.menu != nil {
+		e.menu.Close()
+		e.menu, e.menuItems = nil, nil
+	}
+}
+
 // press places the caret for a click at rune i: selecting a word on a
 // double click and everything on a triple, and extending with Shift.
 func (e *editor) press(i, clicks int, shift bool) {
@@ -377,9 +452,32 @@ func clickRange(rs []rune, i, clicks int) (anchor, caret int) {
 	case clicks >= 3:
 		return 0, len(rs)
 	case clicks == 2:
-		return wordStart(rs, i), wordEnd(rs, i)
+		return wordAt(rs, i)
 	}
 	return i, i
+}
+
+// wordAt returns the word at rune i: the one i is in, or the one it ends,
+// for a click just after a word. On a space, with no word ending there,
+// it returns i alone, so a double click or a long press on the space
+// after a text's last word selects nothing past it.
+func wordAt(rs []rune, i int) (start, end int) {
+	i = max(0, min(i, len(rs)))
+	j := i
+	if j == len(rs) || unicode.IsSpace(rs[j]) {
+		if j == 0 || unicode.IsSpace(rs[j-1]) {
+			return i, i
+		}
+		j--
+	}
+	start, end = j, j
+	for start > 0 && !unicode.IsSpace(rs[start-1]) {
+		start--
+	}
+	for end < len(rs) && !unicode.IsSpace(rs[end]) {
+		end++
+	}
+	return start, end
 }
 
 // key handles a key press. It reports false for a key the widget or its

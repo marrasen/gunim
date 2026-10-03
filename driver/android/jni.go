@@ -151,3 +151,6 @@ func setClipboard(s string) {
 }
 
 func finish() { C.gunim_finish() }
+
+// buzz gives the short buzz a long press gives.
+func buzz() { C.gunim_buzz() }

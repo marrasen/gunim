@@ -210,16 +210,30 @@ func (d *Driver) screen() geom.Rect {
 	return geom.Rect{Max: geom.Pt(float32(d.surfW)/d.density, float32(d.surfH)/d.density)}
 }
 
+// visibleLocked returns the part of the screen that shows, in logical
+// pixels of the windows' own space: the screen less what the keyboard
+// covers, moved down by the slide the windows are aimed at. It runs with
+// mu held.
+func (d *Driver) visibleLocked() geom.Rect {
+	s := d.screen()
+	top := float32(d.panTarget) / d.density
+	return geom.Rect{
+		Min: geom.Pt(s.Min.X, s.Min.Y+top),
+		Max: geom.Pt(s.Max.X, s.Max.Y+top-float32(d.keyboard)/d.density),
+	}
+}
+
 // placeLocked puts popup w by anchor, in its parent's logical space:
 // below it from its left edge, or above it where there is more room
-// there, slid sideways onto the screen. It runs with mu held.
+// there, slid sideways onto the screen, within the part of it that
+// shows above the keyboard. It runs with mu held.
 func (d *Driver) placeLocked(w *Window, anchor geom.Rect) {
 	a := anchor.Add(w.parent.pos)
 	if w.over {
 		w.pos = a.Min
 		return
 	}
-	s := d.screen()
+	s := d.visibleLocked()
 	below, above := s.Max.Y-a.Max.Y, a.Min.Y-s.Min.Y
 	y := a.Max.Y
 	if w.above && above >= w.size.H || w.size.H > below && above > below {

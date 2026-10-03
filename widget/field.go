@@ -190,7 +190,12 @@ func (t *TextField) Handle(e input.Event, u *gunim.UI) bool {
 		t.blink.halt()
 		t.anchor = t.caret
 		t.preedit = nil // the driver ends the composition too
+		t.closeMenu()
 	case input.PointerDown:
+		if e.Button == input.ButtonSecondary {
+			t.contextPress(t, t.indexAt(e.Pos, u), e.Pos, e.Touch, u)
+			break
+		}
 		// The X clears on a primary click let go over it, so a press
 		// dragged off it clears nothing.
 		if t.overClear(e.Pos) {

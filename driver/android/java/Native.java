@@ -90,6 +90,14 @@ public final class Native {
 		cm.setPrimaryClip(ClipData.newPlainText("text", s));
 	}
 
+	static void buzz() {
+		ui.post(() -> {
+			if (view != null) {
+				view.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
+			}
+		});
+	}
+
 	static void finish() {
 		ui.post(() -> {
 			if (activity != null) {

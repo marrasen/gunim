@@ -142,7 +142,7 @@ func (u *UI) handleOn(root *state, ev any) {
 		focusing := u.focus != was
 		// Whoever takes the press keeps the pointer until the release.
 		u.capture = u.dispatchAt(root, e.Pos, func(local geom.Point) input.Event {
-			return input.PointerDown{Pos: local, Button: e.Button, Mods: e.Mods, Clicks: e.Clicks, Focusing: focusing, Behind: e.Behind, Time: e.Time}
+			return input.PointerDown{Pos: local, Button: e.Button, Mods: e.Mods, Clicks: e.Clicks, Focusing: focusing, Behind: e.Behind, Touch: e.Touch, Time: e.Time}
 		})
 		u.shapePointer(root, e.Pos)
 	case input.PointerUp:

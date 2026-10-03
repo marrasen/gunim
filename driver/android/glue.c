@@ -12,7 +12,7 @@
 
 static JavaVM *vm;
 static jclass nativeClass;
-static jmethodID midShowKeyboard, midCaret, midTextState, midClearTextState, midGetClipboard, midSetClipboard, midFinish;
+static jmethodID midShowKeyboard, midCaret, midBuzz, midTextState, midClearTextState, midGetClipboard, midSetClipboard, midFinish;
 
 // JNI_OnLoad runs on the thread that loads the library, which has the
 // application's class loader, so it looks up the class Go calls back.
@@ -29,6 +29,7 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *v, void *reserved) {
 	nativeClass = (*env)->NewGlobalRef(env, c);
 	midShowKeyboard = (*env)->GetStaticMethodID(env, c, "showKeyboard", "(Z)V");
 	midCaret = (*env)->GetStaticMethodID(env, c, "caret", "(IIII)V");
+	midBuzz = (*env)->GetStaticMethodID(env, c, "buzz", "()V");
 	midTextState = (*env)->GetStaticMethodID(env, c, "textState", "([CIIIIIZZJ)V");
 	midClearTextState = (*env)->GetStaticMethodID(env, c, "clearTextState", "()V");
 	midGetClipboard = (*env)->GetStaticMethodID(env, c, "getClipboard", "()Ljava/lang/String;");
@@ -110,6 +111,13 @@ void gunim_set_clipboard(const uint16_t *s, int n) {
 	jstring js = (*env)->NewString(env, (const jchar *)s, n);
 	(*env)->CallStaticVoidMethod(env, nativeClass, midSetClipboard, js);
 	(*env)->DeleteLocalRef(env, js);
+	envPut(a);
+}
+
+void gunim_buzz(void) {
+	int a;
+	JNIEnv *env = envGet(&a);
+	(*env)->CallStaticVoidMethod(env, nativeClass, midBuzz);
 	envPut(a);
 }
 

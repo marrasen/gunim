@@ -10,12 +10,14 @@ import (
 	"github.com/marrasen/gunim/input"
 )
 
-// Touch slop and fling, in logical pixels and seconds. A finger that
-// moves further than touchSlop from where it went down is scrolling. A
-// fling slows by e every flingDecay seconds, and stops below
-// flingStop pixels a second.
+// Touch slop, long press and fling, in logical pixels and seconds. A
+// finger that moves further than touchSlop from where it went down is
+// scrolling, and one held within it for longPress is a long press. A
+// fling slows by e every flingDecay seconds, and stops below flingStop
+// pixels a second.
 const (
 	touchSlop  = 8
+	longPress  = 400 * time.Millisecond
 	flingDecay = 0.33
 	flingStop  = 20
 	flingTick  = 8 * time.Millisecond
@@ -32,6 +34,11 @@ type gesture struct {
 	scrolling   bool
 	vel         geom.Point
 	stop        chan struct{}
+	// held says the finger was held still long enough for a long
+	// press; n counts touches, so a long press waits for the touch it
+	// began with.
+	held bool
+	n    int
 }
 
 // touch turns the first finger into the pointer. A tap presses and lets
@@ -57,7 +64,9 @@ func (d *Driver) touch(action int, x, y float32, now time.Time) {
 		w = d.hitLocked(at)
 		d.touched = w
 		d.keyed = false
-		*g = gesture{start: at, last: at, lastAt: now}
+		*g = gesture{start: at, last: at, lastAt: now, n: g.n + 1}
+		n := g.n
+		time.AfterFunc(longPress, func() { d.longPress(n) })
 		if now.Sub(d.lastAt) < doubleTapTime && abs(at.X-d.lastTap.X) < doubleTapSpace && abs(at.Y-d.lastTap.Y) < doubleTapSpace {
 			d.clicks++
 		} else {
@@ -74,6 +83,14 @@ func (d *Driver) touch(action int, x, y float32, now time.Time) {
 		origin = w.pos
 	}
 	pos := at.Sub(origin)
+	if g.held && action != touchDown {
+		// After a long press the finger only lifts.
+		d.mu.Unlock()
+		if w != nil && (action == touchUp || action == touchCancel) {
+			w.in.Push(input.PointerLeave{Time: now})
+		}
+		return
+	}
 	startScroll := action == touchMove && !g.scrolling && math.Hypot(float64(at.X-g.start.X), float64(at.Y-g.start.Y)) > touchSlop
 	if startScroll {
 		// The scroll starts from here, with no jump for the slop.
@@ -106,7 +123,7 @@ func (d *Driver) touch(action int, x, y float32, now time.Time) {
 	switch {
 	case action == touchDown:
 		w.in.Push(input.PointerMove{Pos: pos, Time: now})
-		w.in.Push(input.PointerDown{Pos: pos, Button: input.ButtonPrimary, Clicks: clicks, Time: now})
+		w.in.Push(input.PointerDown{Pos: pos, Button: input.ButtonPrimary, Clicks: clicks, Touch: true, Time: now})
 	case startScroll:
 		w.in.Push(input.PointerUp{Pos: away, Button: input.ButtonPrimary, Time: now})
 		w.in.Push(input.PointerLeave{Time: now})
@@ -124,6 +141,28 @@ func (d *Driver) touch(action int, x, y float32, now time.Time) {
 	if fling != nil {
 		go flingOn(w, from, vel, fling)
 	}
+}
+
+// longPress turns touch n into a long press, if the finger is still
+// down where it went down: the press is let go away from it, and the
+// secondary button is pressed there, as a right click does, which opens
+// a context menu, and the phone buzzes.
+func (d *Driver) longPress(n int) {
+	d.mu.Lock()
+	g := &d.gesture
+	w := d.touched
+	if g.n != n || w == nil || g.scrolling || g.held {
+		d.mu.Unlock()
+		return
+	}
+	g.held = true
+	pos := g.start.Sub(w.pos)
+	d.mu.Unlock()
+	now := time.Now()
+	w.in.Push(input.PointerUp{Pos: away, Button: input.ButtonPrimary, Time: now})
+	w.in.Push(input.PointerDown{Pos: pos, Button: input.ButtonSecondary, Clicks: 1, Touch: true, Time: now})
+	w.in.Push(input.PointerUp{Pos: pos, Button: input.ButtonSecondary, Time: now})
+	buzz()
 }
 
 // away is a point far outside any window: a press let go there lets go

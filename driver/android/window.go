@@ -160,11 +160,12 @@ func (w *Window) Place(anchor geom.Rect, size geom.Size) error {
 }
 
 // PopupRoom implements [driver.PopupRoomer]: the room from anchor, in
-// w's logical space, to the screen's edges.
+// w's logical space, to the edges of the part of the screen that shows
+// above the keyboard.
 func (w *Window) PopupRoom(anchor geom.Rect) driver.Room {
 	w.d.mu.Lock()
 	defer w.d.mu.Unlock()
-	s := w.d.screen()
+	s := w.d.visibleLocked()
 	a := anchor.Add(w.rectLocked().Min)
 	return driver.Room{
 		Below: s.Max.Y - a.Max.Y,

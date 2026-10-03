@@ -60,7 +60,11 @@ type PointerDown struct {
 	// from the press runs with the window left behind, and otherwise the
 	// window comes to the front as the button comes up.
 	Behind bool
-	Time   time.Time
+	// Touch says a finger pressed. A finger held still is a press of
+	// the secondary button, as a right click is, which opens a context
+	// menu, and a text field selects the word under it.
+	Touch bool
+	Time  time.Time
 }
 
 // PointerUp arrives when a button comes back up.
