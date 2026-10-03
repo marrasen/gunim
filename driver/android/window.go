@@ -5,6 +5,7 @@ package android
 import (
 	"errors"
 	"image/color"
+	"math"
 	"sync"
 
 	"github.com/marrasen/gunim/driver"
@@ -226,6 +227,7 @@ func (w *Window) SetTextInput(active bool) {
 		w.d.typing = w
 	} else if w.d.typing == w {
 		w.d.typing = nil
+		w.d.caretSet = false
 	} else {
 		w.d.mu.Unlock()
 		return
@@ -234,6 +236,21 @@ func (w *Window) SetTextInput(active bool) {
 	if !active {
 		showKeyboard(false)
 	}
+}
+
+// SetTextCaret implements [driver.CaretPlacer]. The driver keeps the
+// caret above the soft keyboard: it slides the windows up just far
+// enough to show it, following the keyboard as it opens and the caret
+// as it moves. Before Android 11, which reports no keyboard as it
+// slides, Android pans the window to the caret itself.
+func (w *Window) SetTextCaret(r geom.Rect) {
+	w.d.mu.Lock()
+	at, f := w.rectLocked().Min, w.d.density
+	w.d.caret, w.d.caretSet = r.Add(at), true
+	w.d.mu.Unlock()
+	w.d.kick()
+	px := func(v float32) int { return int(math.Round(float64(v * f))) }
+	sendCaret(px(r.Min.X+at.X), px(r.Min.Y+at.Y), px(r.Max.X+at.X), px(r.Max.Y+at.Y))
 }
 
 // ShowKeyboard implements [driver.KeyboardShower].
@@ -261,4 +278,5 @@ var (
 	_ driver.TextInputter   = (*Window)(nil)
 	_ driver.TextStater     = (*Window)(nil)
 	_ driver.KeyboardShower = (*Window)(nil)
+	_ driver.CaretPlacer    = (*Window)(nil)
 )

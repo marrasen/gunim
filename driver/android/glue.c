@@ -12,7 +12,7 @@
 
 static JavaVM *vm;
 static jclass nativeClass;
-static jmethodID midShowKeyboard, midTextState, midClearTextState, midGetClipboard, midSetClipboard, midFinish;
+static jmethodID midShowKeyboard, midCaret, midTextState, midClearTextState, midGetClipboard, midSetClipboard, midFinish;
 
 // JNI_OnLoad runs on the thread that loads the library, which has the
 // application's class loader, so it looks up the class Go calls back.
@@ -28,6 +28,7 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *v, void *reserved) {
 	}
 	nativeClass = (*env)->NewGlobalRef(env, c);
 	midShowKeyboard = (*env)->GetStaticMethodID(env, c, "showKeyboard", "(Z)V");
+	midCaret = (*env)->GetStaticMethodID(env, c, "caret", "(IIII)V");
 	midTextState = (*env)->GetStaticMethodID(env, c, "textState", "([CIIIIIZZJ)V");
 	midClearTextState = (*env)->GetStaticMethodID(env, c, "clearTextState", "()V");
 	midGetClipboard = (*env)->GetStaticMethodID(env, c, "getClipboard", "()Ljava/lang/String;");
@@ -58,6 +59,13 @@ void gunim_show_keyboard(int show) {
 	int a;
 	JNIEnv *env = envGet(&a);
 	(*env)->CallStaticVoidMethod(env, nativeClass, midShowKeyboard, (jboolean)(show != 0));
+	envPut(a);
+}
+
+void gunim_caret(int x0, int y0, int x1, int y1) {
+	int a;
+	JNIEnv *env = envGet(&a);
+	(*env)->CallStaticVoidMethod(env, nativeClass, midCaret, x0, y0, x1, y1);
 	envPut(a);
 }
 
@@ -137,6 +145,10 @@ JNIEXPORT void JNICALL Java_gunim_android_Native_touch(JNIEnv *env, jclass c, ji
 
 JNIEXPORT void JNICALL Java_gunim_android_Native_key(JNIEnv *env, jclass c, jboolean down, jint code, jint meta, jint ch, jint repeat) {
 	goKey(down, code, meta, ch, repeat);
+}
+
+JNIEXPORT void JNICALL Java_gunim_android_Native_keyboard(JNIEnv *env, jclass c, jint px) {
+	goKeyboard(px);
 }
 
 JNIEXPORT void JNICALL Java_gunim_android_Native_focus(JNIEnv *env, jclass c, jboolean focused) {

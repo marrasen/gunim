@@ -25,6 +25,7 @@ public final class Native {
 	static native void touch(int action, float x, float y, long time);
 	static native void key(boolean down, int code, int meta, int ch, int repeat);
 	static native void focus(boolean focused);
+	static native void keyboard(int px);
 	static native void edit(String with, int replaceStart, int replaceEnd, int selAnchor, int selCaret,
 		int compStart, int compEnd, long seq);
 	static native void text(String s);
@@ -36,6 +37,14 @@ public final class Native {
 		ui.post(() -> {
 			if (view != null) {
 				view.showKeyboard(show);
+			}
+		});
+	}
+
+	static void caret(int x0, int y0, int x1, int y1) {
+		ui.post(() -> {
+			if (view != null) {
+				view.setCaret(x0, y0, x1, y1);
 			}
 		});
 	}

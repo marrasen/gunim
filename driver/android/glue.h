@@ -6,6 +6,7 @@
 
 // Calls into Java, from any thread.
 void gunim_show_keyboard(int show);
+void gunim_caret(int x0, int y0, int x1, int y1);
 void gunim_text_state(const uint16_t *text, int n, int start, int selA, int selB, int compA, int compB,
 	int multiline, int secret, long long seq);
 void gunim_clear_text_state(void);

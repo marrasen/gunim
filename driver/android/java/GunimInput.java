@@ -53,7 +53,7 @@ final class GunimInput {
 	// gunimime: adb shell setprop log.tag.gunimime DEBUG turns it on.
 	private static final String tag = "gunimime";
 
-	private static void debug(String msg) {
+	static void debug(String msg) {
 		if (Log.isLoggable(tag, Log.DEBUG)) {
 			Log.d(tag, msg);
 		}

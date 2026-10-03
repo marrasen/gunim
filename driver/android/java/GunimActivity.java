@@ -28,8 +28,33 @@ public class GunimActivity extends Activity {
 		GunimView v = new GunimView(this);
 		Native.view = v;
 		setContentView(v);
+		if (android.os.Build.VERSION.SDK_INT >= 30) {
+			// The view keeps its size as the keyboard opens; the driver
+			// slides the drawing up instead, following the keyboard.
+			getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
+				| android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
+			v.watchKeyboard(getWindow().getDecorView());
+		}
 		v.requestFocus();
 		Native.start();
+		showBuild();
+	}
+
+	/**
+	 * showBuild says which build runs, in a debug build: gunimapk names
+	 * each for its commit and the time it was built.
+	 */
+	private void showBuild() {
+		if ((getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) == 0) {
+			return;
+		}
+		try {
+			String version = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+			android.widget.Toast.makeText(this, getApplicationInfo().loadLabel(getPackageManager()) + " " + version,
+				android.widget.Toast.LENGTH_LONG).show();
+		} catch (android.content.pm.PackageManager.NameNotFoundException e) {
+			// The build has no name to show.
+		}
 	}
 
 	@Override

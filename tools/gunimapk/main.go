@@ -5,7 +5,8 @@
 // It builds the program as libgunim.so for each ABI asked for, with cgo
 // and the NDK's clang, compiles the Java half of the Android driver,
 // links a manifest that starts gunim's activity, and signs the APK with
-// the debug key. -install installs it on the device adb sees, and -run
+// the debug key. The APK is a debug build, named for its commit and the
+// time it was built, which it shows as it starts. -install installs it on the device adb sees, and -run
 // starts it there too.
 //
 // It finds the Android SDK at $ANDROID_HOME, $ANDROID_SDK_ROOT or
@@ -29,6 +30,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/marrasen/gunim/driver/android/java"
 )
@@ -168,7 +170,8 @@ func (b *builder) build(pkg, out, id, name string, abiNames []string) error {
 	linked := filepath.Join(b.tmp, "linked.apk")
 	if err := b.tool(filepath.Join(b.buildTools, "aapt2"), "link", "-o", linked, "-I", b.androidJar,
 		"--manifest", manifest, "--min-sdk-version", strconv.Itoa(minSDK),
-		"--target-sdk-version", strconv.Itoa(targetSDK), "--version-code", "1", "--version-name", "1.0"); err != nil {
+		"--target-sdk-version", strconv.Itoa(targetSDK), "--version-code", strconv.FormatInt(time.Now().Unix()/60, 10),
+		"--version-name", versionOf(pkg), "--debug-mode"); err != nil {
 		return err
 	}
 	unaligned := filepath.Join(b.tmp, "unaligned.apk")
@@ -257,6 +260,23 @@ func (b *builder) dex() (string, error) {
 	return filepath.Join(dexDir, "classes.dex"), nil
 }
 
+// versionOf names a build: the commit of the package's repository,
+// with -dirty for edits since, and the time it was built, as
+// "fd8f5fa-dirty 2026-10-03 11:30". A debug build shows it as it
+// starts, so a phone says which build it runs.
+func versionOf(pkg string) string {
+	at := time.Now().Format("2006-01-02 15:04")
+	dir, err := exec.Command("go", "list", "-f", "{{.Dir}}", pkg).Output()
+	if err != nil {
+		return at
+	}
+	commit, err := exec.Command("git", "-C", strings.TrimSpace(string(dir)), "describe", "--always", "--dirty").Output()
+	if err != nil {
+		return at
+	}
+	return strings.TrimSpace(string(commit)) + " " + at
+}
+
 // debugKey returns the debug keystore, which it makes as Android
 // Studio would where there is none.
 func (b *builder) debugKey() (string, error) {
@@ -336,14 +356,15 @@ func pack(out, linked, dex string, libs []string, root string) error {
 
 // manifestFor returns the manifest of an APK that starts gunim's
 // activity. The activity keeps itself across rotation and a keyboard
-// coming and going, and the soft keyboard shrinks it.
+// coming and going, and slides up as the soft keyboard opens, to keep the
+// text caret above it.
 func manifestFor(id, name string) string {
 	return `<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="` + id + `">
 	<application android:label="` + xmlEscape(name) + `" android:hasCode="true" android:extractNativeLibs="true">
 		<activity android:name="gunim.android.GunimActivity" android:exported="true"
 			android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density"
-			android:windowSoftInputMode="adjustResize|stateAlwaysHidden"
+			android:windowSoftInputMode="adjustPan|stateAlwaysHidden"
 			android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
 			<intent-filter>
 				<action android:name="android.intent.action.MAIN"/>

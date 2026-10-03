@@ -45,6 +45,9 @@ func goKey(down C.uchar, code, meta, ch, repeat C.int) {
 	theDriver.key(down != 0, int(code), int(meta), rune(ch), repeat > 0)
 }
 
+//export goKeyboard
+func goKeyboard(px C.int) { theDriver.keyboardCovers(int(px)) }
+
 //export goFocus
 func goFocus(focused C.uchar) { theDriver.windowFocus(focused != 0) }
 
@@ -86,6 +89,12 @@ func showKeyboard(show bool) {
 		v = 1
 	}
 	C.gunim_show_keyboard(C.int(v))
+}
+
+// sendCaret tells Java where the text caret is on the surface, in
+// device pixels.
+func sendCaret(x0, y0, x1, y1 int) {
+	C.gunim_caret(C.int(x0), C.int(y0), C.int(x1), C.int(y1))
 }
 
 // sendTextState hands Java the focused text: the text in UTF-16, and

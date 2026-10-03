@@ -34,6 +34,7 @@ package android
 import (
 	"context"
 	"errors"
+	"math"
 	"sync"
 	"time"
 	_ "unsafe" // for go:linkname
@@ -97,7 +98,18 @@ type Driver struct {
 	// typing is the window the keyboard types into: the one that turned
 	// text input on last.
 	typing *Window
-	quit   chan struct{}
+	// keyboard is how much of the surface the soft keyboard covers, in
+	// device pixels from the bottom, as Java reports it frame by frame
+	// while the keyboard slides. caret is the typing window's text
+	// caret in logical pixels of the screen, when caretSet. pan is how
+	// far the windows are drawn slid up to keep the caret above the
+	// keyboard, in device pixels, easing toward its target from panAt.
+	keyboard int
+	caret    geom.Rect
+	caretSet bool
+	pan      float64
+	panAt    time.Time
+	quit     chan struct{}
 
 	// wake nudges the render thread, and surfaces carries surface
 	// changes to it.
@@ -261,6 +273,43 @@ type surfaceChange struct {
 	gone   chan struct{}
 }
 
+// keyboardCovers takes how much of the surface the soft keyboard
+// covers, in device pixels from the bottom.
+func (d *Driver) keyboardCovers(px int) {
+	d.mu.Lock()
+	d.keyboard = max(0, px)
+	d.mu.Unlock()
+	d.kick()
+}
+
+// panLocked eases the pan toward its target and returns it in whole
+// device pixels, with whether it is still on its way. The target slides
+// the windows up just far enough to show the caret, and a line below it,
+// above the keyboard. It runs with mu held, on the render thread.
+func (d *Driver) panLocked(now time.Time) (pan int, moving bool) {
+	target := 0.0
+	if d.keyboard > 0 && d.caretSet && d.typing != nil {
+		line := d.caret.Max.Y - d.caret.Min.Y
+		bottom := float64((d.caret.Max.Y + line + panMargin) * d.density)
+		target = max(0, min(bottom-float64(d.surfH-d.keyboard), float64(d.keyboard)))
+	}
+	dt := min(now.Sub(d.panAt).Seconds(), 0.1)
+	d.panAt = now
+	d.pan += (target - d.pan) * (1 - math.Exp(-dt/panEase))
+	if math.Abs(target-d.pan) < 0.5 {
+		d.pan = target
+	}
+	return int(math.Round(d.pan)), d.pan != target
+}
+
+// panMargin is the room left under the caret's line, in logical pixels,
+// and panEase the time the pan takes to cover most of the way to its
+// target, in seconds.
+const (
+	panMargin = 16
+	panEase   = 0.05
+)
+
 // windowFocus tells the windows that fill the screen that the activity
 // has the keyboard, or has lost it.
 func (d *Driver) windowFocus(focused bool) {
@@ -297,7 +346,9 @@ const (
 // lifts, since a finger has no hover. x and y are in device pixels.
 func (d *Driver) touch(action int, x, y float32, now time.Time) {
 	d.mu.Lock()
-	at := geom.Pt(x/d.density, y/d.density)
+	// The windows are drawn slid up by the pan, so the point touched
+	// is that much further down them.
+	at := geom.Pt(x/d.density, (y+float32(math.Round(d.pan)))/d.density)
 	w := d.touched
 	if action == touchDown {
 		w = d.hitLocked(at)

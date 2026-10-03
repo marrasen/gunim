@@ -141,6 +141,7 @@ func (d *Driver) frame(g gl.Context, shared *render.Shared, c *compositor) {
 	var jobs []job
 	var stack []layer
 	scale, surfW, surfH := d.density, d.surfW, d.surfH
+	pan, panning := d.panLocked(time.Now())
 	for _, w := range d.windows {
 		r := w.rectLocked()
 		fbW, fbH := int(math.Round(float64(r.Size().W*scale))), int(math.Round(float64(r.Size().H*scale)))
@@ -149,7 +150,8 @@ func (d *Driver) frame(g gl.Context, shared *render.Shared, c *compositor) {
 			w.next = nil
 		}
 		if !w.hidden {
-			stack = append(stack, layer{w: w, x: int(math.Round(float64(r.Min.X * scale))), y: int(math.Round(float64(r.Min.Y * scale))), fbW: fbW, fbH: fbH})
+			x, y := int(math.Round(float64(r.Min.X*scale))), int(math.Round(float64(r.Min.Y*scale)))-pan
+			stack = append(stack, layer{w: w, x: x, y: y, fbW: fbW, fbH: fbH})
 		}
 	}
 	d.mu.Unlock()
@@ -190,6 +192,9 @@ func (d *Driver) frame(g gl.Context, shared *render.Shared, c *compositor) {
 	}
 	if e := C.gunim_egl_swap(); e != 0 {
 		log.Printf("gunim: android: swap: error %#x", int(e))
+	}
+	if panning {
+		d.kick() // the next frame slides on
 	}
 	now := time.Now()
 	for _, j := range jobs {

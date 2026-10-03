@@ -5,6 +5,7 @@ import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
+import android.view.View;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
 import android.view.inputmethod.InputMethodManager;
@@ -17,6 +18,8 @@ import android.view.inputmethod.InputMethodManager;
 final class GunimView extends SurfaceView implements SurfaceHolder.Callback {
 	final GunimInput input;
 	private final InputMethodManager imm;
+	// caret is the text caret on the surface, in pixels, empty for none.
+	private final android.graphics.Rect caret = new android.graphics.Rect();
 	// pointer is the id of the finger that drives the pointer, or -1.
 	private int pointer = -1;
 
@@ -102,6 +105,68 @@ final class GunimView extends SurfaceView implements SurfaceHolder.Callback {
 	public void onWindowFocusChanged(boolean focused) {
 		super.onWindowFocusChanged(focused);
 		Native.focus(focused);
+	}
+
+	/**
+	 * watchKeyboard tells Go how much of the view the soft keyboard
+	 * covers, on each frame as it slides in and out, so the driver can
+	 * slide the windows with it. The activity leaves the view its full
+	 * size meanwhile.
+	 *
+	 * The window's decor view hears the insets: it keeps the view clear
+	 * of the system bars and passes nothing on, so the watch sits there
+	 * and lets the decor go on as before.
+	 */
+	@android.annotation.TargetApi(30)
+	void watchKeyboard(View decor) {
+		decor.setOnApplyWindowInsetsListener((v, insets) -> {
+			reportKeyboard(insets);
+			return v.onApplyWindowInsets(insets);
+		});
+		decor.setWindowInsetsAnimationCallback(new android.view.WindowInsetsAnimation.Callback(
+			android.view.WindowInsetsAnimation.Callback.DISPATCH_MODE_CONTINUE_ON_SUBTREE) {
+			@Override
+			public android.view.WindowInsets onProgress(android.view.WindowInsets insets,
+				java.util.List<android.view.WindowInsetsAnimation> running) {
+				reportKeyboard(insets);
+				return insets;
+			}
+		});
+	}
+
+	// covered is the keyboard's height over the view last reported.
+	private int covered = -1;
+
+	@android.annotation.TargetApi(30)
+	private void reportKeyboard(android.view.WindowInsets insets) {
+		int ime = insets.getInsets(android.view.WindowInsets.Type.ime()).bottom;
+		int nav = insets.getInsets(android.view.WindowInsets.Type.navigationBars()).bottom;
+		int px = Math.max(0, ime - nav);
+		GunimInput.debug("insets ime=" + ime + " nav=" + nav + " visible=" + insets.isVisible(android.view.WindowInsets.Type.ime()));
+		if (px != covered) {
+			covered = px;
+			Native.keyboard(px);
+		}
+	}
+
+	/**
+	 * setCaret keeps where the text caret is. In the activity's pan mode,
+	 * Android slides the window up, as the keyboard opens, far enough to
+	 * show the focused view's focused rectangle above it; for a gunim
+	 * window that is the caret, with a line's room below it.
+	 */
+	void setCaret(int x0, int y0, int x1, int y1) {
+		caret.set(x0, y0, x1, y1 + (y1 - y0));
+		invalidate();
+	}
+
+	@Override
+	public void getFocusedRect(android.graphics.Rect r) {
+		if (caret.isEmpty() || !input.hasState()) {
+			super.getFocusedRect(r);
+			return;
+		}
+		r.set(caret);
 	}
 
 	@Override
