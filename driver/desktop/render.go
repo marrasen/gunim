@@ -64,6 +64,9 @@ type renderer struct {
 	stats  renderStats
 	gl     gl.Context
 	shared *shared
+	isES   bool
+	// cellsState draws grids of character cells; see cells.go.
+	cellsState cellsState
 
 	vao, vbo, ibo uint32
 	drawProg      program
@@ -367,7 +370,7 @@ void main() {
 `
 
 func newRenderer(g gl.Context, isES bool, sh *shared) (*renderer, error) {
-	r := &renderer{gl: g, shared: sh, images: map[*paint.Image]*imageTexture{}}
+	r := &renderer{gl: g, shared: sh, isES: isES, images: map[*paint.Image]*imageTexture{}}
 	var err error
 	if r.drawProg, r.blurProg, r.dual, err = sh.programs(g, isES); err != nil {
 		return nil, err
@@ -516,6 +519,7 @@ func (r *renderer) release() {
 	if r.colorGlyphs.tex != 0 {
 		g.DeleteTexture(r.colorGlyphs.tex)
 	}
+	r.releaseCells()
 	g.DeleteBuffer(r.vbo)
 	g.DeleteBuffer(r.ibo)
 	g.DeleteVertexArray(r.vao)
@@ -712,6 +716,8 @@ func (r *renderer) replay(ops []paint.Op) {
 			r.image(op)
 		case *paint.MaskOp:
 			r.mask(op)
+		case *paint.CellsOp:
+			r.cells(op)
 		}
 	}
 	// A layer left open by a node that forgot to close it still shows.
@@ -738,8 +744,9 @@ func (r *renderer) bindDraw() {
 	g.BindTexture(gl.TEXTURE_2D, r.glyphs.tex)
 }
 
-// flush draws the batch.
+// flush draws the batch, and the rows of cells queued before it.
 func (r *renderer) flush() {
+	r.flushCells()
 	n := len(r.verts) / (4 * vertFloats)
 	if n == 0 {
 		return

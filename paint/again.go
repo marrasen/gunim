@@ -45,7 +45,7 @@ func (p *Painter) Again(run Run) bool {
 	}
 	for _, op := range p.prev[run.from:run.to] {
 		switch op.(type) {
-		case *RRectOp, *TextOp, *ImageOp, *MaskOp:
+		case *RRectOp, *TextOp, *ImageOp, *MaskOp, *CellsOp:
 		default:
 			return false
 		}
@@ -63,6 +63,9 @@ func (p *Painter) Again(run Run) bool {
 			c := *op
 			p.ops = append(p.ops, &c)
 		case *MaskOp:
+			c := *op
+			p.ops = append(p.ops, &c)
+		case *CellsOp:
 			c := *op
 			p.ops = append(p.ops, &c)
 		}

@@ -222,6 +222,9 @@ func sameOp(a, b Op) bool {
 	case *LayerEndOp:
 		_, ok := b.(*LayerEndOp)
 		return ok
+	case *CellsOp:
+		b, ok := b.(*CellsOp)
+		return ok && sameCells(a, b)
 	}
 	return false
 }
