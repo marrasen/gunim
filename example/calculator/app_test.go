@@ -1,11 +1,13 @@
 package main
 
 import (
+	"math"
 	"slices"
 	"testing"
 	"time"
 
 	"github.com/marrasen/gunim"
+	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
 )
@@ -171,4 +173,80 @@ func TestTheViewsAnimateFromStateToState(t *testing.T) {
 	graph.Graph = false
 	publish(graph)
 	run(90)
+}
+
+func TestTheGraphShakesBackAndSaysWhy(t *testing.T) {
+	// A sum with no curve shakes the line being typed and says why, as
+	// show sets them going; the graph's Step runs both through.
+	g := newGraphBody(nil)
+	g.why.set("× needs a number before it")
+	g.shake.Jump(1)
+	g.shake.Animate(0, anim.Spring{Response: 0.35, Damping: 0.2})
+	moving := true
+	for range 120 {
+		moving = g.Step(time.Second / 60)
+	}
+	if moving {
+		t.Fatal("two seconds after a sum with no curve the graph still says it moves, want it at rest")
+	}
+	if v := g.shake.Value(); math.Abs(float64(v)) > 0.01 {
+		t.Fatalf("two seconds after a sum with no curve the line is shaken %v, want it back at rest", v)
+	}
+	if a := g.why.a.Value(); a < 0.99 {
+		t.Fatalf("two seconds after a sum with no curve why shows at %v, want it in full", a)
+	}
+	g.why.set("")
+	for range 120 {
+		moving = g.Step(time.Second / 60)
+	}
+	if moving {
+		t.Fatal("two seconds after typing on the graph still says it moves, want it at rest")
+	}
+	if a := g.why.a.Value(); a > 0.01 {
+		t.Fatalf("two seconds after typing on why still shows at %v, want it gone", a)
+	}
+}
+
+func TestThePlotFillsTheGraphAndComesBack(t *testing.T) {
+	for _, size := range []geom.Size{geom.Sz(980, 660), geom.Sz(390, 800)} {
+		var root *calcRoot
+		w := gunim.NewOffscreen(size, nil)
+		gunim.RegisterView(w, "calc",
+			func(Calc) *calcRoot { root = newCalcRoot(); return root },
+			func(r *calcRoot, s Calc, u *gunim.UI) { r.show(s, u) })
+		if err := w.Client().Mount(gunim.Root, "calc", "calc", Calc{Graph: true}, calcTopic); err != nil {
+			t.Fatal(err)
+		}
+		run := func(n int) {
+			for range n {
+				w.Frame(time.Second / 60)
+			}
+		}
+		run(60)
+		g := root.graph
+		was, side := g.plot, g.side
+		// The button sits in the plot's top right corner.
+		at := geom.Pt(g.plot.Max.X-24, g.plot.Min.Y+24).Add(root.body.Min)
+		w.Input(input.PointerMove{Pos: at, Time: time.Now()})
+		w.Input(input.PointerDown{Pos: at, Button: input.ButtonPrimary, Clicks: 1, Time: time.Now()})
+		w.Input(input.PointerUp{Pos: at, Button: input.ButtonPrimary, Time: time.Now()})
+		run(5)
+		if g.plot == was || g.plot.Size().W*g.plot.Size().H <= was.Size().W*was.Size().H {
+			t.Fatalf("%v: five frames after the button the plot is %v, want it growing from %v", size, g.plot, was)
+		}
+		run(90)
+		body := root.body.Size()
+		if g.plot.Size().W < body.W-30 || g.plot.Size().H < body.H-30 {
+			t.Fatalf("%v: the plot is %v, want it filling the graph, %v", size, g.plot, body)
+		}
+		if g.side.Min.X < body.W && g.side.Min.Y < body.H {
+			t.Fatalf("%v: the panel is at %v, want it slid off the graph", size, g.side)
+		}
+		w.Input(input.KeyPress{Key: input.KeyEscape})
+		run(90)
+		if g.plot != was || g.side != side {
+			t.Fatalf("%v: after Escape the plot is %v and the panel %v, want them back at %v and %v",
+				size, g.plot, g.side, was, side)
+		}
+	}
 }

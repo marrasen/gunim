@@ -194,7 +194,15 @@ func (r *calcRoot) Handle(e input.Event, u *gunim.UI) bool {
 			key = "="
 		case input.KeyBackspace:
 			key = "⌫"
-		case input.KeyEscape, input.KeyDelete:
+		case input.KeyEscape:
+			// Escape, as a phone's back gesture sends it, first brings a
+			// plot that fills the graph back to its place.
+			if r.state.Graph && r.graph.isFull() {
+				r.graph.setFull(false, u)
+				return true
+			}
+			key = "C"
+		case input.KeyDelete:
 			key = "C"
 		case input.KeyTab:
 			u.Send(r, ShowGraph{On: !r.state.Graph})

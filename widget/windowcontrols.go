@@ -277,6 +277,9 @@ func (c *WindowControls) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _
 // a double click maximizes it.
 type WindowTitle struct {
 	label *Label
+	// shown says the window is chromeless, so the title is the
+	// window's to show.
+	shown bool
 }
 
 // NewWindowTitle returns a title showing text.
@@ -300,8 +303,10 @@ func (t *WindowTitle) Children() []gunim.Node { return []gunim.Node{t.label} }
 func (t *WindowTitle) Layout(cs gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
 	own := cs.Max
 	k := kids.At(0)
-	if !f.Chromeless() {
-		// The system's title bar says it.
+	t.shown = f.Chromeless()
+	if !t.shown {
+		// The system's title bar says it, or on a phone the system's
+		// own bar names the application.
 		k.Layout(gunim.Tight(geom.Size{}))
 		return cs.Constrain(geom.Sz(own.W, 0))
 	}
@@ -312,7 +317,9 @@ func (t *WindowTitle) Layout(cs gunim.Constraints, f gunim.Frame, kids gunim.Chi
 
 // Paint implements [gunim.Node].
 func (t *WindowTitle) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim.Children) {
-	kids.At(0).Paint(p)
+	if t.shown {
+		kids.At(0).Paint(p)
+	}
 }
 
 // CaptionRects implements [gunim.Caption]: all of it.

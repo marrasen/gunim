@@ -63,3 +63,23 @@ func TestNumbersShowAsACalculatorShowsThem(t *testing.T) {
 		}
 	}
 }
+
+func TestAFunctionRightAfterALetterIsTimesIt(t *testing.T) {
+	// The keypad types sin straight after x, with no space between.
+	for _, c := range []struct {
+		src  string
+		want float64
+	}{
+		{"xsin(x)", 2 * math.Sin(2)},
+		{"5xsin(x)÷x", 5 * math.Sin(2)},
+		{"xcos(x)ln(x)", 2 * math.Cos(2) * math.Log(2)},
+	} {
+		f, err := parse(c.src)
+		if err != nil {
+			t.Fatalf("%s: %v", c.src, err)
+		}
+		if got := f(2); math.Abs(got-c.want) > 1e-12 {
+			t.Fatalf("%s at 2 = %v, want %v", c.src, got, c.want)
+		}
+	}
+}

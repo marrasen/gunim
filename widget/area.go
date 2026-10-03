@@ -124,6 +124,21 @@ func (a *TextArea) TextCaret() geom.Rect {
 	return geom.Rc(at.X, at.Y, 1.5, h)
 }
 
+// caretRect returns where a caret before rune i would stand, in the
+// area's space.
+func (a *TextArea) caretRect(i int) geom.Rect {
+	_, at := a.para.Caret(i)
+	at = at.Add(a.origin(FieldPadding.Default()))
+	h := a.para.LineHeight
+	if len(a.para.Lines) > 0 {
+		h = a.para.Lines[0].Run.Height()
+	}
+	return geom.Rc(at.X, at.Y, 1.5, h)
+}
+
+// hostIndex returns the rune a press at p in the area's space is before.
+func (a *TextArea) hostIndex(p geom.Point, u *gunim.UI) int { return a.indexAt(p, u) }
+
 // Text returns the area's text.
 func (a *TextArea) Text() string { return string(a.text) }
 
@@ -158,17 +173,33 @@ func (a *TextArea) Handle(e input.Event, u *gunim.UI) bool {
 		a.anchor = a.caret
 		a.preedit = nil
 		a.closeCompletion()
+		a.closeMenu()
+		a.wording = false
+		a.closeHandles()
 	case input.PointerDown:
+		if e.Button == input.ButtonSecondary {
+			a.closeCompletion()
+			a.contextPress(a, a.indexAt(e.Pos, u), e.Pos, e.Touch, u)
+			break
+		}
+		a.closeHandles()
 		a.press(a.indexAt(e.Pos, u), e.Clicks, e.Mods.Has(input.ModShift))
 		a.held = true
 		a.complete(u)
 	case input.PointerMove:
+		if a.wording {
+			a.dragWords(a.indexAt(e.Pos, u))
+			break
+		}
 		if !a.held {
 			return false
 		}
 		a.set(a.indexAt(e.Pos, u), true)
 	case input.PointerUp:
 		a.held = false
+		if a.endWords(a, e.Pos, u) {
+			break
+		}
 		a.complete(u)
 	case input.Scroll:
 		to := max(0, min(a.scroll.Target()-e.Delta.Y, a.para.Size.H-a.view))
@@ -177,12 +208,18 @@ func (a *TextArea) Handle(e input.Event, u *gunim.UI) bool {
 		}
 		a.scroll.Animate(to, Quick.Get(u.Theme()))
 	case input.TextInput:
-		a.preedit = nil
-		a.insert(e.Text, u)
+		a.commit(e.Text, u)
 		a.complete(u)
 	case input.Composing:
 		a.closeCompletion()
 		a.compose(e)
+	case input.TextEdit:
+		a.edit(e, u)
+		if len(a.preedit) > 0 {
+			a.closeCompletion()
+		} else {
+			a.complete(u)
+		}
 	case input.KeyPress:
 		if a.completionKey(e, u) {
 			return true
@@ -357,6 +394,7 @@ func (a *TextArea) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) 
 	a.aim(a.scroll, max(0, min(scroll, a.para.Size.H-a.view)), motion)
 	a.edited = false
 	a.followTrigger()
+	a.placeHandles(a)
 	return own
 }
 

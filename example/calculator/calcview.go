@@ -162,6 +162,11 @@ type calcBody struct {
 // tapeRowHeight is a sum's height on the tape.
 const tapeRowHeight = 58
 
+// narrowWidth is the width below which the calculator stacks the
+// display, the keypad and the tape, as on a phone, where it sets the
+// tape beside the other two on a wider window.
+const narrowWidth = 640
+
 func newCalcBody(r *calcRoot) *calcBody {
 	b := &calcBody{r: r, shake: anim.NewFloat(0), expr: newRoll(40)}
 	b.keypad = newKeypad(10,
@@ -262,10 +267,20 @@ func (b *calcBody) Covers(geom.Point) bool { return b.r.mode.Target() == 0 }
 func (b *calcBody) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
 	size := c.Max
 	const pad, gap = 18, 16
-	lw := min(430, size.W*0.55)
-	b.display = geom.Rc(pad, pad, lw, 160)
-	b.pad = geom.Rc(pad, b.display.Max.Y+gap, lw, max(0, size.H-b.display.Max.Y-gap-pad))
-	b.tape = geom.Rc(b.display.Max.X+gap, pad, max(0, size.W-b.display.Max.X-gap-pad), max(0, size.H-2*pad))
+	if size.W < narrowWidth {
+		// A phone: the display across the top, the keypad under it,
+		// and the tape a strip along the bottom.
+		lw := size.W - 2*pad
+		tapeH := min(max(size.H*0.2, 110), 220)
+		b.display = geom.Rc(pad, pad, lw, 150)
+		b.tape = geom.Rc(pad, size.H-pad-tapeH, lw, tapeH)
+		b.pad = geom.Rc(pad, b.display.Max.Y+gap, lw, max(0, b.tape.Min.Y-gap-b.display.Max.Y-gap))
+	} else {
+		lw := min(430, size.W*0.55)
+		b.display = geom.Rc(pad, pad, lw, 160)
+		b.pad = geom.Rc(pad, b.display.Max.Y+gap, lw, max(0, size.H-b.display.Max.Y-gap-pad))
+		b.tape = geom.Rc(b.display.Max.X+gap, pad, max(0, size.W-b.display.Max.X-gap-pad), max(0, size.H-2*pad))
+	}
 	k := kids.At(0)
 	k.Layout(gunim.Tight(b.pad.Size()))
 	k.Place(b.pad.Min)

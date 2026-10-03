@@ -25,6 +25,15 @@ func (u *UI) handlePlatform(ev any) { u.handleOn(u.root, ev) }
 // press in a popup leaves focus where it is, so the node that opened a
 // menu keeps the keyboard while the menu is clicked.
 func (u *UI) handleOn(root *state, ev any) {
+	if u.touchEvent(root, ev) {
+		return
+	}
+	u.handleRaw(root, ev)
+}
+
+// handleRaw is handleOn past the reading of a finger's moves in
+// touch.go, which sends what it makes of them here.
+func (u *UI) handleRaw(root *state, ev any) {
 	u.invalid = true
 	u.heldMods(ev)
 	if u.goingAway {
@@ -83,16 +92,21 @@ func (u *UI) handleOn(root *state, ev any) {
 		}
 	case input.PointerMove:
 		if root == u.root {
-			u.pointer, u.pointerIn = e.Pos, true
+			// A finger has no hover: it moves the pointer for a drag, and
+			// lights nothing as it passes, nor as what is under it
+			// scrolls.
+			u.pointer, u.pointerIn = e.Pos, !e.Touch
 			if u.drag != nil {
 				u.drag.mods = e.Mods
 				u.dragTo(e.Pos)
 				return
 			}
 		}
-		u.updateHover(root, e.Pos, e.Time)
+		if !e.Touch {
+			u.updateHover(root, e.Pos, e.Time)
+		}
 		mk := func(local geom.Point) input.Event {
-			return input.PointerMove{Pos: local, Mods: e.Mods, Time: e.Time}
+			return input.PointerMove{Pos: local, Mods: e.Mods, Touch: e.Touch, Time: e.Time}
 		}
 		if u.capture != nil {
 			if !u.capture.within(root) {
@@ -134,15 +148,18 @@ func (u *UI) handleOn(root *state, ev any) {
 			return
 		}
 		// A press moves focus before it is delivered, so a text field
-		// that is clicked is already focused when it sees the press.
+		// that is clicked is already focused when it sees the press. A
+		// finger's primary press leaves it until the finger lifts from a
+		// tap, as a press that goes on to scroll moves no focus; see
+		// touch.go.
 		was := u.focus
-		if root == u.root {
-			u.focusAt(e.Pos)
+		if root == u.root && (!e.Touch || e.Button != input.ButtonPrimary) {
+			u.focusAt(e.Pos, e.Touch)
 		}
 		focusing := u.focus != was
 		// Whoever takes the press keeps the pointer until the release.
 		u.capture = u.dispatchAt(root, e.Pos, func(local geom.Point) input.Event {
-			return input.PointerDown{Pos: local, Button: e.Button, Mods: e.Mods, Clicks: e.Clicks, Focusing: focusing, Behind: e.Behind, Time: e.Time}
+			return input.PointerDown{Pos: local, Button: e.Button, Mods: e.Mods, Clicks: e.Clicks, Focusing: focusing, Behind: e.Behind, Touch: e.Touch, Time: e.Time}
 		})
 		u.shapePointer(root, e.Pos)
 	case input.PointerUp:
@@ -172,6 +189,9 @@ func (u *UI) handleOn(root *state, ev any) {
 		}
 		mk := func(local geom.Point) input.Event {
 			return input.PointerUp{Pos: local, Button: e.Button, Mods: e.Mods, Time: e.Time}
+		}
+		if root == u.root {
+			u.askKeyboard(u.hit(root, e.Pos))
 		}
 		if c := u.capture; c != nil {
 			u.capture = nil
@@ -287,6 +307,9 @@ func (u *UI) keyEvent(ev any) {
 		if target == nil {
 			target = u.appRoot()
 		}
+		if te, ok := ev.(input.TextEdit); ok && te.Seq != 0 {
+			u.textSeq = te.Seq
+		}
 		// Focus a key press moves is keyed
 		if _, ok := ev.(input.KeyPress); ok {
 			u.keyed = true
@@ -336,10 +359,18 @@ func (u *UI) catchKeyIn(ev input.Event, m *state) bool {
 // [FocusKeeper], leaves focus where it is, which keeps a focused dialog
 // focused when its panel is clicked, and so does a press on a
 // [PressFocuser] that declines it. A press anywhere else drops it.
-func (u *UI) focusAt(p geom.Point) {
+//
+// A finger's press, with touch set, moves focus only to a node that
+// takes text, and otherwise leaves it where it is, as a phone does: a
+// tap on a button, a row or a message keeps the keyboard in the text
+// being written.
+func (u *UI) focusAt(p geom.Point, touch bool) {
 	target := u.hit(u.root, p)
 	for s := target; s != nil; s = s.parent {
 		if f, ok := s.node.(Focusable); ok && f.Focusable() {
+			if touch && !takingText(s) {
+				return
+			}
 			if pf, ok := s.node.(PressFocuser); !ok || pf.FocusOnPress() {
 				u.clicking = true
 				u.Focus(s.node)
@@ -351,7 +382,7 @@ func (u *UI) focusAt(p geom.Point) {
 			return
 		}
 	}
-	if target != nil && u.focus != nil && target.within(u.focus) {
+	if touch || target != nil && u.focus != nil && target.within(u.focus) {
 		return
 	}
 	u.Focus(nil)

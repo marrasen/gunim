@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"github.com/marrasen/gunim/driver"
+	"github.com/marrasen/gunim/driver/internal/inbox"
+	"github.com/marrasen/gunim/driver/internal/render"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/internal/gl"
@@ -57,7 +59,7 @@ type Window struct {
 	// see chrome.go.
 	chrome chrome
 
-	in        *inbox
+	in        *inbox.Inbox
 	presented chan driver.Frame
 	frames    chan frame
 	quit      chan struct{}
@@ -205,7 +207,7 @@ func newWindow(d *Driver, gw *glfw.Window) *Window {
 		rate:      60,
 		perCoord:  1,
 	}
-	w.in = newInbox(w.quit)
+	w.in = inbox.New(w.quit)
 	return w
 }
 
@@ -213,7 +215,7 @@ func newWindow(d *Driver, gw *glfw.Window) *Window {
 func (w *Window) Presented() <-chan driver.Frame { return w.presented }
 
 // Input implements [driver.Window].
-func (w *Window) Input() <-chan any { return w.in.out }
+func (w *Window) Input() <-chan any { return w.in.Out() }
 
 // Present implements [driver.Window]. It hands ops to the render thread
 // and returns at once.
@@ -299,7 +301,7 @@ func (w *Window) SetZoom(z float32) {
 	if same {
 		return
 	}
-	w.in.push(driver.Redraw{})
+	w.in.Push(driver.Redraw{})
 	w.d.post(w.pointerAgain)
 }
 
@@ -320,7 +322,7 @@ func (w *Window) pointerAgain() {
 	}
 	w.cursor = w.logical(x, y)
 	w.pointerf("move to %.1f,%.1f, read again at scale %.2f", w.cursor.X, w.cursor.Y, w.Scale())
-	w.in.push(input.PointerMove{Pos: w.cursor, Mods: w.mods, Time: time.Now()})
+	w.in.Push(input.PointerMove{Pos: w.cursor, Mods: w.mods, Time: time.Now()})
 }
 
 // Scale implements [driver.Window].
@@ -425,7 +427,7 @@ func (w *Window) shutdown() {
 	if w.parent != nil {
 		w.parent.popups = slices.DeleteFunc(w.parent.popups, func(c *Window) bool { return c == w })
 	}
-	w.in.close()
+	w.in.Close()
 	w.stopRender()
 	<-w.done
 	delete(w.d.windows, w.gw)
@@ -645,7 +647,7 @@ func (w *Window) DragOut(paths []string) error {
 				}
 				e.At = w.logical(x, y)
 			}
-			w.in.push(e)
+			w.in.Push(e)
 		}
 		if err := w.gw.StartDragOut(paths, end); err != nil {
 			end(false, false)
@@ -793,7 +795,7 @@ func (w *Window) install() {
 	remeasure := func() {
 		was := w.Scale()
 		w.measure()
-		w.in.push(driver.Redraw{})
+		w.in.Push(driver.Redraw{})
 		if w.Scale() != was {
 			// Onto a monitor of another scale: the pointer resting over
 			// the window is at another logical point.
@@ -828,9 +830,9 @@ func (w *Window) install() {
 		if maximized {
 			w.forgetMaximized()
 		}
-		w.in.push(driver.WindowMaximized{Maximized: maximized})
+		w.in.Push(driver.WindowMaximized{Maximized: maximized})
 	})
-	_, _ = gw.SetRefreshCallback(func(*glfw.Window) { w.in.push(driver.Redraw{}) })
+	_, _ = gw.SetRefreshCallback(func(*glfw.Window) { w.in.Push(driver.Redraw{}) })
 	_, _ = gw.SetFocusCallback(func(_ *glfw.Window, focused bool) {
 		w.focused.Store(focused)
 		if focused {
@@ -842,13 +844,13 @@ func (w *Window) install() {
 		}
 		w.accessFocus(focused)
 		w.pointerf("keyboard %v", focused)
-		w.in.push(driver.WindowFocus{Focused: focused})
+		w.in.Push(driver.WindowFocus{Focused: focused})
 	})
 	_, _ = gw.SetCloseCallback(func(gw *glfw.Window) {
 		// The engine decides: it closes the window, or asks the
 		// application first.
 		_ = gw.SetShouldClose(false)
-		w.in.push(driver.CloseAsked{})
+		w.in.Push(driver.CloseAsked{})
 	})
 
 	_, _ = gw.SetCursorPosCallback(func(_ *glfw.Window, x, y float64) {
@@ -858,16 +860,16 @@ func (w *Window) install() {
 			w.mods = modsOf(gw.HeldModifiers())
 			esc := gw.EscapeHeld()
 			if esc && !w.escaped {
-				w.in.push(input.KeyPress{Key: input.KeyEscape, Mods: w.mods, Time: time.Now()})
+				w.in.Push(input.KeyPress{Key: input.KeyEscape, Mods: w.mods, Time: time.Now()})
 			}
 			w.escaped = esc
 		}
-		w.in.push(input.PointerMove{Pos: w.cursor, Mods: w.mods, Time: time.Now()})
+		w.in.Push(input.PointerMove{Pos: w.cursor, Mods: w.mods, Time: time.Now()})
 	})
 	_, _ = gw.SetCursorEnterCallback(func(_ *glfw.Window, entered bool) {
 		w.pointerf("entered %v", entered)
 		if !entered {
-			w.in.push(input.PointerLeave{Time: time.Now()})
+			w.in.Push(input.PointerLeave{Time: time.Now()})
 		}
 	})
 	_, _ = gw.SetMouseButtonCallback(func(_ *glfw.Window, b glfw.MouseButton, action glfw.Action, mods glfw.ModifierKey) {
@@ -883,7 +885,7 @@ func (w *Window) install() {
 				w.mods = modsOf(gw.HeldModifiers())
 				w.behind = false
 			}
-			w.in.push(input.PointerUp{Pos: w.cursor, Button: button, Mods: w.mods, Time: now})
+			w.in.Push(input.PointerUp{Pos: w.cursor, Button: button, Mods: w.mods, Time: now})
 			return
 		}
 		behind := gw.TakePressedBehind()
@@ -901,18 +903,18 @@ func (w *Window) install() {
 			w.clicks = 1
 		}
 		w.lastPress, w.lastButton, w.lastPos = now, button, w.cursor
-		w.in.push(input.PointerDown{Pos: w.cursor, Button: button, Mods: w.mods, Clicks: w.clicks, Behind: behind, Time: now})
+		w.in.Push(input.PointerDown{Pos: w.cursor, Button: button, Mods: w.mods, Clicks: w.clicks, Behind: behind, Time: now})
 	})
 	_, _ = gw.SetDropCallback(func(gw *glfw.Window, names []string) {
 		// GLFW moves the cursor to where the files were let go first.
-		w.in.push(input.Drop{Pos: w.cursor, Paths: names, Mods: modsOf(gw.HeldModifiers()), Time: time.Now()})
+		w.in.Push(input.Drop{Pos: w.cursor, Paths: names, Mods: modsOf(gw.HeldModifiers()), Time: time.Now()})
 	})
 	_, _ = gw.SetScrollCallback(func(gw *glfw.Window, x, y float64) {
 		// Asked of the system, as a wheel turns with no key event to
 		// say what is held: Ctrl pressed just before, or let go
 		// elsewhere, is known all the same.
 		w.mods = modsOf(gw.HeldModifiers())
-		w.in.push(input.Scroll{
+		w.in.Push(input.Scroll{
 			Pos:     w.cursor,
 			Delta:   geom.Pt(float32(x)*scrollLine, float32(y)*scrollLine),
 			Notches: geom.Pt(float32(x), float32(y)),
@@ -925,9 +927,9 @@ func (w *Window) install() {
 		now := time.Now()
 		switch action {
 		case glfw.Press, glfw.Repeat:
-			w.in.push(input.KeyPress{Key: keyOf(k), Mods: w.mods, Repeat: action == glfw.Repeat, Typed: gw.KeyTyped(), Char: charOf(k, scancode), Time: now})
+			w.in.Push(input.KeyPress{Key: keyOf(k), Mods: w.mods, Repeat: action == glfw.Repeat, Typed: gw.KeyTyped(), Char: charOf(k, scancode), Time: now})
 		case glfw.Release:
-			w.in.push(input.KeyRelease{Key: keyOf(k), Mods: w.mods, Time: now})
+			w.in.Push(input.KeyRelease{Key: keyOf(k), Mods: w.mods, Time: now})
 		}
 	})
 	installText(w)
@@ -1002,7 +1004,7 @@ func (w *Window) render() {
 			if w.pres != nil {
 				w.pres.close()
 			}
-			r.release()
+			r.Release()
 			_ = (*glfw.Window)(nil).MakeContextCurrent()
 		}()
 	}
@@ -1022,10 +1024,10 @@ func (w *Window) render() {
 		case f = <-w.frames:
 		}
 		if r != nil {
-			r.corner, r.edge = w.cornerRadius()
+			r.Corner, r.Edge = w.cornerRadius()
 			w.mu.Lock()
 			fbW, fbH, scale, rate := w.fbW, w.fbH, w.scale, w.rate
-			r.under = w.under
+			r.Under = w.under
 			readback, shot := w.readback, w.shot
 			w.shot = nil
 			w.mu.Unlock()
@@ -1038,42 +1040,42 @@ func (w *Window) render() {
 				if err != nil {
 					w.fail(err)
 				}
-				r.windowFBO = fbo
+				r.WindowFBO = fbo
 			}
-			r.draw(f.ops, f.damage, fbW, fbH, scale)
+			r.Draw(f.ops, f.damage, fbW, fbH, scale)
 			var gpu time.Duration
 			if framesFinish {
 				// Waits for the GPU, to time it apart from the rest.
 				tf := time.Now()
-				r.gl.Finish()
+				r.GL.Finish()
 				gpu = time.Since(tf)
 			}
 			if readback != nil {
 				if w.pres != nil {
 					// The window's texture is upside down for Direct3D;
 					// the canvas holds the frame the right way up.
-					r.gl.BindFramebuffer(gl.FRAMEBUFFER, r.layers[0].fbo)
+					r.GL.BindFramebuffer(gl.FRAMEBUFFER, r.Canvas())
 				}
 				pix := make([]byte, fbW*fbH*4)
-				r.gl.ReadPixels(pix, 0, 0, int32(fbW), int32(fbH), gl.RGBA, gl.UNSIGNED_BYTE)
+				r.GL.ReadPixels(pix, 0, 0, int32(fbW), int32(fbH), gl.RGBA, gl.UNSIGNED_BYTE)
 				readback(pix, fbW, fbH)
 			}
 			t1 := time.Now()
 			synced := vb.wait()
 			t2 := time.Now()
 			if w.pres != nil {
-				if err := w.pres.present(r.redrawn); err != nil {
+				if err := w.pres.present(r.Redrawn); err != nil {
 					w.fail(err)
 				}
 			} else if err := w.gw.SwapBuffers(); err != nil {
 				w.fail(fmt.Errorf("desktop: swap buffers: %w", err))
 			}
 			if framesDebug {
-				ft.add(w, t1.Sub(t0), t2.Sub(t1), time.Since(t2), gpu, &r.stats, rate, fbW, fbH)
+				ft.add(w, t1.Sub(t0), t2.Sub(t1), time.Since(t2), gpu, &r.Stats, rate, fbW, fbH)
 			}
 			w.uncover()
-			if r.edge != shownEdge {
-				shownEdge = r.edge
+			if r.Edge != shownEdge {
+				shownEdge = r.Edge
 				edgeShown(w, shownEdge)
 			}
 			w.mu.Lock()
@@ -1118,21 +1120,21 @@ type frameTimes struct {
 	drawMax, presentMax time.Duration
 	waitMax             time.Duration
 	gpu, gpuMax         time.Duration
-	sent                renderStats
+	sent                render.Stats
 }
 
 // add counts a frame that took draw, wait and present, and logs the
 // second's sums once one has passed. A frame is late where the three
 // together took longer than a refresh at rate.
-func (ft *frameTimes) add(w *Window, draw, wait, present, gpu time.Duration, sent *renderStats, rate float64, fbW, fbH int) {
+func (ft *frameTimes) add(w *Window, draw, wait, present, gpu time.Duration, sent *render.Stats, rate float64, fbW, fbH int) {
 	ft.gpu += gpu
 	ft.gpuMax = max(ft.gpuMax, gpu)
-	ft.sent.flushes += sent.flushes
-	ft.sent.quads += sent.quads
-	ft.sent.bytes += sent.bytes
-	ft.sent.layers += sent.layers
-	ft.sent.flushTime += sent.flushTime
-	*sent = renderStats{}
+	ft.sent.Flushes += sent.Flushes
+	ft.sent.Quads += sent.Quads
+	ft.sent.Bytes += sent.Bytes
+	ft.sent.Layers += sent.Layers
+	ft.sent.FlushTime += sent.FlushTime
+	*sent = render.Stats{}
 	now := time.Now()
 	if ft.from.IsZero() {
 		ft.from = now
@@ -1155,8 +1157,8 @@ func (ft *frameTimes) add(w *Window, draw, wait, present, gpu time.Duration, sen
 	log.Printf("gunim frames %p %dx%d at %.0f Hz: %d frames, %d late; draw %.1f ms (max %.1f), vblank wait %.1f (max %.1f), present %.1f (max %.1f)",
 		w, fbW, fbH, rate, ft.n, ft.late, ms(ft.draw/n), ms(ft.drawMax), ms(ft.wait/n), ms(ft.waitMax), ms(ft.present/n), ms(ft.presentMax))
 	log.Printf("gunim frames %p sent each frame: %d quads, %.1f MB in %d draws, %d layers; handing them over took %.1f ms; gpu %.1f ms (max %.1f)",
-		w, ft.sent.quads/ft.n, float64(ft.sent.bytes)/float64(ft.n)/1e6, ft.sent.flushes/ft.n, ft.sent.layers/ft.n,
-		ms(ft.sent.flushTime/n), ms(ft.gpu/n), ms(ft.gpuMax))
+		w, ft.sent.Quads/ft.n, float64(ft.sent.Bytes)/float64(ft.n)/1e6, ft.sent.Flushes/ft.n, ft.sent.Layers/ft.n,
+		ms(ft.sent.FlushTime/n), ms(ft.gpu/n), ms(ft.gpuMax))
 	*ft = frameTimes{from: now}
 }
 
@@ -1188,7 +1190,7 @@ func pace(last time.Time, rate float64) time.Time {
 
 // startGL makes the context current on this thread, turns on vsync and
 // builds the renderer.
-func (w *Window) startGL() (*renderer, error) {
+func (w *Window) startGL() (*render.Renderer, error) {
 	holder := w.gw
 	if w.ctx != nil {
 		holder = w.ctx
@@ -1205,17 +1207,17 @@ func (w *Window) startGL() (*renderer, error) {
 	if err = ctx.LoadFunctions(); err != nil {
 		return nil, fmt.Errorf("desktop: %w", err)
 	}
-	r, err := newRenderer(ctx, w.d.isES, &w.d.shared)
+	r, err := render.New(ctx, w.d.isES, &w.d.shared)
 	if err != nil {
 		return nil, err
 	}
-	r.setText(w.textRendering, w.transparent)
+	r.SetText(w.textRendering, w.transparent)
 	if w.ctx != nil {
 		if w.pres, err = w.startPresenter(ctx); err != nil {
-			r.release()
+			r.Release()
 			return nil, err
 		}
-		r.flipWindow = true
+		r.FlipWindow = true
 	}
 	return r, nil
 }
@@ -1234,82 +1236,6 @@ func abs(v float32) float32 {
 		return -v
 	}
 	return v
-}
-
-// inbox carries input from the main thread to the engine.
-//
-// It queues without bound, and a goroutine of its own feeds the
-// channel. So the main thread, which pumps events for every window,
-// always hands input over at once, and a window slow to read its input
-// leaves the others running.
-type inbox struct {
-	out  chan any
-	quit <-chan struct{}
-	wake chan struct{}
-
-	mu     sync.Mutex
-	items  []any
-	closed bool
-}
-
-func newInbox(quit <-chan struct{}) *inbox {
-	q := &inbox{out: make(chan any), quit: quit, wake: make(chan struct{}, 1)}
-	go q.feed()
-	return q
-}
-
-func (q *inbox) push(ev any) {
-	q.mu.Lock()
-	if q.closed {
-		q.mu.Unlock()
-		return
-	}
-	q.items = append(q.items, ev)
-	q.mu.Unlock()
-	q.nudge()
-}
-
-// close ends the stream once what is queued has been delivered.
-func (q *inbox) close() {
-	q.mu.Lock()
-	q.closed = true
-	q.mu.Unlock()
-	q.nudge()
-}
-
-func (q *inbox) nudge() {
-	select {
-	case q.wake <- struct{}{}:
-	default:
-	}
-}
-
-func (q *inbox) feed() {
-	for {
-		q.mu.Lock()
-		if len(q.items) == 0 {
-			closed := q.closed
-			q.mu.Unlock()
-			if closed {
-				close(q.out)
-				return
-			}
-			select {
-			case <-q.wake:
-			case <-q.quit:
-				return
-			}
-			continue
-		}
-		ev := q.items[0]
-		q.items = q.items[1:]
-		q.mu.Unlock()
-		select {
-		case q.out <- ev:
-		case <-q.quit:
-			return
-		}
-	}
 }
 
 // charOf is the character a key types on the layout in use, without

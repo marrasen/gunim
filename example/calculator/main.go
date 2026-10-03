@@ -53,19 +53,24 @@ func main() {
 	shot := flag.String("shot", "", "write the window to this PNG file after -after, and quit")
 	after := flag.Duration("after", 1500*time.Millisecond, "how long -shot waits")
 	iconTo := flag.String("icon", "", "write the icon, 256 pixels square, to this PNG file, and quit")
+	size := flag.String("size", "980x660", "the window's size, as 400x800 for one shaped like a phone")
 	flag.Parse()
+	var w, h float32
+	if _, err := fmt.Sscanf(*size, "%gx%g", &w, &h); err != nil || w <= 0 || h <= 0 {
+		log.Fatalf("calculator: -size %q: want a width and a height, as 400x800", *size)
+	}
 	if *iconTo != "" {
 		if err := writeIcon(*iconTo); err != nil {
 			log.Fatal(err)
 		}
 		return
 	}
-	if err := run(*runFor, *keys, *typed, *graph, *shot, *after); err != nil {
+	if err := run(*runFor, *keys, *typed, *graph, *shot, *after, geom.Sz(w, h)); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func run(runFor time.Duration, keys, typed string, graph bool, shot string, after time.Duration) error {
+func run(runFor time.Duration, keys, typed string, graph bool, shot string, after time.Duration, size geom.Size) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	if runFor > 0 {
@@ -76,7 +81,7 @@ func run(runFor time.Duration, keys, typed string, graph bool, shot string, afte
 	err := gunim.Main(ctx, func(a *gunim.App) error {
 		w, err := a.NewWindow(gunim.WindowOptions{
 			Title: "Calculator",
-			Size:  geom.Sz(980, 660),
+			Size:  size,
 			Icons: icons(),
 		})
 		if err != nil {

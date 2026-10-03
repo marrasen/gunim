@@ -187,6 +187,11 @@ func (s *scrolling) barWidth(th *theme.Live) float32 {
 	return rest + (grab-rest)*s.wide.Value()
 }
 
+// DragsTouch implements [gunim.TouchDragger] for the widgets that
+// scroll: a finger on the bar's thumb drags it, and anywhere else
+// scrolls the content.
+func (s *scrolling) DragsTouch() bool { return s.gripped }
+
 // thumb returns the part of the bar that stands for the view, w wide,
 // in the widget's space.
 func (s *scrolling) thumb(w float32) geom.Rect {

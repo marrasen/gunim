@@ -40,7 +40,7 @@ func (d *Driver) watchAccess() {
 					w.accessOpen()
 					// Something now listens, so the window draws once more
 					// to hand over its tree.
-					w.in.push(driver.Redraw{})
+					w.in.Push(driver.Redraw{})
 				}
 			})
 		})

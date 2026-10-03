@@ -1,6 +1,6 @@
 //go:build linux || windows || darwin
 
-package desktop
+package render
 
 import (
 	"fmt"
@@ -18,37 +18,16 @@ import (
 // benchSize is the frame the benchmarks draw.
 var benchSize = geom.Sz(800, 600)
 
-// hiddenGL makes a hidden window's context current on the calling
-// goroutine, locked to its thread, and builds a renderer on it, so a
-// benchmark can time the renderer with no swap or vsync in the way.
-func hiddenGL(tb testing.TB) (r *renderer, done func()) {
+// hiddenGL makes the hidden test window's context current on the
+// calling goroutine, locked to its thread, and builds a renderer on it,
+// so a test can draw with no swap or vsync in the way.
+func hiddenGL(tb testing.TB) (r *Renderer, done func()) {
 	tb.Helper()
-	if display == nil {
+	if testWindow == nil {
 		tb.Skip("no display")
 	}
-	var gw *glfw.Window
-	open := func() error {
-		if err := glfw.DefaultWindowHints(); err != nil {
-			return err
-		}
-		if err := display.setContextHints(); err != nil {
-			return err
-		}
-		if err := glfw.WindowHint(glfw.Visible, glfw.False); err != nil {
-			return err
-		}
-		share, err := display.shareGroup()
-		if err != nil {
-			return err
-		}
-		gw, err = glfw.CreateWindow(int(benchSize.W), int(benchSize.H), "gunim bench", nil, share)
-		return err
-	}
-	if err := display.call(open); err != nil {
-		tb.Fatal(err)
-	}
 	runtime.LockOSThread()
-	if err := gw.MakeContextCurrent(); err != nil {
+	if err := testWindow.MakeContextCurrent(); err != nil {
 		tb.Fatal(err)
 	}
 	ctx, err := gl.NewDefaultContext()
@@ -58,14 +37,13 @@ func hiddenGL(tb testing.TB) (r *renderer, done func()) {
 	if err = ctx.LoadFunctions(); err != nil {
 		tb.Fatal(err)
 	}
-	if r, err = newRenderer(ctx, display.isES, &display.shared); err != nil {
+	if r, err = New(ctx, testES, &testShared); err != nil {
 		tb.Fatal(err)
 	}
 	return r, func() {
-		r.release()
+		r.Release()
 		_ = (*glfw.Window)(nil).MakeContextCurrent()
 		runtime.UnlockOSThread()
-		_ = display.call(gw.Destroy)
 	}
 }
 
@@ -142,19 +120,19 @@ func BenchmarkRenderHover(b *testing.B) {
 	damage := diff.Damage()
 	w, h := int(benchSize.W), int(benchSize.H)
 	// Fill the canvas, so every frame after draws in part.
-	r.draw(still.Ops(), paint.Everything, w, h, 1)
-	r.draw(still.Ops(), damage, w, h, 1)
-	r.gl.Finish()
+	r.Draw(still.Ops(), paint.Everything, w, h, 1)
+	r.Draw(still.Ops(), damage, w, h, 1)
+	r.GL.Finish()
 	b.ResetTimer()
 	for i := range b.N {
 		ops := still.Ops()
 		if i%2 == 1 {
 			ops = lit.Ops()
 		}
-		r.draw(ops, damage, w, h, 1)
-		r.gl.Finish()
+		r.Draw(ops, damage, w, h, 1)
+		r.GL.Finish()
 	}
-	b.ReportMetric(float64(r.redrawn.Size().W*r.redrawn.Size().H), "px/frame")
+	b.ReportMetric(float64(r.Redrawn.Size().W*r.Redrawn.Size().H), "px/frame")
 }
 
 // BenchmarkRecordGallery times what the engine does for each frame on
@@ -172,10 +150,10 @@ func BenchmarkRecordGallery(b *testing.B) {
 }
 
 // canvas reads the renderer's canvas.
-func canvas(r *renderer) []byte {
+func canvas(r *Renderer) []byte {
 	pix := make([]byte, r.fbW*r.fbH*4)
-	r.gl.BindFramebuffer(gl.FRAMEBUFFER, r.layers[0].fbo)
-	r.gl.ReadPixels(pix, 0, 0, int32(r.fbW), int32(r.fbH), gl.RGBA, gl.UNSIGNED_BYTE)
+	r.GL.BindFramebuffer(gl.FRAMEBUFFER, r.Canvas())
+	r.GL.ReadPixels(pix, 0, 0, int32(r.fbW), int32(r.fbH), gl.RGBA, gl.UNSIGNED_BYTE)
 	return pix
 }
 
@@ -188,16 +166,16 @@ func TestPartialRedrawMatchesAFullOne(t *testing.T) {
 	// fills the canvas, so the third is the first to redraw in part.
 	for _, hover := range []float32{0, 1, 0} {
 		recordGallery(&p, 40, hover)
-		r.draw(p.Ops(), p.Damage(), w, h, 1)
+		r.Draw(p.Ops(), p.Damage(), w, h, 1)
 	}
-	if s := r.redrawn.Size(); s.W > 100 || s.H > 50 {
-		t.Fatalf("a button's hover redrew %v, want about the button", r.redrawn)
+	if s := r.Redrawn.Size(); s.W > 100 || s.H > 50 {
+		t.Fatalf("a button's hover redrew %v, want about the button", r.Redrawn)
 	}
 	partial := canvas(r)
 	r.canvasOK = false
-	r.draw(p.Ops(), p.Damage(), w, h, 1)
-	if r.redrawn.Size() != benchSize {
-		t.Fatalf("a frame after the canvas went stale redrew %v, want all of it", r.redrawn)
+	r.Draw(p.Ops(), p.Damage(), w, h, 1)
+	if r.Redrawn.Size() != benchSize {
+		t.Fatalf("a frame after the canvas went stale redrew %v, want all of it", r.Redrawn)
 	}
 	full := canvas(r)
 	for i := range full {
@@ -223,14 +201,14 @@ func TestPartialRedrawInAFadedLayerMatchesAFullOne(t *testing.T) {
 	}
 	for _, hover := range []float32{0, 1, 0} {
 		record(hover)
-		r.draw(p.Ops(), p.Damage(), w, h, 1)
+		r.Draw(p.Ops(), p.Damage(), w, h, 1)
 	}
-	if s := r.redrawn.Size(); s.W > 100 || s.H > 50 {
-		t.Fatalf("a button's hover redrew %v, want about the button", r.redrawn)
+	if s := r.Redrawn.Size(); s.W > 100 || s.H > 50 {
+		t.Fatalf("a button's hover redrew %v, want about the button", r.Redrawn)
 	}
 	partial := canvas(r)
 	r.canvasOK = false
-	r.draw(p.Ops(), p.Damage(), w, h, 1)
+	r.Draw(p.Ops(), p.Damage(), w, h, 1)
 	full := canvas(r)
 	for i := range full {
 		if d := int(full[i]) - int(partial[i]); d > 1 || d < -1 {
@@ -244,13 +222,13 @@ func BenchmarkRenderGallery(b *testing.B) {
 	r, done := hiddenGL(b)
 	defer done()
 	ops := galleryOps(40)
-	r.draw(ops, paint.Everything, int(benchSize.W), int(benchSize.H), 1) // rasterize the glyphs
-	r.gl.Finish()
+	r.Draw(ops, paint.Everything, int(benchSize.W), int(benchSize.H), 1) // rasterize the glyphs
+	r.GL.Finish()
 	r.draws = 0
 	b.ResetTimer()
 	for range b.N {
-		r.draw(ops, paint.Everything, int(benchSize.W), int(benchSize.H), 1)
-		r.gl.Finish()
+		r.Draw(ops, paint.Everything, int(benchSize.W), int(benchSize.H), 1)
+		r.GL.Finish()
 	}
 	b.ReportMetric(float64(r.draws)/float64(b.N), "draws/frame")
 	b.ReportMetric(float64(len(ops)), "ops/frame")
@@ -260,9 +238,9 @@ func TestGalleryDrawsInAFewCalls(t *testing.T) {
 	r, done := hiddenGL(t)
 	defer done()
 	ops := galleryOps(40)
-	r.draw(ops, paint.Everything, int(benchSize.W), int(benchSize.H), 1)
+	r.Draw(ops, paint.Everything, int(benchSize.W), int(benchSize.H), 1)
 	r.draws = 0
-	r.draw(ops, paint.Everything, int(benchSize.W), int(benchSize.H), 1)
+	r.Draw(ops, paint.Everything, int(benchSize.W), int(benchSize.H), 1)
 	// One batch before the layer, one inside it, the layer's
 	// composite, and the canvas's copy to the window.
 	if r.draws > 4 {
@@ -285,12 +263,12 @@ func TestFrameForASmallerWindowSitsTopLeft(t *testing.T) {
 		&paint.RRectOp{Rect: geom.Rc(10, 10, 20, 20), Fill: paint.Solid(mark), Transform: paint.Identity},
 	}
 	w, h := int(benchSize.W), int(benchSize.H)
-	r.draw(ops, paint.Everything, w, h, 1)
+	r.Draw(ops, paint.Everything, w, h, 1)
 	at := func(x, y int) [3]byte {
 		pix := make([]byte, 4)
-		r.gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
+		r.GL.BindFramebuffer(gl.FRAMEBUFFER, 0)
 		// GL counts rows from the bottom.
-		r.gl.ReadPixels(pix, int32(x), int32(h-1-y), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE)
+		r.GL.ReadPixels(pix, int32(x), int32(h-1-y), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE)
 		return [3]byte{pix[0], pix[1], pix[2]}
 	}
 	if got := at(20, 20); got != [3]byte{0xff, 0, 0} {
@@ -309,7 +287,7 @@ func TestFrameForASmallerWindowSitsTopLeft(t *testing.T) {
 func TestAFlippedWindowGetsItsTopRowFirst(t *testing.T) {
 	r, done := hiddenGL(t)
 	defer done()
-	r.flipWindow = true
+	r.FlipWindow = true
 	w, h := int(benchSize.W), int(benchSize.H)
 	white := color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
 	black := color.NRGBA{A: 0xff}
@@ -317,11 +295,11 @@ func TestAFlippedWindowGetsItsTopRowFirst(t *testing.T) {
 		&paint.RRectOp{Rect: geom.Rect{Max: benchSize.Point()}, Fill: paint.Solid(black), Transform: paint.Identity},
 		&paint.RRectOp{Rect: geom.Rect{Max: geom.Pt(benchSize.W, benchSize.H/2)}, Fill: paint.Solid(white), Transform: paint.Identity},
 	}
-	r.draw(ops, paint.Everything, w, h, 1)
+	r.Draw(ops, paint.Everything, w, h, 1)
 	row := func(y int32) byte {
 		pix := make([]byte, 4)
-		r.gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
-		r.gl.ReadPixels(pix, int32(w/2), y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE)
+		r.GL.BindFramebuffer(gl.FRAMEBUFFER, 0)
+		r.GL.ReadPixels(pix, int32(w/2), y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE)
 		return pix[0]
 	}
 	if first, last := row(0), row(int32(h-1)); first < 200 || last > 55 {

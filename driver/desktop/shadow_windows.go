@@ -32,7 +32,7 @@ func startShadow(w *Window) {
 		w.mu.Lock()
 		w.edge = px
 		w.mu.Unlock()
-		w.in.push(driver.Redraw{})
+		w.in.Push(driver.Redraw{})
 	})
 }
 

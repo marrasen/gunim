@@ -143,7 +143,8 @@ func registerViews(w *gunim.Window) {
 // gallery is the gallery view: a padded page with toasts over its bottom right, and a handle on the list of cards
 // so updates can sync it.
 type gallery struct {
-	page   *widget.Pad
+	page   *widget.Scroll
+	body   *galleryPage
 	list   *widget.List
 	toasts *widget.Toasts
 }
@@ -152,8 +153,10 @@ type gallery struct {
 func (g *gallery) Children() []gunim.Node { return []gunim.Node{g.page, g.toasts} }
 
 // Layout implements [gunim.Node]: the page fills the window, and the toasts sit at its bottom right.
-func (g *gallery) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
+func (g *gallery) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
 	page, toasts := kids.At(0), kids.At(1)
+	m := widget.Margin.Get(f.Theme)
+	g.body.view = c.Max.H - m.Top - m.Bottom
 	page.Layout(gunim.Tight(c.Max))
 	page.Place(geom.Point{})
 	ts := toasts.Layout(gunim.Loose(geom.Sz(c.Max.W-32, c.Max.H)))
@@ -192,9 +195,10 @@ func buildGallery(Gallery) *gallery {
 	toggle := widget.NewButton("Switch theme")
 	toggle.Icon = icon.SunMoon
 	toggle.On = ThemeToggled{}
-	spacer := widget.NewSpacer()
-	header := widget.Row(title, spacer, search, widget.NewIconButton(icon.Filter, "Filter"),
-		widget.NewIconButton(icon.Columns3, "Columns"), toggle).Grow(spacer, 1)
+	// The heading and its tools wrap onto a second line where the window
+	// is too narrow for one, as on a phone.
+	header := widget.NewWrap(title, widget.NewSized(search, 220, 0), widget.NewIconButton(icon.Filter, "Filter"),
+		widget.NewIconButton(icon.Columns3, "Columns"), toggle)
 	header.Cross = widget.CrossCenter
 
 	// The callout wears a theme of its own that sets only its colours,
@@ -211,10 +215,51 @@ func buildGallery(Gallery) *gallery {
 	notes.Placeholder = "Notes: several lines, wrapped to the width"
 
 	list := widget.NewList()
-	scroll := widget.NewScroll(list)
-	page := widget.Column(header, icons(), moreIcons(), callout, notes, scroll).Grow(scroll, 1)
-	page.Cross = widget.CrossStretch
-	return &gallery{page: widget.NewPad(page), list: list, toasts: &widget.Toasts{}}
+	body := &galleryPage{parts: []gunim.Node{header, icons(), moreIcons(), callout, notes}, list: widget.NewScroll(list)}
+	return &gallery{page: widget.NewScroll(widget.NewPad(body)), body: body, list: list, toasts: &widget.Toasts{}}
+}
+
+// minList is the least height the list of cards keeps, in logical
+// pixels: on a screen too short for it and the cards above, the page
+// scrolls.
+const minList = 320
+
+// galleryPage stacks the gallery's parts, and under them the list,
+// which takes the height the window leaves it, and at least minList.
+// view is the height the page shows, which the gallery sets.
+type galleryPage struct {
+	parts []gunim.Node
+	list  gunim.Node
+	view  float32
+}
+
+// Children implements [gunim.Composite].
+func (p *galleryPage) Children() []gunim.Node {
+	return append(append([]gunim.Node{}, p.parts...), p.list)
+}
+
+// Layout implements [gunim.Node].
+func (p *galleryPage) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
+	w, gap := c.Max.W, widget.Gap.Get(f.Theme)
+	var y float32
+	for i := range p.parts {
+		k := kids.At(i)
+		s := k.Layout(gunim.Constraints{Min: geom.Sz(w, 0), Max: geom.Sz(w, 1e5)})
+		k.Place(geom.Pt(0, y))
+		y += s.H + gap
+	}
+	h := max(p.view-y, minList)
+	list := kids.At(len(p.parts))
+	list.Layout(gunim.Tight(geom.Sz(w, h)))
+	list.Place(geom.Pt(0, y))
+	return geom.Sz(w, y+h)
+}
+
+// Paint implements [gunim.Node].
+func (p *galleryPage) Paint(pt *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim.Children) {
+	for k := range kids.All {
+		k.Paint(pt)
+	}
 }
 
 // moreIcons lays out a card of widgets with icons: tabs, a chip, a drop-down, rich text with icons inline, buttons
@@ -235,7 +280,7 @@ func moreIcons() *widget.Card {
 	again.Icon, again.On = icon.Bell, ToastsAsked{}
 	tools := widget.NewToolbar(widget.NewIconButton(icon.Reply, "Reply"), widget.NewIconButton(icon.Pencil, "Edit"),
 		widget.NewIconButton(icon.Trash2, "Delete"))
-	controls := widget.Row(chip, view, del, again, tools)
+	controls := widget.NewWrap(chip, view, del, again, tools)
 	controls.Cross = widget.CrossCenter
 	rich := widget.NewRichText(
 		widget.RichSpan{Text: "Saved "},
@@ -282,7 +327,7 @@ func icons() *widget.Card {
 	link := widget.NewLink("Open folder")
 	link.Icon = icon.FolderOpen
 	row = append(row, spin, again, link)
-	r := widget.Row(row...)
+	r := widget.NewWrap(row...)
 	r.Cross = widget.CrossCenter
 	return widget.NewCard(r)
 }

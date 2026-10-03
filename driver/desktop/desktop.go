@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/marrasen/gunim/driver"
+	"github.com/marrasen/gunim/driver/internal/render"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/internal/gl"
@@ -65,7 +66,7 @@ type Driver struct {
 	stayOpen bool
 
 	// shared is what every window's renderer shares.
-	shared shared
+	shared render.Shared
 	// dxgi is set where windows present through DXGI; see
 	// present_windows.go.
 	dxgi bool

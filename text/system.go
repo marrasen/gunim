@@ -51,7 +51,7 @@ func loadSystem() *fontscan.FontMap {
 	if !systemTried {
 		systemTried = true
 		fm := fontscan.NewFontMap(quiet{})
-		if err := fm.UseSystemFonts(""); err == nil {
+		if err := fm.UseSystemFonts(fontCacheDir()); err == nil {
 			fm.SetQuery(fontscan.Query{Families: []string{"sans-serif"}})
 			system = fm
 		}

@@ -26,7 +26,7 @@ func parse(src string) (fn, error) {
 		return nil, err
 	}
 	if p.at < len(p.toks) {
-		return nil, fmt.Errorf("%q is out of place", p.toks[p.at])
+		return nil, fmt.Errorf("%s is out of place", keyOf(p.toks[p.at]))
 	}
 	return f, nil
 }
@@ -108,16 +108,11 @@ func tokens(src string) []string {
 			for j < len(rs) && unicode.IsLetter(rs[j]) && rs[j] != 'π' {
 				j++
 			}
-			// A run of letters is a function, or letters each on its
-			// own: xx is x times x.
-			word := string(rs[i:j])
-			if _, ok := functions[word]; ok {
-				out = append(out, word)
-			} else {
-				for _, c := range word {
-					out = append(out, string(c))
-				}
-			}
+			// A run of letters is functions and letters each on its
+			// own, the longest function at each place first: xx is x
+			// times x, and xsin(x), as the keypad types it, is x times
+			// sin(x).
+			out = append(out, words(rs[i:j])...)
 			i = j
 		default:
 			s := string(r)
@@ -132,6 +127,26 @@ func tokens(src string) []string {
 			out = append(out, s)
 			i++
 		}
+	}
+	return out
+}
+
+// words splits a run of letters into the functions it names, longest
+// first, and the letters between them.
+func words(rs []rune) []string {
+	var out []string
+	for k := 0; k < len(rs); {
+		best := ""
+		for name := range functions {
+			if len(name) > len(best) && strings.HasPrefix(string(rs[k:]), name) {
+				best = name
+			}
+		}
+		if best == "" {
+			best = string(rs[k])
+		}
+		out = append(out, best)
+		k += len([]rune(best))
 	}
 	return out
 }
@@ -294,7 +309,27 @@ func (p *parser) atom() (fn, error) {
 	}
 	v, err := strconv.ParseFloat(t, 64)
 	if err != nil {
-		return nil, fmt.Errorf("%q is no number", t)
+		switch {
+		case t == ")":
+			return nil, errors.New("the brackets need something inside")
+		case strings.Count(t, ".") > 1:
+			return nil, fmt.Errorf("%s has more than one point", t)
+		}
+		return nil, fmt.Errorf("%s needs a number before it", keyOf(t))
 	}
 	return func(float64) float64 { return v }, nil
+}
+
+// keyOf returns the key that typed token t, as an error names it: the
+// parser reads × as *, ÷ as / and − as -.
+func keyOf(t string) string {
+	switch t {
+	case "*":
+		return "×"
+	case "/":
+		return "÷"
+	case "-":
+		return "−"
+	}
+	return t
 }

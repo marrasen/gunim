@@ -1,4 +1,4 @@
-package desktop
+package render
 
 import (
 	"image/color"
@@ -189,12 +189,12 @@ void main() {
 
 // cellsReady builds what drawing cells needs, once, and reports whether
 // it can.
-func (r *renderer) cellsReady() bool {
+func (r *Renderer) cellsReady() bool {
 	s := &r.cellsState
 	if s.prog.id != 0 || s.failed {
 		return !s.failed
 	}
-	g := r.gl
+	g := r.GL
 	header := "#version 150\n"
 	if r.isES {
 		header = "#version 300 es\nprecision highp float;\nprecision highp int;\n"
@@ -260,7 +260,7 @@ func (r *renderer) cellsReady() bool {
 
 // cells queues a row of cells, drawn with the rows before it that it
 // follows, or draws what is queued first.
-func (r *renderer) cells(op *paint.CellsOp) {
+func (r *Renderer) cells(op *paint.CellsOp) {
 	if len(op.Cells) == 0 || op.Patterns == nil {
 		return
 	}
@@ -307,9 +307,9 @@ func follows(p, op *paint.CellsOp, rows int) bool {
 
 // startCells begins a run of rows with op, uploading any of its
 // patterns not yet on the GPU.
-func (r *renderer) startCells(op *paint.CellsOp) {
+func (r *Renderer) startCells(op *paint.CellsOp) {
 	s := &r.cellsState
-	g := r.gl
+	g := r.GL
 	if need := len(op.Cells) * 3; need > s.texW || s.tex == 0 {
 		if s.tex != 0 {
 			g.DeleteTexture(s.tex)
@@ -335,9 +335,9 @@ func (r *renderer) startCells(op *paint.CellsOp) {
 }
 
 // sendPatterns uploads the masks of pats the GPU does not have yet.
-func (r *renderer) sendPatterns(pats *paint.Patterns) {
+func (r *Renderer) sendPatterns(pats *paint.Patterns) {
 	s := &r.cellsState
-	g := r.gl
+	g := r.GL
 	n := len(pats.Masks)
 	if s.patsOf != pats || n > s.patsRoom {
 		if s.pats != 0 {
@@ -369,8 +369,8 @@ func (r *renderer) sendPatterns(pats *paint.Patterns) {
 
 // cellsTexture makes a texture of w by h texels on unit, read texel by
 // texel.
-func (r *renderer) cellsTexture(unit uint32, internal int32, format uint32, w, h, channels int) uint32 {
-	g := r.gl
+func (r *Renderer) cellsTexture(unit uint32, internal int32, format uint32, w, h, channels int) uint32 {
+	g := r.GL
 	tex := g.CreateTexture()
 	g.ActiveTexture(unit)
 	g.BindTexture(gl.TEXTURE_2D, tex)
@@ -397,7 +397,7 @@ func (s *cellsState) tableRows(n int) int {
 // each lands in its cell, into placed. A glyph that reaches outside its
 // cell, a colour one, or any under a transform that more than moves,
 // is drawn as text.
-func (r *renderer) placeGlyphs(op *paint.CellsOp, cw, ch int, plain bool, mode int) {
+func (r *Renderer) placeGlyphs(op *paint.CellsOp, cw, ch int, plain bool, mode int) {
 	s := &r.cellsState
 	for range 3 {
 		epochs := [2]int{r.glyphs.epoch, r.lcdGlyphs.epoch}
@@ -457,7 +457,7 @@ func (r *renderer) placeGlyphs(op *paint.CellsOp, cw, ch int, plain bool, mode i
 // addRow adds op's cells to the rows uploaded together when they are
 // drawn, one upload a run of rows rather than one a row, with their
 // glyphs from placed, and the glyphs that do not fit to later.
-func (r *renderer) addRow(op *paint.CellsOp) {
+func (r *Renderer) addRow(op *paint.CellsOp) {
 	s := &r.cellsState
 	b := s.upload
 	n := 0
@@ -502,7 +502,7 @@ func (r *renderer) addRow(op *paint.CellsOp) {
 }
 
 // flushCells draws the rows of cells queued, if any.
-func (r *renderer) flushCells() {
+func (r *Renderer) flushCells() {
 	s := &r.cellsState
 	op := s.pending
 	if op == nil || s.rows == 0 {
@@ -510,7 +510,7 @@ func (r *renderer) flushCells() {
 		return
 	}
 	s.pending = nil
-	g := r.gl
+	g := r.GL
 	g.ActiveTexture(cellsUnit)
 	g.BindTexture(gl.TEXTURE_2D, s.tex)
 	g.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
@@ -563,9 +563,9 @@ func (r *renderer) flushCells() {
 	g.DrawElements(gl.TRIANGLES, 6, glUnsignedShort, 0)
 	r.draws++
 	if framesDebug {
-		r.stats.flushes++
-		r.stats.quads++
-		r.stats.bytes += len(s.upload) + len(s.verts)*4
+		r.Stats.Flushes++
+		r.Stats.Quads++
+		r.Stats.Bytes += len(s.upload) + len(s.verts)*4
 	}
 	s.row = tableRow + s.tableRows(0)
 	r.bindDraw()
@@ -578,9 +578,9 @@ func (r *renderer) flushCells() {
 }
 
 // releaseCells frees what drawing cells made.
-func (r *renderer) releaseCells() {
+func (r *Renderer) releaseCells() {
 	s := &r.cellsState
-	g := r.gl
+	g := r.GL
 	if s.prog.id != 0 {
 		g.DeleteProgram(s.prog.id)
 		g.DeleteBuffer(s.vbo)
@@ -596,7 +596,7 @@ func (r *renderer) releaseCells() {
 }
 
 // deviceRect is the device-pixel box b covers under t.
-func (r *renderer) deviceRect(t paint.Transform, b geom.Rect) geom.Rect {
+func (r *Renderer) deviceRect(t paint.Transform, b geom.Rect) geom.Rect {
 	lo, hi := t.Apply(b.Min), t.Apply(b.Min)
 	for _, c := range [...]geom.Point{{X: b.Max.X, Y: b.Min.Y}, b.Max, {X: b.Min.X, Y: b.Max.Y}} {
 		p := t.Apply(c)

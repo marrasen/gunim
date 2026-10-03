@@ -126,6 +126,16 @@ func (t *TextField) TextCaret() geom.Rect {
 	return geom.Rc(t.lead-t.scroll.Value()+t.caretAt.Value(), y, 1.5, h)
 }
 
+// caretRect returns where a caret before rune i would stand, in the
+// field's space.
+func (t *TextField) caretRect(i int) geom.Rect {
+	h := t.line.Height()
+	return geom.Rc(t.lead-t.scroll.Value()+t.line.CaretX(i), (t.size.H-h)/2, 1.5, h)
+}
+
+// hostIndex returns the rune a press at p in the field's space is before.
+func (t *TextField) hostIndex(p geom.Point, u *gunim.UI) int { return t.indexAt(p, u) }
+
 // Text returns the field's text.
 func (t *TextField) Text() string { return string(t.text) }
 
@@ -190,17 +200,29 @@ func (t *TextField) Handle(e input.Event, u *gunim.UI) bool {
 		t.blink.halt()
 		t.anchor = t.caret
 		t.preedit = nil // the driver ends the composition too
+		t.closeMenu()
+		t.wording = false
+		t.closeHandles()
 	case input.PointerDown:
+		if e.Button == input.ButtonSecondary {
+			t.contextPress(t, t.indexAt(e.Pos, u), e.Pos, e.Touch, u)
+			break
+		}
 		// The X clears on a primary click let go over it, so a press
 		// dragged off it clears nothing.
 		if t.overClear(e.Pos) {
 			t.clearing = e.Button == input.ButtonPrimary
 			break
 		}
+		t.closeHandles()
 		t.press(t.indexAt(e.Pos, u), e.Clicks, e.Mods.Has(input.ModShift))
 		t.held = true
 	case input.PointerMove:
 		t.clearHot.Animate(value(t.overClear(e.Pos)), Quick.Get(u.Theme()))
+		if t.wording {
+			t.dragWords(t.indexAt(e.Pos, u))
+			break
+		}
 		if !t.held {
 			return false
 		}
@@ -210,6 +232,9 @@ func (t *TextField) Handle(e input.Event, u *gunim.UI) bool {
 		return false
 	case input.PointerUp:
 		t.held = false
+		if t.endWords(t, e.Pos, u) {
+			break
+		}
 		if t.clearing && e.Button == input.ButtonPrimary {
 			t.clearing = false
 			if t.overClear(e.Pos) {
@@ -217,10 +242,11 @@ func (t *TextField) Handle(e input.Event, u *gunim.UI) bool {
 			}
 		}
 	case input.TextInput:
-		t.preedit = nil
-		t.insert(e.Text, u)
+		t.commit(e.Text, u)
 	case input.Composing:
 		t.compose(e)
+	case input.TextEdit:
+		t.edit(e, u)
 	case input.KeyPress:
 		if e.Key == input.KeyEnter || e.Key == input.KeyKPEnter {
 			// With nothing to submit to, Enter is for the nodes around
@@ -365,6 +391,7 @@ func (t *TextField) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children)
 	scroll = max(0, min(scroll, run.Advance-inner))
 	t.aim(t.scroll, scroll, motion)
 	t.edited = false
+	t.placeHandles(t)
 	return own
 }
 

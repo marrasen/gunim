@@ -1,12 +1,15 @@
 package widget
 
 import (
+	"slices"
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
+	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
 )
 
@@ -62,6 +65,19 @@ type editor struct {
 
 	// changed is called after every edit.
 	changed func(u *gunim.UI)
+	// wording is set while a finger held still on a word goes on to
+	// drag, selecting a word at a time; words is the word it first
+	// selected.
+	wording bool
+	words   [2]int
+	// handles are the popups of the selection's two handles while they
+	// show, and handleAt where each hangs; see handles.go.
+	handles  [2]*gunim.Popup
+	handleAt [2]geom.Rect
+	// menu is the edit menu's popup while it is open, and menuItems the
+	// menu in it.
+	menu      *gunim.Popup
+	menuItems *Menu
 	// edited is set by typing, deleting and composing, and cleared by
 	// the widget's next layout. The caret jumps after an edit, so it
 	// keeps up with the text; it glides when it only moves.
@@ -194,16 +210,314 @@ func (e *editor) set(i int, extend bool) {
 	e.hinted, e.goal = false, false
 }
 
+// textWindow is how many runes either side of the selection a long
+// text shows the input method.
+const textWindow = 2048
+
+// TextState implements [gunim.TextEditor] for the widgets built on the
+// editor. It returns the text as the input method sees it: as drawn, with
+// any composition in place, and cut to textWindow runes either side of
+// the selection.
+func (e *editor) TextState() input.TextState {
+	rs, at := e.shown()
+	caret, anchor := e.drawnCaret()
+	lo := max(0, min(caret, anchor)-textWindow)
+	hi := min(len(rs), max(caret, anchor)+textWindow)
+	start := byteLen(rs[:lo])
+	s := input.TextState{
+		Text:      string(rs[lo:hi]),
+		Start:     start,
+		Multiline: e.multiline,
+		Secret:    e.secret,
+	}
+	b := func(i int) int { return start + byteLen(rs[lo:i]) }
+	s.Selection = [2]int{b(anchor), b(caret)}
+	if len(e.preedit) > 0 {
+		s.Composing = [2]int{b(at), b(at + len(e.preedit))}
+	} else {
+		s.Composing = [2]int{s.Selection[1], s.Selection[1]}
+	}
+	return s
+}
+
+// commit puts typed or composed text in, as [input.TextInput] brings it,
+// in place of the selection, which a composition is drawn over. It
+// changes the text in place, so a key costs no more in a long text.
+func (e *editor) commit(s string, u *gunim.UI) {
+	if e.readOnly {
+		return
+	}
+	e.preedit, e.preSel = nil, [2]int{}
+	e.edited = true
+	e.insert(s, u)
+}
+
 // compose takes the input method's latest composition, whose selection
-// arrives in bytes.
+// arrives in bytes. An empty one only ends the composition: the text
+// and its selection stay as they were, as a desktop input method sends
+// it when a composition is cancelled and just before one commits.
 func (e *editor) compose(c input.Composing) {
+	if e.readOnly {
+		return
+	}
+	if c.Text == "" {
+		if len(e.preedit) > 0 {
+			e.preedit, e.preSel = nil, [2]int{}
+			e.edited = true
+		}
+		return
+	}
 	e.preedit = []rune(c.Text)
 	runeAt := func(b int) int {
 		b = max(0, min(b, len(c.Text)))
-		return len([]rune(c.Text[:b]))
+		return utf8.RuneCountInString(c.Text[:b])
 	}
 	e.preSel = [2]int{runeAt(c.Selected[0]), runeAt(c.Selected[1])}
+	e.hinted, e.goal = false, false
 	e.edited = true
+}
+
+// edit makes an input method's edit. The composition is drawn over
+// the text, in place of the selection, and stays out of the text
+// itself: a word the input method takes up again to compose stays in
+// the text until the composition commits. So only what the text itself
+// gains or loses is a change and a step of undo, and it reaches the
+// text as one replace of the runes that differ.
+func (e *editor) edit(t input.TextEdit, u *gunim.UI) {
+	if e.readOnly {
+		return
+	}
+	rs, _ := e.shown()
+	a, b := runeOfByte(rs, t.Replace[0]), runeOfByte(rs, t.Replace[1])
+	if a < 0 || b < a {
+		return
+	}
+	with := []rune(t.With)
+	next := make([]rune, 0, len(rs)-(b-a)+len(with))
+	next = append(next, rs[:a]...)
+	next = append(next, with...)
+	next = append(next, rs[b:]...)
+	at := func(i int) int { return max(0, runeOfByte(next, i)) }
+	c0, c1 := at(min(t.Composing[0], t.Composing[1])), at(max(t.Composing[0], t.Composing[1]))
+	anchor, caret := at(t.Selection[0]), at(t.Selection[1])
+	var pre []rune
+	// clip moves a place in next into the composition.
+	clip := func(i int) int { return max(0, min(i-c0, len(pre))) }
+	if c0 < c1 {
+		pre = slices.Clone(next[c0:c1])
+		before, after := next[:c0], next[c1:]
+		if len(before)+len(after) <= len(e.text) &&
+			slices.Equal(e.text[:len(before)], before) && slices.Equal(e.text[len(e.text)-len(after):], after) {
+			// The text around the composition is as it was: the
+			// composition covers the runes between.
+			e.anchor, e.caret = len(before), len(e.text)-len(after)
+			e.preedit, e.preSel = pre, [2]int{clip(anchor), clip(caret)}
+			e.hinted, e.goal = false, false
+			e.edited = true
+			return
+		}
+		// The edit changed the text around it too: that change goes in,
+		// and the composition covers nothing.
+		next = append(slices.Clone(before), after...)
+	}
+
+	// The runes that differ between the text and next.
+	p := 0
+	for p < len(e.text) && p < len(next) && e.text[p] == next[p] {
+		p++
+	}
+	q := 0
+	for q < len(e.text)-p && q < len(next)-p && e.text[len(e.text)-1-q] == next[len(next)-1-q] {
+		q++
+	}
+	// Where a run of the same rune makes two places fit, as typing "l"
+	// after "he" in "helo", the change goes where the edit put it, so a
+	// word typed mid-text undoes as one step.
+	for p > a && e.text[len(e.text)-q-1] == next[len(next)-q-1] {
+		p--
+		q++
+	}
+	added := next[p : len(next)-q]
+	kept := added
+	if len(added) > 0 {
+		kept = []rune(e.clean(string(added)))
+	}
+	if p+q != len(e.text) || len(kept) > 0 {
+		e.preedit = nil
+		e.replace(p, len(e.text)-q, kept, u)
+	}
+	// Places in next, moved to the text as cleaning left it.
+	moved := func(i int) int {
+		switch {
+		case i <= p:
+			return i
+		case i >= p+len(added):
+			return i - len(added) + len(kept)
+		}
+		return min(i, p+len(kept))
+	}
+	if c0 < c1 {
+		e.set(moved(c0), false)
+		e.preedit, e.preSel = pre, [2]int{clip(anchor), clip(caret)}
+	} else {
+		e.preedit = nil
+		e.set(moved(anchor), false)
+		e.set(moved(caret), true)
+	}
+	e.edited = true
+}
+
+// byteLen returns how many bytes rs takes as UTF-8.
+func byteLen(rs []rune) int {
+	n := 0
+	for _, r := range rs {
+		n += runeBytes(r)
+	}
+	return n
+}
+
+// runeBytes returns how many bytes r takes as UTF-8, where an invalid
+// rune becomes the replacement character.
+func runeBytes(r rune) int {
+	if n := utf8.RuneLen(r); n > 0 {
+		return n
+	}
+	return utf8.RuneLen(utf8.RuneError)
+}
+
+// runeOfByte returns the rune that byte b of rs as UTF-8 starts, len(rs)
+// for its end, and -1 for a byte past it. A byte inside a rune counts
+// as that rune's start.
+func runeOfByte(rs []rune, b int) int {
+	if b < 0 {
+		return -1
+	}
+	n := 0
+	for i, r := range rs {
+		if n >= b {
+			return i
+		}
+		n += runeBytes(r)
+		if n > b {
+			return i
+		}
+	}
+	if b == n {
+		return len(rs)
+	}
+	return -1
+}
+
+// The edit menu's items, in order.
+const (
+	editCut = iota
+	editCopy
+	editPaste
+	editSelectAll
+)
+
+// contextPress takes a press of the secondary button at rune i, at in
+// owner's space. A right click outside the selection puts the caret
+// there, and one inside it keeps it, and the edit menu opens. A finger
+// held still selects the word under it, as a phone's text field does,
+// and may go on to drag over more words; the menu opens as it lifts.
+func (e *editor) contextPress(owner gunim.Node, i int, at geom.Point, touch bool, u *gunim.UI) {
+	if touch {
+		e.closeMenu()
+		e.press(i, 2, false)
+		e.words = [2]int{min(e.anchor, e.caret), max(e.anchor, e.caret)}
+		e.wording = true
+		return
+	}
+	start, end := e.Selection()
+	if start == end || i < start || i > end {
+		e.set(i, false)
+	}
+	e.openMenu(owner, at, u)
+}
+
+// dragWords takes a finger held on a word moving on to rune i: the
+// selection runs from the first word to the word at i, whole words at a
+// time, either way.
+func (e *editor) dragWords(i int) {
+	ws, we := wordAt(e.text, i)
+	if ws == we {
+		ws, we = i, i
+	}
+	a, b := e.words[0], e.words[1]
+	if ws < a {
+		e.anchor, e.caret = b, ws
+	} else {
+		e.anchor, e.caret = a, max(we, b)
+	}
+	e.hinted, e.goal = false, false
+}
+
+// endWords ends a finger's choosing of words as it lifts at at, in
+// host's space, opening the edit menu there and the handles at the
+// selection's ends, unless it was called off at [input.Away], and
+// reports whether one was going on.
+func (e *editor) endWords(host textHost, at geom.Point, u *gunim.UI) bool {
+	if !e.wording {
+		return false
+	}
+	e.wording = false
+	if at == input.Away {
+		// Called off, as by a second finger coming down to pinch.
+		return true
+	}
+	e.showHandles(host, u)
+	e.openMenu(host, at, u)
+	return true
+}
+
+// openMenu opens the edit menu at at, in owner's space: Cut, Copy,
+// Paste and Select all, with only Copy and Select all for text that
+// stays as it is. Cut and Copy are dimmed with nothing selected, or for
+// a secret.
+func (e *editor) openMenu(owner gunim.Node, at geom.Point, u *gunim.UI) {
+	e.closeMenu()
+	start, end := e.Selection()
+	none := start == end || e.secret
+	items := []string{"Cut", "Copy", "Paste", "Select all"}
+	disabled := []bool{none || e.readOnly, none, e.readOnly, false}
+	m := NewMenu(items...)
+	m.Disabled = disabled
+	m.Pick = func(i int, u *gunim.UI) {
+		e.closeMenu()
+		start, end := e.Selection()
+		switch i {
+		case editCut:
+			e.clipboard(input.KeyX, start, end, u)
+		case editCopy:
+			e.clipboard(input.KeyC, start, end, u)
+		case editPaste:
+			e.clipboard(input.KeyV, start, end, u)
+		case editSelectAll:
+			e.clipboard(input.KeyA, start, end, u)
+			// With everything selected, the menu stays for what to do
+			// with it, and handles chosen by finger move to its ends.
+			if host, ok := owner.(textHost); ok && e.handles[0] != nil {
+				e.placeHandles(host)
+			}
+			e.openMenu(owner, at, u)
+		}
+		u.Invalidate()
+	}
+	e.menuItems = m
+	e.menu = u.OpenPopup(owner, m, gunim.PopupOptions{
+		Anchor:  geom.Rect{Min: at, Max: at},
+		Max:     geom.Sz(600, 480),
+		Dismiss: func(*gunim.UI) { e.closeMenu() },
+	})
+}
+
+// closeMenu closes the edit menu, if it is open.
+func (e *editor) closeMenu() {
+	if e.menu != nil {
+		e.menu.Close()
+		e.menu, e.menuItems = nil, nil
+	}
 }
 
 // press places the caret for a click at rune i: selecting a word on a
@@ -224,9 +538,32 @@ func clickRange(rs []rune, i, clicks int) (anchor, caret int) {
 	case clicks >= 3:
 		return 0, len(rs)
 	case clicks == 2:
-		return wordStart(rs, i), wordEnd(rs, i)
+		return wordAt(rs, i)
 	}
 	return i, i
+}
+
+// wordAt returns the word at rune i: the one i is in, or the one it ends,
+// for a click just after a word. On a space, with no word ending there,
+// it returns i alone, so a double click or a long press on the space
+// after a text's last word selects nothing past it.
+func wordAt(rs []rune, i int) (start, end int) {
+	i = max(0, min(i, len(rs)))
+	j := i
+	if j == len(rs) || unicode.IsSpace(rs[j]) {
+		if j == 0 || unicode.IsSpace(rs[j-1]) {
+			return i, i
+		}
+		j--
+	}
+	start, end = j, j
+	for start > 0 && !unicode.IsSpace(rs[start-1]) {
+		start--
+	}
+	for end < len(rs) && !unicode.IsSpace(rs[end]) {
+		end++
+	}
+	return start, end
 }
 
 // key handles a key press. It reports false for a key the widget or its
@@ -370,10 +707,20 @@ func (e *editor) paste(s string, u *gunim.UI) {
 	e.pasting = false
 }
 
-// insert puts s in place of the selection. A single line turns
-// newlines and tabs into spaces; both keep printable text only.
+// insert puts s in place of the selection.
 func (e *editor) insert(s string, u *gunim.UI) {
-	s = strings.Map(func(r rune) rune {
+	s = e.clean(s)
+	if s == "" {
+		return
+	}
+	start, end := e.Selection()
+	e.replace(start, end, []rune(s), u)
+}
+
+// clean returns s as the text keeps it. A single line turns newlines
+// and tabs into spaces; both keep printable text only.
+func (e *editor) clean(s string) string {
+	return strings.Map(func(r rune) rune {
 		switch {
 		case r == '\n' && e.multiline, r == '\t' && e.tabs:
 			return r
@@ -384,11 +731,6 @@ func (e *editor) insert(s string, u *gunim.UI) {
 		}
 		return r
 	}, s)
-	if s == "" {
-		return
-	}
-	start, end := e.Selection()
-	e.replace(start, end, []rune(s), u)
 }
 
 // replace swaps runes start to end for with, and leaves the caret after
@@ -406,6 +748,7 @@ func (e *editor) replace(start, end int, with []rune, u *gunim.UI) {
 		kind = deleting
 	}
 	e.remember(kind, start, end, with)
+	e.closeHandles()
 	out := make([]rune, 0, len(e.text)-(end-start)+len(with))
 	out = append(out, e.text[:start]...)
 	out = append(out, with...)

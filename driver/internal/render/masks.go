@@ -1,6 +1,6 @@
 //go:build linux || windows || darwin
 
-package desktop
+package render
 
 import (
 	"math"
@@ -19,7 +19,7 @@ const settledMost = 256
 // A settled shape is rasterized once per device size, up to settledMost, and kept in the atlas; one still changing is rasterized every
 // frame into the scratch strip. Under a plain translation the mask snaps to whole device pixels. Under a scale or
 // rotation it keeps its resting size and the quad carries the transform, as glyphs do.
-func (r *renderer) mask(op *paint.MaskOp) {
+func (r *Renderer) mask(op *paint.MaskOp) {
 	if op.Shape == nil || op.Color.A == 0 {
 		return
 	}
@@ -78,14 +78,14 @@ func (r *renderer) mask(op *paint.MaskOp) {
 
 // scratch copies a mask w by h pixels into the scratch strip for this frame alone and returns its place. A full
 // strip draws what is queued and starts again from its left.
-func (r *renderer) scratch(pix []byte, w, h int) glyphSlot {
+func (r *Renderer) scratch(pix []byte, w, h int) glyphSlot {
 	if r.scratchX+w+1 > atlasSize {
 		r.flush()
 		r.scratchX = 0
 	}
 	slot := glyphSlot{x: r.scratchX, y: atlasSize - scratchRows, w: w, h: h}
 	r.scratchX += w + 1
-	g := r.gl
+	g := r.GL
 	g.ActiveTexture(gl.TEXTURE0)
 	g.BindTexture(gl.TEXTURE_2D, r.glyphs.tex)
 	g.TexSubImage2D(gl.TEXTURE_2D, 0, int32(slot.x), int32(slot.y), int32(w), int32(h), glRed, gl.UNSIGNED_BYTE, pix)

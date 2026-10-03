@@ -47,9 +47,15 @@ type frame struct {
 	wheel, keys int
 	// keysGoOn passes the key presses on past the frame, to the window's key catchers.
 	keysGoOn bool
+	// handle, when set, hears each event first, and takes those it
+	// reports true for.
+	handle func(e input.Event, u *gunim.UI) bool
 }
 
-func (f *frame) Handle(e input.Event, _ *gunim.UI) bool {
+func (f *frame) Handle(e input.Event, u *gunim.UI) bool {
+	if f.handle != nil && f.handle(e, u) {
+		return true
+	}
 	switch e := e.(type) {
 	case input.Scroll:
 		f.wheel++

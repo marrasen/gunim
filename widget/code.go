@@ -336,6 +336,16 @@ func (c *CodeEditor) TextCaret() geom.Rect {
 	return geom.Rc(at.X, at.Y+(c.lineH-c.glyphH)/2, 1.5, c.glyphH)
 }
 
+// caretRect returns where a caret before rune i would stand, in the
+// editor's space.
+func (c *CodeEditor) caretRect(i int) geom.Rect {
+	at := geom.Pt(c.xOf(i), float32(c.lineOf(i))*c.lineH).Add(c.origin())
+	return geom.Rc(at.X, at.Y+(c.lineH-c.glyphH)/2, 1.5, c.glyphH)
+}
+
+// hostIndex returns the rune a press at p in the editor's space is before.
+func (c *CodeEditor) hostIndex(p geom.Point, _ *gunim.UI) int { return c.indexAt(p) }
+
 // Step implements [gunim.Animator].
 func (c *CodeEditor) Step(dt time.Duration) bool {
 	moving := c.Group.Step(dt)
@@ -375,16 +385,29 @@ func (c *CodeEditor) Handle(e input.Event, u *gunim.UI) bool {
 		c.blink.halt()
 		c.anchor = c.caret
 		c.preedit = nil
+		c.closeMenu()
+		c.wording = false
+		c.closeHandles()
 	case input.PointerDown:
+		if e.Button == input.ButtonSecondary {
+			c.contextPress(c, c.indexAt(e.Pos), e.Pos, e.Touch, u)
+			break
+		}
+		c.closeHandles()
 		c.press(c.indexAt(e.Pos), e.Clicks, e.Mods.Has(input.ModShift))
 		c.held = true
 	case input.PointerMove:
+		if c.wording {
+			c.dragWords(c.indexAt(e.Pos))
+			break
+		}
 		if !c.held {
 			return false
 		}
 		c.set(c.indexAt(e.Pos), true)
 	case input.PointerUp:
 		c.held = false
+		c.endWords(c, e.Pos, u)
 	case input.Scroll:
 		dx, dy := e.Delta.X, e.Delta.Y
 		if e.Mods.Has(input.ModShift) && dx == 0 {
@@ -401,13 +424,17 @@ func (c *CodeEditor) Handle(e input.Event, u *gunim.UI) bool {
 		if c.readOnly {
 			return true
 		}
-		c.preedit = nil
 		c.typed(e.Text, u)
 	case input.Composing:
 		if c.readOnly {
 			return true
 		}
 		c.compose(e)
+	case input.TextEdit:
+		if c.readOnly {
+			return true
+		}
+		c.edit(e, u)
 	case input.KeyPress:
 		if !c.codeKey(e, u) && !c.key(e, u, codeNav{c}) {
 			return false
@@ -426,14 +453,14 @@ func (c *CodeEditor) Handle(e input.Event, u *gunim.UI) bool {
 // typed at the start of a line.
 func (c *CodeEditor) typed(s string, u *gunim.UI) {
 	start, end := c.Selection()
-	if s == "}" && start == end {
+	if s == "}" && start == end && len(c.preedit) == 0 {
 		ls := c.lineStartOf(start)
 		if before := c.text[ls:start]; len(before) > 0 && onlyIndent(before) && before[len(before)-1] == '\t' {
 			c.replace(start-1, start, []rune("}"), u)
 			return
 		}
 	}
-	c.insert(s, u)
+	c.commit(s, u)
 }
 
 // codeKey takes the keys code edits differently, and reports whether
@@ -859,6 +886,7 @@ func (c *CodeEditor) Layout(cs gunim.Constraints, f gunim.Frame, _ gunim.Childre
 	}
 	c.edited = false
 	c.laid = true
+	c.placeHandles(c)
 	return own
 }
 

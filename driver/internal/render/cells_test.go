@@ -1,6 +1,6 @@
 //go:build linux || windows || darwin
 
-package desktop
+package render
 
 import (
 	"image/color"
@@ -14,11 +14,11 @@ import (
 )
 
 // readFrame returns the canvas's pixels, row by row from the top.
-func readFrame(r *renderer) []byte {
+func readFrame(r *Renderer) []byte {
 	w, h := r.fbW, r.fbH
 	pix := make([]byte, w*h*4)
-	r.gl.BindFramebuffer(0x8D40, r.fbo(0))
-	r.gl.ReadPixels(pix, 0, 0, int32(w), int32(h), 0x1908, 0x1401)
+	r.GL.BindFramebuffer(0x8D40, r.fbo(0))
+	r.GL.ReadPixels(pix, 0, 0, int32(w), int32(h), 0x1908, 0x1401)
 	out := make([]byte, len(pix))
 	for y := range h {
 		copy(out[y*w*4:(y+1)*w*4], pix[(h-1-y)*w*4:(h-y)*w*4])
@@ -105,7 +105,7 @@ func TestCellsDrawPixelForPixel(t *testing.T) {
 			}
 		}
 		r.draws = 0
-		r.draw(fast.Ops(), paint.Everything, w, h, scale)
+		r.Draw(fast.Ops(), paint.Everything, w, h, scale)
 		got := readFrame(r)
 		if r.draws > 3 {
 			t.Errorf("at scale %v the grid took %d draws, want its rows together", scale, r.draws)
@@ -141,7 +141,7 @@ func TestCellsKeepTheirPlaceAmongOtherDrawing(t *testing.T) {
 	p.RRect(geom.Rc(0, 0, 30, 20), 0, paint.Solid(green))
 	p.Cells(geom.Pt(0, 10), geom.Sz(10, 10), row(blue), pats, 1, 1, 0, 0)
 	w, h := int(benchSize.W), int(benchSize.H)
-	r.draw(p.Ops(), paint.Everything, w, h, 1)
+	r.Draw(p.Ops(), paint.Everything, w, h, 1)
 	pix := readFrame(r)
 	at := func(x, y int) [3]byte { i := (y*w + x) * 4; return [3]byte{pix[i], pix[i+1], pix[i+2]} }
 	if got := at(5, 5); got != [3]byte{0, 0xff, 0} {
@@ -168,7 +168,7 @@ func TestGlyphsInCellsDrawAsText(t *testing.T) {
 	for _, tr := range renderings {
 		for _, scale := range []float32{1, 1.5} {
 			for _, tight := range []bool{false, true} {
-				r.setText(tr, false)
+				r.SetText(tr, false)
 				const size = 14
 				_, adv, _ := face.Glyph('M', size)
 				ascent, descent, _ := face.Metrics(size)
@@ -232,12 +232,12 @@ func TestGlyphsInCellsDrawAsText(t *testing.T) {
 						slow.Text([]paint.Glyph{g}, size, c.FG, geom.Rect{Max: geom.Pt(float32(w), float32(h))})
 					}
 				}
-				r.draw(slow.Ops(), paint.Everything, w, h, scale)
-				r.draw(slow.Ops(), paint.Everything, w, h, scale)
+				r.Draw(slow.Ops(), paint.Everything, w, h, scale)
+				r.Draw(slow.Ops(), paint.Everything, w, h, scale)
 				want := readFrame(r)
 				r.cellsState.inCells, r.cellsState.spilled = 0, 0
-				r.draw(fast.Ops(), paint.Everything, w, h, scale)
-				r.draw(fast.Ops(), paint.Everything, w, h, scale)
+				r.Draw(fast.Ops(), paint.Everything, w, h, scale)
+				r.Draw(fast.Ops(), paint.Everything, w, h, scale)
 				got := readFrame(r)
 				if in, out := r.cellsState.inCells, r.cellsState.spilled; tight && out == 0 || !tight && in < out*4 {
 					t.Errorf("%v at scale %v, tight %v: %d glyphs drawn in their cells and %d as text", tr.Smoothing, scale, tight, in, out)

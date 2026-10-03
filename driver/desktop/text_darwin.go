@@ -13,7 +13,7 @@ import (
 // result.
 func installText(w *Window) {
 	_, _ = w.gw.SetCharCallback(func(_ *glfw.Window, r rune) {
-		w.in.push(input.TextInput{Text: string(r), Time: time.Now()})
+		w.in.Push(input.TextInput{Text: string(r), Time: time.Now()})
 	})
 }
 

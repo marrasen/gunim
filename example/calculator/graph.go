@@ -9,6 +9,7 @@ import (
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/widget"
@@ -88,7 +89,54 @@ type graphBody struct {
 	chips  []*chip
 	// side is the panel beside the plot, in the body's space.
 	side geom.Rect
+	// shake throws the line being typed sideways when a sum has no
+	// curve, why says why, and errors counts the sums that had none.
+	shake  *anim.Float
+	why    *notice
+	errors int
+	// full grows the plot over the whole graph, from 0 to 1, as the
+	// button in its corner asks, and fill is that button.
+	full *anim.Float
+	fill *widget.IconButton
+	// plot is where the plot was laid out, in the body's space.
+	plot geom.Rect
 }
+
+// notice is a line of text that fades and rises into its place as it is
+// set, and fades out as it is cleared, keeping its words while it goes.
+type notice struct {
+	text string
+	a    *anim.Float
+}
+
+func newNotice() *notice { return &notice{a: anim.NewFloat(0)} }
+
+// set shows s, or with s empty takes the line away.
+func (n *notice) set(s string) {
+	if s == "" {
+		n.a.Animate(0, anim.Gentle)
+		return
+	}
+	if s != n.text {
+		// Words that change come in afresh.
+		n.text = s
+		n.a.Jump(0)
+	}
+	n.a.Animate(1, anim.Snappy)
+}
+
+// paint draws the line with its top left at at, size high, in col.
+func (n *notice) paint(p *paint.Painter, at geom.Point, size float32, col color.NRGBA) {
+	a := n.a.Value()
+	if a <= 0.01 || n.text == "" {
+		return
+	}
+	run := shaped(n.text, size)
+	run.Paint(p, at.Add(geom.Pt(0, 8*(1-a))), faded(col, min(a, 1)))
+}
+
+// errorInk is the colour a sum with no answer is told in.
+var errorInk = color.NRGBA{R: 0xff, G: 0x8a, B: 0x7a, A: 0xff}
 
 // chip is a curve in the side panel: its colour, its sum, and a cross
 // that takes it off.
@@ -103,14 +151,30 @@ type chip struct {
 const chipHeight = 40
 
 func newGraphBody(r *calcRoot) *graphBody {
-	g := &graphBody{r: r, canvas: newCanvas(), expr: newRoll(26)}
+	g := &graphBody{r: r, canvas: newCanvas(), expr: newRoll(26), shake: anim.NewFloat(0), why: newNotice(),
+		full: anim.NewFloat(0)}
+	g.Add(g.shake, g.why.a, g.full)
+	g.fill = widget.NewIconButton(icon.Maximize2, "Fill the window with the plot")
+	g.fill.OnActivate(func(u *gunim.UI) { g.setFull(g.full.Target() == 0, u) })
 	g.keys = newKeypad(8,
 		[]string{"x", "^", "(", ")", "⌫"},
 		[]string{"sin", "cos", "tan", "√", "C"},
-		[]string{"+", "−", "×", "÷", "="},
+		[]string{"7", "8", "9", "÷", "π"},
+		[]string{"4", "5", "6", "×", "e"},
+		[]string{"1", "2", "3", "−", "ln"},
+		[]string{"0", ".", "%", "+", "="},
 	)
 	return g
 }
+
+// The graph's keypad: graphKeyRows rows graphKeyH high, which take
+// graphKeysH with the gaps between them. Its digits let a phone, with no
+// keys of its own, type a sum such as 0.5×sin(x).
+const (
+	graphKeyRows = 6
+	graphKeyH    = 40
+	graphKeysH   = graphKeyRows*graphKeyH + (graphKeyRows-1)*8
+)
 
 // arrive starts the curves drawing on again, as the graph opens.
 func (g *graphBody) arrive() {
@@ -123,6 +187,14 @@ func (g *graphBody) arrive() {
 // show takes the application's state.
 func (g *graphBody) show(s Calc, u *gunim.UI) {
 	g.expr.set(s.Expr)
+	g.why.set(s.Error)
+	if s.Errors != g.errors {
+		g.errors = s.Errors
+		if s.Graph {
+			g.shake.Jump(1)
+			g.shake.Animate(0, anim.Spring{Response: 0.35, Damping: 0.2})
+		}
+	}
 	g.canvas.show(s)
 	// The chips: new ones grow in at the end, gone ones fade.
 	seen := map[int]*chip{}
@@ -155,10 +227,17 @@ func (g *graphBody) show(s Calc, u *gunim.UI) {
 
 // Step implements [gunim.Animator].
 func (g *graphBody) Step(dt time.Duration) bool {
-	moving := g.expr.step(dt)
+	// The group holds the shake and the line saying why; the roll and
+	// the chips step on their own.
+	moving := g.Group.Step(dt)
+	if g.expr.step(dt) {
+		moving = true
+	}
 	live := g.chips[:0]
 	for _, c := range g.chips {
-		if c.y.Step(dt) || c.a.Step(dt) {
+		// Both step every frame: a chip fades as it moves.
+		y, a := c.y.Step(dt), c.a.Step(dt)
+		if y || a {
 			moving = true
 		}
 		if c.going && !c.a.Active() {
@@ -171,29 +250,71 @@ func (g *graphBody) Step(dt time.Duration) bool {
 }
 
 // Children implements [gunim.Composite].
-func (g *graphBody) Children() []gunim.Node { return []gunim.Node{g.canvas, g.keys} }
+func (g *graphBody) Children() []gunim.Node { return []gunim.Node{g.canvas, g.keys, g.fill} }
+
+// fullMotion is the spring the plot grows and shrinks on.
+var fullMotion = anim.Spring{Response: 0.45, Damping: 0.82}
+
+// setFull grows the plot over the whole graph, or back to its place
+// beside the panel, which slides away and back as it does.
+func (g *graphBody) setFull(on bool, u *gunim.UI) {
+	to := float32(0)
+	g.fill.Icon, g.fill.Tooltip = icon.Maximize2, "Fill the window with the plot"
+	if on {
+		to = 1
+		g.fill.Icon, g.fill.Tooltip = icon.Minimize2, "Bring the curves and the keys back"
+	}
+	g.full.Animate(to, fullMotion)
+	u.Invalidate()
+}
+
+// isFull reports whether the plot fills the graph, or is on its way.
+func (g *graphBody) isFull() bool { return g.full.Target() == 1 }
 
 // Covers implements [gunim.Shaped]: the graph takes the pointer while
 // it is the one showing.
 func (g *graphBody) Covers(geom.Point) bool { return g.r.mode.Target() == 1 }
 
-// sideWidth is the panel's width.
+// sideWidth is the panel's width beside the plot, on a window wider than
+// narrowWidth; on a narrower one the panel goes under the plot, as wide
+// as the window.
 const sideWidth = 280
 
 // Layout implements [gunim.Node].
 func (g *graphBody) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
 	size := c.Max
 	const pad = 14
-	plot := geom.Rc(pad, pad, max(0, size.W-sideWidth-3*pad), max(0, size.H-2*pad))
+	var plot geom.Rect
+	if size.W < narrowWidth {
+		// A phone: the plot across the top, and the panel under it.
+		plot = geom.Rc(pad, pad, max(0, size.W-2*pad), max(0, size.H*0.35))
+		g.side = geom.Rc(pad, plot.Max.Y+pad, plot.Size().W, max(0, size.H-plot.Max.Y-2*pad))
+	} else {
+		plot = geom.Rc(pad, pad, max(0, size.W-sideWidth-3*pad), max(0, size.H-2*pad))
+		g.side = geom.Rc(plot.Max.X+pad, pad, sideWidth, plot.Size().H)
+	}
+	// Full, the plot fills the graph, and the panel slides away the way
+	// it sits from the plot: down on a phone, right on a wider window.
+	t := g.full.Value()
+	plot = mixRect(plot, geom.Rc(pad, pad, max(0, size.W-2*pad), max(0, size.H-2*pad)), t)
+	if size.W < narrowWidth {
+		g.side = g.side.Add(geom.Pt(0, t*(size.H-g.side.Min.Y+pad)))
+	} else {
+		g.side = g.side.Add(geom.Pt(t*(size.W-g.side.Min.X+pad), 0))
+	}
+	g.plot = plot
 	canvas := kids.At(0)
 	canvas.Layout(gunim.Tight(plot.Size()))
 	canvas.Place(plot.Min)
-	g.side = geom.Rc(plot.Max.X+pad, pad, sideWidth, plot.Size().H)
-	keysH := float32(3*44 + 2*8)
+	fill := kids.At(2)
+	fs := fill.Layout(gunim.Loose(plot.Size()))
+	fill.Place(geom.Pt(plot.Max.X-fs.W-8, plot.Min.Y+8))
+	sideW := g.side.Size().W
+	keysH := float32(graphKeysH)
 	keys := kids.At(1)
-	keys.Layout(gunim.Tight(geom.Sz(sideWidth-24, keysH)))
+	keys.Layout(gunim.Tight(geom.Sz(sideW-24, keysH)))
 	keys.Place(geom.Pt(g.side.Min.X+12, g.side.Max.Y-12-keysH))
-	g.expr.place(g.side.Max.X-18, sideWidth-36)
+	g.expr.place(g.side.Max.X-18, sideW-36)
 	return size
 }
 
@@ -202,6 +323,13 @@ func (g *graphBody) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids g
 	th := f.Theme
 	ink := widget.Ink.Get(th)
 	kids.At(0).Paint(p)
+	defer kids.At(2).Paint(p)
+	t := g.full.Value()
+	if t >= 0.999 {
+		return
+	}
+	// The panel fades as it slides away.
+	defer p.Layer(paint.LayerOpts{Bounds: geom.Rect{Max: box.Point()}, Opacity: 1 - t})()
 	s := g.side
 	p.RRect(s, 18, paint.Solid(widget.CardFill.Get(th)))
 	head := shaped("Curves", 13)
@@ -220,11 +348,16 @@ func (g *graphBody) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids g
 		cross := shaped("×", 16)
 		cross.Paint(p, geom.Pt(s.Max.X-30, y+(chipHeight-cross.Height())/2-4), faded(ink, 0.4*a))
 	}
-	// The line being typed, over the keys.
-	keysTop := s.Max.Y - 12 - float32(3*44+2*8)
-	line := geom.Rc(s.Min.X+12, keysTop-62, sideWidth-24, 50)
-	p.RRect(line, 12, paint.Solid(faded(ink, 0.06)))
-	g.expr.paint(p, line.Min.Y+10, g.expr.rightEdge(s), ink)
+	// The line being typed, over the keys, shaken when a sum has no
+	// curve, with why over it.
+	keysTop := s.Max.Y - 12 - float32(graphKeysH)
+	line := geom.Rc(s.Min.X+12, keysTop-62, s.Size().W-24, 50)
+	g.why.paint(p, geom.Pt(line.Min.X+6, line.Min.Y-24), 14, errorInk)
+	func() {
+		defer p.Push(paint.Translate(geom.Pt(14*g.shake.Value(), 0)))()
+		p.RRect(line, 12, paint.Solid(faded(ink, 0.06)))
+		g.expr.paint(p, line.Min.Y+10, g.expr.rightEdge(s), ink)
+	}()
 	kids.At(1).Paint(p)
 }
 
@@ -604,6 +737,14 @@ func (c *canvas) retrace() {
 	c.trace.Animate(at, anim.Spring{Response: 0.12, Damping: 0.8})
 	c.traceOn.Animate(1, anim.Snappy)
 }
+
+// ZoomsWithWheel implements [gunim.WheelZoomer]: the wheel zooms the
+// plot, with Ctrl as without, and so does a pinch.
+func (c *canvas) ZoomsWithWheel() bool { return true }
+
+// DragsTouch implements [gunim.TouchDragger]: a finger pans the plot,
+// as the mouse does.
+func (c *canvas) DragsTouch() bool { return c.dragging }
 
 // Handle implements [gunim.Handler].
 func (c *canvas) Handle(e input.Event, u *gunim.UI) bool {

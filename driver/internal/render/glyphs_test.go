@@ -1,6 +1,6 @@
 //go:build linux || windows || darwin
 
-package desktop
+package render
 
 import (
 	"image/color"
@@ -29,11 +29,11 @@ func textOps(wrap func(p *paint.Painter, draw func())) []paint.Op {
 
 // drewGlyphs draws ops and reports whether the frame drew greyscale
 // glyphs and glyphs on subpixels.
-func drewGlyphs(r *renderer, ops []paint.Op) (grey, sub bool) {
+func drewGlyphs(r *Renderer, ops []paint.Op) (grey, sub bool) {
 	clear(r.glyphs.have)
 	clear(r.lcdGlyphs.have)
 	r.canvasOK = false
-	r.draw(ops, paint.Everything, int(benchSize.W), int(benchSize.H), 1)
+	r.Draw(ops, paint.Everything, int(benchSize.W), int(benchSize.H), 1)
 	return len(r.glyphs.have) > 0, len(r.lcdGlyphs.have) > 0
 }
 
@@ -74,7 +74,7 @@ func TestSubpixelTextFallsBackToGreyscale(t *testing.T) {
 		{"blurred", layer(paint.LayerOpts{Opacity: 1, Blur: 2}), false, false},
 		{"on a transparent window", plain, true, false},
 	} {
-		r.setText(lcd, c.transparent)
+		r.SetText(lcd, c.transparent)
 		grey, sub := drewGlyphs(r, textOps(c.wrap))
 		if sub != c.sub || grey == c.sub {
 			t.Errorf("%s: drew greyscale glyphs %v and subpixel glyphs %v, want subpixels %v", c.name, grey, sub, c.sub)
@@ -82,7 +82,7 @@ func TestSubpixelTextFallsBackToGreyscale(t *testing.T) {
 	}
 
 	r.dual = false
-	r.setText(lcd, false)
+	r.SetText(lcd, false)
 	if grey, sub := drewGlyphs(r, textOps(plain)); !grey || sub {
 		t.Errorf("without dual-source blending: drew greyscale %v and subpixels %v, want greyscale alone", grey, sub)
 	}
@@ -95,13 +95,13 @@ func TestSubpixelTextHasColourFringes(t *testing.T) {
 		t.Skip("the context has no dual-source blending")
 	}
 	fringes := func(tr text.Rendering) int {
-		r.setText(tr, false)
+		r.SetText(tr, false)
 		r.canvasOK, r.direct = false, false
 		ops := textOps(func(_ *paint.Painter, draw func()) { draw() })
 		// The first frame goes straight to the window; the second fills
 		// the canvas, which a test can read.
-		r.draw(ops, paint.Everything, int(benchSize.W), int(benchSize.H), 1)
-		r.draw(ops, geom.Rc(0, 0, 1, 1), int(benchSize.W), int(benchSize.H), 1)
+		r.Draw(ops, paint.Everything, int(benchSize.W), int(benchSize.H), 1)
+		r.Draw(ops, geom.Rc(0, 0, 1, 1), int(benchSize.W), int(benchSize.H), 1)
 		pix := canvas(r)
 		n := 0
 		for i := 0; i < len(pix); i += 4 {
@@ -129,17 +129,17 @@ func TestAnOpaqueClipDrawsInPlace(t *testing.T) {
 	p.RRect(geom.Rc(0, 0, 100, 100), 0, paint.Solid(red))
 	end()
 	// A big frame after a big frame goes straight to the window, with no copy to count.
-	r.draw(p.Ops(), paint.Everything, int(benchSize.W), int(benchSize.H), 1)
+	r.Draw(p.Ops(), paint.Everything, int(benchSize.W), int(benchSize.H), 1)
 	r.draws = 0
-	r.draw(p.Ops(), paint.Everything, int(benchSize.W), int(benchSize.H), 1)
+	r.Draw(p.Ops(), paint.Everything, int(benchSize.W), int(benchSize.H), 1)
 	// One batch before the clip and one inside it, with no composite.
 	if r.draws > 2 {
 		t.Errorf("a frame with an opaque clip drew in %d calls, want 2", r.draws)
 	}
 	pix := make([]byte, 4)
 	at := func(x, y int) [3]byte {
-		r.gl.BindFramebuffer(0x8D40, r.fbo(0))
-		r.gl.ReadPixels(pix, int32(x), int32(r.fbH-1-y), 1, 1, 0x1908, 0x1401)
+		r.GL.BindFramebuffer(0x8D40, r.fbo(0))
+		r.GL.ReadPixels(pix, int32(x), int32(r.fbH-1-y), 1, 1, 0x1908, 0x1401)
 		return [3]byte{pix[0], pix[1], pix[2]}
 	}
 	if got := at(30, 30); got != [3]byte{0xff, 0, 0} {

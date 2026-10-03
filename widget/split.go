@@ -224,6 +224,10 @@ func (s *Split) Cursor(p geom.Point) input.Cursor {
 	return input.CursorResizeH
 }
 
+// DragsTouch implements [gunim.TouchDragger]: a finger on the divider
+// drags it.
+func (s *Split) DragsTouch() bool { return s.held }
+
 // Handle implements [gunim.Handler]: the pointer drags the divider.
 func (s *Split) Handle(e input.Event, u *gunim.UI) bool {
 	th := u.Theme()

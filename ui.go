@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/marrasen/gunim/driver"
-	"github.com/marrasen/gunim/driver/desktop"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
@@ -47,7 +46,7 @@ import (
 // The error Main returns is the one fn returned, joined with any error
 // the platform event loop ended on.
 func Main(ctx context.Context, fn func(*App) error) error {
-	drv, err := desktop.Open()
+	drv, err := openDriver()
 	if err != nil {
 		return fmt.Errorf("gunim: open display: %w", err)
 	}
@@ -1082,8 +1081,18 @@ type UI struct {
 	capture *state
 	// current is the node whose Handle, update or patch is running.
 	current *state
-	// caretAt is the text caret last told to the driver.
-	caretAt geom.Rect
+	// touch is the finger pressing now, and fling the scroll coasting on
+	// after one lifted; see touch.go.
+	touch *touchPress
+	fling *touchFling
+	// caretAt is the text caret last told to the driver, and boxAt the
+	// bounds of the node it is in.
+	caretAt, boxAt geom.Rect
+	// textState is the focused node's text state last told to the
+	// driver, nil for none, and textSent the seq it went with. textSeq
+	// is the seq of the last [input.TextEdit] the focus took.
+	textState         *input.TextState
+	textSent, textSeq uint64
 
 	now time.Time
 	// theme is the window's live theme, stepped every frame.
@@ -1730,17 +1739,62 @@ func (u *UI) cue(keyboard bool) {
 // text, so the input method composes into the window only then. A
 // composition belongs to the node it was typed into, so focus moving
 // between two nodes that take text turns text input off on the way,
-// which ends it.
+// which ends it. The new node's text state reaches the driver before
+// text input turns on, so the input method starts from it.
 func (u *UI) takeText(prev, next *state) {
+	// The driver forgets the caret and its box as text input turns off,
+	// so the next node to take text tells them afresh, though they are
+	// where they were.
+	u.caretAt, u.boxAt = geom.Rect{}, geom.Rect{}
 	ti, ok := u.w.dw.(driver.TextInputter)
+	takes := takingText(next)
+	if ok && takes && takingText(prev) {
+		ti.SetTextInput(false)
+	}
+	u.syncText(next, true)
+	if ok {
+		ti.SetTextInput(takes)
+	}
+}
+
+// syncText tells the driver the state of s's text when s is a
+// [TextEditor] that takes text, and nil when s is something else. It
+// tells only a change since the driver last heard, unless fresh says s
+// has just taken the focus: a text node taking the focus always starts
+// the input method over, though its text matches the last one's.
+func (u *UI) syncText(s *state, fresh bool) {
+	ts, ok := u.w.dw.(driver.TextStater)
 	if !ok {
 		return
 	}
-	takes := takingText(next)
-	if takes && takingText(prev) {
-		ti.SetTextInput(false)
+	var st *input.TextState
+	if s != nil {
+		if ed, ok := s.node.(TextEditor); ok && ed.TakesText() {
+			v := ed.TextState()
+			st = &v
+		}
 	}
-	ti.SetTextInput(takes)
+	same := st == nil && u.textState == nil ||
+		st != nil && u.textState != nil && *st == *u.textState && u.textSent == u.textSeq
+	if same && (!fresh || st == nil) {
+		return
+	}
+	u.textState, u.textSent = st, u.textSeq
+	ts.SetTextState(st, u.textSeq)
+}
+
+// askKeyboard shows the on-screen keyboard, where the window has one,
+// for a press let go on hit, the focused node or inside it, while that
+// node takes text: a tap on a text field asks for the keyboard, though
+// the field had the focus already. It asks as the press is let go, so a
+// finger that starts a scroll on a field, whose press is let go away
+// from it, leaves the keyboard as it was.
+func (u *UI) askKeyboard(hit *state) {
+	ks, ok := u.w.dw.(driver.KeyboardShower)
+	if !ok || hit == nil || u.focus == nil || !hit.within(u.focus) || !takingText(u.focus) {
+		return
+	}
+	ks.ShowKeyboard()
 }
 
 // takingText reports whether s is a node that takes typed text.
@@ -1753,7 +1807,8 @@ func takingText(s *state) bool {
 }
 
 // placeCaret tells the driver where the focused node's text caret is,
-// in window space, when it has moved.
+// in window space, when it has moved, and where the node itself is, for
+// a driver that keeps the whole of it in view.
 func (u *UI) placeCaret() {
 	cp, ok := u.w.dw.(driver.CaretPlacer)
 	if !ok || u.focus == nil {
@@ -1766,6 +1821,13 @@ func (u *UI) placeCaret() {
 	r := cr.TextCaret()
 	t := u.focus.toWindow
 	at := geom.Rect{Min: t.Apply(r.Min), Max: t.Apply(r.Max)}.Normalized()
+	if bp, ok := u.w.dw.(driver.TextBoxPlacer); ok {
+		box := geom.Rect{Min: t.Apply(geom.Point{}), Max: t.Apply(u.focus.size.Point())}.Normalized()
+		if box != u.boxAt {
+			u.boxAt = box
+			bp.SetTextBox(box)
+		}
+	}
 	if at != u.caretAt {
 		u.caretAt = at
 		cp.SetTextCaret(at)
@@ -1791,6 +1853,7 @@ func (u *UI) frame(now time.Time, delta time.Duration) {
 	// still where the last frame drew them, to find what the pointer is
 	// over.
 	scrolled := u.edgeScroll(delta)
+	scrolled = u.stepFling(delta) || scrolled
 	if !scrolled && u.dragOver {
 		// Offer a resting drag again, as what lies under it may have changed
 		u.dragHover(u.dragOverAt, u.dragOverData)
@@ -1896,6 +1959,7 @@ func (u *UI) frame(now time.Time, delta time.Duration) {
 	}
 	u.sendTitleBar()
 	u.placeCaret()
+	u.syncText(u.focus, false)
 	u.hoverAgain(now)
 	u.framePopups(f)
 	u.publishAccess(u.w.dw, u.root, u.w.title)

@@ -39,6 +39,47 @@ type TextInputter interface {
 	SetTextInput(active bool)
 }
 
+// A TextStater is a [Window] that keeps a copy of the focused text
+// node's state, so it can answer an input method that asks about the
+// text, as a phone's keyboard does, at once. The engine calls
+// SetTextState when the state changes, and with nil when the focus
+// moves to a node that keeps no text.
+//
+// The driver sends the input method's changes as
+// [github.com/marrasen/gunim/input.TextEdit], numbered from 1. seq is
+// the number of the last edit the state includes. A state with seq
+// behind the driver's latest edit is out of date: the edits after it
+// are still on their way to the node. A state with seq level with it
+// that differs from the copy is a change the node made, such as text
+// set by the program, and the input method starts over from it.
+type TextStater interface {
+	SetTextState(s *input.TextState, seq uint64)
+}
+
+// A TextBoxPlacer is a [CaretPlacer] that also hears where the node the
+// caret is in lies, in logical pixels of window space, as a text field's
+// bounds, so it can keep the whole field in view above a keyboard on the
+// screen. The engine tells it after a frame where the bounds moved.
+type TextBoxPlacer interface {
+	SetTextBox(r geom.Rect)
+}
+
+// A Buzzer is a [Window] on a device that can buzz, as a phone does. The
+// engine calls Buzz as a finger held still becomes a long press.
+type Buzzer interface {
+	Buzz()
+}
+
+// A KeyboardShower is a [Window] with a keyboard on the screen, as a
+// phone has. The engine calls ShowKeyboard when a press is let go on the
+// focused node while it takes text, as a tap on a text field asks for
+// the keyboard. Text input turning on leaves the keyboard down, so a
+// field focused as a window opens waits for its tap, and turning off
+// puts it away.
+type KeyboardShower interface {
+	ShowKeyboard()
+}
+
 // A CaretPlacer is a [Window] that can tell the platform's input method
 // where the text caret is, in logical pixels of window space, so its
 // candidate window opens beside the text being composed.

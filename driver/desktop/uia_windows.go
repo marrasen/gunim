@@ -221,7 +221,7 @@ func (uw *uiaWindow) getObject(wParam, lParam uintptr) (uintptr, bool) {
 	if !uw.asked.Swap(true) {
 		// Something now listens, so the window draws once more to hand
 		// over its tree.
-		uw.win.in.push(driver.Redraw{})
+		uw.win.in.Push(driver.Redraw{})
 	}
 	e := uw.element(0)
 	r, _, _ := procUiaReturnRawElementProvider.Call(uw.hwnd, wParam, lParam, e.iface(ifSimple))
@@ -462,7 +462,7 @@ func (e *element) request(r access.Request) uintptr {
 		return hrNotAvailable
 	}
 	r.ID = n.ID
-	e.w.win.in.push(r)
+	e.w.win.in.Push(r)
 	return hrOK
 }
 

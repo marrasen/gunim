@@ -28,7 +28,14 @@ type grab struct{}
 
 func newHarness(t *testing.T) *harness {
 	t.Helper()
-	h := &harness{t: t, w: gunimtest.New(t, geom.Sz(1100, 700), widget.NewSurface())}
+	return newHarnessSized(t, geom.Sz(1100, 700))
+}
+
+// newHarnessSized is newHarness with a window of size, as 390×800 for one
+// shaped like a phone.
+func newHarnessSized(t *testing.T, size geom.Size) *harness {
+	t.Helper()
+	h := &harness{t: t, w: gunimtest.New(t, size, widget.NewSurface())}
 	registerViews(h.w)
 	gunim.RegisterPatch(h.w, "chat", func(v *chatView, _ grab, _ *gunim.UI) { h.v = v })
 	ctx, cancel := context.WithCancel(context.Background())
