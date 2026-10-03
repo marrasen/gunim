@@ -92,6 +92,8 @@ type Driver struct {
 	// keeps the touch until it lifts. lastTap and lastAt are the last
 	// press, for a double tap.
 	touched *Window
+	// gesture is what the touch in progress has become.
+	gesture gesture
 	lastTap geom.Point
 	lastAt  time.Time
 	clicks  int
@@ -101,15 +103,23 @@ type Driver struct {
 	// keyboard is how much of the surface the soft keyboard covers, in
 	// device pixels from the bottom, as Java reports it frame by frame
 	// while the keyboard slides. caret is the typing window's text
-	// caret in logical pixels of the screen, when caretSet. pan is how
-	// far the windows are drawn slid up to keep the caret above the
-	// keyboard, in device pixels, easing toward its target from panAt.
-	keyboard int
-	caret    geom.Rect
-	caretSet bool
-	pan      float64
-	panAt    time.Time
-	quit     chan struct{}
+	// caret in logical pixels of the screen, when caretSet, and box the
+	// bounds of the text node it is in, when boxSet. keyed says a
+	// key or an edit has gone to the windows since the last touch, so
+	// the caret moving is typing, which the slide follows, and the
+	// caret scrolled with its text, which it leaves. pan is how far the
+	// windows are drawn slid up, in device pixels, easing toward
+	// panTarget from panAt.
+	keyboard  int
+	caret     geom.Rect
+	caretSet  bool
+	box       geom.Rect
+	boxSet    bool
+	keyed     bool
+	pan       float64
+	panTarget float64
+	panAt     time.Time
+	quit      chan struct{}
 
 	// wake nudges the render thread, and surfaces carries surface
 	// changes to it.
@@ -278,21 +288,51 @@ type surfaceChange struct {
 func (d *Driver) keyboardCovers(px int) {
 	d.mu.Lock()
 	d.keyboard = max(0, px)
+	d.panTarget = 0
+	d.revealLocked()
 	d.mu.Unlock()
 	d.kick()
 }
 
-// panLocked eases the pan toward its target and returns it in whole
-// device pixels, with whether it is still on its way. The target slides
-// the windows up just far enough to show the caret, and a line below it,
-// above the keyboard. It runs with mu held, on the render thread.
-func (d *Driver) panLocked(now time.Time) (pan int, moving bool) {
-	target := 0.0
-	if d.keyboard > 0 && d.caretSet && d.typing != nil {
-		line := d.caret.Max.Y - d.caret.Min.Y
-		bottom := float64((d.caret.Max.Y + line + panMargin) * d.density)
-		target = max(0, min(bottom-float64(d.surfH-d.keyboard), float64(d.keyboard)))
+// revealLocked aims the slide at the text: it moves the target just
+// enough to show the text box whole, with a gap round it, in what the
+// keyboard leaves of the surface, or, for a box too tall for that, the
+// caret with a line of room above and below it. With no keyboard it
+// aims at no slide. As the caret moves while typing, the slide moves
+// from where it is aimed, as little as shows the text; as the keyboard
+// changes height, keyboardCovers aims it afresh, at the least slide
+// that shows the text, so the box sits the same gap above the keyboard
+// each time, and a keyboard that shrinks takes the windows back down.
+// It runs with mu held.
+func (d *Driver) revealLocked() {
+	if d.keyboard == 0 || !d.caretSet || d.typing == nil {
+		d.panTarget = 0
+		return
 	}
+	visible := float64(d.surfH - d.keyboard)
+	px := func(v float32) float64 { return float64(v * d.density) }
+	var top, bottom float64
+	if d.boxSet && px(d.box.Max.Y-d.box.Min.Y+2*boxGap) <= visible {
+		top, bottom = px(d.box.Min.Y-boxGap), px(d.box.Max.Y+boxGap)
+	} else {
+		line := d.caret.Max.Y - d.caret.Min.Y
+		top, bottom = px(d.caret.Min.Y-line), px(d.caret.Max.Y+line+boxGap)
+	}
+	t := d.panTarget
+	if bottom-t > visible {
+		t = bottom - visible
+	}
+	if top-t < 0 {
+		t = top
+	}
+	d.panTarget = max(0, min(t, float64(d.keyboard)))
+}
+
+// panLocked eases the pan toward its target and returns it in whole
+// device pixels, with whether it is still on its way. It runs with mu
+// held, on the render thread.
+func (d *Driver) panLocked(now time.Time) (pan int, moving bool) {
+	target := d.panTarget
 	dt := min(now.Sub(d.panAt).Seconds(), 0.1)
 	d.panAt = now
 	d.pan += (target - d.pan) * (1 - math.Exp(-dt/panEase))
@@ -302,12 +342,12 @@ func (d *Driver) panLocked(now time.Time) (pan int, moving bool) {
 	return int(math.Round(d.pan)), d.pan != target
 }
 
-// panMargin is the room left under the caret's line, in logical pixels,
-// and panEase the time the pan takes to cover most of the way to its
-// target, in seconds.
+// boxGap is the room left between the text and the keyboard, in
+// logical pixels, and panEase the time the pan takes to cover most of
+// the way to its target, in seconds.
 const (
-	panMargin = 16
-	panEase   = 0.05
+	boxGap  = 8
+	panEase = 0.05
 )
 
 // windowFocus tells the windows that fill the screen that the activity
@@ -341,51 +381,6 @@ const (
 	doubleTapSpace = 24
 )
 
-// touch turns the first finger into the pointer: it presses, moves and
-// lets go as a mouse's primary button does, and leaves the window as it
-// lifts, since a finger has no hover. x and y are in device pixels.
-func (d *Driver) touch(action int, x, y float32, now time.Time) {
-	d.mu.Lock()
-	// The windows are drawn slid up by the pan, so the point touched
-	// is that much further down them.
-	at := geom.Pt(x/d.density, (y+float32(math.Round(d.pan)))/d.density)
-	w := d.touched
-	if action == touchDown {
-		w = d.hitLocked(at)
-		d.touched = w
-		if now.Sub(d.lastAt) < doubleTapTime && abs(at.X-d.lastTap.X) < doubleTapSpace && abs(at.Y-d.lastTap.Y) < doubleTapSpace {
-			d.clicks++
-		} else {
-			d.clicks = 1
-		}
-		d.lastTap, d.lastAt = at, now
-	}
-	clicks := d.clicks
-	if action == touchUp || action == touchCancel {
-		d.touched = nil
-	}
-	var pos geom.Point
-	if w != nil {
-		pos = at.Sub(w.pos)
-	}
-	d.mu.Unlock()
-	if w == nil {
-		return
-	}
-	switch action {
-	case touchDown:
-		w.in.Push(input.PointerMove{Pos: pos, Time: now})
-		w.in.Push(input.PointerDown{Pos: pos, Button: input.ButtonPrimary, Clicks: clicks, Time: now})
-	case touchMove:
-		w.in.Push(input.PointerMove{Pos: pos, Time: now})
-	case touchUp:
-		w.in.Push(input.PointerUp{Pos: pos, Button: input.ButtonPrimary, Time: now})
-		w.in.Push(input.PointerLeave{Time: now})
-	case touchCancel:
-		w.in.Push(input.PointerLeave{Time: now})
-	}
-}
-
 // hitLocked returns the topmost window under p that takes the pointer.
 // It runs with mu held.
 func (d *Driver) hitLocked(p geom.Point) *Window {
@@ -404,6 +399,7 @@ func (d *Driver) hitLocked(p geom.Point) *Window {
 // key sends a key to the window the keyboard types into, or the top
 // window that fills the screen.
 func (d *Driver) key(down bool, code, meta int, ch rune, repeat bool) {
+	d.markTyped()
 	w := d.keyWindow()
 	if w == nil {
 		return
@@ -424,15 +420,25 @@ func (d *Driver) key(down bool, code, meta int, ch rune, repeat bool) {
 // edit and typed send what the soft keyboard did to the window it types
 // into.
 func (d *Driver) edit(e input.TextEdit) {
+	d.markTyped()
 	if w := d.keyWindow(); w != nil {
 		w.in.Push(e)
 	}
 }
 
 func (d *Driver) typed(e any) {
+	d.markTyped()
 	if w := d.keyWindow(); w != nil {
 		w.in.Push(e)
 	}
+}
+
+// markTyped notes that typing has gone to the windows, so the slide
+// follows the caret again.
+func (d *Driver) markTyped() {
+	d.mu.Lock()
+	d.keyed = true
+	d.mu.Unlock()
 }
 
 // keyWindow returns the window that takes the keyboard.

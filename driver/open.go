@@ -56,8 +56,16 @@ type TextStater interface {
 	SetTextState(s *input.TextState, seq uint64)
 }
 
+// A TextBoxPlacer is a [CaretPlacer] that also hears where the node the
+// caret is in lies, in logical pixels of window space, as a text field's
+// bounds, so it can keep the whole field in view above a keyboard on the
+// screen. The engine tells it after a frame where the bounds moved.
+type TextBoxPlacer interface {
+	SetTextBox(r geom.Rect)
+}
+
 // A KeyboardShower is a [Window] with a keyboard on the screen, as a
-// phone has. The engine calls ShowKeyboard when a press lands on the
+// phone has. The engine calls ShowKeyboard when a press is let go on the
 // focused node while it takes text, as a tap on a text field asks for
 // the keyboard. Text input turning on leaves the keyboard down, so a
 // field focused as a window opens waits for its tap, and turning off

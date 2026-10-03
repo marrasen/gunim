@@ -155,4 +155,73 @@ func TestATapOnTheFocusedTextAsksForTheKeyboard(t *testing.T) {
 	if kw.asked != 1 {
 		t.Fatalf("a tap beside the field asked for the keyboard, %d times in all", kw.asked)
 	}
+
+	// A press on the field let go off it, as a finger that turns into a
+	// scroll lets go, leaves the keyboard as it was.
+	w.Input(input.PointerDown{Pos: geom.Pt(20, 20), Button: input.ButtonPrimary, Clicks: 1})
+	if kw.asked != 1 {
+		t.Fatalf("a press on the field asked for the keyboard before it was let go, %d times in all", kw.asked)
+	}
+	w.Input(input.PointerUp{Pos: geom.Pt(-1e6, -1e6), Button: input.ButtonPrimary})
+	w.Frame(time.Second / 60)
+	if kw.asked != 1 {
+		t.Fatalf("a press let go away from the field asked for the keyboard, %d times in all", kw.asked)
+	}
+}
+
+// boxWindow is an offscreen window that hears the text caret and the
+// bounds of the node it is in.
+type boxWindow struct {
+	*driver.OffscreenWindow
+	carets, boxes []geom.Rect
+}
+
+func (w *boxWindow) SetTextCaret(r geom.Rect) { w.carets = append(w.carets, r) }
+func (w *boxWindow) SetTextBox(r geom.Rect)   { w.boxes = append(w.boxes, r) }
+
+// caretBox is a text node of a fixed size with its caret on its
+// second line.
+type caretBox struct{ box }
+
+func (*caretBox) TextCaret() geom.Rect { return geom.Rc(10, 20, 1, 16) }
+
+func TestTheDriverHearsWhereTheFocusedTextBoxIs(t *testing.T) {
+	bw := &boxWindow{OffscreenWindow: driver.Offscreen(geom.Sz(800, 600))}
+	w := newWindow(bw, nil)
+	field := &caretBox{box{size: geom.Sz(300, 60)}}
+	w.ui.Insert(w.ui.Root(), field)
+	w.ui.Focus(field)
+	w.Frame(time.Second / 60)
+	if len(bw.boxes) != 1 || bw.boxes[0].Size() != geom.Sz(300, 60) {
+		t.Fatalf("the driver heard boxes %v, want one 300×60", bw.boxes)
+	}
+	if len(bw.carets) != 1 || bw.carets[0].Min.Sub(bw.boxes[0].Min) != geom.Pt(10, 20) {
+		t.Fatalf("the driver heard carets %v in box %v, want one at 10,20 in it", bw.carets, bw.boxes)
+	}
+	w.Frame(time.Second / 60)
+	if len(bw.boxes) != 1 {
+		t.Fatalf("a frame with nothing moved told the driver the box again: %v", bw.boxes)
+	}
+}
+
+func TestTheTextBoxIsToldAgainAsFocusComesBack(t *testing.T) {
+	// The driver forgets the box as focus leaves it; focus coming back
+	// to the same box, where it was, tells the driver again.
+	bw := &boxWindow{OffscreenWindow: driver.Offscreen(geom.Sz(800, 600))}
+	w := newWindow(bw, nil)
+	field, other := &caretBox{box{size: geom.Sz(300, 60)}}, &recorder{}
+	w.ui.Insert(w.ui.Root(), field)
+	w.ui.Insert(w.ui.Root(), other)
+	w.ui.Focus(field)
+	w.Frame(time.Second / 60)
+	w.ui.Focus(other)
+	w.Frame(time.Second / 60)
+	w.ui.Focus(field)
+	w.Frame(time.Second / 60)
+	if len(bw.boxes) != 2 || bw.boxes[0] != bw.boxes[1] {
+		t.Fatalf("the driver heard boxes %v, want the same box twice", bw.boxes)
+	}
+	if len(bw.carets) != 2 {
+		t.Fatalf("the driver heard carets %v, want the caret twice", bw.carets)
+	}
 }

@@ -227,7 +227,7 @@ func (w *Window) SetTextInput(active bool) {
 		w.d.typing = w
 	} else if w.d.typing == w {
 		w.d.typing = nil
-		w.d.caretSet = false
+		w.d.caretSet, w.d.boxSet = false, false
 	} else {
 		w.d.mu.Unlock()
 		return
@@ -240,17 +240,33 @@ func (w *Window) SetTextInput(active bool) {
 
 // SetTextCaret implements [driver.CaretPlacer]. The driver keeps the
 // caret above the soft keyboard: it slides the windows up just far
-// enough to show it, following the keyboard as it opens and the caret
-// as it moves. Before Android 11, which reports no keyboard as it
+// enough to show it as the keyboard opens, and follows the caret as
+// typing moves it. A caret that moves as its text scrolls stays where
+// it goes. Before Android 11, which reports no keyboard as it
 // slides, Android pans the window to the caret itself.
 func (w *Window) SetTextCaret(r geom.Rect) {
 	w.d.mu.Lock()
 	at, f := w.rectLocked().Min, w.d.density
 	w.d.caret, w.d.caretSet = r.Add(at), true
+	if w.d.keyed {
+		w.d.revealLocked()
+	}
 	w.d.mu.Unlock()
 	w.d.kick()
 	px := func(v float32) int { return int(math.Round(float64(v * f))) }
 	sendCaret(px(r.Min.X+at.X), px(r.Min.Y+at.Y), px(r.Max.X+at.X), px(r.Max.Y+at.Y))
+}
+
+// SetTextBox implements [driver.TextBoxPlacer]: the slide keeps the
+// whole text box above the keyboard where it fits.
+func (w *Window) SetTextBox(r geom.Rect) {
+	w.d.mu.Lock()
+	w.d.box, w.d.boxSet = r.Add(w.rectLocked().Min), true
+	if w.d.keyed {
+		w.d.revealLocked()
+	}
+	w.d.mu.Unlock()
+	w.d.kick()
 }
 
 // ShowKeyboard implements [driver.KeyboardShower].
@@ -279,4 +295,5 @@ var (
 	_ driver.TextStater     = (*Window)(nil)
 	_ driver.KeyboardShower = (*Window)(nil)
 	_ driver.CaretPlacer    = (*Window)(nil)
+	_ driver.TextBoxPlacer  = (*Window)(nil)
 )

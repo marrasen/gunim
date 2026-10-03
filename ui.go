@@ -1006,8 +1006,9 @@ type UI struct {
 	capture *state
 	// current is the node whose Handle, update or patch is running.
 	current *state
-	// caretAt is the text caret last told to the driver.
-	caretAt geom.Rect
+	// caretAt is the text caret last told to the driver, and boxAt the
+	// bounds of the node it is in.
+	caretAt, boxAt geom.Rect
 	// textState is the focused node's text state last told to the
 	// driver, nil for none, and textSent the seq it went with. textSeq
 	// is the seq of the last [input.TextEdit] the focus took.
@@ -1658,6 +1659,10 @@ func (u *UI) cue(keyboard bool) {
 // which ends it. The new node's text state reaches the driver before
 // text input turns on, so the input method starts from it.
 func (u *UI) takeText(prev, next *state) {
+	// The driver forgets the caret and its box as text input turns off,
+	// so the next node to take text tells them afresh, though they are
+	// where they were.
+	u.caretAt, u.boxAt = geom.Rect{}, geom.Rect{}
 	ti, ok := u.w.dw.(driver.TextInputter)
 	takes := takingText(next)
 	if ok && takes && takingText(prev) {
@@ -1696,9 +1701,11 @@ func (u *UI) syncText(s *state, fresh bool) {
 }
 
 // askKeyboard shows the on-screen keyboard, where the window has one,
-// for a press on hit that lands on the focused node, or inside it, while
-// that node takes text: a tap on a text field asks for the keyboard,
-// though the field had the focus already.
+// for a press let go on hit, the focused node or inside it, while that
+// node takes text: a tap on a text field asks for the keyboard, though
+// the field had the focus already. It asks as the press is let go, so a
+// finger that starts a scroll on a field, whose press is let go away
+// from it, leaves the keyboard as it was.
 func (u *UI) askKeyboard(hit *state) {
 	ks, ok := u.w.dw.(driver.KeyboardShower)
 	if !ok || hit == nil || u.focus == nil || !hit.within(u.focus) || !takingText(u.focus) {
@@ -1717,7 +1724,8 @@ func takingText(s *state) bool {
 }
 
 // placeCaret tells the driver where the focused node's text caret is,
-// in window space, when it has moved.
+// in window space, when it has moved, and where the node itself is, for
+// a driver that keeps the whole of it in view.
 func (u *UI) placeCaret() {
 	cp, ok := u.w.dw.(driver.CaretPlacer)
 	if !ok || u.focus == nil {
@@ -1730,6 +1738,13 @@ func (u *UI) placeCaret() {
 	r := cr.TextCaret()
 	t := u.focus.toWindow
 	at := geom.Rect{Min: t.Apply(r.Min), Max: t.Apply(r.Max)}.Normalized()
+	if bp, ok := u.w.dw.(driver.TextBoxPlacer); ok {
+		box := geom.Rect{Min: t.Apply(geom.Point{}), Max: t.Apply(u.focus.size.Point())}.Normalized()
+		if box != u.boxAt {
+			u.boxAt = box
+			bp.SetTextBox(box)
+		}
+	}
 	if at != u.caretAt {
 		u.caretAt = at
 		cp.SetTextCaret(at)
