@@ -145,18 +145,24 @@ func (c *Chip) AccessAct(r access.Request, u *gunim.UI) bool {
 }
 
 // Wrap sets its children in a row, and starts a new row where the next
-// child would pass its width, as words wrap. Its children come and go
-// with [gunim.UI.Insert] and [gunim.UI.Remove].
+// child would pass its width, as words wrap. It arrives with the
+// children it was built with, and more come and go with
+// [gunim.UI.Insert] and [gunim.UI.Remove].
 type Wrap struct {
 	// Gap is the space between children, and the theme's [Gap] when
 	// unset.
 	Gap theme.Token[float32]
 	// Cross puts each child at the top of its line, or with CrossCenter or CrossEnd in its middle or at its bottom.
 	Cross Cross
+
+	kids []gunim.Node
 }
 
-// NewWrap returns an empty wrap.
-func NewWrap() *Wrap { return &Wrap{Gap: Gap} }
+// NewWrap returns a wrap of kids.
+func NewWrap(kids ...gunim.Node) *Wrap { return &Wrap{Gap: Gap, kids: kids} }
+
+// Children implements [gunim.Composite].
+func (w *Wrap) Children() []gunim.Node { return w.kids }
 
 // Layout implements [gunim.Node]. The wrap is as wide as it is given,
 // and as tall as its rows.
