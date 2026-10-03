@@ -107,10 +107,22 @@ func newGraphBody(r *calcRoot) *graphBody {
 	g.keys = newKeypad(8,
 		[]string{"x", "^", "(", ")", "⌫"},
 		[]string{"sin", "cos", "tan", "√", "C"},
-		[]string{"+", "−", "×", "÷", "="},
+		[]string{"7", "8", "9", "÷", "π"},
+		[]string{"4", "5", "6", "×", "e"},
+		[]string{"1", "2", "3", "−", "ln"},
+		[]string{"0", ".", "%", "+", "="},
 	)
 	return g
 }
+
+// The graph's keypad: graphKeyRows rows graphKeyH high, which take
+// graphKeysH with the gaps between them. Its digits let a phone, with no
+// keys of its own, type a sum such as 0.5×sin(x).
+const (
+	graphKeyRows = 6
+	graphKeyH    = 40
+	graphKeysH   = graphKeyRows*graphKeyH + (graphKeyRows-1)*8
+)
 
 // arrive starts the curves drawing on again, as the graph opens.
 func (g *graphBody) arrive() {
@@ -189,7 +201,7 @@ func (g *graphBody) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Childr
 	var plot geom.Rect
 	if size.W < narrowWidth {
 		// A phone: the plot across the top, and the panel under it.
-		plot = geom.Rc(pad, pad, max(0, size.W-2*pad), max(0, size.H*0.45))
+		plot = geom.Rc(pad, pad, max(0, size.W-2*pad), max(0, size.H*0.35))
 		g.side = geom.Rc(pad, plot.Max.Y+pad, plot.Size().W, max(0, size.H-plot.Max.Y-2*pad))
 	} else {
 		plot = geom.Rc(pad, pad, max(0, size.W-sideWidth-3*pad), max(0, size.H-2*pad))
@@ -199,7 +211,7 @@ func (g *graphBody) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Childr
 	canvas.Layout(gunim.Tight(plot.Size()))
 	canvas.Place(plot.Min)
 	sideW := g.side.Size().W
-	keysH := float32(3*44 + 2*8)
+	keysH := float32(graphKeysH)
 	keys := kids.At(1)
 	keys.Layout(gunim.Tight(geom.Sz(sideW-24, keysH)))
 	keys.Place(geom.Pt(g.side.Min.X+12, g.side.Max.Y-12-keysH))
@@ -231,7 +243,7 @@ func (g *graphBody) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids g
 		cross.Paint(p, geom.Pt(s.Max.X-30, y+(chipHeight-cross.Height())/2-4), faded(ink, 0.4*a))
 	}
 	// The line being typed, over the keys.
-	keysTop := s.Max.Y - 12 - float32(3*44+2*8)
+	keysTop := s.Max.Y - 12 - float32(graphKeysH)
 	line := geom.Rc(s.Min.X+12, keysTop-62, s.Size().W-24, 50)
 	p.RRect(line, 12, paint.Solid(faded(ink, 0.06)))
 	g.expr.paint(p, line.Min.Y+10, g.expr.rightEdge(s), ink)

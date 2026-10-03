@@ -7,6 +7,7 @@ import (
 	"github.com/marrasen/gunim/driver"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
+	"github.com/marrasen/gunim/paint"
 )
 
 // dragsTouch is a recorder a finger drags.
@@ -197,5 +198,67 @@ func TestAFingerHoldingADragStillStaysADrag(t *testing.T) {
 		if p, ok := e.(input.PointerDown); ok && p.Button == input.ButtonSecondary {
 			t.Fatal("a finger holding a drag still became a long press")
 		}
+	}
+}
+
+// button is a focusable node that takes no text, as a button is.
+type button struct {
+	recorder
+	size geom.Size
+}
+
+func (b *button) Layout(Constraints, Frame, Children) geom.Size { return b.size }
+func (*button) Focusable() bool                                 { return true }
+
+// stack lays its children out top to bottom.
+type stack struct{ kids []Node }
+
+func (s *stack) Children() []Node { return s.kids }
+func (s *stack) Layout(c Constraints, _ Frame, kids Children) geom.Size {
+	var y float32
+	for k := range kids.All {
+		sz := k.Layout(Loose(c.Max))
+		k.Place(geom.Pt(0, y))
+		y += sz.H
+	}
+	return c.Max
+}
+func (s *stack) Paint(p *paint.Painter, _ Frame, _ geom.Size, kids Children) {
+	for k := range kids.All {
+		k.Paint(p)
+	}
+}
+
+func TestAFingerMovesFocusOnlyToTextItTaps(t *testing.T) {
+	// field at the top, a button under it, and another field under that.
+	field := &box{size: geom.Sz(400, 100)}
+	btn := &button{size: geom.Sz(400, 100)}
+	other := &box{size: geom.Sz(400, 100)}
+	w, finger := touchStage(t, &stack{kids: []Node{field, btn, other}})
+	w.ui.Focus(field)
+	tap := func(p geom.Point) {
+		finger(input.PointerDown{Pos: p, Button: input.ButtonPrimary, Clicks: 1, Touch: true, Time: time.Now()})
+		finger(input.PointerUp{Pos: p, Button: input.ButtonPrimary, Touch: true, Time: time.Now()})
+	}
+	tap(geom.Pt(50, 150))
+	if w.ui.Focused() != field {
+		t.Fatalf("a tap on a button took the focus to %v, want it left in the field", w.ui.Focused())
+	}
+	swipe(finger, geom.Pt(50, 250), geom.Pt(50, 120), 5, time.Now(), 0)
+	if w.ui.Focused() != field {
+		t.Fatal("a finger scrolling moved the focus")
+	}
+	finger(input.PointerDown{Pos: geom.Pt(50, 250), Button: input.ButtonPrimary, Clicks: 1, Touch: true, Time: time.Now()})
+	if w.ui.Focused() != field {
+		t.Fatal("the focus moved as the finger came down, before it showed a tap")
+	}
+	finger(input.PointerUp{Pos: geom.Pt(50, 250), Button: input.ButtonPrimary, Touch: true, Time: time.Now()})
+	if w.ui.Focused() != other {
+		t.Fatalf("a tap on the other field left the focus at %v, want the other field", w.ui.Focused())
+	}
+	// A mouse moves focus as ever.
+	finger(input.PointerDown{Pos: geom.Pt(50, 150), Button: input.ButtonPrimary, Clicks: 1})
+	if w.ui.Focused() != btn {
+		t.Fatalf("a click on the button left the focus at %v, want the button", w.ui.Focused())
 	}
 }

@@ -65,6 +65,10 @@ type touchFling struct {
 // finger that lifts while scrolling flings: the scroll coasts on,
 // slowing, over the frames that follow.
 //
+// A finger's press moves focus only as it lifts from a tap, and then only
+// to a node that takes text, as on a phone: a finger that scrolls, or
+// taps a button, leaves the keyboard in the text being written.
+//
 // A finger held within the slop for longPress, on anything but a
 // TouchDragger dragging, is a long press: its press is let go at Away
 // and the secondary button goes down where it is, as for a right click,
@@ -120,6 +124,13 @@ func (u *UI) touchEvent(root *state, ev any) bool {
 		u.endTouch()
 		switch {
 		case !e.Touch:
+			return false
+		case !t.scrolling && !t.held && e.Pos != input.Away:
+			// A tap: focus moves now, where the finger came down, to text
+			// it pressed.
+			if root == u.root {
+				u.focusAt(t.start, true)
+			}
 			return false
 		case t.held:
 			u.handleRaw(root, input.PointerUp{Pos: e.Pos, Button: input.ButtonSecondary, Mods: e.Mods, Touch: true, Time: e.Time})

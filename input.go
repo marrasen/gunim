@@ -143,10 +143,13 @@ func (u *UI) handleRaw(root *state, ev any) {
 			return
 		}
 		// A press moves focus before it is delivered, so a text field
-		// that is clicked is already focused when it sees the press.
+		// that is clicked is already focused when it sees the press. A
+		// finger's primary press leaves it until the finger lifts from a
+		// tap, as a press that goes on to scroll moves no focus; see
+		// touch.go.
 		was := u.focus
-		if root == u.root {
-			u.focusAt(e.Pos)
+		if root == u.root && !(e.Touch && e.Button == input.ButtonPrimary) {
+			u.focusAt(e.Pos, e.Touch)
 		}
 		focusing := u.focus != was
 		// Whoever takes the press keeps the pointer until the release.
@@ -351,10 +354,18 @@ func (u *UI) catchKeyIn(ev input.Event, m *state) bool {
 // [FocusKeeper], leaves focus where it is, which keeps a focused dialog
 // focused when its panel is clicked, and so does a press on a
 // [PressFocuser] that declines it. A press anywhere else drops it.
-func (u *UI) focusAt(p geom.Point) {
+//
+// A finger's press, with touch set, moves focus only to a node that
+// takes text, and otherwise leaves it where it is, as a phone does: a
+// tap on a button, a row or a message keeps the keyboard in the text
+// being written.
+func (u *UI) focusAt(p geom.Point, touch bool) {
 	target := u.hit(u.root, p)
 	for s := target; s != nil; s = s.parent {
 		if f, ok := s.node.(Focusable); ok && f.Focusable() {
+			if touch && !takingText(s) {
+				return
+			}
 			if pf, ok := s.node.(PressFocuser); !ok || pf.FocusOnPress() {
 				u.clicking = true
 				u.Focus(s.node)
@@ -366,7 +377,7 @@ func (u *UI) focusAt(p geom.Point) {
 			return
 		}
 	}
-	if target != nil && u.focus != nil && target.within(u.focus) {
+	if touch || target != nil && u.focus != nil && target.within(u.focus) {
 		return
 	}
 	u.Focus(nil)
