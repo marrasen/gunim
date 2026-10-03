@@ -8,6 +8,7 @@ import (
 	"image/color"
 	"math"
 	"os"
+	"time"
 	"unsafe"
 
 	"github.com/marrasen/gunim/geom"
@@ -59,6 +60,8 @@ const (
 // the greyscale atlas; see masks.go. Images upload once and stay
 // on the GPU while frames use them; see images.go.
 type renderer struct {
+	// stats counts what frames send the GPU, for GUNIM_DEBUG_FRAMES.
+	stats  renderStats
 	gl     gl.Context
 	shared *shared
 
@@ -717,6 +720,13 @@ func (r *renderer) replay(ops []paint.Op) {
 	}
 }
 
+// renderStats counts what frames send the GPU.
+type renderStats struct {
+	flushes, quads, bytes, layers int
+	// flushTime is spent handing vertices and draws to the driver.
+	flushTime time.Duration
+}
+
 // bindDraw makes the draw program and the renderer's vertices current,
 // with the glyph atlas on unit 0.
 func (r *renderer) bindDraw() {
@@ -743,10 +753,20 @@ func (r *renderer) flush() {
 	data := unsafe.Slice((*byte)(unsafe.Pointer(&r.verts[0])), len(r.verts)*4)
 	// A fresh store each time lets the driver keep the last one for the
 	// draw still reading it.
+	var t0 time.Time
+	if framesDebug {
+		t0 = time.Now()
+	}
 	g.BufferInit(gl.ARRAY_BUFFER, len(data), gl.STREAM_DRAW)
 	g.BufferSubData(gl.ARRAY_BUFFER, 0, data)
 	g.DrawElements(gl.TRIANGLES, int32(n*6), glUnsignedShort, 0)
 	r.draws++
+	if framesDebug {
+		r.stats.flushes++
+		r.stats.quads += n
+		r.stats.bytes += len(data)
+		r.stats.flushTime += time.Since(t0)
+	}
 	r.verts = r.verts[:0]
 	r.tex = 0
 }
@@ -877,6 +897,7 @@ func (r *renderer) openLayer(op *paint.LayerOp) {
 		return
 	}
 	r.depth++
+	r.stats.layers++
 	for len(r.layers) <= r.depth {
 		r.layers = append(r.layers, target{})
 	}
