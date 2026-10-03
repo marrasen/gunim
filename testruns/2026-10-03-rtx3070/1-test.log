@@ -1,0 +1,41 @@
+ok  	github.com/marrasen/gunim	1.712s
+?   	github.com/marrasen/gunim/access	[no test files]
+ok  	github.com/marrasen/gunim/anim	0.347s
+ok  	github.com/marrasen/gunim/calendar	0.643s
+ok  	github.com/marrasen/gunim/driver	0.365s
+?   	github.com/marrasen/gunim/driver/android/java	[no test files]
+ok  	github.com/marrasen/gunim/driver/desktop	2.535s
+ok  	github.com/marrasen/gunim/driver/internal/inbox	0.307s
+ok  	github.com/marrasen/gunim/driver/internal/render	1.326s
+ok  	github.com/marrasen/gunim/emoji	0.309s
+ok  	github.com/marrasen/gunim/example/calculator	0.774s
+ok  	github.com/marrasen/gunim/example/calendar	0.914s
+ok  	github.com/marrasen/gunim/example/chat	8.834s
+?   	github.com/marrasen/gunim/example/controls	[no test files]
+?   	github.com/marrasen/gunim/example/files	[no test files]
+?   	github.com/marrasen/gunim/example/paragraph	[no test files]
+ok  	github.com/marrasen/gunim/example/tutorial	1.089s
+?   	github.com/marrasen/gunim/example/twowindows	[no test files]
+?   	github.com/marrasen/gunim/example/widgets	[no test files]
+ok  	github.com/marrasen/gunim/filemanager	8.360s
+?   	github.com/marrasen/gunim/geom	[no test files]
+?   	github.com/marrasen/gunim/gunimtest	[no test files]
+ok  	github.com/marrasen/gunim/icon	0.517s
+?   	github.com/marrasen/gunim/icon/byname	[no test files]
+ok  	github.com/marrasen/gunim/input	0.438s
+?   	github.com/marrasen/gunim/internal/exeicon	[no test files]
+?   	github.com/marrasen/gunim/internal/gl	[no test files]
+ok  	github.com/marrasen/gunim/internal/glfw	0.521s
+?   	github.com/marrasen/gunim/internal/microsoftgdk	[no test files]
+?   	github.com/marrasen/gunim/internal/windowsystem	[no test files]
+?   	github.com/marrasen/gunim/internal/winver	[no test files]
+ok  	github.com/marrasen/gunim/markdown	0.757s
+ok  	github.com/marrasen/gunim/match	0.434s
+ok  	github.com/marrasen/gunim/paint	0.558s
+ok  	github.com/marrasen/gunim/syntax	0.437s
+ok  	github.com/marrasen/gunim/text	1.223s
+ok  	github.com/marrasen/gunim/theme	0.438s
+ok  	github.com/marrasen/gunim/tools/genicons	0.452s
+?   	github.com/marrasen/gunim/tools/gunimapk	[no test files]
+ok  	github.com/marrasen/gunim/widget	1.087s
+exit 0

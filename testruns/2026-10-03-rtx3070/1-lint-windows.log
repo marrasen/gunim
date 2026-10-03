@@ -1,0 +1,485 @@
+example\calendar\app.go:156:1: Duplicate words (from) found (dupword)
+// times returns each time s happens that touches the days from from to to, with the day it would be.
+^
+touch_test.go:27:1: Duplicate words (to) found (dupword)
+// swipe presses a finger at from, moves it to to in steps every 16 ms
+^
+throttle_test.go:238:19: Multiplication of durations: `due * time.Millisecond` (durationcheck)
+		at := shown.Add(due * time.Millisecond)
+		                ^
+example\chat\preview.go:91:23: Error return value of `resp.Body.Close` is not checked (errcheck)
+	defer resp.Body.Close()
+	                     ^
+example\tutorial\runner.go:70:20: Error return value of `os.RemoveAll` is not checked (errcheck)
+	defer os.RemoveAll(tmp)
+	                  ^
+example\tutorial\runner.go:93:11: Error return value of `pw.Close` is not checked (errcheck)
+		pw.Close()
+		        ^
+tools\gunimapk\main.go:66:14: Error return value of `fmt.Fprintf` is not checked (errcheck)
+		fmt.Fprintf(flag.CommandLine.Output(), "usage: gunimapk [flags] package\n")
+		           ^
+tools\gunimapk\main.go:93:20: Error return value of `os.RemoveAll` is not checked (errcheck)
+	defer os.RemoveAll(b.tmp)
+	                  ^
+tools\gunimapk\main.go:347:15: Error return value of `f.Close` is not checked (errcheck)
+	defer f.Close()
+	             ^
+tools\gunimapk\main.go:353:16: Error return value of `zr.Close` is not checked (errcheck)
+	defer zr.Close()
+	              ^
+tools\gunimapk\main.go:368:16: Error return value of `r.Close` is not checked (errcheck)
+		defer r.Close()
+		             ^
+calendar\days.go:1105:3: missing cases in switch of type calendar.edge: calendar.noEdge (exhaustive)
+		switch on {
+		^
+calendar\days.go:1283:3: missing cases in switch of type calendar.dragKind: calendar.dragCreate (exhaustive)
+		switch d.drag.kind {
+		^
+calendar\keys.go:40:2: missing cases in switch of type input.Key: input.KeyUnknown, input.KeyA, input.KeyB, input.KeyC, input.KeyD, input.KeyE, input.KeyF, input.KeyG, input.KeyH, input.KeyI, input.KeyJ, input.KeyK, input.KeyL, input.KeyM, input.KeyN, input.KeyO, input.KeyP, input.KeyQ, input.KeyR, input.KeyS, input.KeyT, input.KeyU, input.KeyV, input.KeyW, input.KeyX, input.KeyY, input.KeyZ, input.Key0, input.Key1, input.Key2, input.Key3, input.Key4, input.Key5, input.Key6, input.Key7, input.Key8, input.Key9, input.KeyF1, input.KeyF2, input.KeyF3, input.KeyF4, input.KeyF5, input.KeyF6, input.KeyF7, input.KeyF8, input.KeyF9, input.KeyF10, input.KeyF11, input.KeyF12, input.KeyEscape, input.KeyEnter, input.KeyTab, input.KeySpace, input.KeyBackspace, input.KeyDelete, input.KeyInsert, input.KeyHome, input.KeyEnd, input.KeyPageUp, input.KeyPageDown, input.KeyMinus, input.KeyEqual, input.KeyLeftBracket, input.KeyRightBracket, input.KeyBackslash, input.KeySemicolon, input.KeyApostrophe, input.KeyGraveAccent, input.KeyComma, input.KeyPeriod, input.KeySlash, input.KeyLeftShift, input.KeyRightShift, input.KeyLeftControl, input.KeyRightControl, input.KeyLeftAlt, input.KeyRightAlt, input.KeyLeftSuper, input.KeyRightSuper, input.KeyCapsLock, input.KeyMenu, input.KeyKP0, input.KeyKP1, input.KeyKP2, input.KeyKP3, input.KeyKP4, input.KeyKP5, input.KeyKP6, input.KeyKP7, input.KeyKP8, input.KeyKP9, input.KeyKPDecimal, input.KeyKPDivide, input.KeyKPMultiply, input.KeyKPSubtract, input.KeyKPAdd, input.KeyKPEnter, input.KeyKPEqual, input.KeyF13, input.KeyF14, input.KeyF15, input.KeyF16, input.KeyF17, input.KeyF18, input.KeyF19, input.KeyF20, input.KeyF21, input.KeyF22, input.KeyF23, input.KeyF24, input.KeyPause, input.KeyPrintScreen, input.KeyScrollLock, input.KeyNumLock (exhaustive)
+	switch k {
+	^
+calendar\keys.go:105:2: missing cases in switch of type input.Key: input.KeyUnknown, input.KeyA, input.KeyB, input.KeyC, input.KeyD, input.KeyE, input.KeyF, input.KeyG, input.KeyH, input.KeyI, input.KeyJ, input.KeyK, input.KeyL, input.KeyM, input.KeyN, input.KeyO, input.KeyP, input.KeyQ, input.KeyR, input.KeyS, input.KeyT, input.KeyU, input.KeyV, input.KeyW, input.KeyX, input.KeyY, input.KeyZ, input.Key0, input.Key1, input.Key2, input.Key3, input.Key4, input.Key5, input.Key6, input.Key7, input.Key8, input.Key9, input.KeyF1, input.KeyF2, input.KeyF3, input.KeyF4, input.KeyF5, input.KeyF6, input.KeyF7, input.KeyF8, input.KeyF9, input.KeyF10, input.KeyF11, input.KeyF12, input.KeyTab, input.KeySpace, input.KeyInsert, input.KeyHome, input.KeyEnd, input.KeyPageUp, input.KeyPageDown, input.KeyMinus, input.KeyEqual, input.KeyLeftBracket, input.KeyRightBracket, input.KeyBackslash, input.KeySemicolon, input.KeyApostrophe, input.KeyGraveAccent, input.KeyComma, input.KeyPeriod, input.KeySlash, input.KeyLeftShift, input.KeyRightShift, input.KeyLeftControl, input.KeyRightControl, input.KeyLeftAlt, input.KeyRightAlt, input.KeyLeftSuper, input.KeyRightSuper, input.KeyCapsLock, input.KeyMenu, input.KeyKP0, input.KeyKP1, input.KeyKP2, input.KeyKP3, input.KeyKP4, input.KeyKP5, input.KeyKP6, input.KeyKP7, input.KeyKP8, input.KeyKP9, input.KeyKPDecimal, input.KeyKPDivide, input.KeyKPMultiply, input.KeyKPSubtract, input.KeyKPAdd, input.KeyKPEqual, input.KeyF13, input.KeyF14, input.KeyF15, input.KeyF16, input.KeyF17, input.KeyF18, input.KeyF19, input.KeyF20, input.KeyF21, input.KeyF22, input.KeyF23, input.KeyF24, input.KeyPause, input.KeyPrintScreen, input.KeyScrollLock, input.KeyNumLock (exhaustive)
+	switch k.Key {
+	^
+example\calendar\app.go:139:2: missing cases in switch of type main.Repeat: main.Never (exhaustive)
+	switch s.repeat {
+	^
+example\calendar\app.go:200:2: missing cases in switch of type main.View: main.MonthView (exhaustive)
+	switch a.view {
+	^
+example\calendar\app.go:216:2: missing cases in switch of type main.View: main.MonthView (exhaustive)
+	switch a.view {
+	^
+example\calendar\view.go:215:2: missing cases in switch of type main.View: main.MonthView (exhaustive)
+	switch s.View {
+	^
+example\chat\preview.go:127:3: missing cases in switch of type html.TokenType: html.CommentToken, html.DoctypeToken (exhaustive)
+		switch z.Next() {
+		^
+example\chat\transferrow.go:96:2: missing cases in switch of type main.TransferState: main.TransferWaiting (exhaustive)
+	switch r.t.State {
+	^
+example\chat\view.go:730:2: missing cases in switch of type main.Link: main.Online (exhaustive)
+	switch l {
+	^
+example\tutorial\page.go:171:2: missing cases in switch of type gunim.Presence: gunim.Present (exhaustive)
+	switch pr {
+	^
+markdown\view.go:450:3: missing cases in switch of type markdown.markKind: markdown.quoteBar, markdown.bullet, markdown.number, markdown.checkBox, markdown.ruleLine, markdown.tableBox (exhaustive)
+		switch m.kind {
+		^
+syntax\golang.go:113:2: missing cases in switch of type token.Token: token.ILLEGAL, token.EOF, token.COMMENT, token.IDENT, token.INT, token.FLOAT, token.IMAG, token.CHAR, token.STRING, token.ADD, token.SUB, token.MUL, token.QUO, token.REM, token.AND, token.OR, token.XOR, token.SHL, token.SHR, token.AND_NOT, token.ADD_ASSIGN, token.SUB_ASSIGN, token.MUL_ASSIGN, token.QUO_ASSIGN, token.REM_ASSIGN, token.AND_ASSIGN, token.OR_ASSIGN, token.XOR_ASSIGN, token.SHL_ASSIGN, token.SHR_ASSIGN, token.AND_NOT_ASSIGN, token.LAND, token.LOR, token.ARROW, token.INC, token.DEC, token.EQL, token.LSS, token.GTR, token.ASSIGN, token.NOT, token.NEQ, token.LEQ, token.GEQ, token.DEFINE, token.ELLIPSIS, token.BREAK, token.CASE, token.CHAN, token.CONST, token.CONTINUE, token.DEFAULT, token.DEFER, token.ELSE, token.FALLTHROUGH, token.FOR, token.FUNC, token.GO, token.GOTO, token.IF, token.IMPORT, token.INTERFACE, token.MAP, token.PACKAGE, token.RANGE, token.RETURN, token.SELECT, token.STRUCT, token.SWITCH, token.TYPE, token.VAR, token.TILDE (exhaustive)
+	switch tok {
+	^
+text\colr.go:402:3: missing cases in switch of type tables.Extend: tables.ExtendPad (exhaustive)
+		switch extend {
+		^
+widget\access_chrome.go:52:3: missing cases in switch of type widget.windowButton: widget.noButton (exhaustive)
+		switch b {
+		^
+widget\code.go:61:2: missing cases in switch of type syntax.Kind: syntax.Plain (exhaustive)
+	switch k {
+	^
+widget\number.go:151:3: missing cases in switch of type input.Key: input.KeyUnknown, input.KeyA, input.KeyB, input.KeyC, input.KeyD, input.KeyE, input.KeyF, input.KeyG, input.KeyH, input.KeyI, input.KeyJ, input.KeyK, input.KeyL, input.KeyM, input.KeyN, input.KeyO, input.KeyP, input.KeyQ, input.KeyR, input.KeyS, input.KeyT, input.KeyU, input.KeyV, input.KeyW, input.KeyX, input.KeyY, input.KeyZ, input.Key0, input.Key1, input.Key2, input.Key3, input.Key4, input.Key5, input.Key6, input.Key7, input.Key8, input.Key9, input.KeyF1, input.KeyF2, input.KeyF3, input.KeyF4, input.KeyF5, input.KeyF6, input.KeyF7, input.KeyF8, input.KeyF9, input.KeyF10, input.KeyF11, input.KeyF12, input.KeyEscape, input.KeyTab, input.KeySpace, input.KeyBackspace, input.KeyDelete, input.KeyInsert, input.KeyLeft, input.KeyRight, input.KeyHome, input.KeyEnd, input.KeyMinus, input.KeyEqual, input.KeyLeftBracket, input.KeyRightBracket, input.KeyBackslash, input.KeySemicolon, input.KeyApostrophe, input.KeyGraveAccent, input.KeyComma, input.KeyPeriod, input.KeySlash, input.KeyLeftShift, input.KeyRightShift, input.KeyLeftControl, input.KeyRightControl, input.KeyLeftAlt, input.KeyRightAlt, input.KeyLeftSuper, input.KeyRightSuper, input.KeyCapsLock, input.KeyMenu, input.KeyKP0, input.KeyKP1, input.KeyKP2, input.KeyKP3, input.KeyKP4, input.KeyKP5, input.KeyKP6, input.KeyKP7, input.KeyKP8, input.KeyKP9, input.KeyKPDecimal, input.KeyKPDivide, input.KeyKPMultiply, input.KeyKPSubtract, input.KeyKPAdd, input.KeyKPEnter, input.KeyKPEqual, input.KeyF13, input.KeyF14, input.KeyF15, input.KeyF16, input.KeyF17, input.KeyF18, input.KeyF19, input.KeyF20, input.KeyF21, input.KeyF22, input.KeyF23, input.KeyF24, input.KeyPause, input.KeyPrintScreen, input.KeyScrollLock, input.KeyNumLock (exhaustive)
+		switch e.Key {
+		^
+widget\windowcontrols.go:156:2: missing cases in switch of type widget.windowButton: widget.noButton (exhaustive)
+	switch b {
+	^
+widget\windowcontrols.go:239:3: missing cases in switch of type widget.windowButton: widget.noButton (exhaustive)
+		switch b {
+		^
+example\chat\app_test.go:220:9: type assertion must be checked (forcetypeassert)
+	return n.(*msgRow).height
+	       ^
+example\chat\app_test.go:260:2: type assertion must be checked (forcetypeassert)
+	old := h.v.timeline.child.(*fader)
+	^
+example\chat\app_test.go:263:2: type assertion must be checked (forcetypeassert)
+	next := h.v.timeline.child.(*fader)
+	^
+example\chat\app_test.go:286:5: right hand must be only type assertion (forcetypeassert)
+	if err := h.w.Client().Patch("chat", focusOn{n.(*msgRow).body}); err != nil {
+	   ^
+example\chat\app_test.go:322:5: type assertion must be checked (forcetypeassert)
+	if body := n.(*msgRow).body; body.Group != h.v.group || body.Key != string(h.v.last) {
+	   ^
+example\chat\msgmenu_test.go:33:2: type assertion must be checked (forcetypeassert)
+	r := n.(*msgRow)
+	^
+example\chat\picture_test.go:49:16: type assertion must be checked (forcetypeassert)
+	if !ok || len(n.(*msgRow).pictures) != 1 {
+	              ^
+example\chat\picture_test.go:52:5: type assertion must be checked (forcetypeassert)
+	if s := n.(*msgRow).pictures[0].Size; s.H != 260 || s.W < 346 || s.W > 347 {
+	   ^
+example\chat\poll_test.go:56:2: type assertion must be checked (forcetypeassert)
+	card := n.(*msgRow).poll
+	^
+example\chat\reaction_test.go:24:2: type assertion must be checked (forcetypeassert)
+	bar := n.(*msgRow).reactions
+	^
+example\chat\reactions.go:63:4: type assertion must be checked (forcetypeassert)
+			tip.Children()[0].(*reactChip).set(r, u)
+			^
+example\chat\screens.go:56:2: type assertion must be checked (forcetypeassert)
+	side := s.sidebar.(*panel)
+	^
+example\chat\view.go:301:3: type assertion must be checked (forcetypeassert)
+		n.(*msgRow).Flash()
+		^
+example\chat\view.go:359:5: type assertion must be checked (forcetypeassert)
+				n.(*msgRow).set(it, u)
+				^
+example\tutorial\app_test.go:47:5: type assertion must be checked (forcetypeassert)
+	if s := lesson3.State(a).(Todo); len(s.Items) != 3 || &s.Items[0] == &a.items[0] {
+	   ^
+example\tutorial\app_test.go:301:2: type assertion must be checked (forcetypeassert)
+	field := page.body.(*widget.Pad).Children()[0].(*widget.Flex).Children()[2].(*widget.Card).Children()[0].(*ballField)
+	^
+shot.go:98:3: type assertion must be checked (forcetypeassert)
+		dw.(driver.Shooter).Shoot(func(img *image.RGBA) {
+		^
+widget\dialog_test.go:537:22: type assertion must be checked (forcetypeassert)
+	if len(row) != 3 || row[0].(*Button).Label != "Cancel" || row[1].(*Button).Label != "Copy" || row[2] != gunim.Node(d.ok) {
+	                    ^
+widget\menu.go:906:3: right hand must be only type assertion (forcetypeassert)
+		p.tip.owner, p.tip.delay, p.tip.at = owner, tipDelay, e.(input.PointerMove).Pos
+		^
+calendar\lanes.go:26:1: unnamedResult: consider giving a name to these results (gocritic)
+func lanes(starts, ends []time.Time) ([]placed, []int) {
+^
+calendar\lanes_test.go:69:79: mapKey: suspicious whitespace in " 23:59 " key (gocritic)
+		"9:30": 9*time.Hour + 30*time.Minute, "9.30": 9*time.Hour + 30*time.Minute, " 23:59 ": 23*time.Hour + 59*time.Minute,
+		                                                                            ^
+calendar\month.go:447:1: unnamedResult: consider giving a name to these results (gocritic)
+func (m *Month) moved(e Event, g *monthDrag) (time.Time, time.Time) {
+^
+calendar\month.go:608:3: importShadow: shadow of imported from 'github.com/marrasen/gunim/text' package 'text' (gocritic)
+		text := ""
+		^
+calendar\views_test.go:31:1: unnamedResult: consider giving a name to these results (gocritic)
+func stage(t *testing.T, n gunim.Node) (*gunim.Window, func(int), func() []gunim.Intent) {
+^
+drag_test.go:283:1: unnamedResult: consider giving a name to these results (gocritic)
+func (f fakeCoverer) Covered(_ []driver.Window, p geom.Point) (bool, bool) {
+^
+example\calendar\app.go:199:1: unnamedResult: consider giving a name to these results (gocritic)
+func (a *app) shownDays() (time.Time, time.Time) {
+^
+example\calendar\card.go:107:1: unnamedResult: consider giving a name to these results (gocritic)
+func when2(e calendar.Event) (string, string) {
+^
+example\calendar\editor.go:175:1: unnamedResult: consider giving a name to these results (gocritic)
+func times(startDay *calendar.DateField, startTime *calendar.TimeField, endDay *calendar.DateField,
+^
+example\calendar\view.go:214:1: unnamedResult: consider giving a name to these results (gocritic)
+func shown(s Cal) (time.Time, time.Time) {
+^
+example\calendar\view.go:416:27: builtinShadow: shadowing of predeclared identifier: close (gocritic)
+func (v *calView) dismiss(close func(*gunim.UI)) func(*gunim.UI) {
+                          ^
+example\chat\main.go:51:3: exitAfterDefer: log.Fatalf will exit, and `defer func(){...}(...)` will not run (gocritic)
+		log.Fatalf("chat: -size %q: want a width and a height, as 390x800", *size)
+		^
+example\chat\members.go:67:22: builtinShadow: shadowing of predeclared identifier: close (gocritic)
+func newMembersPanel(close func(*gunim.UI)) *membersPanel {
+                     ^
+example\chat\preview.go:81:1: unnamedResult: consider giving a name to these results (gocritic)
+func get(ctx context.Context, client *http.Client, link string, limit int64) ([]byte, string, error) {
+^
+example\chat\preview.go:82:14: httpNoBody: http.NoBody should be preferred to the nil request body (gocritic)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, link, nil)
+	            ^
+example\tutorial\runner_test.go:119:24: offBy1: Index() can return -1; maybe you wanted to do Index()+1 (gocritic)
+	line := strings.Count(broken[:strings.Index(broken, "undefinedThing")], "\n") + 1
+	                      ^
+filemanager\favourites.go:377:3: nestingReduce: invert if cond, replace body with `continue`, move old body after the statement (gocritic)
+		if !slices.ContainsFunc(favs, func(f Favourite) bool { return a.isFav(f, a.fs.ID(), p) }) {
+		^
+input\input.go:309:1: typeDefFirst: definition of type 'HistoryStep' should appear before its methods (gocritic)
+type HistoryStep struct {
+^
+markdown\group.go:89:7: badCond: `v.Key == first.key && v.Key == last.key` condition is suspicious (gocritic)
+	case v.Key == first.key && v.Key == last.key:
+	     ^
+markdown\view.go:697:7: importShadow: shadow of imported from 'github.com/marrasen/gunim/text' package 'text' (gocritic)
+			if text := v.SelectedText(); text != "" {
+			   ^
+markdown\view_test.go:16:1: unnamedResult: consider giving a name to these results (gocritic)
+func stage(t *testing.T, v *View) (*gunim.Window, func(int)) {
+^
+text\colr.go:93:1: unnamedResult: consider giving a name to these results (gocritic)
+func (m affine) apply(x, y float64) (float64, float64) {
+^
+tools\gunimapk\main.go:95:3: exitAfterDefer: log.Fatal will exit, and `defer os.RemoveAll(b.tmp)` will not run (gocritic)
+		log.Fatal(err)
+		^
+ui.go:1023:1: typeDefFirst: definition of type 'UI' should appear before its methods (gocritic)
+type UI struct {
+^
+widget\blink_test.go:107:5: builtinShadow: shadowing of predeclared identifier: max (gocritic)
+	if max := 3 * 2 * fadeSteps; changes > max {
+	   ^
+widget\code.go:638:1: unnamedResult: consider giving a name to these results (gocritic)
+func (n codeNav) beside(i int, x float32, right bool) (int, float32) {
+^
+widget\emojipicker_test.go:16:1: unnamedResult: consider giving a name to these results (gocritic)
+func openPicker(t *testing.T) (*EmojiPicker, *gunim.Window, func(int), *[]string) {
+^
+widget\handles.go:148:2: builtinShadow: shadowing of predeclared identifier: min (gocritic)
+	min := tip.Sub(geom.Pt(handleW/2, 0))
+	^
+widget\number_test.go:13:1: unnamedResult: consider giving a name to these results (gocritic)
+func numberStage(t *testing.T, n *NumberField) (*gunim.Window, func(int)) {
+^
+widget\scrollbar_test.go:39:1: unnamedResult: consider giving a name to these results (gocritic)
+func newPressList(t *testing.T) (*gunim.Window, *VirtualList, func(int), *int) {
+^
+widget\virtual_test.go:524:1: unnamedResult: consider giving a name to these results (gocritic)
+func mountTimeline(t *testing.T, hold bool, ks []Key) (*gunim.Window, *VirtualList, func(int), func() int) {
+^
+driver\desktop\desktop.go:18:1: File is not properly formatted (goimports)
+	"github.com/marrasen/gunim/driver/internal/render"
+^
+driver\desktop\window.go:8:1: File is not properly formatted (goimports)
+	"github.com/marrasen/gunim/driver/internal/inbox"
+^
+example\tutorial\runner.go:86:5: shadow: declaration of "err" shadows declaration at line 60 (govet)
+	if err := cmd.Start(); err != nil {
+	   ^
+example\tutorial\runner.go:92:3: shadow: declaration of "err" shadows declaration at line 60 (govet)
+		err := cmd.Wait()
+		^
+example\tutorial\runner.go:127:5: shadow: declaration of "err" shadows declaration at line 125 (govet)
+	if err := os.WriteFile(edited, []byte(source), 0o644); err != nil {
+	   ^
+example\tutorial\runner.go:137:5: shadow: declaration of "err" shadows declaration at line 125 (govet)
+	if err := os.WriteFile(overlayFile, overlay, 0o644); err != nil {
+	   ^
+tools\gunimapk\main.go:143:19: shadow: declaration of "err" shadows declaration at line 127 (govet)
+	} else if javac, err := exec.LookPath("javac"); err == nil {
+	                 ^
+tools\gunimapk\main.go:169:5: shadow: declaration of "err" shadows declaration at line 164 (govet)
+	if err := os.WriteFile(manifest, []byte(manifestFor(id, name, iconPNG != "")), 0o644); err != nil {
+	   ^
+tools\gunimapk\main.go:174:13: shadow: declaration of "err" shadows declaration at line 164 (govet)
+		compiled, err := b.icon(iconPNG)
+		          ^
+tools\gunimapk\main.go:185:5: shadow: declaration of "err" shadows declaration at line 164 (govet)
+	if err := b.tool(filepath.Join(b.buildTools, "aapt2"), append(args, res...)...); err != nil {
+	   ^
+tools\gunimapk\main.go:189:5: shadow: declaration of "err" shadows declaration at line 164 (govet)
+	if err := pack(unaligned, linked, dex, libs, b.tmp); err != nil {
+	   ^
+tools\gunimapk\main.go:193:5: shadow: declaration of "err" shadows declaration at line 164 (govet)
+	if err := b.tool(filepath.Join(b.buildTools, "zipalign"), "-f", "-p", "4", unaligned, aligned); err != nil {
+	   ^
+tools\gunimapk\main.go:244:9: shadow: declaration of "err" shadows declaration at line 238 (govet)
+		data, err := java.Sources.ReadFile(f)
+		      ^
+tools\gunimapk\main.go:254:5: shadow: declaration of "err" shadows declaration at line 238 (govet)
+	if err := b.tool(filepath.Join(b.javaBin, "javac"), args...); err != nil {
+	   ^
+tools\gunimapk\main.go:285:5: shadow: declaration of "err" shadows declaration at line 281 (govet)
+	if err := os.WriteFile(filepath.Join(dir, "ic_launcher.png"), data, 0o644); err != nil {
+	   ^
+example\tutorial\runner_test.go:49:2: ineffectual assignment to p (ineffassign)
+	p := pageCode(t, w, run, "lesson1")
+	^
+calendar\days.go:661:3: for loop can be changed to use an integer range (Go 1.22+) (intrange)
+		for h := 0; h <= 24; h++ {
+		^
+widget\code.go:313:2: for loop can be changed to use an integer range (Go 1.22+) (intrange)
+	for l := 0; l < line; l++ {
+	^
+widget\textedit_test.go:43:15: `teh` is a misspelling of `the` (misspell)
+	ty.typeText("teh cat ")
+	             ^
+widget\textedit_test.go:51:11: `teh` is a misspelling of `the` (misspell)
+	ty.want("teh cat ", 8)
+	         ^
+tools\gunimapk\main.go:216:21: os/exec.Command must not be called. use os/exec.CommandContext (noctx)
+	cmd := exec.Command("go", "build", "-buildmode=c-shared", "-trimpath", "-ldflags=-s -w", "-o", lib, pkg)
+	                   ^
+tools\gunimapk\main.go:299:26: os/exec.Command must not be called. use os/exec.CommandContext (noctx)
+	dir, err := exec.Command("go", "list", "-f", "{{.Dir}}", pkg).Output()
+	                        ^
+tools\gunimapk\main.go:303:29: os/exec.Command must not be called. use os/exec.CommandContext (noctx)
+	commit, err := exec.Command("git", "-C", strings.TrimSpace(string(dir)), "describe", "--always", "--dirty").Output()
+	                           ^
+tools\gunimapk\main.go:329:21: os/exec.Command must not be called. use os/exec.CommandContext (noctx)
+	cmd := exec.Command(name, args...)
+	                   ^
+example\tutorial\lesson1.go:64:28: integer-format: fmt.Sprint can be replaced with faster strconv.Itoa (perfsprint)
+		label := widget.NewLabel(fmt.Sprint(i + 1))
+		                         ^
+example\calendar\editor.go:34:6: Consider preallocating calNames with capacity len(d.Calendars) (prealloc)
+	var calNames []string
+	    ^
+example\calendar\more.go:45:2: Consider preallocating rows with capacity 1 + len(evs) + 1 (prealloc)
+	rows := []gunim.Node{head}
+	^
+example\calendar\quick.go:33:6: Consider preallocating names with capacity len(d.Calendars) (prealloc)
+	var names []string
+	    ^
+example\chat\app.go:253:6: Consider preallocating out with capacity len(m.reactions) (prealloc)
+	var out []Reaction
+	    ^
+example\chat\files.go:72:6: Consider preallocating out with capacity len(f.folders) + len(f.files) (prealloc)
+	var out []FileEntry
+	    ^
+example\chat\members.go:26:2: Consider preallocating out with capacity 1 + len(active) (prealloc)
+	out := []Member{{Name: me, Active: a.link == Online, Status: "You", You: true}}
+	^
+filemanager\sidebar_test.go:171:7: Consider preallocating out (prealloc)
+		var out []row
+		    ^
+syntax\golang_test.go:12:6: Consider preallocating out with capacity len(toks) (prealloc)
+	var out []string
+	    ^
+tools\gunimapk\main.go:181:2: Consider preallocating args with capacity 16 + len(res) (prealloc)
+	args := []string{"link", "-o", linked, "-I", b.androidJar,
+	^
+calendar\days.go:366:16: confusing-naming: Method 'step' differs only by capitalization to method 'Step' in the same source file (revive)
+func (d *Days) step() time.Duration {
+               ^
+calendar\days.go:952:16: confusing-naming: Method 'eventAt' differs only by capitalization to method 'EventAt' in the same source file (revive)
+func (d *Days) eventAt(pt geom.Point) (Event, geom.Rect, edge, bool) {
+               ^
+calendar\month.go:77:2: confusing-naming: Field 'more' differs only by capitalization to other field in the struct type Month (revive)
+	more    []chip
+	^
+driver\internal\render\render.go:375:1: exported: exported function New should have comment or be unexported (revive)
+func New(g gl.Context, isES bool, sh *Shared) (*Renderer, error) {
+^
+example\chat\sidebar.go:210:14: unnecessary-stmt: switch with only one case can be replaced by an if-then (revive)
+	switch area {
+	case "files":
+		return icon.Folder
+	}
+theme\theme.go:212:17: confusing-naming: Method 'has' differs only by capitalization to method 'Has' in the same source file (revive)
+func (th Theme) has(key string) bool {
+                ^
+widget\code.go:138:2: confusing-naming: Field 'numbers' differs only by capitalization to other field in the struct type CodeEditor (revive)
+	numbers     map[int]text.Run
+	^
+widget\controls.go:360:18: confusing-naming: Method 'set' differs only by capitalization to method 'Set' in the same source file (revive)
+func (s *Slider) set(v float32, m anim.Motion, u *gunim.UI) {
+                 ^
+widget\dialog.go:103:2: confusing-naming: Field 'width' differs only by capitalization to other field in the struct type Dialog (revive)
+	width float32
+	^
+widget\dialog.go:311:18: confusing-naming: Method 'Buttons' differs only by capitalization to method 'buttons' in the same source file (revive)
+func (d *Dialog) Buttons() []gunim.Node { return d.row() }
+                 ^
+widget\icon.go:138:6: confusing-naming: Method 'PaintIcon' differs only by capitalization to function 'paintIcon' in the same source file (revive)
+func PaintIcon(p *paint.Painter, th *theme.Live, ic *icon.Icon, r geom.Rect, c color.NRGBA) {
+     ^
+calendar\fields.go:233:4: QF1008: could remove embedded field "TextField" from selector (staticcheck)
+	f.TextField.SetText(clockOf(t))
+	  ^
+calendar\fields.go:242:4: QF1008: could remove embedded field "TextField" from selector (staticcheck)
+	f.TextField.SetText(clockOf(t))
+	  ^
+calendar\fields.go:298:6: QF1008: could remove embedded field "TextField" from selector (staticcheck)
+			f.TextField.SetText(clockOf(t))
+			  ^
+example\calendar\app.go:441:11: S1016: should convert v (type EventShown) to Reveal instead of using struct literal (staticcheck)
+		a.patch(Reveal{ID: v.ID})
+		        ^
+example\calendar\editor.go:54:13: QF1008: could remove embedded field "TextField" from selector (staticcheck)
+		startTime.TextField.SetText("09:00")
+		          ^
+example\calendar\editor.go:55:11: QF1008: could remove embedded field "TextField" from selector (staticcheck)
+		endTime.TextField.SetText("10:00")
+		        ^
+example\chat\msgmenu_test.go:50:9: QF1008: could remove embedded field "window" from selector (staticcheck)
+	if h.a.window.replying != it.ID {
+	       ^
+example\chat\msgmenu_test.go:51:68: QF1008: could remove embedded field "window" from selector (staticcheck)
+		t.Fatalf("Reply left the reply on %q, want the message, %q", h.a.window.replying, it.ID)
+		                                                                 ^
+example\chat\protocol.go:203:65: QF1008: could remove embedded field "Message" from selector (staticcheck)
+	return a.Key == b.Key && a.Day == b.Day && a.New == b.New && a.Message.equal(b.Message) && slices.Equal(a.Pictures, b.Pictures) &&
+	                                                               ^
+example\tutorial\runner.go:116:14: ST1005: error strings should not be capitalized (staticcheck)
+		return "", fmt.Errorf("Run builds with the Go toolchain, from inside the gunim repository.\n"+
+		           ^
+input.go:156:24: QF1001: could apply De Morgan's law (staticcheck)
+		if root == u.root && !(e.Touch && e.Button == input.ButtonPrimary) {
+		                     ^
+text\colr_test.go:95:36: ST1018: string literal contains the Unicode format character U+200D, consider using the '\u200d' escape sequence instead (staticcheck)
+	run := GoSans(false, false).Shape("Merged \U0001F44D\U0001F3FD and \U0001F469‍\U0001F4BB", 14)
+	                                  ^
+text\text.go:696:22: SA1019: (github.com/go-text/typesetting/shaping.Glyph).XAdvance is deprecated: Use Advance instead. (staticcheck)
+		if g.Width == 0 && g.XAdvance > 0 && g.ClusterIndex < len(runes) && !unicode.IsSpace(runes[g.ClusterIndex]) {
+		                   ^
+text\text.go:697:14: SA1019: (github.com/go-text/typesetting/shaping.Glyph).XAdvance is deprecated: Use Advance instead. (staticcheck)
+			g.Width = g.XAdvance
+			          ^
+ui.go:1779:13: QF1001: could apply De Morgan's law (staticcheck)
+	if same && !(fresh && st != nil) {
+	           ^
+widget\editor.go:113:44: QF1001: could apply De Morgan's law (staticcheck)
+			kind == typing && start == e.lastEnd && !(e.lastSpace && !unicode.IsSpace(with[0])))
+			                                        ^
+widget\number.go:56:4: QF1008: could remove embedded field "TextField" from selector (staticcheck)
+	n.TextField.SetText(n.format(lo))
+	  ^
+widget\number.go:57:4: QF1008: could remove embedded field "TextField" from selector (staticcheck)
+	n.TextField.OnEdit = func(s string, u *gunim.UI) {
+	  ^
+widget\number.go:86:4: QF1008: could remove embedded field "TextField" from selector (staticcheck)
+	n.TextField.SetText(n.format(n.value))
+	  ^
+widget\number.go:119:25: QF1008: could remove embedded field "TextField" from selector (staticcheck)
+	v, ok := parseNumber(n.TextField.Text())
+	                       ^
+widget\number.go:130:4: QF1008: could remove embedded field "TextField" from selector (staticcheck)
+	n.TextField.SetText(n.format(v))
+	  ^
+text\colr.go:213:48: unnecessary conversion (unconvert)
+		if q, ok := c.face.COLR.Search(tables.GlyphID(p.GlyphID)); ok {
+		                                             ^
+example\calculator\graph.go:229:44: (*graphBody).Step - result 0 (bool) is never used (unparam)
+func (g *graphBody) Step(dt time.Duration) bool {
+                                           ^
+example\calendar\seed.go:51:25: (*app).seed$2 - result 0 (*github.com/marrasen/gunim/example/calendar.series) is never used (unparam)
+	add := func(s *series) *series {
+	                       ^
+touch_test.go:29:96: swipe - result 0 (time.Time) is never used (unparam)
+func swipe(finger func(any), from, to geom.Point, steps int, at time.Time, rest time.Duration) time.Time {
+                                                                                               ^
+widget\dialogscroll_test.go:15:49: tallDialog - result s is never used (unparam)
+func tallDialog(t *testing.T) (w *gunim.Window, s *Scroll, fields []*TextField, run func(int)) {
+                                                ^
+widget\virtual_test.go:334:46: newStuckVirtual - height always receives 60 (unparam)
+func newStuckVirtual(t *testing.T, ks []Key, height float32) (*gunim.Window, *VirtualList, func(int)) {
+                                             ^
+calendar\days.go:220:2: assigned to speed, but reassigned without using the value (wastedassign)
+	speed := float32(0)
+	^
+154 issues:
+* dupword: 2
+* durationcheck: 1
+* errcheck: 8
+* exhaustive: 20
+* forcetypeassert: 19
+* gocritic: 31
+* goimports: 2
+* govet: 13
+* ineffassign: 1
+* intrange: 2
+* misspell: 2
+* noctx: 4
+* perfsprint: 1
+* prealloc: 9
+* revive: 11
+* staticcheck: 21
+* unconvert: 1
+* unparam: 5
+* wastedassign: 1
+exit 1
