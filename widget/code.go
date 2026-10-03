@@ -376,6 +376,7 @@ func (c *CodeEditor) Handle(e input.Event, u *gunim.UI) bool {
 		c.anchor = c.caret
 		c.preedit = nil
 		c.closeMenu()
+		c.wording = false
 	case input.PointerDown:
 		if e.Button == input.ButtonSecondary {
 			c.contextPress(c, c.indexAt(e.Pos), e.Pos, e.Touch, u)
@@ -384,12 +385,17 @@ func (c *CodeEditor) Handle(e input.Event, u *gunim.UI) bool {
 		c.press(c.indexAt(e.Pos), e.Clicks, e.Mods.Has(input.ModShift))
 		c.held = true
 	case input.PointerMove:
+		if c.wording {
+			c.dragWords(c.indexAt(e.Pos))
+			break
+		}
 		if !c.held {
 			return false
 		}
 		c.set(c.indexAt(e.Pos), true)
 	case input.PointerUp:
 		c.held = false
+		c.endWords(c, e.Pos, u)
 	case input.Scroll:
 		dx, dy := e.Delta.X, e.Delta.Y
 		if e.Mods.Has(input.ModShift) && dx == 0 {

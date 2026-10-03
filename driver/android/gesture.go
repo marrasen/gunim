@@ -64,7 +64,7 @@ func (d *Driver) touch(action int, x, y float32, now time.Time) {
 	if action == touchMove && math.Hypot(float64(at.X-g.start.X), float64(at.Y-g.start.Y)) > touchSlop {
 		g.moved = true
 	}
-	held := g.held || g.pinched
+	held, pinched := g.held, g.pinched
 	clicks := d.clicks
 	if action == touchUp || action == touchCancel {
 		d.touched = nil
@@ -77,9 +77,25 @@ func (d *Driver) touch(action int, x, y float32, now time.Time) {
 	if w == nil {
 		return
 	}
-	if held && action != touchDown {
-		// After a long press or a pinch the finger only lifts.
+	if pinched && action != touchDown {
+		// After a pinch the finger only lifts.
 		if action == touchUp || action == touchCancel {
+			w.in.Push(input.PointerLeave{Time: now})
+		}
+		return
+	}
+	if held && action != touchDown {
+		// After a long press the finger holds the secondary button: it
+		// moves with it held, as a text field takes to choose more
+		// words, and lets it go as it lifts.
+		switch action {
+		case touchMove:
+			w.in.Push(input.PointerMove{Pos: pos, Touch: true, Time: now})
+		case touchUp:
+			w.in.Push(input.PointerUp{Pos: pos, Button: input.ButtonSecondary, Touch: true, Time: now})
+			w.in.Push(input.PointerLeave{Time: now})
+		case touchCancel:
+			w.in.Push(input.PointerUp{Pos: away, Button: input.ButtonSecondary, Touch: true, Time: now})
 			w.in.Push(input.PointerLeave{Time: now})
 		}
 		return
@@ -101,8 +117,9 @@ func (d *Driver) touch(action int, x, y float32, now time.Time) {
 
 // longPress turns touch n into a long press, if the finger is still
 // down within the slop round where it went down: the press is let go
-// away from it, and the secondary button is pressed there, as a right
-// click does, which opens a context menu, and the phone buzzes.
+// away from it, and the secondary button goes down there, as for a
+// right click, which opens a context menu, and the phone buzzes. The
+// button stays down while the finger does; see touch.
 func (d *Driver) longPress(n int) {
 	d.mu.Lock()
 	g := &d.gesture
@@ -117,7 +134,6 @@ func (d *Driver) longPress(n int) {
 	now := time.Now()
 	w.in.Push(input.PointerUp{Pos: away, Button: input.ButtonPrimary, Touch: true, Time: now})
 	w.in.Push(input.PointerDown{Pos: pos, Button: input.ButtonSecondary, Clicks: 1, Touch: true, Time: now})
-	w.in.Push(input.PointerUp{Pos: pos, Button: input.ButtonSecondary, Touch: true, Time: now})
 	buzz()
 }
 
@@ -153,11 +169,16 @@ func (d *Driver) pinch(action int, x0, y0, x1, y1 float32, now time.Time) {
 	}
 	switch action {
 	case pinchStart:
-		was := g.pinched
+		was, held := g.pinched, g.held
 		g.pinched, g.moved, g.spread = true, true, spread
 		d.mu.Unlock()
-		if !was && !g.held {
-			w.in.Push(input.PointerUp{Pos: away, Button: input.ButtonPrimary, Time: now})
+		if !was {
+			// The first finger's press, or its long press, lets go.
+			button := input.ButtonPrimary
+			if held {
+				button = input.ButtonSecondary
+			}
+			w.in.Push(input.PointerUp{Pos: away, Button: button, Time: now})
 		}
 		return
 	case pinchEnd:

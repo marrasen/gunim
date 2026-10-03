@@ -144,3 +144,28 @@ func TestALongPressPastTheLastWordSelectsOnlyThatWord(t *testing.T) {
 		}
 	}
 }
+
+func TestAFingerHeldOnAWordDragsOverMoreWords(t *testing.T) {
+	ty := newTyper(t)
+	ty.typeText("one two three four five")
+	hold := func(from, to int) {
+		ty.w.Input(input.PointerDown{Pos: geom.Pt(ty.xOf(from), 18), Button: input.ButtonSecondary, Clicks: 1, Touch: true})
+		if ty.field.menuItems != nil {
+			t.Fatal("the menu opened under the finger, before it lifted")
+		}
+		ty.w.Input(input.PointerMove{Pos: geom.Pt(ty.xOf(to), 18), Touch: true})
+		ty.w.Input(input.PointerUp{Pos: geom.Pt(ty.xOf(to), 18), Button: input.ButtonSecondary, Touch: true})
+		ty.run(2)
+	}
+	hold(5, 15) // from two on to four
+	if s, e := ty.field.Selection(); s != 4 || e != 18 {
+		t.Fatalf("dragging from two to four selected %d–%d, want 4–18", s, e)
+	}
+	if ty.field.menuItems == nil {
+		t.Fatal("no menu opened as the finger lifted")
+	}
+	hold(15, 1) // from four back to one
+	if s, e := ty.field.Selection(); s != 0 || e != 18 {
+		t.Fatalf("dragging from four back to one selected %d–%d, want 0–18", s, e)
+	}
+}

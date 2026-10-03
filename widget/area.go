@@ -159,6 +159,7 @@ func (a *TextArea) Handle(e input.Event, u *gunim.UI) bool {
 		a.preedit = nil
 		a.closeCompletion()
 		a.closeMenu()
+		a.wording = false
 	case input.PointerDown:
 		if e.Button == input.ButtonSecondary {
 			a.closeCompletion()
@@ -169,12 +170,19 @@ func (a *TextArea) Handle(e input.Event, u *gunim.UI) bool {
 		a.held = true
 		a.complete(u)
 	case input.PointerMove:
+		if a.wording {
+			a.dragWords(a.indexAt(e.Pos, u))
+			break
+		}
 		if !a.held {
 			return false
 		}
 		a.set(a.indexAt(e.Pos, u), true)
 	case input.PointerUp:
 		a.held = false
+		if a.endWords(a, e.Pos, u) {
+			break
+		}
 		a.complete(u)
 	case input.Scroll:
 		to := max(0, min(a.scroll.Target()-e.Delta.Y, a.para.Size.H-a.view))

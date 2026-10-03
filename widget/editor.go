@@ -65,6 +65,11 @@ type editor struct {
 
 	// changed is called after every edit.
 	changed func(u *gunim.UI)
+	// wording is set while a finger held still on a word goes on to
+	// drag, selecting a word at a time; words is the word it first
+	// selected.
+	wording bool
+	words   [2]int
 	// menu is the edit menu's popup while it is open, and menuItems the
 	// menu in it.
 	menu      *gunim.Popup
@@ -373,19 +378,52 @@ const (
 )
 
 // contextPress takes a press of the secondary button at rune i, at in
-// owner's space, and opens the edit menu there. A finger held still
-// selects the word under it, as a phone's text field does; a right
-// click outside the selection puts the caret there, and one inside it
-// keeps it, for the menu to act on.
+// owner's space. A right click outside the selection puts the caret
+// there, and one inside it keeps it, and the edit menu opens. A finger
+// held still selects the word under it, as a phone's text field does,
+// and may go on to drag over more words; the menu opens as it lifts.
 func (e *editor) contextPress(owner gunim.Node, i int, at geom.Point, touch bool, u *gunim.UI) {
-	start, end := e.Selection()
-	switch {
-	case touch:
+	if touch {
+		e.closeMenu()
 		e.press(i, 2, false)
-	case start == end || i < start || i > end:
+		e.words = [2]int{min(e.anchor, e.caret), max(e.anchor, e.caret)}
+		e.wording = true
+		return
+	}
+	start, end := e.Selection()
+	if start == end || i < start || i > end {
 		e.set(i, false)
 	}
 	e.openMenu(owner, at, u)
+}
+
+// dragWords takes a finger held on a word moving on to rune i: the
+// selection runs from the first word to the word at i, whole words at a
+// time, either way.
+func (e *editor) dragWords(i int) {
+	ws, we := wordAt(e.text, i)
+	if ws == we {
+		ws, we = i, i
+	}
+	a, b := e.words[0], e.words[1]
+	if ws < a {
+		e.anchor, e.caret = b, ws
+	} else {
+		e.anchor, e.caret = a, max(we, b)
+	}
+	e.hinted, e.goal = false, false
+}
+
+// endWords ends a finger's choosing of words as it lifts at at, in
+// owner's space, opening the edit menu there, and reports whether one
+// was going on.
+func (e *editor) endWords(owner gunim.Node, at geom.Point, u *gunim.UI) bool {
+	if !e.wording {
+		return false
+	}
+	e.wording = false
+	e.openMenu(owner, at, u)
+	return true
 }
 
 // openMenu opens the edit menu at at, in owner's space: Cut, Copy,

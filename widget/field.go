@@ -191,6 +191,7 @@ func (t *TextField) Handle(e input.Event, u *gunim.UI) bool {
 		t.anchor = t.caret
 		t.preedit = nil // the driver ends the composition too
 		t.closeMenu()
+		t.wording = false
 	case input.PointerDown:
 		if e.Button == input.ButtonSecondary {
 			t.contextPress(t, t.indexAt(e.Pos, u), e.Pos, e.Touch, u)
@@ -206,6 +207,10 @@ func (t *TextField) Handle(e input.Event, u *gunim.UI) bool {
 		t.held = true
 	case input.PointerMove:
 		t.clearHot.Animate(value(t.overClear(e.Pos)), Quick.Get(u.Theme()))
+		if t.wording {
+			t.dragWords(t.indexAt(e.Pos, u))
+			break
+		}
 		if !t.held {
 			return false
 		}
@@ -215,6 +220,9 @@ func (t *TextField) Handle(e input.Event, u *gunim.UI) bool {
 		return false
 	case input.PointerUp:
 		t.held = false
+		if t.endWords(t, e.Pos, u) {
+			break
+		}
 		if t.clearing && e.Button == input.ButtonPrimary {
 			t.clearing = false
 			if t.overClear(e.Pos) {
