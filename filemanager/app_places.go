@@ -11,19 +11,38 @@ import (
 func (a *app) handlePlaces(in gunim.Intent) bool {
 	switch v := in.(type) {
 	case FavouritesReordered:
-		favs := make([]Favourite, 0, len(v.Paths))
-		for _, p := range v.Paths {
-			f := Favourite{Path: p}
-			if i := a.favourite(p); i >= 0 {
+		favs := make([]Favourite, 0, len(v.Favourites))
+		for _, at := range v.Favourites {
+			f := Favourite{Path: at.Path, FS: at.FS}
+			if i := a.favourite(at.FS, at.Path); i >= 0 {
 				f = a.favs[i]
 			}
 			favs = append(favs, f)
 		}
 		a.setFavourites(favs)
+	case SectionsArranged:
+		a.arrangeSidebar(func(p *prefs) { p.SidebarOrder = keepAbsent(p.SidebarOrder, v.Order) })
+	case SectionCollapsed:
+		a.arrangeSidebar(func(p *prefs) {
+			p.SidebarCollapsed = slices.DeleteFunc(slices.Clone(p.SidebarCollapsed), func(id string) bool { return id == v.ID })
+			if v.Collapsed {
+				p.SidebarCollapsed = append(p.SidebarCollapsed, v.ID)
+			}
+		})
 	case Unpin:
-		a.setFavourites(slices.DeleteFunc(slices.Clone(a.favs), func(f Favourite) bool { return a.ps.Same(f.Path, v.Path) }))
+		a.setFavourites(slices.DeleteFunc(slices.Clone(a.favs), func(f Favourite) bool { return a.isFav(f, v.FS, v.Path) }))
 	case Visit:
 		a.visit(v)
+	case PlaceMenuAsked:
+		var items []PlaceItem
+		if a.opts.PlaceMenu != nil {
+			items = a.opts.PlaceMenu(v.Place)
+		}
+		a.patch(PlaceMenuItems{Seq: v.Seq, Items: items})
+	case PlaceCommanded:
+		if a.opts.PlaceCommand != nil {
+			go a.opts.PlaceCommand(a.win, v.Place, v.ID)
+		}
 	case Command:
 		if v.Name != CmdPin {
 			return false
@@ -51,13 +70,15 @@ func (a *app) pin() {
 }
 
 // visit goes to a place on another file system, as the options say, on a
-// goroutine of its own, as it may open a window.
+// goroutine of its own, as it may open a window. With Ctrl held, as for a
+// folder of the window's own, it asks for a new window.
 func (a *app) visit(v Visit) {
 	if a.opts.Visit == nil {
 		a.fail(v.Path + " is on another file system, which this window cannot show.")
 		return
 	}
-	go a.opts.Visit(a.win, v.FS, v.Path)
+	newWindow := v.NewWindow || a.newWindowAsked()
+	go a.opts.Visit(a.win, v.FS, v.Path, newWindow)
 }
 
 // loadPlaces finds the places in the background, as a drive can be slow
@@ -86,7 +107,7 @@ func (a *app) loadPlaces() {
 }
 
 // defaultPlaces are the places of a window whose options give none: the
-// user's folders and the drives of the computer, for its own file
+// home folder and the drives of the computer, for its own file
 // system, and the home folder and the top for another.
 func (a *app) defaultPlaces() ([]Place, error) {
 	if a.fs.ID() == "" {
@@ -97,7 +118,8 @@ func (a *app) defaultPlaces() ([]Place, error) {
 		return nil, err
 	}
 	top := a.ps.VolumeName(home) + a.ps.Sep()
-	out := []Place{{Name: "Home", Path: home, Kind: "home", FS: a.fs.ID()}, {Name: top, Path: top, Kind: "drive", FS: a.fs.ID()}}
+	out := []Place{{Name: "Home", Path: home, Kind: "home", FS: a.fs.ID()},
+		{Name: a.ps.placeName(top), Path: top, Kind: "drive", FS: a.fs.ID()}}
 	if sr, ok := a.fs.(SpaceReporter); ok {
 		if free, total, err := sr.Space(top); errors.Is(err, errors.ErrUnsupported) {
 			// The file system cannot say after all.
@@ -110,11 +132,46 @@ func (a *app) defaultPlaces() ([]Place, error) {
 	return out, nil
 }
 
-func (a *app) publishPlaces() {
-	s := Places{Places: a.places, Current: a.nav.path}
-	for _, f := range a.favs {
-		s.Favourites = append(s.Favourites, Place{Name: a.favName(f.Path), Path: f.Path, Kind: "favourite", FS: a.fs.ID()})
+// arrangeSidebar makes change to the order of the sidebar's sections or
+// to those closed, saves it, and shows it in this window and in every
+// window that keeps its settings where this one does.
+func (a *app) arrangeSidebar(change func(p *prefs)) {
+	a.savePrefs(change)
+	a.publishPlaces()
+	order, closed, path := slices.Clone(a.prefs.SidebarOrder), slices.Clone(a.prefs.SidebarCollapsed), a.prefsPath
+	a.hub.others(a, func(o *app) {
+		if o.prefsPath == path {
+			o.prefs.SidebarOrder, o.prefs.SidebarCollapsed = slices.Clone(order), slices.Clone(closed)
+			o.publishPlaces()
+		}
+	})
+}
+
+// keepAbsent returns order, the sections shown in their new order, with
+// the sections of was not shown now put back after the section they
+// came after, so a group that comes back, such as a server's, comes
+// back where it was.
+func keepAbsent(was, order []string) []string {
+	out := slices.Clone(order)
+	for i, id := range was {
+		if slices.Contains(out, id) {
+			continue
+		}
+		at := 0
+		for j := i - 1; j >= 0; j-- {
+			if k := slices.Index(out, was[j]); k >= 0 {
+				at = k + 1
+				break
+			}
+		}
+		out = slices.Insert(out, at, id)
 	}
+	return out
+}
+
+func (a *app) publishPlaces() {
+	s := Places{Places: a.places, Favourites: a.favPlaces(), Current: a.nav.path,
+		Order: slices.Clone(a.prefs.SidebarOrder), Collapsed: slices.Clone(a.prefs.SidebarCollapsed)}
 	a.patch(s)
 	a.publishVolumes(s)
 }

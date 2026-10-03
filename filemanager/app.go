@@ -33,14 +33,41 @@ type Options struct {
 	Places func() ([]Place, error)
 	// Favourites keeps the favourites. When nil, they are kept in the
 	// settings file on the computer's own file system, and for as long
-	// as the window is open on another.
+	// as the window is open on another. An AnyFSFavourites keeps them
+	// on any file system, and the window lists them all.
 	Favourites FavouriteStore
 	// Visit goes to the folder at path on the file system of ID fs, for
-	// a place on another file system than the window's, on a goroutine
-	// of its own. w is the window that asks, which Visit can turn to
-	// the file system with Show, or leave as it is and open another. A
-	// window whose Visit is nil says it cannot go there.
-	Visit func(w *Window, fs, path string)
+	// a place or a favourite on another file system than the window's,
+	// on a goroutine of its own. w is the window that asks, which Visit
+	// can turn to the file system with Show, or leave as it is and open
+	// another. newWindow says the user asked for the place in a window
+	// of its own, as with Ctrl held: the program opens one on fs, and
+	// leaves w as it is. A window whose Visit is nil says it cannot go
+	// there.
+	Visit func(w *Window, fs, path string, newWindow bool)
+	// PlaceMenu adds the program's own items to the context menu of a
+	// place, such as Disconnect for a machine. It is called on the
+	// window's serve loop as the menu opens, so it must be quick.
+	PlaceMenu func(p Place) []PlaceItem
+	// PlaceCommand does what the program's item id of place p asks, on a
+	// goroutine of its own. w is the window the menu opened in.
+	PlaceCommand func(w *Window, p Place, id string)
+	// Transfer copies or moves items between file systems, as a drop or a
+	// paste asks, as one of the window's operations: its progress and a
+	// way to stop it show with the window's own, and it asks about names
+	// that clash through the window. It returns once the items are
+	// across, or why not; ctx ends when the user stops it. w is the window
+	// they go to. When nil, items cannot go between file systems.
+	//
+	// Each Transfer runs on a goroutine of its own, and the window does
+	// not close until it returns, so it should return soon once ctx ends.
+	Transfer func(ctx context.Context, w *Window, t Transfer, p *TransferProgress) error
+	// FSName names the file system of ID fs, as the window's title says
+	// first: the machine it is on, say. When nil, or where it returns "",
+	// the title names the folder and the program only. The window asks
+	// on its own goroutine, as it opens, as it turns to another file
+	// system and when its hub refreshes, so FSName must be quick.
+	FSName func(fs string) string
 	// Name is what the window's title calls the program, and Files when
 	// empty.
 	Name string
@@ -55,6 +82,24 @@ type Options struct {
 
 	// trash stands in for the file system's trash, for tests.
 	trash Trasher
+	// defaults stands in for DefaultFavourites, for tests.
+	defaults func() []Favourite
+}
+
+// Transfer is items going from one file system to another, which the
+// window cannot do itself: copied, or moved when Move is set. A drop or
+// a paste of items from several folders makes one Transfer for each,
+// and each runs as an operation of its own.
+type Transfer struct {
+	// FromFS is the ID of the file system the items are on, and Paths
+	// the items, all in one folder.
+	FromFS string
+	Paths  []string
+	// ToFS is the ID of the file system they go to, and Into the folder
+	// there they go into.
+	ToFS string
+	Into string
+	Move bool
 }
 
 // app is the application half. Everything on it runs on the serve loop;
@@ -105,6 +150,9 @@ type app struct {
 	// answers late is dropped.
 	placesGen int
 	dnd       dndState
+	// uploads holds the copies changed on this computer that the window
+	// offers to upload, by the key of the notice that offers.
+	uploads map[string]copyKey
 }
 
 // handler is one area's share of the intents: it reports whether it
@@ -196,7 +244,9 @@ func newApp(ctx context.Context, c gunim.Client, o Options) (*app, error) {
 	}
 	a.prefs, a.prefsErr = loadPrefs(a.prefsPath)
 	a.shell = Shell{Light: a.prefs.Light, ShowHidden: a.prefs.ShowHidden, ShowPreview: !a.prefs.HidePreview,
-		Sidebar: a.prefs.Sidebar, FS: a.fs.ID(), Paths: a.ps, NoTrash: tr == nil, Name: o.Name}
+		Sidebar: a.prefs.Sidebar, FS: a.fs.ID(), Paths: a.ps, NoTrash: tr == nil,
+		Transfers: o.Transfer != nil, PlaceMenu: o.PlaceMenu != nil, Name: o.Name, UploadEdited: a.prefs.UploadEdited}
+	a.shell.Where, a.shell.Fetches = a.where(), a.fetches()
 	a.nav.sort, a.nav.desc = a.prefs.Sort, a.prefs.Desc
 	return a, nil
 }
@@ -255,6 +305,9 @@ func (a *app) handleShell(in gunim.Intent) bool {
 		case CmdCloseApp:
 			a.close()
 			return true
+		case CmdUploadAsk, CmdUploadAlways, CmdUploadNever:
+			a.setUploadEdited(strings.TrimPrefix(v.Name, "upload."))
+			return true
 		default:
 			return false
 		}
@@ -286,6 +339,23 @@ func (a *app) close() {
 			}
 			a.c.Leave()
 		})
+}
+
+// where names the file system the window shows, for its title, or is
+// empty.
+func (a *app) where() string {
+	if a.opts.FSName == nil {
+		return ""
+	}
+	return a.opts.FSName(a.fs.ID())
+}
+
+// renameFS takes a new name of the file system, as FSName gives it now.
+func (a *app) renameFS() {
+	if w := a.where(); w != a.shell.Where {
+		a.shell.Where = w
+		a.publishShell()
+	}
 }
 
 func (a *app) publishShell() { a.send(a.c.Update(browserID, a.shell)) }

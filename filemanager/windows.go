@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
@@ -21,10 +22,15 @@ type Hub struct {
 	mu   sync.Mutex
 	apps []*app
 	// clips holds the clipboard of the windows on each file system, by
-	// its ID, as paths of one mean nothing on another, and favs the
-	// favourites of each file system other than the computer's own,
-	// for the windows whose options keep them nowhere.
+	// its ID, as paths of one mean nothing on another, and last the
+	// clipboard most recently cut, copied or emptied anywhere, which a
+	// window that can transfer pastes from another file system. seq
+	// counts the clipboards. favs holds the favourites of each file
+	// system other than the computer's own, for the windows whose
+	// options keep them nowhere.
 	clips map[string]clipboard
+	last  clipboard
+	seq   int
 	favs  map[string]*memFavourites
 	// open opens a window with o and serves it, and is nil where no
 	// window can open, as in a test.
@@ -34,11 +40,21 @@ type Hub struct {
 	wg   sync.WaitGroup
 	errs []error
 	ga   *gunim.App
+	// copies are the files of other file systems fetched to open with
+	// the computer's programs, kept until the hub ends, and watching
+	// says the hub looks at them for changes. ids holds the ID of the
+	// file system each window shows, for the watch to find one to tell.
+	copies   *openCopies
+	watching bool
+	ids      map[*app]string
 }
 
 // NewHub makes a hub whose windows open on ga, and close when ctx ends.
 func NewHub(ctx context.Context, ga *gunim.App) *Hub {
 	h := &Hub{ctx: ctx, ga: ga}
+	// The copies fetched to open go with the hub, those no program
+	// holds; a hub that starts takes away what is left a day later.
+	context.AfterFunc(ctx, h.removeCopies)
 	h.open = func(o Options) error {
 		_, err := h.Open(o)
 		return err
@@ -86,6 +102,29 @@ func (w *Window) Close() {
 // running carry on where they started.
 func (w *Window) Show(fsys FS, dir string) {
 	w.do(func(a *app) { a.showFS(fsys, dir) })
+}
+
+// Notify shows a notice in the window, as the window shows its own: a
+// title, a body, and a kind, success, warning or info, for its icon.
+func (w *Window) Notify(title, body, kind string) {
+	w.do(func(a *app) { a.patch(Notice{Title: title, Body: body, Kind: kind}) })
+}
+
+// Running is how many operations the window is running: its own, such
+// as a copy, and the transfers it has asked the program for. A program
+// asks before it closes the window, as closing stops them. It is zero
+// once the window has closed, and when the window takes longer than a
+// second to say.
+func (w *Window) Running() int {
+	got := make(chan int, 1)
+	go w.do(func(a *app) { got <- len(a.ops.running) })
+	select {
+	case n := <-got:
+		return n
+	case <-w.done:
+	case <-time.After(time.Second):
+	}
+	return 0
 }
 
 // do runs fn on the window's serve loop, unless it has stopped.
@@ -136,6 +175,7 @@ func (h *Hub) Serve(c gunim.Client, o Options) error {
 // errors they ended with.
 func (h *Hub) Wait() error {
 	h.wg.Wait()
+	h.removeCopies()
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return errors.Join(h.errs...)
@@ -167,15 +207,16 @@ func (h *Hub) memFavourites(id string) *memFavourites {
 	return m
 }
 
-// Refresh has every window of h find its places and read its favourites
-// again, as when a caller's places or favourites have changed: a server
-// that connected, say.
+// Refresh has every window of h find its places, read its favourites
+// and ask its file system's name again, as when a caller's places,
+// favourites or names have changed: a server that connected, say.
 func (h *Hub) Refresh() {
 	h.mu.Lock()
 	list := slices.Clone(h.apps)
 	h.mu.Unlock()
 	for _, a := range list {
 		go a.post(func() {
+			a.renameFS()
 			a.loadFavourites()
 			a.loadPlaces()
 		})
@@ -188,24 +229,49 @@ func joinHub(a *app, h *Hub) *Hub {
 		h = &Hub{}
 	}
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	h.apps = append(h.apps, a)
-	clip := h.clips[a.fs.ID()]
-	a.ops.clip, a.ops.cut = slices.Clone(clip.paths), clip.cut
+	if h.ids == nil {
+		h.ids = map[*app]string{}
+	}
+	h.ids[a] = a.fs.ID()
+	a.takeClip(h)
+	h.mu.Unlock()
+	// A change waiting for a window is offered in this one.
+	h.watchCopies()
 	return h
 }
 
-// clipboard is the paths cut or copied, and whether they were cut.
+// shows notes that a shows the file system of ID id now.
+func (h *Hub) shows(a *app, id string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if _, ok := h.ids[a]; ok {
+		h.ids[a] = id
+	}
+}
+
+// clipboard is the paths cut or copied, and whether they were cut: on
+// the file system of ID fs, which writes them as ps. seq tells one
+// clipboard from another.
 type clipboard struct {
 	paths []string
 	cut   bool
+	fs    string
+	ps    PathStyle
+	seq   int
 }
 
-// leave takes a off h.
+// leave takes a off h. The changes it had to offer or upload go to
+// another window.
 func (h *Hub) leave(a *app) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	h.apps = slices.DeleteFunc(h.apps, func(o *app) bool { return o == a })
+	delete(h.ids, a)
+	c := h.copies
+	h.mu.Unlock()
+	if c != nil {
+		c.releaseApp(a)
+	}
 }
 
 // others runs fn on the serve loop of each app of h but a.
@@ -239,17 +305,64 @@ func (a *app) clipChanged() {
 	if h.clips == nil {
 		h.clips = map[string]clipboard{}
 	}
-	h.clips[a.fs.ID()] = clipboard{paths: slices.Clone(a.ops.clip), cut: a.ops.cut}
+	h.seq++
+	c := clipboard{paths: slices.Clone(a.ops.clip), cut: a.ops.cut, fs: a.fs.ID(), ps: a.ps, seq: h.seq}
+	h.clips[c.fs], h.last = c, c
 	h.mu.Unlock()
-	clip, cut := slices.Clone(a.ops.clip), a.ops.cut
-	a.publishClip()
-	h.neighbours(a, func(o *app) {
-		o.ops.clip, o.ops.cut = slices.Clone(clip), cut
-		o.publishClip()
-	})
+	a.syncClip()
+	h.others(a, func(o *app) { o.syncClip() })
 }
 
-func (a *app) publishClip() { a.patch(ClipState{Count: len(a.ops.clip), Cut: a.ops.cut}) }
+// clearClip empties the clipboard c, once its items are pasted, wherever
+// it is still kept. It reports false when c was kept nowhere any more:
+// pasted, or replaced, meanwhile.
+func (h *Hub) clearClip(c clipboard) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.clips[c.fs].seq != c.seq && h.last.seq != c.seq {
+		// Pasted or replaced already, by another window.
+		return false
+	}
+	h.seq++
+	empty := clipboard{fs: c.fs, ps: c.ps, seq: h.seq}
+	if h.clips[c.fs].seq == c.seq {
+		h.clips[c.fs] = empty
+	}
+	if h.last.seq == c.seq {
+		h.last = empty
+	}
+	return true
+}
+
+// syncClip takes what the hub's clipboards say Paste would paste, and
+// tells a's window.
+func (a *app) syncClip() {
+	a.hub.mu.Lock()
+	a.takeClip(a.hub)
+	a.hub.mu.Unlock()
+	a.publishClip()
+}
+
+// takeClip takes what Paste would paste from h, whose lock is held: the
+// clipboard of a's file system, or the most recent one where it is of
+// another and a's program can carry its items across.
+func (a *app) takeClip(h *Hub) {
+	own := h.clips[a.fs.ID()]
+	a.ops.clip, a.ops.cut, a.ops.away = slices.Clone(own.paths), own.cut, clipboard{}
+	if a.opts.Transfer != nil && h.last.seq > 0 && h.last.fs != a.fs.ID() {
+		a.ops.away = h.last
+		a.ops.away.paths = slices.Clone(h.last.paths)
+		a.ops.clip, a.ops.cut = nil, false
+	}
+}
+
+func (a *app) publishClip() {
+	if c := a.ops.away; c.seq > 0 {
+		a.patch(ClipState{Count: len(c.paths), Cut: c.cut})
+		return
+	}
+	a.patch(ClipState{Count: len(a.ops.clip), Cut: a.ops.cut})
+}
 
 func cloneNames(m map[string]string) map[string]string {
 	if m == nil {
@@ -305,5 +418,7 @@ func WindowOptions() gunim.WindowOptions {
 		ZoomKeys:   true,
 		Icons:      icons(),
 		AskToClose: CloseAsked{},
+		// Items drag from a window behind another, as from Explorer's.
+		DragFromBehind: true,
 	}
 }

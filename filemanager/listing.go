@@ -8,6 +8,7 @@ import (
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/icon"
+	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/widget"
 )
@@ -17,7 +18,7 @@ const maxBlocks = 64
 
 func registerListing(w *gunim.Window) {
 	gunim.RegisterPatch(w, "browser", func(b *browser, l Listing, u *gunim.UI) {
-		b.title.setListing(l)
+		b.title.setListing(l, u)
 		b.path.setListing(l, u)
 		b.listing.setListing(l, u)
 	})
@@ -213,6 +214,7 @@ func newListingPage(b *browser, widths []float32) *listingPage {
 	g.OnHeader = func(c int) gunim.Intent { return SortClicked{Column: c} }
 	g.OnCopy = func([][2]int) gunim.Intent { return Command{Name: CmdCopy} }
 	g.DragRows = pg.dragRows
+	g.OnDragEnd = func(e input.DragEnd) gunim.Intent { return pg.b.dnd.dragEnded(e) }
 	pg.grid = g
 	pg.strip = widget.NewOverview(g)
 	pg.strip.Top = widget.GridHeaderHeight

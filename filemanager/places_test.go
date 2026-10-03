@@ -48,7 +48,7 @@ func TestTheCallerGivesThePlacesWithTheirGroups(t *testing.T) {
 				{Name: "Server home", Path: "/home/me", Kind: "home", Group: "server", Note: "Connected", FS: "sftp://server"},
 			}, nil
 		}
-		o.Visit = func(w *Window, fs, path string) {
+		o.Visit = func(w *Window, fs, path string, _ bool) {
 			mu.Lock()
 			defer mu.Unlock()
 			if w == nil {
@@ -57,20 +57,20 @@ func TestTheCallerGivesThePlacesWithTheirGroups(t *testing.T) {
 			visits = append(visits, fs+" "+path)
 		}
 	}, "a.txt")
-	h.until("the places arrive", func() bool { return h.b.side.places.Len() == 2 })
-	if got := h.b.side.first.Text; got != "THIS COMPUTER" {
-		t.Fatalf("the first heading says %q", got)
+	h.until("the places arrive", func() bool { return len(h.b.side.placeKeys()) == 2 })
+	if got := h.b.side.titles(); !slices.Equal(got, []string{"THIS COMPUTER", "FAVOURITES", "SERVER"}) {
+		t.Fatalf("the headings say %q", got)
 	}
-	keys := h.b.side.places.Keys()
+	keys := h.b.side.placeKeys()
 	away := h.b.side.items[keys[1]]
-	if !away.away || away.Note != "Connected" || away.head != "SERVER" {
-		t.Fatalf("the server's place is %+v, want it away and under its heading", away)
+	if !away.away || away.Note != "Connected" {
+		t.Fatalf("the server's place is %+v, want it away", away)
+	}
+	if _, under := h.b.side.byID[GroupSection("server")].list.Row(keys[1]); !under {
+		t.Fatal("the server's place is not under its heading")
 	}
 	h.frames(30)
-	row := h.bounds(func(b *browser) gunim.Node {
-		n, _ := b.side.places.Row(keys[1])
-		return n
-	})
+	row := h.bounds(func(b *browser) gunim.Node { return b.side.placeRow(keys[1]) })
 	h.click(geom.Pt(row.Center().X, row.Max.Y-10))
 	h.until("the click asks to visit the server", func() bool {
 		mu.Lock()
@@ -91,7 +91,7 @@ func TestTheCallersStoreKeepsTheFavourites(t *testing.T) {
 	h.until("the stored favourite shows", func() bool { return h.b.side.favs.Len() == 1 })
 	h.pick("work")
 	h.do(Command{Name: CmdPin})
-	want := []Favourite{{Path: filepath.Join(h.dir, "old"), Name: "Kept"}, {Path: filepath.Join(h.dir, "work")}}
+	want := []Favourite{{Path: filepath.Join(h.dir, "old"), Name: "Kept"}, {Path: filepath.Join(h.dir, "work"), Color: "red"}}
 	h.until("the store holds both", func() bool { return slices.Equal(store.saved(), want) })
 	h.until("the sidebar shows both", func() bool { return h.b.side.favs.Len() == 2 })
 	n, _ := h.b.side.favs.Row(widget.Key(filepath.Join(h.dir, "old")))
@@ -112,7 +112,7 @@ func TestRefreshFindsThePlacesAgain(t *testing.T) {
 		return []Place{{Name: "Server", Path: "/", Kind: "drive", FS: "sftp://server", Note: note}}, nil
 	}
 	w := newHarnessWith(t, func(o *Options) { o.Places = places }, "a.txt")
-	w.until("the place shows", func() bool { return w.b.side.places.Len() == 1 })
+	w.until("the place shows", func() bool { return len(w.b.side.placeKeys()) == 1 })
 	mu.Lock()
 	note = "Connected"
 	mu.Unlock()
@@ -127,7 +127,7 @@ func TestRefreshFindsThePlacesAgain(t *testing.T) {
 	})
 }
 
-func TestAGroupListedTwiceKeepsBothHeadings(t *testing.T) {
+func TestAGroupListedTwiceIsOneSection(t *testing.T) {
 	h := newHarnessWith(t, func(o *Options) {
 		dir := o.Dir
 		o.Places = func() ([]Place, error) {
@@ -138,14 +138,12 @@ func TestAGroupListedTwiceKeepsBothHeadings(t *testing.T) {
 			}, nil
 		}
 	}, "a.txt")
-	h.until("the places arrive", func() bool { return h.b.side.places.Len() == 3 })
-	keys := h.b.side.places.Keys()
-	heads := make([]string, 0, len(keys))
-	for _, k := range keys {
-		heads = append(heads, h.b.side.items[k].head)
+	h.until("the places arrive", func() bool { return len(h.b.side.placeKeys()) == 3 })
+	if got := h.b.side.titles(); !slices.Equal(got, []string{"A", "FAVOURITES", "B"}) {
+		t.Fatalf("the headings are %q", got)
 	}
-	if !slices.Equal(heads, []string{"", "B", "A"}) {
-		t.Fatalf("the headings are %q", heads)
+	if n := h.b.side.byID[GroupSection("A")].list.Len(); n != 2 {
+		t.Fatalf("the section of A holds %d places, want both", n)
 	}
 }
 
@@ -230,12 +228,12 @@ func TestAnUnpinnedFavouriteKeepsItsName(t *testing.T) {
 	h.pick("work")
 	h.do(Command{Name: CmdPin})
 	h.do(RenameFavourite{Path: work})
-	h.until("the prompt shows", func() bool { return len(h.a.ops.dialogs) == 1 })
-	p, _ := h.a.ops.dialogs[0].state.(Prompt)
-	h.answer(Prompted{Token: p.Token, Text: "Job", OK: true})
+	h.until("the dialog shows", func() bool { return len(h.a.ops.dialogs) == 1 })
+	p, _ := h.a.ops.dialogs[0].state.(FavouriteEdit)
+	h.answer(FavouriteEdited{Token: p.Token, Name: "Job", Color: "teal", Icon: "star", OK: true})
 	h.do(Unpin{Path: work})
 	h.do(Command{Name: CmdPin})
-	if len(h.a.favs) != 1 || h.a.favs[0].Name != "Job" {
+	if len(h.a.favs) != 1 || h.a.favs[0].Name != "Job" || h.a.favs[0].Color != "teal" || h.a.favs[0].Icon != "star" {
 		t.Fatalf("the favourite came back as %+v", h.a.favs)
 	}
 }

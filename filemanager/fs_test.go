@@ -64,17 +64,9 @@ func TestAFileSystemWithoutATrashCopiesWithoutUndo(t *testing.T) {
 	}
 }
 
-func TestAFileSystemElsewhereOpensNothingWithTheSystem(t *testing.T) {
-	h := newHarnessWith(t, onBareFS, "a.txt")
-	h.until("the rows arrive", func() bool { return len(h.shown()) == 1 })
-	h.pick("a.txt")
-	h.do(Command{Name: CmdOpen})
-	h.until("the banner says why", func() bool { return strings.Contains(h.b.banner.label.Text, "cannot open") })
-}
-
 func TestADropFromAnotherFileSystemIsRefused(t *testing.T) {
 	d := FileDrag{Paths: []string{"/a/x"}, FS: "elsewhere"}
-	if _, hint, ok := dropPlan(SystemPaths, "", d, "/b", "", "", 0); ok || !strings.Contains(hint.Text, "another file system") {
+	if _, hint, ok := dropPlan(SystemPaths, "", false, d, "/b", "", "", 0); ok || !strings.Contains(hint.Text, "another file system") {
 		t.Fatalf("a drop from elsewhere is planned, saying %q", hint.Text)
 	}
 	if _, err := d.ExportFiles(); err == nil {
@@ -286,5 +278,28 @@ func TestAFileSystemWithoutATrashSaysDeleteInTheMenus(t *testing.T) {
 	h.until("the rows arrive", func() bool { return len(h.shown()) == 1 })
 	if got := h.b.title.bar.Menus[1].Items[slices.Index(h.b.title.cmds[1], CmdTrash)]; got != "Delete…" {
 		t.Fatalf("the Edit menu says %q", got)
+	}
+}
+
+// A Windows path typed for a machine of slash paths, as one reached over
+// SFTP, goes where SFTP writes it: G:\Users is /G:/Users.
+func TestAWindowsPathTypedForSlashPaths(t *testing.T) {
+	for in, want := range map[string]string{
+		`G:\Users\me`: "/G:/Users/me",
+		`g:/Users/me`: "/G:/Users/me",
+		`C:\`:         "/C:",
+		`C:`:          "/C:",
+		"/home/me":    "/home/me",
+		`D:\a\..\b`:   "/D:/b",
+	} {
+		got, err := SlashPaths.Abs(in)
+		if err != nil || got != want {
+			t.Errorf("%q is %q, %v; want %q", in, got, err, want)
+		}
+	}
+	for _, in := range []string{"C:x", "relative", "1:/x"} {
+		if got, err := SlashPaths.Abs(in); err == nil {
+			t.Errorf("%q is %q, want refused", in, got)
+		}
 	}
 }

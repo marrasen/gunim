@@ -34,7 +34,7 @@ func (a *app) properties() {
 // whether what they hold is still to be counted.
 func readProps(fsys FS, paths []string) (p Props, count bool, err error) {
 	ps := fsys.Paths()
-	p.Location = ps.Dir(paths[0])
+	p.Location = ps.Show(ps.Dir(paths[0]))
 	if len(paths) > 1 {
 		dirs := 0
 		for _, path := range paths {

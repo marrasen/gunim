@@ -1,11 +1,10 @@
 package filemanager
 
 import (
+	"context"
 	"errors"
-	"fmt"
 	"slices"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/input"
@@ -19,6 +18,8 @@ type dndState struct {
 	// finding is set while volumes are being read, and again when more
 	// were asked for meanwhile.
 	finding, again bool
+	// fetches stop the fetches of the drags going on, by the drags' IDs.
+	fetches map[int]context.CancelFunc
 }
 
 // handleDnd takes the intents of drag and drop, the context menus and
@@ -27,12 +28,18 @@ func (a *app) handleDnd(in gunim.Intent) bool {
 	switch v := in.(type) {
 	case DropFiles:
 		a.dropFiles(v)
+	case DragFetch:
+		a.fetchForDrag(v)
+	case DragFetchEnd:
+		a.dragFetchEnded(v.ID)
 	case PinFolders:
 		a.pinFolders(v.Paths)
 	case OpenWindow:
 		a.openWindow(v.Path)
+	case EditFavourite:
+		a.editFavourite(v.FS, v.Path)
 	case RenameFavourite:
-		a.renameFavourite(v.Path)
+		a.editFavourite(v.FS, v.Path)
 	case PropsApplied:
 		a.answered(v)
 	case Command:
@@ -57,13 +64,24 @@ func (a *app) handleDnd(in gunim.Intent) bool {
 }
 
 // dropFiles moves or copies what was dropped into the folder it was
-// dropped on, as an operation with progress and undo.
+// dropped on, as an operation with progress and undo. Items from another
+// file system go to the program to carry across.
 func (a *app) dropFiles(v DropFiles) {
 	if len(v.Paths) == 0 || v.Into == "" {
 		return
 	}
-	if v.FS != a.fs.ID() {
-		a.fail("Items cannot go between file systems yet.")
+	if !v.Away && v.To != a.fs.ID() {
+		a.fail("The window went to another file system before the drop, so nothing was dropped.")
+		return
+	}
+	if v.FS != a.fs.ID() || v.To != a.fs.ID() {
+		if a.opts.Transfer == nil {
+			a.fail("Items cannot go between file systems yet.")
+			return
+		}
+		// Files from another program are the computer's own, written as
+		// it writes paths, which Style is by default.
+		a.transfer(v.FS, v.Style, v.Paths, v.To, v.Into, !v.Copy)
 		return
 	}
 	for _, p := range v.Paths {
@@ -114,22 +132,39 @@ func (a *app) pinFolders(paths []string) {
 	}()
 }
 
-// renameFavourite asks for a name for the favourite at path.
-func (a *app) renameFavourite(path string) {
-	name := a.favName(path)
-	a.prompt(Prompt{Title: "Rename favourite", Text: name, OK: "Rename", Stem: utf8.RuneCountInString(name)}, func(n string) {
-		i := a.favourite(path)
-		if i < 0 {
+// editFavourite asks for a name, a colour and an icon for the favourite
+// at path on the file system of ID fs, in the Edit favourite dialog.
+func (a *app) editFavourite(fs, path string) {
+	i := a.favourite(fs, path)
+	if i < 0 {
+		return
+	}
+	f := a.favs[i]
+	a.ops.tokens++
+	e := FavouriteEdit{Token: a.ops.tokens, Name: a.favName(fs, path), Folder: a.folderName(fs, path), Color: f.Color,
+		Icon: f.Icon}
+	a.showDialog(&dialog{view: "favourite", state: e, answer: func(in gunim.Intent) {
+		v, ok := in.(FavouriteEdited)
+		i := a.favourite(fs, path)
+		if !ok || !v.OK || i < 0 {
 			return
 		}
-		n = strings.TrimSpace(n)
-		if n == a.ps.placeName(path) {
+		n := strings.TrimSpace(v.Name)
+		if n == a.folderName(fs, path) {
 			n = ""
 		}
 		favs := slices.Clone(a.favs)
-		favs[i].Name = n
+		favs[i].Name, favs[i].Color, favs[i].Icon = n, known(FavouriteColors, v.Color), known(FavouriteIcons, v.Icon)
 		a.setFavourites(favs)
-	})
+	}})
+}
+
+// known returns name if it is one of names, and else empty.
+func known(names []string, name string) string {
+	if slices.Contains(names, name) {
+		return name
+	}
+	return ""
 }
 
 // openSystem opens the items selected with the system's programs, or
@@ -139,18 +174,7 @@ func (a *app) openSystem() {
 	if len(paths) == 0 {
 		paths = []string{a.nav.path}
 	}
-	open, ok := a.systemOpen()
-	if !ok {
-		return
-	}
-	go func() {
-		for _, p := range paths {
-			if err := open(p); err != nil {
-				a.post(func() { a.fail(fmt.Sprintf("Opening %s: %v", p, err)) })
-				return
-			}
-		}
-	}()
+	a.openFiles(paths)
 }
 
 // publishVolumes finds the volume of each folder in s the window can

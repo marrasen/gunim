@@ -43,6 +43,14 @@ type TrayItem struct {
 	Default bool
 }
 
+// A TrayNotifier is a [Driver] that shows a message from its tray icon,
+// as the system shows one.
+type TrayNotifier interface {
+	// TrayNotify shows a message from the tray icon, as the system shows
+	// one, and fails where no icon is up or the platform has none.
+	TrayNotify(title, body string) error
+}
+
 // A Trayer is a [Driver] that can show a tray icon.
 type Trayer interface {
 	// SetTray shows t in place of the tray icon shown before, and a

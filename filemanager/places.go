@@ -3,7 +3,6 @@ package filemanager
 import (
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 )
 
@@ -12,37 +11,25 @@ type space struct {
 	free, total uint64
 }
 
-// userPlace is one of the user's own folders, found by the system.
+// userPlace is one of the user's own folders, found by the system: its
+// kind, such as documents, and where it is.
 type userPlace struct {
-	name, kind, path string
+	kind, path string
 }
 
 // LocalPlaces returns the places of the computer's own file system: the
-// user's home and the folders in it the system knows, and the volumes with
-// their space. A volume whose space cannot be read carries the error.
-// It is what a window on the computer's own file system offers when its
-// options give no places, and a start for a caller that adds its own.
+// user's home, and the volumes with their space. A volume whose space
+// cannot be read carries the error. The user's own folders, such as
+// Documents, are not places but favourites, which the user can unpin:
+// see DefaultFavourites. It is what a window on the computer's own file
+// system offers when its options give no places, and a start for a
+// caller that adds its own.
 func LocalPlaces() ([]Place, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("finding your home folder: %w", err)
 	}
-	folders, err := userFolders(home)
-	if err != nil {
-		return nil, err
-	}
 	out := []Place{{Name: "Home", Path: home, Kind: "home"}}
-	for _, f := range folders {
-		_, serr := os.Stat(f.path)
-		if errors.Is(serr, fs.ErrNotExist) {
-			continue
-		}
-		p := Place{Name: f.name, Path: f.path, Kind: f.kind}
-		if serr != nil {
-			p.Err = serr.Error()
-		}
-		out = append(out, p)
-	}
 	vols, err := volumes()
 	if err != nil {
 		return nil, err

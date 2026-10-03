@@ -128,16 +128,20 @@ func TestAWideCharacterCoversTwoCells(t *testing.T) {
 	red := color.NRGBA{R: 0xff, A: 0xff}
 	g.SetRow(0, []Cell{{Rune: '中', Wide: true, BG: red}, {}, {Rune: 'x'}})
 	run(1)
-	cell := g.CellSize()
-	for _, op := range w.Offscreen().Ops() {
-		if r, ok := op.(*paint.RRectOp); ok && r.Fill.Solid == red {
-			if r.Rect.Size().W != 2*cell.W {
-				t.Fatalf("the wide character's background is %v wide, want %v", r.Rect.Size().W, 2*cell.W)
-			}
-			return
+	row, ok := cellsRow(w.Offscreen().Ops(), 0)
+	if !ok || len(row.Cells) < 3 || row.Cells[0].BG != red || row.Cells[1].BG != red || row.Cells[2].BG == red {
+		t.Fatalf("the first row's cells are %+v, want the wide character's background over two", row)
+	}
+}
+
+// cellsRow returns the cells of row y among ops.
+func cellsRow(ops []paint.Op, y int) (*paint.CellsOp, bool) {
+	for _, op := range ops {
+		if c, ok := op.(*paint.CellsOp); ok && c.Row == y {
+			return c, true
 		}
 	}
-	t.Fatal("no background drawn for the wide character")
+	return nil, false
 }
 
 // BenchmarkAGridScrollingAFullScreen draws a 200 by 60 terminal whose
@@ -227,31 +231,42 @@ func TestABoxRuleJoinsAcrossCells(t *testing.T) {
 	green := color.NRGBA{G: 0xff, A: 0xff}
 	g.SetRow(0, []Cell{{Rune: '─', FG: green}, {Rune: '┼', FG: green}, {Rune: '─', FG: green}})
 	run(1)
-	cell := g.CellSize()
-	// The rule's pieces: short and wide, in the middle of the row.
-	var pieces []geom.Rect
-	for _, op := range w.Offscreen().Ops() {
-		if r, ok := op.(*paint.RRectOp); ok && r.Fill.Solid == green && r.Rect.Size().H < cell.H/2 && r.Rect.Size().W > r.Rect.Size().H {
-			pieces = append(pieces, r.Rect)
-		}
+	row, ok := cellsRow(w.Offscreen().Ops(), 0)
+	if !ok {
+		t.Fatal("the row drew no cells")
 	}
-	reach := float32(0)
-	for moved := true; moved; {
-		moved = false
-		for _, r := range pieces {
-			if r.Min.X <= reach && r.Max.X > reach {
-				reach, moved = r.Max.X, true
+	pats := row.Patterns
+	// A pixel row covered all the way across in each cell's pattern.
+	across := func(n uint16) map[int]bool {
+		out := map[int]bool{}
+		if n == 0 || int(n) > len(pats.Masks) {
+			return out
+		}
+		m := pats.Masks[n-1]
+		for y := range pats.H {
+			full := true
+			for x := range pats.W {
+				full = full && m[y*pats.W+x] == 255
 			}
+			out[y] = full
+		}
+		return out
+	}
+	for y := range pats.H {
+		joined := true
+		for _, c := range row.Cells[:3] {
+			joined = joined && c.FG == green && across(c.Pattern)[y]
+		}
+		if joined {
+			return
 		}
 	}
-	if reach < 3*cell.W-0.01 {
-		t.Fatalf("the rule runs from 0 to %v of %v, in pieces %v", reach, 3*cell.W, pieces)
-	}
+	t.Fatalf("no line of pixels runs through all three cells' patterns: %+v", row.Cells[:3])
 }
 
 // A grid whose corner falls between device pixels still puts every
-// cell's fills on whole device pixels, so half blocks side by side and
-// row on row meet with no seam of background between them.
+// cell on whole device pixels, so half blocks side by side and row on
+// row meet with no seam of background between them.
 func TestCellsLandOnDevicePixelsWherever(t *testing.T) {
 	const scale = 1.5
 	g := NewCellGrid()
@@ -273,21 +288,24 @@ func TestCellsLandOnDevicePixelsWherever(t *testing.T) {
 			g.Paint(&p, gunim.Frame{Scale: scale}, geom.Sz(100, 100), gunim.Children{})
 		}()
 		whole := func(v float32) bool { return math.Abs(float64(v*scale)-math.Round(float64(v*scale))) < 1e-3 }
-		fills := 0
+		rows := 0
 		for _, op := range p.Ops() {
-			r, ok := op.(*paint.RRectOp)
-			if !ok || (r.Fill.Solid != top && r.Fill.Solid != bottom) {
+			c, ok := op.(*paint.CellsOp)
+			if !ok {
 				continue
 			}
-			fills++
-			for _, v := range []float32{r.Transform.C + r.Rect.Min.X, r.Transform.C + r.Rect.Max.X, r.Transform.F + r.Rect.Min.Y, r.Transform.F + r.Rect.Max.Y} {
+			rows++
+			if c.Cells[0].Pattern == 0 || c.Cells[0].FG != top || c.Cells[0].BG != bottom {
+				t.Fatalf("at %v a half block is drawn as %+v", at, c.Cells[0])
+			}
+			for _, v := range []float32{c.Transform.C + c.At.X, c.Transform.F + c.At.Y, c.Size.W, c.Size.H} {
 				if !whole(v) {
-					t.Fatalf("at %v a fill's edge lands at %v device pixels: %v under %v", at, v*scale, r.Rect, r.Transform)
+					t.Fatalf("at %v a row's cells land at %v device pixels: %v, %v under %v", at, v*scale, c.At, c.Size, c.Transform)
 				}
 			}
 		}
-		if fills == 0 {
-			t.Fatalf("at %v the grid drew no half blocks", at)
+		if rows != 3 {
+			t.Fatalf("at %v the grid drew %d rows of cells, want 3", at, rows)
 		}
 	}
 }

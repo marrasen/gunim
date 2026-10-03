@@ -68,6 +68,8 @@ type OffscreenWindow struct {
 	tree   *access.Tree
 	// hidden says the window is hidden, kept to show again.
 	hidden bool
+	// region is where the window was last told it takes the pointer, nil for all of it; see SetPointerRegion.
+	region []geom.Rect
 	// under is the colour last set under the window's frames.
 	under color.NRGBA
 	// frame is the pretend frame of a window made chromeless.
@@ -463,6 +465,21 @@ func (w *OffscreenWindow) Show() error {
 	defer w.mu.Unlock()
 	w.hidden = false
 	return nil
+}
+
+// SetPointerRegion implements [PointerRegioner].
+func (w *OffscreenWindow) SetPointerRegion(rects []geom.Rect) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.region = slices.Clone(rects)
+}
+
+// PointerRegion returns where the window was last told it takes the pointer, in its logical pixels, and nil where
+// it takes it all over.
+func (w *OffscreenWindow) PointerRegion() []geom.Rect {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return slices.Clone(w.region)
 }
 
 // Hidden reports whether the window is hidden, kept to show again.

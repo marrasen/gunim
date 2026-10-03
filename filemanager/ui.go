@@ -119,8 +119,9 @@ func (b *browser) setShell(s Shell, u *gunim.UI) {
 	} else {
 		b.main.SetShare(share, nil)
 	}
-	b.title.setShell(s)
+	b.title.setShell(s, u)
 	b.side.fs, b.side.ps = s.FS, s.Paths
+	b.dnd.u = u
 	b.shown = true
 }
 
@@ -212,6 +213,10 @@ func (b *browser) Handle(e input.Event, u *gunim.UI) bool {
 	case k.Key == input.KeySpace && !shift:
 		cmd = CmdViewer
 	case k.Key == input.KeyF2:
+		if in := b.side.editFocused(u); in != nil {
+			u.Send(b, in)
+			return true
+		}
 		cmd = CmdRename
 	case shift && k.Key == input.KeyDelete:
 		cmd = CmdDelete

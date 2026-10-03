@@ -209,7 +209,7 @@ func (a *app) rank() {
 	seq, text := s.seq, s.text
 	if strings.HasPrefix(text, ">") {
 		here := slices.DeleteFunc(slices.Clone(a.places), func(p Place) bool { return p.FS != a.fs.ID() })
-		hits := rankCommands(strings.TrimSpace(strings.TrimPrefix(text, ">")), a.ps, here, a.favPaths())
+		hits := rankCommands(strings.TrimSpace(strings.TrimPrefix(text, ">")), here, a.favPlaces(), a.fs.ID(), a.ps)
 		a.patch(PaletteResults{Seq: seq, Hits: hits, Status: "Commands. Delete the > to look for files."})
 		return
 	}
@@ -329,7 +329,7 @@ func folderOf(ps PathStyle, root string, it indexed) string {
 	if it.nameAt == 0 {
 		return ps.placeName(root)
 	}
-	return ps.Join(ps.placeName(root), it.rel[:it.nameAt-1])
+	return ps.Show(ps.Join(ps.placeName(root), it.rel[:it.nameAt-1]))
 }
 
 // subsequence reports whether the runes of q appear in s in order.
@@ -345,8 +345,10 @@ func subsequence(q, s string) bool {
 }
 
 // rankCommands returns the commands of the menus and the places to go
-// that query finds, best first.
-func rankCommands(query string, ps PathStyle, places []Place, favourites []string) []PaletteHit {
+// that query finds, best first. A favourite on another file system than
+// own, the window's, is visited and says where it is. ps is how own
+// writes paths.
+func rankCommands(query string, places, favourites []Place, own string, ps PathStyle) []PaletteHit {
 	var hits []PaletteHit
 	var items []match.Item
 	for _, m := range menus {
@@ -360,13 +362,22 @@ func rankCommands(query string, ps PathStyle, places []Place, favourites []strin
 		}
 	}
 	for _, p := range places {
-		hits = append(hits, PaletteHit{Title: "Go to " + p.Name, Detail: p.Path, Key: "go:" + p.Path, Mark: "place"})
-		items = append(items, match.Item{Title: "Go to " + p.Name, Also: []string{p.Path}})
+		shown := ps.Show(p.Path)
+		hits = append(hits, PaletteHit{Title: "Go to " + p.Name, Detail: shown, Key: "go:" + p.Path, Mark: "place"})
+		items = append(items, match.Item{Title: "Go to " + p.Name, Also: []string{shown}})
 	}
 	for _, f := range favourites {
-		hits = append(hits, PaletteHit{Title: "Go to " + ps.placeName(f), Detail: f, Hint: "Favourite", Key: "go:" + f,
-			Mark: "place"})
-		items = append(items, match.Item{Title: "Go to " + ps.placeName(f), Also: []string{f}})
+		hit := PaletteHit{Title: "Go to " + f.Name, Detail: ps.Show(f.Path), Hint: "Favourite", Key: "go:" + f.Path,
+			Mark: "place"}
+		if f.FS != own {
+			hit.Detail = f.Path
+			hit.Key = "visit:" + f.FS + "\x00" + f.Path
+			if f.Note != "" {
+				hit.Detail = f.Note + ": " + f.Path
+			}
+		}
+		hits = append(hits, hit)
+		items = append(items, match.Item{Title: hit.Title, Also: []string{hit.Detail}})
 	}
 	found := match.Rank(items, query)
 	out := make([]PaletteHit, len(found))
@@ -385,10 +396,17 @@ func (a *app) palettePicked(v PalettePicked) {
 		a.handle(a.handlers, Command{Name: rest})
 	case "go":
 		a.navigate(rest, 0, true)
+	case "visit":
+		// A path holds no NUL, though a file system's ID may.
+		cut := strings.LastIndexByte(rest, 0)
+		if cut < 0 {
+			return
+		}
+		a.visit(Visit{FS: rest[:cut], Path: rest[cut+1:]})
 	case "file":
 		info, err := a.fs.Lstat(rest)
 		if err != nil {
-			a.fail(fmt.Sprintf("Opening %s: %v", rest, err))
+			a.fail(fmt.Sprintf("Opening %s: %v", a.ps.Show(rest), err))
 			return
 		}
 		if v.Ctrl {
@@ -396,23 +414,10 @@ func (a *app) palettePicked(v PalettePicked) {
 				a.navigate(rest, 0, true)
 				return
 			}
-			a.openWith(rest)
+			a.openFiles([]string{rest})
 			return
 		}
 		a.navigate(a.ps.Dir(rest), 0, true)
 		a.nav.pick = a.ps.Base(rest)
 	}
-}
-
-// openWith opens the file at path with its program.
-func (a *app) openWith(path string) {
-	open, ok := a.systemOpen()
-	if !ok {
-		return
-	}
-	go func() {
-		if err := open(path); err != nil {
-			a.post(func() { a.fail(fmt.Sprintf("Opening %s: %v", path, err)) })
-		}
-	}()
 }

@@ -10,6 +10,7 @@ func registerDialogs(w *gunim.Window) {
 	gunim.RegisterView(w, "confirm", newConfirmDialog, nil)
 	gunim.RegisterView(w, "prompt", newPromptDialog, nil)
 	gunim.RegisterView(w, "error", newErrorDialog, nil)
+	gunim.RegisterView(w, "favourite", newFavouriteDialog, nil)
 }
 
 // clashBody says what the two items are, and offers to answer the same
@@ -63,6 +64,9 @@ func newConfirmDialog(s Confirm) *widget.Dialog {
 	body.Color = Faint
 	d.Body = body
 	d.Danger = true
+	if s.Alt != "" {
+		d.AddButton(s.Alt, func() gunim.Intent { return Confirmed{Token: s.Token, Alt: true} })
+	}
 	d.SetButtons(s.OK, "Cancel")
 	d.Accept = Confirmed{Token: s.Token, OK: true}
 	d.Dismiss = Confirmed{Token: s.Token}

@@ -1,6 +1,7 @@
 package widget
 
 import (
+	"math"
 	"slices"
 
 	"github.com/marrasen/gunim"
@@ -43,6 +44,14 @@ type List struct {
 	// OnClick, when set, turns a click on a row that nothing inside the
 	// row takes into an intent, so a row can be both clicked and dragged.
 	OnClick func(key Key) gunim.Intent
+	// ClickOnce takes the presses of a double or triple click on a row
+	// as one click, as a link takes them, so a row that goes somewhere
+	// goes there once.
+	ClickOnce bool
+	// NoFocus keeps a list with OnClick from taking the keyboard, for
+	// rows that take it themselves: the pointer still clicks and drags
+	// the rows, and the keys go by to what holds the list.
+	NoFocus bool
 
 	rows   map[Key]*row
 	order  []Key
@@ -171,6 +180,18 @@ func Sync[T any, N gunim.Node](l *List, u *gunim.UI, items []T,
 	}
 
 	l.order = mergeOrder(l.order, next, leaving)
+	l.arrange(u)
+}
+
+// arrange puts the rows that are not leaving in the tree in the order
+// shown, so Tab and the arrow keys reach what they hold in that order
+// whatever order they came in.
+func (l *List) arrange(u *gunim.UI) {
+	for _, k := range l.order {
+		if r, ok := l.rows[k]; ok && r.presence != gunim.Exiting && u.Presence(r) != gunim.Exiting {
+			u.InsertAt(l, math.MaxInt32, r)
+		}
+	}
 }
 
 // mergeOrder returns next with the keys that are leaving kept in the
@@ -306,7 +327,7 @@ func (l *List) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.
 }
 
 // Focusable implements [gunim.Focusable]: a list with OnClick set takes focus.
-func (l *List) Focusable() bool { return l.OnClick != nil }
+func (l *List) Focusable() bool { return l.OnClick != nil && !l.NoFocus }
 
 // Cursor returns the row the keys work on, if it is still in the list.
 func (l *List) Cursor() (Key, bool) {
@@ -346,7 +367,7 @@ func (l *List) moveCursor(keys []Key, i int, u *gunim.UI) {
 
 // key works the cursor: Up, Down, Home and End move it, and Enter or Space clicks its row.
 func (l *List) key(e input.KeyPress, u *gunim.UI) bool {
-	if l.OnClick == nil || e.Mods.Has(input.ModControl) || e.Mods.Has(input.ModAlt) {
+	if l.OnClick == nil || l.NoFocus || e.Mods.Has(input.ModControl) || e.Mods.Has(input.ModAlt) {
 		return false
 	}
 	keys := l.live()

@@ -1,7 +1,9 @@
 package gunim
 
 import (
+	"fmt"
 	"math"
+	"os"
 	"slices"
 	"time"
 
@@ -58,8 +60,15 @@ func (u *UI) handleOn(root *state, ev any) {
 			return
 		}
 		u.altAlone = false
+		u.keyboardAway = !e.Focused
+		if e.Focused {
+			// A press from behind has nothing left to bring to the front.
+			u.behind = false
+		}
 		if !e.Focused {
 			u.dismissFor(nil, nil)
+		} else if u.w.app != nil {
+			u.w.app.windows.focus(u.w)
 		}
 		var ev input.Event = input.WindowFocusGained{Time: time.Now()}
 		if !e.Focused {
@@ -86,6 +95,15 @@ func (u *UI) handleOn(root *state, ev any) {
 			return input.PointerMove{Pos: local, Mods: e.Mods, Time: e.Time}
 		}
 		if u.capture != nil {
+			if !u.capture.within(root) {
+				// The press was in another window, which holds the pointer
+				// until the release and hears its moves itself. A move from
+				// this one was made up, as when a popup opens under the
+				// pointer, and its point is in this window's space, not the
+				// capture's.
+				pointerf("move to %.1f,%.1f in another window than the press, left alone", e.Pos.X, e.Pos.Y)
+				return
+			}
 			u.deliver(u.capture, mk(u.local(u.capture, e.Pos)))
 			u.shapePointer(root, e.Pos)
 			return
@@ -105,6 +123,7 @@ func (u *UI) handleOn(root *state, ev any) {
 		}
 		if root == u.root {
 			u.pointer = e.Pos
+			u.behind, u.dragged = e.Behind, false
 		}
 		// A press outside a popup dismisses it; the press still goes
 		// where it lands.
@@ -123,7 +142,7 @@ func (u *UI) handleOn(root *state, ev any) {
 		focusing := u.focus != was
 		// Whoever takes the press keeps the pointer until the release.
 		u.capture = u.dispatchAt(root, e.Pos, func(local geom.Point) input.Event {
-			return input.PointerDown{Pos: local, Button: e.Button, Mods: e.Mods, Clicks: e.Clicks, Focusing: focusing, Time: e.Time}
+			return input.PointerDown{Pos: local, Button: e.Button, Mods: e.Mods, Clicks: e.Clicks, Focusing: focusing, Behind: e.Behind, Time: e.Time}
 		})
 		u.shapePointer(root, e.Pos)
 	case input.PointerUp:
@@ -134,6 +153,15 @@ func (u *UI) handleOn(root *state, ev any) {
 			}
 			u.bubble(from, input.HistoryStep{Forward: e.Button == input.ButtonForward, Time: e.Time})
 			return
+		}
+		if root == u.root && u.behind {
+			// A press from behind that started no drag was a click, which
+			// brings the window to the front, as it would have on the
+			// press; a drag leaves it where it is.
+			u.behind = false
+			if !u.dragged {
+				u.ToFront()
+			}
 		}
 		if root == u.root && u.drag != nil {
 			u.drag.mods = e.Mods
@@ -181,6 +209,11 @@ func (u *UI) handleOn(root *state, ev any) {
 		if u.drag != nil {
 			// Keys speak to the drag while it lasts.
 			u.dragKey(ev)
+			return
+		}
+		if u.behind {
+			// A window pressed from behind has no keyboard; what comes is
+			// Escape, as the system says it is held, for a drag alone.
 			return
 		}
 		u.keyEvent(ev)
@@ -231,6 +264,9 @@ func (u *UI) heldMods(ev any) {
 		u.mods = e.Mods &^ modKeys[e.Key]
 	case input.WindowFocusLost:
 		u.mods = 0
+		u.keyboardAway = true
+	case input.WindowFocusGained:
+		u.keyboardAway = false
 	}
 }
 
@@ -629,6 +665,10 @@ func (u *UI) hit(s *state, p geom.Point) *state {
 		if sh, ok := k.node.(Shaped); ok && !sh.Covers(local) {
 			continue
 		}
+		if card, ok := popupCard(k); ok && !card.Contains(local) {
+			// A popup's shadow, which its window does not take the pointer on
+			continue
+		}
 		if c, ok := k.node.(PointerClaimer); ok && c.ClaimsPointer(local) {
 			return k
 		}
@@ -677,10 +717,22 @@ func (u *UI) hoverAgain(now time.Time) {
 		return
 	}
 	mods := u.movedMods
+	pointerf("move to %.1f,%.1f again, as what is under the pointer moved", u.pointer.X, u.pointer.Y)
 	u.dispatchAt(u.root, u.pointer, func(local geom.Point) input.Event {
 		return input.PointerMove{Pos: local, Mods: mods, Time: now}
 	})
 	u.movedAt(mods)
+}
+
+// pointerDebug is set by GUNIM_DEBUG_POINTER=1, which logs to standard error the moves the engine makes up or
+// leaves alone, beside the ones the driver logs, to find where the pointer goes astray.
+var pointerDebug = os.Getenv("GUNIM_DEBUG_POINTER") == "1"
+
+// pointerf logs one line about the pointer, under GUNIM_DEBUG_POINTER=1.
+func pointerf(format string, args ...any) {
+	if pointerDebug {
+		fmt.Fprintf(os.Stderr, "gunim pointer engine %s: %s\n", time.Now().Format("15:04:05.000"), fmt.Sprintf(format, args...))
+	}
 }
 
 // movedAt notes where the pointer's last move landed, for hoverAgain.

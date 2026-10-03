@@ -1,6 +1,8 @@
 package filemanager
 
 import (
+	"strings"
+
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/paint"
@@ -33,6 +35,10 @@ var menus = []struct {
 		{"-", "", ""},
 		{"Pin to sidebar", "Ctrl+D", CmdPin},
 		{"Show in system file manager", "", CmdReveal},
+		{"-", "", ""},
+		{"Upload edited copies: ask", "", CmdUploadAsk},
+		{"Upload edited copies: always", "", CmdUploadAlways},
+		{"Upload edited copies: never", "", CmdUploadNever},
 		{"-", "", ""},
 		{"Close", "Ctrl+W", CmdCloseApp},
 	}},
@@ -86,31 +92,83 @@ type titleBar struct {
 	controls *widget.WindowControls
 	// cmds holds each menu's commands, in the order the bar has them.
 	cmds [][]string
+	// folder is the name of the folder showing, once one is, and native
+	// the title the window was given last.
+	folder, native string
+	// fetches says the menus are those of a file system whose files are
+	// fetched to open.
+	fetches bool
 }
 
 func newTitleBar(b *browser) *titleBar {
 	t := &titleBar{b: b, controls: widget.NewWindowControls()}
+	t.bar = widget.NewMenubar(t.build(false)...)
+	t.bar.Title = "Files"
+	t.bar.Pick = t.pick
+	return t
+}
+
+// build makes the bar's menus, and sets the commands of their items. On
+// a file system whose files are fetched to open, nothing shows in the
+// system's file manager, so the menus leave that out. The items keep
+// their ticks.
+func (t *titleBar) build(fetches bool) []widget.BarMenu {
+	var was map[string]bool
+	if t.bar != nil {
+		was = map[string]bool{}
+		for m, cmds := range t.cmds {
+			for i, c := range cmds {
+				was[c] = t.bar.Menus[m].Checked[i]
+			}
+		}
+	}
 	bars := make([]widget.BarMenu, 0, len(menus))
+	t.cmds = t.cmds[:0]
 	for _, m := range menus {
+		items := m.items
+		if fetches {
+			items = without(items, CmdReveal)
+		} else {
+			// Only files fetched to open are uploaded.
+			for _, c := range []string{CmdUploadAsk, CmdUploadAlways, CmdUploadNever} {
+				items = without(items, c)
+			}
+		}
 		bm := widget.BarMenu{Title: m.title}
 		var cmds []string
-		for _, it := range m.items {
+		for _, it := range items {
 			if it.label == "-" {
 				bm.Breaks = append(bm.Breaks, len(bm.Items))
 				continue
 			}
 			bm.Items = append(bm.Items, it.label)
 			bm.Hints = append(bm.Hints, it.hint)
+			bm.Checked = append(bm.Checked, was[it.cmd])
 			cmds = append(cmds, it.cmd)
 		}
-		bm.Checked = make([]bool, len(bm.Items))
 		bars = append(bars, bm)
 		t.cmds = append(t.cmds, cmds)
 	}
-	t.bar = widget.NewMenubar(bars...)
-	t.bar.Title = "Files"
-	t.bar.Pick = t.pick
-	return t
+	t.fetches = fetches
+	return bars
+}
+
+// without returns items without the one that sends cmd, and without a
+// line that would then start or end the menu, or follow another.
+func without(items []menuItem, cmd string) []menuItem {
+	var out []menuItem
+	for _, it := range items {
+		switch {
+		case it.cmd == cmd && it.label != "-":
+		case it.label == "-" && (len(out) == 0 || out[len(out)-1].label == "-"):
+		default:
+			out = append(out, it)
+		}
+	}
+	if n := len(out); n > 0 && out[n-1].label == "-" {
+		out = out[:n-1]
+	}
+	return out
 }
 
 // pick runs the command of item i of menu m.
@@ -141,7 +199,10 @@ func (t *titleBar) check(cmd string, on bool) {
 	}
 }
 
-func (t *titleBar) setShell(s Shell) {
+func (t *titleBar) setShell(s Shell, u *gunim.UI) {
+	if s.Fetches != t.fetches {
+		t.bar.Menus = t.build(s.Fetches)
+	}
 	for m, cmds := range t.cmds {
 		for i, c := range cmds {
 			if c == CmdTrash {
@@ -149,20 +210,42 @@ func (t *titleBar) setShell(s Shell) {
 			}
 		}
 	}
-	if t.bar.Title == "" || t.bar.Title == "Files" {
-		t.bar.Title = s.appName()
-	}
+	t.retitle(u)
 	t.check(CmdHidden, s.ShowHidden)
 	t.check(CmdPreview, s.ShowPreview)
 	t.check(CmdThemeDark, !s.Light)
 	t.check(CmdThemeLight, s.Light)
+	up := s.UploadEdited
+	t.check(CmdUploadAsk, up != uploadAlways && up != uploadNever)
+	t.check(CmdUploadAlways, up == uploadAlways)
+	t.check(CmdUploadNever, up == uploadNever)
 }
 
 // setListing names the folder in the title, and ticks the sort.
-func (t *titleBar) setListing(l Listing) {
-	t.bar.Title = l.Title + " — " + t.b.shell.appName()
+func (t *titleBar) setListing(l Listing, u *gunim.UI) {
+	t.folder = l.Title
+	t.retitle(u)
 	for by, cmd := range []string{CmdSortName, CmdSortSize, CmdSortTime, CmdSortType} {
 		t.check(cmd, SortBy(by) == l.Sort)
+	}
+}
+
+// retitle names the file system, the folder and the program in the
+// title, those it knows: the one drawn, and the window's own, which the
+// system shows as it switches between windows. u may be nil, as in a
+// test with no window.
+func (t *titleBar) retitle(u *gunim.UI) {
+	s := t.b.shell
+	var parts []string
+	for _, p := range []string{s.Where, t.folder, s.appName()} {
+		if p != "" {
+			parts = append(parts, p)
+		}
+	}
+	t.bar.Title = strings.Join(parts, " — ")
+	if u != nil && t.bar.Title != t.native {
+		t.native = t.bar.Title
+		u.SetTitle(t.native)
 	}
 }
 

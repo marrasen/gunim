@@ -185,6 +185,8 @@ type DataGrid struct {
 	// ghost under the pointer, held grab from its top left. at is where
 	// the press was, in the grid's space. A nil data drags nothing.
 	DragRows func(sel [][2]int, at geom.Point) (data any, ghost gunim.Node, grab geom.Point)
+	// OnDragEnd, when set, hears how a drag of the rows ended.
+	OnDragEnd func(e input.DragEnd) gunim.Intent
 
 	// lift is a press that may become a drag, and away how far the rows
 	// dragged have dimmed.
@@ -1185,6 +1187,9 @@ func (g *DataGrid) Handle(e input.Event, u *gunim.UI) bool {
 	case input.DragEnd:
 		g.lift = gridLift{}
 		g.away.Animate(0, Settle.Get(th))
+		if g.OnDragEnd != nil {
+			g.send(g.OnDragEnd(e), u)
+		}
 		return true
 	case input.KeyPress:
 		return g.key(e, u)

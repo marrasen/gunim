@@ -4,6 +4,9 @@ package glfw
 
 var procGetAsyncKeyState = user32.NewProc("GetAsyncKeyState")
 
+// _VK_ESCAPE is Escape's virtual key code.
+const _VK_ESCAPE = 0x1B
+
 // platformHeldModifiers reads the keys' state now, which GetKeyState
 // does not while another program has the keyboard.
 func (w *Window) platformHeldModifiers() ModifierKey {
@@ -25,4 +28,10 @@ func (w *Window) platformHeldModifiers() ModifierKey {
 		mods |= ModSuper
 	}
 	return mods
+}
+
+// platformEscapeHeld reads Escape's state now.
+func (w *Window) platformEscapeHeld() bool {
+	r, _, _ := procGetAsyncKeyState.Call(uintptr(_VK_ESCAPE))
+	return uint16(r)&0x8000 != 0
 }

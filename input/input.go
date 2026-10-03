@@ -54,7 +54,13 @@ type PointerDown struct {
 	// what had it before was elsewhere. A node that takes a first click
 	// as only choosing it, as a terminal does, passes such a press by.
 	Focusing bool
-	Time     time.Time
+	// Behind says the press came while another window was active, and
+	// left this one where it was: a window opened with
+	// gunim.WindowOptions.DragFromBehind, on Windows. A drag started
+	// from the press runs with the window left behind, and otherwise the
+	// window comes to the front as the button comes up.
+	Behind bool
+	Time   time.Time
 }
 
 // PointerUp arrives when a button comes back up.

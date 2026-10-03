@@ -30,8 +30,12 @@ type opsState struct {
 	// their IDs in the order Ctrl+Z takes them back.
 	records map[int]*finished
 	undo    []int
-	clip    []string
-	cut     bool
+	// clip is what Paste would paste of the window's own file system,
+	// and cut whether it was cut. away is the clipboard of another file
+	// system, newer than clip, which Paste hands to the program instead.
+	clip []string
+	cut  bool
+	away clipboard
 	// limit holds copies to that many bytes a second, for the demo.
 	limit float64
 	// dialogs are the dialogs to show, the first showing.
@@ -85,8 +89,10 @@ func (a *app) handleOps(in gunim.Intent) bool {
 		}
 	case UndoOp:
 		a.undo(v.ID)
-	case ClashAnswered, Confirmed, Prompted, DialogClosed:
+	case ClashAnswered, Confirmed, Prompted, DialogClosed, FavouriteEdited:
 		a.answered(in)
+	case NoticeAnswered:
+		a.uploadAnswered(v)
 	case Command:
 		return a.opsCommand(v.Name)
 	default:
@@ -112,13 +118,38 @@ func (a *app) opsCommand(name string) bool {
 		a.patch(Notice{Title: plural(len(paths), "item") + " ready to " + verb, Body: "Go to a folder and paste with Ctrl+V.",
 			Kind: "info"})
 	case CmdPaste:
-		if len(a.ops.clip) == 0 || here == "" {
+		if here == "" {
+			return true
+		}
+		if c := a.ops.away; len(c.paths) > 0 {
+			if c.cut {
+				// A cut is pasted once: not again, by a window that had
+				// not heard it was.
+				pasted := !a.hub.clearClip(c)
+				a.syncClip()
+				if pasted {
+					return true
+				}
+				a.hub.others(a, func(o *app) { o.syncClip() })
+			}
+			a.transfer(c.fs, c.ps, c.paths, a.fs.ID(), here, c.cut)
+			return true
+		}
+		if len(a.ops.clip) == 0 {
 			return true
 		}
 		srcs := slices.Clone(a.ops.clip)
 		if a.ops.cut {
-			a.ops.clip, a.ops.cut = nil, false
-			a.clipChanged()
+			// Once, here too: a window elsewhere may have pasted it.
+			a.hub.mu.Lock()
+			kept := a.hub.clips[a.fs.ID()]
+			a.hub.mu.Unlock()
+			if !kept.cut || !slices.Equal(kept.paths, srcs) || !a.hub.clearClip(kept) {
+				a.syncClip()
+				return true
+			}
+			a.syncClip()
+			a.hub.others(a, func(o *app) { o.syncClip() })
 			a.startOp(job{kind: OpMove, srcs: srcs, dest: here}, "Moving "+a.what(srcs)+" to "+a.ps.placeName(here))
 		} else {
 			a.startOp(job{kind: OpCopy, srcs: srcs, dest: here}, "Copying "+a.what(srcs)+" to "+a.ps.placeName(here))
@@ -178,21 +209,24 @@ func (a *app) opsCommand(name string) bool {
 }
 
 // what says how many items paths are, or names the one.
-func (a *app) what(paths []string) string {
+func (a *app) what(paths []string) string { return whatIn(a.ps, paths) }
+
+// whatIn says how many items paths, written as ps, are, or names the one.
+func whatIn(ps PathStyle, paths []string) string {
 	if len(paths) == 1 {
-		return a.ps.Base(paths[0])
+		return ps.Base(paths[0])
 	}
 	return plural(len(paths), "item")
 }
 
-// startOp runs j in the background, with its progress in the panel once
-// it has run a moment.
-func (a *app) startOp(j job, title string) {
+// newOp counts a new operation running, of kind and called title, with
+// its progress in the panel once it has run a moment. It returns the
+// operation's ID, and the context it runs in, which cancel ends.
+func (a *app) newOp(title string, kind OpKind) (id int, ctx context.Context, cancel context.CancelFunc) {
 	a.ops.next++
-	id := a.ops.next
-	ctx, cancel := context.WithCancel(a.ctx)
-	r := &opRun{id: id, title: title, kind: j.kind, cancel: cancel}
-	a.ops.running[id] = r
+	id = a.ops.next
+	ctx, cancel = context.WithCancel(a.ctx)
+	a.ops.running[id] = &opRun{id: id, title: title, kind: kind, cancel: cancel}
 	time.AfterFunc(showAfter, func() {
 		a.post(func() {
 			if r, ok := a.ops.running[id]; ok {
@@ -201,6 +235,13 @@ func (a *app) startOp(j job, title string) {
 			}
 		})
 	})
+	return id, ctx, cancel
+}
+
+// startOp runs j in the background, with its progress in the panel once
+// it has run a moment.
+func (a *app) startOp(j job, title string) {
+	id, ctx, _ := a.newOp(title, j.kind)
 	e := env{
 		fs:     a.fs,
 		trash:  a.trash,
@@ -232,27 +273,28 @@ func (a *app) progressed(id int, p progress) {
 	if !ok {
 		return
 	}
-	sampled := r.meter.add(time.Now(), p.bytes)
+	now := time.Now()
+	sampled := r.meter.add(now, p.bytes)
 	r.last = p
 	if r.visible {
-		a.patch(r.tick(a.ps))
+		a.patch(r.tick(a.ps, now))
 		if sampled && p.bytesTotal > 0 {
-			a.patch(OpSpeed{ID: id, Rate: r.meter.rate, Left: r.meter.left(p.bytes, p.bytesTotal), File: p.current})
+			a.patch(OpSpeed{ID: id, Rate: r.meter.rate, Left: r.meter.left(now, p.bytes, p.bytesTotal), File: p.current})
 		}
 	}
 }
 
-// tick is how the panel shows r now, with paths of style ps.
-func (r *opRun) tick(ps PathStyle) OpTick {
+// tick is how the panel shows r at now, with paths of style ps.
+func (r *opRun) tick(ps PathStyle, now time.Time) OpTick {
 	p := r.last
 	t := OpTick{ID: r.id}
 	switch {
 	case p.bytesTotal > 0:
 		t.Done = float32(float64(p.bytes) / float64(p.bytesTotal))
 		t.Detail = humanBytes(p.bytes) + " of " + humanBytes(p.bytesTotal)
-		if speed := r.meter.smooth; speed > 0 {
+		if speed := r.meter.shown; speed > 0 {
 			t.Detail += "  ·  " + humanBytes(int64(speed)) + "/s"
-			if left := r.meter.left(p.bytes, p.bytesTotal); left >= 1 {
+			if left := r.meter.left(now, p.bytes, p.bytesTotal); left >= 1 {
 				t.Detail += fmt.Sprintf("  ·  %s left", (time.Duration(left) * time.Second).Round(time.Second))
 			}
 		}
@@ -287,7 +329,7 @@ func (a *app) publishOps() {
 		if !r.visible {
 			continue
 		}
-		t := r.tick(a.ps)
+		t := r.tick(a.ps, time.Now())
 		if !ok {
 			t = OpTick{ID: id, Done: 1, Detail: "Done"}
 		}
@@ -485,12 +527,21 @@ func describe(fsys FS, path string) string {
 
 // confirm asks c, and runs yes once the user agrees.
 func (a *app) confirm(c Confirm, yes func()) {
+	a.ask(c, func(v Confirmed) {
+		if v.OK {
+			yes()
+		}
+	})
+}
+
+// ask asks c, and hands got the answer, which is neither OK nor Alt
+// where the user cancelled.
+func (a *app) ask(c Confirm, got func(v Confirmed)) {
 	a.ops.tokens++
 	c.Token = a.ops.tokens
 	a.showDialog(&dialog{view: "confirm", state: c, answer: func(in gunim.Intent) {
-		if v, ok := in.(Confirmed); ok && v.OK {
-			yes()
-		}
+		v, _ := in.(Confirmed)
+		got(v)
 	}})
 }
 
@@ -558,6 +609,9 @@ func answers(in gunim.Intent, state any) bool {
 		return ok && s.Token == v.Token
 	case PropsApplied:
 		s, ok := state.(Props)
+		return ok && s.Token == v.Token
+	case FavouriteEdited:
+		s, ok := state.(FavouriteEdit)
 		return ok && s.Token == v.Token
 	case DialogClosed:
 		switch state.(type) {

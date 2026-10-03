@@ -48,10 +48,19 @@ const (
 // Maximize shows restore while the window is maximized. It is the
 // window's [gunim.MaximizeButton], for the snap layouts Windows 11 hangs
 // on it. Close does what the system's does: see [gunim.UI.AskToClose].
+//
+// NoMinimize, NoMaximize and NoClose leave buttons out, for a small
+// window such as one that asks a question. With all three left out, and
+// no Pin, the controls take no room. Without maximize, the window tells
+// the system it has no maximize button, so Windows 11 shows no snap
+// layouts, and a double click on the title bar leaves the window as it
+// is.
 type WindowControls struct {
 	anim.Group
 	// Pin adds a button before minimize that keeps the window above other windows; see [gunim.UI.SetPinned].
 	Pin bool
+	// NoMinimize, NoMaximize and NoClose leave out the minimize, maximize and close buttons.
+	NoMinimize, NoMaximize, NoClose bool
 	// Compact makes the buttons narrower, and as tall as [TitleBarCompactHeight] when nothing sets their height.
 	Compact bool
 	hot     [4]*anim.Float
@@ -64,7 +73,8 @@ type WindowControls struct {
 	pinned bool
 }
 
-// NewWindowControls returns the three buttons.
+// NewWindowControls returns the three buttons. Set NoMinimize,
+// NoMaximize or NoClose to leave some out.
 func NewWindowControls() *WindowControls {
 	c := &WindowControls{over: noButton, down: noButton}
 	for i := range c.hot {
@@ -76,10 +86,16 @@ func NewWindowControls() *WindowControls {
 
 // buttons returns the buttons shown, in order.
 func (c *WindowControls) buttons() []windowButton {
-	if c.Pin {
-		return []windowButton{pinButton, minimizeButton, maximizeButton, closeButton}
+	out := make([]windowButton, 0, 4)
+	for _, b := range []struct {
+		b  windowButton
+		on bool
+	}{{pinButton, c.Pin}, {minimizeButton, !c.NoMinimize}, {maximizeButton, !c.NoMaximize}, {closeButton, !c.NoClose}} {
+		if b.on {
+			out = append(out, b.b)
+		}
 	}
-	return []windowButton{minimizeButton, maximizeButton, closeButton}
+	return out
 }
 
 // width returns each button's width.
@@ -114,9 +130,13 @@ func (c *WindowControls) Layout(cs gunim.Constraints, f gunim.Frame, _ gunim.Chi
 	return c.size
 }
 
-// MaximizeRect implements [gunim.MaximizeButton].
+// MaximizeRect implements [gunim.MaximizeButton]. It is empty without a
+// maximize button, which tells the system there is none.
 func (c *WindowControls) MaximizeRect(size geom.Size) geom.Rect {
 	i := slices.Index(c.buttons(), maximizeButton)
+	if i < 0 {
+		return geom.Rect{}
+	}
 	return geom.Rc(float32(i)*c.width(), 0, c.width(), size.H)
 }
 

@@ -9,6 +9,7 @@ import (
 	"github.com/marrasen/gunim/driver/internal/render"
 	"image"
 	"image/color"
+	"log"
 	"math"
 	"os"
 	"runtime"
@@ -121,6 +122,10 @@ type Window struct {
 	// placing says Place is sizing the window, which then waits for no frame at the new size. It is used on the main
 	// thread.
 	placing bool
+	// region is where the window takes the pointer, in logical pixels, and regionSet says it is limited at all; see
+	// SetPointerRegion. They are used on the main thread.
+	region    []geom.Rect
+	regionSet bool
 	// readback, when set by a test, receives each frame's pixels as
 	// RGBA rows from the bottom up, read before the swap.
 	readback func(pix []byte, w, h int)
@@ -172,6 +177,13 @@ type Window struct {
 	lastButton input.Button
 	lastPos    geom.Point
 	clicks     int
+	// behind says a press left the window behind another and the button
+	// is still down, and escaped that Escape was held at the last look;
+	// see [glfw.Window.SetDragFromBehind]. The window hears no keys then,
+	// so the modifiers and Escape are asked of the system as the pointer
+	// moves.
+	behind  bool
+	escaped bool
 	// normals are the last few places and sizes the window had while it
 	// was neither maximized, minimized nor full screen, the latest last,
 	// in screen coordinates as x, y, width, height. The latest is where
@@ -274,13 +286,21 @@ func (w *Window) SetFade(opacity, scale float32) {
 	}
 }
 
-// SetZoom implements [driver.Zoomer]. The pointer is read again at the
+// SetZoom implements [driver.Zoomer]. The pointer is read again at a
 // new zoom; see pointerAgain.
+//
+// The same zoom changes nothing, so the pointer is left alone. The
+// engine gives every popup its zoom as it opens, and a menu opened by a
+// press under the pointer would otherwise hear a move nobody made.
 func (w *Window) SetZoom(z float32) {
 	w.mu.Lock()
+	same := w.zoom == z
 	w.zoom = z
 	w.scale = w.content * z
 	w.mu.Unlock()
+	if same {
+		return
+	}
 	w.in.Push(driver.Redraw{})
 	w.d.post(w.pointerAgain)
 }
@@ -301,6 +321,7 @@ func (w *Window) pointerAgain() {
 		return
 	}
 	w.cursor = w.logical(x, y)
+	w.pointerf("move to %.1f,%.1f, read again at scale %.2f", w.cursor.X, w.cursor.Y, w.Scale())
 	w.in.Push(input.PointerMove{Pos: w.cursor, Mods: w.mods, Time: time.Now()})
 }
 
@@ -376,7 +397,12 @@ func (w *Window) Close() error {
 	var err error
 	w.closeOnce.Do(func() {
 		w.stopRender()
+		start := time.Now()
 		<-w.done
+		if took := time.Since(start); took > slowCall && (pointerDebug || windowDebug) {
+			fmt.Fprintf(os.Stderr, "gunim stall %s: closing window %p waited %.0f ms for its render thread\n",
+				time.Now().Format("15:04:05.000"), w, float64(took.Microseconds())/1000)
+		}
 		err = w.d.call(func() error {
 			w.shutdown()
 			return nil
@@ -721,6 +747,8 @@ func (w *Window) measure() {
 		w.rate = rate
 	}
 	w.mu.Unlock()
+	// The region is in logical pixels, and the window's own may have changed size
+	w.applyRegion()
 }
 
 // monitorRate returns the refresh rate of the monitor holding the
@@ -808,11 +836,14 @@ func (w *Window) install() {
 	_, _ = gw.SetFocusCallback(func(_ *glfw.Window, focused bool) {
 		w.focused.Store(focused)
 		if focused {
+			// The window hears keys itself again.
+			w.behind = false
 			// A modifier let go while another window had the keyboard
 			// sent this one no event.
 			w.mods = modsOf(gw.HeldModifiers())
 		}
 		w.accessFocus(focused)
+		w.pointerf("keyboard %v", focused)
 		w.in.Push(driver.WindowFocus{Focused: focused})
 	})
 	_, _ = gw.SetCloseCallback(func(gw *glfw.Window) {
@@ -824,9 +855,19 @@ func (w *Window) install() {
 
 	_, _ = gw.SetCursorPosCallback(func(_ *glfw.Window, x, y float64) {
 		w.cursor = w.logical(x, y)
+		w.pointerf("move to %.1f,%.1f", w.cursor.X, w.cursor.Y)
+		if w.behind {
+			w.mods = modsOf(gw.HeldModifiers())
+			esc := gw.EscapeHeld()
+			if esc && !w.escaped {
+				w.in.Push(input.KeyPress{Key: input.KeyEscape, Mods: w.mods, Time: time.Now()})
+			}
+			w.escaped = esc
+		}
 		w.in.Push(input.PointerMove{Pos: w.cursor, Mods: w.mods, Time: time.Now()})
 	})
 	_, _ = gw.SetCursorEnterCallback(func(_ *glfw.Window, entered bool) {
+		w.pointerf("entered %v", entered)
 		if !entered {
 			w.in.Push(input.PointerLeave{Time: time.Now()})
 		}
@@ -838,9 +879,21 @@ func (w *Window) install() {
 		}
 		w.mods = modsOf(mods)
 		now := time.Now()
+		w.pointerf("button %v %v at %.1f,%.1f", button, action == glfw.Release, w.cursor.X, w.cursor.Y)
 		if action == glfw.Release {
+			if w.behind {
+				w.mods = modsOf(gw.HeldModifiers())
+				w.behind = false
+			}
 			w.in.Push(input.PointerUp{Pos: w.cursor, Button: button, Mods: w.mods, Time: now})
 			return
+		}
+		behind := gw.TakePressedBehind()
+		if behind {
+			// Another program may have the keyboard, and the modifiers
+			// the press carries may be old.
+			w.mods = modsOf(gw.HeldModifiers())
+			w.behind, w.escaped = true, gw.EscapeHeld()
 		}
 		d := w.cursor.Sub(w.lastPos)
 		if button == w.lastButton && now.Sub(w.lastPress) < doubleClick &&
@@ -850,7 +903,7 @@ func (w *Window) install() {
 			w.clicks = 1
 		}
 		w.lastPress, w.lastButton, w.lastPos = now, button, w.cursor
-		w.in.Push(input.PointerDown{Pos: w.cursor, Button: button, Mods: w.mods, Clicks: w.clicks, Time: now})
+		w.in.Push(input.PointerDown{Pos: w.cursor, Button: button, Mods: w.mods, Clicks: w.clicks, Behind: behind, Time: now})
 	})
 	_, _ = gw.SetDropCallback(func(gw *glfw.Window, names []string) {
 		// GLFW moves the cursor to where the files were let go first.
@@ -960,6 +1013,7 @@ func (w *Window) render() {
 	defer vb.close()
 
 	var last time.Time
+	var ft frameTimes
 	// shownEdge is the edge the last frame presented left for the border
 	shownEdge := float32(-1)
 	for {
@@ -980,6 +1034,7 @@ func (w *Window) render() {
 			if shot != nil {
 				readback = shotBack(readback, shot)
 			}
+			t0 := time.Now()
 			if w.pres != nil {
 				fbo, err := w.pres.begin(fbW, fbH)
 				if err != nil {
@@ -988,6 +1043,13 @@ func (w *Window) render() {
 				r.WindowFBO = fbo
 			}
 			r.Draw(f.ops, f.damage, fbW, fbH, scale)
+			var gpu time.Duration
+			if framesFinish {
+				// Waits for the GPU, to time it apart from the rest.
+				tf := time.Now()
+				r.GL.Finish()
+				gpu = time.Since(tf)
+			}
 			if readback != nil {
 				if w.pres != nil {
 					// The window's texture is upside down for Direct3D;
@@ -998,13 +1060,18 @@ func (w *Window) render() {
 				r.GL.ReadPixels(pix, 0, 0, int32(fbW), int32(fbH), gl.RGBA, gl.UNSIGNED_BYTE)
 				readback(pix, fbW, fbH)
 			}
+			t1 := time.Now()
 			synced := vb.wait()
+			t2 := time.Now()
 			if w.pres != nil {
 				if err := w.pres.present(r.Redrawn); err != nil {
 					w.fail(err)
 				}
 			} else if err := w.gw.SwapBuffers(); err != nil {
 				w.fail(fmt.Errorf("desktop: swap buffers: %w", err))
+			}
+			if framesDebug {
+				ft.add(w, t1.Sub(t0), t2.Sub(t1), time.Since(t2), gpu, &r.Stats, rate, fbW, fbH)
 			}
 			w.uncover()
 			if r.Edge != shownEdge {
@@ -1032,6 +1099,67 @@ func (w *Window) render() {
 			return
 		}
 	}
+}
+
+// framesDebug is set by GUNIM_DEBUG_FRAMES=1, which logs to standard
+// error, each second, how long each window took over its frames: to
+// draw one, to wait for the monitor's vertical blank, and to hand it
+// to the screen.
+var framesDebug = os.Getenv("GUNIM_DEBUG_FRAMES") != ""
+
+// framesFinish is set by GUNIM_DEBUG_FRAMES=gpu, which also waits for
+// the GPU to finish each frame before the vertical blank, and logs how
+// long it took. The wait slows frames down; it is only for measuring.
+var framesFinish = os.Getenv("GUNIM_DEBUG_FRAMES") == "gpu"
+
+// frameTimes sums a window's frame times for framesDebug.
+type frameTimes struct {
+	from                time.Time
+	n, late             int
+	draw, wait, present time.Duration
+	drawMax, presentMax time.Duration
+	waitMax             time.Duration
+	gpu, gpuMax         time.Duration
+	sent                render.Stats
+}
+
+// add counts a frame that took draw, wait and present, and logs the
+// second's sums once one has passed. A frame is late where the three
+// together took longer than a refresh at rate.
+func (ft *frameTimes) add(w *Window, draw, wait, present, gpu time.Duration, sent *render.Stats, rate float64, fbW, fbH int) {
+	ft.gpu += gpu
+	ft.gpuMax = max(ft.gpuMax, gpu)
+	ft.sent.Flushes += sent.Flushes
+	ft.sent.Quads += sent.Quads
+	ft.sent.Bytes += sent.Bytes
+	ft.sent.Layers += sent.Layers
+	ft.sent.FlushTime += sent.FlushTime
+	*sent = render.Stats{}
+	now := time.Now()
+	if ft.from.IsZero() {
+		ft.from = now
+	}
+	ft.n++
+	ft.draw += draw
+	ft.wait += wait
+	ft.present += present
+	ft.drawMax = max(ft.drawMax, draw)
+	ft.waitMax = max(ft.waitMax, wait)
+	ft.presentMax = max(ft.presentMax, present)
+	if rate > 0 && draw+wait+present > time.Duration(float64(time.Second)/rate)*11/10 {
+		ft.late++
+	}
+	if now.Sub(ft.from) < time.Second {
+		return
+	}
+	ms := func(d time.Duration) float64 { return float64(d) / float64(time.Millisecond) }
+	n := time.Duration(ft.n)
+	log.Printf("gunim frames %p %dx%d at %.0f Hz: %d frames, %d late; draw %.1f ms (max %.1f), vblank wait %.1f (max %.1f), present %.1f (max %.1f)",
+		w, fbW, fbH, rate, ft.n, ft.late, ms(ft.draw/n), ms(ft.drawMax), ms(ft.wait/n), ms(ft.waitMax), ms(ft.present/n), ms(ft.presentMax))
+	log.Printf("gunim frames %p sent each frame: %d quads, %.1f MB in %d draws, %d layers; handing them over took %.1f ms; gpu %.1f ms (max %.1f)",
+		w, ft.sent.Quads/ft.n, float64(ft.sent.Bytes)/float64(ft.n)/1e6, ft.sent.Flushes/ft.n, ft.sent.Layers/ft.n,
+		ms(ft.sent.FlushTime/n), ms(ft.gpu/n), ms(ft.gpuMax))
+	*ft = frameTimes{from: now}
 }
 
 // pace returns the time a frame reached the screen, given when the
@@ -1202,6 +1330,23 @@ func (w *Window) uncover() {
 var windowDebug = os.Getenv("GUNIM_DEBUG_WINDOW") == "1"
 
 // debugf logs one line about the window, with GUNIM_DEBUG_WINDOW set.
+// pointerDebug is set by GUNIM_DEBUG_POINTER=1, which logs to standard
+// error each pointer event a window hears, and when it gains and loses
+// the keyboard, to find where the pointer goes astray.
+var pointerDebug = os.Getenv("GUNIM_DEBUG_POINTER") == "1"
+
+// pointerf logs a pointer event of w, under GUNIM_DEBUG_POINTER=1.
+func (w *Window) pointerf(format string, args ...any) {
+	if !pointerDebug {
+		return
+	}
+	kind := "window"
+	if w.popup {
+		kind = "popup"
+	}
+	fmt.Fprintf(os.Stderr, "gunim pointer %s %p %s: %s\n", kind, w, time.Now().Format("15:04:05.000"), fmt.Sprintf(format, args...))
+}
+
 func (w *Window) debugf(format string, args ...any) {
 	if !windowDebug {
 		return

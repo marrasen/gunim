@@ -226,6 +226,16 @@ type Shaped interface {
 	Covers(p geom.Point) bool
 }
 
+// A RegionShaped is a [Shaped] node that can say where Covers reports true as rectangles in its own space, where
+// they change as it draws, as a card springing to a new size does. A popup's window takes the pointer there only, so
+// the system hands the pointer to the window under the rest: the menu bar under a menu's margin keeps its hover and
+// clicks. CoverRects returns nil for the whole box. A Shaped node that is not a RegionShaped keeps its popup's whole
+// window.
+type RegionShaped interface {
+	Shaped
+	CoverRects() []geom.Rect
+}
+
 // A PointerClaimer takes the pointer over part of itself ahead of its
 // children: a scroll view's bar, drawn over the content. Where
 // ClaimsPointer reports true, p in the node's own space, the node is

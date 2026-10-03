@@ -24,9 +24,11 @@ var LiveGraphHeight = theme.Length("livegraph.height", 56)
 // come in, with a bright head on the newest and what it says beside it.
 // The scale glides to the highest value in view rather than jumping.
 //
-// Samples come with [LiveGraph.Add], one every Every. The graph slides a
-// sample's width in that time, so it moves at the frame rate whatever
-// the rate samples come at, and rests while it is not running.
+// Samples come with [LiveGraph.Add], about one every Every. The head
+// stays at the right edge and runs a little behind the newest sample,
+// so the curve slides past it at an even pace however unevenly samples
+// come, and a new sample bends the curve into its value over a few
+// frames rather than at once. The graph rests while it is not running.
 type LiveGraph struct {
 	// Every is how often a sample comes.
 	Every time.Duration
@@ -37,17 +39,33 @@ type LiveGraph struct {
 	Label func(v float64) string
 
 	samples []float64
-	running bool
-	// since is how long ago the newest sample came, in the graph's own
-	// time, and glow the head's pulse.
-	since time.Duration
-	glow  float64
-	top   *anim.Float
+	// shown is the value drawn at each sample, which glides to the
+	// sample's weighed value when a new sample changes that, and vel
+	// how fast it moves.
+	shown, vel []float64
+	// pos is where the head is, as a sample's index and how far on to
+	// the next; speed is how many samples a second it moves, and pace
+	// the speed it heads for.
+	pos, speed, pace float64
+	running          bool
+	// glow is the head's pulse, and the time the graph has run.
+	glow float64
+	// said is the value the label says, which changes once a second at
+	// most so it can be read, and saidAt the glow it last changed at.
+	said, saidAt float64
+	top          *anim.Float
 	// across is how many samples the width shows, gliding from few,
 	// which fill it while there are few, to Span.
 	across *anim.Float
 	text   shapedText
 }
+
+// headSlack is how many samples behind the newest the head aims to be
+// as the next one comes, so a sample a little late does not stop it.
+const headSlack = 0.5
+
+// settle is how a sample's drawn value glides to a new one.
+var settle = anim.Spring{Response: 0.3, Damping: 1}
 
 // NewLiveGraph returns a graph of span samples, one every every.
 func NewLiveGraph(every time.Duration, span int) *LiveGraph {
@@ -56,11 +74,24 @@ func NewLiveGraph(every time.Duration, span int) *LiveGraph {
 
 // Add adds a sample, which slides in from the right.
 func (g *LiveGraph) Add(v float64) {
-	g.samples = append(g.samples, max(0, v))
-	if n := len(g.samples) - g.Span - 2; n > 0 {
-		g.samples = g.samples[n:]
+	v = max(0, v)
+	from := v
+	if n := len(g.shown); n > 0 {
+		// The newest drawn value stands in for the samples after it, so
+		// starting the new one there changes nothing on screen yet.
+		from = g.shown[n-1]
 	}
-	g.since = 0
+	g.samples = append(g.samples, v)
+	g.shown = append(g.shown, from)
+	g.vel = append(g.vel, 0)
+	if n := len(g.samples) - g.Span - 2; n > 0 {
+		g.samples, g.shown, g.vel = g.samples[n:], g.shown[n:], g.vel[n:]
+		g.pos = max(0, g.pos-float64(n))
+	}
+	// Head for the newest sample, to be headSlack short of it by the
+	// time the next one should come.
+	lag := float64(len(g.samples)-1) - g.pos
+	g.pace = min(max(lag-headSlack, 0), 4) / g.every()
 	g.across.Animate(float32(min(max(len(g.samples), minAcross), g.Span)), anim.Gentle)
 	most := 0.0
 	for _, s := range g.samples {
@@ -69,22 +100,66 @@ func (g *LiveGraph) Add(v float64) {
 	if most > 0 {
 		g.top.Animate(float32(most*1.15), anim.Gentle)
 	}
+	if len(g.samples) == 1 || g.glow-g.saidAt >= 1 {
+		g.said, g.saidAt = g.recent(), g.glow
+	}
 }
 
 // SetRunning starts the graph sliding, or rests it.
 func (g *LiveGraph) SetRunning(on bool) { g.running = on }
 
+// every is Every in seconds.
+func (g *LiveGraph) every() float64 {
+	if g.Every <= 0 {
+		return 0.2
+	}
+	return g.Every.Seconds()
+}
+
+// weighed is sample k weighed with its neighbours, so a rate taken ten
+// times a second reads as a line rather than as noise.
+func (g *LiveGraph) weighed(k int) float64 {
+	n := len(g.samples)
+	raw := func(k int) float64 { return g.samples[min(max(k, 0), n-1)] }
+	return (raw(k-1) + 2*raw(k) + raw(k+1)) / 4
+}
+
 // Step implements [gunim.Animator]: while running, the graph moves on
-// every frame.
+// every frame, and once stopped, until the head reaches the newest
+// sample and every value has settled.
 func (g *LiveGraph) Step(dt time.Duration) bool {
 	moving := g.top.Step(dt)
 	if g.across.Step(dt) {
 		moving = true
 	}
+	for k := range g.shown {
+		to := g.weighed(k)
+		if g.shown[k] == to && g.vel[k] == 0 {
+			continue
+		}
+		g.shown[k], g.vel[k] = settle.Follow(g.shown[k], g.vel[k], to, dt)
+		if tol := 1e-4 * (1 + math.Abs(to)); math.Abs(g.shown[k]-to) < tol && math.Abs(g.vel[k]) < 10*tol {
+			g.shown[k], g.vel[k] = to, 0
+		} else {
+			moving = true
+		}
+	}
+	newest := float64(len(g.samples) - 1)
 	if g.running {
-		g.since += dt
+		// The speed eases to the pace, so the slide never lurches.
+		g.speed += (g.pace - g.speed) * (1 - math.Exp(-dt.Seconds()/0.15))
+		g.pos = min(g.pos+g.speed*dt.Seconds(), max(newest, 0))
 		g.glow += dt.Seconds()
 		moving = true
+	} else if newest > 0 && (g.pos != newest || g.speed != 0) {
+		// Stopped, the head coasts onto the newest sample.
+		g.pos, g.speed = anim.Gentle.Follow(g.pos, g.speed, newest, dt)
+		g.pos = min(g.pos, newest)
+		if math.Abs(newest-g.pos) < 1e-3 && math.Abs(g.speed) < 1e-2 {
+			g.pos, g.speed = newest, 0
+		} else {
+			moving = true
+		}
 	}
 	return moving
 }
@@ -107,41 +182,18 @@ func (g *LiveGraph) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ guni
 	th := f.Theme
 	accent := Accent.Get(th)
 	// The plot sits below room for the head's label.
-	plotTop := TextSize.Get(th) + 4
-	plotH := box.H - plotTop - 1
-	step := box.W / max(float32(g.across.Value())-1, 1)
-	// How far the newest sample has slid in from the right edge.
-	slid := float32(1)
-	if g.Every > 0 {
-		slid = min(float32(g.since)/float32(g.Every), 1)
-	}
-	xOf := func(i float64) float32 {
-		return box.W - (float32(float64(n-1)-i)+slid)*step
-	}
-	yOf := func(v float64) float32 {
-		return plotTop + plotH*(1-float32(min(v/top, 1)))
-	}
-	// A Catmull-Rom curve through the samples, looked at every 2
-	// pixels, so the line bends smoothly between them.
-	valueAt := func(t float64) float64 {
-		i := int(math.Floor(t))
-		u := t - float64(i)
-		// Each sample weighed with its neighbours, so a rate taken ten
-		// times a second reads as a line rather than as noise.
-		raw := func(k int) float64 { return g.samples[min(max(k, 0), n-1)] }
-		at := func(k int) float64 { return (raw(k-1) + 2*raw(k) + raw(k+1)) / 4 }
-		p0, p1, p2, p3 := at(i-1), at(i), at(i+1), at(i+2)
-		v := 0.5 * (2*p1 + (-p0+p2)*u + (2*p0-5*p1+4*p2-p3)*u*u + (-p0+3*p1-3*p2+p3)*u*u*u)
-		return max(0, v)
-	}
-	first := max(0, float64(n-1)-float64(box.W/step)-1)
+	plot := g.plot(box, TextSize.Get(th)+4)
+	xOf, yOf, valueAt, step := plot.xOf, plot.yOf, plot.valueAt, plot.step
+	plotTop := plot.top
+	pos := g.pos
+	first := max(0, pos-float64(box.W/step)-1)
 	var pts []geom.Point
 	for x := max(0, xOf(first)); ; x += 2 {
-		head := xOf(float64(n - 1))
+		head := xOf(pos)
 		if x > head {
 			x = head
 		}
-		t := float64(n-1) - float64((head-x)/step)
+		t := pos - float64((head-x)/step)
 		pts = append(pts, geom.Pt(x, yOf(valueAt(t))))
 		if x >= head {
 			break
@@ -163,7 +215,7 @@ func (g *LiveGraph) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ guni
 		wx := sx*x + t.C
 		return (float32(math.Round(float64(wx*dev)))/dev - t.C) / sx
 	}
-	head := xOf(float64(n - 1))
+	head := xOf(pos)
 	colW := 2 / (dev * sx)
 	for x := snap(max(0, xOf(first))); x < head; {
 		next := min(snap(x+colW), head)
@@ -171,7 +223,7 @@ func (g *LiveGraph) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ guni
 			next = x + colW
 		}
 		mid := (x + next) / 2
-		y := yOf(valueAt(float64(n-1) - float64((head-mid)/step)))
+		y := yOf(valueAt(pos - float64((head-mid)/step)))
 		p.RRect(geom.Rect{Min: geom.Pt(x, y), Max: geom.Pt(next, box.H)}, 0, paint.Fill{Gradient: grad})
 		x = next
 	}
@@ -207,11 +259,53 @@ func (g *LiveGraph) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ guni
 	p.RRect(geom.Rc(headAt.X-2, headAt.Y-2, 4, 4), 2, paint.Solid(accent))
 	if g.Label != nil {
 		// Over the plot, at the end the samples come in at.
-		run := g.text.shape(faceIn(Font, th), g.Label(g.recent()), TextSize.Get(th)*0.85)
+		run := g.text.shape(faceIn(Font, th), g.Label(g.said), TextSize.Get(th)*0.85)
 		ink := Ink.Get(th)
 		ink.A = 0xc0
 		run.Paint(p, geom.Pt(max(0, box.W-run.Advance), 0), ink)
 	}
+}
+
+// livePlot maps a graph's samples to where they are drawn.
+type livePlot struct {
+	// top is the plot's top, and step the width between samples.
+	top, step float32
+	xOf       func(i float64) float32
+	yOf       func(v float64) float32
+	// valueAt is the curve's value at a sample's index, with a fraction.
+	valueAt func(t float64) float64
+}
+
+// plot returns where g draws in box, its plot starting at top.
+func (g *LiveGraph) plot(box geom.Size, top float32) livePlot {
+	n := len(g.samples)
+	most := float64(g.top.Value())
+	plotH := box.H - top - 1
+	step := box.W / max(float32(g.across.Value())-1, 1)
+	// The head stays at the right edge, the dot on it wholly inside.
+	headX := box.W - 3
+	return livePlot{
+		top:  top,
+		step: step,
+		xOf:  func(i float64) float32 { return headX - float32(g.pos-i)*step },
+		yOf:  func(v float64) float32 { return top + plotH*(1-float32(min(v/most, 1))) },
+		// A Catmull-Rom curve through the drawn values, so the line bends
+		// smoothly between them.
+		valueAt: func(t float64) float64 {
+			i := int(math.Floor(t))
+			u := t - float64(i)
+			at := func(k int) float64 { return g.shown[min(max(k, 0), n-1)] }
+			p0, p1, p2, p3 := at(i-1), at(i), at(i+1), at(i+2)
+			v := 0.5 * (2*p1 + (-p0+p2)*u + (2*p0-5*p1+4*p2-p3)*u*u + (-p0+3*p1-3*p2+p3)*u*u*u)
+			return max(0, v)
+		},
+	}
+}
+
+// head returns where g's head is drawn in box, its plot starting at top.
+func (g *LiveGraph) head(box geom.Size, top float32) geom.Point {
+	p := g.plot(box, top)
+	return geom.Pt(p.xOf(g.pos), p.yOf(p.valueAt(g.pos)))
 }
 
 // recent returns the mean of the last second's samples, which holds

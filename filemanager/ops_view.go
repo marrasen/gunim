@@ -17,8 +17,19 @@ func registerOps(w *gunim.Window) {
 		if n.Undo != 0 {
 			t.Action, t.On = "Undo", UndoOp{ID: n.Undo}
 		}
+		t.Key, t.Check = n.Key, n.Check
+		answer := func(i int) func(bool) gunim.Intent {
+			return func(on bool) gunim.Intent { return NoticeAnswered{Key: n.Key, Button: i, Checked: on} }
+		}
+		for i, label := range n.Buttons {
+			t.Buttons = append(t.Buttons, widget.ToastButton{Label: label, On: answer(i)})
+		}
+		if len(n.Buttons) > 0 {
+			t.Dismiss = answer(-1)
+		}
 		b.toasts.Show(t, u)
 	})
+	gunim.RegisterPatch(w, "browser", func(b *browser, n NoticeGone, u *gunim.UI) { b.toasts.Close(n.Key, u) })
 }
 
 // toastKinds are the toasts' kinds, by a notice's kind.

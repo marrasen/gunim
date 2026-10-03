@@ -14,3 +14,7 @@ func (w *Window) platformHeldModifiers() ModifierKey {
 	}
 	return translateState(mask) &^ (ModCapsLock | ModNumLock)
 }
+
+// platformEscapeHeld reports false: a press raises the window on X11,
+// and it hears Escape itself.
+func (w *Window) platformEscapeHeld() bool { return false }

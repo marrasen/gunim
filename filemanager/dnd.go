@@ -3,6 +3,7 @@ package filemanager
 import (
 	"errors"
 	"slices"
+	"strings"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
@@ -24,21 +25,71 @@ type FileDrag struct {
 	// Volume is the volume the items are on, and empty where it is not
 	// known, as for files from another program.
 	Volume string
+	// Style is how the items' file system writes paths: the zero value,
+	// SystemPaths, for the computer's own.
+	Style PathStyle
 	// scripted marks a drag a script started, which never leaves the
 	// window.
 	scripted bool
+	// fetch, when not nil, is the copy of the items the program fetches
+	// to this computer, for the drag to carry out to other programs.
+	fetch *dragFetch
 }
 
-// ExportFiles implements [gunim.FileExporter]: the files go to other
-// programs as they are.
+// ExportFiles implements [gunim.FileExporter]: the computer's own files
+// go to other programs as they are, and those of another file system as
+// the copies fetched of them. While the copies are on their way, it
+// says so and the drag waits.
 func (d FileDrag) ExportFiles() ([]string, error) {
 	switch {
 	case d.scripted:
 		return nil, errScripted
-	case d.FS != "":
+	case d.FS == "":
+		return d.Paths, nil
+	case d.fetch == nil:
 		return nil, errElsewhere
 	}
-	return d.Paths, nil
+	return d.fetch.export()
+}
+
+// dragFetch is the copy of a drag's items fetched to this computer, as
+// the window hears of it: on its way until done, and then the copies'
+// paths, or why there are none.
+type dragFetch struct {
+	id    int
+	done  bool
+	local []string
+	err   string
+	// bytes of total are fetched so far, where total is known.
+	bytes, total int64
+}
+
+// export returns the copies' paths, or an error that says why the drag
+// cannot leave yet, or at all, for the picture under the pointer to
+// show.
+func (f *dragFetch) export() ([]string, error) {
+	switch {
+	case !f.done:
+		return nil, &gunim.ExportError{Hint: f.hint(), Wait: true}
+	case f.err != "" || len(f.local) == 0:
+		why := f.err
+		if why == "" {
+			why = "Nothing to drag out"
+		}
+		return nil, &gunim.ExportError{Hint: widget.DropHint{Text: why}, Err: errors.New(why)}
+	}
+	return slices.Clone(f.local), nil
+}
+
+// hint says how far the fetch has got, in words and on a bar, while it
+// runs.
+func (f *dragFetch) hint() widget.DropHint {
+	h := widget.DropHint{Text: "Fetching…", Effect: widget.DropCopy}
+	if f.total > 0 {
+		h.Text = "Fetching… " + humanBytes(f.bytes) + " of " + humanBytes(f.total)
+		h.Bar, h.Progress = true, float32(min(max(float64(f.bytes)/float64(f.total), 0), 1))
+	}
+	return h
 }
 
 // errScripted keeps a drag a script started inside the window, and
@@ -62,37 +113,70 @@ func fileDragOf(d input.Drop) (FileDrag, bool) {
 
 // dropPlan works out what dropping d into the folder dir, on volume vol
 // of the file system of ID fs, does with mods held: a move on one volume
-// and a copy across volumes, Ctrl forcing a copy and Shift a move. It
-// returns false with the reason in the hint when the drop is refused, as
-// one from another file system is.
-func dropPlan(ps PathStyle, fs string, d FileDrag, dir, vol, volErr string, mods input.Mods) (DropFiles, widget.DropHint, bool) {
-	name := ps.placeName(dir)
+// and a copy across volumes, Ctrl forcing a copy and Shift a move. Items
+// from another file system are copied unless Shift is held, where
+// transfers says the program carries them across, and refused where it
+// cannot. It returns false with the reason in the hint when the drop is
+// refused.
+func dropPlan(ps PathStyle, fs string, transfers bool, d FileDrag, dir, vol, volErr string, mods input.Mods) (DropFiles, widget.DropHint, bool) {
+	return planDrop(dropTarget{fs: fs, ps: ps, dir: dir, name: ps.placeName(dir), vol: vol, volErr: volErr, own: true},
+		transfers, d, mods)
+}
+
+// dropTarget is a folder a drop can go into: dir, called name, on the
+// file system of ID fs, which writes paths as ps. own says the file
+// system is the window's; a place or a favourite in the sidebar may be
+// on another. vol is the folder's volume, empty where it is not known,
+// and volErr why it could not be read.
+type dropTarget struct {
+	fs        string
+	ps        PathStyle
+	dir, name string
+	vol       string
+	volErr    string
+	own       bool
+}
+
+// planDrop works out what dropping d into the folder of t does, as
+// dropPlan says. Where the items and the folder are both on the
+// window's file system, the window copies or moves them itself;
+// anywhere else, the program carries them, where transfers says it can.
+func planDrop(t dropTarget, transfers bool, d FileDrag, mods input.Mods) (DropFiles, widget.DropHint, bool) {
+	across := d.FS != t.fs
 	switch {
-	case d.FS != fs:
+	case (across || !t.own) && !transfers:
+		if !t.own {
+			return DropFiles{}, widget.DropHint{Text: "Cannot drop on another file system"}, false
+		}
 		return DropFiles{}, widget.DropHint{Text: "Cannot drop from another file system"}, false
-	case volErr != "":
-		return DropFiles{}, widget.DropHint{Text: "Cannot read " + name}, false
+	case t.volErr != "":
+		return DropFiles{}, widget.DropHint{Text: "Cannot read " + t.name}, false
 	}
 	for _, p := range d.Paths {
-		if ps.Same(ps.Dir(p), dir) {
-			return DropFiles{}, widget.DropHint{Text: "Already in " + name}, false
+		// Paths of another file system say nothing of folders here.
+		if across {
+			break
 		}
-		if within(ps, dir, p) {
+		if t.ps.Same(t.ps.Dir(p), t.dir) {
+			return DropFiles{}, widget.DropHint{Text: "Already in " + t.name}, false
+		}
+		if within(t.ps, t.dir, p) {
 			return DropFiles{}, widget.DropHint{Text: "Cannot go inside itself"}, false
 		}
 	}
-	copying := d.Volume == "" || vol == "" || d.Volume != vol
+	copying := across || d.Volume == "" || t.vol == "" || d.Volume != t.vol
 	switch {
 	case mods.Has(input.ModControl):
 		copying = true
 	case mods.Has(input.ModShift):
 		copying = false
 	}
-	plan := DropFiles{Paths: slices.Clone(d.Paths), Into: dir, Copy: copying, FS: fs}
+	plan := DropFiles{Paths: slices.Clone(d.Paths), Into: t.dir, Copy: copying, FS: d.FS, To: t.fs, Away: !t.own,
+		Style: d.Style}
 	if copying {
-		return plan, widget.DropHint{Text: "Copy to " + name, Effect: widget.DropCopy}, true
+		return plan, widget.DropHint{Text: "Copy to " + t.name, Effect: widget.DropCopy}, true
 	}
-	return plan, widget.DropHint{Text: "Move to " + name, Effect: widget.DropMove}, true
+	return plan, widget.DropHint{Text: "Move to " + t.name, Effect: widget.DropMove}, true
 }
 
 // within reports whether path is dir itself or lies inside it.
@@ -140,9 +224,11 @@ type dndView struct {
 	listing *widget.DropZone
 	side    *widget.DropZone
 	crumbs  *widget.DropZone
-	vols    map[string]string
-	volErrs map[string]string
-	clip    ClipState
+	// sideMenu is the context menu of the sidebar's places.
+	sideMenu *sideMenu
+	vols     map[string]string
+	volErrs  map[string]string
+	clip     ClipState
 	// plan is what a drop on the spot found last does: a DropFiles or a
 	// PinFolders.
 	plan gunim.Intent
@@ -150,12 +236,22 @@ type dndView struct {
 	// pointer is.
 	scripting bool
 	scriptAt  geom.Point
+	// u is the window's UI, for a drag starting to ask the program to
+	// fetch its items.
+	u *gunim.UI
+	// fetches are the fetches of drags to carry out, by their IDs, until
+	// their drags end, and fetchSeq numbers them. dragging is the fetch
+	// of the drag going on, or 0.
+	fetches  map[int]*dragFetch
+	fetchSeq int
+	dragging int
 }
 
 func newDndView(b *browser) *dndView {
 	v := &dndView{b: b, vols: map[string]string{}, volErrs: map[string]string{}}
 	v.listing = v.zone(b.listing, v.listingSpot)
-	v.side = v.zone(newSideMenu(b), v.sideSpot)
+	v.sideMenu = newSideMenu(b)
+	v.side = v.zone(v.sideMenu.m, v.sideSpot)
 	v.crumbs = v.zone(b.path, v.crumbSpot)
 	return v
 }
@@ -180,13 +276,62 @@ func registerDnd(w *gunim.Window) {
 	})
 	gunim.RegisterPatch(w, "browser", func(b *browser, s ClipState, _ *gunim.UI) { b.dnd.clip = s })
 	gunim.RegisterPatch(w, "browser", func(b *browser, s ScriptDrag, u *gunim.UI) { b.dnd.script(w, s, u) })
+	gunim.RegisterPatch(w, "browser", func(b *browser, s DragFetched, _ *gunim.UI) { b.dnd.fetched(s) })
+	gunim.RegisterPatch(w, "browser", func(b *browser, s DragFetching, _ *gunim.UI) { b.dnd.fetching(s) })
+}
+
+// fetchOut has the program start fetching the items of d, a drag about
+// to start, to this computer, where they are of a file system other
+// programs cannot reach, so the drag can carry them out. It returns the
+// fetch, or nil where the drag needs none.
+func (v *dndView) fetchOut(d FileDrag) *dragFetch {
+	if d.scripted || d.FS == "" || !v.b.shell.Fetches || v.u == nil {
+		return nil
+	}
+	if v.fetches == nil {
+		v.fetches = map[int]*dragFetch{}
+	}
+	v.fetchSeq++
+	f := &dragFetch{id: v.fetchSeq}
+	v.fetches[f.id] = f
+	v.dragging = f.id
+	v.u.Send(v.listing, DragFetch{ID: f.id, Paths: slices.Clone(d.Paths)})
+	return f
+}
+
+// fetched takes what the program says of a drag's fetch.
+func (v *dndView) fetched(s DragFetched) {
+	f, ok := v.fetches[s.ID]
+	if !ok {
+		return
+	}
+	f.done, f.local, f.err = true, s.Paths, s.Err
+}
+
+// fetching takes how far the program says a drag's fetch has got.
+func (v *dndView) fetching(s DragFetching) {
+	if f, ok := v.fetches[s.ID]; ok && !f.done {
+		f.bytes, f.total = s.Bytes, s.Total
+	}
+}
+
+// dragEnded is the end of a drag of rows: its fetch, needed no more, may
+// stop.
+func (v *dndView) dragEnded(input.DragEnd) gunim.Intent {
+	id := v.dragging
+	v.dragging = 0
+	if id == 0 {
+		return nil
+	}
+	delete(v.fetches, id)
+	return DragFetchEnd{ID: id}
 }
 
 // spot fills in a spot for dropping d into the folder dir.
 func (v *dndView) spot(d input.Drop, key spotKey, r geom.Rect, dir, vol string, opens bool) widget.DropSpot {
 	fd, _ := fileDragOf(d)
 	sh := v.b.shell
-	plan, hint, ok := dropPlan(sh.Paths, sh.FS, fd, dir, v.vols[vol], v.volErrs[vol], d.Mods)
+	plan, hint, ok := dropPlan(sh.Paths, sh.FS, sh.Transfers, fd, dir, v.vols[vol], v.volErrs[vol], d.Mods)
 	v.plan = plan
 	if !ok {
 		v.plan = nil
@@ -226,8 +371,9 @@ func (v *dndView) listingSpot(d input.Drop, u *gunim.UI) (widget.DropSpot, bool)
 }
 
 // sideSpot finds the spot of the sidebar under a drop: a place or a
-// favourite, which takes the items, or the rest of the favourites, which
-// pins them.
+// favourite, which takes the items unless it is on another file system,
+// or the rest of the favourites' section, heading and all, which pins
+// them.
 func (v *dndView) sideSpot(d input.Drop, u *gunim.UI) (widget.DropSpot, bool) {
 	s := v.b.side
 	fd, ok := fileDragOf(d)
@@ -236,35 +382,40 @@ func (v *dndView) sideSpot(d input.Drop, u *gunim.UI) (widget.DropSpot, bool) {
 		return widget.DropSpot{}, false
 	}
 	at := d.Pos.Add(zr.Min)
-	for _, l := range []*widget.List{s.places, s.favs} {
+	for _, l := range s.lists() {
 		for _, k := range l.Keys() {
 			n, found := l.Row(k)
 			pr, isPlace := n.(*placeRow)
-			if !found || !isPlace || pr.item.away {
-				// A place elsewhere takes nothing yet.
+			if !found || !isPlace {
 				continue
 			}
 			if r, drawn := u.Bounds(n); drawn && r.Contains(at) {
+				if pr.item.away {
+					return v.awaySpot(d, fd, pr.item, k, r.Add(zr.Min.Mul(-1))), true
+				}
 				dir := pr.item.Path
 				return v.spot(d, spotKey{"place", dir}, r.Add(zr.Min.Mul(-1)), dir, dir, true), true
 			}
 		}
 	}
-	fr, ok := u.Bounds(s.favs)
+	fr, ok := u.Bounds(s.favSec)
 	if !ok {
 		return widget.DropSpot{}, false
 	}
-	bottom := fr.Max.Y
-	if hr, drawn := u.Bounds(s.hint); drawn && s.hint.Text != "" {
-		bottom = max(bottom, hr.Max.Y)
+	// The last section reaches down to the bottom of the sidebar.
+	bottom := fr.Max.Y + 4
+	if len(s.order) > 0 && s.order[len(s.order)-1] == FavouritesSection {
+		bottom = max(bottom, zr.Max.Y-8)
 	}
-	section := geom.Rect{Min: geom.Pt(zr.Min.X+4, fr.Min.Y-24), Max: geom.Pt(zr.Max.X-4, max(bottom+8, zr.Max.Y-8))}
-	if at.Y < section.Min.Y {
+	section := geom.Rect{Min: geom.Pt(zr.Min.X+4, fr.Min.Y-4), Max: geom.Pt(zr.Max.X-4, bottom)}
+	if !section.Contains(at) {
 		return widget.DropSpot{}, false
 	}
 	var favs []string
 	for _, k := range s.favs.Keys() {
-		favs = append(favs, string(k))
+		if i, known := s.items[k]; known && !i.away {
+			favs = append(favs, i.Path)
+		}
 	}
 	plan, hint, ok := pinPlan(v.b.shell.Paths, v.b.shell.FS, fd, favs)
 	v.plan = plan
@@ -273,6 +424,28 @@ func (v *dndView) sideSpot(d input.Drop, u *gunim.UI) (widget.DropSpot, bool) {
 	}
 	return widget.DropSpot{Key: spotKey{"pin", ""}, Rect: section.Add(zr.Min.Mul(-1)), Radius: 8, Hint: hint,
 		Refused: !ok}, true
+}
+
+// awaySpot fills in a spot for dropping d on it, a place or a favourite
+// on another file system than the window's, at r: the items go into its
+// folder through the program. A place whose folder is not known yet, as
+// a server's before it is reached, takes nothing.
+func (v *dndView) awaySpot(d input.Drop, fd FileDrag, it placeItem, k widget.Key, r geom.Rect) widget.DropSpot {
+	v.plan = nil
+	spot := widget.DropSpot{Key: spotKey{"away", string(k)}, Rect: r, Radius: 6}
+	if it.Path == "" {
+		spot.Hint, spot.Refused = widget.DropHint{Text: "Cannot drop on " + it.Name + " until it is open"}, true
+		return spot
+	}
+	// The items' own paths tell where they are on the place's file
+	// system, where it is theirs.
+	t := dropTarget{fs: it.FS, ps: fd.Style, dir: it.Path, name: it.Name}
+	plan, hint, ok := planDrop(t, v.b.shell.Transfers, fd, d.Mods)
+	if ok {
+		v.plan = plan
+	}
+	spot.Hint, spot.Refused = hint, !ok
+	return spot
 }
 
 // crumbSpot finds the folder of the path under a drop.
@@ -294,7 +467,7 @@ func (v *dndView) crumbSpot(d input.Drop, u *gunim.UI) (widget.DropSpot, bool) {
 // picture of their names.
 func (pg *listingPage) dragRows(sel [][2]int, _ geom.Point) (any, gunim.Node, geom.Point) {
 	dir := pg.b.listing.path
-	d := FileDrag{Volume: pg.b.dnd.vols[dir], FS: pg.b.shell.FS, scripted: pg.b.dnd.scripting}
+	d := FileDrag{Volume: pg.b.dnd.vols[dir], FS: pg.b.shell.FS, Style: pg.b.shell.Paths, scripted: pg.b.dnd.scripting}
 	var items []Row
 	for _, r := range sel {
 		for i := r[0]; i < r[1]; i++ {
@@ -311,6 +484,7 @@ func (pg *listingPage) dragRows(sel [][2]int, _ geom.Point) (any, gunim.Node, ge
 	if len(items) == 0 {
 		return nil, nil, geom.Point{}
 	}
+	d.fetch = pg.b.dnd.fetchOut(d)
 	grab := geom.Pt(22, 16)
 	g := widget.NewDragGhost(newDragCard(items), grab)
 	if n := len(items); n > 1 {
@@ -380,7 +554,8 @@ func (c *dragCard) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 }
 
 // scriptTarget finds where in the window a script's name is: a row, a
-// place, a folder of the path, or "favourites" for below them.
+// place, a folder of the path, "favourites" for below them, or
+// "heading:" and a section's title, such as heading:Favourites.
 func scriptTarget(b *browser, name string, u *gunim.UI) (geom.Point, bool) {
 	l := b.listing
 	if l.cur != nil {
@@ -394,7 +569,17 @@ func scriptTarget(b *browser, name string, u *gunim.UI) (geom.Point, bool) {
 			}
 		}
 	}
-	for _, lst := range []*widget.List{b.side.places, b.side.favs} {
+	if title, ok := strings.CutPrefix(name, "heading:"); ok {
+		for _, c := range b.side.byID {
+			if strings.EqualFold(c.head.title, title) {
+				if r, ok := u.Bounds(c.head); ok {
+					return geom.Pt(r.Min.X+40, r.Center().Y), true
+				}
+			}
+		}
+		return geom.Point{}, false
+	}
+	for _, lst := range b.side.lists() {
 		for _, k := range lst.Keys() {
 			n, _ := lst.Row(k)
 			if pr, ok := n.(*placeRow); ok && pr.item.Name == name {
@@ -410,8 +595,8 @@ func scriptTarget(b *browser, name string, u *gunim.UI) (geom.Point, bool) {
 		}
 	}
 	if name == "favourites" {
-		if r, ok := u.Bounds(b.side.favs); ok {
-			return geom.Pt(r.Min.X+40, r.Max.Y+12), true
+		if r, ok := u.Bounds(b.side.favSec); ok {
+			return geom.Pt(r.Min.X+40, r.Max.Y-4), true
 		}
 	}
 	return geom.Point{}, false
@@ -437,6 +622,15 @@ func (v *dndView) script(w *gunim.Window, s ScriptDrag, u *gunim.UI) {
 		at = at.Add(geom.Pt(14, 8))
 		w.Input(input.PointerMove{Pos: at, Mods: mods})
 	case "over":
+		if strings.HasPrefix(s.Name, "heading:") {
+			// A heading dragged onto another goes past it, as a hand
+			// would carry it.
+			if at.Y < v.scriptAt.Y {
+				at.Y -= 8
+			} else {
+				at.Y += 8
+			}
+		}
 		// Two steps, so the picture swings.
 		mid := v.scriptAt.Add(at).Mul(0.5)
 		w.Input(input.PointerMove{Pos: mid, Mods: mods})

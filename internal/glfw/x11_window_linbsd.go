@@ -2621,6 +2621,10 @@ func (w *Window) platformSetWindowMousePassthrough(enabled bool) error {
 		return nil
 	}
 
+	// gunim change: a window that lets the pointer through on part of itself goes back to that part.
+	if !enabled && w.inputRegionSet {
+		return w.platformSetInputRegion()
+	}
 	if enabled {
 		region := xCreateRegion()
 		_glfw.platformWindow.xshape.CombineRegion(_glfw.platformWindow.display, w.platform.handle,

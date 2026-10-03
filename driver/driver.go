@@ -84,6 +84,30 @@ type StayOpener interface {
 	StayOpen(on bool)
 }
 
+// A Stacker is a [Driver] that knows how the system stacks windows on
+// the screen, so that where two of the application's windows overlap a
+// drag goes to the one in front.
+type Stacker interface {
+	// Depths returns, for each of ws, how deep it lies in the stack:
+	// 0 for the frontmost window on the screen, larger further back.
+	// Only the order of the numbers means anything. A window the
+	// driver cannot place, such as a hidden one or one it did not
+	// open, gets -1. It is safe to call from any goroutine.
+	Depths(ws []Window) []int
+}
+
+// A Coverer is a [Driver] that knows other programs' windows too, so a
+// drag over one that lies in front of the application's windows leaves
+// the application.
+type Coverer interface {
+	// Covered reports whether, at the screen point p, a window of
+	// another program lies in front of every one of ws, and ok whether
+	// the system could say. The application's other windows, such as a
+	// drag's picture, do not count. It is safe to call from any
+	// goroutine.
+	Covered(ws []Window, p geom.Point) (covered, ok bool)
+}
+
 // Options describes a window to open.
 type Options struct {
 	Title   string
@@ -125,6 +149,15 @@ type Options struct {
 	Chromeless bool
 	// Border is the line round a chromeless window's edge; see [Border].
 	Border Border
+	// DragFromBehind, for a [KindNormal] window, leaves the window where
+	// it is when the left button is pressed on its content while another
+	// window is active, so a drag can start from it as it lies behind,
+	// as from Explorer's windows. The press arrives as a
+	// [github.com/marrasen/gunim/input.PointerDown] with Behind set, and
+	// the engine brings the window to the front as the button comes up,
+	// unless a drag started. Only Windows does so; elsewhere the system
+	// raises the window on a press as it always does.
+	DragFromBehind bool
 	// Text says how the window draws text. Its zero value follows the
 	// system, and a window with a Parent takes the parent's.
 	Text text.Rendering

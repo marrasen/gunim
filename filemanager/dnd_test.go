@@ -40,7 +40,10 @@ func openHarnessWith(t *testing.T, h *Hub, base, dir string, set func(o *Options
 	gunim.RegisterPatch(hs.w, "browser", func(b *browser, _ grab, _ *gunim.UI) { hs.b = b })
 	gunim.RegisterPatch(hs.w, "browser", func(b *browser, p inUI, u *gunim.UI) { p.fn(b, u) })
 	ctx, cancel := context.WithCancel(context.Background())
-	o := Options{Dir: dir, PrefsPath: filepath.Join(base, "prefs.json"), Poll: -1}
+	// No default favourites, unless a test gives some: those of the
+	// computer the tests run on would vary.
+	o := Options{Dir: dir, PrefsPath: filepath.Join(base, "prefs.json"), Poll: -1,
+		defaults: func() []Favourite { return nil }}
 	if set != nil {
 		set(&o)
 	}
@@ -303,9 +306,9 @@ func TestTheSidebarMenuUnpinsAndRenamesFavourites(t *testing.T) {
 	if !slices.Contains(items, "Unpin") {
 		t.Fatalf("the favourite's menu is %v", items)
 	}
-	h.do(RenameFavourite{Path: fav})
-	h.answer(Prompted{Token: h.a.ops.tokens, Text: "My stuff", OK: true})
-	h.until("the favourite takes its name", func() bool { return h.a.favName(fav) == "My stuff" })
+	h.do(EditFavourite{Path: fav})
+	h.answer(FavouriteEdited{Token: h.a.ops.tokens, Name: "My stuff", OK: true})
+	h.until("the favourite takes its name", func() bool { return h.a.favName("", fav) == "My stuff" })
 	h.do(Unpin{Path: fav})
 	if len(h.a.prefs.Favourites) != 0 {
 		t.Fatal("Unpin left the favourite")
@@ -326,16 +329,16 @@ func TestDropPlansFollowTheVolumesAndTheKeys(t *testing.T) {
 		{"two", input.ModShift, false},
 		{"", 0, true},
 	} {
-		plan, _, ok := dropPlan(SystemPaths, "", d, dir, c.vol, "", c.mods)
+		plan, _, ok := dropPlan(SystemPaths, "", false, d, dir, c.vol, "", c.mods)
 		if !ok || plan.Copy != c.copy {
 			t.Fatalf("to volume %q with %v the plan copies %v, want %v", c.vol, c.mods, plan.Copy, c.copy)
 		}
 	}
-	if _, hint, ok := dropPlan(SystemPaths, "", d, dir, "one", "denied", 0); ok || hint.Text != "Cannot read b" {
+	if _, hint, ok := dropPlan(SystemPaths, "", false, d, dir, "one", "denied", 0); ok || hint.Text != "Cannot read b" {
 		t.Fatalf("a folder whose volume cannot be read says %q", hint.Text)
 	}
 	folder := FileDrag{Paths: []string{filepath.FromSlash("/a/f")}, Dirs: []bool{true}}
-	if _, _, ok := dropPlan(SystemPaths, "", folder, filepath.FromSlash("/a/f/deeper"), "", "", 0); ok {
+	if _, _, ok := dropPlan(SystemPaths, "", false, folder, filepath.FromSlash("/a/f/deeper"), "", "", 0); ok {
 		t.Fatal("a folder may go inside itself")
 	}
 	if _, _, ok := pinPlan(SystemPaths, "", folder, []string{filepath.FromSlash("/a/f")}); ok {
@@ -465,12 +468,16 @@ func TestPropertiesSetTheAttributesForReal(t *testing.T) {
 // exchange would also cross a socket.
 func TestDndWire(t *testing.T) {
 	err := gunim.CheckWire(
-		DropFiles{Paths: []string{"/a/x"}, Into: "/b", Copy: true},
+		DropFiles{Paths: []string{"/a/x"}, Into: "/b", Copy: true, Away: true, Style: SlashPaths},
+		DragFetch{ID: 1, Paths: []string{"/a/x"}},
+		DragFetched{ID: 1, Paths: []string{"/tmp/x"}, Err: "Too big to drag out"},
+		DragFetching{ID: 1, Bytes: 10, Total: 20},
+		DragFetchEnd{ID: 1},
 		PinFolders{Paths: []string{"/a"}},
 		Volumes{Of: map[string]string{"/a": "C:"}, Errs: map[string]string{"/b": "denied"}},
 		ClipState{Count: 2, Cut: true},
 		OpenWindow{Path: "/a"},
-		RenameFavourite{Path: "/a"},
+		RenameFavourite{FS: "box", Path: "/a"},
 		Props{Token: 1, Title: "Properties of a", Name: "a", Size: "1 KB", Attrs: true, ReadOnly: true},
 		PropsCounted{Token: 1, Size: "2 KB", Holds: "3 items", Counting: true},
 		PropsApplied{Token: 1, Hidden: true},

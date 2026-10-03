@@ -10,7 +10,8 @@ import (
 // A program opens a window on the computer's own disk, with its servers
 // in the sidebar under a heading of their own. A click on a server asks
 // the program to visit it, which it does by turning the window that
-// asked to the server's file system.
+// asked to the server's file system, or, with Ctrl held, by opening a
+// window of its own on it.
 func ExampleHub() {
 	ctx := context.Background()
 	_ = gunim.Main(ctx, func(ga *gunim.App) error {
@@ -24,14 +25,21 @@ func ExampleHub() {
 				Note: "Connected", FS: "sftp://web1"})
 			return ps, err
 		}
-		visit := func(w *filemanager.Window, fs, path string) {
-			if fs == "" {
-				w.Show(filemanager.LocalFS(), path)
+		var visit func(w *filemanager.Window, fs, path string, newWindow bool)
+		visit = func(w *filemanager.Window, fs, path string, newWindow bool) {
+			if fs != "" {
+				// The program connects to the server fs names, and shows it:
+				//
+				//	w.Show(server, path)
+				//
+				// or, for a new window, opens one with FS: server.
 				return
 			}
-			// The program connects to the server fs names, and shows it:
-			//
-			//	w.Show(server, path)
+			if newWindow {
+				_, _ = hub.Open(filemanager.Options{Name: "Kakel", Dir: path, Places: places, Visit: visit})
+				return
+			}
+			w.Show(filemanager.LocalFS(), path)
 		}
 		w, err := hub.Open(filemanager.Options{Name: "Kakel", Places: places, Visit: visit})
 		if err != nil {

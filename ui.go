@@ -57,6 +57,8 @@ func Main(ctx context.Context, fn func(*App) error) error {
 // hand it a driver of its own.
 func runApp(ctx context.Context, drv driver.Driver, fn func(*App) error) error {
 	app := &App{drv: drv}
+	app.windows.stacker, _ = drv.(driver.Stacker)
+	app.windows.coverer, _ = drv.(driver.Coverer)
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -91,6 +93,30 @@ type App struct {
 // window on a chosen one.
 func (a *App) Monitors() []driver.Monitor { return a.drv.Monitors() }
 
+// FocusedBounds returns where on the screen the application's window that
+// last had the keyboard is, in screen coordinates as [driver.Monitor]
+// gives them, for something to open where the user is working: false
+// when no window of it has had the keyboard yet.
+func (a *App) FocusedBounds() (geom.Rect, bool) {
+	a.windows.mu.Lock()
+	var last *Window
+	var at uint64
+	for w, n := range a.windows.focusedAt {
+		if n > at {
+			last, at = w, n
+		}
+	}
+	a.windows.mu.Unlock()
+	if last == nil {
+		return geom.Rect{}, false
+	}
+	sc, ok := last.dw.(driver.Screener)
+	if !ok {
+		return geom.Rect{}, false
+	}
+	return geom.Rect{Min: sc.ToScreen(geom.Point{}), Max: sc.ToScreen(last.dw.Size().Point())}, true
+}
+
 // Tray is an icon in the system tray with a menu; see [driver.Tray].
 type Tray = driver.Tray
 
@@ -109,6 +135,17 @@ func (a *App) SetTray(t Tray) error {
 		return ErrNoTray
 	}
 	return tr.SetTray(t)
+}
+
+// TrayNotify shows a message from the application's tray icon, as the
+// system shows one, against the icon already there rather than one of
+// its own. It returns ErrNoTray where the platform shows none so.
+func (a *App) TrayNotify(title, body string) error {
+	tn, ok := a.drv.(driver.TrayNotifier)
+	if !ok {
+		return ErrNoTray
+	}
+	return tn.TrayNotify(title, body)
 }
 
 // HotKey is a key that reaches the application from any program; see
@@ -204,6 +241,16 @@ type WindowOptions struct {
 	// Hidden opens the window without showing it, as for an application
 	// that starts in the tray and may close it unseen.
 	Hidden bool
+	// DragFromBehind lets a drag start from the window while another
+	// window is in front of it, as from Explorer's windows: a press on
+	// the window's content leaves it where it is, a drag from the press
+	// runs with the window left behind, and a click brings the window to
+	// the front as the button comes up. Only Windows does so. On X11 the
+	// window manager raises and focuses a window on a click, and on
+	// macOS the system does, so the window comes to the front on the
+	// press there, as without it. The title bar and the edges bring the
+	// window to the front on a press as ever.
+	DragFromBehind bool
 }
 
 // NewWindow opens a window and starts its UI goroutine.
@@ -215,7 +262,7 @@ func (a *App) NewWindow(o WindowOptions) (*Window, error) {
 		Title: o.Title, Size: o.Size, Monitor: o.Monitor,
 		Kind: o.Kind, Anchor: geom.Rect{Min: o.Anchor, Max: o.Anchor}, Icons: o.Icons,
 		Chromeless: !o.SystemFrame && (newTitleBar != nil || o.TitleBar != nil), Border: o.Border, Text: o.Text, Place: o.Place,
-		Hidden: o.Hidden,
+		Hidden: o.Hidden, DragFromBehind: o.DragFromBehind,
 	}
 	if o.Parent != nil {
 		do.Parent = o.Parent.dw
@@ -297,6 +344,10 @@ type Window struct {
 	inFlight bool
 	shown    time.Time
 	due      time.Time
+	// sent is when the frame in flight was handed to the driver, for GUNIM_DEBUG_POINTER to say when one is slow.
+	sent time.Time
+	// uiTimes sums how long frames take to build, for GUNIM_DEBUG_FRAMES.
+	uiTimes uiTimes
 
 	closeOnce sync.Once
 	// clock is the synthetic frame time used by [Window.Frame], so an
@@ -471,6 +522,11 @@ func (c Client) Err() error { return c.w.err }
 
 // Close shuts the window down.
 func (c Client) Close() { c.w.Close() }
+
+// KeyboardAway reports whether the window has given the keyboard to another, as the system last said: a node that
+// shows the keyboard is with it, as a caret does, shows nothing while it is away. A node focused meanwhile hears
+// [input.WindowFocusGained] when it comes back, as the focused node does.
+func (u *UI) KeyboardAway() bool { return u.keyboardAway }
 
 // ToFront brings the window to the front with the keyboard, shown again
 // first if it was minimized, where the platform can. It may be called
@@ -797,6 +853,9 @@ func (w *Window) wait() bool {
 		}
 		w.inFlight = false
 		w.shown = f.Shown
+		if took := time.Since(w.sent); took > slowFrame {
+			pointerf("the last frame took %.0f ms to reach the screen", float64(took.Microseconds())/1000)
+		}
 		w.ui.makeSpare()
 	case out <- next:
 		w.ui.pending = w.ui.pending[1:]
@@ -814,7 +873,9 @@ func (w *Window) wait() bool {
 // is one refresh. Carrying the time slept would push a fresh hover most
 // of the way through its animation before its first frame.
 func (w *Window) draw() {
+	t0 := time.Now()
 	w.applyPending()
+	applied := time.Since(t0)
 	interval := refreshInterval(w.dw.RefreshRate())
 	due := nextVsync(w.shown, interval, time.Now())
 	delta := interval
@@ -822,9 +883,21 @@ func (w *Window) draw() {
 		delta = due.Sub(w.due)
 	}
 	w.due = due
+	start := time.Now()
 	w.ui.frame(due, delta)
+	w.sent = time.Now()
+	if took := w.sent.Sub(start); took > slowFrame {
+		pointerf("a frame took %.0f ms to build", float64(took.Microseconds())/1000)
+	}
+	if uiFramesDebug {
+		w.uiTimes.add(w, applied, w.sent.Sub(start))
+	}
 	w.inFlight = true
 }
+
+// slowFrame is how long building a frame, or its trip to the screen, may take before GUNIM_DEBUG_POINTER says so:
+// while it lasts, nothing moves, popups included, and hover seems not to follow the pointer.
+const slowFrame = 250 * time.Millisecond
 
 // refreshInterval turns a refresh rate into the time between frames,
 // assuming 60 Hz when the driver reports no rate.
@@ -1000,7 +1073,9 @@ type UI struct {
 	focus *state
 	// altAlone says Alt is down with nothing pressed since, for [input.AltTapped].
 	altAlone bool
-	hover    *state
+	// keyboardAway says the window has given the keyboard to another; see KeyboardAway.
+	keyboardAway bool
+	hover        *state
 	// capture is the node that took the last press and keeps the
 	// pointer until its release.
 	capture *state
@@ -1051,6 +1126,10 @@ type UI struct {
 	movedMods input.Mods
 	drag      *drag
 	dragAt    *state
+	// behind says the button went down on the window as it lay behind
+	// another, which left it there, and is still down; dragged says a
+	// drag started from that press. See [WindowOptions.DragFromBehind].
+	behind, dragged bool
 	// drops are the drags let go from here whose end is still to be
 	// heard, by number, and dropSeq the last number given. dragOuts are
 	// the drops handed to other programs, oldest first, whose ends the

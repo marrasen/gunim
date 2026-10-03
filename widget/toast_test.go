@@ -133,3 +133,85 @@ func TestAToastsActionSendsItsIntentAndDismissesIt(t *testing.T) {
 		t.Fatalf("after its action, %d toasts showing, want 0", n)
 	}
 }
+
+type toastAnswer struct {
+	Button  int
+	Checked bool
+}
+
+func TestAToastThatAsksStaysTakesNoKeyboardAndAnswersWithItsTickBox(t *testing.T) {
+	w, h, wait := newToastStage(t)
+	type do struct{ fn func(u *gunim.UI) }
+	gunim.RegisterPatch(w, "stage", func(_ gunim.Node, d do, u *gunim.UI) { d.fn(u) })
+	on := func(fn func(u *gunim.UI)) {
+		if err := w.Client().Patch("stage", do{fn}); err != nil {
+			t.Fatal(err)
+		}
+		wait(time.Second / 60)
+	}
+	var focused gunim.Node
+	on(func(u *gunim.UI) { focused = u.Focused() })
+	if focused != gunim.Node(h) {
+		t.Fatalf("the host does not have the keyboard to begin with: %v", focused)
+	}
+	answer := func(i int) func(bool) gunim.Intent {
+		return func(c bool) gunim.Intent { return toastAnswer{i, c} }
+	}
+	ask := Toast{Title: "report.docx changed", Body: "Upload it?", Key: "k", Check: "Don't ask again",
+		Buttons: []ToastButton{{Label: "Upload", On: answer(0)}, {Label: "Not now", On: answer(1)}},
+		Dismiss: answer(-1)}
+	on(func(u *gunim.UI) { h.t.Show(ask, u) })
+	// Well past the life of a toast that only tells.
+	wait(3 * time.Second)
+	if n := h.t.Len(); n != 1 {
+		t.Fatalf("%d toasts showing after a toast that asks had its time, want 1", n)
+	}
+	card := h.t.cards[0]
+	var box, upload, body geom.Rect
+	on(func(u *gunim.UI) {
+		box, _ = u.Bounds(card.check)
+		upload, _ = u.Bounds(card.buttons.Children()[0])
+		body, _ = u.Bounds(card.title)
+		focused = u.Focused()
+	})
+	if focused != gunim.Node(h) {
+		t.Fatalf("showing the toast moved the keyboard to %v", focused)
+	}
+	if box.Empty() || upload.Empty() || upload.Min.Y < box.Max.Y {
+		t.Fatalf("the tick box is at %v and Upload at %v", box, upload)
+	}
+	// A click on the text keeps the toast, and the keyboard.
+	click(w, body.Center().X, body.Center().Y)
+	wait(100 * time.Millisecond)
+	click(w, box.Min.X+4, box.Center().Y)
+	wait(100 * time.Millisecond)
+	if n := h.t.Len(); n != 1 || !card.check.On {
+		t.Fatalf("after clicks on the text and the box, %d toasts show, ticked %v", n, card.check.On)
+	}
+	_ = sent(w)
+	click(w, upload.Center().X, upload.Center().Y)
+	wait(100 * time.Millisecond)
+	if got := sent(w); len(got) != 1 || got[0] != (toastAnswer{0, true}) {
+		t.Fatalf("a click on Upload sent %v", got)
+	}
+	on(func(u *gunim.UI) { focused = u.Focused() })
+	if focused != gunim.Node(h) {
+		t.Fatalf("the clicks on the toast moved the keyboard to %v", focused)
+	}
+	if n := h.t.Len(); n != 0 {
+		t.Fatalf("after an answer, %d toasts showing, want 0", n)
+	}
+
+	// The program can take one away by its key; one shown again with
+	// the key takes the place of the one showing.
+	on(func(u *gunim.UI) { h.t.Show(ask, u) })
+	on(func(u *gunim.UI) { h.t.Show(ask, u) })
+	if n := h.t.Len(); n != 1 {
+		t.Fatalf("two toasts of one key show %d", n)
+	}
+	on(func(u *gunim.UI) { h.t.Close("k", u) })
+	wait(time.Second)
+	if n := h.t.Len(); n != 0 || len(sent(w)) != 0 {
+		t.Fatalf("after Close, %d toasts show", n)
+	}
+}

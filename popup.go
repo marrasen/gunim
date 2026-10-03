@@ -107,6 +107,10 @@ func (p *Popup) Move(anchor geom.Rect) {
 // shows, for a shadow. The popup lines up the part inside the padding
 // with its anchor, so the menu itself sits against the drop-down that
 // opened it and its shadow reaches past.
+//
+// The padding takes no pointer, unless the content is [Shaped], which
+// then says where it does: the pointer goes to whatever lies under it,
+// as the menu bar a menu's shadow reaches over.
 type PopupPadder interface {
 	Node
 	PopupPadding() geom.Insets
@@ -155,6 +159,10 @@ type surface struct {
 	opened time.Time
 	window string
 	shown  bool
+	// region is where the window was last told it takes the pointer, and regionSet says it was told at all; see
+	// pointerRegion.
+	region    []geom.Rect
+	regionSet bool
 }
 
 // popupDebug is set by GUNIM_DEBUG_POPUP=1, which logs to standard error how each popup got its window and how long
@@ -357,6 +365,7 @@ func (u *UI) framePopup(s *surface, f Frame) {
 	s.root.toWindow, s.root.drawn = paint.Identity, u.seq
 	s.root.node.Paint(pp, f, s.root.size, Children{ns: s.root.kids, f: f, s: s.root})
 	pp.PaintFloats()
+	u.setPointerRegion(s)
 	if s.inFlight {
 		s.stale = true
 		return
@@ -430,6 +439,103 @@ func (u *UI) popupAnchor(s *surface) geom.Rect {
 	return anchor
 }
 
+// popupCard is the part of a popup's content k that takes the pointer by its padding alone: its box less its
+// padding, which holds only its shadow. It reports false for content that is not a popup's, or is [Shaped] and says
+// itself where it takes the pointer, or has no padding.
+func popupCard(k *state) (geom.Rect, bool) {
+	if k.parent == nil {
+		return geom.Rect{}, false
+	}
+	if _, ok := k.parent.node.(*popupRoot); !ok {
+		return geom.Rect{}, false
+	}
+	if _, ok := k.node.(Shaped); ok {
+		return geom.Rect{}, false
+	}
+	pp, ok := k.node.(PopupPadder)
+	if !ok {
+		return geom.Rect{}, false
+	}
+	return geom.Rect{Max: k.size.Point()}.Inset(pp.PopupPadding()), true
+}
+
+// pointerRegion is where s's window takes the pointer, in its logical pixels, from the frame just painted: where its
+// content draws something to point at, as [UI.hit] finds it. Content on its way out takes none, so a menu fading
+// out over the bar leaves the bar the pointer. It is nil for a window that takes the pointer all over.
+func (u *UI) pointerRegion(s *surface) []geom.Rect {
+	box := geom.Rect{Max: s.root.size.Point()}
+	rects := []geom.Rect{}
+	whole := false
+	for _, k := range s.root.kids {
+		if k.presence == Exiting || k.drawn != u.seq {
+			continue
+		}
+		var parts []geom.Rect
+		switch n := k.node.(type) {
+		case RegionShaped:
+			if parts = n.CoverRects(); parts == nil {
+				parts = []geom.Rect{{Max: k.size.Point()}}
+			}
+		case Shaped:
+			whole = true
+		default:
+			if card, ok := popupCard(k); ok {
+				parts = []geom.Rect{card}
+			} else {
+				parts = []geom.Rect{{Max: k.size.Point()}}
+			}
+		}
+		for _, r := range parts {
+			if r = clipRect(boundsUnder(k.toWindow, r), box); !r.Empty() {
+				rects = append(rects, r)
+			}
+		}
+	}
+	if whole {
+		return nil
+	}
+	return rects
+}
+
+// setPointerRegion tells s's window where it takes the pointer, when that has changed. A popup the pointer passes
+// through whole is left as it is.
+func (u *UI) setPointerRegion(s *surface) {
+	pr, ok := s.dw.(driver.PointerRegioner)
+	if !ok || s.opts.Passthrough {
+		return
+	}
+	r := u.pointerRegion(s)
+	if s.regionSet && (r == nil) == (s.region == nil) && slices.Equal(r, s.region) {
+		return
+	}
+	s.region, s.regionSet = r, true
+	if r == nil {
+		pointerf("popup %p takes the pointer all over", s)
+	} else {
+		pointerf("popup %p takes the pointer in %v", s, r)
+	}
+	pr.SetPointerRegion(r)
+}
+
+// boundsUnder is the rectangle round r carried by t.
+func boundsUnder(t paint.Transform, r geom.Rect) geom.Rect {
+	ps := [4]geom.Point{t.Apply(r.Min), t.Apply(geom.Pt(r.Max.X, r.Min.Y)), t.Apply(geom.Pt(r.Min.X, r.Max.Y)), t.Apply(r.Max)}
+	b := geom.Rect{Min: ps[0], Max: ps[0]}
+	for _, p := range ps[1:] {
+		b.Min = geom.Pt(min(b.Min.X, p.X), min(b.Min.Y, p.Y))
+		b.Max = geom.Pt(max(b.Max.X, p.X), max(b.Max.Y, p.Y))
+	}
+	return b
+}
+
+// clipRect is the part of r inside c, empty where they do not meet.
+func clipRect(r, c geom.Rect) geom.Rect {
+	return geom.Rect{
+		Min: geom.Pt(max(r.Min.X, c.Min.X), max(r.Min.Y, c.Min.Y)),
+		Max: geom.Pt(min(r.Max.X, c.Max.X), min(r.Max.Y, c.Max.Y)),
+	}
+}
+
 // transparent reports whether dw blends with what is behind it.
 func transparent(dw driver.Window) bool {
 	t, ok := dw.(driver.Transparent)
@@ -455,7 +561,7 @@ func (u *UI) dropPopup(s *surface) {
 			alike++
 		}
 	}
-	if r, ok := s.dw.(driver.Recycler); ok && !s.inFlight && alike < mostSpare && r.Hide() == nil {
+	if r, ok := s.dw.(driver.Recycler); ok && !s.inFlight && alike < mostSpare && hideSpare(s.dw, r) {
 		u.spare = append(u.spare, sp)
 		return
 	}
@@ -542,7 +648,23 @@ func (u *UI) makeSpare() {
 		_ = dw.Close()
 		return
 	}
+	noPointer(dw)
 	u.spare = append(u.spare, spareWindow{dw: dw, parent: u.w.dw})
+}
+
+// hideSpare hides a popup's window to keep for the next popup, and reports whether it did. The window takes the
+// pointer nowhere until the next popup's first frame says where, so as it shows again under the pointer it does not
+// take it from the window under it on the way.
+func hideSpare(dw driver.Window, r driver.Recycler) bool {
+	noPointer(dw)
+	return r.Hide() == nil
+}
+
+// noPointer has a spare popup window take the pointer nowhere; see hideSpare.
+func noPointer(dw driver.Window) {
+	if pr, ok := dw.(driver.PointerRegioner); ok {
+		pr.SetPointerRegion([]geom.Rect{})
+	}
 }
 
 // drain empties a window's input and frame reports without waiting.

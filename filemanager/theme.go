@@ -18,8 +18,10 @@ var (
 	Caption     = theme.Foreground("files.caption", color.NRGBA{R: 0x70, G: 0x79, B: 0x8c, A: 0xff})
 	ErrorInk    = theme.Foreground("files.error", color.NRGBA{R: 0xff, G: 0x8a, B: 0x80, A: 0xff})
 	ErrorFill   = theme.Color("files.error.fill", color.NRGBA{R: 0x5a, G: 0x22, B: 0x22, A: 0xff})
-	SmallText   = theme.Length("files.small", 12)
-	TitleText   = theme.Length("files.title", 16)
+	// PlaceLit is the mark of a place that is lit, as a machine connected is.
+	PlaceLit  = theme.Color("files.place.lit", color.NRGBA{R: 0x4c, G: 0xd0, B: 0x7d, A: 0xff})
+	SmallText = theme.Length("files.small", 12)
+	TitleText = theme.Length("files.title", 16)
 
 	// Page is the motion a folder's listing slides in with.
 	Page = theme.Spring("files.motion.page", anim.Spring{Response: 0.34, Damping: 0.88})
@@ -50,7 +52,12 @@ func tintToken(t Tint) theme.Token[color.NRGBA] {
 func darkTheme() theme.Theme { return widget.Dark() }
 
 func lightTheme() theme.Theme {
-	return widget.Light().With(
+	entries := make([]theme.Entry, 0, 1+len(lightFavColors))
+	entries = append(entries, theme.Set(FavTile, 0.16))
+	for name, c := range lightFavColors {
+		entries = append(entries, theme.Set(favColors[name], c))
+	}
+	return widget.Light().With(entries...).With(
 		theme.Set(SidebarFill, color.NRGBA{R: 0xe9, G: 0xec, B: 0xf2, A: 0xff}),
 		theme.Set(SidebarHot, color.NRGBA{A: 0x0c}),
 		theme.Set(SidebarOn, color.NRGBA{R: 0x2f, G: 0x6f, B: 0xe0, A: 0x26}),
@@ -60,6 +67,7 @@ func lightTheme() theme.Theme {
 		theme.Set(ErrorInk, color.NRGBA{R: 0xb4, G: 0x2a, B: 0x22, A: 0xff}),
 		theme.Set(ErrorFill, color.NRGBA{R: 0xfd, G: 0xe4, B: 0xe1, A: 0xff}),
 		theme.Set(Success, color.NRGBA{R: 0x1f, G: 0x9d, B: 0x55, A: 0xff}),
+		theme.Set(PlaceLit, color.NRGBA{R: 0x1f, G: 0xa8, B: 0x52, A: 0xff}),
 		theme.Set(widget.TextSize, 14),
 		theme.Set(widget.ButtonHeight, 34),
 		theme.Set(widget.ButtonPadding, 16),

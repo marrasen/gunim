@@ -1,7 +1,13 @@
 package gunim
 
 import (
+	"errors"
+	"fmt"
+	"log"
+	"maps"
+	"os"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -29,11 +35,54 @@ type FileExporter interface {
 	ExportFiles() ([]string, error)
 }
 
+// ExportError is an error ExportFiles can return to say why the files
+// cannot leave the application yet, or at all. While the drag is over
+// no window, the picture it carries hears Hint as an
+// [input.DragAnswer], such as a widget.DropHint saying so.
+//
+// With Wait set, the files are on their way, as files fetched from
+// elsewhere are: the drag stays the application's, and ExportFiles is
+// asked again every exportRetry, and with each move, for as long as the
+// button stays down and the drag over no window. ExportFiles is called
+// on the window's UI goroutine, so it must not wait for the files
+// itself.
+type ExportError struct {
+	Hint any
+	Wait bool
+	Err  error
+}
+
+func (e *ExportError) Error() string {
+	switch {
+	case e.Err != nil:
+		return e.Err.Error()
+	case e.Wait:
+		return "gunim: the files are not ready to leave yet"
+	}
+	return "gunim: the files cannot leave the application"
+}
+
+func (e *ExportError) Unwrap() error { return e.Err }
+
+// exportRetry is how often a drag over no window asks again for files
+// that are on their way.
+const exportRetry = 100 * time.Millisecond
+
 // windows is the application's open windows, which drags look through
 // for the one under the pointer.
 type windows struct {
 	mu   sync.Mutex
 	list []*Window
+	// focused counts the times a window took the keyboard, and
+	// focusedAt is the count when each window last took it, so that
+	// where the system cannot say which window is in front, the one
+	// focused last is taken to be.
+	focused   uint64
+	focusedAt map[*Window]uint64
+	// stacker, when not nil, says how the system stacks the windows,
+	// and coverer whether another program's window is in front of them.
+	stacker driver.Stacker
+	coverer driver.Coverer
 }
 
 func (ws *windows) add(w *Window) {
@@ -46,24 +95,147 @@ func (ws *windows) remove(w *Window) {
 	ws.mu.Lock()
 	defer ws.mu.Unlock()
 	ws.list = slices.DeleteFunc(ws.list, func(o *Window) bool { return o == w })
+	delete(ws.focusedAt, w)
 }
 
-// at returns the window holding p, a screen point, or nil. The window
-// asking comes first, so a drag inside a window stays there where
-// windows overlap.
+// focus records that w took the keyboard.
+func (ws *windows) focus(w *Window) {
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+	if ws.focusedAt == nil {
+		ws.focusedAt = map[*Window]uint64{}
+	}
+	ws.focused++
+	ws.focusedAt[w] = ws.focused
+}
+
+// dragDebug is set by GUNIM_DEBUG_DRAG=1, which logs to standard error
+// each time a drag goes over another window, or off them all, where the
+// pointer is on the screen and where each window is, and each time it
+// starts or stops leaving the windows and what it hands out as it does.
+var dragDebug = os.Getenv("GUNIM_DEBUG_DRAG") == "1"
+
+// debugDrag logs a drag at the screen point at going over window over,
+// nil for none. Each window's depth is its place in the system's stack,
+// 0 at the front and -1 where the system cannot say, and focused is
+// when it last took the keyboard, larger for later.
+func (a *App) debugDrag(at geom.Point, over *Window) {
+	if a == nil {
+		return
+	}
+	a.windows.mu.Lock()
+	list := slices.Clone(a.windows.list)
+	focusedAt := maps.Clone(a.windows.focusedAt)
+	a.windows.mu.Unlock()
+	depths := a.windows.depths(list)
+	var line strings.Builder
+	fmt.Fprintf(&line, "gunim drag at %.1f,%.1f over %p;", at.X, at.Y, over)
+	for i, w := range list {
+		sc, ok := w.dw.(driver.Screener)
+		if !ok {
+			continue
+		}
+		o, size := sc.ToScreen(geom.Point{}), w.dw.Size()
+		far := sc.ToScreen(size.Point())
+		fmt.Fprintf(&line, " window %p at %.1f,%.1f to %.1f,%.1f (size %.1fx%.1f, holds %v, depth %d, focused %d);", w, o.X, o.Y, far.X, far.Y, size.W, size.H, holds(w, at), depths[i], focusedAt[w])
+	}
+	fmt.Fprintln(os.Stderr, line.String())
+}
+
+// depths returns each of list's depth in the system's stack of
+// windows, 0 at the front, or -1 where the system cannot say.
+func (ws *windows) depths(list []*Window) []int {
+	if ws.stacker == nil {
+		out := make([]int, len(list))
+		for i := range out {
+			out[i] = -1
+		}
+		return out
+	}
+	dws := make([]driver.Window, len(list))
+	for i, w := range list {
+		dws[i] = w.dw
+	}
+	return ws.stacker.Depths(dws)
+}
+
+// at returns the window holding p, a screen point, or nil. Where
+// windows overlap at p, it returns the one in front. Where the system
+// cannot say which that is, the window asking, first, wins, as a drag
+// inside a window stays there, and then the window that last took the
+// keyboard.
 func (ws *windows) at(p geom.Point, first *Window) *Window {
+	w, _ := ws.under(p, first)
+	return w
+}
+
+// under returns the window at p, as at does, and reports whether p is
+// over another program's window in front of the application's windows
+// there, where it returns nil.
+func (ws *windows) under(p geom.Point, first *Window) (*Window, bool) {
+	w := ws.front(p, first)
+	if w == nil || ws.coverer == nil {
+		return w, false
+	}
 	ws.mu.Lock()
 	list := slices.Clone(ws.list)
 	ws.mu.Unlock()
-	if first != nil && holds(first, p) {
-		return first
-	}
-	for _, w := range list {
-		if w != first && holds(w, p) {
-			return w
+	var in []driver.Window
+	for _, o := range list {
+		if holds(o, p) {
+			in = append(in, o.dw)
 		}
 	}
-	return nil
+	if covered, ok := ws.coverer.Covered(in, p); ok && covered {
+		return nil, true
+	}
+	return w, false
+}
+
+// front returns the application's window holding p in front, as at
+// describes, minding no other program's windows.
+func (ws *windows) front(p geom.Point, first *Window) *Window {
+	ws.mu.Lock()
+	list := slices.Clone(ws.list)
+	ws.mu.Unlock()
+	var in []*Window
+	for _, w := range list {
+		if holds(w, p) {
+			in = append(in, w)
+		}
+	}
+	switch len(in) {
+	case 0:
+		return nil
+	case 1:
+		return in[0]
+	}
+	// Only now, with windows overlapping, is the system asked, as this
+	// runs on every move of a drag.
+	depths := ws.depths(in)
+	var front *Window
+	best := -1
+	for i, w := range in {
+		d := depths[i]
+		if d >= 0 && (front == nil || d < best || d == best && w == first) {
+			front, best = w, d
+		}
+	}
+	if front != nil {
+		return front
+	}
+	if slices.Contains(in, first) {
+		return first
+	}
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+	front = in[0]
+	for _, w := range in[1:] {
+		if ws.focusedAt[w] > ws.focusedAt[front] {
+			front = w
+		}
+	}
+	return front
 }
 
 // farFrom reports whether p, a screen point, is farther than reach
@@ -162,6 +334,14 @@ type drag struct {
 	over *Window
 	// mods are the modifier keys held.
 	mods input.Mods
+	// retrying is set while a call to ask again for files on their way
+	// waits.
+	retrying bool
+	// hinted is set while the picture shows why the files cannot leave.
+	hinted bool
+	// leavingLogged is whether GUNIM_DEBUG_DRAG last logged the drag as
+	// leaving the windows.
+	leavingLogged bool
 }
 
 // leaveReach is how far a drag of files must go from every window of
@@ -200,6 +380,9 @@ func (u *UI) StartDrag(n Node, data any, ghost Node, grab geom.Point) {
 		panic("gunim: StartDrag from a node that is not in the tree")
 	}
 	d := &drag{source: s, data: data, grab: grab, picture: ghost}
+	// A drag from a press on the window as it lay behind another leaves
+	// it there.
+	u.dragged = u.behind
 	u.openGhost(d)
 	u.drag = d
 	u.dragTo(u.pointer)
@@ -260,8 +443,9 @@ func (u *UI) dragTo(p geom.Point) {
 	d := u.drag
 	at := toScreen(u.w, p)
 	var over *Window
+	covered := false
 	if u.w.app != nil {
-		over = u.w.app.windows.at(at, u.w)
+		over, covered = u.w.app.windows.under(at, u.w)
 	} else if holds(u.w, at) {
 		over = u.w
 	}
@@ -271,9 +455,25 @@ func (u *UI) dragTo(p geom.Point) {
 		}
 		u.toGhost(d.ghost, input.DragAnswer{Time: time.Now()})
 	}
+	if dragDebug && d.over != over {
+		u.w.app.debugDrag(at, over)
+	}
 	d.over = over
-	if over == nil && u.leaving(at) && u.dragOut(d) {
-		return
+	// Over another program's window, the drag leaves at once, however
+	// near the application's windows behind it.
+	leaving := over == nil && (covered || u.leaving(at))
+	if dragDebug && leaving != d.leavingLogged {
+		d.leavingLogged = leaving
+		log.Printf("gunim drag at %.1f,%.1f leaving the windows: %v, over another program's window: %v", at.X, at.Y, leaving, covered)
+	}
+	if leaving {
+		if u.dragOut(d) {
+			return
+		}
+	} else if d.hinted {
+		// Back near a window, the hint of files that cannot leave goes.
+		d.hinted = false
+		u.toGhost(d.ghost, input.DragAnswer{Time: time.Now()})
 	}
 	if d.ghost != nil {
 		g := u.local(u.root, p).Sub(d.grab)
@@ -359,7 +559,16 @@ func (u *UI) dragOut(d *drag) bool {
 		return false
 	}
 	paths, err := fe.ExportFiles()
+	if dragDebug {
+		var ee *ExportError
+		if errors.As(err, &ee) {
+			log.Printf("gunim drag out waits: %v, hint %+v, wait %v", ee.Err, ee.Hint, ee.Wait)
+		} else {
+			log.Printf("gunim drag out: %d paths, %v", len(paths), err)
+		}
+	}
 	if err != nil || len(paths) == 0 {
+		u.exportWaits(d, err)
 		return false
 	}
 	if d.ghost != nil {
@@ -377,6 +586,30 @@ func (u *UI) dragOut(d *drag) bool {
 	}
 	u.outDrags[id] = d
 	return true
+}
+
+// exportWaits shows the hint of err, an ExportError, under the pointer,
+// and where the files are on their way, asks for them again shortly,
+// unless the button is let go, or the drag goes over a window, first.
+func (u *UI) exportWaits(d *drag, err error) {
+	var ee *ExportError
+	if !errors.As(err, &ee) {
+		return
+	}
+	if ee.Hint != nil {
+		d.hinted = true
+		u.toGhost(d.ghost, input.DragAnswer{Answer: ee.Hint, Time: time.Now()})
+	}
+	if !ee.Wait || d.retrying {
+		return
+	}
+	d.retrying = true
+	u.After(exportRetry, func(u *UI) {
+		d.retrying = false
+		if u.drag == d && d.over == nil {
+			u.dragTo(u.pointer)
+		}
+	})
 }
 
 // dragDrop lets the drag go at p, in the window's space. The picture

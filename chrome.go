@@ -118,8 +118,11 @@ func (u *UI) noteTitleBar(n Node, t paint.Transform, size geom.Size) {
 			u.chrome.caption = append(u.chrome.caption, windowRect(t, r))
 		}
 	}
+	// An empty rectangle is a title bar without a maximize button.
 	if m, ok := n.(MaximizeButton); ok {
-		u.chrome.maximize = windowRect(t, m.MaximizeRect(size))
+		if r := m.MaximizeRect(size); !r.Empty() {
+			u.chrome.maximize = windowRect(t, r)
+		}
 	}
 }
 
@@ -144,8 +147,9 @@ func (u *UI) sendTitleBar() {
 
 // framePress acts on a press where the system would have, on a window
 // whose system leaves moving and sizing to the engine: an edge sizes
-// it, and the caption moves it, or with a double click maximizes it.
-// It reports whether it took the press.
+// it, and the caption moves it, or with a double click maximizes it
+// when the title bar has a maximize button. It reports whether it took
+// the press.
 func (u *UI) framePress(p geom.Point, e input.PointerDown) bool {
 	c := u.chrome
 	if c == nil || c.fr.NativeFrame() || e.Button != input.ButtonPrimary {
@@ -160,7 +164,9 @@ func (u *UI) framePress(p geom.Point, e input.PointerDown) bool {
 			continue
 		}
 		if e.Clicks == 2 {
-			u.ToggleMaximize()
+			if !c.maximize.Empty() {
+				u.ToggleMaximize()
+			}
 		} else {
 			_ = c.fr.StartMove()
 		}

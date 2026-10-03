@@ -594,3 +594,83 @@ func TestACompactMenubarsLinePickedByItsKeyIsPicked(t *testing.T) {
 		t.Fatalf("picked %v, want Edit's Paste", picks)
 	}
 }
+
+// A press on a title holds the pointer for the bar until the release. A move from the menu's own window meanwhile,
+// such as one made up as the menu opens under the pointer, is in the menu's space: read in the bar's, it lands on
+// another title, whose menu opens, and the move from that one's window lands back on the first.
+func TestAMoveFromTheMenuWhileATitleIsHeldOpensNoOtherMenu(t *testing.T) {
+	w, b, _, _, run := newBarStage(t)
+	file, view := b.span(0), b.span(2)
+	at := geom.Pt((view[0]+view[1])/2, 15)
+	w.Input(input.PointerMove{Pos: at, Time: time.Now()})
+	w.Input(input.PointerDown{Pos: at, Clicks: 1, Time: time.Now()})
+	run(2)
+	if b.open != 2 {
+		t.Fatalf("pressing View opened menu %d", b.open)
+	}
+	// The pointer, in View's menu's space, is over File in the bar's.
+	b.popup.Input(input.PointerMove{Pos: geom.Pt((file[0]+file[1])/2, 6), Time: time.Now()})
+	run(2)
+	if b.open != 2 {
+		t.Fatalf("a move from View's menu while View was held opened menu %d", b.open)
+	}
+	w.Input(input.PointerUp{Pos: at, Time: time.Now()})
+	run(2)
+	if b.open != 2 {
+		t.Fatalf("letting View go left menu %d open", b.open)
+	}
+}
+
+func TestAMenusWindowLeavesTheBarThePointerUnderItsMargin(t *testing.T) {
+	w, b, _, _, run := newBarStage(t)
+	edit := b.span(1)
+	clickAt(w, run, geom.Pt((edit[0]+edit[1])/2, 15))
+	run(20)
+	if b.open != 1 || b.popup == nil || b.popup.Offscreen() == nil {
+		t.Fatal("clicking Edit opened no menu window")
+	}
+	pw := b.popup.Offscreen()
+	m := b.menu.margin
+	if m <= 0 {
+		t.Fatal("the menu has no margin for its shadow")
+	}
+	region := pw.PointerRegion()
+	if len(region) != 1 {
+		t.Fatalf("the menu's window takes the pointer in %v, want its card alone", region)
+	}
+	// The window reaches the margin up over the bar, for the shadow; the pointer there is the bar's
+	if region[0].Min.Y != m || region[0].Min.X != m {
+		t.Errorf("the menu's window takes the pointer from %v, want from its margin, %v in", region[0].Min, m)
+	}
+	if got, want := region[0].Max, pw.Size().Point().Sub(geom.Pt(m, m)); got != want {
+		t.Errorf("the menu's window takes the pointer to %v, want %v", got, want)
+	}
+}
+
+func TestACompactMenubarsWindowTakesThePointerOnItsCardsAlone(t *testing.T) {
+	w, b, _, _, run := newCompactStage(t)
+	s := b.span(0)
+	clickAt(w, run, geom.Pt((s[0]+s[1])/2, 15))
+	run(20)
+	if b.listPopup == nil || b.listPopup.Offscreen() == nil {
+		t.Fatal("the click opened no list window")
+	}
+	pw := b.listPopup.Offscreen()
+	if got, want := pw.PointerRegion(), []geom.Rect{b.panel.listCard()}; !slices.Equal(got, want) {
+		t.Fatalf("with the list alone, the window takes the pointer in %v, want %v", got, want)
+	}
+	// Edit opens beside the list; the region follows the card as it springs there from File
+	w.Input(input.KeyPress{Key: input.KeyDown})
+	run(20)
+	w.Input(input.KeyPress{Key: input.KeyDown})
+	for range 20 {
+		run(1)
+		want := []geom.Rect{b.panel.listCard(), b.panel.sideCard()}
+		if got := pw.PointerRegion(); !slices.Equal(got, want) {
+			t.Fatalf("with a menu beside the list, the window takes the pointer in %v, want %v", got, want)
+		}
+	}
+	if b.open != 1 {
+		t.Fatalf("Down twice opened menu %d, want Edit", b.open)
+	}
+}

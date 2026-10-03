@@ -110,11 +110,11 @@ func TestThePaletteRanksNamesAndShortPathsFirst(t *testing.T) {
 }
 
 func TestAGreaterThanSignFindsCommands(t *testing.T) {
-	hits := rankCommands("hidden", SystemPaths, []Place{{Name: "Home", Path: "/home/me"}}, nil)
+	hits := rankCommands("hidden", []Place{{Name: "Home", Path: "/home/me"}}, nil, "", SystemPaths)
 	if len(hits) == 0 || hits[0].Key != "cmd:"+CmdHidden || hits[0].Hint != "Ctrl+H" {
 		t.Fatalf("hidden finds %+v first", hits)
 	}
-	hits = rankCommands("go home", SystemPaths, []Place{{Name: "Home", Path: "/home/me"}}, nil)
+	hits = rankCommands("go home", []Place{{Name: "Home", Path: "/home/me"}}, nil, "", SystemPaths)
 	if len(hits) == 0 || hits[0].Key != "go:/home/me" {
 		t.Fatalf("go home finds %+v first", hits)
 	}

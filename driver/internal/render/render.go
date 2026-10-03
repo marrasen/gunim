@@ -11,6 +11,7 @@ import (
 	"image/color"
 	"math"
 	"os"
+	"time"
 	"unsafe"
 
 	"github.com/marrasen/gunim/geom"
@@ -62,8 +63,13 @@ const (
 // the greyscale atlas; see masks.go. Images upload once and stay
 // on the GPU while frames use them; see images.go.
 type Renderer struct {
+	// Stats counts what frames send the GPU, for GUNIM_DEBUG_FRAMES.
+	Stats  Stats
 	GL     gl.Context
 	shared *Shared
+	isES   bool
+	// cellsState draws grids of character cells; see cells.go.
+	cellsState cellsState
 
 	vao, vbo, ibo uint32
 	drawProg      program
@@ -367,7 +373,7 @@ void main() {
 `
 
 func New(g gl.Context, isES bool, sh *Shared) (*Renderer, error) {
-	r := &Renderer{GL: g, shared: sh, images: map[*paint.Image]*imageTexture{}}
+	r := &Renderer{GL: g, shared: sh, isES: isES, images: map[*paint.Image]*imageTexture{}}
 	var err error
 	if r.drawProg, r.blurProg, r.dual, err = sh.programs(g, isES); err != nil {
 		return nil, err
@@ -527,6 +533,7 @@ func (r *Renderer) Release() {
 	if r.colorGlyphs.tex != 0 {
 		g.DeleteTexture(r.colorGlyphs.tex)
 	}
+	r.releaseCells()
 	g.DeleteBuffer(r.vbo)
 	g.DeleteBuffer(r.ibo)
 	g.DeleteVertexArray(r.vao)
@@ -710,6 +717,11 @@ func (r *Renderer) deviceBox(d geom.Rect) geom.Rect {
 // replay queues ops into the canvas.
 func (r *Renderer) replay(ops []paint.Op) {
 	for _, op := range ops {
+		if _, ok := op.(*paint.CellsOp); !ok && r.cellsState.pending != nil {
+			// The cells first, with the glyphs that spill out of them,
+			// beneath whatever comes after them, as a cursor.
+			r.flush()
+		}
 		switch op := op.(type) {
 		case *paint.RRectOp:
 			r.rrect(op)
@@ -723,6 +735,8 @@ func (r *Renderer) replay(ops []paint.Op) {
 			r.image(op)
 		case *paint.MaskOp:
 			r.mask(op)
+		case *paint.CellsOp:
+			r.cells(op)
 		}
 	}
 	// A layer left open by a node that forgot to close it still shows.
@@ -730,6 +744,18 @@ func (r *Renderer) replay(ops []paint.Op) {
 		r.closeLayer()
 	}
 }
+
+// Stats counts what frames send the GPU, while GUNIM_DEBUG_FRAMES is
+// set: draw calls, quads, the bytes of their vertices, and layers.
+type Stats struct {
+	Flushes, Quads, Bytes, Layers int
+	// FlushTime is spent handing vertices and draws to the driver.
+	FlushTime time.Duration
+}
+
+// framesDebug is set by GUNIM_DEBUG_FRAMES, which has the renderer
+// count what each frame sends the GPU in [Renderer.Stats].
+var framesDebug = os.Getenv("GUNIM_DEBUG_FRAMES") != ""
 
 // bindDraw makes the draw program and the renderer's vertices current,
 // with the glyph atlas on unit 0.
@@ -742,8 +768,9 @@ func (r *Renderer) bindDraw() {
 	g.BindTexture(gl.TEXTURE_2D, r.glyphs.tex)
 }
 
-// flush draws the batch.
+// flush draws the batch, and the rows of cells queued before it.
 func (r *Renderer) flush() {
+	r.flushCells()
 	n := len(r.verts) / (4 * vertFloats)
 	if n == 0 {
 		return
@@ -757,10 +784,20 @@ func (r *Renderer) flush() {
 	data := unsafe.Slice((*byte)(unsafe.Pointer(&r.verts[0])), len(r.verts)*4)
 	// A fresh store each time lets the driver keep the last one for the
 	// draw still reading it.
+	var t0 time.Time
+	if framesDebug {
+		t0 = time.Now()
+	}
 	g.BufferInit(gl.ARRAY_BUFFER, len(data), gl.STREAM_DRAW)
 	g.BufferSubData(gl.ARRAY_BUFFER, 0, data)
 	g.DrawElements(gl.TRIANGLES, int32(n*6), glUnsignedShort, 0)
 	r.draws++
+	if framesDebug {
+		r.Stats.Flushes++
+		r.Stats.Quads += n
+		r.Stats.Bytes += len(data)
+		r.Stats.FlushTime += time.Since(t0)
+	}
 	r.verts = r.verts[:0]
 	r.tex = 0
 }
@@ -891,6 +928,7 @@ func (r *Renderer) openLayer(op *paint.LayerOp) {
 		return
 	}
 	r.depth++
+	r.Stats.Layers++
 	for len(r.layers) <= r.depth {
 		r.layers = append(r.layers, target{})
 	}

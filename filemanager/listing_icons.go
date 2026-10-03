@@ -12,6 +12,7 @@ import (
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/icon"
+	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/text"
 	"github.com/marrasen/gunim/theme"
@@ -108,6 +109,7 @@ func newIconView(pg *listingPage) *iconView {
 	}
 	iv.grid = g
 	g.DragTiles = pg.dragRows
+	g.OnDragEnd = func(e input.DragEnd) gunim.Intent { return pg.b.dnd.dragEnded(e) }
 	iv.menu = pg.contextMenu(g, g.TileAt, func() [][2]int { sel, _ := g.Selected(); return sel })
 	return iv
 }

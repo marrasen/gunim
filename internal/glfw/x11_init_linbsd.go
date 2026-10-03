@@ -795,6 +795,7 @@ func initExtensions() error {
 		purego.RegisterLibFunc(&xshape.CombineRegion, handle, "XShapeCombineRegion")
 		purego.RegisterLibFunc(&xshape.QueryVersion, handle, "XShapeQueryVersion")
 		purego.RegisterLibFunc(&xshape.CombineMask, handle, "XShapeCombineMask")
+		purego.RegisterLibFunc(&xshape.CombineRectangles, handle, "XShapeCombineRectangles")
 
 		if xshape.QueryExtension(display, &xshape.errorBase, &xshape.eventBase) {
 			if xshape.QueryVersion(display, &xshape.major, &xshape.minor) != 0 {

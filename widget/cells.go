@@ -5,6 +5,7 @@ import (
 	"math"
 	"slices"
 	"time"
+	"unsafe"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
@@ -69,6 +70,11 @@ type CellGrid struct {
 	// through characters, kept for the next row.
 	boxes map[boxKey][]boxRect
 	marks []cellFill
+	// pats are the masks of the box-drawing and block characters drawn
+	// in the cells' own pass, at the cells' size, and patOf each
+	// character's number among them, or 0 for one drawn as rectangles.
+	pats  *paint.Patterns
+	patOf map[rune]uint16
 	// run is what the grid drew last frame, and painted what it drew it
 	// from, so a frame in which nothing of the grid changed hands the
 	// drawing on rather than drawing thousands of cells again.
@@ -159,7 +165,11 @@ type Cursor struct {
 type cellRow struct {
 	cells []Cell
 	drawn rowPaint
-	stale bool
+	// paint is how the row's cells are drawn in the cells' pass, and
+	// spare the slice the frame before drew from, which a new drawing
+	// takes, so the frame's last ops keep theirs to compare with.
+	paint, spare []paint.CellPaint
+	stale        bool
 }
 
 // rowPaint is a row's drawing, in the row's own space: backgrounds,
@@ -397,10 +407,27 @@ func (g *CellGrid) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 		}
 		line := &g.lines[y]
 		if line.stale {
-			line.drawn = g.drawRow(line.cells, ink, line.drawn)
+			line.paint, line.spare = line.spare[:0], line.paint
+			line.drawn, line.paint = g.drawRow(line.cells, ink, line.drawn, line.paint)
 			line.stale = false
 		}
-		g.paintRow(p, line.drawn, top)
+	}
+	// Every row's cells first, in one pass, so the rows go to the GPU
+	// together; then what is drawn over them.
+	id := uintptr(unsafe.Pointer(g))
+	for y := range g.lines {
+		top := float32(y) * m.h
+		if top >= box.H {
+			break
+		}
+		p.Cells(geom.Pt(0, top), geom.Sz(m.w, m.h), g.lines[y].paint, g.pats, id, y, m.size, m.ascent)
+	}
+	for y := range g.lines {
+		top := float32(y) * m.h
+		if top >= box.H {
+			break
+		}
+		g.paintRow(p, g.lines[y].drawn, top)
 	}
 	g.paintCursor(p, ink, bg)
 }
@@ -421,8 +448,9 @@ func (g *CellGrid) staleIn(box geom.Size) bool {
 
 // drawRow works out what a row of cells draws, reusing the room of the
 // row's last drawing, was.
-func (g *CellGrid) drawRow(cells []Cell, ink color.NRGBA, was rowPaint) rowPaint {
+func (g *CellGrid) drawRow(cells []Cell, ink color.NRGBA, was rowPaint, cp []paint.CellPaint) (rowPaint, []paint.CellPaint) {
 	m := g.metrics
+	g.readyPatterns()
 	out := rowPaint{fills: was.fills[:0], runs: was.runs[:0]}
 	put := func(x0, x1, y0, y1 float32, c color.NRGBA) {
 		if n := len(out.fills); n > 0 {
@@ -443,19 +471,32 @@ func (g *CellGrid) drawRow(cells []Cell, ink color.NRGBA, was rowPaint) rowPaint
 		}
 		x0 := float32(x) * m.w
 		x1 := x0 + float32(span)*m.w
-		if c.BG.A != 0 {
-			put(x0, x1, 0, m.h, c.BG)
-		}
 		fg := c.FG
 		if fg.A == 0 {
 			fg = ink
 		}
-		if drawn, ok := g.boxDrawn(lines, c.Rune, x0, x1, fg); ok {
-			lines = drawn
-		} else if c.Rune != 0 && c.Rune != ' ' {
-			g.place(&out, c.Rune, c.Style, fg, x0, x1)
-			for _, mark := range c.Marks {
-				g.place(&out, mark, c.Style, fg, x0, x1)
+		cell := paint.CellPaint{BG: c.BG, FG: fg}
+		if span == 1 {
+			cell.Pattern = g.pattern(c.Rune)
+		}
+		cp = append(cp, cell)
+		if span == 2 {
+			cp = append(cp, paint.CellPaint{BG: c.BG})
+		}
+		// A character with a pattern is drawn in the cells' pass.
+		if cell.Pattern == 0 {
+			if drawn, ok := g.boxDrawn(lines, c.Rune, x0, x1, fg); ok {
+				lines = drawn
+			} else if c.Rune != 0 && c.Rune != ' ' {
+				if gly, ok := g.cellGlyph(c.Rune, c.Style, x1-x0); ok && c.Marks == "" {
+					// Drawn with the cells.
+					cp[len(cp)-span].Text, cp[len(cp)-span].Glyph = true, gly
+				} else {
+					g.place(&out, c.Rune, c.Style, fg, x0, x1)
+					for _, mark := range c.Marks {
+						g.place(&out, mark, c.Style, fg, x0, x1)
+					}
+				}
 			}
 		}
 		if c.Style&CellUnderline != 0 {
@@ -470,7 +511,51 @@ func (g *CellGrid) drawRow(cells []Cell, ink color.NRGBA, was rowPaint) rowPaint
 		put(l.r.Min.X, l.r.Max.X, l.r.Min.Y, l.r.Max.Y, l.c)
 	}
 	g.marks = lines
-	return out
+	for len(cp) < g.cols {
+		cp = append(cp, paint.CellPaint{})
+	}
+	return out, cp[:g.cols]
+}
+
+// readyPatterns makes new patterns when the cells have changed size.
+func (g *CellGrid) readyPatterns() {
+	m := g.metrics
+	w, h := int(math.Round(float64(m.w*m.scale))), int(math.Round(float64(m.h*m.scale)))
+	if g.pats != nil && g.pats.W == w && g.pats.H == h {
+		return
+	}
+	g.pats = &paint.Patterns{W: w, H: h}
+	g.patOf = map[rune]uint16{}
+}
+
+// pattern is the number of r's mask among the grid's patterns, made
+// the first time r is met, or 0 for a character drawn otherwise.
+func (g *CellGrid) pattern(r rune) uint16 {
+	if r < 0x2500 || r > 0x259f {
+		return 0
+	}
+	if n, ok := g.patOf[r]; ok {
+		return n
+	}
+	w, h := g.pats.W, g.pats.H
+	rects := boxDrawing(r, w, h)
+	var n uint16
+	if len(rects) > 0 && len(g.pats.Masks) < 0xffff {
+		mask := make([]byte, w*h)
+		for _, b := range rects {
+			for y := max(b.y0, 0); y < min(b.y1, h); y++ {
+				for x := max(b.x0, 0); x < min(b.x1, w); x++ {
+					// Over what is there, as the rectangles drew.
+					a := int(mask[y*w+x])
+					mask[y*w+x] = uint8(a + int(b.alpha)*(255-a)/255)
+				}
+			}
+		}
+		g.pats.Masks = append(g.pats.Masks, mask)
+		n = uint16(len(g.pats.Masks))
+	}
+	g.patOf[r] = n
+	return n
 }
 
 // boxDrawn adds to out what a box-drawing or block character fills in
@@ -505,6 +590,26 @@ func (g *CellGrid) boxDrawn(out []cellFill, r rune, x0, x1 float32, c color.NRGB
 		}})
 	}
 	return out, true
+}
+
+// cellGlyph returns r's glyph as a cell w wide draws it: from its left
+// edge, centred where it is narrower, as a fallback font's may be.
+func (g *CellGrid) cellGlyph(r rune, style CellStyle, w float32) (paint.Glyph, bool) {
+	key := glyphKey{r, style & (CellBold | CellItalic)}
+	cg, seen := g.glyphs[key]
+	if !seen {
+		cg.g, cg.advance, cg.ok = g.face(key.style).Glyph(r, g.metrics.size)
+		g.glyphs[key] = cg
+	}
+	if !cg.ok {
+		return paint.Glyph{}, false
+	}
+	gly := cg.g
+	gly.At = geom.Pt(0, 0)
+	if cg.advance > 0 && cg.advance < w {
+		gly.At.X = (w - cg.advance) / 2
+	}
+	return gly, true
 }
 
 // place adds r's glyph to the run of its colour, centred in the cells

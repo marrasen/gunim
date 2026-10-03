@@ -2,6 +2,7 @@ package widget
 
 import (
 	"image/color"
+	"math"
 	"slices"
 
 	"github.com/marrasen/gunim"
@@ -26,10 +27,20 @@ import (
 type Dialog struct {
 	anim.Group
 
+	// Title shows in a title bar across the top of the panel, drawn as a
+	// compact window title bar is: [TitleBarCompactHeight] tall, in
+	// [MenubarFill], the title centred in the text size, and no line
+	// under it. The bar has no buttons; Escape and Cancel close the
+	// dialog. A dialog without a title has no bar.
 	Title string
 	// Icon shows before the title, in the ink, or in [DialogDangerInk] for a danger dialog. A danger dialog
 	// without one shows icon.TriangleAlert.
 	Icon *icon.Icon
+	// NoTitleBar leaves the title bar out, title, icon and all, for a
+	// host that names the dialog itself: a window of the dialog's own
+	// with a title bar, say. The body then starts at the top of the
+	// panel.
+	NoTitleBar bool
 	// Accept is the intent sent when the user confirms, and Dismiss the
 	// one sent when they back out. Both travel as data.
 	//
@@ -379,35 +390,31 @@ func (d *Dialog) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children)
 	}
 	width := min(max(want, row+2*pad), size.W)
 	d.width = width
-	// With a body, the panel grows to fit the title, the body and the
-	// buttons.
-	d.height = DialogHeight.Get(th)
+	// The panel grows to fit the title bar, the body and the buttons.
+	bar := d.barHeight(th)
 	var body, problem gunim.Child
 	hasBody := d.Body != nil
 	var bs, ps geom.Size
+	around := bar + pad + ButtonHeight.Get(th) + pad
 	if hasBody {
 		body, problem = kids.At(0), kids.At(1)
-		title := d.title(th, width)
 		bs = body.Layout(gunim.Constraints{Max: geom.Sz(width-2*pad, 0)})
 		ps = problem.Layout(gunim.Constraints{Max: geom.Sz(width-2*pad, 0)})
-		extra := float32(0)
+		around += pad
 		if d.problem.Text != "" {
-			extra = pad/2 + ps.H
+			around += pad/2 + ps.H
 		}
-		around := pad + title.Size.H + pad + extra + pad + ButtonHeight.Get(th) + pad
-		d.height = around + bs.H
 		// A body taller than the window is measured again with the
 		// room that is left, so a form that scrolls fills it instead of
 		// running off both ends of the screen.
-		if room := size.H - DialogMargin.Get(th) - around; d.height > size.H && room > 0 {
+		if room := size.H - DialogMargin.Get(th) - around; around+bs.H > size.H && room > 0 {
 			bs = body.Layout(gunim.Tight(geom.Sz(width-2*pad, room)))
-			d.height = around + bs.H
 		}
 	}
+	d.height = around + bs.H
 	panel := d.panel(size, f)
 	if hasBody {
-		title := d.title(th, width)
-		at := panel.Min.Add(geom.Pt(pad, pad+title.Size.H+pad))
+		at := panel.Min.Add(geom.Pt(pad, bar+pad))
 		body.Place(at)
 		problem.Place(at.Add(geom.Pt(0, bs.H+pad/2)))
 	}
@@ -474,7 +481,7 @@ func (d *Dialog) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids guni
 	closeScrim()
 
 	panel := d.panel(box, f)
-	radius, pad := DialogRadius.Get(th), DialogPadding.Get(th)
+	radius := DialogRadius.Get(th)
 	// A shake swings the panel from side to side.
 	defer p.Push(paint.Translate(geom.Pt(14*d.shake.Value(), 0)))()
 
@@ -491,6 +498,7 @@ func (d *Dialog) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids guni
 		Blur:   32 * fade,
 		Color:  shadow,
 	})
+	d.paintBar(p, th, panel, radius)
 	p.RRectStroke(panel, radius, paint.Fill{}, paint.Stroke{Width: 1, Color: DialogBorder.Get(th)})
 	if DialogBorderLines.Get(th) >= 2 {
 		// A second rule just inside the first, as a double-line box.
@@ -498,12 +506,6 @@ func (d *Dialog) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids guni
 		inner := geom.Rect{Min: geom.Pt(panel.Min.X+gap, panel.Min.Y+gap), Max: geom.Pt(panel.Max.X-gap, panel.Max.Y-gap)}
 		p.RRectStroke(inner, max(radius-gap, 0), paint.Fill{}, paint.Stroke{Width: 1, Color: DialogBorder.Get(th)})
 	}
-	title := d.title(th, panel.Size().W)
-	if ic, ink := d.mark(); ic != nil {
-		s := IconSize.Get(th)
-		paintIcon(p, th, ic, geom.Rc(panel.Min.X+pad, panel.Min.Y+pad+(title.LineHeight-s)/2, s, s), ink.Get(th), 1)
-	}
-	title.Paint(p, panel.Min.Add(geom.Pt(pad+d.iconRoom(th), pad)), Ink.Get(th))
 
 	for kid := range kids.All {
 		kid.Paint(p)
@@ -530,8 +532,61 @@ func (d *Dialog) iconRoom(th *theme.Live) float32 {
 	return IconSize.Get(th) + IconGap.Get(th)
 }
 
-// title lays the title out for a panel width wide, after the icon.
+// hasBar reports whether the dialog shows a title bar: it has a title,
+// and the host has not left the bar out.
+func (d *Dialog) hasBar() bool { return d.Title != "" && !d.NoTitleBar }
+
+// barHeight is the title bar's height, or 0 without one: a compact
+// window title bar's, or four fifths of a button's where the theme's
+// buttons stand taller, so the bar holds its own beside them.
+func (d *Dialog) barHeight(th *theme.Live) float32 {
+	if !d.hasBar() {
+		return 0
+	}
+	return max(TitleBarCompactHeight.Get(th), 0.8*ButtonHeight.Get(th))
+}
+
+// title lays the title out on one line, for a panel width wide, after
+// the icon: the text a window's title bar shows, in its size.
 func (d *Dialog) title(th *theme.Live, width float32) text.Paragraph {
-	style := text.Style{Size: DialogTitleSize.Get(th), MaxLines: 2}
-	return d.titleText.layout(faceIn(Font, th), d.Title, style, width-2*DialogPadding.Get(th)-d.iconRoom(th))
+	style := text.Style{Size: TextSize.Get(th), MaxLines: 1}
+	return d.titleText.layout(faceIn(Font, th), d.Title, style, max(0, width-2*DialogPadding.Get(th)-d.iconRoom(th)))
+}
+
+// paintBar paints the title bar across the top of panel, whose corners
+// are rounded by radius: the bar's fill, in the colour of a window's
+// title bar, cut to the panel's round top corners, and the icon and
+// title centred in it. No line sets it off: its fill, darker than the
+// panel's, does.
+func (d *Dialog) paintBar(p *paint.Painter, th *theme.Live, panel geom.Rect, radius float32) {
+	if !d.hasBar() {
+		return
+	}
+	h := d.barHeight(th)
+	fill := DialogFill.Get(th)
+	strip := geom.Rect{Min: panel.Min, Max: geom.Pt(panel.Max.X, panel.Min.Y+h)}
+	if radius <= h && fill.A == 0xff {
+		// The bar with every corner round, as tall again as the
+		// corners, and the panel's fill painted back over the part
+		// below the bar: the bottom corners go, and the top ones stay
+		// round with the panel's.
+		p.RRect(geom.Rect{Min: strip.Min, Max: geom.Pt(strip.Max.X, strip.Max.Y+radius)}, radius, paint.Solid(MenubarFill.Get(th)))
+		p.RRect(geom.Rect{Min: geom.Pt(strip.Min.X, strip.Max.Y), Max: geom.Pt(strip.Max.X, strip.Max.Y+radius)}, 0, paint.Solid(fill))
+	} else {
+		// Corners rounder than the bar is tall: the bar cut to the
+		// panel's shape.
+		func() {
+			defer p.Layer(paint.LayerOpts{Bounds: panel, Opacity: 1, Clip: true, Radius: radius})()
+			p.RRect(strip, 0, paint.Solid(MenubarFill.Get(th)))
+		}()
+	}
+	title := d.title(th, panel.Size().W)
+	room := d.iconRoom(th)
+	x := float32(math.Round(float64(strip.Min.X + (strip.Size().W-room-title.Size.W)/2)))
+	y := float32(math.Round(float64(strip.Min.Y + (h-title.Size.H)/2)))
+	if ic, ink := d.mark(); ic != nil {
+		s := IconSize.Get(th)
+		paintIcon(p, th, ic, geom.Rc(x, strip.Min.Y+(h-s)/2, s, s), ink.Get(th), 1)
+	}
+	title.Paint(p, geom.Pt(x+room, y), Ink.Get(th))
 }

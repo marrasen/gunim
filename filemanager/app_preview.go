@@ -83,7 +83,7 @@ func (a *app) reveal(path string) {
 	}
 	go func() {
 		if err := reveal(path); err != nil {
-			a.post(func() { a.fail(fmt.Sprintf("Showing %s: %v", path, err)) })
+			a.post(func() { a.fail(fmt.Sprintf("Showing %s: %v", a.ps.Show(path), err)) })
 		}
 	}()
 }
@@ -138,6 +138,7 @@ func (a *app) showPreview() {
 			}
 			a.post(func() {
 				if a.preview.seq == seq {
+					pv.NoReveal = a.fetches()
 					a.patch(pv)
 					if e.Dir {
 						a.count(ctx, seq, path)
@@ -147,8 +148,8 @@ func (a *app) showPreview() {
 		}()
 	default:
 		info := entry{Name: a.ps.placeName(n.path), Dir: true, Type: "Folder", Mod: n.mod}
-		pv := Preview{Seq: seq, Title: info.Name, Type: "This folder", Path: n.path, Tint: TintFolder,
-			Facts: []Fact{{"Holds", plural(len(n.all), "item")}, {"Modified", fmtTime(n.mod)}, {"In", a.ps.placeName(a.ps.Dir(n.path))}}}
+		pv := Preview{Seq: seq, Title: info.Name, Type: "This folder", Path: n.path, Shown: a.ps.Show(n.path), Tint: TintFolder,
+			Facts: []Fact{{"Holds", plural(len(n.all), "item")}, {"Modified", fmtTime(n.mod)}, {"In", a.ps.placeName(a.ps.Dir(n.path))}}, NoReveal: a.fetches()}
 		a.patch(pv)
 	}
 }
@@ -179,7 +180,7 @@ func manyPreview(seq int, sel []entry) Preview {
 // downloaded, only when fetch says the user asked.
 func itemPreview(ctx context.Context, fsys FS, seq int, path string, e entry, fetch bool) Preview {
 	ps := fsys.Paths()
-	pv := Preview{Seq: seq, Title: e.Name, Type: e.Type, Path: path, Tint: tintOf(e)}
+	pv := Preview{Seq: seq, Title: e.Name, Type: e.Type, Path: path, Shown: ps.Show(path), Tint: tintOf(e)}
 	if !e.Dir {
 		size := humanBytes(e.Size)
 		if e.Size >= 1024 {
