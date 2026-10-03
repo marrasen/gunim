@@ -24,9 +24,9 @@ func touchStage(t *testing.T, n Node) (w *Window, finger func(ev any)) {
 	return w, func(ev any) { w.Input(ev) }
 }
 
-// swipe presses a finger at from, moves it to to in steps every 16 ms
-// from at, and lifts it, the last move held still for rest.
-func swipe(finger func(any), from, to geom.Point, steps int, at time.Time, rest time.Duration) time.Time {
+// swipe presses a finger at from, moves it in steps every 16 ms to to,
+// starting at at, and lifts it, the last move held still for rest.
+func swipe(finger func(any), from, to geom.Point, steps int, at time.Time, rest time.Duration) {
 	finger(input.PointerDown{Pos: from, Button: input.ButtonPrimary, Clicks: 1, Touch: true, Time: at})
 	for i := 1; i <= steps; i++ {
 		at = at.Add(16 * time.Millisecond)
@@ -35,7 +35,6 @@ func swipe(finger func(any), from, to geom.Point, steps int, at time.Time, rest 
 	}
 	at = at.Add(rest)
 	finger(input.PointerUp{Pos: to, Button: input.ButtonPrimary, Touch: true, Time: at})
-	return at
 }
 
 // scrolled sums the scroll events r heard, and counts them.

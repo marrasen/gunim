@@ -14,9 +14,9 @@ func TestAGlyphWithNoInkKeepsItsWidthUnlessItIsASpace(t *testing.T) {
 	// width, and the wrapper would take it at a line's end for a space.
 	runes := []rune("a 🃏")
 	out := shaping.Output{Glyphs: []shaping.Glyph{
-		{ClusterIndex: 0, XAdvance: fixed.I(8), Width: fixed.I(7)},
-		{ClusterIndex: 1, XAdvance: fixed.I(4)},
-		{ClusterIndex: 2, XAdvance: fixed.I(20)},
+		{ClusterIndex: 0, Advance: fixed.I(8), Width: fixed.I(7)},
+		{ClusterIndex: 1, Advance: fixed.I(4)},
+		{ClusterIndex: 2, Advance: fixed.I(20)},
 	}}
 	inkWidths(&out, runes)
 	if got := out.Glyphs[0].Width; got != fixed.I(7) {

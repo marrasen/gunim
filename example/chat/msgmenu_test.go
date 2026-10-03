@@ -30,7 +30,10 @@ func TestAMessageOpensAMenuOfWhatItsToolbarDoes(t *testing.T) {
 	if !ok {
 		t.Fatal("the message is not built")
 	}
-	r := n.(*msgRow)
+	r, ok := n.(*msgRow)
+	if !ok {
+		t.Fatalf("the message is a %T, want a *msgRow", n)
+	}
 	// A right click, or a finger held on the message, as the engine
 	// sends it.
 	do(func(u *gunim.UI) {
@@ -47,7 +50,7 @@ func TestAMessageOpensAMenuOfWhatItsToolbarDoes(t *testing.T) {
 	if r.menu != nil {
 		t.Fatal("the menu stayed open after a pick")
 	}
-	if h.a.window.replying != it.ID {
-		t.Fatalf("Reply left the reply on %q, want the message, %q", h.a.window.replying, it.ID)
+	if h.a.replying != it.ID {
+		t.Fatalf("Reply left the reply on %q, want the message, %q", h.a.replying, it.ID)
 	}
 }

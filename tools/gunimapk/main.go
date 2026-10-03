@@ -17,6 +17,7 @@ package main
 
 import (
 	"archive/zip"
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -25,6 +26,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -63,7 +65,7 @@ func main() {
 	install := flag.Bool("install", false, "install the APK with adb")
 	run := flag.Bool("run", false, "install the APK with adb and start it")
 	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "usage: gunimapk [flags] package\n")
+		_, _ = fmt.Fprintf(flag.CommandLine.Output(), "usage: gunimapk [flags] package\n")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -86,35 +88,48 @@ func main() {
 	if *id == "" {
 		*id = "org.gunim." + regexp.MustCompile(`[^a-z0-9_]`).ReplaceAllString(strings.ToLower(base), "_")
 	}
-	b, err := newBuilder()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	err := buildAPK(ctx, pkg, *out, *id, *name, *iconPNG, strings.Split(*abiList, ","), *install || *run, *run)
+	stop()
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer os.RemoveAll(b.tmp)
-	if err := b.build(pkg, *out, *id, *name, *iconPNG, strings.Split(*abiList, ",")); err != nil {
-		log.Fatal(err)
+}
+
+// buildAPK builds the APK for pkg into out, installs it when install
+// is set and starts it when start is, and removes its working directory
+// whatever happens. Interrupting ctx stops the tool running.
+func buildAPK(ctx context.Context, pkg, out, id, name, iconPNG string, abiNames []string, install, start bool) error {
+	b, err := newBuilder(ctx)
+	if err != nil {
+		return err
 	}
-	if *install || *run {
-		if err := b.tool(filepath.Join(b.sdk, "platform-tools", "adb"), "install", "-r", *out); err != nil {
-			log.Fatal(err)
+	defer func() { _ = os.RemoveAll(b.tmp) }()
+	if err := b.build(pkg, out, id, name, iconPNG, abiNames); err != nil {
+		return err
+	}
+	adb := filepath.Join(b.sdk, "platform-tools", "adb")
+	if install {
+		if err := b.tool(adb, "install", "-r", out); err != nil {
+			return err
 		}
 	}
-	if *run {
-		if err := b.tool(filepath.Join(b.sdk, "platform-tools", "adb"), "shell", "am", "start", "-n",
-			*id+"/gunim.android.GunimActivity"); err != nil {
-			log.Fatal(err)
-		}
+	if start {
+		return b.tool(adb, "shell", "am", "start", "-n", id+"/gunim.android.GunimActivity")
 	}
+	return nil
 }
 
 // builder holds where the tools are, and the directory it works in.
+// Cancelling ctx stops the tool running.
 type builder struct {
+	ctx                                       context.Context
 	sdk, ndk, buildTools, androidJar, javaBin string
 	tmp                                       string
 }
 
-func newBuilder() (*builder, error) {
-	b := &builder{}
+func newBuilder(ctx context.Context) (*builder, error) {
+	b := &builder{ctx: ctx}
 	for _, dir := range []string{os.Getenv("ANDROID_HOME"), os.Getenv("ANDROID_SDK_ROOT"), home("Android", "sdk")} {
 		if dir != "" && exists(filepath.Join(dir, "platforms")) {
 			b.sdk = dir
@@ -140,7 +155,7 @@ func newBuilder() (*builder, error) {
 	b.androidJar = filepath.Join(platform, "android.jar")
 	if jh := os.Getenv("JAVA_HOME"); jh != "" {
 		b.javaBin = filepath.Join(jh, "bin")
-	} else if javac, err := exec.LookPath("javac"); err == nil {
+	} else if javac, lookErr := exec.LookPath("javac"); lookErr == nil {
 		b.javaBin = filepath.Dir(javac)
 	} else {
 		return nil, errors.New("no Java: set JAVA_HOME")
@@ -161,9 +176,9 @@ func (b *builder) build(pkg, out, id, name, iconPNG string, abiNames []string) e
 		}
 		libs = append(libs, lib)
 	}
-	dex, err := b.dex()
-	if err != nil {
-		return err
+	dex, dexErr := b.dex()
+	if dexErr != nil {
+		return dexErr
 	}
 	manifest := filepath.Join(b.tmp, "AndroidManifest.xml")
 	if err := os.WriteFile(manifest, []byte(manifestFor(id, name, iconPNG != "")), 0o644); err != nil {
@@ -171,18 +186,18 @@ func (b *builder) build(pkg, out, id, name, iconPNG string, abiNames []string) e
 	}
 	var res []string
 	if iconPNG != "" {
-		compiled, err := b.icon(iconPNG)
-		if err != nil {
-			return err
+		compiled, iconErr := b.icon(iconPNG)
+		if iconErr != nil {
+			return iconErr
 		}
 		res = append(res, compiled)
 	}
 	linked := filepath.Join(b.tmp, "linked.apk")
-	args := []string{"link", "-o", linked, "-I", b.androidJar,
+	args := append([]string{"link", "-o", linked, "-I", b.androidJar,
 		"--manifest", manifest, "--min-sdk-version", strconv.Itoa(minSDK),
 		"--target-sdk-version", strconv.Itoa(targetSDK), "--version-code", strconv.FormatInt(time.Now().Unix()/60, 10),
-		"--version-name", versionOf(pkg), "--debug-mode"}
-	if err := b.tool(filepath.Join(b.buildTools, "aapt2"), append(args, res...)...); err != nil {
+		"--version-name", versionOf(b.ctx, pkg), "--debug-mode"}, res...)
+	if err := b.tool(filepath.Join(b.buildTools, "aapt2"), args...); err != nil {
 		return err
 	}
 	unaligned := filepath.Join(b.tmp, "unaligned.apk")
@@ -193,9 +208,9 @@ func (b *builder) build(pkg, out, id, name, iconPNG string, abiNames []string) e
 	if err := b.tool(filepath.Join(b.buildTools, "zipalign"), "-f", "-p", "4", unaligned, aligned); err != nil {
 		return err
 	}
-	ks, err := b.debugKey()
-	if err != nil {
-		return err
+	ks, keyErr := b.debugKey()
+	if keyErr != nil {
+		return keyErr
 	}
 	if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
 		return err
@@ -213,7 +228,7 @@ func (b *builder) goLib(pkg, abi string) (string, error) {
 	host := runtime.GOOS + "-x86_64"
 	cc := filepath.Join(b.ndk, "toolchains", "llvm", "prebuilt", host, "bin", fmt.Sprintf("%s%d-clang", a.clang, minSDK))
 	lib := filepath.Join(b.tmp, "lib", abi, "libgunim.so")
-	cmd := exec.Command("go", "build", "-buildmode=c-shared", "-trimpath", "-ldflags=-s -w", "-o", lib, pkg)
+	cmd := exec.CommandContext(b.ctx, "go", "build", "-buildmode=c-shared", "-trimpath", "-ldflags=-s -w", "-o", lib, pkg)
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=1", "GOOS=android", "GOARCH="+a.goarch, "CC="+cc)
 	if a.goarch == "arm" {
 		cmd.Env = append(cmd.Env, "GOARM=7")
@@ -235,15 +250,15 @@ func (b *builder) dex() (string, error) {
 			return "", err
 		}
 	}
-	files, err := fs.Glob(java.Sources, "*.java")
-	if err != nil {
-		return "", err
+	files, globErr := fs.Glob(java.Sources, "*.java")
+	if globErr != nil {
+		return "", globErr
 	}
 	args := []string{"--release", "11", "-nowarn", "-classpath", b.androidJar, "-d", classes}
 	for _, f := range files {
-		data, err := java.Sources.ReadFile(f)
-		if err != nil {
-			return "", err
+		data, readErr := java.Sources.ReadFile(f)
+		if readErr != nil {
+			return "", readErr
 		}
 		path := filepath.Join(src, f)
 		if err := os.WriteFile(path, data, 0o644); err != nil {
@@ -255,14 +270,14 @@ func (b *builder) dex() (string, error) {
 		return "", err
 	}
 	var compiled []string
-	err = filepath.WalkDir(classes, func(p string, d fs.DirEntry, err error) error {
+	walkErr := filepath.WalkDir(classes, func(p string, d fs.DirEntry, err error) error {
 		if err == nil && strings.HasSuffix(p, ".class") {
 			compiled = append(compiled, p)
 		}
 		return err
 	})
-	if err != nil {
-		return "", err
+	if walkErr != nil {
+		return "", walkErr
 	}
 	args = append([]string{"--release", "--min-api", strconv.Itoa(minSDK), "--lib", b.androidJar, "--output", dexDir}, compiled...)
 	if err := b.tool(filepath.Join(b.buildTools, "d8"), args...); err != nil {
@@ -278,29 +293,28 @@ func (b *builder) icon(png string) (string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
-	data, err := os.ReadFile(png)
-	if err != nil {
-		return "", fmt.Errorf("icon: %w", err)
+	data, readErr := os.ReadFile(png)
+	if readErr != nil {
+		return "", fmt.Errorf("icon: %w", readErr)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "ic_launcher.png"), data, 0o644); err != nil {
 		return "", err
 	}
 	out := filepath.Join(b.tmp, "res.zip")
-	err = b.tool(filepath.Join(b.buildTools, "aapt2"), "compile", "--dir", filepath.Join(b.tmp, "res"), "-o", out)
-	return out, err
+	return out, b.tool(filepath.Join(b.buildTools, "aapt2"), "compile", "--dir", filepath.Join(b.tmp, "res"), "-o", out)
 }
 
 // versionOf names a build: the commit of the package's repository,
 // with -dirty for edits since, and the time it was built, as
 // "fd8f5fa-dirty 2026-10-03 11:30". A debug build shows it as it
 // starts, so a phone says which build it runs.
-func versionOf(pkg string) string {
+func versionOf(ctx context.Context, pkg string) string {
 	at := time.Now().Format("2006-01-02 15:04")
-	dir, err := exec.Command("go", "list", "-f", "{{.Dir}}", pkg).Output()
+	dir, err := exec.CommandContext(ctx, "go", "list", "-f", "{{.Dir}}", pkg).Output()
 	if err != nil {
 		return at
 	}
-	commit, err := exec.Command("git", "-C", strings.TrimSpace(string(dir)), "describe", "--always", "--dirty").Output()
+	commit, err := exec.CommandContext(ctx, "git", "-C", strings.TrimSpace(string(dir)), "describe", "--always", "--dirty").Output()
 	if err != nil {
 		return at
 	}
@@ -326,7 +340,7 @@ func (b *builder) debugKey() (string, error) {
 // tool runs a tool, with Java on the PATH for the tools that are Java
 // programs.
 func (b *builder) tool(name string, args ...string) error {
-	cmd := exec.Command(name, args...)
+	cmd := exec.CommandContext(b.ctx, name, args...)
 	cmd.Env = append(os.Environ(), "PATH="+b.javaBin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	if filepath.IsAbs(b.javaBin) {
 		cmd.Env = append(cmd.Env, "JAVA_HOME="+filepath.Dir(b.javaBin))
@@ -339,18 +353,22 @@ func (b *builder) tool(name string, args ...string) error {
 }
 
 // pack writes the APK: what aapt2 linked, the dex, and the libraries.
-func pack(out, linked, dex string, libs []string, root string) error {
+func pack(out, linked, dex string, libs []string, root string) (err error) {
 	f, err := os.Create(out)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() {
+		if cerr := f.Close(); err == nil {
+			err = cerr
+		}
+	}()
 	zw := zip.NewWriter(f)
 	zr, err := zip.OpenReader(linked)
 	if err != nil {
 		return err
 	}
-	defer zr.Close()
+	defer func() { _ = zr.Close() }()
 	for _, e := range zr.File {
 		if err := zw.Copy(e); err != nil {
 			return err
@@ -365,7 +383,7 @@ func pack(out, linked, dex string, libs []string, root string) error {
 		if err != nil {
 			return err
 		}
-		defer r.Close()
+		defer func() { _ = r.Close() }()
 		_, err = io.Copy(w, r)
 		return err
 	}

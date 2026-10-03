@@ -153,7 +153,7 @@ func (u *UI) handleRaw(root *state, ev any) {
 		// tap, as a press that goes on to scroll moves no focus; see
 		// touch.go.
 		was := u.focus
-		if root == u.root && !(e.Touch && e.Button == input.ButtonPrimary) {
+		if root == u.root && (!e.Touch || e.Button != input.ButtonPrimary) {
 			u.focusAt(e.Pos, e.Touch)
 		}
 		focusing := u.focus != was

@@ -1776,7 +1776,7 @@ func (u *UI) syncText(s *state, fresh bool) {
 	}
 	same := st == nil && u.textState == nil ||
 		st != nil && u.textState != nil && *st == *u.textState && u.textSent == u.textSeq
-	if same && !(fresh && st != nil) {
+	if same && (!fresh || st == nil) {
 		return
 	}
 	u.textState, u.textSent = st, u.textSeq

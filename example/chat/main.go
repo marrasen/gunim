@@ -48,7 +48,9 @@ func main() {
 	size := flag.String("size", "1180x760", "the window's size, as 390x800 for one shaped like a phone")
 	flag.Parse()
 	if _, err := fmt.Sscanf(*size, "%gx%g", &windowSize.W, &windowSize.H); err != nil || windowSize.W <= 0 || windowSize.H <= 0 {
-		log.Fatalf("chat: -size %q: want a width and a height, as 390x800", *size)
+		log.Printf("chat: -size %q: want a width and a height, as 390x800", *size)
+		exit = 2
+		return
 	}
 	if *cpuProfile != "" {
 		stop, err := profile(*cpuProfile)

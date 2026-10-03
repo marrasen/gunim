@@ -372,6 +372,8 @@ void main() {
 }
 `
 
+// New builds a renderer drawing with g, which is OpenGL ES when isES.
+// Renderers drawing with one context share sh.
 func New(g gl.Context, isES bool, sh *Shared) (*Renderer, error) {
 	r := &Renderer{GL: g, shared: sh, isES: isES, images: map[*paint.Image]*imageTexture{}}
 	var err error

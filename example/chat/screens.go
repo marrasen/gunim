@@ -19,7 +19,8 @@ const narrowW = 700
 // button takes the user back to the list.
 type screens struct {
 	anim.Group
-	rail, sidebar, right gunim.Node
+	rail, right gunim.Node
+	sidebar     *panel
 	// open slides from 0, the list showing, to 1, the conversation.
 	open *anim.Float
 	// narrow says the last layout showed one screen at a time.
@@ -53,7 +54,7 @@ func (s *screens) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children
 	size := c.Max
 	rail, sidebar, right := kids.At(0), kids.At(1), kids.At(2)
 	s.narrow = size.W < narrowW
-	side := s.sidebar.(*panel)
+	side := s.sidebar
 	if !s.narrow {
 		side.width = sidebarW
 		rail.Layout(gunim.Tight(geom.Sz(railW, size.H)))

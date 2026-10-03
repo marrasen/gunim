@@ -693,8 +693,8 @@ func respace(inputs []shaping.Input, fm *fontmap) []shaping.Input {
 func inkWidths(out *shaping.Output, runes []rune) {
 	for i := range out.Glyphs {
 		g := &out.Glyphs[i]
-		if g.Width == 0 && g.XAdvance > 0 && g.ClusterIndex < len(runes) && !unicode.IsSpace(runes[g.ClusterIndex]) {
-			g.Width = g.XAdvance
+		if g.Width == 0 && g.Advance > 0 && g.TextIndex() < len(runes) && !unicode.IsSpace(runes[g.TextIndex()]) {
+			g.Width = g.Advance
 		}
 	}
 }

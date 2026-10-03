@@ -182,8 +182,12 @@ func TestTheGraphShakesBackAndSaysWhy(t *testing.T) {
 	g.why.set("× needs a number before it")
 	g.shake.Jump(1)
 	g.shake.Animate(0, anim.Spring{Response: 0.35, Damping: 0.2})
+	moving := true
 	for range 120 {
-		g.Step(time.Second / 60)
+		moving = g.Step(time.Second / 60)
+	}
+	if moving {
+		t.Fatal("two seconds after a sum with no curve the graph still says it moves, want it at rest")
 	}
 	if v := g.shake.Value(); math.Abs(float64(v)) > 0.01 {
 		t.Fatalf("two seconds after a sum with no curve the line is shaken %v, want it back at rest", v)
@@ -193,7 +197,10 @@ func TestTheGraphShakesBackAndSaysWhy(t *testing.T) {
 	}
 	g.why.set("")
 	for range 120 {
-		g.Step(time.Second / 60)
+		moving = g.Step(time.Second / 60)
+	}
+	if moving {
+		t.Fatal("two seconds after typing on the graph still says it moves, want it at rest")
 	}
 	if a := g.why.a.Value(); a > 0.01 {
 		t.Fatalf("two seconds after typing on why still shows at %v, want it gone", a)

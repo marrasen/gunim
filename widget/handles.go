@@ -145,8 +145,8 @@ func (e *editor) handleAnchor(host textHost, k int) geom.Rect {
 	}
 	r := host.caretRect(i)
 	tip := geom.Pt(r.Min.X, r.Max.Y)
-	min := tip.Sub(geom.Pt(handleW/2, 0))
-	return geom.Rect{Min: min, Max: min.Add(geom.Pt(handleW, handleH))}
+	at := tip.Sub(geom.Pt(handleW/2, 0))
+	return geom.Rect{Min: at, Max: at.Add(geom.Pt(handleW, handleH))}
 }
 
 // moveEnd moves end k of the selection to rune i, keeping the other
