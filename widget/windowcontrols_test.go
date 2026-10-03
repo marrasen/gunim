@@ -10,6 +10,7 @@ import (
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/gunimtest"
 	"github.com/marrasen/gunim/input"
+	"github.com/marrasen/gunim/paint"
 )
 
 // The buttons minimize, maximize and close the window, and the
@@ -130,5 +131,17 @@ func TestWindowControlsCanShowCloseAlone(t *testing.T) {
 	defer cancel()
 	if err := w.Client().Input(ctx, input.PointerMove{}); !errors.Is(err, gunim.ErrWindowClosed) {
 		t.Fatalf("after close, the window takes input: %v", err)
+	}
+}
+
+func TestATitleOnASystemFrameDrawsNothing(t *testing.T) {
+	// The system says the title; on a phone, its bar names the
+	// application.
+	title := NewWindowTitle("Calculator")
+	w, _ := stage(t, &frame{child: title, size: geom.Sz(300, 40)})
+	for _, op := range w.Offscreen().Ops() {
+		if _, ok := op.(*paint.TextOp); ok {
+			t.Fatal("the title drew its text on a window with the system's frame")
+		}
 	}
 }

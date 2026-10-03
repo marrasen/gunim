@@ -108,16 +108,11 @@ func tokens(src string) []string {
 			for j < len(rs) && unicode.IsLetter(rs[j]) && rs[j] != 'π' {
 				j++
 			}
-			// A run of letters is a function, or letters each on its
-			// own: xx is x times x.
-			word := string(rs[i:j])
-			if _, ok := functions[word]; ok {
-				out = append(out, word)
-			} else {
-				for _, c := range word {
-					out = append(out, string(c))
-				}
-			}
+			// A run of letters is functions and letters each on its
+			// own, the longest function at each place first: xx is x
+			// times x, and xsin(x), as the keypad types it, is x times
+			// sin(x).
+			out = append(out, words(rs[i:j])...)
 			i = j
 		default:
 			s := string(r)
@@ -132,6 +127,26 @@ func tokens(src string) []string {
 			out = append(out, s)
 			i++
 		}
+	}
+	return out
+}
+
+// words splits a run of letters into the functions it names, longest
+// first, and the letters between them.
+func words(rs []rune) []string {
+	var out []string
+	for k := 0; k < len(rs); {
+		best := ""
+		for name := range functions {
+			if len(name) > len(best) && strings.HasPrefix(string(rs[k:]), name) {
+				best = name
+			}
+		}
+		if best == "" {
+			best = string(rs[k])
+		}
+		out = append(out, best)
+		k += len([]rune(best))
 	}
 	return out
 }

@@ -88,6 +88,11 @@ type graphBody struct {
 	chips  []*chip
 	// side is the panel beside the plot, in the body's space.
 	side geom.Rect
+	// shake throws the line being typed sideways when a sum has no
+	// curve, why says why, and errors counts the sums that had none.
+	shake  *anim.Float
+	why    string
+	errors int
 }
 
 // chip is a curve in the side panel: its colour, its sum, and a cross
@@ -103,7 +108,8 @@ type chip struct {
 const chipHeight = 40
 
 func newGraphBody(r *calcRoot) *graphBody {
-	g := &graphBody{r: r, canvas: newCanvas(), expr: newRoll(26)}
+	g := &graphBody{r: r, canvas: newCanvas(), expr: newRoll(26), shake: anim.NewFloat(0)}
+	g.Add(g.shake)
 	g.keys = newKeypad(8,
 		[]string{"x", "^", "(", ")", "⌫"},
 		[]string{"sin", "cos", "tan", "√", "C"},
@@ -135,6 +141,14 @@ func (g *graphBody) arrive() {
 // show takes the application's state.
 func (g *graphBody) show(s Calc, u *gunim.UI) {
 	g.expr.set(s.Expr)
+	g.why = s.Error
+	if s.Errors != g.errors {
+		g.errors = s.Errors
+		if s.Graph {
+			g.shake.Jump(1)
+			g.shake.Animate(0, anim.Spring{Response: 0.35, Damping: 0.2})
+		}
+	}
 	g.canvas.show(s)
 	// The chips: new ones grow in at the end, gone ones fade.
 	seen := map[int]*chip{}
@@ -242,11 +256,19 @@ func (g *graphBody) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids g
 		cross := shaped("×", 16)
 		cross.Paint(p, geom.Pt(s.Max.X-30, y+(chipHeight-cross.Height())/2-4), faded(ink, 0.4*a))
 	}
-	// The line being typed, over the keys.
+	// The line being typed, over the keys, shaken when a sum has no
+	// curve, with why over it.
 	keysTop := s.Max.Y - 12 - float32(graphKeysH)
 	line := geom.Rc(s.Min.X+12, keysTop-62, s.Size().W-24, 50)
-	p.RRect(line, 12, paint.Solid(faded(ink, 0.06)))
-	g.expr.paint(p, line.Min.Y+10, g.expr.rightEdge(s), ink)
+	if g.why != "" {
+		why := shaped(g.why, 14)
+		why.Paint(p, geom.Pt(line.Min.X+6, line.Min.Y-24), color.NRGBA{R: 0xff, G: 0x8a, B: 0x7a, A: 0xff})
+	}
+	func() {
+		defer p.Push(paint.Translate(geom.Pt(14*g.shake.Value(), 0)))()
+		p.RRect(line, 12, paint.Solid(faded(ink, 0.06)))
+		g.expr.paint(p, line.Min.Y+10, g.expr.rightEdge(s), ink)
+	}()
 	kids.At(1).Paint(p)
 }
 
