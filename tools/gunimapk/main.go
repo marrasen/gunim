@@ -5,7 +5,8 @@
 // It builds the program as libgunim.so for each ABI asked for, with cgo
 // and the NDK's clang, compiles the Java half of the Android driver,
 // links a manifest that starts gunim's activity, and signs the APK with
-// the debug key. The APK is a debug build, named for its commit and the
+// the debug key. -icon gives it a launcher icon from a PNG, and -name a
+// label. The APK is a debug build, named for its commit and the
 // time it was built, which it shows as it starts. -install installs it on the device adb sees, and -run
 // starts it there too.
 //
@@ -57,6 +58,7 @@ func main() {
 	out := flag.String("o", "", "the APK to write; the package's name and .apk by default")
 	id := flag.String("id", "", "the application ID; org.gunim.<name> by default")
 	name := flag.String("name", "", "the application's label; the package's name by default")
+	iconPNG := flag.String("icon", "", "a PNG file for the launcher's icon, square, 192 pixels or more")
 	abiList := flag.String("abi", "arm64-v8a,x86_64", "the ABIs to build for, comma separated")
 	install := flag.Bool("install", false, "install the APK with adb")
 	run := flag.Bool("run", false, "install the APK with adb and start it")
@@ -89,7 +91,7 @@ func main() {
 		log.Fatal(err)
 	}
 	defer os.RemoveAll(b.tmp)
-	if err := b.build(pkg, *out, *id, *name, strings.Split(*abiList, ",")); err != nil {
+	if err := b.build(pkg, *out, *id, *name, *iconPNG, strings.Split(*abiList, ",")); err != nil {
 		log.Fatal(err)
 	}
 	if *install || *run {
@@ -150,7 +152,7 @@ func newBuilder() (*builder, error) {
 }
 
 // build writes the APK for pkg to out.
-func (b *builder) build(pkg, out, id, name string, abiNames []string) error {
+func (b *builder) build(pkg, out, id, name, iconPNG string, abiNames []string) error {
 	var libs []string
 	for _, abi := range abiNames {
 		lib, err := b.goLib(pkg, abi)
@@ -164,14 +166,23 @@ func (b *builder) build(pkg, out, id, name string, abiNames []string) error {
 		return err
 	}
 	manifest := filepath.Join(b.tmp, "AndroidManifest.xml")
-	if err := os.WriteFile(manifest, []byte(manifestFor(id, name)), 0o644); err != nil {
+	if err := os.WriteFile(manifest, []byte(manifestFor(id, name, iconPNG != "")), 0o644); err != nil {
 		return err
 	}
+	var res []string
+	if iconPNG != "" {
+		compiled, err := b.icon(iconPNG)
+		if err != nil {
+			return err
+		}
+		res = append(res, compiled)
+	}
 	linked := filepath.Join(b.tmp, "linked.apk")
-	if err := b.tool(filepath.Join(b.buildTools, "aapt2"), "link", "-o", linked, "-I", b.androidJar,
+	args := []string{"link", "-o", linked, "-I", b.androidJar,
 		"--manifest", manifest, "--min-sdk-version", strconv.Itoa(minSDK),
 		"--target-sdk-version", strconv.Itoa(targetSDK), "--version-code", strconv.FormatInt(time.Now().Unix()/60, 10),
-		"--version-name", versionOf(pkg), "--debug-mode"); err != nil {
+		"--version-name", versionOf(pkg), "--debug-mode"}
+	if err := b.tool(filepath.Join(b.buildTools, "aapt2"), append(args, res...)...); err != nil {
 		return err
 	}
 	unaligned := filepath.Join(b.tmp, "unaligned.apk")
@@ -258,6 +269,25 @@ func (b *builder) dex() (string, error) {
 		return "", err
 	}
 	return filepath.Join(dexDir, "classes.dex"), nil
+}
+
+// icon compiles the launcher's icon from a PNG, as a resource for aapt2
+// to link, at the screen density a large icon is drawn for.
+func (b *builder) icon(png string) (string, error) {
+	dir := filepath.Join(b.tmp, "res", "mipmap-xxxhdpi")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	data, err := os.ReadFile(png)
+	if err != nil {
+		return "", fmt.Errorf("icon: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "ic_launcher.png"), data, 0o644); err != nil {
+		return "", err
+	}
+	out := filepath.Join(b.tmp, "res.zip")
+	err = b.tool(filepath.Join(b.buildTools, "aapt2"), "compile", "--dir", filepath.Join(b.tmp, "res"), "-o", out)
+	return out, err
 }
 
 // versionOf names a build: the commit of the package's repository,
@@ -355,13 +385,18 @@ func pack(out, linked, dex string, libs []string, root string) error {
 }
 
 // manifestFor returns the manifest of an APK that starts gunim's
-// activity. The activity keeps itself across rotation and a keyboard
+// activity, with the launcher's icon from the resources when icon is
+// set. The activity keeps itself across rotation and a keyboard
 // coming and going, and slides up as the soft keyboard opens, to keep the
 // text caret above it.
-func manifestFor(id, name string) string {
+func manifestFor(id, name string, icon bool) string {
+	iconAttr := ""
+	if icon {
+		iconAttr = ` android:icon="@mipmap/ic_launcher"`
+	}
 	return `<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="` + id + `">
-	<application android:label="` + xmlEscape(name) + `" android:hasCode="true" android:extractNativeLibs="true">
+	<application android:label="` + xmlEscape(name) + `"` + iconAttr + ` android:hasCode="true" android:extractNativeLibs="true">
 		<activity android:name="gunim.android.GunimActivity" android:exported="true"
 			android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density"
 			android:windowSoftInputMode="adjustPan|stateAlwaysHidden"
