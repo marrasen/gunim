@@ -48,6 +48,9 @@ final class GunimInput {
 	// edits open, whose changes go together as they close.
 	private long seq;
 	private int batch;
+	// pending is a state from Go that came during a batch edit, waiting
+	// for it to close.
+	private Object[] pending;
 
 	// debug logs the keyboard's calls and the edits sent, under the tag
 	// gunimime: adb shell setprop log.tag.gunimime DEBUG turns it on.
@@ -103,13 +106,20 @@ final class GunimInput {
 	void setState(String s, int start, int a, int b, int ca, int cb, boolean multiline, boolean secret, long seq) {
 		debug("state seq=" + seq + " (sent " + this.seq + ", batch " + batch + ") text=\"" + s + "\" sel=" + a + "," + b
 			+ " comp=" + ca + "," + cb);
+		if (seq != this.seq) {
+			return; // behind the edits sent: a later state follows them
+		}
+		if (batch > 0) {
+			// The keyboard is mid-edit: the state waits for the batch to
+			// close, and goes in then unless the batch made an edit.
+			pending = new Object[] {s, start, a, b, ca, cb, multiline, secret, seq};
+			return;
+		}
+		pending = null;
 		boolean kind = !hasState || multiline != this.multiline || secret != this.secret;
 		hasState = true;
 		this.multiline = multiline;
 		this.secret = secret;
-		if (seq != this.seq || batch > 0) {
-			return; // behind the edits sent, or the keyboard is mid-edit
-		}
 		if (ca == cb) {
 			ca = cb = -1;
 		}
@@ -160,6 +170,21 @@ final class GunimInput {
 			Selection.setSelection(editable, a, b);
 			imm.updateSelection(view, Math.min(a, b), Math.max(a, b), compA, compB);
 		}
+	}
+
+	/**
+	 * applyPending takes a state that waited for a batch edit to close.
+	 * An edit the batch made has moved seq on past it, and a newer state
+	 * follows that edit.
+	 */
+	private void applyPending() {
+		Object[] p = pending;
+		pending = null;
+		if (p == null) {
+			return;
+		}
+		setState((String) p[0], (Integer) p[1], (Integer) p[2], (Integer) p[3], (Integer) p[4], (Integer) p[5],
+			(Boolean) p[6], (Boolean) p[7], (Long) p[8]);
 	}
 
 	/** clearState leaves the keyboard with no text of Go's. */
@@ -300,6 +325,7 @@ final class GunimInput {
 			debug("endBatchEdit");
 			if (batch > 0 && --batch == 0) {
 				sync();
+				applyPending();
 			}
 			return batch > 0;
 		}

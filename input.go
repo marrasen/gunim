@@ -25,13 +25,19 @@ func (u *UI) handlePlatform(ev any) { u.handleOn(u.root, ev) }
 // press in a popup leaves focus where it is, so the node that opened a
 // menu keeps the keyboard while the menu is clicked.
 func (u *UI) handleOn(root *state, ev any) {
+	if u.touchEvent(root, ev) {
+		return
+	}
+	u.handleRaw(root, ev)
+}
+
+// handleRaw is handleOn past the reading of a finger's moves in
+// touch.go, which sends what it makes of them here.
+func (u *UI) handleRaw(root *state, ev any) {
 	u.invalid = true
 	u.heldMods(ev)
 	if u.goingAway {
 		// A window on its way out takes nothing more.
-		return
-	}
-	if u.touchEvent(root, ev) {
 		return
 	}
 	switch e := ev.(type) {

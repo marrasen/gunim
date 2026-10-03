@@ -46,6 +46,14 @@ type Window struct {
 	next  *frame
 	under color.NRGBA
 
+	// state is the text state the engine told last, when stateSet, with
+	// the seq it went with, and editsIn the seq of the last keyboard edit
+	// sent to the window.
+	state    *input.TextState
+	stateSet bool
+	stateSeq uint64
+	editsIn  uint64
+
 	// The fields below belong to the render thread.
 
 	r          *render.Renderer
@@ -226,6 +234,13 @@ func (w *Window) SetTextInput(active bool) {
 	w.d.mu.Lock()
 	if active {
 		w.d.typing = w
+		// The state told before text input turned on goes to the
+		// keyboard now.
+		if s, ok := w.stateToSendLocked(); ok {
+			w.d.mu.Unlock()
+			sendTextState(s, w.d.editSeqOf())
+			return
+		}
 	} else if w.d.typing == w {
 		w.d.typing = nil
 		w.d.caretSet, w.d.boxSet = false, false
@@ -276,14 +291,41 @@ func (w *Window) ShowKeyboard() { showKeyboard(true) }
 // SetTextState implements [driver.TextStater]. Java keeps the copy,
 // and decides from seq whether the state is behind the keyboard's
 // edits.
+//
+// The keyboard numbers its edits for the whole application, and each
+// window's engine counts the edits that reached it. So the driver keeps
+// which window each edit went to: a window's state goes to the keyboard
+// once the window has taken every edit sent to it, numbered with the
+// keyboard's latest edit, and a state from a window the keyboard types
+// elsewhere waits until text input turns on in it.
 func (w *Window) SetTextState(s *input.TextState, seq uint64) {
 	w.d.mu.Lock()
-	typing := w.d.typing == w || w.d.typing == nil
+	if s != nil {
+		c := *s
+		s = &c
+	}
+	w.state, w.stateSet, w.stateSeq = s, true, seq
+	send, ok := w.stateToSendLocked()
 	w.d.mu.Unlock()
-	if typing {
-		sendTextState(s, seq)
+	if ok {
+		sendTextState(send, w.d.editSeqOf())
 	}
 }
+
+// stateToSendLocked returns the window's text state for the keyboard,
+// and whether it is one to send: the window has the keyboard, or nothing
+// does, and has taken every edit sent to it. It runs with the driver's
+// mu held.
+func (w *Window) stateToSendLocked() (*input.TextState, bool) {
+	if !w.stateSet || w.d.typing != w && w.d.typing != nil || w.stateSeq < w.editsIn {
+		return nil, false
+	}
+	return w.state, true
+}
+
+// Buzz implements [driver.Buzzer]: the phone gives the short buzz of a
+// long press.
+func (w *Window) Buzz() { buzz() }
 
 var (
 	_ driver.Placer         = (*Window)(nil)
@@ -297,4 +339,5 @@ var (
 	_ driver.KeyboardShower = (*Window)(nil)
 	_ driver.CaretPlacer    = (*Window)(nil)
 	_ driver.TextBoxPlacer  = (*Window)(nil)
+	_ driver.Buzzer         = (*Window)(nil)
 )

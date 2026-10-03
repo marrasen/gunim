@@ -76,7 +76,7 @@ func TestAFingerMovedScrollsWhatItCameDownOn(t *testing.T) {
 			moves++
 		case input.PointerUp:
 			ups++
-			if e.Pos != away {
+			if e.Pos != input.Away {
 				t.Fatalf("the press was let go at %v, want far away, so nothing under it acts", e.Pos)
 			}
 		case input.Scroll:
@@ -145,5 +145,57 @@ func TestAFlickCoastsAndStops(t *testing.T) {
 	w.Frame(time.Second / 60)
 	if _, next := scrolled(r); next != pressed {
 		t.Fatal("the fling went on under a finger pressing again")
+	}
+}
+
+func TestAFingerHeldStillIsALongPress(t *testing.T) {
+	r := &recorder{}
+	w, finger := touchStage(t, r)
+	at := time.Now()
+	finger(input.PointerDown{Pos: geom.Pt(100, 100), Button: input.ButtonPrimary, Clicks: 1, Touch: true, Time: at})
+	finger(input.PointerMove{Pos: geom.Pt(103, 102), Touch: true, Time: at.Add(100 * time.Millisecond)})
+	for range 40 {
+		w.Frame(time.Second / 60)
+	}
+	var downs []input.PointerDown
+	for _, e := range r.events {
+		if d, ok := e.(input.PointerDown); ok {
+			downs = append(downs, d)
+		}
+	}
+	if len(downs) != 2 || downs[1].Button != input.ButtonSecondary || downs[1].Pos != geom.Pt(100, 100) {
+		t.Fatalf("a finger held still pressed %+v, want the secondary button after the primary", downs)
+	}
+	// Moves go on with the button held, and the lift lets it go.
+	finger(input.PointerMove{Pos: geom.Pt(160, 100), Touch: true, Time: time.Now()})
+	finger(input.PointerUp{Pos: geom.Pt(160, 100), Button: input.ButtonPrimary, Touch: true, Time: time.Now()})
+	var moved, up bool
+	for _, e := range r.events {
+		switch e := e.(type) {
+		case input.PointerMove:
+			moved = moved || e.Pos == geom.Pt(160, 100)
+		case input.PointerUp:
+			up = up || e.Button == input.ButtonSecondary && e.Pos == geom.Pt(160, 100)
+		case input.Scroll:
+			t.Fatal("a long press scrolled")
+		}
+	}
+	if !moved || !up {
+		t.Fatalf("after the long press the node heard the move %v and the release %v, want both", moved, up)
+	}
+}
+
+func TestAFingerHoldingADragStillStaysADrag(t *testing.T) {
+	// A handle or a thumb held still is a drag paused, and stays one.
+	d := &dragsTouch{}
+	w, finger := touchStage(t, d)
+	finger(input.PointerDown{Pos: geom.Pt(100, 100), Button: input.ButtonPrimary, Clicks: 1, Touch: true, Time: time.Now()})
+	for range 40 {
+		w.Frame(time.Second / 60)
+	}
+	for _, e := range d.events {
+		if p, ok := e.(input.PointerDown); ok && p.Button == input.ButtonSecondary {
+			t.Fatal("a finger holding a drag still became a long press")
+		}
 	}
 }

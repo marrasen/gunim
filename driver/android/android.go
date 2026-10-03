@@ -100,6 +100,8 @@ type Driver struct {
 	// typing is the window the keyboard types into: the one that turned
 	// text input on last.
 	typing *Window
+	// editSeq is the seq of the keyboard's latest edit.
+	editSeq uint64
 	// keyboard is how much of the surface the soft keyboard covers, in
 	// device pixels from the bottom, as Java reports it frame by frame
 	// while the keyboard slides. caret is the typing window's text
@@ -119,7 +121,9 @@ type Driver struct {
 	pan       float64
 	panTarget float64
 	panAt     time.Time
-	quit      chan struct{}
+	// panRest says the pan stood at its target at the last frame.
+	panRest bool
+	quit    chan struct{}
 
 	// wake nudges the render thread, and surfaces carries surface
 	// changes to it.
@@ -348,11 +352,16 @@ func (d *Driver) revealLocked() {
 func (d *Driver) panLocked(now time.Time) (pan int, moving bool) {
 	target := d.panTarget
 	dt := min(now.Sub(d.panAt).Seconds(), 0.1)
+	if d.panRest {
+		// Set off from rest: a frame's step, after a gap of no frames.
+		dt = 1 / max(d.rate, 60)
+	}
 	d.panAt = now
 	d.pan += (target - d.pan) * (1 - math.Exp(-dt/panEase))
 	if math.Abs(target-d.pan) < 0.5 {
 		d.pan = target
 	}
+	d.panRest = d.pan == target
 	return int(math.Round(d.pan)), d.pan != target
 }
 
@@ -435,9 +444,20 @@ func (d *Driver) key(down bool, code, meta int, ch rune, repeat bool) {
 // into.
 func (d *Driver) edit(e input.TextEdit) {
 	d.markTyped()
-	if w := d.keyWindow(); w != nil {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.editSeq = max(d.editSeq, e.Seq)
+	if w := d.keyWindowLocked(); w != nil {
+		w.editsIn = e.Seq
 		w.in.Push(e)
 	}
+}
+
+// editSeqOf returns the seq of the keyboard's latest edit.
+func (d *Driver) editSeqOf() uint64 {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.editSeq
 }
 
 func (d *Driver) typed(e any) {
@@ -459,6 +479,11 @@ func (d *Driver) markTyped() {
 func (d *Driver) keyWindow() *Window {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	return d.keyWindowLocked()
+}
+
+// keyWindowLocked is keyWindow with the driver's mu held.
+func (d *Driver) keyWindowLocked() *Window {
 	if d.typing != nil && !d.typing.closed {
 		return d.typing
 	}

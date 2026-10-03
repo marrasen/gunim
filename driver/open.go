@@ -64,6 +64,12 @@ type TextBoxPlacer interface {
 	SetTextBox(r geom.Rect)
 }
 
+// A Buzzer is a [Window] on a device that can buzz, as a phone does. The
+// engine calls Buzz as a finger held still becomes a long press.
+type Buzzer interface {
+	Buzz()
+}
+
 // A KeyboardShower is a [Window] with a keyboard on the screen, as a
 // phone has. The engine calls ShowKeyboard when a press is let go on the
 // focused node while it takes text, as a tap on a text field asks for

@@ -82,6 +82,11 @@ type PointerUp struct {
 	Time  time.Time
 }
 
+// Away is a point outside any window. A press let go at Away lets go of
+// nothing: it was called off, as when a finger that pressed a button
+// goes on to scroll, or a second finger comes down to pinch.
+var Away = geom.Pt(-1e6, -1e6)
+
 // Scroll carries wheel or touchpad movement. Delta is in logical
 // pixels, so momentum scrolling keeps the fractional precision the
 // touchpad reported.

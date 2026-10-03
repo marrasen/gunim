@@ -420,12 +420,17 @@ func (e *editor) dragWords(i int) {
 
 // endWords ends a finger's choosing of words as it lifts at at, in
 // host's space, opening the edit menu there and the handles at the
-// selection's ends, and reports whether one was going on.
+// selection's ends, unless it was called off at [input.Away], and
+// reports whether one was going on.
 func (e *editor) endWords(host textHost, at geom.Point, u *gunim.UI) bool {
 	if !e.wording {
 		return false
 	}
 	e.wording = false
+	if at == input.Away {
+		// Called off, as by a second finger coming down to pinch.
+		return true
+	}
 	e.showHandles(host, u)
 	e.openMenu(host, at, u)
 	return true
