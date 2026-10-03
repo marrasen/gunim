@@ -23,6 +23,7 @@ public final class Native {
 	static native void surfaceDestroyed();
 	static native void metrics(float density, float refreshRate);
 	static native void touch(int action, float x, float y, long time);
+	static native void pinch(int action, float x0, float y0, float x1, float y1);
 	static native void key(boolean down, int code, int meta, int ch, int repeat);
 	static native void focus(boolean focused);
 	static native void keyboard(int px);

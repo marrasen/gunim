@@ -20,8 +20,11 @@ final class GunimView extends SurfaceView implements SurfaceHolder.Callback {
 	private final InputMethodManager imm;
 	// caret is the text caret on the surface, in pixels, empty for none.
 	private final android.graphics.Rect caret = new android.graphics.Rect();
-	// pointer is the id of the finger that drives the pointer, or -1.
+	// pointer is the id of the finger that drives the pointer, or -1,
+	// and second the finger pinching with it while pinching.
 	private int pointer = -1;
+	private int second = -1;
+	private boolean pinching;
 
 	GunimView(Context c) {
 		super(c);
@@ -54,34 +57,66 @@ final class GunimView extends SurfaceView implements SurfaceHolder.Callback {
 		switch (action) {
 		case MotionEvent.ACTION_DOWN:
 			pointer = e.getPointerId(0);
+			second = -1;
+			pinching = false;
 			requestFocus();
 			Native.touch(0, e.getX(0), e.getY(0), e.getEventTime());
 			return true;
+		case MotionEvent.ACTION_POINTER_DOWN:
+			if (pointer >= 0 && !pinching) {
+				second = e.getPointerId(e.getActionIndex());
+				pinching = true;
+				pinch(0, e);
+			}
+			return true;
 		case MotionEvent.ACTION_MOVE: {
+			if (pinching) {
+				pinch(1, e);
+				return true;
+			}
 			int i = e.findPointerIndex(pointer);
 			if (i >= 0) {
 				Native.touch(1, e.getX(i), e.getY(i), e.getEventTime());
 			}
 			return true;
 		}
-		case MotionEvent.ACTION_POINTER_UP:
-		case MotionEvent.ACTION_UP: {
-			int i = e.getActionIndex();
-			if (e.getPointerId(i) == pointer) {
+		case MotionEvent.ACTION_POINTER_UP: {
+			int id = e.getPointerId(e.getActionIndex());
+			if (pinching && (id == pointer || id == second)) {
+				pinch(2, e);
+				pinching = false;
+			} else if (!pinching && id == pointer) {
+				int i = e.getActionIndex();
 				Native.touch(2, e.getX(i), e.getY(i), e.getEventTime());
 				pointer = -1;
 			}
 			return true;
 		}
+		case MotionEvent.ACTION_UP:
+			// The last finger lifts: the touch ends, whatever it became.
+			Native.touch(2, e.getX(0), e.getY(0), e.getEventTime());
+			pointer = -1;
+			pinching = false;
+			return true;
 		case MotionEvent.ACTION_CANCEL:
-			if (pointer >= 0) {
-				Native.touch(3, 0, 0, e.getEventTime());
-				pointer = -1;
-			}
+			Native.touch(3, 0, 0, e.getEventTime());
+			pointer = -1;
+			pinching = false;
 			return true;
 		}
 		return true;
 	}
+
+	/** pinch hands Go the two pinching fingers. */
+	private void pinch(int action, MotionEvent e) {
+		int i0 = e.findPointerIndex(pointer);
+		int i1 = e.findPointerIndex(second);
+		if (i0 < 0 || i1 < 0) {
+			return;
+		}
+		Native.pinch(action, e.getX(i0), e.getY(i0), e.getX(i1), e.getY(i1));
+	}
+
 
 	@Override
 	public boolean onKeyDown(int code, KeyEvent e) {

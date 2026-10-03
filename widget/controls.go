@@ -387,6 +387,10 @@ func (s *Slider) valueAt(pos geom.Point, th *theme.Live) float32 {
 	return s.Min + max(0, min((pos.X-k)/w, 1))*(s.Max-s.Min)
 }
 
+// DragsTouch implements [gunim.TouchDragger]: a finger on the thumb
+// drags it, where it would scroll the page round the slider.
+func (s *Slider) DragsTouch() bool { return s.held }
+
 // Handle implements [gunim.Handler].
 func (s *Slider) Handle(e input.Event, u *gunim.UI) bool {
 	if s.Disabled {

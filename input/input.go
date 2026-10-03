@@ -39,7 +39,9 @@ type PointerLeave struct {
 type PointerMove struct {
 	Pos  geom.Point
 	Mods Mods
-	Time time.Time
+	// Touch says a finger moved; see [PointerDown].
+	Touch bool
+	Time  time.Time
 }
 
 // PointerDown arrives when a button goes down over a node.
@@ -60,9 +62,12 @@ type PointerDown struct {
 	// from the press runs with the window left behind, and otherwise the
 	// window comes to the front as the button comes up.
 	Behind bool
-	// Touch says a finger pressed. A finger held still is a press of
-	// the secondary button, as a right click is, which opens a context
-	// menu, and a text field selects the word under it.
+	// Touch says a finger pressed. A finger that moves after pressing
+	// scrolls what it came down on, unless what it pressed drags by
+	// touch, which the engine works out: the node pressed hears its
+	// press let go far away as the scroll starts. A finger held still is
+	// a press of the secondary button, as a right click is, which opens
+	// a context menu, and a text field selects the word under it.
 	Touch bool
 	Time  time.Time
 }
@@ -72,7 +77,9 @@ type PointerUp struct {
 	Pos    geom.Point
 	Button Button
 	Mods   Mods
-	Time   time.Time
+	// Touch says a finger lifted; see [PointerDown].
+	Touch bool
+	Time  time.Time
 }
 
 // Scroll carries wheel or touchpad movement. Delta is in logical

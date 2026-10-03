@@ -615,6 +615,14 @@ func (c *canvas) retrace() {
 	c.traceOn.Animate(1, anim.Snappy)
 }
 
+// ZoomsWithWheel implements [gunim.WheelZoomer]: the wheel zooms the
+// plot, with Ctrl as without, and so does a pinch.
+func (c *canvas) ZoomsWithWheel() bool { return true }
+
+// DragsTouch implements [gunim.TouchDragger]: a finger pans the plot,
+// as the mouse does.
+func (c *canvas) DragsTouch() bool { return c.dragging }
+
 // Handle implements [gunim.Handler].
 func (c *canvas) Handle(e input.Event, u *gunim.UI) bool {
 	switch e := e.(type) {

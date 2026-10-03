@@ -31,6 +31,9 @@ func (u *UI) handleOn(root *state, ev any) {
 		// A window on its way out takes nothing more.
 		return
 	}
+	if u.touchEvent(root, ev) {
+		return
+	}
 	switch e := ev.(type) {
 	case access.Request:
 		u.accessRequest(e)

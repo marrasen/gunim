@@ -151,6 +151,10 @@ JNIEXPORT void JNICALL Java_gunim_android_Native_touch(JNIEnv *env, jclass c, ji
 	goTouch(action, x, y, ms);
 }
 
+JNIEXPORT void JNICALL Java_gunim_android_Native_pinch(JNIEnv *env, jclass c, jint action, jfloat x0, jfloat y0, jfloat x1, jfloat y1) {
+	goPinch(action, x0, y0, x1, y1);
+}
+
 JNIEXPORT void JNICALL Java_gunim_android_Native_key(JNIEnv *env, jclass c, jboolean down, jint code, jint meta, jint ch, jint repeat) {
 	goKey(down, code, meta, ch, repeat);
 }

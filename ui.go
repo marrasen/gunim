@@ -1081,6 +1081,10 @@ type UI struct {
 	capture *state
 	// current is the node whose Handle, update or patch is running.
 	current *state
+	// touch is the finger pressing now, and fling the scroll coasting on
+	// after one lifted; see touch.go.
+	touch *touchPress
+	fling *touchFling
 	// caretAt is the text caret last told to the driver, and boxAt the
 	// bounds of the node it is in.
 	caretAt, boxAt geom.Rect
@@ -1849,6 +1853,7 @@ func (u *UI) frame(now time.Time, delta time.Duration) {
 	// still where the last frame drew them, to find what the pointer is
 	// over.
 	scrolled := u.edgeScroll(delta)
+	scrolled = u.stepFling(delta) || scrolled
 	if !scrolled && u.dragOver {
 		// Offer a resting drag again, as what lies under it may have changed
 		u.dragHover(u.dragOverAt, u.dragOverData)

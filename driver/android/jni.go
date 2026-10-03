@@ -40,6 +40,11 @@ func goTouch(action C.int, x, y C.float, ms C.longlong) {
 	theDriver.touch(int(action), float32(x), float32(y), time.Now())
 }
 
+//export goPinch
+func goPinch(action C.int, x0, y0, x1, y1 C.float) {
+	theDriver.pinch(int(action), float32(x0), float32(y0), float32(x1), float32(y1), time.Now())
+}
+
 //export goKey
 func goKey(down C.uchar, code, meta, ch, repeat C.int) {
 	theDriver.key(down != 0, int(code), int(meta), rune(ch), repeat > 0)
