@@ -36,7 +36,13 @@ var TimelineSpacing = theme.Length("chat.timeline.spacing", 0)
 
 // chatView is the whole window: the project rail, the sidebar of conversations, and the open conversation.
 type chatView struct {
-	root *widget.Flex
+	root gunim.Node
+	// screens lays out the rail, the sidebar and the open conversation,
+	// side by side or, on a phone, one screen at a time; sidebar is the
+	// sidebar's panel. picks is the count of picks from the list seen.
+	screens *screens
+	sidebar *panel
+	picks   int
 
 	rail        *rail
 	projectName *widget.Label
@@ -102,6 +108,7 @@ func buildChat(s Chat) *chatView {
 	side.Cross = widget.CrossStretch
 	sideTheme := theme.Make("chat.side", theme.Set(widget.ListSpacing, 2))
 	sidebar := &panel{child: widget.NewThemed(widget.NewPad(side), sideTheme), fill: SidebarFill, width: sidebarW}
+	v.sidebar = sidebar
 
 	v.title = widget.NewLabel("")
 	v.title.Face, v.title.Size = widget.BoldFont, sidebarTitle
@@ -116,7 +123,11 @@ func buildChat(s Chat) *chatView {
 	people := widget.NewIconButton(icon.Users, "Members")
 	people.OnActivate(func(u *gunim.UI) { v.openMembers(!v.drawer.Open(), u) })
 	v.membersButton = people
-	header := widget.Row(hash, v.title, spacer, v.link, people, popOut, themeButton).Grow(spacer, 1)
+	back := widget.NewIconButton(icon.ArrowLeft, "Conversations")
+	back.OnActivate(func(u *gunim.UI) { v.screens.show(false, u) })
+	v.screens = newScreens()
+	header := widget.Row(&narrowOnly{s: v.screens, on: true, child: back}, hash, v.title, spacer, v.link, people,
+		&narrowOnly{s: v.screens, child: popOut}, themeButton).Grow(spacer, 1)
 	header.Cross = widget.CrossCenter
 
 	v.linkBar = &linkBar{open: anim.NewFloat(0)}
@@ -142,7 +153,7 @@ func buildChat(s Chat) *chatView {
 	box := widget.Row(v.composer, send).Grow(v.composer, 1)
 	box.Cross = widget.CrossEnd
 	v.strip = newPictureStrip()
-	composer := &composerBox{child: widget.Column(v.strip, v.reply, box)}
+	composer := &composerBox{child: widget.Column(v.strip, v.reply, box), reply: v.reply}
 	composer.child.Cross = widget.CrossStretch
 
 	bottom := widget.Column(v.typing, composer)
@@ -162,9 +173,7 @@ func buildChat(s Chat) *chatView {
 	main.Cross, main.Gap = widget.CrossStretch, zeroGap
 	pane := &panel{child: main, fill: PaneFill}
 
-	if s.Solo {
-		v.root = widget.Row(pane).Grow(pane, 1)
-	} else {
+	if !s.Solo {
 		v.files = newFilesPane()
 		v.members = newMembersPanel(func(u *gunim.UI) { v.openMembers(false, u) })
 		v.drawer = widget.NewDrawer(pane, v.members.root)
@@ -173,9 +182,13 @@ func buildChat(s Chat) *chatView {
 		right := widget.Column(v.linkBar, v.areas).Grow(v.areas, 1)
 		right.Cross, right.Gap = widget.CrossStretch, zeroGap
 		rightPane := &panel{child: right, fill: PaneFill}
-		v.root = widget.Row(v.rail, sidebar, rightPane).Grow(rightPane, 1)
+		v.screens.rail, v.screens.sidebar, v.screens.right = v.rail, sidebar, rightPane
+		v.root = v.screens
+		return v
 	}
-	v.root.Cross, v.root.Gap = widget.CrossStretch, zeroGap
+	row := widget.Row(pane).Grow(pane, 1)
+	row.Cross, row.Gap = widget.CrossStretch, zeroGap
+	v.root = row
 	return v
 }
 
@@ -317,6 +330,12 @@ func (v *chatView) set(s Chat, u *gunim.UI) {
 	v.images = s.Images
 	v.strip.set(s.Pending, s.Images, u)
 
+	if s.Picks != v.picks {
+		// On a phone, a conversation or an area picked from the list
+		// slides in over it.
+		v.picks = s.Picks
+		v.screens.show(true, u)
+	}
 	if s.Current != v.current {
 		// A new conversation gets a new timeline, which opens at its end.
 		v.current = s.Current
@@ -455,12 +474,19 @@ func (v *chatView) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids guni
 }
 
 // Handle implements [gunim.Handler]: typing that nothing else takes, as after a click in a message, goes to the
-// message box.
+// message box, and on a phone Escape goes back to the list.
 func (v *chatView) Handle(e input.Event, u *gunim.UI) bool {
-	switch e.(type) {
+	switch e := e.(type) {
 	case input.TextInput, input.Composing:
 		u.Focus(v.composer)
 		return v.composer.Handle(e, u)
+	case input.KeyPress:
+		// On a phone, Escape, as the system's back gesture sends it, goes
+		// back from the conversation to the list, where nothing else took it.
+		if e.Key == input.KeyEscape && v.screens.narrow && v.screens.showing() {
+			v.screens.show(false, u)
+			return true
+		}
 	}
 	return false
 }
@@ -660,6 +686,8 @@ func (t *thumb) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim.C
 // composerBox is the message box with the reply bar over it. Escape in it drops a reply or an edit.
 type composerBox struct {
 	child *widget.Flex
+	// reply is the bar over the box saying a reply or an edit is under way.
+	reply *replyBar
 }
 
 // Children implements [gunim.Composite].
@@ -678,9 +706,10 @@ func (b *composerBox) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids g
 	kids.At(0).Paint(p)
 }
 
-// Handle implements [gunim.Handler].
+// Handle implements [gunim.Handler]: Escape stops a reply or an edit,
+// and goes on past the box when there is neither.
 func (b *composerBox) Handle(e input.Event, u *gunim.UI) bool {
-	if k, ok := e.(input.KeyPress); ok && k.Key == input.KeyEscape {
+	if k, ok := e.(input.KeyPress); ok && k.Key == input.KeyEscape && b.reply != nil && b.reply.open.Target() > 0 {
 		u.Send(b, Cancelled{})
 		return true
 	}

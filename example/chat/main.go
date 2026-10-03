@@ -17,6 +17,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"image/png"
 	"log"
 	"os"
@@ -44,7 +45,11 @@ func main() {
 	zoom := flag.Float64("zoom", 1, "zoom the window, as Ctrl with + and - does")
 	do := flag.String("do", "", "a script of steps separated by semicolons to run at the start; see runScript")
 	cpuProfile := flag.String("cpuprofile", "", "write a CPU profile of the whole run to this file")
+	size := flag.String("size", "1180x760", "the window's size, as 390x800 for one shaped like a phone")
 	flag.Parse()
+	if _, err := fmt.Sscanf(*size, "%gx%g", &windowSize.W, &windowSize.H); err != nil || windowSize.W <= 0 || windowSize.H <= 0 {
+		log.Fatalf("chat: -size %q: want a width and a height, as 390x800", *size)
+	}
 	if *cpuProfile != "" {
 		stop, err := profile(*cpuProfile)
 		if err != nil {
@@ -62,6 +67,9 @@ func main() {
 	}
 }
 
+// windowSize is the main window's size, which -size sets.
+var windowSize geom.Size
+
 func run(history int, fail float64, seed uint64, script []string, runFor time.Duration, shot string, after time.Duration,
 	zoom float32,
 ) error {
@@ -75,7 +83,7 @@ func run(history int, fail float64, seed uint64, script []string, runFor time.Du
 	return gunim.Main(ctx, func(a *gunim.App) error {
 		w, err := a.NewWindow(gunim.WindowOptions{
 			Title: "Chat",
-			Size:  geom.Sz(1180, 760),
+			Size:  windowSize,
 			Root:  widget.NewSurface(),
 		})
 		if err != nil {

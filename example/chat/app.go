@@ -55,6 +55,8 @@ type app struct {
 type window struct {
 	c    gunim.Client
 	solo bool
+	// picks counts the conversations and areas picked from the list.
+	picks int
 	// project is the project whose conversations the main window lists.
 	project int
 	current *conv
@@ -517,6 +519,7 @@ func (a *app) handleIn(w *window, v gunim.Intent) {
 			a.open(w, a.projects[v.Index].convs[0])
 		}
 	case ConversationChosen:
+		w.picks++
 		for _, c := range a.projects[w.project].convs {
 			if c.ID == v.ID {
 				w.area = ""
@@ -524,6 +527,7 @@ func (a *app) handleIn(w *window, v gunim.Intent) {
 			}
 		}
 	case AreaChosen:
+		w.picks++
 		if v.Area == "files" && !w.solo {
 			w.area = v.Area
 		}
@@ -944,7 +948,7 @@ func (a *app) state() Chat { return a.stateOf(a.window) }
 // stateOf returns what w shows, in values of its own.
 func (a *app) stateOf(w *window) Chat {
 	s := Chat{Solo: w.solo, Project: w.project, Current: w.current.ID, Title: w.current.Name, Link: a.link,
-		Editing: w.editing, Draft: w.draft}
+		Editing: w.editing, Draft: w.draft, Picks: w.picks}
 	for _, p := range a.projects {
 		unread := 0
 		for _, c := range p.convs {

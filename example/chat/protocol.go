@@ -20,9 +20,13 @@ type (
 		Conversations []Conversation
 		// Current is the open conversation's ID, and Title its name.
 		Current string
-		Title   string
-		Items   []Item
-		Link    Link
+		// Picks counts the conversations and areas picked from the list,
+		// so a view that shows one screen at a time, as on a phone, moves
+		// to the one picked, though it is the one open already.
+		Picks int
+		Title string
+		Items []Item
+		Link  Link
 		// Replying is the message the next one replies to, and Editing the ID of the message being edited.
 		Replying Quote
 		Editing  string
