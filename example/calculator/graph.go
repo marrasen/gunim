@@ -177,23 +177,33 @@ func (g *graphBody) Children() []gunim.Node { return []gunim.Node{g.canvas, g.ke
 // it is the one showing.
 func (g *graphBody) Covers(geom.Point) bool { return g.r.mode.Target() == 1 }
 
-// sideWidth is the panel's width.
+// sideWidth is the panel's width beside the plot, on a window wider than
+// narrowWidth; on a narrower one the panel goes under the plot, as wide
+// as the window.
 const sideWidth = 280
 
 // Layout implements [gunim.Node].
 func (g *graphBody) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
 	size := c.Max
 	const pad = 14
-	plot := geom.Rc(pad, pad, max(0, size.W-sideWidth-3*pad), max(0, size.H-2*pad))
+	var plot geom.Rect
+	if size.W < narrowWidth {
+		// A phone: the plot across the top, and the panel under it.
+		plot = geom.Rc(pad, pad, max(0, size.W-2*pad), max(0, size.H*0.45))
+		g.side = geom.Rc(pad, plot.Max.Y+pad, plot.Size().W, max(0, size.H-plot.Max.Y-2*pad))
+	} else {
+		plot = geom.Rc(pad, pad, max(0, size.W-sideWidth-3*pad), max(0, size.H-2*pad))
+		g.side = geom.Rc(plot.Max.X+pad, pad, sideWidth, plot.Size().H)
+	}
 	canvas := kids.At(0)
 	canvas.Layout(gunim.Tight(plot.Size()))
 	canvas.Place(plot.Min)
-	g.side = geom.Rc(plot.Max.X+pad, pad, sideWidth, plot.Size().H)
+	sideW := g.side.Size().W
 	keysH := float32(3*44 + 2*8)
 	keys := kids.At(1)
-	keys.Layout(gunim.Tight(geom.Sz(sideWidth-24, keysH)))
+	keys.Layout(gunim.Tight(geom.Sz(sideW-24, keysH)))
 	keys.Place(geom.Pt(g.side.Min.X+12, g.side.Max.Y-12-keysH))
-	g.expr.place(g.side.Max.X-18, sideWidth-36)
+	g.expr.place(g.side.Max.X-18, sideW-36)
 	return size
 }
 
@@ -222,7 +232,7 @@ func (g *graphBody) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids g
 	}
 	// The line being typed, over the keys.
 	keysTop := s.Max.Y - 12 - float32(3*44+2*8)
-	line := geom.Rc(s.Min.X+12, keysTop-62, sideWidth-24, 50)
+	line := geom.Rc(s.Min.X+12, keysTop-62, s.Size().W-24, 50)
 	p.RRect(line, 12, paint.Solid(faded(ink, 0.06)))
 	g.expr.paint(p, line.Min.Y+10, g.expr.rightEdge(s), ink)
 	kids.At(1).Paint(p)
