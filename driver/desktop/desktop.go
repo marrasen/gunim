@@ -15,7 +15,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/marrasen/gunim/driver/internal/render"
 	"math"
 	"os"
 	"reflect"
@@ -24,6 +23,7 @@ import (
 	"time"
 
 	"github.com/marrasen/gunim/driver"
+	"github.com/marrasen/gunim/driver/internal/render"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/internal/gl"

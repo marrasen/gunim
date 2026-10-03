@@ -5,8 +5,6 @@ package desktop
 import (
 	"errors"
 	"fmt"
-	"github.com/marrasen/gunim/driver/internal/inbox"
-	"github.com/marrasen/gunim/driver/internal/render"
 	"image"
 	"image/color"
 	"log"
@@ -19,6 +17,8 @@ import (
 	"time"
 
 	"github.com/marrasen/gunim/driver"
+	"github.com/marrasen/gunim/driver/internal/inbox"
+	"github.com/marrasen/gunim/driver/internal/render"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/internal/gl"
