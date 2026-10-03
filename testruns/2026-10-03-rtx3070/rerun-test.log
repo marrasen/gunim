@@ -1,0 +1,41 @@
+ok  	github.com/marrasen/gunim	1.784s
+?   	github.com/marrasen/gunim/access	[no test files]
+ok  	github.com/marrasen/gunim/anim	(cached)
+ok  	github.com/marrasen/gunim/calendar	0.532s
+ok  	github.com/marrasen/gunim/driver	(cached)
+?   	github.com/marrasen/gunim/driver/android/java	[no test files]
+ok  	github.com/marrasen/gunim/driver/desktop	(cached)
+ok  	github.com/marrasen/gunim/driver/internal/inbox	(cached)
+ok  	github.com/marrasen/gunim/driver/internal/render	1.132s
+ok  	github.com/marrasen/gunim/emoji	(cached)
+ok  	github.com/marrasen/gunim/example/calculator	0.704s
+ok  	github.com/marrasen/gunim/example/calendar	0.864s
+ok  	github.com/marrasen/gunim/example/chat	8.912s
+?   	github.com/marrasen/gunim/example/controls	[no test files]
+?   	github.com/marrasen/gunim/example/files	[no test files]
+?   	github.com/marrasen/gunim/example/paragraph	[no test files]
+ok  	github.com/marrasen/gunim/example/tutorial	0.930s
+?   	github.com/marrasen/gunim/example/twowindows	[no test files]
+?   	github.com/marrasen/gunim/example/widgets	[no test files]
+ok  	github.com/marrasen/gunim/filemanager	8.101s
+?   	github.com/marrasen/gunim/geom	[no test files]
+?   	github.com/marrasen/gunim/gunimtest	[no test files]
+ok  	github.com/marrasen/gunim/icon	(cached)
+?   	github.com/marrasen/gunim/icon/byname	[no test files]
+ok  	github.com/marrasen/gunim/input	(cached)
+?   	github.com/marrasen/gunim/internal/exeicon	[no test files]
+?   	github.com/marrasen/gunim/internal/gl	[no test files]
+ok  	github.com/marrasen/gunim/internal/glfw	(cached)
+?   	github.com/marrasen/gunim/internal/microsoftgdk	[no test files]
+?   	github.com/marrasen/gunim/internal/windowsystem	[no test files]
+?   	github.com/marrasen/gunim/internal/winver	[no test files]
+ok  	github.com/marrasen/gunim/markdown	0.447s
+ok  	github.com/marrasen/gunim/match	(cached)
+ok  	github.com/marrasen/gunim/paint	(cached)
+ok  	github.com/marrasen/gunim/syntax	(cached)
+ok  	github.com/marrasen/gunim/text	0.920s
+ok  	github.com/marrasen/gunim/theme	(cached)
+ok  	github.com/marrasen/gunim/tools/genicons	(cached)
+?   	github.com/marrasen/gunim/tools/gunimapk	[no test files]
+ok  	github.com/marrasen/gunim/widget	0.950s
+exit 0

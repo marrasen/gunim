@@ -96,3 +96,39 @@ The menu is a window of its own. While it is open, .NET's `Process.MainWindowHan
 - **`GUNIM_DEBUG_FRAMES=1`** prints its lines ([5-calculator-frames.log](5-calculator-frames.log)).
   - 120 Hz, 0–4 late frames a second. Draw time is 0.1–0.5 ms, at most 1.5 ms, apart from one 14 ms frame.
   - The 1140×820 surface is the window's shadow, 80 px around the 980×660 window, while it animates.
+
+## Rerun on fb1e7a1
+
+The two checks from #22, on `fb1e7a1` (after `f3ed1f8`, `cc8206f` and `fb1e7a1`), on the same machine. `example/widgets`, Notes box.
+
+| Check | Result |
+|---|---|
+| `go test ./...` | **Pass**: 24 packages pass, none fail ([rerun-test.log](rerun-test.log)) |
+| 1. Typing and undo | **Pass** |
+| 2. Composition, Microsoft Japanese IME | **Pass**: one Ctrl+Z now undoes a commit over a selection |
+
+### 1. Typing and undo
+
+- **Typing three lines, then the edits**, as in the first run ([rerun-1-edits.png](rerun-1-edits.png), top to bottom):
+  - a drag selects "quick brow";
+  - Ctrl+C, then Ctrl+V at the end of line 3, pastes it there;
+  - Ctrl+X cuts "over the la", and the clipboard holds it;
+  - Ctrl+Z brings it back, selected;
+  - Ctrl+Y cuts it again.
+- **A double letter undoes with its neighbour** ([rerun-1-double-letter.png](rerun-1-double-letter.png), zoomed 3×, top to bottom). Type `helo world`, click between `he` and `lo`, and type `l`, then `p`.
+  - The text reads `helplo world`.
+  - **One Ctrl+Z** takes away `lp` together and leaves `helo world`.
+  - A second Ctrl+Z takes away ` world`, the typing before the click, and Ctrl+Y puts it back.
+- **Emoji**: Win+., then Enter, then a space and `word x y` ([rerun-1-emoji-line.png](rerun-1-emoji-line.png), zoomed [rerun-1-emoji-space.png](rerun-1-emoji-space.png)). The measured gaps are the same as in the first run: 4, 5 and 3 px between letters, 7 px before the emoji, 8 px after it. The space after the emoji is an ordinary width; the extra is the emoji's own side bearing, on both sides.
+
+### 2. Composition
+
+- **Compose, then commit or cancel** ([rerun-2-commit-cancel.png](rerun-2-commit-cancel.png), top to bottom):
+  - にほん shows in place, underlined.
+  - Space converts it to 日本, and Enter commits it, leaving exactly 日本.
+  - さくら, composed and cancelled with Escape, leaves the text as it was.
+- **Over a selection** ([rerun-2-over-selection.png](rerun-2-over-selection.png), top to bottom):
+  - Double-click `word` to select it; やま, composed over it, shows in its place.
+  - **Escape** cancels it and leaves `word` there, still selected. In the first run, a cancel over a selection deleted the word.
+  - Double-click `word` again, compose やま, convert to 山, and commit. `a b 🫠 山 x y` is left.
+  - **One Ctrl+Z** brings `word` back, selected. In the first run that took two.
