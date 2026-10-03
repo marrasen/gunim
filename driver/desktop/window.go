@@ -1041,6 +1041,13 @@ func (w *Window) render() {
 				r.windowFBO = fbo
 			}
 			r.draw(f.ops, f.damage, fbW, fbH, scale)
+			var gpu time.Duration
+			if framesFinish {
+				// Waits for the GPU, to time it apart from the rest.
+				tf := time.Now()
+				r.gl.Finish()
+				gpu = time.Since(tf)
+			}
 			if readback != nil {
 				if w.pres != nil {
 					// The window's texture is upside down for Direct3D;
@@ -1062,7 +1069,7 @@ func (w *Window) render() {
 				w.fail(fmt.Errorf("desktop: swap buffers: %w", err))
 			}
 			if framesDebug {
-				ft.add(w, t1.Sub(t0), t2.Sub(t1), time.Since(t2), rate, fbW, fbH)
+				ft.add(w, t1.Sub(t0), t2.Sub(t1), time.Since(t2), gpu, &r.stats, rate, fbW, fbH)
 			}
 			w.uncover()
 			if r.edge != shownEdge {
@@ -1096,7 +1103,12 @@ func (w *Window) render() {
 // error, each second, how long each window took over its frames: to
 // draw one, to wait for the monitor's vertical blank, and to hand it
 // to the screen.
-var framesDebug = os.Getenv("GUNIM_DEBUG_FRAMES") == "1"
+var framesDebug = os.Getenv("GUNIM_DEBUG_FRAMES") != ""
+
+// framesFinish is set by GUNIM_DEBUG_FRAMES=gpu, which also waits for
+// the GPU to finish each frame before the vertical blank, and logs how
+// long it took. The wait slows frames down; it is only for measuring.
+var framesFinish = os.Getenv("GUNIM_DEBUG_FRAMES") == "gpu"
 
 // frameTimes sums a window's frame times for framesDebug.
 type frameTimes struct {
@@ -1105,12 +1117,22 @@ type frameTimes struct {
 	draw, wait, present time.Duration
 	drawMax, presentMax time.Duration
 	waitMax             time.Duration
+	gpu, gpuMax         time.Duration
+	sent                renderStats
 }
 
 // add counts a frame that took draw, wait and present, and logs the
 // second's sums once one has passed. A frame is late where the three
 // together took longer than a refresh at rate.
-func (ft *frameTimes) add(w *Window, draw, wait, present time.Duration, rate float64, fbW, fbH int) {
+func (ft *frameTimes) add(w *Window, draw, wait, present, gpu time.Duration, sent *renderStats, rate float64, fbW, fbH int) {
+	ft.gpu += gpu
+	ft.gpuMax = max(ft.gpuMax, gpu)
+	ft.sent.flushes += sent.flushes
+	ft.sent.quads += sent.quads
+	ft.sent.bytes += sent.bytes
+	ft.sent.layers += sent.layers
+	ft.sent.flushTime += sent.flushTime
+	*sent = renderStats{}
 	now := time.Now()
 	if ft.from.IsZero() {
 		ft.from = now
@@ -1132,6 +1154,9 @@ func (ft *frameTimes) add(w *Window, draw, wait, present time.Duration, rate flo
 	n := time.Duration(ft.n)
 	log.Printf("gunim frames %p %dx%d at %.0f Hz: %d frames, %d late; draw %.1f ms (max %.1f), vblank wait %.1f (max %.1f), present %.1f (max %.1f)",
 		w, fbW, fbH, rate, ft.n, ft.late, ms(ft.draw/n), ms(ft.drawMax), ms(ft.wait/n), ms(ft.waitMax), ms(ft.present/n), ms(ft.presentMax))
+	log.Printf("gunim frames %p sent each frame: %d quads, %.1f MB in %d draws, %d layers; handing them over took %.1f ms; gpu %.1f ms (max %.1f)",
+		w, ft.sent.quads/ft.n, float64(ft.sent.bytes)/float64(ft.n)/1e6, ft.sent.flushes/ft.n, ft.sent.layers/ft.n,
+		ms(ft.sent.flushTime/n), ms(ft.gpu/n), ms(ft.gpuMax))
 	*ft = frameTimes{from: now}
 }
 
