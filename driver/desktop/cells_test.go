@@ -4,11 +4,13 @@ package desktop
 
 import (
 	"image/color"
+	"math"
 	"math/rand"
 	"testing"
 
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/paint"
+	"github.com/marrasen/gunim/text"
 )
 
 // readFrame returns the canvas's pixels, row by row from the top.
@@ -73,7 +75,7 @@ func TestCellsDrawPixelForPixel(t *testing.T) {
 		var fast paint.Painter
 		fast.RRect(geom.Rect{Max: geom.Pt(float32(w)/scale, float32(h)/scale)}, 0, paint.Solid(bg))
 		for y, row := range grid {
-			fast.Cells(geom.Pt(at.X, at.Y+float32(y)*size.H), size, row, pats, 1, y)
+			fast.Cells(geom.Pt(at.X, at.Y+float32(y)*size.H), size, row, pats, 1, y, 0, 0)
 		}
 		// What each pixel should be: the background over the canvas, and
 		// the pattern's coverage of the foreground over that.
@@ -134,10 +136,10 @@ func TestCellsKeepTheirPlaceAmongOtherDrawing(t *testing.T) {
 	row := func(c color.NRGBA) []paint.CellPaint { return []paint.CellPaint{{BG: c}, {BG: c}, {BG: c}} }
 	var p paint.Painter
 	p.RRect(geom.Rect{Max: benchSize.Point()}, 0, paint.Solid(color.NRGBA{A: 0xff}))
-	p.Cells(geom.Pt(0, 0), geom.Sz(10, 10), row(red), pats, 1, 0)
+	p.Cells(geom.Pt(0, 0), geom.Sz(10, 10), row(red), pats, 1, 0, 0, 0)
 	// Green over the first row and the second, before the second is drawn.
 	p.RRect(geom.Rc(0, 0, 30, 20), 0, paint.Solid(green))
-	p.Cells(geom.Pt(0, 10), geom.Sz(10, 10), row(blue), pats, 1, 1)
+	p.Cells(geom.Pt(0, 10), geom.Sz(10, 10), row(blue), pats, 1, 1, 0, 0)
 	w, h := int(benchSize.W), int(benchSize.H)
 	r.draw(p.Ops(), paint.Everything, w, h, 1)
 	pix := readFrame(r)
@@ -147,5 +149,122 @@ func TestCellsKeepTheirPlaceAmongOtherDrawing(t *testing.T) {
 	}
 	if got := at(5, 15); got != [3]byte{0, 0, 0xff} {
 		t.Errorf("over the second row is %v, want the row, drawn after the green", got)
+	}
+}
+
+// Glyphs drawn with the cells look as the same glyphs drawn as text
+// over the cells' backgrounds do, greyscale and on subpixels, at any
+// scale; and glyphs too big for their cells, drawn as text after the
+// cells, look so too.
+func TestGlyphsInCellsDrawAsText(t *testing.T) {
+	r, done := hiddenGL(t)
+	defer done()
+	face := text.GoMono(false, false)
+	renderings := []text.Rendering{{Smoothing: text.Greyscale, Hinting: text.HintingLight, Gamma: 1.8}}
+	if r.dual {
+		renderings = append(renderings, lcd)
+	}
+	const line = "Hello, gunim! {gjy}|@#~ AW"
+	for _, tr := range renderings {
+		for _, scale := range []float32{1, 1.5} {
+			for _, tight := range []bool{false, true} {
+				r.setText(tr, false)
+				const size = 14
+				_, adv, _ := face.Glyph('M', size)
+				ascent, descent, _ := face.Metrics(size)
+				cw := int(math.Ceil(float64(adv * scale)))
+				ch := int(math.Ceil(float64((ascent + descent) * scale)))
+				if tight {
+					// Shorter than the glyphs: they spill out, and are
+					// drawn as text.
+					ch = int(float64(ascent*scale) * 0.7)
+				}
+				cell := geom.Sz(float32(cw)/scale, float32(ch)/scale)
+				base := float32(math.Round(float64(ascent*scale))) / scale
+				at := geom.Pt(20/scale, 30/scale)
+				rng := rand.New(rand.NewSource(7))
+				colour := func(light bool) color.NRGBA {
+					v := func() uint8 {
+						if light {
+							return uint8(160 + rng.Intn(96))
+						}
+						return uint8(rng.Intn(96))
+					}
+					return color.NRGBA{R: v(), G: v(), B: v(), A: 255}
+				}
+				rows := make([][]paint.CellPaint, 3)
+				for y := range rows {
+					for _, ch := range line {
+						gly, _, ok := face.Glyph(ch, size)
+						dark := rng.Intn(2) == 0
+						c := paint.CellPaint{BG: colour(!dark), FG: colour(dark), Text: ok && ch != ' ', Glyph: gly}
+						c.Glyph.At = geom.Point{}
+						rows[y] = append(rows[y], c)
+					}
+				}
+				w, h := int(benchSize.W), int(benchSize.H)
+				bg := color.NRGBA{R: 0x20, G: 0x30, B: 0x40, A: 0xff}
+				pats := &paint.Patterns{W: cw, H: ch}
+
+				var fast paint.Painter
+				fast.RRect(geom.Rect{Max: geom.Pt(float32(w)/scale, float32(h)/scale)}, 0, paint.Solid(bg))
+				for y, row := range rows {
+					fast.Cells(geom.Pt(at.X, at.Y+float32(y)*cell.H), cell, row, pats, 1, y, size, base)
+				}
+				var slow paint.Painter
+				slow.RRect(geom.Rect{Max: geom.Pt(float32(w)/scale, float32(h)/scale)}, 0, paint.Solid(bg))
+				// The backgrounds as cells without glyphs, whose edges are
+				// as hard as the cells', and the glyphs as text after.
+				for y, row := range rows {
+					bare := make([]paint.CellPaint, len(row))
+					for x, c := range row {
+						bare[x] = paint.CellPaint{BG: c.BG}
+					}
+					slow.Cells(geom.Pt(at.X, at.Y+float32(y)*cell.H), cell, bare, pats, 2, y, size, base)
+				}
+				for y, row := range rows {
+					for x, c := range row {
+						if !c.Text {
+							continue
+						}
+						g := c.Glyph
+						g.At = geom.Pt(at.X+float32(x)*cell.W, at.Y+float32(y)*cell.H+base)
+						slow.Text([]paint.Glyph{g}, size, c.FG, geom.Rect{Max: geom.Pt(float32(w), float32(h))})
+					}
+				}
+				r.draw(slow.Ops(), paint.Everything, w, h, scale)
+				r.draw(slow.Ops(), paint.Everything, w, h, scale)
+				want := readFrame(r)
+				r.cellsState.inCells, r.cellsState.spilled = 0, 0
+				r.draw(fast.Ops(), paint.Everything, w, h, scale)
+				r.draw(fast.Ops(), paint.Everything, w, h, scale)
+				got := readFrame(r)
+				if in, out := r.cellsState.inCells, r.cellsState.spilled; tight && out == 0 || !tight && in < out*4 {
+					t.Errorf("%v at scale %v, tight %v: %d glyphs drawn in their cells and %d as text", tr.Smoothing, scale, tight, in, out)
+				}
+				// The row's own area: the rectangles' soft edges spill
+				// past it, where the cells' do not.
+				bad := 0
+				gx0, gy0 := int(at.X*scale+0.5), int(at.Y*scale+0.5)
+				gx1, gy1 := gx0+cw*len(rows[0]), gy0+ch*len(rows)
+				for py := gy0; py < gy1; py++ {
+					for px := gx0; px < gx1; px++ {
+						i := (py*w + px) * 4
+						for k := range 3 {
+							if d := int(got[i+k]) - int(want[i+k]); d < -3 || d > 3 {
+								if bad < 3 {
+									t.Errorf("%v at scale %v, tight %v: pixel %d,%d is %v, want %v", tr.Smoothing, scale, tight, px, py, got[i:i+4], want[i:i+4])
+								}
+								bad++
+								break
+							}
+						}
+					}
+				}
+				if bad > 0 {
+					t.Fatalf("%v at scale %v, tight %v: %d pixels differ", tr.Smoothing, scale, tight, bad)
+				}
+			}
+		}
 	}
 }

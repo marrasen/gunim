@@ -1,12 +1,14 @@
 package desktop
 
 import (
+	"image/color"
 	"math"
 	"unsafe"
 
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/internal/gl"
 	"github.com/marrasen/gunim/paint"
+	"github.com/marrasen/gunim/text"
 )
 
 // A grid of character cells is drawn by a program of its own: one quad
@@ -54,6 +56,33 @@ type cellsState struct {
 	rows     int
 	upload   []byte
 	verts    [16]float32
+
+	// The glyphs of the run of rows queued: table holds where each is in
+	// the atlas and in its cell, two texels a glyph, uploaded after the
+	// rows, and index numbers them by their keys. mode is 0 for
+	// greyscale glyphs, 1 or 2 for glyphs on subpixels that run red to
+	// blue or blue to red. later are the glyphs that reach outside their
+	// cells, drawn as text over the cells.
+	table []byte
+	index map[glyphKey]uint16
+	mode  int
+	later []*paint.TextOp
+	// placed is the row being added's glyphs, found before the row
+	// joins a run.
+	placed                                         []placedGlyph
+	uMode, uGamma, uContrast, uTable, uTexW, uCols int32
+	// inCells and spilled count the glyphs drawn each way, for tests.
+	inCells, spilled int
+}
+
+// placedGlyph is where a cell's glyph is: its key and slot in the
+// atlas, and its corner from the cell's in device pixels, which may lie
+// in the cells either side, or fits false for one drawn as text.
+type placedGlyph struct {
+	key    glyphKey
+	slot   glyphSlot
+	dx, dy int
+	fits   bool
 }
 
 const cellsVertex = `
@@ -69,10 +98,42 @@ void main() {
 const cellsFragment = `
 uniform sampler2D u_cells;
 uniform sampler2D u_patterns;
+uniform sampler2D u_atlas;
+uniform sampler2D u_lcd;
 uniform vec2 u_cell;
 uniform int u_base;
 uniform int u_per;
+uniform int u_mode;
+uniform vec4 u_gamma;
+uniform float u_contrast;
+uniform int u_table;
+uniform int u_texw;
+uniform int u_cols;
 in vec2 v_px;
+
+int u16(float lo, float hi) { return int(lo * 255.0 + 0.5) + 256 * int(hi * 255.0 + 0.5); }
+
+// coverage returns the coverage of each channel of the glyph pixel at,
+// for text in colour c, enhanced and corrected for gamma as the draw
+// program's glyphs are.
+vec3 coverage(ivec2 at, vec4 c) {
+	vec4 g = u_gamma;
+	float k = u_contrast;
+	if (u_mode == 0) {
+		float a = texelFetch(u_atlas, at, 0).r;
+		k *= clamp(4.0 * (0.75 - dot(c.rgb, vec3(0.30, 0.59, 0.11))), 0.0, 1.0);
+		a = a * (k + 1.0) / (a * k + 1.0);
+		float f = dot(c.rgb, vec3(0.25, 0.5, 0.25));
+		a = clamp(a + a * (1.0 - a) * ((g.x * f + g.y) * a + (g.z * f + g.w)), 0.0, 1.0);
+		return vec3(a * c.a);
+	}
+	vec3 m = texelFetch(u_lcd, at, 0).rgb;
+	if (u_mode == 2) {
+		m = m.bgr;
+	}
+	m = m * (k + 1.0) / (m * k + 1.0);
+	return clamp(m + m * (1.0 - m) * ((g.x * c.rgb + g.y) * m + (g.z * c.rgb + g.w)), 0.0, 1.0) * c.a;
+}
 
 void main() {
 	vec2 c = floor(v_px / u_cell);
@@ -83,19 +144,45 @@ void main() {
 	vec4 bg = texelFetch(u_cells, ivec2(x, y), 0);
 	vec4 fg = texelFetch(u_cells, ivec2(x + 1, y), 0);
 	vec4 pt = texelFetch(u_cells, ivec2(x + 2, y), 0);
-	int id = int(pt.r * 255.0 + 0.5) + 256 * int(pt.g * 255.0 + 0.5);
+	int id = u16(pt.r, pt.g);
 	float a = 0.0;
 	if (id > 0) {
 		int k = id - 1;
 		ivec2 cw = ivec2(u_cell);
 		a = texelFetch(u_patterns, ivec2((k % u_per) * cw.x + inside.x, (k / u_per) * cw.y + inside.y), 0).r;
 	}
-	vec4 b = vec4(bg.rgb * bg.a, bg.a);
 	vec4 f = vec4(fg.rgb * fg.a, fg.a) * a;
-	vec4 col = f + b * (1.0 - f.a);
-	fragColor = col;
+	vec3 col = f.rgb + bg.rgb * bg.a * (1.0 - f.a);
+	vec3 cover = vec3(f.a + bg.a * (1.0 - f.a));
+	// The glyphs of this cell and the cells either side, which may
+	// reach into it, in the order text draws them: left to right.
+	for (int d = -1; d <= 1; d++) {
+		int nx = cell.x + d;
+		if (nx < 0 || nx >= u_cols) {
+			continue;
+		}
+		vec4 np = texelFetch(u_cells, ivec2(nx * 3 + 2, y), 0);
+		int gl = u16(np.b, np.a);
+		if (gl == 0) {
+			continue;
+		}
+		int t = (gl - 1) * 2;
+		vec4 e0 = texelFetch(u_cells, ivec2(t % u_texw, u_table + t / u_texw), 0);
+		vec4 e1 = texelFetch(u_cells, ivec2((t + 1) % u_texw, u_table + (t + 1) / u_texw), 0);
+		ivec2 size = ivec2(int(e1.r * 255.0 + 0.5), int(e1.g * 255.0 + 0.5));
+		ivec2 off = ivec2(int(e1.b * 255.0 + 0.5), int(e1.a * 255.0 + 0.5)) - 128;
+		ivec2 p = inside - ivec2(d * int(u_cell.x), 0) - off;
+		if (p.x >= 0 && p.y >= 0 && p.x < size.x && p.y < size.y) {
+			vec4 nfg = d == 0 ? fg : texelFetch(u_cells, ivec2(nx * 3 + 1, y), 0);
+			vec3 m = coverage(ivec2(u16(e0.r, e0.g), u16(e0.b, e0.a)) + p, nfg);
+			col = nfg.rgb * m + col * (1.0 - m);
+			cover = m + cover * (1.0 - m);
+		}
+	}
+	float alpha = max(cover.r, max(cover.g, cover.b));
+	fragColor = vec4(col, alpha);
 #ifdef DUAL
-	fragCover = vec4(col.a);
+	fragCover = vec4(cover, alpha);
 #endif
 }
 `
@@ -146,6 +233,14 @@ func (r *renderer) cellsReady() bool {
 	g.UseProgram(id)
 	g.Uniform1i(g.GetUniformLocation(id, "u_cells"), 4)
 	g.Uniform1i(g.GetUniformLocation(id, "u_patterns"), 5)
+	g.Uniform1i(g.GetUniformLocation(id, "u_atlas"), 0)
+	g.Uniform1i(g.GetUniformLocation(id, "u_lcd"), 2)
+	s.uMode = g.GetUniformLocation(id, "u_mode")
+	s.uGamma = g.GetUniformLocation(id, "u_gamma")
+	s.uContrast = g.GetUniformLocation(id, "u_contrast")
+	s.uTable = g.GetUniformLocation(id, "u_table")
+	s.uTexW = g.GetUniformLocation(id, "u_texw")
+	s.uCols = g.GetUniformLocation(id, "u_cols")
 	s.uCell = g.GetUniformLocation(id, "u_cell")
 	s.uBase = g.GetUniformLocation(id, "u_base")
 	s.uPer = g.GetUniformLocation(id, "u_per")
@@ -181,11 +276,24 @@ func (r *renderer) cells(op *paint.CellsOp) {
 		return
 	}
 	s := &r.cellsState
+	plain := op.Transform.A == 1 && op.Transform.B == 0 && op.Transform.D == 0 && op.Transform.E == 1
+	mode := 0
+	if r.subpixels && plain && r.depth == 0 {
+		mode = 1
+		if r.textRendering.Smoothing == text.SubpixelBGR {
+			mode = 2
+		}
+	}
+	// Found first: finding a glyph can start the atlas again, which
+	// draws what is queued.
+	r.placeGlyphs(op, cw, ch, plain, mode)
 	// Rows join the run before them only with nothing drawn in between,
-	// which would end up beneath them.
-	if p := s.pending; p == nil || len(r.verts) > 0 || !follows(p, op, s.rows) || s.firstRow+s.rows >= cellsRows {
+	// which would end up beneath them, and with room for their glyphs.
+	if p := s.pending; p == nil || len(r.verts) > 0 || !follows(p, op, s.rows) || s.mode != mode ||
+		s.firstRow+s.rows+1+s.tableRows(len(op.Cells)) > cellsRows {
 		r.flush()
 		r.startCells(op)
+		s.mode = mode
 	}
 	r.addRow(op)
 	s.rows++
@@ -213,8 +321,16 @@ func (r *renderer) startCells(op *paint.CellsOp) {
 	if s.row >= cellsRows {
 		s.row = 0
 	}
+	if s.row+2 > cellsRows {
+		s.row = 0
+	}
 	s.pending, s.firstRow, s.rows = op, s.row, 0
 	s.upload = s.upload[:0]
+	s.table = s.table[:0]
+	if s.index == nil {
+		s.index = map[glyphKey]uint16{}
+	}
+	clear(s.index)
 	r.sendPatterns(op.Patterns)
 }
 
@@ -268,14 +384,119 @@ func (r *renderer) cellsTexture(unit uint32, internal int32, format uint32, w, h
 	return tex
 }
 
+// tableRows is how many rows of the texture the glyph table takes, with
+// room for n more glyphs.
+func (s *cellsState) tableRows(n int) int {
+	if s.texW == 0 {
+		return 1
+	}
+	return (len(s.table)/4 + 2*n + s.texW - 1) / s.texW
+}
+
+// placeGlyphs finds the glyphs of op's cells in the atlas, and where
+// each lands in its cell, into placed. A glyph that reaches outside its
+// cell, a colour one, or any under a transform that more than moves,
+// is drawn as text.
+func (r *renderer) placeGlyphs(op *paint.CellsOp, cw, ch int, plain bool, mode int) {
+	s := &r.cellsState
+	for range 3 {
+		epochs := [2]int{r.glyphs.epoch, r.lcdGlyphs.epoch}
+		s.placed = s.placed[:0]
+		raster := text.Raster{Hint: r.textRendering.Hinting == text.HintingLight, LCD: mode != 0}
+		sizePx := op.TextSize * r.scale
+		origin := op.Transform.Apply(op.At)
+		x0, y0 := float32(math.Round(float64(origin.X*r.scale))), float32(math.Round(float64(origin.Y*r.scale)))
+		var (
+			face   *text.Face
+			faceID uint32
+		)
+		for x, c := range op.Cells {
+			if !c.Text {
+				continue
+			}
+			pg := placedGlyph{}
+			if gly := c.Glyph; plain && sizePx > 0 {
+				if face == nil || gly.Face != faceID {
+					face, _ = text.Lookup(gly.Face)
+					faceID = gly.Face
+				}
+				if face != nil && !face.IsColor(gly.ID) {
+					o := op.Transform.Apply(geom.Pt(op.At.X+float32(x)*op.Size.W+gly.At.X, op.At.Y+op.Baseline))
+					ox, oy := o.X*r.scale, float32(math.Round(float64(o.Y*r.scale)))
+					fx := float32(math.Floor(float64(ox)))
+					sh := int(math.Round(float64(ox-fx) * subpixel))
+					if sh == subpixel {
+						fx, sh = fx+1, 0
+					}
+					pg.key = glyphKeyFor(faceID, gly.ID, sizePx, uint8(sh), raster)
+					slot, ok := r.glyph(pg.key, func() text.Mask {
+						return face.Rasterize(pg.key.id, sizePx, float32(pg.key.shift)/subpixel, pg.key.raster)
+					})
+					cx, cy := int(x0)+x*cw, int(y0)
+					gx, gy := int(fx)+slot.off.X, int(oy)+slot.off.Y
+					pg.slot, pg.dx, pg.dy = slot, gx-cx, gy-cy
+					// Into the cells either side, which look for it, but not
+					// the rows above and below, which may be drawn apart.
+					pg.fits = ok && pg.dx >= -cw && pg.dx+slot.w <= 2*cw && pg.dy >= 0 && pg.dy+slot.h <= ch &&
+						pg.dx >= -128 && pg.dx < 128 && pg.dy < 128 && slot.w < 256 && slot.h < 256
+					if ok && slot.w == 0 {
+						// Nothing to draw, as a space has.
+						pg.fits, pg.slot = true, glyphSlot{}
+					}
+				}
+			}
+			s.placed = append(s.placed, pg)
+		}
+		if epochs == [2]int{r.glyphs.epoch, r.lcdGlyphs.epoch} {
+			return
+		}
+		// The atlas started again part way: what was found before is gone.
+	}
+}
+
 // addRow adds op's cells to the rows uploaded together when they are
-// drawn: one upload a run of rows, rather than one a row.
+// drawn, one upload a run of rows rather than one a row, with their
+// glyphs from placed, and the glyphs that do not fit to later.
 func (r *renderer) addRow(op *paint.CellsOp) {
 	s := &r.cellsState
 	b := s.upload
-	for _, c := range op.Cells {
+	n := 0
+	var spill map[color.NRGBA]*paint.TextOp
+	for x, c := range op.Cells {
+		var glyphAt uint16
+		if c.Text {
+			pg := s.placed[n]
+			n++
+			switch {
+			case pg.fits && pg.slot.w > 0:
+				i, ok := s.index[pg.key]
+				if !ok {
+					sl := pg.slot
+					s.table = append(s.table, byte(sl.x), byte(sl.x>>8), byte(sl.y), byte(sl.y>>8),
+						byte(sl.w), byte(sl.h), byte(pg.dx+128), byte(pg.dy+128))
+					i = uint16(len(s.table) / 8)
+					s.index[pg.key] = i
+				}
+				glyphAt = i
+				s.inCells++
+			case !pg.fits:
+				s.spilled++
+				if spill == nil {
+					spill = map[color.NRGBA]*paint.TextOp{}
+				}
+				t := spill[c.FG]
+				if t == nil {
+					t = &paint.TextOp{Size: op.TextSize, Color: c.FG, Transform: op.Transform}
+					spill[c.FG] = t
+					s.later = append(s.later, t)
+				}
+				gly := c.Glyph
+				gly.At = geom.Pt(op.At.X+float32(x)*op.Size.W+gly.At.X, op.At.Y+op.Baseline)
+				t.Glyphs = append(t.Glyphs, gly)
+			}
+		}
 		b = append(b, c.BG.R, c.BG.G, c.BG.B, c.BG.A, c.FG.R, c.FG.G, c.FG.B, c.FG.A,
-			byte(c.Pattern), byte(c.Pattern>>8), 0, 0)
+			byte(c.Pattern), byte(c.Pattern>>8), byte(glyphAt), byte(glyphAt>>8))
 	}
 	s.upload = b
 }
@@ -294,6 +515,18 @@ func (r *renderer) flushCells() {
 	g.BindTexture(gl.TEXTURE_2D, s.tex)
 	g.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
 	g.TexSubImage2D(gl.TEXTURE_2D, 0, 0, int32(s.firstRow), int32(len(op.Cells)*3), int32(s.rows), gl.RGBA, gl.UNSIGNED_BYTE, s.upload)
+	tableRow := s.firstRow + s.rows
+	if n := len(s.table) / 4; n > 0 {
+		// The table, row after row of the texture, after the cells'.
+		for at, row := 0, tableRow; at < n; at, row = at+s.texW, row+1 {
+			w := min(s.texW, n-at)
+			g.TexSubImage2D(gl.TEXTURE_2D, 0, 0, int32(row), int32(w), 1, gl.RGBA, gl.UNSIGNED_BYTE, s.table[at*4:(at+w)*4])
+		}
+	}
+	if s.mode != 0 {
+		g.ActiveTexture(glTexture2)
+		g.BindTexture(gl.TEXTURE_2D, r.lcdGlyphs.tex)
+	}
 	w := op.Size.W * float32(len(op.Cells))
 	h := op.Size.H * float32(s.rows)
 	local := [4]geom.Point{op.At, geom.Pt(op.At.X+w, op.At.Y), geom.Pt(op.At.X+w, op.At.Y+h), geom.Pt(op.At.X, op.At.Y+h)}
@@ -317,6 +550,16 @@ func (r *renderer) flushCells() {
 	g.Uniform2fv(s.uCell, []float32{float32(op.Patterns.W), float32(op.Patterns.H)})
 	g.Uniform1i(s.uBase, int32(s.firstRow))
 	g.Uniform1i(s.uPer, int32(s.patsPer))
+	g.Uniform1i(s.uMode, int32(s.mode))
+	g.Uniform4fv(s.uGamma, r.gamma[:])
+	contrast := float32(greyContrast)
+	if s.mode != 0 {
+		contrast = lcdContrast
+	}
+	g.Uniform1fv(s.uContrast, []float32{contrast})
+	g.Uniform1i(s.uTable, int32(tableRow))
+	g.Uniform1i(s.uTexW, int32(s.texW))
+	g.Uniform1i(s.uCols, int32(len(op.Cells)))
 	g.DrawElements(gl.TRIANGLES, 6, glUnsignedShort, 0)
 	r.draws++
 	if framesDebug {
@@ -324,8 +567,14 @@ func (r *renderer) flushCells() {
 		r.stats.quads++
 		r.stats.bytes += len(s.upload) + len(s.verts)*4
 	}
-	s.row = s.firstRow + s.rows
+	s.row = tableRow + s.tableRows(0)
 	r.bindDraw()
+	// The glyphs that reach outside their cells, over the cells.
+	later := s.later
+	s.later = nil
+	for _, t := range later {
+		r.text(t)
+	}
 }
 
 // releaseCells frees what drawing cells made.

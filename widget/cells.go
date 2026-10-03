@@ -420,7 +420,7 @@ func (g *CellGrid) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 		if top >= box.H {
 			break
 		}
-		p.Cells(geom.Pt(0, top), geom.Sz(m.w, m.h), g.lines[y].paint, g.pats, id, y)
+		p.Cells(geom.Pt(0, top), geom.Sz(m.w, m.h), g.lines[y].paint, g.pats, id, y, m.size, m.ascent)
 	}
 	for y := range g.lines {
 		top := float32(y) * m.h
@@ -488,9 +488,14 @@ func (g *CellGrid) drawRow(cells []Cell, ink color.NRGBA, was rowPaint, cp []pai
 			if drawn, ok := g.boxDrawn(lines, c.Rune, x0, x1, fg); ok {
 				lines = drawn
 			} else if c.Rune != 0 && c.Rune != ' ' {
-				g.place(&out, c.Rune, c.Style, fg, x0, x1)
-				for _, mark := range c.Marks {
-					g.place(&out, mark, c.Style, fg, x0, x1)
+				if gly, ok := g.cellGlyph(c.Rune, c.Style, x1-x0); ok && c.Marks == "" {
+					// Drawn with the cells.
+					cp[len(cp)-span].Text, cp[len(cp)-span].Glyph = true, gly
+				} else {
+					g.place(&out, c.Rune, c.Style, fg, x0, x1)
+					for _, mark := range c.Marks {
+						g.place(&out, mark, c.Style, fg, x0, x1)
+					}
 				}
 			}
 		}
@@ -585,6 +590,26 @@ func (g *CellGrid) boxDrawn(out []cellFill, r rune, x0, x1 float32, c color.NRGB
 		}})
 	}
 	return out, true
+}
+
+// cellGlyph returns r's glyph as a cell w wide draws it: from its left
+// edge, centred where it is narrower, as a fallback font's may be.
+func (g *CellGrid) cellGlyph(r rune, style CellStyle, w float32) (paint.Glyph, bool) {
+	key := glyphKey{r, style & (CellBold | CellItalic)}
+	cg, seen := g.glyphs[key]
+	if !seen {
+		cg.g, cg.advance, cg.ok = g.face(key.style).Glyph(r, g.metrics.size)
+		g.glyphs[key] = cg
+	}
+	if !cg.ok {
+		return paint.Glyph{}, false
+	}
+	gly := cg.g
+	gly.At = geom.Pt(0, 0)
+	if cg.advance > 0 && cg.advance < w {
+		gly.At.X = (w - cg.advance) / 2
+	}
+	return gly, true
 }
 
 // place adds r's glyph to the run of its colour, centred in the cells
