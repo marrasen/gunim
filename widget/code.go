@@ -429,7 +429,7 @@ func (c *CodeEditor) Handle(e input.Event, u *gunim.UI) bool {
 		if c.readOnly {
 			return true
 		}
-		c.compose(e, u)
+		c.compose(e)
 	case input.TextEdit:
 		if c.readOnly {
 			return true

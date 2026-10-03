@@ -240,14 +240,26 @@ func (e *editor) TextState() input.TextState {
 	return s
 }
 
-// commit puts typed or composed text in, as [input.TextInput] brings it.
-func (e *editor) commit(s string, u *gunim.UI) { e.edit(e.TextState().Commit(s), u) }
+// commit puts typed or composed text in, as [input.TextInput] brings it,
+// in place of the selection, which a composition is drawn over. It
+// changes the text in place, so a key costs no more in a long text.
+func (e *editor) commit(s string, u *gunim.UI) {
+	if e.readOnly {
+		return
+	}
+	e.preedit, e.preSel = nil, [2]int{}
+	e.edited = true
+	e.insert(s, u)
+}
 
 // compose takes the input method's latest composition, whose selection
 // arrives in bytes. An empty one only ends the composition: the text
 // and its selection stay as they were, as a desktop input method sends
 // it when a composition is cancelled and just before one commits.
-func (e *editor) compose(c input.Composing, u *gunim.UI) {
+func (e *editor) compose(c input.Composing) {
+	if e.readOnly {
+		return
+	}
 	if c.Text == "" {
 		if len(e.preedit) > 0 {
 			e.preedit, e.preSel = nil, [2]int{}
@@ -255,7 +267,14 @@ func (e *editor) compose(c input.Composing, u *gunim.UI) {
 		}
 		return
 	}
-	e.edit(e.TextState().Compose(c.Text, c.Selected), u)
+	e.preedit = []rune(c.Text)
+	runeAt := func(b int) int {
+		b = max(0, min(b, len(c.Text)))
+		return utf8.RuneCountInString(c.Text[:b])
+	}
+	e.preSel = [2]int{runeAt(c.Selected[0]), runeAt(c.Selected[1])}
+	e.hinted, e.goal = false, false
+	e.edited = true
 }
 
 // edit makes an input method's edit. The composition is drawn over

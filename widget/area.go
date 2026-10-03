@@ -212,7 +212,7 @@ func (a *TextArea) Handle(e input.Event, u *gunim.UI) bool {
 		a.complete(u)
 	case input.Composing:
 		a.closeCompletion()
-		a.compose(e, u)
+		a.compose(e)
 	case input.TextEdit:
 		a.edit(e, u)
 		if len(a.preedit) > 0 {

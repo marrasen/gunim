@@ -244,7 +244,7 @@ func (t *TextField) Handle(e input.Event, u *gunim.UI) bool {
 	case input.TextInput:
 		t.commit(e.Text, u)
 	case input.Composing:
-		t.compose(e, u)
+		t.compose(e)
 	case input.TextEdit:
 		t.edit(e, u)
 	case input.KeyPress:
