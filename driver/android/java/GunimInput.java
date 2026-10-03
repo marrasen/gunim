@@ -113,7 +113,9 @@ final class GunimInput {
 		if (ca == cb) {
 			ca = cb = -1;
 		}
-		if (kind || start != this.start || !s.equals(text)) {
+		if (kind) {
+			// A field of another kind: the keyboard starts over, with the
+			// layout and the suggestions the kind asks for.
 			this.start = start;
 			text = s;
 			selA = a;
@@ -125,7 +127,34 @@ final class GunimInput {
 			imm.restartInput(view);
 			return;
 		}
-		if (a != selA || b != selB) {
+		boolean changed = false;
+		if (start != this.start || !s.equals(text)) {
+			// A change of Go's, as a key deleting or text the program set:
+			// the copy takes it in place, as Android's own fields do, and
+			// the keyboard carries on. Starting it over would end a held
+			// backspace after its first character.
+			int p = 0;
+			int most = Math.min(text.length(), s.length());
+			while (p < most && text.charAt(p) == s.charAt(p)) {
+				p++;
+			}
+			int q = 0;
+			while (q < text.length() - p && q < s.length() - p
+				&& text.charAt(text.length() - 1 - q) == s.charAt(s.length() - 1 - q)) {
+				q++;
+			}
+			editable.replace(p, text.length() - q, s, p, s.length() - q);
+			this.start = start;
+			text = s;
+			changed = true;
+		}
+		if (ca < 0 && compA >= 0) {
+			// Go ended the composition, as a key does.
+			BaseInputConnection.removeComposingSpans(editable);
+			compA = compB = -1;
+			changed = true;
+		}
+		if (changed || a != selA || b != selB) {
 			selA = a;
 			selB = b;
 			Selection.setSelection(editable, a, b);
@@ -209,6 +238,10 @@ final class GunimInput {
 		selB = se;
 		compA = cs;
 		compB = ce;
+		// The keyboard learns where its own edit left the selection from
+		// this, as from any other change: Gboard waits for it before it
+		// deletes again for a held backspace.
+		imm.updateSelection(view, Math.min(ss, se), Math.max(ss, se), cs, ce);
 	}
 
 	/**
@@ -222,6 +255,7 @@ final class GunimInput {
 		Native.text(now);
 		editable.clearSpans();
 		editable.clear();
+		imm.updateSelection(view, 0, 0, -1, -1);
 	}
 
 	/** utf8 returns how many UTF-8 bytes s takes from from to to. */

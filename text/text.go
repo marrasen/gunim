@@ -619,23 +619,84 @@ func (f *Face) wrapLocked(runes []rune, size, width float32, cfg shaping.WrapCon
 	if len(runes) == 0 {
 		return nil, 0
 	}
-	inputs := seg.Split(shaping.Input{
+	fm := &fontmap{f: f}
+	inputs := respace(seg.Split(shaping.Input{
 		Text:      runes,
 		RunEnd:    len(runes),
 		Direction: cfg.Direction,
 		Face:      f.face,
 		Size:      toFixed(size),
 		Language:  language.DefaultLanguage(),
-	}, &fontmap{f: f})
+	}, fm), fm)
 	outs := make([]shaping.Output, len(inputs))
 	for i, in := range inputs {
 		outs[i] = shaper.Shape(in)
+		inkWidths(&outs[i], runes)
 	}
 	maxWidth := fixed.Int26_6(math.MaxInt32)
 	if width > 0 {
 		maxWidth = toFixed(width)
 	}
 	return wrapper.WrapParagraphF(cfg, maxWidth, breakText(runes), shaping.NewSliceIterator(outs))
+}
+
+// respace moves spaces out of runs set in a face other than their own.
+// The segmenter leaves a space in the face of the text before it, so it
+// starts no run of its own, and an emoji font sets a space as wide as an
+// emoji: a space after an emoji would show as a wide gap. Each stretch
+// of spaces goes to the face the fontmap gives a space. It runs with mu
+// held.
+func respace(inputs []shaping.Input, fm *fontmap) []shaping.Input {
+	out := make([]shaping.Input, 0, len(inputs))
+	for _, in := range inputs {
+		start := in.RunStart
+		for i := in.RunStart; i < in.RunEnd; {
+			r := in.Text[i]
+			if !unicode.IsSpace(r) {
+				i++
+				continue
+			}
+			face := fm.resolve(r)
+			if face == in.Face {
+				i++
+				continue
+			}
+			j := i
+			for j < in.RunEnd && unicode.IsSpace(in.Text[j]) {
+				j++
+			}
+			if i > start {
+				part := in
+				part.RunStart, part.RunEnd = start, i
+				out = append(out, part)
+			}
+			part := in
+			part.RunStart, part.RunEnd, part.Face = i, j, face
+			out = append(out, part)
+			start, i = j, j
+		}
+		if start < in.RunEnd {
+			part := in
+			part.RunStart = start
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+// inkWidths gives each glyph that moves the pen and has no measured
+// ink its advance for a width, unless it is a space. The wrapper takes a
+// glyph of no width at a line's end for a space and drops its advance,
+// and a colour glyph drawn in layers, as a COLRv1 emoji is, has no
+// outline to measure: an emoji ending a line would lose its width, and
+// the caret after it would sit before it.
+func inkWidths(out *shaping.Output, runes []rune) {
+	for i := range out.Glyphs {
+		g := &out.Glyphs[i]
+		if g.Width == 0 && g.XAdvance > 0 && g.ClusterIndex < len(runes) && !unicode.IsSpace(runes[g.ClusterIndex]) {
+			g.Width = g.XAdvance
+		}
+	}
 }
 
 // lineRun lays a wrapped line's runs out left to right in visual order.
