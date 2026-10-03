@@ -17,9 +17,11 @@ type card struct {
 	anim.Group
 	root *gameRoot
 	// in brings it in, and stars fills its stars one after another.
-	in       *anim.Float
-	starsIn  [3]*anim.Float
-	waits    [3]float32
+	in      *anim.Float
+	starsIn [3]*anim.Float
+	waits   [3]float32
+	// wait holds the card back while the board celebrates.
+	wait     float32
 	shown    bool
 	win      bool
 	stars    int
@@ -42,10 +44,11 @@ func newCard(r *gameRoot) *card {
 func (c *card) won(stars, score int) {
 	c.shown, c.win, c.stars, c.score = true, true, stars, score
 	c.in.Jump(0)
-	c.in.Animate(1, anim.Spring{Response: 0.5, Damping: 0.62})
+	// The board's celebration and the first fireworks show first.
+	c.wait = 1.4
 	for i := range c.starsIn {
 		c.starsIn[i].Jump(0)
-		c.waits[i] = 0.6 + 0.35*float32(i)
+		c.waits[i] = c.wait + 0.6 + 0.35*float32(i)
 	}
 }
 
@@ -56,7 +59,7 @@ func (c *card) lost() {
 }
 
 func (c *card) hide() {
-	c.shown = false
+	c.shown, c.wait = false, 0
 	c.in.Animate(0, anim.Spring{Response: 0.3, Damping: 1})
 }
 
@@ -64,6 +67,13 @@ func (c *card) hide() {
 // burst.
 func (c *card) Step(dt time.Duration) bool {
 	moving := false
+	if c.wait > 0 {
+		moving = true
+		c.wait -= float32(dt.Seconds())
+		if c.wait <= 0 && c.shown {
+			c.in.Animate(1, anim.Spring{Response: 0.5, Damping: 0.62})
+		}
+	}
 	if c.shown && c.win {
 		for i := range c.waits {
 			if c.waits[i] <= 0 {
@@ -74,6 +84,7 @@ func (c *card) Step(dt time.Duration) bool {
 			if c.waits[i] <= 0 && i < c.stars {
 				c.starsIn[i].Animate(1, anim.Spring{Response: 0.4, Damping: 0.4})
 				c.root.fx.burst(c.starCenter(i), 24, starBit, 380, gold, white)
+				c.root.sfx.star(i)
 				c.root.fx.burst(c.starCenter(i), 10, sparkle, 260, white, gold)
 			}
 		}
@@ -124,7 +135,7 @@ func (c *card) Handle(e input.Event, u *gunim.UI) bool {
 			if c.win {
 				next++
 			}
-			u.Cue(gunim.CuePress, nil)
+			c.root.sfx.tick(0)
 			u.Send(c.root, Start{Level: next})
 		}
 	}

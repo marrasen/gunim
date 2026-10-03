@@ -17,9 +17,9 @@ import (
 )
 
 // registerViews is the window half: the game's view.
-func registerViews(w *gunim.Window) {
+func registerViews(w *gunim.Window, s *sfx) {
 	gunim.RegisterView(w, "game",
-		func(Game) *gameRoot { return newGameRoot() },
+		func(Game) *gameRoot { return newGameRoot(s) },
 		func(r *gameRoot, s Game, u *gunim.UI) { r.show(s, u) })
 }
 
@@ -45,14 +45,19 @@ type gameRoot struct {
 	// notes says candies go in as notes; numbered draws the digits on
 	// the candies.
 	notes, numbered bool
-	fx              *fx
-	sky             *sky
-	header          *header
-	board           *board
-	tray            *tray
-	tools           *tools
-	fxNode          *fxNode
-	card            *card
+	sfx             *sfx
+	// shake shakes the board, as a wrong candy lands, and phase is how
+	// far along its shaking it is.
+	shake  *anim.Float
+	phase  float64
+	fx     *fx
+	sky    *sky
+	header *header
+	board  *board
+	tray   *tray
+	tools  *tools
+	fxNode *fxNode
+	card   *card
 	// boardAt and trayAt are where the board and tray are in the
 	// window, for effects to start from.
 	boardAt, trayAt geom.Point
@@ -60,8 +65,13 @@ type gameRoot struct {
 	size            geom.Size
 }
 
-func newGameRoot() *gameRoot {
-	r := &gameRoot{selected: -1, numbered: true, fx: newFX()}
+func newGameRoot(s *sfx) *gameRoot {
+	if s == nil {
+		s = newSFX(nil)
+	}
+	r := &gameRoot{selected: -1, numbered: true, fx: newFX(), sfx: s, shake: anim.NewFloat(0)}
+	r.Add(r.shake)
+	r.fx.boom = func(at geom.Point) { s.firework(r.pan(at)) }
 	r.sky = newSky()
 	r.header = newHeader(r)
 	r.board = newBoard(r)
@@ -101,6 +111,8 @@ func (r *gameRoot) play(e Event) {
 	case Placed:
 		r.board.land(e.Cell)
 		at := r.cellCenter(e.Cell)
+		r.sfx.placed(e.Digit, e.Combo, r.pan(at))
+		r.header.combo(e.Combo)
 		k := candyOf(e.Digit)
 		r.fx.burst(at, 12, sparkle, 260, k.color, white, lighter(k.color, 0.5))
 		r.fx.say(fmt.Sprintf("+%d", e.Points), at.Sub(geom.Pt(0, r.cell()*0.6)), r.cell()*0.42, gold)
@@ -112,8 +124,13 @@ func (r *gameRoot) play(e Event) {
 	case Wrong:
 		r.board.wrong(e.Cell, e.Digit)
 		r.header.breakHeart()
+		r.header.combo(0)
+		r.sfx.wrong(r.pan(r.cellCenter(e.Cell)))
+		r.shake.Jump(1)
+		r.shake.Animate(0, anim.Tween{Duration: 450 * time.Millisecond, Ease: anim.Linear})
 	case Done:
 		r.board.done(e.Unit)
+		r.sfx.done(e.Unit)
 		for _, c := range units[e.Unit] {
 			r.fx.burst(r.cellCenter(c), 3, starBit, 220, gold, white, rgb(0xff, 0x9f, 0xd8))
 		}
@@ -122,19 +139,46 @@ func (r *gameRoot) play(e Event) {
 		r.fx.say(fmt.Sprintf("+%d", e.Points), mid, r.cell()*0.55, rgb(0x9b, 0xff, 0xe0))
 	case DigitDone:
 		r.tray.finish(e.Digit)
+		r.sfx.digitDone(e.Digit)
 		r.fx.burst(r.trayCenter(e.Digit), 26, starBit, 420, candyOf(e.Digit).color, white, gold)
 	case Hinted:
 		r.board.hinted(e.Cell)
 		at := r.cellCenter(e.Cell)
+		r.sfx.hint(r.pan(at))
 		r.fx.burst(at, 30, sparkle, 340, gold, white, rgb(0xff, 0xf3, 0xb0))
 	case WonEvent:
 		r.selected, r.armed = -1, 0
 		r.card.won(r.state.Stars, r.state.Score)
 		r.fx.rain(r.size.W, 140, confettiColors...)
+		r.fx.fireworks(r.size, 7, confettiColors...)
+		r.board.celebrate()
+		r.header.combo(0)
+		r.sfx.won()
 	case LostEvent:
 		r.selected, r.armed = -1, 0
 		r.card.lost()
+		r.sfx.lost()
+		r.shake.Jump(1.6)
+		r.shake.Animate(0, anim.Tween{Duration: 800 * time.Millisecond, Ease: anim.Linear})
 	}
+}
+
+// pan returns where at lies across the window, for a sound to come
+// from: -0.6 at the left edge to 0.6 at the right.
+func (r *gameRoot) pan(at geom.Point) float32 {
+	if r.size.W <= 0 {
+		return 0
+	}
+	return 0.6 * max(-1, min(1, 2*at.X/r.size.W-1))
+}
+
+// Step implements [gunim.Animator]: the board shakes while shake runs.
+func (r *gameRoot) Step(dt time.Duration) bool {
+	moving := r.Group.Step(dt)
+	if r.shake.Value() > 0 {
+		r.phase += dt.Seconds()
+	}
+	return moving
 }
 
 var confettiColors = []color.NRGBA{
@@ -176,7 +220,7 @@ func (r *gameRoot) tapCell(c int, u *gunim.UI) {
 	}
 	r.armed = 0
 	r.selected = c
-	u.Cue(gunim.CueSelect, nil)
+	r.sfx.tick(r.pan(r.cellCenter(c)))
 }
 
 // pick takes candy d from the tray: into the cell selected, or, with
@@ -270,10 +314,20 @@ func (r *gameRoot) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Childre
 	return size
 }
 
-// Paint implements [gunim.Node].
+// Paint implements [gunim.Node]: the board shakes as it is told to.
 func (r *gameRoot) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim.Children) {
-	for k := range kids.All {
-		k.Paint(p)
+	for i := range kids.Len() {
+		if i == 2 {
+			if s := r.shake.Value(); s > 0 {
+				dx := float32(math.Sin(r.phase*70)) * 8 * s
+				func() {
+					defer p.Push(paint.Translate(geom.Pt(dx, 0)))()
+					kids.At(i).Paint(p)
+				}()
+				continue
+			}
+		}
+		kids.At(i).Paint(p)
 	}
 }
 
@@ -392,11 +446,16 @@ type header struct {
 	// hearts breaking, and how far each has broken.
 	broken [startLives]*anim.Float
 	lives  int
+	// count is the combo going, and left how long it has to go on, of
+	// comboWindow; meter brings its bar in and out.
+	count int
+	left  float32
+	meter *anim.Float
 }
 
 func newHeader(r *gameRoot) *header {
-	h := &header{root: r, score: anim.NewFloat(0), lives: startLives}
-	h.Add(h.score)
+	h := &header{root: r, score: anim.NewFloat(0), lives: startLives, meter: anim.NewFloat(0)}
+	h.Add(h.score, h.meter)
 	for i := range h.broken {
 		h.broken[i] = anim.NewFloat(0)
 		h.Add(h.broken[i])
@@ -416,6 +475,30 @@ func (h *header) show(s Game) {
 		}
 	}
 	h.lives = s.Lives
+}
+
+// combo starts the combo's meter afresh, or ends it with n under 2.
+func (h *header) combo(n int) {
+	h.count = n
+	if n < 2 {
+		h.left = 0
+		h.meter.Animate(0, anim.Spring{Response: 0.3, Damping: 1})
+		return
+	}
+	h.left = float32(comboWindow.Seconds())
+	h.meter.Animate(1, anim.Spring{Response: 0.35, Damping: 0.55})
+}
+
+// Step implements [gunim.Animator]: the combo's time runs out.
+func (h *header) Step(dt time.Duration) bool {
+	if h.left > 0 {
+		h.left -= float32(dt.Seconds())
+		if h.left <= 0 {
+			h.left = 0
+			h.meter.Animate(0, anim.Spring{Response: 0.3, Damping: 1})
+		}
+	}
+	return h.Group.Step(dt) || h.left > 0
 }
 
 // breakHeart breaks the heart just lost.
@@ -466,6 +549,25 @@ func (h *header) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, _ gunim.C
 				}()
 			}
 		}
+	}
+
+	// The combo's meter under the hearts: a candy stripe that runs out.
+	if m := h.meter.Value(); m > 0.01 {
+		mw := float32(hs*startLives+8*(startLives-1)) + 20
+		mr := geom.Rc(box.W/2-mw/2, 52, mw, 10)
+		func() {
+			defer p.Push(paint.Scale(m, geom.Pt(box.W/2, 57)))()
+			p.RRect(mr, 5, paint.Solid(faded(plum, 0.5)))
+			frac := h.left / float32(comboWindow.Seconds())
+			fill := geom.Rc(mr.Min.X, mr.Min.Y, max(mr.Size().W*frac, 10), 10)
+			p.RRect(fill, 5, paint.Fill{Gradient: &paint.Gradient{
+				From: fill.Min, To: geom.Pt(fill.Max.X, fill.Min.Y),
+				Start: comboColor(3), End: comboColor(max(h.count+1, 3)),
+			}})
+			p.RRect(geom.Rc(fill.Min.X+3, fill.Min.Y+2, fill.Size().W-6, 3), 1.5, paint.Solid(faded(white, 0.45)))
+			x := shaped("x"+strconv.Itoa(h.count), 14, true)
+			paintLabel(p, x, geom.Pt(mr.Max.X+6, 49), gold)
+		}()
 	}
 
 	score := shaped(strconv.Itoa(int(math.Round(float64(h.score.Value())))), 26, true)
@@ -658,7 +760,7 @@ func (t *tray) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, _ gunim.Chi
 type tools struct {
 	anim.Group
 	root  *gameRoot
-	press [4]*anim.Float
+	press [5]*anim.Float
 	down  int
 	size  geom.Size
 }
@@ -672,18 +774,18 @@ func newTools(r *gameRoot) *tools {
 	return t
 }
 
-var toolIcons = [4]*icon.Icon{icon.Undo2, icon.Eraser, icon.Pencil, icon.WandSparkles}
-var toolNames = [4]string{"Undo", "Erase", "Notes", "Hint"}
+var toolIcons = [5]*icon.Icon{icon.Undo2, icon.Eraser, icon.Pencil, icon.WandSparkles, icon.Volume2}
+var toolNames = [5]string{"Undo", "Erase", "Notes", "Hint", "Sound"}
 
 func (t *tools) slot(i int) geom.Rect {
-	w := t.size.W / 4
+	w := t.size.W / 5
 	return geom.Rc(float32(i)*w, 0, w, t.size.H)
 }
 
 // Handle implements [gunim.Handler].
 func (t *tools) Handle(e input.Event, u *gunim.UI) bool {
 	at := func(p geom.Point) int {
-		for i := range 4 {
+		for i := range 5 {
 			if t.slot(i).Contains(p) {
 				return i
 			}
@@ -719,6 +821,8 @@ func (t *tools) Handle(e input.Event, u *gunim.UI) bool {
 			t.root.toggleNotes()
 		case 3:
 			t.root.hint(u)
+		case 4:
+			t.root.sfx.setMuted(!t.root.sfx.muted)
 		}
 	default:
 		return false
@@ -735,7 +839,7 @@ func (t *tools) Layout(c gunim.Constraints, _ gunim.Frame, _ gunim.Children) geo
 
 // Paint implements [gunim.Node].
 func (t *tools) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
-	for i := range 4 {
+	for i := range 5 {
 		sr := t.slot(i)
 		d := min(sr.Size().W*0.62, 48)
 		mid := geom.Pt((sr.Min.X+sr.Max.X)/2, sr.Min.Y+d/2+4)
@@ -751,7 +855,11 @@ func (t *tools) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Ch
 			}
 			p.ShadowRRect(r, d/2, paint.Solid(fill), paint.Shadow{Blur: 8, Offset: geom.Pt(0, 3), Color: faded(plum, 0.35)})
 			is := d * 0.46
-			widget.PaintIcon(p, f.Theme, toolIcons[i], geom.Rc(mid.X-is/2, mid.Y-is/2, is, is), ink)
+			ic := toolIcons[i]
+			if i == 4 && t.root.sfx.muted {
+				ic = icon.VolumeX
+			}
+			widget.PaintIcon(p, f.Theme, ic, geom.Rc(mid.X-is/2, mid.Y-is/2, is, is), ink)
 		}()
 		name := shaped(toolNames[i], 12, true)
 		name.Paint(p, geom.Pt(mid.X-name.Advance/2, mid.Y+d/2+4), faded(white, 0.85))

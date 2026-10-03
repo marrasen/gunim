@@ -16,7 +16,7 @@ func stage(t *testing.T, size geom.Size, g Game) (*gunim.Window, *gameRoot, func
 	var root *gameRoot
 	w := gunim.NewOffscreen(size, nil)
 	gunim.RegisterView(w, "game",
-		func(Game) *gameRoot { root = newGameRoot(); return root },
+		func(Game) *gameRoot { root = newGameRoot(nil); return root },
 		func(r *gameRoot, s Game, u *gunim.UI) { r.show(s, u) })
 	if err := w.Client().Mount(gunim.Root, "game", "game", g, gameTopic); err != nil {
 		t.Fatal(err)

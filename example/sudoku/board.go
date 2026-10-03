@@ -22,6 +22,8 @@ type cellAnim struct {
 	// drop says it drops in from nothing, rather than hop.
 	wait float32
 	drop bool
+	// again hops it once more this long after, for a celebration.
+	again float32
 	// gone is a candy taken off by undo, shrinking away, and out its
 	// size.
 	gone int8
@@ -128,6 +130,16 @@ func (b *board) done(u int) {
 	}
 }
 
+// celebrate hops every candy, a ripple out from the middle, twice.
+func (b *board) celebrate() {
+	for c := range 81 {
+		dx, dy := float64(c%9-4), float64(c/9-4)
+		d := float32(math.Hypot(dx, dy))
+		b.bounce(c, 0.15+0.07*d, false)
+		b.cells[c].again = 0.75 + 0.07*d
+	}
+}
+
 // hinted lights cell c as a hint lands its candy.
 func (b *board) hinted(c int) {
 	b.land(c)
@@ -145,6 +157,14 @@ func (b *board) Step(dt time.Duration) bool {
 			k.wait -= s
 			moving = true
 			if k.wait <= 0 {
+				k.start()
+			}
+		}
+		if k.again > 0 {
+			k.again -= s
+			moving = true
+			if k.again <= 0 {
+				k.again, k.drop = 0, false
 				k.start()
 			}
 		}

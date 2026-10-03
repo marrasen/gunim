@@ -88,6 +88,9 @@ const (
 	LostEvent
 )
 
+// maxMultiplier is as far as a combo multiplies a candy's score.
+const maxMultiplier = 8
+
 // startLives is the hearts a game starts with.
 const startLives = 3
 
@@ -190,7 +193,7 @@ func (g *game) place(in Place) {
 		g.Combo = 1
 	}
 	g.lastAt = now
-	points := 50 * g.Combo
+	points := 50 * min(g.Combo, maxMultiplier)
 	g.Score += points
 	g.put(c, in.Digit, Event{Kind: Placed, Cell: c, Digit: in.Digit, Combo: g.Combo, Points: points})
 }

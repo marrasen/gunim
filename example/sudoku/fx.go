@@ -22,6 +22,8 @@ const (
 	confetti
 	// starBit is a small candy star, spinning.
 	starBit
+	// rocket climbs, trailing sparks, and bursts as its life ends.
+	rocket
 )
 
 // A particle is one bit of an effect, in window space.
@@ -59,6 +61,8 @@ type fx struct {
 	parts []particle
 	texts []*popText
 	rng   *rand.Rand
+	// boom hears each rocket burst, for its sound.
+	boom func(at geom.Point)
 }
 
 func newFX() *fx { return &fx{rng: rand.New(rand.NewPCG(1, 2))} }
@@ -102,6 +106,20 @@ func (f *fx) rain(w float32, n int, cs ...color.NRGBA) {
 	}
 }
 
+// fireworks sends n rockets up from the bottom of a box of size, one
+// after another, to burst in colours cs.
+func (f *fx) fireworks(size geom.Size, n int, cs ...color.NRGBA) {
+	for i := range n {
+		f.parts = append(f.parts, particle{
+			kind: rocket, pos: geom.Pt(size.W*f.rand(0.15, 0.85), size.H+10),
+			vel:  geom.Pt(f.rand(-60, 60), -size.H*f.rand(0.95, 1.25)),
+			size: 4, color: cs[f.rng.IntN(len(cs))],
+			life: f.rand(0.7, 0.95), gravity: size.H * 0.9, drag: 0.3,
+			delay: 0.3 + 0.45*float32(i) + f.rand(0, 0.2),
+		})
+	}
+}
+
 // say bursts s out at at.
 func (f *fx) say(s string, at geom.Point, size float32, c color.NRGBA) {
 	f.texts = append(f.texts, newPop(s, at, size, c))
@@ -129,8 +147,11 @@ func newPop(s string, at geom.Point, size float32, c color.NRGBA) *popText {
 // step moves everything on, and reports whether anything is left.
 func (f *fx) step(dt time.Duration) bool {
 	s := float32(dt.Seconds())
-	live := f.parts[:0]
-	for _, p := range f.parts {
+	// Bursts and trails made while stepping join after.
+	old := f.parts
+	f.parts = nil
+	live := old[:0]
+	for _, p := range old {
 		if p.delay > 0 {
 			p.delay -= s
 			live = append(live, p)
@@ -138,7 +159,24 @@ func (f *fx) step(dt time.Duration) bool {
 		}
 		p.age += s
 		if p.age >= p.life {
+			if p.kind == rocket {
+				// It bursts: a ring of sparks, crumbs and stars.
+				c := p.color
+				f.burst(p.pos, 26, dot, 380, c, lighter(c, 0.5))
+				f.burst(p.pos, 14, sparkle, 300, white, lighter(c, 0.6))
+				f.burst(p.pos, 8, starBit, 260, c, gold)
+				if f.boom != nil {
+					f.boom(p.pos)
+				}
+			}
 			continue
+		}
+		if p.kind == rocket && f.rng.Float32() < 0.6 {
+			// It trails sparks as it climbs.
+			f.parts = append(f.parts, particle{
+				kind: dot, pos: p.pos, vel: geom.Pt(f.rand(-30, 30), f.rand(20, 60)),
+				size: f.rand(2, 4), color: lighter(p.color, 0.5), life: f.rand(0.2, 0.4), gravity: 200, drag: 2,
+			})
 		}
 		p.vel = p.vel.Mul(max(0, 1-p.drag*s))
 		p.vel.Y += p.gravity * s
@@ -146,8 +184,8 @@ func (f *fx) step(dt time.Duration) bool {
 		p.angle += p.spin * s
 		live = append(live, p)
 	}
-	clear(f.parts[len(live):])
-	f.parts = live
+	clear(old[len(live):])
+	f.parts = append(live, f.parts...)
 	texts := f.texts[:0]
 	for _, t := range f.texts {
 		t.age += s
@@ -192,6 +230,8 @@ func (f *fx) paint(p *paint.Painter) {
 				defer p.Push(paint.Rotate(pt.angle, pt.pos))()
 				p.RRect(geom.Rc(pt.pos.X-w/2, pt.pos.Y-s*0.3, max(w, 1), s*0.6), 1, paint.Solid(faded(pt.color, a)))
 			}()
+		case rocket:
+			p.RRect(geom.Rc(pt.pos.X-3, pt.pos.Y-3, 6, 6), 3, paint.Solid(lighter(pt.color, 0.6)))
 		case starBit:
 			r := geom.Rc(pt.pos.X-s, pt.pos.Y-s, 2*s, 2*s)
 			func() {

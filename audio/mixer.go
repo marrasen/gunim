@@ -35,13 +35,15 @@ type Mixer struct {
 	// its length.
 	history []float32
 	buf     []float32
+	// gain is the limiter's gain, 1 while the mix fits.
+	gain float32
 	// out is Read's buffer; Read runs on one goroutine at a time.
 	out []float32
 }
 
 // NewMixer returns a mixer playing nothing.
 func NewMixer() *Mixer {
-	return &Mixer{history: make([]float32, historyFrames), buf: make([]float32, 2*block)}
+	return &Mixer{history: make([]float32, historyFrames), buf: make([]float32, 2*block), gain: 1}
 }
 
 // Options says how a sound starts playing.
@@ -171,15 +173,39 @@ func (m *Mixer) mixBlock(dst []float32) {
 	}
 	clear(m.voices[len(live):])
 	m.voices = live
+	// The limiter: where the block would pass full scale, the gain
+	// drops to fit it from the block's start, as its peak is known
+	// before any of it is heard, and glides back up after.
+	peak := float32(0)
+	for _, v := range dst {
+		peak = max(peak, v, -v)
+	}
+	g0 := m.gain
+	g1 := min(1, g0+(1-g0)*float32(frames)/float32(limiterRelease))
+	if peak*g1 > limiterCeiling {
+		g1 = limiterCeiling / peak
+		g0 = min(g0, g1)
+	}
+	m.gain = g1
 	for i := range frames {
-		l, r := clip(dst[2*i]), clip(dst[2*i+1])
+		g := g0 + (g1-g0)*float32(i+1)/float32(frames)
+		l, r := clip(dst[2*i]*g), clip(dst[2*i+1]*g)
 		dst[2*i], dst[2*i+1] = l, r
 		m.history[(m.played+int64(i))&(historyFrames-1)] = (l + r) / 2
 	}
 	m.played += int64(frames)
 }
 
-// clip keeps a sample within -1 to 1.
+// The limiter's ceiling, full scale, which a block's peak is brought
+// under, and how many frames it takes to come most of the way back to
+// full gain.
+const (
+	limiterCeiling = 1
+	limiterRelease = SampleRate * 8 / 100
+)
+
+// clip keeps a sample within -1 to 1, where rounding might take it a
+// hair past.
 func clip(s float32) float32 { return max(-1, min(1, s)) }
 
 // A Voice is one sound playing in a [Mixer].

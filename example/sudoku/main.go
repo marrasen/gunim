@@ -24,6 +24,8 @@ import (
 	"time"
 
 	"github.com/marrasen/gunim"
+	"github.com/marrasen/gunim/audio"
+	"github.com/marrasen/gunim/audio/speaker"
 	"github.com/marrasen/gunim/driver"
 	"github.com/marrasen/gunim/geom"
 )
@@ -34,17 +36,18 @@ func main() {
 	shot := flag.String("shot", "", "write the window to this PNG file after -after, and quit")
 	after := flag.Duration("after", 2*time.Second, "how long -shot waits")
 	size := flag.String("size", "460x860", "the window's size, as 1100x760 for a wide one")
+	mute := flag.Bool("mute", false, "start with the sound off")
 	flag.Parse()
 	var w, h float32
 	if _, err := fmt.Sscanf(*size, "%gx%g", &w, &h); err != nil || w <= 0 || h <= 0 {
 		log.Fatalf("sudoku: -size %q: want a width and a height, as 460x860", *size)
 	}
-	if err := run(*level, *runFor, *shot, *after, geom.Sz(w, h)); err != nil {
+	if err := run(*level, *runFor, *shot, *after, geom.Sz(w, h), *mute); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func run(level int, runFor time.Duration, shot string, after time.Duration, size geom.Size) error {
+func run(level int, runFor time.Duration, shot string, after time.Duration, size geom.Size, mute bool) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	if runFor > 0 {
@@ -52,12 +55,21 @@ func run(level int, runFor time.Duration, shot string, after time.Duration, size
 		ctx, cancel = context.WithTimeout(ctx, runFor)
 		defer cancel()
 	}
+	mix := audio.NewMixer()
+	if _, err := speaker.Open(mix, speaker.Options{Name: "Candy Sudoku"}); err != nil {
+		log.Printf("sudoku: no sound: %v", err)
+		mix = nil
+	}
+	s := newSFX(mix)
+	if mute {
+		s.setMuted(true)
+	}
 	err := gunim.Main(ctx, func(a *gunim.App) error {
 		w, err := a.NewWindow(gunim.WindowOptions{Title: "Candy Sudoku", Size: size})
 		if err != nil {
 			return fmt.Errorf("sudoku: %w", err)
 		}
-		registerViews(w)
+		registerViews(w, s)
 		c := w.Client()
 		if shot != "" {
 			go func() {
