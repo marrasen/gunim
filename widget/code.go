@@ -336,6 +336,16 @@ func (c *CodeEditor) TextCaret() geom.Rect {
 	return geom.Rc(at.X, at.Y+(c.lineH-c.glyphH)/2, 1.5, c.glyphH)
 }
 
+// caretRect returns where a caret before rune i would stand, in the
+// editor's space.
+func (c *CodeEditor) caretRect(i int) geom.Rect {
+	at := geom.Pt(c.xOf(i), float32(c.lineOf(i))*c.lineH).Add(c.origin())
+	return geom.Rc(at.X, at.Y+(c.lineH-c.glyphH)/2, 1.5, c.glyphH)
+}
+
+// hostIndex returns the rune a press at p in the editor's space is before.
+func (c *CodeEditor) hostIndex(p geom.Point, _ *gunim.UI) int { return c.indexAt(p) }
+
 // Step implements [gunim.Animator].
 func (c *CodeEditor) Step(dt time.Duration) bool {
 	moving := c.Group.Step(dt)
@@ -377,11 +387,13 @@ func (c *CodeEditor) Handle(e input.Event, u *gunim.UI) bool {
 		c.preedit = nil
 		c.closeMenu()
 		c.wording = false
+		c.closeHandles()
 	case input.PointerDown:
 		if e.Button == input.ButtonSecondary {
 			c.contextPress(c, c.indexAt(e.Pos), e.Pos, e.Touch, u)
 			break
 		}
+		c.closeHandles()
 		c.press(c.indexAt(e.Pos), e.Clicks, e.Mods.Has(input.ModShift))
 		c.held = true
 	case input.PointerMove:
@@ -874,6 +886,7 @@ func (c *CodeEditor) Layout(cs gunim.Constraints, f gunim.Frame, _ gunim.Childre
 	}
 	c.edited = false
 	c.laid = true
+	c.placeHandles(c)
 	return own
 }
 

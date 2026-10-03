@@ -70,6 +70,10 @@ type editor struct {
 	// selected.
 	wording bool
 	words   [2]int
+	// handles are the popups of the selection's two handles while they
+	// show, and handleAt where each hangs; see handles.go.
+	handles  [2]*gunim.Popup
+	handleAt [2]geom.Rect
 	// menu is the edit menu's popup while it is open, and menuItems the
 	// menu in it.
 	menu      *gunim.Popup
@@ -415,14 +419,15 @@ func (e *editor) dragWords(i int) {
 }
 
 // endWords ends a finger's choosing of words as it lifts at at, in
-// owner's space, opening the edit menu there, and reports whether one
-// was going on.
-func (e *editor) endWords(owner gunim.Node, at geom.Point, u *gunim.UI) bool {
+// host's space, opening the edit menu there and the handles at the
+// selection's ends, and reports whether one was going on.
+func (e *editor) endWords(host textHost, at geom.Point, u *gunim.UI) bool {
 	if !e.wording {
 		return false
 	}
 	e.wording = false
-	e.openMenu(owner, at, u)
+	e.showHandles(host, u)
+	e.openMenu(host, at, u)
 	return true
 }
 
@@ -451,7 +456,10 @@ func (e *editor) openMenu(owner gunim.Node, at geom.Point, u *gunim.UI) {
 		case editSelectAll:
 			e.clipboard(input.KeyA, start, end, u)
 			// With everything selected, the menu stays for what to do
-			// with it.
+			// with it, and handles chosen by finger move to its ends.
+			if host, ok := owner.(textHost); ok && e.handles[0] != nil {
+				e.placeHandles(host)
+			}
 			e.openMenu(owner, at, u)
 		}
 		u.Invalidate()
@@ -700,6 +708,7 @@ func (e *editor) replace(start, end int, with []rune, u *gunim.UI) {
 		kind = deleting
 	}
 	e.remember(kind, start, end, with)
+	e.closeHandles()
 	out := make([]rune, 0, len(e.text)-(end-start)+len(with))
 	out = append(out, e.text[:start]...)
 	out = append(out, with...)

@@ -126,6 +126,16 @@ func (t *TextField) TextCaret() geom.Rect {
 	return geom.Rc(t.lead-t.scroll.Value()+t.caretAt.Value(), y, 1.5, h)
 }
 
+// caretRect returns where a caret before rune i would stand, in the
+// field's space.
+func (t *TextField) caretRect(i int) geom.Rect {
+	h := t.line.Height()
+	return geom.Rc(t.lead-t.scroll.Value()+t.line.CaretX(i), (t.size.H-h)/2, 1.5, h)
+}
+
+// hostIndex returns the rune a press at p in the field's space is before.
+func (t *TextField) hostIndex(p geom.Point, u *gunim.UI) int { return t.indexAt(p, u) }
+
 // Text returns the field's text.
 func (t *TextField) Text() string { return string(t.text) }
 
@@ -192,6 +202,7 @@ func (t *TextField) Handle(e input.Event, u *gunim.UI) bool {
 		t.preedit = nil // the driver ends the composition too
 		t.closeMenu()
 		t.wording = false
+		t.closeHandles()
 	case input.PointerDown:
 		if e.Button == input.ButtonSecondary {
 			t.contextPress(t, t.indexAt(e.Pos, u), e.Pos, e.Touch, u)
@@ -203,6 +214,7 @@ func (t *TextField) Handle(e input.Event, u *gunim.UI) bool {
 			t.clearing = e.Button == input.ButtonPrimary
 			break
 		}
+		t.closeHandles()
 		t.press(t.indexAt(e.Pos, u), e.Clicks, e.Mods.Has(input.ModShift))
 		t.held = true
 	case input.PointerMove:
@@ -379,6 +391,7 @@ func (t *TextField) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children)
 	scroll = max(0, min(scroll, run.Advance-inner))
 	t.aim(t.scroll, scroll, motion)
 	t.edited = false
+	t.placeHandles(t)
 	return own
 }
 
