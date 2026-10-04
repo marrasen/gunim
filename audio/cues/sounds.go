@@ -22,7 +22,33 @@ func Sounds() map[gunim.Cue]*audio.Clip {
 		gunim.CueOpen:      glide(0.11, 620, 1150),
 		gunim.CueClose:     glide(0.09, 1050, 560),
 		gunim.CueError:     buzz(),
+
+		gunim.CueConnected:    notes(0.13, 784, 1175),
+		gunim.CueDisconnected: notes(0.13, 1175, 784),
+		gunim.CueDone:         notes(0.11, 1047, 1319, 1568),
+		gunim.CueFailed:       notes(0.12, 988, 831, 659),
+		gunim.CueBell:         bell(),
 	}
+}
+
+// bell is a small bell struck once: a few partials at a bell's
+// unharmonic ratios, the higher ones dying sooner, and a soft strike.
+func bell() *audio.Clip {
+	const hz = 1320
+	partials := [...]struct{ ratio, gain, tau float64 }{
+		{1, 1, 0.11}, {2.0, 0.45, 0.07}, {2.76, 0.3, 0.05}, {5.4, 0.12, 0.025},
+	}
+	return render(0.38, func(t float64) float64 {
+		v := 0.0
+		for _, p := range partials {
+			v += p.gain * math.Sin(2*math.Pi*hz*p.ratio*t) * decay(t, 0.0015, p.tau)
+		}
+		// Faded out over its last 60 ms, so it ends in silence.
+		if t > 0.32 {
+			v *= (0.38 - t) / 0.06
+		}
+		return 0.09 * v
+	})
 }
 
 // rate is the sample rate as a float.
