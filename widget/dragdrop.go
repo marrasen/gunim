@@ -124,6 +124,16 @@ func NewDropTarget(child gunim.Node) *DropTarget {
 // Children implements [gunim.Composite].
 func (t *DropTarget) Children() []gunim.Node { return []gunim.Node{t.child} }
 
+// filesOf returns the paths of files dragged in from another program,
+// as far as the system has told them, or nil for a drag of anything
+// else.
+func filesOf(data any) []string {
+	if f, ok := data.(input.Files); ok {
+		return f.Paths
+	}
+	return nil
+}
+
 func (t *DropTarget) takes(data any, paths []string) bool {
 	return t.Accept == nil || t.Accept(data, paths)
 }
@@ -133,7 +143,7 @@ func (t *DropTarget) Handle(e input.Event, u *gunim.UI) bool {
 	th := u.Theme()
 	switch e := e.(type) {
 	case input.DragOver:
-		if !t.takes(e.Data, nil) {
+		if !t.takes(e.Data, filesOf(e.Data)) {
 			return false
 		}
 		if t.Hint != nil {

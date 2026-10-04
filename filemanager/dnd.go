@@ -105,6 +105,9 @@ func fileDragOf(d input.Drop) (FileDrag, bool) {
 	if fd, ok := d.Data.(FileDrag); ok && len(fd.Paths) > 0 {
 		return fd, true
 	}
+	if f, ok := d.Data.(input.Files); ok && len(f.Paths) > 0 {
+		return FileDrag{Paths: f.Paths}, true
+	}
 	if d.Data == nil && len(d.Paths) > 0 {
 		return FileDrag{Paths: d.Paths}, true
 	}

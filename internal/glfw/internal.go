@@ -205,6 +205,7 @@ type Window struct {
 		character   CharCallback
 		charmods    CharModsCallback
 		drop        DropCallback
+		dragOver    DragOverCallback
 	}
 
 	platform platformWindowState

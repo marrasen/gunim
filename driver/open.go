@@ -164,6 +164,22 @@ type WindowFocus struct{ Focused bool }
 // application sent to the background and brought back on a phone.
 type WindowShown struct{ Shown bool }
 
+// FilesOver is sent on [Window.Input] each time files from another
+// program, such as a file manager, move while dragged over the window:
+// at Pos, in logical pixels, with their Paths once the system has told
+// them, which may be a moment after the drag arrives. Mods are the
+// modifier keys held. FilesLeft is sent as the drag leaves with no
+// drop; a drop arrives as an [input.Drop] with its Paths.
+type FilesOver struct {
+	Pos   geom.Point
+	Paths []string
+	Mods  input.Mods
+}
+
+// FilesLeft is sent on [Window.Input] as files dragged over the window
+// leave it with no drop.
+type FilesLeft struct{}
+
 // A Positioner is a [Window] that says where its content sits on the
 // screen: the top-left corner of what it draws, in device pixels, so a
 // screenshot can put a popup where it shows over its parent.

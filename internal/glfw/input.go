@@ -119,6 +119,17 @@ func (w *Window) inputCursorEnter(entered bool) {
 	}
 }
 
+// inputDragOver reports files from another program dragged over the
+// window: at x, y in the content area, with their paths where the
+// system has told them yet, or leaving with over false.
+//
+// This is a gunim change.
+func (w *Window) inputDragOver(x, y float64, paths []string, over bool) {
+	if w.callbacks.dragOver != nil {
+		w.callbacks.dragOver(w, x, y, paths, over)
+	}
+}
+
 func (w *Window) inputDrop(paths []string) {
 	if w.callbacks.drop != nil {
 		w.callbacks.drop(w, paths)
@@ -525,6 +536,29 @@ func (w *Window) SetDropCallback(cbfun DropCallback) (DropCallback, error) {
 	}
 	old := w.callbacks.drop
 	w.callbacks.drop = cbfun
+	return old, nil
+}
+
+// DragOverCallback hears files from another program, such as a file
+// manager, dragged over the window: over at x, y in the content area,
+// with the files' paths once the system has told them, which may be a
+// moment after the drag arrives, and over false as the drag leaves
+// with no drop. A drop arrives at the [DropCallback], with no leave
+// before it.
+//
+// This is a gunim change.
+type DragOverCallback func(w *Window, x, y float64, paths []string, over bool)
+
+// SetDragOverCallback sets the callback that hears files dragged over
+// the window.
+//
+// This is a gunim change.
+func (w *Window) SetDragOverCallback(cbfun DragOverCallback) (DragOverCallback, error) {
+	if !_glfw.initialized {
+		return nil, NotInitialized
+	}
+	old := w.callbacks.dragOver
+	w.callbacks.dragOver = cbfun
 	return old, nil
 }
 

@@ -912,6 +912,17 @@ func (w *Window) install() {
 		// GLFW moves the cursor to where the files were let go first.
 		w.in.Push(input.Drop{Pos: w.cursor, Paths: names, Mods: modsOf(gw.HeldModifiers()), Time: time.Now()})
 	})
+	_, _ = gw.SetDragOverCallback(func(gw *glfw.Window, x, y float64, paths []string, over bool) {
+		if !over {
+			// The pointer went with the drag, and crossing the window's
+			// edge during a drag tells the window nothing, so it hears
+			// here that the pointer left.
+			w.in.Push(driver.FilesLeft{})
+			w.in.Push(input.PointerLeave{Time: time.Now()})
+			return
+		}
+		w.in.Push(driver.FilesOver{Pos: w.logical(x, y), Paths: paths, Mods: modsOf(gw.HeldModifiers())})
+	})
 	_, _ = gw.SetScrollCallback(func(gw *glfw.Window, x, y float64) {
 		// Asked of the system, as a wheel turns with no key event to
 		// say what is held: Ctrl pressed just before, or let go

@@ -1586,6 +1586,9 @@ func processEvent(event *_XEvent) error {
 			_glfw.platformWindow.xdnd.source = _XID(client.Data[0])
 			_glfw.platformWindow.xdnd.version = client.Data[1] >> 24
 			_glfw.platformWindow.xdnd.format = _None
+			_glfw.platformWindow.xdnd.asked = false
+			_glfw.platformWindow.xdnd.paths = nil
+			_glfw.platformWindow.xdnd.dropping = false
 
 			if _glfw.platformWindow.xdnd.version > _GLFW_XDND_VERSION {
 				return nil
@@ -1615,11 +1618,28 @@ func processEvent(event *_XEvent) error {
 					break
 				}
 			}
+		} else if client.MessageType == _glfw.platformWindow.XdndLeave {
+			// A gunim change: the drag left the window with no drop.
+			_glfw.platformWindow.xdnd.source = _None
+			_glfw.platformWindow.xdnd.asked = false
+			_glfw.platformWindow.xdnd.paths = nil
+			window.inputDragOver(0, 0, nil, false)
 		} else if client.MessageType == _glfw.platformWindow.XdndDrop {
 			// The drag operation has finished by dropping on the window
 			time := _CurrentTime
 
 			if _glfw.platformWindow.xdnd.version > _GLFW_XDND_VERSION {
+				return nil
+			}
+
+			// A gunim change: the files asked for as the drag moved in
+			// serve the drop, as they arrived or once they do.
+			xdnd := &_glfw.platformWindow.xdnd
+			xdnd.dropping = true
+			if xdnd.format != _None && xdnd.asked {
+				if xdnd.paths != nil {
+					finishXdndDrop(window, xdnd.paths, 1)
+				}
 				return nil
 			}
 
@@ -1670,6 +1690,28 @@ func processEvent(event *_XEvent) error {
 
 			window.inputCursorPos(float64(xpos), float64(ypos))
 
+			// A gunim change: the files are asked for as the drag first
+			// moves over the window, and the drag is reported where it
+			// is, with them once they arrive.
+			xdnd := &_glfw.platformWindow.xdnd
+			xdnd.x, xdnd.y = float64(xpos), float64(ypos)
+			if xdnd.format != _None && !xdnd.asked {
+				xdnd.asked = true
+				time := _CurrentTime
+				if xdnd.version >= 1 {
+					time = _Time(client.Data[3])
+				}
+				xConvertSelection(_glfw.platformWindow.display,
+					_glfw.platformWindow.XdndSelection,
+					xdnd.format,
+					_glfw.platformWindow.XdndSelection,
+					window.platform.handle,
+					time)
+			}
+			if xdnd.format != _None {
+				window.inputDragOver(xdnd.x, xdnd.y, xdnd.paths, true)
+			}
+
 			var reply _XEvent
 			replyClient := reply.xclient()
 			replyClient.Type = _ClientMessage
@@ -1698,6 +1740,12 @@ func processEvent(event *_XEvent) error {
 	case _SelectionNotify:
 		if event.xselection().Property == _glfw.platformWindow.XdndSelection {
 			// The converted data from the drag operation has arrived
+			xdnd := &_glfw.platformWindow.xdnd
+			if xdnd.source == _None {
+				// A gunim change: what was asked for during a drag that
+				// has since left or dropped.
+				return nil
+			}
 			var data uintptr
 			result := getWindowPropertyX11(event.xselection().Requestor,
 				event.xselection().Property,
@@ -1706,26 +1754,23 @@ func processEvent(event *_XEvent) error {
 			if data != 0 {
 				defer xFree(data)
 			}
-
+			var paths []string
 			if result != 0 {
-				window.inputDrop(parseUriList(goString(data)))
+				paths = parseUriList(goString(data))
+			}
+			if paths == nil {
+				paths = []string{}
 			}
 
-			if _glfw.platformWindow.xdnd.version >= 2 {
-				var reply _XEvent
-				replyClient := reply.xclient()
-				replyClient.Type = _ClientMessage
-				replyClient.Window = _glfw.platformWindow.xdnd.source
-				replyClient.MessageType = _glfw.platformWindow.XdndFinished
-				replyClient.Format = 32
-				replyClient.Data[0] = _Clong(window.platform.handle)
-				replyClient.Data[1] = _Clong(result)
-				replyClient.Data[2] = _Clong(_glfw.platformWindow.XdndActionCopy)
-
-				xSendEvent(_glfw.platformWindow.display, _glfw.platformWindow.xdnd.source,
-					false, _NoEventMask, &reply)
-				xFlush(_glfw.platformWindow.display)
+			// A gunim change: the files of a drag still moving tell what
+			// it carries; the drop's, or the drag's once it has dropped,
+			// are dropped.
+			if !xdnd.dropping {
+				xdnd.paths = paths
+				window.inputDragOver(xdnd.x, xdnd.y, paths, true)
+				return nil
 			}
+			finishXdndDrop(window, paths, result)
 		}
 
 		return nil
@@ -2962,4 +3007,34 @@ func platformSetClipboardString(str string) error {
 
 func platformGetClipboardString() (string, error) {
 	return getSelectionString(_glfw.platformWindow.CLIPBOARD)
+}
+
+// finishXdndDrop drops paths on window and tells the drag's source the
+// drop is done, taken where result is nonzero.
+//
+// This is a gunim change, from GLFW's handling of the drop's data.
+func finishXdndDrop(window *Window, paths []string, result _Culong) {
+	if result != 0 {
+		window.inputDrop(paths)
+	}
+	xdnd := &_glfw.platformWindow.xdnd
+	if xdnd.version >= 2 {
+		var reply _XEvent
+		replyClient := reply.xclient()
+		replyClient.Type = _ClientMessage
+		replyClient.Window = xdnd.source
+		replyClient.MessageType = _glfw.platformWindow.XdndFinished
+		replyClient.Format = 32
+		replyClient.Data[0] = _Clong(window.platform.handle)
+		replyClient.Data[1] = _Clong(result)
+		replyClient.Data[2] = _Clong(_glfw.platformWindow.XdndActionCopy)
+
+		xSendEvent(_glfw.platformWindow.display, xdnd.source,
+			false, _NoEventMask, &reply)
+		xFlush(_glfw.platformWindow.display)
+	}
+	xdnd.source = _None
+	xdnd.asked = false
+	xdnd.paths = nil
+	xdnd.dropping = false
 }

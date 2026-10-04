@@ -1479,7 +1479,9 @@ func (w *Window) createNativeWindow(wndconfig *wndconfig, fbconfig *fbconfig) er
 	}
 
 	if !microsoftgdk.IsXbox() {
-		_DragAcceptFiles(w.platform.handle, true)
+		// gunim change: a drop target, which hears files as they are
+		// dragged over the window.
+		w.acceptDrops()
 	}
 
 	if fbconfig.transparent {
@@ -1664,7 +1666,8 @@ func (w *Window) platformCreateWindow(wndconfig *wndconfig, ctxconfig *ctxconfig
 }
 
 func (w *Window) platformDestroyWindow() error {
-	// gunim change: the drawn shadow goes first.
+	// gunim change: the drop target goes, and the drawn shadow, first.
+	w.stopDrops()
 	if err := w.dropShadow(); err != nil {
 		return err
 	}

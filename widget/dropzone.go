@@ -42,7 +42,8 @@ type DropZone struct {
 	// Spot returns the spot a drop d would land on, and false where the
 	// zone takes none. It hears a drag inside the application as a drop
 	// with Data and no Paths, before it is let go, and files from
-	// another program with Paths.
+	// another program with Paths, while they are dragged over it as far
+	// as the system has told them, and as they are let go.
 	Spot func(d input.Drop, u *gunim.UI) (DropSpot, bool)
 	// OnDrop turns a drop on a spot into an intent.
 	OnDrop func(spot DropSpot, d input.Drop) gunim.Intent
@@ -84,7 +85,7 @@ func (z *DropZone) Over() (DropSpot, bool) { return z.lit, z.over }
 func (z *DropZone) Handle(e input.Event, u *gunim.UI) bool {
 	switch e := e.(type) {
 	case input.DragOver:
-		spot, ok := z.find(input.Drop{Pos: e.Pos, Data: e.Data, Mods: e.Mods, Time: e.Time}, u)
+		spot, ok := z.find(input.Drop{Pos: e.Pos, Data: e.Data, Paths: filesOf(e.Data), Mods: e.Mods, Time: e.Time}, u)
 		if !ok {
 			z.leave(u)
 			return false

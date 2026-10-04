@@ -849,6 +849,7 @@ func initExtensions() error {
 	// Xdnd (drag and drop) atoms
 	_glfw.platformWindow.XdndAware = xInternAtom(display, "XdndAware", false)
 	_glfw.platformWindow.XdndEnter = xInternAtom(display, "XdndEnter", false)
+	_glfw.platformWindow.XdndLeave = xInternAtom(display, "XdndLeave", false)
 	_glfw.platformWindow.XdndPosition = xInternAtom(display, "XdndPosition", false)
 	_glfw.platformWindow.XdndStatus = xInternAtom(display, "XdndStatus", false)
 	_glfw.platformWindow.XdndActionCopy = xInternAtom(display, "XdndActionCopy", false)

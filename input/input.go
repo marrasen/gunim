@@ -224,7 +224,8 @@ type MediaSeek struct {
 
 // DragOver arrives while something is dragged over a node: another
 // node's Data, dragged inside the application, from this window or
-// another. It bubbles like a pointer event. A node that returns true
+// another, or [Files] from another program. It bubbles like a pointer
+// event. A node that returns true
 // for it will take the drop, and hears DragLeave if the drag moves on.
 // Mods are the modifier keys held, such as Ctrl to copy.
 type DragOver struct {
@@ -234,13 +235,19 @@ type DragOver struct {
 	Time time.Time
 }
 
+// Files is what a drag of files from another program, such as a file
+// manager, carries: the Data of [DragOver] and [Drop]. Paths holds the
+// files once the system has told them, which may be a moment after the
+// drag arrives over the window.
+type Files struct{ Paths []string }
+
 // DragLeave arrives when a drag a node took DragOver for moves on, or
 // ends somewhere else.
 type DragLeave struct{ Time time.Time }
 
 // Drop arrives when something is let go over a node: another node's
 // Data, dragged inside the application, or files from another program,
-// such as a file manager, as Paths. It bubbles like a pointer event,
+// such as a file manager, as Paths, with [Files] as the Data. It bubbles like a pointer event,
 // and the node that returns true has taken it. Mods are the modifier
 // keys held as it was let go, where the system says.
 type Drop struct {
