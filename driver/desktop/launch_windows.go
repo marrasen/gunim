@@ -57,7 +57,8 @@ func (w *Window) Open(path string) error {
 // Reveal implements [driver.Launcher]: Explorer opens the folder that
 // holds path, with path selected.
 func (w *Window) Reveal(path string) error {
-	p, err := windows.UTF16PtrFromString(path)
+	// The shell finds an item by a path of backslashes alone.
+	p, err := windows.UTF16PtrFromString(filepath.Clean(path))
 	if err != nil {
 		return fmt.Errorf("desktop: showing %s: %w", path, err)
 	}
