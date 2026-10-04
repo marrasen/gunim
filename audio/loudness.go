@@ -1,6 +1,9 @@
 package audio
 
-import "math"
+import (
+	"math"
+	"slices"
+)
 
 // A LoudnessMeter measures how loud a sound is as the ear hears it, as
 // ITU-R BS.1770 defines it, and EBU R128 and ReplayGain 2 use it: its
@@ -14,6 +17,11 @@ import "math"
 // -70 LUFS are silence, and pass uncounted; so do blocks more than 10
 // LU under the loudness of the rest, so a song's quiet passages
 // barely lower it.
+//
+// Range reads how far the sound's loudness ranges, as EBU Tech 3342
+// defines it: its loudness over three seconds, taken ten times a
+// second, silence and the quietest passages left out, from the tenth
+// percentile to the 95th.
 //
 // The zero LoudnessMeter measures sound at [SampleRate];
 // [NewLoudnessMeter] makes one for another rate.
@@ -34,7 +42,9 @@ type LoudnessMeter struct {
 	n        int
 	quarters []float64
 	blocks   []float64
-	peak     float32
+	// shorts is the power of every three seconds, taken each 100 ms.
+	shorts []float64
+	peak   float32
 }
 
 // NewLoudnessMeter returns a meter of sound at rate.
@@ -90,6 +100,13 @@ func (m *LoudnessMeter) Write(frames []float32) {
 		if len(m.recent) > 30 {
 			m.recent = m.recent[len(m.recent)-30:]
 		}
+		if len(m.recent) == 30 {
+			var s float64
+			for _, r := range m.recent {
+				s += r
+			}
+			m.shorts = append(m.shorts, s/30)
+		}
 		m.sum, m.n = 0, 0
 		if k := len(m.quarters); k >= 4 {
 			last := m.quarters[k-4:]
@@ -114,10 +131,63 @@ func lufs(power float64) float64 { return -0.691 + 10*math.Log10(power) }
 // Integrated returns the loudness of everything written, in LUFS, and
 // false where there was too little that was not silence to say: under
 // 400 ms of it.
-func (m *LoudnessMeter) Integrated() (float64, bool) {
+func (m *LoudnessMeter) Integrated() (float64, bool) { return Integrated(m.blocks) }
+
+// Blocks returns the power of each 400 ms block written, as
+// [Integrated] measures: those of several sounds measure them as one,
+// as an album's tracks are measured together.
+func (m *LoudnessMeter) Blocks() []float64 { return slices.Clone(m.blocks) }
+
+// ShortTerms returns the power of every three seconds written, taken
+// each 100 ms, as [LoudnessRange] measures: those of several sounds
+// measure their range together.
+func (m *LoudnessMeter) ShortTerms() []float64 { return slices.Clone(m.shorts) }
+
+// Range returns how far the loudness of everything written ranges, in
+// LU, and false where there was too little that was not silence to
+// say: under three seconds of it.
+func (m *LoudnessMeter) Range() (float64, bool) {
+	low, high, ok := LoudnessRange(m.shorts)
+	return high - low, ok
+}
+
+// LoudnessRange returns where loudness ranges over the powers of three
+// seconds of sound, as [LoudnessMeter.ShortTerms] gives them, in LUFS,
+// as EBU Tech 3342 measures it: those under -70 LUFS, and more than 20
+// LU under the loudness of the rest, left out, from the tenth
+// percentile of the rest, low, to the 95th, high. The range is high
+// less low, in LU.
+func LoudnessRange(shorts []float64) (low, high float64, ok bool) {
+	var sum float64
+	var loud []float64
+	for _, p := range shorts {
+		if p > 0 && lufs(p) > -70 {
+			sum += p
+			loud = append(loud, p)
+		}
+	}
+	if len(loud) == 0 {
+		return 0, 0, false
+	}
+	floor := lufs(sum/float64(len(loud))) - 20
+	var ls []float64
+	for _, p := range loud {
+		if l := lufs(p); l >= floor {
+			ls = append(ls, l)
+		}
+	}
+	slices.Sort(ls)
+	at := func(q float64) float64 { return ls[int(float64(len(ls)-1)*q+0.5)] }
+	return at(0.10), at(0.95), true
+}
+
+// Integrated returns the loudness of sound of the powers of its 400 ms
+// blocks, as [LoudnessMeter.Blocks] gives them, in LUFS, as
+// [LoudnessMeter.Integrated] measures it.
+func Integrated(blocks []float64) (float64, bool) {
 	gated := func(floor float64) (mean float64, n int) {
 		var sum float64
-		for _, b := range m.blocks {
+		for _, b := range blocks {
 			if b > 0 && lufs(b) > floor {
 				sum += b
 				n++
