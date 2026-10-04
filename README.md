@@ -149,7 +149,9 @@ compare them by ear. Each is measured as it will be exported, loudness,
 its range and true peak, when Calc LUFS asks: a track changed since it
 was measured is marked, so heavy plugins work only when asked. The
 album exports each track at
-its own length, to 16 or 24-bit WAV with dither, or 32-bit float.
+its own length, tracks side by side, to 16 or 24-bit WAV with dither,
+or 32-bit float, and, where LAME is installed, MP3, each tagged with
+the release.
 Meters show loudness against the target, the stereo image, and the
 spectrum or a spectrogram. Each track runs through its own chain of VST3 plugins, such
 as Ozone. Only the track heard runs its plugins, so the rest cost the
