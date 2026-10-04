@@ -18,7 +18,10 @@
 //	b.hover.Animate(1, anim.Snappy)
 package anim
 
-import "time"
+import (
+	"slices"
+	"time"
+)
 
 // MaxScalars is the most scalars a single [Animated] value can hold.
 //
@@ -222,6 +225,12 @@ type Group struct {
 
 // Add registers values with the group.
 func (g *Group) Add(vs ...Stepper) { g.vs = append(g.vs, vs...) }
+
+// Remove takes values out of the group, for a widget whose parts come
+// and go, as the rows of a list.
+func (g *Group) Remove(vs ...Stepper) {
+	g.vs = slices.DeleteFunc(g.vs, func(v Stepper) bool { return slices.Contains(vs, v) })
+}
 
 // Step advances every registered value and reports whether any of them
 // is still animating.
