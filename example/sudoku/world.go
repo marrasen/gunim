@@ -114,17 +114,23 @@ func (r *worldRoot) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, kids g
 		g := 1 - m
 		mid := geom.Pt(box.W/2, box.H/2)
 		func() {
-			end := p.Layer(paint.LayerOpts{Bounds: whole, Opacity: g})
-			defer end()
+			// A layer fades the game as one; at full strength it needs
+			// none, and drawing offscreen costs the whole screen again.
+			if g < 0.999 {
+				end := p.Layer(paint.LayerOpts{Bounds: whole, Opacity: g})
+				defer end()
+			}
 			defer p.Push(paint.Scale(0.85+0.15*g, mid))()
 			kids.At(0).Paint(p)
 		}()
 	}
 	if m > 0.001 {
 		func() {
-			end := p.Layer(paint.LayerOpts{Bounds: whole, Opacity: m})
-			defer end()
-			defer p.Push(paint.Scale(1+2.2*(1-m), r.at))()
+			if m < 0.999 {
+				end := p.Layer(paint.LayerOpts{Bounds: whole, Opacity: m})
+				defer end()
+				defer p.Push(paint.Scale(1+2.2*(1-m), r.at))()
+			}
 			kids.At(1).Paint(p)
 		}()
 	}

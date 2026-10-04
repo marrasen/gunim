@@ -1,8 +1,11 @@
 package main
 
 import (
+	"image"
 	"image/color"
+	"image/draw"
 	"math"
+	"sync"
 
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/paint"
@@ -58,20 +61,69 @@ type candyMask struct {
 func (candyMask) Settled() bool { return true }
 
 // Coverage implements [paint.Shape]: the shape, edges smoothed over a
-// pixel, in a square of w by h.
+// pixel, in a square of w by h. It reads the shape's distance field,
+// made once, so a mask of any size costs a lookup a pixel.
 func (m candyMask) Coverage(w, h int) []byte {
 	out := make([]byte, w*h)
 	half := float64(min(w, h)) / 2
+	f := fieldOf(m.shape)
 	for y := range h {
 		for x := range w {
 			px := (float64(x) + 0.5 - float64(w)/2) / half
 			py := (float64(y) + 0.5 - float64(h)/2) / half
-			d := shapeDistance(m.shape, px, py) - float64(m.grow)
+			d := f.at(px, py) - float64(m.grow)
 			a := 0.5 - d*half
 			out[y*w+x] = uint8(255 * max(0, min(1, a)))
 		}
 	}
 	return out
+}
+
+// A field is a shape's distance, sampled on a grid over the square from
+// -fieldSpan to fieldSpan, read between its points by blending the four
+// round it.
+type field []float32
+
+const (
+	fieldN    = 128
+	fieldSpan = 1.05
+)
+
+var (
+	fieldsOnce [9]sync.Once
+	fields     [9]field
+)
+
+// fieldOf returns shape's field, made the first time it is asked for,
+// from whichever goroutine draws first.
+func fieldOf(shape int) field {
+	fieldsOnce[shape].Do(func() {
+		f := make(field, fieldN*fieldN)
+		for j := range fieldN {
+			for i := range fieldN {
+				x := (float64(i)/(fieldN-1)*2 - 1) * fieldSpan
+				y := (float64(j)/(fieldN-1)*2 - 1) * fieldSpan
+				f[j*fieldN+i] = float32(shapeDistance(shape, x, y))
+			}
+		}
+		fields[shape] = f
+	})
+	return fields[shape]
+}
+
+// at returns the distance at (x, y).
+func (f field) at(x, y float64) float64 {
+	gx := (x/fieldSpan + 1) / 2 * (fieldN - 1)
+	gy := (y/fieldSpan + 1) / 2 * (fieldN - 1)
+	gx = max(0, min(gx, fieldN-1.001))
+	gy = max(0, min(gy, fieldN-1.001))
+	i, j := int(gx), int(gy)
+	fx, fy := float32(gx-float64(i)), float32(gy-float64(j))
+	a, b := f[j*fieldN+i], f[j*fieldN+i+1]
+	c, d := f[(j+1)*fieldN+i], f[(j+1)*fieldN+i+1]
+	top := a + (b-a)*fx
+	bottom := c + (d-c)*fx
+	return float64(top + (bottom-top)*fy)
 }
 
 // shapeDistance returns how far (x, y) lies outside shape, in units of
@@ -214,31 +266,137 @@ func faded(c color.NRGBA, a float32) color.NRGBA {
 	return c
 }
 
+// shapeAt draws shape's mask for r, scaled by k about r's middle and
+// moved by off. A rim, a middle or a shine is the same mask drawn
+// larger, smaller or aside, so each shape and size makes one mask,
+// which the renderer keeps.
+func shapeAt(p *paint.Painter, shape int, r geom.Rect, k float32, off geom.Point, c color.NRGBA) {
+	mid := geom.Pt((r.Min.X+r.Max.X)/2, (r.Min.Y+r.Max.Y)/2)
+	if off != (geom.Point{}) {
+		defer p.Push(paint.Translate(off))()
+	}
+	if k != 1 {
+		defer p.Push(paint.Scale(k, mid))()
+	}
+	p.Mask(candyMask{shape: shape}, r, c)
+}
+
 // paintCandy draws digit d's candy filling r, at alpha, with its digit
-// on it when numbered. Scale it with the painter's transform, so its
-// masks are made once at r's size.
-func paintCandy(p *paint.Painter, d int8, r geom.Rect, alpha float32, numbered bool) {
+// on it when numbered, on a screen of scale device pixels to the
+// logical one. The candy is a sprite, its shadow, rim, body, middle and
+// shine made once in one image for its size, so the GPU fills its
+// pixels once rather than once a layer.
+func paintCandy(p *paint.Painter, d int8, r geom.Rect, alpha float32, numbered bool, scale float32) {
 	if alpha <= 0.01 {
 		return
 	}
-	k := candyOf(d)
 	s := r.Size().W
-	// A shadow under it, an edge darker than its body, the body, and a
-	// lighter middle, raised a little, to round it.
-	p.Mask(candyMask{shape: k.shape}, r.Add(geom.Pt(0, s*0.07)), faded(rgb(0x1a, 0x05, 0x30), 0.35*alpha))
-	p.Mask(candyMask{shape: k.shape, grow: 0.05}, r, faded(darker(k.color, 0.35), alpha))
-	p.Mask(candyMask{shape: k.shape}, r, faded(k.color, alpha))
-	inner := geom.Rc(r.Min.X+s*0.12, r.Min.Y+s*0.08, s*0.76, s*0.76)
-	p.Mask(candyMask{shape: k.shape, grow: -0.08}, inner, faded(lighter(k.color, 0.22), alpha))
-	// The shine: a soft white streak at the top left, and a glint.
-	func() {
-		defer p.Push(paint.Rotate(-0.5, geom.Pt(r.Min.X+s*0.36, r.Min.Y+s*0.26)))()
-		p.RRect(geom.Rc(r.Min.X+s*0.22, r.Min.Y+s*0.2, s*0.3, s*0.13), s*0.065, paint.Solid(faded(rgb(0xff, 0xff, 0xff), 0.55*alpha)))
-	}()
-	p.RRect(geom.Rc(r.Min.X+s*0.66, r.Min.Y+s*0.3, s*0.07, s*0.07), s*0.035, paint.Solid(faded(rgb(0xff, 0xff, 0xff), 0.75*alpha)))
+	sheet, src := candySprite(d, int(math.Ceil(float64(s*scale*(1+2*spriteMargin)))))
+	m := s * spriteMargin
+	p.Image(sheet, geom.Rect{Min: r.Min.Sub(geom.Pt(m, m)), Max: r.Max.Add(geom.Pt(m, m))}, paint.ImageOpts{Src: src, Opacity: alpha})
 	if numbered {
 		paintDigit(p, d, r, alpha)
 	}
+}
+
+// spriteMargin is the room round a candy's sprite, a fraction of the
+// candy, for its rim and its shadow.
+const spriteMargin = 0.12
+
+// sheets holds the candies' sprites, the nine of each size in one
+// image, so a board of them draws from one texture in one batch: by
+// size, rounded up to 8 pixels. It is reached from the UI goroutine
+// alone.
+var sheets = map[int]*paint.Image{}
+
+// sheetPad is the empty room round each sprite on its sheet, so a
+// sprite drawn smoothly never takes in its neighbour's edge.
+const sheetPad = 2
+
+// candySprite returns the sheet holding digit d's candy of about px
+// pixels square, made the first time, and the part of it the candy is.
+func candySprite(d int8, px int) (*paint.Image, geom.Rect) {
+	px = max(8, (px+7)/8*8)
+	cell := px + 2*sheetPad
+	i := int(max(1, min(d, 9)) - 1)
+	x, y := float32(i%3*cell+sheetPad), float32(i/3*cell+sheetPad)
+	src := geom.Rc(x, y, float32(px), float32(px))
+	if img := sheets[px]; img != nil {
+		return img, src
+	}
+	if len(sheets) > 24 {
+		clear(sheets)
+	}
+	sheet := image.NewNRGBA(image.Rect(0, 0, 3*cell, 3*cell))
+	for k := range 9 {
+		at := image.Pt(k%3*cell+sheetPad, k/3*cell+sheetPad)
+		draw.Draw(sheet, image.Rectangle{Min: at, Max: at.Add(image.Pt(px, px))}, drawCandy(int8(k+1), px), image.Point{}, draw.Src)
+	}
+	img := paint.NewImage(sheet)
+	sheets[px] = img
+	return img, src
+}
+
+// drawCandy draws digit d's candy into an image px pixels square, the
+// candy filling all but spriteMargin of it on each side: its shadow, a
+// rim darker than its body, the body, a lighter middle raised a
+// little, and the shine.
+func drawCandy(d int8, px int) *image.NRGBA {
+	k := candyOf(d)
+	f := fieldOf(k.shape)
+	img := image.NewNRGBA(image.Rect(0, 0, px, px))
+	// The candy's side, in pixels, and its half in its own units.
+	side := float64(px) / (1 + 2*spriteMargin)
+	half := side / 2
+	at := func(c color.NRGBA) [4]float64 {
+		return [4]float64{float64(c.R) / 255, float64(c.G) / 255, float64(c.B) / 255, float64(c.A) / 255}
+	}
+	shadow := at(faded(rgb(0x1a, 0x05, 0x30), 0.35))
+	rim, body, middle := at(darker(k.color, 0.35)), at(k.color), at(lighter(k.color, 0.22))
+	shine, glint := at(faded(rgb(0xff, 0xff, 0xff), 0.55)), at(faded(rgb(0xff, 0xff, 0xff), 0.75))
+	// layer returns how much of the shape, drawn k times its size and
+	// moved down by oy in its units, covers (x, y).
+	layer := func(x, y, k, oy float64) float64 {
+		dist := f.at(x/k, (y-oy)/k) * k
+		return max(0, min(1, 0.5-dist*half))
+	}
+	c0, c1, r0 := math.Cos(0.5), math.Sin(0.5), 0.065
+	for py := range px {
+		for qx := range px {
+			// The pixel in the candy's units, -1 to 1 across it.
+			x := (float64(qx) + 0.5 - float64(px)/2) / half
+			y := (float64(py) + 0.5 - float64(px)/2) / half
+			var out [4]float64 // premultiplied
+			over := func(c [4]float64, cov float64) {
+				a := c[3] * cov
+				for i := range 3 {
+					out[i] = c[i]*a + out[i]*(1-a)
+				}
+				out[3] = a + out[3]*(1-a)
+			}
+			over(shadow, layer(x, y, 1, 0.14))
+			over(rim, layer(x, y, 1.06, 0))
+			over(body, layer(x, y, 1, 0))
+			over(middle, layer(x, y, 0.76, -0.08))
+			// The shine: a soft streak at the top left, turned, as a
+			// rounded box in the candy's 0-to-1 square.
+			u, v := (x+1)/2, (y+1)/2
+			du, dv := u-0.36, v-0.26
+			ru, rv := c0*du-c1*dv+0.36, c1*du+c0*dv+0.26
+			ds := roundBox(ru-0.37, rv-0.265, 0.15, 0.065, r0)
+			over(shine, max(0, min(1, 0.5-ds*side)))
+			dg := math.Hypot(u-0.695, v-0.335) - 0.035
+			over(glint, max(0, min(1, 0.5-dg*side)))
+			if out[3] <= 0 {
+				continue
+			}
+			img.SetNRGBA(qx, py, color.NRGBA{
+				R: uint8(255*out[0]/out[3] + 0.5), G: uint8(255*out[1]/out[3] + 0.5),
+				B: uint8(255*out[2]/out[3] + 0.5), A: uint8(255*out[3] + 0.5),
+			})
+		}
+	}
+	return img
 }
 
 // paintDigit draws d in the middle of r, white over a dark edge.
@@ -247,8 +405,6 @@ func paintDigit(p *paint.Painter, d int8, r geom.Rect, alpha float32) {
 	run := shaped(string(rune('0'+d)), s*0.42, true)
 	at := geom.Pt(r.Min.X+(s-run.Advance)/2, r.Min.Y+(s-run.Ascent-run.Descent)/2+s*0.03)
 	shadow := faded(darker(candyOf(d).color, 0.55), 0.8*alpha)
-	for _, o := range []geom.Point{{X: 0, Y: s * 0.03}, {X: s * 0.02, Y: s * 0.02}, {X: -s * 0.02, Y: s * 0.02}} {
-		run.Paint(p, at.Add(o), shadow)
-	}
+	run.Paint(p, at.Add(geom.Pt(0, s*0.035)), shadow)
 	run.Paint(p, at, faded(rgb(0xff, 0xff, 0xff), alpha))
 }

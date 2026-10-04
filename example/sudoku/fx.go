@@ -233,9 +233,12 @@ func (f *fx) paint(p *paint.Painter) {
 		case rocket:
 			p.RRect(geom.Rc(pt.pos.X-3, pt.pos.Y-3, 6, 6), 3, paint.Solid(lighter(pt.color, 0.6)))
 		case starBit:
-			r := geom.Rc(pt.pos.X-s, pt.pos.Y-s, 2*s, 2*s)
+			// One size of star, scaled: each size would be a mask of its
+			// own to make.
+			r := geom.Rc(pt.pos.X-12, pt.pos.Y-12, 24, 24)
 			func() {
 				defer p.Push(paint.Rotate(pt.angle, pt.pos))()
+				defer p.Push(paint.Scale(s/12, pt.pos))()
 				p.Mask(candyMask{shape: shapeStar}, r, faded(pt.color, a))
 			}()
 		}

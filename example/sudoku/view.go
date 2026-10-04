@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"image"
 	"image/color"
 	"math"
 	"strconv"
@@ -379,7 +380,11 @@ func (r *gameRoot) Handle(e input.Event, u *gunim.UI) bool {
 	return true
 }
 
-// sky is the window's background: a candy dusk with bubbles rising.
+// sky is the window's background: a candy dusk with bubbles hanging in
+// it. They hold still: bubbles moving all over the window would have
+// every frame draw all of it again, which a phone's GPU cannot keep up
+// with at its refresh rate, where still ones let a frame draw only
+// what moves.
 type sky struct {
 	t       float64
 	bubbles [18]bubble
@@ -391,7 +396,7 @@ type bubble struct {
 }
 
 func newSky() *sky {
-	s := &sky{}
+	s := &sky{t: 23}
 	for i := range s.bubbles {
 		f := float32(i)
 		s.bubbles[i] = bubble{
@@ -404,12 +409,6 @@ func newSky() *sky {
 	return s
 }
 
-// Step implements [gunim.Animator]: the bubbles never stop rising.
-func (s *sky) Step(dt time.Duration) bool {
-	s.t += dt.Seconds()
-	return true
-}
-
 // Layout implements [gunim.Node].
 func (s *sky) Layout(c gunim.Constraints, _ gunim.Frame, _ gunim.Children) geom.Size { return c.Max }
 
@@ -420,18 +419,39 @@ func (s *sky) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, _ gunim.Chil
 		From: geom.Pt(0, 0), To: geom.Pt(box.W*0.3, box.H),
 		Start: rgb(0x3b, 0x12, 0x8f), End: rgb(0xe8, 0x3e, 0x9c),
 	}})
-	// A warm glow low down.
-	gr := max(box.W, box.H) * 0.5
-	end := p.Layer(paint.LayerOpts{Bounds: whole, Opacity: 1, Blur: gr * 0.3})
-	p.RRect(geom.Rc(box.W*0.5-gr, box.H*0.85-gr*0.6, 2*gr, 1.2*gr), gr*0.6, paint.Solid(faded(rgb(0xff, 0xb3, 0x47), 0.35)))
-	end()
+	// A warm glow low down: a soft round light made once, stretched.
+	gr := max(box.W, box.H) * 0.6
+	p.Image(glowImage(), geom.Rc(box.W*0.5-gr, box.H*0.85-gr*0.6, 2*gr, 1.2*gr), paint.ImageOpts{Opacity: 0.45})
 	for _, b := range s.bubbles {
 		travel := box.H + 2*b.size
 		y := box.H + b.size - float32(math.Mod(s.t*float64(b.speed)*float64(travel)/40+float64(b.phase)*float64(travel), float64(travel)))
 		x := b.x*box.W + 18*float32(math.Sin(s.t*0.8+float64(b.phase)*3))
-		r := geom.Rc(x-b.size/2, y-b.size/2, b.size, b.size)
-		p.Mask(candyMask{shape: b.shape}, r, faded(white, 0.08))
+		// Bubbles of every size share one mask, scaled.
+		r := geom.Rc(x-20, y-20, 40, 40)
+		shapeAt(p, b.shape, r, b.size/40, geom.Point{}, faded(white, 0.08))
 	}
+}
+
+// glow is a soft round light, warm, fading from its middle to nothing
+// at its edge, for the sky to stretch: a blur would cost every frame.
+var glow *paint.Image
+
+func glowImage() *paint.Image {
+	if glow != nil {
+		return glow
+	}
+	const n = 64
+	img := image.NewNRGBA(image.Rect(0, 0, n, n))
+	for y := range n {
+		for x := range n {
+			dx, dy := (float64(x)+0.5)/n*2-1, (float64(y)+0.5)/n*2-1
+			d := math.Min(1, math.Hypot(dx, dy))
+			a := (1 - d*d) * (1 - d*d)
+			img.SetNRGBA(x, y, color.NRGBA{R: 0xff, G: 0xb3, B: 0x47, A: uint8(255 * a)})
+		}
+	}
+	glow = paint.NewImage(img)
+	return glow
 }
 
 // header shows the level, the hearts left and the score.
@@ -566,7 +586,7 @@ func (h *header) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 		if i < s.Lives {
 			p.Mask(candyMask{shape: shapeHeart}, r.Add(geom.Pt(0, 2)), faded(plum, 0.4))
 			p.Mask(candyMask{shape: shapeHeart}, r, rgb(0xff, 0x3b, 0x6b))
-			p.Mask(candyMask{shape: shapeHeart, grow: -0.25}, geom.Rc(r.Min.X+3, r.Min.Y+2, hs-6, hs-6), rgb(0xff, 0x7a, 0x9a))
+			shapeAt(p, shapeHeart, r, 0.72, geom.Pt(0, -1), rgb(0xff, 0x7a, 0x9a))
 			continue
 		}
 		p.Mask(candyMask{shape: shapeHeart}, r, faded(white, 0.18))
@@ -741,7 +761,7 @@ func (t *tray) Layout(c gunim.Constraints, _ gunim.Frame, _ gunim.Children) geom
 }
 
 // Paint implements [gunim.Node].
-func (t *tray) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, _ gunim.Children) {
+func (t *tray) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
 	whole := geom.Rect{Max: box.Point()}
 	p.RRect(whole, 22, paint.Solid(faded(white, 0.12)))
 	s := t.root.state
@@ -772,7 +792,7 @@ func (t *tray) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, _ gunim.Chi
 		}
 		func() {
 			defer p.Push(paint.Scale(scale, geom.Pt(mid.X, mid.Y)))()
-			paintCandy(p, d, r, 1-gone, t.root.numbered)
+			paintCandy(p, d, r, 1-gone, t.root.numbered, f.Scale)
 		}()
 		// How many are left to place.
 		left := 9 - countOf(s.Cells, d)

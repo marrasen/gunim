@@ -1,6 +1,8 @@
 package main
 
 import (
+	"image"
+	"image/color"
 	"math"
 	"time"
 
@@ -53,11 +55,14 @@ type board struct {
 	sweeps []sweep
 	// shown is the board last drawn, to tell candies taken off by undo.
 	shown Grid
-	// pulse turns for the candies of the digit selected to breathe.
+	// pulse turns for the selected cell's ring to breathe.
 	pulse float64
 	// hover is the cell under the mouse, or -1.
 	hover int
 	size  geom.Size
+	// panelImg is the panel drawn last, panelPx pixels across.
+	panelImg *paint.Image
+	panelPx  int
 }
 
 func newBoard(r *gameRoot) *board {
@@ -263,19 +268,15 @@ func (b *board) Handle(e input.Event, u *gunim.UI) bool {
 }
 
 // Paint implements [gunim.Node].
-func (b *board) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, _ gunim.Children) {
+func (b *board) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
 	g := b.root.state
 	w := box.W
 	s := cellSize(w)
-	whole := geom.Rect{Max: box.Point()}
-	radius := s * 0.45
-	// Frosted glass, with a light rim.
-	p.ShadowRRect(whole, radius, paint.Solid(faded(rgb(0x2a, 0x0a, 0x4a), 0.25)),
-		paint.Shadow{Blur: 30, Offset: geom.Pt(0, 10), Color: faded(rgb(0x1a, 0x00, 0x30), 0.5)})
-	end := p.Layer(paint.LayerOpts{Bounds: whole, Opacity: 1, Backdrop: 16, Clip: true, Radius: radius})
-	p.RRect(whole, radius, paint.Solid(faded(rgb(0xff, 0xff, 0xff), 0.14)))
-	end()
-	p.RRectStroke(whole, radius, paint.Solid(faded(rgb(0xff, 0xff, 0xff), 0.35)), paint.Stroke{Width: 1.5})
+	// The panel, its shadow, glass, rim and slots, is one image made
+	// for its size: drawn whole as the board moves, it costs the GPU a
+	// quad rather than a shape a slot.
+	pw := int(math.Ceil(float64(w * f.Scale)))
+	p.Image(b.panel(pw, w, f.Scale), geom.Rect{Max: geom.Pt(w, w+panelShadow)}, paint.ImageOpts{Opacity: 1})
 
 	sel := b.root.selected
 	selDigit := int8(0)
@@ -285,17 +286,16 @@ func (b *board) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, _ gunim.Ch
 	if b.root.armed > 0 {
 		selDigit = b.root.armed
 	}
-	// The slots: lit along the selected cell's row, column and box.
+	// The slots lit along the selected cell's row, column and box, and
+	// under the mouse, over the panel's own.
 	for c := range 81 {
 		r := cellRect(c, w)
-		fill := faded(rgb(0xff, 0xff, 0xff), 0.12)
-		if sel >= 0 && sharesUnit(sel, c) {
-			fill = faded(rgb(0xff, 0xf0, 0xff), 0.24)
+		switch {
+		case c == b.hover:
+			p.RRect(r, s*0.22, paint.Solid(faded(rgb(0xff, 0xff, 0xff), 0.2)))
+		case sel >= 0 && sharesUnit(sel, c):
+			p.RRect(r, s*0.22, paint.Solid(faded(rgb(0xff, 0xf0, 0xff), 0.14)))
 		}
-		if c == b.hover {
-			fill = faded(rgb(0xff, 0xff, 0xff), 0.3)
-		}
-		p.RRect(r, s*0.22, paint.Solid(fill))
 		if gl := b.cells[c].glow.Value(); gl > 0.01 {
 			p.ShadowRRect(r, s*0.22, paint.Solid(faded(rgb(0xff, 0xe0, 0x7a), 0.5*gl)),
 				paint.Shadow{Blur: s * 0.5, Color: faded(rgb(0xff, 0xd0, 0x40), gl)})
@@ -335,9 +335,10 @@ func (b *board) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, _ gunim.Ch
 			// A dropped candy falls in from above as it grows.
 			dy := (1 - min(pop, 1)) * -s * 0.6
 			if d == selDigit && sel != c {
-				// The same digits as the selected breathe with it.
-				br := 1 + 0.05*float32(math.Sin(b.pulse*5+float64(c)*0.3))
-				sx, sy = sx*br, sy*br
+				// The same digits as the selected glow, still: breathing
+				// all across the board, they would have each frame draw
+				// most of it again.
+				p.RRect(r, s*0.22, paint.Solid(faded(rgb(0xff, 0xf3, 0xa0), 0.45)))
 			}
 			func() {
 				// Scaled about its bottom, as jelly squashes on landing.
@@ -346,7 +347,7 @@ func (b *board) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, _ gunim.Ch
 				defer p.Push(paint.Transform{A: sx, E: sy, C: base.X * (1 - sx), F: base.Y * (1 - sy)})()
 				inset := s * 0.07
 				cr := geom.Rect{Min: r.Min.Add(geom.Pt(inset, inset)), Max: r.Max.Sub(geom.Pt(inset, inset))}
-				paintCandy(p, d, cr, min(1, pop*2), numbered)
+				paintCandy(p, d, cr, min(1, pop*2), numbered, f.Scale)
 			}()
 			continue
 		}
@@ -355,7 +356,7 @@ func (b *board) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, _ gunim.Ch
 				func() {
 					defer p.Push(paint.Scale(o, mid))()
 					inset := s * 0.07
-					paintCandy(p, k.gone, geom.Rect{Min: r.Min.Add(geom.Pt(inset, inset)), Max: r.Max.Sub(geom.Pt(inset, inset))}, o, numbered)
+					paintCandy(p, k.gone, geom.Rect{Min: r.Min.Add(geom.Pt(inset, inset)), Max: r.Max.Sub(geom.Pt(inset, inset))}, o, numbered, f.Scale)
 				}()
 			}
 		}
@@ -388,9 +389,83 @@ func (b *board) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, _ gunim.Ch
 			defer p.Push(paint.Translate(geom.Pt(shake, 0)))()
 			defer p.Push(paint.Scale(scale, mid))()
 			inset := s * 0.07
-			paintCandy(p, gh.digit, geom.Rect{Min: r.Min.Add(geom.Pt(inset, inset)), Max: r.Max.Sub(geom.Pt(inset, inset))}, 1, numbered)
+			paintCandy(p, gh.digit, geom.Rect{Min: r.Min.Add(geom.Pt(inset, inset)), Max: r.Max.Sub(geom.Pt(inset, inset))}, 1, numbered, f.Scale)
 		}()
 	}
+}
+
+// panelShadow is how far below the board its shadow reaches.
+const panelShadow = 8
+
+// panel returns the board's panel as an image px pixels across, for a
+// board w logical pixels across at scale: its shadow, its glass, a rim
+// and the 81 slots. It is made again only as its size changes.
+func (b *board) panel(px int, w, scale float32) *paint.Image {
+	if b.panelImg != nil && b.panelPx == px {
+		return b.panelImg
+	}
+	s := cellSize(w)
+	radius := float64(s*0.45) * float64(scale)
+	shadowPx := int(math.Ceil(panelShadow * float64(scale)))
+	img := image.NewNRGBA(image.Rect(0, 0, px, px+shadowPx))
+	half := float64(px) / 2
+	// The slots, in device pixels, and how far apart they are.
+	var slots [81]geom.Rect
+	for c := range slots {
+		r := cellRect(c, w)
+		slots[c] = geom.Rect{Min: r.Min.Mul(scale), Max: r.Max.Mul(scale)}
+	}
+	slotR := float64(s*0.22) * float64(scale)
+	pitch := float64(slots[1].Min.X - slots[0].Min.X)
+	rimW := 0.75 * float64(scale)
+	over := func(out *[4]float64, c [4]float64, cov float64) {
+		a := c[3] * cov
+		for i := range 3 {
+			out[i] = c[i]*a + out[i]*(1-a)
+		}
+		out[3] = a + out[3]*(1-a)
+	}
+	for y := range px + shadowPx {
+		for x := range px {
+			fx, fy := float64(x)+0.5, float64(y)+0.5
+			var out [4]float64
+			ds := roundBox(fx-half, fy-half-float64(shadowPx), half, half, radius)
+			over(&out, [4]float64{0x1a / 255.0, 0, 0x30 / 255.0, 0.3}, max(0, min(1, 0.5-ds)))
+			d := roundBox(fx-half, fy-half, half, half, radius)
+			inside := max(0, min(1, 0.5-d))
+			over(&out, [4]float64{1, 1, 1, 0.16}, inside)
+			over(&out, [4]float64{1, 1, 1, 0.35}, max(0, min(1, rimW+0.5-math.Abs(d+rimW))))
+			if inside > 0 {
+				// The slots near this pixel, of the cells round the one
+				// it would lie in were the boxes not spaced apart.
+				col := int((fx - float64(slots[0].Min.X)) / pitch)
+				row := int((fy - float64(slots[0].Min.Y)) / pitch)
+				for _, dc := range [...]int{0, -1, 1} {
+					for _, dr := range [...]int{0, -1, 1} {
+						cx, cy := col+dc, row+dr
+						if cx < 0 || cx > 8 || cy < 0 || cy > 8 {
+							continue
+						}
+						r := slots[cy*9+cx]
+						mx, my := float64(r.Min.X+r.Max.X)/2, float64(r.Min.Y+r.Max.Y)/2
+						hs := float64(r.Size().W) / 2
+						if dd := roundBox(fx-mx, fy-my, hs, hs, slotR); dd < 1 {
+							over(&out, [4]float64{1, 1, 1, 0.12}, max(0, min(1, 0.5-dd)))
+						}
+					}
+				}
+			}
+			if out[3] <= 0 {
+				continue
+			}
+			img.SetNRGBA(x, y, color.NRGBA{
+				R: uint8(255*out[0]/out[3] + 0.5), G: uint8(255*out[1]/out[3] + 0.5),
+				B: uint8(255*out[2]/out[3] + 0.5), A: uint8(255*out[3] + 0.5),
+			})
+		}
+	}
+	b.panelImg, b.panelPx = paint.NewImage(img), px
+	return b.panelImg
 }
 
 // sharesUnit reports whether cells a and b share a row, column or box.

@@ -182,9 +182,9 @@ func (c *card) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, _ gunim.Chi
 			if v := c.starsIn[i].Value(); v > 0.01 {
 				func() {
 					defer p.Push(paint.Scale(v, at))()
-					p.Mask(candyMask{shape: shapeStar, grow: 0.05}, geom.Rc(at.X-s, at.Y-s, 2*s, 2*s), rgb(0xd9, 0x8a, 0x10))
+					shapeAt(p, shapeStar, geom.Rc(at.X-s, at.Y-s, 2*s, 2*s), 1.06, geom.Point{}, rgb(0xd9, 0x8a, 0x10))
 					p.Mask(candyMask{shape: shapeStar}, geom.Rc(at.X-s, at.Y-s, 2*s, 2*s), gold)
-					p.Mask(candyMask{shape: shapeStar, grow: -0.12}, geom.Rc(at.X-s*0.85, at.Y-s*0.9, 1.7*s, 1.7*s), rgb(0xff, 0xe8, 0x8a))
+					shapeAt(p, shapeStar, geom.Rc(at.X-s, at.Y-s, 2*s, 2*s), 0.8, geom.Pt(0, -s*0.05), rgb(0xff, 0xe8, 0x8a))
 				}()
 			}
 		}

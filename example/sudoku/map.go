@@ -330,7 +330,7 @@ func (m *mapView) paintLands(p *paint.Painter, top float32, box geom.Size) {
 			// A lollipop: a stick and a round candy.
 			p.RRect(geom.Rc(x-2, y, 4, 46), 2, paint.Solid(faded(white, 0.7)))
 			p.Mask(candyMask{shape: shapeCircle}, geom.Rc(x-20, y-36, 40, 40), faded(k.color, 0.75))
-			p.Mask(candyMask{shape: shapeCircle, grow: -0.35}, geom.Rc(x-20, y-36, 40, 40), faded(white, 0.4))
+			shapeAt(p, shapeCircle, geom.Rc(x-20, y-36, 40, 40), 0.6, geom.Point{}, faded(white, 0.4))
 			continue
 		}
 		p.Mask(candyMask{shape: k.shape}, geom.Rc(x-14, y-14, 28, 28), faded(k.color, 0.45))
@@ -388,7 +388,7 @@ func (m *mapView) paintNodes(p *paint.Painter, f gunim.Frame, top float32, box g
 				// grows its colours in over it.
 				p.Mask(candyMask{shape: candyOf(d).shape}, r.Add(geom.Pt(0, 4)), faded(plum, 0.25))
 				p.Mask(candyMask{shape: candyOf(d).shape}, r, rgb(0xb8, 0xb4, 0xc8))
-				p.Mask(candyMask{shape: candyOf(d).shape, grow: -0.12}, geom.Rc(r.Min.X+6, r.Min.Y+4, r.Size().W-12, r.Size().H-12), rgb(0xd4, 0xd0, 0xe0))
+				shapeAt(p, candyOf(d).shape, r, (r.Size().W-14)/r.Size().W, geom.Pt(0, -2), rgb(0xd4, 0xd0, 0xe0))
 				if !opening {
 					widget.PaintIcon(p, f.Theme, icon.Lock, geom.Rc(at.X-11, at.Y-11, 22, 22), rgb(0x6a, 0x66, 0x80))
 					return
@@ -400,7 +400,7 @@ func (m *mapView) paintNodes(p *paint.Painter, f gunim.Frame, top float32, box g
 			}
 			func() {
 				defer p.Push(paint.Scale(o, at))()
-				paintCandy(p, d, r, min(1, o*1.5), false)
+				paintCandy(p, d, r, min(1, o*1.5), false, f.Scale)
 				n := shaped(strconv.Itoa(l), 22, true)
 				paintLabel(p, n, geom.Pt(at.X-n.Advance/2, at.Y-13), white)
 			}()
@@ -434,7 +434,7 @@ func (m *mapView) paintToken(p *paint.Painter) {
 	y := at.Y - nodeRadius - 30 - hop - bob
 	r := geom.Rc(at.X-20, y-20, 40, 40)
 	p.RRect(geom.Rc(at.X-14, at.Y-nodeRadius-6, 28, 8), 4, paint.Solid(faded(plum, 0.25)))
-	p.Mask(candyMask{shape: shapeHeart, grow: 0.08}, r, white)
+	shapeAt(p, shapeHeart, r, 1.1, geom.Point{}, white)
 	p.Mask(candyMask{shape: shapeHeart}, r, rgb(0xff, 0x3b, 0x6b))
-	p.Mask(candyMask{shape: shapeHeart, grow: -0.3}, geom.Rc(r.Min.X+5, r.Min.Y+3, 30, 30), rgb(0xff, 0x80, 0xa0))
+	shapeAt(p, shapeHeart, r, 0.7, geom.Pt(0, -2), rgb(0xff, 0x80, 0xa0))
 }
