@@ -147,8 +147,9 @@ silence, edited on its waveform or its spectrogram, with the loudness
 it was measured at drawn along it. The waveform zooms in to the samples
 themselves, and up to show quiet sound. One track plays at a time, and
 a number key switches to another at the same moment, levels matched to
-the target if asked, to compare them by ear. Album play runs on from
-each track into the next without a gap, as the exported files will
+the target if asked, to compare them by ear, or bypassed, the mix as it came, in time with
+the master. A loop plays a stretch over and over. Autoplay next runs on
+from each track into the next without a gap, as the exported files will
 play.
 
 Each track runs through its own chain of VST3 plugins, such as Ozone.
