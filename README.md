@@ -141,6 +141,22 @@ volume, and N and P skip.
 
 ![The music player](example/music/music.png)
 
+`example/mastering` masters an album. Its tracks are each cut, faded
+with a curve of five shapes, and set apart by the same silence, edited
+on their waveforms. One plays at a time, and a number key switches to
+another at the same moment, levels matched to the target if asked, to
+compare them by ear. Each is measured as it will be exported, loudness
+and true peak, as an edit settles, and the album exports each track at
+its own length, to 16 or 24-bit WAV with dither, or 32-bit float.
+Meters show loudness against the target, the stereo image and the
+spectrum.
+
+```sh
+go run ./example/mastering mix1.wav mix2.wav
+```
+
+![The mastering example](example/mastering/mastering.png)
+
 `example/sudoku` is a sudoku of candies, made for a phone and laid out
 for a desktop too, to see how far the animation goes. Each digit is a
 candy of its own colour and shape. Candies drop in and wobble like
