@@ -55,6 +55,9 @@ type Driver struct {
 	// lastUsed is the window, other than a popup, that had the keyboard
 	// last, which the system's media controls speak to.
 	lastUsed *Window
+	// screenAway says the screen is off or locked, so no window is in
+	// sight.
+	screenAway bool
 	// cursors holds the pointer shapes made so far.
 	cursors map[input.Cursor]*glfw.Cursor
 	// shareRoot is a hidden window whose context no thread ever makes
@@ -103,6 +106,9 @@ func Open() (*Driver, error) {
 func (d *Driver) Run(ctx context.Context, ready func()) error {
 	stop := context.AfterFunc(ctx, func() { d.post(func() { d.quit = true }) })
 	defer stop()
+	// Windows rest while the screen is off or locked.
+	stopWatch := watchScreen(d)
+	defer stopWatch()
 
 	ready()
 	var err error

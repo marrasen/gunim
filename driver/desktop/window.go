@@ -107,6 +107,11 @@ type Window struct {
 	edge   float32
 	// covered says the window is cloaked, which the drawn shadow follows. It is used on the main thread.
 	covered bool
+	// hiddenBy says the system reports the window out of sight while it
+	// is open, covered by other windows or on another desktop, and
+	// unseen what the window was told last, with the screen's state.
+	// They are used on the main thread.
+	hiddenBy, unseen bool
 	// uncovered puts the window on the screen once; see uncover.
 	uncovered sync.Once
 	// opened is when the window was made, for GUNIM_DEBUG_WINDOW.
@@ -836,6 +841,10 @@ func (w *Window) install() {
 		w.in.Push(driver.WindowMaximized{Maximized: maximized})
 	})
 	_, _ = gw.SetRefreshCallback(func(*glfw.Window) { w.in.Push(driver.Redraw{}) })
+	_, _ = gw.SetCoveredCallback(func(_ *glfw.Window, covered bool) {
+		w.hiddenBy = covered
+		w.tellUnseen()
+	})
 	_, _ = gw.SetIconifyCallback(func(_ *glfw.Window, iconified bool) {
 		w.in.Push(driver.WindowShown{Shown: !iconified})
 	})

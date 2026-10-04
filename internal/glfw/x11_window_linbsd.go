@@ -1775,6 +1775,20 @@ func processEvent(event *_XEvent) error {
 
 		return nil
 
+	case _VisibilityNotify:
+		// A gunim change: a window fully obscured is out of sight.
+		window.platform.obscured = event.xvisibility().State == _VisibilityFullyObscured
+		window.inputCovered(window.platform.obscured || window.platform.unmapped)
+		return nil
+
+	case _UnmapNotify, _MapNotify:
+		// A gunim change: a window taken off the screen, as a window
+		// manager does for another workspace's, is out of sight; one
+		// minimized hears that it is iconified as well.
+		window.platform.unmapped = event.EventType() == _UnmapNotify
+		window.inputCovered(window.platform.obscured || window.platform.unmapped)
+		return nil
+
 	case _FocusIn:
 		if event.xfocus().Mode == _NotifyGrab ||
 			event.xfocus().Mode == _NotifyUngrab {

@@ -631,6 +631,7 @@ func windowProc(hWnd windows.HWND, uMsg uint32, wParam _WPARAM, lParam _LPARAM) 
 	// gunim change: a chromeless window's drawn shadow, frame and hit test.
 	window.shadowMessage(uMsg, wParam)
 	window.borderMessage(uMsg, wParam)
+	window.coveredMessage(uMsg, wParam, lParam)
 	window.moveSizeMessage(uMsg)
 	if window.historyMessage(uMsg, lParam) {
 		return _APPCOMMAND_HANDLED
@@ -1482,6 +1483,8 @@ func (w *Window) createNativeWindow(wndconfig *wndconfig, fbconfig *fbconfig) er
 		// gunim change: a drop target, which hears files as they are
 		// dragged over the window.
 		w.acceptDrops()
+		// gunim change: the window hears it is out of sight.
+		w.watchCovered()
 	}
 
 	if fbconfig.transparent {
@@ -1666,8 +1669,10 @@ func (w *Window) platformCreateWindow(wndconfig *wndconfig, ctxconfig *ctxconfig
 }
 
 func (w *Window) platformDestroyWindow() error {
-	// gunim change: the drop target goes, and the drawn shadow, first.
+	// gunim change: the drop target goes, and the watch for the window
+	// going out of sight, and the drawn shadow, first.
 	w.stopDrops()
+	w.stopCovered()
 	if err := w.dropShadow(); err != nil {
 		return err
 	}

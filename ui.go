@@ -352,11 +352,13 @@ type Window struct {
 	// drags from its other windows.
 	app    *App
 	dragIn chan dragMsg
-	// hidden says the window cannot be seen, minimized or its
-	// application in the background, so it draws no frames; resumed says
-	// it has just been shown again, so the next frame's delta is a
-	// refresh, not the time away.
-	hidden, resumed bool
+	// hidden says the window is put away, minimized or its application
+	// in the background, and covered that it is out of sight while open:
+	// under other windows, on another desktop, or on a screen that is
+	// off or locked. Either way it draws no frames. resumed says it has
+	// just come back in sight, so the next frame's delta is a refresh,
+	// not the time away.
+	hidden, covered, resumed bool
 	// cues plays the window's cues, where set; else the app's do.
 	cues atomic.Pointer[cuePlayer]
 	// blends is whether the last popup's window blended with what is
@@ -819,11 +821,11 @@ func (w *Window) wants() bool {
 }
 
 // draws reports whether the window draws its frames: while it is
-// hidden it draws none, and its animations hold where they are, unless
-// it is closing, as a window leaving animates out, or a shot waits on a
-// frame.
+// hidden or covered it draws none, and its animations hold where they
+// are, unless it is closing, as a window leaving animates out, or a
+// shot waits on a frame.
 func (w *Window) draws() bool {
-	return !w.hidden || w.ui.goingAway || w.ui.shotsOwed.Load() > 0
+	return !w.hidden && !w.covered || w.ui.goingAway || w.ui.shotsOwed.Load() > 0
 }
 
 // wait blocks until something happens, handles it, and reports whether

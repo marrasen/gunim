@@ -64,6 +64,29 @@ func TestAHiddenWindowDrawsNothingUntilShownOrLeaving(t *testing.T) {
 	}
 }
 
+func TestACoveredWindowRestsAndTheApplicationHearsNothing(t *testing.T) {
+	h := &hearsShown{}
+	w := NewOffscreen(geom.Sz(200, 200), h)
+	w.Frame(time.Second / 60)
+	w.Input(driver.WindowCovered{Covered: true})
+	if w.draws() {
+		t.Fatal("a covered window draws")
+	}
+	// Minimized and restored while covered, it stays at rest.
+	w.Input(driver.WindowShown{Shown: false})
+	w.Input(driver.WindowShown{Shown: true})
+	if w.draws() {
+		t.Fatal("a covered window restored draws while still covered")
+	}
+	w.Input(driver.WindowCovered{Covered: false})
+	if !w.draws() || !w.resumed {
+		t.Fatalf("uncovered: draws %v, resumed %v; want it drawing, from where it held", w.draws(), w.resumed)
+	}
+	if len(h.got) != 2 {
+		t.Fatalf("heard %v, want only the hide and the show, none of the covering", h.got)
+	}
+}
+
 // hearsSeek records the media seeks it hears.
 type hearsSeek struct{ at []time.Duration }
 

@@ -130,6 +130,20 @@ func (w *Window) inputDragOver(x, y float64, paths []string, over bool) {
 	}
 }
 
+// inputCovered reports the window going out of sight while it stays
+// open, or coming back, once for each change.
+//
+// This is a gunim change.
+func (w *Window) inputCovered(covered bool) {
+	if covered == w.covered {
+		return
+	}
+	w.covered = covered
+	if w.callbacks.covered != nil {
+		w.callbacks.covered(w, covered)
+	}
+}
+
 func (w *Window) inputDrop(paths []string) {
 	if w.callbacks.drop != nil {
 		w.callbacks.drop(w, paths)
@@ -536,6 +550,28 @@ func (w *Window) SetDropCallback(cbfun DropCallback) (DropCallback, error) {
 	}
 	old := w.callbacks.drop
 	w.callbacks.drop = cbfun
+	return old, nil
+}
+
+// CoveredCallback hears the window go out of sight while it stays open,
+// and come back: covered whole by other windows, on another virtual
+// desktop or workspace, or, where the system says, on a screen that is
+// off or locked. A window minimized hears the [IconifyCallback]
+// instead.
+//
+// This is a gunim change.
+type CoveredCallback func(w *Window, covered bool)
+
+// SetCoveredCallback sets the callback that hears the window go out of
+// sight and come back.
+//
+// This is a gunim change.
+func (w *Window) SetCoveredCallback(cbfun CoveredCallback) (CoveredCallback, error) {
+	if !_glfw.initialized {
+		return nil, NotInitialized
+	}
+	old := w.callbacks.covered
+	w.callbacks.covered = cbfun
 	return old, nil
 }
 

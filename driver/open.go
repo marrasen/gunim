@@ -164,6 +164,14 @@ type WindowFocus struct{ Focused bool }
 // application sent to the background and brought back on a phone.
 type WindowShown struct{ Shown bool }
 
+// WindowCovered is sent on [Window.Input] as the window goes out of
+// sight while it stays open, or comes back: covered whole by other
+// windows, on another virtual desktop or workspace, or on a screen that
+// is off, asleep or locked. The window draws nothing while covered, and
+// the application goes on as before, so music plays on under other
+// windows; a window put away, minimized, is [WindowShown]'s.
+type WindowCovered struct{ Covered bool }
+
 // FilesOver is sent on [Window.Input] each time files from another
 // program, such as a file manager, move while dragged over the window:
 // at Pos, in logical pixels, with their Paths once the system has told

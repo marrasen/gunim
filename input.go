@@ -71,6 +71,17 @@ func (u *UI) handleRaw(root *state, ev any) {
 		}
 		u.bubble(target, e)
 		return
+	case driver.WindowCovered:
+		if root != u.root {
+			return
+		}
+		// A window out of sight draws nothing, and the application
+		// carries on unaware: music plays on under other windows.
+		u.w.covered = e.Covered
+		if !e.Covered {
+			u.w.resumed, u.invalid = true, true
+		}
+		return
 	case driver.WindowShown:
 		if root != u.root {
 			return

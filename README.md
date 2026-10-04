@@ -253,11 +253,14 @@ Each of these comes from the split itself, so every gunim application
 has it with no code of its own:
 
 - **A window out of sight rests while the application works on.** A
-  minimized window, or one whose phone application went to the
-  background, draws nothing and holds its animations. The application
-  half runs apart from the frames, so music keeps playing, timers keep
-  firing and files keep loading. Shown again, the window draws the
-  latest state at once.
+  window draws nothing and holds its animations while it is minimized,
+  covered whole by other windows, on another virtual desktop, on a
+  screen that is off or locked, or in a phone application gone to the
+  background. The application half runs apart from the frames, so music
+  keeps playing, timers keep firing and files keep loading. Back in
+  sight, the window draws the latest state at once. The application
+  hears of a window minimized, as `input.WindowHidden`, and goes on
+  unaware of one merely covered.
 - **The window stays smooth while the application is busy.** Slow
   disks, networks and long computations happen in the application half,
   and the window keeps drawing at the display's rate meanwhile.

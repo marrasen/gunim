@@ -20,8 +20,13 @@ import (
 type platformWindowState struct {
 	colormap _XID
 	handle   _XID
-	parent   _XID
-	ic       uintptr // XIC
+	// A gunim change: obscured says the X server reports the window
+	// fully obscured, which it does where no compositor draws the
+	// windows, and unmapped that it is off the screen, as a window
+	// manager takes the windows of another workspace off it.
+	obscured, unmapped bool
+	parent             _XID
+	ic                 uintptr // XIC
 
 	// The composition the input method is currently showing, accumulated from
 	// the incremental preedit draw callbacks, the matching per-character

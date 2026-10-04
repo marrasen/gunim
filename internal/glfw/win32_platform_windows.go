@@ -14,7 +14,10 @@ const (
 )
 
 type platformWindowState struct {
-	handle    windows.HWND
+	handle windows.HWND
+	// covering is what the window keeps to hear it is out of sight; a
+	// gunim change.
+	covering  coveringState
 	bigIcon   _HICON
 	smallIcon _HICON
 

@@ -260,6 +260,21 @@ func registerGLFWClasses() error {
 				},
 			},
 			{
+				// A gunim change: a window wholly covered, on another Space,
+				// or on a screen asleep or locked, is out of sight; macOS
+				// says so of each window as its occlusion state changes.
+				Cmd: objc.RegisterName("windowDidChangeOcclusionState:"),
+				Fn: func(self objc.ID, _ objc.SEL, _ objc.ID) {
+					window := getGoWindow(self)
+					if window == nil {
+						return
+					}
+					const visible = 1 << 1 // NSWindowOcclusionStateVisible
+					state := objc.Send[uint](window.platform.object, objc.RegisterName("occlusionState"))
+					window.inputCovered(state&visible == 0)
+				},
+			},
+			{
 				Cmd: objc.RegisterName("windowDidMiniaturize:"),
 				Fn: func(self objc.ID, _ objc.SEL, notification objc.ID) {
 					window := getGoWindow(self)
