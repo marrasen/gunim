@@ -5,25 +5,25 @@ the display's refresh rate.
 
 ## Status
 
-The API is a sketch, and windows draw. `example/twowindows` opens two
-windows, each animating a rounded rectangle on its own render thread,
-built with `CGO_ENABLED=0`:
+gunim runs on Windows 11, on Linux under X11, and on Android. On Windows
+each window draws at its own monitor's rate, with 60 Hz and 120 Hz
+monitors side by side. macOS builds and is still untested. The API
+still changes as the examples ask more of it.
+
+Text shapes and wraps in pure Go, including right-to-left and mixed
+scripts. Sound plays in pure Go on the desktop. The examples below are
+full programs: a music player, a file manager, a calendar, a chat
+client and a candy sudoku among them.
+
+`example/twowindows` is where gunim started: two windows, each
+animating a rounded rectangle on its own render thread, built with
+`CGO_ENABLED=0`.
 
 ```sh
 CGO_ENABLED=0 go run ./example/twowindows -for 5s
 ```
 
-It runs on Windows 11 with 60 Hz and 120 Hz monitors side by side, each
-window at its own monitor's rate, and on Linux under X11. macOS builds
-and is still untested. Text shapes and wraps in pure Go, including
-right-to-left and mixed scripts.
-
-A window looks finished with no work from the application. By default
-gunim draws its title bar, rounded corners, border and shadow, and the
-window fades in as it opens and fades out as it closes. An application
-that puts `widget.WindowControls` in its own tree draws its own title
-bar instead. `WindowOptions.SystemFrame` keeps the system's frame, and
-`WindowOptions.Instant` turns the fade off.
+## Examples
 
 `example/tutorial` teaches how to build a gunim application, six
 lessons in a window: the node tree, a button and the two halves, a
@@ -111,8 +111,8 @@ together. The track playing is a picture disc that spins while it plays
 and runs down slowly as it pauses, ringed by bars that move with the
 music, pitch by pitch. Lights in the cover's colours drift behind
 everything and swell with the bass, and a new track's colours flow
-through the whole window. The seek bar is the track itself, drawn as its
-loudness along it.
+through the whole window, up under its title bar. The seek bar is the
+track itself, drawn as its loudness along it.
 
 ```sh
 go run ./example/music
@@ -133,48 +133,27 @@ it at the gap shown; or on the library, which follows a folder dropped
 there. A drag resting on a list's back button slides it away, to drop
 on the shelf. The equalizer, E, is parametric: up to
 eight bands, each a bell, a shelf, a cut or a notch, dragged about a
-graph, with the sound's spectrum before and after it drawn behind them. Loudness gain plays each track, or each
-album played in order, at -18 LUFS, measured in the background and kept
-between runs; the volume bar shows the gain as the pointer comes over
-it, and I opens a card of the track's file, quality and loudness. Space plays and pauses, the arrows seek and set the
-volume, and N and P skip.
+graph, with the sound's spectrum before and after it drawn behind them.
+
+Loudness gain plays each track, or each album played in order, at -18
+LUFS, measured in the background and kept between runs. Its button
+steps between no gain, track gain and album gain, and two tracks
+crossfading each keep their own. The volume bar shows the gain as the
+pointer comes over it, and I opens a card of the track's file, quality
+and loudness. Space plays and pauses, the arrows seek and set the
+volume, N and P skip, S shuffles and R repeats.
+
+The system's media controls show the track playing, with its cover, and
+play, pause, skip and seek it. The window's title names the track, so
+Alt+Tab and the taskbar show it. The window opens where it last closed,
+on a monitor still attached, and fades out with the music as it closes.
 
 ![The music player](example/music/music.png)
 
-`example/mastering` masters an album, an EP or a single. Each track is
-cut, faded with a curve of five shapes, and set apart by the same
-silence, edited on its waveform or its spectrogram, with the loudness
-it was measured at drawn along it. The waveform zooms in to the samples
-themselves, and up to show quiet sound. One track plays at a time, and
-a number key switches to another at the same moment, levels matched to
-the target if asked, to compare them by ear, or bypassed, the mix as it came, in time with
-the master. A loop plays a stretch over and over. Autoplay next runs on
-from each track into the next without a gap, as the exported files will
-play.
-
-Each track runs through its own chain of VST3 plugins, such as Ozone.
-Only the track heard runs its plugins, so the rest cost the computer
-nothing. A chain copies to other tracks with every plugin as set.
-Tracks are measured as they will be exported, through a copy of their
-chain run offline: loudness, its range and true peak. A change marks a
-track, and Calc LUFS measures the tracks marked, so heavy plugins work
-only when asked. To target finds the gain that brings a track to the
-target. Meters show the input to the chain and its output, each with a
-fader for the gain, loudness against the target, the stereo image, and
-the spectrum or a spectrogram.
-
-The export writes each track at its own length, tracks side by side, to
-16 or 24-bit WAV with dither, or 32-bit float, and, where LAME is
-installed, MP3, each tagged with the release, with a report of it all
-if asked. A project is a file of its own, which keeps its tracks' paths
-from its own folder, so it opens wherever the folders are found
-together.
-
-```sh
-go run ./example/mastering mix1.wav mix2.wav
-```
-
-![The mastering example](example/mastering/mastering.png)
+[Marras Mastering Studio](https://github.com/marrasen/mastering-studio)
+masters an album, an EP or a single, through chains of VST3 plugins. It
+started here as `example/mastering` and is now a project of its own,
+built on gunim's `audio`, `audio/vst3` and `audioui`.
 
 `example/sudoku` is a sudoku of candies, made for a phone and laid out
 for a desktop too, to see how far the animation goes. Each digit is a
@@ -182,9 +161,13 @@ candy of its own colour and shape. Candies drop in and wobble like
 jelly; a wrong one shakes, crumbles and breaks a heart as the board
 shakes; a finished row sweeps with light; quick candies build a combo
 that calls out "Sweet!" with stars; a won board bounces under fireworks.
-Each digit is a note, so filling the board plays tunes over a marimba
-loop. A map winds through 60 levels, from Easy to Expert, and a heart
-hops along it as each level opens.
+Picking a candy sets every candy of its digit hopping, a new level's
+candies run in and leap into their cells, and after a win Pac-Man eats
+the board row by row. Each digit is a note on a marimba, so filling the
+board plays tunes. The music is a song in ten synths, each coming and
+going in 16-bar phrases, so it never plays the same twice. A map winds
+through 60 levels, from Easy to Expert, in three layers that scroll at
+their own speeds, and a heart hops along it as each level opens.
 
 ```sh
 go run ./example/sudoku
@@ -196,7 +179,21 @@ note. Progress is kept between runs.
 
 ![The candy sudoku and its map](example/sudoku/sudoku.png)
 
-### Sound
+Three smaller examples show one thing each. `example/widgets` is a
+gallery of the widgets, with a dark and a light theme to switch
+between. `example/controls` has popups, pictures that fly to fill the
+window, a list of a hundred thousand items, rows to put in order by
+dragging, and a second window to drag pictures to. `example/paragraph`
+springs a column of English, Hebrew and Arabic between narrow and wide,
+wrapping it again every frame.
+
+```sh
+CGO_ENABLED=0 go run ./example/widgets
+CGO_ENABLED=0 go run ./example/controls
+CGO_ENABLED=0 go run ./example/paragraph
+```
+
+## Sound
 
 Package `audio` plays sound: a `Mixer` sums the sounds playing into one
 stream at 48 kHz, and `audio/speaker` plays it through the computer's
@@ -222,6 +219,22 @@ through an effect in realtime or offline, and saves and restores its
 state. It shows the effect's own editor in a window, on Windows and
 Linux.
 
+Package `audioui` draws sound for audio programs: level meters and
+faders, a spectrum and a spectrogram, a waveform, and loudness readings
+and curves, in the colours of a dark studio.
+
+`audio/speaker` plays through a fork of oto,
+[marrasen/oto](https://github.com/marrasen/oto), which keeps a
+Bluetooth headset on Android from crackling and says how long the
+device takes to play what it is handed, so visuals keep time with the
+sound as heard. Go applies a `replace` only in the module being built,
+so a program that imports gunim takes the same line into its own
+`go.mod` to get the fix:
+
+```
+replace github.com/ebitengine/oto/v3 => github.com/marrasen/oto/v3 v3.5.1-gunim.2
+```
+
 Widgets play cues as the user works them: a press, a switch turning on
 or off, a menu opening. They are silent until an application chooses
 the sounds; `audio/cues` has a quiet set made in code:
@@ -235,7 +248,64 @@ if _, err := speaker.Open(mix, speaker.Options{Name: "My app"}); err == nil {
 
 `example/widgets` plays them; `-sound=false` turns them off.
 
-### Android
+An application plays cues of its own with `UI.Cue`, for what happens
+while the user looks elsewhere: `CueConnected` and `CueDisconnected`,
+`CueDone` and `CueFailed` for work left running, and `CueBell` for
+something that wants the user, as a terminal's bell. Each cue sounds
+from where its node is across the window, a little left or right.
+
+## The desktop
+
+A window looks finished with no work from the application. By default
+gunim draws its title bar, rounded corners, border and shadow, and the
+window fades in as it opens and fades out as it closes. An application
+that puts `widget.WindowControls` in its own tree draws its own title
+bar instead. `WindowOptions.SystemFrame` keeps the system's frame, and
+`WindowOptions.Instant` turns the fade off.
+
+`WindowOptions.UnderTitleBar` lets an application draw the whole
+window, with gunim's title bar over its top, the way an Android app
+draws under the status bar. The bar's height comes to the application
+as `Frame.Safe`, as a phone's bars do, so the same layout keeps its
+content clear of both. A `widget.TitleBar` with a `Name` shows that
+name whatever the window's title says, and `TitleAtStart` puts it at
+the left.
+
+`Window.Placement` says where a window is and how big, for the
+application to keep as it closes, and `WindowOptions.Place` opens it
+there next time. A placement whose monitor is gone opens centred on the
+primary monitor, and one larger than its monitor shrinks to fit. A
+window also goes full screen, stays above other windows with
+`WindowOptions.Pinned`, zooms with Ctrl and +, - and 0 or the wheel
+with `WindowOptions.ZoomKeys`, and asks for the user's attention in the
+taskbar.
+
+An application reaches the rest of the desktop through `App`, `Client`
+and `UI`:
+
+- **The tray.** `App.SetTray` shows an icon with a menu, and
+  `App.TrayNotify` a message from it. With `App.StayOpen` the
+  application runs on with no window open. Linux speaks
+  StatusNotifierItem.
+- **Keys from every program.** `App.RegisterHotKey` hears a key
+  whatever program has the keyboard, on Windows and on X11.
+- **Media controls.** `App.SetNowPlaying` tells the system what plays,
+  over MPRIS on Linux and the System Media Transport Controls on
+  Windows. Their buttons arrive as media keys, and a move along their
+  bar as `input.MediaSeek`.
+- **Files.** `Client.ChooseFiles` and `Client.SaveFile` show the
+  system's dialogs. `Client.Open` hands a file to the program the
+  system keeps for it, and `Client.Reveal` shows it in the system's file
+  manager.
+- **The clipboard.** `UI.SetClipboard` and `UI.ReadClipboard` carry
+  text, and `UI.ClipboardImage` reads a picture.
+- **Drag and drop.** Files and pictures drag between windows, out to
+  other programs and in from them, and a drop target lights while
+  another program's files hover over it. With
+  `WindowOptions.DragFromBehind`, an item drags from a window lying
+  behind another on Windows, as from Explorer's windows.
+
+## Android
 
 The same programs build for Android. `tools/gunimapk` turns one into an
 APK with the Android SDK's own tools, and `-run` installs and starts it
@@ -543,16 +613,24 @@ writes them again from a newer Lucide.
 | `gunim/audio/speaker` | Plays a mixer through the speakers, with oto |
 | `gunim/audio/cues` | Quiet sounds made in code for the widgets' cues |
 | `gunim/audio/vst3` | Hosts VST3 effects: their sound, state, parameters and editors |
+| `gunim/audioui` | Meters and faders, a spectrum and a spectrogram, a waveform, and loudness readings for audio programs |
 | `gunim/paint` | The per-frame draw list: rounded rects, shadows, text, images, tinted masks, layers |
 | `gunim/icon` | Lucide's icons as strokes, drawn as tinted masks; `icon/byname` looks them up by name |
 | `gunim/geom` | float32 points, sizes, rectangles |
 | `gunim/syntax` | Splits source code into tokens to colour; `syntax.Go` reads Go with `go/scanner` |
+| `gunim/markdown` | Shows Markdown as gunim text that the reader can select and copy |
+| `gunim/match` | Finds a typed query in lines of text, ranked as a command palette ranks them |
+| `gunim/emoji` | The emoji in a picker's groups, with their names for searching |
 | `gunim/input` | Pointer, keyboard and focus events, keys, buttons, modifiers |
 | `gunim/theme` | Tokens, themes, and animated theme switching |
 | `gunim/text` | Fonts and fallback, shaping, paragraph layout, glyph rasterizing |
 | `gunim/access` | What a window says to screen readers: roles, names, states, actions |
 | `gunim/driver` | The seam with the operating system, and an offscreen window |
 | `gunim/driver/desktop` | The driver for Linux, Windows and macOS, on GLFW and OpenGL |
+| `gunim/driver/android` | The driver for Android: every window drawn into the activity's one surface, touch, and the soft keyboard |
+| `gunim/gunimtest` | Offscreen windows for tests, which fail a test that sent from or focused a node out of the tree |
+| `gunim/filemanager` | A file manager to open in any program, on the local disk or on a file system of its own, such as a server's |
+| `gunim/calendar` | A calendar's views: a day or a week by the hour, a month, and a small month to pick a day from |
 | `gunim/widget` | `Row`, `Column`, `Scroll`, a `TileGrid` that builds only the tiles in view and selects with a band, `Label` whose text the mouse can select and copy when `Selectable`, `TextField`, `NumberField` that steps with the arrows and the wheel and holds itself to its bounds, `TextArea`, `Card`, `Button`, `Icon`, `IconButton`, `Checkbox`, `Switch`, `Slider`, which runs up the height as a fader when its `Axis` is vertical, `Tabs`, a `Segmented` control whose pill springs to the option chosen, `Dropdown`, `ContextMenu`, `Tooltip`, `Image`, `Hero` for elements that fly between screens, `Draggable` and `DropTarget` for drag and drop within and between windows and to and from file managers, a `DragGhost` that trails the pointer and says what a drop would do, a `DropZone` that lights the spot under a drag and springs it open, `Dialog`, a keyed `List`, a `VirtualList` that builds only the rows in view, a `DataGrid` that draws millions of rows of styled cells by index and drags the rows selected, an `Overview` strip that maps and scrolls it, a `MenuButton` whose menu can stay open to tick several items, removable `Chip`s and a `Wrap` that flows them onto lines, `RichText` that wraps text in several styles with links, a `CodeEditor` with line numbers, tab stops, highlighting and marks such as a compiler's errors, and their theme tokens |
 
 Commands, intents, topics and the `Client` live in `wire.go` and
@@ -590,6 +668,15 @@ each render thread waits for its own monitor's vertical blank instead,
 the way Chromium does. Where the swap does
 not wait for the display, as under a remote desktop, the render thread
 sleeps out the rest of the refresh itself.
+
+On Windows the frames reach the screen through DXGI, as Direct3D
+programs' do: the renderer draws with OpenGL into a Direct3D 11 texture
+shared through `WGL_NV_DX_interop2`, and a flip-model swap chain shows
+it through DirectComposition. That path works on every display,
+including one Windows puts in place of a monitor that is switched off,
+and over remote desktop tools. Where a machine lacks a piece of it, the
+window presents through OpenGL, and `GUNIM_PRESENT=gl` chooses that
+too.
 
 Every shape is one quad and one signed distance field, so rounded
 rectangles, strokes, gradients and shadows stay crisp at any scale.
@@ -660,24 +747,19 @@ parent.
 
 ## Next
 
-The first milestone is two windows on two monitors at different refresh
-rates, each drawing an animated rounded rectangle, with
-`CGO_ENABLED=0`, on Linux and Windows. Windows passes, on a 60 Hz and a
-120 Hz monitor (issue #1). What remains:
+In no set order:
 
-- Run it on Linux with a real GPU, where the swap waits for vblank.
-  Two monitors at different rates run on a virtual display from
+- Linux with a real GPU, where the swap waits for vblank. Two monitors
+  at different rates run on a virtual display from
   `tools/multimon/start.sh`: each window takes its own monitor's rate,
-  paced by the fallback timer, since a virtual display has no vblank.
-
-Then, in no set order:
-
-- Popups, images and the new renderer on Windows, and measuring the
-  renderer on a GPU. Every number so far comes from software GL.
+  paced by the fallback timer, as a virtual display has no vblank.
 - macOS, which builds and has never run. Its popups are borderless
-  floating windows, with no popup type of their own yet.
+  floating windows, with no popup type of their own yet, and it keeps
+  the system's title bar.
 - Input-method compositions on macOS, which the GLFW port reports only
   on X11 and, with a gunim change, on Windows.
+- Bluetooth headsets on Windows: whether they play cleanly, and whether
+  the system counts their delay (issue #26).
 
 ## Licence
 
