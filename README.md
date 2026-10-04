@@ -101,7 +101,8 @@ Items drag as a stack of cards that trails the pointer and says what a
 drop will do: move or copy to the folder under it, pin it to the
 favourites, or nothing, with a shake. A folder the drag rests on springs
 open. Files drag between windows, out to other programs, and in from
-them. On Windows an item drags from a window lying behind another, which
+them; files from another program light the folder they would drop in
+while they are still being dragged. On Windows an item drags from a window lying behind another, which
 stays behind, as Explorer's do; a click there brings the window to the
 front. Ctrl+N opens another window on the same folder.
 
@@ -124,8 +125,14 @@ their tags and covers: tracks copied in join it within seconds, and
 tracks deleted leave. It follows your music folder from the first run,
 and `-dir` or the library's Add a folder adds more. Playlists gather
 tracks by hand, and their rows move by their grips. The library and the
-playlists are kept between runs. Space plays and pauses, the arrows
-seek and set the volume, and N and P skip.
+playlists are kept between runs. Up next holds the tracks to play
+before the list goes on. Tracks drag from their rows, and files drag in
+from a file manager, and each drops where it is let go: on the track
+playing, to play now or join Up next; on a playlist or Up next, to join
+it at the gap shown; or on the library, which follows a folder dropped
+there. A drag resting on a list's back button slides it away, to drop
+on the shelf. Space plays and pauses, the arrows seek and set the
+volume, and N and P skip.
 
 ![The music player](example/music/music.png)
 
