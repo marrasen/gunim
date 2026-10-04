@@ -145,8 +145,10 @@ volume, and N and P skip.
 with a curve of five shapes, and set apart by the same silence, edited
 on their waveforms. One plays at a time, and a number key switches to
 another at the same moment, levels matched to the target if asked, to
-compare them by ear. Each is measured as it will be exported, loudness
-and true peak, as an edit settles, and the album exports each track at
+compare them by ear. Each is measured as it will be exported, loudness,
+its range and true peak, when Calc LUFS asks: a track changed since it
+was measured is marked, so heavy plugins work only when asked. The
+album exports each track at
 its own length, to 16 or 24-bit WAV with dither, or 32-bit float.
 Meters show loudness against the target, the stereo image and the
 spectrum. Each track runs through its own chain of VST3 plugins, such
