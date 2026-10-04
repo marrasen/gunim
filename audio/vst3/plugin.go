@@ -141,6 +141,8 @@ type Plugin struct {
 	// ed is the editor, open, on the plugins' thread.
 	ed         *editor
 	editorOpen atomic.Bool
+	// onEdit, set by a test, hears each change of the editor's.
+	onEdit func(id uint32, v float64)
 }
 
 // point2 is a parameter's new value.
@@ -452,6 +454,9 @@ func (p *Plugin) Flush() {
 
 // edited takes a change of the editor's, for the processor.
 func (p *Plugin) edited(id uint32, v float64) {
+	if p.onEdit != nil {
+		p.onEdit(id, v)
+	}
 	p.mu.Lock()
 	p.edits = append(p.edits, point2{id, v})
 	p.mu.Unlock()
