@@ -19,6 +19,10 @@ type Options struct {
 	// FS is the file system the window shows, and the computer's own,
 	// as LocalFS returns it, when nil.
 	FS FS
+	// SystemFrame gives the window the system's title bar and frame, as
+	// gunim.WindowOptions.SystemFrame does, for an application whose
+	// user wants the window manager's own.
+	SystemFrame bool
 	// Dir is the folder the window opens on, and the file system's home
 	// folder when empty.
 	Dir string

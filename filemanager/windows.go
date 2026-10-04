@@ -144,6 +144,7 @@ func (h *Hub) Open(o Options) (*Window, error) {
 		return nil, errors.New("files: the hub has no app to open windows on")
 	}
 	wo := WindowOptions()
+	wo.SystemFrame = o.SystemFrame
 	if o.Name != "" {
 		wo.Title = o.Name
 	}
