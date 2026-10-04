@@ -217,8 +217,10 @@ func (c *WindowControls) light(b windowButton, u *gunim.UI) {
 // Paint implements [gunim.Node].
 func (c *WindowControls) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
 	th := f.Theme
-	// The title bar's colour, for the row they end to read as one.
-	p.RRect(geom.Rect{Max: box.Point()}, 0, paint.Solid(MenubarFill.Get(th)))
+	// The title bar's colour, for the row they end to read as one, or the application's own drawing under them.
+	if !f.UnderTitleBar() {
+		p.RRect(geom.Rect{Max: box.Point()}, 0, paint.Solid(MenubarFill.Get(th)))
+	}
 	ink := Ink.Get(th)
 	bw := c.width()
 	for i, b := range c.buttons() {

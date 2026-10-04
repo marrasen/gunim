@@ -231,6 +231,10 @@ func (f Frame) Pinned() bool { return f.u != nil && f.u.Pinned() }
 // application's to draw, for a part of one to take no room otherwise.
 func (f Frame) Chromeless() bool { return f.u != nil && f.u.Chromeless() }
 
+// UnderTitleBar reports whether the application draws under the title bar the engine gave the window, for the bar to
+// leave its fill out and let the application show through; see [WindowOptions.UnderTitleBar].
+func (f Frame) UnderTitleBar() bool { return f.u != nil && f.u.underBar }
+
 // MakeChromeless makes a window from [NewOffscreen] chromeless, with a
 // pretend system that moves and sizes it itself when native, as
 // Windows does, and leaves that to the engine otherwise. It is for a

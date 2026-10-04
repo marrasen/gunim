@@ -292,6 +292,11 @@ type WindowOptions struct {
 	Place *driver.Placement
 	// TitleBar is the title bar a chromeless window gets, in place of the one registered with [RegisterTitleBar].
 	TitleBar TitleBar
+	// UnderTitleBar lets the application draw the whole of a chromeless window, with the engine's title bar over its
+	// top, as an application on a phone draws under the status bar. The bar's height is added to [Frame.Safe] at the
+	// top, so the application keeps its content clear of the bar and lets its background run under it. The bar draws
+	// its title and buttons, and leaves its own fill out; see [Frame.UnderTitleBar].
+	UnderTitleBar bool
 	// Pinned opens the window kept above other windows; see [UI.SetPinned].
 	Pinned bool
 	// Hidden opens the window without showing it, as for an application
@@ -331,6 +336,7 @@ func (a *App) NewWindow(o WindowOptions) (*Window, error) {
 	w := newWindow(dw, o.Root)
 	w.title = o.Title
 	w.askToClose = o.AskToClose
+	w.ui.underBar = o.UnderTitleBar
 	w.ui.startChrome(o.TitleBar)
 	if o.Pinned {
 		if err := w.ui.SetPinned(true); err != nil {
@@ -1113,6 +1119,8 @@ type UI struct {
 	chrome *titleBar
 	// titleBar is the title bar the engine gave the window, or nil; see giveTitleBar.
 	titleBar TitleBar
+	// underBar says the application draws under the title bar; see [WindowOptions.UnderTitleBar].
+	underBar bool
 	// modals are the modals in the tree, in the order they came; see Modal.
 	modals []modalHold
 	// pinned says the window is kept above other windows; see SetPinned.

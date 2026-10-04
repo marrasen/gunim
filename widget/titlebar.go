@@ -57,9 +57,12 @@ func (t *TitleBar) Layout(cs gunim.Constraints, f gunim.Frame, kids gunim.Childr
 	return cs.Constrain(geom.Sz(w, h))
 }
 
-// Paint implements [gunim.Node].
+// Paint implements [gunim.Node]: the bar's fill, then the title and buttons. Over an application that draws under
+// the bar, the application shows through in place of the fill; see [gunim.WindowOptions.UnderTitleBar].
 func (t *TitleBar) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.Children) {
-	p.RRect(geom.Rect{Max: box.Point()}, 0, paint.Solid(MenubarFill.Get(f.Theme)))
+	if !f.UnderTitleBar() {
+		p.RRect(geom.Rect{Max: box.Point()}, 0, paint.Solid(MenubarFill.Get(f.Theme)))
+	}
 	for k := range kids.All {
 		k.Paint(p)
 	}
