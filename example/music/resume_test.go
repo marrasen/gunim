@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/marrasen/gunim/audio"
+	"github.com/marrasen/gunim/driver"
 	"github.com/marrasen/gunim/geom"
 )
 
@@ -59,7 +61,7 @@ func TestTheWindowOpensTheListTheTrackTakenUpPlaysFrom(t *testing.T) {
 func TestTheMusicFadesOutAsThePlayerCloses(t *testing.T) {
 	m := audio.NewMixer()
 	d := newDeck(m)
-	d.play(&songSilence{}, func() {}, false)
+	d.play(&songSilence{}, func() {}, false, 0)
 	d.fadeOut(100 * time.Millisecond)
 	go func() {
 		buf := make([]float32, 2*480)
@@ -80,3 +82,45 @@ type songSilence struct{}
 func (*songSilence) Read(dst []float32) (int, error) { clear(dst); return len(dst) / 2, nil }
 func (*songSilence) SeekFrame(int64) error           { return nil }
 func (*songSilence) Len() int64                      { return -1 }
+
+func TestTheWindowOpensWhereItLastClosed(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "library.json")
+	if placement(file) != nil {
+		t.Fatal("a first run has a placement to open at")
+	}
+	a := newApp(context.Background(), newDeck(audio.NewMixer()), file)
+	at := driver.Placement{Bounds: geom.Rc(2000, 120, 900, 640), Maximized: true}
+	a.placement = func() (driver.Placement, bool) { return at, true }
+	a.keepPlacement()
+	a.save()
+	if got := placement(file); got == nil || *got != at {
+		t.Fatalf("the next run opens at %v, want %v", got, at)
+	}
+	// A window that cannot say where it is leaves the last place kept.
+	a.placement = func() (driver.Placement, bool) { return driver.Placement{}, false }
+	a.keepPlacement()
+	a.save()
+	if got := placement(file); got == nil || *got != at {
+		t.Fatalf("the next run opens at %v, want %v still", got, at)
+	}
+}
+
+func TestTheWindowsTitleNamesTheTrack(t *testing.T) {
+	s := library4()
+	w, root, run := stage(t, geom.Sz(1100, 720), s)
+	if root.title != appName {
+		t.Fatalf("with no track, the window's title is %q, want %q", root.title, appName)
+	}
+	s.Current = 2
+	if err := w.Client().Publish(playerTopic, s); err != nil {
+		t.Fatal(err)
+	}
+	run(1)
+	tr := s.Tracks[1]
+	if want := tr.Title + " – " + tr.Artist + " – " + appName; root.title != want {
+		t.Fatalf("playing %q, the window's title is %q, want %q", tr.Title, root.title, want)
+	}
+	if got := windowTitle(Track{Title: "Untitled"}, true); got != "Untitled – "+appName {
+		t.Fatalf("a track without an artist gives the title %q", got)
+	}
+}

@@ -354,6 +354,9 @@ type app struct {
 	home     string
 	askMusic func() bool
 	granted  chan bool
+	// placement says where the window is, to open it there next run;
+	// nil where there is no window to ask.
+	placement func() (driver.Placement, bool)
 }
 
 // spread is files dropped on a list, with the folders among them
@@ -382,6 +385,8 @@ type setup struct {
 	// permitted reports whether the player may read the user's music,
 	// and ask asks the user, as a phone's system does; nil for always.
 	permitted, ask func() bool
+	// placement says where the window is, kept as the window closes.
+	placement func() (driver.Placement, bool)
 }
 
 // newApp returns the application half, with the library kept in file
@@ -419,7 +424,7 @@ func serve(ctx context.Context, c gunim.Client, d *deck, at setup, play startAt,
 	}
 	go a.z.run(ctx.Done())
 	a.choose = func(o driver.ChooseOptions) ([]string, error) { return c.ChooseFiles(ctx, o) }
-	a.home, a.askMusic = at.home, at.ask
+	a.home, a.askMusic, a.placement = at.home, at.ask, at.placement
 	kept, ok := loadSaved(at.file)
 	a.kept = kept
 	if !ok && at.home != "" {
@@ -560,7 +565,7 @@ func serve(ctx context.Context, c gunim.Client, d *deck, at setup, play startAt,
 				e.analyzed(r.a)
 				a.refresh()
 				if cur := a.entries[a.Current]; cur != nil && albumKey(cur) == albumKey(e) {
-					a.applyGain(true)
+					a.applyGain()
 				}
 			}
 		case <-ended:
@@ -580,16 +585,46 @@ func serve(ctx context.Context, c gunim.Client, d *deck, at setup, play startAt,
 				return c.Err()
 			}
 			if _, ok := ev.Intent.(CloseAsked); ok {
-				// The music fades out as the window does.
+				// The window shrinks a little and fades as it leaves, and
+				// the music fades out with it.
+				a.keepPlacement()
 				a.save()
 				a.d.fadeOut(closeFade)
-				c.Close()
-				continue
+				c.Leave()
+				return leaving(ctx, c)
 			}
 			a.handle(ev.Intent)
 			a.prepareNext()
 		}
 		publish()
+	}
+}
+
+// leaving waits for the window to close once it has begun to leave.
+// The player acts on nothing more meanwhile: a paused track ends at once
+// as it stops, and taking that for the track's end would play the next.
+func leaving(ctx context.Context, c gunim.Client) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case _, ok := <-c.Intents():
+			if !ok {
+				return c.Err()
+			}
+		}
+	}
+}
+
+// keepPlacement notes where the window is and how big, to open it
+// there next run.
+func (a *app) keepPlacement() {
+	if a.placement == nil {
+		return
+	}
+	if p, ok := a.placement(); ok && (a.kept.Window == nil || *a.kept.Window != p) {
+		a.kept.Window = &p
+		a.dirty = true
 	}
 }
 
@@ -1057,13 +1092,13 @@ func (a *app) handle(in gunim.Intent) {
 			v := a.Volume
 			a.kept.Volume = &v
 		}
-		a.applyGain(true)
+		a.applyGain()
 	case SetEQ:
 		a.setEQ(in.EQ)
 		eq := in.EQ
 		a.kept.EQ = &eq
 		a.dirty = true
-		a.applyGain(true)
+		a.applyGain()
 	case ClearQueue:
 		gone := a.queue
 		a.queue = nil
@@ -1095,12 +1130,12 @@ func (a *app) handle(in gunim.Intent) {
 		v := a.Volume
 		a.kept.Volume = &v
 		a.dirty = true
-		a.applyGain(true)
+		a.applyGain()
 	case ToggleShuffle:
 		a.Shuffle = !a.Shuffle
 		a.kept.Shuffle = a.Shuffle
 		a.dirty = true
-		a.applyGain(true)
+		a.applyGain()
 	case CycleRepeat:
 		a.Repeat = (a.Repeat + 1) % 3
 		a.kept.Repeat = a.Repeat
@@ -1198,9 +1233,8 @@ func (a *app) start(id int) {
 		a.z.want(e, true)
 	}
 	// The track starts at its own gain, worked out for the list it
-	// plays from.
-	a.gainFor(e, false)
-	a.voice = a.d.play(src, closer, false)
+	// plays from; the track before fades out at its own.
+	a.voice = a.d.play(src, closer, false, a.gainFor(e))
 	a.upNext = nil
 	// The list playing goes on from its track played last.
 	if slices.Contains(a.list(a.From), id) {
@@ -1260,8 +1294,7 @@ func (a *app) takeUp() {
 	if e.an == nil {
 		a.z.want(e, true)
 	}
-	a.gainFor(e, false)
-	a.voice = a.d.play(src, closer, true)
+	a.voice = a.d.play(src, closer, true, a.gainFor(e))
 	a.upNext = nil
 	if slices.Contains(a.list(a.From), e.ID) {
 		a.listAt = e.ID
@@ -1341,21 +1374,21 @@ func (a *app) albumLoudness(e *entry) (lufs float64, peak float32, ok bool) {
 	return 10 * math.Log10(energy/weight), peak, true
 }
 
-// applyGain sets the gain the track playing plays at, gliding to it
-// where it plays already.
-func (a *app) applyGain(glide bool) { a.gainFor(a.entries[a.Current], glide) }
+// applyGain sets the gain the track playing plays at, gliding to it.
+func (a *app) applyGain() { a.d.setGain(a.gainFor(a.entries[a.Current]), true) }
 
-// gainFor sets the gain track e plays at, gliding to it where glide.
+// gainFor returns the gain track e plays at, in decibels, and shows it
+// as the gain of the track playing.
 //
 // The equalizer's boosts would lift the track's peaks with them: the
 // track plays lowered by as much of the boost as would take its peaks
 // past full scale, and no more, so a boost still lifts where there is
 // room, and never drives the limiter on its own. The volume past full
 // may still: that is the listener's to choose.
-func (a *app) gainFor(e *entry, glide bool) {
+func (a *app) gainFor(e *entry) float64 {
 	db, by, album, headroom := a.gainAll(e)
 	a.Gain, a.GainBy, a.AlbumLUFS, a.Headroom = float32(db), by, float32(album), float32(headroom)
-	a.d.setGain(db-headroom, glide)
+	return db - headroom
 }
 
 // gainAll returns e's loudness gain, what it follows and its album's
@@ -1442,7 +1475,7 @@ func (a *app) turned() {
 	if e.an == nil {
 		a.z.want(e, true)
 	}
-	a.gainFor(e, false)
+	a.d.setGain(a.gainFor(e), false)
 	a.prepareNext()
 }
 

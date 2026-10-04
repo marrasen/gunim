@@ -21,13 +21,17 @@ var newTitleBar func() TitleBar
 func RegisterTitleBar(maker func() TitleBar) { newTitleBar = maker }
 
 // windowFrame is the top of a chromeless window's tree when the engine gives the window a title bar: the bar across
-// the top, and the application's root below it. The bar steps aside while a node of the application's is a
-// [MaximizeButton], so the application draws its own title bar, and while the window fills its monitor.
+// the top, and the application's root below it, or under it with [WindowOptions.UnderTitleBar]. The bar steps aside
+// while a node of the application's is a [MaximizeButton], so the application draws its own title bar, and while the
+// window fills its monitor.
 type windowFrame struct {
 	u   *UI
 	bar TitleBar
 	// shown says the last layout showed the bar.
 	shown bool
+	// over is how much of the application's top the bar covers, added to its [Frame.Safe]: the bar's height while
+	// the application draws under a bar that shows, and zero otherwise.
+	over float32
 }
 
 // giveTitleBar puts a window frame at the top of the window's tree, with bar across it. The application's root keeps
@@ -40,7 +44,12 @@ func (u *UI) giveTitleBar(bar TitleBar) {
 	app.parent = fs
 	fs.kids = []*state{app}
 	u.root = fs
-	u.InsertAt(fr, 0, bar)
+	if u.underBar {
+		// The bar is over the application, and so after it, as a press goes to the last of the nodes under it
+		u.Insert(fr, bar)
+	} else {
+		u.InsertAt(fr, 0, bar)
+	}
 	u.titleBar = bar
 }
 
@@ -70,7 +79,7 @@ func hasButtons(s *state) bool {
 }
 
 // Layout implements [Node]: the bar across the top, as tall as it asks, and the application below it, or the
-// application over all of it while the bar steps aside.
+// application over all of it while the bar steps aside or the application draws under it.
 func (fr *windowFrame) Layout(c Constraints, _ Frame, kids Children) geom.Size {
 	size := c.Max
 	var bar, app Child
@@ -91,11 +100,22 @@ func (fr *windowFrame) Layout(c Constraints, _ Frame, kids Children) geom.Size {
 		}
 		bar.Place(geom.Point{})
 	}
+	fr.over = 0
+	if fr.u.underBar {
+		fr.over, top = top, 0
+	}
 	if app.n != nil {
+		app = fr.under(app)
 		app.Layout(Tight(geom.Sz(size.W, max(0, size.H-top))))
 		app.Place(geom.Pt(0, top))
 	}
 	return size
+}
+
+// under is the application's root with the part of it the bar covers added to its frame's Safe.
+func (fr *windowFrame) under(app Child) Child {
+	app.f.Safe.Top += fr.over
+	return app
 }
 
 // Paint implements [Node]: the application, then the bar over it.
@@ -106,7 +126,7 @@ func (fr *windowFrame) Paint(p *paint.Painter, _ Frame, _ geom.Size, kids Childr
 			bar = k
 			continue
 		}
-		k.Paint(p)
+		fr.under(k).Paint(p)
 	}
 	if fr.shown {
 		bar.Paint(p)

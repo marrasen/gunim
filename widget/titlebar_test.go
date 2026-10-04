@@ -75,6 +75,21 @@ func TestTheTitleBarShowsTheWindowsTitle(t *testing.T) {
 	}
 }
 
+func TestATitleBarWithANameKeepsItWhateverTheWindowsTitle(t *testing.T) {
+	_, bar, run, on := titleStage(t, newSpot(100, 50))
+	bar.Name, bar.TitleAtStart = "Music", true
+	run(1)
+	on(func(u *gunim.UI) { u.SetTitle("Night Drive – Music") })
+	if got := bar.title.label.Text; got != "Music" {
+		t.Fatalf("the title bar says %q, want its name, %q", got, "Music")
+	}
+	var r geom.Rect
+	on(func(u *gunim.UI) { r, _ = u.Bounds(bar.title.label) })
+	if r.Min.X != WindowTitleInset {
+		t.Fatalf("the title starts at %v, want %v, at the bar's start", r.Min.X, float32(WindowTitleInset))
+	}
+}
+
 func TestAnApplicationsOwnWindowButtonsTakeTheTitleBarsPlace(t *testing.T) {
 	c := NewWindowControls()
 	sp := NewSpacer()
