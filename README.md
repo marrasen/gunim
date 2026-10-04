@@ -131,7 +131,9 @@ from a file manager, and each drops where it is let go: on the track
 playing, to play now or join Up next; on a playlist or Up next, to join
 it at the gap shown; or on the library, which follows a folder dropped
 there. A drag resting on a list's back button slides it away, to drop
-on the shelf. Space plays and pauses, the arrows seek and set the
+on the shelf. The equalizer, E, is parametric: up to
+eight bands, each a bell, a shelf, a cut or a notch, dragged about a
+graph, with the sound's spectrum before and after it drawn behind them. Space plays and pauses, the arrows seek and set the
 volume, and N and P skip.
 
 ![The music player](example/music/music.png)
@@ -164,7 +166,11 @@ speakers, in pure Go on Linux, Windows and macOS. A voice's volume and
 pan move with `anim`'s springs and tweens, stepped in time with the
 sound. `Decode` reads WAV, MP3, Ogg Vorbis and FLAC, and an MP3 drops
 its encoder's silence, so an album plays without gaps. An `Analyzer`
-measures the sound as it is heard, for visuals that keep time with it.
+measures the sound as it is heard, for visuals that keep time with it,
+and its `Spectrum` reads the sound before a voice's inserts as well as
+after. An `EQ` is such an insert: a parametric equalizer of bells,
+shelves, cuts and notches, whose bands glide to new settings without
+clicks.
 
 Widgets play cues as the user works them: a press, a switch turning on
 or off, a menu opening. They are silent until an application chooses

@@ -37,6 +37,10 @@ type Mixer struct {
 	buf     []float32
 	// gain is the limiter's gain, 1 while the mix fits.
 	gain float32
+	// dry is the block mixed as the voices' inserts found it, and
+	// dryHistory the frames of it mixed so far, as history holds what
+	// was heard; nil until a voice plays with an insert.
+	dry, dryHistory []float32
 	// out is Read's buffer; Read runs on one goroutine at a time.
 	out []float32
 }
@@ -62,6 +66,19 @@ type Options struct {
 	// Paused readies the sound without playing it, until
 	// [Voice.Resume].
 	Paused bool
+	// Insert, where set, changes the sound as it plays, after its
+	// volume and pan, as an equalizer does; see [EQ.Insert]. The
+	// mixer keeps the sound as it was before the inserts too, for an
+	// [Analyzer] to compare.
+	Insert Insert
+}
+
+// An Insert changes a voice's sound as it plays, in place, a block of
+// interleaved stereo frames at a time. It runs on the goroutine that
+// mixes, with the mixer locked, so it must be quick and must not call
+// the mixer.
+type Insert interface {
+	Process(frames []float32)
 }
 
 // Play starts src playing and returns its voice.
@@ -78,6 +95,7 @@ func (m *Mixer) Play(src Source, o Options) *Voice {
 		gate:   anim.NewFloat(1),
 		loop:   o.Loop,
 		paused: o.Paused,
+		insert: o.Insert,
 		done:   make(chan struct{}),
 	}
 	if o.FadeIn > 0 {
@@ -85,6 +103,13 @@ func (m *Mixer) Play(src Source, o Options) *Voice {
 		v.gate.Animate(1, anim.Tween{Duration: o.FadeIn, Ease: anim.Linear})
 	}
 	m.mu.Lock()
+	if o.Insert != nil && m.dryHistory == nil {
+		m.dry = make([]float32, 2*block)
+		m.dryHistory = make([]float32, historyFrames)
+		// Until now no insert changed anything: the sound heard is the
+		// sound before.
+		copy(m.dryHistory, m.history)
+	}
 	v.marks[0] = mark{mixed: m.played}
 	v.nmarks = 1
 	m.voices = append(m.voices, v)
@@ -163,9 +188,14 @@ func (m *Mixer) mixBlock(dst []float32) {
 	clear(dst)
 	frames := len(dst) / 2
 	dt := Duration(int64(frames))
+	var dry []float32
+	if m.dry != nil {
+		dry = m.dry[:2*frames]
+		clear(dry)
+	}
 	live := m.voices[:0]
 	for _, v := range m.voices {
-		if v.mix(dst, m.buf[:2*frames], dt) {
+		if v.mix(dst, dry, m.buf[:2*frames], dt) {
 			live = append(live, v)
 		} else {
 			v.finish()
@@ -192,6 +222,9 @@ func (m *Mixer) mixBlock(dst []float32) {
 		l, r := clip(dst[2*i]*g), clip(dst[2*i+1]*g)
 		dst[2*i], dst[2*i+1] = l, r
 		m.history[(m.played+int64(i))&(historyFrames-1)] = (l + r) / 2
+		if dry != nil {
+			m.dryHistory[(m.played+int64(i))&(historyFrames-1)] = (dry[2*i] + dry[2*i+1]) / 2
+		}
 	}
 	m.played += int64(frames)
 }
@@ -221,6 +254,7 @@ type Voice struct {
 	// resume, a stop and FadeIn.
 	vol, pan, gate *anim.Float
 	paused         bool
+	insert         Insert
 	// pausing and stopping say the gate is closing for a pause or a
 	// stop.
 	pausing, stopping bool
@@ -254,8 +288,9 @@ func (v *Voice) markLocked(k mark) {
 }
 
 // mix adds the voice's next frames into dst, using buf, and reports
-// whether it plays on. It runs with the mixer's mu held.
-func (v *Voice) mix(dst, buf []float32, dt time.Duration) bool {
+// whether it plays on; dry, where not nil, takes them as they were
+// before the voice's insert. It runs with the mixer's mu held.
+func (v *Voice) mix(dst, dry, buf []float32, dt time.Duration) bool {
 	if v.ended {
 		return false
 	}
@@ -278,8 +313,19 @@ func (v *Voice) mix(dst, buf []float32, dt time.Duration) bool {
 	}
 	for i := range n {
 		t := float32(i) / float32(frames)
-		dst[2*i] += buf[2*i] * (l0 + (l1-l0)*t)
-		dst[2*i+1] += buf[2*i+1] * (r0 + (r1-r0)*t)
+		buf[2*i] *= l0 + (l1-l0)*t
+		buf[2*i+1] *= r0 + (r1-r0)*t
+	}
+	if dry != nil {
+		for i := range 2 * n {
+			dry[i] += buf[i]
+		}
+	}
+	if v.insert != nil && n > 0 {
+		v.insert.Process(buf[:2*n])
+	}
+	for i := range 2 * n {
+		dst[i] += buf[i]
 	}
 	if v.gate.Value() == 0 && !v.gate.Active() {
 		switch {
