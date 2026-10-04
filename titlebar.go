@@ -44,7 +44,12 @@ func (u *UI) giveTitleBar(bar TitleBar) {
 	app.parent = fs
 	fs.kids = []*state{app}
 	u.root = fs
-	u.InsertAt(fr, 0, bar)
+	if u.underBar {
+		// The bar is over the application, and so after it, as a press goes to the last of the nodes under it
+		u.Insert(fr, bar)
+	} else {
+		u.InsertAt(fr, 0, bar)
+	}
 	u.titleBar = bar
 }
 

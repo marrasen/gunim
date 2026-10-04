@@ -2,8 +2,10 @@ package gunim
 
 import (
 	"testing"
+	"time"
 
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 )
 
@@ -80,5 +82,21 @@ func TestAnApplicationSitsBelowTheTitleBar(t *testing.T) {
 	}
 	if bar.under {
 		t.Fatal("the title bar was told the application draws under it")
+	}
+}
+
+// The title bar is on top of an application drawn under it, so a press on the bar reaches the bar, and a press below
+// it reaches the application.
+func TestAPressOnTheTitleBarReachesTheBar(t *testing.T) {
+	w, bar, app := underBarStage(t, true)
+	w.Input(input.PointerDown{Pos: geom.Pt(400, 15), Button: input.ButtonPrimary, Clicks: 1, Time: time.Now()})
+	if len(bar.events) == 0 || len(app.events) != 0 {
+		t.Fatalf("a press on the bar reached the bar with %v and the application with %v", bar.events, app.events)
+	}
+	w.Input(input.PointerUp{Pos: geom.Pt(400, 15), Button: input.ButtonPrimary, Time: time.Now()})
+	bar.events = nil
+	w.Input(input.PointerDown{Pos: geom.Pt(400, 300), Button: input.ButtonPrimary, Clicks: 1, Time: time.Now()})
+	if len(bar.events) != 0 || len(app.events) == 0 {
+		t.Fatalf("a press below the bar reached the bar with %v and the application with %v", bar.events, app.events)
 	}
 }
