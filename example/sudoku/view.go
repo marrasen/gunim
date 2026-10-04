@@ -224,10 +224,16 @@ func (r *gameRoot) tapCell(c int, u *gunim.UI) {
 	}
 }
 
-// pick takes candy d from the tray: into the cell selected, or, with
-// no empty cell selected, armed for the cells tapped after.
+// pick takes candy d from the tray: the candy picked already lets go;
+// any other goes into the cell selected, or, with no empty cell
+// selected, is picked for the cells tapped after.
 func (r *gameRoot) pick(d int8, u *gunim.UI) {
 	if r.state.Won || r.state.Lost {
+		return
+	}
+	if r.armed == d {
+		// The cell it went in last stays selected, for the next candy
+		r.armed = 0
 		return
 	}
 	if r.selected >= 0 && r.state.Cells[r.selected] == 0 {
@@ -237,12 +243,8 @@ func (r *gameRoot) pick(d int8, u *gunim.UI) {
 		u.Send(r, Place{Cell: r.selected, Digit: d, Note: r.notes})
 		return
 	}
-	if r.armed == d {
-		r.armed = 0
-	} else {
-		r.armed, r.selected = d, -1
-		r.board.cheer(d, -1)
-	}
+	r.armed, r.selected = d, -1
+	r.board.cheer(d, -1)
 }
 
 func (r *gameRoot) erase(u *gunim.UI) {

@@ -166,6 +166,35 @@ func TestWinningShowsTheCardWithItsStars(t *testing.T) {
 	}
 }
 
+// A tap on the candy picked lets it go, though a cell is selected: the
+// cell the candy went in last stays selected, empty as a note or a
+// wrong candy leaves it, and the next tap on a candy places it there.
+func TestATapOnThePickedCandyLetsItGoFirst(t *testing.T) {
+	for _, size := range []geom.Size{geom.Sz(460, 860), geom.Sz(1100, 720)} {
+		g, _ := newTestGame()
+		g.Round = 1
+		w, root, run := stage(t, size, g.Game)
+		c := emptyCell(g)
+		tapAt(w, run, root.trayCenter(7))
+		tapAt(w, run, root.cellCenter(c))
+		if got := intents(w); len(got) != 1 || got[0] != (Place{Cell: c, Digit: 7}) {
+			t.Fatalf("%v: the 7, then cell %d, sent %v", size, c, got)
+		}
+		// The cell stays empty, as the game has not filled it
+		tapAt(w, run, root.trayCenter(7))
+		if got := intents(w); len(got) != 0 {
+			t.Fatalf("%v: a tap on the 7 picked sent %v; want it let go", size, got)
+		}
+		if root.armed != 0 || root.selected != c {
+			t.Fatalf("%v: armed %d, selected %d; want nothing picked and cell %d selected", size, root.armed, root.selected, c)
+		}
+		tapAt(w, run, root.trayCenter(7))
+		if got := intents(w); len(got) != 1 || got[0] != (Place{Cell: c, Digit: 7}) {
+			t.Fatalf("%v: the 7 tapped again sent %v, want it placed in cell %d", size, got, c)
+		}
+	}
+}
+
 func TestACandyPickedEarlierLetsGoOnceACellIsFilledTheOtherWay(t *testing.T) {
 	g, _ := newTestGame()
 	g.Round = 1
