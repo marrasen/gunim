@@ -1,7 +1,6 @@
 package main
 
 import (
-	"io"
 	"math"
 	"time"
 
@@ -46,14 +45,14 @@ func (s Sound) music() bool   { return s == SoundAll || s == SoundMusic }
 func (s Sound) effects() bool { return s == SoundAll || s == SoundEffects }
 
 // musicVolume is how loud the music plays under the sounds.
-const musicVolume = 0.32
+const musicVolume = 0.30
 
 // newSFX plays through m, and the speakers spk, either of which may be
 // nil.
 func newSFX(m *audio.Mixer, spk *speaker.Speaker) *sfx {
 	s := &sfx{m: m, spk: spk, cache: map[string]*audio.Clip{}}
 	if m != nil {
-		s.music = m.Play(&tune{}, audio.Options{Volume: musicVolume, FadeIn: 2 * time.Second, Loop: true})
+		s.music = m.Play(newBand(bandSynths(), bandSeed()), audio.Options{Volume: musicVolume, FadeIn: 2 * time.Second})
 	}
 	return s
 }
@@ -69,6 +68,13 @@ func (s *sfx) setMode(mode Sound) {
 		to = musicVolume
 	}
 	s.music.SetVolume(to, anim.Spring{Response: 0.6, Damping: 1})
+	// The band rests while the music is off, so a phone decodes none of
+	// it.
+	if mode.music() && !s.away {
+		s.music.Resume()
+	} else if !mode.music() {
+		s.music.Pause()
+	}
 }
 
 // setAway stops everything while the window is hidden, and starts it
@@ -82,7 +88,7 @@ func (s *sfx) setAway(away bool) {
 	if s.music != nil {
 		if away {
 			s.music.Pause()
-		} else {
+		} else if s.mode.music() {
 			s.music.Resume()
 		}
 	}
@@ -411,91 +417,3 @@ func noise(n int64) float64 {
 	x ^= x >> 31
 	return float64(x>>11)/float64(1<<53)*2 - 1
 }
-
-// tune is the music: eight bars of marimba over a soft pad and a
-// shaker, C Am F G, that loop without a seam. Each sample is a function
-// of its time, so it costs nothing to hold.
-type tune struct{ at int64 }
-
-// tuneBPM is the music's tempo, and tuneBars its length.
-const (
-	tuneBPM  = 96
-	tuneBars = 8
-)
-
-func tuneFrames() int64 { return int64(tuneBars * 4 * 60 / tuneBPM * hz) }
-
-// tuneChords are the chords, a bar each, as semitones above C4.
-var tuneChords = [4][3]int{{0, 4, 7}, {-3, 0, 4}, {-7, -3, 0}, {-5, -1, 2}}
-
-// tuneMelody is the marimba's eighth notes over two bars, as steps of
-// the chord, -1 for a rest.
-var tuneMelody = [16]int{0, 1, 2, 4, 3, 2, 1, -1, 2, 3, 4, 5, 4, -1, 2, 1}
-
-func (tn *tune) sample(t float64, n int64) (l, r float64) {
-	spb := 60.0 / tuneBPM
-	beat := t / spb
-	bars := int(beat/4) % tuneBars
-	chord := tuneChords[bars%4]
-	c4 := 261.63
-	note := func(semi, octave int) float64 { return c4 * math.Pow(2, float64(semi)/12+float64(octave)) }
-	// The pad, swelling each bar.
-	sw := 0.6 + 0.4*math.Sin(math.Pi*math.Mod(beat, 4)/4)
-	for i, s := range chord {
-		f := note(s, 0)
-		a, b := math.Sin(2*math.Pi*f*1.003*t), math.Sin(2*math.Pi*f*0.997*t)
-		l += 0.035 * sw * (a + 0.5*b) * (1 - 0.1*float64(i))
-		r += 0.035 * sw * (b + 0.5*a) * (0.8 + 0.1*float64(i))
-	}
-	// The bass, on beats one and three.
-	half := math.Mod(beat, 2)
-	bf := note(chord[0], -2)
-	bass := math.Sin(2*math.Pi*bf*half*spb) * math.Exp(-half*spb/0.5) * min(half*spb/0.01, 1)
-	l += 0.12 * bass
-	r += 0.12 * bass
-	// The marimba's tune.
-	pos := math.Mod(beat*2, 16)
-	i := int(pos)
-	if st := tuneMelody[i]; st >= 0 {
-		semi := chord[st%3] + 12*(st/3)
-		v := bar(math.Mod(pos, 1)*spb/2, note(semi, 1))
-		pan := 0.15 * math.Sin(float64(i))
-		l += 0.11 * v * (1 - pan)
-		r += 0.11 * v * (1 + pan)
-	}
-	// A shaker on the off eighths.
-	if e := math.Mod(beat*2, 1) * spb / 2; int(beat*2)%2 == 1 {
-		sh := (noise(n) - noise(n-1)) * math.Exp(-e/0.03)
-		l += 0.02 * sh
-		r += 0.03 * sh
-	}
-	return l, r
-}
-
-// Read implements [audio.Source].
-func (tn *tune) Read(dst []float32) (int, error) {
-	total := tuneFrames()
-	k := 0
-	for k < len(dst)/2 && tn.at < total {
-		l, r := tn.sample(float64(tn.at)/hz, tn.at)
-		dst[2*k], dst[2*k+1] = float32(l), float32(r)
-		k++
-		tn.at++
-	}
-	if tn.at >= total {
-		return k, io.EOF
-	}
-	return k, nil
-}
-
-// SeekFrame implements [audio.Seeker].
-func (tn *tune) SeekFrame(f int64) error {
-	tn.at = max(0, min(f, tuneFrames()))
-	return nil
-}
-
-// Len implements [audio.Seeker].
-func (tn *tune) Len() int64 { return tuneFrames() }
-
-// The tune loops, which takes a Seeker.
-var _ audio.Seeker = (*tune)(nil)

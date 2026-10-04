@@ -258,7 +258,7 @@ func (m *mapView) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.
 	m.paintSweets(p, top, box)
 	func() {
 		defer p.Push(paint.Translate(geom.Pt(0, -top)))()
-		m.paintRibbons(p, top, box)
+		m.paintRibbons(p, box)
 		m.paintPath(p, top, box)
 		m.paintNodes(p, f, top, box)
 		m.paintToken(p)
@@ -320,7 +320,7 @@ func (m *mapView) paintLands(p *paint.Painter, top float32, box geom.Size) {
 }
 
 // paintRibbons draws each land's name on a ribbon at its start.
-func (m *mapView) paintRibbons(p *paint.Painter, top float32, box geom.Size) {
+func (m *mapView) paintRibbons(p *paint.Painter, box geom.Size) {
 	for _, land := range lands {
 		// The land's name on a ribbon at its start.
 		at := m.node(float32(land.from))

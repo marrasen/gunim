@@ -65,7 +65,7 @@ func cheerPose(t float32) (hop, grow, squash, lean float32) {
 // the cells it passes stay lit as it fades. It reports whether any is.
 func (b *board) cheerLight(light *[81]float32) bool {
 	*light = [81]float32{}
-	any := false
+	lit := false
 	for c := range b.cells {
 		k := &b.cells[c]
 		if !k.cheering || k.cheerAt < 0 {
@@ -87,9 +87,9 @@ func (b *board) cheerLight(light *[81]float32) bool {
 			at(row*9+i, abs(i-col))
 			at(i*9+col, abs(i-row))
 		}
-		any = true
+		lit = true
 	}
-	return any
+	return lit
 }
 
 // lightAt is how lit a cell d cells out is with the front at front:

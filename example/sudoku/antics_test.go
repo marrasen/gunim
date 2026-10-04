@@ -122,7 +122,7 @@ func TestPickingACandyCheersItsDigitAndLightsWhatItRulesOut(t *testing.T) {
 
 // winStaged stages a game and wins it, and returns the root and a way
 // to step frames.
-func winStaged(t *testing.T) (*gameRoot, func(int)) {
+func winStaged(t *testing.T) (root *gameRoot, run func(int)) {
 	t.Helper()
 	g, clk := newTestGame()
 	g.Round = 1

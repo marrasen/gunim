@@ -125,13 +125,14 @@ func iconAt(x, y float64, small bool) (r, g, b, a float64) {
 	t := max(0, min(1, (x*0.3+y)/1.3))
 	r, g, b = mix(0x3b, 0xe8, t), mix(0x12, 0x3e, t), mix(0x8f, 0x9c, t)
 	a = 1
-	over := func(cr, cg, cb, ca float64) {
-		r, g, b = r+(cr-r)*ca, g+(cg-g)*ca, b+(cb-b)*ca
+	over := func(c [3]float64, ca float64) {
+		r, g, b = r+(c[0]-r)*ca, g+(c[1]-g)*ca, b+(c[2]-b)*ca
 	}
+	glass := [3]float64{1, 1, 1}
 	// A warm glow low down.
 	if d := math.Hypot((x-0.5)/1.2, y-0.95); d < 0.6 {
 		k := 1 - d/0.6
-		over(1, 0.7, 0.28, 0.45*k*k)
+		over([3]float64{1, 0.7, 0.28}, 0.45*k*k)
 	}
 	if small {
 		return r, g, b, a
@@ -139,14 +140,14 @@ func iconAt(x, y float64, small bool) (r, g, b, a float64) {
 	// The glass panel, its rim, and its slots.
 	pd := roundBox(x-0.5, y-0.5, 0.5-panelInset, 0.5-panelInset, panelRadius)
 	if pd <= 0 {
-		over(1, 1, 1, 0.16)
+		over(glass, 0.16)
 		if pd > -0.008 {
-			over(1, 1, 1, 0.35)
+			over(glass, 0.35)
 		}
 		for i := range 9 {
 			side, sx, sy := iconSlot(i)
 			if roundBox(x-sx-side/2, y-sy-side/2, side/2, side/2, side*0.22) <= 0 {
-				over(1, 1, 1, 0.12)
+				over(glass, 0.12)
 			}
 		}
 	}
