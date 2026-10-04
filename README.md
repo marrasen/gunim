@@ -143,7 +143,8 @@ volume, and N and P skip.
 
 `example/mastering` masters an album, an EP or a single. Each track is
 cut, faded with a curve of five shapes, and set apart by the same
-silence, edited on its waveform. The waveform zooms in to the samples
+silence, edited on its waveform or its spectrogram, with the loudness
+it was measured at drawn along it. The waveform zooms in to the samples
 themselves, and up to show quiet sound. One track plays at a time, and
 a number key switches to another at the same moment, levels matched to
 the target if asked, to compare them by ear. Album play runs on from
@@ -206,7 +207,8 @@ after. An `EQ` is such an insert: a parametric equalizer of bells,
 shelves, cuts and notches, whose bands glide to new settings without
 clicks. A `LoudnessMeter` measures integrated loudness in LUFS as
 ITU-R BS.1770 defines it, as EBU R128 and ReplayGain 2 use it, and
-`FormatOf` says what a decoded sound was stored as, and a `WAVWriter`
+`FormatOf` says what a decoded sound was stored as, an `FFT` takes a
+sound's spectrum block after block, and a `WAVWriter`
 writes 16 or 24-bit WAV, dithered, or 32-bit float, tagged. Its `Range` reads
 the loudness range, LRA, as EBU Tech 3342 defines it, and several
 sounds' readings pooled measure an album as one.
