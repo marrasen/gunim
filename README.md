@@ -158,7 +158,8 @@ Tracks are measured as they will be exported, through a copy of their
 chain run offline: loudness, its range and true peak. A change marks a
 track, and Calc LUFS measures the tracks marked, so heavy plugins work
 only when asked. To target finds the gain that brings a track to the
-target. Meters show loudness against the target, the stereo image, and
+target. Meters show the input to the chain and its output, each with a
+fader for the gain, loudness against the target, the stereo image, and
 the spectrum or a spectrogram.
 
 The export writes each track at its own length, tracks side by side, to
