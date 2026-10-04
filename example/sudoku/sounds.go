@@ -7,6 +7,7 @@ import (
 
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/audio"
+	"github.com/marrasen/gunim/audio/speaker"
 )
 
 // hz is the sample rate as a float.
@@ -16,39 +17,89 @@ const hz = float64(audio.SampleRate)
 // filling the board plays tunes. It is used from the UI goroutine.
 type sfx struct {
 	m     *audio.Mixer
+	spk   *speaker.Speaker
 	music *audio.Voice
-	muted bool
+	// mode is what plays: music, sounds, both or neither. away says the
+	// window is hidden, as the application has gone to the background:
+	// nothing plays then.
+	mode  Sound
+	away  bool
 	cache map[string]*audio.Clip
 }
+
+// Sound says what of the game's sound plays.
+type Sound int
+
+// The sound's settings, in the order the Sound button steps through
+// them.
+const (
+	SoundAll Sound = iota
+	SoundMusic
+	SoundEffects
+	SoundOff
+)
+
+// next is the setting after s.
+func (s Sound) next() Sound { return (s + 1) % 4 }
+
+func (s Sound) music() bool   { return s == SoundAll || s == SoundMusic }
+func (s Sound) effects() bool { return s == SoundAll || s == SoundEffects }
 
 // musicVolume is how loud the music plays under the sounds.
 const musicVolume = 0.32
 
-func newSFX(m *audio.Mixer) *sfx {
-	s := &sfx{m: m, cache: map[string]*audio.Clip{}}
+// newSFX plays through m, and the speakers spk, either of which may be
+// nil.
+func newSFX(m *audio.Mixer, spk *speaker.Speaker) *sfx {
+	s := &sfx{m: m, spk: spk, cache: map[string]*audio.Clip{}}
 	if m != nil {
 		s.music = m.Play(&tune{}, audio.Options{Volume: musicVolume, FadeIn: 2 * time.Second, Loop: true})
 	}
 	return s
 }
 
-// setMuted silences everything, or brings it back; the music fades.
-func (s *sfx) setMuted(on bool) {
-	s.muted = on
+// setMode plays what mode says: the music fades in or out with it.
+func (s *sfx) setMode(mode Sound) {
+	s.mode = mode
 	if s.music == nil {
 		return
 	}
-	to := float32(musicVolume)
-	if on {
-		to = 0
+	to := float32(0)
+	if mode.music() {
+		to = musicVolume
 	}
 	s.music.SetVolume(to, anim.Spring{Response: 0.6, Damping: 1})
+}
+
+// setAway stops everything while the window is hidden, and starts it
+// again as it shows: the music pauses where it is, and the speakers
+// stop drawing on the battery.
+func (s *sfx) setAway(away bool) {
+	if away == s.away {
+		return
+	}
+	s.away = away
+	if s.music != nil {
+		if away {
+			s.music.Pause()
+		} else {
+			s.music.Resume()
+		}
+	}
+	if s.spk == nil {
+		return
+	}
+	if away {
+		_ = s.spk.Suspend()
+	} else {
+		_ = s.spk.Resume()
+	}
 }
 
 // play plays the clip named key, made by mk the first time, at vol and
 // pan, after delay.
 func (s *sfx) play(key string, mk func() *audio.Clip, vol, pan float32) {
-	if s.m == nil || s.muted {
+	if s.m == nil || s.away || !s.mode.effects() {
 		return
 	}
 	c := s.cache[key]

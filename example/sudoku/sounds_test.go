@@ -9,7 +9,7 @@ import (
 
 func TestEachSoundIsLoudEnoughAndStaysUnderClipping(t *testing.T) {
 	m := audio.NewMixer()
-	s := newSFX(nil)
+	s := newSFX(nil, nil)
 	s.m = m
 	plays := map[string]func(){
 		"placed":    func() { s.placed(5, 1, 0) },
@@ -57,5 +57,52 @@ func TestTheTuneLoopsWithoutASeam(t *testing.T) {
 	}
 	if peak > 0.9 || peak < 0.1 {
 		t.Errorf("the tune peaks at %.2f", peak)
+	}
+}
+
+func TestEachSoundSettingPlaysItsPart(t *testing.T) {
+	m := audio.NewMixer()
+	s := newSFX(m, nil)
+	voices := func() int { return m.Playing() - 1 } // the music is one
+	for _, c := range []struct {
+		mode    Sound
+		effects bool
+		music   float32
+	}{
+		{SoundAll, true, musicVolume},
+		{SoundMusic, false, musicVolume},
+		{SoundEffects, true, 0},
+		{SoundOff, false, 0},
+	} {
+		s.setMode(c.mode)
+		before := voices()
+		s.tick(0)
+		if got := voices() > before; got != c.effects {
+			t.Errorf("mode %v: a tick played %v, want %v", c.mode, got, c.effects)
+		}
+		if v := s.music.Volume(); v != c.music {
+			t.Errorf("mode %v: the music heads for %v, want %v", c.mode, v, c.music)
+		}
+		s.cache = map[string]*audio.Clip{}
+		m.Mix(make([]float32, 2*audio.SampleRate/2))
+	}
+}
+
+func TestAwayEverythingStops(t *testing.T) {
+	m := audio.NewMixer()
+	s := newSFX(m, nil)
+	s.setAway(true)
+	m.Mix(make([]float32, 2*4800))
+	if !s.music.Paused() {
+		t.Fatal("away, the music plays on")
+	}
+	before := m.Playing()
+	s.tick(0)
+	if m.Playing() != before {
+		t.Fatal("away, a sound played")
+	}
+	s.setAway(false)
+	if s.music.Paused() {
+		t.Fatal("back, the music stays paused")
 	}
 }

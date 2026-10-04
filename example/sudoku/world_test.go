@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/marrasen/gunim"
+	"github.com/marrasen/gunim/driver"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
 )
@@ -151,5 +152,55 @@ func TestEscapeInAGameGoesToTheMap(t *testing.T) {
 	run(1)
 	if got := intents(w); len(got) != 1 || got[0] != (ShowMap{}) {
 		t.Fatalf("Escape in a game sent %v, want the map", got)
+	}
+}
+
+func TestTheSoundButtonStepsThroughItsSettingsAndKeepsThem(t *testing.T) {
+	dir := t.TempDir()
+	a := &app{dir: dir, prog: loadProgress(dir)}
+	a.handle(Start{Level: 1})
+	a.refresh()
+	w, root, run := stageWorld(t, geom.Sz(460, 860), a.World)
+	run(60)
+	var button geom.Rect
+	gunim.RegisterPatch(w, "world", func(r *worldRoot, _ struct{}, u *gunim.UI) {
+		b, _ := u.Bounds(r.game.tools)
+		button = r.game.tools.slot(4).Add(b.Min)
+	})
+	if err := w.Client().Patch("world", struct{}{}); err != nil {
+		t.Fatal(err)
+	}
+	run(1)
+	at := geom.Pt(button.Min.X+button.Size().W/2, button.Min.Y+20)
+	for _, want := range []Sound{SoundMusic, SoundEffects, SoundOff, SoundAll} {
+		tapAt(w, run, at)
+		if root.game.sfx.mode != want {
+			t.Fatalf("a tap on Sound set %v, want %v", root.game.sfx.mode, want)
+		}
+		for _, in := range intents(w) {
+			a.handle(in)
+		}
+	}
+	a.save()
+	if p := loadProgress(dir); p.Sound != SoundAll {
+		t.Fatalf("kept %v, want the last set, %v", p.Sound, SoundAll)
+	}
+}
+
+func TestAHiddenWindowStopsTheSound(t *testing.T) {
+	dir := t.TempDir()
+	a := &app{dir: dir, prog: loadProgress(dir)}
+	a.Map = true
+	a.refresh()
+	w, root, run := stageWorld(t, geom.Sz(460, 860), a.World)
+	w.Input(driver.WindowShown{Shown: false})
+	run(1)
+	if !root.game.sfx.away {
+		t.Fatal("hidden, the sound plays on")
+	}
+	w.Input(driver.WindowShown{Shown: true})
+	run(1)
+	if root.game.sfx.away {
+		t.Fatal("shown again, the sound stays off")
 	}
 }

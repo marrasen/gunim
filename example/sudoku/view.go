@@ -63,7 +63,7 @@ type gameRoot struct {
 
 func newGameRoot(s *sfx) *gameRoot {
 	if s == nil {
-		s = newSFX(nil)
+		s = newSFX(nil, nil)
 	}
 	r := &gameRoot{selected: -1, numbered: true, fx: newFX(), sfx: s, shake: anim.NewFloat(0)}
 	r.Add(r.shake)
@@ -843,6 +843,12 @@ func newTools(r *gameRoot) *tools {
 var toolIcons = [5]*icon.Icon{icon.Undo2, icon.Eraser, icon.Pencil, icon.WandSparkles, icon.Volume2}
 var toolNames = [5]string{"Undo", "Erase", "Notes", "Hint", "Sound"}
 
+// The Sound button's icon and name for each setting.
+var (
+	soundIcons = [4]*icon.Icon{icon.Volume2, icon.Music, icon.Sparkles, icon.VolumeX}
+	soundNames = [4]string{"Sound", "Music", "Effects", "Silent"}
+)
+
 func (t *tools) slot(i int) geom.Rect {
 	w := t.size.W / 5
 	return geom.Rc(float32(i)*w, 0, w, t.size.H)
@@ -888,7 +894,11 @@ func (t *tools) Handle(e input.Event, u *gunim.UI) bool {
 		case 3:
 			t.root.hint(u)
 		case 4:
-			t.root.sfx.setMuted(!t.root.sfx.muted)
+			// What plays steps on: music and sounds, music, sounds,
+			// neither. It is kept with the progress.
+			next := t.root.sfx.mode.next()
+			t.root.sfx.setMode(next)
+			u.Send(t.root, SetSound{Sound: next})
 		}
 	default:
 		return false
@@ -922,12 +932,16 @@ func (t *tools) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Ch
 			p.ShadowRRect(r, d/2, paint.Solid(fill), paint.Shadow{Blur: 8, Offset: geom.Pt(0, 3), Color: faded(plum, 0.35)})
 			is := d * 0.46
 			ic := toolIcons[i]
-			if i == 4 && t.root.sfx.muted {
-				ic = icon.VolumeX
+			if i == 4 {
+				ic = soundIcons[t.root.sfx.mode]
 			}
 			widget.PaintIcon(p, f.Theme, ic, geom.Rc(mid.X-is/2, mid.Y-is/2, is, is), ink)
 		}()
-		name := shaped(toolNames[i], 12, true)
+		label := toolNames[i]
+		if i == 4 {
+			label = soundNames[t.root.sfx.mode]
+		}
+		name := shaped(label, 12, true)
 		name.Paint(p, geom.Pt(mid.X-name.Advance/2, mid.Y+d/2+4), faded(white, 0.85))
 	}
 	_ = box

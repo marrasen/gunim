@@ -63,14 +63,12 @@ func run(level int, saveIn string, runFor time.Duration, shot string, after time
 		defer cancel()
 	}
 	mix := audio.NewMixer()
-	if _, err := speaker.Open(mix, speaker.Options{Name: "Candy Sudoku"}); err != nil {
-		log.Printf("sudoku: no sound: %v", err)
+	spk, spkErr := speaker.Open(mix, speaker.Options{Name: "Candy Sudoku"})
+	if spkErr != nil {
+		log.Printf("sudoku: no sound: %v", spkErr)
 		mix = nil
 	}
-	s := newSFX(mix)
-	if mute {
-		s.setMuted(true)
-	}
+	s := newSFX(mix, spk)
 	err := gunim.Main(ctx, func(a *gunim.App) error {
 		w, err := a.NewWindow(gunim.WindowOptions{Title: "Candy Sudoku", Size: size})
 		if err != nil {
@@ -91,7 +89,7 @@ func run(level int, saveIn string, runFor time.Duration, shot string, after time
 				c.Close()
 			}()
 		}
-		return serve(ctx, c, level, saveIn)
+		return serve(ctx, c, level, saveIn, mute)
 	})
 	if errors.Is(err, driver.ErrNoDriver) {
 		log.Print("gunim has no driver for this operating system yet")

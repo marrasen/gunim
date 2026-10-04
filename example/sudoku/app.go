@@ -21,12 +21,16 @@ type (
 		// map plays its opening once.
 		Unlock Unlock
 		Game   Game
+		// Sound is what of the sound plays.
+		Sound Sound
 	}
 	// Unlock is a level opened.
 	Unlock struct{ ID, Level int }
 
 	// ShowMap goes to the map.
 	ShowMap struct{}
+	// SetSound sets what of the sound plays, kept with the progress.
+	SetSound struct{ Sound Sound }
 )
 
 // worldTopic is what the world view watches.
@@ -43,8 +47,11 @@ type app struct {
 
 // serve keeps the world and hears what the window sends. A level of
 // zero opens on the map.
-func serve(ctx context.Context, c gunim.Client, level int, dir string) error {
+func serve(ctx context.Context, c gunim.Client, level int, dir string, mute bool) error {
 	a := &app{dir: dir, prog: loadProgress(dir)}
+	if mute {
+		a.prog.Sound = SoundOff
+	}
 	a.Map = true
 	if level > 0 {
 		a.prog.Unlocked = max(a.prog.Unlocked, min(level, levelCount))
@@ -80,6 +87,8 @@ func (a *app) handle(in gunim.Intent) bool {
 		a.start(in.Level)
 	case ShowMap:
 		a.Map = true
+	case SetSound:
+		a.prog.Sound = in.Sound
 	case Place, Erase, Undo, Hint:
 		if a.g == nil || a.Map {
 			return false
@@ -133,6 +142,7 @@ func (a *app) won() {
 func (a *app) refresh() {
 	a.Stars = append(a.Stars[:0:0], a.prog.Stars...)
 	a.Unlocked = a.prog.Unlocked
+	a.Sound = a.prog.Sound
 	if a.g != nil {
 		a.Game = a.g.Game
 	}

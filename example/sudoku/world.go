@@ -30,11 +30,13 @@ type worldRoot struct {
 	onMap *anim.Float
 	at    geom.Point
 	size  geom.Size
+	// shown says the world has been shown once.
+	shown bool
 }
 
 func newWorldRoot(s *sfx) *worldRoot {
 	if s == nil {
-		s = newSFX(nil)
+		s = newSFX(nil, nil)
 	}
 	r := &worldRoot{onMap: anim.NewFloat(1)}
 	r.Add(r.onMap)
@@ -52,6 +54,10 @@ func (r *worldRoot) show(s World, u *gunim.UI) {
 		r.game.show(s.Game, u)
 	}
 	r.m.show(was, s)
+	if s.Sound != was.Sound || !r.shown {
+		r.shown = true
+		r.game.sfx.setMode(s.Sound)
+	}
 	to := float32(0)
 	if s.Map {
 		to = 1
@@ -81,6 +87,16 @@ func (r *worldRoot) Focusable() bool { return true }
 // Handle implements [gunim.Handler]: keys go to the game while it shows,
 // and Escape goes from it to the map.
 func (r *worldRoot) Handle(e input.Event, u *gunim.UI) bool {
+	switch e.(type) {
+	case input.WindowHidden:
+		// Gone to the background: the music and the sounds stop until
+		// the game shows again.
+		r.game.sfx.setAway(true)
+		return true
+	case input.WindowShown:
+		r.game.sfx.setAway(false)
+		return true
+	}
 	k, ok := e.(input.KeyPress)
 	if !ok {
 		return false

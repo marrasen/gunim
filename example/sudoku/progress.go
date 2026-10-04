@@ -17,7 +17,9 @@ const levelCount = 60
 type progress struct {
 	Stars    []int
 	Unlocked int
-	Current  *savedGame `json:",omitempty"`
+	// Sound is what of the sound plays.
+	Sound   Sound
+	Current *savedGame `json:",omitempty"`
 }
 
 // savedGame is a game left half played.
