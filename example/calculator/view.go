@@ -130,12 +130,15 @@ func (r *calcRoot) Children() []gunim.Node { return []gunim.Node{r.bar, r.calc, 
 func (r *calcRoot) Focusable() bool { return true }
 
 // Layout implements [gunim.Node].
-func (r *calcRoot) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
+func (r *calcRoot) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
 	size := c.Max
+	// The background runs under a phone's bars; the bar and the body
+	// keep clear of them.
+	area := geom.Rect{Max: size.Point()}.Inset(f.Safe)
 	bar := kids.At(0)
-	bar.Layout(gunim.Tight(geom.Sz(size.W, titleHeight)))
-	bar.Place(geom.Point{})
-	r.body = geom.Rc(0, titleHeight, size.W, size.H-titleHeight)
+	bar.Layout(gunim.Tight(geom.Sz(area.Size().W, titleHeight)))
+	bar.Place(area.Min)
+	r.body = geom.Rect{Min: area.Min.Add(geom.Pt(0, titleHeight)), Max: area.Max}
 	for i := 1; i < 3; i++ {
 		k := kids.At(i)
 		k.Layout(gunim.Tight(r.body.Size()))

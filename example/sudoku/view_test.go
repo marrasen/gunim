@@ -165,3 +165,76 @@ func TestWinningShowsTheCardWithItsStars(t *testing.T) {
 		t.Fatalf("the card's button sent %v, want the map", got)
 	}
 }
+
+func TestACandyPickedEarlierLetsGoOnceACellIsFilledTheOtherWay(t *testing.T) {
+	g, _ := newTestGame()
+	g.Round = 1
+	w, root, run := stage(t, geom.Sz(460, 860), g.Game)
+	var empty []int
+	for c := range 81 {
+		if g.Cells[c] == 0 && len(empty) < 2 {
+			empty = append(empty, c)
+		}
+	}
+	// The 4 left picked from earlier, as a cell is selected and the 7
+	// tapped: the 7 goes in that cell.
+	root.armed, root.selected = 4, empty[0]
+	tapAt(w, run, root.trayCenter(7))
+	if got := intents(w); len(got) != 1 || got[0] != (Place{Cell: empty[0], Digit: 7}) {
+		t.Fatalf("cell then 7 sent %v", got)
+	}
+	// Tapping the next cell only selects it: the 4 is no longer picked.
+	tapAt(w, run, root.cellCenter(empty[1]))
+	if got := intents(w); len(got) != 0 {
+		t.Fatalf("a tap on the next cell, after placing cell first, sent %v; want it only selected", got)
+	}
+	if root.selected != empty[1] || root.armed != 0 {
+		t.Fatalf("selected %d, armed %d; want the cell selected and nothing picked", root.selected, root.armed)
+	}
+}
+
+func TestAPickedCandyLetsGoWhenItsDigitIsUsedUp(t *testing.T) {
+	g, _ := newTestGame()
+	g.Round = 1
+	w, root, run := stage(t, geom.Sz(460, 860), g.Game)
+	tapAt(w, run, root.trayCenter(5))
+	if root.armed != 5 {
+		t.Fatalf("armed %d", root.armed)
+	}
+	for c := range 81 {
+		if g.Cells[c] == 0 && g.puzzle.Solution[c] == 5 {
+			g.place(Place{Cell: c, Digit: 5})
+		}
+	}
+	if err := w.Client().Publish(gameTopic, g.Game); err != nil {
+		t.Fatal(err)
+	}
+	run(1)
+	if root.armed != 0 {
+		t.Fatalf("the 5s all placed, the 5 is still picked")
+	}
+}
+
+func TestTheGameKeepsClearOfAPhonesBars(t *testing.T) {
+	g, _ := newTestGame()
+	g.Round = 1
+	w, root, run := stage(t, geom.Sz(412, 915), g.Game)
+	w.Offscreen().SetSafeArea(geom.Insets{Top: 50, Bottom: 24})
+	run(2)
+	var head, tools geom.Rect
+	gunim.RegisterPatch(w, "game", func(r *gameRoot, _ struct{}, u *gunim.UI) {
+		head, _ = u.Bounds(r.header)
+		tools, _ = u.Bounds(r.tools)
+	})
+	if err := w.Client().Patch("game", struct{}{}); err != nil {
+		t.Fatal(err)
+	}
+	run(1)
+	if head.Min.Y < 50 {
+		t.Fatalf("the header starts at %v, under the status bar", head.Min.Y)
+	}
+	if tools.Max.Y > 915-24 {
+		t.Fatalf("the tools end at %v, under the navigation bar", tools.Max.Y)
+	}
+	_ = root
+}

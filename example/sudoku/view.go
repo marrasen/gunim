@@ -135,6 +135,10 @@ func (r *gameRoot) play(e Event) {
 		r.fx.say(fmt.Sprintf("+%d", e.Points), mid, r.cell()*0.55, rgb(0x9b, 0xff, 0xe0))
 	case DigitDone:
 		r.tray.finish(e.Digit)
+		if r.armed == e.Digit {
+			// None of it is left to place.
+			r.armed = 0
+		}
 		r.sfx.digitDone(e.Digit)
 		r.fx.burst(r.trayCenter(e.Digit), 26, starBit, 420, candyOf(e.Digit).color, white, gold)
 	case Hinted:
@@ -226,6 +230,9 @@ func (r *gameRoot) pick(d int8, u *gunim.UI) {
 		return
 	}
 	if r.selected >= 0 && r.state.Cells[r.selected] == 0 {
+		// Cell first: a candy picked before for tapping cells lets go,
+		// or the next cell tapped would take it.
+		r.armed = 0
 		u.Send(r, Place{Cell: r.selected, Digit: d, Note: r.notes})
 		return
 	}
@@ -259,29 +266,33 @@ func (r *gameRoot) Covers(geom.Point) bool { return r.world == nil || !r.world.s
 
 // Layout implements [gunim.Node]: a column on a phone; on a wide
 // window, the board on the left and the tray as a pad on the right.
-func (r *gameRoot) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
+func (r *gameRoot) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
 	size := c.Max
 	r.size = size
 	sky, head, brd, tr, tl, cd, fxn := kids.At(0), kids.At(1), kids.At(2), kids.At(3), kids.At(4), kids.At(5), kids.At(6)
+	// The sky, the card and the effects cover the whole window, under
+	// a phone's bars; the game lies in what the bars leave.
 	for _, k := range []gunim.Child{sky, cd, fxn} {
 		k.Layout(gunim.Tight(size))
 		k.Place(geom.Point{})
 	}
+	area := geom.Rect{Max: size.Point()}.Inset(f.Safe)
+	room, o := area.Size(), area.Min
 	const m, headH, toolsH = 14, 64, 74
-	wide := size.W > size.H*1.15
+	wide := room.W > room.H*1.15
 	if wide {
-		side := min(size.H-headH-2*m, size.W*0.6)
-		padW := min(size.W-side-3*m, side*0.62)
+		side := min(room.H-headH-2*m, room.W*0.6)
+		padW := min(room.W-side-3*m, side*0.62)
 		total := side + m*2 + padW
-		x := (size.W - total) / 2
+		x := o.X + (room.W-total)/2
 		head.Layout(gunim.Tight(geom.Sz(total, headH)))
-		head.Place(geom.Pt(x, m/2))
-		r.boardAt, r.boardW = geom.Pt(x, headH+m), side
+		head.Place(geom.Pt(x, o.Y+m/2))
+		r.boardAt, r.boardW = geom.Pt(x, o.Y+headH+m), side
 		brd.Layout(gunim.Tight(geom.Sz(side, side)))
 		brd.Place(r.boardAt)
 		r.tray.grid = true
 		trayH := padW
-		r.trayAt = geom.Pt(x+side+2*m, headH+m+(side-trayH-toolsH-m)/2)
+		r.trayAt = geom.Pt(x+side+2*m, o.Y+headH+m+(side-trayH-toolsH-m)/2)
 		tr.Layout(gunim.Tight(geom.Sz(padW, trayH)))
 		tr.Place(r.trayAt)
 		tl.Layout(gunim.Tight(geom.Sz(padW, toolsH)))
@@ -289,16 +300,16 @@ func (r *gameRoot) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Childre
 		return size
 	}
 	r.tray.grid = false
-	w := min(size.W-2*m, 620)
+	w := min(room.W-2*m, 620)
 	trayH := min(w/9*1.45, 92)
-	side := min(w, size.H-headH-trayH-toolsH-5*m)
+	side := min(w, room.H-headH-trayH-toolsH-5*m)
 	total := headH + side + trayH + toolsH + 3*m
-	y := max(m/2, (size.H-total)/2)
-	x := (size.W - w) / 2
+	y := o.Y + max(m/2, (room.H-total)/2)
+	x := o.X + (room.W-w)/2
 	head.Layout(gunim.Tight(geom.Sz(w, headH)))
 	head.Place(geom.Pt(x, y))
 	y += headH + m/2
-	r.boardAt, r.boardW = geom.Pt((size.W-side)/2, y), side
+	r.boardAt, r.boardW = geom.Pt(o.X+(room.W-side)/2, y), side
 	brd.Layout(gunim.Tight(geom.Sz(side, side)))
 	brd.Place(r.boardAt)
 	y += side + m

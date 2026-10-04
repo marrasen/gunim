@@ -256,18 +256,20 @@ func (m *mapView) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.
 		m.paintToken(p)
 	}()
 	m.fx.paint(p)
-	// The title, over the map.
-	bar := geom.Rc(0, 0, box.W, 64)
-	p.RRect(bar, 0, paint.Fill{Gradient: &paint.Gradient{From: geom.Pt(0, 0), To: geom.Pt(0, 64),
+	// The title, over the map, under a phone's status bar; its shade
+	// runs up under the bar to the top.
+	top, left, right := f.Safe.Top, f.Safe.Left, f.Safe.Right
+	bar := geom.Rc(0, 0, box.W, top+64)
+	p.RRect(bar, 0, paint.Fill{Gradient: &paint.Gradient{From: geom.Pt(0, 0), To: geom.Pt(0, top+64),
 		Start: faded(plum, 0.75), End: faded(plum, 0)}})
 	title := shaped("Candy Sudoku", 24, true)
-	paintLabel(p, title, geom.Pt(18, 16), white)
+	paintLabel(p, title, geom.Pt(left+18, top+16), white)
 	total := 0
 	for _, s := range m.root.state.Stars {
 		total += s
 	}
 	n := shaped(strconv.Itoa(total), 18, true)
-	pill := geom.Rc(box.W-n.Advance-62, 14, n.Advance+46, 34)
+	pill := geom.Rc(box.W-right-n.Advance-62, top+14, n.Advance+46, 34)
 	p.RRect(pill, 17, paint.Solid(faded(plum, 0.55)))
 	p.Mask(candyMask{shape: shapeStar}, geom.Rc(pill.Min.X+6, pill.Min.Y+4, 26, 26), gold)
 	n.Paint(p, geom.Pt(pill.Min.X+36, pill.Min.Y+7), white)
