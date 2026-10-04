@@ -97,6 +97,7 @@ func (m *Mixer) Play(src Source, o Options) *Voice {
 		paused: o.Paused,
 		insert: o.Insert,
 		done:   make(chan struct{}),
+		turned: make(chan struct{}, 4),
 	}
 	if o.FadeIn > 0 {
 		v.gate.Jump(0)
@@ -259,9 +260,16 @@ type Voice struct {
 	// stop.
 	pausing, stopping bool
 	// at is the frame of the source the voice plays next.
-	at    int64
-	ended bool
-	err   error
+	at int64
+	// then is the source to play once src ends, without a gap, and
+	// turned hears each turn to it. gen counts the turns, and turns
+	// holds where in the block being mixed each fell.
+	then   Source
+	turned chan struct{}
+	gen    int
+	turns  []int
+	ended  bool
+	err    error
 	// marks says which frames of the source the last blocks mixed, so
 	// Position can tell which the speakers are playing.
 	marks  [markCount]mark
@@ -278,6 +286,8 @@ const markCount = 512
 type mark struct {
 	mixed, at int64
 	n         int
+	// gen is the turn the block's frames belong to.
+	gen int
 }
 
 // markLocked records a block. It runs with the mixer's mu held.
@@ -298,18 +308,31 @@ func (v *Voice) mix(dst, dry, buf []float32, dt time.Duration) bool {
 	if v.paused {
 		return true
 	}
-	at := v.at
+	at, gen := v.at, v.gen
 	l0, r0 := v.gains()
 	v.vol.Step(dt)
 	v.pan.Step(dt)
 	v.gate.Step(dt)
 	l1, r1 := v.gains()
+	v.turns = v.turns[:0]
 	n := v.fill(buf)
-	if v.at >= at {
-		v.markLocked(mark{mixed: v.m.played, at: at, n: n})
-	} else {
+	switch {
+	case len(v.turns) > 0:
+		// It turned to the source after: the block's frames run from
+		// the first source's, then from the start of each turned to.
+		v.markLocked(mark{mixed: v.m.played, at: at, n: v.turns[0], gen: gen})
+		for i, t := range v.turns {
+			end := n
+			if i+1 < len(v.turns) {
+				end = v.turns[i+1]
+			}
+			v.markLocked(mark{mixed: v.m.played + int64(t), n: end - t, gen: gen + i + 1})
+		}
+	case v.at >= at:
+		v.markLocked(mark{mixed: v.m.played, at: at, n: n, gen: gen})
+	default:
 		// It looped: the block's frames run from the start.
-		v.markLocked(mark{mixed: v.m.played, at: v.at - int64(n), n: n})
+		v.markLocked(mark{mixed: v.m.played, at: v.at - int64(n), n: n, gen: gen})
 	}
 	for i := range n {
 		t := float32(i) / float32(frames)
@@ -362,6 +385,18 @@ func (v *Voice) fill(buf []float32) int {
 		if err == nil {
 			if got == 0 {
 				break
+			}
+			continue
+		}
+		if errors.Is(err, io.EOF) && v.then != nil {
+			// The next source carries on at once, sample after sample.
+			v.src, v.then = v.then, nil
+			v.at = 0
+			v.gen++
+			v.turns = append(v.turns, n)
+			select {
+			case v.turned <- struct{}{}:
+			default:
 			}
 			continue
 		}
@@ -499,12 +534,30 @@ func (v *Voice) Seek(d time.Duration) error {
 	// Until the speakers play what is mixed next, the voice is heard
 	// where it moved to.
 	v.nmarks, v.next = 0, 0
-	v.markLocked(mark{mixed: v.m.played, at: f})
+	v.markLocked(mark{mixed: v.m.played, at: f, gen: v.gen})
 	return nil
 }
 
+// Then has the voice play src once what it plays now ends, without a
+// gap: the sound runs on into src sample after sample, at the voice's
+// volume and pan, through its insert, and Position, Len and Seek speak
+// of src from then. A later Then replaces a source still waiting, and
+// nil takes it away. Turned hears each turn.
+func (v *Voice) Then(src Source) {
+	v.m.mu.Lock()
+	defer v.m.mu.Unlock()
+	v.then = src
+}
+
+// Turned returns a channel that receives as the voice turns to the
+// source Then gave it, as the mixer reaches it: the speakers play it
+// a moment later, as long as they hold back.
+func (v *Voice) Turned() <-chan struct{} { return v.turned }
+
 // Position returns how far into its sound the voice is, as heard: the
-// frames the speakers hold back are not counted yet.
+// frames the speakers hold back are not counted yet. Just after a turn
+// to the source Then gave, while the speakers still play the source
+// before, it is zero.
 func (v *Voice) Position() time.Duration {
 	v.m.mu.Lock()
 	defer v.m.mu.Unlock()
@@ -515,6 +568,9 @@ func (v *Voice) Position() time.Duration {
 	for i := 1; i <= v.nmarks; i++ {
 		k = v.marks[(v.next-i+markCount)%markCount]
 		if k.mixed <= heard {
+			if k.gen < v.gen {
+				return 0
+			}
 			return Duration(k.at + min(heard-k.mixed, int64(k.n)))
 		}
 	}
@@ -524,12 +580,12 @@ func (v *Voice) Position() time.Duration {
 // Len returns the length of the voice's sound, or -1 when it is
 // unknown.
 func (v *Voice) Len() time.Duration {
+	v.m.mu.Lock()
+	defer v.m.mu.Unlock()
 	s, ok := v.src.(Seeker)
 	if !ok {
 		return -1
 	}
-	v.m.mu.Lock()
-	defer v.m.mu.Unlock()
 	l := s.Len()
 	if l < 0 {
 		return -1
