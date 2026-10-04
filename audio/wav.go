@@ -160,3 +160,6 @@ func (w *wav) seek(f int64) error {
 
 func (w *wav) len() int64 { return w.frames }
 func (w *wav) rate() int  { return w.sampleHz }
+func (w *wav) info() Format {
+	return Format{Name: "WAV", SampleRate: w.sampleHz, Channels: w.channels, Bits: w.bits}
+}

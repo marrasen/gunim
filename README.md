@@ -101,7 +101,8 @@ Items drag as a stack of cards that trails the pointer and says what a
 drop will do: move or copy to the folder under it, pin it to the
 favourites, or nothing, with a shake. A folder the drag rests on springs
 open. Files drag between windows, out to other programs, and in from
-them. On Windows an item drags from a window lying behind another, which
+them; files from another program light the folder they would drop in
+while they are still being dragged. On Windows an item drags from a window lying behind another, which
 stays behind, as Explorer's do; a click there brings the window to the
 front. Ctrl+N opens another window on the same folder.
 
@@ -118,10 +119,25 @@ go run ./example/music
 go run ./example/music -dir ~/Music
 ```
 
-It always has four songs made in code, so it plays anywhere. `-dir`
-adds a folder's MP3, FLAC, Ogg Vorbis and WAV files, with their tags and
-covers. Space plays and pauses, the arrows seek and set the volume, and
-N and P skip.
+It always has four songs made in code, so it plays anywhere. Its
+library follows folders of MP3, FLAC, Ogg Vorbis and WAV files, with
+their tags and covers: tracks copied in join it within seconds, and
+tracks deleted leave. It follows your music folder from the first run,
+and `-dir` or the library's Add a folder adds more. Playlists gather
+tracks by hand, and their rows move by their grips. The library and the
+playlists are kept between runs. Up next holds the tracks to play
+before the list goes on. Tracks drag from their rows, and files drag in
+from a file manager, and each drops where it is let go: on the track
+playing, to play now or join Up next; on a playlist or Up next, to join
+it at the gap shown; or on the library, which follows a folder dropped
+there. A drag resting on a list's back button slides it away, to drop
+on the shelf. The equalizer, E, is parametric: up to
+eight bands, each a bell, a shelf, a cut or a notch, dragged about a
+graph, with the sound's spectrum before and after it drawn behind them. Loudness gain plays each track, or each
+album played in order, at -18 LUFS, measured in the background and kept
+between runs; the volume bar shows the gain as the pointer comes over
+it, and I opens a card of the track's file, quality and loudness. Space plays and pauses, the arrows seek and set the
+volume, and N and P skip.
 
 ![The music player](example/music/music.png)
 
@@ -153,7 +169,13 @@ speakers, in pure Go on Linux, Windows and macOS. A voice's volume and
 pan move with `anim`'s springs and tweens, stepped in time with the
 sound. `Decode` reads WAV, MP3, Ogg Vorbis and FLAC, and an MP3 drops
 its encoder's silence, so an album plays without gaps. An `Analyzer`
-measures the sound as it is heard, for visuals that keep time with it.
+measures the sound as it is heard, for visuals that keep time with it,
+and its `Spectrum` reads the sound before a voice's inserts as well as
+after. An `EQ` is such an insert: a parametric equalizer of bells,
+shelves, cuts and notches, whose bands glide to new settings without
+clicks. A `LoudnessMeter` measures integrated loudness in LUFS as
+ITU-R BS.1770 defines it, as EBU R128 and ReplayGain 2 use it, and
+`FormatOf` says what a decoded sound was stored as.
 
 Widgets play cues as the user works them: a press, a switch turning on
 or off, a menu opening. They are silent until an application chooses
@@ -191,6 +213,13 @@ plot does. Two fingers pinch to zoom whatever zooms with Ctrl and the
 wheel. A finger held still is a right click, which opens a context
 menu; in text it selects a word, drags on over more words, and shows
 handles for the selection's ends and the edit menu.
+
+An application asks the user for a permission with `App.Ask`, as
+`driver.PermissionMusic` to read their music: Android's prompt asks,
+and a desktop has it already. `gunimapk -permissions music` declares
+what the APK may ask for. `App.UserFolder` finds the user's Music
+folder, on a phone or a desktop, and a folder chooser picks a folder on
+the phone's storage or a card as a path.
 
 A tap on a text field opens the soft keyboard, whose edits, autocorrect
 and composition reach the field as `input.TextEdit`s, and the window
@@ -235,6 +264,35 @@ to another machine with both halves unchanged.
 
 Local interaction stays local. A dialog closes itself on the frame the
 button is released, and tells the application afterwards.
+
+### What the split gives every application
+
+Each of these comes from the split itself, so every gunim application
+has it with no code of its own:
+
+- **A window out of sight rests while the application works on.** A
+  window draws nothing and holds its animations while it is minimized,
+  covered whole by other windows, on another virtual desktop, on a
+  screen that is off or locked, or in a phone application gone to the
+  background. The application half runs apart from the frames, so music
+  keeps playing, timers keep firing and files keep loading. Back in
+  sight, the window draws the latest state at once. The application
+  hears of a window minimized, as `input.WindowHidden`, and goes on
+  unaware of one merely covered.
+- **The window stays smooth while the application is busy.** Slow
+  disks, networks and long computations happen in the application half,
+  and the window keeps drawing at the display's rate meanwhile.
+- **The application pushes state as fast as it likes.** The window
+  draws only the latest state each frame; see [Push as hard as you
+  like](#push-as-hard-as-you-like).
+- **Interaction answers on the next frame.** A press, a drag or a
+  dialog closing happens in the window, and the application hears of it
+  afterwards.
+- **Each half is tested on its own.** Tests drive the application half
+  with intents and read the state it publishes, and drive the window
+  half with input and state in an offscreen window, frame by frame.
+- **The application can move to another machine.** The halves trade
+  plain values, so a socket can carry them; see above.
 
 ## Topics and patches
 

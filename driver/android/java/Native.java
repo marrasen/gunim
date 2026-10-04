@@ -3,6 +3,9 @@ package gunim.android;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
+import android.content.pm.PackageManager;
+import android.os.Build;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.Surface;
@@ -36,6 +39,8 @@ public final class Native {
 		int compStart, int compEnd, long seq);
 	static native void text(String s);
 	static native void composing(String s, int selStart, int selEnd);
+	static native void answered(int code, boolean granted);
+	static native void chosen(int code, String path);
 
 	// Called from Go.
 
@@ -100,6 +105,92 @@ public final class Native {
 		}
 		ClipboardManager cm = (ClipboardManager) a.getSystemService(Context.CLIPBOARD_SERVICE);
 		cm.setPrimaryClip(ClipData.newPlainText("text", s));
+	}
+
+	// permissionNames names permission p, as driver.Permission numbers
+	// it, as this Android names it: reading music is its own
+	// permission since Android 13, and part of reading storage before.
+	static String[] permissionNames(int p) {
+		if (p == 1) {
+			return Build.VERSION.SDK_INT >= 33
+				? new String[] {"android.permission.READ_MEDIA_AUDIO"}
+				: new String[] {"android.permission.READ_EXTERNAL_STORAGE"};
+		}
+		return null;
+	}
+
+	static boolean permitted(int p) {
+		String[] names = permissionNames(p);
+		if (names == null || app == null) {
+			return false;
+		}
+		for (String n : names) {
+			if (app.checkSelfPermission(n) != PackageManager.PERMISSION_GRANTED) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	// ask asks the user for permission p with the system's prompt; the
+	// answer goes to Go as answered(code, granted), at once where there
+	// is no activity to ask over.
+	static void ask(int p, int code) {
+		ui.post(() -> {
+			String[] names = permissionNames(p);
+			GunimActivity a = activity;
+			if (names == null || a == null) {
+				answered(code, permitted(p));
+				return;
+			}
+			a.requestPermissions(names, code);
+		});
+	}
+
+	// chooseFolder shows the system's chooser of folders; the folder
+	// chosen goes to Go as chosen(code, path), with null for none.
+	static void chooseFolder(int code) {
+		ui.post(() -> {
+			GunimActivity a = activity;
+			if (a == null) {
+				chosen(code, null);
+				return;
+			}
+			try {
+				a.startActivityForResult(new android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT_TREE), code);
+			} catch (android.content.ActivityNotFoundException e) {
+				chosen(code, null);
+			}
+		});
+	}
+
+	// pathOf returns the path of a folder the chooser gave, where it
+	// lies on the phone's storage or a card: the chooser names those
+	// as their volume and the path within it, as primary:Download.
+	// Other providers' folders have no path, and give null.
+	static String pathOf(android.net.Uri tree) {
+		if (tree == null || !"com.android.externalstorage.documents".equals(tree.getAuthority())) {
+			return null;
+		}
+		String id = android.provider.DocumentsContract.getTreeDocumentId(tree);
+		int colon = id.indexOf(':');
+		if (colon < 0) {
+			return null;
+		}
+		String volume = id.substring(0, colon), rest = id.substring(colon + 1);
+		String root = "primary".equals(volume)
+			? Environment.getExternalStorageDirectory().getAbsolutePath()
+			: "/storage/" + volume;
+		return rest.isEmpty() ? root : root + "/" + rest;
+	}
+
+	// userFolder returns the shared folder of kind f, as
+	// driver.UserFolder numbers it, or null.
+	static String userFolder(int f) {
+		if (f == 1) {
+			return Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC).getAbsolutePath();
+		}
+		return null;
 	}
 
 	static void buzz() {

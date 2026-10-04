@@ -17,12 +17,19 @@ import (
 
 // registerViews is the window half: the player's view, drawing from d
 // as it plays.
-func registerViews(w *gunim.Window, d *deck, openLibrary bool) {
+func registerViews(w *gunim.Window, d *deck, openLibrary bool, list string, eqOpen, infoOpen bool) {
 	gunim.RegisterView(w, "player",
 		func(Player) *playerRoot {
 			r := newPlayerRoot(d)
 			if openLibrary {
 				r.sheet.Jump(1)
+			}
+			r.lib.want = list
+			if eqOpen {
+				r.eq.open.Jump(1)
+			}
+			if infoOpen {
+				r.info.open.Jump(1)
 			}
 			return r
 		},
@@ -34,6 +41,9 @@ var (
 	ink     = color.NRGBA{R: 0xf4, G: 0xf5, B: 0xfa, A: 0xff}
 	night   = color.NRGBA{R: 0x0b, G: 0x0c, B: 0x12, A: 0xff}
 	neutral = color.NRGBA{R: 0x9a, G: 0xa4, B: 0xc8, A: 0xff}
+	// hot marks the volume past full, where loud tracks reach the
+	// limiter.
+	hot = color.NRGBA{R: 0xff, G: 0x7a, B: 0x45, A: 0xff}
 )
 
 // faded is c at alpha a, from 0 to 1.
@@ -133,6 +143,15 @@ type playerRoot struct {
 	// listButton opens it.
 	sheet      *anim.Float
 	listButton *iconButton
+	// eq is the equalizer, over the track playing, and eqButton opens
+	// it.
+	eq       *eqPanel
+	eqButton *iconButton
+	// resumed is the last of the application's Resumed taken.
+	resumed int
+	// info tells about the track playing, and infoButton opens it.
+	info       *infoCard
+	infoButton *iconButton
 	narrow     bool
 	size       geom.Size
 }
@@ -150,6 +169,18 @@ func newPlayerRoot(d *deck) *playerRoot {
 	r.now = newNowPlaying(r, d)
 	r.lib = newLibrary(r)
 	r.listButton = newIconButton(icon.ListMusic, 40, func(u *gunim.UI) { r.openSheet(r.sheet.Target() < 0.5, u) })
+	r.eq = newEQPanel(r)
+	r.eqButton = newIconButton(icon.SlidersHorizontal, 40, func(u *gunim.UI) {
+		if r.info.shown() {
+			r.info.show(false, u)
+		}
+		if r.narrow && r.sheet.Target() > 0.5 {
+			r.openSheet(false, u)
+		}
+		r.eq.show(!r.eq.shown(), u)
+	})
+	r.info = newInfoCard(r)
+	r.infoButton = newIconButton(icon.Info, 40, func(u *gunim.UI) { r.info.show(!r.info.shown(), u) })
 	return r
 }
 
@@ -174,6 +205,15 @@ func (r *playerRoot) show(s Player, u *gunim.UI) {
 	r.bg.show(t)
 	r.now.show(was, s, t)
 	r.lib.show(s, u)
+	r.eq.take(s.EQ)
+	if s.Resumed != r.resumed {
+		// The player took up its last run's track: the list it played
+		// from opens, as it was.
+		r.resumed = s.Resumed
+		r.lib.openList(s.From, u)
+		r.lib.page.Jump(1)
+	}
+	r.eqButton.setLit(len(s.EQ.Bands) > 0 && !s.EQ.Bypass)
 	u.Invalidate()
 }
 
@@ -181,6 +221,14 @@ func (r *playerRoot) openSheet(on bool, u *gunim.UI) {
 	to := float32(0)
 	if on {
 		to = 1
+		// The library takes the window: the track's card and the
+		// equalizer make way.
+		if r.info.shown() {
+			r.info.show(false, u)
+		}
+		if r.eq.shown() {
+			r.eq.show(false, u)
+		}
 	}
 	r.sheet.Animate(to, anim.Spring{Response: 0.42, Damping: 0.86})
 	u.Invalidate()
@@ -198,7 +246,7 @@ func (r *playerRoot) Step(dt time.Duration) bool {
 
 // Children implements [gunim.Composite].
 func (r *playerRoot) Children() []gunim.Node {
-	return []gunim.Node{r.bg, r.now, r.lib, r.listButton}
+	return []gunim.Node{r.bg, r.now, r.lib, r.listButton, r.eqButton, r.eq, r.infoButton, r.info}
 }
 
 // Focusable implements [gunim.Focusable]: the player's keys come here.
@@ -210,6 +258,42 @@ func (r *playerRoot) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Child
 	r.size = size
 	r.narrow = size.W < narrowWidth
 	bg, now, lib, btn := kids.At(0), kids.At(1), kids.At(2), kids.At(3)
+	eqBtn, eq := kids.At(4), kids.At(5)
+	defer func() {
+		// The equalizer rises from the bottom over the track playing,
+		// over the whole window where it is narrow, up to the row of
+		// buttons along the top, which stays.
+		eqArea := geom.Rect{Max: size.Point()}
+		safe := eqArea.Inset(f.Safe)
+		eqArea.Min.Y = safe.Min.Y + 64
+		btnAt := geom.Pt(safe.Max.X-56, safe.Min.Y+16)
+		if r.narrow {
+			btnAt.X -= 48
+		} else {
+			eqArea.Min.X = sideWidth + f.Safe.Left
+		}
+		eqBtn.Layout(gunim.Tight(geom.Sz(40, 40)))
+		eqBtn.Place(btnAt)
+		// The track's card unfolds from its button, beside the
+		// equalizer's, under it, at the window's right.
+		infoAt := btnAt.Sub(geom.Pt(48, 0))
+		kids.At(6).Layout(gunim.Tight(geom.Sz(40, 40)))
+		kids.At(6).Place(infoAt)
+		card := kids.At(7).Layout(gunim.Loose(geom.Sz(min(infoW, safe.Size().W-24), safe.Size().H)))
+		cardAt := geom.Pt(max(safe.Min.X+12, btnAt.X+40-card.W), btnAt.Y+52)
+		r.info.from = infoAt.Add(geom.Pt(20, 20)).Sub(cardAt)
+		if r.info.open.Value() < 0.01 {
+			cardAt = geom.Pt(-10000, 0)
+		}
+		kids.At(7).Place(cardAt)
+		open := r.eq.open.Value()
+		eq.Layout(gunim.Tight(eqArea.Size()))
+		if open < 0.001 {
+			eq.Place(geom.Pt(-10000, 0))
+		} else {
+			eq.Place(geom.Pt(eqArea.Min.X, eqArea.Min.Y+(1-open)*eqArea.Size().H))
+		}
+	}()
 	// The background, and the library's glass, run under a phone's
 	// bars; the track playing and the buttons keep clear of them.
 	bg.Layout(gunim.Tight(size))
@@ -236,20 +320,32 @@ func (r *playerRoot) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Child
 }
 
 // Paint implements [gunim.Node].
+// Paint implements [gunim.Node]: the track playing, the library over
+// it or beside it, the equalizer over both, then the row of buttons,
+// over everything but the track's card.
 func (r *playerRoot) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, kids gunim.Children) {
 	kids.At(0).Paint(p)
 	kids.At(1).Paint(p)
-	if r.narrow {
-		s := r.sheet.Value()
-		if s > 0.001 {
-			// The window dims under the sheet as it rises.
-			p.RRect(geom.Rect{Max: box.Point()}, 0, paint.Solid(faded(night, 0.55*min(s, 1))))
-			kids.At(2).Paint(p)
-		}
-		kids.At(3).Paint(p)
-		return
+	if s := r.sheet.Value(); !r.narrow {
+		kids.At(2).Paint(p)
+	} else if s > 0.001 {
+		// The window dims above the sheet as it rises; under it, the
+		// sheet's frosted glass blurs the track playing as it is, in its
+		// colours.
+		top := box.H - box.H*0.86*min(s, 1)
+		p.RRect(geom.Rc(0, 0, box.W, top+24), 0, paint.Solid(faded(night, 0.55*min(s, 1))))
+		kids.At(2).Paint(p)
 	}
-	kids.At(2).Paint(p)
+	if open := r.eq.open.Value(); open > 0.001 {
+		p.RRect(geom.Rect{Max: box.Point()}, 0, paint.Solid(faded(night, 0.35*min(open, 1))))
+		kids.At(5).Paint(p)
+	}
+	if r.narrow {
+		kids.At(3).Paint(p)
+	}
+	kids.At(4).Paint(p)
+	kids.At(6).Paint(p)
+	kids.At(7).Paint(p)
 }
 
 // Handle implements [gunim.Handler]: the player's keys, and a tap
@@ -257,6 +353,11 @@ func (r *playerRoot) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, kids 
 func (r *playerRoot) Handle(e input.Event, u *gunim.UI) bool {
 	switch e := e.(type) {
 	case input.PointerDown:
+		if r.info.shown() {
+			// A press anywhere but the card puts it away.
+			r.info.show(false, u)
+			return true
+		}
 		if r.narrow && r.sheet.Target() > 0.5 && e.Pos.Y < r.size.H*0.14 {
 			r.openSheet(false, u)
 			return true
@@ -264,6 +365,15 @@ func (r *playerRoot) Handle(e input.Event, u *gunim.UI) bool {
 		return false
 	case input.KeyPress:
 		return r.key(e, u)
+	case input.WindowHidden:
+		// Out of sight, as with a phone's screen off, nothing needs the
+		// sound to answer at once: the speaker works further ahead, and
+		// the music rides out the system being busy elsewhere.
+		r.now.d.setSeen(false)
+		return false
+	case input.WindowShown:
+		r.now.d.setSeen(true)
+		return false
 	case input.MediaSeek:
 		// A seek from the system's media controls.
 		u.Send(r, SeekTo{At: e.At})
@@ -272,7 +382,18 @@ func (r *playerRoot) Handle(e input.Event, u *gunim.UI) bool {
 	return false
 }
 
+// isMedia says whether k is one of the media keys, which work the
+// player wherever the focus is.
+func isMedia(k input.Key) bool {
+	return k == input.KeyMediaPlayPause || k == input.KeyMediaPlay || k == input.KeyMediaPause ||
+		k == input.KeyMediaStop || k == input.KeyMediaNext || k == input.KeyMediaPrevious
+}
+
 func (r *playerRoot) key(k input.KeyPress, u *gunim.UI) bool {
+	// Keys typed into a field, as a playlist's name, are the field's.
+	if t, ok := u.Focused().(interface{ TakesText() bool }); ok && t.TakesText() && !isMedia(k.Key) {
+		return false
+	}
 	at, _ := r.now.d.position()
 	switch k.Key {
 	case input.KeySpace, input.KeyK, input.KeyMediaPlayPause:
@@ -305,7 +426,25 @@ func (r *playerRoot) key(k input.KeyPress, u *gunim.UI) bool {
 		u.Send(r, ToggleShuffle{})
 	case input.KeyR:
 		u.Send(r, CycleRepeat{})
+	case input.KeyDelete, input.KeyBackspace:
+		if r.eq.shown() && r.eq.graph.sel != 0 {
+			r.eq.graph.remove(r.eq.graph.sel, u)
+			return true
+		}
+		return false
+	case input.KeyE:
+		r.eq.show(!r.eq.shown(), u)
+	case input.KeyI:
+		r.info.show(!r.info.shown(), u)
 	case input.KeyEscape:
+		if r.info.shown() {
+			r.info.show(false, u)
+			return true
+		}
+		if r.eq.shown() {
+			r.eq.show(false, u)
+			return true
+		}
 		if r.narrow && r.sheet.Target() > 0.5 {
 			r.openSheet(false, u)
 			return true

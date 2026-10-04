@@ -120,13 +120,8 @@ func dropSourceTable() *dropSourceVtbl {
 }
 
 func (w *Window) platformStartDragOut(paths []string, end func(taken, back bool)) error {
-	oleOnce.Do(func() {
-		if hr, _, _ := procOleInitialize.Call(0); int32(hr) < 0 {
-			oleErr = fmt.Errorf("glfw: OleInitialize: HRESULT %#x", uint32(hr))
-		}
-	})
-	if oleErr != nil {
-		return oleErr
+	if err := initOLE(); err != nil {
+		return err
 	}
 
 	// The shell makes the data object from the folder holding the files

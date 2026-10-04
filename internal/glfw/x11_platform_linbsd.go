@@ -20,8 +20,13 @@ import (
 type platformWindowState struct {
 	colormap _XID
 	handle   _XID
-	parent   _XID
-	ic       uintptr // XIC
+	// A gunim change: obscured says the X server reports the window
+	// fully obscured, which it does where no compositor draws the
+	// windows, and unmapped that it is off the screen, as a window
+	// manager takes the windows of another workspace off it.
+	obscured, unmapped bool
+	parent             _XID
+	ic                 uintptr // XIC
 
 	// The composition the input method is currently showing, accumulated from
 	// the incremental preedit draw callbacks, the matching per-character
@@ -168,6 +173,7 @@ type platformLibraryWindowState struct {
 	// Xdnd (drag and drop) atoms
 	XdndAware      _Atom
 	XdndEnter      _Atom
+	XdndLeave      _Atom
 	XdndPosition   _Atom
 	XdndStatus     _Atom
 	XdndActionCopy _Atom
@@ -237,6 +243,15 @@ type platformLibraryWindowState struct {
 		version int
 		source  _XID
 		format  _Atom
+		// A gunim change: the files dragged are asked for as the drag
+		// first moves over the window, so it can show what a drop
+		// would do. asked says they were, paths holds them once they
+		// arrive, x and y are where the drag is, and dropping says the
+		// drop came, so what arrives next is the drop's.
+		asked    bool
+		paths    []string
+		x, y     float64
+		dropping bool
 	}
 
 	xcursor struct {

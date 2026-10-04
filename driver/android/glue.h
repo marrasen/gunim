@@ -16,6 +16,10 @@ uint16_t *gunim_get_clipboard(int *n);
 void gunim_set_clipboard(const uint16_t *s, int n);
 void gunim_finish(void);
 void gunim_buzz(void);
+int gunim_permitted(int p);
+void gunim_ask(int p, int code);
+void gunim_choose_folder(int code);
+uint16_t *gunim_user_folder(int f, int *n);
 
 // EGL, from the render thread. Each returns 0, or the EGL error.
 int gunim_egl_init(void);

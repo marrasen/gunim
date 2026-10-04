@@ -745,8 +745,11 @@ type ContextMenu struct {
 	Checked  []bool
 	Disabled []bool
 	Breaks   []int
-	// Icons shows an icon before each item, as in a [Menu].
-	Icons []*icon.Icon
+	// Icons shows an icon before each item, and Captions lists the
+	// items that are captions over the group below them, as in a
+	// [Menu].
+	Icons    []*icon.Icon
+	Captions []int
 	// Prepare, when set, runs as the secondary button goes down at at, in
 	// the context menu's space, before the menu opens. It may set the items
 	// for the place pressed, and returning false opens no menu.
@@ -819,6 +822,7 @@ func (c *ContextMenu) show(at geom.Point, u *gunim.UI) {
 	c.close(u)
 	m := NewMenu(c.Items...)
 	m.Hints, m.Checked, m.Disabled, m.Breaks, m.Icons = c.Hints, c.Checked, c.Disabled, c.Breaks, c.Icons
+	m.Captions = c.Captions
 	m.Pick = func(i int, u *gunim.UI) {
 		c.close(u)
 		if c.Picked != nil {

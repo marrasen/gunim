@@ -71,6 +71,17 @@ func (u *UI) handleRaw(root *state, ev any) {
 		}
 		u.bubble(target, e)
 		return
+	case driver.WindowCovered:
+		if root != u.root {
+			return
+		}
+		// A window out of sight draws nothing, and the application
+		// carries on unaware: music plays on under other windows.
+		u.w.covered = e.Covered
+		if !e.Covered {
+			u.w.resumed, u.invalid = true, true
+		}
+		return
 	case driver.WindowShown:
 		if root != u.root {
 			return
@@ -90,6 +101,22 @@ func (u *UI) handleRaw(root *state, ev any) {
 			target = u.appRoot()
 		}
 		u.bubble(target, ev)
+		return
+	case driver.FilesOver:
+		if root != u.root {
+			return
+		}
+		// Files from another program are offered to the nodes under
+		// them as a drag inside the application is.
+		u.invalid = true
+		u.dragOverMods = e.Mods
+		u.dragHover(e.Pos, input.Files{Paths: e.Paths})
+		return
+	case driver.FilesLeft:
+		if root == u.root && u.dragAt != nil {
+			u.deliver(u.dragAt, input.DragLeave{Time: time.Now()})
+			u.dragAt = nil
+		}
 		return
 	case driver.WindowFocus:
 		if root != u.root {
@@ -242,9 +269,19 @@ func (u *UI) handleRaw(root *state, ev any) {
 		}
 		u.updateHover(root, geom.Pt(-1, -1), e.Time)
 	case input.Drop:
-		u.dispatchAt(root, e.Pos, func(local geom.Point) input.Event {
-			return input.Drop{Pos: local, Data: e.Data, Paths: e.Paths, Mods: e.Mods, Time: e.Time}
+		data := e.Data
+		if data == nil && e.Paths != nil {
+			data = input.Files{Paths: e.Paths}
+		}
+		took := u.dispatchAt(root, e.Pos, func(local geom.Point) input.Event {
+			return input.Drop{Pos: local, Data: data, Paths: e.Paths, Mods: e.Mods, Time: e.Time}
 		})
+		// The node the files hovered over hears they left, if another
+		// took them.
+		if u.dragAt != nil && u.dragAt != took {
+			u.deliver(u.dragAt, input.DragLeave{Time: e.Time})
+		}
+		u.dragAt = nil
 	case input.KeyPress, input.KeyRelease:
 		if k, ok := ev.(input.KeyPress); ok && k.Key == input.KeyTab {
 			u.showRings(true)

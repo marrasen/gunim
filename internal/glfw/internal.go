@@ -205,7 +205,13 @@ type Window struct {
 		character   CharCallback
 		charmods    CharModsCallback
 		drop        DropCallback
+		dragOver    DragOverCallback
+		covered     CoveredCallback
 	}
+
+	// covered is what the covered callback was told last; see
+	// inputCovered.
+	covered bool
 
 	platform platformWindowState
 }

@@ -53,6 +53,31 @@ func Decode(r io.ReadSeeker) (Seeker, error) {
 	return newResampler(d), nil
 }
 
+// Format is what a sound is stored as.
+type Format struct {
+	// Name names the format: "MP3", "FLAC", "Ogg Vorbis" or "WAV".
+	Name string
+	// SampleRate is the rate it was recorded at, in hertz, before it
+	// is resampled to play.
+	SampleRate int
+	// Channels and Bits are how many channels it has and how many bits
+	// a sample, where the format says: zero where it does not, as MP3
+	// and Ogg Vorbis keep no bit depth.
+	Channels, Bits int
+}
+
+// FormatOf returns the format of a sound from [Decode], and false for
+// another source.
+func FormatOf(s Source) (Format, bool) {
+	switch s := s.(type) {
+	case direct:
+		return s.d.info(), true
+	case *resampler:
+		return s.d.info(), true
+	}
+	return Format{}, false
+}
+
 // toStereo writes frames of ch channels from src, which holds whole
 // frames, into dst as stereo, and returns how many frames it wrote.
 func toStereo(dst, src []float32, ch int) int {

@@ -169,6 +169,16 @@ func (s *Speaker) watch() {
 	}
 }
 
+// SetLatency sets how far ahead of the speakers the mixer works, as
+// Options.Latency does: further while nothing needs the sound to answer
+// at once, as while a player plays on with its screen off, so the sound
+// rides out a busy moment; nearer again when it does. The speaker still
+// grows it, as it runs dry.
+func (s *Speaker) SetLatency(d time.Duration) {
+	s.setBuffer(audio.Frames(max(d-device, device)))
+	s.logf("working %v ahead", s.Latency())
+}
+
 // Err returns an error the speakers met while playing, if any.
 func (s *Speaker) Err() error {
 	if err := s.player.Err(); err != nil {

@@ -345,6 +345,21 @@ func (w *Window) SafeArea() geom.Insets {
 // long press.
 func (w *Window) Buzz() { buzz() }
 
+// ChooseFiles implements [driver.FileChooser] for folders: the system's
+// chooser of folders, for a folder on the phone's storage or a card,
+// which a program reads once it has the permission for what it reads,
+// as [driver.PermissionMusic]. For files it returns
+// [driver.ErrNoChooser], for now.
+func (w *Window) ChooseFiles(o driver.ChooseOptions) ([]string, error) {
+	if !o.Folders {
+		return nil, driver.ErrNoChooser
+	}
+	if p := chooseFolder(); p != "" {
+		return []string{p}, nil
+	}
+	return nil, nil
+}
+
 var (
 	_ driver.Placer         = (*Window)(nil)
 	_ driver.PopupRoomer    = (*Window)(nil)

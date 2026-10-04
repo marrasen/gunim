@@ -2,10 +2,10 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"image"
 	_ "image/jpeg" // covers in tags are JPEG or PNG
 	_ "image/png"
-	"io/fs"
 	"math"
 	"os"
 	"path/filepath"
@@ -32,6 +32,13 @@ type entry struct {
 	Track
 	path string
 	song *song
+	// key names the track for good, across runs: its file, or the demo
+	// song it is.
+	key string
+	// roots holds the folders followed it lies in.
+	roots map[string]bool
+	// an is what reading it through told, nil until it is read.
+	an *analysis
 	// order sorts the library: by artist, album, disc and track.
 	order string
 }
@@ -42,7 +49,9 @@ func (e *entry) open() (audio.Seeker, func(), error) {
 	if e.song != nil {
 		return e.song.source(), func() {}, nil
 	}
-	f, err := os.Open(e.path)
+	// The file stays open while the track plays, and its folder may
+	// delete it meanwhile; the track plays on.
+	f, err := openShared(e.path)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -52,6 +61,15 @@ func (e *entry) open() (audio.Seeker, func(), error) {
 		return nil, nil, err
 	}
 	return src, func() { _ = f.Close() }, nil
+}
+
+// analyzed takes what reading the track through told.
+func (e *entry) analyzed(an analysis) {
+	e.an = &an
+	if an.Peaks != nil {
+		e.Peaks = an.Peaks
+	}
+	e.Format, e.Measured, e.LUFS, e.Peak = an.Format, an.Loud, float32(an.LUFS), an.Peak
 }
 
 // demoEntries returns the demo songs, as an album.
@@ -67,6 +85,7 @@ func demoEntries() []*entry {
 				Cover:  paint.NewImage(cover), Accent: accent, Glow: glow,
 			},
 			song:  s,
+			key:   fmt.Sprintf("demo:%d", i+1),
 			order: "￿" + string(rune('a'+i)),
 		}
 		e.Peaks = s.peaks()
@@ -78,35 +97,8 @@ func demoEntries() []*entry {
 // audioExts are the files the library takes.
 var audioExts = map[string]bool{".mp3": true, ".flac": true, ".ogg": true, ".oga": true, ".wav": true}
 
-// maxTracks is as many files as the library reads from a folder.
+// maxTracks is as many files as the library follows in a folder.
 const maxTracks = 5000
-
-// scan reads the tracks in dir and below, sending each as it is read.
-func scan(dir string, found func(*entry)) {
-	n := 0
-	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil //nolint:nilerr // a folder it cannot read is skipped
-		}
-		if d.IsDir() {
-			if strings.HasPrefix(d.Name(), ".") && path != dir {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !audioExts[strings.ToLower(filepath.Ext(path))] {
-			return nil
-		}
-		if e := readEntry(path); e != nil {
-			found(e)
-			n++
-		}
-		if n >= maxTracks {
-			return filepath.SkipAll
-		}
-		return nil
-	})
-}
 
 // readEntry reads a file's tags, cover and length, or returns nil for
 // a file it cannot play.
@@ -116,7 +108,11 @@ func readEntry(path string) *entry {
 		return nil
 	}
 	defer func() { _ = f.Close() }()
-	e := &entry{path: path}
+	e := &entry{path: path, key: path}
+	e.File = path
+	if fi, statErr := f.Stat(); statErr == nil {
+		e.Size = fi.Size()
+	}
 	name := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 	e.Title, e.Album = name, filepath.Base(filepath.Dir(path))
 	var art image.Image
@@ -145,6 +141,7 @@ func readEntry(path string) *entry {
 	if l := src.Len(); l > 0 {
 		e.Length = audio.Duration(l)
 	}
+	e.Format, _ = audio.FormatOf(src)
 	if art == nil {
 		art = coverBeside(path)
 	}
@@ -192,37 +189,6 @@ func coverBeside(path string) image.Image {
 // album last.
 func sortEntries(es []*entry) {
 	sort.SliceStable(es, func(i, j int) bool { return es[i].order < es[j].order })
-}
-
-// peaksOf reads src to its end and returns how loud each of peakCount
-// stretches of it is, as [shape] scales it, for the seek bar to draw.
-func peaksOf(src audio.Seeker) []float32 {
-	total := src.Len()
-	if total <= 0 {
-		return nil
-	}
-	power := make([]float64, peakCount)
-	counts := make([]int, peakCount)
-	per := max(total/peakCount, 1)
-	buf := make([]float32, 2*4096)
-	var at int64
-	for {
-		n, err := src.Read(buf)
-		for i := range n {
-			b := min(int((at+int64(i))/per), peakCount-1)
-			l, r := float64(buf[2*i]), float64(buf[2*i+1])
-			power[b] += (l*l + r*r) / 2
-			counts[b]++
-		}
-		at += int64(n)
-		if err != nil || n == 0 {
-			break
-		}
-	}
-	for i := range power {
-		power[i] /= float64(max(counts[i], 1))
-	}
-	return shape(power)
 }
 
 // shape turns each stretch's power, its mean square, into a height

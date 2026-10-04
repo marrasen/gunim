@@ -95,20 +95,54 @@ type App struct {
 type NowPlaying = driver.NowPlaying
 
 // SetNowPlaying shows what the application plays in the system's media
-// controls, where it has them, as a phone's lock screen and quick
-// settings, and keeps the application running while it plays unseen:
-// a phone would stop it otherwise. The controls' buttons arrive at the
-// main window as the media keys, [input.KeyMediaPlayPause] and the
-// rest, which the application handles as it would a keyboard's; a move
-// along their bar arrives as [input.MediaSeek]. Call it as what plays
-// changes: a track, playing or paused, a seek. nil takes the controls
-// away. Where there are no such controls, as on a desktop, it does
-// nothing.
+// controls: a phone's lock screen and quick settings, the media panel
+// of GNOME and KDE through MPRIS, and the panel Windows opens beside
+// the volume. On a phone it keeps the application running while it
+// plays unseen, as the system would stop it otherwise. The controls'
+// buttons, and a keyboard's media keys, arrive at the main window, the
+// one used last, as the media keys of package input,
+// [input.KeyMediaPlayPause] and the rest, which the application handles
+// as it would any key; a move along their bar arrives as
+// [input.MediaSeek]. Call it as what plays changes: a track, playing or
+// paused, a seek. nil takes the controls away. Where the system has no
+// such controls, as macOS for now, it does nothing.
 func (a *App) SetNowPlaying(np *NowPlaying) error {
 	if p, ok := a.drv.(driver.NowPlayer); ok {
 		return p.SetNowPlaying(np)
 	}
 	return nil
+}
+
+// Permitted reports whether the application has permission p. Where the
+// system has no such permissions, as a desktop's, it has.
+func (a *App) Permitted(p driver.Permission) bool {
+	if pm, ok := a.drv.(driver.Permitter); ok {
+		return pm.Permitted(p)
+	}
+	return true
+}
+
+// Ask asks the user for permission p, as a phone asks with a prompt of
+// the system's, and returns whether it is granted. It blocks until the
+// user answers, so call it from a goroutine of the application's, as
+// the application half's own; where p is granted, or the system has no
+// such permissions, it returns true at once. A user who refused p for
+// good is not asked again, and Ask returns false at once.
+func (a *App) Ask(p driver.Permission) bool {
+	if pm, ok := a.drv.(driver.Permitter); ok {
+		return pm.Permitted(p) || pm.Ask(p)
+	}
+	return true
+}
+
+// UserFolder returns the folder the user keeps things of kind f in, as
+// their Music folder, or "" where there is none: on a phone the shared
+// one, which needs [App.Ask] for a permission to read.
+func (a *App) UserFolder(f driver.UserFolder) string {
+	if ff, ok := a.drv.(driver.FolderFinder); ok {
+		return ff.UserFolder(f)
+	}
+	return ""
 }
 
 // Monitors lists the attached displays, so an application can put a
@@ -350,11 +384,13 @@ type Window struct {
 	// drags from its other windows.
 	app    *App
 	dragIn chan dragMsg
-	// hidden says the window cannot be seen, minimized or its
-	// application in the background, so it draws no frames; resumed says
-	// it has just been shown again, so the next frame's delta is a
-	// refresh, not the time away.
-	hidden, resumed bool
+	// hidden says the window is put away, minimized or its application
+	// in the background, and covered that it is out of sight while open:
+	// under other windows, on another desktop, or on a screen that is
+	// off or locked. Either way it draws no frames. resumed says it has
+	// just come back in sight, so the next frame's delta is a refresh,
+	// not the time away.
+	hidden, covered, resumed bool
 	// cues plays the window's cues, where set; else the app's do.
 	cues atomic.Pointer[cuePlayer]
 	// blends is whether the last popup's window blended with what is
@@ -817,11 +853,11 @@ func (w *Window) wants() bool {
 }
 
 // draws reports whether the window draws its frames: while it is
-// hidden it draws none, and its animations hold where they are, unless
-// it is closing, as a window leaving animates out, or a shot waits on a
-// frame.
+// hidden or covered it draws none, and its animations hold where they
+// are, unless it is closing, as a window leaving animates out, or a
+// shot waits on a frame.
 func (w *Window) draws() bool {
-	return !w.hidden || w.ui.goingAway || w.ui.shotsOwed.Load() > 0
+	return !w.hidden && !w.covered || w.ui.goingAway || w.ui.shotsOwed.Load() > 0
 }
 
 // wait blocks until something happens, handles it, and reports whether

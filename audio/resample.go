@@ -15,6 +15,8 @@ type decoder interface {
 	// len returns the length at the decoder's rate, or -1.
 	len() int64
 	rate() int
+	// info says what format the sound is in.
+	info() Format
 }
 
 // resampler plays a decoder at [SampleRate], drawing a cubic curve

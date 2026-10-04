@@ -260,6 +260,21 @@ func registerGLFWClasses() error {
 				},
 			},
 			{
+				// A gunim change: a window wholly covered, on another Space,
+				// or on a screen asleep or locked, is out of sight; macOS
+				// says so of each window as its occlusion state changes.
+				Cmd: objc.RegisterName("windowDidChangeOcclusionState:"),
+				Fn: func(self objc.ID, _ objc.SEL, _ objc.ID) {
+					window := getGoWindow(self)
+					if window == nil {
+						return
+					}
+					const visible = 1 << 1 // NSWindowOcclusionStateVisible
+					state := objc.Send[uint](window.platform.object, objc.RegisterName("occlusionState"))
+					window.inputCovered(state&visible == 0)
+				},
+			},
+			{
 				Cmd: objc.RegisterName("windowDidMiniaturize:"),
 				Fn: func(self objc.ID, _ objc.SEL, notification objc.ID) {
 					window := getGoWindow(self)
@@ -865,11 +880,27 @@ func registerGLFWClasses() error {
 					window.inputWindowDamage()
 				},
 			},
-			// Drag and drop.
+			// Drag and drop. A gunim change: the drag is reported as it
+			// enters and moves over the window, with its files, and as it
+			// leaves.
 			{
 				Cmd: objc.RegisterName("draggingEntered:"),
-				Fn: func(_ objc.ID, _ objc.SEL, _ objc.ID) uintptr {
-					return NSDragOperationGeneric
+				Fn: func(self objc.ID, _ objc.SEL, sender objc.ID) uintptr {
+					return draggedOver(self, sender)
+				},
+			},
+			{
+				Cmd: objc.RegisterName("draggingUpdated:"),
+				Fn: func(self objc.ID, _ objc.SEL, sender objc.ID) uintptr {
+					return draggedOver(self, sender)
+				},
+			},
+			{
+				Cmd: objc.RegisterName("draggingExited:"),
+				Fn: func(self objc.ID, _ objc.SEL, _ objc.ID) {
+					if window := getGoWindow(self); window != nil {
+						window.inputDragOver(0, 0, nil, false)
+					}
 				},
 			},
 			{
@@ -881,38 +912,10 @@ func registerGLFWClasses() error {
 					}
 
 					// Update the cursor position to the drop location.
-					contentRect := objc.Send[cocoa.NSRect](window.platform.view, sel_frame)
-					pos := objc.Send[cocoa.NSPoint](sender, objc.RegisterName("draggingLocation"))
-					window.inputCursorPos(pos.X, contentRect.Size.Height-pos.Y)
+					x, y := dragLocation(window, sender)
+					window.inputCursorPos(x, y)
 
-					pasteboard := sender.Send(sel_draggingPasteboard)
-					urlClass := objc.ID(class_NSURL)
-					classes := objc.ID(class_NSArray).Send(sel_arrayWithObject, urlClass)
-
-					// Filter to file URLs only.
-					nsYes := objc.ID(objc.GetClass("NSNumber")).Send(objc.RegisterName("numberWithBool:"), true)
-					options := objc.ID(objc.GetClass("NSDictionary")).Send(
-						objc.RegisterName("dictionaryWithObject:forKey:"),
-						uintptr(nsYes), uintptr(nsPasteboardURLReadingFileURLsOnlyKey))
-
-					urls := pasteboard.Send(sel_readObjectsForClasses_options, classes, uintptr(options))
-					var urlCount int
-					if urls != 0 {
-						urlCount = int(urls.Send(sel_count))
-					}
-
-					if urlCount > 0 {
-						paths := make([]string, urlCount)
-						for i := range urlCount {
-							url := urls.Send(sel_objectAtIndex, i)
-							// Use fileSystemRepresentation instead of path to handle
-							// HFS+ Unicode normalization correctly.
-							fsRep := url.Send(objc.RegisterName("fileSystemRepresentation"))
-							if fsRep != 0 {
-								paths[i] = goStringFromCString(uintptr(fsRep))
-							}
-						}
-
+					if paths := draggedPaths(sender); len(paths) > 0 {
 						window.inputDrop(paths)
 					}
 
@@ -2153,4 +2156,54 @@ func goStringFromCString(ptr uintptr) string {
 		n++
 	}
 	return string(unsafe.Slice(p, n))
+}
+
+// draggedOver reports a drag over the content view self, and answers
+// that a drop would copy.
+//
+// This is a gunim change.
+func draggedOver(self, sender objc.ID) uintptr {
+	window := getGoWindow(self)
+	if window == nil {
+		return NSDragOperationGeneric
+	}
+	x, y := dragLocation(window, sender)
+	window.inputDragOver(x, y, draggedPaths(sender), true)
+	return NSDragOperationGeneric
+}
+
+// dragLocation returns where a drag is, in the window's content area.
+func dragLocation(window *Window, sender objc.ID) (x, y float64) {
+	contentRect := objc.Send[cocoa.NSRect](window.platform.view, sel_frame)
+	pos := objc.Send[cocoa.NSPoint](sender, objc.RegisterName("draggingLocation"))
+	return pos.X, contentRect.Size.Height - pos.Y
+}
+
+// draggedPaths returns the files a drag carries.
+func draggedPaths(sender objc.ID) []string {
+	pasteboard := sender.Send(sel_draggingPasteboard)
+	urlClass := objc.ID(class_NSURL)
+	classes := objc.ID(class_NSArray).Send(sel_arrayWithObject, urlClass)
+
+	// Filter to file URLs only.
+	nsYes := objc.ID(objc.GetClass("NSNumber")).Send(objc.RegisterName("numberWithBool:"), true)
+	options := objc.ID(objc.GetClass("NSDictionary")).Send(
+		objc.RegisterName("dictionaryWithObject:forKey:"),
+		uintptr(nsYes), uintptr(nsPasteboardURLReadingFileURLsOnlyKey))
+
+	urls := pasteboard.Send(sel_readObjectsForClasses_options, classes, uintptr(options))
+	var urlCount int
+	if urls != 0 {
+		urlCount = int(urls.Send(sel_count))
+	}
+	paths := make([]string, 0, urlCount)
+	for i := range urlCount {
+		url := urls.Send(sel_objectAtIndex, i)
+		// Use fileSystemRepresentation instead of path to handle
+		// HFS+ Unicode normalization correctly.
+		if fsRep := url.Send(objc.RegisterName("fileSystemRepresentation")); fsRep != 0 {
+			paths = append(paths, goStringFromCString(uintptr(fsRep)))
+		}
+	}
+	return paths
 }

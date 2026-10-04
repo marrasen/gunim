@@ -121,18 +121,21 @@ const (
 	_KeymapNotify     = 11
 	_Expose           = 12
 	_VisibilityNotify = 15
-	_DestroyNotify    = 17
-	_UnmapNotify      = 18
-	_MapNotify        = 19
-	_ReparentNotify   = 21
-	_ConfigureNotify  = 22
-	_PropertyNotify   = 28
-	_SelectionClear   = 29
-	_SelectionRequest = 30
-	_SelectionNotify  = 31
-	_ClientMessage    = 33
-	_MappingNotify    = 34
-	_GenericEvent     = 35
+
+	// A gunim change: the state a VisibilityNotify says.
+	_VisibilityFullyObscured = 2
+	_DestroyNotify           = 17
+	_UnmapNotify             = 18
+	_MapNotify               = 19
+	_ReparentNotify          = 21
+	_ConfigureNotify         = 22
+	_PropertyNotify          = 28
+	_SelectionClear          = 29
+	_SelectionRequest        = 30
+	_SelectionNotify         = 31
+	_ClientMessage           = 33
+	_MappingNotify           = 34
+	_GenericEvent            = 35
 
 	_NoEventMask              = 0
 	_KeyPressMask             = 1 << 0

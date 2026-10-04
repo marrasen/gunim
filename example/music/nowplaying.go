@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"image/color"
 	"math"
 	"time"
@@ -18,16 +19,18 @@ import (
 // the music's spectrum; its title; the seek bar; and the buttons.
 type nowPlaying struct {
 	root                              *playerRoot
+	drop                              *dropArea
 	d                                 *deck
 	record                            *record
 	titles                            *titles
 	seek                              *seekBar
 	shuffle, back, play, next, repeat *iconButton
 	volume                            *volumeBar
+	gain                              *gainPill
 }
 
 func newNowPlaying(r *playerRoot, d *deck) *nowPlaying {
-	n := &nowPlaying{root: r, d: d}
+	n := &nowPlaying{root: r, d: d, drop: newDropArea()}
 	n.record = newRecord(r.meter)
 	n.titles = newTitles()
 	n.seek = newSeekBar(n)
@@ -39,6 +42,7 @@ func newNowPlaying(r *playerRoot, d *deck) *nowPlaying {
 	n.next = newIconButton(icon.SkipForward, 48, send(Skip{}))
 	n.repeat = newIconButton(icon.Repeat, 40, send(CycleRepeat{}))
 	n.volume = newVolumeBar(n)
+	n.gain = newGainPill()
 	return n
 }
 
@@ -63,11 +67,13 @@ func (n *nowPlaying) show(was, s Player, t Track) {
 		b.accent.Animate(t.Accent, anim.Spring{Response: 0.8, Damping: 1})
 	}
 	n.volume.show(s.Volume, t.Accent)
+	n.volume.showGain(s, t)
+	n.gain.show(s.GainMode, t.Accent)
 }
 
 // Children implements [gunim.Composite].
 func (n *nowPlaying) Children() []gunim.Node {
-	return []gunim.Node{n.record, n.titles, n.seek, n.shuffle, n.back, n.play, n.next, n.repeat, n.volume}
+	return []gunim.Node{n.record, n.titles, n.seek, n.shuffle, n.back, n.play, n.next, n.repeat, n.volume, n.gain}
 }
 
 // Layout implements [gunim.Node]: everything in a column, centred, the
@@ -106,15 +112,33 @@ func (n *nowPlaying) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Child
 		k.Place(geom.Pt(cx+spread[i]-s/2, y+(buttonsH-s)/2))
 	}
 	y += buttonsH + gap
-	place(8, min(wide, 260), volumeH)
+	// The volume, and beside it how loudness gain evens tracks out.
+	volW := min(wide-pillW-10, 240)
+	left := cx - (volW+10+pillW)/2
+	kids.At(8).Layout(gunim.Tight(geom.Sz(volW, volumeH)))
+	kids.At(8).Place(geom.Pt(left, y))
+	kids.At(9).Layout(gunim.Tight(geom.Sz(pillW, 28)))
+	kids.At(9).Place(geom.Pt(left+volW+10, y+(volumeH-28)/2))
 	return size
 }
 
-// Paint implements [gunim.Node].
-func (n *nowPlaying) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim.Children) {
+// Paint implements [gunim.Node]: and, over it all, the frame of a drag
+// over the track playing.
+func (n *nowPlaying) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.Children) {
 	for k := range kids.All {
 		k.Paint(p)
 	}
+	n.drop.paint(p, f, box, n.root.bg.accent.Value())
+}
+
+// Step implements [gunim.Animator].
+func (n *nowPlaying) Step(dt time.Duration) bool { return n.drop.Step(dt) }
+
+// Handle implements [gunim.Handler]: files and tracks dragged over the
+// track playing go on Up next.
+func (n *nowPlaying) Handle(e input.Event, u *gunim.UI) bool {
+	n.drop.playing = n.root.state.Current != 0
+	return n.drop.handle(n, e, u)
 }
 
 // ringScale is how much larger than the record its spectrum ring
@@ -577,6 +601,10 @@ type iconButton struct {
 	accent                   *anim.Color
 	held                     bool
 	size                     geom.Size
+	// dwell, when set, runs as a drag rests on the button, as a folder
+	// springs open; stopDwell stops the wait.
+	dwell     func(*gunim.UI)
+	stopDwell func()
 }
 
 func newIconButton(ic *icon.Icon, _ float32, press func(*gunim.UI)) *iconButton {
@@ -634,6 +662,28 @@ func (b *iconButton) Handle(e input.Event, u *gunim.UI) bool {
 			u.Cue(gunim.CuePress, b)
 			b.press(u)
 		}
+	case input.DragOver:
+		if b.dwell == nil {
+			return false
+		}
+		if b.stopDwell == nil {
+			b.hover.Animate(1, anim.Snappy)
+			b.down.Animate(1, anim.Tween{Duration: dwell})
+			b.stopDwell = u.After(dwell, func(u *gunim.UI) {
+				b.stopDwell = nil
+				b.hover.Animate(0, anim.Gentle)
+				b.down.Animate(0, anim.Spring{Response: 0.4, Damping: 0.45})
+				u.Cue(gunim.CuePress, b)
+				b.dwell(u)
+			})
+		}
+	case input.DragLeave:
+		if b.stopDwell != nil {
+			b.stopDwell()
+			b.stopDwell = nil
+		}
+		b.hover.Animate(0, anim.Gentle)
+		b.down.Animate(0, anim.Gentle)
 	default:
 		return false
 	}
@@ -695,6 +745,16 @@ type volumeBar struct {
 	anim.Group
 	n      *nowPlaying
 	volume float32
+	// gain is the loudness gain of the track playing, in decibels, by
+	// what it follows; gainOn shows it as the pointer comes over the
+	// bar, and words says what it is.
+	gain   float32
+	by     GainSource
+	gainOn *anim.Float
+	words  [2]string
+	// boost opens the stretch past full at the bar's end, while
+	// loudness gain is on.
+	boost *anim.Float
 	// before is the volume before a mute, for the speaker to bring back.
 	before float32
 	shown  *anim.Float
@@ -705,8 +765,9 @@ type volumeBar struct {
 }
 
 func newVolumeBar(n *nowPlaying) *volumeBar {
-	v := &volumeBar{n: n, shown: anim.NewFloat(0.8), hover: anim.NewFloat(0), accent: anim.NewColor(neutral), before: 0.8}
-	v.Add(v.shown, v.hover, v.accent)
+	v := &volumeBar{n: n, shown: anim.NewFloat(0.8), hover: anim.NewFloat(0), accent: anim.NewColor(neutral), before: 0.8,
+		gainOn: anim.NewFloat(0), boost: anim.NewFloat(0)}
+	v.Add(v.shown, v.hover, v.accent, v.gainOn, v.boost)
 	return v
 }
 
@@ -727,13 +788,15 @@ func (v *volumeBar) DragsTouch() bool { return true }
 // Handle implements [gunim.Handler].
 func (v *volumeBar) Handle(e input.Event, u *gunim.UI) bool {
 	x0, x1 := v.track()
-	at := func(p geom.Point) float32 { return min(max((p.X-x0)/(x1-x0), 0), 1) }
+	at := func(p geom.Point) float32 { return v.volumeAt(min(max((p.X-x0)/(x1-x0), 0), 1)) }
 	switch e := e.(type) {
 	case input.PointerEnter:
 		v.hover.Animate(1, anim.Snappy)
+		v.gainOn.Animate(1, anim.Spring{Response: 0.45, Damping: 0.8})
 	case input.PointerLeave:
 		if !v.held {
 			v.hover.Animate(0, anim.Gentle)
+			v.gainOn.Animate(0, anim.Gentle)
 		}
 	case input.PointerDown:
 		if e.Button != input.ButtonPrimary {
@@ -766,6 +829,7 @@ func (v *volumeBar) Handle(e input.Event, u *gunim.UI) bool {
 		v.held = false
 		if e.Pos.Y < 0 || e.Pos.Y > v.size.H {
 			v.hover.Animate(0, anim.Gentle)
+			v.gainOn.Animate(0, anim.Gentle)
 		}
 	default:
 		return false
@@ -794,9 +858,109 @@ func (v *volumeBar) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ guni
 	widget.PaintIcon(p, f.Theme, ic, geom.Rc(4, mid-10, 20, 20), faded(ink, 0.7))
 	x0, x1 := v.track()
 	h := 4 + 2*v.hover.Value()
+	accent := v.accent.Value()
 	p.RRect(geom.Rc(x0, mid-h/2, x1-x0, h), h/2, paint.Solid(faded(ink, 0.15)))
-	p.RRect(geom.Rc(x0, mid-h/2, (x1-x0)*vol, h), h/2, paint.Solid(v.accent.Value()))
+	full := x0 + (x1-x0)*v.full()
+	kx := x0 + (x1-x0)*v.along(vol)
+	if b := min(max(v.boost.Value(), 0), 1); b > 0.01 {
+		// Past full: a warmer stretch, marked off where full is, as the
+		// loudest tracks reach the limiter there.
+		p.RRect(geom.Rc(full, mid-h/2, x1-full, h), h/2, paint.Solid(faded(hot, 0.18*b)))
+		p.RRect(geom.Rc(full-0.5, mid-h/2-4, 1.5, h+8), 0.75, paint.Solid(faded(ink, 0.45*b)))
+	}
+	p.RRect(geom.Rc(x0, mid-h/2, min(kx, full)-x0, h), h/2, paint.Solid(accent))
+	if kx > full {
+		p.RRect(geom.Rc(full-h/2, mid-h/2, kx-full+h/2, h), h/2, paint.Solid(mix(accent, hot, 0.6)))
+	}
 	k := 5 + 3*v.hover.Value()
-	kx := x0 + (x1-x0)*vol
+	v.paintGain(p, x0, x1, mid, kx, h)
 	p.RRect(geom.Rc(kx-k, mid-k, 2*k, 2*k), k, paint.Solid(ink))
+}
+
+// full is how far along the bar full volume lies: at its end, or,
+// while loudness gain is on, three quarters along, the rest a stretch
+// past full.
+func (v *volumeBar) full() float32 { return 1 - 0.25*min(max(v.boost.Value(), 0), 1) }
+
+// along returns how far along the bar volume vol lies: in proportion up
+// to full, and past it in decibels.
+func (v *volumeBar) along(vol float32) float32 {
+	f := v.full()
+	if vol <= 1 || f > 0.999 {
+		return min(vol, 1) * f
+	}
+	return f + (1-f)*min(float32(dB(float64(vol)))/boostDB, 1)
+}
+
+// volumeAt returns the volume at u along the bar.
+func (v *volumeBar) volumeAt(u float32) float32 {
+	f := v.full()
+	if u <= f || f > 0.999 {
+		return u / f
+	}
+	return float32(math.Pow(10, float64((u-f)/(1-f)*boostDB)/20))
+}
+
+// level says how loud tracks play at the volume, as gain brings them
+// to targetLUFS: "plays at -14.0 LUFS".
+func (v *volumeBar) level() string {
+	if v.volume <= 0 {
+		return "muted"
+	}
+	return fmt.Sprintf("plays at %.1f LUFS", targetLUFS+dB(float64(v.volume)))
+}
+
+// showGain takes the gain of the track playing, and says what it is.
+func (v *volumeBar) showGain(s Player, t Track) {
+	v.gain, v.by = s.Gain, s.GainBy
+	v.boost.Animate(map[bool]float32{false: 0, true: 1}[s.GainMode != GainOff], anim.Spring{Response: 0.4, Damping: 0.85})
+	switch s.GainBy {
+	case GainByTrack:
+		v.words = [2]string{fmt.Sprintf("%+.1f dB track gain", s.Gain),
+			fmt.Sprintf("%.1f LUFS, %s", t.LUFS, v.level())}
+	case GainByAlbum:
+		v.words = [2]string{fmt.Sprintf("%+.1f dB album gain", s.Gain),
+			fmt.Sprintf("album %.1f LUFS, %s", s.AlbumLUFS, v.level())}
+	case GainMeasuring:
+		v.words = [2]string{"Measuring loudness…", ""}
+	case GainNone:
+		v.words = [2]string{}
+	}
+}
+
+// paintGain shows, as the pointer comes over the bar, where the
+// loudness gain takes the volume: a lighter stretch from the knob to
+// where the track plays, ringed there, and in words under the bar.
+// A gain past full scale points on past the bar's end.
+func (v *volumeBar) paintGain(p *paint.Painter, x0, x1, mid, kx, h float32) {
+	on := min(max(v.gainOn.Value(), 0), 1.2)
+	if on < 0.01 || v.words[0] == "" {
+		return
+	}
+	accent := v.accent.Value()
+	if v.by == GainByTrack || v.by == GainByAlbum {
+		eff := v.shown.Value() * float32(math.Pow(10, float64(v.gain)/20))
+		// The stretch grows out of the knob as it shows.
+		ex := kx + (x0+(x1-x0)*v.along(min(eff, maxBoost))-kx)*min(on, 1)
+		lo, hi := min(kx, ex), max(kx, ex)
+		p.RRect(geom.Rc(lo, mid-h/2-1, hi-lo, h+2), (h+2)/2, paint.Solid(faded(mix(accent, ink, 0.5), 0.55*on)))
+		r := float32(6)
+		p.RRectStroke(geom.Rc(ex-r, mid-r, 2*r, 2*r), r, paint.Solid(color.NRGBA{}), paint.Stroke{Width: 2, Color: faded(accent, on)})
+		if eff > maxBoost {
+			// Past the bar's end: a chevron past it.
+			for i := range 2 {
+				x := x1 + 6 + float32(i)*5
+				segment(p, geom.Pt(x, mid-4), geom.Pt(x+3, mid), 1.5, faded(accent, on))
+				segment(p, geom.Pt(x+3, mid), geom.Pt(x, mid+4), 1.5, faded(accent, on))
+			}
+		}
+	}
+	// The words, under the bar, rising into place.
+	y := mid + 10 + 6*(1-min(on, 1))
+	run := shaped(v.words[0], 11, true)
+	run.Paint(p, geom.Pt((x0+x1)/2-run.Advance/2, y), faded(ink, 0.85*min(on, 1)))
+	if v.words[1] != "" {
+		run2 := shaped(v.words[1], 10, false)
+		run2.Paint(p, geom.Pt((x0+x1)/2-run2.Advance/2, y+14), faded(ink, 0.5*min(on, 1)))
+	}
 }

@@ -78,13 +78,49 @@ type NowPlaying struct {
 
 // A NowPlayer is a [Driver] that shows what an application plays in the
 // system's media controls, as a phone's lock screen, its quick settings
-// and its notifications do, and keeps the application running while it
-// plays unseen. The controls' buttons arrive at the application's main
+// and its notifications do, and a desktop's media panel, and on a phone
+// keeps the application running while it plays unseen. The controls' buttons arrive at the application's main
 // window as the media keys of package input, and a move along the
 // controls' bar as [input.MediaSeek]. SetNowPlaying with nil takes the
 // controls away.
 type NowPlayer interface {
 	SetNowPlaying(np *NowPlaying) error
+}
+
+// Permission is something the user grants an application, where the
+// system has the user grant it, as a phone's does.
+type Permission int
+
+// The permissions.
+const (
+	// PermissionMusic reads the user's music and other sound files.
+	PermissionMusic Permission = iota + 1
+)
+
+// A Permitter is a [Driver] whose system has the user grant
+// permissions. Permitted reports whether p is granted. Ask asks the
+// user for p, where it is not granted and the user has not refused it
+// for good, and blocks until they answer; it returns whether p is
+// granted. Ask is called from a goroutine of the application's, never
+// the main one.
+type Permitter interface {
+	Permitted(p Permission) bool
+	Ask(p Permission) bool
+}
+
+// UserFolder is a kind of folder the user keeps their things in.
+type UserFolder int
+
+// The user's folders.
+const (
+	// FolderMusic is where the user keeps their music.
+	FolderMusic UserFolder = iota + 1
+)
+
+// A FolderFinder is a [Driver] that says where the user keeps things.
+// UserFolder returns the folder of kind f, or "" where there is none.
+type FolderFinder interface {
+	UserFolder(f UserFolder) string
 }
 
 // A SafeAreaer is a [Window] the system draws over in part, as a
@@ -163,6 +199,30 @@ type WindowFocus struct{ Focused bool }
 // be seen, or can be again: minimized and restored on a desktop, or its
 // application sent to the background and brought back on a phone.
 type WindowShown struct{ Shown bool }
+
+// WindowCovered is sent on [Window.Input] as the window goes out of
+// sight while it stays open, or comes back: covered whole by other
+// windows, on another virtual desktop or workspace, or on a screen that
+// is off, asleep or locked. The window draws nothing while covered, and
+// the application goes on as before, so music plays on under other
+// windows; a window put away, minimized, is [WindowShown]'s.
+type WindowCovered struct{ Covered bool }
+
+// FilesOver is sent on [Window.Input] each time files from another
+// program, such as a file manager, move while dragged over the window:
+// at Pos, in logical pixels, with their Paths once the system has told
+// them, which may be a moment after the drag arrives. Mods are the
+// modifier keys held. FilesLeft is sent as the drag leaves with no
+// drop; a drop arrives as an [input.Drop] with its Paths.
+type FilesOver struct {
+	Pos   geom.Point
+	Paths []string
+	Mods  input.Mods
+}
+
+// FilesLeft is sent on [Window.Input] as files dragged over the window
+// leave it with no drop.
+type FilesLeft struct{}
 
 // A Positioner is a [Window] that says where its content sits on the
 // screen: the top-left corner of what it draws, in device pixels, so a

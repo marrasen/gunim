@@ -107,6 +107,11 @@ type Window struct {
 	edge   float32
 	// covered says the window is cloaked, which the drawn shadow follows. It is used on the main thread.
 	covered bool
+	// hiddenBy says the system reports the window out of sight while it
+	// is open, covered by other windows or on another desktop, and
+	// unseen what the window was told last, with the screen's state.
+	// They are used on the main thread.
+	hiddenBy, unseen bool
 	// uncovered puts the window on the screen once; see uncover.
 	uncovered sync.Once
 	// opened is when the window was made, for GUNIM_DEBUG_WINDOW.
@@ -431,6 +436,9 @@ func (w *Window) shutdown() {
 	w.stopRender()
 	<-w.done
 	delete(w.d.windows, w.gw)
+	if w.d.lastUsed == w {
+		w.d.lastUsed = nil
+	}
 	_ = w.gw.Destroy()
 	if w.ctx != nil {
 		_ = w.ctx.Destroy()
@@ -833,12 +841,21 @@ func (w *Window) install() {
 		w.in.Push(driver.WindowMaximized{Maximized: maximized})
 	})
 	_, _ = gw.SetRefreshCallback(func(*glfw.Window) { w.in.Push(driver.Redraw{}) })
+	_, _ = gw.SetCoveredCallback(func(_ *glfw.Window, covered bool) {
+		w.hiddenBy = covered
+		w.tellUnseen()
+	})
 	_, _ = gw.SetIconifyCallback(func(_ *glfw.Window, iconified bool) {
 		w.in.Push(driver.WindowShown{Shown: !iconified})
 	})
 	_, _ = gw.SetFocusCallback(func(_ *glfw.Window, focused bool) {
 		w.focused.Store(focused)
 		if focused {
+			if w.parent == nil {
+				// The system's media controls speak to the window used
+				// last.
+				w.d.lastUsed = w
+			}
 			// The window hears keys itself again.
 			w.behind = false
 			// A modifier let go while another window had the keyboard
@@ -911,6 +928,17 @@ func (w *Window) install() {
 	_, _ = gw.SetDropCallback(func(gw *glfw.Window, names []string) {
 		// GLFW moves the cursor to where the files were let go first.
 		w.in.Push(input.Drop{Pos: w.cursor, Paths: names, Mods: modsOf(gw.HeldModifiers()), Time: time.Now()})
+	})
+	_, _ = gw.SetDragOverCallback(func(gw *glfw.Window, x, y float64, paths []string, over bool) {
+		if !over {
+			// The pointer went with the drag, and crossing the window's
+			// edge during a drag tells the window nothing, so it hears
+			// here that the pointer left.
+			w.in.Push(driver.FilesLeft{})
+			w.in.Push(input.PointerLeave{Time: time.Now()})
+			return
+		}
+		w.in.Push(driver.FilesOver{Pos: w.logical(x, y), Paths: paths, Mods: modsOf(gw.HeldModifiers())})
 	})
 	_, _ = gw.SetScrollCallback(func(gw *glfw.Window, x, y float64) {
 		// Asked of the system, as a wheel turns with no key event to

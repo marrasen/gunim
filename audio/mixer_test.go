@@ -1,6 +1,7 @@
 package audio
 
 import (
+	"io"
 	"math"
 	"testing"
 	"time"
@@ -290,5 +291,76 @@ func TestManySoundsAtOnceAreLimitedRatherThanClipped(t *testing.T) {
 	}
 	if peak < 0.48 {
 		t.Errorf("a quarter second after a loud sound, a half-scale sine peaks at %.2f, want its gain back", peak)
+	}
+}
+
+// level is a source of n frames all at v.
+type level struct {
+	v    float32
+	n, i int64
+}
+
+func (s *level) Read(dst []float32) (int, error) {
+	k := min(int64(len(dst)/2), s.n-s.i)
+	for j := range k {
+		dst[2*j], dst[2*j+1] = s.v, s.v
+	}
+	s.i += k
+	if s.i >= s.n {
+		return int(k), io.EOF
+	}
+	return int(k), nil
+}
+
+func (s *level) SeekFrame(f int64) error { s.i = f; return nil }
+func (s *level) Len() int64              { return s.n }
+
+func TestAVoiceTurnsToTheNextSourceWithoutAGap(t *testing.T) {
+	m := NewMixer()
+	v := m.Play(&level{v: 0.5, n: 1000}, Options{})
+	v.Then(&level{v: 0.25, n: 1000})
+	out := make([]float32, 2*1500)
+	m.Mix(out)
+	for i := range 1500 {
+		want := float32(0.5)
+		if i >= 1000 {
+			want = 0.25
+		}
+		if out[2*i] != want {
+			t.Fatalf("frame %d is %v, want %v: the second source ran on from the first's last frame", i, out[2*i], want)
+		}
+	}
+	select {
+	case <-v.Turned():
+	default:
+		t.Fatal("the turn went unheard")
+	}
+	if p := v.Position(); p != Duration(500) {
+		t.Fatalf("500 frames into the second source, the voice is at %v, want %v", p, Duration(500))
+	}
+	if l := v.Len(); l != Duration(1000) {
+		t.Fatalf("the voice's length is %v, want the second source's, %v", l, Duration(1000))
+	}
+	m.Mix(out)
+	select {
+	case <-v.Done():
+	default:
+		t.Fatal("the voice played on after its last source ended")
+	}
+}
+
+func TestAVoiceIsHeardAtTheTurnOnlyOnceTheSpeakersReachIt(t *testing.T) {
+	m := NewMixer()
+	m.SetLatency(func() int64 { return 300 })
+	v := m.Play(&level{v: 0.5, n: 1000}, Options{})
+	v.Then(&level{v: 0.25, n: 1000})
+	m.Mix(make([]float32, 2*1100))
+	// 1100 mixed, 800 heard: the first source's end, still.
+	if p := v.Position(); p != 0 {
+		t.Fatalf("the speakers still play the first source, and the voice says %v into the second, want 0", p)
+	}
+	m.Mix(make([]float32, 2*400))
+	if p := v.Position(); p != Duration(200) {
+		t.Fatalf("200 frames of the second heard, the voice says %v", p)
 	}
 }

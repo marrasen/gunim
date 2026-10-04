@@ -12,6 +12,7 @@
 
 static JavaVM *vm;
 static jclass nativeClass;
+static jmethodID midPermitted, midAsk, midUserFolder, midChooseFolder;
 static jmethodID midNowPlaying, midShowKeyboard, midCaret, midBuzz, midTextState, midClearTextState, midGetClipboard, midSetClipboard, midFinish;
 
 // JNI_OnLoad runs on the thread that loads the library, which has the
@@ -37,6 +38,10 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *v, void *reserved) {
 	midGetClipboard = (*env)->GetStaticMethodID(env, c, "getClipboard", "()Ljava/lang/String;");
 	midSetClipboard = (*env)->GetStaticMethodID(env, c, "setClipboard", "(Ljava/lang/String;)V");
 	midFinish = (*env)->GetStaticMethodID(env, c, "finish", "()V");
+	midPermitted = (*env)->GetStaticMethodID(env, c, "permitted", "(I)Z");
+	midAsk = (*env)->GetStaticMethodID(env, c, "ask", "(II)V");
+	midUserFolder = (*env)->GetStaticMethodID(env, c, "userFolder", "(I)Ljava/lang/String;");
+	midChooseFolder = (*env)->GetStaticMethodID(env, c, "chooseFolder", "(I)V");
 	return JNI_VERSION_1_6;
 }
 
@@ -141,6 +146,59 @@ void gunim_set_clipboard(const uint16_t *s, int n) {
 	(*env)->CallStaticVoidMethod(env, nativeClass, midSetClipboard, js);
 	(*env)->DeleteLocalRef(env, js);
 	envPut(a);
+}
+
+int gunim_permitted(int p) {
+	int a;
+	JNIEnv *env = envGet(&a);
+	jboolean ok = (*env)->CallStaticBooleanMethod(env, nativeClass, midPermitted, p);
+	envPut(a);
+	return ok ? 1 : 0;
+}
+
+void gunim_ask(int p, int code) {
+	int a;
+	JNIEnv *env = envGet(&a);
+	(*env)->CallStaticVoidMethod(env, nativeClass, midAsk, p, code);
+	envPut(a);
+}
+
+JNIEXPORT void JNICALL Java_gunim_android_Native_answered(JNIEnv *env, jclass c, jint code, jboolean granted) {
+	goAnswered(code, granted ? 1 : 0);
+}
+
+void gunim_choose_folder(int code) {
+	int a;
+	JNIEnv *env = envGet(&a);
+	(*env)->CallStaticVoidMethod(env, nativeClass, midChooseFolder, code);
+	envPut(a);
+}
+
+JNIEXPORT void JNICALL Java_gunim_android_Native_chosen(JNIEnv *env, jclass c, jint code, jstring path) {
+	if (path == NULL) {
+		goChosen(code, NULL, 0);
+		return;
+	}
+	jsize n = (*env)->GetStringLength(env, path);
+	const jchar *s = (*env)->GetStringChars(env, path, NULL);
+	goChosen(code, (uint16_t *)s, n);
+	(*env)->ReleaseStringChars(env, path, s);
+}
+
+uint16_t *gunim_user_folder(int f, int *n) {
+	int a;
+	JNIEnv *env = envGet(&a);
+	jstring s = (jstring)(*env)->CallStaticObjectMethod(env, nativeClass, midUserFolder, f);
+	uint16_t *out = NULL;
+	*n = 0;
+	if (s != NULL) {
+		*n = (*env)->GetStringLength(env, s);
+		out = malloc((*n + 1) * sizeof(uint16_t));
+		(*env)->GetStringRegion(env, s, 0, *n, (jchar *)out);
+		(*env)->DeleteLocalRef(env, s);
+	}
+	envPut(a);
+	return out;
 }
 
 void gunim_buzz(void) {

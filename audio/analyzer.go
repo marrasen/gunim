@@ -20,6 +20,9 @@ type Analyzer struct {
 	// Floor is the quietest level a band shows, in decibels: a band
 	// that loud or quieter is at 0. It is -70 by default.
 	Floor float32
+	// spec holds Spectrum's window, samples and transform, made as it
+	// is first asked for.
+	spec *spectrum
 	// Tilt lifts each band by this many decibels for each octave it
 	// lies above 40 Hz. Music has less in its higher pitches, so a
 	// tilt of 3 to 4.5 shows them as tall as the bass; zero, the
@@ -95,6 +98,79 @@ func (a *Analyzer) Bands(out []float32) (level float32) {
 	return a.scale(rms * math.Sqrt2)
 }
 
+// spectrumSize is how many frames Spectrum looks at: 170 ms, so its
+// bins lie 5.9 Hz apart, fine enough to tell 30 Hz from 40.
+const spectrumSize = 8192
+
+type spectrum struct {
+	window, in []float32
+	fft        []complex128
+	mag        []float64
+}
+
+// Spectrum fills heard and before, where not nil, with how loud the
+// sound is at each of freqs, in hertz, rising: in decibels, 0 for a
+// full-scale sine. heard is the sound as it is heard, and before as it
+// was before the voices' inserts, such as an [EQ]; with no insert
+// playing they are the same. Each frequency stands for the stretch
+// between it and its neighbours, and reads the loudest bin there.
+func (a *Analyzer) Spectrum(freqs, heard, before []float32) {
+	if a.spec == nil {
+		sp := &spectrum{window: make([]float32, spectrumSize), in: make([]float32, spectrumSize),
+			fft: make([]complex128, spectrumSize), mag: make([]float64, spectrumSize/2)}
+		for i := range sp.window {
+			sp.window[i] = float32(0.5 - 0.5*math.Cos(2*math.Pi*float64(i)/float64(spectrumSize-1)))
+		}
+		a.spec = sp
+	}
+	if heard != nil {
+		a.spectrumOf(freqs, heard, false)
+	}
+	if before != nil {
+		a.spectrumOf(freqs, before, true)
+	}
+}
+
+func (a *Analyzer) spectrumOf(freqs, out []float32, before bool) {
+	sp := a.spec
+	a.m.recentOf(sp.in, before)
+	for i, s := range sp.in {
+		sp.fft[i] = complex(float64(s*sp.window[i]), 0)
+	}
+	fft(sp.fft)
+	ref := float64(spectrumSize) / 4
+	for k := range sp.mag {
+		sp.mag[k] = cmplx.Abs(sp.fft[k]) / ref
+	}
+	binHz := float64(SampleRate) / spectrumSize
+	for i, f := range freqs {
+		if i >= len(out) {
+			break
+		}
+		lo, hi := float64(f), float64(f)
+		if i > 0 {
+			lo = math.Sqrt(float64(f) * float64(freqs[i-1]))
+		}
+		if i+1 < len(freqs) {
+			hi = math.Sqrt(float64(f) * float64(freqs[i+1]))
+		}
+		k0, k1 := int(math.Ceil(lo/binHz)), int(math.Floor(hi/binHz))
+		var amp float64
+		if k1 < k0 {
+			// Narrower than a bin: read between the two bins about f.
+			x := float64(f) / binHz
+			k := min(int(x), len(sp.mag)-2)
+			t := x - float64(k)
+			amp = sp.mag[k]*(1-t) + sp.mag[k+1]*t
+		} else {
+			for k := max(k0, 0); k <= k1 && k < len(sp.mag); k++ {
+				amp = max(amp, sp.mag[k])
+			}
+		}
+		out[i] = float32(20 * math.Log10(max(amp, 1e-9)))
+	}
+}
+
 // scale maps an amplitude, 1 full scale, to 0 to 1 over the decibels
 // from Floor to 0.
 func (a *Analyzer) scale(amp float64) float32 {
@@ -111,9 +187,17 @@ func (a *Analyzer) scale(amp float64) float32 {
 func (a *Analyzer) Wave(out []float32) { a.m.recent(out[:min(len(out), historyFrames/2)]) }
 
 // recent fills out with the last len(out) frames heard, as mono.
-func (m *Mixer) recent(out []float32) {
+func (m *Mixer) recent(out []float32) { m.recentOf(out, false) }
+
+// recentOf fills out with the last len(out) frames heard, as mono: as
+// they were before the voices' inserts, with before.
+func (m *Mixer) recentOf(out []float32, before bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	history := m.history
+	if before && m.dryHistory != nil {
+		history = m.dryHistory
+	}
 	end := m.heardLocked()
 	start := end - int64(len(out))
 	for i := range out {
@@ -122,7 +206,7 @@ func (m *Mixer) recent(out []float32) {
 			out[i] = 0
 			continue
 		}
-		out[i] = m.history[f&(historyFrames-1)]
+		out[i] = history[f&(historyFrames-1)]
 	}
 }
 
