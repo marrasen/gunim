@@ -25,7 +25,14 @@ func keyOf(code int) input.Key {
 
 // keys maps the Android key codes that keyOf leaves to a table.
 var keys = map[int]input.Key{
-	4:   input.KeyEscape, // KEYCODE_BACK
+	4:   input.KeyEscape,         // KEYCODE_BACK
+	79:  input.KeyMediaPlayPause, // KEYCODE_HEADSETHOOK
+	85:  input.KeyMediaPlayPause,
+	86:  input.KeyMediaStop,
+	87:  input.KeyMediaNext,
+	88:  input.KeyMediaPrevious,
+	126: input.KeyMediaPlay,
+	127: input.KeyMediaPause,
 	111: input.KeyEscape,
 	66:  input.KeyEnter,
 	61:  input.KeyTab,

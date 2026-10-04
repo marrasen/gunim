@@ -64,6 +64,33 @@ func (u *UI) handleRaw(root *state, ev any) {
 			u.dismissFor(nil, nil)
 		}
 		return
+	case input.MediaSeek:
+		target := u.focus
+		if target == nil {
+			target = u.appRoot()
+		}
+		u.bubble(target, e)
+		return
+	case driver.WindowShown:
+		if root != u.root {
+			return
+		}
+		// A window no one sees draws nothing; shown again, it goes on
+		// from where its animations held.
+		u.w.hidden = !e.Shown
+		if e.Shown {
+			u.w.resumed, u.invalid = true, true
+		}
+		var ev input.Event = input.WindowShown{Time: time.Now()}
+		if !e.Shown {
+			ev = input.WindowHidden{Time: time.Now()}
+		}
+		target := u.focus
+		if target == nil {
+			target = u.appRoot()
+		}
+		u.bubble(target, ev)
+		return
 	case driver.WindowFocus:
 		if root != u.root {
 			return

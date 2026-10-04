@@ -1,0 +1,234 @@
+package gunim.android;
+
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.app.Service;
+import android.content.Context;
+import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.media.MediaMetadata;
+import android.media.session.MediaSession;
+import android.media.session.PlaybackState;
+import android.os.IBinder;
+
+/**
+ * GunimService shows what a gunim program plays in Android's media
+ * controls, through a media session, on the lock screen, in quick
+ * settings and in a media notification, and keeps the program running
+ * while it plays in the background, as a foreground service. A media
+ * notification needs no leave to notify. The controls' buttons go to Go
+ * as Native.media; Go hands it what plays through Native.nowPlaying.
+ */
+public class GunimService extends Service {
+	private static final String CHANNEL = "gunim.playing";
+	private static final int ID = 1;
+
+	// The notification's buttons, as the actions of the intents they
+	// send the service.
+	private static final String PLAY = "gunim.play", PAUSE = "gunim.pause",
+		NEXT = "gunim.next", PREVIOUS = "gunim.previous";
+
+	/** State is what plays, as Go last told. */
+	static final class State {
+		final boolean playing;
+		final String title, artist, album;
+		final long length, position;
+		final Bitmap art;
+
+		State(boolean playing, String title, String artist, String album, long length, long position, byte[] art) {
+			this.playing = playing;
+			this.title = title;
+			this.artist = artist;
+			this.album = album;
+			this.length = length;
+			this.position = position;
+			this.art = art != null ? BitmapFactory.decodeByteArray(art, 0, art.length) : null;
+		}
+	}
+
+	// state is what plays; running is the service while it runs.
+	private static State state;
+	private static GunimService running;
+
+	private MediaSession session;
+
+	/**
+	 * show shows st in the media controls, starting the service the
+	 * first time something plays, or takes the controls away for null.
+	 * It runs on the UI thread.
+	 */
+	static void show(Context app, State st) {
+		state = st;
+		if (app == null) {
+			return;
+		}
+		if (st == null) {
+			app.stopService(new Intent(app, GunimService.class));
+			return;
+		}
+		if (running != null) {
+			running.apply();
+			return;
+		}
+		if (st.playing) {
+			app.startForegroundService(new Intent(app, GunimService.class));
+		}
+	}
+
+	@Override
+	public void onCreate() {
+		super.onCreate();
+		session = new MediaSession(this, "gunim");
+		session.setCallback(new MediaSession.Callback() {
+			@Override
+			public void onPlay() {
+				Native.media(1, 0);
+			}
+
+			@Override
+			public void onPause() {
+				Native.media(2, 0);
+			}
+
+			@Override
+			public void onSkipToNext() {
+				Native.media(4, 0);
+			}
+
+			@Override
+			public void onSkipToPrevious() {
+				Native.media(5, 0);
+			}
+
+			@Override
+			public void onStop() {
+				Native.media(6, 0);
+			}
+
+			@Override
+			public void onSeekTo(long ms) {
+				Native.media(7, ms);
+			}
+		});
+		session.setActive(true);
+		running = this;
+	}
+
+	@Override
+	public IBinder onBind(Intent i) {
+		return null;
+	}
+
+	@Override
+	public int onStartCommand(Intent i, int flags, int startId) {
+		// A start must put the service in the foreground, a button's
+		// included; apply takes it out again while paused.
+		startForeground(ID, notification());
+		String a = i != null ? i.getAction() : null;
+		if (PLAY.equals(a)) {
+			Native.media(1, 0);
+		} else if (PAUSE.equals(a)) {
+			Native.media(2, 0);
+		} else if (NEXT.equals(a)) {
+			Native.media(4, 0);
+		} else if (PREVIOUS.equals(a)) {
+			Native.media(5, 0);
+		}
+		apply();
+		return START_NOT_STICKY;
+	}
+
+	@Override
+	public void onDestroy() {
+		if (running == this) {
+			running = null;
+		}
+		session.setActive(false);
+		session.release();
+		super.onDestroy();
+	}
+
+	/**
+	 * apply shows the state in the session and the notification: in the
+	 * foreground while it plays, and only shown while it is paused, so
+	 * Android may let the program go.
+	 */
+	private void apply() {
+		State st = state;
+		if (st == null) {
+			stopSelf();
+			return;
+		}
+		MediaMetadata.Builder m = new MediaMetadata.Builder()
+			.putString(MediaMetadata.METADATA_KEY_TITLE, st.title)
+			.putString(MediaMetadata.METADATA_KEY_ARTIST, st.artist)
+			.putString(MediaMetadata.METADATA_KEY_ALBUM, st.album);
+		if (st.length > 0) {
+			m.putLong(MediaMetadata.METADATA_KEY_DURATION, st.length);
+		}
+		if (st.art != null) {
+			m.putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, st.art);
+		}
+		session.setMetadata(m.build());
+		session.setPlaybackState(new PlaybackState.Builder()
+			.setActions(PlaybackState.ACTION_PLAY | PlaybackState.ACTION_PAUSE | PlaybackState.ACTION_PLAY_PAUSE
+				| PlaybackState.ACTION_SKIP_TO_NEXT | PlaybackState.ACTION_SKIP_TO_PREVIOUS
+				| PlaybackState.ACTION_SEEK_TO | PlaybackState.ACTION_STOP)
+			.setState(st.playing ? PlaybackState.STATE_PLAYING : PlaybackState.STATE_PAUSED, st.position,
+				st.playing ? 1f : 0f)
+			.build());
+		Notification n = notification();
+		if (st.playing) {
+			if (android.os.Build.VERSION.SDK_INT >= 29) {
+				startForeground(ID, n, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
+			} else {
+				startForeground(ID, n);
+			}
+		} else {
+			stopForeground(STOP_FOREGROUND_DETACH);
+			getSystemService(NotificationManager.class).notify(ID, n);
+		}
+	}
+
+	private Notification notification() {
+		NotificationManager nm = getSystemService(NotificationManager.class);
+		if (nm.getNotificationChannel(CHANNEL) == null) {
+			CharSequence name = getApplicationInfo().loadLabel(getPackageManager());
+			NotificationChannel c = new NotificationChannel(CHANNEL, name, NotificationManager.IMPORTANCE_LOW);
+			c.setShowBadge(false);
+			nm.createNotificationChannel(c);
+		}
+		State st = state;
+		boolean playing = st != null && st.playing;
+		Intent open = getPackageManager().getLaunchIntentForPackage(getPackageName());
+		Notification.Builder b = new Notification.Builder(this, CHANNEL)
+			.setSmallIcon(android.R.drawable.ic_media_play)
+			.setContentTitle(st != null ? st.title : "")
+			.setContentText(st != null ? st.artist : "")
+			.setContentIntent(PendingIntent.getActivity(this, 0, open,
+				PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT))
+			.setOngoing(playing)
+			.setVisibility(Notification.VISIBILITY_PUBLIC)
+			.setCategory(Notification.CATEGORY_TRANSPORT)
+			.addAction(action(android.R.drawable.ic_media_previous, "Previous", PREVIOUS))
+			.addAction(playing ? action(android.R.drawable.ic_media_pause, "Pause", PAUSE)
+				: action(android.R.drawable.ic_media_play, "Play", PLAY))
+			.addAction(action(android.R.drawable.ic_media_next, "Next", NEXT))
+			.setStyle(new Notification.MediaStyle()
+				.setMediaSession(session.getSessionToken())
+				.setShowActionsInCompactView(0, 1, 2));
+		if (st != null && st.art != null) {
+			b.setLargeIcon(st.art);
+		}
+		return b.build();
+	}
+
+	private Notification.Action action(int icon, String title, String what) {
+		Intent i = new Intent(this, GunimService.class).setAction(what);
+		PendingIntent p = PendingIntent.getForegroundService(this, what.hashCode(), i, PendingIntent.FLAG_IMMUTABLE);
+		return new Notification.Action.Builder(android.graphics.drawable.Icon.createWithResource(this, icon), title, p).build();
+	}
+}

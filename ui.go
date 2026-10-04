@@ -91,6 +91,26 @@ type App struct {
 	windows windows
 }
 
+// NowPlaying is what a media application plays; see [App.SetNowPlaying].
+type NowPlaying = driver.NowPlaying
+
+// SetNowPlaying shows what the application plays in the system's media
+// controls, where it has them, as a phone's lock screen and quick
+// settings, and keeps the application running while it plays unseen:
+// a phone would stop it otherwise. The controls' buttons arrive at the
+// main window as the media keys, [input.KeyMediaPlayPause] and the
+// rest, which the application handles as it would a keyboard's; a move
+// along their bar arrives as [input.MediaSeek]. Call it as what plays
+// changes: a track, playing or paused, a seek. nil takes the controls
+// away. Where there are no such controls, as on a desktop, it does
+// nothing.
+func (a *App) SetNowPlaying(np *NowPlaying) error {
+	if p, ok := a.drv.(driver.NowPlayer); ok {
+		return p.SetNowPlaying(np)
+	}
+	return nil
+}
+
 // Monitors lists the attached displays, so an application can put a
 // window on a chosen one.
 func (a *App) Monitors() []driver.Monitor { return a.drv.Monitors() }
@@ -330,6 +350,11 @@ type Window struct {
 	// drags from its other windows.
 	app    *App
 	dragIn chan dragMsg
+	// hidden says the window cannot be seen, minimized or its
+	// application in the background, so it draws no frames; resumed says
+	// it has just been shown again, so the next frame's delta is a
+	// refresh, not the time away.
+	hidden, resumed bool
 	// cues plays the window's cues, where set; else the app's do.
 	cues atomic.Pointer[cuePlayer]
 	// blends is whether the last popup's window blended with what is
@@ -771,7 +796,7 @@ func (w *Window) loop() {
 	}()
 
 	for {
-		if !w.inFlight && w.wants() {
+		if !w.inFlight && w.wants() && w.draws() {
 			w.draw()
 			continue
 		}
@@ -789,6 +814,14 @@ func (w *Window) wants() bool {
 	queued := len(w.pending)
 	w.inMu.Unlock()
 	return queued > 0 || w.ui.needsFrame()
+}
+
+// draws reports whether the window draws its frames: while it is
+// hidden it draws none, and its animations hold where they are, unless
+// it is closing, as a window leaving animates out, or a shot waits on a
+// frame.
+func (w *Window) draws() bool {
+	return !w.hidden || w.ui.goingAway || w.ui.shotsOwed.Load() > 0
 }
 
 // wait blocks until something happens, handles it, and reports whether
@@ -883,9 +916,10 @@ func (w *Window) draw() {
 	interval := refreshInterval(w.dw.RefreshRate())
 	due := nextVsync(w.shown, interval, time.Now())
 	delta := interval
-	if w.ui.animating && due.After(w.due) {
+	if w.ui.animating && due.After(w.due) && !w.resumed {
 		delta = due.Sub(w.due)
 	}
+	w.resumed = false
 	w.due = due
 	start := time.Now()
 	w.ui.frame(due, delta)
@@ -1870,6 +1904,9 @@ func (u *UI) frame(now time.Time, delta time.Duration) {
 	}
 	u.seq++
 	f := Frame{Now: now, Delta: delta, Scale: u.w.dw.Scale(), Theme: u.theme, seq: u.seq, u: u}
+	if sa, ok := u.w.dw.(driver.SafeAreaer); ok {
+		f.Safe = sa.SafeArea()
+	}
 
 	// 1. Advance every animated value by the real elapsed time, the
 	//    theme's included.

@@ -15,6 +15,8 @@ import android.view.Surface;
 public final class Native {
 	static GunimActivity activity;
 	static GunimView view;
+	// app is the application's context, which outlives any activity.
+	static Context app;
 
 	private static final Handler ui = new Handler(Looper.getMainLooper());
 
@@ -26,13 +28,22 @@ public final class Native {
 	static native void pinch(int action, float x0, float y0, float x1, float y1);
 	static native void key(boolean down, int code, int meta, int ch, int repeat);
 	static native void focus(boolean focused);
+	static native void shown(boolean shown);
 	static native void keyboard(int px);
+	static native void insets(int top, int right, int bottom, int left);
+	static native void media(int action, long position);
 	static native void edit(String with, int replaceStart, int replaceEnd, int selAnchor, int selCaret,
 		int compStart, int compEnd, long seq);
 	static native void text(String s);
 	static native void composing(String s, int selStart, int selEnd);
 
 	// Called from Go.
+
+	static void nowPlaying(boolean on, boolean playing, String title, String artist, String album,
+		long length, long position, byte[] art) {
+		GunimService.State st = on ? new GunimService.State(playing, title, artist, album, length, position, art) : null;
+		ui.post(() -> GunimService.show(app, st));
+	}
 
 	static void showKeyboard(boolean show) {
 		ui.post(() -> {

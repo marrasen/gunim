@@ -833,6 +833,9 @@ func (w *Window) install() {
 		w.in.Push(driver.WindowMaximized{Maximized: maximized})
 	})
 	_, _ = gw.SetRefreshCallback(func(*glfw.Window) { w.in.Push(driver.Redraw{}) })
+	_, _ = gw.SetIconifyCallback(func(_ *glfw.Window, iconified bool) {
+		w.in.Push(driver.WindowShown{Shown: !iconified})
+	})
 	_, _ = gw.SetFocusCallback(func(_ *glfw.Window, focused bool) {
 		w.focused.Store(focused)
 		if focused {

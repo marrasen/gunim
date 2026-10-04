@@ -14,6 +14,10 @@
 //	v := mix.Play(song, audio.Options{FadeIn: time.Second})
 //	v.SetVolume(0.5, anim.Spring{Response: 0.4, Damping: 1})
 //
+// Where the sounds playing add up past full scale, the mixer brings its
+// gain down for as long as they do, so many sounds at once grow loud
+// without clipping.
+//
 // A [Voice]'s volume and pan move with the motions of package anim,
 // stepped in time with the sound itself, so a fade is as smooth as an
 // animation on screen.

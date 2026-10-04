@@ -202,6 +202,26 @@ type WindowFocusLost struct{ Time time.Time }
 // goes to the focused node and bubbles, as a key does.
 type WindowFocusGained struct{ Time time.Time }
 
+// WindowHidden arrives when the window can no longer be seen: it was
+// minimized, or, on a phone, its application went to the background.
+// The window draws no frames meanwhile, so its animations hold where
+// they are; an application stops what else only matters while it is
+// seen, as a game's music. It goes to the focused node and bubbles, as
+// a key does.
+type WindowHidden struct{ Time time.Time }
+
+// WindowShown arrives when a hidden window can be seen again. It goes
+// to the focused node and bubbles, as a key does.
+type WindowShown struct{ Time time.Time }
+
+// MediaSeek arrives when the user moves what plays to At, in the media
+// controls a phone shows for an application playing, as on its lock
+// screen. It goes to the focused node and bubbles, as a key does.
+type MediaSeek struct {
+	At   time.Duration
+	Time time.Time
+}
+
 // DragOver arrives while something is dragged over a node: another
 // node's Data, dragged inside the application, from this window or
 // another. It bubbles like a pointer event. A node that returns true
@@ -286,6 +306,9 @@ func (DragAnswer) isEvent()   {}
 
 func (WindowFocusLost) isEvent()   {}
 func (WindowFocusGained) isEvent() {}
+func (WindowHidden) isEvent()      {}
+func (WindowShown) isEvent()       {}
+func (MediaSeek) isEvent()         {}
 
 // Button identifies a pointer button.
 type Button uint8
@@ -462,4 +485,14 @@ const (
 	KeyPrintScreen
 	KeyScrollLock
 	KeyNumLock
+
+	// The media keys: a keyboard's, a headset's or a phone's, and the
+	// buttons of the media controls a phone shows for an application
+	// playing, on its lock screen.
+	KeyMediaPlayPause
+	KeyMediaPlay
+	KeyMediaPause
+	KeyMediaStop
+	KeyMediaNext
+	KeyMediaPrevious
 )

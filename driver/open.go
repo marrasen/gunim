@@ -64,6 +64,40 @@ type TextBoxPlacer interface {
 	SetTextBox(r geom.Rect)
 }
 
+// NowPlaying is what a media application plays, for the system's media
+// controls.
+type NowPlaying struct {
+	Title, Artist, Album string
+	// Cover is the artwork, as PNG or JPEG, or nil.
+	Cover []byte
+	// Length is how long it lasts, zero where that is unknown, and
+	// Position how far it has played, as of now.
+	Length, Position time.Duration
+	Playing          bool
+}
+
+// A NowPlayer is a [Driver] that shows what an application plays in the
+// system's media controls, as a phone's lock screen, its quick settings
+// and its notifications do, and keeps the application running while it
+// plays unseen. The controls' buttons arrive at the application's main
+// window as the media keys of package input, and a move along the
+// controls' bar as [input.MediaSeek]. SetNowPlaying with nil takes the
+// controls away.
+type NowPlayer interface {
+	SetNowPlaying(np *NowPlaying) error
+}
+
+// A SafeAreaer is a [Window] the system draws over in part, as a
+// phone's status bar, navigation bar and camera cutout lie over an
+// application drawn to the screen's edges. SafeArea returns how far in
+// from each of the window's edges, in logical pixels, its content should
+// keep clear; its background still runs to the edges. A driver sends
+// [Redraw] as the area changes.
+type SafeAreaer interface {
+	Window
+	SafeArea() geom.Insets
+}
+
 // A Buzzer is a [Window] on a device that can buzz, as a phone does. The
 // engine calls Buzz as a finger held still becomes a long press.
 type Buzzer interface {
@@ -124,6 +158,11 @@ type Recycler interface {
 // WindowFocus is sent on [Window.Input] when the window gains or loses
 // the keyboard.
 type WindowFocus struct{ Focused bool }
+
+// WindowShown is sent on [Window.Input] when the window can no longer
+// be seen, or can be again: minimized and restored on a desktop, or its
+// application sent to the background and brought back on a phone.
+type WindowShown struct{ Shown bool }
 
 // A Positioner is a [Window] that says where its content sits on the
 // screen: the top-left corner of what it draws, in device pixels, so a

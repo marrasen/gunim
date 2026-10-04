@@ -247,3 +247,48 @@ func TestTheAnalyzerFindsAPitchInItsBand(t *testing.T) {
 		t.Errorf("a tilt of 3 dB an octave lifts 1 kHz by %v of the scale, want about %v", d, 14.0/70)
 	}
 }
+
+func TestManySoundsAtOnceAreLimitedRatherThanClipped(t *testing.T) {
+	m := NewMixer()
+	sine := make([]float32, 2*SampleRate)
+	for i := range SampleRate {
+		v := float32(0.8 * math.Sin(2*math.Pi*440*float64(i)/SampleRate))
+		sine[2*i], sine[2*i+1] = v, v
+	}
+	for range 4 {
+		m.Play(NewClip(sine).Source(), Options{})
+	}
+	out := mix(m, SampleRate/2)
+	flat := 0
+	for i := 2; i < len(out); i += 2 {
+		if v := math.Abs(float64(out[i])); v > 1 {
+			t.Fatalf("frame %d is %v, past full scale", i/2, v)
+		}
+		// A clipped wave holds still at the top.
+		if out[i] == out[i-2] && math.Abs(float64(out[i])) > 0.99 {
+			flat++
+		}
+	}
+	if flat > 0 {
+		t.Errorf("%d frames held flat at full scale, as clipping does", flat)
+	}
+	// Once the sounds end, the gain comes back.
+	m2 := NewMixer()
+	m2.Play(NewClip(sine[:2*4800]).Source(), Options{Volume: 4})
+	mix(m2, 4800)
+	quiet := make([]float32, 2*SampleRate/2)
+	for i := range SampleRate / 2 {
+		v := float32(0.5 * math.Sin(2*math.Pi*440*float64(i)/SampleRate))
+		quiet[2*i], quiet[2*i+1] = v, v
+	}
+	m2.Play(NewClip(quiet).Source(), Options{})
+	mix(m2, SampleRate/4)
+	got := mix(m2, 4800)
+	peak := 0.0
+	for _, v := range got {
+		peak = max(peak, math.Abs(float64(v)))
+	}
+	if peak < 0.48 {
+		t.Errorf("a quarter second after a loud sound, a half-scale sine peaks at %.2f, want its gain back", peak)
+	}
+}

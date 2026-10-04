@@ -74,6 +74,9 @@ type OffscreenWindow struct {
 	under color.NRGBA
 	// frame is the pretend frame of a window made chromeless.
 	frame *OffscreenFrame
+	// safe is the part of the window a pretend phone's bars lie over;
+	// see SetSafeArea.
+	safe geom.Insets
 
 	// radius, edge and blends are the shape the window says it shows; see
 	// SetOutline.
@@ -239,6 +242,22 @@ func (w *OffscreenWindow) Ops() []paint.Op {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.ops
+}
+
+// SetSafeArea has the window play one a phone's bars lie over, in from
+// its edges by in, from the next frame, for a test of what keeps clear
+// of them.
+func (w *OffscreenWindow) SetSafeArea(in geom.Insets) {
+	w.mu.Lock()
+	w.safe = in
+	w.mu.Unlock()
+}
+
+// SafeArea implements [SafeAreaer].
+func (w *OffscreenWindow) SafeArea() geom.Insets {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.safe
 }
 
 // Resize changes the window's size for the next frame.

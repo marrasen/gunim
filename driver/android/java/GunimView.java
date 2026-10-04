@@ -148,9 +148,9 @@ final class GunimView extends SurfaceView implements SurfaceHolder.Callback {
 	 * slide the windows with it. The activity leaves the view its full
 	 * size meanwhile.
 	 *
-	 * The window's decor view hears the insets: it keeps the view clear
-	 * of the system bars and passes nothing on, so the watch sits there
-	 * and lets the decor go on as before.
+	 * The window's decor view hears the insets, and passes nothing on,
+	 * so the watch sits there and lets the decor go on as before. It
+	 * tells of the system bars too, for watchInsets.
 	 */
 	@android.annotation.TargetApi(30)
 	void watchKeyboard(View decor) {
@@ -172,11 +172,50 @@ final class GunimView extends SurfaceView implements SurfaceHolder.Callback {
 	// covered is the keyboard's height over the view last reported.
 	private int covered = -1;
 
+	// safe is the system's bars' reach last reported, top, right,
+	// bottom and left.
+	private final int[] safe = {-1, -1, -1, -1};
+
+	/**
+	 * watchInsets tells Go how far in from each edge the system bars and
+	 * the camera's cutout reach over the view, which lies under them.
+	 * Before Android 11 it is the decor's own listener; from Android 11
+	 * watchKeyboard's listener tells both.
+	 */
+	@SuppressWarnings("deprecation")
+	void watchInsets(View decor) {
+		if (android.os.Build.VERSION.SDK_INT >= 30) {
+			return;
+		}
+		decor.setOnApplyWindowInsetsListener((v, insets) -> {
+			reportSafe(insets.getSystemWindowInsetTop(), insets.getSystemWindowInsetRight(),
+				insets.getSystemWindowInsetBottom(), insets.getSystemWindowInsetLeft());
+			return v.onApplyWindowInsets(insets);
+		});
+		decor.requestApplyInsets();
+	}
+
+	private void reportSafe(int top, int right, int bottom, int left) {
+		if (safe[0] == top && safe[1] == right && safe[2] == bottom && safe[3] == left) {
+			return;
+		}
+		safe[0] = top;
+		safe[1] = right;
+		safe[2] = bottom;
+		safe[3] = left;
+		Native.insets(top, right, bottom, left);
+	}
+
 	@android.annotation.TargetApi(30)
 	private void reportKeyboard(android.view.WindowInsets insets) {
 		int ime = insets.getInsets(android.view.WindowInsets.Type.ime()).bottom;
 		int nav = insets.getInsets(android.view.WindowInsets.Type.navigationBars()).bottom;
-		int px = Math.max(0, ime - nav);
+		android.graphics.Insets bars = insets.getInsets(
+			android.view.WindowInsets.Type.systemBars() | android.view.WindowInsets.Type.displayCutout());
+		reportSafe(bars.top, bars.right, bars.bottom, bars.left);
+		// The view runs to the screen's bottom, under the navigation bar,
+		// so the keyboard covers all of its own height.
+		int px = Math.max(0, ime);
 		GunimInput.debug("insets ime=" + ime + " nav=" + nav + " visible=" + insets.isVisible(android.view.WindowInsets.Type.ime()));
 		if (px != covered) {
 			covered = px;

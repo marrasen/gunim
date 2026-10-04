@@ -13,8 +13,11 @@ import (
 
 const (
 	// atlasSize is the glyph atlas's width and height in pixels. At
-	// 1024 it holds a few thousand glyphs at interface sizes.
-	atlasSize = 1024
+	// 2048 it holds a few thousand glyphs at interface sizes on a
+	// phone's screen of three device pixels to the logical one, and the
+	// masks a frame draws there, which at 1024 overflowed it every
+	// frame, to be made again each time.
+	atlasSize = 2048
 	// subpixel is how many horizontal shifts of a glyph the atlas
 	// keeps, so a glyph at any fractional x lands within a quarter
 	// pixel of where it belongs.

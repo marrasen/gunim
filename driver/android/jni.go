@@ -10,10 +10,12 @@ package android
 import "C"
 
 import (
+	"runtime"
 	"time"
 	"unicode/utf16"
 	"unsafe"
 
+	"github.com/marrasen/gunim/driver"
 	"github.com/marrasen/gunim/input"
 )
 
@@ -52,6 +54,14 @@ func goKey(down C.uchar, code, meta, ch, repeat C.int) {
 
 //export goKeyboard
 func goKeyboard(px C.int) { theDriver.keyboardCovers(int(px)) }
+
+//export goInsets
+func goInsets(top, right, bottom, left C.int) {
+	theDriver.insets(int(top), int(right), int(bottom), int(left))
+}
+
+//export goShown
+func goShown(shown C.uchar) { theDriver.shown(shown != 0) }
 
 //export goFocus
 func goFocus(focused C.uchar) { theDriver.windowFocus(focused != 0) }
@@ -156,6 +166,46 @@ func setClipboard(s string) {
 }
 
 func finish() { C.gunim_finish() }
+
+// utf16Of returns s as UTF-16, and a pointer to it for C, nil when empty.
+func utf16Of(s string) ([]uint16, *C.uint16_t) {
+	u := utf16.Encode([]rune(s))
+	if len(u) == 0 {
+		return u, nil
+	}
+	return u, (*C.uint16_t)(unsafe.Pointer(&u[0]))
+}
+
+// nowPlaying hands what plays to the media session, or takes it away
+// for nil.
+func nowPlaying(np *driver.NowPlaying) {
+	if np == nil {
+		C.gunim_now_playing(0, 0, nil, 0, nil, 0, nil, 0, 0, 0, nil, 0)
+		return
+	}
+	t, tp := utf16Of(np.Title)
+	r, rp := utf16Of(np.Artist)
+	l, lp := utf16Of(np.Album)
+	var art unsafe.Pointer
+	if len(np.Cover) > 0 {
+		art = unsafe.Pointer(&np.Cover[0])
+	}
+	playing := 0
+	if np.Playing {
+		playing = 1
+	}
+	C.gunim_now_playing(1, C.int(playing), tp, C.int(len(t)), rp, C.int(len(r)), lp, C.int(len(l)),
+		C.longlong(np.Length.Milliseconds()), C.longlong(np.Position.Milliseconds()), art, C.int(len(np.Cover)))
+	runtime.KeepAlive(t)
+	runtime.KeepAlive(r)
+	runtime.KeepAlive(l)
+	runtime.KeepAlive(np.Cover)
+}
+
+//export goMedia
+func goMedia(action C.int, ms C.longlong) {
+	theDriver.media(int(action), time.Duration(ms)*time.Millisecond)
+}
 
 // buzz gives the short buzz a long press gives.
 func buzz() { C.gunim_buzz() }

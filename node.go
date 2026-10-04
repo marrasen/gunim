@@ -344,6 +344,12 @@ type Frame struct {
 	// them every frame, never keeping one in a field, so a theme switch
 	// animates through them.
 	Theme *theme.Live
+	// Safe is how far in from each edge of the window the system draws
+	// over it, as a phone's status bar, navigation bar and camera cutout
+	// do over an application drawn to the screen's edges: a node keeps
+	// what it shows clear of it, and lets its background run under it.
+	// It is zero where nothing draws over the window, and in a popup.
+	Safe geom.Insets
 	// Transparent is set in a popup whose window shows what is behind
 	// it wherever nothing is painted, so the popup can have round
 	// corners and a shadow. Where the display server cannot blend
