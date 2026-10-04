@@ -1,0 +1,192 @@
+package audioui
+
+import (
+	"fmt"
+	"image/color"
+	"math"
+	"time"
+
+	"github.com/marrasen/gunim/audio"
+	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/paint"
+	"github.com/marrasen/gunim/theme"
+)
+
+// Loudness reads a sound's loudness as it is heard, as a mastering
+// suite's loudness panel shows it: momentary and short-term, eased so
+// they read steadily; integrated since it started; how far it has
+// ranged, read every half second; and its true peak.
+type Loudness struct {
+	lm *audio.LoudnessMeter
+	tp audio.TruePeakMeter
+	// Moment and Short are the momentary and short-term loudness, in
+	// LUFS, eased; -70 for silence.
+	Moment, Short float32
+	// Low and High are where the loudness has ranged, in LUFS, as
+	// Ranged says it has.
+	Low, High float32
+	Ranged    bool
+	rangedAt  time.Duration
+}
+
+// NewLoudness returns a reading of a sound at rate, from silence.
+func NewLoudness(rate int) *Loudness {
+	return &Loudness{lm: audio.NewLoudnessMeter(rate), Moment: -70, Short: -70}
+}
+
+// Reset starts the reading over, as another sound starts.
+func (l *Loudness) Reset(rate int) {
+	l.lm, l.tp, l.Ranged = audio.NewLoudnessMeter(rate), audio.TruePeakMeter{}, false
+}
+
+// Write takes frames heard, interleaved stereo.
+func (l *Loudness) Write(frames []float32) {
+	l.lm.Write(frames)
+	l.tp.Write(frames)
+}
+
+// Step eases the readings over dt toward the sound's, or, while it is
+// not playing, toward silence. It returns whether they still move.
+func (l *Loudness) Step(dt time.Duration, playing bool) bool {
+	sec := float32(dt.Seconds())
+	ease := func(v *float32, to, rise, fall float32) {
+		rate := rise
+		if to < *v {
+			rate = fall
+		}
+		*v += (to - *v) * min(1, rate*sec)
+	}
+	m, s := float32(-70), float32(-70)
+	if playing {
+		m = float32(max(l.lm.Momentary(), -70))
+		s = float32(max(l.lm.ShortTerm(), -70))
+	}
+	ease(&l.Moment, m, 20, 4)
+	ease(&l.Short, s, 10, 3)
+	// The range changes slowly, and is read over all the sound heard.
+	if l.rangedAt += dt; l.rangedAt > 500*time.Millisecond {
+		l.rangedAt = 0
+		if low, high, ok := audio.LoudnessRange(l.lm.ShortTerms()); ok {
+			l.Ranged, l.Low, l.High = true, float32(low), float32(high)
+		}
+	}
+	return l.Moment > -69
+}
+
+// Integrated is the loudness since the reading started, in LUFS, -70
+// before there is any.
+func (l *Loudness) Integrated() float32 {
+	if v, ok := l.lm.Integrated(); ok {
+		return float32(v)
+	}
+	return -70
+}
+
+// TruePeak is the highest true peak heard, 1 at full scale.
+func (l *Loudness) TruePeak() float64 { return l.tp.Peak() }
+
+// Paint draws the readings from the top of r, across it, against the
+// target loudness: the short-term large, then bars of the momentary,
+// short-term and integrated loudness and of the range, and the true
+// peak. It returns where they end.
+func (l *Loudness) Paint(p *paint.Painter, th *theme.Live, r geom.Rect, target float32) float32 {
+	ink, over := Ink.Get(th), Over.Get(th)
+	x, y, right := r.Min.X, r.Min.Y, r.Max.X
+	barX, barW := x+24, r.Size().W-78
+	big := Shaped(LUFSText(l.Short), 34, true, true)
+	c := ink
+	if l.Short > -69 {
+		c = LoudnessColor(th, l.Short-target)
+	}
+	big.Paint(p, geom.Pt(x, y), c)
+	Shaped("LUFS short-term", 10, false, false).Paint(p, geom.Pt(x+4+big.Advance, y+22), Faded(ink, 0.45))
+	y += 50
+	for _, row := range []struct {
+		name string
+		v    float32
+	}{{"M", l.Moment}, {"S", l.Short}, {"I", l.Integrated()}} {
+		PaintLoudnessBar(p, th, geom.Rc(barX, y, barW, 10), row.v, target)
+		Shaped(row.name, 11, true, false).Paint(p, geom.Pt(x, y-2), Faded(ink, 0.6))
+		Shaped(LUFSText(row.v), 11, false, true).Paint(p, geom.Pt(right-46, y-2), Faded(ink, 0.8))
+		y += 22
+	}
+	Shaped("LRA", 9, true, false).Paint(p, geom.Pt(x-2, y), Faded(ink, 0.6))
+	PaintRangeBar(p, th, geom.Rc(barX, y, barW, 10), l.Low, l.High, l.Ranged)
+	words := "—"
+	if l.Ranged {
+		words = fmt.Sprintf("%.1f LU", l.High-l.Low)
+	}
+	Shaped(words, 11, false, true).Paint(p, geom.Pt(right-46, y-2), Faded(ink, 0.8))
+	y += 22
+	tp := float32(DB(l.TruePeak()))
+	tpColor := Faded(ink, 0.8)
+	if tp > -1 {
+		tpColor = over
+	}
+	Shaped("TP", 11, true, false).Paint(p, geom.Pt(x, y), Faded(ink, 0.6))
+	tpWords := "—"
+	if l.TruePeak() > 0 {
+		tpWords = fmt.Sprintf("%.1f dBTP", tp)
+	}
+	Shaped(tpWords, 11, false, true).Paint(p, geom.Pt(x+24, y), tpColor)
+	return y + 18
+}
+
+// LUFSText writes a loudness, a dash for none.
+func LUFSText(v float32) string {
+	if v <= -69 {
+		return "—"
+	}
+	return fmt.Sprintf("%.1f", v)
+}
+
+// LoudnessColor colours a reading by how far off its target it is:
+// Sound within half a unit, Near within one and a half, Over past
+// three, and blends between.
+func LoudnessColor(th *theme.Live, off float32) color.NRGBA {
+	sound, near, over := Sound.Get(th), Near.Get(th), Over.Get(th)
+	a := math.Abs(float64(off))
+	switch {
+	case a <= 0.5:
+		return sound
+	case a <= 1.5:
+		return Mix(sound, near, float32((a-0.5)/1))
+	case a <= 3:
+		return Mix(near, over, float32((a-1.5)/1.5))
+	}
+	return over
+}
+
+// The scale of a loudness bar, in LUFS.
+const barLow, barHigh = -36, 0
+
+func barX(bar geom.Rect, l float32) float32 {
+	return bar.Min.X + bar.Size().W*min(max((l-barLow)/(barHigh-barLow), 0), 1)
+}
+
+// PaintLoudnessBar draws loudness v as a bar from -36 to 0 LUFS,
+// coloured by how far off target it is, the target marked.
+func PaintLoudnessBar(p *paint.Painter, th *theme.Live, bar geom.Rect, v, target float32) {
+	ink := Ink.Get(th)
+	p.RRect(bar, 5, paint.Solid(Faded(ink, 0.08)))
+	if v > barLow {
+		fill := bar
+		fill.Max.X = barX(bar, v)
+		p.RRect(fill, 5, paint.Solid(LoudnessColor(th, v-target)))
+	}
+	tx := barX(bar, target)
+	p.RRect(geom.Rc(tx-1, bar.Min.Y-3, 2, bar.Size().H+6), 1, paint.Solid(ink))
+}
+
+// PaintRangeBar draws a loudness range, from low to high LUFS, as a
+// band on a loudness bar's scale, where ranged says there is one.
+func PaintRangeBar(p *paint.Painter, th *theme.Live, bar geom.Rect, low, high float32, ranged bool) {
+	p.RRect(bar, 5, paint.Solid(Faded(Ink.Get(th), 0.08)))
+	if !ranged {
+		return
+	}
+	spread := Spread.Get(th)
+	x0, x1 := barX(bar, low), barX(bar, high)
+	band := geom.Rc(x0, bar.Min.Y, max(x1-x0, 3), bar.Size().H)
+	p.ShadowRRect(band, 5, paint.Solid(Faded(spread, 0.85)), paint.Shadow{Blur: 8, Color: Faded(spread, 0.4)})
+}
