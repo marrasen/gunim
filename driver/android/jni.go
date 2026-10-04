@@ -11,6 +11,7 @@ import "C"
 
 import (
 	"runtime"
+	"sync"
 	"time"
 	"unicode/utf16"
 	"unsafe"
@@ -209,3 +210,88 @@ func goMedia(action C.int, ms C.longlong) {
 
 // buzz gives the short buzz a long press gives.
 func buzz() { C.gunim_buzz() }
+
+//export goAnswered
+func goAnswered(code, granted C.int) { answered(int(code), granted != 0) }
+
+// The prompts for permissions waiting on the user's answer, by their
+// request code.
+var (
+	asking  sync.Mutex
+	askCode int
+	answers = map[int]chan bool{}
+)
+
+// permitted reports whether permission p is granted.
+func permitted(p driver.Permission) bool { return C.gunim_permitted(C.int(p)) != 0 }
+
+// ask asks the user for permission p, and waits for their answer.
+func ask(p driver.Permission) bool {
+	asking.Lock()
+	askCode++
+	code := askCode
+	ch := make(chan bool, 1)
+	answers[code] = ch
+	asking.Unlock()
+	C.gunim_ask(C.int(p), C.int(code))
+	return <-ch
+}
+
+// answered hands the user's answer to the prompt of code to its ask.
+func answered(code int, granted bool) {
+	asking.Lock()
+	ch := answers[code]
+	delete(answers, code)
+	asking.Unlock()
+	if ch != nil {
+		ch <- granted
+	}
+}
+
+// userFolder returns the shared folder of kind f, or "".
+func userFolder(f driver.UserFolder) string {
+	var n C.int
+	p := C.gunim_user_folder(C.int(f), &n)
+	if p == nil {
+		return ""
+	}
+	defer C.free(unsafe.Pointer(p))
+	return goString(p, n)
+}
+
+//export goChosen
+func goChosen(code C.int, path *C.uint16_t, n C.int) {
+	var p string
+	if path != nil {
+		p = goString(path, n)
+	}
+	chose(int(code), p)
+}
+
+// The choosers waiting on the user, by their request code, which
+// shares its count with the prompts' and keeps clear of them.
+var choosing = map[int]chan string{}
+
+// chooseFolder shows the system's chooser of folders, and waits for
+// the folder chosen, "" for none.
+func chooseFolder() string {
+	asking.Lock()
+	askCode++
+	code := askCode
+	ch := make(chan string, 1)
+	choosing[code] = ch
+	asking.Unlock()
+	C.gunim_choose_folder(C.int(code))
+	return <-ch
+}
+
+// chose hands the folder chosen to the chooser of code.
+func chose(code int, path string) {
+	asking.Lock()
+	ch := choosing[code]
+	delete(choosing, code)
+	asking.Unlock()
+	if ch != nil {
+		ch <- path
+	}
+}

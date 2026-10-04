@@ -410,6 +410,16 @@ const (
 
 // windowFocus tells the windows that fill the screen that the activity
 // has the keyboard, or has lost it.
+// Permitted implements [driver.Permitter].
+func (d *Driver) Permitted(p driver.Permission) bool { return permitted(p) }
+
+// Ask implements [driver.Permitter]: the system's prompt asks the user.
+func (d *Driver) Ask(p driver.Permission) bool { return ask(p) }
+
+// UserFolder implements [driver.FolderFinder]: the shared folders of
+// the phone's storage, which need permission to read.
+func (d *Driver) UserFolder(f driver.UserFolder) string { return userFolder(f) }
+
 // SetNowPlaying implements [driver.NowPlayer]: a media session shows
 // what plays in Android's media controls, and a foreground service keeps
 // the process running while it plays in the background.

@@ -113,6 +113,38 @@ func (a *App) SetNowPlaying(np *NowPlaying) error {
 	return nil
 }
 
+// Permitted reports whether the application has permission p. Where the
+// system has no such permissions, as a desktop's, it has.
+func (a *App) Permitted(p driver.Permission) bool {
+	if pm, ok := a.drv.(driver.Permitter); ok {
+		return pm.Permitted(p)
+	}
+	return true
+}
+
+// Ask asks the user for permission p, as a phone asks with a prompt of
+// the system's, and returns whether it is granted. It blocks until the
+// user answers, so call it from a goroutine of the application's, as
+// the application half's own; where p is granted, or the system has no
+// such permissions, it returns true at once. A user who refused p for
+// good is not asked again, and Ask returns false at once.
+func (a *App) Ask(p driver.Permission) bool {
+	if pm, ok := a.drv.(driver.Permitter); ok {
+		return pm.Permitted(p) || pm.Ask(p)
+	}
+	return true
+}
+
+// UserFolder returns the folder the user keeps things of kind f in, as
+// their Music folder, or "" where there is none: on a phone the shared
+// one, which needs [App.Ask] for a permission to read.
+func (a *App) UserFolder(f driver.UserFolder) string {
+	if ff, ok := a.drv.(driver.FolderFinder); ok {
+		return ff.UserFolder(f)
+	}
+	return ""
+}
+
 // Monitors lists the attached displays, so an application can put a
 // window on a chosen one.
 func (a *App) Monitors() []driver.Monitor { return a.drv.Monitors() }

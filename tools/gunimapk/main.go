@@ -61,6 +61,7 @@ func main() {
 	id := flag.String("id", "", "the application ID; org.gunim.<name> by default")
 	name := flag.String("name", "", "the application's label; the package's name by default")
 	iconPNG := flag.String("icon", "", "a PNG file for the launcher's icon, square, 192 pixels or more")
+	permList := flag.String("permissions", "", "the permissions the program may ask for, comma separated: music")
 	abiList := flag.String("abi", "arm64-v8a,x86_64", "the ABIs to build for, comma separated")
 	install := flag.Bool("install", false, "install the APK with adb")
 	run := flag.Bool("run", false, "install the APK with adb and start it")
@@ -89,7 +90,16 @@ func main() {
 		*id = "org.gunim." + regexp.MustCompile(`[^a-z0-9_]`).ReplaceAllString(strings.ToLower(base), "_")
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	err := buildAPK(ctx, pkg, *out, *id, *name, *iconPNG, strings.Split(*abiList, ","), *install || *run, *run)
+	var perms []string
+	if *permList != "" {
+		perms = strings.Split(*permList, ",")
+		for _, p := range perms {
+			if _, ok := permissions[p]; !ok {
+				log.Fatalf("gunimapk: no permission %q; there is music", p)
+			}
+		}
+	}
+	err := buildAPK(ctx, pkg, *out, *id, *name, *iconPNG, perms, strings.Split(*abiList, ","), *install || *run, *run)
 	stop()
 	if err != nil {
 		log.Fatal(err)
@@ -99,13 +109,13 @@ func main() {
 // buildAPK builds the APK for pkg into out, installs it when install
 // is set and starts it when start is, and removes its working directory
 // whatever happens. Interrupting ctx stops the tool running.
-func buildAPK(ctx context.Context, pkg, out, id, name, iconPNG string, abiNames []string, install, start bool) error {
+func buildAPK(ctx context.Context, pkg, out, id, name, iconPNG string, perms, abiNames []string, install, start bool) error {
 	b, err := newBuilder(ctx)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = os.RemoveAll(b.tmp) }()
-	if err := b.build(pkg, out, id, name, iconPNG, abiNames); err != nil {
+	if err := b.build(pkg, out, id, name, iconPNG, perms, abiNames); err != nil {
 		return err
 	}
 	adb := filepath.Join(b.sdk, "platform-tools", "adb")
@@ -167,7 +177,7 @@ func newBuilder(ctx context.Context) (*builder, error) {
 }
 
 // build writes the APK for pkg to out.
-func (b *builder) build(pkg, out, id, name, iconPNG string, abiNames []string) error {
+func (b *builder) build(pkg, out, id, name, iconPNG string, perms, abiNames []string) error {
 	var libs []string
 	for _, abi := range abiNames {
 		lib, err := b.goLib(pkg, abi)
@@ -181,7 +191,7 @@ func (b *builder) build(pkg, out, id, name, iconPNG string, abiNames []string) e
 		return dexErr
 	}
 	manifest := filepath.Join(b.tmp, "AndroidManifest.xml")
-	if err := os.WriteFile(manifest, []byte(manifestFor(id, name, iconPNG != "")), 0o644); err != nil {
+	if err := os.WriteFile(manifest, []byte(manifestFor(id, name, iconPNG != "", perms)), 0o644); err != nil {
 		return err
 	}
 	var res []string
@@ -402,22 +412,36 @@ func pack(out, linked, dex string, libs []string, root string) (err error) {
 	return zw.Close()
 }
 
+// permissions are the manifest's lines for each permission a program
+// may ask for with gunim's App.Ask, by -permissions' names: music is
+// its own permission since Android 13, and part of reading storage
+// before.
+var permissions = map[string]string{
+	"music": `	<uses-permission android:name="android.permission.READ_MEDIA_AUDIO"/>
+	<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>
+`,
+}
+
 // manifestFor returns the manifest of an APK that starts gunim's
 // activity, with the launcher's icon from the resources when icon is
-// set. The activity keeps itself across rotation and a keyboard
+// set, and the permissions perms names. The activity keeps itself across rotation and a keyboard
 // coming and going, and slides up as the soft keyboard opens, to keep the
 // text caret above it. The service is the one a program starts with
 // gunim's App.SetNowPlaying, to play media on in the background.
-func manifestFor(id, name string, icon bool) string {
+func manifestFor(id, name string, icon bool, perms []string) string {
 	iconAttr := ""
 	if icon {
 		iconAttr = ` android:icon="@mipmap/ic_launcher"`
+	}
+	var asks strings.Builder
+	for _, p := range perms {
+		asks.WriteString(permissions[p])
 	}
 	return `<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="` + id + `">
 	<uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
 	<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
-	<application android:label="` + xmlEscape(name) + `"` + iconAttr + ` android:hasCode="true" android:extractNativeLibs="true">
+` + asks.String() + `	<application android:label="` + xmlEscape(name) + `"` + iconAttr + ` android:hasCode="true" android:extractNativeLibs="true">
 		<activity android:name="gunim.android.GunimActivity" android:exported="true"
 			android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density"
 			android:windowSoftInputMode="adjustPan|stateAlwaysHidden"

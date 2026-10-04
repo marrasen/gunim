@@ -87,6 +87,42 @@ type NowPlayer interface {
 	SetNowPlaying(np *NowPlaying) error
 }
 
+// Permission is something the user grants an application, where the
+// system has the user grant it, as a phone's does.
+type Permission int
+
+// The permissions.
+const (
+	// PermissionMusic reads the user's music and other sound files.
+	PermissionMusic Permission = iota + 1
+)
+
+// A Permitter is a [Driver] whose system has the user grant
+// permissions. Permitted reports whether p is granted. Ask asks the
+// user for p, where it is not granted and the user has not refused it
+// for good, and blocks until they answer; it returns whether p is
+// granted. Ask is called from a goroutine of the application's, never
+// the main one.
+type Permitter interface {
+	Permitted(p Permission) bool
+	Ask(p Permission) bool
+}
+
+// UserFolder is a kind of folder the user keeps their things in.
+type UserFolder int
+
+// The user's folders.
+const (
+	// FolderMusic is where the user keeps their music.
+	FolderMusic UserFolder = iota + 1
+)
+
+// A FolderFinder is a [Driver] that says where the user keeps things.
+// UserFolder returns the folder of kind f, or "" where there is none.
+type FolderFinder interface {
+	UserFolder(f UserFolder) string
+}
+
 // A SafeAreaer is a [Window] the system draws over in part, as a
 // phone's status bar, navigation bar and camera cutout lie over an
 // application drawn to the screen's edges. SafeArea returns how far in

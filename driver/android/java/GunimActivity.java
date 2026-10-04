@@ -114,4 +114,26 @@ public class GunimActivity extends Activity {
 		}
 		super.onDestroy();
 	}
+
+	// The user answered a permission's prompt: granted where every
+	// permission asked was.
+	@Override
+	public void onRequestPermissionsResult(int code, String[] permissions, int[] results) {
+		boolean granted = results.length > 0;
+		for (int r : results) {
+			granted &= r == android.content.pm.PackageManager.PERMISSION_GRANTED;
+		}
+		Native.answered(code, granted);
+	}
+
+	// The system's chooser of folders closed: with the folder chosen,
+	// or none.
+	@Override
+	protected void onActivityResult(int code, int result, android.content.Intent data) {
+		String path = null;
+		if (result == RESULT_OK && data != null) {
+			path = Native.pathOf(data.getData());
+		}
+		Native.chosen(code, path);
+	}
 }

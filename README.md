@@ -214,6 +214,13 @@ wheel. A finger held still is a right click, which opens a context
 menu; in text it selects a word, drags on over more words, and shows
 handles for the selection's ends and the edit menu.
 
+An application asks the user for a permission with `App.Ask`, as
+`driver.PermissionMusic` to read their music: Android's prompt asks,
+and a desktop has it already. `gunimapk -permissions music` declares
+what the APK may ask for. `App.UserFolder` finds the user's Music
+folder, on a phone or a desktop, and a folder chooser picks a folder on
+the phone's storage or a card as a path.
+
 A tap on a text field opens the soft keyboard, whose edits, autocorrect
 and composition reach the field as `input.TextEdit`s, and the window
 slides up with the keyboard to keep the field in view.
