@@ -34,7 +34,8 @@ func TestEachSoundIsShortQuietAndStartsAndEndsInSilence(t *testing.T) {
 func TestEveryCueOfTheWidgetsHasASound(t *testing.T) {
 	s := Sounds()
 	for _, c := range []gunim.Cue{gunim.CuePress, gunim.CueToggleOn, gunim.CueToggleOff, gunim.CueSelect,
-		gunim.CueTick, gunim.CueOpen, gunim.CueClose, gunim.CueError} {
+		gunim.CueTick, gunim.CueOpen, gunim.CueClose, gunim.CueError,
+		gunim.CueConnected, gunim.CueDisconnected, gunim.CueDone, gunim.CueFailed, gunim.CueBell} {
 		if s[c] == nil {
 			t.Errorf("no sound for %s", c)
 		}

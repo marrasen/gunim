@@ -27,6 +27,22 @@ const (
 	CueError Cue = "error"
 )
 
+// Cues for an application to play itself, with [UI.Cue], for what
+// happens on its own rather than what the user does: no widget plays
+// them.
+const (
+	// CueConnected and CueDisconnected are a connection made, and one
+	// lost.
+	CueConnected    Cue = "connected"
+	CueDisconnected Cue = "disconnected"
+	// CueDone and CueFailed are work the user left running finishing,
+	// well or not.
+	CueDone   Cue = "done"
+	CueFailed Cue = "failed"
+	// CueBell is something asking for the user, as a terminal's bell.
+	CueBell Cue = "bell"
+)
+
 // A CuePlayer plays the sound for a cue, at pan, from -1 for the left
 // of the window to 1 for its right. It is called on the UI goroutine
 // and must return at once.
