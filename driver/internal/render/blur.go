@@ -11,10 +11,15 @@ import (
 )
 
 // blurFactors are the resolutions a blur runs at, as divisors of the
-// window's. A wide blur runs at a quarter of the resolution, where it
-// costs a sixteenth as much and looks the same, since it removes the
-// detail the lower resolution drops.
-var blurFactors = [...]int{1, 2, 4}
+// window's. A wide blur runs at as low a resolution as keeps its
+// deviation over eight of that resolution's pixels: an eighth of the
+// window's for the widest, as a sheet of frosted glass over a phone's
+// screen, where it costs a sixty-fourth as much and looks the same,
+// since it removes the detail the lower resolution drops. The source is
+// first averaged down to that resolution, through its mipmaps, so
+// detail finer than the coarser grid blends in rather than flickering
+// as it moves.
+var blurFactors = [...]int{1, 2, 4, 8}
 
 // maxTaps is the most samples the blur shader takes on each side of a
 // pixel; it covers three standard deviations up to a sigma of about 21
@@ -68,6 +73,15 @@ func (r *Renderer) blur(src uint32, region geom.Rect, sigma float32) uint32 {
 
 	g := r.GL
 	r.flush()
+	if k > 1 {
+		// The first pass reads the source averaged to its own grid: the
+		// mipmap level the GPU picks for a pass k times coarser.
+		g.ActiveTexture(glTexture1)
+		g.BindTexture(gl.TEXTURE_2D, src)
+		g.GenerateMipmap(gl.TEXTURE_2D)
+		g.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, glLinearMipmapLinear)
+		g.ActiveTexture(gl.TEXTURE0)
+	}
 	g.UseProgram(r.blurProg.id)
 	g.Viewport(0, 0, int32(w), int32(h))
 	g.Disable(gl.BLEND)
@@ -95,6 +109,13 @@ func (r *Renderer) blur(src uint32, region geom.Rect, sigma float32) uint32 {
 		r.flush()
 	}
 
+	if k > 1 {
+		// The source is read at its full size again elsewhere.
+		g.ActiveTexture(glTexture1)
+		g.BindTexture(gl.TEXTURE_2D, src)
+		g.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, glLinear)
+		g.ActiveTexture(gl.TEXTURE0)
+	}
 	r.applyClip()
 	g.Enable(gl.BLEND)
 	g.Viewport(0, 0, int32(r.fbW), int32(r.fbH))
