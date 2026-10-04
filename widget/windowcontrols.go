@@ -275,14 +275,22 @@ func (c *WindowControls) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _
 }
 
 // WindowTitle is a chromeless window's title, centred in the room it is
-// given, all of which is title bar: a press on it moves the window, and
-// a double click maximizes it.
+// given, or at its start with AtStart. All of the room is title bar: a
+// press on it moves the window, and a double click maximizes it.
 type WindowTitle struct {
+	// AtStart puts the title at the start of its room, left in a
+	// left-to-right language, [WindowTitleInset] in from the edge.
+	AtStart bool
+
 	label *Label
 	// shown says the window is chromeless, so the title is the
 	// window's to show.
 	shown bool
 }
+
+// WindowTitleInset is how far in from the start of its room a title
+// with [WindowTitle.AtStart] begins, in logical pixels.
+const WindowTitleInset = 14
 
 // NewWindowTitle returns a title showing text.
 func NewWindowTitle(text string) *WindowTitle {
@@ -300,8 +308,8 @@ func (t *WindowTitle) Label() *Label { return t.label }
 // Children implements [gunim.Composite].
 func (t *WindowTitle) Children() []gunim.Node { return []gunim.Node{t.label} }
 
-// Layout implements [gunim.Node]: the title is centred, and cut short
-// when the room runs out.
+// Layout implements [gunim.Node]: the title is centred, or at the
+// start with AtStart, and cut short when the room runs out.
 func (t *WindowTitle) Layout(cs gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
 	own := cs.Max
 	k := kids.At(0)
@@ -311,6 +319,11 @@ func (t *WindowTitle) Layout(cs gunim.Constraints, f gunim.Frame, kids gunim.Chi
 		// own bar names the application.
 		k.Layout(gunim.Tight(geom.Size{}))
 		return cs.Constrain(geom.Sz(own.W, 0))
+	}
+	if t.AtStart {
+		size := k.Layout(gunim.Constraints{Max: geom.Sz(max(0, own.W-WindowTitleInset), own.H)})
+		k.Place(geom.Pt(WindowTitleInset, max(0, (own.H-size.H)/2)))
+		return own
 	}
 	size := k.Layout(gunim.Constraints{Max: own})
 	k.Place(geom.Pt(max(0, (own.W-size.W)/2), max(0, (own.H-size.H)/2)))

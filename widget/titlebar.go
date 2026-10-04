@@ -22,6 +22,11 @@ type TitleBar struct {
 	Pin bool
 	// NoMinimize, NoMaximize and NoClose leave out the minimize, maximize and close buttons.
 	NoMinimize, NoMaximize, NoClose bool
+	// Name, when set, is what the bar shows, whatever the window's title says. The window's title is what the taskbar
+	// and the window switcher show, so it can say more, such as the song playing, while the bar names the application.
+	Name string
+	// TitleAtStart puts the title at the bar's start, as Windows does; see [WindowTitle.AtStart].
+	TitleAtStart bool
 
 	title    *WindowTitle
 	controls *WindowControls
@@ -32,8 +37,12 @@ func NewTitleBar(title string) *TitleBar {
 	return &TitleBar{title: NewWindowTitle(title), controls: NewWindowControls()}
 }
 
-// SetTitle implements [gunim.TitleBar].
-func (t *TitleBar) SetTitle(title string) { t.title.SetText(title) }
+// SetTitle implements [gunim.TitleBar]. A bar with a Name goes on showing the Name.
+func (t *TitleBar) SetTitle(title string) {
+	if t.Name == "" {
+		t.title.SetText(title)
+	}
+}
 
 // Children implements [gunim.Composite].
 func (t *TitleBar) Children() []gunim.Node { return []gunim.Node{t.title, t.controls} }
@@ -48,6 +57,10 @@ func (t *TitleBar) Layout(cs gunim.Constraints, f gunim.Frame, kids gunim.Childr
 	}
 	t.controls.Compact, t.controls.Pin = t.Compact, t.Pin
 	t.controls.NoMinimize, t.controls.NoMaximize, t.controls.NoClose = t.NoMinimize, t.NoMaximize, t.NoClose
+	t.title.AtStart = t.TitleAtStart
+	if t.Name != "" {
+		t.title.SetText(t.Name)
+	}
 	h := t.controls.height(f.Theme)
 	w := cs.Max.W
 	ctl := kids.At(1).Layout(gunim.Constraints{Max: geom.Sz(w, h)})
