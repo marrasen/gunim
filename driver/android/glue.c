@@ -163,6 +163,10 @@ JNIEXPORT void JNICALL Java_gunim_android_Native_keyboard(JNIEnv *env, jclass c,
 	goKeyboard(px);
 }
 
+JNIEXPORT void JNICALL Java_gunim_android_Native_insets(JNIEnv *env, jclass c, jint top, jint right, jint bottom, jint left) {
+	goInsets(top, right, bottom, left);
+}
+
 JNIEXPORT void JNICALL Java_gunim_android_Native_focus(JNIEnv *env, jclass c, jboolean focused) {
 	goFocus(focused);
 }

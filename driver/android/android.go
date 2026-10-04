@@ -112,7 +112,11 @@ type Driver struct {
 	// caret scrolled with its text, which it leaves. pan is how far the
 	// windows are drawn slid up, in device pixels, easing toward
 	// panTarget from panAt.
-	keyboard  int
+	keyboard int
+	// safe is how far in from each edge, top, right, bottom and left,
+	// the system's bars and the camera's cutout reach over the surface,
+	// in device pixels.
+	safe      [4]int
 	caret     geom.Rect
 	caretSet  bool
 	box       geom.Rect
@@ -215,15 +219,17 @@ func (d *Driver) screen() geom.Rect {
 }
 
 // visibleLocked returns the part of the screen that shows, in logical
-// pixels of the windows' own space: the screen less what the keyboard
-// covers, moved down by the slide the windows are aimed at. It runs with
-// mu held.
+// pixels of the windows' own space: the screen less the system's bars
+// and what the keyboard covers, moved down by the slide the windows are
+// aimed at. It runs with mu held.
 func (d *Driver) visibleLocked() geom.Rect {
 	s := d.screen()
+	safe := d.safeLocked()
 	top := float32(d.panTarget) / d.density
+	bottom := max(float32(d.keyboard)/d.density, safe.Bottom)
 	return geom.Rect{
-		Min: geom.Pt(s.Min.X, s.Min.Y+top),
-		Max: geom.Pt(s.Max.X, s.Max.Y+top-float32(d.keyboard)/d.density),
+		Min: geom.Pt(s.Min.X+safe.Left, s.Min.Y+top+safe.Top),
+		Max: geom.Pt(s.Max.X-safe.Right, s.Max.Y+top-bottom),
 	}
 }
 
@@ -299,6 +305,35 @@ func (d *Driver) surfaceDestroyed() {
 type surfaceChange struct {
 	window *C.ANativeWindow
 	gone   chan struct{}
+}
+
+// insets takes how far in from each edge the system's bars reach over
+// the surface, in device pixels, and tells the windows that fill it.
+func (d *Driver) insets(top, right, bottom, left int) {
+	d.mu.Lock()
+	d.safe = [4]int{top, right, bottom, left}
+	var fill []*Window
+	for _, win := range d.windows {
+		if win.fills {
+			fill = append(fill, win)
+		}
+	}
+	d.mu.Unlock()
+	for _, win := range fill {
+		win.in.Push(driver.Redraw{})
+	}
+	d.kick()
+}
+
+// safeLocked returns how far in from each edge the system's bars reach,
+// in logical pixels. It runs with mu held.
+func (d *Driver) safeLocked() geom.Insets {
+	if d.density <= 0 {
+		return geom.Insets{}
+	}
+	f := d.density
+	return geom.Insets{Top: float32(d.safe[0]) / f, Right: float32(d.safe[1]) / f,
+		Bottom: float32(d.safe[2]) / f, Left: float32(d.safe[3]) / f}
 }
 
 // keyboardCovers takes how much of the surface the soft keyboard

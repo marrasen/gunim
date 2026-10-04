@@ -27,6 +27,7 @@ public final class Native {
 	static native void key(boolean down, int code, int meta, int ch, int repeat);
 	static native void focus(boolean focused);
 	static native void keyboard(int px);
+	static native void insets(int top, int right, int bottom, int left);
 	static native void edit(String with, int replaceStart, int replaceEnd, int selAnchor, int selCaret,
 		int compStart, int compEnd, long seq);
 	static native void text(String s);

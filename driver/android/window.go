@@ -330,6 +330,17 @@ func (w *Window) stateToSendLocked() (*input.TextState, bool) {
 	return w.state, true
 }
 
+// SafeArea implements [driver.SafeAreaer]: a window filling the screen
+// lies under the system's bars and the camera's cutout.
+func (w *Window) SafeArea() geom.Insets {
+	w.d.mu.Lock()
+	defer w.d.mu.Unlock()
+	if !w.fills {
+		return geom.Insets{}
+	}
+	return w.d.safeLocked()
+}
+
 // Buzz implements [driver.Buzzer]: the phone gives the short buzz of a
 // long press.
 func (w *Window) Buzz() { buzz() }
@@ -347,4 +358,5 @@ var (
 	_ driver.CaretPlacer    = (*Window)(nil)
 	_ driver.TextBoxPlacer  = (*Window)(nil)
 	_ driver.Buzzer         = (*Window)(nil)
+	_ driver.SafeAreaer     = (*Window)(nil)
 )

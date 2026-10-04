@@ -28,6 +28,7 @@ public class GunimActivity extends Activity {
 		GunimView v = new GunimView(this);
 		Native.view = v;
 		setContentView(v);
+		edgeToEdge(v);
 		if (android.os.Build.VERSION.SDK_INT >= 30) {
 			// The view keeps its size as the keyboard opens; the driver
 			// slides the drawing up instead, following the keyboard.
@@ -38,6 +39,38 @@ public class GunimActivity extends Activity {
 		v.requestFocus();
 		Native.start();
 		showBuild();
+	}
+
+	/**
+	 * edgeToEdge lays the view under the status bar, the navigation bar
+	 * and the camera's cutout, with the bars clear, and tells Go how far
+	 * in from each edge they reach, so a program draws its background to
+	 * the screen's edges and keeps what it shows clear of them.
+	 */
+	@SuppressWarnings("deprecation")
+	private void edgeToEdge(GunimView v) {
+		android.view.Window w = getWindow();
+		w.setStatusBarColor(android.graphics.Color.TRANSPARENT);
+		w.setNavigationBarColor(android.graphics.Color.TRANSPARENT);
+		if (android.os.Build.VERSION.SDK_INT >= 29) {
+			w.setStatusBarContrastEnforced(false);
+			w.setNavigationBarContrastEnforced(false);
+		}
+		if (android.os.Build.VERSION.SDK_INT >= 28) {
+			android.view.WindowManager.LayoutParams lp = w.getAttributes();
+			lp.layoutInDisplayCutoutMode = android.os.Build.VERSION.SDK_INT >= 30
+				? android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+				: android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+			w.setAttributes(lp);
+		}
+		if (android.os.Build.VERSION.SDK_INT >= 30) {
+			w.setDecorFitsSystemWindows(false);
+		} else {
+			w.getDecorView().setSystemUiVisibility(android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+				| android.view.View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+				| android.view.View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+		}
+		v.watchInsets(w.getDecorView());
 	}
 
 	/**

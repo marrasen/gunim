@@ -64,6 +64,17 @@ type TextBoxPlacer interface {
 	SetTextBox(r geom.Rect)
 }
 
+// A SafeAreaer is a [Window] the system draws over in part, as a
+// phone's status bar, navigation bar and camera cutout lie over an
+// application drawn to the screen's edges. SafeArea returns how far in
+// from each of the window's edges, in logical pixels, its content should
+// keep clear; its background still runs to the edges. A driver sends
+// [Redraw] as the area changes.
+type SafeAreaer interface {
+	Window
+	SafeArea() geom.Insets
+}
+
 // A Buzzer is a [Window] on a device that can buzz, as a phone does. The
 // engine calls Buzz as a finger held still becomes a long press.
 type Buzzer interface {

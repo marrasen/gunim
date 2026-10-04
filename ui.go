@@ -1870,6 +1870,9 @@ func (u *UI) frame(now time.Time, delta time.Duration) {
 	}
 	u.seq++
 	f := Frame{Now: now, Delta: delta, Scale: u.w.dw.Scale(), Theme: u.theme, seq: u.seq, u: u}
+	if sa, ok := u.w.dw.(driver.SafeAreaer); ok {
+		f.Safe = sa.SafeArea()
+	}
 
 	// 1. Advance every animated value by the real elapsed time, the
 	//    theme's included.

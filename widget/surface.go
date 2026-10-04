@@ -78,12 +78,26 @@ func (c *Card) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.
 
 // Surface is a window's root: it fills the window with the theme's
 // [Background] and stacks the mounted views over it, like [gunim.Box].
+// The background runs to the window's edges; the views keep clear of
+// what the system draws over them, [gunim.Frame.Safe], as a phone's
+// status and navigation bars.
 type Surface struct {
 	gunim.Box
 }
 
 // NewSurface returns an empty surface.
 func NewSurface() *Surface { return &Surface{} }
+
+// Layout implements [gunim.Node].
+func (s *Surface) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
+	size := c.Max
+	inner := geom.Rect{Max: size.Point()}.Inset(s.Padding).Inset(f.Safe)
+	for kid := range kids.All {
+		kid.Layout(gunim.Tight(inner.Size()))
+		kid.Place(inner.Min)
+	}
+	return size
+}
 
 // Paint implements [gunim.Node].
 func (s *Surface) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.Children) {

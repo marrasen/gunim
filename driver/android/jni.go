@@ -53,6 +53,11 @@ func goKey(down C.uchar, code, meta, ch, repeat C.int) {
 //export goKeyboard
 func goKeyboard(px C.int) { theDriver.keyboardCovers(int(px)) }
 
+//export goInsets
+func goInsets(top, right, bottom, left C.int) {
+	theDriver.insets(int(top), int(right), int(bottom), int(left))
+}
+
 //export goFocus
 func goFocus(focused C.uchar) { theDriver.windowFocus(focused != 0) }
 
