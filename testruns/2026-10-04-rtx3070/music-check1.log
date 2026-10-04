@@ -1,0 +1,24 @@
+gunim window 0x2ac3935b2588    7.2 ms: moved to 78,78
+gunim window 0x2ac3935b2588    7.7 ms: framebuffer 1116x759
+gunim window 0x2ac3935b2588    7.7 ms: frame at the new size after 0s
+gunim window 0x2ac3935b2588    8.2 ms: framebuffer 1100x720
+gunim window 0x2ac3935b2588    8.2 ms: frame at the new size after 0s
+gunim window 0x2ac3935b2588   12.9 ms: made at 78,78, framebuffer 1100x720, kind 0
+gunim window 0x2ac3935b2588   15.8 ms: moved to 78,78
+gunim window 0x2ac3935b2588   23.1 ms: shown
+gunim window 0x2ac3935b2588   23.6 ms: fading true, at 0.00
+gunim window 0x2ac3935b2588   23.6 ms: frame shown false
+gunim window 0x2ac3935b2588  138.5 ms: uncovered
+gunim window 0x2ac3935b2008  173.9 ms: made at 78,78, framebuffer 320x360, kind 2
+gunim window 0x2ac3935b2588  315.9 ms: fading false, at 1.00
+gunim window 0x2ac3935b2588  338.5 ms: frame shown true
+gunim window 0x2ac3935b22c8   10.3 ms: made at 78,78, framebuffer 320x360, kind 2
+gunim window 0x2ac3935b2b08   13.7 ms: made at 78,78, framebuffer 320x360, kind 2
+gunim window 0x2ac393b2e008   15.0 ms: made at 78,78, framebuffer 320x360, kind 2
+gunim window 0x2ac3935b2588 2154.7 ms: moved to 300,150
+gunim window 0x2ac3935b2008 2014.2 ms: moved to 300,150
+gunim window 0x2ac3935b22c8 1805.7 ms: moved to 300,150
+gunim window 0x2ac3935b2b08 1777.2 ms: moved to 300,150
+gunim window 0x2ac393b2e008 1746.4 ms: moved to 300,150
+gunim window 0x2ac3935b2588 2158.3 ms: framebuffer 1116x759
+gunim window 0x2ac3935b2588 2165.0 ms: frame at the new size after 6ms

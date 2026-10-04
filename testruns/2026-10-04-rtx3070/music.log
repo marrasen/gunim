@@ -1,0 +1,63 @@
+gunim window 0x2f49cdf7c588    7.3 ms: moved to 130,130
+gunim window 0x2f49cdf7c588    7.8 ms: framebuffer 1116x759
+gunim window 0x2f49cdf7c588    8.3 ms: frame at the new size after 0s
+gunim window 0x2f49cdf7c588    8.8 ms: framebuffer 1100x720
+gunim window 0x2f49cdf7c588    8.8 ms: frame at the new size after 0s
+gunim window 0x2f49cdf7c588   12.9 ms: made at 130,130, framebuffer 1100x720, kind 0
+gunim window 0x2f49cdf7c588   15.5 ms: moved to 130,130
+gunim window 0x2f49cdf7c588   24.2 ms: shown
+gunim window 0x2f49cdf7c588   24.7 ms: fading true, at 0.00
+gunim window 0x2f49cdf7c588   24.7 ms: frame shown false
+gunim window 0x2f49cdf7c588  142.3 ms: uncovered
+gunim window 0x2f49cdf7c008  124.6 ms: made at 130,130, framebuffer 320x360, kind 2
+gunim window 0x2f49cdf7c588  271.1 ms: fading false, at 1.00
+gunim window 0x2f49cdf7c588  293.9 ms: frame shown true
+gunim window 0x2f49cdf7c2c8    9.1 ms: made at 130,130, framebuffer 320x360, kind 2
+gunim window 0x2f49ce936008   13.2 ms: made at 130,130, framebuffer 320x360, kind 2
+gunim window 0x2f49cdc2e008   13.5 ms: made at 130,130, framebuffer 320x360, kind 2
+gunim window 0x2f49cdf7c588 2193.9 ms: moved to 300,150
+gunim window 0x2f49cdf7c008 2049.8 ms: moved to 300,150
+gunim window 0x2f49cdf7c2c8 1893.1 ms: moved to 300,150
+gunim window 0x2f49ce936008 1867.2 ms: moved to 300,150
+gunim window 0x2f49cdc2e008 1836.7 ms: moved to 300,150
+gunim window 0x2f49cdf7c588 2199.2 ms: framebuffer 1116x759
+gunim window 0x2f49cdf7c588 2202.4 ms: frame at the new size after 3ms
+gunim media: RoInitialize: HRESULT 0x1
+gunim media: bound to window 0x3e1b9a
+gunim media: buttons: asked for {ECC8691B-C1DB-4DC0-855E-65F6C551AF49}, not given
+gunim media: buttons: asked for {0000001B-0000-0000-C000-000000000046}, not given
+gunim media: buttons: asked for {00000039-0000-0000-C000-000000000046}, not given
+gunim media: buttons: asked for {0000001B-0000-0000-C000-000000000046}, not given
+gunim media: seeks: asked for {ECC8691B-C1DB-4DC0-855E-65F6C551AF49}, not given
+gunim media: seeks: asked for {0000001B-0000-0000-C000-000000000046}, not given
+gunim media: seeks: asked for {00000039-0000-0000-C000-000000000046}, not given
+gunim media: seeks: asked for {0000001B-0000-0000-C000-000000000046}, not given
+gunim media: showing "Night Drive" by "The Oscillators"
+gunim media: button 1
+gunim media: button 0
+gunim media: button 6
+gunim media: showing "Glass Garden" by "Sine Language"
+gunim media: button 7
+gunim media: showing "Night Drive" by "The Oscillators"
+gunim media: button 1
+gunim media: button 0
+gunim window 0x2f49cdf7c588 125993.2 ms: out of sight true
+gunim media: showing "Glass Garden" by "Sine Language"
+gunim window 0x2f49cdf7c588 148336.3 ms: out of sight false
+gunim window 0x2f49cdf7c588 160251.5 ms: out of sight true
+gunim window 0x2f49cdf7c588 162445.6 ms: out of sight false
+gunim window 0x2f49cdf7c588 203565.0 ms: out of sight true
+gunim window 0x2f49cdf7c588 205690.8 ms: out of sight false
+gunim window 0x2f49cdf7c588 217472.7 ms: out of sight true
+gunim window 0x2f49cdf7c588 219498.8 ms: out of sight false
+gunim window 0x2f49cdf7c588 221815.8 ms: out of sight true
+gunim window 0x2f49cdf7c588 223822.6 ms: out of sight false
+gunim window 0x2f49cdf7c588 226149.6 ms: out of sight true
+gunim window 0x2f49cdf7c588 228142.5 ms: out of sight false
+gunim window 0x2f49cdf7c588 243581.2 ms: out of sight true
+gunim window 0x2f49cdf7c588 245595.3 ms: out of sight false
+gunim media: showing "Neon Tide" by "The Oscillators"
+gunim window 0x2f49cdf7c588 250795.5 ms: out of sight true
+gunim window 0x2f49cdf7c588 252799.5 ms: out of sight false
+gunim window 0x2f49cdf7c588 267947.9 ms: out of sight true
+gunim window 0x2f49cdf7c588 269940.8 ms: out of sight false
