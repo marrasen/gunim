@@ -158,7 +158,10 @@ set, and a track is measured and exported through a copy of its own
 chain, run offline. Album play runs on from each track into the next
 without a gap, as the exported files will play. A new mix replaces a
 track's file with its edit and chain kept. The waveform zooms in to
-the samples themselves, and up to show quiet sound.
+the samples themselves, and up to show quiet sound. To target finds
+the gain that brings a track to the target through its chain. Albums
+are files of their own, which keep the tracks in their folder by name,
+so a folder moves whole.
 
 ```sh
 go run ./example/mastering mix1.wav mix2.wav
