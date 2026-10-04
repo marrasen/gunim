@@ -24,6 +24,18 @@ type WAVWriter struct {
 	// Clipped counts the samples written past full scale, which were
 	// held to it.
 	Clipped int64
+	// Tags are written after the sound as the file closes, as a LIST
+	// INFO chunk players read: the track's name as INAM, its artist as
+	// IART, its album as IPRD, its number as ITRK, its year as ICRD, its
+	// genre as IGNR. Empty values are left out.
+	Tags []WAVTag
+	// extra is the size of the chunks after the sound.
+	extra int64
+}
+
+// A WAVTag is a tag of a WAV file: its four-letter ID and its value.
+type WAVTag struct {
+	ID, Value string
 }
 
 // NewWAVWriter starts a WAV file of sound at rate, in samples of bits:
@@ -53,7 +65,7 @@ func (w *WAVWriter) header() error {
 	}
 	var h [44]byte
 	copy(h[0:], "RIFF")
-	binary.LittleEndian.PutUint32(h[4:], 36+data)
+	binary.LittleEndian.PutUint32(h[4:], uint32(36+int64(data)+w.extra))
 	copy(h[8:], "WAVEfmt ")
 	binary.LittleEndian.PutUint32(h[16:], 16)
 	binary.LittleEndian.PutUint16(h[20:], format)
@@ -106,9 +118,15 @@ func (w *WAVWriter) Write(frames []float32) error {
 	return nil
 }
 
-// Close writes the file's sizes into its header. It leaves the file
-// open.
+// Close writes the tags, and the file's sizes into its header. It
+// leaves the file open.
 func (w *WAVWriter) Close() error {
+	if list := w.list(); len(list) > 0 {
+		if _, err := w.w.Write(list); err != nil {
+			return err
+		}
+		w.extra = int64(len(list))
+	}
 	end, err := w.w.Seek(0, io.SeekCurrent)
 	if err != nil {
 		return err
@@ -118,4 +136,28 @@ func (w *WAVWriter) Close() error {
 	}
 	_, err = w.w.Seek(end, io.SeekStart)
 	return err
+}
+
+// list is the LIST INFO chunk of the tags, or nothing for none.
+func (w *WAVWriter) list() []byte {
+	var body []byte
+	for _, t := range w.Tags {
+		if len(t.ID) != 4 || t.Value == "" {
+			continue
+		}
+		v := append([]byte(t.Value), 0)
+		body = append(body, t.ID...)
+		body = binary.LittleEndian.AppendUint32(body, uint32(len(v)))
+		body = append(body, v...)
+		if len(v)%2 == 1 {
+			body = append(body, 0)
+		}
+	}
+	if len(body) == 0 {
+		return nil
+	}
+	out := []byte("LIST")
+	out = binary.LittleEndian.AppendUint32(out, uint32(4+len(body)))
+	out = append(out, "INFO"...)
+	return append(out, body...)
 }

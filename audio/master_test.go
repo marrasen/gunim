@@ -2,7 +2,11 @@ package audio
 
 import (
 	"bytes"
+	"encoding/binary"
 	"math"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -125,5 +129,48 @@ func TestDitherIsTriangularNoiseAroundAnLSB(t *testing.T) {
 	// Silence dithered, rounded: about 0.6 of an LSB.
 	if rms < 0.4 || rms > 0.8 {
 		t.Fatalf("dithered silence is %.2f LSB, want about 0.6", rms)
+	}
+}
+
+func TestAWAVsTagsFollowItsSoundAndAreCounted(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tagged.wav")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w, err := NewWAVWriter(f, 44100, 16, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.Tags = []WAVTag{{"INAM", "Night Engine"}, {"IART", "The Oscillators"}, {"IGNR", ""}, {"ITRK", "1"}}
+	if err = w.Write(make([]float32, 2*441)); err != nil {
+		t.Fatal(err)
+	}
+	if err = w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_ = f.Close()
+	b, _ := os.ReadFile(path)
+	if got := binary.LittleEndian.Uint32(b[4:]); int(got) != len(b)-8 {
+		t.Fatalf("the RIFF size is %d, the file %d bytes after it", got, len(b)-8)
+	}
+	tail := string(b[44+441*4:])
+	for _, want := range []string{"LIST", "INFO", "INAM", "Night Engine\x00", "IART", "The Oscillators\x00", "ITRK"} {
+		if !strings.Contains(tail, want) {
+			t.Fatalf("the tags after the sound lack %q: %q", want, tail)
+		}
+	}
+	if strings.Contains(tail, "IGNR") {
+		t.Fatal("an empty tag was written")
+	}
+	// The file still reads, its sound as long as was written.
+	r, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = r.Close() }()
+	src, _, err := DecodeNative(r)
+	if err != nil || src.Len() != 441 {
+		t.Fatalf("read back, the file is %d frames (%v)", src.Len(), err)
 	}
 }

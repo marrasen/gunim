@@ -203,7 +203,8 @@ after. An `EQ` is such an insert: a parametric equalizer of bells,
 shelves, cuts and notches, whose bands glide to new settings without
 clicks. A `LoudnessMeter` measures integrated loudness in LUFS as
 ITU-R BS.1770 defines it, as EBU R128 and ReplayGain 2 use it, and
-`FormatOf` says what a decoded sound was stored as. Its `Range` reads
+`FormatOf` says what a decoded sound was stored as, and a `WAVWriter`
+writes 16 or 24-bit WAV, dithered, or 32-bit float, tagged. Its `Range` reads
 the loudness range, LRA, as EBU Tech 3342 defines it, and several
 sounds' readings pooled measure an album as one.
 
