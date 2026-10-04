@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 	"unicode/utf16"
 	"unsafe"
 )
@@ -135,6 +136,8 @@ type Plugin struct {
 	editsMade atomic.Uint64
 
 	closed bool
+	// active says the plugin is set up to process, as New leaves it.
+	active bool
 	// ed is the editor, open, on the plugins' thread.
 	ed         *editor
 	editorOpen atomic.Bool
@@ -312,6 +315,7 @@ func (p *Plugin) activate() error {
 	}
 	p.latency.Store(int32(call(p.proc, mGetLatencySamples)))
 	call(p.proc, mSetProcessing, 1)
+	p.active = true
 	return nil
 }
 
@@ -319,6 +323,23 @@ func (p *Plugin) activate() error {
 func (p *Plugin) deactivate() {
 	call(p.proc, mSetProcessing, 0)
 	call(p.comp, mSetActive, 0)
+	p.active = false
+}
+
+// SetActive starts or stops the plugin's processing. A plugin stopped
+// takes no time of the computer's, nor sound; started again, it starts
+// from silence. Process must not run meanwhile.
+func (p *Plugin) SetActive(on bool) error {
+	var err error
+	onUI(func() {
+		switch {
+		case on && !p.active:
+			err = p.activate()
+		case !on && p.active:
+			p.deactivate()
+		}
+	})
+	return err
 }
 
 // Latency is how many frames late the plugin's sound comes out.
@@ -336,8 +357,10 @@ func (p *Plugin) Latency() int {
 // filters' and delays' memories, for a jump in the sound.
 func (p *Plugin) Reset() {
 	onUI(func() {
-		p.deactivate()
-		_ = p.activate()
+		if p.active {
+			p.deactivate()
+			_ = p.activate()
+		}
 	})
 	p.ctx.projectTime = 0
 }
@@ -349,7 +372,7 @@ func (p *Plugin) SetPosition(frame int64) { p.ctx.projectTime = frame }
 // Process runs the stereo frames, interleaved, through the plugin, in
 // place.
 func (p *Plugin) Process(frames []float32) {
-	if p.closed {
+	if p.closed || !p.active {
 		return
 	}
 	n := len(frames) / 2
@@ -408,6 +431,23 @@ func (p *Plugin) block(frames []float32, k int) {
 		}
 		p.mu.Unlock()
 	}
+}
+
+// Flush passes the changes waiting for the processor on, as a plugin
+// not processing takes them, so its state holds them: with a moment of
+// silence, as not every plugin takes them without sound, as VST3 allows.
+// It must not run alongside Process.
+func (p *Plugin) Flush() {
+	if p.closed || !p.active {
+		return
+	}
+	p.mu.Lock()
+	waiting := len(p.edits) > 0
+	p.mu.Unlock()
+	if !waiting {
+		return
+	}
+	p.Process(make([]float32, 2*32))
 }
 
 // edited takes a change of the editor's, for the processor.
@@ -574,7 +614,7 @@ func (p *Plugin) Close() {
 		if p.ed != nil {
 			p.ed.close()
 		}
-		if p.proc != 0 {
+		if p.proc != 0 && p.active {
 			p.deactivate()
 		}
 		if p.compCP != 0 && p.ctrlCP != 0 {
@@ -603,4 +643,29 @@ func (p *Plugin) Close() {
 		p.inChanges.free()
 		p.outChanges.free()
 	}
+}
+
+// Bypass returns the plugin's bypass parameter, where it has one: set to
+// 1, the plugin passes the sound by itself, keeping its latency.
+func (p *Plugin) Bypass() (id uint32, ok bool) {
+	for _, q := range p.Params() {
+		if q.Bypass {
+			return q.ID, true
+		}
+	}
+	return 0, false
+}
+
+// Prime runs a block of silence through the plugin, and waits up to
+// wait for it to tell a change of its latency, as some plugins tell
+// only once they process; then it resets the plugin. A host that must
+// know the latency from the start, as an offline render does, primes.
+func (p *Plugin) Prime(wait time.Duration) {
+	p.Process(make([]float32, 2*p.cfg.Block))
+	for end := time.Now().Add(wait); time.Now().Before(end); time.Sleep(5 * time.Millisecond) {
+		if p.restarts.Load()&restartLatency != 0 {
+			break
+		}
+	}
+	p.Reset()
 }

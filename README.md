@@ -149,7 +149,11 @@ compare them by ear. Each is measured as it will be exported, loudness
 and true peak, as an edit settles, and the album exports each track at
 its own length, to 16 or 24-bit WAV with dither, or 32-bit float.
 Meters show loudness against the target, the stereo image and the
-spectrum.
+spectrum. Each track runs through its own chain of VST3 plugins, such
+as Ozone. Only the track heard runs its plugins, so the rest cost the
+computer nothing. A chain copies to other tracks with every plugin as
+set, and a track is measured and exported through a copy of its own
+chain, run offline.
 
 ```sh
 go run ./example/mastering mix1.wav mix2.wav
@@ -192,6 +196,12 @@ shelves, cuts and notches, whose bands glide to new settings without
 clicks. A `LoudnessMeter` measures integrated loudness in LUFS as
 ITU-R BS.1770 defines it, as EBU R128 and ReplayGain 2 use it, and
 `FormatOf` says what a decoded sound was stored as.
+
+Package `audio/vst3` hosts VST3 plugins, in pure Go. It finds the
+plugins in the system's folders and loads one. It runs stereo sound
+through an effect in realtime or offline, and saves and restores its
+state. It shows the effect's own editor in a window, on Windows and
+Linux.
 
 Widgets play cues as the user works them: a press, a switch turning on
 or off, a menu opening. They are silent until an application chooses
@@ -513,6 +523,7 @@ writes them again from a newer Lucide.
 | `gunim/audio` | A mixer, voices with animated volume and pan, clips, decoders for WAV, MP3, Ogg Vorbis and FLAC, and an analyzer for visuals |
 | `gunim/audio/speaker` | Plays a mixer through the speakers, with oto |
 | `gunim/audio/cues` | Quiet sounds made in code for the widgets' cues |
+| `gunim/audio/vst3` | Hosts VST3 effects: their sound, state, parameters and editors |
 | `gunim/paint` | The per-frame draw list: rounded rects, shadows, text, images, tinted masks, layers |
 | `gunim/icon` | Lucide's icons as strokes, drawn as tinted masks; `icon/byname` looks them up by name |
 | `gunim/geom` | float32 points, sizes, rectangles |

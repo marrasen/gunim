@@ -32,6 +32,9 @@ type Class struct {
 	Vendor, Version               string
 }
 
+// IDString writes the class's ID as hexadecimal, as a project keeps it.
+func (c Class) IDString() string { return fmt.Sprintf("%X", c.ID[:]) }
+
 // Effect says whether the class is an audio effect, a component a host
 // runs sound through.
 func (c Class) Effect() bool { return c.Category == "Audio Module Class" }
@@ -73,6 +76,14 @@ func Open(path string) (*Module, error) {
 	if err != nil {
 		return nil, err
 	}
+	var m *Module
+	onUI(func() { m, err = load(path, bin) })
+	return m, err
+}
+
+// load loads the library bin of the plugin at path, on the plugins'
+// thread, as a module expects to be loaded.
+func load(path, bin string) (*Module, error) {
 	lib, err := openLibrary(bin)
 	if err != nil {
 		return nil, fmt.Errorf("vst3: %s: %w", path, err)
@@ -169,9 +180,24 @@ func (m *Module) create(id, iid uid) uintptr {
 // Close lets go of the module's factory and unloads its library. The
 // plugins made from it must be closed first.
 func (m *Module) Close() error {
-	if m.factory != 0 {
-		release(m.factory)
-		m.factory = 0
+	var err error
+	onUI(func() {
+		if m.factory != 0 {
+			release(m.factory)
+			m.factory = 0
+		}
+		err = m.lib.close()
+	})
+	return err
+}
+
+// Find returns the effect of the module with the ID id, written as
+// [Class.IDString] writes it.
+func (m *Module) Find(id string) (Class, bool) {
+	for _, c := range m.Classes {
+		if c.IDString() == id {
+			return c, true
+		}
 	}
-	return m.lib.close()
+	return Class{}, false
 }
