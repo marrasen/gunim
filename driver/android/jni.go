@@ -15,6 +15,7 @@ import (
 	"unicode/utf16"
 	"unsafe"
 
+	"github.com/marrasen/gunim/driver"
 	"github.com/marrasen/gunim/input"
 )
 
@@ -175,18 +176,35 @@ func utf16Of(s string) ([]uint16, *C.uint16_t) {
 	return u, (*C.uint16_t)(unsafe.Pointer(&u[0]))
 }
 
-// keepRunning starts the foreground service, or changes its
-// notification, or stops it.
-func keepRunning(on bool, title, text string) {
-	t, tp := utf16Of(title)
-	x, xp := utf16Of(text)
-	v := 0
-	if on {
-		v = 1
+// nowPlaying hands what plays to the media session, or takes it away
+// for nil.
+func nowPlaying(np *driver.NowPlaying) {
+	if np == nil {
+		C.gunim_now_playing(0, 0, nil, 0, nil, 0, nil, 0, 0, 0, nil, 0)
+		return
 	}
-	C.gunim_keep_running(C.int(v), tp, C.int(len(t)), xp, C.int(len(x)))
+	t, tp := utf16Of(np.Title)
+	r, rp := utf16Of(np.Artist)
+	l, lp := utf16Of(np.Album)
+	var art unsafe.Pointer
+	if len(np.Cover) > 0 {
+		art = unsafe.Pointer(&np.Cover[0])
+	}
+	playing := 0
+	if np.Playing {
+		playing = 1
+	}
+	C.gunim_now_playing(1, C.int(playing), tp, C.int(len(t)), rp, C.int(len(r)), lp, C.int(len(l)),
+		C.longlong(np.Length.Milliseconds()), C.longlong(np.Position.Milliseconds()), art, C.int(len(np.Cover)))
 	runtime.KeepAlive(t)
-	runtime.KeepAlive(x)
+	runtime.KeepAlive(r)
+	runtime.KeepAlive(l)
+	runtime.KeepAlive(np.Cover)
+}
+
+//export goMedia
+func goMedia(action C.int, ms C.longlong) {
+	theDriver.media(int(action), time.Duration(ms)*time.Millisecond)
 }
 
 // buzz gives the short buzz a long press gives.

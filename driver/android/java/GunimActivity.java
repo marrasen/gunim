@@ -91,18 +91,6 @@ public class GunimActivity extends Activity {
 		}
 	}
 
-	/**
-	 * askToNotify asks, once, to show notifications, which Android 13
-	 * and later need for the notification of a program kept running in
-	 * the background. Without it, the program runs on all the same.
-	 */
-	void askToNotify() {
-		if (android.os.Build.VERSION.SDK_INT >= 33
-			&& checkSelfPermission("android.permission.POST_NOTIFICATIONS") != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-			requestPermissions(new String[] {"android.permission.POST_NOTIFICATIONS"}, 1);
-		}
-	}
-
 	// The program hears when the activity can no longer be seen, gone to
 	// the background, and when it can again, to stop and start what only
 	// matters while it is seen, as a game's music.

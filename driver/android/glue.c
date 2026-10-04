@@ -12,7 +12,7 @@
 
 static JavaVM *vm;
 static jclass nativeClass;
-static jmethodID midKeepRunning, midShowKeyboard, midCaret, midBuzz, midTextState, midClearTextState, midGetClipboard, midSetClipboard, midFinish;
+static jmethodID midNowPlaying, midShowKeyboard, midCaret, midBuzz, midTextState, midClearTextState, midGetClipboard, midSetClipboard, midFinish;
 
 // JNI_OnLoad runs on the thread that loads the library, which has the
 // application's class loader, so it looks up the class Go calls back.
@@ -28,7 +28,8 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *v, void *reserved) {
 	}
 	nativeClass = (*env)->NewGlobalRef(env, c);
 	midShowKeyboard = (*env)->GetStaticMethodID(env, c, "showKeyboard", "(Z)V");
-	midKeepRunning = (*env)->GetStaticMethodID(env, c, "keepRunning", "(ZLjava/lang/String;Ljava/lang/String;)V");
+	midNowPlaying = (*env)->GetStaticMethodID(env, c, "nowPlaying",
+		"(ZZLjava/lang/String;Ljava/lang/String;Ljava/lang/String;JJ[B)V");
 	midCaret = (*env)->GetStaticMethodID(env, c, "caret", "(IIII)V");
 	midBuzz = (*env)->GetStaticMethodID(env, c, "buzz", "()V");
 	midTextState = (*env)->GetStaticMethodID(env, c, "textState", "([CIIIIIZZJ)V");
@@ -64,15 +65,31 @@ void gunim_show_keyboard(int show) {
 	envPut(a);
 }
 
-void gunim_keep_running(int on, const uint16_t *title, int nt, const uint16_t *text, int nx) {
+void gunim_now_playing(int on, int playing, const uint16_t *title, int nt, const uint16_t *artist, int na,
+	const uint16_t *album, int nl, long long length, long long position, const void *art, int nart) {
 	int a;
 	JNIEnv *env = envGet(&a);
 	jstring jt = (*env)->NewString(env, (const jchar *)title, nt);
-	jstring jx = (*env)->NewString(env, (const jchar *)text, nx);
-	(*env)->CallStaticVoidMethod(env, nativeClass, midKeepRunning, (jboolean)(on != 0), jt, jx);
+	jstring jr = (*env)->NewString(env, (const jchar *)artist, na);
+	jstring jl = (*env)->NewString(env, (const jchar *)album, nl);
+	jbyteArray ja = NULL;
+	if (nart > 0) {
+		ja = (*env)->NewByteArray(env, nart);
+		(*env)->SetByteArrayRegion(env, ja, 0, nart, (const jbyte *)art);
+	}
+	(*env)->CallStaticVoidMethod(env, nativeClass, midNowPlaying, (jboolean)(on != 0), (jboolean)(playing != 0),
+		jt, jr, jl, (jlong)length, (jlong)position, ja);
 	(*env)->DeleteLocalRef(env, jt);
-	(*env)->DeleteLocalRef(env, jx);
+	(*env)->DeleteLocalRef(env, jr);
+	(*env)->DeleteLocalRef(env, jl);
+	if (ja != NULL) {
+		(*env)->DeleteLocalRef(env, ja);
+	}
 	envPut(a);
+}
+
+JNIEXPORT void JNICALL Java_gunim_android_Native_media(JNIEnv *env, jclass c, jint action, jlong ms) {
+	goMedia(action, ms);
 }
 
 void gunim_caret(int x0, int y0, int x1, int y1) {

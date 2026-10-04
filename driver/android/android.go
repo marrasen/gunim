@@ -410,12 +410,53 @@ const (
 
 // windowFocus tells the windows that fill the screen that the activity
 // has the keyboard, or has lost it.
-// KeepRunning implements [driver.Keeper]: a foreground service, its
-// notification showing title and text, keeps the process running while
-// the activity is in the background.
-func (d *Driver) KeepRunning(on bool, title, text string) error {
-	keepRunning(on, title, text)
+// SetNowPlaying implements [driver.NowPlayer]: a media session shows
+// what plays in Android's media controls, and a foreground service keeps
+// the process running while it plays in the background.
+func (d *Driver) SetNowPlaying(np *driver.NowPlaying) error {
+	nowPlaying(np)
 	return nil
+}
+
+// The media controls' actions, as GunimService sends them.
+const (
+	mediaPlay = iota + 1
+	mediaPause
+	mediaPlayPause
+	mediaNext
+	mediaPrevious
+	mediaStop
+	mediaSeek
+)
+
+// media takes an action of the media controls to the window that fills
+// the screen, as a media key or a seek to at.
+func (d *Driver) media(action int, at time.Duration) {
+	d.mu.Lock()
+	var top *Window
+	for _, w := range d.windows {
+		if w.fills {
+			top = w
+		}
+	}
+	d.mu.Unlock()
+	if top == nil {
+		return
+	}
+	now := time.Now()
+	if action == mediaSeek {
+		top.in.Push(input.MediaSeek{At: at, Time: now})
+		return
+	}
+	k, ok := map[int]input.Key{
+		mediaPlay: input.KeyMediaPlay, mediaPause: input.KeyMediaPause, mediaPlayPause: input.KeyMediaPlayPause,
+		mediaNext: input.KeyMediaNext, mediaPrevious: input.KeyMediaPrevious, mediaStop: input.KeyMediaStop,
+	}[action]
+	if !ok {
+		return
+	}
+	top.in.Push(input.KeyPress{Key: k, Time: now})
+	top.in.Push(input.KeyRelease{Key: k, Time: now})
 }
 
 // shown tells the windows that fill the screen that the application went

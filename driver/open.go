@@ -64,14 +64,27 @@ type TextBoxPlacer interface {
 	SetTextBox(r geom.Rect)
 }
 
-// A Keeper is a [Driver] on a system that stops applications it cannot
-// see, as a phone's does. KeepRunning with on asks it to let the
-// application run on unseen, as a music player playing does, telling
-// the user so in a notification of title and text, which brings the
-// application back when tapped; called again it changes the
-// notification. With on false the application may be stopped again.
-type Keeper interface {
-	KeepRunning(on bool, title, text string) error
+// NowPlaying is what a media application plays, for the system's media
+// controls.
+type NowPlaying struct {
+	Title, Artist, Album string
+	// Cover is the artwork, as PNG or JPEG, or nil.
+	Cover []byte
+	// Length is how long it lasts, zero where that is unknown, and
+	// Position how far it has played, as of now.
+	Length, Position time.Duration
+	Playing          bool
+}
+
+// A NowPlayer is a [Driver] that shows what an application plays in the
+// system's media controls, as a phone's lock screen, its quick settings
+// and its notifications do, and keeps the application running while it
+// plays unseen. The controls' buttons arrive at the application's main
+// window as the media keys of package input, and a move along the
+// controls' bar as [input.MediaSeek]. SetNowPlaying with nil takes the
+// controls away.
+type NowPlayer interface {
+	SetNowPlaying(np *NowPlaying) error
 }
 
 // A SafeAreaer is a [Window] the system draws over in part, as a

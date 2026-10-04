@@ -63,3 +63,27 @@ func TestAHiddenWindowDrawsNothingUntilShownOrLeaving(t *testing.T) {
 		t.Fatalf("shown again: draws %v, resumed %v; want it drawing, from where it held", w.draws(), w.resumed)
 	}
 }
+
+// hearsSeek records the media seeks it hears.
+type hearsSeek struct{ at []time.Duration }
+
+func (*hearsSeek) Layout(c Constraints, _ Frame, _ Children) geom.Size { return c.Max }
+func (*hearsSeek) Paint(*paint.Painter, Frame, geom.Size, Children)    {}
+func (*hearsSeek) Focusable() bool                                     { return true }
+func (h *hearsSeek) Handle(e input.Event, _ *UI) bool {
+	if s, ok := e.(input.MediaSeek); ok {
+		h.at = append(h.at, s.At)
+		return true
+	}
+	return false
+}
+
+func TestAMediaSeekGoesToTheFocusedNode(t *testing.T) {
+	h := &hearsSeek{}
+	w := NewOffscreen(geom.Sz(200, 200), h)
+	w.Frame(time.Second / 60)
+	w.Input(input.MediaSeek{At: 42 * time.Second})
+	if len(h.at) != 1 || h.at[0] != 42*time.Second {
+		t.Fatalf("heard seeks %v, want 42s", h.at)
+	}
+}

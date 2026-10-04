@@ -91,16 +91,22 @@ type App struct {
 	windows windows
 }
 
-// KeepRunning keeps the application running while none of its windows
-// can be seen, as a music player playing does, and tells the user so:
-// on a phone, which would stop it, a notification shows title and body,
-// and brings the application back when tapped. Called again, it changes
-// the notification. With on false, the application may be stopped
-// again. Where applications run unseen anyway, as on a desktop, it does
+// NowPlaying is what a media application plays; see [App.SetNowPlaying].
+type NowPlaying = driver.NowPlaying
+
+// SetNowPlaying shows what the application plays in the system's media
+// controls, where it has them, as a phone's lock screen and quick
+// settings, and keeps the application running while it plays unseen:
+// a phone would stop it otherwise. The controls' buttons arrive at the
+// main window as the media keys, [input.KeyMediaPlayPause] and the
+// rest, which the application handles as it would a keyboard's; a move
+// along their bar arrives as [input.MediaSeek]. Call it as what plays
+// changes: a track, playing or paused, a seek. nil takes the controls
+// away. Where there are no such controls, as on a desktop, it does
 // nothing.
-func (a *App) KeepRunning(on bool, title, body string) error {
-	if k, ok := a.drv.(driver.Keeper); ok {
-		return k.KeepRunning(on, title, body)
+func (a *App) SetNowPlaying(np *NowPlaying) error {
+	if p, ok := a.drv.(driver.NowPlayer); ok {
+		return p.SetNowPlaying(np)
 	}
 	return nil
 }

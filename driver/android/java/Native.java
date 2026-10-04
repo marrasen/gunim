@@ -31,6 +31,7 @@ public final class Native {
 	static native void shown(boolean shown);
 	static native void keyboard(int px);
 	static native void insets(int top, int right, int bottom, int left);
+	static native void media(int action, long position);
 	static native void edit(String with, int replaceStart, int replaceEnd, int selAnchor, int selCaret,
 		int compStart, int compEnd, long seq);
 	static native void text(String s);
@@ -38,27 +39,10 @@ public final class Native {
 
 	// Called from Go.
 
-	static void keepRunning(boolean on, String title, String text) {
-		ui.post(() -> {
-			if (app == null) {
-				return;
-			}
-			if (!on) {
-				app.stopService(new android.content.Intent(app, GunimService.class));
-				return;
-			}
-			if (GunimService.update(title, text)) {
-				return;
-			}
-			GunimActivity a = activity;
-			if (a != null) {
-				a.askToNotify();
-			}
-			android.content.Intent i = new android.content.Intent(app, GunimService.class);
-			i.putExtra("title", title);
-			i.putExtra("text", text);
-			app.startForegroundService(i);
-		});
+	static void nowPlaying(boolean on, boolean playing, String title, String artist, String album,
+		long length, long position, byte[] art) {
+		GunimService.State st = on ? new GunimService.State(playing, title, artist, album, length, position, art) : null;
+		ui.post(() -> GunimService.show(app, st));
 	}
 
 	static void showKeyboard(boolean show) {
