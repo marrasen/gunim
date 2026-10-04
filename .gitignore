@@ -9,3 +9,5 @@ dist/
 /widgets
 /files
 *.exe
+/mastering
+/example/mastering/mastering
