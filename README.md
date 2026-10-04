@@ -118,10 +118,14 @@ go run ./example/music
 go run ./example/music -dir ~/Music
 ```
 
-It always has four songs made in code, so it plays anywhere. `-dir`
-adds a folder's MP3, FLAC, Ogg Vorbis and WAV files, with their tags and
-covers. Space plays and pauses, the arrows seek and set the volume, and
-N and P skip.
+It always has four songs made in code, so it plays anywhere. Its
+library follows folders of MP3, FLAC, Ogg Vorbis and WAV files, with
+their tags and covers: tracks copied in join it within seconds, and
+tracks deleted leave. It follows your music folder from the first run,
+and `-dir` or the library's Add a folder adds more. Playlists gather
+tracks by hand, and their rows move by their grips. The library and the
+playlists are kept between runs. Space plays and pauses, the arrows
+seek and set the volume, and N and P skip.
 
 ![The music player](example/music/music.png)
 
@@ -235,6 +239,32 @@ to another machine with both halves unchanged.
 
 Local interaction stays local. A dialog closes itself on the frame the
 button is released, and tells the application afterwards.
+
+### What the split gives every application
+
+Each of these comes from the split itself, so every gunim application
+has it with no code of its own:
+
+- **A window out of sight rests while the application works on.** A
+  minimized window, or one whose phone application went to the
+  background, draws nothing and holds its animations. The application
+  half runs apart from the frames, so music keeps playing, timers keep
+  firing and files keep loading. Shown again, the window draws the
+  latest state at once.
+- **The window stays smooth while the application is busy.** Slow
+  disks, networks and long computations happen in the application half,
+  and the window keeps drawing at the display's rate meanwhile.
+- **The application pushes state as fast as it likes.** The window
+  draws only the latest state each frame; see [Push as hard as you
+  like](#push-as-hard-as-you-like).
+- **Interaction answers on the next frame.** A press, a drag or a
+  dialog closing happens in the window, and the application hears of it
+  afterwards.
+- **Each half is tested on its own.** Tests drive the application half
+  with intents and read the state it publishes, and drive the window
+  half with input and state in an offscreen window, frame by frame.
+- **The application can move to another machine.** The halves trade
+  plain values, so a socket can carry them; see above.
 
 ## Topics and patches
 
