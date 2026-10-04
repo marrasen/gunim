@@ -88,3 +88,49 @@ func TestTabScrollsATallDialogToTheField(t *testing.T) {
 		t.Fatalf("Tab to field 20 left it at %v, out of the window 500 high", at)
 	}
 }
+
+// A dialog's form taller than the window, of no scroll of its own,
+// scrolls in one of the dialog's: it ends above the buttons, which stay
+// in the window, and the wheel moves it.
+func TestATallFormScrollsInItsDialog(t *testing.T) {
+	form := NewForm()
+	fields := make([]*TextField, 0, 30)
+	for range 30 {
+		f := NewTextField()
+		fields = append(fields, f)
+		form.Add("Field", f)
+	}
+	d := NewDialog("Tall")
+	d.Body = form
+	d.SetButtons("OK", "Cancel")
+	w := gunimtest.New(t, geom.Sz(800, 500), nil)
+	gunim.RegisterView(w, "d", func(struct{}) gunim.Node { return d }, nil)
+	if err := w.Client().Mount(gunim.Root, "d", "d", nil); err != nil {
+		t.Fatal(err)
+	}
+	run := func(n int) {
+		for range n {
+			w.Frame(time.Second / 60)
+		}
+	}
+	run(40)
+	var u *gunim.UI
+	gunim.RegisterPatch(w, "d", func(_ gunim.Node, _ probeFocus, ui *gunim.UI) { u = ui })
+	if err := w.Client().Patch("d", probeFocus{}); err != nil {
+		t.Fatal(err)
+	}
+	run(1)
+	held, _ := u.Bounds(d.scroll)
+	ok, _ := u.Bounds(d.ok)
+	if ok.Max.Y > 500 || ok.Min.Y < 0 || held.Max.Y > ok.Min.Y {
+		t.Fatalf("the form runs to %v, the OK button is at %v, in a window 500 high", held.Max.Y, ok)
+	}
+	before, _ := u.Bounds(fields[0])
+	w.Input(input.PointerMove{Pos: geom.Pt(400, 200)})
+	w.Input(input.Scroll{Pos: geom.Pt(400, 200), Delta: geom.Pt(0, -120)})
+	run(60)
+	after, _ := u.Bounds(fields[0])
+	if after.Min.Y > before.Min.Y-100 {
+		t.Fatalf("the wheel moved the first field from %v to %v", before.Min.Y, after.Min.Y)
+	}
+}
