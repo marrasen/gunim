@@ -153,7 +153,10 @@ spectrum. Each track runs through its own chain of VST3 plugins, such
 as Ozone. Only the track heard runs its plugins, so the rest cost the
 computer nothing. A chain copies to other tracks with every plugin as
 set, and a track is measured and exported through a copy of its own
-chain, run offline.
+chain, run offline. Album play runs on from each track into the next
+without a gap, as the exported files will play. A new mix replaces a
+track's file with its edit and chain kept. The waveform zooms in to
+the samples themselves, and up to show quiet sound.
 
 ```sh
 go run ./example/mastering mix1.wav mix2.wav
