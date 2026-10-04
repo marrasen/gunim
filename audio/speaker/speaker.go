@@ -17,7 +17,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ebitengine/oto/v3"
+	"github.com/marrasen/oto/v3"
 
 	"github.com/marrasen/gunim/audio"
 )
