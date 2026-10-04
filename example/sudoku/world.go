@@ -54,6 +54,10 @@ func (r *worldRoot) show(s World, u *gunim.UI) {
 		r.game.show(s.Game, u)
 	}
 	r.m.show(was, s)
+	if s.Map && !was.Map {
+		// Pac-Man stops eating as the game zooms away.
+		r.game.board.sendPacmanAway()
+	}
 	if s.Sound != was.Sound || !r.shown {
 		r.shown = true
 		r.game.sfx.setMode(s.Sound)

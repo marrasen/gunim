@@ -30,6 +30,21 @@ type cellAnim struct {
 	// size.
 	gone int8
 	out  *anim.Float
+	// cheering says the candy cheers as its digit is picked, cheerAt
+	// seconds in, below zero while it waits its turn.
+	cheering bool
+	cheerAt  float32
+	// entering says the candy is coming in with a new level, from side,
+	// -1 the left and 1 the right, enterAt seconds after it set off,
+	// below zero while it waits its turn.
+	entering bool
+	enterAt  float32
+	side     float32
+	// hint says the candy entering is a hint's, to light its cell as it
+	// lands.
+	hint bool
+	// eaten says Pac-Man has eaten the candy.
+	eaten bool
 }
 
 // ghost is a wrong candy: it shakes, flushes red, and shrinks away.
@@ -63,6 +78,8 @@ type board struct {
 	// panelImg is the panel drawn last, panelPx pixels across.
 	panelImg *paint.Image
 	panelPx  int
+	// pac is Pac-Man, out to eat a won board.
+	pac pacman
 }
 
 func newBoard(r *gameRoot) *board {
@@ -72,24 +89,29 @@ func newBoard(r *gameRoot) *board {
 		c.pop, c.glow, c.out = anim.NewFloat(1), anim.NewFloat(0), anim.NewFloat(0)
 		b.Add(c.pop, c.glow, c.out)
 	}
+	b.pac.fade = anim.NewFloat(1)
+	b.Add(b.pac.fade)
 	return b
 }
 
 // show takes the board as it is now: candies gone from it shrink away.
+// A new game's candies run in.
 func (b *board) show(g Game, fresh bool) {
-	for c := range 81 {
-		if fresh {
-			b.cells[c].gone = 0
-			// A new game's candies drop in, a wave from the top left.
-			if g.Cells[c] != 0 {
-				b.bounce(c, float32(c/9+c%9)*0.035, true)
-			}
-			continue
+	if fresh {
+		b.pac.on = false
+		for c := range b.cells {
+			b.cells[c].gone, b.cells[c].eaten = 0, false
 		}
+		b.enter(g)
+		b.shown = g.Cells
+		return
+	}
+	for c := range 81 {
 		if b.shown[c] != 0 && g.Cells[c] == 0 {
-			b.cells[c].gone = b.shown[c]
-			b.cells[c].out.Jump(1)
-			b.cells[c].out.Animate(0, anim.Spring{Response: 0.25, Damping: 1})
+			k := &b.cells[c]
+			k.gone, k.entering, k.cheering = b.shown[c], false, false
+			k.out.Jump(1)
+			k.out.Animate(0, anim.Spring{Response: 0.25, Damping: 1})
 		}
 	}
 	b.shown = g.Cells
@@ -145,11 +167,23 @@ func (b *board) celebrate() {
 	}
 }
 
-// hinted lights cell c as a hint lands its candy.
+// hinted brings a hint's candy into cell c as a new level's come: it
+// runs in from its side and leaps up, and lights the cell as it lands.
 func (b *board) hinted(c int) {
-	b.land(c)
+	k := &b.cells[c]
+	k.cheering, k.gone = false, 0
+	k.entering, k.enterAt, k.hint = true, 0, true
+	k.side = sideOf(c)
+	k.pop.Jump(1)
+}
+
+// hintLanded lights cell c, its hint's candy just landed.
+func (b *board) hintLanded(c int) {
 	b.cells[c].glow.Jump(1)
 	b.cells[c].glow.Animate(0, anim.Tween{Duration: 1400 * time.Millisecond})
+	at := b.root.cellCenter(c)
+	b.root.sfx.hint(b.root.pan(at))
+	b.root.fx.burst(at, 30, sparkle, 340, gold, white, rgb(0xff, 0xf3, 0xb0))
 }
 
 // Step implements [gunim.Animator].
@@ -173,6 +207,32 @@ func (b *board) Step(dt time.Duration) bool {
 				k.start()
 			}
 		}
+		if k.cheering {
+			k.cheerAt += s
+			moving = true
+			if k.cheerAt >= cheerLife {
+				k.cheering = false
+			}
+		}
+		if k.entering {
+			k.enterAt += s
+			moving = true
+			if _, _, _, run, leap := b.enterPath(i); k.enterAt >= run+leap {
+				// Landed: it squashes as jelly does.
+				k.entering = false
+				k.pop.Jump(0.72)
+				k.pop.Animate(1, anim.Spring{Response: 0.32, Damping: 0.3})
+				if k.hint {
+					k.hint = false
+					b.hintLanded(i)
+				} else {
+					b.root.sfx.pop(b.root.pan(b.root.cellCenter(i)))
+				}
+			}
+		}
+	}
+	if b.stepPacman(s) {
+		moving = true
 	}
 	if b.Group.Step(dt) {
 		moving = true
@@ -296,6 +356,12 @@ func (b *board) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Ch
 		case sel >= 0 && sharesUnit(sel, c):
 			p.RRect(r, s*0.22, paint.Solid(faded(rgb(0xff, 0xf0, 0xff), 0.14)))
 		}
+		if d := g.Cells[c]; d != 0 && d == selDigit && sel != c && !b.cells[c].eaten {
+			// The same digits as the selected glow, still: breathing
+			// all across the board, they would have each frame draw
+			// most of it again.
+			p.RRect(r, s*0.22, paint.Solid(faded(rgb(0xff, 0xf3, 0xa0), 0.45)))
+		}
 		if gl := b.cells[c].glow.Value(); gl > 0.01 {
 			p.ShadowRRect(r, s*0.22, paint.Solid(faded(rgb(0xff, 0xe0, 0x7a), 0.5*gl)),
 				paint.Shadow{Blur: s * 0.5, Color: faded(rgb(0xff, 0xd0, 0x40), gl)})
@@ -311,6 +377,15 @@ func (b *board) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Ch
 			}
 		}
 	}
+	// The light cheering candies send along their rows and columns.
+	var light [81]float32
+	if b.cheerLight(&light) {
+		for c, a := range light {
+			if a > 0.02 {
+				p.RRect(cellRect(c, w), s*0.22, paint.Solid(faded(white, 0.6*a)))
+			}
+		}
+	}
 	// The selected cell: a ring that breathes.
 	if sel >= 0 {
 		r := cellRect(sel, w)
@@ -323,29 +398,37 @@ func (b *board) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Ch
 	}
 
 	numbered := b.root.numbered
+	inset := s * 0.07
 	for c := range 81 {
 		r := cellRect(c, w)
 		k := &b.cells[c]
 		mid := geom.Pt((r.Min.X+r.Max.X)/2, (r.Min.Y+r.Max.Y)/2)
 		if d := g.Cells[c]; d != 0 {
+			if k.entering || k.eaten {
+				continue
+			}
 			pop := k.pop.Value()
 			// Past full size it squashes wide and short, then tall.
 			over := pop - 1
 			sx, sy := pop*(1+0.9*over), pop*(1-0.9*over)
 			// A dropped candy falls in from above as it grows.
 			dy := (1 - min(pop, 1)) * -s * 0.6
-			if d == selDigit && sel != c {
-				// The same digits as the selected glow, still: breathing
-				// all across the board, they would have each frame draw
-				// most of it again.
-				p.RRect(r, s*0.22, paint.Solid(faded(rgb(0xff, 0xf3, 0xa0), 0.45)))
+			var hop, grow, squash, lean float32
+			if k.cheering {
+				hop, grow, squash, lean = cheerPose(k.cheerAt)
 			}
+			sx, sy = sx*(1+squash), sy*(1-squash)
 			func() {
 				// Scaled about its bottom, as jelly squashes on landing.
 				base := geom.Pt(mid.X, r.Max.Y)
-				defer p.Push(paint.Translate(geom.Pt(0, dy)))()
+				defer p.Push(paint.Translate(geom.Pt(0, dy-hop*s)))()
+				if lean != 0 {
+					defer p.Push(paint.Rotate(lean, mid))()
+				}
+				if grow != 0 {
+					defer p.Push(paint.Scale(1+grow, mid))()
+				}
 				defer p.Push(paint.Transform{A: sx, E: sy, C: base.X * (1 - sx), F: base.Y * (1 - sy)})()
-				inset := s * 0.07
 				cr := geom.Rect{Min: r.Min.Add(geom.Pt(inset, inset)), Max: r.Max.Sub(geom.Pt(inset, inset))}
 				paintCandy(p, d, cr, min(1, pop*2), numbered, f.Scale)
 			}()
@@ -355,7 +438,6 @@ func (b *board) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Ch
 			if o := k.out.Value(); o > 0.01 {
 				func() {
 					defer p.Push(paint.Scale(o, mid))()
-					inset := s * 0.07
 					paintCandy(p, k.gone, geom.Rect{Min: r.Min.Add(geom.Pt(inset, inset)), Max: r.Max.Sub(geom.Pt(inset, inset))}, o, numbered, f.Scale)
 				}()
 			}
@@ -388,10 +470,25 @@ func (b *board) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Ch
 		func() {
 			defer p.Push(paint.Translate(geom.Pt(shake, 0)))()
 			defer p.Push(paint.Scale(scale, mid))()
-			inset := s * 0.07
 			paintCandy(p, gh.digit, geom.Rect{Min: r.Min.Add(geom.Pt(inset, inset)), Max: r.Max.Sub(geom.Pt(inset, inset))}, 1, numbered, f.Scale)
 		}()
 	}
+	// A new level's candies on their way in, over those landed.
+	half := s/2 - inset
+	for c := range b.cells {
+		k := &b.cells[c]
+		if !k.entering || k.enterAt < 0 || g.Cells[c] == 0 {
+			continue
+		}
+		at, sx, sy, lean := b.enterPose(c, k.enterAt)
+		foot := geom.Pt(at.X, at.Y+half)
+		func() {
+			defer p.Push(paint.Rotate(lean, foot))()
+			defer p.Push(paint.Transform{A: sx, E: sy, C: foot.X * (1 - sx), F: foot.Y * (1 - sy)})()
+			paintCandy(p, g.Cells[c], geom.Rc(at.X-half, at.Y-half, 2*half, 2*half), 1, numbered, f.Scale)
+		}()
+	}
+	b.paintPacman(p)
 }
 
 // panelShadow is how far below the board its shadow reaches.

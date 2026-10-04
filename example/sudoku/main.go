@@ -39,7 +39,14 @@ func main() {
 	after := flag.Duration("after", 2*time.Second, "how long -shot waits")
 	size := flag.String("size", "460x860", "the window's size, as 1100x760 for a wide one")
 	mute := flag.Bool("mute", false, "start with the sound off")
+	iconOut := flag.String("write-icon", "", "write the icon, 512 pixels square, to this PNG file, and quit")
 	flag.Parse()
+	if *iconOut != "" {
+		if err := writeIcon(*iconOut, 512); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	var w, h float32
 	if _, err := fmt.Sscanf(*size, "%gx%g", &w, &h); err != nil || w <= 0 || h <= 0 {
 		log.Fatalf("sudoku: -size %q: want a width and a height, as 460x860", *size)
@@ -70,7 +77,7 @@ func run(level int, saveIn string, runFor time.Duration, shot string, after time
 	}
 	s := newSFX(mix, spk)
 	err := gunim.Main(ctx, func(a *gunim.App) error {
-		w, err := a.NewWindow(gunim.WindowOptions{Title: "Candy Sudoku", Size: size})
+		w, err := a.NewWindow(gunim.WindowOptions{Title: "Candy Sudoku", Size: size, Icons: icons()})
 		if err != nil {
 			return fmt.Errorf("sudoku: %w", err)
 		}
