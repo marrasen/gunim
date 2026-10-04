@@ -95,15 +95,17 @@ type App struct {
 type NowPlaying = driver.NowPlaying
 
 // SetNowPlaying shows what the application plays in the system's media
-// controls, where it has them, as a phone's lock screen and quick
-// settings, and keeps the application running while it plays unseen:
-// a phone would stop it otherwise. The controls' buttons arrive at the
-// main window as the media keys, [input.KeyMediaPlayPause] and the
-// rest, which the application handles as it would a keyboard's; a move
-// along their bar arrives as [input.MediaSeek]. Call it as what plays
-// changes: a track, playing or paused, a seek. nil takes the controls
-// away. Where there are no such controls, as on a desktop, it does
-// nothing.
+// controls: a phone's lock screen and quick settings, the media panel
+// of GNOME and KDE through MPRIS, and the panel Windows opens beside
+// the volume. On a phone it keeps the application running while it
+// plays unseen, as the system would stop it otherwise. The controls'
+// buttons, and a keyboard's media keys, arrive at the main window, the
+// one used last, as the media keys of package input,
+// [input.KeyMediaPlayPause] and the rest, which the application handles
+// as it would any key; a move along their bar arrives as
+// [input.MediaSeek]. Call it as what plays changes: a track, playing or
+// paused, a seek. nil takes the controls away. Where the system has no
+// such controls, as macOS for now, it does nothing.
 func (a *App) SetNowPlaying(np *NowPlaying) error {
 	if p, ok := a.drv.(driver.NowPlayer); ok {
 		return p.SetNowPlaying(np)

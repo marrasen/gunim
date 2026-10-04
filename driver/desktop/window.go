@@ -431,6 +431,9 @@ func (w *Window) shutdown() {
 	w.stopRender()
 	<-w.done
 	delete(w.d.windows, w.gw)
+	if w.d.lastUsed == w {
+		w.d.lastUsed = nil
+	}
 	_ = w.gw.Destroy()
 	if w.ctx != nil {
 		_ = w.ctx.Destroy()
@@ -839,6 +842,11 @@ func (w *Window) install() {
 	_, _ = gw.SetFocusCallback(func(_ *glfw.Window, focused bool) {
 		w.focused.Store(focused)
 		if focused {
+			if w.parent == nil {
+				// The system's media controls speak to the window used
+				// last.
+				w.d.lastUsed = w
+			}
 			// The window hears keys itself again.
 			w.behind = false
 			// A modifier let go while another window had the keyboard

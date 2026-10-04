@@ -52,6 +52,9 @@ type Driver struct {
 
 	// The fields below belong to the main thread.
 	windows map[*glfw.Window]*Window
+	// lastUsed is the window, other than a popup, that had the keyboard
+	// last, which the system's media controls speak to.
+	lastUsed *Window
 	// cursors holds the pointer shapes made so far.
 	cursors map[input.Cursor]*glfw.Cursor
 	// shareRoot is a hidden window whose context no thread ever makes

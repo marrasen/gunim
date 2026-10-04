@@ -78,8 +78,8 @@ type NowPlaying struct {
 
 // A NowPlayer is a [Driver] that shows what an application plays in the
 // system's media controls, as a phone's lock screen, its quick settings
-// and its notifications do, and keeps the application running while it
-// plays unseen. The controls' buttons arrive at the application's main
+// and its notifications do, and a desktop's media panel, and on a phone
+// keeps the application running while it plays unseen. The controls' buttons arrive at the application's main
 // window as the media keys of package input, and a move along the
 // controls' bar as [input.MediaSeek]. SetNowPlaying with nil takes the
 // controls away.
