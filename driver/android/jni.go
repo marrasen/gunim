@@ -10,6 +10,7 @@ package android
 import "C"
 
 import (
+	"runtime"
 	"time"
 	"unicode/utf16"
 	"unsafe"
@@ -164,6 +165,29 @@ func setClipboard(s string) {
 }
 
 func finish() { C.gunim_finish() }
+
+// utf16Of returns s as UTF-16, and a pointer to it for C, nil when empty.
+func utf16Of(s string) ([]uint16, *C.uint16_t) {
+	u := utf16.Encode([]rune(s))
+	if len(u) == 0 {
+		return u, nil
+	}
+	return u, (*C.uint16_t)(unsafe.Pointer(&u[0]))
+}
+
+// keepRunning starts the foreground service, or changes its
+// notification, or stops it.
+func keepRunning(on bool, title, text string) {
+	t, tp := utf16Of(title)
+	x, xp := utf16Of(text)
+	v := 0
+	if on {
+		v = 1
+	}
+	C.gunim_keep_running(C.int(v), tp, C.int(len(t)), xp, C.int(len(x)))
+	runtime.KeepAlive(t)
+	runtime.KeepAlive(x)
+}
 
 // buzz gives the short buzz a long press gives.
 func buzz() { C.gunim_buzz() }

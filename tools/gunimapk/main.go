@@ -406,7 +406,8 @@ func pack(out, linked, dex string, libs []string, root string) (err error) {
 // activity, with the launcher's icon from the resources when icon is
 // set. The activity keeps itself across rotation and a keyboard
 // coming and going, and slides up as the soft keyboard opens, to keep the
-// text caret above it.
+// text caret above it. The service is the one a program starts with
+// gunim's App.KeepRunning, to play on in the background.
 func manifestFor(id, name string, icon bool) string {
 	iconAttr := ""
 	if icon {
@@ -414,6 +415,9 @@ func manifestFor(id, name string, icon bool) string {
 	}
 	return `<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="` + id + `">
+	<uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+	<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
+	<uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
 	<application android:label="` + xmlEscape(name) + `"` + iconAttr + ` android:hasCode="true" android:extractNativeLibs="true">
 		<activity android:name="gunim.android.GunimActivity" android:exported="true"
 			android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density"
@@ -424,6 +428,8 @@ func manifestFor(id, name string, icon bool) string {
 				<category android:name="android.intent.category.LAUNCHER"/>
 			</intent-filter>
 		</activity>
+		<service android:name="gunim.android.GunimService" android:exported="false"
+			android:foregroundServiceType="mediaPlayback"/>
 	</application>
 </manifest>
 `

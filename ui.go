@@ -91,6 +91,20 @@ type App struct {
 	windows windows
 }
 
+// KeepRunning keeps the application running while none of its windows
+// can be seen, as a music player playing does, and tells the user so:
+// on a phone, which would stop it, a notification shows title and body,
+// and brings the application back when tapped. Called again, it changes
+// the notification. With on false, the application may be stopped
+// again. Where applications run unseen anyway, as on a desktop, it does
+// nothing.
+func (a *App) KeepRunning(on bool, title, body string) error {
+	if k, ok := a.drv.(driver.Keeper); ok {
+		return k.KeepRunning(on, title, body)
+	}
+	return nil
+}
+
 // Monitors lists the attached displays, so an application can put a
 // window on a chosen one.
 func (a *App) Monitors() []driver.Monitor { return a.drv.Monitors() }

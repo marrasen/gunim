@@ -64,6 +64,16 @@ type TextBoxPlacer interface {
 	SetTextBox(r geom.Rect)
 }
 
+// A Keeper is a [Driver] on a system that stops applications it cannot
+// see, as a phone's does. KeepRunning with on asks it to let the
+// application run on unseen, as a music player playing does, telling
+// the user so in a notification of title and text, which brings the
+// application back when tapped; called again it changes the
+// notification. With on false the application may be stopped again.
+type Keeper interface {
+	KeepRunning(on bool, title, text string) error
+}
+
 // A SafeAreaer is a [Window] the system draws over in part, as a
 // phone's status bar, navigation bar and camera cutout lie over an
 // application drawn to the screen's edges. SafeArea returns how far in

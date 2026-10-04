@@ -12,7 +12,7 @@
 
 static JavaVM *vm;
 static jclass nativeClass;
-static jmethodID midShowKeyboard, midCaret, midBuzz, midTextState, midClearTextState, midGetClipboard, midSetClipboard, midFinish;
+static jmethodID midKeepRunning, midShowKeyboard, midCaret, midBuzz, midTextState, midClearTextState, midGetClipboard, midSetClipboard, midFinish;
 
 // JNI_OnLoad runs on the thread that loads the library, which has the
 // application's class loader, so it looks up the class Go calls back.
@@ -28,6 +28,7 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *v, void *reserved) {
 	}
 	nativeClass = (*env)->NewGlobalRef(env, c);
 	midShowKeyboard = (*env)->GetStaticMethodID(env, c, "showKeyboard", "(Z)V");
+	midKeepRunning = (*env)->GetStaticMethodID(env, c, "keepRunning", "(ZLjava/lang/String;Ljava/lang/String;)V");
 	midCaret = (*env)->GetStaticMethodID(env, c, "caret", "(IIII)V");
 	midBuzz = (*env)->GetStaticMethodID(env, c, "buzz", "()V");
 	midTextState = (*env)->GetStaticMethodID(env, c, "textState", "([CIIIIIZZJ)V");
@@ -60,6 +61,17 @@ void gunim_show_keyboard(int show) {
 	int a;
 	JNIEnv *env = envGet(&a);
 	(*env)->CallStaticVoidMethod(env, nativeClass, midShowKeyboard, (jboolean)(show != 0));
+	envPut(a);
+}
+
+void gunim_keep_running(int on, const uint16_t *title, int nt, const uint16_t *text, int nx) {
+	int a;
+	JNIEnv *env = envGet(&a);
+	jstring jt = (*env)->NewString(env, (const jchar *)title, nt);
+	jstring jx = (*env)->NewString(env, (const jchar *)text, nx);
+	(*env)->CallStaticVoidMethod(env, nativeClass, midKeepRunning, (jboolean)(on != 0), jt, jx);
+	(*env)->DeleteLocalRef(env, jt);
+	(*env)->DeleteLocalRef(env, jx);
 	envPut(a);
 }
 

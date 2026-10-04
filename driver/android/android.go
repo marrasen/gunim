@@ -410,6 +410,14 @@ const (
 
 // windowFocus tells the windows that fill the screen that the activity
 // has the keyboard, or has lost it.
+// KeepRunning implements [driver.Keeper]: a foreground service, its
+// notification showing title and text, keeps the process running while
+// the activity is in the background.
+func (d *Driver) KeepRunning(on bool, title, text string) error {
+	keepRunning(on, title, text)
+	return nil
+}
+
 // shown tells the windows that fill the screen that the application went
 // to the background, or came back.
 func (d *Driver) shown(on bool) {

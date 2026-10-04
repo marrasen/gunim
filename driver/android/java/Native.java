@@ -15,6 +15,8 @@ import android.view.Surface;
 public final class Native {
 	static GunimActivity activity;
 	static GunimView view;
+	// app is the application's context, which outlives any activity.
+	static Context app;
 
 	private static final Handler ui = new Handler(Looper.getMainLooper());
 
@@ -35,6 +37,29 @@ public final class Native {
 	static native void composing(String s, int selStart, int selEnd);
 
 	// Called from Go.
+
+	static void keepRunning(boolean on, String title, String text) {
+		ui.post(() -> {
+			if (app == null) {
+				return;
+			}
+			if (!on) {
+				app.stopService(new android.content.Intent(app, GunimService.class));
+				return;
+			}
+			if (GunimService.update(title, text)) {
+				return;
+			}
+			GunimActivity a = activity;
+			if (a != null) {
+				a.askToNotify();
+			}
+			android.content.Intent i = new android.content.Intent(app, GunimService.class);
+			i.putExtra("title", title);
+			i.putExtra("text", text);
+			app.startForegroundService(i);
+		});
+	}
 
 	static void showKeyboard(boolean show) {
 		ui.post(() -> {

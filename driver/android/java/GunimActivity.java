@@ -24,6 +24,7 @@ public class GunimActivity extends Activity {
 			// Go falls back to its defaults.
 		}
 		System.loadLibrary("gunim");
+		Native.app = getApplicationContext();
 		Native.activity = this;
 		GunimView v = new GunimView(this);
 		Native.view = v;
@@ -87,6 +88,18 @@ public class GunimActivity extends Activity {
 				android.widget.Toast.LENGTH_LONG).show();
 		} catch (android.content.pm.PackageManager.NameNotFoundException e) {
 			// The build has no name to show.
+		}
+	}
+
+	/**
+	 * askToNotify asks, once, to show notifications, which Android 13
+	 * and later need for the notification of a program kept running in
+	 * the background. Without it, the program runs on all the same.
+	 */
+	void askToNotify() {
+		if (android.os.Build.VERSION.SDK_INT >= 33
+			&& checkSelfPermission("android.permission.POST_NOTIFICATIONS") != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+			requestPermissions(new String[] {"android.permission.POST_NOTIFICATIONS"}, 1);
 		}
 	}
 
