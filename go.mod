@@ -26,4 +26,4 @@ require (
 	golang.org/x/net v0.59.0 // indirect
 )
 
-replace github.com/ebitengine/oto/v3 => github.com/marrasen/oto/v3 v3.5.1-gunim.1
+replace github.com/ebitengine/oto/v3 => github.com/marrasen/oto/v3 v3.5.1-gunim.2

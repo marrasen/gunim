@@ -34,11 +34,13 @@ type Options struct {
 	Latency time.Duration
 }
 
-// device is the device's own buffer. The player's buffer, which the
+// device is the device's own buffer, as the speaker counts it where the
+// system reports no latency of its own. The player's buffer, which the
 // mixer fills, makes up the rest of the latency.
 const device = 10 * time.Millisecond
 
-// maxLatency is as far ahead as the speaker grows to work.
+// maxLatency is as far ahead as the speaker grows to work, the device's
+// buffer and the player's.
 const maxLatency = 150 * time.Millisecond
 
 // chunk is the most the mixer hands the player at once. The player
@@ -133,15 +135,25 @@ func (s *Speaker) setBuffer(frames int64) {
 }
 
 // held returns how many frames the mixer gave that are still to be
-// heard: those in the player's buffer, and the device's.
+// heard: those in the player's buffer, and those past it.
 func (s *Speaker) held() int64 {
-	return int64(s.player.BufferedSize()/8) + audio.Frames(device)
+	return int64(s.player.BufferedSize()/8) + audio.Frames(s.output())
+}
+
+// output returns how long the sound past the player's buffer takes to
+// be heard: as the system reports it, where it does, which on Android
+// counts a Bluetooth headset's own delay; or device.
+func (s *Speaker) output() time.Duration {
+	if d, ok := s.ctx.OutputLatency(); ok {
+		return d
+	}
+	return device
 }
 
 // Latency returns how long a sound takes to be heard after it starts,
 // as the speaker works now.
 func (s *Speaker) Latency() time.Duration {
-	return device + audio.Duration(s.buffer.Load())
+	return s.output() + audio.Duration(s.buffer.Load())
 }
 
 // watch grows the player's buffer while the sound runs dry: the
@@ -161,7 +173,7 @@ func (s *Speaker) watch() {
 				s.logf("ran dry %d times in %v", dry, every)
 			}
 			// Once might be a hiccup; more is the buffer too small.
-			if dry >= 2 && !s.suspended.Load() && s.Latency() < maxLatency {
+			if dry >= 2 && !s.suspended.Load() && device+audio.Duration(s.buffer.Load()) < maxLatency {
 				s.setBuffer(min(s.buffer.Load()+audio.Frames(10*time.Millisecond), audio.Frames(maxLatency-device)))
 				s.logf("working %v ahead", s.Latency())
 			}

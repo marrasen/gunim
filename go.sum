@@ -22,8 +22,8 @@ github.com/jfreymuth/pulse v0.1.3 h1:bc5TdxiB8E+2INnFjFWWgyfgXtz2IyNNNCX+Wt/ZD14
 github.com/jfreymuth/pulse v0.1.3/go.mod h1:cpYspI6YljhkUf1WLXLLDmeaaPFc3CnGLjDZf9dZ4no=
 github.com/jfreymuth/vorbis v1.0.2 h1:m1xH6+ZI4thH927pgKD8JOH4eaGRm18rEE9/0WKjvNE=
 github.com/jfreymuth/vorbis v1.0.2/go.mod h1:DoftRo4AznKnShRl1GxiTFCseHr4zR9BN3TWXyuzrqQ=
-github.com/marrasen/oto/v3 v3.5.1-gunim.1 h1:9XdF1Mfx5U4Zcq4pZ/Iw9jelYp+oEPWeYLKbpRZrl0U=
-github.com/marrasen/oto/v3 v3.5.1-gunim.1/go.mod h1:Elkm7yzTRns3w2efvibzVOoQ65YOwmec9a76dCiK10o=
+github.com/marrasen/oto/v3 v3.5.1-gunim.2 h1:6wogNVm9Bf/R1QeQkMXo0oc9fgqw1TP9O72gLQiP6fk=
+github.com/marrasen/oto/v3 v3.5.1-gunim.2/go.mod h1:Elkm7yzTRns3w2efvibzVOoQ65YOwmec9a76dCiK10o=
 github.com/mewkiz/flac v1.0.14 h1:hyRGAM8NCKznoPmIi9zz2jyO+nfmxY2ErqBnHZ+gxh4=
 github.com/mewkiz/flac v1.0.14/go.mod h1:HfPYDA+oxjyuqMu2V+cyKcxF51KM6incpw5eZXmfA6k=
 github.com/mewkiz/pkg v0.0.0-20250417130911-3f050ff8c56d h1:IL2tii4jXLdhCeQN69HNzYYW1kl0meSG0wt5+sLwszU=
