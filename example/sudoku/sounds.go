@@ -263,6 +263,25 @@ func (s *sfx) locked() {
 	}, 0.7, 0)
 }
 
+// chomp plays Pac-Man's bite: a quick slide down in pitch, or up for
+// every other bite, as the arcade's waka.
+func (s *sfx) chomp(up bool, pan float32) {
+	key, from, to := "chompDown", 520.0, 260.0
+	if up {
+		key, from, to = "chompUp", 260.0, 520.0
+	}
+	s.play(key, func() *audio.Clip {
+		const d = 0.11
+		return render(d, func(t float64) float64 {
+			// The pitch slides from one to the other: its phase is the
+			// slide's integral. A third harmonic makes it buzz.
+			ph := 2 * math.Pi * (from*t + (to-from)*t*t/(2*d))
+			env := min(t/0.005, 1) * min((d-t)/0.02, 1)
+			return 0.2 * env * (math.Sin(ph) + 0.3*math.Sin(3*ph))
+		})
+	}, 0.45, pan)
+}
+
 // tick plays a soft tick as a cell is picked.
 func (s *sfx) tick(pan float32) {
 	s.play("tick", func() *audio.Clip {

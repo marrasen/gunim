@@ -251,10 +251,19 @@ func (m *mapView) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.
 	func() {
 		defer p.Push(paint.Translate(geom.Pt(0, -top)))()
 		m.paintLands(p, top, box)
+	}()
+	// Sweets hang at three depths, each scrolling at its own speed: far
+	// ones slower than the path, near ones faster and over it.
+	m.paintFar(p, top, box)
+	m.paintSweets(p, top, box)
+	func() {
+		defer p.Push(paint.Translate(geom.Pt(0, -top)))()
+		m.paintRibbons(p, top, box)
 		m.paintPath(p, top, box)
 		m.paintNodes(p, f, top, box)
 		m.paintToken(p)
 	}()
+	m.paintNear(p, f, top, box)
 	m.fx.paint(p)
 	// The title, over the map, under a phone's status bar; its shade
 	// runs up under the bar to the top.
@@ -276,7 +285,7 @@ func (m *mapView) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.
 }
 
 // paintLands draws each land's sky behind its levels, blending into
-// the next, with sweets along the edges.
+// the next.
 func (m *mapView) paintLands(p *paint.Painter, top float32, box geom.Size) {
 	for i, land := range lands {
 		start := m.node(float32(land.from)).Y + levelGap/2
@@ -308,6 +317,10 @@ func (m *mapView) paintLands(p *paint.Painter, top float32, box geom.Size) {
 			Start: lands[i].low, End: lands[i-1].top,
 		}})
 	}
+}
+
+// paintRibbons draws each land's name on a ribbon at its start.
+func (m *mapView) paintRibbons(p *paint.Painter, top float32, box geom.Size) {
 	for _, land := range lands {
 		// The land's name on a ribbon at its start.
 		at := m.node(float32(land.from))
@@ -316,12 +329,40 @@ func (m *mapView) paintLands(p *paint.Painter, top float32, box geom.Size) {
 		p.ShadowRRect(rb, 15, paint.Solid(faded(plum, 0.8)), paint.Shadow{Blur: 8, Offset: geom.Pt(0, 3), Color: faded(plum, 0.3)})
 		name.Paint(p, geom.Pt(rb.Min.X+18, rb.Min.Y+6), white)
 	}
-	// Sweets at the edges: lollipops and candies, a few each screen.
-	for i := range levelCount + 4 {
-		y := m.height() - float32(i)*levelGap*0.9 - 40
-		if y < top-80 || y > top+box.H+80 {
-			continue
+}
+
+// layer calls draw for each thing a layer of the map holds, gap apart,
+// with where it is in the window: the layer scrolls at depth times the
+// map's speed, its bottom with the map's bottom.
+func (m *mapView) layer(top, depth, gap float32, box geom.Size, draw func(i int, y float32)) {
+	h := (m.height()-box.H)*depth + box.H
+	for i := 0; ; i++ {
+		y := h - float32(i)*gap - gap/2
+		if y < -gap {
+			return
 		}
+		if at := y - top*depth; at > -160 && at < box.H+160 {
+			draw(i, at)
+		}
+	}
+}
+
+// paintFar draws the layer furthest back: big pale candy shapes,
+// scrolling at under half the path's speed.
+func (m *mapView) paintFar(p *paint.Painter, top float32, box geom.Size) {
+	m.layer(top, 0.4, 130, box, func(i int, y float32) {
+		f := float32(i)
+		x := box.W * float32(math.Mod(float64(f)*0.618+0.1, 1))
+		size := 50 + 80*float32(math.Mod(float64(f)*0.37, 1))
+		// Every size shares one mask, scaled.
+		shapeAt(p, i%9, geom.Rc(x-20, y-20, 40, 40), size/40, geom.Point{}, faded(white, 0.13))
+	})
+}
+
+// paintSweets draws the lollipops and candies along the edges, a few
+// each screen, scrolling a little slower than the path.
+func (m *mapView) paintSweets(p *paint.Painter, top float32, box geom.Size) {
+	m.layer(top, 0.75, levelGap*0.9, box, func(i int, y float32) {
 		side := float32(1)
 		if i%2 == 0 {
 			side = -1
@@ -333,10 +374,25 @@ func (m *mapView) paintLands(p *paint.Painter, top float32, box geom.Size) {
 			p.RRect(geom.Rc(x-2, y, 4, 46), 2, paint.Solid(faded(white, 0.7)))
 			p.Mask(candyMask{shape: shapeCircle}, geom.Rc(x-20, y-36, 40, 40), faded(k.color, 0.75))
 			shapeAt(p, shapeCircle, geom.Rc(x-20, y-36, 40, 40), 0.6, geom.Point{}, faded(white, 0.4))
-			continue
+			return
 		}
 		p.Mask(candyMask{shape: k.shape}, geom.Rc(x-14, y-14, 28, 28), faded(k.color, 0.45))
-	}
+	})
+}
+
+// paintNear draws the layer nearest: big candies half off the edges,
+// over everything, scrolling faster than the path.
+func (m *mapView) paintNear(p *paint.Painter, f gunim.Frame, top float32, box geom.Size) {
+	m.layer(top, 1.6, 340, box, func(i int, y float32) {
+		x := float32(-8)
+		if i%2 == 1 {
+			x = box.W + 8
+		}
+		const s = 96
+		r := geom.Rc(x-s/2, y-s/2, s, s)
+		defer p.Push(paint.Rotate(0.4*float32(i%3-1), geom.Pt(x, y)))()
+		paintCandy(p, int8((i*4)%9+1), r, 0.7, false, f.Scale)
+	})
 }
 
 // paintPath draws the dotted path between the levels, gold as far as

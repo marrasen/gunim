@@ -143,15 +143,13 @@ func (r *gameRoot) play(e Event) {
 		r.fx.burst(r.trayCenter(e.Digit), 26, starBit, 420, candyOf(e.Digit).color, white, gold)
 	case Hinted:
 		r.board.hinted(e.Cell)
-		at := r.cellCenter(e.Cell)
-		r.sfx.hint(r.pan(at))
-		r.fx.burst(at, 30, sparkle, 340, gold, white, rgb(0xff, 0xf3, 0xb0))
 	case WonEvent:
 		r.selected, r.armed = -1, 0
 		r.card.won(r.state.Stars, r.state.Score)
 		r.fx.rain(r.size.W, 140, confettiColors...)
 		r.fx.fireworks(r.size, 7, confettiColors...)
 		r.board.celebrate()
+		r.board.letPacmanOut()
 		r.header.combo(0)
 		r.sfx.won()
 	case LostEvent:
@@ -221,6 +219,9 @@ func (r *gameRoot) tapCell(c int, u *gunim.UI) {
 	r.armed = 0
 	r.selected = c
 	r.sfx.tick(r.pan(r.cellCenter(c)))
+	if d := r.state.Cells[c]; d != 0 {
+		r.board.cheer(d, c)
+	}
 }
 
 // pick takes candy d from the tray: into the cell selected, or, with
@@ -240,6 +241,7 @@ func (r *gameRoot) pick(d int8, u *gunim.UI) {
 		r.armed = 0
 	} else {
 		r.armed, r.selected = d, -1
+		r.board.cheer(d, -1)
 	}
 }
 
