@@ -14,10 +14,19 @@ import "math"
 // -70 LUFS are silence, and pass uncounted; so do blocks more than 10
 // LU under the loudness of the rest, so a song's quiet passages
 // barely lower it.
+//
+// The zero LoudnessMeter measures sound at [SampleRate];
+// [NewLoudnessMeter] makes one for another rate.
 type LoudnessMeter struct {
 	// shelf and high are the weighting's two filters, each a channel's
-	// two values of state.
-	shelf, high [2][2]float64
+	// two values of state, with their coefficients at the meter's rate,
+	// and quarter is 100 ms of frames at it.
+	shelf, high   [2][2]float64
+	kShelf, kHigh biquad
+	quarter       int
+	// recent holds the last 30 100 ms parts, three seconds, for
+	// ShortTerm.
+	recent []float64
 	// sum is the weighted power of the 100 ms gathering now, over n
 	// frames; quarters holds the last four 100 ms parts, and blocks the
 	// power of every 400 ms block.
@@ -28,19 +37,39 @@ type LoudnessMeter struct {
 	peak     float32
 }
 
-// The weighting's filters at 48 kHz, from BS.1770: a shelf lifting the
-// highs about 4 dB, and a cut under about 38 Hz.
-var (
-	kShelf = biquad{b0: 1.53512485958697, b1: -2.69169618940638, b2: 1.19839281085285,
-		a1: -1.69065929318241, a2: 0.73248077421585}
-	kHigh = biquad{b0: 1, b1: -2, b2: 1, a1: -1.99004745483398, a2: 0.99007225036621}
-)
+// NewLoudnessMeter returns a meter of sound at rate.
+func NewLoudnessMeter(rate int) *LoudnessMeter {
+	m := &LoudnessMeter{}
+	m.at(rate)
+	return m
+}
 
-// quarter is 100 ms of frames.
-const quarter = SampleRate / 10
+// at sets the meter's weighting for sound at rate, from the analog
+// filters BS.1770 specifies at 48 kHz, as libebur128 works them out:
+// a shelf lifting the highs about 4 dB, and a cut under about 38 Hz.
+func (m *LoudnessMeter) at(rate int) {
+	fs := float64(rate)
+	k := math.Tan(math.Pi * 1681.974450955533 / fs)
+	vh := math.Pow(10, 3.999843853973347/20)
+	vb := math.Pow(vh, 0.4996667741545416)
+	q := 0.7071752369554196
+	a0 := 1 + k/q + k*k
+	m.kShelf = biquad{b0: (vh + vb*k/q + k*k) / a0, b1: 2 * (k*k - vh) / a0, b2: (vh - vb*k/q + k*k) / a0,
+		a1: 2 * (k*k - 1) / a0, a2: (1 - k/q + k*k) / a0}
+	k = math.Tan(math.Pi * 38.13547087602444 / fs)
+	q = 0.5003270373238773
+	a0 = 1 + k/q + k*k
+	m.kHigh = biquad{b0: 1, b1: -2, b2: 1, a1: 2 * (k*k - 1) / a0, a2: (1 - k/q + k*k) / a0}
+	m.quarter = rate / 10
+}
 
-// Write measures frames, interleaved stereo at [SampleRate].
+// Write measures frames, interleaved stereo at the meter's rate.
 func (m *LoudnessMeter) Write(frames []float32) {
+	if m.quarter == 0 {
+		m.at(SampleRate)
+	}
+	quarter := m.quarter
+	kShelf, kHigh := m.kShelf, m.kHigh
 	for i := 0; i+1 < len(frames); i += 2 {
 		var power float64
 		for ch := range 2 {
@@ -55,11 +84,16 @@ func (m *LoudnessMeter) Write(frames []float32) {
 		if m.n < quarter {
 			continue
 		}
-		m.quarters = append(m.quarters, m.sum/quarter)
+		q := m.sum / float64(quarter)
+		m.quarters = append(m.quarters, q)
+		m.recent = append(m.recent, q)
+		if len(m.recent) > 30 {
+			m.recent = m.recent[len(m.recent)-30:]
+		}
 		m.sum, m.n = 0, 0
 		if k := len(m.quarters); k >= 4 {
-			q := m.quarters[k-4:]
-			m.blocks = append(m.blocks, (q[0]+q[1]+q[2]+q[3])/4)
+			last := m.quarters[k-4:]
+			m.blocks = append(m.blocks, (last[0]+last[1]+last[2]+last[3])/4)
 			m.quarters = m.quarters[k-3:]
 		}
 	}
@@ -103,6 +137,28 @@ func (m *LoudnessMeter) Integrated() (float64, bool) {
 		return math.Inf(-1), false
 	}
 	return lufs(mean), true
+}
+
+// Momentary returns the loudness of the last 400 ms written, in LUFS,
+// as a meter shows it moving; minus infinity before there is 400 ms.
+func (m *LoudnessMeter) Momentary() float64 {
+	if len(m.blocks) == 0 {
+		return math.Inf(-1)
+	}
+	return lufs(m.blocks[len(m.blocks)-1])
+}
+
+// ShortTerm returns the loudness of the last three seconds written, in
+// LUFS, or of all written before there are three.
+func (m *LoudnessMeter) ShortTerm() float64 {
+	if len(m.recent) == 0 {
+		return math.Inf(-1)
+	}
+	var sum float64
+	for _, q := range m.recent {
+		sum += q
+	}
+	return lufs(sum / float64(len(m.recent)))
 }
 
 // Peak returns the loudest sample written, 1 at full scale.
