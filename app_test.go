@@ -160,3 +160,41 @@ func TestTheFocusedCaretReachesTheDriverInWindowSpace(t *testing.T) {
 		t.Fatalf("an unmoved caret was reported again: %v", cw.carets)
 	}
 }
+
+// endingDriver runs ready and ends at once, as a platform event loop
+// does when the last window closes.
+type endingDriver struct{ pumpDriver }
+
+func (d *endingDriver) Run(_ context.Context, ready func()) error {
+	ready()
+	return nil
+}
+
+func TestMainWaitsForFnToFinishAsItEnds(t *testing.T) {
+	want := errors.New("fn's last word")
+	finished := false
+	err := runApp(context.Background(), &endingDriver{}, func(*App) error {
+		// Work done as the app ends, as saving, that takes a moment.
+		time.Sleep(100 * time.Millisecond)
+		finished = true
+		return want
+	})
+	if !finished || !errors.Is(err, want) {
+		t.Fatalf("Main returned %v with fn finished %v, want fn's error after it finished", err, finished)
+	}
+}
+
+func TestMainEndsWhenFnNeverDoes(t *testing.T) {
+	was := fnGrace
+	fnGrace = 50 * time.Millisecond
+	defer func() { fnGrace = was }()
+	start := time.Now()
+	block := make(chan struct{})
+	defer close(block)
+	if err := runApp(context.Background(), &endingDriver{}, func(*App) error { <-block; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Since(start); d > time.Second {
+		t.Fatalf("Main took %v to end, with fn stuck", d)
+	}
+}
