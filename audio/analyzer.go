@@ -194,18 +194,33 @@ func (a *Analyzer) Wave(out []float32) { a.m.recent(out[:min(len(out), historyFr
 // misses the frames before that. The first call starts the mixer
 // keeping the frames, so it returns none.
 func (a *Analyzer) Heard(dst []float32, from int64) (frames []float32, now int64) {
+	return a.heardOf(dst, from, false)
+}
+
+// HeardBefore is [Analyzer.Heard] of the frames as the voices' inserts
+// found them: for meters that read a sound as it is, while what is heard
+// of it is changed only to listen, as in mono.
+func (a *Analyzer) HeardBefore(dst []float32, from int64) (frames []float32, now int64) {
+	return a.heardOf(dst, from, true)
+}
+
+func (a *Analyzer) heardOf(dst []float32, from int64, before bool) (frames []float32, now int64) {
 	m := a.m
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	now = m.heardLocked()
-	if m.stereo == nil {
-		m.stereo = make([]float32, 2*historyFrames)
+	ring := &m.stereo
+	if before {
+		ring = &m.dryStereo
+	}
+	if *ring == nil {
+		*ring = make([]float32, 2*historyFrames)
 		return dst, now
 	}
 	from = max(from, now-historyFrames/2, m.played-historyFrames, 0)
 	for f := from; f < now; f++ {
 		at := 2 * (f & (historyFrames - 1))
-		dst = append(dst, m.stereo[at], m.stereo[at+1])
+		dst = append(dst, (*ring)[at], (*ring)[at+1])
 	}
 	return dst, now
 }

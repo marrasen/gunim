@@ -364,3 +364,34 @@ func TestAVoiceIsHeardAtTheTurnOnlyOnceTheSpeakersReachIt(t *testing.T) {
 		t.Fatalf("200 frames of the second heard, the voice says %v", p)
 	}
 }
+
+// swapInsert swaps a voice's channels, as an insert that changes what is
+// heard.
+type swapInsert struct{}
+
+func (swapInsert) Process(frames []float32) {
+	for i := 0; i+1 < len(frames); i += 2 {
+		frames[i], frames[i+1] = frames[i+1], frames[i]
+	}
+}
+
+func TestHeardBeforeReadsTheSoundAsTheInsertsFoundIt(t *testing.T) {
+	m := NewMixer()
+	a := NewAnalyzer(m, 32)
+	_, from := a.Heard(nil, 0)
+	_, dryFrom := a.HeardBefore(nil, 0)
+	src := make([]float32, 2*4096)
+	for i := 0; i < len(src); i += 2 {
+		src[i] = 0.5
+	}
+	m.Play(NewClip(src).Source(), Options{Insert: swapInsert{}})
+	m.Mix(make([]float32, 2*1024))
+	heard, _ := a.Heard(nil, from)
+	before, _ := a.HeardBefore(nil, dryFrom)
+	if len(heard) == 0 || len(before) != len(heard) {
+		t.Fatalf("read %d frames heard and %d before", len(heard)/2, len(before)/2)
+	}
+	if heard[0] != 0 || heard[1] == 0 || before[0] == 0 || before[1] != 0 {
+		t.Fatalf("heard %v, before the insert %v: want the channels swapped only in what is heard", heard[:2], before[:2])
+	}
+}
