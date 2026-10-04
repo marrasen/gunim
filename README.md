@@ -164,9 +164,10 @@ the spectrum or a spectrogram.
 
 The export writes each track at its own length, tracks side by side, to
 16 or 24-bit WAV with dither, or 32-bit float, and, where LAME is
-installed, MP3, each tagged with the release. An album is a file of its
-own, which keeps its tracks' paths from its own folder, so it opens
-wherever the folders are found together.
+installed, MP3, each tagged with the release, with a report of it all
+if asked. A project is a file of its own, which keeps its tracks' paths
+from its own folder, so it opens wherever the folders are found
+together.
 
 ```sh
 go run ./example/mastering mix1.wav mix2.wav
