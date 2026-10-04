@@ -25,3 +25,5 @@ require (
 	github.com/yuin/goldmark v1.8.6 // indirect
 	golang.org/x/net v0.59.0 // indirect
 )
+
+replace github.com/ebitengine/oto/v3 => github.com/marrasen/oto/v3 v3.5.1-gunim.1
