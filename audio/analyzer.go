@@ -186,6 +186,45 @@ func (a *Analyzer) scale(amp float64) float32 {
 // a second.
 func (a *Analyzer) Wave(out []float32) { a.m.recent(out[:min(len(out), historyFrames/2)]) }
 
+// Heard appends to dst the frames heard since frame from, both
+// channels, interleaved, and returns them with the count of frames
+// heard so far, to pass as from next time: so a meter that reads each
+// frame once, as a loudness meter must, reads every frame heard. It
+// keeps up to a little under a second; a caller that looks less often
+// misses the frames before that. The first call starts the mixer
+// keeping the frames, so it returns none.
+func (a *Analyzer) Heard(dst []float32, from int64) (frames []float32, now int64) {
+	return a.heardOf(dst, from, false)
+}
+
+// HeardBefore is [Analyzer.Heard] of the frames as the voices' inserts
+// found them: for meters that read a sound as it is, while what is heard
+// of it is changed only to listen, as in mono.
+func (a *Analyzer) HeardBefore(dst []float32, from int64) (frames []float32, now int64) {
+	return a.heardOf(dst, from, true)
+}
+
+func (a *Analyzer) heardOf(dst []float32, from int64, before bool) (frames []float32, now int64) {
+	m := a.m
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now = m.heardLocked()
+	ring := &m.stereo
+	if before {
+		ring = &m.dryStereo
+	}
+	if *ring == nil {
+		*ring = make([]float32, 2*historyFrames)
+		return dst, now
+	}
+	from = max(from, now-historyFrames/2, m.played-historyFrames, 0)
+	for f := from; f < now; f++ {
+		at := 2 * (f & (historyFrames - 1))
+		dst = append(dst, (*ring)[at], (*ring)[at+1])
+	}
+	return dst, now
+}
+
 // recent fills out with the last len(out) frames heard, as mono.
 func (m *Mixer) recent(out []float32) { m.recentOf(out, false) }
 

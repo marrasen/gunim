@@ -41,6 +41,10 @@ type Mixer struct {
 	// dryHistory the frames of it mixed so far, as history holds what
 	// was heard; nil until a voice plays with an insert.
 	dry, dryHistory []float32
+	// stereo is the frames mixed so far, both channels, as history
+	// holds them in mono; nil until an Analyzer asks for it. dryStereo
+	// is the same as the voices' inserts found them.
+	stereo, dryStereo []float32
 	// out is Read's buffer; Read runs on one goroutine at a time.
 	out []float32
 }
@@ -225,6 +229,18 @@ func (m *Mixer) mixBlock(dst []float32) {
 		m.history[(m.played+int64(i))&(historyFrames-1)] = (l + r) / 2
 		if dry != nil {
 			m.dryHistory[(m.played+int64(i))&(historyFrames-1)] = (dry[2*i] + dry[2*i+1]) / 2
+		}
+		if m.stereo != nil {
+			at := 2 * ((m.played + int64(i)) & (historyFrames - 1))
+			m.stereo[at], m.stereo[at+1] = l, r
+		}
+		if m.dryStereo != nil {
+			at := 2 * ((m.played + int64(i)) & (historyFrames - 1))
+			if dry != nil {
+				m.dryStereo[at], m.dryStereo[at+1] = dry[2*i], dry[2*i+1]
+			} else {
+				m.dryStereo[at], m.dryStereo[at+1] = l, r
+			}
 		}
 	}
 	m.played += int64(frames)

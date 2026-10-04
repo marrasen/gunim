@@ -76,7 +76,8 @@ type Dialog struct {
 	// Body is what the dialog shows under its title, such as a [Form].
 	// Set it before mounting the dialog, which grows to fit it. Enter
 	// in the body confirms, and Tab moves through the body's fields and
-	// the buttons.
+	// the buttons. A body taller than the window scrolls: the dialog
+	// holds it in a [Scroll] of its own, unless it is one.
 	Body gunim.Node
 	// Keys, when set, hears the keys pressed and the text typed in the
 	// dialog that its body and buttons leave, before the dialog's own
@@ -108,6 +109,8 @@ type Dialog struct {
 	// problem is what Check last said, and shake the shake it set off.
 	problem *Label
 	shake   *anim.Float
+	// scroll holds the body, once mounted, so a long one scrolls.
+	scroll *Scroll
 }
 
 // NewDialog returns a dialog with an OK and a Cancel button. Mount it
@@ -217,12 +220,25 @@ func (d *Dialog) buttons() []gunim.Node {
 func (d *Dialog) Children() []gunim.Node {
 	var out []gunim.Node
 	if d.Body != nil {
-		out = append(out, d.Body, d.problem)
+		out = append(out, d.held(), d.problem)
 	}
 	for _, b := range d.extra {
 		out = append(out, b)
 	}
 	return append(out, d.buttons()...)
+}
+
+// held is the body as the dialog holds it: in a scroll, so a body too
+// tall for the window scrolls within the room there is, rather than run
+// over the buttons and off the panel.
+func (d *Dialog) held() gunim.Node {
+	if s, ok := d.Body.(*Scroll); ok {
+		return s
+	}
+	if d.scroll == nil || d.scroll.child != d.Body {
+		d.scroll = NewScroll(d.Body)
+	}
+	return d.scroll
 }
 
 // finish closes the dialog and tells the application what happened.

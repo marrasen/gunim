@@ -66,12 +66,16 @@ func (s *Segmented) Len() int { return max(len(s.Labels), len(s.Icons)) }
 // Selected returns the chosen option.
 func (s *Segmented) Selected() int { return s.selected }
 
-// SetSelected chooses option i without an intent. Call it from a view's update function; the pill springs to it.
+// SetSelected chooses option i without an intent. Call it from a view's update function; the pill springs to it. Before
+// the control is mounted, as a view builds it, u may be nil: the pill starts on i.
 func (s *Segmented) SetSelected(i int, u *gunim.UI) {
 	if i < 0 || i >= s.Len() || i == s.selected {
 		return
 	}
 	s.selected = i
+	if u == nil {
+		return
+	}
 	if s.laid {
 		s.pill.Animate(float32(i), Bounce.Get(u.Theme()))
 	}

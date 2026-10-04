@@ -45,6 +45,10 @@ import (
 //
 // The error Main returns is the one fn returned, joined with any error
 // the platform event loop ended on.
+//
+// Once the last window closes, Main waits for fn to return, for up to
+// five seconds, so the work fn does as it ends, as saving what it keeps
+// or letting go of what it loaded, finishes before the process exits.
 func Main(ctx context.Context, fn func(*App) error) error {
 	drv, err := openDriver()
 	if err != nil {
@@ -71,15 +75,21 @@ func runApp(ctx context.Context, drv driver.Driver, fn func(*App) error) error {
 			cancel()
 		}()
 	})
+	// The last window closed, or ctx ended: fn hears it, from its
+	// windows' clients and from ctx, and finishes what it does as it
+	// ends before the process exits, unless it takes too long.
+	cancel()
 	select {
 	case err := <-errc:
 		return errors.Join(err, runErr)
-	default:
-		// The last window closed or ctx ended while fn was still
-		// running, so there is no result from fn to report.
+	case <-time.After(fnGrace):
 		return runErr
 	}
 }
+
+// fnGrace is how long Main waits for fn to end once the event loop
+// has.
+var fnGrace = 5 * time.Second
 
 // An App is the process's connection to the display server. It is the
 // only way to open a window.

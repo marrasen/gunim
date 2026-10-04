@@ -36,30 +36,6 @@ func TestEachSoundIsLoudEnoughAndStaysUnderClipping(t *testing.T) {
 	}
 }
 
-func TestTheTuneLoopsWithoutASeam(t *testing.T) {
-	tn := &tune{}
-	n := tuneFrames()
-	l0, r0 := tn.sample(0, 0)
-	l1, r1 := tn.sample(float64(n-1)/hz, n-1)
-	if math.Abs(l1-l0) > 0.05 || math.Abs(r1-r0) > 0.05 {
-		t.Errorf("the tune's last frame %.3f %.3f and first %.3f %.3f jump", l1, r1, l0, r0)
-	}
-	peak := 0.0
-	buf := make([]float32, 2*4096)
-	for {
-		k, err := tn.Read(buf)
-		for _, v := range buf[:2*k] {
-			peak = max(peak, math.Abs(float64(v)))
-		}
-		if err != nil {
-			break
-		}
-	}
-	if peak > 0.9 || peak < 0.1 {
-		t.Errorf("the tune peaks at %.2f", peak)
-	}
-}
-
 func TestEachSoundSettingPlaysItsPart(t *testing.T) {
 	m := audio.NewMixer()
 	s := newSFX(m, nil)

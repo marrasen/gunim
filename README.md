@@ -141,6 +141,41 @@ volume, and N and P skip.
 
 ![The music player](example/music/music.png)
 
+`example/mastering` masters an album, an EP or a single. Each track is
+cut, faded with a curve of five shapes, and set apart by the same
+silence, edited on its waveform or its spectrogram, with the loudness
+it was measured at drawn along it. The waveform zooms in to the samples
+themselves, and up to show quiet sound. One track plays at a time, and
+a number key switches to another at the same moment, levels matched to
+the target if asked, to compare them by ear, or bypassed, the mix as it came, in time with
+the master. A loop plays a stretch over and over. Autoplay next runs on
+from each track into the next without a gap, as the exported files will
+play.
+
+Each track runs through its own chain of VST3 plugins, such as Ozone.
+Only the track heard runs its plugins, so the rest cost the computer
+nothing. A chain copies to other tracks with every plugin as set.
+Tracks are measured as they will be exported, through a copy of their
+chain run offline: loudness, its range and true peak. A change marks a
+track, and Calc LUFS measures the tracks marked, so heavy plugins work
+only when asked. To target finds the gain that brings a track to the
+target. Meters show the input to the chain and its output, each with a
+fader for the gain, loudness against the target, the stereo image, and
+the spectrum or a spectrogram.
+
+The export writes each track at its own length, tracks side by side, to
+16 or 24-bit WAV with dither, or 32-bit float, and, where LAME is
+installed, MP3, each tagged with the release, with a report of it all
+if asked. A project is a file of its own, which keeps its tracks' paths
+from its own folder, so it opens wherever the folders are found
+together.
+
+```sh
+go run ./example/mastering mix1.wav mix2.wav
+```
+
+![The mastering example](example/mastering/mastering.png)
+
 `example/sudoku` is a sudoku of candies, made for a phone and laid out
 for a desktop too, to see how far the animation goes. Each digit is a
 candy of its own colour and shape. Candies drop in and wobble like
@@ -175,7 +210,17 @@ after. An `EQ` is such an insert: a parametric equalizer of bells,
 shelves, cuts and notches, whose bands glide to new settings without
 clicks. A `LoudnessMeter` measures integrated loudness in LUFS as
 ITU-R BS.1770 defines it, as EBU R128 and ReplayGain 2 use it, and
-`FormatOf` says what a decoded sound was stored as.
+`FormatOf` says what a decoded sound was stored as, an `FFT` takes a
+sound's spectrum block after block, and a `WAVWriter`
+writes 16 or 24-bit WAV, dithered, or 32-bit float, tagged. Its `Range` reads
+the loudness range, LRA, as EBU Tech 3342 defines it, and several
+sounds' readings pooled measure an album as one.
+
+Package `audio/vst3` hosts VST3 plugins, in pure Go. It finds the
+plugins in the system's folders and loads one. It runs stereo sound
+through an effect in realtime or offline, and saves and restores its
+state. It shows the effect's own editor in a window, on Windows and
+Linux.
 
 Widgets play cues as the user works them: a press, a switch turning on
 or off, a menu opening. They are silent until an application chooses
@@ -497,6 +542,7 @@ writes them again from a newer Lucide.
 | `gunim/audio` | A mixer, voices with animated volume and pan, clips, decoders for WAV, MP3, Ogg Vorbis and FLAC, and an analyzer for visuals |
 | `gunim/audio/speaker` | Plays a mixer through the speakers, with oto |
 | `gunim/audio/cues` | Quiet sounds made in code for the widgets' cues |
+| `gunim/audio/vst3` | Hosts VST3 effects: their sound, state, parameters and editors |
 | `gunim/paint` | The per-frame draw list: rounded rects, shadows, text, images, tinted masks, layers |
 | `gunim/icon` | Lucide's icons as strokes, drawn as tinted masks; `icon/byname` looks them up by name |
 | `gunim/geom` | float32 points, sizes, rectangles |
