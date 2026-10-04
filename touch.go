@@ -101,7 +101,7 @@ func (u *UI) touchEvent(root *state, ev any) bool {
 				return false
 			}
 			t.scrolling = true
-			u.handleRaw(root, input.PointerUp{Pos: input.Away, Button: input.ButtonPrimary, Mods: e.Mods, Time: e.Time})
+			u.handleRaw(root, input.PointerUp{Pos: input.Away, Button: input.ButtonPrimary, Mods: e.Mods, Touch: true, Time: e.Time})
 			// The scroll starts from here, with no jump for the slop.
 			t.last, t.lastAt = e.Pos, e.Time
 			return true

@@ -94,6 +94,26 @@ func TestAFingerMovedScrollsWhatItCameDownOn(t *testing.T) {
 	}
 }
 
+func TestAFingersReleaseSaysAFingerLifted(t *testing.T) {
+	for _, to := range []geom.Point{geom.Pt(102, 300), geom.Pt(100, 100)} {
+		r := &recorder{}
+		_, finger := touchStage(t, r)
+		swipe(finger, geom.Pt(100, 300), to, 10, time.Now(), 0)
+		ups := 0
+		for _, e := range r.events {
+			if e, ok := e.(input.PointerUp); ok {
+				ups++
+				if !e.Touch {
+					t.Fatalf("a finger moved to %v let go at %v with Touch false", to, e.Pos)
+				}
+			}
+		}
+		if ups != 1 {
+			t.Fatalf("a finger moved to %v let go %d times", to, ups)
+		}
+	}
+}
+
 func TestAFingerDragsWhatDragsByTouch(t *testing.T) {
 	d := &dragsTouch{}
 	_, finger := touchStage(t, d)

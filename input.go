@@ -242,7 +242,7 @@ func (u *UI) handleRaw(root *state, ev any) {
 			return
 		}
 		mk := func(local geom.Point) input.Event {
-			return input.PointerUp{Pos: local, Button: e.Button, Mods: e.Mods, Time: e.Time}
+			return input.PointerUp{Pos: local, Button: e.Button, Mods: e.Mods, Touch: e.Touch, Time: e.Time}
 		}
 		if root == u.root {
 			u.askKeyboard(u.hit(root, e.Pos))
