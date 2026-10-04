@@ -42,3 +42,24 @@ func TestAWindowHiddenAndShownTellsTheFocusedNode(t *testing.T) {
 		t.Fatalf("then heard %T, want WindowShown", h.got[1])
 	}
 }
+
+func TestAHiddenWindowDrawsNothingUntilShownOrLeaving(t *testing.T) {
+	w := NewOffscreen(geom.Sz(200, 200), &hearsShown{})
+	w.Frame(time.Second / 60)
+	if !w.draws() {
+		t.Fatal("a window shown does not draw")
+	}
+	w.Input(driver.WindowShown{Shown: false})
+	if w.draws() {
+		t.Fatal("a hidden window draws")
+	}
+	w.ui.startLeaving()
+	if !w.draws() {
+		t.Fatal("a hidden window leaving does not draw its way out")
+	}
+	w.ui.goingAway = false
+	w.Input(driver.WindowShown{Shown: true})
+	if !w.draws() || !w.resumed {
+		t.Fatalf("shown again: draws %v, resumed %v; want it drawing, from where it held", w.draws(), w.resumed)
+	}
+}

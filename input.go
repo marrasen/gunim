@@ -68,6 +68,12 @@ func (u *UI) handleRaw(root *state, ev any) {
 		if root != u.root {
 			return
 		}
+		// A window no one sees draws nothing; shown again, it goes on
+		// from where its animations held.
+		u.w.hidden = !e.Shown
+		if e.Shown {
+			u.w.resumed, u.invalid = true, true
+		}
 		var ev input.Event = input.WindowShown{Time: time.Now()}
 		if !e.Shown {
 			ev = input.WindowHidden{Time: time.Now()}
