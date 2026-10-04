@@ -227,13 +227,8 @@ and curves, in the colours of a dark studio.
 [marrasen/oto](https://github.com/marrasen/oto), which keeps a
 Bluetooth headset on Android from crackling and says how long the
 device takes to play what it is handed, so visuals keep time with the
-sound as heard. Go applies a `replace` only in the module being built,
-so a program that imports gunim takes the same line into its own
-`go.mod` to get the fix:
-
-```
-replace github.com/ebitengine/oto/v3 => github.com/marrasen/oto/v3 v3.5.1-gunim.2
-```
+sound as heard. gunim requires the fork by its own module path, so a
+program built on gunim plays through it too.
 
 Widgets play cues as the user works them: a press, a switch turning on
 or off, a menu opening. They are silent until an application chooses
