@@ -133,7 +133,10 @@ it at the gap shown; or on the library, which follows a folder dropped
 there. A drag resting on a list's back button slides it away, to drop
 on the shelf. The equalizer, E, is parametric: up to
 eight bands, each a bell, a shelf, a cut or a notch, dragged about a
-graph, with the sound's spectrum before and after it drawn behind them. Space plays and pauses, the arrows seek and set the
+graph, with the sound's spectrum before and after it drawn behind them. Loudness gain plays each track, or each
+album played in order, at -18 LUFS, measured in the background and kept
+between runs; the volume bar shows the gain as the pointer comes over
+it, and I opens a card of the track's file, quality and loudness. Space plays and pauses, the arrows seek and set the
 volume, and N and P skip.
 
 ![The music player](example/music/music.png)
@@ -170,7 +173,9 @@ measures the sound as it is heard, for visuals that keep time with it,
 and its `Spectrum` reads the sound before a voice's inserts as well as
 after. An `EQ` is such an insert: a parametric equalizer of bells,
 shelves, cuts and notches, whose bands glide to new settings without
-clicks.
+clicks. A `LoudnessMeter` measures integrated loudness in LUFS as
+ITU-R BS.1770 defines it, as EBU R128 and ReplayGain 2 use it, and
+`FormatOf` says what a decoded sound was stored as.
 
 Widgets play cues as the user works them: a press, a switch turning on
 or off, a menu opening. They are silent until an application chooses

@@ -160,6 +160,8 @@ func (m *mp3Decoder) len() int64 {
 
 func (m *mp3Decoder) rate() int { return m.d.SampleRate() }
 
+func (m *mp3Decoder) info() Format { return Format{Name: "MP3", SampleRate: m.rate()} }
+
 // vorbisDecoder decodes Ogg Vorbis.
 type vorbisDecoder struct {
 	r   *oggvorbis.Reader
@@ -187,6 +189,9 @@ func (v *vorbisDecoder) read(dst []float32) (int, error) {
 func (v *vorbisDecoder) seek(f int64) error { return v.r.SetPosition(f) }
 func (v *vorbisDecoder) len() int64         { return v.r.Length() }
 func (v *vorbisDecoder) rate() int          { return v.r.SampleRate() }
+func (v *vorbisDecoder) info() Format {
+	return Format{Name: "Ogg Vorbis", SampleRate: v.rate(), Channels: v.r.Channels()}
+}
 
 // flacDecoder decodes FLAC a frame of the file at a time.
 type flacDecoder struct {
@@ -261,3 +266,7 @@ func (d *flacDecoder) len() int64 {
 }
 
 func (d *flacDecoder) rate() int { return int(d.s.Info.SampleRate) }
+
+func (d *flacDecoder) info() Format {
+	return Format{Name: "FLAC", SampleRate: d.rate(), Channels: int(d.s.Info.NChannels), Bits: int(d.s.Info.BitsPerSample)}
+}
