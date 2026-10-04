@@ -410,6 +410,22 @@ const (
 
 // windowFocus tells the windows that fill the screen that the activity
 // has the keyboard, or has lost it.
+// shown tells the windows that fill the screen that the application went
+// to the background, or came back.
+func (d *Driver) shown(on bool) {
+	d.mu.Lock()
+	var fill []*Window
+	for _, w := range d.windows {
+		if w.fills {
+			fill = append(fill, w)
+		}
+	}
+	d.mu.Unlock()
+	for _, w := range fill {
+		w.in.Push(driver.WindowShown{Shown: on})
+	}
+}
+
 func (d *Driver) windowFocus(focused bool) {
 	d.mu.Lock()
 	var top *Window

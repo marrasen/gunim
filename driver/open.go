@@ -136,6 +136,11 @@ type Recycler interface {
 // the keyboard.
 type WindowFocus struct{ Focused bool }
 
+// WindowShown is sent on [Window.Input] when the window can no longer
+// be seen, or can be again: minimized and restored on a desktop, or its
+// application sent to the background and brought back on a phone.
+type WindowShown struct{ Shown bool }
+
 // A Positioner is a [Window] that says where its content sits on the
 // screen: the top-left corner of what it draws, in device pixels, so a
 // screenshot can put a popup where it shows over its parent.

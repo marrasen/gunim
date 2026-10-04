@@ -90,6 +90,21 @@ public class GunimActivity extends Activity {
 		}
 	}
 
+	// The program hears when the activity can no longer be seen, gone to
+	// the background, and when it can again, to stop and start what only
+	// matters while it is seen, as a game's music.
+	@Override
+	protected void onStart() {
+		super.onStart();
+		Native.shown(true);
+	}
+
+	@Override
+	protected void onStop() {
+		Native.shown(false);
+		super.onStop();
+	}
+
 	@Override
 	protected void onDestroy() {
 		if (Native.activity == this) {

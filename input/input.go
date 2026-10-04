@@ -202,6 +202,16 @@ type WindowFocusLost struct{ Time time.Time }
 // goes to the focused node and bubbles, as a key does.
 type WindowFocusGained struct{ Time time.Time }
 
+// WindowHidden arrives when the window can no longer be seen: it was
+// minimized, or, on a phone, its application went to the background.
+// An application stops what only matters while it is seen, as a game's
+// music. It goes to the focused node and bubbles, as a key does.
+type WindowHidden struct{ Time time.Time }
+
+// WindowShown arrives when a hidden window can be seen again. It goes
+// to the focused node and bubbles, as a key does.
+type WindowShown struct{ Time time.Time }
+
 // DragOver arrives while something is dragged over a node: another
 // node's Data, dragged inside the application, from this window or
 // another. It bubbles like a pointer event. A node that returns true
@@ -286,6 +296,8 @@ func (DragAnswer) isEvent()   {}
 
 func (WindowFocusLost) isEvent()   {}
 func (WindowFocusGained) isEvent() {}
+func (WindowHidden) isEvent()      {}
+func (WindowShown) isEvent()       {}
 
 // Button identifies a pointer button.
 type Button uint8

@@ -58,6 +58,9 @@ func goInsets(top, right, bottom, left C.int) {
 	theDriver.insets(int(top), int(right), int(bottom), int(left))
 }
 
+//export goShown
+func goShown(shown C.uchar) { theDriver.shown(shown != 0) }
+
 //export goFocus
 func goFocus(focused C.uchar) { theDriver.windowFocus(focused != 0) }
 
