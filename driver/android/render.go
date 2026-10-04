@@ -19,6 +19,7 @@ import (
 	"github.com/marrasen/gunim/driver"
 	"github.com/marrasen/gunim/driver/internal/render"
 	"github.com/marrasen/gunim/internal/gl"
+	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/text"
 )
 
@@ -158,7 +159,17 @@ func (d *Driver) frame(g gl.Context, shared *render.Shared, c *compositor) {
 	if len(jobs) == 0 && !c.dirty(stack) {
 		return
 	}
+	// A window alone on the surface, filling it, draws straight onto it:
+	// a copy through its texture would cost the GPU the whole screen
+	// again each frame.
+	var solo *Window
+	if len(stack) == 1 {
+		if l := stack[0]; l.x == 0 && l.y == 0 && l.fbW == surfW && l.fbH == surfH {
+			solo = l.w
+		}
+	}
 
+	soloDrew := false
 	for _, j := range jobs {
 		w := j.w
 		if j.fbW <= 0 || j.fbH <= 0 {
@@ -177,11 +188,34 @@ func (d *Driver) frame(g gl.Context, shared *render.Shared, c *compositor) {
 			w.resize(g, j.fbW, j.fbH)
 		}
 		w.r.Under = j.under
-		w.r.WindowFBO = w.fbo
+		w.last, w.lastW, w.lastH = j.f.ops, j.fbW, j.fbH
+		if w == solo {
+			w.r.WindowFBO, w.onTex = 0, false
+			soloDrew = true
+		} else {
+			w.r.WindowFBO, w.onTex = w.fbo, true
+		}
 		w.r.Draw(j.f.ops, j.f.damage, j.fbW, j.fbH, scale)
 	}
 
-	c.draw(g, stack, surfW, surfH)
+	if solo != nil {
+		if !soloDrew {
+			// Nothing new to draw, as the stack changed round it, but
+			// the surface holds nothing after a swap: the last frame
+			// again, onto it.
+			solo.redraw(g, 0, scale)
+		}
+		c.last = append(c.last[:0], stack...)
+	} else {
+		// A window last drawn straight onto the surface has its texture
+		// behind: it draws its last frame into it to be laid.
+		for _, l := range stack {
+			if !l.w.onTex {
+				l.w.redraw(g, l.w.fbo, scale)
+			}
+		}
+		c.draw(g, stack, surfW, surfH)
+	}
 	// The renderers share the context's blending, which the compositor
 	// changed.
 	for _, l := range stack {
@@ -203,6 +237,20 @@ func (d *Driver) frame(g gl.Context, shared *render.Shared, c *compositor) {
 		case <-j.w.quit:
 		}
 	}
+}
+
+// redraw draws the window's last frame again, whole, into fbo: its
+// texture, or 0 for the surface. It runs on the render thread.
+func (w *Window) redraw(g gl.Context, fbo uint32, scale float32) {
+	if w.r == nil || w.last == nil {
+		return
+	}
+	if fbo != 0 && (w.texW != w.lastW || w.texH != w.lastH) {
+		w.resize(g, w.lastW, w.lastH)
+	}
+	w.r.WindowFBO = fbo
+	w.r.Draw(w.last, paint.Everything, w.lastW, w.lastH, scale)
+	w.onTex = fbo != 0
 }
 
 // resize gives the window a texture of w×h device pixels to draw into.

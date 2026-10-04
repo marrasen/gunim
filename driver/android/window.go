@@ -59,6 +59,13 @@ type Window struct {
 	r          *render.Renderer
 	tex, fbo   uint32
 	texW, texH int
+	// last is the last frame drawn, at lastW by lastH, for drawing
+	// again where the window moves between the surface and its texture;
+	// onTex says its texture holds it, as it does unless the window
+	// drew alone, straight onto the surface.
+	last         []paint.Op
+	lastW, lastH int
+	onTex        bool
 }
 
 // frame is one frame for the render thread.
