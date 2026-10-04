@@ -2,6 +2,7 @@ package gunim
 
 import (
 	"github.com/marrasen/gunim/theme"
+	"slices"
 
 	"errors"
 	"fmt"
@@ -267,7 +268,13 @@ func (u *UI) watch(s *state, c Mount) {
 	}
 }
 
+// subscribe has s watch key. A view watches a key once, even one it
+// names twice, as a topic named after its own ID, so it hears each
+// publish once.
 func (u *UI) subscribe(s *state, key string) {
+	if slices.Contains(s.topics, key) {
+		return
+	}
 	u.topics[key] = append(u.topics[key], s)
 	s.topics = append(s.topics, key)
 }
