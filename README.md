@@ -141,29 +141,30 @@ volume, and N and P skip.
 
 ![The music player](example/music/music.png)
 
-`example/mastering` masters an album. Its tracks are each cut, faded
-with a curve of five shapes, and set apart by the same silence, edited
-on their waveforms. One plays at a time, and a number key switches to
-another at the same moment, levels matched to the target if asked, to
-compare them by ear. Each is measured as it will be exported, loudness,
-its range and true peak, when Calc LUFS asks: a track changed since it
-was measured is marked, so heavy plugins work only when asked. The
-album exports each track at
-its own length, tracks side by side, to 16 or 24-bit WAV with dither,
-or 32-bit float, and, where LAME is installed, MP3, each tagged with
-the release.
-Meters show loudness against the target, the stereo image, and the
-spectrum or a spectrogram. Each track runs through its own chain of VST3 plugins, such
-as Ozone. Only the track heard runs its plugins, so the rest cost the
-computer nothing. A chain copies to other tracks with every plugin as
-set, and a track is measured and exported through a copy of its own
-chain, run offline. Album play runs on from each track into the next
-without a gap, as the exported files will play. A new mix replaces a
-track's file with its edit and chain kept. The waveform zooms in to
-the samples themselves, and up to show quiet sound. To target finds
-the gain that brings a track to the target through its chain. Albums
-are files of their own, which keep the tracks in their folder by name,
-so a folder moves whole.
+`example/mastering` masters an album, an EP or a single. Each track is
+cut, faded with a curve of five shapes, and set apart by the same
+silence, edited on its waveform. The waveform zooms in to the samples
+themselves, and up to show quiet sound. One track plays at a time, and
+a number key switches to another at the same moment, levels matched to
+the target if asked, to compare them by ear. Album play runs on from
+each track into the next without a gap, as the exported files will
+play.
+
+Each track runs through its own chain of VST3 plugins, such as Ozone.
+Only the track heard runs its plugins, so the rest cost the computer
+nothing. A chain copies to other tracks with every plugin as set.
+Tracks are measured as they will be exported, through a copy of their
+chain run offline: loudness, its range and true peak. A change marks a
+track, and Calc LUFS measures the tracks marked, so heavy plugins work
+only when asked. To target finds the gain that brings a track to the
+target. Meters show loudness against the target, the stereo image, and
+the spectrum or a spectrogram.
+
+The export writes each track at its own length, tracks side by side, to
+16 or 24-bit WAV with dither, or 32-bit float, and, where LAME is
+installed, MP3, each tagged with the release. An album is a file of its
+own, which keeps its tracks' paths from its own folder, so it opens
+wherever the folders are found together.
 
 ```sh
 go run ./example/mastering mix1.wav mix2.wav
