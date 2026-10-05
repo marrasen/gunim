@@ -331,6 +331,11 @@ what the APK may ask for. `App.UserFolder` finds the user's Music
 folder, on a phone or a desktop, and a folder chooser picks a folder on
 the phone's storage or a card as a path.
 
+`Client.Share` hands text and files to other apps through Android's
+share sheet, and `Client.CanShare` says where there is one to show.
+`Client.Vibrate` runs the phone's vibration motor in a pattern of on
+and off times, as the web's `navigator.vibrate` does.
+
 A tap on a text field opens the soft keyboard, whose edits, autocorrect
 and composition reach the field as `input.TextEdit`s, and the window
 slides up with the keyboard to keep the field in view.

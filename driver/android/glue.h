@@ -16,6 +16,8 @@ uint16_t *gunim_get_clipboard(int *n);
 void gunim_set_clipboard(const uint16_t *s, int n);
 void gunim_finish(void);
 void gunim_buzz(void);
+int gunim_share(const uint16_t *text, int nt, const uint16_t *subject, int ns, const uint16_t *paths, int np);
+int gunim_vibrate(const long long *ms, int n);
 int gunim_permitted(int p);
 void gunim_ask(int p, int code);
 void gunim_choose_folder(int code);

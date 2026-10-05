@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"os"
 	"reflect"
 	"runtime"
 	"slices"
@@ -698,6 +699,47 @@ func (c Client) Reveal(path string) error {
 		return driver.ErrNoLauncher
 	}
 	return l.Reveal(path)
+}
+
+// Share hands s, text, files or both, to other applications through the
+// system's share sheet, shown over the window, as a phone's Share button
+// does. It returns once the system has taken it, and
+// [driver.ErrNoSharer] where there is no sheet to show, as on a desktop
+// for now; [Client.CanShare] says which, so an application shows its
+// Share button only where it works. The files must stay where they are
+// while the receiving application reads them.
+func (c Client) Share(s driver.Share) error {
+	sh, ok := c.w.dw.(driver.Sharer)
+	if !ok {
+		return driver.ErrNoSharer
+	}
+	for _, p := range s.Paths {
+		if _, err := os.Stat(p); err != nil {
+			return err
+		}
+	}
+	return sh.Share(s)
+}
+
+// CanShare reports whether [Client.Share] can show a share sheet here.
+func (c Client) CanShare() bool {
+	_, ok := c.w.dw.(driver.Sharer)
+	return ok
+}
+
+// Vibrate runs the device's vibration motor in pattern: on for the first
+// duration, off for the next, on for the one after, and so on, as the
+// web's navigator.vibrate does. Vibrate(200*time.Millisecond) gives one
+// buzz of a fifth of a second. A call stops any pattern still running,
+// and Vibrate() only stops it. It returns at once, and
+// [driver.ErrNoVibrator] where the device has no motor gunim can run,
+// as a desktop.
+func (c Client) Vibrate(pattern ...time.Duration) error {
+	v, ok := c.w.dw.(driver.Vibrator)
+	if !ok {
+		return driver.ErrNoVibrator
+	}
+	return v.Vibrate(pattern...)
 }
 
 // awaitDialog runs show, which shows a dialog, and waits for its answer,

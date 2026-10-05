@@ -56,6 +56,10 @@ type OffscreenWindow struct {
 	saver func(SaveOptions) (string, error)
 	// open and reveal answer Open and Reveal; see SetLauncher.
 	open, reveal func(string) error
+	// share and vibrate answer Share and Vibrate; see SetSharer and
+	// SetVibrator.
+	share   func(Share) error
+	vibrate func([]time.Duration) error
 	// anchor is where a popup was last attached, and origin where the
 	// window sits on its pretend screen.
 	anchor geom.Rect
@@ -691,4 +695,43 @@ func (w *OffscreenWindow) Reveal(path string) error {
 		return ErrNoLauncher
 	}
 	return fn(path)
+}
+
+// SetSharer sets what Share does, for a test standing in for the system.
+func (w *OffscreenWindow) SetSharer(fn func(Share) error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.share = fn
+}
+
+// Share implements [Sharer] with the function SetSharer set, and
+// returns [ErrNoSharer] without one.
+func (w *OffscreenWindow) Share(s Share) error {
+	w.mu.Lock()
+	fn := w.share
+	w.mu.Unlock()
+	if fn == nil {
+		return ErrNoSharer
+	}
+	return fn(s)
+}
+
+// SetVibrator sets what Vibrate does, for a test standing in for the
+// device.
+func (w *OffscreenWindow) SetVibrator(fn func(pattern []time.Duration) error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.vibrate = fn
+}
+
+// Vibrate implements [Vibrator] with the function SetVibrator set, and
+// returns [ErrNoVibrator] without one.
+func (w *OffscreenWindow) Vibrate(pattern ...time.Duration) error {
+	w.mu.Lock()
+	fn := w.vibrate
+	w.mu.Unlock()
+	if fn == nil {
+		return ErrNoVibrator
+	}
+	return fn(pattern)
 }
