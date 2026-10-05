@@ -9,7 +9,7 @@ require (
 	github.com/godbus/dbus/v5 v5.2.2
 	github.com/hajimehoshi/go-mp3 v0.3.4
 	github.com/jfreymuth/oggvorbis v1.0.5
-	github.com/marrasen/oto/v3 v3.5.1-gunim.3
+	github.com/marrasen/oto/v3 v3.5.1-gunim.4
 	github.com/mewkiz/flac v1.0.14
 	github.com/yuin/goldmark v1.8.6
 	golang.org/x/image v0.45.0
