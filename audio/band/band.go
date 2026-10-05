@@ -135,6 +135,38 @@ type Tiered interface {
 	SetTier(n int)
 }
 
+// A Triggered is a [Player] whose parts a program also starts and stops
+// one by one, as a player at a mixing desk does. SetPart changes a part
+// from the next phrase on: [PartOn] brings it in with its intro and
+// plays it as if its tier played, [PartOff] takes it out with its
+// outro, and [PartAuto] hands it back to the song, as its tier says. A
+// part keeps its control until SetPart changes it, through changes of
+// tier. SetPart may be called from any goroutine.
+type Triggered interface {
+	Player
+	// SetPart sets the control of the part named name, and returns
+	// [ErrNoPart] for a name the song has no part of.
+	SetPart(name string, c PartControl) error
+	// Part returns the control of the part named name.
+	Part(name string) PartControl
+}
+
+// PartControl says who chooses whether a part plays.
+type PartControl int
+
+// The controls of a part.
+const (
+	// PartAuto leaves the part to the song, as its tier says.
+	PartAuto PartControl = iota
+	// PartOn plays the part.
+	PartOn
+	// PartOff rests the part.
+	PartOff
+)
+
+// ErrNoPart is returned for a part a song has none of.
+var ErrNoPart = errors.New("band: no such part")
+
 // A Watcher is a [Player] that tells what it plays, as a tool showing a
 // song's parts does. Watch may be called from any goroutine.
 type Watcher interface {
@@ -159,6 +191,9 @@ type PartStatus struct {
 	// Playing says the part plays Piece in this phrase.
 	Playing bool
 	Piece   Piece
+	// Control is the part's control, [PartAuto] in a song of no
+	// [Triggered] player.
+	Control PartControl
 }
 
 // Load finds the parts in folder dir of fsys. A piece's file is named

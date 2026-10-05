@@ -1,13 +1,17 @@
 package band
 
-import "sync/atomic"
+import (
+	"slices"
+	"sync/atomic"
+)
 
 // Tiers is a [Song] whose parts play in tiers, as a game's music grows
 // with its combo. Each part has its [Part.Tier]: at tier 1 only the
 // parts of tier 1 play, and each tier above adds its own. A part comes
 // in with its intro and plays its loop for as long as its tier plays,
 // or [Part.Loops] times before it takes its outro and comes in again,
-// as a solo does. Its player is a [Tiered].
+// as a solo does. Its player is a [Tiered], and a [Triggered], whose
+// parts a program also starts and stops one by one.
 type Tiers struct {
 	// Title and Artist name the song and who made it.
 	Title, Artist string
@@ -46,14 +50,18 @@ func (s *Tiers) Tiers() int {
 	return n
 }
 
-// A TierBand plays a [Tiers]. It is a [Tiered] and a [Watcher].
+// A TierBand plays a [Tiers]. It is a [Tiered], a [Triggered] and a
+// [Watcher].
 type TierBand struct {
 	engine
 	song Tiers
-	// tier is the tier SetTier set, and planned the one the coming
-	// phrase was planned for.
-	tier    atomic.Int32
-	planned int
+	// tier is the tier SetTier set, and controls the parts' controls,
+	// as SetPart set them. changes counts the calls to either, and
+	// planned is the count the coming phrase was planned at.
+	tier     atomic.Int32
+	controls []atomic.Int32
+	changes  atomic.Uint64
+	planned  uint64
 }
 
 // NewTiers starts a band playing s at s.Start. The band keeps a copy of
@@ -64,9 +72,11 @@ func NewTiers(s *Tiers) *TierBand {
 	for i := range b.song.Parts {
 		b.layers = append(b.layers, &layer{p: &b.song.Parts[i], seamAt: -1})
 	}
+	b.controls = make([]atomic.Int32, len(b.layers))
 	b.SetTier(max(1, s.Start))
 	b.choose = b.plan
-	b.stale = func() bool { return int(b.tier.Load()) != b.planned }
+	b.stale = func() bool { return b.changes.Load() != b.planned }
+	b.control = func(i int) PartControl { return PartControl(b.controls[i].Load()) }
 	b.start()
 	return b
 }
@@ -78,14 +88,50 @@ func (b *TierBand) Tiers() int { return b.song.Tiers() }
 func (b *TierBand) Tier() int { return int(b.tier.Load()) }
 
 // SetTier implements [Tiered].
-func (b *TierBand) SetTier(n int) { b.tier.Store(int32(max(1, min(n, b.Tiers())))) }
+func (b *TierBand) SetTier(n int) {
+	b.tier.Store(int32(max(1, min(n, b.Tiers()))))
+	b.changes.Add(1)
+}
+
+// SetPart implements [Triggered].
+func (b *TierBand) SetPart(name string, c PartControl) error {
+	i := b.index(name)
+	if i < 0 {
+		return ErrNoPart
+	}
+	b.controls[i].Store(int32(c))
+	b.changes.Add(1)
+	return nil
+}
+
+// Part implements [Triggered].
+func (b *TierBand) Part(name string) PartControl {
+	if i := b.index(name); i >= 0 {
+		return PartControl(b.controls[i].Load())
+	}
+	return PartAuto
+}
+
+// index returns the index of the part named name, or -1.
+func (b *TierBand) index(name string) int {
+	return slices.IndexFunc(b.song.Parts, func(p Part) bool { return p.Name == name })
+}
 
 // plan chooses what each part plays in phrase q: the parts of the tier
-// and below come in or play on, and those above leave.
+// and below, and those turned on, come in or play on, and the rest
+// leave.
 func (b *TierBand) plan(int) {
-	b.planned = b.Tier()
-	for _, l := range b.layers {
-		on := max(1, l.p.Tier) <= b.planned
+	b.planned = b.changes.Load()
+	tier := b.Tier()
+	for i, l := range b.layers {
+		on := max(1, l.p.Tier) <= tier
+		switch PartControl(b.controls[i].Load()) {
+		case PartOn:
+			on = true
+		case PartOff:
+			on = false
+		case PartAuto:
+		}
 		in := plan{state: inIntro, loops: l.p.Loops - 1, piece: Intro, opens: true}
 		out := plan{state: inOutro, piece: Outro, opens: true}
 		switch l.state {
@@ -111,7 +157,8 @@ func (b *TierBand) plan(int) {
 }
 
 var (
-	_ Tiered  = (*TierBand)(nil)
-	_ Watcher = (*TierBand)(nil)
-	_ Song    = (*Tiers)(nil)
+	_ Tiered    = (*TierBand)(nil)
+	_ Triggered = (*TierBand)(nil)
+	_ Watcher   = (*TierBand)(nil)
+	_ Song      = (*Tiers)(nil)
 )

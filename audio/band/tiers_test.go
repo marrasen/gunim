@@ -1,6 +1,7 @@
 package band
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -101,5 +102,55 @@ func TestWatchCountsTheBars(t *testing.T) {
 	}
 	if s := b.Watch(); s.Bar != 5 || s.PhraseBars != 16 || len(s.Parts) != 6 || s.Parts[0].Tier != 1 {
 		t.Fatalf("Watch returned %+v", s)
+	}
+}
+
+func TestPartsStartAndStopOnTheirOwnOverTheTiers(t *testing.T) {
+	b := NewTiers(&Tiers{BPM: 136, PhraseBars: 16, Parts: tieredParts()})
+	var got []string
+	got = append(got, row(b.Watch()))
+	for p := 1; p <= 6; p++ {
+		switch p {
+		case 1:
+			// Asked for while phrase 0 plays: the tier-3 part comes in,
+			// and a tier-1 part leaves.
+			mustSet(t, b, "t3-3", PartOn)
+			mustSet(t, b, "t1-0", PartOff)
+		case 3:
+			// The tier rises, and the part turned off stays off.
+			b.SetTier(4)
+		case 5:
+			mustSet(t, b, "t1-0", PartAuto)
+			mustSet(t, b, "t4-4", PartOff)
+		}
+		playPhrase(t, b)
+		got = append(got, row(b.Watch()))
+	}
+	want := []string{
+		"ii----",
+		"ol-i--", // t1-0 leaves, and t3-3 comes in
+		"-l-l--",
+		"-lilii", // tier 4: the rest come in, and t1-0 stays off
+		"-lllll",
+		"illlol", // t1-0 back with the tier, and t4-4 off
+		"llll-o", // the solo has looped twice
+	}
+	for p := range want {
+		if got[p] != want[p] {
+			t.Fatalf("phrase %d plays %s, want %s; all: %v", p, got[p], want[p], got)
+		}
+	}
+	if s := b.Watch(); s.Parts[4].Control != PartOff || s.Parts[0].Control != PartAuto {
+		t.Fatalf("Watch tells controls %v and %v, want off and auto", s.Parts[4].Control, s.Parts[0].Control)
+	}
+	if err := b.SetPart("no-such-part", PartOn); !errors.Is(err, ErrNoPart) {
+		t.Fatalf("SetPart returned %v for a part the song has none of, want ErrNoPart", err)
+	}
+}
+
+func mustSet(t *testing.T, b *TierBand, name string, c PartControl) {
+	t.Helper()
+	if err := b.SetPart(name, c); err != nil {
+		t.Fatal(err)
 	}
 }
