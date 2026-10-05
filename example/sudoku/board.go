@@ -72,6 +72,14 @@ type board struct {
 	shown Grid
 	// pulse turns for the selected cell's ring to breathe.
 	pulse float64
+	// ringFor is the cell the ring was last sent to, or -1. ringX and
+	// ringY are where the ring is, in columns and rows, as it slides
+	// from cell to cell, and ringIn how far it is shown.
+	ringFor int
+	// lastLit is the cell whose row, column and box were lit last, to
+	// fade them out as it lets go.
+	lastLit              int
+	ringX, ringY, ringIn *anim.Float
 	// hover is the cell under the mouse, or -1.
 	hover int
 	size  geom.Size
@@ -83,7 +91,8 @@ type board struct {
 }
 
 func newBoard(r *gameRoot) *board {
-	b := &board{root: r, hover: -1}
+	b := &board{root: r, hover: -1, ringFor: -1, lastLit: -1, ringX: anim.NewFloat(0), ringY: anim.NewFloat(0), ringIn: anim.NewFloat(0)}
+	b.Add(b.ringX, b.ringY, b.ringIn)
 	for i := range b.cells {
 		c := &b.cells[i]
 		c.pop, c.glow, c.out = anim.NewFloat(1), anim.NewFloat(0), anim.NewFloat(0)
@@ -188,6 +197,7 @@ func (b *board) hintLanded(c int) {
 
 // Step implements [gunim.Animator].
 func (b *board) Step(dt time.Duration) bool {
+	b.follow()
 	s := float32(dt.Seconds())
 	moving := false
 	for i := range b.cells {
@@ -258,11 +268,51 @@ func (b *board) Step(dt time.Duration) bool {
 		}
 	}
 	b.sweeps = sweeps
-	if b.root.selected >= 0 || b.root.armed > 0 {
+	if b.root.selected >= 0 {
 		b.pulse += dt.Seconds()
 		moving = true
 	}
 	return moving || len(b.ghosts) > 0 || len(b.sweeps) > 0
+}
+
+// follow sends the ring to the cell selected: it pops in on a cell,
+// slides from one cell to the next, and fades out as the cell lets go.
+func (b *board) follow() {
+	sel := b.root.selected
+	if sel == b.ringFor {
+		return
+	}
+	b.ringFor = sel
+	if sel < 0 {
+		b.ringIn.Animate(0, anim.Spring{Response: 0.2, Damping: 1})
+		return
+	}
+	b.lastLit = sel
+	x, y := float32(sel%9), float32(sel/9)
+	if b.ringIn.Value() < 0.05 {
+		// Gone, or nearly: it pops in where it is wanted.
+		b.ringX.Jump(x)
+		b.ringY.Jump(y)
+		b.ringIn.Jump(0)
+		b.pulse = 0
+	} else {
+		b.ringX.Animate(x, anim.Spring{Response: 0.22, Damping: 0.8})
+		b.ringY.Animate(y, anim.Spring{Response: 0.22, Damping: 0.8})
+	}
+	b.ringIn.Animate(1, anim.Spring{Response: 0.3, Damping: 0.5})
+}
+
+// ringRect returns where the ring lies on a board of side w, at column
+// x and row y, either of which may lie between two cells.
+func ringRect(x, y, w float32) geom.Rect {
+	along := func(v float32) float32 {
+		v = max(0, min(8, v))
+		i := min(int(v), 7)
+		a, b := cellRect(i, w).Min.X, cellRect(i+1, w).Min.X
+		return a + (b-a)*(v-float32(i))
+	}
+	s := cellSize(w)
+	return geom.Rc(along(x), along(y), s, s)
 }
 
 // Layout implements [gunim.Node].
@@ -318,7 +368,7 @@ func (b *board) Handle(e input.Event, u *gunim.UI) bool {
 			return false
 		}
 		if c := b.cellAt(e.Pos); c >= 0 {
-			b.root.tapCell(c, u)
+			b.root.tapCell(c)
 		}
 	default:
 		return false
@@ -343,18 +393,16 @@ func (b *board) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Ch
 	if sel >= 0 {
 		selDigit = g.Cells[sel]
 	}
-	if b.root.armed > 0 {
-		selDigit = b.root.armed
-	}
 	// The slots lit along the selected cell's row, column and box, and
-	// under the mouse, over the panel's own.
+	// under the mouse, over the panel's own. They fade with the ring.
+	lit, in := b.lastLit, min(1, b.ringIn.Value())
 	for c := range 81 {
 		r := cellRect(c, w)
 		switch {
 		case c == b.hover:
 			p.RRect(r, s*0.22, paint.Solid(faded(rgb(0xff, 0xff, 0xff), 0.2)))
-		case sel >= 0 && sharesUnit(sel, c):
-			p.RRect(r, s*0.22, paint.Solid(faded(rgb(0xff, 0xf0, 0xff), 0.14)))
+		case lit >= 0 && in > 0.01 && sharesUnit(lit, c):
+			p.RRect(r, s*0.22, paint.Solid(faded(rgb(0xff, 0xf0, 0xff), 0.14*in)))
 		}
 		if d := g.Cells[c]; d != 0 && d == selDigit && sel != c && !b.cells[c].eaten {
 			// The same digits as the selected glow, still: breathing
@@ -386,15 +434,17 @@ func (b *board) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Ch
 			}
 		}
 	}
-	// The selected cell: a ring that breathes.
-	if sel >= 0 {
-		r := cellRect(sel, w)
+	// The selected cell: a ring that pops in, slides, breathes and fades.
+	if in := b.ringIn.Value(); in > 0.01 {
+		r := ringRect(b.ringX.Value(), b.ringY.Value(), w)
 		breathe := 0.5 + 0.5*float32(math.Sin(b.pulse*5))
-		grow := 2 + 2*breathe
+		// It comes in from wide, springing past its size and back.
+		grow := 2 + 2*breathe + (1-in)*s*0.35
 		ring := geom.Rect{Min: r.Min.Sub(geom.Pt(grow, grow)), Max: r.Max.Add(geom.Pt(grow, grow))}
+		a := min(1, in)
 		p.ShadowRRect(ring, s*0.28, paint.Solid(faded(rgb(0xff, 0xff, 0xff), 0)),
-			paint.Shadow{Blur: 10, Color: faded(rgb(0xff, 0xe6, 0x6e), 0.6+0.3*breathe)})
-		p.RRectStroke(ring, s*0.28, paint.Solid(rgb(0xff, 0xf4, 0xb0)), paint.Stroke{Width: 2.5})
+			paint.Shadow{Blur: 10, Color: faded(rgb(0xff, 0xe6, 0x6e), (0.6+0.3*breathe)*a)})
+		p.RRectStroke(ring, s*0.28, paint.Solid(faded(rgb(0xff, 0xf4, 0xb0), a)), paint.Stroke{Width: 2.5})
 	}
 
 	numbered := b.root.numbered

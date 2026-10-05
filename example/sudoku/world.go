@@ -108,7 +108,7 @@ func (r *worldRoot) Handle(e input.Event, u *gunim.UI) bool {
 	if r.state.Map {
 		return r.m.key(k, u)
 	}
-	if k.Key == input.KeyEscape && r.game.selected < 0 && r.game.armed == 0 {
+	if k.Key == input.KeyEscape && r.game.selected < 0 {
 		u.Send(r, ShowMap{})
 		return true
 	}
