@@ -1246,6 +1246,8 @@ type UI struct {
 	// after one lifted; see touch.go.
 	touch *touchPress
 	fling *touchFling
+	// pinch is two fingers pinching now; see pinch.go.
+	pinch *pinchGesture
 	// caretAt is the text caret last told to the driver, and boxAt the
 	// bounds of the node it is in.
 	caretAt, boxAt geom.Rect
@@ -1752,6 +1754,7 @@ func (u *UI) Remove(n Node) bool {
 	if u.capture != nil && u.capture.within(s) {
 		u.capture = nil
 	}
+	u.losePinch(s)
 	u.left()
 	return true
 }
@@ -2270,6 +2273,7 @@ func (u *UI) forget(s *state) {
 	if u.capture == s {
 		u.capture = nil
 	}
+	u.losePinch(s)
 	if s.id != "" && u.ids[s.id] == s {
 		delete(u.ids, s.id)
 	}

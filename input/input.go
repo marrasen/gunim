@@ -102,6 +102,36 @@ type Scroll struct {
 	Time    time.Time
 }
 
+// Pinch carries two fingers on a touch screen spreading apart or
+// closing together, to a node that zooms with them: see
+// gunim.PinchZoomer. Pos is the point midway between the fingers, and
+// Delta how far it moved since the last Pinch, so fingers that move
+// together as they pinch pan what they zoom. Scale is how much further
+// apart the fingers are than at the last Pinch: 2 for twice as far, 0.5
+// for half, 1 for no change. A node that zooms by Scale about the point
+// Pos less Delta, and then moves by Delta, keeps what was under the
+// fingers under them.
+type Pinch struct {
+	Pos   geom.Point
+	Delta geom.Point
+	Scale float32
+	Phase PinchPhase
+	Time  time.Time
+}
+
+// PinchPhase says where a [Pinch] is in its gesture.
+type PinchPhase uint8
+
+// The phases of a pinch. PinchStart arrives as the second finger comes
+// down, and PinchEnd as one of the two lifts or the touch is called
+// off; both have a Scale of 1 and no Delta. PinchMove arrives each time
+// the fingers move between.
+const (
+	PinchStart PinchPhase = iota
+	PinchMove
+	PinchEnd
+)
+
 // Keyboard events split press from release, and deliver the text a
 // keystroke produced as its own [TextInput]. Polled key state collapses
 // the two, so it reads Ctrl+C and the letter c the same way, which is
@@ -294,6 +324,7 @@ func (PointerMove) isEvent()  {}
 func (PointerDown) isEvent()  {}
 func (PointerUp) isEvent()    {}
 func (Scroll) isEvent()       {}
+func (Pinch) isEvent()        {}
 func (KeyPress) isEvent()     {}
 func (KeyRelease) isEvent()   {}
 func (AltTapped) isEvent()    {}

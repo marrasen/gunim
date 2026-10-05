@@ -12,11 +12,14 @@ import (
 
 // gesture is a touch as it goes. pinched says a second finger came
 // down: the touch is a pinch from then on, and the finger left after it
-// only lifts. spread is how far apart the two fingers were last, in
-// logical pixels.
+// only lifts. pinching says the two fingers are down now. spread is how
+// far apart they were last, and mid the point between them, in logical
+// pixels.
 type gesture struct {
-	pinched bool
-	spread  float32
+	pinched  bool
+	pinching bool
+	spread   float32
+	mid      geom.Point
 }
 
 // touch turns the first finger into the pointer: it presses, moves and
@@ -57,6 +60,7 @@ func (d *Driver) touch(action int, x, y float32, now time.Time) {
 	if g.pinched && action != touchDown {
 		// After a pinch the finger only lifts.
 		if action == touchUp || action == touchCancel {
+			d.endPinchLocked(w, now)
 			w.in.Push(input.PointerLeave{Time: now})
 		}
 		return
@@ -83,17 +87,13 @@ const (
 	pinchEnd
 )
 
-// pinchStep is how much the fingers' spread grows for one notch of
-// zoom: a notch of a wheel zooms by about a quarter.
-const pinchStep = 1.25
-
-// pinch turns two fingers into zoom. As the second finger comes down,
-// the first one's press is let go at [input.Away], so it neither clicks
-// nor scrolls nor opens a menu. As the fingers spread or close, the window under them hears
-// Ctrl with the wheel at the point between them, a notch for each
-// quarter the spread grows or shrinks, which zooms a picture, a plot or
-// a grid that zooms with the wheel, or the window where it zooms. x0,
-// y0, x1 and y1 are the fingers, in device pixels.
+// pinch turns two fingers into a pinch. As the second finger comes
+// down, the first one's press is let go at [input.Away], so it neither
+// clicks nor scrolls nor opens a menu. The window under the fingers
+// hears [input.Pinch] as they come down, as they spread, close or move,
+// and as one of them lifts, at the point between them: the engine gives
+// it to a node that zooms with a pinch, and otherwise makes it Ctrl with
+// the wheel. x0, y0, x1 and y1 are the fingers, in device pixels.
 func (d *Driver) pinch(action int, x0, y0, x1, y1 float32, now time.Time) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -106,6 +106,7 @@ func (d *Driver) pinch(action int, x0, y0, x1, y1 float32, now time.Time) {
 	a := geom.Pt(x0/d.density, (y0+pan)/d.density)
 	b := geom.Pt(x1/d.density, (y1+pan)/d.density)
 	spread := float32(math.Hypot(float64(a.X-b.X), float64(a.Y-b.Y)))
+	mid := a.Add(b).Mul(0.5)
 	switch action {
 	case pinchStart:
 		if !g.pinched {
@@ -113,16 +114,32 @@ func (d *Driver) pinch(action int, x0, y0, x1, y1 float32, now time.Time) {
 			// off.
 			w.in.Push(input.PointerUp{Pos: input.Away, Button: input.ButtonPrimary, Touch: true, Time: now})
 		}
-		g.pinched, g.spread = true, spread
-		return
+		d.endPinchLocked(w, now)
+		g.pinched, g.pinching, g.spread, g.mid = true, true, spread, mid
+		w.in.Push(input.Pinch{Pos: mid.Sub(w.pos), Scale: 1, Phase: input.PinchStart, Time: now})
+	case pinchMove:
+		if !g.pinching {
+			return
+		}
+		scale := float32(1)
+		if g.spread > 0 && spread > 0 {
+			scale = spread / g.spread
+		}
+		delta := mid.Sub(g.mid)
+		g.spread, g.mid = spread, mid
+		w.in.Push(input.Pinch{Pos: mid.Sub(w.pos), Delta: delta, Scale: scale, Phase: input.PinchMove, Time: now})
 	case pinchEnd:
+		d.endPinchLocked(w, now)
+	}
+}
+
+// endPinchLocked ends the pinch going on in w, if there is one, where
+// the fingers last were.
+func (d *Driver) endPinchLocked(w *Window, now time.Time) {
+	g := &d.gesture
+	if !g.pinching {
 		return
 	}
-	if g.spread <= 0 || spread <= 0 {
-		g.spread = spread
-		return
-	}
-	notches := float32(math.Log(float64(spread/g.spread)) / math.Log(pinchStep))
-	g.spread = spread
-	w.in.Push(input.Scroll{Pos: a.Add(b).Mul(0.5).Sub(w.pos), Notches: geom.Pt(0, notches), Mods: input.ModControl, Time: now})
+	g.pinching = false
+	w.in.Push(input.Pinch{Pos: g.mid.Sub(w.pos), Scale: 1, Phase: input.PinchEnd, Time: now})
 }
