@@ -34,10 +34,8 @@ type gameRoot struct {
 	state Game
 	// seen is the newest event played.
 	seen int
-	// selected is the cell picked, or -1; armed the candy picked with
-	// no cell, to place with each tap after, or 0.
+	// selected is the empty cell the next candy tapped goes in, or -1.
 	selected int
-	armed    int8
 	// notes says candies go in as notes; numbered draws the digits on
 	// the candies.
 	notes, numbered bool
@@ -83,7 +81,7 @@ func (r *gameRoot) show(s Game, u *gunim.UI) {
 	fresh := s.Round != r.state.Round
 	r.state = s
 	if fresh {
-		r.seen, r.selected, r.armed = 0, -1, 0
+		r.seen, r.selected = 0, -1
 		r.card.hide()
 	}
 	r.board.show(s, fresh)
@@ -105,6 +103,10 @@ var comboWords = []string{"Sweet!", "Tasty!", "Delicious!", "Divine!", "Sugar ru
 func (r *gameRoot) play(e Event) {
 	switch e.Kind {
 	case Placed:
+		if e.Cell == r.selected {
+			// Full now: the cell lets go.
+			r.selected = -1
+		}
 		r.board.land(e.Cell)
 		at := r.cellCenter(e.Cell)
 		r.sfx.placed(e.Digit, e.Combo, r.pan(at))
@@ -135,16 +137,12 @@ func (r *gameRoot) play(e Event) {
 		r.fx.say(fmt.Sprintf("+%d", e.Points), mid, r.cell()*0.55, rgb(0x9b, 0xff, 0xe0))
 	case DigitDone:
 		r.tray.finish(e.Digit)
-		if r.armed == e.Digit {
-			// None of it is left to place.
-			r.armed = 0
-		}
 		r.sfx.digitDone(e.Digit)
 		r.fx.burst(r.trayCenter(e.Digit), 26, starBit, 420, candyOf(e.Digit).color, white, gold)
 	case Hinted:
 		r.board.hinted(e.Cell)
 	case WonEvent:
-		r.selected, r.armed = -1, 0
+		r.selected = -1
 		r.card.won(r.state.Stars, r.state.Score)
 		r.fx.rain(r.size.W, 140, confettiColors...)
 		r.fx.fireworks(r.size, 7, confettiColors...)
@@ -153,7 +151,7 @@ func (r *gameRoot) play(e Event) {
 		r.header.combo(0)
 		r.sfx.won()
 	case LostEvent:
-		r.selected, r.armed = -1, 0
+		r.selected = -1
 		r.card.lost()
 		r.sfx.lost()
 		r.shake.Jump(1.6)
@@ -206,44 +204,35 @@ func (r *gameRoot) trayCenter(d int8) geom.Point {
 	return r.trayAt.Add(geom.Pt((sr.Min.X+sr.Max.X)/2, (sr.Min.Y+sr.Max.Y)/2))
 }
 
-// tapCell picks cell c, or places the armed candy in it.
-func (r *gameRoot) tapCell(c int, u *gunim.UI) {
+// tapCell selects empty cell c, or lets it go when it is selected
+// already. A full cell selects nothing: its candies cheer.
+func (r *gameRoot) tapCell(c int) {
 	if r.state.Won || r.state.Lost {
 		return
 	}
-	if r.armed > 0 && r.state.Cells[c] == 0 {
-		r.selected = c
-		u.Send(r, Place{Cell: c, Digit: r.armed, Note: r.notes})
-		return
-	}
-	r.armed = 0
-	r.selected = c
 	r.sfx.tick(r.pan(r.cellCenter(c)))
 	if d := r.state.Cells[c]; d != 0 {
+		r.selected = -1
 		r.board.cheer(d, c)
+		return
 	}
+	if r.selected == c {
+		r.selected = -1
+		return
+	}
+	r.selected = c
 }
 
-// pick takes candy d from the tray: the candy picked already lets go;
-// any other goes into the cell selected, or, with no empty cell
-// selected, is picked for the cells tapped after.
+// pick takes candy d from the tray: it goes into the cell selected, or,
+// with no empty cell selected, its candies on the board cheer.
 func (r *gameRoot) pick(d int8, u *gunim.UI) {
 	if r.state.Won || r.state.Lost {
 		return
 	}
-	if r.armed == d {
-		// The cell it went in last stays selected, for the next candy
-		r.armed = 0
-		return
-	}
 	if r.selected >= 0 && r.state.Cells[r.selected] == 0 {
-		// Cell first: a candy picked before for tapping cells lets go,
-		// or the next cell tapped would take it.
-		r.armed = 0
 		u.Send(r, Place{Cell: r.selected, Digit: d, Note: r.notes})
 		return
 	}
-	r.armed, r.selected = d, -1
 	r.board.cheer(d, -1)
 }
 
@@ -387,7 +376,7 @@ func (r *gameRoot) Handle(e input.Event, u *gunim.UI) bool {
 	case k.Key == input.KeyH:
 		r.hint(u)
 	case k.Key == input.KeyEscape:
-		r.selected, r.armed = -1, 0
+		r.selected = -1
 	default:
 		return false
 	}
@@ -660,18 +649,18 @@ type tray struct {
 	root *gameRoot
 	// grid lays the candies three by three, beside the board.
 	grid bool
-	// press squashes a candy as it is tapped, lift raises the armed one,
-	// and gone bursts and shrinks a digit used up.
-	press, lift, gone [9]*anim.Float
-	size              geom.Size
-	down              int
+	// press squashes a candy as it is tapped, and gone bursts and
+	// shrinks a digit used up.
+	press, gone [9]*anim.Float
+	size        geom.Size
+	down        int
 }
 
 func newTray(r *gameRoot) *tray {
 	t := &tray{root: r, down: -1}
 	for i := range 9 {
-		t.press[i], t.lift[i], t.gone[i] = anim.NewFloat(0), anim.NewFloat(0), anim.NewFloat(0)
-		t.Add(t.press[i], t.lift[i], t.gone[i])
+		t.press[i], t.gone[i] = anim.NewFloat(0), anim.NewFloat(0)
+		t.Add(t.press[i], t.gone[i])
 	}
 	return t
 }
@@ -715,20 +704,6 @@ func (t *tray) slot(d int8) geom.Rect {
 	}
 	s := t.size.W / 9
 	return geom.Rc(float32(i)*s, 0, s, t.size.H)
-}
-
-// Step implements [gunim.Animator].
-func (t *tray) Step(dt time.Duration) bool {
-	for i := range 9 {
-		to := float32(0)
-		if t.root.armed == int8(i+1) {
-			to = 1
-		}
-		if t.lift[i].Target() != to {
-			t.lift[i].Animate(to, anim.Spring{Response: 0.35, Damping: 0.55})
-		}
-	}
-	return t.Group.Step(dt)
 }
 
 // Handle implements [gunim.Handler].
@@ -797,14 +772,9 @@ func (t *tray) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Chi
 			p.RRect(geom.Rc(mid.X-side*0.22, mid.Y-side*0.22, side*0.44, side*0.44), side*0.22, paint.Solid(faded(white, 0.18)))
 			continue
 		}
-		lift := t.lift[i].Value()
 		press := t.press[i].Value()
-		scale := (1 - 0.15*press + 0.12*lift) * (1 + 0.4*gone) * (1 - gone)
-		r := geom.Rc(mid.X-side/2, mid.Y-side/2-lift*side*0.18, side, side)
-		if lift > 0.01 {
-			p.ShadowRRect(geom.Rc(mid.X-side*0.42, mid.Y-side*0.42, side*0.84, side*0.84), side*0.42,
-				paint.Solid(faded(white, 0.0)), paint.Shadow{Blur: side * 0.4, Color: faded(gold, 0.8*lift)})
-		}
+		scale := (1 - 0.15*press) * (1 + 0.4*gone) * (1 - gone)
+		r := geom.Rc(mid.X-side/2, mid.Y-side/2, side, side)
 		func() {
 			defer p.Push(paint.Scale(scale, geom.Pt(mid.X, mid.Y)))()
 			paintCandy(p, d, r, 1-gone, t.root.numbered, f.Scale)
