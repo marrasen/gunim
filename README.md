@@ -375,6 +375,27 @@ go run ./example/calculator -icon calc.png
 go run ./tools/gunimapk -run -name Calculator -icon calc.png ./example/calculator
 ```
 
+The launcher gets the icon as an adaptive one, cut to its own shape:
+the picture, its clear margin cut off, fills the part the launcher
+shows, over the colour of its own edge or `-icon-background`. A circle
+cuts off what lies in the picture's corners.
+
+A build is a debug build, signed with the debug key, unless
+`-keystore` names a key of your own. Then it is a release build. Android
+installs an update only over an APK signed with the same key, so one
+key, kept safe, signs every build from any machine. `-genkey` makes
+the key the first time:
+
+```sh
+go run ./tools/gunimapk -keystore ~/keys/calculator.jks -genkey ./example/calculator
+GUNIMAPK_STORE_PASS=... go run ./tools/gunimapk -keystore ~/keys/calculator.jks -install ./example/calculator
+```
+
+gunimapk finds the SDK where `ANDROID_HOME` or `~/.androidrc` points,
+or where Android Studio puts it, as `~/Android/Sdk`. Google's `android`
+tool installs what it needs:
+`android sdk install platform-tools platforms/android-36 build-tools/36.0.0 ndk/29.0.14206865`.
+
 Android loads a Go program as a library, which needs cgo, so the
 Android build uses cgo and the NDK's compiler. The desktop builds stay
 pure Go.
@@ -401,7 +422,14 @@ and off times, as the web's `navigator.vibrate` does.
 
 A tap on a text field opens the soft keyboard, whose edits, autocorrect
 and composition reach the field as `input.TextEdit`s, and the window
-slides up with the keyboard to keep the field in view.
+slides up with the keyboard to keep the field in view. `Frame.Keyboard`
+says how far up the keyboard reaches, frame by frame as it slides, so
+a view can keep more than the field in sight, such as the button below
+it, by laying itself out above the keyboard.
+
+Go's clock runs in the phone's time zone, which the driver sets as the
+program starts. `Client.Shot` takes a picture of the window, with its
+popups, as on the desktop.
 [driver/android](driver/android/android.go) says how it fits together.
 
 The examples lay themselves out for a phone where the window is narrow;

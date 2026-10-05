@@ -34,6 +34,7 @@ package android
 import (
 	"context"
 	"errors"
+	"log"
 	"math"
 	"sync"
 	"time"
@@ -116,12 +117,17 @@ type Driver struct {
 	// safe is how far in from each edge, top, right, bottom and left,
 	// the system's bars and the camera's cutout reach over the surface,
 	// in device pixels.
-	safe      [4]int
-	caret     geom.Rect
-	caretSet  bool
-	box       geom.Rect
-	boxSet    bool
-	keyed     bool
+	safe     [4]int
+	caret    geom.Rect
+	caretSet bool
+	box      geom.Rect
+	boxSet   bool
+	keyed    bool
+	// refit says the keyboard has changed height since the last touch
+	// or typing, so the windows lay themselves out afresh round it: a
+	// caret or text box they move aims the slide anew, at the least
+	// slide that shows it.
+	refit     bool
 	pan       float64
 	panTarget float64
 	panAt     time.Time
@@ -144,9 +150,10 @@ func newDriver() *Driver {
 	}
 }
 
-// start runs main once, for the first activity. An activity made again,
-// as after the user leaves and comes back, finds it running.
-func (d *Driver) start() {
+// start runs main once, for the first activity, in the phone's time
+// zone, zone. An activity made again, as after the user leaves and comes
+// back, finds it running.
+func (d *Driver) start(zone string) {
 	d.mu.Lock()
 	if d.started {
 		d.mu.Unlock()
@@ -156,11 +163,28 @@ func (d *Driver) start() {
 	d.mu.Unlock()
 	takeEnv()
 	toLogcat()
+	setZone(zone)
 	go d.render()
 	go func() {
 		mainMain()
 		finish()
 	}()
+}
+
+// setZone makes zone, as Europe/Stockholm, Go's local time zone. Go
+// on Android keeps to UTC, so the activity hands over the phone's zone.
+// It runs before main, while [time.Local] is the driver's alone. A zone
+// the phone moves to later reaches the program as it starts again.
+func setZone(zone string) {
+	if zone == "" {
+		return
+	}
+	loc, err := time.LoadLocation(zone)
+	if err != nil {
+		log.Printf("gunim: android: time zone %q: %v", zone, err)
+		return
+	}
+	time.Local = loc
 }
 
 // Run implements [driver.Driver]. Java pumps the events, so Run waits
@@ -337,14 +361,44 @@ func (d *Driver) safeLocked() geom.Insets {
 }
 
 // keyboardCovers takes how much of the surface the soft keyboard
-// covers, in device pixels from the bottom.
+// covers, in device pixels from the bottom, and tells the windows that
+// fill the screen, which may lay themselves out clear of it.
 func (d *Driver) keyboardCovers(px int) {
 	d.mu.Lock()
-	d.keyboard = max(0, px)
+	px = max(0, px)
+	changed := px != d.keyboard
+	d.keyboard = px
 	d.panTarget = 0
+	d.refit = true
 	d.revealLocked()
+	var fill []*Window
+	if changed {
+		for _, win := range d.windows {
+			if win.fills {
+				fill = append(fill, win)
+			}
+		}
+	}
 	d.mu.Unlock()
+	for _, win := range fill {
+		win.in.Push(driver.Redraw{})
+	}
 	d.kick()
+}
+
+// aimLocked aims the slide at the text the caret or text box just
+// moved in: from where it is aimed while typing, and afresh while the
+// windows lay themselves out round a keyboard that changed. A caret
+// that moves for any other reason, as its text scrolls, leaves it. It
+// runs with mu held.
+func (d *Driver) aimLocked() {
+	switch {
+	case d.refit:
+		d.panTarget = 0
+		d.revealLocked()
+	case d.keyed:
+		d.revealLocked()
+	}
 }
 
 // revealLocked aims the slide at the text: it moves the target just
@@ -581,7 +635,7 @@ func (d *Driver) typed(e any) {
 // follows the caret again.
 func (d *Driver) markTyped() {
 	d.mu.Lock()
-	d.keyed = true
+	d.keyed, d.refit = true, false
 	d.mu.Unlock()
 }
 

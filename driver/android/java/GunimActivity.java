@@ -38,7 +38,7 @@ public class GunimActivity extends Activity {
 			v.watchKeyboard(getWindow().getDecorView());
 		}
 		v.requestFocus();
-		Native.start();
+		Native.start(java.util.TimeZone.getDefault().getID());
 		showBuild();
 	}
 

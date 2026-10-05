@@ -26,7 +26,7 @@ import (
 // has a frame of its own to keep.
 
 //export goStart
-func goStart() { theDriver.start() }
+func goStart(zone *C.uint16_t, n C.int) { theDriver.start(goString(zone, n)) }
 
 //export goSurfaceChanged
 func goSurfaceChanged(w *C.ANativeWindow, width, height C.int) {

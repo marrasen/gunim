@@ -81,6 +81,9 @@ type OffscreenWindow struct {
 	// safe is the part of the window a pretend phone's bars lie over;
 	// see SetSafeArea.
 	safe geom.Insets
+	// keyboard is how far up a pretend soft keyboard reaches; see
+	// SetKeyboardCover.
+	keyboard float32
 
 	// radius, edge and blends are the shape the window says it shows; see
 	// SetOutline.
@@ -262,6 +265,22 @@ func (w *OffscreenWindow) SafeArea() geom.Insets {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.safe
+}
+
+// SetKeyboardCover has a pretend soft keyboard cover the window's
+// bottom, up by h, from the next frame, for a test of what moves clear
+// of it.
+func (w *OffscreenWindow) SetKeyboardCover(h float32) {
+	w.mu.Lock()
+	w.keyboard = h
+	w.mu.Unlock()
+}
+
+// KeyboardCover implements [KeyboardCoverer].
+func (w *OffscreenWindow) KeyboardCover() float32 {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.keyboard
 }
 
 // Resize changes the window's size for the next frame.

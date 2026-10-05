@@ -38,7 +38,7 @@ func (d *Driver) touch(action int, x, y float32, now time.Time) {
 	if action == touchDown {
 		w = d.hitLocked(at)
 		d.touched = w
-		d.keyed = false
+		d.keyed, d.refit = false, false
 		*g = gesture{}
 		if now.Sub(d.lastAt) < doubleTapTime && abs(at.X-d.lastTap.X) < doubleTapSpace && abs(at.Y-d.lastTap.Y) < doubleTapSpace {
 			d.clicks++
