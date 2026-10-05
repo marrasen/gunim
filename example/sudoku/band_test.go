@@ -37,7 +37,7 @@ func TestTheSongsPartsAreAllThereCutAtTheirBars(t *testing.T) {
 }
 
 func TestTheBandPlaysTheSong(t *testing.T) {
-	b := band.New(song(), band.Options{Seed: 1})
+	b := song().Play(1)
 	buf := make([]float32, 2*audio.SampleRate)
 	peak := float32(0)
 	for range 4 {

@@ -1,20 +1,26 @@
-// Package band plays a song made of looping parts, as a game's music:
-// each part comes in with its intro, plays its loop a few times and
-// leaves with its outro, in phrases of a fixed number of bars, while how
-// many parts play wanders from one to all of them. So the song changes
-// as it goes, and seldom plays the same way twice. A part can be a solo
-// instead, played through now and then over the others.
+// Package band plays songs made for programs, as a game's music: a
+// [Song] starts a [Player], which plays without end.
 //
-// The parts come from audio files cut at the song's bars, which [Load]
-// reads from a folder:
+// Each kind of song is a type of its own. The first is [Wander]: a song
+// of looping parts, each coming in with its intro, playing its loop a
+// few times and leaving with its outro, in phrases of a fixed number of
+// bars, while how many play wanders from one to all of them. So the
+// song changes as it goes, and seldom plays the same way twice. A part
+// can be a solo instead, played through now and then over the others.
+//
+// A Player may do more than play, as a song that can play louder or
+// calmer, or underwater, does; each such feature is an interface of its
+// own, which a program checks for, as gunim's drivers' features are.
+//
+// A Wander's parts come from audio files cut at the song's bars, which
+// [Load] reads from a folder:
 //
 //	parts, err := band.Load(files, "music")
 //	...
-//	b := band.New(band.Song{BPM: 136, Parts: parts}, band.Options{Seed: seed})
-//	mix.Play(b, audio.Options{Volume: 0.3, FadeIn: 2 * time.Second})
+//	song := &band.Wander{Title: "Greek Themes", BPM: 136, Parts: parts}
+//	mix.Play(song.Play(seed), audio.Options{Volume: 0.3, FadeIn: 2 * time.Second})
 //
-// github.com/marrasen/gunim-music holds a song of ten synths for it,
-// ready to play.
+// github.com/marrasen/gunim-music holds songs for it, ready to play.
 package band
 
 import (
@@ -29,6 +35,30 @@ import (
 
 	"github.com/marrasen/gunim/audio"
 )
+
+// A Song is music a program plays, as a game does.
+type Song interface {
+	// Info describes the song.
+	Info() Info
+	// Play starts the song, its choices seeded by seed, so the same
+	// seed plays it the same way.
+	Play(seed uint64) Player
+}
+
+// Info describes a [Song].
+type Info struct {
+	// Title and Artist name the song and who made it, to credit.
+	Title, Artist string
+	// BPM is the tempo, in beats a minute.
+	BPM float64
+}
+
+// A Player plays a [Song] without end, read by one goroutine, as a
+// mixer's. A song's features beyond playing are interfaces a Player
+// also implements.
+type Player interface {
+	audio.Source
+}
 
 // Piece is one of a part's sounds.
 type Piece int
@@ -64,7 +94,7 @@ func (p Piece) String() string {
 	return fmt.Sprintf("Piece(%d)", int(p))
 }
 
-// A Part is one instrument of the song.
+// A Part is one instrument of a [Wander].
 type Part struct {
 	// Name names the part.
 	Name string
@@ -74,14 +104,18 @@ type Part struct {
 	Solo bool
 	// Open opens one of the part's pieces, at [audio.SampleRate]. The
 	// band opens each piece ahead of the phrase it starts in, on a
-	// goroutine of its own. A solo that tells its length, as an
+	// goroutine of its own. A piece may be a recording, or sound made
+	// in code, or either through effects. A solo that tells its length, as an
 	// [audio.Seeker] does, holds its part for as many phrases as it
 	// lasts, and any other for one.
 	Open func(p Piece) (audio.Source, error)
 }
 
-// Song is a song for a [Band]: its time and its parts.
-type Song struct {
+// Wander is a [Song] of looping parts that come and go: see the package
+// doc. Its zero settings are the defaults.
+type Wander struct {
+	// Title and Artist name the song and who made it.
+	Title, Artist string
 	// BPM is the tempo, in beats a minute.
 	BPM float64
 	// BeatsPerBar is how many beats a bar holds; zero means 4.
@@ -90,11 +124,29 @@ type Song struct {
 	// loop's; zero means 16.
 	PhraseBars int
 	Parts      []Part
+	// Start is how many parts come in at the start; zero means 2.
+	Start int
+	// MaxLoops is the most times a part plays its loop before it
+	// leaves; zero means 4. Each time a part comes in, it picks from 1
+	// to MaxLoops.
+	MaxLoops int
+	// SoloRest is how many phrases go by from one solo's start to the
+	// next at least; zero means 6.
+	SoloRest int
+	// SoloOdds is the chance of a solo at each phrase after the rest;
+	// zero means 0.3, and a negative one never plays a solo.
+	SoloOdds float64
 }
+
+// Info implements [Song].
+func (s *Wander) Info() Info { return Info{Title: s.Title, Artist: s.Artist, BPM: s.BPM} }
+
+// Play implements [Song]: it returns a [*Band].
+func (s *Wander) Play(seed uint64) Player { return New(s, seed) }
 
 // BarAt returns the frame bar b of the song starts at, counted from 0 at
 // [audio.SampleRate] and rounded, as the pieces should be cut.
-func (s *Song) BarAt(b int) int64 {
+func (s *Wander) BarAt(b int) int64 {
 	beats := s.BeatsPerBar
 	if beats == 0 {
 		beats = 4
@@ -103,7 +155,7 @@ func (s *Song) BarAt(b int) int64 {
 }
 
 // phraseBars returns PhraseBars, or its default.
-func (s *Song) phraseBars() int {
+func (s *Wander) phraseBars() int {
 	if s.PhraseBars == 0 {
 		return 16
 	}
@@ -111,20 +163,19 @@ func (s *Song) phraseBars() int {
 }
 
 // phraseAt returns the frame phrase p starts at.
-func (s *Song) phraseAt(p int) int64 { return s.BarAt(p * s.phraseBars()) }
+func (s *Wander) phraseAt(p int) int64 { return s.BarAt(p * s.phraseBars()) }
 
-// Load reads the parts in folder dir of fsys. A piece's file is named
+// Load finds the parts in folder dir of fsys. A piece's file is named
 // for its part, a dash and the piece, and any extension, in a format
 // [audio.Decode] reads: blade-intro.ogg, blade-loop.ogg and
 // blade-outro.ogg make the part blade, and brass-solo.ogg the solo
-// part brass. Load reads the files into memory, and each piece decodes
-// from there as it opens.
+// part brass. Each piece reads its file and decodes it as it opens.
 func Load(fsys fs.FS, dir string) ([]Part, error) {
 	entries, err := fs.ReadDir(fsys, dir)
 	if err != nil {
 		return nil, err
 	}
-	data := map[string][]byte{}
+	files := map[string]string{}
 	var parts []Part
 	at := map[string]int{}
 	for _, e := range entries {
@@ -138,19 +189,19 @@ func Load(fsys fs.FS, dir string) ([]Part, error) {
 		if piece != "intro" && piece != "loop" && piece != "outro" && piece != "solo" {
 			continue
 		}
-		b, err := fs.ReadFile(fsys, path.Join(dir, file))
-		if err != nil {
-			return nil, err
-		}
-		data[base] = b
+		files[base] = path.Join(dir, file)
 		i, ok := at[name]
 		if !ok {
 			i = len(parts)
 			at[name] = i
 			parts = append(parts, Part{Name: name, Open: func(p Piece) (audio.Source, error) {
-				b, ok := data[name+"-"+p.String()]
+				file, ok := files[name+"-"+p.String()]
 				if !ok {
 					return nil, errors.New("band: no " + p.String() + " of " + name)
+				}
+				b, err := fs.ReadFile(fsys, file)
+				if err != nil {
+					return nil, err
 				}
 				return audio.Decode(bytes.NewReader(b))
 			}})
@@ -160,26 +211,6 @@ func Load(fsys fs.FS, dir string) ([]Part, error) {
 		}
 	}
 	return parts, nil
-}
-
-// Options tune how a [Band] chooses what plays. The zero value is the
-// defaults.
-type Options struct {
-	// Seed seeds the choices, so a band of the same seed plays the
-	// same way.
-	Seed uint64
-	// Start is how many parts come in at the start; zero means 2.
-	Start int
-	// MaxLoops is the most times a part plays its loop before it
-	// leaves; zero means 4. Each time a part comes in, it picks from 1
-	// to MaxLoops.
-	MaxLoops int
-	// SoloRest is how many phrases go by from one solo's start to the
-	// next at least; zero means 6.
-	SoloRest int
-	// SoloOdds is the chance of a solo at each phrase after the rest;
-	// zero means 0.3, and a negative one never plays a solo.
-	SoloOdds float64
 }
 
 // What a layer of the band is playing.
@@ -227,11 +258,10 @@ type plan struct {
 	pieces chan [2]audio.Source
 }
 
-// A Band plays a [Song]: an [audio.Source] without end, which chooses
-// who plays at each phrase. Only one goroutine reads it, as a mixer does.
+// A Band plays a [Wander]: a [Player] that chooses who plays at each
+// phrase.
 type Band struct {
-	song   Song
-	opt    Options
+	song   Wander
 	layers []*layer
 	// at is the song's frame, and phrase the phrase it is in.
 	at     int64
@@ -245,9 +275,10 @@ type Band struct {
 	buf    []float32
 }
 
-// New starts a band playing s, choosing as o says, with o.Start parts
-// coming in.
-func New(s Song, o Options) *Band {
+// New starts a band playing s, its choices seeded by seed, with
+// s.Start parts coming in. The band keeps a copy of s.
+func New(s *Wander, seed uint64) *Band {
+	o := *s
 	if o.Start == 0 {
 		o.Start = 2
 	}
@@ -260,7 +291,7 @@ func New(s Song, o Options) *Band {
 	if o.SoloOdds == 0 {
 		o.SoloOdds = 0.3
 	}
-	b := &Band{song: s, opt: o, rng: rand.New(rand.NewPCG(o.Seed, 0x5eed)), want: o.Start, soloAt: -o.SoloRest}
+	b := &Band{song: o, rng: rand.New(rand.NewPCG(seed, 0x5eed)), want: o.Start, soloAt: -o.SoloRest}
 	for i := range b.song.Parts {
 		b.layers = append(b.layers, &layer{p: &b.song.Parts[i], seamAt: -1})
 	}
@@ -371,12 +402,12 @@ func (b *Band) plan(q int) {
 			break
 		}
 		if !l.p.Solo && l.state == resting && l.next.state == resting {
-			l.next = plan{state: inIntro, loops: b.rng.IntN(b.opt.MaxLoops), piece: Intro, opens: true}
+			l.next = plan{state: inIntro, loops: b.rng.IntN(b.song.MaxLoops), piece: Intro, opens: true}
 			playing++
 		}
 	}
 	// Now and then, over a few parts looping, the solo.
-	if looping >= 2 && q-b.soloAt >= b.opt.SoloRest && b.rng.Float64() < b.opt.SoloOdds {
+	if looping >= 2 && q-b.soloAt >= b.song.SoloRest && b.rng.Float64() < b.song.SoloOdds {
 		for _, l := range b.layers {
 			if l.p.Solo && l.state == resting && l.next.state == resting {
 				l.next = plan{state: inSolo, piece: Solo, opens: true}
@@ -474,4 +505,7 @@ func readFull(src audio.Source, buf []float32) (int, bool) {
 }
 
 // The band plays without end, as one voice.
-var _ audio.Source = (*Band)(nil)
+var (
+	_ Player = (*Band)(nil)
+	_ Song   = (*Wander)(nil)
+)

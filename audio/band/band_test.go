@@ -44,7 +44,7 @@ func (s *ramp) Read(dst []float32) (int, error) {
 // into the outro. Only the loop come round again jumps, from its end,
 // -0.5, to its start, 0.5.
 var (
-	fakeSong  = Song{BPM: 136}
+	fakeSong  = Wander{BPM: 136}
 	fakeIntro = ramp{from: 0.1, to: 0.5, n: phraseAt(1)}
 	fakeLoop  = ramp{from: 0.5, to: -0.5, n: phraseAt(1)}
 	fakeOutro = ramp{from: -0.5, to: 0, n: barAt(4)}
@@ -64,7 +64,7 @@ const (
 func newBand(parts []Part, seed uint64) *Band {
 	s := fakeSong
 	s.Parts = parts
-	return New(s, Options{Seed: seed})
+	return New(&s, seed)
 }
 
 // fakeParts returns n parts with the fake pieces, and a solo of 20
@@ -253,5 +253,23 @@ func TestLoadFindsPartsByTheirFilesNames(t *testing.T) {
 	}
 	if _, err := parts[0].Open(Solo); err == nil {
 		t.Fatal("blade opens a solo it has none of")
+	}
+	if _, err := parts[0].Open(Intro); err == nil {
+		t.Fatal("blade's intro, of no sound, decodes")
+	}
+}
+
+func TestAWanderPlaysAsASong(t *testing.T) {
+	var s Song = &Wander{Title: "Fake", Artist: "Tests", BPM: 136, Parts: fakeParts(3)}
+	if i := s.Info(); i != (Info{Title: "Fake", Artist: "Tests", BPM: 136}) {
+		t.Fatalf("Info returned %+v", i)
+	}
+	p := s.Play(1)
+	buf := make([]float32, 2*512)
+	if n, err := p.Read(buf); n != 512 || err != nil {
+		t.Fatalf("the player read %d frames, %v", n, err)
+	}
+	if buf[2*100] == 0 {
+		t.Fatal("the player plays silence where the intros play")
 	}
 }
