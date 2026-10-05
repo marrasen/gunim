@@ -11,6 +11,7 @@ import "C"
 
 import (
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 	"unicode/utf16"
@@ -210,6 +211,45 @@ func goMedia(action C.int, ms C.longlong) {
 
 // buzz gives the short buzz a long press gives.
 func buzz() { C.gunim_buzz() }
+
+// share hands s to the share sheet: the paths go to Java as one
+// string, each ended by a NUL, which no path holds.
+func share(s driver.Share) error {
+	var paths strings.Builder
+	for _, p := range s.Paths {
+		paths.WriteString(p)
+		paths.WriteByte(0)
+	}
+	t, tp := utf16Of(s.Text)
+	j, jp := utf16Of(s.Subject)
+	f, fp := utf16Of(paths.String())
+	ok := C.gunim_share(tp, C.int(len(t)), jp, C.int(len(j)), fp, C.int(len(f)))
+	runtime.KeepAlive(t)
+	runtime.KeepAlive(j)
+	runtime.KeepAlive(f)
+	if ok == 0 {
+		return driver.ErrNoSharer
+	}
+	return nil
+}
+
+// vibrate runs the motor in pattern, on and off in turn, from on.
+func vibrate(pattern []time.Duration) error {
+	ms := make([]C.longlong, len(pattern))
+	for i, d := range pattern {
+		ms[i] = C.longlong(max(0, d.Milliseconds()))
+	}
+	var p *C.longlong
+	if len(ms) > 0 {
+		p = &ms[0]
+	}
+	ok := C.gunim_vibrate(p, C.int(len(ms)))
+	runtime.KeepAlive(ms)
+	if ok == 0 {
+		return driver.ErrNoVibrator
+	}
+	return nil
+}
 
 //export goAnswered
 func goAnswered(code, granted C.int) { answered(int(code), granted != 0) }

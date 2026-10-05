@@ -427,7 +427,10 @@ var permissions = map[string]string{
 // set, and the permissions perms names. The activity keeps itself across rotation and a keyboard
 // coming and going, and slides up as the soft keyboard opens, to keep the
 // text caret above it. The service is the one a program starts with
-// gunim's App.SetNowPlaying, to play media on in the background.
+// gunim's App.SetNowPlaying, to play media on in the background. The
+// provider hands the files a program shares with gunim's Client.Share to
+// the application they go to, and the vibration permission, which the
+// system grants as the program installs, lets it run Client.Vibrate.
 func manifestFor(id, name string, icon bool, perms []string) string {
 	iconAttr := ""
 	if icon {
@@ -441,6 +444,7 @@ func manifestFor(id, name string, icon bool, perms []string) string {
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="` + id + `">
 	<uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
 	<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
+	<uses-permission android:name="android.permission.VIBRATE"/>
 ` + asks.String() + `	<application android:label="` + xmlEscape(name) + `"` + iconAttr + ` android:hasCode="true" android:extractNativeLibs="true">
 		<activity android:name="gunim.android.GunimActivity" android:exported="true"
 			android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density"
@@ -453,6 +457,8 @@ func manifestFor(id, name string, icon bool, perms []string) string {
 		</activity>
 		<service android:name="gunim.android.GunimService" android:exported="false"
 			android:foregroundServiceType="mediaPlayback"/>
+		<provider android:name="gunim.android.GunimFiles" android:authorities="` + id + `.gunim.files"
+			android:exported="false" android:grantUriPermissions="true"/>
 	</application>
 </manifest>
 `

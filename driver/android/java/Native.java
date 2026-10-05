@@ -201,6 +201,92 @@ public final class Native {
 		});
 	}
 
+	// share shows the system's share sheet with text, a subject and
+	// files, the paths each ended by a NUL. It returns false where there
+	// is no activity to show the sheet over.
+	static boolean share(String text, String subject, String paths) {
+		GunimActivity a = activity;
+		if (a == null) {
+			return false;
+		}
+		java.util.ArrayList<android.net.Uri> uris = new java.util.ArrayList<>();
+		String type = null;
+		for (String p : paths.split("\0")) {
+			if (p.isEmpty()) {
+				continue;
+			}
+			uris.add(GunimFiles.uriOf(a, p));
+			type = GunimFiles.commonType(type, GunimFiles.typeOf(p));
+		}
+		android.content.Intent send;
+		if (uris.size() > 1) {
+			send = new android.content.Intent(android.content.Intent.ACTION_SEND_MULTIPLE);
+			send.putParcelableArrayListExtra(android.content.Intent.EXTRA_STREAM, uris);
+		} else {
+			send = new android.content.Intent(android.content.Intent.ACTION_SEND);
+			if (uris.size() == 1) {
+				send.putExtra(android.content.Intent.EXTRA_STREAM, uris.get(0));
+			}
+		}
+		send.setType(type != null ? type : "text/plain");
+		if (!text.isEmpty()) {
+			send.putExtra(android.content.Intent.EXTRA_TEXT, text);
+		}
+		if (!subject.isEmpty()) {
+			send.putExtra(android.content.Intent.EXTRA_SUBJECT, subject);
+		}
+		if (!uris.isEmpty()) {
+			// The clip carries the grant to read each file through the
+			// chooser to the application the user picks.
+			ClipData clip = ClipData.newRawUri(null, uris.get(0));
+			for (int i = 1; i < uris.size(); i++) {
+				clip.addItem(new ClipData.Item(uris.get(i)));
+			}
+			send.setClipData(clip);
+			send.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
+		}
+		android.content.Intent chooser = android.content.Intent.createChooser(send, subject.isEmpty() ? null : subject);
+		ui.post(() -> {
+			try {
+				a.startActivity(chooser);
+			} catch (android.content.ActivityNotFoundException e) {
+				// The system has no share sheet; the share goes nowhere.
+			}
+		});
+		return true;
+	}
+
+	// vibrate runs the vibration motor in a pattern of milliseconds, on
+	// and off in turn from on, and an empty one stops it. It returns
+	// false where the device has no motor.
+	@SuppressWarnings("deprecation")
+	static boolean vibrate(long[] pattern) {
+		if (app == null) {
+			return false;
+		}
+		android.os.Vibrator v = (android.os.Vibrator) app.getSystemService(Context.VIBRATOR_SERVICE);
+		if (v == null || !v.hasVibrator()) {
+			return false;
+		}
+		long on = 0;
+		for (int i = 0; i < pattern.length; i += 2) {
+			on += pattern[i];
+		}
+		v.cancel();
+		if (on == 0) {
+			return true;
+		}
+		if (pattern.length == 1) {
+			v.vibrate(android.os.VibrationEffect.createOneShot(pattern[0], android.os.VibrationEffect.DEFAULT_AMPLITUDE));
+			return true;
+		}
+		// A waveform starts with a wait, which a pattern starts without.
+		long[] timings = new long[pattern.length + 1];
+		System.arraycopy(pattern, 0, timings, 1, pattern.length);
+		v.vibrate(android.os.VibrationEffect.createWaveform(timings, -1));
+		return true;
+	}
+
 	static void finish() {
 		ui.post(() -> {
 			if (activity != null) {

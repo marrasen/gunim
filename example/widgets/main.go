@@ -23,6 +23,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -30,6 +31,7 @@ import (
 	"github.com/marrasen/gunim/audio"
 	"github.com/marrasen/gunim/audio/cues"
 	"github.com/marrasen/gunim/audio/speaker"
+	"github.com/marrasen/gunim/driver"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/markdown"
@@ -58,6 +60,11 @@ type (
 	Danger struct{ Title string }
 	// ToastsAsked travels when the user asks for the toasts again.
 	ToastsAsked struct{}
+
+	// ShareAsked travels when the user presses Share, and BuzzAsked
+	// when they press Buzz.
+	ShareAsked struct{}
+	BuzzAsked  struct{}
 	// ShowToasts is the patch that shows a toast of each kind.
 	ShowToasts struct{}
 )
@@ -72,6 +79,8 @@ func init() {
 	gunim.RegisterType[DeleteAsked]("gallery.delete")
 	gunim.RegisterType[Danger]("gallery.danger")
 	gunim.RegisterType[ToastsAsked]("gallery.toasts")
+	gunim.RegisterType[ShareAsked]("gallery.share")
+	gunim.RegisterType[BuzzAsked]("gallery.buzz")
 	gunim.RegisterType[ShowToasts]("gallery.toasts.show")
 }
 
@@ -292,7 +301,11 @@ func moreIcons() *widget.Card {
 	again.Icon, again.On = icon.Bell, ToastsAsked{}
 	tools := widget.NewToolbar(widget.NewIconButton(icon.Reply, "Reply"), widget.NewIconButton(icon.Pencil, "Edit"),
 		widget.NewIconButton(icon.Trash2, "Delete"))
-	controls := widget.NewWrap(chip, view, del, again, tools)
+	share := widget.NewButton("Share")
+	share.Icon, share.On = icon.Share2, ShareAsked{}
+	buzz := widget.NewButton("Buzz")
+	buzz.Icon, buzz.On = icon.Vibrate, BuzzAsked{}
+	controls := widget.NewWrap(chip, view, del, again, share, buzz, tools)
 	controls.Cross = widget.CrossCenter
 	rich := widget.NewRichText(
 		widget.RichSpan{Text: "Saved "},
@@ -409,11 +422,30 @@ func serve(ctx context.Context, c gunim.Client, shot string, after time.Duration
 				_ = c.Focus("danger")
 			case ToastsAsked:
 				_ = c.Patch("gallery", ShowToasts{})
+			case ShareAsked:
+				if err := shareNotes(c); err != nil {
+					log.Printf("widgets: share: %v", err)
+				}
+			case BuzzAsked:
+				// Two short buzzes, a tenth of a second apart.
+				if err := c.Vibrate(80*time.Millisecond, 100*time.Millisecond, 80*time.Millisecond); err != nil {
+					log.Printf("widgets: buzz: %v", err)
+				}
 			case gunim.CommandFailed:
 				log.Printf("command %s failed: %s", v.Command, v.Reason)
 			}
 		}
 	}
+}
+
+// shareNotes writes a small note to the temporary folder and shares it,
+// with a line of text, through the system's share sheet.
+func shareNotes(c gunim.Client) error {
+	path := filepath.Join(os.TempDir(), "gunim notes.txt")
+	if err := os.WriteFile(path, []byte("Notes from the gunim widgets gallery.\n"), 0o644); err != nil {
+		return err
+	}
+	return c.Share(driver.Share{Text: "Notes from gunim", Subject: "gunim notes", Paths: []string{path}})
 }
 
 var blurb = []string{

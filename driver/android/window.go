@@ -7,6 +7,7 @@ import (
 	"image/color"
 	"math"
 	"sync"
+	"time"
 
 	"github.com/marrasen/gunim/driver"
 	"github.com/marrasen/gunim/driver/internal/inbox"
@@ -345,6 +346,14 @@ func (w *Window) SafeArea() geom.Insets {
 // long press.
 func (w *Window) Buzz() { buzz() }
 
+// Share implements [driver.Sharer] with Android's share sheet. The
+// files go to the receiving application through gunim's provider of
+// files, which lets it read each one it was handed.
+func (w *Window) Share(s driver.Share) error { return share(s) }
+
+// Vibrate implements [driver.Vibrator] with the phone's vibration motor.
+func (w *Window) Vibrate(pattern ...time.Duration) error { return vibrate(pattern) }
+
 // ChooseFiles implements [driver.FileChooser] for folders: the system's
 // chooser of folders, for a folder on the phone's storage or a card,
 // which a program reads once it has the permission for what it reads,
@@ -373,5 +382,7 @@ var (
 	_ driver.CaretPlacer    = (*Window)(nil)
 	_ driver.TextBoxPlacer  = (*Window)(nil)
 	_ driver.Buzzer         = (*Window)(nil)
+	_ driver.Sharer         = (*Window)(nil)
+	_ driver.Vibrator       = (*Window)(nil)
 	_ driver.SafeAreaer     = (*Window)(nil)
 )

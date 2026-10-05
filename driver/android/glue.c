@@ -13,7 +13,7 @@
 static JavaVM *vm;
 static jclass nativeClass;
 static jmethodID midPermitted, midAsk, midUserFolder, midChooseFolder;
-static jmethodID midNowPlaying, midShowKeyboard, midCaret, midBuzz, midTextState, midClearTextState, midGetClipboard, midSetClipboard, midFinish;
+static jmethodID midNowPlaying, midShowKeyboard, midCaret, midBuzz, midShare, midVibrate, midTextState, midClearTextState, midGetClipboard, midSetClipboard, midFinish;
 
 // JNI_OnLoad runs on the thread that loads the library, which has the
 // application's class loader, so it looks up the class Go calls back.
@@ -33,6 +33,8 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *v, void *reserved) {
 		"(ZZLjava/lang/String;Ljava/lang/String;Ljava/lang/String;JJ[B)V");
 	midCaret = (*env)->GetStaticMethodID(env, c, "caret", "(IIII)V");
 	midBuzz = (*env)->GetStaticMethodID(env, c, "buzz", "()V");
+	midShare = (*env)->GetStaticMethodID(env, c, "share", "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Z");
+	midVibrate = (*env)->GetStaticMethodID(env, c, "vibrate", "([J)Z");
 	midTextState = (*env)->GetStaticMethodID(env, c, "textState", "([CIIIIIZZJ)V");
 	midClearTextState = (*env)->GetStaticMethodID(env, c, "clearTextState", "()V");
 	midGetClipboard = (*env)->GetStaticMethodID(env, c, "getClipboard", "()Ljava/lang/String;");
@@ -206,6 +208,33 @@ void gunim_buzz(void) {
 	JNIEnv *env = envGet(&a);
 	(*env)->CallStaticVoidMethod(env, nativeClass, midBuzz);
 	envPut(a);
+}
+
+int gunim_share(const uint16_t *text, int nt, const uint16_t *subject, int ns, const uint16_t *paths, int np) {
+	int a;
+	JNIEnv *env = envGet(&a);
+	jstring jt = (*env)->NewString(env, (const jchar *)text, nt);
+	jstring js = (*env)->NewString(env, (const jchar *)subject, ns);
+	jstring jp = (*env)->NewString(env, (const jchar *)paths, np);
+	jboolean ok = (*env)->CallStaticBooleanMethod(env, nativeClass, midShare, jt, js, jp);
+	(*env)->DeleteLocalRef(env, jt);
+	(*env)->DeleteLocalRef(env, js);
+	(*env)->DeleteLocalRef(env, jp);
+	envPut(a);
+	return ok ? 1 : 0;
+}
+
+int gunim_vibrate(const long long *ms, int n) {
+	int a;
+	JNIEnv *env = envGet(&a);
+	jlongArray jm = (*env)->NewLongArray(env, n);
+	if (n > 0) {
+		(*env)->SetLongArrayRegion(env, jm, 0, n, (const jlong *)ms);
+	}
+	jboolean ok = (*env)->CallStaticBooleanMethod(env, nativeClass, midVibrate, jm);
+	(*env)->DeleteLocalRef(env, jm);
+	envPut(a);
+	return ok ? 1 : 0;
 }
 
 void gunim_finish(void) {
