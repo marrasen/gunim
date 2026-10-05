@@ -11,6 +11,7 @@ import (
 	"image/color"
 	"math"
 	"os"
+	"slices"
 	"time"
 	"unsafe"
 
@@ -35,6 +36,7 @@ const (
 	glTexture1           = 0x84C1
 	glTexture2           = 0x84C2
 	glTexture3           = 0x84C3
+	glTexture6           = 0x84C6
 	glOneMinusSrc1Color  = 0x88FA
 	glOneMinusSrc1Alpha  = 0x88FB
 )
@@ -74,6 +76,9 @@ type Renderer struct {
 	vao, vbo, ibo uint32
 	drawProg      program
 	blurProg      program
+	// clipProg is drawProg cutting each quad to the ellipse it carries,
+	// for what draws inside a layer clipped to one in place.
+	clipProg program
 
 	// verts is the batch being built: vertFloats floats a vertex, four
 	// vertices a quad. tex is the texture the batch's images or layers
@@ -146,6 +151,11 @@ type Renderer struct {
 	stack []openLayer
 	depth int
 	clip  geom.Rect
+	// ellipse is the ellipse a layer clips to in place, which every quad
+	// drawn meanwhile carries; see clipEllipse.
+	ellipse clipEllipse
+	// ramps holds the colours of gradients with stops; see ramps.go.
+	ramps ramps
 
 	fbW, fbH int
 	scale    float32
@@ -167,22 +177,34 @@ type openLayer struct {
 	op      *paint.LayerOp
 	inPlace bool
 	clip    geom.Rect
+	ellipse clipEllipse
 }
 
-// Each vertex is vertFloats floats, in eight attributes of two or four:
+// clipEllipse is an ellipse that quads are cut to as they draw, with
+// its centre and its radii across and down in device pixels from the
+// target's top left. A zero one cuts nothing.
+type clipEllipse struct {
+	on          bool
+	centre, rad geom.Point
+}
+
+// Each vertex is vertFloats floats, in nine attributes of two or four:
 //
 //	a_pos    where the vertex lands, in normalized device coordinates
 //	a_local  the point in the shape's own space, for its distance field
 //	a_rect   the shape's rectangle in its own space
-//	a_param  corner radius, stroke width, kind, and a flag; for a glyph,
-//	         its subpixel order and contrast in place of the first two
+//	a_param  corner radius, stroke width, kind, and a flag or the
+//	         gradient's mode; for a glyph, its subpixel order and
+//	         contrast in place of the first two
 //	a_color0 the fill, the shadow's colour or the glyph's; for an image
 //	         or a layer, the opacity in alpha
 //	a_color1 the gradient's end colour, or a glyph's gamma ratios
-//	a_extra  the gradient's ends; the shadow's offset, blur and spread;
-//	         or texture coordinates
+//	a_extra  the shadow's offset, blur and spread; or texture
+//	         coordinates, then the point on a gradient
 //	a_stroke the stroke's colour
-const vertFloats = 28
+//	a_clip   the vertex on the ellipse it is cut to, where the ellipse
+//	         is the unit circle, and 1 where there is one
+const vertFloats = 32
 
 // The kinds of quad, in a_param.z.
 const (
@@ -191,6 +213,16 @@ const (
 	kindGlyph
 	kindImage
 	kindLayer
+	kindInset
+)
+
+// The gradient modes, in a_param.w: two colours, a_color0 to a_color1,
+// along a line or out in circles, and from gradRamp a row of the ramp
+// texture, gradRamp + 2*row, plus one for a radial gradient.
+const (
+	gradLinear = 1
+	gradRadial = 2
+	gradRamp   = 3
 )
 
 // maxQuads is the most quads one draw call carries: as many as 16-bit
@@ -203,6 +235,7 @@ var attribs = [...]struct {
 }{
 	{"a_pos", 2}, {"a_local", 2}, {"a_rect", 4}, {"a_param", 4},
 	{"a_color0", 4}, {"a_color1", 4}, {"a_extra", 4}, {"a_stroke", 4},
+	{"a_clip", 4},
 }
 
 const vertexShader = `
@@ -214,6 +247,7 @@ in vec4 a_color0;
 in vec4 a_color1;
 in vec4 a_extra;
 in vec4 a_stroke;
+in vec4 a_clip;
 out vec2 v_local;
 flat out vec4 v_rect;
 flat out vec4 v_param;
@@ -221,6 +255,7 @@ flat out vec4 v_color0;
 flat out vec4 v_color1;
 out vec4 v_extra;
 flat out vec4 v_stroke;
+out vec4 v_clip;
 // v_uv is where this point falls in a texture the size of the target,
 // for passes that read one. It comes from the position the quad is
 // drawn at, which holds for any target; gl_FragCoord flips under some
@@ -235,6 +270,7 @@ void main() {
 	v_color1 = a_color1;
 	v_extra = a_extra;
 	v_stroke = a_stroke;
+	v_clip = a_clip;
 	v_uv = a_pos * 0.5 + 0.5;
 	gl_Position = vec4(a_pos, 0.0, 1.0);
 }
@@ -257,6 +293,10 @@ float coverage(float d) {
 }
 
 vec4 premul(vec4 c) { return vec4(c.rgb * c.a, c.a); }
+
+// ellipseCover returns the coverage of the unit circle at q, a point
+// in a space that stretches an ellipse into it.
+float ellipseCover(vec2 q) { return coverage(length(q) - 1.0); }
 `
 
 // drawOut declares the draw program's outputs: its colour and, where
@@ -279,8 +319,26 @@ flat in vec4 v_color0;
 flat in vec4 v_color1;
 in vec4 v_extra;
 flat in vec4 v_stroke;
+in vec4 v_clip;
 in vec2 v_uv;
 uniform sampler2D u_atlas;
+uniform sampler2D u_ramp;
+
+// gradient returns a gradient's colour at g, which runs from 0 to 1
+// along a linear one in g.x, and out from the centre of a radial one in
+// length(g). mode says which, and where the colours are: gradLinear and
+// gradRadial blend c0 to c1, and from gradRamp a row of the ramp holds
+// them.
+vec4 gradient(float mode, vec2 g, vec4 c0, vec4 c1) {
+	int m = int(mode + 0.5);
+	bool radial = m == 2 || m >= 3 && (m - 3) % 2 == 1;
+	float t = clamp(radial ? length(g) : g.x, 0.0, 1.0);
+	if (m < 3) {
+		return mix(c0, c1, t);
+	}
+	float row = float((m - 3) / 2);
+	return texture(u_ramp, vec2((t * 255.0 + 0.5) / 256.0, (row + 0.5) / 256.0));
+}
 uniform sampler2D u_lcd;
 uniform sampler2D u_color;
 uniform sampler2D u_tex;
@@ -301,6 +359,10 @@ vec4 glyph(out vec4 cover) {
 		return col;
 	}
 	if (v_param.x < 0.5) {
+		if (v_param.w > 0.5) {
+			// A mask coloured by a gradient.
+			c = gradient(v_param.w, v_extra.zw, c, c);
+		}
 		float a = texture(u_atlas, v_extra.xy).r;
 		// The contrast applies to dark text and fades out for light.
 		k *= clamp(4.0 * (0.75 - dot(c.rgb, vec3(0.30, 0.59, 0.11))), 0.0, 1.0);
@@ -340,17 +402,27 @@ vec4 shade(out vec4 cover) {
 		col = texture(u_tex, v_extra.xy) * v_color0.a * cov;
 	} else if (kind == 4) {
 		float cov = 1.0;
-		if (v_param.w > 0.5) {
+		if (v_param.w > 0.5 && v_param.y > 0.5) {
+			vec2 hs = (v_rect.zw - v_rect.xy) * 0.5;
+			cov = ellipseCover((v_local - v_rect.xy - hs) / hs);
+		} else if (v_param.w > 0.5) {
 			cov = coverage(sdRRect(v_local, v_rect, v_param.x));
 		}
 		col = texture(u_tex, v_uv) * v_color0.a * cov;
+	} else if (kind == 5) {
+		// An inset shadow: inside the shape, where the shape moved by
+		// the offset and shrunk by the spread leaves it, softened.
+		float spread = v_extra.w;
+		vec4 r = v_rect + vec4(spread, spread, -spread, -spread);
+		float d = sdRRect(v_local - v_extra.xy, r, max(v_param.x - spread, 0.0));
+		float blur = max(v_extra.z, 0.5);
+		float inside = coverage(sdRRect(v_local, v_rect, v_param.x));
+		col = premul(v_color0) * smoothstep(-blur, blur, d) * inside;
 	} else {
 		float d = sdRRect(v_local, v_rect, v_param.x);
 		vec4 fill = v_color0;
 		if (v_param.w > 0.5) {
-			vec2 g = v_extra.zw - v_extra.xy;
-			float t = clamp(dot(v_local - v_extra.xy, g) / max(dot(g, g), 1e-6), 0.0, 1.0);
-			fill = mix(v_color0, v_color1, t);
+			fill = gradient(v_param.w, v_extra.zw, v_color0, v_color1);
 		}
 		col = premul(fill) * coverage(d);
 		float sw = v_param.y;
@@ -365,7 +437,14 @@ vec4 shade(out vec4 cover) {
 
 void main() {
 	vec4 cover;
-	fragColor = shade(cover);
+	vec4 col = shade(cover);
+#ifdef ELLIPSE
+	// Cut to the ellipse a layer clips to in place.
+	float c = ellipseCover(v_clip.xy);
+	col *= c;
+	cover *= c;
+#endif
+	fragColor = col;
 #ifdef DUAL
 	fragCover = cover;
 #endif
@@ -378,7 +457,7 @@ void main() {
 func New(g gl.Context, isES bool, sh *Shared) (*Renderer, error) {
 	r := &Renderer{GL: g, shared: sh, isES: isES, images: map[*paint.Image]*imageTexture{}}
 	var err error
-	if r.drawProg, r.blurProg, r.dual, err = sh.programs(g, isES); err != nil {
+	if r.drawProg, r.clipProg, r.blurProg, r.dual, err = sh.programs(g, isES); err != nil {
 		return nil, err
 	}
 
@@ -430,12 +509,15 @@ func (r *Renderer) SetText(tr text.Rendering, transparent bool) {
 	r.gamma = ratiosFor(tr.Gamma)
 }
 
-// buildPrograms compiles and links the two shared programs and points
+// buildPrograms compiles and links the shared programs and points
 // their samplers at their texture units: the glyph atlas on unit 0, an
-// image, a layer or a blur's source on unit 1, and the subpixel glyph
-// atlas on unit 2. The draw program blends by channel where the context
-// has dual-source blending, and dual says so.
-func buildPrograms(g gl.Context, isES bool) (draw, blur program, dual bool, err error) {
+// image, a layer or a blur's source on unit 1, the subpixel glyph atlas
+// on unit 2, colour glyphs on unit 3, and the gradients' ramp on unit
+// 6. The draw programs blend by channel where the context has
+// dual-source blending, and dual says so. clip is the draw program that
+// cuts what it draws to an ellipse; the plain one leaves that work out
+// of every other pixel.
+func buildPrograms(g gl.Context, isES bool) (draw, clip, blur program, dual bool, err error) {
 	header, dualHeader := "#version 150\n", "#version 330\n#define DUAL\n"
 	if isES {
 		header = "#version 300 es\nprecision highp float;\n"
@@ -448,21 +530,29 @@ func buildPrograms(g gl.Context, isES bool) (draw, blur program, dual bool, err 
 		if draw.id != 0 {
 			g.DeleteProgram(draw.id)
 		}
+		dualHeader = header
 		if draw, err = link(g, header+vertexShader, header+sdfFunc+drawOut+drawShader); err != nil {
-			return program{}, program{}, false, err
+			return program{}, program{}, program{}, false, err
 		}
 	}
-	g.UseProgram(draw.id)
-	g.Uniform1i(g.GetUniformLocation(draw.id, "u_atlas"), 0)
-	g.Uniform1i(g.GetUniformLocation(draw.id, "u_tex"), 1)
-	g.Uniform1i(g.GetUniformLocation(draw.id, "u_lcd"), 2)
-	g.Uniform1i(g.GetUniformLocation(draw.id, "u_color"), 3)
+	ellipse := dualHeader + "#define ELLIPSE\n"
+	if clip, err = link(g, ellipse+vertexShader, ellipse+sdfFunc+drawOut+drawShader); err != nil {
+		return program{}, program{}, program{}, false, err
+	}
+	for _, p := range []program{draw, clip} {
+		g.UseProgram(p.id)
+		g.Uniform1i(g.GetUniformLocation(p.id, "u_atlas"), 0)
+		g.Uniform1i(g.GetUniformLocation(p.id, "u_tex"), 1)
+		g.Uniform1i(g.GetUniformLocation(p.id, "u_lcd"), 2)
+		g.Uniform1i(g.GetUniformLocation(p.id, "u_color"), 3)
+		g.Uniform1i(g.GetUniformLocation(p.id, "u_ramp"), 6)
+	}
 	if blur, err = link(g, header+vertexShader, header+blurShader); err != nil {
-		return program{}, program{}, false, err
+		return program{}, program{}, program{}, false, err
 	}
 	g.UseProgram(blur.id)
 	g.Uniform1i(g.GetUniformLocation(blur.id, "u_tex"), 1)
-	return draw, blur, dual, nil
+	return draw, clip, blur, dual, nil
 }
 
 // noDual is set by GUNIM_NO_DUAL_SOURCE=1, which draws as a context
@@ -530,6 +620,9 @@ func (r *Renderer) Release() {
 		r.dropImage(m)
 	}
 	g.DeleteTexture(r.glyphs.tex)
+	if r.ramps.tex != 0 {
+		g.DeleteTexture(r.ramps.tex)
+	}
 	if r.lcdGlyphs.tex != 0 {
 		g.DeleteTexture(r.lcdGlyphs.tex)
 	}
@@ -552,6 +645,8 @@ func (r *Renderer) Draw(ops []paint.Op, damage geom.Rect, fbW, fbH int, scale fl
 	g := r.GL
 	r.fbW, r.fbH, r.scale = fbW, fbH, scale
 	r.stack, r.depth = r.stack[:0], 0
+	r.ellipse = clipEllipse{}
+	// bindDraw, below, makes the plain draw program current.
 	r.scratchX = 0
 	if len(r.layers) == 0 {
 		r.layers = append(r.layers, target{})
@@ -764,11 +859,27 @@ var framesDebug = os.Getenv("GUNIM_DEBUG_FRAMES") != ""
 // with the glyph atlas on unit 0.
 func (r *Renderer) bindDraw() {
 	g := r.GL
-	g.UseProgram(r.drawProg.id)
+	r.useDraw()
 	g.BindVertexArray(r.vao)
 	g.BindBuffer(gl.ARRAY_BUFFER, r.vbo)
 	g.ActiveTexture(gl.TEXTURE0)
 	g.BindTexture(gl.TEXTURE_2D, r.glyphs.tex)
+	if r.ramps.tex != 0 {
+		g.ActiveTexture(glTexture6)
+		g.BindTexture(gl.TEXTURE_2D, r.ramps.tex)
+		g.ActiveTexture(gl.TEXTURE0)
+	}
+}
+
+// useDraw makes current the draw program for the clip in force: the one
+// that cuts to an ellipse while a layer clips to one in place. The batch
+// queued must be drawn first.
+func (r *Renderer) useDraw() {
+	if r.ellipse.on {
+		r.GL.UseProgram(r.clipProg.id)
+		return
+	}
+	r.GL.UseProgram(r.drawProg.id)
 }
 
 // flush draws the batch, and the rows of cells queued before it.
@@ -823,6 +934,26 @@ type quadVert struct {
 	uv    geom.Point
 }
 
+// gradAt returns where p, in the gradient's own space, falls on it: in
+// x along a linear one, from 0 at From to 1 at To, and for a radial one
+// the point moved from From and scaled by the distance to To, whose
+// length is the place.
+func gradAt(gr *paint.Gradient, p geom.Point) geom.Point {
+	d, v := gr.To.Sub(gr.From), p.Sub(gr.From)
+	if gr.Radial {
+		rad := float32(math.Hypot(float64(d.X), float64(d.Y)))
+		if rad <= 0 {
+			return geom.Pt(1, 0)
+		}
+		return geom.Pt(v.X/rad, v.Y/rad)
+	}
+	n := d.X*d.X + d.Y*d.Y
+	if n <= 0 {
+		return geom.Point{}
+	}
+	return geom.Pt((v.X*d.X+v.Y*d.Y)/n, 0)
+}
+
 // look is what every pixel of a quad shares.
 type look struct {
 	rect           geom.Rect
@@ -832,13 +963,19 @@ type look struct {
 	color0, color1 [4]float32
 	extra          [4]float32
 	strokeColor    [4]float32
+	// grad is the gradient the quad is coloured by, in mode, a
+	// gradient mode, with toGrad taking a corner's local point into the
+	// gradient's space.
+	grad   *paint.Gradient
+	mode   float32
+	toGrad func(geom.Point) geom.Point
 }
 
 // quad queues a quad with corners in the shape's own space, placed
 // through t. Glyph quads arrive already in device pixels, with t the
 // identity and scale 1.
 func (r *Renderer) quad(corners [4]quadVert, t paint.Transform, scale float32, l *look) {
-	flag := float32(0)
+	flag := l.mode
 	if l.flag {
 		flag = 1
 	}
@@ -863,6 +1000,18 @@ func (r *Renderer) quad(corners [4]quadVert, t paint.Transform, scale float32, l
 		if l.kind == kindGlyph || l.kind == kindImage {
 			extra[0], extra[1] = c.uv.X, c.uv.Y
 		}
+		if l.grad != nil {
+			gp := c.local
+			if l.toGrad != nil {
+				gp = l.toGrad(gp)
+			}
+			g := gradAt(l.grad, gp)
+			extra[2], extra[3] = g.X, g.Y
+		}
+		var clip [3]float32
+		if e := r.ellipse; e.on {
+			clip = [3]float32{(p.X*scale - e.centre.X) / e.rad.X, (p.Y*scale - e.centre.Y) / e.rad.Y, 1}
+		}
 		r.verts = append(r.verts,
 			p.X*sx-1, 1-p.Y*sy,
 			c.local.X, c.local.Y,
@@ -872,6 +1021,7 @@ func (r *Renderer) quad(corners [4]quadVert, t paint.Transform, scale float32, l
 			l.color1[0], l.color1[1], l.color1[2], l.color1[3],
 			extra[0], extra[1], extra[2], extra[3],
 			l.strokeColor[0], l.strokeColor[1], l.strokeColor[2], l.strokeColor[3],
+			clip[0], clip[1], clip[2], 0,
 		)
 	}
 }
@@ -907,16 +1057,43 @@ func (r *Renderer) rrect(op *paint.RRectOp) {
 
 	l := look{rect: op.Rect, radius: op.Radius, kind: kindShape, color0: rgba(op.Fill.Solid)}
 	l.color1 = l.color0
+	empty := l.color0[3] == 0
 	if gr := op.Fill.Gradient; gr != nil {
-		l.color0, l.color1 = rgba(gr.Start), rgba(gr.End)
-		l.extra = [4]float32{gr.From.X, gr.From.Y, gr.To.X, gr.To.Y}
-		l.flag = true
+		l.grad, l.mode = gr, r.gradMode(gr)
+		if l.mode < gradRamp {
+			l.color0, l.color1 = rgba(gr.Start), rgba(gr.End)
+		}
+		empty = gr.Start.A == 0 && gr.End.A == 0 && !slices.ContainsFunc(gr.Stops, func(s paint.Stop) bool { return s.Color.A > 0 })
 	}
-	if l.color0[3] == 0 && l.color1[3] == 0 && (op.Stroke.Width <= 0 || op.Stroke.Color.A == 0) {
+	stroked := op.Stroke.Width > 0 && op.Stroke.Color.A > 0
+	inset := op.Inset[0].Color.A > 0 || op.Inset[1].Color.A > 0
+	if empty && !stroked && !inset {
 		return
 	}
-	l.stroke, l.strokeColor = op.Stroke.Width, rgba(op.Stroke.Color)
-	r.quad(corners(grow4(op.Rect, op.Stroke.Width/2+2), geom.Rect{}), op.Transform, r.scale, &l)
+	grown := corners(grow4(op.Rect, op.Stroke.Width/2+2), geom.Rect{})
+	if !inset {
+		l.stroke, l.strokeColor = op.Stroke.Width, rgba(op.Stroke.Color)
+		r.quad(grown, op.Transform, r.scale, &l)
+		return
+	}
+	// Shaded inside: the fill, the inset shadows over it, and the stroke
+	// over them, each a quad of the same batch.
+	if !empty {
+		r.quad(grown, op.Transform, r.scale, &l)
+	}
+	for _, sh := range op.Inset {
+		if sh.Color.A == 0 {
+			continue
+		}
+		r.quad(corners(grow4(op.Rect, 2), geom.Rect{}), op.Transform, r.scale, &look{
+			rect: op.Rect, radius: op.Radius, kind: kindInset, color0: rgba(sh.Color),
+			extra: [4]float32{sh.Offset.X, sh.Offset.Y, sh.Blur, sh.Spread},
+		})
+	}
+	if stroked {
+		r.quad(grown, op.Transform, r.scale, &look{rect: op.Rect, radius: op.Radius, kind: kindShape,
+			stroke: op.Stroke.Width, strokeColor: rgba(op.Stroke.Color)})
+	}
 }
 
 // openLayer starts drawing into a fresh offscreen target, or goes on
@@ -924,12 +1101,21 @@ func (r *Renderer) rrect(op *paint.RRectOp) {
 // in place.
 func (r *Renderer) openLayer(op *paint.LayerOp) {
 	r.flush()
-	r.stack = append(r.stack, openLayer{op: op, clip: r.clip})
+	r.stack = append(r.stack, openLayer{op: op, clip: r.clip, ellipse: r.ellipse})
 	if box, ok := r.inPlace(op); ok {
 		r.stack[len(r.stack)-1].inPlace = true
 		r.setClip(intersect(r.clip, box))
+		if op.Opts.Clip && op.Opts.Ellipse {
+			b := r.region(op, true)
+			rad := geom.Pt((b.Max.X-b.Min.X)/2, (b.Max.Y-b.Min.Y)/2)
+			r.ellipse = clipEllipse{on: rad.X > 0 && rad.Y > 0, centre: b.Min.Add(rad), rad: rad}
+			r.useDraw()
+		}
 		return
 	}
+	// The layer is cut as it is composited, once.
+	r.ellipse = clipEllipse{}
+	r.useDraw()
 	r.depth++
 	r.Stats.Layers++
 	for len(r.layers) <= r.depth {
@@ -945,7 +1131,9 @@ func (r *Renderer) openLayer(op *paint.LayerOp) {
 // inPlace reports whether a layer draws the same straight into the
 // target around it as composited from a target of its own, and the
 // device-pixel box it clips to: it is opaque, blurs nothing, and clips
-// to an upright rectangle or not at all.
+// to an upright rectangle, to an upright ellipse inside no other, or
+// not at all. The quads drawn inside an ellipse carry it, and are cut
+// to it as they draw; a grid of cells keeps to its box.
 func (r *Renderer) inPlace(op *paint.LayerOp) (geom.Rect, bool) {
 	o, t := op.Opts, op.Transform
 	switch {
@@ -953,7 +1141,18 @@ func (r *Renderer) inPlace(op *paint.LayerOp) (geom.Rect, bool) {
 		return geom.Rect{}, false
 	case !o.Clip:
 		return r.region(op, false), true
-	case o.Radius > 0 || t.B != 0 || t.D != 0:
+	case t.B != 0 || t.D != 0:
+		return geom.Rect{}, false
+	case o.Ellipse:
+		if r.ellipse.on {
+			return geom.Rect{}, false
+		}
+		b := r.region(op, true)
+		return geom.Rect{
+			Min: geom.Pt(float32(math.Floor(float64(b.Min.X))), float32(math.Floor(float64(b.Min.Y)))),
+			Max: geom.Pt(float32(math.Ceil(float64(b.Max.X))), float32(math.Ceil(float64(b.Max.Y)))),
+		}, true
+	case o.Radius > 0:
 		return geom.Rect{}, false
 	}
 	b := r.region(op, true)
@@ -972,6 +1171,10 @@ func (r *Renderer) closeLayer() {
 	top := r.stack[len(r.stack)-1]
 	r.stack = r.stack[:len(r.stack)-1]
 	r.setClip(top.clip)
+	if r.ellipse != top.ellipse {
+		r.ellipse = top.ellipse
+		r.useDraw()
+	}
 	if top.inPlace {
 		return
 	}
@@ -1012,6 +1215,9 @@ func (r *Renderer) composite(tex uint32, op *paint.LayerOp, opacity float32, cli
 	if clip && op != nil {
 		b := op.Opts.Bounds
 		l.rect, l.radius, l.flag = b, radius, true
+		if op.Opts.Ellipse {
+			l.stroke = 1
+		}
 		r.quad(corners(grow4(b, 2), geom.Rect{}), op.Transform, r.scale, &l)
 		return
 	}

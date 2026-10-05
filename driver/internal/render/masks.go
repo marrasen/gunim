@@ -20,7 +20,7 @@ const settledMost = 256
 // frame into the scratch strip. Under a plain translation the mask snaps to whole device pixels. Under a scale or
 // rotation it keeps its resting size and the quad carries the transform, as glyphs do.
 func (r *Renderer) mask(op *paint.MaskOp) {
-	if op.Shape == nil || op.Color.A == 0 {
+	if op.Shape == nil || op.Color.A == 0 && op.Gradient == nil {
 		return
 	}
 	t := op.Transform
@@ -73,6 +73,15 @@ func (r *Renderer) mask(op *paint.MaskOp) {
 		Max: geom.Pt(float32(slot.x+slot.w)/atlasSize, float32(slot.y+slot.h)/atlasSize),
 	}
 	l := look{kind: kindGlyph, color0: rgba(op.Color)}
+	if gr := op.Gradient; gr != nil {
+		// A corner's point is in device pixels of the mask; the
+		// gradient's are in the space of its rectangle.
+		fx, fy := size.W/float32(w), size.H/float32(h)
+		l.grad, l.mode = gr, r.rampMode(gr)
+		l.toGrad = func(p geom.Point) geom.Point {
+			return geom.Pt(op.Rect.Min.X+p.X*fx, op.Rect.Min.Y+p.Y*fy)
+		}
+	}
 	r.quad(corners(q, uv), paint.Transform{A: t.A, B: t.B, C: ox, D: t.D, E: t.E, F: oy}, 1, &l)
 }
 
