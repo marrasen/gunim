@@ -262,6 +262,16 @@ func (d *Driver) Monitors() []driver.Monitor {
 }
 
 // Covered implements [driver.Coverer].
+// PointerOnScreen implements [driver.Pointer].
+func (d *Driver) PointerOnScreen() (p geom.Point, ok bool) {
+	_ = d.call(func() error {
+		x, y, got := glfw.PointerOnScreen()
+		p, ok = geom.Pt(float32(x), float32(y)), got
+		return nil
+	})
+	return p, ok
+}
+
 func (d *Driver) Covered(ws []driver.Window, p geom.Point) (covered, ok bool) {
 	gws := make([]*glfw.Window, len(ws))
 	for i, w := range ws {
@@ -562,6 +572,7 @@ func (d *Driver) openWindow(o driver.Options) (*Window, error) {
 			// cloak. A frame that never comes uncovers it all the same.
 			cloak(w, true)
 			w.covered = true
+			w.focusUncovered = runtime.GOOS == "windows"
 			time.AfterFunc(time.Second, w.uncover)
 		}
 		if err := gw.Show(); err != nil {

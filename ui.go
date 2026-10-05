@@ -160,6 +160,33 @@ func (a *App) UserFolder(f driver.UserFolder) string {
 // window on a chosen one.
 func (a *App) Monitors() []driver.Monitor { return a.drv.Monitors() }
 
+// PointerMonitor returns the monitor the pointer is on, for a window to
+// open where the user is looking, as an installer started with a
+// double click does: give it as [WindowOptions.Monitor] and the window
+// opens centred on it. Where the system cannot say where the pointer
+// is, it returns the primary monitor; false when there is no monitor.
+func (a *App) PointerMonitor() (driver.Monitor, bool) {
+	ms := a.Monitors()
+	if pd, ok := a.drv.(driver.Pointer); ok {
+		if p, ok := pd.PointerOnScreen(); ok {
+			for _, m := range ms {
+				if m.Bounds.Contains(p) {
+					return m, true
+				}
+			}
+		}
+	}
+	for _, m := range ms {
+		if m.Primary {
+			return m, true
+		}
+	}
+	if len(ms) > 0 {
+		return ms[0], true
+	}
+	return driver.Monitor{}, false
+}
+
 // FocusedBounds returns where on the screen the application's window that
 // last had the keyboard is, in screen coordinates as [driver.Monitor]
 // gives them, for something to open where the user is working: false

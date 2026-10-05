@@ -108,6 +108,15 @@ type Coverer interface {
 	Covered(ws []Window, p geom.Point) (covered, ok bool)
 }
 
+// A Pointer is a [Driver] that says where the pointer is on the screen,
+// for a window to open where the user is looking.
+type Pointer interface {
+	// PointerOnScreen returns where the pointer is, in the screen
+	// coordinates [Monitor] gives bounds in, and false where the system
+	// cannot say. It is safe to call from any goroutine.
+	PointerOnScreen() (geom.Point, bool)
+}
+
 // Options describes a window to open.
 type Options struct {
 	Title   string

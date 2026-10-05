@@ -10,8 +10,8 @@ func init() {
 	gunim.RegisterTitleBar(func() gunim.TitleBar { return NewTitleBar("") })
 }
 
-// TitleBar is the title bar the engine gives a chromeless window: the title, centred, and the window's buttons at its
-// end. An application that puts [WindowControls] in its own tree draws its own title bar instead.
+// TitleBar is the title bar the engine gives a chromeless window: the title, centred on the whole bar, and the
+// window's buttons at its end. A title too long for that moves towards the start, clear of the buttons. An application that puts [WindowControls] in its own tree draws its own title bar instead.
 //
 // NoMinimize, NoMaximize and NoClose leave buttons out, as [WindowControls] has them. With none left, the bar is the
 // title alone: a press on it still moves the window, and a double click no longer maximizes it.
@@ -47,7 +47,8 @@ func (t *TitleBar) SetTitle(title string) {
 // Children implements [gunim.Composite].
 func (t *TitleBar) Children() []gunim.Node { return []gunim.Node{t.title, t.controls} }
 
-// Layout implements [gunim.Node]: the buttons at the end, and the title in the rest of the row.
+// Layout implements [gunim.Node]: the buttons at the end, and the title in the rest of the row, centred on the whole
+// of it.
 func (t *TitleBar) Layout(cs gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
 	if !f.Chromeless() {
 		for k := range kids.All {
@@ -65,6 +66,7 @@ func (t *TitleBar) Layout(cs gunim.Constraints, f gunim.Frame, kids gunim.Childr
 	w := cs.Max.W
 	ctl := kids.At(1).Layout(gunim.Constraints{Max: geom.Sz(w, h)})
 	kids.At(1).Place(geom.Pt(w-ctl.W, 0))
+	t.title.bar = w
 	kids.At(0).Layout(gunim.Tight(geom.Sz(max(0, w-ctl.W), h)))
 	kids.At(0).Place(geom.Point{})
 	return cs.Constrain(geom.Sz(w, h))
