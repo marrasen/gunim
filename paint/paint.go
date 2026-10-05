@@ -41,8 +41,13 @@ type Painter struct {
 	open  []int
 	stack []Transform
 	cur   Transform
-	// clip is the innermost clipping layer open, or nil.
+	// clip is the innermost clipping layer open, or nil, and proj the
+	// projection of the tilted layers open, or nil.
 	clip *Clip
+	proj *Projection
+	// tilts is set when a layer tilts, and prevTilts when one did in the
+	// frame before.
+	tilts, prevTilts bool
 	// ready is false in a zero Painter, whose cur has never been set;
 	// at reads it as the identity until then.
 	ready bool
@@ -102,6 +107,7 @@ func (p *Painter) Reset() {
 	p.prev, p.ops = p.ops, p.prev[:0]
 	p.prevBounds, p.bounds = p.bounds, p.prevBounds[:0]
 	p.prevBlurs, p.blurs = p.blurs, false
+	p.prevTilts, p.tilts = p.tilts, false
 	p.prevRRects, p.rrects = p.rrects, p.prevRRects
 	p.prevTexts, p.texts = p.texts, p.prevTexts
 	p.rrects.reset()
@@ -111,6 +117,7 @@ func (p *Painter) Reset() {
 	p.cur = Identity
 	p.ready = true
 	p.clip = nil
+	p.proj = nil
 	clear(p.floats)
 	p.floats = p.floats[:0]
 	p.carried = p.carried[:0]
@@ -130,10 +137,10 @@ func (p *Painter) PaintFloats() {
 		fs := p.floats
 		p.floats = nil
 		for _, fn := range fs {
-			stack, cur, clip := p.stack, p.cur, p.clip
-			p.stack, p.cur, p.clip = nil, Identity, nil
+			stack, cur, clip, proj := p.stack, p.cur, p.clip, p.proj
+			p.stack, p.cur, p.clip, p.proj = nil, Identity, nil, nil
 			fn(p)
-			p.stack, p.cur, p.clip = stack, cur, clip
+			p.stack, p.cur, p.clip, p.proj = stack, cur, clip, proj
 		}
 	}
 }
@@ -156,12 +163,12 @@ func (p *Painter) Ops() []Op { return p.ops }
 // easing into its hover colour costs the button and not the window.
 //
 // It is [Everything] for the first frame, and for a frame that blurs
-// or followed one that did, since a blur spreads a change past its
-// bounds. Ops are matched in order, so a node added early in the frame
+// or tilts or followed one that did, since a blur spreads a change past
+// its bounds, and a tilt moves it. Ops are matched in order, so a node added early in the frame
 // damages everything painted after it, which costs time and never
 // correctness.
 func (p *Painter) Damage() geom.Rect {
-	if !p.hasPrev || p.blurs || p.prevBlurs {
+	if !p.hasPrev || p.blurs || p.prevBlurs || p.tilts || p.prevTilts {
 		return Everything
 	}
 	var d geom.Rect
@@ -346,6 +353,9 @@ type LayerOpts struct {
 	// and it is why layers are a first-class idea here: it needs the
 	// frame so far as a texture.
 	Backdrop float32
+	// Tilt turns the layer in depth, in perspective. A tilted layer
+	// draws offscreen, and its Backdrop blurs behind its flat Bounds.
+	Tilt Tilt
 	// Clip confines drawing to Bounds, rounded by Radius.
 	Clip   bool
 	Radius float32
@@ -367,9 +377,14 @@ func (p *Painter) Layer(o LayerOpts) func() {
 	p.record(&LayerOp{Opts: o, Transform: p.at()}, o.Bounds)
 	at := len(p.ops) - 1
 	p.open = append(p.open, at)
-	outer := p.clip
+	outer, outerProj := p.clip, p.proj
+	if o.Tilt.tilted() {
+		p.tilts = true
+		centre := p.at().Apply(geom.Pt((o.Bounds.Min.X+o.Bounds.Max.X)/2, (o.Bounds.Min.Y+o.Bounds.Max.Y)/2))
+		p.proj = newProjection(o.Tilt, centre, outerProj)
+	}
 	if o.Clip {
-		c := &Clip{outer: outer, rect: o.Bounds, radius: o.Radius, ellipse: o.Ellipse}
+		c := &Clip{outer: outer, proj: p.proj, rect: o.Bounds, radius: o.Radius, ellipse: o.Ellipse}
 		c.inv, c.ok = p.at().Invert()
 		p.clip = c
 	}
@@ -381,7 +396,7 @@ func (p *Painter) Layer(o LayerOpts) func() {
 		// draws there.
 		p.ops = append(p.ops, &LayerEndOp{})
 		p.bounds = append(p.bounds, p.bounds[at])
-		p.clip = outer
+		p.clip, p.proj = outer, outerProj
 	}
 }
 
@@ -389,11 +404,18 @@ func (p *Painter) Layer(o LayerOpts) func() {
 // innermost first. It is nil when nothing clips.
 func (p *Painter) Clip() *Clip { return p.clip }
 
+// Projection returns the perspective in force: every open layer that
+// tilts. It is nil when nothing tilts.
+func (p *Painter) Projection() *Projection { return p.proj }
+
 // A Clip is the area a clipping layer lets drawing through, together
 // with the clips around it. It stays valid after the frame that made it,
 // which lets input be tested against what the frame showed.
 type Clip struct {
-	outer   *Clip
+	outer *Clip
+	// proj is the perspective the clip was made under, which a point on
+	// the screen is taken back through to test it.
+	proj    *Projection
 	inv     Transform
 	ok      bool
 	rect    geom.Rect
@@ -401,14 +423,16 @@ type Clip struct {
 	ellipse bool
 }
 
-// Contains reports whether p, a point in window space, lies inside c and
-// every clip around it. A nil Clip contains every point.
+// Contains reports whether p, a point on the screen, in window space,
+// lies inside c and every clip around it. A nil Clip contains every
+// point.
 func (c *Clip) Contains(p geom.Point) bool {
 	for ; c != nil; c = c.outer {
-		if !c.ok {
+		flat, shown := c.proj.Unapply(p)
+		if !c.ok || !shown {
 			return false
 		}
-		q := c.inv.Apply(p)
+		q := c.inv.Apply(flat)
 		if c.ellipse && !insideEllipse(q, c.rect) || !c.ellipse && !insideRounded(q, c.rect, c.radius) {
 			return false
 		}

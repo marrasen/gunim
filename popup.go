@@ -419,9 +419,9 @@ func (u *UI) layoutPopup(s *surface, f Frame) geom.Size {
 // bottom, even where the padding turns it inside out: the popup lines
 // its top up with the bottom and its bottom with the top.
 func (u *UI) popupAnchor(s *surface) geom.Rect {
-	t := s.root.opener.toWindow
+	o := s.root.opener
 	a := s.opts.Anchor
-	anchor := geom.Rect{Min: t.Apply(a.Min), Max: t.Apply(a.Max)}
+	anchor := geom.Rect{Min: o.screenAt(a.Min), Max: o.screenAt(a.Max)}
 	for _, k := range s.root.kids {
 		pp, ok := k.node.(PopupPadder)
 		if !ok {
@@ -489,7 +489,7 @@ func (u *UI) pointerRegion(s *surface) []geom.Rect {
 			}
 		}
 		for _, r := range parts {
-			if r = clipRect(boundsUnder(k.toWindow, r), box); !r.Empty() {
+			if r = clipRect(k.screenRect(r), box); !r.Empty() {
 				rects = append(rects, r)
 			}
 		}
@@ -518,17 +518,6 @@ func (u *UI) setPointerRegion(s *surface) {
 		pointerf("popup %p takes the pointer in %v", s, r)
 	}
 	pr.SetPointerRegion(r)
-}
-
-// boundsUnder is the rectangle round r carried by t.
-func boundsUnder(t paint.Transform, r geom.Rect) geom.Rect {
-	ps := [4]geom.Point{t.Apply(r.Min), t.Apply(geom.Pt(r.Max.X, r.Min.Y)), t.Apply(geom.Pt(r.Min.X, r.Max.Y)), t.Apply(r.Max)}
-	b := geom.Rect{Min: ps[0], Max: ps[0]}
-	for _, p := range ps[1:] {
-		b.Min = geom.Pt(min(b.Min.X, p.X), min(b.Min.Y, p.Y))
-		b.Max = geom.Pt(max(b.Max.X, p.X), max(b.Max.Y, p.Y))
-	}
-	return b
 }
 
 // clipRect is the part of r inside c, empty where they do not meet.

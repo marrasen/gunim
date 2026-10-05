@@ -21,6 +21,8 @@ type stage struct {
 	// radius, in the stage's space under t.
 	clip   geom.Rect
 	radius float32
+	// tilt, when set, turns the child in a layer round its box.
+	tilt paint.Tilt
 }
 
 func (s *stage) Layout(c Constraints, _ Frame, kids Children) geom.Size {
@@ -38,6 +40,9 @@ func (s *stage) Paint(p *paint.Painter, _ Frame, _ geom.Size, kids Children) {
 	defer p.Push(s.t)()
 	if !s.clip.Empty() {
 		defer p.Layer(paint.LayerOpts{Bounds: s.clip, Clip: true, Radius: s.radius, Opacity: 1})()
+	}
+	if s.tilt != (paint.Tilt{}) {
+		defer p.Layer(paint.LayerOpts{Bounds: geom.Rc(10, 10, 100, 50), Opacity: 1, Tilt: s.tilt})()
 	}
 	for kid := range kids.All {
 		kid.Paint(p)

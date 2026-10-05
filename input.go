@@ -627,7 +627,11 @@ func (u *UI) rectIn(s, a *state) geom.Rect {
 	}
 	out := geom.Rect{Min: geom.Pt(float32(math.Inf(1)), float32(math.Inf(1))), Max: geom.Pt(float32(math.Inf(-1)), float32(math.Inf(-1)))}
 	for _, c := range []geom.Point{{}, {X: s.size.W}, {Y: s.size.H}, s.size.Point()} {
-		p := inv.Apply(s.toWindow.Apply(c))
+		flat, ok := a.proj.Unapply(s.screenAt(c))
+		if !ok {
+			continue
+		}
+		p := inv.Apply(flat)
 		out.Min = geom.Pt(min(out.Min.X, p.X), min(out.Min.Y, p.Y))
 		out.Max = geom.Pt(max(out.Max.X, p.X), max(out.Max.Y, p.Y))
 	}
@@ -773,15 +777,17 @@ func (u *UI) hit(s *state, p geom.Point) *state {
 }
 
 // local converts a point in window space into s's own space, through
-// the transform s was last painted under. A node drawn with no area,
-// scaled to zero, maps every point far outside itself.
+// the transform s was last painted under and any tilt round it. A node
+// drawn with no area, scaled to zero, or tilted to show its back where
+// it is one-sided, maps every point far outside itself.
 func (u *UI) local(s *state, p geom.Point) geom.Point {
 	inv, ok := s.toWindow.Invert()
-	if !ok {
+	flat, shown := s.proj.Unapply(p)
+	if !ok || !shown {
 		inf := float32(math.Inf(1))
 		return geom.Pt(inf, inf)
 	}
-	return inv.Apply(p)
+	return inv.Apply(flat)
 }
 
 // hoverAgain finds what the pointer rests over in the frame just drawn.

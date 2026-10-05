@@ -20,7 +20,7 @@ func (u *UI) Convert(p geom.Point, from, to Node) (geom.Point, bool) {
 	if !ok {
 		return p, false
 	}
-	at := fs.toWindow.Apply(p)
+	at := fs.screenAt(p)
 	if fw, tw := u.windowOf(fs), u.windowOf(ts); fw != tw {
 		fsc, ok := fw.(driver.Screener)
 		if !ok {

@@ -203,7 +203,8 @@ type clipEllipse struct {
 //	         coordinates, then the point on a gradient
 //	a_stroke the stroke's colour
 //	a_clip   the vertex on the ellipse it is cut to, where the ellipse
-//	         is the unit circle, and 1 where there is one
+//	         is the unit circle, times the depth; 1 where there is one;
+//	         and the depth, 1 for a flat quad
 const vertFloats = 32
 
 // The kinds of quad, in a_param.z.
@@ -272,7 +273,8 @@ void main() {
 	v_stroke = a_stroke;
 	v_clip = a_clip;
 	v_uv = a_pos * 0.5 + 0.5;
-	gl_Position = vec4(a_pos, 0.0, 1.0);
+	// a_clip.w is the quad's depth at the vertex, 1 where it is flat.
+	gl_Position = vec4(a_pos * a_clip.w, 0.0, a_clip.w);
 }
 `
 
@@ -398,7 +400,13 @@ vec4 shade(out vec4 cover) {
 		float blur = max(v_extra.z, 0.5);
 		col = premul(v_color0) * (1.0 - smoothstep(-blur, blur, d));
 	} else if (kind == 3) {
-		float cov = coverage(sdRRect(v_local, v_rect, v_param.x));
+		float cov;
+		if (v_param.y > 0.5) {
+			vec2 hs = (v_rect.zw - v_rect.xy) * 0.5;
+			cov = ellipseCover((v_local - v_rect.xy - hs) / hs);
+		} else {
+			cov = coverage(sdRRect(v_local, v_rect, v_param.x));
+		}
 		col = texture(u_tex, v_extra.xy) * v_color0.a * cov;
 	} else if (kind == 4) {
 		float cov = 1.0;
@@ -440,7 +448,7 @@ void main() {
 	vec4 col = shade(cover);
 #ifdef ELLIPSE
 	// Cut to the ellipse a layer clips to in place.
-	float c = ellipseCover(v_clip.xy);
+	float c = ellipseCover(v_clip.xy / v_clip.w);
 	col *= c;
 	cover *= c;
 #endif
@@ -975,11 +983,6 @@ type look struct {
 // through t. Glyph quads arrive already in device pixels, with t the
 // identity and scale 1.
 func (r *Renderer) quad(corners [4]quadVert, t paint.Transform, scale float32, l *look) {
-	flag := l.mode
-	if l.flag {
-		flag = 1
-	}
-	sx, sy := 2*scale/float32(r.fbW), 2*scale/float32(r.fbH)
 	var at [4]geom.Point
 	for i, c := range corners {
 		at[i] = t.Apply(c.local)
@@ -994,6 +997,19 @@ func (r *Renderer) quad(corners [4]quadVert, t paint.Transform, scale float32, l
 			return
 		}
 	}
+	r.emit(corners, at, [4]float32{1, 1, 1, 1}, scale, l)
+}
+
+// emit queues a quad with corners in the shape's own space, shown at
+// at, in logical pixels of the target, divided by the depths w, which
+// are 1 for a flat quad. A quad with depth in it, as a tilted layer's,
+// has its points within it spread in perspective.
+func (r *Renderer) emit(corners [4]quadVert, at [4]geom.Point, w [4]float32, scale float32, l *look) {
+	flag := l.mode
+	if l.flag {
+		flag = 1
+	}
+	sx, sy := 2*scale/float32(r.fbW), 2*scale/float32(r.fbH)
 	for i, c := range corners {
 		p := at[i]
 		extra := l.extra
@@ -1008,9 +1024,12 @@ func (r *Renderer) quad(corners [4]quadVert, t paint.Transform, scale float32, l
 			g := gradAt(l.grad, gp)
 			extra[2], extra[3] = g.X, g.Y
 		}
-		var clip [3]float32
+		// The point on the ellipse goes multiplied by the depth, which
+		// the shader divides out, so it spreads evenly over the target
+		// whatever the depth.
+		clip := [4]float32{0, 0, 0, w[i]}
 		if e := r.ellipse; e.on {
-			clip = [3]float32{(p.X*scale - e.centre.X) / e.rad.X, (p.Y*scale - e.centre.Y) / e.rad.Y, 1}
+			clip = [4]float32{(p.X*scale - e.centre.X) / e.rad.X * w[i], (p.Y*scale - e.centre.Y) / e.rad.Y * w[i], 1, w[i]}
 		}
 		r.verts = append(r.verts,
 			p.X*sx-1, 1-p.Y*sy,
@@ -1021,7 +1040,7 @@ func (r *Renderer) quad(corners [4]quadVert, t paint.Transform, scale float32, l
 			l.color1[0], l.color1[1], l.color1[2], l.color1[3],
 			extra[0], extra[1], extra[2], extra[3],
 			l.strokeColor[0], l.strokeColor[1], l.strokeColor[2], l.strokeColor[3],
-			clip[0], clip[1], clip[2], 0,
+			clip[0], clip[1], clip[2], clip[3],
 		)
 	}
 }
@@ -1116,6 +1135,11 @@ func (r *Renderer) openLayer(op *paint.LayerOp) {
 	// The layer is cut as it is composited, once.
 	r.ellipse = clipEllipse{}
 	r.useDraw()
+	if tilted(op) {
+		// A tilted layer draws flat, all of it, and the clip round it
+		// cuts it where it shows once it is tilted.
+		r.setClip(geom.Rect{Max: geom.Pt(float32(r.fbW), float32(r.fbH))})
+	}
 	r.depth++
 	r.Stats.Layers++
 	for len(r.layers) <= r.depth {
@@ -1137,7 +1161,7 @@ func (r *Renderer) openLayer(op *paint.LayerOp) {
 func (r *Renderer) inPlace(op *paint.LayerOp) (geom.Rect, bool) {
 	o, t := op.Opts, op.Transform
 	switch {
-	case o.Opacity < 1 || o.Blur > 0 || o.Backdrop > 0:
+	case o.Opacity < 1 || o.Blur > 0 || o.Backdrop > 0 || tilted(op):
 		return geom.Rect{}, false
 	case !o.Clip:
 		return r.region(op, false), true
@@ -1197,10 +1221,14 @@ func (r *Renderer) closeLayer() {
 
 	contents := r.layers[depth].tex
 	if o.Blur > 0 {
-		contents = r.blur(contents, r.region(op, o.Clip), o.Blur*r.scale)
+		contents = r.blur(contents, r.region(op, o.Clip || tilted(op)), o.Blur*r.scale)
 	}
 	r.GL.BindFramebuffer(gl.FRAMEBUFFER, r.fbo(depth-1))
-	r.composite(contents, op, o.Opacity, o.Clip, radius)
+	if tilted(op) {
+		r.compositeTilted(contents, op, o.Opacity, radius)
+	} else {
+		r.composite(contents, op, o.Opacity, o.Clip, radius)
+	}
 	// The next layer at this depth draws into the same texture.
 	r.flush()
 }
@@ -1222,6 +1250,44 @@ func (r *Renderer) composite(tex uint32, op *paint.LayerOp, opacity float32, cli
 		return
 	}
 	r.quad(corners(r.window(), geom.Rect{}), paint.Identity, r.scale, &l)
+}
+
+// tilted reports whether a layer turns in depth.
+func tilted(op *paint.LayerOp) bool { return op.Opts.Tilt.X != 0 || op.Opts.Tilt.Y != 0 }
+
+// compositeTilted queues tex, a window-sized texture holding a tilted
+// layer drawn flat, drawn into the bound target at opacity: its Bounds,
+// rounded by radius or cut to an ellipse where it clips, turned in
+// perspective about their middle. A one-sided layer showing its back
+// draws nothing, and nor does one that reaches behind the eye.
+func (r *Renderer) compositeTilted(tex uint32, op *paint.LayerOp, opacity, radius float32) {
+	o, t := op.Opts, op.Transform
+	if o.Tilt.OneSided && !o.Tilt.Facing() {
+		return
+	}
+	b := o.Bounds
+	h := o.Tilt.Homography(t.Apply(geom.Pt((b.Min.X+b.Max.X)/2, (b.Min.Y+b.Max.Y)/2)))
+	// The quad reaches a little past the bounds, for their antialiased
+	// edge, and each corner shows the texture where its point lies flat.
+	cs := corners(grow4(b, 1), geom.Rect{})
+	var at [4]geom.Point
+	var w [4]float32
+	for i := range cs {
+		flat := t.Apply(cs[i].local)
+		cs[i].uv = geom.Pt(flat.X*r.scale/float32(r.fbW), 1-flat.Y*r.scale/float32(r.fbH))
+		at[i], w[i] = h.Apply(flat)
+		if w[i] <= 0.01 {
+			return
+		}
+	}
+	r.uses(tex)
+	l := look{kind: kindImage, rect: b, color0: [4]float32{0, 0, 0, opacity}}
+	if o.Clip && o.Ellipse {
+		l.stroke = 1
+	} else if o.Clip {
+		l.radius = radius
+	}
+	r.emit(cs, at, w, r.scale, &l)
 }
 
 // fbo returns the framebuffer for nesting depth d: the canvas, or the

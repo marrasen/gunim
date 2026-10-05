@@ -791,6 +791,13 @@ drawn once per set of colours. An opaque layer clipped to an ellipse,
 `LayerOpts.Ellipse`, draws in place, with no offscreen pass: each quad
 inside it is cut to the ellipse as it draws.
 
+`LayerOpts.Tilt` turns a layer in depth, in perspective, about the
+middle of its bounds: a card turning over, a page leaning back. A
+one-sided layer shows only its front, so two of them back to back make
+a card with two faces. Input follows the tilt: a tap lands on what
+shows under it, and popups, the caret and accessibility bounds go
+where the tilted node shows.
+
 The painter compares each frame with the one before, and the driver
 redraws only the part that changed into a canvas it keeps, then copies
 the canvas to the window. A button easing into its hover colour costs
