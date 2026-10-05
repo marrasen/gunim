@@ -5,9 +5,12 @@
 //
 // The head is meshes, lit by a light from the upper left: a glossy
 // ellipsoid, two eyes and a hat. It turns on its own; a drag turns it
-// faster, and it eases back to its own pace. A tap on the card turns it
-// over to its back, and another turns it back. -shot writes the window
-// to a PNG after -after, and quits.
+// faster, and it eases back to its own pace. A tap on the hat gives it
+// another colour, and a tap on the head puts a glass bubble round it,
+// or takes it off: Scene.Pick finds what the tap is on, and the bubble
+// is see-through. A tap on the card turns it over to its back, and
+// another turns it back. -shot writes the window to a PNG after -after,
+// and quits; -bubble starts with the bubble on.
 package main
 
 import (
@@ -33,13 +36,14 @@ import (
 func main() {
 	shot := flag.String("shot", "", "write the window to this PNG file after -after, and quit")
 	after := flag.Duration("after", 1500*time.Millisecond, "how long -shot waits")
+	bubble := flag.Bool("bubble", false, "start with the glass bubble round the head")
 	flag.Parse()
-	if err := run(*shot, *after); err != nil {
+	if err := run(*shot, *after, *bubble); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func run(shot string, after time.Duration) error {
+func run(shot string, after time.Duration, bubble bool) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	err := gunim.Main(ctx, func(a *gunim.App) error {
@@ -47,7 +51,11 @@ func run(shot string, after time.Duration) error {
 		if err != nil {
 			return err
 		}
-		gunim.RegisterView(w, "stage", func(struct{}) *stage { return newStage() }, nil)
+		gunim.RegisterView(w, "stage", func(struct{}) *stage {
+			s := newStage()
+			s.bubbled = bubble
+			return s
+		}, nil)
 		c := w.Client()
 		if err := c.Mount(gunim.Root, "stage", "stage", struct{}{}); err != nil {
 			return err
@@ -90,7 +98,7 @@ func writeShot(ctx context.Context, c gunim.Client, path string) error {
 var (
 	skin  = color.NRGBA{0xf1, 0xbf, 0x98, 0xff}
 	eyes  = color.NRGBA{0x2b, 0x22, 0x30, 0xff}
-	hat   = color.NRGBA{0xd8, 0x3b, 0x5c, 0xff}
+	glass = color.NRGBA{0xc8, 0xe6, 0xff, 0x48}
 	front = color.NRGBA{0x5b, 0x7c, 0xfa, 0xff}
 	back  = color.NRGBA{0xf2, 0x9e, 0x4c, 0xff}
 	white = color.NRGBA{0xff, 0xff, 0xff, 0xff}
@@ -98,7 +106,14 @@ var (
 
 // stage is the head's view above the card.
 type stage struct {
-	head, eye, brim, crown *paint.Mesh
+	head, eye, brim, crown, bubble *paint.Mesh
+	// hat is the hat's colour, from hats, and bubbled says the glass
+	// bubble is round the head.
+	hat     int
+	bubbled bool
+	// downAt is where the press in progress came down, to tell a tap
+	// from a drag.
+	downAt geom.Point
 	// turn is the head's angle, and spin how fast it turns, in radians a
 	// second, easing back to idle after a drag.
 	turn, spin float32
@@ -112,13 +127,27 @@ type stage struct {
 
 const idle = 0.6
 
+// hats are the colours a tap on the hat goes through.
+var hats = []color.NRGBA{{0xd8, 0x3b, 0x5c, 0xff}, {0x3b, 0x8f, 0xd8, 0xff}, {0x4c, 0xb8, 0x6a, 0xff}, {0xf2, 0xb1, 0x34, 0xff}}
+
+// The items of the scene, by their index.
+const (
+	itemHead = iota
+	itemLeftEye
+	itemRightEye
+	itemBrim
+	itemCrown
+	itemBubble
+)
+
 func newStage() *stage {
 	return &stage{
-		head:  paint.NewSphere(32, 64, skin),
-		eye:   paint.NewSphere(12, 24, eyes),
-		brim:  paint.NewBox(geom.V3(2.1, 0.1, 2.1), hat),
-		crown: paint.NewBox(geom.V3(1.2, 0.7, 1.2), hat),
-		spin:  idle,
+		head:   paint.NewSphere(32, 64, skin),
+		eye:    paint.NewSphere(12, 24, eyes),
+		brim:   paint.NewBox(geom.V3(2.1, 0.1, 2.1), white),
+		crown:  paint.NewBox(geom.V3(1.2, 0.7, 1.2), white),
+		bubble: paint.NewSphere(32, 64, white),
+		spin:   idle,
 	}
 }
 
@@ -141,21 +170,7 @@ func (s *stage) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, _ gunim.Chil
 		To: geom.Pt(v.Max.X, v.Max.Y), Radial: true, Start: color.NRGBA{0x3c, 0x42, 0x5e, 0xff}, End: color.NRGBA{0x1a, 0x1c, 0x28, 0xff}}},
 		paint.Shadow{Offset: geom.Pt(0, 8), Blur: 18, Color: color.NRGBA{0, 0, 0, 0x70}})
 	end := p.Layer(paint.LayerOpts{Bounds: v, Opacity: 1, Clip: true, Radius: 28})
-	turn := geom.TurnY(s.turn)
-	head := turn.Mul(geom.Scale3(geom.V3(0.9, 1.08, 0.95)))
-	item := func(m *paint.Mesh, model geom.Mat4, shine float32) paint.SceneItem {
-		return paint.SceneItem{Mesh: m, Model: model, Shine: shine}
-	}
-	p.Scene(v, paint.Scene{
-		Camera: paint.Camera{Eye: geom.V3(0, 0.6, 5.2), At: geom.V3(0, 0.25, 0)},
-		Items: []paint.SceneItem{
-			item(s.head, head, 24),
-			item(s.eye, turn.Mul(geom.Move3(geom.V3(-0.32, 0.18, 0.84))).Mul(geom.Scale3(geom.V3(0.12, 0.16, 0.08))), 96),
-			item(s.eye, turn.Mul(geom.Move3(geom.V3(0.32, 0.18, 0.84))).Mul(geom.Scale3(geom.V3(0.12, 0.16, 0.08))), 96),
-			item(s.brim, turn.Mul(geom.Move3(geom.V3(0, 0.98, 0))).Mul(geom.TurnZ(-0.1)), 8),
-			item(s.crown, turn.Mul(geom.Move3(geom.V3(-0.04, 1.36, 0))).Mul(geom.TurnZ(-0.1)), 8),
-		},
-	})
+	p.Scene(v, s.scene())
 	end()
 
 	// The card: two one-sided faces back to back, turning together.
@@ -174,6 +189,42 @@ func (s *stage) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, _ gunim.Chil
 	face(back, s.flip-math.Pi, 1)
 }
 
+// scene is the head as it stands now.
+func (s *stage) scene() paint.Scene {
+	turn := geom.TurnY(s.turn)
+	item := func(m *paint.Mesh, model geom.Mat4, shine float32) paint.SceneItem {
+		return paint.SceneItem{Mesh: m, Model: model, Shine: shine}
+	}
+	hat := hats[s.hat]
+	items := []paint.SceneItem{
+		itemHead:     item(s.head, turn.Mul(geom.Scale3(geom.V3(0.9, 1.08, 0.95))), 24),
+		itemLeftEye:  item(s.eye, turn.Mul(geom.Move3(geom.V3(-0.32, 0.18, 0.84))).Mul(geom.Scale3(geom.V3(0.12, 0.16, 0.08))), 96),
+		itemRightEye: item(s.eye, turn.Mul(geom.Move3(geom.V3(0.32, 0.18, 0.84))).Mul(geom.Scale3(geom.V3(0.12, 0.16, 0.08))), 96),
+		itemBrim:     {Mesh: s.brim, Model: turn.Mul(geom.Move3(geom.V3(0, 0.98, 0))).Mul(geom.TurnZ(-0.1)), Tint: hat, Shine: 8},
+		itemCrown:    {Mesh: s.crown, Model: turn.Mul(geom.Move3(geom.V3(-0.04, 1.36, 0))).Mul(geom.TurnZ(-0.1)), Tint: hat, Shine: 8},
+	}
+	if s.bubbled {
+		items = append(items, paint.SceneItem{Mesh: s.bubble, Model: geom.Move3(geom.V3(0, 0.3, 0)).Mul(geom.Scale3(geom.V3(1.6, 1.6, 1.6))),
+			Tint: glass, Shine: 64})
+	}
+	return paint.Scene{Camera: paint.Camera{Eye: geom.V3(0, 0.6, 5.2), At: geom.V3(0, 0.25, 0)}, Items: items}
+}
+
+// tap carries out a tap at p in the head's view: on the hat, the next
+// colour; on the head, or the bubble round it, the bubble on or off.
+func (s *stage) tap(p geom.Point) {
+	hit, ok := s.scene().Pick(s.view(), p)
+	if !ok {
+		return
+	}
+	switch hit.Item {
+	case itemBrim, itemCrown:
+		s.hat = (s.hat + 1) % len(hats)
+	case itemHead, itemLeftEye, itemRightEye, itemBubble:
+		s.bubbled = !s.bubbled
+	}
+}
+
 func (s *stage) Handle(e input.Event, u *gunim.UI) bool {
 	switch e := e.(type) {
 	case input.PointerDown:
@@ -187,7 +238,7 @@ func (s *stage) Handle(e input.Event, u *gunim.UI) bool {
 			return true
 		}
 		if s.view().Contains(e.Pos) {
-			s.dragging, s.dragAt = true, e.Pos
+			s.dragging, s.dragAt, s.downAt = true, e.Pos, e.Pos
 			return true
 		}
 	case input.PointerMove:
@@ -199,6 +250,10 @@ func (s *stage) Handle(e input.Event, u *gunim.UI) bool {
 			return true
 		}
 	case input.PointerUp:
+		if d := e.Pos.Sub(s.downAt); s.dragging && d.X*d.X+d.Y*d.Y < 8*8 {
+			s.tap(e.Pos)
+			u.Invalidate()
+		}
 		s.dragging = false
 	}
 	return false

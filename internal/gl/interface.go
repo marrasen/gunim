@@ -34,6 +34,8 @@ type Context interface {
 	BindVertexArray(array uint32)
 	// BlitFramebuffer is a gunim change.
 	BlitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1 int32, mask uint32, filter uint32)
+	// CullFace is a gunim change.
+	CullFace(mode uint32)
 	// DepthFunc is a gunim change.
 	DepthFunc(fn uint32)
 	// DepthMask is a gunim change.

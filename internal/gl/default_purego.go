@@ -42,6 +42,7 @@ type defaultContext struct {
 	gpClear                    uintptr
 	gpColorMask                uintptr
 	gpBlitFramebuffer          uintptr
+	gpCullFace                 uintptr
 	gpDepthFunc                uintptr
 	gpDepthMask                uintptr
 	gpRenderbufferStorageMS    uintptr
@@ -502,6 +503,10 @@ func (c *defaultContext) BlitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY
 	purego.SyscallN(c.gpBlitFramebuffer, uintptr(srcX0), uintptr(srcY0), uintptr(srcX1), uintptr(srcY1), uintptr(dstX0), uintptr(dstY0), uintptr(dstX1), uintptr(dstY1), uintptr(mask), uintptr(filter))
 }
 
+func (c *defaultContext) CullFace(mode uint32) {
+	purego.SyscallN(c.gpCullFace, uintptr(mode))
+}
+
 func (c *defaultContext) DepthFunc(fn uint32) {
 	purego.SyscallN(c.gpDepthFunc, uintptr(fn))
 }
@@ -533,6 +538,7 @@ func (c *defaultContext) LoadFunctions() error {
 	c.gpClear = g.get("glClear")
 	c.gpColorMask = g.get("glColorMask")
 	c.gpBlitFramebuffer = g.get("glBlitFramebuffer")
+	c.gpCullFace = g.get("glCullFace")
 	c.gpDepthFunc = g.get("glDepthFunc")
 	c.gpDepthMask = g.get("glDepthMask")
 	c.gpRenderbufferStorageMS = g.get("glRenderbufferStorageMultisample")

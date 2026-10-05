@@ -58,3 +58,19 @@ func TestANormalStaysUprightOnAStretchedSurface(t *testing.T) {
 		t.Errorf("a turned surface's normal is %v, want %v", up, want)
 	}
 }
+
+func TestAnInverseUndoesTheMatrix(t *testing.T) {
+	m := Perspective(1, 1.3, 0.1, 50).Mul(LookAt(V3(1, 2, 6), V3(0, 0, 0), V3(0, 1, 0))).Mul(TurnY(0.4)).Mul(Scale3(V3(1, 2, 0.5)))
+	inv, ok := m.Invert()
+	if !ok {
+		t.Fatal("an invertible matrix reported no inverse")
+	}
+	for _, p := range []Vec3{{}, V3(0.3, -0.2, 0.5), V3(-1, 1, 1)} {
+		if back := inv.Apply(m.Apply(p)); !close3(back, p) {
+			t.Errorf("%v came back as %v", p, back)
+		}
+	}
+	if _, ok := Scale3(V3(1, 0, 1)).Invert(); ok {
+		t.Error("a matrix that folds space flat reported an inverse")
+	}
+}

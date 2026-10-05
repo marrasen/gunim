@@ -3,10 +3,12 @@
 package render
 
 import (
+	"cmp"
 	"encoding/binary"
 	"image/color"
 	"log"
 	"math"
+	"slices"
 	"time"
 
 	"github.com/marrasen/gunim/geom"
@@ -25,6 +27,9 @@ const (
 	glDrawFramebuffer  = 0x8CA9
 	glNearest          = 0x2600
 	glMaxSamples       = 0x8D57
+	glCullFace         = 0x0B44
+	glFront            = 0x0404
+	glBack             = 0x0405
 )
 
 const (
@@ -58,6 +63,8 @@ type sceneState struct {
 	out                 target
 	outW, outH, samples int
 	meshes              map[*paint.Mesh]*meshBuffers
+	// order is scratch: the see-through items of the scene drawing.
+	order []seen
 }
 
 // meshBuffers is a mesh uploaded to the GPU.
@@ -200,41 +207,8 @@ func (r *Renderer) scene(op *paint.SceneOp) {
 	g.UseProgram(st.prog)
 
 	cam := op.Scene.Camera
-	up := cam.Up
-	if up == (geom.Vec3{}) {
-		up = geom.V3(0, 1, 0)
-	}
-	fov, near, far := cam.FOV, cam.Near, cam.Far
-	if fov <= 0 {
-		fov = paint.DefaultFOV
-	}
-	if near <= 0 {
-		near = 0.1
-	}
-	if far <= near {
-		far = max(100, near*10)
-	}
-	view := geom.LookAt(cam.Eye, cam.At, up)
-	vp := geom.Perspective(fov, size.W/size.H, near, far).Mul(view)
-
-	light := op.Scene.Light
-	dir := light.Direction
-	if dir == (geom.Vec3{}) {
-		// From the camera's upper left, down and away.
-		fwd := cam.At.Sub(cam.Eye).Unit()
-		right := fwd.Cross(up).Unit()
-		dir = fwd.Add(right.Mul(0.6)).Sub(right.Cross(fwd).Mul(0.9))
-	}
-	dir = dir.Unit()
-	lc, amb := light.Color, light.Ambient
-	// The default light and even light together light a surface facing
-	// the light at its own colour.
-	if lc == (color.NRGBA{}) {
-		lc = color.NRGBA{0xc0, 0xc0, 0xc0, 0xff}
-	}
-	if amb == (color.NRGBA{}) {
-		amb = color.NRGBA{0x40, 0x40, 0x40, 0xff}
-	}
+	vp := cam.Matrix(size.W / size.H)
+	dir, lc, amb := op.Scene.Lighting()
 	rgb := func(c color.NRGBA) []float32 {
 		v := rgba(c)
 		return []float32{v[0] * v[3], v[1] * v[3], v[2] * v[3]}
@@ -244,30 +218,39 @@ func (r *Renderer) scene(op *paint.SceneOp) {
 	g.Uniform3fv(st.u.ambient, rgb(amb))
 	g.Uniform3fv(st.u.eye, []float32{cam.Eye.X, cam.Eye.Y, cam.Eye.Z})
 
+	// The solid items first, hiding what they stand in front of; then
+	// the see-through ones, furthest first, each blended over what is
+	// behind it and hiding nothing, its back faces before its front, so
+	// a glass ball shows its far side through its near one.
 	now := time.Now()
-	for _, it := range op.Scene.Items {
+	st.order = st.order[:0]
+	for i, it := range op.Scene.Items {
 		if it.Mesh == nil || len(it.Mesh.Indices()) == 0 {
 			continue
 		}
-		mb := r.meshBuffers(it.Mesh, now)
-		model := it.Model
-		if model == (geom.Mat4{}) {
-			model = geom.Ident4
+		if !it.SeeThrough() {
+			r.drawItem(it, vp, now)
+			continue
 		}
-		mvp := vp.Mul(model)
-		normal := model.NormalMatrix()
-		tint := it.Tint
-		if tint == (color.NRGBA{}) {
-			tint = color.NRGBA{0xff, 0xff, 0xff, 0xff}
+		c, _ := it.Mesh.Bounds()
+		st.order = append(st.order, seen{i, it.Matrix().Apply(c).Sub(cam.Eye).Len()})
+	}
+	if len(st.order) > 0 {
+		slices.SortStableFunc(st.order, func(a, b seen) int { return cmp.Compare(b.dist, a.dist) })
+		g.Enable(gl.BLEND)
+		g.BlendFuncSeparate(gl.ONE, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+		g.DepthMask(false)
+		g.Enable(glCullFace)
+		for _, o := range st.order {
+			it := op.Scene.Items[o.item]
+			g.CullFace(glFront)
+			r.drawItem(it, vp, now)
+			g.CullFace(glBack)
+			r.drawItem(it, vp, now)
 		}
-		tc := rgba(tint)
-		g.UniformMatrix4fv(st.u.mvp, mvp[:])
-		g.UniformMatrix4fv(st.u.model, model[:])
-		g.UniformMatrix3fv(st.u.normal, normal[:])
-		g.Uniform4fv(st.u.tint, tc[:])
-		g.Uniform1fv(st.u.shine, []float32{it.Shine})
-		g.BindVertexArray(mb.vao)
-		g.DrawElements(gl.TRIANGLES, mb.n, gl.UNSIGNED_INT, 0)
+		g.Disable(glCullFace)
+		g.DepthMask(true)
+		g.Disable(gl.BLEND)
 	}
 
 	// Resolve the samples into the texture the frame reads.
@@ -291,6 +274,30 @@ func (r *Renderer) scene(op *paint.SceneOp) {
 	})
 	// The next scene draws into the same texture.
 	r.flush()
+}
+
+// seen is a see-through item of a scene, by its index, and how far its
+// middle is from the eye.
+type seen struct {
+	item int
+	dist float32
+}
+
+// drawItem draws one item of a scene, through vp, the camera's matrix.
+func (r *Renderer) drawItem(it paint.SceneItem, vp geom.Mat4, now time.Time) {
+	g, st := r.GL, &r.scenes
+	mb := r.meshBuffers(it.Mesh, now)
+	model := it.Matrix()
+	mvp := vp.Mul(model)
+	normal := model.NormalMatrix()
+	tc := rgba(it.Color())
+	g.UniformMatrix4fv(st.u.mvp, mvp[:])
+	g.UniformMatrix4fv(st.u.model, model[:])
+	g.UniformMatrix3fv(st.u.normal, normal[:])
+	g.Uniform4fv(st.u.tint, tc[:])
+	g.Uniform1fv(st.u.shine, []float32{it.Shine})
+	g.BindVertexArray(mb.vao)
+	g.DrawElements(gl.TRIANGLES, mb.n, gl.UNSIGNED_INT, 0)
 }
 
 // fitScene makes the scene's target at least w by h, growing it to the

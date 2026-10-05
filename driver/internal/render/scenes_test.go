@@ -67,3 +67,40 @@ func TestAMeshIsUploadedOnceAndLetGo(t *testing.T) {
 		t.Error("a mesh left undrawn stayed on the GPU")
 	}
 }
+
+func TestASeeThroughMeshShowsWhatIsBehindIt(t *testing.T) {
+	r, done := hiddenGL(t)
+	defer done()
+	half := color.NRGBA{0xff, 0xff, 0xff, 0x80}
+	glass := paint.SceneItem{Mesh: paint.NewSphere(24, 48, white), Tint: half}
+	// The box stands behind the glass's right edge, and reaches past it.
+	box := paint.SceneItem{Mesh: paint.NewBox(geom.V3(1, 1, 0.2), red), Model: geom.Move3(geom.V3(1.6, 0, -2))}
+	// An even white light alone shows every face its own colour, so each
+	// face of the glass is half white over what is behind it: its back
+	// face over the box or the black behind, and its front face over that.
+	light := paint.Light{Color: color.NRGBA{A: 0xff}, Ambient: white}
+	for _, items := range [][]paint.SceneItem{{glass, box}, {box, glass}} {
+		first := items[0] == glass
+		s := paint.Scene{Camera: paint.Camera{Eye: geom.V3(0, 0, 5)}, Light: light, Items: items}
+		pix := drawn(r, func(p *paint.Painter) { p.Scene(geom.Rc(200, 100, 400, 400), s) })
+		m := s.Camera.Matrix(1)
+		shows := func(v geom.Vec3) (int, int) {
+			at := m.Apply(v)
+			return int(400 + at.X*200), int(300 - at.Y*200)
+		}
+		// Through the glass's middle onto the black: a quarter black
+		// left, the rest white.
+		if got := pixelAt(pix, 400, 300); !near(got, [4]byte{0xbf, 0xbf, 0xbf, 0xff}, 4) {
+			t.Errorf("glass listed first %v: over the black it is %v, want three quarters white", first, got)
+		}
+		// Through the glass onto the box: the red shows a quarter.
+		if x, y := shows(geom.V3(1.2, 0, -2)); !near(pixelAt(pix, x, y), [4]byte{0xff, 0xbf, 0xbf, 0xff}, 4) {
+			t.Errorf("glass listed first %v: over the box, at %d, %d, it is %v, want a quarter red under white",
+				first, x, y, pixelAt(pix, x, y))
+		}
+		// Past the glass's edge the box is plain red.
+		if x, y := shows(geom.V3(1.9, 0.3, -2)); !near(pixelAt(pix, x, y), px(red), 4) {
+			t.Errorf("glass listed first %v: beside the glass the box is %v, want red", first, pixelAt(pix, x, y))
+		}
+	}
+}

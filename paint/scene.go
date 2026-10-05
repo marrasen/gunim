@@ -15,6 +15,11 @@ import (
 type Mesh struct {
 	verts []MeshVertex
 	idx   []uint32
+	// centre and radius bound the mesh, and seeThrough says a vertex's
+	// colour is less than opaque.
+	centre     geom.Vec3
+	radius     float32
+	seeThrough bool
 }
 
 // MeshVertex is a corner of a mesh's triangles: where it is, the way the
@@ -28,8 +33,32 @@ type MeshVertex struct {
 // counterclockwise order seen from the side the surface faces. It
 // copies both.
 func NewMesh(verts []MeshVertex, indices []uint32) *Mesh {
-	return &Mesh{verts: slices.Clone(verts), idx: slices.Clone(indices)}
+	return boundMesh(slices.Clone(verts), slices.Clone(indices))
 }
+
+// boundMesh makes a mesh of verts and idx, which it keeps, and finds its
+// bounds.
+func boundMesh(verts []MeshVertex, idx []uint32) *Mesh {
+	m := &Mesh{verts: verts, idx: idx}
+	if len(verts) == 0 {
+		return m
+	}
+	lo, hi := verts[0].Pos, verts[0].Pos
+	for _, v := range verts {
+		p := v.Pos
+		lo = geom.V3(min(lo.X, p.X), min(lo.Y, p.Y), min(lo.Z, p.Z))
+		hi = geom.V3(max(hi.X, p.X), max(hi.Y, p.Y), max(hi.Z, p.Z))
+		m.seeThrough = m.seeThrough || v.Color.A < 0xff
+	}
+	m.centre = lo.Add(hi).Mul(0.5)
+	for _, v := range verts {
+		m.radius = max(m.radius, v.Pos.Sub(m.centre).Len())
+	}
+	return m
+}
+
+// Bounds returns a sphere round the mesh: its centre and radius.
+func (m *Mesh) Bounds() (centre geom.Vec3, radius float32) { return m.centre, m.radius }
 
 // Vertices returns the mesh's corners, for a driver to upload.
 func (m *Mesh) Vertices() []MeshVertex { return m.verts }
@@ -61,7 +90,7 @@ func NewSphere(rings, segments int, c color.NRGBA) *Mesh {
 			idx = append(idx, a, b, a+1, a+1, b, b+1)
 		}
 	}
-	return &Mesh{verts: verts, idx: idx}
+	return boundMesh(verts, idx)
 }
 
 // NewBox returns a box of size about the origin, in colour c, its six faces
@@ -87,7 +116,7 @@ func NewBox(size geom.Vec3, c color.NRGBA) *Mesh {
 		}
 		idx = append(idx, base, base+1, base+2, base, base+2, base+3)
 	}
-	return &Mesh{verts: verts, idx: idx}
+	return boundMesh(verts, idx)
 }
 
 // A Scene is a 3D view: meshes placed in a world, seen through a camera
@@ -134,7 +163,9 @@ type SceneItem struct {
 	// Model places, turns and scales the mesh in the world; a zero Model
 	// leaves it as it was made.
 	Model geom.Mat4
-	// Tint multiplies the mesh's colours; a zero Tint leaves them.
+	// Tint multiplies the mesh's colours; a zero Tint leaves them. Its
+	// alpha, as a mesh colour's, below opaque, lets what is behind show
+	// through, as glass does.
 	Tint color.NRGBA
 	// Shine is how glossy the surface is, from 0, matte, up; 32 is a
 	// soft gloss and 128 a sharp one.
@@ -165,4 +196,74 @@ func sameScene(a, b *SceneOp) bool {
 	return a.Rect == b.Rect && a.Transform == b.Transform && a.Scene.Camera == b.Scene.Camera &&
 		a.Scene.Light == b.Scene.Light && a.Scene.Background == b.Scene.Background &&
 		slices.Equal(a.Scene.Items, b.Scene.Items)
+}
+
+// Matrix returns the item's Model, the identity for a zero one.
+func (it SceneItem) Matrix() geom.Mat4 {
+	if it.Model == (geom.Mat4{}) {
+		return geom.Ident4
+	}
+	return it.Model
+}
+
+// Color returns what multiplies the mesh's colours: Tint, or white for a
+// zero one.
+func (it SceneItem) Color() color.NRGBA {
+	if it.Tint == (color.NRGBA{}) {
+		return color.NRGBA{0xff, 0xff, 0xff, 0xff}
+	}
+	return it.Tint
+}
+
+// SeeThrough reports whether what is behind the item shows through it.
+// A driver draws such items after the rest, furthest first.
+func (it SceneItem) SeeThrough() bool {
+	return it.Mesh != nil && (it.Mesh.seeThrough || it.Color().A < 0xff)
+}
+
+// Matrix returns the camera's projection after its view, for a picture
+// aspect times as wide as it is tall: the matrix that takes the world to
+// the picture, with the camera's zero fields at their defaults.
+func (c Camera) Matrix(aspect float32) geom.Mat4 {
+	fov, near, far := c.FOV, c.Near, c.Far
+	if fov <= 0 {
+		fov = DefaultFOV
+	}
+	if near <= 0 {
+		near = 0.1
+	}
+	if far <= near {
+		far = max(100, near*10)
+	}
+	return geom.Perspective(fov, aspect, near, far).Mul(geom.LookAt(c.Eye, c.At, c.up()))
+}
+
+// up returns the camera's Up, +Y for a zero one.
+func (c Camera) up() geom.Vec3 {
+	if c.Up == (geom.Vec3{}) {
+		return geom.V3(0, 1, 0)
+	}
+	return c.Up
+}
+
+// Lighting returns the scene's light with its zero fields at their
+// defaults: the way it shines, as a unit vector, its colour, and the
+// even light's.
+func (s Scene) Lighting() (dir geom.Vec3, light, ambient color.NRGBA) {
+	l, c := s.Light, s.Camera
+	dir = l.Direction
+	if dir == (geom.Vec3{}) {
+		// From the camera's upper left, down and away.
+		fwd := c.At.Sub(c.Eye).Unit()
+		right := fwd.Cross(c.up()).Unit()
+		dir = fwd.Add(right.Mul(0.6)).Sub(right.Cross(fwd).Mul(0.9))
+	}
+	light, ambient = l.Color, l.Ambient
+	if light == (color.NRGBA{}) {
+		light = color.NRGBA{0xc0, 0xc0, 0xc0, 0xff}
+	}
+	if ambient == (color.NRGBA{}) {
+		ambient = color.NRGBA{0x40, 0x40, 0x40, 0xff}
+	}
+	return dir.Unit(), light, ambient
 }
