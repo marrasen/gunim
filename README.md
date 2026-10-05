@@ -319,6 +319,50 @@ and `UI`:
   `WindowOptions.DragFromBehind`, an item drags from a window lying
   behind another on Windows, as from Explorer's windows.
 
+## Installing
+
+A gunim program can be its own installer, so the program is all there
+is to download. Package `install` does it, in one call first in `main`:
+
+```go
+install.Run(install.App{
+	Name:    "Marras Mastering Studio",
+	Version: version,
+	Icon:    icon,
+	Updates: install.GitHub{Repo: "marrasen/mastering-studio"},
+})
+```
+
+Started from anywhere but its own folder, the program opens the
+installer in place of its own window. The program's icon stands large
+on a glow in its colours, and floats while the user chooses: a
+shortcut on the desktop, a start with the computer, the kinds of file it
+opens, and keeping it up to date. Installing raises the icon to the
+middle of the window and draws a ring round it as the work goes; at the
+end the ring closes and flies out, the icon jumps, a tick pops onto its
+corner, confetti falls, and a green ring goes out past the window's
+edges. It installs for the user alone, with no administrator: on
+Windows into `%LOCALAPPDATA%\Programs` with a Start menu shortcut and
+an entry under Installed apps, on Linux into `~/.local/share` with a
+desktop file, its icon and a link in `~/.local/bin`. A newer copy
+updates the one installed, and one already installed offers to open it.
+
+Installed, the program starts as itself. If the user chose to keep it
+up to date, it looks for a newer release on GitHub now and then, checks
+it against the release's `SHA256SUMS`, and puts it in place for the next
+start. `program -install` installs from a script, and
+`program -uninstall`, as the system's list starts it, asks in a window
+and takes it all away.
+
+Every field past `Name` and `Version` changes one thing and leaves the
+rest: more files to install beside the program, the kinds of file, the
+program's own offers and hooks, the folders of the user's data an
+uninstall offers to take, the colours and the words, or a window of the
+program's own driving the same `install.Session`.
+
+![The installer](install/installer.png)
+![Installed](install/installed.png)
+
 ## Android
 
 The same programs build for Android. `tools/gunimapk` turns one into an
@@ -648,6 +692,7 @@ writes them again from a newer Lucide.
 | `gunim/driver` | The seam with the operating system, and an offscreen window |
 | `gunim/driver/desktop` | The driver for Linux, Windows and macOS, on GLFW and OpenGL |
 | `gunim/driver/android` | The driver for Android: every window drawn into the activity's one surface, touch, and the soft keyboard |
+| `gunim/install` | Makes a program its own installer: installs it for the user, with its shortcuts, kinds of file and uninstall entry, and keeps it up to date from its releases |
 | `gunim/gunimtest` | Offscreen windows for tests, which fail a test that sent from or focused a node out of the tree |
 | `gunim/filemanager` | A file manager to open in any program, on the local disk or on a file system of its own, such as a server's |
 | `gunim/calendar` | A calendar's views: a day or a week by the hour, a month, and a small month to pick a day from |
@@ -775,7 +820,8 @@ In no set order:
   paced by the fallback timer, as a virtual display has no vblank.
 - macOS, which builds and has never run. Its popups are borderless
   floating windows, with no popup type of their own yet, and it keeps
-  the system's title bar.
+  the system's title bar. Package `install` lets a program run as it is
+  there, until it writes the program's app bundle into ~/Applications.
 - Input-method compositions on macOS, which the GLFW port reports only
   on X11 and, with a gunim change, on Windows.
 - Bluetooth headsets on Windows: whether they play cleanly, and whether
