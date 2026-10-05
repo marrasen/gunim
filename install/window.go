@@ -173,9 +173,17 @@ func openWindow(app *gunim.App, s *Session) (*runner, error) {
 		title = "Remove " + a.Name
 	}
 	// A plain root, not a Surface: the backdrop runs up under the title
-	// bar, and the stage keeps its content clear of it.
-	w, err := app.NewWindow(gunim.WindowOptions{Title: title, Size: size, Icons: icons,
-		UnderTitleBar: true, AskToClose: closed{}})
+	// bar, and the stage keeps its content clear of it. The window opens
+	// in the middle of the screen the pointer is on, where the user just
+	// started the program, and has only the button that closes it.
+	bar := widget.NewTitleBar(title)
+	bar.NoMinimize, bar.NoMaximize = true, true
+	o := gunim.WindowOptions{Title: title, Size: size, Icons: icons, TitleBar: bar,
+		UnderTitleBar: true, AskToClose: closed{}}
+	if m, ok := app.PointerMonitor(); ok {
+		o.Monitor = &m
+	}
+	w, err := app.NewWindow(o)
 	if err != nil {
 		return nil, err
 	}

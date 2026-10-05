@@ -128,3 +128,26 @@ func TestATitleBarCanLeaveItsButtonsOut(t *testing.T) {
 		t.Fatalf("with no buttons the caption is %v and the maximize button %v, want the whole bar and none", fr.Caption, fr.Maximize)
 	}
 }
+
+// The title is centred on the whole bar, as the eye measures it, not on
+// the room the buttons leave; a title too long for that moves towards
+// the start, clear of the buttons.
+func TestTheTitleIsCentredOnTheWholeBar(t *testing.T) {
+	_, bar, _, on := titleStage(t, newSpot(100, 50))
+	on(func(u *gunim.UI) { u.SetTitle("Letters") })
+	var r, buttons geom.Rect
+	on(func(u *gunim.UI) {
+		r, _ = u.Bounds(bar.title.label)
+		buttons, _ = u.Bounds(bar.controls)
+	})
+	if mid := (r.Min.X + r.Max.X) / 2; mid < 299 || mid > 301 {
+		t.Fatalf("the title's middle is at %v, want the bar's, 300", mid)
+	}
+	on(func(u *gunim.UI) {
+		u.SetTitle("A title long enough that centred on the bar it would run under the window's buttons")
+	})
+	on(func(u *gunim.UI) { r, _ = u.Bounds(bar.title.label) })
+	if r.Max.X > buttons.Min.X+0.5 || r.Min.X < 0 {
+		t.Fatalf("the long title spans %v to %v, and the buttons start at %v", r.Min.X, r.Max.X, buttons.Min.X)
+	}
+}

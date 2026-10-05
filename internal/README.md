@@ -49,6 +49,9 @@ gunim's changes are marked `gunim change` in the code:
   program while the window lacks the keyboard: `HeldModifiers`
   (`heldmods.go`), from `GetAsyncKeyState` on Win32 and `XQueryPointer`
   on X11. Cocoa reports none.
+- `glfw` says where the pointer is on the screen, over any window or
+  none: `PointerOnScreen` (`pointer.go`), from `GetCursorPos` on Win32
+  and `XQueryPointer` on the root window on X11. Cocoa reports nothing.
 - `glfw` has a `Popup` window hint, for menus, lists and tooltips: a
   window that never takes focus. On X11 it is override-redirect, so the
   window manager leaves it where it is put, and typed

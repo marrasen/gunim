@@ -107,6 +107,11 @@ type Window struct {
 	edge   float32
 	// covered says the window is cloaked, which the drawn shadow follows. It is used on the main thread.
 	covered bool
+	// focusUncovered asks for the keyboard again as the window is
+	// uncovered: Windows does not bring a cloaked window to the front, so
+	// the focus asked for as it was shown is lost, and the window opens
+	// behind the one the user started it from.
+	focusUncovered bool
 	// hiddenBy says the system reports the window out of sight while it
 	// is open, covered by other windows or on another desktop, and
 	// unseen what the window was told last, with the screen's state.
@@ -1345,6 +1350,9 @@ func (w *Window) uncover() {
 				w.debugf("uncovered")
 				cloak(w, false)
 				w.covered = false
+				if w.focusUncovered {
+					_ = w.gw.Focus()
+				}
 				w.mu.Lock()
 				o, s := w.shadowAt, w.shadowScale
 				w.mu.Unlock()

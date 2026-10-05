@@ -286,6 +286,11 @@ type WindowTitle struct {
 	// shown says the window is chromeless, so the title is the
 	// window's to show.
 	shown bool
+	// bar is the width of the whole title bar the title's room starts
+	// at, which a [TitleBar] gives it, so the title is centred on the
+	// bar and not on the room the buttons leave; 0 centres it on its
+	// room.
+	bar float32
 }
 
 // WindowTitleInset is how far in from the start of its room a title
@@ -326,7 +331,13 @@ func (t *WindowTitle) Layout(cs gunim.Constraints, f gunim.Frame, kids gunim.Chi
 		return own
 	}
 	size := k.Layout(gunim.Constraints{Max: own})
-	k.Place(geom.Pt(max(0, (own.W-size.W)/2), max(0, (own.H-size.H)/2)))
+	x := (own.W - size.W) / 2
+	if t.bar > 0 {
+		// Centred on the whole bar, as the eye measures it, and moved
+		// towards the start only as far as the buttons ask.
+		x = min((t.bar-size.W)/2, own.W-size.W)
+	}
+	k.Place(geom.Pt(max(0, x), max(0, (own.H-size.H)/2)))
 	return own
 }
 
