@@ -875,7 +875,9 @@ func (c *ContextMenu) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids g
 
 // Tooltip shows a line of text in a popup below the pointer once it
 // has rested on the tooltip's child for Delay, and hides it when the
-// pointer leaves.
+// pointer leaves. Text changed while it shows turns over in place: the
+// words before slide up and away as the new come up under them, and the
+// popup glides to their width.
 type Tooltip struct {
 	Text  string
 	Delay time.Duration
@@ -942,12 +944,23 @@ type tipper struct {
 	owner gunim.Node
 	// quiet keeps the tooltip down after a press or a scroll, until the pointer leaves.
 	quiet bool
+	// card is the popup's card while it shows, whose words turn over as the text changes.
+	card *tip
+}
+
+// retext turns the words of the tooltip showing over to text, where they differ.
+func (t *tipper) retext(text string) {
+	t.text = text
+	if t.card != nil && t.card.text != text && text != "" {
+		t.card.turnTo(text)
+	}
 }
 
 // handle shows the tooltip text for owner once the pointer rests on it for delay, and hides it when the pointer
 // leaves, presses or scrolls. After a press or a scroll it stays down until the pointer leaves and comes back.
 func (t *tipper) handle(e input.Event, u *gunim.UI, owner gunim.Node, text string, delay time.Duration) {
-	t.owner, t.text, t.delay = owner, text, delay
+	t.owner, t.delay = owner, delay
+	t.retext(text)
 	switch e := e.(type) {
 	case input.PointerEnter:
 		t.at, t.quiet = e.Pos, false
@@ -980,7 +993,8 @@ func (t *tipper) show(u *gunim.UI) {
 	}
 	// Below the pointer, clear of it, or above it where the screen runs
 	// out.
-	t.popup = u.OpenPopup(t.owner, &tip{text: t.text, in: anim.NewFloat(0)}, gunim.PopupOptions{
+	t.card = newTip(t.text)
+	t.popup = u.OpenPopup(t.owner, t.card, gunim.PopupOptions{
 		Anchor: geom.Rect{Min: t.at.Sub(geom.Pt(0, 4)), Max: t.at.Add(geom.Pt(0, 22))},
 	})
 }
@@ -992,12 +1006,14 @@ func (t *tipper) hide(*gunim.UI) {
 	}
 	if t.popup != nil {
 		t.popup.Close()
-		t.popup = nil
+		t.popup, t.card = nil, nil
 	}
 }
 
-// Layout implements [gunim.Node].
+// Layout implements [gunim.Node]. The text set since the last layout
+// turns over in the tooltip showing.
 func (t *Tooltip) Layout(cs gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
+	t.tip.retext(t.Text)
 	k := kids.At(0)
 	s := k.Layout(cs)
 	k.Place(geom.Point{})
@@ -1009,17 +1025,33 @@ func (t *Tooltip) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim
 	kids.At(0).Paint(p)
 }
 
-// tip is a tooltip's popup: a small card of text that fades in.
+// tip is a tooltip's popup: a small card of text that fades in, and
+// whose words turn over as they change: was, the words before, slide up
+// and away as turn runs to 1, and text comes up under them.
 type tip struct {
-	text        string
-	in          *anim.Float
-	run         shapedText
+	text, was   string
+	in, turn    *anim.Float
+	run, wasRun shapedText
 	margin      float32
 	transparent bool
 }
 
+func newTip(text string) *tip {
+	return &tip{text: text, in: anim.NewFloat(0), turn: anim.NewFloat(1)}
+}
+
+// turnTo turns the words over to s.
+func (t *tip) turnTo(s string) {
+	t.was, t.text = t.text, s
+	t.turn.Jump(0)
+	t.turn.Animate(1, anim.Spring{Response: 0.3, Damping: 0.85})
+}
+
 // Step implements [gunim.Animator].
-func (t *tip) Step(dt time.Duration) bool { return t.in.Step(dt) }
+func (t *tip) Step(dt time.Duration) bool {
+	in := t.in.Step(dt)
+	return t.turn.Step(dt) || in
+}
 
 // Transition implements [gunim.Transitioner].
 func (t *tip) Transition(p gunim.Presence, f gunim.Frame) bool {
@@ -1046,13 +1078,26 @@ func (t *tip) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.
 	}
 	run := t.run.shape(faceIn(Font, th), t.text, TooltipSize.Get(th))
 	pad := TooltipPadding.Get(th)
-	return c.Constrain(geom.Sz(run.Advance+pad.Left+pad.Right+2*t.margin, run.Height()+pad.Top+pad.Bottom+2*t.margin))
+	// As wide as the wider of the words, while they turn over.
+	w := run.Advance
+	if t.turn.Value() < 1 {
+		w = max(w, t.wasRun.shape(faceIn(Font, th), t.was, TooltipSize.Get(th)).Advance)
+	}
+	return c.Constrain(geom.Sz(w+pad.Left+pad.Right+2*t.margin, run.Height()+pad.Top+pad.Bottom+2*t.margin))
 }
 
 // Paint implements [gunim.Node].
 func (t *tip) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
 	th := f.Theme
+	pad := TooltipPadding.Get(th)
 	card := geom.Rect{Min: geom.Pt(t.margin, t.margin), Max: geom.Pt(box.W-t.margin, box.H-t.margin)}
+	// Turning over, the card glides from the width of the words before
+	// to the width of the new.
+	turn := min(max(t.turn.Value(), 0), 1)
+	if turn < 1 {
+		from, to := t.wasRun.run.Advance, t.run.run.Advance
+		card.Max.X = card.Min.X + from + (to-from)*turn + pad.Left + pad.Right
+	}
 	if t.transparent {
 		radius := TooltipRadius.Get(th)
 		defer p.Layer(paint.LayerOpts{Bounds: geom.Rect{Max: box.Point()}, Opacity: min(1, max(0, t.in.Value()))})()
@@ -1062,7 +1107,14 @@ func (t *tip) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Chil
 	} else {
 		p.RRect(card, 0, paint.Solid(TooltipFill.Get(th)))
 	}
-	pad := TooltipPadding.Get(th)
-	run := t.run.run
-	run.Paint(p, card.Min.Add(geom.Pt(pad.Left, pad.Top)), TooltipInk.Get(th))
+	at, ink := card.Min.Add(geom.Pt(pad.Left, pad.Top)), TooltipInk.Get(th)
+	if turn >= 1 {
+		t.run.run.Paint(p, at, ink)
+		return
+	}
+	// The words turning over, cut to the card.
+	defer p.Layer(paint.LayerOpts{Bounds: card, Opacity: 1, Clip: true})()
+	h := t.run.run.Height()
+	t.wasRun.run.Paint(p, at.Sub(geom.Pt(0, h*turn)), fadedBy(ink, 1-turn))
+	t.run.run.Paint(p, at.Add(geom.Pt(0, h*(1-turn))), fadedBy(ink, turn))
 }

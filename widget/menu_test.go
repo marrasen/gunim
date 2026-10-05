@@ -105,6 +105,28 @@ func TestTooltipShowsAfterItsDelay(t *testing.T) {
 	}
 }
 
+func TestATooltipsWordsTurnOverAsTheyChange(t *testing.T) {
+	// A button that turns through settings, its tooltip saying which: a
+	// press, which the button takes, leaves the tooltip up.
+	b := NewButton("Turn")
+	tip := NewTooltip(b, "As far through")
+	w, run := stage(t, &frame{child: tip, size: geom.Sz(200, 36)})
+	w.Input(input.PointerMove{Pos: geom.Pt(20, 18), Time: time.Now()})
+	run(60)
+	w.Input(input.PointerDown{Pos: geom.Pt(20, 18), Clicks: 1, Time: time.Now()})
+	w.Input(input.PointerUp{Pos: geom.Pt(20, 18), Time: time.Now()})
+	tip.Text = "At the same time"
+	run(2)
+	c := tip.tip.card
+	if c == nil || c.text != "At the same time" || c.was != "As far through" || c.turn.Value() >= 1 {
+		t.Fatal("its text changed, the tooltip's words do not turn over")
+	}
+	run(60)
+	if c.turn.Value() < 0.99 {
+		t.Fatalf("a second on, the words are %.2f turned", c.turn.Value())
+	}
+}
+
 func TestADropdownKeepsWithinItsMaxWidth(t *testing.T) {
 	d := NewDropdown("All sessions", "#12  2024-02-15 10:17:39+01:00  v5.4.1  3 err")
 	d.MaxWidth = 150
