@@ -156,6 +156,8 @@ type Renderer struct {
 	ellipse clipEllipse
 	// ramps holds the colours of gradients with stops; see ramps.go.
 	ramps ramps
+	// scenes draws 3D scenes; see scenes.go.
+	scenes sceneState
 
 	fbW, fbH int
 	scale    float32
@@ -631,6 +633,7 @@ func (r *Renderer) Release() {
 	if r.ramps.tex != 0 {
 		g.DeleteTexture(r.ramps.tex)
 	}
+	r.releaseScenes()
 	if r.lcdGlyphs.tex != 0 {
 		g.DeleteTexture(r.lcdGlyphs.tex)
 	}
@@ -736,6 +739,7 @@ func (r *Renderer) Draw(ops []paint.Op, damage geom.Rect, fbW, fbH int, scale fl
 		r.flush()
 	}
 	r.evictImages()
+	r.evictMeshes()
 }
 
 // debugClear is set by GUNIM_DEBUG_CLEAR=1, which clears the window to
@@ -843,6 +847,8 @@ func (r *Renderer) replay(ops []paint.Op) {
 			r.mask(op)
 		case *paint.CellsOp:
 			r.cells(op)
+		case *paint.SceneOp:
+			r.scene(op)
 		}
 	}
 	// A layer left open by a node that forgot to close it still shows.

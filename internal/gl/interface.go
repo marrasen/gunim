@@ -32,6 +32,14 @@ type Context interface {
 	BindRenderbuffer(target uint32, renderbuffer uint32)
 	BindTexture(target uint32, texture uint32)
 	BindVertexArray(array uint32)
+	// BlitFramebuffer is a gunim change.
+	BlitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1 int32, mask uint32, filter uint32)
+	// DepthFunc is a gunim change.
+	DepthFunc(fn uint32)
+	// DepthMask is a gunim change.
+	DepthMask(flag bool)
+	// RenderbufferStorageMultisample is a gunim change.
+	RenderbufferStorageMultisample(target uint32, samples int32, internalFormat uint32, width int32, height int32)
 	BlendEquationSeparate(modeRGB uint32, modeAlpha uint32)
 	BlendFuncSeparate(srcRGB uint32, dstRGB uint32, srcAlpha uint32, dstAlpha uint32)
 	BufferInit(target uint32, size int, usage uint32)

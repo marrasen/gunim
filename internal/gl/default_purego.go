@@ -41,6 +41,10 @@ type defaultContext struct {
 	gpCheckFramebufferStatus   uintptr
 	gpClear                    uintptr
 	gpColorMask                uintptr
+	gpBlitFramebuffer          uintptr
+	gpDepthFunc                uintptr
+	gpDepthMask                uintptr
+	gpRenderbufferStorageMS    uintptr
 	gpCompileShader            uintptr
 	gpCreateProgram            uintptr
 	gpCreateShader             uintptr
@@ -494,6 +498,22 @@ func (c *defaultContext) Viewport(x int32, y int32, width int32, height int32) {
 	purego.SyscallN(c.gpViewport, uintptr(x), uintptr(y), uintptr(width), uintptr(height))
 }
 
+func (c *defaultContext) BlitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1 int32, mask uint32, filter uint32) {
+	purego.SyscallN(c.gpBlitFramebuffer, uintptr(srcX0), uintptr(srcY0), uintptr(srcX1), uintptr(srcY1), uintptr(dstX0), uintptr(dstY0), uintptr(dstX1), uintptr(dstY1), uintptr(mask), uintptr(filter))
+}
+
+func (c *defaultContext) DepthFunc(fn uint32) {
+	purego.SyscallN(c.gpDepthFunc, uintptr(fn))
+}
+
+func (c *defaultContext) DepthMask(flag bool) {
+	purego.SyscallN(c.gpDepthMask, uintptr(boolToInt(flag)))
+}
+
+func (c *defaultContext) RenderbufferStorageMultisample(target uint32, samples int32, internalFormat uint32, width int32, height int32) {
+	purego.SyscallN(c.gpRenderbufferStorageMS, uintptr(target), uintptr(samples), uintptr(internalFormat), uintptr(width), uintptr(height))
+}
+
 func (c *defaultContext) LoadFunctions() error {
 	g := procAddressGetter{ctx: c}
 
@@ -512,6 +532,10 @@ func (c *defaultContext) LoadFunctions() error {
 	c.gpCheckFramebufferStatus = g.get("glCheckFramebufferStatus")
 	c.gpClear = g.get("glClear")
 	c.gpColorMask = g.get("glColorMask")
+	c.gpBlitFramebuffer = g.get("glBlitFramebuffer")
+	c.gpDepthFunc = g.get("glDepthFunc")
+	c.gpDepthMask = g.get("glDepthMask")
+	c.gpRenderbufferStorageMS = g.get("glRenderbufferStorageMultisample")
 	c.gpCompileShader = g.get("glCompileShader")
 	c.gpCreateProgram = g.get("glCreateProgram")
 	c.gpCreateShader = g.get("glCreateShader")

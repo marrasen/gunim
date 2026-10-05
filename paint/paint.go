@@ -236,6 +236,9 @@ func sameOp(a, b Op) bool {
 	case *CellsOp:
 		b, ok := b.(*CellsOp)
 		return ok && sameCells(a, b)
+	case *SceneOp:
+		b, ok := b.(*SceneOp)
+		return ok && sameScene(a, b)
 	}
 	return false
 }
