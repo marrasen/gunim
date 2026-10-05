@@ -48,11 +48,13 @@
 //     Choices of the program's own, whose answers reach Installed.
 //   - What it does: the hooks Installed, Uninstalling and Quit, and
 //     Data, the folders an uninstall offers to take too.
-//   - How it keeps up to date: Updates, any [Source], and Updated, to
-//     hear of a release put in place and offer to [Restart] into it.
-//     [Check] and [Stage] do the same at the program's asking, as for a
-//     Check for Updates button, and with NoAutoUpdate the program does
-//     it all its own way.
+//   - How it keeps up to date: Updates, any [Source]; UpdateMode, the
+//     mode until the user chooses, which [SetUpdates] changes, as an
+//     Updates setting does: put a new release in place by itself, tell
+//     the program through Available so it can ask first, or nothing; and
+//     Updated, to hear of a release put in place and offer to [Restart]
+//     into it. [Check] and [Stage] do the same at the program's asking,
+//     as for a Check for Updates button.
 //   - Where it was before: Formerly, the places an older version put
 //     it. An install with no record of itself, as an older version's
 //     own installer left it, is taken on as the program starts, with

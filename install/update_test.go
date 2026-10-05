@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCompare(t *testing.T) {
@@ -187,5 +188,57 @@ func TestCheckApp(t *testing.T) {
 		if err := bad.check(); err == nil {
 			t.Errorf("%+v passed", bad)
 		}
+	}
+}
+
+// The updater does what the mode says at each look: installs and says
+// so, tells the program, or does nothing.
+func TestKeepUpToDateFollowsTheMode(t *testing.T) {
+	was, wasEvery := updateFirst, updateEvery
+	updateFirst, updateEvery = time.Millisecond, 20*time.Millisecond
+	t.Cleanup(func() { updateFirst, updateEvery = was, wasEvery })
+	srv := fakeGitHub(t, release{tag: "v2.0.0", files: map[string][]byte{asset("2.0.0"): []byte("two")}})
+	dir := t.TempDir()
+	available, updated := make(chan Release, 4), make(chan Release, 4)
+	a := App{Name: "studio", Version: "v1.0.0", Dir: func() (string, error) { return dir, nil },
+		Updates:   GitHub{Repo: "marrasen/studio", API: srv.URL},
+		Available: func(r Release) { available <- r }, Updated: func(r Release) { updated <- r }}
+	exe := filepath.Join(dir, "studio"+exeSuffix)
+	if err := os.WriteFile(exe, []byte("one"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m := manifest{ID: "studio", Version: "v1.0.0", Exe: "studio" + exeSuffix, Updates: UpdatesNotify}
+	if err := m.write(dir); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go keepUpToDate(ctx, a)
+	select {
+	case r := <-available:
+		if r.Version != "v2.0.0" {
+			t.Fatalf("told of %s", r.Version)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("set to notify, the program was not told")
+	}
+	if raw, _ := os.ReadFile(exe); string(raw) != "one" {
+		t.Fatal("set to notify, the release was put in place unasked")
+	}
+	cancel()
+
+	if err := SetUpdates(a, UpdatesInstall); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel = context.WithCancel(context.Background())
+	defer cancel()
+	go keepUpToDate(ctx, a)
+	select {
+	case <-updated:
+	case <-time.After(5 * time.Second):
+		t.Fatal("set to install, the release was not put in place")
+	}
+	if raw, _ := os.ReadFile(exe); string(raw) != "two" {
+		t.Fatalf("set to install, the program holds %q", raw)
 	}
 }

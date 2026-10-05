@@ -320,10 +320,11 @@ var (
 	updateEvery = 24 * time.Hour
 )
 
-// keepUpToDate looks for newer releases of a while ctx lasts, and puts
-// each in place for the next start.
+// keepUpToDate looks for newer releases of a while ctx lasts, as the
+// install's update mode says at each look: it puts one in place for the
+// next start, or tells the program of it, once a release.
 func keepUpToDate(ctx context.Context, a App) {
-	staged := ""
+	told := ""
 	wait := updateFirst
 	for {
 		select {
@@ -332,14 +333,23 @@ func keepUpToDate(ctx context.Context, a App) {
 		case <-time.After(wait):
 		}
 		wait = updateEvery
+		in, err := Find(a)
+		if err != nil || in.Updates == UpdatesOff || in.Updates == UpdatesNotify && a.Available == nil {
+			continue
+		}
 		r, newer, err := Check(ctx, a)
-		if err != nil || !newer || r.Version == staged {
+		if err != nil || !newer || r.Version == told {
+			continue
+		}
+		if in.Updates == UpdatesNotify {
+			told = r.Version
+			a.Available(r)
 			continue
 		}
 		if err := Stage(ctx, a, r); err != nil {
 			continue
 		}
-		staged = r.Version
+		told = r.Version
 		if a.Updated != nil {
 			a.Updated(r)
 		}

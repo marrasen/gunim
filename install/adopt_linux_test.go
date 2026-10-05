@@ -99,11 +99,10 @@ func TestAdoptAnInstallThatKeptNoRecord(t *testing.T) {
 }
 
 // A choice the program's settings also change starts from how they
-// stand, not from the last install's answer; and a program that updates
-// itself its own way is not offered the installer's updates.
-func TestCurrentChoicesAndOwnUpdates(t *testing.T) {
+// stand, not from the last install's answer.
+func TestCurrentChoices(t *testing.T) {
 	_, program := testHome(t)
-	a := App{Name: "kakel", Version: "v0.6.0", Updates: GitHub{Repo: "marrasen/kakel"}, NoAutoUpdate: true,
+	a := App{Name: "kakel", Version: "v0.6.0",
 		Choices: []Choice{{Key: "auto", Label: "Update automatically", On: true, Current: true}}}
 	s, err := newSession(a, program, false)
 	if err != nil {
@@ -115,12 +114,82 @@ func TestCurrentChoicesAndOwnUpdates(t *testing.T) {
 	a.Choices[0].On = false
 	again, _ := newSession(a, program, false)
 	for _, o := range again.Offers {
-		if o.Key == PickUpdates {
-			t.Error("the installer offered its own updates to a program that keeps itself up to date")
-		}
 		if o.Key == "auto" && o.On {
 			t.Error("a current choice started from the last install's answer, not from how it stands")
 		}
+	}
+}
+
+// The offer to keep the program up to date sets the update mode:
+// ticked, it installs; unticked, it tells a program that can ask, and
+// is off for one that cannot. An install taken on starts from the
+// program's own mode, and SetUpdates changes it.
+func TestUpdateModes(t *testing.T) {
+	_, program := testHome(t)
+	src := GitHub{Repo: "marrasen/kakel"}
+	install := func(a App, picks map[string]bool) Installation {
+		t.Helper()
+		s, err := newSession(a, program, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		in, err := s.Install(context.Background(), picks, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		found, err := Find(a)
+		if err != nil || found.Updates != in.Updates {
+			t.Fatalf("Find says %+v, %v; the install said %s", found, err, in.Updates)
+		}
+		return in
+	}
+	plain := App{Name: "studio", Version: "v1.0.0", Updates: src}
+	if in := install(plain, nil); in.Updates != UpdatesInstall || !in.Chose(PickUpdates) {
+		t.Fatalf("by default the mode is %s", in.Updates)
+	}
+	if in := install(plain, map[string]bool{PickUpdates: false}); in.Updates != UpdatesOff {
+		t.Fatalf("unticked, with no way to ask, the mode is %s", in.Updates)
+	}
+	asks := plain
+	asks.Available = func(Release) {}
+	if in := install(asks, map[string]bool{PickUpdates: true}); in.Updates != UpdatesInstall {
+		t.Fatalf("ticked, the mode is %s", in.Updates)
+	}
+	if in := install(asks, map[string]bool{PickUpdates: false}); in.Updates != UpdatesNotify {
+		t.Fatalf("unticked, with a way to ask, the mode is %s", in.Updates)
+	}
+	if err := SetUpdates(asks, UpdatesOff); err != nil {
+		t.Fatal(err)
+	}
+	// Unticked again, an install keeps off as off.
+	if in := install(asks, map[string]bool{PickUpdates: false}); in.Updates != UpdatesOff {
+		t.Fatalf("set off and installed again unticked, the mode is %s", in.Updates)
+	}
+	// Taken on with no picks, it keeps what it had.
+	if in := install(asks, nil); in.Updates != UpdatesOff {
+		t.Fatalf("installed again with no picks, the mode is %s", in.Updates)
+	}
+}
+
+// An install taken on with no record of itself starts from the mode the
+// program gives, as kakel gives the setting its users chose.
+func TestAdoptKeepsTheProgramsMode(t *testing.T) {
+	testHome(t)
+	a := App{Name: "kakel", Version: "v0.6.0", Updates: GitHub{Repo: "marrasen/kakel"}, UpdateMode: UpdatesNotify,
+		Available: func(Release) {}}
+	dir, exe, _ := Where(a)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(exe, []byte("kakel"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := adopt(a, exe); err != nil {
+		t.Fatal(err)
+	}
+	in, err := Find(a)
+	if err != nil || in.Updates != UpdatesNotify || in.Chose(PickUpdates) {
+		t.Fatalf("taken on as %+v, %v; want notify", in, err)
 	}
 }
 

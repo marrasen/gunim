@@ -37,10 +37,10 @@ func Find(a App) (*Installation, error) {
 		return nil, err
 	}
 	if m != nil {
-		return m.installation(dir), nil
+		return m.installation(&a, dir), nil
 	}
 	if found := a.found(exe); found != "" {
-		return &Installation{Dir: filepath.Dir(found), Exe: found, Picks: detect(&a, found)}, nil
+		return &Installation{Dir: filepath.Dir(found), Exe: found, Picks: detect(&a, found), Updates: a.startMode()}, nil
 	}
 	return nil, ErrNotInstalled
 }
@@ -77,4 +77,30 @@ func Change(a App, picks map[string]bool) error {
 	}
 	m.Picks = in.Picks
 	return m.write(in.Dir)
+}
+
+// SetUpdates sets how the installed program takes newer releases, as an
+// Updates setting of the program's own does. The program's own look
+// for them takes it up at its next look.
+func SetUpdates(a App, mode UpdateMode) error {
+	if !mode.valid() {
+		return errors.New("install: no update mode " + string(mode))
+	}
+	dir, _, err := Where(a)
+	if err != nil {
+		return err
+	}
+	m, err := readManifest(dir)
+	if err != nil {
+		return err
+	}
+	if m == nil {
+		return ErrNotInstalled
+	}
+	m.Updates = mode
+	if m.Picks == nil {
+		m.Picks = map[string]bool{}
+	}
+	m.Picks[PickUpdates] = mode == UpdatesInstall
+	return m.write(dir)
 }
