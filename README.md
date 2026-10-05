@@ -709,9 +709,9 @@ writes them again from a newer Lucide.
 | `gunim/audio/band` | Plays songs made for programs, as a game's music, such as looping parts that come and go |
 | `gunim/audio/vst3` | Hosts VST3 effects: their sound, state, parameters and editors |
 | `gunim/audioui` | Meters and faders, a spectrum and a spectrogram, a waveform, and loudness readings for audio programs |
-| `gunim/paint` | The per-frame draw list: rounded rects, shadows, text, images, tinted masks, layers |
+| `gunim/paint` | The per-frame draw list: rounded rects, shadows, gradients, text, images, masks, layers that clip and tilt, and 3D scenes |
 | `gunim/icon` | Lucide's icons as strokes, drawn as tinted masks; `icon/byname` looks them up by name |
-| `gunim/geom` | float32 points, sizes, rectangles |
+| `gunim/geom` | float32 points, sizes, rectangles, and 3D vectors and matrices |
 | `gunim/syntax` | Splits source code into tokens to colour; `syntax.Go` reads Go with `go/scanner` |
 | `gunim/markdown` | Shows Markdown as gunim text that the reader can select and copy |
 | `gunim/match` | Finds a typed query in lines of text, ranked as a command palette ranks them |
@@ -790,6 +790,23 @@ Gradients with stops take their colours from a row of a small texture,
 drawn once per set of colours. An opaque layer clipped to an ellipse,
 `LayerOpts.Ellipse`, draws in place, with no offscreen pass: each quad
 inside it is cut to the ellipse as it draws.
+
+`LayerOpts.Tilt` turns a layer in depth, in perspective, about the
+middle of its bounds: a card turning over, a page leaning back. A
+one-sided layer shows only its front, so two of them back to back make
+a card with two faces. Input follows the tilt: a tap lands on what
+shows under it, and popups, the caret and accessibility bounds go
+where the tilted node shows.
+
+`Painter.Scene` draws a 3D view into a rectangle: meshes placed in a
+world, a camera, and a light from far off with an even light under it.
+`paint.NewMesh` makes a mesh from triangles, and `NewSphere` and
+`NewBox` make the simple solids; `geom.Mat4` places, turns and scales
+them. A scene draws in depth, with four samples a pixel for smooth
+edges, into a texture of its own, which the frame lays in like an
+image, so a scene shows inside clips, ellipses and tilts. A mesh
+uploads to the GPU once and stays while frames draw it. `example/scene`
+turns a head in a view above a card that turns over.
 
 The painter compares each frame with the one before, and the driver
 redraws only the part that changed into a canvas it keeps, then copies

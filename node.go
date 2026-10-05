@@ -490,6 +490,7 @@ func (c Child) Paint(p *paint.Painter) {
 	defer p.Push(paint.Translate(c.n.origin))()
 	c.n.toWindow = p.Transform()
 	c.n.clip = p.Clip()
+	c.n.proj = p.Projection()
 	c.n.drawn = c.f.seq
 	f := scoped(c.f, c.n.node)
 	if c.f.u.chrome != nil {
@@ -528,8 +529,11 @@ type state struct {
 	// it. Hit testing reads both, so input follows what is on screen.
 	toWindow paint.Transform
 	drawn    uint64
-	// clip is the clipping the node was last painted under.
+	// clip is the clipping the node was last painted under, and proj the
+	// perspective of the tilted layers round it, which takes toWindow's
+	// flat window space to where it showed on the screen.
 	clip *paint.Clip
+	proj *paint.Projection
 	// tabStop is, for a [TabGroup], the node in it that last had the focus.
 	tabStop *state
 	// opener is set on the root of a popup's tree: the node that opened
@@ -593,4 +597,20 @@ func clamp(v, lo, hi float32) float32 {
 		return hi
 	}
 	return v
+}
+
+// screenAt returns where p, in s's own space, showed in the window in
+// the frame that last drew s, through any tilt round it.
+func (s *state) screenAt(p geom.Point) geom.Point { return s.proj.Apply(s.toWindow.Apply(p)) }
+
+// screenRect returns the box in the window that r, in s's own space,
+// showed in.
+func (s *state) screenRect(r geom.Rect) geom.Rect {
+	ps := [4]geom.Point{s.screenAt(r.Min), s.screenAt(geom.Pt(r.Max.X, r.Min.Y)), s.screenAt(geom.Pt(r.Min.X, r.Max.Y)), s.screenAt(r.Max)}
+	b := geom.Rect{Min: ps[0], Max: ps[0]}
+	for _, p := range ps[1:] {
+		b.Min = geom.Pt(min(b.Min.X, p.X), min(b.Min.Y, p.Y))
+		b.Max = geom.Pt(max(b.Max.X, p.X), max(b.Max.Y, p.Y))
+	}
+	return b
 }

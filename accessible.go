@@ -155,7 +155,7 @@ func (u *UI) accessNode(s *state, info access.Info) *access.Node {
 	n := &access.Node{
 		Info:      info,
 		ID:        id,
-		Bounds:    windowRect(s.toWindow, geom.Rect{Max: s.size.Point()}),
+		Bounds:    s.screenRect(geom.Rect{Max: s.size.Point()}),
 		Focusable: focusable && f.Focusable(),
 		Focused:   u.focus == s && info.Active == 0,
 	}
@@ -200,7 +200,7 @@ func (u *UI) accessParts(s *state, parts []access.Info, id uint64, focusable boo
 		part := &access.Node{
 			Info:      p,
 			ID:        id | uint64(num)<<partBits,
-			Bounds:    windowRect(s.toWindow, p.Bounds),
+			Bounds:    s.screenRect(p.Bounds),
 			Focusable: focusable,
 			Focused:   u.focus == s && active == *k,
 		}

@@ -68,8 +68,7 @@ func (u *UI) edgeScroll(dt time.Duration) bool {
 		// The nodes still stand where the last frame drew them, so the
 		// point under the pointer now is where the content was that far
 		// back.
-		t := s.toWindow
-		back := at.Sub(t.Apply(moved).Sub(t.Apply(geom.Point{})))
+		back := at.Sub(s.screenAt(moved).Sub(s.screenAt(geom.Point{})))
 		if from == u.capture {
 			c := u.capture
 			u.deliver(c, input.PointerMove{Pos: u.local(c, back), Time: u.now})

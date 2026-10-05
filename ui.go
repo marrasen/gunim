@@ -1986,10 +1986,10 @@ func (u *UI) placeCaret() {
 		return
 	}
 	r := cr.TextCaret()
-	t := u.focus.toWindow
-	at := geom.Rect{Min: t.Apply(r.Min), Max: t.Apply(r.Max)}.Normalized()
+	f := u.focus
+	at := geom.Rect{Min: f.screenAt(r.Min), Max: f.screenAt(r.Max)}.Normalized()
 	if bp, ok := u.w.dw.(driver.TextBoxPlacer); ok {
-		box := geom.Rect{Min: t.Apply(geom.Point{}), Max: t.Apply(u.focus.size.Point())}.Normalized()
+		box := f.screenRect(geom.Rect{Max: f.size.Point()})
 		if box != u.boxAt {
 			u.boxAt = box
 			bp.SetTextBox(box)

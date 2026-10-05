@@ -1,0 +1,417 @@
+//go:build linux || windows || darwin
+
+package render
+
+import (
+	"encoding/binary"
+	"image/color"
+	"log"
+	"math"
+	"time"
+
+	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/internal/gl"
+	"github.com/marrasen/gunim/paint"
+)
+
+// GL constants for drawing in depth, which the gl package leaves out.
+const (
+	glDepthTest        = 0x0B71
+	glDepthBufferBit   = 0x0100
+	glDepthComponent24 = 0x81A6
+	glDepthAttachment  = 0x8D00
+	glLequal           = 0x0203
+	glReadFramebuffer  = 0x8CA8
+	glDrawFramebuffer  = 0x8CA9
+	glNearest          = 0x2600
+	glMaxSamples       = 0x8D57
+)
+
+const (
+	// sceneSamples is how many samples a scene's pixels take, for
+	// smooth edges, where the GPU offers as many, and sceneMost the
+	// most device pixels a scene draws at, across or down.
+	sceneSamples = 4
+	sceneMost    = 4096
+	// meshIdle is how long a mesh stays on the GPU after the last frame
+	// that drew it, and meshVertexFloats the floats of each of its
+	// vertices there: position, normal and colour.
+	meshIdle         = 10 * time.Second
+	meshVertexFloats = 10
+)
+
+// A scene draws by a program of its own, in depth, into a target of its
+// own: a multisampled colour and depth buffer, resolved into a texture
+// that is then laid into the frame as an image is, so a scene shows
+// inside clips, ellipses and tilts like anything else. The program is
+// the renderer's own, unlike the shared ones, as it takes the camera
+// and the light as uniforms, which belong to the program.
+type sceneState struct {
+	prog   uint32
+	failed bool
+	u      struct{ mvp, model, normal, light, lightColor, ambient, eye, tint, shine int32 }
+	// ms draws the scene, with its colour and depth buffers, and out is
+	// the texture it resolves into, both outW by outH, of which a scene
+	// takes the lower left part its size.
+	ms                  uint32
+	msColor, msDepth    uint32
+	out                 target
+	outW, outH, samples int
+	meshes              map[*paint.Mesh]*meshBuffers
+}
+
+// meshBuffers is a mesh uploaded to the GPU.
+type meshBuffers struct {
+	vao, vbo, ibo uint32
+	n             int32
+	used          time.Time
+}
+
+const sceneVS = `
+in vec3 a_pos;
+in vec3 a_normal;
+in vec4 a_color;
+uniform mat4 u_mvp;
+uniform mat4 u_model;
+uniform mat3 u_normal;
+out vec3 v_normal;
+out vec3 v_world;
+out vec4 v_color;
+
+void main() {
+	v_normal = u_normal * a_normal;
+	v_world = (u_model * vec4(a_pos, 1.0)).xyz;
+	v_color = a_color;
+	gl_Position = u_mvp * vec4(a_pos, 1.0);
+}
+`
+
+// sceneFS lights a surface with the even light and the far light's
+// diffuse and, for a glossy one, its highlight. A surface seen from
+// behind is lit as its front would be.
+const sceneFS = `
+in vec3 v_normal;
+in vec3 v_world;
+in vec4 v_color;
+uniform vec3 u_light;
+uniform vec3 u_lightColor;
+uniform vec3 u_ambient;
+uniform vec3 u_eye;
+uniform vec4 u_tint;
+uniform float u_shine;
+out vec4 fragColor;
+
+void main() {
+	vec3 n = normalize(v_normal);
+	if (!gl_FrontFacing) {
+		n = -n;
+	}
+	vec3 l = -u_light;
+	float diff = max(dot(n, l), 0.0);
+	vec4 base = v_color * u_tint;
+	vec3 col = base.rgb * (u_ambient + u_lightColor * diff);
+	if (u_shine > 0.0 && diff > 0.0) {
+		vec3 h = normalize(l + normalize(u_eye - v_world));
+		col += u_lightColor * pow(max(dot(n, h), 0.0), u_shine) * 0.3;
+	}
+	fragColor = vec4(min(col, vec3(1.0)) * base.a, base.a);
+}
+`
+
+// sceneReady builds the scene program on first use, and reports whether it
+// can draw.
+func (r *Renderer) sceneReady() bool {
+	st := &r.scenes
+	if st.prog != 0 || st.failed {
+		return !st.failed
+	}
+	header := "#version 150\n"
+	if r.isES {
+		header = "#version 300 es\nprecision highp float;\n"
+	}
+	g := r.GL
+	vs, err := compile(g, gl.VERTEX_SHADER, header+sceneVS)
+	if err != nil {
+		st.failed = true
+		log.Printf("gunim: render: scene: %v", err)
+		return false
+	}
+	defer g.DeleteShader(vs)
+	fs, err := compile(g, gl.FRAGMENT_SHADER, header+sceneFS)
+	if err != nil {
+		st.failed = true
+		log.Printf("gunim: render: scene: %v", err)
+		return false
+	}
+	defer g.DeleteShader(fs)
+	p := g.CreateProgram()
+	g.AttachShader(p, vs)
+	g.AttachShader(p, fs)
+	for i, name := range []string{"a_pos", "a_normal", "a_color"} {
+		g.BindAttribLocation(p, uint32(i), name)
+	}
+	g.LinkProgram(p)
+	if g.GetProgrami(p, gl.LINK_STATUS) == gl.FALSE {
+		log.Printf("gunim: render: scene: link: %s", g.GetProgramInfoLog(p))
+		g.DeleteProgram(p)
+		st.failed = true
+		return false
+	}
+	st.prog = p
+	loc := func(name string) int32 { return g.GetUniformLocation(p, name) }
+	st.u.mvp, st.u.model, st.u.normal = loc("u_mvp"), loc("u_model"), loc("u_normal")
+	st.u.light, st.u.lightColor, st.u.ambient = loc("u_light"), loc("u_lightColor"), loc("u_ambient")
+	st.u.eye, st.u.tint, st.u.shine = loc("u_eye"), loc("u_tint"), loc("u_shine")
+	st.samples = min(sceneSamples, g.GetInteger(glMaxSamples))
+	st.meshes = map[*paint.Mesh]*meshBuffers{}
+	return true
+}
+
+// scene draws a scene into its own target and queues it into the
+// frame, at its rectangle, as an image.
+func (r *Renderer) scene(op *paint.SceneOp) {
+	t := op.Transform
+	size := op.Rect.Size()
+	// The scene draws at the size it shows, its transform's scale
+	// included, up to sceneMost device pixels a side.
+	sx := float32(math.Hypot(float64(t.A), float64(t.D))) * r.scale
+	sy := float32(math.Hypot(float64(t.B), float64(t.E))) * r.scale
+	w := min(int(math.Round(float64(size.W*sx))), sceneMost)
+	h := min(int(math.Round(float64(size.H*sy))), sceneMost)
+	if w <= 0 || h <= 0 || !r.sceneReady() {
+		return
+	}
+	r.flush()
+	g := r.GL
+	st := &r.scenes
+	r.fitScene(w, h)
+
+	g.BindFramebuffer(gl.FRAMEBUFFER, st.ms)
+	g.Viewport(0, 0, int32(w), int32(h))
+	g.Disable(gl.SCISSOR_TEST)
+	g.Disable(gl.BLEND)
+	g.Enable(glDepthTest)
+	g.DepthFunc(glLequal)
+	g.DepthMask(true)
+	bg := rgba(op.Scene.Background)
+	g.ClearColor(bg[0]*bg[3], bg[1]*bg[3], bg[2]*bg[3], bg[3])
+	g.Clear(glColorBufferBit | glDepthBufferBit)
+	g.ClearColor(0, 0, 0, 0)
+	g.UseProgram(st.prog)
+
+	cam := op.Scene.Camera
+	up := cam.Up
+	if up == (geom.Vec3{}) {
+		up = geom.V3(0, 1, 0)
+	}
+	fov, near, far := cam.FOV, cam.Near, cam.Far
+	if fov <= 0 {
+		fov = paint.DefaultFOV
+	}
+	if near <= 0 {
+		near = 0.1
+	}
+	if far <= near {
+		far = max(100, near*10)
+	}
+	view := geom.LookAt(cam.Eye, cam.At, up)
+	vp := geom.Perspective(fov, size.W/size.H, near, far).Mul(view)
+
+	light := op.Scene.Light
+	dir := light.Direction
+	if dir == (geom.Vec3{}) {
+		// From the camera's upper left, down and away.
+		fwd := cam.At.Sub(cam.Eye).Unit()
+		right := fwd.Cross(up).Unit()
+		dir = fwd.Add(right.Mul(0.6)).Sub(right.Cross(fwd).Mul(0.9))
+	}
+	dir = dir.Unit()
+	lc, amb := light.Color, light.Ambient
+	// The default light and even light together light a surface facing
+	// the light at its own colour.
+	if lc == (color.NRGBA{}) {
+		lc = color.NRGBA{0xc0, 0xc0, 0xc0, 0xff}
+	}
+	if amb == (color.NRGBA{}) {
+		amb = color.NRGBA{0x40, 0x40, 0x40, 0xff}
+	}
+	rgb := func(c color.NRGBA) []float32 {
+		v := rgba(c)
+		return []float32{v[0] * v[3], v[1] * v[3], v[2] * v[3]}
+	}
+	g.Uniform3fv(st.u.light, []float32{dir.X, dir.Y, dir.Z})
+	g.Uniform3fv(st.u.lightColor, rgb(lc))
+	g.Uniform3fv(st.u.ambient, rgb(amb))
+	g.Uniform3fv(st.u.eye, []float32{cam.Eye.X, cam.Eye.Y, cam.Eye.Z})
+
+	now := time.Now()
+	for _, it := range op.Scene.Items {
+		if it.Mesh == nil || len(it.Mesh.Indices()) == 0 {
+			continue
+		}
+		mb := r.meshBuffers(it.Mesh, now)
+		model := it.Model
+		if model == (geom.Mat4{}) {
+			model = geom.Ident4
+		}
+		mvp := vp.Mul(model)
+		normal := model.NormalMatrix()
+		tint := it.Tint
+		if tint == (color.NRGBA{}) {
+			tint = color.NRGBA{0xff, 0xff, 0xff, 0xff}
+		}
+		tc := rgba(tint)
+		g.UniformMatrix4fv(st.u.mvp, mvp[:])
+		g.UniformMatrix4fv(st.u.model, model[:])
+		g.UniformMatrix3fv(st.u.normal, normal[:])
+		g.Uniform4fv(st.u.tint, tc[:])
+		g.Uniform1fv(st.u.shine, []float32{it.Shine})
+		g.BindVertexArray(mb.vao)
+		g.DrawElements(gl.TRIANGLES, mb.n, gl.UNSIGNED_INT, 0)
+	}
+
+	// Resolve the samples into the texture the frame reads.
+	g.BindFramebuffer(glReadFramebuffer, st.ms)
+	g.BindFramebuffer(glDrawFramebuffer, st.out.fbo)
+	g.BlitFramebuffer(0, 0, int32(w), int32(h), 0, 0, int32(w), int32(h), glColorBufferBit, glNearest)
+
+	g.Disable(glDepthTest)
+	g.BindFramebuffer(gl.FRAMEBUFFER, r.fbo(r.depth))
+	g.Viewport(0, 0, int32(r.fbW), int32(r.fbH))
+	r.applyClip()
+	r.Rebind()
+	r.bindDraw()
+
+	// The texture's rows run from the bottom, and the scene takes its
+	// lower left corner.
+	r.uses(st.out.tex)
+	uv := geom.Rect{Min: geom.Pt(0, float32(h)/float32(st.outH)), Max: geom.Pt(float32(w)/float32(st.outW), 0)}
+	r.quad(corners(op.Rect, uv), op.Transform, r.scale, &look{
+		rect: op.Rect, kind: kindImage, color0: [4]float32{0, 0, 0, 1},
+	})
+	// The next scene draws into the same texture.
+	r.flush()
+}
+
+// fitScene makes the scene's target at least w by h, growing it to the
+// size asked for, so a scene that grows as it animates in reallocates
+// now and then, never every frame.
+func (r *Renderer) fitScene(w, h int) {
+	st := &r.scenes
+	if st.ms != 0 && w <= st.outW && h <= st.outH {
+		return
+	}
+	g := r.GL
+	w, h = max(w, st.outW), max(h, st.outH)
+	if st.ms == 0 {
+		st.ms = g.CreateFramebuffer()
+		st.msColor = g.CreateRenderbuffer()
+		st.msDepth = g.CreateRenderbuffer()
+		st.out.tex = g.CreateTexture()
+		st.out.fbo = g.CreateFramebuffer()
+	}
+	st.outW, st.outH = w, h
+	g.BindRenderbuffer(gl.RENDERBUFFER, st.msColor)
+	g.RenderbufferStorageMultisample(gl.RENDERBUFFER, int32(st.samples), glRGBA8, int32(w), int32(h))
+	g.BindRenderbuffer(gl.RENDERBUFFER, st.msDepth)
+	g.RenderbufferStorageMultisample(gl.RENDERBUFFER, int32(st.samples), glDepthComponent24, int32(w), int32(h))
+	g.BindRenderbuffer(gl.RENDERBUFFER, 0)
+	g.BindFramebuffer(gl.FRAMEBUFFER, st.ms)
+	g.FramebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, st.msColor)
+	g.FramebufferRenderbuffer(gl.FRAMEBUFFER, glDepthAttachment, gl.RENDERBUFFER, st.msDepth)
+
+	g.ActiveTexture(glTexture1)
+	g.BindTexture(gl.TEXTURE_2D, st.out.tex)
+	g.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, glLinear)
+	g.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, glLinear)
+	g.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+	g.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+	g.TexImage2D(gl.TEXTURE_2D, 0, glRGBA8, int32(w), int32(h), gl.RGBA, gl.UNSIGNED_BYTE, nil)
+	g.ActiveTexture(gl.TEXTURE0)
+	g.BindFramebuffer(gl.FRAMEBUFFER, st.out.fbo)
+	g.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, st.out.tex, 0)
+}
+
+// meshBuffers returns m's buffers on the GPU, uploading them on first
+// use.
+func (r *Renderer) meshBuffers(m *paint.Mesh, now time.Time) *meshBuffers {
+	st := &r.scenes
+	if mb, ok := st.meshes[m]; ok {
+		mb.used = now
+		return mb
+	}
+	g := r.GL
+	mb := &meshBuffers{vao: g.CreateVertexArray(), vbo: g.CreateBuffer(), ibo: g.CreateBuffer(), used: now}
+	g.BindVertexArray(mb.vao)
+	g.BindBuffer(gl.ARRAY_BUFFER, mb.vbo)
+	verts := m.Vertices()
+	data := make([]byte, 0, len(verts)*meshVertexFloats*4)
+	put := func(vs ...float32) {
+		for _, v := range vs {
+			data = binary.LittleEndian.AppendUint32(data, math.Float32bits(v))
+		}
+	}
+	for _, v := range verts {
+		c := rgba(v.Color)
+		put(v.Pos.X, v.Pos.Y, v.Pos.Z, v.Normal.X, v.Normal.Y, v.Normal.Z, c[0], c[1], c[2], c[3])
+	}
+	g.BufferInit(gl.ARRAY_BUFFER, len(data), glStaticDraw)
+	g.BufferSubData(gl.ARRAY_BUFFER, 0, data)
+	stride := int32(meshVertexFloats * 4)
+	for i, a := range [3]struct {
+		size int32
+		off  int
+	}{{3, 0}, {3, 12}, {4, 24}} {
+		g.EnableVertexAttribArray(uint32(i))
+		g.VertexAttribPointer(uint32(i), a.size, gl.FLOAT, false, stride, a.off)
+	}
+	idx := m.Indices()
+	ib := make([]byte, 0, len(idx)*4)
+	for _, i := range idx {
+		ib = binary.LittleEndian.AppendUint32(ib, i)
+	}
+	g.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, mb.ibo)
+	g.BufferInit(gl.ELEMENT_ARRAY_BUFFER, len(ib), glStaticDraw)
+	g.BufferSubData(gl.ELEMENT_ARRAY_BUFFER, 0, ib)
+	mb.n = int32(len(idx))
+	st.meshes[m] = mb
+	return mb
+}
+
+// evictMeshes lets go of the meshes the window has stopped drawing.
+func (r *Renderer) evictMeshes() {
+	now := time.Now()
+	for m, mb := range r.scenes.meshes {
+		if now.Sub(mb.used) > meshIdle {
+			r.dropMesh(m, mb)
+		}
+	}
+}
+
+func (r *Renderer) dropMesh(m *paint.Mesh, mb *meshBuffers) {
+	g := r.GL
+	g.DeleteVertexArray(mb.vao)
+	g.DeleteBuffer(mb.vbo)
+	g.DeleteBuffer(mb.ibo)
+	delete(r.scenes.meshes, m)
+}
+
+// releaseScenes frees what scenes kept on the GPU.
+func (r *Renderer) releaseScenes() {
+	st := &r.scenes
+	for m, mb := range st.meshes {
+		r.dropMesh(m, mb)
+	}
+	g := r.GL
+	if st.ms != 0 {
+		g.DeleteFramebuffer(st.ms)
+		g.DeleteRenderbuffer(st.msColor)
+		g.DeleteRenderbuffer(st.msDepth)
+		g.DeleteFramebuffer(st.out.fbo)
+		g.DeleteTexture(st.out.tex)
+	}
+	if st.prog != 0 {
+		g.DeleteProgram(st.prog)
+	}
+	*st = sceneState{}
+}
