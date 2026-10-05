@@ -89,17 +89,25 @@ type App struct {
 
 	// Updates is where newer releases come from, such as [GitHub]. With
 	// one, the installer offers to keep the program up to date, and an
-	// installed release then looks for a newer one now and then, fetches
-	// it and puts it in place for the next start. Nil looks for none.
+	// installed release then looks for a newer one a minute after it
+	// starts and once a day: as the user's [UpdateMode] says, it puts it
+	// in place for the next start by itself, tells the program, or does
+	// nothing. Nil looks for none.
 	Updates Source
-	// NoAutoUpdate says the program keeps itself up to date its own
-	// way, with [Check] and [Stage], as one with an Updates setting and
-	// questions of its own does: the installer makes no offer of it, and
-	// the installed program looks for no releases by itself.
-	NoAutoUpdate bool
+	// UpdateMode is how updates go until the user chooses: UpdatesInstall
+	// when empty. A program that kept a setting of its own for it before
+	// it used this package gives that setting here, so an install of it
+	// taken on keeps what the user chose.
+	UpdateMode UpdateMode
+	// Available, when set, hears of a newer release, with the updates
+	// set to UpdatesNotify, on a goroutine of its own: for the program to
+	// ask the user, and on a yes put it in place with [Stage] and offer
+	// to [Restart] into it. Without it, UpdatesNotify does nothing.
+	Available func(Release)
 	// Updated, when set, hears of each release put in place for the next
-	// start, on a goroutine of its own, so the program can offer to
-	// restart into it with [Restart].
+	// start by itself, with the updates set to UpdatesInstall, on a
+	// goroutine of its own, so the program can offer to restart into it
+	// with [Restart].
 	Updated func(Release)
 
 	// Data are the folders the program keeps the user's settings and
@@ -215,6 +223,8 @@ type Installation struct {
 	Dir, Exe string
 	// Version is the version installed.
 	Version string
+	// Updates is how the installed program takes newer releases.
+	Updates UpdateMode
 	// Picks are the user's answers to the offers, by key: the program's
 	// own [Choice] keys, and the installer's own, which are [PickDesktop],
 	// [PickAutostart], [PickUpdates] and, for each file type, the result
@@ -238,6 +248,44 @@ func FileTypeKey(t FileType) string {
 		return "type:"
 	}
 	return "type:" + strings.ToLower(strings.TrimPrefix(t.Exts[0], "."))
+}
+
+// UpdateMode is how an installed program takes newer releases.
+type UpdateMode string
+
+// The update modes.
+const (
+	// UpdatesInstall puts a newer release in place for the next start
+	// by itself.
+	UpdatesInstall UpdateMode = "install"
+	// UpdatesNotify tells the program of a newer release, through
+	// [App.Available], to ask the user.
+	UpdatesNotify UpdateMode = "notify"
+	// UpdatesOff looks for none.
+	UpdatesOff UpdateMode = "off"
+)
+
+// valid reports whether m is one of the modes.
+func (m UpdateMode) valid() bool {
+	return m == UpdatesInstall || m == UpdatesNotify || m == UpdatesOff
+}
+
+// unticked is the mode the installer's offer to keep the program up to
+// date gives unticked: the program is told, where it can be, and
+// otherwise nothing is done.
+func (a *App) unticked() UpdateMode {
+	if a.Available != nil {
+		return UpdatesNotify
+	}
+	return UpdatesOff
+}
+
+// startMode is the mode before the user chooses one.
+func (a *App) startMode() UpdateMode {
+	if a.UpdateMode.valid() {
+		return a.UpdateMode
+	}
+	return UpdatesInstall
 }
 
 // ErrUnsupported says installing is not done on this system yet.
@@ -339,8 +387,13 @@ func (a *App) offers(kept map[string]bool) []Offer {
 		}
 		out = append(out, Offer{Key: FileTypeKey(t), Label: label, On: pick(FileTypeKey(t), !t.Off)})
 	}
-	if a.Updates != nil && !a.NoAutoUpdate {
-		out = append(out, Offer{Key: PickUpdates, Label: "Keep " + a.Name + " up to date", Detail: "New releases install by themselves, for the next start.", On: pick(PickUpdates, true)})
+	if a.Updates != nil {
+		detail := "New releases install by themselves, for the next start."
+		if a.Available != nil {
+			detail = "New releases install by themselves; unticked, " + a.Name + " asks first."
+		}
+		out = append(out, Offer{Key: PickUpdates, Label: "Keep " + a.Name + " up to date", Detail: detail,
+			On: pick(PickUpdates, a.startMode() == UpdatesInstall)})
 	}
 	for _, c := range a.Choices {
 		on := c.On

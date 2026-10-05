@@ -89,7 +89,10 @@ type manifest struct {
 	Exe     string          `json:"exe"`
 	Files   []string        `json:"files,omitempty"`
 	Picks   map[string]bool `json:"picks,omitempty"`
-	When    time.Time       `json:"installed"`
+	// Updates is how the program takes newer releases; empty in an
+	// install from before there was a choice of it.
+	Updates UpdateMode `json:"updates,omitempty"`
+	When    time.Time  `json:"installed"`
 }
 
 // dir is where a is installed: as App.Dir says, or the system's usual
@@ -146,8 +149,24 @@ func (m *manifest) write(dir string) error {
 }
 
 // installation is what m says of the install in dir.
-func (m *manifest) installation(dir string) *Installation {
-	return &Installation{Dir: dir, Exe: filepath.Join(dir, m.Exe), Version: m.Version, Picks: maps(m.Picks)}
+func (m *manifest) installation(a *App, dir string) *Installation {
+	return &Installation{Dir: dir, Exe: filepath.Join(dir, m.Exe), Version: m.Version, Picks: maps(m.Picks), Updates: m.mode(a)}
+}
+
+// mode is how the install takes newer releases: as it keeps it, or, in
+// one from before there was a choice, as its offer was ticked, or as a
+// starts.
+func (m *manifest) mode(a *App) UpdateMode {
+	if m.Updates.valid() {
+		return m.Updates
+	}
+	if on, ok := m.Picks[PickUpdates]; ok {
+		if on {
+			return UpdatesInstall
+		}
+		return a.unticked()
+	}
+	return a.startMode()
 }
 
 // maps copies a map of picks.
@@ -206,7 +225,7 @@ func newSession(a App, self string, uninstall bool) (*Session, error) {
 	}
 	var kept map[string]bool
 	if m != nil {
-		s.Have = m.installation(dir)
+		s.Have = m.installation(&a, dir)
 		kept = m.Picks
 	} else if exe := a.found(s.Exe); exe != "" {
 		// Installed by hand, by an older installer that kept nothing, or
@@ -372,6 +391,25 @@ func (s *Session) install(ctx context.Context, picks map[string]bool, progress f
 	if m, err := readManifest(s.Dir); err == nil {
 		old = m
 	}
+	// How it takes updates: as it did, or as the program starts, and as
+	// the offer says when the user ticked or unticked it.
+	in.Updates = s.App.startMode()
+	if old != nil {
+		in.Updates = old.mode(&s.App)
+	} else if s.Have != nil && s.Have.Updates.valid() {
+		in.Updates = s.Have.Updates
+	}
+	if on, ok := picks[PickUpdates]; ok {
+		switch {
+		case on:
+			in.Updates = UpdatesInstall
+		case in.Updates == UpdatesInstall:
+			in.Updates = s.App.unticked()
+		}
+	}
+	if s.App.Updates != nil {
+		in.Picks[PickUpdates] = in.Updates == UpdatesInstall
+	}
 	progress(Progress{Step: "Copying " + s.App.Name, Done: 0.1})
 	if !samePath(s.self, s.Exe) {
 		if err := copyFile(ctx, s.self, s.Exe, func(f float32) {
@@ -399,7 +437,7 @@ func (s *Session) install(ctx context.Context, picks map[string]bool, progress f
 	if err := register(&s.App, in); err != nil {
 		return in, err
 	}
-	m := manifest{ID: s.App.id(), Version: s.App.Version, Exe: s.App.exe(), Files: files, Picks: in.Picks, When: time.Now().UTC()}
+	m := manifest{ID: s.App.id(), Version: s.App.Version, Exe: s.App.exe(), Files: files, Picks: in.Picks, Updates: in.Updates, When: time.Now().UTC()}
 	if err := m.write(s.Dir); err != nil {
 		return in, err
 	}

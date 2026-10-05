@@ -187,7 +187,9 @@ func startInstalled(a App, self, dir string) {
 			fmt.Fprintf(os.Stderr, "install: finishing the update to %s: %v\n", a.Version, err)
 		}
 	}
-	if a.Updates != nil && !a.NoAutoUpdate && IsRelease(a.Version) && m.Picks[PickUpdates] {
+	if a.Updates != nil && IsRelease(a.Version) {
+		// It reads the mode at each look, so a change of it in the
+		// program's settings holds from the next.
 		go keepUpToDate(context.Background(), a)
 	}
 }
