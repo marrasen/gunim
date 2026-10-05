@@ -43,6 +43,7 @@ var (
 const (
 	pageWelcome  = "welcome" // what to install and how
 	pageRunning  = "running" // a copy runs that must end first
+	pageClosing  = "closing" // the copies running were asked to end
 	pageWorking  = "working" // installing or uninstalling
 	pageDone     = "done"    // installed
 	pageFailed   = "failed"  // it went wrong
@@ -92,8 +93,7 @@ type (
 	ranHere struct{}
 	// closed asks to close the window.
 	closed struct{}
-	// retried asks to look again whether copies still run, or to go
-	// back after a failure.
+	// retried asks to go back after a failure.
 	retried struct{}
 	// quitThem asks the copies running to end.
 	quitThem struct{}
@@ -244,8 +244,14 @@ type runner struct {
 	sc scene
 	// working says the work runs, which the window may not close on,
 	// and quitting that the copies running were asked to end and have
-	// not yet. Neither takes another press.
-	working, quitting bool
+	// not yet. Neither takes another press; Cancel still closes the
+	// window while the copies are closing. watching says a look for the
+	// copies to have ended runs.
+	working, quitting, watching bool
+	// running lists the copies of the program running; a test sets it.
+	running func() []int
+	// ctx is serve's, which the looks end with.
+	ctx context.Context
 	// then is what to do once no copy runs: install with these picks,
 	// or uninstall.
 	then func()
@@ -260,6 +266,7 @@ var leastWork = 1600 * time.Millisecond
 func (r *runner) show() { _ = r.c.Update("installer", r.sc) }
 
 func (r *runner) serve(ctx context.Context) error {
+	r.ctx = ctx
 	for {
 		select {
 		case <-ctx.Done():
@@ -276,9 +283,11 @@ func (r *runner) serve(ctx context.Context) error {
 }
 
 func (r *runner) handle(ctx context.Context, in gunim.Intent) {
-	if r.working || r.quitting {
-		// A second press of Install, or Try Again while the copies are
-		// still closing, would start the work twice.
+	if r.ctx == nil {
+		r.ctx = ctx
+	}
+	if _, cancel := in.(closed); r.working || r.quitting && !cancel {
+		// A second press of Install would start the work twice.
 		return
 	}
 	switch in := in.(type) {
@@ -298,49 +307,115 @@ func (r *runner) handle(ctx context.Context, in gunim.Intent) {
 	case closed:
 		r.c.Leave()
 	case retried:
-		if r.sc.Page == pageFailed {
-			r.sc.Page, r.sc.Problem = pageWelcome, ""
-			if r.sc.Removing {
-				r.sc.Page = pageRemove
-			}
-			r.show()
-			return
+		r.sc.Page, r.sc.Problem = pageWelcome, ""
+		if r.sc.Removing {
+			r.sc.Page = pageRemove
 		}
-		r.whenFree()
+		r.show()
 	case quitThem:
 		quit := r.s.App.Quit
 		if quit == nil {
 			return
 		}
 		r.quitting = true
+		r.sc.Page, r.sc.Problem = pageClosing, ""
+		r.show()
+		r.watch()
 		go func() {
 			err := quit(ctx)
-			// Give them a moment to go.
-			for end := time.Now().Add(10 * time.Second); err == nil && time.Now().Before(end) && len(r.s.Running()) > 0; {
-				time.Sleep(250 * time.Millisecond)
-			}
-			r.events <- func() {
-				r.quitting = false
-				if err != nil {
-					r.failed(err)
+			if err == nil {
+				// The watch goes on as soon as they have gone; past this,
+				// they are not going by themselves.
+				select {
+				case <-time.After(closeWait):
+				case <-ctx.Done():
 					return
 				}
-				r.whenFree()
 			}
+			r.send(func() {
+				if r.sc.Page != pageClosing {
+					// They went, and the work is on.
+					return
+				}
+				r.quitting = false
+				r.sc.Page, r.sc.Problem = pageRunning, "It didn't close."
+				if err != nil {
+					r.sc.Problem = "It didn't close: " + err.Error()
+				}
+				r.show()
+			})
 		}()
 	}
+}
+
+// closeWait is how long the copies asked to end are given to go before
+// the installer says they did not.
+var closeWait = 15 * time.Second
+
+// watchEvery is how often the installer looks whether the copies it
+// waits for have ended.
+var watchEvery = 400 * time.Millisecond
+
+// send runs fn on serve's goroutine, unless the window has closed.
+func (r *runner) send(fn func()) {
+	select {
+	case r.events <- fn:
+	case <-r.ctx.Done():
+	}
+}
+
+// runningNow lists the copies of the program running now.
+func (r *runner) runningNow() []int {
+	if r.running != nil {
+		return r.running()
+	}
+	return r.s.Running()
+}
+
+// watch looks for the copies running to have ended, and goes on with
+// what was asked once they have, so the user only closes them.
+func (r *runner) watch() {
+	if r.watching {
+		return
+	}
+	r.watching = true
+	go func() {
+		t := time.NewTicker(watchEvery)
+		defer t.Stop()
+		for {
+			select {
+			case <-r.ctx.Done():
+				return
+			case <-t.C:
+			}
+			if len(r.runningNow()) == 0 {
+				r.send(func() {
+					r.watching = false
+					if r.sc.Page == pageRunning || r.sc.Page == pageClosing {
+						r.whenFree()
+					}
+				})
+				return
+			}
+		}
+	}()
 }
 
 // whenFree goes on with what was asked once no copy of the program
 // runs, or says one does. A fresh install has none to wait for.
 func (r *runner) whenFree() {
 	if r.s.Mode != Fresh || r.sc.Removing {
-		if n := len(r.s.Running()); n > 0 {
-			r.sc.Page, r.sc.Running = pageRunning, n
+		if n := len(r.runningNow()); n > 0 {
+			if r.sc.Page != pageClosing {
+				r.sc.Page = pageRunning
+			}
+			r.sc.Running = n
 			r.show()
+			r.watch()
 			return
 		}
 	}
+	r.quitting = false
 	if r.then != nil {
 		then := r.then
 		r.then = nil
@@ -407,7 +482,16 @@ func updateStage(st *stage, sc scene, u *gunim.UI) {
 			was = st.page.name
 		}
 		st.show(buildPage(sc), u)
+		if was == pageClosing && sc.Page != pageClosing {
+			st.spin(false, u)
+		}
 		switch sc.Page {
+		case pageRunning:
+			if was != "" {
+				st.back(u)
+			}
+		case pageClosing:
+			st.spin(true, u)
 		case pageWorking:
 			st.work(u)
 		case pageDone:
@@ -441,22 +525,28 @@ func buildPage(sc scene) *page {
 		welcomePage(p, sc)
 	case pageRunning:
 		heading(p, sc.Name+" is running", "")
-		line := "Close it to go on."
+		line := "Close it, and this goes on by itself."
 		if sc.Running > 1 {
-			line = fmt.Sprintf("%d copies of it are open. Close them to go on.", sc.Running)
+			line = fmt.Sprintf("%d copies of it are open. Close them, and this goes on by itself.", sc.Running)
 		}
 		say(p, line)
+		if sc.Problem != "" {
+			problem := soft(sc.Problem)
+			problem.Color = failInk
+			p.add(8, problem)
+		}
 		var buttons []gunim.Node
 		if sc.Quit {
 			q := widget.NewButton("Close " + sc.Name)
+			q.Kind = widget.ButtonPrimary
 			q.On = quitThem{}
 			buttons = append(buttons, q)
 		}
-		again := widget.NewButton("Try Again")
-		again.Kind = widget.ButtonPrimary
-		again.On = retried{}
-		buttons = append(buttons, again)
 		p.foot = footer(cancel(), buttons...)
+	case pageClosing:
+		heading(p, "Closing "+sc.Name+"…", "")
+		say(p, "This goes on by itself once it has closed.")
+		p.foot = footer(cancel())
 	case pageWorking:
 		title := "Installing"
 		switch {

@@ -90,6 +90,15 @@ func TestShots(t *testing.T) {
 		do(removed{Data: true})
 		shot("10-removing", 500*time.Millisecond)
 		shot("11-removed", 2200*time.Millisecond)
+		r.events <- func() {
+			r.s.Mode, r.sc.Mode, r.sc.Removing, r.sc.Quit = Upgrade, Upgrade, false, true
+			r.s.App.Quit = func(context.Context) error { return nil }
+			r.running = func() []int { return []int{1} }
+			r.handle(ctx, started{})
+		}
+		shot("12-running", 900*time.Millisecond)
+		do(quitThem{})
+		shot("13-closing", 900*time.Millisecond)
 		r.c.Close()
 		return nil
 	})

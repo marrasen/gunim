@@ -5,6 +5,7 @@ package install
 import (
 	"context"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -136,4 +137,92 @@ func TestWire(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// installedOnce installs testApp, and returns a session to install it
+// over itself, as a second download does.
+func installedOnce(t *testing.T, a App) *Session {
+	t.Helper()
+	_, program := testHome(t)
+	first, err := newSession(a, program, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := first.Install(context.Background(), nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	s, err := newSession(a, program, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+// fastWatch makes the installer look for closed copies often, and wait
+// little for one asked to close.
+func fastWatch(t *testing.T) {
+	was, wasClose, wasWork := watchEvery, closeWait, leastWork
+	watchEvery, closeWait, leastWork = 5*time.Millisecond, 200*time.Millisecond, 0
+	t.Cleanup(func() { watchEvery, closeWait, leastWork = was, wasClose, wasWork })
+}
+
+// A copy running holds the install up until it closes, and the install
+// then goes on by itself.
+func TestTheInstallWaitsForTheProgramToClose(t *testing.T) {
+	fastWatch(t)
+	s := installedOnce(t, testApp())
+	o := openOffscreen(t, s)
+	var open atomic.Bool
+	open.Store(true)
+	o.r.running = func() []int {
+		if open.Load() {
+			return []int{42}
+		}
+		return nil
+	}
+	o.r.handle(context.Background(), started{})
+	o.until(pageRunning)
+	open.Store(false)
+	o.until(pageDone)
+}
+
+// Asked to, the program closes, with the ring turning meanwhile, and
+// the install goes on; one that will not close is said to have stayed.
+func TestCloseTheProgramFromTheInstaller(t *testing.T) {
+	fastWatch(t)
+	var open atomic.Bool
+	open.Store(true)
+	a := testApp()
+	a.Quit = func(context.Context) error { open.Store(false); return nil }
+	s := installedOnce(t, a)
+	o := openOffscreen(t, s)
+	o.r.running = func() []int {
+		if open.Load() {
+			return []int{42}
+		}
+		return nil
+	}
+	o.r.handle(context.Background(), started{})
+	o.until(pageRunning)
+	o.r.handle(context.Background(), quitThem{})
+	if o.r.sc.Page != pageClosing {
+		t.Fatalf("asked to close it, the installer is on %q", o.r.sc.Page)
+	}
+	o.until(pageDone)
+
+	// One that stays open.
+	stubborn := testApp()
+	stubborn.Quit = func(context.Context) error { return nil }
+	s = installedOnce(t, stubborn)
+	o = openOffscreen(t, s)
+	o.r.running = func() []int { return []int{42} }
+	o.r.handle(context.Background(), started{})
+	o.until(pageRunning)
+	o.r.handle(context.Background(), quitThem{})
+	o.until(pageRunning)
+	if o.r.sc.Problem == "" {
+		t.Fatal("a program that didn't close is not said to have stayed")
+	}
+	// Cancel still closes the window, and nothing was installed over it.
+	o.r.handle(context.Background(), closed{})
 }
