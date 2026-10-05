@@ -41,8 +41,13 @@ type Spectrum struct {
 	Freqs []float32
 	// Out and In are the levels drawn at each, in decibels, tilted.
 	Out, In []float32
-	// ShowIn says the sound in is drawn.
-	ShowIn bool
+	// ShowIn says the sound in is drawn, and HideOut that the sound out
+	// is not.
+	ShowIn, HideOut bool
+	// Switches says the legend is drawn as switches of the two, each
+	// lit while it is drawn, at [Spectrum.LegendRects], for a click to
+	// turn it on and off.
+	Switches bool
 }
 
 // NewSpectrum returns a spectrum of points frequencies, silent.
@@ -102,7 +107,8 @@ func (s *Spectrum) Bands(bands []float32) {
 }
 
 // Paint draws the spectrum into area, the pitches marked, and, while
-// the sound in is drawn, which line is which at its top right.
+// the sound in is drawn or the legend switches them, which line is
+// which at its top right.
 func (s *Spectrum) Paint(p *paint.Painter, th *theme.Live, area geom.Rect) {
 	ink, ground, sound := Ink.Get(th), Ground.Get(th), Sound.Get(th)
 	p.RRect(area, 10, paint.Solid(Faded(ground, 0.6)))
@@ -114,10 +120,14 @@ func (s *Spectrum) Paint(p *paint.Painter, th *theme.Live, area geom.Rect) {
 	var prev, prevIn geom.Point
 	for i, v := range s.Out {
 		pt := at(i, v)
-		p.RRect(geom.Rc(pt.X-w/2, pt.Y, w+0.5, area.Max.Y-pt.Y), 0, paint.Solid(Faded(sound, 0.22)))
+		if !s.HideOut {
+			p.RRect(geom.Rc(pt.X-w/2, pt.Y, w+0.5, area.Max.Y-pt.Y), 0, paint.Solid(Faded(sound, 0.22)))
+		}
 		pin := at(i, s.In[i])
 		if i > 0 {
-			Segment(p, prev, pt, 1.4, Faded(sound, 0.8))
+			if !s.HideOut {
+				Segment(p, prev, pt, 1.4, Faded(sound, 0.8))
+			}
 			if s.ShowIn {
 				Segment(p, prevIn, pin, 1.2, Faded(ink, 0.5))
 			}
@@ -125,21 +135,46 @@ func (s *Spectrum) Paint(p *paint.Painter, th *theme.Live, area geom.Rect) {
 		prev, prevIn = pt, pin
 	}
 	PaintPitches(p, th, area, false)
-	if !s.ShowIn {
+	if !s.ShowIn && !s.Switches {
 		return
 	}
-	x := area.Max.X - 10
+	out, in := s.LegendRects(area)
 	for _, l := range []struct {
 		name string
+		r    geom.Rect
 		c    color.NRGBA
-	}{{"OUT", sound}, {"IN", Faded(ink, 0.6)}} {
-		run := Shaped(l.name, 9, true, false)
-		x -= run.Advance
-		run.Paint(p, geom.Pt(x, area.Min.Y+6), l.c)
-		x -= 14
-		p.RRect(geom.Rc(x, area.Min.Y+11, 10, 2), 1, paint.Solid(l.c))
-		x -= 10
+		on   bool
+	}{{"OUT", out, sound, !s.HideOut}, {"IN", in, Faded(ink, 0.6), s.ShowIn}} {
+		c := l.c
+		if !l.on {
+			c = Faded(ink, 0.25)
+		}
+		if s.Switches {
+			p.RRect(l.r, 9, paint.Solid(Faded(ground, 0.75)))
+			if l.on {
+				p.RRectStroke(l.r, 9, paint.Solid(color.NRGBA{}), paint.Stroke{Width: 1, Color: Faded(c, 0.6)})
+			}
+		}
+		x := l.r.Min.X + 6
+		p.RRect(geom.Rc(x, l.r.Min.Y+8, 10, 2), 1, paint.Solid(c))
+		Shaped(l.name, 9, true, false).Paint(p, geom.Pt(x+14, l.r.Min.Y+3), c)
 	}
+}
+
+// LegendRects are where the legend of a spectrum drawn into area names
+// the sound out and the sound in, at its top right.
+func (s *Spectrum) LegendRects(area geom.Rect) (out, in geom.Rect) {
+	right := area.Max.X - 4
+	rect := func(name string) geom.Rect {
+		w := Shaped(name, 9, true, false).Advance + 26
+		right -= w
+		r := geom.Rc(right, area.Min.Y+3, w, 18)
+		right -= 4
+		return r
+	}
+	in = rect("IN")
+	out = rect("OUT")
+	return out, in
 }
 
 // PaintPitches marks 100 Hz, 1 kHz and 10 kHz across area, as a

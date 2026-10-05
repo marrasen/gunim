@@ -124,8 +124,12 @@ func (c *Curves) Paint(p *paint.Painter, th *theme.Live, v CurveView) {
 	}
 	// line draws a curve of loudness, each point step seconds after the
 	// last, the first at lead, over a dark edge so it reads on any
-	// ground.
+	// ground. The edge and the line are each drawn whole, solid, and
+	// faded as one, so where two pieces meet neither shows darker, nor
+	// does a piece of the edge cross the line.
+	var segs [][2]geom.Point
 	line := func(bit uint8, ls []float64, lead, step float64, width float32) {
+		segs = segs[:0]
 		var prev geom.Point
 		was := false
 		lastX := float32(-1e9)
@@ -144,11 +148,23 @@ func (c *Curves) Paint(p *paint.Painter, th *theme.Live, v CurveView) {
 			}
 			pt := geom.Pt(x, yOf(l))
 			if was {
-				Segment(p, prev, pt, width+2, Faded(ground, 0.55*alpha))
-				Segment(p, prev, pt, width, CurveColor(th, bit, alpha))
+				segs = append(segs, [2]geom.Point{prev, pt})
 			}
 			prev, was, lastX = pt, true, x
 		}
+		if len(segs) == 0 {
+			return
+		}
+		whole := func(c color.NRGBA, width float32) {
+			end := p.Layer(paint.LayerOpts{Bounds: area, Opacity: float32(c.A) / 255})
+			c.A = 255
+			for _, s := range segs {
+				Segment(p, s[0], s[1], width, c)
+			}
+			end()
+		}
+		whole(Faded(ground, 0.55*alpha), width+2)
+		whole(CurveColor(th, bit, alpha), width)
 	}
 	if on&CurveM != 0 {
 		alpha = v.Alpha * v.Fade[0]
