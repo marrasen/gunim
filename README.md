@@ -246,11 +246,14 @@ if _, err := speaker.Open(mix, speaker.Options{Name: "My app"}); err == nil {
 
 Package `audio/band` plays songs made for programs, as a game's music.
 A `band.Song` starts a `band.Player`, which plays without end; a song
-that can do more, as play calmer or underwater, offers each feature as
-an interface its player implements. The first kind of song is
+that can do more offers each feature as an interface its player
+implements. The first kind of song is
 `band.Wander`: each part comes in with its intro, plays its loop a few
 times and leaves with its outro, in 16-bar phrases, while how many play
-wanders. A solo part plays through now and then. `band.Load` finds the
+wanders. A solo part plays through now and then. `band.Tiers` plays its
+parts in tiers, as a game's music grows with its combo: its player is a
+`band.Tiered`, whose `SetTier` adds or takes away parts from the next
+phrase on. `band.Load` finds the
 parts in files cut at the song's bars, named as `blade-intro.ogg`,
 `blade-loop.ogg` and `blade-outro.ogg`.
 [gunim-music](https://github.com/marrasen/gunim-music) is a library of
