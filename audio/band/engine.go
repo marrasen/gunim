@@ -124,7 +124,9 @@ type engine struct {
 	// stale, when set, reports that the coming phrase needs choosing
 	// again, as the tier asked for has changed.
 	stale func() bool
-	buf   []float32
+	// control, when set, returns layer i's control, for Watch.
+	control func(i int) PartControl
+	buf     []float32
 	// mu guards status, what the layers play, for Watch.
 	mu     sync.Mutex
 	status []PartStatus
@@ -208,8 +210,14 @@ func (e *engine) Watch() Status {
 	at := e.played.Load()
 	bar := int(float64(at) * e.t.bpm / (audio.SampleRate * 60 * float64(e.t.beats)))
 	e.mu.Lock()
-	defer e.mu.Unlock()
-	return Status{Bar: bar, PhraseBars: e.t.phraseBars, Parts: append([]PartStatus(nil), e.status...)}
+	parts := append([]PartStatus(nil), e.status...)
+	e.mu.Unlock()
+	if e.control != nil {
+		for i := range parts {
+			parts[i].Control = e.control(i)
+		}
+	}
+	return Status{Bar: bar, PhraseBars: e.t.phraseBars, Parts: parts}
 }
 
 // openAhead opens part p's piece on a goroutine of its own, and with
