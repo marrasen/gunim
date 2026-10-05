@@ -1,0 +1,22 @@
+//go:build (!linux && !windows) || android
+
+package install
+
+import "os/exec"
+
+// Installing is not done on this system yet: Run lets the program run
+// as it is.
+const (
+	supported  = false
+	caseless   = false
+	movesAside = false
+	exeSuffix  = ""
+)
+
+func defaultDir(*App) (string, error)        { return "", ErrUnsupported }
+func register(*App, Installation) error      { return ErrUnsupported }
+func unregister(*App, Installation) error    { return ErrUnsupported }
+func removeFiles([]string, string) error     { return ErrUnsupported }
+func freeSpace(string) (int64, error)        { return 0, ErrUnsupported }
+func running(string) ([]int, error)          { return nil, ErrUnsupported }
+func launch(exe string, args []string) error { return exec.Command(exe, args...).Start() }

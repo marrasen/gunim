@@ -1,0 +1,252 @@
+package install
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"os/signal"
+	"path/filepath"
+
+	"github.com/marrasen/gunim"
+	"github.com/marrasen/gunim/driver"
+)
+
+// Env is the environment variable that steers [Run] past its usual
+// choice: "skip" runs the program as it is, with no installer, and
+// "show" opens the installer's window even in a build from a working
+// tree, to try it.
+const Env = "GUNIM_INSTALL"
+
+// Run is the installer's way into a program. Call it first in main,
+// before the program reads its flags:
+//
+//	func main() {
+//		install.Run(install.App{Name: "Marras Mastering Studio", Version: version, Icon: icon()})
+//		…
+//	}
+//
+// Run returns when the program should go on and run as itself: when it
+// is the installed copy, when it was built from a working tree, and on
+// a system installing is not done on yet. Otherwise it does what was
+// asked, and ends the program:
+//
+//   - Started as "program -install", it installs with no window, as a
+//     script would, with the choices of the copy installed before, or
+//     the defaults.
+//   - Started as "program -uninstall", as the system's list of installed
+//     programs starts it, it asks in a window and takes the program
+//     away. With -quiet it asks nothing.
+//   - Started any other way, it opens the installer's window, which
+//     installs this copy, updates the one installed, or opens it.
+//
+// The installed copy, as it starts, takes away what an update moved
+// aside, puts the rest of a new release in place on its first start,
+// and, if the user chose to keep it up to date, looks for newer
+// releases while it runs.
+//
+// A mistake in a, such as no Name, ends the program with the mistake
+// said, so it shows the first time the program runs.
+func Run(a App) {
+	if err := a.check(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+	env := os.Getenv(Env)
+	_ = os.Unsetenv(Env)
+	if env == "skip" {
+		return
+	}
+	self, err := os.Executable()
+	if err != nil {
+		return
+	}
+	self = resolve(self)
+	verb, quiet := "", false
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "-install", "--install":
+			verb = "install"
+		case "-uninstall", "--uninstall":
+			verb = "uninstall"
+		}
+		if verb != "" {
+			for _, arg := range os.Args[2:] {
+				if arg == "-quiet" || arg == "--quiet" {
+					quiet = true
+				}
+			}
+		}
+	}
+	if !supported {
+		if verb != "" {
+			fmt.Fprintln(os.Stderr, ErrUnsupported)
+			os.Exit(1)
+		}
+		return
+	}
+	switch verb {
+	case "install":
+		os.Exit(installQuietly(a, self))
+	case "uninstall":
+		s, err := newSession(a, self, true)
+		if err != nil {
+			fail(err)
+		}
+		if quiet {
+			if err := s.Uninstall(context.Background(), false, nil); err != nil {
+				fail(err)
+			}
+			os.Exit(0)
+		}
+		os.Exit(show(a, s))
+	}
+	dir, err := a.dir()
+	if err != nil {
+		return
+	}
+	if samePath(self, filepath.Join(dir, a.exe())) {
+		startInstalled(a, self, dir)
+		return
+	}
+	if !IsRelease(a.Version) && env != "show" {
+		return
+	}
+	s, err := newSession(a, self, false)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "install:", err)
+		return
+	}
+	s.args = os.Args[1:]
+	os.Exit(show(a, s))
+}
+
+// fail says err and ends the program.
+func fail(err error) {
+	fmt.Fprintln(os.Stderr, err)
+	os.Exit(1)
+}
+
+// installQuietly installs the program at self with no window, and
+// returns the exit status.
+func installQuietly(a App, self string) int {
+	s, err := newSession(a, self, false)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	in, err := s.Install(context.Background(), nil, nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "couldn't install %s: %v\n", a.Name, err)
+		return 1
+	}
+	fmt.Printf("%s %s is installed in %s.\n", a.Name, a.Version, in.Dir)
+	return 0
+}
+
+// startInstalled readies the installed copy, the program at self in
+// dir, as it starts.
+func startInstalled(a App, self, dir string) {
+	CleanOld(self)
+	m, err := readManifest(dir)
+	if err != nil || m == nil {
+		return
+	}
+	CleanOld(filepath.Join(dir, manifestName))
+	for _, f := range m.Files {
+		CleanOld(filepath.Join(dir, filepath.FromSlash(f)))
+	}
+	if m.Version != a.Version && IsRelease(a.Version) {
+		// The first start after an update put this program in place: its
+		// files and its entries follow it. The room is not checked: the
+		// program is in place already, and stopping now would leave it
+		// with the last release's files.
+		s, err := newSession(a, self, false)
+		if err == nil {
+			_, err = s.install(context.Background(), m.Picks, nil, false)
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "install: finishing the update to %s: %v\n", a.Version, err)
+		}
+	}
+	if a.Updates != nil && IsRelease(a.Version) && m.Picks[PickUpdates] {
+		go keepUpToDate(context.Background(), a)
+	}
+}
+
+// next is what the program does once the installer's window has
+// closed.
+type next int
+
+const (
+	nextEnd next = iota
+	// nextOpen starts the installed program, and nextHere runs this copy
+	// as it is.
+	nextOpen
+	nextHere
+)
+
+// Open has the installed program start once the installer's window
+// closes, with the arguments this copy was started with.
+func (s *Session) Open() { s.next = nextOpen }
+
+// RunHere has this copy run as it is, uninstalled, once the installer's
+// window closes.
+func (s *Session) RunHere() { s.next = nextHere }
+
+// show runs the installer's window on s, then does what it was left to
+// do, and returns the exit status.
+func show(a App, s *Session) int {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	err := gunim.Main(ctx, func(app *gunim.App) error {
+		if a.Window != nil {
+			return a.Window(ctx, app, s)
+		}
+		return window(ctx, app, s)
+	})
+	if errors.Is(err, driver.ErrNoDriver) {
+		if s.Mode == Remove {
+			fmt.Fprintln(os.Stderr, "install: no display to ask on; -uninstall -quiet removes "+a.Name+" without asking")
+			return 1
+		}
+		// No display: the installer cannot ask, and the program runs as
+		// it is.
+		s.next = nextHere
+		err = nil
+	}
+	if err != nil && !errors.Is(err, context.Canceled) {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	switch s.next {
+	case nextOpen:
+		if err := launch(s.Exe, s.args); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+	case nextHere:
+		return again(s.self, s.args)
+	}
+	return 0
+}
+
+// again runs the program at self once more, past the installer, and
+// returns its exit status. A new process rather than going on in this
+// one: the window system closed with the installer's window, and some
+// do not open twice.
+func again(self string, args []string) int {
+	cmd := exec.Command(self, args...)
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	cmd.Env = append(os.Environ(), Env+"=skip")
+	if err := cmd.Run(); err != nil {
+		var exit *exec.ExitError
+		if errors.As(err, &exit) {
+			return exit.ExitCode()
+		}
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	return 0
+}
