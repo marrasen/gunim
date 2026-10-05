@@ -52,7 +52,7 @@ const musicVolume = 0.30
 func newSFX(m *audio.Mixer, spk *speaker.Speaker) *sfx {
 	s := &sfx{m: m, spk: spk, cache: map[string]*audio.Clip{}}
 	if m != nil {
-		s.music = m.Play(newBand(bandSynths(), bandSeed()), audio.Options{Volume: musicVolume, FadeIn: 2 * time.Second})
+		s.music = m.Play(newMusic(), audio.Options{Volume: musicVolume, FadeIn: 2 * time.Second})
 	}
 	return s
 }

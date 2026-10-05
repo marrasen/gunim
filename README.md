@@ -165,7 +165,8 @@ Picking a candy sets every candy of its digit hopping, a new level's
 candies run in and leap into their cells, and after a win Pac-Man eats
 the board row by row. Each digit is a note on a marimba, so filling the
 board plays tunes. The music is a song in ten synths, each coming and
-going in 16-bar phrases, so it never plays the same twice. A map winds
+going in 16-bar phrases, so it never plays the same twice; package
+`audio/band` plays it. A map winds
 through 60 levels, from Easy to Expert, in three layers that scroll at
 their own speeds, and a heart hops along it as each level opens.
 
@@ -242,6 +243,19 @@ if _, err := speaker.Open(mix, speaker.Options{Name: "My app"}); err == nil {
 ```
 
 `example/widgets` plays them; `-sound=false` turns them off.
+
+Package `audio/band` plays a song made of looping parts, as a game's
+music. Each part comes in with its intro, plays its loop a few times
+and leaves with its outro, in 16-bar phrases, while how many play
+wanders. A solo part plays through now and then. `band.Load` reads the
+parts from files cut at the song's bars, named as `blade-intro.ogg`,
+`blade-loop.ogg` and `blade-outro.ogg`.
+[gunim-music](https://github.com/marrasen/gunim-music) holds a song of
+ten synths for it, ready to play:
+
+```go
+mix.Play(music.New(seed), audio.Options{Volume: 0.3, FadeIn: 2 * time.Second})
+```
 
 An application plays cues of its own with `UI.Cue`, for what happens
 while the user looks elsewhere: `CueConnected` and `CueDisconnected`,
@@ -612,6 +626,7 @@ writes them again from a newer Lucide.
 | `gunim/audio` | A mixer, voices with animated volume and pan, clips, decoders for WAV, MP3, Ogg Vorbis and FLAC, and an analyzer for visuals |
 | `gunim/audio/speaker` | Plays a mixer through the speakers, with oto |
 | `gunim/audio/cues` | Quiet sounds made in code for the widgets' cues |
+| `gunim/audio/band` | Plays a song of looping parts that come and go, as a game's music |
 | `gunim/audio/vst3` | Hosts VST3 effects: their sound, state, parameters and editors |
 | `gunim/audioui` | Meters and faders, a spectrum and a spectrogram, a waveform, and loudness readings for audio programs |
 | `gunim/paint` | The per-frame draw list: rounded rects, shadows, text, images, tinted masks, layers |
