@@ -51,7 +51,16 @@
 //   - How it keeps up to date: Updates, any [Source], and Updated, to
 //     hear of a release put in place and offer to [Restart] into it.
 //     [Check] and [Stage] do the same at the program's asking, as for a
-//     Check for Updates button.
+//     Check for Updates button, and with NoAutoUpdate the program does
+//     it all its own way.
+//   - Where it was before: Formerly, the places an older version put
+//     it. An install with no record of itself, as an older version's
+//     own installer left it, is taken on as the program starts, with
+//     what it has on the system.
+//
+// A program's own settings reach the install through [Find], which says
+// what is installed and what it has, and [Change], which turns an offer
+// on or off, as a Start with the Computer setting does.
 //
 // A program that wants a window of its own for all of it sets
 // App.Window, and drives the [Session] it is given: the offers to show,

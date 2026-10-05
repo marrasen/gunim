@@ -57,10 +57,32 @@ func number(p string) (int, bool) {
 }
 
 // IsRelease reports whether v names a release, as a build from a working
-// tree, calling itself "dev" or a commit, does not.
+// tree does not: one calling itself "dev" or a commit, one Go stamped
+// with a pseudo-version, as v0.5.1-0.20261005120000-0123456789ab, or
+// one built from a tree with changes in no commit, "+dirty".
 func IsRelease(v string) bool {
-	_, ok := parse(v)
-	return ok
+	s, ok := parse(v)
+	if !ok || strings.Contains(v, "+dirty") {
+		return false
+	}
+	// A pseudo-version's last part is a time to the second and twelve
+	// hex digits of a commit, as 20261005120000-0123456789ab.
+	if n := len(s.pre); n >= 1 {
+		if t, c, ok := strings.Cut(s.pre[n-1], "-"); ok && len(t) == 14 && len(c) == 12 && isDigits(t) {
+			return false
+		}
+	}
+	return true
+}
+
+// isDigits reports whether s is all decimal digits.
+func isDigits(s string) bool {
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return s != ""
 }
 
 // compare orders two versions: -1 when a is the earlier, 1 when it is
