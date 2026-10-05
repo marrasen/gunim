@@ -370,6 +370,26 @@ func setAutostart(a *App, exe string, args []string, on bool) error {
 	return k.SetStringValue(a.id(), line)
 }
 
+// detect reads what an install that kept no record of itself has on
+// the system: the shortcut on the desktop and the start with the user.
+func detect(a *App, _ string) map[string]bool {
+	out := map[string]bool{}
+	if !a.NoDesktop {
+		if desk, err := desktop(a); err == nil {
+			_, err := os.Stat(desk)
+			out[PickDesktop] = err == nil
+		}
+	}
+	if a.Autostart != nil {
+		if k, err := registry.OpenKey(registry.CURRENT_USER, runKey, registry.QUERY_VALUE); err == nil {
+			_, _, err := k.GetStringValue(a.id())
+			out[PickAutostart] = err == nil
+			_ = k.Close()
+		}
+	}
+	return out
+}
+
 // unregister takes away all that register adds.
 func unregister(a *App, in Installation) error {
 	if menu, err := startMenu(a); err == nil {

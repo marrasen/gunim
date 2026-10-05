@@ -195,9 +195,12 @@ func newSession(a App, self string, uninstall bool) (*Session, error) {
 	if m != nil {
 		s.Have = m.installation(dir)
 		kept = m.Picks
-	} else if _, err := os.Stat(s.Exe); err == nil {
-		// Installed by hand, or by an installer that kept nothing.
-		s.Have = &Installation{Dir: dir, Exe: s.Exe, Picks: map[string]bool{}}
+	} else if exe := a.found(s.Exe); exe != "" {
+		// Installed by hand, by an older installer that kept nothing, or
+		// where an older version put it: what it has on the system is
+		// what the user chose.
+		kept = detect(&a, exe)
+		s.Have = &Installation{Dir: filepath.Dir(exe), Exe: exe, Picks: maps(kept)}
 	}
 	s.Offers = a.offers(kept)
 	switch {
@@ -205,6 +208,10 @@ func newSession(a App, self string, uninstall bool) (*Session, error) {
 		s.Mode = Remove
 	case s.Have == nil:
 		s.Mode = Fresh
+	case s.Have.Version == "":
+		// Installed before the installer kept its version: this copy
+		// takes its place.
+		s.Mode = Upgrade
 	default:
 		switch compare(a.Version, s.Have.Version) {
 		case 1:
@@ -230,6 +237,31 @@ func newSession(a App, self string, uninstall bool) (*Session, error) {
 		}
 	}
 	return s, nil
+}
+
+// found is the program installed already: at exe, where it goes, or
+// else at one of the places older versions put it. It is "" for none.
+func (a *App) found(exe string) string {
+	if _, err := os.Stat(exe); err == nil {
+		return exe
+	}
+	for _, f := range a.Formerly {
+		if fi, err := os.Lstat(f); err == nil && fi.Mode().IsRegular() {
+			return f
+		}
+	}
+	return ""
+}
+
+// former reports whether path is one of the places older versions put
+// the program.
+func (a *App) former(path string) bool {
+	for _, f := range a.Formerly {
+		if samePath(f, path) {
+			return true
+		}
+	}
+	return false
 }
 
 // existing is dir, or the nearest folder above it that is there.
@@ -399,6 +431,10 @@ func (s *Session) Uninstall(ctx context.Context, data bool, progress func(Progre
 		}
 	}
 	files = append(files, s.Exe, filepath.Join(s.Dir, manifestName))
+	if s.Have != nil && !samePath(s.Have.Exe, s.Exe) {
+		// Where an older version put it.
+		files = append(files, s.Have.Exe)
+	}
 	// And what replacing them left beside them.
 	for _, f := range slices.Clone(files) {
 		files = append(files, f+".old", f+".new")

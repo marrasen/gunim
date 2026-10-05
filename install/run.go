@@ -110,6 +110,12 @@ func Run(a App) {
 		startInstalled(a, self, dir)
 		return
 	}
+	if a.former(self) && IsRelease(a.Version) {
+		// An older version's install, updated in place by that version's
+		// own updates: the program moves to where it goes now, and runs.
+		moveIn(a, self)
+		return
+	}
 	if !IsRelease(a.Version) && env != "show" {
 		return
 	}
@@ -150,8 +156,23 @@ func installQuietly(a App, self string) int {
 func startInstalled(a App, self, dir string) {
 	CleanOld(self)
 	m, err := readManifest(dir)
-	if err != nil || m == nil {
+	if err != nil {
 		return
+	}
+	if m == nil {
+		if !IsRelease(a.Version) {
+			return
+		}
+		// Installed by an installer that kept no record, as an older
+		// version's own was: the program takes it on, with what it has
+		// on the system, as it would have been installed.
+		if err := adopt(a, self); err != nil {
+			fmt.Fprintf(os.Stderr, "install: taking on the install in %s: %v\n", dir, err)
+			return
+		}
+		if m, err = readManifest(dir); err != nil || m == nil {
+			return
+		}
 	}
 	CleanOld(filepath.Join(dir, manifestName))
 	for _, f := range m.Files {
@@ -162,16 +183,37 @@ func startInstalled(a App, self, dir string) {
 		// files and its entries follow it. The room is not checked: the
 		// program is in place already, and stopping now would leave it
 		// with the last release's files.
-		s, err := newSession(a, self, false)
-		if err == nil {
-			_, err = s.install(context.Background(), m.Picks, nil, false)
-		}
-		if err != nil {
+		if err := adopt(a, self); err != nil {
 			fmt.Fprintf(os.Stderr, "install: finishing the update to %s: %v\n", a.Version, err)
 		}
 	}
-	if a.Updates != nil && IsRelease(a.Version) && m.Picks[PickUpdates] {
+	if a.Updates != nil && !a.NoAutoUpdate && IsRelease(a.Version) && m.Picks[PickUpdates] {
 		go keepUpToDate(context.Background(), a)
+	}
+}
+
+// adopt installs the program at self quietly, with the picks the
+// install there has, without checking the room.
+func adopt(a App, self string) error {
+	s, err := newSession(a, self, false)
+	if err != nil {
+		return err
+	}
+	_, err = s.install(context.Background(), nil, nil, false)
+	return err
+}
+
+// moveIn installs the program at self, where an older version put it,
+// to where it goes now, with what that install has on the system.
+func moveIn(a App, self string) {
+	if err := adopt(a, self); err != nil {
+		fmt.Fprintf(os.Stderr, "install: moving %s from %s: %v\n", a.Name, self, err)
+		return
+	}
+	// Where the old place is not the link that now stands there, the
+	// old program goes, or goes once it has ended.
+	if fi, err := os.Lstat(self); err == nil && fi.Mode().IsRegular() {
+		_ = os.Remove(self)
 	}
 }
 

@@ -92,6 +92,11 @@ type App struct {
 	// installed release then looks for a newer one now and then, fetches
 	// it and puts it in place for the next start. Nil looks for none.
 	Updates Source
+	// NoAutoUpdate says the program keeps itself up to date its own
+	// way, with [Check] and [Stage], as one with an Updates setting and
+	// questions of its own does: the installer makes no offer of it, and
+	// the installed program looks for no releases by itself.
+	NoAutoUpdate bool
 	// Updated, when set, hears of each release put in place for the next
 	// start, on a goroutine of its own, so the program can offer to
 	// restart into it with [Restart].
@@ -104,6 +109,12 @@ type App struct {
 	// Dir, when set, says where to install, in place of the system's
 	// usual place for a program installed for one user.
 	Dir func() (string, error)
+	// Formerly are the places older versions put the program, as full
+	// paths, for a program that installed itself before it used this
+	// package. Started from one, the installed program moves itself to
+	// where it goes now, with what it had on the system, and runs on;
+	// and the installer, started from a download, updates it there.
+	Formerly []string
 
 	// Installed, when set, runs once the program is in place and
 	// registered, on a fresh install, on an update put in place, and on
@@ -166,6 +177,11 @@ type Choice struct {
 	Detail string
 	// On ticks the offer to begin with.
 	On bool
+	// Current says On is how the program stands now, as for a choice
+	// the program's own settings also change: the installer starts from
+	// it every time, in place of what the user chose at the last
+	// install.
+	Current bool
 }
 
 // Look is how the installer's window looks. Its zero value is the
@@ -323,11 +339,15 @@ func (a *App) offers(kept map[string]bool) []Offer {
 		}
 		out = append(out, Offer{Key: FileTypeKey(t), Label: label, On: pick(FileTypeKey(t), !t.Off)})
 	}
-	if a.Updates != nil {
+	if a.Updates != nil && !a.NoAutoUpdate {
 		out = append(out, Offer{Key: PickUpdates, Label: "Keep " + a.Name + " up to date", Detail: "New releases install by themselves, for the next start.", On: pick(PickUpdates, true)})
 	}
 	for _, c := range a.Choices {
-		out = append(out, Offer{Key: c.Key, Label: c.Label, Detail: c.Detail, On: pick(c.Key, c.On)})
+		on := c.On
+		if !c.Current {
+			on = pick(c.Key, c.On)
+		}
+		out = append(out, Offer{Key: c.Key, Label: c.Label, Detail: c.Detail, On: on})
 	}
 	return out
 }

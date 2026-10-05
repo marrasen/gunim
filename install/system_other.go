@@ -15,6 +15,7 @@ const (
 
 func defaultDir(*App) (string, error)        { return "", ErrUnsupported }
 func register(*App, Installation) error      { return ErrUnsupported }
+func detect(*App, string) map[string]bool    { return map[string]bool{} }
 func unregister(*App, Installation) error    { return ErrUnsupported }
 func removeFiles([]string, string) error     { return ErrUnsupported }
 func freeSpace(string) (int64, error)        { return 0, ErrUnsupported }

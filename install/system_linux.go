@@ -137,7 +137,7 @@ func register(a *App, in Installation) error {
 		return err
 	}
 	if !samePath(filepath.Dir(p.link), in.Dir) {
-		if err := link(p.link, in.Exe); err != nil {
+		if err := link(p.link, in.Exe, a.former(p.link)); err != nil {
 			return fmt.Errorf("link %s: %w", p.link, err)
 		}
 	}
@@ -203,6 +203,25 @@ func register(a *App, in Installation) error {
 		}
 	}
 	return nil
+}
+
+// detect reads what an install that kept no record of itself has on
+// the desktop: the shortcut on the desktop and the start with the
+// session.
+func detect(a *App, _ string) map[string]bool {
+	out := map[string]bool{}
+	p, err := where(a)
+	if err != nil {
+		return out
+	}
+	there := func(f string) bool { _, err := os.Stat(f); return err == nil }
+	if !a.NoDesktop {
+		out[PickDesktop] = there(p.desk)
+	}
+	if a.Autostart != nil {
+		out[PickAutostart] = there(p.autostart)
+	}
+	return out
 }
 
 // unregister takes away all that register adds.
@@ -278,10 +297,11 @@ func refresh(p places) {
 }
 
 // link makes at a link to exe, in place of one there before. A file at
-// that place that is not a link is left, and said.
-func link(at, exe string) error {
+// that place that is not a link is left, and said, unless former says
+// it is the program as an older version put it there.
+func link(at, exe string, former bool) error {
 	if fi, err := os.Lstat(at); err == nil {
-		if fi.Mode()&os.ModeSymlink == 0 {
+		if fi.Mode()&os.ModeSymlink == 0 && !former {
 			return fmt.Errorf("%s is a file of its own", at)
 		}
 		if err := os.Remove(at); err != nil {

@@ -176,7 +176,15 @@ func Stage(ctx context.Context, a App, r Release) error {
 	if err != nil {
 		return err
 	}
-	exe := filepath.Join(dir, a.exe())
+	return StageTo(ctx, a, r, filepath.Join(dir, a.exe()))
+}
+
+// StageTo is [Stage] for the program at exe, as a copy that is not
+// installed updates itself where it is.
+func StageTo(ctx context.Context, a App, r Release, exe string) error {
+	if err := a.check(); err != nil {
+		return err
+	}
 	part := exe + ".new"
 	if err := fetch(ctx, a.exe(), r, part); err != nil {
 		_ = os.Remove(part)
