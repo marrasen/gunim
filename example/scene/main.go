@@ -152,8 +152,8 @@ func (s *stage) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, _ gunim.Chil
 			item(s.head, head, 24),
 			item(s.eye, turn.Mul(geom.Move3(geom.V3(-0.32, 0.18, 0.84))).Mul(geom.Scale3(geom.V3(0.12, 0.16, 0.08))), 96),
 			item(s.eye, turn.Mul(geom.Move3(geom.V3(0.32, 0.18, 0.84))).Mul(geom.Scale3(geom.V3(0.12, 0.16, 0.08))), 96),
-			item(s.brim, turn.Mul(geom.Move3(geom.V3(0, 0.82, 0))).Mul(geom.TurnZ(-0.1)), 8),
-			item(s.crown, turn.Mul(geom.Move3(geom.V3(-0.04, 1.2, 0))).Mul(geom.TurnZ(-0.1)), 8),
+			item(s.brim, turn.Mul(geom.Move3(geom.V3(0, 0.98, 0))).Mul(geom.TurnZ(-0.1)), 8),
+			item(s.crown, turn.Mul(geom.Move3(geom.V3(-0.04, 1.36, 0))).Mul(geom.TurnZ(-0.1)), 8),
 		},
 	})
 	end()
