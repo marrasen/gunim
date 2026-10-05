@@ -10,6 +10,7 @@ import "C"
 import (
 	"encoding/binary"
 	"fmt"
+	"image"
 	"image/color"
 	"log"
 	"math"
@@ -138,6 +139,7 @@ func (d *Driver) frame(g gl.Context, shared *render.Shared, c *compositor) {
 		f        *frame
 		fbW, fbH int
 		under    color.NRGBA
+		shot     func(*image.RGBA)
 	}
 	var jobs []job
 	var stack []layer
@@ -147,8 +149,8 @@ func (d *Driver) frame(g gl.Context, shared *render.Shared, c *compositor) {
 		r := w.rectLocked()
 		fbW, fbH := int(math.Round(float64(r.Size().W*scale))), int(math.Round(float64(r.Size().H*scale)))
 		if w.next != nil {
-			jobs = append(jobs, job{w: w, f: w.next, fbW: fbW, fbH: fbH, under: w.under})
-			w.next = nil
+			jobs = append(jobs, job{w: w, f: w.next, fbW: fbW, fbH: fbH, under: w.under, shot: w.shot})
+			w.next, w.shot = nil, nil
 		}
 		if !w.hidden {
 			x, y := int(math.Round(float64(r.Min.X*scale))), int(math.Round(float64(r.Min.Y*scale)))-pan
@@ -196,6 +198,12 @@ func (d *Driver) frame(g gl.Context, shared *render.Shared, c *compositor) {
 			w.r.WindowFBO, w.onTex = w.fbo, true
 		}
 		w.r.Draw(j.f.ops, j.f.damage, j.fbW, j.fbH, scale)
+		if j.shot != nil {
+			g.BindFramebuffer(gl.FRAMEBUFFER, w.r.WindowFBO)
+			pix := make([]byte, j.fbW*j.fbH*4)
+			g.ReadPixels(pix, 0, 0, int32(j.fbW), int32(j.fbH), gl.RGBA, gl.UNSIGNED_BYTE)
+			go j.shot(upright(pix, j.fbW, j.fbH))
+		}
 	}
 
 	if solo != nil {
@@ -237,6 +245,16 @@ func (d *Driver) frame(g gl.Context, shared *render.Shared, c *compositor) {
 		case <-j.w.quit:
 		}
 	}
+}
+
+// upright turns pixels read from GL, bottom row first, into a picture
+// the right way up.
+func upright(pix []byte, w, h int) *image.RGBA {
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	for y := range h {
+		copy(img.Pix[y*img.Stride:(y+1)*img.Stride], pix[(h-1-y)*w*4:(h-y)*w*4])
+	}
+	return img
 }
 
 // redraw draws the window's last frame again, whole, into fbo: its

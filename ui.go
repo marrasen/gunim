@@ -2030,6 +2030,9 @@ func (u *UI) frame(now time.Time, delta time.Duration) {
 	if sa, ok := u.w.dw.(driver.SafeAreaer); ok {
 		f.Safe = sa.SafeArea()
 	}
+	if kc, ok := u.w.dw.(driver.KeyboardCoverer); ok {
+		f.Keyboard = kc.KeyboardCover()
+	}
 
 	// 1. Advance every animated value by the real elapsed time, the
 	//    theme's included.

@@ -23,7 +23,7 @@ public final class Native {
 
 	private static final Handler ui = new Handler(Looper.getMainLooper());
 
-	static native void start();
+	static native void start(String zone);
 	static native void surfaceChanged(Surface surface, int width, int height);
 	static native void surfaceDestroyed();
 	static native void metrics(float density, float refreshRate);

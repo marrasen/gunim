@@ -350,6 +350,19 @@ type Frame struct {
 	// what it shows clear of it, and lets its background run under it.
 	// It is zero where nothing draws over the window, and in a popup.
 	Safe geom.Insets
+	// Keyboard is how far up from the window's bottom edge a keyboard on
+	// the screen reaches, as a phone's soft keyboard does, in logical
+	// pixels. It follows the keyboard frame by frame as it slides in and
+	// out, so a node that moves clear of it moves with it. It is zero
+	// while the keyboard is down, where there is none, and in a popup.
+	// It counts from the window's edge, so it takes in the part of
+	// [Frame.Safe] the keyboard covers.
+	//
+	// By default the driver slides the whole window up just far enough
+	// to show the text being typed. A view that keeps more in sight,
+	// such as a button below the field, lays itself out above Keyboard,
+	// and the driver's slide stays at rest.
+	Keyboard float32
 	// Transparent is set in a popup whose window shows what is behind
 	// it wherever nothing is painted, so the popup can have round
 	// corners and a shadow. Where the display server cannot blend

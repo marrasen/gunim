@@ -4,6 +4,7 @@ package android
 
 import (
 	"errors"
+	"image"
 	"image/color"
 	"math"
 	"sync"
@@ -46,6 +47,8 @@ type Window struct {
 	// colour under the window's frames.
 	next  *frame
 	under color.NRGBA
+	// shot takes the pixels of the next frame drawn; see Shoot.
+	shot func(*image.RGBA)
 
 	// state is the text state the engine told last, when stateSet, with
 	// the seq it went with, and editsIn the seq of the last keyboard edit
@@ -137,6 +140,25 @@ func (w *Window) RefreshRate() float64 {
 	w.d.mu.Lock()
 	defer w.d.mu.Unlock()
 	return w.d.rate
+}
+
+// Shoot implements [driver.Shooter]: fn takes the window's next frame
+// as the render thread draws it, at the screen's density.
+func (w *Window) Shoot(fn func(*image.RGBA)) {
+	w.d.mu.Lock()
+	w.shot = fn
+	w.d.mu.Unlock()
+	w.d.kick()
+}
+
+// ContentOrigin implements [driver.Positioner]: where the window lies
+// on the screen, in device pixels, as it would with the windows slid
+// down from over the keyboard.
+func (w *Window) ContentOrigin() (image.Point, error) {
+	w.d.mu.Lock()
+	defer w.d.mu.Unlock()
+	at, f := w.rectLocked().Min, float64(w.d.density)
+	return image.Pt(int(math.Round(float64(at.X)*f)), int(math.Round(float64(at.Y)*f))), nil
 }
 
 // Clipboard implements [driver.Window].
@@ -272,9 +294,7 @@ func (w *Window) SetTextCaret(r geom.Rect) {
 	w.d.mu.Lock()
 	at, f := w.rectLocked().Min, w.d.density
 	w.d.caret, w.d.caretSet = r.Add(at), true
-	if w.d.keyed {
-		w.d.revealLocked()
-	}
+	w.d.aimLocked()
 	w.d.mu.Unlock()
 	w.d.kick()
 	px := func(v float32) int { return int(math.Round(float64(v * f))) }
@@ -286,9 +306,7 @@ func (w *Window) SetTextCaret(r geom.Rect) {
 func (w *Window) SetTextBox(r geom.Rect) {
 	w.d.mu.Lock()
 	w.d.box, w.d.boxSet = r.Add(w.rectLocked().Min), true
-	if w.d.keyed {
-		w.d.revealLocked()
-	}
+	w.d.aimLocked()
 	w.d.mu.Unlock()
 	w.d.kick()
 }
@@ -342,6 +360,19 @@ func (w *Window) SafeArea() geom.Insets {
 	return w.d.safeLocked()
 }
 
+// KeyboardCover implements [driver.KeyboardCoverer]: how far up the
+// soft keyboard reaches over a window filling the screen. Before
+// Android 11 it stays 0, and Android pans the window to the caret
+// itself.
+func (w *Window) KeyboardCover() float32 {
+	w.d.mu.Lock()
+	defer w.d.mu.Unlock()
+	if !w.fills || w.d.density <= 0 {
+		return 0
+	}
+	return float32(w.d.keyboard) / w.d.density
+}
+
 // Buzz implements [driver.Buzzer]: the phone gives the short buzz of a
 // long press.
 func (w *Window) Buzz() { buzz() }
@@ -370,19 +401,22 @@ func (w *Window) ChooseFiles(o driver.ChooseOptions) ([]string, error) {
 }
 
 var (
-	_ driver.Placer         = (*Window)(nil)
-	_ driver.PopupRoomer    = (*Window)(nil)
-	_ driver.Screener       = (*Window)(nil)
-	_ driver.Transparent    = (*Window)(nil)
-	_ driver.Backgrounder   = (*Window)(nil)
-	_ driver.Recycler       = (*Window)(nil)
-	_ driver.TextInputter   = (*Window)(nil)
-	_ driver.TextStater     = (*Window)(nil)
-	_ driver.KeyboardShower = (*Window)(nil)
-	_ driver.CaretPlacer    = (*Window)(nil)
-	_ driver.TextBoxPlacer  = (*Window)(nil)
-	_ driver.Buzzer         = (*Window)(nil)
-	_ driver.Sharer         = (*Window)(nil)
-	_ driver.Vibrator       = (*Window)(nil)
-	_ driver.SafeAreaer     = (*Window)(nil)
+	_ driver.Placer          = (*Window)(nil)
+	_ driver.PopupRoomer     = (*Window)(nil)
+	_ driver.Screener        = (*Window)(nil)
+	_ driver.Transparent     = (*Window)(nil)
+	_ driver.Backgrounder    = (*Window)(nil)
+	_ driver.Recycler        = (*Window)(nil)
+	_ driver.TextInputter    = (*Window)(nil)
+	_ driver.TextStater      = (*Window)(nil)
+	_ driver.KeyboardShower  = (*Window)(nil)
+	_ driver.CaretPlacer     = (*Window)(nil)
+	_ driver.TextBoxPlacer   = (*Window)(nil)
+	_ driver.Buzzer          = (*Window)(nil)
+	_ driver.Sharer          = (*Window)(nil)
+	_ driver.Vibrator        = (*Window)(nil)
+	_ driver.SafeAreaer      = (*Window)(nil)
+	_ driver.KeyboardCoverer = (*Window)(nil)
+	_ driver.Shooter         = (*Window)(nil)
+	_ driver.Positioner      = (*Window)(nil)
 )

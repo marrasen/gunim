@@ -299,6 +299,7 @@ func (u *UI) framePopup(s *surface, f Frame) {
 	f.Theme = u.themeOf(opener)
 	// A popup's window keeps clear of the system's bars itself.
 	f.Safe = geom.Insets{}
+	f.Keyboard = 0
 	// Until the window opens, guess it blends as the last one did.
 	f.Transparent = u.w.blends
 	if s.dw != nil && s.zoom != u.zoom {

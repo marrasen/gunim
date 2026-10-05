@@ -247,8 +247,11 @@ void gunim_finish(void) {
 // The JNI methods of gunim.android.Native, which Java calls on its UI
 // thread. Each hands over to Go.
 
-JNIEXPORT void JNICALL Java_gunim_android_Native_start(JNIEnv *env, jclass c) {
-	goStart();
+JNIEXPORT void JNICALL Java_gunim_android_Native_start(JNIEnv *env, jclass c, jstring zone) {
+	jsize n = (*env)->GetStringLength(env, zone);
+	const jchar *s = (*env)->GetStringChars(env, zone, NULL);
+	goStart((uint16_t *)s, n);
+	(*env)->ReleaseStringChars(env, zone, s);
 }
 
 JNIEXPORT void JNICALL Java_gunim_android_Native_surfaceChanged(JNIEnv *env, jclass c, jobject surface, jint w, jint h) {

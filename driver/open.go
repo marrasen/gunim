@@ -134,6 +134,17 @@ type SafeAreaer interface {
 	SafeArea() geom.Insets
 }
 
+// A KeyboardCoverer is a [Window] a keyboard on the screen can cover,
+// as a phone's soft keyboard covers the bottom of an application.
+// KeyboardCover returns how far up from the window's bottom edge the
+// keyboard reaches, in logical pixels, and 0 while it is down. It
+// follows the keyboard as it slides, and a driver sends [Redraw] as it
+// changes.
+type KeyboardCoverer interface {
+	Window
+	KeyboardCover() float32
+}
+
 // A Buzzer is a [Window] on a device that can buzz, as a phone does. The
 // engine calls Buzz as a finger held still becomes a long press.
 type Buzzer interface {
