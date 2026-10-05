@@ -56,6 +56,9 @@ type stage struct {
 	// fade takes the icon away as the program is uninstalled.
 	fade *anim.Float
 
+	// spinning turns a short arc round the icon, while the installer
+	// waits for the program to close.
+	spinning bool
 	// born is the first frame, for the float and the breathing.
 	born time.Time
 	// pieces are the confetti.
@@ -203,7 +206,11 @@ func (s *stage) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim
 		tint := s.tint.Value()
 		p.Mask(arc{sweep: 3600, width: width}, rr, withAlpha(tint, uint8(48*on)))
 		sweep := min(max(s.ring.Value(), 0), 1)
-		if sweep > 0.001 {
+		if s.spinning {
+			// A quarter of the ring, turning a little over once a second.
+			turn := math.Mod(float64(t)*1.15, 1)
+			p.Mask(arc{start: int16(turn * 3600), sweep: 900, width: width}, rr, withAlpha(tint, uint8(255*on)))
+		} else if sweep > 0.001 {
 			p.Mask(arc{sweep: int16(sweep * 3600), width: width}, rr, withAlpha(tint, uint8(255*on)))
 			// A bright head where the ring is drawing.
 			a := float64(sweep) * 2 * math.Pi
@@ -295,6 +302,7 @@ func (s *stage) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim
 
 // work raises the icon to the middle and draws the ring in.
 func (s *stage) work(u *gunim.UI) {
+	s.spinning = false
 	th := u.Theme()
 	s.lift.Animate(1, widget.Settle.Get(th))
 	s.ringOn.Animate(1, widget.Settle.Get(th))
@@ -303,6 +311,23 @@ func (s *stage) work(u *gunim.UI) {
 	s.badge.Animate(0, widget.Quick.Get(th))
 	s.tick.Jump(0)
 	s.fade.Animate(0, widget.Settle.Get(th))
+}
+
+// spin raises the icon to the middle and turns a short arc round it, or
+// stops the arc, while the installer waits for the program to close.
+func (s *stage) spin(on bool, u *gunim.UI) {
+	th := u.Theme()
+	s.spinning = on
+	if on {
+		// In the middle, as for the work, with room for the ring.
+		s.lift.Animate(1, widget.Settle.Get(th))
+		s.fade.Animate(0, widget.Settle.Get(th))
+		s.badge.Animate(0, widget.Quick.Get(th))
+		s.tint.Animate(s.accent, widget.Settle.Get(th))
+		s.ringOn.Animate(1, widget.Settle.Get(th))
+		return
+	}
+	s.ringOn.Animate(0, widget.Quick.Get(th))
 }
 
 // progress moves the ring on to done, from 0 to 1.
