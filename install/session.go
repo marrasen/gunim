@@ -177,6 +177,19 @@ func NewSession(a App, uninstall bool) (*Session, error) {
 	return newSession(a, self, uninstall)
 }
 
+// NewSessionFor is [NewSession] for the program at path in place of
+// the one running, as for a test, or a program that installs another it
+// holds.
+func NewSessionFor(a App, path string, uninstall bool) (*Session, error) {
+	if err := a.check(); err != nil {
+		return nil, err
+	}
+	if !supported {
+		return nil, ErrUnsupported
+	}
+	return newSession(a, resolve(path), uninstall)
+}
+
 // newSession is NewSession for the program at self.
 func newSession(a App, self string, uninstall bool) (*Session, error) {
 	dir, err := a.dir()
