@@ -119,7 +119,7 @@ func (r *Renderer) blur(src uint32, region geom.Rect, sigma float32) uint32 {
 	r.applyClip()
 	g.Enable(gl.BLEND)
 	g.Viewport(0, 0, int32(r.fbW), int32(r.fbH))
-	g.UseProgram(r.drawProg.id)
+	r.useDraw()
 	return pair[1].tex
 }
 

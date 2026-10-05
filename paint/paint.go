@@ -199,8 +199,7 @@ func sameOp(a, b Op) bool {
 		if !ok {
 			return false
 		}
-		ga, gb := a.Fill.Gradient, b.Fill.Gradient
-		if (ga == nil) != (gb == nil) || (ga != nil && *ga != *gb) {
+		if !a.Fill.Gradient.Equal(b.Fill.Gradient) {
 			return false
 		}
 		a2, b2 := *a, *b
@@ -215,7 +214,12 @@ func sameOp(a, b Op) bool {
 		return ok && *a == *b
 	case *MaskOp:
 		b, ok := b.(*MaskOp)
-		return ok && *a == *b
+		if !ok || !a.Gradient.Equal(b.Gradient) {
+			return false
+		}
+		a2, b2 := *a, *b
+		a2.Gradient, b2.Gradient = nil, nil
+		return a2 == b2
 	case *LayerOp:
 		b, ok := b.(*LayerOp)
 		return ok && *a == *b
@@ -345,6 +349,11 @@ type LayerOpts struct {
 	// Clip confines drawing to Bounds, rounded by Radius.
 	Clip   bool
 	Radius float32
+	// Ellipse makes Clip confine drawing to the ellipse that fits
+	// Bounds, and Radius goes unused. An opaque layer, unblurred and
+	// unturned, clips to it in place, with no offscreen pass, as it
+	// does to a rectangle.
+	Ellipse bool
 }
 
 // Layer opens an offscreen group and returns the function that closes
@@ -360,7 +369,7 @@ func (p *Painter) Layer(o LayerOpts) func() {
 	p.open = append(p.open, at)
 	outer := p.clip
 	if o.Clip {
-		c := &Clip{outer: outer, rect: o.Bounds, radius: o.Radius}
+		c := &Clip{outer: outer, rect: o.Bounds, radius: o.Radius, ellipse: o.Ellipse}
 		c.inv, c.ok = p.at().Invert()
 		p.clip = c
 	}
@@ -384,18 +393,23 @@ func (p *Painter) Clip() *Clip { return p.clip }
 // with the clips around it. It stays valid after the frame that made it,
 // which lets input be tested against what the frame showed.
 type Clip struct {
-	outer  *Clip
-	inv    Transform
-	ok     bool
-	rect   geom.Rect
-	radius float32
+	outer   *Clip
+	inv     Transform
+	ok      bool
+	rect    geom.Rect
+	radius  float32
+	ellipse bool
 }
 
 // Contains reports whether p, a point in window space, lies inside c and
 // every clip around it. A nil Clip contains every point.
 func (c *Clip) Contains(p geom.Point) bool {
 	for ; c != nil; c = c.outer {
-		if !c.ok || !insideRounded(c.inv.Apply(p), c.rect, c.radius) {
+		if !c.ok {
+			return false
+		}
+		q := c.inv.Apply(p)
+		if c.ellipse && !insideEllipse(q, c.rect) || !c.ellipse && !insideRounded(q, c.rect, c.radius) {
 			return false
 		}
 	}
@@ -418,6 +432,16 @@ func insideRounded(p geom.Point, r geom.Rect, radius float32) bool {
 	return dx*dx+dy*dy <= radius*radius
 }
 
+// insideEllipse reports whether p lies inside the ellipse that fits r.
+func insideEllipse(p geom.Point, r geom.Rect) bool {
+	rx, ry := (r.Max.X-r.Min.X)/2, (r.Max.Y-r.Min.Y)/2
+	if rx <= 0 || ry <= 0 {
+		return false
+	}
+	dx, dy := (p.X-r.Min.X-rx)/rx, (p.Y-r.Min.Y-ry)/ry
+	return dx*dx+dy*dy <= 1
+}
+
 // Fill describes how a shape is coloured. Exactly one of Solid or
 // Gradient applies; a zero Gradient means Solid.
 type Fill struct {
@@ -428,10 +452,67 @@ type Fill struct {
 // Solid is shorthand for a flat fill.
 func Solid(c color.NRGBA) Fill { return Fill{Solid: c} }
 
-// Gradient is a linear gradient between two points.
+// Gradient is a gradient from Start at From to End at To. Past either
+// end it keeps the colour there.
+//
+// A linear gradient changes along the line from From to To, and stays
+// the same across it. A radial one changes in circles out from From,
+// and reaches End at the distance to To; a transform that scales one
+// way more than the other makes the circles ellipses.
 type Gradient struct {
 	From, To   geom.Point
 	Start, End color.NRGBA
+	// Radial makes the gradient run out from From in circles.
+	Radial bool
+	// Stops are colours on the way from Start to End, in order, each at
+	// its place between 0, at From, and 1, at To. A shape draws a
+	// gradient of two colours a little quicker than one with stops.
+	Stops []Stop
+}
+
+// Stop is a colour on a gradient's way, At from 0 to 1.
+type Stop struct {
+	At    float32
+	Color color.NRGBA
+}
+
+// Equal reports whether g and h draw the same, nil being no gradient.
+func (g *Gradient) Equal(h *Gradient) bool {
+	if g == nil || h == nil {
+		return g == h
+	}
+	return g.From == h.From && g.To == h.To && g.Start == h.Start && g.End == h.End &&
+		g.Radial == h.Radial && slices.Equal(g.Stops, h.Stops)
+}
+
+// At returns the gradient's colour at t, from 0 at From to 1 at To:
+// what it blends between its stops, straight, before any alpha
+// multiplies the colour in.
+func (g *Gradient) At(t float32) color.NRGBA {
+	t = min(max(t, 0), 1)
+	prev := Stop{At: 0, Color: g.Start}
+	for i := 0; i <= len(g.Stops); i++ {
+		s := Stop{At: 1, Color: g.End}
+		if i < len(g.Stops) {
+			s = g.Stops[i]
+		}
+		// A stop out of order sits at the one before it.
+		at := min(max(s.At, prev.At), 1)
+		if t <= at {
+			if at <= prev.At {
+				return s.Color
+			}
+			return mix(prev.Color, s.Color, (t-prev.At)/(at-prev.At))
+		}
+		prev = Stop{At: at, Color: s.Color}
+	}
+	return g.End
+}
+
+// mix returns a blended to b by t, channel by channel.
+func mix(a, b color.NRGBA, t float32) color.NRGBA {
+	m := func(x, y uint8) uint8 { return uint8(float32(x) + (float32(y)-float32(x))*t + 0.5) }
+	return color.NRGBA{m(a.R, b.R), m(a.G, b.G), m(a.B, b.B), m(a.A, b.A)}
 }
 
 // Stroke describes an outline.
@@ -441,13 +522,20 @@ type Stroke struct {
 }
 
 // RRectOp draws a rounded rectangle, optionally stroked, optionally
-// with a drop shadow. One command covers most of a widget set.
+// with a drop shadow, and shaded inside. One command covers most of a
+// widget set.
 type RRectOp struct {
-	Rect      geom.Rect
-	Radius    float32
-	Fill      Fill
-	Stroke    Stroke
-	Shadow    Shadow
+	Rect   geom.Rect
+	Radius float32
+	Fill   Fill
+	Stroke Stroke
+	Shadow Shadow
+	// Inset are up to two shadows inside the shape, over its fill and
+	// under its stroke, as a dark core shadow and a light rim give it
+	// depth. An inset shadow lies where the shape, moved by Offset and
+	// shrunk by Spread, leaves it, softened by Blur, and stays within the
+	// shape. A zero Shadow is skipped.
+	Inset     [2]Shadow
 	Transform Transform
 }
 
@@ -530,6 +618,24 @@ func (p *Painter) ShadowRRect(r geom.Rect, radius float32, f Fill, sh Shadow) {
 		Max: geom.Pt(r.Max.X+sh.Blur+sh.Spread+sh.Offset.X, r.Max.Y+sh.Blur+sh.Spread+sh.Offset.Y),
 	}
 	p.record(p.takeRRect(RRectOp{Rect: r, Radius: radius, Fill: f, Shadow: sh, Transform: p.at()}), grown.Union(r))
+}
+
+// DrawRRect records op as it is, in the transform in force, with any
+// of a rounded rectangle's parts: a fill, a stroke, a drop shadow and
+// inset shadows.
+func (p *Painter) DrawRRect(op RRectOp) {
+	b := op.Rect
+	half := op.Stroke.Width / 2
+	b = geom.Rect{Min: geom.Pt(b.Min.X-half, b.Min.Y-half), Max: geom.Pt(b.Max.X+half, b.Max.Y+half)}
+	if sh := op.Shadow; sh.Color.A > 0 {
+		grow := sh.Blur + sh.Spread
+		b = b.Union(geom.Rect{
+			Min: geom.Pt(op.Rect.Min.X-grow+sh.Offset.X, op.Rect.Min.Y-grow+sh.Offset.Y),
+			Max: geom.Pt(op.Rect.Max.X+grow+sh.Offset.X, op.Rect.Max.Y+grow+sh.Offset.Y),
+		})
+	}
+	op.Transform = p.at()
+	p.record(p.takeRRect(op), b)
 }
 
 // Text records a shaped run at size logical pixels. bounds is the

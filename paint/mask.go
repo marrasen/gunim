@@ -18,11 +18,13 @@ type Shape interface {
 	Settled() bool
 }
 
-// MaskOp draws a Shape's coverage into Rect, tinted by Color.
+// MaskOp draws a Shape's coverage into Rect, tinted by Color, or by
+// Gradient where it is set, in the same space as Rect.
 type MaskOp struct {
 	Shape     Shape
 	Rect      geom.Rect
 	Color     color.NRGBA
+	Gradient  *Gradient
 	Transform Transform
 }
 
@@ -38,4 +40,21 @@ func (p *Painter) Mask(s Shape, r geom.Rect, c color.NRGBA) {
 		panic(fmt.Sprintf("paint: Mask of %T, a shape that is not comparable", s))
 	}
 	p.record(&MaskOp{Shape: s, Rect: r, Color: c, Transform: p.at()}, r)
+}
+
+// MaskFill records s drawn into r and coloured by f, which may be a
+// gradient, as a shape such as a hat or a lock of hair shades from
+// light to dark. The gradient's points are in the same space as r.
+func (p *Painter) MaskFill(s Shape, r geom.Rect, f Fill) {
+	if f.Gradient == nil {
+		p.Mask(s, r, f.Solid)
+		return
+	}
+	if s == nil || r.Empty() {
+		return
+	}
+	if !reflect.TypeOf(s).Comparable() {
+		panic(fmt.Sprintf("paint: Mask of %T, a shape that is not comparable", s))
+	}
+	p.record(&MaskOp{Shape: s, Rect: r, Gradient: f.Gradient, Transform: p.at()}, r)
 }

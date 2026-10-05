@@ -779,6 +779,15 @@ is one draw call: the widgets gallery draws in three. Every window
 shares the one program, built once. A layer draws into an offscreen
 texture and is composited back with its opacity and rounded clip.
 
+One `RRectOp` can carry a drop shadow and two inset shadows, as a dark
+core and a light rim that stay inside the shape. A gradient runs along a
+line or out in circles, through as many colour stops as it needs, and
+colours a mask as well as a shape, as for a hat or a lock of hair.
+Gradients with stops take their colours from a row of a small texture,
+drawn once per set of colours. An opaque layer clipped to an ellipse,
+`LayerOpts.Ellipse`, draws in place, with no offscreen pass: each quad
+inside it is cut to the ellipse as it draws.
+
 The painter compares each frame with the one before, and the driver
 redraws only the part that changed into a canvas it keeps, then copies
 the canvas to the window. A button easing into its hover colour costs
