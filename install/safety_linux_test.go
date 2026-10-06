@@ -289,3 +289,20 @@ func TestAStoppedFreshInstallLeavesNothing(t *testing.T) {
 		t.Errorf("after a stopped fresh install Find says %+v, %v", in, ferr)
 	}
 }
+
+// The updates' trials, as Windows runs them: the program replaced is
+// moved aside to .old, in place of linked there.
+func TestTrialsMovingTheProgramAside(t *testing.T) {
+	movesAside = true
+	t.Cleanup(func() { movesAside = false })
+	for _, test := range []func(*testing.T){
+		TestABadUpdateGivesWay,
+		TestAGoodUpdatePasses,
+		TestANewerReleaseOnTrialKeepsTheOneThatPassed,
+		TestAFailedDownloadOnTrialChangesNothing,
+		TestTheProgramBeingReplacedLeavesTheTrial,
+		TestMoveAsidePastABusyOld,
+	} {
+		test(t)
+	}
+}

@@ -21,11 +21,14 @@ import (
 // Linux installs, paths count letter case, and a running program is
 // replaced by moving another over it.
 const (
-	supported  = true
-	caseless   = false
-	movesAside = false
-	exeSuffix  = ""
+	supported = true
+	caseless  = false
+	exeSuffix = ""
 )
+
+// movesAside is false: a running program on Linux is replaced by moving
+// another over it. A test sets it, to take Windows' way here.
+var movesAside = false
 
 // home is the user's home folder.
 func home() (string, error) { return os.UserHomeDir() }

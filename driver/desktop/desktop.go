@@ -550,6 +550,15 @@ func (d *Driver) openWindow(o driver.Options) (*Window, error) {
 			_ = gw.Destroy()
 			return nil, err
 		}
+		if o.Monitor != nil {
+			// Windows keeps the outer corner as the frame goes, so the
+			// content moves up and left by the frame: placed again, the
+			// window is its content alone, and lands where it should.
+			if err := w.position(o); err != nil {
+				_ = gw.Destroy()
+				return nil, err
+			}
+		}
 	}
 	// A saved placement, for an ordinary window, takes the place of Size and Monitor
 	var placed driver.Placement
