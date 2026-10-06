@@ -382,8 +382,9 @@ func (g *graphBody) Handle(e input.Event, u *gunim.UI) bool {
 
 // canvas is the plot: a grid that thins and thickens smoothly as it
 // zooms, the curves, and a dot tracing the curve under the pointer. A
-// drag pans it and a flick coasts; the wheel zooms about the pointer;
-// a double click springs it home.
+// drag pans it and a flick coasts; the wheel zooms about the pointer,
+// and two fingers about the point between them; a double click springs
+// it home.
 type canvas struct {
 	anim.Group
 	curves []*curve
@@ -739,8 +740,12 @@ func (c *canvas) retrace() {
 }
 
 // ZoomsWithWheel implements [gunim.WheelZoomer]: the wheel zooms the
-// plot, with Ctrl as without, and so does a pinch.
+// plot, with Ctrl as without.
 func (c *canvas) ZoomsWithWheel() bool { return true }
+
+// ZoomsWithPinch implements [gunim.PinchZoomer]: two fingers zoom the
+// plot and pan it, smoothly.
+func (c *canvas) ZoomsWithPinch() bool { return true }
 
 // DragsTouch implements [gunim.TouchDragger]: a finger pans the plot,
 // as the mouse does.
@@ -798,6 +803,15 @@ func (c *canvas) Handle(e input.Event, u *gunim.UI) bool {
 			anim.Fling(c.cy, c.vy, anim.Decay{Tau: 0.35})
 		}
 		c.retrace()
+	case input.Pinch:
+		// The world point that was under the fingers goes where they are
+		// now, at the new zoom.
+		x, y := c.toWorld(e.Pos.Sub(e.Delta))
+		c.zooming = false
+		c.zoom.Jump(min(max(c.zoom.Value()+float32(math.Log2(float64(e.Scale))), 2), 14))
+		s := c.scale()
+		c.cx.Jump(float32(x - float64(e.Pos.X-c.size.W/2)/s))
+		c.cy.Jump(float32(y + float64(e.Pos.Y-c.size.H/2)/s))
 	case input.Scroll:
 		n := e.Notches.Y
 		if n == 0 {

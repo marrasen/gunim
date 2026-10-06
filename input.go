@@ -263,6 +263,8 @@ func (u *UI) handleRaw(root *state, ev any) {
 		u.dispatchAt(root, e.Pos, func(local geom.Point) input.Event {
 			return input.Scroll{Pos: local, Delta: e.Delta, Notches: e.Notches, Mods: e.Mods, Time: e.Time}
 		})
+	case input.Pinch:
+		u.pinchEvent(root, e)
 	case input.PointerLeave:
 		if root == u.root {
 			u.pointerIn = false

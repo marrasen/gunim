@@ -409,8 +409,10 @@ pure Go.
 A tap is a click, and a popup opens over the window that opened it. A
 finger that moves scrolls what it came down on and flings as it lifts,
 unless what it pressed drags by touch, as a slider or the calculator's
-plot does. Two fingers pinch to zoom whatever zooms with Ctrl and the
-wheel. A finger held still is a right click, which opens a context
+plot does. Two fingers zoom and pan a node that zooms with a pinch
+smoothly, about the point between them, as they do the calculator's
+plot, and zoom anything else that zooms with Ctrl and the wheel a
+notch at a time. A finger held still is a right click, which opens a context
 menu; in text it selects a word, drags on over more words, and shows
 handles for the selection's ends and the edit menu.
 
