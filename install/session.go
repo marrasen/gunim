@@ -92,7 +92,10 @@ type manifest struct {
 	// Updates is how the program takes newer releases; empty in an
 	// install from before there was a choice of it.
 	Updates UpdateMode `json:"updates,omitempty"`
-	When    time.Time  `json:"installed"`
+	// Skip is a release an update gave way from, as one that kept
+	// ending as it started, which the updates pass over.
+	Skip string    `json:"skip,omitempty"`
+	When time.Time `json:"installed"`
 }
 
 // dir is where a is installed: as App.Dir says, or the system's usual
@@ -143,17 +146,10 @@ func (m *manifest) write(dir string) error {
 	if err != nil {
 		return err
 	}
-	path := filepath.Join(dir, manifestName)
-	part := path + ".new"
-	if err := os.WriteFile(part, raw, 0o644); err != nil {
-		_ = os.Remove(part)
+	return writeVia(filepath.Join(dir, manifestName), 0o644, os.Rename, func(f *os.File) error {
+		_, err := f.Write(raw)
 		return err
-	}
-	if err := os.Rename(part, path); err != nil {
-		_ = os.Remove(part)
-		return err
-	}
-	return nil
+	})
 }
 
 // installation is what m says of the install in dir.
@@ -454,6 +450,9 @@ func (s *Session) install(ctx context.Context, picks map[string]bool, progress f
 		return in, err
 	}
 	m := manifest{ID: s.App.id(), Version: s.App.Version, Exe: s.App.exe(), Files: files, Picks: in.Picks, Updates: in.Updates, When: time.Now().UTC()}
+	if old != nil {
+		m.Skip = old.Skip
+	}
 	if err := m.write(s.Dir); err != nil {
 		return in, err
 	}
@@ -508,7 +507,8 @@ func (s *Session) Uninstall(ctx context.Context, data bool, progress func(Progre
 	}
 	// And what replacing them left beside them.
 	for _, f := range slices.Clone(files) {
-		files = append(files, f+".old", f+".new")
+		files = append(files, f+".old", f+".back", trialPath(f))
+		files = append(files, parts(f)...)
 	}
 	if err := removeFiles(files, s.Dir); err != nil {
 		return err
@@ -598,16 +598,53 @@ func (a *App) copyFiles(ctx context.Context, dir string, progress func(float32))
 // writeFile writes data to path through a file beside it that is moved
 // into place, so path holds the old bytes or the new, never part.
 func writeFile(path string, data []byte, mode os.FileMode) error {
-	part := path + ".new"
-	if err := os.WriteFile(part, data, mode); err != nil {
-		_ = os.Remove(part)
+	return writeVia(path, mode, Replace, func(f *os.File) error {
+		_, err := f.Write(data)
+		return err
+	})
+}
+
+// writeVia writes the file at to with write, through a file of its own
+// beside it, which is put on the disk and moved into place with place,
+// so to holds the old bytes or the new, never part. Each write has its own
+// file, so two at once, as an update and an installer, never mix.
+func writeVia(to string, mode os.FileMode, place func(part, to string) error, write func(*os.File) error) error {
+	f, err := os.CreateTemp(filepath.Dir(to), "."+filepath.Base(to)+".*.new")
+	if err != nil {
 		return err
 	}
-	if err := Replace(part, path); err != nil {
-		_ = os.Remove(part)
-		return err
+	part := f.Name()
+	err = f.Chmod(mode)
+	if err == nil {
+		err = write(f)
 	}
-	return nil
+	if err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = place(part, to)
+	}
+	if err != nil {
+		_ = os.Remove(part)
+	}
+	return err
+}
+
+// parts are the files writes into file left beside it, as when the
+// program ended in the middle of one.
+func parts(file string) []string {
+	out := []string{file + ".new"}
+	dir, base := filepath.Split(file)
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if n := e.Name(); strings.HasPrefix(n, "."+base+".") && strings.HasSuffix(n, ".new") {
+			out = append(out, filepath.Join(dir, n))
+		}
+	}
+	return out
 }
 
 // copyFile copies the program at from to to, through a file beside to
@@ -622,49 +659,31 @@ func copyFile(ctx context.Context, from, to string, progress func(float32)) erro
 	if err != nil {
 		return err
 	}
-	part := to + ".new"
-	dst, err := os.OpenFile(part, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
-	if err != nil {
-		return err
-	}
-	buf := make([]byte, 1<<20)
-	var done int64
-	for {
-		if err := ctx.Err(); err != nil {
-			_ = dst.Close()
-			_ = os.Remove(part)
-			return err
-		}
-		n, rerr := src.Read(buf)
-		if n > 0 {
-			if _, err := dst.Write(buf[:n]); err != nil {
-				_ = dst.Close()
-				_ = os.Remove(part)
+	return writeVia(to, 0o755, Replace, func(dst *os.File) error {
+		buf := make([]byte, 1<<20)
+		var done int64
+		for {
+			if err := ctx.Err(); err != nil {
 				return err
 			}
-			done += int64(n)
-			if fi.Size() > 0 {
-				progress(float32(done) / float32(fi.Size()))
+			n, rerr := src.Read(buf)
+			if n > 0 {
+				if _, err := dst.Write(buf[:n]); err != nil {
+					return err
+				}
+				done += int64(n)
+				if fi.Size() > 0 {
+					progress(float32(done) / float32(fi.Size()))
+				}
+			}
+			if rerr == io.EOF {
+				return nil
+			}
+			if rerr != nil {
+				return rerr
 			}
 		}
-		if rerr == io.EOF {
-			break
-		}
-		if rerr != nil {
-			_ = dst.Close()
-			_ = os.Remove(part)
-			return rerr
-		}
-	}
-	if err := dst.Close(); err != nil {
-		_ = os.Remove(part)
-		return err
-	}
-	if err := Replace(part, to); err != nil {
-		_ = os.Remove(part)
-		return err
-	}
-	return nil
+	})
 }
 
 // Replace puts the file at part in place of the one at path. Where a

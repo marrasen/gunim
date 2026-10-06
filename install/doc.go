@@ -10,7 +10,10 @@
 // desktop, a start with the computer, the kinds of file the program
 // opens, and to keep it up to date, and checks there is room first.
 // Installed, the program starts as itself, and looks for newer releases
-// now and then, which it puts in place for its next start.
+// now and then, which it puts in place for its next start. The program
+// a release replaces is kept until the release has run a while; one
+// that keeps ending as it starts gives way to it again, and the updates
+// pass that release over until a newer one comes.
 //
 // # The defaults
 //
