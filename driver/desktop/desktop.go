@@ -109,6 +109,9 @@ func (d *Driver) Run(ctx context.Context, ready func()) error {
 	// Windows rest while the screen is off or locked.
 	stopWatch := watchScreen(d)
 	defer stopWatch()
+	// A main thread held up says where, for a program that freezes.
+	stopHang := watchHang(d)
+	defer stopHang()
 
 	ready()
 	var err error

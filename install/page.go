@@ -33,6 +33,11 @@ type page struct {
 	// page shows it.
 	fill  gunim.Node
 	notes *notesBox
+	// status says how a check for updates went, and check is the button
+	// that starts one, on the page about the program.
+	status  *widget.Label
+	check   *widget.Button
+	trouble bool
 
 	// in runs from 0 to 1 as the page arrives, and back as it leaves.
 	in *anim.Float

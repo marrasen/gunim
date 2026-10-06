@@ -4,6 +4,7 @@ package install
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -310,4 +311,48 @@ func TestWatchProcess(t *testing.T) {
 	if gone, _ := watchProcess(999999999); gone() {
 		t.Fatal("a process that never was is alive")
 	}
+}
+
+// The window about the program checks for updates with the window open,
+// and says how it went there: up to date, a failure, or a newer release,
+// which turns the window to it.
+func TestAboutChecksForUpdatesInPlace(t *testing.T) {
+	a := App{Name: "studio", Version: "v1.0.0", Updates: GitHub{Repo: "marrasen/studio", API: "http://127.0.0.1:1"}}
+	w := gunimtest.New(t, geom.Sz(640, updateHeight), &gunim.Box{})
+	sc := updateScene(&a, pageAbout, "", a.Version)
+	c, err := mountStage(w, &a, nil, accentFor(&a), sc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := newUpdater(a, c, sc)
+	r.about = &About{Quit: func() error { return nil }}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	r.ctx = ctx
+	answers := []struct {
+		rel   Release
+		newer bool
+		err   error
+	}{{err: errors.New("offline")}, {rel: Release{Version: "v1.0.0"}}, {rel: Release{Version: "v1.1.0"}, newer: true}}
+	r.check = func(context.Context, App) (Release, bool, error) {
+		next := answers[0]
+		answers = answers[1:]
+		return next.rel, next.newer, next.err
+	}
+	for _, want := range []string{"Couldn't check: offline", "studio is up to date."} {
+		r.handle(checkNow{})
+		if !r.sc.Checking {
+			t.Fatal("the check says nothing while it runs")
+		}
+		until(t, func() bool { updateFrames(w, r, 1); return !r.sc.Checking })
+		if r.sc.Status != want || r.sc.Page != pageAbout || r.left {
+			t.Fatalf("the check says %q on %q, want %q", r.sc.Status, r.sc.Page, want)
+		}
+	}
+	r.handle(checkNow{})
+	until(t, func() bool { updateFrames(w, r, 1); return r.sc.Page == pageUpdate })
+	if r.sc.Have != "1.0.0" || r.sc.Version != "1.1.0" || !r.sc.Restart || r.u.Release.Version != "v1.1.0" {
+		t.Fatalf("a newer release shows as %+v", r.sc)
+	}
+	updateFrames(w, r, 30)
 }
