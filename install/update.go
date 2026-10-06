@@ -220,12 +220,46 @@ func WhatsNew(ctx context.Context, a App, after, upTo string) ([]ReleaseNotes, e
 		}
 		return []ReleaseNotes{{Version: r.Version, Page: r.Page, Notes: r.Notes}}, nil
 	}
-	all, err := cl.ReleaseNotes(ctx)
+	all, err := keptNotes(ctx, cl)
 	if err != nil {
 		return nil, err
 	}
 	all = slices.DeleteFunc(all, func(c ReleaseNotes) bool { return !within(c.Version) })
 	slices.SortFunc(all, func(x, y ReleaseNotes) int { return compare(y.Version, x.Version) })
+	return all, nil
+}
+
+// notesFor is how long the releases' notes are kept once read, so a
+// window opened again soon shows them without asking again: GitHub
+// answers a program that is not signed in 60 times an hour.
+var notesFor = 10 * time.Minute
+
+// notesKept are the notes read last, from which changelog, and when.
+var notesKept struct {
+	sync.Mutex
+	from  string
+	at    time.Time
+	notes []ReleaseNotes
+}
+
+// keptNotes are cl's notes, read again only once notesFor has passed.
+// The caller may change the slice it gets.
+func keptNotes(ctx context.Context, cl Changelog) ([]ReleaseNotes, error) {
+	from := fmt.Sprintf("%T %+v", cl, cl)
+	notesKept.Lock()
+	if notesKept.from == from && time.Since(notesKept.at) < notesFor {
+		out := slices.Clone(notesKept.notes)
+		notesKept.Unlock()
+		return out, nil
+	}
+	notesKept.Unlock()
+	all, err := cl.ReleaseNotes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	notesKept.Lock()
+	notesKept.from, notesKept.at, notesKept.notes = from, time.Now(), slices.Clone(all)
+	notesKept.Unlock()
 	return all, nil
 }
 
