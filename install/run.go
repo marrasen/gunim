@@ -276,6 +276,12 @@ func show(a App, s *Session) int {
 		}
 		return window(ctx, app, s)
 	})
+	if ctx.Err() != nil {
+		// Interrupted, as by Ctrl+C in a terminal: the window waited for
+		// the work to stop, and the program ends as an interrupted one.
+		fmt.Fprintln(os.Stderr, "install: interrupted")
+		return 130
+	}
 	if errors.Is(err, driver.ErrNoDriver) {
 		if s.Mode == Remove {
 			fmt.Fprintln(os.Stderr, "install: no display to ask on; -uninstall -quiet removes "+a.Name+" without asking")

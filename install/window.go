@@ -242,12 +242,21 @@ type runner struct {
 	s  *Session
 	c  gunim.Client
 	sc scene
-	// working says the work runs, which the window may not close on,
-	// and quitting that the copies running were asked to end and have
-	// not yet. Neither takes another press; Cancel still closes the
-	// window while the copies are closing. watching says a look for the
-	// copies to have ended runs.
-	working, quitting, watching bool
+	// working says the work runs, and quitting that the copies running
+	// were asked to end and have not yet. Neither takes another press but
+	// Close: Close stops the work, and closes the window while the copies
+	// are closing. watching says a look for the copies to have ended
+	// runs, and leaving that Close stopped the work, and the window
+	// closes once it has stopped.
+	working, quitting, watching, leaving bool
+	// left says the window was left; a test reads it.
+	left bool
+	// stopWork stops the work, and finished closes once it has ended.
+	stopWork context.CancelFunc
+	finished chan struct{}
+	// attempt counts the asks to the copies running to end, so a late
+	// answer to an earlier one says nothing of the one now.
+	attempt int
 	// running lists the copies of the program running; a test sets it.
 	running func() []int
 	// ctx is serve's, which the looks end with.
@@ -265,12 +274,19 @@ var leastWork = 1600 * time.Millisecond
 
 func (r *runner) show() { _ = r.c.Update("installer", r.sc) }
 
+// stopWait is how long the installer, interrupted as from a terminal,
+// waits for the work to stop before it ends all the same.
+var stopWait = 10 * time.Second
+
 func (r *runner) serve(ctx context.Context) error {
-	r.ctx = ctx
+	if r.ctx == nil {
+		r.ctx = ctx
+	}
 	for {
 		select {
 		case <-ctx.Done():
-			return nil
+			r.drain()
+			return ctx.Err()
 		case fn := <-r.events:
 			fn()
 		case ev, ok := <-r.c.Intents():
@@ -282,30 +298,71 @@ func (r *runner) serve(ctx context.Context) error {
 	}
 }
 
+// drain waits, the work stopped with serve's context, for it to end,
+// running its reports meanwhile, so the program ends with nothing half
+// written; a work that will not stop is given stopWait.
+func (r *runner) drain() {
+	if !r.working || r.finished == nil {
+		return
+	}
+	give := time.NewTimer(stopWait)
+	defer give.Stop()
+	for {
+		select {
+		case fn := <-r.events:
+			fn()
+		case <-r.finished:
+			return
+		case <-give.C:
+			return
+		}
+	}
+}
+
+// leave closes the window.
+func (r *runner) leave() {
+	r.left = true
+	r.c.Leave()
+}
+
 func (r *runner) handle(ctx context.Context, in gunim.Intent) {
 	if r.ctx == nil {
 		r.ctx = ctx
 	}
-	if _, cancel := in.(closed); r.working || r.quitting && !cancel {
+	_, isClose := in.(closed)
+	if isClose && r.working {
+		if r.leaving {
+			// Pressed again, as when a hook will not stop: the window
+			// goes now.
+			r.leave()
+			return
+		}
+		r.leaving = true
+		r.stopWork()
+		r.sc.Step = "Stopping"
+		r.show()
+		return
+	}
+	if r.working || r.quitting && !isClose {
 		// A second press of Install would start the work twice.
 		return
 	}
 	switch in := in.(type) {
 	case started:
-		r.then = func() { r.install(ctx, in.Picks) }
+		r.then = func() { r.install(in.Picks) }
 		r.whenFree()
 	case removed:
-		r.then = func() { r.uninstall(ctx, in.Data) }
+		r.then = func() { r.uninstall(in.Data) }
 		r.sc.Removing = true
 		r.whenFree()
 	case opened:
 		r.s.Open()
-		r.c.Leave()
+		r.leave()
 	case ranHere:
 		r.s.RunHere()
-		r.c.Leave()
+		r.leave()
 	case closed:
-		r.c.Leave()
+		r.leave()
 	case retried:
 		r.sc.Page, r.sc.Problem = pageWelcome, ""
 		if r.sc.Removing {
@@ -318,23 +375,27 @@ func (r *runner) handle(ctx context.Context, in gunim.Intent) {
 			return
 		}
 		r.quitting = true
+		r.attempt++
+		attempt := r.attempt
 		r.sc.Page, r.sc.Problem = pageClosing, ""
 		r.show()
 		r.watch()
+		wait := closeWait
 		go func() {
 			err := quit(ctx)
 			if err == nil {
 				// The watch goes on as soon as they have gone; past this,
 				// they are not going by themselves.
 				select {
-				case <-time.After(closeWait):
+				case <-time.After(wait):
 				case <-ctx.Done():
 					return
 				}
 			}
 			r.send(func() {
-				if r.sc.Page != pageClosing {
-					// They went, and the work is on.
+				if r.sc.Page != pageClosing || r.attempt != attempt {
+					// They went, and the work is on, or this is an earlier
+					// ask's answer.
 					return
 				}
 				r.quitting = false
@@ -379,8 +440,9 @@ func (r *runner) watch() {
 		return
 	}
 	r.watching = true
+	every := watchEvery
 	go func() {
-		t := time.NewTicker(watchEvery)
+		t := time.NewTicker(every)
 		defer t.Stop()
 		for {
 			select {
@@ -425,46 +487,63 @@ func (r *runner) whenFree() {
 
 // install installs with picks, on a goroutine, showing the ring go
 // round.
-func (r *runner) install(ctx context.Context, picks map[string]bool) {
-	r.work(func(report func(Progress)) error {
+func (r *runner) install(picks map[string]bool) {
+	r.work(func(ctx context.Context, report func(Progress)) error {
 		_, err := r.s.Install(ctx, picks, report)
 		return err
 	}, pageDone)
 }
 
 // uninstall uninstalls, taking the user's data too with data.
-func (r *runner) uninstall(ctx context.Context, data bool) {
-	r.work(func(report func(Progress)) error {
+func (r *runner) uninstall(data bool) {
+	r.work(func(ctx context.Context, report func(Progress)) error {
 		return r.s.Uninstall(ctx, data, report)
 	}, pageRemoved)
 }
 
-// work runs do on a goroutine, reporting its progress to the window,
-// and shows done when it has.
-func (r *runner) work(do func(func(Progress)) error, done string) {
-	r.working = true
+// work runs do on a goroutine, with a context Close stops, reporting its
+// progress to the window, and shows done when it has. Stopped by Close,
+// the window closes; done all the same before it could stop, done shows,
+// so the user sees what happened.
+func (r *runner) work(do func(context.Context, func(Progress)) error, done string) {
+	ctx, stop := context.WithCancel(r.ctx)
+	finished := make(chan struct{})
+	r.working, r.leaving, r.stopWork, r.finished = true, false, stop, finished
 	r.sc.Page, r.sc.Step, r.sc.Progress, r.sc.Problem = pageWorking, "Starting", 0, ""
 	r.show()
+	least := leastWork
 	go func() {
+		defer close(finished)
+		defer stop()
 		start := time.Now()
-		err := do(func(p Progress) {
-			r.events <- func() {
-				r.sc.Step, r.sc.Progress = p.Step, p.Done
+		err := do(ctx, func(p Progress) {
+			r.send(func() {
+				if !r.leaving {
+					r.sc.Step = p.Step
+				}
+				r.sc.Progress = p.Done
+				r.show()
+			})
+		})
+		if wait := least - time.Since(start); wait > 0 {
+			select {
+			case <-time.After(wait):
+			case <-ctx.Done():
+			}
+		}
+		r.send(func() {
+			r.working = false
+			switch {
+			case r.leaving && err != nil:
+				r.leave()
+			case err != nil:
+				r.failed(err)
+			default:
+				r.sc.Page, r.sc.Progress = done, 1
 				r.show()
 			}
+			r.leaving = false
 		})
-		if wait := leastWork - time.Since(start); wait > 0 {
-			time.Sleep(wait)
-		}
-		r.events <- func() {
-			r.working = false
-			if err != nil {
-				r.failed(err)
-				return
-			}
-			r.sc.Page, r.sc.Progress = done, 1
-			r.show()
-		}
 	}()
 }
 

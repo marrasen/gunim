@@ -65,6 +65,23 @@ func sign(sums []byte) []byte {
 	return []byte(base64.StdEncoding.EncodeToString(ed25519.Sign(testSigner, sums)) + "\n")
 }
 
+// lookFor runs a's updater until stop, which waits for it to end, as
+// the test's cleanup does too, before the test's timings go back.
+func lookFor(t *testing.T, a App) (stop func()) {
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		keepUpToDate(ctx, a)
+		close(done)
+	}()
+	stop = func() {
+		cancel()
+		<-done
+	}
+	t.Cleanup(stop)
+	return stop
+}
+
 // release is a release as the test's GitHub serves it.
 type release struct {
 	tag        string
@@ -233,9 +250,7 @@ func TestKeepUpToDateFollowsTheMode(t *testing.T) {
 	if err := m.write(dir); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go keepUpToDate(ctx, a)
+	stop := lookFor(t, a)
 	select {
 	case r := <-available:
 		if r.Version != "v2.0.0" {
@@ -247,14 +262,12 @@ func TestKeepUpToDateFollowsTheMode(t *testing.T) {
 	if raw, _ := os.ReadFile(exe); string(raw) != "one" {
 		t.Fatal("set to notify, the release was put in place unasked")
 	}
-	cancel()
+	stop()
 
 	if err := SetUpdates(a, UpdatesInstall); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel = context.WithCancel(context.Background())
-	defer cancel()
-	go keepUpToDate(ctx, a)
+	lookFor(t, a)
 	select {
 	case <-updated:
 	case <-time.After(5 * time.Second):
@@ -349,14 +362,13 @@ func TestAnOlderCopyLeavesANewerInstall(t *testing.T) {
 		if err := SetUpdates(a, mode); err != nil {
 			t.Fatal(err)
 		}
-		ctx, cancel := context.WithCancel(context.Background())
-		go keepUpToDate(ctx, a)
+		stop := lookFor(t, a)
 		select {
 		case r := <-heard:
 			t.Errorf("set to %s, the updater acted on %s over v1.6.0", mode, r.Version)
 		case <-time.After(200 * time.Millisecond):
 		}
-		cancel()
+		stop()
 		if raw, _ := os.ReadFile(exe); string(raw) != "six" {
 			t.Fatalf("set to %s, the installed v1.6.0 now holds %q", mode, raw)
 		}

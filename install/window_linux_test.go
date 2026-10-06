@@ -4,6 +4,7 @@ package install
 
 import (
 	"context"
+	"errors"
 	"os"
 	"sync/atomic"
 	"testing"
@@ -79,7 +80,7 @@ func TestWindowInstallsAndRemoves(t *testing.T) {
 	if o.r.sc.Page != pageWelcome || len(o.r.sc.Offers) != 5 {
 		t.Fatalf("opened on %q with %d offers", o.r.sc.Page, len(o.r.sc.Offers))
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	o.r.handle(ctx, started{Picks: map[string]bool{PickDesktop: true}})
 	if o.r.sc.Page != pageWorking {
 		t.Fatalf("pressing Install went to %q", o.r.sc.Page)
@@ -120,12 +121,12 @@ func TestWindowFailsAndGoesBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	o := openOffscreen(t, s)
-	o.r.handle(context.Background(), started{})
+	o.r.handle(t.Context(), started{})
 	o.until(pageFailed)
 	if o.r.sc.Problem == "" {
 		t.Error("the failure says nothing")
 	}
-	o.r.handle(context.Background(), retried{})
+	o.r.handle(t.Context(), retried{})
 	o.until(pageWelcome)
 }
 
@@ -180,7 +181,7 @@ func TestTheInstallWaitsForTheProgramToClose(t *testing.T) {
 		}
 		return nil
 	}
-	o.r.handle(context.Background(), started{})
+	o.r.handle(t.Context(), started{})
 	o.until(pageRunning)
 	open.Store(false)
 	o.until(pageDone)
@@ -202,9 +203,9 @@ func TestCloseTheProgramFromTheInstaller(t *testing.T) {
 		}
 		return nil
 	}
-	o.r.handle(context.Background(), started{})
+	o.r.handle(t.Context(), started{})
 	o.until(pageRunning)
-	o.r.handle(context.Background(), quitThem{})
+	o.r.handle(t.Context(), quitThem{})
 	if o.r.sc.Page != pageClosing {
 		t.Fatalf("asked to close it, the installer is on %q", o.r.sc.Page)
 	}
@@ -216,13 +217,193 @@ func TestCloseTheProgramFromTheInstaller(t *testing.T) {
 	s = installedOnce(t, stubborn)
 	o = openOffscreen(t, s)
 	o.r.running = func() []int { return []int{42} }
-	o.r.handle(context.Background(), started{})
+	o.r.handle(t.Context(), started{})
 	o.until(pageRunning)
-	o.r.handle(context.Background(), quitThem{})
+	o.r.handle(t.Context(), quitThem{})
 	o.until(pageRunning)
 	if o.r.sc.Problem == "" {
 		t.Fatal("a program that didn't close is not said to have stayed")
 	}
 	// Cancel still closes the window, and nothing was installed over it.
-	o.r.handle(context.Background(), closed{})
+	o.r.handle(t.Context(), closed{})
+	if !o.r.left || o.r.working {
+		t.Errorf("Cancel left the window %v, working %v", o.r.left, o.r.working)
+	}
+}
+
+// Close while the work runs stops it: every frame until it has stopped
+// says so, and the window then closes.
+func TestCloseStopsTheWork(t *testing.T) {
+	fastWatch(t)
+	_, program := testHome(t)
+	a := testApp()
+	stopped := make(chan struct{})
+	a.Installed = func(ctx context.Context, _ Installation) error {
+		<-ctx.Done()
+		close(stopped)
+		return ctx.Err()
+	}
+	s, err := newSession(a, program, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := openOffscreen(t, s)
+	o.r.handle(t.Context(), started{})
+	for o.r.sc.Step != "Setting it up" {
+		o.frames(1)
+		time.Sleep(time.Millisecond)
+	}
+	o.r.handle(t.Context(), closed{})
+	for i := 0; !o.r.left; i++ {
+		if i > 2000 {
+			t.Fatal("Close did not stop the work")
+		}
+		if o.r.sc.Page != pageWorking || o.r.sc.Step != "Stopping" {
+			t.Fatalf("frame %d after Close: page %q, step %q; want the work stopping", i, o.r.sc.Page, o.r.sc.Step)
+		}
+		o.frames(1)
+		time.Sleep(time.Millisecond)
+	}
+	select {
+	case <-stopped:
+	default:
+		t.Error("the window closed, and the hook was never told to stop")
+	}
+}
+
+// A hook that will not stop holds the window only until Close is
+// pressed again.
+func TestASecondCloseLeavesAtOnce(t *testing.T) {
+	fastWatch(t)
+	_, program := testHome(t)
+	a := testApp()
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	a.Installed = func(context.Context, Installation) error { <-release; return nil }
+	s, err := newSession(a, program, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := openOffscreen(t, s)
+	o.r.handle(t.Context(), started{})
+	for o.r.sc.Step != "Setting it up" {
+		o.frames(1)
+		time.Sleep(time.Millisecond)
+	}
+	o.r.handle(t.Context(), closed{})
+	o.frames(5)
+	if o.r.left {
+		t.Fatal("one Close left the window before the work stopped")
+	}
+	o.r.handle(t.Context(), closed{})
+	if !o.r.left {
+		t.Fatal("a second Close did not leave the window")
+	}
+}
+
+// Close pressed as the work ends, as when the program closed and the
+// install went on by itself just before Cancel: what was done shows.
+func TestCloseAfterTheWorkEndedShowsWhatWasDone(t *testing.T) {
+	fastWatch(t)
+	_, program := testHome(t)
+	s, err := newSession(testApp(), program, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := openOffscreen(t, s)
+	o.r.handle(t.Context(), started{})
+	<-o.r.finished
+	o.r.handle(t.Context(), closed{})
+	o.until(pageDone)
+	if o.r.left {
+		t.Error("the window closed on an install that was done, saying nothing")
+	}
+}
+
+// A late answer to an earlier ask to close says nothing of the ask now.
+func TestAnEarlierAskToCloseStaysQuiet(t *testing.T) {
+	fastWatch(t)
+	var open atomic.Bool
+	open.Store(true)
+	first := make(chan struct{})
+	second := make(chan struct{})
+	t.Cleanup(func() { close(second) })
+	var asks atomic.Int32
+	a := testApp()
+	a.Quit = func(ctx context.Context) error {
+		if asks.Add(1) == 1 {
+			<-first
+			return errors.New("no answer")
+		}
+		<-second
+		return nil
+	}
+	var fails atomic.Bool
+	a.Installed = func(context.Context, Installation) error {
+		if fails.Swap(false) {
+			return os.ErrPermission
+		}
+		return nil
+	}
+	s := installedOnce(t, a)
+	fails.Store(true)
+	o := openOffscreen(t, s)
+	o.r.running = func() []int {
+		if open.Load() {
+			return []int{42}
+		}
+		return nil
+	}
+	ctx := t.Context()
+	o.r.handle(ctx, started{})
+	o.until(pageRunning)
+	o.r.handle(ctx, quitThem{})
+	open.Store(false)
+	o.until(pageFailed)
+	o.r.handle(ctx, retried{})
+	open.Store(true)
+	o.r.handle(ctx, started{})
+	o.until(pageRunning)
+	o.r.handle(ctx, quitThem{})
+	close(first)
+	for i := range 100 {
+		o.frames(1)
+		time.Sleep(time.Millisecond)
+		if o.r.sc.Page != pageClosing || o.r.sc.Problem != "" {
+			t.Fatalf("frame %d after the first ask's late answer: page %q, problem %q", i, o.r.sc.Page, o.r.sc.Problem)
+		}
+	}
+}
+
+// Interrupted, as by Ctrl+C, the window waits for the work to stop
+// before serve returns, and says it was interrupted.
+func TestAnInterruptWaitsForTheWork(t *testing.T) {
+	fastWatch(t)
+	_, program := testHome(t)
+	a := testApp()
+	a.Installed = func(ctx context.Context, _ Installation) error {
+		<-ctx.Done()
+		time.Sleep(50 * time.Millisecond)
+		return ctx.Err()
+	}
+	s, err := newSession(a, program, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := openOffscreen(t, s)
+	ctx, cancel := context.WithCancel(t.Context())
+	o.r.handle(ctx, started{})
+	for o.r.sc.Step != "Setting it up" {
+		o.frames(1)
+		time.Sleep(time.Millisecond)
+	}
+	cancel()
+	if err := o.r.serve(ctx); !errors.Is(err, context.Canceled) {
+		t.Errorf("interrupted, serve returned %v", err)
+	}
+	select {
+	case <-o.r.finished:
+	default:
+		t.Error("serve returned with the work still running")
+	}
 }
