@@ -1,9 +1,11 @@
 package main
 
 import (
+	"encoding/xml"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -59,5 +61,22 @@ func TestADebugBuildIsDebuggableAndAReleaseBuildIsNot(t *testing.T) {
 	}
 	if !(options{keystore: "k.jks"}).release() {
 		t.Error("a build with a keystore is a debug build")
+	}
+}
+
+func TestTheActivityHoldsTheScreenOneWayOnlyWhenAsked(t *testing.T) {
+	const attr = `android:screenOrientation=`
+	turns := manifestFor("org.gunim.calc", "Calculator", false, nil, "")
+	if strings.Contains(turns, attr) {
+		t.Errorf("with no orientation, the manifest holds the screen one way:\n%s", turns)
+	}
+	upright := manifestFor("org.gunim.calc", "Calculator", false, nil, "portrait")
+	if !strings.Contains(upright, attr+`"portrait"`) {
+		t.Errorf("asked for portrait, the manifest lets the screen turn:\n%s", upright)
+	}
+	for _, m := range []string{turns, upright} {
+		if err := xml.Unmarshal([]byte(m), new(struct{})); err != nil {
+			t.Errorf("the manifest is not XML: %v\n%s", err, m)
+		}
 	}
 }
