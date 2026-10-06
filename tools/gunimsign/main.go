@@ -55,7 +55,8 @@ func main() {
 	}
 }
 
-// makeKey writes a new private key to path, readable by its owner alone, and returns the public key.
+// makeKey writes a new private key to path, and returns the public key. On Unix the file is readable by its owner alone;
+// on Windows it takes the access its folder gives, so keep it in a folder of the user's own. A key half written goes.
 func makeKey(path string) (string, error) {
 	public, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -67,9 +68,11 @@ func makeKey(path string) (string, error) {
 	}
 	if _, err := fmt.Fprintln(f, base64.StdEncoding.EncodeToString(private.Seed())); err != nil {
 		_ = f.Close()
+		_ = os.Remove(path)
 		return "", err
 	}
 	if err := f.Close(); err != nil {
+		_ = os.Remove(path)
 		return "", err
 	}
 	return base64.StdEncoding.EncodeToString(public), nil

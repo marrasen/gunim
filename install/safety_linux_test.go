@@ -262,3 +262,30 @@ func TestAnInstallByHandEndsTheTrial(t *testing.T) {
 		t.Error("an install by hand left the trial")
 	}
 }
+
+// A fresh install stopped after the program was copied takes it back:
+// nothing is left to be found, or taken on at a start.
+func TestAStoppedFreshInstallLeavesNothing(t *testing.T) {
+	_, program := testHome(t)
+	a := testApp()
+	s, err := newSession(a, program, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	_, err = s.Install(ctx, nil, func(p Progress) {
+		if p.Step == "Copying its files" {
+			cancel()
+		}
+	})
+	if err == nil {
+		t.Fatal("an install stopped while copying its files went on")
+	}
+	if _, serr := os.Stat(s.Exe); serr == nil {
+		t.Error("a stopped fresh install left the program")
+	}
+	if in, ferr := Find(a); !errors.Is(ferr, ErrNotInstalled) {
+		t.Errorf("after a stopped fresh install Find says %+v, %v", in, ferr)
+	}
+}

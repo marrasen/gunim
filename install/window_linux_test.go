@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -231,9 +232,10 @@ func TestCloseTheProgramFromTheInstaller(t *testing.T) {
 	}
 }
 
-// Close while the work runs stops it: every frame until it has stopped
-// says so, and the window then closes.
-func TestCloseStopsTheWork(t *testing.T) {
+// Close while the program is set up stops the hook: every frame until
+// it has stopped says so, and the window then says the program is
+// installed, with its setup undone, in place of closing on it.
+func TestCloseStopsTheSetUp(t *testing.T) {
 	fastWatch(t)
 	_, program := testHome(t)
 	a := testApp()
@@ -254,9 +256,9 @@ func TestCloseStopsTheWork(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 	o.r.handle(t.Context(), closed{})
-	for i := 0; !o.r.left; i++ {
+	for i := 0; o.r.working; i++ {
 		if i > 2000 {
-			t.Fatal("Close did not stop the work")
+			t.Fatal("Close did not stop the setup")
 		}
 		if o.r.sc.Page != pageWorking || o.r.sc.Step != "Stopping" {
 			t.Fatalf("frame %d after Close: page %q, step %q; want the work stopping", i, o.r.sc.Page, o.r.sc.Step)
@@ -264,10 +266,52 @@ func TestCloseStopsTheWork(t *testing.T) {
 		o.frames(1)
 		time.Sleep(time.Millisecond)
 	}
-	select {
-	case <-stopped:
-	default:
-		t.Error("the window closed, and the hook was never told to stop")
+	<-stopped
+	o.until(pageFailed)
+	if o.r.left || !strings.Contains(o.r.sc.Problem, "installed") {
+		t.Errorf("stopped in its setup, the window left %v, saying %q", o.r.left, o.r.sc.Problem)
+	}
+}
+
+// Close while an uninstall's hook runs, before anything is taken away,
+// stops it, and the window closes once it has stopped.
+func TestCloseStopsTheUninstall(t *testing.T) {
+	fastWatch(t)
+	_, program := testHome(t)
+	a := testApp()
+	waiting := make(chan struct{})
+	a.Uninstalling = func(ctx context.Context, _ Installation) error {
+		close(waiting)
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	first, err := newSession(a, program, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = first.Install(context.Background(), nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	s, err := newSession(a, program, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := openOffscreen(t, s)
+	o.r.handle(t.Context(), removed{})
+	<-waiting
+	o.r.handle(t.Context(), closed{})
+	for i := 0; !o.r.left; i++ {
+		if i > 2000 {
+			t.Fatal("Close did not stop the uninstall")
+		}
+		if o.r.sc.Page != pageWorking || o.r.sc.Step != "Stopping" {
+			t.Fatalf("frame %d after Close: page %q, step %q; want the work stopping", i, o.r.sc.Page, o.r.sc.Step)
+		}
+		o.frames(1)
+		time.Sleep(time.Millisecond)
+	}
+	if _, err = os.Stat(s.Exe); err != nil {
+		t.Error("an uninstall stopped before it began took the program:", err)
 	}
 }
 

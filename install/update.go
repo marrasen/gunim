@@ -436,12 +436,19 @@ func verify(key ed25519.PublicKey, sums, sig []byte) bool {
 
 // client fetches over https only, redirects too, so no one on the way
 // can change what comes; plain http only from this computer, as from a
-// test's server.
+// test's server, and a redirect to it only from it, so a server out
+// there cannot send a request to a service of this computer's.
 var client = &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
 	if len(via) >= 10 {
 		return errors.New("too many redirects")
 	}
-	return secure(req.URL)
+	if req.URL.Scheme == "https" {
+		return nil
+	}
+	if first := via[0].URL; first.Scheme == "http" && loopback(first.Hostname()) {
+		return secure(req.URL)
+	}
+	return fmt.Errorf("install: %s is not https", req.URL.Redacted())
 }}
 
 // secure says what is wrong with fetching u, or nothing.
