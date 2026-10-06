@@ -43,7 +43,16 @@ const (
 	// vertices there: position, normal and colour.
 	meshIdle         = 10 * time.Second
 	meshVertexFloats = 10
+	// glMaxRenderbufferSize and glFramebufferComplete are what the GPU
+	// says of its render buffers.
+	glMaxRenderbufferSize = 0x84E8
+	glFramebufferComplete = 0x8CD5
 )
+
+// meshBudget is how many bytes of mesh buffers a window keeps on the
+// GPU; past it, the meshes drawn longest ago go first, as when a shape
+// that changes makes a new mesh each frame. A test lowers it.
+var meshBudget = 128 << 20
 
 // A scene draws by a program of its own, in depth, into a target of its
 // own: a multisampled colour and depth buffer, resolved into a texture
@@ -62,7 +71,21 @@ type sceneState struct {
 	msColor, msDepth    uint32
 	out                 target
 	outW, outH, samples int
-	meshes              map[*paint.Mesh]*meshBuffers
+	// most is the largest side the target may have: sceneMost, or less
+	// where the GPU's render buffers are smaller. broken says the GPU
+	// would not make the target, which it said once.
+	most   int
+	broken bool
+	// peakW and peakH are the most the scenes since peakSince took, and
+	// drawn when one last drew, for the target to shrink or go when the
+	// scenes no longer need it.
+	peakW, peakH     int
+	peakSince, drawn time.Time
+	meshes           map[*paint.Mesh]*meshBuffers
+	// meshBytes is how much the meshes take on the GPU, and frame counts
+	// the frames, for the budget to spare the meshes of the one drawing.
+	meshBytes int
+	frame     uint64
 	// order is scratch: the see-through items of the scene drawing.
 	order []seen
 }
@@ -72,6 +95,9 @@ type meshBuffers struct {
 	vao, vbo, ibo uint32
 	n             int32
 	used          time.Time
+	// frame is the last frame that drew it, and bytes what it takes.
+	frame uint64
+	bytes int
 }
 
 const sceneVS = `
@@ -173,6 +199,10 @@ func (r *Renderer) sceneReady() bool {
 	st.u.light, st.u.lightColor, st.u.ambient = loc("u_light"), loc("u_lightColor"), loc("u_ambient")
 	st.u.eye, st.u.tint, st.u.shine, st.u.mirror = loc("u_eye"), loc("u_tint"), loc("u_shine"), loc("u_mirror")
 	st.samples = min(sceneSamples, g.GetInteger(glMaxSamples))
+	st.most = sceneMost
+	if n := g.GetInteger(glMaxRenderbufferSize); n > 0 {
+		st.most = min(st.most, n)
+	}
 	st.meshes = map[*paint.Mesh]*meshBuffers{}
 	return true
 }
@@ -186,15 +216,18 @@ func (r *Renderer) scene(op *paint.SceneOp) {
 	// included, up to sceneMost device pixels a side.
 	sx := float32(math.Hypot(float64(t.A), float64(t.D))) * r.scale
 	sy := float32(math.Hypot(float64(t.B), float64(t.E))) * r.scale
-	w := min(int(math.Round(float64(size.W*sx))), sceneMost)
-	h := min(int(math.Round(float64(size.H*sy))), sceneMost)
+	w := int(math.Round(float64(size.W * sx)))
+	h := int(math.Round(float64(size.H * sy)))
 	if w <= 0 || h <= 0 || !r.sceneReady() {
 		return
 	}
+	st := &r.scenes
+	w, h = min(w, st.most), min(h, st.most)
 	r.flush()
 	g := r.GL
-	st := &r.scenes
-	r.fitScene(w, h)
+	if !r.fitScene(w, h) {
+		return
+	}
 
 	g.BindFramebuffer(gl.FRAMEBUFFER, st.ms)
 	g.Viewport(0, 0, int32(w), int32(h))
@@ -325,10 +358,19 @@ func mirrored(m geom.Mat4) bool {
 // fitScene makes the scene's target at least w by h, growing it to the
 // size asked for, so a scene that grows as it animates in reallocates
 // now and then, never every frame.
-func (r *Renderer) fitScene(w, h int) {
+func (r *Renderer) fitScene(w, h int) bool {
 	st := &r.scenes
+	if st.broken {
+		return false
+	}
+	now := time.Now()
+	st.drawn = now
+	if st.peakSince.IsZero() {
+		st.peakSince = now
+	}
+	st.peakW, st.peakH = max(st.peakW, w), max(st.peakH, h)
 	if st.ms != 0 && w <= st.outW && h <= st.outH {
-		return
+		return true
 	}
 	g := r.GL
 	w, h = max(w, st.outW), max(h, st.outH)
@@ -359,6 +401,33 @@ func (r *Renderer) fitScene(w, h int) {
 	g.ActiveTexture(gl.TEXTURE0)
 	g.BindFramebuffer(gl.FRAMEBUFFER, st.out.fbo)
 	g.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, st.out.tex, 0)
+	out := g.CheckFramebufferStatus(gl.FRAMEBUFFER)
+	g.BindFramebuffer(gl.FRAMEBUFFER, st.ms)
+	ms := g.CheckFramebufferStatus(gl.FRAMEBUFFER)
+	if out != glFramebufferComplete || ms != glFramebufferComplete {
+		log.Printf("gunim: render: scene: the GPU would not make a %d by %d target (%#x, %#x); scenes are not drawn", w, h, ms, out)
+		r.freeSceneTarget()
+		st.broken = true
+		g.BindFramebuffer(gl.FRAMEBUFFER, r.fbo(r.depth))
+		return false
+	}
+	return true
+}
+
+// freeSceneTarget lets go of the scene's target, which the next scene
+// makes again at its own size.
+func (r *Renderer) freeSceneTarget() {
+	st := &r.scenes
+	if st.ms == 0 {
+		return
+	}
+	g := r.GL
+	g.DeleteFramebuffer(st.ms)
+	g.DeleteRenderbuffer(st.msColor)
+	g.DeleteRenderbuffer(st.msDepth)
+	g.DeleteFramebuffer(st.out.fbo)
+	g.DeleteTexture(st.out.tex)
+	st.ms, st.msColor, st.msDepth, st.out, st.outW, st.outH = 0, 0, 0, target{}, 0, 0
 }
 
 // meshBuffers returns m's buffers on the GPU, uploading them on first
@@ -366,11 +435,11 @@ func (r *Renderer) fitScene(w, h int) {
 func (r *Renderer) meshBuffers(m *paint.Mesh, now time.Time) *meshBuffers {
 	st := &r.scenes
 	if mb, ok := st.meshes[m]; ok {
-		mb.used = now
+		mb.used, mb.frame = now, st.frame
 		return mb
 	}
 	g := r.GL
-	mb := &meshBuffers{vao: g.CreateVertexArray(), vbo: g.CreateBuffer(), ibo: g.CreateBuffer(), used: now}
+	mb := &meshBuffers{vao: g.CreateVertexArray(), vbo: g.CreateBuffer(), ibo: g.CreateBuffer(), used: now, frame: st.frame}
 	g.BindVertexArray(mb.vao)
 	g.BindBuffer(gl.ARRAY_BUFFER, mb.vbo)
 	verts := m.Vertices()
@@ -403,17 +472,50 @@ func (r *Renderer) meshBuffers(m *paint.Mesh, now time.Time) *meshBuffers {
 	g.BufferInit(gl.ELEMENT_ARRAY_BUFFER, len(ib), glStaticDraw)
 	g.BufferSubData(gl.ELEMENT_ARRAY_BUFFER, 0, ib)
 	mb.n = int32(len(idx))
+	mb.bytes = len(data) + len(ib)
+	st.meshBytes += mb.bytes
 	st.meshes[m] = mb
 	return mb
 }
 
-// evictMeshes lets go of the meshes the window has stopped drawing.
+// evictMeshes lets go, at the end of a frame, of the meshes the window
+// has stopped drawing, and of those drawn longest ago while the meshes
+// fill the budget, sparing the frame's own. A scene's target goes once
+// no scene has drawn for a while, and shrinks when the scenes of a
+// while took less than half of it.
 func (r *Renderer) evictMeshes() {
+	st := &r.scenes
 	now := time.Now()
-	for m, mb := range r.scenes.meshes {
+	for m, mb := range st.meshes {
 		if now.Sub(mb.used) > meshIdle {
 			r.dropMesh(m, mb)
 		}
+	}
+	if st.meshBytes > meshBudget {
+		type aged struct {
+			m  *paint.Mesh
+			mb *meshBuffers
+		}
+		var old []aged
+		for m, mb := range st.meshes {
+			if mb.frame != st.frame {
+				old = append(old, aged{m, mb})
+			}
+		}
+		slices.SortFunc(old, func(a, b aged) int { return a.mb.used.Compare(b.mb.used) })
+		for _, o := range old {
+			if st.meshBytes <= meshBudget {
+				break
+			}
+			r.dropMesh(o.m, o.mb)
+		}
+	}
+	st.frame++
+	if st.ms != 0 && now.Sub(st.peakSince) > meshIdle {
+		if now.Sub(st.drawn) > meshIdle || 2*st.peakW*st.peakH < st.outW*st.outH {
+			r.freeSceneTarget()
+		}
+		st.peakW, st.peakH, st.peakSince = 0, 0, now
 	}
 }
 
@@ -422,6 +524,7 @@ func (r *Renderer) dropMesh(m *paint.Mesh, mb *meshBuffers) {
 	g.DeleteVertexArray(mb.vao)
 	g.DeleteBuffer(mb.vbo)
 	g.DeleteBuffer(mb.ibo)
+	r.scenes.meshBytes -= mb.bytes
 	delete(r.scenes.meshes, m)
 }
 
@@ -432,13 +535,7 @@ func (r *Renderer) releaseScenes() {
 		r.dropMesh(m, mb)
 	}
 	g := r.GL
-	if st.ms != 0 {
-		g.DeleteFramebuffer(st.ms)
-		g.DeleteRenderbuffer(st.msColor)
-		g.DeleteRenderbuffer(st.msDepth)
-		g.DeleteFramebuffer(st.out.fbo)
-		g.DeleteTexture(st.out.tex)
-	}
+	r.freeSceneTarget()
 	if st.prog != 0 {
 		g.DeleteProgram(st.prog)
 	}

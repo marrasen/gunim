@@ -97,3 +97,19 @@ func TestACameraStraightAboveSeesTheScene(t *testing.T) {
 		t.Errorf("the tap met the sphere at %v facing %v, want its top, facing up", hit.Point, hit.Normal)
 	}
 }
+
+// A mesh made with an index past its corners leaves that triangle out:
+// it draws and picks the rest, and nothing reads past the corners.
+func TestAMeshLeavesOutTrianglesPastItsCorners(t *testing.T) {
+	v := func(x, y float32) MeshVertex {
+		return MeshVertex{Pos: geom.V3(x, y, 0), Normal: geom.V3(0, 0, 1), Color: color.NRGBA{A: 0xff}}
+	}
+	m := NewMesh([]MeshVertex{v(-1, -1), v(1, -1), v(0, 1)}, []uint32{0, 1, 2, 0, 1, 5, 2, 1})
+	if got := m.Indices(); len(got) != 3 {
+		t.Fatalf("the mesh kept indices %v, want the one whole triangle", got)
+	}
+	s := Scene{Camera: Camera{Eye: geom.V3(0, 0, 5)}, Items: []SceneItem{{Mesh: m}}}
+	if _, ok := s.Pick(geom.Rc(0, 0, 100, 100), geom.Pt(50, 55)); !ok {
+		t.Error("a tap on the triangle kept picked nothing")
+	}
+}
