@@ -1,0 +1,77 @@
+=== RUN   TestReplacePastARunningOld
+--- PASS: TestReplacePastARunningOld (0.03s)
+=== RUN   TestShots
+    shot_test.go:23: set GUNIM_INSTALL_SHOTS to a folder to write pictures of the installer to
+--- SKIP: TestShots (0.00s)
+=== RUN   TestUpdateShots
+    shot_test.go:147: set GUNIM_INSTALL_SHOTS to a folder to write pictures of an update to
+--- SKIP: TestUpdateShots (0.00s)
+=== RUN   TestCompare
+--- PASS: TestCompare (0.00s)
+=== RUN   TestGitHubLatest
+--- PASS: TestGitHubLatest (0.00s)
+=== RUN   TestStage
+--- PASS: TestStage (0.03s)
+=== RUN   TestCheckApp
+--- PASS: TestCheckApp (0.00s)
+=== RUN   TestKeepUpToDateFollowsTheMode
+--- PASS: TestKeepUpToDateFollowsTheMode (0.03s)
+=== RUN   TestUpdatesAreSigned
+--- PASS: TestUpdatesAreSigned (0.02s)
+=== RUN   TestAnOlderCopyLeavesANewerInstall
+--- PASS: TestAnOlderCopyLeavesANewerInstall (0.42s)
+=== RUN   TestWritersAtOnceNeverMix
+--- PASS: TestWritersAtOnceNeverMix (0.02s)
+=== RUN   TestALinkInAZipIsNoProgram
+--- PASS: TestALinkInAZipIsNoProgram (0.00s)
+=== RUN   TestABadUpdateGivesWay
+--- PASS: TestABadUpdateGivesWay (0.33s)
+=== RUN   TestAGoodUpdatePasses
+--- PASS: TestAGoodUpdatePasses (0.07s)
+=== RUN   TestMoveAsidePastABusyOld
+--- PASS: TestMoveAsidePastABusyOld (0.00s)
+=== RUN   TestANewerReleaseOnTrialKeepsTheOneThatPassed
+--- PASS: TestANewerReleaseOnTrialKeepsTheOneThatPassed (0.14s)
+=== RUN   TestAFailedDownloadOnTrialChangesNothing
+--- PASS: TestAFailedDownloadOnTrialChangesNothing (0.03s)
+=== RUN   TestTheProgramBeingReplacedLeavesTheTrial
+--- PASS: TestTheProgramBeingReplacedLeavesTheTrial (0.03s)
+=== RUN   TestARedirectHomeIsRefused
+--- PASS: TestARedirectHomeIsRefused (0.00s)
+PASS
+ok  	github.com/marrasen/gunim/install	1.292s
+=== RUN   TestWindowPresentsAndReportsTheFrame
+--- PASS: TestWindowPresentsAndReportsTheFrame (0.21s)
+=== RUN   TestPaceHoldsAnUnpacedSwapToTheRefreshRate
+--- PASS: TestPaceHoldsAnUnpacedSwapToTheRefreshRate (0.02s)
+=== RUN   TestPaceLeavesAPacedSwapAlone
+--- PASS: TestPaceLeavesAPacedSwapAlone (0.00s)
+=== RUN   TestBackdropFramesStayUpright
+--- PASS: TestBackdropFramesStayUpright (0.35s)
+=== RUN   TestEachWindowTakesItsMonitorsRate
+    desktop_test.go:182: needs two monitors at different refresh rates; see tools/multimon
+--- SKIP: TestEachWindowTakesItsMonitorsRate (0.00s)
+=== RUN   TestAShotIsTheFrameTheRightWayUp
+--- PASS: TestAShotIsTheFrameTheRightWayUp (0.16s)
+=== RUN   TestHotKeysHaveTheirVirtualKeys
+--- PASS: TestHotKeysHaveTheirVirtualKeys (0.00s)
+=== RUN   TestModsAfterAModifierKey
+--- PASS: TestModsAfterAModifierKey (0.00s)
+=== RUN   TestAnOwnedPopupStaysWithItsWindow
+--- PASS: TestAnOwnedPopupStaysWithItsWindow (0.28s)
+=== RUN   TestWindowOpensAtItsPlacement
+--- PASS: TestWindowOpensAtItsPlacement (0.46s)
+=== RUN   TestAWindowOnAMonitorStaysClearOfTheTaskBar
+--- PASS: TestAWindowOnAMonitorStaysClearOfTheTaskBar (0.15s)
+=== RUN   TestAChromelessWindowOpensInTheMiddle
+--- PASS: TestAChromelessWindowOpensInTheMiddle (0.15s)
+=== RUN   TestPopupAt
+--- PASS: TestPopupAt (0.00s)
+=== RUN   TestAPopupStaysOnTheMonitorOfItsAnchor
+--- PASS: TestAPopupStaysOnTheMonitorOfItsAnchor (0.00s)
+=== RUN   TestAPopupThatPrefersAboveGoesBelowOnlyWhereThereIsNoRoom
+--- PASS: TestAPopupThatPrefersAboveGoesBelowOnlyWhereThereIsNoRoom (0.00s)
+=== RUN   TestADrawnShadowWindowLeavesAnEdgeAsWideAsItsBorder
+--- PASS: TestADrawnShadowWindowLeavesAnEdgeAsWideAsItsBorder (0.00s)
+PASS
+ok  	github.com/marrasen/gunim/driver/desktop	2.516s
