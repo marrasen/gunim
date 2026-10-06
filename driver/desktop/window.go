@@ -524,9 +524,15 @@ func (w *Window) position(o driver.Options) error {
 	if b.Empty() {
 		b = o.Monitor.Bounds
 	}
-	l, t, r, bt, ferr := w.gw.GetFrameSize()
-	if ferr != nil {
-		l, t, r, bt = 0, 0, 0, 0
+	// A window that draws its own title bar loses the system's frame
+	// once it is made, and is its content alone; one that keeps the
+	// frame is that much larger.
+	l, t, r, bt := 0, 0, 0, 0
+	if !o.Chromeless || o.Kind != driver.KindNormal {
+		var ferr error
+		if l, t, r, bt, ferr = w.gw.GetFrameSize(); ferr != nil {
+			l, t, r, bt = 0, 0, 0, 0
+		}
 	}
 	ow, oh := ww+l+r, wh+t+bt
 	x := int(b.Min.X) + max((int(b.Size().W)-ow)/2, 0) + l

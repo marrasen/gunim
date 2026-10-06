@@ -2,6 +2,7 @@ package install
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -307,8 +308,14 @@ var leastWork = 1600 * time.Millisecond
 func (r *runner) show() { _ = r.c.Update("installer", r.sc) }
 
 // stopWait is how long the installer, interrupted as from a terminal,
-// waits for the work to stop before it ends all the same.
-var stopWait = 10 * time.Second
+// waits for the work to stop before it ends all the same: within the
+// five seconds gunim.Main gives an application once its windows have
+// gone.
+var stopWait = 4 * time.Second
+
+// errStopped says the window was closed while the work still ran, as
+// by a second Close on a hook that would not stop.
+var errStopped = errors.New("install: stopped before it finished")
 
 func (r *runner) serve(ctx context.Context) error {
 	if r.ctx == nil {
@@ -323,6 +330,15 @@ func (r *runner) serve(ctx context.Context) error {
 			fn()
 		case ev, ok := <-r.c.Intents():
 			if !ok {
+				// The window went: as ctx ended, with the work stopped by
+				// it, or as the work was left running.
+				if ctx.Err() != nil {
+					r.drain()
+					return ctx.Err()
+				}
+				if r.working {
+					return errStopped
+				}
 				return nil
 			}
 			r.handle(ctx, ev.Intent)
@@ -566,7 +582,8 @@ func (r *runner) work(do func(context.Context, func(Progress)) error, done strin
 		r.send(func() {
 			r.working = false
 			switch {
-			case r.leaving && err != nil:
+			case r.leaving && err != nil && !errors.Is(err, errSetUp):
+				// Stopped before the program was in place.
 				r.leave()
 			case err != nil:
 				r.failed(err)

@@ -114,6 +114,10 @@ func (a *App) dir() (string, error) {
 	return defaultDir(a)
 }
 
+// errSetUp says the program is installed, and App.Installed failed or
+// was stopped: installing it again runs it again.
+var errSetUp = errors.New("installed, but setting it up did not finish")
+
 // errOther says a folder holds the install of another program.
 var errOther = errors.New("holds another program's install")
 
@@ -428,19 +432,45 @@ func (s *Session) install(ctx context.Context, picks map[string]bool, progress f
 	if s.App.Updates != nil {
 		in.Picks[PickUpdates] = in.Updates == UpdatesInstall
 	}
+	// A fresh install that stops before it has written what it put in
+	// place takes it all back, so no half install is left to be found,
+	// and taken on, at the program's next start.
+	fresh := old == nil && s.Have == nil
+	var placed []string
+	registered := false
+	fail := func(err error) (Installation, error) {
+		if fresh {
+			if registered {
+				_ = unregister(&s.App, in)
+			}
+			for _, f := range placed {
+				_ = os.Remove(f)
+			}
+			pruneEmpty(s.Dir)
+			_ = os.Remove(s.Dir)
+		}
+		return in, err
+	}
 	progress(Progress{Step: "Copying " + s.App.Name, Done: 0.1})
 	if !samePath(s.self, s.Exe) {
+		// A copy put in place by hand ends a trial: the program it
+		// replaces is the user's choice now, as is this one.
+		_ = os.Remove(trialPath(s.Exe))
 		if err = copyFile(ctx, s.self, s.Exe, func(f float32) {
 			progress(Progress{Step: "Copying " + s.App.Name, Done: 0.1 + 0.5*f})
 		}); err != nil {
-			return in, fmt.Errorf("copy %s to %s: %w", s.App.Name, s.Exe, err)
+			return fail(fmt.Errorf("copy %s to %s: %w", s.App.Name, s.Exe, err))
 		}
+		placed = append(placed, s.Exe)
 	}
 	files, err := s.App.copyFiles(ctx, s.Dir, func(f float32) {
 		progress(Progress{Step: "Copying its files", Done: 0.6 + 0.15*f})
 	})
 	if err != nil {
-		return in, err
+		return fail(err)
+	}
+	for _, f := range files {
+		placed = append(placed, filepath.Join(s.Dir, filepath.FromSlash(f)))
 	}
 	if old != nil {
 		// Files an older version had that this one does not.
@@ -452,20 +482,24 @@ func (s *Session) install(ctx context.Context, picks map[string]bool, progress f
 		pruneEmpty(s.Dir)
 	}
 	progress(Progress{Step: "Adding it to the system", Done: 0.8})
+	registered = true
 	if err := register(&s.App, in); err != nil {
-		return in, err
+		return fail(err)
+	}
+	if err := ctx.Err(); err != nil {
+		return fail(err)
 	}
 	m := manifest{ID: s.App.id(), Version: s.App.Version, Exe: s.App.exe(), Files: files, Picks: in.Picks, Updates: in.Updates, When: time.Now().UTC()}
 	if old != nil {
 		m.Skip = old.Skip
 	}
 	if err := m.write(s.Dir); err != nil {
-		return in, err
+		return fail(err)
 	}
 	if s.App.Installed != nil {
 		progress(Progress{Step: "Setting it up", Done: 0.9})
 		if err := s.App.Installed(ctx, in); err != nil {
-			return in, err
+			return in, fmt.Errorf("%w: %w", errSetUp, err)
 		}
 	}
 	progress(Progress{Step: "Done", Done: 1})
@@ -700,33 +734,43 @@ func copyFile(ctx context.Context, from, to string, progress func(float32)) erro
 // one is moved aside to path.old first, which [CleanOld] takes away
 // later, and moved back if the new one cannot be put in place, so path
 // is never left missing.
-func Replace(part, path string) error {
+func Replace(part, path string) error { return replaceKeeping(part, path, false) }
+
+// replaceKeeping is Replace of the file at to, which with keep leaves
+// to.old as it is, for an update to give way to: where the program is
+// moved aside, it goes to a name of its own, which CleanOld takes away.
+func replaceKeeping(part, to string, keep bool) error {
 	old := ""
 	if movesAside {
-		if _, err := os.Stat(path); err == nil {
-			if old, err = moveAside(path); err != nil {
+		if _, err := os.Stat(to); err == nil {
+			if old, err = moveAside(to, keep); err != nil {
 				return err
 			}
 		}
 	}
-	if err := os.Rename(part, path); err != nil {
+	if err := os.Rename(part, to); err != nil {
 		if old != "" {
-			_ = os.Rename(old, path)
+			_ = os.Rename(old, to)
 		}
-		return fmt.Errorf("put %s in place: %w", filepath.Base(path), err)
+		return fmt.Errorf("put %s in place: %w", filepath.Base(to), err)
 	}
 	return nil
 }
 
-// moveAside moves the file at file to file.old, for Replace. One at
+// moveAside moves the file at file to file.old, for Replace, or, with
+// keep, to a name of its own beside it, and returns where. One at
 // file.old that cannot go, as the program the last update moved aside
 // while it still runs, as from the tray, is moved out of the way first,
 // under a name of its own, which CleanOld takes away once it can.
-func moveAside(file string) (string, error) {
+func moveAside(file string, keep bool) (string, error) {
+	aside := func() string {
+		return filepath.Join(filepath.Dir(file), fmt.Sprintf(".%s.%d.old", filepath.Base(file), time.Now().UnixNano()))
+	}
 	old := file + ".old"
-	if err := os.Remove(old); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		busy := filepath.Join(filepath.Dir(file), fmt.Sprintf(".%s.%d.old", filepath.Base(file), time.Now().UnixNano()))
-		if err := os.Rename(old, busy); err != nil {
+	if keep {
+		old = aside()
+	} else if err := os.Remove(old); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		if err := os.Rename(old, aside()); err != nil {
 			return "", fmt.Errorf("move %s aside: %w", filepath.Base(old), err)
 		}
 	}

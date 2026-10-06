@@ -18,6 +18,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
 	"path/filepath"
 	"runtime"
@@ -279,18 +280,43 @@ func stageReporting(ctx context.Context, a App, r Release, report func(Progress)
 		return fmt.Errorf("install: %s is installed already, and %s is no newer", m.Version, r.Version)
 	}
 	exe := filepath.Join(dir, a.exe())
-	// In place already, and on trial, the program kept is the one before
-	// it: kept again, the release would give way to itself.
-	kept := false
-	if t, ok := readTrial(exe); !ok || t.Version != r.Version {
-		kept = keepOld(exe)
+	t, onTrial := readTrial(exe)
+	if onTrial && t.Version == r.Version {
+		// In place already, and on trial.
+		return nil
 	}
-	if err := stageToReporting(ctx, a, r, exe, report); err != nil {
+	body, err := download(ctx, a, r, report)
+	if err != nil {
+		// A download that fails leaves the program and what is kept of
+		// the one before as they were.
 		return err
 	}
+	// A release on trial has the last one that passed kept already: that
+	// one stays kept, and the release on trial goes, so a release that
+	// keeps ending as it starts gives way to one that ran. Otherwise the
+	// program now is kept.
+	kept := onTrial && keptOld(exe)
+	if !onTrial {
+		kept = keepOld(exe)
+	}
+	// The trial goes down first, so a start in between, of the program
+	// being replaced, finds a newer release on trial and leaves all as
+	// it is: see onTrial.
 	if kept {
-		// On trial until it has run a while: see trial.go.
-		_ = trial{Version: r.Version}.write(exe)
+		if err := (trial{Version: r.Version}).write(exe); err != nil {
+			return err
+		}
+	} else {
+		_ = os.Remove(trialPath(exe))
+	}
+	place := func(part, to string) error { return replaceKeeping(part, to, kept) }
+	if err := writeVia(exe, 0o755, place, func(f *os.File) error { _, err := f.Write(body); return err }); err != nil {
+		if onTrial {
+			_ = t.write(exe)
+		} else {
+			_ = os.Remove(trialPath(exe))
+		}
+		return err
 	}
 	return nil
 }
@@ -303,25 +329,35 @@ func StageTo(ctx context.Context, a App, r Release, exe string) error {
 
 // stageToReporting is [StageTo], telling report how the download goes.
 func stageToReporting(ctx context.Context, a App, r Release, exe string, report func(Progress)) error {
-	if err := a.check(); err != nil {
+	body, err := download(ctx, a, r, report)
+	if err != nil {
 		return err
+	}
+	return writeFile(exe, body, 0o755)
+}
+
+// download fetches r's program for a, checked, telling report how it
+// goes, and returns it to put in place.
+func download(ctx context.Context, a App, r Release, report func(Progress)) ([]byte, error) {
+	if err := a.check(); err != nil {
+		return nil, err
 	}
 	key, err := a.updateKey()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	body, err := fetch(ctx, a.exe(), key, r, report)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err := ctx.Err(); err != nil {
 		// Stopped once it had come: nothing is put in place.
-		return err
+		return nil, err
 	}
 	if report != nil {
 		report(Progress{Step: "Putting it in place", Done: 0.95})
 	}
-	return writeFile(exe, body, 0o755)
+	return body, nil
 }
 
 // newerThanInstalled reports whether r is newer than the version
@@ -400,12 +436,19 @@ func verify(key ed25519.PublicKey, sums, sig []byte) bool {
 
 // client fetches over https only, redirects too, so no one on the way
 // can change what comes; plain http only from this computer, as from a
-// test's server.
+// test's server, and a redirect to it only from it, so a server out
+// there cannot send a request to a service of this computer's.
 var client = &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
 	if len(via) >= 10 {
 		return errors.New("too many redirects")
 	}
-	return secure(req.URL)
+	if req.URL.Scheme == "https" {
+		return nil
+	}
+	if first := via[0].URL; first.Scheme == "http" && loopback(first.Hostname()) {
+		return secure(req.URL)
+	}
+	return fmt.Errorf("install: %s is not https", req.URL.Redacted())
 }}
 
 // secure says what is wrong with fetching u, or nothing.

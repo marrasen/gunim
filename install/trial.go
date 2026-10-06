@@ -86,17 +86,28 @@ func keepOld(exe string) bool {
 // moved aside goes.
 func onTrial(a App, self string) (gaveWay bool) {
 	t, ok := readTrial(self)
+	if ok && t.Version != a.Version && IsRelease(t.Version) && Newer(t.Version, a.Version) {
+		// The program a newer release is replacing, started as it is put
+		// in place: all stays as it is.
+		return false
+	}
 	if !ok || t.Version != a.Version {
 		_ = os.Remove(trialPath(self))
 		CleanOld(self)
 		return false
 	}
-	t.Starts++
-	if t.Starts > trialStarts {
-		return giveWay(a, self, t) == nil
-	}
-	if t.write(self) != nil {
-		return false
+	// A start beside a copy already running, as when several files are
+	// opened at once, or a restart, says nothing of whether the release
+	// can start: it is not counted, and the release passes all the same
+	// when one of them runs a while.
+	if !othersRunning(self) {
+		t.Starts++
+		if t.Starts > trialStarts {
+			return giveWay(a, self, t) == nil
+		}
+		if t.write(self) != nil {
+			return false
+		}
 	}
 	run := trialRun
 	go func() {
@@ -104,6 +115,27 @@ func onTrial(a App, self string) (gaveWay bool) {
 		passed(self, t.Version)
 	}()
 	return false
+}
+
+// othersRunning reports whether another process runs the program at
+// self.
+func othersRunning(self string) bool {
+	pids, err := running(self)
+	if err != nil {
+		return false
+	}
+	for _, pid := range pids {
+		if pid != os.Getpid() {
+			return true
+		}
+	}
+	return false
+}
+
+// keptOld reports whether a program is kept at exe.old.
+func keptOld(exe string) bool {
+	fi, err := os.Stat(exe + ".old")
+	return err == nil && fi.Mode().IsRegular()
 }
 
 // passed ends the trial of version at self: the release ran long enough,
@@ -123,6 +155,19 @@ func giveWay(a App, self string, t trial) error {
 		_ = os.Remove(trialPath(self))
 		return err
 	}
+	// The release to pass over is kept first: put back without it, the
+	// program before would stage it again at its next look.
+	dir := filepath.Dir(self)
+	m, err := readManifest(dir, a.id())
+	if err != nil {
+		return err
+	}
+	if m != nil {
+		m.Skip = t.Version
+		if err := persist(func() error { return m.write(dir) }); err != nil {
+			return err
+		}
+	}
 	back := self + ".back"
 	if err := os.Rename(old, back); err != nil {
 		return err
@@ -132,12 +177,21 @@ func giveWay(a App, self string, t trial) error {
 		return err
 	}
 	_ = os.Remove(trialPath(self))
-	dir := filepath.Dir(self)
-	if m, err := readManifest(dir, a.id()); err == nil && m != nil {
-		m.Skip = t.Version
-		_ = m.write(dir)
-	}
 	return nil
+}
+
+// persist runs fn until it succeeds, a few times, a little apart, as a
+// file another process reads for a moment cannot be replaced on
+// Windows.
+func persist(fn func() error) error {
+	var err error
+	for range 10 {
+		if err = fn(); err == nil {
+			return nil
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return err
 }
 
 // skipped is the release an update gave way from, which the updates

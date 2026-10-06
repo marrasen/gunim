@@ -105,3 +105,46 @@ func TestAWindowOnAMonitorStaysClearOfTheTaskBar(t *testing.T) {
 		t.Errorf("the window is at %v, past the work area %v", p.Bounds, m.WorkArea)
 	}
 }
+
+// A window that draws its own title bar, as the installer does, opens
+// in the very middle of the work area: the system's frame it loses as
+// it is made counts for nothing.
+func TestAChromelessWindowOpensInTheMiddle(t *testing.T) {
+	if display == nil {
+		t.Skip("no display")
+	}
+	var m driver.Monitor
+	for _, mon := range display.Monitors() {
+		if mon.Primary {
+			m = mon
+		}
+	}
+	if m.Bounds.Size().H < 600 || m.Bounds.Size().W < 600 {
+		t.Skip("no primary monitor with room for the test")
+	}
+	m.WorkArea = geom.Rect{Min: m.Bounds.Min, Max: geom.Pt(m.Bounds.Max.X, m.Bounds.Max.Y-300)}
+	scale := max(m.CoordsPerLogical, 1)
+	w, err := display.NewWindow(driver.Options{Title: "gunim chromeless centre test", Size: geom.Sz(320, 200),
+		Monitor: &m, Chromeless: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = w.Close() }()
+	r, _ := w.(driver.PlacementReader)
+	want := geom.Pt((m.WorkArea.Min.X+m.WorkArea.Max.X)/2, (m.WorkArea.Min.Y+m.WorkArea.Max.Y)/2)
+	var got geom.Point
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if p, ok := r.Placement(); ok {
+			got = geom.Pt((p.Bounds.Min.X+p.Bounds.Max.X)/2, (p.Bounds.Min.Y+p.Bounds.Max.Y)/2)
+			if d := got.Sub(want); d.X*d.X+d.Y*d.Y <= 4*scale*scale {
+				return
+			}
+		}
+		if time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Errorf("the window's middle is at %v, want the work area's, %v", got, want)
+}
