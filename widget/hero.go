@@ -54,6 +54,10 @@ type Hero struct {
 	// it is drawn with, as last painted.
 	natural geom.Size
 	scale   float32
+	// clip is what clips the hero at its place, in window space, if
+	// clipped is set, as last painted.
+	clip    geom.Rect
+	clipped bool
 }
 
 // NewHero returns child as a hero tagged tag.
@@ -178,6 +182,7 @@ func (h *Hero) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.
 	t := p.Transform()
 	h.rect = geom.Rect{Min: t.Apply(geom.Point{}), Max: t.Apply(box.Point())}.Normalized()
 	h.scale = float32(math.Hypot(float64(t.A), float64(t.D)))
+	h.clip, h.clipped = p.Clip().Bounds()
 	h.seen = f.Number()
 	if h.hidden {
 		return
@@ -194,7 +199,14 @@ func (h *Hero) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.
 	if w := kid.Size().W; w > 0 {
 		k = at.Size().W / w
 	}
+	fly := h.fly.Value()
 	p.Float(func(p *paint.Painter) {
+		if h.clipped {
+			// It leaves whatever clipped it where it took off, and comes
+			// into what clips its place, so it lands as it shows at rest.
+			r := lerpRect(h.from.Union(h.clip), h.clip, fly)
+			defer p.Layer(paint.LayerOpts{Bounds: r, Opacity: 1, Clip: true})()
+		}
 		defer p.Push(paint.Translate(at.Min))()
 		defer p.Push(paint.Scale(k, geom.Point{}))()
 		kid.Paint(p)

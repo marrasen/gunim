@@ -456,6 +456,51 @@ func (c *Clip) Contains(p geom.Point) bool {
 	return true
 }
 
+// Bounds returns the rectangle around what c and every clip around it
+// let through, in window space, and false for a nil Clip, where nothing
+// clips. A clip under a perspective is left out of it, as its edges are
+// not straight on the screen.
+func (c *Clip) Bounds() (geom.Rect, bool) {
+	if c == nil {
+		return geom.Rect{}, false
+	}
+	var out geom.Rect
+	first := true
+	for ; c != nil; c = c.outer {
+		if c.proj != nil {
+			continue
+		}
+		fwd, ok := c.inv.Invert()
+		if !c.ok || !ok {
+			return geom.Rect{}, true
+		}
+		r := c.rect
+		var b geom.Rect
+		for i, q := range []geom.Point{r.Min, {X: r.Max.X, Y: r.Min.Y}, r.Max, {X: r.Min.X, Y: r.Max.Y}} {
+			w := fwd.Apply(q)
+			if i == 0 {
+				b = geom.Rect{Min: w, Max: w}
+				continue
+			}
+			b.Min.X, b.Min.Y = min(b.Min.X, w.X), min(b.Min.Y, w.Y)
+			b.Max.X, b.Max.Y = max(b.Max.X, w.X), max(b.Max.Y, w.Y)
+		}
+		if first {
+			out, first = b, false
+			continue
+		}
+		out.Min.X, out.Min.Y = max(out.Min.X, b.Min.X), max(out.Min.Y, b.Min.Y)
+		out.Max.X, out.Max.Y = min(out.Max.X, b.Max.X), min(out.Max.Y, b.Max.Y)
+		if out.Empty() {
+			return geom.Rect{}, true
+		}
+	}
+	if first {
+		return geom.Rect{}, false
+	}
+	return out, true
+}
+
 // insideRounded reports whether p lies inside r with its corners
 // rounded by radius.
 func insideRounded(p geom.Point, r geom.Rect, radius float32) bool {

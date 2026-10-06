@@ -29,6 +29,22 @@ func TestInvertOfAZeroScaleReportsNone(t *testing.T) {
 	}
 }
 
+func TestClipBoundsAreWhatEveryClipLetsThroughOnTheScreen(t *testing.T) {
+	var p Painter
+	if _, ok := p.Clip().Bounds(); ok {
+		t.Fatal("with nothing clipping, there are bounds")
+	}
+	closeOuter := p.Layer(LayerOpts{Bounds: geom.Rc(0, 0, 100, 100), Clip: true})
+	pop := p.Push(Scale(2, geom.Pt(0, 0)))
+	closeInner := p.Layer(LayerOpts{Bounds: geom.Rc(30, 10, 40, 20), Clip: true})
+	if b, ok := p.Clip().Bounds(); !ok || b != geom.Rc(60, 20, 40, 40) {
+		t.Fatalf("Bounds = %v, %v; want the inner clip, scaled, cut by the outer", b, ok)
+	}
+	closeInner()
+	pop()
+	closeOuter()
+}
+
 func TestClipContainsOnlyWhatEveryClipShows(t *testing.T) {
 	var p Painter
 	if !p.Clip().Contains(geom.Pt(-1000, 1000)) {
