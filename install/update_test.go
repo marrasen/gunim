@@ -531,3 +531,30 @@ func TestAGoodUpdatePasses(t *testing.T) {
 		t.Fatalf("passed, the program holds %q", raw)
 	}
 }
+
+// Moving the program aside for a new one, a copy moved aside before
+// that cannot go, as one still running from the tray on Windows, is
+// moved out of the way, and the program before goes to .old all the
+// same, for the update to give way to.
+func TestMoveAsidePastABusyOld(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "studio")
+	if err := os.WriteFile(path, []byte("two"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A folder with a file in it cannot be removed, as a running
+	// program's file cannot on Windows.
+	if err := os.MkdirAll(filepath.Join(path+".old", "running"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old, err := moveAside(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if raw, _ := os.ReadFile(old); old != path+".old" || string(raw) != "two" {
+		t.Fatalf("moved aside to %s, holding %q", old, raw)
+	}
+	if busy := leftovers(path, ".old"); len(busy) != 1 {
+		t.Fatalf("the copy in the way went to %v, want one name of its own", busy)
+	}
+}

@@ -31,9 +31,18 @@ type MeshVertex struct {
 
 // NewMesh makes a mesh of triangles, each three indices into verts, in
 // counterclockwise order seen from the side the surface faces. It
-// copies both.
+// copies both. A triangle with an index past verts, and indices left
+// over past the last whole triangle, are left out, so neither drawing
+// nor picking reads past the corners.
 func NewMesh(verts []MeshVertex, indices []uint32) *Mesh {
-	return boundMesh(slices.Clone(verts), slices.Clone(indices))
+	idx := make([]uint32, 0, len(indices)/3*3)
+	for i := 0; i+2 < len(indices); i += 3 {
+		t := indices[i : i+3]
+		if int(t[0]) < len(verts) && int(t[1]) < len(verts) && int(t[2]) < len(verts) {
+			idx = append(idx, t...)
+		}
+	}
+	return boundMesh(slices.Clone(verts), idx)
 }
 
 // boundMesh makes a mesh of verts and idx, which it keeps, and finds its

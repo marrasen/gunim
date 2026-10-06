@@ -65,3 +65,43 @@ func TestWindowOpensAtItsPlacement(t *testing.T) {
 		}
 	}
 }
+
+// A window opened on a monitor sits in the middle of the part windows
+// may use, clear of a task bar, and not in the middle of the whole
+// screen, where the task bar would cover its bottom.
+func TestAWindowOnAMonitorStaysClearOfTheTaskBar(t *testing.T) {
+	if display == nil {
+		t.Skip("no display")
+	}
+	var m driver.Monitor
+	for _, mon := range display.Monitors() {
+		if mon.Primary {
+			m = mon
+		}
+	}
+	if m.Bounds.Size().H < 600 || m.Bounds.Size().W < 400 {
+		t.Skip("no primary monitor with room for the test")
+	}
+	// A task bar of 300 pixels along the bottom.
+	m.WorkArea = geom.Rect{Min: m.Bounds.Min, Max: geom.Pt(m.Bounds.Max.X, m.Bounds.Max.Y-300)}
+	scale := max(m.CoordsPerLogical, 1)
+	h := (m.WorkArea.Size().H - 60) / scale
+	w, err := display.NewWindow(driver.Options{Title: "gunim work area test", Size: geom.Sz(320, h), Monitor: &m})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = w.Close() }()
+	r, _ := w.(driver.PlacementReader)
+	var p driver.Placement
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		var ok bool
+		if p, ok = r.Placement(); ok && p.Bounds.Max.Y <= m.WorkArea.Max.Y+1 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if p.Bounds.Max.Y > m.WorkArea.Max.Y+1 || p.Bounds.Min.Y < m.WorkArea.Min.Y-1 {
+		t.Errorf("the window is at %v, past the work area %v", p.Bounds, m.WorkArea)
+	}
+}

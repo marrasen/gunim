@@ -7,7 +7,9 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -161,5 +163,41 @@ func TestAFolderIsNoInstall(t *testing.T) {
 	}
 	if in, err := Find(a); !errors.Is(err, ErrNotInstalled) {
 		t.Errorf("a folder at %s was found installed: %+v, %v", exe, in, err)
+	}
+}
+
+// A copy running from where an older version put it is one to close
+// before the install, as one running where the program goes is.
+func TestACopyRunningFromAnOldPlaceCounts(t *testing.T) {
+	home, program := testHome(t)
+	sleep, err := exec.LookPath("sleep")
+	if err != nil {
+		t.Skip("no sleep to run")
+	}
+	raw, err := os.ReadFile(sleep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := filepath.Join(home, "bin", "kakel")
+	if err = os.MkdirAll(filepath.Dir(old), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(old, raw, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.CommandContext(t.Context(), old, "30")
+	if err = cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+	a := App{Name: "kakel", Version: "v0.6.0", Formerly: []string{old}}
+	for _, uninstall := range []bool{false, true} {
+		s, err := newSession(a, program, uninstall)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := s.Running(); !slices.Contains(got, cmd.Process.Pid) {
+			t.Errorf("uninstall %v: running %v, want the copy at the old place, %d", uninstall, got, cmd.Process.Pid)
+		}
 	}
 }

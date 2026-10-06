@@ -517,9 +517,20 @@ func (w *Window) position(o driver.Options) error {
 			wh = int(float32(wh) * o.Monitor.Scale / from)
 		}
 	}
-	b := o.Monitor.Bounds
-	x := int(b.Min.X) + (int(b.Size().W)-ww)/2
-	y := int(b.Min.Y) + (int(b.Size().H)-wh)/2
+	// It goes in the middle of the part of the monitor windows may use,
+	// clear of the task bar, frame and all, and where it is too large
+	// for that, from its top left corner.
+	b := o.Monitor.WorkArea
+	if b.Empty() {
+		b = o.Monitor.Bounds
+	}
+	l, t, r, bt, ferr := w.gw.GetFrameSize()
+	if ferr != nil {
+		l, t, r, bt = 0, 0, 0, 0
+	}
+	ow, oh := ww+l+r, wh+t+bt
+	x := int(b.Min.X) + max((int(b.Size().W)-ow)/2, 0) + l
+	y := int(b.Min.Y) + max((int(b.Size().H)-oh)/2, 0) + t
 	return w.gw.SetPos(x, y)
 }
 

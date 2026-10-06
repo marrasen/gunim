@@ -140,3 +140,65 @@ func TestAMirroredMeshIsLitAsItIs(t *testing.T) {
 		}
 	}
 }
+
+// A shape that changes, a new mesh each frame, keeps the meshes on the
+// GPU within the budget, the frame's own drawn whole.
+func TestMeshesStayWithinTheBudget(t *testing.T) {
+	r, done := hiddenGL(t)
+	defer done()
+	was := meshBudget
+	meshBudget = 3 * meshSize(paint.NewSphere(16, 32, red))
+	t.Cleanup(func() { meshBudget = was })
+	for frame := range 20 {
+		m := paint.NewSphere(16, 32, red)
+		s := paint.Scene{Camera: paint.Camera{Eye: geom.V3(0, 0, 3)}, Items: []paint.SceneItem{{Mesh: m}}}
+		pix := drawn(r, func(p *paint.Painter) { p.Scene(geom.Rc(0, 0, 100, 100), s) })
+		if r.scenes.meshBytes > meshBudget {
+			t.Fatalf("frame %d: the meshes take %d bytes, past the budget of %d", frame, r.scenes.meshBytes, meshBudget)
+		}
+		if _, ok := r.scenes.meshes[m]; !ok {
+			t.Fatalf("frame %d: the frame's own mesh was let go", frame)
+		}
+		if got := pixelAt(pix, 50, 50); got[0] < 0x80 {
+			t.Fatalf("frame %d: the sphere's middle is %v, want it drawn", frame, got)
+		}
+	}
+}
+
+// meshSize is how many bytes m takes on the GPU.
+func meshSize(m *paint.Mesh) int {
+	return len(m.Vertices())*meshVertexFloats*4 + len(m.Indices())*4
+}
+
+// The scene's target shrinks when the scenes of a while took less than
+// half of it, and goes when no scene has drawn for a while.
+func TestTheScenesTargetShrinksAndGoes(t *testing.T) {
+	r, done := hiddenGL(t)
+	defer done()
+	s := paint.Scene{Camera: paint.Camera{Eye: geom.V3(0, 0, 3)}, Items: []paint.SceneItem{{Mesh: paint.NewSphere(8, 16, red)}}}
+	drawn(r, func(p *paint.Painter) { p.Scene(geom.Rc(0, 0, 400, 400), s) })
+	st := &r.scenes
+	if st.outW < 400 || st.outH < 400 {
+		t.Fatalf("a 400 by 400 scene has a target %d by %d", st.outW, st.outH)
+	}
+	if st.most <= 0 || st.most > sceneMost {
+		t.Fatalf("the target may be %d a side", st.most)
+	}
+	// A while of small scenes, since the large one.
+	st.peakW, st.peakH, st.peakSince = 0, 0, st.peakSince.Add(-2*meshIdle)
+	drawn(r, func(p *paint.Painter) { p.Scene(geom.Rc(0, 0, 100, 100), s) })
+	pix := drawn(r, func(p *paint.Painter) { p.Scene(geom.Rc(0, 0, 100, 100), s) })
+	if st.outW > 100 || st.outH > 100 {
+		t.Fatalf("after a while of 100 by 100 scenes the target is %d by %d", st.outW, st.outH)
+	}
+	if got := pixelAt(pix, 50, 50); got[0] < 0x80 {
+		t.Fatalf("in the smaller target the sphere's middle is %v, want it drawn", got)
+	}
+	// A while of none.
+	st.drawn = st.drawn.Add(-2 * meshIdle)
+	st.peakSince = st.peakSince.Add(-2 * meshIdle)
+	drawn(r, func(*paint.Painter) {})
+	if st.ms != 0 {
+		t.Error("with no scene for a while, the target stayed")
+	}
+}
