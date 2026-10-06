@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -648,13 +647,18 @@ func TestTheProgramBeingReplacedLeavesTheTrial(t *testing.T) {
 // A redirect to plain http on this computer, from a server out there,
 // is refused: only a request that began here may come back here.
 func TestARedirectHomeIsRefused(t *testing.T) {
-	home, _ := url.Parse("http://127.0.0.1:9/secret")
-	far, _ := url.Parse("https://example.com/program")
-	near, _ := url.Parse("http://127.0.0.1:8000/program")
-	if err := client.CheckRedirect(&http.Request{URL: home}, []*http.Request{{URL: far}}); err == nil {
+	req := func(addr string) *http.Request {
+		r, err := http.NewRequestWithContext(t.Context(), http.MethodGet, addr, http.NoBody)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	home := req("http://127.0.0.1:9/secret")
+	if err := client.CheckRedirect(home, []*http.Request{req("https://example.com/program")}); err == nil {
 		t.Error("a redirect from https out there to http on this computer was followed")
 	}
-	if err := client.CheckRedirect(&http.Request{URL: home}, []*http.Request{{URL: near}}); err != nil {
+	if err := client.CheckRedirect(home, []*http.Request{req("http://127.0.0.1:8000/program")}); err != nil {
 		t.Errorf("a redirect between servers on this computer was refused: %v", err)
 	}
 }

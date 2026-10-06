@@ -736,23 +736,23 @@ func copyFile(ctx context.Context, from, to string, progress func(float32)) erro
 // is never left missing.
 func Replace(part, path string) error { return replaceKeeping(part, path, false) }
 
-// replaceKeeping is Replace, which with keep leaves path.old as it is,
-// for an update to give way to: where the program is moved aside, it
-// goes to a name of its own, which CleanOld takes away.
-func replaceKeeping(part, path string, keep bool) error {
+// replaceKeeping is Replace of the file at to, which with keep leaves
+// to.old as it is, for an update to give way to: where the program is
+// moved aside, it goes to a name of its own, which CleanOld takes away.
+func replaceKeeping(part, to string, keep bool) error {
 	old := ""
 	if movesAside {
-		if _, err := os.Stat(path); err == nil {
-			if old, err = moveAside(path, keep); err != nil {
+		if _, err := os.Stat(to); err == nil {
+			if old, err = moveAside(to, keep); err != nil {
 				return err
 			}
 		}
 	}
-	if err := os.Rename(part, path); err != nil {
+	if err := os.Rename(part, to); err != nil {
 		if old != "" {
-			_ = os.Rename(old, path)
+			_ = os.Rename(old, to)
 		}
-		return fmt.Errorf("put %s in place: %w", filepath.Base(path), err)
+		return fmt.Errorf("put %s in place: %w", filepath.Base(to), err)
 	}
 	return nil
 }

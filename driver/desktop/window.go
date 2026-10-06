@@ -528,7 +528,7 @@ func (w *Window) position(o driver.Options) error {
 	// once it is made, and is its content alone; one that keeps the
 	// frame is that much larger.
 	l, t, r, bt := 0, 0, 0, 0
-	if !(o.Chromeless && o.Kind == driver.KindNormal) {
+	if !o.Chromeless || o.Kind != driver.KindNormal {
 		var ferr error
 		if l, t, r, bt, ferr = w.gw.GetFrameSize(); ferr != nil {
 			l, t, r, bt = 0, 0, 0, 0
