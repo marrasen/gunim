@@ -78,6 +78,11 @@ func (a *app) visit(v Visit) {
 		return
 	}
 	newWindow := v.NewWindow || a.newWindowAsked()
+	if !newWindow {
+		// The user went elsewhere: a step through the history still on
+		// its way is not taken, and the Show asked for now is.
+		a.nav.hop, a.nav.dropped = nil, nil
+	}
 	go a.opts.Visit(a.win, v.FS, v.Path, newWindow)
 }
 

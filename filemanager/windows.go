@@ -97,9 +97,10 @@ func (w *Window) Close() {
 }
 
 // Show turns the window to the folder dir on fsys, or its home folder
-// when dir is empty, as a Visit may want: the history, the clipboard,
-// the places and the favourites become those of fsys. Operations still
-// running carry on where they started.
+// when dir is empty, as a Visit may want: the clipboard, the places and
+// the favourites become those of fsys, and the folder it showed goes
+// into the history, so Back returns to it. Operations still running
+// carry on where they started.
 func (w *Window) Show(fsys FS, dir string) {
 	w.do(func(a *app) { a.showFS(fsys, dir) })
 }

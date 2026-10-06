@@ -273,7 +273,104 @@ func TestShowTurnsAWindowToAnotherFileSystem(t *testing.T) {
 	if h.b.shell.FS != "slash" || h.b.shell.Paths != SlashPaths || !h.b.shell.NoTrash {
 		t.Fatalf("the window's shell is %+v", h.b.shell)
 	}
-	if len(h.a.nav.back) != 0 {
-		t.Fatal("the history goes back to another file system")
+	h.do(Command{Name: CmdBack})
+	h.until("back crosses to the computer's own files", func() bool {
+		return h.a.fs.ID() == "" && h.a.nav.path == h.dir && slices.Equal(h.shown(), []string{"a.txt"})
+	})
+	h.do(Command{Name: CmdForward})
+	h.until("forward crosses again", func() bool { return h.a.fs.ID() == "slash" && h.a.nav.path == "/" })
+	if len(h.a.nav.back) != 1 || len(h.a.nav.fwd) != 0 {
+		t.Fatalf("the history is %d back and %d forward", len(h.a.nav.back), len(h.a.nav.fwd))
 	}
 }
+
+func TestHistoryAcrossFileSystemsGoesThroughVisit(t *testing.T) {
+	other := t.TempDir()
+	tree(t, other, "x.txt", "sub/y.txt")
+	visits := make(chan [2]string, 4)
+	var h *harness
+	h = newHarnessWith(t, func(o *Options) {
+		o.Visit = func(_ *Window, fs, path string, _ bool) {
+			visits <- [2]string{fs, path}
+			if fs == "fail" {
+				return
+			}
+			h.a.post(func() {
+				if fs == "slash" {
+					h.a.showFS(slashFS{root: other}, path)
+				} else {
+					h.a.showFS(LocalFS(), path)
+				}
+			})
+		}
+	}, "a.txt")
+	h.a.showFS(slashFS{root: other}, "/")
+	h.until("the other file system shows", func() bool { return slices.Equal(h.shown(), []string{"sub", "x.txt"}) })
+	h.do(Navigate{Path: "/sub"})
+	h.until("its folder opens", func() bool { return slices.Equal(h.shown(), []string{"y.txt"}) })
+
+	// Back within it, then back across: the program is asked, as it
+	// may have to connect first.
+	h.do(Command{Name: CmdBack})
+	h.until("back within it", func() bool { return h.a.nav.path == "/" && slices.Equal(h.shown(), []string{"sub", "x.txt"}) })
+	h.do(Command{Name: CmdBack})
+	h.until("back across", func() bool { return h.a.fs.ID() == "" && h.a.nav.path == h.dir })
+	if v := <-visits; v != [2]string{"", h.dir} {
+		t.Fatalf("Visit was asked for %q", v)
+	}
+	if len(h.a.nav.back) != 0 || len(h.a.nav.fwd) != 2 {
+		t.Fatalf("the history is %d back and %d forward", len(h.a.nav.back), len(h.a.nav.fwd))
+	}
+	h.do(Command{Name: CmdForward})
+	h.until("forward across", func() bool { return h.a.fs.ID() == "slash" && h.a.nav.path == "/" })
+	h.do(Command{Name: CmdForward})
+	h.until("forward within it", func() bool { return h.a.nav.path == "/sub" })
+	if len(h.a.nav.back) != 2 || len(h.a.nav.fwd) != 0 {
+		t.Fatalf("the history is %d back and %d forward", len(h.a.nav.back), len(h.a.nav.fwd))
+	}
+
+	// A Visit that never shows leaves the history as it was.
+	h.a.nav.back[0].fs = failFS{h.a.nav.back[0].fs}
+	h.do(Command{Name: CmdBack})
+	h.do(Command{Name: CmdBack})
+	h.until("the Visit is asked for", func() bool { return len(visits) == 2 })
+	h.frames(10)
+	if h.a.fs.ID() != "slash" || len(h.a.nav.back) != 1 || len(h.a.nav.fwd) != 1 {
+		t.Fatalf("on %q, the history is %d back and %d forward", h.a.fs.ID(), len(h.a.nav.back), len(h.a.nav.fwd))
+	}
+
+	// The user goes on, and the Show comes late: it is not taken.
+	h.do(Navigate{Path: "/sub"})
+	h.until("the folder opens", func() bool { return h.a.nav.path == "/sub" })
+	late := h.a.nav.back[0]
+	h.a.post(func() { h.a.showFS(late.fs, late.path) })
+	h.frames(10)
+	if h.a.fs.ID() != "slash" || h.a.nav.path != "/sub" || len(h.a.nav.back) != 2 {
+		t.Fatalf("a late Show turned the window to %q %q, %d back", h.a.fs.ID(), h.a.nav.path, len(h.a.nav.back))
+	}
+}
+
+func TestShowOfTheFolderShowingKeepsTheHistoryAsItIs(t *testing.T) {
+	// Places of its own: the default ones are found reading the file
+	// system the window shows, as it turns to another.
+	h := newHarnessWith(t, func(o *Options) { o.Places = func() ([]Place, error) { return nil, nil } }, "a.txt")
+	h.a.showFS(LocalFS(), h.dir)
+	h.until("the folder shows again", func() bool { return len(h.shown()) == 1 })
+	if len(h.a.nav.back) != 0 {
+		t.Fatalf("the history goes back to %v", h.a.nav.back)
+	}
+	home, _ := LocalFS().Home()
+	h.a.showFS(LocalFS(), "")
+	h.until("home shows", func() bool { return !h.a.nav.loading && h.a.nav.path == home })
+	h.frames(30)
+	h.a.showFS(LocalFS(), "")
+	h.until("home shows again", func() bool { return !h.a.nav.loading && h.a.nav.path == home })
+	if len(h.a.nav.back) != 1 || h.a.nav.back[0].path != h.dir {
+		t.Fatalf("the history goes back to %v", h.a.nav.back)
+	}
+}
+
+// failFS is a file system whose Visit the test's program never shows.
+type failFS struct{ FS }
+
+func (failFS) ID() string { return "fail" }
