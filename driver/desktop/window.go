@@ -1052,6 +1052,12 @@ func (w *Window) render() {
 	if err != nil {
 		w.fail(err)
 	}
+	if w.ctx != nil {
+		// The context made here goes here, once the renderer has let it
+		// go: deleted on another thread while current here, it would be
+		// in use.
+		defer func() { _ = w.ctx.DeleteContext() }()
+	}
 	if r != nil {
 		defer func() {
 			if w.pres != nil {
@@ -1247,6 +1253,10 @@ func (w *Window) startGL() (*render.Renderer, error) {
 	holder := w.gw
 	if w.ctx != nil {
 		holder = w.ctx
+		// Made here, on the thread that draws with it: see contextWindow.
+		if err := w.ctx.CreateDeferredContext(); err != nil {
+			return nil, fmt.Errorf("desktop: create context: %w", err)
+		}
 	}
 	if err := holder.MakeContextCurrent(); err != nil {
 		return nil, fmt.Errorf("desktop: make context current: %w", err)

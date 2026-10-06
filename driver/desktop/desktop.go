@@ -375,7 +375,12 @@ func monitorInfo(m *glfw.Monitor) (driver.Monitor, bool) {
 }
 
 // contextWindow opens the hidden window that holds a DXGI window's
-// context, sharing with share. It runs on the main thread.
+// context, sharing with share. It runs on the main thread, and makes the
+// window alone: its render thread makes the context, uses it, and
+// deletes it, so the main thread never touches a context a render thread
+// draws with. A GL driver can wait in such a call for a lock the threads
+// drawing in the same share group hold, and every window waits on the
+// main thread.
 func (d *Driver) contextWindow(share *glfw.Window) (*glfw.Window, error) {
 	if err := glfw.DefaultWindowHints(); err != nil {
 		return nil, err
@@ -386,7 +391,7 @@ func (d *Driver) contextWindow(share *glfw.Window) (*glfw.Window, error) {
 	if err := glfw.WindowHint(glfw.Visible, glfw.False); err != nil {
 		return nil, err
 	}
-	ctx, err := glfw.CreateWindow(1, 1, "", nil, share)
+	ctx, err := glfw.CreateWindowDeferringContext(1, 1, "", share)
 	if err != nil {
 		return nil, fmt.Errorf("desktop: create context window: %w", err)
 	}
