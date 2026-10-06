@@ -285,6 +285,60 @@ func TestHeroFliesToWhereAScaledPlaceShows(t *testing.T) {
 	}
 }
 
+// clipped draws its child inside a clip of its own.
+type clipped struct {
+	spot2
+	clip geom.Rect
+}
+
+func (c *clipped) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim.Children) {
+	defer p.Layer(paint.LayerOpts{Bounds: c.clip, Opacity: 1, Clip: true})()
+	kids.At(0).Paint(p)
+}
+
+func TestHeroLandsInsideWhatClipsItsPlace(t *testing.T) {
+	s := newHeroStage(t)
+	place := geom.Rc(100, 100, 200, 100)
+	gunim.RegisterView(s.w, "clipped", func(struct{}) gunim.Node {
+		big := NewImage(s.bigPic)
+		big.Fit = FitFill
+		s.big = NewHero("pic", big)
+		return &clipped{spot2: spot2{at: geom.Rc(100, 100, 200, 150), child: s.big}, clip: place}
+	}, nil)
+	if err := s.w.Client().Mount(gunim.Root, "detail", "clipped", nil); err != nil {
+		t.Fatal(err)
+	}
+	// The flight's own clip starts around the thumbnail, outside its
+	// place's, and narrows to its place's as it lands.
+	prev := float32(-1)
+	for i := range 120 {
+		s.run(1)
+		var flight geom.Rect
+		for _, op := range s.w.Offscreen().Ops() {
+			if l, ok := op.(*paint.LayerOp); ok && l.Opts.Clip && l.Opts.Bounds != place {
+				flight = l.Opts.Bounds
+			}
+		}
+		if flight.Empty() {
+			if i == 0 {
+				t.Fatal("the flight is not clipped")
+			}
+			break
+		}
+		if i == 0 && (flight.Min.X > 10 || flight.Min.Y > 10) {
+			t.Fatalf("the flight's clip starts at %v; want around the thumbnail", flight)
+		}
+		// The flight's spring may overshoot its place a little.
+		if flight.Min.X < prev-1 {
+			t.Fatalf("frame %d: the flight's clip widened, to %v", i, flight)
+		}
+		prev = flight.Min.X
+	}
+	if prev < 95 {
+		t.Fatalf("the flight's clip ended at x %v; want near its place's, 100", prev)
+	}
+}
+
 func TestHeroFlightMovesSmoothlyEveryFrame(t *testing.T) {
 	s := newHeroStage(t)
 	if err := s.w.Client().Mount(gunim.Root, "detail", "detail", nil); err != nil {
