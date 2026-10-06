@@ -296,10 +296,35 @@ type Slider struct {
 	Snap float32
 	// OnChange turns a new value into an intent for the application.
 	OnChange func(v float32) gunim.Intent
+	// OnCommit turns the value a gesture ends on into an intent: as a drag
+	// is let go, a double click returns to Rest, or a key steps. OnChange
+	// runs on every step of a drag; OnCommit once, for an application that
+	// saves, or keeps undo history, per change made.
+	OnCommit func(v float32) gunim.Intent
+	// Rest, with HasRest set, is the value the slider rests at, such as
+	// nought on a scale from -100 to 100: the fill runs from it to the
+	// knob, a small mark shows it on the track, and a double click glides
+	// back to it.
+	Rest    float32
+	HasRest bool
+	// Gradient colours the track along its length, from Min to Max, as a
+	// colour temperature runs from blue to amber; it takes the fill's
+	// place. Two colours or more.
+	Gradient []color.NRGBA
+	// KeepFocus leaves the keyboard where it is when the slider is
+	// pressed, for a slider among keys of a view's own, such as a photo
+	// viewer's arrows; it still takes the keyboard by Tab.
+	KeepFocus bool
 	// moved is local behaviour, set by OnMove.
 	moved func(v float32, u *gunim.UI)
 
 	value float32
+	// drag is the value a drag has carried the knob to, unclamped, and
+	// last where the pointer was, so a drag moves the knob by as much as
+	// the pointer moves, a tenth as much with Shift. pressed is the value
+	// as the drag began.
+	drag, pressed float32
+	last          geom.Point
 	// at is the knob's place, 0 to 1 along the track.
 	at    *anim.Float
 	hover *anim.Float
@@ -330,10 +355,35 @@ func (s *Slider) OnMove(fn func(v float32, u *gunim.UI)) { s.moved = fn }
 // Value returns the slider's value.
 func (s *Slider) Value() float32 { return s.value }
 
+// Held reports whether the pointer holds the knob, for a view that leaves
+// a slider being dragged alone as its state comes in.
+func (s *Slider) Held() bool { return s.held }
+
+// Shown returns the value where the knob shows now, on its way to Value,
+// for a readout that counts along with it.
+func (s *Slider) Shown() float32 { return s.Min + s.at.Value()*(s.Max-s.Min) }
+
+// fracOf returns v as a fraction of the range.
+func (s *Slider) fracOf(v float32) float32 {
+	if s.Max <= s.Min {
+		return 0
+	}
+	return max(0, min((v-s.Min)/(s.Max-s.Min), 1))
+}
+
+// commit tells the application the value a gesture ended on.
+func (s *Slider) commit(u *gunim.UI) {
+	if s.OnCommit != nil {
+		u.Send(s, s.OnCommit(s.value))
+	}
+}
+
 // SetValue sets the value without an intent. Call it from a view's
-// update function; the knob glides to it.
+// update function; the knob glides to it. It keeps the value as it is,
+// within the range, off Snap's steps too: only the slider's own moves
+// round to them, so a value stored with more precision shows as it is.
 func (s *Slider) SetValue(v float32, u *gunim.UI) {
-	s.value = s.clamp(v)
+	s.value = max(s.Min, min(v, s.Max))
 	s.at.Animate(s.frac(), Quick.Get(u.Theme()))
 }
 
@@ -341,7 +391,7 @@ func (s *Slider) SetValue(v float32, u *gunim.UI) {
 // nobody. It is for a place with no UI to hand, such as a field beside
 // the slider reporting what was typed into it.
 func (s *Slider) Set(v float32) {
-	s.value = s.clamp(v)
+	s.value = max(s.Min, min(v, s.Max))
 	s.at.Jump(s.frac())
 }
 
@@ -397,6 +447,29 @@ func (s *Slider) passesStep(a, b float32) bool {
 // Focusable implements [gunim.Focusable].
 func (s *Slider) Focusable() bool { return !s.Disabled }
 
+// FocusOnPress implements [gunim.PressFocuser].
+func (s *Slider) FocusOnPress() bool { return !s.KeepFocus }
+
+// trackLength returns how far the knob travels from Min to Max.
+func (s *Slider) trackLength(th *theme.Live) float32 {
+	k := KnobSize.Get(th)
+	if s.Axis == Vertical {
+		return max(s.size.H-k, 1)
+	}
+	return max(s.size.W-k, 1)
+}
+
+// onKnob reports whether pos is on the knob, with a little room round it.
+func (s *Slider) onKnob(pos geom.Point, th *theme.Live) bool {
+	k := KnobSize.Get(th) / 2
+	at := k + s.at.Value()*s.trackLength(th)
+	d := pos.X - at
+	if s.Axis == Vertical {
+		d = pos.Y - (s.size.H - at)
+	}
+	return d >= -k-3 && d <= k+3
+}
+
 // valueAt returns the value at a point in the slider's space.
 func (s *Slider) valueAt(pos geom.Point, th *theme.Live) float32 {
 	k := KnobSize.Get(th) / 2
@@ -434,15 +507,37 @@ func (s *Slider) Handle(e input.Event, u *gunim.UI) bool {
 		if e.Button != input.ButtonPrimary {
 			return false
 		}
-		s.held = true
-		s.set(s.valueAt(e.Pos, th), Quick.Get(th), u)
+		if e.Clicks == 2 && s.HasRest {
+			// Back to rest, gliding there.
+			s.held = false
+			s.set(s.Rest, Settle.Get(th), u)
+			s.commit(u)
+			break
+		}
+		s.held, s.pressed, s.last = true, s.value, e.Pos
+		// A press on the knob takes hold of it where it is; one on the
+		// track sends it gliding there.
+		if !s.onKnob(e.Pos, th) {
+			s.set(s.valueAt(e.Pos, th), Quick.Get(th), u)
+		}
+		s.drag = s.value
 	case input.PointerMove:
 		if !s.held {
 			return false
 		}
-		// The knob keeps up with the pointer while it glides in from a
-		// click, then follows it exactly.
-		s.set(s.valueAt(e.Pos, th), Caret.Get(th), u)
+		// The knob moves as far as the pointer does, a tenth as far with
+		// Shift held, for a fine adjustment; it keeps up with the pointer
+		// while it glides in from a click, then follows it exactly.
+		d := e.Pos.X - s.last.X
+		if s.Axis == Vertical {
+			d = s.last.Y - e.Pos.Y
+		}
+		if e.Mods.Has(input.ModShift) {
+			d /= 10
+		}
+		s.last = e.Pos
+		s.drag += d / s.trackLength(th) * (s.Max - s.Min)
+		s.set(s.drag, Caret.Get(th), u)
 	case input.PointerUp:
 		if !s.held {
 			return false
@@ -451,7 +546,15 @@ func (s *Slider) Handle(e input.Event, u *gunim.UI) bool {
 		if !(geom.Rect{Max: s.size.Point()}).Contains(e.Pos) {
 			s.hover.Animate(0, Settle.Get(th))
 		}
+		if s.value != s.pressed {
+			s.commit(u)
+		}
 	case input.KeyPress:
+		// Shift steps ten times as far.
+		if e.Mods.Has(input.ModShift) {
+			step *= 10
+		}
+		was := s.value
 		switch e.Key {
 		case input.KeyLeft, input.KeyDown:
 			s.set(s.value-step, Quick.Get(th), u)
@@ -467,6 +570,9 @@ func (s *Slider) Handle(e input.Event, u *gunim.UI) bool {
 			s.set(s.Max, Quick.Get(th), u)
 		default:
 			return false
+		}
+		if s.value != was {
+			s.commit(u)
 		}
 	case input.FocusRing:
 		s.ring.Animate(ringTo(e), Quick.Get(th))
@@ -527,8 +633,40 @@ func (s *Slider) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 		filled = geom.Rect{Min: geom.Pt(x0, y-track/2), Max: geom.Pt(x, y+track/2)}
 		centre = geom.Pt(x, y)
 	}
-	p.RRect(whole, track/2, paint.Solid(SwitchOff.Get(th)))
-	p.RRect(filled, track/2, paint.Solid(Accent.Get(th)))
+	switch {
+	case len(s.Gradient) >= 2:
+		// The track in its colours, from Min to Max, and no fill.
+		g := &paint.Gradient{Start: s.Gradient[0], End: s.Gradient[len(s.Gradient)-1]}
+		if s.Axis == Vertical {
+			g.From, g.To = geom.Pt(0, whole.Max.Y), geom.Pt(0, whole.Min.Y)
+		} else {
+			g.From, g.To = geom.Pt(whole.Min.X, 0), geom.Pt(whole.Max.X, 0)
+		}
+		for i := 1; i < len(s.Gradient)-1; i++ {
+			g.Stops = append(g.Stops, paint.Stop{At: float32(i) / float32(len(s.Gradient)-1), Color: s.Gradient[i]})
+		}
+		p.RRect(whole.Inset(geom.Uniform(-0.5)), track/2+0.5, paint.Fill{Gradient: g})
+	case s.HasRest:
+		// The fill runs from rest to the knob, and a mark shows rest.
+		p.RRect(whole, track/2, paint.Solid(SwitchOff.Get(th)))
+		r := s.fracOf(s.Rest)
+		if s.Axis == Vertical {
+			y := whole.Max.Y + (whole.Min.Y-whole.Max.Y)*r
+			p.RRect(geom.Rect{Min: geom.Pt(whole.Min.X, min(y, centre.Y)), Max: geom.Pt(whole.Max.X, max(y, centre.Y))}, track/2, paint.Solid(Accent.Get(th)))
+			if r > 0 && r < 1 {
+				p.RRect(geom.Rc(whole.Min.X-2, y-0.75, track+4, 1.5), 0.75, paint.Solid(SliderRestMark.Get(th)))
+			}
+		} else {
+			x := whole.Min.X + (whole.Max.X-whole.Min.X)*r
+			p.RRect(geom.Rect{Min: geom.Pt(min(x, centre.X), whole.Min.Y), Max: geom.Pt(max(x, centre.X), whole.Max.Y)}, track/2, paint.Solid(Accent.Get(th)))
+			if r > 0 && r < 1 {
+				p.RRect(geom.Rc(x-0.75, whole.Min.Y-2, 1.5, track+4), 0.75, paint.Solid(SliderRestMark.Get(th)))
+			}
+		}
+	default:
+		p.RRect(whole, track/2, paint.Solid(SwitchOff.Get(th)))
+		p.RRect(filled, track/2, paint.Solid(Accent.Get(th)))
+	}
 
 	grow := 1 + 0.2*max(s.hover.Value(), 0)
 	d := k * grow
