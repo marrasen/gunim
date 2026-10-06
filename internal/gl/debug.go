@@ -694,3 +694,11 @@ func (d *DebugContext) RenderbufferStorageMultisample(arg0 uint32, arg1 int32, a
 		panic(fmt.Sprintf("gl: GetError() returned %d at RenderbufferStorageMultisample", e))
 	}
 }
+
+func (d *DebugContext) CullFace(arg0 uint32) {
+	d.Context.CullFace(arg0)
+	fmt.Fprintln(os.Stderr, "CullFace")
+	if e := d.Context.GetError(); e != NO_ERROR {
+		panic(fmt.Sprintf("gl: GetError() returned %d at CullFace", e))
+	}
+}

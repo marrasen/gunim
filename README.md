@@ -805,8 +805,16 @@ world, a camera, and a light from far off with an even light under it.
 them. A scene draws in depth, with four samples a pixel for smooth
 edges, into a texture of its own, which the frame lays in like an
 image, so a scene shows inside clips, ellipses and tilts. A mesh
-uploads to the GPU once and stays while frames draw it. `example/scene`
-turns a head in a view above a card that turns over.
+uploads to the GPU once and stays while frames draw it.
+
+`Scene.Pick` finds the item under a tap, and where on it, by following
+the line of sight through the tap into the scene's triangles on the
+CPU, so it answers the same in a test as on any GPU. An item whose tint
+or colours are less than opaque is see-through: the solid items draw
+first, then the see-through ones from the furthest in, each with its
+back faces before its front. `example/scene` turns a head in a view
+above a card that turns over; a tap on the hat changes its colour, and a
+tap on the head puts a glass bubble round it.
 
 The painter compares each frame with the one before, and the driver
 redraws only the part that changed into a canvas it keeps, then copies
