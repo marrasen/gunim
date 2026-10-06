@@ -386,6 +386,12 @@ the picture, its clear margin cut off, fills the part the launcher
 shows, over the colour of its own edge or `-icon-background`. A circle
 cuts off what lies in the picture's corners.
 
+A program turns with the phone. `-orientation` holds the screen one
+way, by Android's name for it: `-orientation portrait` keeps one laid
+out for a phone held upright from turning, and stretching, as the phone
+tips over, and `userPortrait` lets it turn upside down too where the
+user lets the screen rotate.
+
 A build is a debug build, signed with the debug key, unless
 `-keystore` names a key of your own. Then it is a release build. Android
 installs an update only over an APK signed with the same key, so one
