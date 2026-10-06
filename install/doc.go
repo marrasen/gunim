@@ -38,21 +38,44 @@
 //
 // # Signed updates
 //
-// An installed program runs an update only when its SHA256SUMS carries
-// a signature that App.UpdateKey checks, and fetches only over https.
-// The checksums alone say a download came whole; the signature says the
-// program's maker made it, so a release put up by anyone else, with a
-// stolen token or through a broken build, never runs. Make the key once:
+// An installed program runs an update only when the release's
+// SHA256SUMS carries a signature that App.UpdateKey checks, and it
+// fetches only over https. The checksums say a download came whole; the
+// signature says the program's maker made it, so a release anyone else
+// puts up, with a stolen token or through a broken build, never runs.
+//
+// Once, for each program, make the key pair. This writes the private
+// key to release.key, and prints the public key:
 //
 //	go run github.com/marrasen/gunim/tools/gunimsign -keygen release.key
 //
-// It writes the private key to release.key and prints the public key,
-// for App.UpdateKey. Keep the private key out of the repository, as a
-// secret of the release build, which signs each release:
+// Put the public key in App.UpdateKey, and commit it: it is public. Keep
+// the private key secret, and never commit it. Give it to the release
+// build as a secret, on GitHub with
 //
-//	GUNIM_SIGN_KEY=$(cat release.key) go run github.com/marrasen/gunim/tools/gunimsign dist/SHA256SUMS
+//	gh secret set GUNIM_SIGN_KEY < release.key
 //
-// That writes dist/SHA256SUMS.sig, to publish beside SHA256SUMS.
+// and keep a copy somewhere safe, such as a password manager.
+//
+// For each release, write SHA256SUMS first, then sign it, and publish
+// SHA256SUMS.sig beside it. In a GitHub Actions workflow, as a step after
+// the one that writes dist/SHA256SUMS:
+//
+//	# Sign the checksums, for the installed copies' updates.
+//	- name: Sign
+//	  env:
+//	    GUNIM_SIGN_KEY: ${{ secrets.GUNIM_SIGN_KEY }}
+//	  run: go run github.com/marrasen/gunim/tools/gunimsign dist/SHA256SUMS
+//
+// gunimsign fails when GUNIM_SIGN_KEY is empty, so a build that cannot
+// sign stops before it publishes. SHA256SUMS.sig stays out of
+// SHA256SUMS: it is written after it.
+//
+// To change the key, publish one release signed with the old key that
+// holds the new public key, and sign every release after it with the new
+// key. A lost private key cannot be replaced that way: installed copies
+// take no more updates, and their users download the next release by
+// hand. A [Source] of the program's own sets [Release.Signature].
 //
 // # Making it the program's own
 //
