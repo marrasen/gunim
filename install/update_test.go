@@ -374,3 +374,55 @@ func TestAnOlderCopyLeavesANewerInstall(t *testing.T) {
 		}
 	}
 }
+
+// Writers at once to one file, as an update and an installer, each
+// write through a file of their own: the file ends whole, as one of
+// them wrote it, with nothing left beside it.
+func TestWritersAtOnceNeverMix(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "studio")
+	bodies := make([][]byte, 8)
+	for i := range bodies {
+		bodies[i] = bytes.Repeat([]byte{byte('a' + i)}, 1<<20)
+	}
+	done := make(chan error, len(bodies))
+	for _, b := range bodies {
+		go func() { done <- writeFile(path, b, 0o755) }()
+	}
+	for range bodies {
+		if err := <-done; err != nil && !movesAside {
+			t.Error(err)
+		}
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	whole := false
+	for _, b := range bodies {
+		whole = whole || bytes.Equal(got, b)
+	}
+	if !whole {
+		t.Fatalf("the file holds %d bytes mixed from the writers", len(got))
+	}
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if e.Name() != "studio" && e.Name() != "studio.old" {
+			t.Errorf("a write left %s", e.Name())
+		}
+	}
+}
+
+// A link in a zip, named as the program, is not taken for it.
+func TestALinkInAZipIsNoProgram(t *testing.T) {
+	var zipped bytes.Buffer
+	zw := zip.NewWriter(&zipped)
+	h := &zip.FileHeader{Name: "studio/studio"}
+	h.SetMode(os.ModeSymlink | 0o777)
+	f, _ := zw.CreateHeader(h)
+	_, _ = f.Write([]byte("/usr/bin/evil"))
+	_ = zw.Close()
+	if body, err := unpack(zipped.Bytes(), "studio.zip", "studio"); err == nil {
+		t.Fatalf("a link in the zip was taken as the program: %q", body)
+	}
+}

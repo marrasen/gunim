@@ -18,7 +18,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"path"
 	"path/filepath"
 	"runtime"
@@ -206,16 +205,11 @@ func StageTo(ctx context.Context, a App, r Release, exe string) error {
 	if err != nil {
 		return err
 	}
-	part := exe + ".new"
-	if err := fetch(ctx, a.exe(), key, r, part); err != nil {
-		_ = os.Remove(part)
+	body, err := fetch(ctx, a.exe(), key, r)
+	if err != nil {
 		return err
 	}
-	if err := Replace(part, exe); err != nil {
-		_ = os.Remove(part)
-		return err
-	}
-	return nil
+	return writeFile(exe, body, 0o755)
 }
 
 // newerThanInstalled reports whether r is newer than the version
@@ -225,49 +219,49 @@ func newerThanInstalled(r Release, installed string) bool {
 	return !IsRelease(installed) || Newer(r.Version, installed)
 }
 
-// fetch downloads r's program to to, checked against its SHA256SUMS,
-// whose signature key checks, taking the file named program out of an
+// fetch downloads r's program, checked against its SHA256SUMS, whose
+// signature key checks, taking the file named program out of an
 // archive.
-func fetch(ctx context.Context, program string, key ed25519.PublicKey, r Release, to string) error {
+func fetch(ctx context.Context, program string, key ed25519.PublicKey, r Release) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, fetchPatience)
 	defer cancel()
 	if r.Sums == "" {
-		return fmt.Errorf("%s has no SHA256SUMS to check it against", r.Version)
+		return nil, fmt.Errorf("%s has no SHA256SUMS to check it against", r.Version)
 	}
 	if r.Signature == "" {
-		return fmt.Errorf("%s has no SHA256SUMS.sig, the signature that says who made it", r.Version)
+		return nil, fmt.Errorf("%s has no SHA256SUMS.sig, the signature that says who made it", r.Version)
 	}
 	sums, err := get(ctx, r.Sums, readLimit)
 	if err != nil {
-		return fmt.Errorf("fetch SHA256SUMS: %w", err)
+		return nil, fmt.Errorf("fetch SHA256SUMS: %w", err)
 	}
 	sig, err := get(ctx, r.Signature, readLimit)
 	if err != nil {
-		return fmt.Errorf("fetch SHA256SUMS.sig: %w", err)
+		return nil, fmt.Errorf("fetch SHA256SUMS.sig: %w", err)
 	}
 	if !verify(key, sums, sig) {
-		return fmt.Errorf("the SHA256SUMS of %s is not signed with App.UpdateKey", r.Version)
+		return nil, fmt.Errorf("the SHA256SUMS of %s is not signed with App.UpdateKey", r.Version)
 	}
 	want, err := sumOf(sums, r.Name)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	body, err := get(ctx, r.Program, programLimit)
 	if err != nil {
-		return fmt.Errorf("fetch %s: %w", r.Name, err)
+		return nil, fmt.Errorf("fetch %s: %w", r.Name, err)
 	}
 	got := sha256.Sum256(body)
 	if hex.EncodeToString(got[:]) != want {
-		return fmt.Errorf("%s is not what SHA256SUMS says it is", r.Name)
+		return nil, fmt.Errorf("%s is not what SHA256SUMS says it is", r.Name)
 	}
 	switch {
 	case strings.HasSuffix(r.Name, ".zip"), strings.HasSuffix(r.Name, ".tar.gz"):
 		body, err = unpack(body, r.Name, program)
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
-	return os.WriteFile(to, body, 0o755)
+	return body, nil
 }
 
 // verify reports whether sig, as gunimsign writes it, is key's
@@ -357,13 +351,13 @@ func unpack(archive []byte, name, program string) ([]byte, error) {
 			return nil, err
 		}
 		for _, f := range zr.File {
-			if path.Base(f.Name) == program && !f.FileInfo().IsDir() {
+			if path.Base(f.Name) == program && f.Mode().IsRegular() {
 				rc, err := f.Open()
 				if err != nil {
 					return nil, err
 				}
 				defer func() { _ = rc.Close() }()
-				return io.ReadAll(io.LimitReader(rc, programLimit))
+				return readProgram(rc)
 			}
 		}
 		return nil, fmt.Errorf("%s holds no %s", name, program)
@@ -379,9 +373,19 @@ func unpack(archive []byte, name, program string) ([]byte, error) {
 			return nil, fmt.Errorf("%s holds no %s", name, program)
 		}
 		if path.Base(h.Name) == program && h.Typeflag == tar.TypeReg {
-			return io.ReadAll(io.LimitReader(tr, programLimit))
+			return readProgram(tr)
 		}
 	}
+}
+
+// readProgram reads a program out of an archive, and fails on one
+// larger than any program fetched, in place of cutting it short.
+func readProgram(r io.Reader) ([]byte, error) {
+	body, err := io.ReadAll(io.LimitReader(r, programLimit+1))
+	if err == nil && int64(len(body)) > programLimit {
+		err = errors.New("the program in the archive is larger than any program fetched")
+	}
+	return body, err
 }
 
 // Restart starts the installed program with args, for a program to call
