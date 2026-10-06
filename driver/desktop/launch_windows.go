@@ -3,6 +3,7 @@ package desktop
 import (
 	"errors"
 	"fmt"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"syscall"
@@ -54,9 +55,15 @@ func (w *Window) Open(path string) error {
 	})
 }
 
-// Reveal implements [driver.Launcher]: Explorer opens the folder that
-// holds path, with path selected.
+// Reveal implements [driver.Launcher]: File Explorer opens the folder
+// that holds path, with path selected. explorer.exe is started for it,
+// as the shell would hand the folder to whatever program opens folders,
+// which may be the program asking; the shell's own way is kept for when
+// explorer.exe can't be started.
 func (w *Window) Reveal(path string) error {
+	if err := revealInExplorer(filepath.Clean(path)); err == nil {
+		return nil
+	}
 	// The shell finds an item by a path of backslashes alone.
 	p, err := windows.UTF16PtrFromString(filepath.Clean(path))
 	if err != nil {
@@ -74,6 +81,23 @@ func (w *Window) Reveal(path string) error {
 		}
 		return nil
 	})
+}
+
+// revealInExplorer starts File Explorer on the folder that holds path,
+// path selected. Explorer reads its command line itself, so the path is
+// quoted as it wants, after the comma.
+func revealInExplorer(path string) error {
+	dir, err := windows.GetWindowsDirectory()
+	if err != nil {
+		return err
+	}
+	exe := filepath.Join(dir, "explorer.exe")
+	cmd := exec.Command(exe)
+	cmd.SysProcAttr = &syscall.SysProcAttr{CmdLine: `"` + exe + `" /select,"` + path + `"`}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	return cmd.Process.Release()
 }
 
 // launchOwner returns the window's handle, for the dialogs the shell may
