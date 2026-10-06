@@ -240,6 +240,51 @@ func TestHeroReopenedMidReturnFliesFromWhereTheThumbnailIs(t *testing.T) {
 	}
 }
 
+// zoomed draws its child scaled by z about the child's top left corner,
+// as a photo viewer zooms.
+type zoomed struct {
+	spot2
+	z float32
+}
+
+func (z *zoomed) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim.Children) {
+	defer p.Push(paint.Scale(z.z, z.at.Min))()
+	kids.At(0).Paint(p)
+}
+
+func TestHeroFliesToWhereAScaledPlaceShows(t *testing.T) {
+	s := newHeroStage(t)
+	gunim.RegisterView(s.w, "zoomed", func(struct{}) gunim.Node {
+		big := NewImage(s.bigPic)
+		big.Fit = FitFill
+		s.big = NewHero("pic", big)
+		return &zoomed{spot2: spot2{at: geom.Rc(100, 100, 100, 75), child: s.big}, z: 2}
+	}, nil)
+	if err := s.w.Client().Mount(gunim.Root, "detail", "zoomed", nil); err != nil {
+		t.Fatal(err)
+	}
+	// Its place shows at 200 by 150 from (100, 100): it grows there
+	// smoothly, its corner and its size both, with no jump as it lands.
+	prev := geom.Rc(10, 10, 40, 30)
+	for i := range 120 {
+		s.run(1)
+		r, ok := s.drawn()[s.bigPic]
+		if !ok {
+			t.Fatalf("frame %d: the flying picture is missing", i)
+		}
+		if r.Min.X < 9 || r.Min.X > 101 || r.Min.Y < 9 || r.Min.Y > 101 {
+			t.Fatalf("frame %d: the corner flew off to %v", i, r.Min)
+		}
+		if dw := r.Size().W - prev.Size().W; dw < -1 || dw > 40 {
+			t.Fatalf("frame %d: width went from %v to %v", i, prev.Size().W, r.Size().W)
+		}
+		prev = r
+	}
+	if prev != geom.Rc(100, 100, 200, 150) {
+		t.Fatalf("landed at %v; want where its place shows", prev)
+	}
+}
+
 func TestHeroFlightMovesSmoothlyEveryFrame(t *testing.T) {
 	s := newHeroStage(t)
 	if err := s.w.Client().Mount(gunim.Root, "detail", "detail", nil); err != nil {

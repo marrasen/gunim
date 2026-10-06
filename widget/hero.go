@@ -1,6 +1,7 @@
 package widget
 
 import (
+	"math"
 	"slices"
 
 	"github.com/marrasen/gunim"
@@ -48,8 +49,11 @@ type Hero struct {
 	seen    uint64
 	arrived bool
 	leaving bool
-	// natural is the child's size at the hero's own place.
+	// natural is the child's size at the hero's own place, and scale how
+	// many window pixels one of its own is there, under the transforms
+	// it is drawn with, as last painted.
 	natural geom.Size
+	scale   float32
 }
 
 // NewHero returns child as a hero tagged tag.
@@ -156,9 +160,15 @@ func (h *Hero) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) g
 	h.natural = kid.Layout(c)
 	kid.Place(geom.Point{})
 	if h.flying {
-		// The child takes the size in between, for this frame.
-		s := lerpSize(h.from.Size(), h.natural, h.fly.Value())
-		kid.Layout(gunim.Tight(geom.Sz(max(s.W, 0), max(s.H, 0))))
+		// The child takes the size in between, for this frame, as it will
+		// show in the window: under a transform that scales the hero's
+		// place, as a zoom does, it flies to the size it appears there.
+		k := max(h.scale, 0.001)
+		if h.scale == 0 {
+			k = 1
+		}
+		s := lerpSize(h.from.Size(), geom.Sz(h.natural.W*k, h.natural.H*k), h.fly.Value())
+		kid.Layout(gunim.Tight(geom.Sz(max(s.W/k, 0), max(s.H/k, 0))))
 	}
 	return h.natural
 }
@@ -167,6 +177,7 @@ func (h *Hero) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) g
 func (h *Hero) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.Children) {
 	t := p.Transform()
 	h.rect = geom.Rect{Min: t.Apply(geom.Point{}), Max: t.Apply(box.Point())}.Normalized()
+	h.scale = float32(math.Hypot(float64(t.A), float64(t.D)))
 	h.seen = f.Number()
 	if h.hidden {
 		return
@@ -175,10 +186,18 @@ func (h *Hero) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.
 		kids.At(0).Paint(p)
 		return
 	}
-	at := lerpRect(h.from, h.rect, h.fly.Value()).Min
+	// The child, laid out at the size in between, scaled as the window
+	// shows its place, fills the rectangle in between.
+	at := lerpRect(h.from, h.rect, h.fly.Value())
+	kid := kids.At(0)
+	k := h.scale
+	if w := kid.Size().W; w > 0 {
+		k = at.Size().W / w
+	}
 	p.Float(func(p *paint.Painter) {
-		defer p.Push(paint.Translate(at))()
-		kids.At(0).Paint(p)
+		defer p.Push(paint.Translate(at.Min))()
+		defer p.Push(paint.Scale(k, geom.Point{}))()
+		kid.Paint(p)
 	})
 }
 
