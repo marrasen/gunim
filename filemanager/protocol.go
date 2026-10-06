@@ -108,8 +108,10 @@ type Row struct {
 	Dir    bool
 	Hidden bool
 	Broken bool
-	// Online says the file's contents are online only.
+	// Online says the file's contents are online only, and Cloud how a
+	// cloud provider keeps the item.
 	Online   bool
+	Cloud    CloudState
 	Size     string
 	Modified string
 	Type     string

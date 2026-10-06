@@ -173,6 +173,10 @@ func (localFS) Hidden(info fs.FileInfo) bool { return hiddenAttr(info) }
 // as OneDrive keeps online, on Windows.
 func (localFS) OnlineOnly(info fs.FileInfo) bool { return onlineOnly(info) }
 
+// Cloud implements [CloudReporter]: how a cloud provider such as
+// OneDrive keeps the item, on Windows.
+func (localFS) Cloud(dir string, info fs.FileInfo) CloudState { return cloudOf(dir, info) }
+
 // SystemThumb implements [OnlineReporter]: the thumbnail Windows keeps.
 func (localFS) SystemThumb(path string, size int) (image.Image, error) {
 	return cachedShellThumb(path, size)

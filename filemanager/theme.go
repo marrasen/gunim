@@ -19,9 +19,15 @@ var (
 	ErrorInk    = theme.Foreground("files.error", color.NRGBA{R: 0xff, G: 0x8a, B: 0x80, A: 0xff})
 	ErrorFill   = theme.Color("files.error.fill", color.NRGBA{R: 0x5a, G: 0x22, B: 0x22, A: 0xff})
 	// PlaceLit is the mark of a place that is lit, as a machine connected is.
-	PlaceLit  = theme.Color("files.place.lit", color.NRGBA{R: 0x4c, G: 0xd0, B: 0x7d, A: 0xff})
-	SmallText = theme.Length("files.small", 12)
-	TitleText = theme.Length("files.title", 16)
+	PlaceLit = theme.Color("files.place.lit", color.NRGBA{R: 0x4c, G: 0xd0, B: 0x7d, A: 0xff})
+	// CloudLocalInk marks an item a cloud provider has on this device,
+	// CloudPinnedInk one it always keeps there, and CloudBlank holds the
+	// place of a mark where none can be told.
+	CloudLocalInk  = theme.Color("files.cloud.local", color.NRGBA{R: 0x4c, G: 0xd0, B: 0x7d, A: 0xff})
+	CloudPinnedInk = theme.Color("files.cloud.pinned", color.NRGBA{R: 0x2f, G: 0xb8, B: 0x63, A: 0xff})
+	CloudBlank     = theme.Color("files.cloud.blank", color.NRGBA{})
+	SmallText      = theme.Length("files.small", 12)
+	TitleText      = theme.Length("files.title", 16)
 
 	// Page is the motion a folder's listing slides in with.
 	Page = theme.Spring("files.motion.page", anim.Spring{Response: 0.34, Damping: 0.88})
