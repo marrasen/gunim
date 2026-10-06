@@ -32,6 +32,12 @@ type Hero struct {
 	// Anchor makes the hero a place a counterpart flies from and back to, such as a tile in a grid: it stays put as
 	// it arrives, and leaving sends nothing flying.
 	Anchor bool
+	// InPlace draws the hero's flight where the hero sits among the nodes around it, not above the whole window:
+	// what its screen draws over its place, such as a caption or a toolbar, stays over it as it flies in, and the
+	// clips around its place hold it all the way. Set it on a hero whose screen comes in above where it flies
+	// from, such as a viewer opening over a grid; leave it unset where the hero must fly out of a scrolled or
+	// clipped area it would otherwise be hidden by.
+	InPlace bool
 
 	child gunim.Node
 	// fly runs from 0 to 1 over a flight, from and to its ends in window
@@ -198,6 +204,16 @@ func (h *Hero) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.
 	k := h.scale
 	if w := kid.Size().W; w > 0 {
 		k = at.Size().W / w
+	}
+	if h.InPlace {
+		// In window space, here among the nodes around it.
+		if inv, ok := t.Invert(); ok {
+			defer p.Push(inv)()
+			defer p.Push(paint.Translate(at.Min))()
+			defer p.Push(paint.Scale(k, geom.Point{}))()
+			kid.Paint(p)
+		}
+		return
 	}
 	fly := h.fly.Value()
 	p.Float(func(p *paint.Painter) {

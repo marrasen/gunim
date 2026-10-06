@@ -1,6 +1,7 @@
 package widget
 
 import (
+	"image/color"
 	"testing"
 	"time"
 
@@ -336,6 +337,67 @@ func TestHeroLandsInsideWhatClipsItsPlace(t *testing.T) {
 	}
 	if prev < 95 {
 		t.Fatalf("the flight's clip ended at x %v; want near its place's, 100", prev)
+	}
+}
+
+// captioned draws a caption over its child, as a viewer draws a file's
+// name over the photo.
+type captioned struct {
+	zoomed
+	caption geom.Rect
+}
+
+func (c *captioned) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.Children) {
+	c.zoomed.Paint(p, f, box, kids)
+	p.RRect(c.caption, 0, paint.Solid(color.NRGBA{R: 1, A: 0xff}))
+}
+
+func TestAHeroInPlaceFliesUnderWhatItsScreenDrawsOverIt(t *testing.T) {
+	for _, inPlace := range []bool{false, true} {
+		s := newHeroStage(t)
+		gunim.RegisterView(s.w, "captioned", func(struct{}) gunim.Node {
+			big := NewImage(s.bigPic)
+			big.Fit = FitFill
+			s.big = NewHero("pic", big)
+			s.big.InPlace = inPlace
+			return &captioned{zoomed: zoomed{spot2: spot2{at: geom.Rc(100, 100, 100, 75), child: s.big}, z: 2},
+				caption: geom.Rc(100, 200, 80, 20)}
+		}, nil)
+		if err := s.w.Client().Mount(gunim.Root, "detail", "captioned", nil); err != nil {
+			t.Fatal(err)
+		}
+		prev := geom.Rc(10, 10, 40, 30)
+		for i := range 120 {
+			s.run(1)
+			img, caption := -1, -1
+			for j, op := range s.w.Offscreen().Ops() {
+				switch op := op.(type) {
+				case *paint.ImageOp:
+					if op.Image == s.bigPic {
+						img = j
+					}
+				case *paint.RRectOp:
+					if op.Fill.Solid == (color.NRGBA{R: 1, A: 0xff}) {
+						caption = j
+					}
+				}
+			}
+			if img < 0 || caption < 0 {
+				t.Fatalf("frame %d: the picture or the caption is missing", i)
+			}
+			if over := img > caption; over != !inPlace && i < 10 {
+				t.Fatalf("InPlace %v, frame %d: the flying picture is drawn over the caption: %v", inPlace, i, over)
+			}
+			// In place or not, it flies to where its place shows.
+			r := s.drawn()[s.bigPic]
+			if dw := r.Size().W - prev.Size().W; dw < -1 || dw > 40 {
+				t.Fatalf("InPlace %v, frame %d: width went from %v to %v", inPlace, i, prev.Size().W, r.Size().W)
+			}
+			prev = r
+		}
+		if prev != geom.Rc(100, 100, 200, 150) {
+			t.Fatalf("InPlace %v: landed at %v", inPlace, prev)
+		}
 	}
 }
 
