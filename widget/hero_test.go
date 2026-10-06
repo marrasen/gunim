@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/marrasen/gunim"
+	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/gunimtest"
 	"github.com/marrasen/gunim/paint"
@@ -137,6 +138,105 @@ func TestHeroClosedMidFlightFliesBackVisibly(t *testing.T) {
 	s.run(120)
 	if d := s.drawn(); d[s.thumbPic] != geom.Rc(10, 10, 40, 30) {
 		t.Fatalf("the thumbnail landed at %v", d[s.thumbPic])
+	}
+}
+
+// lingering holds its view on screen for a while as it leaves, as a view
+// with an exit of its own does.
+type lingering struct {
+	anim.Group
+	spot2
+	out *anim.Float
+}
+
+func (l *lingering) Transition(p gunim.Presence, _ gunim.Frame) bool {
+	switch p {
+	case gunim.Entering:
+		l.out.Animate(1, anim.Tween{Duration: 300 * time.Millisecond})
+	case gunim.Exiting:
+		l.out.Animate(0, anim.Tween{Duration: 300 * time.Millisecond})
+	case gunim.Present:
+	}
+	return !l.out.Active()
+}
+
+func TestHeroBroughtBackMidExitShowsAndFliesOutAgain(t *testing.T) {
+	s := newHeroStage(t)
+	var built int
+	gunim.RegisterView(s.w, "lingering", func(struct{}) gunim.Node {
+		built++
+		big := NewImage(s.bigPic)
+		big.Fit = FitFill
+		s.big = NewHero("pic", big)
+		l := &lingering{spot2: spot2{at: geom.Rc(100, 100, 200, 150), child: s.big}, out: anim.NewFloat(0)}
+		l.Add(l.out)
+		return l
+	}, nil)
+	if err := s.w.Client().Mount(gunim.Root, "detail", "lingering", nil); err != nil {
+		t.Fatal(err)
+	}
+	s.run(120)
+	if err := s.w.Client().Unmount("detail"); err != nil {
+		t.Fatal(err)
+	}
+	s.run(3)
+	back := s.drawn()[s.thumbPic]
+	// Mounted again while its exit is under way, the view comes back as it
+	// was, and so does its hero: from where the thumbnail has got to.
+	if err := s.w.Client().Mount(gunim.Root, "detail", "lingering", nil); err != nil {
+		t.Fatal(err)
+	}
+	s.run(1)
+	if built != 1 {
+		t.Fatalf("the view was built %d times; want it brought back", built)
+	}
+	d := s.drawn()
+	if _, ok := d[s.thumbPic]; ok {
+		t.Fatal("the thumbnail still shows while the hero brought back flies")
+	}
+	r, ok := d[s.bigPic]
+	if !ok {
+		t.Fatal("the hero brought back is hidden")
+	}
+	// Within a frame's travel of the thumbnail on its way back.
+	if dx := r.Min.X - back.Min.X; dx < -15 || dx > 15 {
+		t.Fatalf("the hero brought back is at %v; want on its way out from %v", r, back)
+	}
+	s.run(120)
+	if d := s.drawn(); d[s.bigPic] != geom.Rc(100, 100, 200, 150) {
+		t.Fatalf("the hero brought back landed at %v", d[s.bigPic])
+	}
+	// And it leaves again as any hero does.
+	if err := s.w.Client().Unmount("detail"); err != nil {
+		t.Fatal(err)
+	}
+	s.run(120)
+	d = s.drawn()
+	if _, ok := d[s.bigPic]; ok {
+		t.Fatal("the big picture still shows once its hero has left again")
+	}
+	if d[s.thumbPic] != geom.Rc(10, 10, 40, 30) {
+		t.Fatalf("the thumbnail landed at %v", d[s.thumbPic])
+	}
+}
+
+func TestHeroReopenedMidReturnFliesFromWhereTheThumbnailIs(t *testing.T) {
+	s := newHeroStage(t)
+	if err := s.w.Client().Mount(gunim.Root, "detail", "detail", nil); err != nil {
+		t.Fatal(err)
+	}
+	s.run(120)
+	if err := s.w.Client().Unmount("detail"); err != nil {
+		t.Fatal(err)
+	}
+	s.run(3)
+	back := s.drawn()[s.thumbPic]
+	if err := s.w.Client().Mount(gunim.Root, "detail", "detail", nil); err != nil {
+		t.Fatal(err)
+	}
+	s.run(1)
+	if r := s.drawn()[s.bigPic]; r.Min.X-back.Min.X < -15 || r.Min.X-back.Min.X > 15 {
+		t.Fatalf("the new hero starts at %v; want within a frame's travel of the thumbnail on its way back at %v", r, back)
 	}
 }
 
