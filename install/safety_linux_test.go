@@ -201,3 +201,64 @@ func TestACopyRunningFromAnOldPlaceCounts(t *testing.T) {
 		}
 	}
 }
+
+// Starts beside a copy already running, as when several files open at
+// once, are not counted against a release on trial; and an install of a
+// copy by hand ends the trial.
+func TestStartsBesideARunningCopyAreNotCounted(t *testing.T) {
+	sleep, err := exec.LookPath("sleep")
+	if err != nil {
+		t.Skip("no sleep to run")
+	}
+	raw, err := os.ReadFile(sleep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "studio")
+	if err = os.WriteFile(exe, raw, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(exe+".old", []byte("one"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err = (trial{Version: "v2.0.0"}).write(exe); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.CommandContext(t.Context(), exe, "30")
+	if err = cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+	a := App{Name: "studio", Version: "v2.0.0", Dir: func() (string, error) { return dir, nil }}
+	for i := range trialStarts + 3 {
+		if onTrial(a, exe) {
+			t.Fatalf("start %d, beside a running copy, gave way", i+1)
+		}
+	}
+	if tr, _ := readTrial(exe); tr.Starts != 0 {
+		t.Errorf("starts beside a running copy were counted: %d", tr.Starts)
+	}
+}
+
+// Installing a copy by hand over a release on trial ends the trial.
+func TestAnInstallByHandEndsTheTrial(t *testing.T) {
+	_, program := testHome(t)
+	a := App{Name: "studio", Version: "v2.0.0"}
+	s, err := newSession(a, program, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.MkdirAll(s.Dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err = (trial{Version: "v2.0.0", Starts: 2}).write(s.Exe); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Install(context.Background(), nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := readTrial(s.Exe); ok {
+		t.Error("an install by hand left the trial")
+	}
+}

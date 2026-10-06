@@ -208,7 +208,7 @@ func TestStage(t *testing.T) {
 
 	// A program that is not what its sums say is not put in place.
 	bad := r
-	bad.Name = "nothing"
+	bad.Name, bad.Version = "nothing", "v4.0.0"
 	if err := Stage(context.Background(), a, bad); err == nil {
 		t.Fatal("staged a release whose sums say nothing of it")
 	}
@@ -552,7 +552,7 @@ func TestMoveAsidePastABusyOld(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(path+".old", "running"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	old, err := moveAside(path)
+	old, err := moveAside(path, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -561,5 +561,85 @@ func TestMoveAsidePastABusyOld(t *testing.T) {
 	}
 	if busy := leftovers(path, ".old"); len(busy) != 1 {
 		t.Fatalf("the copy in the way went to %v, want one name of its own", busy)
+	}
+}
+
+// A newer release put in place while one is on trial keeps the last
+// one that passed: a bad v3 over an untried v2 gives way to v1.
+func TestANewerReleaseOnTrialKeepsTheOneThatPassed(t *testing.T) {
+	was := trialRun
+	trialRun = time.Hour
+	t.Cleanup(func() { trialRun = was })
+	a, exe, _ := stagedOver(t)
+	srv := fakeGitHub(t, release{tag: "v3.0.0", files: map[string][]byte{asset("3.0.0"): []byte("three")}})
+	a.Updates = GitHub{Repo: "marrasen/studio", API: srv.URL}
+	r, _, err := Check(context.Background(), a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = Stage(context.Background(), a, r); err != nil {
+		t.Fatal(err)
+	}
+	for f, want := range map[string]string{exe: "three", exe + ".old": "one"} {
+		if raw, _ := os.ReadFile(f); string(raw) != want {
+			t.Fatalf("v3 staged over v2 on trial: %s holds %q, want %q", filepath.Base(f), raw, want)
+		}
+	}
+	three := a
+	three.Version = "v3.0.0"
+	for range trialStarts {
+		onTrial(three, exe)
+	}
+	if !onTrial(three, exe) {
+		t.Fatal("v3, ending as it started, did not give way")
+	}
+	if raw, _ := os.ReadFile(exe); string(raw) != "one" {
+		t.Fatalf("v3 gave way to %q, want v1, the last that passed", raw)
+	}
+}
+
+// A download that fails while a release is on trial leaves all as it
+// was: the release, its trial, and the program kept before it.
+func TestAFailedDownloadOnTrialChangesNothing(t *testing.T) {
+	a, exe, _ := stagedOver(t)
+	r, _, err := Check(context.Background(), a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bad := r
+	bad.Name, bad.Version = "nothing", "v4.0.0"
+	if err = Stage(context.Background(), a, bad); err == nil {
+		t.Fatal("staged a release whose sums say nothing of it")
+	}
+	for f, want := range map[string]string{exe: "two", exe + ".old": "one"} {
+		if raw, _ := os.ReadFile(f); string(raw) != want {
+			t.Errorf("after a failed download, %s holds %q, want %q", filepath.Base(f), raw, want)
+		}
+	}
+	if tr, ok := readTrial(exe); !ok || tr.Version != "v2.0.0" {
+		t.Errorf("after a failed download the trial is %+v, %v", tr, ok)
+	}
+	// The same release again, as from a second copy of the program, is
+	// in place already: nothing moves.
+	if err = Stage(context.Background(), a, r); err != nil {
+		t.Fatal(err)
+	}
+	if raw, _ := os.ReadFile(exe + ".old"); string(raw) != "one" {
+		t.Errorf("staged again, .old holds %q, want v1", raw)
+	}
+}
+
+// The program being replaced, started just as a newer release is put
+// in place, leaves the trial and what it keeps alone.
+func TestTheProgramBeingReplacedLeavesTheTrial(t *testing.T) {
+	a, exe, _ := stagedOver(t)
+	if onTrial(a, exe) {
+		t.Fatal("v1, started beside v2's trial, gave way")
+	}
+	if tr, ok := readTrial(exe); !ok || tr.Version != "v2.0.0" || tr.Starts != 0 {
+		t.Errorf("v1's start left the trial %+v, %v", tr, ok)
+	}
+	if raw, _ := os.ReadFile(exe + ".old"); string(raw) != "one" {
+		t.Errorf("v1's start left .old holding %q", raw)
 	}
 }

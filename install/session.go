@@ -430,6 +430,9 @@ func (s *Session) install(ctx context.Context, picks map[string]bool, progress f
 	}
 	progress(Progress{Step: "Copying " + s.App.Name, Done: 0.1})
 	if !samePath(s.self, s.Exe) {
+		// A copy put in place by hand ends a trial: the program it
+		// replaces is the user's choice now, as is this one.
+		_ = os.Remove(trialPath(s.Exe))
 		if err = copyFile(ctx, s.self, s.Exe, func(f float32) {
 			progress(Progress{Step: "Copying " + s.App.Name, Done: 0.1 + 0.5*f})
 		}); err != nil {
@@ -700,11 +703,16 @@ func copyFile(ctx context.Context, from, to string, progress func(float32)) erro
 // one is moved aside to path.old first, which [CleanOld] takes away
 // later, and moved back if the new one cannot be put in place, so path
 // is never left missing.
-func Replace(part, path string) error {
+func Replace(part, path string) error { return replaceKeeping(part, path, false) }
+
+// replaceKeeping is Replace, which with keep leaves path.old as it is,
+// for an update to give way to: where the program is moved aside, it
+// goes to a name of its own, which CleanOld takes away.
+func replaceKeeping(part, path string, keep bool) error {
 	old := ""
 	if movesAside {
 		if _, err := os.Stat(path); err == nil {
-			if old, err = moveAside(path); err != nil {
+			if old, err = moveAside(path, keep); err != nil {
 				return err
 			}
 		}
@@ -718,15 +726,20 @@ func Replace(part, path string) error {
 	return nil
 }
 
-// moveAside moves the file at file to file.old, for Replace. One at
+// moveAside moves the file at file to file.old, for Replace, or, with
+// keep, to a name of its own beside it, and returns where. One at
 // file.old that cannot go, as the program the last update moved aside
 // while it still runs, as from the tray, is moved out of the way first,
 // under a name of its own, which CleanOld takes away once it can.
-func moveAside(file string) (string, error) {
+func moveAside(file string, keep bool) (string, error) {
+	aside := func() string {
+		return filepath.Join(filepath.Dir(file), fmt.Sprintf(".%s.%d.old", filepath.Base(file), time.Now().UnixNano()))
+	}
 	old := file + ".old"
-	if err := os.Remove(old); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		busy := filepath.Join(filepath.Dir(file), fmt.Sprintf(".%s.%d.old", filepath.Base(file), time.Now().UnixNano()))
-		if err := os.Rename(old, busy); err != nil {
+	if keep {
+		old = aside()
+	} else if err := os.Remove(old); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		if err := os.Rename(old, aside()); err != nil {
 			return "", fmt.Errorf("move %s aside: %w", filepath.Base(old), err)
 		}
 	}
