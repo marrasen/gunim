@@ -153,6 +153,11 @@ func Light() theme.Theme {
 		theme.Set(TooltipFill, color.NRGBA{R: 0x1c, G: 0x20, B: 0x28, A: 0xf0}),
 		theme.Set(TooltipInk, color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}),
 		theme.Set(SwitchOff, color.NRGBA{R: 0xc8, G: 0xd0, B: 0xdc, A: 0xff}),
+		theme.Set(SliderRestMark, color.NRGBA{R: 0x6a, G: 0x72, B: 0x80, A: 0xc0}),
+		theme.Set(SliderRowInk, color.NRGBA{R: 0x5b, G: 0x63, B: 0x72, A: 0xff}),
+		theme.Set(CurveFill, color.NRGBA{R: 0xee, G: 0xf1, B: 0xf5, A: 0xff}),
+		theme.Set(CurveGrid, color.NRGBA{A: 0x18}),
+		theme.Set(HistogramFill, color.NRGBA{R: 0x2a, G: 0x2e, B: 0x36, A: 0xff}),
 		theme.Set(Knob, color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}),
 		theme.Set(CheckRadius, 6),
 		theme.Set(ControlHeight, 32),
@@ -329,8 +334,10 @@ var (
 	Knob        = theme.Color("knob", color.NRGBA{R: 0xf4, G: 0xf6, B: 0xfa, A: 0xff})
 	KnobSize    = theme.Length("knob.size", 18)
 	SliderTrack = theme.Length("slider.track", 4)
-	TabHeight   = theme.Length("tab.height", 38)
-	TabPadding  = theme.Length("tab.padding", 14)
+	// SliderRestMark marks a slider's resting value on its track.
+	SliderRestMark = theme.Color("slider.rest", color.NRGBA{R: 0xa4, G: 0xab, B: 0xbb, A: 0xc0})
+	TabHeight      = theme.Length("tab.height", 38)
+	TabPadding     = theme.Length("tab.padding", 14)
 )
 
 // HeroMotion is the motion a [Hero] flies with.

@@ -260,6 +260,93 @@ func TestFaderFillsTheHeightItIsGiven(t *testing.T) {
 	}
 }
 
+type committed struct{ v float32 }
+
+func TestASliderHeldByItsKnobMovesAsFarAsThePointer(t *testing.T) {
+	s := NewSlider(-100, 100)
+	s.Set(0)
+	s.OnCommit = func(v float32) gunim.Intent { return committed{v} }
+	w, run := stage(t, &frame{child: s, size: geom.Sz(218, 28)})
+	run(1)
+	// The knob is in the middle, at 109; a press beside its middle takes
+	// hold of it there, with no jump.
+	w.Input(input.PointerDown{Pos: geom.Pt(113, 14), Clicks: 1})
+	run(1)
+	if s.Value() != 0 {
+		t.Fatalf("a press on the knob moved it to %v", s.Value())
+	}
+	// 50 of 200 across the track is a quarter of the range, 50.
+	w.Input(input.PointerMove{Pos: geom.Pt(163, 14)})
+	run(1)
+	if v := s.Value(); v < 49.9 || v > 50.1 {
+		t.Fatalf("a drag of a quarter of the track set %v, want 50", v)
+	}
+	// With Shift, a tenth as far: 50 more across is 5 more.
+	w.Input(input.PointerMove{Pos: geom.Pt(213, 14), Mods: input.ModShift})
+	run(1)
+	if v := s.Value(); v < 54.9 || v > 55.1 {
+		t.Fatalf("a fine drag set %v, want 55", v)
+	}
+	if got := sent(w); len(got) != 0 {
+		t.Fatalf("committed %v before the drag was let go", got)
+	}
+	w.Input(input.PointerUp{Pos: geom.Pt(213, 14)})
+	run(1)
+	if got := sent(w); len(got) != 1 || got[0].(committed).v < 54.9 {
+		t.Fatalf("letting go committed %v, want once, at 55", got)
+	}
+}
+
+func TestADoubleClickSendsASliderBackToRest(t *testing.T) {
+	s := NewSlider(-100, 100)
+	s.Rest, s.HasRest = 0, true
+	s.Set(60)
+	s.OnCommit = func(v float32) gunim.Intent { return committed{v} }
+	w, run := stage(t, &frame{child: s, size: geom.Sz(218, 28)})
+	run(1)
+	w.Input(input.PointerDown{Pos: geom.Pt(30, 14), Clicks: 1})
+	w.Input(input.PointerUp{Pos: geom.Pt(30, 14)})
+	w.Input(input.PointerDown{Pos: geom.Pt(30, 14), Clicks: 2})
+	w.Input(input.PointerUp{Pos: geom.Pt(30, 14)})
+	run(2)
+	if s.Value() != 0 {
+		t.Fatalf("a double click left %v, want rest, 0", s.Value())
+	}
+	// The knob glides back, and the readout can count along with it.
+	if sh := s.Shown(); sh == 0 {
+		t.Fatal("the knob jumped back to rest")
+	}
+	run(60)
+	if sh := s.Shown(); sh < -0.5 || sh > 0.5 {
+		t.Fatalf("the knob settled at %v, want 0", sh)
+	}
+	got := sent(w)
+	if last, ok := got[len(got)-1].(committed); !ok || last.v != 0 {
+		t.Fatalf("the double click committed %v, want 0 last", got)
+	}
+}
+
+func TestASliderSetFromOutsideKeepsItsValueOffTheSteps(t *testing.T) {
+	s := NewSlider(-5, 5)
+	s.Snap = 0.05
+	s.Set(1.49)
+	if s.Value() != 1.49 {
+		t.Fatalf("Set(1.49) on a slider of steps of 0.05 left %v", s.Value())
+	}
+	s.Set(9)
+	if s.Value() != 5 {
+		t.Fatalf("Set(9) on a slider to 5 left %v", s.Value())
+	}
+}
+
+func TestASliderThatKeepsFocusLeavesTheKeyboardBe(t *testing.T) {
+	s := NewSlider(0, 1)
+	s.KeepFocus = true
+	if s.FocusOnPress() {
+		t.Fatal("a slider set to keep focus takes it on a press")
+	}
+}
+
 func TestSliderTellsTheWindowAsItMoves(t *testing.T) {
 	s := NewSlider(0, 100)
 	s.Snap = 1
