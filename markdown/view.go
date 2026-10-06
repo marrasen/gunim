@@ -456,7 +456,16 @@ func (v *View) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Chi
 	}
 	start, end := v.Selection()
 	sel := paint.Solid(widget.Selection.Get(th))
+	// What the clips around the view let through, in its own space: a
+	// paragraph outside it is not drawn, as a long document in a scroll
+	// shows a screenful of its thousands of lines.
+	shown, cull := visibleIn(p)
 	for i, lp := range v.paras {
+		if cull {
+			if r := (geom.Rect{Min: lp.at, Max: lp.at.Add(lp.p.Size.Point())}); r.Max.Y < shown.Min.Y || r.Min.Y > shown.Max.Y {
+				continue
+			}
+		}
 		func() {
 			if lp.code {
 				defer p.Layer(paint.LayerOpts{Bounds: lp.clip, Opacity: 1, Clip: true})()
@@ -767,4 +776,32 @@ func lineAround(rs []rune, i int) (start, end int) {
 // Access implements [gunim.Accessible]: the text, without its Markdown, read as a label.
 func (v *View) Access() access.Info {
 	return access.Info{Role: access.RoleLabel, Name: strings.TrimSpace(Plain(v.src))}
+}
+
+// visibleIn is the part of the painter's space the clips around it let
+// through, and false where it can't be told, as under a perspective or
+// with no clip at all.
+func visibleIn(p *paint.Painter) (geom.Rect, bool) {
+	if p.Projection() != nil {
+		return geom.Rect{}, false
+	}
+	b, clipped := p.Clip().Bounds()
+	if !clipped {
+		return geom.Rect{}, false
+	}
+	back, ok := p.Transform().Invert()
+	if !ok {
+		return geom.Rect{}, false
+	}
+	var out geom.Rect
+	for i, q := range []geom.Point{b.Min, {X: b.Max.X, Y: b.Min.Y}, b.Max, {X: b.Min.X, Y: b.Max.Y}} {
+		at := back.Apply(q)
+		if i == 0 {
+			out = geom.Rect{Min: at, Max: at}
+			continue
+		}
+		out.Min.X, out.Min.Y = min(out.Min.X, at.X), min(out.Min.Y, at.Y)
+		out.Max.X, out.Max.Y = max(out.Max.X, at.X), max(out.Max.Y, at.Y)
+	}
+	return out, true
 }
