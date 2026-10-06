@@ -32,7 +32,7 @@ func Find(a App) (*Installation, error) {
 	if err != nil {
 		return nil, err
 	}
-	m, err := readManifest(dir)
+	m, err := readManifest(dir, a.id())
 	if err != nil {
 		return nil, err
 	}
@@ -68,7 +68,7 @@ func Change(a App, picks map[string]bool) error {
 		// there is nowhere to keep the picks until it moves.
 		return nil
 	}
-	m, err := readManifest(in.Dir)
+	m, err := readManifest(in.Dir, a.id())
 	if err != nil {
 		return err
 	}
@@ -90,7 +90,7 @@ func SetUpdates(a App, mode UpdateMode) error {
 	if err != nil {
 		return err
 	}
-	m, err := readManifest(dir)
+	m, err := readManifest(dir, a.id())
 	if err != nil {
 		return err
 	}

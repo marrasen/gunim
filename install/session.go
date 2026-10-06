@@ -111,9 +111,14 @@ func (a *App) dir() (string, error) {
 	return defaultDir(a)
 }
 
-// readManifest reads what the install in dir kept of itself, or nil
-// for none.
-func readManifest(dir string) (*manifest, error) {
+// errOther says a folder holds the install of another program.
+var errOther = errors.New("holds another program's install")
+
+// readManifest reads what the install of the program named id in dir
+// kept of itself, or nil for none. A manifest of another program's, as
+// in a folder two programs share, is errOther: its files are not this
+// program's to replace or take away.
+func readManifest(dir, id string) (*manifest, error) {
 	raw, err := os.ReadFile(filepath.Join(dir, manifestName))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
@@ -124,6 +129,9 @@ func readManifest(dir string) (*manifest, error) {
 	var m manifest
 	if err := json.Unmarshal(raw, &m); err != nil {
 		return nil, fmt.Errorf("read %s: %w", manifestName, err)
+	}
+	if m.ID != id {
+		return nil, fmt.Errorf("install: %s %w, %s", dir, errOther, m.ID)
 	}
 	return &m, nil
 }
@@ -219,7 +227,7 @@ func newSession(a App, self string, uninstall bool) (*Session, error) {
 		a.Icon = a.IconFunc()
 	}
 	s := &Session{App: a, Dir: dir, Exe: filepath.Join(dir, a.exe()), self: self, Free: -1}
-	m, err := readManifest(dir)
+	m, err := readManifest(dir, a.id())
 	if err != nil {
 		return nil, err
 	}
@@ -274,7 +282,7 @@ func newSession(a App, self string, uninstall bool) (*Session, error) {
 // found is the program installed already: at exe, where it goes, or
 // else at one of the places older versions put it. It is "" for none.
 func (a *App) found(exe string) string {
-	if _, err := os.Stat(exe); err == nil {
+	if fi, err := os.Stat(exe); err == nil && fi.Mode().IsRegular() {
 		return exe
 	}
 	for _, f := range a.Formerly {
@@ -283,6 +291,14 @@ func (a *App) found(exe string) string {
 		}
 	}
 	return ""
+}
+
+// ours reports whether p is the program of install in: where it is,
+// or where an older version put it. What the system holds that leads to
+// another path, as a link or a shortcut of the same name, is another
+// program's, and stays.
+func (a *App) ours(in Installation, p string) bool {
+	return samePath(p, in.Exe) || a.former(p)
 }
 
 // former reports whether path is one of the places older versions put
@@ -387,9 +403,9 @@ func (s *Session) install(ctx context.Context, picks map[string]bool, progress f
 	if err := os.MkdirAll(s.Dir, 0o755); err != nil {
 		return in, err
 	}
-	var old *manifest
-	if m, err := readManifest(s.Dir); err == nil {
-		old = m
+	old, err := readManifest(s.Dir, s.App.id())
+	if err != nil {
+		return in, err
 	}
 	// How it takes updates: as it did, or as the program starts, and as
 	// the offer says when the user ticked or unticked it.
@@ -412,7 +428,7 @@ func (s *Session) install(ctx context.Context, picks map[string]bool, progress f
 	}
 	progress(Progress{Step: "Copying " + s.App.Name, Done: 0.1})
 	if !samePath(s.self, s.Exe) {
-		if err := copyFile(ctx, s.self, s.Exe, func(f float32) {
+		if err = copyFile(ctx, s.self, s.Exe, func(f float32) {
 			progress(Progress{Step: "Copying " + s.App.Name, Done: 0.1 + 0.5*f})
 		}); err != nil {
 			return in, fmt.Errorf("copy %s to %s: %w", s.App.Name, s.Exe, err)
@@ -475,8 +491,12 @@ func (s *Session) Uninstall(ctx context.Context, data bool, progress func(Progre
 		return err
 	}
 	progress(Progress{Step: "Removing its files", Done: 0.5})
+	m, err := readManifest(s.Dir, s.App.id())
+	if err != nil {
+		return err
+	}
 	var files []string
-	if m, err := readManifest(s.Dir); err == nil && m != nil {
+	if m != nil {
 		for _, f := range m.Files {
 			files = append(files, filepath.Join(s.Dir, filepath.FromSlash(f)))
 		}

@@ -2,6 +2,8 @@ package install
 
 import (
 	"context"
+	"crypto/ed25519"
+	"encoding/base64"
 	"errors"
 	"image"
 	"image/color"
@@ -94,6 +96,12 @@ type App struct {
 	// in place for the next start by itself, tells the program, or does
 	// nothing. Nil looks for none.
 	Updates Source
+	// UpdateKey is the public key the program's releases are signed
+	// with, as "gunimsign -keygen" prints it. Updates needs it: an update
+	// runs only when its SHA256SUMS carries a signature this key checks,
+	// so a release no one with the private key made never runs, wherever
+	// it comes from.
+	UpdateKey string
 	// UpdateMode is how updates go until the user chooses: UpdatesInstall
 	// when empty. A program that kept a setting of its own for it before
 	// it used this package gives that setting here, so an install of it
@@ -347,6 +355,11 @@ func (a *App) check() error {
 			}
 		}
 	}
+	if a.Updates != nil {
+		if _, err := a.updateKey(); err != nil {
+			return err
+		}
+	}
 	for _, c := range a.Choices {
 		switch c.Key {
 		case "", PickDesktop, PickAutostart, PickUpdates:
@@ -357,6 +370,18 @@ func (a *App) check() error {
 		}
 	}
 	return nil
+}
+
+// updateKey is App.UpdateKey, read.
+func (a *App) updateKey() (ed25519.PublicKey, error) {
+	if a.UpdateKey == "" {
+		return nil, errors.New("install: App.Updates needs App.UpdateKey, the key its releases are signed with; gunimsign -keygen makes one")
+	}
+	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(a.UpdateKey))
+	if err != nil || len(raw) != ed25519.PublicKeySize {
+		return nil, errors.New("install: App.UpdateKey is not a key gunimsign -keygen prints")
+	}
+	return ed25519.PublicKey(raw), nil
 }
 
 // offers are the installer's offers to a, with how each starts: as the

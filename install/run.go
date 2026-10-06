@@ -112,8 +112,15 @@ func Run(a App) {
 	}
 	if a.former(self) && IsRelease(a.Version) {
 		// An older version's install, updated in place by that version's
-		// own updates: the program moves to where it goes now, and runs.
-		moveIn(a, self)
+		// own updates: the program moves to where it goes now, and runs,
+		// or hands over to a newer version installed there already.
+		if newer := moveIn(a, self); newer != "" {
+			if err = launch(newer, os.Args[1:]); err != nil {
+				fmt.Fprintf(os.Stderr, "install: starting %s: %v\n", newer, err)
+				return
+			}
+			os.Exit(0)
+		}
 		return
 	}
 	if !IsRelease(a.Version) && env != "show" {
@@ -155,7 +162,7 @@ func installQuietly(a App, self string) int {
 // dir, as it starts.
 func startInstalled(a App, self, dir string) {
 	CleanOld(self)
-	m, err := readManifest(dir)
+	m, err := readManifest(dir, a.id())
 	if err != nil {
 		return
 	}
@@ -170,7 +177,7 @@ func startInstalled(a App, self, dir string) {
 			fmt.Fprintf(os.Stderr, "install: taking on the install in %s: %v\n", dir, err)
 			return
 		}
-		if m, err = readManifest(dir); err != nil || m == nil {
+		if m, err = readManifest(dir, a.id()); err != nil || m == nil {
 			return
 		}
 	}
@@ -206,16 +213,35 @@ func adopt(a App, self string) error {
 }
 
 // moveIn installs the program at self, where an older version put it,
-// to where it goes now, with what that install has on the system.
-func moveIn(a App, self string) {
-	if err := adopt(a, self); err != nil {
+// to where it goes now, with what that install has on the system. A
+// newer version installed already stays: moveIn returns it, for the old
+// copy to hand over to, as when a shortcut an older installer made
+// still starts the old place. It returns "" when this copy runs on.
+func moveIn(a App, self string) (newer string) {
+	s, err := newSession(a, self, false)
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "install: moving %s from %s: %v\n", a.Name, self, err)
-		return
+		return ""
 	}
-	// Where the old place is not the link that now stands there, the
-	// old program goes, or goes once it has ended.
+	if fi, err := os.Stat(s.Exe); err == nil && fi.Mode().IsRegular() && s.Mode == Downgrade {
+		removeOld(self)
+		return s.Exe
+	}
+	if _, err := s.install(context.Background(), nil, nil, false); err != nil {
+		fmt.Fprintf(os.Stderr, "install: moving %s from %s: %v\n", a.Name, self, err)
+		return ""
+	}
+	removeOld(self)
+	return ""
+}
+
+// removeOld takes away the program at self, where an older version put
+// it, now that it is installed where it goes: at once, or once it has
+// ended, where the system keeps a running program's file. Where the old
+// place is the link that now stands there, it stays.
+func removeOld(self string) {
 	if fi, err := os.Lstat(self); err == nil && fi.Mode().IsRegular() {
-		_ = os.Remove(self)
+		removeWhenEnded(self)
 	}
 }
 
