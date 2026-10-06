@@ -18,6 +18,7 @@ import (
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/markdown"
 	"github.com/marrasen/gunim/paint"
+	"github.com/marrasen/gunim/text"
 	"github.com/marrasen/gunim/widget"
 )
 
@@ -37,6 +38,7 @@ const (
 	pageNotes      = "notes"      // what the last update brought
 	pageRestarting = "restarting" // the program closes and starts again
 	pageUpdated    = "updated"    // the new release runs
+	pageAbout      = "about"      // the program, what its releases changed, and a check for updates
 )
 
 // restartPrefix starts Env's value for the copy an update starts in the
@@ -109,6 +111,35 @@ func ShowWhatsNew(ctx context.Context, app *gunim.App, a App, from string) error
 	return nil
 }
 
+// About is how the window [ShowAbout] opens takes a newer release it
+// finds: as [Update] does, by the program's Quit, and in place of Exe.
+type About struct {
+	Quit func() error
+	Exe  string
+}
+
+// ShowAbout opens a window on app about the program a describes, in the
+// installer's look, and serves it in the background until it closes or
+// ctx ends: its name, version and maker, what each of its releases
+// changed, and Check for Updates. The check runs with the window open,
+// and says how it went there; a newer release turns the window to it, to
+// update now as [ShowUpdate] does.
+func ShowAbout(ctx context.Context, app *gunim.App, a App, o About) error {
+	if err := a.check(); err != nil {
+		return err
+	}
+	sc := updateScene(&a, pageAbout, "", a.Version)
+	sc.Description = a.Description
+	c, err := openStage(app, &a, "About "+a.Name, updateHeight, sc)
+	if err != nil {
+		return err
+	}
+	r := newUpdater(a, c, sc)
+	r.about = &o
+	r.start(ctx, "", a.Version)
+	return nil
+}
+
 // updatedFrom is the version the update finished as this program
 // started replaced.
 var updatedFrom string
@@ -150,10 +181,15 @@ type updater struct {
 	pid    int
 	// left says the window was left; a test reads it.
 	left bool
+	// about is how a newer release the page about the program finds is
+	// taken, on that page.
+	about *About
+	// check asks for the newest release; a test sets it.
+	check func(ctx context.Context, a App) (Release, bool, error)
 }
 
 func newUpdater(a App, c gunim.Client, sc scene) *updater {
-	return &updater{a: a, c: c, sc: sc, events: make(chan func(), 16), launch: launch, pid: os.Getpid()}
+	return &updater{a: a, c: c, sc: sc, events: make(chan func(), 16), launch: launch, pid: os.Getpid(), check: Check}
 }
 
 // start serves the window, and reads the notes of the releases after
@@ -222,6 +258,11 @@ func (r *updater) handle(in gunim.Intent) {
 	case retried:
 		r.sc.Page, r.sc.Problem = pageUpdate, ""
 		r.show()
+	case checkNow:
+		if r.sc.Page != pageAbout || r.sc.Checking {
+			return
+		}
+		r.checkNow()
 	case markdown.Link:
 		openLink(r.c, in.URL)
 	}
@@ -242,6 +283,46 @@ func (r *updater) readNotes(from, to string) {
 			r.show()
 		})
 	}()
+}
+
+// checkNow asks for the newest release, with the window open, and says
+// how it went there; a newer one turns the window to it.
+func (r *updater) checkNow() {
+	r.sc.Checking, r.sc.Trouble, r.sc.Status = true, false, "Checking for updates…"
+	r.show()
+	check := r.check
+	go func() {
+		rel, newer, err := check(r.ctx, r.a)
+		r.send(func() {
+			r.sc.Checking = false
+			switch {
+			case err != nil:
+				r.sc.Trouble, r.sc.Status = true, "Couldn't check: "+err.Error()
+			case newer && r.about != nil:
+				r.found(rel)
+				return
+			case !IsRelease(r.a.Version):
+				r.sc.Status = "The newest release is " + strings.TrimPrefix(rel.Version, "v") + "; this build is none."
+			default:
+				r.sc.Status = r.a.Name + " is up to date."
+			}
+			r.show()
+		})
+	}()
+}
+
+// found turns the window to the newer release rel, to update now.
+func (r *updater) found(rel Release) {
+	r.u = Update{Release: rel, Quit: r.about.Quit, Exe: r.about.Exe}
+	if !supported {
+		r.u.Quit = nil
+	}
+	r.sc.Page, r.sc.Status = pageUpdate, ""
+	r.sc.Have, r.sc.Version = strings.TrimPrefix(r.a.Version, "v"), strings.TrimPrefix(rel.Version, "v")
+	r.sc.Ready, r.sc.Restart = false, r.u.Quit != nil
+	r.sc.NotesLoading, r.sc.Notes, r.sc.NotesErr = true, "", ""
+	r.show()
+	r.readNotes(r.a.Version, rel.Version)
 }
 
 // joinNotes is the notes of releases, newest first, as one document,
@@ -735,6 +816,28 @@ func updatePage(p *page, sc scene) {
 		act.Kind = widget.ButtonPrimary
 		act.On = updateNow{}
 		p.foot = footer(later, act)
+	case pageAbout:
+		heading(p, sc.Name, versionLine(sc))
+		if sc.Description != "" {
+			say(p, sc.Description)
+		}
+		p.notes = newNotesBox(sc)
+		p.fill = p.notes
+		p.add(20, p.notes)
+		status := soft(sc.Status)
+		status.Size = smallSize
+		status.Align = text.AlignStart
+		if sc.Trouble {
+			status.Color = failInk
+		}
+		p.status, p.trouble = status, sc.Trouble
+		check := widget.NewButton("Check for Updates")
+		check.On = checkNow{}
+		check.Disabled = sc.Checking
+		p.check = check
+		done := closeButton("Close")
+		done.Kind = widget.ButtonPrimary
+		p.foot = footer(status, check, done)
 	case pageNotes:
 		sub := "Version " + sc.Version
 		if sc.Have != "" {

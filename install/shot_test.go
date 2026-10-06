@@ -197,6 +197,11 @@ func TestUpdateShots(t *testing.T) {
 			r.sc.Page, r.sc.Problem = pageFailed, "the SHA256SUMS of v0.7.0 is not signed with App.UpdateKey"
 		})
 		shot("7-failed", 900*time.Millisecond)
+		set(func() {
+			r.sc.Page, r.sc.Version, r.sc.Have, r.sc.Problem = pageAbout, "0.9.0", "", ""
+			r.sc.Description, r.sc.Status = "Terminals, files and tunnels on your machines", "kakel is up to date."
+		})
+		shot("8-about", 1200*time.Millisecond)
 		c.Close()
 		return nil
 	})

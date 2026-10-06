@@ -90,6 +90,10 @@ type scene struct {
 	// Ready says an update is in place already, and Restart that the
 	// window can restart the program into it.
 	Ready, Restart bool
+	// Status says how a check for updates went, Checking that one runs,
+	// and Trouble that Status tells of a failure.
+	Status            string
+	Checking, Trouble bool
 }
 
 // What the installer's window sends.
@@ -110,6 +114,8 @@ type (
 	removed struct{ Data bool }
 	// updateNow asks to download an update and restart into it.
 	updateNow struct{}
+	// checkNow asks whether a newer release is out.
+	checkNow struct{}
 )
 
 func init() {
@@ -122,6 +128,7 @@ func init() {
 	gunim.RegisterType[quitThem]("gunim.install.quitThem")
 	gunim.RegisterType[removed]("gunim.install.removed")
 	gunim.RegisterType[updateNow]("gunim.install.updateNow")
+	gunim.RegisterType[checkNow]("gunim.install.checkNow")
 }
 
 // installTheme is the installer's theme: dark, its accent and its
@@ -633,8 +640,23 @@ func updateStage(st *stage, sc scene, u *gunim.UI) {
 				st.back(u)
 			}
 		}
-	} else if st.page.notes != nil {
-		st.page.notes.show(sc, u)
+	} else {
+		if st.page.notes != nil {
+			st.page.notes.show(sc, u)
+		}
+		if l := st.page.status; l != nil && (l.Text != sc.Status || st.page.trouble != sc.Trouble) {
+			l.SetText(sc.Status)
+			l.Color = inkSoft
+			if sc.Trouble {
+				l.Color = failInk
+			}
+			st.page.trouble = sc.Trouble
+			u.Invalidate()
+		}
+		if b := st.page.check; b != nil && b.Disabled != sc.Checking {
+			b.Disabled = sc.Checking
+			u.Invalidate()
+		}
 	}
 	if sc.Page == pageWorking {
 		st.progress(sc.Progress, u)
@@ -744,7 +766,7 @@ func buildPage(sc scene) *page {
 		heading(p, words, "")
 		say(p, "Thank you for using it.")
 		p.foot = footer(nil, closeButton("Close"))
-	case pageUpdate, pageNotes, pageRestarting, pageUpdated:
+	case pageUpdate, pageNotes, pageRestarting, pageUpdated, pageAbout:
 		updatePage(p, sc)
 	}
 	return p
