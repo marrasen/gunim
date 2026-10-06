@@ -108,6 +108,9 @@ type Projection struct {
 	outer  *Projection
 	h, inv Homography
 	ok     bool
+	// centre is the point the layer turns about, which stays where it
+	// is, in front of the eye.
+	centre geom.Point
 	// hidden says the layer shows its back to the eye, and is one-sided.
 	hidden bool
 }
@@ -115,7 +118,7 @@ type Projection struct {
 // newProjection returns the projection of a layer tilted by t about
 // centre, inside outer.
 func newProjection(t Tilt, centre geom.Point, outer *Projection) *Projection {
-	pr := &Projection{outer: outer, h: t.Homography(centre), hidden: t.OneSided && !t.Facing()}
+	pr := &Projection{outer: outer, h: t.Homography(centre), centre: centre, hidden: t.OneSided && !t.Facing()}
 	pr.inv, pr.ok = pr.h.invert()
 	return pr
 }
@@ -133,13 +136,39 @@ func (pr *Projection) Apply(p geom.Point) geom.Point {
 // p, and false where no point does: a layer around it shows its back
 // and is one-sided, stands edge on, or turns p's line of sight behind
 // the eye.
-func (pr *Projection) Unapply(p geom.Point) (geom.Point, bool) {
+func (pr *Projection) Unapply(p geom.Point) (geom.Point, bool) { return pr.back(p, false) }
+
+// UnapplyNear is Unapply for a pointer a node holds, as through a drag.
+// Past a layer's horizon, where no point of the layer shows, p is taken
+// back toward the layer's centre until it shows a point far out on the
+// layer, the way the pointer went, so what follows the pointer runs to
+// its end. It returns false only where a layer shows its back and is
+// one-sided, or stands edge on.
+func (pr *Projection) UnapplyNear(p geom.Point) (geom.Point, bool) { return pr.back(p, true) }
+
+// horizonGap is how near the horizon UnapplyNear takes a point, as a
+// share of how far from it the layer's centre is.
+const horizonGap = 0.02
+
+// back takes p back through pr: as Unapply does, and with near, as
+// UnapplyNear does.
+func (pr *Projection) back(p geom.Point, near bool) (geom.Point, bool) {
 	if pr == nil {
 		return p, true
 	}
-	p, ok := pr.outer.Unapply(p)
+	p, ok := pr.outer.back(p, near)
 	if !ok || !pr.ok || pr.hidden {
 		return p, false
+	}
+	if near {
+		// How far in front of the eye a point lies goes as the inverse's
+		// w, which changes evenly across the screen: it is 0 on the
+		// horizon, and the centre is in front.
+		_, wc := pr.inv.Apply(pr.centre)
+		if _, w := pr.inv.Apply(p); wc > 0 && w < wc*horizonGap {
+			t := wc * (1 - horizonGap) / (wc - w)
+			p = pr.centre.Add(p.Sub(pr.centre).Mul(t))
+		}
 	}
 	q, w := pr.inv.Apply(p)
 	if w == 0 {

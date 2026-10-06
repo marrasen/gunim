@@ -74,3 +74,32 @@ func TestAnInverseUndoesTheMatrix(t *testing.T) {
 		t.Error("a matrix that folds space flat reported an inverse")
 	}
 }
+
+// A camera looking straight down or up along +Y sees as one just off
+// that line, in front, does: nothing collapses, and the picture's up is
+// -Z looking down, +Z looking up.
+func TestLookAtAlongUp(t *testing.T) {
+	for _, c := range []struct {
+		eye  Vec3
+		upIs Vec3
+	}{
+		{V3(0, 5, 0), V3(0, 0, -1)},
+		{V3(0, -5, 0), V3(0, 0, 1)},
+	} {
+		view := LookAt(c.eye, V3(0, 0, 0), V3(0, 1, 0))
+		near := LookAt(c.eye.Add(V3(0, 0, 1e-3)), V3(0, 0, 0), V3(0, 1, 0))
+		for i := range view {
+			if math.IsNaN(float64(view[i])) || math.Abs(float64(view[i]-near[i])) > 1e-3 {
+				t.Fatalf("from %v the view is %v; just off the line it is %v", c.eye, view, near)
+			}
+		}
+		// The picture's up, in the scene, is the view's second row.
+		if got := V3(view[1], view[5], view[9]); got.Sub(c.upIs).Len() > 1e-5 {
+			t.Errorf("from %v the picture's up is %v, want %v", c.eye, got, c.upIs)
+		}
+		// The point looked at lies straight ahead, 5 away.
+		if at := view.Apply(V3(0, 0, 0)); at.Sub(V3(0, 0, -5)).Len() > 1e-5 {
+			t.Errorf("from %v the point looked at is at %v in the camera's space", c.eye, at)
+		}
+	}
+}

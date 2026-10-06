@@ -172,7 +172,7 @@ func (u *UI) handleRaw(root *state, ev any) {
 				pointerf("move to %.1f,%.1f in another window than the press, left alone", e.Pos.X, e.Pos.Y)
 				return
 			}
-			u.deliver(u.capture, mk(u.local(u.capture, e.Pos)))
+			u.deliver(u.capture, mk(u.localHeld(u.capture, e.Pos)))
 			u.shapePointer(root, e.Pos)
 			return
 		}
@@ -249,7 +249,7 @@ func (u *UI) handleRaw(root *state, ev any) {
 		}
 		if c := u.capture; c != nil {
 			u.capture = nil
-			u.deliver(c, mk(u.local(c, e.Pos)))
+			u.deliver(c, mk(u.localHeld(c, e.Pos)))
 			u.updateHover(root, e.Pos, e.Time)
 			u.shapePointer(root, e.Pos)
 			return
@@ -780,9 +780,21 @@ func (u *UI) hit(s *state, p geom.Point) *state {
 // the transform s was last painted under and any tilt round it. A node
 // drawn with no area, scaled to zero, or tilted to show its back where
 // it is one-sided, maps every point far outside itself.
-func (u *UI) local(s *state, p geom.Point) geom.Point {
+func (u *UI) local(s *state, p geom.Point) geom.Point { return toLocal(s, p, s.proj.Unapply) }
+
+// localHeld is local for a node that holds the pointer, as through a
+// drag. Past the horizon of a layer tilted round it, the point stays on
+// the layer, far out the way the pointer went, so what follows the
+// pointer runs to its end rather than jumping off to no place.
+func (u *UI) localHeld(s *state, p geom.Point) geom.Point {
+	return toLocal(s, p, s.proj.UnapplyNear)
+}
+
+// toLocal is p in s's own space, taken back through the tilts round s
+// by unapply.
+func toLocal(s *state, p geom.Point, unapply func(geom.Point) (geom.Point, bool)) geom.Point {
 	inv, ok := s.toWindow.Invert()
-	flat, shown := s.proj.Unapply(p)
+	flat, shown := unapply(p)
 	if !ok || !shown {
 		inf := float32(math.Inf(1))
 		return geom.Pt(inf, inf)
