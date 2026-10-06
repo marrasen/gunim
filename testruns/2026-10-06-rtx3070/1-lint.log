@@ -1,0 +1,101 @@
+install\update_test.go:141:74: Duplicate words (one) found (dupword)
+		release{tag: "v1.1.0", files: map[string][]byte{asset("1.1.0"): []byte("one one")}},
+		                                                                       ^
+install\page.go:78:2: missing cases in switch of type gunim.Presence: gunim.Present (exhaustive)
+	switch pr {
+	^
+install\run.go:322:2: missing cases in switch of type install.next: install.nextEnd (exhaustive)
+	switch s.next {
+	^
+install\window.go:757:2: missing cases in switch of type install.Mode: install.Fresh, install.Remove (exhaustive)
+	switch sc.Mode {
+	^
+install\session.go:210:27: importShadow: shadow of imported package 'path' (gocritic)
+func NewSessionFor(a App, path string, uninstall bool) (*Session, error) {
+                          ^
+install\session.go:306:22: importShadow: shadow of imported package 'path' (gocritic)
+func (a *App) former(path string) bool {
+                     ^
+install\session.go:641:16: importShadow: shadow of imported package 'path' (gocritic)
+func writeFile(path string, data []byte, mode os.FileMode) error {
+               ^
+install\session.go:737:20: importShadow: shadow of imported package 'path' (gocritic)
+func Replace(part, path string) error { return replaceKeeping(part, path, false) }
+                   ^
+install\session.go:786:15: importShadow: shadow of imported package 'path' (gocritic)
+func CleanOld(path string) {
+              ^
+install\session.go:819:5: builtinShadow: shadowing of predeclared identifier: real (gocritic)
+	if real, err := filepath.EvalSymlinks(p); err == nil {
+	   ^
+install\update.go:108:14: httpNoBody: http.NoBody should be preferred to the nil request body (gocritic)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, api+"/repos/"+g.Repo+"/releases?per_page=30", nil)
+	            ^
+install\update.go:490:14: httpNoBody: http.NoBody should be preferred to the nil request body (gocritic)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, addr, nil)
+	            ^
+install\update.go:564:5: deferInLoop: Possible resource leak, 'defer' is called in the 'for' loop (gocritic)
+				defer func() { _ = rc.Close() }()
+				^
+install\find.go:14:5: shadow: declaration of "err" shadows declaration at line 13 (govet)
+	if err := a.check(); err != nil {
+	   ^
+install\find.go:63:5: shadow: declaration of "err" shadows declaration at line 53 (govet)
+	if err := register(&a, *in); err != nil {
+	   ^
+install\run.go:99:6: shadow: declaration of "err" shadows declaration at line 63 (govet)
+		s, err := newSession(a, self, true)
+		   ^
+install\run.go:190:6: shadow: declaration of "err" shadows declaration at line 179 (govet)
+		if err := adopt(a, self); err != nil {
+		   ^
+install\shot_test.go:52:6: shadow: declaration of "err" shadows declaration at line 45 (govet)
+		r, err := openWindow(app, s)
+		   ^
+install\update_test.go:188:5: shadow: declaration of "err" shadows declaration at line 184 (govet)
+	if err := Stage(context.Background(), a, r); err != nil {
+	   ^
+install\run.go:339:21: os/exec.Command must not be called. use os/exec.CommandContext (noctx)
+	cmd := exec.Command(self, args...)
+	                   ^
+install\system_windows.go:354:21: os/exec.Command must not be called. use os/exec.CommandContext (noctx)
+	cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script)
+	                   ^
+install\system_windows.go:545:21: os/exec.Command must not be called. use os/exec.CommandContext (noctx)
+	cmd := exec.Command(exe, args...)
+	                   ^
+install\system_windows.go:377:3: concat-loop: string concatenation in a loop (perfsprint)
+		line += " " + windows.EscapeArg(arg)
+		^
+install\update_test.go:100:6: Consider preallocating list with capacity len(rels) (prealloc)
+	var list []map[string]any
+	    ^
+install\session.go:221:6: confusing-naming: Method 'newSession' differs only by capitalization to function 'NewSession' in the same source file (revive)
+func newSession(a App, self string, uninstall bool) (*Session, error) {
+     ^
+install\session.go:388:19: confusing-naming: Method 'install' differs only by capitalization to method 'Install' in the same source file (revive)
+func (s *Session) install(ctx context.Context, picks map[string]bool, progress func(Progress), room bool) (Installation, error) {
+                  ^
+install\page.go:61:47: (*page).add - result 0 (*github.com/marrasen/gunim/install.page) is never used (unparam)
+func (p *page) add(gap float32, n gunim.Node) *page {
+                                              ^
+install\stage.go:334:40: (*stage).progress - u is unused (unparam)
+func (s *stage) progress(done float32, u *gunim.UI) {
+                                       ^
+install\run.go:276:2: const nextEnd is unused (unused)
+	nextEnd next = iota
+	^
+install\window.go:218:6: func attach is unused (unused)
+func attach(w *gunim.Window, s *Session, img *paint.Image, accent color.NRGBA) (*runner, error) {
+     ^
+30 issues:
+* dupword: 1
+* exhaustive: 3
+* gocritic: 9
+* govet: 6
+* noctx: 3
+* perfsprint: 1
+* prealloc: 1
+* revive: 2
+* unparam: 2
+* unused: 2

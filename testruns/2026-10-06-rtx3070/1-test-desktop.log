@@ -1,0 +1,37 @@
+=== RUN   TestWindowPresentsAndReportsTheFrame
+--- PASS: TestWindowPresentsAndReportsTheFrame (0.30s)
+=== RUN   TestPaceHoldsAnUnpacedSwapToTheRefreshRate
+--- PASS: TestPaceHoldsAnUnpacedSwapToTheRefreshRate (0.02s)
+=== RUN   TestPaceLeavesAPacedSwapAlone
+--- PASS: TestPaceLeavesAPacedSwapAlone (0.00s)
+=== RUN   TestBackdropFramesStayUpright
+--- PASS: TestBackdropFramesStayUpright (0.27s)
+=== RUN   TestEachWindowTakesItsMonitorsRate
+    desktop_test.go:182: needs two monitors at different refresh rates; see tools/multimon
+--- SKIP: TestEachWindowTakesItsMonitorsRate (0.00s)
+=== RUN   TestAShotIsTheFrameTheRightWayUp
+--- PASS: TestAShotIsTheFrameTheRightWayUp (0.20s)
+=== RUN   TestHotKeysHaveTheirVirtualKeys
+--- PASS: TestHotKeysHaveTheirVirtualKeys (0.00s)
+=== RUN   TestModsAfterAModifierKey
+--- PASS: TestModsAfterAModifierKey (0.00s)
+=== RUN   TestAnOwnedPopupStaysWithItsWindow
+--- PASS: TestAnOwnedPopupStaysWithItsWindow (0.26s)
+=== RUN   TestWindowOpensAtItsPlacement
+--- PASS: TestWindowOpensAtItsPlacement (0.51s)
+=== RUN   TestAWindowOnAMonitorStaysClearOfTheTaskBar
+--- PASS: TestAWindowOnAMonitorStaysClearOfTheTaskBar (0.17s)
+=== RUN   TestAChromelessWindowOpensInTheMiddle
+    placement_test.go:149: the window's middle is at {2552 539}, want the work area's, {2560 570}
+--- FAIL: TestAChromelessWindowOpensInTheMiddle (3.07s)
+=== RUN   TestPopupAt
+--- PASS: TestPopupAt (0.00s)
+=== RUN   TestAPopupStaysOnTheMonitorOfItsAnchor
+--- PASS: TestAPopupStaysOnTheMonitorOfItsAnchor (0.00s)
+=== RUN   TestAPopupThatPrefersAboveGoesBelowOnlyWhereThereIsNoRoom
+--- PASS: TestAPopupThatPrefersAboveGoesBelowOnlyWhereThereIsNoRoom (0.00s)
+=== RUN   TestADrawnShadowWindowLeavesAnEdgeAsWideAsItsBorder
+--- PASS: TestADrawnShadowWindowLeavesAnEdgeAsWideAsItsBorder (0.00s)
+FAIL
+FAIL	github.com/marrasen/gunim/driver/desktop	5.537s
+FAIL
