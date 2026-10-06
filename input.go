@@ -5,6 +5,7 @@ import (
 	"math"
 	"os"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/marrasen/gunim/access"
@@ -211,10 +212,16 @@ func (u *UI) handleRaw(root *state, ev any) {
 			u.focusAt(e.Pos, e.Touch)
 		}
 		focusing := u.focus != was
+		held := u.capture
 		// Whoever takes the press keeps the pointer until the release.
 		u.capture = u.dispatchAt(root, e.Pos, func(local geom.Point) input.Event {
 			return input.PointerDown{Pos: local, Button: e.Button, Mods: e.Mods, Clicks: e.Clicks, Focusing: focusing, Behind: e.Behind, Touch: e.Touch, Time: e.Time}
 		})
+		if pointerDebug {
+			pointerf("press %d at %.1f,%.1f in the %s: under it %s, taken by %s; held before %s, %d popups, drag %v, focus %s",
+				e.Button, e.Pos.X, e.Pos.Y, u.rootName(root), u.chainAt(root, e.Pos), nodeName(u.capture), nodeName(held),
+				len(u.popups), u.drag != nil, nodeName(u.focus))
+		}
 		u.shapePointer(root, e.Pos)
 	case input.PointerUp:
 		if sideButton(e.Button) {
@@ -246,6 +253,9 @@ func (u *UI) handleRaw(root *state, ev any) {
 		}
 		if root == u.root {
 			u.askKeyboard(u.hit(root, e.Pos))
+		}
+		if pointerDebug {
+			pointerf("release %d at %.1f,%.1f in the %s, to %s", e.Button, e.Pos.X, e.Pos.Y, u.rootName(root), nodeName(u.capture))
 		}
 		if c := u.capture; c != nil {
 			u.capture = nil
@@ -838,6 +848,35 @@ func (u *UI) hoverAgain(now time.Time) {
 var pointerDebug = os.Getenv("GUNIM_DEBUG_POINTER") == "1"
 
 // pointerf logs one line about the pointer, under GUNIM_DEBUG_POINTER=1.
+// nodeName names the node of s for a log, by its type: "none" for no
+// node.
+func nodeName(s *state) string {
+	if s == nil || s.node == nil {
+		return "none"
+	}
+	return fmt.Sprintf("%T", s.node)
+}
+
+// chainAt names the nodes under p, from the topmost up, for a log.
+func (u *UI) chainAt(root *state, p geom.Point) string {
+	var names []string
+	for s := u.hit(root, p); s != nil && len(names) < 8; s = s.parent {
+		names = append(names, nodeName(s))
+	}
+	if len(names) == 0 {
+		return "nothing"
+	}
+	return strings.Join(names, " < ")
+}
+
+// rootName says which of the window's trees root is, for a log.
+func (u *UI) rootName(root *state) string {
+	if root == u.root {
+		return "window"
+	}
+	return "popup"
+}
+
 func pointerf(format string, args ...any) {
 	if pointerDebug {
 		fmt.Fprintf(os.Stderr, "gunim pointer engine %s: %s\n", time.Now().Format("15:04:05.000"), fmt.Sprintf(format, args...))
