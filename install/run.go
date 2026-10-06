@@ -88,6 +88,10 @@ func Run(a App) {
 		}
 		return
 	}
+	if pid, ok := restartPID(env); ok && verb == "" {
+		// Started by an update in place of the program running.
+		os.Exit(restarted(a, self, pid))
+	}
 	switch verb {
 	case "install":
 		os.Exit(installQuietly(a, self))
@@ -203,6 +207,10 @@ func startInstalled(a App, self, dir string) {
 		if err := adopt(a, self); err != nil {
 			fmt.Fprintf(os.Stderr, "install: finishing the update to %s: %v\n", a.Version, err)
 		}
+		if IsRelease(m.Version) && Newer(a.Version, m.Version) {
+			// Not a release that gave way, which runs an older one.
+			updatedFrom = m.Version
+		}
 	}
 	if a.Updates != nil && IsRelease(a.Version) {
 		// It reads the mode at each look, so a change of it in the
@@ -214,11 +222,16 @@ func startInstalled(a App, self, dir string) {
 // adopt installs the program at self quietly, with the picks the
 // install there has, without checking the room.
 func adopt(a App, self string) error {
+	return adoptReporting(context.Background(), a, self, nil)
+}
+
+// adoptReporting is [adopt], telling progress how it goes.
+func adoptReporting(ctx context.Context, a App, self string, progress func(Progress)) error {
 	s, err := newSession(a, self, false)
 	if err != nil {
 		return err
 	}
-	_, err = s.install(context.Background(), nil, nil, false)
+	_, err = s.install(ctx, nil, progress, false)
 	return err
 }
 

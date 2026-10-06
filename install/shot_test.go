@@ -138,3 +138,69 @@ func abs(v float64) float64 {
 	}
 	return v
 }
+
+// TestUpdateShots writes pictures of an update's pages, as TestShots
+// does of the installer's.
+func TestUpdateShots(t *testing.T) {
+	dir := os.Getenv("GUNIM_INSTALL_SHOTS")
+	if dir == "" {
+		t.Skip("set GUNIM_INSTALL_SHOTS to a folder to write pictures of an update to")
+	}
+	a := App{Name: "kakel", Version: "v0.6.0", Publisher: "Marcus Johansson", Icon: testIcon(),
+		Updates: GitHub{Repo: "marrasen/kakel"}, UpdateKey: testKey}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	err := gunim.Main(ctx, func(app *gunim.App) error {
+		sc := updateScene(&a, pageUpdate, a.Version, "v0.7.0")
+		sc.Restart = true
+		c, err := openStage(app, &a, "Update kakel", updateHeight, sc)
+		if err != nil {
+			return err
+		}
+		r := newUpdater(a, c, sc)
+		r.ctx = ctx
+		go func() { _ = r.serve() }()
+		shot := func(name string, after time.Duration) {
+			time.Sleep(after)
+			img, err := c.Shot(ctx)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			f, err := os.Create(filepath.Join(dir, "u"+name+".png"))
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			_ = png.Encode(f, img)
+			_ = f.Close()
+		}
+		set := func(fn func()) { r.events <- func() { fn(); r.show() } }
+		shot("1-loading", 900*time.Millisecond)
+		set(func() {
+			r.sc.NotesLoading = false
+			r.sc.Notes = joinNotes([]ReleaseNotes{
+				{Version: "v0.7.0", Notes: "### Changed\n\n**The installer waits for kakel to close.** Updating or uninstalling while kakel runs goes on by itself once it has closed.\n\n**Signed updates.** Each release now carries `SHA256SUMS.sig`, a signature of its checksums.\n\n**Back and Forward cross servers in the file manager.** Going from this computer's files to a server's no longer empties a window's history."},
+				{Version: "v0.6.0", Notes: "### Changed\n\n**An installer of its own.** A kakel started from the zip opens the installer.\n\n- one\n- two\n- three"},
+			})
+		})
+		shot("2-notes", 600*time.Millisecond)
+		set(func() { r.sc.Page, r.sc.Step, r.sc.Progress = pageWorking, "Downloading 4.1 MB of 11.8 MB", 0.31 })
+		shot("3-downloading", 900*time.Millisecond)
+		set(func() { r.sc.Page = pageRestarting })
+		shot("4-restarting", 900*time.Millisecond)
+		set(func() { r.sc.Page, r.sc.Progress = pageUpdated, 1 })
+		shot("5-updated", 1800*time.Millisecond)
+		set(func() { r.sc.Page, r.sc.Have = pageNotes, "0.6.0" })
+		shot("6-whatsnew", 900*time.Millisecond)
+		set(func() {
+			r.sc.Page, r.sc.Problem = pageFailed, "the SHA256SUMS of v0.7.0 is not signed with App.UpdateKey"
+		})
+		shot("7-failed", 900*time.Millisecond)
+		c.Close()
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}

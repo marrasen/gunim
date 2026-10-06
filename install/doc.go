@@ -100,6 +100,15 @@
 //     Updated, to hear of a release put in place and offer to [Restart]
 //     into it. [Check] and [Stage] do the same at the program's asking,
 //     as for a Check for Updates button.
+//   - How it shows an update: [ShowUpdate] opens the installer's window
+//     for a newer release, with what the releases since this one
+//     changed and Update Now. The release downloads with its progress
+//     shown, and the program restarts into it: its new copy shows the
+//     restart, waits for the program to end, finishes the update, and
+//     runs. [UpdatedFrom] says, on the first start of a release that
+//     was put in place by itself, which version it replaced, and
+//     [ShowWhatsNew] shows what changed since. [WhatsNew] is the notes
+//     themselves, from a [Changelog] such as [GitHub].
 //   - Where it was before: Formerly, the places an older version put
 //     it. An install with no record of itself, as an older version's
 //     own installer left it, is taken on as the program starts, with

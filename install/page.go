@@ -28,6 +28,11 @@ type page struct {
 	// step is the line that says what the work does now, on the page
 	// that shows the work.
 	step gunim.Node
+	// fill, the last of the items when set, takes the height the others
+	// and the foot leave, and notes is what an update changed, when the
+	// page shows it.
+	fill  gunim.Node
+	notes *notesBox
 
 	// in runs from 0 to 1 as the page arrives, and back as it leaves.
 	in *anim.Float
@@ -86,8 +91,12 @@ func (p *page) Step(dt time.Duration) bool {
 	return moving || p.staggering
 }
 
-// margin is the space left at the page's sides and under its foot.
-const margin = 28
+// margin is the space left at the page's sides and under its foot, and
+// fillGap the space between the item that fills and the foot.
+const (
+	margin  = 28
+	fillGap = 18
+)
 
 // Layout implements [gunim.Node].
 func (p *page) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
@@ -96,14 +105,21 @@ func (p *page) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) g
 	x := (box.W - w) / 2
 	wide := gunim.Constraints{Min: geom.Sz(w, 0), Max: geom.Sz(w, box.H)}
 	y := float32(0)
+	footTop := box.H - margin
 	for i := range kids.Len() {
 		k := kids.At(i)
-		n := k.Node()
-		if n == p.foot {
+		if n := k.Node(); n == p.foot {
 			size := k.Layout(wide)
 			at := geom.Pt(x, box.H-size.H-margin+6)
 			k.Place(at)
 			p.at[n] = at
+			footTop = at.Y
+		}
+	}
+	for i := range kids.Len() {
+		k := kids.At(i)
+		n := k.Node()
+		if n == p.foot {
 			continue
 		}
 		gap := float32(0)
@@ -113,6 +129,15 @@ func (p *page) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) g
 			}
 		}
 		y += gap
+		if n == p.fill {
+			h := max(footTop-fillGap-y, 0)
+			k.Layout(gunim.Tight(geom.Sz(w, h)))
+			at := geom.Pt(x, y)
+			k.Place(at)
+			p.at[n] = at
+			y += h
+			continue
+		}
 		size := k.Layout(wide)
 		at := geom.Pt(x, y)
 		k.Place(at)

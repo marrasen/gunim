@@ -493,6 +493,23 @@ func freeSpace(dir string) (int64, error) {
 	return int64(free), nil
 }
 
+// watchProcess watches the process pid: alive reports whether it still
+// runs, and done lets it go. The process is held from now, so another
+// given its number once it has ended is not taken for it.
+func watchProcess(pid int) (alive func() bool, done func()) {
+	h, err := windows.OpenProcess(windows.SYNCHRONIZE|windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+	if err != nil {
+		// Gone, or another user's, which no program of this user's
+		// install is.
+		return func() bool { return false }, func() {}
+	}
+	alive = func() bool {
+		ev, err := windows.WaitForSingleObject(h, 0)
+		return err == nil && ev == uint32(windows.WAIT_TIMEOUT)
+	}
+	return alive, func() { _ = windows.CloseHandle(h) }
+}
+
 // running lists the processes running the program at exe.
 func running(exe string) ([]int, error) {
 	snap, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
@@ -522,9 +539,13 @@ func running(exe string) ([]int, error) {
 	return pids, nil
 }
 
-// launch starts the program at exe with args, on its own.
-func launch(exe string, args []string) error {
+// launch starts the program at exe with args, on its own, with env
+// added to this program's environment.
+func launch(exe string, args []string, env ...string) error {
 	cmd := exec.Command(exe, args...)
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NEW_PROCESS_GROUP | windows.DETACHED_PROCESS}
 	if err := cmd.Start(); err != nil {
 		return err
