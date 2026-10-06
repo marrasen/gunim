@@ -3,8 +3,10 @@ package gunim
 import (
 	"math"
 	"testing"
+	"time"
 
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 )
 
@@ -57,5 +59,49 @@ func TestAOneSidedChildShowingItsBackTakesNoTaps(t *testing.T) {
 	}
 	if len(r.events) != 0 {
 		t.Fatalf("a one-sided child turned round took taps: %v", r.events)
+	}
+}
+
+// A drag held on a tilted child goes on past the child's horizon, where
+// no point of it shows: at every step the child hears a point it can
+// use, as far out as it was or further, the way the pointer went.
+func TestADragRunsOnPastATiltedChildsHorizon(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		tilt paint.Tilt
+		// step is the pointer's move each frame, and along the child's
+		// own axis it should follow.
+		step  geom.Point
+		along func(geom.Point) float32
+	}{
+		{"turned on its side, dragged right", paint.Tilt{Y: 1.0, Distance: 300}, geom.Pt(10, 0), func(p geom.Point) float32 { return p.X }},
+		{"tipped back, dragged up", paint.Tilt{X: 1.0, Distance: 300}, geom.Pt(0, -10), func(p geom.Point) float32 { return -p.Y }},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			w, r, shows := tilted(t, c.tilt)
+			at := shows(geom.Pt(50, 25))
+			press(w, at.X, at.Y)
+			last := c.along(pressedAt(t, r))
+			for i := range 60 {
+				at = at.Add(c.step)
+				w.ui.handlePlatform(input.PointerMove{Pos: at, Time: time.Now()})
+				run(w, 1)
+				m, ok := r.events[len(r.events)-1].(input.PointerMove)
+				if !ok {
+					t.Fatalf("step %d, to %v: the child heard %T, want a move", i, at, r.events[len(r.events)-1])
+				}
+				got := c.along(m.Pos)
+				if math.IsInf(float64(m.Pos.X), 0) || math.IsInf(float64(m.Pos.Y), 0) || math.IsNaN(float64(got)) {
+					t.Fatalf("step %d, to %v: the child heard %v", i, at, m.Pos)
+				}
+				if got < last-1e-4*max(1, float32(math.Abs(float64(last)))) {
+					t.Fatalf("step %d, to %v: the child heard %v, back from %v", i, at, m.Pos, last)
+				}
+				last = got
+			}
+			if last < 1000 {
+				t.Errorf("past the horizon the drag reached only %v along the child", last)
+			}
+		})
 	}
 }

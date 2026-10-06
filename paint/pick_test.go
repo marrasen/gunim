@@ -80,3 +80,20 @@ func TestAnItemIsSeeThroughByItsTintOrItsColours(t *testing.T) {
 		}
 	}
 }
+
+// A camera straight above the scene, with the zero Up, sees it: a tap in
+// the middle picks the sphere's top.
+func TestACameraStraightAboveSeesTheScene(t *testing.T) {
+	s := Scene{
+		Camera: Camera{Eye: geom.V3(0, 5, 0)},
+		Items:  []SceneItem{{Mesh: NewSphere(24, 48, color.NRGBA{A: 0xff})}},
+	}
+	r := geom.Rc(100, 100, 400, 400)
+	hit, ok := s.Pick(r, geom.Pt(300, 300))
+	if !ok || hit.Item != 0 {
+		t.Fatalf("a tap in the middle picked %+v, %v, want the sphere", hit, ok)
+	}
+	if hit.Point.Y < 0.98 || hit.Normal.Y < 0.98 {
+		t.Errorf("the tap met the sphere at %v facing %v, want its top, facing up", hit.Point, hit.Normal)
+	}
+}

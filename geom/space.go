@@ -126,9 +126,22 @@ func Perspective(fovY, aspect, near, far float32) Mat4 {
 
 // LookAt returns the matrix that takes a scene into the space of a
 // camera at eye looking at at, with up pointing as near up as it can.
+// A camera looking straight along up, as one looking straight down on a
+// scene, has the up it would have just off that line, on the side +X
+// crossed with up points to: for an up of +Y, a camera looking down has
+// -Z up in the picture, as one coming over from in front does, and one
+// looking up has +Z.
 func LookAt(eye, at, up Vec3) Mat4 {
 	f := at.Sub(eye).Unit()
-	s := f.Cross(up).Unit()
+	s := f.Cross(up)
+	if s.Len() <= 1e-6*up.Len() {
+		other := V3(1, 0, 0)
+		if math.Abs(float64(up.X)) > 0.9*float64(up.Len()) {
+			other = V3(0, 1, 0)
+		}
+		s = f.Cross(other.Cross(up).Mul(f.Dot(up)))
+	}
+	s = s.Unit()
 	u := s.Cross(f)
 	return Mat4{
 		s.X, u.X, -f.X, 0,

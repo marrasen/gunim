@@ -71,7 +71,7 @@ func (u *UI) edgeScroll(dt time.Duration) bool {
 		back := at.Sub(s.screenAt(moved).Sub(s.screenAt(geom.Point{})))
 		if from == u.capture {
 			c := u.capture
-			u.deliver(c, input.PointerMove{Pos: u.local(c, back), Time: u.now})
+			u.deliver(c, input.PointerMove{Pos: u.localHeld(c, back), Time: u.now})
 		} else {
 			u.dragHover(back, u.dragOverData)
 		}
