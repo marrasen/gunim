@@ -105,3 +105,40 @@ func TestADragRunsOnPastATiltedChildsHorizon(t *testing.T) {
 		})
 	}
 }
+
+// A layer turned so far that a corner reaches the eye is not drawn, and
+// takes no taps.
+func TestALayerReachingTheEyeTakesNoTaps(t *testing.T) {
+	w, r, _ := tilted(t, paint.Tilt{Y: 1.2, Distance: 40})
+	for x := float32(12); x < 110; x += 8 {
+		press(w, x, 35)
+	}
+	if len(r.events) != 0 {
+		t.Fatalf("a layer the renderer leaves out took taps: %v", r.events)
+	}
+}
+
+// A tilted layer shows only what lies in its Bounds, and a child that
+// reaches past them takes taps only where it shows.
+func TestATiltedLayerTakesTapsInItsBoundsAlone(t *testing.T) {
+	w, st, r := newStage(t, paint.Identity)
+	st.tilt = paint.Tilt{X: 0.3, Distance: 600}
+	st.tiltBounds = geom.Rc(10, 10, 50, 50)
+	run(w, 1)
+	h := st.tilt.Homography(geom.Pt(35, 35))
+	shows := func(p geom.Point) geom.Point {
+		at, _ := h.Apply(p.Add(geom.Pt(10, 10)))
+		return at
+	}
+	in := shows(geom.Pt(25, 25))
+	press(w, in.X, in.Y)
+	if got := pressedAt(t, r); math.Abs(float64(got.X-25)) > 1e-3 || math.Abs(float64(got.Y-25)) > 1e-3 {
+		t.Fatalf("a tap on the part in the bounds reached the child at %v", got)
+	}
+	r.events = nil
+	out := shows(geom.Pt(80, 25))
+	press(w, out.X, out.Y)
+	if len(r.events) != 0 {
+		t.Fatalf("a tap on the part past the bounds, which is not drawn, reached the child: %v", r.events)
+	}
+}

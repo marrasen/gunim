@@ -383,8 +383,21 @@ func (p *Painter) Layer(o LayerOpts) func() {
 	outer, outerProj := p.clip, p.proj
 	if o.Tilt.tilted() {
 		p.tilts = true
-		centre := p.at().Apply(geom.Pt((o.Bounds.Min.X+o.Bounds.Max.X)/2, (o.Bounds.Min.Y+o.Bounds.Max.Y)/2))
-		p.proj = newProjection(o.Tilt, centre, outerProj)
+		at, b := p.at(), o.Bounds
+		centre := at.Apply(geom.Pt((b.Min.X+b.Max.X)/2, (b.Min.Y+b.Max.Y)/2))
+		var flat [4]geom.Point
+		for i, c := range []geom.Point{{X: b.Min.X - 1, Y: b.Min.Y - 1}, {X: b.Max.X + 1, Y: b.Min.Y - 1},
+			{X: b.Max.X + 1, Y: b.Max.Y + 1}, {X: b.Min.X - 1, Y: b.Max.Y + 1}} {
+			flat[i] = at.Apply(c)
+		}
+		p.proj = newProjection(o.Tilt, centre, outerProj, flat)
+		if !o.Clip {
+			// A tilted layer shows only what lies in its Bounds, clipping
+			// or not, and takes input there alone.
+			c := &Clip{outer: outer, proj: p.proj, rect: b}
+			c.inv, c.ok = at.Invert()
+			p.clip = c
+		}
 	}
 	if o.Clip {
 		c := &Clip{outer: outer, proj: p.proj, rect: o.Bounds, radius: o.Radius, ellipse: o.Ellipse}
