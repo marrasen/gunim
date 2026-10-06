@@ -358,12 +358,18 @@ func (s *Session) Room() error {
 }
 
 // Running lists the processes running the installed program, other
-// than this one. On Windows a running program's files cannot be
+// than this one: where it goes, and where an older version put it, when
+// it was found there. On Windows a running program's files cannot be
 // replaced or taken away.
 func (s *Session) Running() []int {
 	pids, err := running(s.Exe)
 	if err != nil {
 		return nil
+	}
+	if s.Have != nil && !samePath(s.Have.Exe, s.Exe) {
+		if more, err := running(s.Have.Exe); err == nil {
+			pids = append(pids, more...)
+		}
 	}
 	return slices.DeleteFunc(pids, func(pid int) bool { return pid == os.Getpid() })
 }
@@ -507,8 +513,9 @@ func (s *Session) Uninstall(ctx context.Context, data bool, progress func(Progre
 	}
 	// And what replacing them left beside them.
 	for _, f := range slices.Clone(files) {
-		files = append(files, f+".old", f+".back", trialPath(f))
-		files = append(files, parts(f)...)
+		files = append(files, f+".old", f+".new", f+".back", trialPath(f))
+		files = append(files, leftovers(f, ".new")...)
+		files = append(files, leftovers(f, ".old")...)
 	}
 	if err := removeFiles(files, s.Dir); err != nil {
 		return err
@@ -633,14 +640,16 @@ func writeVia(to string, mode os.FileMode, place func(part, to string) error, wr
 	return err
 }
 
-// parts are the files writes into file left beside it, as when the
-// program ended in the middle of one.
-func parts(file string) []string {
-	out := []string{file + ".new"}
+// leftovers are the files of their own names, ending in suffix, that
+// writes into file, or moves aside of it, left beside it: ".new" for a
+// write the program ended in the middle of, ".old" for a program moved
+// out of the way while it ran.
+func leftovers(file, suffix string) []string {
+	var out []string
 	dir, base := filepath.Split(file)
 	entries, _ := os.ReadDir(dir)
 	for _, e := range entries {
-		if n := e.Name(); strings.HasPrefix(n, "."+base+".") && strings.HasSuffix(n, ".new") {
+		if n := e.Name(); strings.HasPrefix(n, "."+base+".") && strings.HasSuffix(n, suffix) {
 			out = append(out, filepath.Join(dir, n))
 		}
 	}
@@ -695,10 +704,8 @@ func Replace(part, path string) error {
 	old := ""
 	if movesAside {
 		if _, err := os.Stat(path); err == nil {
-			old = path + ".old"
-			_ = os.Remove(old)
-			if err := os.Rename(path, old); err != nil {
-				return fmt.Errorf("move %s aside: %w", filepath.Base(path), err)
+			if old, err = moveAside(path); err != nil {
+				return err
 			}
 		}
 	}
@@ -711,9 +718,33 @@ func Replace(part, path string) error {
 	return nil
 }
 
+// moveAside moves the file at path to path.old, for Replace. One at
+// path.old that cannot go, as the program the last update moved aside
+// while it still runs, as from the tray, is moved out of the way first,
+// under a name of its own, which CleanOld takes away once it can.
+func moveAside(path string) (string, error) {
+	old := path + ".old"
+	if err := os.Remove(old); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		busy := filepath.Join(filepath.Dir(path), fmt.Sprintf(".%s.%d.old", filepath.Base(path), time.Now().UnixNano()))
+		if err := os.Rename(old, busy); err != nil {
+			return "", fmt.Errorf("move %s aside: %w", filepath.Base(old), err)
+		}
+	}
+	if err := os.Rename(path, old); err != nil {
+		return "", fmt.Errorf("move %s aside: %w", filepath.Base(path), err)
+	}
+	return old, nil
+}
+
 // CleanOld takes away the copy a replace moved aside from path, once
-// the program that ran from it has gone.
-func CleanOld(path string) { _ = os.Remove(path + ".old") }
+// the program that ran from it has gone, and those moveAside moved out
+// of its way.
+func CleanOld(path string) {
+	_ = os.Remove(path + ".old")
+	for _, f := range leftovers(path, ".old") {
+		_ = os.Remove(f)
+	}
+}
 
 // pruneEmpty takes away the empty folders under dir, deepest first.
 func pruneEmpty(dir string) {
