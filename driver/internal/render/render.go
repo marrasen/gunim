@@ -1282,7 +1282,7 @@ func (r *Renderer) compositeTilted(tex uint32, op *paint.LayerOp, opacity, radiu
 		flat := t.Apply(cs[i].local)
 		cs[i].uv = geom.Pt(flat.X*r.scale/float32(r.fbW), 1-flat.Y*r.scale/float32(r.fbH))
 		at[i], w[i] = h.Apply(flat)
-		if w[i] <= 0.01 {
+		if w[i] <= paint.MinDepth {
 			return
 		}
 	}

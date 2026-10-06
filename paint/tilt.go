@@ -111,14 +111,28 @@ type Projection struct {
 	// centre is the point the layer turns about, which stays where it
 	// is, in front of the eye.
 	centre geom.Point
-	// hidden says the layer shows its back to the eye, and is one-sided.
+	// hidden says the layer shows its back to the eye, and is one-sided,
+	// or reaches the eye, so it is not drawn.
 	hidden bool
 }
 
+// MinDepth is how far in front of the eye, as a tilt's w, every corner
+// of a tilted layer must lie, a pixel past its bounds, for the layer to
+// be drawn. The renderer leaves out a layer one of whose corners lies
+// nearer, or behind the eye, and input goes past it as it does past a
+// layer turned away.
+const MinDepth = 0.01
+
 // newProjection returns the projection of a layer tilted by t about
-// centre, inside outer.
-func newProjection(t Tilt, centre geom.Point, outer *Projection) *Projection {
+// centre, inside outer, whose corners, a pixel past its bounds, lie flat
+// at corners.
+func newProjection(t Tilt, centre geom.Point, outer *Projection, corners [4]geom.Point) *Projection {
 	pr := &Projection{outer: outer, h: t.Homography(centre), centre: centre, hidden: t.OneSided && !t.Facing()}
+	for _, c := range corners {
+		if _, w := pr.h.Apply(c); w <= MinDepth {
+			pr.hidden = true
+		}
+	}
 	pr.inv, pr.ok = pr.h.invert()
 	return pr
 }
