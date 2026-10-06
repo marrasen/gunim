@@ -104,7 +104,13 @@ func (r *RichText) span(pc text.Piece) (i int, isIcon, ok bool) {
 func (r *RichText) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
 	th := f.Theme
 	laid := r.paragraph(th, box.W)
+	// Lines the clips hide are left out, with a line's room kept above
+	// and below for strokes past the box.
+	shown, cull := p.Visible()
 	for _, l := range laid.Lines {
+		if cull && (l.Top+2*l.Height < shown.Min.Y || l.Top-l.Height > shown.Max.Y) {
+			continue
+		}
 		for _, pc := range l.Pieces {
 			i, isIcon, ok := r.span(pc)
 			if !ok {

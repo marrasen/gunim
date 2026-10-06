@@ -73,6 +73,15 @@ type Animator interface {
 	Step(dt time.Duration) (animating bool)
 }
 
+// Waker is an [Animator] that rests now but has something to do a while
+// later, as a scrollbar that fades once the content has been still for
+// a moment. WakeIn, asked after each Step, is how long until it wants a
+// frame again, or zero for none: the window sleeps until then, rather
+// than drawing every frame to count the time.
+type Waker interface {
+	WakeIn() time.Duration
+}
+
 // A Transitioner is a node that animates as it enters and leaves the
 // tree.
 //

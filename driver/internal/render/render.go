@@ -709,9 +709,13 @@ func (r *Renderer) Draw(ops []paint.Op, damage geom.Rect, fbW, fbH int, scale fl
 		r.setClip(box)
 		g.Clear(glColorBufferBit)
 		g.ClearColor(0, 0, 0, 0)
-		if box != window {
-			r.cull = box
-		}
+		// What lies outside the box, or outside the clip it is drawn
+		// under, is dropped before it reaches the GPU: on a whole frame
+		// too, as a long list in a scroll sends thousands of glyphs the
+		// clip would only have cut. A layer draws into a target the
+		// window's size, in the window's pixels, and anything it blurs
+		// was cut to the clip first, so the test holds inside one too.
+		r.cull = box
 		r.replay(ops)
 		r.flush()
 		r.cull = geom.Rect{}
