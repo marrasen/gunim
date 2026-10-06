@@ -113,6 +113,9 @@ type Transfer struct {
 type app struct {
 	ctx context.Context
 	c   gunim.Client
+	// iconsSent are the icons Windows shows that the window was sent, or
+	// asked for.
+	iconsSent map[string]bool
 	// mods are the modifier keys held as the intent being handled was sent.
 	mods input.Mods
 	done chan func()
@@ -249,8 +252,10 @@ func newApp(ctx context.Context, c gunim.Client, o Options) (*app, error) {
 		}
 	}
 	a.prefs, a.prefsErr = loadPrefs(a.prefsPath)
+	a.iconsSent = map[string]bool{}
 	a.shell = Shell{Light: a.prefs.Light, ShowHidden: a.prefs.ShowHidden, ShowPreview: !a.prefs.HidePreview,
-		Sidebar: a.prefs.Sidebar, FS: a.fs.ID(), Paths: a.ps, NoTrash: tr == nil,
+		SystemIcons: a.systemIconsOn(),
+		Sidebar:     a.prefs.Sidebar, FS: a.fs.ID(), Paths: a.ps, NoTrash: tr == nil,
 		Transfers: o.Transfer != nil, PlaceMenu: o.PlaceMenu != nil, Name: o.Name, UploadEdited: a.prefs.UploadEdited}
 	a.shell.Where, a.shell.Fetches = a.where(), a.fetches()
 	a.nav.sort, a.nav.desc = a.prefs.Sort, a.prefs.Desc

@@ -71,6 +71,13 @@ func (a *listingArea) setListing(l Listing, u *gunim.UI) {
 			a.widths = a.cur.widths()
 		}
 		a.path = l.Path
+		// A file's own icon is of its folder alone: those of the folder
+		// left go, as the app half forgets it sent them.
+		for k := range a.b.icons {
+			if strings.HasPrefix(k, "file:") {
+				delete(a.b.icons, k)
+			}
+		}
 		a.cur = newListingPage(a.b, a.widths)
 		a.cur.icons.show(a.view.Icons && a.b.shell.Paths.Same(a.view.Path, l.Path), false, u)
 		a.deck.show(a.cur, l.Travel, u)
@@ -357,6 +364,15 @@ func (pg *listingPage) row(i int) (widget.GridRow, bool) {
 	name := []widget.GridSpan{
 		{Text: " ", Fill: tintToken(r.Tint)},
 		{Text: "  "},
+	}
+	if r.IconKey != "" {
+		// Windows' icon, in place of the colour's chip, or until it comes,
+		// or where it could not be read, a clear one, so the names line up.
+		img := clearIcon()
+		if ic := pg.b.icons[r.IconKey]; ic.Small != nil {
+			img = ic.Small
+		}
+		name = []widget.GridSpan{{Image: img, Faint: r.Hidden || r.Broken}, {Text: " "}}
 	}
 	// Before the name, as Explorer's Status column is, so a long name
 	// does not push it out of sight.

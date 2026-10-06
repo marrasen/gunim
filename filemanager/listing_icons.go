@@ -31,6 +31,10 @@ func registerIcons(w *gunim.Window) {
 		b.listing.setView(v, u)
 	})
 	gunim.RegisterPatch(w, "browser", func(b *browser, t Thumb, u *gunim.UI) { b.listing.thumb(t, u) })
+	gunim.RegisterPatch(w, "browser", func(b *browser, ic SystemIcon, u *gunim.UI) {
+		b.icons[ic.Key] = ic
+		u.Invalidate()
+	})
 	registerViewer(w)
 }
 
@@ -324,6 +328,10 @@ func (t *iconTile) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Childre
 		th = tileThumb{}
 	}
 	t.pic.set(r, ok, th.img, f)
+	t.pic.system = nil
+	if ic, has := t.iv.pg.b.icons[r.IconKey]; has && ok && r.IconKey != "" {
+		t.pic.system = ic.Large
+	}
 	t.label.Color = widget.Ink
 	if r.Hidden || r.Broken {
 		t.label.Color = Faint
@@ -412,6 +420,9 @@ func (t *iconTile) paintCloud(p *paint.Painter, th *theme.Live) {
 // anything else.
 type tilePic struct {
 	anim.Group
+	// system is the icon Windows shows for the item, drawn in place of
+	// the window's own.
+	system  *paint.Image
 	mix     *anim.Float
 	thumb   *paint.Image
 	loaded  bool
@@ -482,6 +493,10 @@ func (p *tilePic) art(box geom.Size) geom.Rect {
 		return geom.Rect{Max: box.Point()}
 	}
 	s := min(box.W, box.H)
+	if p.system != nil {
+		r := systemIconRect(p.system, box)
+		return r
+	}
 	if p.dir {
 		s *= 0.92
 		return geom.Rc((box.W-s)/2, (box.H-s)/2, s, s)
@@ -491,6 +506,10 @@ func (p *tilePic) art(box geom.Size) geom.Rect {
 
 // paintIcon draws the folder, or a page in the item's colour with its extension on it.
 func (p *tilePic) paintIcon(pt *paint.Painter, th *theme.Live, box geom.Size, opacity float32) {
+	if p.system != nil {
+		pt.Image(p.system, systemIconRect(p.system, box), paint.ImageOpts{Opacity: opacity})
+		return
+	}
 	if p.dir {
 		s := min(box.W, box.H) * 0.92
 		pt.Image(folderPic(), geom.Rc((box.W-s)/2, (box.H-s)/2, s, s), paint.ImageOpts{Opacity: opacity})
@@ -517,6 +536,15 @@ func (p *tilePic) paintIcon(pt *paint.Painter, th *theme.Live, box geom.Size, op
 	ink := widget.ButtonStrongInk.Get(th)
 	ink.A = uint8(float32(ink.A) * opacity)
 	p.run.Paint(pt, geom.Pt(page.Min.X+(page.Size().W-p.run.Advance)/2, page.Max.Y-page.Size().H*0.3-p.run.Height()/2), ink)
+}
+
+// systemIconRect is where Windows' icon img shows in a box: as large as
+// the box's shorter side, but never larger than the icon's own pixels,
+// as a small icon blown up blurs.
+func systemIconRect(img *paint.Image, box geom.Size) geom.Rect {
+	w, _ := img.Size()
+	s := min(min(box.W, box.H), float32(w))
+	return geom.Rc((box.W-s)/2, (box.H-s)/2, s, s)
 }
 
 // errorMark is the small red mark on a tile whose picture cannot be read; its tooltip says why.

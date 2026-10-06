@@ -39,6 +39,9 @@ type entry struct {
 	// Err says why the item, or the target of the link it is, cannot be
 	// read.
 	Err string
+	// iconKey names the icon Windows shows for it, while the window shows
+	// those.
+	iconKey string
 	// lower is the name in lower case, for sorting and filtering.
 	lower string
 }

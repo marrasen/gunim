@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -21,10 +22,11 @@ import (
 // Windows installs, paths ignore letter case, and a running program
 // cannot be written over, only moved.
 const (
-	supported  = true
-	caseless   = true
-	movesAside = true
-	exeSuffix  = ".exe"
+	supported   = true
+	caseless    = true
+	movesAside  = true
+	exeSuffix   = ".exe"
+	foldersHere = true
 )
 
 // Where Windows keeps a user's installed programs, the programs it
@@ -118,10 +120,182 @@ func register(a *App, in Installation) error {
 		}
 		changed = true
 	}
+	if a.Folders != nil {
+		if err := setFolders(a, in.Exe, in.Chose(PickFolders)); err != nil {
+			return fmt.Errorf("open folders with %s: %w", a.Name, err)
+		}
+		changed = true
+	}
 	if changed {
 		assocChanged()
 	}
 	return nil
+}
+
+// The classes a folder opens by, a drive's, and This PC's, whose
+// opennewwindow verb Win+E runs.
+var folderClasses = []string{`Directory`, `Drive`}
+
+const winE = `CLSID\{52205fd8-5dfb-447d-801a-d0b52f2e83e1}\shell\opennewwindow`
+
+// folderVerb is the name of the program's verb on folders and drives.
+func folderVerb(a *App) string { return a.id() + ".open" }
+
+// folderCommand is the command line that opens folder in the program at
+// exe, as a verb's command writes it.
+func folderCommand(a *App, exe, folder string) string {
+	var cmd strings.Builder
+	cmd.WriteString(`"` + exe + `"`)
+	for _, arg := range append(slices.Clone(a.Folders.Args), folder) {
+		cmd.WriteString(` "` + arg + `"`)
+	}
+	return cmd.String()
+}
+
+// setFolders opens folders and drives with the program at exe, and Win+E
+// too, or no longer. What each opened with before is kept beside the
+// program's, and put back. Turned on once, it is not taken again from a
+// file manager installed since, as each update registers the program
+// again.
+func setFolders(a *App, exe string, on bool) error {
+	verb := folderVerb(a)
+	for _, class := range folderClasses {
+		shell := classesKey + class + `\shell`
+		mine := shell + `\` + verb
+		if !on {
+			if err := dropFolderVerb(class, shell, mine, verb); err != nil {
+				return err
+			}
+			continue
+		}
+		claimed := keyExists(mine)
+		label := a.Folders.Verb
+		if label == "" {
+			label = "Open in " + a.Name
+		}
+		if err := setDefault(mine, label); err != nil {
+			return err
+		}
+		// %V is the folder, and \. after it keeps a drive's backslash
+		// from escaping the closing quote: "C:\" would read as C:".
+		if err := setDefault(mine+`\command`, folderCommand(a, exe, `%V\.`)); err != nil {
+			return err
+		}
+		if claimed {
+			continue
+		}
+		if err := setValue(mine, "Before", getDefault(shell)); err != nil {
+			return err
+		}
+		if err := setDefault(shell, verb); err != nil {
+			return err
+		}
+	}
+	return setWinE(a, exe, on)
+}
+
+// setWinE has Win+E open the program at exe, or no longer. The command
+// it ran before is kept, and put back; the key is marked the program's,
+// so it goes even once the program has moved.
+func setWinE(a *App, exe string, on bool) error {
+	key := classesKey + winE
+	cmd := key + `\command`
+	mark := getValue(key, "Owner") == a.id()
+	if !on {
+		if !mark {
+			return nil
+		}
+		before := getValue(key, "Before")
+		if err := deleteTree(key); err != nil {
+			return err
+		}
+		if before == "" {
+			return nil
+		}
+		if err := setDefault(cmd, before); err != nil {
+			return err
+		}
+		return setValue(cmd, "DelegateExecute", "")
+	}
+	if !mark {
+		if err := setValue(key, "Before", getDefault(cmd)); err != nil {
+			return err
+		}
+		if err := setValue(key, "Owner", a.id()); err != nil {
+			return err
+		}
+	}
+	if err := setDefault(cmd, folderCommand(a, exe, "")); err != nil {
+		return err
+	}
+	// Empty, so Explorer's own handler for the verb is not run instead.
+	return setValue(cmd, "DelegateExecute", "")
+}
+
+// dropFolderVerb takes the program's verb off a class's shell key, and
+// puts back the verb it opened by before, where that is still there.
+func dropFolderVerb(class, shell, mine, verb string) error {
+	before := getValue(mine, "Before")
+	if before != "" && !classKeyExists(class+`\shell\`+before) {
+		before = ""
+	}
+	if getDefault(shell) == verb {
+		k, err := registry.OpenKey(registry.CURRENT_USER, shell, registry.SET_VALUE)
+		if err == nil {
+			if before != "" {
+				err = k.SetStringValue("", before)
+			} else {
+				err = k.DeleteValue("")
+			}
+			_ = k.Close()
+		}
+		if err != nil && !errors.Is(err, registry.ErrNotExist) {
+			return err
+		}
+	}
+	return deleteTree(mine)
+}
+
+// keyExists reports whether the user's key path is there.
+func keyExists(path string) bool {
+	k, err := registry.OpenKey(registry.CURRENT_USER, path, registry.QUERY_VALUE)
+	if err != nil {
+		return false
+	}
+	_ = k.Close()
+	return true
+}
+
+// classKeyExists reports whether the class key path is there, the
+// user's or the machine's.
+func classKeyExists(path string) bool {
+	k, err := registry.OpenKey(registry.CLASSES_ROOT, path, registry.QUERY_VALUE)
+	if err != nil {
+		return false
+	}
+	_ = k.Close()
+	return true
+}
+
+// setValue sets the value name of the user's key path, making it.
+func setValue(path, name, value string) error {
+	k, _, err := registry.CreateKey(registry.CURRENT_USER, path, registry.SET_VALUE)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = k.Close() }()
+	return k.SetStringValue(name, value)
+}
+
+// getValue is the value name of the user's key path, or "".
+func getValue(path, name string) string {
+	k, err := registry.OpenKey(registry.CURRENT_USER, path, registry.QUERY_VALUE)
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = k.Close() }()
+	v, _, _ := k.GetStringValue(name)
+	return v
 }
 
 // listInstalled writes the program's entry under Installed apps.
@@ -396,6 +570,9 @@ func detect(a *App, _ string) map[string]bool {
 			_ = k.Close()
 		}
 	}
+	if a.Folders != nil {
+		out[PickFolders] = getDefault(classesKey+`Directory\shell`) == folderVerb(a)
+	}
 	return out
 }
 
@@ -408,6 +585,12 @@ func unregister(a *App, in Installation) error {
 		_ = os.Remove(desk)
 	}
 	_ = setAutostart(a, in.Exe, nil, false)
+	if a.Folders != nil {
+		if err := setFolders(a, in.Exe, false); err != nil {
+			return err
+		}
+		assocChanged()
+	}
 	for _, t := range a.FileTypes {
 		if err := dropType(a, t); err != nil {
 			return err

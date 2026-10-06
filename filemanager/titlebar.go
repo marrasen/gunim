@@ -59,6 +59,7 @@ var menus = []struct {
 	{"View", []menuItem{
 		{"Show hidden files", "Ctrl+H", CmdHidden},
 		{"Preview pane", "", CmdPreview},
+		{"Windows icons", "", CmdSystemIcons},
 		{"-", "", ""},
 		{"Details", "Ctrl+1", CmdViewDetails},
 		{"Icons", "Ctrl+2", CmdViewIcons},
@@ -126,6 +127,9 @@ func (t *titleBar) build(fetches bool) []widget.BarMenu {
 	t.cmds = t.cmds[:0]
 	for _, m := range menus {
 		items := m.items
+		if !iconsHere {
+			items = without(items, CmdSystemIcons)
+		}
 		if fetches {
 			items = without(items, CmdReveal)
 		} else {
@@ -213,6 +217,7 @@ func (t *titleBar) setShell(s Shell, u *gunim.UI) {
 	t.retitle(u)
 	t.check(CmdHidden, s.ShowHidden)
 	t.check(CmdPreview, s.ShowPreview)
+	t.check(CmdSystemIcons, s.SystemIcons)
 	t.check(CmdThemeDark, !s.Light)
 	t.check(CmdThemeLight, s.Light)
 	up := s.UploadEdited

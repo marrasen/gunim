@@ -10,10 +10,11 @@ import (
 // Installing is not done on this system yet: Run lets the program run
 // as it is.
 const (
-	supported  = false
-	caseless   = false
-	movesAside = false
-	exeSuffix  = ""
+	supported   = false
+	caseless    = false
+	movesAside  = false
+	exeSuffix   = ""
+	foldersHere = false
 )
 
 func defaultDir(*App) (string, error)        { return "", ErrUnsupported }
