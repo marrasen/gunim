@@ -21,7 +21,9 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -77,10 +79,24 @@ const (
 	programLimit = 1 << 30
 )
 
-// Latest implements [Source].
-func (g GitHub) Latest(ctx context.Context) (Release, error) {
+// ghRelease is a release as GitHub's API tells of it.
+type ghRelease struct {
+	Tag        string `json:"tag_name"`
+	Page       string `json:"html_url"`
+	Body       string `json:"body"`
+	Draft      bool   `json:"draft"`
+	Prerelease bool   `json:"prerelease"`
+	Assets     []struct {
+		Name string `json:"name"`
+		URL  string `json:"browser_download_url"`
+	} `json:"assets"`
+}
+
+// releases asks GitHub for the repository's latest releases, and keeps
+// those the updates take: published, and pre-releases only when asked.
+func (g GitHub) releases(ctx context.Context) ([]ghRelease, error) {
 	if !strings.Contains(g.Repo, "/") {
-		return Release{}, fmt.Errorf("install: GitHub.Repo %q is not owner/name", g.Repo)
+		return nil, fmt.Errorf("install: GitHub.Repo %q is not owner/name", g.Repo)
 	}
 	api := g.API
 	if api == "" {
@@ -90,37 +106,48 @@ func (g GitHub) Latest(ctx context.Context) (Release, error) {
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, api+"/repos/"+g.Repo+"/releases?per_page=30", nil)
 	if err != nil {
-		return Release{}, err
+		return nil, err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", "gunim-install")
 	resp, err := do(req)
 	if err != nil {
-		return Release{}, fmt.Errorf("ask GitHub for releases: %w", err)
+		return nil, fmt.Errorf("ask GitHub for releases: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return Release{}, fmt.Errorf("GitHub answered %s", resp.Status)
+		return nil, fmt.Errorf("GitHub answered %s", resp.Status)
 	}
-	var said []struct {
-		Tag        string `json:"tag_name"`
-		Page       string `json:"html_url"`
-		Body       string `json:"body"`
-		Draft      bool   `json:"draft"`
-		Prerelease bool   `json:"prerelease"`
-		Assets     []struct {
-			Name string `json:"name"`
-			URL  string `json:"browser_download_url"`
-		} `json:"assets"`
-	}
+	var said []ghRelease
 	if err := json.NewDecoder(io.LimitReader(resp.Body, readLimit)).Decode(&said); err != nil {
-		return Release{}, fmt.Errorf("read what GitHub answered: %w", err)
+		return nil, fmt.Errorf("read what GitHub answered: %w", err)
+	}
+	return slices.DeleteFunc(said, func(r ghRelease) bool {
+		return r.Draft || r.Prerelease && !g.Prerelease || !IsRelease(r.Tag)
+	}), nil
+}
+
+// ReleaseNotes implements [Changelog].
+func (g GitHub) ReleaseNotes(ctx context.Context) ([]ReleaseNotes, error) {
+	said, err := g.releases(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ReleaseNotes, 0, len(said))
+	for _, r := range said {
+		out = append(out, ReleaseNotes{Version: r.Tag, Page: r.Page, Notes: r.Body})
+	}
+	return out, nil
+}
+
+// Latest implements [Source].
+func (g GitHub) Latest(ctx context.Context) (Release, error) {
+	said, err := g.releases(ctx)
+	if err != nil {
+		return Release{}, err
 	}
 	var best Release
 	for _, r := range said {
-		if r.Draft || r.Prerelease && !g.Prerelease || !IsRelease(r.Tag) {
-			continue
-		}
 		if best.Version != "" && compare(r.Tag, best.Version) <= 0 {
 			continue
 		}
@@ -156,6 +183,51 @@ func (g GitHub) names(version string) []string {
 	return []string{base + exeSuffix, base + ".zip", base + ".tar.gz"}
 }
 
+// ReleaseNotes is what one release changed, as its notes say.
+type ReleaseNotes struct {
+	// Version is the release's version, as "v1.3.0", Page its page on
+	// the web, and Notes what it says of the release, in Markdown.
+	Version, Page, Notes string
+}
+
+// Changelog is a [Source] that can say what each of its releases
+// changed, as [GitHub] can.
+type Changelog interface {
+	// ReleaseNotes are the notes of the releases, in any order.
+	ReleaseNotes(ctx context.Context) ([]ReleaseNotes, error)
+}
+
+// WhatsNew is what the releases after version after changed, up to and
+// with version upTo, newest first, for a program to show what an update
+// brings, or brought. A source that is no [Changelog] tells only of the
+// release it has newest, when that is upTo.
+func WhatsNew(ctx context.Context, a App, after, upTo string) ([]ReleaseNotes, error) {
+	if a.Updates == nil {
+		return nil, errors.New("install: App.Updates is not set")
+	}
+	within := func(v string) bool {
+		return IsRelease(v) && (!IsRelease(after) || Newer(v, after)) && (!IsRelease(upTo) || !Newer(v, upTo))
+	}
+	cl, ok := a.Updates.(Changelog)
+	if !ok {
+		r, err := a.Updates.Latest(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if !within(r.Version) {
+			return nil, nil
+		}
+		return []ReleaseNotes{{Version: r.Version, Page: r.Page, Notes: r.Notes}}, nil
+	}
+	all, err := cl.ReleaseNotes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	all = slices.DeleteFunc(all, func(c ReleaseNotes) bool { return !within(c.Version) })
+	slices.SortFunc(all, func(x, y ReleaseNotes) int { return compare(y.Version, x.Version) })
+	return all, nil
+}
+
 // Check asks a's source for its newest release, and reports whether it
 // is newer than this build. A build that is no release has no order
 // against one, and is never behind.
@@ -170,6 +242,9 @@ func Check(ctx context.Context, a App) (Release, bool, error) {
 	return r, IsRelease(a.Version) && Newer(r.Version, a.Version), nil
 }
 
+// stageMu keeps two stagings of a program from running at once.
+var stageMu sync.Mutex
+
 // Stage downloads release r, checks it against its SHA256SUMS and their
 // signature, and puts
 // it in place of the installed program, for the next time the program
@@ -180,9 +255,18 @@ func Check(ctx context.Context, a App) (Release, bool, error) {
 // while; a release that keeps ending as it starts gives way to it, and
 // the updates pass that release over.
 func Stage(ctx context.Context, a App, r Release) error {
+	return stageReporting(ctx, a, r, nil)
+}
+
+// stageReporting is [Stage], telling report how the download goes.
+func stageReporting(ctx context.Context, a App, r Release, report func(Progress)) error {
 	if err := a.check(); err != nil {
 		return err
 	}
+	// One at a time, as the updates and a window may put the same
+	// release in place at once.
+	stageMu.Lock()
+	defer stageMu.Unlock()
 	dir, err := a.dir()
 	if err != nil {
 		return err
@@ -195,8 +279,13 @@ func Stage(ctx context.Context, a App, r Release) error {
 		return fmt.Errorf("install: %s is installed already, and %s is no newer", m.Version, r.Version)
 	}
 	exe := filepath.Join(dir, a.exe())
-	kept := keepOld(exe)
-	if err := StageTo(ctx, a, r, exe); err != nil {
+	// In place already, and on trial, the program kept is the one before
+	// it: kept again, the release would give way to itself.
+	kept := false
+	if t, ok := readTrial(exe); !ok || t.Version != r.Version {
+		kept = keepOld(exe)
+	}
+	if err := stageToReporting(ctx, a, r, exe, report); err != nil {
 		return err
 	}
 	if kept {
@@ -209,6 +298,11 @@ func Stage(ctx context.Context, a App, r Release) error {
 // StageTo is [Stage] for the program at exe, as a copy that is not
 // installed updates itself where it is.
 func StageTo(ctx context.Context, a App, r Release, exe string) error {
+	return stageToReporting(ctx, a, r, exe, nil)
+}
+
+// stageToReporting is [StageTo], telling report how the download goes.
+func stageToReporting(ctx context.Context, a App, r Release, exe string, report func(Progress)) error {
 	if err := a.check(); err != nil {
 		return err
 	}
@@ -216,9 +310,16 @@ func StageTo(ctx context.Context, a App, r Release, exe string) error {
 	if err != nil {
 		return err
 	}
-	body, err := fetch(ctx, a.exe(), key, r)
+	body, err := fetch(ctx, a.exe(), key, r, report)
 	if err != nil {
 		return err
+	}
+	if err := ctx.Err(); err != nil {
+		// Stopped once it had come: nothing is put in place.
+		return err
+	}
+	if report != nil {
+		report(Progress{Step: "Putting it in place", Done: 0.95})
 	}
 	return writeFile(exe, body, 0o755)
 }
@@ -232,8 +333,9 @@ func newerThanInstalled(r Release, installed string) bool {
 
 // fetch downloads r's program, checked against its SHA256SUMS, whose
 // signature key checks, taking the file named program out of an
-// archive.
-func fetch(ctx context.Context, program string, key ed25519.PublicKey, r Release) ([]byte, error) {
+// archive. report, when set, hears how the download goes: the program
+// is most of the work, up to 0.9 of it.
+func fetch(ctx context.Context, program string, key ed25519.PublicKey, r Release, report func(Progress)) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, fetchPatience)
 	defer cancel()
 	if r.Sums == "" {
@@ -257,12 +359,26 @@ func fetch(ctx context.Context, program string, key ed25519.PublicKey, r Release
 	if err != nil {
 		return nil, err
 	}
-	body, err := get(ctx, r.Program, programLimit)
+	var got func(done, total int64)
+	if report != nil {
+		report(Progress{Step: "Downloading"})
+		got = func(done, total int64) {
+			if total <= 0 {
+				report(Progress{Step: "Downloading " + Bytes(done)})
+				return
+			}
+			report(Progress{Step: "Downloading " + Bytes(done) + " of " + Bytes(total), Done: 0.9 * float32(done) / float32(total)})
+		}
+	}
+	body, err := getting(ctx, r.Program, programLimit, got)
 	if err != nil {
 		return nil, fmt.Errorf("fetch %s: %w", r.Name, err)
 	}
-	got := sha256.Sum256(body)
-	if hex.EncodeToString(got[:]) != want {
+	if report != nil {
+		report(Progress{Step: "Checking it", Done: 0.9})
+	}
+	sum := sha256.Sum256(body)
+	if hex.EncodeToString(sum[:]) != want {
 		return nil, fmt.Errorf("%s is not what SHA256SUMS says it is", r.Name)
 	}
 	switch {
@@ -319,6 +435,15 @@ func do(req *http.Request) (*http.Response, error) {
 
 // get fetches addr, at most limit bytes of it.
 func get(ctx context.Context, addr string, limit int64) ([]byte, error) {
+	return getting(ctx, addr, limit, nil)
+}
+
+// reportEvery is how often a download says how far it has got.
+const reportEvery = 100 * time.Millisecond
+
+// getting is [get], telling report, when set, how many bytes have come,
+// and of how many, or 0 when the server does not say.
+func getting(ctx context.Context, addr string, limit int64, report func(done, total int64)) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, addr, nil)
 	if err != nil {
 		return nil, err
@@ -332,14 +457,40 @@ func get(ctx context.Context, addr string, limit int64) ([]byte, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("the server answered %s", resp.Status)
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+	from := io.LimitReader(resp.Body, limit+1)
+	if report != nil {
+		from = &counting{r: from, total: max(resp.ContentLength, 0), report: report}
+	}
+	body, err := io.ReadAll(from)
 	if err != nil {
 		return nil, err
 	}
 	if int64(len(body)) > limit {
 		return nil, errors.New("it is larger than any program fetched")
 	}
+	if report != nil {
+		report(int64(len(body)), max(resp.ContentLength, 0))
+	}
 	return body, nil
+}
+
+// counting tells report how much of a download has been read, now and
+// then.
+type counting struct {
+	r           io.Reader
+	done, total int64
+	last        time.Time
+	report      func(done, total int64)
+}
+
+func (c *counting) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.done += int64(n)
+	if now := time.Now(); now.Sub(c.last) >= reportEvery {
+		c.last = now
+		c.report(c.done, c.total)
+	}
+	return n, err
 }
 
 // sumOf is the checksum SHA256SUMS gives name.

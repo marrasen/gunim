@@ -2,7 +2,10 @@
 
 package install
 
-import "os/exec"
+import (
+	"os"
+	"os/exec"
+)
 
 // Installing is not done on this system yet: Run lets the program run
 // as it is.
@@ -21,4 +24,12 @@ func removeFiles([]string, string) error     { return ErrUnsupported }
 func removeWhenEnded(string)                 {}
 func freeSpace(string) (int64, error)        { return 0, ErrUnsupported }
 func running(string) ([]int, error)          { return nil, ErrUnsupported }
-func launch(exe string, args []string) error { return exec.Command(exe, args...).Start() }
+func watchProcess(int) (func() bool, func()) { return func() bool { return false }, func() {} }
+
+func launch(exe string, args []string, env ...string) error {
+	cmd := exec.Command(exe, args...)
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
+	return cmd.Start()
+}

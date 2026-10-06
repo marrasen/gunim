@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -84,7 +85,7 @@ func lookFor(t *testing.T, a App) (stop func()) {
 
 // release is a release as the test's GitHub serves it.
 type release struct {
-	tag        string
+	tag, notes string
 	prerelease bool
 	files      map[string][]byte
 }
@@ -104,7 +105,10 @@ func fakeGitHub(t *testing.T, rels ...release) *httptest.Server {
 			sum := sha256.Sum256(body)
 			fmt.Fprintf(&sums, "%s  %s\n", hex.EncodeToString(sum[:]), name)
 			url := "/dl/" + r.tag + "/" + name
-			mux.HandleFunc(url, func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(body) })
+			mux.HandleFunc(url, func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+				_, _ = w.Write(body)
+			})
 			assets = append(assets, map[string]string{"name": name, "browser_download_url": srv.URL + url})
 		}
 		sumsURL := "/dl/" + r.tag + "/SHA256SUMS"
@@ -114,7 +118,8 @@ func fakeGitHub(t *testing.T, rels ...release) *httptest.Server {
 		sig := sign([]byte(body))
 		mux.HandleFunc(sumsURL+".sig", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(sig) })
 		assets = append(assets, map[string]string{"name": "SHA256SUMS.sig", "browser_download_url": srv.URL + sumsURL + ".sig"})
-		list = append(list, map[string]any{"tag_name": r.tag, "prerelease": r.prerelease, "html_url": "https://example.com/" + r.tag, "assets": assets})
+		list = append(list, map[string]any{"tag_name": r.tag, "prerelease": r.prerelease, "html_url": "https://example.com/" + r.tag,
+			"body": r.notes, "assets": assets})
 	}
 	mux.HandleFunc("/repos/marrasen/studio/releases", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(list)

@@ -79,8 +79,16 @@ type scene struct {
 	// is found.
 	System string
 	// Removing says the failure or the running copies came of an
-	// uninstall.
-	Removing bool
+	// uninstall, and Updating that the failure came of an update.
+	Removing, Updating bool
+	// Notes is what the releases of an update changed, in Markdown;
+	// NotesLoading says they are being read, and NotesErr why they
+	// could not be.
+	Notes, NotesErr string
+	NotesLoading    bool
+	// Ready says an update is in place already, and Restart that the
+	// window can restart the program into it.
+	Ready, Restart bool
 }
 
 // What the installer's window sends.
@@ -99,6 +107,8 @@ type (
 	quitThem struct{}
 	// removed asks to uninstall, taking the user's data too with Data.
 	removed struct{ Data bool }
+	// updateNow asks to download an update and restart into it.
+	updateNow struct{}
 )
 
 func init() {
@@ -110,6 +120,7 @@ func init() {
 	gunim.RegisterType[retried]("gunim.install.retried")
 	gunim.RegisterType[quitThem]("gunim.install.quitThem")
 	gunim.RegisterType[removed]("gunim.install.removed")
+	gunim.RegisterType[updateNow]("gunim.install.updateNow")
 }
 
 // installTheme is the installer's theme: dark, its accent and its
@@ -152,7 +163,22 @@ func window(ctx context.Context, app *gunim.App, s *Session) error {
 // openWindow opens the installer's window on s, showing its first page,
 // and returns its application half, ready to serve.
 func openWindow(app *gunim.App, s *Session) (*runner, error) {
-	a := &s.App
+	title := "Install " + s.App.Name
+	if s.Mode == Remove {
+		title = "Remove " + s.App.Name
+	}
+	sc := firstScene(s)
+	c, err := openStage(app, &s.App, title, 600, sc)
+	if err != nil {
+		return nil, err
+	}
+	return &runner{s: s, c: c, sc: sc, events: make(chan func(), 16)}, nil
+}
+
+// openStage opens a window in the installer's look for a, titled title
+// and height tall unless a's Look says otherwise, showing sc, and
+// returns its client.
+func openStage(app *gunim.App, a *App, title string, height float32, sc scene) (gunim.Client, error) {
 	accent := accentFor(a)
 	var img *paint.Image
 	var icons []image.Image
@@ -161,16 +187,12 @@ func openWindow(app *gunim.App, s *Session) (*runner, error) {
 		img = paint.NewImage(square(a.Icon, min(512, max(b.Dx(), b.Dy(), 128))))
 		icons = []image.Image{square(a.Icon, 256), square(a.Icon, 64), square(a.Icon, 32)}
 	}
-	size := geom.Sz(defaultWidth, 600)
+	size := geom.Sz(defaultWidth, height)
 	if a.Look.Width > 0 {
 		size.W = a.Look.Width
 	}
 	if a.Look.Height > 0 {
 		size.H = a.Look.Height
-	}
-	title := "Install " + a.Name
-	if s.Mode == Remove {
-		title = "Remove " + a.Name
 	}
 	// A plain root, not a Surface: the backdrop runs up under the title
 	// bar, and the stage keeps its content clear of it. The window opens
@@ -185,17 +207,28 @@ func openWindow(app *gunim.App, s *Session) (*runner, error) {
 	}
 	w, err := app.NewWindow(o)
 	if err != nil {
-		return nil, err
+		return gunim.Client{}, err
 	}
-	return attach(w, s, img, accent)
+	return mountStage(w, a, img, accent, sc)
 }
 
 // attach registers the installer's views with w, shows s's first page
 // there, and returns the application half, ready to serve.
 func attach(w *gunim.Window, s *Session, img *paint.Image, accent color.NRGBA) (*runner, error) {
+	sc := firstScene(s)
+	c, err := mountStage(w, &s.App, img, accent, sc)
+	if err != nil {
+		return nil, err
+	}
+	return &runner{s: s, c: c, sc: sc, events: make(chan func(), 16)}, nil
+}
+
+// mountStage registers the installer's views with w, in a's look, and
+// shows sc there.
+func mountStage(w *gunim.Window, a *App, img *paint.Image, accent color.NRGBA, sc scene) (gunim.Client, error) {
 	th := installTheme(accent)
-	if s.App.Look.Theme != nil {
-		th = *s.App.Look.Theme
+	if a.Look.Theme != nil {
+		th = *a.Look.Theme
 	}
 	w.RegisterTheme(th)
 	gunim.RegisterView(w, "gunim.install", func(sc scene) *stage {
@@ -205,11 +238,10 @@ func attach(w *gunim.Window, s *Session, img *paint.Image, accent color.NRGBA) (
 	}, updateStage)
 	c := w.Client()
 	_ = c.SetTheme(th.Name)
-	r := &runner{s: s, c: c, sc: firstScene(s), events: make(chan func(), 16)}
-	if err := c.Mount(gunim.Root, "installer", "gunim.install", r.sc); err != nil {
-		return nil, err
+	if err := c.Mount(gunim.Root, "installer", "gunim.install", sc); err != nil {
+		return gunim.Client{}, err
 	}
-	return r, nil
+	return c, nil
 }
 
 // firstScene is what the window opens on.
@@ -561,7 +593,7 @@ func updateStage(st *stage, sc scene, u *gunim.UI) {
 			was = st.page.name
 		}
 		st.show(buildPage(sc), u)
-		if was == pageClosing && sc.Page != pageClosing {
+		if (was == pageClosing || was == pageRestarting) && sc.Page != pageClosing && sc.Page != pageRestarting {
 			st.spin(false, u)
 		}
 		switch sc.Page {
@@ -569,21 +601,23 @@ func updateStage(st *stage, sc scene, u *gunim.UI) {
 			if was != "" {
 				st.back(u)
 			}
-		case pageClosing:
+		case pageClosing, pageRestarting:
 			st.spin(true, u)
 		case pageWorking:
 			st.work(u)
-		case pageDone:
+		case pageDone, pageUpdated:
 			st.finish(u)
 		case pageRemoved:
 			st.removed(u)
 		case pageFailed:
 			st.fail(u)
-		case pageWelcome, pageRemove:
+		case pageWelcome, pageRemove, pageUpdate:
 			if was != "" {
 				st.back(u)
 			}
 		}
+	} else if st.page.notes != nil {
+		st.page.notes.show(sc, u)
 	}
 	if sc.Page == pageWorking {
 		st.progress(sc.Progress, u)
@@ -658,8 +692,11 @@ func buildPage(sc scene) *page {
 		p.foot = footer(closeButton("Close"), open)
 	case pageFailed:
 		title := "Couldn't install " + sc.Name
-		if sc.Removing {
+		switch {
+		case sc.Removing:
 			title = "Couldn't remove " + sc.Name
+		case sc.Updating:
+			title = "Couldn't update " + sc.Name
 		}
 		heading(p, title, "")
 		problem := say(p, sc.Problem)
@@ -690,6 +727,8 @@ func buildPage(sc scene) *page {
 		heading(p, words, "")
 		say(p, "Thank you for using it.")
 		p.foot = footer(nil, closeButton("Close"))
+	case pageUpdate, pageNotes, pageRestarting, pageUpdated:
+		updatePage(p, sc)
 	}
 	return p
 }

@@ -527,6 +527,41 @@ func freeSpace(dir string) (int64, error) {
 	return int64(st.Bavail) * int64(st.Bsize), nil
 }
 
+// watchProcess watches the process pid: alive reports whether it still
+// runs, and done lets it go. A process is known by when it started too,
+// so another given its number once it has ended is not taken for it.
+func watchProcess(pid int) (alive func() bool, done func()) {
+	start, ok := procStart(pid)
+	if !ok {
+		return func() bool { return false }, func() {}
+	}
+	return func() bool {
+		now, ok := procStart(pid)
+		return ok && now == start
+	}, func() {}
+}
+
+// procStart is when the process pid started, in the system's ticks, and
+// false when it has ended, or has and waits for its parent to hear it.
+func procStart(pid int) (string, bool) {
+	raw, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	if err != nil {
+		return "", false
+	}
+	// The fields follow the program's name, in brackets that the name
+	// may itself hold: the state first, and the start time twentieth.
+	s := string(raw)
+	at := strings.LastIndexByte(s, ')')
+	if at < 0 {
+		return "", false
+	}
+	f := strings.Fields(s[at+1:])
+	if len(f) < 20 || f[0] == "Z" || f[0] == "X" {
+		return "", false
+	}
+	return f[19], true
+}
+
 // running lists the processes running the program at exe.
 func running(exe string) ([]int, error) {
 	want := resolve(exe)
@@ -553,9 +588,13 @@ func running(exe string) ([]int, error) {
 	return pids, nil
 }
 
-// launch starts the program at exe with args, on its own.
-func launch(exe string, args []string) error {
+// launch starts the program at exe with args, on its own, with env
+// added to this program's environment.
+func launch(exe string, args []string, env ...string) error {
 	cmd := exec.Command(exe, args...)
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
 		return err
