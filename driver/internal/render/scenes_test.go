@@ -104,3 +104,39 @@ func TestASeeThroughMeshShowsWhatIsBehindIt(t *testing.T) {
 		}
 	}
 }
+
+// A mesh mirrored by its model, as by a scale of -1 on one axis, is lit
+// as the same mesh unmirrored, and seen through the same: a sphere is
+// the same sphere mirrored.
+func TestAMirroredMeshIsLitAsItIs(t *testing.T) {
+	r, done := hiddenGL(t)
+	defer done()
+	sphere := paint.NewSphere(24, 48, red)
+	half := color.NRGBA{0xff, 0xff, 0xff, 0x80}
+	box := paint.SceneItem{Mesh: paint.NewBox(geom.V3(1, 1, 0.2), green), Model: geom.Move3(geom.V3(0.6, 0, -2))}
+	for _, c := range []struct {
+		name string
+		item paint.SceneItem
+		at   [][2]int
+	}{
+		{"solid", paint.SceneItem{Mesh: sphere}, [][2]int{{370, 300}, {400, 190}, {300, 300}}},
+		{"see-through", paint.SceneItem{Mesh: sphere, Tint: half}, [][2]int{{400, 300}, {430, 300}, {300, 300}}},
+	} {
+		plain := paint.Scene{
+			Camera: paint.Camera{Eye: geom.V3(0, 0, 5)},
+			Light:  paint.Light{Direction: geom.V3(-0.3, 0, -1)},
+			Items:  []paint.SceneItem{box, c.item},
+		}
+		mirror := plain
+		m := c.item
+		m.Model = geom.Scale3(geom.V3(-1, 1, 1))
+		mirror.Items = []paint.SceneItem{box, m}
+		want := drawn(r, func(p *paint.Painter) { p.Scene(geom.Rc(200, 100, 400, 400), plain) })
+		got := drawn(r, func(p *paint.Painter) { p.Scene(geom.Rc(200, 100, 400, 400), mirror) })
+		for _, xy := range c.at {
+			if g, w := pixelAt(got, xy[0], xy[1]), pixelAt(want, xy[0], xy[1]); !near(g, w, 6) {
+				t.Errorf("%s: at %v the mirrored sphere is %v, unmirrored %v", c.name, xy, g, w)
+			}
+		}
+	}
+}

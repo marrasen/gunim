@@ -54,7 +54,7 @@ const (
 type sceneState struct {
 	prog   uint32
 	failed bool
-	u      struct{ mvp, model, normal, light, lightColor, ambient, eye, tint, shine int32 }
+	u      struct{ mvp, model, normal, light, lightColor, ambient, eye, tint, shine, mirror int32 }
 	// ms draws the scene, with its colour and depth buffers, and out is
 	// the texture it resolves into, both outW by outH, of which a scene
 	// takes the lower left part its size.
@@ -95,7 +95,9 @@ void main() {
 
 // sceneFS lights a surface with the even light and the far light's
 // diffuse and, for a glossy one, its highlight. A surface seen from
-// behind is lit as its front would be.
+// behind is lit as its front would be. u_mirror is -1 for an item whose
+// model mirrors it, which turns its triangles' winding round on the
+// screen, so its front faces show as back faces there.
 const sceneFS = `
 in vec3 v_normal;
 in vec3 v_world;
@@ -106,11 +108,12 @@ uniform vec3 u_ambient;
 uniform vec3 u_eye;
 uniform vec4 u_tint;
 uniform float u_shine;
+uniform float u_mirror;
 out vec4 fragColor;
 
 void main() {
 	vec3 n = normalize(v_normal);
-	if (!gl_FrontFacing) {
+	if (gl_FrontFacing != (u_mirror > 0.0)) {
 		n = -n;
 	}
 	vec3 l = -u_light;
@@ -168,7 +171,7 @@ func (r *Renderer) sceneReady() bool {
 	loc := func(name string) int32 { return g.GetUniformLocation(p, name) }
 	st.u.mvp, st.u.model, st.u.normal = loc("u_mvp"), loc("u_model"), loc("u_normal")
 	st.u.light, st.u.lightColor, st.u.ambient = loc("u_light"), loc("u_lightColor"), loc("u_ambient")
-	st.u.eye, st.u.tint, st.u.shine = loc("u_eye"), loc("u_tint"), loc("u_shine")
+	st.u.eye, st.u.tint, st.u.shine, st.u.mirror = loc("u_eye"), loc("u_tint"), loc("u_shine"), loc("u_mirror")
 	st.samples = min(sceneSamples, g.GetInteger(glMaxSamples))
 	st.meshes = map[*paint.Mesh]*meshBuffers{}
 	return true
@@ -242,10 +245,16 @@ func (r *Renderer) scene(op *paint.SceneOp) {
 		g.DepthMask(false)
 		g.Enable(glCullFace)
 		for _, o := range st.order {
+			// The far side first, then the near: its back faces, which a
+			// mirrored item's winding shows as front faces.
 			it := op.Scene.Items[o.item]
-			g.CullFace(glFront)
+			far, near := uint32(glFront), uint32(glBack)
+			if mirrored(it.Matrix()) {
+				far, near = near, far
+			}
+			g.CullFace(far)
 			r.drawItem(it, vp, now)
-			g.CullFace(glBack)
+			g.CullFace(near)
 			r.drawItem(it, vp, now)
 		}
 		g.Disable(glCullFace)
@@ -296,8 +305,21 @@ func (r *Renderer) drawItem(it paint.SceneItem, vp geom.Mat4, now time.Time) {
 	g.UniformMatrix3fv(st.u.normal, normal[:])
 	g.Uniform4fv(st.u.tint, tc[:])
 	g.Uniform1fv(st.u.shine, []float32{it.Shine})
+	mirror := float32(1)
+	if mirrored(model) {
+		mirror = -1
+	}
+	g.Uniform1fv(st.u.mirror, []float32{mirror})
 	g.BindVertexArray(mb.vao)
 	g.DrawElements(gl.TRIANGLES, mb.n, gl.UNSIGNED_INT, 0)
+}
+
+// mirrored reports whether m mirrors what it moves, as a scale by a
+// negative amount on one axis does: its upper left 3 by 3 turns space
+// inside out.
+func mirrored(m geom.Mat4) bool {
+	det := m[0]*(m[5]*m[10]-m[9]*m[6]) - m[4]*(m[1]*m[10]-m[9]*m[2]) + m[8]*(m[1]*m[6]-m[5]*m[2])
+	return det < 0
 }
 
 // fitScene makes the scene's target at least w by h, growing it to the
