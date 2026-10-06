@@ -59,8 +59,15 @@ type stage struct {
 	// spinning turns a short arc round the icon, while the installer
 	// waits for the program to close.
 	spinning bool
-	// born is the first frame, for the float and the breathing.
-	born time.Time
+	// born is the first frame, for the float and the breathing, and
+	// still how long the page showing has been there, for them to come
+	// to rest.
+	born  time.Time
+	still time.Duration
+	// live runs to 1 as a page arrives, and back to 0 as the icon comes
+	// to rest, which resting says it is doing.
+	live    *anim.Float
+	resting bool
 	// pieces are the confetti.
 	pieces []piece
 	echo   widget.Echo
@@ -92,6 +99,7 @@ func newStage(img *paint.Image, name string, accent color.NRGBA) *stage {
 		burst:  anim.NewFloat(0),
 		shake:  anim.NewFloat(0),
 		fade:   anim.NewFloat(0),
+		live:   anim.NewFloat(0),
 	}
 	if img == nil {
 		first := "?"
@@ -105,7 +113,7 @@ func newStage(img *paint.Image, name string, accent color.NRGBA) *stage {
 		s.letter.Color = monogramInk
 		s.letter.NoWrap = true
 	}
-	s.Add(s.arrive, s.lift, s.ring, s.ringOn, s.tint, s.pop, s.badge, s.tick, s.burst, s.shake, s.fade)
+	s.Add(s.arrive, s.lift, s.ring, s.ringOn, s.tint, s.pop, s.badge, s.tick, s.burst, s.shake, s.fade, s.live)
 	s.arrive.Animate(1, anim.Spring{Response: 0.7, Damping: 0.55})
 	return s
 }
@@ -125,14 +133,40 @@ func (s *stage) show(p *page, u *gunim.UI) {
 	}
 	s.page = p
 	u.Insert(s, p)
+	s.wake()
+}
+
+// wake sets the icon floating again, as a page arrives.
+func (s *stage) wake() {
+	s.still, s.resting = 0, false
+	s.live.Animate(1, wakeSpring)
 }
 
 // Step implements [gunim.Animator]. The icon floats and its glow
-// breathes for as long as the window is open.
+// breathes a while after each page arrives, and then rests.
 func (s *stage) Step(dt time.Duration) bool {
-	s.Group.Step(dt)
-	return true
+	busy := s.Group.Step(dt)
+	s.still += dt
+	if s.still > restAfter && !s.resting {
+		s.resting = true
+		s.live.Animate(0, restSpring)
+		busy = true
+	}
+	return busy || s.spinning || !s.resting
 }
+
+// The icon floats and its glow breathes for restAfter after a page
+// arrives, and then comes to rest: a window at rest draws nothing, where
+// one that moves for ever draws every frame, a page of long notes and
+// all. The springs carry it into the motion and out of it.
+var (
+	restAfter  = 6 * time.Second
+	wakeSpring = anim.Spring{Response: 0.8, Damping: 1}
+	restSpring = anim.Spring{Response: 1.4, Damping: 1}
+)
+
+// lively is how much the icon floats and its glow breathes now.
+func (s *stage) lively() float32 { return min(max(s.live.Value(), 0), 1) }
 
 // The icon's size over the choices and in the middle of the window.
 const (
@@ -183,8 +217,9 @@ func (s *stage) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim
 
 	c := s.iconAt
 	size := s.iconSize
-	breath := 0.5 + 0.5*float32(math.Sin(float64(t)*2*math.Pi/3.6))
-	bob := 4 * float32(math.Sin(float64(t)*2*math.Pi/4.2)) * (1 - s.lift.Value())
+	live := s.lively()
+	breath := 0.5 + 0.5*float32(math.Sin(float64(t)*2*math.Pi/3.6))*live
+	bob := 4 * float32(math.Sin(float64(t)*2*math.Pi/4.2)) * (1 - s.lift.Value()) * live
 	c.Y += bob
 
 	// The glow under the icon, blurred far, breathing.
