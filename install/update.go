@@ -309,7 +309,11 @@ func stageReporting(ctx context.Context, a App, r Release, report func(Progress)
 	} else {
 		_ = os.Remove(trialPath(exe))
 	}
-	place := func(part, to string) error { return replaceKeeping(part, to, kept) }
+	// On trial, the program kept stays as it is, and the one on trial
+	// goes aside; otherwise, where the program is moved aside, Replace
+	// moves it to .old, which keeps it.
+	keep := onTrial && kept
+	place := func(part, to string) error { return replaceKeeping(part, to, keep) }
 	if err := writeVia(exe, 0o755, place, func(f *os.File) error { _, err := f.Write(body); return err }); err != nil {
 		if onTrial {
 			_ = t.write(exe)
