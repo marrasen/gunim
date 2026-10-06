@@ -185,7 +185,7 @@ func TestACopyRunningFromAnOldPlaceCounts(t *testing.T) {
 	if err = os.WriteFile(old, raw, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(old, "30")
+	cmd := exec.CommandContext(t.Context(), old, "30")
 	if err = cmd.Start(); err != nil {
 		t.Fatal(err)
 	}

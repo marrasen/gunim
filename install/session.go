@@ -718,20 +718,20 @@ func Replace(part, path string) error {
 	return nil
 }
 
-// moveAside moves the file at path to path.old, for Replace. One at
-// path.old that cannot go, as the program the last update moved aside
+// moveAside moves the file at file to file.old, for Replace. One at
+// file.old that cannot go, as the program the last update moved aside
 // while it still runs, as from the tray, is moved out of the way first,
 // under a name of its own, which CleanOld takes away once it can.
-func moveAside(path string) (string, error) {
-	old := path + ".old"
+func moveAside(file string) (string, error) {
+	old := file + ".old"
 	if err := os.Remove(old); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		busy := filepath.Join(filepath.Dir(path), fmt.Sprintf(".%s.%d.old", filepath.Base(path), time.Now().UnixNano()))
+		busy := filepath.Join(filepath.Dir(file), fmt.Sprintf(".%s.%d.old", filepath.Base(file), time.Now().UnixNano()))
 		if err := os.Rename(old, busy); err != nil {
 			return "", fmt.Errorf("move %s aside: %w", filepath.Base(old), err)
 		}
 	}
-	if err := os.Rename(path, old); err != nil {
-		return "", fmt.Errorf("move %s aside: %w", filepath.Base(path), err)
+	if err := os.Rename(file, old); err != nil {
+		return "", fmt.Errorf("move %s aside: %w", filepath.Base(file), err)
 	}
 	return old, nil
 }

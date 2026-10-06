@@ -524,8 +524,8 @@ func (w *Window) position(o driver.Options) error {
 	if b.Empty() {
 		b = o.Monitor.Bounds
 	}
-	l, t, r, bt, err := w.gw.GetFrameSize()
-	if err != nil {
+	l, t, r, bt, ferr := w.gw.GetFrameSize()
+	if ferr != nil {
 		l, t, r, bt = 0, 0, 0, 0
 	}
 	ow, oh := ww+l+r, wh+t+bt
