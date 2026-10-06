@@ -48,7 +48,7 @@ func TestMoveInFromWhereAnOlderVersionPutIt(t *testing.T) {
 	if to, err := os.Readlink(old); err != nil || to != exe {
 		t.Fatalf("%s is not a link to the new place: %q, %v", old, to, err)
 	}
-	m, err := readManifest(dir)
+	m, err := readManifest(dir, a.id())
 	if err != nil || m == nil || !m.Picks[PickAutostart] || m.Version != "v0.6.0" {
 		t.Fatalf("the moved install kept %+v, %v", m, err)
 	}
@@ -86,7 +86,7 @@ func TestAdoptAnInstallThatKeptNoRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 	startInstalled(a, exe, dir)
-	m, err := readManifest(dir)
+	m, err := readManifest(dir, a.id())
 	if err != nil || m == nil {
 		t.Fatalf("no record after taking the install on: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestUpdateModes(t *testing.T) {
 		}
 		return in
 	}
-	plain := App{Name: "studio", Version: "v1.0.0", Updates: src}
+	plain := App{Name: "studio", Version: "v1.0.0", Updates: src, UpdateKey: testKey}
 	if in := install(plain, nil); in.Updates != UpdatesInstall || !in.Chose(PickUpdates) {
 		t.Fatalf("by default the mode is %s", in.Updates)
 	}
@@ -175,7 +175,7 @@ func TestUpdateModes(t *testing.T) {
 // program gives, as kakel gives the setting its users chose.
 func TestAdoptKeepsTheProgramsMode(t *testing.T) {
 	testHome(t)
-	a := App{Name: "kakel", Version: "v0.6.0", Updates: GitHub{Repo: "marrasen/kakel"}, UpdateMode: UpdatesNotify,
+	a := App{Name: "kakel", Version: "v0.6.0", Updates: GitHub{Repo: "marrasen/kakel"}, UpdateKey: testKey, UpdateMode: UpdatesNotify,
 		Available: func(Release) {}}
 	dir, exe, _ := Where(a)
 	if err := os.MkdirAll(dir, 0o755); err != nil {

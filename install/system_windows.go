@@ -279,6 +279,18 @@ func mergedDefault(path string) string {
 	return v
 }
 
+// commandProgram is the program a command line starts, as claimType
+// writes it: its first argument, quoted or not.
+func commandProgram(cmd string) string {
+	cmd = strings.TrimSpace(cmd)
+	if rest, ok := strings.CutPrefix(cmd, `"`); ok {
+		exe, _, _ := strings.Cut(rest, `"`)
+		return exe
+	}
+	exe, _, _ := strings.Cut(cmd, " ")
+	return exe
+}
+
 // deleteTree deletes the user's key path and every key under it.
 func deleteTree(path string) error {
 	k, err := registry.OpenKey(registry.CURRENT_USER, path, registry.ENUMERATE_SUB_KEYS)
@@ -316,12 +328,9 @@ func assocChanged() {
 
 // shortcut makes a shortcut at lnk to exe, through PowerShell's Windows
 // Script Host object: the shell's own way to write one, with no COM
-// written here. A shortcut there already is left as it is: its target
-// is the same, and making one takes a second.
+// written here. One there already is written over, as one an older
+// installer made can lead to where the program was.
 func shortcut(lnk, exe, about string) error {
-	if _, err := os.Stat(lnk); err == nil {
-		return nil
-	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		home = filepath.Dir(exe)
@@ -405,7 +414,12 @@ func unregister(a *App, in Installation) error {
 		}
 	}
 	if len(a.FileTypes) > 0 {
-		_ = deleteTree(classesKey + `Applications\` + filepath.Base(in.Exe))
+		// The key is by the program's file name, which another program
+		// can have: it goes only while it opens this one.
+		app := classesKey + `Applications\` + filepath.Base(in.Exe)
+		if a.ours(in, commandProgram(getDefault(app+`\shell\open\command`))) {
+			_ = deleteTree(app)
+		}
 		assocChanged()
 	}
 	if err := deleteTree(uninstallKeys + a.id()); err != nil {
@@ -433,17 +447,34 @@ func removeFiles(files []string, dir string) error {
 	if err := os.Remove(dir); err == nil || len(left) == 0 {
 		return nil
 	}
+	return removeAfter(left, dir)
+}
+
+// removeWhenEnded takes the file at path away: at once, or, where this
+// program runs from it, once it has ended.
+func removeWhenEnded(path string) {
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		_ = removeAfter([]string{path}, "")
+	}
+}
+
+// removeAfter has PowerShell take the files away once this program has
+// ended, and then, where dir is set, the folders under dir and dir
+// itself that leaves empty.
+func removeAfter(files []string, dir string) error {
 	// The paths reach the script through its environment, split on |,
 	// which no Windows path holds.
 	script := fmt.Sprintf("Wait-Process -Id %d -ErrorAction SilentlyContinue; "+
 		"$files = $env:GUNIM_FILES -split '\\|'; "+
 		"for ($i = 0; $i -lt 20; $i++) { Remove-Item -LiteralPath $files -Force -ErrorAction SilentlyContinue; "+
-		"if (-not (Test-Path -LiteralPath $files[0])) { break }; Start-Sleep -Milliseconds 500 }; "+
-		"Get-ChildItem -LiteralPath $env:GUNIM_DIR -Recurse -Directory | Sort-Object { $_.FullName.Length } -Descending | "+
-		"Where-Object { -not (Get-ChildItem -LiteralPath $_.FullName -Force) } | Remove-Item -Force; "+
-		"if (-not (Get-ChildItem -LiteralPath $env:GUNIM_DIR -Force)) { Remove-Item -LiteralPath $env:GUNIM_DIR -Force }",
+		"if (-not ($files | Where-Object { Test-Path -LiteralPath $_ })) { break }; Start-Sleep -Milliseconds 500 }; ",
 		os.Getpid())
-	cmd := powershell(script, "GUNIM_FILES="+strings.Join(left, "|"), "GUNIM_DIR="+dir)
+	if dir != "" {
+		script += "Get-ChildItem -LiteralPath $env:GUNIM_DIR -Recurse -Directory | Sort-Object { $_.FullName.Length } -Descending | " +
+			"Where-Object { -not (Get-ChildItem -LiteralPath $_.FullName -Force) } | Remove-Item -Force; " +
+			"if (-not (Get-ChildItem -LiteralPath $env:GUNIM_DIR -Force)) { Remove-Item -LiteralPath $env:GUNIM_DIR -Force }"
+	}
+	cmd := powershell(script, "GUNIM_FILES="+strings.Join(files, "|"), "GUNIM_DIR="+dir)
 	cmd.SysProcAttr.CreationFlags |= windows.CREATE_NEW_PROCESS_GROUP
 	return cmd.Start()
 }

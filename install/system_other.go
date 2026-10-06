@@ -18,6 +18,7 @@ func register(*App, Installation) error      { return ErrUnsupported }
 func detect(*App, string) map[string]bool    { return map[string]bool{} }
 func unregister(*App, Installation) error    { return ErrUnsupported }
 func removeFiles([]string, string) error     { return ErrUnsupported }
+func removeWhenEnded(string)                 {}
 func freeSpace(string) (int64, error)        { return 0, ErrUnsupported }
 func running(string) ([]int, error)          { return nil, ErrUnsupported }
 func launch(exe string, args []string) error { return exec.Command(exe, args...).Start() }

@@ -7,13 +7,17 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -38,8 +42,9 @@ type Release struct {
 	Page, Notes string
 	// Name is the file the program comes in: the program itself, or a
 	// .zip or .tar.gz holding it. Program is where it downloads from,
-	// and Sums where the SHA256SUMS file that checks it does.
-	Name, Program, Sums string
+	// Sums where the SHA256SUMS file that checks it does, and Signature
+	// where SHA256SUMS.sig, its signature, does. Each is an https URL.
+	Name, Program, Sums, Signature string
 }
 
 // GitHub finds a program's releases on GitHub.
@@ -47,8 +52,9 @@ type Release struct {
 // Each release holds the program for each system as a file named
 // <repository>_<version>_<goos>_<goarch>, with ".exe" on Windows, as
 // "mastering-studio_1.3.0_windows_amd64.exe", or that name with ".zip"
-// or ".tar.gz" for the program in an archive, and a SHA256SUMS file of
-// their checksums, as sha256sum writes it.
+// or ".tar.gz" for the program in an archive, a SHA256SUMS file of
+// their checksums, as sha256sum writes it, and SHA256SUMS.sig, its
+// signature, as "gunimsign SHA256SUMS" writes it.
 type GitHub struct {
 	// Repo is the repository, as "marrasen/mastering-studio".
 	Repo string
@@ -89,7 +95,7 @@ func (g GitHub) Latest(ctx context.Context) (Release, error) {
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", "gunim-install")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := do(req)
 	if err != nil {
 		return Release{}, fmt.Errorf("ask GitHub for releases: %w", err)
 	}
@@ -129,7 +135,8 @@ func (g GitHub) Latest(ctx context.Context) (Release, error) {
 		}
 		for _, name := range g.names(strings.TrimPrefix(r.Tag, "v")) {
 			if at, ok := assets[name]; ok {
-				best = Release{Version: r.Tag, Page: r.Page, Notes: r.Body, Name: name, Program: at, Sums: sums}
+				best = Release{Version: r.Tag, Page: r.Page, Notes: r.Body, Name: name, Program: at, Sums: sums,
+					Signature: assets["SHA256SUMS.sig"]}
 				break
 			}
 		}
@@ -164,10 +171,13 @@ func Check(ctx context.Context, a App) (Release, bool, error) {
 	return r, IsRelease(a.Version) && Newer(r.Version, a.Version), nil
 }
 
-// Stage downloads release r, checks it against its SHA256SUMS, and puts
+// Stage downloads release r, checks it against its SHA256SUMS and their
+// signature, and puts
 // it in place of the installed program, for the next time the program
 // starts; the program running goes on as it is. The rest of r's files
-// are put in place as it first starts.
+// are put in place as it first starts. A copy installed already that is
+// as new as r, or newer, stays, as when a copy started before it was
+// installed still runs.
 func Stage(ctx context.Context, a App, r Release) error {
 	if err := a.check(); err != nil {
 		return err
@@ -175,6 +185,13 @@ func Stage(ctx context.Context, a App, r Release) error {
 	dir, err := a.dir()
 	if err != nil {
 		return err
+	}
+	m, err := readManifest(dir, a.id())
+	if err != nil {
+		return err
+	}
+	if m != nil && !newerThanInstalled(r, m.Version) {
+		return fmt.Errorf("install: %s is installed already, and %s is no newer", m.Version, r.Version)
 	}
 	return StageTo(ctx, a, r, filepath.Join(dir, a.exe()))
 }
@@ -185,8 +202,12 @@ func StageTo(ctx context.Context, a App, r Release, exe string) error {
 	if err := a.check(); err != nil {
 		return err
 	}
+	key, err := a.updateKey()
+	if err != nil {
+		return err
+	}
 	part := exe + ".new"
-	if err := fetch(ctx, a.exe(), r, part); err != nil {
+	if err := fetch(ctx, a.exe(), key, r, part); err != nil {
 		_ = os.Remove(part)
 		return err
 	}
@@ -197,17 +218,35 @@ func StageTo(ctx context.Context, a App, r Release, exe string) error {
 	return nil
 }
 
+// newerThanInstalled reports whether r is newer than the version
+// installed: always, where the install kept no version that is a
+// release.
+func newerThanInstalled(r Release, installed string) bool {
+	return !IsRelease(installed) || Newer(r.Version, installed)
+}
+
 // fetch downloads r's program to to, checked against its SHA256SUMS,
-// taking the file named program out of an archive.
-func fetch(ctx context.Context, program string, r Release, to string) error {
+// whose signature key checks, taking the file named program out of an
+// archive.
+func fetch(ctx context.Context, program string, key ed25519.PublicKey, r Release, to string) error {
 	ctx, cancel := context.WithTimeout(ctx, fetchPatience)
 	defer cancel()
 	if r.Sums == "" {
 		return fmt.Errorf("%s has no SHA256SUMS to check it against", r.Version)
 	}
+	if r.Signature == "" {
+		return fmt.Errorf("%s has no SHA256SUMS.sig, the signature that says who made it", r.Version)
+	}
 	sums, err := get(ctx, r.Sums, readLimit)
 	if err != nil {
 		return fmt.Errorf("fetch SHA256SUMS: %w", err)
+	}
+	sig, err := get(ctx, r.Signature, readLimit)
+	if err != nil {
+		return fmt.Errorf("fetch SHA256SUMS.sig: %w", err)
+	}
+	if !verify(key, sums, sig) {
+		return fmt.Errorf("the SHA256SUMS of %s is not signed with App.UpdateKey", r.Version)
 	}
 	want, err := sumOf(sums, r.Name)
 	if err != nil {
@@ -231,14 +270,56 @@ func fetch(ctx context.Context, program string, r Release, to string) error {
 	return os.WriteFile(to, body, 0o755)
 }
 
-// get fetches url, at most limit bytes of it.
-func get(ctx context.Context, url string, limit int64) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+// verify reports whether sig, as gunimsign writes it, is key's
+// signature of sums.
+func verify(key ed25519.PublicKey, sums, sig []byte) bool {
+	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(sig)))
+	return err == nil && len(raw) == ed25519.SignatureSize && ed25519.Verify(key, sums, raw)
+}
+
+// client fetches over https only, redirects too, so no one on the way
+// can change what comes; plain http only from this computer, as from a
+// test's server.
+var client = &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+	if len(via) >= 10 {
+		return errors.New("too many redirects")
+	}
+	return secure(req.URL)
+}}
+
+// secure says what is wrong with fetching u, or nothing.
+func secure(u *url.URL) error {
+	if u.Scheme == "https" || u.Scheme == "http" && loopback(u.Hostname()) {
+		return nil
+	}
+	return fmt.Errorf("install: %s is not https", u.Redacted())
+}
+
+// loopback reports whether host is this computer.
+func loopback(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// do sends req through client, once secure has passed its URL.
+func do(req *http.Request) (*http.Response, error) {
+	if err := secure(req.URL); err != nil {
+		return nil, err
+	}
+	return client.Do(req)
+}
+
+// get fetches addr, at most limit bytes of it.
+func get(ctx context.Context, addr string, limit int64) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, addr, nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("User-Agent", "gunim-install")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -339,6 +420,10 @@ func keepUpToDate(ctx context.Context, a App) {
 		}
 		r, newer, err := Check(ctx, a)
 		if err != nil || !newer || r.Version == told {
+			continue
+		}
+		if !newerThanInstalled(r, in.Version) {
+			// Installed since this copy started, as a newer version.
 			continue
 		}
 		if in.Updates == UpdatesNotify {

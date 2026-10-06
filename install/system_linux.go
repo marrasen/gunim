@@ -137,7 +137,7 @@ func register(a *App, in Installation) error {
 		return err
 	}
 	if !samePath(filepath.Dir(p.link), in.Dir) {
-		if err := link(p.link, in.Exe, a.former(p.link)); err != nil {
+		if err := link(p.link, in.Exe, func(to string) bool { return a.ours(in, to) }); err != nil {
 			return fmt.Errorf("link %s: %w", p.link, err)
 		}
 	}
@@ -167,7 +167,7 @@ func register(a *App, in Installation) error {
 		if err := write(p.mime, mimeXML(a, own), 0o644); err != nil {
 			return fmt.Errorf("write the kinds of file: %w", err)
 		}
-	} else {
+	} else if ownTypes(a, p.mime) {
 		_ = os.Remove(p.mime)
 	}
 	if err := write(p.app, desktopFile(a, in.Exe, icon, nil, types), 0o644); err != nil {
@@ -184,14 +184,14 @@ func register(a *App, in Installation) error {
 				_ = exec.Command(gio, "set", p.desk, "metadata::trusted", "true").Run()
 			}
 		}
-	} else {
+	} else if launches(a, in, p.desk) {
 		_ = os.Remove(p.desk)
 	}
 	if a.Autostart != nil && in.Chose(PickAutostart) {
 		if err := write(p.autostart, desktopFile(a, in.Exe, icon, a.Autostart.Args, nil), 0o644); err != nil {
 			return fmt.Errorf("start %s with the session: %w", a.Name, err)
 		}
-	} else {
+	} else if launches(a, in, p.autostart) {
 		_ = os.Remove(p.autostart)
 	}
 	refresh(p)
@@ -224,25 +224,103 @@ func detect(a *App, _ string) map[string]bool {
 	return out
 }
 
-// unregister takes away all that register adds.
+// unregister takes away all that register adds. A desktop file of the
+// same name that starts another program stays, and with it the icon,
+// the kinds of file and the defaults of that name.
 func unregister(a *App, in Installation) error {
 	p, err := where(a)
 	if err != nil {
 		return err
 	}
-	for _, f := range []string{p.app, p.icon, p.autostart, p.desk, p.mime} {
+	var drop []string
+	for _, f := range []string{p.autostart, p.desk} {
+		if launches(a, in, f) {
+			drop = append(drop, f)
+		}
+	}
+	app := launches(a, in, p.app)
+	if app {
+		drop = append(drop, p.app, p.icon)
+		if ownTypes(a, p.mime) {
+			drop = append(drop, p.mime)
+		}
+	}
+	for _, f := range drop {
 		if err := os.Remove(f); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
 	}
 	// The link, only while it is the program's: a file of that name
 	// put there by something else stays.
-	if to, err := os.Readlink(p.link); err == nil && samePath(to, in.Exe) {
+	if to, err := os.Readlink(p.link); err == nil && a.ours(in, linkTarget(p.link, to)) {
 		_ = os.Remove(p.link)
 	}
-	forgetDefaults(a)
+	if app {
+		forgetDefaults(a)
+	}
 	refresh(p)
 	return nil
+}
+
+// launches reports whether the desktop file at path starts the program
+// of install in.
+func launches(a *App, in Installation, path string) bool {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "Exec="); ok {
+			exe := execProgram(v)
+			if !filepath.IsAbs(exe) {
+				if found, err := exec.LookPath(exe); err == nil {
+					exe = found
+				}
+			}
+			return exe != "" && a.ours(in, exe)
+		}
+	}
+	return false
+}
+
+// execProgram is the program an Exec line's value starts: its first
+// argument, its escapes undone, as execArg writes them.
+func execProgram(v string) string {
+	v = strings.ReplaceAll(strings.TrimSpace(v), `\\`, `\`)
+	if !strings.HasPrefix(v, `"`) {
+		first, _, _ := strings.Cut(v, " ")
+		return strings.ReplaceAll(first, "%%", "%")
+	}
+	var b strings.Builder
+	for i := 1; i < len(v); i++ {
+		switch c := v[i]; c {
+		case '"':
+			return strings.ReplaceAll(b.String(), "%%", "%")
+		case '\\':
+			if i+1 < len(v) {
+				i++
+				b.WriteByte(v[i])
+			}
+		default:
+			b.WriteByte(c)
+		}
+	}
+	return ""
+}
+
+// ownTypes reports whether the file at path teaches the desktop the
+// program's own kinds of file, as mimeXML writes it.
+func ownTypes(a *App, path string) bool {
+	raw, err := os.ReadFile(path)
+	return err == nil && strings.Contains(string(raw), `type="application/x-`+a.id()+`-`)
+}
+
+// linkTarget is to, the target of the link at at, as a full path.
+func linkTarget(at, to string) string {
+	if filepath.IsAbs(to) {
+		return to
+	}
+	return filepath.Join(filepath.Dir(at), to)
 }
 
 // forgetDefaults takes the program's desktop file out of the user's
@@ -296,13 +374,19 @@ func refresh(p places) {
 	}
 }
 
-// link makes at a link to exe, in place of one there before. A file at
-// that place that is not a link is left, and said, unless former says
-// it is the program as an older version put it there.
-func link(at, exe string, former bool) error {
+// link makes at a link to exe, in place of one there before that ours
+// says is the program, or leads to it. A file or a link at that place
+// that is another program's is left, and said.
+func link(at, exe string, ours func(string) bool) error {
 	if fi, err := os.Lstat(at); err == nil {
-		if fi.Mode()&os.ModeSymlink == 0 && !former {
-			return fmt.Errorf("%s is a file of its own", at)
+		if fi.Mode()&os.ModeSymlink == 0 {
+			if !ours(at) {
+				return fmt.Errorf("%s is a file of its own", at)
+			}
+		} else if to, err := os.Readlink(at); err != nil {
+			return err
+		} else if to = linkTarget(at, to); !ours(to) && !ours(at) {
+			return fmt.Errorf("%s leads to %s, another program", at, to)
 		}
 		if err := os.Remove(at); err != nil {
 			return err
@@ -428,6 +512,10 @@ func removeFiles(files []string, dir string) error {
 	_ = os.Remove(dir)
 	return nil
 }
+
+// removeWhenEnded takes the file at path away. A running program on
+// Linux can be taken away under itself.
+func removeWhenEnded(path string) { _ = os.Remove(path) }
 
 // freeSpace is how many bytes the user may write to the file system
 // dir is on.

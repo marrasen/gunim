@@ -36,6 +36,7 @@ func TestShots(t *testing.T) {
 		Icon:        testIcon(),
 		FileTypes:   []FileType{{Name: "Mastering album", Exts: []string{".mastering"}, Default: true}},
 		Updates:     GitHub{Repo: "marrasen/mastering-studio"},
+		UpdateKey:   testKey,
 		Data:        []string{filepath.Join(home, ".config", "studio")},
 	}
 	if os.Getenv("GUNIM_INSTALL_NOICON") != "" {

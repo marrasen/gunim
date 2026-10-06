@@ -207,7 +207,7 @@ func TestUpgradeDropsWhatIsGone(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(home, "Desktop", "studio-deluxe.desktop")); err == nil {
 		t.Error("the unticked desktop shortcut is still there")
 	}
-	m, err := readManifest(in.Dir)
+	m, err := readManifest(in.Dir, a.id())
 	if err != nil || m.Version != "v1.2.0" {
 		t.Fatalf("manifest %+v, %v", m, err)
 	}

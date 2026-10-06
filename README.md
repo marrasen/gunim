@@ -333,6 +333,7 @@ install.Run(install.App{
 	Version: version,
 	Icon:    icon,
 	Updates: install.GitHub{Repo: "marrasen/mastering-studio"},
+	UpdateKey: "…", // as gunimsign -keygen prints it
 })
 ```
 
@@ -352,8 +353,10 @@ updates the one installed, and one already installed offers to open it.
 
 Installed, the program starts as itself. If the user chose to keep it
 up to date, it looks for a newer release on GitHub now and then, checks
-it against the release's `SHA256SUMS`, and puts it in place for the next
-start. `program -install` installs from a script, and
+it against the release's `SHA256SUMS` and their signature, and puts it
+in place for the next start. `tools/gunimsign` makes the signing key
+once, and signs each release's `SHA256SUMS`; the program holds the
+public key, so a release only its maker signed ever runs. `program -install` installs from a script, and
 `program -uninstall`, as the system's list starts it, asks in a window
 and takes it all away.
 

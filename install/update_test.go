@@ -4,7 +4,9 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -46,6 +48,23 @@ func TestCompare(t *testing.T) {
 	}
 }
 
+// testSigner signs the test's releases, and testKey is its public key,
+// as App.UpdateKey holds it.
+var (
+	testSigner = ed25519.NewKeyFromSeed(bytes.Repeat([]byte{7}, ed25519.SeedSize))
+	testKey    = publicKey(testSigner)
+)
+
+// publicKey is k's public key, as App.UpdateKey holds it.
+func publicKey(k ed25519.PrivateKey) string {
+	return base64.StdEncoding.EncodeToString(k[ed25519.SeedSize:])
+}
+
+// sign is testSigner's signature of sums, as gunimsign writes it.
+func sign(sums []byte) []byte {
+	return []byte(base64.StdEncoding.EncodeToString(ed25519.Sign(testSigner, sums)) + "\n")
+}
+
 // release is a release as the test's GitHub serves it.
 type release struct {
 	tag        string
@@ -75,6 +94,9 @@ func fakeGitHub(t *testing.T, rels ...release) *httptest.Server {
 		body := sums.String()
 		mux.HandleFunc(sumsURL, func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(body)) })
 		assets = append(assets, map[string]string{"name": "SHA256SUMS", "browser_download_url": srv.URL + sumsURL})
+		sig := sign([]byte(body))
+		mux.HandleFunc(sumsURL+".sig", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(sig) })
+		assets = append(assets, map[string]string{"name": "SHA256SUMS.sig", "browser_download_url": srv.URL + sumsURL + ".sig"})
 		list = append(list, map[string]any{"tag_name": r.tag, "prerelease": r.prerelease, "html_url": "https://example.com/" + r.tag, "assets": assets})
 	}
 	mux.HandleFunc("/repos/marrasen/studio/releases", func(w http.ResponseWriter, _ *http.Request) {
@@ -109,7 +131,7 @@ func TestGitHubLatest(t *testing.T) {
 	if err != nil || r.Version != "v1.3.0-beta.1" {
 		t.Fatalf("latest with pre-releases %+v, %v", r, err)
 	}
-	a := App{Name: "studio", Version: "v1.2.0", Updates: GitHub{Repo: "marrasen/studio", API: srv.URL}}
+	a := App{Name: "studio", Version: "v1.2.0", Updates: GitHub{Repo: "marrasen/studio", API: srv.URL}, UpdateKey: testKey}
 	if _, newer, err := Check(context.Background(), a); err != nil || newer {
 		t.Fatalf("Check says newer %v, %v; want the same", newer, err)
 	}
@@ -132,7 +154,7 @@ func TestStage(t *testing.T) {
 		release{tag: "v2.0.0", files: map[string][]byte{asset("2.0.0"): []byte("two")}},
 	)
 	a := App{Name: "studio", Version: "v1.0.0", Dir: func() (string, error) { return dir, nil },
-		Updates: GitHub{Repo: "marrasen/studio", API: srv.URL}}
+		Updates: GitHub{Repo: "marrasen/studio", API: srv.URL}, UpdateKey: testKey}
 	exe := filepath.Join(dir, "studio"+exeSuffix)
 	if err := os.WriteFile(exe, []byte("one"), 0o755); err != nil {
 		t.Fatal(err)
@@ -201,7 +223,7 @@ func TestKeepUpToDateFollowsTheMode(t *testing.T) {
 	dir := t.TempDir()
 	available, updated := make(chan Release, 4), make(chan Release, 4)
 	a := App{Name: "studio", Version: "v1.0.0", Dir: func() (string, error) { return dir, nil },
-		Updates:   GitHub{Repo: "marrasen/studio", API: srv.URL},
+		Updates: GitHub{Repo: "marrasen/studio", API: srv.URL}, UpdateKey: testKey,
 		Available: func(r Release) { available <- r }, Updated: func(r Release) { updated <- r }}
 	exe := filepath.Join(dir, "studio"+exeSuffix)
 	if err := os.WriteFile(exe, []byte("one"), 0o755); err != nil {
@@ -240,5 +262,103 @@ func TestKeepUpToDateFollowsTheMode(t *testing.T) {
 	}
 	if raw, _ := os.ReadFile(exe); string(raw) != "two" {
 		t.Fatalf("set to install, the program holds %q", raw)
+	}
+}
+
+// An update runs only with a signature App.UpdateKey checks, and comes
+// over https only, from anywhere but this computer.
+func TestUpdatesAreSigned(t *testing.T) {
+	srv := fakeGitHub(t, release{tag: "v2.0.0", files: map[string][]byte{asset("2.0.0"): []byte("two")}})
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "studio"+exeSuffix)
+	if err := os.WriteFile(exe, []byte("one"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	a := App{Name: "studio", Version: "v1.0.0", Dir: func() (string, error) { return dir, nil },
+		Updates: GitHub{Repo: "marrasen/studio", API: srv.URL}, UpdateKey: testKey}
+	r, _, err := Check(context.Background(), a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{9}, ed25519.SeedSize))
+	stranger := a
+	stranger.UpdateKey = publicKey(other)
+	unsigned := r
+	unsigned.Signature = ""
+	for name, c := range map[string]struct {
+		a App
+		r Release
+	}{
+		"signed with another key": {stranger, r},
+		"with no signature":       {a, unsigned},
+	} {
+		if err := Stage(context.Background(), c.a, c.r); err == nil {
+			t.Errorf("a release %s was put in place", name)
+		}
+		if raw, _ := os.ReadFile(exe); string(raw) != "one" {
+			t.Fatalf("a release %s left the program holding %q", name, raw)
+		}
+	}
+	plain := r
+	plain.Program = "http://example.com/studio"
+	if err := Stage(context.Background(), a, plain); err == nil || !strings.Contains(err.Error(), "not https") {
+		t.Errorf("a program over plain http: %v", err)
+	}
+	if err := Stage(context.Background(), a, r); err != nil {
+		t.Fatal(err)
+	}
+	if raw, _ := os.ReadFile(exe); string(raw) != "two" {
+		t.Fatalf("a signed release left the program holding %q", raw)
+	}
+	keyless := a
+	keyless.UpdateKey = ""
+	if err := keyless.check(); err == nil {
+		t.Error("an App with Updates and no UpdateKey passed")
+	}
+}
+
+// A copy that started before a newer version was installed leaves that
+// version in place: Stage refuses an older release, and the updater
+// neither stages it nor tells of it.
+func TestAnOlderCopyLeavesANewerInstall(t *testing.T) {
+	was, wasEvery := updateFirst, updateEvery
+	updateFirst, updateEvery = time.Millisecond, 5*time.Millisecond
+	t.Cleanup(func() { updateFirst, updateEvery = was, wasEvery })
+	srv := fakeGitHub(t, release{tag: "v1.5.0", files: map[string][]byte{asset("1.5.0"): []byte("five")}})
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "studio"+exeSuffix)
+	if err := os.WriteFile(exe, []byte("six"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m := manifest{ID: "studio", Version: "v1.6.0", Exe: "studio" + exeSuffix, Updates: UpdatesInstall}
+	if err := m.write(dir); err != nil {
+		t.Fatal(err)
+	}
+	heard := make(chan Release, 4)
+	a := App{Name: "studio", Version: "v1.4.0", Dir: func() (string, error) { return dir, nil },
+		Updates: GitHub{Repo: "marrasen/studio", API: srv.URL}, UpdateKey: testKey,
+		Available: func(r Release) { heard <- r }, Updated: func(r Release) { heard <- r }}
+	r, newer, err := Check(context.Background(), a)
+	if err != nil || !newer {
+		t.Fatalf("Check %+v, %v, %v; v1.5.0 is newer than this build", r, newer, err)
+	}
+	if err := Stage(context.Background(), a, r); err == nil {
+		t.Error("Stage put v1.5.0 over v1.6.0")
+	}
+	for _, mode := range []UpdateMode{UpdatesInstall, UpdatesNotify} {
+		if err := SetUpdates(a, mode); err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		go keepUpToDate(ctx, a)
+		select {
+		case r := <-heard:
+			t.Errorf("set to %s, the updater acted on %s over v1.6.0", mode, r.Version)
+		case <-time.After(200 * time.Millisecond):
+		}
+		cancel()
+		if raw, _ := os.ReadFile(exe); string(raw) != "six" {
+			t.Fatalf("set to %s, the installed v1.6.0 now holds %q", mode, raw)
+		}
 	}
 }

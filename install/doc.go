@@ -25,6 +25,7 @@
 //			Version: version,
 //			Icon:    icon,
 //			Updates: install.GitHub{Repo: "marrasen/mastering-studio"},
+//			UpdateKey: "…", // as gunimsign -keygen prints it
 //		})
 //		…
 //	}
@@ -32,8 +33,26 @@
 // A build from a working tree, whose version is "dev" or empty, runs as
 // it is, with no installer; set GUNIM_INSTALL=show to see the installer
 // all the same. A release built for each system and published as
-// [GitHub] describes, with a SHA256SUMS of the programs, is then all the
-// releasing there is.
+// [GitHub] describes, with a SHA256SUMS of the programs signed with
+// gunimsign, is then all the releasing there is.
+//
+// # Signed updates
+//
+// An installed program runs an update only when its SHA256SUMS carries
+// a signature that App.UpdateKey checks, and fetches only over https.
+// The checksums alone say a download came whole; the signature says the
+// program's maker made it, so a release put up by anyone else, with a
+// stolen token or through a broken build, never runs. Make the key once:
+//
+//	go run github.com/marrasen/gunim/tools/gunimsign -keygen release.key
+//
+// It writes the private key to release.key and prints the public key,
+// for App.UpdateKey. Keep the private key out of the repository, as a
+// secret of the release build, which signs each release:
+//
+//	GUNIM_SIGN_KEY=$(cat release.key) go run github.com/marrasen/gunim/tools/gunimsign dist/SHA256SUMS
+//
+// That writes dist/SHA256SUMS.sig, to publish beside SHA256SUMS.
 //
 // # Making it the program's own
 //
