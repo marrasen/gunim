@@ -33,8 +33,9 @@ type Hero struct {
 	// it arrives, and leaving sends nothing flying.
 	Anchor bool
 	// InPlace draws the hero's flight where the hero sits among the nodes around it, not above the whole window:
-	// what its screen draws over its place, such as a caption or a toolbar, stays over it as it flies in, and the
-	// clips around its place hold it all the way. Set it on a hero whose screen comes in above where it flies
+	// what its screen draws over its place, such as a caption or a toolbar, stays over it as it flies, and the
+	// clips around its place hold it all the way. Leaving, such a hero flies back to its counterpart itself, under
+	// the same, and its screen stays until it has landed. Set it on a hero whose screen comes in above where it flies
 	// from, such as a viewer opening over a grid; leave it unset where the hero must fly out of a scrolled or
 	// clipped area it would otherwise be hidden by.
 	InPlace bool
@@ -45,6 +46,9 @@ type Hero struct {
 	fly    *anim.Float
 	from   geom.Rect
 	flying bool
+	// toward is the counterpart an in-place hero flies back to as it
+	// leaves, its place followed each frame; nil flies to its own place.
+	toward *Hero
 	// hidden is set while a counterpart flies in this hero's place, and
 	// partner is the counterpart this hero hid for its own flight.
 	hidden  bool
@@ -111,8 +115,15 @@ func (h *Hero) Transition(p gunim.Presence, f gunim.Frame) bool {
 	case gunim.Entering:
 		if h.leaving {
 			// Brought back before it had gone, as a view mounted again
-			// mid-exit: it shows again, and flies out once more.
-			h.leaving, h.hidden, h.flying, h.arrived = false, false, false, false
+			// mid-exit: it shows again, and flies out once more. On its own
+			// way back, it turns round where it is, its counterpart still
+			// hidden.
+			was, back := h.shown(), h.flying && h.toward != nil
+			h.leaving, h.hidden, h.flying, h.arrived, h.toward = false, false, false, false, nil
+			if back {
+				h.arrived = true
+				h.takeOff(was, f)
+			}
 		}
 		if !h.arrived {
 			h.arrived = true
@@ -126,10 +137,19 @@ func (h *Hero) Transition(p gunim.Presence, f gunim.Frame) bool {
 		if !h.leaving {
 			h.leaving = true
 			if o := h.counterpart(f); o != nil && !h.Anchor {
-				// The one staying flies back from here, and this one is
-				// gone at once: there is only ever one of a pair to see.
-				o.takeOff(h.rect, f)
-				h.hidden = true
+				if h.InPlace {
+					// It flies back itself, among the nodes around it, and
+					// the one staying shows once it has landed.
+					h.from, h.toward, h.flying, h.hidden = h.shown(), o, true, false
+					h.fly.Jump(0)
+					h.fly.Animate(1, HeroMotion.Get(f.Theme))
+					o.hidden, h.partner = true, o
+				} else {
+					// The one staying flies back from here, and this one is
+					// gone at once: there is only ever one of a pair to see.
+					o.takeOff(h.shown(), f)
+					h.hidden = true
+				}
 			}
 		}
 	case gunim.Present:
@@ -141,10 +161,23 @@ func (h *Hero) Transition(p gunim.Presence, f gunim.Frame) bool {
 // mid-flight.
 func (h *Hero) shown() geom.Rect {
 	if h.flying {
-		return lerpRect(h.from, h.rect, h.fly.Value())
+		return lerpRect(h.from, h.target(), h.fly.Value())
 	}
 	return h.rect
 }
+
+// target is where a flight ends, in window space: the hero's own place,
+// or the counterpart it flies back to.
+func (h *Hero) target() geom.Rect {
+	if h.toward != nil {
+		return h.toward.rect
+	}
+	return h.rect
+}
+
+// Flying reports whether the hero is on its way, to its place or, leaving
+// in place, back to its counterpart.
+func (h *Hero) Flying() bool { return h.flying }
 
 // takeOff starts a flight from r.
 func (h *Hero) takeOff(r geom.Rect, f gunim.Frame) {
@@ -152,7 +185,7 @@ func (h *Hero) takeOff(r geom.Rect, f gunim.Frame) {
 		// Mid-flight, start again from where it is now.
 		r = h.shown()
 	}
-	h.from, h.flying, h.hidden = r, true, false
+	h.from, h.flying, h.hidden, h.toward = r, true, false, nil
 	h.fly.Jump(0)
 	h.fly.Animate(1, HeroMotion.Get(f.Theme))
 }
@@ -164,6 +197,10 @@ func (h *Hero) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) g
 		h.flying = false
 		if h.partner != nil {
 			h.partner.hidden, h.partner = false, nil
+		}
+		if h.toward != nil {
+			// Landed on its counterpart, which shows from now on.
+			h.toward, h.hidden = nil, true
 		}
 	}
 	kid := kids.At(0)
@@ -177,7 +214,11 @@ func (h *Hero) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) g
 		if h.scale == 0 {
 			k = 1
 		}
-		s := lerpSize(h.from.Size(), geom.Sz(h.natural.W*k, h.natural.H*k), h.fly.Value())
+		to := geom.Sz(h.natural.W*k, h.natural.H*k)
+		if h.toward != nil {
+			to = h.toward.rect.Size()
+		}
+		s := lerpSize(h.from.Size(), to, h.fly.Value())
 		kid.Layout(gunim.Tight(geom.Sz(max(s.W/k, 0), max(s.H/k, 0))))
 	}
 	return h.natural
@@ -199,7 +240,7 @@ func (h *Hero) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.
 	}
 	// The child, laid out at the size in between, scaled as the window
 	// shows its place, fills the rectangle in between.
-	at := lerpRect(h.from, h.rect, h.fly.Value())
+	at := h.shown()
 	kid := kids.At(0)
 	k := h.scale
 	if w := kid.Size().W; w > 0 {

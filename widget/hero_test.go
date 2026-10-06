@@ -401,6 +401,71 @@ func TestAHeroInPlaceFliesUnderWhatItsScreenDrawsOverIt(t *testing.T) {
 	}
 }
 
+func TestAHeroInPlaceFliesBackUnderWhatItsScreenDrawsOverIt(t *testing.T) {
+	s := newHeroStage(t)
+	gunim.RegisterView(s.w, "captioned", func(struct{}) gunim.Node {
+		big := NewImage(s.bigPic)
+		big.Fit = FitFill
+		s.big = NewHero("pic", big)
+		s.big.InPlace = true
+		return &captioned{zoomed: zoomed{spot2: spot2{at: geom.Rc(100, 100, 100, 75), child: s.big}, z: 2},
+			caption: geom.Rc(100, 200, 80, 20)}
+	}, nil)
+	if err := s.w.Client().Mount(gunim.Root, "detail", "captioned", nil); err != nil {
+		t.Fatal(err)
+	}
+	s.run(120)
+	if err := s.w.Client().Unmount("detail"); err != nil {
+		t.Fatal(err)
+	}
+	// The big picture flies back to the thumbnail, under the caption, the
+	// thumbnail hidden until it lands, and the screen stays till then.
+	prev := geom.Rc(100, 100, 200, 150)
+	landed := false
+	for i := range 120 {
+		s.run(1)
+		img, caption := -1, -1
+		for j, op := range s.w.Offscreen().Ops() {
+			switch op := op.(type) {
+			case *paint.ImageOp:
+				if op.Image == s.bigPic && op.Opacity > 0 {
+					img = j
+				}
+			case *paint.RRectOp:
+				if op.Fill.Solid == (color.NRGBA{R: 1, A: 0xff}) {
+					caption = j
+				}
+			}
+		}
+		d := s.drawn()
+		if img < 0 {
+			// Landed: the thumbnail in its place, the screen gone.
+			if r := d[s.thumbPic]; r != geom.Rc(10, 10, 40, 30) {
+				t.Fatalf("frame %d: after the flight back the thumbnail is at %v", i, r)
+			}
+			landed = true
+			break
+		}
+		if caption < 0 || img > caption {
+			t.Fatalf("frame %d: the picture flying back is not under the caption (picture %d, caption %d)", i, img, caption)
+		}
+		if _, ok := d[s.thumbPic]; ok {
+			t.Fatalf("frame %d: the thumbnail shows while the picture flies back to it", i)
+		}
+		r := d[s.bigPic]
+		if dw := r.Size().W - prev.Size().W; dw > 1 || dw < -40 {
+			t.Fatalf("frame %d: width went from %v to %v", i, prev.Size().W, r.Size().W)
+		}
+		prev = r
+	}
+	if !landed {
+		t.Fatal("the picture never landed")
+	}
+	if prev.Size().W > 45 {
+		t.Fatalf("the last frame of the flight was %v; want at the thumbnail", prev)
+	}
+}
+
 func TestHeroFlightMovesSmoothlyEveryFrame(t *testing.T) {
 	s := newHeroStage(t)
 	if err := s.w.Client().Mount(gunim.Root, "detail", "detail", nil); err != nil {
