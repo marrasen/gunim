@@ -95,10 +95,16 @@ func (h *Hero) counterpart(f gunim.Frame) *Hero {
 func (h *Hero) Transition(p gunim.Presence, f gunim.Frame) bool {
 	switch p {
 	case gunim.Entering:
+		if h.leaving {
+			// Brought back before it had gone, as a view mounted again
+			// mid-exit: it shows again, and flies out once more.
+			h.leaving, h.hidden, h.flying, h.arrived = false, false, false, false
+		}
 		if !h.arrived {
 			h.arrived = true
 			if o := h.counterpart(f); o != nil && !h.Anchor {
-				h.takeOff(o.rect, f)
+				// From where the counterpart shows, on its way back if it is.
+				h.takeOff(o.shown(), f)
 				o.hidden, h.partner = true, o
 			}
 		}
@@ -117,11 +123,20 @@ func (h *Hero) Transition(p gunim.Presence, f gunim.Frame) bool {
 	return h.hidden || !h.flying
 }
 
+// shown returns where the hero shows now, in window space: on its way,
+// mid-flight.
+func (h *Hero) shown() geom.Rect {
+	if h.flying {
+		return lerpRect(h.from, h.rect, h.fly.Value())
+	}
+	return h.rect
+}
+
 // takeOff starts a flight from r.
 func (h *Hero) takeOff(r geom.Rect, f gunim.Frame) {
 	if h.flying {
 		// Mid-flight, start again from where it is now.
-		r = lerpRect(h.from, h.rect, h.fly.Value())
+		r = h.shown()
 	}
 	h.from, h.flying, h.hidden = r, true, false
 	h.fly.Jump(0)
