@@ -77,6 +77,10 @@ type App struct {
 	// offers each, and the system then lists the program among those
 	// that open such a file.
 	FileTypes []FileType
+	// Folders, when set, offers to open folders with the program in
+	// place of the system's file manager, on Windows: a folder or a
+	// drive opened anywhere, and Win+E.
+	Folders *Folders
 	// Autostart, when set, offers to start the program with the
 	// computer.
 	Autostart *Autostart
@@ -173,6 +177,20 @@ type FileType struct {
 	Off bool
 }
 
+// Folders is the offer to open folders with the program.
+type Folders struct {
+	// Args are what the program is started with for a folder, which
+	// follows them as the last argument: empty for none in particular,
+	// as for Win+E.
+	Args []string
+	// On ticks the offer to begin with.
+	On bool
+	// Label is what the offer says, "Open folders with <Name>" when
+	// empty, and Verb what a folder's menu says, "Open in <Name>" when
+	// empty.
+	Label, Verb string
+}
+
 // Autostart is the offer to start the program with the computer.
 type Autostart struct {
 	// Args are what the program is started with then, as "-tray".
@@ -248,6 +266,9 @@ const (
 	PickDesktop   = "desktop"
 	PickAutostart = "autostart"
 	PickUpdates   = "updates"
+	// PickFolders opens folders with the program, as [App.Folders]
+	// offers.
+	PickFolders = "folders"
 )
 
 // FileTypeKey is the key of the offer to open files of kind t.
@@ -404,6 +425,15 @@ func (a *App) offers(kept map[string]bool) []Offer {
 			label = "Start " + a.Name + " with the computer"
 		}
 		out = append(out, Offer{Key: PickAutostart, Label: label, On: pick(PickAutostart, a.Autostart.On)})
+	}
+	if a.Folders != nil && foldersHere {
+		label := a.Folders.Label
+		if label == "" {
+			label = "Open folders with " + a.Name
+		}
+		out = append(out, Offer{Key: PickFolders, Label: label,
+			Detail: "In place of File Explorer, for folders and drives opened anywhere, and Win+E.",
+			On:     pick(PickFolders, a.Folders.On)})
 	}
 	for _, t := range a.FileTypes {
 		label := "Open " + strings.Join(t.Exts, " ") + " files with " + a.Name

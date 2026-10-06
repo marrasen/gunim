@@ -68,6 +68,10 @@ type GridSpan struct {
 	// Icon, when set, draws before the text in the span's ink, as tall as the text; a span with an icon and no
 	// text shows the icon alone.
 	Icon *icon.Icon
+	// Image, when set and Icon is not, draws a picture before the text in
+	// its own colours, a little taller than the text, as a file's icon
+	// in a list.
+	Image *paint.Image
 	// Ink is the text's colour, and the theme's [Ink] when unset.
 	Ink theme.Token[color.NRGBA]
 	// Fill, when set, draws the span on a rounded chip of that colour.
@@ -851,8 +855,17 @@ func (g *DataGrid) paintCell(p *paint.Painter, th *theme.Live, i, c int, spans [
 			pen += chipPad
 		}
 		start := pen
-		if s.Icon != nil {
+		switch {
+		case s.Icon != nil:
 			paintIcon(p, th, s.Icon, geom.Rc(pen, y+(g.rowH-size)/2, size, size), ink, 1)
+			pen += iconW
+		case s.Image != nil:
+			side := min(spanImageSide(size), g.rowH-2)
+			opacity := float32(1)
+			if s.Faint || dim {
+				opacity = 0.5
+			}
+			p.Image(s.Image, geom.Rc(pen, y+(g.rowH-side)/2, side, side), paint.ImageOpts{Opacity: opacity})
 			pen += iconW
 		}
 		for _, m := range s.Marks {
@@ -880,14 +893,23 @@ func (g *DataGrid) paintCell(p *paint.Painter, th *theme.Live, i, c int, spans [
 
 // spanIconWidth is the room span s's icon takes at text size, with the gap before any text.
 func spanIconWidth(s GridSpan, size float32, th *theme.Live) float32 {
-	if s.Icon == nil {
+	var w float32
+	switch {
+	case s.Icon != nil:
+		w = size
+	case s.Image != nil:
+		w = spanImageSide(size)
+	default:
 		return 0
 	}
 	if s.Text == "" {
-		return size
+		return w
 	}
-	return size + GridIconGap.Get(th)
+	return w + GridIconGap.Get(th)
 }
+
+// spanImageSide is how wide and tall a span's picture is at text size.
+func spanImageSide(size float32) float32 { return size * 1.35 }
 
 // shape returns s shaped in face at size, from the grid's cache when it
 // was shaped for the same span before.

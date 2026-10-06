@@ -48,7 +48,10 @@ func (r *root) Handle(e input.Event, u *gunim.UI) bool {
 // the listing and the preview, the progress panel, the status bar, and
 // the toasts over them.
 type browser struct {
-	shell   Shell
+	shell Shell
+	// icons are the icons Windows shows for items, by their keys, as the
+	// app half sent them.
+	icons   map[string]SystemIcon
 	shown   bool
 	title   *titleBar
 	path    *pathBar
@@ -67,7 +70,7 @@ type browser struct {
 }
 
 func newBrowser() *browser {
-	b := &browser{toasts: &widget.Toasts{}}
+	b := &browser{toasts: &widget.Toasts{}, icons: map[string]SystemIcon{}}
 	b.title = newTitleBar(b)
 	b.path = newPathBar(b)
 	b.banner = newBannerView()

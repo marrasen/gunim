@@ -15,6 +15,9 @@ type prefs struct {
 	Favourites  []string
 	ShowHidden  bool
 	HidePreview bool
+	// SystemIcons says whether items show the icons Windows does, there:
+	// unset, they do.
+	SystemIcons *bool `json:",omitempty"`
 	Light       bool
 	Zoom        float32
 	Sidebar     float32

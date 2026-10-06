@@ -24,6 +24,9 @@ const (
 	supported = true
 	caseless  = false
 	exeSuffix = ""
+	// foldersHere is false: the file manager a folder opens with is the
+	// desktop's to choose.
+	foldersHere = false
 )
 
 // movesAside is false: a running program on Linux is replaced by moving

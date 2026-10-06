@@ -43,6 +43,8 @@ type Shell struct {
 	Light       bool
 	ShowHidden  bool
 	ShowPreview bool
+	// SystemIcons says items show the icons Windows does.
+	SystemIcons bool
 	// Sidebar is the sidebar's width.
 	Sidebar float32
 	// FS is the ID of the file system the window shows, which a drag
@@ -110,8 +112,11 @@ type Row struct {
 	Broken bool
 	// Online says the file's contents are online only, and Cloud how a
 	// cloud provider keeps the item.
-	Online   bool
-	Cloud    CloudState
+	Online bool
+	Cloud  CloudState
+	// IconKey names the icon Windows shows for the item, a [SystemIcon]
+	// the window is sent, or is empty for the window's own.
+	IconKey  string
 	Size     string
 	Modified string
 	Type     string
@@ -215,32 +220,34 @@ type Command struct {
 
 // The commands.
 const (
-	CmdBack       = "back"
-	CmdForward    = "forward"
-	CmdUp         = "up"
-	CmdHome       = "home"
-	CmdRefresh    = "refresh"
-	CmdOpen       = "open"
-	CmdCopy       = "copy"
-	CmdCut        = "cut"
-	CmdPaste      = "paste"
-	CmdTrash      = "trash"
-	CmdDelete     = "delete"
-	CmdRename     = "rename"
-	CmdNewFolder  = "newfolder"
-	CmdUndo       = "undo"
-	CmdPin        = "pin"
-	CmdHidden     = "hidden"
-	CmdPreview    = "preview"
-	CmdTheme      = "theme"
-	CmdCopyPath   = "copypath"
-	CmdReveal     = "reveal"
-	CmdCloseApp   = "close"
-	CmdSortName   = "sort.name"
-	CmdSortSize   = "sort.size"
-	CmdSortTime   = "sort.time"
-	CmdSortType   = "sort.type"
-	CmdSelectNone = "selectnone"
+	CmdBack      = "back"
+	CmdForward   = "forward"
+	CmdUp        = "up"
+	CmdHome      = "home"
+	CmdRefresh   = "refresh"
+	CmdOpen      = "open"
+	CmdCopy      = "copy"
+	CmdCut       = "cut"
+	CmdPaste     = "paste"
+	CmdTrash     = "trash"
+	CmdDelete    = "delete"
+	CmdRename    = "rename"
+	CmdNewFolder = "newfolder"
+	CmdUndo      = "undo"
+	CmdPin       = "pin"
+	CmdHidden    = "hidden"
+	// CmdSystemIcons shows the icons Windows does, or the window's own.
+	CmdSystemIcons = "systemicons"
+	CmdPreview     = "preview"
+	CmdTheme       = "theme"
+	CmdCopyPath    = "copypath"
+	CmdReveal      = "reveal"
+	CmdCloseApp    = "close"
+	CmdSortName    = "sort.name"
+	CmdSortSize    = "sort.size"
+	CmdSortTime    = "sort.time"
+	CmdSortType    = "sort.type"
+	CmdSelectNone  = "selectnone"
 	// The commands that say what happens to a file fetched to open
 	// that changes on this computer.
 	CmdUploadAsk    = "upload." + uploadAsk

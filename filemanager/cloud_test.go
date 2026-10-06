@@ -65,7 +65,7 @@ func TestTheCloudMarksGoBeforeTheName(t *testing.T) {
 	if got["Docs"] != CloudFolder || got["local.txt"] != CloudLocal || got["online.txt"] != CloudOnline || got["pinned.txt"] != CloudPinned {
 		t.Fatalf("the states are %v", got)
 	}
-	pg := &listingPage{blocks: map[int][]Row{0: {rowOf(es[0]), {Name: "plain.txt"}}}}
+	pg := &listingPage{b: &browser{icons: map[string]SystemIcon{}}, blocks: map[int][]Row{0: {rowOf(es[0]), {Name: "plain.txt"}}}}
 	for i, want := range []int{5, 3} {
 		r, _ := pg.row(i)
 		name := r.Cells[0]

@@ -186,6 +186,17 @@ func (a *app) navCommand(name string) bool {
 			files = append(files, a.ps.Join(a.nav.path, e.Name))
 		}
 		a.openFiles(files)
+	case CmdSystemIcons:
+		if !iconsHere {
+			break
+		}
+		on := !a.systemIconsOn()
+		a.prefs.SystemIcons = &on
+		a.shell.SystemIcons = on
+		a.publishShell()
+		a.savePrefs(func(p *prefs) { p.SystemIcons = &on })
+		a.keyIcons(a.nav.path, a.nav.all)
+		a.refilter()
 	case CmdHidden:
 		a.shell.ShowHidden = !a.shell.ShowHidden
 		show := a.shell.ShowHidden
@@ -297,6 +308,12 @@ func (a *app) navigate(path string, travel int, record bool) {
 		travel = direction(a.ps, n.path, abs)
 	}
 	n.path, n.travel = abs, travel
+	// The window forgets the files' own icons of the folder left.
+	for k := range a.iconsSent {
+		if strings.HasPrefix(k, "file:") {
+			delete(a.iconsSent, k)
+		}
+	}
 	n.moves++
 	n.all, n.rows, n.err = nil, nil, nil
 	n.filter, n.pick = "", ""
@@ -419,6 +436,7 @@ func (a *app) listed(gen int, path string, es []entry, mod time.Time, err error)
 		return
 	}
 	n.mod, n.sig = mod, signature(es)
+	a.keyIcons(path, es)
 	sortEntries(es, n.sort, n.desc)
 	n.all = es
 	a.refilter()
@@ -564,7 +582,7 @@ func (a *app) sendRows(v NeedRows) {
 
 // rowOf is how the grid shows e.
 func rowOf(e entry) Row {
-	r := Row{Name: e.Name, Kind: e.Kind, Dir: e.Dir, Hidden: e.Hidden, Broken: e.Broken, Online: e.Online, Cloud: e.Cloud, Type: e.Type,
+	r := Row{Name: e.Name, Kind: e.Kind, Dir: e.Dir, Hidden: e.Hidden, Broken: e.Broken, Online: e.Online, Cloud: e.Cloud, IconKey: e.iconKey, Type: e.Type,
 		Modified: e.Mod.Format("2006-01-02 15:04"), Tint: tintOf(e)}
 	if !e.Dir && !e.Broken {
 		r.Size = humanBytes(e.Size)
