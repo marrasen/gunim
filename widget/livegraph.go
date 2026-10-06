@@ -48,6 +48,10 @@ type LiveGraph struct {
 	// the speed it heads for.
 	pos, speed, pace float64
 	running          bool
+	// stepped is when Step last ran: the graph draws at liveRate while
+	// it runs, the window sleeping between, and moves on by the time
+	// that passed.
+	stepped time.Time
 	// glow is the head's pulse, and the time the graph has run.
 	glow float64
 	// said is the value the label says, which changes once a second at
@@ -125,9 +129,19 @@ func (g *LiveGraph) weighed(k int) float64 {
 }
 
 // Step implements [gunim.Animator]: while running, the graph moves on
-// every frame, and once stopped, until the head reaches the newest
-// sample and every value has settled.
+// by the time that passed, drawn at liveRate as WakeIn asks, and once
+// stopped, every frame until the head reaches the newest sample and
+// every value has settled.
 func (g *LiveGraph) Step(dt time.Duration) bool {
+	now := time.Now()
+	if !g.stepped.IsZero() {
+		// The window slept between the graph's frames: the time that
+		// passed, rather than a refresh's.
+		if slept := now.Sub(g.stepped); slept > dt && slept < time.Second {
+			dt = slept
+		}
+	}
+	g.stepped = now
 	moving := g.top.Step(dt)
 	if g.across.Step(dt) {
 		moving = true
@@ -150,7 +164,9 @@ func (g *LiveGraph) Step(dt time.Duration) bool {
 		g.speed += (g.pace - g.speed) * (1 - math.Exp(-dt.Seconds()/0.15))
 		g.pos = min(g.pos+g.speed*dt.Seconds(), max(newest, 0))
 		g.glow += dt.Seconds()
-		moving = true
+		// Not moving: WakeIn draws it again at liveRate, rather than
+		// every refresh, as a rate sampled a few times a second asks
+		// for no more.
 	} else if newest > 0 && (g.pos != newest || g.speed != 0) {
 		// Stopped, the head coasts onto the newest sample.
 		g.pos, g.speed = anim.Gentle.Follow(g.pos, g.speed, newest, dt)
@@ -162,6 +178,17 @@ func (g *LiveGraph) Step(dt time.Duration) bool {
 		}
 	}
 	return moving
+}
+
+// liveRate is how often a running graph draws.
+const liveRate = time.Second / 30
+
+// WakeIn implements [gunim.Waker]: a running graph draws at liveRate.
+func (g *LiveGraph) WakeIn() time.Duration {
+	if !g.running {
+		return 0
+	}
+	return liveRate
 }
 
 // Layout implements [gunim.Node]: nothing until there are two samples.

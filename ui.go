@@ -1180,6 +1180,12 @@ type windowStats struct {
 // that call.
 // Use it and let it go.
 type UI struct {
+	// wakeIn is the soonest a resting [Waker] wants a frame again, as
+	// this frame's nodes say, and wakeAt and wakeStop the timer that will
+	// draw it.
+	wakeIn   time.Duration
+	wakeAt   time.Time
+	wakeStop func()
 	// shotsOwed counts the frames a shot waits for, from windows that have yet to draw them.
 	shotsOwed atomic.Int32
 
@@ -1379,6 +1385,23 @@ func (u *UI) After(d time.Duration, fn func(u *UI)) (stop func()) {
 	return func() {
 		u.timers = slices.DeleteFunc(u.timers, func(o *timer) bool { return o == t })
 	}
+}
+
+// wakeAfter has the window draw a frame d from now, for a [Waker]: one
+// timer at a time, the earliest asked for.
+func (u *UI) wakeAfter(d time.Duration) {
+	at := u.clock().Add(d)
+	if u.wakeStop != nil && !u.wakeAt.After(at) {
+		return
+	}
+	if u.wakeStop != nil {
+		u.wakeStop()
+	}
+	u.wakeAt = at
+	u.wakeStop = u.After(d, func(u *UI) {
+		u.wakeStop = nil
+		u.Invalidate()
+	})
 }
 
 // clock returns the later of the last frame's time and the wall
@@ -2159,6 +2182,12 @@ func (u *UI) frame(now time.Time, delta time.Duration) {
 			u.animating = true
 		}
 	}
+	// A node at rest that wants a frame later has one then, and the
+	// window sleeps till it.
+	if !u.animating && u.wakeIn > 0 {
+		u.wakeAfter(u.wakeIn)
+	}
+	u.wakeIn = 0
 
 	// Counted last, so a reader that sees the count also sees the frame.
 	u.w.stats.frames.Add(1)
@@ -2205,6 +2234,11 @@ func (u *UI) step(s *state, dt time.Duration) bool {
 	animating := false
 	if a, ok := s.node.(Animator); ok && a.Step(dt) {
 		animating = true
+	}
+	if w, ok := s.node.(Waker); ok {
+		if d := w.WakeIn(); d > 0 && (u.wakeIn == 0 || d < u.wakeIn) {
+			u.wakeIn = d
+		}
 	}
 	for _, k := range s.kids {
 		if u.step(k, dt) {
