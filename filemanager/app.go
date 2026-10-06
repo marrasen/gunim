@@ -46,8 +46,10 @@ type Options struct {
 	// can turn to the file system with Show, or leave as it is and open
 	// another. newWindow says the user asked for the place in a window
 	// of its own, as with Ctrl held: the program opens one on fs, and
-	// leaves w as it is. A window whose Visit is nil says it cannot go
-	// there.
+	// leaves w as it is. Back and Forward to a folder on another file
+	// system ask for a Visit too, and the window steps through its
+	// history once Show shows that folder. A window whose Visit is nil
+	// says it cannot go there.
 	Visit func(w *Window, fs, path string, newWindow bool)
 	// PlaceMenu adds the program's own items to the context menu of a
 	// place, such as Disconnect for a machine. It is called on the

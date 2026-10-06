@@ -30,8 +30,13 @@ const overviewBands = 160
 // navState is what the app knows about the folder showing and how the
 // user got there.
 type navState struct {
-	path       string
-	back, fwd  []string
+	path      string
+	back, fwd []visited
+	// hop is a step back or forward to another file system, asked for
+	// and not yet shown, and dropped are those the user went on from
+	// before they showed, whose Show is not taken when it comes late.
+	hop        *hop
+	dropped    []hop
 	gen        int
 	all, rows  []entry
 	mod        time.Time
@@ -58,6 +63,19 @@ type navState struct {
 	moves int
 }
 
+// visited is a folder in the history, and the file system it is on.
+type visited struct {
+	fs   FS
+	path string
+}
+
+// hop is a step through the history to a folder on another file system:
+// step is -1 back and 1 forward.
+type hop struct {
+	id, path string
+	step     int
+}
+
 func (n *navState) init() { n.sel = map[string]bool{} }
 
 func (n *navState) stop() {
@@ -69,14 +87,23 @@ func (n *navState) stop() {
 // startNav shows the first folder: dir, or the home folder.
 func (a *app) startNav(dir string) {
 	if dir == "" {
-		home, err := a.fs.Home()
+		home, err := a.home()
 		if err != nil {
-			a.fail("Finding your home folder: " + err.Error())
 			return
 		}
 		dir = home
 	}
 	a.navigate(dir, 0, true)
+}
+
+// home is the home folder of the file system showing, and says so in the
+// window when it cannot be found.
+func (a *app) home() (string, error) {
+	home, err := a.fs.Home()
+	if err != nil {
+		a.fail("Finding your home folder: " + err.Error())
+	}
+	return home, err
 }
 
 // handleNav takes the intents about moving between folders and the rows
@@ -124,17 +151,11 @@ func (a *app) navCommand(name string) bool {
 	switch name {
 	case CmdBack:
 		if len(n.back) > 0 {
-			to := n.back[len(n.back)-1]
-			n.back = n.back[:len(n.back)-1]
-			n.fwd = append(n.fwd, n.path)
-			a.navigate(to, -1, false)
+			a.goHistory(-1)
 		}
 	case CmdForward:
 		if len(n.fwd) > 0 {
-			to := n.fwd[len(n.fwd)-1]
-			n.fwd = n.fwd[:len(n.fwd)-1]
-			n.back = append(n.back, n.path)
-			a.navigate(to, 1, false)
+			a.goHistory(1)
 		}
 	case CmdUp:
 		if parent := a.ps.Dir(n.path); parent != n.path {
@@ -147,9 +168,8 @@ func (a *app) navCommand(name string) bool {
 			n.pick = from
 		}
 	case CmdHome:
-		home, err := a.fs.Home()
+		home, err := a.home()
 		if err != nil {
-			a.fail("Finding your home folder: " + err.Error())
 			return true
 		}
 		a.navigate(home, 0, true)
@@ -181,6 +201,84 @@ func (a *app) navCommand(name string) bool {
 	return true
 }
 
+// goHistory goes one step through the history: -1 back, 1 forward. A
+// folder on another file system is asked for as a Visit, and the history
+// steps once the window shows it, so a Visit that fails leaves it as it
+// was.
+func (a *app) goHistory(step int) {
+	n := &a.nav
+	from, to := &n.back, &n.fwd
+	if step > 0 {
+		from, to = &n.fwd, &n.back
+	}
+	at := (*from)[len(*from)-1]
+	if id := at.fs.ID(); id != a.fs.ID() {
+		n.dropHop()
+		n.hop = &hop{id: id, path: at.path, step: step}
+		if a.opts.Visit == nil {
+			// Shown here before, so the window has the file system.
+			a.showFS(at.fs, at.path)
+			return
+		}
+		go a.opts.Visit(a.win, id, at.path, false)
+		return
+	}
+	*from = (*from)[:len(*from)-1]
+	if n.path != "" {
+		*to = append(*to, visited{a.fs, n.path})
+	}
+	a.navigate(at.path, step, false)
+}
+
+// maxDropped is how many dropped hops a window keeps: a Visit that fails
+// never shows, and its hop would stay forever.
+const maxDropped = 8
+
+// dropHop drops the hop on its way, as the user went on without it.
+func (n *navState) dropHop() {
+	if n.hop == nil {
+		return
+	}
+	n.dropped = append(n.dropped, *n.hop)
+	if len(n.dropped) > maxDropped {
+		n.dropped = n.dropped[1:]
+	}
+	n.hop = nil
+}
+
+// late reports whether a Show of the folder at dir on the file system of
+// ID id is a dropped hop's, come late, and forgets that hop.
+func (n *navState) late(id, dir string) bool {
+	i := slices.IndexFunc(n.dropped, func(h hop) bool { return h.id == id && h.path == dir })
+	if i < 0 {
+		return false
+	}
+	n.dropped = slices.Delete(n.dropped, i, i+1)
+	return true
+}
+
+// hopped steps the history as hop h asked, now the window shows its
+// folder, having left the folder at from. It reports false when the
+// history no longer leads there.
+func (a *app) hopped(h *hop, from visited) bool {
+	n := &a.nav
+	src, dst := &n.back, &n.fwd
+	if h.step > 0 {
+		src, dst = &n.fwd, &n.back
+	}
+	if len(*src) == 0 {
+		return false
+	}
+	if at := (*src)[len(*src)-1]; at.fs.ID() != h.id || at.path != h.path {
+		return false
+	}
+	*src = (*src)[:len(*src)-1]
+	if from.path != "" {
+		*dst = append(*dst, from)
+	}
+	return true
+}
+
 // navigate shows the folder at path. travel is the way the user went,
 // and record keeps the folder left in the history.
 func (a *app) navigate(path string, travel int, record bool) {
@@ -191,9 +289,10 @@ func (a *app) navigate(path string, travel int, record bool) {
 		return
 	}
 	if record && n.path != "" && !a.ps.Same(abs, n.path) {
-		n.back = append(n.back, n.path)
+		n.back = append(n.back, visited{a.fs, n.path})
 		n.fwd = nil
 	}
+	n.dropHop()
 	if travel == 0 && n.path != "" {
 		travel = direction(a.ps, n.path, abs)
 	}
