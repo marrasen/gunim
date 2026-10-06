@@ -426,3 +426,108 @@ func TestALinkInAZipIsNoProgram(t *testing.T) {
 		t.Fatalf("a link in the zip was taken as the program: %q", body)
 	}
 }
+
+// stagedOver installs v1.0.0, holding "one", in a folder of its own,
+// and stages v2.0.0, holding "two", over it, as an update does. It
+// returns the old release's App, the program, and its folder.
+func stagedOver(t *testing.T) (a App, exe, dir string) {
+	t.Helper()
+	srv := fakeGitHub(t, release{tag: "v2.0.0", files: map[string][]byte{asset("2.0.0"): []byte("two")}})
+	dir = t.TempDir()
+	exe = filepath.Join(dir, "studio"+exeSuffix)
+	if err := os.WriteFile(exe, []byte("one"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m := manifest{ID: "studio", Version: "v1.0.0", Exe: "studio" + exeSuffix, Updates: UpdatesInstall}
+	if err := m.write(dir); err != nil {
+		t.Fatal(err)
+	}
+	a = App{Name: "studio", Version: "v1.0.0", Dir: func() (string, error) { return dir, nil },
+		Updates: GitHub{Repo: "marrasen/studio", API: srv.URL}, UpdateKey: testKey}
+	r, _, err := Check(context.Background(), a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Stage(context.Background(), a, r); err != nil {
+		t.Fatal(err)
+	}
+	for f, want := range map[string]string{exe: "two", exe + ".old": "one"} {
+		if raw, _ := os.ReadFile(f); string(raw) != want {
+			t.Fatalf("staged, %s holds %q, want %q", filepath.Base(f), raw, want)
+		}
+	}
+	if _, ok := readTrial(exe); !ok {
+		t.Fatal("staged, the release is not on trial")
+	}
+	return a, exe, dir
+}
+
+// A release that keeps ending as it starts gives way to the program
+// before it, which the updates then leave in place.
+func TestABadUpdateGivesWay(t *testing.T) {
+	was, wasRun := updateFirst, trialRun
+	updateFirst, trialRun = time.Millisecond, time.Hour
+	t.Cleanup(func() { updateFirst, trialRun = was, wasRun })
+	a, exe, dir := stagedOver(t)
+	two := a
+	two.Version = "v2.0.0"
+	for start := 1; start <= trialStarts; start++ {
+		if onTrial(two, exe) {
+			t.Fatalf("start %d of %d gave way", start, trialStarts)
+		}
+		if tr, _ := readTrial(exe); tr.Starts != start {
+			t.Fatalf("start %d counted as %d", start, tr.Starts)
+		}
+	}
+	if !onTrial(two, exe) {
+		t.Fatalf("start %d, after %d that ended soon, did not give way", trialStarts+1, trialStarts)
+	}
+	if raw, _ := os.ReadFile(exe); string(raw) != "one" {
+		t.Fatalf("given way, the program holds %q", raw)
+	}
+	if _, ok := readTrial(exe); ok {
+		t.Error("given way, the trial stayed")
+	}
+	if m, _ := readManifest(dir, "studio"); m == nil || m.Skip != "v2.0.0" {
+		t.Fatalf("given way, the install keeps %+v", m)
+	}
+	heard := make(chan Release, 1)
+	a.Updated = func(r Release) { heard <- r }
+	stop := lookFor(t, a)
+	select {
+	case r := <-heard:
+		t.Errorf("the updater put %s in place again", r.Version)
+	case <-time.After(200 * time.Millisecond):
+	}
+	stop()
+	if raw, _ := os.ReadFile(exe); string(raw) != "one" {
+		t.Fatalf("the updater put the release that gave way back: %q", raw)
+	}
+}
+
+// A release that runs a while passes, and the program before it goes.
+func TestAGoodUpdatePasses(t *testing.T) {
+	was := trialRun
+	trialRun = 20 * time.Millisecond
+	t.Cleanup(func() { trialRun = was })
+	a, exe, _ := stagedOver(t)
+	a.Version = "v2.0.0"
+	if onTrial(a, exe) {
+		t.Fatal("a first start gave way")
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		_, onIt := readTrial(exe)
+		_, oldErr := os.Stat(exe + ".old")
+		if !onIt && oldErr != nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("after running a while, the trial is %v and the old program %v", onIt, oldErr)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if raw, _ := os.ReadFile(exe); string(raw) != "two" {
+		t.Fatalf("passed, the program holds %q", raw)
+	}
+}

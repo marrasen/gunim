@@ -92,7 +92,10 @@ type manifest struct {
 	// Updates is how the program takes newer releases; empty in an
 	// install from before there was a choice of it.
 	Updates UpdateMode `json:"updates,omitempty"`
-	When    time.Time  `json:"installed"`
+	// Skip is a release an update gave way from, as one that kept
+	// ending as it started, which the updates pass over.
+	Skip string    `json:"skip,omitempty"`
+	When time.Time `json:"installed"`
 }
 
 // dir is where a is installed: as App.Dir says, or the system's usual
@@ -447,6 +450,9 @@ func (s *Session) install(ctx context.Context, picks map[string]bool, progress f
 		return in, err
 	}
 	m := manifest{ID: s.App.id(), Version: s.App.Version, Exe: s.App.exe(), Files: files, Picks: in.Picks, Updates: in.Updates, When: time.Now().UTC()}
+	if old != nil {
+		m.Skip = old.Skip
+	}
 	if err := m.write(s.Dir); err != nil {
 		return in, err
 	}
@@ -501,7 +507,7 @@ func (s *Session) Uninstall(ctx context.Context, data bool, progress func(Progre
 	}
 	// And what replacing them left beside them.
 	for _, f := range slices.Clone(files) {
-		files = append(files, f+".old")
+		files = append(files, f+".old", f+".back", trialPath(f))
 		files = append(files, parts(f)...)
 	}
 	if err := removeFiles(files, s.Dir); err != nil {
@@ -598,12 +604,12 @@ func writeFile(path string, data []byte, mode os.FileMode) error {
 	})
 }
 
-// writeVia writes path with write, through a file of its own beside it,
-// which is put on the disk and moved into place with place, so path
-// holds the old bytes or the new, never part. Each write has its own
+// writeVia writes the file at to with write, through a file of its own
+// beside it, which is put on the disk and moved into place with place,
+// so to holds the old bytes or the new, never part. Each write has its own
 // file, so two at once, as an update and an installer, never mix.
-func writeVia(path string, mode os.FileMode, place func(part, path string) error, write func(*os.File) error) error {
-	f, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*.new")
+func writeVia(to string, mode os.FileMode, place func(part, to string) error, write func(*os.File) error) error {
+	f, err := os.CreateTemp(filepath.Dir(to), "."+filepath.Base(to)+".*.new")
 	if err != nil {
 		return err
 	}
@@ -619,7 +625,7 @@ func writeVia(path string, mode os.FileMode, place func(part, path string) error
 		err = cerr
 	}
 	if err == nil {
-		err = place(part, path)
+		err = place(part, to)
 	}
 	if err != nil {
 		_ = os.Remove(part)
@@ -627,11 +633,11 @@ func writeVia(path string, mode os.FileMode, place func(part, path string) error
 	return err
 }
 
-// parts are the files writes into path left beside it, as when the
+// parts are the files writes into file left beside it, as when the
 // program ended in the middle of one.
-func parts(path string) []string {
-	out := []string{path + ".new"}
-	dir, base := filepath.Split(path)
+func parts(file string) []string {
+	out := []string{file + ".new"}
+	dir, base := filepath.Split(file)
 	entries, _ := os.ReadDir(dir)
 	for _, e := range entries {
 		if n := e.Name(); strings.HasPrefix(n, "."+base+".") && strings.HasSuffix(n, ".new") {

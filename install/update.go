@@ -176,7 +176,9 @@ func Check(ctx context.Context, a App) (Release, bool, error) {
 // starts; the program running goes on as it is. The rest of r's files
 // are put in place as it first starts. A copy installed already that is
 // as new as r, or newer, stays, as when a copy started before it was
-// installed still runs.
+// installed still runs. The program r replaces is kept until r has run a
+// while; a release that keeps ending as it starts gives way to it, and
+// the updates pass that release over.
 func Stage(ctx context.Context, a App, r Release) error {
 	if err := a.check(); err != nil {
 		return err
@@ -192,7 +194,16 @@ func Stage(ctx context.Context, a App, r Release) error {
 	if m != nil && !newerThanInstalled(r, m.Version) {
 		return fmt.Errorf("install: %s is installed already, and %s is no newer", m.Version, r.Version)
 	}
-	return StageTo(ctx, a, r, filepath.Join(dir, a.exe()))
+	exe := filepath.Join(dir, a.exe())
+	kept := keepOld(exe)
+	if err := StageTo(ctx, a, r, exe); err != nil {
+		return err
+	}
+	if kept {
+		// On trial until it has run a while: see trial.go.
+		_ = trial{Version: r.Version}.write(exe)
+	}
+	return nil
 }
 
 // StageTo is [Stage] for the program at exe, as a copy that is not
@@ -426,8 +437,9 @@ func keepUpToDate(ctx context.Context, a App) {
 		if err != nil || !newer || r.Version == told {
 			continue
 		}
-		if !newerThanInstalled(r, in.Version) {
-			// Installed since this copy started, as a newer version.
+		if !newerThanInstalled(r, in.Version) || r.Version == skipped(a) {
+			// Installed since this copy started, as a newer version, or a
+			// release that gave way.
 			continue
 		}
 		if in.Updates == UpdatesNotify {

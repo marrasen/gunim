@@ -42,7 +42,9 @@ const Env = "GUNIM_INSTALL"
 //     installs this copy, updates the one installed, or opens it.
 //
 // The installed copy, as it starts, takes away what an update moved
-// aside, puts the rest of a new release in place on its first start,
+// aside once the new release has run a while, or puts it back in place
+// for a release that keeps ending as it starts, puts the rest of a new
+// release in place on its first start,
 // and, if the user chose to keep it up to date, looks for newer
 // releases while it runs.
 //
@@ -161,7 +163,15 @@ func installQuietly(a App, self string) int {
 // startInstalled readies the installed copy, the program at self in
 // dir, as it starts.
 func startInstalled(a App, self, dir string) {
-	CleanOld(self)
+	if onTrial(a, self) {
+		// This release kept ending as it started, and the program before
+		// it is back in place: it runs in this one's stead.
+		if err := launch(self, os.Args[1:]); err != nil {
+			fmt.Fprintf(os.Stderr, "install: starting %s again: %v\n", self, err)
+			return
+		}
+		os.Exit(0)
+	}
 	m, err := readManifest(dir, a.id())
 	if err != nil {
 		return
