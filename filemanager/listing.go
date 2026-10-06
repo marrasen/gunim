@@ -357,16 +357,19 @@ func (pg *listingPage) row(i int) (widget.GridRow, bool) {
 	name := []widget.GridSpan{
 		{Text: " ", Fill: tintToken(r.Tint)},
 		{Text: "  "},
-		{Text: r.Name, Faint: r.Hidden || r.Broken, Marks: marks(r.Name, pg.filter)},
 	}
+	// Before the name, as Explorer's Status column is, so a long name
+	// does not push it out of sight.
+	if mark, ok := cloudMark(r.Cloud); ok {
+		name = append(name, mark, widget.GridSpan{Text: "  "})
+	}
+	at := len(name)
+	name = append(name, widget.GridSpan{Text: r.Name, Faint: r.Hidden || r.Broken, Marks: marks(r.Name, pg.filter)})
 	if r.Kind == KindLink {
 		name = append(name, widget.GridSpan{Text: "  ↗", Ink: Caption})
 	}
-	if r.Online {
-		name = append(name, widget.GridSpan{Text: "  "}, widget.GridSpan{Icon: icon.Cloud, Ink: Caption})
-	}
 	if r.Dir {
-		name[2].Face = widget.BoldFont
+		name[at].Face = widget.BoldFont
 	}
 	return widget.GridRow{Cells: [][]widget.GridSpan{
 		name,
@@ -374,6 +377,25 @@ func (pg *listingPage) row(i int) (widget.GridRow, bool) {
 		{{Text: r.Modified, Ink: Faint}},
 		{{Text: r.Type, Ink: Faint}},
 	}}, true
+}
+
+// cloudMark is the mark of how a cloud provider keeps an item, as
+// Explorer shows it: a cloud for one online only, a tick for one on this
+// device, and a pin for one always kept there. A folder whose
+// state cannot be told keeps the mark's place, so the names line up.
+func cloudMark(c CloudState) (widget.GridSpan, bool) {
+	switch c {
+	case CloudOnline:
+		return widget.GridSpan{Icon: icon.Cloud, Ink: Caption}, true
+	case CloudLocal:
+		return widget.GridSpan{Icon: icon.CircleCheck, Ink: CloudLocalInk}, true
+	case CloudPinned:
+		return widget.GridSpan{Icon: icon.Pin, Ink: CloudPinnedInk}, true
+	case CloudFolder:
+		return widget.GridSpan{Icon: icon.CircleCheck, Ink: CloudBlank}, true
+	case CloudNone:
+	}
+	return widget.GridSpan{}, false
 }
 
 // marks returns where filter is found in name, in runes, ignoring case.

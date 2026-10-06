@@ -28,8 +28,10 @@ type entry struct {
 	Size   int64
 	Mod    time.Time
 	Hidden bool
-	// Online says the file keeps its contents online only, with a cloud provider, so reading them downloads them.
+	// Online says the file keeps its contents online only, with a cloud provider, so reading them downloads them,
+	// and Cloud how a cloud provider keeps the item.
 	Online bool
+	Cloud  CloudState
 	// Broken is set for a link whose target is missing, and for an item
 	// that cannot be read.
 	Broken bool
@@ -86,6 +88,9 @@ func makeEntry(fsys FS, dir string, info fs.FileInfo) entry {
 	case info.IsDir():
 		e.Kind, e.Dir, e.Size = KindFolder, true, 0
 		e.Type = "Folder"
+		if c, ok := fsys.(CloudReporter); ok {
+			e.Cloud = c.Cloud(dir, info)
+		}
 	case isLink(info):
 		e.Kind = KindLink
 		target, err := fsys.Stat(fsys.Paths().Join(dir, name))
@@ -107,8 +112,15 @@ func makeEntry(fsys FS, dir string, info fs.FileInfo) entry {
 		}
 	default:
 		e.Type = typeLabel(name)
-		if o, ok := fsys.(OnlineReporter); ok {
-			e.Online = o.OnlineOnly(info)
+		switch r := fsys.(type) {
+		case CloudReporter:
+			e.Cloud = r.Cloud(dir, info)
+			e.Online = e.Cloud == CloudOnline
+		case OnlineReporter:
+			e.Online = r.OnlineOnly(info)
+			if e.Online {
+				e.Cloud = CloudOnline
+			}
 		}
 	}
 	return e
