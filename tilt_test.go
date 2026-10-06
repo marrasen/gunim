@@ -142,3 +142,66 @@ func TestATiltedLayerTakesTapsInItsBoundsAlone(t *testing.T) {
 		t.Fatalf("a tap on the part past the bounds, which is not drawn, reached the child: %v", r.events)
 	}
 }
+
+// A drag held off the middle row of a tilted child, past its horizon,
+// runs on along the way it goes, and holds still across it: the child
+// hears no drift along its other axis while the pointer goes straight.
+func TestADragPastTheHorizonHoldsItsOtherAxis(t *testing.T) {
+	w, r, shows := tilted(t, paint.Tilt{Y: 1.0, Distance: 300})
+	at := shows(geom.Pt(50, 5))
+	press(w, at.X, at.Y)
+	var settled *geom.Point
+	lastX := float32(0)
+	for i := range 80 {
+		at = at.Add(geom.Pt(10, 0))
+		w.ui.handlePlatform(input.PointerMove{Pos: at, Time: time.Now()})
+		run(w, 1)
+		m, _ := r.events[len(r.events)-1].(input.PointerMove)
+		// Past the horizon the point along the way it goes holds still.
+		clamped := math.Abs(float64(m.Pos.X-lastX)) < 1e-3*math.Abs(float64(m.Pos.X))
+		lastX = m.Pos.X
+		if !clamped {
+			continue
+		}
+		if settled == nil {
+			settled = &m.Pos
+			continue
+		}
+		if d := math.Abs(float64(m.Pos.Y - settled.Y)); d > 1e-3*max(1, math.Abs(float64(settled.Y))) {
+			t.Fatalf("step %d, to %v: past the horizon the child heard y %v, from %v", i, at, m.Pos.Y, settled.Y)
+		}
+	}
+	if settled == nil {
+		t.Fatal("the drag never passed the horizon")
+	}
+}
+
+// A drag held on a child whose tilt deepens until a corner nears the
+// eye, so it is no longer drawn, goes on hearing points it can use.
+func TestADragGoesOnAsTheLayerNearsTheEye(t *testing.T) {
+	w, st, r := newStage(t, paint.Identity)
+	st.tilt = paint.Tilt{Y: 0.4, Distance: 40}
+	run(w, 1)
+	at := geom.Pt(60, 35)
+	press(w, at.X, at.Y)
+	if len(r.events) == 0 {
+		t.Fatal("the press missed the child")
+	}
+	for i, y := range []float32{0.6, 0.8, 1.0, 1.2} {
+		st.tilt.Y = y
+		run(w, 1)
+		at = at.Add(geom.Pt(6, 0))
+		w.ui.handlePlatform(input.PointerMove{Pos: at, Time: time.Now()})
+		m, ok := r.events[len(r.events)-1].(input.PointerMove)
+		if !ok || math.IsInf(float64(m.Pos.X), 0) || math.IsInf(float64(m.Pos.Y), 0) {
+			t.Fatalf("step %d, tilted %v: the held child heard %v", i, y, r.events[len(r.events)-1])
+		}
+	}
+	// By the last step the child nears the eye: it is not drawn, and a
+	// tap goes past it.
+	r.events = nil
+	press(w, 60, 35)
+	if len(r.events) != 0 {
+		t.Fatalf("tilted 1.2 at 40, the child still took a tap: %v", r.events)
+	}
+}

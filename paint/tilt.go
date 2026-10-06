@@ -112,15 +112,18 @@ type Projection struct {
 	// is, in front of the eye.
 	centre geom.Point
 	// hidden says the layer shows its back to the eye, and is one-sided,
-	// or reaches the eye, so it is not drawn.
-	hidden bool
+	// and nearEye that a corner of it reaches the eye: either way it is
+	// not drawn. A pointer held on it goes on through a layer near the
+	// eye, whose points are all still there.
+	hidden, nearEye bool
 }
 
 // MinDepth is how far in front of the eye, as a tilt's w, every corner
 // of a tilted layer must lie, a pixel past its bounds, for the layer to
 // be drawn. The renderer leaves out a layer one of whose corners lies
-// nearer, or behind the eye, and input goes past it as it does past a
-// layer turned away.
+// nearer, or behind the eye, and a tap goes past it as it does past a
+// layer turned away; a pointer held on it goes on through it, as
+// UnapplyNear says.
 const MinDepth = 0.01
 
 // newProjection returns the projection of a layer tilted by t about
@@ -130,7 +133,7 @@ func newProjection(t Tilt, centre geom.Point, outer *Projection, corners [4]geom
 	pr := &Projection{outer: outer, h: t.Homography(centre), centre: centre, hidden: t.OneSided && !t.Facing()}
 	for _, c := range corners {
 		if _, w := pr.h.Apply(c); w <= MinDepth {
-			pr.hidden = true
+			pr.nearEye = true
 		}
 	}
 	pr.inv, pr.ok = pr.h.invert()
@@ -171,17 +174,21 @@ func (pr *Projection) back(p geom.Point, near bool) (geom.Point, bool) {
 		return p, true
 	}
 	p, ok := pr.outer.back(p, near)
-	if !ok || !pr.ok || pr.hidden {
+	if !ok || !pr.ok || pr.hidden || pr.nearEye && !near {
 		return p, false
 	}
 	if near {
 		// How far in front of the eye a point lies goes as the inverse's
 		// w, which changes evenly across the screen: it is 0 on the
-		// horizon, and the centre is in front.
-		_, wc := pr.inv.Apply(pr.centre)
-		if _, w := pr.inv.Apply(p); wc > 0 && w < wc*horizonGap {
-			t := wc * (1 - horizonGap) / (wc - w)
-			p = pr.centre.Add(p.Sub(pr.centre).Mul(t))
+		// horizon, and the centre is in front. A point past the line
+		// where it is horizonGap of the centre's moves straight onto it,
+		// so along the horizon the point keeps where it was.
+		i := pr.inv
+		w := func(q geom.Point) float32 { return i[6]*q.X + i[7]*q.Y + i[8] }
+		wc, gx, gy := w(pr.centre), i[6], i[7]
+		if at, n := w(p), gx*gx+gy*gy; wc > 0 && n > 0 && at < wc*horizonGap {
+			k := (wc*horizonGap - at) / n
+			p = geom.Pt(p.X+gx*k, p.Y+gy*k)
 		}
 	}
 	q, w := pr.inv.Apply(p)
