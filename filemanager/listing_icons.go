@@ -285,6 +285,12 @@ type iconTile struct {
 	tip   *widget.Tooltip
 	// aspect springs to the shape of the picture as its thumbnail arrives.
 	aspect *anim.Float
+	// picAt is where the picture was laid out, shown how much it is a
+	// tile rather than a row, from 0 to 1, and cloud how a cloud
+	// provider keeps the item, for its mark.
+	picAt geom.Rect
+	shown float32
+	cloud CloudState
 	anim.Group
 }
 
@@ -342,6 +348,10 @@ func (t *iconTile) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Childre
 	hero, label, tip := kids.At(0), kids.At(1), kids.At(2)
 	hero.Layout(gunim.Tight(pr.Size()))
 	hero.Place(pr.Min)
+	t.picAt, t.shown, t.cloud = pr, k, CloudNone
+	if ok {
+		t.cloud = r.Cloud
+	}
 	t.label.MaxLines, t.label.Align = 2, text.AlignCenter
 	if k < 0.5 {
 		t.label.MaxLines, t.label.Align = 1, text.AlignStart
@@ -357,12 +367,45 @@ func (t *iconTile) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Childre
 }
 
 // Paint implements [gunim.Node].
-func (t *iconTile) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim.Children) {
+func (t *iconTile) Paint(p *paint.Painter, f gunim.Frame, _ geom.Size, kids gunim.Children) {
 	kids.At(0).Paint(p)
+	t.paintCloud(p, f.Theme)
 	kids.At(1).Paint(p)
 	if t.mark.on {
 		kids.At(2).Paint(p)
 	}
+}
+
+// The cloud mark on a tile: the same size at every zoom, on a disc of the
+// pane's colour, so it reads over a thumbnail as over an icon.
+const (
+	cloudDisc = 22
+	cloudIcon = 14
+)
+
+// paintCloud marks the picture's bottom right corner with how a cloud
+// provider keeps the item, as the details mark it before the name. It
+// fades as the tile squeezes into a row, where the row's own mark shows.
+func (t *iconTile) paintCloud(p *paint.Painter, th *theme.Live) {
+	mark, ok := cloudMark(t.cloud)
+	if !ok || t.cloud == CloudFolder || t.shown < 0.5 {
+		return
+	}
+	art := t.pic.art(t.picAt.Size()).Add(t.picAt.Min)
+	// Over the corner, a little inside it, and never past the tile.
+	c := geom.Pt(min(art.Max.X-cloudDisc*0.3, t.picAt.Max.X-cloudDisc/2), min(art.Max.Y-cloudDisc*0.3, t.picAt.Max.Y-cloudDisc/2))
+	opacity := (t.shown - 0.5) * 2
+	disc := PaneFill.Get(th)
+	disc.A = uint8(float32(disc.A) * opacity)
+	p.ShadowRRect(geom.Rc(c.X-cloudDisc/2, c.Y-cloudDisc/2, cloudDisc, cloudDisc), cloudDisc/2, paint.Solid(disc),
+		paint.Shadow{Offset: geom.Pt(0, 1), Blur: 3, Color: color.NRGBA{A: uint8(0x70 * opacity)}})
+	ink := mark.Ink.Get(th)
+	if t.cloud == CloudOnline {
+		// The details' caption ink is too dim on the disc.
+		ink = Faint.Get(th)
+	}
+	ink.A = uint8(float32(ink.A) * opacity)
+	widget.PaintIcon(p, th, mark.Icon, geom.Rc(c.X-cloudIcon/2, c.Y-cloudIcon/2, cloudIcon, cloudIcon), ink)
 }
 
 // tilePic is what a tile shows of its item: the thumbnail of a picture, crossfading in over its icon, or the icon of
@@ -430,6 +473,20 @@ func (p *tilePic) Paint(pt *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 			paint.Shadow{Offset: geom.Pt(0, 2), Blur: 8, Color: color.NRGBA{A: uint8(0x60 * mix)}})
 		pt.Image(p.thumb, r, paint.ImageOpts{Radius: 6, Opacity: mix})
 	}
+}
+
+// art is where the picture shows within a box of its size: the thumbnail
+// fills it, and the icon's page or folder sits inside it.
+func (p *tilePic) art(box geom.Size) geom.Rect {
+	if p.thumb != nil && p.mix.Value() > 0.5 {
+		return geom.Rect{Max: box.Point()}
+	}
+	s := min(box.W, box.H)
+	if p.dir {
+		s *= 0.92
+		return geom.Rc((box.W-s)/2, (box.H-s)/2, s, s)
+	}
+	return geom.Rc((box.W-s*0.72)/2, (box.H-s*0.86)/2, s*0.72, s*0.86)
 }
 
 // paintIcon draws the folder, or a page in the item's colour with its extension on it.
