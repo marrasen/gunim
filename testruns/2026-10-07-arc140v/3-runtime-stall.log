@@ -1,0 +1,35 @@
+# GODEBUG=gctrace=1, GUNIM_INVESTIGATE timeline (removed since): kakel stderr around the hang
+142:TL 14:28:57.301 loops=869 ran=841 queued=2 inWait=false sinceIn=30ms sinceOut=24ms
+150:TL 14:28:58.302 loops=894 ran=939 queued=0 inWait=false sinceIn=12ms sinceOut=3ms
+151:gc 108 @15.273s 0%: 0+7.1+0.52 ms clock, 0+2.0/13/1.4+4.2 ms cpu, 118->119->60 MB, 126 MB goal, 0 MB stacks, 0 MB globals, 8 P
+152:TL 14:29:03.674 loops=975 ran=945 queued=0 inWait=true sinceIn=1ms sinceOut=1ms
+155:gc 109 @20.616s 0%: 0.51+11+0.52 ms clock, 4.1+0/19/0+4.1 ms cpu, 80->81->54 MB, 122 MB goal, 0 MB stacks, 0 MB globals, 8 P (forced)
+159:gc 110 @20.985s 0%: 0.75+6.3+0 ms clock, 6.0+0.73/11/5.4+0 ms cpu, 109->110->62 MB, 110 MB goal, 0 MB stacks, 0 MB globals, 8 P
+160:gc 111 @21.101s 0%: 0+8.5+0 ms clock, 0+2.0/17/1.0+0 ms cpu, 120->122->67 MB, 124 MB goal, 0 MB stacks, 0 MB globals, 8 P
+161:gc 112 @21.195s 0%: 0+9.0+0 ms clock, 0+1.6/11/2.5+0 ms cpu, 130->131->68 MB, 135 MB goal, 0 MB stacks, 0 MB globals, 8 P
+162:TL 14:29:04.301 loops=976 ran=989 queued=0 inWait=false sinceIn=628ms sinceOut=617ms
+163:gc 113 @21.434s 0%: 0+8.4+1.0 ms clock, 0+0/15/1.0+8.3 ms cpu, 135->136->76 MB, 138 MB goal, 0 MB stacks, 0 MB globals, 8 P
+164:gc 114 @21.944s 0%: 0+9.5+0 ms clock, 0+0.51/15/12+0 ms cpu, 150->150->77 MB, 154 MB goal, 0 MB stacks, 0 MB globals, 8 P
+165:gc 115 @22.199s 0%: 0+4.9+0 ms clock, 0+0.70/8.2/4.2+0 ms cpu, 153->TL 14:29:05.303 loops=1006 ran=1066 queued=0 inWait=true sinceIn=2ms sinceOut=2ms
+167:gc 116 @22.731s 0%: 0+3.3+0 ms clock, 0+0/6.1/8.5+0 ms cpu, 151->152->83 MB, 155 MB goal, 0 MB stacks, 0 MB globals, 8 P
+168:TL 14:29:06.301 loops=1112 ran=1089 queued=0 inWait=false sinceIn=12ms sinceOut=6ms
+170:gc 117 @23.586s 0%: 0+7.5+0 ms clock, 0+3.4/6.9/3.9+0 ms cpu, 163->164->91 MB, 167 MB goal, 0 MB stacks, 0 MB globals, 8 P
+173:TL 14:29:12.320 loops=1265 ran=1114 queued=0 inWait=true sinceIn=236ms sinceOut=236ms
+174:TL 14:29:14.191 loops=1273 ran=1114 queued=0 inWait=true sinceIn=60ms sinceOut=60ms
+176:TL 14:29:17.970 loops=1276 ran=1116 queued=3 inWait=false sinceIn=3.32s sinceOut=4ms
+177:gunim: the main thread has not answered for 13 s; where each goroutine is: C:\Users\marcu\AppData\Local\Temp\gunim-hang-kakel-33728-20261007-142917.txt
+179:gc 118 @34.783s 0%: 97+112026/10/07 14:29:17 closed "Terminal 6"
+183:TL 14:29:18.300 loops=1276 ran=1140 queued=6 inWait=false sinceIn=3.651s sinceOut=335ms
+186:TL 14:29:19.335 loops=1278 ran=1252 queued=1 inWait=true sinceIn=2ms sinceOut=2ms
+
+# the sampler, a separate PowerShell process sleeping 2 s a round
+14:28:44 cpu 0.7 of 8 cores, responding=True
+14:28:47 cpu 1.2 of 8 cores, responding=True
+14:28:49 cpu 1.4 of 8 cores, responding=True
+14:28:51 cpu 1.9 of 8 cores, responding=True
+14:28:53 cpu 2.4 of 8 cores, responding=True
+14:28:55 cpu 2.4 of 8 cores, responding=True
+14:28:57 cpu 3.1 of 8 cores, responding=True
+14:29:03 cpu 7.6 of 8 cores, responding=True
+14:29:06 cpu 2.8 of 8 cores, responding=True
+14:29:17 cpu 7.8 of 8 cores, responding=True
