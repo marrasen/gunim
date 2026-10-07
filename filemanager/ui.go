@@ -62,6 +62,8 @@ type browser struct {
 	ops     *opsPanel
 	status  *statusBar
 	toasts  *widget.Toasts
+	// layer holds the dialogs, over the browser only.
+	layer   *dialogLayer
 	palette *filesPalette
 	split   *widget.Split
 	main    *widget.Split
@@ -70,7 +72,7 @@ type browser struct {
 }
 
 func newBrowser() *browser {
-	b := &browser{toasts: &widget.Toasts{}, icons: map[string]SystemIcon{}}
+	b := &browser{toasts: &widget.Toasts{}, icons: map[string]SystemIcon{}, layer: &dialogLayer{}}
 	b.title = newTitleBar(b)
 	b.path = newPathBar(b)
 	b.banner = newBannerView()
@@ -87,7 +89,7 @@ func newBrowser() *browser {
 	b.split.Fixed = true
 	b.split.SetShare(sidebarWidth, nil)
 	b.split.OnMove = func(w float32) gunim.Intent { return SidebarMoved{Width: w} }
-	b.page = widget.Column(b.title, b.dnd.crumbs, b.banner.fold, b.split, b.ops.fold, b.status).Grow(b.split, 1)
+	b.page = widget.Column(b.title.head, b.dnd.crumbs, b.banner.fold, b.split, b.ops.fold, b.status).Grow(b.split, 1)
 	b.page.Cross = widget.CrossStretch
 	b.page.Gap = noGap
 	return b
@@ -103,7 +105,7 @@ var noGap = theme.Length("files.nogap", 0)
 func (b *browser) setShell(s Shell, u *gunim.UI) {
 	was := b.shell
 	b.shell = s
-	if s.Light != was.Light {
+	if s.Light != was.Light && !s.Pane {
 		th := darkTheme()
 		if s.Light {
 			th = lightTheme()
@@ -129,18 +131,51 @@ func (b *browser) setShell(s Shell, u *gunim.UI) {
 }
 
 // Children implements [gunim.Composite].
-func (b *browser) Children() []gunim.Node { return []gunim.Node{b.page, b.toasts} }
+func (b *browser) Children() []gunim.Node { return []gunim.Node{b.page, b.toasts, b.layer} }
+
+// Slot implements [gunim.Slotted]: the dialogs mounted under the browser
+// go over it.
+func (b *browser) Slot() gunim.Node { return b.layer }
+
+// ModalScope implements [gunim.ModalScope]: a dialog holds the keyboard
+// in the browser only, so in a pane the rest of the window works on.
+func (b *browser) ModalScope() {}
 
 // Layout implements [gunim.Node]: the page fills the window, and the
 // toasts sit at the bottom right, over the progress panel and the status
-// bar.
+// bar. The dialogs go over them all.
 func (b *browser) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
-	page, toasts := kids.At(0), kids.At(1)
+	page, toasts, layer := kids.At(0), kids.At(1), kids.At(2)
 	page.Layout(gunim.Tight(c.Max))
 	page.Place(geom.Point{})
 	ts := toasts.Layout(gunim.Loose(geom.Sz(c.Max.W-32, c.Max.H)))
 	toasts.Place(geom.Pt(c.Max.W-ts.W-16, c.Max.H-ts.H-40-b.ops.fold.height))
+	layer.Layout(gunim.Tight(c.Max))
+	layer.Place(geom.Point{})
 	return c.Max
+}
+
+// dialogLayer holds the dialogs, each over the whole of the browser. It
+// takes no room while it holds none, so the pointer goes by it.
+type dialogLayer struct{ _ byte }
+
+// Layout implements [gunim.Node].
+func (*dialogLayer) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
+	if kids.Len() == 0 {
+		return geom.Size{}
+	}
+	for k := range kids.All {
+		k.Layout(gunim.Tight(c.Max))
+		k.Place(geom.Point{})
+	}
+	return c.Max
+}
+
+// Paint implements [gunim.Node].
+func (*dialogLayer) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim.Children) {
+	for k := range kids.All {
+		k.Paint(p)
+	}
 }
 
 // Paint implements [gunim.Node].
@@ -153,6 +188,15 @@ func (b *browser) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim
 // Handle implements [gunim.Handler]: going back and forward, and the keys that work anywhere in the
 // window.
 func (b *browser) Handle(e input.Event, u *gunim.UI) bool {
+	if b.shell.Pane {
+		// The places are looked for again as the keyboard comes back to
+		// the pane, as to a window of its own.
+		switch e.(type) {
+		case input.WindowFocusGained, input.FocusEntered:
+			u.Send(b, WindowFocused{})
+			return false
+		}
+	}
 	// The mouse's side buttons, and a keyboard's Browser Back and Forward keys
 	if h, ok := e.(input.HistoryStep); ok {
 		cmd := CmdBack

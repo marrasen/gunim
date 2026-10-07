@@ -5,6 +5,7 @@ import (
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/widget"
 )
@@ -23,7 +24,7 @@ const (
 	localSelectNone = "local.selectnone"
 )
 
-// menus are the menu bar's menus.
+// menus are the file manager's menus.
 var menus = []struct {
 	title string
 	items []menuItem
@@ -85,35 +86,102 @@ var menus = []struct {
 	}},
 }
 
-// titleBar is the window's own title bar: the menus, the title, and the
-// window's buttons.
+// titleBar is the file manager's menus, behind a button left of Back,
+// and the window's own title bar: the title, and the window's buttons.
+// A pane has no title bar, and nor has a window with the system's frame.
 type titleBar struct {
-	b        *browser
-	bar      *widget.Menubar
-	controls *widget.WindowControls
+	b *browser
+	// bar is the menus, a compact menubar the path bar shows.
+	bar  *menuButton
+	head *titleHead
 	// cmds holds each menu's commands, in the order the bar has them.
 	cmds [][]string
 	// folder is the name of the folder showing, once one is, and native
 	// the title the window was given last.
 	folder, native string
 	// fetches says the menus are those of a file system whose files are
-	// fetched to open.
-	fetches bool
+	// fetched to open, and pane that they are a pane's.
+	fetches, pane bool
 }
 
 func newTitleBar(b *browser) *titleBar {
-	t := &titleBar{b: b, controls: widget.NewWindowControls()}
-	t.bar = widget.NewMenubar(t.build(false)...)
-	t.bar.Title = "Files"
+	t := &titleBar{b: b}
+	t.bar = &menuButton{Menubar: widget.NewMenubar(t.build(false, false)...), b: b}
+	t.bar.Compact = true
 	t.bar.Pick = t.pick
+	t.head = &titleHead{name: &titleText{Menubar: widget.NewMenubar()}, controls: widget.NewWindowControls()}
+	t.head.name.Title = "Files"
 	return t
+}
+
+// menuButton is the menus, behind one button. In a pane, F10 and Alt
+// open them only while the keyboard is in the pane.
+type menuButton struct {
+	*widget.Menubar
+	b *browser
+}
+
+// CatchKey implements [gunim.KeyCatcher].
+func (m *menuButton) CatchKey(e input.Event, u *gunim.UI) bool {
+	if m.b.shell.Pane && !u.HasFocus(m.b) {
+		return false
+	}
+	return m.Menubar.CatchKey(e, u)
+}
+
+// titleText is the window's title, drawn by a menubar with no menus,
+// which moves the window as a title bar does. It leaves the keys to the
+// menus.
+type titleText struct{ *widget.Menubar }
+
+// CatchKey implements [gunim.KeyCatcher].
+func (*titleText) CatchKey(input.Event, *gunim.UI) bool { return false }
+
+// titleHead is the window's own title bar, where the window has none of
+// the system's: its title, and its buttons.
+type titleHead struct {
+	name     *titleText
+	controls *widget.WindowControls
+	// hidden says there is no title bar to show: in a pane, or a window
+	// with the system's frame.
+	hidden bool
+}
+
+// Children implements [gunim.Composite].
+func (h *titleHead) Children() []gunim.Node { return []gunim.Node{h.name, h.controls} }
+
+// Layout implements [gunim.Node].
+func (h *titleHead) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
+	name, controls := kids.At(0), kids.At(1)
+	if h.hidden || !f.Chromeless() {
+		name.Layout(gunim.Tight(geom.Size{}))
+		controls.Layout(gunim.Tight(geom.Size{}))
+		return geom.Sz(c.Max.W, 0)
+	}
+	hgt := max(widget.MenubarHeight.Get(f.Theme), 34)
+	cs := controls.Layout(gunim.Constraints{Max: geom.Sz(c.Max.W, hgt)})
+	controls.Place(geom.Pt(c.Max.W-cs.W, 0))
+	name.Layout(gunim.Tight(geom.Sz(max(0, c.Max.W-cs.W), hgt)))
+	name.Place(geom.Point{})
+	return geom.Sz(c.Max.W, hgt)
+}
+
+// Paint implements [gunim.Node].
+func (h *titleHead) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.Children) {
+	if box.H <= 0 {
+		return
+	}
+	p.RRect(geom.Rect{Max: box.Point()}, 0, paint.Solid(widget.MenubarFill.Get(f.Theme)))
+	for k := range kids.All {
+		k.Paint(p)
+	}
 }
 
 // build makes the bar's menus, and sets the commands of their items. On
 // a file system whose files are fetched to open, nothing shows in the
 // system's file manager, so the menus leave that out. The items keep
 // their ticks.
-func (t *titleBar) build(fetches bool) []widget.BarMenu {
+func (t *titleBar) build(fetches, pane bool) []widget.BarMenu {
 	var was map[string]bool
 	if t.bar != nil {
 		was = map[string]bool{}
@@ -129,6 +197,11 @@ func (t *titleBar) build(fetches bool) []widget.BarMenu {
 		items := m.items
 		if !iconsHere {
 			items = without(items, CmdSystemIcons)
+		}
+		if pane {
+			// The program the pane is in picks the theme, and Ctrl+N opens
+			// what it opens: a pane, say.
+			items = without(without(items, CmdThemeDark), CmdThemeLight)
 		}
 		if fetches {
 			items = without(items, CmdReveal)
@@ -153,7 +226,7 @@ func (t *titleBar) build(fetches bool) []widget.BarMenu {
 		bars = append(bars, bm)
 		t.cmds = append(t.cmds, cmds)
 	}
-	t.fetches = fetches
+	t.fetches, t.pane = fetches, pane
 	return bars
 }
 
@@ -188,7 +261,7 @@ func (t *titleBar) pick(m, i int, u *gunim.UI) {
 	case localSelectNone:
 		t.b.listing.selectNone(u)
 	default:
-		u.Send(t.bar, Command{Name: cmd})
+		u.Send(t.bar.Menubar, Command{Name: cmd})
 	}
 }
 
@@ -204,9 +277,10 @@ func (t *titleBar) check(cmd string, on bool) {
 }
 
 func (t *titleBar) setShell(s Shell, u *gunim.UI) {
-	if s.Fetches != t.fetches {
-		t.bar.Menus = t.build(s.Fetches)
+	if s.Fetches != t.fetches || s.Pane != t.pane {
+		t.bar.Menus = t.build(s.Fetches, s.Pane)
 	}
+	t.head.hidden = s.Pane
 	for m, cmds := range t.cmds {
 		for i, c := range cmds {
 			if c == CmdTrash {
@@ -237,8 +311,9 @@ func (t *titleBar) setListing(l Listing, u *gunim.UI) {
 
 // retitle names the file system, the folder and the program in the
 // title, those it knows: the one drawn, and the window's own, which the
-// system shows as it switches between windows. u may be nil, as in a
-// test with no window.
+// system shows as it switches between windows. A pane leaves the
+// window's title to the program. u may be nil, as in a test with no
+// window.
 func (t *titleBar) retitle(u *gunim.UI) {
 	s := t.b.shell
 	var parts []string
@@ -247,9 +322,9 @@ func (t *titleBar) retitle(u *gunim.UI) {
 			parts = append(parts, p)
 		}
 	}
-	t.bar.Title = strings.Join(parts, " — ")
-	if u != nil && t.bar.Title != t.native {
-		t.native = t.bar.Title
+	t.head.name.Title = strings.Join(parts, " — ")
+	if u != nil && !s.Pane && t.head.name.Title != t.native {
+		t.native = t.head.name.Title
 		u.SetTitle(t.native)
 	}
 }
@@ -269,29 +344,4 @@ func trashLabel(noTrash bool) string {
 		return "Delete…"
 	}
 	return "Move to trash"
-}
-
-// Children implements [gunim.Composite].
-func (t *titleBar) Children() []gunim.Node { return []gunim.Node{t.bar, t.controls} }
-
-// Layout implements [gunim.Node].
-func (t *titleBar) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
-	h := widget.MenubarHeight.Get(f.Theme)
-	if f.Chromeless() {
-		h = max(h, 34)
-	}
-	bar, controls := kids.At(0), kids.At(1)
-	cs := controls.Layout(gunim.Constraints{Max: geom.Sz(c.Max.W, h)})
-	controls.Place(geom.Pt(c.Max.W-cs.W, 0))
-	bar.Layout(gunim.Tight(geom.Sz(max(0, c.Max.W-cs.W), h)))
-	bar.Place(geom.Point{})
-	return geom.Sz(c.Max.W, h)
-}
-
-// Paint implements [gunim.Node].
-func (t *titleBar) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.Children) {
-	p.RRect(geom.Rect{Max: box.Point()}, 0, paint.Solid(widget.MenubarFill.Get(f.Theme)))
-	for k := range kids.All {
-		k.Paint(p)
-	}
 }

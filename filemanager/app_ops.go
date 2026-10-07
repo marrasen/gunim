@@ -570,7 +570,7 @@ func (a *app) showError(e ErrorBox) {
 // answered.
 func (a *app) showDialog(d *dialog) {
 	a.ops.shown++
-	d.id = gunim.ID(fmt.Sprintf("%s-%d", dialogID, a.ops.shown))
+	d.id = a.ids.dialog(a.ops.shown)
 	a.ops.dialogs = append(a.ops.dialogs, d)
 	if len(a.ops.dialogs) == 1 {
 		a.mountDialog(d)
@@ -578,8 +578,13 @@ func (a *app) showDialog(d *dialog) {
 }
 
 func (a *app) mountDialog(d *dialog) {
-	a.send(a.c.Mount(gunim.Root, d.id, d.view, d.state))
-	a.send(a.c.Focus(d.id))
+	// The dialog shows over the browser only, which in a pane leaves the
+	// rest of the window working. There it takes the keyboard only from
+	// the pane, as it comes; a window's takes it at once.
+	a.send(a.c.Mount(a.ids.browser(), d.id, d.view, d.state))
+	if a.pane == nil {
+		a.send(a.c.Focus(d.id))
+	}
 }
 
 // answered hands a dialog's answer to the dialog showing, and shows the

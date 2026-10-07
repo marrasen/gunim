@@ -21,6 +21,10 @@
 // [TransferProgress]. Through [Options.FSName] the program names each
 // file system, as the window's title says first.
 //
+// A program that draws windows of its own can show a file manager in a
+// pane of one, among panes of its own, with [Hub.NewPane], and move it
+// from window to window as it likes; see [PaneHost].
+//
 // The window and the program are two halves that speak only in values.
 // The protocol files hold the vocabulary, one file per area. The app
 // files are the program half, which does all the disk work. The view
@@ -70,6 +74,9 @@ type Shell struct {
 	// Where names the file system, as the title says first, and is empty
 	// where the program gives it no name.
 	Where string
+	// Pane says the file manager shows in a pane of a window the program
+	// draws, which leaves the window's title, theme and zoom alone.
+	Pane bool
 	// UploadEdited says what happens to a file fetched to open that
 	// changes on this computer: ask, always upload it, or never; empty
 	// asks.

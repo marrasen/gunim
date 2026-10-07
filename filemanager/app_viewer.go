@@ -2,7 +2,6 @@ package filemanager
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/paint"
@@ -123,7 +122,7 @@ func (a *app) showPicture(travel int) {
 	} else {
 		v.open = true
 		v.opened++
-		v.id = gunim.ID(fmt.Sprintf("viewer-%d", v.opened))
+		v.id = a.ids.viewer(v.opened)
 		a.send(a.c.Mount(gunim.Root, v.id, "viewer", v.view))
 	}
 	clear(n.sel)

@@ -62,10 +62,14 @@ func NewHub(ctx context.Context, ga *gunim.App) *Hub {
 	return h
 }
 
-// Window is a window of a hub, which its program can watch, close, and
+// Window is a file manager of a hub, in a window of its own or in a pane
+// of a window the program draws, which its program can watch, close, and
 // turn to another file system.
 type Window struct {
 	c gunim.Client
+	// pane joins a file manager in a pane to its program, and is nil for
+	// one in a window of its own.
+	pane *paneLink
 	// ready closes once the window's program half runs, and done once
 	// it has stopped, with err what it stopped with.
 	ready, done chan struct{}
@@ -78,7 +82,8 @@ func newWindow(c gunim.Client) *Window {
 }
 
 // Client is the window's client, for what the program does with the
-// window itself, such as a screenshot.
+// window itself, such as a screenshot. A pane has none of its own: its
+// Client is the zero one.
 func (w *Window) Client() gunim.Client { return w.c }
 
 // Done closes once the window has closed.
@@ -396,16 +401,21 @@ func (a *app) touched(j job) {
 	})
 }
 
-// openWindow opens another window on dir.
+// openWindow opens another window on dir, or another pane, where the
+// pane's host opens them.
 func (a *app) openWindow(dir string) {
-	if a.hub.open == nil {
+	open := a.hub.open
+	if a.pane != nil && a.pane.host.Open != nil {
+		open = a.pane.host.Open
+	}
+	if open == nil {
 		a.fail("Another window cannot open here.")
 		return
 	}
 	o := a.opts
 	o.Dir, o.Select, o.Script = dir, "", ""
 	go func() {
-		if err := a.hub.open(o); err != nil {
+		if err := open(o); err != nil {
 			a.post(func() { a.fail("Opening a new window: " + err.Error()) })
 		}
 	}()

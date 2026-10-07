@@ -465,8 +465,8 @@ func TestTheTitleNamesTheFileSystemFirst(t *testing.T) {
 		if c.folder != "" {
 			tb.setListing(Listing{Title: c.folder}, nil)
 		}
-		if tb.bar.Title != c.want {
-			t.Fatalf("the title is %q, want %q", tb.bar.Title, c.want)
+		if tb.head.name.Title != c.want {
+			t.Fatalf("the title is %q, want %q", tb.head.name.Title, c.want)
 		}
 	}
 }
@@ -484,24 +484,24 @@ func TestTheFileSystemsNameFollowsRefresh(t *testing.T) {
 			return name
 		}
 	})
-	h.until("the title names the file system", func() bool { return h.b.title.bar.Title == "This computer — dir — Files" })
+	h.until("the title names the file system", func() bool { return h.b.title.head.name.Title == "This computer — dir — Files" })
 	mu.Lock()
 	name = "Workstation"
 	mu.Unlock()
 	h.a.hub.Refresh()
-	h.until("the title takes the new name", func() bool { return h.b.title.bar.Title == "Workstation — dir — Files" })
+	h.until("the title takes the new name", func() bool { return h.b.title.head.name.Title == "Workstation — dir — Files" })
 	mu.Lock()
 	name = ""
 	mu.Unlock()
 	h.a.hub.Refresh()
-	h.until("the title drops the name", func() bool { return h.b.title.bar.Title == "dir — Files" })
+	h.until("the title drops the name", func() bool { return h.b.title.head.name.Title == "dir — Files" })
 }
 
 func TestTheFileSystemsNameFollowsShow(t *testing.T) {
 	h := dropHarness(t, func(o *Options) {
 		o.FSName = func(fs string) string { return map[string]string{"": "This computer", "elsewhere": "Picard"}[fs] }
 	})
-	h.until("the title names the file system", func() bool { return h.b.title.bar.Title == "This computer — dir — Files" })
+	h.until("the title names the file system", func() bool { return h.b.title.head.name.Title == "This computer — dir — Files" })
 	h.a.showFS(bareFS{LocalFS()}, h.dir)
-	h.until("the title names the other", func() bool { return h.b.title.bar.Title == "Picard — dir — Files" })
+	h.until("the title names the other", func() bool { return h.b.title.head.name.Title == "Picard — dir — Files" })
 }

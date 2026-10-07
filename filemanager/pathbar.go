@@ -1,6 +1,8 @@
 package filemanager
 
 import (
+	"image/color"
+
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/icon"
@@ -42,7 +44,10 @@ func newPathBar(b *browser) *pathBar {
 	p.filter.Icon, p.filter.Clearable = icon.Search, true
 	p.filter.OnChange = func(s string) gunim.Intent { return FilterChanged{Text: s} }
 	nav := func(b *widget.IconButton) gunim.Node { return widget.NewSized(b, navSize, navSize) }
-	p.row = widget.Row(nav(p.back), nav(p.fwd), nav(p.up), p.addr, widget.NewSized(p.filter, 220, 0)).Grow(p.addr, 1)
+	// The menus sit behind a button left of Back, drawn as the path bar's
+	// buttons are, on nothing of their own.
+	menus := widget.NewThemed(widget.NewSized(b.title.bar, navSize+8, navSize), menuButtonTheme())
+	p.row = widget.Row(menus, nav(p.back), nav(p.fwd), nav(p.up), p.addr, widget.NewSized(p.filter, 220, 0)).Grow(p.addr, 1)
 	p.row.Cross = widget.CrossCenter
 	p.row.Gap = smallGap
 	return p
@@ -53,6 +58,12 @@ var smallGap = theme.Length("files.gap.small", 4)
 
 // navSize is the size of the back, forward and up buttons.
 const navSize = 32
+
+// menuButtonTheme draws the menus' button with no fill of its own, as
+// high as the path bar's buttons, so the menus open below them.
+func menuButtonTheme() theme.Theme {
+	return theme.Make("files.menubutton", theme.Set(widget.MenubarFill, color.NRGBA{}), theme.Set(widget.MenubarHeight, navSize))
+}
 
 // newNavButton returns a button that sends cmd, which leaves the keyboard with the listing when clicked.
 func newNavButton(ic *icon.Icon, tooltip, cmd string) *widget.IconButton {
