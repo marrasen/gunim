@@ -190,9 +190,8 @@ func (b *browser) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim
 func (b *browser) Handle(e input.Event, u *gunim.UI) bool {
 	if b.shell.Pane {
 		// The places are looked for again as the keyboard comes back to
-		// the pane, as to a window of its own.
-		switch e.(type) {
-		case input.WindowFocusGained, input.FocusEntered:
+		// the window, as to a window of its own.
+		if _, ok := e.(input.WindowFocusGained); ok {
 			u.Send(b, WindowFocused{})
 			return false
 		}

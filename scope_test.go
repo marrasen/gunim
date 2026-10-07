@@ -34,8 +34,9 @@ func TestAModalInAScopeHoldsTheKeyboardThereOnly(t *testing.T) {
 	if w.ui.Focused() != outside {
 		t.Fatalf("a modal coming in a scope took the keyboard from outside it")
 	}
-	if w.ui.Focus(inner) {
-		t.Fatalf("the node under the scope's modal took the keyboard")
+	w.ui.Focus(inner)
+	if w.ui.Focused() != m {
+		t.Fatalf("focusing the node under the scope's modal gave %T the keyboard, want the modal", w.ui.Focused())
 	}
 	if !w.ui.Focus(m) || !w.ui.Focus(outside) {
 		t.Fatalf("the keyboard did not go to the modal and back out of the scope")
@@ -73,6 +74,29 @@ func TestAScopedModalGivesTheKeyboardBackInItsScope(t *testing.T) {
 	run(w, 2)
 	if f := w.ui.Focused(); f == outside {
 		t.Fatalf("the keyboard went back out of the scope as its modal left")
+	}
+}
+
+// A scope's modal, taken out with the scope and put back, as a pane moved
+// within its window is, holds the keyboard again.
+func TestAScopedModalPutBackHoldsTheKeyboardAgain(t *testing.T) {
+	w := newTestWindow()
+	outside, inner := &focusRecorder{}, &focusRecorder{}
+	scope := &scopeBox{}
+	w.ui.Insert(w.ui.Root(), outside)
+	w.ui.Insert(w.ui.Root(), scope)
+	w.ui.Insert(scope, inner)
+	m := &testModal{}
+	w.ui.Insert(scope, m)
+	run(w, 1)
+	// Out and back in one go, as a window's panes are built again around
+	// one that stays.
+	w.ui.Remove(scope)
+	w.ui.Insert(w.ui.Root(), scope)
+	run(w, 1)
+	w.ui.Focus(inner)
+	if w.ui.Focused() != m {
+		t.Fatalf("the modal put back let %T have the keyboard", w.ui.Focused())
 	}
 }
 

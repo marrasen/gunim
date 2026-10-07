@@ -14,16 +14,17 @@ import (
 // is shown in, puts the pane where it likes in them, and moves it
 // between them with [Window.Attach] and [Window.Detach].
 type PaneHost struct {
-	// ID starts the IDs the pane's views are mounted as, under the ID
-	// Attach is given, so the intents sent from them are the pane's;
-	// [Window.Owns] tells them. It must differ from the ID of every other
-	// pane a window shows, and the program's own views must not start
-	// with it.
+	// ID starts the IDs the pane's views are mounted as, followed by a
+	// slash, under the ID Attach is given, so the intents sent from them
+	// are the pane's; [Window.Owns] tells them. It must differ from the
+	// ID of every other pane a window shows, and the program's own views
+	// must not start with it and a slash.
 	ID string
-	// Title hears the name of the folder the pane shows, each time it
-	// changes, for the program to show where it names its panes. It is
-	// called on the pane's serve loop, so it must be quick.
-	Title func(folder string)
+	// Title hears the ID of the file system the pane shows and the name
+	// of the folder, each time either changes, for the program to show
+	// where it names its panes. It is called on the pane's serve loop,
+	// so it must be quick, and must not wait for the program.
+	Title func(fs, folder string)
 	// Open opens another file manager with o, as New window and a click
 	// with Ctrl held on a place ask: in a pane of its own, say. When nil,
 	// they open in windows of their own, on the hub's app.
@@ -90,7 +91,25 @@ func (w *Window) Detach() {
 // Owns reports whether an intent sent from the view of ID from is the
 // pane's: one of its own. It is false for a file manager in a window of its own.
 func (w *Window) Owns(from gunim.ID) bool {
-	return w.pane != nil && strings.HasPrefix(string(from), w.pane.host.ID)
+	return w.pane != nil && strings.HasPrefix(string(from), w.pane.host.ID+"/")
+}
+
+// FocusIn returns the node that takes the keyboard in the pane whose
+// host's ID is id, in the window of u, or nil while the pane shows in no
+// window there: its listing. A program that moves the keyboard from pane
+// to pane focuses it. It must be called on the UI goroutine.
+func FocusIn(u *gunim.UI, id string) gunim.Node {
+	b, ok := u.Mounted(gunim.ID(id + "/" + string(browserID))).(*browser)
+	if !ok || b.listing.cur == nil {
+		return nil
+	}
+	return b.listing.cur.focusNode()
+}
+
+// Focus gives the keyboard to the listing, as the program does when the
+// user turns to the file manager: to its pane, say.
+func (w *Window) Focus() {
+	w.do(func(a *app) { a.patch(FocusListing{}) })
 }
 
 // Deliver hands the pane an intent of the window it shows in, and reports
@@ -173,6 +192,15 @@ func (a *app) republish() {
 	a.publishView()
 	a.publishStatus()
 	a.publishOps()
+	// Shown again, not told again: the log heard them as they came.
+	key := string(a.ids.browser())
+	if a.bannerText != "" {
+		a.send(a.c.Patch(key, Banner{Seq: a.banner, Text: a.bannerText}))
+	}
+	for _, n := range a.held {
+		a.send(a.c.Patch(key, n))
+	}
+	a.held = nil
 	a.preview.subject = ""
 	a.showPreview()
 	if len(a.ops.dialogs) > 0 {

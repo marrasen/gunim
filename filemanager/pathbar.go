@@ -149,7 +149,10 @@ func newBannerView() *bannerView {
 	row := widget.Row(b.label, dismiss).Grow(b.label, 1)
 	row.Cross = widget.CrossCenter
 	b.fold = newFold(&bannerBox{child: row})
-	dismiss.OnActivate(func(u *gunim.UI) { b.fold.set(false, u) })
+	dismiss.OnActivate(func(u *gunim.UI) {
+		b.fold.set(false, u)
+		u.Send(b.label, BannerDismissed{Seq: b.seq})
+	})
 	return b
 }
 

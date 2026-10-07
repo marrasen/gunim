@@ -362,7 +362,7 @@ func (pg *listingPage) row(i int) (widget.GridRow, bool) {
 		return widget.GridRow{}, false
 	}
 	name := []widget.GridSpan{
-		{Text: " ", Fill: tintToken(r.Tint)},
+		{Text: " ", Fill: TintToken(r.Tint)},
 		{Text: "  "},
 	}
 	if r.IconKey != "" {

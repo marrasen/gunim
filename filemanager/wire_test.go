@@ -21,6 +21,7 @@ func TestWire(t *testing.T) {
 		Bands{Gen: 3, Bands: []Band{{Shares: []float32{0.5, 0.5}, First: "a"}}},
 		Status{Left: "2 items", Right: "1 GB free"},
 		Banner{Seq: 1, Text: "no"},
+		BannerDismissed{Seq: 1},
 		NeedRows{Gen: 3, Starts: []int{0, 256}},
 		Selected{Gen: 3, Runs: [][2]int{{1, 2}}, Cursor: 1},
 		Activated{Gen: 3, Row: 1},

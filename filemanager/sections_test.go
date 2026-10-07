@@ -393,7 +393,7 @@ func TestEveryColourAndIconOfAFavouriteCanBeDrawn(t *testing.T) {
 			t.Errorf("the icon %s is not drawn as itself", n)
 		}
 	}
-	if favIcon("") == nil || favColor("").Key() != tintToken(TintFolder).Key() {
+	if favIcon("") == nil || favColor("").Key() != TintToken(TintFolder).Key() {
 		t.Error("a favourite without an icon or a colour is not drawn as a folder")
 	}
 }

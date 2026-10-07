@@ -101,6 +101,17 @@ func (w *Window) Close() {
 	w.do(func(a *app) { a.close() })
 }
 
+// Stop closes the window, or the pane, at once, stopping what is running
+// in it, as a program does that takes a pane away without asking.
+func (w *Window) Stop() {
+	w.do(func(a *app) {
+		for _, r := range a.ops.running {
+			r.cancel()
+		}
+		a.leave()
+	})
+}
+
 // Show turns the window to the folder dir on fsys, or its home folder
 // when dir is empty, as a Visit may want: the clipboard, the places and
 // the favourites become those of fsys, and the folder it showed goes
@@ -138,6 +149,10 @@ func (w *Window) do(fn func(a *app)) {
 	select {
 	case <-w.ready:
 	case <-w.done:
+		return
+	}
+	if w.a == nil {
+		// It never started.
 		return
 	}
 	w.a.post(func() { fn(w.a) })

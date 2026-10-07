@@ -210,6 +210,12 @@ func (a *app) rank() {
 	if strings.HasPrefix(text, ">") {
 		here := slices.DeleteFunc(slices.Clone(a.places), func(p Place) bool { return p.FS != a.fs.ID() })
 		hits := rankCommands(strings.TrimSpace(strings.TrimPrefix(text, ">")), here, a.favPlaces(), a.fs.ID(), a.ps)
+		if a.pane != nil {
+			// The program the pane is in picks the theme.
+			hits = slices.DeleteFunc(hits, func(h PaletteHit) bool {
+				return h.Key == "cmd:"+CmdThemeDark || h.Key == "cmd:"+CmdThemeLight
+			})
+		}
 		a.patch(PaletteResults{Seq: seq, Hits: hits, Status: "Commands. Delete the > to look for files."})
 		return
 	}

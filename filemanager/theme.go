@@ -46,7 +46,9 @@ var tintTokens = map[Tint]theme.Token[color.NRGBA]{
 	TintProgram:  theme.Color("files.tint.program", color.NRGBA{R: 0xf5, G: 0x6c, B: 0x5c, A: 0xff}),
 }
 
-func tintToken(t Tint) theme.Token[color.NRGBA] {
+// TintToken is the token that colours the mark of group t, for a program
+// whose themes set the file manager's colours.
+func TintToken(t Tint) theme.Token[color.NRGBA] {
 	if tok, ok := tintTokens[t]; ok {
 		return tok
 	}

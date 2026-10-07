@@ -548,7 +548,7 @@ func (c *dragCard) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 		y := 6 + float32(i)*cardLine
 		ink := widget.Ink.Get(th)
 		if i < len(c.items) {
-			p.RRect(geom.Rc(12, y+(cardLine-12)/2, 12, 12), 3.5, paint.Solid(tintToken(c.items[i].Tint).Get(th)))
+			p.RRect(geom.Rc(12, y+(cardLine-12)/2, 12, 12), 3.5, paint.Solid(TintToken(c.items[i].Tint).Get(th)))
 		} else {
 			ink = Faint.Get(th)
 		}

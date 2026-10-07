@@ -291,7 +291,7 @@ func (t *typeTile) Layout(c gunim.Constraints, _ gunim.Frame, _ gunim.Children) 
 // Paint implements [gunim.Node].
 func (t *typeTile) Paint(p *paint.Painter, f gunim.Frame, _ geom.Size, _ gunim.Children) {
 	tile := geom.Rc(0, 4, 80, 80)
-	c := tintToken(t.tint).Get(f.Theme)
+	c := TintToken(t.tint).Get(f.Theme)
 	p.ShadowRRect(tile, 18, paint.Solid(c), paint.Shadow{Offset: geom.Pt(0, 4), Blur: 14, Color: widget.DialogShadow.Get(f.Theme)})
 	if t.label == "" {
 		return

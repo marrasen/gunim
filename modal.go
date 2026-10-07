@@ -14,8 +14,9 @@ type Modal interface {
 
 // A ModalScope is a node that keeps the modals inside it to itself, such as a pane among others that shows a dialog
 // over its own content only. Such a modal holds the keyboard within the scope: the focus and Tab keep to it there,
-// and the keys pressed in it go no further, while the rest of the window works as before. It takes the focus as it
-// arrives only when the focus is in the scope already, or nowhere.
+// focusing anything else in the scope from outside it focuses the modal instead, and the keys pressed in it go no
+// further, while the rest of the window works as before. It takes the focus as it arrives only when the focus is in the scope already, or
+// nowhere.
 type ModalScope interface {
 	Node
 	ModalScope()
@@ -30,13 +31,36 @@ type modalHold struct {
 // arrived gives a modal that just came into the tree the focus.
 func (u *UI) arrived(s *state) {
 	m, ok := s.node.(Modal)
-	if !ok || !m.Modal() {
+	if !ok || !m.Modal() || u.held(s) {
 		return
 	}
 	h := modalHold{s: s, back: u.focus, scope: scopeOf(s)}
 	u.modals = append(u.modals, h)
 	if h.scope == nil || u.focus == nil || inside(u.focus, h.scope) {
 		u.Focus(s.node)
+	}
+}
+
+// held reports whether s holds the keyboard as a modal already.
+func (u *UI) held(s *state) bool {
+	for _, h := range u.modals {
+		if h.s == s && u.live(h) {
+			return true
+		}
+	}
+	return false
+}
+
+// rearrived takes the modals in s, a subtree coming back as it was
+// leaving, as arriving again: they hold the keyboard again, as the
+// subtree going had let them go.
+func (u *UI) rearrived(s *state) {
+	if s.presence == Exiting {
+		return
+	}
+	u.arrived(s)
+	for _, k := range s.kids {
+		u.rearrived(k)
 	}
 }
 
@@ -56,16 +80,24 @@ func (u *UI) live(h modalHold) bool { return u.index[h.s.node] == h.s && !h.s.le
 // modal returns the modal holding the keyboard for a node at s, or with nothing focused for a nil s: the last to
 // arrive that is still in the tree and not leaving, of those over the whole window and those whose scope s is in.
 func (u *UI) modal(s *state) *state {
+	if h, ok := u.holdFor(s); ok {
+		return h.s
+	}
+	return nil
+}
+
+// holdFor is modal, with the hold.
+func (u *UI) holdFor(s *state) (modalHold, bool) {
 	for i := len(u.modals) - 1; i >= 0; i-- {
 		h := u.modals[i]
 		if !u.live(h) {
 			continue
 		}
 		if h.scope == nil || s != nil && inside(s, h.scope) {
-			return h.s
+			return h, true
 		}
 	}
-	return nil
+	return modalHold{}, false
 }
 
 // scopedModal returns the modal holding the keyboard in scope s, when s is a [ModalScope] with one, or nil.

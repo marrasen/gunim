@@ -186,6 +186,9 @@ type Banner struct {
 	Text string
 }
 
+// BannerDismissed says the user dismissed banner Seq.
+type BannerDismissed struct{ Seq int }
+
 // NeedRows asks for the blocks of listing Gen that start at Starts.
 type NeedRows struct {
 	Gen    int
@@ -289,6 +292,7 @@ type SidebarMoved struct {
 
 func init() {
 	gunim.RegisterType[Shell]("files.shell")
+	gunim.RegisterType[BannerDismissed]("files.bannerdismissed")
 	gunim.RegisterType[Listing]("files.listing")
 	gunim.RegisterType[RowBlock]("files.rows")
 	gunim.RegisterType[Selection]("files.selection")

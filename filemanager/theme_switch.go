@@ -23,7 +23,9 @@ func (a *app) handleTheme(in gunim.Intent) bool {
 	if !ok || v.Name != CmdThemeDark && v.Name != CmdThemeLight {
 		return false
 	}
-	a.setLight(v.Name == CmdThemeLight)
+	if a.pane == nil {
+		a.setLight(v.Name == CmdThemeLight)
+	}
 	return true
 }
 

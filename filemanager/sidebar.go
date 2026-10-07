@@ -733,17 +733,17 @@ func placeMark(p Place) theme.Token[color.NRGBA] {
 func placeTint(kind string) theme.Token[color.NRGBA] {
 	switch kind {
 	case "drive":
-		return tintToken(TintOther)
+		return TintToken(TintOther)
 	case "favourite":
 		return widget.Accent
 	case "pictures":
-		return tintToken(TintImage)
+		return TintToken(TintImage)
 	case "documents":
-		return tintToken(TintDocument)
+		return TintToken(TintDocument)
 	case "downloads":
-		return tintToken(TintCode)
+		return TintToken(TintCode)
 	}
-	return tintToken(TintFolder)
+	return TintToken(TintFolder)
 }
 
 // Handle implements [gunim.Handler]: the row lights under the pointer,

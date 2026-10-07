@@ -154,7 +154,7 @@ func newPaneWorld(t *testing.T, spec ...string) *paneWorld {
 	h := NewHub(ctx, nil)
 	pw, err := h.NewPane(Options{Dir: p.dir, PrefsPath: filepath.Join(root, "prefs.json"), Poll: -1,
 		defaults: func() []Favourite { return nil }, trash: xdgTrash{dir: filepath.Join(root, "Trash")}},
-		PaneHost{ID: "pane1", Title: func(folder string) {
+		PaneHost{ID: "pane1", Title: func(_, folder string) {
 			p.mu.Lock()
 			p.titles = append(p.titles, folder)
 			p.mu.Unlock()
@@ -182,7 +182,7 @@ func TestAPaneMovesBetweenWindowsAsItWas(t *testing.T) {
 		b = one.browser()
 		return b != nil && b.path.path == p.dir && b.listing.cur != nil
 	})
-	if !p.pw.Owns("pane1/browser") || p.pw.Owns("host") {
+	if !p.pw.Owns("pane1/browser") || p.pw.Owns("host") || p.pw.Owns("pane10/browser") {
 		t.Fatal("the pane tells its intents from the window's wrongly")
 	}
 	sub := filepath.Join(p.dir, "sub")
@@ -242,13 +242,14 @@ func TestADialogInAPaneLeavesTheWindowWorking(t *testing.T) {
 	if s.host.other.Text() != "x" {
 		t.Fatalf("the window's field took no typing beside the pane's dialog: %q", s.host.other.Text())
 	}
-	// The pane's own listing is under its dialog, and takes no keyboard.
+	// The pane's own listing is under its dialog: turning to the pane
+	// gives the dialog the keyboard.
 	if err := s.w.Client().Patch("pane1/browser", focusPane{}); err != nil {
 		t.Fatal(err)
 	}
 	s.frames(2)
-	if s.focused() != gunim.Node(s.host.other) {
-		t.Fatalf("the listing under the pane's dialog took the keyboard: %T has it", s.focused())
+	if f := s.focused(); f == gunim.Node(s.host.other) || f == b.listing.cur.focusNode() {
+		t.Fatalf("turning to the pane gave %T the keyboard, want its dialog", f)
 	}
 }
 

@@ -272,6 +272,17 @@ func (u *UI) SetID(n Node, id ID) error {
 	return nil
 }
 
+// Mounted returns the root of the view mounted as id, or the node given
+// id with [UI.SetID], or nil when there is none, or it is leaving. It
+// must be called on the UI goroutine.
+func (u *UI) Mounted(id ID) Node {
+	s, ok := u.ids[id]
+	if !ok || s.leaving() {
+		return nil
+	}
+	return s.node
+}
+
 // revive brings back a view that is still animating out, so a dialog
 // dismissed and reopened swings back from wherever its exit had got to.
 // It takes the new parent, watch list and state, as a fresh mount would.

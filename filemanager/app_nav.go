@@ -534,9 +534,9 @@ func (a *app) publishListing() {
 		l.Err = n.err.Error()
 	}
 	a.patch(l)
-	if a.pane != nil && a.pane.host.Title != nil && l.Title != a.title {
-		a.title = l.Title
-		a.pane.host.Title(l.Title)
+	if t := a.fs.ID() + "\x00" + l.Title; a.pane != nil && a.pane.host.Title != nil && t != a.title {
+		a.title = t
+		a.pane.host.Title(a.fs.ID(), l.Title)
 	}
 }
 

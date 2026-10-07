@@ -578,6 +578,9 @@ func (a *app) showDialog(d *dialog) {
 }
 
 func (a *app) mountDialog(d *dialog) {
+	// The picture viewer goes over the browser, and would hide the
+	// dialog, which asks what matters more.
+	a.closeViewer()
 	// The dialog shows over the browser only, which in a pane leaves the
 	// rest of the window working. There it takes the keyboard only from
 	// the pane, as it comes; a window's takes it at once.

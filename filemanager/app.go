@@ -155,7 +155,12 @@ type app struct {
 	places  []Place
 	favs    []Favourite
 	banner  int
-	// title is the folder the pane's host was last told of.
+	// bannerText is what the banner says until it is dismissed, for a
+	// window a pane comes to, and held the notices said while a pane was
+	// in none.
+	bannerText string
+	held       []Notice
+	// title is the file system and the folder the pane's host was last told of.
 	title string
 	// script is what is left of the steps to run, once the first folder
 	// is read.
@@ -364,6 +369,11 @@ func (a *app) handleShell(in gunim.Intent) bool {
 	case CloseAsked:
 		a.close()
 		return true
+	case BannerDismissed:
+		if v.Seq == a.banner {
+			a.bannerText = ""
+		}
+		return true
 	case SidebarMoved:
 		a.shell.Sidebar = v.Width
 		a.savePrefs(func(p *prefs) { p.Sidebar = v.Width })
@@ -433,6 +443,10 @@ func (a *app) post(fn func()) {
 // patch sends a patch to the browser.
 func (a *app) patch(v any) {
 	a.logShown(v)
+	if n, ok := v.(Notice); ok && !a.c.on && a.pane != nil && len(a.held) < 8 {
+		// Said once the pane shows.
+		a.held = append(a.held, n)
+	}
 	a.send(a.c.Patch(string(a.ids.browser()), v))
 }
 
@@ -468,6 +482,7 @@ func (a *app) send(err error) {
 // fail shows msg in the banner under the path bar.
 func (a *app) fail(msg string) {
 	a.banner++
+	a.bannerText = msg
 	a.patch(Banner{Seq: a.banner, Text: msg})
 }
 
