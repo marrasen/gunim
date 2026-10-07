@@ -90,6 +90,10 @@ type editor struct {
 	// the text; see shownChange.
 	change textChange
 	taken  taken
+	// version counts changes to the text, and drawn is the text with
+	// the composition in it; see shown.
+	version uint64
+	drawn   drawn
 }
 
 // step is one step of undo or redo: the edits that make it, in the
@@ -187,6 +191,7 @@ func (e *editor) setText(rs []rune) {
 func (e *editor) splice(start, end int, with []rune) {
 	e.mark.splice(e.text, start, end, with)
 	e.change.splice(len(e.text), start, end)
+	e.version++
 	e.text = slices.Replace(e.text, start, end, with...)
 }
 
@@ -306,15 +311,31 @@ func (e *editor) Selection() (start, end int) {
 
 // shown returns the text as drawn, with any composition in place of the
 // selection, and where the composition starts.
+// It builds the text with a composition once, and again only when the
+// text or the composition changes.
 func (e *editor) shown() (runes []rune, at int) {
 	start, end := e.Selection()
 	if len(e.preedit) == 0 {
 		return e.text, start
 	}
-	out := make([]rune, 0, len(e.text)-(end-start)+len(e.preedit))
-	out = append(out, e.text[:start]...)
-	out = append(out, e.preedit...)
-	return append(out, e.text[end:]...), start
+	d := &e.drawn
+	if d.version != e.version || d.start != start || d.end != end || !slices.Equal(d.pre, e.preedit) {
+		d.version, d.start, d.end = e.version, start, end
+		d.pre = append(d.pre[:0], e.preedit...)
+		d.text = append(d.text[:0], e.text[:start]...)
+		d.text = append(d.text, e.preedit...)
+		d.text = append(d.text, e.text[end:]...)
+	}
+	return d.text, start
+}
+
+// drawn is the text with a composition in it, as shown last built it,
+// and the text's version, the selection and the composition it was
+// built from.
+type drawn struct {
+	text, pre  []rune
+	version    uint64
+	start, end int
 }
 
 // drawnCaret returns the caret and anchor as drawn: the input method's,

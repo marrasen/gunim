@@ -192,7 +192,7 @@ func TestClicksPlaceTheCaretAndSelectWords(t *testing.T) {
 	ty.want("one two three", 13)
 
 	// Double-click in the middle of "two", which starts at rune 4.
-	mid := FieldPadding.Default() + (ty.field.shaped.run.CaretX(4)+ty.field.shaped.run.CaretX(7))/2
+	mid := FieldPadding.Default() + (ty.field.line.CaretX(4)+ty.field.line.CaretX(7))/2
 	ty.w.Input(input.PointerDown{Pos: geom.Pt(mid, 18), Clicks: 2})
 	ty.run(1)
 	if s, e := ty.field.Selection(); s != 4 || e != 7 {

@@ -1,7 +1,6 @@
 package widget
 
 import (
-	"strings"
 	"time"
 
 	"github.com/marrasen/gunim"
@@ -81,12 +80,15 @@ type TextField struct {
 	// clearing says a primary press on the X is held.
 	clearing bool
 
-	shaped shapedText
 	// size is the field's size at its last layout, and lead and trail the room before and after the text.
 	size        geom.Size
 	lead, trail float32
-	// line is the text as last laid out, for navigating.
-	line text.Run
+	// line is the text as shaped, kept up as it changes; dots are the
+	// dots a secret shows in its place, and wasSecret whether the line
+	// holds them.
+	line      longLine
+	dots      []rune
+	wasSecret bool
 }
 
 // NewTextField returns an empty field.
@@ -338,14 +340,24 @@ func (n fieldNav) vertical(i int, _ float32, _ int) (int, bool) { return i, fals
 
 func (n fieldNav) page() int { return 1 }
 
-func (t *TextField) run(th *theme.Live) text.Run {
+// run returns the text as shaped, shaping again only what changed
+// since it was last asked.
+func (t *TextField) run(th *theme.Live) *longLine {
 	shown, _ := t.shown()
 	t.secret = t.Secret
-	if t.Secret {
-		shown = []rune(strings.Repeat("•", len(shown)))
+	head, tail, was, changed := t.shownChange()
+	if t.Secret != t.wasSecret {
+		t.wasSecret = t.Secret
+		head, tail, was, changed = 0, 0, t.line.end(), true
 	}
-	t.line = t.shaped.shape(faceIn(t.Face, th), string(shown), TextSize.Get(th))
-	return t.line
+	if t.Secret {
+		for len(t.dots) < len(shown) {
+			t.dots = append(t.dots, '•')
+		}
+		shown = t.dots[:len(shown)]
+	}
+	t.line.update(faceIn(t.Face, th), TextSize.Get(th), shown, head, tail, was, changed)
+	return &t.line
 }
 
 // Layout implements [gunim.Node]. The field fills the width it is given,
@@ -433,7 +445,7 @@ func (t *TextField) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ guni
 		sel.A = uint8(float32(sel.A) * min(focus, 1))
 		p.RRect(geom.Rc(x+a, y, b-a, run.Height()), 3, paint.Solid(sel))
 	}
-	run.Paint(p, geom.Pt(x, y), Ink.Get(th))
+	run.Paint(p, geom.Pt(x, y), Ink.Get(th), inner.Min.X-x, inner.Max.X-x)
 	if t.Ghost != "" && focus > 0.01 && t.atEnd() && !t.Secret {
 		ghost := faceIn(t.Face, th).Shape(t.Ghost, TextSize.Get(th))
 		ghost.Paint(p, geom.Pt(x+run.Advance, y), Placeholder.Get(th))
@@ -442,7 +454,7 @@ func (t *TextField) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ guni
 		// Underline the composition, as input methods expect.
 		_, at := t.shown()
 		x0, x1 := run.CaretX(at), run.CaretX(at+len(t.preedit))
-		p.RRect(geom.Rc(x+min(x0, x1), y+run.Ascent+2, abs32(x1-x0), 1), 0, paint.Solid(Ink.Get(th)))
+		p.RRect(geom.Rc(x+min(x0, x1), y+run.Ascent()+2, abs32(x1-x0), 1), 0, paint.Solid(Ink.Get(th)))
 	}
 
 	if focus > 0.01 {
