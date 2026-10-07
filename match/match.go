@@ -31,6 +31,8 @@ type Found struct {
 	// empty for an item found by one of its other words.
 	At    []int
 	score int
+	// runes is the title's length in runes, counted once for the sort.
+	runes int
 }
 
 // Rank returns the items the query finds, best first. An empty query
@@ -53,13 +55,14 @@ func Rank(items []Item, query string) []Found {
 			}
 			at, score = nil, worstMatch
 		}
-		out = append(out, Found{Index: i, At: at, score: score})
+		out = append(out, Found{Index: i, At: at, score: score, runes: utf8.RuneCountInString(it.Title)})
 	}
-	slices.SortStableFunc(out, func(a, b Found) int {
+	// The index settles every tie, so the order is the same as a stable sort's.
+	slices.SortFunc(out, func(a, b Found) int {
 		if n := cmp.Compare(b.score, a.score); n != 0 {
 			return n
 		}
-		if n := cmp.Compare(utf8.RuneCountInString(items[a.Index].Title), utf8.RuneCountInString(items[b.Index].Title)); n != 0 {
+		if n := cmp.Compare(a.runes, b.runes); n != 0 {
 			return n
 		}
 		return cmp.Compare(a.Index, b.Index)
