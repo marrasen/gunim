@@ -25,7 +25,8 @@ var (
 )
 
 // Chip is a small rounded label with a cross that removes it, such as
-// a filter in force.
+// a filter in force. The cross sits at the chip's end; given less room
+// than its text takes, the text before it ends in an ellipsis.
 type Chip struct {
 	anim.Group
 	// Lead is drawn dim before the label.
@@ -38,9 +39,12 @@ type Chip struct {
 
 	hover               *anim.Float
 	leadText, labelText shapedText
-	size                geom.Size
-	crossX              float32
-	click               clicker
+	leadEll, labelEll   shapedText
+	// size is the chip's box and crossX the middle of its cross, from
+	// the last layout or paint.
+	size   geom.Size
+	crossX float32
+	click  clicker
 }
 
 // NewChip returns a chip showing lead and label.
@@ -63,29 +67,35 @@ func (c *Chip) Layout(cs gunim.Constraints, f gunim.Frame, _ gunim.Children) geo
 		w += c.leadText.shape(faceIn(BoldFont, th), c.Lead, size).Advance + 6
 	}
 	w += c.labelText.shape(faceIn(Font, th), c.Label, size).Advance
-	c.crossX = w + h/2
 	c.size = cs.Constrain(geom.Sz(w+h, h))
+	c.crossX = c.size.W - h/2
 	return c.size
 }
 
 // Paint implements [gunim.Node].
 func (c *Chip) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
 	th := f.Theme
+	c.size, c.crossX = box, box.W-box.H/2
+	// The text has the room up to the cross, which takes a square at the end.
+	end := box.W - box.H
 	fill := anim.Mix(anim.ColorCodec, ChipFill.Get(th), ChipHover.Get(th), c.hover.Value())
 	p.RRect(geom.Rect{Max: box.Point()}, box.H/2, paint.Solid(fill))
 	x := box.H / 2
 	if c.Icon != nil {
-		s := IconSize.Get(th)
-		paintIcon(p, th, c.Icon, geom.Rc(x, (box.H-s)/2, s, s), Ink.Get(th), 1)
-		x += s + IconGap.Get(th)
+		if s := IconSize.Get(th); x+s <= end {
+			paintIcon(p, th, c.Icon, geom.Rc(x, (box.H-s)/2, s, s), Ink.Get(th), 1)
+			x += s + IconGap.Get(th)
+		}
 	}
-	if c.Lead != "" {
-		run := c.leadText.run
+	if c.Lead != "" && x < end {
+		run := fitRun(c.leadText.run, &c.leadEll, end-x)
 		run.Paint(p, geom.Pt(x, (box.H-run.Height())/2), ChipLead.Get(th))
 		x += run.Advance + 6
 	}
-	run := c.labelText.run
-	run.Paint(p, geom.Pt(x, (box.H-run.Height())/2), Ink.Get(th))
+	if x < end {
+		run := fitRun(c.labelText.run, &c.labelEll, end-x)
+		run.Paint(p, geom.Pt(x, (box.H-run.Height())/2), Ink.Get(th))
+	}
 	paintCross(p, th, geom.Pt(c.crossX, box.H/2), box.H/3, Ink.Get(th))
 }
 
