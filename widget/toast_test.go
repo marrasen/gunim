@@ -185,8 +185,8 @@ func TestAToastThatAsksStaysTakesNoKeyboardAndAnswersWithItsTickBox(t *testing.T
 	wait(100 * time.Millisecond)
 	click(w, box.Min.X+4, box.Center().Y)
 	wait(100 * time.Millisecond)
-	if n := h.t.Len(); n != 1 || !card.check.On {
-		t.Fatalf("after clicks on the text and the box, %d toasts show, ticked %v", n, card.check.On)
+	if n := h.t.Len(); n != 1 || !card.check.Checked() {
+		t.Fatalf("after clicks on the text and the box, %d toasts show, ticked %v", n, card.check.Checked())
 	}
 	_ = sent(w)
 	click(w, upload.Center().X, upload.Center().Y)

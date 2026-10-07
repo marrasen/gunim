@@ -262,12 +262,12 @@ func TestACheckboxFlipsOnEachClickOfADoubleClick(t *testing.T) {
 	w, run := stage(t, &frame{child: Row(c), size: geom.Sz(300, 40)})
 	doubleClick(w, 10, c.size.H/2)
 	run(1)
-	if c.On {
+	if c.Checked() {
 		t.Fatal("a double click left the box ticked, want it flipped twice, back off")
 	}
 	click(w, 10, c.size.H/2)
 	run(1)
-	if !c.On {
+	if !c.Checked() {
 		t.Fatal("a click after the double click left the box clear")
 	}
 }

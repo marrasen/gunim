@@ -479,7 +479,7 @@ func newToastCard(t *Toasts, to Toast) *toastCard {
 // ask gives the card the buttons, the close button and the tick box of
 // a toast that asks. None of them takes the keyboard when clicked.
 func (c *toastCard) ask(to Toast) {
-	checked := func() bool { return c.check != nil && c.check.On }
+	checked := func() bool { return c.check != nil && c.check.Checked() }
 	if to.Check != "" {
 		c.check = NewCheckbox(to.Check)
 		c.check.KeepFocus = true

@@ -109,7 +109,7 @@ func buildCal(s Cal) *calView {
 	v.invites = widget.NewLink("")
 	v.invites.Icon, v.invites.On = icon.Mail, InvitesAsked{}
 	v.weekends = widget.NewCheckbox("Show weekends")
-	v.weekends.On = !s.HideWeekends
+	v.weekends.SetChecked(!s.HideWeekends, nil)
 	v.weekends.OnChange = func(bool) gunim.Intent { return WeekendsToggled{} }
 	side := widget.Column(add, v.mini, caption, v.cals, v.weekends, v.invites)
 	side.Cross = widget.CrossStretch
@@ -181,7 +181,7 @@ func (v *calView) set(s Cal, u *gunim.UI) {
 		v.days.ClearGhost(u)
 	}
 	v.title.set(s.Title, u)
-	v.weekends.SetOn(!s.HideWeekends, u)
+	v.weekends.SetChecked(!s.HideWeekends, u)
 	v.month.HideWeekends = s.HideWeekends
 	v.views.SetSelected(int(s.View), u)
 	from, to := shown(s)

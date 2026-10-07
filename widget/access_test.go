@@ -91,7 +91,7 @@ func TestAScreenReaderCanPressAndFocus(t *testing.T) {
 	if got := sent(w); len(got) == 0 || got[0] != (saved{}) {
 		t.Fatalf("pressing Save sent %v", got)
 	}
-	if !c.On {
+	if !c.Checked() {
 		t.Fatal("pressing the checkbox left it unchecked")
 	}
 	// The checkbox took focus, and says so, checked.

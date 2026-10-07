@@ -41,7 +41,7 @@ func newClashDialog(s ClashAsk) *widget.Dialog {
 	}
 	d.Body = body
 	answer := func(c Choice) func() gunim.Intent {
-		return func() gunim.Intent { return ClashAnswered{Op: s.Op, Choice: c, All: all.On} }
+		return func() gunim.Intent { return ClashAnswered{Op: s.Op, Choice: c, All: all.Checked()} }
 	}
 	d.Dismiss = ClashAnswered{Op: s.Op, Stop: true}
 	d.AddButton("Skip", answer(ChoiceSkip))

@@ -27,7 +27,7 @@ func newSignInStage(t *testing.T) (*gunim.Window, *Form, [3]gunim.Node, func(int
 	d.Body = form
 	d.SetButtons("Connect", "Cancel")
 	d.OnAccept = func() gunim.Intent {
-		return signIn{Host: host.Text(), Password: pass.Text(), Remember: remember.On}
+		return signIn{Host: host.Text(), Password: pass.Text(), Remember: remember.Checked()}
 	}
 	w := gunimtest.New(t, geom.Sz(800, 600), nil)
 	gunim.RegisterView(w, "d", func(struct{}) gunim.Node { return d }, nil)

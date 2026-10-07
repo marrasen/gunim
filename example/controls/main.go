@@ -211,7 +211,7 @@ func buildPage(s Page) *page {
 	check := widget.NewCheckbox("Send me the newsletter")
 	check.OnChange = func(on bool) gunim.Intent { return Toggled{Name: "Newsletter", On: on} }
 	sw := widget.NewSwitch("Dark mode")
-	sw.On = true
+	sw.SetChecked(true, nil)
 	sw.OnChange = func(on bool) gunim.Intent { return Toggled{Name: "Dark mode", On: on} }
 	slider := widget.NewSlider(0, 100)
 	slider.Snap = 1

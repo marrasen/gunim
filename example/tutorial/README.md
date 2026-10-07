@@ -332,7 +332,7 @@ _ = c.SetTheme("light")
 A subtree can wear a theme of its own with `widget.NewThemed`. It sets
 the tokens it names and takes the rest from the theme around it.
 
-The switch's update is `SetOn`, which puts it where the state says
+The switch's update is `SetChecked`, which puts it where the state says
 without sending an intent. Every control has such a method for a
 view's update function to call.
 

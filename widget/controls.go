@@ -18,7 +18,6 @@ import (
 type toggle struct {
 	anim.Group
 	Label string
-	On    bool
 	// Disabled shows the control faint, and it takes no clicks, keys or
 	// focus, for a choice that does not apply now.
 	Disabled bool
@@ -44,7 +43,9 @@ type toggle struct {
 	size  geom.Size
 	text  shapedText
 	ell   shapedText
-	// laid is set by the first layout, which puts the control where On
+	// checked is the state: ticked, or on.
+	checked bool
+	// laid is set by the first layout, which puts the control where checked
 	// says without animating.
 	laid bool
 }
@@ -63,13 +64,20 @@ func newToggle(label string) toggle {
 	return t
 }
 
-// SetOn sets the state without an intent. Call it from a view's update
-// function; the control animates to it.
-func (t *toggle) SetOn(on bool, u *gunim.UI) {
-	if on == t.On {
+// Checked reports whether the control is ticked, or on.
+func (t *toggle) Checked() bool { return t.checked }
+
+// SetChecked sets the state and sends no intent. Once the control is laid out it animates there; before that, or
+// with a nil u, it jumps.
+func (t *toggle) SetChecked(on bool, u *gunim.UI) {
+	if on == t.checked {
 		return
 	}
-	t.On = on
+	t.checked = on
+	if !t.laid || u == nil {
+		t.lit.Jump(value(on))
+		return
+	}
 	t.lit.Animate(value(on), Bounce.Get(u.Theme()))
 }
 
@@ -78,18 +86,18 @@ func (t *toggle) SetOn(on bool, u *gunim.UI) {
 func (t *toggle) OnFlip(fn func(on bool, u *gunim.UI)) { t.flipped = fn }
 
 func (t *toggle) flip(n gunim.Node, u *gunim.UI) {
-	t.On = !t.On
-	if t.On {
+	t.checked = !t.checked
+	if t.checked {
 		u.Cue(gunim.CueToggleOn, n)
 	} else {
 		u.Cue(gunim.CueToggleOff, n)
 	}
-	t.lit.Animate(value(t.On), Bounce.Get(u.Theme()))
+	t.lit.Animate(value(t.checked), Bounce.Get(u.Theme()))
 	if t.flipped != nil {
-		t.flipped(t.On, u)
+		t.flipped(t.checked, u)
 	}
 	if t.OnChange != nil {
-		u.Send(n, t.OnChange(t.On))
+		u.Send(n, t.OnChange(t.checked))
 	}
 }
 
@@ -160,7 +168,7 @@ func (t *toggle) handle(n gunim.Node, e input.Event, u *gunim.UI) bool {
 func (t *toggle) layout(c gunim.Constraints, f gunim.Frame, mark geom.Size) geom.Size {
 	if !t.laid {
 		t.laid = true
-		t.lit.Jump(value(t.On))
+		t.lit.Jump(value(t.checked))
 	}
 	w, h := mark.W, mark.H
 	if t.Label != "" {

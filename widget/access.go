@@ -93,7 +93,7 @@ func (c *CodeEditor) Access() access.Info {
 // access is what a checkbox or a switch says.
 func (t *toggle) access(role access.Role) access.Info {
 	s := access.StateCheckable
-	if t.On {
+	if t.checked {
 		s |= access.StateChecked
 	}
 	return access.Info{Role: role, Name: t.Label, State: s, Actions: []string{access.ActionPress}}

@@ -281,8 +281,8 @@ func TestADisabledControlTakesNoClick(t *testing.T) {
 	w.Input(input.PointerDown{Pos: geom.Pt(8, 15), Button: input.ButtonPrimary, Clicks: 1})
 	w.Input(input.PointerUp{Pos: geom.Pt(8, 15), Button: input.ButtonPrimary})
 	run(1)
-	if box.On || box.Focusable() {
-		t.Fatalf("disabled, the box is on %v, focusable %v", box.On, box.Focusable())
+	if box.Checked() || box.Focusable() {
+		t.Fatalf("disabled, the box is on %v, focusable %v", box.Checked(), box.Focusable())
 	}
 	pick := NewDropdown("None", "desk")
 	pick.Disabled = true

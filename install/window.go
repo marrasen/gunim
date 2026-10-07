@@ -755,7 +755,7 @@ func buildPage(sc scene) *page {
 		remove := widget.NewButton("Remove")
 		remove.Kind = widget.ButtonDanger
 		remove.OnActivate(func(u *gunim.UI) {
-			u.Send(remove, removed{Data: data != nil && data.On})
+			u.Send(remove, removed{Data: data != nil && data.Checked()})
 		})
 		p.foot = footer(cancel(), remove)
 	case pageRemoved:
@@ -797,7 +797,7 @@ func welcomePage(p *page, sc scene) {
 		var rows []gunim.Node
 		for _, o := range sc.Offers {
 			box := widget.NewCheckbox(o.Label)
-			box.On = o.On
+			box.SetChecked(o.On, nil)
 			boxes = append(boxes, box)
 			keys = append(keys, o.Key)
 			rows = append(rows, box)
@@ -831,7 +831,7 @@ func welcomePage(p *page, sc scene) {
 	pick := func() map[string]bool {
 		picks := map[string]bool{}
 		for i, b := range boxes {
-			picks[keys[i]] = b.On
+			picks[keys[i]] = b.Checked()
 		}
 		return picks
 	}

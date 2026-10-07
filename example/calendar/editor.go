@@ -41,7 +41,7 @@ func newEditor(d Draft) *widget.Dialog {
 		cal.Swatches = append(cal.Swatches, c.Color)
 	}
 	allDay := widget.NewCheckbox("All day")
-	allDay.On = d.AllDay
+	allDay.SetChecked(d.AllDay, nil)
 	end := d.End
 	if d.AllDay && end.After(d.Start) && end.Equal(calendar.Day(end)) && !calendar.SameDay(end, d.Start) {
 		// An all-day event ends at the midnight after its last day, which the field shows as that last day.
@@ -59,7 +59,7 @@ func newEditor(d Draft) *widget.Dialog {
 	showLength := func(u *gunim.UI) {
 		s, e, ok := times(startDay, startTime, endDay, endTime)
 		switch {
-		case allDay.On:
+		case allDay.Checked():
 			days := int(endDay.Value().Sub(startDay.Value()).Hours()/24+0.5) + 1
 			if days <= 1 {
 				lasts.SetText("")
@@ -81,11 +81,11 @@ func newEditor(d Draft) *widget.Dialog {
 	moveEnd := func(u *gunim.UI) {
 		t, _ := startTime.Value()
 		e := startDay.Value().Add(t).Add(length)
-		if allDay.On {
+		if allDay.Checked() {
 			e = startDay.Value().Add(end.Sub(calendar.Day(d.Start)))
 		}
 		endDay.SetValue(calendar.Day(e), u)
-		if !allDay.On {
+		if !allDay.Checked() {
 			endTime.SetValue(e.Sub(calendar.Day(e)), u)
 		}
 		showLength(u)
@@ -145,9 +145,9 @@ func newEditor(d Draft) *widget.Dialog {
 		}
 		s, e, ok := times(startDay, startTime, endDay, endTime)
 		switch {
-		case allDay.On && endDay.Value().Before(startDay.Value()):
+		case allDay.Checked() && endDay.Value().Before(startDay.Value()):
 			return "The event ends before it starts."
-		case allDay.On:
+		case allDay.Checked():
 		case !ok:
 			return "Write the times as 9:30, or 14:00."
 		case !e.After(s):
@@ -157,7 +157,7 @@ func newEditor(d Draft) *widget.Dialog {
 	}
 	dlg.OnAccept = func() gunim.Intent {
 		out := Draft{ID: d.ID, Title: strings.TrimSpace(name.Text()), Location: strings.TrimSpace(where.Text()),
-			Notes: strings.TrimSpace(notes.Text()), AllDay: allDay.On, Repeat: Repeat(repeat.Selected)}
+			Notes: strings.TrimSpace(notes.Text()), AllDay: allDay.Checked(), Repeat: Repeat(repeat.Selected)}
 		if cal.Selected < len(d.Calendars) {
 			out.Calendar = d.Calendars[cal.Selected].ID
 		}
