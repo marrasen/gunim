@@ -126,6 +126,24 @@ func BenchmarkCodeEditorKey(b *testing.B) {
 	benchKeys(b, w)
 }
 
+// BenchmarkCodeEditorComment times opening a comment in the middle of
+// 50 000 lines, which colours every line after it, and closing it.
+func BenchmarkCodeEditorComment(b *testing.B) {
+	w := bigCodeEditor(b)
+	w.Input(input.KeyPress{Key: input.KeyHome})
+	w.Frame(time.Second / 60)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := range b.N {
+		if i%2 == 0 {
+			w.Input(input.TextInput{Text: "/*"})
+		} else {
+			w.Input(input.KeyPress{Key: input.KeyZ, Mods: input.ModControl})
+		}
+		w.Frame(time.Second / 60)
+	}
+}
+
 // bigField returns a text field holding a megabyte on one line, its
 // caret in the middle.
 func bigField(b *testing.B) *gunim.Window {
