@@ -674,3 +674,35 @@ func TestACompactMenubarsWindowTakesThePointerOnItsCardsAlone(t *testing.T) {
 		t.Fatalf("Down twice opened menu %d, want Edit", b.open)
 	}
 }
+
+func TestAMenuTallerThanTheWholeScreenScrollsBesideACompactMenubarsList(t *testing.T) {
+	const top, bottom = -120, 440
+	b, run, move := newRoomStage(t, 200, top, bottom)
+	move(middle(b.list.RowRect(2)))
+	run(40)
+	if b.open != 2 || b.panel.up {
+		t.Fatalf("resting on Font left menu %d open, the list opening above the button %v", b.open, b.panel.up)
+	}
+	pw := b.listPopup.Offscreen()
+	size := pw.Size()
+	if start, end := pw.Anchor().Max.Y, pw.Anchor().Max.Y+size.H; start < top-1 || end > bottom+1 {
+		t.Fatalf("the window runs from %v to %v, past the screen, from %v to %v", start, end, float32(top), float32(bottom))
+	}
+	card := b.panel.sideCard()
+	if card.Min.Y < b.panel.margin-1 || card.Max.Y > size.H-b.panel.margin+1 {
+		t.Fatalf("Font's menu is on a card at %v, want inside the window, %v tall", card, size.H)
+	}
+	if !b.menu.scroll.scrollable() {
+		t.Fatal("Font's 200 lines do not scroll")
+	}
+	b.menu.Key(input.KeyPress{Key: input.KeyEnd}, nil)
+	for f := range 40 {
+		run(1)
+		if at, end := b.menu.scroll.Offset(), b.menu.scroll.end(); at < 0 || at > end+overshoot(end) {
+			t.Fatalf("frame %d: Font's menu scrolled to %v, past its end, %v", f, at, end)
+		}
+	}
+	if r := b.menu.RowRect(199); r.Min.Y < b.menu.card.Min.Y-0.5 || r.Max.Y > b.menu.card.Max.Y+0.5 {
+		t.Fatalf("after End, Font's last line is at %v, outside its card %v", r, b.menu.card)
+	}
+}

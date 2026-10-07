@@ -131,6 +131,24 @@ func (p *barPanel) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Childre
 	lk := kids.At(0)
 	list := lk.Layout(gunim.Loose(c.Max))
 	lc := p.list.card
+	room := driver.NoRoomLimit
+	if p.told {
+		room = p.room
+	}
+
+	// Below the button while the list fits there, as the window is put, else above it.
+	below := room.Below + p.margin
+	p.up = p.told && list.H > below && room.Above > below
+	// A menu beside the list is no taller than the window can be, and scrolls what does not fit: the room above the
+	// button when the panel opens above it, and the room above and below it when it opens below.
+	side := gunim.Loose(c.Max)
+	switch {
+	case p.up:
+		side.Max.H = min(side.Max.H, room.Above-2*p.margin)
+	case p.told:
+		side.Max.H = min(side.Max.H, room.Above+below-2*p.margin)
+	}
+	side.Max.H = max(side.Max.H, 1)
 
 	// Every menu, laid out as it would be beside its line
 	if len(p.probes) != len(p.b.Menus) {
@@ -145,12 +163,8 @@ func (p *barPanel) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Childre
 		} else {
 			p.b.fill(p.probes[i], i)
 		}
-		sizes[i] = p.probes[i].Layout(gunim.Loose(c.Max), f, gunim.Children{})
+		sizes[i] = p.probes[i].Layout(side, f, gunim.Children{})
 		tallest = max(tallest, sizes[i].H)
-	}
-	room := driver.NoRoomLimit
-	if p.told {
-		room = p.room
 	}
 
 	// Right of the list while a menu fits there, else left of it where it fits there, and the window reaches as far left
@@ -172,10 +186,8 @@ func (p *barPanel) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Childre
 		}
 	}
 
-	// Below the button while the list fits there, as the window is put, else above it. The list's card starts at the
-	// button's bottom, its margin down the window, and the cards may reach as far down as the room below the button.
-	below := room.Below + p.margin
-	p.up = p.told && list.H > below && room.Above > below
+	// The list's card starts at the button's bottom, its margin down the window, and the cards may reach as far down
+	// as the room below the button.
 	p.head, p.limit = 0, float32(math.Inf(1))
 	height := list.H
 	switch {
@@ -205,7 +217,7 @@ func (p *barPanel) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Childre
 	open := p.b.menu
 	for i := 1; i < kids.Len(); i++ {
 		k := kids.At(i)
-		s := k.Layout(gunim.Loose(c.Max))
+		s := k.Layout(side)
 		if k.Node() == open && p.b.open >= 0 && p.b.open < len(p.sides) {
 			p.aim(p.cardAt(p.b.open, s.H, f), s, p.sides[p.b.open], f)
 		}

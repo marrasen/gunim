@@ -418,6 +418,13 @@ vec4 shade(out vec4 cover) {
 		} else if (v_param.w > 0.5) {
 			cov = coverage(sdRRect(v_local, v_rect, v_param.x));
 		}
+		// A faded layer fades out toward its bounds' edges, over the
+		// widths in v_extra: left, top, right and bottom.
+		vec4 f = v_extra;
+		if (f.x > 0.0) cov *= clamp((v_local.x - v_rect.x) / f.x, 0.0, 1.0);
+		if (f.y > 0.0) cov *= clamp((v_local.y - v_rect.y) / f.y, 0.0, 1.0);
+		if (f.z > 0.0) cov *= clamp((v_rect.z - v_local.x) / f.z, 0.0, 1.0);
+		if (f.w > 0.0) cov *= clamp((v_rect.w - v_local.y) / f.w, 0.0, 1.0);
 		col = texture(u_tex, v_uv) * v_color0.a * cov;
 	} else if (kind == 5) {
 		// An inset shadow: inside the shape, where the shape moved by
@@ -1167,7 +1174,7 @@ func (r *Renderer) openLayer(op *paint.LayerOp) {
 func (r *Renderer) inPlace(op *paint.LayerOp) (geom.Rect, bool) {
 	o, t := op.Opts, op.Transform
 	switch {
-	case o.Opacity < 1 || o.Blur > 0 || o.Backdrop > 0 || tilted(op):
+	case o.Opacity < 1 || o.Blur > 0 || o.Backdrop > 0 || o.Fade != (geom.Insets{}) || tilted(op):
 		return geom.Rect{}, false
 	case !o.Clip:
 		return r.region(op, false), true
@@ -1241,18 +1248,32 @@ func (r *Renderer) closeLayer() {
 
 // composite queues tex, a window-sized texture, drawn into the bound
 // target at opacity. With clip it covers op's bounds, rounded by
-// radius; without, the whole window. A nil op composites the whole
+// radius; without, the whole window. A layer that fades covers its
+// bounds too, fading toward their edges. A nil op composites the whole
 // window unclipped.
 func (r *Renderer) composite(tex uint32, op *paint.LayerOp, opacity float32, clip bool, radius float32) {
 	r.uses(tex)
 	l := look{kind: kindLayer, color0: [4]float32{0, 0, 0, opacity}}
-	if clip && op != nil {
+	fade := op != nil && op.Opts.Fade != (geom.Insets{})
+	if clip && op != nil || fade {
 		b := op.Opts.Bounds
-		l.rect, l.radius, l.flag = b, radius, true
-		if op.Opts.Ellipse {
-			l.stroke = 1
+		l.rect = b
+		if clip {
+			l.radius, l.flag = radius, true
+			if op.Opts.Ellipse {
+				l.stroke = 1
+			}
 		}
-		r.quad(corners(grow4(b, 2), geom.Rect{}), op.Transform, r.scale, &l)
+		if fade {
+			f := op.Opts.Fade
+			l.extra = [4]float32{max(f.Left, 0), max(f.Top, 0), max(f.Right, 0), max(f.Bottom, 0)}
+		}
+		grow := float32(2)
+		if !clip {
+			// Only the antialiased edge of a clip reaches past the bounds.
+			grow = 0
+		}
+		r.quad(corners(grow4(b, grow), geom.Rect{}), op.Transform, r.scale, &l)
 		return
 	}
 	r.quad(corners(r.window(), geom.Rect{}), paint.Identity, r.scale, &l)

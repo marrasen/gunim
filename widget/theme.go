@@ -247,6 +247,9 @@ var (
 	ScrollbarGrabWidth = theme.Length("scroll.bar.grab.width", 10)
 	// ScrollLine is how far an arrow key scrolls.
 	ScrollLine = theme.Length("scroll.line", 40)
+	// ScrollFade is how far in from its edge what scrolls fades where more of it lies past that edge: a scroll view,
+	// a list, a menu, a row of tabs.
+	ScrollFade = theme.Length("scroll.fade", 24)
 )
 
 // Surface tokens.

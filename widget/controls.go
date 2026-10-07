@@ -681,6 +681,9 @@ func (s *Slider) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 //
 // The row of titles takes focus, and then the arrow keys, Home and End
 // choose a tab. A click on a title chooses it.
+//
+// Titles wider than the row scroll sideways, by the wheel or a finger,
+// and the row brings a newly chosen title into view.
 type Tabs struct {
 	anim.Group
 	Titles []string
@@ -713,14 +716,22 @@ type Tabs struct {
 	// spans holds each title's left and right edge.
 	spans [][2]float32
 	head  float32
+
+	// off is how far the titles are scrolled left, and offTo where they are going. room is the row's width and
+	// wide the titles', from the last layout. shown is the tab last brought into view, or -1.
+	off        *anim.Float
+	offTo      float32
+	room, wide float32
+	shown      int
 }
 
 // NewTabs returns tabs showing pages under titles, the first chosen.
 // The two lists pair up in order.
 func NewTabs(titles []string, pages ...gunim.Node) *Tabs {
-	t := &Tabs{Titles: titles, pages: pages, count: len(pages), prev: -1, line: anim.NewPoint(geom.Point{}), slide: anim.NewFloat(1), ring: anim.NewFloat(0)}
+	t := &Tabs{Titles: titles, pages: pages, count: len(pages), prev: -1, line: anim.NewPoint(geom.Point{}), slide: anim.NewFloat(1), ring: anim.NewFloat(0),
+		off: anim.NewFloat(0), shown: -1}
 	t.bar = &tabBar{t: t}
-	t.Add(t.line, t.slide, t.ring)
+	t.Add(t.line, t.slide, t.ring, t.off)
 	return t
 }
 
@@ -787,11 +798,24 @@ func (b *tabBar) Handle(e input.Event, u *gunim.UI) bool {
 	th := u.Theme()
 	switch e := e.(type) {
 	case input.PointerDown:
+		x := e.Pos.X + t.off.Value()
 		for i, s := range t.spans {
-			if e.Pos.X >= s[0] && e.Pos.X < s[1] {
+			if x >= s[0] && x < s[1] {
 				t.choose(i, u)
 			}
 		}
+	case input.Scroll:
+		// A wheel turns either way along the row; a finger drags it.
+		d := e.Delta.X
+		if d == 0 {
+			d = e.Delta.Y
+		}
+		to := t.clampOff(t.offTo - d)
+		if to == t.offTo {
+			return false
+		}
+		t.scrollTo(to, Quick.Get(th))
+		u.Invalidate()
 	case input.KeyPress:
 		switch e.Key {
 		case input.KeyLeft:
@@ -840,12 +864,50 @@ func (b *tabBar) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) ge
 			t.line.Jump(to)
 		}
 	}
-	t.laid = true
 	w := c.Max.W
 	if w <= 0 {
 		w = x
 	}
+	t.room, t.wide = w, x
+	t.fitOff(th)
+	t.laid = true
 	return geom.Sz(w, t.head)
+}
+
+// tabsRoom is the room the row leaves beside a title it brings into view, so the next title's edge shows.
+const tabsRoom = 24
+
+// fitOff keeps the scroll inside the titles, and brings a newly chosen title into view.
+func (t *Tabs) fitOff(th *theme.Live) {
+	to := t.clampOff(t.offTo)
+	if t.selected != t.shown && t.selected < len(t.spans) {
+		t.shown = t.selected
+		sp := t.spans[t.selected]
+		switch {
+		case sp[0]-tabsRoom < to:
+			to = t.clampOff(sp[0] - tabsRoom)
+		case sp[1]+tabsRoom > to+t.room:
+			to = t.clampOff(sp[1] + tabsRoom - t.room)
+		}
+	}
+	if to == t.offTo {
+		return
+	}
+	if t.laid {
+		t.scrollTo(to, Quick.Get(th))
+	} else {
+		t.offTo = to
+		t.off.Jump(to)
+	}
+}
+
+// clampOff returns x kept between the titles' ends.
+func (t *Tabs) clampOff(x float32) float32 { return max(0, min(x, t.wide-t.room)) }
+
+// scrollTo carries the titles to x with motion.
+func (t *Tabs) scrollTo(x float32, motion anim.Motion) {
+	t.offTo = x
+	t.off.Retarget(x, motion)
 }
 
 // Paint implements [gunim.Node].
@@ -853,6 +915,14 @@ func (b *tabBar) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 	t := b.t
 	th := f.Theme
 	pad := TabPadding.Get(th)
+	p.RRect(geom.Rc(0, t.head-1, box.W, 1), 0, paint.Solid(FieldBorder.Get(th)))
+	if t.wide > t.room {
+		// The titles fade where more of them lie past the edge.
+		at, fade := t.off.Value(), ScrollFade.Get(th)
+		defer p.Layer(paint.LayerOpts{Bounds: geom.Rect{Max: box.Point()}, Opacity: 1, Clip: true,
+			Fade: geom.Insets{Left: fadeFor(at, fade), Right: fadeFor(t.wide-t.room-at, fade)}})()
+	}
+	defer p.Push(paint.Translate(geom.Pt(-t.off.Value(), 0)))()
 	for i := range t.Titles {
 		run := t.shaped[i].run
 		ink := Placeholder.Get(th)
@@ -869,7 +939,6 @@ func (b *tabBar) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 		}
 		run.Paint(p, geom.Pt(x+t.iconRoom(i, th), (t.head-run.Height())/2), ink)
 	}
-	p.RRect(geom.Rc(0, t.head-1, box.W, 1), 0, paint.Solid(FieldBorder.Get(th)))
 	line := t.line.Value()
 	p.RRect(geom.Rect{Min: geom.Pt(line.X, t.head-2.5), Max: geom.Pt(line.Y, t.head-0.5)}, 1, paint.Solid(Accent.Get(th)))
 	if r := t.ring.Value(); r > 0.01 && t.selected < len(t.spans) {

@@ -367,6 +367,11 @@ type LayerOpts struct {
 	// unturned, clips to it in place, with no offscreen pass, as it
 	// does to a rectangle.
 	Ellipse bool
+	// Fade fades the layer out toward each edge of Bounds, over that
+	// many logical pixels in from the edge, as a list fades where it
+	// scrolls on past its edge. A layer that fades shows only within
+	// Bounds, clipping or not. A tilted layer does not fade.
+	Fade geom.Insets
 }
 
 // Layer opens an offscreen group and returns the function that closes

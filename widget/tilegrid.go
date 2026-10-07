@@ -729,7 +729,7 @@ func (g *TileGrid) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gu
 		}
 	}()
 	func() {
-		defer p.Layer(paint.LayerOpts{Bounds: geom.Rect{Max: box.Point()}, Opacity: 1, Clip: true})()
+		defer g.layer(p, geom.Rect{Max: box.Point()}, f.Theme)()
 		offset := g.offset.Value()
 		for kid := range kids.All {
 			tc, ok := kid.Node().(*tileCell)

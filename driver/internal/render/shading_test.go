@@ -178,3 +178,34 @@ func TestAGradientsColoursMatchWhatItBlends(t *testing.T) {
 		}
 	}
 }
+
+func TestAFadedLayerFadesTowardItsEdges(t *testing.T) {
+	r, done := hiddenGL(t)
+	defer done()
+	for _, clip := range []bool{false, true} {
+		pix := drawn(r, func(p *paint.Painter) {
+			defer p.Layer(paint.LayerOpts{Bounds: geom.Rc(100, 100, 200, 100), Opacity: 1, Clip: clip,
+				Fade: geom.Insets{Left: 40, Right: 40}})()
+			// The layer's contents reach past its bounds on every side.
+			p.RRect(geom.Rc(50, 50, 300, 200), 0, paint.Solid(white))
+		})
+		for _, c := range []struct {
+			x, y int
+			want byte
+		}{
+			{200, 150, 0xff}, // the middle, past the fades
+			{150, 150, 0xff}, // just inside the left fade's end
+			{120, 150, 0x80}, // halfway into the left fade
+			{280, 150, 0x80}, // and the right
+			{101, 150, 0x06}, // all but gone at the left edge
+			{200, 102, 0xff}, // the top, which does not fade
+			{90, 150, 0},     // outside the bounds
+			{200, 90, 0},
+			{200, 210, 0},
+		} {
+			if got := pixelAt(pix, c.x, c.y); !near(got, [4]byte{c.want, c.want, c.want, 0xff}, 6) {
+				t.Errorf("clip %v: at (%d, %d) the canvas is %v, want %#x", clip, c.x, c.y, got, c.want)
+			}
+		}
+	}
+}

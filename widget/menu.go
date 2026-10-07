@@ -8,6 +8,7 @@ import (
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
+	"github.com/marrasen/gunim/driver"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/input"
@@ -22,6 +23,10 @@ import (
 // arrow keys reach. The menu fades and unfolds from its top as it
 // opens, and fades as it closes. Where the display server cannot blend
 // windows, the menu fills its window and appears at once.
+//
+// A menu taller than the room it is given, or than the screen leaves
+// it, scrolls: by the wheel, a finger, its bar, and the keys, which
+// keep the highlight in view.
 type Menu struct {
 	anim.Group
 
@@ -83,6 +88,10 @@ type Menu struct {
 	bare bool
 	// pointer and wasPointer are where the pointer last moved on the menu, and where it was the move before.
 	pointer, wasPointer geom.Point
+	// scroll scrolls the rows when they are taller than the card, in the space whose top is the first row's.
+	scroll scrolling
+	// room is how tall the screen lets the menu's window be, from FitPopup, or 0 where nothing says.
+	room float32
 }
 
 // NewMenu returns a menu of items, with nothing highlighted.
@@ -93,8 +102,10 @@ func NewMenu(items ...string) *Menu {
 		hotY:  anim.NewFloat(0),
 		hotOn: anim.NewFloat(0),
 		in:    anim.NewFloat(0),
+
+		scroll: newScrolling(),
 	}
-	m.Add(m.hotY, m.hotOn, m.in)
+	m.Add(m.hotY, m.hotOn, m.in, &m.scroll)
 	return m
 }
 
@@ -151,7 +162,58 @@ func (m *Menu) Highlight(i int) {
 		// Before the first layout there is nowhere to glide from.
 		return
 	}
-	m.hotY.Animate(m.rowY(i), anim.Snappy)
+	m.hotY.Animate(m.rowTop(i), anim.Snappy)
+	m.reveal(i)
+}
+
+// reveal scrolls just far enough to bring item i fully into view.
+func (m *Menu) reveal(i int) {
+	if !m.scroll.scrollable() || i < 0 || i >= len(m.tops) {
+		return
+	}
+	top, at := m.tops[i], m.scroll.base()
+	switch {
+	case top < at:
+		m.scroll.ScrollTo(top, Quick.Get(m.scroll.th))
+	case top+m.row > at+m.scroll.viewport:
+		m.scroll.ScrollTo(top+m.row-m.scroll.viewport, Quick.Get(m.scroll.th))
+	}
+}
+
+// FitPopup implements [gunim.PopupFitter]: the menu keeps to the taller of the room below its anchor and above it,
+// and scrolls what does not fit.
+func (m *Menu) FitPopup(r driver.Room) {
+	m.room = 0
+	if room := max(r.Below, r.Above); !math.IsInf(float64(room), 1) {
+		m.room = room
+	}
+}
+
+// DragsTouch implements [gunim.TouchDragger]: a finger on the bar's thumb drags it, and anywhere else scrolls the
+// rows.
+func (m *Menu) DragsTouch() bool { return m.scroll.DragsTouch() }
+
+// scrolled returns e with its position moved into the scroll's space, whose top is the first row's.
+func (m *Menu) scrolled(e input.Event) input.Event {
+	d := geom.Pt(0, m.card.Min.Y+m.pad)
+	switch e := e.(type) {
+	case input.PointerEnter:
+		e.Pos = e.Pos.Sub(d)
+		return e
+	case input.PointerMove:
+		e.Pos = e.Pos.Sub(d)
+		return e
+	case input.PointerDown:
+		e.Pos = e.Pos.Sub(d)
+		return e
+	case input.PointerUp:
+		e.Pos = e.Pos.Sub(d)
+		return e
+	case input.Scroll:
+		e.Pos = e.Pos.Sub(d)
+		return e
+	}
+	return e
 }
 
 // Highlighted returns the highlighted item, or -1.
@@ -240,6 +302,22 @@ func (m *Menu) Transition(p gunim.Presence, f gunim.Frame) bool {
 // Handle implements [gunim.Handler].
 func (m *Menu) Handle(e input.Event, u *gunim.UI) bool {
 	defer m.toldUnlessPicked(m.hot, m.picks, u)
+	if m.scroll.scrollable() {
+		in := m.scrolled(e)
+		if m.scroll.barEvent(in, u) {
+			return true
+		}
+		switch e := e.(type) {
+		case input.Scroll:
+			m.scroll.handle(in, u)
+			return true
+		case input.PointerUp:
+			if m.scroll.ClaimsPointer(e.Pos) {
+				// The end of a press on the bar's track, which paged.
+				return true
+			}
+		}
+	}
 	switch e := e.(type) {
 	case input.PointerEnter:
 		// The pointer arriving without moving, as when the menu opens
@@ -314,8 +392,11 @@ func (m *Menu) RowRect(i int) geom.Rect {
 	return geom.Rc(m.card.Min.X, m.rowY(i), m.card.Size().W, m.row)
 }
 
-// rowY returns the top of row i in the menu's space.
-func (m *Menu) rowY(i int) float32 {
+// rowY returns the top of row i in the menu's space, where it is scrolled to now.
+func (m *Menu) rowY(i int) float32 { return m.rowTop(i) - m.scroll.Offset() }
+
+// rowTop returns the top of row i in the menu's space, as it is with the menu scrolled to its top.
+func (m *Menu) rowTop(i int) float32 {
 	top := float32(i) * m.row
 	if i >= 0 && i < len(m.tops) {
 		top = m.tops[i]
@@ -360,9 +441,21 @@ func (m *Menu) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom
 		w = max(w, line)
 	}
 	h := y + 2*m.pad
+	limit := c.Max.H
+	if m.room > 0 {
+		limit = min(limit, m.room)
+	}
+	if limit -= 2 * m.margin; limit > 0 && h > limit {
+		// Too tall: the rows scroll, and the menu leaves room at the right for the bar.
+		h = max(limit, m.row+2*m.pad)
+		w += ScrollbarGrabWidth.Get(th)
+	}
 	m.card = geom.Rc(m.margin, m.margin, w, h)
+	m.scroll.fit(y, geom.Sz(m.card.Max.X, h-2*m.pad), th)
 	if m.hot >= 0 && !m.glide {
-		m.hotY.Jump(m.rowY(m.hot))
+		m.hotY.Jump(m.rowTop(m.hot))
+		// The menu opens with the highlighted row in its middle.
+		m.scroll.jumpTo(m.scroll.clamp(m.tops[m.hot] - (m.scroll.viewport-m.row)/2))
 	}
 	m.glide = true
 	return c.Constrain(geom.Sz(w+2*m.margin, h+2*m.margin))
@@ -399,11 +492,17 @@ func (m *Menu) Paint(p *paint.Painter, f gunim.Frame, _ geom.Size, _ gunim.Child
 		p.RRectStroke(card, radius, paint.Fill{}, paint.Stroke{Width: 1, Color: MenuBorder.Get(th)})
 	}
 
+	if m.scroll.scrollable() {
+		// The rows fade where more of them lie past the card's edge.
+		defer m.paintBar(p, f)
+		defer m.scroll.layer(p, card, th)()
+	}
 	if on := m.hotOn.Value(); on > 0.01 {
 		c := MenuHot.Get(th)
 		c.A = uint8(float32(c.A) * min(on, 1))
 		inset := m.pad
-		p.RRect(geom.Rc(card.Min.X+inset, m.hotY.Value(), card.Size().W-2*inset, m.row), max(0, radius-inset), paint.Solid(c))
+		y := m.hotY.Value() - m.scroll.Offset()
+		p.RRect(geom.Rc(card.Min.X+inset, y, card.Size().W-2*inset, m.row), max(0, radius-inset), paint.Solid(c))
 	}
 	ink := Ink.Get(th)
 	dim := ink
@@ -454,6 +553,12 @@ func (m *Menu) Paint(p *paint.Painter, f gunim.Frame, _ geom.Size, _ gunim.Child
 			hint = MenuHint.Get(th)
 		}
 	}
+}
+
+// paintBar draws the scroll bar down the card's right edge.
+func (m *Menu) paintBar(p *paint.Painter, f gunim.Frame) {
+	defer p.Push(paint.Translate(geom.Pt(0, m.card.Min.Y+m.pad)))()
+	m.scroll.paintBar(p, f)
 }
 
 // iconRoom is the room icons take before the items' text, when any item has one or a swatch.
