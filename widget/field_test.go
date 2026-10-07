@@ -132,6 +132,31 @@ func TestClipboardCopiesCutsAndPastes(t *testing.T) {
 	ty.want("abcabc", 6)
 }
 
+func TestCtrlShiftLettersGoOnPastTheField(t *testing.T) {
+	ty := newTyper(t)
+	ty.typeText("abc")
+	ty.key(input.KeyA, input.ModControl|input.ModShift)
+	if a := ty.field.anchor; a != 3 {
+		t.Fatalf("Ctrl+Shift+A moved the anchor to %d, want 3", a)
+	}
+	ty.key(input.KeyA, input.ModControl)
+	for _, k := range []input.Key{input.KeyC, input.KeyX, input.KeyV} {
+		ty.key(k, input.ModControl|input.ModShift)
+		ty.want("abc", 3)
+		if a := ty.field.anchor; a != 0 {
+			t.Fatalf("Ctrl+Shift+%v moved the anchor to %d, want 0", k, a)
+		}
+	}
+	if ty.fr.keys != 4 {
+		t.Fatalf("%d of the four Ctrl+Shift shortcuts reached the window, want all four", ty.fr.keys)
+	}
+	// Ctrl+Shift+Z redoes.
+	ty.key(input.KeyZ, input.ModControl)
+	ty.want("", 0)
+	ty.key(input.KeyZ, input.ModControl|input.ModShift)
+	ty.want("abc", 3)
+}
+
 func TestChangesAndSubmitReachTheApplication(t *testing.T) {
 	ty := newTyper(t)
 	ty.intents()

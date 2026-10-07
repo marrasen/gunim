@@ -658,6 +658,9 @@ func (e *editor) key(k input.KeyPress, u *gunim.UI, n navigator) bool {
 		if !ctrl {
 			return true // typing: the letter arrives as TextInput
 		}
+		if shift {
+			return false // Ctrl+Shift+A, C, X and V are shortcuts for someone else
+		}
 		e.clipboard(k.Key, start, end, u)
 	case input.KeyZ, input.KeyY:
 		if !ctrl {
