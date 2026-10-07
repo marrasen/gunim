@@ -74,6 +74,9 @@ type Shell struct {
 	// Where names the file system, as the title says first, and is empty
 	// where the program gives it no name.
 	Where string
+	// Actions are the program's own items on the context menu of the
+	// items selected.
+	Actions []ItemAction
 	// Pane says the file manager shows in a pane of a window the program
 	// draws, which leaves the window's title, theme and zoom alone.
 	Pane bool
@@ -186,6 +189,21 @@ type Banner struct {
 	Text string
 }
 
+// ItemAction is an item of the program's own on the context menu of the
+// items selected: its label, and the ID the program knows it by. Files
+// offers it for files alone, and One for one item alone.
+type ItemAction struct {
+	Label, ID  string
+	Files, One bool
+}
+
+// ItemActed says the user picked the program's item ID on the context
+// menu of the items at Paths.
+type ItemActed struct {
+	ID    string
+	Paths []string
+}
+
 // BannerDismissed says the user dismissed banner Seq.
 type BannerDismissed struct{ Seq int }
 
@@ -293,6 +311,7 @@ type SidebarMoved struct {
 func init() {
 	gunim.RegisterType[Shell]("files.shell")
 	gunim.RegisterType[BannerDismissed]("files.bannerdismissed")
+	gunim.RegisterType[ItemActed]("files.itemacted")
 	gunim.RegisterType[Listing]("files.listing")
 	gunim.RegisterType[RowBlock]("files.rows")
 	gunim.RegisterType[Selection]("files.selection")

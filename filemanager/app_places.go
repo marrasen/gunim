@@ -39,6 +39,10 @@ func (a *app) handlePlaces(in gunim.Intent) bool {
 			items = a.opts.PlaceMenu(v.Place)
 		}
 		a.patch(PlaceMenuItems{Seq: v.Seq, Items: items})
+	case ItemActed:
+		if a.opts.ItemAction != nil && len(v.Paths) > 0 {
+			go a.opts.ItemAction(a.win, a.fs.ID(), v.Paths, v.ID)
+		}
 	case PlaceCommanded:
 		if a.opts.PlaceCommand != nil {
 			go a.opts.PlaceCommand(a.win, v.Place, v.ID)

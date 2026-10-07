@@ -62,6 +62,13 @@ type Options struct {
 	// PlaceCommand does what the program's item id of place p asks, on a
 	// goroutine of its own. w is the window the menu opened in.
 	PlaceCommand func(w *Window, p Place, id string)
+	// ItemActions are items of the program's own on the context menu of
+	// the items selected, such as View in a reader of its own, and
+	// ItemAction does what one asks, on a goroutine of its own: id is the
+	// action's, w the window the menu opened in, and paths the items, on
+	// the file system of ID fs.
+	ItemActions []ItemAction
+	ItemAction  func(w *Window, fs string, paths []string, id string)
 	// Transfer copies or moves items between file systems, as a drop or a
 	// paste asks, as one of the window's operations: its progress and a
 	// way to stop it show with the window's own, and it asks about names
@@ -294,7 +301,7 @@ func newApp(ctx context.Context, c screen, o Options) (*app, error) {
 	a.shell = Shell{Light: a.prefs.Light, ShowHidden: a.prefs.ShowHidden, ShowPreview: !a.prefs.HidePreview,
 		SystemIcons: a.systemIconsOn(),
 		Sidebar:     a.prefs.Sidebar, FS: a.fs.ID(), Paths: a.ps, NoTrash: tr == nil,
-		Transfers: o.Transfer != nil, PlaceMenu: o.PlaceMenu != nil, Name: o.Name, UploadEdited: a.prefs.UploadEdited}
+		Transfers: o.Transfer != nil, PlaceMenu: o.PlaceMenu != nil, Actions: o.ItemActions, Name: o.Name, UploadEdited: a.prefs.UploadEdited}
 	a.shell.Where, a.shell.Fetches = a.where(), a.fetches()
 	a.nav.sort, a.nav.desc = a.prefs.Sort, a.prefs.Desc
 	return a, nil

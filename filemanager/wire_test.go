@@ -22,6 +22,7 @@ func TestWire(t *testing.T) {
 		Status{Left: "2 items", Right: "1 GB free"},
 		Banner{Seq: 1, Text: "no"},
 		BannerDismissed{Seq: 1},
+		ItemActed{ID: "view", Paths: []string{"/a"}},
 		NeedRows{Gen: 3, Starts: []int{0, 256}},
 		Selected{Gen: 3, Runs: [][2]int{{1, 2}}, Cursor: 1},
 		Activated{Gen: 3, Row: 1},
