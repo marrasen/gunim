@@ -94,6 +94,9 @@ type Days struct {
 	}
 	// hourH is how tall an hour was at the last layout.
 	hourH float32
+	// topHour is the hour [Days.ScrollToHour] asked for before the first layout, while asked is set.
+	topHour float32
+	asked   bool
 	// heads fades the headings in as the grid changes how many days it shows.
 	heads *anim.Float
 	// th is the theme at the last layout, and pointer where the pointer last was, for a drag to go on and the event
@@ -240,8 +243,8 @@ func (d *Days) edgeScroll(dt time.Duration) bool {
 	default:
 		return false
 	}
-	to := d.clampScroll(d.scroll.Value() + min(max(speed, -1), 1)*900*float32(dt.Seconds()))
-	if to == d.scroll.Value() {
+	to := d.clampScroll(d.scrollY() + min(max(speed, -1), 1)*900*float32(dt.Seconds()))
+	if to == d.scrollY() {
 		return false
 	}
 	d.scroll.Jump(to)
@@ -372,8 +375,14 @@ func moving(p *paint.Painter, box geom.Size, slide float32, draw func()) {
 	draw()
 }
 
-// ScrollToHour scrolls the grid so the hour h, such as 7.5 for half past seven, is at its top.
+// ScrollToHour scrolls the grid so the hour h, such as 7.5 for half past seven, is at its top. Asked before the
+// grid is first laid out, the grid starts there.
 func (d *Days) ScrollToHour(h float32, u *gunim.UI) {
+	if !d.laid {
+		d.topHour, d.asked = h, true
+		u.Invalidate()
+		return
+	}
 	d.scroll.Animate(d.clampScroll(h*d.hour()), widget.Quick.Get(u.Theme()))
 }
 
@@ -408,7 +417,7 @@ func (d *Days) hourY(offset time.Duration) float32 { return float32(offset.Hours
 
 // timeY returns where a time offset into a day is down the grid, scrolled.
 func (d *Days) timeY(offset time.Duration) float32 {
-	return d.bodyTop() + d.hourY(offset) - d.scroll.Value()
+	return d.bodyTop() + d.hourY(offset) - d.scrollY()
 }
 
 // onScreen turns a sprite's box into the grid's space.
@@ -416,8 +425,12 @@ func (d *Days) onScreen(s *sprite, r geom.Rect) geom.Rect {
 	if s.long {
 		return r
 	}
-	return r.Add(geom.Pt(0, d.bodyTop()-d.scroll.Value()))
+	return r.Add(geom.Pt(0, d.bodyTop()-d.scrollY()))
 }
+
+// scrollY returns how far the hours are scrolled as drawn, kept within them, so no frame shows past either end of
+// the day.
+func (d *Days) scrollY() float32 { return d.clampScroll(d.scroll.Value()) }
 
 func (d *Days) clampScroll(v float32) float32 {
 	room := 24*d.hour() - (d.box.H - d.bodyTop())
@@ -426,10 +439,22 @@ func (d *Days) clampScroll(v float32) float32 {
 
 // Layout implements [gunim.Node]: it sends each event gliding to its place.
 func (d *Days) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
+	was := d.hourH
 	d.box, d.hourH, d.th = c.Max, HourHeight.Get(f.Theme), f.Theme
 	d.layLong()
-	if !d.laid {
-		d.scroll.Jump(d.clampScroll(7.5 * d.hour()))
+	switch to := d.scroll.Target(); {
+	case !d.laid:
+		h := float32(7.5)
+		if d.asked {
+			h, d.asked = d.topHour, false
+		}
+		d.scroll.Jump(d.clampScroll(h * d.hour()))
+	case was > 0 && was != d.hourH:
+		// The hour at the top stays there as the hours grow or shrink.
+		d.scroll.Jump(d.clampScroll(d.scroll.Value() * d.hourH / was))
+	case d.clampScroll(to) != to:
+		// The grid grew, or the row of whole days shrank, and has less to scroll.
+		d.scroll.Animate(d.clampScroll(to), widget.Quick.Get(f.Theme))
 	}
 	stepped := d.laid && d.Count == d.was.count && !d.First.Equal(d.was.first)
 	jump := !d.laid || d.box != d.was.box
@@ -756,7 +781,7 @@ func (d *Days) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Chi
 				}
 			}
 			if !d.ghost.Target().Empty() && !d.ghostAllDay() {
-				d.paintGhost(p, th, d.ghost.Value().Add(geom.Pt(0, d.bodyTop()-d.scroll.Value())))
+				d.paintGhost(p, th, d.ghost.Value().Add(geom.Pt(0, d.bodyTop()-d.scrollY())))
 			}
 		})
 		// Now, faint across the days shown and bold across today.
@@ -1021,7 +1046,7 @@ func (d *Days) dayAt(x float32) int {
 
 // timeAt returns the time under y on day i, snapped down to the step.
 func (d *Days) timeAt(i int, y float32) time.Time {
-	hours := (y - d.bodyTop() + d.scroll.Value()) / d.hour()
+	hours := (y - d.bodyTop() + d.scrollY()) / d.hour()
 	off := time.Duration(float64(hours) * float64(time.Hour))
 	off = min(max(off, 0), 24*time.Hour)
 	return d.day(i).Add(off.Truncate(d.step()))

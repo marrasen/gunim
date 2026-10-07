@@ -8,6 +8,7 @@ import (
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
+	"github.com/marrasen/gunim/paint"
 )
 
 // click presses and lets go at pt with the primary button, and draws a frame.
@@ -111,6 +112,92 @@ func TestAGlidingEventTakesThePointerWhereItIsDrawn(t *testing.T) {
 	}
 	if gliding == 0 {
 		t.Fatal("the event never glided")
+	}
+}
+
+// frame gives its one child size, which a test can change, and lays it out only once size has some area.
+type frame struct {
+	child gunim.Node
+	size  geom.Size
+}
+
+func (f *frame) Children() []gunim.Node { return []gunim.Node{f.child} }
+
+func (f *frame) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
+	if f.size.W > 0 && f.size.H > 0 {
+		kids.At(0).Layout(gunim.Tight(f.size))
+		kids.At(0).Place(geom.Point{})
+	}
+	return c.Max
+}
+
+func (f *frame) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim.Children) {
+	if f.size.W > 0 && f.size.H > 0 {
+		kids.At(0).Paint(p)
+	}
+}
+
+// awayAllWeek returns n events lasting the whole week shown by newWeek.
+func awayAllWeek(n int) []Event {
+	out := make([]Event, 0, n)
+	for i := range n {
+		out = append(out, Event{ID: "all" + strconv.Itoa(i), Title: "Away", Start: monday,
+			End: monday.Add(7 * 24 * time.Hour), AllDay: true})
+	}
+	return out
+}
+
+func TestTheGridNeverScrollsPastTheEndOfTheDay(t *testing.T) {
+	d := newWeek()
+	d.events = append(d.events, awayAllWeek(2)...)
+	fr := &frame{child: d, size: geom.Sz(800, 600)}
+	w, run, _ := stage(t, fr)
+	check := func(when string) {
+		t.Helper()
+		if end := d.timeY(24 * time.Hour); end < fr.size.H-0.5 {
+			t.Fatalf("%s: midnight is drawn at %v, over %v of blank", when, end, fr.size.H-end)
+		}
+		if top := d.timeY(0); top > d.bodyTop()+0.5 {
+			t.Fatalf("%s: the day starts at %v, under the top of the hours at %v", when, top, d.bodyTop())
+		}
+	}
+	// To the bottom, with the gliding scroll half way there.
+	w.Input(input.Scroll{Pos: geom.Pt(400, 400), Delta: geom.Pt(0, -2000), Time: time.Now()})
+	run(3)
+	steps := []struct {
+		name string
+		do   func()
+	}{
+		{"the row of whole days gone", func() {
+			withUI(t, w, func(u *gunim.UI) { d.SetEvents(d.events[:1], u) })
+		}},
+		{"the window taller", func() { fr.size = geom.Sz(800, 700) }},
+		{"the window shorter, then taller still", func() { fr.size = geom.Sz(800, 400) }},
+		{"the window tallest", func() { fr.size = geom.Sz(800, 900) }},
+	}
+	for _, s := range steps {
+		s.do()
+		for f := range 40 {
+			run(1)
+			check(s.name + ", frame " + strconv.Itoa(f))
+		}
+		w.Input(input.Scroll{Pos: geom.Pt(400, 500), Delta: geom.Pt(0, -2000), Time: time.Now()})
+		run(2)
+	}
+}
+
+func TestScrollToHourBeforeTheFirstLayoutStartsThere(t *testing.T) {
+	d := newWeek()
+	fr := &frame{child: d}
+	w, run, _ := stage(t, fr)
+	withUI(t, w, func(u *gunim.UI) { d.ScrollToHour(13, u) })
+	run(1)
+	fr.size = geom.Sz(800, 600)
+	for f := range 30 {
+		run(1)
+		if top := d.scrollY() / d.hour(); top != 13 {
+			t.Fatalf("frame %d: the grid shows %v hours at its top, want 13", f, top)
+		}
 	}
 }
 
