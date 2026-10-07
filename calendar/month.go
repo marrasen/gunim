@@ -334,10 +334,11 @@ type chip struct {
 }
 
 // chips lays out the month's events. Each week's bars take rows from the top of its days, each in the first row
-// free across its days, and each day's timed events go in the rows left under them.
+// free across its days, and each day's timed events go in the rows left under them. A day with more than fits keeps
+// its last row to say how many more; where a cell has no room for a row, its number's line says so.
 func (m *Month) chips() []chip {
 	var out []chip
-	rows := max(int((m.cellH()-dayNumH-4)/(chipH+chipGap)), 1)
+	rows := max(int((m.cellH()-dayNumH-4)/(chipH+chipGap)), 0)
 	evs := slices.Clone(m.shown())
 	slices.SortStableFunc(evs, func(a, b Event) int {
 		if a.long() != b.long() {
@@ -346,86 +347,103 @@ func (m *Month) chips() []chip {
 		return a.Start.Compare(b.Start)
 	})
 	for week := range 6 {
-		// taken[row][day] says the row is used on that day, and bars that a bar uses it.
-		taken := make([][7]bool, rows)
-		bars := make([][7]bool, rows)
-		hidden := [7]int{}
-		place := func(e Event, first, last int, bar bool) {
-			for r := range rows {
-				free := true
-				for dd := first; dd <= last; dd++ {
-					if taken[r][dd] {
-						free = false
-					}
-				}
-				if !free {
-					continue
-				}
-				for dd := first; dd <= last; dd++ {
-					taken[r][dd], bars[r][dd] = true, bar
-				}
-				// A bar runs from the first day of its days that shows to the last.
-				for first < last && !m.shows(first) {
-					first++
-				}
-				for last > first && !m.shows(last) {
-					last--
-				}
-				if !m.shows(first) {
-					return
-				}
-				c0, c1 := m.cell(week*7+first), m.cell(week*7+last)
-				y := c0.Min.Y + dayNumH + float32(r)*(chipH+chipGap)
-				out = append(out, chip{e: e, bar: bar, box: geom.Rc(c0.Min.X+3, y, c1.Max.X-c0.Min.X-6, chipH)})
-				return
-			}
-			for dd := first; dd <= last; dd++ {
-				hidden[dd]++
-			}
-		}
-		for _, e := range evs {
-			first, last := -1, -1
+		// keep[dd] says day dd keeps its last row to say how many more. A day that turns out to have more than fits
+		// keeps it, and the week is laid out again, until each day with more has its last row free.
+		var keep [7]bool
+		var placed []chip
+		var hidden [7]int
+		for {
+			placed, hidden = m.weekChips(week, evs, rows, keep)
+			again := false
 			for dd := range 7 {
-				if e.covers(m.day(week*7 + dd)) {
-					if first < 0 {
-						first = dd
-					}
-					last = dd
+				if hidden[dd] > 0 && !keep[dd] && rows > 0 {
+					keep[dd], again = true, true
 				}
 			}
-			if first < 0 {
-				continue
-			}
-			if e.long() {
-				place(e, first, last, true)
-				continue
-			}
-			for dd := first; dd <= last; dd++ {
-				if m.shows(dd) {
-					place(e, dd, dd, false)
-				}
+			if !again {
+				break
 			}
 		}
-		// A day with events that did not fit gives up its last line to say how many more, unless a bar holds it.
+		out = append(out, placed...)
 		for dd := range 7 {
-			if hidden[dd] == 0 || bars[rows-1][dd] || !m.shows(dd) {
+			if hidden[dd] == 0 || !m.shows(dd) {
 				continue
 			}
 			cell := week*7 + dd
 			c := m.cell(cell)
-			y := c.Min.Y + dayNumH + float32(rows-1)*(chipH+chipGap)
-			n := hidden[dd]
-			out = slices.DeleteFunc(out, func(ch chip) bool {
-				if !ch.bar && ch.box.Min.Y == y && ch.box.Min.X == c.Min.X+3 {
-					n++
-					return true
-				}
-				return false
-			})
-			out = append(out, chip{more: n, cell: cell, box: geom.Rc(c.Min.X+3, y, c.Size().W-6, chipH)})
+			box := geom.Rc(c.Min.X+3, c.Min.Y+dayNumH+float32(rows-1)*(chipH+chipGap), c.Size().W-6, chipH)
+			if rows == 0 {
+				// No room for a row: the right half of the number's line.
+				box = geom.Rc(c.Center().X, c.Min.Y, c.Size().W/2-3, min(dayNumH, c.Size().H))
+			}
+			out = append(out, chip{more: hidden[dd], cell: cell, box: box})
 		}
 	}
 	return out
+}
+
+// weekChips lays out the events evs in week, given rows to a day, each in the first row free across its days. A
+// day in keep holds its last row free. It returns the chips, and how many events of each day found no row.
+func (m *Month) weekChips(week int, evs []Event, rows int, keep [7]bool) (out []chip, hidden [7]int) {
+	// taken[row][day] says the row is used on that day.
+	taken := make([][7]bool, rows)
+	place := func(e Event, first, last int, bar bool) {
+		for r := range rows {
+			free := true
+			for dd := first; dd <= last; dd++ {
+				if taken[r][dd] || (keep[dd] && r == rows-1) {
+					free = false
+				}
+			}
+			if !free {
+				continue
+			}
+			for dd := first; dd <= last; dd++ {
+				taken[r][dd] = true
+			}
+			// A bar runs from the first day of its days that shows to the last.
+			for first < last && !m.shows(first) {
+				first++
+			}
+			for last > first && !m.shows(last) {
+				last--
+			}
+			if !m.shows(first) {
+				return
+			}
+			c0, c1 := m.cell(week*7+first), m.cell(week*7+last)
+			y := c0.Min.Y + dayNumH + float32(r)*(chipH+chipGap)
+			out = append(out, chip{e: e, bar: bar, box: geom.Rc(c0.Min.X+3, y, c1.Max.X-c0.Min.X-6, chipH)})
+			return
+		}
+		for dd := first; dd <= last; dd++ {
+			hidden[dd]++
+		}
+	}
+	for _, e := range evs {
+		first, last := -1, -1
+		for dd := range 7 {
+			if e.covers(m.day(week*7 + dd)) {
+				if first < 0 {
+					first = dd
+				}
+				last = dd
+			}
+		}
+		if first < 0 {
+			continue
+		}
+		if e.long() {
+			place(e, first, last, true)
+			continue
+		}
+		for dd := first; dd <= last; dd++ {
+			if m.shows(dd) {
+				place(e, dd, dd, false)
+			}
+		}
+	}
+	return out, hidden
 }
 
 // shown returns the events, with the one being dragged on the day it is over.
@@ -517,7 +535,12 @@ func (m *Month) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Ch
 func (m *Month) paintChip(p *paint.Painter, th *theme.Live, ch chip) {
 	size := EventText.Get(th)
 	r := ch.box
-	t := m.paragraph(th, strconv.Itoa(ch.more)+" more", r.Size().W-8, true, size)
+	label := strconv.Itoa(ch.more) + " more"
+	if r.Size().H < chipH {
+		// On the line of the day's number.
+		label = "+" + strconv.Itoa(ch.more)
+	}
+	t := m.paragraph(th, label, r.Size().W-8, true, size)
 	t.Paint(p, geom.Pt(r.Min.X+6, r.Center().Y-t.Size.H/2), widget.PaletteHint.Get(th))
 }
 

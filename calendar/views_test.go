@@ -28,21 +28,27 @@ type (
 )
 
 // stage shows n in an offscreen window 800 by 600, and returns it with a way to draw frames and the intents sent.
-func stage(t *testing.T, n gunim.Node) (*gunim.Window, func(int), func() []gunim.Intent) {
+func stage(t *testing.T, n gunim.Node) (w *gunim.Window, run func(int), sent func() []gunim.Intent) {
 	t.Helper()
-	w := gunimtest.New(t, geom.Sz(800, 600), nil)
+	return stageAt(t, n, geom.Sz(800, 600))
+}
+
+// stageAt shows n in an offscreen window of size, as stage does.
+func stageAt(t *testing.T, n gunim.Node, size geom.Size) (w *gunim.Window, run func(int), sent func() []gunim.Intent) {
+	t.Helper()
+	w = gunimtest.New(t, size, nil)
 	gunim.RegisterView(w, "v", func(struct{}) gunim.Node { return n }, nil)
 	gunim.RegisterPatch(w, "v", func(_ gunim.Node, call uiCall, u *gunim.UI) { call(u) })
 	if err := w.Client().Mount(gunim.Root, "v", "v", nil, "v"); err != nil {
 		t.Fatal(err)
 	}
-	run := func(k int) {
+	run = func(k int) {
 		for range k {
 			w.Frame(time.Second / 60)
 		}
 	}
 	run(2)
-	sent := func() []gunim.Intent {
+	sent = func() []gunim.Intent {
 		var out []gunim.Intent
 		for {
 			select {
