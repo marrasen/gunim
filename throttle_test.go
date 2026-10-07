@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/marrasen/gunim/anim"
+	"github.com/marrasen/gunim/driver"
 )
 
 // counted is a view that records how often its update ran, so a test
@@ -302,5 +303,35 @@ func TestADueTimerWaitsForTheFrameInFlight(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("the frame shown left the loop asleep")
+	}
+}
+
+// Out of sight, a window draws no frames, so a timer that comes due
+// cannot run until it is back. The loop sleeps until then. Armed
+// anyway, the timer would fire at every wait and spin one core for as
+// long as the window stayed hidden or covered.
+func TestADueTimerWaitsForAWindowOutOfSight(t *testing.T) {
+	for _, away := range []struct {
+		name string
+		ev   any
+	}{
+		{"hidden", driver.WindowShown{Shown: false}},
+		{"covered", driver.WindowCovered{Covered: true}},
+	} {
+		t.Run(away.name, func(t *testing.T) {
+			w := newTestWindow()
+			w.Frame(time.Second / 60)
+			w.Input(away.ev)
+			w.ui.After(0, func(*UI) {})
+			woke := make(chan bool, 1)
+			go func() { woke <- w.wait() }()
+			select {
+			case <-woke:
+				t.Fatal("the loop woke for a timer it cannot run while out of sight")
+			case <-time.After(100 * time.Millisecond):
+			}
+			w.wake <- struct{}{}
+			<-woke
+		})
 	}
 }
