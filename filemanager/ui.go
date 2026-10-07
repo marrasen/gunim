@@ -70,7 +70,7 @@ type browser struct {
 }
 
 func newBrowser() *browser {
-	b := &browser{toasts: &widget.Toasts{}, icons: map[string]SystemIcon{}}
+	b := &browser{toasts: widget.NewToasts(), icons: map[string]SystemIcon{}}
 	b.title = newTitleBar(b)
 	b.path = newPathBar(b)
 	b.banner = newBannerView(b.focusListing)

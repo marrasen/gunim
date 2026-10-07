@@ -36,9 +36,9 @@ const splitMin = 48
 // divider evens the panes out.
 type Split struct {
 	anim.Group
-	// Vertical stacks the panes one above the other; otherwise they
-	// sit side by side.
-	Vertical bool
+	// Axis lays the panes side by side, which is the zero value, or one
+	// above the other with [Vertical].
+	Axis Axis
 	// Fixed keeps the first pane's length, in logical pixels, as the
 	// space changes, as a sidebar does. Share and SetShare then count
 	// that length, where they otherwise count a share from 0 to 1.
@@ -112,7 +112,7 @@ func (s *Split) SetShare(v float32, motion anim.Motion) {
 }
 
 func (s *Split) along(p geom.Point) float32 {
-	if s.Vertical {
+	if s.Axis == Vertical {
 		return p.Y
 	}
 	return p.X
@@ -152,7 +152,7 @@ func (s *Split) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) 
 	own := c.Max
 	s.own = own
 	s.length = own.W
-	if s.Vertical {
+	if s.Axis == Vertical {
 		s.length = own.H
 	}
 	s.gap = s.room(SplitGap.Get(f.Theme))
@@ -175,7 +175,7 @@ func (s *Split) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) 
 func (s *Split) place(kid gunim.Child, at, length float32, own geom.Size) {
 	size := geom.Sz(length, own.H)
 	pos := geom.Pt(at, 0)
-	if s.Vertical {
+	if s.Axis == Vertical {
 		size, pos = geom.Sz(own.W, length), geom.Pt(0, at)
 	}
 	kid.Layout(gunim.Tight(size))
@@ -199,7 +199,7 @@ func (s *Split) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim
 	at := s.firstLength() + s.gap/2
 	width := 1 + s.hot.Value()
 	r := geom.Rc(at-width/2, 0, width, box.H)
-	if s.Vertical {
+	if s.Axis == Vertical {
 		r = geom.Rc(0, at-width/2, box.W, width)
 	}
 	p.RRect(r, 0, paint.Solid(line))
@@ -218,7 +218,7 @@ func (s *Split) Cursor(p geom.Point) input.Cursor {
 	if !s.held && !s.inGap(p) {
 		return input.CursorArrow
 	}
-	if s.Vertical {
+	if s.Axis == Vertical {
 		return input.CursorResizeV
 	}
 	return input.CursorResizeH

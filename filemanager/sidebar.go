@@ -104,7 +104,7 @@ func newSidebar() *sidebar {
 	// puts the sections in another order. The headings take the keyboard
 	// themselves.
 	s.sections.OnClick = func(k widget.Key) gunim.Intent { return s.toggle(string(k)) }
-	s.sections.ClickOnce, s.sections.NoFocus = true, true
+	s.sections.ClickOnce, s.sections.SkipFocus = true, true
 	s.sections.Reorder = func(keys []widget.Key) gunim.Intent {
 		order := make([]string, len(keys))
 		for i, k := range keys {

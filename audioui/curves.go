@@ -98,6 +98,12 @@ type CurveView struct {
 	Right float32
 }
 
+// NewCurveView returns a view of the curves over area, time placed across by x, every curve shown in full, and the
+// scale's labels ending at area's right edge.
+func NewCurveView(area geom.Rect, x func(t float64) float32) *CurveView {
+	return &CurveView{Area: area, X: x, Fade: [4]float32{1, 1, 1, 1}, Alpha: 1, Right: area.Max.X}
+}
+
 // CurveColor is the colour of a curve, at alpha a: the momentary
 // loudness faint ink, the short-term Short, the integrated Near, and
 // the range Spread.

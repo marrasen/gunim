@@ -25,6 +25,9 @@ type Spectrogram struct {
 	keep   int
 }
 
+// NewSpectrogram returns an empty spectrogram.
+func NewSpectrogram() *Spectrogram { return &Spectrogram{} }
+
 // GramTile is how many columns a spectrogram's tile holds.
 const GramTile = 32
 

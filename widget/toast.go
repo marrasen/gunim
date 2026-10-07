@@ -149,6 +149,9 @@ type Toasts struct {
 	skip int
 }
 
+// NewToasts returns an empty stack of toasts, each staying five seconds.
+func NewToasts() *Toasts { return &Toasts{} }
+
 // Show adds a toast to the stack. One with the key of a toast showing
 // takes its place. A toast that asks stays until it is answered.
 func (t *Toasts) Show(to Toast, u *gunim.UI) {

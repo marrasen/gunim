@@ -119,7 +119,7 @@ func (s *Split) Access() access.Info {
 	}
 	at := s.firstLength()
 	bounds := geom.Rc(at, 0, s.gap, s.own.H)
-	if s.Vertical {
+	if s.Axis == Vertical {
 		bounds = geom.Rc(0, at, s.own.W, s.gap)
 	}
 	return access.Info{Role: access.RoleGroup, Parts: []access.Info{{

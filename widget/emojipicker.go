@@ -48,6 +48,9 @@ type EmojiPicker struct {
 	back  gunim.Node
 }
 
+// NewEmojiPicker returns a closed picker with no recent emoji.
+func NewEmojiPicker() *EmojiPicker { return &EmojiPicker{} }
+
 // Open opens the picker in a popup attached to anchor, a rectangle in opener's space.
 func (e *EmojiPicker) Open(opener gunim.Node, anchor geom.Rect, u *gunim.UI) {
 	if e.IsOpen() {

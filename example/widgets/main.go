@@ -237,7 +237,7 @@ func buildGallery(Gallery) *gallery {
 
 	list := widget.NewList()
 	body := &galleryPage{parts: []gunim.Node{header, icons(), moreIcons(), callout, notes}, list: widget.NewScroll(list)}
-	return &gallery{page: widget.NewScroll(widget.NewPad(body)), body: body, list: list, toasts: &widget.Toasts{}}
+	return &gallery{page: widget.NewScroll(widget.NewPad(body)), body: body, list: list, toasts: widget.NewToasts()}
 }
 
 // minList is the least height the list of cards keeps, in logical

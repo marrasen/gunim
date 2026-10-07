@@ -285,7 +285,7 @@ func TestTabsCanBeSelectedBeforeTheirPagesArrive(t *testing.T) {
 }
 
 func TestFaderRunsUpTheHeight(t *testing.T) {
-	s := NewFader(0, 100)
+	s := NewVerticalSlider(0, 100)
 	s.Snap = 1
 	s.OnChange = func(v float32) gunim.Intent { return slid{v} }
 	w, run := stage(t, &frame{child: s, size: geom.Sz(28, 218)})
@@ -311,7 +311,7 @@ func TestFaderRunsUpTheHeight(t *testing.T) {
 }
 
 func TestFaderFillsTheHeightItIsGiven(t *testing.T) {
-	s := NewFader(0, 1)
+	s := NewVerticalSlider(0, 1)
 	w, run := stage(t, &frame{child: s, size: geom.Sz(40, 300)})
 	run(1)
 	_ = w

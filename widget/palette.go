@@ -108,6 +108,9 @@ type Palette struct {
 	picking bool
 }
 
+// NewPalette returns a closed palette of items.
+func NewPalette(items ...PaletteItem) *Palette { return &Palette{Items: items} }
+
 // Open opens the palette in a popup attached to anchor, a rectangle in
 // opener's space: centred on it, just below its top edge.
 func (p *Palette) Open(opener gunim.Node, anchor geom.Rect, u *gunim.UI) {

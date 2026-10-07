@@ -28,10 +28,10 @@ var (
 // too long for its share ends in an ellipsis.
 type Segmented struct {
 	anim.Group
-	// Labels and Icons are the options, in order: an icon, a label or both. The longer of the two sets how many
-	// options there are.
-	Labels []string
-	Icons  []*icon.Icon
+	// Items are the options' labels and Icons their icons, in order: an icon, a label or both. The longer
+	// of the two sets how many options there are.
+	Items []string
+	Icons []*icon.Icon
 	// IconSize, when set, is the icons' size in place of [IconSize].
 	IconSize theme.Token[float32]
 	// Track, when set, fills the track in place of [FieldFill].
@@ -58,13 +58,13 @@ type Segmented struct {
 
 // NewSegmented returns a segmented control of labels, the first chosen.
 func NewSegmented(labels ...string) *Segmented {
-	s := &Segmented{Labels: labels, pill: anim.NewFloat(0), ring: anim.NewFloat(0), hot: -1}
+	s := &Segmented{Items: labels, pill: anim.NewFloat(0), ring: anim.NewFloat(0), hot: -1}
 	s.Add(s.pill, s.ring)
 	return s
 }
 
 // Len returns how many options there are.
-func (s *Segmented) Len() int { return max(len(s.Labels), len(s.Icons)) }
+func (s *Segmented) Len() int { return max(len(s.Items), len(s.Icons)) }
 
 // Selected returns the chosen option.
 func (s *Segmented) Selected() int { return s.selected }
@@ -171,10 +171,10 @@ func (s *Segmented) icon(i int) *icon.Icon {
 
 // label returns option i's label, or "".
 func (s *Segmented) label(i int) string {
-	if i < 0 || i >= len(s.Labels) {
+	if i < 0 || i >= len(s.Items) {
 		return ""
 	}
-	return s.Labels[i]
+	return s.Items[i]
 }
 
 // iconSize is the size the control draws its icons at.

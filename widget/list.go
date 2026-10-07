@@ -48,10 +48,12 @@ type List struct {
 	// as one click, as a link takes them, so a row that goes somewhere
 	// goes there once.
 	ClickOnce bool
-	// NoFocus keeps a list with OnClick from taking the keyboard, for
-	// rows that take it themselves: the pointer still clicks and drags
-	// the rows, and the keys go by to what holds the list.
-	NoFocus bool
+	// SkipFocus passes the keyboard by a list with OnClick, for rows that
+	// take it themselves: Tab goes past the list, a click leaves the
+	// keyboard where it is, and the keys go on to what holds the list.
+	// The pointer still clicks and drags the rows. [Button.KeepFocus] is
+	// the milder option: Tab still reaches what has it.
+	SkipFocus bool
 
 	rows   map[Key]*row
 	order  []Key
@@ -327,7 +329,7 @@ func (l *List) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.
 }
 
 // Focusable implements [gunim.Focusable]: a list with OnClick set takes focus.
-func (l *List) Focusable() bool { return l.OnClick != nil && !l.NoFocus }
+func (l *List) Focusable() bool { return l.OnClick != nil && !l.SkipFocus }
 
 // Cursor returns the row the keys work on, if it is still in the list.
 func (l *List) Cursor() (Key, bool) {
@@ -367,7 +369,7 @@ func (l *List) moveCursor(keys []Key, i int, u *gunim.UI) {
 
 // key works the cursor: Up, Down, Home and End move it, and Enter or Space clicks its row.
 func (l *List) key(e input.KeyPress, u *gunim.UI) bool {
-	if l.OnClick == nil || l.NoFocus || e.Mods.Has(input.ModControl) || e.Mods.Has(input.ModAlt) {
+	if l.OnClick == nil || l.SkipFocus || e.Mods.Has(input.ModControl) || e.Mods.Has(input.ModAlt) {
 		return false
 	}
 	keys := l.live()

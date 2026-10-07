@@ -156,7 +156,7 @@ func TestASpectrumRisesAtOnceAndFallsSlowly(t *testing.T) {
 }
 
 func TestASpectrogramKeepsTheTilesItShows(t *testing.T) {
-	var g Spectrogram
+	g := NewSpectrogram()
 	g.keep = 3
 	col := make([]float32, 120)
 	for range 10 * GramTile {

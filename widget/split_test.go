@@ -38,7 +38,7 @@ func TestASplitGivesEachPaneItsShare(t *testing.T) {
 		t.Fatalf("the first pane is %v wide, want 200", a)
 	}
 	_, s2, run := newSplitStage(t)
-	s2.Vertical = true
+	s2.Axis = Vertical
 	s2.SetShare(0.25, nil)
 	run(1)
 	// 300 tall, less the gap, a quarter of it.

@@ -61,6 +61,9 @@ const (
 	echoBeat  = 1400 * time.Millisecond
 )
 
+// NewEcho returns an echo for a window with the round corners of Windows 11.
+func NewEcho() *Echo { return &Echo{} }
+
 // Ping sends a ping out, in tone: EchoProblem, EchoDone, EchoCall, or
 // a token of the application's own. A ping while the last is still
 // travelling joins it, in the same popup.

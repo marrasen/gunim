@@ -151,8 +151,9 @@ func buildCal(s Cal) *calView {
 	pane := &panel{child: main, fill: PaneFill}
 	v.root = widget.Row(sidebar, pane).Grow(pane, 1)
 	v.root.Cross, v.root.Gap = widget.CrossStretch, noGap
-	v.toasts = &widget.Toasts{}
-	v.palette = &widget.Palette{Placeholder: "Find an event by its title, place or notes"}
+	v.toasts = widget.NewToasts()
+	v.palette = widget.NewPalette()
+	v.palette.Placeholder = "Find an event by its title, place or notes"
 	v.palette.Search = func(q string, u *gunim.UI) { u.Send(v, SearchAsked{Query: q}) }
 	v.palette.Pick = func(i int, u *gunim.UI) {
 		if i < len(v.found) {

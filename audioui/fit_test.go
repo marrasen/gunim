@@ -76,7 +76,7 @@ func TestMeterAndPitchLabelsKeepToTheirWidth(t *testing.T) {
 	l := NewLevels()
 	l.Top = [2]float32{-0.1, -88.8}
 	var p paint.Painter
-	PaintMeter(&p, nil, geom.Rc(10, 40, MeterW, 200), &l)
+	PaintMeter(&p, nil, geom.Rc(10, 40, MeterW, 200), l)
 	keptAcross(t, p.Ops(), 10, 10+MeterW, "a meter")
 	for _, w := range []float32{60, 150, 190, 400} {
 		p.Reset()

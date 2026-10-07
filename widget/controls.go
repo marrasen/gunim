@@ -363,9 +363,9 @@ func NewSlider(lo, hi float32) *Slider {
 	return s
 }
 
-// NewFader returns a vertical slider from lo to hi, at lo, with hi at
+// NewVerticalSlider returns a vertical slider from lo to hi, at lo, with hi at
 // the top.
-func NewFader(lo, hi float32) *Slider {
+func NewVerticalSlider(lo, hi float32) *Slider {
 	s := NewSlider(lo, hi)
 	s.Axis = Vertical
 	return s
