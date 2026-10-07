@@ -409,7 +409,7 @@ func (r *treeRow) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.
 		run.Paint(p, geom.Pt(right, (box.H-run.Height())/2), quiet)
 		right -= 10
 	}
-	para := cellText(&r.name, faceIn(it.Face, th), it.Text, size, max(right-x, 1))
+	para, _ := cellText(&r.name, faceIn(it.Face, th), it.Text, size, max(right-x, 1))
 	r.cut = para.Truncated || len(para.Lines) > 0 && para.Size.W > right-x+0.5
 	para.Paint(p, geom.Pt(x, (box.H-para.Size.H)/2), ink)
 }

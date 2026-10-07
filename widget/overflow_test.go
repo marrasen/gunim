@@ -9,18 +9,22 @@ import (
 	"github.com/marrasen/gunim/paint"
 )
 
-// spill is a text or mask op that shows outside where it should: what it is and how far across it shows.
+// spill is a text or mask op as it shows, past the clip layers round it: what it is, and where it shows.
 type spill struct {
-	what   string
-	x0, x1 float32
+	what string
+	r    geom.Rect
 }
 
-// spillsOutside returns the text and mask ops among ops whose part left showing by the clip layers round them
-// reaches across x outside from to to, by more than half a pixel. It takes the ops' transforms as moves only, and a
-// run of text as reaching from its first glyph to a third of its size past its last.
-func spillsOutside(ops []paint.Op, from, to, top, bottom float32) []spill {
+// shownOps returns the text and mask ops among ops that show, each where the clip layers round it leave it
+// showing. It takes the ops' transforms as moves only, and a run of text as reaching from its first glyph to a
+// third of its size past its last.
+func shownOps(ops []paint.Op) []spill {
 	var out []spill
 	clips := []geom.Rect{{Min: geom.Pt(-1e9, -1e9), Max: geom.Pt(1e9, 1e9)}}
+	meet := func(a, b geom.Rect) geom.Rect {
+		return geom.Rect{Min: geom.Pt(max(a.Min.X, b.Min.X), max(a.Min.Y, b.Min.Y)),
+			Max: geom.Pt(min(a.Max.X, b.Max.X), min(a.Max.Y, b.Max.Y))}
+	}
 	for _, op := range ops {
 		var what string
 		var r geom.Rect
@@ -28,9 +32,7 @@ func spillsOutside(ops []paint.Op, from, to, top, bottom float32) []spill {
 		case *paint.LayerOp:
 			c := clips[len(clips)-1]
 			if o.Opts.Clip {
-				b := o.Opts.Bounds.Add(geom.Pt(o.Transform.C, o.Transform.F))
-				c = geom.Rect{Min: geom.Pt(max(c.Min.X, b.Min.X), max(c.Min.Y, b.Min.Y)),
-					Max: geom.Pt(min(c.Max.X, b.Max.X), min(c.Max.Y, b.Max.Y))}
+				c = meet(c, o.Opts.Bounds.Add(geom.Pt(o.Transform.C, o.Transform.F)))
 			}
 			clips = append(clips, c)
 			continue
@@ -41,8 +43,7 @@ func spillsOutside(ops []paint.Op, from, to, top, bottom float32) []spill {
 			if len(o.Glyphs) == 0 {
 				continue
 			}
-			x := o.Transform.C
-			y := o.Transform.F
+			x, y := o.Transform.C, o.Transform.F
 			what = "text"
 			r = geom.Rect{Min: geom.Pt(x+o.Glyphs[0].At.X, y), Max: geom.Pt(x+o.Glyphs[len(o.Glyphs)-1].At.X+o.Size/3, y+o.Size)}
 		case *paint.MaskOp:
@@ -51,14 +52,23 @@ func spillsOutside(ops []paint.Op, from, to, top, bottom float32) []spill {
 		default:
 			continue
 		}
-		c := clips[len(clips)-1]
-		x0, x1 := max(r.Min.X, c.Min.X), min(r.Max.X, c.Max.X)
-		y0, y1 := max(r.Min.Y, c.Min.Y), min(r.Max.Y, c.Max.Y)
-		if x1 <= x0 || y1 <= y0 || y1 <= top || y0 >= bottom {
+		if s := meet(r, clips[len(clips)-1]); s.Max.X > s.Min.X && s.Max.Y > s.Min.Y {
+			out = append(out, spill{what, s})
+		}
+	}
+	return out
+}
+
+// spillsOutside returns the text and mask ops among ops that show between top and bottom and reach across x
+// outside from to to, by more than half a pixel.
+func spillsOutside(ops []paint.Op, from, to, top, bottom float32) []spill {
+	var out []spill
+	for _, s := range shownOps(ops) {
+		if s.r.Max.Y <= top || s.r.Min.Y >= bottom {
 			continue
 		}
-		if x0 < from-0.5 || x1 > to+0.5 {
-			out = append(out, spill{what + " at y=" + strconv.Itoa(int(r.Min.Y)), x0, x1})
+		if s.r.Min.X < from-0.5 || s.r.Max.X > to+0.5 {
+			out = append(out, s)
 		}
 	}
 	return out
