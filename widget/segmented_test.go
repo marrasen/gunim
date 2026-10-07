@@ -111,6 +111,28 @@ func TestASegmentedFitsTheWidthItIsGiven(t *testing.T) {
 	}
 }
 
+func TestASegmentedInANarrowRowDrawsInsideItsBox(t *testing.T) {
+	s := NewSegmented("Monday", "Tuesday", "Wednesday", "Thursday", "Friday")
+	s.SetSelected(4, nil)
+	s.OnChange = func(i int) gunim.Intent { return segmentChosen{i} }
+	w, run := stage(t, &frame{child: Row(s), size: geom.Sz(200, 100)})
+	run(1)
+	if s.size.W > 200 {
+		t.Fatalf("in a 200 px row the control is %v wide", s.size.W)
+	}
+	if bad := spills(painted(s, s.size), s.size, ringReach); len(bad) > 0 {
+		t.Fatalf("the control drew past its %v box: %v", s.size, bad)
+	}
+	// Every option takes a click on its own share.
+	for i := range 4 {
+		click(w, (float32(i)+0.5)*s.size.W/5, s.size.H/2)
+		run(1)
+		if s.Selected() != i {
+			t.Fatalf("a click on option %d's share chose %d", i, s.Selected())
+		}
+	}
+}
+
 // sized lays its child out exactly w wide.
 type sized struct {
 	w     float32
