@@ -1053,8 +1053,11 @@ func (t *Tabs) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) g
 	}
 	page := geom.Sz(size.W, max(0, size.H-t.head))
 	var tallest float32
+	// Asked for no particular height, the tabs are as tall as their tallest page, so a dialog holding them keeps its
+	// size from tab to tab; every page is measured for that. Given a height, only the pages showing are laid out.
+	measure := size.H <= 0
 	for i := 1; i < kids.Len(); i++ {
-		if i-1 != t.selected && i-1 != t.prev {
+		if !measure && i-1 != t.selected && i-1 != t.prev {
 			continue
 		}
 		kid := kids.At(i)

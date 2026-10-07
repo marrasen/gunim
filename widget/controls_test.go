@@ -185,6 +185,32 @@ func TestTabsLayOutOnlyThePagesShowing(t *testing.T) {
 	}
 }
 
+func TestTabsAskedForNoHeightKeepTheTallestPagesHeight(t *testing.T) {
+	tabs := NewTabs([]string{"Short", "Tall"}, newSpot(300, 100), newSpot(300, 300))
+	// A Scroll lays its child out with no height of its own, as a dialog measures its body.
+	sc := NewScroll(tabs)
+	w, run := stage(t, &frame{child: sc, size: geom.Sz(300, 600)})
+	gunim.RegisterPatch(w, "stage", func(_ gunim.Node, c chooseTab, u *gunim.UI) { tabs.Select(c.I, u) })
+	run(2)
+	want := tabs.head + 300
+	if err := w.Client().Patch("stage", chooseTab{1}); err != nil {
+		t.Fatal(err)
+	}
+	for f := range 60 {
+		run(1)
+		if got := sc.content; got != want {
+			t.Fatalf("frame %d of the switch: the tabs are %v tall, want the tallest page's %v", f, got, want)
+		}
+	}
+	if err := w.Client().Patch("stage", chooseTab{0}); err != nil {
+		t.Fatal(err)
+	}
+	run(60)
+	if got := sc.content; got != want {
+		t.Fatalf("back on the short page the tabs are %v tall, want %v", got, want)
+	}
+}
+
 // recorder fills the space it is given and takes every pointer press.
 type recorder struct{ events []input.Event }
 
