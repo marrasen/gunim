@@ -313,6 +313,8 @@ var (
 	TooltipSize    = theme.Length("tooltip.size", 12.5)
 	TooltipRadius  = theme.Length("tooltip.radius", 6)
 	TooltipPadding = theme.Insets("tooltip.padding", geom.Insets{Top: 4, Right: 8, Bottom: 5, Left: 8})
+	// TooltipMaxWidth is as wide as a tooltip's words run before they wrap.
+	TooltipMaxWidth = theme.Length("tooltip.max.width", 480)
 )
 
 // Crossfade is the motion an [Image] fades with.
