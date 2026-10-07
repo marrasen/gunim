@@ -122,3 +122,23 @@ func (s *tone) Read(dst []float32) (int, error) {
 	s.at += n
 	return n, nil
 }
+
+// TestAnEQFollowsTheMixersRate plays a 1 kHz bell at 44.1 kHz and
+// finds the sections worked out for that rate.
+func TestAnEQFollowsTheMixersRate(t *testing.T) {
+	eq := NewEQ()
+	eq.Set([]Band{{ID: 1, Kind: Bell, Freq: 1000, Gain: 6, Q: 1, On: true}})
+	in, ok := eq.Insert().(*eqInsert)
+	if !ok {
+		t.Fatal("the EQ's insert is of another type")
+	}
+	in.setRate(44100)
+	frames := make([]float32, 2*block)
+	for range 200 {
+		in.Process(frames)
+	}
+	want := Band{Kind: Bell, Freq: 1000, Gain: 6, Q: 1}.appendSections(nil, 44100)
+	if len(in.bands) != 1 || in.bands[0].secs[0] != want[0] {
+		t.Fatalf("the sections are %+v, want %+v at 44.1 kHz", in.bands[0].secs, want)
+	}
+}

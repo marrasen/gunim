@@ -54,11 +54,11 @@ func (b Band) stages() int {
 // biquad is one second-order section's coefficients, divided by a0.
 type biquad struct{ b0, b1, b2, a1, a2 float64 }
 
-// sections returns the band's sections at the sample rate.
-func (b Band) sections() []biquad { return b.appendSections(nil) }
+// sections returns the band's sections at [SampleRate].
+func (b Band) sections() []biquad { return b.appendSections(nil, SampleRate) }
 
-// appendSections appends the band's sections to out.
-func (b Band) appendSections(out []biquad) []biquad {
+// appendSections appends the band's sections, at rate, to out.
+func (b Band) appendSections(out []biquad, rate float64) []biquad {
 	n := b.stages()
 	for k := range n {
 		q := float64(b.Q)
@@ -67,17 +67,17 @@ func (b Band) appendSections(out []biquad) []biquad {
 			// from the poles of a filter of order 2n.
 			q = 1 / (2 * math.Cos(float64(2*k+1)*math.Pi/float64(4*n)))
 		}
-		out = append(out, section(b.Kind, float64(b.Freq), float64(b.Gain), q))
+		out = append(out, section(b.Kind, float64(b.Freq), float64(b.Gain), q, rate))
 	}
 	return out
 }
 
 // section returns the coefficients of one section, from Robert
 // Bristow-Johnson's Audio EQ Cookbook.
-func section(kind FilterKind, freq, gain, q float64) biquad {
-	freq = max(10, min(freq, SampleRate*0.49))
+func section(kind FilterKind, freq, gain, q, rate float64) biquad {
+	freq = max(10, min(freq, rate*0.49))
 	q = max(q, 0.025)
-	w := 2 * math.Pi * freq / SampleRate
+	w := 2 * math.Pi * freq / rate
 	cos, sin := math.Cos(w), math.Sin(w)
 	alpha := sin / (2 * q)
 	a := math.Pow(10, gain/40)
@@ -180,9 +180,9 @@ func (e *EQ) SetBypass(on bool) {
 // settings.
 func (e *EQ) Insert() Insert { return &eqInsert{eq: e} }
 
-// glide is how much of the way to its settings a band goes each block
-// of 128 frames: most of it in about 25 ms.
-var glide = 1 - math.Exp(-float64(block)/SampleRate/0.025)
+// glideAt is how much of the way to its settings a band goes each
+// block of 128 frames at rate: most of it in about 25 ms.
+func glideAt(rate float64) float64 { return 1 - math.Exp(-float64(block)/rate/0.025) }
 
 // eqInsert is an EQ on one voice: each band's settings as they glide,
 // and the state of its sections.
@@ -192,6 +192,21 @@ type eqInsert struct {
 	// mix fades the whole EQ in and out for a bypass.
 	mix float64
 	got []Band
+	// rate is the mixer's, which the bands' sections are worked out
+	// for, and glide how far they glide each block at it.
+	rate, glide float64
+}
+
+// setRate tells the insert the rate of the mixer it plays in, which
+// the mixer does before each block.
+func (e *eqInsert) setRate(hz int) {
+	if r := float64(hz); r != e.rate {
+		e.rate, e.glide = r, glideAt(r)
+		for _, b := range e.bands {
+			// Worked out anew at the new rate.
+			b.secs = nil
+		}
+	}
 }
 
 // liveBand is a band as it plays: its settings now, gliding, its
@@ -217,12 +232,15 @@ func (e *eqInsert) Process(frames []float32) {
 	e.got = append(e.got[:0], e.eq.bands...)
 	bypass := e.eq.bypass
 	e.eq.mu.Unlock()
+	if e.rate == 0 {
+		e.setRate(SampleRate)
+	}
 	e.follow(e.got)
 	target := 1.0
 	if bypass {
 		target = 0
 	}
-	e.mix += (target - e.mix) * glide
+	e.mix += (target - e.mix) * e.glide
 	if !bypass && e.mix > 0.999 {
 		e.mix = 1
 	}
@@ -292,14 +310,14 @@ func (e *eqInsert) follow(want []Band) {
 		if on {
 			target = 1
 		}
-		b.mix += (target - b.mix) * glide
+		b.mix += (target - b.mix) * e.glide
 		if math.Abs(target-b.mix) < 0.001 {
 			b.mix = target
 		}
 		if b.gone && b.mix == 0 {
 			continue
 		}
-		b.move()
+		b.move(e.rate, e.glide)
 		live = append(live, b)
 	}
 	clear(e.bands[len(live):])
@@ -308,7 +326,7 @@ func (e *eqInsert) follow(want []Band) {
 
 // move glides the band's frequency, gain and Q toward its settings,
 // and works out its sections again where they moved.
-func (b *liveBand) move() {
+func (b *liveBand) move(rate, glide float64) {
 	w := b.want
 	tf, tg, tq := math.Log(float64(max(w.Freq, 10))), float64(w.Gain), math.Log(float64(max(w.Q, 0.025)))
 	moved := b.secs == nil
@@ -330,7 +348,7 @@ func (b *liveBand) move() {
 		return
 	}
 	now := Band{Kind: b.kind, Slope: b.slope, Freq: float32(math.Exp(b.logFreq)), Gain: float32(b.gain), Q: float32(math.Exp(b.logQ))}
-	b.secs = now.appendSections(b.secs[:0])
+	b.secs = now.appendSections(b.secs[:0], rate)
 	if len(b.state) != len(b.secs) {
 		b.state = make([][4]float64, len(b.secs))
 	}

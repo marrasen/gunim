@@ -14,8 +14,9 @@ import (
 const block = 128
 
 // historyFrames is how much of what it played the mixer keeps for an
-// [Analyzer]: a power of two, more than the speakers hold back.
-const historyFrames = 1 << 15
+// [Analyzer]: a power of two, more than the speakers hold back, as far
+// ahead as they grow to work at 192 kHz.
+const historyFrames = 1 << 18
 
 // declick is how long a pause, a resume and a stop with no fade of
 // their own take to fade, so the sound never clicks off.
@@ -106,6 +107,10 @@ type Options struct {
 	// [Analyzer] to compare.
 	Insert Insert
 }
+
+// rated is an insert of this package's that works at the mixer's rate,
+// as an EQ does, told it before each block.
+type rated interface{ setRate(hz int) }
 
 // An Insert changes a voice's sound as it plays, in place, a block of
 // interleaved stereo frames at a time. It runs on the goroutine that
@@ -391,6 +396,9 @@ func (v *Voice) mix(dst, dry, buf []float32, dt time.Duration) bool {
 		}
 	}
 	if v.insert != nil && n > 0 {
+		if r, ok := v.insert.(rated); ok {
+			r.setRate(v.m.rate)
+		}
 		v.insert.Process(buf[:2*n])
 	}
 	for i := range 2 * n {
