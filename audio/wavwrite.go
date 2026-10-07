@@ -85,25 +85,17 @@ func (w *WAVWriter) Write(frames []float32) error {
 	bytes := w.bits / 8
 	n := len(frames) / 2 * 2
 	w.buf = w.buf[:0]
-	// Full scale is 2^(bits-1), as readers divide by, held to one under
-	// at the top.
+	// Full scale is 2^(bits-1), as readers divide by.
 	scale := float64(int64(1) << (w.bits - 1))
-	full := scale - 1
 	for _, s := range frames[:n] {
 		if w.bits == 32 {
 			w.buf = binary.LittleEndian.AppendUint32(w.buf, math.Float32bits(s))
 			continue
 		}
-		v := float64(s) * scale
-		if w.dither {
-			v += w.rng.Float64() - w.rng.Float64()
-		}
-		v = math.Round(v)
-		if v > full || v < -full-1 {
+		x, clipped := quantize(s, scale, w.dither, w.rng)
+		if clipped {
 			w.Clipped++
-			v = max(-full-1, min(v, full))
 		}
-		x := int32(v)
 		switch bytes {
 		case 2:
 			w.buf = binary.LittleEndian.AppendUint16(w.buf, uint16(int16(x)))
