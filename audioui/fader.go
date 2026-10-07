@@ -2,8 +2,10 @@ package audioui
 
 import (
 	"math"
+	"strconv"
 
 	"github.com/marrasen/gunim"
+	"github.com/marrasen/gunim/access"
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
@@ -31,6 +33,9 @@ type Fader struct {
 	// Range is how far the fader goes either way, in decibels: 24 when
 	// zero.
 	Range float32
+	// Label names the fader for a screen reader, as the label beside it
+	// does on screen.
+	Label string
 	hover *anim.Float
 	ring  *anim.Float
 	// nudge is how far the cap shows from the gain, in decibels, as it glides there after a key stepped it.
@@ -158,6 +163,23 @@ func (f *Fader) Handle(e input.Event, u *gunim.UI) bool {
 	default:
 		return false
 	}
+	u.Invalidate()
+	return true
+}
+
+// Access implements [gunim.Accessible]: a slider of the gain, in decibels.
+func (f *Fader) Access() access.Info {
+	v := f.Value()
+	return access.Info{Role: access.RoleSlider, Name: f.Label, Value: strconv.FormatFloat(float64(v), 'f', 1, 32) + " dB",
+		Range: &access.Range{Min: float64(-f.span()), Max: float64(f.span()), Value: float64(v), Step: 0.1}}
+}
+
+// AccessAct implements [gunim.AccessActor]: a new value sets the gain.
+func (f *Fader) AccessAct(r access.Request, u *gunim.UI) bool {
+	if !r.SetValue {
+		return false
+	}
+	f.set(float32(r.Value), u)
 	u.Invalidate()
 	return true
 }

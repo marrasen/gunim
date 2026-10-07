@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/marrasen/gunim"
+	"github.com/marrasen/gunim/access"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/gunimtest"
 	"github.com/marrasen/gunim/input"
@@ -68,5 +69,17 @@ func TestAFaderWorksFromTheKeyboard(t *testing.T) {
 		if last > 0.01 {
 			t.Fatalf("after %v the cap rests %v dB off the gain", c.k.Key, last)
 		}
+	}
+}
+
+// A fader reads as a slider of its gain, named by its label.
+func TestAFaderReadsAsASliderOfItsGain(t *testing.T) {
+	gain := float32(-3)
+	f := NewFader(func() float32 { return gain }, func(v float32, _ *gunim.UI) gunim.Intent { gain = v; return nil })
+	f.Label = "Bass"
+	info := f.Access()
+	if info.Role != access.RoleSlider || info.Name != "Bass" || info.Value != "-3.0 dB" || info.Range == nil ||
+		info.Range.Min != -24 || info.Range.Max != 24 || info.Range.Value != -3 {
+		t.Fatalf("the fader reads as %+v", info)
 	}
 }

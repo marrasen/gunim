@@ -691,6 +691,7 @@ func (g *TileGrid) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Childre
 			tc.moveTo(to, motion)
 			tc.fade.Animate(1, Settle.Get(th))
 		}
+		tc.g, tc.i = g, i
 		tc.selected = hasRun(g.runs, i)
 		tc.sel.Animate(map[bool]float32{false: 0, true: 1}[tc.selected], Quick.Get(th))
 		tc.hot.Animate(map[bool]float32{false: 0, true: 1}[i == g.hover && !g.banding], Quick.Get(th))
@@ -806,6 +807,9 @@ func scaleAlpha(c color.NRGBA, t float32) color.NRGBA {
 // tileCell holds one tile in a grid, springing to its place and size, with its selection drawn behind it.
 type tileCell struct {
 	anim.Group
+	// g is the grid the tile is in, and i the tile's place in it, as last laid out.
+	g              *TileGrid
+	i              int
 	child          gunim.Node
 	x, y, w, h     *anim.Float
 	fade, sel, hot *anim.Float

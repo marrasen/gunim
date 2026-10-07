@@ -2,10 +2,8 @@ package widget
 
 import (
 	"image/color"
-	"strconv"
 
 	"github.com/marrasen/gunim"
-	"github.com/marrasen/gunim/access"
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
@@ -416,14 +414,6 @@ func (b *splitBar) Layout(c gunim.Constraints, _ gunim.Frame, _ gunim.Children) 
 // Paint implements [gunim.Node]: the ring round the divider's line.
 func (b *splitBar) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
 	FocusRing(p, geom.Rect{Max: box.Point()}, min(box.W, box.H)/2, b.ring.Value(), f.Theme)
-}
-
-// Access implements [gunim.Accessible]: the divider reads as a slider of the first pane's share, in percent.
-func (b *splitBar) Access() access.Info {
-	s := b.s
-	v := float64(s.fraction() * 100)
-	return access.Info{Role: access.RoleSlider, Name: "Divider", Value: strconv.Itoa(int(v+0.5)) + "%",
-		Range: &access.Range{Min: 0, Max: 100, Value: v}}
 }
 
 // mixColor blends from a toward b by t, from 0 to 1.

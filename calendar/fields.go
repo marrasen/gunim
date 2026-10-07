@@ -22,6 +22,8 @@ import (
 // faint and takes no clicks, keys or focus.
 type DateField struct {
 	anim.Group
+	// Label names the field for a screen reader, as the label beside it does on screen.
+	Label string
 	// Disabled fades the field faint, and it then takes no clicks, keys or focus, for a day that cannot be set now.
 	Disabled bool
 	// OnChange runs on the UI goroutine when the user picks a day; a non-nil result is sent to the application as the

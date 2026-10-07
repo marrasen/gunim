@@ -58,9 +58,9 @@ func (b *Button) AccessAct(r access.Request, u *gunim.UI) bool {
 
 // Access implements [gunim.Accessible].
 func (t *TextField) Access() access.Info {
-	value := t.Text()
-	if t.Secret {
-		value = ""
+	value := ""
+	if !t.Secret {
+		value = t.Text()
 	}
 	return access.Info{Role: access.RoleTextField, Name: t.accessName(t.Placeholder), Value: value,
 		State: access.StateEditable | t.accessState()}
@@ -69,7 +69,7 @@ func (t *TextField) Access() access.Info {
 // Access implements [gunim.Accessible].
 func (a *TextArea) Access() access.Info {
 	return access.Info{
-		Role: access.RoleTextField, Name: a.accessName(a.Placeholder), Value: string(a.text),
+		Role: access.RoleTextField, Name: a.accessName(a.Placeholder), Value: a.textString(),
 		State: access.StateEditable | access.StateMultiline | a.accessState(),
 	}
 }
@@ -82,7 +82,7 @@ func (c *CodeEditor) Access() access.Info {
 	} else {
 		state |= access.StateEditable
 	}
-	return access.Info{Role: access.RoleTextField, Name: c.Label, Value: string(c.text), State: state}
+	return access.Info{Role: access.RoleTextField, Name: c.Label, Value: c.textString(), State: state}
 }
 
 // access is what a checkbox or a switch says.

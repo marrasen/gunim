@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/marrasen/gunim"
+	"github.com/marrasen/gunim/access"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
 )
@@ -65,5 +66,23 @@ func TestASplitsDividerMovesByTheKeys(t *testing.T) {
 	run(2)
 	if got := sent(w); len(got) != 0 {
 		t.Fatalf("Up on a split side by side sent %v", got)
+	}
+}
+
+// A screen reader hears the divider once, as a slider of the first pane's share, and can move it.
+func TestASplitsDividerReadsOnceAsASlider(t *testing.T) {
+	s := NewSplit(NewTextField(), NewButton("After"))
+	s.OnCommit = func(v float32, u *gunim.UI) gunim.Intent { return splitMoved{v} }
+	w, run := stage(t, &frame{child: s, size: geom.Sz(406, 300)})
+	w.Offscreen().ListenForAccess()
+	run(2)
+	dividers := findAll(w.Offscreen().AccessTree().Root, access.RoleSlider)
+	if len(dividers) != 1 || dividers[0].Name != "Divider" || dividers[0].Range.Value != 0.5 {
+		t.Fatalf("the tree has %d sliders for the divider, want one at 0.5: %+v", len(dividers), dividers)
+	}
+	w.Input(access.Request{ID: dividers[0].ID, SetValue: true, Value: 0.25})
+	run(30)
+	if got := sent(w); len(got) != 1 || got[0] != (splitMoved{0.25}) || s.Share() != 0.25 {
+		t.Fatalf("set to 0.25 by a screen reader, the split is at %v and sent %v", s.Share(), got)
 	}
 }

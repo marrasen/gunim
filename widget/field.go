@@ -128,7 +128,7 @@ func (t *TextField) caretRect(i int) geom.Rect {
 func (t *TextField) hostIndex(p geom.Point, u *gunim.UI) int { return t.indexAt(p, u) }
 
 // Text returns the field's text.
-func (t *TextField) Text() string { return string(t.text) }
+func (t *TextField) Text() string { return t.textString() }
 
 // SetText replaces the text, puts the caret at its end, and sends no
 // intent. The field draws it on the next frame; u may be nil, as before

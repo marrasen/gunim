@@ -130,7 +130,7 @@ func (a *TextArea) caretRect(i int) geom.Rect {
 func (a *TextArea) hostIndex(p geom.Point, u *gunim.UI) int { return a.indexAt(p, u) }
 
 // Text returns the area's text.
-func (a *TextArea) Text() string { return string(a.text) }
+func (a *TextArea) Text() string { return a.textString() }
 
 // SetText replaces the text, puts the caret at its end, and sends no
 // intent; see [TextField.SetText].

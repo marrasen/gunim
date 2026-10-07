@@ -94,6 +94,18 @@ type editor struct {
 	// the composition in it; see shown.
 	version uint64
 	drawn   drawn
+	// said is the text as a string, made at the version before saidAt, so a screen reader listening reads the text
+	// without it copied every frame.
+	said   string
+	saidAt uint64
+}
+
+// textString returns the text as a string, made again only once the text has changed.
+func (e *editor) textString() string {
+	if e.saidAt != e.version+1 {
+		e.said, e.saidAt = string(e.text), e.version+1
+	}
+	return e.said
 }
 
 // step is one step of undo or redo: the edits that make it, in the
