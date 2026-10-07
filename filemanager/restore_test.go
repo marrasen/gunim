@@ -119,6 +119,12 @@ func TestUndoAsksBeforeRestoringOverANewFile(t *testing.T) {
 	h.w.Input(input.KeyPress{Key: input.KeyDelete})
 	h.until("the file goes to the trash", func() bool { return !h.exists("gone.txt") && len(h.a.ops.undo) == 1 })
 	tree(t, h.dir, "gone.txt")
+	// Ctrl+Shift+Z is another shortcut, and undoes nothing.
+	h.w.Input(input.KeyPress{Key: input.KeyZ, Mods: input.ModControl | input.ModShift})
+	h.frames(10)
+	if len(h.a.ops.dialogs) != 0 || len(h.a.ops.undo) != 1 {
+		t.Fatalf("Ctrl+Shift+Z asked %d questions and left %d to undo, want none and 1", len(h.a.ops.dialogs), len(h.a.ops.undo))
+	}
 	h.w.Input(input.KeyPress{Key: input.KeyZ, Mods: input.ModControl})
 	h.until("the clash is asked about", func() bool { return len(h.a.ops.dialogs) == 1 })
 	ask, ok := h.a.ops.dialogs[0].state.(ClashAsk)

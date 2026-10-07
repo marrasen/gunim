@@ -71,6 +71,9 @@ type ToneCurve struct {
 	held     int
 	hover    int
 	box      geom.Size
+	// laid is set by the first layout. Points set before it show at
+	// once, with no morph from the straight line.
+	laid bool
 }
 
 type goneDot struct {
@@ -98,6 +101,12 @@ func (c *ToneCurve) SetPoints(pts []geom.Point, u *gunim.UI) {
 	}
 	c.from = c.shown()
 	c.setPoints(pts)
+	// Before the first layout, the curve takes its shape at once.
+	if !c.laid {
+		c.from = c.to
+		c.morph.Jump(1)
+		return
+	}
 	c.morph.Jump(0)
 	c.morph.Animate(1, CurveMotion.Get(u.Theme()))
 	u.Invalidate()
@@ -331,6 +340,7 @@ func (c *ToneCurve) Layout(cs gunim.Constraints, f gunim.Frame, _ gunim.Children
 		w = FieldWidth.Get(f.Theme)
 	}
 	c.box = cs.Constrain(geom.Sz(w, w))
+	c.laid = true
 	return c.box
 }
 

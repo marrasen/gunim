@@ -255,6 +255,10 @@ type toastCard struct {
 	hover   *anim.Float
 	hovered bool
 	placed  bool
+	// size is the card's size at its last layout, for telling a release
+	// on it from one off it.
+	size  geom.Size
+	click clicker
 }
 
 func newToastCard(t *Toasts, to Toast) *toastCard {
@@ -434,7 +438,8 @@ func (c *toastCard) Layout(cs gunim.Constraints, f gunim.Frame, kids gunim.Child
 			k.Place(geom.Pt(pad.Left, pad.Top+(min(line, title.H)-s.H)/2))
 		}
 	}
-	return geom.Sz(w, y-4+pad.Bottom)
+	c.size = geom.Sz(w, y-4+pad.Bottom)
+	return c.size
 }
 
 // Paint implements [gunim.Node].
@@ -459,7 +464,7 @@ func (c *toastCard) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids g
 // Handle implements [gunim.Handler]: the pointer resting keeps the
 // toast, and a click dismisses it, unless it asks.
 func (c *toastCard) Handle(e input.Event, u *gunim.UI) bool {
-	switch e.(type) {
+	switch e := e.(type) {
 	case input.PointerEnter:
 		c.hovered = true
 		c.hover.Animate(1, Quick.Get(u.Theme()))
@@ -467,10 +472,11 @@ func (c *toastCard) Handle(e input.Event, u *gunim.UI) bool {
 		c.hovered = false
 		c.hover.Animate(0, Settle.Get(u.Theme()))
 	case input.PointerDown:
-		if !c.asks() {
+		c.click.press(e, 0)
+	case input.PointerUp:
+		if c.click.release(e, over(e.Pos, c.size)) && !c.asks() {
 			c.owner.dismiss(c, u)
 		}
-	case input.PointerUp:
 	default:
 		return false
 	}

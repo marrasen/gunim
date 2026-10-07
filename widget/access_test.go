@@ -87,8 +87,6 @@ func TestAScreenReaderCanPressAndFocus(t *testing.T) {
 	w.Input(access.Request{ID: save.ID, Action: access.ActionPress})
 	check := find(tree.Root, access.RoleCheckbox, "Wrap lines")
 	w.Input(access.Request{ID: check.ID, Action: access.ActionPress, Focus: true})
-	advanced := find(tree.Root, access.RoleTab, "Advanced")
-	w.Input(access.Request{ID: advanced.ID, Action: access.ActionPress})
 	run(2)
 	if got := sent(w); len(got) == 0 || got[0] != (saved{}) {
 		t.Fatalf("pressing Save sent %v", got)
@@ -96,15 +94,24 @@ func TestAScreenReaderCanPressAndFocus(t *testing.T) {
 	if !c.On {
 		t.Fatal("pressing the checkbox left it unchecked")
 	}
-	if tabs.Selected() != 1 {
-		t.Fatal("pressing the Advanced tab left it unchosen")
-	}
 	// The checkbox took focus, and says so, checked.
 	w.Input(input.PointerMove{Pos: geom.Pt(1, 1), Time: time.Now()})
 	run(1)
 	tree = w.Offscreen().AccessTree()
 	if tree.Focus == nil || tree.Focus.ID != check.ID {
 		t.Fatalf("focus is on %+v, want the checkbox", tree.Focus)
+	}
+	advanced := find(tree.Root, access.RoleTab, "Advanced")
+	w.Input(access.Request{ID: advanced.ID, Action: access.ActionPress})
+	run(3)
+	if tabs.Selected() != 1 {
+		t.Fatal("pressing the Advanced tab left it unchosen")
+	}
+	// The checkbox's page hid, and the keyboard went with it to the
+	// titles, the new page holding nothing that takes it.
+	tree = w.Offscreen().AccessTree()
+	if tree.Focus == nil || tree.Focus.Role != access.RoleTab {
+		t.Fatalf("focus is on %+v, want the titles", tree.Focus)
 	}
 }
 

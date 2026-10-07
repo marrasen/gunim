@@ -127,15 +127,21 @@ func closing(spacing, h float32, r *row) float32 {
 func (l *VirtualList) index() {
 	l.entry = l.entry[:0]
 	for _, k := range l.order {
-		h := l.height(k)
-		r, ok := l.live[k]
-		if ok && l.gone[k] {
-			h = r.height.Value()
-		}
-		l.entry = append(l.entry, l.entryOf(h, r))
+		l.entry = append(l.entry, l.entryFor(k, l.gap))
 	}
 	l.tops.reset(l.entry)
 	l.dirty = false
+}
+
+// entryFor is the room row k takes with spacing after it, from its
+// known height, or as much as is left of it while it leaves.
+func (l *VirtualList) entryFor(k Key, spacing float32) float32 {
+	h := l.height(k)
+	r, ok := l.live[k]
+	if ok && l.gone[k] {
+		h = r.height.Value()
+	}
+	return h + closing(spacing, h, r)
 }
 
 // fenwick sums a list of numbers by prefix, and finds where a running
@@ -313,17 +319,53 @@ func (l *VirtualList) stickTo(content, viewport float32) float32 {
 }
 
 // ScrollToKey glides the list so key's row is at the top of the view,
-// or as near as the list's end allows.
+// or as near as the list's end allows. Rows leaving above it count for
+// the room they still take.
 func (l *VirtualList) ScrollToKey(key Key, u *gunim.UI) {
-	spacing := l.Spacing.Get(u.Theme())
-	y := float32(0)
-	for _, k := range l.order {
-		if k == key {
-			l.ScrollTo(y, Quick.Get(u.Theme()))
-			return
-		}
-		y += l.height(k) + spacing
+	i := slices.Index(l.order, key)
+	if i < 0 || l.gone[key] {
+		return
 	}
+	var y float32
+	if !l.dirty && i < len(l.entry) {
+		y = float32(l.tops.sum(i))
+	} else {
+		// The keys changed since the last layout: sum the room afresh.
+		spacing := l.Spacing.Get(u.Theme())
+		for _, k := range l.order[:i] {
+			y += l.entryFor(k, spacing)
+		}
+	}
+	l.ScrollTo(y, Quick.Get(u.Theme()))
+}
+
+// drawnAt returns the row drawn at y in the view, leaving rows aside, with its top in the view and its height. A
+// row springing to a new place is found where it is drawn now, and where two cross, the lower one.
+func (l *VirtualList) drawnAt(y float32) (key Key, top, h float32, ok bool) {
+	off := l.offset.Value()
+	for k, r := range l.live {
+		if l.gone[k] {
+			continue
+		}
+		if at, rh := r.y.Value()-off, r.height.Value(); y >= at && y < at+rh && (!ok || at > top) {
+			key, top, h, ok = k, at, rh, true
+		}
+	}
+	return key, top, h, ok
+}
+
+// drawn returns where key's row is drawn, its top in the view and its height. A row not built is where the list
+// would put it, and false says the list cannot tell yet, as before the layout after a change of keys.
+func (l *VirtualList) drawn(key Key) (top, h float32, ok bool) {
+	off := l.offset.Value()
+	if r, ok := l.live[key]; ok {
+		return r.y.Value() - off, r.height.Value(), true
+	}
+	i := slices.Index(l.order, key)
+	if i < 0 || l.dirty || i >= len(l.entry) {
+		return 0, 0, false
+	}
+	return float32(l.tops.sum(i)) - off, l.height(key), true
 }
 
 func (l *VirtualList) height(k Key) float32 {

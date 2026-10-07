@@ -125,20 +125,22 @@ func (f *filterField) Handle(e input.Event, u *gunim.UI) bool {
 }
 
 // bannerView is the line under the path bar that says what went wrong.
+// As it shuts, the keyboard on its Dismiss link goes to away.
 type bannerView struct {
-	fold  *fold
-	label *widget.Label
-	seq   int
+	fold    *fold
+	label   *widget.Label
+	dismiss *widget.Link
+	away    func(u *gunim.UI)
+	seq     int
 }
 
-func newBannerView() *bannerView {
-	b := &bannerView{label: widget.NewLabel("")}
+func newBannerView(away func(u *gunim.UI)) *bannerView {
+	b := &bannerView{label: widget.NewLabel(""), dismiss: widget.NewLink("Dismiss"), away: away}
 	b.label.Color = ErrorInk
-	dismiss := widget.NewLink("Dismiss")
-	row := widget.Row(b.label, dismiss).Grow(b.label, 1)
+	row := widget.Row(b.label, b.dismiss).Grow(b.label, 1)
 	row.Cross = widget.CrossCenter
 	b.fold = newFold(&bannerBox{child: row})
-	dismiss.OnActivate(func(u *gunim.UI) { b.fold.set(false, u) })
+	b.dismiss.OnActivate(func(u *gunim.UI) { b.shut(u) })
 	return b
 }
 
@@ -147,10 +149,20 @@ func (b *bannerView) set(s Banner, u *gunim.UI) {
 		return
 	}
 	b.seq = s.Seq
-	if s.Text != "" {
-		b.label.SetText(s.Text)
+	if s.Text == "" {
+		b.shut(u)
+		return
 	}
-	b.fold.set(s.Text != "", u)
+	b.label.SetText(s.Text)
+	b.fold.set(true, u)
+}
+
+// shut folds the banner away, and sends the keyboard away from it.
+func (b *bannerView) shut(u *gunim.UI) {
+	b.fold.set(false, u)
+	if u.HasFocus(b.dismiss) {
+		b.away(u)
+	}
 }
 
 // bannerBox pads the banner and paints its tinted background.

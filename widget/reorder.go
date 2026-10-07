@@ -113,16 +113,23 @@ func (l *List) drop(u *gunim.UI) {
 	l.drag.pressed, l.drag.active = false, false
 }
 
-// rowAt returns the row at y in the list's space, and its top.
+// rowAt returns the row drawn at y in the list's space, and its top there. A row springing to a new place is found
+// where it is drawn now, and where two cross, the one drawn over the other.
 func (l *List) rowAt(y float32) (Key, float32, bool) {
-	for k, s := range l.slots {
-		if y >= s[0] && y < s[0]+s[1] {
-			if r, ok := l.rows[k]; ok && r.presence != gunim.Exiting {
-				return k, s[0], true
-			}
+	var key Key
+	var top float32
+	found := false
+	for _, k := range l.order {
+		r, ok := l.rows[k]
+		s, laid := l.slots[k]
+		if !ok || !laid || r.presence == gunim.Exiting {
+			continue
+		}
+		if at := r.y.Value(); y >= at && y < at+s[1] {
+			key, top, found = k, at, true
 		}
 	}
-	return "", 0, false
+	return key, top, found
 }
 
 // dropOrder returns the order a drop now would leave: the dragged row

@@ -114,6 +114,18 @@ func TestAClickOnATitleSortsAndAgainTheOtherWay(t *testing.T) {
 	if !slices.Equal(ev.sorts, [][2]int{{0, 0}, {0, 1}}) {
 		t.Fatalf("sorts %v, want the names up, then down", ev.sorts)
 	}
+	// A double click sorts once, and a right click not at all.
+	ev.sorts = nil
+	w.Input(input.PointerDown{Pos: geom.Pt(40, 13), Clicks: 1, Time: time.Now()})
+	w.Input(input.PointerUp{Pos: geom.Pt(40, 13), Time: time.Now()})
+	w.Input(input.PointerDown{Pos: geom.Pt(40, 13), Clicks: 2, Time: time.Now()})
+	w.Input(input.PointerUp{Pos: geom.Pt(40, 13), Time: time.Now()})
+	w.Input(input.PointerDown{Pos: geom.Pt(40, 13), Button: input.ButtonSecondary, Clicks: 1, Time: time.Now()})
+	w.Input(input.PointerUp{Pos: geom.Pt(40, 13), Button: input.ButtonSecondary, Time: time.Now()})
+	run(1)
+	if !slices.Equal(ev.sorts, [][2]int{{0, 0}}) {
+		t.Fatalf("a double click and a right click sorted %v, want the names up once", ev.sorts)
+	}
 }
 
 func TestTheCursorStaysOnItsRowAsTheRowsReorder(t *testing.T) {

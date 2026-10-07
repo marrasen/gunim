@@ -21,6 +21,9 @@ type Drawer struct {
 	// Width is the open panel's width. NewDrawer sets it to [DrawerWidth].
 	Width theme.Token[float32]
 	open  *anim.Float
+	// laid is set by the first layout. A drawer opened before it shows
+	// open at once.
+	laid bool
 }
 
 // NewDrawer returns main with panel closed beside it.
@@ -41,7 +44,11 @@ func (d *Drawer) SetOpen(on bool, u *gunim.UI) {
 		u.Cue(gunim.CueClose, d.panel)
 	}
 	// No overshoot: the main child reflows as the panel slides, and should do so once each way.
-	d.open.Animate(map[bool]float32{false: 0, true: 1}[on], Settle.Get(u.Theme()))
+	if to := map[bool]float32{false: 0, true: 1}[on]; d.laid {
+		d.open.Animate(to, Settle.Get(u.Theme()))
+	} else {
+		d.open.Jump(to)
+	}
 	if !on && u.HasFocus(d.panel) {
 		u.FocusFirst(d.main)
 	}
@@ -60,6 +67,7 @@ func (d *Drawer) shown() float32 { return min(max(d.open.Value(), 0), 1) }
 // Layout implements [gunim.Node]: the main child in what the panel leaves, and the panel at its full width, only
 // the part in view showing.
 func (d *Drawer) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
+	d.laid = true
 	w := min(d.Width.Get(f.Theme), c.Max.W)
 	in := w * d.shown()
 	main, panel := kids.At(0), kids.At(1)

@@ -47,6 +47,7 @@ type Segmented struct {
 	// hot is the option under the pointer, or -1.
 	hot    int
 	laid   bool
+	click  clicker
 	shaped []shapedText
 	// width is each option's width, and size the control's, from the last layout.
 	width float32
@@ -125,7 +126,12 @@ func (s *Segmented) Handle(e input.Event, u *gunim.UI) bool {
 		if e.Button != input.ButtonPrimary {
 			return false
 		}
-		s.choose(s.at(e.Pos.X), u)
+		s.click.press(e, s.at(e.Pos.X))
+	case input.PointerUp:
+		// A click chooses the option it lets go on, the one it pressed.
+		if i := s.at(e.Pos.X); s.click.release(e, i) && e.Pos.Y >= 0 && e.Pos.Y < s.size.H {
+			s.choose(i, u)
+		}
 	case input.KeyPress:
 		if e.Mods.Has(input.ModControl) || e.Mods.Has(input.ModAlt) {
 			return false

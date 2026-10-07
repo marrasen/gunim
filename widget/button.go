@@ -86,6 +86,7 @@ type Button struct {
 	tone    *anim.Float
 	was, is ButtonKind
 	held    bool
+	click   clicker
 	text    shapedText
 	// dim runs from 0 to 1 as Disabled turns on.
 	dim *anim.Float
@@ -147,7 +148,13 @@ func (b *Button) Handle(e input.Event, u *gunim.UI) bool {
 		// the press off, and releasing out here cancels it.
 		b.press.Animate(0, Bounce.Get(th))
 	case input.PointerDown:
+		// The primary button presses; the others pass by, so a right
+		// click reaches a context menu round the button.
+		if e.Button != input.ButtonPrimary {
+			return false
+		}
 		b.held = true
+		b.click.press(e, 0)
 		b.press.Animate(1, Quick.Get(th))
 	case input.PointerUp:
 		if !b.held {
@@ -155,7 +162,7 @@ func (b *Button) Handle(e input.Event, u *gunim.UI) bool {
 		}
 		b.held = false
 		b.press.Animate(0, Bounce.Get(th))
-		if (geom.Rect{Max: b.size.Point()}).Contains(e.Pos) {
+		if b.click.release(e, over(e.Pos, b.size)) {
 			b.fire(u)
 		}
 	case input.KeyPress:

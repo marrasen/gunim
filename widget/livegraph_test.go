@@ -60,6 +60,8 @@ func TestALiveGraphHeadGlidesToEachSample(t *testing.T) {
 	}
 	g.SetRunning(false)
 	for range 300 {
+		// Shown, as a paint marks it.
+		g.painted = true
 		if !g.Step(frame) {
 			if g.pos != float64(len(g.samples)-1) {
 				t.Fatalf("at rest the head is at sample %v, not on the newest", g.pos)

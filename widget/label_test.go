@@ -61,6 +61,16 @@ func TestASelectableLabelSelectsAcrossLinesAndCopies(t *testing.T) {
 	if got := l.SelectedText(); got != want {
 		t.Fatalf("selected %q, want %q", got, want)
 	}
+	// Ctrl with Shift is another shortcut, which the label leaves.
+	w.Input(input.KeyPress{Key: input.KeyC, Mods: input.ModControl | input.ModShift})
+	w.Input(input.KeyPress{Key: input.KeyA, Mods: input.ModControl | input.ModShift})
+	run(1)
+	if c, _ := w.Offscreen().Clipboard(); c != "" {
+		t.Fatalf("Ctrl+Shift+C copied %q, want nothing", c)
+	}
+	if got := l.SelectedText(); got != want {
+		t.Fatalf("after Ctrl+Shift+A %q is selected, want %q kept", got, want)
+	}
 	w.Input(input.KeyPress{Key: input.KeyC, Mods: input.ModControl})
 	run(1)
 	if c, _ := w.Offscreen().Clipboard(); c != want {

@@ -73,7 +73,7 @@ func newBrowser() *browser {
 	b := &browser{toasts: &widget.Toasts{}, icons: map[string]SystemIcon{}}
 	b.title = newTitleBar(b)
 	b.path = newPathBar(b)
-	b.banner = newBannerView()
+	b.banner = newBannerView(b.focusListing)
 	b.side = newSidebar()
 	b.listing = newListingArea(b)
 	b.preview = newPreviewPane()
@@ -170,12 +170,14 @@ func (b *browser) Handle(e input.Event, u *gunim.UI) bool {
 		return true
 	}
 	ctrl, shift, alt := k.Mods.Has(input.ModControl), k.Mods.Has(input.ModShift), k.Mods.Has(input.ModAlt)
+	// plain is Ctrl alone, so Ctrl+Shift+Z, say, leaves undo alone.
+	plain := ctrl && !shift && !alt
 	var cmd string
 	switch {
-	case ctrl && k.Key == input.KeyL:
+	case plain && k.Key == input.KeyL:
 		b.path.edit(u)
 		return true
-	case ctrl && k.Key == input.KeyF:
+	case plain && k.Key == input.KeyF:
 		u.Focus(b.path.filter)
 		return true
 	case ctrl && k.Key == input.KeyP:
@@ -183,23 +185,23 @@ func (b *browser) Handle(e input.Event, u *gunim.UI) bool {
 		return true
 	case ctrl && shift && k.Key == input.KeyN:
 		cmd = CmdNewFolder
-	case ctrl && k.Key == input.KeyC:
+	case plain && k.Key == input.KeyC:
 		cmd = CmdCopy
-	case ctrl && k.Key == input.KeyX:
+	case plain && k.Key == input.KeyX:
 		cmd = CmdCut
-	case ctrl && k.Key == input.KeyV:
+	case plain && k.Key == input.KeyV:
 		cmd = CmdPaste
-	case ctrl && k.Key == input.KeyZ:
+	case plain && k.Key == input.KeyZ:
 		cmd = CmdUndo
-	case ctrl && k.Key == input.KeyH:
+	case plain && k.Key == input.KeyH:
 		cmd = CmdHidden
-	case ctrl && k.Key == input.KeyD:
+	case plain && k.Key == input.KeyD:
 		cmd = CmdPin
-	case ctrl && k.Key == input.KeyW:
+	case plain && k.Key == input.KeyW:
 		cmd = CmdCloseApp
-	case ctrl && k.Key == input.Key1:
+	case plain && k.Key == input.Key1:
 		cmd = CmdViewDetails
-	case ctrl && k.Key == input.Key2:
+	case plain && k.Key == input.Key2:
 		cmd = CmdViewIcons
 	case ctrl:
 		return false

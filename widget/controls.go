@@ -40,6 +40,7 @@ type toggle struct {
 	press *anim.Float
 	ring  *anim.Float
 	held  bool
+	click clicker
 	size  geom.Size
 	text  shapedText
 	// laid is set by the first layout, which puts the control where On
@@ -100,10 +101,16 @@ func (t *toggle) handle(n gunim.Node, e input.Event, u *gunim.UI) bool {
 	// A tooltip shows even on a control that cannot be set, since
 	// saying why is exactly what it is for.
 	t.tip.handle(e, u, n, t.Tooltip, tipDelay)
+	th := u.Theme()
 	if t.Disabled {
+		// Disabled while it had the keyboard, it lets go of its ring.
+		if _, ok := e.(input.FocusLost); ok {
+			t.ring.Animate(0, Settle.Get(th))
+			t.held = false
+			return true
+		}
 		return false
 	}
-	th := u.Theme()
 	switch e := e.(type) {
 	case input.PointerEnter:
 		t.hover.Animate(1, Quick.Get(th))
@@ -118,6 +125,7 @@ func (t *toggle) handle(n gunim.Node, e input.Event, u *gunim.UI) bool {
 			return false
 		}
 		t.held = true
+		t.click.press(e, 0)
 		t.press.Animate(1, Quick.Get(th))
 	case input.PointerUp:
 		if !t.held {
@@ -125,7 +133,7 @@ func (t *toggle) handle(n gunim.Node, e input.Event, u *gunim.UI) bool {
 		}
 		t.held = false
 		t.press.Animate(0, Bounce.Get(th))
-		if (geom.Rect{Max: t.size.Point()}).Contains(e.Pos) {
+		if t.click.release(e, over(e.Pos, t.size)) {
 			t.flip(n, u)
 		}
 	case input.KeyPress:
@@ -331,6 +339,9 @@ type Slider struct {
 	ring  *anim.Float
 	held  bool
 	size  geom.Size
+	// laid is set by the first layout. A value set before it shows at
+	// once, with no glide from Min.
+	laid bool
 }
 
 // NewSlider returns a slider from lo to hi, at lo.
@@ -384,6 +395,10 @@ func (s *Slider) commit(u *gunim.UI) {
 // round to them, so a value stored with more precision shows as it is.
 func (s *Slider) SetValue(v float32, u *gunim.UI) {
 	s.value = max(s.Min, min(v, s.Max))
+	if !s.laid {
+		s.at.Jump(s.frac())
+		return
+	}
 	s.at.Animate(s.frac(), Quick.Get(u.Theme()))
 }
 
@@ -488,10 +503,16 @@ func (s *Slider) DragsTouch() bool { return s.held }
 
 // Handle implements [gunim.Handler].
 func (s *Slider) Handle(e input.Event, u *gunim.UI) bool {
+	th := u.Theme()
 	if s.Disabled {
+		// Disabled while it had the keyboard, it lets go of its ring.
+		if _, ok := e.(input.FocusLost); ok {
+			s.ring.Animate(0, Settle.Get(th))
+			s.held = false
+			return true
+		}
 		return false
 	}
-	th := u.Theme()
 	step := s.Snap
 	if step <= 0 {
 		step = (s.Max - s.Min) / 100
@@ -592,6 +613,7 @@ func (s *Slider) Handle(e input.Event, u *gunim.UI) bool {
 // height, or [FieldWidth] where that is unbounded, and is as wide as
 // the knob.
 func (s *Slider) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
+	s.laid = true
 	if s.Axis == Vertical {
 		h := c.Max.H
 		if h <= 0 {
@@ -698,9 +720,11 @@ type Tabs struct {
 	bar   *tabBar
 	pages []gunim.Node
 	// count is how many pages there are: those given, and those inserted
-	// since, as the views mounted under the tabs' view are.
-	count    int
-	selected int
+	// since, as the views mounted under the tabs' view are. laidPages
+	// holds them all, as at the last layout.
+	count     int
+	laidPages []gunim.Node
+	selected  int
 	// prev is the page leaving, or -1, and from is the side the new
 	// page comes from: 1 from the right, -1 from the left.
 	prev int
@@ -752,10 +776,51 @@ func (t *Tabs) Select(i int, u *gunim.UI) {
 	if i < t.selected {
 		t.from = -1
 	}
+	old := t.page(t.selected)
 	t.selected = i
 	t.slide.Jump(0)
 	t.slide.Animate(1, Settle.Get(u.Theme()))
+	// The keyboard leaves a page as it hides.
+	if old != nil && u.HasFocus(old) {
+		t.refocus(i, u)
+	}
 	u.Invalidate()
+}
+
+// refocus puts the keyboard on the first place on page i that takes it,
+// or on the titles where there is none. A page shows what takes the
+// keyboard only once drawn, so the titles hold it until the page has
+// been, two frames on.
+func (t *Tabs) refocus(i int, u *gunim.UI) {
+	first := func(u *gunim.UI) {
+		if p := t.page(i); p == nil || !u.FocusFirst(p) {
+			u.Focus(t.bar)
+		}
+	}
+	first(u)
+	if u.Focused() != t.bar {
+		return
+	}
+	u.After(0, func(u *gunim.UI) {
+		u.After(0, func(u *gunim.UI) {
+			if t.selected == i && u.Focused() == t.bar {
+				first(u)
+			}
+		})
+	})
+}
+
+// page returns page i, or nil while it has not arrived.
+func (t *Tabs) page(i int) gunim.Node {
+	switch {
+	case i < 0:
+		return nil
+	case i < len(t.laidPages):
+		return t.laidPages[i]
+	case i < len(t.pages):
+		return t.pages[i]
+	}
+	return nil
 }
 
 func (t *Tabs) choose(i int, u *gunim.UI) {
@@ -786,23 +851,45 @@ func (t *Tabs) iconRoom(i int, th *theme.Live) float32 {
 }
 
 // tabBar is the row of titles.
-type tabBar struct{ t *Tabs }
+type tabBar struct {
+	t     *Tabs
+	click clicker
+}
+
+// titleAt returns the title at pos in the row's space, or -1.
+func (b *tabBar) titleAt(pos geom.Point) int {
+	t := b.t
+	if pos.Y < 0 || pos.Y >= t.head {
+		return -1
+	}
+	x := pos.X + t.off.Value()
+	for i, s := range t.spans {
+		if x >= s[0] && x < s[1] {
+			return i
+		}
+	}
+	return -1
+}
 
 // Focusable implements [gunim.Focusable].
 func (b *tabBar) Focusable() bool { return true }
 
 // Handle implements [gunim.Handler]. It takes the clicks on the titles
-// and the keys.
+// and the keys. A click chooses the title it lets go on, the one it
+// pressed, so a finger that lands on a title to scroll the row chooses
+// nothing.
 func (b *tabBar) Handle(e input.Event, u *gunim.UI) bool {
 	t := b.t
 	th := u.Theme()
 	switch e := e.(type) {
 	case input.PointerDown:
-		x := e.Pos.X + t.off.Value()
-		for i, s := range t.spans {
-			if x >= s[0] && x < s[1] {
-				t.choose(i, u)
-			}
+		if e.Button != input.ButtonPrimary {
+			return false
+		}
+		b.click.press(e, b.titleAt(e.Pos))
+	case input.PointerUp:
+		if i := b.titleAt(e.Pos); b.click.release(e, i) {
+			t.choose(i, u)
 		}
 	case input.Scroll:
 		// A wheel turns either way along the row; a finger drags it.
@@ -855,10 +942,16 @@ func (b *tabBar) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) ge
 		t.spans = append(t.spans, [2]float32{x, x + w})
 		x += w
 	}
+	// Titles cut short of the chosen tab leave the last of them chosen,
+	// its line under it at once.
+	cut := false
+	if n := len(t.spans); n > 0 && t.selected >= n {
+		t.selected, t.prev, t.shown, cut = n-1, -1, n-1, true
+	}
 	if t.selected < len(t.spans) {
 		sp := t.spans[t.selected]
 		to := geom.Pt(sp[0]+pad, sp[1]-pad)
-		if t.laid {
+		if t.laid && !cut {
 			t.line.Animate(to, Bounce.Get(th))
 		} else {
 			t.line.Jump(to)
@@ -877,23 +970,25 @@ func (b *tabBar) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) ge
 // tabsRoom is the room the row leaves beside a title it brings into view, so the next title's edge shows.
 const tabsRoom = 24
 
-// fitOff keeps the scroll inside the titles, and brings a newly chosen title into view.
+// fitOff keeps the scroll inside the titles, and brings a newly chosen title into view. Only a newly chosen title
+// glides into view: the scroll held inside titles or room that changed jumps there.
 func (t *Tabs) fitOff(th *theme.Live) {
 	to := t.clampOff(t.offTo)
+	glide := false
 	if t.selected != t.shown && t.selected < len(t.spans) {
 		t.shown = t.selected
 		sp := t.spans[t.selected]
 		switch {
 		case sp[0]-tabsRoom < to:
-			to = t.clampOff(sp[0] - tabsRoom)
+			to, glide = t.clampOff(sp[0]-tabsRoom), true
 		case sp[1]+tabsRoom > to+t.room:
-			to = t.clampOff(sp[1] + tabsRoom - t.room)
+			to, glide = t.clampOff(sp[1]+tabsRoom-t.room), true
 		}
 	}
 	if to == t.offTo {
 		return
 	}
-	if t.laid {
+	if t.laid && glide {
 		t.scrollTo(to, Quick.Get(th))
 	} else {
 		t.offTo = to
@@ -952,6 +1047,10 @@ func (b *tabBar) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 // keeps its state and its scroll while another shows.
 func (t *Tabs) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
 	t.count = kids.Len() - 1
+	t.laidPages = t.laidPages[:0]
+	for i := 1; i < kids.Len(); i++ {
+		t.laidPages = append(t.laidPages, kids.At(i).Node())
+	}
 	bar := kids.At(0)
 	bs := bar.Layout(gunim.Constraints{Max: geom.Sz(c.Max.W, 0)})
 	bar.Place(geom.Point{})

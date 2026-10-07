@@ -40,6 +40,10 @@ type Link struct {
 	// laid is the text cut to its box, ending in an ellipsis, for a link
 	// given less room than its text takes.
 	laid laidText
+	// box is the link's size at its last layout, for telling a release
+	// over it from one outside.
+	box   geom.Size
+	click clicker
 }
 
 // NewLink returns a link showing s.
@@ -69,7 +73,8 @@ func (l *Link) textSize(th *theme.Live) float32 {
 func (l *Link) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
 	s := l.run(f.Theme).Box()
 	s.W += l.iconWidth(f.Theme)
-	return c.Constrain(s)
+	l.box = c.Constrain(s)
+	return l.box
 }
 
 // iconWidth is the room the link's icon takes before its text, with the gap.
@@ -121,7 +126,12 @@ func (l *Link) Handle(e input.Event, u *gunim.UI) bool {
 		if e.Button != input.ButtonPrimary {
 			return false
 		}
-		l.fire(u)
+		l.click.press(e, 0)
+		return true
+	case input.PointerUp:
+		if l.click.release(e, over(e.Pos, l.box)) {
+			l.fire(u)
+		}
 		return true
 	case input.KeyPress:
 		if e.Key != input.KeyEnter && e.Key != input.KeyKPEnter && e.Key != input.KeySpace {

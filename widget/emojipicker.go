@@ -404,6 +404,7 @@ type emojiTabs struct {
 	at    *anim.Float
 	laid  bool
 	shown int
+	click clicker
 }
 
 // Layout implements [gunim.Node].
@@ -472,10 +473,14 @@ func (t *emojiTabs) Handle(e input.Event, u *gunim.UI) bool {
 		t.hover = -1
 		u.Invalidate()
 	case input.PointerDown:
-		if i := t.tabAt(e.Pos); i >= 0 && e.Button == input.ButtonPrimary {
+		i := t.tabAt(e.Pos)
+		t.click.press(e, i)
+		return i >= 0 && e.Button == input.ButtonPrimary
+	case input.PointerUp:
+		if i := t.tabAt(e.Pos); t.click.release(e, i) {
 			t.c.list.ScrollToKey(t.groups[i].key, u)
-			return true
 		}
+		return true
 	}
 	return false
 }
@@ -492,6 +497,7 @@ type emojiRow struct {
 	size  float32
 	cell  float32
 	hover int
+	click clicker
 }
 
 // Layout implements [gunim.Node].
@@ -555,10 +561,16 @@ func (r *emojiRow) Handle(e input.Event, u *gunim.UI) bool {
 		r.hover = -1
 		u.Invalidate()
 	case input.PointerDown:
-		if i := r.at(e.Pos); i >= 0 && e.Button == input.ButtonPrimary {
+		i := r.at(e.Pos)
+		r.click.press(e, i)
+		return i >= 0 && e.Button == input.ButtonPrimary
+	case input.PointerUp:
+		// A click picks the emoji it lets go on, the one it pressed, so a
+		// finger that lands on one to scroll the list picks nothing.
+		if i := r.at(e.Pos); r.click.release(e, i) {
 			r.c.p.pick(r.row.emoji[i].Text, u)
-			return true
 		}
+		return true
 	}
 	return false
 }

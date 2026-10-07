@@ -35,6 +35,9 @@ type ProgressBar struct {
 	since time.Time
 	// painted says the bar was painted since the last step; see Step.
 	painted bool
+	// laid is set by the first layout. A value set before it shows at
+	// once, with no glide from empty.
+	laid bool
 }
 
 // NewProgressBar returns an empty bar.
@@ -48,6 +51,10 @@ func NewProgressBar() *ProgressBar {
 func (b *ProgressBar) Set(v float32, u *gunim.UI) {
 	v = min(max(v, 0), 1)
 	if v == b.value.Target() {
+		return
+	}
+	if !b.laid {
+		b.value.Jump(v)
 		return
 	}
 	b.value.Animate(v, Settle.Get(u.Theme()))
@@ -70,6 +77,7 @@ func (b *ProgressBar) Step(dt time.Duration) bool {
 // Layout implements [gunim.Node]: as wide as it may be, and as tall as
 // the theme says.
 func (b *ProgressBar) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
+	b.laid = true
 	return c.Constrain(geom.Sz(c.Max.W, ProgressHeight.Get(f.Theme)))
 }
 

@@ -482,6 +482,10 @@ type paletteRow struct {
 	title  shapedText
 	detail shapedText
 	hint   shapedText
+	// size is the row's size at its last layout, for telling a release
+	// on it from one off it.
+	size  geom.Size
+	click clicker
 }
 
 func newPaletteRow(c *paletteCard, key Key) *paletteRow {
@@ -510,7 +514,8 @@ func (r *paletteRow) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children
 		}
 		r.hot.Animate(to, Quick.Get(f.Theme))
 	}
-	return c.Constrain(geom.Sz(c.Max.W, PaletteRowHeight.Get(f.Theme)))
+	r.size = c.Constrain(geom.Sz(c.Max.W, PaletteRowHeight.Get(f.Theme)))
+	return r.size
 }
 
 // Paint implements [gunim.Node].
@@ -587,9 +592,15 @@ func (r *paletteRow) Handle(e input.Event, u *gunim.UI) bool {
 		}
 		return false
 	case input.PointerDown:
+		r.click.press(e, 0)
 		return true
 	case input.PointerUp:
-		r.c.pick(e.Mods.Has(input.ModControl), u)
+		// A click picks this row's own item, while the palette still
+		// holds it.
+		_, held := r.c.index[r.key]
+		if r.click.release(e, over(e.Pos, r.size)) && held {
+			r.c.p.choose(r.index, e.Mods.Has(input.ModControl), u)
+		}
 		return true
 	}
 	return false
