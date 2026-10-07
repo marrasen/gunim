@@ -58,7 +58,7 @@ func TestADataGridReadsAsATable(t *testing.T) {
 }
 
 func TestAMenubarAndAProgressBarSayWhatTheyAre(t *testing.T) {
-	bar := NewMenubar(BarMenu{Title: "File", Items: []string{"Open"}}, BarMenu{Title: "Edit", Items: []string{"Copy"}})
+	bar := NewMenubar(BarMenu{Title: "File", Items: Labels("Open")}, BarMenu{Title: "Edit", Items: Labels("Copy")})
 	p := NewProgressBar()
 	w, run := stage(t, &frame{child: Column(bar, p), size: geom.Sz(400, 300)})
 	w.Offscreen().ListenForAccess()

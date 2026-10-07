@@ -139,7 +139,7 @@ func TestAFavouriteElsewhereIsRenamedReorderedAndUnpinned(t *testing.T) {
 		mr, _ := u.Bounds(m)
 		rr, _ := u.Bounds(row)
 		m.Open(rr.Center().Sub(mr.Min), u)
-		items = slices.Clone(m.Items)
+		items = labelsOf(m.Items())
 	})
 	if !slices.Equal(items, []string{"Open", "Open in new window", "Edit favourite…", "Unpin"}) {
 		t.Fatalf("the menu of the favourite on the server is %v", items)

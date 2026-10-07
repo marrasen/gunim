@@ -31,15 +31,12 @@ func newEditor(d Draft) *widget.Dialog {
 	name := widget.NewTextField()
 	name.SetText(d.Title)
 	name.Placeholder = "Add a title"
-	var calNames []string
+	cals := make([]widget.MenuItem, 0, len(d.Calendars))
 	for _, c := range d.Calendars {
-		calNames = append(calNames, c.Name)
+		cals = append(cals, widget.MenuItem{Label: c.Name, Swatch: c.Color})
 	}
-	cal := widget.NewDropdown(calNames...)
+	cal := widget.NewDropdown(cals)
 	cal.Selected = max(slices.IndexFunc(d.Calendars, func(c Calendar) bool { return c.ID == d.Calendar }), 0)
-	for _, c := range d.Calendars {
-		cal.Swatches = append(cal.Swatches, c.Color)
-	}
 	allDay := widget.NewCheckbox("All day")
 	allDay.SetChecked(d.AllDay, nil)
 	end := d.End
@@ -110,7 +107,7 @@ func newEditor(d Draft) *widget.Dialog {
 		endClock.open(!on, u)
 		showLength(u)
 	})
-	repeat := widget.NewDropdown(repeatNames...)
+	repeat := widget.NewDropdown(widget.Labels(repeatNames...))
 	repeat.Selected = int(d.Repeat)
 	where := widget.NewTextField()
 	where.SetText(d.Location)

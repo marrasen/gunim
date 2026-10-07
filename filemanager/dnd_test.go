@@ -227,11 +227,11 @@ func TestContextMenuItemsReachTheirIntents(t *testing.T) {
 		t.Helper()
 		h.ui(func(b *browser, u *gunim.UI) {
 			m := b.listing.cur.menu
-			i := slices.Index(m.Items, label)
+			i := slices.Index(labelsOf(m.Items()), label)
 			if i < 0 {
-				t.Fatalf("the menu %v has no %q", m.Items, label)
+				t.Fatalf("the menu %v has no %q", labelsOf(m.Items()), label)
 			}
-			if m.Disabled[i] {
+			if m.Items()[i].Disabled {
 				t.Fatalf("%q is dimmed", label)
 			}
 			m.Picked(i, u)
@@ -241,7 +241,7 @@ func TestContextMenuItemsReachTheirIntents(t *testing.T) {
 	var paste bool
 	h.ui(func(b *browser, _ *gunim.UI) {
 		m := b.listing.cur.menu
-		paste = m.Disabled[slices.Index(m.Items, "Paste")]
+		paste = m.Items()[slices.Index(labelsOf(m.Items()), "Paste")].Disabled
 	})
 	if !paste {
 		t.Fatal("Paste is offered with nothing to paste")
@@ -253,7 +253,7 @@ func TestContextMenuItemsReachTheirIntents(t *testing.T) {
 	h.script("menu:a.txt")
 	h.ui(func(b *browser, _ *gunim.UI) {
 		m := b.listing.cur.menu
-		paste = m.Disabled[slices.Index(m.Items, "Paste")]
+		paste = m.Items()[slices.Index(labelsOf(m.Items()), "Paste")].Disabled
 	})
 	if paste {
 		t.Fatal("Paste stays dimmed after a copy")
@@ -273,8 +273,8 @@ func TestContextMenuItemsReachTheirIntents(t *testing.T) {
 	// Beside the rows the menu is about the folder showing.
 	h.ui(func(b *browser, u *gunim.UI) {
 		b.listing.cur.menu.Open(geom.Pt(100, 400), u)
-		if !slices.Contains(b.listing.cur.menu.Items, "New folder") {
-			t.Fatalf("beside the rows the menu is %v", b.listing.cur.menu.Items)
+		if items := labelsOf(b.listing.cur.menu.Items()); !slices.Contains(items, "New folder") {
+			t.Fatalf("beside the rows the menu is %v", items)
 		}
 	})
 	pick("New folder")
@@ -301,7 +301,7 @@ func TestTheSidebarMenuUnpinsAndRenamesFavourites(t *testing.T) {
 		mr, _ := u.Bounds(m)
 		rr, _ := u.Bounds(row)
 		m.Open(rr.Center().Sub(mr.Min), u)
-		items = slices.Clone(m.Items)
+		items = labelsOf(m.Items())
 	})
 	if !slices.Contains(items, "Unpin") {
 		t.Fatalf("the favourite's menu is %v", items)

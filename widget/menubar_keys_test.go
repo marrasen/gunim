@@ -127,7 +127,7 @@ func TestAltWithAnotherKeyLeavesTheMenubarAlone(t *testing.T) {
 }
 
 func TestAMenusLetterMovesAmongItemsThatShareIt(t *testing.T) {
-	m := NewMenu("Save", "Save &as", "Sort")
+	m := NewMenu(Labels("Save", "Save &as", "Sort"))
 	m.AccessKeys = true
 	var picked []int
 	m.Pick = func(i int, _ *gunim.UI) { picked = append(picked, i) }

@@ -446,17 +446,14 @@ func (r *msgRow) Handle(e input.Event, u *gunim.UI) bool {
 func (r *msgRow) openMenu(at geom.Point, u *gunim.UI) {
 	r.closeMenu(u)
 	m := r.item.Message
-	items := []string{"React", "Reply"}
-	icons := []*icon.Icon{icon.SmilePlus, icon.Reply}
+	items := []widget.MenuItem{{Label: "React", Icon: icon.SmilePlus}, {Label: "Reply", Icon: icon.Reply}}
 	if m.Mine {
-		items = append(items, "Edit", "Withdraw")
-		icons = append(icons, icon.Pencil, icon.Trash2)
+		items = append(items, widget.MenuItem{Label: "Edit", Icon: icon.Pencil}, widget.MenuItem{Label: "Withdraw", Icon: icon.Trash2})
 	}
-	menu := widget.NewMenu(items...)
-	menu.Icons = icons
+	menu := widget.NewMenu(items)
 	menu.Pick = func(i int, u *gunim.UI) {
 		r.closeMenu(u)
-		switch items[i] {
+		switch items[i].Label {
 		case "React":
 			r.react(r, m.ID, u)
 		case "Reply":

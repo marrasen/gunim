@@ -30,15 +30,12 @@ func newQuickCard(d Draft, left bool, done, more func(*gunim.UI)) *quickCard {
 	q := &quickCard{d: d, done: done}
 	q.name = widget.NewTextField()
 	q.name.Placeholder = "Add a title"
-	var names []string
+	cals := make([]widget.MenuItem, 0, len(d.Calendars))
 	for _, c := range d.Calendars {
-		names = append(names, c.Name)
+		cals = append(cals, widget.MenuItem{Label: c.Name, Swatch: c.Color})
 	}
-	q.cal = widget.NewDropdown(names...)
+	q.cal = widget.NewDropdown(cals)
 	q.cal.Selected = max(slices.IndexFunc(d.Calendars, func(c Calendar) bool { return c.ID == d.Calendar }), 0)
-	for _, c := range d.Calendars {
-		q.cal.Swatches = append(q.cal.Swatches, c.Color)
-	}
 	ev := calendar.Event{Start: d.Start, End: d.End, AllDay: d.AllDay}
 	day, hours := when2(ev)
 	whenLabel := widget.NewLabel(day + " · " + hours)

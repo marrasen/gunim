@@ -116,7 +116,7 @@ func TestAScreenReaderCanPressAndFocus(t *testing.T) {
 }
 
 func TestAScreenReaderClosesADropDownItOpened(t *testing.T) {
-	d := NewDropdown("Apple", "Banana", "Cherry")
+	d := NewDropdown(Labels("Apple", "Banana", "Cherry"))
 	d.Label = "Fruit"
 	w, run := stage(t, &frame{child: Column(d), size: geom.Sz(400, 300)})
 	w.Offscreen().ListenForAccess()

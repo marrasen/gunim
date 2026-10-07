@@ -267,7 +267,7 @@ func TestStoppingAFetchToOpenLeavesNothingBehind(t *testing.T) {
 // fileMenu returns the items of the title bar's File menu.
 func (h *harness) fileMenu() []string {
 	var items []string
-	h.ui(func(b *browser, _ *gunim.UI) { items = slices.Clone(b.title.bar.Menus[0].Items) })
+	h.ui(func(b *browser, _ *gunim.UI) { items = labelsOf(b.title.bar.Menus[0].Items) })
 	return items
 }
 
@@ -278,7 +278,7 @@ func (h *harness) rowMenu(name string) (items []string, off []bool) {
 	h.script("menu:" + name)
 	h.ui(func(b *browser, _ *gunim.UI) {
 		m := b.listing.cur.menu
-		items, off = slices.Clone(m.Items), slices.Clone(m.Disabled)
+		items, off = labelsOf(m.Items()), disabledOf(m.Items())
 	})
 	return items, off
 }

@@ -23,14 +23,6 @@ type MenuButton struct {
 	Title string
 	// Icon shows before the title.
 	Icon *icon.Icon
-	// Items, Hints, Checked, Breaks, Captions and Icons make the menu; see
-	// [Menu].
-	Items    []string
-	Hints    []string
-	Checked  []bool
-	Breaks   []int
-	Captions []int
-	Icons    []*icon.Icon
 	// StayOpen keeps the menu open after a pick, and flips the item's tick.
 	StayOpen bool
 	// Active draws the button's border in the accent colour, as when its
@@ -48,17 +40,25 @@ type MenuButton struct {
 
 	popup *gunim.Popup
 	menu  *Menu
+	list  *menuList
 	size  geom.Size
 	shown shapedText
 	ell   shapedText
 }
 
 // NewMenuButton returns a button titled title that opens a menu of items.
-func NewMenuButton(title string, items ...string) *MenuButton {
-	b := &MenuButton{Title: title, Items: items, hover: anim.NewFloat(0), ring: anim.NewFloat(0), turn: anim.NewFloat(0)}
+func NewMenuButton(title string, items []MenuItem) *MenuButton {
+	b := &MenuButton{Title: title, list: newMenuList(items), hover: anim.NewFloat(0), ring: anim.NewFloat(0), turn: anim.NewFloat(0)}
 	b.Add(b.hover, b.ring, b.turn)
 	return b
 }
+
+// Items returns the menu's items. With StayOpen, a pick flips its item's Checked here.
+func (b *MenuButton) Items() []MenuItem { return b.list.items }
+
+// SetItems makes items the menu's items. The button keeps the slice, and with StayOpen a pick flips an item's
+// Checked in it: a change to it goes through SetItems again. The menu open shows them at once.
+func (b *MenuButton) SetItems(items []MenuItem) { b.list = newMenuList(items) }
 
 // Focusable implements [gunim.Focusable].
 func (b *MenuButton) Focusable() bool { return true }
@@ -125,15 +125,14 @@ func (b *MenuButton) key(k input.KeyPress, u *gunim.UI) bool {
 }
 
 func (b *MenuButton) open(u *gunim.UI) {
-	m := NewMenu()
+	m := NewMenu(nil)
 	b.sync(m)
 	m.MinWidth = b.size.W
 	m.Pick = func(i int, u *gunim.UI) {
 		if b.StayOpen {
-			for len(b.Checked) <= i {
-				b.Checked = append(b.Checked, false)
-			}
-			b.Checked[i] = !b.Checked[i]
+			items := b.list.items
+			items[i].Checked = !items[i].Checked
+			b.SetItems(items)
 			b.sync(m)
 		} else {
 			b.close(u)
@@ -159,9 +158,7 @@ func (b *MenuButton) open(u *gunim.UI) {
 }
 
 // sync gives the open menu the button's items as they are now.
-func (b *MenuButton) sync(m *Menu) {
-	m.Items, m.Hints, m.Checked, m.Breaks, m.Captions, m.Icons = b.Items, b.Hints, b.Checked, b.Breaks, b.Captions, b.Icons
-}
+func (b *MenuButton) sync(m *Menu) { m.setList(b.list) }
 
 func (b *MenuButton) close(u *gunim.UI) {
 	if b.popup != nil {

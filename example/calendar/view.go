@@ -374,7 +374,7 @@ func (v *calView) openCard(from gunim.Node, id string, box geom.Rect, u *gunim.U
 // eventMenu wraps view in the menu a right click on one of its events opens: edit it, make a copy of it, delete
 // it, or move it to another calendar.
 func (v *calView) eventMenu(view gunim.Node, at func(geom.Point) (string, bool)) *widget.ContextMenu {
-	c := widget.NewContextMenu(view)
+	c := widget.NewContextMenu(view, nil)
 	var id string
 	var cals []Calendar
 	c.Prepare = func(pt geom.Point, u *gunim.UI) bool {
@@ -387,14 +387,13 @@ func (v *calView) eventMenu(view gunim.Node, at func(geom.Point) (string, bool))
 		v.closeQuick(u, false)
 		v.closeMore()
 		id, cals = ev, v.state.Calendars
-		c.Items = []string{"Edit", "Make a copy", "Delete"}
-		c.Icons = []*icon.Icon{icon.Pencil, icon.Copy, icon.Trash2}
-		c.Breaks, c.Checked = []int{3}, make([]bool, 3)
-		for _, cal := range cals {
-			c.Items = append(c.Items, "In "+cal.Name)
-			c.Icons = append(c.Icons, nil)
-			c.Checked = append(c.Checked, cal.Name == v.state.Details[ev].Calendar)
+		items := []widget.MenuItem{{Label: "Edit", Icon: icon.Pencil}, {Label: "Make a copy", Icon: icon.Copy},
+			{Label: "Delete", Icon: icon.Trash2}}
+		for i, cal := range cals {
+			items = append(items, widget.MenuItem{Label: "In " + cal.Name, Checked: cal.Name == v.state.Details[ev].Calendar,
+				Break: i == 0})
 		}
+		c.SetItems(items)
 		return true
 	}
 	c.OnPick = func(i int) gunim.Intent {

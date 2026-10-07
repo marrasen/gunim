@@ -293,8 +293,7 @@ func moreIcons() *widget.Card {
 	tabs.Icons = []*icon.Icon{icon.Folder, icon.Search, icon.Settings}
 	chip := widget.NewChip("", "Pictures")
 	chip.Icon = icon.Image
-	view := widget.NewDropdown("List", "Grid")
-	view.Icons = []*icon.Icon{icon.List, icon.LayoutGrid}
+	view := widget.NewDropdown([]widget.MenuItem{{Label: "List", Icon: icon.List}, {Label: "Grid", Icon: icon.LayoutGrid}})
 	del := widget.NewButton("Delete notes")
 	del.Icon, del.Kind, del.On = icon.Trash2, widget.ButtonDanger, DeleteAsked{}
 	again := widget.NewButton("Toasts")

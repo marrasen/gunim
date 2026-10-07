@@ -84,20 +84,17 @@ func (a *TextArea) complete(u *gunim.UI) {
 		a.closeCompletion()
 		return
 	}
-	labels := make([]string, len(items))
-	hints := make([]string, len(items))
-	icons := make([]*icon.Icon, len(items))
-	swatches := make([]color.NRGBA, len(items))
+	lines := make([]MenuItem, len(items))
 	for i, c := range items {
-		labels[i], hints[i], icons[i], swatches[i] = c.Label, c.Hint, c.Icon, c.Swatch
-		if labels[i] == "" {
-			labels[i] = c.Text
+		lines[i] = MenuItem{Label: c.Label, Hint: c.Hint, Icon: c.Icon, Swatch: c.Swatch}
+		if lines[i].Label == "" {
+			lines[i].Label = c.Text
 		}
 	}
 	c := a.completing
 	if c == nil || c.popup == nil || !c.popup.Open() {
 		c = &completing{}
-		c.menu = NewMenu(labels...)
+		c.menu = NewMenu(nil)
 		c.menu.Pick = func(i int, u *gunim.UI) { a.accept(i, u) }
 		c.popup = u.OpenPopup(a, c.menu, gunim.PopupOptions{
 			Anchor:  a.triggerBox(start),
@@ -108,7 +105,7 @@ func (a *TextArea) complete(u *gunim.UI) {
 		a.completing = c
 	}
 	c.items, c.start = items, start
-	c.menu.Items, c.menu.Hints, c.menu.Icons, c.menu.Swatches = labels, hints, icons, swatches
+	c.menu.SetItems(lines)
 	c.menu.Highlight(0)
 	u.Invalidate()
 }

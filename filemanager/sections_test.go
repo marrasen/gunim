@@ -202,7 +202,7 @@ func TestAHeadingsMenuMovesItsSection(t *testing.T) {
 	h.ui(func(b *browser, u *gunim.UI) { u.Focus(b.side.byID[FavouritesSection].head) })
 	h.press(input.KeyMenu, 0)
 	var off []bool
-	h.ui(func(b *browser, _ *gunim.UI) { off = slices.Clone(b.dnd.sideMenu.m.Disabled) })
+	h.ui(func(b *browser, _ *gunim.UI) { off = disabledOf(b.dnd.sideMenu.m.Items()) })
 	if items, _ := h.sideMenuShown(); !slices.Equal(items, []string{"Collapse", "Move up", "Move down"}) ||
 		!slices.Equal(off, []bool{false, true, false}) {
 		t.Fatalf("the heading's menu is %v, dimmed %v", items, off)
@@ -331,7 +331,7 @@ func TestTheEditFavouriteDialogChangesTheNameColourAndIcon(t *testing.T) {
 	// The menu offers it, and F2 on the favourite opens it too.
 	h.rightClick(h.bounds(func(b *browser) gunim.Node { return b.side.placeRow(widget.Key(work)) }).Center())
 	h.ui(func(b *browser, u *gunim.UI) {
-		i := slices.Index(b.dnd.sideMenu.m.Items, "Edit favourite…")
+		i := slices.Index(labelsOf(b.dnd.sideMenu.m.Items()), "Edit favourite…")
 		b.dnd.sideMenu.m.Picked(i, u)
 	})
 	h.until("the dialog is asked for", func() bool { return len(h.a.ops.dialogs) == 1 })

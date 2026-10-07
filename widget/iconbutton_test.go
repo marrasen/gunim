@@ -142,10 +142,10 @@ func TestALinkShowsItsIconBeforeItsText(t *testing.T) {
 }
 
 func TestMenuItemsShowTheirIcons(t *testing.T) {
-	m := NewMenu("Copy", "Refresh", "Close")
+	m := NewMenu(Labels("Copy", "Refresh", "Close"))
 	f := gunim.Frame{Scale: 1}
 	plain := m.Layout(gunim.Constraints{Max: geom.Sz(400, 400)}, f, gunim.Children{})
-	m.Icons = []*icon.Icon{icon.Copy, nil, icon.X}
+	m.SetItems([]MenuItem{{Label: "Copy", Icon: icon.Copy}, {Label: "Refresh"}, {Label: "Close", Icon: icon.X}})
 	s := m.Layout(gunim.Constraints{Max: geom.Sz(400, 400)}, f, gunim.Children{})
 	if want := plain.W + IconSize.Default() + IconGap.Default(); s.W != want {
 		t.Fatalf("with icons the menu is %v wide, want %v", s.W, want)

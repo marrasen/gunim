@@ -226,8 +226,7 @@ func (f *TimeField) openList(u *gunim.UI) {
 		first = from + 30*time.Minute
 	}
 	f.times = f.times[:0]
-	var items []string
-	checked := make([]bool, 0, listTimes)
+	items := make([]widget.MenuItem, 0, listTimes)
 	for i := range listTimes {
 		t := first + time.Duration(i)*30*time.Minute
 		if t < 0 || t >= 24*time.Hour {
@@ -238,11 +237,9 @@ func (f *TimeField) openList(u *gunim.UI) {
 			label += "  (" + spanText(t-from) + ")"
 		}
 		f.times = append(f.times, t)
-		items = append(items, label)
-		checked = append(checked, t == now)
+		items = append(items, widget.MenuItem{Label: label, Checked: t == now})
 	}
-	m := widget.NewMenu(items...)
-	m.Checked = checked
+	m := widget.NewMenu(items)
 	m.Pick = func(i int, u *gunim.UI) {
 		f.closeList()
 		if i < len(f.times) {

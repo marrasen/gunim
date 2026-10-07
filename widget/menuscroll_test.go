@@ -26,7 +26,7 @@ func newLongPickerIn(t *testing.T, sel int) (*gunim.Window, *Dropdown, func(int)
 	for i := range items {
 		items[i] = fmt.Sprintf("Item %d", i)
 	}
-	d := NewDropdown(items...)
+	d := NewDropdown(Labels(items...))
 	d.Selected = sel
 	w, run := stage(t, &frame{child: d, size: geom.Sz(200, 36)})
 	w.Input(input.PointerDown{Pos: geom.Pt(20, 18), Clicks: 1})
@@ -157,7 +157,7 @@ func TestALongMenuFadesWhereMoreRowsLiePastItsEdge(t *testing.T) {
 }
 
 func TestAShortMenuDoesNotFade(t *testing.T) {
-	m := NewMenu("One", "Two")
+	m := NewMenu(Labels("One", "Two"))
 	m.Layout(gunim.Constraints{Max: geom.Sz(400, 400)}, gunim.Frame{Scale: 1}, gunim.Children{})
 	if fade, ok := fadeIn(painted(m, geom.Sz(m.card.Max.X, m.card.Max.Y))); ok {
 		t.Fatalf("a menu that fits fades by %v", fade)
@@ -246,7 +246,7 @@ func TestTheHighlightFollowsTheRowUnderThePointerAsTheBarPages(t *testing.T) {
 }
 
 func TestAMenuWhoseItemsShrinkWhileScrolledShowsTheNewOnesAtOnce(t *testing.T) {
-	b := NewMenuButton("Pick", manyItems(60)...)
+	b := NewMenuButton("Pick", manyItems(60))
 	picked := -1
 	b.Picked = func(i int, _ *gunim.UI) { picked = i }
 	w, run := stage(t, &frame{child: b, size: geom.Sz(200, 36)})
@@ -258,7 +258,7 @@ func TestAMenuWhoseItemsShrinkWhileScrolledShowsTheNewOnesAtOnce(t *testing.T) {
 		t.Fatalf("End scrolled the menu only %v", m.scroll.Offset())
 	}
 	// Narrowed, as a filter narrows a list
-	b.Items = []string{"One", "Two", "Three"}
+	b.SetItems(Labels("One", "Two", "Three"))
 	for f := range 30 {
 		run(1)
 		for i := range 3 {
@@ -279,9 +279,9 @@ func TestAMenuWhoseItemsShrinkWhileScrolledShowsTheNewOnesAtOnce(t *testing.T) {
 }
 
 func TestAMenuWhoseItemsShrinkBeforeItsFirstLayoutKeepsItsHighlightAmongThem(t *testing.T) {
-	m := NewMenu(manyItems(60)...)
+	m := NewMenu(manyItems(60))
 	m.Highlight(59)
-	m.Items = m.Items[:3]
+	m.SetItems(m.Items()[:3])
 	m.Layout(gunim.Loose(geom.Sz(400, 400)), gunim.Frame{Scale: 1}, gunim.Children{})
 	if m.Highlighted() != 2 {
 		t.Fatalf("the highlight is on %d of 3 items", m.Highlighted())

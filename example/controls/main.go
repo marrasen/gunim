@@ -192,14 +192,14 @@ func buildPage(s Page) *page {
 	title := widget.NewLabel("Controls")
 	title.Size = widget.HeadingSize
 
-	fruit := widget.NewDropdown(fruits...)
+	fruit := widget.NewDropdown(widget.Labels(fruits...))
 	fruit.OnChange = func(i int) gunim.Intent { return Chose{Fruit: i} }
 	fruit.Label = "Fruit"
 	fruitRow := widget.Row(widget.NewLabel("Fruit"), fruit)
 	fruitRow.Cross = widget.CrossCenter
 
 	area := widget.NewCard(widget.NewLabel("Right-click anywhere in this card for a context menu."))
-	menu := widget.NewContextMenu(area, actions...)
+	menu := widget.NewContextMenu(area, widget.Labels(actions...))
 	menu.OnPick = func(i int) gunim.Intent { return Picked{Action: i} }
 
 	toggle := widget.NewButton("Switch theme")

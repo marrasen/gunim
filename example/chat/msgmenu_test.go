@@ -42,8 +42,12 @@ func TestAMessageOpensAMenuOfWhatItsToolbarDoes(t *testing.T) {
 	if r.menuList == nil {
 		t.Fatal("no menu opened")
 	}
-	if want := []string{"React", "Reply", "Edit", "Withdraw"}; !slices.Equal(r.menuList.Items, want) {
-		t.Fatalf("the menu holds %q, want %q", r.menuList.Items, want)
+	items := make([]string, 0, len(r.menuList.Items()))
+	for _, it := range r.menuList.Items() {
+		items = append(items, it.Label)
+	}
+	if want := []string{"React", "Reply", "Edit", "Withdraw"}; !slices.Equal(items, want) {
+		t.Fatalf("the menu holds %q, want %q", items, want)
 	}
 	do(func(u *gunim.UI) { r.menuList.Pick(1, u) })
 	h.frames(5)

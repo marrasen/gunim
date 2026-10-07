@@ -49,7 +49,7 @@ func newFilesPane() *filesPane {
 		return FolderOpened{Path: joinPath(f.files.Path, e.Name)}
 	}
 	folderIcon := widget.NewIcon(icon.FolderOpen, "Files")
-	f.share = widget.NewMenuButton("Share")
+	f.share = widget.NewMenuButton("Share", nil)
 	f.share.Icon = icon.Share2
 	f.share.OnPick = func(i int) gunim.Intent {
 		row, ok := f.grid.Selected()
@@ -81,7 +81,8 @@ func newFilesPane() *filesPane {
 
 // set shows files, the files of the project named project, and offers to share them in convs.
 func (f *filesPane) set(project string, files Files, convs []Conversation, u *gunim.UI) {
-	f.convs, f.share.Items = f.convs[:0], f.share.Items[:0]
+	f.convs = f.convs[:0]
+	var share []widget.MenuItem
 	for _, c := range convs {
 		if c.Area != "" {
 			continue
@@ -91,8 +92,9 @@ func (f *filesPane) set(project string, files Files, convs []Conversation, u *gu
 		if !c.Direct {
 			name = "#" + name
 		}
-		f.share.Items = append(f.share.Items, name)
+		share = append(share, widget.MenuItem{Label: name})
 	}
+	f.share.SetItems(share)
 	moved := files.Path != f.files.Path || project != f.project
 	f.files, f.project = files, project
 	crumbs := []widget.Crumb{{Name: project, Path: "/"}}

@@ -12,39 +12,38 @@ import (
 )
 
 // manyItems returns n items, as a long list of fonts or of records might be.
-func manyItems(n int) []string {
-	items := make([]string, n)
+func manyItems(n int) []MenuItem {
+	items := make([]MenuItem, n)
 	for i := range items {
-		items[i] = fmt.Sprintf("Item number %d", i)
+		items[i].Label = fmt.Sprintf("Item number %d", i)
 	}
 	return items
 }
 
 func TestALongMenuMeasuresAsWideAsItsWidestItem(t *testing.T) {
-	items := make([]string, 5000)
+	items := make([]MenuItem, 5000)
 	for i := range items {
-		items[i] = strings.Repeat("ab", i%37) + fmt.Sprintf(" %d", i)
+		items[i].Label = strings.Repeat("ab", i%37) + fmt.Sprintf(" %d", i)
 	}
-	m := NewMenu(items...)
-	m.Hints = make([]string, 10)
-	m.Hints[3] = strings.Repeat("Ctrl+Shift+", 9)
+	items[3].Hint = strings.Repeat("Ctrl+Shift+", 9)
+	m := NewMenu(items)
 	face, size := faceIn(Font, nil), TextSize.Default()
 	want := float32(0)
 	for i := range items {
 		line := face.Shape(m.label(i), size).Advance
-		if i < len(m.Hints) && m.Hints[i] != "" {
-			line += menuHintGap + face.Shape(m.Hints[i], size*0.9).Advance
+		if h := items[i].Hint; h != "" {
+			line += menuHintGap + face.Shape(h, size*0.9).Advance
 		}
 		want = max(want, line)
 	}
 	if got := m.measure(face, size); got != want {
 		t.Fatalf("the menu measured %v wide, want %v", got, want)
 	}
-	d := NewDropdown(items...)
+	d := NewDropdown(items)
 	if got, want := d.measure(face, size), func() float32 {
 		w := float32(0)
-		for _, s := range items {
-			w = max(w, face.Shape(s, size).Advance)
+		for _, it := range items {
+			w = max(w, face.Shape(it.Label, size).Advance)
 		}
 		return w
 	}(); got != want {
@@ -55,7 +54,7 @@ func TestALongMenuMeasuresAsWideAsItsWidestItem(t *testing.T) {
 func TestAHugeMenuOpensAtOnce(t *testing.T) {
 	items := manyItems(100_000)
 	start := time.Now()
-	m := NewMenu(items...)
+	m := NewMenu(items)
 	m.Layout(gunim.Loose(geom.Sz(600, 480)), gunim.Frame{Scale: 1}, gunim.Children{})
 	// Shaping every item took a second; the longest few take milliseconds.
 	if took := time.Since(start); took > 250*time.Millisecond {
@@ -65,7 +64,7 @@ func TestAHugeMenuOpensAtOnce(t *testing.T) {
 
 // BenchmarkClosedDropdownLayout lays out a closed drop-down of 100 000 items, as each frame does.
 func BenchmarkClosedDropdownLayout(b *testing.B) {
-	d := NewDropdown(manyItems(100_000)...)
+	d := NewDropdown(manyItems(100_000))
 	f := gunim.Frame{Scale: 1}
 	c := gunim.Loose(geom.Sz(400, 36))
 	d.Layout(c, f, gunim.Children{})
@@ -77,8 +76,11 @@ func BenchmarkClosedDropdownLayout(b *testing.B) {
 
 // BenchmarkOpenMenuFrame lays out and paints an open menu of 100 000 items, scrolled half way, as each frame does.
 func BenchmarkOpenMenuFrame(b *testing.B) {
-	m := NewMenu(manyItems(100_000)...)
-	m.Breaks = []int{10, 20_000, 50_005, 90_000}
+	items := manyItems(100_000)
+	for _, i := range []int{10, 20_000, 50_005, 90_000} {
+		items[i].Break = true
+	}
+	m := NewMenu(items)
 	m.Highlight(50_000)
 	f := gunim.Frame{Scale: 1}
 	c := gunim.Loose(geom.Sz(600, 480))
@@ -94,7 +96,7 @@ func BenchmarkOpenMenuFrame(b *testing.B) {
 
 // BenchmarkOpenDropdownMenu opens the list of a drop-down of 100 000 items: its menu's first layout and paint.
 func BenchmarkOpenDropdownMenu(b *testing.B) {
-	d := NewDropdown(manyItems(100_000)...)
+	d := NewDropdown(manyItems(100_000))
 	d.Selected = 50_000
 	f := gunim.Frame{Scale: 1}
 	d.Layout(gunim.Loose(geom.Sz(400, 36)), f, gunim.Children{})
@@ -116,7 +118,7 @@ func BenchmarkOpenMenu(b *testing.B) {
 	c := gunim.Loose(geom.Sz(600, 480))
 	var p paint.Painter
 	for range b.N {
-		m := NewMenu(items...)
+		m := NewMenu(items)
 		m.Layout(c, f, gunim.Children{})
 		p.Reset()
 		m.Paint(&p, f, geom.Sz(600, 480), gunim.Children{})
@@ -124,7 +126,7 @@ func BenchmarkOpenMenu(b *testing.B) {
 }
 
 func TestAClosedDropdownMeasuresItsItemsOnlyWhenTheyChange(t *testing.T) {
-	d := NewDropdown(manyItems(2000)...)
+	d := NewDropdown(manyItems(2000))
 	f := gunim.Frame{Scale: 1}
 	c := gunim.Loose(geom.Sz(800, 36))
 	d.Layout(c, f, gunim.Children{})
@@ -132,7 +134,7 @@ func TestAClosedDropdownMeasuresItsItemsOnlyWhenTheyChange(t *testing.T) {
 	if allocs := testing.AllocsPerRun(5, func() { d.Layout(c, f, gunim.Children{}) }); allocs > 0 {
 		t.Fatalf("a layout with the items as they were allocates %v times, measuring them again", allocs)
 	}
-	d.Items = append(manyItems(10), strings.Repeat("W", 40))
+	d.SetItems(append(manyItems(10), MenuItem{Label: strings.Repeat("W", 40)}))
 	d.Layout(c, f, gunim.Children{})
 	if d.size.W <= short {
 		t.Fatalf("with a longer item the drop-down is %v wide, as it was before", d.size.W)
@@ -140,8 +142,11 @@ func TestAClosedDropdownMeasuresItsItemsOnlyWhenTheyChange(t *testing.T) {
 }
 
 func TestALongMenuDrawsOnlyTheRowsInView(t *testing.T) {
-	m := NewMenu(manyItems(5000)...)
-	m.Breaks = []int{100, 2600, 2601}
+	items := manyItems(5000)
+	for _, i := range []int{100, 2600, 2601} {
+		items[i].Break = true
+	}
+	m := NewMenu(items)
 	m.Highlight(2500)
 	m.Layout(gunim.Loose(geom.Sz(600, 480)), gunim.Frame{Scale: 1}, gunim.Children{})
 	shown := int(m.card.Size().H/m.row) + 2
@@ -152,7 +157,7 @@ func TestALongMenuDrawsOnlyTheRowsInView(t *testing.T) {
 }
 
 func TestOpeningALongDropdownMeasuresNoItemAgain(t *testing.T) {
-	d := NewDropdown(manyItems(5000)...)
+	d := NewDropdown(manyItems(5000))
 	d.Selected = 2500
 	f := gunim.Frame{Scale: 1}
 	d.Layout(gunim.Loose(geom.Sz(400, 36)), f, gunim.Children{})
@@ -168,11 +173,14 @@ func TestOpeningALongDropdownMeasuresNoItemAgain(t *testing.T) {
 }
 
 func TestALongMenusRowsAreFoundPastItsLinesAndCaptions(t *testing.T) {
-	m := NewMenu(manyItems(3000)...)
+	items := manyItems(3000)
 	for i := 5; i < 3000; i += 7 {
-		m.Breaks = append(m.Breaks, i)
+		items[i].Break = true
 	}
-	m.Captions = []int{0, 700, 2999}
+	for _, i := range []int{0, 700, 2999} {
+		items[i].Caption = true
+	}
+	m := NewMenu(items)
 	m.Layout(gunim.Loose(geom.Sz(600, 480)), gunim.Frame{Scale: 1}, gunim.Children{})
 	for _, i := range []int{0, 1, 4, 5, 6, 699, 700, 701, 1500, 2998, 2999} {
 		m.scroll.jumpTo(m.scroll.clamp(m.rowTop(i) - m.rowTop(0) - 100))

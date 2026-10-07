@@ -284,7 +284,7 @@ func TestADisabledControlTakesNoClick(t *testing.T) {
 	if box.Checked() || box.Focusable() {
 		t.Fatalf("disabled, the box is on %v, focusable %v", box.Checked(), box.Focusable())
 	}
-	pick := NewDropdown("None", "desk")
+	pick := NewDropdown(Labels("None", "desk"))
 	pick.Disabled = true
 	if pick.Focusable() {
 		t.Fatal("a disabled drop-down takes focus")

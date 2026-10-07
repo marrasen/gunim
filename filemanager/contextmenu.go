@@ -114,19 +114,19 @@ type menuState struct {
 // fill sets c's items from items, dimming those off says are off and
 // ticking those on says are on, and returns the commands in order.
 func fill(c *widget.ContextMenu, items []menuItem, off, on func(cmd string) bool) []string {
-	c.Items, c.Hints, c.Disabled, c.Checked, c.Breaks = nil, nil, nil, nil, nil
+	var lines []widget.MenuItem
 	var cmds []string
+	line := false
 	for _, it := range items {
 		if it.label == "-" {
-			c.Breaks = append(c.Breaks, len(c.Items))
+			line = true
 			continue
 		}
-		c.Items = append(c.Items, it.label)
-		c.Hints = append(c.Hints, it.hint)
-		c.Disabled = append(c.Disabled, off(it.cmd))
-		c.Checked = append(c.Checked, on(it.cmd))
+		lines = append(lines, widget.MenuItem{Label: it.label, Hint: it.hint, Disabled: off(it.cmd), Checked: on(it.cmd), Break: line})
+		line = false
 		cmds = append(cmds, it.cmd)
 	}
+	c.SetItems(lines)
 	return cmds
 }
 
@@ -135,7 +135,7 @@ func (t *titleBar) checked(cmd string) bool {
 	for m, cmds := range t.cmds {
 		for i, c := range cmds {
 			if c == cmd {
-				return t.bar.Menus[m].Checked[i]
+				return t.bar.Menus[m].Items[i].Checked
 			}
 		}
 	}
@@ -146,7 +146,7 @@ func (t *titleBar) checked(cmd string) bool {
 // items selected when pressed on one, and for the folder showing when
 // pressed beside them.
 func (pg *listingPage) contextMenu(g gunim.Node, rowAt func(geom.Point) int, selected func() [][2]int) *widget.ContextMenu {
-	m := widget.NewContextMenu(g)
+	m := widget.NewContextMenu(g, nil)
 	var st menuState
 	m.Prepare = func(at geom.Point, u *gunim.UI) bool {
 		b := pg.b
@@ -187,7 +187,9 @@ func (pg *listingPage) contextMenu(g gunim.Node, rowAt func(geom.Point) int, sel
 			return false
 		}, func(string) bool { return false })
 		if i := slices.Index(st.cmds, CmdTrash); i >= 0 {
-			m.Items[i] = trashLabel(b.shell.NoTrash)
+			items := m.Items()
+			items[i].Label = trashLabel(b.shell.NoTrash)
+			m.SetItems(items)
 		}
 		return true
 	}
@@ -327,7 +329,7 @@ type sideMenu struct {
 // newSideMenu wraps the sidebar in a context menu for its places,
 // favourites and headings.
 func newSideMenu(b *browser) *sideMenu {
-	s := &sideMenu{b: b, m: widget.NewContextMenu(b.side)}
+	s := &sideMenu{b: b, m: widget.NewContextMenu(b.side, nil)}
 	s.m.Prepare = s.prepare
 	s.m.Picked = func(i int, u *gunim.UI) { b.dnd.menuPicked(s.m, s.st, i, u) }
 	b.side.menuAt = func(h *sectionHead, u *gunim.UI) {
@@ -372,7 +374,9 @@ func (s *sideMenu) prepareHead(h *sectionHead) {
 		return false
 	}, func(string) bool { return false })
 	if h.sec.closed() {
-		s.m.Items[0] = "Expand"
+		items := s.m.Items()
+		items[0].Label = "Expand"
+		s.m.SetItems(items)
 	}
 }
 

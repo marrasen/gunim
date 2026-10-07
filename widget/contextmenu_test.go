@@ -17,18 +17,19 @@ type menuPicked struct{ item string }
 // and the bottom half none.
 func contextStage(t *testing.T) (w *gunim.Window, c *ContextMenu, run func(int)) {
 	t.Helper()
-	c = NewContextMenu(&block{h: 300})
+	c = NewContextMenu(&block{h: 300}, nil)
 	c.Prepare = func(at geom.Point, _ *gunim.UI) bool {
 		if at.Y >= 150 {
 			return false
 		}
-		c.Items = []string{"Open", "Paste", "Delete"}
-		c.Hints = []string{"Enter", "Ctrl+V", "Delete"}
-		c.Disabled = []bool{false, true, false}
-		c.Breaks = []int{2}
+		c.SetItems([]MenuItem{
+			{Label: "Open", Hint: "Enter"},
+			{Label: "Paste", Hint: "Ctrl+V", Disabled: true},
+			{Label: "Delete", Hint: "Delete", Break: true},
+		})
 		return true
 	}
-	c.OnPick = func(i int) gunim.Intent { return menuPicked{c.Items[i]} }
+	c.OnPick = func(i int) gunim.Intent { return menuPicked{c.Items()[i].Label} }
 	w, run = stage(t, &frame{child: c, size: geom.Sz(400, 300)})
 	return w, c, run
 }
@@ -47,8 +48,8 @@ func TestAContextMenuTakesItsItemsFromWhereItOpens(t *testing.T) {
 	if !c.Focusable() || c.menu == nil {
 		t.Fatal("the menu did not open")
 	}
-	if !slices.Equal(c.menu.Hints, []string{"Enter", "Ctrl+V", "Delete"}) || !flag(c.menu.Disabled, 1) {
-		t.Fatalf("the menu has hints %v and disabled %v", c.menu.Hints, c.menu.Disabled)
+	if items := c.menu.Items(); !slices.Equal(hintsOf(items), []string{"Enter", "Ctrl+V", "Delete"}) || !items[1].Disabled {
+		t.Fatalf("the menu has hints %v and disabled %v", hintsOf(items), disabledOf(items))
 	}
 	// Down from Open passes the disabled Paste by.
 	w.Input(input.KeyPress{Key: input.KeyDown, Time: time.Now()})

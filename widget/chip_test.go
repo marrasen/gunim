@@ -96,7 +96,7 @@ func TestAWrapCanCentreEachChildInItsRow(t *testing.T) {
 }
 
 func TestAMenuButtonThatStaysOpenTicksWhatIsPicked(t *testing.T) {
-	b := NewMenuButton("Files", "app.log", "app.log.1", "app.log.2")
+	b := NewMenuButton("Files", Labels("app.log", "app.log.1", "app.log.2"))
 	b.StayOpen = true
 	b.OnPick = func(i int) gunim.Intent { return picked{i} }
 	w, run := stage(t, &frame{child: Row(b), size: geom.Sz(400, 300)})
@@ -112,12 +112,12 @@ func TestAMenuButtonThatStaysOpenTicksWhatIsPicked(t *testing.T) {
 	if !b.IsOpen() {
 		t.Fatal("a pick closed a menu that stays open")
 	}
-	if len(b.Checked) < 2 || !b.Checked[1] || b.menu.Checked[1] != true {
-		t.Fatalf("after picking the second item, ticks are %v, want it ticked", b.Checked)
+	if !b.Items()[1].Checked || !b.menu.Items()[1].Checked {
+		t.Fatalf("after picking the second item, ticks are %v, want it ticked", checkedOf(b.Items()))
 	}
 	w.Input(input.KeyPress{Key: input.KeyEnter})
 	run(1)
-	if b.Checked[1] {
+	if b.Items()[1].Checked {
 		t.Fatal("picking a ticked item left it ticked")
 	}
 	if got := sent(w); len(got) != 2 || got[0] != (picked{1}) || got[1] != (picked{1}) {
@@ -155,7 +155,7 @@ func TestAPaletteOffersTypedItemsFirst(t *testing.T) {
 // Picked hears a pick on the UI goroutine, for a pick that works in the
 // window.
 func TestAMenuButtonsPickedHearsThePick(t *testing.T) {
-	b := NewMenuButton("Add", "Server", "Window")
+	b := NewMenuButton("Add", Labels("Server", "Window"))
 	got := -1
 	b.Picked = func(i int, u *gunim.UI) { got = i }
 	w, run := stage(t, &frame{child: Row(b), size: geom.Sz(400, 300)})

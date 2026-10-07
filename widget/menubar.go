@@ -24,18 +24,13 @@ var (
 	MenubarHot = theme.Color("menubar.hot", color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x16})
 )
 
-// BarMenu is one menu of a [Menubar]: its title, and its items, which
-// take the extras a [Menu] does. The title and the items may mark their
-// access keys with a & before the letter, as "&File"; see [Menu.AccessKeys].
+// BarMenu is one menu of a [Menubar]: its title, and its items. The
+// title and the items' labels may mark their access keys with a & before
+// the letter, as "&File"; see [Menu.AccessKeys]. The bar makes the menu
+// anew each time it opens, from the items as they are then.
 type BarMenu struct {
-	Title    string
-	Items    []string
-	Hints    []string
-	Checked  []bool
-	Disabled []bool
-	Breaks   []int
-	Captions []int
-	Icons    []*icon.Icon
+	Title string
+	Items []MenuItem
 }
 
 // Menubar is a row of menu titles along the top of a window, each
@@ -176,7 +171,7 @@ func (b *Menubar) Open(i int, u *gunim.UI) {
 
 // newMenu makes menu i's [Menu].
 func (b *Menubar) newMenu(i int) *Menu {
-	m := NewMenu()
+	m := NewMenu(nil)
 	b.fill(m, i)
 	m.MinWidth = 180
 	return m
@@ -184,9 +179,7 @@ func (b *Menubar) newMenu(i int) *Menu {
 
 // fill gives m menu i's items and what the bar says about them.
 func (b *Menubar) fill(m *Menu, i int) {
-	bm := b.Menus[i]
-	m.Items, m.Hints, m.Checked, m.Disabled, m.Breaks, m.Captions = bm.Items, bm.Hints, bm.Checked, bm.Disabled, bm.Breaks, bm.Captions
-	m.Icons = bm.Icons
+	m.SetItems(b.Menus[i].Items)
 	m.AccessKeys, m.cues = true, b.byKeys
 }
 
@@ -199,12 +192,12 @@ func (b *Menubar) showList(u *gunim.UI) {
 	if b.open < 0 && b.back == nil {
 		b.back = u.Focused()
 	}
-	list := NewMenu()
-	list.AccessKeys, list.cues = true, b.byKeys
-	for _, m := range b.Menus {
-		list.Items = append(list.Items, m.Title)
-		list.Hints = append(list.Hints, "›")
+	titles := make([]MenuItem, len(b.Menus))
+	for i, m := range b.Menus {
+		titles[i] = MenuItem{Label: m.Title, Hint: "›"}
 	}
+	list := NewMenu(titles)
+	list.AccessKeys, list.cues = true, b.byKeys
 	list.MinWidth = 160
 	list.OnHighlight = func(i int, u *gunim.UI) {
 		b.stopWaiting()

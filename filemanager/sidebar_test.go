@@ -230,7 +230,7 @@ func (h *harness) sideMenuShown() (items []string, breaks []int) {
 	var open bool
 	h.ui(func(b *browser, _ *gunim.UI) {
 		m := b.dnd.sideMenu.m
-		items, breaks, open = slices.Clone(m.Items), slices.Clone(m.Breaks), m.Focusable()
+		items, breaks, open = labelsOf(m.Items()), breaksOf(m.Items()), m.Focusable()
 	})
 	if !open {
 		h.t.Fatal("the sidebar's menu did not open")

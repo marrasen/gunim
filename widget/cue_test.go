@@ -103,7 +103,7 @@ func TestASliderTicksAsItPassesSteps(t *testing.T) {
 }
 
 func TestAMenuSoundsAsItOpensPicksAndGoesUnpicked(t *testing.T) {
-	d := NewDropdown("Apple", "Banana", "Cherry")
+	d := NewDropdown(Labels("Apple", "Banana", "Cherry"))
 	w, run := stage(t, &frame{child: d, size: geom.Sz(200, 36)})
 	l := listens(w)
 	cueClick(w, run, geom.Pt(20, 18))

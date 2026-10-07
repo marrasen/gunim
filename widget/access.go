@@ -178,15 +178,16 @@ func (d *Dropdown) Access() access.Info {
 		State:   access.StateExpandable | access.StateHasPopup,
 		Actions: []string{access.ActionPress},
 	}
-	if d.Selected >= 0 && d.Selected < len(d.Items) {
-		info.Value = d.Items[d.Selected]
+	items := d.list.items
+	if d.Selected >= 0 && d.Selected < len(items) {
+		info.Value = items[d.Selected].Label
 	}
 	if d.IsOpen() {
 		info.State |= access.StateExpanded
 		// While the list is open, its highlighted item is what the
 		// keys move through.
-		if h := d.menu.Highlighted(); h >= 0 && h < len(d.Items) {
-			info.Value = d.Items[h]
+		if h := d.menu.Highlighted(); h >= 0 && h < len(items) {
+			info.Value = items[h].Label
 		}
 	}
 	return info
@@ -212,7 +213,7 @@ func (d *Dropdown) AccessAct(r access.Request, u *gunim.UI) bool {
 // entry, the highlighted one active.
 func (m *Menu) Access() access.Info {
 	info := access.Info{Role: access.RoleMenu, Active: m.hot + 1}
-	for i := range m.Items {
+	for i := range m.len() {
 		part := access.Info{Role: access.RoleMenuItem, Name: m.label(i), Actions: []string{access.ActionPress}}
 		if i == m.hot {
 			part.State = access.StateSelected
@@ -225,7 +226,7 @@ func (m *Menu) Access() access.Info {
 
 // AccessAct implements [gunim.AccessActor]: pressing an item picks it.
 func (m *Menu) AccessAct(r access.Request, u *gunim.UI) bool {
-	if r.Action != access.ActionPress || r.Part < 0 || r.Part >= len(m.Items) || m.Pick == nil {
+	if r.Action != access.ActionPress || r.Part < 0 || r.Part >= m.len() || m.Pick == nil {
 		return false
 	}
 	m.Pick(r.Part, u)

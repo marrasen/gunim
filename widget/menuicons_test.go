@@ -12,9 +12,8 @@ import (
 )
 
 func TestADropdownShowsTheChosenItemsIcon(t *testing.T) {
-	plain := NewDropdown("Details", "Icons")
-	d := NewDropdown("Details", "Icons")
-	d.Icons = []*icon.Icon{icon.List, icon.LayoutGrid}
+	plain := NewDropdown(Labels("Details", "Icons"))
+	d := NewDropdown([]MenuItem{{Label: "Details", Icon: icon.List}, {Label: "Icons", Icon: icon.LayoutGrid}})
 	d.Selected = 1
 	w, run := stage(t, Column(plain, d))
 	run(2)
@@ -27,15 +26,14 @@ func TestADropdownShowsTheChosenItemsIcon(t *testing.T) {
 	}
 	click(w, d.size.W/2, plain.size.H+d.size.H/2+1)
 	run(10)
-	if d.menu == nil || !slices.Equal(d.menu.Icons, d.Icons) {
+	if d.menu == nil || !slices.Equal(iconsOf(d.menu.Items()), []*icon.Icon{icon.List, icon.LayoutGrid}) {
 		t.Fatal("the drop-down's list does not show the items' icons")
 	}
 }
 
 func TestAMenuButtonShowsItsIconAndItsItemsIcons(t *testing.T) {
-	b := NewMenuButton("Columns", "Time", "Level")
+	b := NewMenuButton("Columns", []MenuItem{{Label: "Time", Icon: icon.Clock}, {Label: "Level", Icon: icon.Signal}})
 	b.Icon = icon.Columns3
-	b.Icons = []*icon.Icon{icon.Clock, icon.Signal}
 	w, run := stage(t, Row(b))
 	run(2)
 	if got := iconsDrawn(t, w); !slices.Equal(got, []*icon.Icon{icon.Columns3, icon.ChevronDown}) {
@@ -43,7 +41,7 @@ func TestAMenuButtonShowsItsIconAndItsItemsIcons(t *testing.T) {
 	}
 	click(w, b.size.W/2, b.size.H/2)
 	run(10)
-	if b.menu == nil || !slices.Equal(b.menu.Icons, b.Icons) {
+	if b.menu == nil || !slices.Equal(iconsOf(b.menu.Items()), []*icon.Icon{icon.Clock, icon.Signal}) {
 		t.Fatal("the menu button's menu does not show the items' icons")
 	}
 }
@@ -51,13 +49,13 @@ func TestAMenuButtonShowsItsIconAndItsItemsIcons(t *testing.T) {
 func TestAContextMenuShowsItsItemsIcons(t *testing.T) {
 	w, c, run := contextStage(t)
 	c.Prepare = func(geom.Point, *gunim.UI) bool {
-		c.Items, c.Icons = []string{"Copy"}, []*icon.Icon{icon.Copy}
+		c.SetItems([]MenuItem{{Label: "Copy", Icon: icon.Copy}})
 		return true
 	}
 	w.Input(input.PointerDown{Pos: geom.Pt(50, 50), Button: input.ButtonSecondary, Clicks: 1, Time: time.Now()})
 	w.Input(input.PointerUp{Pos: geom.Pt(50, 50), Button: input.ButtonSecondary, Time: time.Now()})
 	run(10)
-	if c.menu == nil || !slices.Equal(c.menu.Icons, []*icon.Icon{icon.Copy}) {
+	if c.menu == nil || !slices.Equal(iconsOf(c.menu.Items()), []*icon.Icon{icon.Copy}) {
 		t.Fatal("the context menu's menu does not show the items' icons")
 	}
 }

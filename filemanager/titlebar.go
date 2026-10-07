@@ -119,7 +119,7 @@ func (t *titleBar) build(fetches bool) []widget.BarMenu {
 		was = map[string]bool{}
 		for m, cmds := range t.cmds {
 			for i, c := range cmds {
-				was[c] = t.bar.Menus[m].Checked[i]
+				was[c] = t.bar.Menus[m].Items[i].Checked
 			}
 		}
 	}
@@ -140,14 +140,14 @@ func (t *titleBar) build(fetches bool) []widget.BarMenu {
 		}
 		bm := widget.BarMenu{Title: m.title}
 		var cmds []string
+		line := false
 		for _, it := range items {
 			if it.label == "-" {
-				bm.Breaks = append(bm.Breaks, len(bm.Items))
+				line = true
 				continue
 			}
-			bm.Items = append(bm.Items, it.label)
-			bm.Hints = append(bm.Hints, it.hint)
-			bm.Checked = append(bm.Checked, was[it.cmd])
+			bm.Items = append(bm.Items, widget.MenuItem{Label: it.label, Hint: it.hint, Checked: was[it.cmd], Break: line})
+			line = false
 			cmds = append(cmds, it.cmd)
 		}
 		bars = append(bars, bm)
@@ -197,7 +197,7 @@ func (t *titleBar) check(cmd string, on bool) {
 	for m, cmds := range t.cmds {
 		for i, c := range cmds {
 			if c == cmd {
-				t.bar.Menus[m].Checked[i] = on
+				t.bar.Menus[m].Items[i].Checked = on
 			}
 		}
 	}
@@ -210,7 +210,7 @@ func (t *titleBar) setShell(s Shell, u *gunim.UI) {
 	for m, cmds := range t.cmds {
 		for i, c := range cmds {
 			if c == CmdTrash {
-				t.bar.Menus[m].Items[i] = trashLabel(s.NoTrash)
+				t.bar.Menus[m].Items[i].Label = trashLabel(s.NoTrash)
 			}
 		}
 	}
