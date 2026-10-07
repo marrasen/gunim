@@ -14,8 +14,8 @@ import (
 
 // Label shows text, wrapped to the width it is given.
 //
-// Given no width, as a child of a row that does not grow it, it sets
-// each line unbroken.
+// Given no width, as a child of a row with room to spare, it sets each
+// line unbroken; a row that runs short squeezes it, and it wraps.
 type Label struct {
 	Text string
 	// Size and Color default to the theme's [TextSize] and [Ink]; set

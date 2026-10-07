@@ -18,6 +18,7 @@ import (
 type spot struct {
 	size   geom.Size
 	at     geom.Point
+	box    geom.Size
 	events []input.Event
 }
 
@@ -27,8 +28,8 @@ func (s *spot) Layout(c gunim.Constraints, _ gunim.Frame, _ gunim.Children) geom
 	return c.Constrain(s.size)
 }
 
-func (s *spot) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, _ gunim.Children) {
-	s.at = p.Transform().Apply(geom.Point{})
+func (s *spot) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, _ gunim.Children) {
+	s.at, s.box = p.Transform().Apply(geom.Point{}), box
 }
 
 func (s *spot) Handle(e input.Event, _ *gunim.UI) bool {
