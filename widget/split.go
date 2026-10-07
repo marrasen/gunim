@@ -100,6 +100,11 @@ func (s *Split) SetPane(i int, n gunim.Node, u *gunim.UI) {
 	if *old == n {
 		return
 	}
+	if u == nil {
+		// The split is still to be mounted, and mounts the pane it holds then.
+		*old = n
+		return
+	}
 	u.Remove(*old)
 	*old = n
 	u.InsertAt(s, at, n)

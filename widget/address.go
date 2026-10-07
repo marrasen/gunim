@@ -197,20 +197,38 @@ func (c *crumbBar) set(cs []Crumb, u *gunim.UI) {
 	for keep < len(cs) && keep < len(c.crumbs) && c.crumbs[keep].path == cs[keep].Path {
 		keep++
 	}
+	// With a nil u the bar is still to be mounted: it mounts the places it holds then, so they are only kept.
 	for _, old := range c.crumbs[keep:] {
-		u.Remove(old)
+		if u != nil {
+			u.Remove(old)
+		}
 	}
 	c.crumbs = c.crumbs[:keep]
 	for i := keep; i < len(cs); i++ {
 		n := newCrumb(cs[i], c.a)
 		c.crumbs = append(c.crumbs, n)
-		u.Insert(c, n)
+		if u != nil {
+			u.Insert(c, n)
+		}
 	}
 	for i, n := range c.crumbs {
 		n.setLast(i == len(c.crumbs)-1)
 	}
+	if u == nil {
+		c.shift.Jump(0)
+		return
+	}
 	c.shift.Animate(0, Settle.Get(u.Theme()))
 	u.Invalidate()
+}
+
+// Children implements [gunim.Composite]: the places set before the bar was mounted arrive with it.
+func (c *crumbBar) Children() []gunim.Node {
+	out := make([]gunim.Node, len(c.crumbs))
+	for i, n := range c.crumbs {
+		out[i] = n
+	}
+	return out
 }
 
 // crumbEdge is the room the places keep from either end of the bar.

@@ -1467,8 +1467,13 @@ func (u *UI) Now() time.Time { return u.now }
 //
 // Inside a node's Handle, or a view's update or patch function, it is
 // the theme that node is drawn with, which a [ThemeScope] above it may
-// set.
-func (u *UI) Theme() *theme.Live { return u.themeOf(u.current) }
+// set. A nil UI, as a setter is given before its widget is mounted, has none, and tokens read their defaults.
+func (u *UI) Theme() *theme.Live {
+	if u == nil {
+		return nil
+	}
+	return u.themeOf(u.current)
+}
 
 // themeOf returns the theme s is drawn with. A popup's content is drawn
 // with the theme of the node that opened it.
@@ -1581,8 +1586,13 @@ func (u *UI) ToFront() {
 func (u *UI) Blends() bool { return u.w.blends }
 
 // Invalidate asks for one more frame, whatever the animation state. Use
-// it when something changed that the engine can see no other way.
-func (u *UI) Invalidate() { u.invalid = true }
+// it when something changed that the engine can see no other way. On a nil UI, as a setter is given before its
+// widget is mounted, it does nothing: the first frame draws the widget anyway.
+func (u *UI) Invalidate() {
+	if u != nil {
+		u.invalid = true
+	}
+}
 
 // Send reports an intent from n to the application.
 //
