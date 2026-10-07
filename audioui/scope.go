@@ -8,6 +8,7 @@ import (
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/theme"
+	"github.com/marrasen/gunim/widget"
 )
 
 // ScopeFrames is how many of the last frames heard a [Scope] draws.
@@ -53,7 +54,7 @@ func (s *Scope) Step(dt time.Duration) {
 // frames as points, brighter the newer, over guides for mid, side and
 // each channel alone.
 func (s *Scope) Paint(p *paint.Painter, th *theme.Live, area geom.Rect) {
-	ink, ground, sound := Ink.Get(th), Ground.Get(th), Sound.Get(th)
+	ink, ground, sound := widget.Ink.Get(th), Ground.Get(th), Sound.Get(th)
 	side := area.Size().W
 	mid := area.Min.Add(geom.Pt(side/2, side/2))
 	rad := side / 2
@@ -82,7 +83,7 @@ func (s *Scope) Paint(p *paint.Painter, th *theme.Live, area geom.Rect) {
 // PaintCorrelation draws the correlation as a mark along bar, -1 at its
 // left and +1 at its right, the two ends named either side of it.
 func (s *Scope) PaintCorrelation(p *paint.Painter, th *theme.Live, bar geom.Rect) {
-	ink := Ink.Get(th)
+	ink := widget.Ink.Get(th)
 	y := bar.Min.Y
 	p.RRect(bar, bar.Size().H/2, paint.Solid(Faded(ink, 0.08)))
 	p.RRect(geom.Rc(bar.Min.X+bar.Size().W/2-0.5, y-3, 1, bar.Size().H+6), 0, paint.Solid(Faded(ink, 0.3)))

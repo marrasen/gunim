@@ -9,18 +9,19 @@ type Cue string
 
 // The cues the widgets of package widget play.
 const (
-	// CuePress is a button, a menu item or a link acting.
+	// CuePress is a button, a menu item or a link acting, a row or a tile
+	// activated, or a chip removed.
 	CuePress Cue = "press"
 	// CueToggleOn and CueToggleOff are a checkbox or a switch turning
 	// on or off.
 	CueToggleOn  Cue = "toggle.on"
 	CueToggleOff Cue = "toggle.off"
-	// CueSelect is a tab, a segment or an item chosen.
+	// CueSelect is a tab, a segment, an item or a day chosen.
 	CueSelect Cue = "select"
 	// CueTick is a slider or a number passing a step.
 	CueTick Cue = "tick"
-	// CueOpen and CueClose are a menu, a dialog or a drawer opening, or
-	// going without anything chosen in it.
+	// CueOpen and CueClose are a menu, a dialog, a drawer, a fold, a
+	// palette or a toast opening, or going without anything chosen in it.
 	CueOpen  Cue = "open"
 	CueClose Cue = "close"
 	// CueError is something the user tried that was refused.

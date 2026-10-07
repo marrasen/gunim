@@ -16,52 +16,33 @@ import (
 // toggle is the behaviour a checkbox and a switch share: hover, press,
 // focus, and flipping on a click or Space.
 type toggle struct {
-	anim.Group
+	control
 	Label string
-	// Disabled shows the control faint, and it takes no clicks, keys or
-	// focus, for a choice that does not apply now.
-	Disabled bool
-	// Tooltip says more about the choice than its label has room for: a
-	// popup shows it once the pointer has rested on the control.
-	Tooltip string
-	// KeepFocus leaves the keyboard where it is when the control is
-	// clicked, as on a toast; Tab still reaches it.
-	KeepFocus bool
 	// OnChange runs on the UI goroutine when the user flips the control,
 	// with the new state. It may act in the window through u, such as a
 	// box that shows a password field's text; a non-nil result is sent
 	// to the application as the control's intent.
 	OnChange func(on bool, u *gunim.UI) gunim.Intent
-	tip      tipper
 
 	// lit runs from 0 to 1 as the control turns on.
 	lit   *anim.Float
-	hover *anim.Float
-	press *anim.Float
-	ring  *anim.Float
-	held  bool
 	click Clicker
 	size  geom.Size
 	text  shapedText
 	ell   shapedText
 	// checked is the state: ticked, or on.
 	checked bool
-	// laid is set by the first layout, which puts the control where checked
-	// says without animating.
-	laid bool
 }
 
 func newToggle(label string) toggle {
 	t := toggle{
-		Label: label,
-		lit:   anim.NewFloat(0),
-		hover: anim.NewFloat(0),
-		press: anim.NewFloat(0),
-		ring:  anim.NewFloat(0),
+		control: newControl(),
+		Label:   label,
+		lit:     anim.NewFloat(0),
 		// Every click flips it, the fast second of a double click too.
 		click: Clicker{Repeats: true},
 	}
-	t.Add(t.lit, t.hover, t.press, t.ring)
+	t.Add(t.lit)
 	return t
 }
 
@@ -95,49 +76,35 @@ func (t *toggle) flip(n gunim.Node, u *gunim.UI) {
 	}
 }
 
-// Focusable implements [gunim.Focusable].
-func (t *toggle) Focusable() bool { return !t.Disabled }
-
-// FocusOnPress implements [gunim.PressFocuser].
-func (t *toggle) FocusOnPress() bool { return !t.KeepFocus }
-
 // handle is the Handle both controls share; n is the control itself.
 func (t *toggle) handle(n gunim.Node, e input.Event, u *gunim.UI) bool {
-	// A tooltip shows even on a control that cannot be set, since
-	// saying why is exactly what it is for.
-	t.tip.handle(e, u, n, t.Tooltip, tipDelay)
+	t.showTip(e, u, n)
 	th := u.Theme()
 	if t.Disabled {
-		// Disabled while it had the keyboard, it lets go of its ring.
-		if _, ok := e.(input.FocusLost); ok {
-			t.ring.Animate(0, Settle.Get(th))
-			t.held = false
-			return true
-		}
-		return false
+		return t.handleDisabled(e, u, nil)
 	}
 	switch e := e.(type) {
 	case input.PointerEnter:
 		t.hover.Animate(1, Quick.Get(th))
 		if t.held {
-			t.press.Animate(1, Quick.Get(th))
+			t.squash.Animate(1, Quick.Get(th))
 		}
 	case input.PointerLeave:
 		t.hover.Animate(0, Settle.Get(th))
-		t.press.Animate(0, Bounce.Get(th))
+		t.squash.Animate(0, Bounce.Get(th))
 	case input.PointerDown:
 		if e.Button != input.ButtonPrimary {
 			return false
 		}
 		t.held = true
 		t.click.Press(e, 0)
-		t.press.Animate(1, Quick.Get(th))
+		t.squash.Animate(1, Quick.Get(th))
 	case input.PointerUp:
 		if !t.held {
 			return false
 		}
 		t.held = false
-		t.press.Animate(0, Bounce.Get(th))
+		t.squash.Animate(0, Bounce.Get(th))
 		if t.click.Release(e, over(e.Pos, t.size)) {
 			t.flip(n, u)
 		}
@@ -145,15 +112,11 @@ func (t *toggle) handle(n gunim.Node, e input.Event, u *gunim.UI) bool {
 		if e.Key != input.KeySpace {
 			return false
 		}
-		t.press.Retarget(1, Quick.Get(th))
-		t.press.Animate(0, Bounce.Get(th))
+		t.squash.Retarget(1, Quick.Get(th))
+		t.squash.Animate(0, Bounce.Get(th))
 		t.flip(n, u)
-	case input.FocusRing:
-		t.ring.Animate(ringTo(e), Quick.Get(th))
-	case input.FocusLost:
-		t.ring.Animate(0, Settle.Get(th))
 	default:
-		return false
+		return t.ringFollows(e, th)
 	}
 	return true
 }
@@ -161,9 +124,9 @@ func (t *toggle) handle(n gunim.Node, e input.Event, u *gunim.UI) bool {
 // layout sizes the control: its mark, a gap, and its label.
 func (t *toggle) layout(c gunim.Constraints, f gunim.Frame, mark geom.Size) geom.Size {
 	if !t.laid {
-		t.laid = true
 		t.lit.Jump(value(t.checked))
 	}
+	t.follow(f.Theme)
 	w, h := mark.W, mark.H
 	if t.Label != "" {
 		run := t.text.shape(faceIn(Font, f.Theme), t.Label, TextSize.Get(f.Theme))
@@ -207,7 +170,7 @@ func (c *Checkbox) Layout(cs gunim.Constraints, f gunim.Frame, _ gunim.Children)
 
 // Paint implements [gunim.Node].
 func (c *Checkbox) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
-	defer faintIf(p, box, c.Disabled)()
+	defer c.faint(p, box)()
 	th := f.Theme
 	s := CheckSize.Get(th)
 	r := geom.Rc(0, (box.H-s)/2, s, s)
@@ -215,8 +178,8 @@ func (c *Checkbox) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 	on := c.lit.Value()
 
 	func() {
-		defer p.Push(paint.Scale(1-0.1*c.press.Value(), r.Center()))()
-		FocusRing(p, r, radius, c.ring.Value(), th)
+		defer p.Push(paint.Scale(1-0.1*c.squash.Value(), r.Center()))()
+		c.paintRing(p, r, radius, th)
 		border := anim.Mix(anim.ColorCodec, FieldBorder.Get(th), Ink.Get(th), 0.35*c.hover.Value())
 		p.RRectStroke(r, radius, paint.Solid(FieldFill.Get(th)), paint.Stroke{Width: 1.5, Color: border})
 		// The fill grows from the middle as the box turns on.
@@ -267,12 +230,12 @@ func (s *Switch) Layout(cs gunim.Constraints, f gunim.Frame, _ gunim.Children) g
 
 // Paint implements [gunim.Node].
 func (s *Switch) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
-	defer faintIf(p, box, s.Disabled)()
+	defer s.faint(p, box)()
 	th := f.Theme
 	w, h := SwitchWidth.Get(th), SwitchHeight.Get(th)
 	track := geom.Rc(0, (box.H-h)/2, w, h)
 	on := s.lit.Value()
-	FocusRing(p, track, h/2, s.ring.Value(), th)
+	s.paintRing(p, track, h/2, th)
 	off := anim.Mix(anim.ColorCodec, SwitchOff.Get(th), Ink.Get(th), 0.15*s.hover.Value())
 	p.RRect(track, h/2, paint.Solid(anim.Mix(anim.ColorCodec, off, Accent.Get(th), min(max(on, 0), 1))))
 
@@ -280,10 +243,10 @@ func (s *Switch) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 	// side it is heading for.
 	inset := float32(3)
 	d := h - 2*inset
-	stretch := d * 0.3 * s.press.Value()
+	stretch := d * 0.3 * s.squash.Value()
 	x := track.Min.X + inset + (w-2*inset-d-stretch)*on
 	knob := geom.Rc(x, track.Min.Y+inset, d+stretch, d)
-	p.ShadowRRect(knob, d/2, paint.Solid(Knob.Get(th)), paint.Shadow{Offset: geom.Pt(0, 1), Blur: 2, Color: color.NRGBA{A: 0x50}})
+	p.ShadowRRect(knob, d/2, paint.Solid(Knob.Get(th)), paint.Shadow{Offset: geom.Pt(0, 1), Blur: 2, Color: KnobShadow.Get(th)})
 	s.paintLabel(p, f, box, w)
 }
 
@@ -297,14 +260,14 @@ func (s *Switch) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 // A [Vertical] slider is a fader: Max is at the top, and it fills the
 // height it is given rather than the width.
 type Slider struct {
-	anim.Group
+	control
 	// Axis lays the track along the width, which is the zero value, or
 	// up the height as a fader.
 	Axis     Axis
 	Min, Max float32
-	// Disabled shows the slider faint, and it takes no clicks, keys or
-	// focus, for a value that cannot be set now.
-	Disabled bool
+	// Label names the slider for a screen reader, as the label beside it
+	// does on screen. A [SliderRow] names its slider by its own label.
+	Label string
 	// Snap rounds the value to multiples of itself, counted from Min;
 	// zero leaves it free.
 	Snap float32
@@ -328,10 +291,6 @@ type Slider struct {
 	// colour temperature runs from blue to amber; it takes the fill's
 	// place. Two colours or more.
 	Gradient []color.NRGBA
-	// KeepFocus leaves the keyboard where it is when the slider is
-	// pressed, for a slider among keys of a view's own, such as a photo
-	// viewer's arrows; it still takes the keyboard by Tab.
-	KeepFocus bool
 
 	value float32
 	// drag is the value a drag has carried the knob to, unclamped, and
@@ -341,20 +300,16 @@ type Slider struct {
 	drag, pressed float32
 	last          geom.Point
 	// at is the knob's place, 0 to 1 along the track.
-	at    *anim.Float
-	hover *anim.Float
-	ring  *anim.Float
-	held  bool
-	size  geom.Size
-	// laid is set by the first layout. A value set before it shows at
-	// once, with no glide from Min.
-	laid bool
+	at   *anim.Float
+	size geom.Size
+	// row is the label of the row the slider is in, which names it where Label is empty.
+	row string
 }
 
 // NewSlider returns a slider from lo to hi, at lo.
 func NewSlider(lo, hi float32) *Slider {
-	s := &Slider{Min: lo, Max: hi, value: lo, at: anim.NewFloat(0), hover: anim.NewFloat(0), ring: anim.NewFloat(0)}
-	s.Add(s.at, s.hover, s.ring)
+	s := &Slider{control: newControl(), Min: lo, Max: hi, value: lo, at: anim.NewFloat(0)}
+	s.Add(s.at)
 	return s
 }
 
@@ -452,12 +407,6 @@ func (s *Slider) passesStep(a, b float32) bool {
 	return at(a) != at(b) || s.Snap > 0
 }
 
-// Focusable implements [gunim.Focusable].
-func (s *Slider) Focusable() bool { return !s.Disabled }
-
-// FocusOnPress implements [gunim.PressFocuser].
-func (s *Slider) FocusOnPress() bool { return !s.KeepFocus }
-
 // trackLength returns how far the knob travels from Min to Max.
 func (s *Slider) trackLength(th *theme.Live) float32 {
 	k := KnobSize.Get(th)
@@ -496,15 +445,10 @@ func (s *Slider) DragsTouch() bool { return s.held }
 
 // Handle implements [gunim.Handler].
 func (s *Slider) Handle(e input.Event, u *gunim.UI) bool {
+	s.showTip(e, u, s)
 	th := u.Theme()
 	if s.Disabled {
-		// Disabled while it had the keyboard, it lets go of its ring.
-		if _, ok := e.(input.FocusLost); ok {
-			s.ring.Animate(0, Settle.Get(th))
-			s.held = false
-			return true
-		}
-		return false
+		return s.handleDisabled(e, u, nil)
 	}
 	step := s.Snap
 	if step <= 0 {
@@ -588,12 +532,10 @@ func (s *Slider) Handle(e input.Event, u *gunim.UI) bool {
 		if s.value != was {
 			s.commit(u)
 		}
-	case input.FocusRing:
-		s.ring.Animate(ringTo(e), Quick.Get(th))
-	case input.FocusLost:
-		s.ring.Animate(0, Settle.Get(th))
 	default:
-		return false
+		if !s.ringFollows(e, th) {
+			return false
+		}
 	}
 	u.Invalidate()
 	return true
@@ -606,7 +548,7 @@ func (s *Slider) Handle(e input.Event, u *gunim.UI) bool {
 // height, or [FieldWidth] where that is unbounded, and is as wide as
 // the knob.
 func (s *Slider) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
-	s.laid = true
+	s.follow(f.Theme)
 	if s.Axis == Vertical {
 		h := c.Max.H
 		if h <= 0 {
@@ -625,7 +567,7 @@ func (s *Slider) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) ge
 
 // Paint implements [gunim.Node].
 func (s *Slider) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
-	defer faintIf(p, box, s.Disabled)()
+	defer s.faint(p, box)()
 	th := f.Theme
 	k := KnobSize.Get(th)
 	track := SliderTrack.Get(th)
@@ -686,8 +628,8 @@ func (s *Slider) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 	grow := 1 + 0.2*max(s.hover.Value(), 0)
 	d := k * grow
 	knob := geom.Rc(centre.X-d/2, centre.Y-d/2, d, d)
-	FocusRing(p, knob, d/2, s.ring.Value(), th)
-	p.ShadowRRect(knob, d/2, paint.Solid(Knob.Get(th)), paint.Shadow{Offset: geom.Pt(0, 1), Blur: 3, Color: color.NRGBA{A: 0x60}})
+	s.paintRing(p, knob, d/2, th)
+	p.ShadowRRect(knob, d/2, paint.Solid(Knob.Get(th)), paint.Shadow{Offset: geom.Pt(0, 1), Blur: 3, Color: KnobShadow.Get(th)})
 }
 
 // Tabs shows one of several pages under a row of titles. The line under
@@ -816,10 +758,7 @@ func (t *Tabs) choose(i int, u *gunim.UI) {
 		return
 	}
 	t.SetSelected(i, u)
-	u.Cue(gunim.CueSelect, t)
-	if t.OnChange != nil {
-		send(u, t, t.OnChange(i, u))
-	}
+	act(u, t, gunim.CueSelect, t.OnChange, i)
 }
 
 // icon returns tab i's icon, or nil.
@@ -1026,7 +965,7 @@ func (b *tabBar) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 	p.RRect(geom.Rect{Min: geom.Pt(line.X, t.head-2.5), Max: geom.Pt(line.Y, t.head-0.5)}, 1, paint.Solid(Accent.Get(th)))
 	if r := t.ring.Value(); r > 0.01 && t.selected < len(t.spans) {
 		sp := t.spans[t.selected]
-		FocusRing(p, geom.Rc(sp[0]+3, 5, sp[1]-sp[0]-6, t.head-13), 6, r, th)
+		FocusRing(p, geom.Rc(sp[0]+3, 5, sp[1]-sp[0]-6, t.head-13), FocusRadius.Get(th), r, th)
 	}
 }
 
@@ -1156,15 +1095,6 @@ func value(on bool) float32 {
 		return 1
 	}
 	return 0
-}
-
-// faintIf draws what follows faint while off is set, as a control that
-// does not apply now is drawn, and returns what ends it.
-func faintIf(p *paint.Painter, box geom.Size, off bool) func() {
-	if !off {
-		return func() {}
-	}
-	return p.Layer(paint.LayerOpts{Bounds: geom.Rect{Max: box.Point()}.Inset(geom.Uniform(-8)), Opacity: 0.4})
 }
 
 // enabled returns the first tab from i on, going by dir, that can be

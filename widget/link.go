@@ -5,7 +5,6 @@ import (
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/access"
-	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/input"
@@ -20,9 +19,10 @@ var LinkInk = theme.Foreground("link.ink", color.NRGBA{R: 0x7c, G: 0x9c, B: 0xff
 // Link is text that does something when clicked, underlined under the
 // pointer: a small action among other text, where a button would be
 // too big, such as "show 12 more". It takes focus, grows a ring as a
-// [Button] does, and Enter or Space activates it.
+// [Button] does, and Enter or Space activates it. Disabled, it fades
+// faint and takes no clicks, keys or focus.
 type Link struct {
-	anim.Group
+	control
 	Text string
 	// Icon shows before the text, as tall as the text and in its colour.
 	Icon *icon.Icon
@@ -34,8 +34,6 @@ type Link struct {
 	// non-nil result is sent to the application as the link's intent.
 	OnClick func(u *gunim.UI) gunim.Intent
 
-	hover  *anim.Float
-	ring   *anim.Float
 	shaped shapedText
 	// laid is the text cut to its box, ending in an ellipsis, for a link
 	// given less room than its text takes.
@@ -48,8 +46,7 @@ type Link struct {
 
 // NewLink returns a link showing s.
 func NewLink(s string) *Link {
-	l := &Link{Text: s, Size: TextSize, hover: anim.NewFloat(0), ring: anim.NewFloat(0)}
-	l.Add(l.hover, l.ring)
+	l := &Link{control: newControl(), Text: s, Size: TextSize}
 	return l
 }
 
@@ -70,6 +67,7 @@ func (l *Link) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom
 	s := l.run(f.Theme).Box()
 	s.W += l.iconWidth(f.Theme)
 	l.box = c.Constrain(s)
+	l.follow(f.Theme)
 	return l.box
 }
 
@@ -85,7 +83,8 @@ func (l *Link) iconWidth(th *theme.Live) float32 {
 // Given less room than its text takes, it ends the text in an ellipsis
 // within its box.
 func (l *Link) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
-	FocusRing(p, geom.Rect{Max: box.Point()}, 4, l.ring.Value(), f.Theme)
+	defer l.faint(p, box)()
+	l.paintRing(p, geom.Rect{Max: box.Point()}, FocusRadius.Get(f.Theme), f.Theme)
 	run := l.run(f.Theme)
 	ink := LinkInk.Get(f.Theme)
 	x := l.iconWidth(f.Theme)
@@ -109,10 +108,19 @@ func (l *Link) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Chi
 }
 
 // Cursor implements [gunim.CursorShaper].
-func (l *Link) Cursor(geom.Point) input.Cursor { return input.CursorHand }
+func (l *Link) Cursor(geom.Point) input.Cursor {
+	if l.Disabled {
+		return input.CursorArrow
+	}
+	return input.CursorHand
+}
 
 // Handle implements [gunim.Handler].
 func (l *Link) Handle(e input.Event, u *gunim.UI) bool {
+	l.showTip(e, u, l)
+	if l.Disabled {
+		return l.handleDisabled(e, u, nil)
+	}
 	switch e := e.(type) {
 	case input.PointerEnter:
 		l.hover.Animate(1, Quick.Get(u.Theme()))
@@ -135,34 +143,22 @@ func (l *Link) Handle(e input.Event, u *gunim.UI) bool {
 		}
 		l.fire(u)
 		return true
-	case input.FocusRing:
-		l.ring.Animate(ringTo(e), Quick.Get(u.Theme()))
-		return true
-	case input.FocusLost:
-		l.ring.Animate(0, Settle.Get(u.Theme()))
-		return true
 	}
-	return false
+	return l.ringFollows(e, u.Theme())
 }
 
-// Focusable implements [gunim.Focusable].
-func (l *Link) Focusable() bool { return true }
-
 func (l *Link) fire(u *gunim.UI) {
-	u.Cue(gunim.CuePress, l)
-	if l.OnClick != nil {
-		send(u, l, l.OnClick(u))
-	}
+	act0(u, l, gunim.CuePress, l.OnClick)
 }
 
 // Access implements [gunim.Accessible].
 func (l *Link) Access() access.Info {
-	return access.Info{Role: access.RoleLink, Name: l.Text, Actions: []string{access.ActionPress}}
+	return access.Info{Role: access.RoleLink, Name: l.accessName(l.Text), State: l.accessState(), Actions: []string{access.ActionPress}}
 }
 
 // AccessAct implements [gunim.AccessActor].
 func (l *Link) AccessAct(r access.Request, u *gunim.UI) bool {
-	if r.Action != access.ActionPress {
+	if r.Action != access.ActionPress || l.Disabled {
 		return false
 	}
 	l.fire(u)

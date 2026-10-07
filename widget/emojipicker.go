@@ -63,10 +63,19 @@ func (e *EmojiPicker) Open(opener gunim.Node, anchor geom.Rect, u *gunim.UI) {
 	e.popup = u.OpenPopup(opener, e.card, gunim.PopupOptions{Anchor: anchor, Max: geom.Sz(800, 900), Dismiss: e.Close})
 	e.card.filter("", u)
 	u.Focus(e.card.field)
+	u.Cue(gunim.CueOpen, opener)
 }
 
-// Close closes the picker, and gives the keyboard back.
+// Close closes the picker with nothing picked, and gives the keyboard back.
 func (e *EmojiPicker) Close(u *gunim.UI) {
+	if e.popup != nil {
+		u.Cue(gunim.CueClose, e.opener)
+	}
+	e.shut(u)
+}
+
+// shut closes the picker, and gives the keyboard back.
+func (e *EmojiPicker) shut(u *gunim.UI) {
 	if e.popup == nil {
 		return
 	}
@@ -87,10 +96,8 @@ const maxRecent = 3 * emojiColumns
 func (e *EmojiPicker) pick(s string, u *gunim.UI) {
 	e.Recent = append([]string{s}, slices.DeleteFunc(slices.Clone(e.Recent), func(r string) bool { return r == s })...)
 	e.Recent = e.Recent[:min(len(e.Recent), maxRecent)]
-	e.Close(u)
-	if e.OnPick != nil {
-		send(u, e.opener, e.OnPick(s, u))
-	}
+	e.shut(u)
+	act(u, e.opener, gunim.CuePress, e.OnPick, s)
 }
 
 // emojiShown returns the emoji of es that the system's fonts draw.

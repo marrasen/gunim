@@ -18,8 +18,10 @@ import (
 // Down move between them toward the column the caret came from, Page Up
 // and Page Down move by what shows, Home and End go to the ends of the
 // line on screen and with Ctrl to the ends of the text. The caret glides
-// between lines, and the text scrolls to keep it in view.
+// between lines, and the text scrolls to keep it in view. Disabled, it
+// fades faint and takes no clicks, keys or focus.
 type TextArea struct {
+	control
 	Placeholder string
 	// Placeholders are shown in turn after Placeholder while the area is empty, each for [PlaceholderHold].
 	Placeholders []string
@@ -46,7 +48,6 @@ type TextArea struct {
 	Rows, MaxRows int
 
 	editor
-	held bool
 
 	focus   *anim.Float
 	caretAt *anim.Point
@@ -79,6 +80,7 @@ const placeholderTurn = 400 * time.Millisecond
 // NewTextArea returns an empty text area five lines tall.
 func NewTextArea() *TextArea {
 	a := &TextArea{
+		control:     newControl(),
 		dismissedAt: -1,
 		Rows:        5,
 		focus:       anim.NewFloat(0),
@@ -107,9 +109,6 @@ func NewTextArea() *TextArea {
 	return a
 }
 
-// Focusable implements [gunim.Focusable].
-func (a *TextArea) Focusable() bool { return true }
-
 // TakesText implements [gunim.TextTaker].
 func (a *TextArea) TakesText() bool { return true }
 
@@ -131,7 +130,7 @@ func (a *TextArea) caretRect(i int) geom.Rect {
 func (a *TextArea) hostIndex(p geom.Point, u *gunim.UI) int { return a.indexAt(p, u) }
 
 // Text returns the area's text.
-func (a *TextArea) Text() string { return string(a.text) }
+func (a *TextArea) Text() string { return a.textString() }
 
 // SetText replaces the text, puts the caret at its end, and sends no
 // intent; see [TextField.SetText].
@@ -149,11 +148,16 @@ func (a *TextArea) SetText(s string, u *gunim.UI) {
 // Step implements [gunim.Animator].
 func (a *TextArea) Step(dt time.Duration) bool {
 	f, c, s, b, l := a.focus.Step(dt), a.caretAt.Step(dt), a.scroll.Step(dt), a.blink.step(dt), a.lines.Step(dt)
-	return f || c || s || b || l
+	k := a.control.Step(dt)
+	return f || c || s || b || l || k
 }
 
 // Handle implements [gunim.Handler].
 func (a *TextArea) Handle(e input.Event, u *gunim.UI) bool {
+	a.showTip(e, u, a)
+	if _, lost := e.(input.FocusLost); a.Disabled && !lost {
+		return a.handleDisabled(e, u, nil)
+	}
 	if a.blink.windowFocus(e, u) {
 		return false
 	}
@@ -338,6 +342,7 @@ func (n areaNav) page() int {
 // or the theme's [AreaWidth], and is Rows lines tall.
 func (a *TextArea) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
 	th := f.Theme
+	a.follow(th)
 	pad := FieldPadding.Get(th)
 	w := c.Max.W
 	if w <= 0 {
@@ -445,6 +450,7 @@ func placeholderTurnAt(n int, hold, since time.Duration) (was, now int, t float3
 
 // Paint implements [gunim.Node].
 func (a *TextArea) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
+	defer a.faint(p, box)()
 	th := f.Theme
 	focus := a.focus.Value()
 	radius := FieldRadius.Get(th)

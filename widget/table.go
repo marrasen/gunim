@@ -64,7 +64,8 @@ type TableRow struct {
 // under the same keys. A cursor row, lit, follows the arrow keys, Page
 // Up and Page Down, Home and End, and the pointer; Enter or a double
 // click activates it. Space marks it and moves on, and the marked rows
-// are tinted. A click on a column's title asks for the rows sorted by
+// are tinted. Typing a row's first letters moves the cursor to it; see
+// [Table.SetKeys] for when the table reads the names. A click on a column's title asks for the rows sorted by
 // it, and again for the other way round. Columns wider than the table
 // scroll sideways, the header with them, by a sideways wheel, the wheel
 // with Shift held, or Left and Right.
@@ -114,6 +115,10 @@ type Table struct {
 	// the keys set last.
 	names []string
 	named bool
+	// viewH is the height the rows show in, from the last layout, and parts the row and column of each part a screen
+	// reader was last told of, -1 for the titles.
+	viewH float32
+	parts [][2]int
 }
 
 // tableLift is a press on a row, at, in the table's space, which a move
@@ -167,6 +172,11 @@ func NewTable(columns ...TableColumn) *Table {
 
 // SetKeys makes keys the table's rows, in order. The cursor stays on
 // its row while the row stays, and marks on theirs.
+//
+// Finding a row by typing reads each row's first cell through Row once
+// for the keys set last, as the first letter is typed. Where the first
+// cells change under the same keys, as a file renamed in place, call
+// SetKeys again, with the same keys, for typing to find the new names.
 func (t *Table) SetKeys(keys []Key, u *gunim.UI) {
 	var at Key
 	if t.cursor >= 0 && t.cursor < len(t.keys) {
@@ -364,7 +374,7 @@ func (t *Table) Handle(e input.Event, u *gunim.UI) bool {
 			return t.scrollBy(dx, u)
 		case input.KeyEnter, input.KeyKPEnter:
 			if k, ok := t.Cursor(); ok && t.OnActivate != nil {
-				send(u, t, t.OnActivate(k, u))
+				act(u, t, gunim.CuePress, t.OnActivate, k)
 			}
 		case input.KeyBackspace:
 			// Takes back a letter of a name being found, and is left to
@@ -526,7 +536,7 @@ func (t *Table) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) 
 		x += w
 	}
 	hh := TableRowHeight.Get(f.Theme)
-	t.rowH, t.headH, t.width, t.wide = hh, hh, own.W, x+pad
+	t.rowH, t.headH, t.width, t.wide, t.viewH = hh, hh, own.W, x+pad, max(0, own.H-hh)
 	t.left = max(0, min(t.left, t.wide-own.W))
 	kids.At(0).Layout(gunim.Tight(geom.Sz(own.W, hh)))
 	kids.At(0).Place(geom.Point{})
@@ -636,21 +646,26 @@ func (h *tableHeader) Handle(e input.Event, u *gunim.UI) bool {
 		return true
 	case input.PointerUp:
 		i := h.titleAt(e.Pos)
-		if !h.click.Release(e, i) {
-			return true
+		if h.click.Release(e, i) {
+			h.sort(i, u)
 		}
-		desc := false
-		if i == t.sorted {
-			desc = !t.descending
-		}
-		t.SetSorted(i, desc)
-		if t.OnSort != nil {
-			send(u, t, t.OnSort(i, desc, u))
-		}
-		u.Invalidate()
 		return true
 	}
 	return false
+}
+
+// sort asks for the rows sorted by column i, the other way round where they are already.
+func (h *tableHeader) sort(i int, u *gunim.UI) {
+	t := h.t
+	desc := false
+	if i == t.sorted {
+		desc = !t.descending
+	}
+	t.SetSorted(i, desc)
+	if t.OnSort != nil {
+		send(u, t, t.OnSort(i, desc, u))
+	}
+	u.Invalidate()
 }
 
 // titleAt returns the column whose title is at p, or -1.
@@ -801,7 +816,7 @@ func (r *tableRow) Handle(e input.Event, u *gunim.UI) bool {
 		}
 		if e.Clicks == 2 && t.OnActivate != nil {
 			t.lift = tableLift{}
-			send(u, t, t.OnActivate(r.key, u))
+			act(u, t, gunim.CuePress, t.OnActivate, r.key)
 			return true
 		}
 		if t.DragRows != nil {

@@ -24,10 +24,10 @@ var (
 // Segmented is a row of options in a rounded track, one of them chosen, with a pill that springs to the chosen one.
 //
 // A click on an option chooses it. With focus, Left and Right choose the option beside the chosen one, and Home and
-// End the first and the last. Every option is as wide as the widest. Given less room, the options share it, and a label
+// End the first and the last. Disabled, it fades faint and takes no clicks or keys. Every option is as wide as the widest. Given less room, the options share it, and a label
 // too long for its share ends in an ellipsis.
 type Segmented struct {
-	anim.Group
+	control
 	// Items are the options' labels and Icons their icons, in order: an icon, a label or both. The longer
 	// of the two sets how many options there are.
 	Items []string
@@ -39,16 +39,12 @@ type Segmented struct {
 	// OnChange runs on the UI goroutine when the user chooses an option; a non-nil result is sent to the
 	// application as the control's intent.
 	OnChange func(i int, u *gunim.UI) gunim.Intent
-	// KeepFocus leaves the keyboard where it is when the control is clicked; Tab still reaches it.
-	KeepFocus bool
 
 	selected int
 	// pill is the pill's place, in options from the first.
 	pill *anim.Float
-	ring *anim.Float
 	// hot is the option under the pointer, or -1.
 	hot    int
-	laid   bool
 	click  Clicker
 	shaped []shapedText
 	ell    shapedText
@@ -59,8 +55,8 @@ type Segmented struct {
 
 // NewSegmented returns a segmented control of labels, the first chosen.
 func NewSegmented(labels ...string) *Segmented {
-	s := &Segmented{Items: labels, pill: anim.NewFloat(0), ring: anim.NewFloat(0), hot: -1}
-	s.Add(s.pill, s.ring)
+	s := &Segmented{control: newControl(), Items: labels, pill: anim.NewFloat(0), hot: -1}
+	s.Add(s.pill)
 	return s
 }
 
@@ -91,17 +87,8 @@ func (s *Segmented) choose(i int, u *gunim.UI) {
 		return
 	}
 	s.SetSelected(i, u)
-	u.Cue(gunim.CueSelect, s)
-	if s.OnChange != nil {
-		send(u, s, s.OnChange(i, u))
-	}
+	act(u, s, gunim.CueSelect, s.OnChange, i)
 }
-
-// Focusable implements [gunim.Focusable].
-func (s *Segmented) Focusable() bool { return true }
-
-// FocusOnPress implements [gunim.PressFocuser].
-func (s *Segmented) FocusOnPress() bool { return !s.KeepFocus }
 
 // at returns the option at x in the control's space, or -1.
 func (s *Segmented) at(x float32) int {
@@ -116,7 +103,12 @@ func (s *Segmented) at(x float32) int {
 
 // Handle implements [gunim.Handler].
 func (s *Segmented) Handle(e input.Event, u *gunim.UI) bool {
+	s.showTip(e, u, s)
 	th := u.Theme()
+	if s.Disabled {
+		s.hot = -1
+		return s.handleDisabled(e, u, nil)
+	}
 	switch e := e.(type) {
 	case input.PointerEnter:
 		s.hot = s.at(e.Pos.X)
@@ -150,12 +142,10 @@ func (s *Segmented) Handle(e input.Event, u *gunim.UI) bool {
 		default:
 			return false
 		}
-	case input.FocusRing:
-		s.ring.Animate(ringTo(e), Quick.Get(th))
-	case input.FocusLost:
-		s.ring.Animate(0, Settle.Get(th))
 	default:
-		return false
+		if !s.ringFollows(e, th) {
+			return false
+		}
 	}
 	u.Invalidate()
 	return true
@@ -214,8 +204,8 @@ func (s *Segmented) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children)
 	s.width = widest + 2*SegmentedPadding.Get(th)
 	if !s.laid {
 		s.pill.Jump(float32(s.selected))
-		s.laid = true
 	}
+	s.follow(th)
 	s.size = c.Constrain(geom.Sz(s.width*float32(n), SegmentedHeight.Get(th)))
 	// Given another width, the options share it: squeezed into less room,
 	// or spread across more, never past the track.
@@ -227,10 +217,11 @@ func (s *Segmented) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children)
 
 // Paint implements [gunim.Node].
 func (s *Segmented) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
+	defer s.faint(p, box)()
 	th := f.Theme
 	h := box.H
 	track := geom.Rect{Max: box.Point()}
-	FocusRing(p, track, h/2, s.ring.Value(), th)
+	s.paintRing(p, track, h/2, th)
 	fill := FieldFill.Get(th)
 	if s.Track.Key() != "" {
 		fill = s.Track.Get(th)
@@ -276,13 +267,13 @@ func (s *Segmented) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ guni
 
 // Access implements [gunim.Accessible]: a group with a button for each option, the chosen one checked.
 func (s *Segmented) Access() access.Info {
-	info := access.Info{Role: access.RoleGroup, Active: s.selected + 1}
+	info := access.Info{Role: access.RoleGroup, Name: s.Tooltip, State: s.accessState(), Active: s.selected + 1}
 	for i := range s.Len() {
 		name := s.label(i)
 		if name == "" {
 			name = iconName(s.icon(i))
 		}
-		part := access.Info{Role: access.RoleButton, Name: name, State: access.StateCheckable,
+		part := access.Info{Role: access.RoleButton, Name: name, State: access.StateCheckable | s.accessState(),
 			Actions: []string{access.ActionPress}, Bounds: geom.Rc(float32(i)*s.width, 0, s.width, s.size.H)}
 		if i == s.selected {
 			part.State |= access.StateChecked
@@ -294,7 +285,7 @@ func (s *Segmented) Access() access.Info {
 
 // AccessAct implements [gunim.AccessActor]: pressing an option chooses it.
 func (s *Segmented) AccessAct(r access.Request, u *gunim.UI) bool {
-	if r.Action != access.ActionPress || r.Part < 0 || r.Part >= s.Len() {
+	if r.Action != access.ActionPress || r.Part < 0 || r.Part >= s.Len() || s.Disabled {
 		return false
 	}
 	s.choose(r.Part, u)

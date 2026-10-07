@@ -82,9 +82,7 @@ func (l *List) Handle(e input.Event, u *gunim.UI) bool {
 		}
 		once := l.ClickOnce && l.drag.again
 		if k, _, ok := l.rowAt(e.Pos.Y); ok && !l.drag.active && l.OnActivate != nil && k == l.drag.key && !once {
-			if v := l.OnActivate(k, u); v != nil {
-				u.Send(l, v)
-			}
+			act(u, l, gunim.CuePress, l.OnActivate, k)
 		}
 		l.drop(u)
 	default:

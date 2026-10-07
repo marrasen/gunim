@@ -29,9 +29,10 @@ import (
 // 0 to 1, and the look comes from the theme every frame, so a theme
 // switch lands in the middle of a hover without a jolt.
 type Button struct {
-	// Group makes the button an Animator, so the engine steps its
-	// values and knows to keep drawing while any of them is moving.
-	anim.Group
+	// control gives the button Disabled, Tooltip and KeepFocus, and its
+	// group makes it an Animator, so the engine steps its values and
+	// knows to keep drawing while any of them is moving.
+	control
 
 	Label string
 	// Icon shows before the label, in the label's colour. A button with an icon and no label is square.
@@ -45,31 +46,19 @@ type Button struct {
 	Active bool
 	// Ghost leaves the fill clear until the pointer is over the button.
 	Ghost bool
-	// Disabled fades the button faint; it then takes no clicks, keys or focus.
-	Disabled bool
-	// KeepFocus leaves the keyboard where it is when the button is clicked, as a toolbar's buttons do; Tab still
-	// reaches it.
-	KeepFocus bool
 	// Kind says how much the button stands out: plain, primary for the
 	// action a dialog expects, or danger for one that destroys, such as
 	// Delete.
 	Kind ButtonKind
-	// Tooltip says what the button does, or why it cannot: a popup
-	// shows it once the pointer has rested on the button, and a screen
-	// reader reads it in place of the label where there is none.
-	Tooltip string
 	// OnClick runs on the UI goroutine when the button is clicked, or
 	// pressed by Space or Enter. It may act in the window through u; a
 	// non-nil result is sent to the application as the button's intent.
 	// [Sends] makes one that only sends an intent.
 	OnClick func(u *gunim.UI) gunim.Intent
 
-	hover *anim.Float
-	press *anim.Float
 	// size is the button's size at its last layout, for telling a
 	// release over it from one outside.
 	size geom.Size
-	ring *anim.Float
 	// walked runs from 0 to 1 while the keyboard is on the button by a
 	// group's arrow keys: it lights as under the pointer, with no ring,
 	// which is for Tab.
@@ -80,34 +69,25 @@ type Button struct {
 	// danger button comes up from the plain button's colours.
 	tone    *anim.Float
 	was, is ButtonKind
-	held    bool
 	click   Clicker
 	text    shapedText
-	// dim runs from 0 to 1 as Disabled turns on.
-	dim *anim.Float
-	// over says the pointer is over the button, and laid that it has been laid out.
-	over, laid bool
 	// self is the node the button sends from, when it is part of a larger one.
 	self gunim.Node
-	tip  tipper
 	ell  shapedText
 }
 
 // NewButton returns a button showing label.
 func NewButton(label string) *Button {
 	b := &Button{
-		Label:  label,
-		hover:  anim.NewFloat(0),
-		press:  anim.NewFloat(0),
-		ring:   anim.NewFloat(0),
-		walked: anim.NewFloat(0),
-		lit:    anim.NewFloat(0),
-		tone:   anim.NewFloat(1),
-		dim:    anim.NewFloat(0),
+		control: newControl(),
+		Label:   label,
+		walked:  anim.NewFloat(0),
+		lit:     anim.NewFloat(0),
+		tone:    anim.NewFloat(1),
 		// Every click counts, the fast second of a double click too, as for a + pressed again and again.
 		click: Clicker{Repeats: true},
 	}
-	b.Add(b.hover, b.press, b.ring, b.walked, b.lit, b.tone, b.dim)
+	b.Add(b.walked, b.lit, b.tone)
 	return b
 }
 
@@ -126,27 +106,26 @@ func send(u *gunim.UI, n gunim.Node, in gunim.Intent) {
 
 // Handle implements [gunim.Handler].
 func (b *Button) Handle(e input.Event, u *gunim.UI) bool {
-	// A tooltip shows even on a button that cannot act, since saying
-	// why is exactly what it is for.
-	b.tip.handle(e, u, b.node(), b.Tooltip, tipDelay)
+	b.showTip(e, u, b.node())
 	th := u.Theme()
 	if b.Disabled {
-		return b.handleDisabled(e, th)
+		if _, lost := e.(input.FocusLost); lost {
+			b.walked.Animate(0, Settle.Get(th))
+		}
+		return b.handleDisabled(e, u, nil)
 	}
 	switch e := e.(type) {
 	case input.PointerEnter:
-		b.over = true
 		b.hover.Animate(1, Quick.Get(th))
 		// Coming back while still held presses it again.
 		if b.held {
-			b.press.Animate(1, Quick.Get(th))
+			b.squash.Animate(1, Quick.Get(th))
 		}
 	case input.PointerLeave:
-		b.over = false
 		b.hover.Animate(0, Settle.Get(th))
 		// The button keeps the pointer while it is held. Leaving eases
 		// the press off, and releasing out here cancels it.
-		b.press.Animate(0, Bounce.Get(th))
+		b.squash.Animate(0, Bounce.Get(th))
 	case input.PointerDown:
 		// The primary button presses; the others pass by, so a right
 		// click reaches a context menu round the button.
@@ -155,13 +134,13 @@ func (b *Button) Handle(e input.Event, u *gunim.UI) bool {
 		}
 		b.held = true
 		b.click.Press(e, 0)
-		b.press.Animate(1, Quick.Get(th))
+		b.squash.Animate(1, Quick.Get(th))
 	case input.PointerUp:
 		if !b.held {
 			return false
 		}
 		b.held = false
-		b.press.Animate(0, Bounce.Get(th))
+		b.squash.Animate(0, Bounce.Get(th))
 		if b.click.Release(e, over(e.Pos, b.size)) {
 			b.fire(u)
 		}
@@ -171,8 +150,8 @@ func (b *Button) Handle(e input.Event, u *gunim.UI) bool {
 		}
 		// Keyboard activation runs the same squash, so the button
 		// looks pressed however it was reached.
-		b.press.Retarget(1, Quick.Get(th))
-		b.press.Animate(0, Bounce.Get(th))
+		b.squash.Retarget(1, Quick.Get(th))
+		b.squash.Animate(0, Bounce.Get(th))
 		b.fire(u)
 	case input.FocusGained:
 		// In a group, the button with the keyboard is the one the group
@@ -200,26 +179,6 @@ func (b *Button) Handle(e input.Event, u *gunim.UI) bool {
 	return true
 }
 
-// handleDisabled takes the primary button's presses and passes keys by, while the button is disabled. The other
-// buttons pass by, so a right click reaches a context menu round the button.
-func (b *Button) handleDisabled(e input.Event, th *theme.Live) bool {
-	switch e := e.(type) {
-	case input.PointerEnter:
-		b.over = true
-	case input.PointerLeave:
-		b.over = false
-	case input.PointerDown:
-		return e.Button == input.ButtonPrimary
-	case input.PointerUp:
-		return e.Button == input.ButtonPrimary
-	case input.FocusLost:
-		b.ring.Animate(0, Settle.Get(th))
-	default:
-		return false
-	}
-	return true
-}
-
 // fire runs OnClick, which acts in the window first, and sends its
 // intent second.
 //
@@ -228,10 +187,7 @@ func (b *Button) handleDisabled(e input.Event, th *theme.Live) bool {
 // about it whenever it gets round to reading. The interface stays fluid
 // while the work queues up behind it.
 func (b *Button) fire(u *gunim.UI) {
-	u.Cue(gunim.CuePress, b)
-	if b.OnClick != nil {
-		send(u, b.node(), b.OnClick(u))
-	}
+	act0(u, b.node(), gunim.CuePress, b.OnClick)
 }
 
 // Layout implements [gunim.Node].
@@ -252,15 +208,7 @@ func (b *Button) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) ge
 		}
 		b.lit.Animate(on, Quick.Get(th))
 	}
-	if off := value(b.Disabled); !b.laid {
-		b.dim.Jump(off)
-	} else if b.dim.Target() != off {
-		b.dim.Animate(off, Quick.Get(th))
-		b.held = false
-		b.press.Animate(0, Settle.Get(th))
-		b.hover.Animate(value(b.over && !b.Disabled), Quick.Get(th))
-	}
-	b.laid = true
+	b.follow(th)
 	b.size = c.Constrain(geom.Sz(w, h))
 	if b.Kind != b.is {
 		b.was, b.is = b.is, b.Kind
@@ -279,35 +227,21 @@ func (b *Button) node() gunim.Node {
 	return b
 }
 
-// Focusable implements [gunim.Focusable].
-func (b *Button) Focusable() bool { return !b.Disabled }
-
-// FocusOnPress implements [gunim.PressFocuser].
-func (b *Button) FocusOnPress() bool { return !b.KeepFocus }
-
 // Paint implements [gunim.Node].
 func (b *Button) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
-	defer faintIf(p, box, b.Disabled)()
+	defer b.faint(p, box)()
 	th := f.Theme
 	r := geom.Rect{Max: box.Point()}
 	radius := ButtonRadius.Get(th)
 
 	// Squash toward the centre while held. Scaling about the middle is
 	// what makes it read as a press.
-	if s := 1 - ButtonSquash.Get(th)*b.press.Value(); s != 1 {
+	if s := 1 - ButtonSquash.Get(th)*b.squash.Value(); s != 1 {
 		defer p.Push(paint.Scale(s, r.Center()))()
 	}
 
 	// The focus ring grows outward from the button's edge.
-	if t := b.ring.Value(); t > 0 {
-		ring := Accent.Get(th)
-		ring.A = uint8(float32(ring.A) * 0.56 * min(t, 1))
-		grow := 3 * t
-		p.RRectStroke(
-			geom.Rect{Min: geom.Pt(r.Min.X-grow, r.Min.Y-grow), Max: geom.Pt(r.Max.X+grow, r.Max.Y+grow)},
-			radius+grow, paint.Fill{}, paint.Stroke{Width: 2, Color: ring},
-		)
-	}
+	b.paintRing(p, r, radius, th)
 
 	fromRest, fromHover, fromInk := kindColours(b.was, th)
 	rest, hover, ink := kindColours(b.is, th)
@@ -325,7 +259,7 @@ func (b *Button) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 	fill.A = uint8(float32(fill.A) * faint)
 	if shadow := ButtonShadow.Get(th); shadow.A > 0 && !b.Ghost {
 		// Cast down and to the right, and pressed into it while held.
-		off := 4 * (1 - min(max(b.press.Value(), 0), 1))
+		off := 4 * (1 - min(max(b.squash.Value(), 0), 1))
 		shadow.A = uint8(float32(shadow.A) * faint)
 		p.RRect(geom.Rect{Min: geom.Pt(r.Min.X+off, r.Min.Y+off), Max: geom.Pt(r.Max.X+off, r.Max.Y+off)}, min(radius, box.H/2), paint.Solid(shadow))
 	}

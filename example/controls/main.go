@@ -215,6 +215,7 @@ func buildPage(s Page) *page {
 	sw.OnChange = func(on bool, u *gunim.UI) gunim.Intent { return Toggled{Name: "Dark mode", On: on} }
 	slider := widget.NewSlider(0, 100)
 	slider.Snap = 1
+	slider.Label = "Volume"
 	slider.OnChange = func(v float32, u *gunim.UI) gunim.Intent { return Slid{Value: v} }
 	toggles := widget.Column(check, sw, widget.NewLabel("Volume"), slider)
 	toggles.Cross = widget.CrossStretch

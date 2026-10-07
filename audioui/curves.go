@@ -10,6 +10,7 @@ import (
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/theme"
+	"github.com/marrasen/gunim/widget"
 )
 
 // The loudness curves a view of a sound may draw over it, as bits of a
@@ -110,7 +111,7 @@ func NewCurveView(area geom.Rect, x func(t float64) float32) *CurveView {
 func CurveColor(th *theme.Live, bit uint8, a float32) color.NRGBA {
 	switch bit {
 	case CurveM:
-		return Faded(Ink.Get(th), 0.7*a)
+		return Faded(widget.Ink.Get(th), 0.7*a)
 	case CurveS:
 		return Faded(Short.Get(th), a)
 	case CurveI:
@@ -141,7 +142,7 @@ func (c *Curves) Paint(p *paint.Painter, th *theme.Live, v CurveView) {
 	}
 	end := p.Layer(paint.LayerOpts{Bounds: area, Opacity: 1, Clip: true})
 	defer end()
-	ink, ground := Ink.Get(th), Ground.Get(th)
+	ink, ground := widget.Ink.Get(th), Ground.Get(th)
 	alpha := v.Alpha * v.Fade[3]
 	if on&CurveLRA != 0 && c.Ranged {
 		y0, y1 := yOf(float64(c.High)), yOf(float64(c.Low))
@@ -294,7 +295,7 @@ func LegendRects(right, y float32) []geom.Rect {
 // lays them out: each a dot of its colour and its name, lit while on
 // has its bit.
 func PaintLegend(p *paint.Painter, th *theme.Live, rects []geom.Rect, on uint8) {
-	ink, ground := Ink.Get(th), Ground.Get(th)
+	ink, ground := widget.Ink.Get(th), Ground.Get(th)
 	for i, r := range rects {
 		c := CurveNames[i]
 		lit := on&c.Bit != 0

@@ -2,6 +2,7 @@ package calendar
 
 import (
 	"image/color"
+	"time"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/input"
@@ -25,7 +26,19 @@ var (
 	EventBase = theme.Color("calendar.event.base", color.NRGBA{R: 0x1d, G: 0x20, B: 0x28, A: 0xff})
 	// EventText is the size of the text on an event.
 	EventText = theme.Length("calendar.event.text", 12.5)
+	// EventRadius rounds an event's corners in a [Days] grid, and MonthEventRadius in a [Month], where events are a
+	// line tall. A chosen event's ring rounds a little wider, round it.
+	EventRadius      = theme.Length("calendar.event.radius", 6)
+	MonthEventRadius = theme.Length("calendar.month.event.radius", 5)
 )
+
+// pickDay plays the select cue from n and runs onDay with day, when there is one, sending what it returns.
+func pickDay(u *gunim.UI, n gunim.Node, onDay func(day time.Time, u *gunim.UI) gunim.Intent, day time.Time) {
+	u.Cue(gunim.CueSelect, n)
+	if onDay != nil {
+		send(u, n, onDay(day, u))
+	}
+}
 
 // send sends in from n, when there is one.
 func send(u *gunim.UI, n gunim.Node, in gunim.Intent) {

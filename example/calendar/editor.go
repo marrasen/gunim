@@ -45,6 +45,7 @@ func newEditor(d Draft) *widget.Dialog {
 		end = calendar.AddDays(end, -1)
 	}
 	startDay, endDay := calendar.NewDateField(d.Start), calendar.NewDateField(end)
+	startDay.Label, endDay.Label = "Starts", "Ends"
 	startTime := calendar.NewTimeField(d.Start.Sub(calendar.Day(d.Start)))
 	endTime := calendar.NewTimeField(d.End.Sub(calendar.Day(d.End)))
 	if d.AllDay {

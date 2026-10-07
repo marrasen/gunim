@@ -109,33 +109,26 @@ func (o *Overview) AccessAct(r access.Request, u *gunim.UI) bool {
 	return true
 }
 
-// Access implements [gunim.Accessible]: a group of the two panes, with
-// the divider between them a slider of the first pane's share, or its
-// length with Fixed.
-func (s *Split) Access() access.Info {
+// Access implements [gunim.Accessible]: a group of the two panes, with the divider between them.
+func (s *Split) Access() access.Info { return access.Info{Role: access.RoleGroup} }
+
+// Access implements [gunim.Accessible]: the divider is a slider of the first pane's share, or its length with Fixed.
+func (b *splitBar) Access() access.Info {
+	s := b.s
 	top := float64(1)
 	if s.Fixed {
 		top = float64(s.length)
 	}
-	at := s.firstLength()
-	bounds := geom.Rc(at, 0, s.gap, s.own.H)
-	if s.Axis == Vertical {
-		bounds = geom.Rc(0, at, s.own.W, s.gap)
-	}
-	return access.Info{Role: access.RoleGroup, Parts: []access.Info{{
-		Role: access.RoleSlider, Name: "Divider", Bounds: bounds,
-		Range: &access.Range{Max: top, Value: float64(s.share.Target())},
-	}}}
+	return access.Info{Role: access.RoleSlider, Name: "Divider", Range: &access.Range{Max: top, Value: float64(s.share.Target())}}
 }
 
-// AccessAct implements [gunim.AccessActor]: a new value for the divider
-// moves it there, and runs OnCommit.
-func (s *Split) AccessAct(r access.Request, u *gunim.UI) bool {
-	if !r.SetValue || r.Part != 0 {
+// AccessAct implements [gunim.AccessActor]: a new value for the divider moves it there, and runs OnCommit.
+func (b *splitBar) AccessAct(r access.Request, u *gunim.UI) bool {
+	if !r.SetValue {
 		return false
 	}
-	s.SetShare(float32(r.Value), u)
-	s.moved(u)
+	b.s.SetShare(float32(r.Value), u)
+	b.s.moved(u)
 	u.Invalidate()
 	return true
 }

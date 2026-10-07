@@ -447,7 +447,7 @@ func (g *TileGrid) press(e input.PointerDown, u *gunim.UI) bool {
 	}
 	if e.Clicks == 2 {
 		if g.OnActivate != nil {
-			send(u, g, g.OnActivate(i, u))
+			act(u, g, gunim.CuePress, g.OnActivate, i)
 		}
 		return true
 	}
@@ -515,7 +515,7 @@ func (g *TileGrid) key(e input.KeyPress, u *gunim.UI) bool {
 		if g.cursor < 0 || g.OnActivate == nil {
 			return false
 		}
-		send(u, g, g.OnActivate(g.cursor, u))
+		act(u, g, gunim.CuePress, g.OnActivate, g.cursor)
 		return true
 	case input.KeyEscape:
 		if g.cursor < 0 && len(g.runs) == 0 {
@@ -691,6 +691,7 @@ func (g *TileGrid) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Childre
 			tc.moveTo(to, motion)
 			tc.fade.Animate(1, Settle.Get(th))
 		}
+		tc.g, tc.i = g, i
 		tc.selected = hasRun(g.runs, i)
 		tc.sel.Animate(map[bool]float32{false: 0, true: 1}[tc.selected], Quick.Get(th))
 		tc.hot.Animate(map[bool]float32{false: 0, true: 1}[i == g.hover && !g.banding], Quick.Get(th))
@@ -806,6 +807,9 @@ func scaleAlpha(c color.NRGBA, t float32) color.NRGBA {
 // tileCell holds one tile in a grid, springing to its place and size, with its selection drawn behind it.
 type tileCell struct {
 	anim.Group
+	// g is the grid the tile is in, and i the tile's place in it, as last laid out.
+	g              *TileGrid
+	i              int
 	child          gunim.Node
 	x, y, w, h     *anim.Float
 	fade, sel, hot *anim.Float

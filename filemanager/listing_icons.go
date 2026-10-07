@@ -618,6 +618,7 @@ func newViewBar() *viewBar {
 	v.scope = widget.NewThemed(v.modes, viewTheme)
 	v.modes.Icons = []*icon.Icon{icon.List, icon.LayoutGrid}
 	v.modes.IconSize = viewIcon
+	v.slider.Label = "Tile size"
 	v.modes.OnChange = func(i int, u *gunim.UI) gunim.Intent {
 		if i == 1 {
 			return Command{Name: CmdViewIcons}

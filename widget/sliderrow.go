@@ -124,6 +124,7 @@ func (r *SliderRow) Children() []gunim.Node { return []gunim.Node{r.label, r.Sli
 func (r *SliderRow) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
 	th := f.Theme
 	r.label.Text = r.Label
+	r.Slider.row = r.Label
 	w := c.Max.W
 	if w <= 0 {
 		w = FieldWidth.Get(th) * 1.5

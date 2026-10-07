@@ -210,7 +210,7 @@ func NewCodeEditor() *CodeEditor {
 }
 
 // Text returns the code.
-func (c *CodeEditor) Text() string { return string(c.text) }
+func (c *CodeEditor) Text() string { return c.textString() }
 
 // SetText replaces the code, puts the caret at its start, scrolls to
 // the top at once and forgets the history, for a file opened afresh. It

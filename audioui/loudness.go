@@ -11,6 +11,7 @@ import (
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/text"
 	"github.com/marrasen/gunim/theme"
+	"github.com/marrasen/gunim/widget"
 )
 
 // Loudness reads a sound's loudness as it is heard, as a mastering
@@ -61,22 +62,22 @@ func (l *Loudness) Write(frames []float32) {
 	l.frames += len(frames) / 2
 	quarters := l.frames / l.quarter
 	if quarters-3 > l.seenBlocks {
-		bs := l.lm.Blocks()
-		for _, p := range bs[l.seenBlocks:] {
+		var bs []float64
+		bs, l.seenBlocks = l.lm.BlocksSince(l.seenBlocks)
+		for _, p := range bs {
 			l.blocks.add(p)
 		}
-		l.seenBlocks = len(bs)
 		l.integrated = -70
 		if v, ok := l.blocks.integrated(); ok {
 			l.integrated = float32(v)
 		}
 	}
 	if quarters-29 > l.seenShorts {
-		ss := l.lm.ShortTerms()
-		for _, p := range ss[l.seenShorts:] {
+		var ss []float64
+		ss, l.seenShorts = l.lm.ShortTermsSince(l.seenShorts)
+		for _, p := range ss {
 			l.shorts.add(p)
 		}
-		l.seenShorts = len(ss)
 	}
 }
 
@@ -120,7 +121,7 @@ func (l *Loudness) TruePeak() float64 { return l.tp.Peak() }
 // short-term and integrated loudness and of the range, and the true
 // peak. It returns where they end.
 func (l *Loudness) Paint(p *paint.Painter, th *theme.Live, r geom.Rect, target float32) float32 {
-	ink, over := Ink.Get(th), Over.Get(th)
+	ink, over := widget.Ink.Get(th), Over.Get(th)
 	x, y, right := r.Min.X, r.Min.Y, r.Max.X
 	// In a narrow panel the readout shrinks to fit, its label goes where it has no room, the bars go under 78 px
 	// and the figures beside them under 60.
@@ -217,7 +218,7 @@ func barX(bar geom.Rect, l float32) float32 {
 // PaintLoudnessBar draws loudness v as a bar from -36 to 0 LUFS,
 // coloured by how far off target it is, the target marked.
 func PaintLoudnessBar(p *paint.Painter, th *theme.Live, bar geom.Rect, v, target float32) {
-	ink := Ink.Get(th)
+	ink := widget.Ink.Get(th)
 	p.RRect(bar, 5, paint.Solid(Faded(ink, 0.08)))
 	if v > barLow {
 		fill := bar
@@ -231,7 +232,7 @@ func PaintLoudnessBar(p *paint.Painter, th *theme.Live, bar geom.Rect, v, target
 // PaintRangeBar draws a loudness range, from low to high LUFS, as a
 // band on a loudness bar's scale, where ranged says there is one.
 func PaintRangeBar(p *paint.Painter, th *theme.Live, bar geom.Rect, low, high float32, ranged bool) {
-	p.RRect(bar, 5, paint.Solid(Faded(Ink.Get(th), 0.08)))
+	p.RRect(bar, 5, paint.Solid(Faded(widget.Ink.Get(th), 0.08)))
 	if !ranged {
 		return
 	}

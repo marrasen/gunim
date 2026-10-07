@@ -29,13 +29,7 @@ func (b *Button) Access() access.Info {
 }
 
 // state is the button's state: active, disabled, both or neither.
-func (b *Button) state() access.State {
-	s := activeState(b.Active)
-	if b.Disabled {
-		s |= access.StateDisabled
-	}
-	return s
-}
+func (b *Button) state() access.State { return activeState(b.Active) | b.accessState() }
 
 // activeState is the state of a button that is active, as a toggle that is on, or none.
 func activeState(active bool) access.State {
@@ -64,18 +58,19 @@ func (b *Button) AccessAct(r access.Request, u *gunim.UI) bool {
 
 // Access implements [gunim.Accessible].
 func (t *TextField) Access() access.Info {
-	value := t.Text()
-	if t.Secret {
-		value = ""
+	value := ""
+	if !t.Secret {
+		value = t.Text()
 	}
-	return access.Info{Role: access.RoleTextField, Name: t.Placeholder, Value: value, State: access.StateEditable}
+	return access.Info{Role: access.RoleTextField, Name: t.accessName(t.Placeholder), Value: value,
+		State: access.StateEditable | t.accessState()}
 }
 
 // Access implements [gunim.Accessible].
 func (a *TextArea) Access() access.Info {
 	return access.Info{
-		Role: access.RoleTextField, Name: a.Placeholder, Value: string(a.text),
-		State: access.StateEditable | access.StateMultiline,
+		Role: access.RoleTextField, Name: a.accessName(a.Placeholder), Value: a.textString(),
+		State: access.StateEditable | access.StateMultiline | a.accessState(),
 	}
 }
 
@@ -87,16 +82,16 @@ func (c *CodeEditor) Access() access.Info {
 	} else {
 		state |= access.StateEditable
 	}
-	return access.Info{Role: access.RoleTextField, Name: c.Label, Value: string(c.text), State: state}
+	return access.Info{Role: access.RoleTextField, Name: c.Label, Value: c.textString(), State: state}
 }
 
 // access is what a checkbox or a switch says.
 func (t *toggle) access(role access.Role) access.Info {
-	s := access.StateCheckable
+	s := access.StateCheckable | t.accessState()
 	if t.checked {
 		s |= access.StateChecked
 	}
-	return access.Info{Role: role, Name: t.Label, State: s, Actions: []string{access.ActionPress}}
+	return access.Info{Role: role, Name: t.accessName(t.Label), State: s, Actions: []string{access.ActionPress}}
 }
 
 // Access implements [gunim.Accessible].
@@ -104,7 +99,7 @@ func (c *Checkbox) Access() access.Info { return c.access(access.RoleCheckbox) }
 
 // AccessAct implements [gunim.AccessActor].
 func (c *Checkbox) AccessAct(r access.Request, u *gunim.UI) bool {
-	if r.Action != access.ActionPress {
+	if r.Action != access.ActionPress || c.Disabled {
 		return false
 	}
 	c.flip(c, u)
@@ -116,17 +111,23 @@ func (s *Switch) Access() access.Info { return s.access(access.RoleSwitch) }
 
 // AccessAct implements [gunim.AccessActor].
 func (s *Switch) AccessAct(r access.Request, u *gunim.UI) bool {
-	if r.Action != access.ActionPress {
+	if r.Action != access.ActionPress || s.Disabled {
 		return false
 	}
 	s.flip(s, u)
 	return true
 }
 
-// Access implements [gunim.Accessible].
+// Access implements [gunim.Accessible]. The slider is named by its Label, the row it is in, or its tooltip.
 func (s *Slider) Access() access.Info {
+	name := s.Label
+	if name == "" {
+		name = s.row
+	}
 	return access.Info{
 		Role:  access.RoleSlider,
+		Name:  s.accessName(name),
+		State: s.accessState(),
 		Value: strconv.FormatFloat(float64(s.value), 'g', 4, 32),
 		Range: &access.Range{Min: float64(s.Min), Max: float64(s.Max), Value: float64(s.value), Step: float64(s.Snap)},
 	}
@@ -134,7 +135,7 @@ func (s *Slider) Access() access.Info {
 
 // AccessAct implements [gunim.AccessActor]: a new value.
 func (s *Slider) AccessAct(r access.Request, u *gunim.UI) bool {
-	if !r.SetValue {
+	if !r.SetValue || s.Disabled {
 		return false
 	}
 	s.set(float32(r.Value), Quick.Get(u.Theme()), u)
@@ -174,8 +175,8 @@ func (b *tabBar) AccessAct(r access.Request, u *gunim.UI) bool {
 func (d *Dropdown) Access() access.Info {
 	info := access.Info{
 		Role:    access.RoleComboBox,
-		Name:    d.Label,
-		State:   access.StateExpandable | access.StateHasPopup,
+		Name:    d.accessName(d.Label),
+		State:   access.StateExpandable | access.StateHasPopup | d.accessState(),
 		Actions: []string{access.ActionPress},
 	}
 	items := d.list.items
@@ -199,6 +200,9 @@ func (d *Dropdown) AccessAct(r access.Request, u *gunim.UI) bool {
 	switch r.Action {
 	case access.ActionPress, access.ActionOpen, access.ActionClose:
 	default:
+		return false
+	}
+	if d.Disabled {
 		return false
 	}
 	if d.IsOpen() {

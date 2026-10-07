@@ -97,9 +97,9 @@ type Month struct {
 	drag     *monthDrag
 	// tap is a press on a day or how many more it has, which acts as the pointer lets go.
 	tap tap
-	// ringed says the month shows that it has the keyboard.
-	ringed bool
-	texts  map[textKey]text.Paragraph
+	// ring runs from 0 to 1 as the month shows that it has the keyboard.
+	ring  *anim.Float
+	texts map[textKey]text.Paragraph
 }
 
 // monthDrag is an event taken hold of: where the pointer took it, and the day it is over.
@@ -115,9 +115,9 @@ type monthDrag struct {
 
 // NewMonth returns the month holding day, with weeks starting on Monday.
 func NewMonth(day time.Time) *Month {
-	m := &Month{Month: MonthStart(day), FirstWeekday: time.Monday, slide: anim.NewFloat(0),
+	m := &Month{Month: MonthStart(day), FirstWeekday: time.Monday, slide: anim.NewFloat(0), ring: anim.NewFloat(0),
 		sprites: map[string]*sprite{}}
-	m.Add(m.slide)
+	m.Add(m.slide, m.ring)
 	return m
 }
 
@@ -564,10 +564,8 @@ func (m *Month) moved(e Event, g *monthDrag) (time.Time, time.Time) {
 // Paint implements [gunim.Node].
 func (m *Month) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
 	th := f.Theme
-	if m.ringed {
-		// Drawn last, over the rest
-		defer widget.GroupRing(p, geom.Rect{Max: box.Point()}, 0, 1, th)
-	}
+	// The ring is drawn last, over the rest.
+	defer widget.GroupRing(p, geom.Rect{Max: box.Point()}, 0, m.ring.Value(), th)
 	line := widget.MenuBorder.Get(th)
 	faint := widget.PaletteHint.Get(th)
 	ink := widget.Ink.Get(th)
@@ -657,14 +655,15 @@ func (m *Month) paintSprite(p *paint.Painter, th *theme.Live, s *sprite) {
 	size := EventText.Get(th)
 	wait := min(max(s.wait.Value(), 0), 1)
 	fill, bar, ink, _ := eventColors(th, e, lift, wait)
+	round := MonthEventRadius.Get(th)
 	if s.long {
 		shadow := paint.Shadow{}
 		if lift > 0.01 {
 			shadow = paint.Shadow{Color: color.NRGBA{A: uint8(0x50 * lift)}, Blur: 8 * lift, Offset: geom.Pt(0, 2*lift)}
 		}
-		p.ShadowRRect(r, 5, paint.Solid(fill), shadow)
+		p.ShadowRRect(r, round, paint.Solid(fill), shadow)
 		if wait > 0.01 {
-			stripes(p, r, 5, bar, wait)
+			stripes(p, r, round, bar, wait)
 		}
 		t := m.paragraph(th, e.Title, r.Size().W-12, true, size)
 		t.Paint(p, geom.Pt(r.Min.X+7, r.Center().Y-t.Size.H/2), ink)
@@ -672,7 +671,7 @@ func (m *Month) paintSprite(p *paint.Painter, th *theme.Live, s *sprite) {
 		if lift > 0.01 {
 			hot := widget.MenuHot.Get(th)
 			hot.A = uint8(float32(hot.A) * lift)
-			p.ShadowRRect(r, 5, paint.Solid(hot), paint.Shadow{Color: color.NRGBA{A: uint8(0x40 * lift)}, Blur: 8 * lift,
+			p.ShadowRRect(r, round, paint.Solid(hot), paint.Shadow{Color: color.NRGBA{A: uint8(0x40 * lift)}, Blur: 8 * lift,
 				Offset: geom.Pt(0, 2*lift)})
 		}
 		dot := geom.Rc(r.Min.X+5, r.Center().Y-4, 8, 8)
@@ -684,7 +683,7 @@ func (m *Month) paintSprite(p *paint.Painter, th *theme.Live, s *sprite) {
 		t.Paint(p, geom.Pt(r.Min.X+18, r.Center().Y-t.Size.H/2), ink)
 	}
 	if e.ID == m.selected {
-		p.RRectStroke(r.Inset(geom.Uniform(-1.5)), 6.5, paint.Fill{}, paint.Stroke{Width: 2, Color: widget.Accent.Get(th)})
+		p.RRectStroke(r.Inset(geom.Uniform(-1.5)), round+1.5, paint.Fill{}, paint.Stroke{Width: 2, Color: widget.Accent.Get(th)})
 	}
 }
 
@@ -782,11 +781,13 @@ func (m *Month) Handle(e input.Event, u *gunim.UI) bool {
 		}
 		return eventKeys(e, u, m, m.stops(), m.selected, func(id string) { m.SetSelected(id, u) }, m.OnOpen, m.OnDelete)
 	case input.FocusRing:
-		m.ringed = ringShown(e)
-		u.Invalidate()
+		to := float32(0)
+		if ringShown(e) {
+			to = 1
+		}
+		m.ring.Animate(to, widget.Quick.Get(u.Theme()))
 	case input.FocusLost:
-		m.ringed = false
-		u.Invalidate()
+		m.ring.Animate(0, widget.Settle.Get(u.Theme()))
 	case input.FocusGained:
 		if e.Keyed && m.selected == "" {
 			if s, ok := nextStop(m.stops(), "", input.KeyDown); ok {
@@ -850,7 +851,7 @@ func (m *Month) press(e input.PointerDown, u *gunim.UI) {
 				case m.OnMore != nil:
 					send(u, m, m.OnMore(m.day(ch.cell), ch.box, u))
 				case m.OnDay != nil:
-					send(u, m, m.OnDay(m.day(ch.cell), u))
+					pickDay(u, m, m.OnDay, m.day(ch.cell))
 				}
 			})
 			return
@@ -867,7 +868,7 @@ func (m *Month) press(e input.PointerDown, u *gunim.UI) {
 	number := geom.Rc(box.Min.X, box.Min.Y, box.Size().W, min(dayNumH, box.Size().H))
 	switch {
 	case number.Contains(e.Pos) && m.OnDay != nil:
-		m.tap.press(number, func() { send(u, m, m.OnDay(m.day(c), u)) })
+		m.tap.press(number, func() { pickDay(u, m, m.OnDay, m.day(c)) })
 	case m.Busy != nil && m.Busy():
 	case m.OnCreate != nil:
 		m.tap.press(box, func() { send(u, m, m.OnCreate(m.day(c), box, u)) })

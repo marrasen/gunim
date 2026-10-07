@@ -27,18 +27,22 @@ var (
 // Chip is a small rounded label with a cross that removes it, such as
 // a filter in force. The cross sits at the chip's end; given less room
 // than its text takes, the text before it ends in an ellipsis.
+//
+// The chip warms as the pointer comes over the cross, and a click on the
+// cross removes it. It takes the keyboard by Tab, a ring grows round the
+// cross, and Delete or Backspace removes it. Disabled, it fades faint and
+// takes no clicks, keys or focus.
 type Chip struct {
-	anim.Group
+	control
 	// Lead is drawn dim before the label.
 	Lead  string
 	Label string
 	// Icon shows at the start of the chip, before the lead and the label, in the label's colour.
 	Icon *icon.Icon
-	// OnRemove runs on the UI goroutine when the cross is clicked; a non-nil result is sent to the application as
-	// the chip's intent.
+	// OnRemove runs on the UI goroutine when the cross is clicked, or Delete or Backspace is pressed; a non-nil
+	// result is sent to the application as the chip's intent.
 	OnRemove func(u *gunim.UI) gunim.Intent
 
-	hover               *anim.Float
 	leadText, labelText shapedText
 	leadEll, labelEll   shapedText
 	// size is the chip's box and crossX the middle of its cross, from
@@ -50,9 +54,7 @@ type Chip struct {
 
 // NewChip returns a chip showing lead and label.
 func NewChip(lead, label string) *Chip {
-	c := &Chip{Lead: lead, Label: label, hover: anim.NewFloat(0)}
-	c.Add(c.hover)
-	return c
+	return &Chip{control: newControl(), Lead: lead, Label: label}
 }
 
 // Layout implements [gunim.Node].
@@ -70,11 +72,13 @@ func (c *Chip) Layout(cs gunim.Constraints, f gunim.Frame, _ gunim.Children) geo
 	w += c.labelText.shape(faceIn(Font, th), c.Label, size).Advance
 	c.size = cs.Constrain(geom.Sz(w+h, h))
 	c.crossX = c.size.W - h/2
+	c.follow(th)
 	return c.size
 }
 
 // Paint implements [gunim.Node].
 func (c *Chip) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
+	defer c.faint(p, box)()
 	th := f.Theme
 	c.size, c.crossX = box, box.W-box.H/2
 	// The text has the room up to the cross, which takes a square at the end.
@@ -97,6 +101,9 @@ func (c *Chip) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Chi
 		run := fitRun(c.labelText.run, &c.labelEll, end-x)
 		run.Paint(p, geom.Pt(x, (box.H-run.Height())/2), Ink.Get(th))
 	}
+	// The ring goes round the cross, which is what the keys act on.
+	r := box.H / 2.6
+	c.paintRing(p, geom.Rc(c.crossX-r, box.H/2-r, 2*r, 2*r), r, th)
 	paintCross(p, th, geom.Pt(c.crossX, box.H/2), box.H/3, Ink.Get(th))
 }
 
@@ -107,9 +114,13 @@ func paintCross(p *paint.Painter, th *theme.Live, at geom.Point, size float32, c
 }
 
 // Handle implements [gunim.Handler]: a click on the cross removes the
-// chip.
+// chip, and so do Delete and Backspace.
 func (c *Chip) Handle(e input.Event, u *gunim.UI) bool {
+	c.showTip(e, u, c)
 	th := u.Theme()
+	if c.Disabled {
+		return c.handleDisabled(e, u, nil)
+	}
 	switch e := e.(type) {
 	case input.PointerMove:
 		to := float32(0)
@@ -130,8 +141,14 @@ func (c *Chip) Handle(e input.Event, u *gunim.UI) bool {
 			c.remove(u)
 		}
 		return true
+	case input.KeyPress:
+		if (e.Key != input.KeyDelete && e.Key != input.KeyBackspace) || e.Mods != 0 {
+			return false
+		}
+		c.remove(u)
+		return true
 	}
-	return false
+	return c.ringFollows(e, th)
 }
 
 // onCross is the chip's one target, the cross: 0 for pos on it, and -1 elsewhere.
@@ -142,11 +159,7 @@ func (c *Chip) onCross(pos geom.Point) int {
 	return over(pos, c.size)
 }
 
-func (c *Chip) remove(u *gunim.UI) {
-	if c.OnRemove != nil {
-		send(u, c, c.OnRemove(u))
-	}
-}
+func (c *Chip) remove(u *gunim.UI) { act0(u, c, gunim.CuePress, c.OnRemove) }
 
 // Access implements [gunim.Accessible]: the chip reads as a button that
 // removes it.
@@ -155,12 +168,12 @@ func (c *Chip) Access() access.Info {
 	if c.Lead != "" {
 		name = c.Lead + " " + c.Label
 	}
-	return access.Info{Role: access.RoleButton, Name: "Remove " + name, Actions: []string{access.ActionPress}}
+	return access.Info{Role: access.RoleButton, Name: "Remove " + name, State: c.accessState(), Actions: []string{access.ActionPress}}
 }
 
 // AccessAct implements [gunim.AccessActor].
 func (c *Chip) AccessAct(r access.Request, u *gunim.UI) bool {
-	if r.Action != access.ActionPress {
+	if r.Action != access.ActionPress || c.Disabled {
 		return false
 	}
 	c.remove(u)

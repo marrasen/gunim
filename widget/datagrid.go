@@ -1357,7 +1357,7 @@ func (g *DataGrid) press(e input.PointerDown, u *gunim.UI) bool {
 	}
 	if e.Clicks == 2 {
 		if g.OnActivate != nil {
-			g.send(g.OnActivate(i, u), u)
+			act(u, g, gunim.CuePress, g.OnActivate, i)
 		}
 		return true
 	}
@@ -1505,7 +1505,7 @@ func (g *DataGrid) key(e input.KeyPress, u *gunim.UI) bool {
 		if g.selected < 0 || g.OnActivate == nil {
 			return false
 		}
-		g.send(g.OnActivate(g.selected, u), u)
+		act(u, g, gunim.CuePress, g.OnActivate, g.selected)
 	case input.KeyEscape:
 		if g.selected < 0 && len(g.runs) == 0 {
 			return false

@@ -102,7 +102,7 @@ func TestNumberFieldSettlesWhenItLosesFocus(t *testing.T) {
 func TestNumberFieldTurnsWithTheWheel(t *testing.T) {
 	n := NewNumberField(0, 255)
 	n.SetValue(100, nil)
-	n.Step = 5
+	n.Increment = 5
 	w, run := numberStage(t, n)
 	// The wheel turned up scrolls toward the top, a positive Delta.Y.
 	w.Input(input.Scroll{Pos: geom.Pt(100, 16), Delta: geom.Pt(0, 1)})
@@ -151,7 +151,7 @@ func TestADisabledNumberFieldTakesNoWheelOrKeys(t *testing.T) {
 
 func TestNumberFieldWritesDecimalsAndASuffix(t *testing.T) {
 	n := NewNumberField(20, 999)
-	n.Decimals, n.Suffix, n.Step = 2, " BPM", 0.5
+	n.Decimals, n.Suffix, n.Increment = 2, " BPM", 0.5
 	n.SetValue(128, nil)
 	if n.Text() != "128.00 BPM" {
 		t.Fatalf("the text reads %q", n.Text())
