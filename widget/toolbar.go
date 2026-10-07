@@ -20,7 +20,10 @@ var (
 )
 
 // Toolbar is a small floating strip of buttons on a raised surface, such as the actions that show over a message
-// under the pointer.
+// under the pointer. It casts a shadow and holds its items in a row, each at its own size.
+//
+// The motion and the keys are its buttons': each lights under the pointer and squashes as it is pressed, and Tab
+// reaches each in turn, Space or Enter pressing it.
 type Toolbar struct {
 	row *Flex
 }

@@ -64,7 +64,8 @@ type TableRow struct {
 // under the same keys. A cursor row, lit, follows the arrow keys, Page
 // Up and Page Down, Home and End, and the pointer; Enter or a double
 // click activates it. Space marks it and moves on, and the marked rows
-// are tinted. A click on a column's title asks for the rows sorted by
+// are tinted. Typing a row's first letters moves the cursor to it; see
+// [Table.SetKeys] for when the table reads the names. A click on a column's title asks for the rows sorted by
 // it, and again for the other way round. Columns wider than the table
 // scroll sideways, the header with them, by a sideways wheel, the wheel
 // with Shift held, or Left and Right.
@@ -171,6 +172,11 @@ func NewTable(columns ...TableColumn) *Table {
 
 // SetKeys makes keys the table's rows, in order. The cursor stays on
 // its row while the row stays, and marks on theirs.
+//
+// Finding a row by typing reads each row's first cell through Row once
+// for the keys set last, as the first letter is typed. Where the first
+// cells change under the same keys, as a file renamed in place, call
+// SetKeys again, with the same keys, for typing to find the new names.
 func (t *Table) SetKeys(keys []Key, u *gunim.UI) {
 	var at Key
 	if t.cursor >= 0 && t.cursor < len(t.keys) {

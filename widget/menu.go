@@ -1216,10 +1216,14 @@ func paintChevron(p *paint.Painter, th *theme.Live, c geom.Point, ink color.NRGB
 }
 
 // ContextMenu opens a menu at the pointer when its child is clicked
-// with the secondary button.
+// with the secondary button, or at a point [ContextMenu.Open] gives, as
+// for the Menu key. The menu fades and unfolds from its top as it opens,
+// and its highlight glides from item to item, as a [Menu]'s does.
 //
-// While the menu is open, the context menu holds the keyboard and
-// passes keys to the menu, and hands focus back once it closes.
+// While the menu is open, the context menu holds the keyboard: Up,
+// Down, Home and End move the highlight, Enter or Space picks, and
+// Escape or Tab closes the menu. It hands the keyboard back once the
+// menu closes.
 type ContextMenu struct {
 	// Prepare, when set, runs as the secondary button goes down at at, in
 	// the context menu's space, before the menu opens. It may set the items

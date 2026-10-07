@@ -62,22 +62,22 @@ func (l *Loudness) Write(frames []float32) {
 	l.frames += len(frames) / 2
 	quarters := l.frames / l.quarter
 	if quarters-3 > l.seenBlocks {
-		bs := l.lm.Blocks()
-		for _, p := range bs[l.seenBlocks:] {
+		var bs []float64
+		bs, l.seenBlocks = l.lm.BlocksSince(l.seenBlocks)
+		for _, p := range bs {
 			l.blocks.add(p)
 		}
-		l.seenBlocks = len(bs)
 		l.integrated = -70
 		if v, ok := l.blocks.integrated(); ok {
 			l.integrated = float32(v)
 		}
 	}
 	if quarters-29 > l.seenShorts {
-		ss := l.lm.ShortTerms()
-		for _, p := range ss[l.seenShorts:] {
+		var ss []float64
+		ss, l.seenShorts = l.lm.ShortTermsSince(l.seenShorts)
+		for _, p := range ss {
 			l.shorts.add(p)
 		}
-		l.seenShorts = len(ss)
 	}
 }
 

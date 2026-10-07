@@ -170,6 +170,35 @@ func TestTypingFindsARowByTheStartOfItsName(t *testing.T) {
 	}
 }
 
+// Typing finds the names the rows had when SetKeys last ran; SetKeys again, with the same keys, finds new ones.
+func TestTypingFindsTheNamesOfTheKeysSetLast(t *testing.T) {
+	w, tbl, _, run := newTableStage(t, 10)
+	now := time.Now()
+	w.Input(input.TextInput{Text: "r", Time: now})
+	run(1)
+	row := tbl.Row
+	tbl.Row = func(k Key) TableRow {
+		if k == "7" {
+			return TableRow{Cells: []string{"zebra"}}
+		}
+		return row(k)
+	}
+	w.Input(input.TextInput{Text: "zebra", Time: now.Add(3 * time.Second)})
+	run(1)
+	if k, _ := tbl.Cursor(); k == "7" {
+		t.Fatal("typing found a name the rows took after SetKeys")
+	}
+	if err := w.Client().Update("t", struct{}{}); err != nil {
+		t.Fatal(err)
+	}
+	run(1)
+	w.Input(input.TextInput{Text: "zebra", Time: now.Add(6 * time.Second)})
+	run(1)
+	if k, _ := tbl.Cursor(); k != "7" {
+		t.Fatalf("after SetKeys again, typing zebra put the cursor on %q, want row 7", k)
+	}
+}
+
 func TestSpaceTwiceMarksTwoRows(t *testing.T) {
 	w, tbl, _, run := newTableStage(t, 10)
 	now := time.Now()

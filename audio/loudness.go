@@ -143,6 +143,27 @@ func (m *LoudnessMeter) Blocks() []float64 { return slices.Clone(m.blocks) }
 // measure their range together.
 func (m *LoudnessMeter) ShortTerms() []float64 { return slices.Clone(m.shorts) }
 
+// BlocksSince returns the blocks written after the first mark, as
+// [LoudnessMeter.Blocks] gives them, and the mark to pass next time. A
+// reader that keeps the mark copies only what is new, however long the
+// sound has played. A mark of 0 hands over every block.
+func (m *LoudnessMeter) BlocksSince(mark int) (blocks []float64, next int) {
+	return since(m.blocks, mark)
+}
+
+// ShortTermsSince returns the three-second windows written after the
+// first mark, as [LoudnessMeter.ShortTerms] gives them, and the mark to
+// pass next time, as [LoudnessMeter.BlocksSince] does.
+func (m *LoudnessMeter) ShortTermsSince(mark int) (shorts []float64, next int) {
+	return since(m.shorts, mark)
+}
+
+// since returns a copy of the values of all after the first mark, and how many all holds.
+func since(all []float64, mark int) (after []float64, count int) {
+	mark = min(max(mark, 0), len(all))
+	return slices.Clone(all[mark:]), len(all)
+}
+
 // Range returns how far the loudness of everything written ranges, in
 // LU, and false where there was too little that was not silence to
 // say: under three seconds of it.
