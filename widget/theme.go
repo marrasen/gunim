@@ -209,6 +209,10 @@ func Light() theme.Theme {
 		theme.Set(TileCursor, color.NRGBA{R: 0x2f, G: 0x6f, B: 0xe0, A: 0xc0}),
 		theme.Set(TileHover, color.NRGBA{R: 0x2f, G: 0x6f, B: 0xe0, A: 0x14}),
 		theme.Set(TileSelected, color.NRGBA{R: 0x2f, G: 0x6f, B: 0xe0, A: 0x38}),
+		theme.Set(TreeHover, color.NRGBA{R: 0x16, G: 0x18, B: 0x1e, A: 0x0a}),
+		theme.Set(TreeSelected, color.NRGBA{R: 0x2f, G: 0x6f, B: 0xe0, A: 0x26}),
+		theme.Set(TreeGuide, color.NRGBA{R: 0x16, G: 0x18, B: 0x1e, A: 0x16}),
+		theme.Set(TreeBranch, color.NRGBA{R: 0xc9, G: 0x8f, B: 0x1c, A: 0xff}),
 		// Code, in the colours of a light editor.
 		theme.Set(CodeEditorFill, color.NRGBA{R: 0xfa, G: 0xfb, B: 0xfc, A: 0xff}),
 		theme.Set(CodeGutterFill, color.NRGBA{R: 0xf0, G: 0xf2, B: 0xf6, A: 0xff}),
