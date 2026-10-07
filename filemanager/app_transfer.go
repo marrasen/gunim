@@ -157,6 +157,14 @@ func (a *app) transferred(id int, t Transfer, ps PathStyle, done string, err err
 	default:
 		a.showError(ErrorBox{Title: failedTitle(job{kind: r.kind}), Body: err.Error()})
 	}
+	if t.ToFS == a.fs.ID() && a.ps.Same(t.Into, a.nav.path) {
+		// What came is selected, by the names it had: the program does
+		// not say which it gave another name, or skipped.
+		a.nav.pick = nil
+		for _, p := range t.Paths {
+			a.nav.pick = append(a.nav.pick, ps.Base(p))
+		}
+	}
 	a.relist()
 	// Other windows showing a folder the items left or went to read it
 	// again too.

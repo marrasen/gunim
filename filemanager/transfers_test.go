@@ -176,6 +176,7 @@ func TestPasteFromAnotherFileSystemGoesToTheProgram(t *testing.T) {
 	if other.b.dnd.clip.Count != 1 || len(local.a.ops.clip) != 1 {
 		t.Fatal("pasting a copy emptied the clipboard")
 	}
+	other.until("what came is selected", func() bool { return other.a.nav.sel["a.txt"] })
 
 	local.do(Command{Name: CmdCut})
 	other.until("the window elsewhere offers the cut", func() bool { return other.b.dnd.clip.Count == 1 && other.b.dnd.clip.Cut })

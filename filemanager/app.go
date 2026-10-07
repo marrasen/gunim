@@ -280,7 +280,9 @@ func (a *app) startup(o Options) {
 		a.script = strings.Split(o.Script, ",")
 	}
 	a.startNav(o.Dir)
-	a.nav.pick = o.Select
+	if o.Select != "" {
+		a.nav.pick = []string{o.Select}
+	}
 }
 
 // take handles the intent ev carries, with the modifier keys held as it was sent.
