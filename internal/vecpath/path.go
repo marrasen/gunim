@@ -1,4 +1,6 @@
-package icon
+// Package vecpath reads SVG path data and draws it into coverage masks: the outlines package icon strokes and
+// package shape fills and strokes.
+package vecpath
 
 import (
 	"fmt"
@@ -6,25 +8,77 @@ import (
 	"strconv"
 )
 
-// pt is a point on the icon's grid, or in pixels once scaled.
-type pt struct{ x, y float32 }
+// Pt is a point on a path's grid, or in pixels once mapped.
+type Pt struct{ X, Y float32 }
 
-func (a pt) add(b pt) pt             { return pt{a.x + b.x, a.y + b.y} }
-func (a pt) sub(b pt) pt             { return pt{a.x - b.x, a.y - b.y} }
-func (a pt) lerp(b pt, t float32) pt { return pt{a.x + (b.x-a.x)*t, a.y + (b.y-a.y)*t} }
+// Add is a+b.
+func (a Pt) Add(b Pt) Pt { return Pt{a.X + b.X, a.Y + b.Y} }
 
-// seg is a line from p[0] to p[3], or a cubic Bézier through p[0] to p[3] when curve is set.
-type seg struct {
-	p     [4]pt
-	curve bool
+// Sub is a-b.
+func (a Pt) Sub(b Pt) Pt { return Pt{a.X - b.X, a.Y - b.Y} }
+
+// Lerp is the point t of the way from a to b.
+func (a Pt) Lerp(b Pt, t float32) Pt { return Pt{a.X + (b.X-a.X)*t, a.Y + (b.Y-a.Y)*t} }
+
+// Seg is a line from P[0] to P[3], or a cubic Bézier through P[0] to P[3] when Curve is set.
+type Seg struct {
+	P     [4]Pt
+	Curve bool
 }
 
-// subpath is a run of joined segments.
-type subpath []seg
+// Subpath is a run of joined segments.
+type Subpath []Seg
 
-// outline is an icon parsed: its stroked subpaths and its filled ones, in drawing order.
-type outline struct {
-	strokes, fills []subpath
+// Affine maps a point (x, y) to (A*x + C*y + E, B*x + D*y + F), as SVG's matrix(a b c d e f) does.
+type Affine struct{ A, B, C, D, E, F float32 }
+
+// Identity maps each point to itself.
+var Identity = Affine{A: 1, D: 1}
+
+// Apply maps p.
+func (m Affine) Apply(p Pt) Pt { return Pt{m.A*p.X + m.C*p.Y + m.E, m.B*p.X + m.D*p.Y + m.F} }
+
+// Then is m followed by n.
+func (m Affine) Then(n Affine) Affine {
+	return Affine{
+		A: n.A*m.A + n.C*m.B, B: n.B*m.A + n.D*m.B,
+		C: n.A*m.C + n.C*m.D, D: n.B*m.C + n.D*m.D,
+		E: n.A*m.E + n.C*m.F + n.E, F: n.B*m.E + n.D*m.F + n.F,
+	}
+}
+
+// Transform returns subs with every point mapped by m. A Bézier mapped point by point is the Bézier of the mapped
+// curve, so the result is exact.
+func Transform(subs []Subpath, m Affine) []Subpath {
+	out := make([]Subpath, len(subs))
+	for i, sp := range subs {
+		out[i] = make(Subpath, len(sp))
+		for j, s := range sp {
+			for k := range s.P {
+				s.P[k] = m.Apply(s.P[k])
+			}
+			out[i][j] = s
+		}
+	}
+	return out
+}
+
+// Bounds returns the smallest box holding subs and their control points, which holds the curves, and whether
+// there are any points.
+func Bounds(subs []Subpath) (lo, hi Pt, ok bool) {
+	for _, sp := range subs {
+		for _, s := range sp {
+			for _, p := range s.P {
+				if !ok {
+					lo, hi, ok = p, p, true
+					continue
+				}
+				lo = Pt{min(lo.X, p.X), min(lo.Y, p.Y)}
+				hi = Pt{max(hi.X, p.X), max(hi.Y, p.Y)}
+			}
+		}
+	}
+	return lo, hi, ok
 }
 
 // pathParser reads SVG path data.
@@ -33,15 +87,15 @@ type pathParser struct {
 	i int
 }
 
-// parse reads SVG path data into subpaths, with arcs and quadratic curves turned into cubic ones. On an error it
+// Parse reads SVG path data into subpaths, with arcs and quadratic curves turned into cubic ones. On an error it
 // returns the subpaths read so far.
-func parse(d string) ([]subpath, error) {
+func Parse(d string) ([]Subpath, error) {
 	p := pathParser{s: d}
 	var (
-		out       []subpath
-		cur       subpath
-		at, start pt
-		lastCtl   pt
+		out       []Subpath
+		cur       Subpath
+		at, start Pt
+		lastCtl   Pt
 		lastCmd   byte
 		cmd       byte
 		hasCmd    bool
@@ -52,12 +106,12 @@ func parse(d string) ([]subpath, error) {
 		}
 		cur = nil
 	}
-	line := func(to pt) {
-		cur = append(cur, seg{p: [4]pt{at, at, to, to}})
+	line := func(to Pt) {
+		cur = append(cur, Seg{P: [4]Pt{at, at, to, to}})
 		at = to
 	}
-	cubic := func(c1, c2, to pt) {
-		cur = append(cur, seg{p: [4]pt{at, c1, c2, to}, curve: true})
+	cubic := func(c1, c2, to Pt) {
+		cur = append(cur, Seg{P: [4]Pt{at, c1, c2, to}, Curve: true})
 		lastCtl, at = c2, to
 	}
 	for {
@@ -69,10 +123,10 @@ func parse(d string) ([]subpath, error) {
 			cmd, hasCmd = c, true
 			p.i++
 		} else if !hasCmd {
-			return out, fmt.Errorf("icon: path data has %q at %d where a command belongs", c, p.i)
+			return out, fmt.Errorf("path data has %q at %d where a command belongs", c, p.i)
 		}
 		rel := cmd >= 'a'
-		base := pt{}
+		base := Pt{}
 		if rel {
 			base = at
 		}
@@ -85,7 +139,7 @@ func parse(d string) ([]subpath, error) {
 			v, err = p.number()
 			return v
 		}
-		pair := func() pt { x := num(); return base.add(pt{x, num()}) }
+		pair := func() Pt { x := num(); return base.Add(Pt{x, num()}) }
 		prev := lastCmd
 		lastCmd = cmd | 0x20
 		switch cmd | 0x20 {
@@ -111,18 +165,18 @@ func parse(d string) ([]subpath, error) {
 				return out, err
 			}
 			if !rel {
-				x -= at.x
+				x -= at.X
 			}
-			line(pt{at.x + x, at.y})
+			line(Pt{at.X + x, at.Y})
 		case 'v':
 			y := num()
 			if err != nil {
 				return out, err
 			}
 			if !rel {
-				y -= at.y
+				y -= at.Y
 			}
-			line(pt{at.x, at.y + y})
+			line(Pt{at.X, at.Y + y})
 		case 'c':
 			c1, c2, to := pair(), pair(), pair()
 			if err != nil {
@@ -132,7 +186,7 @@ func parse(d string) ([]subpath, error) {
 		case 's':
 			c1 := at
 			if prev == 'c' || prev == 's' {
-				c1 = at.add(at.sub(lastCtl))
+				c1 = at.Add(at.Sub(lastCtl))
 			}
 			c2, to := pair(), pair()
 			if err != nil {
@@ -149,7 +203,7 @@ func parse(d string) ([]subpath, error) {
 		case 't':
 			c := at
 			if prev == 'q' || prev == 't' {
-				c = at.add(at.sub(lastCtl))
+				c = at.Add(at.Sub(lastCtl))
 			}
 			to := pair()
 			if err != nil {
@@ -236,11 +290,11 @@ func (p *pathParser) number() (float32, error) {
 		}
 	}
 	if !digits {
-		return 0, fmt.Errorf("icon: path data wants a number at %d", p.i)
+		return 0, fmt.Errorf("path data wants a number at %d", p.i)
 	}
 	v, err := strconv.ParseFloat(p.s[p.i:j], 32)
 	if err != nil {
-		return 0, fmt.Errorf("icon: path data: %w", err)
+		return 0, fmt.Errorf("path data: %w", err)
 	}
 	p.i = j
 	return float32(v), nil
@@ -253,16 +307,16 @@ func (p *pathParser) flag() (bool, error) {
 		p.i++
 		return p.s[p.i-1] == '1', nil
 	}
-	return false, fmt.Errorf("icon: path data wants an arc flag at %d", p.i)
+	return false, fmt.Errorf("path data wants an arc flag at %d", p.i)
 }
 
 // quad adds the quadratic Bézier from a through c to b as a cubic one.
-func quad(a, c, b pt, cubic func(c1, c2, to pt)) {
-	cubic(a.lerp(c, 2.0/3), b.lerp(c, 2.0/3), b)
+func quad(a, c, b Pt, cubic func(c1, c2, to Pt)) {
+	cubic(a.Lerp(c, 2.0/3), b.Lerp(c, 2.0/3), b)
 }
 
 // arc adds an SVG elliptical arc from a to b as cubic Béziers of at most a quarter turn each.
-func arc(a, b pt, rx, ry, rotDeg float32, large, sweep bool, line func(pt), cubic func(c1, c2, to pt)) {
+func arc(a, b Pt, rx, ry, rotDeg float32, large, sweep bool, line func(Pt), cubic func(c1, c2, to Pt)) {
 	if a == b {
 		return
 	}
@@ -274,7 +328,7 @@ func arc(a, b pt, rx, ry, rotDeg float32, large, sweep bool, line func(pt), cubi
 	phi := float64(rotDeg) * math.Pi / 180
 	sin, cos := math.Sincos(phi)
 	// The endpoints in the ellipse's own frame, centred between them.
-	dx, dy := float64(a.x-b.x)/2, float64(a.y-b.y)/2
+	dx, dy := float64(a.X-b.X)/2, float64(a.Y-b.Y)/2
 	x1 := cos*dx + sin*dy
 	y1 := -sin*dx + cos*dy
 	rxf, ryf := float64(rx), float64(ry)
@@ -290,8 +344,8 @@ func arc(a, b pt, rx, ry, rotDeg float32, large, sweep bool, line func(pt), cubi
 		k = -k
 	}
 	cx1, cy1 := k*rxf*y1/ryf, -k*ryf*x1/rxf
-	cx := cos*cx1 - sin*cy1 + float64(a.x+b.x)/2
-	cy := sin*cx1 + cos*cy1 + float64(a.y+b.y)/2
+	cx := cos*cx1 - sin*cy1 + float64(a.X+b.X)/2
+	cy := sin*cx1 + cos*cy1 + float64(a.Y+b.Y)/2
 	angle := func(ux, uy, vx, vy float64) float64 { return math.Atan2(ux*vy-uy*vx, ux*vx+uy*vy) }
 	t1 := angle(1, 0, (x1-cx1)/rxf, (y1-cy1)/ryf)
 	dt := angle((x1-cx1)/rxf, (y1-cy1)/ryf, (-x1-cx1)/rxf, (-y1-cy1)/ryf)
@@ -318,11 +372,11 @@ func arc(a, b pt, rx, ry, rotDeg float32, large, sweep bool, line func(pt), cubi
 		x0, y0, dx0, dy0 := onEllipse(t)
 		x3, y3, dx3, dy3 := onEllipse(t + step)
 		if i == n-1 {
-			x3, y3 = float64(b.x), float64(b.y)
+			x3, y3 = float64(b.X), float64(b.Y)
 		}
-		c1 := pt{float32(x0 + arm*dx0), float32(y0 + arm*dy0)}
-		c2 := pt{float32(x3 - arm*dx3), float32(y3 - arm*dy3)}
-		cubic(c1, c2, pt{float32(x3), float32(y3)})
+		c1 := Pt{float32(x0 + arm*dx0), float32(y0 + arm*dy0)}
+		c2 := Pt{float32(x3 - arm*dx3), float32(y3 - arm*dy3)}
+		cubic(c1, c2, Pt{float32(x3), float32(y3)})
 		t += step
 	}
 }

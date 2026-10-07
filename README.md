@@ -711,6 +711,43 @@ icons too. `go generate
 ./icon` with `LUCIDE_REACT` set to a lucide-react package directory
 writes them again from a newer Lucide.
 
+## Vector art
+
+Package `shape` draws vector art: SVG path data filled or stroked, and
+whole SVG files, as a vector editor such as Inkscape or Figma saves
+them. A shape is a coverage mask, as an icon is: rasterized once for
+each size in pixels it is drawn at, kept, and tinted as it draws, so a
+drawing of a dozen parts costs a dozen quads a frame. Move, turn or scale
+one by a transform rather than by its rect, and it is never drawn again.
+
+```go
+//go:embed fox.svg
+var foxSVG []byte
+
+var fox = shape.MustSVG(foxSVG) // read once
+
+func (v *view) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, _ gunim.Children) {
+	fox.Paint(p, shape.Fit(fox.ViewBox, geom.Rect{Max: box.Point()}))
+}
+```
+
+A single path is a `shape.Path`, filled by the nonzero or the even-odd
+rule, its edges smoothed, or stroked with round caps and joins:
+
+```go
+leaf := shape.MustPath("M12 2C6 8 6 16 12 22C18 16 18 8 12 2Z")
+grid := geom.Rc(0, 0, 24, 24) // the units the path is written in
+p.Mask(leaf.Fill(), leaf.Fill().In(grid, r), green)
+p.Mask(leaf.Stroke(1), leaf.Stroke(1).In(grid, r), darkGreen)
+```
+
+An SVG file's paths, rects, circles, ellipses, lines, polylines and
+polygons are read, in groups with their transforms, with fill, stroke,
+their opacities, the fill rule, and linear and radial gradients. Text,
+images, filters, masks and clip paths are left out. `go run
+./example/vectorart` draws a fox from a file and a leaf from a line of
+path data.
+
 ## Packages
 
 | Package | What it is |
@@ -725,6 +762,7 @@ writes them again from a newer Lucide.
 | `gunim/audioui` | Meters and faders, a spectrum and a spectrogram, a waveform, and loudness readings for audio programs |
 | `gunim/paint` | The per-frame draw list: rounded rects, shadows, gradients, text, images, masks, layers that clip and tilt, and 3D scenes |
 | `gunim/icon` | Lucide's icons as strokes, drawn as tinted masks; `icon/byname` looks them up by name |
+| `gunim/shape` | Vector art: SVG path data filled or stroked as a mask, and SVG files read into figures |
 | `gunim/geom` | float32 points, sizes, rectangles, and 3D vectors and matrices |
 | `gunim/syntax` | Splits source code into tokens to colour; `syntax.Go` reads Go with `go/scanner` |
 | `gunim/markdown` | Shows Markdown as gunim text that the reader can select and copy |

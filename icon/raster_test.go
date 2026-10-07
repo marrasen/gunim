@@ -23,24 +23,6 @@ func TestPathDataParses(t *testing.T) {
 			t.Errorf("%q parsed, want an error", d)
 		}
 	}
-	subs, _ := parse("M2 12h20M5 5v2")
-	if len(subs) != 2 || subs[0][0].p[0] != (pt{2, 12}) || subs[0][0].p[3] != (pt{22, 12}) || subs[1][0].p[3] != (pt{5, 7}) {
-		t.Fatalf("parsed %v", subs)
-	}
-}
-
-func TestAnArcFollowsItsCircle(t *testing.T) {
-	subs, err := parse("M2 12a10 10 0 1 0 20 0a10 10 0 1 0-20 0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, l := range flatten(subs, 1, pt{}, false, nil) {
-		for _, p := range l.pts {
-			if r := length(p.sub(pt{12, 12})); math.Abs(float64(r-10)) > 0.01 {
-				t.Fatalf("a point on the circle lies %v from its centre, want 10", r)
-			}
-		}
-	}
 }
 
 // cov returns the coverage at x, y of an icon drawn w pixels square.

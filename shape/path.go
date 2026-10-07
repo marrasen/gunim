@@ -1,0 +1,175 @@
+// Package shape draws vector art from SVG: a path filled or stroked as a coverage mask a driver tints, and a
+// [Figure], many paths with their colours and gradients, read from an SVG file.
+//
+// A shape is rasterized once for each size in pixels it is drawn at, and kept, as an icon is: drawing it again,
+// moved, turned, scaled by a transform, faded or tinted another colour, costs a quad. Drawing it at a new size in
+// pixels rasterizes it again, so an animation moves and scales a shape by a transform rather than by its rect.
+//
+//	leaf := shape.MustPath("M12 2C6 8 6 16 12 22C18 16 18 8 12 2Z")
+//	box := geom.Rc(0, 0, 24, 24)
+//	p.Mask(leaf.Fill(), leaf.Fill().In(box, r), green) // the 24-unit grid drawn into r
+//	p.Mask(leaf.Stroke(1.5), leaf.Stroke(1.5).In(box, r), darkGreen)
+package shape
+
+import (
+	"fmt"
+	"math"
+
+	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/internal/vecpath"
+)
+
+// Path is SVG path data, in whatever units its numbers are: lines, cubic and quadratic Béziers and arcs, in one or
+// more subpaths. It must not change once drawn.
+type Path struct {
+	subs   []vecpath.Subpath
+	lo, hi vecpath.Pt
+}
+
+// NewPath reads SVG path data, as the d attribute of an SVG path holds it.
+func NewPath(d string) (*Path, error) {
+	subs, err := vecpath.Parse(d)
+	if err != nil {
+		return nil, fmt.Errorf("shape: %w", err)
+	}
+	return pathOf(subs), nil
+}
+
+// MustPath is [NewPath] for path data written in the program, which panics on an error.
+func MustPath(d string) *Path {
+	p, err := NewPath(d)
+	if err != nil {
+		panic(err)
+	}
+	return p
+}
+
+// pathOf is the path of subpaths already read.
+func pathOf(subs []vecpath.Subpath) *Path {
+	p := &Path{subs: subs}
+	p.lo, p.hi, _ = vecpath.Bounds(subs)
+	return p
+}
+
+// Bounds is the box the path lies in, in its own units, control points included.
+func (p *Path) Bounds() geom.Rect {
+	return geom.Rect{Min: geom.Pt(p.lo.X, p.lo.Y), Max: geom.Pt(p.hi.X, p.hi.Y)}
+}
+
+// Fill is the path filled by the nonzero rule.
+func (p *Path) Fill() Fill { return Fill{Path: p} }
+
+// Stroke is the path stroked width units wide.
+func (p *Path) Stroke(width float32) Stroke { return Stroke{Path: p, Width: width} }
+
+// Fill is a path filled, its edges smoothed, as a [paint.Shape]. Its coverage covers the path's bounds; [Fill.In]
+// says where to draw it.
+type Fill struct {
+	Path *Path
+	// EvenOdd fills by the even-odd rule in place of nonzero: a subpath inside another is a hole whichever way it
+	// runs.
+	EvenOdd bool
+}
+
+// Settled implements [paint.Shape]: a path never changes.
+func (Fill) Settled() bool { return true }
+
+// In is where the fill draws when the box of its path's units, such as an SVG's view box, is drawn into r.
+func (f Fill) In(box, r geom.Rect) geom.Rect { return mapRect(f.Path.Bounds(), box, r) }
+
+// Coverage implements [paint.Shape]: the path's bounds drawn into w by h pixels.
+func (f Fill) Coverage(w, h int) []byte {
+	if w <= 0 || h <= 0 {
+		return nil
+	}
+	if f.Path == nil || len(f.Path.subs) == 0 {
+		return make([]byte, w*h)
+	}
+	m, _ := toPixels(f.Path.Bounds(), w, h)
+	return vecpath.Fill(vecpath.Flatten(f.Path.subs, m, true, nil), w, h, f.EvenOdd)
+}
+
+// Stroke is a path stroked with round caps and joins, as a [paint.Shape]. Its coverage covers the path's bounds
+// grown to hold the stroke; [Stroke.In] says where to draw it.
+type Stroke struct {
+	Path  *Path
+	Width float32
+}
+
+// Settled implements [paint.Shape]: a stroke of a width that is a number never changes; one that is not is drawn
+// again each frame, as it never equals the last one.
+func (s Stroke) Settled() bool { return s.Width == s.Width }
+
+// In is where the stroke draws when the box of its path's units is drawn into r.
+func (s Stroke) In(box, r geom.Rect) geom.Rect { return mapRect(s.bounds(), box, r) }
+
+// bounds is the path's bounds grown by the stroke, and a little more for its smoothed edge.
+func (s Stroke) bounds() geom.Rect {
+	g := max(s.Width, 0) * 0.75
+	b := s.Path.Bounds()
+	return geom.Rect{Min: geom.Pt(b.Min.X-g, b.Min.Y-g), Max: geom.Pt(b.Max.X+g, b.Max.Y+g)}
+}
+
+// Coverage implements [paint.Shape]: the stroke's bounds drawn into w by h pixels. Drawn wider than its units'
+// shape, the stroke keeps one width, the mean of the two scales.
+func (s Stroke) Coverage(w, h int) []byte {
+	if w <= 0 || h <= 0 {
+		return nil
+	}
+	if s.Path == nil || len(s.Path.subs) == 0 || !(s.Width > 0) {
+		return make([]byte, w*h)
+	}
+	m, k := toPixels(s.bounds(), w, h)
+	dist := vecpath.NewDistances(w, h)
+	hw := s.Width * k / 2
+	for _, l := range vecpath.Flatten(s.Path.subs, m, false, nil) {
+		for i := 1; i < len(l.Pts); i++ {
+			vecpath.Segment(dist, w, h, l.Pts[i-1], l.Pts[i], hw)
+		}
+		if len(l.Pts) == 1 {
+			vecpath.Segment(dist, w, h, l.Pts[0], l.Pts[0], hw)
+		}
+	}
+	return vecpath.Coverage(dist, make([]bool, w*h), hw)
+}
+
+// toPixels maps b onto w by h pixels, and gives the mean scale.
+func toPixels(b geom.Rect, w, h int) (m func(vecpath.Pt) vecpath.Pt, k float32) {
+	bw, bh := b.Size().W, b.Size().H
+	kx, ky := float32(1), float32(1)
+	if bw > 0 {
+		kx = float32(w) / bw
+	}
+	if bh > 0 {
+		ky = float32(h) / bh
+	}
+	switch {
+	case bw <= 0:
+		kx = ky
+	case bh <= 0:
+		ky = kx
+	}
+	m = func(p vecpath.Pt) vecpath.Pt { return vecpath.Pt{X: (p.X - b.Min.X) * kx, Y: (p.Y - b.Min.Y) * ky} }
+	return m, float32(math.Sqrt(float64(kx * ky)))
+}
+
+// mapRect is where b, in box's units, lies when box is drawn into r.
+func mapRect(b, box, r geom.Rect) geom.Rect {
+	kx, ky := r.Size().W/box.Size().W, r.Size().H/box.Size().H
+	return geom.Rect{
+		Min: geom.Pt(r.Min.X+(b.Min.X-box.Min.X)*kx, r.Min.Y+(b.Min.Y-box.Min.Y)*ky),
+		Max: geom.Pt(r.Min.X+(b.Max.X-box.Min.X)*kx, r.Min.Y+(b.Max.Y-box.Min.Y)*ky),
+	}
+}
+
+// Fit is the largest rect of box's shape centred in r, as an SVG's view box is drawn into a place of another
+// shape.
+func Fit(box, r geom.Rect) geom.Rect {
+	if box.Size().W <= 0 || box.Size().H <= 0 {
+		return r
+	}
+	k := min(r.Size().W/box.Size().W, r.Size().H/box.Size().H)
+	w, h := box.Size().W*k, box.Size().H*k
+	c := r.Center()
+	return geom.Rc(c.X-w/2, c.Y-h/2, w, h)
+}
