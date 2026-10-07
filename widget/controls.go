@@ -1035,8 +1035,9 @@ func (b *tabBar) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 }
 
 // Layout implements [gunim.Node]. The titles sit in a row across the
-// top; every page is laid out below them at the size left, so a page
-// keeps its state and its scroll while another shows.
+// top; the page shown, and the one sliding out, are laid out below them
+// at the size left. The other pages stay mounted, unlaid, and so keep
+// their state and their scroll.
 func (t *Tabs) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
 	t.count = kids.Len() - 1
 	t.laidPages = t.laidPages[:0]
@@ -1053,6 +1054,9 @@ func (t *Tabs) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) g
 	page := geom.Sz(size.W, max(0, size.H-t.head))
 	var tallest float32
 	for i := 1; i < kids.Len(); i++ {
+		if i-1 != t.selected && i-1 != t.prev {
+			continue
+		}
 		kid := kids.At(i)
 		s := kid.Layout(gunim.Constraints{Min: geom.Sz(page.W, 0), Max: page})
 		kid.Place(geom.Pt(0, t.head))

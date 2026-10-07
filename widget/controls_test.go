@@ -150,6 +150,41 @@ func TestTabsShowOnePageAtATime(t *testing.T) {
 	}
 }
 
+// layoutCounter is a page that counts its layouts.
+type layoutCounter struct{ laid int }
+
+func (l *layoutCounter) Layout(c gunim.Constraints, _ gunim.Frame, _ gunim.Children) geom.Size {
+	l.laid++
+	return c.Max
+}
+
+func (l *layoutCounter) Paint(*paint.Painter, gunim.Frame, geom.Size, gunim.Children) {}
+
+func TestTabsLayOutOnlyThePagesShowing(t *testing.T) {
+	pages := []*layoutCounter{{}, {}, {}}
+	tabs := NewTabs([]string{"One", "Two", "Three"}, pages[0], pages[1], pages[2])
+	w, run := stage(t, &frame{child: tabs, size: geom.Sz(300, 200)})
+	gunim.RegisterPatch(w, "stage", func(_ gunim.Node, c chooseTab, u *gunim.UI) { tabs.Select(c.I, u) })
+	run(10)
+	if pages[1].laid != 0 || pages[2].laid != 0 {
+		t.Fatalf("with the first page showing, the others were laid out %d and %d times", pages[1].laid, pages[2].laid)
+	}
+	if err := w.Client().Patch("stage", chooseTab{1}); err != nil {
+		t.Fatal(err)
+	}
+	// While the second page slides in, the first is laid out as it fades.
+	run(1)
+	if pages[0].laid < 11 || pages[1].laid != 1 || pages[2].laid != 0 {
+		t.Fatalf("as the second page slides in, the pages were laid out %d, %d and %d times", pages[0].laid, pages[1].laid, pages[2].laid)
+	}
+	run(120)
+	was := pages[0].laid
+	run(10)
+	if pages[0].laid != was || pages[2].laid != 0 {
+		t.Fatalf("with the second page showing, the first was laid out %d more times and the third %d", pages[0].laid-was, pages[2].laid)
+	}
+}
+
 // recorder fills the space it is given and takes every pointer press.
 type recorder struct{ events []input.Event }
 
