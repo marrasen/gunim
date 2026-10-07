@@ -24,7 +24,8 @@ var (
 // Segmented is a row of options in a rounded track, one of them chosen, with a pill that springs to the chosen one.
 //
 // A click on an option chooses it. With focus, Left and Right choose the option beside the chosen one, and Home and
-// End the first and the last. Every option is as wide as the widest.
+// End the first and the last. Every option is as wide as the widest. Given less room, the options share it, and a label
+// too long for its share ends in an ellipsis.
 type Segmented struct {
 	anim.Group
 	// Labels and Icons are the options, in order: an icon, a label or both. The longer of the two sets how many
@@ -49,6 +50,7 @@ type Segmented struct {
 	laid   bool
 	click  clicker
 	shaped []shapedText
+	ell    shapedText
 	// width is each option's width, and size the control's, from the last layout.
 	width float32
 	size  geom.Size
@@ -234,11 +236,19 @@ func (s *Segmented) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ guni
 		fill = s.Track.Get(th)
 	}
 	p.RRect(track, h/2, paint.Solid(fill))
+	// The options share the box Paint is given, which a parent may have
+	// squeezed since layout.
+	n := s.Len()
+	if n == 0 {
+		return
+	}
+	s.width = box.W / float32(n)
 	at := s.pill.Value()
-	p.RRect(geom.Rc(at*s.width+2, 2, s.width-4, h-4), (h-4)/2, paint.Solid(Accent.Get(th)))
+	p.RRect(geom.Rc(at*s.width+2, 2, max(0, s.width-4), max(0, h-4)), max(0, h-4)/2, paint.Solid(Accent.Get(th)))
+	pad := min(SegmentedPadding.Get(th), s.width/4)
 
 	faint, strong := Placeholder.Get(th), ButtonStrongInk.Get(th)
-	for i := range s.Len() {
+	for i := range n {
 		// The option the pill is on reads on the pill; the one under the pointer lights up.
 		near := 1 - min(max(at-float32(i), float32(i)-at), 1)
 		ink := faint
@@ -246,14 +256,19 @@ func (s *Segmented) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ guni
 			ink = Ink.Get(th)
 		}
 		ink = anim.Mix(anim.ColorCodec, ink, strong, near)
-		x := float32(i)*s.width + (s.width-s.content(i, th))/2
+		room := s.width - 2*pad
+		x := float32(i)*s.width + pad + max(0, room-s.content(i, th))/2
 		if ic := s.icon(i); ic != nil {
 			size := s.iconSize(th)
+			if size > room {
+				continue
+			}
 			paintIcon(p, th, ic, geom.Rc(x, (h-size)/2, size, size), ink, 1)
 			x += size + IconGap.Get(th)
+			room -= size + IconGap.Get(th)
 		}
 		if l := s.label(i); l != "" {
-			run := s.shaped[i].run
+			run := fitRun(s.shaped[i].run, &s.ell, room)
 			run.Paint(p, geom.Pt(x, (h-run.Height())/2), ink)
 		}
 	}

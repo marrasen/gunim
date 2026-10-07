@@ -6,6 +6,7 @@ import (
 	"slices"
 	"sort"
 	"time"
+	"unicode/utf8"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
@@ -587,15 +588,62 @@ func (m *Menu) measure(face *text.Face, size float32) float32 {
 		return m.widest
 	}
 	w := float32(0)
-	for i := range m.Items {
+	measure := func(i int) {
 		line := face.Shape(m.label(i), size).Advance
 		if i < len(m.Hints) && m.Hints[i] != "" {
 			line += menuHintGap + face.Shape(m.Hints[i], size*0.9).Advance
 		}
 		w = max(w, line)
 	}
+	// Only the items that can be widest are shaped: the longest by
+	// runes, and each with a hint, whose width the hint adds to.
+	for _, i := range longest(m.Items, menuMeasured) {
+		measure(i)
+	}
+	for i := range min(len(m.Hints), len(m.Items)) {
+		if m.Hints[i] != "" {
+			measure(i)
+		}
+	}
 	m.widest, m.widthOf = w, key
 	return w
+}
+
+// menuMeasured is how many of the longest items a menu or a drop-down shapes to find the widest: in a face of one script,
+// the widest is among the longest by runes, by far.
+const menuMeasured = 64
+
+// longest returns the indices of the up to n items with the most runes, so a long list is measured by shaping a few.
+// A list of n items or fewer comes back whole.
+func longest(items []string, n int) []int {
+	if len(items) <= n {
+		out := make([]int, len(items))
+		for i := range out {
+			out[i] = i
+		}
+		return out
+	}
+	// top holds the longest so far, longest first, and runes their rune counts.
+	top := make([]int, 0, n)
+	runes := make([]int, 0, n)
+	for i, s := range items {
+		// A string of no more bytes than the shortest kept has no more runes, so it is passed by unread.
+		if len(top) == n && len(s) <= runes[n-1] {
+			continue
+		}
+		r := utf8.RuneCountInString(s)
+		if len(top) == n && r <= runes[n-1] {
+			continue
+		}
+		at := sort.Search(len(runes), func(j int) bool { return runes[j] < r })
+		if len(top) < n {
+			top, runes = append(top, 0), append(runes, 0)
+		}
+		copy(top[at+1:], top[at:])
+		copy(runes[at+1:], runes[at:])
+		top[at], runes[at] = i, r
+	}
+	return top
 }
 
 // Layout implements [gunim.Node].
@@ -1048,8 +1096,8 @@ func (d *Dropdown) measure(face *text.Face, size float32) float32 {
 	key := menuWidth{items: headOf(d.Items), n: len(d.Items), face: face, size: size}
 	if key != d.widthOf {
 		w := float32(0)
-		for _, s := range d.Items {
-			w = max(w, face.Shape(s, size).Advance)
+		for _, i := range longest(d.Items, menuMeasured) {
+			w = max(w, face.Shape(d.Items[i], size).Advance)
 		}
 		d.widest, d.widthOf = w, key
 	}

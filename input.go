@@ -612,6 +612,68 @@ func (u *UI) FocusFirst(n Node) bool {
 	return false
 }
 
+// FocusFirstLaidOut puts the keyboard on n, or on the first node inside it that Tab could visit, once a frame has laid n
+// out: for a page about to show, which no frame has drawn yet, and so [UI.FocusFirst] cannot find. The node takes the
+// keyboard before that frame paints, so the page shows with it. Where the keyboard moves before then, or nothing inside
+// n takes it, it stays where it is.
+func (u *UI) FocusFirstLaidOut(n Node) {
+	s, ok := u.index[n]
+	if !ok {
+		u.stray("FocusFirstLaidOut", n)
+		return
+	}
+	u.focusLaid = &laidFocus{in: s, from: u.focus}
+	u.invalid = true
+}
+
+// laidFocus is a [UI.FocusFirstLaidOut] waiting for a layout: in is the node to focus inside, and from where the
+// keyboard was when it was asked for.
+type laidFocus struct{ in, from *state }
+
+// focusLaidOut ends a [UI.FocusFirstLaidOut] once the node it names has been laid out.
+func (u *UI) focusLaidOut() {
+	lf := u.focusLaid
+	if lf == nil {
+		return
+	}
+	if u.focus != lf.from || lf.in.leaving() || u.index[lf.in.node] != lf.in {
+		u.focusLaid = nil
+		return
+	}
+	if lf.in.laid != u.seq {
+		// Not laid out yet, as in a popup still to open.
+		return
+	}
+	u.focusLaid = nil
+	if f, ok := lf.in.node.(Focusable); ok && f.Focusable() {
+		u.Focus(lf.in.node)
+		return
+	}
+	var walk func(s *state) *state
+	walk = func(s *state) *state {
+		if s.presence == Exiting || s.laid != u.seq {
+			return nil
+		}
+		if f, ok := s.node.(Focusable); ok && f.Focusable() {
+			if _, skip := s.node.(TabSkipper); !skip {
+				return s
+			}
+		}
+		for _, k := range s.kids {
+			if found := walk(k); found != nil {
+				return found
+			}
+		}
+		return nil
+	}
+	for _, k := range lf.in.kids {
+		if first := walk(k); first != nil {
+			u.Focus(first.node)
+			return
+		}
+	}
+}
+
 // Reveal scrolls n into view through every [Revealer] around it, as
 // focusing it does, and leaves the keyboard where it is: for a list
 // that follows what the user works in, such as a row for the pane in

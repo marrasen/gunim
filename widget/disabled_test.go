@@ -22,17 +22,14 @@ func TestTabsTakeTheKeyboardOffAPageAsItHides(t *testing.T) {
 	if f := focused(); f != a {
 		t.Fatalf("a click on the first page's field put the keyboard on %T", f)
 	}
+	u := stageUI(t, w, run)
 	if err := w.Client().Patch("stage", chooseTab{1}); err != nil {
 		t.Fatal(err)
 	}
 	run(1)
-	// The titles hold the keyboard until the new page has been drawn.
-	if f := focused(); f != tabs.bar {
-		t.Fatalf("a frame after the second page was chosen, the keyboard is on %T, want the titles", f)
-	}
-	run(2)
-	if f := focused(); f != b {
-		t.Fatalf("with the second page chosen, the keyboard is on %T %p, want the second page's field", f, f)
+	// The new page takes the keyboard on the frame that first lays it out, before it paints.
+	if f := u.Focused(); f != b {
+		t.Fatalf("a frame after the second page was chosen, the keyboard is on %T %p, want the second page's field", f, f)
 	}
 	w.Input(input.TextInput{Text: "x"})
 	run(1)

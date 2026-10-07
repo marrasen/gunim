@@ -95,6 +95,7 @@ type Button struct {
 	// self is the node the button sends from, when it is part of a larger one.
 	self gunim.Node
 	tip  tipper
+	ell  shapedText
 }
 
 // NewButton returns a button showing label.
@@ -202,14 +203,18 @@ func (b *Button) Handle(e input.Event, u *gunim.UI) bool {
 	return true
 }
 
-// handleDisabled takes the pointer's presses and passes keys by, while the button is disabled.
+// handleDisabled takes the primary button's presses and passes keys by, while the button is disabled. The other
+// buttons pass by, so a right click reaches a context menu round the button.
 func (b *Button) handleDisabled(e input.Event, th *theme.Live) bool {
-	switch e.(type) {
+	switch e := e.(type) {
 	case input.PointerEnter:
 		b.over = true
 	case input.PointerLeave:
 		b.over = false
-	case input.PointerDown, input.PointerUp:
+	case input.PointerDown:
+		return e.Button == input.ButtonPrimary
+	case input.PointerUp:
+		return e.Button == input.ButtonPrimary
 	case input.FocusLost:
 		b.ring.Animate(0, Settle.Get(th))
 	default:
@@ -343,15 +348,24 @@ func (b *Button) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 		inked = anim.Mix(anim.ColorCodec, inked, Accent.Get(th), min(lit, 1))
 	}
 	inked.A = uint8(float32(inked.A) * faint)
-	// Squeezed, the icon keeps to the button's left edge.
-	x := max((box.W-b.content(th))/2, 0)
+	// Squeezed, the icon keeps to the button's left edge, and the label
+	// ends in an ellipsis inside the padding.
+	pad := min(ButtonPadding.Get(th), box.W/4)
+	if b.Label == "" {
+		pad = 0
+	}
+	x := max((box.W-b.content(th))/2, pad)
+	end := box.W - pad
 	if b.Icon != nil {
 		s := b.iconSize(th)
+		if b.Label == "" {
+			x = max((box.W-s)/2, 0)
+		}
 		paintIcon(p, th, b.Icon, geom.Rc(x, (box.H-s)/2, s, s), inked, 1)
 		x += s + IconGap.Get(th)
 	}
-	if b.Label != "" {
-		run := b.text.shape(faceIn(Font, th), b.Label, TextSize.Get(th))
+	if b.Label != "" && x < end {
+		run := fitRun(b.text.shape(faceIn(Font, th), b.Label, TextSize.Get(th)), &b.ell, end-x)
 		run.Paint(p, geom.Pt(x, (box.H-run.Height())/2), inked)
 	}
 }

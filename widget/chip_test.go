@@ -7,6 +7,7 @@ import (
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/gunimtest"
+	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/input"
 )
 
@@ -27,6 +28,25 @@ func TestAClickOnAChipsCrossRemovesIt(t *testing.T) {
 	run(1)
 	if got := sent(w); len(got) != 1 || got[0] != (removed{"error"}) {
 		t.Fatalf("a click on the cross sent %v, want the chip removed", got)
+	}
+}
+
+func TestALongChipInANarrowWrapKeepsItsCrossInside(t *testing.T) {
+	c := NewChip("path", "/home/someone/a/folder/with/a/very/long/name/indeed/and/more/yet")
+	c.Icon = icon.Folder
+	c.OnRemove = func() gunim.Intent { return removed{"path"} }
+	w, run := stage(t, &frame{child: NewWrap(c), size: geom.Sz(200, 100)})
+	run(1)
+	if c.size.W > 200 {
+		t.Fatalf("in a 200 px wrap the chip is %v wide", c.size.W)
+	}
+	if bad := spills(painted(c, c.size), c.size, 0); len(bad) > 0 {
+		t.Fatalf("the chip drew past its %v box: %v", c.size, bad)
+	}
+	click(w, c.size.W-c.size.H/2, c.size.H/2)
+	run(1)
+	if got := sent(w); len(got) != 1 {
+		t.Fatalf("a click on the cross at the chip's end sent %v, want the chip removed", got)
 	}
 }
 

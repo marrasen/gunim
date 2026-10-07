@@ -5,6 +5,7 @@ import (
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/input"
 )
 
@@ -64,6 +65,42 @@ func TestADisabledButtonTakesNoClickKeyOrFocus(t *testing.T) {
 	run(1)
 	if n := len(sent(w)); n != 1 {
 		t.Fatalf("clicked once enabled, the button sent %d intents, want 1", n)
+	}
+}
+
+func TestADisabledButtonLetsARightClickPassToTheMenuRoundIt(t *testing.T) {
+	b := NewButton("Delete")
+	b.Disabled = true
+	rights := 0
+	fr := &frame{child: Row(b), size: geom.Sz(300, 40), handle: func(e input.Event, _ *gunim.UI) bool {
+		if d, ok := e.(input.PointerDown); ok && d.Button == input.ButtonSecondary {
+			rights++
+			return true
+		}
+		return false
+	}}
+	w, run := stage(t, fr)
+	rightClick(w, b.size.W/2, b.size.H/2)
+	run(1)
+	if rights != 1 {
+		t.Fatalf("a right click on a disabled button reached the frame round it %d times, want once", rights)
+	}
+}
+
+func TestLabelledControlsDrawInsideANarrowBox(t *testing.T) {
+	long := "A label far too long for the narrow box it is given here"
+	b := NewButton(long)
+	ib := NewButton(long)
+	ib.Icon = icon.Copy
+	cb, sw := NewCheckbox(long), NewSwitch(long)
+	for _, n := range []gunim.Node{b, ib, cb, sw} {
+		box := n.Layout(gunim.Constraints{Max: geom.Sz(120, 100)}, gunim.Frame{Scale: 1}, gunim.Children{})
+		if box.W > 120 {
+			t.Fatalf("%T laid out %v wide in 120", n, box.W)
+		}
+		if bad := spills(painted(n, box), box, ringReach); len(bad) > 0 {
+			t.Fatalf("%T drew past its %v box: %v", n, box, bad)
+		}
 	}
 }
 

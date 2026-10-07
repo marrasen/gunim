@@ -98,3 +98,12 @@ func cutRun(run, ell text.Run, room float32) text.Run {
 	out.Advance = pen + ell.Advance
 	return out
 }
+
+// fitRun returns run whole where it fits in room, and otherwise cut with
+// an ellipsis, shaped into ell in run's face and size.
+func fitRun(run text.Run, ell *shapedText, room float32) text.Run {
+	if run.Advance <= room || run.Face == nil {
+		return run
+	}
+	return cutRun(run, ell.shape(run.Face, "…", run.Size), room)
+}

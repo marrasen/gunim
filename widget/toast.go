@@ -3,9 +3,11 @@ package widget
 import (
 	"image/color"
 	"slices"
+	"strconv"
 	"time"
 
 	"github.com/marrasen/gunim"
+	"github.com/marrasen/gunim/access"
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/icon"
@@ -18,6 +20,8 @@ import (
 var (
 	ToastWidth = theme.Length("toast.width", 340)
 	ToastGap   = theme.Length("toast.gap", 10)
+	// ToastMoreHeight is the height of the card that stands for the toasts the stack has no room for.
+	ToastMoreHeight = theme.Length("toast.more.height", 30)
 	// ToastInfoInk, ToastSuccessInk, ToastWarningInk and ToastErrorInk colour the icon of each kind of toast.
 	ToastInfoInk    = theme.Color("toast.info", color.NRGBA{R: 0x5e, G: 0x9c, B: 0xff, A: 0xff})
 	ToastSuccessInk = theme.Color("toast.success", color.NRGBA{R: 0x4c, G: 0xc3, B: 0x8a, A: 0xff})
@@ -31,7 +35,12 @@ const toastLife = 5 * time.Second
 // toastDrawOn is how long a toast's icon takes to draw itself on.
 const toastDrawOn = 600 * time.Millisecond
 
-// Toast is a short notice: a title, and a line or two under it.
+// toastBodyLines is how many lines of its body a toast shows. The pointer resting on it shows the whole body.
+const toastBodyLines = 3
+
+// Toast is a short notice: a title, and a line or two under it. A body
+// longer than three lines ends in an ellipsis, and shows whole while the
+// pointer rests on the toast.
 type Toast struct {
 	Title string
 	Body  string
@@ -124,11 +133,20 @@ func (k ToastKind) name() string {
 //
 // It takes the size of its stack, so the window behind it keeps its
 // clicks: place it in a corner, as the last child of a window's root.
+//
+// The stack keeps within the height it is given. Toasts with no room
+// fade out, and a card over the stack counts them, as "+3 more": a
+// click on it shows the next older toasts in their place, and after the
+// oldest, the newest again. A new toast brings the newest back.
 type Toasts struct {
 	// Life is how long a toast stays; zero takes five seconds.
 	Life time.Duration
 
 	cards []*toastCard
+	// more is the card that counts the toasts with no room, and skip how
+	// many of the newest a click on it has paged past.
+	more *toastMore
+	skip int
 }
 
 // Show adds a toast to the stack. One with the key of a toast showing
@@ -137,8 +155,13 @@ func (t *Toasts) Show(to Toast, u *gunim.UI) {
 	if to.Key != "" {
 		t.Close(to.Key, u)
 	}
+	if t.more == nil {
+		t.more = newToastMore(t)
+		u.Insert(t, t.more)
+	}
 	c := newToastCard(t, to)
 	t.cards = append(t.cards, c)
+	t.skip = 0
 	u.Insert(t, c)
 	if !c.asks() {
 		t.expire(c, u)
@@ -189,20 +212,30 @@ func (t *Toasts) dismiss(c *toastCard, u *gunim.UI) {
 }
 
 // Layout implements [gunim.Node]. The newest toast sits at the bottom,
-// the rest above it; a toast on its way out keeps its place.
+// the rest above it; a toast on its way out keeps its place. Toasts past
+// the height given fade out under the card that counts them.
 func (t *Toasts) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
 	th := f.Theme
 	w := min(ToastWidth.Get(th), max(c.Max.W, 1))
 	gap := ToastGap.Get(th)
 	sizes := map[gunim.Node]geom.Size{}
 	for k := range kids.All {
-		sizes[k.Node()] = k.Layout(gunim.Constraints{Min: geom.Sz(w, 0), Max: geom.Sz(w, 0)})
+		cs := gunim.Constraints{Min: geom.Sz(w, 0), Max: geom.Sz(w, c.Max.H)}
+		if k.Node() == gunim.Node(t.more) {
+			cs = gunim.Tight(geom.Sz(w, ToastMoreHeight.Get(th)))
+		}
+		sizes[k.Node()] = k.Layout(cs)
 	}
-	// Heights from the bottom up, for the toasts staying.
+	from, to := t.fit(sizes, c.Max.H, gap, ToastMoreHeight.Get(th))
+	hidden := len(t.cards) - (to - from)
+	// Heights from the bottom up, for the toasts shown.
 	total := float32(0)
-	for i := len(t.cards) - 1; i >= 0; i-- {
+	if hidden > 0 {
+		total = ToastMoreHeight.Get(th) + gap
+	}
+	for i := from; i < to; i++ {
 		total += sizes[t.cards[i]].H
-		if i > 0 {
+		if i > from {
 			total += gap
 		}
 	}
@@ -210,6 +243,11 @@ func (t *Toasts) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children)
 	motion := Settle.Get(th)
 	for i := len(t.cards) - 1; i >= 0; i-- {
 		card := t.cards[i]
+		shown := i >= from && i < to
+		card.shown.Animate(value(shown), motion)
+		if !shown {
+			continue
+		}
 		y -= sizes[card].H
 		if !card.placed {
 			card.y.Jump(y)
@@ -218,21 +256,169 @@ func (t *Toasts) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children)
 		card.y.Animate(y, motion)
 		y -= gap
 	}
+	if t.more != nil {
+		t.more.count = hidden
+		t.more.in.Animate(value(hidden > 0), motion)
+	}
 	height := total
 	for k := range kids.All {
-		if card, ok := k.Node().(*toastCard); ok {
-			k.Place(geom.Pt(0, card.y.Value()))
-			height = max(height, card.y.Value()+k.Size().H)
+		switch n := k.Node().(type) {
+		case *toastCard:
+			k.Place(geom.Pt(0, n.y.Value()))
+			if n.shown.Target() == 1 {
+				height = max(height, n.y.Value()+k.Size().H)
+			}
+		case *toastMore:
+			k.Place(geom.Point{})
 		}
+	}
+	if c.Max.H > 0 {
+		height = min(height, c.Max.H)
 	}
 	return geom.Sz(w, max(height, 0))
 }
 
-// Paint implements [gunim.Node].
+// fit returns the toasts shown, from and to in t.cards: the newest past
+// t.skip, as many as fit in room with the card that counts the rest,
+// and at least one. A room of zero holds them all.
+func (t *Toasts) fit(sizes map[gunim.Node]geom.Size, room, gap, more float32) (from, to int) {
+	n := len(t.cards)
+	t.skip = min(t.skip, max(n-1, 0))
+	height := func(from, to int) float32 {
+		h := float32(0)
+		for i := from; i < to; i++ {
+			h += sizes[t.cards[i]].H
+			if i > from {
+				h += gap
+			}
+		}
+		return h
+	}
+	if room <= 0 || t.skip == 0 && height(0, n) <= room {
+		return 0, n
+	}
+	to = n - t.skip
+	from = to - 1
+	for from > 0 && height(from-1, to)+gap+more <= room {
+		from--
+	}
+	return from, to
+}
+
+// page shows the toasts older than those shown, and the newest again
+// after the oldest.
+func (t *Toasts) page(u *gunim.UI) {
+	shown := 0
+	for _, c := range t.cards {
+		if c.shown.Target() == 1 {
+			shown++
+		}
+	}
+	t.skip += max(shown, 1)
+	if t.skip >= len(t.cards) {
+		t.skip = 0
+	}
+	u.Invalidate()
+}
+
+// Paint implements [gunim.Node]. A toast with no room is drawn as it
+// fades, and then left out, so it takes no clicks.
 func (t *Toasts) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim.Children) {
 	for k := range kids.All {
+		switch n := k.Node().(type) {
+		case *toastCard:
+			if n.shown.Value() <= 0.01 && n.shown.Target() == 0 {
+				continue
+			}
+		case *toastMore:
+			if n.in.Value() <= 0.01 && n.in.Target() == 0 {
+				continue
+			}
+		}
 		k.Paint(p)
 	}
+}
+
+// toastMore is the card over a stack of toasts that counts those with no
+// room, and shows them on a click.
+type toastMore struct {
+	anim.Group
+	owner *Toasts
+	// count is how many toasts have no room, and in runs to 1 while any
+	// do.
+	count int
+	in    *anim.Float
+	hover *anim.Float
+	text  shapedText
+	size  geom.Size
+	click clicker
+}
+
+func newToastMore(t *Toasts) *toastMore {
+	m := &toastMore{owner: t, in: anim.NewFloat(0), hover: anim.NewFloat(0)}
+	m.Add(m.in, m.hover)
+	return m
+}
+
+// label is what the card reads.
+func (m *toastMore) label() string { return "+" + strconv.Itoa(m.count) + " more" }
+
+// KeepsFocus implements [gunim.FocusKeeper].
+func (m *toastMore) KeepsFocus() {}
+
+// Layout implements [gunim.Node].
+func (m *toastMore) Layout(c gunim.Constraints, _ gunim.Frame, _ gunim.Children) geom.Size {
+	m.size = c.Constrain(c.Max)
+	return m.size
+}
+
+// Paint implements [gunim.Node].
+func (m *toastMore) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
+	th := f.Theme
+	t := min(max(m.in.Value(), 0), 1)
+	if t <= 0.001 {
+		return
+	}
+	r := geom.Rect{Max: box.Point()}
+	defer p.Layer(paint.LayerOpts{Bounds: r.Inset(geom.Uniform(-24)), Opacity: t})()
+	fill := anim.Mix(anim.ColorCodec, DialogFill.Get(th), MenuFill.Get(th), min(max(m.hover.Value(), 0), 1))
+	p.ShadowRRect(r, box.H/2, paint.Solid(fill), paint.Shadow{Offset: geom.Pt(0, 4), Blur: 16, Color: DialogShadow.Get(th)})
+	p.RRectStroke(r, box.H/2, paint.Fill{}, paint.Stroke{Width: 1, Color: DialogBorder.Get(th)})
+	run := m.text.shape(faceIn(Font, th), m.label(), TextSize.Get(th))
+	run.Paint(p, geom.Pt((box.W-run.Advance)/2, (box.H-run.Height())/2), PaletteHint.Get(th))
+}
+
+// Handle implements [gunim.Handler]: a click shows the toasts with no room.
+func (m *toastMore) Handle(e input.Event, u *gunim.UI) bool {
+	switch e := e.(type) {
+	case input.PointerEnter:
+		m.hover.Animate(1, Quick.Get(u.Theme()))
+	case input.PointerLeave:
+		m.hover.Animate(0, Settle.Get(u.Theme()))
+	case input.PointerDown:
+		m.click.press(e, over(e.Pos, m.size))
+	case input.PointerUp:
+		if m.click.release(e, over(e.Pos, m.size)) {
+			m.owner.page(u)
+		}
+	default:
+		return false
+	}
+	return true
+}
+
+// Access implements [gunim.Accessible].
+func (m *toastMore) Access() access.Info {
+	return access.Info{Role: access.RoleButton, Name: m.label(), Actions: []string{access.ActionPress}}
+}
+
+// AccessAct implements [gunim.AccessActor].
+func (m *toastMore) AccessAct(r access.Request, u *gunim.UI) bool {
+	if r.Action != access.ActionPress {
+		return false
+	}
+	m.owner.page(u)
+	return true
 }
 
 // toastCard is one toast.
@@ -253,6 +439,8 @@ type toastCard struct {
 	in      *anim.Float
 	y       *anim.Float
 	hover   *anim.Float
+	// shown runs to 1 while the stack has room for the card.
+	shown   *anim.Float
 	hovered bool
 	placed  bool
 	// size is the card's size at its last layout, for telling a release
@@ -263,9 +451,10 @@ type toastCard struct {
 
 func newToastCard(t *Toasts, to Toast) *toastCard {
 	c := &toastCard{owner: t, title: NewLabel(to.Title), body: NewLabel(to.Body),
-		in: anim.NewFloat(0), y: anim.NewFloat(0), hover: anim.NewFloat(0)}
+		in: anim.NewFloat(0), y: anim.NewFloat(0), hover: anim.NewFloat(0), shown: anim.NewFloat(1)}
 	c.body.Color = PaletteHint
-	c.Add(c.in, c.y, c.hover)
+	c.body.MaxLines = toastBodyLines
+	c.Add(c.in, c.y, c.hover, c.shown)
 	if to.Action != "" {
 		c.action = NewLink(to.Action)
 		c.action.On = to.On
@@ -381,8 +570,29 @@ func (c *toastCard) Transition(p gunim.Presence, f gunim.Frame) bool {
 	return !c.in.Active()
 }
 
-// Layout implements [gunim.Node]. The icon sits before the title, and the text after it.
+// Layout implements [gunim.Node]. The icon sits before the title, and the text after it. The body shows three lines,
+// and all of them while the pointer rests on the card, as many as fit in the height given.
 func (c *toastCard) Layout(cs gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
+	c.body.MaxLines = toastBodyLines
+	if !c.hovered {
+		return c.lay(cs, f, kids)
+	}
+	c.body.MaxLines = 0
+	size := c.lay(cs, f, kids)
+	if cs.Max.H <= 0 || size.H <= cs.Max.H {
+		return size
+	}
+	para := c.body.laid.p
+	if para.LineHeight <= 0 {
+		return size
+	}
+	over := int((size.H - cs.Max.H + para.LineHeight - 1) / para.LineHeight)
+	c.body.MaxLines = max(toastBodyLines, len(para.Lines)-over)
+	return c.lay(cs, f, kids)
+}
+
+// lay lays the card out with the body as it stands.
+func (c *toastCard) lay(cs gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
 	th := f.Theme
 	pad := CardPadding.Get(th)
 	w := cs.Max.W
@@ -450,7 +660,8 @@ func (c *toastCard) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids g
 		return
 	}
 	r := geom.Rect{Max: box.Point()}
-	defer p.Layer(paint.LayerOpts{Bounds: r.Inset(geom.Uniform(-24)), Opacity: t})()
+	shown := min(max(c.shown.Value(), 0), 1)
+	defer p.Layer(paint.LayerOpts{Bounds: r.Inset(geom.Uniform(-24)), Opacity: t * shown})()
 	defer p.Push(paint.Translate(geom.Pt(48*(1-t), 0)))()
 	shadow := DialogShadow.Get(th)
 	fill := anim.Mix(anim.ColorCodec, DialogFill.Get(th), MenuFill.Get(th), min(max(c.hover.Value(), 0), 1))
@@ -468,9 +679,11 @@ func (c *toastCard) Handle(e input.Event, u *gunim.UI) bool {
 	case input.PointerEnter:
 		c.hovered = true
 		c.hover.Animate(1, Quick.Get(u.Theme()))
+		u.Invalidate()
 	case input.PointerLeave:
 		c.hovered = false
 		c.hover.Animate(0, Settle.Get(u.Theme()))
+		u.Invalidate()
 	case input.PointerDown:
 		c.click.press(e, 0)
 	case input.PointerUp:

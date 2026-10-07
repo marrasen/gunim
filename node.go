@@ -474,6 +474,7 @@ func (c Child) Presence() Presence { return c.n.presence }
 // Layout lays the child out within cs and returns the size it chose.
 func (c Child) Layout(cs Constraints) geom.Size {
 	f := scoped(c.f, c.n.node)
+	c.n.laid = c.f.seq
 	c.n.size = c.n.node.Layout(cs, f, Children{ns: c.n.kids, f: f, s: c.n})
 	return c.n.size
 }
@@ -538,6 +539,8 @@ type state struct {
 	// it. Hit testing reads both, so input follows what is on screen.
 	toWindow paint.Transform
 	drawn    uint64
+	// laid is the frame that last laid the node out.
+	laid uint64
 	// clip is the clipping the node was last painted under, and proj the
 	// perspective of the tilted layers round it, which takes toWindow's
 	// flat window space to where it showed on the screen.

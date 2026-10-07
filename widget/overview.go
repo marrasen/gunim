@@ -180,7 +180,7 @@ func (o *Overview) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 }
 
 // paintReadout floats what the band under the pointer holds to the left
-// of the strip.
+// of the strip, or to its right where the window has no room on the left.
 func (o *Overview) paintReadout(p *paint.Painter, f gunim.Frame, box geom.Size) {
 	if o.hover < 0 || o.hover >= len(o.Bands) || o.grabbing || o.Readout == nil {
 		return
@@ -194,7 +194,11 @@ func (o *Overview) paintReadout(p *paint.Painter, f gunim.Frame, box geom.Size) 
 	pad := float32(6)
 	w, h := para.Size.W+2*pad, para.Size.H+2*pad
 	y := (float32(o.hover) + 0.5) * box.H / float32(len(o.Bands))
-	at := p.Transform().Apply(geom.Pt(-w-4, max(0, min(box.H-h, y-h/2))))
+	y = max(0, min(box.H-h, y-h/2))
+	at := p.Transform().Apply(geom.Pt(-w-4, y))
+	if at.X < 0 {
+		at = p.Transform().Apply(geom.Pt(box.W+4, y))
+	}
 	fill, ink := TooltipFill.Get(th), TooltipInk.Get(th)
 	p.Float(func(p *paint.Painter) {
 		defer p.Push(paint.Translate(at))()

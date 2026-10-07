@@ -53,7 +53,14 @@ const (
 // Flex lays its children out in a row or a column.
 //
 // A child can grow to share the space over, in proportion to the weight
-// [Flex.Grow] gives it. When a child arrives or leaves, the others
+// [Flex.Grow] gives it. When the children want more room than a
+// bounded Flex has, those that do not grow shrink in proportion to their
+// natural size, as in CSS flexbox, a label no narrower than its widest
+// word while the others can give room: each is laid out again within
+// its share, so a label wraps and a button shortens its label. A growing
+// child then gets a sliver. A child that will not shrink, such as one
+// with a fixed size, ends at the Flex's far edge, so every child stays
+// inside, where a click can reach it. When a child arrives or leaves, the others
 // spring to their new places with the theme's [Reflow] motion; when the
 // Flex itself changes size, as a window does while it is resized, they
 // move with it at once, so nothing trails behind the edge being dragged.
@@ -74,10 +81,12 @@ type Flex struct {
 	laid bool
 }
 
-// Row returns a Flex that lays kids out left to right.
+// Row returns a Flex that lays kids out left to right. Kids too wide
+// for the row together shrink in proportion to their width.
 func Row(kids ...gunim.Node) *Flex { return newFlex(Horizontal, kids) }
 
-// Column returns a Flex that lays kids out top to bottom.
+// Column returns a Flex that lays kids out top to bottom. Kids too tall
+// for the column together shrink in proportion to their height.
 func Column(kids ...gunim.Node) *Flex { return newFlex(Vertical, kids) }
 
 func newFlex(axis Axis, kids []gunim.Node) *Flex {
@@ -136,6 +145,11 @@ func (f *Flex) size(m, c float32) geom.Size {
 	return geom.Sz(c, m)
 }
 
+// squeezed is the least room a child is given on a bounded main axis, so
+// it sees a bound to fit, however little space is left: a main-axis
+// maximum of 0 means unbounded.
+const squeezed = 1.0 / 64
+
 // Layout implements [gunim.Node].
 //
 // A zero maximum on the main axis means unbounded, as inside a scroll
@@ -144,32 +158,49 @@ func (f *Flex) size(m, c float32) geom.Size {
 func (f *Flex) Layout(c gunim.Constraints, fr gunim.Frame, kids gunim.Children) geom.Size {
 	gap := f.Gap.Get(fr.Theme)
 	maxMain, maxCross := f.main(c.Max), f.cross(c.Max)
+	n := kids.Len()
 
 	// Measure the children that keep their natural size, and total the
 	// weight of those that grow.
-	sizes := make([]geom.Size, kids.Len())
-	var used, weight float32
-	n := 0
-	for i := range kids.Len() {
+	sizes := make([]geom.Size, n)
+	var used, natural, weight float32
+	for i := range n {
 		kid := kids.At(i)
-		n++
 		if w := f.grow[kid.Node()]; w > 0 && maxMain > 0 {
 			weight += w
 			continue
 		}
 		sizes[i] = kid.Layout(f.childConstraints(0, maxCross))
-		used += f.main(sizes[i])
+		natural += f.main(sizes[i])
 	}
+	gaps := float32(0)
 	if n > 1 {
-		used += gap * float32(n-1)
+		gaps = gap * float32(n-1)
+	}
+	used = natural + gaps
+
+	// On a bounded main axis, children that do not fit shrink in
+	// proportion to their natural size, and are laid out again within
+	// their share: a label wraps, a button shortens its label.
+	if maxMain > 0 && used > maxMain && natural > 0 {
+		rooms := f.shrink(kids, sizes, fr, max(0, maxMain-gaps))
+		used = gaps
+		for i := range n {
+			kid := kids.At(i)
+			if f.grow[kid.Node()] > 0 {
+				continue
+			}
+			sizes[i] = kid.Layout(f.within(max(squeezed, rooms[i]), maxCross))
+			used += f.main(sizes[i])
+		}
 	}
 
 	// Share out what is left among the children that grow.
 	free := max(0, maxMain-used)
-	for i := range kids.Len() {
+	for i := range n {
 		kid := kids.At(i)
 		if w := f.grow[kid.Node()]; w > 0 && maxMain > 0 {
-			share := free * w / weight
+			share := max(squeezed, free*w/weight)
 			sizes[i] = kid.Layout(f.childConstraints(share, maxCross))
 			used += f.main(sizes[i])
 		}
@@ -194,6 +225,76 @@ func (f *Flex) Layout(c gunim.Constraints, fr gunim.Frame, kids gunim.Children) 
 	f.place(c, fr, kids, sizes, own, pos, gap+step)
 	f.last, f.laid = c, true
 	return own
+}
+
+// shrinker is a node that knows the least room it takes along a row
+// before it looks broken, such as a label's longest word.
+type shrinker interface {
+	minWidth(f gunim.Frame) float32
+}
+
+// shrink shares room among the children that do not grow, given their
+// natural sizes, as CSS flexbox does: each shrinks in proportion to its
+// size, down to its least width, and those at their least leave the rest
+// to shrink further. Where the least widths alone are too wide, every
+// child shrinks in proportion to its size.
+func (f *Flex) shrink(kids gunim.Children, sizes []geom.Size, fr gunim.Frame, room float32) []float32 {
+	n := len(sizes)
+	rooms := make([]float32, n)
+	least := make([]float32, n)
+	var natural, floor float32
+	for i := range n {
+		if f.grow[kids.At(i).Node()] > 0 {
+			continue
+		}
+		natural += f.main(sizes[i])
+		if s, ok := kids.At(i).Node().(shrinker); ok && f.Axis == Horizontal {
+			least[i] = min(s.minWidth(fr), f.main(sizes[i]))
+		}
+		floor += least[i]
+	}
+	if floor >= room {
+		for i := range n {
+			rooms[i] = f.main(sizes[i]) * room / natural
+		}
+		return rooms
+	}
+	frozen := make([]bool, n)
+	for {
+		// Share what the children at their least leave among the rest.
+		left, flexible := room, float32(0)
+		for i := range n {
+			if frozen[i] {
+				left -= rooms[i]
+			} else {
+				flexible += f.main(sizes[i])
+			}
+		}
+		froze := false
+		for i := range n {
+			if frozen[i] {
+				continue
+			}
+			rooms[i] = 0
+			if flexible > 0 {
+				rooms[i] = f.main(sizes[i]) * left / flexible
+			}
+			if rooms[i] < least[i] {
+				rooms[i], frozen[i], froze = least[i], true, true
+			}
+		}
+		if !froze {
+			return rooms
+		}
+	}
+}
+
+// within are the constraints for a child that does not grow, squeezed to
+// at most main long.
+func (f *Flex) within(main, maxCross float32) gunim.Constraints {
+	cs := f.childConstraints(0, maxCross)
+	cs.Max = f.size(main, f.cross(cs.Max))
+	return cs
 }
 
 // childConstraints are what a child is laid out within: exactly main
@@ -247,7 +348,13 @@ func (f *Flex) place(c gunim.Constraints, fr gunim.Frame, kids gunim.Children, s
 			cross = f.cross(own) - f.cross(s)
 		case CrossStart, CrossStretch:
 		}
-		target := f.size(pos, cross).Point()
+		// A child that would end past the Flex's edge, where it can be
+		// seen and never clicked, comes back to end at the edge.
+		at := pos
+		if end := f.main(own) - f.main(s); at > end {
+			at = max(0, end)
+		}
+		target := f.size(at, cross).Point()
 
 		node := kid.Node()
 		seen[node] = true

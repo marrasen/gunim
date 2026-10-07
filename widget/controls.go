@@ -43,6 +43,7 @@ type toggle struct {
 	click clicker
 	size  geom.Size
 	text  shapedText
+	ell   shapedText
 	// laid is set by the first layout, which puts the control where On
 	// says without animating.
 	laid bool
@@ -172,13 +173,14 @@ func (t *toggle) layout(c gunim.Constraints, f gunim.Frame, mark geom.Size) geom
 }
 
 // paintLabel draws the label after the control's mark, which is mark
-// wide.
+// wide, cut with an ellipsis where the box is too narrow for it.
 func (t *toggle) paintLabel(p *paint.Painter, f gunim.Frame, box geom.Size, mark float32) {
-	if t.Label == "" {
+	x := mark + ControlGap.Get(f.Theme)
+	if t.Label == "" || x >= box.W {
 		return
 	}
-	run := t.text.shape(faceIn(Font, f.Theme), t.Label, TextSize.Get(f.Theme))
-	run.Paint(p, geom.Pt(mark+ControlGap.Get(f.Theme), (box.H-run.Height())/2), Ink.Get(f.Theme))
+	run := fitRun(t.text.shape(faceIn(Font, f.Theme), t.Label, TextSize.Get(f.Theme)), &t.ell, box.W-x)
+	run.Paint(p, geom.Pt(x, (box.H-run.Height())/2), Ink.Get(f.Theme))
 }
 
 // Checkbox is a box that is ticked or not, with a label.
@@ -790,26 +792,14 @@ func (t *Tabs) Select(i int, u *gunim.UI) {
 }
 
 // refocus puts the keyboard on the first place on page i that takes it,
-// or on the titles where there is none. A page shows what takes the
-// keyboard only once drawn, so the titles hold it until the page has
-// been, two frames on.
+// or on the titles where there is none. The titles hold it until the
+// next frame lays the page out, and the page takes it before that frame
+// paints.
 func (t *Tabs) refocus(i int, u *gunim.UI) {
-	first := func(u *gunim.UI) {
-		if p := t.page(i); p == nil || !u.FocusFirst(p) {
-			u.Focus(t.bar)
-		}
+	u.Focus(t.bar)
+	if p := t.page(i); p != nil {
+		u.FocusFirstLaidOut(p)
 	}
-	first(u)
-	if u.Focused() != t.bar {
-		return
-	}
-	u.After(0, func(u *gunim.UI) {
-		u.After(0, func(u *gunim.UI) {
-			if t.selected == i && u.Focused() == t.bar {
-				first(u)
-			}
-		})
-	})
 }
 
 // page returns page i, or nil while it has not arrived.
@@ -1045,8 +1035,9 @@ func (b *tabBar) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 }
 
 // Layout implements [gunim.Node]. The titles sit in a row across the
-// top; every page is laid out below them at the size left, so a page
-// keeps its state and its scroll while another shows.
+// top; the page shown, and the one sliding out, are laid out below them
+// at the size left. The other pages stay mounted, unlaid, and so keep
+// their state and their scroll.
 func (t *Tabs) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
 	t.count = kids.Len() - 1
 	t.laidPages = t.laidPages[:0]
@@ -1063,6 +1054,9 @@ func (t *Tabs) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) g
 	page := geom.Sz(size.W, max(0, size.H-t.head))
 	var tallest float32
 	for i := 1; i < kids.Len(); i++ {
+		if i-1 != t.selected && i-1 != t.prev {
+			continue
+		}
 		kid := kids.At(i)
 		s := kid.Layout(gunim.Constraints{Min: geom.Sz(page.W, 0), Max: page})
 		kid.Place(geom.Pt(0, t.head))
