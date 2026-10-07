@@ -33,6 +33,10 @@ func (w *Window) ChooseFiles(o driver.ChooseOptions) ([]string, error) {
 		"multiple":  dbus.MakeVariant(o.Multiple),
 		"directory": dbus.MakeVariant(o.Folders),
 	}
+	if o.Folder != "" {
+		// The portal takes the folder as bytes ending in a zero.
+		opts["current_folder"] = dbus.MakeVariant(append([]byte(o.Folder), 0))
+	}
 	if !o.Folders {
 		addFilters(opts, o.Filters)
 	}
