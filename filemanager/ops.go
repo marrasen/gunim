@@ -57,6 +57,9 @@ type record struct {
 	// left holds, for an undo that stopped, the steps of the record it
 	// undid that it did not undo.
 	left []step
+	// landed holds the names a copy or a move left in its folder, made,
+	// merged into or put in place of others, for the window to select.
+	landed []string
 }
 
 // progress is how far an operation has got.
@@ -320,6 +323,7 @@ func (r *runner) copyAll(srcs []string, dest string) error {
 		if err := r.copyItem(src, dst, merge, replace, true); err != nil {
 			return err
 		}
+		r.rec.landed = append(r.rec.landed, ps.Base(dst))
 	}
 	return nil
 }
@@ -542,6 +546,7 @@ func (r *runner) moveAll(srcs []string, dest string) error {
 			if err := r.moveItem(src, to, merge, true); err != nil {
 				return err
 			}
+			r.rec.landed = append(r.rec.landed, ps.Base(to))
 		}
 		r.p.items++
 		r.tell(false)

@@ -187,3 +187,23 @@ func TestASliderRowCountsAlongAndResets(t *testing.T) {
 		t.Fatalf("the reset sent %v, want a commit of 0", got)
 	}
 }
+
+func TestASliderRowMarkedActiveShowsItGrowingIn(t *testing.T) {
+	row := NewSliderRow("Contrast", NewSlider(-1, 1))
+	w, run := stage(t, &frame{child: row, size: geom.Sz(300, 28)})
+	run(1)
+	do(t, w, func(u *gunim.UI) { row.SetActive(true, u) })
+	run(2)
+	if k := row.active.Value(); k <= 0 || k >= 1 || !row.Active() {
+		t.Fatalf("two frames after SetActive the mark is %v; want growing in", k)
+	}
+	run(60)
+	if row.active.Value() < 0.99 {
+		t.Fatal("the mark did not settle in")
+	}
+	do(t, w, func(u *gunim.UI) { row.SetActive(false, u) })
+	run(60)
+	if row.active.Value() > 0.01 || row.Active() {
+		t.Fatal("the mark did not fade out")
+	}
+}

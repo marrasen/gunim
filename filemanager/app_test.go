@@ -287,6 +287,49 @@ func TestPasteAsksAboutAClash(t *testing.T) {
 	}
 }
 
+// selected returns the names selected, in the order the rows go.
+func (h *harness) selected() []string {
+	var out []string
+	for _, e := range h.a.nav.rows {
+		if h.a.nav.sel[e.Name] {
+			out = append(out, e.Name)
+		}
+	}
+	return out
+}
+
+func TestPasteSelectsWhatCame(t *testing.T) {
+	h := newHarness(t, "a.txt", "b.txt", "c.txt", "sub/a.txt", "sub/x.txt")
+	h.until("the rows arrive", func() bool { return len(h.shown()) == 4 })
+	h.pick("a.txt", "b.txt")
+	h.do(Command{Name: CmdCopy})
+	h.do(Navigate{Path: filepath.Join(h.dir, "sub")})
+	h.until("the folder opens", func() bool { return slices.Equal(h.shown(), []string{"a.txt", "x.txt"}) })
+	h.pick("x.txt")
+	h.do(Command{Name: CmdPaste})
+	h.until("the clash is asked about", func() bool { return len(h.a.ops.dialogs) == 1 })
+	ask, ok := h.a.ops.dialogs[0].state.(ClashAsk)
+	if !ok {
+		t.Fatalf("the dialog asks %+v", h.a.ops.dialogs[0].state)
+	}
+	h.answer(ClashAnswered{Op: ask.Op, Choice: ChoiceKeepBoth})
+	h.until("the copies are selected, and nothing else", func() bool {
+		return slices.Equal(h.selected(), []string{"a (2).txt", "b.txt"})
+	})
+	if h.a.nav.cursor != "a (2).txt" {
+		t.Fatalf("the keyboard is on %q, not the first copy", h.a.nav.cursor)
+	}
+
+	h.do(Command{Name: CmdUp})
+	h.until("the folder above opens", func() bool { return len(h.shown()) == 4 })
+	h.pick("c.txt")
+	h.do(Command{Name: CmdCut})
+	h.do(Navigate{Path: filepath.Join(h.dir, "sub")})
+	h.until("the folder opens again", func() bool { return len(h.shown()) == 4 })
+	h.do(Command{Name: CmdPaste})
+	h.until("what was moved is selected", func() bool { return slices.Equal(h.selected(), []string{"c.txt"}) })
+}
+
 func TestRenameThroughThePrompt(t *testing.T) {
 	h := newHarness(t, "old.txt")
 	h.until("the rows arrive", func() bool { return len(h.shown()) == 1 })
