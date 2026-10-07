@@ -9,6 +9,7 @@ import (
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/text"
@@ -99,8 +100,14 @@ type Days struct {
 	// on as the grid scrolls under it.
 	th      *theme.Live
 	pointer geom.Point
-	// longRows is how many rows the whole-day events take.
+	// longRows is how many rows the whole-day events take on screen, long the rows of them shown, and longMore how
+	// many more each day has than they show, said on a row under them. longAll is how many rows they would take, and
+	// longOpen says the user opened the rows to show more of them.
 	longRows int
+	long     [][]longPlace
+	longMore []int
+	longAll  int
+	longOpen bool
 	hover    string
 	tip      widget.PartTip
 	swipe    swipe
@@ -413,7 +420,7 @@ func (d *Days) clampScroll(v float32) float32 {
 // Layout implements [gunim.Node]: it sends each event gliding to its place.
 func (d *Days) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
 	d.box, d.hourH, d.th = c.Max, HourHeight.Get(f.Theme), f.Theme
-	d.longRows = len(d.longPlaces())
+	d.layLong()
 	if !d.laid {
 		d.scroll.Jump(d.clampScroll(7.5 * d.hour()))
 	}
@@ -498,7 +505,7 @@ func (d *Days) aimLifts(th *theme.Live) {
 // targets returns where every event shown goes: the whole-day ones on their rows, then each day's timed ones.
 func (d *Days) targets() []target {
 	var out []target
-	for _, row := range d.longPlaces() {
+	for _, row := range d.long {
 		for _, lp := range row {
 			out = append(out, target{key: lp.e.ID + "#long", e: lp.e, long: true, box: d.longBox(lp)})
 		}
@@ -510,6 +517,64 @@ func (d *Days) targets() []target {
 		}
 	}
 	return out
+}
+
+// longCap returns how many rows the events of whole days may take: up to three, and no more than a quarter of the
+// grid's height, or with open up to half of it.
+func (d *Days) longCap(open bool) int {
+	room := d.box.H - headerH
+	n := min(3, int(room/4/longRowH))
+	if open {
+		n = max(n, int(room/2/longRowH))
+	}
+	return max(n, 1)
+}
+
+// layLong sets the events of whole days in the rows they may take. When they need more, the last row says how many
+// more each day has.
+func (d *Days) layLong() {
+	rows := d.longPlaces()
+	d.longAll = len(rows)
+	bars := len(rows)
+	if limit := d.longCap(d.longOpen); bars > limit {
+		bars = limit - 1
+	}
+	d.long, d.longRows = rows[:bars], bars
+	d.longMore = make([]int, d.Count)
+	for _, row := range rows[bars:] {
+		for _, lp := range row {
+			for i := lp.first; i <= lp.last; i++ {
+				d.longMore[i]++
+			}
+		}
+	}
+	if bars < len(rows) {
+		d.longRows++
+	}
+}
+
+// moreRow returns the box of the row saying how many more events of whole days there are, and false when there is
+// none.
+func (d *Days) moreRow() (geom.Rect, bool) {
+	if len(d.long) == d.longAll {
+		return geom.Rect{}, false
+	}
+	return geom.Rc(gutterW, d.longTop()+float32(len(d.long))*longRowH, d.box.W-gutterW, longRowH), true
+}
+
+// longToggle returns the box of the button in the gutter that opens and closes the rows of whole days, and false
+// when they all fit without it.
+func (d *Days) longToggle() (geom.Rect, bool) {
+	if d.longAll <= d.longCap(false) {
+		return geom.Rect{}, false
+	}
+	return geom.Rc(gutterW/2-12, d.longTop()+float32(d.longRows-1)*longRowH, 24, longRowH), true
+}
+
+// openLong opens the rows of whole days to show more of them, or closes them back.
+func (d *Days) openLong(open bool, u *gunim.UI) {
+	d.longOpen = open
+	u.Invalidate()
 }
 
 // longPlace is a whole-day event on the row above the hours: its row, and the days it covers, from first to last.
@@ -713,7 +778,24 @@ func (d *Days) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Chi
 		p.RRect(geom.Rc(d.colX(i), headerH-10, 1, d.bodyTop()-headerH+10), 0, paint.Solid(line))
 	}
 	p.RRect(geom.Rc(0, d.bodyTop()-1, box.W, 1), 0, paint.Solid(line))
+	defer p.Layer(paint.LayerOpts{Bounds: geom.Rc(0, 0, box.W, d.bodyTop()), Opacity: 1, Clip: true})()
+	if r, ok := d.longToggle(); ok {
+		chevron := icon.ChevronDown
+		if d.longOpen {
+			chevron = icon.ChevronUp
+		}
+		widget.PaintIcon(p, th, chevron, geom.Rc(r.Center().X-8, r.Center().Y-8, 16, 16), faint)
+	}
 	moving(p, box, d.slide.Value(), func() {
+		if r, ok := d.moreRow(); ok {
+			for i, n := range d.longMore {
+				if n == 0 {
+					continue
+				}
+				t := d.paragraph(th, strconv.Itoa(n)+" more", d.colW()-14, 1, true, EventText.Get(th))
+				t.Paint(p, geom.Pt(d.colX(i)+9, r.Center().Y-t.Size.H/2), faint)
+			}
+		}
 		if h := min(max(d.heads.Value(), 0), 1); h < 0.99 {
 			func() {
 				defer p.Layer(paint.LayerOpts{Bounds: geom.Rc(0, 0, box.W, headerH), Opacity: h})()
@@ -1092,6 +1174,14 @@ func (d *Days) hoverAt(pt geom.Point, th *theme.Live) {
 // begins a new event.
 func (d *Days) press(e input.PointerDown, th *theme.Live, u *gunim.UI) {
 	pt := e.Pos
+	if r, ok := d.longToggle(); ok && r.Contains(pt) {
+		d.openLong(!d.longOpen, u)
+		return
+	}
+	if r, ok := d.moreRow(); ok && r.Contains(pt) && d.longMore[d.dayAt(pt.X)] > 0 {
+		d.openLong(true, u)
+		return
+	}
 	if pt.X < gutterW {
 		return
 	}
@@ -1294,6 +1384,12 @@ func (d *Days) Cursor(pt geom.Point) input.Cursor {
 			}
 		}
 		return input.CursorArrow
+	}
+	if r, ok := d.longToggle(); ok && r.Contains(pt) {
+		return input.CursorHand
+	}
+	if r, ok := d.moreRow(); ok && r.Contains(pt) && d.longMore[d.dayAt(pt.X)] > 0 {
+		return input.CursorHand
 	}
 	if pt.X < gutterW {
 		return input.CursorArrow
