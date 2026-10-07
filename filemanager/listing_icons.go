@@ -80,6 +80,15 @@ func (pg *listingPage) focusNode() gunim.Node {
 	return pg.grid
 }
 
+// shownMenu returns the context menu of the view showing: the tiles' or
+// the grid's.
+func (pg *listingPage) shownMenu() *widget.ContextMenu {
+	if pg.icons.on {
+		return pg.icons.menu
+	}
+	return pg.menu
+}
+
 // tileThumb is a tile's thumbnail, or why it has none.
 type tileThumb struct {
 	img  *paint.Image

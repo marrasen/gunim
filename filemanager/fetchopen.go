@@ -179,7 +179,6 @@ func (a *app) startFetch(fsys FS, copies *openCopies, want []remoteFile, open fu
 	a.ops.wg.Go(func() {
 		var done int64
 		var last time.Time
-		var openErr error
 		var err error
 		for i, f := range want {
 			report := func(n int64, now bool) {
@@ -196,22 +195,27 @@ func (a *app) startFetch(fsys FS, copies *openCopies, want []remoteFile, open fu
 				break
 			}
 			done += f.size
-			if oerr := open(local); oerr != nil && openErr == nil {
-				openErr = fmt.Errorf("opening %s: %w", ps.Base(f.path), oerr)
-			}
+			// Opened apart from the operation: a program's dialog, as
+			// Open with's, waits on the user, and the window's end must
+			// not wait on it.
+			go func(name string) {
+				if oerr := open(local); oerr != nil {
+					a.post(func() { a.fail(fmt.Sprintf("Opening %s: %v.", name, oerr)) })
+				}
+			}(ps.Base(f.path))
 		}
 		stopped := ctx.Err() != nil
 		a.post(func() {
-			a.fetchedToOpen(id, what, err, openErr, stopped)
+			a.fetchedToOpen(id, what, err, stopped)
 			a.hub.watchCopies()
 		})
 	})
 }
 
 // fetchedToOpen takes the end of fetch operation id, which fetched what:
-// err says why it stopped short, and openErr why a file fetched did not
-// open; stopped says the user stopped it, or the window closed.
-func (a *app) fetchedToOpen(id int, what string, err, openErr error, stopped bool) {
+// err says why it stopped short; stopped says the user stopped it, or
+// the window closed.
+func (a *app) fetchedToOpen(id int, what string, err error, stopped bool) {
 	r, ok := a.ops.running[id]
 	if !ok {
 		return
@@ -232,8 +236,6 @@ func (a *app) fetchedToOpen(id int, what string, err, openErr error, stopped boo
 		a.patch(Notice{Title: "Stopped: " + r.title, Kind: "warning"})
 	case err != nil:
 		a.showError(ErrorBox{Title: "The fetch to open stopped", Body: err.Error()})
-	case openErr != nil:
-		a.fail(openErr.Error() + ".")
 	}
 }
 

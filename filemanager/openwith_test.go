@@ -145,3 +145,23 @@ func TestExtOfTakesTheLastDot(t *testing.T) {
 		}
 	}
 }
+
+func TestAnOpenWithAnswerForAnotherMenuIsDropped(t *testing.T) {
+	fakeOpenWith(t, true)
+	h, _, _ := newFetchHarness(t, nil, "a.txt", "b.txt")
+	h.until("the rows arrive", func() bool { return len(h.shown()) == 2 })
+	h.rowMenu("a.txt")
+	h.pickInMenu("Open with…")
+	h.until("the programs' menu opens", func() bool { return slices.Contains(h.menuItems(), "Viewer") })
+	// Asked for a.txt again, b.txt's menu opens before the answer comes.
+	h.ui(func(b *browser, u *gunim.UI) {
+		b.dnd.withAsked = filepath.Join(h.dir, "a.txt")
+	})
+	items, _ := h.rowMenu("b.txt")
+	h.ui(func(b *browser, u *gunim.UI) {
+		b.dnd.openWithMenu(OpenWithMenu{Path: filepath.Join(h.dir, "a.txt"), Apps: []OpenWithApp{{ID: "x", Name: "X"}}}, u)
+	})
+	if got := h.menuItems(); !slices.Equal(got, items) {
+		t.Fatalf("b.txt's menu %v turned into %v", items, got)
+	}
+}

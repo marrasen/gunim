@@ -171,6 +171,9 @@ func (pg *listingPage) contextMenu(g gunim.Node, rowAt func(geom.Point) int, sel
 			st.cmds = fill(m, openWithItems(w.Apps), func(string) bool { return false }, func(string) bool { return false })
 			return true
 		}
+		// Another menu opened meanwhile: the programs asked for before
+		// no longer open one.
+		b.dnd.withAsked = ""
 		row := rowAt(at)
 		clipEmpty := b.dnd.clip.Count == 0
 		if row < 0 {
@@ -304,7 +307,7 @@ func (v *dndView) menuPicked(m *widget.ContextMenu, st menuState, i int, u *guni
 	case localCopyPath:
 		v.copyPaths(u)
 	case localOpenWith:
-		v.withAsked = st.path
+		v.withAsked, v.withFocus = st.path, u.Focused()
 		u.Send(m, OpenWithAsked{Path: st.path})
 	case localOpenWindow:
 		if st.away {
@@ -384,7 +387,11 @@ func openWithItems(apps []OpenWithApp) []menuItem {
 // openWithMenu opens the Open with menu where the listing's menu was,
 // once the program has sent the programs for the file it was asked for.
 func (v *dndView) openWithMenu(o OpenWithMenu, u *gunim.UI) {
-	if o.Path == "" || o.Path != v.withAsked || v.menuOf == nil || v.menuPage != v.b.listing.cur {
+	pg := v.menuPage
+	if o.Path == "" || o.Path != v.withAsked || v.menuOf == nil || pg != v.b.listing.cur ||
+		v.menuOf != pg.shownMenu() || (u.Focused() != v.withFocus && u.Focused() != gunim.Node(v.menuOf)) {
+		// Asked of another menu, or the user has moved on: the page, its
+		// view or the keyboard is elsewhere now.
 		return
 	}
 	v.withAsked = ""

@@ -235,9 +235,10 @@ type dndView struct {
 	menuPage *listingPage
 	menuAt   geom.Point
 	// withAsked is the file the program was asked the programs of, for
-	// the Open with menu, and with the programs it sent, while that menu
-	// opens.
+	// the Open with menu, and withFocus what had the keyboard then; with
+	// is the programs it sent, while that menu opens.
 	withAsked string
+	withFocus gunim.Node
 	with      *OpenWithMenu
 	vols      map[string]string
 	volErrs   map[string]string
