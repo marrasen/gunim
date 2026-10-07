@@ -7,7 +7,6 @@ import (
 	"image"
 	"os"
 	"reflect"
-	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -982,14 +981,7 @@ func (w *Window) Close() { w.closeOnce.Do(func() { close(w.done) }) }
 // for an intent. Every frame after the first waits for the one before
 // it to reach the screen, so the window draws at most once per refresh
 // whatever the application does with [Client].
-//
-// The loop keeps its OS thread for life, so a driver can raise that
-// thread's priority and the thread ends with the loop.
 func (w *Window) loop() {
-	runtime.LockOSThread()
-	if r, ok := w.dw.(driver.Raiser); ok {
-		r.RaiseThread()
-	}
 	defer close(w.out)
 	defer w.ui.closeAllPopups()
 	defer func() {
