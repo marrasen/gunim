@@ -24,7 +24,7 @@ func multiGrid(t *testing.T) (g *DataGrid, w *gunim.Window, run func(int), click
 	g = NewDataGrid(GridColumn{Title: "Name"})
 	g.Multi = true
 	g.Row = func(int) (GridRow, bool) { return GridRow{Cells: [][]GridSpan{{{Text: "row"}}}}, true }
-	g.OnSelectRows = func(sel [][2]int, cursor int) gunim.Intent { return gridRows{sel, cursor} }
+	g.OnSelectRows = func(sel [][2]int, cursor int, u *gunim.UI) gunim.Intent { return gridRows{sel, cursor} }
 	g.rows = 100
 	w, run = stage(t, &frame{child: g, size: geom.Sz(400, 300)})
 	clickRow = func(i int, mods input.Mods) {
@@ -104,7 +104,7 @@ func TestCtrlASelectsEveryRowAndEscapeClears(t *testing.T) {
 	if got := lastRows(t, w); len(got) != 0 {
 		t.Fatalf("Escape left %v selected", got)
 	}
-	if _, ok := g.Selected(); ok {
+	if g.Selected() >= 0 {
 		t.Fatal("Escape left the keyboard on a row")
 	}
 }
@@ -184,7 +184,7 @@ type rowsCopied struct{ Sel [][2]int }
 
 func TestOnCopyTakesCtrlCInPlaceOfText(t *testing.T) {
 	g, w, run, clickRow := multiGrid(t)
-	g.OnCopy = func(sel [][2]int) gunim.Intent { return rowsCopied{sel} }
+	g.OnCopy = func(sel [][2]int, u *gunim.UI) gunim.Intent { return rowsCopied{sel} }
 	clickRow(2, 0)
 	clickRow(4, input.ModShift)
 	sent(w)
@@ -272,7 +272,7 @@ type rowsCopiedOf struct{ Copied, Selected int }
 func TestOnCopiedSaysHowManyRowsWereCopied(t *testing.T) {
 	g, w, run, clickRow := multiGrid(t)
 	g.Row = func(i int) (GridRow, bool) { return GridRow{Cells: [][]GridSpan{{{Text: "row"}}}}, i%2 == 0 }
-	g.OnCopied = func(copied, selected int) gunim.Intent { return rowsCopiedOf{copied, selected} }
+	g.OnCopied = func(copied, selected int, u *gunim.UI) gunim.Intent { return rowsCopiedOf{copied, selected} }
 	clickRow(0, 0)
 	w.Input(input.KeyPress{Key: input.KeyA, Mods: input.ModControl})
 	sent(w)

@@ -34,8 +34,8 @@ func newTyperWith(t *testing.T, set func(*TextField)) *typer {
 	t.Helper()
 	field := NewTextField()
 	set(field)
-	field.OnChange = func(s string) gunim.Intent { return changed{s} }
-	field.OnSubmit = func(s string) gunim.Intent { return submitted{s} }
+	field.OnChange = func(s string, u *gunim.UI) gunim.Intent { return changed{s} }
+	field.OnCommit = func(s string, u *gunim.UI) gunim.Intent { return submitted{s} }
 	fr := &frame{child: field, size: geom.Sz(300, 36)}
 	w, run := stage(t, fr)
 	w.Input(input.PointerDown{Pos: geom.Pt(20, 18), Clicks: 1})
@@ -304,11 +304,12 @@ func TestAFlashFadesOutSteadily(t *testing.T) {
 // is left to the fields around.
 func TestTabTakesTheGhost(t *testing.T) {
 	ty := newTyper(t)
-	ty.field.OnEdit = func(s string, _ *gunim.UI) {
+	ty.field.OnChange = func(s string, _ *gunim.UI) gunim.Intent {
 		ty.field.Ghost = ""
 		if s == "/ho" {
 			ty.field.Ghost = "me/"
 		}
+		return nil
 	}
 	ty.typeText("/ho")
 	if ty.field.Ghost != "me/" {
@@ -329,7 +330,7 @@ func TestTabTakesTheGhost(t *testing.T) {
 
 func TestSelectPicksARunOfText(t *testing.T) {
 	ty := newTyper(t)
-	ty.field.SetText("report.pdf")
+	ty.field.SetText("report.pdf", nil)
 	ty.field.Select(0, 6)
 	if start, end := ty.field.Selection(); start != 0 || end != 6 {
 		t.Fatalf("selected %d to %d, want 0 to 6", start, end)
@@ -348,7 +349,7 @@ func TestSelectPicksARunOfText(t *testing.T) {
 // field when it reports true.
 func TestAFieldsKeysComeFirst(t *testing.T) {
 	f := NewTextField()
-	f.SetText("ab")
+	f.SetText("ab", nil)
 	took := 0
 	f.Keys = func(e input.KeyPress, u *gunim.UI) bool {
 		if e.Key == input.KeyLeft {

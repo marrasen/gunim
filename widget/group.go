@@ -47,7 +47,7 @@ func (g *Group) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) 
 // Paint implements [gunim.Node]: the child, and the ring over it.
 func (g *Group) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.Children) {
 	kids.At(0).Paint(p)
-	groupRing(p, geom.Rect{Max: box.Point()}, GroupRadius.Get(f.Theme), g.ring.Value(), f.Theme)
+	GroupRing(p, geom.Rect{Max: box.Point()}, GroupRadius.Get(f.Theme), g.ring.Value(), f.Theme)
 }
 
 // Handle implements [gunim.Handler]: the ring follows the keyboard, and the arrow keys a control gave up move on to

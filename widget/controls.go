@@ -18,7 +18,6 @@ import (
 type toggle struct {
 	anim.Group
 	Label string
-	On    bool
 	// Disabled shows the control faint, and it takes no clicks, keys or
 	// focus, for a choice that does not apply now.
 	Disabled bool
@@ -28,11 +27,12 @@ type toggle struct {
 	// KeepFocus leaves the keyboard where it is when the control is
 	// clicked, as on a toast; Tab still reaches it.
 	KeepFocus bool
-	// OnChange turns the new state into an intent for the application.
-	OnChange func(on bool) gunim.Intent
-	// flipped is local behaviour, set by OnFlip.
-	flipped func(on bool, u *gunim.UI)
-	tip     tipper
+	// OnChange runs on the UI goroutine when the user flips the control,
+	// with the new state. It may act in the window through u, such as a
+	// box that shows a password field's text; a non-nil result is sent
+	// to the application as the control's intent.
+	OnChange func(on bool, u *gunim.UI) gunim.Intent
+	tip      tipper
 
 	// lit runs from 0 to 1 as the control turns on.
 	lit   *anim.Float
@@ -40,11 +40,13 @@ type toggle struct {
 	press *anim.Float
 	ring  *anim.Float
 	held  bool
-	click clicker
+	click Clicker
 	size  geom.Size
 	text  shapedText
 	ell   shapedText
-	// laid is set by the first layout, which puts the control where On
+	// checked is the state: ticked, or on.
+	checked bool
+	// laid is set by the first layout, which puts the control where checked
 	// says without animating.
 	laid bool
 }
@@ -57,39 +59,39 @@ func newToggle(label string) toggle {
 		press: anim.NewFloat(0),
 		ring:  anim.NewFloat(0),
 		// Every click flips it, the fast second of a double click too.
-		click: clicker{repeats: true},
+		click: Clicker{Repeats: true},
 	}
 	t.Add(t.lit, t.hover, t.press, t.ring)
 	return t
 }
 
-// SetOn sets the state without an intent. Call it from a view's update
-// function; the control animates to it.
-func (t *toggle) SetOn(on bool, u *gunim.UI) {
-	if on == t.On {
+// Checked reports whether the control is ticked, or on.
+func (t *toggle) Checked() bool { return t.checked }
+
+// SetChecked sets the state and sends no intent. Once the control is laid out it animates there; before that, or
+// with a nil u, it jumps.
+func (t *toggle) SetChecked(on bool, u *gunim.UI) {
+	if on == t.checked {
 		return
 	}
-	t.On = on
+	t.checked = on
+	if !t.laid || u == nil {
+		t.lit.Jump(value(on))
+		return
+	}
 	t.lit.Animate(value(on), Bounce.Get(u.Theme()))
 }
 
-// OnFlip wires behaviour that runs inside the window when the user
-// flips the control, such as a box that shows a password field's text.
-func (t *toggle) OnFlip(fn func(on bool, u *gunim.UI)) { t.flipped = fn }
-
 func (t *toggle) flip(n gunim.Node, u *gunim.UI) {
-	t.On = !t.On
-	if t.On {
+	t.checked = !t.checked
+	if t.checked {
 		u.Cue(gunim.CueToggleOn, n)
 	} else {
 		u.Cue(gunim.CueToggleOff, n)
 	}
-	t.lit.Animate(value(t.On), Bounce.Get(u.Theme()))
-	if t.flipped != nil {
-		t.flipped(t.On, u)
-	}
+	t.lit.Animate(value(t.checked), Bounce.Get(u.Theme()))
 	if t.OnChange != nil {
-		u.Send(n, t.OnChange(t.On))
+		send(u, n, t.OnChange(t.checked, u))
 	}
 }
 
@@ -128,7 +130,7 @@ func (t *toggle) handle(n gunim.Node, e input.Event, u *gunim.UI) bool {
 			return false
 		}
 		t.held = true
-		t.click.press(e, 0)
+		t.click.Press(e, 0)
 		t.press.Animate(1, Quick.Get(th))
 	case input.PointerUp:
 		if !t.held {
@@ -136,7 +138,7 @@ func (t *toggle) handle(n gunim.Node, e input.Event, u *gunim.UI) bool {
 		}
 		t.held = false
 		t.press.Animate(0, Bounce.Get(th))
-		if t.click.release(e, over(e.Pos, t.size)) {
+		if t.click.Release(e, over(e.Pos, t.size)) {
 			t.flip(n, u)
 		}
 	case input.KeyPress:
@@ -160,7 +162,7 @@ func (t *toggle) handle(n gunim.Node, e input.Event, u *gunim.UI) bool {
 func (t *toggle) layout(c gunim.Constraints, f gunim.Frame, mark geom.Size) geom.Size {
 	if !t.laid {
 		t.laid = true
-		t.lit.Jump(value(t.On))
+		t.lit.Jump(value(t.checked))
 	}
 	w, h := mark.W, mark.H
 	if t.Label != "" {
@@ -214,7 +216,7 @@ func (c *Checkbox) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 
 	func() {
 		defer p.Push(paint.Scale(1-0.1*c.press.Value(), r.Center()))()
-		focusRing(p, r, radius, c.ring.Value(), th)
+		FocusRing(p, r, radius, c.ring.Value(), th)
 		border := anim.Mix(anim.ColorCodec, FieldBorder.Get(th), Ink.Get(th), 0.35*c.hover.Value())
 		p.RRectStroke(r, radius, paint.Solid(FieldFill.Get(th)), paint.Stroke{Width: 1.5, Color: border})
 		// The fill grows from the middle as the box turns on.
@@ -270,7 +272,7 @@ func (s *Switch) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 	w, h := SwitchWidth.Get(th), SwitchHeight.Get(th)
 	track := geom.Rc(0, (box.H-h)/2, w, h)
 	on := s.lit.Value()
-	focusRing(p, track, h/2, s.ring.Value(), th)
+	FocusRing(p, track, h/2, s.ring.Value(), th)
 	off := anim.Mix(anim.ColorCodec, SwitchOff.Get(th), Ink.Get(th), 0.15*s.hover.Value())
 	p.RRect(track, h/2, paint.Solid(anim.Mix(anim.ColorCodec, off, Accent.Get(th), min(max(on, 0), 1))))
 
@@ -306,13 +308,16 @@ type Slider struct {
 	// Snap rounds the value to multiples of itself, counted from Min;
 	// zero leaves it free.
 	Snap float32
-	// OnChange turns a new value into an intent for the application.
-	OnChange func(v float32) gunim.Intent
-	// OnCommit turns the value a gesture ends on into an intent: as a drag
-	// is let go, a double click returns to Rest, or a key steps. OnChange
-	// runs on every step of a drag; OnCommit once, for an application that
-	// saves, or keeps undo history, per change made.
-	OnCommit func(v float32) gunim.Intent
+	// OnChange runs on the UI goroutine as the user moves the value, on
+	// every step of a drag. It may act in the window through u, such as a
+	// number beside the slider that follows it; a non-nil result is sent
+	// to the application as the slider's intent.
+	OnChange func(v float32, u *gunim.UI) gunim.Intent
+	// OnCommit runs, in the same way, with the value a gesture ends on: as
+	// a drag is let go, a double click returns to Rest, or a key steps. It
+	// runs once per change made, for an application that saves, or keeps
+	// undo history.
+	OnCommit func(v float32, u *gunim.UI) gunim.Intent
 	// Rest, with HasRest set, is the value the slider rests at, such as
 	// nought on a scale from -100 to 100: the fill runs from it to the
 	// knob, a small mark shows it on the track, and a double click glides
@@ -327,8 +332,6 @@ type Slider struct {
 	// pressed, for a slider among keys of a view's own, such as a photo
 	// viewer's arrows; it still takes the keyboard by Tab.
 	KeepFocus bool
-	// moved is local behaviour, set by OnMove.
-	moved func(v float32, u *gunim.UI)
 
 	value float32
 	// drag is the value a drag has carried the knob to, unclamped, and
@@ -355,17 +358,13 @@ func NewSlider(lo, hi float32) *Slider {
 	return s
 }
 
-// NewFader returns a vertical slider from lo to hi, at lo, with hi at
+// NewVerticalSlider returns a vertical slider from lo to hi, at lo, with hi at
 // the top.
-func NewFader(lo, hi float32) *Slider {
+func NewVerticalSlider(lo, hi float32) *Slider {
 	s := NewSlider(lo, hi)
 	s.Axis = Vertical
 	return s
 }
-
-// OnMove wires behaviour that runs inside the window as the value
-// changes, such as a number beside the slider that follows it.
-func (s *Slider) OnMove(fn func(v float32, u *gunim.UI)) { s.moved = fn }
 
 // Value returns the slider's value.
 func (s *Slider) Value() float32 { return s.value }
@@ -389,29 +388,22 @@ func (s *Slider) fracOf(v float32) float32 {
 // commit tells the application the value a gesture ended on.
 func (s *Slider) commit(u *gunim.UI) {
 	if s.OnCommit != nil {
-		u.Send(s, s.OnCommit(s.value))
+		send(u, s, s.OnCommit(s.value, u))
 	}
 }
 
-// SetValue sets the value without an intent. Call it from a view's
-// update function; the knob glides to it. It keeps the value as it is,
-// within the range, off Snap's steps too: only the slider's own moves
-// round to them, so a value stored with more precision shows as it is.
+// SetValue sets the value and sends no intent. Once the slider is laid
+// out the knob glides to it; before that, or with a nil u, it jumps. It
+// keeps the value as it is, within the range, off Snap's steps too: only
+// the slider's own moves round to them, so a value stored with more
+// precision shows as it is.
 func (s *Slider) SetValue(v float32, u *gunim.UI) {
 	s.value = max(s.Min, min(v, s.Max))
-	if !s.laid {
+	if !s.laid || u == nil {
 		s.at.Jump(s.frac())
 		return
 	}
 	s.at.Animate(s.frac(), Quick.Get(u.Theme()))
-}
-
-// Set sets the value with the knob jumping straight to it, and tells
-// nobody. It is for a place with no UI to hand, such as a field beside
-// the slider reporting what was typed into it.
-func (s *Slider) Set(v float32) {
-	s.value = max(s.Min, min(v, s.Max))
-	s.at.Jump(s.frac())
 }
 
 func (s *Slider) clamp(v float32) float32 {
@@ -441,11 +433,8 @@ func (s *Slider) set(v float32, m anim.Motion, u *gunim.UI) {
 	}
 	s.value = v
 	s.at.Animate(s.frac(), m)
-	if s.moved != nil {
-		s.moved(v, u)
-	}
 	if s.OnChange != nil {
-		u.Send(s, s.OnChange(v))
+		send(u, s, s.OnChange(v, u))
 	}
 }
 
@@ -697,7 +686,7 @@ func (s *Slider) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 	grow := 1 + 0.2*max(s.hover.Value(), 0)
 	d := k * grow
 	knob := geom.Rc(centre.X-d/2, centre.Y-d/2, d, d)
-	focusRing(p, knob, d/2, s.ring.Value(), th)
+	FocusRing(p, knob, d/2, s.ring.Value(), th)
 	p.ShadowRRect(knob, d/2, paint.Solid(Knob.Get(th)), paint.Shadow{Offset: geom.Pt(0, 1), Blur: 3, Color: color.NRGBA{A: 0x60}})
 }
 
@@ -718,8 +707,9 @@ type Tabs struct {
 	// Disabled lists the tabs that cannot be chosen now, in order, and may
 	// be shorter than Titles. They are drawn faint.
 	Disabled []bool
-	// OnChange turns the chosen tab into an intent for the application.
-	OnChange func(i int) gunim.Intent
+	// OnChange runs on the UI goroutine when the user chooses a tab; a
+	// non-nil result is sent to the application as the tabs' intent.
+	OnChange func(i int, u *gunim.UI) gunim.Intent
 
 	bar   *tabBar
 	pages []gunim.Node
@@ -770,10 +760,16 @@ func (t *Tabs) Children() []gunim.Node { return append([]gunim.Node{t.bar}, t.pa
 // Selected returns the chosen tab.
 func (t *Tabs) Selected() int { return t.selected }
 
-// Select chooses tab i without an intent. Call it from a view's update
-// function.
-func (t *Tabs) Select(i int, u *gunim.UI) {
+// SetSelected chooses tab i and sends no intent. Once the tabs are laid
+// out, the new page slides in and the line glides under its title;
+// before that, or with a nil u, the tab shows at once.
+func (t *Tabs) SetSelected(i int, u *gunim.UI) {
 	if i < 0 || i >= max(t.count, len(t.Titles)) || i == t.selected {
+		return
+	}
+	if !t.laid || u == nil {
+		t.selected, t.prev, t.laid = i, -1, false
+		t.slide.Jump(1)
 		return
 	}
 	t.prev, t.from = t.selected, 1
@@ -819,10 +815,10 @@ func (t *Tabs) choose(i int, u *gunim.UI) {
 	if i == t.selected || i < 0 || i >= t.count || flag(t.Disabled, i) {
 		return
 	}
-	t.Select(i, u)
+	t.SetSelected(i, u)
 	u.Cue(gunim.CueSelect, t)
 	if t.OnChange != nil {
-		u.Send(t, t.OnChange(i))
+		send(u, t, t.OnChange(i, u))
 	}
 }
 
@@ -845,7 +841,7 @@ func (t *Tabs) iconRoom(i int, th *theme.Live) float32 {
 // tabBar is the row of titles.
 type tabBar struct {
 	t     *Tabs
-	click clicker
+	click Clicker
 }
 
 // titleAt returns the title at pos in the row's space, or -1.
@@ -878,9 +874,9 @@ func (b *tabBar) Handle(e input.Event, u *gunim.UI) bool {
 		if e.Button != input.ButtonPrimary {
 			return false
 		}
-		b.click.press(e, b.titleAt(e.Pos))
+		b.click.Press(e, b.titleAt(e.Pos))
 	case input.PointerUp:
-		if i := b.titleAt(e.Pos); b.click.release(e, i) {
+		if i := b.titleAt(e.Pos); b.click.Release(e, i) {
 			t.choose(i, u)
 		}
 	case input.Scroll:
@@ -1030,7 +1026,7 @@ func (b *tabBar) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 	p.RRect(geom.Rect{Min: geom.Pt(line.X, t.head-2.5), Max: geom.Pt(line.Y, t.head-0.5)}, 1, paint.Solid(Accent.Get(th)))
 	if r := t.ring.Value(); r > 0.01 && t.selected < len(t.spans) {
 		sp := t.spans[t.selected]
-		focusRing(p, geom.Rc(sp[0]+3, 5, sp[1]-sp[0]-6, t.head-13), 6, r, th)
+		FocusRing(p, geom.Rc(sp[0]+3, 5, sp[1]-sp[0]-6, t.head-13), 6, r, th)
 	}
 }
 
@@ -1097,8 +1093,10 @@ func (t *Tabs) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, kids gunim.
 	}
 }
 
-// focusRing draws the ring focus grows around r, t from 0 to 1.
-func focusRing(p *paint.Painter, r geom.Rect, radius, t float32, th *theme.Live) {
+// FocusRing draws the ring a control grows around r, its corners radius round, as Tab brings the keyboard to it. t
+// runs from 0, no ring, to 1, the ring grown 3 pixels out in the accent colour: animate it with the control's own
+// value, as [Button] does, so an app's node rings the way the widgets do.
+func FocusRing(p *paint.Painter, r geom.Rect, radius, t float32, th *theme.Live) {
 	if t <= 0.01 {
 		return
 	}
@@ -1126,9 +1124,10 @@ type ringCue struct {
 // follow takes e.
 func (c *ringCue) follow(e input.FocusRing) { c.on, c.whole = e.On, e.On && !e.Grouped }
 
-// groupRing draws the ring round a whole group or list that has the keyboard: an accent edge just inside r, t of the
-// way in.
-func groupRing(p *paint.Painter, r geom.Rect, radius, t float32, th *theme.Live) {
+// GroupRing draws the ring round a whole group or list that has the keyboard: an accent edge 2 pixels wide just
+// inside r, its corners radius round, at strength t from 0 to 1. A view with a cursor of its own, such as a calendar,
+// draws it round itself when the keyboard comes by Tab.
+func GroupRing(p *paint.Painter, r geom.Rect, radius, t float32, th *theme.Live) {
 	if t <= 0.01 {
 		return
 	}

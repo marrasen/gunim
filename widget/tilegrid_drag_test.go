@@ -20,7 +20,7 @@ func dragTiles(t *testing.T) (g *TileGrid, w *gunim.Window, run func(int), drops
 	}
 	var got []any
 	target := NewDropTarget(&block{h: 300})
-	target.OnDrop = func(e input.Drop) gunim.Intent { got = append(got, e.Data); return nil }
+	target.OnDrop = func(e input.Drop, u *gunim.UI) gunim.Intent { got = append(got, e.Data); return nil }
 	w, run = stage(t, &halves{left: g, right: target})
 	g.n = 20
 	run(10)

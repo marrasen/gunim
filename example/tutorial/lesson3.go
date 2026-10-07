@@ -95,15 +95,16 @@ type todoPage struct {
 func buildLesson3(Todo) *todoPage {
 	field := widget.NewTextField()
 	field.Placeholder = "Something to do, then Enter"
-	// OnSubmit turns the text into an intent. Emptying the field is
-	// local to the window, so it happens here, on the way out.
-	field.OnSubmit = func(text string) gunim.Intent {
-		field.SetText("")
+	// OnCommit runs on Enter, and the intent it returns goes to the
+	// application. Emptying the field is local to the window, so it
+	// happens here, on the way out.
+	field.OnCommit = func(text string, u *gunim.UI) gunim.Intent {
+		field.SetText("", u)
 		return Added{Text: text}
 	}
 	reverse := widget.NewButton("Reverse")
 	reverse.Icon = icon.ArrowUpDown
-	reverse.On = Reversed{}
+	reverse.OnClick = widget.Sends(Reversed{})
 	header := widget.Row(field, reverse).Grow(field, 1)
 	header.Cross = widget.CrossCenter
 	list := widget.NewList()
@@ -129,7 +130,7 @@ func (p *todoPage) show(s Todo, u *gunim.UI) {
 func newRow(it Item) *widget.Card {
 	text := widget.NewLabel(it.Text)
 	remove := widget.NewIconButton(icon.X, "Remove")
-	remove.On = Removed{ID: it.ID}
+	remove.OnClick = widget.Sends(Removed{ID: it.ID})
 	row := widget.Row(text, remove).Grow(text, 1)
 	row.Cross = widget.CrossCenter
 	return widget.NewCard(row)

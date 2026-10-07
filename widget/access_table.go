@@ -95,7 +95,7 @@ func (g *DataGrid) AccessAct(r access.Request, u *gunim.UI) bool {
 	row, col := g.partRow[r.Part], g.partCol[r.Part]
 	switch {
 	case row < 0 && col >= 0 && g.OnHeader != nil:
-		g.send(g.OnHeader(col), u)
+		g.send(g.OnHeader(col, u), u)
 	case row < 0 || row >= g.rows:
 		return false
 	case g.Multi:

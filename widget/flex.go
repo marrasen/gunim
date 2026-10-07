@@ -82,11 +82,13 @@ type Flex struct {
 }
 
 // Row returns a Flex that lays kids out left to right. Kids too wide
-// for the row together shrink in proportion to their width.
+// for the row together shrink in proportion to their width, each down
+// to its [Shrinker.MinWidth] where it has one.
 func Row(kids ...gunim.Node) *Flex { return newFlex(Horizontal, kids) }
 
 // Column returns a Flex that lays kids out top to bottom. Kids too tall
-// for the column together shrink in proportion to their height.
+// for the column together shrink in proportion to their height. A
+// [Shrinker] counts in a row alone: a column shrinks its kids by height.
 func Column(kids ...gunim.Node) *Flex { return newFlex(Vertical, kids) }
 
 func newFlex(axis Axis, kids []gunim.Node) *Flex {
@@ -227,11 +229,18 @@ func (f *Flex) Layout(c gunim.Constraints, fr gunim.Frame, kids gunim.Children) 
 	return own
 }
 
-// shrinker is a node that knows the least room it takes along a row
-// before it looks broken, such as a label's longest word.
-type shrinker interface {
-	minWidth(f gunim.Frame) float32
+// Shrinker is a node that knows the least width it takes in a row
+// before it looks broken, such as a [Label]'s widest word. A row short
+// of room squeezes it no narrower than MinWidth, where the others can
+// give room, and lays it out again at its share. An app's node says how
+// narrow it can go by implementing it.
+type Shrinker interface {
+	// MinWidth returns the least width the node takes, in logical
+	// pixels, in the theme of f.
+	MinWidth(f gunim.Frame) float32
 }
+
+var _ Shrinker = (*Label)(nil)
 
 // shrink shares room among the children that do not grow, given their
 // natural sizes, as CSS flexbox does: each shrinks in proportion to its
@@ -248,8 +257,8 @@ func (f *Flex) shrink(kids gunim.Children, sizes []geom.Size, fr gunim.Frame, ro
 			continue
 		}
 		natural += f.main(sizes[i])
-		if s, ok := kids.At(i).Node().(shrinker); ok && f.Axis == Horizontal {
-			least[i] = min(s.minWidth(fr), f.main(sizes[i]))
+		if s, ok := kids.At(i).Node().(Shrinker); ok && f.Axis == Horizontal {
+			least[i] = min(s.MinWidth(fr), f.main(sizes[i]))
 		}
 		floor += least[i]
 	}

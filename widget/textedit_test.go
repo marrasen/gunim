@@ -111,7 +111,7 @@ func TestAnEditTheTextCleansMovesTheKeyboardOn(t *testing.T) {
 func TestALongTextShowsTheKeyboardAStretchAroundTheCaret(t *testing.T) {
 	wr := newWriter(t, 400)
 	text := strings.Repeat("å", 3*textWindow) // two bytes each
-	wr.area.SetText(text)
+	wr.area.SetText(text, nil)
 	wr.area.set(textWindow+10, false)
 	s := wr.area.TextState()
 	if s.Start != 2*10 || len(s.Text) != 2*2*textWindow {

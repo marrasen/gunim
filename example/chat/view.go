@@ -98,7 +98,7 @@ func buildChat(s Chat) *chatView {
 	v.projectName = widget.NewLabel("")
 	v.projectName.Face, v.projectName.Size = widget.BoldFont, sidebarTitle
 	v.convs = widget.NewList()
-	v.convs.OnClick = func(k widget.Key) gunim.Intent {
+	v.convs.OnActivate = func(k widget.Key, u *gunim.UI) gunim.Intent {
 		if area, ok := strings.CutPrefix(string(k), "area:"); ok {
 			return AreaChosen{Area: area}
 		}
@@ -114,17 +114,24 @@ func buildChat(s Chat) *chatView {
 	v.title.Face, v.title.Size = widget.BoldFont, sidebarTitle
 	hash := widget.NewIcon(icon.Hash, "Conversation")
 	v.link = widget.NewButton("Online")
-	v.link.Icon, v.link.Ghost, v.link.On = icon.Wifi, true, LinkToggled{}
+	v.link.Icon, v.link.Ghost = icon.Wifi, true
+	v.link.OnClick = widget.Sends(LinkToggled{})
 	themeButton := widget.NewIconButton(icon.SunMoon, "Switch theme")
-	themeButton.On = ThemeToggled{}
+	themeButton.OnClick = widget.Sends(ThemeToggled{})
 	spacer := widget.NewSpacer()
 	popOut := widget.NewIconButton(icon.SquareArrowOutUpRight, "Open in a window of its own")
-	popOut.On = PopOut{}
+	popOut.OnClick = widget.Sends(PopOut{})
 	people := widget.NewIconButton(icon.Users, "Members")
-	people.OnActivate(func(u *gunim.UI) { v.openMembers(!v.drawer.Open(), u) })
+	people.OnClick = func(u *gunim.UI) gunim.Intent {
+		v.openMembers(!v.drawer.Open(), u)
+		return nil
+	}
 	v.membersButton = people
 	back := widget.NewIconButton(icon.ArrowLeft, "Conversations")
-	back.OnActivate(func(u *gunim.UI) { v.screens.show(false, u) })
+	back.OnClick = func(u *gunim.UI) gunim.Intent {
+		v.screens.show(false, u)
+		return nil
+	}
 	v.screens = newScreens()
 	header := widget.Row(&narrowOnly{s: v.screens, on: true, child: back}, hash, v.title, spacer, v.link, people,
 		&narrowOnly{s: v.screens, child: popOut}, themeButton).Grow(spacer, 1)
@@ -145,11 +152,11 @@ func buildChat(s Chat) *chatView {
 	v.composer.Placeholders = []string{"/help to show commands"}
 	v.composer.Triggers, v.composer.CompleteAbove = "@:", true
 	v.composer.Complete = v.complete
-	v.composer.OnSubmit = func(s string) gunim.Intent { return Submitted{Text: s} }
-	v.composer.OnChange = func(s string) gunim.Intent { return Drafted{Text: s} }
-	v.composer.OnPasteImage = func(png []byte) gunim.Intent { return ImagePasted{PNG: png} }
+	v.composer.OnCommit = func(s string, u *gunim.UI) gunim.Intent { return Submitted{Text: s} }
+	v.composer.OnChange = func(s string, u *gunim.UI) gunim.Intent { return Drafted{Text: s} }
+	v.composer.OnPasteImage = func(png []byte, u *gunim.UI) gunim.Intent { return ImagePasted{PNG: png} }
 	send := widget.NewIconButton(icon.SendHorizontal, "Send")
-	send.OnActivate(func(u *gunim.UI) { u.Send(send, Submitted{Text: v.composer.Text()}) })
+	send.OnClick = func(*gunim.UI) gunim.Intent { return Submitted{Text: v.composer.Text()} }
 	box := widget.Row(v.composer, send).Grow(v.composer, 1)
 	box.Cross = widget.CrossEnd
 	v.strip = newPictureStrip()
@@ -263,7 +270,7 @@ func (v *chatView) newList() *widget.VirtualList {
 		return newMsgRow(v.items[k], v.jump, v.group, func(id string) *paint.Image { return v.images[id] }, v.react)
 	})
 	l.StickToEnd, l.HoldOnPrepend = true, true
-	l.OnReachStart = func() gunim.Intent { return OlderAsked{} }
+	l.OnReachStart = func(u *gunim.UI) gunim.Intent { return OlderAsked{} }
 	l.Estimate = 44
 	l.Spacing = TimelineSpacing
 	return l
@@ -274,7 +281,10 @@ func (v *chatView) react(opener gunim.Node, id string, u *gunim.UI) {
 	if v.picker.IsOpen() {
 		v.picker.Close(u)
 	}
-	v.picker.Pick = func(emoji string, u *gunim.UI) { u.Send(v, ReactionToggled{ID: id, Emoji: emoji}) }
+	v.picker.OnPick = func(emoji string, u *gunim.UI) gunim.Intent {
+		u.Send(v, ReactionToggled{ID: id, Emoji: emoji})
+		return nil
+	}
 	v.picker.Open(opener, geom.Rc(0, 0, 28, 28), u)
 }
 
@@ -307,7 +317,7 @@ func (v *chatView) set(s Chat, u *gunim.UI) {
 	if !v.solo {
 		v.rail.set(s.Projects, s.Project, u)
 		if s.Project < len(s.Projects) {
-			v.projectName.SetText(s.Projects[s.Project].Name)
+			v.projectName.Text = s.Projects[s.Project].Name
 		}
 		widget.Sync(v.convs, u, s.Conversations,
 			func(c Conversation) widget.Key { return widget.Key(c.ID) },
@@ -320,7 +330,7 @@ func (v *chatView) set(s Chat, u *gunim.UI) {
 		v.members.set(s.Members, u)
 	}
 	v.loading.set(s.Loading, u)
-	v.title.SetText(s.Title)
+	v.title.Text = s.Title
 	v.composer.Placeholder = "Message " + s.Title
 	if s.Title != "" && !isDirect(s) {
 		v.composer.Placeholder = "Message #" + s.Title
@@ -386,7 +396,7 @@ func (v *chatView) set(s Chat, u *gunim.UI) {
 
 	if s.Draft.Seq != v.draftSeq {
 		v.draftSeq = s.Draft.Seq
-		v.composer.SetText(s.Draft.Text)
+		v.composer.SetText(s.Draft.Text, u)
 		u.Focus(v.composer)
 	}
 }
@@ -434,9 +444,9 @@ func isDirect(s Chat) bool {
 // setTyping shows who is typing, or nobody.
 func (v *chatView) setTyping(who string, u *gunim.UI) {
 	if who == "" {
-		v.typing.SetText(" ")
+		v.typing.Text = " "
 	} else {
-		v.typing.SetText(who + " is typing…")
+		v.typing.Text = who + " is typing…"
 	}
 	u.Invalidate()
 }
@@ -445,13 +455,13 @@ func (v *chatView) setTyping(who string, u *gunim.UI) {
 func (v *chatView) setLink(l Link, u *gunim.UI) {
 	switch l {
 	case Online:
-		v.link.SetLabel("Online")
+		v.link.Label = "Online"
 		v.link.Icon = icon.Wifi
 	case Offline:
-		v.link.SetLabel("Offline")
+		v.link.Label = "Offline"
 		v.link.Icon = icon.WifiOff
 	case Reconnecting:
-		v.link.SetLabel("Connecting")
+		v.link.Label = "Connecting"
 		v.link.Icon = icon.Wifi
 	}
 	v.linkBar.set(l, u)
@@ -659,7 +669,8 @@ func newThumb(id string, src *paint.Image) *thumb {
 	img := widget.NewImage(src)
 	img.Fit, img.Radius, img.Size = widget.FitCover, 8, geom.Sz(thumbSize, thumbSize)
 	remove := widget.NewIconButton(icon.X, "Remove the picture")
-	remove.IconSize, remove.Ghost, remove.KeepFocus, remove.On = ToolIcon, false, true, PictureRemoved{ID: id}
+	remove.IconSize, remove.Ghost, remove.KeepFocus = ToolIcon, false, true
+	remove.OnClick = widget.Sends(PictureRemoved{ID: id})
 	return &thumb{img: img, remove: remove}
 }
 

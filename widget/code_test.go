@@ -15,7 +15,7 @@ import (
 func codeStage(t *testing.T, src string) (*CodeEditor, *gunim.Window, func(int)) {
 	t.Helper()
 	c := NewCodeEditor()
-	c.SetText(src)
+	c.SetText(src, nil)
 	w, run := stage(t, &frame{child: c, size: geom.Sz(600, 300)})
 	click(w, 300, 150)
 	run(1)
@@ -276,7 +276,7 @@ func TestCodeKeepsPastedTabs(t *testing.T) {
 // panel slides open below, frame by frame.
 func TestCodeKeepsTheCaretInViewAsItShrinks(t *testing.T) {
 	c := NewCodeEditor()
-	c.SetText(strings.Repeat("line\n", 100))
+	c.SetText(strings.Repeat("line\n", 100), nil)
 	f := &frame{child: c, size: geom.Sz(600, 300)}
 	w, run := stage(t, f)
 	click(w, 300, 150)

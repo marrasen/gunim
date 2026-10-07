@@ -41,18 +41,17 @@ type Dialog struct {
 	// with a title bar, say. The body then starts at the top of the
 	// panel.
 	NoTitleBar bool
-	// Accept is the intent sent when the user confirms, and Dismiss the
-	// one sent when they back out. Both travel as data.
+	// OnAccept runs on the UI goroutine when the user confirms, and
+	// OnDismiss when they back out, by Cancel or Escape. Each may read
+	// what the dialog holds, such as a form's fields; a non-nil result is
+	// sent to the application as the dialog's intent.
 	//
 	// The dialog closes itself either way, on the frame the button is
 	// released. Waiting for the application to say so would put a round
 	// trip between the click and the animation, which is the thin
 	// client feeling this design exists to avoid.
-	Accept  gunim.Intent
-	Dismiss gunim.Intent
-	// OnAccept, when set, makes the intent sent on confirming from what
-	// the dialog holds, such as a form's fields, in place of Accept.
-	OnAccept func() gunim.Intent
+	OnAccept  func(u *gunim.UI) gunim.Intent
+	OnDismiss func(u *gunim.UI) gunim.Intent
 	// Danger marks the dialog's OK as an action that destroys, such as
 	// Delete, and shows it in red; otherwise it shows as the action the
 	// dialog expects. A danger dialog opens with Cancel focused, so
@@ -122,14 +121,26 @@ func NewDialog(title string) *Dialog {
 	d.Add(d.in, d.shake)
 
 	d.ok = NewButton("OK")
-	d.ok.OnActivate(d.accept)
+	d.ok.OnClick = func(u *gunim.UI) gunim.Intent {
+		d.accept(u)
+		return nil
+	}
 	d.cancel = NewButton("Cancel")
-	d.cancel.OnActivate(func(u *gunim.UI) { d.finish(u, d.Dismiss) })
+	d.cancel.OnClick = func(u *gunim.UI) gunim.Intent {
+		d.dismiss(u)
+		return nil
+	}
 	return d
 }
 
-// SetTitle changes the title. Call it from a view's update function.
-func (d *Dialog) SetTitle(title string) { d.Title = title }
+// dismiss closes the dialog, sending what OnDismiss makes.
+func (d *Dialog) dismiss(u *gunim.UI) {
+	var what gunim.Intent
+	if d.OnDismiss != nil {
+		what = d.OnDismiss(u)
+	}
+	d.finish(u, what)
+}
 
 // SetButtons names the dialog's buttons, such as "Connect" and
 // "Cancel". An empty cancel leaves the dialog with OK alone, for one
@@ -139,20 +150,27 @@ func (d *Dialog) SetButtons(ok, cancel string) {
 }
 
 // AddButton adds a button left of Cancel, which closes the dialog and
-// sends the intent what makes, as a third answer to a question: Leave
+// sends the intent onClick makes, as a third answer to a question: Leave
 // It beside Replace and Stop. Add buttons before mounting the dialog.
-func (d *Dialog) AddButton(label string, what func() gunim.Intent) {
+func (d *Dialog) AddButton(label string, onClick func(u *gunim.UI) gunim.Intent) {
 	b := NewButton(label)
-	b.OnActivate(func(u *gunim.UI) { d.finish(u, what()) })
+	b.OnClick = func(u *gunim.UI) gunim.Intent {
+		d.finish(u, onClick(u))
+		return nil
+	}
 	d.extra = append(d.extra, b)
 }
 
-// AddAction adds a button left of Cancel that runs do and leaves the
-// dialog open, for help with the form, such as generating a password.
-// Add buttons before mounting the dialog.
-func (d *Dialog) AddAction(label string, do func(u *gunim.UI)) {
+// AddAction adds a button left of Cancel that runs onClick and leaves the
+// dialog open, for help with the form, such as generating a password. A
+// non-nil result is sent as the dialog's intent. Add buttons before
+// mounting the dialog.
+func (d *Dialog) AddAction(label string, onClick func(u *gunim.UI) gunim.Intent) {
 	b := NewButton(label)
-	b.OnActivate(do)
+	b.OnClick = func(u *gunim.UI) gunim.Intent {
+		send(u, d, onClick(u))
+		return nil
+	}
 	d.extra = append(d.extra, b)
 }
 
@@ -164,7 +182,7 @@ func (d *Dialog) Close(u *gunim.UI) { d.finish(u, nil) }
 func (d *Dialog) accept(u *gunim.UI) {
 	if d.Check != nil {
 		if msg := d.Check(); msg != "" {
-			d.problem.SetText(msg)
+			d.problem.Text = msg
 			// A kick sideways that a springy motion rings down to rest.
 			d.shake.Jump(1)
 			d.shake.Animate(0, anim.Spring{Response: 0.18, Damping: 0.12})
@@ -172,10 +190,10 @@ func (d *Dialog) accept(u *gunim.UI) {
 			return
 		}
 	}
-	d.problem.SetText("")
-	what := d.Accept
+	d.problem.Text = ""
+	var what gunim.Intent
 	if d.OnAccept != nil {
-		what = d.OnAccept()
+		what = d.OnAccept(u)
 	}
 	d.finish(u, what)
 }
@@ -266,7 +284,7 @@ func (d *Dialog) Handle(e input.Event, u *gunim.UI) bool {
 	if k, ok := e.(input.KeyPress); ok {
 		switch k.Key {
 		case input.KeyEscape:
-			d.finish(u, d.Dismiss)
+			d.dismiss(u)
 			return true
 		case input.KeyEnter, input.KeyKPEnter:
 			d.accept(u)

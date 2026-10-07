@@ -22,6 +22,8 @@ type Fold struct {
 	open  *anim.Float
 	shut  bool
 	box   geom.Size
+	// laid is set by the first layout; a state set before it shows at once.
+	laid bool
 }
 
 // NewFold returns a fold of child, open or shut as open says, at once.
@@ -37,14 +39,19 @@ func NewFold(child gunim.Node, open bool) *Fold {
 // Open reports whether the fold is open, or opening.
 func (f *Fold) Open() bool { return !f.shut }
 
-// SetOpen opens or shuts the fold, gliding. Call it from a view's update
-// function or a node's own methods.
+// SetOpen opens or shuts the fold and sends no intent. Once the fold is
+// laid out it glides; before that, or with a nil u, it jumps.
 func (f *Fold) SetOpen(open bool, u *gunim.UI) {
 	if open == !f.shut {
 		return
 	}
 	f.shut = !open
-	f.open.Animate(map[bool]float32{false: 0, true: 1}[open], FoldMotion.Get(u.Theme()))
+	to := map[bool]float32{false: 0, true: 1}[open]
+	if !f.laid || u == nil {
+		f.open.Jump(to)
+		return
+	}
+	f.open.Animate(to, FoldMotion.Get(u.Theme()))
 	u.Invalidate()
 }
 
@@ -54,6 +61,7 @@ func (f *Fold) Children() []gunim.Node { return []gunim.Node{f.child} }
 // Layout implements [gunim.Node]: as wide as the child, and as tall as
 // it is open.
 func (f *Fold) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
+	f.laid = true
 	k := kids.At(0)
 	s := k.Layout(gunim.Constraints{Min: geom.Sz(c.Min.W, 0), Max: geom.Sz(c.Max.W, 0)})
 	k.Place(geom.Point{})

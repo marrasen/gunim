@@ -59,9 +59,9 @@ type TreeItem struct {
 type Tree struct {
 	anim.Group
 	Item func(Key) TreeItem
-	// OnActivate turns a click, Enter or Space on a row into an intent for the application, such as opening a
-	// branch or showing a file. A nil intent sends nothing.
-	OnActivate func(Key) gunim.Intent
+	// OnActivate runs on the UI goroutine with the row a click, Enter or Space activates, such as to open a branch
+	// or show a file. A non-nil result is sent to the application as the tree's intent.
+	OnActivate func(key Key, u *gunim.UI) gunim.Intent
 
 	list   *VirtualList
 	keys   []Key
@@ -105,12 +105,22 @@ func (t *Tree) Cursor() (Key, bool) {
 	return t.cursor, ok
 }
 
-// Select puts the cursor on key's row and scrolls it into view, as for the file a tree's application shows.
-func (t *Tree) Select(key Key, u *gunim.UI) {
+// SetCursor puts the cursor on key's row and scrolls it into view, as for the file a tree's application shows, and
+// sends no intent. The pill slides over from where it was; with a nil u it jumps, and the view stays.
+func (t *Tree) SetCursor(key Key, u *gunim.UI) {
 	if key == t.cursor {
 		return
 	}
-	if i, ok := t.index[key]; ok {
+	i, ok := t.index[key]
+	if u == nil {
+		t.cursor = key
+		if ok {
+			t.at = i
+		}
+		t.lag.Jump(0)
+		return
+	}
+	if ok {
 		t.move(i, u)
 		return
 	}
@@ -159,9 +169,7 @@ func (t *Tree) activate(key Key, u *gunim.UI) {
 	if t.OnActivate == nil {
 		return
 	}
-	if in := t.OnActivate(key); in != nil {
-		u.Send(t, in)
-	}
+	send(u, t, t.OnActivate(key, u))
 }
 
 func (t *Tree) item(key Key) TreeItem {
@@ -315,7 +323,7 @@ func (t *Tree) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.
 	}
 	kids.At(0).Paint(p)
 	if t.cue.whole {
-		groupRing(p, geom.Rect{Max: box.Point()}, 0, 1, th)
+		GroupRing(p, geom.Rect{Max: box.Point()}, 0, 1, th)
 	}
 }
 
@@ -327,7 +335,7 @@ type treeRow struct {
 	// hot follows the pointer over the row, and turn the chevron, 1 open.
 	hot, turn *anim.Float
 	laid      bool
-	click     clicker
+	click     Clicker
 	box       geom.Size
 	name      laidText
 	detail    shapedText
@@ -444,13 +452,13 @@ func (r *treeRow) Handle(e input.Event, u *gunim.UI) bool {
 		if e.Button != input.ButtonPrimary {
 			return false
 		}
-		r.click.press(e, 0)
+		r.click.Press(e, 0)
 		return true
 	case input.PointerUp:
 		// A click lands on the row it lets go on, while the tree still holds it, so a finger that lands on a row to
 		// scroll moves nothing.
 		i, held := t.index[r.key]
-		if r.click.release(e, over(e.Pos, r.box)) && held {
+		if r.click.Release(e, over(e.Pos, r.box)) && held {
 			t.move(i, u)
 			t.activate(r.key, u)
 		}

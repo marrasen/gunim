@@ -22,12 +22,12 @@ type clicked struct{}
 func dropStage(t *testing.T) (*gunim.Window, *Draggable, *DropTarget, func(int)) {
 	t.Helper()
 	d := NewDraggable(&block{h: 50}, "apple")
-	d.OnClick = clicked{}
+	d.OnClick = Sends(clicked{})
 	target := NewDropTarget(&block{h: 200})
 	target.Accept = func(data any, paths []string) bool {
 		return data == "apple" || slices.Contains(paths, "/tmp/sun.png")
 	}
-	target.OnDrop = func(e input.Drop) gunim.Intent { return dropped{e.Data, e.Paths} }
+	target.OnDrop = func(e input.Drop, u *gunim.UI) gunim.Intent { return dropped{e.Data, e.Paths} }
 	row := Row(d, target).Grow(d, 1).Grow(target, 1)
 	w, run := stage(t, &frame{child: row, size: geom.Sz(400, 200)})
 	return w, d, target, run

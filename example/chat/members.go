@@ -68,7 +68,10 @@ func newMembersPanel(close func(*gunim.UI)) *membersPanel {
 	m := &membersPanel{title: widget.NewLabel("Members"), list: widget.NewList()}
 	m.title.Face = widget.BoldFont
 	closer := widget.NewIconButton(icon.X, "Close")
-	closer.OnActivate(close)
+	closer.OnClick = func(u *gunim.UI) gunim.Intent {
+		close(u)
+		return nil
+	}
 	spacer := widget.NewSpacer()
 	head := widget.Row(m.title, spacer, closer).Grow(spacer, 1)
 	head.Cross = widget.CrossCenter
@@ -80,7 +83,7 @@ func newMembersPanel(close func(*gunim.UI)) *membersPanel {
 
 // set shows members.
 func (m *membersPanel) set(members []Member, u *gunim.UI) {
-	m.title.SetText("Members · " + strconv.Itoa(len(members)))
+	m.title.Text = "Members · " + strconv.Itoa(len(members))
 	widget.Sync(m.list, u, members,
 		memberKey,
 		newMemberRow,

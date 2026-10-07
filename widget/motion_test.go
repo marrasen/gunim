@@ -12,7 +12,7 @@ import (
 // move.
 func TestAClickOnAListMovingHitsTheRowDrawnThere(t *testing.T) {
 	w, l, run := newReorderList(t)
-	l.OnClick = func(k Key) gunim.Intent { return rowClicked{k} }
+	l.OnActivate = func(k Key, u *gunim.UI) gunim.Intent { return rowClicked{k} }
 	back := keys(5)
 	slices.Reverse(back)
 	if err := w.Client().Update("l", shownItems{back}); err != nil {

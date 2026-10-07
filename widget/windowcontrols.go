@@ -66,7 +66,7 @@ type WindowControls struct {
 	hot     [4]*anim.Float
 	over    windowButton
 	down    windowButton
-	click   clicker
+	click   Clicker
 	// size, maxed and pinned are the buttons' size and whether the window was maximized and pinned, at the last
 	// layout.
 	size   geom.Size
@@ -186,11 +186,11 @@ func (c *WindowControls) Handle(e input.Event, u *gunim.UI) bool {
 			return false
 		}
 		c.down = c.buttonAt(e.Pos, size)
-		c.click.press(e, int(c.down))
+		c.click.Press(e, int(c.down))
 	case input.PointerUp:
 		at := c.buttonAt(e.Pos, size)
 		c.down = noButton
-		if at != noButton && c.click.release(e, int(at)) {
+		if at != noButton && c.click.Release(e, int(at)) {
 			c.act(at, u)
 		}
 	default:
@@ -279,6 +279,8 @@ func (c *WindowControls) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _
 // given, or at its start with AtStart. All of the room is title bar: a
 // press on it moves the window, and a double click maximizes it.
 type WindowTitle struct {
+	// Text is the title.
+	Text string
 	// AtStart puts the title at the start of its room, left in a
 	// left-to-right language, [WindowTitleInset] in from the edge.
 	AtStart bool
@@ -302,11 +304,8 @@ const WindowTitleInset = 14
 func NewWindowTitle(text string) *WindowTitle {
 	l := NewLabel(text)
 	l.MaxLines = 1
-	return &WindowTitle{label: l}
+	return &WindowTitle{Text: text, label: l}
 }
-
-// SetText changes the title.
-func (t *WindowTitle) SetText(text string) { t.label.SetText(text) }
 
 // Label is the label showing the title, to style.
 func (t *WindowTitle) Label() *Label { return t.label }
@@ -319,6 +318,7 @@ func (t *WindowTitle) Children() []gunim.Node { return []gunim.Node{t.label} }
 func (t *WindowTitle) Layout(cs gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
 	own := cs.Max
 	k := kids.At(0)
+	t.label.Text = t.Text
 	t.shown = f.Chromeless()
 	if !t.shown {
 		// The system's title bar says it, or on a phone the system's

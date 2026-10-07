@@ -20,8 +20,8 @@ func numberStage(t *testing.T, n *NumberField) (*gunim.Window, func(int)) {
 
 func TestNumberFieldStepsWithTheArrows(t *testing.T) {
 	n := NewNumberField(0, 512)
-	n.SetValue(10)
-	n.OnChange = func(v float64) gunim.Intent { return numbered{v} }
+	n.SetValue(10, nil)
+	n.OnChange = func(v float64, u *gunim.UI) gunim.Intent { return numbered{v} }
 	w, run := numberStage(t, n)
 
 	w.Input(input.KeyPress{Key: input.KeyUp})
@@ -42,7 +42,7 @@ func TestNumberFieldStepsWithTheArrows(t *testing.T) {
 
 func TestNumberFieldHoldsToItsBounds(t *testing.T) {
 	n := NewNumberField(1, 16)
-	n.SetValue(16)
+	n.SetValue(16, nil)
 	w, run := numberStage(t, n)
 	for range 3 {
 		w.Input(input.KeyPress{Key: input.KeyUp})
@@ -51,7 +51,7 @@ func TestNumberFieldHoldsToItsBounds(t *testing.T) {
 	if n.Value() != 16 {
 		t.Fatalf("stepping past the top gave %v, want 16", n.Value())
 	}
-	n.SetValue(99)
+	n.SetValue(99, nil)
 	if n.Value() != 16 {
 		t.Fatalf("SetValue past the top gave %v, want 16", n.Value())
 	}
@@ -61,7 +61,7 @@ func TestNumberFieldLeavesHalfTypedTextAlone(t *testing.T) {
 	// Clearing the field to retype it must not snap back to the
 	// minimum under the fingers.
 	n := NewNumberField(1, 512)
-	n.SetValue(120)
+	n.SetValue(120, nil)
 	w, run := numberStage(t, n)
 	for range 3 {
 		w.Input(input.KeyPress{Key: input.KeyBackspace})
@@ -79,7 +79,7 @@ func TestNumberFieldLeavesHalfTypedTextAlone(t *testing.T) {
 
 func TestNumberFieldSettlesWhenItLosesFocus(t *testing.T) {
 	n := NewNumberField(10, 100)
-	n.SetValue(50)
+	n.SetValue(50, nil)
 	w, run := numberStage(t, n)
 	for range 2 {
 		w.Input(input.KeyPress{Key: input.KeyBackspace})
@@ -101,7 +101,7 @@ func TestNumberFieldSettlesWhenItLosesFocus(t *testing.T) {
 
 func TestNumberFieldTurnsWithTheWheel(t *testing.T) {
 	n := NewNumberField(0, 255)
-	n.SetValue(100)
+	n.SetValue(100, nil)
 	n.Step = 5
 	w, run := numberStage(t, n)
 	// The wheel turned up scrolls toward the top, a positive Delta.Y.
@@ -119,8 +119,8 @@ func TestNumberFieldTurnsWithTheWheel(t *testing.T) {
 
 func TestANumberFieldWithoutTheKeyboardLeavesTheWheelToWhatScrolls(t *testing.T) {
 	n := NewNumberField(0, 255)
-	n.SetValue(100)
-	n.OnChange = func(v float64) gunim.Intent { return numbered{v} }
+	n.SetValue(100, nil)
+	n.OnChange = func(v float64, u *gunim.UI) gunim.Intent { return numbered{v} }
 	w, run := stage(t, &frame{child: n, size: geom.Sz(200, 32)})
 	w.Input(input.Scroll{Pos: geom.Pt(100, 16), Delta: geom.Pt(0, 1)})
 	run(1)
@@ -131,8 +131,8 @@ func TestANumberFieldWithoutTheKeyboardLeavesTheWheelToWhatScrolls(t *testing.T)
 
 func TestADisabledNumberFieldTakesNoWheelOrKeys(t *testing.T) {
 	n := NewNumberField(0, 255)
-	n.SetValue(100)
-	n.OnChange = func(v float64) gunim.Intent { return numbered{v} }
+	n.SetValue(100, nil)
+	n.OnChange = func(v float64, u *gunim.UI) gunim.Intent { return numbered{v} }
 	w, run := numberStage(t, n)
 	n.Disabled = true
 	run(1)
@@ -141,7 +141,7 @@ func TestADisabledNumberFieldTakesNoWheelOrKeys(t *testing.T) {
 		w.Input(input.KeyPress{Key: k})
 		w.Input(input.KeyPress{Key: k})
 	}
-	n.SetText("300")
+	n.SetText("300", nil)
 	w.Input(input.KeyPress{Key: input.KeyEnter})
 	run(1)
 	if got := sent(w); n.Value() != 100 || len(got) != 0 {
@@ -152,7 +152,7 @@ func TestADisabledNumberFieldTakesNoWheelOrKeys(t *testing.T) {
 func TestNumberFieldWritesDecimalsAndASuffix(t *testing.T) {
 	n := NewNumberField(20, 999)
 	n.Decimals, n.Suffix, n.Step = 2, " BPM", 0.5
-	n.SetValue(128)
+	n.SetValue(128, nil)
 	if n.Text() != "128.00 BPM" {
 		t.Fatalf("the text reads %q", n.Text())
 	}

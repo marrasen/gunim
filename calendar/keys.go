@@ -123,7 +123,7 @@ func (s *swipe) step(e input.Scroll, vertical bool) int {
 // eventKeys acts on a key for a view that lets the keys move between its events: the arrows move the choice,
 // Enter opens the event chosen, Delete deletes it, and Escape lets it go. It reports whether it took the key.
 func eventKeys(k input.KeyPress, u *gunim.UI, n gunim.Node, stops []stop, selected string, sel func(id string),
-	open func(id string, box geom.Rect, u *gunim.UI), onDelete func(id string) gunim.Intent,
+	open func(id string, box geom.Rect, u *gunim.UI) gunim.Intent, onDelete func(id string, u *gunim.UI) gunim.Intent,
 ) bool {
 	switch k.Key {
 	case input.KeyUp, input.KeyDown, input.KeyLeft, input.KeyRight:
@@ -141,7 +141,7 @@ func eventKeys(k input.KeyPress, u *gunim.UI, n gunim.Node, stops []stop, select
 		}
 		for _, s := range stops {
 			if s.id == selected {
-				open(s.id, s.box, u)
+				send(u, n, open(s.id, s.box, u))
 			}
 		}
 		return true
@@ -149,7 +149,7 @@ func eventKeys(k input.KeyPress, u *gunim.UI, n gunim.Node, stops []stop, select
 		if selected == "" || onDelete == nil {
 			return false
 		}
-		u.Send(n, onDelete(selected))
+		send(u, n, onDelete(selected, u))
 		return true
 	case input.KeyEscape:
 		if selected == "" {

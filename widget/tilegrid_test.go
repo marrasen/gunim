@@ -33,9 +33,9 @@ func tileStage(t *testing.T, n int) (g *TileGrid, w *gunim.Window, run func(int)
 	t.Helper()
 	g = NewTileGrid(geom.Sz(80, 60))
 	g.Tile = func(int) gunim.Node { return &blank{} }
-	g.OnSelect = func(sel [][2]int, cursor int) gunim.Intent { return tilesPicked{sel, cursor} }
-	g.OnActivate = func(i int) gunim.Intent { return tileOpened{i} }
-	g.OnView = func(first, count int) gunim.Intent { return tilesInView{first, count} }
+	g.OnSelect = func(sel [][2]int, cursor int, u *gunim.UI) gunim.Intent { return tilesPicked{sel, cursor} }
+	g.OnActivate = func(i int, u *gunim.UI) gunim.Intent { return tileOpened{i} }
+	g.OnView = func(first, count int, u *gunim.UI) gunim.Intent { return tilesInView{first, count} }
 	g.n = n
 	w, run = stage(t, &frame{child: g, size: geom.Sz(400, 300)})
 	run(2)
@@ -230,7 +230,7 @@ func TestTileGridArrivesFromWhereItIsTold(t *testing.T) {
 func TestTileGridTakesCtrlWithTheWheel(t *testing.T) {
 	g, w, run := tileStage(t, 8)
 	var got float32
-	g.OnZoom = func(n float32, _ *gunim.UI) { got += n }
+	g.OnZoom = func(n float32, _ *gunim.UI) gunim.Intent { got += n; return nil }
 	w.Input(input.Scroll{Pos: tileAt(1), Notches: geom.Pt(0, 2), Mods: input.ModControl, Time: time.Now()})
 	run(1)
 	if got != 2 || !g.ZoomsWithWheel() {

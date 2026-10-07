@@ -37,23 +37,28 @@ const (
 // A click on an emoji, or Enter for the first one showing, picks it. Escape, a click outside or the window losing the
 // keyboard closes the picker, and the keyboard goes back where it was.
 type EmojiPicker struct {
-	// Pick runs with the emoji chosen, once the picker has closed.
-	Pick func(emoji string, u *gunim.UI)
+	// OnPick runs on the UI goroutine with the emoji chosen, once the picker has closed. A non-nil result is sent
+	// to the application as an intent from the node that opened the picker.
+	OnPick func(emoji string, u *gunim.UI) gunim.Intent
 	// Recent holds the emoji picked last, the latest first, which show in a group of their own at the top. The
 	// picker keeps it; an application may set it from what it saved, to keep it from one run to the next.
 	Recent []string
 
 	popup *gunim.Popup
 	card  *emojiCard
-	back  gunim.Node
+	// back is what had the keyboard before the picker opened, and opener the node it opened from.
+	back, opener gunim.Node
 }
+
+// NewEmojiPicker returns a closed picker with no recent emoji.
+func NewEmojiPicker() *EmojiPicker { return &EmojiPicker{} }
 
 // Open opens the picker in a popup attached to anchor, a rectangle in opener's space.
 func (e *EmojiPicker) Open(opener gunim.Node, anchor geom.Rect, u *gunim.UI) {
 	if e.IsOpen() {
 		return
 	}
-	e.back = u.Focused()
+	e.back, e.opener = u.Focused(), opener
 	e.card = newEmojiCard(e)
 	e.popup = u.OpenPopup(opener, e.card, gunim.PopupOptions{Anchor: anchor, Max: geom.Sz(800, 900), Dismiss: e.Close})
 	e.card.filter("", u)
@@ -83,8 +88,8 @@ func (e *EmojiPicker) pick(s string, u *gunim.UI) {
 	e.Recent = append([]string{s}, slices.DeleteFunc(slices.Clone(e.Recent), func(r string) bool { return r == s })...)
 	e.Recent = e.Recent[:min(len(e.Recent), maxRecent)]
 	e.Close(u)
-	if e.Pick != nil {
-		e.Pick(s, u)
+	if e.OnPick != nil {
+		send(u, e.opener, e.OnPick(s, u))
 	}
 }
 
@@ -145,7 +150,10 @@ func (c *emojiCard) FitPopup(r driver.Room) {
 func newEmojiCard(p *EmojiPicker) *emojiCard {
 	c := &emojiCard{p: p, field: NewTextField(), in: anim.NewFloat(0), rows: map[Key]pickerRow{}}
 	c.field.Placeholder = "Search emoji"
-	c.field.OnEdit = c.filter
+	c.field.OnChange = func(q string, u *gunim.UI) gunim.Intent {
+		c.filter(q, u)
+		return nil
+	}
 	c.list = NewVirtualList(func(k Key) gunim.Node { return &emojiRow{c: c, row: c.rows[k], hover: -1} })
 	c.list.Spacing = zeroSpacing
 	c.list.Estimate = EmojiCell.Default()
@@ -444,7 +452,7 @@ type emojiTabs struct {
 	at    *anim.Float
 	laid  bool
 	shown int
-	click clicker
+	click Clicker
 }
 
 // Layout implements [gunim.Node].
@@ -514,10 +522,10 @@ func (t *emojiTabs) Handle(e input.Event, u *gunim.UI) bool {
 		u.Invalidate()
 	case input.PointerDown:
 		i := t.tabAt(e.Pos)
-		t.click.press(e, i)
+		t.click.Press(e, i)
 		return i >= 0 && e.Button == input.ButtonPrimary
 	case input.PointerUp:
-		if i := t.tabAt(e.Pos); t.click.release(e, i) {
+		if i := t.tabAt(e.Pos); t.click.Release(e, i) {
 			t.c.list.ScrollToKey(t.groups[i].key, u)
 		}
 		return true
@@ -537,7 +545,7 @@ type emojiRow struct {
 	size  float32
 	cell  float32
 	hover int
-	click clicker
+	click Clicker
 }
 
 // Layout implements [gunim.Node].
@@ -602,12 +610,12 @@ func (r *emojiRow) Handle(e input.Event, u *gunim.UI) bool {
 		u.Invalidate()
 	case input.PointerDown:
 		i := r.at(e.Pos)
-		r.click.press(e, i)
+		r.click.Press(e, i)
 		return i >= 0 && e.Button == input.ButtonPrimary
 	case input.PointerUp:
 		// A click picks the emoji it lets go on, the one it pressed, so a
 		// finger that lands on one to scroll the list picks nothing.
-		if i := r.at(e.Pos); r.click.release(e, i) {
+		if i := r.at(e.Pos); r.click.Release(e, i) {
 			r.c.p.pick(r.row.emoji[i].Text, u)
 		}
 		return true

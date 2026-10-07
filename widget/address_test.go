@@ -15,7 +15,7 @@ type wentTo struct{ path string }
 
 func TestAnAddressBarsPlacesAreOneTabStopAndEnterGoesThere(t *testing.T) {
 	a := NewAddressBar()
-	a.OnGo = func(path string) gunim.Intent { return wentTo{path} }
+	a.OnGo = func(path string, u *gunim.UI) gunim.Intent { return wentTo{path} }
 	after := NewButton("After")
 	w, run := stage(t, &frame{child: Row(a, after).Grow(a, 1), size: geom.Sz(600, 40)})
 	focused := focusProbe(t, w, run)
@@ -72,7 +72,7 @@ func TestAnAddressBarsPlacesAreOneTabStopAndEnterGoesThere(t *testing.T) {
 func addressStage(t *testing.T, width float32, cs []Crumb) (a *AddressBar, w *gunim.Window, run func(int), press func(input.Key)) {
 	t.Helper()
 	a = NewAddressBar()
-	a.OnGo = func(path string) gunim.Intent { return wentTo{path} }
+	a.OnGo = func(path string, u *gunim.UI) gunim.Intent { return wentTo{path} }
 	w, run = stage(t, &frame{child: Row(a).Grow(a, 1), size: geom.Sz(width, 40)})
 	type set struct{}
 	gunim.RegisterPatch(w, "stage", func(_ gunim.Node, _ set, u *gunim.UI) { a.SetPath(cs[len(cs)-1].Path, cs, u) })

@@ -15,7 +15,7 @@ func TestTabsTakeTheKeyboardOffAPageAsItHides(t *testing.T) {
 	a, b := NewTextField(), NewTextField()
 	tabs := NewTabs([]string{"One", "Two"}, Column(a), Column(b))
 	w, run := stage(t, &frame{child: tabs, size: geom.Sz(300, 200)})
-	gunim.RegisterPatch(w, "stage", func(_ gunim.Node, c chooseTab, u *gunim.UI) { tabs.Select(c.I, u) })
+	gunim.RegisterPatch(w, "stage", func(_ gunim.Node, c chooseTab, u *gunim.UI) { tabs.SetSelected(c.I, u) })
 	focused := focusProbe(t, w, run)
 	click(w, 20, tabs.head+10)
 	run(1)
@@ -73,7 +73,7 @@ func TestAControlDisabledWithTheKeyboardLetsItsRingGo(t *testing.T) {
 func TestASliderRowResetsOnlyAnEnabledSliderOnARelease(t *testing.T) {
 	s := NewSlider(-100, 100)
 	s.Rest, s.HasRest = 0, true
-	s.Set(80)
+	s.SetValue(80, nil)
 	row := NewSliderRow("Contrast", s)
 	w, run := stage(t, &frame{child: row, size: geom.Sz(300, 28)})
 	run(30)

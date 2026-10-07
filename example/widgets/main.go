@@ -148,7 +148,8 @@ func registerViews(w *gunim.Window) {
 	gunim.RegisterView(w, "confirm",
 		func(s Confirm) *widget.Dialog {
 			d := widget.NewDialog(s.Title)
-			d.Accept, d.Dismiss = Closed{}, Closed{}
+			d.OnAccept = widget.Sends(Closed{})
+			d.OnDismiss = widget.Sends(Closed{})
 			return d
 		}, nil)
 	gunim.RegisterView(w, "danger",
@@ -156,7 +157,8 @@ func registerViews(w *gunim.Window) {
 			d := widget.NewDialog(s.Title)
 			d.Danger = true
 			d.SetButtons("Delete", "Cancel")
-			d.Accept, d.Dismiss = Closed{}, Closed{}
+			d.OnAccept = widget.Sends(Closed{})
+			d.OnDismiss = widget.Sends(Closed{})
 			return d
 		}, nil)
 }
@@ -198,7 +200,7 @@ func (g *gallery) showToasts(u *gunim.UI) {
 		{Title: "Syncing", Body: "Your notes sync in the background.", Kind: widget.ToastInfo},
 		{Title: "Saved", Body: "The notes are saved.", Kind: widget.ToastSuccess},
 		{Title: "Disk almost full", Kind: widget.ToastWarning},
-		{Title: "Could not reach the server", Kind: widget.ToastError, Action: "Retry", On: ToastsAsked{}},
+		{Title: "Could not reach the server", Kind: widget.ToastError, Action: "Retry", OnClick: widget.Sends(ToastsAsked{})},
 	} {
 		g.toasts.Show(t, u)
 	}
@@ -212,10 +214,10 @@ func buildGallery(Gallery) *gallery {
 	search := widget.NewTextField()
 	search.Placeholder = "Filter"
 	search.Icon, search.Clearable = icon.Search, true
-	search.OnChange = func(s string) gunim.Intent { return Filtered{Text: s} }
+	search.OnChange = func(s string, u *gunim.UI) gunim.Intent { return Filtered{Text: s} }
 	toggle := widget.NewButton("Switch theme")
 	toggle.Icon = icon.SunMoon
-	toggle.On = ThemeToggled{}
+	toggle.OnClick = widget.Sends(ThemeToggled{})
 	// The heading and its tools wrap onto a second line where the window
 	// is too narrow for one, as on a phone.
 	header := widget.NewWrap(title, widget.NewSized(search, 220, 0), widget.NewIconButton(icon.Filter, "Filter"),
@@ -237,7 +239,7 @@ func buildGallery(Gallery) *gallery {
 
 	list := widget.NewList()
 	body := &galleryPage{parts: []gunim.Node{header, icons(), moreIcons(), callout, notes}, list: widget.NewScroll(list)}
-	return &gallery{page: widget.NewScroll(widget.NewPad(body)), body: body, list: list, toasts: &widget.Toasts{}}
+	return &gallery{page: widget.NewScroll(widget.NewPad(body)), body: body, list: list, toasts: widget.NewToasts()}
 }
 
 // minList is the least height the list of cards keeps, in logical
@@ -293,25 +295,28 @@ func moreIcons() *widget.Card {
 	tabs.Icons = []*icon.Icon{icon.Folder, icon.Search, icon.Settings}
 	chip := widget.NewChip("", "Pictures")
 	chip.Icon = icon.Image
-	view := widget.NewDropdown("List", "Grid")
-	view.Icons = []*icon.Icon{icon.List, icon.LayoutGrid}
+	view := widget.NewDropdown([]widget.MenuItem{{Label: "List", Icon: icon.List}, {Label: "Grid", Icon: icon.LayoutGrid}})
 	del := widget.NewButton("Delete notes")
-	del.Icon, del.Kind, del.On = icon.Trash2, widget.ButtonDanger, DeleteAsked{}
+	del.Icon, del.Kind = icon.Trash2, widget.ButtonDanger
+	del.OnClick = widget.Sends(DeleteAsked{})
 	again := widget.NewButton("Toasts")
-	again.Icon, again.On = icon.Bell, ToastsAsked{}
+	again.Icon = icon.Bell
+	again.OnClick = widget.Sends(ToastsAsked{})
 	tools := widget.NewToolbar(widget.NewIconButton(icon.Reply, "Reply"), widget.NewIconButton(icon.Pencil, "Edit"),
 		widget.NewIconButton(icon.Trash2, "Delete"))
 	share := widget.NewButton("Share")
-	share.Icon, share.On = icon.Share2, ShareAsked{}
+	share.Icon = icon.Share2
+	share.OnClick = widget.Sends(ShareAsked{})
 	buzz := widget.NewButton("Buzz")
-	buzz.Icon, buzz.On = icon.Vibrate, BuzzAsked{}
+	buzz.Icon = icon.Vibrate
+	buzz.OnClick = widget.Sends(BuzzAsked{})
 	controls := widget.NewWrap(chip, view, del, again, share, buzz, tools)
 	controls.Cross = widget.CrossCenter
 	rich := widget.NewRichText(
 		widget.RichSpan{Text: "Saved "},
 		widget.RichSpan{Icon: icon.CircleCheck, Ink: widget.ToastSuccessInk},
 		widget.RichSpan{Text: " to "},
-		widget.RichSpan{Icon: icon.FolderOpen, Text: "Documents", On: Opened{Item: "Documents"}},
+		widget.RichSpan{Icon: icon.FolderOpen, Text: "Documents", OnClick: widget.Sends(Opened{Item: "Documents"})},
 		widget.RichSpan{Text: ". Icons sit in rich text as words do, and one in a link is part of the link."},
 	)
 	doc := markdown.New("Markdown shows as **text**: *emphasis*, `code`, [links](https://example.com) and lists.\n\n" +
@@ -344,11 +349,12 @@ func icons() *widget.Card {
 		row = append(row, i)
 	}
 	again := widget.NewIconButton(icon.RotateCcw, "Draw the icons on again")
-	again.OnActivate(func(*gunim.UI) {
+	again.OnClick = func(*gunim.UI) gunim.Intent {
 		for _, i := range big {
 			i.DrawOn(1200 * time.Millisecond)
 		}
-	})
+		return nil
+	}
 	link := widget.NewLink("Open folder")
 	link.Icon = icon.FolderOpen
 	row = append(row, spin, again, link)
@@ -362,7 +368,7 @@ func newCard(item string) *widget.Card {
 	label := widget.NewLabel(item)
 	open := widget.NewButton("Open")
 	open.Icon = icon.ExternalLink
-	open.On = Opened{Item: item}
+	open.OnClick = widget.Sends(Opened{Item: item})
 	row := widget.Row(label, open).Grow(label, 1)
 	row.Cross = widget.CrossCenter
 	return widget.NewCard(row)

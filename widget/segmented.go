@@ -28,16 +28,17 @@ var (
 // too long for its share ends in an ellipsis.
 type Segmented struct {
 	anim.Group
-	// Labels and Icons are the options, in order: an icon, a label or both. The longer of the two sets how many
-	// options there are.
-	Labels []string
-	Icons  []*icon.Icon
+	// Items are the options' labels and Icons their icons, in order: an icon, a label or both. The longer
+	// of the two sets how many options there are.
+	Items []string
+	Icons []*icon.Icon
 	// IconSize, when set, is the icons' size in place of [IconSize].
 	IconSize theme.Token[float32]
 	// Track, when set, fills the track in place of [FieldFill].
 	Track theme.Token[color.NRGBA]
-	// OnChange turns the option chosen into an intent for the application.
-	OnChange func(i int) gunim.Intent
+	// OnChange runs on the UI goroutine when the user chooses an option; a non-nil result is sent to the
+	// application as the control's intent.
+	OnChange func(i int, u *gunim.UI) gunim.Intent
 	// KeepFocus leaves the keyboard where it is when the control is clicked; Tab still reaches it.
 	KeepFocus bool
 
@@ -48,7 +49,7 @@ type Segmented struct {
 	// hot is the option under the pointer, or -1.
 	hot    int
 	laid   bool
-	click  clicker
+	click  Clicker
 	shaped []shapedText
 	ell    shapedText
 	// width is each option's width, and size the control's, from the last layout.
@@ -58,30 +59,29 @@ type Segmented struct {
 
 // NewSegmented returns a segmented control of labels, the first chosen.
 func NewSegmented(labels ...string) *Segmented {
-	s := &Segmented{Labels: labels, pill: anim.NewFloat(0), ring: anim.NewFloat(0), hot: -1}
+	s := &Segmented{Items: labels, pill: anim.NewFloat(0), ring: anim.NewFloat(0), hot: -1}
 	s.Add(s.pill, s.ring)
 	return s
 }
 
 // Len returns how many options there are.
-func (s *Segmented) Len() int { return max(len(s.Labels), len(s.Icons)) }
+func (s *Segmented) Len() int { return max(len(s.Items), len(s.Icons)) }
 
 // Selected returns the chosen option.
 func (s *Segmented) Selected() int { return s.selected }
 
-// SetSelected chooses option i without an intent. Call it from a view's update function; the pill springs to it. Before
-// the control is mounted, as a view builds it, u may be nil: the pill starts on i.
+// SetSelected chooses option i and sends no intent. Once the control is laid out the pill springs to it; before
+// that, or with a nil u, it jumps.
 func (s *Segmented) SetSelected(i int, u *gunim.UI) {
 	if i < 0 || i >= s.Len() || i == s.selected {
 		return
 	}
 	s.selected = i
-	if u == nil {
+	if !s.laid || u == nil {
+		s.pill.Jump(float32(i))
 		return
 	}
-	if s.laid {
-		s.pill.Animate(float32(i), Bounce.Get(u.Theme()))
-	}
+	s.pill.Animate(float32(i), Bounce.Get(u.Theme()))
 	u.Invalidate()
 }
 
@@ -93,7 +93,7 @@ func (s *Segmented) choose(i int, u *gunim.UI) {
 	s.SetSelected(i, u)
 	u.Cue(gunim.CueSelect, s)
 	if s.OnChange != nil {
-		u.Send(s, s.OnChange(i))
+		send(u, s, s.OnChange(i, u))
 	}
 }
 
@@ -128,10 +128,10 @@ func (s *Segmented) Handle(e input.Event, u *gunim.UI) bool {
 		if e.Button != input.ButtonPrimary {
 			return false
 		}
-		s.click.press(e, s.at(e.Pos.X))
+		s.click.Press(e, s.at(e.Pos.X))
 	case input.PointerUp:
 		// A click chooses the option it lets go on, the one it pressed.
-		if i := s.at(e.Pos.X); s.click.release(e, i) && e.Pos.Y >= 0 && e.Pos.Y < s.size.H {
+		if i := s.at(e.Pos.X); s.click.Release(e, i) && e.Pos.Y >= 0 && e.Pos.Y < s.size.H {
 			s.choose(i, u)
 		}
 	case input.KeyPress:
@@ -171,10 +171,10 @@ func (s *Segmented) icon(i int) *icon.Icon {
 
 // label returns option i's label, or "".
 func (s *Segmented) label(i int) string {
-	if i < 0 || i >= len(s.Labels) {
+	if i < 0 || i >= len(s.Items) {
 		return ""
 	}
-	return s.Labels[i]
+	return s.Items[i]
 }
 
 // iconSize is the size the control draws its icons at.
@@ -230,7 +230,7 @@ func (s *Segmented) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ guni
 	th := f.Theme
 	h := box.H
 	track := geom.Rect{Max: box.Point()}
-	focusRing(p, track, h/2, s.ring.Value(), th)
+	FocusRing(p, track, h/2, s.ring.Value(), th)
 	fill := FieldFill.Get(th)
 	if s.Track.Key() != "" {
 		fill = s.Track.Get(th)

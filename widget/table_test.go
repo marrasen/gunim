@@ -24,13 +24,14 @@ func newTableStage(t *testing.T, n int) (*gunim.Window, *Table, *tableEvents, fu
 	ev := &tableEvents{}
 	tbl := NewTable(TableColumn{Title: "Name"}, TableColumn{Title: "Size", Width: 100, End: true})
 	tbl.Row = func(k Key) TableRow { return TableRow{Cells: []string{"row " + string(k), string(k) + " KB"}} }
-	tbl.OnActivate = func(k Key, _ *gunim.UI) { ev.activated = append(ev.activated, k) }
-	tbl.OnSort = func(col int, desc bool, _ *gunim.UI) {
+	tbl.OnActivate = func(k Key, _ *gunim.UI) gunim.Intent { ev.activated = append(ev.activated, k); return nil }
+	tbl.OnSort = func(col int, desc bool, _ *gunim.UI) gunim.Intent {
 		d := 0
 		if desc {
 			d = 1
 		}
 		ev.sorts = append(ev.sorts, [2]int{col, d})
+		return nil
 	}
 	keys := make([]Key, n)
 	for i := range keys {

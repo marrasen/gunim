@@ -30,28 +30,29 @@ func newQuickCard(d Draft, left bool, done, more func(*gunim.UI)) *quickCard {
 	q := &quickCard{d: d, done: done}
 	q.name = widget.NewTextField()
 	q.name.Placeholder = "Add a title"
-	var names []string
+	cals := make([]widget.MenuItem, 0, len(d.Calendars))
 	for _, c := range d.Calendars {
-		names = append(names, c.Name)
+		cals = append(cals, widget.MenuItem{Label: c.Name, Swatch: c.Color})
 	}
-	q.cal = widget.NewDropdown(names...)
-	q.cal.Selected = max(slices.IndexFunc(d.Calendars, func(c Calendar) bool { return c.ID == d.Calendar }), 0)
-	for _, c := range d.Calendars {
-		q.cal.Swatches = append(q.cal.Swatches, c.Color)
-	}
+	q.cal = widget.NewDropdown(cals)
+	q.cal.SetSelected(max(slices.IndexFunc(d.Calendars, func(c Calendar) bool { return c.ID == d.Calendar }), 0), nil)
 	ev := calendar.Event{Start: d.Start, End: d.End, AllDay: d.AllDay}
 	day, hours := when2(ev)
 	whenLabel := widget.NewLabel(day + " · " + hours)
 	whenLabel.Color, whenLabel.MaxLines = widget.PaletteHint, 2
 	options := widget.NewButton("More options")
 	options.Ghost = true
-	options.OnActivate(func(u *gunim.UI) {
+	options.OnClick = func(u *gunim.UI) gunim.Intent {
 		u.Send(q, MoreAsked{Draft: q.draft()})
 		more(u)
-	})
+		return nil
+	}
 	save := widget.NewButton("Save")
 	save.Kind = widget.ButtonPrimary
-	save.OnActivate(func(u *gunim.UI) { q.save(u) })
+	save.OnClick = func(u *gunim.UI) gunim.Intent {
+		q.save(u)
+		return nil
+	}
 	spacer := widget.NewSpacer()
 	buttons := widget.Row(options, spacer, save).Grow(spacer, 1)
 	buttons.Cross = widget.CrossCenter
@@ -65,8 +66,8 @@ func newQuickCard(d Draft, left bool, done, more func(*gunim.UI)) *quickCard {
 func (q *quickCard) draft() Draft {
 	d := q.d
 	d.Title = strings.TrimSpace(q.name.Text())
-	if q.cal.Selected < len(d.Calendars) {
-		d.Calendar = d.Calendars[q.cal.Selected].ID
+	if q.cal.Selected() < len(d.Calendars) {
+		d.Calendar = d.Calendars[q.cal.Selected()].ID
 	}
 	if d.AllDay {
 		// The editor and save take an all-day event's end as its last day.

@@ -22,11 +22,11 @@ func newBarStage(t *testing.T) (*gunim.Window, *Menubar, *TextField, *[]barPick,
 	t.Helper()
 	var picks []barPick
 	b := NewMenubar(
-		BarMenu{Title: "File", Items: []string{"New", "Open", "Quit"}, Breaks: []int{2}},
-		BarMenu{Title: "Edit", Items: []string{"Copy", "Paste", "Select All"}, Disabled: []bool{true}, Hints: []string{"Ctrl+C", "Ctrl+V"}},
-		BarMenu{Title: "View", Items: []string{"Sidebar"}, Checked: []bool{true}},
+		BarMenu{Title: "File", Items: []MenuItem{{Label: "New"}, {Label: "Open"}, {Label: "Quit", Break: true}}},
+		BarMenu{Title: "Edit", Items: []MenuItem{{Label: "Copy", Hint: "Ctrl+C", Disabled: true}, {Label: "Paste", Hint: "Ctrl+V"}, {Label: "Select All"}}},
+		BarMenu{Title: "View", Items: []MenuItem{{Label: "Sidebar", Checked: true}}},
 	)
-	b.Pick = func(m, i int, _ *gunim.UI) { picks = append(picks, barPick{m, i}) }
+	b.OnPick = func(m, i int, _ *gunim.UI) gunim.Intent { picks = append(picks, barPick{m, i}); return nil }
 	field := NewTextField()
 	col := Column(b, field)
 	col.Cross = CrossStretch
@@ -113,8 +113,7 @@ func TestAMenuFindsItemsBelowALine(t *testing.T) {
 }
 
 func TestTheKeysPassACaptionBy(t *testing.T) {
-	m := NewMenu("Split", "Right", "Down")
-	m.Captions = []int{0}
+	m := NewMenu([]MenuItem{{Label: "Split", Caption: true}, {Label: "Right"}, {Label: "Down"}})
 	m.Key(input.KeyPress{Key: input.KeyDown}, nil)
 	if m.Highlighted() != 1 {
 		t.Fatalf("Down from nothing highlighted %d, want Right, past the caption", m.Highlighted())
@@ -133,7 +132,7 @@ func TestTheKeysPassACaptionBy(t *testing.T) {
 func TestAMenubarSaysWhatIsHighlighted(t *testing.T) {
 	w, b, _, _, run := newBarStage(t)
 	var lit []barPick
-	b.OnHighlight = func(m, i int, _ *gunim.UI) { lit = append(lit, barPick{m, i}) }
+	b.OnHighlight = func(m, i int, _ *gunim.UI) gunim.Intent { lit = append(lit, barPick{m, i}); return nil }
 	file := b.span(0)
 	clickAt(w, run, geom.Pt((file[0]+file[1])/2, 15))
 	w.Input(input.KeyPress{Key: input.KeyDown})
@@ -271,11 +270,11 @@ func (k *f10) Paint(*paint.Painter, gunim.Frame, geom.Size, gunim.Children) {}
 func TestF10OpensACompactMenubarsListWithTheKeysOnIt(t *testing.T) {
 	var picks []barPick
 	b := NewMenubar(
-		BarMenu{Title: "File", Items: []string{"New"}},
-		BarMenu{Title: "Edit", Items: []string{"Copy", "Paste"}, Disabled: []bool{true}},
+		BarMenu{Title: "File", Items: Labels("New")},
+		BarMenu{Title: "Edit", Items: []MenuItem{{Label: "Copy", Disabled: true}, {Label: "Paste"}}},
 	)
 	b.Compact = true
-	b.Pick = func(m, i int, _ *gunim.UI) { picks = append(picks, barPick{m, i}) }
+	b.OnPick = func(m, i int, _ *gunim.UI) gunim.Intent { picks = append(picks, barPick{m, i}); return nil }
 	col := Column(b, &f10{open: func(u *gunim.UI) { b.Open(0, u) }})
 	col.Cross = CrossStretch
 	w, run := stage(t, &frame{child: col, size: geom.Sz(600, 400)})
@@ -411,11 +410,11 @@ func newAreaStage(t *testing.T, lines int, area geom.Rect) (w *gunim.Window, b *
 	t.Helper()
 	tall := BarMenu{Title: "Font"}
 	for i := range lines {
-		tall.Items = append(tall.Items, fmt.Sprintf("Font %d", i))
+		tall.Items = append(tall.Items, MenuItem{Label: fmt.Sprintf("Font %d", i)})
 	}
 	b = NewMenubar(
-		BarMenu{Title: "File", Items: []string{"New", "Open", "Quit"}},
-		BarMenu{Title: "Edit", Items: []string{"Copy", "Paste"}},
+		BarMenu{Title: "File", Items: Labels("New", "Open", "Quit")},
+		BarMenu{Title: "Edit", Items: Labels("Copy", "Paste")},
 		tall,
 	)
 	b.Compact = true
@@ -579,11 +578,11 @@ func TestACompactMenubarsListFitsItselfAgainWhereTheWindowMoves(t *testing.T) {
 func TestACompactMenubarsLinePickedByItsKeyIsPicked(t *testing.T) {
 	var picks []barPick
 	b := NewMenubar(
-		BarMenu{Title: "&File", Items: []string{"&New", "&Open"}},
-		BarMenu{Title: "&Edit", Items: []string{"&Copy", "&Paste"}},
+		BarMenu{Title: "&File", Items: Labels("&New", "&Open")},
+		BarMenu{Title: "&Edit", Items: Labels("&Copy", "&Paste")},
 	)
 	b.Compact = true
-	b.Pick = func(m, i int, _ *gunim.UI) { picks = append(picks, barPick{m, i}) }
+	b.OnPick = func(m, i int, _ *gunim.UI) gunim.Intent { picks = append(picks, barPick{m, i}); return nil }
 	col := Column(b)
 	col.Cross = CrossStretch
 	w, run := stage(t, &frame{child: col, size: geom.Sz(600, 400), keysGoOn: true})
@@ -709,7 +708,7 @@ func TestAMenuTallerThanTheWholeScreenScrollsBesideACompactMenubarsList(t *testi
 }
 
 func TestACompactMenubarCutsItsSubtitleShortAtTheBarsEnd(t *testing.T) {
-	b := NewMenubar(BarMenu{Title: "File", Items: []string{"New"}})
+	b := NewMenubar(BarMenu{Title: "File", Items: Labels("New")})
 	b.Compact = true
 	b.Title, b.Subtitle = "Notes", strings.Repeat("a long subtitle ", 20)
 	spy := &opsSpy{child: b, size: geom.Sz(300, 30)}

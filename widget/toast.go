@@ -44,10 +44,11 @@ const toastBodyLines = 3
 type Toast struct {
 	Title string
 	Body  string
-	// Action names a link on the toast, such as Undo, and On is the
-	// intent a click on it sends. The toast goes once it is clicked.
-	Action string
-	On     gunim.Intent
+	// Action names a link on the toast, such as Undo, and OnClick runs on
+	// the UI goroutine when it is clicked; a non-nil result is sent as the
+	// toast's intent. The toast goes once it is clicked.
+	Action  string
+	OnClick func(u *gunim.UI) gunim.Intent
 	// Kind picks the icon before the title and its colour. The plain kind shows none.
 	Kind ToastKind
 	// Icon, when set, replaces the kind's icon. A plain toast shows it in the ink.
@@ -62,19 +63,21 @@ type Toast struct {
 	// shown or clicked; Tab still reaches them.
 	Buttons []ToastButton
 	// Check, when not empty, labels a tick box above the buttons. The
-	// intents of the buttons and of Dismiss hear whether it is ticked.
+	// buttons' OnClick and OnDismiss hear whether it is ticked.
 	Check string
-	// Dismiss makes the intent the close button of a toast that asks
-	// sends, told whether the tick box is ticked. Nil sends none.
-	Dismiss func(checked bool) gunim.Intent
+	// OnDismiss runs on the UI goroutine when the close button of a toast
+	// that asks is clicked, told whether the tick box is ticked; a non-nil
+	// result is sent as the toast's intent.
+	OnDismiss func(checked bool, u *gunim.UI) gunim.Intent
 }
 
 // ToastButton is a button of a [Toast] that asks.
 type ToastButton struct {
 	Label string
-	// On makes the intent a click sends, told whether the toast's tick
-	// box is ticked. Nil sends none. The toast goes once it is clicked.
-	On func(checked bool) gunim.Intent
+	// OnClick runs on the UI goroutine when the button is clicked, told
+	// whether the toast's tick box is ticked; a non-nil result is sent as
+	// the toast's intent. The toast goes once it is clicked.
+	OnClick func(checked bool, u *gunim.UI) gunim.Intent
 }
 
 // ToastKind says what a [Toast] reports, and picks its icon and colour.
@@ -148,6 +151,9 @@ type Toasts struct {
 	more *toastMore
 	skip int
 }
+
+// NewToasts returns an empty stack of toasts, each staying five seconds.
+func NewToasts() *Toasts { return &Toasts{} }
 
 // Show adds a toast to the stack. One with the key of a toast showing
 // takes its place. A toast that asks stays until it is answered.
@@ -351,7 +357,7 @@ type toastMore struct {
 	hover *anim.Float
 	text  shapedText
 	size  geom.Size
-	click clicker
+	click Clicker
 }
 
 func newToastMore(t *Toasts) *toastMore {
@@ -396,9 +402,9 @@ func (m *toastMore) Handle(e input.Event, u *gunim.UI) bool {
 	case input.PointerLeave:
 		m.hover.Animate(0, Settle.Get(u.Theme()))
 	case input.PointerDown:
-		m.click.press(e, over(e.Pos, m.size))
+		m.click.Press(e, over(e.Pos, m.size))
 	case input.PointerUp:
-		if m.click.release(e, over(e.Pos, m.size)) {
+		if m.click.Release(e, over(e.Pos, m.size)) {
 			m.owner.page(u)
 		}
 	default:
@@ -446,7 +452,7 @@ type toastCard struct {
 	// size is the card's size at its last layout, for telling a release
 	// on it from one off it.
 	size  geom.Size
-	click clicker
+	click Clicker
 }
 
 func newToastCard(t *Toasts, to Toast) *toastCard {
@@ -457,8 +463,14 @@ func newToastCard(t *Toasts, to Toast) *toastCard {
 	c.Add(c.in, c.y, c.hover, c.shown)
 	if to.Action != "" {
 		c.action = NewLink(to.Action)
-		c.action.On = to.On
-		c.action.OnActivate(func(u *gunim.UI) { t.dismiss(c, u) })
+		on := to.OnClick
+		c.action.OnClick = func(u *gunim.UI) gunim.Intent {
+			t.dismiss(c, u)
+			if on == nil {
+				return nil
+			}
+			return on(u)
+		}
 	}
 	c.key = to.Key
 	if len(to.Buttons) > 0 {
@@ -479,7 +491,7 @@ func newToastCard(t *Toasts, to Toast) *toastCard {
 // ask gives the card the buttons, the close button and the tick box of
 // a toast that asks. None of them takes the keyboard when clicked.
 func (c *toastCard) ask(to Toast) {
-	checked := func() bool { return c.check != nil && c.check.On }
+	checked := func() bool { return c.check != nil && c.check.Checked() }
 	if to.Check != "" {
 		c.check = NewCheckbox(to.Check)
 		c.check.KeepFocus = true
@@ -491,15 +503,14 @@ func (c *toastCard) ask(to Toast) {
 		if i == 0 {
 			b.Kind = ButtonPrimary
 		}
-		on := tb.On
-		b.OnActivate(func(u *gunim.UI) {
+		on := tb.OnClick
+		b.OnClick = func(u *gunim.UI) gunim.Intent {
 			if on != nil {
-				if in := on(checked()); in != nil {
-					u.Send(c, in)
-				}
+				send(u, c, on(checked(), u))
 			}
 			c.owner.dismiss(c, u)
-		})
+			return nil
+		}
 		kids = append(kids, b)
 	}
 	c.buttons = Row(kids...)
@@ -507,15 +518,14 @@ func (c *toastCard) ask(to Toast) {
 	c.buttons.Gap = Gap
 	c.close = NewIconButton(icon.X, "Close")
 	c.close.KeepFocus = true
-	dismiss := to.Dismiss
-	c.close.OnActivate(func(u *gunim.UI) {
+	dismiss := to.OnDismiss
+	c.close.OnClick = func(u *gunim.UI) gunim.Intent {
 		if dismiss != nil {
-			if in := dismiss(checked()); in != nil {
-				u.Send(c, in)
-			}
+			send(u, c, dismiss(checked(), u))
 		}
 		c.owner.dismiss(c, u)
-	})
+		return nil
+	}
 }
 
 // asks reports whether the card is of a toast that asks.
@@ -685,9 +695,9 @@ func (c *toastCard) Handle(e input.Event, u *gunim.UI) bool {
 		c.hover.Animate(0, Settle.Get(u.Theme()))
 		u.Invalidate()
 	case input.PointerDown:
-		c.click.press(e, 0)
+		c.click.Press(e, 0)
 	case input.PointerUp:
-		if c.click.release(e, over(e.Pos, c.size)) && !c.asks() {
+		if c.click.Release(e, over(e.Pos, c.size)) && !c.asks() {
 			c.owner.dismiss(c, u)
 		}
 	default:

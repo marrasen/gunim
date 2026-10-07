@@ -17,7 +17,7 @@ type selectTwo struct{}
 
 func TestASegmentedControlChoosesByClickAndArrows(t *testing.T) {
 	s := NewSegmented("One", "Two", "Three")
-	s.OnChange = func(i int) gunim.Intent { return segmentChosen{i} }
+	s.OnChange = func(i int, u *gunim.UI) gunim.Intent { return segmentChosen{i} }
 	w, run := stage(t, &frame{child: Row(s), size: geom.Sz(600, 40)})
 	run(1)
 	click(w, s.width*2.5, 14)
@@ -97,7 +97,7 @@ func TestASegmentedControlThatKeepsFocusLeavesTheKeyboardOnAClick(t *testing.T) 
 
 func TestASegmentedFitsTheWidthItIsGiven(t *testing.T) {
 	s := NewSegmented("Auto", "VNG", "PPG", "AHD", "Rebuild everything")
-	s.OnChange = func(i int) gunim.Intent { return segmentChosen{i} }
+	s.OnChange = func(i int, u *gunim.UI) gunim.Intent { return segmentChosen{i} }
 	w, run := stage(t, &frame{child: &sized{w: 200, child: s}, size: geom.Sz(400, 100)})
 	run(2)
 	if s.size.W != 200 || s.width*float32(s.Len()) > 200+0.01 {
@@ -114,7 +114,7 @@ func TestASegmentedFitsTheWidthItIsGiven(t *testing.T) {
 func TestASegmentedInANarrowRowDrawsInsideItsBox(t *testing.T) {
 	s := NewSegmented("Monday", "Tuesday", "Wednesday", "Thursday", "Friday")
 	s.SetSelected(4, nil)
-	s.OnChange = func(i int) gunim.Intent { return segmentChosen{i} }
+	s.OnChange = func(i int, u *gunim.UI) gunim.Intent { return segmentChosen{i} }
 	w, run := stage(t, &frame{child: Row(s), size: geom.Sz(200, 100)})
 	run(1)
 	if s.size.W > 200 {

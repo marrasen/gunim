@@ -54,14 +54,15 @@ var lesson6 = lesson{
 	Register: func(w *gunim.Window) {
 		gunim.RegisterView(w, "lesson6", buildLesson6, (*trashPage).show)
 		// The dialog is a view of its own, mounted at the root so it
-		// floats over everything. Its buttons send Accept and Dismiss
-		// and it removes itself, so its update function is nil.
+		// floats over everything. Its buttons send what OnAccept and
+		// OnDismiss make, and it removes itself, so its update function is nil.
 		gunim.RegisterView(w, "confirm", func(s Confirm) *widget.Dialog {
 			d := widget.NewDialog(fmt.Sprintf("Delete %d files for good?", s.Files))
 			d.Icon = icon.Trash2
 			d.Danger = true
 			d.SetButtons("Empty the trash", "Keep them")
-			d.Accept, d.Dismiss = Emptied{}, Kept{}
+			d.OnAccept = widget.Sends(Emptied{})
+			d.OnDismiss = widget.Sends(Kept{})
 			return d
 		}, nil)
 	},
@@ -90,7 +91,7 @@ var lesson6 = lesson{
 
 const lesson6Intro = `The application puts a view on screen with ` + "`Client.Mount`" + `, naming the parent, an ID, the view and its state. ` + "`Client.Unmount`" + ` starts the view's exit. The node stays in the tree while it animates out, and the engine unlinks it once its ` + "`Transition`" + ` reports settled. Mount the same ID again while it is leaving and it swings back with the velocity it had.
 
-The dialog is a view of its own, mounted at the root so it floats over the page. Local interaction stays local: the dialog closes itself on the frame its button is released, and tells the application afterwards with ` + "`Accept`" + ` or ` + "`Dismiss`" + `. The application then changes its state and the page below updates.
+The dialog is a view of its own, mounted at the root so it floats over the page. Local interaction stays local: the dialog closes itself on the frame its button is released, and tells the application afterwards with what ` + "`OnAccept`" + ` or ` + "`OnDismiss`" + ` returns. The application then changes its state and the page below updates.
 
 Switching lessons in this window works the same way: the shell's slot gets the new page mounted while the old one is unmounted, and the two cross over.
 
@@ -111,9 +112,11 @@ func buildLesson6(s Trash) *trashPage {
 	files := widget.NewLabel("")
 	files.Size = widget.HeadingSize
 	empty := widget.NewButton("Empty the trash")
-	empty.Icon, empty.Kind, empty.On = icon.Trash2, widget.ButtonDanger, EmptyAsked{}
+	empty.Icon, empty.Kind = icon.Trash2, widget.ButtonDanger
+	empty.OnClick = widget.Sends(EmptyAsked{})
 	restore := widget.NewButton("Put the files back")
-	restore.Icon, restore.On = icon.Undo2, Restored{}
+	restore.Icon = icon.Undo2
+	restore.OnClick = widget.Sends(Restored{})
 	row := widget.Row(empty, restore, files)
 	row.Cross = widget.CrossCenter
 	return &trashPage{

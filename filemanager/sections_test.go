@@ -192,7 +192,7 @@ func TestAHeadingsMenuMovesItsSection(t *testing.T) {
 	if !slices.Equal(items, []string{"Collapse", "Move up", "Move down"}) {
 		t.Fatalf("the heading's menu is %v", items)
 	}
-	h.ui(func(b *browser, u *gunim.UI) { b.dnd.sideMenu.m.Picked(1, u) })
+	h.ui(func(b *browser, u *gunim.UI) { b.dnd.sideMenu.m.OnPick(1, u) })
 	want := []string{FavouritesSection, thisComputer, servers}
 	h.until("the favourites move up", func() bool { return slices.Equal(h.a.prefs.SidebarOrder, want) })
 	h.frames(30)
@@ -202,12 +202,12 @@ func TestAHeadingsMenuMovesItsSection(t *testing.T) {
 	h.ui(func(b *browser, u *gunim.UI) { u.Focus(b.side.byID[FavouritesSection].head) })
 	h.press(input.KeyMenu, 0)
 	var off []bool
-	h.ui(func(b *browser, _ *gunim.UI) { off = slices.Clone(b.dnd.sideMenu.m.Disabled) })
+	h.ui(func(b *browser, _ *gunim.UI) { off = disabledOf(b.dnd.sideMenu.m.Items()) })
 	if items, _ := h.sideMenuShown(); !slices.Equal(items, []string{"Collapse", "Move up", "Move down"}) ||
 		!slices.Equal(off, []bool{false, true, false}) {
 		t.Fatalf("the heading's menu is %v, dimmed %v", items, off)
 	}
-	h.ui(func(b *browser, u *gunim.UI) { b.dnd.sideMenu.m.Picked(0, u) })
+	h.ui(func(b *browser, u *gunim.UI) { b.dnd.sideMenu.m.OnPick(0, u) })
 	h.until("the favourites close", func() bool { return slices.Equal(h.a.prefs.SidebarCollapsed, []string{FavouritesSection}) })
 	h.rightClick(h.headAt(FavouritesSection))
 	if items, _ := h.sideMenuShown(); items[0] != "Expand" {
@@ -331,8 +331,8 @@ func TestTheEditFavouriteDialogChangesTheNameColourAndIcon(t *testing.T) {
 	// The menu offers it, and F2 on the favourite opens it too.
 	h.rightClick(h.bounds(func(b *browser) gunim.Node { return b.side.placeRow(widget.Key(work)) }).Center())
 	h.ui(func(b *browser, u *gunim.UI) {
-		i := slices.Index(b.dnd.sideMenu.m.Items, "Edit favourite…")
-		b.dnd.sideMenu.m.Picked(i, u)
+		i := slices.Index(labelsOf(b.dnd.sideMenu.m.Items()), "Edit favourite…")
+		b.dnd.sideMenu.m.OnPick(i, u)
 	})
 	h.until("the dialog is asked for", func() bool { return len(h.a.ops.dialogs) == 1 })
 	h.until("the dialog shows", func() bool { h.frames(1); return h.dialogShown() })

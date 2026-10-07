@@ -54,18 +54,19 @@ func newPropsDialog(s Props) *propsDialog {
 	body := &propsBody{}
 	if s.Attrs {
 		d.readOnly, d.hidden = widget.NewCheckbox("Read-only"), widget.NewCheckbox("Hidden")
-		d.readOnly.On, d.hidden.On = s.ReadOnly, s.Hidden
+		d.readOnly.SetChecked(s.ReadOnly, nil)
+		d.hidden.SetChecked(s.Hidden, nil)
 		d.form.Add("Attributes", widget.Row(d.readOnly, d.hidden))
 		body.focus = []gunim.Node{d.readOnly, d.hidden}
 		d.SetButtons("OK", "Cancel")
-		d.OnAccept = func() gunim.Intent {
-			return PropsApplied{Token: s.Token, ReadOnly: d.readOnly.On, Hidden: d.hidden.On}
+		d.OnAccept = func(u *gunim.UI) gunim.Intent {
+			return PropsApplied{Token: s.Token, ReadOnly: d.readOnly.Checked(), Hidden: d.hidden.Checked()}
 		}
 	} else {
 		d.SetButtons("Close", "")
-		d.Accept = DialogClosed{}
+		d.OnAccept = widget.Sends(DialogClosed{})
 	}
-	d.Dismiss = DialogClosed{}
+	d.OnDismiss = widget.Sends(DialogClosed{})
 	body.Flex = widget.Column(d.form, d.err)
 	body.Cross = widget.CrossStretch
 	d.Body = body
@@ -88,9 +89,9 @@ func (d *propsDialog) show(size, holds string, counting bool, err string) {
 		size = "Counting…"
 		more = ""
 	}
-	d.size.SetText(size + more)
+	d.size.Text = size + more
 	if d.holds != nil {
-		d.holds.SetText(holds)
+		d.holds.Text = holds
 	}
-	d.err.SetText(err)
+	d.err.Text = err
 }

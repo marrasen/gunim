@@ -27,16 +27,16 @@ type reorder struct {
 // click stays a click.
 const pickUp = 4
 
-// Handle implements [gunim.Handler]. With Reorder set, a press on a row
+// Handle implements [gunim.Handler]. With OnReorder set, a press on a row
 // that nothing inside the row takes, and a move of a few pixels, picks
 // the row up: it lifts, follows the pointer, and the other rows spring
 // aside to open a gap where it would land. Letting go drops it into the
-// gap and sends Reorder the new order. With OnClick set, a press let go
+// gap and runs OnReorder with the new order. With OnActivate set, a press let go
 // on the row it began on without picking it up is a click, unless
 // ClickOnce is set and the press goes on a double click. A press puts
 // the keys' cursor on its row.
 func (l *List) Handle(e input.Event, u *gunim.UI) bool {
-	if l.Reorder == nil && l.OnClick == nil {
+	if l.OnReorder == nil && l.OnActivate == nil {
 		return false
 	}
 	th := u.Theme()
@@ -69,7 +69,7 @@ func (l *List) Handle(e input.Event, u *gunim.UI) bool {
 		if !l.drag.pressed {
 			return false
 		}
-		if l.Reorder != nil && !l.drag.active && abs32(e.Pos.Y-l.drag.from) >= pickUp {
+		if l.OnReorder != nil && !l.drag.active && abs32(e.Pos.Y-l.drag.from) >= pickUp {
 			l.drag.active = true
 			l.lift.Animate(1, Quick.Get(th))
 		}
@@ -81,8 +81,8 @@ func (l *List) Handle(e input.Event, u *gunim.UI) bool {
 			return false
 		}
 		once := l.ClickOnce && l.drag.again
-		if k, _, ok := l.rowAt(e.Pos.Y); ok && !l.drag.active && l.OnClick != nil && k == l.drag.key && !once {
-			if v := l.OnClick(k); v != nil {
+		if k, _, ok := l.rowAt(e.Pos.Y); ok && !l.drag.active && l.OnActivate != nil && k == l.drag.key && !once {
+			if v := l.OnActivate(k, u); v != nil {
 				u.Send(l, v)
 			}
 		}
@@ -106,7 +106,7 @@ func (l *List) drop(u *gunim.UI) {
 		if !slices.Equal(next, l.order) {
 			l.order = next
 			l.arrange(u)
-			u.Send(l, l.Reorder(slices.Clone(next)))
+			send(u, l, l.OnReorder(slices.Clone(next), u))
 		}
 		l.lift.Animate(0, Settle.Get(u.Theme()))
 	}

@@ -15,7 +15,7 @@ type pressed struct{ N int }
 
 func TestAButtonFiresOnlyWhenReleasedOverIt(t *testing.T) {
 	b := NewButton("Go")
-	b.On = pressed{1}
+	b.OnClick = Sends(pressed{1})
 	w, run := stage(t, &frame{child: b, size: geom.Sz(100, 36)})
 	drain := func() int {
 		n := 0

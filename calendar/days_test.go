@@ -27,7 +27,7 @@ func TestManyAllDayEventsKeepToTheirRows(t *testing.T) {
 			End: monday.Add(7 * 24 * time.Hour), AllDay: true})
 	}
 	var opened string
-	d.Open = func(id string, _ geom.Rect, _ *gunim.UI) { opened = id }
+	d.OnOpen = func(id string, _ geom.Rect, _ *gunim.UI) gunim.Intent { opened = id; return nil }
 	w, run, _ := stage(t, d)
 	check := func(when string, most float32) {
 		t.Helper()
@@ -235,7 +235,7 @@ func TestTheEventUnderARestingPointerLiftsAsTheGridScrolls(t *testing.T) {
 func TestAClickActsOnceAsThePrimaryButtonLetsGo(t *testing.T) {
 	d := newWeek()
 	opened := 0
-	d.Open = func(string, geom.Rect, *gunim.UI) { opened++ }
+	d.OnOpen = func(string, geom.Rect, *gunim.UI) gunim.Intent { opened++; return nil }
 	w, run, sent := stage(t, d)
 	at := point(d, 1, 10*time.Hour+20*time.Minute)
 	// A secondary button let go while the primary holds the event does nothing.

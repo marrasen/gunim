@@ -62,22 +62,22 @@ func newLibrary(r *playerRoot) *library {
 	l := &library{root: r, page: anim.NewFloat(0), byID: map[int]Track{}}
 	l.Add(l.page)
 	l.shelf = newShelf(l)
-	l.shelfMenu = widget.NewContextMenu(l.shelf)
+	l.shelfMenu = widget.NewContextMenu(l.shelf, nil)
 	l.shelfMenu.Prepare = l.shelf.prepare
-	l.shelfMenu.Picked = l.pick
+	l.shelfMenu.OnPick = l.pick
 	l.shelfScroll = widget.NewScroll(l.shelfMenu)
 	l.list = newTrackList(r)
-	l.listMenu = widget.NewContextMenu(l.list)
+	l.listMenu = widget.NewContextMenu(l.list, nil)
 	l.listMenu.Prepare = l.list.prepare
-	l.listMenu.Picked = l.pick
+	l.listMenu.OnPick = l.pick
 	l.listScroll = widget.NewScroll(l.listMenu)
 	l.back = newIconButton(icon.ChevronLeft, 36, func(u *gunim.UI) { l.close(u) })
 	// A drag resting on the back button slides the list away, to drop
 	// on the shelf.
 	l.back.dwell = func(u *gunim.UI) { l.close(u) }
 	l.more = newIconButton(icon.Ellipsis, 36, func(u *gunim.UI) { l.openMore(u) })
-	l.menu = widget.NewContextMenu(l.more)
-	l.menu.Picked = l.pick
+	l.menu = widget.NewContextMenu(l.more, nil)
+	l.menu.OnPick = l.pick
 	l.name = widget.NewTextField()
 	l.name.Keys = func(k input.KeyPress, u *gunim.UI) bool {
 		switch k.Key {
@@ -229,7 +229,7 @@ func (l *library) freeName() string {
 // startNaming puts a field in place of the open playlist's title.
 func (l *library) startNaming(name string, u *gunim.UI) {
 	l.naming = true
-	l.name.SetText(name)
+	l.name.SetText(name, u)
 	l.name.Select(0, len(name))
 	u.Focus(l.name)
 	u.Invalidate()
@@ -309,49 +309,42 @@ func (l *library) openMore(u *gunim.UI) {
 }
 
 // pick does what the menu item i picked says.
-func (l *library) pick(i int, u *gunim.UI) {
+func (l *library) pick(i int, u *gunim.UI) gunim.Intent {
 	if i >= 0 && i < len(l.picks) && l.picks[i] != nil {
 		l.picks[i](u)
 	}
+	return nil
 }
 
-// menuItems gathers a menu's items, its captions and what each does.
+// menuItems gathers a menu's items and what each does. broken says a line goes above the next item.
 type menuItems struct {
-	items    []string
-	checked  []bool
-	icons    []*icon.Icon
-	captions []int
-	breaks   []int
-	do       []func(*gunim.UI)
+	items  []widget.MenuItem
+	do     []func(*gunim.UI)
+	broken bool
+}
+
+// push adds it, which does do.
+func (m *menuItems) push(it widget.MenuItem, do func(*gunim.UI)) {
+	it.Break, m.broken = m.broken, false
+	m.items = append(m.items, it)
+	m.do = append(m.do, do)
 }
 
 func (m *menuItems) add(s string, ic *icon.Icon, do func(*gunim.UI)) {
-	m.items = append(m.items, s)
-	m.icons = append(m.icons, ic)
-	m.do = append(m.do, do)
+	m.push(widget.MenuItem{Label: s, Icon: ic}, do)
 }
 
 // addChecked adds an item with a tick where on.
 func (m *menuItems) addChecked(s string, on bool, do func(*gunim.UI)) {
-	for len(m.checked) < len(m.items) {
-		m.checked = append(m.checked, false)
-	}
-	m.checked = append(m.checked, on)
-	m.add(s, nil, do)
+	m.push(widget.MenuItem{Label: s, Checked: on}, do)
 }
 
-func (m *menuItems) caption(s string) {
-	m.captions = append(m.captions, len(m.items))
-	m.add(s, nil, nil)
-}
+func (m *menuItems) caption(s string) { m.push(widget.MenuItem{Label: s, Caption: true}, nil) }
 
-func (m *menuItems) line() { m.breaks = append(m.breaks, len(m.items)) }
+func (m *menuItems) line() { m.broken = true }
 
 // set puts the items in menu.
-func (m *menuItems) set(menu *widget.ContextMenu) {
-	menu.Items, menu.Icons, menu.Captions, menu.Breaks = m.items, m.icons, m.captions, m.breaks
-	menu.Checked, menu.Disabled, menu.Hints = m.checked, nil, nil
-}
+func (m *menuItems) set(menu *widget.ContextMenu) { menu.SetItems(m.items) }
 
 // headH is the height of the heading over the lists.
 const headH = 76

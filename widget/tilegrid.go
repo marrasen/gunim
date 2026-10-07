@@ -40,22 +40,25 @@ type TileGrid struct {
 
 	// Tile builds the node that draws tile i, laid out at the tile's size.
 	Tile func(i int) gunim.Node
-	// OnView reports the tiles built, when they change.
-	OnView func(first, count int) gunim.Intent
+	// The On callbacks run on the UI goroutine and may act in the window through u; a non-nil result is sent to
+	// the application as the grid's intent.
+	//
+	// OnView reports the tiles built, when they change. It runs from the grid's layout, with the window's UI.
+	OnView func(first, count int, u *gunim.UI) gunim.Intent
 	// OnSelect reports the selection, as runs of tiles, and the tile the keyboard is on.
-	OnSelect func(sel [][2]int, cursor int) gunim.Intent
+	OnSelect func(sel [][2]int, cursor int, u *gunim.UI) gunim.Intent
 	// OnActivate reports a double click on a tile, or Enter.
-	OnActivate func(i int) gunim.Intent
+	OnActivate func(i int, u *gunim.UI) gunim.Intent
 	// OnType, when set, turns the text typed at the grid into an intent, to find the tile it names: text typed close
 	// together adds up, as [TypeAhead] gathers it, and [FindTyped] finds it.
-	OnType func(text string) gunim.Intent
+	OnType func(text string, u *gunim.UI) gunim.Intent
 	typed  TypeAhead
 	// OnZoom, when set, takes Ctrl with the wheel over the grid, in notches up, from the window's zoom.
-	OnZoom func(notches float32, u *gunim.UI)
+	OnZoom func(notches float32, u *gunim.UI) gunim.Intent
 	// DragTiles, when set, lets the tiles selected be dragged, as [DataGrid.DragRows] does for rows.
 	DragTiles func(sel [][2]int, at geom.Point) (data any, ghost gunim.Node, grab geom.Point)
 	// OnDragEnd, when set, hears how a drag of the tiles ended.
-	OnDragEnd func(e input.DragEnd) gunim.Intent
+	OnDragEnd func(e input.DragEnd, u *gunim.UI) gunim.Intent
 
 	n int
 	// Size is the size of each tile. Change it and the tiles spring to their new places and sizes.
@@ -341,7 +344,7 @@ func (g *TileGrid) Handle(e input.Event, u *gunim.UI) bool {
 		return true
 	case input.Scroll:
 		if e.Mods.Has(input.ModControl) && g.OnZoom != nil {
-			g.OnZoom(e.Notches.Y, u)
+			send(u, g, g.OnZoom(e.Notches.Y, u))
 			return true
 		}
 		return g.handle(e, u)
@@ -392,7 +395,7 @@ func (g *TileGrid) Handle(e input.Event, u *gunim.UI) bool {
 	case input.DragEnd:
 		g.lift = tileLift{}
 		if g.OnDragEnd != nil {
-			if in := g.OnDragEnd(e); in != nil {
+			if in := g.OnDragEnd(e, u); in != nil {
 				u.Send(g, in)
 			}
 		}
@@ -444,7 +447,7 @@ func (g *TileGrid) press(e input.PointerDown, u *gunim.UI) bool {
 	}
 	if e.Clicks == 2 {
 		if g.OnActivate != nil {
-			u.Send(g, g.OnActivate(i))
+			send(u, g, g.OnActivate(i, u))
 		}
 		return true
 	}
@@ -512,7 +515,7 @@ func (g *TileGrid) key(e input.KeyPress, u *gunim.UI) bool {
 		if g.cursor < 0 || g.OnActivate == nil {
 			return false
 		}
-		u.Send(g, g.OnActivate(g.cursor))
+		send(u, g, g.OnActivate(g.cursor, u))
 		return true
 	case input.KeyEscape:
 		if g.cursor < 0 && len(g.runs) == 0 {
@@ -595,7 +598,7 @@ func (g *TileGrid) setRuns(runs [][2]int, u *gunim.UI) {
 	}
 	g.runs, g.moved = runs, false
 	if g.OnSelect != nil {
-		u.Send(g, g.OnSelect(slices.Clone(g.runs), g.cursor))
+		send(u, g, g.OnSelect(slices.Clone(g.runs), g.cursor, u))
 	}
 	u.Invalidate()
 }
@@ -734,7 +737,7 @@ func (g *TileGrid) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Childre
 	}
 	if span := [2]int{first, last - first + 1}; span != g.built && !g.departing && g.OnView != nil && g.n > 0 {
 		g.built = span
-		if v := g.OnView(first, last-first+1); v != nil {
+		if v := g.OnView(first, last-first+1, f.UI()); v != nil {
 			f.Send(g, v)
 		}
 	}
@@ -769,7 +772,7 @@ func (g *TileGrid) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gu
 	// Drawn last, over the rest
 	defer func() {
 		if g.cue.whole {
-			groupRing(p, geom.Rect{Max: box.Point()}, 0, 1, th)
+			GroupRing(p, geom.Rect{Max: box.Point()}, 0, 1, th)
 		}
 	}()
 	func() {

@@ -811,10 +811,10 @@ func updatePage(p *page, sc scene) {
 		}
 		act := widget.NewButton("Update Now")
 		if sc.Ready {
-			act.SetLabel("Restart Now")
+			act.Label = "Restart Now"
 		}
 		act.Kind = widget.ButtonPrimary
-		act.On = updateNow{}
+		act.OnClick = widget.Sends(updateNow{})
 		p.foot = footer(later, act)
 	case pageAbout:
 		heading(p, sc.Name, versionLine(sc))
@@ -832,7 +832,7 @@ func updatePage(p *page, sc scene) {
 		}
 		p.status, p.trouble = status, sc.Trouble
 		check := widget.NewButton("Check for Updates")
-		check.On = checkNow{}
+		check.OnClick = widget.Sends(checkNow{})
 		check.Disabled = sc.Checking
 		p.check = check
 		done := closeButton("Close")

@@ -212,16 +212,16 @@ func newListingPage(b *browser, widths []float32) *listingPage {
 	g.Multi = true
 	g.NoBar = true
 	g.Row = pg.row
-	g.OnView = pg.need
-	g.OnSelectRows = func(sel [][2]int, cursor int) gunim.Intent {
+	g.OnView = func(first, count int, _ *gunim.UI) gunim.Intent { return pg.need(first, count) }
+	g.OnSelectRows = func(sel [][2]int, cursor int, u *gunim.UI) gunim.Intent {
 		return Selected{Gen: pg.gen, Runs: sel, Cursor: cursor}
 	}
-	g.OnActivate = func(row int) gunim.Intent { return Activated{Gen: pg.gen, Row: row} }
-	g.OnType = func(text string) gunim.Intent { return Typed{Gen: pg.gen, Text: text} }
-	g.OnHeader = func(c int) gunim.Intent { return SortClicked{Column: c} }
-	g.OnCopy = func([][2]int) gunim.Intent { return Command{Name: CmdCopy} }
+	g.OnActivate = func(row int, u *gunim.UI) gunim.Intent { return Activated{Gen: pg.gen, Row: row} }
+	g.OnType = func(text string, u *gunim.UI) gunim.Intent { return Typed{Gen: pg.gen, Text: text} }
+	g.OnHeader = func(c int, u *gunim.UI) gunim.Intent { return SortClicked{Column: c} }
+	g.OnCopy = func([][2]int, *gunim.UI) gunim.Intent { return Command{Name: CmdCopy} }
 	g.DragRows = pg.dragRows
-	g.OnDragEnd = func(e input.DragEnd) gunim.Intent { return pg.b.dnd.dragEnded(e) }
+	g.OnDragEnd = func(e input.DragEnd, u *gunim.UI) gunim.Intent { return pg.b.dnd.dragEnded(e) }
 	pg.grid = g
 	pg.strip = widget.NewOverview(g)
 	pg.strip.Top = widget.GridHeaderHeight
@@ -272,20 +272,20 @@ func (pg *listingPage) set(l Listing, u *gunim.UI) {
 	switch {
 	case l.Err != "":
 		pg.msg.Color = ErrorInk
-		pg.msg.SetText(l.Err)
+		pg.msg.Text = l.Err
 	case l.Loading:
-		pg.msg.SetText("")
+		pg.msg.Text = ""
 	case l.All == 0:
 		pg.msg.Color = Faint
-		pg.msg.SetText("This folder is empty.")
+		pg.msg.Text = "This folder is empty."
 	case l.Total == 0 && l.Filter != "":
 		pg.msg.Color = Faint
-		pg.msg.SetText("Nothing here matches “" + l.Filter + "”.")
+		pg.msg.Text = "Nothing here matches “" + l.Filter + "”."
 	case l.Total == 0:
 		pg.msg.Color = Faint
-		pg.msg.SetText("Everything here is hidden. Show hidden files with Ctrl+H.")
+		pg.msg.Text = "Everything here is hidden. Show hidden files with Ctrl+H."
 	default:
-		pg.msg.SetText("")
+		pg.msg.Text = ""
 	}
 	u.Invalidate()
 }

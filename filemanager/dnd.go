@@ -263,8 +263,8 @@ func newDndView(b *browser) *dndView {
 func (v *dndView) zone(child gunim.Node, spot func(input.Drop, *gunim.UI) (widget.DropSpot, bool)) *widget.DropZone {
 	z := widget.NewDropZone(child)
 	z.Spot = spot
-	z.OnDrop = func(widget.DropSpot, input.Drop) gunim.Intent { return v.plan }
-	z.OnOpen = func(s widget.DropSpot) gunim.Intent {
+	z.OnDrop = func(widget.DropSpot, input.Drop, *gunim.UI) gunim.Intent { return v.plan }
+	z.OnOpen = func(s widget.DropSpot, u *gunim.UI) gunim.Intent {
 		if k, ok := s.Key.(spotKey); ok {
 			return Navigate{Path: k.path}
 		}

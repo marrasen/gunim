@@ -119,7 +119,7 @@ func newLessonList() *lessonList {
 		b.Ghost = true
 		// On is the intent the button sends. It is a value, so the
 		// wiring is data the application can read back.
-		b.On = Chose{Lesson: i}
+		b.OnClick = widget.Sends(Chose{Lesson: i})
 		l.buttons = append(l.buttons, b)
 	}
 	return l

@@ -10,8 +10,7 @@ import (
 )
 
 func TestACheckedMenuItemShowsACheck(t *testing.T) {
-	m := NewMenu("Hidden files", "Extensions", "Preview")
-	m.Checked = []bool{true, false, true}
+	m := NewMenu([]MenuItem{{Label: "Hidden files", Checked: true}, {Label: "Extensions"}, {Label: "Preview", Checked: true}})
 	w, _ := stage(t, Row(m))
 	ms := maskOps(w.Offscreen())
 	if len(ms) != 2 {
@@ -30,7 +29,7 @@ func TestACheckedMenuItemShowsACheck(t *testing.T) {
 }
 
 func TestADropdownsChevronIsLucidesAndTurnsAsItOpens(t *testing.T) {
-	d := NewDropdown("One", "Two")
+	d := NewDropdown(Labels("One", "Two"))
 	w, run := stage(t, Row(d))
 	ms := maskOps(w.Offscreen())
 	if len(ms) != 1 || strokeOf(t, ms[0]).Icon != icon.ChevronDown {

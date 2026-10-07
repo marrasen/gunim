@@ -12,7 +12,7 @@ func TestAChipShowsItsIconBeforeItsLabel(t *testing.T) {
 	plain := NewChip("", "Images")
 	c := NewChip("", "Images")
 	c.Icon = icon.Image
-	c.OnRemove = func() gunim.Intent { return removed{"Images"} }
+	c.OnRemove = func(u *gunim.UI) gunim.Intent { return removed{"Images"} }
 	stage(t, Row(plain))
 	w, run := stage(t, &frame{child: Row(c), size: geom.Sz(400, 40)})
 	if d := c.size.W - plain.size.W; d != IconSize.Default()+IconGap.Default() {

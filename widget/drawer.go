@@ -33,9 +33,14 @@ func NewDrawer(main, panel gunim.Node) *Drawer {
 	return d
 }
 
-// SetOpen slides the panel in, or out.
+// SetOpen slides the panel in, or out, and sends no intent. Before the
+// drawer is laid out, or with a nil u, the panel jumps there.
 func (d *Drawer) SetOpen(on bool, u *gunim.UI) {
 	if on == d.Open() {
+		return
+	}
+	if u == nil {
+		d.open.Jump(map[bool]float32{false: 0, true: 1}[on])
 		return
 	}
 	if on {

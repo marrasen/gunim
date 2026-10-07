@@ -15,7 +15,7 @@ import (
 func newKeyedList(t *testing.T, n int) (w *gunim.Window, l *List, sc *Scroll, run func(int), focused func() gunim.Node) {
 	t.Helper()
 	l = NewList()
-	l.OnClick = func(k Key) gunim.Intent { return rowClicked{k} }
+	l.OnActivate = func(k Key, u *gunim.UI) gunim.Intent { return rowClicked{k} }
 	sc = NewScroll(l)
 	col := Column(NewButton("Before"), sc).Grow(sc, 1)
 	col.Cross = CrossStretch
@@ -109,20 +109,20 @@ func TestAClickPutsAListsCursorOnItsRow(t *testing.T) {
 	}
 }
 
-func TestAListWithNoFocusIsClickedButLeavesTheKeys(t *testing.T) {
+func TestAListThatSkipsFocusIsClickedButLeavesTheKeys(t *testing.T) {
 	w, l, _, run, focused := newKeyedList(t, 5)
-	l.NoFocus = true
+	l.SkipFocus = true
 	tab(w, run, 0)
 	tab(w, run, 0)
 	if f := focused(); f == l {
-		t.Fatal("Tab put the keyboard on a list with NoFocus")
+		t.Fatal("Tab put the keyboard on a list with SkipFocus")
 	}
 	top := ButtonHeight.Default() + Gap.Default()
 	w.Input(input.PointerDown{Pos: geom.Pt(100, top+46*2+20), Clicks: 1})
 	w.Input(input.PointerUp{Pos: geom.Pt(100, top+46*2+20)})
 	run(1)
 	if f := focused(); f == l {
-		t.Fatal("a click put the keyboard on a list with NoFocus")
+		t.Fatal("a click put the keyboard on a list with SkipFocus")
 	}
 	w.Input(input.KeyPress{Key: input.KeySpace})
 	run(1)

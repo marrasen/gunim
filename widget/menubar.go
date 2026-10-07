@@ -24,18 +24,13 @@ var (
 	MenubarHot = theme.Color("menubar.hot", color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x16})
 )
 
-// BarMenu is one menu of a [Menubar]: its title, and its items, which
-// take the extras a [Menu] does. The title and the items may mark their
-// access keys with a & before the letter, as "&File"; see [Menu.AccessKeys].
+// BarMenu is one menu of a [Menubar]: its title, and its items. The
+// title and the items' labels may mark their access keys with a & before
+// the letter, as "&File"; see [Menu.AccessKeys]. The bar makes the menu
+// anew each time it opens, from the items as they are then.
 type BarMenu struct {
-	Title    string
-	Items    []string
-	Hints    []string
-	Checked  []bool
-	Disabled []bool
-	Breaks   []int
-	Captions []int
-	Icons    []*icon.Icon
+	Title string
+	Items []MenuItem
 }
 
 // Menubar is a row of menu titles along the top of a window, each
@@ -70,13 +65,15 @@ type Menubar struct {
 	Subtitle string
 	// Compact keeps the menus behind one button.
 	Compact bool
-	// Pick runs on the UI goroutine with the menu and the item picked,
-	// once the menu has closed.
-	Pick func(menu, item int, u *gunim.UI)
+	// OnPick runs on the UI goroutine with the menu and the item picked,
+	// once the menu has closed. It may act in the window through u; a
+	// non-nil result is sent to the application as the bar's intent.
+	OnPick func(menu, item int, u *gunim.UI) gunim.Intent
 	// OnHighlight runs on the UI goroutine when the highlight moves,
 	// with the open menu and the item highlighted on it, -1 for none.
-	// Closing the menus runs it with -1 for both.
-	OnHighlight func(menu, item int, u *gunim.UI)
+	// Closing the menus runs it with -1 for both. A non-nil result is sent
+	// as the bar's intent.
+	OnHighlight func(menu, item int, u *gunim.UI) gunim.Intent
 
 	open  int
 	popup *gunim.Popup
@@ -154,12 +151,13 @@ func (b *Menubar) Open(i int, u *gunim.UI) {
 	b.shut(u)
 	b.open = i
 	menu := b.newMenu(i)
-	menu.OnHighlight = func(item int, u *gunim.UI) { b.highlight(i, item, u) }
-	menu.Pick = func(item int, u *gunim.UI) {
-		b.Close(u)
-		if b.Pick != nil {
-			b.Pick(i, item, u)
-		}
+	menu.OnHighlight = func(item int, u *gunim.UI) gunim.Intent {
+		b.highlight(i, item, u)
+		return nil
+	}
+	menu.OnPick = func(item int, u *gunim.UI) gunim.Intent {
+		b.pick(i, item, u)
+		return nil
 	}
 	b.menu = menu
 	span := b.span(i)
@@ -176,7 +174,7 @@ func (b *Menubar) Open(i int, u *gunim.UI) {
 
 // newMenu makes menu i's [Menu].
 func (b *Menubar) newMenu(i int) *Menu {
-	m := NewMenu()
+	m := NewMenu(nil)
 	b.fill(m, i)
 	m.MinWidth = 180
 	return m
@@ -184,9 +182,7 @@ func (b *Menubar) newMenu(i int) *Menu {
 
 // fill gives m menu i's items and what the bar says about them.
 func (b *Menubar) fill(m *Menu, i int) {
-	bm := b.Menus[i]
-	m.Items, m.Hints, m.Checked, m.Disabled, m.Breaks, m.Captions = bm.Items, bm.Hints, bm.Checked, bm.Disabled, bm.Breaks, bm.Captions
-	m.Icons = bm.Icons
+	m.SetItems(b.Menus[i].Items)
 	m.AccessKeys, m.cues = true, b.byKeys
 }
 
@@ -199,17 +195,17 @@ func (b *Menubar) showList(u *gunim.UI) {
 	if b.open < 0 && b.back == nil {
 		b.back = u.Focused()
 	}
-	list := NewMenu()
-	list.AccessKeys, list.cues = true, b.byKeys
-	for _, m := range b.Menus {
-		list.Items = append(list.Items, m.Title)
-		list.Hints = append(list.Hints, "›")
+	titles := make([]MenuItem, len(b.Menus))
+	for i, m := range b.Menus {
+		titles[i] = MenuItem{Label: m.Title, Hint: "›"}
 	}
+	list := NewMenu(titles)
+	list.AccessKeys, list.cues = true, b.byKeys
 	list.MinWidth = 160
-	list.OnHighlight = func(i int, u *gunim.UI) {
+	list.OnHighlight = func(i int, u *gunim.UI) gunim.Intent {
 		b.stopWaiting()
 		if i < 0 || i == b.open {
-			return
+			return nil
 		}
 		if !b.keyed && b.aiming() {
 			// Crossing lines on the way to the menu open: it stays, unless the pointer rests
@@ -220,16 +216,18 @@ func (b *Menubar) showList(u *gunim.UI) {
 					b.openBeside(i, u)
 				}
 			})
-			return
+			return nil
 		}
 		b.inMenu = false
 		b.openBeside(i, u)
+		return nil
 	}
-	list.Pick = func(i int, u *gunim.UI) {
+	list.OnPick = func(i int, u *gunim.UI) gunim.Intent {
 		if i != b.open {
 			b.openBeside(i, u)
 		}
 		b.enterMenu(u)
+		return nil
 	}
 	b.list = list
 	b.panel = newBarPanel(b, list)
@@ -290,19 +288,18 @@ func (b *Menubar) openBeside(i int, u *gunim.UI) {
 	b.open, b.inMenu = i, false
 	menu := b.newMenu(i)
 	menu.bare = true
-	menu.OnHighlight = func(item int, u *gunim.UI) {
+	menu.OnHighlight = func(item int, u *gunim.UI) gunim.Intent {
 		if item >= 0 && b.list != nil {
 			// The pointer on the menu: the keys follow it there, and the list keeps its line lit.
 			b.inMenu = true
 			b.list.Highlight(i)
 		}
 		b.highlight(i, item, u)
+		return nil
 	}
-	menu.Pick = func(item int, u *gunim.UI) {
-		b.Close(u)
-		if b.Pick != nil {
-			b.Pick(i, item, u)
-		}
+	menu.OnPick = func(item int, u *gunim.UI) gunim.Intent {
+		b.pick(i, item, u)
+		return nil
 	}
 	b.menu = menu
 	u.Insert(b.panel, menu)
@@ -326,7 +323,15 @@ func (b *Menubar) enterMenu(u *gunim.UI) {
 // highlight runs OnHighlight.
 func (b *Menubar) highlight(menu, item int, u *gunim.UI) {
 	if b.OnHighlight != nil {
-		b.OnHighlight(menu, item, u)
+		send(u, b, b.OnHighlight(menu, item, u))
+	}
+}
+
+// pick closes the menus and runs OnPick.
+func (b *Menubar) pick(menu, item int, u *gunim.UI) {
+	b.Close(u)
+	if b.OnPick != nil {
+		send(u, b, b.OnPick(menu, item, u))
 	}
 }
 

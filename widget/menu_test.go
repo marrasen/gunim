@@ -8,6 +8,7 @@ import (
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/text"
@@ -15,10 +16,35 @@ import (
 
 type chose struct{ I int }
 
+// labelsOf, hintsOf, iconsOf, checkedOf and disabledOf return a field of each item, in order.
+func labelsOf(items []MenuItem) []string {
+	return fieldOf(items, func(it MenuItem) string { return it.Label })
+}
+func hintsOf(items []MenuItem) []string {
+	return fieldOf(items, func(it MenuItem) string { return it.Hint })
+}
+func iconsOf(items []MenuItem) []*icon.Icon {
+	return fieldOf(items, func(it MenuItem) *icon.Icon { return it.Icon })
+}
+func checkedOf(items []MenuItem) []bool {
+	return fieldOf(items, func(it MenuItem) bool { return it.Checked })
+}
+func disabledOf(items []MenuItem) []bool {
+	return fieldOf(items, func(it MenuItem) bool { return it.Disabled })
+}
+
+func fieldOf[T any](items []MenuItem, f func(MenuItem) T) []T {
+	out := make([]T, len(items))
+	for i, it := range items {
+		out[i] = f(it)
+	}
+	return out
+}
+
 func newPicker(t *testing.T) (*gunim.Window, func(int), *Dropdown) {
 	t.Helper()
-	d := NewDropdown("Apple", "Banana", "Cherry")
-	d.OnChange = func(i int) gunim.Intent { return chose{i} }
+	d := NewDropdown(Labels("Apple", "Banana", "Cherry"))
+	d.OnChange = func(i int, u *gunim.UI) gunim.Intent { return chose{i} }
 	w, run := stage(t, &frame{child: d, size: geom.Sz(200, 36)})
 	w.Input(input.PointerDown{Pos: geom.Pt(20, 18), Clicks: 1})
 	w.Input(input.PointerUp{Pos: geom.Pt(20, 18)})
@@ -44,8 +70,8 @@ func TestDropdownPicksWithTheKeyboard(t *testing.T) {
 		w.Input(input.KeyPress{Key: k})
 		run(1)
 	}
-	if d.IsOpen() || d.Selected != 2 {
-		t.Fatalf("open %v, selected %d; want closed on 2", d.IsOpen(), d.Selected)
+	if d.IsOpen() || d.Selected() != 2 {
+		t.Fatalf("open %v, selected %d; want closed on 2", d.IsOpen(), d.Selected())
 	}
 	select {
 	case e := <-w.Client().Intents():
@@ -60,13 +86,22 @@ func TestDropdownPicksWithTheKeyboard(t *testing.T) {
 func TestAPickRunsInTheWindowToo(t *testing.T) {
 	w, run, d := newPicker(t)
 	got := -1
-	d.OnPick(func(i int, _ *gunim.UI) { got = i })
+	d.OnChange = func(i int, u *gunim.UI) gunim.Intent {
+		if u == nil {
+			t.Fatal("OnChange ran without the UI")
+		}
+		got = i
+		return chose{i}
+	}
 	for _, k := range []input.Key{input.KeyDown, input.KeyEnter} {
 		w.Input(input.KeyPress{Key: k})
 		run(1)
 	}
 	if got != 1 {
 		t.Fatalf("picking Banana told the window %d", got)
+	}
+	if in := sent(w); len(in) != 1 || in[0] != (chose{1}) {
+		t.Fatalf("picking Banana sent %v, want chose{1} once", in)
 	}
 }
 
@@ -132,9 +167,9 @@ func TestATooltipsWordsTurnOverAsTheyChange(t *testing.T) {
 }
 
 func TestADropdownKeepsWithinItsMaxWidth(t *testing.T) {
-	d := NewDropdown("All sessions", "#12  2024-02-15 10:17:39+01:00  v5.4.1  3 err")
+	d := NewDropdown(Labels("All sessions", "#12  2024-02-15 10:17:39+01:00  v5.4.1  3 err"))
 	d.MaxWidth = 150
-	d.Selected = 1
+	d.SetSelected(1, nil)
 	stage(t, &frame{child: Row(d), size: geom.Sz(600, 100)})
 	if d.size.W != 150 {
 		t.Fatalf("the drop-down is %v wide, want its MaxWidth of 150", d.size.W)
@@ -146,23 +181,23 @@ func TestADropdownKeepsWithinItsMaxWidth(t *testing.T) {
 
 func TestAnOpenDropdownShowsItsItemsAsTheyAreNow(t *testing.T) {
 	_, run, d := newPicker(t)
-	d.Items = []string{"Date", "Apple", "Banana", "Cherry"}
+	d.SetItems(Labels("Date", "Apple", "Banana", "Cherry"))
 	run(1)
 	m := d.menu
-	at := slices.Index(m.Items, "Cherry")
+	at := slices.Index(labelsOf(m.Items()), "Cherry")
 	r := m.RowRect(at)
 	p := geom.Pt(r.Min.X+20, r.Center().Y)
 	d.popup.Input(input.PointerMove{Pos: p, Time: time.Now()})
 	d.popup.Input(input.PointerDown{Pos: p, Clicks: 1, Time: time.Now()})
 	d.popup.Input(input.PointerUp{Pos: p, Time: time.Now()})
 	run(2)
-	if got := d.Items[d.Selected]; got != "Cherry" {
+	if got := d.Items()[d.Selected()].Label; got != "Cherry" {
 		t.Fatalf("a click on the Cherry shown chose %q", got)
 	}
 }
 
 func TestADropdownDisabledWhileFocusedClosesAndLetsItsRingGo(t *testing.T) {
-	d := NewDropdown("Apple", "Banana")
+	d := NewDropdown(Labels("Apple", "Banana"))
 	col := Column(d, NewTextField())
 	w, run := stage(t, &frame{child: col, size: geom.Sz(300, 200)})
 	w.Input(input.KeyPress{Key: input.KeyTab})
@@ -217,8 +252,7 @@ func textAt(ops []paint.Op, run text.Run) (*paint.TextOp, bool) {
 
 func TestAMenuKeepsToItsBoxAndCutsALongItemShortBeforeItsHint(t *testing.T) {
 	// A list of completions, in its box of 360 by 320
-	m := NewMenu("Short", strings.Repeat("A very long completion label ", 20))
-	m.Hints = []string{"", "Ctrl+Shift+L"}
+	m := NewMenu([]MenuItem{{Label: "Short"}, {Label: strings.Repeat("A very long completion label ", 20), Hint: "Ctrl+Shift+L"}})
 	m.Layout(gunim.Loose(geom.Sz(360, 320)), gunim.Frame{Scale: 1}, gunim.Children{})
 	if m.card.Max.X > 360 {
 		t.Fatalf("the menu reaches %v, past its box's 360", m.card.Max.X)
@@ -242,7 +276,7 @@ func TestAMenuKeepsToItsBoxAndCutsALongItemShortBeforeItsHint(t *testing.T) {
 }
 
 func TestAMenuKeepsToTheScreensWidth(t *testing.T) {
-	d := NewDropdown("Short", strings.Repeat("A very long item ", 40))
+	d := NewDropdown(Labels("Short", strings.Repeat("A very long item ", 40)))
 	d.MaxWidth = 150
 	w, run := stage(t, &frame{child: d, size: geom.Sz(150, 36)})
 	w.Offscreen().SetWorkArea(geom.Rc(0, 0, 300, 600))
@@ -290,7 +324,7 @@ func TestATooltipOfManyWordsWraps(t *testing.T) {
 }
 
 func TestAMenuButtonCutsItsTitleShortBeforeItsChevron(t *testing.T) {
-	b := NewMenuButton("Show all the columns", "Time", "Level")
+	b := NewMenuButton("Show all the columns", Labels("Time", "Level"))
 	spy := &opsSpy{child: b, size: geom.Sz(90, 36)}
 	stage(t, spy)
 	pad := FieldPadding.Default()
@@ -323,4 +357,32 @@ func (s *opsSpy) Paint(_ *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim.
 	var p paint.Painter
 	kids.At(0).Paint(&p)
 	s.ops = p.Ops()
+}
+
+func TestSetItemsMeasuresTheItemsAgainInTheSameSlice(t *testing.T) {
+	items := Labels("One", "Two")
+	m := NewMenu(items)
+	d := NewDropdown(items)
+	f := gunim.Frame{Scale: 1}
+	c := gunim.Loose(geom.Sz(800, 400))
+	narrow, short := m.Layout(c, f, gunim.Children{}).W, d.Layout(c, f, gunim.Children{}).W
+	items[1].Label = strings.Repeat("Two ", 20)
+	m.SetItems(items)
+	d.SetItems(items)
+	if w := m.Layout(c, f, gunim.Children{}).W; w <= narrow {
+		t.Fatalf("with a longer item set again the menu is %v wide, as it was before", w)
+	}
+	if w := d.Layout(c, f, gunim.Children{}).W; w <= short {
+		t.Fatalf("with a longer item set again the drop-down is %v wide, as it was before", w)
+	}
+	if got := m.Items()[1].Label; got != items[1].Label {
+		t.Fatalf("Items gives %q", got)
+	}
+}
+
+func TestLabelsMakesPlainItems(t *testing.T) {
+	got := Labels("Cut", "Copy")
+	if len(got) != 2 || got[0] != (MenuItem{Label: "Cut"}) || got[1] != (MenuItem{Label: "Copy"}) {
+		t.Fatalf("Labels gave %v", got)
+	}
 }

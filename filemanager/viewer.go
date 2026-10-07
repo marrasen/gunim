@@ -119,8 +119,8 @@ func (v *viewer) set(s Viewing, u *gunim.UI) {
 		v.pic.show(src, true)
 	}
 	v.pic.broken = s.Err != ""
-	v.name.SetText(s.Name)
-	v.info.SetText(v.describe())
+	v.name.Text = s.Name
+	v.info.Text = v.describe()
 	v.info.Color = captionFaint
 	if s.Err != "" {
 		v.info.Color = ErrorInk

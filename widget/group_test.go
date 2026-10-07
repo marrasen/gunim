@@ -40,7 +40,7 @@ func newGroupStage(t *testing.T, top, bottom int) groupStage {
 	)
 	a, b = NewList(), NewList()
 	for _, l := range []*List{a, b} {
-		l.OnClick = func(k Key) gunim.Intent { return rowClicked{k} }
+		l.OnActivate = func(k Key, u *gunim.UI) gunim.Intent { return rowClicked{k} }
 	}
 	lists := Column(a, b)
 	lists.Cross = CrossStretch

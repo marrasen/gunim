@@ -82,7 +82,7 @@ func benchKeys(b *testing.B, w *gunim.Window) {
 // middle.
 func bigArea(b *testing.B) *gunim.Window {
 	a := NewTextArea()
-	a.SetText(bigCode(50000))
+	a.SetText(bigCode(50000), nil)
 	w := benchStage(b, &frame{child: a, size: geom.Sz(600, 400)}, geom.Pt(20, 20))
 	a.set(len(a.text)/2, false)
 	w.Input(input.KeyPress{Key: input.KeyRight})
@@ -106,7 +106,7 @@ func BenchmarkTextAreaKey(b *testing.B) {
 // the middle.
 func bigCodeEditor(b *testing.B) *gunim.Window {
 	c := NewCodeEditor()
-	c.SetText(bigCode(50000))
+	c.SetText(bigCode(50000), nil)
 	w := benchStage(b, &frame{child: c, size: geom.Sz(600, 400)}, geom.Pt(300, 20))
 	c.set(len(c.text)/2, false)
 	w.Input(input.KeyPress{Key: input.KeyRight})
@@ -148,7 +148,7 @@ func BenchmarkCodeEditorComment(b *testing.B) {
 // caret in the middle.
 func bigField(b *testing.B) *gunim.Window {
 	t := NewTextField()
-	t.SetText(bigLine(1 << 20))
+	t.SetText(bigLine(1<<20), nil)
 	w := benchStage(b, &frame{child: t, size: geom.Sz(600, 36)}, geom.Pt(20, 18))
 	t.set(len(t.text)/2, false)
 	w.Input(input.KeyPress{Key: input.KeyRight})
