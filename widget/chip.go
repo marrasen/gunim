@@ -33,7 +33,7 @@ var (
 // cross, and Delete or Backspace removes it. Disabled, it fades faint and
 // takes no clicks, keys or focus.
 type Chip struct {
-	control
+	Control
 	// Lead is drawn dim before the label.
 	Lead  string
 	Label string
@@ -54,7 +54,7 @@ type Chip struct {
 
 // NewChip returns a chip showing lead and label.
 func NewChip(lead, label string) *Chip {
-	return &Chip{control: newControl(), Lead: lead, Label: label}
+	return &Chip{Control: newControl(), Lead: lead, Label: label}
 }
 
 // Layout implements [gunim.Node].

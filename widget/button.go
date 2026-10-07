@@ -29,10 +29,10 @@ import (
 // 0 to 1, and the look comes from the theme every frame, so a theme
 // switch lands in the middle of a hover without a jolt.
 type Button struct {
-	// control gives the button Disabled, Tooltip and KeepFocus, and its
+	// Control gives the button Disabled, Tooltip and KeepFocus, and its
 	// group makes it an Animator, so the engine steps its values and
 	// knows to keep drawing while any of them is moving.
-	control
+	Control
 
 	Label string
 	// Icon shows before the label, in the label's colour. A button with an icon and no label is square.
@@ -79,7 +79,7 @@ type Button struct {
 // NewButton returns a button showing label.
 func NewButton(label string) *Button {
 	b := &Button{
-		control: newControl(),
+		Control: newControl(),
 		Label:   label,
 		walked:  anim.NewFloat(0),
 		lit:     anim.NewFloat(0),

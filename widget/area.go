@@ -21,7 +21,7 @@ import (
 // between lines, and the text scrolls to keep it in view. Disabled, it
 // fades faint and takes no clicks, keys or focus.
 type TextArea struct {
-	control
+	Control
 	Placeholder string
 	// Placeholders are shown in turn after Placeholder while the area is empty, each for [PlaceholderHold].
 	Placeholders []string
@@ -80,7 +80,7 @@ const placeholderTurn = 400 * time.Millisecond
 // NewTextArea returns an empty text area five lines tall.
 func NewTextArea() *TextArea {
 	a := &TextArea{
-		control:     newControl(),
+		Control:     newControl(),
 		dismissedAt: -1,
 		Rows:        5,
 		focus:       anim.NewFloat(0),
@@ -148,7 +148,7 @@ func (a *TextArea) SetText(s string, u *gunim.UI) {
 // Step implements [gunim.Animator].
 func (a *TextArea) Step(dt time.Duration) bool {
 	f, c, s, b, l := a.focus.Step(dt), a.caretAt.Step(dt), a.scroll.Step(dt), a.blink.step(dt), a.lines.Step(dt)
-	k := a.control.Step(dt)
+	k := a.Control.Step(dt)
 	return f || c || s || b || l || k
 }
 

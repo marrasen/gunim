@@ -16,7 +16,7 @@ import (
 type member struct {
 	name string
 	node gunim.Node
-	c    *control
+	c    *Control
 }
 
 // family returns one of each control that embeds the shared base, in a column.
@@ -33,11 +33,11 @@ func family() []member {
 	tf, ta, nf := NewTextField(), NewTextArea(), NewNumberField(0, 10)
 	ta.Rows = 2
 	return []member{
-		{"button", b, &b.control}, {"icon button", ib, &ib.control}, {"checkbox", box, &box.control},
-		{"switch", sw, &sw.control}, {"slider", sl, &sl.control}, {"drop-down", dd, &dd.control},
-		{"segmented", seg, &seg.control}, {"menu button", mb, &mb.control}, {"link", l, &l.control},
-		{"chip", ch, &ch.control}, {"text field", tf, &tf.control}, {"text area", ta, &ta.control},
-		{"number field", nf, &nf.control},
+		{"button", b, &b.Control}, {"icon button", ib, &ib.Control}, {"checkbox", box, &box.Control},
+		{"switch", sw, &sw.Control}, {"slider", sl, &sl.Control}, {"drop-down", dd, &dd.Control},
+		{"segmented", seg, &seg.Control}, {"menu button", mb, &mb.Control}, {"link", l, &l.Control},
+		{"chip", ch, &ch.Control}, {"text field", tf, &tf.Control}, {"text area", ta, &ta.Control},
+		{"number field", nf, &nf.Control},
 	}
 }
 
@@ -125,7 +125,7 @@ func TestEveryControlFadesAsItIsDisabledAndBack(t *testing.T) {
 // there, it lights again.
 func TestAControlDisabledMidHoverFadesItsHoverAndLightsAgain(t *testing.T) {
 	b, l, mb := NewButton("Save"), NewLink("More"), NewMenuButton("Sort", nil)
-	ms := []member{{"button", b, &b.control}, {"link", l, &l.control}, {"menu button", mb, &mb.control}}
+	ms := []member{{"button", b, &b.Control}, {"link", l, &l.Control}, {"menu button", mb, &mb.Control}}
 	for _, m := range ms {
 		w, run, disable := familyStage(t, []member{m})
 		w.Input(input.PointerMove{Pos: geom.Pt(4, 4), Time: time.Now()})

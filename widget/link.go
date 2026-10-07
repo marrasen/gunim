@@ -22,7 +22,7 @@ var LinkInk = theme.Foreground("link.ink", color.NRGBA{R: 0x7c, G: 0x9c, B: 0xff
 // [Button] does, and Enter or Space activates it. Disabled, it fades
 // faint and takes no clicks, keys or focus.
 type Link struct {
-	control
+	Control
 	Text string
 	// Icon shows before the text, as tall as the text and in its colour.
 	Icon *icon.Icon
@@ -46,7 +46,7 @@ type Link struct {
 
 // NewLink returns a link showing s.
 func NewLink(s string) *Link {
-	l := &Link{control: newControl(), Text: s, Size: TextSize}
+	l := &Link{Control: newControl(), Text: s, Size: TextSize}
 	return l
 }
 

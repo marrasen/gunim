@@ -27,7 +27,7 @@ var (
 // End the first and the last. Disabled, it fades faint and takes no clicks or keys. Every option is as wide as the widest. Given less room, the options share it, and a label
 // too long for its share ends in an ellipsis.
 type Segmented struct {
-	control
+	Control
 	// Items are the options' labels and Icons their icons, in order: an icon, a label or both. The longer
 	// of the two sets how many options there are.
 	Items []string
@@ -55,7 +55,7 @@ type Segmented struct {
 
 // NewSegmented returns a segmented control of labels, the first chosen.
 func NewSegmented(labels ...string) *Segmented {
-	s := &Segmented{control: newControl(), Items: labels, pill: anim.NewFloat(0), hot: -1}
+	s := &Segmented{Control: newControl(), Items: labels, pill: anim.NewFloat(0), hot: -1}
 	s.Add(s.pill)
 	return s
 }

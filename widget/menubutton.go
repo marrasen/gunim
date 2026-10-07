@@ -26,7 +26,7 @@ import (
 // unticks the item, for a set of choices where several can be on, such
 // as the files a filter lets through.
 type MenuButton struct {
-	control
+	Control
 
 	Title string
 	// Icon shows before the title.
@@ -53,7 +53,7 @@ type MenuButton struct {
 
 // NewMenuButton returns a button titled title that opens a menu of items.
 func NewMenuButton(title string, items []MenuItem) *MenuButton {
-	b := &MenuButton{control: newControl(), Title: title, list: newMenuList(items), turn: anim.NewFloat(0)}
+	b := &MenuButton{Control: newControl(), Title: title, list: newMenuList(items), turn: anim.NewFloat(0)}
 	b.Add(b.turn)
 	return b
 }

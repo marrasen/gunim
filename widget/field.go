@@ -31,7 +31,7 @@ import (
 // underlined, with the input method's own caret or highlight inside it,
 // until it commits.
 type TextField struct {
-	control
+	Control
 	Placeholder string
 	// Icon shows at the start of the field in the placeholder's colour, such as icon.Search.
 	Icon *icon.Icon
@@ -88,7 +88,7 @@ type TextField struct {
 // NewTextField returns an empty field.
 func NewTextField() *TextField {
 	t := &TextField{
-		control:  newControl(),
+		Control:  newControl(),
 		focus:    anim.NewFloat(0),
 		caretAt:  anim.NewFloat(0),
 		selA:     anim.NewFloat(0),
@@ -172,7 +172,7 @@ func (t *TextField) Step(dt time.Duration) bool {
 			moving = true
 		}
 	}
-	if t.control.Step(dt) {
+	if t.Control.Step(dt) {
 		moving = true
 	}
 	return t.blink.step(dt) || moving

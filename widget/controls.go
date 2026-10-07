@@ -16,7 +16,7 @@ import (
 // toggle is the behaviour a checkbox and a switch share: hover, press,
 // focus, and flipping on a click or Space.
 type toggle struct {
-	control
+	Control
 	Label string
 	// OnChange runs on the UI goroutine when the user flips the control,
 	// with the new state. It may act in the window through u, such as a
@@ -36,7 +36,7 @@ type toggle struct {
 
 func newToggle(label string) toggle {
 	t := toggle{
-		control: newControl(),
+		Control: newControl(),
 		Label:   label,
 		lit:     anim.NewFloat(0),
 		// Every click flips it, the fast second of a double click too.
@@ -260,7 +260,7 @@ func (s *Switch) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 // A [Vertical] slider is a fader: Max is at the top, and it fills the
 // height it is given rather than the width.
 type Slider struct {
-	control
+	Control
 	// Axis lays the track along the width, which is the zero value, or
 	// up the height as a fader.
 	Axis     Axis
@@ -308,7 +308,7 @@ type Slider struct {
 
 // NewSlider returns a slider from lo to hi, at lo.
 func NewSlider(lo, hi float32) *Slider {
-	s := &Slider{control: newControl(), Min: lo, Max: hi, value: lo, at: anim.NewFloat(0)}
+	s := &Slider{Control: newControl(), Min: lo, Max: hi, value: lo, at: anim.NewFloat(0)}
 	s.Add(s.at)
 	return s
 }

@@ -950,7 +950,7 @@ func (m *Menu) gutter() float32 {
 // keys, Home and End move through it; Enter or Space picks; Escape and
 // Tab close it.
 type Dropdown struct {
-	control
+	Control
 
 	// selected is the chosen item.
 	selected int
@@ -985,7 +985,7 @@ type Dropdown struct {
 // list, and before the chosen one on the drop-down itself.
 func NewDropdown(items []MenuItem) *Dropdown {
 	d := &Dropdown{
-		control: newControl(),
+		Control: newControl(),
 		list:    newMenuList(items),
 		turn:    anim.NewFloat(0),
 	}

@@ -32,6 +32,7 @@ var structs = []any{
 	(*widget.CellGrid)(nil),
 	(*widget.Checkbox)(nil),
 	(*widget.Chip)(nil),
+	(*widget.Control)(nil),
 	(*widget.Clicker)(nil),
 	(*widget.CodeEditor)(nil),
 	(*widget.CodeMark)(nil),
