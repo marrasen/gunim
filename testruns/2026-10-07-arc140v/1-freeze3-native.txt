@@ -1,0 +1,120 @@
+CS               Waiters Owner
+--               ------- -----
+000001c7679e7040 22      2c50
+00007ffd1ed97960 0       85d4
+000001c7679e7370 1       5e54
+
+
+===MAIN
+   ntdll!RtlEnterCriticalSection+0xf2
+   waits on CS (rcx) 000001c7679e7040
+   ntdll!NtWaitForAlertByThreadId+0x14
+   ntdll!RtlpWaitOnCriticalSection+0x5ad
+   ntdll!RtlpEnterCriticalSectionContended+0x1ef
+   ntdll!RtlEnterCriticalSection+0xf2
+   igxe2lpgicd64!DumpRegistryKeyDefinitions+0xd9fb
+   user32!DispatchHookA+0x80
+   user32!fnHkINLPCWPRETSTRUCTA+0x7a
+   user32!_fnINOUTNCCALCSIZE+0x47
+   ntdll!KiUserCallbackDispatcherContinue
+   win32u!NtUserCreateWindowEx+0x14
+   user32!VerNtUserCreateWindowEx+0x236
+   user32!CreateWindowInternal+0x1e3
+   user32!CreateWindowExW+0x82
+   kakel+0x12571
+   kakel+0x8ea4d
+   kakel+0x8eac3
+   kakel+0x84a32
+   kakel+0x8b968
+   kakel+0x9f7fe
+   kakel+0x3689dc
+===OWNER 2c50
+   ntdll!RtlEnterCriticalSection+0xf2
+   waits on CS (rcx) 000001c7679e7370
+   ntdll!NtWaitForAlertByThreadId+0x14
+   ntdll!RtlpWaitOnCriticalSection+0x5ad
+   ntdll!RtlpEnterCriticalSectionContended+0x1ef
+   ntdll!RtlEnterCriticalSection+0xf2
+   igxe2lpgicd64+0xf8dcd
+   igxe2lpgicd64!RegisterProcTableCallback+0xdf92a
+   igxe2lpgicd64!RegisterProcTableCallback+0x41be72
+   igxe2lpgicd64!RegisterProcTableCallback+0x39eb10
+   igxe2lpgicd64!RegisterProcTableCallback+0x39fdf0
+   igxe2lpgicd64!RegisterProcTableCallback+0x25b392
+   igxe2lpgicd64!RegisterProcTableCallback+0x3e9c
+   igxe2lpgicd64!DrvCreateLayerContext+0x3a8
+   opengl32!CreateAnyContext+0xfe
+   opengl32!wglCreateLayerContext+0x1a0
+   igxe2lpgicd64!DumpRegistryKeyDefinitions+0x42b3
+   kakel+0x12571
+   kakel+0x8ea4d
+   kakel+0x8eac3
+   kakel+0x84a32
+   kakel+0x8b968
+   kakel+0x9f728
+   kakel+0x39f234
+   kakel+0x3a6977
+   kakel+0x3a2865
+   kakel+0x3a26eb
+   kakel+0x3f36a6
+   kakel+0x3f1f25
+   kakel+0x3f4ff7
+   kakel+0x8ed41
+===OWNER 85d4
+   ntdll!RtlEnterCriticalSection+0xf2
+   waits on CS (rcx) 000001c7679e7040
+   ntdll!NtWaitForAlertByThreadId+0x14
+   ntdll!RtlpWaitOnCriticalSection+0x5ad
+   ntdll!RtlpEnterCriticalSectionContended+0x1ef
+   ntdll!RtlEnterCriticalSection+0xf2
+   igxe2lpgicd64!DrvDescribePixelFormat+0x12d
+   opengl32!wglSetPixelFormat+0x239
+   gdi32full!SetPixelFormat+0x77
+   kakel+0x12571
+   kakel+0x8ea4d
+   kakel+0x8eac3
+   kakel+0x84a32
+   kakel+0x8b968
+   kakel+0x9f7fe
+   kakel+0x3689dc
+   kakel+0x368daa
+   kakel+0x39df8d
+   kakel+0x3a63ef
+   kakel+0x3a2865
+   kakel+0x3a26eb
+   kakel+0x3f36a6
+   kakel+0x3f1f25
+   kakel+0x3f4ff7
+   kakel+0x8ed41
+===OWNER 5e54
+   ntdll!RtlEnterCriticalSection+0xf2
+   waits on CS (rcx) 000001c7679e7040
+   ntdll!NtWaitForAlertByThreadId+0x14
+   ntdll!RtlpWaitOnCriticalSection+0x5ad
+   ntdll!RtlpEnterCriticalSectionContended+0x1ef
+   ntdll!RtlEnterCriticalSection+0xf2
+   igxe2lpgicd64!RegisterProcTableCallback+0x1c1df0
+   igxe2lpgicd64+0xf8e53
+   igxe2lpgicd64!RegisterProcTableCallback+0xdf92a
+   igxe2lpgicd64!RegisterProcTableCallback+0x41be72
+   igxe2lpgicd64!RegisterProcTableCallback+0x419eab
+   igxe2lpgicd64!RegisterProcTableCallback+0x419244
+   igxe2lpgicd64!RegisterProcTableCallback+0x41c272
+   igxe2lpgicd64!RegisterProcTableCallback+0x21cc9b
+   kakel+0x12571
+   kakel+0x8ea4d
+   kakel+0x8eac3
+   kakel+0x84a32
+   kakel+0x8b968
+   kakel+0x9f7fe
+   kakel+0x386485
+   kakel+0x3c4a14
+   kakel+0x3c7da8
+   kakel+0x3d5466
+   kakel+0x3d2837
+   kakel+0x3d186b
+   kakel+0x3f245a
+   kakel+0x3f4ff7
+   kakel+0x8ed41
+   0x0000bcff`0000b2ff
+   0xcdff0000`00000000
