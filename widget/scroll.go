@@ -74,7 +74,7 @@ func (s *Scroll) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children)
 // Paint implements [gunim.Node].
 func (s *Scroll) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.Children) {
 	func() {
-		defer p.Layer(paint.LayerOpts{Bounds: geom.Rect{Max: box.Point()}, Opacity: 1, Clip: true})()
+		defer s.layer(p, geom.Rect{Max: box.Point()}, f.Theme)()
 		kids.At(0).Paint(p)
 	}()
 	s.paintBar(p, f)

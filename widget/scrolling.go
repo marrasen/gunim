@@ -40,6 +40,9 @@ type scrolling struct {
 	// press the content's own nodes take, such as a button's, is
 	// theirs.
 	DragScroll bool
+	// NoFade keeps the content from fading where more of it lies past
+	// the top or the bottom edge.
+	NoFade bool
 
 	offset *anim.Float
 	target float32
@@ -491,6 +494,26 @@ func (s *scrolling) fit(content float32, view geom.Size, th *theme.Live) {
 	}
 	s.jumped = false
 }
+
+// layer opens the layer the content draws in, over r: clipped to it, and fading toward its top and bottom edges where
+// more content lies past them. It returns what closes the layer.
+func (s *scrolling) layer(p *paint.Painter, r geom.Rect, th *theme.Live) func() {
+	return p.Layer(paint.LayerOpts{Bounds: r, Opacity: 1, Clip: true, Fade: s.fade(th)})
+}
+
+// fade is how far in from the top and the bottom edge the content fades: by the length of the first stretch of what
+// lies past each edge, up to [ScrollFade].
+func (s *scrolling) fade(th *theme.Live) geom.Insets {
+	if s.NoFade || !s.scrollable() {
+		return geom.Insets{}
+	}
+	at, fade := s.offset.Value(), ScrollFade.Get(th)
+	return geom.Insets{Top: fadeFor(at, fade), Bottom: fadeFor(s.end()-at, fade)}
+}
+
+// fadeFor is how far in from an edge content fades with some of it lying past the edge: none with nothing past it,
+// growing to fade as the first stretch of what lies past it comes by.
+func fadeFor(past, fade float32) float32 { return max(0, min(past, fade)) }
 
 // paintBar draws the bar, fading in and out, and stronger while the
 // pointer is on it.

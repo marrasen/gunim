@@ -523,7 +523,7 @@ func (l *VirtualList) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Chil
 // Paint implements [gunim.Node].
 func (l *VirtualList) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.Children) {
 	func() {
-		defer p.Layer(paint.LayerOpts{Bounds: geom.Rect{Max: box.Point()}, Opacity: 1, Clip: true})()
+		defer l.layer(p, geom.Rect{Max: box.Point()}, f.Theme)()
 		offset := l.offset.Value()
 		for kid := range kids.All {
 			r, ok := kid.Node().(*row)
