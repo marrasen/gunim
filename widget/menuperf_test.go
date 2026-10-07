@@ -95,24 +95,13 @@ func TestAClosedDropdownMeasuresItsItemsOnlyWhenTheyChange(t *testing.T) {
 	}
 }
 
-// textOps counts the text ops in ops.
-func textOps(ops []paint.Op) int {
-	n := 0
-	for _, op := range ops {
-		if _, ok := op.(*paint.TextOp); ok {
-			n++
-		}
-	}
-	return n
-}
-
 func TestALongMenuDrawsOnlyTheRowsInView(t *testing.T) {
 	m := NewMenu(manyItems(5000)...)
 	m.Breaks = []int{100, 2600, 2601}
 	m.Highlight(2500)
 	m.Layout(gunim.Loose(geom.Sz(600, 480)), gunim.Frame{Scale: 1}, gunim.Children{})
 	shown := int(m.card.Size().H/m.row) + 2
-	if n := textOps(painted(m, geom.Sz(600, 480))); n > shown {
+	if n := len(textOps(painted(m, geom.Sz(600, 480)))); n > shown {
 		t.Fatalf("a menu showing about %d rows drew %d texts", shown, n)
 	}
 	rowShown(t, m, 2500, "opened on it")

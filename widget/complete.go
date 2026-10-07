@@ -118,10 +118,7 @@ func (a *TextArea) complete(u *gunim.UI) {
 func (a *TextArea) triggerBox(i int) geom.Rect {
 	_, at := a.para.Caret(i)
 	at = at.Add(a.origin(FieldPadding.Default()))
-	h := a.para.LineHeight
-	if len(a.para.Lines) > 0 {
-		h = a.para.Lines[0].Run.Height()
-	}
+	h := a.para.lineHeight()
 	return geom.Rc(at.X, at.Y, 1, h+2)
 }
 

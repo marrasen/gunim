@@ -63,7 +63,6 @@ func TestCodeColoursEachKindOfToken(t *testing.T) {
 		t.Fatalf("the line's kinds are %v, want %s", got, want)
 	}
 	c.Highlight = nil
-	c.version++
 	c.relayout(nil)
 	for _, s := range c.lines[0].segs {
 		if s.kind != syntax.Plain {

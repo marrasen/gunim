@@ -1,6 +1,7 @@
 package widget
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -71,8 +72,15 @@ func TestASecretFieldShowsDotsAndKeepsOffTheClipboard(t *testing.T) {
 	w.Input(input.KeyPress{Key: input.KeyTab})
 	w.Input(input.TextInput{Text: "hunter2"})
 	run(1)
-	if got := string([]rune(pass.shaped.s)); got != "•••••••" {
-		t.Fatalf("the field shows %q, want seven dots", got)
+	dot := pass.line.face.Shape("•", pass.line.size).Glyphs[0].ID
+	var glyphs []uint32
+	for _, pc := range pass.line.pieces {
+		for _, g := range pc.run.Glyphs {
+			glyphs = append(glyphs, g.ID)
+		}
+	}
+	if len(glyphs) != 7 || slices.ContainsFunc(glyphs, func(id uint32) bool { return id != dot }) {
+		t.Fatalf("the field shows glyphs %v, want seven dots", glyphs)
 	}
 	_ = w.Offscreen().SetClipboard("before")
 	w.Input(input.KeyPress{Key: input.KeyA, Mods: input.ModControl})

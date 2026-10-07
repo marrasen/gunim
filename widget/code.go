@@ -120,21 +120,16 @@ type CodeEditor struct {
 	scrollY *anim.Float
 	marks   []*codeMark
 
-	// version counts edits, so the layout knows when to read the code
-	// again.
-	version int
-	held    bool
+	held bool
 
-	// The layout: the version, composition, face and sizes it is for,
-	// the tokens, and the lines.
-	laidVersion int
-	laidPre     string
+	// The layout: the face, sizes and highlighter it is for, and the
+	// lines, kept up as the code changes.
 	laidFace    *text.Face
 	laidSize    float32
 	laidTab     float32
-	tokens      []syntax.Token
+	laidColours uintptr
 	lines       []codeLine
-	shapes      map[string]text.Run
+	shapes      shapeCache
 	numbers     map[int]text.Run
 	lineH       float32
 	glyphH      float32
@@ -163,6 +158,12 @@ type codeLine struct {
 	// start and end are the line's runes in the code, its newline left
 	// out.
 	start, end int
+	// toks are the tokens on the line, counted from its start and cut
+	// to it, and cont says a token from a line before runs into it.
+	// stale says the tokens changed since the line was laid out.
+	toks  []syntax.Token
+	cont  bool
+	stale bool
 	// text and spans are what the line was laid out from, to tell
 	// whether it needs laying out again.
 	text  string
@@ -195,13 +196,11 @@ func NewCodeEditor() *CodeEditor {
 		band:      anim.NewFloat(0),
 		scrollX:   anim.NewFloat(0),
 		scrollY:   anim.NewFloat(0),
-		shapes:    map[string]text.Run{},
 		numbers:   map[int]text.Run{},
 	}
 	c.multiline, c.tabs, c.Numbers = true, true, true
 	c.Add(c.focus, c.caretAt, c.band, c.scrollX, c.scrollY)
 	c.changed = func(u *gunim.UI) {
-		c.version++
 		if c.OnChange != nil {
 			u.Send(c, c.OnChange(c.Text()))
 		}
@@ -216,10 +215,9 @@ func (c *CodeEditor) Text() string { return string(c.text) }
 // the top and forgets the history, for a file opened afresh. Call it
 // from a view's update function.
 func (c *CodeEditor) SetText(s string) {
-	c.text = []rune(s)
+	c.setText([]rune(s))
 	c.set(0, false)
 	c.forget()
-	c.version++
 	c.scrollX.Jump(0)
 	c.scrollY.Jump(0)
 	c.edited = true
@@ -580,7 +578,7 @@ func (c *CodeEditor) indexAt(p geom.Point) int {
 
 // hit returns the rune nearest x on line.
 func (c *CodeEditor) hit(line int, x float32) int {
-	l := c.lines[line]
+	l := c.laidLine(line)
 	for _, s := range l.segs {
 		if x >= s.x+s.w {
 			continue
@@ -616,7 +614,7 @@ func (c *CodeEditor) xOf(i int) float32 {
 	if len(c.lines) == 0 {
 		return 0
 	}
-	l := c.lines[c.lineOf(i)]
+	l := c.laidLine(c.lineOf(i))
 	local := i - l.start
 	for _, s := range l.segs {
 		if local >= s.end {
@@ -691,54 +689,45 @@ func (c *CodeEditor) maxScrollY() float32 {
 	return max(0, float32(len(c.lines))*c.lineH-c.view.H)
 }
 
-// relayout reads the code again and lays out the lines that changed.
+// relayout lays out the lines the code's changes touched, and colours
+// them and the lines a change of colour carries on to.
 func (c *CodeEditor) relayout(th *theme.Live) {
 	face := faceIn(MonoFont, th)
 	size := CodeSize.Get(th)
 	tab := CodeTab.Get(th)
-	pre := string(c.preedit)
-	if c.laid && c.laidVersion == c.version && c.laidPre == pre && c.laidFace == face && c.laidSize == size && c.laidTab == tab {
+	shown, _ := c.shown()
+	head, tail, was, changed := c.shownChange()
+	colours := highlighterID(c.Highlight)
+	if !c.laid || c.laidFace != face || c.laidSize != size || c.laidTab != tab || c.laidColours != colours {
+		if c.laidFace != face || c.laidSize != size || c.laidTab != tab {
+			c.shapes.clear()
+			clear(c.numbers)
+			space := face.Shape(" ", size)
+			c.glyphH = space.Height()
+			c.tabW = space.Advance * max(tab, 1)
+		}
+		c.lines = c.lines[:0]
+		head, tail, was, changed = 0, 0, 0, true
+	}
+	c.laidFace, c.laidSize, c.laidTab, c.laidColours = face, size, tab, colours
+	c.lineH = float32(math.Ceil(float64(c.glyphH * CodeLineHeight.Get(th))))
+	if !changed {
 		return
 	}
-	if c.laidFace != face || c.laidSize != size || c.laidTab != tab {
-		clear(c.shapes)
-		clear(c.numbers)
-		c.lines = c.lines[:0]
-		space := face.Shape(" ", size)
-		c.glyphH = space.Height()
-		c.tabW = space.Advance * max(tab, 1)
-	}
-	c.laidVersion, c.laidPre, c.laidFace, c.laidSize, c.laidTab = c.version, pre, face, size, tab
-	c.lineH = float32(math.Ceil(float64(c.glyphH * CodeLineHeight.Get(th))))
 
-	shown, _ := c.shown()
-	src := string(shown)
-	c.tokens = c.tokens[:0]
-	if c.Highlight != nil {
-		c.tokens = c.Highlight(src)
-	}
-	if len(c.shapes) > 20000 {
-		clear(c.shapes)
-		for i := range c.lines {
-			c.lines[i].spans = nil
+	from, to := c.splitLines(shown, head, tail, was)
+	first, end := c.colour(shown, from, to)
+	// The new lines are laid out now. A line whose text stayed and whose
+	// colours changed keeps its width, which colours leave as it is, and
+	// is laid out when it is next shown, so a comment opened above many
+	// lines costs only the lines in view.
+	for i := first; i < end; i++ {
+		if i >= from && i < to {
+			c.layLine(&c.lines[i], face, size)
+		} else {
+			c.lines[i].stale = true
 		}
 	}
-
-	var lines []codeLine
-	ti := 0
-	start := 0
-	for i := 0; i <= len(shown); i++ {
-		if i < len(shown) && shown[i] != '\n' {
-			continue
-		}
-		var old *codeLine
-		if n := len(lines); n < len(c.lines) {
-			old = &c.lines[n]
-		}
-		lines = append(lines, c.layLine(shown, start, i, &ti, old, face, size))
-		start = i + 1
-	}
-	c.lines = lines
 	c.widest = 0
 	for _, l := range c.lines {
 		c.widest = max(c.widest, l.width)
@@ -750,65 +739,66 @@ func (c *CodeEditor) relayout(th *theme.Live) {
 	}
 }
 
-// layLine lays out runes start to end of shown, starting from token ti,
-// and reuses old where nothing changed.
-func (c *CodeEditor) layLine(shown []rune, start, end int, ti *int, old *codeLine, face *text.Face, size float32) codeLine {
-	l := codeLine{start: start, end: end, text: string(shown[start:end])}
-	for *ti < len(c.tokens) && c.tokens[*ti].End <= start {
-		*ti++
-	}
-	// Spans: the tokens on this line, the plain text between them, and
+// layLine lays out l from its text and tokens, and reuses what it had
+// where neither changed.
+func (c *CodeEditor) layLine(l *codeLine, face *text.Face, size float32) {
+	rs := []rune(l.text)
+	var spans []codeSpan
+	// Spans: the tokens on the line, the plain text between them, and
 	// each tab on its own.
 	add := func(s, e int, k syntax.Kind) {
 		for s < e {
 			t := s
-			for t < e && shown[start+t] != '\t' {
+			for t < e && rs[t] != '\t' {
 				t++
 			}
 			if t > s {
-				l.spans = append(l.spans, codeSpan{start: s, end: t, kind: k})
+				spans = append(spans, codeSpan{start: s, end: t, kind: k})
 			}
 			if t < e {
-				l.spans = append(l.spans, codeSpan{start: t, end: t + 1, tab: true})
+				spans = append(spans, codeSpan{start: t, end: t + 1, tab: true})
 				t++
 			}
 			s = t
 		}
 	}
 	at := 0
-	for j := *ti; j < len(c.tokens) && c.tokens[j].Start < end; j++ {
-		tk := c.tokens[j]
-		s, e := max(tk.Start, start)-start, min(tk.End, end)-start
-		if s > at {
-			add(at, s, syntax.Plain)
+	for _, tk := range l.toks {
+		if tk.Start > at {
+			add(at, tk.Start, syntax.Plain)
 		}
-		add(s, e, tk.Kind)
-		at = e
+		add(tk.Start, tk.End, tk.Kind)
+		at = tk.End
 	}
-	add(at, end-start, syntax.Plain)
+	add(at, len(rs), syntax.Plain)
 
-	if old != nil && old.text == l.text && slices.Equal(old.spans, l.spans) {
-		l.segs, l.width = old.segs, old.width
-		return l
+	l.stale = false
+	if l.segs != nil && slices.Equal(l.spans, spans) {
+		return
 	}
+	l.spans, l.segs = spans, nil
 	x := float32(0)
-	for _, sp := range l.spans {
+	for _, sp := range spans {
 		seg := codeSeg{codeSpan: sp, x: x}
 		if sp.tab {
 			seg.w = c.tabW - float32(math.Mod(float64(x), float64(c.tabW)))
 		} else {
-			s := l.text[byteAt(l.text, sp.start):byteAt(l.text, sp.end)]
-			run, ok := c.shapes[s]
-			if !ok {
-				run = face.Shape(s, size)
-				c.shapes[s] = run
-			}
-			seg.run, seg.w = run, run.Advance
+			seg.run = c.shapes.shape(face, l.text[byteAt(l.text, sp.start):byteAt(l.text, sp.end)], size)
+			seg.w = seg.run.Advance
 		}
 		l.segs = append(l.segs, seg)
 		x += seg.w
 	}
 	l.width = x
+}
+
+// laidLine returns line i, laid out again first if its colours changed.
+func (c *CodeEditor) laidLine(i int) *codeLine {
+	l := &c.lines[i]
+	if l.stale {
+		c.layLine(l, c.laidFace, c.laidSize)
+		c.widest = max(c.widest, l.width)
+	}
 	return l
 }
 
@@ -944,7 +934,7 @@ func (c *CodeEditor) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gun
 	// The code, the lines in view and the pieces of them in view.
 	lift := (c.lineH - c.glyphH) / 2
 	for li := first; li < last; li++ {
-		l := c.lines[li]
+		l := c.laidLine(li)
 		y := o.Y + float32(li)*c.lineH + lift
 		for _, s := range l.segs {
 			if s.tab || o.X+s.x+s.w < c.gutterW || o.X+s.x > box.W {
@@ -1026,12 +1016,7 @@ func (c *CodeEditor) paintGutter(p *paint.Painter, th *theme.Live, box geom.Size
 
 // shape returns s shaped in the code's face, from the cache.
 func (c *CodeEditor) shape(s string, th *theme.Live) text.Run {
-	if run, ok := c.shapes[s]; ok {
-		return run
-	}
-	run := faceIn(MonoFont, th).Shape(s, CodeSize.Get(th))
-	c.shapes[s] = run
-	return run
+	return c.shapes.shape(faceIn(MonoFont, th), s, CodeSize.Get(th))
 }
 
 // fadedBy is col with its alpha scaled by a, from 0 to 1.
