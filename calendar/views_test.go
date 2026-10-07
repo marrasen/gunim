@@ -32,7 +32,8 @@ func stage(t *testing.T, n gunim.Node) (*gunim.Window, func(int), func() []gunim
 	t.Helper()
 	w := gunimtest.New(t, geom.Sz(800, 600), nil)
 	gunim.RegisterView(w, "v", func(struct{}) gunim.Node { return n }, nil)
-	if err := w.Client().Mount(gunim.Root, "v", "v", nil); err != nil {
+	gunim.RegisterPatch(w, "v", func(_ gunim.Node, call uiCall, u *gunim.UI) { call(u) })
+	if err := w.Client().Mount(gunim.Root, "v", "v", nil, "v"); err != nil {
 		t.Fatal(err)
 	}
 	run := func(k int) {
@@ -53,6 +54,17 @@ func stage(t *testing.T, n gunim.Node) (*gunim.Window, func(int), func() []gunim
 		}
 	}
 	return w, run, sent
+}
+
+// uiCall is a call the tests make on the window's UI, through [withUI].
+type uiCall func(u *gunim.UI)
+
+// withUI runs call with the UI of w, a window from stage, as an application's patch would.
+func withUI(t *testing.T, w *gunim.Window, call func(u *gunim.UI)) {
+	t.Helper()
+	if err := w.Client().Patch("v", uiCall(call)); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // drag presses at from, moves through to, and lets go there.

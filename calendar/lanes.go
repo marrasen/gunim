@@ -21,11 +21,12 @@ type placed struct {
 // lanes places the events of a day's column, given by their starts and ends, so each can be read. Events that start
 // within cascadeAfter of each other and overlap sit side by side, each widening over lanes left free for all of its
 // time. An event that starts later than that, over one already placed, sits on top of it, indented a step further,
-// and keeps most of the width. It returns one place for each event, in the order given, and the order to draw them
-// in, earliest first, so a later event is drawn over the one it sits on.
-func lanes(starts, ends []time.Time) ([]placed, []int) {
+// and keeps most of the width. Each event counts as lasting at least least, the time its smallest box covers, so
+// short events in a row sit side by side, each where it can be read. It returns one place for each event, in the
+// order given, and the order to draw them in, earliest first, so a later event is drawn over the one it sits on.
+func lanes(starts, ends []time.Time, least time.Duration) (places []placed, order []int) {
 	n := len(starts)
-	order := make([]int, n)
+	order = make([]int, n)
 	for i := range order {
 		order[i] = i
 	}
@@ -36,12 +37,10 @@ func lanes(starts, ends []time.Time) ([]placed, []int) {
 		// The longer first, so it takes the lane on the left.
 		return cmp.Compare(ends[b].Sub(starts[b]), ends[a].Sub(starts[a]))
 	})
+	least = max(least, time.Minute)
 	end := func(i int) time.Time {
-		if !ends[i].After(starts[i]) {
-			// A moment still takes a sliver of room.
-			return starts[i].Add(time.Minute)
-		}
-		return ends[i]
+		// A moment, or an event shorter than its box, takes the room its box does.
+		return maxTime(ends[i], starts[i].Add(least))
 	}
 	overlap := func(a, b int) bool { return starts[a].Before(end(b)) && end(a).After(starts[b]) }
 	out := make([]placed, n)

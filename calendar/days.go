@@ -605,7 +605,7 @@ func (d *Days) timedBoxes(i int) []timedBox {
 		}
 		evs, starts, ends = append(evs, e), append(starts, s), append(ends, en)
 	}
-	places, order := lanes(starts, ends)
+	places, order := lanes(starts, ends, d.leastSpan())
 	w := d.colW() - dayMargin
 	// Each step of indent moves an event over by a fifth of the column, up to 28 pixels.
 	step := min(w/5, 28)
@@ -621,6 +621,11 @@ func (d *Days) timedBoxes(i int) []timedBox {
 			top: evs[k].Start.Before(day), bottom: evs[k].End.After(next)})
 	}
 	return out
+}
+
+// leastSpan returns how long a time the smallest box of an event covers, minEventH tall.
+func (d *Days) leastSpan() time.Duration {
+	return time.Duration(float64(minEventH) / float64(d.hour()) * float64(time.Hour))
 }
 
 // longBox returns where a whole-day event sits on the row above the hours.
