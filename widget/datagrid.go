@@ -1230,6 +1230,8 @@ func (g *DataGrid) Handle(e input.Event, u *gunim.UI) bool {
 		}
 		if dx != 0 {
 			g.left = max(0, min(g.left-dx, g.contentW-g.bodyWidth(th)))
+			// The titles moved under the pointer, which stayed.
+			g.hoverAt(e.Pos, u)
 		}
 		u.Invalidate()
 		return true
@@ -1402,15 +1404,20 @@ func (g *DataGrid) move(e input.PointerMove, u *gunim.UI) bool {
 	case dragNone:
 	}
 	g.tip.Handle(e, u, g, g.tipAt(e.Pos))
+	g.hoverAt(e.Pos, u)
+	return false
+}
+
+// hoverAt lights the column title at pos, the pointer's place, if any.
+func (g *DataGrid) hoverAt(pos geom.Point, u *gunim.UI) {
 	hover := -1
-	if !g.NoHeader && e.Pos.Y < g.header {
-		hover = g.columnAt(e.Pos.X)
+	if !g.NoHeader && pos.Y < g.header {
+		hover = g.columnAt(pos.X)
 	}
 	if hover != g.hoverCol {
 		g.hoverCol = hover
 		u.Invalidate()
 	}
-	return false
 }
 
 func (g *DataGrid) key(e input.KeyPress, u *gunim.UI) bool {

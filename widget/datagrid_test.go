@@ -465,3 +465,31 @@ func TestADataGridTipsACellCutShortWithItsWholeText(t *testing.T) {
 		t.Fatal("the tooltip stayed after the pointer left")
 	}
 }
+
+// A sideways wheel moves the titles under a pointer at rest: the title lit is the one under it now.
+func TestADataGridLightsTheTitleUnderThePointerAfterASidewaysWheel(t *testing.T) {
+	cols := make([]GridColumn, 6)
+	for i := range cols {
+		cols[i] = GridColumn{Title: "Column " + strconv.Itoa(i), Width: 150, Closable: true}
+	}
+	g := NewDataGrid(cols...)
+	g.Row = func(int) (GridRow, bool) { return GridRow{}, true }
+	g.rows = 10
+	w, run := stage(t, &frame{child: g, size: geom.Sz(400, 300)})
+	at := geom.Pt(100, g.header/2)
+	w.Input(input.PointerMove{Pos: at, Time: time.Now()})
+	run(1)
+	if g.hoverCol != 0 {
+		t.Fatalf("the pointer on the first title lights title %d", g.hoverCol)
+	}
+	for _, e := range []input.Scroll{
+		{Pos: at, Delta: geom.Pt(-200, 0), Time: time.Now()},
+		{Pos: at, Delta: geom.Pt(0, -150), Mods: input.ModShift, Time: time.Now()},
+	} {
+		w.Input(e)
+		run(1)
+		if want := g.columnAt(at.X); g.hoverCol != want || want <= 0 {
+			t.Fatalf("scrolled sideways to %v, title %d is lit, want %d, now under the pointer", g.left, g.hoverCol, want)
+		}
+	}
+}
