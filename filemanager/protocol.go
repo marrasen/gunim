@@ -69,6 +69,9 @@ type Shell struct {
 	// PlaceMenu says the program adds items to the context menus of the
 	// places, so a menu asks it for them as it opens.
 	PlaceMenu bool
+	// OpenWith says a file opens with a program the user picks from the
+	// system's, so the context menu offers Open with.
+	OpenWith bool
 	// Name is what the title calls the program, and Files when empty.
 	Name string
 	// Where names the file system, as the title says first, and is empty

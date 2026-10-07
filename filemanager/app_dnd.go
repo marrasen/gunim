@@ -42,6 +42,10 @@ func (a *app) handleDnd(in gunim.Intent) bool {
 		a.editFavourite(v.FS, v.Path)
 	case PropsApplied:
 		a.answered(v)
+	case OpenWithAsked:
+		a.askedOpenWith(v.Path)
+	case OpenWith:
+		a.openWith(v)
 	case Command:
 		switch v.Name {
 		case CmdOpenSystem:

@@ -306,6 +306,7 @@ func newApp(ctx context.Context, c screen, o Options) (*app, error) {
 		Sidebar:     a.prefs.Sidebar, FS: a.fs.ID(), Paths: a.ps, NoTrash: tr == nil,
 		Transfers: o.Transfer != nil, PlaceMenu: o.PlaceMenu != nil, Actions: o.ItemActions, Name: o.Name, UploadEdited: a.prefs.UploadEdited}
 	a.shell.Where, a.shell.Fetches = a.where(), a.fetches()
+	a.shell.OpenWith = a.openWithOn()
 	a.nav.sort, a.nav.desc = a.prefs.Sort, a.prefs.Desc
 	return a, nil
 }

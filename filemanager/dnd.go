@@ -229,9 +229,19 @@ type dndView struct {
 	crumbs  *widget.DropZone
 	// sideMenu is the context menu of the sidebar's places.
 	sideMenu *sideMenu
-	vols     map[string]string
-	volErrs  map[string]string
-	clip     ClipState
+	// menuOf is the listing's context menu last opened, on the page
+	// menuPage, at menuAt in its space: where the Open with menu opens.
+	menuOf   *widget.ContextMenu
+	menuPage *listingPage
+	menuAt   geom.Point
+	// withAsked is the file the program was asked the programs of, for
+	// the Open with menu, and with the programs it sent, while that menu
+	// opens.
+	withAsked string
+	with      *OpenWithMenu
+	vols      map[string]string
+	volErrs   map[string]string
+	clip      ClipState
 	// plan is what a drop on the spot found last does: a DropFiles or a
 	// PinFolders.
 	plan gunim.Intent
@@ -278,6 +288,7 @@ func registerDnd(w *gunim.Window) {
 		b.dnd.vols, b.dnd.volErrs = s.Of, s.Errs
 	})
 	gunim.RegisterPatch(w, "browser", func(b *browser, s ClipState, _ *gunim.UI) { b.dnd.clip = s })
+	gunim.RegisterPatch(w, "browser", func(b *browser, o OpenWithMenu, u *gunim.UI) { b.dnd.openWithMenu(o, u) })
 	gunim.RegisterPatch(w, "browser", func(b *browser, s ScriptDrag, u *gunim.UI) { b.dnd.script(w, s, u) })
 	gunim.RegisterPatch(w, "browser", func(b *browser, s DragFetched, _ *gunim.UI) { b.dnd.fetched(s) })
 	gunim.RegisterPatch(w, "browser", func(b *browser, s DragFetching, _ *gunim.UI) { b.dnd.fetching(s) })

@@ -42,6 +42,7 @@ func (a *app) showFS(fsys FS, dir string) {
 	a.hub.shows(a, fsys.ID())
 	a.shell.FS, a.shell.Paths, a.shell.NoTrash = fsys.ID(), a.ps, a.trash == nil
 	a.shell.Where, a.shell.Fetches = a.where(), a.fetches()
+	a.shell.OpenWith = a.openWithOn()
 	a.publishShell()
 	a.loadFavourites()
 	a.loadPlaces()

@@ -20,12 +20,14 @@ const (
 	localCollapse   = "local.collapse"
 	localMoveUp     = "local.moveup"
 	localMoveDown   = "local.movedown"
+	localOpenWith   = "local.openwith"
 )
 
 // rowItems are the context menu of the items selected.
 var rowItems = []menuItem{
 	{"Open", "Enter", CmdOpen},
 	{"Open with system", "", CmdOpenSystem},
+	{"Open with…", "", localOpenWith},
 	{"Open in new window", "", localOpenWindow},
 	{"Show in system file manager", "", CmdReveal},
 	{"-", "", ""},
@@ -163,6 +165,12 @@ func (pg *listingPage) contextMenu(g gunim.Node, rowAt func(geom.Point) int, sel
 	var st menuState
 	m.Prepare = func(at geom.Point, u *gunim.UI) bool {
 		b := pg.b
+		b.dnd.menuOf, b.dnd.menuPage, b.dnd.menuAt = m, pg, at
+		if w := b.dnd.with; w != nil {
+			st = menuState{path: w.Path}
+			st.cmds = fill(m, openWithItems(w.Apps), func(string) bool { return false }, func(string) bool { return false })
+			return true
+		}
 		row := rowAt(at)
 		clipEmpty := b.dnd.clip.Count == 0
 		if row < 0 {
@@ -195,6 +203,9 @@ func (pg *listingPage) contextMenu(g gunim.Node, rowAt func(geom.Point) int, sel
 		for _, r := range sel {
 			st.paths = append(st.paths, b.shell.Paths.Join(b.listing.path, r.Name))
 		}
+		if !b.shell.OpenWith {
+			items = without(items, localOpenWith)
+		}
 		st.cmds = fill(m, items, func(cmd string) bool {
 			switch cmd {
 			case CmdOpenSystem:
@@ -207,6 +218,8 @@ func (pg *listingPage) contextMenu(g gunim.Node, rowAt func(geom.Point) int, sel
 				return !one
 			case localOpenWindow:
 				return !one || !sel[0].Dir
+			case localOpenWith:
+				return !one || sel[0].Dir
 			case CmdPin:
 				return dirs == 0
 			}
@@ -290,6 +303,9 @@ func (v *dndView) menuPicked(m *widget.ContextMenu, st menuState, i int, u *guni
 	switch cmd := st.cmds[i]; cmd {
 	case localCopyPath:
 		v.copyPaths(u)
+	case localOpenWith:
+		v.withAsked = st.path
+		u.Send(m, OpenWithAsked{Path: st.path})
 	case localOpenWindow:
 		if st.away {
 			u.Send(m, Visit{FS: st.fs, Path: st.path, NewWindow: true})
@@ -323,6 +339,10 @@ func (v *dndView) menuPicked(m *widget.ContextMenu, st menuState, i int, u *guni
 			u.Send(m, PlaceCommanded{Place: st.place, ID: id})
 			return
 		}
+		if id, ok := strings.CutPrefix(cmd, withCmd); ok {
+			u.Send(m, OpenWith{Path: st.path, ID: id})
+			return
+		}
 		u.Send(m, Command{Name: cmd})
 	}
 }
@@ -342,6 +362,35 @@ func (v *dndView) copyPaths(u *gunim.UI) {
 		paths = []string{v.b.shell.Paths.Show(l.path)}
 	}
 	u.SetClipboard(strings.Join(paths, "\n"))
+}
+
+// withCmd starts the command of a program in the Open with menu, before
+// its ID; with none, the item asks for the system's dialog.
+const withCmd = "with:"
+
+// openWithItems are the items of the Open with menu: the programs, and
+// the system's dialog to choose another.
+func openWithItems(apps []OpenWithApp) []menuItem {
+	var items []menuItem
+	for _, p := range apps {
+		items = append(items, menuItem{p.Name, "", withCmd + p.ID})
+	}
+	if len(items) > 0 {
+		items = append(items, menuItem{"-", "", ""})
+	}
+	return append(items, menuItem{"Choose another app…", "", withCmd})
+}
+
+// openWithMenu opens the Open with menu where the listing's menu was,
+// once the program has sent the programs for the file it was asked for.
+func (v *dndView) openWithMenu(o OpenWithMenu, u *gunim.UI) {
+	if o.Path == "" || o.Path != v.withAsked || v.menuOf == nil || v.menuPage != v.b.listing.cur {
+		return
+	}
+	v.withAsked = ""
+	v.with = &o
+	defer func() { v.with = nil }()
+	v.menuOf.Open(v.menuAt, u)
 }
 
 // placeCmd starts the command of an item of the program's own in a
