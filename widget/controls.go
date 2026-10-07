@@ -43,6 +43,7 @@ type toggle struct {
 	click clicker
 	size  geom.Size
 	text  shapedText
+	ell   shapedText
 	// laid is set by the first layout, which puts the control where On
 	// says without animating.
 	laid bool
@@ -172,13 +173,14 @@ func (t *toggle) layout(c gunim.Constraints, f gunim.Frame, mark geom.Size) geom
 }
 
 // paintLabel draws the label after the control's mark, which is mark
-// wide.
+// wide, cut with an ellipsis where the box is too narrow for it.
 func (t *toggle) paintLabel(p *paint.Painter, f gunim.Frame, box geom.Size, mark float32) {
-	if t.Label == "" {
+	x := mark + ControlGap.Get(f.Theme)
+	if t.Label == "" || x >= box.W {
 		return
 	}
-	run := t.text.shape(faceIn(Font, f.Theme), t.Label, TextSize.Get(f.Theme))
-	run.Paint(p, geom.Pt(mark+ControlGap.Get(f.Theme), (box.H-run.Height())/2), Ink.Get(f.Theme))
+	run := fitRun(t.text.shape(faceIn(Font, f.Theme), t.Label, TextSize.Get(f.Theme)), &t.ell, box.W-x)
+	run.Paint(p, geom.Pt(x, (box.H-run.Height())/2), Ink.Get(f.Theme))
 }
 
 // Checkbox is a box that is ticked or not, with a label.
