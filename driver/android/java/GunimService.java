@@ -5,10 +5,15 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.media.AudioAttributes;
+import android.media.AudioFocusRequest;
+import android.media.AudioManager;
 import android.media.MediaMetadata;
 import android.media.session.MediaSession;
 import android.media.session.PlaybackState;
@@ -21,6 +26,11 @@ import android.os.IBinder;
  * while it plays in the background, as a foreground service. A media
  * notification needs no leave to notify. The controls' buttons go to Go
  * as Native.media; Go hands it what plays through Native.nowPlaying.
+ *
+ * It also holds the audio focus while the program plays, so other media
+ * players stop when it starts, and it pauses when another one starts. It
+ * pauses when the sound would move to the speaker, as when headphones are
+ * unplugged.
  */
 public class GunimService extends Service {
 	private static final String CHANNEL = "gunim.playing";
@@ -55,6 +65,25 @@ public class GunimService extends Service {
 
 	private MediaSession session;
 
+	// focus is the audio focus request; held is true while the program
+	// holds the focus. lent is true while a call or another short sound
+	// has it and the program paused for it, to play again when it is
+	// given back.
+	private static AudioFocusRequest focus;
+	private static boolean held, lent;
+
+	// noisy pauses the program when Android is about to move its sound to
+	// the speaker; it listens while the program plays.
+	private static final BroadcastReceiver noisy = new BroadcastReceiver() {
+		@Override
+		public void onReceive(Context c, Intent i) {
+			if (AudioManager.ACTION_AUDIO_BECOMING_NOISY.equals(i.getAction())) {
+				Native.media(2, 0);
+			}
+		}
+	};
+	private static boolean listening;
+
 	/**
 	 * show shows st in the media controls, starting the service the
 	 * first time something plays, or takes the controls away for null.
@@ -65,6 +94,8 @@ public class GunimService extends Service {
 		if (app == null) {
 			return;
 		}
+		audioFocus(app, st);
+		listen(app, st != null && st.playing);
 		if (st == null) {
 			app.stopService(new Intent(app, GunimService.class));
 			return;
@@ -75,6 +106,108 @@ public class GunimService extends Service {
 		}
 		if (st.playing) {
 			app.startForegroundService(new Intent(app, GunimService.class));
+		}
+	}
+
+	/**
+	 * audioFocus asks for the audio focus when st starts to play, and
+	 * gives it up when st stops or the user pauses it. It keeps the focus
+	 * through a pause it made for a call, to get it back when the call
+	 * ends. It runs on the UI thread, as do the focus's changes.
+	 */
+	private static void audioFocus(Context app, State st) {
+		AudioManager am = app.getSystemService(AudioManager.class);
+		if (focus == null) {
+			focus = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+				.setAudioAttributes(new AudioAttributes.Builder()
+					.setUsage(AudioAttributes.USAGE_MEDIA)
+					.setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+					.build())
+				.setOnAudioFocusChangeListener(new Focus(app.getPackageName()))
+				.build();
+		}
+		boolean playing = st != null && st.playing;
+		if (playing) {
+			if (!held || lent) {
+				if (am.requestAudioFocus(focus) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+					held = true;
+					lent = false;
+				} else {
+					// A call has the focus: the program stays
+					// paused, and plays again when a lent focus
+					// comes back.
+					Native.media(2, 0);
+				}
+			}
+		} else if (held && (!lent || st == null)) {
+			am.abandonAudioFocusRequest(focus);
+			held = false;
+			lent = false;
+		}
+	}
+
+	/** listen starts or stops listening for the sound to go to the speaker. */
+	private static void listen(Context app, boolean on) {
+		if (on == listening) {
+			return;
+		}
+		listening = on;
+		if (on) {
+			app.registerReceiver(noisy, new IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY));
+		} else {
+			app.unregisterReceiver(noisy);
+		}
+	}
+
+	/**
+	 * Focus hands the focus's changes to focusChanged. Android tells
+	 * requests apart by their listener's toString, which for a lambda
+	 * is the same in every gunim program, so it names the package.
+	 */
+	private static final class Focus implements AudioManager.OnAudioFocusChangeListener {
+		private final String pkg;
+
+		Focus(String pkg) {
+			this.pkg = pkg;
+		}
+
+		@Override
+		public void onAudioFocusChange(int change) {
+			focusChanged(change);
+		}
+
+		@Override
+		public String toString() {
+			return "gunim.focus:" + pkg;
+		}
+	}
+
+	/**
+	 * focusChanged pauses for another player, which keeps the focus, and
+	 * for a call or another short sound, which lends it; the program
+	 * plays again when a lent focus comes back. Android lowers the
+	 * program's volume itself for a sound that only asks it to duck.
+	 */
+	private static void focusChanged(int change) {
+		switch (change) {
+		case AudioManager.AUDIOFOCUS_LOSS:
+			Native.app.getSystemService(AudioManager.class).abandonAudioFocusRequest(focus);
+			held = false;
+			lent = false;
+			Native.media(2, 0);
+			break;
+		case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
+			if (state != null && state.playing) {
+				lent = true;
+				Native.media(2, 0);
+			}
+			break;
+		case AudioManager.AUDIOFOCUS_GAIN:
+			if (lent) {
+				lent = false;
+				Native.media(1, 0);
+			}
+			break;
 		}
 	}
 
