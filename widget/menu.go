@@ -1437,6 +1437,20 @@ type tip struct {
 	wrapped     bool
 	margin      float32
 	transparent bool
+	// wide is how wide the screen lets the tooltip's window be, from FitPopup, or 0 where nothing says.
+	wide float32
+}
+
+// tipNarrowest is the narrowest a tooltip's words wrap to, on the narrowest screen.
+const tipNarrowest = 80
+
+// FitPopup implements [gunim.PopupFitter]: the tooltip's words wrap to the screen's width, where it is narrower
+// than [TooltipMaxWidth].
+func (t *tip) FitPopup(r driver.Room) {
+	t.wide = 0
+	if wide := r.Left + r.Right; !math.IsInf(float64(wide), 1) {
+		t.wide = wide
+	}
 }
 
 func newTip(text string) *tip {
@@ -1482,6 +1496,9 @@ func (t *tip) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.
 	run := t.run.shape(faceIn(Font, th), t.text, TooltipSize.Get(th))
 	pad := TooltipPadding.Get(th)
 	widest := TooltipMaxWidth.Get(th)
+	if t.wide > 0 {
+		widest = max(min(widest, t.wide-pad.Left-pad.Right-2*t.margin), tipNarrowest)
+	}
 	t.wrapped = run.Advance > widest
 	if t.wrapped {
 		t.turn.Jump(1)

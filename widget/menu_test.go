@@ -261,6 +261,34 @@ func TestAMenuKeepsToTheScreensWidth(t *testing.T) {
 	}
 }
 
+func TestATooltipKeepsToTheScreensWidth(t *testing.T) {
+	tip := NewTooltip(NewButton("Hover me"), strings.Repeat("word ", 400))
+	w, run := stage(t, &frame{child: tip, size: geom.Sz(200, 36)})
+	w.Offscreen().SetWorkArea(geom.Rc(0, 0, 300, 600))
+	w.Input(input.PointerMove{Pos: geom.Pt(20, 18), Time: time.Now()})
+	run(60)
+	if tip.tip.popup == nil {
+		t.Fatal("the tooltip did not show")
+	}
+	if size := tip.tip.popup.Offscreen().Size(); size.W > 300 {
+		t.Fatalf("the tooltip's window is %v, on a screen 300 wide", size)
+	}
+}
+
+func TestATooltipOfManyWordsWraps(t *testing.T) {
+	tip := NewTooltip(NewButton("Hover me"), strings.Repeat("word ", 400))
+	w, run := stage(t, &frame{child: tip, size: geom.Sz(200, 36)})
+	w.Input(input.PointerMove{Pos: geom.Pt(20, 18), Time: time.Now()})
+	run(60)
+	if tip.tip.popup == nil {
+		t.Fatal("the tooltip did not show")
+	}
+	pad := TooltipPadding.Default()
+	if size, most := tip.tip.popup.Offscreen().Size(), TooltipMaxWidth.Default()+pad.Left+pad.Right+2*MenuMargin.Default(); size.W > most {
+		t.Fatalf("the tooltip's window is %v, wider than %v", size, most)
+	}
+}
+
 func TestAMenuButtonCutsItsTitleShortBeforeItsChevron(t *testing.T) {
 	b := NewMenuButton("Show all the columns", "Time", "Level")
 	spy := &opsSpy{child: b, size: geom.Sz(90, 36)}
