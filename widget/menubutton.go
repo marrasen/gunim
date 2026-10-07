@@ -13,12 +13,20 @@ import (
 	"github.com/marrasen/gunim/theme"
 )
 
-// MenuButton is a button that opens a menu below it. With StayOpen the
-// menu stays open after a pick, and a pick ticks or unticks the item, for
-// a set of choices where several can be on, such as the files a filter
-// lets through.
+// MenuButton is a button that opens a menu below it, or above it where
+// the screen runs out. Its fill warms under the pointer, focus grows a
+// ring round it, and its chevron turns over as the menu opens and back
+// as it shuts.
+//
+// A click opens the menu and another closes it. With focus, Space, Enter
+// and Down open it; Up, Down, Home and End move through it; Enter or
+// Space picks; Escape and Tab close it.
+//
+// With StayOpen the menu stays open after a pick, and a pick ticks or
+// unticks the item, for a set of choices where several can be on, such
+// as the files a filter lets through.
 type MenuButton struct {
-	anim.Group
+	control
 
 	Title string
 	// Icon shows before the title.
@@ -33,9 +41,7 @@ type MenuButton struct {
 	// sent to the application as the button's intent.
 	OnPick func(i int, u *gunim.UI) gunim.Intent
 
-	hover *anim.Float
-	ring  *anim.Float
-	turn  *anim.Float
+	turn *anim.Float
 
 	popup *gunim.Popup
 	menu  *Menu
@@ -47,8 +53,8 @@ type MenuButton struct {
 
 // NewMenuButton returns a button titled title that opens a menu of items.
 func NewMenuButton(title string, items []MenuItem) *MenuButton {
-	b := &MenuButton{Title: title, list: newMenuList(items), hover: anim.NewFloat(0), ring: anim.NewFloat(0), turn: anim.NewFloat(0)}
-	b.Add(b.hover, b.ring, b.turn)
+	b := &MenuButton{control: newControl(), Title: title, list: newMenuList(items), turn: anim.NewFloat(0)}
+	b.Add(b.turn)
 	return b
 }
 
@@ -59,15 +65,16 @@ func (b *MenuButton) Items() []MenuItem { return b.list.items }
 // Checked in it: a change to it goes through SetItems again. The menu open shows them at once.
 func (b *MenuButton) SetItems(items []MenuItem) { b.list = newMenuList(items) }
 
-// Focusable implements [gunim.Focusable].
-func (b *MenuButton) Focusable() bool { return true }
-
 // IsOpen reports whether the menu is open.
 func (b *MenuButton) IsOpen() bool { return b.popup != nil && b.popup.Open() }
 
 // Handle implements [gunim.Handler].
 func (b *MenuButton) Handle(e input.Event, u *gunim.UI) bool {
+	b.showTip(e, u, b)
 	th := u.Theme()
+	if b.Disabled {
+		return b.handleDisabled(e, u, b.close)
+	}
 	switch e := e.(type) {
 	case input.PointerEnter:
 		b.hover.Animate(1, Quick.Get(th))
@@ -155,12 +162,15 @@ func (b *MenuButton) open(u *gunim.UI) {
 // sync gives the open menu the button's items as they are now.
 func (b *MenuButton) sync(m *Menu) { m.setList(b.list) }
 
-func (b *MenuButton) close(u *gunim.UI) {
+func (b *MenuButton) close(u *gunim.UI) { b.shut(u.Theme()) }
+
+// shut closes the menu.
+func (b *MenuButton) shut(th *theme.Live) {
 	if b.popup != nil {
 		b.popup.Close()
 		b.popup = nil
 	}
-	b.turn.Animate(0, Quick.Get(u.Theme()))
+	b.turn.Animate(0, Quick.Get(th))
 }
 
 // Layout implements [gunim.Node]. The button is as wide as its title.
@@ -172,21 +182,20 @@ func (b *MenuButton) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children
 	run := b.shown.shape(faceIn(Font, th), b.Title, TextSize.Get(th))
 	pad := FieldPadding.Get(th)
 	b.size = c.Constrain(geom.Sz(b.iconRoom(th)+run.Advance+2*pad+chevron+pad, FieldHeight.Get(th)))
+	b.follow(th)
+	if b.Disabled && b.popup != nil {
+		b.shut(th)
+	}
 	return b.size
 }
 
 // Paint implements [gunim.Node].
 func (b *MenuButton) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
+	defer b.faint(p, box)()
 	th := f.Theme
 	r := geom.Rect{Max: box.Point()}
 	radius := FieldRadius.Get(th)
-	if t := b.ring.Value(); t > 0 {
-		ring := Accent.Get(th)
-		ring.A = uint8(float32(ring.A) * 0.56 * min(t, 1))
-		grow := 3 * t
-		p.RRectStroke(geom.Rect{Min: geom.Pt(-grow, -grow), Max: geom.Pt(box.W+grow, box.H+grow)},
-			radius+grow, paint.Fill{}, paint.Stroke{Width: 2, Color: ring})
-	}
+	b.paintRing(p, r, radius, th)
 	fill := anim.Mix(anim.ColorCodec, ButtonFill.Get(th), ButtonHover.Get(th), b.hover.Value())
 	border := FieldBorder.Get(th)
 	if b.Active {
@@ -222,8 +231,8 @@ func (b *MenuButton) iconRoom(th *theme.Live) float32 {
 func (b *MenuButton) Access() access.Info {
 	info := access.Info{
 		Role:    access.RoleButton,
-		Name:    b.Title,
-		State:   access.StateExpandable | access.StateHasPopup,
+		Name:    b.accessName(b.Title),
+		State:   access.StateExpandable | access.StateHasPopup | b.accessState(),
 		Actions: []string{access.ActionPress},
 	}
 	if b.IsOpen() {
@@ -237,7 +246,7 @@ func (b *MenuButton) Access() access.Info {
 
 // AccessAct implements [gunim.AccessActor].
 func (b *MenuButton) AccessAct(r access.Request, u *gunim.UI) bool {
-	if r.Action != access.ActionPress {
+	if r.Action != access.ActionPress || b.Disabled {
 		return false
 	}
 	b.toggle(u)

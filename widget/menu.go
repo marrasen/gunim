@@ -951,16 +951,13 @@ func (m *Menu) gutter() float32 {
 // keys, Home and End move through it; Enter or Space picks; Escape and
 // Tab close it.
 type Dropdown struct {
-	anim.Group
+	control
 
 	// selected is the chosen item.
 	selected int
 	// Label names the drop-down for a screen reader, as the label
 	// beside it does on screen.
 	Label string
-	// Disabled shows the drop-down faint, and it takes no clicks, keys
-	// or focus, for a choice that does not apply now.
-	Disabled bool
 	// MaxWidth caps the drop-down's width, cutting a longer item short with
 	// an ellipsis. Zero leaves it as wide as its longest item.
 	MaxWidth float32
@@ -970,9 +967,7 @@ type Dropdown struct {
 	// result is sent to the application as the drop-down's intent.
 	OnChange func(i int, u *gunim.UI) gunim.Intent
 
-	hover *anim.Float
-	ring  *anim.Float
-	turn  *anim.Float
+	turn *anim.Float
 
 	popup *gunim.Popup
 	menu  *Menu
@@ -991,12 +986,11 @@ type Dropdown struct {
 // list, and before the chosen one on the drop-down itself.
 func NewDropdown(items []MenuItem) *Dropdown {
 	d := &Dropdown{
-		list:  newMenuList(items),
-		hover: anim.NewFloat(0),
-		ring:  anim.NewFloat(0),
-		turn:  anim.NewFloat(0),
+		control: newControl(),
+		list:    newMenuList(items),
+		turn:    anim.NewFloat(0),
 	}
-	d.Add(d.hover, d.ring, d.turn)
+	d.Add(d.turn)
 	return d
 }
 
@@ -1030,24 +1024,20 @@ func (d *Dropdown) SetSelected(i int, u *gunim.UI) {
 	u.Invalidate()
 }
 
-// Focusable implements [gunim.Focusable].
-func (d *Dropdown) Focusable() bool { return !d.Disabled }
-
 // IsOpen reports whether the list is open.
 func (d *Dropdown) IsOpen() bool { return d.popup != nil && d.popup.Open() }
 
-// Handle implements [gunim.Handler]. A disabled drop-down still hears the focus leave it, which takes its ring.
+// Handle implements [gunim.Handler].
 func (d *Dropdown) Handle(e input.Event, u *gunim.UI) bool {
+	d.showTip(e, u, d)
 	th := u.Theme()
-	if _, lost := e.(input.FocusLost); lost {
-		d.ring.Animate(0, Settle.Get(th))
-		d.close(u)
-		return true
-	}
 	if d.Disabled {
-		return false
+		return d.handleDisabled(e, u, d.close)
 	}
 	switch e := e.(type) {
+	case input.FocusLost:
+		d.ring.Animate(0, Settle.Get(th))
+		d.close(u)
 	case input.PointerEnter:
 		d.hover.Animate(1, Quick.Get(th))
 	case input.PointerLeave:
@@ -1158,6 +1148,7 @@ func (d *Dropdown) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) 
 		w = min(w, d.MaxWidth)
 	}
 	d.size = c.Constrain(geom.Sz(w, FieldHeight.Get(th)))
+	d.follow(th)
 	if d.Disabled && d.popup != nil {
 		d.shut(th)
 	}
@@ -1187,17 +1178,11 @@ const chevron = 10
 
 // Paint implements [gunim.Node].
 func (d *Dropdown) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
-	defer faintIf(p, box, d.Disabled)()
+	defer d.faint(p, box)()
 	th := f.Theme
 	r := geom.Rect{Max: box.Point()}
 	radius := FieldRadius.Get(th)
-	if t := d.ring.Value(); t > 0 && !d.Disabled {
-		ring := Accent.Get(th)
-		ring.A = uint8(float32(ring.A) * 0.56 * min(t, 1))
-		grow := 3 * t
-		p.RRectStroke(geom.Rect{Min: geom.Pt(-grow, -grow), Max: geom.Pt(box.W+grow, box.H+grow)},
-			radius+grow, paint.Fill{}, paint.Stroke{Width: 2, Color: ring})
-	}
+	d.paintRing(p, r, radius, th)
 	fill := anim.Mix(anim.ColorCodec, ButtonFill.Get(th), ButtonHover.Get(th), d.hover.Value())
 	p.RRectStroke(r, radius, paint.Solid(fill), paint.Stroke{Width: 1, Color: FieldBorder.Get(th)})
 

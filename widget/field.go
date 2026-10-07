@@ -31,6 +31,7 @@ import (
 // underlined, with the input method's own caret or highlight inside it,
 // until it commits.
 type TextField struct {
+	control
 	Placeholder string
 	// Icon shows at the start of the field in the placeholder's colour, such as icon.Search.
 	Icon *icon.Icon
@@ -42,9 +43,6 @@ type TextField struct {
 	// keeps the text off the clipboard, and gives a screen reader no
 	// value to read.
 	Secret bool
-	// Disabled shows the field faint, and it takes no clicks, keys or
-	// focus, for a value that cannot be set now.
-	Disabled bool
 	// OnChange runs on the UI goroutine each time the user changes the
 	// text, and OnCommit when they press Enter. Each may act in the window
 	// through u, as a palette filters its list as the query changes; a
@@ -62,7 +60,6 @@ type TextField struct {
 	Ghost string
 
 	editor
-	held bool
 
 	focus   *anim.Float
 	caretAt *anim.Float
@@ -91,6 +88,7 @@ type TextField struct {
 // NewTextField returns an empty field.
 func NewTextField() *TextField {
 	t := &TextField{
+		control:  newControl(),
 		focus:    anim.NewFloat(0),
 		caretAt:  anim.NewFloat(0),
 		selA:     anim.NewFloat(0),
@@ -107,9 +105,6 @@ func NewTextField() *TextField {
 	}
 	return t
 }
-
-// Focusable implements [gunim.Focusable].
-func (t *TextField) Focusable() bool { return !t.Disabled }
 
 // TakesText implements [gunim.TextTaker], so an input method composes
 // into the field.
@@ -177,13 +172,17 @@ func (t *TextField) Step(dt time.Duration) bool {
 			moving = true
 		}
 	}
+	if t.control.Step(dt) {
+		moving = true
+	}
 	return t.blink.step(dt) || moving
 }
 
 // Handle implements [gunim.Handler].
 func (t *TextField) Handle(e input.Event, u *gunim.UI) bool {
-	if t.Disabled {
-		return false
+	t.showTip(e, u, t)
+	if _, lost := e.(input.FocusLost); t.Disabled && !lost {
+		return t.handleDisabled(e, u, nil)
 	}
 	if k, ok := e.(input.KeyPress); ok && t.Keys != nil && t.Keys(k, u) {
 		return true
@@ -368,6 +367,7 @@ func (t *TextField) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children)
 	}
 	own := c.Constrain(geom.Sz(w, FieldHeight.Get(th)))
 	t.size = own
+	t.follow(th)
 
 	// Aim the caret, the selection and the scroll. Each glides there.
 	run := t.run(th)
@@ -407,7 +407,7 @@ func (t *TextField) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children)
 
 // Paint implements [gunim.Node].
 func (t *TextField) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
-	defer faintIf(p, box, t.Disabled)()
+	defer t.faint(p, box)()
 	th := f.Theme
 	focus := t.focus.Value()
 	r := geom.Rect{Max: box.Point()}

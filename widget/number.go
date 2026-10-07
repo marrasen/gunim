@@ -26,8 +26,8 @@ type NumberField struct {
 
 	// Min and Max bound the value. Leave Max at zero for no ceiling.
 	Min, Max float64
-	// Step is how far one arrow press moves the value. Zero means one.
-	Step float64
+	// Increment is how far one arrow press moves the value; zero is one.
+	Increment float64
 	// Decimals is how many places the value is written with. Zero
 	// writes whole numbers.
 	Decimals int
@@ -97,8 +97,8 @@ func (n *NumberField) format(v float64) string {
 }
 
 func (n *NumberField) step() float64 {
-	if n.Step > 0 {
-		return n.Step
+	if n.Increment > 0 {
+		return n.Increment
 	}
 	return 1
 }

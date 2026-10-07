@@ -173,3 +173,34 @@ func TestAMenuButtonsOnPickHearsThePick(t *testing.T) {
 	}
 	quiet(t, w, "an OnPick that returns nil")
 }
+
+// A chip takes the keyboard by Tab, rings its cross, and Delete or Backspace removes it.
+func TestAChipTakesTheKeyboardAndDeleteRemovesIt(t *testing.T) {
+	for _, key := range []input.Key{input.KeyDelete, input.KeyBackspace} {
+		c := NewChip("level", "error")
+		c.OnRemove = func(u *gunim.UI) gunim.Intent { return removed{"error"} }
+		w, run := stage(t, &frame{child: Row(c), size: geom.Sz(400, 40)})
+		focused := focusProbe(t, w, run)
+		tab(w, run, 0)
+		if f := focused(); f != c {
+			t.Fatalf("Tab put the keyboard on %T, want the chip", f)
+		}
+		last := float32(0)
+		for k := range 30 {
+			run(1)
+			r := c.ring.Value()
+			if r < last-0.02 {
+				t.Fatalf("frame %d after Tab, the chip's ring went back from %v to %v", k+1, last, r)
+			}
+			last = r
+		}
+		if last < 0.99 {
+			t.Fatalf("Tab left the chip's ring at %v", last)
+		}
+		w.Input(input.KeyPress{Key: key})
+		run(1)
+		if got := sent(w); len(got) != 1 || got[0] != (removed{"error"}) {
+			t.Fatalf("%v on the chip sent %v, want it removed", key, got)
+		}
+	}
+}

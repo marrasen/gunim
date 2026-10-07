@@ -18,9 +18,12 @@ import (
 )
 
 // DateField holds a day. A click, Enter or Space opens a small month under it to pick the day from, and the Up and
-// Down keys move the day by one.
+// Down keys move the day by one. Its border turns to the accent colour while it has the keyboard. Disabled, it fades
+// faint and takes no clicks, keys or focus.
 type DateField struct {
 	anim.Group
+	// Disabled fades the field faint, and it then takes no clicks, keys or focus, for a day that cannot be set now.
+	Disabled bool
 	// OnChange runs on the UI goroutine when the user picks a day; a non-nil result is sent to the application as the
 	// field's intent.
 	OnChange func(day time.Time, u *gunim.UI) gunim.Intent
@@ -28,7 +31,10 @@ type DateField struct {
 	value time.Time
 	popup *gunim.Popup
 	focus *anim.Float
-	size  geom.Size
+	// dim runs from 0 to 1 as Disabled turns on, and laid says the field has been laid out once.
+	dim  *anim.Float
+	laid bool
+	size geom.Size
 	// text is the day as last laid out, for key.
 	text    text.Paragraph
 	textKey textKey
@@ -36,8 +42,8 @@ type DateField struct {
 
 // NewDateField returns a field holding day.
 func NewDateField(day time.Time) *DateField {
-	f := &DateField{value: Day(day), focus: anim.NewFloat(0)}
-	f.Add(f.focus)
+	f := &DateField{value: Day(day), focus: anim.NewFloat(0), dim: anim.NewFloat(0)}
+	f.Add(f.focus, f.dim)
 	return f
 }
 
@@ -90,11 +96,26 @@ func (f *DateField) close(u *gunim.UI) {
 // Layout implements [gunim.Node].
 func (f *DateField) Layout(c gunim.Constraints, fr gunim.Frame, _ gunim.Children) geom.Size {
 	f.size = c.Constrain(geom.Sz(170, widget.FieldHeight.Get(fr.Theme)))
+	off := float32(0)
+	if f.Disabled {
+		off = 1
+	}
+	if !f.laid {
+		f.dim.Jump(off)
+	} else if f.dim.Target() != off {
+		f.dim.Animate(off, widget.Quick.Get(fr.Theme))
+	}
+	f.laid = true
+	if f.Disabled && f.popup != nil {
+		f.popup.Close()
+		f.popup = nil
+	}
 	return f.size
 }
 
 // Paint implements [gunim.Node].
 func (f *DateField) Paint(p *paint.Painter, fr gunim.Frame, box geom.Size, _ gunim.Children) {
+	defer widget.Faint(p, box, f.dim.Value())()
 	th := fr.Theme
 	focus := min(max(f.focus.Value(), 0), 1)
 	border := widget.FieldBorder.Get(th)
@@ -154,6 +175,13 @@ func (f *fitted) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim.
 
 // Handle implements [gunim.Handler].
 func (f *DateField) Handle(e input.Event, u *gunim.UI) bool {
+	if _, lost := e.(input.FocusLost); f.Disabled && !lost {
+		// A click on it reaches nothing round it; a right click passes to a context menu.
+		if d, ok := e.(input.PointerDown); ok {
+			return d.Button == input.ButtonPrimary
+		}
+		return false
+	}
 	switch e := e.(type) {
 	case input.FocusGained:
 		f.focus.Animate(1, widget.Quick.Get(u.Theme()))
@@ -186,18 +214,24 @@ func (f *DateField) Handle(e input.Event, u *gunim.UI) bool {
 }
 
 // Focusable implements [gunim.Focusable].
-func (f *DateField) Focusable() bool { return true }
+func (f *DateField) Focusable() bool { return !f.Disabled }
 
 // Cursor implements [gunim.CursorShaper].
-func (f *DateField) Cursor(geom.Point) input.Cursor { return input.CursorHand }
+func (f *DateField) Cursor(geom.Point) input.Cursor {
+	if f.Disabled {
+		return input.CursorArrow
+	}
+	return input.CursorHand
+}
 
 // TimeField holds a time of day, typed as 9:30, 0930 or 9. The Up and Down keys move it by Step, and leaving the
 // field writes what it holds out in full. A click opens a list of times near it to pick from; the keyboard stays in
-// the field, so typing goes on as before and closes the list.
+// the field, so typing goes on as before and closes the list. Disabled, as a [widget.TextField] is, it fades faint and
+// takes no clicks, keys or focus.
 type TimeField struct {
 	*widget.TextField
-	// Step is how far Up and Down move the time; zero is 15 minutes.
-	Step time.Duration
+	// Increment is how far Up and Down move the time; zero is 15 minutes.
+	Increment time.Duration
 	// OnChange runs on the UI goroutine when the time changes by the keys, the list, or as the field is left; a
 	// non-nil result is sent to the application as the field's intent.
 	OnChange func(t time.Duration, u *gunim.UI) gunim.Intent
@@ -304,7 +338,11 @@ func (f *TimeField) Layout(c gunim.Constraints, fr gunim.Frame, kids gunim.Child
 
 // Handle implements [gunim.Handler].
 func (f *TimeField) Handle(e input.Event, u *gunim.UI) bool {
-	step := f.Step
+	if _, lost := e.(input.FocusLost); f.Disabled && !lost {
+		f.closeList()
+		return f.TextField.Handle(e, u)
+	}
+	step := f.Increment
 	if step <= 0 {
 		step = 15 * time.Minute
 	}
