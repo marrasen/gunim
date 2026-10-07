@@ -55,6 +55,8 @@ func newToggle(label string) toggle {
 		hover: anim.NewFloat(0),
 		press: anim.NewFloat(0),
 		ring:  anim.NewFloat(0),
+		// Every click flips it, the fast second of a double click too.
+		click: clicker{repeats: true},
 	}
 	t.Add(t.lit, t.hover, t.press, t.ring)
 	return t

@@ -51,7 +51,7 @@ func fingerScroll(w *gunim.Window, run func(int), x, y float32) {
 	run(1)
 }
 
-func TestAButtonActsOnceForAPrimaryClickLetGoOverIt(t *testing.T) {
+func TestAButtonActsOnEveryPrimaryClickLetGoOverIt(t *testing.T) {
 	b := NewButton("Go")
 	b.On = pressed{1}
 	w, run := stage(t, &frame{child: Row(b), size: geom.Sz(300, 40)})
@@ -61,10 +61,11 @@ func TestAButtonActsOnceForAPrimaryClickLetGoOverIt(t *testing.T) {
 	if got := sent(w); len(got) != 0 {
 		t.Fatalf("a right click sent %v, want nothing", got)
 	}
+	// A button counts every click, the fast second of a double click too, as a + pressed again and again does.
 	doubleClick(w, mid.X, mid.Y)
 	run(1)
-	if got := sent(w); len(got) != 1 {
-		t.Fatalf("a double click sent %v, want one intent", got)
+	if got := sent(w); len(got) != 2 {
+		t.Fatalf("a double click sent %v, want two intents", got)
 	}
 	w.Input(input.PointerDown{Pos: mid, Clicks: 1, Time: time.Now()})
 	w.Input(input.PointerUp{Pos: geom.Pt(280, mid.Y), Time: time.Now()})
@@ -253,5 +254,20 @@ func TestARichTextLinkFollowsOnceForADoubleClick(t *testing.T) {
 	run(1)
 	if got := sent(w); len(got) != 1 {
 		t.Fatalf("a double click on the link sent %v, want it followed once", got)
+	}
+}
+
+func TestACheckboxFlipsOnEachClickOfADoubleClick(t *testing.T) {
+	c := NewCheckbox("Loop")
+	w, run := stage(t, &frame{child: Row(c), size: geom.Sz(300, 40)})
+	doubleClick(w, 10, c.size.H/2)
+	run(1)
+	if c.On {
+		t.Fatal("a double click left the box ticked, want it flipped twice, back off")
+	}
+	click(w, 10, c.size.H/2)
+	run(1)
+	if !c.On {
+		t.Fatal("a click after the double click left the box clear")
 	}
 }

@@ -108,6 +108,8 @@ func NewButton(label string) *Button {
 		lit:    anim.NewFloat(0),
 		tone:   anim.NewFloat(1),
 		dim:    anim.NewFloat(0),
+		// Every click counts, the fast second of a double click too, as for a + pressed again and again.
+		click: clicker{repeats: true},
 	}
 	b.Add(b.hover, b.press, b.ring, b.walked, b.lit, b.tone, b.dim)
 	return b
