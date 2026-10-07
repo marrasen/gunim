@@ -87,10 +87,7 @@ func (s *Segmented) choose(i int, u *gunim.UI) {
 		return
 	}
 	s.SetSelected(i, u)
-	u.Cue(gunim.CueSelect, s)
-	if s.OnChange != nil {
-		send(u, s, s.OnChange(i, u))
-	}
+	act(u, s, gunim.CueSelect, s.OnChange, i)
 }
 
 // at returns the option at x in the control's space, or -1.

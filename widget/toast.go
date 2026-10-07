@@ -159,7 +159,12 @@ func NewToasts() *Toasts { return &Toasts{} }
 // takes its place. A toast that asks stays until it is answered.
 func (t *Toasts) Show(to Toast, u *gunim.UI) {
 	if to.Key != "" {
-		t.Close(to.Key, u)
+		// The new toast takes the old one's place, and sounds once, as it arrives.
+		for _, c := range slices.Clone(t.cards) {
+			if c.key == to.Key {
+				t.take(c, u)
+			}
+		}
 	}
 	if t.more == nil {
 		t.more = newToastMore(t)
@@ -172,6 +177,7 @@ func (t *Toasts) Show(to Toast, u *gunim.UI) {
 	if !c.asks() {
 		t.expire(c, u)
 	}
+	u.Cue(gunim.CueOpen, t)
 	u.Invalidate()
 }
 
@@ -207,14 +213,23 @@ func (t *Toasts) expire(c *toastCard, u *gunim.UI) {
 	})
 }
 
+// dismiss takes c away with the close cue.
 func (t *Toasts) dismiss(c *toastCard, u *gunim.UI) {
+	if t.take(c, u) {
+		u.Cue(gunim.CueClose, t)
+	}
+}
+
+// take takes c away, and reports whether it was showing.
+func (t *Toasts) take(c *toastCard, u *gunim.UI) bool {
 	i := slices.Index(t.cards, c)
 	if i < 0 {
-		return
+		return false
 	}
 	t.cards = slices.Delete(t.cards, i, i+1)
 	u.Remove(c)
 	u.Invalidate()
+	return true
 }
 
 // Layout implements [gunim.Node]. The newest toast sits at the bottom,

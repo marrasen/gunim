@@ -850,7 +850,7 @@ func (m *Month) press(e input.PointerDown, u *gunim.UI) {
 				case m.OnMore != nil:
 					send(u, m, m.OnMore(m.day(ch.cell), ch.box, u))
 				case m.OnDay != nil:
-					send(u, m, m.OnDay(m.day(ch.cell), u))
+					pickDay(u, m, m.OnDay, m.day(ch.cell))
 				}
 			})
 			return
@@ -867,7 +867,7 @@ func (m *Month) press(e input.PointerDown, u *gunim.UI) {
 	number := geom.Rc(box.Min.X, box.Min.Y, box.Size().W, min(dayNumH, box.Size().H))
 	switch {
 	case number.Contains(e.Pos) && m.OnDay != nil:
-		m.tap.press(number, func() { send(u, m, m.OnDay(m.day(c), u)) })
+		m.tap.press(number, func() { pickDay(u, m, m.OnDay, m.day(c)) })
 	case m.Busy != nil && m.Busy():
 	case m.OnCreate != nil:
 		m.tap.press(box, func() { send(u, m, m.OnCreate(m.day(c), box, u)) })

@@ -14,8 +14,9 @@ var FoldMotion = theme.Spring("motion.fold", anim.Spring{Response: 0.3, Damping:
 // Fold shows its child, or folds it away, such as a panel's section under
 // its heading or a row that only one mode has. Opening and shutting, its
 // height springs between nought and the child's, the child clipped to it
-// and fading, so what lies below glides up and down rather than jumps. A
-// fold shut takes no room and no pointer, and its child keeps its state.
+// and fading, so what lies below glides up and down rather than jumps, and
+// it sounds the open or the close cue. A fold shut takes no room and no
+// pointer, and its child keeps its state.
 type Fold struct {
 	anim.Group
 	child gunim.Node
@@ -50,6 +51,11 @@ func (f *Fold) SetOpen(open bool, u *gunim.UI) {
 	if !f.laid || u == nil {
 		f.open.Jump(to)
 		return
+	}
+	if open {
+		u.Cue(gunim.CueOpen, f)
+	} else {
+		u.Cue(gunim.CueClose, f)
 	}
 	f.open.Animate(to, FoldMotion.Get(u.Theme()))
 	u.Invalidate()

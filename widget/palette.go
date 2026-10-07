@@ -135,6 +135,7 @@ func (p *Palette) Open(opener gunim.Node, anchor geom.Rect, u *gunim.UI) {
 	})
 	p.card.filter("", u)
 	u.Focus(p.card.field)
+	u.Cue(gunim.CueOpen, opener)
 }
 
 // Close closes the palette, and gives the keyboard back.
@@ -147,8 +148,8 @@ func (p *Palette) Close(u *gunim.UI) {
 	if p.back != nil {
 		u.Focus(p.back)
 	}
-	if !p.picking && p.OnCancel != nil {
-		send(u, p.opener, p.OnCancel(u))
+	if !p.picking {
+		act0(u, p.opener, gunim.CueClose, p.OnCancel)
 	}
 }
 
@@ -198,12 +199,11 @@ func (p *Palette) choose(i int, ctrl bool, u *gunim.UI) {
 	p.picking = true
 	p.Close(u)
 	p.picking = false
-	switch {
-	case ctrl && p.OnCtrlPick != nil:
-		send(u, p.opener, p.OnCtrlPick(i, u))
-	case p.OnPick != nil:
-		send(u, p.opener, p.OnPick(i, u))
+	pick := p.OnPick
+	if ctrl && p.OnCtrlPick != nil {
+		pick = p.OnCtrlPick
 	}
+	act(u, p.opener, gunim.CuePress, pick, i)
 }
 
 // paletteCard is the palette's popup: the field over the list.

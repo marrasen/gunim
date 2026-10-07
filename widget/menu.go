@@ -547,8 +547,7 @@ func dismissed(n gunim.Node, shut func(*gunim.UI)) func(*gunim.UI) {
 // pick picks item i, counting it.
 func (m *Menu) pick(i int, u *gunim.UI) {
 	m.picks++
-	u.Cue(gunim.CuePress, m)
-	send(u, m, m.OnPick(i, u))
+	act(u, m, gunim.CuePress, m.OnPick, i)
 }
 
 // toldUnlessPicked runs OnHighlight when the highlight has moved from

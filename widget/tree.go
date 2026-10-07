@@ -166,10 +166,9 @@ func (t *Tree) pillY() (float32, bool) {
 }
 
 func (t *Tree) activate(key Key, u *gunim.UI) {
-	if t.OnActivate == nil {
-		return
+	if t.OnActivate != nil {
+		act(u, t, gunim.CuePress, t.OnActivate, key)
 	}
-	send(u, t, t.OnActivate(key, u))
 }
 
 func (t *Tree) item(key Key) TreeItem {

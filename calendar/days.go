@@ -1310,7 +1310,7 @@ func (d *Days) press(e input.PointerDown, th *theme.Live, u *gunim.UI) {
 	}
 	if pt.Y < headerH {
 		if i := d.dayAt(pt.X); e.Clicks <= 1 && d.OnDay != nil {
-			d.tap.press(geom.Rc(d.colX(i), 0, d.colW(), headerH), func() { send(u, d, d.OnDay(d.day(i), u)) })
+			d.tap.press(geom.Rc(d.colX(i), 0, d.colW(), headerH), func() { pickDay(u, d, d.OnDay, d.day(i)) })
 		}
 		return
 	}

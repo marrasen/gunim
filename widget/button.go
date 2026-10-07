@@ -187,10 +187,7 @@ func (b *Button) Handle(e input.Event, u *gunim.UI) bool {
 // about it whenever it gets round to reading. The interface stays fluid
 // while the work queues up behind it.
 func (b *Button) fire(u *gunim.UI) {
-	u.Cue(gunim.CuePress, b)
-	if b.OnClick != nil {
-		send(u, b.node(), b.OnClick(u))
-	}
+	act0(u, b.node(), gunim.CuePress, b.OnClick)
 }
 
 // Layout implements [gunim.Node].

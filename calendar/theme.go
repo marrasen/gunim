@@ -2,6 +2,7 @@ package calendar
 
 import (
 	"image/color"
+	"time"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/input"
@@ -26,6 +27,14 @@ var (
 	// EventText is the size of the text on an event.
 	EventText = theme.Length("calendar.event.text", 12.5)
 )
+
+// pickDay plays the select cue from n and runs onDay with day, when there is one, sending what it returns.
+func pickDay(u *gunim.UI, n gunim.Node, onDay func(day time.Time, u *gunim.UI) gunim.Intent, day time.Time) {
+	u.Cue(gunim.CueSelect, n)
+	if onDay != nil {
+		send(u, n, onDay(day, u))
+	}
+}
 
 // send sends in from n, when there is one.
 func send(u *gunim.UI, n gunim.Node, in gunim.Intent) {

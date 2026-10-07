@@ -447,7 +447,7 @@ func (g *TileGrid) press(e input.PointerDown, u *gunim.UI) bool {
 	}
 	if e.Clicks == 2 {
 		if g.OnActivate != nil {
-			send(u, g, g.OnActivate(i, u))
+			act(u, g, gunim.CuePress, g.OnActivate, i)
 		}
 		return true
 	}
@@ -515,7 +515,7 @@ func (g *TileGrid) key(e input.KeyPress, u *gunim.UI) bool {
 		if g.cursor < 0 || g.OnActivate == nil {
 			return false
 		}
-		send(u, g, g.OnActivate(g.cursor, u))
+		act(u, g, gunim.CuePress, g.OnActivate, g.cursor)
 		return true
 	case input.KeyEscape:
 		if g.cursor < 0 && len(g.runs) == 0 {

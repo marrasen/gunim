@@ -257,6 +257,7 @@ func (m *MiniMonth) pick(day time.Time, u *gunim.UI) {
 	if !SameDay(MonthStart(day), m.month) {
 		m.show(MonthStart(day), u)
 	}
+	u.Cue(gunim.CueSelect, m)
 	if m.OnPick != nil {
 		send(u, m, m.OnPick(day, u))
 	}

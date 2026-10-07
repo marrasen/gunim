@@ -368,7 +368,7 @@ func (t *Table) Handle(e input.Event, u *gunim.UI) bool {
 			return t.scrollBy(dx, u)
 		case input.KeyEnter, input.KeyKPEnter:
 			if k, ok := t.Cursor(); ok && t.OnActivate != nil {
-				send(u, t, t.OnActivate(k, u))
+				act(u, t, gunim.CuePress, t.OnActivate, k)
 			}
 		case input.KeyBackspace:
 			// Takes back a letter of a name being found, and is left to
@@ -810,7 +810,7 @@ func (r *tableRow) Handle(e input.Event, u *gunim.UI) bool {
 		}
 		if e.Clicks == 2 && t.OnActivate != nil {
 			t.lift = tableLift{}
-			send(u, t, t.OnActivate(r.key, u))
+			act(u, t, gunim.CuePress, t.OnActivate, r.key)
 			return true
 		}
 		if t.DragRows != nil {

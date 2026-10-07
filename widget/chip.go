@@ -159,11 +159,7 @@ func (c *Chip) onCross(pos geom.Point) int {
 	return over(pos, c.size)
 }
 
-func (c *Chip) remove(u *gunim.UI) {
-	if c.OnRemove != nil {
-		send(u, c, c.OnRemove(u))
-	}
-}
+func (c *Chip) remove(u *gunim.UI) { act0(u, c, gunim.CuePress, c.OnRemove) }
 
 // Access implements [gunim.Accessible]: the chip reads as a button that
 // removes it.

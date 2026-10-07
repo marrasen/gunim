@@ -148,10 +148,7 @@ func (l *Link) Handle(e input.Event, u *gunim.UI) bool {
 }
 
 func (l *Link) fire(u *gunim.UI) {
-	u.Cue(gunim.CuePress, l)
-	if l.OnClick != nil {
-		send(u, l, l.OnClick(u))
-	}
+	act0(u, l, gunim.CuePress, l.OnClick)
 }
 
 // Access implements [gunim.Accessible].

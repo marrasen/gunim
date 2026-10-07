@@ -399,9 +399,7 @@ func (l *List) key(e input.KeyPress, u *gunim.UI) bool {
 		if at < 0 {
 			return false
 		}
-		if v := l.OnActivate(l.cursor, u); v != nil {
-			u.Send(l, v)
-		}
+		act(u, l, gunim.CuePress, l.OnActivate, l.cursor)
 	default:
 		return false
 	}

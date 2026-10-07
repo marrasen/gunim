@@ -758,10 +758,7 @@ func (t *Tabs) choose(i int, u *gunim.UI) {
 		return
 	}
 	t.SetSelected(i, u)
-	u.Cue(gunim.CueSelect, t)
-	if t.OnChange != nil {
-		send(u, t, t.OnChange(i, u))
-	}
+	act(u, t, gunim.CueSelect, t.OnChange, i)
 }
 
 // icon returns tab i's icon, or nil.
