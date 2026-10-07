@@ -403,19 +403,25 @@ func (r *treeRow) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.
 	size := TextSize.Get(th) * 0.93
 	right := box.W - 12
 	if it.Detail != "" {
-		run := r.detail.shape(faceIn(Font, th), it.Detail, size*0.88)
+		// The detail takes at most half the room the text has, cut short past that.
+		face := faceIn(Font, th)
+		run := r.detail.shape(face, it.Detail, size*0.88)
+		if room := (right - x) / 2; run.Advance > room {
+			run = cutRun(run, face.Shape("…", run.Size), room)
+		}
 		right -= run.Advance
 		quiet := Placeholder.Get(th)
 		run.Paint(p, geom.Pt(right, (box.H-run.Height())/2), quiet)
 		right -= 10
 	}
-	para, _ := cellText(&r.name, faceIn(it.Face, th), it.Text, size, max(right-x, 1))
-	r.cut = para.Truncated || len(para.Lines) > 0 && para.Size.W > right-x+0.5
-	para.Paint(p, geom.Pt(x, (box.H-para.Size.H)/2), ink)
+	para, fits := cellText(&r.name, faceIn(it.Face, th), it.Text, size, right-x)
+	r.cut = para.Truncated || !fits
+	if fits {
+		para.Paint(p, geom.Pt(x, (box.H-para.Size.H)/2), ink)
+	}
 }
 
-// Handle implements [gunim.Handler]: the pointer lights the row, a press puts the cursor on it and a release on it
-// activates it.
+// Handle implements [gunim.Handler]: the pointer lights the row, and a click puts the cursor on it and activates it.
 func (r *treeRow) Handle(e input.Event, u *gunim.UI) bool {
 	t := r.t
 	switch e := e.(type) {
@@ -438,13 +444,14 @@ func (r *treeRow) Handle(e input.Event, u *gunim.UI) bool {
 		if e.Button != input.ButtonPrimary {
 			return false
 		}
-		if i, ok := t.index[r.key]; ok {
-			t.move(i, u)
-		}
 		r.click.press(e, 0)
 		return true
 	case input.PointerUp:
-		if r.click.release(e, over(e.Pos, r.box)) {
+		// A click lands on the row it lets go on, while the tree still holds it, so a finger that lands on a row to
+		// scroll moves nothing.
+		i, held := t.index[r.key]
+		if r.click.release(e, over(e.Pos, r.box)) && held {
+			t.move(i, u)
 			t.activate(r.key, u)
 		}
 		return true
