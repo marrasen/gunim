@@ -53,7 +53,7 @@ func TestEnterStartsALine(t *testing.T) {
 	wr.key(input.KeyEnter, 0)
 	wr.typeText("two")
 	wr.want("one\ntwo", 7)
-	if n := len(wr.area.para.Lines); n != 2 {
+	if n := wr.area.para.count(); n != 2 {
 		t.Fatalf("%d lines, want 2", n)
 	}
 }
@@ -83,12 +83,12 @@ func TestUpAndDownKeepTheColumn(t *testing.T) {
 func TestHomeAndEndWorkOnTheLineOnScreen(t *testing.T) {
 	wr := newWriter(t, 140)
 	wr.typeText("one two three four five six")
-	if len(wr.area.para.Lines) < 2 {
+	if wr.area.para.count() < 2 {
 		t.Fatal("setup: the text should wrap")
 	}
 	wr.key(input.KeyHome, input.ModControl)
 	wr.key(input.KeyEnd, 0)
-	first := wr.area.para.Lines[0].Run
+	first, _, _ := wr.area.para.line(0)
 	if wr.area.caret != first.End-1 {
 		t.Fatalf("End on a wrapped line put the caret at %d, want %d, before the break", wr.area.caret, first.End-1)
 	}
@@ -98,7 +98,7 @@ func TestHomeAndEndWorkOnTheLineOnScreen(t *testing.T) {
 	wr.key(input.KeyEnd, input.ModControl)
 	wr.want("one two three four five six", 27)
 	wr.key(input.KeyHome, 0)
-	if last := wr.area.para.Lines[len(wr.area.para.Lines)-1].Run; wr.area.caret != last.Start {
+	if last, _, _ := wr.area.para.line(wr.area.para.count() - 1); wr.area.caret != last.Start {
 		t.Fatalf("Home put the caret at %d, want the last line's start %d", wr.area.caret, last.Start)
 	}
 }

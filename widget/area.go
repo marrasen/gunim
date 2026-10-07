@@ -56,10 +56,9 @@ type TextArea struct {
 	lines *anim.Float
 	laid0 bool
 
-	laid laidText
-	// para is the text as last laid out, and view how tall its window
-	// is, for navigating.
-	para text.Paragraph
+	// para is the text as laid out, kept up as it changes, and view how
+	// tall its window is, for navigating.
+	para areaText
 	view float32
 	// followed is the caret the view last scrolled to keep in sight.
 	followed int
@@ -117,11 +116,7 @@ func (a *TextArea) TakesText() bool { return true }
 // TextCaret implements [gunim.CaretReporter].
 func (a *TextArea) TextCaret() geom.Rect {
 	at := a.caretAt.Value().Add(a.origin(FieldPadding.Default()))
-	h := a.para.LineHeight
-	if len(a.para.Lines) > 0 {
-		h = a.para.Lines[0].Run.Height()
-	}
-	return geom.Rc(at.X, at.Y, 1.5, h)
+	return geom.Rc(at.X, at.Y, 1.5, a.para.lineHeight())
 }
 
 // caretRect returns where a caret before rune i would stand, in the
@@ -129,11 +124,7 @@ func (a *TextArea) TextCaret() geom.Rect {
 func (a *TextArea) caretRect(i int) geom.Rect {
 	_, at := a.para.Caret(i)
 	at = at.Add(a.origin(FieldPadding.Default()))
-	h := a.para.LineHeight
-	if len(a.para.Lines) > 0 {
-		h = a.para.Lines[0].Run.Height()
-	}
-	return geom.Rc(at.X, at.Y, 1.5, h)
+	return geom.Rc(at.X, at.Y, 1.5, a.para.lineHeight())
 }
 
 // hostIndex returns the rune a press at p in the area's space is before.
@@ -268,15 +259,15 @@ func (n areaNav) caretX(i int) float32 {
 }
 
 func (n areaNav) beside(i int, x float32, right bool) (next int, nextX float32) {
-	p := n.a.para
+	p := &n.a.para
 	line, _ := p.Caret(i)
-	if line >= len(p.Lines) {
+	if line >= p.count() {
 		return i, x
 	}
-	l := p.Lines[line]
-	j, lx := l.Run.Beside(i, x-l.At.X, right)
-	if j != i || lx != x-l.At.X {
-		return j, lx + l.At.X
+	run, base, at := p.line(line)
+	j, lx := run.Beside(i-base, x-at.X, right)
+	if j != i-base || lx != x-at.X {
+		return base + j, lx + at.X
 	}
 	// At the edge of the line, carry on through the text.
 	switch {
@@ -292,10 +283,11 @@ func (n areaNav) beside(i int, x float32, right bool) (next int, nextX float32) 
 
 func (n areaNav) lineStart(i int) int {
 	line, _ := n.a.para.Caret(i)
-	if line >= len(n.a.para.Lines) {
+	if line >= n.a.para.count() {
 		return 0
 	}
-	return n.a.para.Lines[line].Run.Start
+	run, base, _ := n.a.para.line(line)
+	return base + run.Start
 }
 
 // lineEnd returns the end of i's line on screen. A wrapped line ends
@@ -303,31 +295,33 @@ func (n areaNav) lineStart(i int) int {
 // so the end of a wrapped line is one rune short: before the space the
 // line broke at.
 func (n areaNav) lineEnd(i int) int {
-	p := n.a.para
+	p := &n.a.para
 	line, _ := p.Caret(i)
-	if line >= len(p.Lines) {
+	if line >= p.count() {
 		return len(n.a.text)
 	}
-	l := p.Lines[line].Run
-	if line+1 < len(p.Lines) && p.Lines[line+1].Run.Start == l.End && l.End > l.Start {
-		return l.End - 1
+	l, base, _ := p.line(line)
+	if line+1 < p.count() && l.End > l.Start {
+		if next, nextBase, _ := p.line(line + 1); nextBase+next.Start == base+l.End {
+			return base + l.End - 1
+		}
 	}
-	return l.End
+	return base + l.End
 }
 
 func (n areaNav) vertical(i int, x float32, lines int) (int, bool) {
-	p := n.a.para
+	p := &n.a.para
 	line, _ := p.Caret(i)
 	to := line + lines
 	switch {
 	case to < 0:
 		return 0, true
-	case to >= len(p.Lines):
+	case to >= p.count():
 		return len(n.a.text), true
 	}
-	l := p.Lines[to]
-	j, _ := l.Run.Hit(x - l.At.X)
-	return j, true
+	run, base, at := p.line(to)
+	j, _ := run.Hit(x - at.X)
+	return base + j, true
 }
 
 func (n areaNav) page() int {
@@ -347,10 +341,11 @@ func (a *TextArea) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) 
 		w = AreaWidth.Get(th)
 	}
 	shown, _ := a.shown()
-	a.para = a.laid.layout(faceIn(a.Face, th), string(shown), text.Style{Size: TextSize.Get(th)}, w-2*pad)
+	head, tail, was, changed := a.shownChange()
+	a.para.update(faceIn(a.Face, th), text.Style{Size: TextSize.Get(th)}, w-2*pad, shown, head, tail, was, changed)
 	rows := float32(max(a.Rows, 1))
 	if a.MaxRows > a.Rows {
-		want := float32(min(max(len(a.para.Lines), a.Rows, 1), a.MaxRows))
+		want := float32(min(max(a.para.count(), a.Rows, 1), a.MaxRows))
 		if !a.laid0 {
 			a.lines.Jump(want)
 		} else {
@@ -366,9 +361,8 @@ func (a *TextArea) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) 
 	motion := Caret.Get(th)
 	caret, _ := a.drawnCaret()
 	line, at := a.para.Caret(caret)
-	if a.hinted && len(a.preedit) == 0 && line < len(a.para.Lines) {
-		l := a.para.Lines[line]
-		if l.Run.Places(caret, a.hintX-l.At.X) {
+	if a.hinted && len(a.preedit) == 0 && line < a.para.count() {
+		if run, base, lat := a.para.line(line); run.Places(caret-base, a.hintX-lat.X) {
 			at.X = a.hintX
 		}
 	}
@@ -463,18 +457,20 @@ func (a *TextArea) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 		a.paintPlaceholder(p, f, o, box.W-2*pad)
 	}
 
+	// Only the lines in view take a selection or an underline.
+	from, to := a.para.shown(p, o)
 	caret, anchor := a.drawnCaret()
 	if start, end := min(caret, anchor), max(caret, anchor); start != end && focus > 0 {
 		sel := Selection.Get(th)
 		sel.A = uint8(float32(sel.A) * min(focus, 1))
-		a.spans(start, end, func(r geom.Rect) { p.RRect(r.Add(o), 3, paint.Solid(sel)) })
+		a.para.spans(start, end, from, to, func(r geom.Rect) { p.RRect(r.Add(o), 3, paint.Solid(sel)) })
 	}
 	a.para.Paint(p, o, Ink.Get(th))
 	if len(a.preedit) > 0 {
 		// Underline the composition, as input methods expect.
 		_, at := a.shown()
 		ink := Ink.Get(th)
-		a.spans(at, at+len(a.preedit), func(r geom.Rect) {
+		a.para.spans(at, at+len(a.preedit), from, to, func(r geom.Rect) {
 			p.RRect(geom.Rc(r.Min.X+o.X, r.Max.Y+o.Y-2, r.Size().W, 1), 0, paint.Solid(ink))
 		})
 	}
@@ -483,21 +479,14 @@ func (a *TextArea) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 		c := Accent.Get(th)
 		c.A = uint8(float32(c.A) * min(focus, 1) * a.blink.value())
 		at := a.caretAt.Value().Add(o)
-		h := a.para.LineHeight
-		if len(a.para.Lines) > 0 {
-			h = a.para.Lines[0].Run.Height()
-		}
-		p.RRect(geom.Rc(at.X-0.75, at.Y, 1.5, h), 0.75, paint.Solid(c))
+		p.RRect(geom.Rc(at.X-0.75, at.Y, 1.5, a.para.lineHeight()), 0.75, paint.Solid(c))
 	}
 }
 
-// spans calls fn with the rectangle, in the paragraph's space, that
+// paraSpans calls fn with the rectangle, in the paragraph's space, that
 // runes start to end cover on each line they touch. A span that carries
 // on past a line's end covers a little more, standing for the line
 // break.
-func (a *TextArea) spans(start, end int, fn func(geom.Rect)) { paraSpans(a.para, start, end, fn) }
-
-// paraSpans is [TextArea.spans] for any paragraph.
 func paraSpans(p text.Paragraph, start, end int, fn func(geom.Rect)) {
 	const lineBreak = 6
 	for _, l := range p.Lines {
