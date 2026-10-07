@@ -9,6 +9,7 @@ import (
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/theme"
+	"github.com/marrasen/gunim/widget"
 )
 
 // Levels are a pair of channels' levels as a meter shows them, in
@@ -121,7 +122,7 @@ const (
 // its hold a line, coral at full scale. Over the bars, in the 36 points
 // above r, go each channel's highest peak and the short-term loudness.
 func PaintMeter(p *paint.Painter, th *theme.Live, r geom.Rect, l *Levels) {
-	ink, ground, over := Ink.Get(th), Ground.Get(th), Over.Get(th)
+	ink, ground, over := widget.Ink.Get(th), Ground.Get(th), Over.Get(th)
 	top, bottom := r.Min.Y, r.Max.Y
 	yOf := func(db float32) float32 { return bottom - (bottom-top)*MeterAt(db) }
 	for ch := range 2 {
@@ -171,7 +172,7 @@ func meterLabelX(x, mid, w float32) float32 {
 // PaintMeterScale draws a meter's scale, its ticks' levels centred on x,
 // from top to bottom.
 func PaintMeterScale(p *paint.Painter, th *theme.Live, x, top, bottom float32) {
-	ink := Ink.Get(th)
+	ink := widget.Ink.Get(th)
 	for _, t := range MeterTicks {
 		label := fmt.Sprintf("%.0f", t)
 		if t == -60 {

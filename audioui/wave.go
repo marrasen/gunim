@@ -7,6 +7,7 @@ import (
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/theme"
+	"github.com/marrasen/gunim/widget"
 )
 
 // WaveBuckets is how many stretches a [Wave] keeps a file's loudness
@@ -242,7 +243,7 @@ func (v WaveView) shape(t float64) (float32, bool) {
 // loudest moment falls now in one column, now in the next, and the
 // waveform shimmers.
 func (w *Wave) PaintChannel(p *paint.Painter, th *theme.Live, ch int, mid, half float32, v WaveView, raw *Samples) {
-	ink, sound := Ink.Get(th), Sound.Get(th)
+	ink, sound := widget.Ink.Get(th), Sound.Get(th)
 	rate := float64(w.Rate)
 	fpp := (v.V1 - v.V0) * rate / float64(max(v.Width, 1))
 	useRaw := fpp < WaveFinest && raw != nil && len(raw.Data) > 0

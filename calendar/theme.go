@@ -26,6 +26,10 @@ var (
 	EventBase = theme.Color("calendar.event.base", color.NRGBA{R: 0x1d, G: 0x20, B: 0x28, A: 0xff})
 	// EventText is the size of the text on an event.
 	EventText = theme.Length("calendar.event.text", 12.5)
+	// EventRadius rounds an event's corners in a [Days] grid, and MonthEventRadius in a [Month], where events are a
+	// line tall. A chosen event's ring rounds a little wider, round it.
+	EventRadius      = theme.Length("calendar.event.radius", 6)
+	MonthEventRadius = theme.Length("calendar.month.event.radius", 5)
 )
 
 // pickDay plays the select cue from n and runs onDay with day, when there is one, sending what it returns.

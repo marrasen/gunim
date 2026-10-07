@@ -11,6 +11,7 @@ import (
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/theme"
+	"github.com/marrasen/gunim/widget"
 )
 
 // A spectrum's view: its levels tilted SpectrumTilt decibels an octave
@@ -110,7 +111,7 @@ func (s *Spectrum) Bands(bands []float32) {
 // the sound in is drawn or the legend switches them, which line is
 // which at its top right.
 func (s *Spectrum) Paint(p *paint.Painter, th *theme.Live, area geom.Rect) {
-	ink, ground, sound := Ink.Get(th), Ground.Get(th), Sound.Get(th)
+	ink, ground, sound := widget.Ink.Get(th), Ground.Get(th), Sound.Get(th)
 	p.RRect(area, 10, paint.Solid(Faded(ground, 0.6)))
 	w := area.Size().W / float32(len(s.Out))
 	at := func(i int, v float32) geom.Point {
@@ -181,7 +182,7 @@ func (s *Spectrum) LegendRects(area geom.Rect) (out, in geom.Rect) {
 // spectrum lays its frequencies out from 20 Hz to 20 kHz, or, up, as a
 // spectrogram does, up it.
 func PaintPitches(p *paint.Painter, th *theme.Live, area geom.Rect, up bool) {
-	ink := Ink.Get(th)
+	ink := widget.Ink.Get(th)
 	for _, hz := range []float64{100, 1000, 10000} {
 		at := float32(math.Log(hz/20) / math.Log(1000))
 		label := fmt.Sprintf("%.0f", hz)

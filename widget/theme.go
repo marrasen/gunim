@@ -160,6 +160,8 @@ func Light() theme.Theme {
 		theme.Set(CurveGrid, color.NRGBA{A: 0x18}),
 		theme.Set(HistogramFill, color.NRGBA{R: 0x2a, G: 0x2e, B: 0x36, A: 0xff}),
 		theme.Set(Knob, color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}),
+		theme.Set(KnobShadow, color.NRGBA{A: 0x40}),
+		theme.Set(FocusRadius, 8),
 		theme.Set(CheckRadius, 6),
 		theme.Set(ControlHeight, 32),
 		theme.Set(ToastInfoInk, color.NRGBA{R: 0x2f, G: 0x6f, B: 0xe0, A: 0xff}),
@@ -340,14 +342,18 @@ var (
 	// SwitchOff is the track of a switch that is off, and of a slider
 	// past its knob.
 	SwitchOff = theme.Color("switch.off", color.NRGBA{R: 0x3a, G: 0x40, B: 0x50, A: 0xff})
-	// Knob is the colour of a switch's and a slider's knob.
+	// Knob is the colour of a switch's and a slider's knob, and KnobShadow of the shadow it casts.
 	Knob        = theme.Color("knob", color.NRGBA{R: 0xf4, G: 0xf6, B: 0xfa, A: 0xff})
+	KnobShadow  = theme.Color("knob.shadow", color.NRGBA{A: 0x58})
 	KnobSize    = theme.Length("knob.size", 18)
 	SliderTrack = theme.Length("slider.track", 4)
 	// SliderRestMark marks a slider's resting value on its track.
 	SliderRestMark = theme.Color("slider.rest", color.NRGBA{R: 0xa4, G: 0xab, B: 0xbb, A: 0xc0})
 	TabHeight      = theme.Length("tab.height", 38)
 	TabPadding     = theme.Length("tab.padding", 14)
+	// FocusRadius rounds the focus ring round a control with no corners of its own, such as a link or a tab's
+	// title.
+	FocusRadius = theme.Length("focus.radius", 5)
 )
 
 // HeroMotion is the motion a [Hero] flies with.

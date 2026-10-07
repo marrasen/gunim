@@ -193,7 +193,7 @@ func (f *Fader) Layout(c gunim.Constraints, _ gunim.Frame, _ gunim.Children) geo
 // Paint implements [gunim.Node]: the fader's track, its 0 dB marked,
 // and its cap, at the gain.
 func (f *Fader) Paint(p *paint.Painter, fr gunim.Frame, box geom.Size, _ gunim.Children) {
-	ink, ground, raised := Ink.Get(fr.Theme), Ground.Get(fr.Theme), Raised.Get(fr.Theme)
+	ink, ground, raised := widget.Ink.Get(fr.Theme), Ground.Get(fr.Theme), Raised.Get(fr.Theme)
 	mid := box.W / 2
 	// The track keeps 12 px clear at each end for the cap, less in a box under 24 tall, and the cap stays on the
 	// track for a gain past Range.

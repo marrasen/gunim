@@ -11,10 +11,8 @@ import (
 	"github.com/marrasen/gunim/theme"
 )
 
-// The colours the pieces draw in.
+// The colours the pieces draw in. Text and guides, drawn faint, are in [widget.Ink].
 var (
-	// Ink is the colour of text and of guides, drawn faint.
-	Ink = theme.Foreground("audio.ink", rgb(0xec, 0xee, 0xf4))
 	// Ground is the colour behind a meter, a scope or a spectrum.
 	Ground = theme.Color("audio.ground", rgb(0x0c, 0x0e, 0x13))
 	// Raised is the colour of a control's cap, such as a fader's.

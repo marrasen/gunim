@@ -246,7 +246,7 @@ func (s *Switch) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 	stretch := d * 0.3 * s.squash.Value()
 	x := track.Min.X + inset + (w-2*inset-d-stretch)*on
 	knob := geom.Rc(x, track.Min.Y+inset, d+stretch, d)
-	p.ShadowRRect(knob, d/2, paint.Solid(Knob.Get(th)), paint.Shadow{Offset: geom.Pt(0, 1), Blur: 2, Color: color.NRGBA{A: 0x50}})
+	p.ShadowRRect(knob, d/2, paint.Solid(Knob.Get(th)), paint.Shadow{Offset: geom.Pt(0, 1), Blur: 2, Color: KnobShadow.Get(th)})
 	s.paintLabel(p, f, box, w)
 }
 
@@ -629,7 +629,7 @@ func (s *Slider) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 	d := k * grow
 	knob := geom.Rc(centre.X-d/2, centre.Y-d/2, d, d)
 	s.paintRing(p, knob, d/2, th)
-	p.ShadowRRect(knob, d/2, paint.Solid(Knob.Get(th)), paint.Shadow{Offset: geom.Pt(0, 1), Blur: 3, Color: color.NRGBA{A: 0x60}})
+	p.ShadowRRect(knob, d/2, paint.Solid(Knob.Get(th)), paint.Shadow{Offset: geom.Pt(0, 1), Blur: 3, Color: KnobShadow.Get(th)})
 }
 
 // Tabs shows one of several pages under a row of titles. The line under
@@ -965,7 +965,7 @@ func (b *tabBar) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 	p.RRect(geom.Rect{Min: geom.Pt(line.X, t.head-2.5), Max: geom.Pt(line.Y, t.head-0.5)}, 1, paint.Solid(Accent.Get(th)))
 	if r := t.ring.Value(); r > 0.01 && t.selected < len(t.spans) {
 		sp := t.spans[t.selected]
-		FocusRing(p, geom.Rc(sp[0]+3, 5, sp[1]-sp[0]-6, t.head-13), 6, r, th)
+		FocusRing(p, geom.Rc(sp[0]+3, 5, sp[1]-sp[0]-6, t.head-13), FocusRadius.Get(th), r, th)
 	}
 }
 

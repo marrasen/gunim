@@ -17,6 +17,10 @@ var bothThemes = map[string]bool{
 	"button.shadow": true,
 	// Tints over content, the same on dark and light.
 	"grid.mark": true, "table.mark": true,
+	// Light on the histogram's own dark fill, which the light theme keeps dark too.
+	"histogram.red": true, "histogram.green": true, "histogram.blue": true,
+	// A white rim round the accent dot, which reads on either ground.
+	"livegraph.head": true,
 	// Rings drawn on the desktop around the window, not on the window's background.
 	"echo.problem": true, "echo.done": true, "echo.call": true, "echo.wait": true,
 }

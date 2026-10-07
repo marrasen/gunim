@@ -655,14 +655,15 @@ func (m *Month) paintSprite(p *paint.Painter, th *theme.Live, s *sprite) {
 	size := EventText.Get(th)
 	wait := min(max(s.wait.Value(), 0), 1)
 	fill, bar, ink, _ := eventColors(th, e, lift, wait)
+	round := MonthEventRadius.Get(th)
 	if s.long {
 		shadow := paint.Shadow{}
 		if lift > 0.01 {
 			shadow = paint.Shadow{Color: color.NRGBA{A: uint8(0x50 * lift)}, Blur: 8 * lift, Offset: geom.Pt(0, 2*lift)}
 		}
-		p.ShadowRRect(r, 5, paint.Solid(fill), shadow)
+		p.ShadowRRect(r, round, paint.Solid(fill), shadow)
 		if wait > 0.01 {
-			stripes(p, r, 5, bar, wait)
+			stripes(p, r, round, bar, wait)
 		}
 		t := m.paragraph(th, e.Title, r.Size().W-12, true, size)
 		t.Paint(p, geom.Pt(r.Min.X+7, r.Center().Y-t.Size.H/2), ink)
@@ -670,7 +671,7 @@ func (m *Month) paintSprite(p *paint.Painter, th *theme.Live, s *sprite) {
 		if lift > 0.01 {
 			hot := widget.MenuHot.Get(th)
 			hot.A = uint8(float32(hot.A) * lift)
-			p.ShadowRRect(r, 5, paint.Solid(hot), paint.Shadow{Color: color.NRGBA{A: uint8(0x40 * lift)}, Blur: 8 * lift,
+			p.ShadowRRect(r, round, paint.Solid(hot), paint.Shadow{Color: color.NRGBA{A: uint8(0x40 * lift)}, Blur: 8 * lift,
 				Offset: geom.Pt(0, 2*lift)})
 		}
 		dot := geom.Rc(r.Min.X+5, r.Center().Y-4, 8, 8)
@@ -682,7 +683,7 @@ func (m *Month) paintSprite(p *paint.Painter, th *theme.Live, s *sprite) {
 		t.Paint(p, geom.Pt(r.Min.X+18, r.Center().Y-t.Size.H/2), ink)
 	}
 	if e.ID == m.selected {
-		p.RRectStroke(r.Inset(geom.Uniform(-1.5)), 6.5, paint.Fill{}, paint.Stroke{Width: 2, Color: widget.Accent.Get(th)})
+		p.RRectStroke(r.Inset(geom.Uniform(-1.5)), round+1.5, paint.Fill{}, paint.Stroke{Width: 2, Color: widget.Accent.Get(th)})
 	}
 }
 

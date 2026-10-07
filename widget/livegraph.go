@@ -19,6 +19,9 @@ const minAcross = 20
 // LiveGraphHeight is a live graph's height.
 var LiveGraphHeight = theme.Length("livegraph.height", 56)
 
+// LiveGraphHead is the colour of the dot round the newest sample, under the accent at its middle.
+var LiveGraphHead = theme.Color("livegraph.head", color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff})
+
 // LiveGraph draws a value as it runs, such as the speed of a copy: a
 // smooth curve over a glowing fill, sliding left every frame as samples
 // come in, with a bright head on the newest and what it says beside it.
@@ -300,7 +303,7 @@ func (g *LiveGraph) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ guni
 		r := 3 + 7*pulse
 		p.RRect(geom.Rc(headAt.X-r, headAt.Y-r, 2*r, 2*r), r, paint.Solid(ring))
 	}
-	p.RRect(geom.Rc(headAt.X-3, headAt.Y-3, 6, 6), 3, paint.Solid(color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}))
+	p.RRect(geom.Rc(headAt.X-3, headAt.Y-3, 6, 6), 3, paint.Solid(LiveGraphHead.Get(th)))
 	p.RRect(geom.Rc(headAt.X-2, headAt.Y-2, 4, 4), 2, paint.Solid(accent))
 	if g.Label != nil {
 		// Over the plot, at the end the samples come in at, and cut to the box.

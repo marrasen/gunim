@@ -1002,11 +1002,11 @@ func (d *Days) paintSprite(p *paint.Painter, th *theme.Live, s *sprite) {
 		shadow = paint.Shadow{Color: color.NRGBA{A: uint8(0x60 * lift)}, Blur: 12 * lift, Offset: geom.Pt(0, 3*lift)}
 	}
 	// A solid base under the tint, edged in the base's colour, keeps an event on top of another readable.
-	base := EventBase.Get(th)
-	p.ShadowRRect(r.Inset(geom.Uniform(-1)), 7, paint.Solid(base), shadow)
-	p.RRect(r, 6, paint.Solid(fill))
+	base, round := EventBase.Get(th), EventRadius.Get(th)
+	p.ShadowRRect(r.Inset(geom.Uniform(-1)), round+1, paint.Solid(base), shadow)
+	p.RRect(r, round, paint.Solid(fill))
 	if wait > 0.01 {
-		stripes(p, r, 6, bar, wait)
+		stripes(p, r, round, bar, wait)
 	}
 	if hover := e.ID == d.hover && d.drag == nil; hover && s.resizable() && r.Size().H >= 44 {
 		// A grip at the bottom says the event's length can be pulled.
@@ -1015,9 +1015,9 @@ func (d *Days) paintSprite(p *paint.Painter, th *theme.Live, s *sprite) {
 		p.RRect(geom.Rc(r.Center().X-10, r.Max.Y-4, 20, 2.5), 1.25, paint.Solid(g))
 	}
 	if e.ID == d.selected {
-		p.RRectStroke(r.Inset(geom.Uniform(-1.5)), 7.5, paint.Fill{}, paint.Stroke{Width: 2, Color: widget.Accent.Get(th)})
+		p.RRectStroke(r.Inset(geom.Uniform(-1.5)), round+1.5, paint.Fill{}, paint.Stroke{Width: 2, Color: widget.Accent.Get(th)})
 	}
-	defer p.Layer(paint.LayerOpts{Bounds: r, Opacity: 1, Clip: true, Radius: 6})()
+	defer p.Layer(paint.LayerOpts{Bounds: r, Opacity: 1, Clip: true, Radius: round})()
 	p.RRect(geom.Rc(r.Min.X, r.Min.Y, 4, r.Size().H), 0, paint.Solid(bar))
 	size := EventText.Get(th)
 	w := r.Size().W - 12
@@ -1073,9 +1073,10 @@ func (d *Days) paintGhost(p *paint.Painter, th *theme.Live, r geom.Rect) {
 	}
 	defer p.Layer(paint.LayerOpts{Bounds: r.Inset(geom.Uniform(-8)), Opacity: in})()
 	a := widget.Accent.Get(th)
-	p.ShadowRRect(r, 6, paint.Solid(color.NRGBA{R: a.R, G: a.G, B: a.B, A: 0x70}),
+	round := EventRadius.Get(th)
+	p.ShadowRRect(r, round, paint.Solid(color.NRGBA{R: a.R, G: a.G, B: a.B, A: 0x70}),
 		paint.Shadow{Color: color.NRGBA{A: 0x50}, Blur: 10, Offset: geom.Pt(0, 3)})
-	p.RRectStroke(r, 6, paint.Fill{}, paint.Stroke{Width: 1.5, Color: a})
+	p.RRectStroke(r, round, paint.Fill{}, paint.Stroke{Width: 1.5, Color: a})
 	g := d.drag
 	if g == nil || g.kind != dragCreate {
 		g = d.ghostHeld

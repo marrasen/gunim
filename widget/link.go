@@ -84,7 +84,7 @@ func (l *Link) iconWidth(th *theme.Live) float32 {
 // within its box.
 func (l *Link) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
 	defer l.faint(p, box)()
-	l.paintRing(p, geom.Rect{Max: box.Point()}, 4, f.Theme)
+	l.paintRing(p, geom.Rect{Max: box.Point()}, FocusRadius.Get(f.Theme), f.Theme)
 	run := l.run(f.Theme)
 	ink := LinkInk.Get(f.Theme)
 	x := l.iconWidth(f.Theme)

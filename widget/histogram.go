@@ -17,15 +17,12 @@ var (
 	HistogramHeight = theme.Length("histogram.height", 64)
 	// HistogramMotion carries the bars to new counts.
 	HistogramMotion = theme.Spring("motion.histogram", anim.Spring{Response: 0.22, Damping: 1})
+	// HistogramRed, HistogramGreen and HistogramBlue are the channels' colours, as light: where two overlap they
+	// mix, and where all three do they are near white.
+	HistogramRed   = theme.Color("histogram.red", color.NRGBA{R: 0xf0, G: 0x5a, B: 0x5a, A: 0xff})
+	HistogramGreen = theme.Color("histogram.green", color.NRGBA{R: 0x5a, G: 0xdc, B: 0x78, A: 0xff})
+	HistogramBlue  = theme.Color("histogram.blue", color.NRGBA{R: 0x5a, G: 0x8c, B: 0xf0, A: 0xff})
 )
-
-// The channels' colours, as light: where two overlap they mix, and where
-// all three do they are white.
-var histogramInk = [3]color.NRGBA{
-	{R: 0xf0, G: 0x5a, B: 0x5a, A: 0xff},
-	{R: 0x5a, G: 0xdc, B: 0x78, A: 0xff},
-	{R: 0x5a, G: 0x8c, B: 0xf0, A: 0xff},
-}
 
 // Histogram shows how a picture's red, green and blue spread from dark
 // to light, as three overlapping areas that mix where they overlap, as a
@@ -114,6 +111,7 @@ func (h *Histogram) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ guni
 	cols := max(1, int(box.W))
 	w := box.W / float32(cols)
 	top := box.H - 4
+	inks := [3]color.NRGBA{HistogramRed.Get(th), HistogramGreen.Get(th), HistogramBlue.Get(th)}
 	for col := range cols {
 		// The tallest count among the bins this column covers.
 		lo, hi := col*256/cols, max(col*256/cols+1, (col+1)*256/cols)
@@ -144,21 +142,21 @@ func (h *Histogram) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ guni
 				mix[d] = true
 			}
 			y0, y1 := box.H-floor*top, box.H-v[c]*top
-			p.RRect(geom.Rect{Min: geom.Pt(x, y1), Max: geom.Pt(x+w+0.5, y0)}, 0, paint.Solid(lightMix(back, mix)))
+			p.RRect(geom.Rect{Min: geom.Pt(x, y1), Max: geom.Pt(x+w+0.5, y0)}, 0, paint.Solid(lightMix(back, inks, mix)))
 			floor = v[c]
 		}
 	}
 }
 
-// lightMix is the channels in mix added as light over back, each at a
-// little over half strength, as screen blending gives them.
-func lightMix(back color.NRGBA, mix [3]bool) color.NRGBA {
+// lightMix is the channels in mix, coloured inks, added as light over back, each at a little over half strength, as
+// screen blending gives them.
+func lightMix(back color.NRGBA, inks [3]color.NRGBA, mix [3]bool) color.NRGBA {
 	out := [3]float32{float32(back.R) / 255, float32(back.G) / 255, float32(back.B) / 255}
 	for c, on := range mix {
 		if !on {
 			continue
 		}
-		ink := histogramInk[c]
+		ink := inks[c]
 		in := [3]float32{float32(ink.R) / 255, float32(ink.G) / 255, float32(ink.B) / 255}
 		for i := range out {
 			screen := 1 - (1-out[i])*(1-in[i])
