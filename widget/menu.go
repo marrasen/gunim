@@ -29,7 +29,8 @@ import (
 // A menu taller than the room it is given, or than the screen leaves
 // it, scrolls: by the wheel, a finger, its bar, and the keys, which
 // keep the highlight in view. It draws only the rows in view, so a
-// list of many thousands costs about what a short one does a frame.
+// list of many thousands costs about what a short one does a frame. A
+// menu wider than its box or the screen cuts its items' text short.
 type Menu struct {
 	anim.Group
 
@@ -80,6 +81,8 @@ type Menu struct {
 
 	// shown holds the rows in view shaped, by item. Rows that leave the view are dropped.
 	shown map[int]*menuRow
+	// ell and smallEll are an ellipsis for an item's text and for a caption's, for text cut short.
+	ell, smallEll shapedText
 	// lines and heads are Breaks and Captions sorted, for search, made again when either slice changes, from
 	// linesOf and headsOf.
 	lines, heads     []int
@@ -114,8 +117,9 @@ type Menu struct {
 	toldFrom int
 	// scroll scrolls the rows when they are taller than the card, in the space whose top is the first row's.
 	scroll scrolling
-	// room is how tall the screen lets the menu's window be, from FitPopup, or 0 where nothing says.
-	room float32
+	// room and wide are how tall and how wide the screen lets the menu's window be, from FitPopup, or 0 where nothing
+	// says.
+	room, wide float32
 }
 
 // menuRow is an item's text and hint, shaped.
@@ -260,11 +264,14 @@ func (m *Menu) reveal(i int) {
 }
 
 // FitPopup implements [gunim.PopupFitter]: the menu keeps to the taller of the room below its anchor and above it,
-// and scrolls what does not fit.
+// and scrolls what does not fit. It keeps to the screen's width, and cuts long items short.
 func (m *Menu) FitPopup(r driver.Room) {
-	m.room = 0
+	m.room, m.wide = 0, 0
 	if room := max(r.Below, r.Above); !math.IsInf(float64(room), 1) {
 		m.room = room
+	}
+	if wide := r.Left + r.Right; !math.IsInf(float64(wide), 1) {
+		m.wide = wide
 	}
 }
 
@@ -614,6 +621,14 @@ func (m *Menu) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom
 		h = max(limit, m.row+2*m.pad)
 		w += ScrollbarGrabWidth.Get(th)
 	}
+	// Too wide for its box or the screen, the menu keeps to them, and cuts its items' text short.
+	wide := c.Max.W
+	if m.wide > 0 {
+		wide = min(wide, m.wide)
+	}
+	if wide -= 2 * m.margin; wide > 0 {
+		w = min(w, wide)
+	}
 	m.card = geom.Rc(m.margin, m.margin, w, h)
 	m.scroll.fit(y, geom.Sz(m.card.Max.X, h-2*m.pad), th)
 	if !sameSlice(m.rowsOf, m.Items) {
@@ -697,10 +712,12 @@ func (m *Menu) Paint(p *paint.Painter, f gunim.Frame, _ geom.Size, _ gunim.Child
 		p.RRectStroke(card, radius, paint.Fill{}, paint.Stroke{Width: 1, Color: MenuBorder.Get(th)})
 	}
 
+	bar := float32(0)
 	if m.scroll.scrollable() {
 		// The rows fade where more of them lie past the card's edge.
 		defer m.paintBar(p, f)
 		defer m.scroll.layer(p, card, th)()
+		bar = ScrollbarGrabWidth.Get(th)
 	}
 	if on := m.hotOn.Value(); on > 0.01 {
 		c := MenuHot.Get(th)
@@ -726,6 +743,8 @@ func (m *Menu) Paint(p *paint.Painter, f gunim.Frame, _ geom.Size, _ gunim.Child
 		y := m.rowY(i) - menuBreak/2
 		p.RRect(geom.Rc(card.Min.X+pad, y, card.Size().W-2*pad, 1), 0, paint.Solid(MenuBorder.Get(th)))
 	}
+	// The room for an item's text, less its hint's
+	room := card.Size().W - 2*pad - m.gut - m.iconSpace - bar
 	for i := from; i < to; i++ {
 		r := m.rowText(i)
 		col := ink
@@ -733,7 +752,11 @@ func (m *Menu) Paint(p *paint.Painter, f gunim.Frame, _ geom.Size, _ gunim.Child
 			col = dim
 		}
 		if m.isCaption(i) {
-			caption := r.label.shape(face, m.label(i), size*0.85)
+			small := size * 0.85
+			caption := r.label.shape(face, m.label(i), small)
+			if fits := room + m.gut + m.iconSpace; caption.Advance > fits {
+				caption = cutRun(caption, m.smallEll.shape(face, "…", small), fits)
+			}
 			caption.Paint(p, geom.Pt(card.Min.X+pad, m.rowY(i)+(m.row-caption.Height())/2), hint)
 			continue
 		}
@@ -748,20 +771,29 @@ func (m *Menu) Paint(p *paint.Painter, f gunim.Frame, _ geom.Size, _ gunim.Child
 		} else if i < len(m.Swatches) && m.Swatches[i].A > 0 {
 			paintSwatch(p, th, m.Swatches[i], geom.Pt(x, m.rowY(i)+m.row/2))
 		}
-		run := r.label.shape(face, m.label(i), size)
-		y := m.rowY(i) + (m.row-run.Height())/2
-		run.Paint(p, geom.Pt(x+m.iconSpace, y), col)
-		if m.cues && m.AccessKeys {
-			_, _, at := accessKey(m.Items[i])
-			underline(p, run, at, geom.Pt(x+m.iconSpace, y), col)
-		}
+		fits := room
 		if i < len(m.Hints) && m.Hints[i] != "" {
 			h := r.hint.shape(face, m.Hints[i], size*0.9)
 			c := hint
 			if !m.enabled(i) {
 				c = dimHint
 			}
-			h.Paint(p, geom.Pt(card.Max.X-pad-h.Advance, m.rowY(i)+(m.row-h.Height())/2), c)
+			h.Paint(p, geom.Pt(card.Max.X-pad-bar-h.Advance, m.rowY(i)+(m.row-h.Height())/2), c)
+			fits -= menuHintGap + h.Advance
+		}
+		full := r.label.shape(face, m.label(i), size)
+		run := full
+		if run.Advance > fits {
+			run = cutRun(full, m.ell.shape(face, "…", size), fits)
+		}
+		y := m.rowY(i) + (m.row-run.Height())/2
+		run.Paint(p, geom.Pt(x+m.iconSpace, y), col)
+		if m.cues && m.AccessKeys {
+			// The key's line, where the key is in the part of the text shown
+			_, _, key := accessKey(m.Items[i])
+			if key >= 0 && (run.Advance == full.Advance || full.CaretX(key+1) <= run.Advance-m.ell.run.Advance) {
+				underline(p, full, key, geom.Pt(x+m.iconSpace, y), col)
+			}
 		}
 	}
 	// The rows that have left the view let their text go

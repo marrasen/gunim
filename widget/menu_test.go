@@ -2,6 +2,7 @@ package widget
 
 import (
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
+	"github.com/marrasen/gunim/text"
 )
 
 type chose struct{ I int }
@@ -174,6 +176,63 @@ func cutEnd(ops []paint.Op) (float32, bool) {
 		}
 	}
 	return 0, false
+}
+
+// textAt returns the text in ops whose glyphs are those of run, and false where none is.
+func textAt(ops []paint.Op, run text.Run) (*paint.TextOp, bool) {
+	for _, op := range ops {
+		if tx, ok := op.(*paint.TextOp); ok && len(tx.Glyphs) == len(run.Glyphs) && len(run.Glyphs) > 0 &&
+			tx.Glyphs[0].ID == run.Glyphs[0].ID && tx.Glyphs[len(tx.Glyphs)-1].ID == run.Glyphs[len(run.Glyphs)-1].ID {
+			return tx, true
+		}
+	}
+	return nil, false
+}
+
+func TestAMenuKeepsToItsBoxAndCutsALongItemShortBeforeItsHint(t *testing.T) {
+	// A list of completions, in its box of 360 by 320
+	m := NewMenu("Short", strings.Repeat("A very long completion label ", 20))
+	m.Hints = []string{"", "Ctrl+Shift+L"}
+	m.Layout(gunim.Loose(geom.Sz(360, 320)), gunim.Frame{Scale: 1}, gunim.Children{})
+	if m.card.Max.X > 360 {
+		t.Fatalf("the menu reaches %v, past its box's 360", m.card.Max.X)
+	}
+	ops := painted(m, geom.Sz(360, 320))
+	hint := faceIn(Font, nil).Shape("Ctrl+Shift+L", TextSize.Default()*0.9)
+	h, ok := textAt(ops, hint)
+	if !ok {
+		t.Fatal("the hint is not drawn")
+	}
+	if left, right := h.Transform.C, h.Transform.C+hint.Advance; right > m.card.Max.X || left < m.card.Min.X {
+		t.Fatalf("the hint runs from %v to %v, outside the card %v", left, right, m.card)
+	}
+	end, ok := cutEnd(ops)
+	if !ok {
+		t.Fatal("the long item is not cut short")
+	}
+	if end > h.Transform.C {
+		t.Fatalf("the long item runs to %v, into its hint at %v", end, h.Transform.C)
+	}
+}
+
+func TestAMenuKeepsToTheScreensWidth(t *testing.T) {
+	d := NewDropdown("Short", strings.Repeat("A very long item ", 40))
+	d.MaxWidth = 150
+	w, run := stage(t, &frame{child: d, size: geom.Sz(150, 36)})
+	w.Offscreen().SetWorkArea(geom.Rc(0, 0, 300, 600))
+	w.Input(input.PointerDown{Pos: geom.Pt(20, 18), Clicks: 1})
+	w.Input(input.PointerUp{Pos: geom.Pt(20, 18)})
+	run(20)
+	m := d.menu
+	if right := m.card.Max.X + m.margin; right > 300 {
+		t.Fatalf("the menu's window is %v wide, on a screen 300 wide", right)
+	}
+	if size := d.popup.Offscreen().Size(); size.W > 300 {
+		t.Fatalf("the menu's window is %v, on a screen 300 wide", size)
+	}
+	if _, ok := cutEnd(painted(m, geom.Sz(m.card.Max.X+m.margin, m.card.Max.Y+m.margin))); !ok {
+		t.Fatal("the long item is not cut short")
+	}
 }
 
 func TestAMenuButtonCutsItsTitleShortBeforeItsChevron(t *testing.T) {
