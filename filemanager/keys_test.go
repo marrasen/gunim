@@ -269,3 +269,21 @@ func TestCtrlAndAClickOpenAFolderInANewWindow(t *testing.T) {
 		t.Fatalf("a plain click asked for a window: %v", got())
 	}
 }
+
+// The banner's Dismiss link, shut away with the banner, hands the keyboard to the listing.
+func TestDismissingTheBannerByKeyboardSendsTheKeyboardToTheListing(t *testing.T) {
+	h := newHarness(t, "a.txt")
+	h.until("the rows arrive", func() bool { return len(h.shown()) == 1 })
+	h.a.fail("Something broke")
+	h.frames(30)
+	gunim.RegisterPatch(h.w, "browser", func(b *browser, p inUI, u *gunim.UI) { p.fn(b, u) })
+	h.ui(func(b *browser, u *gunim.UI) { u.Focus(b.banner.dismiss) })
+	if f := h.focused(); f != h.b.banner.dismiss {
+		t.Fatalf("the keyboard is on %T, want the banner's Dismiss link", f)
+	}
+	h.press(input.KeyEnter, 0)
+	h.frames(30)
+	if f := h.focused(); f != h.b.listing.cur.focusNode() {
+		t.Fatalf("with the banner dismissed, the keyboard is on %T, want the listing", f)
+	}
+}

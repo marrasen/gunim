@@ -101,10 +101,16 @@ func (t *toggle) handle(n gunim.Node, e input.Event, u *gunim.UI) bool {
 	// A tooltip shows even on a control that cannot be set, since
 	// saying why is exactly what it is for.
 	t.tip.handle(e, u, n, t.Tooltip, tipDelay)
+	th := u.Theme()
 	if t.Disabled {
+		// Disabled while it had the keyboard, it lets go of its ring.
+		if _, ok := e.(input.FocusLost); ok {
+			t.ring.Animate(0, Settle.Get(th))
+			t.held = false
+			return true
+		}
 		return false
 	}
-	th := u.Theme()
 	switch e := e.(type) {
 	case input.PointerEnter:
 		t.hover.Animate(1, Quick.Get(th))
@@ -490,10 +496,16 @@ func (s *Slider) DragsTouch() bool { return s.held }
 
 // Handle implements [gunim.Handler].
 func (s *Slider) Handle(e input.Event, u *gunim.UI) bool {
+	th := u.Theme()
 	if s.Disabled {
+		// Disabled while it had the keyboard, it lets go of its ring.
+		if _, ok := e.(input.FocusLost); ok {
+			s.ring.Animate(0, Settle.Get(th))
+			s.held = false
+			return true
+		}
 		return false
 	}
-	th := u.Theme()
 	step := s.Snap
 	if step <= 0 {
 		step = (s.Max - s.Min) / 100
@@ -700,8 +712,10 @@ type Tabs struct {
 	bar   *tabBar
 	pages []gunim.Node
 	// count is how many pages there are: those given, and those inserted
-	// since, as the views mounted under the tabs' view are.
-	count    int
+	// since, as the views mounted under the tabs' view are. laidPages
+	// holds them all, as at the last layout.
+	count     int
+	laidPages []gunim.Node
 	selected int
 	// prev is the page leaving, or -1, and from is the side the new
 	// page comes from: 1 from the right, -1 from the left.
@@ -754,10 +768,51 @@ func (t *Tabs) Select(i int, u *gunim.UI) {
 	if i < t.selected {
 		t.from = -1
 	}
+	old := t.page(t.selected)
 	t.selected = i
 	t.slide.Jump(0)
 	t.slide.Animate(1, Settle.Get(u.Theme()))
+	// The keyboard leaves a page as it hides.
+	if old != nil && u.HasFocus(old) {
+		t.refocus(i, u)
+	}
 	u.Invalidate()
+}
+
+// refocus puts the keyboard on the first place on page i that takes it,
+// or on the titles where there is none. A page shows what takes the
+// keyboard only once drawn, so the titles hold it until the page has
+// been, two frames on.
+func (t *Tabs) refocus(i int, u *gunim.UI) {
+	first := func(u *gunim.UI) {
+		if p := t.page(i); p == nil || !u.FocusFirst(p) {
+			u.Focus(t.bar)
+		}
+	}
+	first(u)
+	if u.Focused() != t.bar {
+		return
+	}
+	u.After(0, func(u *gunim.UI) {
+		u.After(0, func(u *gunim.UI) {
+			if t.selected == i && u.Focused() == t.bar {
+				first(u)
+			}
+		})
+	})
+}
+
+// page returns page i, or nil while it has not arrived.
+func (t *Tabs) page(i int) gunim.Node {
+	switch {
+	case i < 0:
+		return nil
+	case i < len(t.laidPages):
+		return t.laidPages[i]
+	case i < len(t.pages):
+		return t.pages[i]
+	}
+	return nil
 }
 
 func (t *Tabs) choose(i int, u *gunim.UI) {
@@ -976,6 +1031,10 @@ func (b *tabBar) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 // keeps its state and its scroll while another shows.
 func (t *Tabs) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
 	t.count = kids.Len() - 1
+	t.laidPages = t.laidPages[:0]
+	for i := 1; i < kids.Len(); i++ {
+		t.laidPages = append(t.laidPages, kids.At(i).Node())
+	}
 	bar := kids.At(0)
 	bs := bar.Layout(gunim.Constraints{Max: geom.Sz(c.Max.W, 0)})
 	bar.Place(geom.Point{})

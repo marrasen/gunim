@@ -48,6 +48,7 @@ type SliderRow struct {
 	// off shows the reset mark, and hot turns it under the pointer.
 	off, hot *anim.Float
 	reset    geom.Rect
+	click    clicker
 	// active is how far the row shows as the one the keys act on.
 	active *anim.Float
 	on     bool
@@ -148,10 +149,10 @@ func (r *SliderRow) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Childr
 }
 
 // Handle implements [gunim.Handler]: a click on the reset mark sends the
-// slider gliding back to rest.
+// slider gliding back to rest, while the slider is enabled.
 func (r *SliderRow) Handle(e input.Event, u *gunim.UI) bool {
 	th := u.Theme()
-	shown := r.off.Target() > 0
+	shown := r.off.Target() > 0 && !r.Slider.Disabled
 	switch e := e.(type) {
 	case input.PointerMove:
 		hot := shown && r.reset.Inset(geom.Uniform(-3)).Contains(e.Pos)
@@ -162,8 +163,14 @@ func (r *SliderRow) Handle(e input.Event, u *gunim.UI) bool {
 		r.hot.Animate(0, Settle.Get(th))
 		return false
 	case input.PointerDown:
-		if !shown || e.Button != input.ButtonPrimary || !r.reset.Inset(geom.Uniform(-3)).Contains(e.Pos) {
+		if !shown || e.Button != input.ButtonPrimary || r.onReset(e.Pos) < 0 {
 			return false
+		}
+		r.click.press(e, 0)
+		return true
+	case input.PointerUp:
+		if !r.click.release(e, r.onReset(e.Pos)) || !shown {
+			return true
 		}
 		s := r.Slider
 		s.set(s.Rest, Settle.Get(th), u)
@@ -172,6 +179,14 @@ func (r *SliderRow) Handle(e input.Event, u *gunim.UI) bool {
 		return true
 	}
 	return false
+}
+
+// onReset is the row's one target, the reset mark: 0 for pos on it, with a little room round it, and -1 elsewhere.
+func (r *SliderRow) onReset(pos geom.Point) int {
+	if r.reset.Inset(geom.Uniform(-3)).Contains(pos) {
+		return 0
+	}
+	return -1
 }
 
 // Paint implements [gunim.Node].

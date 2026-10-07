@@ -73,7 +73,7 @@ func newBrowser() *browser {
 	b := &browser{toasts: &widget.Toasts{}, icons: map[string]SystemIcon{}}
 	b.title = newTitleBar(b)
 	b.path = newPathBar(b)
-	b.banner = newBannerView()
+	b.banner = newBannerView(b.focusListing)
 	b.side = newSidebar()
 	b.listing = newListingArea(b)
 	b.preview = newPreviewPane()
