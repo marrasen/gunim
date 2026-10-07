@@ -73,6 +73,10 @@ func write(dst []byte, frames []float32, ch int, t sampleType) {
 	for i := range n {
 		v := math.Round(float64(frames[2*i+ch]) * scale)
 		v = max(-scale, min(v, scale-1))
+		if v != v {
+			// Not a number: silence.
+			v = 0
+		}
 		x := int32(v)
 		at := dst[bytes*i:]
 		switch bytes {

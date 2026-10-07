@@ -76,3 +76,13 @@ func TestMonoAverages(t *testing.T) {
 		t.Errorf("mono gave %v", frames)
 	}
 }
+
+// TestNaNIsSilence writes a sample that is no number as silence.
+func TestNaNIsSilence(t *testing.T) {
+	nan := float32(math.NaN())
+	dst := make([]byte, 4)
+	write(dst, []float32{nan, nan}, 0, int32LSB)
+	if got := int32(binary.LittleEndian.Uint32(dst)); got != 0 {
+		t.Errorf("NaN came out %d", got)
+	}
+}

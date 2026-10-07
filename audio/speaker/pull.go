@@ -89,11 +89,16 @@ func (r *ringOutput) feed() {
 	buf := make([]float32, 2*max(1, int(audio.FramesAt(chunk, r.info.Rate))))
 	q := r.q.Load()
 	for {
+		tick := t.C
+		if r.paused.Load() {
+			// Suspended, it waits for the resume to wake it.
+			tick = nil
+		}
 		select {
 		case <-r.quit:
 			return
 		case <-r.wake:
-		case <-t.C:
+		case <-tick:
 		}
 		if r.paused.Load() {
 			continue
@@ -149,6 +154,10 @@ func (r *ringOutput) suspend() error {
 
 func (r *ringOutput) resume() error {
 	r.paused.Store(false)
+	select {
+	case r.wake <- struct{}{}:
+	default:
+	}
 	return nil
 }
 

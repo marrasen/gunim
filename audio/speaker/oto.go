@@ -91,7 +91,7 @@ func (o *otoOutput) held() int64 {
 }
 
 func (o *otoOutput) setAhead(d time.Duration) {
-	frames := audio.FramesAt(max(d-device, device), o.hz)
+	frames := audio.FramesAt(max(d-o.output(), device), o.hz)
 	o.buffer.Store(frames)
 	o.player.SetBufferSize(int(frames) * 8)
 }
@@ -118,5 +118,10 @@ func (o *otoOutput) resume() error  { return o.ctx.Resume() }
 
 func (o *otoOutput) close() error {
 	o.player.Pause()
-	return o.ctx.Close()
+	if err := o.ctx.Close(); err != nil {
+		// Open still, as where the system closes none: it plays on.
+		o.player.Play()
+		return err
+	}
+	return nil
 }

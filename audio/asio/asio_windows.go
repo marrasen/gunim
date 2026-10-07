@@ -142,8 +142,10 @@ type Device struct {
 	// ready is the driver's outputReady, where it has one, which it
 	// wants called once a buffer is filled.
 	ready uintptr
-	// made and started say the buffers are made and the driver runs.
+	// made and started say the buffers are made and the driver runs;
+	// live says so to the driver's thread, which hears resets from then.
 	made, started bool
+	live          atomic.Bool
 	resetOnce     sync.Once
 	closeOnce     sync.Once
 }
@@ -192,7 +194,7 @@ func (d *Device) open(clsid windows.GUID, c Config) error {
 		return fmt.Errorf("asio: loading %s: %w", c.Name, windows.Errno(hr))
 	}
 	hwnd, _, _ := procGetDesktopWindow.Call()
-	if d.call(mInit, hwnd) != 1 {
+	if d.call(mInit, hwnd) == 0 {
 		return &Error{Op: "starting " + c.Name, Message: d.message()}
 	}
 	var ins, outs int32
@@ -252,6 +254,7 @@ func (d *Device) open(clsid windows.GUID, c Config) error {
 		return d.fail("starting to play", r)
 	}
 	d.started = true
+	d.live.Store(true)
 	return nil
 }
 
@@ -270,15 +273,17 @@ func (d *Device) release() {
 	if d.obj == 0 {
 		return
 	}
+	d.live.Store(false)
 	if d.started {
 		_ = d.call(mStop)
 		d.started = false
 	}
+	// A buffer switch late after the stop finds no device to fill.
+	playing.CompareAndSwap(d, nil)
 	if d.made {
 		_ = d.call(mDisposeBuffers)
 		d.made = false
 	}
-	playing.CompareAndSwap(d, nil)
 	d.call(mRelease)
 	d.obj = 0
 }
@@ -325,11 +330,13 @@ func (d *Device) Info() Info { return d.info }
 // Config.Reset.
 func (d *Device) ControlPanel() error {
 	var r int32
-	d.t.run(func() {
+	if !d.t.run(func() {
 		if d.obj != 0 {
 			r = d.call(mControlPanel)
 		}
-	})
+	}) {
+		return errors.New("asio: the driver is closed")
+	}
 	if r != codeOK {
 		return &Error{Op: "opening the control panel", Code: r}
 	}
@@ -370,13 +377,36 @@ func (d *Device) switchTo(half int32) {
 }
 
 // askReset tells the device's user, once, that the driver wants to be
-// opened again.
+// opened again. Messages as the driver starts, before it plays, are
+// let be.
 func (d *Device) askReset() {
+	if !d.live.Load() {
+		return
+	}
 	d.resetOnce.Do(func() {
 		if d.reset != nil {
 			go d.reset()
 		}
 	})
+}
+
+// resetIfMoved asks for a reset where the driver's rate or latency
+// moved from what the device plays with: a driver may tell of a change
+// that leaves both as they were.
+func (d *Device) resetIfMoved() {
+	var rate float64
+	var in, out int32
+	if !d.t.run(func() {
+		if d.started {
+			rate = d.rate()
+			_ = d.call(mGetLatencies, uintptr(unsafe.Pointer(&in)), uintptr(unsafe.Pointer(&out)))
+		}
+	}) {
+		return
+	}
+	if int(math.Round(rate)) != d.info.Rate || int(out) != d.info.Latency {
+		d.askReset()
+	}
 }
 
 // makeCallbacks makes the functions the driver calls. A long, 32 bits,
@@ -391,10 +421,10 @@ func makeCallbacks() {
 			return 0
 		}),
 		// The new rate comes as a double, in a register a callback of
-		// Go's reads none of; the device is opened again to find it.
+		// Go's reads none of: the driver is asked for it.
 		sampleRateDidChange: syscall.NewCallback(func(uintptr) uintptr {
-			if d := playing.Load(); d != nil {
-				d.askReset()
+			if d := playing.Load(); d != nil && d.live.Load() {
+				go d.resetIfMoved()
 			}
 			return 0
 		}),
@@ -409,9 +439,14 @@ func makeCallbacks() {
 				return 0
 			case msgEngineVersion:
 				return 2
-			case msgResetRequest, msgBufferSizeChange, msgLatenciesChanged:
+			case msgResetRequest, msgBufferSizeChange:
 				if d := playing.Load(); d != nil {
 					d.askReset()
+				}
+				return 1
+			case msgLatenciesChanged:
+				if d := playing.Load(); d != nil && d.live.Load() {
+					go d.resetIfMoved()
 				}
 				return 1
 			case msgResyncRequest, msgSupportsTimeInfo:
@@ -435,6 +470,9 @@ type sta struct {
 	calls chan func()
 	wake  windows.Handle
 	done  chan struct{}
+	// mu guards stopped, so a call after stop finds the thread gone.
+	mu      sync.Mutex
+	stopped bool
 }
 
 func newSTA() (*sta, error) {
@@ -505,20 +543,31 @@ func (s *sta) loop() {
 	}
 }
 
-// run calls f on the thread and waits for it.
-func (s *sta) run(f func()) {
+// run calls f on the thread and waits for it. It reports false, f
+// uncalled, once the thread has stopped.
+func (s *sta) run(f func()) bool {
 	done := make(chan struct{})
+	s.mu.Lock()
+	if s.stopped {
+		s.mu.Unlock()
+		return false
+	}
 	s.calls <- func() {
 		defer close(done)
 		f()
 	}
+	s.mu.Unlock()
 	_ = windows.SetEvent(s.wake)
 	<-done
+	return true
 }
 
 // stop ends the thread.
 func (s *sta) stop() {
+	s.mu.Lock()
+	s.stopped = true
 	close(s.calls)
+	s.mu.Unlock()
 	_ = windows.SetEvent(s.wake)
 	<-s.done
 	_ = windows.CloseHandle(s.wake)

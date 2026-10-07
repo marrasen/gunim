@@ -67,7 +67,7 @@ func (o Options) rate() int {
 // latency returns the latency o asks for.
 func (o Options) latency() time.Duration {
 	if o.Latency > 0 {
-		return o.Latency
+		return min(o.Latency, MaxLatency)
 	}
 	return 30 * time.Millisecond
 }
@@ -280,8 +280,9 @@ func (s *Speaker) watch() {
 	}
 }
 
-// setAhead sets how far ahead the mixer works.
+// setAhead sets how far ahead the mixer works, as far as MaxLatency.
 func (s *Speaker) setAhead(d time.Duration) {
+	d = min(d, MaxLatency)
 	s.ahead.Store(int64(d))
 	if out := s.out.Load(); out != nil {
 		out.setAhead(d)
