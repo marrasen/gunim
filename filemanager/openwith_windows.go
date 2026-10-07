@@ -5,7 +5,9 @@ package filemanager
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -14,6 +16,11 @@ import (
 var (
 	procSHAssocEnumHandlers = shell32.NewProc("SHAssocEnumHandlers")
 	procSHOpenWithDialog    = shell32.NewProc("SHOpenWithDialog")
+
+	procPeekMessageW              = user32.NewProc("PeekMessageW")
+	procTranslateMessage          = user32.NewProc("TranslateMessage")
+	procDispatchMessageW          = user32.NewProc("DispatchMessageW")
+	procMsgWaitForMultipleObjects = user32.NewProc("MsgWaitForMultipleObjects")
 )
 
 // The shell's IDs Open with uses.
@@ -36,6 +43,14 @@ const (
 	// errCancelled is HRESULT_FROM_WIN32(ERROR_CANCELLED), as the dialog
 	// says when closed with no program chosen.
 	errCancelled = 0x800704C7
+
+	// pmRemove and qsAllInput are PeekMessage's and
+	// MsgWaitForMultipleObjects' flags.
+	pmRemove   = 0x1
+	qsAllInput = 0x04FF
+	// pumpTime is how long COM's thread stays to answer a program it
+	// started, which may read the file it was handed only after.
+	pumpTime = 3 * time.Second
 
 	// IAssocHandler's methods, by their place in its table.
 	vtAssocGetName   = 3
@@ -84,6 +99,9 @@ func sysOpenWithApp(path, id string) error {
 			}
 			found = true
 			err = invokeHandler(h, path)
+			if err == nil {
+				pump(pumpTime)
+			}
 			return false
 		}); eerr != nil {
 			return eerr
@@ -102,8 +120,12 @@ func sysOpenWithDialog(path string) error {
 			return err
 		}
 		info := openAsInfo{file: file, flags: oaifAllowRegistration | oaifRegisterExt | oaifExec}
-		hr, _, _ := procSHOpenWithDialog.Call(0, uintptr(unsafe.Pointer(&info)))
-		if uint32(hr) == errCancelled || !failed(uint32(hr)) {
+		hr, _, _ := procSHOpenWithDialog.Call(uintptr(ownWindow()), uintptr(unsafe.Pointer(&info)))
+		if uint32(hr) == errCancelled {
+			return nil
+		}
+		if !failed(uint32(hr)) {
+			pump(pumpTime)
 			return nil
 		}
 		return fmt.Errorf("the Open with dialog: HRESULT %#x", uint32(hr))
@@ -182,4 +204,41 @@ func invokeHandler(h unsafe.Pointer, path string) error {
 		return fmt.Errorf("HRESULT %#x", hr)
 	}
 	return nil
+}
+
+// ownWindow returns the window in front when it is one of this
+// program's, which the dialog belongs to, or 0. The pick that asks for
+// the dialog is made in it.
+func ownWindow() windows.HWND {
+	h := windows.GetForegroundWindow()
+	if h == 0 {
+		return 0
+	}
+	var pid uint32
+	if _, err := windows.GetWindowThreadProcessId(h, &pid); err != nil || pid != uint32(os.Getpid()) {
+		return 0
+	}
+	return h
+}
+
+// pump answers the messages of COM's thread for d, so a program handed
+// one of its objects can still call it.
+func pump(d time.Duration) {
+	var msg [6]uint64 // MSG, as large as it is on 64 bits, and aligned.
+	end := time.Now().Add(d)
+	for {
+		left := time.Until(end)
+		if left <= 0 {
+			return
+		}
+		_, _, _ = procMsgWaitForMultipleObjects.Call(0, 0, 0, uintptr(left.Milliseconds()+1), qsAllInput)
+		for {
+			r, _, _ := procPeekMessageW.Call(uintptr(unsafe.Pointer(&msg[0])), 0, 0, 0, pmRemove)
+			if r == 0 {
+				break
+			}
+			_, _, _ = procTranslateMessage.Call(uintptr(unsafe.Pointer(&msg[0])))
+			_, _, _ = procDispatchMessageW.Call(uintptr(unsafe.Pointer(&msg[0])))
+		}
+	}
 }
