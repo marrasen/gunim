@@ -49,8 +49,8 @@ type editor struct {
 	// blink blinks the caret while the widget has the keyboard.
 	blink blinker
 
-	// undo and redo hold the text as it was before each step of edits, and after each step undone.
-	undo, redo []snapshot
+	// undo holds the steps of edits made, and redo the steps undone, the latest last.
+	undo, redo []step
 	// last is the kind of the latest edit, which the next one of the same kind joins in one step, lastEnd where
 	// the caret was after it, lastAt when it was, and lastSpace whether it typed a space, which ends a word.
 	last      editKind
@@ -82,12 +82,27 @@ type editor struct {
 	// the widget's next layout. The caret jumps after an edit, so it
 	// keeps up with the text; it glides when it only moves.
 	edited bool
+
+	// mark is a rune whose byte offset is known, kept up through edits,
+	// so TextState counts bytes from near the selection.
+	mark byteMark
+	// change and taken record what changed since the layout last read
+	// the text; see shownChange.
+	change textChange
+	taken  taken
 }
 
-// snapshot is the text and the selection at one point in an editor's history.
-type snapshot struct {
-	text          []rune
+// step is one step of undo or redo: the edits that make it, in the
+// order made, and the selection before them.
+type step struct {
+	edits         []textEdit
 	caret, anchor int
+}
+
+// textEdit is one change to the text: at rune at, old became new.
+type textEdit struct {
+	at       int
+	old, new []rune
 }
 
 // editKind is what an edit did, for grouping edits into steps of undo.
@@ -105,18 +120,21 @@ const (
 	undoPause = 2 * time.Second
 )
 
-// remember saves the text before an edit of kind that replaces start to end with with, as a new step of undo
-// unless it carries on the step before: typing on, or deleting on, with nothing else in between.
+// remember saves an edit of kind that replaces start to end with with, before it is made, as a new step of undo
+// unless it carries on the step before: typing on, or deleting on, with nothing else in between. A step keeps only
+// the runes its edits changed, so it costs what the edits do.
 func (e *editor) remember(kind editKind, start, end int, with []rune) {
 	joins := kind != otherEdit && kind == e.last && time.Since(e.lastAt) < undoPause &&
 		(kind == deleting && (end == e.lastEnd || start == e.lastEnd) ||
 			kind == typing && start == e.lastEnd && !(e.lastSpace && !unicode.IsSpace(with[0])))
-	if !joins {
-		e.undo = append(e.undo, snapshot{text: e.text, caret: e.caret, anchor: e.anchor})
+	if !joins || len(e.undo) == 0 {
+		e.undo = append(e.undo, step{caret: e.caret, anchor: e.anchor})
 		if len(e.undo) > maxUndo {
-			e.undo = e.undo[len(e.undo)-maxUndo:]
+			e.undo = slices.Delete(e.undo, 0, len(e.undo)-maxUndo)
 		}
 	}
+	top := &e.undo[len(e.undo)-1]
+	top.edits = append(top.edits, textEdit{at: start, old: slices.Clone(e.text[start:end]), new: slices.Clone(with)})
 	e.redo = e.redo[:0]
 	e.last, e.lastAt = kind, time.Now()
 	e.lastSpace = kind == typing && unicode.IsSpace(with[0])
@@ -126,15 +144,23 @@ func (e *editor) remember(kind editKind, start, end int, with []rune) {
 func (e *editor) undoEdit(u *gunim.UI) { e.travel(&e.undo, &e.redo, u) }
 func (e *editor) redoEdit(u *gunim.UI) { e.travel(&e.redo, &e.undo, u) }
 
-// travel restores the latest snapshot of from, saving the text as it is on to.
-func (e *editor) travel(from, to *[]snapshot, u *gunim.UI) {
+// travel takes back the latest step of from, and saves on to the step
+// that makes it again.
+func (e *editor) travel(from, to *[]step, u *gunim.UI) {
 	if len(*from) == 0 || e.readOnly {
 		return
 	}
 	s := (*from)[len(*from)-1]
 	*from = (*from)[:len(*from)-1]
-	*to = append(*to, snapshot{text: e.text, caret: e.caret, anchor: e.anchor})
-	e.text, e.caret, e.anchor = s.text, s.caret, s.anchor
+	back := step{edits: make([]textEdit, len(s.edits)), caret: e.caret, anchor: e.anchor}
+	for i, ed := range s.edits {
+		back.edits[len(s.edits)-1-i] = textEdit{at: ed.at, old: ed.new, new: ed.old}
+	}
+	*to = append(*to, back)
+	for _, ed := range back.edits {
+		e.splice(ed.at, ed.at+len(ed.old), ed.new)
+	}
+	e.caret, e.anchor = s.caret, s.anchor
 	e.hinted, e.goal = false, false
 	e.last = otherEdit
 	e.edited = true
@@ -146,6 +172,114 @@ func (e *editor) travel(from, to *[]snapshot, u *gunim.UI) {
 // forget drops the history, for text set from outside.
 func (e *editor) forget() {
 	e.undo, e.redo, e.last = nil, nil, otherEdit
+}
+
+// setText puts rs in place of the whole text, for text set from
+// outside.
+func (e *editor) setText(rs []rune) {
+	e.splice(0, len(e.text), rs)
+}
+
+// splice puts with in place of runes start to end of the text. It
+// changes the text in place, so an edit costs what it changes and a
+// move of the runes after it, and keeps up the byte offset TextState
+// starts from and the record of what changed for the next layout.
+func (e *editor) splice(start, end int, with []rune) {
+	e.mark.splice(e.text, start, end, with)
+	e.change.splice(len(e.text), start, end)
+	e.text = slices.Replace(e.text, start, end, with...)
+}
+
+// byteMark is a rune of the text and the byte it starts at, from which
+// the bytes to a rune nearby are counted.
+type byteMark struct{ rune, byte int }
+
+// splice moves the mark for runes start to end of text becoming with.
+func (m *byteMark) splice(text []rune, start, end int, with []rune) {
+	switch {
+	case m.rune <= start:
+	case m.rune >= end:
+		m.rune += len(with) - (end - start)
+		m.byte += byteLen(with) - byteLen(text[start:end])
+	default:
+		m.byte -= byteLen(text[start:m.rune])
+		m.rune = start
+	}
+}
+
+// byteOf returns the byte rune i of text starts at, counted from the
+// mark, which then moves to i.
+func (m *byteMark) byteOf(text []rune, i int) int {
+	i = max(0, min(i, len(text)))
+	if m.rune > len(text) {
+		m.rune, m.byte = 0, 0
+	}
+	if i >= m.rune {
+		m.byte += byteLen(text[m.rune:i])
+	} else {
+		m.byte -= byteLen(text[i:m.rune])
+	}
+	m.rune = i
+	return m.byte
+}
+
+// textChange records what has changed in the text since a layout last
+// read it: head and tail count the runes at its start and end that
+// stayed as they were, and was is how long it was then. Set says
+// something changed.
+type textChange struct {
+	head, tail, was int
+	set             bool
+}
+
+// splice records runes start to end of a text n long becoming others.
+func (c *textChange) splice(n, start, end int) {
+	if !c.set {
+		*c = textChange{head: n, tail: n, was: n, set: true}
+	}
+	c.head = min(c.head, start)
+	c.tail = min(c.tail, n-end)
+}
+
+// shownChange is what changed in the text as drawn, with the
+// composition in it, since the layout last asked: the runes at its
+// start and end that stayed, and how long it was. It reports false when
+// nothing changed, and all of it as changed the first time it is asked.
+func (e *editor) shownChange() (head, tail, was int, changed bool) {
+	start, end := e.Selection()
+	t := e.taken
+	c := e.change
+	same := len(e.preedit) == 0 || !c.set && t.ok && start == t.start && end == t.end
+	if t.ok && !c.set && same && slices.Equal(t.pre, e.preedit) {
+		return 0, 0, 0, false
+	}
+	n := len(e.text)
+	if !c.set {
+		c = textChange{head: n, tail: n, was: n}
+	}
+	head, tail = c.head, c.tail
+	was = c.was
+	if len(t.pre) > 0 {
+		head, tail = min(head, t.start), min(tail, c.was-t.end)
+		was += len(t.pre) - (t.end - t.start)
+	}
+	if len(e.preedit) > 0 {
+		head, tail = min(head, start), min(tail, n-end)
+	}
+	if !t.ok {
+		head, tail = 0, 0
+	}
+	e.change = textChange{}
+	e.taken = taken{pre: append(t.pre[:0], e.preedit...), start: start, end: end, ok: true}
+	return head, tail, was, true
+}
+
+// taken is the composition as the layout last read it, and the
+// selection it was drawn over.
+type taken struct {
+	pre        []rune
+	start, end int
+	ok         bool
 }
 
 // navigator is what the editor needs from laid-out text.
@@ -187,7 +321,7 @@ func (e *editor) shown() (runes []rune, at int) {
 // inside its composition, while one is in progress.
 func (e *editor) drawnCaret() (caret, anchor int) {
 	if len(e.preedit) > 0 {
-		_, at := e.shown()
+		at, _ := e.Selection()
 		return at + e.preSel[1], at + e.preSel[0]
 	}
 	return e.caret, e.anchor
@@ -217,23 +351,46 @@ const textWindow = 2048
 // TextState implements [gunim.TextEditor] for the widgets built on the
 // editor. It returns the text as the input method sees it: as drawn, with
 // any composition in place, and cut to textWindow runes either side of
-// the selection.
+// the selection. It counts bytes from a mark kept near the selection, so
+// it costs the same in a long text.
 func (e *editor) TextState() input.TextState {
-	rs, at := e.shown()
+	start, end := e.Selection()
+	pre := e.preedit
+	if len(pre) == 0 {
+		start, end = 0, 0
+	}
+	n := len(e.text) - (end - start) + len(pre)
 	caret, anchor := e.drawnCaret()
 	lo := max(0, min(caret, anchor)-textWindow)
-	hi := min(len(rs), max(caret, anchor)+textWindow)
-	start := byteLen(rs[:lo])
+	hi := min(n, max(caret, anchor)+textWindow)
+	// b returns the byte rune i of the text as drawn starts at.
+	b := func(i int) int {
+		switch {
+		case len(pre) == 0:
+			return e.mark.byteOf(e.text, i)
+		case i <= start:
+			return e.mark.byteOf(e.text, i)
+		case i <= start+len(pre):
+			return e.mark.byteOf(e.text, start) + byteLen(pre[:i-start])
+		}
+		return e.mark.byteOf(e.text, i-len(pre)+end-start) - e.mark.byteOf(e.text, end) +
+			e.mark.byteOf(e.text, start) + byteLen(pre)
+	}
+	// The runes lo to hi of the text as drawn.
+	rs := make([]rune, 0, hi-lo)
+	rs = append(rs, e.text[min(lo, start):min(hi, start)]...)
+	rs = append(rs, pre[max(0, min(lo-start, len(pre))):max(0, min(hi-start, len(pre)))]...)
+	after := len(pre) - (end - start)
+	rs = append(rs, e.text[max(lo-after, end):max(hi-after, end)]...)
 	s := input.TextState{
-		Text:      string(rs[lo:hi]),
-		Start:     start,
+		Text:      string(rs),
+		Start:     b(lo),
 		Multiline: e.multiline,
 		Secret:    e.secret,
 	}
-	b := func(i int) int { return start + byteLen(rs[lo:i]) }
 	s.Selection = [2]int{b(anchor), b(caret)}
-	if len(e.preedit) > 0 {
-		s.Composing = [2]int{b(at), b(at + len(e.preedit))}
+	if len(pre) > 0 {
+		s.Composing = [2]int{b(start), b(start + len(pre))}
 	} else {
 		s.Composing = [2]int{s.Selection[1], s.Selection[1]}
 	}
@@ -753,11 +910,7 @@ func (e *editor) replace(start, end int, with []rune, u *gunim.UI) {
 	}
 	e.remember(kind, start, end, with)
 	e.closeHandles()
-	out := make([]rune, 0, len(e.text)-(end-start)+len(with))
-	out = append(out, e.text[:start]...)
-	out = append(out, with...)
-	out = append(out, e.text[end:]...)
-	e.text = out
+	e.splice(start, end, with)
 	e.set(start+len(with), false)
 	e.lastEnd = e.caret
 	e.edited = true

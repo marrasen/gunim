@@ -216,7 +216,7 @@ func (c *CodeEditor) Text() string { return string(c.text) }
 // the top and forgets the history, for a file opened afresh. Call it
 // from a view's update function.
 func (c *CodeEditor) SetText(s string) {
-	c.text = []rune(s)
+	c.setText([]rune(s))
 	c.set(0, false)
 	c.forget()
 	c.version++

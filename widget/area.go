@@ -147,7 +147,7 @@ func (a *TextArea) Text() string { return string(a.text) }
 func (a *TextArea) SetText(s string) {
 	a.closeCompletion()
 	a.dismissedAt = -1
-	a.text = []rune(s)
+	a.setText([]rune(s))
 	a.set(len(a.text), false)
 	a.forget()
 }

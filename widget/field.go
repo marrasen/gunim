@@ -144,7 +144,7 @@ func (t *TextField) Text() string { return string(t.text) }
 // change it hears about should skip the ones the field sent, or it will
 // move the caret under the user's fingers.
 func (t *TextField) SetText(s string) {
-	t.text = []rune(s)
+	t.setText([]rune(s))
 	t.set(len(t.text), false)
 	t.forget()
 }
