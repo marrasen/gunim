@@ -48,6 +48,8 @@ type MiniMonth struct {
 	side float32
 	// tap is a press on an arrow or a day, which acts as the pointer lets go.
 	tap tap
+	// ringed says the month shows that it has the keyboard.
+	ringed bool
 }
 
 // NewMiniMonth returns a small month showing day's month, with day marked, and weeks starting on Monday.
@@ -144,6 +146,10 @@ func (m *MiniMonth) bandOf(first, last int) geom.Rect {
 // Paint implements [gunim.Node].
 func (m *MiniMonth) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
 	th := f.Theme
+	if m.ringed {
+		// Drawn last, over the rest
+		defer paintRing(p, th, box)
+	}
 	ink, faint := widget.Ink.Get(th), widget.PaletteHint.Get(th)
 	regular, bold := widget.Font.Get(th), widget.BoldFont.Get(th)
 	now := f.Now.In(m.month.Location())
@@ -261,6 +267,12 @@ func (m *MiniMonth) Handle(e input.Event, u *gunim.UI) bool {
 		}
 	case input.PointerLeave:
 		m.lightCell(-1, u)
+	case input.FocusRing:
+		m.ringed = ringShown(e)
+		u.Invalidate()
+	case input.FocusLost:
+		m.ringed = false
+		u.Invalidate()
 	case input.PointerDown:
 		if e.Button != input.ButtonPrimary {
 			return false

@@ -118,6 +118,8 @@ type Days struct {
 	// tap is a press on a heading or a button over the rows of whole days, which acts as the pointer lets go.
 	tap  tap
 	drag *dayDrag
+	// ringed says the grid shows that it has the keyboard.
+	ringed bool
 	// ghostHeld is the drag that drew out an event being named, whose ghost stays until ClearGhost.
 	ghostHeld *dayDrag
 	texts     map[textKey]text.Paragraph
@@ -734,6 +736,10 @@ func (d *Days) longBox(p longPlace) geom.Rect {
 // Paint implements [gunim.Node].
 func (d *Days) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
 	th := f.Theme
+	if d.ringed {
+		// Drawn last, over the rest
+		defer paintRing(p, th, box)
+	}
 	line := widget.MenuBorder.Get(th)
 	faint := widget.PaletteHint.Get(th)
 	hourH := d.hour()
@@ -1188,6 +1194,12 @@ func (d *Days) Handle(e input.Event, u *gunim.UI) bool {
 			return true
 		}
 		return eventKeys(e, u, d, d.stops(), d.selected, func(id string) { d.choose(id, u) }, d.Open, d.OnDelete)
+	case input.FocusRing:
+		d.ringed = ringShown(e)
+		u.Invalidate()
+	case input.FocusLost:
+		d.ringed = false
+		u.Invalidate()
 	case input.FocusGained:
 		// Tabbing in chooses the first event, for the keys to move on from.
 		if e.Keyed && d.selected == "" {
