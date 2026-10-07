@@ -167,6 +167,9 @@ type app struct {
 	// in none.
 	bannerText string
 	held       []Notice
+	// closeAsked says the user is being asked whether to stop what runs
+	// and close.
+	closeAsked bool
 	// title is the file system and the folder the pane's host was last told of.
 	title string
 	// script is what is left of the steps to run, once the first folder
@@ -396,9 +399,18 @@ func (a *app) close() {
 		a.leave()
 		return
 	}
-	a.confirm(Confirm{Title: "Stop " + plural(n, "operation") + " and close?",
+	if a.closeAsked {
+		// Asked already, and waiting for the answer.
+		return
+	}
+	a.closeAsked = true
+	a.ask(Confirm{Title: "Stop " + plural(n, "operation") + " and close?",
 		Body: "What is running stops where it has got to. Anything half copied is taken away.", OK: "Stop and close"},
-		func() {
+		func(v Confirmed) {
+			a.closeAsked = false
+			if !v.OK {
+				return
+			}
 			for _, r := range a.ops.running {
 				r.cancel()
 			}
