@@ -96,10 +96,11 @@ type Days struct {
 	hourH float32
 	// heads fades the headings in as the grid changes how many days it shows.
 	heads *anim.Float
-	// th is the theme at the last layout, and pointer where the pointer is while it drags, for the drag to go
-	// on as the grid scrolls under it.
+	// th is the theme at the last layout, and pointer where the pointer last was, for a drag to go on and the event
+	// under it to lift as the grid scrolls under it. over says the pointer is over the grid.
 	th      *theme.Live
 	pointer geom.Point
+	over    bool
 	// longRows is how many rows the whole-day events take on screen, long the rows of them shown, and longMore how
 	// many more each day has than they show, said on a row under them. longAll is how many rows they would take, and
 	// longOpen says the user opened the rows to show more of them.
@@ -206,6 +207,10 @@ func (d *Days) Step(dt time.Duration) bool {
 	moving := d.Group.Step(dt)
 	if d.edgeScroll(dt) {
 		moving = true
+	}
+	if d.scroll.Active() && d.over && d.drag == nil && d.th != nil {
+		// The events move under a pointer at rest.
+		d.hoverAt(d.pointer, d.th)
 	}
 	for k, s := range d.sprites {
 		if s.step(dt) {
@@ -1111,9 +1116,11 @@ func (d *Days) Handle(e input.Event, u *gunim.UI) bool {
 		if e.Pos.Y < d.bodyTop() {
 			return false
 		}
+		d.pointer, d.over = e.Pos, true
 		d.scroll.Animate(d.clampScroll(d.scroll.Target()-e.Delta.Y), widget.Quick.Get(th))
 		return true
 	case input.PointerMove:
+		d.over = true
 		if d.drag != nil {
 			d.pointer = e.Pos
 			d.dragTo(e.Pos, th)
@@ -1123,6 +1130,7 @@ func (d *Days) Handle(e input.Event, u *gunim.UI) bool {
 		d.pointer = e.Pos
 		d.hoverAt(e.Pos, th)
 	case input.PointerLeave:
+		d.over = false
 		if d.drag == nil && d.hover != "" {
 			d.hover = ""
 			d.aimLifts(th)

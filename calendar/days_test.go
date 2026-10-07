@@ -114,6 +114,37 @@ func TestAGlidingEventTakesThePointerWhereItIsDrawn(t *testing.T) {
 	}
 }
 
+func TestTheEventUnderARestingPointerLiftsAsTheGridScrolls(t *testing.T) {
+	d := newWeek()
+	w, run, _ := stage(t, d)
+	at := point(d, 1, 10*time.Hour+30*time.Minute)
+	w.Input(input.PointerMove{Pos: at})
+	run(20)
+	if d.hover != "a" {
+		t.Fatalf("the pointer rests on the event and lifts %q", d.hover)
+	}
+	check := func(when string) {
+		t.Helper()
+		under, _ := d.EventAt(at)
+		if d.hover != under {
+			t.Fatalf("%s: %q lifts under the pointer, which is over %q", when, d.hover, under)
+		}
+		for _, s := range d.sprites {
+			if up := s.lift.Target() > 0; up != (s.e.ID == under) {
+				t.Fatalf("%s: %s lifts to %v with %q under the pointer", when, s.e.ID, s.lift.Target(), under)
+			}
+		}
+	}
+	// Away down the day, then back up half way, the lift follows what is under the pointer.
+	for _, by := range []float32{-300, 150} {
+		w.Input(input.Scroll{Pos: at, Delta: geom.Pt(0, by), Time: time.Now()})
+		for f := range 40 {
+			run(1)
+			check("scrolled " + strconv.Itoa(int(by)) + ", frame " + strconv.Itoa(f))
+		}
+	}
+}
+
 func TestAClickActsOnceAsThePrimaryButtonLetsGo(t *testing.T) {
 	d := newWeek()
 	opened := 0
