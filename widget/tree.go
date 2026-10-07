@@ -327,7 +327,7 @@ type treeRow struct {
 	// hot follows the pointer over the row, and turn the chevron, 1 open.
 	hot, turn *anim.Float
 	laid      bool
-	pressed   bool
+	click     clicker
 	box       geom.Size
 	name      laidText
 	detail    shapedText
@@ -425,7 +425,6 @@ func (r *treeRow) Handle(e input.Event, u *gunim.UI) bool {
 		return false
 	case input.PointerLeave:
 		r.hot.Animate(0, Settle.Get(u.Theme()))
-		r.pressed = false
 		t.tip.Handle(e, u, r, "")
 		return false
 	case input.PointerMove:
@@ -442,16 +441,13 @@ func (r *treeRow) Handle(e input.Event, u *gunim.UI) bool {
 		if i, ok := t.index[r.key]; ok {
 			t.move(i, u)
 		}
-		r.pressed = true
+		r.click.press(e, 0)
 		return true
 	case input.PointerUp:
-		was := r.pressed
-		r.pressed = false
-		in := e.Pos.X >= 0 && e.Pos.Y >= 0 && e.Pos.X < r.box.W && e.Pos.Y < r.box.H
-		if was && in {
+		if r.click.release(e, over(e.Pos, r.box)) {
 			t.activate(r.key, u)
 		}
-		return was
+		return true
 	}
 	return false
 }

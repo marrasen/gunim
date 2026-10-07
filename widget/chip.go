@@ -40,6 +40,7 @@ type Chip struct {
 	leadText, labelText shapedText
 	size                geom.Size
 	crossX              float32
+	click               clicker
 }
 
 // NewChip returns a chip showing lead and label.
@@ -108,13 +109,26 @@ func (c *Chip) Handle(e input.Event, u *gunim.UI) bool {
 	case input.PointerLeave:
 		c.hover.Animate(0, Settle.Get(th))
 	case input.PointerDown:
-		if e.Button != input.ButtonPrimary || e.Pos.X < c.crossX-c.size.H/2 {
+		if e.Button != input.ButtonPrimary || c.onCross(e.Pos) < 0 {
 			return false
 		}
-		c.remove(u)
+		c.click.press(e, 0)
+		return true
+	case input.PointerUp:
+		if c.click.release(e, c.onCross(e.Pos)) {
+			c.remove(u)
+		}
 		return true
 	}
 	return false
+}
+
+// onCross is the chip's one target, the cross: 0 for pos on it, and -1 elsewhere.
+func (c *Chip) onCross(pos geom.Point) int {
+	if pos.X < c.crossX-c.size.H/2 {
+		return -1
+	}
+	return over(pos, c.size)
 }
 
 func (c *Chip) remove(u *gunim.UI) {

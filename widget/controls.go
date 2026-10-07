@@ -40,6 +40,7 @@ type toggle struct {
 	press *anim.Float
 	ring  *anim.Float
 	held  bool
+	click clicker
 	size  geom.Size
 	text  shapedText
 	// laid is set by the first layout, which puts the control where On
@@ -118,6 +119,7 @@ func (t *toggle) handle(n gunim.Node, e input.Event, u *gunim.UI) bool {
 			return false
 		}
 		t.held = true
+		t.click.press(e, 0)
 		t.press.Animate(1, Quick.Get(th))
 	case input.PointerUp:
 		if !t.held {
@@ -125,7 +127,7 @@ func (t *toggle) handle(n gunim.Node, e input.Event, u *gunim.UI) bool {
 		}
 		t.held = false
 		t.press.Animate(0, Bounce.Get(th))
-		if (geom.Rect{Max: t.size.Point()}).Contains(e.Pos) {
+		if t.click.release(e, over(e.Pos, t.size)) {
 			t.flip(n, u)
 		}
 	case input.KeyPress:
@@ -786,23 +788,45 @@ func (t *Tabs) iconRoom(i int, th *theme.Live) float32 {
 }
 
 // tabBar is the row of titles.
-type tabBar struct{ t *Tabs }
+type tabBar struct {
+	t     *Tabs
+	click clicker
+}
+
+// titleAt returns the title at pos in the row's space, or -1.
+func (b *tabBar) titleAt(pos geom.Point) int {
+	t := b.t
+	if pos.Y < 0 || pos.Y >= t.head {
+		return -1
+	}
+	x := pos.X + t.off.Value()
+	for i, s := range t.spans {
+		if x >= s[0] && x < s[1] {
+			return i
+		}
+	}
+	return -1
+}
 
 // Focusable implements [gunim.Focusable].
 func (b *tabBar) Focusable() bool { return true }
 
 // Handle implements [gunim.Handler]. It takes the clicks on the titles
-// and the keys.
+// and the keys. A click chooses the title it lets go on, the one it
+// pressed, so a finger that lands on a title to scroll the row chooses
+// nothing.
 func (b *tabBar) Handle(e input.Event, u *gunim.UI) bool {
 	t := b.t
 	th := u.Theme()
 	switch e := e.(type) {
 	case input.PointerDown:
-		x := e.Pos.X + t.off.Value()
-		for i, s := range t.spans {
-			if x >= s[0] && x < s[1] {
-				t.choose(i, u)
-			}
+		if e.Button != input.ButtonPrimary {
+			return false
+		}
+		b.click.press(e, b.titleAt(e.Pos))
+	case input.PointerUp:
+		if i := b.titleAt(e.Pos); b.click.release(e, i) {
+			t.choose(i, u)
 		}
 	case input.Scroll:
 		// A wheel turns either way along the row; a finger drags it.
