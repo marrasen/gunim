@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
@@ -17,6 +18,49 @@ func manyItems(n int) []string {
 		items[i] = fmt.Sprintf("Item number %d", i)
 	}
 	return items
+}
+
+func TestALongMenuMeasuresAsWideAsItsWidestItem(t *testing.T) {
+	items := make([]string, 5000)
+	for i := range items {
+		items[i] = strings.Repeat("ab", i%37) + fmt.Sprintf(" %d", i)
+	}
+	m := NewMenu(items...)
+	m.Hints = make([]string, 10)
+	m.Hints[3] = strings.Repeat("Ctrl+Shift+", 9)
+	face, size := faceIn(Font, nil), TextSize.Default()
+	want := float32(0)
+	for i := range items {
+		line := face.Shape(m.label(i), size).Advance
+		if i < len(m.Hints) && m.Hints[i] != "" {
+			line += menuHintGap + face.Shape(m.Hints[i], size*0.9).Advance
+		}
+		want = max(want, line)
+	}
+	if got := m.measure(face, size); got != want {
+		t.Fatalf("the menu measured %v wide, want %v", got, want)
+	}
+	d := NewDropdown(items...)
+	if got, want := d.measure(face, size), func() float32 {
+		w := float32(0)
+		for _, s := range items {
+			w = max(w, face.Shape(s, size).Advance)
+		}
+		return w
+	}(); got != want {
+		t.Fatalf("the drop-down measured %v wide, want %v", got, want)
+	}
+}
+
+func TestAHugeMenuOpensAtOnce(t *testing.T) {
+	items := manyItems(100_000)
+	start := time.Now()
+	m := NewMenu(items...)
+	m.Layout(gunim.Loose(geom.Sz(600, 480)), gunim.Frame{Scale: 1}, gunim.Children{})
+	// Shaping every item took a second; the longest few take milliseconds.
+	if took := time.Since(start); took > 250*time.Millisecond {
+		t.Fatalf("a menu of 100 000 items took %v to lay out the first time", took)
+	}
 }
 
 // BenchmarkClosedDropdownLayout lays out a closed drop-down of 100 000 items, as each frame does.
