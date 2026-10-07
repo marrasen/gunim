@@ -418,6 +418,6 @@ func (a *app) palettePicked(v PalettePicked) {
 			return
 		}
 		a.navigate(a.ps.Dir(rest), 0, true)
-		a.nav.pick = a.ps.Base(rest)
+		a.nav.pick = []string{a.ps.Base(rest)}
 	}
 }
