@@ -25,6 +25,8 @@ var (
 	SliderRowSize = theme.Length("sliderrow.size", 13)
 	// SliderRowInk is the colour of a slider row's readout.
 	SliderRowInk = theme.Color("sliderrow.ink", color.NRGBA{R: 0xa4, G: 0xab, B: 0xbb, A: 0xff})
+	// SliderRowActive fills the row the keys act on, and its bar marks it.
+	SliderRowActive = theme.Color("sliderrow.active", color.NRGBA{R: 0x5e, G: 0x9c, B: 0xff, A: 0x22})
 )
 
 // SliderRow is a labelled slider among others in a panel, as a photo
@@ -46,15 +48,54 @@ type SliderRow struct {
 	// off shows the reset mark, and hot turns it under the pointer.
 	off, hot *anim.Float
 	reset    geom.Rect
+	// active is how far the row shows as the one the keys act on.
+	active *anim.Float
+	on     bool
 }
 
 // NewSliderRow returns a row of s, labelled label.
 func NewSliderRow(label string, s *Slider) *SliderRow {
-	r := &SliderRow{Slider: s, label: NewLabel(label), value: NewLabel(""), off: anim.NewFloat(0), hot: anim.NewFloat(0)}
+	r := &SliderRow{Slider: s, label: NewLabel(label), value: NewLabel(""), off: anim.NewFloat(0), hot: anim.NewFloat(0), active: anim.NewFloat(0)}
 	r.label.Size, r.label.NoWrap, r.label.MaxLines = SliderRowSize, true, 1
 	r.value.Size, r.value.Color, r.value.NoWrap, r.value.Align = SliderRowSize, SliderRowInk, true, text.AlignEnd
-	r.Add(r.off, r.hot)
+	r.Add(r.off, r.hot, r.active)
 	return r
+}
+
+// SetActive marks the row as the one the keys act on, or not, as a photo
+// editor marks the adjustment its + and - step: the row's fill and a bar
+// at its start grow in, and fade out again.
+func (r *SliderRow) SetActive(on bool, u *gunim.UI) {
+	if on == r.on {
+		return
+	}
+	r.on = on
+	m := Quick.Get(u.Theme())
+	if !on {
+		m = Settle.Get(u.Theme())
+	}
+	r.active.Animate(map[bool]float32{false: 0, true: 1}[on], m)
+	u.Invalidate()
+}
+
+// Active reports whether the row is marked as the one the keys act on.
+func (r *SliderRow) Active() bool { return r.on }
+
+// PaintActive draws a row of box marked k of the way as the one the keys
+// act on, as a slider row marks itself, for a row of an application's own
+// beside slider rows.
+func PaintActive(p *paint.Painter, th *theme.Live, box geom.Size, k float32) {
+	if k < 0.01 {
+		return
+	}
+	r := geom.Rect{Min: geom.Pt(-8, 0), Max: geom.Pt(box.W+4, box.H)}
+	fill := SliderRowActive.Get(th)
+	fill.A = uint8(float32(fill.A) * min(k, 1))
+	p.RRect(r, 6, paint.Solid(fill))
+	bar := Accent.Get(th)
+	bar.A = uint8(float32(bar.A) * min(k, 1))
+	h := box.H * 0.6 * k
+	p.RRect(geom.Rc(r.Min.X+2, (box.H-h)/2, 3, h), 1.5, paint.Solid(bar))
 }
 
 // SetLabel changes the row's label.
@@ -134,8 +175,9 @@ func (r *SliderRow) Handle(e input.Event, u *gunim.UI) bool {
 }
 
 // Paint implements [gunim.Node].
-func (r *SliderRow) Paint(p *paint.Painter, f gunim.Frame, _ geom.Size, kids gunim.Children) {
+func (r *SliderRow) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.Children) {
 	th := f.Theme
+	PaintActive(p, th, box, r.active.Value())
 	for k := range kids.All {
 		k.Paint(p)
 	}

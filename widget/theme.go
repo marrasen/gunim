@@ -155,6 +155,7 @@ func Light() theme.Theme {
 		theme.Set(SwitchOff, color.NRGBA{R: 0xc8, G: 0xd0, B: 0xdc, A: 0xff}),
 		theme.Set(SliderRestMark, color.NRGBA{R: 0x6a, G: 0x72, B: 0x80, A: 0xc0}),
 		theme.Set(SliderRowInk, color.NRGBA{R: 0x5b, G: 0x63, B: 0x72, A: 0xff}),
+		theme.Set(SliderRowActive, color.NRGBA{R: 0x3a, G: 0x6f, B: 0xd8, A: 0x1c}),
 		theme.Set(CurveFill, color.NRGBA{R: 0xee, G: 0xf1, B: 0xf5, A: 0xff}),
 		theme.Set(CurveGrid, color.NRGBA{A: 0x18}),
 		theme.Set(HistogramFill, color.NRGBA{R: 0x2a, G: 0x2e, B: 0x36, A: 0xff}),
