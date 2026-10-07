@@ -942,10 +942,16 @@ func (b *tabBar) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) ge
 		t.spans = append(t.spans, [2]float32{x, x + w})
 		x += w
 	}
+	// Titles cut short of the chosen tab leave the last of them chosen,
+	// its line under it at once.
+	cut := false
+	if n := len(t.spans); n > 0 && t.selected >= n {
+		t.selected, t.prev, t.shown, cut = n-1, -1, n-1, true
+	}
 	if t.selected < len(t.spans) {
 		sp := t.spans[t.selected]
 		to := geom.Pt(sp[0]+pad, sp[1]-pad)
-		if t.laid {
+		if t.laid && !cut {
 			t.line.Animate(to, Bounce.Get(th))
 		} else {
 			t.line.Jump(to)
@@ -964,23 +970,25 @@ func (b *tabBar) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) ge
 // tabsRoom is the room the row leaves beside a title it brings into view, so the next title's edge shows.
 const tabsRoom = 24
 
-// fitOff keeps the scroll inside the titles, and brings a newly chosen title into view.
+// fitOff keeps the scroll inside the titles, and brings a newly chosen title into view. Only a newly chosen title
+// glides into view: the scroll held inside titles or room that changed jumps there.
 func (t *Tabs) fitOff(th *theme.Live) {
 	to := t.clampOff(t.offTo)
+	glide := false
 	if t.selected != t.shown && t.selected < len(t.spans) {
 		t.shown = t.selected
 		sp := t.spans[t.selected]
 		switch {
 		case sp[0]-tabsRoom < to:
-			to = t.clampOff(sp[0] - tabsRoom)
+			to, glide = t.clampOff(sp[0]-tabsRoom), true
 		case sp[1]+tabsRoom > to+t.room:
-			to = t.clampOff(sp[1] + tabsRoom - t.room)
+			to, glide = t.clampOff(sp[1]+tabsRoom-t.room), true
 		}
 	}
 	if to == t.offTo {
 		return
 	}
-	if t.laid {
+	if t.laid && glide {
 		t.scrollTo(to, Quick.Get(th))
 	} else {
 		t.offTo = to
