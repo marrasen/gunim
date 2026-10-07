@@ -792,26 +792,14 @@ func (t *Tabs) Select(i int, u *gunim.UI) {
 }
 
 // refocus puts the keyboard on the first place on page i that takes it,
-// or on the titles where there is none. A page shows what takes the
-// keyboard only once drawn, so the titles hold it until the page has
-// been, two frames on.
+// or on the titles where there is none. The titles hold it until the
+// next frame lays the page out, and the page takes it before that frame
+// paints.
 func (t *Tabs) refocus(i int, u *gunim.UI) {
-	first := func(u *gunim.UI) {
-		if p := t.page(i); p == nil || !u.FocusFirst(p) {
-			u.Focus(t.bar)
-		}
+	u.Focus(t.bar)
+	if p := t.page(i); p != nil {
+		u.FocusFirstLaidOut(p)
 	}
-	first(u)
-	if u.Focused() != t.bar {
-		return
-	}
-	u.After(0, func(u *gunim.UI) {
-		u.After(0, func(u *gunim.UI) {
-			if t.selected == i && u.Focused() == t.bar {
-				first(u)
-			}
-		})
-	})
 }
 
 // page returns page i, or nil while it has not arrived.

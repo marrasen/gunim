@@ -1267,7 +1267,9 @@ type UI struct {
 	// theme is the window's live theme, stepped every frame.
 	theme *theme.Live
 	// seq counts frames; see [Frame].
-	seq       uint64
+	seq uint64
+	// focusLaid waits for a layout to give a node the keyboard; see [UI.FocusFirstLaidOut].
+	focusLaid *laidFocus
 	painter   paint.Painter
 	animating bool
 	invalid   bool
@@ -2087,7 +2089,10 @@ func (u *UI) frame(now time.Time, delta time.Duration) {
 	// 3. Lay the tree out at the window's current size.
 	size := u.w.dw.Size()
 	f = scoped(f, u.root.node)
+	u.root.laid = u.seq
 	u.root.size = u.root.node.Layout(Tight(size), f, Children{ns: u.root.kids, f: f, s: u.root})
+	// A node asked to take the keyboard once laid out takes it now, so this frame paints it with the keyboard.
+	u.focusLaidOut()
 
 	// 4. Record the frame and hand it to the driver.
 	u.painter.Reset()
