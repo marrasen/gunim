@@ -968,8 +968,13 @@ func (w *Window) wait() bool {
 	// other, and the frame shown wakes it. A timer due by then would
 	// fire at every wait and spin the loop until the frame showed, so
 	// it waits for the wait after.
+	//
+	// A window out of sight draws no frame, so a timer due then waits
+	// for the window to come back, and the frame drawn then runs it.
+	// Armed anyway, it would spin the loop for as long as the window
+	// stayed hidden or covered.
 	var alarm <-chan time.Time
-	if at, ok := w.ui.nextTimer(); ok && !w.inFlight {
+	if at, ok := w.ui.nextTimer(); ok && !w.inFlight && w.draws() {
 		d := time.Until(wakeFor(at, w.shown, refreshInterval(w.dw.RefreshRate())))
 		if w.alarm == nil {
 			w.alarm = time.NewTimer(d)
