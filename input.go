@@ -391,11 +391,10 @@ func (u *UI) keyEvent(ev any) {
 			u.keyed = true
 			defer func() { u.keyed = false }()
 		}
-		if u.stopsAtModal(ev) {
+		if m := u.stopsAtModal(ev); m != nil {
 			// A modal holds the keys: what it and its contents leave
 			// goes no further, to the window's shortcuts or the
 			// catchers behind it. Tab still walks it.
-			m := u.modal()
 			if !u.bubbleTo(target, ev, m) && !u.catchKeyIn(ev, m) {
 				u.tab(ev)
 			}
@@ -484,6 +483,13 @@ func (u *UI) FocusNext(forward bool) {
 		if s.presence == Exiting || (s != u.root && s.drawn != u.seq) {
 			return
 		}
+		// A scope with a modal of its own offers the modal in place of what is under it.
+		if _, ok := s.node.(ModalScope); ok {
+			if m := u.scopedModal(s); m != nil && m != s {
+				walk(m)
+				return
+			}
+		}
 		if _, ok := s.node.(TabGroup); ok && s != u.root {
 			if stop := u.tabStop(s); stop != nil {
 				order = append(order, stop)
@@ -500,7 +506,7 @@ func (u *UI) FocusNext(forward bool) {
 		}
 	}
 	// Tab keeps to a modal while there is one.
-	if m := u.modal(); m != nil {
+	if m := u.modal(u.focus); m != nil {
 		walk(m)
 	} else {
 		walk(u.root)

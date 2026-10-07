@@ -235,6 +235,43 @@ func (u *UI) mount(c Mount) error {
 	return err
 }
 
+// SetID gives n, a node in the tree, the ID id, as a mounted view's root
+// has: views mount under it, [Client.Focus] reaches it, and the intents
+// sent from inside it say they came from id, as far as no view mounted
+// deeper says otherwise. It is for a place in a window that a program
+// fills from elsewhere, such as a pane whose content a part of the
+// program of its own draws. n keeps the ID until it leaves the tree, or
+// until SetID gives it another; an empty id takes it away. It must be
+// called on the UI goroutine, as from a view's update, and fails when
+// another node has id, or n is not in the tree or is a mounted view's
+// root.
+func (u *UI) SetID(n Node, id ID) error {
+	s, ok := u.index[n]
+	if !ok || s.node != n {
+		return errors.New("SetID: the node is not in the tree")
+	}
+	if s.view != nil {
+		return fmt.Errorf("SetID: the node is view %q's root", s.id)
+	}
+	if id == s.id {
+		return nil
+	}
+	if o, taken := u.ids[id]; taken && id != "" && o != s {
+		if !o.leaving() {
+			return fmt.Errorf("SetID: id %q is taken", id)
+		}
+		u.release(o)
+	}
+	if s.id != "" && u.ids[s.id] == s {
+		delete(u.ids, s.id)
+	}
+	s.id = id
+	if id != "" {
+		u.ids[id] = s
+	}
+	return nil
+}
+
 // revive brings back a view that is still animating out, so a dialog
 // dismissed and reopened swings back from wherever its exit had got to.
 // It takes the new parent, watch list and state, as a fresh mount would.

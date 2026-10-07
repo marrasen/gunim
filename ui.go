@@ -1834,7 +1834,7 @@ func (u *UI) Focus(n Node) bool {
 			return false
 		}
 		// A modal keeps the keyboard.
-		if m := u.modal(); m != nil && !inside(next, m) {
+		if m := u.modal(next); m != nil && !inside(next, m) {
 			return false
 		}
 	}
