@@ -30,6 +30,19 @@ var (
 	Short = theme.Color("audio.short", rgb(0xff, 0x6a, 0xd5))
 )
 
+// Light sets the audio pieces' tokens for a light theme, to add to one, as
+// widget.Light().With(audioui.Light...): a pale ground for the dark ink of a light theme, and the colours of what
+// plays deep enough to read on it.
+var Light = []theme.Entry{
+	theme.Set(Ground, rgb(0xec, 0xef, 0xf4)),
+	theme.Set(Raised, rgb(0xd4, 0xda, 0xe4)),
+	theme.Set(Sound, rgb(0x0e, 0x8c, 0x7a)),
+	theme.Set(Near, rgb(0xb8, 0x6e, 0x00)),
+	theme.Set(Over, rgb(0xc8, 0x2c, 0x22)),
+	theme.Set(Spread, rgb(0x1f, 0x66, 0xc8)),
+	theme.Set(Short, rgb(0xb0, 0x24, 0x8c)),
+}
+
 func rgb(r, g, b uint8) color.NRGBA { return color.NRGBA{R: r, G: g, B: b, A: 0xff} }
 
 // Faded is c at alpha a, from 0 to 1, of its own.
