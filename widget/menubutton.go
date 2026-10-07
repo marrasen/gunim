@@ -50,6 +50,7 @@ type MenuButton struct {
 	menu  *Menu
 	size  geom.Size
 	shown shapedText
+	ell   shapedText
 }
 
 // NewMenuButton returns a button titled title that opens a menu of items.
@@ -205,8 +206,13 @@ func (b *MenuButton) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gun
 		s := IconSize.Get(th)
 		paintIcon(p, th, b.Icon, geom.Rc(pad, (box.H-s)/2, s, s), Ink.Get(th), 1)
 	}
+	// A title wider than the box is cut short before the chevron.
 	run := b.shown.run
-	run.Paint(p, geom.Pt(pad+b.iconRoom(th), (box.H-run.Height())/2), Ink.Get(th))
+	x := pad + b.iconRoom(th)
+	if room := box.W - x - pad - chevron - pad; run.Advance > room {
+		run = cutRun(run, b.ell.shape(faceIn(Font, th), "…", TextSize.Get(th)), room)
+	}
+	run.Paint(p, geom.Pt(x, (box.H-run.Height())/2), Ink.Get(th))
 	c := geom.Pt(box.W-pad-chevron/2, box.H/2)
 	defer p.Push(paint.Rotate(math.Pi*b.turn.Value(), c))()
 	paintChevron(p, th, c, Ink.Get(th))
