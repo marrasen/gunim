@@ -52,6 +52,9 @@ type SliderRow struct {
 	// active is how far the row shows as the one the keys act on.
 	active *anim.Float
 	on     bool
+	// laid is set by the first layout, which shows the reset mark at
+	// once for a slider already off rest.
+	laid bool
 }
 
 // NewSliderRow returns a row of s, labelled label.
@@ -133,7 +136,12 @@ func (r *SliderRow) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Childr
 		r.value.SetText(t)
 	}
 	off := s.HasRest && math.Abs(float64(s.Value()-s.Rest)) > 1e-6
-	r.off.Animate(map[bool]float32{false: 0, true: 1}[off], Quick.Get(th))
+	if to := map[bool]float32{false: 0, true: 1}[off]; r.laid {
+		r.off.Animate(to, Quick.Get(th))
+	} else {
+		r.off.Jump(to)
+		r.laid = true
+	}
 
 	label, slider, value := kids.At(0), kids.At(1), kids.At(2)
 	ls := label.Layout(gunim.Loose(geom.Sz(lw, h)))

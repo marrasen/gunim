@@ -339,6 +339,9 @@ type Slider struct {
 	ring  *anim.Float
 	held  bool
 	size  geom.Size
+	// laid is set by the first layout. A value set before it shows at
+	// once, with no glide from Min.
+	laid bool
 }
 
 // NewSlider returns a slider from lo to hi, at lo.
@@ -392,6 +395,10 @@ func (s *Slider) commit(u *gunim.UI) {
 // round to them, so a value stored with more precision shows as it is.
 func (s *Slider) SetValue(v float32, u *gunim.UI) {
 	s.value = max(s.Min, min(v, s.Max))
+	if !s.laid {
+		s.at.Jump(s.frac())
+		return
+	}
 	s.at.Animate(s.frac(), Quick.Get(u.Theme()))
 }
 
@@ -606,6 +613,7 @@ func (s *Slider) Handle(e input.Event, u *gunim.UI) bool {
 // height, or [FieldWidth] where that is unbounded, and is as wide as
 // the knob.
 func (s *Slider) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
+	s.laid = true
 	if s.Axis == Vertical {
 		h := c.Max.H
 		if h <= 0 {
@@ -716,7 +724,7 @@ type Tabs struct {
 	// holds them all, as at the last layout.
 	count     int
 	laidPages []gunim.Node
-	selected int
+	selected  int
 	// prev is the page leaving, or -1, and from is the side the new
 	// page comes from: 1 from the right, -1 from the left.
 	prev int
