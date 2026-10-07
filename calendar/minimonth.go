@@ -154,7 +154,7 @@ func (m *MiniMonth) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ guni
 	th := f.Theme
 	if m.ringed {
 		// Drawn last, over the rest
-		defer paintRing(p, th, box)
+		defer widget.GroupRing(p, geom.Rect{Max: box.Point()}, 0, 1, th)
 	}
 	ink, faint := widget.Ink.Get(th), widget.PaletteHint.Get(th)
 	regular, bold := widget.Font.Get(th), widget.BoldFont.Get(th)

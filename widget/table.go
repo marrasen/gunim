@@ -539,7 +539,7 @@ func (t *Table) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim
 	// Drawn last, over the rest
 	defer func() {
 		if t.cue.whole {
-			groupRing(p, geom.Rect{Max: box.Point()}, 0, 1, th)
+			GroupRing(p, geom.Rect{Max: box.Point()}, 0, 1, th)
 		}
 	}()
 	// The columns scrolled sideways keep inside the table.
@@ -565,7 +565,7 @@ func cellText(cache *laidText, face *text.Face, s string, size, width float32) (
 type tableHeader struct {
 	t      *Table
 	titles []laidText
-	click  clicker
+	click  Clicker
 }
 
 // Layout implements [gunim.Node].
@@ -630,11 +630,11 @@ func (h *tableHeader) Handle(e input.Event, u *gunim.UI) bool {
 		if i < 0 || e.Button != input.ButtonPrimary {
 			return false
 		}
-		h.click.press(e, i)
+		h.click.Press(e, i)
 		return true
 	case input.PointerUp:
 		i := h.titleAt(e.Pos)
-		if !h.click.release(e, i) {
+		if !h.click.Release(e, i) {
 			return true
 		}
 		desc := false

@@ -769,7 +769,7 @@ func (g *TileGrid) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gu
 	// Drawn last, over the rest
 	defer func() {
 		if g.cue.whole {
-			groupRing(p, geom.Rect{Max: box.Point()}, 0, 1, th)
+			GroupRing(p, geom.Rect{Max: box.Point()}, 0, 1, th)
 		}
 	}()
 	func() {

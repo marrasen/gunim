@@ -39,7 +39,7 @@ type toggle struct {
 	press *anim.Float
 	ring  *anim.Float
 	held  bool
-	click clicker
+	click Clicker
 	size  geom.Size
 	text  shapedText
 	ell   shapedText
@@ -58,7 +58,7 @@ func newToggle(label string) toggle {
 		press: anim.NewFloat(0),
 		ring:  anim.NewFloat(0),
 		// Every click flips it, the fast second of a double click too.
-		click: clicker{repeats: true},
+		click: Clicker{Repeats: true},
 	}
 	t.Add(t.lit, t.hover, t.press, t.ring)
 	return t
@@ -136,7 +136,7 @@ func (t *toggle) handle(n gunim.Node, e input.Event, u *gunim.UI) bool {
 			return false
 		}
 		t.held = true
-		t.click.press(e, 0)
+		t.click.Press(e, 0)
 		t.press.Animate(1, Quick.Get(th))
 	case input.PointerUp:
 		if !t.held {
@@ -144,7 +144,7 @@ func (t *toggle) handle(n gunim.Node, e input.Event, u *gunim.UI) bool {
 		}
 		t.held = false
 		t.press.Animate(0, Bounce.Get(th))
-		if t.click.release(e, over(e.Pos, t.size)) {
+		if t.click.Release(e, over(e.Pos, t.size)) {
 			t.flip(n, u)
 		}
 	case input.KeyPress:
@@ -222,7 +222,7 @@ func (c *Checkbox) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 
 	func() {
 		defer p.Push(paint.Scale(1-0.1*c.press.Value(), r.Center()))()
-		focusRing(p, r, radius, c.ring.Value(), th)
+		FocusRing(p, r, radius, c.ring.Value(), th)
 		border := anim.Mix(anim.ColorCodec, FieldBorder.Get(th), Ink.Get(th), 0.35*c.hover.Value())
 		p.RRectStroke(r, radius, paint.Solid(FieldFill.Get(th)), paint.Stroke{Width: 1.5, Color: border})
 		// The fill grows from the middle as the box turns on.
@@ -278,7 +278,7 @@ func (s *Switch) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 	w, h := SwitchWidth.Get(th), SwitchHeight.Get(th)
 	track := geom.Rc(0, (box.H-h)/2, w, h)
 	on := s.lit.Value()
-	focusRing(p, track, h/2, s.ring.Value(), th)
+	FocusRing(p, track, h/2, s.ring.Value(), th)
 	off := anim.Mix(anim.ColorCodec, SwitchOff.Get(th), Ink.Get(th), 0.15*s.hover.Value())
 	p.RRect(track, h/2, paint.Solid(anim.Mix(anim.ColorCodec, off, Accent.Get(th), min(max(on, 0), 1))))
 
@@ -705,7 +705,7 @@ func (s *Slider) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 	grow := 1 + 0.2*max(s.hover.Value(), 0)
 	d := k * grow
 	knob := geom.Rc(centre.X-d/2, centre.Y-d/2, d, d)
-	focusRing(p, knob, d/2, s.ring.Value(), th)
+	FocusRing(p, knob, d/2, s.ring.Value(), th)
 	p.ShadowRRect(knob, d/2, paint.Solid(Knob.Get(th)), paint.Shadow{Offset: geom.Pt(0, 1), Blur: 3, Color: color.NRGBA{A: 0x60}})
 }
 
@@ -853,7 +853,7 @@ func (t *Tabs) iconRoom(i int, th *theme.Live) float32 {
 // tabBar is the row of titles.
 type tabBar struct {
 	t     *Tabs
-	click clicker
+	click Clicker
 }
 
 // titleAt returns the title at pos in the row's space, or -1.
@@ -886,9 +886,9 @@ func (b *tabBar) Handle(e input.Event, u *gunim.UI) bool {
 		if e.Button != input.ButtonPrimary {
 			return false
 		}
-		b.click.press(e, b.titleAt(e.Pos))
+		b.click.Press(e, b.titleAt(e.Pos))
 	case input.PointerUp:
-		if i := b.titleAt(e.Pos); b.click.release(e, i) {
+		if i := b.titleAt(e.Pos); b.click.Release(e, i) {
 			t.choose(i, u)
 		}
 	case input.Scroll:
@@ -1038,7 +1038,7 @@ func (b *tabBar) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 	p.RRect(geom.Rect{Min: geom.Pt(line.X, t.head-2.5), Max: geom.Pt(line.Y, t.head-0.5)}, 1, paint.Solid(Accent.Get(th)))
 	if r := t.ring.Value(); r > 0.01 && t.selected < len(t.spans) {
 		sp := t.spans[t.selected]
-		focusRing(p, geom.Rc(sp[0]+3, 5, sp[1]-sp[0]-6, t.head-13), 6, r, th)
+		FocusRing(p, geom.Rc(sp[0]+3, 5, sp[1]-sp[0]-6, t.head-13), 6, r, th)
 	}
 }
 
@@ -1105,8 +1105,10 @@ func (t *Tabs) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, kids gunim.
 	}
 }
 
-// focusRing draws the ring focus grows around r, t from 0 to 1.
-func focusRing(p *paint.Painter, r geom.Rect, radius, t float32, th *theme.Live) {
+// FocusRing draws the ring a control grows around r, its corners radius round, as Tab brings the keyboard to it. t
+// runs from 0, no ring, to 1, the ring grown 3 pixels out in the accent colour: animate it with the control's own
+// value, as [Button] does, so an app's node rings the way the widgets do.
+func FocusRing(p *paint.Painter, r geom.Rect, radius, t float32, th *theme.Live) {
 	if t <= 0.01 {
 		return
 	}
@@ -1134,9 +1136,10 @@ type ringCue struct {
 // follow takes e.
 func (c *ringCue) follow(e input.FocusRing) { c.on, c.whole = e.On, e.On && !e.Grouped }
 
-// groupRing draws the ring round a whole group or list that has the keyboard: an accent edge just inside r, t of the
-// way in.
-func groupRing(p *paint.Painter, r geom.Rect, radius, t float32, th *theme.Live) {
+// GroupRing draws the ring round a whole group or list that has the keyboard: an accent edge 2 pixels wide just
+// inside r, its corners radius round, at strength t from 0 to 1. A view with a cursor of its own, such as a calendar,
+// draws it round itself when the keyboard comes by Tab.
+func GroupRing(p *paint.Painter, r geom.Rect, radius, t float32, th *theme.Live) {
 	if t <= 0.01 {
 		return
 	}

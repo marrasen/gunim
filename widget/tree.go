@@ -315,7 +315,7 @@ func (t *Tree) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.
 	}
 	kids.At(0).Paint(p)
 	if t.cue.whole {
-		groupRing(p, geom.Rect{Max: box.Point()}, 0, 1, th)
+		GroupRing(p, geom.Rect{Max: box.Point()}, 0, 1, th)
 	}
 }
 
@@ -327,7 +327,7 @@ type treeRow struct {
 	// hot follows the pointer over the row, and turn the chevron, 1 open.
 	hot, turn *anim.Float
 	laid      bool
-	click     clicker
+	click     Clicker
 	box       geom.Size
 	name      laidText
 	detail    shapedText
@@ -444,13 +444,13 @@ func (r *treeRow) Handle(e input.Event, u *gunim.UI) bool {
 		if e.Button != input.ButtonPrimary {
 			return false
 		}
-		r.click.press(e, 0)
+		r.click.Press(e, 0)
 		return true
 	case input.PointerUp:
 		// A click lands on the row it lets go on, while the tree still holds it, so a finger that lands on a row to
 		// scroll moves nothing.
 		i, held := t.index[r.key]
-		if r.click.release(e, over(e.Pos, r.box)) && held {
+		if r.click.Release(e, over(e.Pos, r.box)) && held {
 			t.move(i, u)
 			t.activate(r.key, u)
 		}

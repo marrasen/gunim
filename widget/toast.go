@@ -354,7 +354,7 @@ type toastMore struct {
 	hover *anim.Float
 	text  shapedText
 	size  geom.Size
-	click clicker
+	click Clicker
 }
 
 func newToastMore(t *Toasts) *toastMore {
@@ -399,9 +399,9 @@ func (m *toastMore) Handle(e input.Event, u *gunim.UI) bool {
 	case input.PointerLeave:
 		m.hover.Animate(0, Settle.Get(u.Theme()))
 	case input.PointerDown:
-		m.click.press(e, over(e.Pos, m.size))
+		m.click.Press(e, over(e.Pos, m.size))
 	case input.PointerUp:
-		if m.click.release(e, over(e.Pos, m.size)) {
+		if m.click.Release(e, over(e.Pos, m.size)) {
 			m.owner.page(u)
 		}
 	default:
@@ -449,7 +449,7 @@ type toastCard struct {
 	// size is the card's size at its last layout, for telling a release
 	// on it from one off it.
 	size  geom.Size
-	click clicker
+	click Clicker
 }
 
 func newToastCard(t *Toasts, to Toast) *toastCard {
@@ -688,9 +688,9 @@ func (c *toastCard) Handle(e input.Event, u *gunim.UI) bool {
 		c.hover.Animate(0, Settle.Get(u.Theme()))
 		u.Invalidate()
 	case input.PointerDown:
-		c.click.press(e, 0)
+		c.click.Press(e, 0)
 	case input.PointerUp:
-		if c.click.release(e, over(e.Pos, c.size)) && !c.asks() {
+		if c.click.Release(e, over(e.Pos, c.size)) && !c.asks() {
 			c.owner.dismiss(c, u)
 		}
 	default:

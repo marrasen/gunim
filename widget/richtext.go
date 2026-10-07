@@ -49,7 +49,7 @@ type RichText struct {
 	icon []bool
 	// hover is the link under the pointer, or -1.
 	hover int
-	click clicker
+	click Clicker
 }
 
 // NewRichText returns text made of spans.
@@ -180,12 +180,12 @@ func (r *RichText) Handle(e input.Event, u *gunim.UI) bool {
 			return false
 		}
 		if at := r.linkAt(e.Pos); at >= 0 {
-			r.click.press(e, at)
+			r.click.Press(e, at)
 			return true
 		}
 	case input.PointerUp:
 		// A click follows the link it lets go on, the one it pressed.
-		if at := r.linkAt(e.Pos); r.click.release(e, at) {
+		if at := r.linkAt(e.Pos); r.click.Release(e, at) {
 			u.Send(r, r.Spans[at].On)
 			return true
 		}

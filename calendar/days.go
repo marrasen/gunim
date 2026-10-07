@@ -797,7 +797,7 @@ func (d *Days) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Chi
 	th := f.Theme
 	if d.ringed {
 		// Drawn last, over the rest
-		defer paintRing(p, th, box)
+		defer widget.GroupRing(p, geom.Rect{Max: box.Point()}, 0, 1, th)
 	}
 	line := widget.MenuBorder.Get(th)
 	faint := widget.PaletteHint.Get(th)

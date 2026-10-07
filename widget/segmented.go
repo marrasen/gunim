@@ -48,7 +48,7 @@ type Segmented struct {
 	// hot is the option under the pointer, or -1.
 	hot    int
 	laid   bool
-	click  clicker
+	click  Clicker
 	shaped []shapedText
 	ell    shapedText
 	// width is each option's width, and size the control's, from the last layout.
@@ -128,10 +128,10 @@ func (s *Segmented) Handle(e input.Event, u *gunim.UI) bool {
 		if e.Button != input.ButtonPrimary {
 			return false
 		}
-		s.click.press(e, s.at(e.Pos.X))
+		s.click.Press(e, s.at(e.Pos.X))
 	case input.PointerUp:
 		// A click chooses the option it lets go on, the one it pressed.
-		if i := s.at(e.Pos.X); s.click.release(e, i) && e.Pos.Y >= 0 && e.Pos.Y < s.size.H {
+		if i := s.at(e.Pos.X); s.click.Release(e, i) && e.Pos.Y >= 0 && e.Pos.Y < s.size.H {
 			s.choose(i, u)
 		}
 	case input.KeyPress:
@@ -230,7 +230,7 @@ func (s *Segmented) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ guni
 	th := f.Theme
 	h := box.H
 	track := geom.Rect{Max: box.Point()}
-	focusRing(p, track, h/2, s.ring.Value(), th)
+	FocusRing(p, track, h/2, s.ring.Value(), th)
 	fill := FieldFill.Get(th)
 	if s.Track.Key() != "" {
 		fill = s.Track.Get(th)

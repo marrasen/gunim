@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
 )
 
@@ -52,6 +53,27 @@ func TestARowSqueezesALabelNoNarrowerThanItsWidestWord(t *testing.T) {
 	}
 	if end := s.at.X + s.box.W; end > 220.5 {
 		t.Fatalf("the spot ends at %v, past the row's 220 px", end)
+	}
+}
+
+// leastSpot is an app's node that says how narrow it can go.
+type leastSpot struct {
+	*spot
+	least float32
+}
+
+func (s leastSpot) MinWidth(gunim.Frame) float32 { return s.least }
+
+func TestARowSqueezesAnAppsShrinkerNoNarrowerThanItSays(t *testing.T) {
+	a := leastSpot{newSpot(300, 20), 250}
+	b := newSpot(100, 20)
+	_, run := stage(t, &frame{child: Row(a, b), size: geom.Sz(300, 50)})
+	run(1)
+	if a.box.W < 250-0.5 {
+		t.Fatalf("the node that goes no narrower than 250 px shrank to %v", a.box.W)
+	}
+	if want := 300 - Gap.Default() - 250; abs32(b.box.W-want) > 0.5 {
+		t.Fatalf("the other spot got %v, want the %v left", b.box.W, want)
 	}
 }
 

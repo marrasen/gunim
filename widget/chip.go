@@ -44,7 +44,7 @@ type Chip struct {
 	// the last layout or paint.
 	size   geom.Size
 	crossX float32
-	click  clicker
+	click  Clicker
 }
 
 // NewChip returns a chip showing lead and label.
@@ -122,10 +122,10 @@ func (c *Chip) Handle(e input.Event, u *gunim.UI) bool {
 		if e.Button != input.ButtonPrimary || c.onCross(e.Pos) < 0 {
 			return false
 		}
-		c.click.press(e, 0)
+		c.click.Press(e, 0)
 		return true
 	case input.PointerUp:
-		if c.click.release(e, c.onCross(e.Pos)) {
+		if c.click.Release(e, c.onCross(e.Pos)) {
 			c.remove(u)
 		}
 		return true

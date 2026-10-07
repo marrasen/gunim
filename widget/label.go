@@ -80,10 +80,10 @@ func (l *Label) paragraph(f gunim.Frame, width float32) text.Paragraph {
 	return l.laid.layout(faceIn(l.Face, f.Theme), l.Text, text.Style{Size: l.Size.Get(f.Theme), Align: l.Align, MaxLines: l.MaxLines}, width)
 }
 
-// minWidth is the width of the label's widest word: a row that runs short
+// MinWidth implements [Shrinker]. It is the width of the label's widest word: a row that runs short
 // squeezes the label no narrower, where it can, so it wraps between
 // words. A label that keeps its lines whole scrolls, and takes any width.
-func (l *Label) minWidth(f gunim.Frame) float32 {
+func (l *Label) MinWidth(f gunim.Frame) float32 {
 	if l.NoWrap {
 		return 0
 	}

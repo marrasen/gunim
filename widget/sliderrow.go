@@ -48,7 +48,7 @@ type SliderRow struct {
 	// off shows the reset mark, and hot turns it under the pointer.
 	off, hot *anim.Float
 	reset    geom.Rect
-	click    clicker
+	click    Clicker
 	// active is how far the row shows as the one the keys act on.
 	active *anim.Float
 	on     bool
@@ -174,10 +174,10 @@ func (r *SliderRow) Handle(e input.Event, u *gunim.UI) bool {
 		if !shown || e.Button != input.ButtonPrimary || r.onReset(e.Pos) < 0 {
 			return false
 		}
-		r.click.press(e, 0)
+		r.click.Press(e, 0)
 		return true
 	case input.PointerUp:
-		if !r.click.release(e, r.onReset(e.Pos)) || !shown {
+		if !r.click.Release(e, r.onReset(e.Pos)) || !shown {
 			return true
 		}
 		s := r.Slider

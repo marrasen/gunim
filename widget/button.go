@@ -86,7 +86,7 @@ type Button struct {
 	tone    *anim.Float
 	was, is ButtonKind
 	held    bool
-	click   clicker
+	click   Clicker
 	text    shapedText
 	// dim runs from 0 to 1 as Disabled turns on.
 	dim *anim.Float
@@ -110,7 +110,7 @@ func NewButton(label string) *Button {
 		tone:   anim.NewFloat(1),
 		dim:    anim.NewFloat(0),
 		// Every click counts, the fast second of a double click too, as for a + pressed again and again.
-		click: clicker{repeats: true},
+		click: Clicker{Repeats: true},
 	}
 	b.Add(b.hover, b.press, b.ring, b.walked, b.lit, b.tone, b.dim)
 	return b
@@ -157,7 +157,7 @@ func (b *Button) Handle(e input.Event, u *gunim.UI) bool {
 			return false
 		}
 		b.held = true
-		b.click.press(e, 0)
+		b.click.Press(e, 0)
 		b.press.Animate(1, Quick.Get(th))
 	case input.PointerUp:
 		if !b.held {
@@ -165,7 +165,7 @@ func (b *Button) Handle(e input.Event, u *gunim.UI) bool {
 		}
 		b.held = false
 		b.press.Animate(0, Bounce.Get(th))
-		if b.click.release(e, over(e.Pos, b.size)) {
+		if b.click.Release(e, over(e.Pos, b.size)) {
 			b.fire(u)
 		}
 	case input.KeyPress:

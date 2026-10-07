@@ -43,7 +43,7 @@ type Link struct {
 	// box is the link's size at its last layout, for telling a release
 	// over it from one outside.
 	box   geom.Size
-	click clicker
+	click Clicker
 }
 
 // NewLink returns a link showing s.
@@ -89,7 +89,7 @@ func (l *Link) iconWidth(th *theme.Live) float32 {
 // Given less room than its text takes, it ends the text in an ellipsis
 // within its box.
 func (l *Link) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
-	focusRing(p, geom.Rect{Max: box.Point()}, 4, l.ring.Value(), f.Theme)
+	FocusRing(p, geom.Rect{Max: box.Point()}, 4, l.ring.Value(), f.Theme)
 	run := l.run(f.Theme)
 	ink := LinkInk.Get(f.Theme)
 	x := l.iconWidth(f.Theme)
@@ -126,10 +126,10 @@ func (l *Link) Handle(e input.Event, u *gunim.UI) bool {
 		if e.Button != input.ButtonPrimary {
 			return false
 		}
-		l.click.press(e, 0)
+		l.click.Press(e, 0)
 		return true
 	case input.PointerUp:
-		if l.click.release(e, over(e.Pos, l.box)) {
+		if l.click.Release(e, over(e.Pos, l.box)) {
 			l.fire(u)
 		}
 		return true

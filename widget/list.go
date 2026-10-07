@@ -320,11 +320,11 @@ func (l *List) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.
 	}
 	if _, ok := l.slots[l.cursor]; ok && !l.drag.active {
 		r := l.mark.Value()
-		focusRing(p, geom.Rect{Min: geom.Pt(r.Min.X+3, r.Min.Y), Max: geom.Pt(r.Max.X-3, r.Max.Y)},
+		FocusRing(p, geom.Rect{Min: geom.Pt(r.Min.X+3, r.Min.Y), Max: geom.Pt(r.Max.X-3, r.Max.Y)},
 			RowRadius.Get(f.Theme), l.cursorShown(), f.Theme)
 	}
 	if l.whole {
-		groupRing(p, geom.Rect{Max: box.Point()}, RowRadius.Get(f.Theme), l.ring.Value(), f.Theme)
+		GroupRing(p, geom.Rect{Max: box.Point()}, RowRadius.Get(f.Theme), l.ring.Value(), f.Theme)
 	}
 }
 

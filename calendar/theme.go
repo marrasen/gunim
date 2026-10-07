@@ -3,11 +3,8 @@ package calendar
 import (
 	"image/color"
 
-	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
-	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/theme"
-	"github.com/marrasen/gunim/widget"
 )
 
 // Theme tokens for the calendar's views. Lines, text and the accent come from package widget's tokens.
@@ -32,13 +29,6 @@ var (
 // ringShown reports whether a view shows that it has the keyboard, for e: when e turns the rings on, and no group
 // round the view draws its own.
 func ringShown(e input.FocusRing) bool { return e.On && !e.Grouped }
-
-// paintRing draws the ring round a whole view that has the keyboard, as package widget's lists and tables do: an
-// accent edge just inside box.
-func paintRing(p *paint.Painter, th *theme.Live, box geom.Size) {
-	r := geom.Rect{Max: box.Point()}.Inset(geom.Uniform(1))
-	p.RRectStroke(r, 0, paint.Fill{}, paint.Stroke{Width: 2, Color: widget.Accent.Get(th)})
-}
 
 // Light sets the calendar's tokens for a light theme, to add to one.
 var Light = []theme.Entry{

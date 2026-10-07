@@ -66,7 +66,7 @@ type WindowControls struct {
 	hot     [4]*anim.Float
 	over    windowButton
 	down    windowButton
-	click   clicker
+	click   Clicker
 	// size, maxed and pinned are the buttons' size and whether the window was maximized and pinned, at the last
 	// layout.
 	size   geom.Size
@@ -186,11 +186,11 @@ func (c *WindowControls) Handle(e input.Event, u *gunim.UI) bool {
 			return false
 		}
 		c.down = c.buttonAt(e.Pos, size)
-		c.click.press(e, int(c.down))
+		c.click.Press(e, int(c.down))
 	case input.PointerUp:
 		at := c.buttonAt(e.Pos, size)
 		c.down = noButton
-		if at != noButton && c.click.release(e, int(at)) {
+		if at != noButton && c.click.Release(e, int(at)) {
 			c.act(at, u)
 		}
 	default:

@@ -85,19 +85,19 @@ type pickGrid struct {
 	// changed runs as the user picks.
 	changed func(u *gunim.UI)
 	hot     int
-	// pressed is the choice a click started on, or -1.
-	pressed int
-	ring    *anim.Float
-	mark    *anim.Rect
-	cols    int
-	laid    bool
+	// click follows a click on a choice.
+	click widget.Clicker
+	ring  *anim.Float
+	mark  *anim.Rect
+	cols  int
+	laid  bool
 }
 
 // The size of a choice, and the room between choices.
 const pickCell, pickGap = 32, 6
 
 func newPickGrid(values []string, value string, draw func(p *paint.Painter, th *theme.Live, i int, r geom.Rect)) *pickGrid {
-	g := &pickGrid{values: values, sel: slices.Index(values, value), draw: draw, hot: -1, pressed: -1, ring: anim.NewFloat(0),
+	g := &pickGrid{values: values, sel: slices.Index(values, value), draw: draw, hot: -1, ring: anim.NewFloat(0),
 		mark: anim.NewRect(geom.Rect{})}
 	g.Add(g.ring, g.mark)
 	return g
@@ -201,18 +201,14 @@ func (g *pickGrid) Handle(e input.Event, u *gunim.UI) bool {
 		if e.Button != input.ButtonPrimary {
 			return false
 		}
-		g.pressed = -1
-		if i := g.at(e.Pos); i >= 0 && e.Clicks <= 1 {
-			g.pressed = i
-		}
+		g.click.Press(e, g.at(e.Pos))
 	case input.PointerUp:
 		if e.Button != input.ButtonPrimary {
 			return false
 		}
-		if i := g.at(e.Pos); i >= 0 && i == g.pressed {
+		if i := g.at(e.Pos); g.click.Release(e, i) {
 			g.choose(i, u)
 		}
-		g.pressed = -1
 	case input.PointerMove:
 		if i := g.at(e.Pos); i != g.hot {
 			g.hot = i

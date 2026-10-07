@@ -608,7 +608,7 @@ type paletteRow struct {
 	// size is the row's size at its last layout, for telling a release
 	// on it from one off it.
 	size  geom.Size
-	click clicker
+	click Clicker
 }
 
 func newPaletteRow(c *paletteCard, key Key) *paletteRow {
@@ -728,13 +728,13 @@ func (r *paletteRow) Handle(e input.Event, u *gunim.UI) bool {
 		}
 		return false
 	case input.PointerDown:
-		r.click.press(e, 0)
+		r.click.Press(e, 0)
 		return true
 	case input.PointerUp:
 		// A click picks this row's own item, while the palette still
 		// holds it.
 		_, held := r.c.place[r.key]
-		if r.click.release(e, over(e.Pos, r.size)) && held {
+		if r.click.Release(e, over(e.Pos, r.size)) && held {
 			r.c.p.choose(r.index, e.Mods.Has(input.ModControl), u)
 		}
 		return true

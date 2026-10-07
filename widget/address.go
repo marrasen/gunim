@@ -190,7 +190,7 @@ type crumbBar struct {
 	shift *anim.Float
 	most  float32
 	size  geom.Size
-	click clicker
+	click Clicker
 }
 
 func (c *crumbBar) set(cs []Crumb, u *gunim.UI) {
@@ -283,7 +283,7 @@ func (c *crumbBar) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gu
 			k.Paint(p)
 		}
 	}()
-	groupRing(p, r, radius, c.ring.Value(), th)
+	GroupRing(p, r, radius, c.ring.Value(), th)
 }
 
 // Handle implements [gunim.Handler]: the ring follows the keyboard, a press beside the places edits the path, and
@@ -297,11 +297,11 @@ func (c *crumbBar) Handle(e input.Event, u *gunim.UI) bool {
 		if e.Button != input.ButtonPrimary {
 			return false
 		}
-		c.click.press(e, over(e.Pos, c.size))
+		c.click.Press(e, over(e.Pos, c.size))
 		return true
 	case input.PointerUp:
 		// A click beside the places, pressed and let go there, edits the path.
-		if c.click.release(e, over(e.Pos, c.size)) {
+		if c.click.Release(e, over(e.Pos, c.size)) {
 			c.a.Edit(u)
 		}
 		return e.Button == input.ButtonPrimary
