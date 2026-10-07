@@ -18,18 +18,19 @@ import (
 // says what holds it.
 
 // The watch's pace: how often it asks, and how long a task may wait.
-var (
+const (
 	hangEvery = 2 * time.Second
 	hangAfter = 10 * time.Second
 )
 
-// watchHang watches d's main thread until stop is called.
-func watchHang(d *Driver) (stop func()) {
+// watchHang watches d's main thread until stop is called, asking it to run a task every so often and telling of a
+// hang once a task has waited after. Each watch keeps its own pace, so a test's quick watch leaves a driver's alone.
+func watchHang(d *Driver, every, after time.Duration) (stop func()) {
 	var ran atomic.Int64
 	ran.Store(time.Now().UnixNano())
 	done := make(chan struct{})
 	go func() {
-		t := time.NewTicker(hangEvery)
+		t := time.NewTicker(every)
 		defer t.Stop()
 		told := false
 		for {
@@ -43,7 +44,7 @@ func watchHang(d *Driver) (stop func()) {
 			}
 			late := time.Since(time.Unix(0, ran.Load()))
 			switch {
-			case late < hangAfter:
+			case late < after:
 				told = false
 			case !told:
 				told = true

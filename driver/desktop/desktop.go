@@ -110,7 +110,7 @@ func (d *Driver) Run(ctx context.Context, ready func()) error {
 	stopWatch := watchScreen(d)
 	defer stopWatch()
 	// A main thread held up says where, for a program that freezes.
-	stopHang := watchHang(d)
+	stopHang := watchHang(d, hangEvery, hangAfter)
 	defer stopHang()
 
 	ready()

@@ -15,11 +15,8 @@ func TestAHungMainThreadSaysWhere(t *testing.T) {
 	t.Setenv("TMPDIR", tmp)
 	t.Setenv("TMP", tmp)
 	t.Setenv("TEMP", tmp)
-	was, wasAfter := hangEvery, hangAfter
-	hangEvery, hangAfter = 10*time.Millisecond, 50*time.Millisecond
-	t.Cleanup(func() { hangEvery, hangAfter = was, wasAfter })
 	d := &Driver{posted: make(chan struct{}, 1)}
-	stop := watchHang(d)
+	stop := watchHang(d, 10*time.Millisecond, 50*time.Millisecond)
 	defer stop()
 	// Nothing runs the tasks: the main thread is held.
 	deadline := time.Now().Add(5 * time.Second)
