@@ -251,6 +251,9 @@ type DataGrid struct {
 
 	// links are where the last paint drew spans that are links.
 	links []gridLink
+	// cuts are the cells the last paint cut short, and tip shows the one under the pointer whole.
+	cuts []gridCut
+	tip  PartTip
 
 	// partRow and partCol are the row and the column of each part the
 	// grid last told a screen reader of, -1 where it has none.
@@ -667,6 +670,7 @@ func (g *DataGrid) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 	g.frame++
 	g.pending = false
 	g.links = g.links[:0]
+	g.cuts = g.cuts[:0]
 	bodyW := g.bodyWidth(th)
 	size := GridTextSize.Get(th)
 	pad := GridCellPadding.Get(th)
@@ -798,6 +802,7 @@ func (g *DataGrid) paintContent(p *paint.Painter, th *theme.Live, key int, row G
 // fits short with an ellipsis.
 func (g *DataGrid) paintCell(p *paint.Painter, th *theme.Live, i, c int, spans []GridSpan, dim bool,
 	x, y, w, size, pad float32) {
+	cutShort := func() { g.cuts = append(g.cuts, gridCut{r: geom.Rc(x, y, w, g.rowH), row: i, col: c}) }
 	colFace := faceIn(g.Columns[c].Face, th)
 	chipPad := float32(4)
 	runs := make([]text.Run, len(spans))
@@ -834,16 +839,19 @@ func (g *DataGrid) paintCell(p *paint.Painter, th *theme.Live, i, c int, spans [
 		}
 		iconW := spanIconWidth(s, size, th)
 		if iconW > room {
+			cutShort()
 			return
 		}
 		room -= iconW
 		cut := run.Advance > room
 		// A gap that does not fit ends the cell rather than showing a lone ellipsis
 		if cut && strings.TrimSpace(s.Text) == "" {
+			cutShort()
 			return
 		}
 		if cut {
 			run = g.cutRun(run, room)
+			cutShort()
 		}
 		ty := y + (g.rowH-run.Height())/2
 		if chip {
@@ -886,9 +894,40 @@ func (g *DataGrid) paintCell(p *paint.Painter, th *theme.Live, i, c int, spans [
 			pen += chipPad
 		}
 		if cut || pen >= limit {
+			if !cut && k < len(spans)-1 {
+				cutShort()
+			}
 			return
 		}
 	}
+}
+
+// gridCut is a cell, row and col, that a paint cut short at r.
+type gridCut struct {
+	r        geom.Rect
+	row, col int
+}
+
+// tipAt is the whole text of the cell cut short at p, or nothing.
+func (g *DataGrid) tipAt(p geom.Point) string {
+	if g.Row == nil || p.Y < g.header {
+		return ""
+	}
+	for _, c := range g.cuts {
+		if !c.r.Contains(p) {
+			continue
+		}
+		row, ok := g.Row(c.row)
+		if !ok || c.col >= len(row.Cells) {
+			return ""
+		}
+		var b strings.Builder
+		for _, s := range row.Cells[c.col] {
+			b.WriteString(s.Text)
+		}
+		return strings.TrimSpace(b.String())
+	}
+	return ""
 }
 
 // spanIconWidth is the room span s's icon takes at text size, with the gap before any text.
@@ -1157,6 +1196,10 @@ func (g *DataGrid) Handle(e input.Event, u *gunim.UI) bool {
 	if g.typed.take(e, u, g, g.OnType) {
 		return true
 	}
+	switch e.(type) {
+	case input.PointerDown, input.Scroll, input.PointerLeave:
+		g.tip.Handle(e, u, g, "")
+	}
 	switch e := e.(type) {
 	case input.FocusGained:
 		g.focused = true
@@ -1351,6 +1394,7 @@ func (g *DataGrid) move(e input.PointerMove, u *gunim.UI) bool {
 		return true
 	case dragNone:
 	}
+	g.tip.Handle(e, u, g, g.tipAt(e.Pos))
 	hover := -1
 	if !g.NoHeader && e.Pos.Y < g.header {
 		hover = g.columnAt(e.Pos.X)

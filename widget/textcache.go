@@ -56,6 +56,11 @@ func (pr *laidText) layout(face *text.Face, s string, st text.Style, width float
 	return pr.p
 }
 
+// wrap returns s laid out in face at size, wrapped at width and cut after lines lines.
+func (pr *laidText) wrap(face *text.Face, s string, size, width float32, lines int) text.Paragraph {
+	return pr.layout(face, s, text.Style{Size: size, MaxLines: lines}, width)
+}
+
 // cutRun returns run cut to the glyphs that fit in room with ell, an
 // ellipsis shaped in the same face and size, after them.
 func cutRun(run, ell text.Run, room float32) text.Run {
