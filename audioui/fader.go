@@ -111,17 +111,22 @@ func (f *Fader) Layout(c gunim.Constraints, _ gunim.Frame, _ gunim.Children) geo
 func (f *Fader) Paint(p *paint.Painter, fr gunim.Frame, box geom.Size, _ gunim.Children) {
 	ink, ground, raised := Ink.Get(fr.Theme), Ground.Get(fr.Theme), Raised.Get(fr.Theme)
 	mid := box.W / 2
-	top, bottom := float32(12), box.H-12
+	// The track keeps 12 px clear at each end for the cap, less in a box under 24 tall, and the cap stays on the
+	// track for a gain past Range.
+	edge := min(12, box.H/2)
+	top, bottom := edge, box.H-edge
 	p.RRect(geom.Rc(mid-2, top, 4, bottom-top), 2, paint.Solid(Faded(ground, 0.9)))
 	zero := top + (bottom-top)/2
 	p.RRect(geom.Rc(mid-7, zero, 14, 1), 0, paint.Solid(Faded(ink, 0.3)))
-	y := zero - (bottom-top)/2*f.Value()/f.span()
+	gain := max(-f.span(), min(f.Value(), f.span()))
+	y := zero - (bottom-top)/2*gain/f.span()
 	lit := f.hover.Value()
 	if f.held {
 		lit = 1
 	}
-	knob := geom.Rc(2, y-9, box.W-4, 18)
+	capH := min(18, box.H)
+	knob := geom.Rc(2, y-capH/2, max(0, box.W-4), capH)
 	p.ShadowRRect(knob, 5, paint.Solid(Mix(raised, Mix(raised, ink, 0.25), lit)),
 		paint.Shadow{Blur: 6, Color: Faded(ground, 0.6)})
-	p.RRect(geom.Rc(knob.Min.X+5, y-0.75, knob.Size().W-10, 1.5), 0.75, paint.Solid(Faded(ink, 0.8)))
+	p.RRect(geom.Rc(knob.Min.X+5, y-0.75, max(0, knob.Size().W-10), 1.5), 0.75, paint.Solid(Faded(ink, 0.8)))
 }

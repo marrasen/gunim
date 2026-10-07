@@ -4,6 +4,7 @@ import (
 	"image/color"
 	"math"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -571,15 +572,9 @@ func (g *DataGrid) shut() float32 {
 // before returns the index row i of the rows now had before Leave, and
 // how many rows in view that are leaving sat above it.
 func (g *DataGrid) before(i int) (at, above int) {
-	at = i
-	for {
-		n, _ := slices.BinarySearch(g.gone, at+1)
-		if next := i + n; next != at {
-			at = next
-			continue
-		}
-		break
-	}
+	// gone[j]-j is how many rows that stay sat above the j-th row gone, which only grows: the rows gone above
+	// row i are those it counts no more than i of.
+	at = i + sort.Search(len(g.gone), func(j int) bool { return g.gone[j]-j > i })
 	above, _ = slices.BinarySearchFunc(g.leaving, at, func(l gridLeaving, at int) int { return l.at - at })
 	return at, above
 }
@@ -989,6 +984,8 @@ func (g *DataGrid) paintHeader(p *paint.Painter, th *theme.Live, bodyW, size, pa
 	p.RRect(geom.Rc(0, 0, g.view.W, h), 0, paint.Solid(DialogFill.Get(th)))
 	ink := TableHeader.Get(th)
 	face := faceIn(Font, th)
+	// The titles keep to the grid's body, as the rows do, scrolled sideways or past its right edge.
+	end := p.Layer(paint.LayerOpts{Bounds: geom.Rc(0, 0, bodyW, h), Opacity: 1, Clip: true})
 	for c, col := range g.Columns {
 		if c >= len(g.xs) {
 			break
@@ -998,20 +995,21 @@ func (g *DataGrid) paintHeader(p *paint.Painter, th *theme.Live, bodyW, size, pa
 			continue
 		}
 		run := g.shape(spanKey{row: -1, col: int32(c)}, face, col.Title, size)
-		room := w - 2*pad
+		// right is where the title may reach: the column's edge, less the cross and the arrow after the title.
+		right := x + w - pad
 		closing := col.Closable && c == g.hoverCol
 		if closing {
-			room -= h / 2
+			right -= h / 2
 		}
 		if col.Sort != 0 {
-			room -= sortArrow
+			right -= sortArrow + 2
 		}
-		if run.Advance > room {
+		if room := right - x - pad; run.Advance > room {
 			run = g.cutRun(run, room)
 		}
 		at := x + pad
 		if col.End {
-			at = x + w - pad - run.Advance
+			at = right - run.Advance
 		}
 		run.Paint(p, geom.Pt(at, (h-run.Height())/2), ink)
 		if col.Sort != 0 {
@@ -1024,6 +1022,7 @@ func (g *DataGrid) paintHeader(p *paint.Painter, th *theme.Live, bodyW, size, pa
 			p.RRect(geom.Rc(x+w-1, h*0.25, 1, h*0.5), 0, paint.Solid(MenuBorder.Get(th)))
 		}
 	}
+	end()
 	p.RRect(geom.Rc(0, h-1, g.view.W, 1), 0, paint.Solid(MenuBorder.Get(th)))
 }
 

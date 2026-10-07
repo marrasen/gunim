@@ -1,7 +1,11 @@
 package markdown
 
 import (
+	"cmp"
 	"image/color"
+	"math"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"unicode"
@@ -53,7 +57,10 @@ type View struct {
 	}
 	paras []laidPara
 	marks []mark
-	size  geom.Size
+	// reach and markReach are the lowest any paragraph and any mark reaches, up to each one. Paragraphs come top
+	// first, and marks are sorted so, which with these finds those that reach a band of the view by binary search.
+	reach, markReach []float32
+	size             geom.Size
 	// plain is the text of the paragraphs, one after another with a line break between two.
 	plain []rune
 
@@ -182,6 +189,44 @@ func (v *View) lay(th *theme.Live, w float32) {
 	if v.paras == nil {
 		v.paras = []laidPara{}
 	}
+	// A quote's bar or a table's box comes after what it holds: sorted by their tops, marks are found as paragraphs
+	// are. Their order among themselves stays, for those drawn over each other.
+	slices.SortStableFunc(v.marks, func(a, b mark) int { return cmp.Compare(a.r.Min.Y, b.r.Min.Y) })
+	v.reach = reachOf(v.reach, len(v.paras), func(i int) float32 { return v.paras[i].at.Y + v.paras[i].p.Size.H })
+	v.markReach = reachOf(v.markReach, len(v.marks), func(i int) float32 { return v.marks[i].r.Max.Y })
+}
+
+// reachOf returns, in out, the lowest any of n things reaches up to each one, bottom(i) being where thing i ends.
+func reachOf(out []float32, n int, bottom func(i int) float32) []float32 {
+	out = out[:0]
+	low := float32(math.Inf(-1))
+	for i := range n {
+		low = max(low, bottom(i))
+		out = append(out, low)
+	}
+	return out
+}
+
+// within returns the run of n things, from and up to to, that may reach the band from y0 to y1: those after any
+// that end above it, and before any that start below it. reach is from reachOf, and top(i) where thing i starts,
+// which never goes up from one to the next.
+func within(reach []float32, n int, top func(i int) float32, y0, y1 float32) (from, to int) {
+	from = sort.Search(n, func(i int) bool { return reach[i] >= y0 })
+	to = from + sort.Search(n-from, func(i int) bool { return top(from+i) > y1 })
+	return from, to
+}
+
+// parasIn returns the run of paragraphs that may reach the band from y0 to y1.
+func (v *View) parasIn(y0, y1 float32) (from, to int) {
+	return within(v.reach, len(v.paras), func(i int) float32 { return v.paras[i].at.Y }, y0, y1)
+}
+
+// linesIn returns the run of lp's lines that reach the band from y0 to y1, in the view's space.
+func linesIn(lp laidPara, y0, y1 float32) []text.SpanLine {
+	ls := lp.p.Lines
+	from := sort.Search(len(ls), func(i int) bool { return lp.at.Y+ls[i].Top+ls[i].Height >= y0 })
+	to := from + sort.Search(len(ls)-from, func(i int) bool { return lp.at.Y+ls[from+i].Top > y1 })
+	return ls[from:to]
 }
 
 // layout lays a view's blocks out.
@@ -446,7 +491,16 @@ func (v *View) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Chi
 	if v.Ink.Key() != "" {
 		ink = v.Ink.Get(th)
 	}
-	for _, m := range v.marks {
+	// What the clips around the view let through, in its own space: a
+	// paragraph, line or mark outside it is not drawn, as a long document
+	// in a scroll shows a screenful of its thousands of lines. They are
+	// found by binary search, so a frame costs what the screenful does.
+	shown, cull := p.Visible()
+	if !cull {
+		shown = geom.Rect{Min: geom.Pt(0, float32(math.Inf(-1))), Max: geom.Pt(0, float32(math.Inf(1)))}
+	}
+	m0, m1 := within(v.markReach, len(v.marks), func(i int) float32 { return v.marks[i].r.Min.Y }, shown.Min.Y, shown.Max.Y)
+	for _, m := range v.marks[m0:m1] {
 		switch m.kind {
 		case codeBox:
 			p.RRect(m.r, 6, paint.Solid(widget.CodeFill.Get(th)))
@@ -456,15 +510,11 @@ func (v *View) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Chi
 	}
 	start, end := v.Selection()
 	sel := paint.Solid(widget.Selection.Get(th))
-	// What the clips around the view let through, in its own space: a
-	// paragraph outside it is not drawn, as a long document in a scroll
-	// shows a screenful of its thousands of lines.
-	shown, cull := p.Visible()
-	for i, lp := range v.paras {
-		if cull {
-			if r := (geom.Rect{Min: lp.at, Max: lp.at.Add(lp.p.Size.Point())}); r.Max.Y < shown.Min.Y || r.Min.Y > shown.Max.Y {
-				continue
-			}
+	from, to := v.parasIn(shown.Min.Y, shown.Max.Y)
+	for i := from; i < to; i++ {
+		lp := v.paras[i]
+		if r := (geom.Rect{Min: lp.at, Max: lp.at.Add(lp.p.Size.Point())}); r.Max.Y < shown.Min.Y || r.Min.Y > shown.Max.Y {
+			continue
 		}
 		func() {
 			if lp.code {
@@ -474,7 +524,7 @@ func (v *View) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Chi
 			if start != end && end >= lp.base && start <= lp.base+lp.n {
 				lp.p.Select(start-lp.base, end-lp.base, func(r geom.Rect) { p.RRect(r.Add(lp.at), 3, sel) })
 			}
-			for _, l := range lp.p.Lines {
+			for _, l := range linesIn(lp, shown.Min.Y, shown.Max.Y) {
 				if !lp.code {
 					v.paintCodeFills(p, th, lp, l.Pieces)
 				}
@@ -487,7 +537,7 @@ func (v *View) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Chi
 			v.paintScrollBar(p, th, lp)
 		}
 	}
-	for _, m := range v.marks {
+	for _, m := range v.marks[m0:m1] {
 		v.paintMark(p, th, m, ink)
 	}
 }
@@ -565,26 +615,32 @@ func (v *View) paintMark(p *paint.Painter, th *theme.Live, m mark, ink color.NRG
 
 // index returns the rune of the view's text a caret put at pt sits before.
 func (v *View) index(pt geom.Point) int {
-	for _, lp := range v.paras {
-		if pt.Y < lp.at.Y {
-			return lp.base
-		}
-		if pt.Y < lp.at.Y+lp.p.Size.H {
-			// A table's cells sit side by side: the caret goes in the cell pt is over.
-			if next, ok := v.cellRight(lp, pt); ok {
-				return next
-			}
-			return lp.base + lp.p.Index(pt.Sub(lp.at).Add(geom.Pt(v.shift(lp), 0)))
-		}
+	// The first paragraph that ends below pt: pt is in it, or above it.
+	i := sort.Search(len(v.paras), func(i int) bool { return v.reach[i] > pt.Y })
+	if i == len(v.paras) {
+		return len(v.plain)
 	}
-	return len(v.plain)
+	lp := v.paras[i]
+	if pt.Y < lp.at.Y {
+		return lp.base
+	}
+	// A table's cells sit side by side: the caret goes in the cell pt is over.
+	if next, ok := v.cellRight(i, pt); ok {
+		return next
+	}
+	return lp.base + lp.p.Index(pt.Sub(lp.at).Add(geom.Pt(v.shift(lp), 0)))
 }
 
-// cellRight returns where a caret at pt goes when pt is right of lp, a table cell, over a later cell of its row.
-func (v *View) cellRight(lp laidPara, pt geom.Point) (int, bool) {
+// cellRight returns where a caret at pt goes when pt is right of paragraph i, a table cell, over a later cell of
+// its row: one of the paragraphs after it at the same height.
+func (v *View) cellRight(i int, pt geom.Point) (int, bool) {
+	lp := v.paras[i]
 	best, found := laidPara{}, false
-	for _, q := range v.paras {
-		if q.base > lp.base && q.at.Y == lp.at.Y && pt.X >= q.at.X && (!found || q.at.X > best.at.X) {
+	for _, q := range v.paras[i+1:] {
+		if q.at.Y != lp.at.Y {
+			break
+		}
+		if pt.X >= q.at.X && (!found || q.at.X > best.at.X) {
 			best, found = q, true
 		}
 	}
@@ -596,8 +652,10 @@ func (v *View) cellRight(lp laidPara, pt geom.Point) (int, bool) {
 
 // linkAt returns the link under pt, as a paragraph and a span, or -1s.
 func (v *View) linkAt(pt geom.Point) [2]int {
-	for i, lp := range v.paras {
-		for _, l := range lp.p.Lines {
+	from, to := v.parasIn(pt.Y, pt.Y)
+	for i := from; i < to; i++ {
+		lp := v.paras[i]
+		for _, l := range linesIn(lp, pt.Y, pt.Y) {
 			for _, pc := range l.Pieces {
 				if lp.spans[pc.Span].url == "" {
 					continue

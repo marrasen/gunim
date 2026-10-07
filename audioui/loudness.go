@@ -9,6 +9,7 @@ import (
 	"github.com/marrasen/gunim/audio"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/paint"
+	"github.com/marrasen/gunim/text"
 	"github.com/marrasen/gunim/theme"
 )
 
@@ -27,22 +28,56 @@ type Loudness struct {
 	Low, High float32
 	Ranged    bool
 	rangedAt  time.Duration
+	// blocks and shorts hold the powers of the 400 ms blocks and the three-second windows heard, by loudness, so
+	// the integrated loudness and the range cost the same however long the sound has played. frames counts the
+	// frames heard, quarter is 100 ms of them, and seenBlocks and seenShorts how many of each the histograms hold.
+	// integrated is the integrated loudness, read as each block comes.
+	blocks, shorts         *loudHist
+	frames, quarter        int
+	seenBlocks, seenShorts int
+	integrated             float32
 }
 
 // NewLoudness returns a reading of a sound at rate, from silence.
 func NewLoudness(rate int) *Loudness {
-	return &Loudness{lm: audio.NewLoudnessMeter(rate), Moment: -70, Short: -70}
+	l := &Loudness{Moment: -70, Short: -70}
+	l.Reset(rate)
+	return l
 }
 
 // Reset starts the reading over, as another sound starts.
 func (l *Loudness) Reset(rate int) {
 	l.lm, l.tp, l.Ranged = audio.NewLoudnessMeter(rate), audio.TruePeakMeter{}, false
+	l.blocks, l.shorts = &loudHist{}, &loudHist{}
+	l.frames, l.quarter, l.seenBlocks, l.seenShorts, l.integrated = 0, max(rate/10, 1), 0, 0, -70
 }
 
 // Write takes frames heard, interleaved stereo.
 func (l *Loudness) Write(frames []float32) {
 	l.lm.Write(frames)
 	l.tp.Write(frames)
+	// The meter makes a block each 100 ms from the fourth on, and a three-second window from the 30th: only then
+	// are its powers read, and only the new ones kept.
+	l.frames += len(frames) / 2
+	quarters := l.frames / l.quarter
+	if quarters-3 > l.seenBlocks {
+		bs := l.lm.Blocks()
+		for _, p := range bs[l.seenBlocks:] {
+			l.blocks.add(p)
+		}
+		l.seenBlocks = len(bs)
+		l.integrated = -70
+		if v, ok := l.blocks.integrated(); ok {
+			l.integrated = float32(v)
+		}
+	}
+	if quarters-29 > l.seenShorts {
+		ss := l.lm.ShortTerms()
+		for _, p := range ss[l.seenShorts:] {
+			l.shorts.add(p)
+		}
+		l.seenShorts = len(ss)
+	}
 }
 
 // Step eases the readings over dt toward the sound's, or, while it is
@@ -66,7 +101,7 @@ func (l *Loudness) Step(dt time.Duration, playing bool) bool {
 	// The range changes slowly, and is read over all the sound heard.
 	if l.rangedAt += dt; l.rangedAt > 500*time.Millisecond {
 		l.rangedAt = 0
-		if low, high, ok := audio.LoudnessRange(l.lm.ShortTerms()); ok {
+		if low, high, ok := l.shorts.span(); ok {
 			l.Ranged, l.Low, l.High = true, float32(low), float32(high)
 		}
 	}
@@ -75,12 +110,7 @@ func (l *Loudness) Step(dt time.Duration, playing bool) bool {
 
 // Integrated is the loudness since the reading started, in LUFS, -70
 // before there is any.
-func (l *Loudness) Integrated() float32 {
-	if v, ok := l.lm.Integrated(); ok {
-		return float32(v)
-	}
-	return -70
-}
+func (l *Loudness) Integrated() float32 { return l.integrated }
 
 // TruePeak is the highest true peak heard, 1 at full scale.
 func (l *Loudness) TruePeak() float64 { return l.tp.Peak() }
@@ -92,43 +122,63 @@ func (l *Loudness) TruePeak() float64 { return l.tp.Peak() }
 func (l *Loudness) Paint(p *paint.Painter, th *theme.Live, r geom.Rect, target float32) float32 {
 	ink, over := Ink.Get(th), Over.Get(th)
 	x, y, right := r.Min.X, r.Min.Y, r.Max.X
+	// In a narrow panel the readout shrinks to fit, its label goes where it has no room, the bars go under 78 px
+	// and the figures beside them under 60.
 	barX, barW := x+24, r.Size().W-78
+	bars, figures := barW > 0, r.Size().W >= 60
+	// fits paints run at at, where it ends inside the panel.
+	fits := func(run text.Run, at geom.Point, c color.NRGBA) {
+		if at.X >= x && at.X+run.Advance <= right {
+			run.Paint(p, at, c)
+		}
+	}
 	big := Shaped(LUFSText(l.Short), 34, true, true)
+	if w := r.Size().W; big.Advance > w && w > 0 {
+		big = Shaped(LUFSText(l.Short), float32(math.Floor(float64(34*w/big.Advance))), true, true)
+	}
 	c := ink
 	if l.Short > -69 {
 		c = LoudnessColor(th, l.Short-target)
 	}
-	big.Paint(p, geom.Pt(x, y), c)
-	Shaped("LUFS short-term", 10, false, false).Paint(p, geom.Pt(x+4+big.Advance, y+22), Faded(ink, 0.45))
+	fits(big, geom.Pt(x, y), c)
+	fits(Shaped("LUFS short-term", 10, false, false), geom.Pt(x+4+big.Advance, y+22), Faded(ink, 0.45))
 	y += 50
 	for _, row := range []struct {
 		name string
 		v    float32
 	}{{"M", l.Moment}, {"S", l.Short}, {"I", l.Integrated()}} {
-		PaintLoudnessBar(p, th, geom.Rc(barX, y, barW, 10), row.v, target)
-		Shaped(row.name, 11, true, false).Paint(p, geom.Pt(x, y-2), Faded(ink, 0.6))
-		Shaped(LUFSText(row.v), 11, false, true).Paint(p, geom.Pt(right-46, y-2), Faded(ink, 0.8))
+		if bars {
+			PaintLoudnessBar(p, th, geom.Rc(barX, y, barW, 10), row.v, target)
+		}
+		fits(Shaped(row.name, 11, true, false), geom.Pt(x, y-2), Faded(ink, 0.6))
+		if figures {
+			fits(Shaped(LUFSText(row.v), 11, false, true), geom.Pt(right-46, y-2), Faded(ink, 0.8))
+		}
 		y += 22
 	}
-	Shaped("LRA", 9, true, false).Paint(p, geom.Pt(x-2, y), Faded(ink, 0.6))
-	PaintRangeBar(p, th, geom.Rc(barX, y, barW, 10), l.Low, l.High, l.Ranged)
+	fits(Shaped("LRA", 9, true, false), geom.Pt(x, y), Faded(ink, 0.6))
+	if bars {
+		PaintRangeBar(p, th, geom.Rc(barX, y, barW, 10), l.Low, l.High, l.Ranged)
+	}
 	words := "—"
 	if l.Ranged {
 		words = fmt.Sprintf("%.1f LU", l.High-l.Low)
 	}
-	Shaped(words, 11, false, true).Paint(p, geom.Pt(right-46, y-2), Faded(ink, 0.8))
+	if figures {
+		fits(Shaped(words, 11, false, true), geom.Pt(right-46, y-2), Faded(ink, 0.8))
+	}
 	y += 22
 	tp := float32(DB(l.TruePeak()))
 	tpColor := Faded(ink, 0.8)
 	if tp > -1 {
 		tpColor = over
 	}
-	Shaped("TP", 11, true, false).Paint(p, geom.Pt(x, y), Faded(ink, 0.6))
+	fits(Shaped("TP", 11, true, false), geom.Pt(x, y), Faded(ink, 0.6))
 	tpWords := "—"
 	if l.TruePeak() > 0 {
 		tpWords = fmt.Sprintf("%.1f dBTP", tp)
 	}
-	Shaped(tpWords, 11, false, true).Paint(p, geom.Pt(x+24, y), tpColor)
+	fits(Shaped(tpWords, 11, false, true), geom.Pt(x+24, y), tpColor)
 	return y + 18
 }
 

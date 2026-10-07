@@ -61,6 +61,27 @@ type navState struct {
 	// moves counts the folders gone to, so a path typed whose true case
 	// comes after the user went elsewhere is left alone.
 	moves int
+	// filtered is what rows were filtered from and by.
+	filtered filtering
+}
+
+// filtering is what a folder's rows were filtered from and by: all, in
+// the order sort and desc put it in, hidden items shown or not, and the
+// text typed.
+type filtering struct {
+	all     []entry
+	sort    SortBy
+	desc    bool
+	hidden  bool
+	text    string
+	present bool
+}
+
+// within reports whether rows filtered as f are in the order of the
+// entries g filters, all of them shown with g's text among them.
+func (f filtering) within(g filtering) bool {
+	return f.present && len(f.all) == len(g.all) && (len(f.all) == 0 || &f.all[0] == &g.all[0]) &&
+		f.sort == g.sort && f.desc == g.desc
 }
 
 // visited is a folder in the history, and the file system it is on.
@@ -482,11 +503,27 @@ func (a *app) refilter() {
 	if n.loading || n.err != nil {
 		return
 	}
-	was := n.rows
-	n.rows = filterEntries(n.all, n.filter, a.shell.ShowHidden)
+	was, last := n.rows, n.filtered
+	n.filtered = filtering{all: n.all, sort: n.sort, desc: n.desc, hidden: a.shell.ShowHidden,
+		text: strings.ToLower(n.filter), present: true}
+	same := last.within(n.filtered) && last.hidden == n.filtered.hidden
+	var left []int
+	switch {
+	case same && n.filtered.text != last.text && strings.Contains(n.filtered.text, last.text):
+		// Text typed on narrows what showed, in its order: only those are looked at again, and those left out
+		// are the ones gone.
+		n.rows = filterEntries(was, n.filter, a.shell.ShowHidden)
+		left = goneFrom(was, n.rows)
+	case same:
+		n.rows = filterEntries(n.all, n.filter, a.shell.ShowHidden)
+		left = goneAlong(n.all, was, n.rows)
+	default:
+		n.rows = filterEntries(n.all, n.filter, a.shell.ShowHidden)
+		left = gone(was, n.rows)
+	}
 	n.gen++
 	a.publishListing()
-	if left := gone(was, n.rows); len(left) > 0 {
+	if len(left) > 0 {
 		a.patch(RowsLeft{Gen: n.gen, Rows: left})
 	}
 	a.publishBands()
@@ -665,17 +702,28 @@ func (a *app) selected(v Selected) {
 		return
 	}
 	clear(n.sel)
+	// The rows selected, in order where the runs are, as they come from the grid: the status and the preview
+	// take them from here, with no pass over every row.
+	var sel []entry
+	ordered, end := true, 0
 	for _, r := range v.Runs {
-		for i := max(r[0], 0); i < min(r[1], len(n.rows)); i++ {
+		from, to := max(r[0], 0), min(r[1], len(n.rows))
+		ordered = ordered && from >= end
+		for i := from; i < to; i++ {
 			n.sel[n.rows[i].Name] = true
+			sel = append(sel, n.rows[i])
 		}
+		end = max(end, to)
+	}
+	if !ordered {
+		sel = a.selectedEntries()
 	}
 	n.cursor = ""
 	if v.Cursor >= 0 && v.Cursor < len(n.rows) {
 		n.cursor = n.rows[v.Cursor].Name
 	}
-	a.publishStatus()
-	a.showPreview()
+	a.publishStatusOf(func() []entry { return sel })
+	a.showPreviewOf(sel)
 }
 
 // publishSelection sends the rows holding the names selected, for the
@@ -769,7 +817,10 @@ func (a *app) activate(e entry) {
 }
 
 // publishStatus sends the status bar.
-func (a *app) publishStatus() {
+func (a *app) publishStatus() { a.publishStatusOf(a.selectedEntries) }
+
+// publishStatusOf sends the status bar, selected giving the rows selected, in order.
+func (a *app) publishStatusOf(selected func() []entry) {
 	n := &a.nav
 	var s Status
 	switch {
@@ -784,7 +835,7 @@ func (a *app) publishStatus() {
 		} else if n.filter != "" {
 			s.Left += " of " + count(len(n.all)) + " match “" + n.filter + "”"
 		}
-		if sel := a.selectedEntries(); len(sel) > 0 {
+		if sel := selected(); len(sel) > 0 {
 			var size int64
 			files := 0
 			for _, e := range sel {

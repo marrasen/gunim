@@ -1,12 +1,14 @@
 package widget
 
 import (
+	"math"
 	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
+	"github.com/marrasen/gunim/driver"
 	"github.com/marrasen/gunim/emoji"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/icon"
@@ -122,6 +124,22 @@ type emojiCard struct {
 	transparent        bool
 	margin, pad, footH float32
 	card               geom.Rect
+	// room and wide are how tall and how wide the screen lets the picker's window be, from FitPopup, or 0 where
+	// nothing says. cell is the size of an emoji's cell, smaller where the screen is narrow.
+	room, wide float32
+	cell       float32
+}
+
+// FitPopup implements [gunim.PopupFitter]: the picker keeps to the taller of the room below its anchor and above
+// it, showing fewer rows, and to the screen's width, with smaller cells.
+func (c *emojiCard) FitPopup(r driver.Room) {
+	c.room, c.wide = 0, 0
+	if room := max(r.Below, r.Above); !math.IsInf(float64(room), 1) {
+		c.room = room
+	}
+	if wide := r.Left + r.Right; !math.IsInf(float64(wide), 1) {
+		c.wide = wide
+	}
 }
 
 func newEmojiCard(p *EmojiPicker) *emojiCard {
@@ -282,7 +300,13 @@ func (c *emojiCard) Layout(cs gunim.Constraints, f gunim.Frame, kids gunim.Child
 		c.margin = MenuMargin.Get(th)
 	}
 	c.pad = MenuPadding.Get(th) * 2
-	cell := EmojiCell.Get(th)
+	// Too wide for its box or the screen, the cells shrink to fit a row of emoji.
+	wide := cs.Max.W
+	if c.wide > 0 {
+		wide = min(wide, c.wide)
+	}
+	cell := max(min(EmojiCell.Get(th), (wide-2*c.margin-2*c.pad)/emojiColumns), 8)
+	c.cell = cell
 	inner := cell * emojiColumns
 	x, y := c.margin+c.pad, c.margin+c.pad
 	var kidsAt []gunim.Child
@@ -296,19 +320,32 @@ func (c *emojiCard) Layout(cs gunim.Constraints, f gunim.Frame, kids gunim.Child
 	th2 := tabs.Layout(gunim.Tight(geom.Sz(inner, cell))).H
 	tabs.Place(geom.Pt(x, y))
 	y += th2 + c.pad/2
-	lh := cell * emojiRows
+	c.footH = cell * 1.2
+	// Too tall for its box or the screen, the list shows fewer rows, and scrolls the rest.
+	tall := cs.Max.H
+	if c.room > 0 {
+		tall = min(tall, c.room)
+	}
+	lh := max(cell, min(cell*emojiRows, tall-c.margin-y-c.footH-c.pad))
 	for _, k := range kidsAt[2:] {
 		k.Layout(gunim.Tight(geom.Sz(inner, lh)))
 		k.Place(geom.Pt(x, y))
 	}
 	y += lh
-	c.footH = cell * 1.2
 	c.name = faceIn(Font, th).Shape(c.hot.Name, TextSize.Get(th))
 	c.hotRun = text.Default().Shape(c.hot.Text, cell*0.8)
 	h := y + c.footH + c.pad - c.margin
 	w := inner + 2*c.pad
 	c.card = geom.Rc(c.margin, c.margin, w, h)
 	return cs.Constrain(geom.Sz(w+2*c.margin, h+2*c.margin))
+}
+
+// cellOr is the size of an emoji's cell as last laid out, or the theme's before the first layout.
+func (c *emojiCard) cellOr(th *theme.Live) float32 {
+	if c.cell > 0 {
+		return c.cell
+	}
+	return EmojiCell.Get(th)
 }
 
 // Covers implements [gunim.Shaped].
@@ -360,6 +397,9 @@ func (c *emojiCard) Paint(p *paint.Painter, f gunim.Frame, _ geom.Size, kids gun
 	if c.hot.Text != "" {
 		c.hotRun.Paint(p, geom.Pt(x, mid-c.hotRun.Height()/2), Ink.Get(th))
 		x += c.hotRun.Advance + 8
+	}
+	if room := foot.Max.X - x; c.name.Advance > room {
+		c.name = cutRun(c.name, faceIn(Font, th).Shape("…", c.name.Size), room)
 	}
 	c.name.Paint(p, geom.Pt(x, mid-c.name.Height()/2), Ink.Get(th))
 }
@@ -421,7 +461,7 @@ func (t *emojiTabs) Layout(cs gunim.Constraints, f gunim.Frame, _ gunim.Children
 		t.at.Animate(float32(now), Quick.Get(f.Theme))
 	}
 	t.laid, t.shown = true, now
-	return geom.Sz(cs.Max.W, EmojiCell.Get(f.Theme))
+	return geom.Sz(cs.Max.W, t.c.cellOr(f.Theme))
 }
 
 // Paint implements [gunim.Node].
@@ -503,12 +543,12 @@ type emojiRow struct {
 // Layout implements [gunim.Node].
 func (r *emojiRow) Layout(cs gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
 	th := f.Theme
-	r.cell = EmojiCell.Get(th)
+	r.cell = r.c.cellOr(th)
 	if r.row.title != "" {
 		r.title = faceIn(BoldFont, th).Shape(r.row.title, TextSize.Get(th)*0.85)
 		return geom.Sz(cs.Max.W, r.title.Height()+10)
 	}
-	if size := EmojiSize.Get(th); size != r.size || len(r.runs) != len(r.row.emoji) {
+	if size := min(EmojiSize.Get(th), r.cell*2/3); size != r.size || len(r.runs) != len(r.row.emoji) {
 		r.size = size
 		r.runs = r.runs[:0]
 		for _, e := range r.row.emoji {

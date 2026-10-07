@@ -19,6 +19,11 @@ const (
 
 // sortEntries sorts es by column, folders first, and by name within ties.
 func sortEntries(es []entry, by SortBy, desc bool) {
+	// A folder holds few types: each is ranked once, by its name in lower case, and the sort compares the ranks.
+	var types map[string]int
+	if by == SortType {
+		types = typeRanks(es)
+	}
 	slices.SortStableFunc(es, func(a, b entry) int {
 		if a.Dir != b.Dir {
 			if a.Dir {
@@ -33,7 +38,7 @@ func sortEntries(es []entry, by SortBy, desc bool) {
 		case SortModified:
 			c = a.Mod.Compare(b.Mod)
 		case SortType:
-			c = strings.Compare(strings.ToLower(a.Type), strings.ToLower(b.Type))
+			c = cmp.Compare(types[a.Type], types[b.Type])
 		case SortName:
 		}
 		if c == 0 {
@@ -47,6 +52,28 @@ func sortEntries(es []entry, by SortBy, desc bool) {
 		}
 		return c
 	})
+}
+
+// typeRanks ranks the types of es by their names in lower case, types
+// alike but for case ranked the same.
+func typeRanks(es []entry) map[string]int {
+	lower := map[string]string{}
+	for _, e := range es {
+		if _, ok := lower[e.Type]; !ok {
+			lower[e.Type] = strings.ToLower(e.Type)
+		}
+	}
+	names := make([]string, 0, len(lower))
+	for _, l := range lower {
+		names = append(names, l)
+	}
+	slices.Sort(names)
+	names = slices.Compact(names)
+	ranks := make(map[string]int, len(lower))
+	for t, l := range lower {
+		ranks[t], _ = slices.BinarySearch(names, l)
+	}
+	return ranks
 }
 
 // naturalCompare compares a and b with runs of digits taken as numbers, so

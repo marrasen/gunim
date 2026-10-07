@@ -65,7 +65,9 @@ type TableRow struct {
 // Up and Page Down, Home and End, and the pointer; Enter or a double
 // click activates it. Space marks it and moves on, and the marked rows
 // are tinted. A click on a column's title asks for the rows sorted by
-// it, and again for the other way round.
+// it, and again for the other way round. Columns wider than the table
+// scroll sideways, the header with them, by a sideways wheel, the wheel
+// with Shift held, or Left and Right.
 type Table struct {
 	Columns []TableColumn
 	Row     func(Key) TableRow
@@ -104,6 +106,12 @@ type Table struct {
 	// layout. lift is a press on a row that may become a drag.
 	rowH, headH, width float32
 	lift               tableLift
+	// left is how far the columns are scrolled sideways, and wide how wide they are, from the last layout.
+	left, wide float32
+	// names holds each row's first cell in lower case, for finding a row by typing, and named says it is made for
+	// the keys set last.
+	names []string
+	named bool
 }
 
 // tableLift is a press on a row, at, in the table's space, which a move
@@ -162,7 +170,7 @@ func (t *Table) SetKeys(keys []Key, u *gunim.UI) {
 	if t.cursor >= 0 && t.cursor < len(t.keys) {
 		at = t.keys[t.cursor]
 	}
-	t.keys = keys
+	t.keys, t.named = keys, false
 	clear(t.index)
 	for i, k := range keys {
 		t.index[k] = i
@@ -316,6 +324,12 @@ func (t *Table) Handle(e input.Event, u *gunim.UI) bool {
 	case input.TextInput:
 		t.find(e, u)
 		return true
+	case input.Scroll:
+		// A wheel turned sideways under no row, such as below the last; a row has had one turned both ways.
+		if e.Delta.Y != 0 && !e.Mods.Has(input.ModShift) {
+			return false
+		}
+		return t.wheel(e, u)
 	case input.KeyPress:
 		if e.Mods.Has(input.ModControl) || e.Mods.Has(input.ModAlt) {
 			return false
@@ -339,6 +353,13 @@ func (t *Table) Handle(e input.Event, u *gunim.UI) bool {
 			t.move(0, u)
 		case input.KeyEnd:
 			t.move(len(t.keys)-1, u)
+		case input.KeyLeft, input.KeyRight:
+			// Scroll columns wider than the table sideways, and are left to the application otherwise.
+			dx := ScrollLine.Get(u.Theme())
+			if e.Key == input.KeyLeft {
+				dx = -dx
+			}
+			return t.scrollBy(dx, u)
 		case input.KeyEnter, input.KeyKPEnter:
 			if k, ok := t.Cursor(); ok && t.OnActivate != nil {
 				t.OnActivate(k, u)
@@ -412,18 +433,54 @@ func (t *Table) find(e input.TextInput, u *gunim.UI) {
 }
 
 // findTyped moves the cursor to the first row whose first cell starts
-// with what has been typed.
+// with what has been typed. The first cells are read once for the keys
+// set last, as the first letter is typed.
 func (t *Table) findTyped(u *gunim.UI) {
 	if t.Row == nil || t.typed == "" {
 		return
 	}
-	for i, k := range t.keys {
-		row := t.Row(k)
-		if len(row.Cells) > 0 && strings.HasPrefix(strings.ToLower(row.Cells[0]), t.typed) {
+	if !t.named {
+		t.names = t.names[:0]
+		for _, k := range t.keys {
+			name := ""
+			if row := t.Row(k); len(row.Cells) > 0 {
+				name = strings.ToLower(row.Cells[0])
+			}
+			t.names = append(t.names, name)
+		}
+		t.named = true
+	}
+	for i, name := range t.names {
+		if strings.HasPrefix(name, t.typed) {
 			t.move(i, u)
 			return
 		}
 	}
+}
+
+// wheel scrolls the columns sideways for a sideways wheel, or one turned with Shift held, where they are wider than
+// the table. It leaves the rest to the rows.
+func (t *Table) wheel(e input.Scroll, u *gunim.UI) bool {
+	dx, dy := e.Delta.X, e.Delta.Y
+	if e.Mods.Has(input.ModShift) && dx == 0 {
+		dx, dy = dy, 0
+	}
+	if dx == 0 || t.wide <= t.width {
+		return false
+	}
+	t.scrollBy(-dx, u)
+	return dy == 0
+}
+
+// scrollBy scrolls the columns sideways by dx, and reports whether they moved.
+func (t *Table) scrollBy(dx float32, u *gunim.UI) bool {
+	to := max(0, min(t.left+dx, t.wide-t.width))
+	if to == t.left {
+		return false
+	}
+	t.left = to
+	u.Invalidate()
+	return true
 }
 
 // pageRows is how many rows the table shows at once.
@@ -452,19 +509,23 @@ func (t *Table) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) 
 			shared++
 		}
 	}
-	rest := max(0, own.W-fixed-2*pad)
+	// A shared column keeps a width to read, and the columns scroll sideways where that leaves them wider than the
+	// table.
+	share := max(0, own.W-fixed-2*pad) / float32(max(shared, 1))
+	share = max(share, tableShared)
 	t.xs = t.xs[:0]
 	x := pad
 	for _, col := range t.Columns {
 		w := col.Width
 		if w <= 0 {
-			w = rest / float32(max(shared, 1))
+			w = share
 		}
 		t.xs = append(t.xs, [2]float32{x, w})
 		x += w
 	}
 	hh := TableRowHeight.Get(f.Theme)
-	t.rowH, t.headH, t.width = hh, hh, own.W
+	t.rowH, t.headH, t.width, t.wide = hh, hh, own.W, x+pad
+	t.left = max(0, min(t.left, t.wide-own.W))
 	kids.At(0).Layout(gunim.Tight(geom.Sz(own.W, hh)))
 	kids.At(0).Place(geom.Point{})
 	kids.At(1).Layout(gunim.Tight(geom.Sz(own.W, max(0, own.H-hh))))
@@ -481,15 +542,23 @@ func (t *Table) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim
 			groupRing(p, geom.Rect{Max: box.Point()}, 0, 1, th)
 		}
 	}()
+	// The columns scrolled sideways keep inside the table.
+	defer p.Layer(paint.LayerOpts{Bounds: geom.Rect{Max: box.Point()}, Opacity: 1, Clip: true})()
 	for k := range kids.All {
 		k.Paint(p)
 	}
 }
 
+// tableShared is the narrowest a column that shares the table's width becomes; past that the columns scroll
+// sideways.
+const tableShared = 64
+
 // cellText lays out s for a cell width wide, cut short with an ellipsis
-// when it will not fit.
-func cellText(cache *laidText, face *text.Face, s string, size, width float32) text.Paragraph {
-	return cache.layout(face, s, text.Style{Size: size, MaxLines: 1}, max(width, 1))
+// when it will not fit, and reports whether it fits: a cell too narrow
+// for even the ellipsis shows nothing.
+func cellText(cache *laidText, face *text.Face, s string, size, width float32) (text.Paragraph, bool) {
+	para := cache.layout(face, s, text.Style{Size: size, MaxLines: 1}, max(width, 1))
+	return para, para.Size.W <= max(width, 0)+0.5
 }
 
 // tableHeader is a table's row of column titles.
@@ -517,8 +586,19 @@ func (h *tableHeader) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gu
 		if i >= len(t.xs) {
 			break
 		}
-		x, w := t.xs[i][0], t.xs[i][1]
-		para := cellText(&h.titles[i], faceIn(Font, th), c.Title, size, w-12)
+		x, w := t.xs[i][0]-t.left, t.xs[i][1]
+		if x > box.W || x+w < 0 {
+			continue
+		}
+		// A sorted title leaves room in its column for its arrow.
+		arrow := float32(0)
+		if i == t.sorted {
+			arrow = sortArrow + 4
+		}
+		para, fits := cellText(&h.titles[i], faceIn(Font, th), c.Title, size, w-12-arrow)
+		if !fits {
+			continue
+		}
 		at := x
 		if c.End {
 			at = x + w - 12 - para.Size.W
@@ -543,6 +623,8 @@ func (h *tableHeader) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gu
 func (h *tableHeader) Handle(e input.Event, u *gunim.UI) bool {
 	t := h.t
 	switch e := e.(type) {
+	case input.Scroll:
+		return t.wheel(e, u)
 	case input.PointerDown:
 		i := h.titleAt(e.Pos)
 		if i < 0 || e.Button != input.ButtonPrimary {
@@ -574,8 +656,8 @@ func (h *tableHeader) titleAt(p geom.Point) int {
 	if p.Y < 0 || p.Y >= h.t.headH {
 		return -1
 	}
-	for i, x := range h.t.xs {
-		if p.X >= x[0] && p.X < x[0]+x[1] {
+	for i, col := range h.t.xs {
+		if x := col[0] - h.t.left; p.X >= x && p.X < x+col[1] {
 			return i
 		}
 	}
@@ -655,9 +737,12 @@ func (r *tableRow) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 		if i >= len(t.xs) {
 			break
 		}
-		x, w := t.xs[i][0], t.xs[i][1]
-		if i == 0 && row.Icon != nil {
-			// The icon first, the text after it.
+		x, w := t.xs[i][0]-t.left, t.xs[i][1]
+		if x > box.W || x+w < 0 {
+			continue
+		}
+		if i == 0 && row.Icon != nil && w >= 16 {
+			// The icon first, the text after it, where the column has room for it.
 			const side = 16
 			c := ink
 			if row.IconInk != nil {
@@ -667,7 +752,10 @@ func (r *tableRow) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 			paintIcon(p, th, row.Icon, geom.Rc(x, (box.H-side)/2, side, side), c, 1)
 			x, w = x+side+6, w-side-6
 		}
-		para := cellText(&r.cells[i], faceIn(t.Columns[i].Face, th), s, size, w-12)
+		para, fits := cellText(&r.cells[i], faceIn(t.Columns[i].Face, th), s, size, w-12)
+		if !fits {
+			continue
+		}
 		at := x
 		if t.Columns[i].End {
 			at = x + w - 12 - para.Size.W
@@ -684,6 +772,9 @@ func (r *tableRow) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 func (r *tableRow) Handle(e input.Event, u *gunim.UI) bool {
 	t := r.t
 	switch e := e.(type) {
+	case input.Scroll:
+		// A sideways wheel scrolls the columns, before the list takes the wheel to scroll the rows.
+		return t.wheel(e, u)
 	case input.PointerMove:
 		if !t.lift.armed || t.lift.dragging || t.lift.key != r.key {
 			return false

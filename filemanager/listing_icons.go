@@ -50,8 +50,26 @@ func (a *listingArea) setView(v ViewMode, u *gunim.UI) {
 func (a *listingArea) thumb(t Thumb, u *gunim.UI) {
 	if a.cur != nil && a.b.shell.Paths.Same(a.path, t.Dir) {
 		a.cur.icons.thumbs[t.Name] = tileThumb{img: t.Image, size: t.Size, err: t.Err}
+		a.cur.icons.trimThumbs()
 		u.Invalidate()
 	}
+}
+
+// trimThumbs lets the thumbnails far from the tiles in view go, once there are many: the tiles ask for them again
+// as they come back, and the app has them at hand.
+func (iv *iconView) trimThumbs() {
+	if len(iv.thumbs) <= max(512, 8*iv.count) {
+		return
+	}
+	keep := make(map[string]tileThumb, 4*iv.count)
+	for i := max(0, iv.first-iv.count); i < iv.first+2*iv.count; i++ {
+		if r, ok := iv.pg.view(i); ok {
+			if t, ok := iv.thumbs[r.Name]; ok {
+				keep[r.Name] = t
+			}
+		}
+	}
+	iv.thumbs = keep
 }
 
 // focusNode returns the node the keyboard works the listing through: the tiles or the grid.
