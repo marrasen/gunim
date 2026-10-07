@@ -161,7 +161,7 @@ func (l *Label) Handle(e input.Event, u *gunim.UI) bool {
 		if l.NoWrap && !e.Typed && e.Mods == 0 && l.keyAcross(e.Key, u) {
 			return true
 		}
-		if e.Typed || !e.Mods.Has(input.ModControl) && !e.Mods.Has(input.ModSuper) {
+		if e.Typed || e.Mods != input.ModControl && e.Mods != input.ModSuper {
 			return false
 		}
 		switch start, end := l.Selection(); {

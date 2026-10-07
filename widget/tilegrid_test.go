@@ -117,6 +117,11 @@ func TestTileGridArrowsMoveInTwoDirections(t *testing.T) {
 	if got := lastPicked(t, w); !slices.Equal(got.Sel, [][2]int{{25, 30}}) || got.Cursor != 25 {
 		t.Fatalf("Shift+Up from 29 selected %+v, want 25 to 29", got)
 	}
+	w.Input(input.KeyPress{Key: input.KeyA, Mods: input.ModControl | input.ModShift, Time: time.Now()})
+	run(1)
+	if sel, _ := g.Selected(); !slices.Equal(sel, [][2]int{{25, 30}}) {
+		t.Fatalf("Ctrl+Shift+A selected %v, want 25 to 29 kept", sel)
+	}
 	w.Input(input.KeyPress{Key: input.KeyA, Mods: input.ModControl, Time: time.Now()})
 	run(1)
 	if got := lastPicked(t, w); !slices.Equal(got.Sel, [][2]int{{0, 30}}) {

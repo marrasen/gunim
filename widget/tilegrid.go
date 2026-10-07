@@ -457,7 +457,7 @@ func (g *TileGrid) key(e input.KeyPress, u *gunim.UI) bool {
 		return false
 	}
 	if e.Mods.Has(input.ModControl) {
-		if e.Key == input.KeyA && g.n > 0 {
+		if e.Key == input.KeyA && e.Mods == input.ModControl && g.n > 0 {
 			g.setRuns([][2]int{{0, g.n}}, u)
 			return true
 		}
