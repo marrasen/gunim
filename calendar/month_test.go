@@ -122,3 +122,69 @@ func TestAShortMonthKeepsEventsInTheirDays(t *testing.T) {
 		}
 	}
 }
+
+func TestAGlidingMonthEventTakesThePointerWhereItIsDrawn(t *testing.T) {
+	m := NewMonth(monday)
+	start := monday.Add(34 * time.Hour)
+	m.events = []Event{{ID: "a", Title: "Review", Start: start, End: start.Add(time.Hour)}}
+	w, run, _ := stage(t, m)
+	moved := m.events[0]
+	moved.Start, moved.End = start.Add(9*24*time.Hour), start.Add(9*24*time.Hour+time.Hour)
+	withUI(t, w, func(u *gunim.UI) { m.SetEvents([]Event{moved}, u) })
+	run(1)
+	s := m.sprites[m.order[0]]
+	gliding := 0
+	for f := 0; s.rect.Active() && f < 120; f++ {
+		drawn, target := s.rect.Value(), s.rect.Target()
+		if id, ok := m.EventAt(drawn.Center()); !ok || id != "a" {
+			t.Fatalf("frame %d: the event drawn at %v takes no pointer at its middle", f, drawn)
+		}
+		if mid := target.Center(); !drawn.Contains(mid) {
+			gliding++
+			if _, ok := m.EventAt(mid); ok {
+				t.Fatalf("frame %d: the pointer finds the event at %v, where it is going, while it is drawn at %v",
+					f, mid, drawn)
+			}
+		}
+		run(1)
+	}
+	if gliding == 0 {
+		t.Fatal("the event never glided")
+	}
+}
+
+func TestAMonthClickActsOnceAsThePrimaryButtonLetsGo(t *testing.T) {
+	m := NewMonth(monday)
+	start := monday.Add(34 * time.Hour)
+	m.events = []Event{{ID: "a", Title: "Review", Start: start, End: start.Add(time.Hour)}}
+	opened, created := 0, 0
+	m.Open = func(string, geom.Rect, *gunim.UI) { opened++ }
+	m.Create = func(time.Time, geom.Rect, *gunim.UI) { created++ }
+	w, run, _ := stage(t, m)
+	tue := m.cell(29)
+	at := geom.Pt(tue.Min.X+30, tue.Min.Y+dayNumH+chipH/2)
+	w.Input(input.PointerDown{Pos: at, Button: input.ButtonPrimary, Clicks: 1})
+	w.Input(input.PointerUp{Pos: at, Button: input.ButtonSecondary})
+	if opened != 0 {
+		t.Fatal("the secondary button, let go, opened the event")
+	}
+	w.Input(input.PointerUp{Pos: at, Button: input.ButtonPrimary})
+	w.Input(input.PointerDown{Pos: at, Button: input.ButtonPrimary, Clicks: 2})
+	w.Input(input.PointerUp{Pos: at, Button: input.ButtonPrimary})
+	run(1)
+	if opened != 1 {
+		t.Fatalf("a double click opened the event %d times, want once", opened)
+	}
+	free := geom.Pt(m.cell(31).Center().X, m.cell(31).Max.Y-6)
+	w.Input(input.PointerDown{Pos: free, Button: input.ButtonPrimary, Clicks: 1})
+	if created != 0 {
+		t.Fatal("a press on free room began an event before the pointer let go")
+	}
+	w.Input(input.PointerUp{Pos: free, Button: input.ButtonPrimary})
+	w.Input(input.PointerDown{Pos: free, Button: input.ButtonPrimary, Clicks: 2})
+	w.Input(input.PointerUp{Pos: free, Button: input.ButtonPrimary})
+	run(1)
+	if created != 1 {
+		t.Fatalf("a double click on free room began %d events, want one", created)
+	}
+}

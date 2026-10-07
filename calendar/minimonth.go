@@ -46,6 +46,8 @@ type MiniMonth struct {
 	slide *anim.Float
 	// side is a day's cell's side at the last layout.
 	side float32
+	// tap is a press on an arrow or a day, which acts as the pointer lets go.
+	tap tap
 }
 
 // NewMiniMonth returns a small month showing day's month, with day marked, and weeks starting on Monday.
@@ -263,18 +265,20 @@ func (m *MiniMonth) Handle(e input.Event, u *gunim.UI) bool {
 		if e.Button != input.ButtonPrimary {
 			return false
 		}
+		// Each click on an arrow turns a month; a day is picked once, by the first click of a double click.
 		back, next := m.arrows()
-		switch {
+		switch i := m.at(e.Pos); {
 		case back.Contains(e.Pos):
-			m.show(m.month.AddDate(0, -1, 0), u)
+			m.tap.press(back, func() { m.show(m.month.AddDate(0, -1, 0), u) })
 		case next.Contains(e.Pos):
-			m.show(m.month.AddDate(0, 1, 0), u)
-		default:
-			if i := m.at(e.Pos); i >= 0 {
-				m.pick(m.day(i), u)
-			}
+			m.tap.press(next, func() { m.show(m.month.AddDate(0, 1, 0), u) })
+		case i >= 0 && e.Clicks <= 1:
+			day := m.day(i)
+			m.tap.press(m.cell(i), func() { m.pick(day, u) })
 		}
 		return true
+	case input.PointerUp:
+		return e.Button == input.ButtonPrimary && m.tap.release(e.Pos)
 	case input.KeyPress:
 		by := map[input.Key]int{input.KeyLeft: -1, input.KeyRight: 1, input.KeyUp: -7, input.KeyDown: 7}[e.Key]
 		switch {

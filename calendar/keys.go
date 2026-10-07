@@ -64,6 +64,29 @@ func nextStop(stops []stop, id string, k input.Key) (stop, bool) {
 	return stop{}, false
 }
 
+// tap is a press on something that acts once the pointer lets go over it: the thing's box, and what it does.
+type tap struct {
+	box geom.Rect
+	do  func()
+}
+
+// press holds do, to run when the pointer lets go within box.
+func (t *tap) press(box geom.Rect, do func()) { t.box, t.do = box, do }
+
+// release lets go at pt, running what the press held when pt is within its box. It reports whether a press was
+// held.
+func (t *tap) release(pt geom.Point) bool {
+	do := t.do
+	t.do = nil
+	if do == nil {
+		return false
+	}
+	if t.box.Contains(pt) {
+		do()
+	}
+	return true
+}
+
 // swipe turns sideways scrolling, or scrolling with Shift held, into steps to the days either side: one step for
 // each stretch of it, and none again until the scrolling pauses.
 type swipe struct {

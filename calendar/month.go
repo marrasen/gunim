@@ -82,7 +82,9 @@ type Month struct {
 	selected string
 	hover    string
 	drag     *monthDrag
-	texts    map[textKey]text.Paragraph
+	// tap is a press on a day or how many more it has, which acts as the pointer lets go.
+	tap   tap
+	texts map[textKey]text.Paragraph
 }
 
 // monthDrag is an event taken hold of: where the pointer took it, and the day it is over.
@@ -617,8 +619,8 @@ func (m *Month) chipAt(pt geom.Point) (chip, bool) {
 		}
 	}
 	for k := len(m.order) - 1; k >= 0; k-- {
-		if s := m.sprites[m.order[k]]; s != nil && !s.gone && s.rect.Target().Contains(pt) {
-			return chip{e: s.e, bar: s.long, box: s.rect.Target()}, true
+		if s := m.sprites[m.order[k]]; s != nil && !s.gone && s.rect.Value().Contains(pt) {
+			return chip{e: s.e, bar: s.long, box: s.rect.Value()}, true
 		}
 	}
 	return chip{}, false
@@ -697,6 +699,12 @@ func (m *Month) Handle(e input.Event, u *gunim.UI) bool {
 		m.press(e, u)
 		return true
 	case input.PointerUp:
+		if e.Button != input.ButtonPrimary {
+			return false
+		}
+		if m.tap.release(e.Pos) {
+			return true
+		}
 		g := m.drag
 		if g == nil {
 			return false
@@ -724,21 +732,26 @@ func (m *Month) Handle(e input.Event, u *gunim.UI) bool {
 	return false
 }
 
-// press takes hold of a chip, picks a day by its number or its count of more, or with a double click begins an
-// event on a day.
+// press takes hold of a chip, or picks a day by its number or its count of more, or begins an event on a day, as the
+// pointer lets go. The second press of a double click edits an event, and starts nothing the first one started
+// already.
 func (m *Month) press(e input.PointerDown, u *gunim.UI) {
 	if ch, ok := m.chipAt(e.Pos); ok {
-		if ch.more > 0 {
-			switch {
-			case m.More != nil:
-				m.More(m.day(ch.cell), ch.box, u)
-			case m.OnDay != nil:
-				u.Send(m, m.OnDay(m.day(ch.cell)))
+		if e.Clicks > 1 {
+			if ch.more == 0 && m.OnEdit != nil && !ch.e.Fixed {
+				u.Send(m, m.OnEdit(ch.e.ID))
 			}
 			return
 		}
-		if e.Clicks == 2 && m.OnEdit != nil && !ch.e.Fixed {
-			u.Send(m, m.OnEdit(ch.e.ID))
+		if ch.more > 0 {
+			m.tap.press(ch.box, func() {
+				switch {
+				case m.More != nil:
+					m.More(m.day(ch.cell), ch.box, u)
+				case m.OnDay != nil:
+					u.Send(m, m.OnDay(m.day(ch.cell)))
+				}
+			})
 			return
 		}
 		c := m.cellAt(e.Pos)
@@ -746,17 +759,19 @@ func (m *Month) press(e input.PointerDown, u *gunim.UI) {
 		return
 	}
 	c := m.cellAt(e.Pos)
-	if c < 0 {
+	if c < 0 || e.Clicks > 1 {
 		return
 	}
+	box := m.cell(c)
+	number := geom.Rc(box.Min.X, box.Min.Y, box.Size().W, min(dayNumH, box.Size().H))
 	switch {
-	case e.Pos.Y < m.cell(c).Min.Y+dayNumH && m.OnDay != nil:
-		u.Send(m, m.OnDay(m.day(c)))
+	case number.Contains(e.Pos) && m.OnDay != nil:
+		m.tap.press(number, func() { u.Send(m, m.OnDay(m.day(c))) })
 	case m.Busy != nil && m.Busy():
 	case m.Create != nil:
-		m.Create(m.day(c), m.cell(c), u)
+		m.tap.press(box, func() { m.Create(m.day(c), box, u) })
 	case m.OnCreate != nil:
-		u.Send(m, m.OnCreate(m.day(c)))
+		m.tap.press(box, func() { u.Send(m, m.OnCreate(m.day(c))) })
 	}
 }
 

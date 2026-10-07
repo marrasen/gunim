@@ -111,7 +111,9 @@ type Days struct {
 	hover    string
 	tip      widget.PartTip
 	swipe    swipe
-	drag     *dayDrag
+	// tap is a press on a heading or a button over the rows of whole days, which acts as the pointer lets go.
+	tap  tap
+	drag *dayDrag
 	// ghostHeld is the drag that drew out an event being named, whose ghost stays until ClearGhost.
 	ghostHeld *dayDrag
 	texts     map[textKey]text.Paragraph
@@ -1023,7 +1025,7 @@ func (d *Days) timeAt(i int, y float32) time.Time {
 // resizable reports whether the event's length can be pulled by its edges: a timed one, tall enough to hold a click
 // apart from its edges, that the user may change.
 func (s *sprite) resizable() bool {
-	return !s.long && !s.e.Fixed && s.rect.Target().Size().H >= 30
+	return !s.long && !s.e.Fixed && s.rect.Value().Size().H >= 30
 }
 
 // edge is the edge of an event the pointer is on.
@@ -1043,7 +1045,7 @@ func (d *Days) eventAt(pt geom.Point) (Event, geom.Rect, edge, bool) {
 		if s == nil || s.gone || s.long == inHours {
 			continue
 		}
-		r := d.onScreen(s, s.rect.Target())
+		r := d.onScreen(s, s.rect.Value())
 		if !r.Contains(pt) {
 			continue
 		}
@@ -1133,6 +1135,12 @@ func (d *Days) Handle(e input.Event, u *gunim.UI) bool {
 		d.press(e, th, u)
 		return true
 	case input.PointerUp:
+		if e.Button != input.ButtonPrimary {
+			return false
+		}
+		if d.tap.release(e.Pos) {
+			return true
+		}
 		if d.drag == nil {
 			return false
 		}
@@ -1170,30 +1178,34 @@ func (d *Days) hoverAt(pt geom.Point, th *theme.Live) {
 	}
 }
 
-// press starts what a press at pt starts: a day's heading picks the day, an event is taken hold of, and free time
-// begins a new event.
+// press starts what a press at pt starts: a day's heading picks the day as the pointer lets go, an event is taken
+// hold of, and free time begins a new event. The second press of a double click edits an event, and starts nothing
+// the first one started already.
 func (d *Days) press(e input.PointerDown, th *theme.Live, u *gunim.UI) {
 	pt := e.Pos
 	if r, ok := d.longToggle(); ok && r.Contains(pt) {
-		d.openLong(!d.longOpen, u)
+		d.tap.press(r, func() { d.openLong(!d.longOpen, u) })
 		return
 	}
 	if r, ok := d.moreRow(); ok && r.Contains(pt) && d.longMore[d.dayAt(pt.X)] > 0 {
-		d.openLong(true, u)
+		i := d.dayAt(pt.X)
+		d.tap.press(geom.Rc(d.colX(i), r.Min.Y, d.colW(), r.Size().H), func() { d.openLong(true, u) })
 		return
 	}
 	if pt.X < gutterW {
 		return
 	}
 	if pt.Y < headerH {
-		if d.OnDay != nil {
-			u.Send(d, d.OnDay(d.day(d.dayAt(pt.X))))
+		if i := d.dayAt(pt.X); e.Clicks <= 1 && d.OnDay != nil {
+			d.tap.press(geom.Rc(d.colX(i), 0, d.colW(), headerH), func() { u.Send(d, d.OnDay(d.day(i))) })
 		}
 		return
 	}
 	if ev, b, on, ok := d.eventAt(pt); ok {
-		if e.Clicks == 2 && d.OnEdit != nil && !ev.Fixed {
-			u.Send(d, d.OnEdit(ev.ID))
+		if e.Clicks > 1 {
+			if d.OnEdit != nil && !ev.Fixed {
+				u.Send(d, d.OnEdit(ev.ID))
+			}
 			return
 		}
 		kind := dragMove
@@ -1207,7 +1219,7 @@ func (d *Days) press(e input.PointerDown, th *theme.Live, u *gunim.UI) {
 			allDay: ev.long(), grab: d.timeAt(d.dayAt(pt.X), pt.Y).Sub(ev.Start)}
 		return
 	}
-	if d.Busy != nil && d.Busy() {
+	if e.Clicks > 1 || (d.Busy != nil && d.Busy()) {
 		return
 	}
 	i := d.dayAt(pt.X)
