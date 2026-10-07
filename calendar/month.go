@@ -64,9 +64,15 @@ type Month struct {
 	Open func(id string, box geom.Rect, u *gunim.UI)
 
 	events []Event
-	tip    widget.PartTip
-	swipe  swipe
-	box    geom.Size
+	// idx finds the events of each week.
+	idx *index
+	// laidOut holds the events as laid out at the last layout, and laidFor what they were laid out for. While that
+	// stays the same, so do they.
+	laidOut []chip
+	laidFor monthKey
+	tip     widget.PartTip
+	swipe   swipe
+	box     geom.Size
 	// slide carries the days in from the side they came from, as the month steps.
 	slide *anim.Float
 	laid  bool
@@ -79,10 +85,19 @@ type Month struct {
 		month time.Time
 		box   geom.Size
 	}
+	// days is the first day shown, kept for the month and the first day of the week it is for.
+	days struct {
+		month, first time.Time
+		from         time.Weekday
+	}
 	selected string
 	hover    string
 	drag     *monthDrag
-	texts    map[textKey]text.Paragraph
+	// tap is a press on a day or how many more it has, which acts as the pointer lets go.
+	tap tap
+	// ringed says the month shows that it has the keyboard.
+	ringed bool
+	texts  map[textKey]text.Paragraph
 }
 
 // monthDrag is an event taken hold of: where the pointer took it, and the day it is over.
@@ -185,20 +200,27 @@ func (m *Month) EventBox(id string) (geom.Rect, bool) {
 
 // SetEvents shows events, which may hold events outside the weeks shown.
 func (m *Month) SetEvents(events []Event, u *gunim.UI) {
-	m.events = events
+	m.events, m.idx = events, nil
 	m.texts = nil
 	u.Invalidate()
 }
 
 // first returns the first day shown: the start of the week holding the month's first day.
-func (m *Month) first() time.Time { return WeekStart(MonthStart(m.Month), m.FirstWeekday) }
+func (m *Month) first() time.Time {
+	if !m.days.month.Equal(m.Month) || m.days.from != m.FirstWeekday || m.days.first.IsZero() {
+		m.days.month, m.days.from = m.Month, m.FirstWeekday
+		m.days.first = WeekStart(MonthStart(m.Month), m.FirstWeekday)
+	}
+	return m.days.first
+}
 
 // day returns the midnight of cell i, counting from the top left.
 func (m *Month) day(i int) time.Time { return AddDays(m.first(), i) }
 
 // shows reports whether the day dd of each week, from 0 to 6, shows.
 func (m *Month) shows(dd int) bool {
-	wd := m.day(dd).Weekday()
+	// Each week starts on FirstWeekday.
+	wd := (m.FirstWeekday + time.Weekday(dd)) % 7
 	return !m.HideWeekends || (wd != time.Saturday && wd != time.Sunday)
 }
 
@@ -267,7 +289,10 @@ func (m *Month) place(th *theme.Live, jump, drop bool) {
 	seen := map[string]bool{}
 	m.order, m.more = m.order[:0], m.more[:0]
 	count := map[string]int{}
-	for _, ch := range m.chips() {
+	if k := m.key(); k != m.laidFor || m.laidOut == nil {
+		m.laidOut, m.laidFor = m.chips(), k
+	}
+	for _, ch := range m.laidOut {
 		if ch.more > 0 {
 			m.more = append(m.more, ch)
 			continue
@@ -324,6 +349,26 @@ func (m *Month) place(th *theme.Live, jump, drop bool) {
 	m.aimLifts(th)
 }
 
+// monthKey is what a month's events are laid out for: the events, the weeks, the size and the drag.
+type monthKey struct {
+	idx      *index
+	first    time.Time
+	hide     bool
+	box      geom.Size
+	drag     monthDrag
+	dragging bool
+}
+
+// key returns what the month's events would be laid out for now.
+func (m *Month) key() monthKey {
+	m.idx = indexOf(m.idx, m.events)
+	k := monthKey{idx: m.idx, first: m.first(), hide: m.HideWeekends, box: m.box}
+	if m.drag != nil {
+		k.drag, k.dragging = *m.drag, true
+	}
+	return k
+}
+
 // chip is an event laid out in the month: its box, and whether it is a bar across whole days.
 type chip struct {
 	e   Event
@@ -334,110 +379,166 @@ type chip struct {
 }
 
 // chips lays out the month's events. Each week's bars take rows from the top of its days, each in the first row
-// free across its days, and each day's timed events go in the rows left under them.
+// free across its days, and each day's timed events go in the rows left under them. A day with more than fits keeps
+// its last row to say how many more; where a cell has no room for a row, its number's line says so.
 func (m *Month) chips() []chip {
 	var out []chip
-	rows := max(int((m.cellH()-dayNumH-4)/(chipH+chipGap)), 1)
-	evs := slices.Clone(m.shown())
-	slices.SortStableFunc(evs, func(a, b Event) int {
-		if a.long() != b.long() {
-			return map[bool]int{true: -1, false: 1}[a.long()]
-		}
-		return a.Start.Compare(b.Start)
-	})
+	rows := max(int((m.cellH()-dayNumH-4)/(chipH+chipGap)), 0)
 	for week := range 6 {
-		// taken[row][day] says the row is used on that day, and bars that a bar uses it.
-		taken := make([][7]bool, rows)
-		bars := make([][7]bool, rows)
-		hidden := [7]int{}
-		place := func(e Event, first, last int, bar bool) {
-			for r := range rows {
-				free := true
-				for dd := first; dd <= last; dd++ {
-					if taken[r][dd] {
-						free = false
-					}
-				}
-				if !free {
-					continue
-				}
-				for dd := first; dd <= last; dd++ {
-					taken[r][dd], bars[r][dd] = true, bar
-				}
-				// A bar runs from the first day of its days that shows to the last.
-				for first < last && !m.shows(first) {
-					first++
-				}
-				for last > first && !m.shows(last) {
-					last--
-				}
-				if !m.shows(first) {
-					return
-				}
-				c0, c1 := m.cell(week*7+first), m.cell(week*7+last)
-				y := c0.Min.Y + dayNumH + float32(r)*(chipH+chipGap)
-				out = append(out, chip{e: e, bar: bar, box: geom.Rc(c0.Min.X+3, y, c1.Max.X-c0.Min.X-6, chipH)})
-				return
-			}
-			for dd := first; dd <= last; dd++ {
-				hidden[dd]++
-			}
-		}
-		for _, e := range evs {
-			first, last := -1, -1
+		evs := weekOrder(m.shown(m.day(week*7), m.day(week*7+7)))
+		// keep[dd] says day dd keeps its last row to say how many more. A day that turns out to have more than fits
+		// keeps it, and the week is laid out again, until each day with more has its last row free.
+		var keep [7]bool
+		var placed []chip
+		var hidden [7]int
+		for {
+			placed, hidden = m.weekChips(week, evs, rows, keep)
+			again := false
 			for dd := range 7 {
-				if e.covers(m.day(week*7 + dd)) {
-					if first < 0 {
-						first = dd
-					}
-					last = dd
+				if hidden[dd] > 0 && !keep[dd] && rows > 0 {
+					keep[dd], again = true, true
 				}
 			}
-			if first < 0 {
-				continue
-			}
-			if e.long() {
-				place(e, first, last, true)
-				continue
-			}
-			for dd := first; dd <= last; dd++ {
-				if m.shows(dd) {
-					place(e, dd, dd, false)
-				}
+			if !again {
+				break
 			}
 		}
-		// A day with events that did not fit gives up its last line to say how many more, unless a bar holds it.
+		out = append(out, placed...)
 		for dd := range 7 {
-			if hidden[dd] == 0 || bars[rows-1][dd] || !m.shows(dd) {
+			if hidden[dd] == 0 || !m.shows(dd) {
 				continue
 			}
 			cell := week*7 + dd
 			c := m.cell(cell)
-			y := c.Min.Y + dayNumH + float32(rows-1)*(chipH+chipGap)
-			n := hidden[dd]
-			out = slices.DeleteFunc(out, func(ch chip) bool {
-				if !ch.bar && ch.box.Min.Y == y && ch.box.Min.X == c.Min.X+3 {
-					n++
-					return true
-				}
-				return false
-			})
-			out = append(out, chip{more: n, cell: cell, box: geom.Rc(c.Min.X+3, y, c.Size().W-6, chipH)})
+			box := geom.Rc(c.Min.X+3, c.Min.Y+dayNumH+float32(rows-1)*(chipH+chipGap), c.Size().W-6, chipH)
+			if rows == 0 {
+				// No room for a row: the right half of the number's line.
+				box = geom.Rc(c.Center().X, c.Min.Y, c.Size().W/2-3, min(dayNumH, c.Size().H))
+			}
+			out = append(out, chip{more: hidden[dd], cell: cell, box: box})
 		}
 	}
 	return out
 }
 
-// shown returns the events, with the one being dragged on the day it is over.
-func (m *Month) shown() []Event {
-	g := m.drag
-	if g == nil || !g.moved || g.fixed {
-		return m.events
+// weekOrder returns evs in the order a week takes them in: those of whole days first, then by when they start, and
+// otherwise in the order given.
+func weekOrder(evs []Event) []Event {
+	long := make([]bool, len(evs))
+	at := make([]int, len(evs))
+	for i, e := range evs {
+		long[i], at[i] = e.long(), i
 	}
-	out := slices.Clone(m.events)
-	for i, e := range out {
-		if e.ID == g.id {
-			out[i].Start, out[i].End = m.moved(e, g)
+	slices.SortFunc(at, func(a, b int) int {
+		if long[a] != long[b] {
+			if long[a] {
+				return -1
+			}
+			return 1
+		}
+		if c := evs[a].Start.Compare(evs[b].Start); c != 0 {
+			return c
+		}
+		return a - b
+	})
+	out := make([]Event, len(evs))
+	for k, i := range at {
+		out[k] = evs[i]
+	}
+	return out
+}
+
+// weekChips lays out the events evs in week, given rows to a day, each in the first row free across its days. A
+// day in keep holds its last row free. It returns the chips, and how many events of each day found no row.
+func (m *Month) weekChips(week int, evs []Event, rows int, keep [7]bool) (out []chip, hidden [7]int) {
+	// taken[row][day] says the row is used on that day.
+	taken := make([][7]bool, rows)
+	place := func(e Event, first, last int, bar bool) {
+		for r := range rows {
+			free := true
+			for dd := first; dd <= last; dd++ {
+				if taken[r][dd] || (keep[dd] && r == rows-1) {
+					free = false
+				}
+			}
+			if !free {
+				continue
+			}
+			for dd := first; dd <= last; dd++ {
+				taken[r][dd] = true
+			}
+			// A bar runs from the first day of its days that shows to the last.
+			for first < last && !m.shows(first) {
+				first++
+			}
+			for last > first && !m.shows(last) {
+				last--
+			}
+			if !m.shows(first) {
+				return
+			}
+			c0, c1 := m.cell(week*7+first), m.cell(week*7+last)
+			y := c0.Min.Y + dayNumH + float32(r)*(chipH+chipGap)
+			out = append(out, chip{e: e, bar: bar, box: geom.Rc(c0.Min.X+3, y, c1.Max.X-c0.Min.X-6, chipH)})
+			return
+		}
+		for dd := first; dd <= last; dd++ {
+			hidden[dd]++
+		}
+	}
+	var days [8]time.Time
+	for dd := range days {
+		days[dd] = m.day(week*7 + dd)
+	}
+	for _, e := range evs {
+		first, last := -1, -1
+		for dd := range 7 {
+			if overlaps(e, days[dd], days[dd+1]) {
+				if first < 0 {
+					first = dd
+				}
+				last = dd
+			}
+		}
+		if first < 0 {
+			continue
+		}
+		if e.long() {
+			place(e, first, last, true)
+			continue
+		}
+		for dd := first; dd <= last; dd++ {
+			if m.shows(dd) {
+				place(e, dd, dd, false)
+			}
+		}
+	}
+	return out, hidden
+}
+
+// shown returns the events that take up some of the days between from and to, in the order given, with the one
+// being dragged on the day it is over.
+func (m *Month) shown(from, to time.Time) []Event {
+	m.idx = indexOf(m.idx, m.events)
+	at := m.idx.within(from, to)
+	g := m.drag
+	dragging := g != nil && g.moved && !g.fixed
+	if dragging {
+		if i, ok := m.idx.find(g.id); ok {
+			// It may have come from another week.
+			at = append(at, i)
+			slices.Sort(at)
+			at = slices.Compact(at)
+		}
+	}
+	out := make([]Event, 0, len(at))
+	for _, i := range at {
+		e := m.events[i]
+		if dragging && e.ID == g.id {
+			e.Start, e.End = m.moved(e, g)
+		}
+		if overlaps(e, from, to) {
+			out = append(out, e)
 		}
 	}
 	return out
@@ -453,6 +554,10 @@ func (m *Month) moved(e Event, g *monthDrag) (time.Time, time.Time) {
 // Paint implements [gunim.Node].
 func (m *Month) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
 	th := f.Theme
+	if m.ringed {
+		// Drawn last, over the rest
+		defer paintRing(p, th, box)
+	}
 	line := widget.MenuBorder.Get(th)
 	faint := widget.PaletteHint.Get(th)
 	ink := widget.Ink.Get(th)
@@ -517,7 +622,12 @@ func (m *Month) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Ch
 func (m *Month) paintChip(p *paint.Painter, th *theme.Live, ch chip) {
 	size := EventText.Get(th)
 	r := ch.box
-	t := m.paragraph(th, strconv.Itoa(ch.more)+" more", r.Size().W-8, true, size)
+	label := strconv.Itoa(ch.more) + " more"
+	if r.Size().H < chipH {
+		// On the line of the day's number.
+		label = "+" + strconv.Itoa(ch.more)
+	}
+	t := m.paragraph(th, label, r.Size().W-8, true, size)
 	t.Paint(p, geom.Pt(r.Min.X+6, r.Center().Y-t.Size.H/2), widget.PaletteHint.Get(th))
 }
 
@@ -594,8 +704,8 @@ func (m *Month) chipAt(pt geom.Point) (chip, bool) {
 		}
 	}
 	for k := len(m.order) - 1; k >= 0; k-- {
-		if s := m.sprites[m.order[k]]; s != nil && !s.gone && s.rect.Target().Contains(pt) {
-			return chip{e: s.e, bar: s.long, box: s.rect.Target()}, true
+		if s := m.sprites[m.order[k]]; s != nil && !s.gone && s.rect.Value().Contains(pt) {
+			return chip{e: s.e, bar: s.long, box: s.rect.Value()}, true
 		}
 	}
 	return chip{}, false
@@ -661,6 +771,12 @@ func (m *Month) Handle(e input.Event, u *gunim.UI) bool {
 			return true
 		}
 		return eventKeys(e, u, m, m.stops(), m.selected, func(id string) { m.Select(id, u) }, m.Open, m.OnDelete)
+	case input.FocusRing:
+		m.ringed = ringShown(e)
+		u.Invalidate()
+	case input.FocusLost:
+		m.ringed = false
+		u.Invalidate()
 	case input.FocusGained:
 		if e.Keyed && m.selected == "" {
 			if s, ok := nextStop(m.stops(), "", input.KeyDown); ok {
@@ -674,6 +790,12 @@ func (m *Month) Handle(e input.Event, u *gunim.UI) bool {
 		m.press(e, u)
 		return true
 	case input.PointerUp:
+		if e.Button != input.ButtonPrimary {
+			return false
+		}
+		if m.tap.release(e.Pos) {
+			return true
+		}
 		g := m.drag
 		if g == nil {
 			return false
@@ -701,21 +823,26 @@ func (m *Month) Handle(e input.Event, u *gunim.UI) bool {
 	return false
 }
 
-// press takes hold of a chip, picks a day by its number or its count of more, or with a double click begins an
-// event on a day.
+// press takes hold of a chip, or picks a day by its number or its count of more, or begins an event on a day, as the
+// pointer lets go. The second press of a double click edits an event, and starts nothing the first one started
+// already.
 func (m *Month) press(e input.PointerDown, u *gunim.UI) {
 	if ch, ok := m.chipAt(e.Pos); ok {
-		if ch.more > 0 {
-			switch {
-			case m.More != nil:
-				m.More(m.day(ch.cell), ch.box, u)
-			case m.OnDay != nil:
-				u.Send(m, m.OnDay(m.day(ch.cell)))
+		if e.Clicks > 1 {
+			if ch.more == 0 && m.OnEdit != nil && !ch.e.Fixed {
+				u.Send(m, m.OnEdit(ch.e.ID))
 			}
 			return
 		}
-		if e.Clicks == 2 && m.OnEdit != nil && !ch.e.Fixed {
-			u.Send(m, m.OnEdit(ch.e.ID))
+		if ch.more > 0 {
+			m.tap.press(ch.box, func() {
+				switch {
+				case m.More != nil:
+					m.More(m.day(ch.cell), ch.box, u)
+				case m.OnDay != nil:
+					u.Send(m, m.OnDay(m.day(ch.cell)))
+				}
+			})
 			return
 		}
 		c := m.cellAt(e.Pos)
@@ -723,17 +850,19 @@ func (m *Month) press(e input.PointerDown, u *gunim.UI) {
 		return
 	}
 	c := m.cellAt(e.Pos)
-	if c < 0 {
+	if c < 0 || e.Clicks > 1 {
 		return
 	}
+	box := m.cell(c)
+	number := geom.Rc(box.Min.X, box.Min.Y, box.Size().W, min(dayNumH, box.Size().H))
 	switch {
-	case e.Pos.Y < m.cell(c).Min.Y+dayNumH && m.OnDay != nil:
-		u.Send(m, m.OnDay(m.day(c)))
+	case number.Contains(e.Pos) && m.OnDay != nil:
+		m.tap.press(number, func() { u.Send(m, m.OnDay(m.day(c))) })
 	case m.Busy != nil && m.Busy():
 	case m.Create != nil:
-		m.Create(m.day(c), m.cell(c), u)
+		m.tap.press(box, func() { m.Create(m.day(c), box, u) })
 	case m.OnCreate != nil:
-		u.Send(m, m.OnCreate(m.day(c)))
+		m.tap.press(box, func() { u.Send(m, m.OnCreate(m.day(c))) })
 	}
 }
 

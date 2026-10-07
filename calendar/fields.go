@@ -1,16 +1,19 @@
 package calendar
 
 import (
+	"math"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
+	"github.com/marrasen/gunim/driver"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
+	"github.com/marrasen/gunim/text"
 	"github.com/marrasen/gunim/widget"
 )
 
@@ -25,6 +28,9 @@ type DateField struct {
 	popup *gunim.Popup
 	focus *anim.Float
 	size  geom.Size
+	// text is the day as last laid out, for key.
+	text    text.Paragraph
+	textKey textKey
 }
 
 // NewDateField returns a field holding day.
@@ -61,7 +67,7 @@ func (f *DateField) open(u *gunim.UI) {
 		f.set(day, u)
 		f.close(u)
 	}
-	f.popup = u.OpenPopup(f, widget.NewCard(widget.NewPad(m)), gunim.PopupOptions{
+	f.popup = u.OpenPopup(f, &fitted{child: widget.NewCard(widget.NewPad(m))}, gunim.PopupOptions{
 		Anchor:  geom.Rc(0, 0, f.size.W, f.size.H+4),
 		Dismiss: f.close,
 	})
@@ -93,10 +99,53 @@ func (f *DateField) Paint(p *paint.Painter, fr gunim.Frame, box geom.Size, _ gun
 	}
 	p.RRectStroke(geom.Rect{Max: box.Point()}, widget.FieldRadius.Get(th), paint.Solid(widget.FieldFill.Get(th)),
 		paint.Stroke{Width: 1 + focus, Color: border})
-	t := widget.Font.Get(th).Shape(f.value.Format("Mon 2 Jan 2006"), widget.TextSize.Get(th))
-	t.Paint(p, geom.Pt(widget.FieldPadding.Get(th), (box.H-t.Height())/2), widget.Ink.Get(th))
 	s := float32(16)
-	widget.PaintIcon(p, th, icon.Calendar, geom.Rc(box.W-s-8, (box.H-s)/2, s, s), widget.PaletteHint.Get(th))
+	ic := geom.Rc(box.W-s-8, (box.H-s)/2, s, s)
+	pad := widget.FieldPadding.Get(th)
+	// The day keeps to one line in the room left of the icon, cut short with an ellipsis.
+	if room := ic.Min.X - 6 - pad; room > 0 {
+		k := textKey{s: f.value.Format("Mon 2 Jan 2006"), w: room, lines: 1, fontSize: widget.TextSize.Get(th)}
+		if k != f.textKey {
+			f.text = widget.Font.Get(th).Layout(k.s, text.Style{Size: k.fontSize, MaxLines: 1}, room)
+			f.textKey = k
+		}
+		f.text.Paint(p, geom.Pt(pad, (box.H-f.text.Size.H)/2), widget.Ink.Get(th))
+	}
+	widget.PaintIcon(p, th, icon.Calendar, ic, widget.PaletteHint.Get(th))
+}
+
+// fitted is popup content kept to the room the screen leaves round its anchor: no taller than the larger of the
+// room below and the room above.
+type fitted struct {
+	child gunim.Node
+	room  float32
+}
+
+// Children implements [gunim.Node].
+func (f *fitted) Children() []gunim.Node { return []gunim.Node{f.child} }
+
+// FitPopup implements [gunim.PopupFitter].
+func (f *fitted) FitPopup(r driver.Room) {
+	f.room = 0
+	if room := max(r.Below, r.Above); !math.IsInf(float64(room), 1) {
+		f.room = max(room, 1)
+	}
+}
+
+// Layout implements [gunim.Node].
+func (f *fitted) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
+	if f.room > 0 && (c.Max.H <= 0 || c.Max.H > f.room) {
+		c.Max.H = f.room
+		c.Min.H = min(c.Min.H, f.room)
+	}
+	size := kids.At(0).Layout(c)
+	kids.At(0).Place(geom.Point{})
+	return size
+}
+
+// Paint implements [gunim.Node].
+func (f *fitted) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim.Children) {
+	kids.At(0).Paint(p)
 }
 
 // Handle implements [gunim.Handler].

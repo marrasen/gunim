@@ -3,12 +3,14 @@ package calendar
 import (
 	"image/color"
 	"math"
+	"slices"
 	"strconv"
 	"time"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/text"
@@ -69,8 +71,17 @@ type Days struct {
 	Busy func() bool
 
 	events []Event
+	// idx finds the events on the days shown, and vis holds them as [Days.shown] gave them at the last layout.
+	idx *index
+	vis []Event
+	// laidTo holds where the events went at the last layout, and laidFor what it was worked out for. While that stays
+	// the same, so do they.
+	laidTo  []target
+	laidFor daysKey
 	// held are events the user changed, shown where they left them until the application agrees.
 	held map[string]heldEvent
+	// holds counts the changes held, so each tells the layout it has something new.
+	holds int
 	// sprites are the events as drawn, by key, and order the order they are drawn in.
 	sprites map[string]*sprite
 	order   []string
@@ -93,18 +104,32 @@ type Days struct {
 	}
 	// hourH is how tall an hour was at the last layout.
 	hourH float32
+	// topHour is the hour [Days.ScrollToHour] asked for before the first layout, while asked is set.
+	topHour float32
+	asked   bool
 	// heads fades the headings in as the grid changes how many days it shows.
 	heads *anim.Float
-	// th is the theme at the last layout, and pointer where the pointer is while it drags, for the drag to go
-	// on as the grid scrolls under it.
+	// th is the theme at the last layout, and pointer where the pointer last was, for a drag to go on and the event
+	// under it to lift as the grid scrolls under it. over says the pointer is over the grid.
 	th      *theme.Live
 	pointer geom.Point
-	// longRows is how many rows the whole-day events take.
+	over    bool
+	// longRows is how many rows the whole-day events take on screen, long the rows of them shown, and longMore how
+	// many more each day has than they show, said on a row under them. longAll is how many rows they would take, and
+	// longOpen says the user opened the rows to show more of them.
 	longRows int
+	long     [][]longPlace
+	longMore []int
+	longAll  int
+	longOpen bool
 	hover    string
 	tip      widget.PartTip
 	swipe    swipe
-	drag     *dayDrag
+	// tap is a press on a heading or a button over the rows of whole days, which acts as the pointer lets go.
+	tap  tap
+	drag *dayDrag
+	// ringed says the grid shows that it has the keyboard.
+	ringed bool
 	// ghostHeld is the drag that drew out an event being named, whose ghost stays until ClearGhost.
 	ghostHeld *dayDrag
 	texts     map[textKey]text.Paragraph
@@ -198,6 +223,10 @@ func (d *Days) Step(dt time.Duration) bool {
 	if d.edgeScroll(dt) {
 		moving = true
 	}
+	if d.scroll.Active() && d.over && d.drag == nil && d.th != nil {
+		// The events move under a pointer at rest.
+		d.hoverAt(d.pointer, d.th)
+	}
 	for k, s := range d.sprites {
 		if s.step(dt) {
 			moving = true
@@ -226,8 +255,8 @@ func (d *Days) edgeScroll(dt time.Duration) bool {
 	default:
 		return false
 	}
-	to := d.clampScroll(d.scroll.Value() + min(max(speed, -1), 1)*900*float32(dt.Seconds()))
-	if to == d.scroll.Value() {
+	to := d.clampScroll(d.scrollY() + min(max(speed, -1), 1)*900*float32(dt.Seconds()))
+	if to == d.scrollY() {
 		return false
 	}
 	d.scroll.Jump(to)
@@ -237,7 +266,7 @@ func (d *Days) edgeScroll(dt time.Duration) bool {
 
 // SetEvents shows events, which may hold events outside the days shown.
 func (d *Days) SetEvents(events []Event, u *gunim.UI) {
-	d.events = events
+	d.events, d.idx = events, nil
 	for id, h := range d.held {
 		if time.Since(h.at) > time.Second {
 			delete(d.held, id)
@@ -358,8 +387,14 @@ func moving(p *paint.Painter, box geom.Size, slide float32, draw func()) {
 	draw()
 }
 
-// ScrollToHour scrolls the grid so the hour h, such as 7.5 for half past seven, is at its top.
+// ScrollToHour scrolls the grid so the hour h, such as 7.5 for half past seven, is at its top. Asked before the
+// grid is first laid out, the grid starts there.
 func (d *Days) ScrollToHour(h float32, u *gunim.UI) {
+	if !d.laid {
+		d.topHour, d.asked = h, true
+		u.Invalidate()
+		return
+	}
 	d.scroll.Animate(d.clampScroll(h*d.hour()), widget.Quick.Get(u.Theme()))
 }
 
@@ -394,7 +429,7 @@ func (d *Days) hourY(offset time.Duration) float32 { return float32(offset.Hours
 
 // timeY returns where a time offset into a day is down the grid, scrolled.
 func (d *Days) timeY(offset time.Duration) float32 {
-	return d.bodyTop() + d.hourY(offset) - d.scroll.Value()
+	return d.bodyTop() + d.hourY(offset) - d.scrollY()
 }
 
 // onScreen turns a sprite's box into the grid's space.
@@ -402,8 +437,12 @@ func (d *Days) onScreen(s *sprite, r geom.Rect) geom.Rect {
 	if s.long {
 		return r
 	}
-	return r.Add(geom.Pt(0, d.bodyTop()-d.scroll.Value()))
+	return r.Add(geom.Pt(0, d.bodyTop()-d.scrollY()))
 }
+
+// scrollY returns how far the hours are scrolled as drawn, kept within them, so no frame shows past either end of
+// the day.
+func (d *Days) scrollY() float32 { return d.clampScroll(d.scroll.Value()) }
 
 func (d *Days) clampScroll(v float32) float32 {
 	room := 24*d.hour() - (d.box.H - d.bodyTop())
@@ -412,10 +451,26 @@ func (d *Days) clampScroll(v float32) float32 {
 
 // Layout implements [gunim.Node]: it sends each event gliding to its place.
 func (d *Days) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
+	was := d.hourH
 	d.box, d.hourH, d.th = c.Max, HourHeight.Get(f.Theme), f.Theme
-	d.longRows = len(d.longPlaces())
-	if !d.laid {
-		d.scroll.Jump(d.clampScroll(7.5 * d.hour()))
+	if k := d.key(); k != d.laidFor || d.laidTo == nil {
+		d.vis = d.shown()
+		d.layLong()
+		d.laidTo, d.laidFor = d.targets(), k
+	}
+	switch to := d.scroll.Target(); {
+	case !d.laid:
+		h := float32(7.5)
+		if d.asked {
+			h, d.asked = d.topHour, false
+		}
+		d.scroll.Jump(d.clampScroll(h * d.hour()))
+	case was > 0 && was != d.hourH:
+		// The hour at the top stays there as the hours grow or shrink.
+		d.scroll.Jump(d.clampScroll(d.scroll.Value() * d.hourH / was))
+	case d.clampScroll(to) != to:
+		// The grid grew, or the row of whole days shrank, and has less to scroll.
+		d.scroll.Animate(d.clampScroll(to), widget.Quick.Get(f.Theme))
 	}
 	stepped := d.laid && d.Count == d.was.count && !d.First.Equal(d.was.first)
 	jump := !d.laid || d.box != d.was.box
@@ -423,6 +478,36 @@ func (d *Days) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom
 	d.laid = true
 	d.was.box, d.was.first, d.was.count = d.box, d.First, d.Count
 	return d.box
+}
+
+// daysKey is what a grid's places are worked out for: the events, the days, the size, the drag and the changes
+// held.
+type daysKey struct {
+	idx         *index
+	first       time.Time
+	count       int
+	box         geom.Size
+	hourH       float32
+	open        bool
+	drag        dayDrag
+	dragging    bool
+	held, holds int
+}
+
+// key returns what the grid's places would be worked out for now.
+func (d *Days) key() daysKey {
+	d.idx = indexOf(d.idx, d.events)
+	k := daysKey{idx: d.idx, first: d.First, count: d.Count, box: d.box, hourH: d.hourH, open: d.longOpen,
+		holds: d.holds}
+	if d.drag != nil {
+		k.drag, k.dragging = *d.drag, true
+	}
+	for _, h := range d.held {
+		if time.Since(h.at) <= time.Second {
+			k.held++
+		}
+	}
+	return k
 }
 
 // target is where an event goes.
@@ -440,7 +525,7 @@ type target struct {
 func (d *Days) place(th *theme.Live, jump, drop bool) {
 	seen := map[string]bool{}
 	d.order = d.order[:0]
-	for _, t := range d.targets() {
+	for _, t := range d.laidTo {
 		seen[t.key] = true
 		d.order = append(d.order, t.key)
 		s, ok := d.sprites[t.key]
@@ -498,7 +583,7 @@ func (d *Days) aimLifts(th *theme.Live) {
 // targets returns where every event shown goes: the whole-day ones on their rows, then each day's timed ones.
 func (d *Days) targets() []target {
 	var out []target
-	for _, row := range d.longPlaces() {
+	for _, row := range d.long {
 		for _, lp := range row {
 			out = append(out, target{key: lp.e.ID + "#long", e: lp.e, long: true, box: d.longBox(lp)})
 		}
@@ -512,6 +597,64 @@ func (d *Days) targets() []target {
 	return out
 }
 
+// longCap returns how many rows the events of whole days may take: up to three, and no more than a quarter of the
+// grid's height, or with open up to half of it.
+func (d *Days) longCap(open bool) int {
+	room := d.box.H - headerH
+	n := min(3, int(room/4/longRowH))
+	if open {
+		n = max(n, int(room/2/longRowH))
+	}
+	return max(n, 1)
+}
+
+// layLong sets the events of whole days in the rows they may take. When they need more, the last row says how many
+// more each day has.
+func (d *Days) layLong() {
+	rows := d.longPlaces()
+	d.longAll = len(rows)
+	bars := len(rows)
+	if limit := d.longCap(d.longOpen); bars > limit {
+		bars = limit - 1
+	}
+	d.long, d.longRows = rows[:bars], bars
+	d.longMore = make([]int, d.Count)
+	for _, row := range rows[bars:] {
+		for _, lp := range row {
+			for i := lp.first; i <= lp.last; i++ {
+				d.longMore[i]++
+			}
+		}
+	}
+	if bars < len(rows) {
+		d.longRows++
+	}
+}
+
+// moreRow returns the box of the row saying how many more events of whole days there are, and false when there is
+// none.
+func (d *Days) moreRow() (geom.Rect, bool) {
+	if len(d.long) == d.longAll {
+		return geom.Rect{}, false
+	}
+	return geom.Rc(gutterW, d.longTop()+float32(len(d.long))*longRowH, d.box.W-gutterW, longRowH), true
+}
+
+// longToggle returns the box of the button in the gutter that opens and closes the rows of whole days, and false
+// when they all fit without it.
+func (d *Days) longToggle() (geom.Rect, bool) {
+	if d.longAll <= d.longCap(false) {
+		return geom.Rect{}, false
+	}
+	return geom.Rc(gutterW/2-12, d.longTop()+float32(d.longRows-1)*longRowH, 24, longRowH), true
+}
+
+// openLong opens the rows of whole days to show more of them, or closes them back.
+func (d *Days) openLong(open bool, u *gunim.UI) {
+	d.longOpen = open
+	u.Invalidate()
+}
+
 // longPlace is a whole-day event on the row above the hours: its row, and the days it covers, from first to last.
 type longPlace struct {
 	e           Event
@@ -523,7 +666,7 @@ type longPlace struct {
 // the rows.
 func (d *Days) longPlaces() [][]longPlace {
 	var rows [][]longPlace
-	for _, e := range d.shown() {
+	for _, e := range d.vis {
 		if !e.long() {
 			continue
 		}
@@ -560,21 +703,36 @@ func (d *Days) longPlaces() [][]longPlace {
 	return rows
 }
 
-// shown returns the events with any the user changed where they left them, and the one being dragged where the
-// pointer has it.
+// shown returns the events on the days shown, in the order given, with any the user changed where they left them,
+// and the one being dragged where the pointer has it.
 func (d *Days) shown() []Event {
-	if len(d.held) == 0 && (d.drag == nil || d.drag.kind == dragCreate) {
-		return d.events
+	d.idx = indexOf(d.idx, d.events)
+	from, to := d.First, d.day(d.Count)
+	at := d.idx.within(from, to)
+	// The events the user changed, which may have come from days not shown.
+	for id := range d.held {
+		if i, ok := d.idx.find(id); ok {
+			at = append(at, i)
+		}
 	}
-	out := make([]Event, 0, len(d.events))
-	for _, e := range d.events {
+	if g := d.drag; g != nil && g.kind != dragCreate {
+		if i, ok := d.idx.find(g.id); ok {
+			at = append(at, i)
+		}
+	}
+	slices.Sort(at)
+	out := make([]Event, 0, len(at))
+	for _, i := range slices.Compact(at) {
+		e := d.events[i]
 		if h, ok := d.held[e.ID]; ok && time.Since(h.at) <= time.Second {
 			e.Start, e.End = h.start, h.end
 		}
 		if d.drag != nil && d.drag.kind != dragCreate && d.drag.moved && d.drag.id == e.ID {
 			e.Start, e.End = d.drag.start, d.drag.end
 		}
-		out = append(out, e)
+		if overlaps(e, from, to) {
+			out = append(out, e)
+		}
 	}
 	return out
 }
@@ -592,8 +750,8 @@ func (d *Days) timedBoxes(i int) []timedBox {
 	day, next := d.day(i), d.day(i+1)
 	var evs []Event
 	var starts, ends []time.Time
-	for _, e := range d.shown() {
-		if e.long() || !e.covers(day) {
+	for _, e := range d.vis {
+		if e.long() || !overlaps(e, day, next) {
 			continue
 		}
 		s, en := e.Start, e.End
@@ -605,7 +763,7 @@ func (d *Days) timedBoxes(i int) []timedBox {
 		}
 		evs, starts, ends = append(evs, e), append(starts, s), append(ends, en)
 	}
-	places, order := lanes(starts, ends)
+	places, order := lanes(starts, ends, d.leastSpan())
 	w := d.colW() - dayMargin
 	// Each step of indent moves an event over by a fifth of the column, up to 28 pixels.
 	step := min(w/5, 28)
@@ -623,6 +781,11 @@ func (d *Days) timedBoxes(i int) []timedBox {
 	return out
 }
 
+// leastSpan returns how long a time the smallest box of an event covers, minEventH tall.
+func (d *Days) leastSpan() time.Duration {
+	return time.Duration(float64(minEventH) / float64(d.hour()) * float64(time.Hour))
+}
+
 // longBox returns where a whole-day event sits on the row above the hours.
 func (d *Days) longBox(p longPlace) geom.Rect {
 	x0, x1 := d.colX(p.first)+2, d.colX(p.last+1)-2
@@ -632,6 +795,10 @@ func (d *Days) longBox(p longPlace) geom.Rect {
 // Paint implements [gunim.Node].
 func (d *Days) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
 	th := f.Theme
+	if d.ringed {
+		// Drawn last, over the rest
+		defer paintRing(p, th, box)
+	}
 	line := widget.MenuBorder.Get(th)
 	faint := widget.PaletteHint.Get(th)
 	hourH := d.hour()
@@ -679,7 +846,7 @@ func (d *Days) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Chi
 				}
 			}
 			if !d.ghost.Target().Empty() && !d.ghostAllDay() {
-				d.paintGhost(p, th, d.ghost.Value().Add(geom.Pt(0, d.bodyTop()-d.scroll.Value())))
+				d.paintGhost(p, th, d.ghost.Value().Add(geom.Pt(0, d.bodyTop()-d.scrollY())))
 			}
 		})
 		// Now, faint across the days shown and bold across today.
@@ -708,7 +875,24 @@ func (d *Days) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Chi
 		p.RRect(geom.Rc(d.colX(i), headerH-10, 1, d.bodyTop()-headerH+10), 0, paint.Solid(line))
 	}
 	p.RRect(geom.Rc(0, d.bodyTop()-1, box.W, 1), 0, paint.Solid(line))
+	defer p.Layer(paint.LayerOpts{Bounds: geom.Rc(0, 0, box.W, d.bodyTop()), Opacity: 1, Clip: true})()
+	if r, ok := d.longToggle(); ok {
+		chevron := icon.ChevronDown
+		if d.longOpen {
+			chevron = icon.ChevronUp
+		}
+		widget.PaintIcon(p, th, chevron, geom.Rc(r.Center().X-8, r.Center().Y-8, 16, 16), faint)
+	}
 	moving(p, box, d.slide.Value(), func() {
+		if r, ok := d.moreRow(); ok {
+			for i, n := range d.longMore {
+				if n == 0 {
+					continue
+				}
+				t := d.paragraph(th, strconv.Itoa(n)+" more", d.colW()-14, 1, true, EventText.Get(th))
+				t.Paint(p, geom.Pt(d.colX(i)+9, r.Center().Y-t.Size.H/2), faint)
+			}
+		}
 		if h := min(max(d.heads.Value(), 0), 1); h < 0.99 {
 			func() {
 				defer p.Layer(paint.LayerOpts{Bounds: geom.Rc(0, 0, box.W, headerH), Opacity: h})()
@@ -927,7 +1111,7 @@ func (d *Days) dayAt(x float32) int {
 
 // timeAt returns the time under y on day i, snapped down to the step.
 func (d *Days) timeAt(i int, y float32) time.Time {
-	hours := (y - d.bodyTop() + d.scroll.Value()) / d.hour()
+	hours := (y - d.bodyTop() + d.scrollY()) / d.hour()
 	off := time.Duration(float64(hours) * float64(time.Hour))
 	off = min(max(off, 0), 24*time.Hour)
 	return d.day(i).Add(off.Truncate(d.step()))
@@ -936,7 +1120,7 @@ func (d *Days) timeAt(i int, y float32) time.Time {
 // resizable reports whether the event's length can be pulled by its edges: a timed one, tall enough to hold a click
 // apart from its edges, that the user may change.
 func (s *sprite) resizable() bool {
-	return !s.long && !s.e.Fixed && s.rect.Target().Size().H >= 30
+	return !s.long && !s.e.Fixed && s.rect.Value().Size().H >= 30
 }
 
 // edge is the edge of an event the pointer is on.
@@ -956,7 +1140,7 @@ func (d *Days) eventAt(pt geom.Point) (Event, geom.Rect, edge, bool) {
 		if s == nil || s.gone || s.long == inHours {
 			continue
 		}
-		r := d.onScreen(s, s.rect.Target())
+		r := d.onScreen(s, s.rect.Value())
 		if !r.Contains(pt) {
 			continue
 		}
@@ -1022,9 +1206,11 @@ func (d *Days) Handle(e input.Event, u *gunim.UI) bool {
 		if e.Pos.Y < d.bodyTop() {
 			return false
 		}
+		d.pointer, d.over = e.Pos, true
 		d.scroll.Animate(d.clampScroll(d.scroll.Target()-e.Delta.Y), widget.Quick.Get(th))
 		return true
 	case input.PointerMove:
+		d.over = true
 		if d.drag != nil {
 			d.pointer = e.Pos
 			d.dragTo(e.Pos, th)
@@ -1034,6 +1220,7 @@ func (d *Days) Handle(e input.Event, u *gunim.UI) bool {
 		d.pointer = e.Pos
 		d.hoverAt(e.Pos, th)
 	case input.PointerLeave:
+		d.over = false
 		if d.drag == nil && d.hover != "" {
 			d.hover = ""
 			d.aimLifts(th)
@@ -1046,6 +1233,12 @@ func (d *Days) Handle(e input.Event, u *gunim.UI) bool {
 		d.press(e, th, u)
 		return true
 	case input.PointerUp:
+		if e.Button != input.ButtonPrimary {
+			return false
+		}
+		if d.tap.release(e.Pos) {
+			return true
+		}
 		if d.drag == nil {
 			return false
 		}
@@ -1060,6 +1253,12 @@ func (d *Days) Handle(e input.Event, u *gunim.UI) bool {
 			return true
 		}
 		return eventKeys(e, u, d, d.stops(), d.selected, func(id string) { d.choose(id, u) }, d.Open, d.OnDelete)
+	case input.FocusRing:
+		d.ringed = ringShown(e)
+		u.Invalidate()
+	case input.FocusLost:
+		d.ringed = false
+		u.Invalidate()
 	case input.FocusGained:
 		// Tabbing in chooses the first event, for the keys to move on from.
 		if e.Keyed && d.selected == "" {
@@ -1083,22 +1282,34 @@ func (d *Days) hoverAt(pt geom.Point, th *theme.Live) {
 	}
 }
 
-// press starts what a press at pt starts: a day's heading picks the day, an event is taken hold of, and free time
-// begins a new event.
+// press starts what a press at pt starts: a day's heading picks the day as the pointer lets go, an event is taken
+// hold of, and free time begins a new event. The second press of a double click edits an event, and starts nothing
+// the first one started already.
 func (d *Days) press(e input.PointerDown, th *theme.Live, u *gunim.UI) {
 	pt := e.Pos
+	if r, ok := d.longToggle(); ok && r.Contains(pt) {
+		d.tap.press(r, func() { d.openLong(!d.longOpen, u) })
+		return
+	}
+	if r, ok := d.moreRow(); ok && r.Contains(pt) && d.longMore[d.dayAt(pt.X)] > 0 {
+		i := d.dayAt(pt.X)
+		d.tap.press(geom.Rc(d.colX(i), r.Min.Y, d.colW(), r.Size().H), func() { d.openLong(true, u) })
+		return
+	}
 	if pt.X < gutterW {
 		return
 	}
 	if pt.Y < headerH {
-		if d.OnDay != nil {
-			u.Send(d, d.OnDay(d.day(d.dayAt(pt.X))))
+		if i := d.dayAt(pt.X); e.Clicks <= 1 && d.OnDay != nil {
+			d.tap.press(geom.Rc(d.colX(i), 0, d.colW(), headerH), func() { u.Send(d, d.OnDay(d.day(i))) })
 		}
 		return
 	}
 	if ev, b, on, ok := d.eventAt(pt); ok {
-		if e.Clicks == 2 && d.OnEdit != nil && !ev.Fixed {
-			u.Send(d, d.OnEdit(ev.ID))
+		if e.Clicks > 1 {
+			if d.OnEdit != nil && !ev.Fixed {
+				u.Send(d, d.OnEdit(ev.ID))
+			}
 			return
 		}
 		kind := dragMove
@@ -1112,7 +1323,7 @@ func (d *Days) press(e input.PointerDown, th *theme.Live, u *gunim.UI) {
 			allDay: ev.long(), grab: d.timeAt(d.dayAt(pt.X), pt.Y).Sub(ev.Start)}
 		return
 	}
-	if d.Busy != nil && d.Busy() {
+	if e.Clicks > 1 || (d.Busy != nil && d.Busy()) {
 		return
 	}
 	i := d.dayAt(pt.X)
@@ -1259,6 +1470,7 @@ func (d *Days) release(u *gunim.UI) {
 		return
 	}
 	d.held[g.id] = heldEvent{start: g.start, end: g.end, at: time.Now()}
+	d.holds++
 	if d.OnChange != nil {
 		u.Send(d, d.OnChange(g.id, g.start, g.end))
 	}
@@ -1266,15 +1478,16 @@ func (d *Days) release(u *gunim.UI) {
 
 // event returns the event with id, as the application last gave it, or as the user left it.
 func (d *Days) event(id string) (Event, bool) {
-	for _, e := range d.events {
-		if e.ID == id {
-			if h, ok := d.held[id]; ok {
-				e.Start, e.End = h.start, h.end
-			}
-			return e, true
-		}
+	d.idx = indexOf(d.idx, d.events)
+	i, ok := d.idx.find(id)
+	if !ok {
+		return Event{}, false
 	}
-	return Event{}, false
+	e := d.events[i]
+	if h, ok := d.held[id]; ok {
+		e.Start, e.End = h.start, h.end
+	}
+	return e, true
 }
 
 // Cursor implements [gunim.CursorShaper].
@@ -1289,6 +1502,12 @@ func (d *Days) Cursor(pt geom.Point) input.Cursor {
 			}
 		}
 		return input.CursorArrow
+	}
+	if r, ok := d.longToggle(); ok && r.Contains(pt) {
+		return input.CursorHand
+	}
+	if r, ok := d.moreRow(); ok && r.Contains(pt) && d.longMore[d.dayAt(pt.X)] > 0 {
+		return input.CursorHand
 	}
 	if pt.X < gutterW {
 		return input.CursorArrow
