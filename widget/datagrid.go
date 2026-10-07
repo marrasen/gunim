@@ -477,9 +477,16 @@ func (g *DataGrid) Step(dt time.Duration) bool {
 		}
 		moving = true
 	}
+	// Rows still to come pulse while the grid is painted: one out of
+	// sight lets the window rest. Paint marks them again, and the
+	// engine's step of no time, after a frame is painted, leaves the mark
+	// for the next frame's.
 	if g.pending {
 		g.pulse += dt.Seconds()
 		moving = true
+		if dt > 0 {
+			g.pending = false
+		}
 	}
 	if len(g.gone) > 0 {
 		g.leftAgo += dt.Seconds()

@@ -52,6 +52,9 @@ type LiveGraph struct {
 	// it runs, the window sleeping between, and moves on by the time
 	// that passed.
 	stepped time.Time
+	// painted says the graph was painted since the last step: one out of
+	// sight asks for no frames.
+	painted bool
 	// glow is the head's pulse, and the time the graph has run.
 	glow float64
 	// said is the value the label says, which changes once a second at
@@ -131,8 +134,20 @@ func (g *LiveGraph) weighed(k int) float64 {
 // Step implements [gunim.Animator]: while running, the graph moves on
 // by the time that passed, drawn at liveRate as WakeIn asks, and once
 // stopped, every frame until the head reaches the newest sample and
-// every value has settled.
+// every value has settled. A graph out of sight, on a page not shown,
+// lets the window rest, and catches up once painted again. The engine's
+// step of no time, after a frame is painted, leaves the mark for the
+// next frame's.
 func (g *LiveGraph) Step(dt time.Duration) bool {
+	moving := g.advance(dt) && g.painted
+	if dt > 0 {
+		g.painted = false
+	}
+	return moving
+}
+
+// advance moves the graph on by dt, and reports whether it moves on.
+func (g *LiveGraph) advance(dt time.Duration) bool {
 	now := time.Now()
 	if !g.stepped.IsZero() {
 		// The window slept between the graph's frames: the time that
@@ -183,9 +198,10 @@ func (g *LiveGraph) Step(dt time.Duration) bool {
 // liveRate is how often a running graph draws.
 const liveRate = time.Second / 30
 
-// WakeIn implements [gunim.Waker]: a running graph draws at liveRate.
+// WakeIn implements [gunim.Waker]: a running graph draws at liveRate,
+// while it is painted.
 func (g *LiveGraph) WakeIn() time.Duration {
-	if !g.running {
+	if !g.running || !g.painted {
 		return 0
 	}
 	return liveRate
@@ -201,6 +217,7 @@ func (g *LiveGraph) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children)
 
 // Paint implements [gunim.Node].
 func (g *LiveGraph) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
+	g.painted = true
 	n := len(g.samples)
 	top := float64(g.top.Value())
 	if box.H <= 0 || n < 2 || top <= 0 || g.Span < 2 {
