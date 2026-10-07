@@ -49,8 +49,8 @@ type AddressBar struct {
 func NewAddressBar() *AddressBar {
 	a := &AddressBar{mix: anim.NewFloat(0)}
 	a.Add(a.mix)
-	a.crumbs = &crumbBar{a: a, ring: anim.NewFloat(0)}
-	a.crumbs.Add(a.crumbs.ring)
+	a.crumbs = &crumbBar{a: a, ring: anim.NewFloat(0), shift: anim.NewFloat(0)}
+	a.crumbs.Add(a.crumbs.ring, a.crumbs.shift)
 	a.themed = NewThemed(a.crumbs, crumbTheme)
 	a.field = &addressField{TextField: NewTextField(), a: a}
 	return a
@@ -178,12 +178,19 @@ func (f *addressField) Handle(e input.Event, u *gunim.UI) bool {
 	return f.TextField.Handle(e, u)
 }
 
-// crumbBar shows the places along the path, with the last one at the right edge when they do not all fit.
+// crumbBar shows the places along the path, with the last one at the right edge when they do not all fit. The places
+// slide along to bring the one with the keyboard into view, and a name too long for the bar ends in an ellipsis.
 type crumbBar struct {
 	anim.Group
 	a      *AddressBar
 	crumbs []*crumb
 	ring   *anim.Float
+	// shift is how far right of the last one at the right edge the places sit, to show the one with the keyboard;
+	// most is how far they can go, and size the bar's size, at the last layout.
+	shift *anim.Float
+	most  float32
+	size  geom.Size
+	click clicker
 }
 
 func (c *crumbBar) set(cs []Crumb, u *gunim.UI) {
@@ -203,6 +210,25 @@ func (c *crumbBar) set(cs []Crumb, u *gunim.UI) {
 	for i, n := range c.crumbs {
 		n.setLast(i == len(c.crumbs)-1)
 	}
+	c.shift.Animate(0, Settle.Get(u.Theme()))
+	u.Invalidate()
+}
+
+// crumbEdge is the room the places keep from either end of the bar.
+const crumbEdge = 8
+
+// Reveal implements [gunim.Revealer]: the places slide to bring r, a place given the keyboard, into view.
+func (c *crumbBar) Reveal(r geom.Rect, u *gunim.UI) {
+	to := c.shift.Value()
+	switch {
+	case r.Min.X < crumbEdge:
+		to += crumbEdge - r.Min.X
+	case r.Max.X > c.size.W-crumbEdge:
+		to -= r.Max.X - (c.size.W - crumbEdge)
+	default:
+		return
+	}
+	c.shift.Animate(min(max(to, 0), c.most), Settle.Get(u.Theme()))
 	u.Invalidate()
 }
 
@@ -212,17 +238,23 @@ func (c *crumbBar) TabGroup() {}
 // Layout implements [gunim.Node].
 func (c *crumbBar) Layout(cs gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
 	size := cs.Max
+	c.size = size
+	// Each place fits in the bar, its name cut short where it is longer.
+	room := gunim.Loose(geom.Sz(max(size.W-2*crumbEdge, 1), size.H))
 	total := float32(0)
 	for k := range kids.All {
 		if k.Presence() == gunim.Exiting {
 			continue
 		}
-		total += k.Layout(gunim.Loose(size)).W
+		total += k.Layout(room).W
 	}
-	// When the places overflow, the last ones show
-	x := min(float32(8), size.W-total-8)
+	// When the places overflow, the last ones show, unless the keyboard has
+	// slid them along to show an earlier one.
+	x := min(float32(crumbEdge), size.W-total-crumbEdge)
+	c.most = crumbEdge - x
+	x += min(max(c.shift.Value(), 0), c.most)
 	for k := range kids.All {
-		s := k.Layout(gunim.Loose(size))
+		s := k.Layout(room)
 		cr, _ := k.Node().(*crumb)
 		if k.Presence() == gunim.Exiting {
 			if cr != nil {
@@ -265,8 +297,14 @@ func (c *crumbBar) Handle(e input.Event, u *gunim.UI) bool {
 		if e.Button != input.ButtonPrimary {
 			return false
 		}
-		c.a.Edit(u)
+		c.click.press(e, over(e.Pos, c.size))
 		return true
+	case input.PointerUp:
+		// A click beside the places, pressed and let go there, edits the path.
+		if c.click.release(e, over(e.Pos, c.size)) {
+			c.a.Edit(u)
+		}
+		return e.Button == input.ButtonPrimary
 	case input.KeyPress:
 		if e.Mods != 0 {
 			return false
@@ -360,13 +398,18 @@ func (n *crumb) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) 
 		n.size, n.sep = size, text.Default().Shape("›", size)
 	}
 	kid := kids.At(0)
-	s := kid.Layout(gunim.Loose(c.Max))
+	sep := float32(0)
+	if !n.last {
+		sep = n.sep.Advance + 8
+	}
+	room := c.Max
+	if room.W > 0 {
+		room.W = max(room.W-sep, 1)
+	}
+	s := kid.Layout(gunim.Loose(room))
 	kid.Place(geom.Point{})
 	n.pill = s.W
-	w := s.W
-	if !n.last {
-		w += n.sep.Advance + 8
-	}
+	w := s.W + sep
 	return c.Constrain(geom.Sz(w, s.H))
 }
 
