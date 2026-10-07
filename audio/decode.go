@@ -26,14 +26,14 @@ func Decode(r io.ReadSeeker) (Seeker, error) {
 	if d.rate() == SampleRate {
 		return direct{d}, nil
 	}
-	return newResampler(d), nil
+	return newResampler(d, SampleRate), nil
 }
 
 // DecodeNative returns a source playing the sound r holds at the rate
 // it was recorded at, in stereo, and its format: for work that must keep
 // the sound's own rate, as mastering does, where a sound resampled
-// would come out changed. [Resample] brings such a source to
-// [SampleRate], to play.
+// would come out changed. [Resample] brings such a source to the rate
+// of the mixer playing it, where the two differ.
 func DecodeNative(r io.ReadSeeker) (Seeker, Format, error) {
 	d, err := openDecoder(r)
 	if err != nil {
@@ -42,12 +42,13 @@ func DecodeNative(r io.ReadSeeker) (Seeker, Format, error) {
 	return direct{d}, d.info(), nil
 }
 
-// Resample returns src, a sound at rate, played at [SampleRate].
-func Resample(src Seeker, rate int) Seeker {
-	if rate == SampleRate {
+// Resample returns src, a sound at rate from, played at rate to. Where
+// the two are the same it returns src itself, every sample as it is.
+func Resample(src Seeker, from, to int) Seeker {
+	if from == to {
 		return src
 	}
-	return newResampler(seekerDecoder{src, rate})
+	return newResampler(seekerDecoder{src, from}, to)
 }
 
 // seekerDecoder is a source at a rate of its own, as a decoder.

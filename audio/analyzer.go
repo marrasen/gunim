@@ -15,8 +15,11 @@ type Analyzer struct {
 	window []float32
 	in     []float32
 	fft    []complex128
-	// edges are the bins each band starts at, one more than the bands.
+	// edges are the bins each band starts at, one more than the bands,
+	// at rate, the mixer's rate as they were worked out.
 	edges []int
+	bands int
+	rate  int
 	// Floor is the quietest level a band shows, in decibels: a band
 	// that loud or quieter is at 0. It is -70 by default.
 	Floor float32
@@ -47,27 +50,37 @@ func NewAnalyzer(m *Mixer, bands int) *Analyzer {
 		// A Hann window, so a pitch between two bins stays in them.
 		a.window[i] = float32(0.5 - 0.5*math.Cos(2*math.Pi*float64(i)/float64(size-1)))
 	}
+	a.bands = bands
+	a.place(m.Rate())
+	return a
+}
+
+// place works out the bins each band starts at, for sound at rate.
+func (a *Analyzer) place(rate int) {
+	a.rate = rate
 	lo, hi := math.Log2(40), math.Log2(16000)
-	binHz := float64(SampleRate) / size
-	a.edges = make([]int, bands+1)
+	binHz := float64(rate) / float64(a.size)
+	a.edges = make([]int, a.bands+1)
 	prev := 0
 	for i := range a.edges {
-		hz := math.Exp2(lo + (hi-lo)*float64(i)/float64(bands))
+		hz := math.Exp2(lo + (hi-lo)*float64(i)/float64(a.bands))
 		b := max(1, int(math.Round(hz/binHz)))
 		if i > 0 {
 			// Each band takes at least one bin of its own.
 			b = max(b, prev+1)
 		}
-		a.edges[i] = min(b, size/2)
+		a.edges[i] = min(b, a.size/2)
 		prev = a.edges[i]
 	}
-	return a
 }
 
 // Bands fills out, one value a band, with how loud each band is being
 // heard, from 0, at Floor or quieter, to 1, as loud as a full-scale
 // sine. It returns the level of the whole sound the same way.
 func (a *Analyzer) Bands(out []float32) (level float32) {
+	if r := a.m.Rate(); r != a.rate {
+		a.place(r)
+	}
 	a.m.recent(a.in)
 	var sum float64
 	for i, s := range a.in {
@@ -88,7 +101,7 @@ func (a *Analyzer) Bands(out []float32) (level float32) {
 		}
 		amp := peak / ref
 		if a.Tilt != 0 {
-			octaves := math.Log2(float64(a.edges[b]+a.edges[b+1]) / 2 * SampleRate / float64(a.size) / 40)
+			octaves := math.Log2(float64(a.edges[b]+a.edges[b+1]) / 2 * float64(a.rate) / float64(a.size) / 40)
 			amp *= math.Pow(10, float64(a.Tilt)*max(octaves, 0)/20)
 		}
 		out[b] = a.scale(amp)
@@ -142,7 +155,7 @@ func (a *Analyzer) spectrumOf(freqs, out []float32, before bool) {
 	for k := range sp.mag {
 		sp.mag[k] = cmplx.Abs(sp.fft[k]) / ref
 	}
-	binHz := float64(SampleRate) / spectrumSize
+	binHz := float64(a.m.Rate()) / spectrumSize
 	for i, f := range freqs {
 		if i >= len(out) {
 			break

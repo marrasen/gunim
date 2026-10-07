@@ -29,12 +29,13 @@ package audio
 
 import "time"
 
-// SampleRate is the rate every [Source] gives frames at, in frames a
-// second.
+// SampleRate is the rate a [Mixer] gives frames at until
+// [Mixer.SetRate] sets another, in frames a second. Decoded sounds,
+// clips and cues come at this rate.
 const SampleRate = 48000
 
 // A Source gives sound as frames of two float32 samples, left then
-// right, at [SampleRate], each from -1 to 1.
+// right, at the rate of the mixer playing it, each from -1 to 1.
 type Source interface {
 	// Read fills dst with up to len(dst)/2 frames and returns how many
 	// it filled. It returns io.EOF once the sound has ended, with or
@@ -52,12 +53,18 @@ type Seeker interface {
 	Len() int64
 }
 
-// Frames returns how many frames last d.
-func Frames(d time.Duration) int64 {
-	return int64(d) * SampleRate / int64(time.Second)
+// Frames returns how many frames last d, at [SampleRate].
+func Frames(d time.Duration) int64 { return FramesAt(d, SampleRate) }
+
+// Duration returns how long n frames last, at [SampleRate].
+func Duration(n int64) time.Duration { return DurationAt(n, SampleRate) }
+
+// FramesAt returns how many frames last d at rate.
+func FramesAt(d time.Duration, rate int) int64 {
+	return int64(d) * int64(rate) / int64(time.Second)
 }
 
-// Duration returns how long n frames last.
-func Duration(n int64) time.Duration {
-	return time.Duration(n * int64(time.Second) / SampleRate)
+// DurationAt returns how long n frames last at rate.
+func DurationAt(n int64, rate int) time.Duration {
+	return time.Duration(n * int64(time.Second) / int64(max(rate, 1)))
 }
