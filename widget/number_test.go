@@ -104,15 +104,48 @@ func TestNumberFieldTurnsWithTheWheel(t *testing.T) {
 	n.SetValue(100)
 	n.Step = 5
 	w, run := numberStage(t, n)
-	w.Input(input.Scroll{Pos: geom.Pt(100, 16), Delta: geom.Pt(0, -1)})
+	// The wheel turned up scrolls toward the top, a positive Delta.Y.
+	w.Input(input.Scroll{Pos: geom.Pt(100, 16), Delta: geom.Pt(0, 1)})
 	run(1)
 	if n.Value() != 105 {
 		t.Fatalf("a wheel turn up gave %v, want 105", n.Value())
 	}
-	w.Input(input.Scroll{Pos: geom.Pt(100, 16), Delta: geom.Pt(0, 2)})
+	w.Input(input.Scroll{Pos: geom.Pt(100, 16), Delta: geom.Pt(0, -2)})
 	run(1)
 	if n.Value() != 100 {
 		t.Fatalf("a wheel turn down gave %v, want 100", n.Value())
+	}
+}
+
+func TestANumberFieldWithoutTheKeyboardLeavesTheWheelToWhatScrolls(t *testing.T) {
+	n := NewNumberField(0, 255)
+	n.SetValue(100)
+	n.OnChange = func(v float64) gunim.Intent { return numbered{v} }
+	w, run := stage(t, &frame{child: n, size: geom.Sz(200, 32)})
+	w.Input(input.Scroll{Pos: geom.Pt(100, 16), Delta: geom.Pt(0, 1)})
+	run(1)
+	if got := sent(w); n.Value() != 100 || len(got) != 0 {
+		t.Fatalf("the wheel over a field without the keyboard made %v and sent %v, want 100 and nothing", n.Value(), got)
+	}
+}
+
+func TestADisabledNumberFieldTakesNoWheelOrKeys(t *testing.T) {
+	n := NewNumberField(0, 255)
+	n.SetValue(100)
+	n.OnChange = func(v float64) gunim.Intent { return numbered{v} }
+	w, run := numberStage(t, n)
+	n.Disabled = true
+	run(1)
+	w.Input(input.Scroll{Pos: geom.Pt(100, 16), Delta: geom.Pt(0, 1)})
+	for _, k := range []input.Key{input.KeyUp, input.KeyDown, input.KeyPageUp, input.KeyPageDown} {
+		w.Input(input.KeyPress{Key: k})
+		w.Input(input.KeyPress{Key: k})
+	}
+	n.SetText("300")
+	w.Input(input.KeyPress{Key: input.KeyEnter})
+	run(1)
+	if got := sent(w); n.Value() != 100 || len(got) != 0 {
+		t.Fatalf("disabled, the field made %v and sent %v, want 100 and nothing", n.Value(), got)
 	}
 }
 

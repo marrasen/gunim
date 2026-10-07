@@ -13,8 +13,8 @@ import (
 //
 // It takes typing as a text field does, and adds what a number wants:
 // the up and down arrows step the value, Page Up and Page Down step it
-// ten times as far, the wheel turns it while the pointer is over it,
-// and anything typed is held to Min and Max when the field is left or
+// ten times as far, the wheel turns it while the field has the
+// keyboard and the pointer is over it, and anything typed is held to Min and Max when the field is left or
 // Enter is pressed.
 //
 // Half-typed text is left alone while the field has focus, so a value
@@ -148,7 +148,7 @@ func (n *NumberField) commit(v float64, u *gunim.UI) {
 func (n *NumberField) Handle(e input.Event, u *gunim.UI) bool {
 	switch e := e.(type) {
 	case input.KeyPress:
-		if e.Mods.Has(input.ModControl) || e.Mods.Has(input.ModAlt) {
+		if n.Disabled || e.Mods.Has(input.ModControl) || e.Mods.Has(input.ModAlt) {
 			break
 		}
 		switch e.Key {
@@ -176,11 +176,13 @@ func (n *NumberField) Handle(e input.Event, u *gunim.UI) bool {
 		}
 	case input.Scroll:
 		// Only while the field has the keyboard, so scrolling a panel
-		// does not turn every number the pointer passes over.
-		if e.Delta.Y == 0 {
+		// leaves every number the pointer passes over as it is. The
+		// wheel turned up gives a positive Delta.Y, and turns the value
+		// up.
+		if n.Disabled || e.Delta.Y == 0 || !u.HasFocus(n) {
 			break
 		}
-		n.nudge(math.Copysign(n.step(), -float64(e.Delta.Y)), u)
+		n.nudge(math.Copysign(n.step(), float64(e.Delta.Y)), u)
 		return true
 	case input.FocusLost:
 		n.settle(u)
