@@ -109,12 +109,15 @@ func newPreviewPage(s Preview) *previewPage {
 		if !s.NoReveal {
 			reveal := widget.NewLink("Show in system file manager")
 			reveal.Size = SmallText
-			reveal.On = RevealPath{Path: s.Path}
+			reveal.OnClick = widget.Sends(RevealPath{Path: s.Path})
 			pg.links = append(pg.links, reveal)
 		}
 		copyPath := widget.NewLink("Copy path")
 		copyPath.Size = SmallText
-		copyPath.OnActivate(func(u *gunim.UI) { u.SetClipboard(shown) })
+		copyPath.OnClick = func(u *gunim.UI) gunim.Intent {
+			u.SetClipboard(shown)
+			return nil
+		}
 		pg.links = append(pg.links, copyPath)
 		nodes := make([]gunim.Node, len(pg.links))
 		for i, l := range pg.links {
@@ -129,7 +132,7 @@ func newPreviewPage(s Preview) *previewPage {
 		note.Color, note.Size = Faint, SmallText
 		fetch := widget.NewButton("Download")
 		fetch.Icon = icon.CloudDownload
-		fetch.On = FetchPreview{Path: s.Path}
+		fetch.OnClick = widget.Sends(FetchPreview{Path: s.Path})
 		row := widget.Row(fetch, widget.NewSpacer())
 		kids = append(kids, note, row)
 	}
@@ -201,11 +204,11 @@ func (pg *previewPage) counted(c Counted) {
 	if c.Counting {
 		suffix = " so far"
 	}
-	pg.holds.SetText(c.Items + suffix)
-	pg.size.SetText(c.Size + suffix)
+	pg.holds.Text = c.Items + suffix
+	pg.size.Text = c.Size + suffix
 	if c.Err != "" {
 		pg.holds.Color = ErrorInk
-		pg.holds.SetText(c.Items + " counted, then: " + c.Err)
+		pg.holds.Text = c.Items + " counted, then: " + c.Err
 	}
 }
 

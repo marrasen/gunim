@@ -103,9 +103,9 @@ func newSidebar() *sidebar {
 	// A click on a heading opens or closes its section, and a drag of one
 	// puts the sections in another order. The headings take the keyboard
 	// themselves.
-	s.sections.OnClick = func(k widget.Key) gunim.Intent { return s.toggle(string(k)) }
-	s.sections.ClickOnce, s.sections.NoFocus = true, true
-	s.sections.Reorder = func(keys []widget.Key) gunim.Intent {
+	s.sections.OnActivate = func(k widget.Key, u *gunim.UI) gunim.Intent { return s.toggle(string(k)) }
+	s.sections.ClickOnce, s.sections.SkipFocus = true, true
+	s.sections.OnReorder = func(keys []widget.Key, u *gunim.UI) gunim.Intent {
 		order := make([]string, len(keys))
 		for i, k := range keys {
 			order[i] = string(k)
@@ -118,7 +118,7 @@ func newSidebar() *sidebar {
 	s.hint.Size = SmallText
 	s.favSec = s.newSection(sectionItem{id: FavouritesSection, title: "FAVOURITES"})
 	s.favs = s.favSec.list
-	s.favs.Reorder = func(keys []widget.Key) gunim.Intent {
+	s.favs.OnReorder = func(keys []widget.Key, u *gunim.UI) gunim.Intent {
 		favs := make([]FavouriteAt, len(keys))
 		for i, k := range keys {
 			favs[i] = s.favAt(k)
@@ -226,9 +226,9 @@ func (s *sidebar) set(p Places, u *gunim.UI) {
 		}
 	}
 	if len(p.Favourites) == 0 {
-		s.hint.SetText("Pin a folder here with Ctrl+D.")
+		s.hint.Text = "Pin a folder here with Ctrl+D."
 	} else {
-		s.hint.SetText("")
+		s.hint.Text = ""
 	}
 	u.Invalidate()
 }
@@ -288,7 +288,7 @@ func (s *sidebar) newSection(it sectionItem) *section {
 	}
 	c := &section{s: s, id: it.id, list: widget.NewList(), open: anim.NewFloat(1)}
 	c.Add(c.open)
-	c.list.OnClick = s.goes
+	c.list.OnActivate = func(k widget.Key, _ *gunim.UI) gunim.Intent { return s.goes(k) }
 	// A double click on a place goes there once, and with Ctrl opens
 	// one window, as Explorer's do.
 	c.list.ClickOnce = true

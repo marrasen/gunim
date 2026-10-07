@@ -18,8 +18,8 @@ func TestADataGridReadsAsATable(t *testing.T) {
 	g.Row = func(i int) (GridRow, bool) {
 		return GridRow{Cells: [][]GridSpan{{{Text: "file" + strconv.Itoa(i)}}, {{Text: strconv.Itoa(i) + " KB"}}}}, true
 	}
-	g.OnSelect = func(row int) gunim.Intent { return gridSelected{row} }
-	g.OnHeader = func(c int) gunim.Intent { return gridHeaderPressed{c} }
+	g.OnSelect = func(row int, u *gunim.UI) gunim.Intent { return gridSelected{row} }
+	g.OnHeader = func(c int, u *gunim.UI) gunim.Intent { return gridHeaderPressed{c} }
 	g.rows = 50
 	g.selected = 2
 	w, run := stage(t, &frame{child: g, size: geom.Sz(400, 300)})
@@ -49,7 +49,7 @@ func TestADataGridReadsAsATable(t *testing.T) {
 	size := find(table, access.RoleColumnHeader, "Size")
 	w.Input(access.Request{ID: size.ID, Action: access.ActionPress})
 	run(2)
-	if sel, _ := g.Selected(); sel != 5 {
+	if sel := g.Selected(); sel != 5 {
 		t.Fatalf("pressing a cell of row 5 selected row %d", sel)
 	}
 	if got := sent(w); len(got) != 2 || got[0] != (gridSelected{5}) || got[1] != (gridHeaderPressed{1}) {
@@ -58,7 +58,7 @@ func TestADataGridReadsAsATable(t *testing.T) {
 }
 
 func TestAMenubarAndAProgressBarSayWhatTheyAre(t *testing.T) {
-	bar := NewMenubar(BarMenu{Title: "File", Items: []string{"Open"}}, BarMenu{Title: "Edit", Items: []string{"Copy"}})
+	bar := NewMenubar(BarMenu{Title: "File", Items: Labels("Open")}, BarMenu{Title: "Edit", Items: Labels("Copy")})
 	p := NewProgressBar()
 	w, run := stage(t, &frame{child: Column(bar, p), size: geom.Sz(400, 300)})
 	w.Offscreen().ListenForAccess()
@@ -88,7 +88,7 @@ func TestARowAScreenReaderHoldsStaysThatRowAsTheGridScrolls(t *testing.T) {
 	g.Row = func(i int) (GridRow, bool) {
 		return GridRow{Cells: [][]GridSpan{{{Text: "file" + strconv.Itoa(i)}}}}, true
 	}
-	g.OnSelect = func(row int) gunim.Intent { return gridSelected{row} }
+	g.OnSelect = func(row int, u *gunim.UI) gunim.Intent { return gridSelected{row} }
 	g.rows = 500
 	w, run := stage(t, &frame{child: g, size: geom.Sz(400, 300)})
 	w.Offscreen().ListenForAccess()
@@ -108,7 +108,7 @@ func TestARowAScreenReaderHoldsStaysThatRowAsTheGridScrolls(t *testing.T) {
 	}
 	w.Input(access.Request{ID: row5.ID, Action: access.ActionPress})
 	run(1)
-	if sel, _ := g.Selected(); sel != 5 {
+	if sel := g.Selected(); sel != 5 {
 		t.Fatalf("pressing the row read as file5 after a scroll selected row %d", sel)
 	}
 	scroll(100)

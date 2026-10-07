@@ -79,7 +79,7 @@ type lookPage struct {
 
 func buildLesson5(Look) *lookPage {
 	light := widget.NewSwitch("Light theme")
-	light.OnChange = func(on bool) gunim.Intent { return ThemeChosen{Light: on} }
+	light.OnChange = func(on bool, u *gunim.UI) gunim.Intent { return ThemeChosen{Light: on} }
 	big := widget.NewLabel("Big text")
 	big.Size = bigText
 	primary := widget.NewButton("Primary")
@@ -100,6 +100,6 @@ func buildLesson5(Look) *lookPage {
 	}
 }
 
-// show puts the switch where the state says. SetOn is for exactly
+// show puts the switch where the state says. SetChecked is for exactly
 // this: it moves the switch and leaves the intent to the user's flips.
-func (p *lookPage) show(s Look, u *gunim.UI) { p.light.SetOn(s.Light, u) }
+func (p *lookPage) show(s Look, u *gunim.UI) { p.light.SetChecked(s.Light, u) }

@@ -107,7 +107,9 @@ func TestAToastsActionSendsItsIntentAndDismissesIt(t *testing.T) {
 		}
 		run(1)
 	}
-	on(func(u *gunim.UI) { h.t.Show(Toast{Title: "Copied 3 files", Action: "Undo", On: undone{7}}, u) })
+	on(func(u *gunim.UI) {
+		h.t.Show(Toast{Title: "Copied 3 files", Action: "Undo", OnClick: Sends(undone{7})}, u)
+	})
 	run(40)
 	card := h.t.cards[0]
 	var r, title geom.Rect
@@ -154,12 +156,12 @@ func TestAToastThatAsksStaysTakesNoKeyboardAndAnswersWithItsTickBox(t *testing.T
 	if focused != gunim.Node(h) {
 		t.Fatalf("the host does not have the keyboard to begin with: %v", focused)
 	}
-	answer := func(i int) func(bool) gunim.Intent {
-		return func(c bool) gunim.Intent { return toastAnswer{i, c} }
+	answer := func(i int) func(bool, *gunim.UI) gunim.Intent {
+		return func(c bool, _ *gunim.UI) gunim.Intent { return toastAnswer{i, c} }
 	}
 	ask := Toast{Title: "report.docx changed", Body: "Upload it?", Key: "k", Check: "Don't ask again",
-		Buttons: []ToastButton{{Label: "Upload", On: answer(0)}, {Label: "Not now", On: answer(1)}},
-		Dismiss: answer(-1)}
+		Buttons:   []ToastButton{{Label: "Upload", OnClick: answer(0)}, {Label: "Not now", OnClick: answer(1)}},
+		OnDismiss: answer(-1)}
 	on(func(u *gunim.UI) { h.t.Show(ask, u) })
 	// Well past the life of a toast that only tells.
 	wait(3 * time.Second)
@@ -185,8 +187,8 @@ func TestAToastThatAsksStaysTakesNoKeyboardAndAnswersWithItsTickBox(t *testing.T
 	wait(100 * time.Millisecond)
 	click(w, box.Min.X+4, box.Center().Y)
 	wait(100 * time.Millisecond)
-	if n := h.t.Len(); n != 1 || !card.check.On {
-		t.Fatalf("after clicks on the text and the box, %d toasts show, ticked %v", n, card.check.On)
+	if n := h.t.Len(); n != 1 || !card.check.Checked() {
+		t.Fatalf("after clicks on the text and the box, %d toasts show, ticked %v", n, card.check.Checked())
 	}
 	_ = sent(w)
 	click(w, upload.Center().X, upload.Center().Y)

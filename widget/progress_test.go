@@ -15,7 +15,7 @@ func progressStage(t *testing.T) (b *ProgressBar, set func(float32), run func(in
 	gunim.RegisterView(w, "bar", func(float32) *ProgressBar {
 		b = NewProgressBar()
 		return b
-	}, func(b *ProgressBar, v float32, u *gunim.UI) { b.Set(v, u) })
+	}, func(b *ProgressBar, v float32, u *gunim.UI) { b.SetValue(v, u) })
 	c := w.Client()
 	if err := c.Mount(gunim.Root, "bar", "bar", float32(0), "bar"); err != nil {
 		t.Fatal(err)
@@ -37,10 +37,10 @@ func progressStage(t *testing.T) (b *ProgressBar, set func(float32), run func(in
 func TestAProgressBarGlidesToEachValue(t *testing.T) {
 	b, set, run := progressStage(t)
 	set(0.5)
-	last := b.Value()
+	last := b.Shown()
 	for i := range 60 {
 		run(1)
-		v := b.Value()
+		v := b.Shown()
 		if v < last-0.001 || v > 0.51 {
 			t.Fatalf("frame %d: going to a half, the fill went from %v to %v", i, last, v)
 		}

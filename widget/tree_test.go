@@ -40,7 +40,7 @@ func newTreeStage(t *testing.T) (w *gunim.Window, tr *Tree, run func(int), apply
 	m := treeModel{open: map[Key]bool{}}
 	tr = NewTree()
 	tr.Item = m.item
-	tr.OnActivate = func(k Key) gunim.Intent { return treeActivated{k} }
+	tr.OnActivate = func(k Key, u *gunim.UI) gunim.Intent { return treeActivated{k} }
 	w = gunimtest.New(t, geom.Sz(300, 200), nil)
 	gunim.RegisterView(w, "t", func(struct{}) *Tree { return tr },
 		func(tr *Tree, _ struct{}, u *gunim.UI) { tr.SetKeys(m.keys("", nil), u) })

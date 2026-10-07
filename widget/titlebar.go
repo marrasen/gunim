@@ -40,7 +40,7 @@ func NewTitleBar(title string) *TitleBar {
 // SetTitle implements [gunim.TitleBar]. A bar with a Name goes on showing the Name.
 func (t *TitleBar) SetTitle(title string) {
 	if t.Name == "" {
-		t.title.SetText(title)
+		t.title.Text = title
 	}
 }
 
@@ -60,7 +60,7 @@ func (t *TitleBar) Layout(cs gunim.Constraints, f gunim.Frame, kids gunim.Childr
 	t.controls.NoMinimize, t.controls.NoMaximize, t.controls.NoClose = t.NoMinimize, t.NoMaximize, t.NoClose
 	t.title.AtStart = t.TitleAtStart
 	if t.Name != "" {
-		t.title.SetText(t.Name)
+		t.title.Text = t.Name
 	}
 	h := t.controls.height(f.Theme)
 	w := cs.Max.W

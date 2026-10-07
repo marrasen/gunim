@@ -14,9 +14,11 @@ type followed struct{}
 
 func TestAClickOnALinkRunsItAndSendsItsIntent(t *testing.T) {
 	l := NewLink("show 12 more")
-	l.On = followed{}
 	ran := 0
-	l.OnActivate(func(*gunim.UI) { ran++ })
+	l.OnClick = func(*gunim.UI) gunim.Intent {
+		ran++
+		return followed{}
+	}
 	w, run := stage(t, &frame{child: Row(l), size: geom.Sz(400, 40)})
 	click(w, 5, 5)
 	run(1)
@@ -65,7 +67,7 @@ func TestALinkSqueezedEndsInAnEllipsis(t *testing.T) {
 
 func TestTabReachesALinkAndEnterFollowsIt(t *testing.T) {
 	b, l := NewButton("B"), NewLink("show 12 more")
-	l.On = followed{}
+	l.OnClick = Sends(followed{})
 	w, run := stage(t, &frame{child: Column(b, l), size: geom.Sz(400, 200)})
 	focused := focusProbe(t, w, run)
 	tab(w, run, 0)

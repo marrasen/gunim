@@ -12,7 +12,7 @@ type openedLink struct{ URL string }
 func TestRichTextWrapsAndFollowsItsLinks(t *testing.T) {
 	r := NewRichText(
 		RichSpan{Text: "Read the "},
-		RichSpan{Text: "manual", On: openedLink{"https://example.com"}},
+		RichSpan{Text: "manual", OnClick: Sends(openedLink{"https://example.com"})},
 		RichSpan{Text: " before you report a fault in the particle counter, please.", Face: BoldFont},
 	)
 	w, run := stage(t, &frame{child: r, size: geom.Sz(200, 300)})

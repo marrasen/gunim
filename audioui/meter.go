@@ -29,8 +29,8 @@ type Levels struct {
 }
 
 // NewLevels returns levels of silence.
-func NewLevels() Levels {
-	l := Levels{}
+func NewLevels() *Levels {
+	l := &Levels{}
 	for ch := range 2 {
 		l.Peak[ch], l.RMS[ch], l.Hold[ch], l.Top[ch] = -90, -90, -90, -90
 	}

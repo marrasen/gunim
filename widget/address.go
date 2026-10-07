@@ -32,11 +32,12 @@ type Crumb struct {
 // places as one stop, and the arrow keys, Home and End move between them.
 type AddressBar struct {
 	anim.Group
-	// OnGo is sent with the path of a place picked, or of the path typed in and entered.
-	OnGo func(path string) gunim.Intent
+	// OnGo runs on the UI goroutine with the path of a place picked, or of the path typed in and entered; a non-nil
+	// result is sent as the bar's intent.
+	OnGo func(path string, u *gunim.UI) gunim.Intent
 	// OnDone runs as the field gives the bar back to the places from the keyboard, with Enter or Escape, such as to
-	// hand the keyboard to what the bar shows.
-	OnDone func(u *gunim.UI)
+	// hand the keyboard to what the bar shows. A non-nil result is sent as the bar's intent.
+	OnDone func(u *gunim.UI) gunim.Intent
 
 	crumbs *crumbBar
 	themed gunim.Node
@@ -65,7 +66,7 @@ func (a *AddressBar) SetPath(full string, cs []Crumb, u *gunim.UI) {
 
 // Edit turns the places into a field holding the path, all selected, with the keyboard.
 func (a *AddressBar) Edit(u *gunim.UI) {
-	a.field.SetText(a.path)
+	a.field.SetText(a.path, u)
 	a.field.Select(0, len([]rune(a.path)))
 	a.show(true, u)
 	u.Focus(a.field)
@@ -110,7 +111,7 @@ func (a *AddressBar) show(editing bool, u *gunim.UI) {
 func (a *AddressBar) stopEdit(u *gunim.UI, done bool) {
 	a.show(false, u)
 	if done && a.OnDone != nil {
-		a.OnDone(u)
+		send(u, a, a.OnDone(u))
 	}
 }
 
@@ -162,9 +163,7 @@ func (f *addressField) Handle(e input.Event, u *gunim.UI) bool {
 			return true
 		case input.KeyEnter, input.KeyKPEnter:
 			if f.a.OnGo != nil {
-				if v := f.a.OnGo(f.Text()); v != nil {
-					u.Send(f.a, v)
-				}
+				send(u, f.a, f.a.OnGo(f.Text(), u))
 			}
 			f.a.stopEdit(u, true)
 			return true
@@ -190,7 +189,7 @@ type crumbBar struct {
 	shift *anim.Float
 	most  float32
 	size  geom.Size
-	click clicker
+	click Clicker
 }
 
 func (c *crumbBar) set(cs []Crumb, u *gunim.UI) {
@@ -283,7 +282,7 @@ func (c *crumbBar) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gu
 			k.Paint(p)
 		}
 	}()
-	groupRing(p, r, radius, c.ring.Value(), th)
+	GroupRing(p, r, radius, c.ring.Value(), th)
 }
 
 // Handle implements [gunim.Handler]: the ring follows the keyboard, a press beside the places edits the path, and
@@ -297,11 +296,11 @@ func (c *crumbBar) Handle(e input.Event, u *gunim.UI) bool {
 		if e.Button != input.ButtonPrimary {
 			return false
 		}
-		c.click.press(e, over(e.Pos, c.size))
+		c.click.Press(e, over(e.Pos, c.size))
 		return true
 	case input.PointerUp:
 		// A click beside the places, pressed and let go there, edits the path.
-		if c.click.release(e, over(e.Pos, c.size)) {
+		if c.click.Release(e, over(e.Pos, c.size)) {
 			c.a.Edit(u)
 		}
 		return e.Button == input.ButtonPrimary
@@ -355,16 +354,15 @@ func newCrumb(c Crumb, a *AddressBar) *crumb {
 	n := &crumb{path: c.Path, btn: NewButton(c.Name), in: anim.NewFloat(0), a: a}
 	n.Add(n.in)
 	n.btn.Ghost, n.btn.KeepFocus = true, true
-	n.btn.OnActivate(func(u *gunim.UI) {
+	n.btn.OnClick = func(u *gunim.UI) gunim.Intent {
 		switch {
 		case n.last:
 			a.Edit(u)
 		case a.OnGo != nil:
-			if v := a.OnGo(n.path); v != nil {
-				u.Send(a, v)
-			}
+			send(u, a, a.OnGo(n.path, u))
 		}
-	})
+		return nil
+	}
 	return n
 }
 

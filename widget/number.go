@@ -34,56 +34,51 @@ type NumberField struct {
 	// Suffix is written after the number, such as " ms". It is not part
 	// of what the user types.
 	Suffix string
-	// OnChange turns a new value into an intent for the application. It
-	// runs when the text can be read as a number, and again when the
-	// field is left or Enter is pressed and the value had to be held to
-	// the bounds.
-	// It shadows the text field's own OnChange, which takes a string;
-	// reach that one, if ever you want it, through TextField.
-	OnChange func(v float64) gunim.Intent
+	// OnChange runs on the UI goroutine with a new value: when the text
+	// can be read as a number, and again when the field is left or Enter
+	// is pressed and the value had to be held to the bounds. It may act
+	// in the window through u, such as a slider beside the field that
+	// follows it; a non-nil result is sent to the application as the
+	// field's intent. It shadows the text field's own OnChange, which
+	// takes a string and which the number field uses itself.
+	OnChange func(v float64, u *gunim.UI) gunim.Intent
 
 	value float64
-	set   func(v float64, u *gunim.UI)
 }
-
-// OnSet wires behaviour that runs inside the window as the value
-// changes, such as a slider beside the field that follows it.
-func (n *NumberField) OnSet(fn func(v float64, u *gunim.UI)) { n.set = fn }
 
 // NewNumberField returns a field holding lo, bounded by lo and hi.
 func NewNumberField(lo, hi float64) *NumberField {
 	n := &NumberField{TextField: NewTextField(), Min: lo, Max: hi, value: lo}
-	n.TextField.SetText(n.format(lo))
-	n.TextField.OnEdit = func(s string, u *gunim.UI) {
+	n.SetText(n.format(lo), nil)
+	n.TextField.OnChange = func(s string, u *gunim.UI) gunim.Intent {
 		v, ok := parseNumber(s)
 		if !ok {
-			return
+			return nil
 		}
 		// While typing, the value is taken as it reads. Holding it to
 		// the bounds mid-word would fight the fingers: typing 1 on the
 		// way to 12 would jump to the minimum.
 		n.value = v
-		if n.set != nil {
-			n.set(v, u)
-		}
 		if n.OnChange != nil {
-			u.Send(n, n.OnChange(v))
+			send(u, n, n.OnChange(v, u))
 		}
+		return nil
 	}
-	// The text field's own OnChange and OnSubmit stay unset: they would
-	// send from a node that is not in the tree. Everything this field
-	// reports goes out from the field itself.
+	// The text field's own OnChange returns nothing to send, and its
+	// OnCommit stays unset: they would send from a node that is not in
+	// the tree. Everything this field reports goes out from the field
+	// itself.
 	return n
 }
 
 // Value returns the number the field holds.
 func (n *NumberField) Value() float64 { return n.value }
 
-// SetValue sets the value and rewrites the text. Call it from a view's
-// update function.
-func (n *NumberField) SetValue(v float64) {
+// SetValue sets the value, held to Min and Max, rewrites the text, and
+// sends no intent. u may be nil, as before the field is laid out.
+func (n *NumberField) SetValue(v float64, u *gunim.UI) {
 	n.value = n.clamp(v)
-	n.TextField.SetText(n.format(n.value))
+	n.SetText(n.format(n.value), u)
 }
 
 func (n *NumberField) clamp(v float64) float64 {
@@ -130,16 +125,12 @@ func (n *NumberField) commit(v float64, u *gunim.UI) {
 	v = n.clamp(v)
 	changed := v != n.value
 	n.value = v
-	n.TextField.SetText(n.format(v))
-	u.Invalidate()
+	n.SetText(n.format(v), u)
 	if !changed {
 		return
 	}
-	if n.set != nil {
-		n.set(v, u)
-	}
 	if n.OnChange != nil {
-		u.Send(n, n.OnChange(v))
+		send(u, n, n.OnChange(v, u))
 	}
 }
 
@@ -169,8 +160,8 @@ func (n *NumberField) Handle(e input.Event, u *gunim.UI) bool {
 			// The field's own Handle never sees Enter, so the
 			// submission is sent from here, where the node is the one
 			// the tree knows.
-			if n.OnSubmit != nil {
-				u.Send(n, n.OnSubmit(n.Text()))
+			if n.OnCommit != nil {
+				send(u, n, n.OnCommit(n.Text(), u))
 			}
 			return true
 		}

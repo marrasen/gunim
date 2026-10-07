@@ -119,7 +119,7 @@ func (s *Split) Access() access.Info {
 	}
 	at := s.firstLength()
 	bounds := geom.Rc(at, 0, s.gap, s.own.H)
-	if s.Vertical {
+	if s.Axis == Vertical {
 		bounds = geom.Rc(0, at, s.own.W, s.gap)
 	}
 	return access.Info{Role: access.RoleGroup, Parts: []access.Info{{
@@ -129,17 +129,13 @@ func (s *Split) Access() access.Info {
 }
 
 // AccessAct implements [gunim.AccessActor]: a new value for the divider
-// moves it there, and tells OnMove.
+// moves it there, and runs OnCommit.
 func (s *Split) AccessAct(r access.Request, u *gunim.UI) bool {
 	if !r.SetValue || r.Part != 0 {
 		return false
 	}
-	s.SetShare(float32(r.Value), Quick.Get(u.Theme()))
-	if s.OnMove != nil {
-		if v := s.OnMove(s.share.Target()); v != nil {
-			u.Send(s, v)
-		}
-	}
+	s.SetShare(float32(r.Value), u)
+	s.moved(u)
 	u.Invalidate()
 	return true
 }

@@ -69,9 +69,6 @@ type textSelection struct {
 // NewLabel returns a label showing s.
 func NewLabel(s string) *Label { return &Label{Text: s, Size: TextSize, Color: Ink} }
 
-// SetText changes the text. Call it from a view's update function.
-func (l *Label) SetText(s string) { l.Text = s }
-
 func (l *Label) paragraph(f gunim.Frame, width float32) text.Paragraph {
 	if l.NoWrap {
 		// A width of zero sets each line unbroken.
@@ -80,10 +77,10 @@ func (l *Label) paragraph(f gunim.Frame, width float32) text.Paragraph {
 	return l.laid.layout(faceIn(l.Face, f.Theme), l.Text, text.Style{Size: l.Size.Get(f.Theme), Align: l.Align, MaxLines: l.MaxLines}, width)
 }
 
-// minWidth is the width of the label's widest word: a row that runs short
+// MinWidth implements [Shrinker]. It is the width of the label's widest word: a row that runs short
 // squeezes the label no narrower, where it can, so it wraps between
 // words. A label that keeps its lines whole scrolls, and takes any width.
-func (l *Label) minWidth(f gunim.Frame) float32 {
+func (l *Label) MinWidth(f gunim.Frame) float32 {
 	if l.NoWrap {
 		return 0
 	}

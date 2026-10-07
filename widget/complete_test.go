@@ -71,9 +71,9 @@ func TestEscapeClosesTheListForTheWordAndATriggerInAWordBeginsNothing(t *testing
 func TestNewTextClosesTheListAndEnterSends(t *testing.T) {
 	wr := newMentioner(t)
 	sent := ""
-	wr.area.OnSubmit = func(s string) gunim.Intent { sent = s; return nil }
+	wr.area.OnCommit = func(s string, u *gunim.UI) gunim.Intent { sent = s; return nil }
 	wr.typeText("Ask @an")
-	wr.area.SetText("hi")
+	wr.area.SetText("hi", nil)
 	wr.run(1)
 	if wr.area.completing != nil {
 		t.Fatal("the list stayed open over new text")
@@ -90,7 +90,7 @@ func TestEscapeIsForgottenWithTheText(t *testing.T) {
 	wr.typeText("@xy")
 	wr.w.Input(input.KeyPress{Key: input.KeyEscape})
 	wr.run(1)
-	wr.area.SetText("")
+	wr.area.SetText("", nil)
 	wr.run(1)
 	wr.typeText("@")
 	if wr.area.completing == nil {

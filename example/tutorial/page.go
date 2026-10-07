@@ -103,22 +103,26 @@ func newPage(i int, intro string, demo gunim.Node, source string) *page {
 	// lesson and back.
 	p.code = widget.NewCodeEditor()
 	p.code.Label = lessonFile(i)
-	p.code.SetText(source)
-	p.code.OnChange = func(s string) gunim.Intent { return Edited{Lesson: i, Source: s} }
+	p.code.SetText(source, nil)
+	p.code.OnChange = func(s string, u *gunim.UI) gunim.Intent { return Edited{Lesson: i, Source: s} }
 
 	title := widget.NewLabel(lessonFile(i))
 	title.Size = widget.HeadingSize
 	p.status = widget.NewLabel("")
 	p.status.Color = widget.Placeholder
 	p.run = widget.NewButton("Run")
-	p.run.Icon, p.run.Kind, p.run.On = icon.Play, widget.ButtonPrimary, RunAsked{Lesson: i}
+	p.run.Icon, p.run.Kind = icon.Play, widget.ButtonPrimary
+	p.run.OnClick = widget.Sends(RunAsked{Lesson: i})
 	p.run.Tooltip = "Build the tutorial with this file as it is now, and open it on this lesson"
 	p.stop = widget.NewButton("Stop")
-	p.stop.Icon, p.stop.On, p.stop.Disabled = icon.Square, StopAsked{}, true
+	p.stop.Icon, p.stop.Disabled = icon.Square, true
+	p.stop.OnClick = widget.Sends(StopAsked{})
 	format := widget.NewButton("Format")
-	format.Icon, format.On, format.Tooltip = icon.WandSparkles, FormatAsked{Lesson: i}, "Format the code as gofmt does"
+	format.Icon, format.Tooltip = icon.WandSparkles, "Format the code as gofmt does"
+	format.OnClick = widget.Sends(FormatAsked{Lesson: i})
 	reset := widget.NewButton("Revert")
-	reset.Icon, reset.On, reset.Tooltip = icon.RotateCcw, ResetAsked{Lesson: i}, "Put the file back as it was; Ctrl+Z brings your edits back"
+	reset.Icon, reset.Tooltip = icon.RotateCcw, "Put the file back as it was; Ctrl+Z brings your edits back"
+	reset.OnClick = widget.Sends(ResetAsked{Lesson: i})
 	spacer := widget.NewSpacer()
 	bar := widget.Row(title, p.status, spacer, format, reset, p.stop, p.run).Grow(spacer, 1)
 	bar.Cross = widget.CrossCenter

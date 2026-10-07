@@ -19,9 +19,9 @@ func openPicker(t *testing.T) (*EmojiPicker, *gunim.Window, func(int), *[]string
 		t.Skip("no colour emoji font here")
 	}
 	var picked []string
-	picker := &EmojiPicker{Pick: func(s string, _ *gunim.UI) { picked = append(picked, s) }}
+	picker := &EmojiPicker{OnPick: func(s string, _ *gunim.UI) gunim.Intent { picked = append(picked, s); return nil }}
 	button := NewButton("Emoji")
-	button.OnActivate(func(u *gunim.UI) { picker.Open(button, geom.Rc(0, 0, 80, 36), u) })
+	button.OnClick = func(u *gunim.UI) gunim.Intent { picker.Open(button, geom.Rc(0, 0, 80, 36), u); return nil }
 	w, run := stage(t, &frame{child: button, size: geom.Sz(120, 36)})
 	w.Input(input.PointerDown{Pos: geom.Pt(20, 18), Button: input.ButtonPrimary, Clicks: 1})
 	w.Input(input.PointerUp{Pos: geom.Pt(20, 18), Button: input.ButtonPrimary})

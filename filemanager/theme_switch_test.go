@@ -43,7 +43,7 @@ func TestTheThemeGlidesToLightAndIsSaved(t *testing.T) {
 	}
 	for m, cmds := range h.b.title.cmds {
 		for i, c := range cmds {
-			if on := h.b.title.bar.Menus[m].Checked[i]; (c == CmdThemeLight || c == CmdThemeDark) && on != (c == CmdThemeLight) {
+			if on := h.b.title.bar.Menus[m].Items[i].Checked; (c == CmdThemeLight || c == CmdThemeDark) && on != (c == CmdThemeLight) {
 				t.Fatalf("the menu item for %s is ticked %v", c, on)
 			}
 		}

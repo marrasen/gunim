@@ -64,7 +64,7 @@ var lesson2 = lesson{
 
 const lesson2Intro = `A gunim program is two halves that speak only in values. The **window half** owns the nodes and runs on the window's goroutine. The **application half** owns the work and runs on a goroutine of its own, here in ` + "`serve`" + ` in main.go.
 
-A button's ` + "`On`" + ` field is the intent it sends when pressed. It is a plain value, so the wiring is data. The application reads intents from ` + "`Client.Intents`" + `, changes its state, and hands the view fresh state with ` + "`Client.Update`" + `. The view's update function turns that state into what the nodes show.
+A button's ` + "`OnClick`" + ` runs when it is pressed, and the intent it returns goes to the application. ` + "`widget.Sends`" + ` makes one that returns a plain value, so the wiring is data. The application reads intents from ` + "`Client.Intents`" + `, changes its state, and hands the view fresh state with ` + "`Client.Update`" + `. The view's update function turns that state into what the nodes show.
 
 Press the button: the click travels to the application as ` + "`Clicked`" + `, the count goes up there, and ` + "`Counter`" + ` comes back. The count on screen is the application's, every time.
 
@@ -85,9 +85,9 @@ func buildLesson2(Counter) *counterPage {
 	count.Size = widget.HeadingSize
 	press := widget.NewButton("Press me")
 	press.Kind = widget.ButtonPrimary
-	press.On = Clicked{}
+	press.OnClick = widget.Sends(Clicked{})
 	reset := widget.NewButton("Reset")
-	reset.On = Reset{}
+	reset.OnClick = widget.Sends(Reset{})
 	b := newBump(count)
 	row := widget.Row(press, reset, b)
 	row.Cross = widget.CrossCenter

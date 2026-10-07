@@ -14,7 +14,7 @@ func sameAsFresh(t *testing.T, c *CodeEditor, what string) {
 	t.Helper()
 	f := NewCodeEditor()
 	f.Highlight = c.Highlight
-	f.SetText(c.Text())
+	f.SetText(c.Text(), nil)
 	f.preedit, f.caret, f.anchor = c.preedit, c.caret, c.anchor
 	f.relayout(nil)
 	// Lay out the lines whose colours changed, as showing them does.
@@ -60,7 +60,7 @@ func layOutEdits(t *testing.T, r *rand.Rand) {
 		src = append(src, bits[r.IntN(len(bits))]...)
 	}
 	c := NewCodeEditor()
-	c.SetText(string(src))
+	c.SetText(string(src), nil)
 	c.relayout(nil)
 	sameAsFresh(t, c, "at first")
 	for i := range 100 {
@@ -82,7 +82,7 @@ func layOutEdits(t *testing.T, r *rand.Rand) {
 
 func TestAnOpenedCommentColoursTheCodeAfterIt(t *testing.T) {
 	c := NewCodeEditor()
-	c.SetText(bigCode(2000))
+	c.SetText(bigCode(2000), nil)
 	c.relayout(nil)
 	kinds := func(l codeLine) []string {
 		out := make([]string, 0, len(l.toks))

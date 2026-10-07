@@ -32,35 +32,21 @@ import (
 // keep the highlight in view. It draws only the rows in view, so a
 // list of many thousands costs about what a short one does a frame. A
 // menu wider than its box or the screen cuts its items' text short.
+//
+// Its items are [MenuItem]s, given to [NewMenu] and changed with
+// [Menu.SetItems]. The menu works out what it needs of them once, as they
+// are set: its width, and where its lines and captions are.
 type Menu struct {
 	anim.Group
 
-	// Items are the menu's lines. The menu measures them for its width
-	// when it is given a new slice of them: a change goes in a new slice.
-	Items []string
-	// Hints, Checked and Disabled say more about the items, in the same
-	// order, and may be shorter than Items. A hint shows at the right,
-	// such as the item's shortcut. A checked item has a tick before it.
-	// A disabled item is dimmed, and the pointer and the keys pass it
-	// by.
-	Hints    []string
-	Checked  []bool
-	Disabled []bool
-	// Icons shows an icon before each item's text, in the same order, and may be shorter than Items.
-	Icons []*icon.Icon
-	// Swatches shows a dot of each colour before its item's text, in place of an icon, as for a choice of calendars
-	// or labels by their colours. It may be shorter than Items, and a colour with no alpha shows none.
-	Swatches []color.NRGBA
-	// Breaks lists the items a line goes above, grouping the menu.
-	Breaks []int
-	// Captions lists the items that are captions over the group below
-	// them: drawn small and dim, and passed by like a disabled item.
-	Captions []int
-	// Pick runs on the UI goroutine with the index of the item picked.
-	Pick func(i int, u *gunim.UI)
-	// OnHighlight runs on the UI goroutine when the pointer or a key
-	// moves the highlight, with the item it moved to, or -1.
-	OnHighlight func(i int, u *gunim.UI)
+	// OnPick runs on the UI goroutine with the index of the item picked,
+	// by a click, Enter, Space or its access key. It may act in the
+	// window through u, as closing the popup the menu is in; a non-nil
+	// result is sent to the application as the menu's intent.
+	OnPick func(i int, u *gunim.UI) gunim.Intent
+	// OnHighlight runs, in the same way, when the pointer or a key moves
+	// the highlight, with the item it moved to, or -1.
+	OnHighlight func(i int, u *gunim.UI) gunim.Intent
 	// MinWidth is the narrowest the menu gets, so a drop-down's list is
 	// at least as wide as the drop-down.
 	MinWidth float32
@@ -70,6 +56,10 @@ type Menu struct {
 
 	// cues underlines the access keys.
 	cues bool
+
+	// list is the items, with what the menu needs to know of them. fresh says they were set since the last layout.
+	list  *menuList
+	fresh bool
 
 	hot int
 	// picks counts the lines picked, so a highlight moved on the way to
@@ -84,20 +74,11 @@ type Menu struct {
 	shown map[int]*menuRow
 	// ell and smallEll are an ellipsis for an item's text and for a caption's, for text cut short.
 	ell, smallEll shapedText
-	// lines and heads are Breaks and Captions sorted, for search, made again when either slice changes, from
-	// linesOf and headsOf.
-	lines, heads     []int
-	linesOf, headsOf []int
 	// widest is the widest item's text with its hint, measured once for what widthOf names.
 	widest  float32
 	widthOf menuWidth
 	// gut and iconSpace are the room before the items' text for ticks and for icons, from the last layout.
 	gut, iconSpace float32
-	// keys lists the items by their access keys, made on the first key typed for the items in keysOf.
-	keys   map[rune][]int
-	keysOf []string
-	// rowsOf is the items of the last layout. New items put the view and the highlight back among the rows at once.
-	rowsOf []string
 	// card is where the menu is drawn in its box, row and pad the row
 	// height and the space around the rows, all from the last layout.
 	card        geom.Rect
@@ -126,20 +107,95 @@ type Menu struct {
 // menuRow is an item's text and hint, shaped.
 type menuRow struct{ label, hint shapedText }
 
-// menuWidth is what a list of items was measured from: the items and their hints, by their arrays and lengths, the
-// face and size, and whether the access keys' marks were left out.
+// MenuItem is a line of a [Menu], and of the menus of a [Dropdown], a [MenuButton], a [ContextMenu] and a
+// [BarMenu].
+type MenuItem struct {
+	// Label is the item's text. With [Menu.AccessKeys] it may mark its access key with a & before the letter.
+	Label string
+	// Hint shows at the right, such as the item's shortcut.
+	Hint string
+	// Icon shows before the label, in the label's colour.
+	Icon *icon.Icon
+	// Swatch shows a dot of a colour before the label, where there is no icon, as for a choice of calendars by
+	// their colours. A colour with no alpha shows none.
+	Swatch color.NRGBA
+	// Checked puts a tick before the item.
+	Checked bool
+	// Disabled dims the item, and the pointer and the keys pass it by.
+	Disabled bool
+	// Caption makes the item a caption over the group below it: drawn small and dim, and passed by as a disabled
+	// item is.
+	Caption bool
+	// Break draws a line above the item, grouping the menu. A line above the first item draws nothing.
+	Break bool
+}
+
+// Labels returns an item for each label, for a menu of plain lines.
+func Labels(labels ...string) []MenuItem {
+	items := make([]MenuItem, len(labels))
+	for i, s := range labels {
+		items[i].Label = s
+	}
+	return items
+}
+
+// menuList is a list of items with what a menu needs to know of them, worked out once as they are set: the lines
+// and captions sorted for search, whether any item has a tick and any an icon, and the items that can be widest.
+// A drop-down shares its list with the menu it opens.
+type menuList struct {
+	items []MenuItem
+	// lines are the items a line goes above, past the first, and heads the captions, both in order.
+	lines, heads []int
+	ticks, icons bool
+	// longest are the items with the most runes, and hinted those with a hint, which together hold the widest.
+	longest, hinted []int
+	// keys lists the items by their access keys, made on the first key typed.
+	keys map[rune][]int
+}
+
+// newMenuList returns items with what a menu needs to know of them.
+func newMenuList(items []MenuItem) *menuList {
+	l := &menuList{items: items}
+	// One pass: a long list is read from memory once.
+	top := newRuneTop(menuMeasured)
+	var ticks, icons bool
+	for i := range items {
+		it := &items[i]
+		top.see(i, it.Label)
+		// Most items are plain lines, with none of these.
+		if it.Hint != "" || it.Icon != nil || it.Swatch != (color.NRGBA{}) || it.Checked || it.Caption || it.Break {
+			if it.Break && i > 0 {
+				l.lines = append(l.lines, i)
+			}
+			if it.Caption {
+				l.heads = append(l.heads, i)
+			}
+			if it.Hint != "" {
+				l.hinted = append(l.hinted, i)
+			}
+			ticks = ticks || it.Checked
+			icons = icons || it.Icon != nil || it.Swatch.A > 0
+		}
+	}
+	l.ticks, l.icons, l.longest = ticks, icons, top.top
+	return l
+}
+
+// menuWidth is what a list of items was measured from: the list, the face and size, whether the access keys' marks
+// were left out, and whether the labels alone were, with no hints.
 type menuWidth struct {
-	items, hints *string
-	n, nh        int
-	face         *text.Face
-	size         float32
-	access       bool
+	list       *menuList
+	face       *text.Face
+	size       float32
+	access     bool
+	labelsOnly bool
 }
 
 // NewMenu returns a menu of items, with nothing highlighted.
-func NewMenu(items ...string) *Menu {
+func NewMenu(items []MenuItem) *Menu {
 	m := &Menu{
-		Items: items,
+		list:  newMenuList(items),
+		fresh: true,
 		hot:   -1,
 		hotY:  anim.NewFloat(0),
 		hotOn: anim.NewFloat(0),
@@ -150,6 +206,24 @@ func NewMenu(items ...string) *Menu {
 	m.Add(m.hotY, m.hotOn, m.in, &m.scroll)
 	return m
 }
+
+// Items returns the menu's items.
+func (m *Menu) Items() []MenuItem { return m.list.items }
+
+// SetItems makes items the menu's items. The menu keeps the slice: a change to it goes through SetItems again. The
+// highlight stays on its item where that is still enabled, and the view and the highlight come back among the rows
+// at once.
+func (m *Menu) SetItems(items []MenuItem) { m.setList(newMenuList(items)) }
+
+// setList makes l the menu's list.
+func (m *Menu) setList(l *menuList) {
+	if l != m.list {
+		m.list, m.fresh = l, true
+	}
+}
+
+// len returns how many items there are.
+func (m *Menu) len() int { return len(m.list.items) }
 
 func flag(list []bool, i int) bool { return i >= 0 && i < len(list) && list[i] }
 
@@ -164,43 +238,17 @@ func headOf[T any](s []T) *T {
 // sameSlice reports whether a and b are the same elements of the same array.
 func sameSlice[T any](a, b []T) bool { return len(a) == len(b) && headOf(a) == headOf(b) }
 
-// sortedSet returns the items of list at or past from, sorted, each once, for search.
-func sortedSet(list []int, from int) []int {
-	out := make([]int, 0, len(list))
-	for _, i := range list {
-		if i >= from {
-			out = append(out, i)
-		}
-	}
-	slices.Sort(out)
-	return slices.Compact(out)
-}
-
-// marks sorts Breaks and Captions for search, when either has changed.
-func (m *Menu) marks() {
-	if m.lines == nil || !sameSlice(m.linesOf, m.Breaks) {
-		// A line above the first item draws nothing and takes no room.
-		m.lines, m.linesOf = sortedSet(m.Breaks, 1), m.Breaks
-	}
-	if m.heads == nil || !sameSlice(m.headsOf, m.Captions) {
-		m.heads, m.headsOf = sortedSet(m.Captions, 0), m.Captions
-	}
-}
-
 // isCaption reports whether item i is a caption.
-func (m *Menu) isCaption(i int) bool {
-	_, ok := slices.BinarySearch(m.heads, i)
-	return ok
-}
+func (m *Menu) isCaption(i int) bool { return i >= 0 && i < m.len() && m.list.items[i].Caption }
 
 func (m *Menu) enabled(i int) bool {
-	return i >= 0 && i < len(m.Items) && !flag(m.Disabled, i) && !m.isCaption(i)
+	return i >= 0 && i < m.len() && !m.list.items[i].Disabled && !m.list.items[i].Caption
 }
 
 // step returns the enabled item from i on, going by dir, or from
 // staying where it is when there is none.
 func (m *Menu) step(from, i, dir int) int {
-	for ; i >= 0 && i < len(m.Items); i += dir {
+	for ; i >= 0 && i < m.len(); i += dir {
 		if m.enabled(i) {
 			return i
 		}
@@ -211,7 +259,7 @@ func (m *Menu) step(from, i, dir int) int {
 // around returns the next enabled item from the highlight, going dir, and round from one end to the other, as menus
 // do on Windows. With nothing highlighted, Down starts at the first item and Up at the last.
 func (m *Menu) around(dir int) int {
-	n := len(m.Items)
+	n := m.len()
 	at := m.hot
 	if at < 0 && dir < 0 {
 		at = n
@@ -228,10 +276,9 @@ func (m *Menu) around(dir int) int {
 // Highlight moves the highlight to item i, gliding from where it was.
 // A negative i, or a disabled item, takes it away.
 func (m *Menu) Highlight(i int) {
-	m.marks()
 	m.follow = false
-	if i >= len(m.Items) {
-		i = len(m.Items) - 1
+	if i >= m.len() {
+		i = m.len() - 1
 	}
 	if !m.enabled(i) {
 		i = -1
@@ -252,7 +299,7 @@ func (m *Menu) Highlight(i int) {
 
 // reveal scrolls just far enough to bring item i fully into view.
 func (m *Menu) reveal(i int) {
-	if !m.scroll.scrollable() || i < 0 || i >= len(m.Items) {
+	if !m.scroll.scrollable() || i < 0 || i >= m.len() {
 		return
 	}
 	top, at := m.top(i), m.scroll.base()
@@ -313,7 +360,6 @@ func (m *Menu) Highlighted() int { return m.hot }
 // pass keys on. It reports whether it used the key.
 func (m *Menu) Key(k input.KeyPress, u *gunim.UI) bool {
 	defer m.toldUnlessPicked(m.hot, m.picks, u)
-	m.marks()
 	switch k.Key {
 	case input.KeyDown:
 		m.Highlight(m.around(1))
@@ -322,9 +368,9 @@ func (m *Menu) Key(k input.KeyPress, u *gunim.UI) bool {
 	case input.KeyHome:
 		m.Highlight(m.step(m.hot, 0, 1))
 	case input.KeyEnd:
-		m.Highlight(m.step(m.hot, len(m.Items)-1, -1))
+		m.Highlight(m.step(m.hot, m.len()-1, -1))
 	case input.KeyEnter, input.KeyKPEnter, input.KeySpace:
-		if m.enabled(m.hot) && m.Pick != nil {
+		if m.enabled(m.hot) && m.OnPick != nil {
 			m.pick(m.hot, u)
 		}
 	default:
@@ -354,7 +400,7 @@ func (m *Menu) pickByKey(k input.KeyPress, u *gunim.UI) bool {
 		return false
 	}
 	m.Highlight(on[0])
-	if len(on) == 1 && m.Pick != nil {
+	if len(on) == 1 && m.OnPick != nil {
 		m.pick(on[0], u)
 	}
 	return true
@@ -363,23 +409,24 @@ func (m *Menu) pickByKey(k input.KeyPress, u *gunim.UI) bool {
 // keyed returns the items whose access key is r, in order, from a list of the items by their keys, made once for
 // the items.
 func (m *Menu) keyed(r rune) []int {
-	if m.keys == nil || !sameSlice(m.keysOf, m.Items) {
-		m.keys, m.keysOf = map[rune][]int{}, m.Items
-		for i, s := range m.Items {
-			if _, key, _ := accessKey(s); key != 0 {
-				m.keys[key] = append(m.keys[key], i)
+	l := m.list
+	if l.keys == nil {
+		l.keys = map[rune][]int{}
+		for i := range l.items {
+			if _, key, _ := accessKey(l.items[i].Label); key != 0 {
+				l.keys[key] = append(l.keys[key], i)
 			}
 		}
 	}
-	return m.keys[r]
+	return l.keys[r]
 }
 
 // label returns item i as it is drawn: without its access key's mark, with AccessKeys.
 func (m *Menu) label(i int) string {
 	if !m.AccessKeys {
-		return m.Items[i]
+		return m.list.items[i].Label
 	}
-	shown, _, _ := accessKey(m.Items[i])
+	shown, _, _ := accessKey(m.list.items[i].Label)
 	return shown
 }
 
@@ -402,7 +449,6 @@ func (m *Menu) Transition(p gunim.Presence, f gunim.Frame) bool {
 // Handle implements [gunim.Handler].
 func (m *Menu) Handle(e input.Event, u *gunim.UI) bool {
 	defer m.toldUnlessPicked(m.hot, m.picks, u)
-	m.marks()
 	switch e := e.(type) {
 	case input.PointerEnter:
 		m.rest, m.inside = e.Pos, true
@@ -442,7 +488,7 @@ func (m *Menu) Handle(e input.Event, u *gunim.UI) bool {
 		}
 	case input.PointerDown:
 	case input.PointerUp:
-		if i := m.rowAt(e.Pos); m.enabled(i) && m.Pick != nil {
+		if i := m.rowAt(e.Pos); m.enabled(i) && m.OnPick != nil {
 			m.pick(i, u)
 		}
 	default:
@@ -502,7 +548,7 @@ func dismissed(n gunim.Node, shut func(*gunim.UI)) func(*gunim.UI) {
 func (m *Menu) pick(i int, u *gunim.UI) {
 	m.picks++
 	u.Cue(gunim.CuePress, m)
-	m.Pick(i, u)
+	send(u, m, m.OnPick(i, u))
 }
 
 // toldUnlessPicked runs OnHighlight when the highlight has moved from
@@ -522,7 +568,7 @@ func (m *Menu) toldUnlessPicked(was, picks int, u *gunim.UI) {
 // told runs OnHighlight when the highlight has moved from was.
 func (m *Menu) told(was int, u *gunim.UI) {
 	if m.hot != was && m.OnHighlight != nil {
-		m.OnHighlight(m.hot, u)
+		send(u, m, m.OnHighlight(m.hot, u))
 	}
 }
 
@@ -540,7 +586,7 @@ func (m *Menu) rowAt(p geom.Point) int {
 
 // rowIn returns the last item whose row starts at or above y, in the scroll's space, or -1.
 func (m *Menu) rowIn(y float32) int {
-	return sort.Search(len(m.Items), func(i int) bool { return m.top(i) > y }) - 1
+	return sort.Search(m.len(), func(i int) bool { return m.top(i) > y }) - 1
 }
 
 // RowRect returns where item i is in the menu's space, from the last
@@ -558,16 +604,16 @@ func (m *Menu) rowTop(i int) float32 { return m.card.Min.Y + m.pad + m.top(i) }
 // top returns the top of row i from the first row's: a row's height for each row above it, and a line's room for
 // each break above it.
 func (m *Menu) top(i int) float32 {
-	breaks, _ := slices.BinarySearch(m.lines, i+1)
+	breaks, _ := slices.BinarySearch(m.list.lines, i+1)
 	return float32(i)*m.row + float32(breaks)*menuBreak
 }
 
 // content returns the height of the rows together.
 func (m *Menu) content() float32 {
-	if len(m.Items) == 0 {
+	if m.len() == 0 {
 		return 0
 	}
-	return m.top(len(m.Items)-1) + m.row
+	return m.top(m.len()-1) + m.row
 }
 
 // menuBreak is the room a line between groups takes.
@@ -580,30 +626,28 @@ const menuTick = 18
 const menuHintGap = 32
 
 // measure returns the width of the widest item's text with its hint, in face at size. It measures the items again
-// only when they, their hints, the face or the size change.
+// only when they, the face or the size change.
 func (m *Menu) measure(face *text.Face, size float32) float32 {
-	key := menuWidth{items: headOf(m.Items), n: len(m.Items), hints: headOf(m.Hints), nh: len(m.Hints),
-		face: face, size: size, access: m.AccessKeys}
+	l := m.list
+	key := menuWidth{list: l, face: face, size: size, access: m.AccessKeys, labelsOnly: len(l.hinted) == 0}
 	if key == m.widthOf {
 		return m.widest
 	}
 	w := float32(0)
 	measure := func(i int) {
 		line := face.Shape(m.label(i), size).Advance
-		if i < len(m.Hints) && m.Hints[i] != "" {
-			line += menuHintGap + face.Shape(m.Hints[i], size*0.9).Advance
+		if h := l.items[i].Hint; h != "" {
+			line += menuHintGap + face.Shape(h, size*0.9).Advance
 		}
 		w = max(w, line)
 	}
 	// Only the items that can be widest are shaped: the longest by
 	// runes, and each with a hint, whose width the hint adds to.
-	for _, i := range longest(m.Items, menuMeasured) {
+	for _, i := range l.longest {
 		measure(i)
 	}
-	for i := range min(len(m.Hints), len(m.Items)) {
-		if m.Hints[i] != "" {
-			measure(i)
-		}
+	for _, i := range l.hinted {
+		measure(i)
 	}
 	m.widest, m.widthOf = w, key
 	return w
@@ -613,37 +657,52 @@ func (m *Menu) measure(face *text.Face, size float32) float32 {
 // the widest is among the longest by runes, by far.
 const menuMeasured = 64
 
-// longest returns the indices of the up to n items with the most runes, so a long list is measured by shaping a few.
-// A list of n items or fewer comes back whole.
-func longest(items []string, n int) []int {
-	if len(items) <= n {
-		out := make([]int, len(items))
-		for i := range out {
-			out[i] = i
-		}
-		return out
+// longest returns the indices of the up to n of words with the most runes, so a long list is measured by shaping a
+// few.
+func longest(words []string, n int) []int {
+	k := newRuneTop(n)
+	for i, s := range words {
+		k.see(i, s)
 	}
-	// top holds the longest so far, longest first, and runes their rune counts.
-	top := make([]int, 0, n)
-	runes := make([]int, 0, n)
-	for i, s := range items {
-		// A string of no more bytes than the shortest kept has no more runes, so it is passed by unread.
-		if len(top) == n && len(s) <= runes[n-1] {
-			continue
-		}
-		r := utf8.RuneCountInString(s)
-		if len(top) == n && r <= runes[n-1] {
-			continue
-		}
-		at := sort.Search(len(runes), func(j int) bool { return runes[j] < r })
-		if len(top) < n {
-			top, runes = append(top, 0), append(runes, 0)
-		}
-		copy(top[at+1:], top[at:])
-		copy(runes[at+1:], runes[at:])
-		top[at], runes[at] = i, r
+	return k.top
+}
+
+// runeTop keeps the indices of the up to n strings it sees with the most runes, the most first.
+type runeTop struct {
+	n          int
+	top, runes []int
+	// floor is the fewest runes kept, once n are kept, and -1 before.
+	floor int
+}
+
+func newRuneTop(n int) runeTop {
+	return runeTop{n: n, top: make([]int, 0, n), runes: make([]int, 0, n), floor: -1}
+}
+
+// see shows the keeper string i, s. A string of no more bytes than the shortest kept has no more runes, so it is
+// passed by unread.
+func (k *runeTop) see(i int, s string) {
+	if len(s) > k.floor {
+		k.add(i, s)
 	}
-	return top
+}
+
+// add keeps string i, s, where it has more runes than the shortest kept.
+func (k *runeTop) add(i int, s string) {
+	r := utf8.RuneCountInString(s)
+	if r <= k.floor {
+		return
+	}
+	at := sort.Search(len(k.runes), func(j int) bool { return k.runes[j] < r })
+	if len(k.top) < k.n {
+		k.top, k.runes = append(k.top, 0), append(k.runes, 0)
+	}
+	copy(k.top[at+1:], k.top[at:])
+	copy(k.runes[at+1:], k.runes[at:])
+	k.top[at], k.runes[at] = i, r
+	if len(k.top) == k.n {
+		k.floor = k.runes[k.n-1]
+	}
 }
 
 // Layout implements [gunim.Node].
@@ -655,7 +714,6 @@ func (m *Menu) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom
 		m.margin = MenuMargin.Get(th)
 	}
 	m.row, m.pad = MenuRowHeight.Get(th), MenuPadding.Get(th)
-	m.marks()
 	m.gut, m.iconSpace = m.gutter(), m.iconRoom(th)
 	w := max(m.MinWidth, m.gut+m.iconSpace+m.measure(faceIn(Font, th), TextSize.Get(th))+2*MenuRowPadding.Get(th))
 	y := m.content()
@@ -679,7 +737,7 @@ func (m *Menu) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom
 	}
 	m.card = geom.Rc(m.margin, m.margin, w, h)
 	m.scroll.fit(y, geom.Sz(m.card.Max.X, h-2*m.pad), th)
-	if !sameSlice(m.rowsOf, m.Items) {
+	if m.fresh {
 		m.newRows()
 	}
 	if m.hot >= 0 && !m.glide {
@@ -695,9 +753,9 @@ func (m *Menu) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom
 // newRows takes new items. The highlight goes to the nearest enabled item at or above it, and the view back among
 // the rows, both at once: the new rows show where they are, and never slide in from where the old were.
 func (m *Menu) newRows() {
-	m.rowsOf = m.Items
+	m.fresh = false
 	if m.hot >= 0 && !m.enabled(m.hot) {
-		m.moveUntold(m.step(-1, min(m.hot, len(m.Items)-1), -1))
+		m.moveUntold(m.step(-1, min(m.hot, m.len()-1), -1))
 	}
 	if !m.glide {
 		return
@@ -712,7 +770,7 @@ func (m *Menu) newRows() {
 func (m *Menu) inView() (from, to int) {
 	at := m.scroll.Offset() - m.pad
 	from = max(0, m.rowIn(at))
-	to = min(len(m.Items), m.rowIn(at+m.card.Size().H)+1)
+	to = min(m.len(), m.rowIn(at+m.card.Size().H)+1)
 	return from, to
 }
 
@@ -783,9 +841,9 @@ func (m *Menu) Paint(p *paint.Painter, f gunim.Frame, _ geom.Size, _ gunim.Child
 	pad := MenuRowPadding.Get(th)
 	face, size := faceIn(Font, th), TextSize.Get(th)
 	from, to := m.inView()
-	at, _ := slices.BinarySearch(m.lines, from)
-	for _, i := range m.lines[at:] {
-		if i > to || i >= len(m.Items) {
+	at, _ := slices.BinarySearch(m.list.lines, from)
+	for _, i := range m.list.lines[at:] {
+		if i > to || i >= m.len() {
 			break
 		}
 		y := m.rowY(i) - menuBreak/2
@@ -808,20 +866,21 @@ func (m *Menu) Paint(p *paint.Painter, f gunim.Frame, _ geom.Size, _ gunim.Child
 			caption.Paint(p, geom.Pt(card.Min.X+pad, m.rowY(i)+(m.row-caption.Height())/2), hint)
 			continue
 		}
-		if flag(m.Checked, i) {
+		it := &m.list.items[i]
+		if it.Checked {
 			s := IconSize.Get(th)
 			paintIcon(p, th, icon.Check, geom.Rc(card.Min.X+pad+m.gut/2-1-s/2, m.rowY(i)+(m.row-s)/2, s, s), col, 1)
 		}
 		x := card.Min.X + pad + m.gut
-		if i < len(m.Icons) && m.Icons[i] != nil {
+		if it.Icon != nil {
 			s := IconSize.Get(th)
-			paintIcon(p, th, m.Icons[i], geom.Rc(x, m.rowY(i)+(m.row-s)/2, s, s), col, 1)
-		} else if i < len(m.Swatches) && m.Swatches[i].A > 0 {
-			paintSwatch(p, th, m.Swatches[i], geom.Pt(x, m.rowY(i)+m.row/2))
+			paintIcon(p, th, it.Icon, geom.Rc(x, m.rowY(i)+(m.row-s)/2, s, s), col, 1)
+		} else if it.Swatch.A > 0 {
+			paintSwatch(p, th, it.Swatch, geom.Pt(x, m.rowY(i)+m.row/2))
 		}
 		fits := room
-		if i < len(m.Hints) && m.Hints[i] != "" {
-			h := r.hint.shape(face, m.Hints[i], size*0.9)
+		if it.Hint != "" {
+			h := r.hint.shape(face, it.Hint, size*0.9)
 			c := hint
 			if !m.enabled(i) {
 				c = dimHint
@@ -838,7 +897,7 @@ func (m *Menu) Paint(p *paint.Painter, f gunim.Frame, _ geom.Size, _ gunim.Child
 		run.Paint(p, geom.Pt(x+m.iconSpace, y), col)
 		if m.cues && m.AccessKeys {
 			// The key's line, where the key is in the part of the text shown
-			_, _, key := accessKey(m.Items[i])
+			_, _, key := accessKey(m.list.items[i].Label)
 			if key >= 0 && (run.Advance == full.Advance || full.CaretX(key+1) <= run.Advance-m.ell.run.Advance) {
 				underline(p, full, key, geom.Pt(x+m.iconSpace, y), col)
 			}
@@ -859,16 +918,12 @@ func (m *Menu) paintBar(p *paint.Painter, f gunim.Frame) {
 }
 
 // iconRoom is the room icons take before the items' text, when any item has one or a swatch.
-func (m *Menu) iconRoom(th *theme.Live) float32 {
-	for _, ic := range m.Icons {
-		if ic != nil {
-			return IconSize.Get(th) + IconGap.Get(th)
-		}
-	}
-	for _, c := range m.Swatches {
-		if c.A > 0 {
-			return IconSize.Get(th) + IconGap.Get(th)
-		}
+func (m *Menu) iconRoom(th *theme.Live) float32 { return m.list.iconRoom(th) }
+
+// iconRoom is the room icons take before the items' text, when any item has one or a swatch.
+func (l *menuList) iconRoom(th *theme.Live) float32 {
+	if l.icons {
+		return IconSize.Get(th) + IconGap.Get(th)
 	}
 	return 0
 }
@@ -882,7 +937,7 @@ func paintSwatch(p *paint.Painter, th *theme.Live, c color.NRGBA, at geom.Point)
 
 // gutter is the room before the items' titles: a tick's, when any item has one.
 func (m *Menu) gutter() float32 {
-	if slices.Contains(m.Checked, true) {
+	if m.list.ticks {
 		return menuTick
 	}
 	return 0
@@ -898,14 +953,8 @@ func (m *Menu) gutter() float32 {
 type Dropdown struct {
 	anim.Group
 
-	// Items are the choices. The drop-down measures them for its width
-	// when it is given a new slice of them, as a [Menu] does.
-	Items    []string
-	Selected int
-	// Icons shows an icon before each item, as in a [Menu], and before the chosen one on the drop-down itself, and
-	// Swatches a dot of a colour.
-	Icons    []*icon.Icon
-	Swatches []color.NRGBA
+	// selected is the chosen item.
+	selected int
 	// Label names the drop-down for a screen reader, as the label
 	// beside it does on screen.
 	Label string
@@ -915,10 +964,11 @@ type Dropdown struct {
 	// MaxWidth caps the drop-down's width, cutting a longer item short with
 	// an ellipsis. Zero leaves it as wide as its longest item.
 	MaxWidth float32
-	// OnChange turns a new choice into an intent for the application.
-	OnChange func(i int) gunim.Intent
-	// picked is local behaviour, set by OnPick.
-	picked func(i int, u *gunim.UI)
+	// OnChange runs on the UI goroutine when the user picks an item other
+	// than the chosen one, with the new choice. It may act in the window
+	// through u, such as filling in a form from a saved entry; a non-nil
+	// result is sent to the application as the drop-down's intent.
+	OnChange func(i int, u *gunim.UI) gunim.Intent
 
 	hover *anim.Float
 	ring  *anim.Float
@@ -929,26 +979,55 @@ type Dropdown struct {
 	size  geom.Size
 	shown shapedText
 	ell   shapedText
+	// list is the choices, which the drop-down's menu shares.
+	list *menuList
 	// widest is the widest item's width, measured once for what widthOf names, and icons the room for the icons.
 	widest    float32
 	widthOf   menuWidth
 	iconSpace float32
 }
 
-// OnPick wires behaviour that runs inside the window when the user
-// picks an item, such as filling in a form from a saved entry.
-func (d *Dropdown) OnPick(fn func(i int, u *gunim.UI)) { d.picked = fn }
-
-// NewDropdown returns a drop-down of items with the first chosen.
-func NewDropdown(items ...string) *Dropdown {
+// NewDropdown returns a drop-down of items with the first chosen. An item's icon or swatch shows before it in the
+// list, and before the chosen one on the drop-down itself.
+func NewDropdown(items []MenuItem) *Dropdown {
 	d := &Dropdown{
-		Items: items,
+		list:  newMenuList(items),
 		hover: anim.NewFloat(0),
 		ring:  anim.NewFloat(0),
 		turn:  anim.NewFloat(0),
 	}
 	d.Add(d.hover, d.ring, d.turn)
 	return d
+}
+
+// Items returns the choices.
+func (d *Dropdown) Items() []MenuItem { return d.list.items }
+
+// SetItems makes items the choices. The drop-down keeps the slice: a change to it goes through SetItems again. The
+// list open shows them at once.
+func (d *Dropdown) SetItems(items []MenuItem) { d.list = newMenuList(items) }
+
+// Selected returns the chosen item.
+func (d *Dropdown) Selected() int { return d.selected }
+
+// SetSelected chooses item i and sends no intent. The drop-down shows it at once, and the list open glides its
+// highlight there; before the first layout, or with a nil u, the highlight jumps.
+func (d *Dropdown) SetSelected(i int, u *gunim.UI) {
+	if i == d.selected {
+		return
+	}
+	d.selected = i
+	if d.menu == nil || !d.IsOpen() {
+		return
+	}
+	m := d.menu
+	m.Highlight(i)
+	if u == nil {
+		m.hotY.Jump(m.hotY.Target())
+		m.hotOn.Jump(m.hotOn.Target())
+		return
+	}
+	u.Invalidate()
 }
 
 // Focusable implements [gunim.Focusable].
@@ -1018,15 +1097,15 @@ func (d *Dropdown) key(k input.KeyPress, u *gunim.UI) bool {
 
 // listMenu returns the menu of the drop-down's items, with the chosen one highlighted.
 func (d *Dropdown) listMenu() *Menu {
-	m := NewMenu()
+	m := NewMenu(nil)
 	d.sync(m)
-	m.Highlight(d.Selected)
+	m.Highlight(d.selected)
 	return m
 }
 
 // sync gives the menu the drop-down's items as they are now, with their width as the drop-down measured it.
 func (d *Dropdown) sync(m *Menu) {
-	m.Items, m.Icons, m.Swatches = d.Items, d.Icons, d.Swatches
+	m.setList(d.list)
 	m.MinWidth = d.size.W
 	if m.widthOf != d.widthOf && d.widthOf.face != nil {
 		m.widest, m.widthOf = d.widest, d.widthOf
@@ -1035,17 +1114,15 @@ func (d *Dropdown) sync(m *Menu) {
 
 func (d *Dropdown) open(u *gunim.UI) {
 	m := d.listMenu()
-	m.Pick = func(i int, u *gunim.UI) {
+	m.OnPick = func(i int, u *gunim.UI) gunim.Intent {
 		d.close(u)
-		if i != d.Selected {
-			d.Selected = i
-			if d.picked != nil {
-				d.picked(i, u)
-			}
+		if i != d.selected {
+			d.selected = i
 			if d.OnChange != nil {
-				u.Send(d, d.OnChange(i))
+				send(u, d, d.OnChange(i, u))
 			}
 		}
+		return nil
 	}
 	d.menu = m
 	u.Cue(gunim.CueOpen, d)
@@ -1075,7 +1152,7 @@ func (d *Dropdown) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) 
 	th := f.Theme
 	w := d.measure(faceIn(Font, th), TextSize.Get(th))
 	pad := FieldPadding.Get(th)
-	d.iconSpace = d.iconRoom(th)
+	d.iconSpace = d.list.iconRoom(th)
 	w += 2*pad + chevron + pad + d.iconSpace
 	if d.MaxWidth > 0 {
 		w = min(w, d.MaxWidth)
@@ -1093,39 +1170,16 @@ func (d *Dropdown) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) 
 // measure returns the widest item's width in face at size. It measures the items again only when they, the face or
 // the size change.
 func (d *Dropdown) measure(face *text.Face, size float32) float32 {
-	key := menuWidth{items: headOf(d.Items), n: len(d.Items), face: face, size: size}
+	l := d.list
+	key := menuWidth{list: l, face: face, size: size, labelsOnly: true}
 	if key != d.widthOf {
 		w := float32(0)
-		for _, i := range longest(d.Items, menuMeasured) {
-			w = max(w, face.Shape(d.Items[i], size).Advance)
+		for _, i := range l.longest {
+			w = max(w, face.Shape(l.items[i].Label, size).Advance)
 		}
 		d.widest, d.widthOf = w, key
 	}
 	return d.widest
-}
-
-// icon returns item i's icon, or nil.
-func (d *Dropdown) icon(i int) *icon.Icon {
-	if i < 0 || i >= len(d.Icons) {
-		return nil
-	}
-	return d.Icons[i]
-}
-
-// iconRoom is the room before the drop-down's text for the icons, when any item has one, so the text keeps its
-// place from choice to choice.
-func (d *Dropdown) iconRoom(th *theme.Live) float32 {
-	for _, ic := range d.Icons {
-		if ic != nil {
-			return IconSize.Get(th) + IconGap.Get(th)
-		}
-	}
-	for _, c := range d.Swatches {
-		if c.A > 0 {
-			return IconSize.Get(th) + IconGap.Get(th)
-		}
-	}
-	return 0
 }
 
 // chevron is the width of the drop-down's arrow.
@@ -1148,16 +1202,17 @@ func (d *Dropdown) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 	p.RRectStroke(r, radius, paint.Solid(fill), paint.Stroke{Width: 1, Color: FieldBorder.Get(th)})
 
 	pad := FieldPadding.Get(th)
-	if d.Selected >= 0 && d.Selected < len(d.Items) {
+	if items := d.list.items; d.selected >= 0 && d.selected < len(items) {
+		it := &items[d.selected]
 		x := pad
-		if ic := d.icon(d.Selected); ic != nil {
+		if it.Icon != nil {
 			s := IconSize.Get(th)
-			paintIcon(p, th, ic, geom.Rc(x, (box.H-s)/2, s, s), Ink.Get(th), 1)
-		} else if d.Selected < len(d.Swatches) && d.Swatches[d.Selected].A > 0 {
-			paintSwatch(p, th, d.Swatches[d.Selected], geom.Pt(x, box.H/2))
+			paintIcon(p, th, it.Icon, geom.Rc(x, (box.H-s)/2, s, s), Ink.Get(th), 1)
+		} else if it.Swatch.A > 0 {
+			paintSwatch(p, th, it.Swatch, geom.Pt(x, box.H/2))
 		}
 		x += d.iconSpace
-		run := d.shown.shape(faceIn(Font, th), d.Items[d.Selected], TextSize.Get(th))
+		run := d.shown.shape(faceIn(Font, th), it.Label, TextSize.Get(th))
 		if room := box.W - x - pad - chevron - pad; run.Advance > room {
 			run = cutRun(run, d.ell.shape(faceIn(Font, th), "…", TextSize.Get(th)), room)
 		}
@@ -1182,39 +1237,39 @@ func paintChevron(p *paint.Painter, th *theme.Live, c geom.Point, ink color.NRGB
 // While the menu is open, the context menu holds the keyboard and
 // passes keys to the menu, and hands focus back once it closes.
 type ContextMenu struct {
-	Items []string
-	// Hints, Checked, Disabled and Breaks say more about the items, as
-	// they do in a [Menu]: a shortcut at the right, a tick, a dimmed item
-	// the pointer passes by, and the items a line goes above.
-	Hints    []string
-	Checked  []bool
-	Disabled []bool
-	Breaks   []int
-	// Icons shows an icon before each item, and Captions lists the
-	// items that are captions over the group below them, as in a
-	// [Menu].
-	Icons    []*icon.Icon
-	Captions []int
 	// Prepare, when set, runs as the secondary button goes down at at, in
 	// the context menu's space, before the menu opens. It may set the items
 	// for the place pressed, and returning false opens no menu.
 	Prepare func(at geom.Point, u *gunim.UI) bool
-	// OnPick turns a picked item into an intent for the application.
-	OnPick func(i int) gunim.Intent
-	// Picked, when set, runs on the UI goroutine with the item picked, for
-	// work inside the window, such as copying to the clipboard.
-	Picked func(i int, u *gunim.UI)
+	// OnPick runs on the UI goroutine with the item picked, once the menu
+	// has closed. It may act in the window through u, such as copying to
+	// the clipboard; a non-nil result is sent to the application as the
+	// context menu's intent.
+	OnPick func(i int, u *gunim.UI) gunim.Intent
 
 	child gunim.Node
 	popup *gunim.Popup
 	menu  *Menu
+	list  *menuList
 	// back is what had focus before the menu opened.
 	back gunim.Node
 }
 
 // NewContextMenu returns child with a context menu of items.
-func NewContextMenu(child gunim.Node, items ...string) *ContextMenu {
-	return &ContextMenu{Items: items, child: child}
+func NewContextMenu(child gunim.Node, items []MenuItem) *ContextMenu {
+	return &ContextMenu{list: newMenuList(items), child: child}
+}
+
+// Items returns the menu's items.
+func (c *ContextMenu) Items() []MenuItem { return c.list.items }
+
+// SetItems makes items the menu's items, as Prepare may for the place pressed. The context menu keeps the slice: a
+// change to it goes through SetItems again. The menu open shows them at once.
+func (c *ContextMenu) SetItems(items []MenuItem) {
+	c.list = newMenuList(items)
+	if c.menu != nil {
+		c.menu.setList(c.list)
+	}
 }
 
 // Children implements [gunim.Composite].
@@ -1265,19 +1320,14 @@ func (c *ContextMenu) Open(at geom.Point, u *gunim.UI) {
 
 func (c *ContextMenu) show(at geom.Point, u *gunim.UI) {
 	c.close(u)
-	m := NewMenu(c.Items...)
-	m.Hints, m.Checked, m.Disabled, m.Breaks, m.Icons = c.Hints, c.Checked, c.Disabled, c.Breaks, c.Icons
-	m.Captions = c.Captions
-	m.Pick = func(i int, u *gunim.UI) {
+	m := NewMenu(nil)
+	m.setList(c.list)
+	m.OnPick = func(i int, u *gunim.UI) gunim.Intent {
 		c.close(u)
-		if c.Picked != nil {
-			c.Picked(i, u)
-		}
 		if c.OnPick != nil {
-			if v := c.OnPick(i); v != nil {
-				u.Send(c, v)
-			}
+			send(u, c, c.OnPick(i, u))
 		}
+		return nil
 	}
 	c.menu = m
 	u.Cue(gunim.CueOpen, c)

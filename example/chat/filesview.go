@@ -30,7 +30,7 @@ type filesPane struct {
 
 func newFilesPane() *filesPane {
 	f := &filesPane{address: widget.NewAddressBar()}
-	f.address.OnGo = func(path string) gunim.Intent { return FolderOpened{Path: strings.Trim(path, "/")} }
+	f.address.OnGo = func(path string, u *gunim.UI) gunim.Intent { return FolderOpened{Path: strings.Trim(path, "/")} }
 	f.grid = widget.NewDataGrid(
 		widget.GridColumn{Title: "Name", Width: 320},
 		widget.GridColumn{Title: "Size", Width: 90, End: true},
@@ -38,7 +38,7 @@ func newFilesPane() *filesPane {
 		widget.GridColumn{Title: "By", Width: 140},
 	)
 	f.grid.Row = f.row
-	f.grid.OnActivate = func(i int) gunim.Intent {
+	f.grid.OnActivate = func(i int, u *gunim.UI) gunim.Intent {
 		if i < 0 || i >= len(f.files.Entries) {
 			return nil
 		}
@@ -49,11 +49,11 @@ func newFilesPane() *filesPane {
 		return FolderOpened{Path: joinPath(f.files.Path, e.Name)}
 	}
 	folderIcon := widget.NewIcon(icon.FolderOpen, "Files")
-	f.share = widget.NewMenuButton("Share")
+	f.share = widget.NewMenuButton("Share", nil)
 	f.share.Icon = icon.Share2
-	f.share.OnPick = func(i int) gunim.Intent {
-		row, ok := f.grid.Selected()
-		if !ok || row >= len(f.files.Entries) || f.files.Entries[row].Folder || i >= len(f.convs) {
+	f.share.OnPick = func(i int, u *gunim.UI) gunim.Intent {
+		row := f.grid.Selected()
+		if row < 0 || row >= len(f.files.Entries) || f.files.Entries[row].Folder || i >= len(f.convs) {
 			return nil
 		}
 		return FileShared{Folder: f.files.Path, Name: f.files.Entries[row].Name, Conversation: f.convs[i]}
@@ -69,7 +69,7 @@ func newFilesPane() *filesPane {
 		}
 		return widget.DropSpot{Key: "folder", Rect: geom.Rect{Max: b.Size().Point()}.Inset(geom.Uniform(4)), Radius: 8}, true
 	}
-	drop.OnDrop = func(_ widget.DropSpot, d input.Drop) gunim.Intent {
+	drop.OnDrop = func(_ widget.DropSpot, d input.Drop, u *gunim.UI) gunim.Intent {
 		return FilesDropped{Folder: f.files.Path, Paths: d.Paths}
 	}
 	f.transfers = widget.NewList()
@@ -81,7 +81,8 @@ func newFilesPane() *filesPane {
 
 // set shows files, the files of the project named project, and offers to share them in convs.
 func (f *filesPane) set(project string, files Files, convs []Conversation, u *gunim.UI) {
-	f.convs, f.share.Items = f.convs[:0], f.share.Items[:0]
+	f.convs = f.convs[:0]
+	var share []widget.MenuItem
 	for _, c := range convs {
 		if c.Area != "" {
 			continue
@@ -91,8 +92,9 @@ func (f *filesPane) set(project string, files Files, convs []Conversation, u *gu
 		if !c.Direct {
 			name = "#" + name
 		}
-		f.share.Items = append(f.share.Items, name)
+		share = append(share, widget.MenuItem{Label: name})
 	}
+	f.share.SetItems(share)
 	moved := files.Path != f.files.Path || project != f.project
 	f.files, f.project = files, project
 	crumbs := []widget.Crumb{{Name: project, Path: "/"}}
@@ -116,7 +118,8 @@ func (f *filesPane) set(project string, files Files, convs []Conversation, u *gu
 		f.selected = files.Selected
 		for i, e := range files.Entries {
 			if e.Name == files.Selected {
-				f.grid.Select(i, true, u)
+				f.grid.SetSelected(i, u)
+				f.grid.Reveal(i, u)
 			}
 		}
 	}

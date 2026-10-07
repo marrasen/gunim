@@ -26,8 +26,8 @@ func newSignInStage(t *testing.T) (*gunim.Window, *Form, [3]gunim.Node, func(int
 	d := NewDialog("Connect to a server")
 	d.Body = form
 	d.SetButtons("Connect", "Cancel")
-	d.OnAccept = func() gunim.Intent {
-		return signIn{Host: host.Text(), Password: pass.Text(), Remember: remember.On}
+	d.OnAccept = func(u *gunim.UI) gunim.Intent {
+		return signIn{Host: host.Text(), Password: pass.Text(), Remember: remember.Checked()}
 	}
 	w := gunimtest.New(t, geom.Sz(800, 600), nil)
 	gunim.RegisterView(w, "d", func(struct{}) gunim.Node { return d }, nil)
@@ -124,7 +124,7 @@ func TestADialogWithAProblemStaysOpenAndShakes(t *testing.T) {
 	host := NewTextField()
 	d := NewDialog("Connect to a server")
 	d.Body = NewForm().Add("Host", host)
-	d.OnAccept = func() gunim.Intent { return signIn{Host: host.Text()} }
+	d.OnAccept = func(u *gunim.UI) gunim.Intent { return signIn{Host: host.Text()} }
 	d.Check = func() string {
 		if host.Text() == "" {
 			return "Say which server."
@@ -173,8 +173,8 @@ type answered struct{ What string }
 func TestADialogsExtraButtonSendsItsAnswer(t *testing.T) {
 	d := NewDialog("Replace notes.txt?")
 	d.SetButtons("Replace", "Stop")
-	d.Accept = answered{"replace"}
-	d.AddButton("Leave It", func() gunim.Intent { return answered{"leave"} })
+	d.OnAccept = Sends(answered{"replace"})
+	d.AddButton("Leave It", func(u *gunim.UI) gunim.Intent { return answered{"leave"} })
 	w := gunimtest.New(t, geom.Sz(800, 600), nil)
 	gunim.RegisterView(w, "d", func(struct{}) gunim.Node { return d }, nil)
 	if err := w.Client().Mount(gunim.Root, "d", "d", nil); err != nil {
@@ -203,8 +203,8 @@ func TestADialogsExtraButtonSendsItsAnswer(t *testing.T) {
 func TestADefaultFirstDialogTabsToOKFirst(t *testing.T) {
 	d := NewDialog("Replace notes.txt?")
 	d.SetButtons("Leave It", "Stop")
-	d.Accept = answered{"leave"}
-	d.AddButton("Replace", func() gunim.Intent { return answered{"replace"} })
+	d.OnAccept = Sends(answered{"leave"})
+	d.AddButton("Replace", func(u *gunim.UI) gunim.Intent { return answered{"replace"} })
 	d.DefaultFirst = true
 	w := gunimtest.New(t, geom.Sz(800, 600), nil)
 	gunim.RegisterView(w, "d", func(struct{}) gunim.Node { return d }, nil)

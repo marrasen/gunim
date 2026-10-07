@@ -265,7 +265,7 @@ func TestATrashThatTurnsOutMissingDeletesAfterAsking(t *testing.T) {
 	}
 	h.answer(Confirmed{Token: c.Token, OK: true})
 	h.until("the file is gone", func() bool { return !h.exists("gone.txt") })
-	if !h.b.shell.NoTrash || h.b.title.bar.Menus[1].Items[slices.Index(h.b.title.cmds[1], CmdTrash)] != "Delete…" {
+	if !h.b.shell.NoTrash || h.b.title.bar.Menus[1].Items[slices.Index(h.b.title.cmds[1], CmdTrash)].Label != "Delete…" {
 		t.Fatal("the menu still offers the trash")
 	}
 	if h.b.status.right.Text != "" || h.b.banner.label.Text != "" {
@@ -276,7 +276,7 @@ func TestATrashThatTurnsOutMissingDeletesAfterAsking(t *testing.T) {
 func TestAFileSystemWithoutATrashSaysDeleteInTheMenus(t *testing.T) {
 	h := newHarnessWith(t, onBareFS, "a.txt")
 	h.until("the rows arrive", func() bool { return len(h.shown()) == 1 })
-	if got := h.b.title.bar.Menus[1].Items[slices.Index(h.b.title.cmds[1], CmdTrash)]; got != "Delete…" {
+	if got := h.b.title.bar.Menus[1].Items[slices.Index(h.b.title.cmds[1], CmdTrash)].Label; got != "Delete…" {
 		t.Fatalf("the Edit menu says %q", got)
 	}
 }

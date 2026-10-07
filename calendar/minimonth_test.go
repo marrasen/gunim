@@ -11,7 +11,7 @@ import (
 func TestAMiniMonthPicksOnceAsThePrimaryButtonLetsGo(t *testing.T) {
 	m := NewMiniMonth(monday)
 	var picks []time.Time
-	m.Pick = func(day time.Time, _ *gunim.UI) { picks = append(picks, day) }
+	m.OnPick = func(day time.Time, _ *gunim.UI) gunim.Intent { picks = append(picks, day); return nil }
 	w, run, _ := stage(t, m)
 	at := m.cell(10).Center()
 	w.Input(input.PointerDown{Pos: at, Button: input.ButtonPrimary, Clicks: 1})

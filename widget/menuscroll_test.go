@@ -26,8 +26,8 @@ func newLongPickerIn(t *testing.T, sel int) (*gunim.Window, *Dropdown, func(int)
 	for i := range items {
 		items[i] = fmt.Sprintf("Item %d", i)
 	}
-	d := NewDropdown(items...)
-	d.Selected = sel
+	d := NewDropdown(Labels(items...))
+	d.SetSelected(sel, nil)
 	w, run := stage(t, &frame{child: d, size: geom.Sz(200, 36)})
 	w.Input(input.PointerDown{Pos: geom.Pt(20, 18), Clicks: 1})
 	w.Input(input.PointerUp{Pos: geom.Pt(20, 18)})
@@ -119,8 +119,8 @@ func TestTheWheelScrollsAMenuAndAClickPicksTheRowUnderIt(t *testing.T) {
 	d.popup.Input(input.PointerDown{Pos: left, Clicks: 1, Time: time.Now()})
 	d.popup.Input(input.PointerUp{Pos: left, Time: time.Now()})
 	run(2)
-	if d.Selected != want {
-		t.Fatalf("a click on row %d picked %d", want, d.Selected)
+	if d.Selected() != want {
+		t.Fatalf("a click on row %d picked %d", want, d.Selected())
 	}
 }
 
@@ -157,7 +157,7 @@ func TestALongMenuFadesWhereMoreRowsLiePastItsEdge(t *testing.T) {
 }
 
 func TestAShortMenuDoesNotFade(t *testing.T) {
-	m := NewMenu("One", "Two")
+	m := NewMenu(Labels("One", "Two"))
 	m.Layout(gunim.Constraints{Max: geom.Sz(400, 400)}, gunim.Frame{Scale: 1}, gunim.Children{})
 	if fade, ok := fadeIn(painted(m, geom.Sz(m.card.Max.X, m.card.Max.Y))); ok {
 		t.Fatalf("a menu that fits fades by %v", fade)
@@ -195,7 +195,7 @@ func TestTheHighlightFollowsTheRowUnderThePointerAsTheWheelScrolls(t *testing.T)
 		t.Fatalf("the pointer on row 7 highlights %d", m.Highlighted())
 	}
 	told := -1
-	m.OnHighlight = func(i int, _ *gunim.UI) { told = i }
+	m.OnHighlight = func(i int, _ *gunim.UI) gunim.Intent { told = i; return nil }
 	d.popup.Input(input.Scroll{Pos: at, Delta: geom.Pt(0, -200), Time: time.Now()})
 	followsThePointer(t, m, at, 40, run)
 	want := m.rowAt(at)
@@ -210,8 +210,8 @@ func TestTheHighlightFollowsTheRowUnderThePointerAsTheWheelScrolls(t *testing.T)
 	}
 	w.Input(input.KeyPress{Key: input.KeyEnter})
 	run(2)
-	if d.Selected != want {
-		t.Fatalf("Enter picked %d, with the highlight on row %d under the pointer", d.Selected, want)
+	if d.Selected() != want {
+		t.Fatalf("Enter picked %d, with the highlight on row %d under the pointer", d.Selected(), want)
 	}
 }
 
@@ -246,9 +246,12 @@ func TestTheHighlightFollowsTheRowUnderThePointerAsTheBarPages(t *testing.T) {
 }
 
 func TestAMenuWhoseItemsShrinkWhileScrolledShowsTheNewOnesAtOnce(t *testing.T) {
-	b := NewMenuButton("Pick", manyItems(60)...)
+	b := NewMenuButton("Pick", manyItems(60))
 	picked := -1
-	b.Picked = func(i int, _ *gunim.UI) { picked = i }
+	b.OnPick = func(i int, _ *gunim.UI) gunim.Intent {
+		picked = i
+		return nil
+	}
 	w, run := stage(t, &frame{child: b, size: geom.Sz(200, 36)})
 	clickAt(w, run, geom.Pt(20, 18))
 	m := b.menu
@@ -258,7 +261,7 @@ func TestAMenuWhoseItemsShrinkWhileScrolledShowsTheNewOnesAtOnce(t *testing.T) {
 		t.Fatalf("End scrolled the menu only %v", m.scroll.Offset())
 	}
 	// Narrowed, as a filter narrows a list
-	b.Items = []string{"One", "Two", "Three"}
+	b.SetItems(Labels("One", "Two", "Three"))
 	for f := range 30 {
 		run(1)
 		for i := range 3 {
@@ -279,9 +282,9 @@ func TestAMenuWhoseItemsShrinkWhileScrolledShowsTheNewOnesAtOnce(t *testing.T) {
 }
 
 func TestAMenuWhoseItemsShrinkBeforeItsFirstLayoutKeepsItsHighlightAmongThem(t *testing.T) {
-	m := NewMenu(manyItems(60)...)
+	m := NewMenu(manyItems(60))
 	m.Highlight(59)
-	m.Items = m.Items[:3]
+	m.SetItems(m.Items()[:3])
 	m.Layout(gunim.Loose(geom.Sz(400, 400)), gunim.Frame{Scale: 1}, gunim.Children{})
 	if m.Highlighted() != 2 {
 		t.Fatalf("the highlight is on %d of 3 items", m.Highlighted())

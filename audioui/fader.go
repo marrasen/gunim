@@ -15,10 +15,12 @@ import (
 // double-click sets it to 0 dB. Its 0 dB is marked half way up.
 type Fader struct {
 	anim.Group
-	// Value reads the gain, and Set sets it. Set is given the gain
-	// within Range, to a tenth of a decibel, and only as it changes.
-	Value func() float32
-	Set   func(v float32, u *gunim.UI)
+	// Value reads the gain. OnChange runs on the UI goroutine as the user
+	// moves it, with the gain within Range, to a tenth of a decibel, and
+	// only as it changes; it sets the gain, and a non-nil result is sent
+	// to the application as the fader's intent.
+	Value    func() float32
+	OnChange func(v float32, u *gunim.UI) gunim.Intent
 	// Range is how far the fader goes either way, in decibels: 24 when
 	// zero.
 	Range float32
@@ -29,10 +31,10 @@ type Fader struct {
 	size  geom.Size
 }
 
-// NewFader returns a fader that reads its gain with value and sets it
-// with set.
-func NewFader(value func() float32, set func(v float32, u *gunim.UI)) *Fader {
-	f := &Fader{Value: value, Set: set, hover: anim.NewFloat(0)}
+// NewFader returns a fader that reads its gain with value, and runs
+// onChange as the user moves it.
+func NewFader(value func() float32, onChange func(v float32, u *gunim.UI) gunim.Intent) *Fader {
+	f := &Fader{Value: value, OnChange: onChange, hover: anim.NewFloat(0)}
 	f.Add(f.hover)
 	return f
 }
@@ -47,8 +49,10 @@ func (f *Fader) span() float32 {
 func (f *Fader) set(v float32, u *gunim.UI) {
 	v = max(-f.span(), min(v, f.span()))
 	v = float32(math.Round(float64(v)*10) / 10)
-	if v != f.Value() {
-		f.Set(v, u)
+	if v != f.Value() && f.OnChange != nil {
+		if in := f.OnChange(v, u); in != nil {
+			u.Send(f, in)
+		}
 	}
 }
 

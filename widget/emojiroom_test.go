@@ -18,7 +18,7 @@ func openPickerOn(t *testing.T, area geom.Rect) (picker *EmojiPicker, run func(i
 	picker = &EmojiPicker{}
 	button := NewButton("Emoji")
 	ui = new(*gunim.UI)
-	button.OnActivate(func(u *gunim.UI) { *ui = u; picker.Open(button, geom.Rc(0, 0, 80, 36), u) })
+	button.OnClick = func(u *gunim.UI) gunim.Intent { *ui = u; picker.Open(button, geom.Rc(0, 0, 80, 36), u); return nil }
 	var w *gunim.Window
 	w, run = stage(t, &frame{child: button, size: geom.Sz(120, 36)})
 	w.Offscreen().SetWorkArea(area)

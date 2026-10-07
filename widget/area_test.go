@@ -193,7 +193,7 @@ func TestTheWheelScrollsAnAreaAwayFromItsCaret(t *testing.T) {
 
 func TestEnterSubmitsAndShiftEnterStartsALine(t *testing.T) {
 	wr := newWriter(t, 400)
-	wr.area.OnSubmit = func(s string) gunim.Intent { return submitted{s} }
+	wr.area.OnCommit = func(s string, u *gunim.UI) gunim.Intent { return submitted{s} }
 	wr.typeText("one")
 	wr.key(input.KeyEnter, input.ModShift)
 	wr.typeText("two")
@@ -238,7 +238,7 @@ func TestAnAreaGrowsWithItsTextUpToMaxRows(t *testing.T) {
 	if n := wr.shownLines(); abs32(n-3) > 0.01 {
 		t.Fatalf("six lines of text show %v lines, want MaxRows, 3", n)
 	}
-	wr.area.SetText("")
+	wr.area.SetText("", nil)
 	wr.run(60)
 	if n := wr.shownLines(); abs32(n-1) > 0.01 {
 		t.Fatalf("emptied, the area shows %v lines, want 1", n)
@@ -250,7 +250,7 @@ type pastedImage struct{ PNG string }
 
 func TestCtrlVPastesAPictureWhenTheClipboardHasOne(t *testing.T) {
 	wr := newWriter(t, 400)
-	wr.area.OnPasteImage = func(png []byte) gunim.Intent { return pastedImage{string(png)} }
+	wr.area.OnPasteImage = func(png []byte, u *gunim.UI) gunim.Intent { return pastedImage{string(png)} }
 	if err := wr.w.Offscreen().SetClipboard("words"); err != nil {
 		t.Fatal(err)
 	}

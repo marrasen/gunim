@@ -26,9 +26,35 @@ func focusProbe(t *testing.T, w *gunim.Window, run func(int)) func() gunim.Node 
 
 type enable struct{}
 
+func TestOnClickActsInTheWindowAndSendsWhatItReturns(t *testing.T) {
+	b := NewButton("Go")
+	var ui *gunim.UI
+	answer := gunim.Intent(pressed{1})
+	b.OnClick = func(u *gunim.UI) gunim.Intent {
+		ui = u
+		return answer
+	}
+	w, run := stage(t, &frame{child: b, size: geom.Sz(200, 40)})
+	click(w, 10, 10)
+	run(1)
+	if ui == nil {
+		t.Fatal("OnClick ran without the window's UI")
+	}
+	if got := sent(w); len(got) != 1 || got[0] != (pressed{1}) {
+		t.Fatalf("a click sent %v, want pressed{1}", got)
+	}
+	answer = nil
+	click(w, 10, 10)
+	run(1)
+	quiet(t, w, "an OnClick that returns nil")
+	if in := Sends(pressed{2})(nil); in != (pressed{2}) {
+		t.Fatalf("Sends returned %v", in)
+	}
+}
+
 func TestADisabledButtonTakesNoClickKeyOrFocus(t *testing.T) {
 	a, b, c := NewButton("A"), NewButton("B"), NewButton("C")
-	b.On = pressed{1}
+	b.OnClick = Sends(pressed{1})
 	b.Disabled = true
 	w, run := stage(t, &frame{child: Row(a, b, c), size: geom.Sz(400, 36)})
 	focused := focusProbe(t, w, run)
@@ -107,7 +133,7 @@ func TestLabelledControlsDrawInsideANarrowBox(t *testing.T) {
 func TestAButtonThatKeepsFocusLeavesTheKeyboardOnAClick(t *testing.T) {
 	field, b := NewTextField(), NewButton("Go")
 	b.KeepFocus = true
-	b.On = pressed{1}
+	b.OnClick = Sends(pressed{1})
 	w, run := stage(t, &frame{child: Column(field, b), size: geom.Sz(300, 200)})
 	focused := focusProbe(t, w, run)
 	click(w, 20, 10)

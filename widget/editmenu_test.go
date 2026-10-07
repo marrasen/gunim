@@ -41,7 +41,7 @@ func (ty *typer) pick(i int) {
 	if m == nil {
 		ty.t.Fatal("no edit menu is open")
 	}
-	m.Pick(i, ty.uiOf())
+	m.OnPick(i, ty.uiOf())
 	ty.run(2)
 }
 
@@ -65,7 +65,7 @@ func TestARightClickInTheSelectionCopiesIt(t *testing.T) {
 	if s, e := ty.field.Selection(); s != 6 || e != 11 {
 		t.Fatalf("a right click in the selection left it at %d–%d, want 6–11", s, e)
 	}
-	if m := ty.field.menuItems; m == nil || !slices.Equal(m.Disabled, []bool{false, false, false, false}) {
+	if m := ty.field.menuItems; m == nil || !slices.Equal(disabledOf(m.Items()), []bool{false, false, false, false}) {
 		t.Fatalf("the edit menu is %v, want all four items enabled", m)
 	}
 	ty.pick(editCopy)
@@ -103,7 +103,7 @@ func TestARightClickOutsideTheSelectionMovesTheCaret(t *testing.T) {
 	if s, e := ty.field.Selection(); s != e {
 		t.Fatalf("the selection is %d–%d after a right click with none, want the caret alone", s, e)
 	}
-	if m := ty.field.menuItems; m == nil || !slices.Equal(m.Disabled, []bool{true, true, false, false}) {
+	if m := ty.field.menuItems; m == nil || !slices.Equal(disabledOf(m.Items()), []bool{true, true, false, false}) {
 		t.Fatalf("with nothing selected the menu is %v, want Cut and Copy dimmed", m)
 	}
 	ty.pick(editSelectAll)
@@ -119,7 +119,7 @@ func TestASecretFieldOffersNoCopy(t *testing.T) {
 	ty := newTyperWith(t, func(f *TextField) { f.Secret = true })
 	ty.typeText("hunter2")
 	ty.secondary(ty.xOf(3), true)
-	if m := ty.field.menuItems; m == nil || !m.Disabled[editCut] || !m.Disabled[editCopy] {
+	if m := ty.field.menuItems; m == nil || !m.Items()[editCut].Disabled || !m.Items()[editCopy].Disabled {
 		t.Fatalf("a secret field's menu is %v, want Cut and Copy dimmed", m)
 	}
 }

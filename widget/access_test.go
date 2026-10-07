@@ -18,7 +18,7 @@ type saved struct{}
 func accessStage(t *testing.T) (*gunim.Window, *Tabs, *Checkbox, func(int)) {
 	t.Helper()
 	b := NewButton("Save")
-	b.On = saved{}
+	b.OnClick = Sends(saved{})
 	c := NewCheckbox("Wrap lines")
 	s := NewSlider(0, 10)
 	s.Snap = 1
@@ -91,7 +91,7 @@ func TestAScreenReaderCanPressAndFocus(t *testing.T) {
 	if got := sent(w); len(got) == 0 || got[0] != (saved{}) {
 		t.Fatalf("pressing Save sent %v", got)
 	}
-	if !c.On {
+	if !c.Checked() {
 		t.Fatal("pressing the checkbox left it unchecked")
 	}
 	// The checkbox took focus, and says so, checked.
@@ -116,7 +116,7 @@ func TestAScreenReaderCanPressAndFocus(t *testing.T) {
 }
 
 func TestAScreenReaderClosesADropDownItOpened(t *testing.T) {
-	d := NewDropdown("Apple", "Banana", "Cherry")
+	d := NewDropdown(Labels("Apple", "Banana", "Cherry"))
 	d.Label = "Fruit"
 	w, run := stage(t, &frame{child: Column(d), size: geom.Sz(400, 300)})
 	w.Offscreen().ListenForAccess()

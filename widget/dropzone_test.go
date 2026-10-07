@@ -31,8 +31,8 @@ func zoneStage(t *testing.T) (w *gunim.Window, z *DropZone, run func(int)) {
 		}
 		return DropSpot{Key: "bottom", Rect: geom.Rc(0, 100, 400, 200), Refused: true}, true
 	}
-	z.OnDrop = func(s DropSpot, e input.Drop) gunim.Intent { return spotDropped{s.Key, e.Data, e.Paths} }
-	z.OnOpen = func(s DropSpot) gunim.Intent { return spotOpened{s.Key} }
+	z.OnDrop = func(s DropSpot, e input.Drop, u *gunim.UI) gunim.Intent { return spotDropped{s.Key, e.Data, e.Paths} }
+	z.OnOpen = func(s DropSpot, u *gunim.UI) gunim.Intent { return spotOpened{s.Key} }
 	w, run = stage(t, &halves{left: d, right: z})
 	return w, z, run
 }

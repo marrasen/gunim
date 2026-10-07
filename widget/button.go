@@ -58,16 +58,11 @@ type Button struct {
 	// shows it once the pointer has rested on the button, and a screen
 	// reader reads it in place of the label where there is none.
 	Tooltip string
-	// On is the intent sent to the application when the button is
-	// activated. It travels as data, so the application can be a
-	// goroutine or a process on another machine, and either way it
-	// stays off the goroutine that draws the window.
-	//
-	// Leave it nil for a button whose whole job is local.
-	On gunim.Intent
-
-	// activate is local behaviour, set by [Button.OnActivate].
-	activate func(*gunim.UI)
+	// OnClick runs on the UI goroutine when the button is clicked, or
+	// pressed by Space or Enter. It may act in the window through u; a
+	// non-nil result is sent to the application as the button's intent.
+	// [Sends] makes one that only sends an intent.
+	OnClick func(u *gunim.UI) gunim.Intent
 
 	hover *anim.Float
 	press *anim.Float
@@ -86,7 +81,7 @@ type Button struct {
 	tone    *anim.Float
 	was, is ButtonKind
 	held    bool
-	click   clicker
+	click   Clicker
 	text    shapedText
 	// dim runs from 0 to 1 as Disabled turns on.
 	dim *anim.Float
@@ -110,22 +105,24 @@ func NewButton(label string) *Button {
 		tone:   anim.NewFloat(1),
 		dim:    anim.NewFloat(0),
 		// Every click counts, the fast second of a double click too, as for a + pressed again and again.
-		click: clicker{repeats: true},
+		click: Clicker{Repeats: true},
 	}
 	b.Add(b.hover, b.press, b.ring, b.walked, b.lit, b.tone, b.dim)
 	return b
 }
 
-// OnActivate wires behaviour that runs inside the window.
-//
-// It is for widget authors composing a larger widget: [Dialog] uses it
-// to close itself when OK is clicked. Application code reaches a window
-// through [gunim.Client], where everything is data, so the closure here
-// stays on the UI side of the boundary by construction.
-func (b *Button) OnActivate(fn func(*gunim.UI)) { b.activate = fn }
+// Sends returns a callback for an OnClick that sends in and does
+// nothing else, as most buttons do.
+func Sends(in gunim.Intent) func(*gunim.UI) gunim.Intent {
+	return func(*gunim.UI) gunim.Intent { return in }
+}
 
-// SetLabel changes the label. Call it from a view's update function.
-func (b *Button) SetLabel(label string) { b.Label = label }
+// send sends in from n, when there is one.
+func send(u *gunim.UI, n gunim.Node, in gunim.Intent) {
+	if in != nil {
+		u.Send(n, in)
+	}
+}
 
 // Handle implements [gunim.Handler].
 func (b *Button) Handle(e input.Event, u *gunim.UI) bool {
@@ -157,7 +154,7 @@ func (b *Button) Handle(e input.Event, u *gunim.UI) bool {
 			return false
 		}
 		b.held = true
-		b.click.press(e, 0)
+		b.click.Press(e, 0)
 		b.press.Animate(1, Quick.Get(th))
 	case input.PointerUp:
 		if !b.held {
@@ -165,7 +162,7 @@ func (b *Button) Handle(e input.Event, u *gunim.UI) bool {
 		}
 		b.held = false
 		b.press.Animate(0, Bounce.Get(th))
-		if b.click.release(e, over(e.Pos, b.size)) {
+		if b.click.Release(e, over(e.Pos, b.size)) {
 			b.fire(u)
 		}
 	case input.KeyPress:
@@ -223,8 +220,8 @@ func (b *Button) handleDisabled(e input.Event, th *theme.Live) bool {
 	return true
 }
 
-// fire runs the local behaviour first and reports to the application
-// second.
+// fire runs OnClick, which acts in the window first, and sends its
+// intent second.
 //
 // That order is the point of the whole arrangement: a button that
 // closes a dialog closes it on this frame, and the application hears
@@ -232,15 +229,8 @@ func (b *Button) handleDisabled(e input.Event, th *theme.Live) bool {
 // while the work queues up behind it.
 func (b *Button) fire(u *gunim.UI) {
 	u.Cue(gunim.CuePress, b)
-	if b.activate != nil {
-		b.activate(u)
-	}
-	if b.On != nil {
-		var from gunim.Node = b
-		if b.self != nil {
-			from = b.self
-		}
-		u.Send(from, b.On)
+	if b.OnClick != nil {
+		send(u, b.node(), b.OnClick(u))
 	}
 }
 

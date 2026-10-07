@@ -458,7 +458,7 @@ type olderAsked struct{}
 func TestVirtualListLoadsOlderItemsAtTheTopWithoutMoving(t *testing.T) {
 	l := NewVirtualList(func(k Key) gunim.Node { return &block{key: k, h: 40} })
 	l.StickToEnd, l.HoldOnPrepend = true, true
-	l.OnReachStart = func() gunim.Intent { return olderAsked{} }
+	l.OnReachStart = func(u *gunim.UI) gunim.Intent { return olderAsked{} }
 	w := gunimtest.New(t, geom.Sz(300, 400), nil)
 	gunim.RegisterView(w, "v", func(shownKeys) gunim.Node { return l },
 		func(_ gunim.Node, s shownKeys, u *gunim.UI) { l.SetKeys(s.Keys, u) })
@@ -525,7 +525,7 @@ func mountTimeline(t *testing.T, hold bool, ks []Key) (*gunim.Window, *VirtualLi
 	t.Helper()
 	l := NewVirtualList(func(k Key) gunim.Node { return &block{key: k, h: 40} })
 	l.StickToEnd, l.HoldOnPrepend = true, hold
-	l.OnReachStart = func() gunim.Intent { return olderAsked{} }
+	l.OnReachStart = func(u *gunim.UI) gunim.Intent { return olderAsked{} }
 	w := gunimtest.New(t, geom.Sz(300, 400), nil)
 	gunim.RegisterView(w, "v", func(shownKeys) gunim.Node { return l },
 		func(_ gunim.Node, s shownKeys, u *gunim.UI) { l.SetKeys(s.Keys, u) })

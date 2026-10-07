@@ -41,8 +41,8 @@ func TestValuesSetBeforeTheFirstLayoutShowAtOnce(t *testing.T) {
 	})
 	t.Run("progress", func(t *testing.T) {
 		b := NewProgressBar()
-		step := mountSet(t, &frame{child: b, size: geom.Sz(300, 30)}, func(u *gunim.UI) { b.Set(0.4, u) })
-		held(t, step, "the progress bar", 0.4, b.Value)
+		step := mountSet(t, &frame{child: b, size: geom.Sz(300, 30)}, func(u *gunim.UI) { b.SetValue(0.4, u) })
+		held(t, step, "the progress bar", 0.4, b.Shown)
 	})
 	t.Run("drawer", func(t *testing.T) {
 		d := NewDrawer(NewLabel("main"), NewLabel("panel"))
@@ -62,9 +62,34 @@ func TestValuesSetBeforeTheFirstLayoutShowAtOnce(t *testing.T) {
 	t.Run("slider row", func(t *testing.T) {
 		s := NewSlider(-100, 100)
 		s.Rest, s.HasRest = 0, true
-		s.Set(80)
+		s.SetValue(80, nil)
 		row := NewSliderRow("Contrast", s)
 		step := mountSet(t, &frame{child: row, size: geom.Sz(300, 28)}, func(*gunim.UI) {})
 		held(t, step, "the reset mark", 1, row.off.Value)
+	})
+	t.Run("checkbox", func(t *testing.T) {
+		c := NewCheckbox("Tick")
+		step := mountSet(t, &frame{child: c, size: geom.Sz(200, 28)}, func(u *gunim.UI) { c.SetChecked(true, u) })
+		held(t, step, "the tick", 1, c.lit.Value)
+	})
+	t.Run("tabs", func(t *testing.T) {
+		tabs := NewTabs([]string{"One", "Two"}, &recorder{}, &recorder{})
+		step := mountSet(t, &frame{child: tabs, size: geom.Sz(300, 200)}, func(u *gunim.UI) { tabs.SetSelected(1, u) })
+		held(t, step, "the page", 1, tabs.slide.Value)
+	})
+	t.Run("segmented", func(t *testing.T) {
+		s := NewSegmented("Day", "Week", "Month")
+		step := mountSet(t, &frame{child: s, size: geom.Sz(300, 30)}, func(u *gunim.UI) { s.SetSelected(2, u) })
+		held(t, step, "the pill", 2, s.pill.Value)
+	})
+	t.Run("split", func(t *testing.T) {
+		s := NewSplit(&block{h: 10}, &block{h: 10})
+		step := mountSet(t, &frame{child: s, size: geom.Sz(300, 200)}, func(u *gunim.UI) { s.SetShare(0.2, u) })
+		held(t, step, "the share", 0.2, s.share.Value)
+	})
+	t.Run("fold", func(t *testing.T) {
+		f := NewFold(&block{h: 40}, false)
+		step := mountSet(t, &frame{child: f, size: geom.Sz(300, 100)}, func(u *gunim.UI) { f.SetOpen(true, u) })
+		held(t, step, "the fold", 1, f.open.Value)
 	})
 }

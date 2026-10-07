@@ -213,6 +213,11 @@ type WaveView struct {
 	Shape func(t float64) (gain float32, heard bool)
 }
 
+// NewWaveView returns a view of the file's time from v0 to v1 seconds across width pixels, the whole file heard.
+func NewWaveView(v0, v1 float64, width float32) *WaveView {
+	return &WaveView{V0: v0, V1: v1, Width: width}
+}
+
 // X is where time t is across the view.
 func (v WaveView) X(t float64) float32 { return float32((t - v.V0) / (v.V1 - v.V0) * float64(v.Width)) }
 

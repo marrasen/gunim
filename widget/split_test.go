@@ -17,7 +17,7 @@ type splitMoved struct{ Share float32 }
 func newSplitStage(t *testing.T) (*gunim.Window, *Split, func(int)) {
 	t.Helper()
 	s := NewSplit(NewTextField(), &block{h: 10})
-	s.OnMove = func(v float32) gunim.Intent { return splitMoved{v} }
+	s.OnCommit = func(v float32, u *gunim.UI) gunim.Intent { return splitMoved{v} }
 	w := gunimtest.New(t, geom.Sz(406, 300), nil)
 	gunim.RegisterView(w, "split", func(struct{}) gunim.Node { return s }, nil)
 	if err := w.Client().Mount(gunim.Root, "split", "split", nil); err != nil {
@@ -38,7 +38,7 @@ func TestASplitGivesEachPaneItsShare(t *testing.T) {
 		t.Fatalf("the first pane is %v wide, want 200", a)
 	}
 	_, s2, run := newSplitStage(t)
-	s2.Vertical = true
+	s2.Axis = Vertical
 	s2.SetShare(0.25, nil)
 	run(1)
 	// 300 tall, less the gap, a quarter of it.
@@ -92,13 +92,14 @@ func TestADoubleClickOnTheDividerEvensThePanes(t *testing.T) {
 }
 
 func TestANewPaneSlidesInAsTheDividerSprings(t *testing.T) {
-	_, s, run := newSplitStage(t)
+	w, s, run := newSplitStage(t)
+	u := viewUI(t, w, "split", run)
 	s.SetShare(1, nil)
 	run(1)
 	if a, g := s.firstLength(), s.gap; a != 406 || g != 0 {
 		t.Fatalf("at a share of 1 the first pane is %v wide with a gap of %v, want 406 and 0", a, g)
 	}
-	s.SetShare(0.5, Settle.Default())
+	s.SetShare(0.5, u)
 	last := s.firstLength()
 	for i := range 90 {
 		run(1)

@@ -21,8 +21,9 @@ import (
 // Down keys move the day by one.
 type DateField struct {
 	anim.Group
-	// OnChange runs when the user picks a day.
-	OnChange func(day time.Time, u *gunim.UI)
+	// OnChange runs on the UI goroutine when the user picks a day; a non-nil result is sent to the application as the
+	// field's intent.
+	OnChange func(day time.Time, u *gunim.UI) gunim.Intent
 
 	value time.Time
 	popup *gunim.Popup
@@ -43,17 +44,19 @@ func NewDateField(day time.Time) *DateField {
 // Value returns the day the field holds.
 func (f *DateField) Value() time.Time { return f.value }
 
-// SetValue puts day in the field.
+// SetValue puts day in the field and sends no intent. u may be nil, as before the field is laid out.
 func (f *DateField) SetValue(day time.Time, u *gunim.UI) {
 	f.value = Day(day)
-	u.Invalidate()
+	if u != nil {
+		u.Invalidate()
+	}
 }
 
 // set puts day in the field as the user picked it.
 func (f *DateField) set(day time.Time, u *gunim.UI) {
 	f.SetValue(day, u)
 	if f.OnChange != nil {
-		f.OnChange(f.value, u)
+		send(u, f, f.OnChange(f.value, u))
 	}
 }
 
@@ -63,9 +66,10 @@ func (f *DateField) open(u *gunim.UI) {
 		return
 	}
 	m := NewMiniMonth(f.value)
-	m.Pick = func(day time.Time, u *gunim.UI) {
+	m.OnPick = func(day time.Time, u *gunim.UI) gunim.Intent {
 		f.set(day, u)
 		f.close(u)
+		return nil
 	}
 	f.popup = u.OpenPopup(f, &fitted{child: widget.NewCard(widget.NewPad(m))}, gunim.PopupOptions{
 		Anchor:  geom.Rc(0, 0, f.size.W, f.size.H+4),
@@ -194,8 +198,9 @@ type TimeField struct {
 	*widget.TextField
 	// Step is how far Up and Down move the time; zero is 15 minutes.
 	Step time.Duration
-	// OnChange runs when the time changes by the keys, the list, or as the field is left.
-	OnChange func(t time.Duration, u *gunim.UI)
+	// OnChange runs on the UI goroutine when the time changes by the keys, the list, or as the field is left; a
+	// non-nil result is sent to the application as the field's intent.
+	OnChange func(t time.Duration, u *gunim.UI) gunim.Intent
 	// From, when set, makes the list start just after the time it returns, with each time's length from it, as for
 	// the end of an event.
 	From func() (time.Duration, bool)
@@ -226,8 +231,7 @@ func (f *TimeField) openList(u *gunim.UI) {
 		first = from + 30*time.Minute
 	}
 	f.times = f.times[:0]
-	var items []string
-	checked := make([]bool, 0, listTimes)
+	items := make([]widget.MenuItem, 0, listTimes)
 	for i := range listTimes {
 		t := first + time.Duration(i)*30*time.Minute
 		if t < 0 || t >= 24*time.Hour {
@@ -238,19 +242,18 @@ func (f *TimeField) openList(u *gunim.UI) {
 			label += "  (" + spanText(t-from) + ")"
 		}
 		f.times = append(f.times, t)
-		items = append(items, label)
-		checked = append(checked, t == now)
+		items = append(items, widget.MenuItem{Label: label, Checked: t == now})
 	}
-	m := widget.NewMenu(items...)
-	m.Checked = checked
-	m.Pick = func(i int, u *gunim.UI) {
+	m := widget.NewMenu(items)
+	m.OnPick = func(i int, u *gunim.UI) gunim.Intent {
 		f.closeList()
 		if i < len(f.times) {
 			f.SetValue(f.times[i], u)
 			if f.OnChange != nil {
-				f.OnChange(f.times[i], u)
+				send(u, f, f.OnChange(f.times[i], u))
 			}
 		}
+		return nil
 	}
 	f.list = u.OpenPopup(f, m, gunim.PopupOptions{Anchor: geom.Rc(0, 0, 90, widget.FieldHeight.Get(u.Theme())+2),
 		Max: geom.Sz(240, 480), Dismiss: func(*gunim.UI) { f.closeList() }})
@@ -279,18 +282,15 @@ func spanText(d time.Duration) string {
 // NewTimeField returns a field holding the time of day t, as a span from midnight.
 func NewTimeField(t time.Duration) *TimeField {
 	f := &TimeField{TextField: widget.NewTextField()}
-	f.TextField.SetText(clockOf(t))
+	f.SetText(clockOf(t), nil)
 	return f
 }
 
 // Value returns the time of day the field holds, and false when what it holds is not one.
 func (f *TimeField) Value() (time.Duration, bool) { return ParseClock(f.Text()) }
 
-// SetValue puts the time of day t in the field.
-func (f *TimeField) SetValue(t time.Duration, u *gunim.UI) {
-	f.TextField.SetText(clockOf(t))
-	u.Invalidate()
-}
+// SetValue puts the time of day t in the field and sends no intent. u may be nil, as before the field is laid out.
+func (f *TimeField) SetValue(t time.Duration, u *gunim.UI) { f.SetText(clockOf(t), u) }
 
 // Layout implements [gunim.Node].
 func (f *TimeField) Layout(c gunim.Constraints, fr gunim.Frame, kids gunim.Children) geom.Size {
@@ -339,14 +339,14 @@ func (f *TimeField) Handle(e input.Event, u *gunim.UI) bool {
 		t = (t + by + 24*time.Hour) % (24 * time.Hour)
 		f.SetValue(t.Truncate(step), u)
 		if f.OnChange != nil {
-			f.OnChange(t.Truncate(step), u)
+			send(u, f, f.OnChange(t.Truncate(step), u))
 		}
 		return true
 	case input.FocusLost:
 		if t, ok := f.Value(); ok {
-			f.TextField.SetText(clockOf(t))
+			f.SetText(clockOf(t), u)
 			if f.OnChange != nil {
-				f.OnChange(t, u)
+				send(u, f, f.OnChange(t, u))
 			}
 		}
 	}

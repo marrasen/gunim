@@ -146,12 +146,13 @@ each one:
 gunim.RegisterType[Counter]("tutorial.counter")
 ```
 
-A button's `On` field is the intent it sends when pressed. It is a
-value, so the wiring is data:
+A button's `OnClick` runs when it is pressed, and the intent it
+returns goes to the application. `widget.Sends` makes one that returns
+a plain value, so the wiring is data:
 
 ```go
 press := widget.NewButton("Press me")
-press.On = Clicked{}
+press.OnClick = widget.Sends(Clicked{})
 ```
 
 The application hears it on `Client.Intents`, changes its state, and
@@ -222,13 +223,13 @@ widget.Sync(p.list, u, s.Items,
 The key is the item's ID. Keep IDs stable and rows keep their identity
 through every change.
 
-A text field's `OnSubmit` turns what was typed into an intent.
-Emptying the field is local to the window, so it happens in the same
-closure, on the way out:
+A text field's `OnCommit` runs on Enter, and turns what was typed into
+an intent. Emptying the field is local to the window, so it happens in
+the same closure, on the way out:
 
 ```go
-field.OnSubmit = func(text string) gunim.Intent {
-    field.SetText("")
+field.OnCommit = func(text string, u *gunim.UI) gunim.Intent {
+    field.SetText("", u)
     return Added{Text: text}
 }
 ```
@@ -332,7 +333,7 @@ _ = c.SetTheme("light")
 A subtree can wear a theme of its own with `widget.NewThemed`. It sets
 the tokens it names and takes the rest from the theme around it.
 
-The switch's update is `SetOn`, which puts it where the state says
+The switch's update is `SetChecked`, which puts it where the state says
 without sending an intent. Every control has such a method for a
 view's update function to call.
 
@@ -349,7 +350,8 @@ gunim.RegisterView(w, "confirm", func(s Confirm) *widget.Dialog {
     d := widget.NewDialog(fmt.Sprintf("Delete %d files for good?", s.Files))
     d.Danger = true
     d.SetButtons("Empty the trash", "Keep them")
-    d.Accept, d.Dismiss = Emptied{}, Kept{}
+    d.OnAccept = widget.Sends(Emptied{})
+    d.OnDismiss = widget.Sends(Kept{})
     return d
 }, nil)
 
@@ -359,7 +361,7 @@ _ = c.Focus("confirm")
 
 Local interaction stays local. The dialog closes itself on the frame
 its button is released, and tells the application afterwards with
-`Accept` or `Dismiss`. The application changes its state and the page
+what `OnAccept` or `OnDismiss` returns. The application changes its state and the page
 below updates.
 
 `Client.Unmount` starts a view's exit. The node stays in the tree while
@@ -413,8 +415,8 @@ application as an intent:
 
 ```go
 p.code = widget.NewCodeEditor()
-p.code.SetText(source)
-p.code.OnChange = func(s string) gunim.Intent { return Edited{Lesson: i, Source: s} }
+p.code.SetText(source, nil)
+p.code.OnChange = func(s string, u *gunim.UI) gunim.Intent { return Edited{Lesson: i, Source: s} }
 ```
 
 The application keeps every lesson's edited source, so an edit

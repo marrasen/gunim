@@ -45,10 +45,11 @@ type DropZone struct {
 	// another program with Paths, while they are dragged over it as far
 	// as the system has told them, and as they are let go.
 	Spot func(d input.Drop, u *gunim.UI) (DropSpot, bool)
-	// OnDrop turns a drop on a spot into an intent.
-	OnDrop func(spot DropSpot, d input.Drop) gunim.Intent
-	// OnOpen turns a drag resting on a spot that opens into an intent.
-	OnOpen func(spot DropSpot) gunim.Intent
+	// OnDrop runs on the UI goroutine with a drop on a spot, and OnOpen with
+	// a drag resting on a spot that opens; a non-nil result is sent to the
+	// application as the zone's intent.
+	OnDrop func(spot DropSpot, d input.Drop, u *gunim.UI) gunim.Intent
+	OnOpen func(spot DropSpot, u *gunim.UI) gunim.Intent
 	// Dwell is how long a drag rests on a spot before it opens; zero is
 	// DropDwell.
 	Dwell time.Duration
@@ -103,9 +104,7 @@ func (z *DropZone) Handle(e input.Event, u *gunim.UI) bool {
 		}
 		z.land(spot, u)
 		if z.OnDrop != nil {
-			if v := z.OnDrop(spot, e); v != nil {
-				u.Send(z, v)
-			}
+			send(u, z, z.OnDrop(spot, e, u))
 		}
 	default:
 		return false
@@ -165,9 +164,7 @@ func (z *DropZone) wait(spot DropSpot, u *gunim.UI) {
 		z.opened = key
 		z.fill.Animate(0, Settle.Get(u.Theme()))
 		z.land(z.lit, u)
-		if v := z.OnOpen(z.lit); v != nil {
-			u.Send(z, v)
-		}
+		send(u, z, z.OnOpen(z.lit, u))
 	})
 }
 

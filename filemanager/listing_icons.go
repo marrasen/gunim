@@ -114,24 +114,27 @@ func newIconView(pg *listingPage) *iconView {
 	iv.Add(iv.in)
 	g := widget.NewTileGrid(tileSize(pg.b.status.views.tile))
 	g.Tile = func(i int) gunim.Node { return newIconTile(iv, i) }
-	g.OnView = func(first, count int) gunim.Intent {
+	g.OnView = func(first, count int, u *gunim.UI) gunim.Intent {
 		iv.first, iv.count = first, count
 		return pg.need(first, count)
 	}
-	g.OnSelect = func(sel [][2]int, cursor int) gunim.Intent { return Selected{Gen: pg.gen, Runs: sel, Cursor: cursor} }
-	g.OnType = func(text string) gunim.Intent { return Typed{Gen: pg.gen, Text: text} }
-	g.OnActivate = func(i int) gunim.Intent {
+	g.OnSelect = func(sel [][2]int, cursor int, u *gunim.UI) gunim.Intent {
+		return Selected{Gen: pg.gen, Runs: sel, Cursor: cursor}
+	}
+	g.OnType = func(text string, u *gunim.UI) gunim.Intent { return Typed{Gen: pg.gen, Text: text} }
+	g.OnActivate = func(i int, u *gunim.UI) gunim.Intent {
 		if r, ok := pg.view(i); ok && !r.Dir && viewable(r.Name) {
 			return OpenViewer{Gen: pg.gen, Row: i}
 		}
 		return Activated{Gen: pg.gen, Row: i}
 	}
-	g.OnZoom = func(notches float32, u *gunim.UI) {
+	g.OnZoom = func(notches float32, u *gunim.UI) gunim.Intent {
 		pg.b.status.views.zoomBy(notches, u)
+		return nil
 	}
 	iv.grid = g
 	g.DragTiles = pg.dragRows
-	g.OnDragEnd = func(e input.DragEnd) gunim.Intent { return pg.b.dnd.dragEnded(e) }
+	g.OnDragEnd = func(e input.DragEnd, u *gunim.UI) gunim.Intent { return pg.b.dnd.dragEnded(e) }
 	iv.menu = pg.contextMenu(g, g.TileAt, func() [][2]int { sel, _ := g.Selected(); return sel })
 	return iv
 }
@@ -148,7 +151,7 @@ func (iv *iconView) show(on, animate bool, u *gunim.UI) {
 	iv.live = iv.live || on || animate
 	g, tiles := iv.pg.grid, iv.grid
 	hadFocus := u.Focused() == gunim.Node(g) || u.Focused() == gunim.Node(tiles)
-	cursor, _ := g.Selected()
+	cursor := g.Selected()
 	if on {
 		tiles.SetSelected(g.SelectedRows(), cursor, u)
 		at := int(g.Top())
@@ -336,7 +339,7 @@ func (t *iconTile) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Childre
 	r, ok := t.iv.pg.view(t.i)
 	if ok && r.Name != t.name {
 		t.name = r.Name
-		t.label.SetText(r.Name)
+		t.label.Text = r.Name
 		t.hero.Tag = t.iv.pg.b.shell.Paths.Join(t.iv.dir, r.Name)
 		t.aspect.Jump(1)
 		t.pic.reset()
@@ -615,14 +618,14 @@ func newViewBar() *viewBar {
 	v.scope = widget.NewThemed(v.modes, viewTheme)
 	v.modes.Icons = []*icon.Icon{icon.List, icon.LayoutGrid}
 	v.modes.IconSize = viewIcon
-	v.modes.OnChange = func(i int) gunim.Intent {
+	v.modes.OnChange = func(i int, u *gunim.UI) gunim.Intent {
 		if i == 1 {
 			return Command{Name: CmdViewIcons}
 		}
 		return Command{Name: CmdViewDetails}
 	}
 	v.slider.Snap = tileStep
-	v.slider.OnChange = func(s float32) gunim.Intent {
+	v.slider.OnChange = func(s float32, u *gunim.UI) gunim.Intent {
 		v.tile = s
 		return TileSized{Size: s}
 	}

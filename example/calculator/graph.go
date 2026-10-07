@@ -155,7 +155,10 @@ func newGraphBody(r *calcRoot) *graphBody {
 		full: anim.NewFloat(0)}
 	g.Add(g.shake, g.why.a, g.full)
 	g.fill = widget.NewIconButton(icon.Maximize2, "Fill the window with the plot")
-	g.fill.OnActivate(func(u *gunim.UI) { g.setFull(g.full.Target() == 0, u) })
+	g.fill.OnClick = func(u *gunim.UI) gunim.Intent {
+		g.setFull(g.full.Target() == 0, u)
+		return nil
+	}
 	g.keys = newKeypad(8,
 		[]string{"x", "^", "(", ")", "⌫"},
 		[]string{"sin", "cos", "tan", "√", "C"},

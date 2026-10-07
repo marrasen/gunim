@@ -106,8 +106,9 @@ type CodeEditor struct {
 	// Highlight finds the tokens to colour. Nil shows the code in one
 	// colour.
 	Highlight syntax.Highlighter
-	// OnChange turns the code into an intent after each edit.
-	OnChange func(code string) gunim.Intent
+	// OnChange runs on the UI goroutine after each edit, with the code; a
+	// non-nil result is sent to the application as the editor's intent.
+	OnChange func(code string, u *gunim.UI) gunim.Intent
 	// Label names the editor for screen readers.
 	Label string
 	// Numbers shows line numbers down the left. NewCodeEditor sets it.
@@ -202,7 +203,7 @@ func NewCodeEditor() *CodeEditor {
 	c.Add(c.focus, c.caretAt, c.band, c.scrollX, c.scrollY)
 	c.changed = func(u *gunim.UI) {
 		if c.OnChange != nil {
-			u.Send(c, c.OnChange(c.Text()))
+			send(u, c, c.OnChange(c.Text(), u))
 		}
 	}
 	return c
@@ -212,15 +213,18 @@ func NewCodeEditor() *CodeEditor {
 func (c *CodeEditor) Text() string { return string(c.text) }
 
 // SetText replaces the code, puts the caret at its start, scrolls to
-// the top and forgets the history, for a file opened afresh. Call it
-// from a view's update function.
-func (c *CodeEditor) SetText(s string) {
+// the top at once and forgets the history, for a file opened afresh. It
+// sends no intent; u may be nil, as before the editor is laid out.
+func (c *CodeEditor) SetText(s string, u *gunim.UI) {
 	c.setText([]rune(s))
 	c.set(0, false)
 	c.forget()
 	c.scrollX.Jump(0)
 	c.scrollY.Jump(0)
 	c.edited = true
+	if u != nil {
+		u.Invalidate()
+	}
 }
 
 // Replace puts s in place of the code as one step of undo, keeping the

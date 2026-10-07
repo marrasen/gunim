@@ -34,7 +34,7 @@ func TestATableDragsItsRows(t *testing.T) {
 		return "rows", NewLabel("rows"), geom.Point{}
 	}
 	ended := 0
-	tbl.DragEnded = func(input.DragEnd, *gunim.UI) { ended++ }
+	tbl.OnDragEnd = func(input.DragEnd, *gunim.UI) gunim.Intent { ended++; return nil }
 	r, _ := tbl.RowRect("2")
 	at := r.Center()
 	w.Input(input.PointerDown{Pos: at, Button: input.ButtonPrimary, Clicks: 1})

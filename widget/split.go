@@ -36,17 +36,23 @@ const splitMin = 48
 // divider evens the panes out.
 type Split struct {
 	anim.Group
-	// Vertical stacks the panes one above the other; otherwise they
-	// sit side by side.
-	Vertical bool
+	// Axis lays the panes side by side, which is the zero value, or one
+	// above the other with [Vertical].
+	Axis Axis
 	// Fixed keeps the first pane's length, in logical pixels, as the
 	// space changes, as a sidebar does. Share and SetShare then count
 	// that length, where they otherwise count a share from 0 to 1.
 	Fixed bool
-	// OnMove, when set, makes the intent sent once the pointer lets the
-	// divider go, with the first pane's new share.
-	OnMove func(share float32) gunim.Intent
+	// Glide, when set, is the motion SetShare glides with, in place of
+	// [Settle].
+	Glide theme.Token[anim.Spring]
+	// OnCommit, when set, runs on the UI goroutine once the pointer lets
+	// the divider go, with the first pane's new share; a non-nil result is
+	// sent to the application as the split's intent.
+	OnCommit func(share float32, u *gunim.UI) gunim.Intent
 
+	// laid is set by the first layout; a share set before it shows at once.
+	laid          bool
 	first, second gunim.Node
 	share         *anim.Float
 	hot           *anim.Float
@@ -97,22 +103,28 @@ func (s *Split) Held() bool { return s.held }
 func (s *Split) Share() float32 { return s.share.Target() }
 
 // SetShare aims the first pane's share of the space at v, from 0 to 1,
-// or its length with Fixed, and glides there with motion. A nil motion
-// jumps.
-func (s *Split) SetShare(v float32, motion anim.Motion) {
+// or its length with Fixed, and sends no intent. Once the split is laid
+// out the divider glides there with Glide; before that, or with a nil u,
+// it jumps.
+func (s *Split) SetShare(v float32, u *gunim.UI) {
 	if !s.Fixed {
 		v = min(max(v, 0), 1)
 	}
 	v = max(v, 0)
-	if motion == nil {
+	if !s.laid || u == nil {
 		s.share.Jump(v)
 		return
 	}
-	s.share.Animate(v, motion)
+	glide := Settle
+	if s.Glide.Key() != "" {
+		glide = s.Glide
+	}
+	s.share.Animate(v, glide.Get(u.Theme()))
+	u.Invalidate()
 }
 
 func (s *Split) along(p geom.Point) float32 {
-	if s.Vertical {
+	if s.Axis == Vertical {
 		return p.Y
 	}
 	return p.X
@@ -149,10 +161,11 @@ func (s *Split) firstLength() float32 {
 // Layout implements [gunim.Node]. The split fills the space it is
 // given.
 func (s *Split) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
+	s.laid = true
 	own := c.Max
 	s.own = own
 	s.length = own.W
-	if s.Vertical {
+	if s.Axis == Vertical {
 		s.length = own.H
 	}
 	s.gap = s.room(SplitGap.Get(f.Theme))
@@ -175,7 +188,7 @@ func (s *Split) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) 
 func (s *Split) place(kid gunim.Child, at, length float32, own geom.Size) {
 	size := geom.Sz(length, own.H)
 	pos := geom.Pt(at, 0)
-	if s.Vertical {
+	if s.Axis == Vertical {
 		size, pos = geom.Sz(own.W, length), geom.Pt(0, at)
 	}
 	kid.Layout(gunim.Tight(size))
@@ -199,7 +212,7 @@ func (s *Split) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim
 	at := s.firstLength() + s.gap/2
 	width := 1 + s.hot.Value()
 	r := geom.Rc(at-width/2, 0, width, box.H)
-	if s.Vertical {
+	if s.Axis == Vertical {
 		r = geom.Rc(0, at-width/2, box.W, width)
 	}
 	p.RRect(r, 0, paint.Solid(line))
@@ -218,7 +231,7 @@ func (s *Split) Cursor(p geom.Point) input.Cursor {
 	if !s.held && !s.inGap(p) {
 		return input.CursorArrow
 	}
-	if s.Vertical {
+	if s.Axis == Vertical {
 		return input.CursorResizeV
 	}
 	return input.CursorResizeH
@@ -292,8 +305,8 @@ func (s *Split) light(on bool, u *gunim.UI) {
 }
 
 func (s *Split) moved(u *gunim.UI) {
-	if s.OnMove != nil {
-		u.Send(s, s.OnMove(s.share.Target()))
+	if s.OnCommit != nil {
+		send(u, s, s.OnCommit(s.share.Target(), u))
 	}
 }
 

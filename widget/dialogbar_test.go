@@ -32,7 +32,7 @@ func barWindow(t *testing.T, title string, set func(*Dialog)) (*Dialog, *spot, *
 		d.Body = body
 		set(d)
 		return d
-	}, func(d *Dialog, title string, _ *gunim.UI) { d.SetTitle(title) })
+	}, func(d *Dialog, title string, _ *gunim.UI) { d.Title = title })
 	if err := w.Client().Mount(gunim.Root, "dialog", "dialog", title); err != nil {
 		t.Fatal(err)
 	}
