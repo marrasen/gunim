@@ -29,6 +29,42 @@ func gone(was, rows []entry) []int {
 	return out
 }
 
+// goneFrom is gone for rows that are some of was, in its order: one pass
+// along the two.
+func goneFrom(was, rows []entry) []int {
+	var out []int
+	j := 0
+	for i, e := range was {
+		if j < len(rows) && rows[j].Name == e.Name {
+			j++
+			continue
+		}
+		out = append(out, i)
+	}
+	return out
+}
+
+// goneAlong is gone for was and rows that are both some of all, in its
+// order, as a folder's rows filtered two ways are: one pass along all.
+func goneAlong(all, was, rows []entry) []int {
+	var out []int
+	i, j := 0, 0
+	for _, e := range all {
+		if j < len(rows) && rows[j].Name == e.Name {
+			j++
+			if i < len(was) && was[i].Name == e.Name {
+				i++
+			}
+			continue
+		}
+		if i < len(was) && was[i].Name == e.Name {
+			out = append(out, i)
+			i++
+		}
+	}
+	return out
+}
+
 // leave has the rows that went in the listing's last change leave, once
 // the new rows arrive, with the grid still drawing the old ones.
 func (pg *listingPage) leave(u *gunim.UI) {

@@ -89,9 +89,11 @@ func (a *app) reveal(path string) {
 }
 
 // showPreview works out the preview for the selection, in the background.
-func (a *app) showPreview() {
+func (a *app) showPreview() { a.showPreviewOf(a.selectedEntries()) }
+
+// showPreviewOf works out the preview for sel, the rows selected, in order.
+func (a *app) showPreviewOf(sel []entry) {
 	n := &a.nav
-	sel := a.selectedEntries()
 	if n.loading {
 		// The preview stays as it is until the folder is read.
 		return
