@@ -28,6 +28,8 @@ type pathBar struct {
 	filter        *filterField
 	row           *widget.Flex
 	path          string
+	// room is the browser's width, as it was laid out last.
+	room float32
 }
 
 func newPathBar(b *browser) *pathBar {
@@ -47,7 +49,7 @@ func newPathBar(b *browser) *pathBar {
 	// The menus sit behind a button left of Back, drawn as the path bar's
 	// buttons are, on nothing of their own.
 	menus := widget.NewThemed(widget.NewSized(b.title.bar, navSize+8, navSize), menuButtonTheme())
-	p.row = widget.Row(menus, nav(p.back), nav(p.fwd), nav(p.up), p.addr, widget.NewSized(p.filter, 220, 0)).Grow(p.addr, 1)
+	p.row = widget.Row(menus, nav(p.back), nav(p.fwd), nav(p.up), p.addr, &filterBox{child: p.filter, bar: p}).Grow(p.addr, 1)
 	p.row.Cross = widget.CrossCenter
 	p.row.Gap = smallGap
 	return p
@@ -55,6 +57,41 @@ func newPathBar(b *browser) *pathBar {
 
 // smallGap is the gap between the path bar's parts.
 var smallGap = theme.Length("files.gap.small", 4)
+
+// filterBox gives the filter a share of the path bar: 220 wide, and
+// narrower in a narrow browser, as a pane among others can be, so the
+// path keeps room. Where too little is left, it gives the path all of
+// it, and the filter hides.
+type filterBox struct {
+	child  gunim.Node
+	bar    *pathBar
+	hidden bool
+}
+
+// Children implements [gunim.Composite].
+func (f *filterBox) Children() []gunim.Node { return []gunim.Node{f.child} }
+
+// Layout implements [gunim.Node].
+func (f *filterBox) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
+	room := f.bar.room
+	w := min(max(room*0.25, 120), 220)
+	if f.hidden = room > 0 && room < 560; f.hidden {
+		w = 0
+	}
+	cs := c
+	cs.Min.W, cs.Max.W = w, w
+	size := kids.At(0).Layout(cs)
+	kids.At(0).Place(geom.Point{})
+	size.W = w
+	return c.Constrain(size)
+}
+
+// Paint implements [gunim.Node].
+func (f *filterBox) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim.Children) {
+	if !f.hidden {
+		kids.At(0).Paint(p)
+	}
+}
 
 // navSize is the size of the back, forward and up buttons.
 const navSize = 32

@@ -67,8 +67,11 @@ type browser struct {
 	palette *filesPalette
 	split   *widget.Split
 	main    *widget.Split
-	page    *widget.Flex
-	dnd     *dndView
+	// narrow says the browser is too narrow for the preview, which
+	// folds away meanwhile, as in a pane among others.
+	narrow bool
+	page   *widget.Flex
+	dnd    *dndView
 }
 
 func newBrowser() *browser {
@@ -95,6 +98,18 @@ func newBrowser() *browser {
 	return b
 }
 
+// previewRoom is how wide the browser must be to show the preview.
+const previewRoom = 860
+
+// previewShare is the listing's share of the room beside the preview:
+// all of it while the preview is hidden, or the browser too narrow.
+func (b *browser) previewShare() float32 {
+	if !b.shell.ShowPreview || b.narrow {
+		return 1
+	}
+	return 0.72
+}
+
 // sidebarWidth is the sidebar's width until the user moves it.
 const sidebarWidth = 220
 
@@ -115,14 +130,10 @@ func (b *browser) setShell(s Shell, u *gunim.UI) {
 	if s.Sidebar > 0 && !b.shown {
 		b.split.SetShare(s.Sidebar, nil)
 	}
-	share := float32(0.72)
-	if !s.ShowPreview {
-		share = 1
-	}
 	if b.shown {
-		b.main.SetShare(share, Page.Get(u.Theme()))
+		b.main.SetShare(b.previewShare(), Page.Get(u.Theme()))
 	} else {
-		b.main.SetShare(share, nil)
+		b.main.SetShare(b.previewShare(), nil)
 	}
 	b.title.setShell(s, u)
 	b.side.fs, b.side.ps = s.FS, s.Paths
@@ -144,7 +155,12 @@ func (b *browser) ModalScope() {}
 // Layout implements [gunim.Node]: the page fills the window, and the
 // toasts sit at the bottom right, over the progress panel and the status
 // bar. The dialogs go over them all.
-func (b *browser) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
+func (b *browser) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
+	b.path.room = c.Max.W
+	if narrow := c.Max.W < previewRoom; narrow != b.narrow {
+		b.narrow = narrow
+		b.main.SetShare(b.previewShare(), Page.Get(f.Theme))
+	}
 	page, toasts, layer := kids.At(0), kids.At(1), kids.At(2)
 	page.Layout(gunim.Tight(c.Max))
 	page.Place(geom.Point{})
@@ -215,6 +231,10 @@ func (b *browser) Handle(e input.Event, u *gunim.UI) bool {
 	ctrl, shift, alt := k.Mods.Has(input.ModControl), k.Mods.Has(input.ModShift), k.Mods.Has(input.ModAlt)
 	var cmd string
 	switch {
+	case ctrl && (alt || shift && k.Key != input.KeyN):
+		// Left to the program round the browser, such as a pane's host,
+		// whose own keys these often are.
+		return false
 	case ctrl && k.Key == input.KeyL:
 		b.path.edit(u)
 		return true
