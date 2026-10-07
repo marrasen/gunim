@@ -161,6 +161,32 @@ func TestAnOpenDropdownShowsItsItemsAsTheyAreNow(t *testing.T) {
 	}
 }
 
+func TestADropdownDisabledWhileFocusedClosesAndLetsItsRingGo(t *testing.T) {
+	d := NewDropdown("Apple", "Banana")
+	col := Column(d, NewTextField())
+	w, run := stage(t, &frame{child: col, size: geom.Sz(300, 200)})
+	w.Input(input.KeyPress{Key: input.KeyTab})
+	run(20)
+	if d.ring.Value() < 0.99 {
+		t.Fatalf("Tab to the drop-down rings it %v", d.ring.Value())
+	}
+	w.Input(input.KeyPress{Key: input.KeySpace})
+	run(1)
+	if !d.IsOpen() {
+		t.Fatal("Space did not open the list")
+	}
+	d.Disabled = true
+	run(1)
+	if d.IsOpen() {
+		t.Fatal("the list stayed open as the drop-down was disabled")
+	}
+	w.Input(input.KeyPress{Key: input.KeyTab})
+	run(60)
+	if d.ring.Value() > 0.01 {
+		t.Fatalf("the focus gone, the disabled drop-down's ring is %v", d.ring.Value())
+	}
+}
+
 // cutEnd returns where the first text in ops that ends in an ellipsis ends, in the painter's space, and false where
 // none does.
 func cutEnd(ops []paint.Op) (float32, bool) {

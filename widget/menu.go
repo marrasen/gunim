@@ -909,12 +909,17 @@ func (d *Dropdown) Focusable() bool { return !d.Disabled }
 // IsOpen reports whether the list is open.
 func (d *Dropdown) IsOpen() bool { return d.popup != nil && d.popup.Open() }
 
-// Handle implements [gunim.Handler].
+// Handle implements [gunim.Handler]. A disabled drop-down still hears the focus leave it, which takes its ring.
 func (d *Dropdown) Handle(e input.Event, u *gunim.UI) bool {
+	th := u.Theme()
+	if _, lost := e.(input.FocusLost); lost {
+		d.ring.Animate(0, Settle.Get(th))
+		d.close(u)
+		return true
+	}
 	if d.Disabled {
 		return false
 	}
-	th := u.Theme()
 	switch e := e.(type) {
 	case input.PointerEnter:
 		d.hover.Animate(1, Quick.Get(th))
@@ -932,9 +937,6 @@ func (d *Dropdown) Handle(e input.Event, u *gunim.UI) bool {
 	case input.PointerUp:
 	case input.FocusRing:
 		d.ring.Animate(ringTo(e), Quick.Get(th))
-	case input.FocusLost:
-		d.ring.Animate(0, Settle.Get(th))
-		d.close(u)
 	case input.KeyPress:
 		return d.key(e, u)
 	default:
@@ -1007,16 +1009,20 @@ func (d *Dropdown) open(u *gunim.UI) {
 	d.turn.Animate(1, Quick.Get(u.Theme()))
 }
 
-func (d *Dropdown) close(u *gunim.UI) {
+func (d *Dropdown) close(u *gunim.UI) { d.shut(u.Theme()) }
+
+// shut closes the list.
+func (d *Dropdown) shut(th *theme.Live) {
 	if d.popup != nil {
 		d.popup.Close()
 		d.popup = nil
 	}
-	d.turn.Animate(0, Quick.Get(u.Theme()))
+	d.turn.Animate(0, Quick.Get(th))
 }
 
 // Layout implements [gunim.Node]. The drop-down is as wide as its
-// longest item. The list open keeps to the items as they are now.
+// longest item. The list open keeps to the items as they are now, and
+// closes as the drop-down is disabled.
 func (d *Dropdown) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
 	th := f.Theme
 	w := d.measure(faceIn(Font, th), TextSize.Get(th))
@@ -1027,6 +1033,9 @@ func (d *Dropdown) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) 
 		w = min(w, d.MaxWidth)
 	}
 	d.size = c.Constrain(geom.Sz(w, FieldHeight.Get(th)))
+	if d.Disabled && d.popup != nil {
+		d.shut(th)
+	}
 	if d.menu != nil && d.IsOpen() {
 		d.sync(d.menu)
 	}
@@ -1080,7 +1089,7 @@ func (d *Dropdown) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 	th := f.Theme
 	r := geom.Rect{Max: box.Point()}
 	radius := FieldRadius.Get(th)
-	if t := d.ring.Value(); t > 0 {
+	if t := d.ring.Value(); t > 0 && !d.Disabled {
 		ring := Accent.Get(th)
 		ring.A = uint8(float32(ring.A) * 0.56 * min(t, 1))
 		grow := 3 * t
