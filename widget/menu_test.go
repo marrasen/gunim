@@ -7,6 +7,7 @@ import (
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
+	"github.com/marrasen/gunim/paint"
 )
 
 type chose struct{ I int }
@@ -138,4 +139,57 @@ func TestADropdownKeepsWithinItsMaxWidth(t *testing.T) {
 	if w := d.shown.run.Advance; w <= 150-2*FieldPadding.Default()-chevron {
 		t.Fatalf("the uncut item is only %v wide; the test needs one that is cut", w)
 	}
+}
+
+// cutEnd returns where the first text in ops that ends in an ellipsis ends, in the painter's space, and false where
+// none does.
+func cutEnd(ops []paint.Op) (float32, bool) {
+	face := faceIn(Font, nil)
+	for _, op := range ops {
+		tx, ok := op.(*paint.TextOp)
+		if !ok || len(tx.Glyphs) == 0 {
+			continue
+		}
+		ell := face.Shape("…", tx.Size)
+		if last := tx.Glyphs[len(tx.Glyphs)-1]; last.ID == ell.Glyphs[0].ID {
+			return tx.Transform.C + last.At.X + ell.Advance, true
+		}
+	}
+	return 0, false
+}
+
+func TestAMenuButtonCutsItsTitleShortBeforeItsChevron(t *testing.T) {
+	b := NewMenuButton("Show all the columns", "Time", "Level")
+	spy := &opsSpy{child: b, size: geom.Sz(90, 36)}
+	stage(t, spy)
+	pad := FieldPadding.Default()
+	end, ok := cutEnd(spy.ops)
+	if !ok {
+		t.Fatal("the title is not cut short")
+	}
+	if room := 90 - pad - chevron - pad; end > room {
+		t.Fatalf("the title runs to %v, past %v, where the chevron's room starts", end, room)
+	}
+}
+
+// opsSpy lays its child out at size, and keeps what it paints.
+type opsSpy struct {
+	child gunim.Node
+	size  geom.Size
+	ops   []paint.Op
+}
+
+func (s *opsSpy) Children() []gunim.Node { return []gunim.Node{s.child} }
+
+func (s *opsSpy) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
+	k := kids.At(0)
+	k.Layout(gunim.Tight(s.size))
+	k.Place(geom.Point{})
+	return c.Max
+}
+
+func (s *opsSpy) Paint(_ *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim.Children) {
+	var p paint.Painter
+	kids.At(0).Paint(&p)
+	s.ops = p.Ops()
 }

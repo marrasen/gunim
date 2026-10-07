@@ -105,6 +105,7 @@ type Menubar struct {
 	titles   []shapedText
 	titleRun shapedText
 	subRun   shapedText
+	subEll   shapedText
 	// spans holds each title's left and right edges, and height the
 	// bar's height, from the last layout.
 	spans    [][2]float32
@@ -833,7 +834,9 @@ func (b *Menubar) paintCompact(p *paint.Painter, f gunim.Frame, box geom.Size) {
 		faint := ink
 		faint.A = uint8(float32(faint.A) * 0.6)
 		run := b.subRun.shape(faceIn(Font, th), b.Subtitle, size)
-		defer p.Layer(paint.LayerOpts{Bounds: geom.Rc(x, 0, room, box.H), Opacity: 1, Clip: true})()
+		if run.Advance > room {
+			run = cutRun(run, b.subEll.shape(faceIn(Font, th), "…", size), room)
+		}
 		run.Paint(p, geom.Pt(x, (box.H-run.Height())/2), faint)
 	}
 }

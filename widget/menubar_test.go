@@ -3,6 +3,7 @@ package widget
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -704,5 +705,22 @@ func TestAMenuTallerThanTheWholeScreenScrollsBesideACompactMenubarsList(t *testi
 	}
 	if r := b.menu.RowRect(199); r.Min.Y < b.menu.card.Min.Y-0.5 || r.Max.Y > b.menu.card.Max.Y+0.5 {
 		t.Fatalf("after End, Font's last line is at %v, outside its card %v", r, b.menu.card)
+	}
+}
+
+func TestACompactMenubarCutsItsSubtitleShortAtTheBarsEnd(t *testing.T) {
+	b := NewMenubar(BarMenu{Title: "File", Items: []string{"New"}})
+	b.Compact = true
+	b.Title, b.Subtitle = "Notes", strings.Repeat("a long subtitle ", 20)
+	spy := &opsSpy{child: b, size: geom.Sz(300, 30)}
+	w, run := stage(t, spy)
+	w.MakeChromeless(true)
+	run(2)
+	end, ok := cutEnd(spy.ops)
+	if !ok {
+		t.Fatal("the subtitle is not cut short")
+	}
+	if room := 300 - MenuRowPadding.Default(); end > room {
+		t.Fatalf("the subtitle runs to %v, past %v", end, room)
 	}
 }
