@@ -188,15 +188,24 @@ func PaintPitches(p *paint.Painter, th *theme.Live, area geom.Rect, up bool) {
 		if hz >= 1000 {
 			label = fmt.Sprintf("%.0fk", hz/1000)
 		}
+		run := Shaped(label, 9, false, false)
 		if up {
 			y := area.Max.Y - area.Size().H*at
 			p.RRect(geom.Rc(area.Min.X, y, area.Size().W, 1), 0, paint.Solid(Faded(ink, 0.08)))
-			Shaped(label, 9, false, false).Paint(p, geom.Pt(area.Min.X+4, y-12), Faded(ink, 0.45))
+			if run.Advance+4 <= area.Size().W {
+				run.Paint(p, geom.Pt(area.Min.X+4, y-12), Faded(ink, 0.45))
+			}
 			continue
 		}
 		x := area.Min.X + area.Size().W*at
 		p.RRect(geom.Rc(x, area.Min.Y, 1, area.Size().H), 0, paint.Solid(Faded(ink, 0.06)))
-		Shaped(label, 9, false, false).Paint(p, geom.Pt(x+3, area.Max.Y-14), Faded(ink, 0.35))
+		// The label goes right of its line, or left of it near the right edge, and not at all where neither fits.
+		switch lx := x + 3; {
+		case lx+run.Advance <= area.Max.X:
+			run.Paint(p, geom.Pt(lx, area.Max.Y-14), Faded(ink, 0.35))
+		case x-3-run.Advance >= area.Min.X:
+			run.Paint(p, geom.Pt(x-3-run.Advance, area.Max.Y-14), Faded(ink, 0.35))
+		}
 	}
 }
 

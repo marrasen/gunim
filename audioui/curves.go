@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"image/color"
 	"math"
+	"sort"
 	"strconv"
 
-	"github.com/marrasen/gunim/audio"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/theme"
@@ -55,6 +55,29 @@ type Curves struct {
 	// did, and LRA how far.
 	Low, High, LRA float32
 	Ranged         bool
+	// read holds the loudness of Blocks and of Shorts, read as they
+	// change: Paint draws a frame from them without reading every
+	// block's again.
+	read [2]loudnesses
+}
+
+// loudnesses is the loudness of each of a slice of powers, kept while
+// the slice is the same one, and read on for powers appended to it.
+type loudnesses struct {
+	from, ls []float64
+}
+
+// of returns the loudness of each of powers, read only where powers
+// are new: another slice, or the same one grown.
+func (o *loudnesses) of(powers []float64) []float64 {
+	if len(powers) < len(o.ls) || len(o.ls) > 0 && &powers[0] != &o.from[0] {
+		o.ls = o.ls[:0]
+	}
+	for _, p := range powers[len(o.ls):] {
+		o.ls = append(o.ls, LUFSOf(p))
+	}
+	o.from = powers
+	return o.ls
 }
 
 // CurveView is where and how [Curves] are drawn.
@@ -126,20 +149,26 @@ func (c *Curves) Paint(p *paint.Painter, th *theme.Live, v CurveView) {
 	// last, the first at lead, over a dark edge so it reads on any
 	// ground. The edge and the line are each drawn whole, solid, and
 	// faded as one, so where two pieces meet neither shows darker, nor
-	// does a piece of the edge cross the line.
+	// does a piece of the edge cross the line. Only the points in view
+	// and one past each side are visited, found by binary search: X
+	// runs left to right.
 	var segs [][2]geom.Point
-	line := func(bit uint8, ls []float64, lead, step float64, width float32) {
+	line := func(bit uint8, n int, loudness func(k int) float64, lead, step float64, width float32) {
 		segs = segs[:0]
 		var prev geom.Point
 		was := false
 		lastX := float32(-1e9)
-		for k, l := range ls {
-			x := v.X(lead + float64(k)*step)
+		xOf := func(k int) float32 { return v.X(lead + float64(k)*step) }
+		first := max(sort.Search(n, func(k int) bool { return xOf(k) >= area.Min.X-20 })-1, 0)
+		last := min(sort.Search(n, func(k int) bool { return xOf(k) > area.Max.X+20 })+1, n)
+		for k := first; k < last; k++ {
+			l := loudness(k)
+			x := xOf(k)
 			if x < area.Min.X-20 || x > area.Max.X+20 {
 				was = false
 				continue
 			}
-			if x-lastX < 1 && k+1 < len(ls) {
+			if x-lastX < 1 && k+1 < n {
 				continue
 			}
 			if l < CurveBottom {
@@ -168,21 +197,19 @@ func (c *Curves) Paint(p *paint.Painter, th *theme.Live, v CurveView) {
 	}
 	if on&CurveM != 0 {
 		alpha = v.Alpha * v.Fade[0]
-		line(CurveM, Loudnesses(c.Blocks), 0.4, 0.1, 1)
+		ms := c.read[0].of(c.Blocks)
+		line(CurveM, len(ms), func(k int) float64 { return ms[k] }, 0.4, 0.1, 1)
 	}
 	if on&CurveS != 0 {
 		alpha = v.Alpha * v.Fade[1]
-		line(CurveS, Loudnesses(c.Shorts), 3, 0.1, 2)
+		ss := c.read[1].of(c.Shorts)
+		line(CurveS, len(ss), func(k int) float64 { return ss[k] }, 3, 0.1, 2)
 	}
 	alpha = v.Alpha * v.Fade[2]
 	if on&CurveI != 0 && c.Loud {
 		// The integrated loudness as it grows, from the start to each
 		// second: a passage that lifts it shows as a rise.
-		grown := make([]float64, len(c.Running))
-		for i, l := range c.Running {
-			grown[i] = float64(l)
-		}
-		line(CurveI, grown, 1, 1, 2)
+		line(CurveI, len(c.Running), func(k int) float64 { return float64(c.Running[k]) }, 1, 1, 2)
 		y := yOf(float64(c.LUFS))
 		for x := area.Min.X; x < area.Max.X; x += 10 {
 			p.RRect(geom.Rc(x, y-0.75, 6, 1.5), 0.75, paint.Solid(CurveColor(th, CurveI, alpha)))
@@ -224,10 +251,17 @@ func LUFSOf(power float64) float64 {
 // RunningLoudness is the integrated loudness of the 400 ms blocks'
 // powers, 100 ms apart, from the first to each second's, -inf before
 // there is any.
+//
+// The blocks go into a histogram one by one, so each second costs a
+// pass over its bins, however long the sound.
 func RunningLoudness(blocks []float64) []float32 {
 	out := make([]float32, 0, len(blocks)/10+1)
+	h := &loudHist{}
 	for k := 10; k <= len(blocks)+9; k += 10 {
-		l, ok := audio.Integrated(blocks[:min(k, len(blocks))])
+		for _, p := range blocks[k-10 : min(k, len(blocks))] {
+			h.add(p)
+		}
+		l, ok := h.integrated()
 		if !ok {
 			l = math.Inf(-1)
 		}

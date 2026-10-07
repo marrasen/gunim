@@ -134,14 +134,14 @@ func PaintMeter(p *paint.Painter, th *theme.Live, r geom.Rect, l *Levels) {
 			words = fmt.Sprintf("%.1f", l.Top[ch])
 		}
 		run := Shaped(words, 8, true, true)
-		run.Paint(p, geom.Pt(r.Min.X+float32(ch)*BarPitch+BarW/2-run.Advance/2, top-34), c)
+		run.Paint(p, geom.Pt(meterLabelX(r.Min.X, float32(ch)*BarPitch+BarW/2, run.Advance), top-34), c)
 	}
 	loud := "—"
 	if s, ok := l.ShortTerm(); ok {
 		loud = fmt.Sprintf("%.1f", s)
 	}
 	run := Shaped(loud, 11, true, true)
-	run.Paint(p, geom.Pt(r.Min.X+MeterW/2-run.Advance/2, top-20), ink)
+	run.Paint(p, geom.Pt(meterLabelX(r.Min.X, MeterW/2, run.Advance), top-20), ink)
 	for ch := range 2 {
 		bx := r.Min.X + float32(ch)*BarPitch
 		p.RRect(geom.Rc(bx, top, BarW, bottom-top), 2, paint.Solid(Faded(ground, 0.85)))
@@ -160,6 +160,12 @@ func PaintMeter(p *paint.Painter, th *theme.Live, r geom.Rect, l *Levels) {
 			p.RRect(geom.Rc(bx, yOf(l.Hold[ch])-1, BarW, 2), 1, paint.Solid(hc))
 		}
 	}
+}
+
+// meterLabelX is where a label w wide starts, centred mid along a meter
+// whose left edge is at x, and kept within the meter's width.
+func meterLabelX(x, mid, w float32) float32 {
+	return x + max(0, min(mid-w/2, MeterW-w))
 }
 
 // PaintMeterScale draws a meter's scale, its ticks' levels centred on x,
