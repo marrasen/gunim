@@ -223,6 +223,8 @@ func TestWindowsOnTwoFileSystemsShareTheirFavourites(t *testing.T) {
 	})
 	l.pick("work")
 	l.do(Command{Name: CmdPin})
+	// The other window hears of the pin before its own, as it does when a person pins in one and then the other.
+	o.until("the other window has the computer's pin", func() bool { return len(o.a.favs) == 1 })
 	o.pick("far")
 	o.do(Command{Name: CmdPin})
 	want := []Favourite{{Path: filepath.Join(local, "work"), Color: "red"},
