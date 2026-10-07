@@ -47,7 +47,12 @@ type scrolling struct {
 	offset *anim.Float
 	target float32
 	bar    *anim.Float
-	idle   time.Duration
+	// stillSince is when the content last moved, or the pointer left,
+	// zero while it moves or the pointer keeps the bar up, and still the
+	// frames' time since then; the bar fades once either has reached
+	// barLinger, the window sleeping meanwhile.
+	stillSince time.Time
+	still      time.Duration
 	// th is the window's live theme, kept from Layout for Step, which
 	// has no frame. It is a handle to the live values, never a copy.
 	th *theme.Live
@@ -114,7 +119,7 @@ func (s *scrolling) ScrollTo(y float32, motion anim.Motion) {
 
 func (s *scrolling) showBar() {
 	s.bar.Animate(1, Quick.Get(s.th))
-	s.idle = 0
+	s.stillSince, s.still = time.Time{}, 0
 }
 
 // end returns the largest offset.
@@ -158,18 +163,40 @@ func (s *scrolling) Step(dt time.Duration) bool {
 	}
 	// The pointer keeps the bar up without drawing frames; the linger
 	// counts from when it leaves.
+	// The linger is counted by the clock, and the window sleeps through
+	// it: WakeIn asks for the frame that fades the bar.
 	kept := s.over || s.gripped
-	if moving || s.held || kept {
-		s.idle = 0
-	} else if s.bar.Target() > 0 {
-		s.idle += dt
-		if s.idle >= barLinger {
+	switch {
+	case moving || s.held || kept:
+		s.stillSince, s.still = time.Time{}, 0
+	case s.bar.Target() > 0:
+		if s.stillSince.IsZero() {
+			s.stillSince = time.Now()
+		}
+		s.still += dt
+		if s.lingered() >= barLinger {
 			s.bar.Animate(0, Settle.Get(s.th))
+			s.stillSince, s.still = time.Time{}, 0
 		}
 	}
 	barMoving := s.bar.Step(dt)
 	wideMoving := s.wide.Step(dt)
-	return moving || barMoving || wideMoving || (s.bar.Target() > 0 && !kept)
+	return moving || barMoving || wideMoving
+}
+
+// WakeIn implements [gunim.Waker]: the frame that fades the bar, once
+// it has stayed barLinger.
+func (s *scrolling) WakeIn() time.Duration {
+	if s.stillSince.IsZero() || s.bar.Target() <= 0 {
+		return 0
+	}
+	return max(barLinger-s.lingered(), time.Millisecond)
+}
+
+// lingered is how long the bar has stayed since the content was still:
+// the frames' time, or the clock's where the window slept through it.
+func (s *scrolling) lingered() time.Duration {
+	return max(s.still, time.Since(s.stillSince))
 }
 
 // scrollable reports whether the content is taller than the view.

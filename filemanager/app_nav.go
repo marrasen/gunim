@@ -50,10 +50,10 @@ type navState struct {
 	cancelList context.CancelFunc
 	checking   bool
 	// sel holds the names selected and cursor the name the keyboard is
-	// on; pick is a name to select once the listing arrives.
+	// on; pick holds the names to select once the listing arrives.
 	sel    map[string]bool
 	cursor string
-	pick   string
+	pick   []string
 	// space is the free space of the folder's volume, or spaceErr why it
 	// is unknown.
 	space    space
@@ -165,7 +165,7 @@ func (a *app) navCommand(name string) bool {
 			}
 			from := a.ps.Base(n.path)
 			a.navigate(parent, -1, true)
-			n.pick = from
+			n.pick = []string{from}
 		}
 	case CmdHome:
 		home, err := a.home()
@@ -316,7 +316,7 @@ func (a *app) navigate(path string, travel int, record bool) {
 	}
 	n.moves++
 	n.all, n.rows, n.err = nil, nil, nil
-	n.filter, n.pick = "", ""
+	n.filter, n.pick = "", nil
 	clear(n.sel)
 	n.cursor = ""
 	a.enteredFolder()
@@ -490,11 +490,17 @@ func (a *app) refilter() {
 		a.patch(RowsLeft{Gen: n.gen, Rows: left})
 	}
 	a.publishBands()
-	if n.pick != "" {
+	if len(n.pick) > 0 {
 		clear(n.sel)
-		n.sel[n.pick] = true
-		n.cursor = n.pick
-		n.pick = ""
+		for _, name := range n.pick {
+			n.sel[name] = true
+		}
+		// The keyboard goes to the first of them the listing shows.
+		n.cursor = n.pick[0]
+		if i := slices.IndexFunc(n.rows, func(e entry) bool { return n.sel[e.Name] }); i >= 0 {
+			n.cursor = n.rows[i].Name
+		}
+		n.pick = nil
 	}
 	a.publishSelection()
 	a.publishStatus()

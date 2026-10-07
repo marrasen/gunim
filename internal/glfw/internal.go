@@ -132,6 +132,11 @@ type (
 )
 
 type Window struct {
+	// gunim change: deferred is the context a window made by
+	// CreateWindowDeferringContext is to hold, made by
+	// CreateDeferredContext on the thread that will draw with it.
+	deferred *deferredContext
+
 	// gunim change: keyTyped is set while the key callback reports a
 	// key press that typed text. See KeyTyped.
 	keyTyped bool

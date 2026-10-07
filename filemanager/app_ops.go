@@ -181,7 +181,7 @@ func (a *app) opsCommand(name string) bool {
 			stem = utf8.RuneCountInString(strings.TrimSuffix(es[0].Name, filepath.Ext(es[0].Name)))
 		}
 		a.prompt(Prompt{Title: "Rename", Text: es[0].Name, OK: "Rename", Stem: stem}, func(name string) {
-			a.nav.pick = name
+			a.nav.pick = []string{name}
 			a.startOp(job{kind: OpRename, srcs: []string{src}, name: name}, "Renaming "+es[0].Name)
 		})
 	case CmdNewFolder:
@@ -195,7 +195,7 @@ func (a *app) opsCommand(name string) bool {
 		}
 		base := a.ps.Base(name)
 		a.prompt(Prompt{Title: "New folder", Text: base, OK: "Make", Stem: utf8.RuneCountInString(base)}, func(name string) {
-			a.nav.pick = name
+			a.nav.pick = []string{name}
 			a.startOp(job{kind: OpNewFolder, dest: here, name: name}, "Making "+name)
 		})
 	case CmdUndo:
@@ -406,8 +406,13 @@ func (a *app) finish(id int, j job, rec record, err error) {
 	}
 	if j.kind == OpRename || j.kind == OpNewFolder {
 		if err != nil {
-			a.nav.pick = ""
+			a.nav.pick = nil
 		}
+	}
+	if (j.kind == OpCopy || j.kind == OpMove) && len(rec.landed) > 0 && a.ps.Same(j.dest, a.nav.path) {
+		// What a paste or a drop brought into the folder showing is
+		// selected, so the user sees what came.
+		a.nav.pick = rec.landed
 	}
 	a.touched(j)
 	a.relist()

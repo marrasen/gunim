@@ -454,8 +454,15 @@ func (p Paragraph) Index(pt geom.Point) int {
 
 // Paint draws the paragraph with its top-left at topLeft.
 func (p Paragraph) Paint(painter *paint.Painter, topLeft geom.Point, c color.NRGBA) {
+	// The lines the clips hide are left out, a line's height of room
+	// kept above and below for the strokes that reach past its box.
+	shown, cull := painter.Visible()
 	for _, l := range p.Lines {
-		l.Run.Paint(painter, topLeft.Add(l.At), c)
+		at := topLeft.Add(l.At)
+		if h := l.Run.Height(); cull && (at.Y+2*h < shown.Min.Y || at.Y-h > shown.Max.Y) {
+			continue
+		}
+		l.Run.Paint(painter, at, c)
 	}
 }
 

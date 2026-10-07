@@ -727,7 +727,8 @@ func (w *Window) Place(anchor geom.Rect, size geom.Size) error {
 		}
 		f := w.coordsPerLogical()
 		ww, wh := max(1, int(size.W*f+0.5)), max(1, int(size.H*f+0.5))
-		if cw, ch, err := w.gw.GetSize(); err == nil && (cw != ww || ch != wh) {
+		cw, ch, gerr := w.gw.GetSize()
+		if gerr == nil && (cw != ww || ch != wh) {
 			// The engine waits on this call, and draws the frame at the new size after it
 			w.placing = true
 			err := w.gw.SetSize(ww, wh)
@@ -735,6 +736,14 @@ func (w *Window) Place(anchor geom.Rect, size geom.Size) error {
 			if err != nil {
 				return err
 			}
+		}
+		if popupDebug {
+			nw, nh, _ := w.gw.GetSize()
+			w.mu.Lock()
+			fbW, fbH, scale := w.fbW, w.fbH, w.scale
+			w.mu.Unlock()
+			fmt.Fprintf(os.Stderr, "gunim popup: a spare placed for %vx%v logical at %.2f per logical: was %dx%d, asked %dx%d, now %dx%d, framebuffer %dx%d at scale %.2f\n",
+				size.W, size.H, f, cw, ch, ww, wh, nw, nh, fbW, fbH, scale)
 		}
 		return w.attach(anchor)
 	})
@@ -1052,6 +1061,12 @@ func (w *Window) render() {
 	if err != nil {
 		w.fail(err)
 	}
+	if w.ctx != nil {
+		// The context made here goes here, once the renderer has let it
+		// go: deleted on another thread while current here, it would be
+		// in use.
+		defer func() { _ = w.ctx.DeleteContext() }()
+	}
 	if r != nil {
 		defer func() {
 			if w.pres != nil {
@@ -1247,6 +1262,10 @@ func (w *Window) startGL() (*render.Renderer, error) {
 	holder := w.gw
 	if w.ctx != nil {
 		holder = w.ctx
+		// Made here, on the thread that draws with it: see contextWindow.
+		if err := w.ctx.CreateDeferredContext(); err != nil {
+			return nil, fmt.Errorf("desktop: create context: %w", err)
+		}
 	}
 	if err := holder.MakeContextCurrent(); err != nil {
 		return nil, fmt.Errorf("desktop: make context current: %w", err)

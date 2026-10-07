@@ -3,6 +3,7 @@ package widget
 import (
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -428,5 +429,39 @@ func TestAnIconAloneIsALink(t *testing.T) {
 	run(1)
 	if got := sent(w); len(got) != 1 || got[0] != (idFound{"copy"}) {
 		t.Fatalf("a click on the icon sent %v", got)
+	}
+}
+
+func TestADataGridTipsACellCutShortWithItsWholeText(t *testing.T) {
+	long := strings.Repeat("a value too long for its column ", 40)
+	g := NewDataGrid(GridColumn{Title: "Short", Width: 120}, GridColumn{Title: "Long"})
+	g.Row = func(i int) (GridRow, bool) {
+		return GridRow{Cells: [][]GridSpan{{{Text: "fits"}}, {{Text: long}}}}, true
+	}
+	w, run := stage(t, &frame{child: g, size: geom.Sz(400, 300)})
+	g.rows = 3
+	run(2)
+	y := g.header + g.rowH/2
+	w.Input(input.PointerMove{Pos: geom.Pt(20, y), Time: time.Now()})
+	run(60)
+	if g.tip.tip.popup != nil {
+		t.Fatal("a cell that fits showed a tooltip")
+	}
+	w.Input(input.PointerMove{Pos: geom.Pt(300, y), Time: time.Now()})
+	run(60)
+	if g.tip.tip.popup == nil {
+		t.Fatal("a cell cut short showed no tooltip")
+	}
+	if got := g.tip.tip.text; got != strings.TrimSpace(long) {
+		t.Fatalf("the tooltip says %q, want the whole value", got)
+	}
+	card := g.tip.tip.card
+	if !card.wrapped {
+		t.Fatal("a tooltip far wider than the most a tooltip may be did not wrap")
+	}
+	w.Input(input.PointerLeave{Time: time.Now()})
+	run(60)
+	if g.tip.tip.popup != nil {
+		t.Fatal("the tooltip stayed after the pointer left")
 	}
 }

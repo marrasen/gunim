@@ -281,3 +281,29 @@ func TestTileGridHoverFollowsAZoom(t *testing.T) {
 		t.Fatal("the zoom left tile 7 under the pointer, so the test tests nothing")
 	}
 }
+
+func TestTileGridRebuildsItsTilesForANewSet(t *testing.T) {
+	g, w, run := tileStage(t, 20)
+	built := map[int]int{}
+	g.Tile = func(i int) gunim.Node { built[i]++; return &blank{} }
+	sent(w)
+	do(t, w, func(u *gunim.UI) { g.Rebuild(u) })
+	run(2)
+	// Every tile in view is built again, once, and the view is told anew.
+	if built[0] != 1 || built[5] != 1 {
+		t.Fatalf("after Rebuild, tiles built %v; want each in view once more", built)
+	}
+	var told bool
+	for _, in := range sent(w) {
+		if _, ok := in.(tilesInView); ok {
+			told = true
+		}
+	}
+	if !told {
+		t.Fatal("Rebuild did not tell OnView the tiles built anew")
+	}
+	run(2)
+	if built[0] != 1 {
+		t.Fatalf("tile 0 was built %d times; want once", built[0])
+	}
+}

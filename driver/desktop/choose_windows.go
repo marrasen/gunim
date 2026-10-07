@@ -19,6 +19,9 @@ var (
 	procChooseCoCreate = chooseOle32.NewProc("CoCreateInstance")
 	procChooseCoFree   = chooseOle32.NewProc("CoTaskMemFree")
 
+	chooseShell32          = windows.NewLazySystemDLL("shell32.dll")
+	procChooseItemFromPath = chooseShell32.NewProc("SHCreateItemFromParsingName")
+
 	clsidFileOpenDialog = windows.GUID{Data1: 0xDC1C5A9C, Data2: 0xE88A, Data3: 0x4DDE,
 		Data4: [8]byte{0xA5, 0xA1, 0x60, 0xF8, 0x2A, 0x20, 0xAE, 0xF7}}
 	iidFileOpenDialog = windows.GUID{Data1: 0xD57C7288, Data2: 0xD4AD, Data3: 0x4768,
@@ -27,6 +30,8 @@ var (
 		Data4: [8]byte{0x8D, 0xBA, 0x33, 0x5E, 0xC9, 0x46, 0xEB, 0x8B}}
 	iidFileSaveDialog = windows.GUID{Data1: 0x84BCCD23, Data2: 0x5FDE, Data3: 0x4CDB,
 		Data4: [8]byte{0xAE, 0xA4, 0xAF, 0x64, 0xB8, 0x3D, 0x78, 0xAB}}
+	iidShellItem = windows.GUID{Data1: 0x43826D1E, Data2: 0xE718, Data3: 0x42EE,
+		Data4: [8]byte{0xBC, 0x55, 0xA1, 0xE2, 0x61, 0xC3, 0x7B, 0xFE}}
 )
 
 // COM and file dialog constants.
@@ -52,6 +57,7 @@ const (
 	vtSetFileTypes   = 4
 	vtSetOptions     = 9
 	vtGetOptions     = 10
+	vtSetFolder      = 12
 	vtSetFileName    = 15
 	vtSetTitle       = 17
 	vtGetResult      = 20
@@ -82,12 +88,13 @@ var (
 )
 
 // dialog describes a file dialog to show: which one, its title, filters
-// and options, and the file name it starts with.
+// and options, and the folder and file name it starts with.
 type dialog struct {
 	clsid, iid *windows.GUID
 	title      string
 	filters    []driver.FileFilter
 	options    uint32
+	folder     string
 	name       string
 }
 
@@ -133,6 +140,7 @@ func (w *Window) showDialog(d dialog, chosen func(dlg unsafe.Pointer) error) err
 	if err := setText(dlg, vtSetTitle, d.title, "title"); err != nil {
 		return err
 	}
+	setFolder(dlg, d.folder)
 	if err := setText(dlg, vtSetFileName, d.name, "file name"); err != nil {
 		return err
 	}
@@ -163,6 +171,26 @@ func (w *Window) showDialog(d dialog, chosen func(dlg unsafe.Pointer) error) err
 	return chosen(dlg)
 }
 
+// setFolder opens the dialog in folder; an empty folder, or one that is
+// not there, leaves the dialog where the system opens it.
+func setFolder(dlg unsafe.Pointer, folder string) {
+	if folder == "" {
+		return
+	}
+	p, err := windows.UTF16PtrFromString(folder)
+	if err != nil {
+		return
+	}
+	var item unsafe.Pointer
+	hr, _, _ := procChooseItemFromPath.Call(uintptr(unsafe.Pointer(p)), 0,
+		uintptr(unsafe.Pointer(&iidShellItem)), uintptr(unsafe.Pointer(&item)))
+	if hrFailed(uint32(hr)) {
+		return
+	}
+	defer comCall(item, vtRelease)
+	comCall(dlg, vtSetFolder, uintptr(item))
+}
+
 // setText calls the dialog's method index with s, for its title or file
 // name, and leaves it alone for an empty s.
 func setText(dlg unsafe.Pointer, index int, s, what string) error {
@@ -182,7 +210,7 @@ func setText(dlg unsafe.Pointer, index int, s, what string) error {
 // ChooseFiles implements [driver.FileChooser] with the Windows file
 // dialog, IFileOpenDialog.
 func (w *Window) ChooseFiles(o driver.ChooseOptions) ([]string, error) {
-	d := dialog{clsid: &clsidFileOpenDialog, iid: &iidFileOpenDialog, title: o.Title,
+	d := dialog{clsid: &clsidFileOpenDialog, iid: &iidFileOpenDialog, title: o.Title, folder: o.Folder,
 		options: fosForceFileSystem | fosPathMustExist | fosFileMustExist}
 	if o.Multiple {
 		d.options |= fosAllowMultiSelect

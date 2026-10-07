@@ -85,7 +85,9 @@ type TileGrid struct {
 	revealNext int
 	moved      bool
 	jumpRow    int
-	lift       tileLift
+	// rebuild drops the tiles built at the next layout.
+	rebuild bool
+	lift    tileLift
 }
 
 // tileLift is a press on a tile that may become a drag of the tiles selected.
@@ -117,6 +119,14 @@ func (g *TileGrid) SetLen(n int, u *gunim.UI) {
 	if g.anchor >= g.n {
 		g.anchor = -1
 	}
+	u.Invalidate()
+}
+
+// Rebuild drops every tile built, for a new set of items in the same grid, such as another folder's pictures: the
+// next layout builds those in view anew from Tile, and tells OnView again. Pair it with Arrive for the new tiles to
+// come in, and with Depart before it for the old ones to leave first.
+func (g *TileGrid) Rebuild(u *gunim.UI) {
+	g.rebuild = true
 	u.Invalidate()
 }
 
@@ -611,6 +621,16 @@ func (g *TileGrid) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Childre
 		if _, ok := children[tc]; !ok {
 			delete(g.live, i)
 		}
+	}
+	if g.rebuild {
+		g.rebuild = false
+		for i, tc := range g.live {
+			kids.Drop(tc)
+			delete(g.live, i)
+			delete(children, tc)
+		}
+		g.built = [2]int{}
+		g.depart, g.departing = nil, false
 	}
 	offset := g.offset.Value()
 	first, last := 0, -1

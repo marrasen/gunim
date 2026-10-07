@@ -209,6 +209,11 @@ func (s *Segmented) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children)
 		s.laid = true
 	}
 	s.size = c.Constrain(geom.Sz(s.width*float32(n), SegmentedHeight.Get(th)))
+	// Given another width, the options share it: squeezed into less room,
+	// or spread across more, never past the track.
+	if n > 0 {
+		s.width = s.size.W / float32(n)
+	}
 	return s.size
 }
 

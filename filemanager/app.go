@@ -40,6 +40,10 @@ type Options struct {
 	// as the window is open on another. An AnyFSFavourites keeps them
 	// on any file system, and the window lists them all.
 	Favourites FavouriteStore
+	// Log, when set, hears each failure and warning the window shows, as
+	// one line, for a program to keep in a log of its own: what the
+	// window says goes once it is dismissed.
+	Log func(line string)
 	// Visit goes to the folder at path on the file system of ID fs, for
 	// a place or a favourite on another file system than the window's,
 	// on a goroutine of its own. w is the window that asks, which Visit
@@ -276,7 +280,9 @@ func (a *app) startup(o Options) {
 		a.script = strings.Split(o.Script, ",")
 	}
 	a.startNav(o.Dir)
-	a.nav.pick = o.Select
+	if o.Select != "" {
+		a.nav.pick = []string{o.Select}
+	}
 }
 
 // take handles the intent ev carries, with the modifier keys held as it was sent.
@@ -381,7 +387,31 @@ func (a *app) post(fn func()) {
 }
 
 // patch sends a patch to the browser.
-func (a *app) patch(v any) { a.send(a.c.Patch(string(browserID), v)) }
+func (a *app) patch(v any) {
+	a.logShown(v)
+	a.send(a.c.Patch(string(browserID), v))
+}
+
+// logShown tells Options.Log of a failure or a warning v shows.
+func (a *app) logShown(v any) {
+	if a.opts.Log == nil {
+		return
+	}
+	switch v := v.(type) {
+	case Banner:
+		if v.Text != "" {
+			a.opts.Log("files: " + v.Text)
+		}
+	case Notice:
+		if v.Kind == "warning" || v.Kind == "error" {
+			line := "files: " + v.Title
+			if v.Body != "" {
+				line += ": " + v.Body
+			}
+			a.opts.Log(line)
+		}
+	}
+}
 
 // send logs a command the window did not take. A window that has closed
 // takes nothing, and needs no word about it.

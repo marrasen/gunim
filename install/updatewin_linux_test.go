@@ -356,3 +356,34 @@ func TestAboutChecksForUpdatesInPlace(t *testing.T) {
 	}
 	updateFrames(w, r, 30)
 }
+
+// countingNotes counts the times its notes are read.
+type countingNotes struct{ reads *int }
+
+func (c countingNotes) Latest(context.Context) (Release, error) { return Release{}, nil }
+
+func (c countingNotes) ReleaseNotes(context.Context) ([]ReleaseNotes, error) {
+	*c.reads++
+	return []ReleaseNotes{{Version: "v1.1.0", Notes: "new"}}, nil
+}
+
+// Notes read once are kept a while, so a window opened again soon does
+// not ask again.
+func TestNotesAreKeptAWhile(t *testing.T) {
+	was := notesFor
+	t.Cleanup(func() { notesFor = was })
+	reads := 0
+	a := App{Name: "studio", Version: "v1.1.0", Updates: countingNotes{reads: &reads}}
+	for range 3 {
+		if notes, err := WhatsNew(context.Background(), a, "v1.0.0", "v1.1.0"); err != nil || len(notes) != 1 {
+			t.Fatalf("what's new is %v, %v", notes, err)
+		}
+	}
+	if reads != 1 {
+		t.Fatalf("the notes were read %d times", reads)
+	}
+	notesFor = 0
+	if _, err := WhatsNew(context.Background(), a, "v1.0.0", "v1.1.0"); err != nil || reads != 2 {
+		t.Fatalf("kept past their time, the notes were read %d times, %v", reads, err)
+	}
+}

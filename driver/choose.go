@@ -9,6 +9,9 @@ type ChooseOptions struct {
 	Folders bool
 	// Multiple lets more than one be chosen.
 	Multiple bool
+	// Folder is the folder the dialog opens in. Empty, or a folder that
+	// is not there, leaves that to the system.
+	Folder string
 	// Filters narrow the files shown, the first chosen to begin with.
 	// None shows every file.
 	Filters []FileFilter

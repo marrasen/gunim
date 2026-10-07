@@ -21,6 +21,8 @@ var (
 	_ gunim.Animator = (*Switch)(nil)
 	_ gunim.Animator = (*Slider)(nil)
 	_ gunim.Animator = (*Tabs)(nil)
+	_ gunim.Animator = (*Tree)(nil)
+	_ gunim.Animator = (*treeRow)(nil)
 	_ gunim.Animator = (*Menu)(nil)
 	_ gunim.Animator = (*Dropdown)(nil)
 	_ gunim.Animator = (*Image)(nil)

@@ -425,6 +425,36 @@ func (p *Painter) Layer(o LayerOpts) func() {
 // innermost first. It is nil when nothing clips.
 func (p *Painter) Clip() *Clip { return p.clip }
 
+// Visible is the part of the painter's space that the clips around it
+// let through, for a node with much to draw to leave out what can't
+// show, as a long document in a scroll does its thousands of lines. It
+// reports false where that can't be told, under a perspective or with
+// no clip at all, and everything should be drawn.
+func (p *Painter) Visible() (geom.Rect, bool) {
+	if p.Projection() != nil {
+		return geom.Rect{}, false
+	}
+	b, clipped := p.Clip().Bounds()
+	if !clipped {
+		return geom.Rect{}, false
+	}
+	back, ok := p.Transform().Invert()
+	if !ok {
+		return geom.Rect{}, false
+	}
+	var out geom.Rect
+	for i, q := range []geom.Point{b.Min, {X: b.Max.X, Y: b.Min.Y}, b.Max, {X: b.Min.X, Y: b.Max.Y}} {
+		at := back.Apply(q)
+		if i == 0 {
+			out = geom.Rect{Min: at, Max: at}
+			continue
+		}
+		out.Min.X, out.Min.Y = min(out.Min.X, at.X), min(out.Min.Y, at.Y)
+		out.Max.X, out.Max.Y = max(out.Max.X, at.X), max(out.Max.Y, at.Y)
+	}
+	return out, true
+}
+
 // Projection returns the perspective in force: every open layer that
 // tilts. It is nil when nothing tilts.
 func (p *Painter) Projection() *Projection { return p.proj }

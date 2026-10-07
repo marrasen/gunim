@@ -8,6 +8,7 @@ import (
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/input"
+	"github.com/marrasen/gunim/paint"
 )
 
 type segmentChosen struct{ I int }
@@ -92,4 +93,39 @@ func TestASegmentedControlThatKeepsFocusLeavesTheKeyboardOnAClick(t *testing.T) 
 		t.Fatalf("a click on Two chose %d and moved the keyboard to %T; want Two, the keyboard left in the field",
 			s.Selected(), f)
 	}
+}
+
+func TestASegmentedFitsTheWidthItIsGiven(t *testing.T) {
+	s := NewSegmented("Auto", "VNG", "PPG", "AHD", "Rebuild everything")
+	s.OnChange = func(i int) gunim.Intent { return segmentChosen{i} }
+	w, run := stage(t, &frame{child: &sized{w: 200, child: s}, size: geom.Sz(400, 100)})
+	run(2)
+	if s.size.W != 200 || s.width*float32(s.Len()) > 200+0.01 {
+		t.Fatalf("given 200, the control is %v wide with options %v wide", s.size.W, s.width)
+	}
+	// The last option is at the right end of the track, and takes a click.
+	click(w, 195, s.size.H/2)
+	run(1)
+	if s.Selected() != 4 {
+		t.Fatalf("a click at the right end chose %d, want the last", s.Selected())
+	}
+}
+
+// sized lays its child out exactly w wide.
+type sized struct {
+	w     float32
+	child gunim.Node
+}
+
+func (z *sized) Children() []gunim.Node { return []gunim.Node{z.child} }
+
+func (z *sized) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
+	k := kids.At(0)
+	s := k.Layout(gunim.Tight(geom.Sz(z.w, 28)))
+	k.Place(geom.Point{})
+	return s
+}
+
+func (z *sized) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim.Children) {
+	kids.At(0).Paint(p)
 }

@@ -85,6 +85,12 @@ func TestTheBarShowsWhileThePointerIsOverTheList(t *testing.T) {
 		t.Fatal("the list keeps drawing frames while the pointer rests over it")
 	}
 	w.Input(input.PointerLeave{Time: time.Now()})
+	run(1)
+	// While the bar lingers, the window sleeps, and asks to be woken to
+	// fade it.
+	if l.Step(0) || l.WakeIn() <= 0 {
+		t.Fatalf("lingering, the list keeps drawing %v, and asks to wake in %v", l.Step(0), l.WakeIn())
+	}
 	run(120)
 	if v := l.bar.Value(); v > 0.01 {
 		t.Fatalf("the bar is at %v two seconds after the pointer left, want gone", v)

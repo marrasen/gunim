@@ -456,7 +456,16 @@ func (v *View) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Chi
 	}
 	start, end := v.Selection()
 	sel := paint.Solid(widget.Selection.Get(th))
+	// What the clips around the view let through, in its own space: a
+	// paragraph outside it is not drawn, as a long document in a scroll
+	// shows a screenful of its thousands of lines.
+	shown, cull := p.Visible()
 	for i, lp := range v.paras {
+		if cull {
+			if r := (geom.Rect{Min: lp.at, Max: lp.at.Add(lp.p.Size.Point())}); r.Max.Y < shown.Min.Y || r.Min.Y > shown.Max.Y {
+				continue
+			}
+		}
 		func() {
 			if lp.code {
 				defer p.Layer(paint.LayerOpts{Bounds: lp.clip, Opacity: 1, Clip: true})()

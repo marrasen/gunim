@@ -999,6 +999,9 @@ func NewTooltip(child gunim.Node, s string) *Tooltip {
 // tipDelay is how long the pointer rests on a node before its tooltip shows.
 const tipDelay = 600 * time.Millisecond
 
+// tipLines is how many lines a wrapped tooltip shows before it ends with an ellipsis.
+const tipLines = 12
+
 // Children implements [gunim.Composite].
 func (t *Tooltip) Children() []gunim.Node { return []gunim.Node{t.child} }
 
@@ -1137,6 +1140,9 @@ type tip struct {
 	text, was   string
 	in, turn    *anim.Float
 	run, wasRun shapedText
+	// para is the text wrapped, for words wider than [TooltipMaxWidth], which shows them without turning over.
+	para        laidText
+	wrapped     bool
 	margin      float32
 	transparent bool
 }
@@ -1183,6 +1189,14 @@ func (t *tip) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.
 	}
 	run := t.run.shape(faceIn(Font, th), t.text, TooltipSize.Get(th))
 	pad := TooltipPadding.Get(th)
+	widest := TooltipMaxWidth.Get(th)
+	t.wrapped = run.Advance > widest
+	if t.wrapped {
+		t.turn.Jump(1)
+		para := t.para.wrap(faceIn(Font, th), t.text, TooltipSize.Get(th), widest, tipLines)
+		return c.Constrain(geom.Sz(para.Size.W+pad.Left+pad.Right+2*t.margin,
+			para.Size.H+pad.Top+pad.Bottom+2*t.margin))
+	}
 	// As wide as the wider of the words, while they turn over.
 	w := run.Advance
 	if t.turn.Value() < 1 {
@@ -1213,6 +1227,10 @@ func (t *tip) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Chil
 		p.RRect(card, 0, paint.Solid(TooltipFill.Get(th)))
 	}
 	at, ink := card.Min.Add(geom.Pt(pad.Left, pad.Top)), TooltipInk.Get(th)
+	if t.wrapped {
+		t.para.p.Paint(p, at, ink)
+		return
+	}
 	if turn >= 1 {
 		t.run.run.Paint(p, at, ink)
 		return
