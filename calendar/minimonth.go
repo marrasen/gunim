@@ -10,6 +10,7 @@ import (
 	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
+	"github.com/marrasen/gunim/text"
 	"github.com/marrasen/gunim/widget"
 )
 
@@ -92,19 +93,24 @@ func (m *MiniMonth) cell(i int) geom.Rect {
 	return geom.Rc(miniWeekW+float32(i%7)*s, miniHeadH+22+float32(i/7)*s, s, s)
 }
 
-// arrows returns the boxes of the arrows to the month before and after.
+// arrows returns the boxes of the arrows to the month before and after, at the right, and from the left edge on
+// when the month is narrower than they are.
 func (m *MiniMonth) arrows() (back, next geom.Rect) {
-	right := miniWeekW + 7*m.side
+	right := max(miniWeekW+7*m.side, 2*28)
 	return geom.Rc(right-2*28, 4, 28, 28), geom.Rc(right-28, 4, 28, 28)
 }
 
-// Layout implements [gunim.Node]: cells as large as the width allows, up to miniCell. The band over the marked days
-// glides to them when they lie in one week.
+// Layout implements [gunim.Node]: cells as large as the width and the height allow, up to miniCell. The band over
+// the marked days glides to them when they lie in one week.
 func (m *MiniMonth) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
 	side := float32(miniCell)
 	if c.Max.W > 0 {
-		side = min(miniCell, float32(int((c.Max.W-miniWeekW)/7)))
+		side = min(side, float32(int((c.Max.W-miniWeekW)/7)))
 	}
+	if c.Max.H > 0 {
+		side = min(side, float32(int((c.Max.H-miniHeadH-22)/6)))
+	}
+	side = max(side, 0)
 	resized := side != m.side
 	m.side = side
 	if b, ok := m.oneWeekBand(); ok {
@@ -153,9 +159,12 @@ func (m *MiniMonth) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ guni
 	ink, faint := widget.Ink.Get(th), widget.PaletteHint.Get(th)
 	regular, bold := widget.Font.Get(th), widget.BoldFont.Get(th)
 	now := f.Now.In(m.month.Location())
-	title := bold.Shape(m.month.Format("January 2006"), widget.TextSize.Get(th))
-	title.Paint(p, geom.Pt(8, 4+(28-title.Height())/2), ink)
 	back, next := m.arrows()
+	// The month's name keeps to one line left of the arrows, cut short with an ellipsis.
+	if room := back.Min.X - 4 - 8; room > 0 {
+		title := bold.Layout(m.month.Format("January 2006"), text.Style{Size: widget.TextSize.Get(th), MaxLines: 1}, room)
+		title.Paint(p, geom.Pt(8, 4+(28-title.Size.H)/2), ink)
+	}
 	widget.PaintIcon(p, th, icon.ChevronLeft, back.Inset(geom.Uniform(6)), ink)
 	widget.PaintIcon(p, th, icon.ChevronRight, next.Inset(geom.Uniform(6)), ink)
 	size := EventText.Get(th)
