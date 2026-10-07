@@ -3,6 +3,7 @@ package calendar
 import (
 	"image/color"
 	"math"
+	"slices"
 	"strconv"
 	"time"
 
@@ -70,8 +71,17 @@ type Days struct {
 	Busy func() bool
 
 	events []Event
+	// idx finds the events on the days shown, and vis holds them as [Days.shown] gave them at the last layout.
+	idx *index
+	vis []Event
+	// laidTo holds where the events went at the last layout, and laidFor what it was worked out for. While that stays
+	// the same, so do they.
+	laidTo  []target
+	laidFor daysKey
 	// held are events the user changed, shown where they left them until the application agrees.
 	held map[string]heldEvent
+	// holds counts the changes held, so each tells the layout it has something new.
+	holds int
 	// sprites are the events as drawn, by key, and order the order they are drawn in.
 	sprites map[string]*sprite
 	order   []string
@@ -256,7 +266,7 @@ func (d *Days) edgeScroll(dt time.Duration) bool {
 
 // SetEvents shows events, which may hold events outside the days shown.
 func (d *Days) SetEvents(events []Event, u *gunim.UI) {
-	d.events = events
+	d.events, d.idx = events, nil
 	for id, h := range d.held {
 		if time.Since(h.at) > time.Second {
 			delete(d.held, id)
@@ -443,7 +453,11 @@ func (d *Days) clampScroll(v float32) float32 {
 func (d *Days) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
 	was := d.hourH
 	d.box, d.hourH, d.th = c.Max, HourHeight.Get(f.Theme), f.Theme
-	d.layLong()
+	if k := d.key(); k != d.laidFor || d.laidTo == nil {
+		d.vis = d.shown()
+		d.layLong()
+		d.laidTo, d.laidFor = d.targets(), k
+	}
 	switch to := d.scroll.Target(); {
 	case !d.laid:
 		h := float32(7.5)
@@ -466,6 +480,36 @@ func (d *Days) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom
 	return d.box
 }
 
+// daysKey is what a grid's places are worked out for: the events, the days, the size, the drag and the changes
+// held.
+type daysKey struct {
+	idx         *index
+	first       time.Time
+	count       int
+	box         geom.Size
+	hourH       float32
+	open        bool
+	drag        dayDrag
+	dragging    bool
+	held, holds int
+}
+
+// key returns what the grid's places would be worked out for now.
+func (d *Days) key() daysKey {
+	d.idx = indexOf(d.idx, d.events)
+	k := daysKey{idx: d.idx, first: d.First, count: d.Count, box: d.box, hourH: d.hourH, open: d.longOpen,
+		holds: d.holds}
+	if d.drag != nil {
+		k.drag, k.dragging = *d.drag, true
+	}
+	for _, h := range d.held {
+		if time.Since(h.at) <= time.Second {
+			k.held++
+		}
+	}
+	return k
+}
+
 // target is where an event goes.
 type target struct {
 	key         string
@@ -481,7 +525,7 @@ type target struct {
 func (d *Days) place(th *theme.Live, jump, drop bool) {
 	seen := map[string]bool{}
 	d.order = d.order[:0]
-	for _, t := range d.targets() {
+	for _, t := range d.laidTo {
 		seen[t.key] = true
 		d.order = append(d.order, t.key)
 		s, ok := d.sprites[t.key]
@@ -622,7 +666,7 @@ type longPlace struct {
 // the rows.
 func (d *Days) longPlaces() [][]longPlace {
 	var rows [][]longPlace
-	for _, e := range d.shown() {
+	for _, e := range d.vis {
 		if !e.long() {
 			continue
 		}
@@ -659,21 +703,36 @@ func (d *Days) longPlaces() [][]longPlace {
 	return rows
 }
 
-// shown returns the events with any the user changed where they left them, and the one being dragged where the
-// pointer has it.
+// shown returns the events on the days shown, in the order given, with any the user changed where they left them,
+// and the one being dragged where the pointer has it.
 func (d *Days) shown() []Event {
-	if len(d.held) == 0 && (d.drag == nil || d.drag.kind == dragCreate) {
-		return d.events
+	d.idx = indexOf(d.idx, d.events)
+	from, to := d.First, d.day(d.Count)
+	at := d.idx.within(from, to)
+	// The events the user changed, which may have come from days not shown.
+	for id := range d.held {
+		if i, ok := d.idx.find(id); ok {
+			at = append(at, i)
+		}
 	}
-	out := make([]Event, 0, len(d.events))
-	for _, e := range d.events {
+	if g := d.drag; g != nil && g.kind != dragCreate {
+		if i, ok := d.idx.find(g.id); ok {
+			at = append(at, i)
+		}
+	}
+	slices.Sort(at)
+	out := make([]Event, 0, len(at))
+	for _, i := range slices.Compact(at) {
+		e := d.events[i]
 		if h, ok := d.held[e.ID]; ok && time.Since(h.at) <= time.Second {
 			e.Start, e.End = h.start, h.end
 		}
 		if d.drag != nil && d.drag.kind != dragCreate && d.drag.moved && d.drag.id == e.ID {
 			e.Start, e.End = d.drag.start, d.drag.end
 		}
-		out = append(out, e)
+		if overlaps(e, from, to) {
+			out = append(out, e)
+		}
 	}
 	return out
 }
@@ -691,8 +750,8 @@ func (d *Days) timedBoxes(i int) []timedBox {
 	day, next := d.day(i), d.day(i+1)
 	var evs []Event
 	var starts, ends []time.Time
-	for _, e := range d.shown() {
-		if e.long() || !e.covers(day) {
+	for _, e := range d.vis {
+		if e.long() || !overlaps(e, day, next) {
 			continue
 		}
 		s, en := e.Start, e.End
@@ -1411,6 +1470,7 @@ func (d *Days) release(u *gunim.UI) {
 		return
 	}
 	d.held[g.id] = heldEvent{start: g.start, end: g.end, at: time.Now()}
+	d.holds++
 	if d.OnChange != nil {
 		u.Send(d, d.OnChange(g.id, g.start, g.end))
 	}
@@ -1418,15 +1478,16 @@ func (d *Days) release(u *gunim.UI) {
 
 // event returns the event with id, as the application last gave it, or as the user left it.
 func (d *Days) event(id string) (Event, bool) {
-	for _, e := range d.events {
-		if e.ID == id {
-			if h, ok := d.held[id]; ok {
-				e.Start, e.End = h.start, h.end
-			}
-			return e, true
-		}
+	d.idx = indexOf(d.idx, d.events)
+	i, ok := d.idx.find(id)
+	if !ok {
+		return Event{}, false
 	}
-	return Event{}, false
+	e := d.events[i]
+	if h, ok := d.held[id]; ok {
+		e.Start, e.End = h.start, h.end
+	}
+	return e, true
 }
 
 // Cursor implements [gunim.CursorShaper].

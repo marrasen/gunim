@@ -28,13 +28,13 @@ type (
 )
 
 // stage shows n in an offscreen window 800 by 600, and returns it with a way to draw frames and the intents sent.
-func stage(t *testing.T, n gunim.Node) (w *gunim.Window, run func(int), sent func() []gunim.Intent) {
+func stage(t testing.TB, n gunim.Node) (w *gunim.Window, run func(int), sent func() []gunim.Intent) {
 	t.Helper()
 	return stageAt(t, n, geom.Sz(800, 600))
 }
 
 // stageAt shows n in an offscreen window of size, as stage does.
-func stageAt(t *testing.T, n gunim.Node, size geom.Size) (w *gunim.Window, run func(int), sent func() []gunim.Intent) {
+func stageAt(t testing.TB, n gunim.Node, size geom.Size) (w *gunim.Window, run func(int), sent func() []gunim.Intent) {
 	t.Helper()
 	w = gunimtest.New(t, size, nil)
 	gunim.RegisterView(w, "v", func(struct{}) gunim.Node { return n }, nil)
@@ -66,7 +66,7 @@ func stageAt(t *testing.T, n gunim.Node, size geom.Size) (w *gunim.Window, run f
 type uiCall func(u *gunim.UI)
 
 // withUI runs call with the UI of w, a window from stage, as an application's patch would.
-func withUI(t *testing.T, w *gunim.Window, call func(u *gunim.UI)) {
+func withUI(t testing.TB, w *gunim.Window, call func(u *gunim.UI)) {
 	t.Helper()
 	if err := w.Client().Patch("v", uiCall(call)); err != nil {
 		t.Fatal(err)

@@ -64,9 +64,15 @@ type Month struct {
 	Open func(id string, box geom.Rect, u *gunim.UI)
 
 	events []Event
-	tip    widget.PartTip
-	swipe  swipe
-	box    geom.Size
+	// idx finds the events of each week.
+	idx *index
+	// laidOut holds the events as laid out at the last layout, and laidFor what they were laid out for. While that
+	// stays the same, so do they.
+	laidOut []chip
+	laidFor monthKey
+	tip     widget.PartTip
+	swipe   swipe
+	box     geom.Size
 	// slide carries the days in from the side they came from, as the month steps.
 	slide *anim.Float
 	laid  bool
@@ -78,6 +84,11 @@ type Month struct {
 	was     struct {
 		month time.Time
 		box   geom.Size
+	}
+	// days is the first day shown, kept for the month and the first day of the week it is for.
+	days struct {
+		month, first time.Time
+		from         time.Weekday
 	}
 	selected string
 	hover    string
@@ -189,20 +200,27 @@ func (m *Month) EventBox(id string) (geom.Rect, bool) {
 
 // SetEvents shows events, which may hold events outside the weeks shown.
 func (m *Month) SetEvents(events []Event, u *gunim.UI) {
-	m.events = events
+	m.events, m.idx = events, nil
 	m.texts = nil
 	u.Invalidate()
 }
 
 // first returns the first day shown: the start of the week holding the month's first day.
-func (m *Month) first() time.Time { return WeekStart(MonthStart(m.Month), m.FirstWeekday) }
+func (m *Month) first() time.Time {
+	if !m.days.month.Equal(m.Month) || m.days.from != m.FirstWeekday || m.days.first.IsZero() {
+		m.days.month, m.days.from = m.Month, m.FirstWeekday
+		m.days.first = WeekStart(MonthStart(m.Month), m.FirstWeekday)
+	}
+	return m.days.first
+}
 
 // day returns the midnight of cell i, counting from the top left.
 func (m *Month) day(i int) time.Time { return AddDays(m.first(), i) }
 
 // shows reports whether the day dd of each week, from 0 to 6, shows.
 func (m *Month) shows(dd int) bool {
-	wd := m.day(dd).Weekday()
+	// Each week starts on FirstWeekday.
+	wd := (m.FirstWeekday + time.Weekday(dd)) % 7
 	return !m.HideWeekends || (wd != time.Saturday && wd != time.Sunday)
 }
 
@@ -271,7 +289,10 @@ func (m *Month) place(th *theme.Live, jump, drop bool) {
 	seen := map[string]bool{}
 	m.order, m.more = m.order[:0], m.more[:0]
 	count := map[string]int{}
-	for _, ch := range m.chips() {
+	if k := m.key(); k != m.laidFor || m.laidOut == nil {
+		m.laidOut, m.laidFor = m.chips(), k
+	}
+	for _, ch := range m.laidOut {
 		if ch.more > 0 {
 			m.more = append(m.more, ch)
 			continue
@@ -328,6 +349,26 @@ func (m *Month) place(th *theme.Live, jump, drop bool) {
 	m.aimLifts(th)
 }
 
+// monthKey is what a month's events are laid out for: the events, the weeks, the size and the drag.
+type monthKey struct {
+	idx      *index
+	first    time.Time
+	hide     bool
+	box      geom.Size
+	drag     monthDrag
+	dragging bool
+}
+
+// key returns what the month's events would be laid out for now.
+func (m *Month) key() monthKey {
+	m.idx = indexOf(m.idx, m.events)
+	k := monthKey{idx: m.idx, first: m.first(), hide: m.HideWeekends, box: m.box}
+	if m.drag != nil {
+		k.drag, k.dragging = *m.drag, true
+	}
+	return k
+}
+
 // chip is an event laid out in the month: its box, and whether it is a bar across whole days.
 type chip struct {
 	e   Event
@@ -343,14 +384,8 @@ type chip struct {
 func (m *Month) chips() []chip {
 	var out []chip
 	rows := max(int((m.cellH()-dayNumH-4)/(chipH+chipGap)), 0)
-	evs := slices.Clone(m.shown())
-	slices.SortStableFunc(evs, func(a, b Event) int {
-		if a.long() != b.long() {
-			return map[bool]int{true: -1, false: 1}[a.long()]
-		}
-		return a.Start.Compare(b.Start)
-	})
 	for week := range 6 {
+		evs := weekOrder(m.shown(m.day(week*7), m.day(week*7+7)))
 		// keep[dd] says day dd keeps its last row to say how many more. A day that turns out to have more than fits
 		// keeps it, and the week is laid out again, until each day with more has its last row free.
 		var keep [7]bool
@@ -382,6 +417,33 @@ func (m *Month) chips() []chip {
 			}
 			out = append(out, chip{more: hidden[dd], cell: cell, box: box})
 		}
+	}
+	return out
+}
+
+// weekOrder returns evs in the order a week takes them in: those of whole days first, then by when they start, and
+// otherwise in the order given.
+func weekOrder(evs []Event) []Event {
+	long := make([]bool, len(evs))
+	at := make([]int, len(evs))
+	for i, e := range evs {
+		long[i], at[i] = e.long(), i
+	}
+	slices.SortFunc(at, func(a, b int) int {
+		if long[a] != long[b] {
+			if long[a] {
+				return -1
+			}
+			return 1
+		}
+		if c := evs[a].Start.Compare(evs[b].Start); c != 0 {
+			return c
+		}
+		return a - b
+	})
+	out := make([]Event, len(evs))
+	for k, i := range at {
+		out[k] = evs[i]
 	}
 	return out
 }
@@ -424,10 +486,14 @@ func (m *Month) weekChips(week int, evs []Event, rows int, keep [7]bool) (out []
 			hidden[dd]++
 		}
 	}
+	var days [8]time.Time
+	for dd := range days {
+		days[dd] = m.day(week*7 + dd)
+	}
 	for _, e := range evs {
 		first, last := -1, -1
 		for dd := range 7 {
-			if e.covers(m.day(week*7 + dd)) {
+			if overlaps(e, days[dd], days[dd+1]) {
 				if first < 0 {
 					first = dd
 				}
@@ -450,16 +516,29 @@ func (m *Month) weekChips(week int, evs []Event, rows int, keep [7]bool) (out []
 	return out, hidden
 }
 
-// shown returns the events, with the one being dragged on the day it is over.
-func (m *Month) shown() []Event {
+// shown returns the events that take up some of the days between from and to, in the order given, with the one
+// being dragged on the day it is over.
+func (m *Month) shown(from, to time.Time) []Event {
+	m.idx = indexOf(m.idx, m.events)
+	at := m.idx.within(from, to)
 	g := m.drag
-	if g == nil || !g.moved || g.fixed {
-		return m.events
+	dragging := g != nil && g.moved && !g.fixed
+	if dragging {
+		if i, ok := m.idx.find(g.id); ok {
+			// It may have come from another week.
+			at = append(at, i)
+			slices.Sort(at)
+			at = slices.Compact(at)
+		}
 	}
-	out := slices.Clone(m.events)
-	for i, e := range out {
-		if e.ID == g.id {
-			out[i].Start, out[i].End = m.moved(e, g)
+	out := make([]Event, 0, len(at))
+	for _, i := range at {
+		e := m.events[i]
+		if dragging && e.ID == g.id {
+			e.Start, e.End = m.moved(e, g)
+		}
+		if overlaps(e, from, to) {
+			out = append(out, e)
 		}
 	}
 	return out

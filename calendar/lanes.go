@@ -38,13 +38,16 @@ func lanes(starts, ends []time.Time, least time.Duration) (places []placed, orde
 		return cmp.Compare(ends[b].Sub(starts[b]), ends[a].Sub(starts[a]))
 	})
 	least = max(least, time.Minute)
-	end := func(i int) time.Time {
-		// A moment, or an event shorter than its box, takes the room its box does.
-		return maxTime(ends[i], starts[i].Add(least))
+	// rank is each event's place in order, and ending when it ends: a moment, or an event shorter than its box,
+	// takes the room its box does.
+	rank, ending := make([]int, n), make([]time.Time, n)
+	for k, i := range order {
+		rank[i], ending[i] = k, maxTime(ends[i], starts[i].Add(least))
 	}
+	end := func(i int) time.Time { return ending[i] }
 	overlap := func(a, b int) bool { return starts[a].Before(end(b)) && end(a).After(starts[b]) }
 	out := make([]placed, n)
-	done := make([]bool, n)
+	done, in := make([]bool, n), make([]bool, n)
 	// Indent first: an event sits one step in from the deepest event it overlaps that started well before it.
 	for _, i := range order {
 		for _, j := range order {
@@ -62,20 +65,19 @@ func lanes(starts, ends []time.Time, least time.Duration) (places []placed, orde
 			continue
 		}
 		cluster := []int{i}
+		in[i] = true
 		for k := 0; k < len(cluster); k++ {
 			for _, j := range order {
-				if done[j] || slices.Contains(cluster, j) || out[j].indent != out[i].indent {
+				if done[j] || in[j] || out[j].indent != out[i].indent {
 					continue
 				}
 				c := cluster[k]
 				if overlap(c, j) && absDur(starts[c].Sub(starts[j])) < cascadeAfter {
-					cluster = append(cluster, j)
+					cluster, in[j] = append(cluster, j), true
 				}
 			}
 		}
-		slices.SortStableFunc(cluster, func(a, b int) int {
-			return slices.Index(order, a) - slices.Index(order, b)
-		})
+		slices.SortFunc(cluster, func(a, b int) int { return rank[a] - rank[b] })
 		var laneEnds []time.Time
 		for _, j := range cluster {
 			done[j] = true
