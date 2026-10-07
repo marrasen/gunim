@@ -1,6 +1,7 @@
 package widget
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -138,6 +139,23 @@ func TestADropdownKeepsWithinItsMaxWidth(t *testing.T) {
 	}
 	if w := d.shown.run.Advance; w <= 150-2*FieldPadding.Default()-chevron {
 		t.Fatalf("the uncut item is only %v wide; the test needs one that is cut", w)
+	}
+}
+
+func TestAnOpenDropdownShowsItsItemsAsTheyAreNow(t *testing.T) {
+	_, run, d := newPicker(t)
+	d.Items = []string{"Date", "Apple", "Banana", "Cherry"}
+	run(1)
+	m := d.menu
+	at := slices.Index(m.Items, "Cherry")
+	r := m.RowRect(at)
+	p := geom.Pt(r.Min.X+20, r.Center().Y)
+	d.popup.Input(input.PointerMove{Pos: p, Time: time.Now()})
+	d.popup.Input(input.PointerDown{Pos: p, Clicks: 1, Time: time.Now()})
+	d.popup.Input(input.PointerUp{Pos: p, Time: time.Now()})
+	run(2)
+	if got := d.Items[d.Selected]; got != "Cherry" {
+		t.Fatalf("a click on the Cherry shown chose %q", got)
 	}
 }
 
