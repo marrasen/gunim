@@ -99,7 +99,11 @@ type Scroll struct {
 	// source does not say.
 	Notches geom.Point
 	Mods    Mods
-	Time    time.Time
+	// Touch says the scroll is a finger dragged or flung on a touch
+	// screen, rather than a wheel or a touchpad: its Delta is then the
+	// finger's own move, so a node that pans with it moves by Delta.
+	Touch bool
+	Time  time.Time
 }
 
 // Pinch carries two fingers on a touch screen spreading apart or
