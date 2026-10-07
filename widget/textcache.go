@@ -62,9 +62,14 @@ func (pr *laidText) wrap(face *text.Face, s string, size, width float32, lines i
 }
 
 // cutRun returns run cut to the glyphs that fit in room with ell, an
-// ellipsis shaped in the same face and size, after them.
+// ellipsis shaped in the same face and size, after them. Where even the
+// ellipsis is wider than room, it returns run with no glyphs.
 func cutRun(run, ell text.Run, room float32) text.Run {
 	avail := room - ell.Advance
+	if avail < 0 {
+		run.Glyphs, run.Advance = nil, 0
+		return run
+	}
 	n := 0
 	for n < len(run.Glyphs) {
 		end := run.Advance
@@ -85,11 +90,7 @@ func cutRun(run, ell text.Run, room float32) text.Run {
 	}
 	out := run
 	out.Glyphs = make([]paint.Glyph, 0, n+len(ell.Glyphs))
-	if avail >= 0 {
-		out.Glyphs = append(out.Glyphs, run.Glyphs[:n]...)
-	} else {
-		pen = 0
-	}
+	out.Glyphs = append(out.Glyphs, run.Glyphs[:n]...)
 	for _, gl := range ell.Glyphs {
 		gl.At.X += pen
 		out.Glyphs = append(out.Glyphs, gl)
