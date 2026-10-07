@@ -59,7 +59,7 @@ type PaletteItem struct {
 // name, the way a command palette does. It opens in a popup with a
 // field and the items, best match first, the matched letters marked.
 // The list reorders as the query changes, items folding away and
-// growing back, and the card grows and shrinks with it. With Search set,
+// growing back, and the card grows and shrinks with it. With OnSearch set,
 // the caller ranks the items, as for a search run in the background, and
 // hands them over with SetItems.
 //
@@ -70,27 +70,30 @@ type PaletteItem struct {
 type Palette struct {
 	Items       []PaletteItem
 	Placeholder string
-	// Pick runs with the index of the item chosen, once the palette
-	// has closed. An index past Items is Typed's item at i-len(Items).
-	Pick func(i int, u *gunim.UI)
+	// OnPick runs on the UI goroutine with the index of the item chosen,
+	// once the palette has closed. An index past Items is Typed's item at
+	// i-len(Items). A non-nil result is sent to the application as an
+	// intent from the node that opened the palette, as are those of the
+	// palette's other callbacks.
+	OnPick func(i int, u *gunim.UI) gunim.Intent
 	// Typed, when set, returns items made from what has been typed, such
 	// as a value to match exactly; they show first, in the order given.
 	Typed func(query string) []PaletteItem
-	// Search, when set, hears each query in place of the palette ranking
+	// OnSearch, when set, hears each query in place of the palette ranking
 	// Items itself; the answer comes back through SetItems.
-	Search func(query string, u *gunim.UI)
-	// CtrlPick, when set, runs in place of Pick for Ctrl+Enter.
-	CtrlPick func(i int, u *gunim.UI)
+	OnSearch func(query string, u *gunim.UI) gunim.Intent
+	// OnCtrlPick, when set, runs in place of OnPick for Ctrl+Enter.
+	OnCtrlPick func(i int, u *gunim.UI) gunim.Intent
 	// Status is a line under the field, such as how far a search has got.
 	Status string
-	// Hot, when set, hears the item the highlight has moved to, by the
-	// keys, the pointer or the list narrowing, as Pick would be given it,
-	// and -1 when no item is highlighted: for a palette that shows what
+	// OnHighlight, when set, hears the item the highlight has moved to, by
+	// the keys, the pointer or the list narrowing, as OnPick would be given
+	// it, and -1 when no item is highlighted: for a palette that shows what
 	// an item would do before it is picked, such as a theme.
-	Hot func(i int, u *gunim.UI)
-	// Cancel, when set, runs as the palette closes with nothing picked:
-	// Escape, a click outside, or Close. It undoes what Hot showed.
-	Cancel func(u *gunim.UI)
+	OnHighlight func(i int, u *gunim.UI) gunim.Intent
+	// OnCancel, when set, runs as the palette closes with nothing picked:
+	// Escape, a click outside, or Close. It undoes what OnHighlight showed.
+	OnCancel func(u *gunim.UI) gunim.Intent
 	// Key, when set, hears a key the palette and its field do not use,
 	// such as a shortcut of the application's, and reports whether it
 	// took it. A popup's keys reach only the popup, so this is how the
@@ -100,9 +103,11 @@ type Palette struct {
 	popup *gunim.Popup
 	card  *paletteCard
 	back  gunim.Node
+	// opener is the node the palette was opened from, which its intents come from.
+	opener gunim.Node
 	// typedItems holds Typed's items for the query last typed.
 	typedItems []PaletteItem
-	// told is the item Hot was last told of, and picking says a pick
+	// told is the item OnHighlight was last told of, and picking says a pick
 	// is closing the palette, which is no cancel.
 	told    int
 	picking bool
@@ -117,7 +122,7 @@ func (p *Palette) Open(opener gunim.Node, anchor geom.Rect, u *gunim.UI) {
 	if p.IsOpen() {
 		return
 	}
-	p.back = u.Focused()
+	p.back, p.opener = u.Focused(), opener
 	p.told = -2
 	p.card = newPaletteCard(p)
 	w := PaletteWidth.Get(u.Theme())
@@ -142,8 +147,8 @@ func (p *Palette) Close(u *gunim.UI) {
 	if p.back != nil {
 		u.Focus(p.back)
 	}
-	if !p.picking && p.Cancel != nil {
-		p.Cancel(u)
+	if !p.picking && p.OnCancel != nil {
+		send(u, p.opener, p.OnCancel(u))
 	}
 }
 
@@ -151,7 +156,7 @@ func (p *Palette) Close(u *gunim.UI) {
 func (p *Palette) IsOpen() bool { return p.popup != nil && p.popup.Open() }
 
 // SetItems makes items the palette's items, in the order given, for a
-// palette whose Search ranks them. Rows move to their new places.
+// palette whose OnSearch ranks them. Rows move to their new places.
 func (p *Palette) SetItems(items []PaletteItem, u *gunim.UI) {
 	was := Key("")
 	if p.IsOpen() && p.card.hot > 0 {
@@ -194,10 +199,10 @@ func (p *Palette) choose(i int, ctrl bool, u *gunim.UI) {
 	p.Close(u)
 	p.picking = false
 	switch {
-	case ctrl && p.CtrlPick != nil:
-		p.CtrlPick(i, u)
-	case p.Pick != nil:
-		p.Pick(i, u)
+	case ctrl && p.OnCtrlPick != nil:
+		send(u, p.opener, p.OnCtrlPick(i, u))
+	case p.OnPick != nil:
+		send(u, p.opener, p.OnPick(i, u))
 	}
 }
 
@@ -249,7 +254,10 @@ func newPaletteCard(p *Palette) *paletteCard {
 	c := &paletteCard{p: p, field: NewTextField(), in: anim.NewFloat(0), height: anim.NewFloat(0), shown: paletteRows}
 	c.list = NewVirtualList(func(k Key) gunim.Node { return newPaletteRow(c, k) })
 	c.field.Placeholder = p.Placeholder
-	c.field.OnEdit = c.filter
+	c.field.OnChange = func(q string, u *gunim.UI) gunim.Intent {
+		c.filter(q, u)
+		return nil
+	}
 	c.Add(c.in, c.height)
 	return c
 }
@@ -288,8 +296,8 @@ func (c *paletteCard) Transition(p gunim.Presence, f gunim.Frame) bool {
 // filter shows the items the query finds, keeping the highlight on the
 // best.
 func (c *paletteCard) filter(q string, u *gunim.UI) {
-	if c.p.Search != nil {
-		c.p.Search(q, u)
+	if c.p.OnSearch != nil {
+		send(u, c.p.opener, c.p.OnSearch(q, u))
 		return
 	}
 	c.found = c.rank(q)
@@ -308,7 +316,7 @@ func (c *paletteCard) filter(q string, u *gunim.UI) {
 	c.refill(u)
 }
 
-// show shows the items as given, for a palette whose Search ranks them.
+// show shows the items as given, for a palette whose OnSearch ranks them.
 // The highlight stays on the item under key was while the items hold it.
 func (c *paletteCard) show(was Key, u *gunim.UI) {
 	c.take()
@@ -438,9 +446,9 @@ func (c *paletteCard) light(u *gunim.UI) {
 		y := float32(c.hot) * step
 		c.list.revealContent(geom.Rc(0, y, 1, step), u)
 	}
-	if i := c.hotIndex(); c.p.Hot != nil && i != c.p.told {
+	if i := c.hotIndex(); c.p.OnHighlight != nil && i != c.p.told {
 		c.p.told = i
-		c.p.Hot(i, u)
+		send(u, c.p.opener, c.p.OnHighlight(i, u))
 	}
 	u.Invalidate()
 }

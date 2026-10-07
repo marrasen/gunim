@@ -87,26 +87,37 @@ func newEditor(d Draft) *widget.Dialog {
 		}
 		showLength(u)
 	}
-	startDay.OnChange = func(_ time.Time, u *gunim.UI) { moveEnd(u) }
-	startTime.OnChange = func(_ time.Duration, u *gunim.UI) { moveEnd(u) }
-	endTime.OnChange = func(_ time.Duration, u *gunim.UI) {
+	startDay.OnChange = func(_ time.Time, u *gunim.UI) gunim.Intent {
+		moveEnd(u)
+		return nil
+	}
+	startTime.OnChange = func(_ time.Duration, u *gunim.UI) gunim.Intent {
+		moveEnd(u)
+		return nil
+	}
+	endTime.OnChange = func(_ time.Duration, u *gunim.UI) gunim.Intent {
 		if s, e, ok := times(startDay, startTime, endDay, endTime); ok && e.After(s) {
 			length = e.Sub(s)
 		}
 		showLength(u)
+		return nil
 	}
-	endDay.OnChange = func(_ time.Time, u *gunim.UI) { endTime.OnChange(0, u) }
+	endDay.OnChange = func(_ time.Time, u *gunim.UI) gunim.Intent {
+		endTime.OnChange(0, u)
+		return nil
+	}
 	// The end's list of times starts after the start, with each time's length, while both are on one day.
 	endTime.From = func() (time.Duration, bool) {
 		st, ok := startTime.Value()
 		return st, ok && startDay.Value().Equal(endDay.Value())
 	}
 	startClock, endClock := newFold(startTime, !d.AllDay), newFold(endTime, !d.AllDay)
-	allDay.OnFlip(func(on bool, u *gunim.UI) {
+	allDay.OnChange = func(on bool, u *gunim.UI) gunim.Intent {
 		startClock.open(!on, u)
 		endClock.open(!on, u)
 		showLength(u)
-	})
+		return nil
+	}
 	repeat := widget.NewDropdown(widget.Labels(repeatNames...))
 	repeat.SetSelected(int(d.Repeat), nil)
 	where := widget.NewTextField()
@@ -135,7 +146,7 @@ func newEditor(d Draft) *widget.Dialog {
 		Add("Notes", notes)
 	dlg.Body = &editorBody{Form: form}
 	dlg.SetButtons("Save", "Cancel")
-	dlg.Dismiss = EditorClosed{}
+	dlg.OnDismiss = widget.Sends(EditorClosed{})
 	dlg.Check = func() string {
 		if strings.TrimSpace(name.Text()) == "" {
 			return "Give the event a title."
@@ -152,7 +163,7 @@ func newEditor(d Draft) *widget.Dialog {
 		}
 		return ""
 	}
-	dlg.OnAccept = func() gunim.Intent {
+	dlg.OnAccept = func(u *gunim.UI) gunim.Intent {
 		out := Draft{ID: d.ID, Title: strings.TrimSpace(name.Text()), Location: strings.TrimSpace(where.Text()),
 			Notes: strings.TrimSpace(notes.Text()), AllDay: allDay.Checked(), Repeat: Repeat(repeat.Selected())}
 		if cal.Selected() < len(d.Calendars) {
@@ -181,26 +192,26 @@ func times(startDay *calendar.DateField, startTime *calendar.TimeField, endDay *
 func newDeleteDialog(s DeleteAsk) *widget.Dialog {
 	d := widget.NewDialog("Delete “" + s.Title + "”?")
 	d.Danger = true
-	d.Dismiss = DeleteAnswered{ID: s.ID}
+	d.OnDismiss = widget.Sends(DeleteAnswered{ID: s.ID})
 	body := widget.NewLabel("This event repeats. Delete only this time, or every time it happens?")
 	body.Color, body.MaxLines = widget.PaletteHint, 3
 	d.Body = body
 	d.SetButtons("Every time", "Cancel")
-	d.Accept = DeleteAnswered{ID: s.ID, OK: true, All: true}
-	d.AddButton("Only this time", func() gunim.Intent { return DeleteAnswered{ID: s.ID, OK: true} })
+	d.OnAccept = widget.Sends(DeleteAnswered{ID: s.ID, OK: true, All: true})
+	d.AddButton("Only this time", func(u *gunim.UI) gunim.Intent { return DeleteAnswered{ID: s.ID, OK: true} })
 	return d
 }
 
 // newChangeDialog asks whether moving one time of a repeating event moves only that time, or every time.
 func newChangeDialog(s ChangeAsk) *widget.Dialog {
 	d := widget.NewDialog("Move “" + s.Title + "”?")
-	d.Dismiss = ChangeAnswered{ID: s.ID}
+	d.OnDismiss = widget.Sends(ChangeAnswered{ID: s.ID})
 	body := widget.NewLabel("This event repeats. Move only this time, or every time it happens?")
 	body.Color, body.MaxLines = widget.PaletteHint, 3
 	d.Body = body
 	d.SetButtons("Only this time", "Cancel")
-	d.Accept = ChangeAnswered{ID: s.ID, OK: true}
-	d.AddButton("Every time", func() gunim.Intent { return ChangeAnswered{ID: s.ID, OK: true, All: true} })
+	d.OnAccept = widget.Sends(ChangeAnswered{ID: s.ID, OK: true})
+	d.AddButton("Every time", func(u *gunim.UI) gunim.Intent { return ChangeAnswered{ID: s.ID, OK: true, All: true} })
 	return d
 }
 

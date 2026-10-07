@@ -21,8 +21,9 @@ type Draggable struct {
 	// Ghost makes what is carried under the pointer; nil carries
 	// nothing.
 	Ghost func() gunim.Node
-	// OnClick is the intent a click sends; nil sends none.
-	OnClick gunim.Intent
+	// OnClick runs on the UI goroutine when the child is clicked and not
+	// dragged; a non-nil result is sent as the draggable's intent.
+	OnClick func(u *gunim.UI) gunim.Intent
 
 	child    gunim.Node
 	press    geom.Point
@@ -66,7 +67,7 @@ func (d *Draggable) Handle(e input.Event, u *gunim.UI) bool {
 		d.away.Animate(1, Quick.Get(th))
 	case input.PointerUp:
 		if d.held && !d.dragging && d.OnClick != nil {
-			u.Send(d, d.OnClick)
+			send(u, d, d.OnClick(u))
 		}
 		d.held = false
 	case input.DragEnd:
@@ -104,8 +105,9 @@ type DropTarget struct {
 	// the application, or of paths, from another program. Nil takes
 	// everything.
 	Accept func(data any, paths []string) bool
-	// OnDrop turns a drop into an intent for the application.
-	OnDrop func(d input.Drop) gunim.Intent
+	// OnDrop runs on the UI goroutine with a drop the target takes; a
+	// non-nil result is sent to the application as the target's intent.
+	OnDrop func(d input.Drop, u *gunim.UI) gunim.Intent
 	// Hint, when set, says what a drop would do, as the drag moves over the
 	// target, for the picture the drag carries to show, such as a [DropHint].
 	Hint func(e input.DragOver) any
@@ -158,7 +160,7 @@ func (t *DropTarget) Handle(e input.Event, u *gunim.UI) bool {
 		}
 		t.glow.Animate(0, Settle.Get(th))
 		if t.OnDrop != nil {
-			u.Send(t, t.OnDrop(e))
+			send(u, t, t.OnDrop(e, u))
 		}
 	default:
 		return false

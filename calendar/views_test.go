@@ -89,9 +89,9 @@ func drag(w *gunim.Window, run func(int), from, to geom.Point) {
 // newWeek returns a week from monday with one event on Tuesday from ten to eleven.
 func newWeek() *Days {
 	d := NewDays(monday, 7)
-	d.OnCreate = func(s, e time.Time, allDay bool) gunim.Intent { return drawn{s, e, allDay} }
-	d.OnChange = func(id string, s, e time.Time) gunim.Intent { return changed{id, s, e} }
-	d.OnDay = func(day time.Time) gunim.Intent { return picked{day} }
+	d.OnCreate = func(s, e time.Time, allDay bool, _ geom.Rect, _ *gunim.UI) gunim.Intent { return drawn{s, e, allDay} }
+	d.OnChange = func(id string, s, e time.Time, u *gunim.UI) gunim.Intent { return changed{id, s, e} }
+	d.OnDay = func(day time.Time, u *gunim.UI) gunim.Intent { return picked{day} }
 	d.events = []Event{{ID: "a", Title: "Review", Start: monday.Add(34 * time.Hour), End: monday.Add(35 * time.Hour),
 		Color: color.NRGBA{R: 0x4f, G: 0x8c, B: 0xf0, A: 0xff}}}
 	return d
@@ -110,6 +110,37 @@ func TestDrawingOnFreeTimeBeginsAnEventOnTheSteps(t *testing.T) {
 	want := drawn{monday.Add(3*24*time.Hour + 13*time.Hour), monday.Add(3*24*time.Hour + 14*time.Hour + 30*time.Minute), false}
 	if len(got) != 1 || got[0] != want {
 		t.Fatalf("drawing out Thursday 13:05 to 14:20 sent %v, want %v", got, want)
+	}
+}
+
+func TestADrawnEventFadesWithAnIntentAndStaysWithNone(t *testing.T) {
+	d := newWeek()
+	w, run, sent := stage(t, d)
+	from, to := point(d, 3, 13*time.Hour), point(d, 3, 14*time.Hour)
+	drag(w, run, from, to)
+	if len(sent()) != 1 {
+		t.Fatal("the drawn event sent no intent")
+	}
+	for i := range 60 {
+		run(1)
+		if i > 30 && d.ghostIn.Value() > 0.01 {
+			t.Fatalf("frame %d: the drawn event that sent an intent shows at %v, want gone", i, d.ghostIn.Value())
+		}
+	}
+	var box geom.Rect
+	d.OnCreate = func(_, _ time.Time, _ bool, b geom.Rect, _ *gunim.UI) gunim.Intent {
+		box = b
+		return nil
+	}
+	drag(w, run, from, to)
+	for i := range 60 {
+		run(1)
+		if d.ghostHeld == nil || d.ghostIn.Value() < 0.99 && i > 30 {
+			t.Fatalf("frame %d: the drawn event being named shows at %v, want held", i, d.ghostIn.Value())
+		}
+	}
+	if box.Empty() || len(sent()) != 0 {
+		t.Fatalf("OnCreate got the box %v, and the window sent %v; want a box and nothing", box, sent())
 	}
 }
 
@@ -144,7 +175,7 @@ func TestDraggingAnEventsBottomEdgeChangesItsLength(t *testing.T) {
 func TestAClickOnAnEventOpensItAndOnADayPicksIt(t *testing.T) {
 	d := newWeek()
 	var opened string
-	d.Open = func(id string, _ geom.Rect, _ *gunim.UI) { opened = id }
+	d.OnOpen = func(id string, _ geom.Rect, _ *gunim.UI) gunim.Intent { opened = id; return nil }
 	w, run, sent := stage(t, d)
 	at := point(d, 1, 10*time.Hour+20*time.Minute)
 	w.Input(input.PointerDown{Pos: at, Button: input.ButtonPrimary, Clicks: 1})
@@ -164,7 +195,7 @@ func TestAClickOnAnEventOpensItAndOnADayPicksIt(t *testing.T) {
 
 func TestAnEventDraggedInTheMonthKeepsItsTime(t *testing.T) {
 	m := NewMonth(monday)
-	m.OnChange = func(id string, s, e time.Time) gunim.Intent { return changed{id, s, e} }
+	m.OnChange = func(id string, s, e time.Time, u *gunim.UI) gunim.Intent { return changed{id, s, e} }
 	start := monday.Add(34 * time.Hour)
 	m.events = []Event{{ID: "a", Title: "Review", Start: start, End: start.Add(time.Hour)}}
 	w, run, sent := stage(t, m)
@@ -184,9 +215,9 @@ type deleted struct{ id string }
 
 func TestTheKeysMoveBetweenEventsOpenAndDelete(t *testing.T) {
 	d := newWeek()
-	d.OnDelete = func(id string) gunim.Intent { return deleted{id} }
+	d.OnDelete = func(id string, u *gunim.UI) gunim.Intent { return deleted{id} }
 	var opened string
-	d.Open = func(id string, _ geom.Rect, _ *gunim.UI) { opened = id }
+	d.OnOpen = func(id string, _ geom.Rect, _ *gunim.UI) gunim.Intent { opened = id; return nil }
 	// A second event on Tuesday, later, and one on Thursday.
 	d.events = append(d.events,
 		Event{ID: "b", Title: "Later", Start: monday.Add(38 * time.Hour), End: monday.Add(39 * time.Hour)},
@@ -226,7 +257,7 @@ func TestTheKeysMoveBetweenEventsOpenAndDelete(t *testing.T) {
 
 func TestSwipingSidewaysStepsOnce(t *testing.T) {
 	d := newWeek()
-	d.OnStep = func(by int) gunim.Intent { return by }
+	d.OnStep = func(by int, u *gunim.UI) gunim.Intent { return by }
 	w, run, sent := stage(t, d)
 	at := geom.Pt(400, 400)
 	start := time.Now()

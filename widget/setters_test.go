@@ -51,7 +51,7 @@ func quiet(t *testing.T, w *gunim.Window, what string) {
 
 func TestSetCheckedGlidesOnceLaidOutAndJumpsWithoutAUI(t *testing.T) {
 	c := NewCheckbox("Tick")
-	c.OnChange = func(on bool) gunim.Intent { return flipped{on} }
+	c.OnChange = func(on bool, u *gunim.UI) gunim.Intent { return flipped{on} }
 	w, run := stage(t, &frame{child: c, size: geom.Sz(200, 28)})
 	u := stageUI(t, w, run)
 	c.SetChecked(true, u)
@@ -74,7 +74,7 @@ func setterStage(t *testing.T, n gunim.Node, size geom.Size) (*gunim.Window, fun
 func TestSettersGlideOnceLaidOutAndJumpWithoutAUI(t *testing.T) {
 	t.Run("tabs", func(t *testing.T) {
 		tabs := NewTabs([]string{"One", "Two", "Three"}, &recorder{}, &recorder{}, &recorder{})
-		tabs.OnChange = func(i int) gunim.Intent { return tabbed{i} }
+		tabs.OnChange = func(i int, u *gunim.UI) gunim.Intent { return tabbed{i} }
 		w, run, u := setterStage(t, tabs, geom.Sz(400, 300))
 		tabs.SetSelected(1, u)
 		glides(t, run, "the new page", 0, 1, tabs.slide.Value)
@@ -87,7 +87,7 @@ func TestSettersGlideOnceLaidOutAndJumpWithoutAUI(t *testing.T) {
 	})
 	t.Run("segmented", func(t *testing.T) {
 		s := NewSegmented("Day", "Week", "Month")
-		s.OnChange = func(i int) gunim.Intent { return tabbed{i} }
+		s.OnChange = func(i int, u *gunim.UI) gunim.Intent { return tabbed{i} }
 		w, run, u := setterStage(t, s, geom.Sz(300, 30))
 		s.SetSelected(2, u)
 		glides(t, run, "the pill", 0, 2, s.pill.Value)
@@ -97,7 +97,7 @@ func TestSettersGlideOnceLaidOutAndJumpWithoutAUI(t *testing.T) {
 	})
 	t.Run("slider", func(t *testing.T) {
 		s := NewSlider(0, 100)
-		s.OnChange = func(v float32) gunim.Intent { return slid{v} }
+		s.OnChange = func(v float32, u *gunim.UI) gunim.Intent { return slid{v} }
 		w, run, u := setterStage(t, s, geom.Sz(300, 30))
 		s.SetValue(80, u)
 		glides(t, run, "the knob", 0, 0.8, s.at.Value)
@@ -118,7 +118,7 @@ func TestSettersGlideOnceLaidOutAndJumpWithoutAUI(t *testing.T) {
 	})
 	t.Run("split", func(t *testing.T) {
 		s := NewSplit(&block{h: 10}, &block{h: 10})
-		s.OnMove = func(v float32) gunim.Intent { return splitMoved{v} }
+		s.OnCommit = func(v float32, u *gunim.UI) gunim.Intent { return splitMoved{v} }
 		w, run, u := setterStage(t, s, geom.Sz(400, 300))
 		s.SetShare(0.8, u)
 		glides(t, run, "the share", 0.5, 0.8, s.share.Value)
@@ -137,7 +137,7 @@ func TestSettersGlideOnceLaidOutAndJumpWithoutAUI(t *testing.T) {
 	t.Run("data grid", func(t *testing.T) {
 		g := NewDataGrid(GridColumn{Title: "Message"})
 		g.Row = func(int) (GridRow, bool) { return GridRow{}, true }
-		g.OnSelect = func(row int) gunim.Intent { return gridSelected{row} }
+		g.OnSelect = func(row int, u *gunim.UI) gunim.Intent { return gridSelected{row} }
 		g.rows = 100
 		w, run, u := setterStage(t, g, geom.Sz(400, 300))
 		g.SetSelected(60, u)
@@ -178,9 +178,9 @@ func TestDropdownSetSelectedMovesTheOpenListsHighlightAndSendsNothing(t *testing
 
 func TestTextSettersSendNothing(t *testing.T) {
 	f := NewTextField()
-	f.OnChange = func(s string) gunim.Intent { return s }
+	f.OnChange = func(s string, u *gunim.UI) gunim.Intent { return s }
 	n := NewNumberField(0, 10)
-	n.OnChange = func(v float64) gunim.Intent { return v }
+	n.OnChange = func(v float64, u *gunim.UI) gunim.Intent { return v }
 	w, run, u := setterStage(t, Column(f, n), geom.Sz(300, 100))
 	f.SetText("hello", u)
 	n.SetValue(12, u)

@@ -150,10 +150,10 @@ func TestAFavouriteElsewhereIsRenamedReorderedAndUnpinned(t *testing.T) {
 	h.until("the favourite takes its name", func() bool { return h.a.favName(server, "/srv/data") == "Data" })
 
 	var reorder gunim.Intent
-	h.ui(func(b *browser, _ *gunim.UI) {
+	h.ui(func(b *browser, u *gunim.UI) {
 		keys := b.side.favs.Keys()
 		slices.Reverse(keys)
-		reorder = b.side.favs.Reorder(keys)
+		reorder = b.side.favs.OnReorder(keys, u)
 	})
 	h.do(reorder)
 	want := []Favourite{{Path: "/srv/data", Name: "Data", FS: server}, {Path: old}}

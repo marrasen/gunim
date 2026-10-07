@@ -71,7 +71,7 @@ func TestEscapeClosesTheListForTheWordAndATriggerInAWordBeginsNothing(t *testing
 func TestNewTextClosesTheListAndEnterSends(t *testing.T) {
 	wr := newMentioner(t)
 	sent := ""
-	wr.area.OnSubmit = func(s string) gunim.Intent { sent = s; return nil }
+	wr.area.OnCommit = func(s string, u *gunim.UI) gunim.Intent { sent = s; return nil }
 	wr.typeText("Ask @an")
 	wr.area.SetText("hi", nil)
 	wr.run(1)

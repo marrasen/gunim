@@ -54,10 +54,11 @@ type ToneCurve struct {
 	Guides []CurveGuide
 	// MaxPoints caps the points, ends included; zero is 16.
 	MaxPoints int
-	// OnChange turns the points into an intent at every step of a drag,
-	// and OnCommit as the drag ends or a point goes.
-	OnChange func(pts []geom.Point) gunim.Intent
-	OnCommit func(pts []geom.Point) gunim.Intent
+	// OnChange runs on the UI goroutine with the points at every step of a
+	// drag, and OnCommit as the drag ends or a point goes. A non-nil
+	// result is sent to the application as the curve's intent.
+	OnChange func(pts []geom.Point, u *gunim.UI) gunim.Intent
+	OnCommit func(pts []geom.Point, u *gunim.UI) gunim.Intent
 
 	pts []geom.Point
 	// size is how large each point shows, 0 to 1, as it pops in.
@@ -216,7 +217,7 @@ func (c *ToneCurve) Handle(e input.Event, u *gunim.UI) bool {
 		if c.held >= 0 {
 			c.moveHeld(c.fromBox(e.Pos))
 			if c.OnChange != nil {
-				u.Send(c, c.OnChange(c.Points()))
+				send(u, c, c.OnChange(c.Points(), u))
 			}
 			u.Invalidate()
 			return true
@@ -240,7 +241,7 @@ func (c *ToneCurve) Handle(e input.Event, u *gunim.UI) bool {
 		if e.Clicks == 2 && i > 0 && i < len(c.pts)-1 {
 			c.removePoint(i, th)
 			if c.OnCommit != nil {
-				u.Send(c, c.OnCommit(c.Points()))
+				send(u, c, c.OnCommit(c.Points(), u))
 			}
 			u.Invalidate()
 			return true
@@ -254,7 +255,7 @@ func (c *ToneCurve) Handle(e input.Event, u *gunim.UI) bool {
 		c.held, c.hover = i, i
 		c.moveHeld(c.fromBox(e.Pos))
 		if c.OnChange != nil {
-			u.Send(c, c.OnChange(c.Points()))
+			send(u, c, c.OnChange(c.Points(), u))
 		}
 		u.Invalidate()
 		return true
@@ -264,7 +265,7 @@ func (c *ToneCurve) Handle(e input.Event, u *gunim.UI) bool {
 		}
 		c.held = -1
 		if c.OnCommit != nil {
-			u.Send(c, c.OnCommit(c.Points()))
+			send(u, c, c.OnCommit(c.Points(), u))
 		}
 		u.Invalidate()
 		return true

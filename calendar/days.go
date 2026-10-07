@@ -47,25 +47,26 @@ type Days struct {
 	Snap time.Duration
 	// WorkDay is the working day, from its start to its end; the hours outside it are shaded. Zero shades none.
 	WorkDay [2]time.Duration
-	// OnDay turns a click on a day's heading into an intent, such as to show that day alone.
-	OnDay func(day time.Time) gunim.Intent
-	// OnCreate turns a span drawn out on free time into an intent, to make an event there.
-	OnCreate func(start, end time.Time, allDay bool) gunim.Intent
-	// Create, when set, runs in place of OnCreate with the span drawn out and its box in the grid's space, such as
-	// to ask for a title beside it. The drawn event stays until [Days.ClearGhost].
-	Create func(start, end time.Time, allDay bool, box geom.Rect, u *gunim.UI)
-	// OnChange turns an event moved, or made longer or shorter, into an intent.
-	OnChange func(id string, start, end time.Time) gunim.Intent
-	// Open runs when the user clicks an event, with the event's box in the grid's space, such as to show a card
-	// about it there.
-	Open func(id string, box geom.Rect, u *gunim.UI)
-	// OnEdit turns a double click on an event into an intent, such as to open it in an editor.
-	OnEdit func(id string) gunim.Intent
-	// OnDelete turns Delete on the event chosen by the keys into an intent.
-	OnDelete func(id string) gunim.Intent
-	// OnStep turns scrolling sideways, or with Shift held, into an intent to step to the days either side, by -1
-	// or 1.
-	OnStep func(by int) gunim.Intent
+	// The callbacks below run on the UI goroutine and may act in the window through u. A non-nil result is sent to
+	// the application as the view's intent.
+	//
+	// OnDay runs on a click on a day's heading, such as to show that day alone.
+	OnDay func(day time.Time, u *gunim.UI) gunim.Intent
+	// OnCreate runs with a span drawn out on free time and its box in the grid's space, to make an event there.
+	// Returning an intent lets the drawn event fade; returning nil keeps it until [Days.ClearGhost], for a callback
+	// that asks for a title beside it.
+	OnCreate func(start, end time.Time, allDay bool, box geom.Rect, u *gunim.UI) gunim.Intent
+	// OnChange runs with an event moved, or made longer or shorter.
+	OnChange func(id string, start, end time.Time, u *gunim.UI) gunim.Intent
+	// OnOpen runs when the user clicks an event, or presses Enter on the one chosen, with the event's box in the
+	// grid's space, such as to show a card about it there.
+	OnOpen func(id string, box geom.Rect, u *gunim.UI) gunim.Intent
+	// OnEdit runs on a double click on an event, such as to open it in an editor.
+	OnEdit func(id string, u *gunim.UI) gunim.Intent
+	// OnDelete runs on Delete on the event chosen by the keys.
+	OnDelete func(id string, u *gunim.UI) gunim.Intent
+	// OnStep runs on scrolling sideways, or with Shift held, to step to the days either side, by -1 or 1.
+	OnStep func(by int, u *gunim.UI) gunim.Intent
 	// Busy, when set, is asked before a press on free time begins an event. True lets the press do nothing more,
 	// such as one that only closed a card about an event.
 	Busy func() bool
@@ -937,7 +938,7 @@ func (d *Days) ghostOnScreen() geom.Rect {
 	return d.ghost.Target().Add(geom.Pt(0, d.bodyTop()-d.scroll.Target()))
 }
 
-// ClearGhost lets the event drawn out for [Days.Create] fade, once it is named or given up.
+// ClearGhost lets the event drawn out and held by [Days.OnCreate] fade, once it is named or given up.
 func (d *Days) ClearGhost(u *gunim.UI) {
 	d.ghostHeld = nil
 	d.ghostIn.Animate(0, widget.Settle.Get(u.Theme()))
@@ -1207,7 +1208,7 @@ func (d *Days) Handle(e input.Event, u *gunim.UI) bool {
 	case input.Scroll:
 		if sideways := e.Mods.Has(input.ModShift) || abs(e.Delta.X) > abs(e.Delta.Y); sideways && d.OnStep != nil {
 			if by := d.swipe.step(e, false); by != 0 {
-				u.Send(d, d.OnStep(by))
+				send(u, d, d.OnStep(by, u))
 			}
 			return true
 		}
@@ -1260,7 +1261,7 @@ func (d *Days) Handle(e input.Event, u *gunim.UI) bool {
 			u.Invalidate()
 			return true
 		}
-		return eventKeys(e, u, d, d.stops(), d.selected, func(id string) { d.choose(id, u) }, d.Open, d.OnDelete)
+		return eventKeys(e, u, d, d.stops(), d.selected, func(id string) { d.choose(id, u) }, d.OnOpen, d.OnDelete)
 	case input.FocusRing:
 		d.ringed = ringShown(e)
 		u.Invalidate()
@@ -1309,14 +1310,14 @@ func (d *Days) press(e input.PointerDown, th *theme.Live, u *gunim.UI) {
 	}
 	if pt.Y < headerH {
 		if i := d.dayAt(pt.X); e.Clicks <= 1 && d.OnDay != nil {
-			d.tap.press(geom.Rc(d.colX(i), 0, d.colW(), headerH), func() { u.Send(d, d.OnDay(d.day(i))) })
+			d.tap.press(geom.Rc(d.colX(i), 0, d.colW(), headerH), func() { send(u, d, d.OnDay(d.day(i), u)) })
 		}
 		return
 	}
 	if ev, b, on, ok := d.eventAt(pt); ok {
 		if e.Clicks > 1 {
 			if d.OnEdit != nil && !ev.Fixed {
-				u.Send(d, d.OnEdit(ev.ID))
+				send(u, d, d.OnEdit(ev.ID, u))
 			}
 			return
 		}
@@ -1452,16 +1453,16 @@ func (d *Days) release(u *gunim.UI) {
 			g.end = minTime(g.start.Add(time.Hour), AddDays(Day(g.start), 1))
 			d.ghost.Animate(d.ghostBoxOf(g), widget.Bounce.Get(th))
 		}
-		if d.Create != nil {
-			// The drawn event stays while it is being named.
-			d.ghostHeld = g
-			d.Create(g.start, g.end, g.allDay, d.ghostOnScreen(), u)
-			return
+		if d.OnCreate != nil {
+			in := d.OnCreate(g.start, g.end, g.allDay, d.ghostOnScreen(), u)
+			if in == nil {
+				// The drawn event stays while it is being named.
+				d.ghostHeld = g
+				return
+			}
+			u.Send(d, in)
 		}
 		d.ghostIn.Animate(0, widget.Settle.Get(th))
-		if d.OnCreate != nil {
-			u.Send(d, d.OnCreate(g.start, g.end, g.allDay))
-		}
 		return
 	}
 	ev, ok := d.event(g.id)
@@ -1469,18 +1470,18 @@ func (d *Days) release(u *gunim.UI) {
 		return
 	}
 	if !g.moved || g.fixed || (ev.Start.Equal(g.start) && ev.End.Equal(g.end)) {
-		if d.Open != nil {
+		if d.OnOpen != nil {
 			if b, ok := d.EventBox(g.id); ok {
 				g.box = b
 			}
-			d.Open(g.id, g.box, u)
+			send(u, d, d.OnOpen(g.id, g.box, u))
 		}
 		return
 	}
 	d.held[g.id] = heldEvent{start: g.start, end: g.end, at: time.Now()}
 	d.holds++
 	if d.OnChange != nil {
-		u.Send(d, d.OnChange(g.id, g.start, g.end))
+		send(u, d, d.OnChange(g.id, g.start, g.end, u))
 	}
 }
 

@@ -53,7 +53,7 @@ func fingerScroll(w *gunim.Window, run func(int), x, y float32) {
 
 func TestAButtonActsOnEveryPrimaryClickLetGoOverIt(t *testing.T) {
 	b := NewButton("Go")
-	b.On = pressed{1}
+	b.OnClick = Sends(pressed{1})
 	w, run := stage(t, &frame{child: Row(b), size: geom.Sz(300, 40)})
 	mid := geom.Pt(b.size.W/2, b.size.H/2)
 	rightClick(w, mid.X, mid.Y)
@@ -119,7 +119,7 @@ func TestATabTitleChosenOnlyByAPrimaryClickOnIt(t *testing.T) {
 
 func TestALinkFollowsOnceForADoubleClickAndOnRelease(t *testing.T) {
 	l := NewLink("show 12 more")
-	l.On = followed{}
+	l.OnClick = Sends(followed{})
 	w, run := stage(t, &frame{child: Row(l), size: geom.Sz(400, 40)})
 	w.Input(input.PointerDown{Pos: geom.Pt(5, 5), Clicks: 1, Time: time.Now()})
 	run(1)
@@ -137,7 +137,7 @@ func TestALinkFollowsOnceForADoubleClickAndOnRelease(t *testing.T) {
 
 func TestAChipsCrossRemovesOnceForADoubleClick(t *testing.T) {
 	c := NewChip("level", "error")
-	c.OnRemove = func() gunim.Intent { return removed{"error"} }
+	c.OnRemove = func(u *gunim.UI) gunim.Intent { return removed{"error"} }
 	w, run := stage(t, &frame{child: Row(c), size: geom.Sz(400, 40)})
 	doubleClick(w, c.crossX, 12)
 	run(1)
@@ -224,7 +224,7 @@ func TestARightPressLeavesAToast(t *testing.T) {
 
 func TestASegmentedOptionChosenOnlyByAPrimaryClickOnIt(t *testing.T) {
 	s := NewSegmented("One", "Two", "Three")
-	s.OnChange = func(i int) gunim.Intent { return segmentChosen{i} }
+	s.OnChange = func(i int, u *gunim.UI) gunim.Intent { return segmentChosen{i} }
 	w, run := stage(t, &frame{child: Row(s), size: geom.Sz(600, 40)})
 	rightClick(w, s.width*1.5, 14)
 	run(1)
@@ -246,7 +246,7 @@ func TestATreeRowActivatesOnceForADoubleClick(t *testing.T) {
 }
 
 func TestARichTextLinkFollowsOnceForADoubleClick(t *testing.T) {
-	r := NewRichText(RichSpan{Text: "manual", On: openedLink{"https://example.com"}})
+	r := NewRichText(RichSpan{Text: "manual", OnClick: Sends(openedLink{"https://example.com"})})
 	w, run := stage(t, &frame{child: r, size: geom.Sz(200, 300)})
 	pc := r.laid.Lines[0].Pieces[0]
 	at := geom.Pt(pc.At.X+pc.Run.Advance/2, pc.At.Y+pc.Run.Height()/2)

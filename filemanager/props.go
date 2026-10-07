@@ -59,14 +59,14 @@ func newPropsDialog(s Props) *propsDialog {
 		d.form.Add("Attributes", widget.Row(d.readOnly, d.hidden))
 		body.focus = []gunim.Node{d.readOnly, d.hidden}
 		d.SetButtons("OK", "Cancel")
-		d.OnAccept = func() gunim.Intent {
+		d.OnAccept = func(u *gunim.UI) gunim.Intent {
 			return PropsApplied{Token: s.Token, ReadOnly: d.readOnly.Checked(), Hidden: d.hidden.Checked()}
 		}
 	} else {
 		d.SetButtons("Close", "")
-		d.Accept = DialogClosed{}
+		d.OnAccept = widget.Sends(DialogClosed{})
 	}
-	d.Dismiss = DialogClosed{}
+	d.OnDismiss = widget.Sends(DialogClosed{})
 	body.Flex = widget.Column(d.form, d.err)
 	body.Cross = widget.CrossStretch
 	d.Body = body

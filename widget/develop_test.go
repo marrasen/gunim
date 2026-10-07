@@ -57,8 +57,8 @@ type curveDone struct{ pts []geom.Point }
 
 func TestAToneCurveAddsDragsAndRemovesPoints(t *testing.T) {
 	c := NewToneCurve()
-	c.OnChange = func(pts []geom.Point) gunim.Intent { return curved{pts} }
-	c.OnCommit = func(pts []geom.Point) gunim.Intent { return curveDone{pts} }
+	c.OnChange = func(pts []geom.Point, u *gunim.UI) gunim.Intent { return curved{pts} }
+	c.OnCommit = func(pts []geom.Point, u *gunim.UI) gunim.Intent { return curveDone{pts} }
 	w, run := stage(t, &frame{child: c, size: geom.Sz(212, 212)})
 	run(1)
 	// The plot runs from 6 to 206 each way, 1 up at the top.
@@ -160,7 +160,7 @@ func TestASliderRowCountsAlongAndResets(t *testing.T) {
 	s.Snap = 1
 	s.Rest, s.HasRest = 0, true
 	s.SetValue(80, nil)
-	s.OnCommit = func(v float32) gunim.Intent { return committed{v} }
+	s.OnCommit = func(v float32, u *gunim.UI) gunim.Intent { return committed{v} }
 	row := NewSliderRow("Contrast", s)
 	w, run := stage(t, &frame{child: row, size: geom.Sz(300, 28)})
 	run(30)

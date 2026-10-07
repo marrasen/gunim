@@ -21,7 +21,7 @@ type shownItems struct{ Items []Key }
 func newReorderList(t *testing.T) (*gunim.Window, *List, func(int)) {
 	t.Helper()
 	l := NewList()
-	l.Reorder = func(keys []Key) gunim.Intent { return reordered{keys} }
+	l.OnReorder = func(keys []Key, u *gunim.UI) gunim.Intent { return reordered{keys} }
 	w := gunimtest.New(t, geom.Sz(300, 400), nil)
 	gunim.RegisterView(w, "l", func(shownItems) gunim.Node { return l },
 		func(_ gunim.Node, s shownItems, u *gunim.UI) {
@@ -89,7 +89,7 @@ type rowClicked struct{ Key Key }
 
 func TestARowThatIsNotDraggedIsClicked(t *testing.T) {
 	w, l, run := newReorderList(t)
-	l.OnClick = func(k Key) gunim.Intent { return rowClicked{k} }
+	l.OnActivate = func(k Key, u *gunim.UI) gunim.Intent { return rowClicked{k} }
 	w.Input(input.PointerDown{Pos: geom.Pt(100, 46+20), Clicks: 1})
 	w.Input(input.PointerMove{Pos: geom.Pt(102, 46+21)})
 	w.Input(input.PointerUp{Pos: geom.Pt(102, 46+21)})

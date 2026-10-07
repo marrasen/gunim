@@ -49,7 +49,7 @@ func TestAMessageOpensAMenuOfWhatItsToolbarDoes(t *testing.T) {
 	if want := []string{"React", "Reply", "Edit", "Withdraw"}; !slices.Equal(items, want) {
 		t.Fatalf("the menu holds %q, want %q", items, want)
 	}
-	do(func(u *gunim.UI) { r.menuList.Pick(1, u) })
+	do(func(u *gunim.UI) { r.menuList.OnPick(1, u) })
 	h.frames(5)
 	if r.menu != nil {
 		t.Fatal("the menu stayed open after a pick")

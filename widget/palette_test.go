@@ -47,7 +47,7 @@ func newPaletteStage(t *testing.T) (*gunim.Window, *paletteOpener, func(int)) {
 			{Title: "Split down", Hint: "Ctrl+Shift+E"},
 			{Title: "Paste"},
 		},
-		Pick: func(i int, _ *gunim.UI) { o.picked = append(o.picked, i) },
+		OnPick: func(i int, _ *gunim.UI) gunim.Intent { o.picked = append(o.picked, i); return nil },
 	}
 	w, run := stage(t, o)
 	run(1)
@@ -194,8 +194,8 @@ func TestAPaletteShowsItemsFoundElsewhere(t *testing.T) {
 	w, o, run := newPaletteStage(t)
 	var asked []string
 	var ctrl []int
-	o.p.Search = func(q string, _ *gunim.UI) { asked = append(asked, q) }
-	o.p.CtrlPick = func(i int, _ *gunim.UI) { ctrl = append(ctrl, i) }
+	o.p.OnSearch = func(q string, _ *gunim.UI) gunim.Intent { asked = append(asked, q); return nil }
+	o.p.OnCtrlPick = func(i int, _ *gunim.UI) gunim.Intent { ctrl = append(ctrl, i); return nil }
 	o.p.Items = nil
 	focusOpener(w, run)
 	w.Input(input.KeyPress{Key: input.KeyF1})
@@ -291,8 +291,8 @@ func TestAPaletteTellsWhereItsHighlightIs(t *testing.T) {
 	w, o, run := newPaletteStage(t)
 	var hot []int
 	cancelled := 0
-	o.p.Hot = func(i int, _ *gunim.UI) { hot = append(hot, i) }
-	o.p.Cancel = func(*gunim.UI) { cancelled++ }
+	o.p.OnHighlight = func(i int, _ *gunim.UI) gunim.Intent { hot = append(hot, i); return nil }
+	o.p.OnCancel = func(*gunim.UI) gunim.Intent { cancelled++; return nil }
 	focusOpener(w, run)
 	w.Input(input.KeyPress{Key: input.KeyF1})
 	run(20)

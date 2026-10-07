@@ -39,11 +39,14 @@ import (
 type Menu struct {
 	anim.Group
 
-	// Pick runs on the UI goroutine with the index of the item picked.
-	Pick func(i int, u *gunim.UI)
-	// OnHighlight runs on the UI goroutine when the pointer or a key
-	// moves the highlight, with the item it moved to, or -1.
-	OnHighlight func(i int, u *gunim.UI)
+	// OnPick runs on the UI goroutine with the index of the item picked,
+	// by a click, Enter, Space or its access key. It may act in the
+	// window through u, as closing the popup the menu is in; a non-nil
+	// result is sent to the application as the menu's intent.
+	OnPick func(i int, u *gunim.UI) gunim.Intent
+	// OnHighlight runs, in the same way, when the pointer or a key moves
+	// the highlight, with the item it moved to, or -1.
+	OnHighlight func(i int, u *gunim.UI) gunim.Intent
 	// MinWidth is the narrowest the menu gets, so a drop-down's list is
 	// at least as wide as the drop-down.
 	MinWidth float32
@@ -367,7 +370,7 @@ func (m *Menu) Key(k input.KeyPress, u *gunim.UI) bool {
 	case input.KeyEnd:
 		m.Highlight(m.step(m.hot, m.len()-1, -1))
 	case input.KeyEnter, input.KeyKPEnter, input.KeySpace:
-		if m.enabled(m.hot) && m.Pick != nil {
+		if m.enabled(m.hot) && m.OnPick != nil {
 			m.pick(m.hot, u)
 		}
 	default:
@@ -397,7 +400,7 @@ func (m *Menu) pickByKey(k input.KeyPress, u *gunim.UI) bool {
 		return false
 	}
 	m.Highlight(on[0])
-	if len(on) == 1 && m.Pick != nil {
+	if len(on) == 1 && m.OnPick != nil {
 		m.pick(on[0], u)
 	}
 	return true
@@ -485,7 +488,7 @@ func (m *Menu) Handle(e input.Event, u *gunim.UI) bool {
 		}
 	case input.PointerDown:
 	case input.PointerUp:
-		if i := m.rowAt(e.Pos); m.enabled(i) && m.Pick != nil {
+		if i := m.rowAt(e.Pos); m.enabled(i) && m.OnPick != nil {
 			m.pick(i, u)
 		}
 	default:
@@ -545,7 +548,7 @@ func dismissed(n gunim.Node, shut func(*gunim.UI)) func(*gunim.UI) {
 func (m *Menu) pick(i int, u *gunim.UI) {
 	m.picks++
 	u.Cue(gunim.CuePress, m)
-	m.Pick(i, u)
+	send(u, m, m.OnPick(i, u))
 }
 
 // toldUnlessPicked runs OnHighlight when the highlight has moved from
@@ -565,7 +568,7 @@ func (m *Menu) toldUnlessPicked(was, picks int, u *gunim.UI) {
 // told runs OnHighlight when the highlight has moved from was.
 func (m *Menu) told(was int, u *gunim.UI) {
 	if m.hot != was && m.OnHighlight != nil {
-		m.OnHighlight(m.hot, u)
+		send(u, m, m.OnHighlight(m.hot, u))
 	}
 }
 
@@ -961,10 +964,11 @@ type Dropdown struct {
 	// MaxWidth caps the drop-down's width, cutting a longer item short with
 	// an ellipsis. Zero leaves it as wide as its longest item.
 	MaxWidth float32
-	// OnChange turns a new choice into an intent for the application.
-	OnChange func(i int) gunim.Intent
-	// picked is local behaviour, set by OnPick.
-	picked func(i int, u *gunim.UI)
+	// OnChange runs on the UI goroutine when the user picks an item other
+	// than the chosen one, with the new choice. It may act in the window
+	// through u, such as filling in a form from a saved entry; a non-nil
+	// result is sent to the application as the drop-down's intent.
+	OnChange func(i int, u *gunim.UI) gunim.Intent
 
 	hover *anim.Float
 	ring  *anim.Float
@@ -982,10 +986,6 @@ type Dropdown struct {
 	widthOf   menuWidth
 	iconSpace float32
 }
-
-// OnPick wires behaviour that runs inside the window when the user
-// picks an item, such as filling in a form from a saved entry.
-func (d *Dropdown) OnPick(fn func(i int, u *gunim.UI)) { d.picked = fn }
 
 // NewDropdown returns a drop-down of items with the first chosen. An item's icon or swatch shows before it in the
 // list, and before the chosen one on the drop-down itself.
@@ -1114,17 +1114,15 @@ func (d *Dropdown) sync(m *Menu) {
 
 func (d *Dropdown) open(u *gunim.UI) {
 	m := d.listMenu()
-	m.Pick = func(i int, u *gunim.UI) {
+	m.OnPick = func(i int, u *gunim.UI) gunim.Intent {
 		d.close(u)
 		if i != d.selected {
 			d.selected = i
-			if d.picked != nil {
-				d.picked(i, u)
-			}
 			if d.OnChange != nil {
-				u.Send(d, d.OnChange(i))
+				send(u, d, d.OnChange(i, u))
 			}
 		}
+		return nil
 	}
 	d.menu = m
 	u.Cue(gunim.CueOpen, d)
@@ -1243,11 +1241,11 @@ type ContextMenu struct {
 	// the context menu's space, before the menu opens. It may set the items
 	// for the place pressed, and returning false opens no menu.
 	Prepare func(at geom.Point, u *gunim.UI) bool
-	// OnPick turns a picked item into an intent for the application.
-	OnPick func(i int) gunim.Intent
-	// Picked, when set, runs on the UI goroutine with the item picked, for
-	// work inside the window, such as copying to the clipboard.
-	Picked func(i int, u *gunim.UI)
+	// OnPick runs on the UI goroutine with the item picked, once the menu
+	// has closed. It may act in the window through u, such as copying to
+	// the clipboard; a non-nil result is sent to the application as the
+	// context menu's intent.
+	OnPick func(i int, u *gunim.UI) gunim.Intent
 
 	child gunim.Node
 	popup *gunim.Popup
@@ -1324,16 +1322,12 @@ func (c *ContextMenu) show(at geom.Point, u *gunim.UI) {
 	c.close(u)
 	m := NewMenu(nil)
 	m.setList(c.list)
-	m.Pick = func(i int, u *gunim.UI) {
+	m.OnPick = func(i int, u *gunim.UI) gunim.Intent {
 		c.close(u)
-		if c.Picked != nil {
-			c.Picked(i, u)
-		}
 		if c.OnPick != nil {
-			if v := c.OnPick(i); v != nil {
-				u.Send(c, v)
-			}
+			send(u, c, c.OnPick(i, u))
 		}
+		return nil
 	}
 	c.menu = m
 	u.Cue(gunim.CueOpen, c)

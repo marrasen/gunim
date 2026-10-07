@@ -105,7 +105,10 @@ func newTitleBar(b *browser) *titleBar {
 	t := &titleBar{b: b, controls: widget.NewWindowControls()}
 	t.bar = widget.NewMenubar(t.build(false)...)
 	t.bar.Title = "Files"
-	t.bar.Pick = t.pick
+	t.bar.OnPick = func(m, i int, u *gunim.UI) gunim.Intent {
+		t.pick(m, i, u)
+		return nil
+	}
 	return t
 }
 

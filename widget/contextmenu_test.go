@@ -29,7 +29,7 @@ func contextStage(t *testing.T) (w *gunim.Window, c *ContextMenu, run func(int))
 		})
 		return true
 	}
-	c.OnPick = func(i int) gunim.Intent { return menuPicked{c.Items()[i].Label} }
+	c.OnPick = func(i int, u *gunim.UI) gunim.Intent { return menuPicked{c.Items()[i].Label} }
 	w, run = stage(t, &frame{child: c, size: geom.Sz(400, 300)})
 	return w, c, run
 }
@@ -64,8 +64,10 @@ func TestAContextMenuTakesItsItemsFromWhereItOpens(t *testing.T) {
 func TestAContextMenuCanActInsideTheWindow(t *testing.T) {
 	w, c, run := contextStage(t)
 	var local []int
-	c.Picked = func(i int, _ *gunim.UI) { local = append(local, i) }
-	c.OnPick = func(int) gunim.Intent { return nil }
+	c.OnPick = func(i int, _ *gunim.UI) gunim.Intent {
+		local = append(local, i)
+		return nil
+	}
 	w.Input(input.PointerDown{Pos: geom.Pt(50, 50), Button: input.ButtonSecondary, Clicks: 1, Time: time.Now()})
 	w.Input(input.PointerUp{Pos: geom.Pt(50, 50), Button: input.ButtonSecondary, Time: time.Now()})
 	run(5)

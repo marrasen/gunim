@@ -47,7 +47,7 @@ func TestADataGridAsksOnlyForTheRowsInView(t *testing.T) {
 func TestADataGridSaysWhichRowsAreInView(t *testing.T) {
 	g := NewDataGrid(GridColumn{Title: "Message"})
 	g.Row = func(i int) (GridRow, bool) { return GridRow{}, false }
-	g.OnView = func(first, count int) gunim.Intent { return gridView{first, count} }
+	g.OnView = func(first, count int, u *gunim.UI) gunim.Intent { return gridView{first, count} }
 	g.rows = 10_000
 	w, run := stage(t, &frame{child: g, size: geom.Sz(400, 300)})
 	got := sent(w)
@@ -81,7 +81,7 @@ func TestADataGridKeepsItsPlaceFarDown(t *testing.T) {
 func TestArrowKeysMoveTheSelectionAndSaySo(t *testing.T) {
 	g := NewDataGrid(GridColumn{Title: "Message"})
 	g.Row = func(i int) (GridRow, bool) { return GridRow{}, true }
-	g.OnSelect = func(row int) gunim.Intent { return gridSelected{row} }
+	g.OnSelect = func(row int, u *gunim.UI) gunim.Intent { return gridSelected{row} }
 	g.rows = 100
 	w, run := stage(t, &frame{child: g, size: geom.Sz(400, 300)})
 	click(w, 100, 26+22*3+5)
@@ -114,7 +114,7 @@ func TestArrowKeysMoveTheSelectionAndSaySo(t *testing.T) {
 
 func TestDraggingATitlesEdgeResizesItsColumn(t *testing.T) {
 	g := NewDataGrid(GridColumn{Title: "Time", Width: 100}, GridColumn{Title: "Message"})
-	g.OnResize = func(c int, w float32) gunim.Intent { return gridResized{c, w} }
+	g.OnResize = func(c int, w float32, u *gunim.UI) gunim.Intent { return gridResized{c, w} }
 	w, run := stage(t, &frame{child: g, size: geom.Sz(400, 300)})
 	now := time.Now()
 	w.Input(input.PointerDown{Pos: geom.Pt(99, 10), Button: input.ButtonPrimary, Clicks: 1, Time: now})
@@ -209,7 +209,7 @@ type gridClicked struct{ Row int }
 func TestEveryClickOnARowIsSent(t *testing.T) {
 	g := NewDataGrid(GridColumn{Title: "Name"})
 	g.Row = func(int) (GridRow, bool) { return GridRow{}, true }
-	g.OnClick = func(row int) gunim.Intent { return gridClicked{row} }
+	g.OnClick = func(row int, u *gunim.UI) gunim.Intent { return gridClicked{row} }
 	g.rows = 10
 	w, run := stage(t, &frame{child: g, size: geom.Sz(400, 300)})
 	y := GridHeaderHeight.Default() + GridRowHeight.Default()*2 + 5
@@ -226,8 +226,8 @@ type gridSorted struct{ Column int }
 
 func TestAClickOnATitleIsSent(t *testing.T) {
 	g := NewDataGrid(GridColumn{Title: "Name", Width: 100, Sort: 1}, GridColumn{Title: "Size", Closable: true})
-	g.OnHeader = func(c int) gunim.Intent { return gridSorted{c} }
-	g.OnClose = func(c int) gunim.Intent { return gridResized{c, 0} }
+	g.OnHeader = func(c int, u *gunim.UI) gunim.Intent { return gridSorted{c} }
+	g.OnClose = func(c int, u *gunim.UI) gunim.Intent { return gridResized{c, 0} }
 	w, run := stage(t, &frame{child: g, size: geom.Sz(400, 300)})
 	click(w, 40, 10)
 	run(1)
@@ -245,7 +245,7 @@ type idOpened struct{ ID string }
 func TestASpanThatIsALinkSendsItsIntent(t *testing.T) {
 	g := NewDataGrid(GridColumn{Title: "Text"})
 	g.Row = func(int) (GridRow, bool) {
-		return GridRow{Cells: [][]GridSpan{{{Text: `"id": `}, {Text: `"Ab3d"`, On: idFound{"Ab3d"}, OnCtrl: idOpened{"Ab3d"}}}}}, true
+		return GridRow{Cells: [][]GridSpan{{{Text: `"id": `}, {Text: `"Ab3d"`, OnClick: Sends(idFound{"Ab3d"}), OnCtrlClick: Sends(idOpened{"Ab3d"})}}}}, true
 	}
 	g.rows = 1
 	w, run := stage(t, &frame{child: g, size: geom.Sz(400, 300)})
@@ -414,7 +414,7 @@ func TestASpanShowsItsIconBeforeItsText(t *testing.T) {
 func TestAnIconAloneIsALink(t *testing.T) {
 	g := NewDataGrid(GridColumn{Title: "Name"})
 	g.Row = func(int) (GridRow, bool) {
-		return GridRow{Cells: [][]GridSpan{{{Icon: icon.Copy, On: idFound{"copy"}}, {Text: " notes.txt"}}}}, true
+		return GridRow{Cells: [][]GridSpan{{{Icon: icon.Copy, OnClick: Sends(idFound{"copy"})}, {Text: " notes.txt"}}}}, true
 	}
 	g.rows = 1
 	w, run := stage(t, &frame{child: g, size: geom.Sz(400, 300)})

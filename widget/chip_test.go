@@ -17,7 +17,7 @@ type picked struct{ Item int }
 
 func TestAClickOnAChipsCrossRemovesIt(t *testing.T) {
 	c := NewChip("level", "error")
-	c.OnRemove = func() gunim.Intent { return removed{"error"} }
+	c.OnRemove = func(u *gunim.UI) gunim.Intent { return removed{"error"} }
 	w, run := stage(t, &frame{child: Row(c), size: geom.Sz(400, 40)})
 	click(w, 5, 12)
 	run(1)
@@ -34,7 +34,7 @@ func TestAClickOnAChipsCrossRemovesIt(t *testing.T) {
 func TestALongChipInANarrowWrapKeepsItsCrossInside(t *testing.T) {
 	c := NewChip("path", "/home/someone/a/folder/with/a/very/long/name/indeed/and/more/yet")
 	c.Icon = icon.Folder
-	c.OnRemove = func() gunim.Intent { return removed{"path"} }
+	c.OnRemove = func(u *gunim.UI) gunim.Intent { return removed{"path"} }
 	w, run := stage(t, &frame{child: NewWrap(c), size: geom.Sz(200, 100)})
 	run(1)
 	if c.size.W > 200 {
@@ -98,7 +98,7 @@ func TestAWrapCanCentreEachChildInItsRow(t *testing.T) {
 func TestAMenuButtonThatStaysOpenTicksWhatIsPicked(t *testing.T) {
 	b := NewMenuButton("Files", Labels("app.log", "app.log.1", "app.log.2"))
 	b.StayOpen = true
-	b.OnPick = func(i int) gunim.Intent { return picked{i} }
+	b.OnPick = func(i int, u *gunim.UI) gunim.Intent { return picked{i} }
 	w, run := stage(t, &frame{child: Row(b), size: geom.Sz(400, 300)})
 	click(w, 10, 10)
 	run(10)
@@ -152,12 +152,15 @@ func TestAPaletteOffersTypedItemsFirst(t *testing.T) {
 	}
 }
 
-// Picked hears a pick on the UI goroutine, for a pick that works in the
-// window.
-func TestAMenuButtonsPickedHearsThePick(t *testing.T) {
+// OnPick hears a pick on the UI goroutine, for a pick that works in the
+// window, and an OnPick that returns nil sends nothing.
+func TestAMenuButtonsOnPickHearsThePick(t *testing.T) {
 	b := NewMenuButton("Add", Labels("Server", "Window"))
 	got := -1
-	b.Picked = func(i int, u *gunim.UI) { got = i }
+	b.OnPick = func(i int, u *gunim.UI) gunim.Intent {
+		got = i
+		return nil
+	}
 	w, run := stage(t, &frame{child: Row(b), size: geom.Sz(400, 300)})
 	click(w, 10, 10)
 	run(10)
@@ -168,4 +171,5 @@ func TestAMenuButtonsPickedHearsThePick(t *testing.T) {
 	if got != 1 || b.IsOpen() {
 		t.Fatalf("picked %d, open %v; want the second, closed", got, b.IsOpen())
 	}
+	quiet(t, w, "an OnPick that returns nil")
 }

@@ -21,7 +21,7 @@ func numberStage(t *testing.T, n *NumberField) (*gunim.Window, func(int)) {
 func TestNumberFieldStepsWithTheArrows(t *testing.T) {
 	n := NewNumberField(0, 512)
 	n.SetValue(10, nil)
-	n.OnChange = func(v float64) gunim.Intent { return numbered{v} }
+	n.OnChange = func(v float64, u *gunim.UI) gunim.Intent { return numbered{v} }
 	w, run := numberStage(t, n)
 
 	w.Input(input.KeyPress{Key: input.KeyUp})
@@ -120,7 +120,7 @@ func TestNumberFieldTurnsWithTheWheel(t *testing.T) {
 func TestANumberFieldWithoutTheKeyboardLeavesTheWheelToWhatScrolls(t *testing.T) {
 	n := NewNumberField(0, 255)
 	n.SetValue(100, nil)
-	n.OnChange = func(v float64) gunim.Intent { return numbered{v} }
+	n.OnChange = func(v float64, u *gunim.UI) gunim.Intent { return numbered{v} }
 	w, run := stage(t, &frame{child: n, size: geom.Sz(200, 32)})
 	w.Input(input.Scroll{Pos: geom.Pt(100, 16), Delta: geom.Pt(0, 1)})
 	run(1)
@@ -132,7 +132,7 @@ func TestANumberFieldWithoutTheKeyboardLeavesTheWheelToWhatScrolls(t *testing.T)
 func TestADisabledNumberFieldTakesNoWheelOrKeys(t *testing.T) {
 	n := NewNumberField(0, 255)
 	n.SetValue(100, nil)
-	n.OnChange = func(v float64) gunim.Intent { return numbered{v} }
+	n.OnChange = func(v float64, u *gunim.UI) gunim.Intent { return numbered{v} }
 	w, run := numberStage(t, n)
 	n.Disabled = true
 	run(1)

@@ -79,7 +79,7 @@ type lookPage struct {
 
 func buildLesson5(Look) *lookPage {
 	light := widget.NewSwitch("Light theme")
-	light.OnChange = func(on bool) gunim.Intent { return ThemeChosen{Light: on} }
+	light.OnChange = func(on bool, u *gunim.UI) gunim.Intent { return ThemeChosen{Light: on} }
 	big := widget.NewLabel("Big text")
 	big.Size = bigText
 	primary := widget.NewButton("Primary")

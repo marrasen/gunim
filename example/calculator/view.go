@@ -323,7 +323,7 @@ var switchTrack = theme.Color("calc.switch.track", color.NRGBA{R: 0xec, G: 0xef,
 func newModeSwitch() *widget.Segmented {
 	s := widget.NewSegmented("Calc", "Graph")
 	s.Track, s.KeepFocus = switchTrack, true
-	s.OnChange = func(i int) gunim.Intent { return ShowGraph{On: i == 1} }
+	s.OnChange = func(i int, u *gunim.UI) gunim.Intent { return ShowGraph{On: i == 1} }
 	return s
 }
 

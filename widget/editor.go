@@ -663,7 +663,7 @@ func (e *editor) openMenu(owner gunim.Node, at geom.Point, u *gunim.UI) {
 		{Label: "Paste", Disabled: e.readOnly},
 		{Label: "Select all"},
 	})
-	m.Pick = func(i int, u *gunim.UI) {
+	m.OnPick = func(i int, u *gunim.UI) gunim.Intent {
 		e.closeMenu()
 		start, end := e.Selection()
 		switch i {
@@ -683,6 +683,7 @@ func (e *editor) openMenu(owner gunim.Node, at geom.Point, u *gunim.UI) {
 			e.openMenu(owner, at, u)
 		}
 		u.Invalidate()
+		return nil
 	}
 	e.menuItems = m
 	u.Cue(gunim.CueOpen, owner)

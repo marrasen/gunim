@@ -21,14 +21,14 @@ func dragGrid(t *testing.T) (g *DataGrid, w *gunim.Window, run func(int), rowY f
 	g = NewDataGrid(GridColumn{Title: "Name"})
 	g.Multi = true
 	g.Row = func(int) (GridRow, bool) { return GridRow{Cells: [][]GridSpan{{{Text: "row"}}}}, true }
-	g.OnSelectRows = func(sel [][2]int, cursor int) gunim.Intent { return gridRows{sel, cursor} }
+	g.OnSelectRows = func(sel [][2]int, cursor int, u *gunim.UI) gunim.Intent { return gridRows{sel, cursor} }
 	g.DragRows = func(sel [][2]int, _ geom.Point) (any, gunim.Node, geom.Point) {
 		return rowsDragged{sel}, NewDragGhost(&block{h: 20}, geom.Pt(4, 4)), geom.Pt(4, 4)
 	}
 	g.rows = 100
 	var got []any
 	target := NewDropTarget(&block{h: 300})
-	target.OnDrop = func(e input.Drop) gunim.Intent { got = append(got, e.Data); return nil }
+	target.OnDrop = func(e input.Drop, u *gunim.UI) gunim.Intent { got = append(got, e.Data); return nil }
 	w, run = stage(t, &halves{left: g, right: target})
 	rowY = func(i int) float32 { return GridHeaderHeight.Default() + GridRowHeight.Default()*float32(i) + 5 }
 	return g, w, run, rowY, &got
@@ -130,7 +130,7 @@ func dragged(v any) [][2]int {
 
 func TestCtrlShiftCIsLeftToTheKeysAroundTheGrid(t *testing.T) {
 	g, w, run, rowY, _ := dragGrid(t)
-	g.OnCopy = func([][2]int) gunim.Intent { return rowsDragged{} }
+	g.OnCopy = func([][2]int, *gunim.UI) gunim.Intent { return rowsDragged{} }
 	w.Input(input.PointerDown{Pos: geom.Pt(50, rowY(1)), Button: input.ButtonPrimary, Clicks: 1, Time: time.Now()})
 	w.Input(input.PointerUp{Pos: geom.Pt(50, rowY(1)), Button: input.ButtonPrimary, Time: time.Now()})
 	run(1)

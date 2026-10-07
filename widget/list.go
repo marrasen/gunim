@@ -27,7 +27,7 @@ type Key string
 // slice with [Sync] and it works out the difference against what is on
 // screen, rather than rebuilding and letting the result pop.
 //
-// With OnClick set, the list takes focus and keeps a cursor on a row:
+// With OnActivate set, the list takes focus and keeps a cursor on a row:
 // Up, Down, Home and End move it, and Enter or Space clicks its row.
 //
 // Its look and motion come from the theme: [ListSpacing] between rows,
@@ -37,18 +37,20 @@ type Key string
 type List struct {
 	anim.Group
 
-	// Reorder, when set, lets the pointer drag rows into a new order,
-	// and turns the order a drop leaves into an intent for the
-	// application. See [List.Handle].
-	Reorder func(keys []Key) gunim.Intent
-	// OnClick, when set, turns a click on a row that nothing inside the
-	// row takes into an intent, so a row can be both clicked and dragged.
-	OnClick func(key Key) gunim.Intent
+	// OnReorder, when set, lets the pointer drag rows into a new order,
+	// and runs on the UI goroutine with the order a drop leaves. See
+	// [List.Handle].
+	OnReorder func(keys []Key, u *gunim.UI) gunim.Intent
+	// OnActivate, when set, runs on a click on a row that nothing inside
+	// the row takes, so a row can be both clicked and dragged, and on
+	// Enter or Space on the cursor's row. Like OnReorder, a non-nil
+	// result is sent to the application as the list's intent.
+	OnActivate func(key Key, u *gunim.UI) gunim.Intent
 	// ClickOnce takes the presses of a double or triple click on a row
 	// as one click, as a link takes them, so a row that goes somewhere
 	// goes there once.
 	ClickOnce bool
-	// SkipFocus passes the keyboard by a list with OnClick, for rows that
+	// SkipFocus passes the keyboard by a list with OnActivate, for rows that
 	// take it themselves: Tab goes past the list, a click leaves the
 	// keyboard where it is, and the keys go on to what holds the list.
 	// The pointer still clicks and drags the rows. [Button.KeepFocus] is
@@ -328,8 +330,8 @@ func (l *List) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.
 	}
 }
 
-// Focusable implements [gunim.Focusable]: a list with OnClick set takes focus.
-func (l *List) Focusable() bool { return l.OnClick != nil && !l.SkipFocus }
+// Focusable implements [gunim.Focusable]: a list with OnActivate set takes focus.
+func (l *List) Focusable() bool { return l.OnActivate != nil && !l.SkipFocus }
 
 // Cursor returns the row the keys work on, if it is still in the list.
 func (l *List) Cursor() (Key, bool) {
@@ -369,7 +371,7 @@ func (l *List) moveCursor(keys []Key, i int, u *gunim.UI) {
 
 // key works the cursor: Up, Down, Home and End move it, and Enter or Space clicks its row.
 func (l *List) key(e input.KeyPress, u *gunim.UI) bool {
-	if l.OnClick == nil || l.SkipFocus || e.Mods.Has(input.ModControl) || e.Mods.Has(input.ModAlt) {
+	if l.OnActivate == nil || l.SkipFocus || e.Mods.Has(input.ModControl) || e.Mods.Has(input.ModAlt) {
 		return false
 	}
 	keys := l.live()
@@ -397,7 +399,7 @@ func (l *List) key(e input.KeyPress, u *gunim.UI) bool {
 		if at < 0 {
 			return false
 		}
-		if v := l.OnClick(l.cursor); v != nil {
+		if v := l.OnActivate(l.cursor, u); v != nil {
 			u.Send(l, v)
 		}
 	default:

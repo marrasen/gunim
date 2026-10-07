@@ -39,29 +39,31 @@ type Month struct {
 	FirstWeekday time.Weekday
 	// HideWeekends leaves Saturdays and Sundays out.
 	HideWeekends bool
-	// More, when set, runs in place of OnDay for a click on how many more events a day has, with the day and the
+	// The callbacks below run on the UI goroutine and may act in the window through u. A non-nil result is sent to
+	// the application as the view's intent.
+	//
+	// OnMore, when set, runs in place of OnDay for a click on how many more events a day has, with the day and the
 	// box of the line saying so, such as to list them beside it.
-	More func(day time.Time, box geom.Rect, u *gunim.UI)
-	// OnDay turns a click on a day's number into an intent, such as to show that day alone.
-	OnDay func(day time.Time) gunim.Intent
-	// OnCreate turns a click on free room in a day into an intent, to make an event that day.
-	OnCreate func(day time.Time) gunim.Intent
-	// Create, when set, runs in place of OnCreate with the day and its box in the month's space, such as to ask for
-	// a title beside it.
-	Create func(day time.Time, box geom.Rect, u *gunim.UI)
-	// OnEdit turns a double click on an event into an intent, such as to open it in an editor.
-	OnEdit func(id string) gunim.Intent
-	// OnDelete turns Delete on the event chosen by the keys into an intent.
-	OnDelete func(id string) gunim.Intent
-	// OnStep turns scrolling, which has nothing else to move in a month, into an intent to step to the month either
-	// side, by -1 or 1.
-	OnStep func(by int) gunim.Intent
+	OnMore func(day time.Time, box geom.Rect, u *gunim.UI) gunim.Intent
+	// OnDay runs on a click on a day's number, such as to show that day alone.
+	OnDay func(day time.Time, u *gunim.UI) gunim.Intent
+	// OnCreate runs on a click on free room in a day, with the day and its box in the month's space, to make an
+	// event that day, or to ask for a title beside it.
+	OnCreate func(day time.Time, box geom.Rect, u *gunim.UI) gunim.Intent
+	// OnEdit runs on a double click on an event, such as to open it in an editor.
+	OnEdit func(id string, u *gunim.UI) gunim.Intent
+	// OnDelete runs on Delete on the event chosen by the keys.
+	OnDelete func(id string, u *gunim.UI) gunim.Intent
+	// OnStep runs on scrolling, which has nothing else to move in a month, to step to the month either side, by -1
+	// or 1.
+	OnStep func(by int, u *gunim.UI) gunim.Intent
 	// Busy, when set, is asked before a press on free room begins an event, as [Days.Busy] is.
 	Busy func() bool
-	// OnChange turns an event dragged to another day into an intent.
-	OnChange func(id string, start, end time.Time) gunim.Intent
-	// Open runs when the user clicks an event, with its box in the month's space.
-	Open func(id string, box geom.Rect, u *gunim.UI)
+	// OnChange runs with an event dragged to another day.
+	OnChange func(id string, start, end time.Time, u *gunim.UI) gunim.Intent
+	// OnOpen runs when the user clicks an event, or presses Enter on the one chosen, with its box in the month's
+	// space.
+	OnOpen func(id string, box geom.Rect, u *gunim.UI) gunim.Intent
 
 	events []Event
 	// idx finds the events of each week.
@@ -739,7 +741,7 @@ func (m *Month) Handle(e input.Event, u *gunim.UI) bool {
 			return false
 		}
 		if by := m.swipe.step(e, true); by != 0 {
-			u.Send(m, m.OnStep(by))
+			send(u, m, m.OnStep(by, u))
 		}
 		return true
 	}
@@ -778,7 +780,7 @@ func (m *Month) Handle(e input.Event, u *gunim.UI) bool {
 			m.aimLifts(u.Theme())
 			return true
 		}
-		return eventKeys(e, u, m, m.stops(), m.selected, func(id string) { m.SetSelected(id, u) }, m.Open, m.OnDelete)
+		return eventKeys(e, u, m, m.stops(), m.selected, func(id string) { m.SetSelected(id, u) }, m.OnOpen, m.OnDelete)
 	case input.FocusRing:
 		m.ringed = ringShown(e)
 		u.Invalidate()
@@ -812,8 +814,8 @@ func (m *Month) Handle(e input.Event, u *gunim.UI) bool {
 		m.aimLifts(u.Theme())
 		u.Invalidate()
 		if !g.moved || g.to == g.start {
-			if m.Open != nil {
-				m.Open(g.id, g.box, u)
+			if m.OnOpen != nil {
+				send(u, m, m.OnOpen(g.id, g.box, u))
 			}
 			return true
 		}
@@ -823,7 +825,7 @@ func (m *Month) Handle(e input.Event, u *gunim.UI) bool {
 		for _, ev := range m.events {
 			if ev.ID == g.id {
 				s, en := m.moved(ev, g)
-				u.Send(m, m.OnChange(g.id, s, en))
+				send(u, m, m.OnChange(g.id, s, en, u))
 			}
 		}
 		return true
@@ -838,17 +840,17 @@ func (m *Month) press(e input.PointerDown, u *gunim.UI) {
 	if ch, ok := m.chipAt(e.Pos); ok {
 		if e.Clicks > 1 {
 			if ch.more == 0 && m.OnEdit != nil && !ch.e.Fixed {
-				u.Send(m, m.OnEdit(ch.e.ID))
+				send(u, m, m.OnEdit(ch.e.ID, u))
 			}
 			return
 		}
 		if ch.more > 0 {
 			m.tap.press(ch.box, func() {
 				switch {
-				case m.More != nil:
-					m.More(m.day(ch.cell), ch.box, u)
+				case m.OnMore != nil:
+					send(u, m, m.OnMore(m.day(ch.cell), ch.box, u))
 				case m.OnDay != nil:
-					u.Send(m, m.OnDay(m.day(ch.cell)))
+					send(u, m, m.OnDay(m.day(ch.cell), u))
 				}
 			})
 			return
@@ -865,12 +867,10 @@ func (m *Month) press(e input.PointerDown, u *gunim.UI) {
 	number := geom.Rc(box.Min.X, box.Min.Y, box.Size().W, min(dayNumH, box.Size().H))
 	switch {
 	case number.Contains(e.Pos) && m.OnDay != nil:
-		m.tap.press(number, func() { u.Send(m, m.OnDay(m.day(c))) })
+		m.tap.press(number, func() { send(u, m, m.OnDay(m.day(c), u)) })
 	case m.Busy != nil && m.Busy():
-	case m.Create != nil:
-		m.tap.press(box, func() { m.Create(m.day(c), box, u) })
 	case m.OnCreate != nil:
-		m.tap.press(box, func() { u.Send(m, m.OnCreate(m.day(c))) })
+		m.tap.press(box, func() { send(u, m, m.OnCreate(m.day(c), box, u)) })
 	}
 }
 

@@ -17,7 +17,7 @@ type splitMoved struct{ Share float32 }
 func newSplitStage(t *testing.T) (*gunim.Window, *Split, func(int)) {
 	t.Helper()
 	s := NewSplit(NewTextField(), &block{h: 10})
-	s.OnMove = func(v float32) gunim.Intent { return splitMoved{v} }
+	s.OnCommit = func(v float32, u *gunim.UI) gunim.Intent { return splitMoved{v} }
 	w := gunimtest.New(t, geom.Sz(406, 300), nil)
 	gunim.RegisterView(w, "split", func(struct{}) gunim.Node { return s }, nil)
 	if err := w.Client().Mount(gunim.Root, "split", "split", nil); err != nil {

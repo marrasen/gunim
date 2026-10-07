@@ -40,7 +40,7 @@ func TestClosingADrawerTakesTheKeyboardOutOfItsPanel(t *testing.T) {
 	field := NewTextField()
 	var d *Drawer
 	closer := NewButton("Close")
-	closer.OnActivate(func(u *gunim.UI) { d.SetOpen(false, u) })
+	closer.OnClick = func(u *gunim.UI) gunim.Intent { d.SetOpen(false, u); return nil }
 	d = NewDrawer(field, closer)
 	w, run := stage(t, &frame{child: d, size: geom.Sz(800, 400)})
 	d.open.Jump(1)

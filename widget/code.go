@@ -106,8 +106,9 @@ type CodeEditor struct {
 	// Highlight finds the tokens to colour. Nil shows the code in one
 	// colour.
 	Highlight syntax.Highlighter
-	// OnChange turns the code into an intent after each edit.
-	OnChange func(code string) gunim.Intent
+	// OnChange runs on the UI goroutine after each edit, with the code; a
+	// non-nil result is sent to the application as the editor's intent.
+	OnChange func(code string, u *gunim.UI) gunim.Intent
 	// Label names the editor for screen readers.
 	Label string
 	// Numbers shows line numbers down the left. NewCodeEditor sets it.
@@ -202,7 +203,7 @@ func NewCodeEditor() *CodeEditor {
 	c.Add(c.focus, c.caretAt, c.band, c.scrollX, c.scrollY)
 	c.changed = func(u *gunim.UI) {
 		if c.OnChange != nil {
-			u.Send(c, c.OnChange(c.Text()))
+			send(u, c, c.OnChange(c.Text(), u))
 		}
 	}
 	return c

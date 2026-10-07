@@ -15,17 +15,18 @@ func registerOps(w *gunim.Window) {
 	gunim.RegisterPatch(w, "browser", func(b *browser, n Notice, u *gunim.UI) {
 		t := widget.Toast{Title: n.Title, Body: n.Body, Kind: toastKinds[n.Kind]}
 		if n.Undo != 0 {
-			t.Action, t.On = "Undo", UndoOp{ID: n.Undo}
+			t.Action = "Undo"
+			t.OnClick = widget.Sends(UndoOp{ID: n.Undo})
 		}
 		t.Key, t.Check = n.Key, n.Check
-		answer := func(i int) func(bool) gunim.Intent {
-			return func(on bool) gunim.Intent { return NoticeAnswered{Key: n.Key, Button: i, Checked: on} }
+		answer := func(i int) func(bool, *gunim.UI) gunim.Intent {
+			return func(on bool, _ *gunim.UI) gunim.Intent { return NoticeAnswered{Key: n.Key, Button: i, Checked: on} }
 		}
 		for i, label := range n.Buttons {
-			t.Buttons = append(t.Buttons, widget.ToastButton{Label: label, On: answer(i)})
+			t.Buttons = append(t.Buttons, widget.ToastButton{Label: label, OnClick: answer(i)})
 		}
 		if len(n.Buttons) > 0 {
-			t.Dismiss = answer(-1)
+			t.OnDismiss = answer(-1)
 		}
 		b.toasts.Show(t, u)
 	})
@@ -86,7 +87,7 @@ func newOpRow(o OpView) *opRow {
 	r.badge = newDoneBadge(r.cancel)
 	r.title.MaxLines = 1
 	r.detail.Color, r.detail.Size, r.detail.MaxLines = Faint, SmallText, 1
-	r.cancel.On = CancelOp{ID: o.ID}
+	r.cancel.OnClick = widget.Sends(CancelOp{ID: o.ID})
 	r.bar.Indeterminate = o.Unknown
 	head := widget.Row(r.title, r.badge).Grow(r.title, 1)
 	head.Cross = widget.CrossCenter

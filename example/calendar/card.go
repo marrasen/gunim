@@ -36,12 +36,13 @@ func newEventCard(e calendar.Event, d Details, left bool, done func(*gunim.UI)) 
 	c := &eventCard{id: e.ID, fixed: e.Fixed, done: done}
 	act := func(ic *icon.Icon, tip string, v gunim.Intent) *widget.IconButton {
 		b := widget.NewIconButton(ic, tip)
-		b.OnActivate(func(u *gunim.UI) {
+		b.OnClick = func(u *gunim.UI) gunim.Intent {
 			if v != nil {
 				u.Send(c, v)
 			}
 			done(u)
-		})
+			return nil
+		}
 		return b
 	}
 	var tools []gunim.Node
@@ -85,16 +86,18 @@ func newEventCard(e calendar.Event, d Details, left bool, done func(*gunim.UI)) 
 		if d.Answer != Going {
 			yes.Kind = widget.ButtonPrimary
 		}
-		yes.OnActivate(func(u *gunim.UI) {
+		yes.OnClick = func(u *gunim.UI) gunim.Intent {
 			u.Send(c, Answered{ID: e.ID, Answer: Going})
 			done(u)
-		})
+			return nil
+		}
 		no := widget.NewButton("Not going")
 		no.Icon = icon.X
-		no.OnActivate(func(u *gunim.UI) {
+		no.OnClick = func(u *gunim.UI) gunim.Intent {
 			u.Send(c, Answered{ID: e.ID, Answer: NotGoing})
 			done(u)
-		})
+			return nil
+		}
 		rows = append(rows, indent(widget.Row(yes, no)))
 	}
 	col := widget.Column(rows...)

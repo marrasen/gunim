@@ -27,9 +27,15 @@ func newFilesPalette(b *browser) *filesPalette {
 	fp := &filesPalette{b: b}
 	fp.p = &widget.Palette{
 		Placeholder: "Go to a file or a folder, or type > for commands",
-		Search:      fp.search,
-		Pick:        func(i int, u *gunim.UI) { fp.pick(i, false, u) },
-		CtrlPick:    func(i int, u *gunim.UI) { fp.pick(i, true, u) },
+		OnSearch:    fp.search,
+		OnPick: func(i int, u *gunim.UI) gunim.Intent {
+			fp.pick(i, false, u)
+			return nil
+		},
+		OnCtrlPick: func(i int, u *gunim.UI) gunim.Intent {
+			fp.pick(i, true, u)
+			return nil
+		},
 	}
 	return fp
 }
@@ -51,9 +57,9 @@ func (fp *filesPalette) open(query string, u *gunim.UI) {
 }
 
 // search asks the application for what the query finds.
-func (fp *filesPalette) search(q string, u *gunim.UI) {
+func (fp *filesPalette) search(q string, _ *gunim.UI) gunim.Intent {
 	fp.seq++
-	u.Send(fp.b.listing, PaletteQuery{Seq: fp.seq, Text: q})
+	return PaletteQuery{Seq: fp.seq, Text: q}
 }
 
 // hitIcons are the icons of the palette's hits, by their marks.

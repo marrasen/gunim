@@ -691,7 +691,7 @@ func buildPage(sc scene) *page {
 		if sc.Quit {
 			q := widget.NewButton("Close " + sc.Name)
 			q.Kind = widget.ButtonPrimary
-			q.On = quitThem{}
+			q.OnClick = widget.Sends(quitThem{})
 			buttons = append(buttons, q)
 		}
 		p.foot = footer(cancel(), buttons...)
@@ -727,7 +727,7 @@ func buildPage(sc scene) *page {
 		say(p, where)
 		open := widget.NewButton("Open " + sc.Name)
 		open.Kind = widget.ButtonPrimary
-		open.On = opened{}
+		open.OnClick = widget.Sends(opened{})
 		p.foot = footer(closeButton("Close"), open)
 	case pageFailed:
 		title := "Couldn't install " + sc.Name
@@ -742,7 +742,7 @@ func buildPage(sc scene) *page {
 		problem.Selectable = true
 		again := widget.NewButton("Try Again")
 		again.Kind = widget.ButtonPrimary
-		again.On = retried{}
+		again.OnClick = widget.Sends(retried{})
 		p.foot = footer(closeButton("Close"), again)
 	case pageRemove:
 		heading(p, "Remove "+sc.Name+"?", versionLine(sc))
@@ -754,9 +754,10 @@ func buildPage(sc scene) *page {
 		}
 		remove := widget.NewButton("Remove")
 		remove.Kind = widget.ButtonDanger
-		remove.OnActivate(func(u *gunim.UI) {
+		remove.OnClick = func(u *gunim.UI) gunim.Intent {
 			u.Send(remove, removed{Data: data != nil && data.Checked()})
-		})
+			return nil
+		}
 		p.foot = footer(cancel(), remove)
 	case pageRemoved:
 		words := sc.RemovedWords
@@ -837,25 +838,25 @@ func welcomePage(p *page, sc scene) {
 	}
 	here := widget.NewLink("Or run it without installing")
 	here.Size = smallSize
-	here.On = ranHere{}
+	here.OnClick = widget.Sends(ranHere{})
 	p.add(6, center(here))
 	var buttons []gunim.Node
 	if sc.Mode == Reinstall || sc.Mode == Downgrade {
 		again := widget.NewButton(act)
-		again.OnActivate(func(u *gunim.UI) { u.Send(again, started{Picks: pick()}) })
+		again.OnClick = func(*gunim.UI) gunim.Intent { return started{Picks: pick()} }
 		again.Disabled = sc.NoRoom
 		open := widget.NewButton("Open")
 		if sc.Mode == Downgrade {
 			open.Label = "Open " + sc.Have
 		}
 		open.Kind = widget.ButtonPrimary
-		open.On = opened{}
+		open.OnClick = widget.Sends(opened{})
 		buttons = append(buttons, again, open)
 	} else {
 		do := widget.NewButton(act)
 		do.Kind = widget.ButtonPrimary
 		do.Disabled = sc.NoRoom
-		do.OnActivate(func(u *gunim.UI) { u.Send(do, started{Picks: pick()}) })
+		do.OnClick = func(*gunim.UI) gunim.Intent { return started{Picks: pick()} }
 		buttons = append(buttons, do)
 	}
 	p.foot = footer(room, buttons...)
@@ -931,6 +932,6 @@ func cancel() gunim.Node { return closeButton("Cancel") }
 
 func closeButton(label string) *widget.Button {
 	b := widget.NewButton(label)
-	b.On = closed{}
+	b.OnClick = widget.Sends(closed{})
 	return b
 }

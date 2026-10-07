@@ -129,17 +129,13 @@ func (s *Split) Access() access.Info {
 }
 
 // AccessAct implements [gunim.AccessActor]: a new value for the divider
-// moves it there, and tells OnMove.
+// moves it there, and runs OnCommit.
 func (s *Split) AccessAct(r access.Request, u *gunim.UI) bool {
 	if !r.SetValue || r.Part != 0 {
 		return false
 	}
 	s.SetShare(float32(r.Value), u)
-	if s.OnMove != nil {
-		if v := s.OnMove(s.share.Target()); v != nil {
-			u.Send(s, v)
-		}
-	}
+	s.moved(u)
 	u.Invalidate()
 	return true
 }

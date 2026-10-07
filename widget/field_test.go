@@ -34,8 +34,8 @@ func newTyperWith(t *testing.T, set func(*TextField)) *typer {
 	t.Helper()
 	field := NewTextField()
 	set(field)
-	field.OnChange = func(s string) gunim.Intent { return changed{s} }
-	field.OnSubmit = func(s string) gunim.Intent { return submitted{s} }
+	field.OnChange = func(s string, u *gunim.UI) gunim.Intent { return changed{s} }
+	field.OnCommit = func(s string, u *gunim.UI) gunim.Intent { return submitted{s} }
 	fr := &frame{child: field, size: geom.Sz(300, 36)}
 	w, run := stage(t, fr)
 	w.Input(input.PointerDown{Pos: geom.Pt(20, 18), Clicks: 1})
@@ -304,11 +304,12 @@ func TestAFlashFadesOutSteadily(t *testing.T) {
 // is left to the fields around.
 func TestTabTakesTheGhost(t *testing.T) {
 	ty := newTyper(t)
-	ty.field.OnEdit = func(s string, _ *gunim.UI) {
+	ty.field.OnChange = func(s string, _ *gunim.UI) gunim.Intent {
 		ty.field.Ghost = ""
 		if s == "/ho" {
 			ty.field.Ghost = "me/"
 		}
+		return nil
 	}
 	ty.typeText("/ho")
 	if ty.field.Ghost != "me/" {

@@ -219,7 +219,7 @@ func (b *doneBadge) cheer(u *gunim.UI) {
 		return
 	}
 	b.cheering = true
-	b.cancel.On = nil
+	b.cancel.OnClick = widget.Sends(nil)
 	b.pop.Animate(1, widget.Bounce.Get(u.Theme()))
 	b.stroke.Animate(1, anim.Tween{Duration: 420 * time.Millisecond, Ease: anim.EaseInOut})
 	u.Invalidate()

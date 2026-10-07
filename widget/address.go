@@ -32,11 +32,12 @@ type Crumb struct {
 // places as one stop, and the arrow keys, Home and End move between them.
 type AddressBar struct {
 	anim.Group
-	// OnGo is sent with the path of a place picked, or of the path typed in and entered.
-	OnGo func(path string) gunim.Intent
+	// OnGo runs on the UI goroutine with the path of a place picked, or of the path typed in and entered; a non-nil
+	// result is sent as the bar's intent.
+	OnGo func(path string, u *gunim.UI) gunim.Intent
 	// OnDone runs as the field gives the bar back to the places from the keyboard, with Enter or Escape, such as to
-	// hand the keyboard to what the bar shows.
-	OnDone func(u *gunim.UI)
+	// hand the keyboard to what the bar shows. A non-nil result is sent as the bar's intent.
+	OnDone func(u *gunim.UI) gunim.Intent
 
 	crumbs *crumbBar
 	themed gunim.Node
@@ -110,7 +111,7 @@ func (a *AddressBar) show(editing bool, u *gunim.UI) {
 func (a *AddressBar) stopEdit(u *gunim.UI, done bool) {
 	a.show(false, u)
 	if done && a.OnDone != nil {
-		a.OnDone(u)
+		send(u, a, a.OnDone(u))
 	}
 }
 
@@ -162,9 +163,7 @@ func (f *addressField) Handle(e input.Event, u *gunim.UI) bool {
 			return true
 		case input.KeyEnter, input.KeyKPEnter:
 			if f.a.OnGo != nil {
-				if v := f.a.OnGo(f.Text()); v != nil {
-					u.Send(f.a, v)
-				}
+				send(u, f.a, f.a.OnGo(f.Text(), u))
 			}
 			f.a.stopEdit(u, true)
 			return true
@@ -355,16 +354,15 @@ func newCrumb(c Crumb, a *AddressBar) *crumb {
 	n := &crumb{path: c.Path, btn: NewButton(c.Name), in: anim.NewFloat(0), a: a}
 	n.Add(n.in)
 	n.btn.Ghost, n.btn.KeepFocus = true, true
-	n.btn.OnActivate(func(u *gunim.UI) {
+	n.btn.OnClick = func(u *gunim.UI) gunim.Intent {
 		switch {
 		case n.last:
 			a.Edit(u)
 		case a.OnGo != nil:
-			if v := a.OnGo(n.path); v != nil {
-				u.Send(a, v)
-			}
+			send(u, a, a.OnGo(n.path, u))
 		}
-	})
+		return nil
+	}
 	return n
 }
 

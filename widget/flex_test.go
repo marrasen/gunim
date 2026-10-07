@@ -11,7 +11,7 @@ import (
 func TestARowWrapsALongLabelSoTheButtonAfterItStaysInside(t *testing.T) {
 	l := NewLabel(strings.Repeat("word ", 14))
 	b := NewButton("Go")
-	b.On = pressed{1}
+	b.OnClick = Sends(pressed{1})
 	w, run := stage(t, &frame{child: Row(l, b), size: geom.Sz(200, 300)})
 	if b.size.W <= 0 {
 		t.Fatalf("the button is %v wide, want it shown", b.size.W)

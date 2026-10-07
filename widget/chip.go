@@ -34,8 +34,9 @@ type Chip struct {
 	Label string
 	// Icon shows at the start of the chip, before the lead and the label, in the label's colour.
 	Icon *icon.Icon
-	// OnRemove turns a click on the cross into an intent.
-	OnRemove func() gunim.Intent
+	// OnRemove runs on the UI goroutine when the cross is clicked; a non-nil result is sent to the application as
+	// the chip's intent.
+	OnRemove func(u *gunim.UI) gunim.Intent
 
 	hover               *anim.Float
 	leadText, labelText shapedText
@@ -143,9 +144,7 @@ func (c *Chip) onCross(pos geom.Point) int {
 
 func (c *Chip) remove(u *gunim.UI) {
 	if c.OnRemove != nil {
-		if v := c.OnRemove(); v != nil {
-			u.Send(c, v)
-		}
+		send(u, c, c.OnRemove(u))
 	}
 }
 

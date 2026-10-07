@@ -41,7 +41,7 @@ func (ty *typer) pick(i int) {
 	if m == nil {
 		ty.t.Fatal("no edit menu is open")
 	}
-	m.Pick(i, ty.uiOf())
+	m.OnPick(i, ty.uiOf())
 	ty.run(2)
 }
 

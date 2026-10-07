@@ -17,7 +17,7 @@ import (
 func newScrolledReorderList(t *testing.T) (*gunim.Window, *Scroll, *List, func(int)) {
 	t.Helper()
 	l := NewList()
-	l.Reorder = func(keys []Key) gunim.Intent { return reordered{keys} }
+	l.OnReorder = func(keys []Key, u *gunim.UI) gunim.Intent { return reordered{keys} }
 	s := NewScroll(l)
 	w := gunimtest.New(t, geom.Sz(300, 200), nil)
 	gunim.RegisterView(w, "l", func(shownItems) gunim.Node { return s },
@@ -100,7 +100,7 @@ func TestADragHeldAtTheBottomOfAScrollingListOfTargetsScrollsIt(t *testing.T) {
 	glows := make([]*DropTarget, 20)
 	for i := range targets {
 		target := NewDropTarget(&block{h: 40})
-		target.OnDrop = func(input.Drop) gunim.Intent { return takenBy{i} }
+		target.OnDrop = func(input.Drop, *gunim.UI) gunim.Intent { return takenBy{i} }
 		targets[i], glows[i] = target, target
 	}
 	list := Column(targets...)

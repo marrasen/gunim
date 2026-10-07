@@ -29,8 +29,9 @@ type RichSpan struct {
 	// Mark, when set, colours the span's background.
 	Mark      theme.Token[color.NRGBA]
 	Underline bool
-	// On makes the span a link: a click on it sends On.
-	On gunim.Intent
+	// OnClick makes the span a link. It runs on the UI goroutine when the
+	// span is clicked; a non-nil result is sent as the text's intent.
+	OnClick func(u *gunim.UI) gunim.Intent
 }
 
 // RichText is text in several styles, wrapped to the width it is given:
@@ -54,9 +55,6 @@ type RichText struct {
 
 // NewRichText returns text made of spans.
 func NewRichText(spans ...RichSpan) *RichText { return &RichText{Spans: spans, hover: -1} }
-
-// SetSpans changes the text. Call it from a view's update function.
-func (r *RichText) SetSpans(spans ...RichSpan) { r.Spans = spans }
 
 func (r *RichText) paragraph(th *theme.Live, width float32) text.SpanParagraph {
 	spans := make([]text.Span, 0, len(r.Spans))
@@ -122,7 +120,7 @@ func (r *RichText) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 			switch {
 			case s.Ink.Key() != "":
 				ink = s.Ink.Get(th)
-			case s.On != nil:
+			case s.OnClick != nil:
 				ink = LinkInk.Get(th)
 			}
 			if s.Mark.Key() != "" {
@@ -134,7 +132,7 @@ func (r *RichText) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 				continue
 			}
 			pc.Run.Paint(p, pc.At, ink)
-			if s.Underline || s.On != nil && i == r.hover {
+			if s.Underline || s.OnClick != nil && i == r.hover {
 				p.RRect(geom.Rc(pc.At.X, pc.At.Y+pc.Run.Ascent+1.5, pc.Run.Advance, 1), 0, paint.Solid(ink))
 			}
 		}
@@ -145,7 +143,7 @@ func (r *RichText) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 func (r *RichText) linkAt(pt geom.Point) int {
 	for _, l := range r.laid.Lines {
 		for _, pc := range l.Pieces {
-			if i, _, ok := r.span(pc); ok && r.Spans[i].On != nil &&
+			if i, _, ok := r.span(pc); ok && r.Spans[i].OnClick != nil &&
 				geom.Rc(pc.At.X, pc.At.Y, pc.Run.Advance, pc.Run.Height()).Contains(pt) {
 				return i
 			}
@@ -186,7 +184,7 @@ func (r *RichText) Handle(e input.Event, u *gunim.UI) bool {
 	case input.PointerUp:
 		// A click follows the link it lets go on, the one it pressed.
 		if at := r.linkAt(e.Pos); r.click.Release(e, at) {
-			u.Send(r, r.Spans[at].On)
+			send(u, r, r.Spans[at].OnClick(u))
 			return true
 		}
 	}
@@ -198,7 +196,7 @@ func (r *RichText) Handle(e input.Event, u *gunim.UI) bool {
 func (r *RichText) Access() access.Info {
 	var b strings.Builder
 	for _, s := range r.Spans {
-		if s.Text == "" && s.Icon != nil && s.On != nil {
+		if s.Text == "" && s.Icon != nil && s.OnClick != nil {
 			b.WriteString(iconName(s.Icon))
 			continue
 		}

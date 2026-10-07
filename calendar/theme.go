@@ -3,6 +3,7 @@ package calendar
 import (
 	"image/color"
 
+	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/theme"
 )
@@ -25,6 +26,13 @@ var (
 	// EventText is the size of the text on an event.
 	EventText = theme.Length("calendar.event.text", 12.5)
 )
+
+// send sends in from n, when there is one.
+func send(u *gunim.UI, n gunim.Node, in gunim.Intent) {
+	if in != nil {
+		u.Send(n, in)
+	}
+}
 
 // ringShown reports whether a view shows that it has the keyboard, for e: when e turns the rings on, and no group
 // round the view draws its own.

@@ -113,12 +113,16 @@ func (r *msgRow) setBody() {
 func newTools(m Message, react func(opener gunim.Node, id string, u *gunim.UI)) gunim.Node {
 	button := func(ic *icon.Icon, tip string, on gunim.Intent) gunim.Node {
 		b := widget.NewIconButton(ic, tip)
-		b.IconSize, b.KeepFocus, b.On = ToolIcon, true, on
+		b.IconSize, b.KeepFocus = ToolIcon, true
+		b.OnClick = widget.Sends(on)
 		return b
 	}
 	smile := widget.NewIconButton(icon.SmilePlus, "React")
 	smile.IconSize, smile.KeepFocus = ToolIcon, true
-	smile.OnActivate(func(u *gunim.UI) { react(smile, m.ID, u) })
+	smile.OnClick = func(u *gunim.UI) gunim.Intent {
+		react(smile, m.ID, u)
+		return nil
+	}
 	buttons := []gunim.Node{smile, button(icon.Reply, "Reply", ReplyAsked{ID: m.ID})}
 	if m.Mine {
 		buttons = append(buttons,
@@ -451,7 +455,7 @@ func (r *msgRow) openMenu(at geom.Point, u *gunim.UI) {
 		items = append(items, widget.MenuItem{Label: "Edit", Icon: icon.Pencil}, widget.MenuItem{Label: "Withdraw", Icon: icon.Trash2})
 	}
 	menu := widget.NewMenu(items)
-	menu.Pick = func(i int, u *gunim.UI) {
+	menu.OnPick = func(i int, u *gunim.UI) gunim.Intent {
 		r.closeMenu(u)
 		switch items[i].Label {
 		case "React":
@@ -463,6 +467,7 @@ func (r *msgRow) openMenu(at geom.Point, u *gunim.UI) {
 		case "Withdraw":
 			u.Send(r, WithdrawAsked{ID: m.ID})
 		}
+		return nil
 	}
 	r.hover.Animate(1, widget.Quick.Get(u.Theme()))
 	r.menuList = menu

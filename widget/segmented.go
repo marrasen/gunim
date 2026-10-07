@@ -36,8 +36,9 @@ type Segmented struct {
 	IconSize theme.Token[float32]
 	// Track, when set, fills the track in place of [FieldFill].
 	Track theme.Token[color.NRGBA]
-	// OnChange turns the option chosen into an intent for the application.
-	OnChange func(i int) gunim.Intent
+	// OnChange runs on the UI goroutine when the user chooses an option; a non-nil result is sent to the
+	// application as the control's intent.
+	OnChange func(i int, u *gunim.UI) gunim.Intent
 	// KeepFocus leaves the keyboard where it is when the control is clicked; Tab still reaches it.
 	KeepFocus bool
 
@@ -92,7 +93,7 @@ func (s *Segmented) choose(i int, u *gunim.UI) {
 	s.SetSelected(i, u)
 	u.Cue(gunim.CueSelect, s)
 	if s.OnChange != nil {
-		u.Send(s, s.OnChange(i))
+		send(u, s, s.OnChange(i, u))
 	}
 }
 

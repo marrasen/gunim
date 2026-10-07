@@ -290,7 +290,7 @@ func TestEveryPlaceHasAMenuWithTheProgramsItems(t *testing.T) {
 	if !slices.Equal(items, []string{"Open", "Open in new window", "Disconnect"}) || !slices.Equal(breaks, []int{2}) {
 		t.Fatalf("the menu of the server is %v with lines at %v", items, breaks)
 	}
-	h.ui(func(b *browser, u *gunim.UI) { b.dnd.sideMenu.m.Picked(2, u) })
+	h.ui(func(b *browser, u *gunim.UI) { b.dnd.sideMenu.m.OnPick(2, u) })
 	h.frames(2)
 	select {
 	case c := <-commands:
@@ -311,7 +311,7 @@ func TestEveryPlaceHasAMenuWithTheProgramsItems(t *testing.T) {
 	if !slices.Equal(items, []string{"Open", "Open in new window", "Edit favourite…", "Unpin", "Forget"}) {
 		t.Fatalf("the favourite's menu is %v", items)
 	}
-	h.ui(func(b *browser, u *gunim.UI) { b.dnd.sideMenu.m.Picked(4, u) })
+	h.ui(func(b *browser, u *gunim.UI) { b.dnd.sideMenu.m.OnPick(4, u) })
 	h.frames(2)
 	select {
 	case c := <-commands:

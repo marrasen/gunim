@@ -61,11 +61,11 @@ func newFavouriteDialog(s FavouriteEdit) *favDialog {
 	d.Body = &favEditBody{Form: form, focus: []gunim.Node{d.name, d.colors, d.icons}}
 	d.Width = 500
 	d.SetButtons("Save", "Cancel")
-	d.OnAccept = func() gunim.Intent {
+	d.OnAccept = func(u *gunim.UI) gunim.Intent {
 		return FavouriteEdited{Token: s.Token, OK: true, Name: d.name.Text(), Color: d.colors.pick(s.Color),
 			Icon: d.icons.pick(s.Icon)}
 	}
-	d.Dismiss = FavouriteEdited{Token: s.Token}
+	d.OnDismiss = widget.Sends(FavouriteEdited{Token: s.Token})
 	return d
 }
 

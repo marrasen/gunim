@@ -15,7 +15,7 @@ import (
 func newKeyedList(t *testing.T, n int) (w *gunim.Window, l *List, sc *Scroll, run func(int), focused func() gunim.Node) {
 	t.Helper()
 	l = NewList()
-	l.OnClick = func(k Key) gunim.Intent { return rowClicked{k} }
+	l.OnActivate = func(k Key, u *gunim.UI) gunim.Intent { return rowClicked{k} }
 	sc = NewScroll(l)
 	col := Column(NewButton("Before"), sc).Grow(sc, 1)
 	col.Cross = CrossStretch

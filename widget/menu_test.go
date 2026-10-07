@@ -44,7 +44,7 @@ func fieldOf[T any](items []MenuItem, f func(MenuItem) T) []T {
 func newPicker(t *testing.T) (*gunim.Window, func(int), *Dropdown) {
 	t.Helper()
 	d := NewDropdown(Labels("Apple", "Banana", "Cherry"))
-	d.OnChange = func(i int) gunim.Intent { return chose{i} }
+	d.OnChange = func(i int, u *gunim.UI) gunim.Intent { return chose{i} }
 	w, run := stage(t, &frame{child: d, size: geom.Sz(200, 36)})
 	w.Input(input.PointerDown{Pos: geom.Pt(20, 18), Clicks: 1})
 	w.Input(input.PointerUp{Pos: geom.Pt(20, 18)})
@@ -86,13 +86,22 @@ func TestDropdownPicksWithTheKeyboard(t *testing.T) {
 func TestAPickRunsInTheWindowToo(t *testing.T) {
 	w, run, d := newPicker(t)
 	got := -1
-	d.OnPick(func(i int, _ *gunim.UI) { got = i })
+	d.OnChange = func(i int, u *gunim.UI) gunim.Intent {
+		if u == nil {
+			t.Fatal("OnChange ran without the UI")
+		}
+		got = i
+		return chose{i}
+	}
 	for _, k := range []input.Key{input.KeyDown, input.KeyEnter} {
 		w.Input(input.KeyPress{Key: k})
 		run(1)
 	}
 	if got != 1 {
 		t.Fatalf("picking Banana told the window %d", got)
+	}
+	if in := sent(w); len(in) != 1 || in[0] != (chose{1}) {
+		t.Fatalf("picking Banana sent %v, want chose{1} once", in)
 	}
 }
 

@@ -25,14 +25,14 @@ type TextArea struct {
 	Placeholders []string
 	// Face is the face the text is set in, and the theme's [Font] when unset.
 	Face theme.Token[*text.Face]
-	// OnChange turns the text into an intent to send when it changes.
-	OnChange func(text string) gunim.Intent
-	// OnSubmit, when set, turns the text into an intent to send when Enter is pressed, and Shift+Enter starts a
-	// line instead.
-	OnSubmit func(text string) gunim.Intent
-	// OnPasteImage, when set, turns a picture pasted with Ctrl+V, as PNG, into an intent to send. Without a
-	// picture on the clipboard, Ctrl+V pastes text.
-	OnPasteImage func(png []byte) gunim.Intent
+	// OnChange runs on the UI goroutine each time the user changes the text. A non-nil result is sent to the
+	// application as the area's intent, as with the callbacks below.
+	OnChange func(text string, u *gunim.UI) gunim.Intent
+	// OnCommit, when set, runs when Enter is pressed, and Shift+Enter starts a line instead.
+	OnCommit func(text string, u *gunim.UI) gunim.Intent
+	// OnPasteImage, when set, runs with a picture pasted with Ctrl+V, as PNG. Without a picture on the clipboard,
+	// Ctrl+V pastes text.
+	OnPasteImage func(png []byte, u *gunim.UI) gunim.Intent
 	// Triggers are the characters that begin a word to complete, such as "@:" for mentions and emoji, at the start
 	// of the text or after a space. Complete, when set, returns what the word typed after the trigger may become.
 	// The suggestions open in a list at the caret, and while it is open Up and Down move through them, Enter or Tab
@@ -96,12 +96,12 @@ func NewTextArea() *TextArea {
 			// With no picture to read, the paste is the clipboard's text.
 			return false
 		}
-		u.Send(a, a.OnPasteImage(b))
+		send(u, a, a.OnPasteImage(b, u))
 		return true
 	}
 	a.changed = func(u *gunim.UI) {
 		if a.OnChange != nil {
-			u.Send(a, a.OnChange(a.Text()))
+			send(u, a, a.OnChange(a.Text(), u))
 		}
 	}
 	return a
@@ -219,7 +219,7 @@ func (a *TextArea) Handle(e input.Event, u *gunim.UI) bool {
 			return true
 		}
 		if a.submits(e) {
-			u.Send(a, a.OnSubmit(a.Text()))
+			send(u, a, a.OnCommit(a.Text(), u))
 			return true
 		}
 		if !a.key(e, u, areaNav{a}) {
@@ -236,10 +236,10 @@ func (a *TextArea) Handle(e input.Event, u *gunim.UI) bool {
 	return true
 }
 
-// submits reports whether k is an Enter that sends OnSubmit.
+// submits reports whether k is an Enter that runs OnCommit.
 func (a *TextArea) submits(k input.KeyPress) bool {
 	enter := k.Key == input.KeyEnter || k.Key == input.KeyKPEnter
-	return enter && a.OnSubmit != nil && !k.Mods.Has(input.ModShift) && len(a.preedit) == 0
+	return enter && a.OnCommit != nil && !k.Mods.Has(input.ModShift) && len(a.preedit) == 0
 }
 
 // origin returns where the paragraph's top-left sits in the area.

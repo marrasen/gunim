@@ -71,18 +71,20 @@ type TableRow struct {
 type Table struct {
 	Columns []TableColumn
 	Row     func(Key) TableRow
-	// OnActivate runs with the row Enter or a double click activates.
-	OnActivate func(key Key, u *gunim.UI)
-	// OnSort runs with the column clicked and the direction asked for.
-	OnSort func(column int, descending bool, u *gunim.UI)
+	// OnActivate runs on the UI goroutine with the row Enter or a double
+	// click activates, and OnSort with the column clicked and the
+	// direction asked for. A non-nil result is sent to the application as
+	// the table's intent, as with OnDragEnd.
+	OnActivate func(key Key, u *gunim.UI) gunim.Intent
+	OnSort     func(column int, descending bool, u *gunim.UI) gunim.Intent
 	// DragRows, when set, lets rows be dragged: a press on a row and a
 	// move of a few pixels drags the data it returns, with ghost under
 	// the pointer, held grab from its top left. keys are the rows
 	// marked when the row pressed is one of them, and that row alone
 	// otherwise; at is where the press was, in the table's space. A nil
-	// data drags nothing. DragEnded hears how the drag ended.
+	// data drags nothing. OnDragEnd hears how the drag ended.
 	DragRows  func(keys []Key, at geom.Point) (data any, ghost gunim.Node, grab geom.Point)
-	DragEnded func(e input.DragEnd, u *gunim.UI)
+	OnDragEnd func(e input.DragEnd, u *gunim.UI) gunim.Intent
 
 	list   *VirtualList
 	header *tableHeader
@@ -305,8 +307,8 @@ func (t *Table) Handle(e input.Event, u *gunim.UI) bool {
 	case input.DragEnd:
 		t.lift = tableLift{}
 		u.Invalidate()
-		if t.DragEnded != nil {
-			t.DragEnded(e, u)
+		if t.OnDragEnd != nil {
+			send(u, t, t.OnDragEnd(e, u))
 		}
 		return true
 	case input.FocusGained:
@@ -362,7 +364,7 @@ func (t *Table) Handle(e input.Event, u *gunim.UI) bool {
 			return t.scrollBy(dx, u)
 		case input.KeyEnter, input.KeyKPEnter:
 			if k, ok := t.Cursor(); ok && t.OnActivate != nil {
-				t.OnActivate(k, u)
+				send(u, t, t.OnActivate(k, u))
 			}
 		case input.KeyBackspace:
 			// Takes back a letter of a name being found, and is left to
@@ -643,7 +645,7 @@ func (h *tableHeader) Handle(e input.Event, u *gunim.UI) bool {
 		}
 		t.SetSorted(i, desc)
 		if t.OnSort != nil {
-			t.OnSort(i, desc, u)
+			send(u, t, t.OnSort(i, desc, u))
 		}
 		u.Invalidate()
 		return true
@@ -799,7 +801,7 @@ func (r *tableRow) Handle(e input.Event, u *gunim.UI) bool {
 		}
 		if e.Clicks == 2 && t.OnActivate != nil {
 			t.lift = tableLift{}
-			t.OnActivate(r.key, u)
+			send(u, t, t.OnActivate(r.key, u))
 			return true
 		}
 		if t.DragRows != nil {

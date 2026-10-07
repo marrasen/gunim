@@ -66,7 +66,7 @@ func TestAButtonShowsItsIconBeforeItsLabel(t *testing.T) {
 
 func TestAnIconButtonIsSquareNamedByItsTooltipAndClickable(t *testing.T) {
 	b := NewIconButton(icon.RefreshCw, "Refresh")
-	b.On = refreshed{}
+	b.OnClick = Sends(refreshed{})
 	w, run := stage(t, &frame{child: Row(b), size: geom.Sz(200, 100)})
 	h := ButtonHeight.Default()
 	ms := maskOps(w.Offscreen())

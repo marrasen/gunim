@@ -36,7 +36,7 @@ type typedText struct{ Text string }
 
 func TestAGridGathersTypedTextAndSpaceWhileTyping(t *testing.T) {
 	g := NewDataGrid(GridColumn{Title: "Name"})
-	g.OnType = func(text string) gunim.Intent { return typedText{text} }
+	g.OnType = func(text string, u *gunim.UI) gunim.Intent { return typedText{text} }
 	w, run := stage(t, g)
 	var typed []string
 	take := func() {

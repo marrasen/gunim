@@ -71,7 +71,7 @@ func TestAMetersHoldWaitsThenFalls(t *testing.T) {
 
 func TestAFaderSetsItsGainByDragWheelAndDoubleClick(t *testing.T) {
 	var gain float32
-	f := NewFader(func() float32 { return gain }, func(v float32, _ *gunim.UI) { gain = v })
+	f := NewFader(func() float32 { return gain }, func(v float32, _ *gunim.UI) gunim.Intent { gain = v; return nil })
 	w := gunimtest.New(t, geom.Sz(24, 224), nil)
 	gunim.RegisterView(w, "fader", func(struct{}) gunim.Node { return f }, nil)
 	if err := w.Client().Mount(gunim.Root, "fader", "fader", nil); err != nil {

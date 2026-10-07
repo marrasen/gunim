@@ -45,23 +45,20 @@ type TextField struct {
 	// Disabled shows the field faint, and it takes no clicks, keys or
 	// focus, for a value that cannot be set now.
 	Disabled bool
-	// OnChange and OnSubmit turn the text into an intent to send when
-	// it changes, and when Enter is pressed. They run on the UI
-	// goroutine; what reaches the application is the value they return.
-	OnChange func(text string) gunim.Intent
-	OnSubmit func(text string) gunim.Intent
+	// OnChange runs on the UI goroutine each time the user changes the
+	// text, and OnCommit when they press Enter. Each may act in the window
+	// through u, as a palette filters its list as the query changes; a
+	// non-nil result is sent to the application as the field's intent.
+	OnChange func(text string, u *gunim.UI) gunim.Intent
+	OnCommit func(text string, u *gunim.UI) gunim.Intent
 	// Keys, when set, hears each key pressed in the field before the
 	// field uses it, and takes it from the field by reporting true: for
 	// a field that lends some of its keys to what is around it, as Left
 	// and Right to a row of buttons.
 	Keys func(e input.KeyPress, u *gunim.UI) bool
-	// OnEdit runs on the UI goroutine each time the text changes, for a
-	// widget around the field that reacts at once, as a palette filters
-	// its list.
-	OnEdit func(text string, u *gunim.UI)
 	// Ghost is a suggestion for the rest of the text, such as the rest
 	// of a folder's name, shown faintly after the caret while the caret
-	// is at the end. Tab or Right takes it. Set it from OnEdit.
+	// is at the end. Tab or Right takes it. Set it from OnChange.
 	Ghost string
 
 	editor
@@ -104,11 +101,8 @@ func NewTextField() *TextField {
 		clearHot: anim.NewFloat(0),
 	}
 	t.changed = func(u *gunim.UI) {
-		if t.OnEdit != nil {
-			t.OnEdit(t.Text(), u)
-		}
 		if t.OnChange != nil {
-			u.Send(t, t.OnChange(t.Text()))
+			send(u, t, t.OnChange(t.Text(), u))
 		}
 	}
 	return t
@@ -255,12 +249,12 @@ func (t *TextField) Handle(e input.Event, u *gunim.UI) bool {
 		t.edit(e, u)
 	case input.KeyPress:
 		if e.Key == input.KeyEnter || e.Key == input.KeyKPEnter {
-			// With nothing to submit to, Enter is for the nodes around
+			// With nothing to commit to, Enter is for the nodes around
 			// the field, such as a dialog's default button.
-			if t.OnSubmit == nil {
+			if t.OnCommit == nil {
 				return false
 			}
-			u.Send(t, t.OnSubmit(t.Text()))
+			send(u, t, t.OnCommit(t.Text(), u))
 			return true
 		}
 		if e.Key == input.KeyEscape && e.Mods == 0 && t.clearable() {

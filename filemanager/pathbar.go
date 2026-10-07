@@ -35,12 +35,15 @@ func newPathBar(b *browser) *pathBar {
 	p.up = newNavButton(icon.ArrowUp, "Up (Alt+Up)", CmdUp)
 	p.addr = widget.NewAddressBar()
 	// A path entered in the field was typed; one of the places was not.
-	p.addr.OnGo = func(path string) gunim.Intent { return Navigate{Path: path, Typed: p.addr.Editing()} }
-	p.addr.OnDone = b.focusListing
+	p.addr.OnGo = func(path string, u *gunim.UI) gunim.Intent { return Navigate{Path: path, Typed: p.addr.Editing()} }
+	p.addr.OnDone = func(u *gunim.UI) gunim.Intent {
+		b.focusListing(u)
+		return nil
+	}
 	p.filter = &filterField{TextField: widget.NewTextField(), bar: p}
 	p.filter.Placeholder = "Filter this folder"
 	p.filter.Icon, p.filter.Clearable = icon.Search, true
-	p.filter.OnChange = func(s string) gunim.Intent { return FilterChanged{Text: s} }
+	p.filter.OnChange = func(s string, u *gunim.UI) gunim.Intent { return FilterChanged{Text: s} }
 	nav := func(b *widget.IconButton) gunim.Node { return widget.NewSized(b, navSize, navSize) }
 	p.row = widget.Row(nav(p.back), nav(p.fwd), nav(p.up), p.addr, widget.NewSized(p.filter, 220, 0)).Grow(p.addr, 1)
 	p.row.Cross = widget.CrossCenter
@@ -57,7 +60,8 @@ const navSize = 32
 // newNavButton returns a button that sends cmd, which leaves the keyboard with the listing when clicked.
 func newNavButton(ic *icon.Icon, tooltip, cmd string) *widget.IconButton {
 	b := widget.NewIconButton(ic, tooltip)
-	b.On, b.KeepFocus, b.Disabled = Command{Name: cmd}, true, true
+	b.KeepFocus, b.Disabled = true, true
+	b.OnClick = widget.Sends(Command{Name: cmd})
 	return b
 }
 
@@ -140,7 +144,10 @@ func newBannerView(away func(u *gunim.UI)) *bannerView {
 	row := widget.Row(b.label, b.dismiss).Grow(b.label, 1)
 	row.Cross = widget.CrossCenter
 	b.fold = newFold(&bannerBox{child: row})
-	b.dismiss.OnActivate(func(u *gunim.UI) { b.shut(u) })
+	b.dismiss.OnClick = func(u *gunim.UI) gunim.Intent {
+		b.shut(u)
+		return nil
+	}
 	return b
 }
 

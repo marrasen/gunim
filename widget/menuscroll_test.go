@@ -195,7 +195,7 @@ func TestTheHighlightFollowsTheRowUnderThePointerAsTheWheelScrolls(t *testing.T)
 		t.Fatalf("the pointer on row 7 highlights %d", m.Highlighted())
 	}
 	told := -1
-	m.OnHighlight = func(i int, _ *gunim.UI) { told = i }
+	m.OnHighlight = func(i int, _ *gunim.UI) gunim.Intent { told = i; return nil }
 	d.popup.Input(input.Scroll{Pos: at, Delta: geom.Pt(0, -200), Time: time.Now()})
 	followsThePointer(t, m, at, 40, run)
 	want := m.rowAt(at)
@@ -248,7 +248,10 @@ func TestTheHighlightFollowsTheRowUnderThePointerAsTheBarPages(t *testing.T) {
 func TestAMenuWhoseItemsShrinkWhileScrolledShowsTheNewOnesAtOnce(t *testing.T) {
 	b := NewMenuButton("Pick", manyItems(60))
 	picked := -1
-	b.Picked = func(i int, _ *gunim.UI) { picked = i }
+	b.OnPick = func(i int, _ *gunim.UI) gunim.Intent {
+		picked = i
+		return nil
+	}
 	w, run := stage(t, &frame{child: b, size: geom.Sz(200, 36)})
 	clickAt(w, run, geom.Pt(20, 18))
 	m := b.menu

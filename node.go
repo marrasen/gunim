@@ -398,6 +398,11 @@ func (f Frame) Send(n Node, v Intent) {
 	}
 }
 
+// UI is the UI laying out and painting the frame, for a node that runs a callback of its own from its layout, such
+// as a list that tells which rows have come into view. It is nil for a frame made outside a window, as a test or a
+// benchmark makes one.
+func (f Frame) UI() *UI { return f.u }
+
 // RedrawAt asks for a frame at t or soon after, for a node whose look changes with the time, such as one that shows
 // several things in turn.
 func (f Frame) RedrawAt(t time.Time) {

@@ -40,10 +40,10 @@ func newClashDialog(s ClashAsk) *widget.Dialog {
 		all.Disabled = true
 	}
 	d.Body = body
-	answer := func(c Choice) func() gunim.Intent {
-		return func() gunim.Intent { return ClashAnswered{Op: s.Op, Choice: c, All: all.Checked()} }
+	answer := func(c Choice) func(*gunim.UI) gunim.Intent {
+		return func(*gunim.UI) gunim.Intent { return ClashAnswered{Op: s.Op, Choice: c, All: all.Checked()} }
 	}
-	d.Dismiss = ClashAnswered{Op: s.Op, Stop: true}
+	d.OnDismiss = widget.Sends(ClashAnswered{Op: s.Op, Stop: true})
 	d.AddButton("Skip", answer(ChoiceSkip))
 	if s.SameKind {
 		d.AddButton("Keep both", answer(ChoiceKeepBoth))
@@ -65,11 +65,11 @@ func newConfirmDialog(s Confirm) *widget.Dialog {
 	d.Body = body
 	d.Danger = true
 	if s.Alt != "" {
-		d.AddButton(s.Alt, func() gunim.Intent { return Confirmed{Token: s.Token, Alt: true} })
+		d.AddButton(s.Alt, func(u *gunim.UI) gunim.Intent { return Confirmed{Token: s.Token, Alt: true} })
 	}
 	d.SetButtons(s.OK, "Cancel")
-	d.Accept = Confirmed{Token: s.Token, OK: true}
-	d.Dismiss = Confirmed{Token: s.Token}
+	d.OnAccept = widget.Sends(Confirmed{Token: s.Token, OK: true})
+	d.OnDismiss = widget.Sends(Confirmed{Token: s.Token})
 	return d
 }
 
@@ -96,8 +96,8 @@ func newPromptDialog(s Prompt) *widget.Dialog {
 		}
 		return ""
 	}
-	d.OnAccept = func() gunim.Intent { return Prompted{Token: s.Token, Text: field.Text(), OK: true} }
-	d.Dismiss = Prompted{Token: s.Token}
+	d.OnAccept = func(u *gunim.UI) gunim.Intent { return Prompted{Token: s.Token, Text: field.Text(), OK: true} }
+	d.OnDismiss = widget.Sends(Prompted{Token: s.Token})
 	return d
 }
 
@@ -108,6 +108,7 @@ func newErrorDialog(s ErrorBox) *widget.Dialog {
 	body.Selectable = true
 	d.Body = body
 	d.SetButtons("OK", "")
-	d.Accept, d.Dismiss = DialogClosed{}, DialogClosed{}
+	d.OnAccept = widget.Sends(DialogClosed{})
+	d.OnDismiss = widget.Sends(DialogClosed{})
 	return d
 }

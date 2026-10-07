@@ -30,7 +30,7 @@ type filesPane struct {
 
 func newFilesPane() *filesPane {
 	f := &filesPane{address: widget.NewAddressBar()}
-	f.address.OnGo = func(path string) gunim.Intent { return FolderOpened{Path: strings.Trim(path, "/")} }
+	f.address.OnGo = func(path string, u *gunim.UI) gunim.Intent { return FolderOpened{Path: strings.Trim(path, "/")} }
 	f.grid = widget.NewDataGrid(
 		widget.GridColumn{Title: "Name", Width: 320},
 		widget.GridColumn{Title: "Size", Width: 90, End: true},
@@ -38,7 +38,7 @@ func newFilesPane() *filesPane {
 		widget.GridColumn{Title: "By", Width: 140},
 	)
 	f.grid.Row = f.row
-	f.grid.OnActivate = func(i int) gunim.Intent {
+	f.grid.OnActivate = func(i int, u *gunim.UI) gunim.Intent {
 		if i < 0 || i >= len(f.files.Entries) {
 			return nil
 		}
@@ -51,7 +51,7 @@ func newFilesPane() *filesPane {
 	folderIcon := widget.NewIcon(icon.FolderOpen, "Files")
 	f.share = widget.NewMenuButton("Share", nil)
 	f.share.Icon = icon.Share2
-	f.share.OnPick = func(i int) gunim.Intent {
+	f.share.OnPick = func(i int, u *gunim.UI) gunim.Intent {
 		row := f.grid.Selected()
 		if row < 0 || row >= len(f.files.Entries) || f.files.Entries[row].Folder || i >= len(f.convs) {
 			return nil
@@ -69,7 +69,7 @@ func newFilesPane() *filesPane {
 		}
 		return widget.DropSpot{Key: "folder", Rect: geom.Rect{Max: b.Size().Point()}.Inset(geom.Uniform(4)), Radius: 8}, true
 	}
-	drop.OnDrop = func(_ widget.DropSpot, d input.Drop) gunim.Intent {
+	drop.OnDrop = func(_ widget.DropSpot, d input.Drop, u *gunim.UI) gunim.Intent {
 		return FilesDropped{Folder: f.files.Path, Paths: d.Paths}
 	}
 	f.transfers = widget.NewList()

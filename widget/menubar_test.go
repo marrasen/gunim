@@ -26,7 +26,7 @@ func newBarStage(t *testing.T) (*gunim.Window, *Menubar, *TextField, *[]barPick,
 		BarMenu{Title: "Edit", Items: []MenuItem{{Label: "Copy", Hint: "Ctrl+C", Disabled: true}, {Label: "Paste", Hint: "Ctrl+V"}, {Label: "Select All"}}},
 		BarMenu{Title: "View", Items: []MenuItem{{Label: "Sidebar", Checked: true}}},
 	)
-	b.Pick = func(m, i int, _ *gunim.UI) { picks = append(picks, barPick{m, i}) }
+	b.OnPick = func(m, i int, _ *gunim.UI) gunim.Intent { picks = append(picks, barPick{m, i}); return nil }
 	field := NewTextField()
 	col := Column(b, field)
 	col.Cross = CrossStretch
@@ -132,7 +132,7 @@ func TestTheKeysPassACaptionBy(t *testing.T) {
 func TestAMenubarSaysWhatIsHighlighted(t *testing.T) {
 	w, b, _, _, run := newBarStage(t)
 	var lit []barPick
-	b.OnHighlight = func(m, i int, _ *gunim.UI) { lit = append(lit, barPick{m, i}) }
+	b.OnHighlight = func(m, i int, _ *gunim.UI) gunim.Intent { lit = append(lit, barPick{m, i}); return nil }
 	file := b.span(0)
 	clickAt(w, run, geom.Pt((file[0]+file[1])/2, 15))
 	w.Input(input.KeyPress{Key: input.KeyDown})
@@ -274,7 +274,7 @@ func TestF10OpensACompactMenubarsListWithTheKeysOnIt(t *testing.T) {
 		BarMenu{Title: "Edit", Items: []MenuItem{{Label: "Copy", Disabled: true}, {Label: "Paste"}}},
 	)
 	b.Compact = true
-	b.Pick = func(m, i int, _ *gunim.UI) { picks = append(picks, barPick{m, i}) }
+	b.OnPick = func(m, i int, _ *gunim.UI) gunim.Intent { picks = append(picks, barPick{m, i}); return nil }
 	col := Column(b, &f10{open: func(u *gunim.UI) { b.Open(0, u) }})
 	col.Cross = CrossStretch
 	w, run := stage(t, &frame{child: col, size: geom.Sz(600, 400)})
@@ -582,7 +582,7 @@ func TestACompactMenubarsLinePickedByItsKeyIsPicked(t *testing.T) {
 		BarMenu{Title: "&Edit", Items: Labels("&Copy", "&Paste")},
 	)
 	b.Compact = true
-	b.Pick = func(m, i int, _ *gunim.UI) { picks = append(picks, barPick{m, i}) }
+	b.OnPick = func(m, i int, _ *gunim.UI) gunim.Intent { picks = append(picks, barPick{m, i}); return nil }
 	col := Column(b)
 	col.Cross = CrossStretch
 	w, run := stage(t, &frame{child: col, size: geom.Sz(600, 400), keysGoOn: true})

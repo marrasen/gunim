@@ -226,10 +226,10 @@ func (m *Menu) Access() access.Info {
 
 // AccessAct implements [gunim.AccessActor]: pressing an item picks it.
 func (m *Menu) AccessAct(r access.Request, u *gunim.UI) bool {
-	if r.Action != access.ActionPress || r.Part < 0 || r.Part >= m.len() || m.Pick == nil {
+	if r.Action != access.ActionPress || r.Part < 0 || r.Part >= m.len() || m.OnPick == nil {
 		return false
 	}
-	m.Pick(r.Part, u)
+	send(u, m, m.OnPick(r.Part, u))
 	return true
 }
 

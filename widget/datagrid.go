@@ -84,9 +84,10 @@ type GridSpan struct {
 	// Marks are runs of the text to highlight, such as what a search found,
 	// each a start and an end in runes, the end left out.
 	Marks [][2]int
-	// On makes the span a link: a click on it sends On, and a click with Ctrl
-	// held sends OnCtrl when it is set.
-	On, OnCtrl gunim.Intent
+	// OnClick makes the span a link: it runs on the UI goroutine when the
+	// span is clicked, and OnCtrlClick, when set, in its place for a click
+	// with Ctrl held. A non-nil result is sent as the grid's intent.
+	OnClick, OnCtrlClick func(u *gunim.UI) gunim.Intent
 }
 
 // GridRow is what a [DataGrid] shows for one row: the spans of each
@@ -136,12 +137,17 @@ type DataGrid struct {
 	Columns []GridColumn
 	// Row returns row i, and false while it has not arrived.
 	Row func(i int) (GridRow, bool)
+	// The On callbacks run on the UI goroutine and may act in the window
+	// through u; a non-nil result is sent to the application as the
+	// grid's intent.
+	//
 	// OnView turns the rows in view, first to first+count, into an intent.
-	OnView func(first, count int) gunim.Intent
+	// It runs from the grid's layout, with the window's UI.
+	OnView func(first, count int, u *gunim.UI) gunim.Intent
 	// OnSelect turns a change of selection into an intent; row is -1
 	// when nothing is selected. With Multi, row is the row the keyboard
 	// is on.
-	OnSelect func(row int) gunim.Intent
+	OnSelect func(row int, u *gunim.UI) gunim.Intent
 	// Multi lets several rows be selected: Ctrl with a click adds a row or
 	// takes it away, Shift with a click or a key selects the rows from the
 	// last one picked, and Ctrl+A selects every row. A click below the
@@ -150,22 +156,22 @@ type DataGrid struct {
 	// OnSelectRows turns a change of the rows selected, with Multi, into
 	// an intent. sel holds runs of rows, each a first row and an end row
 	// left out, in order, and cursor is the row the keyboard is on, or -1.
-	OnSelectRows func(sel [][2]int, cursor int) gunim.Intent
+	OnSelectRows func(sel [][2]int, cursor int, u *gunim.UI) gunim.Intent
 	// OnClick turns a click on a row into an intent, each click, whether or
 	// not it changes the selection.
-	OnClick func(row int) gunim.Intent
+	OnClick func(row int, u *gunim.UI) gunim.Intent
 	// OnActivate turns a double click or Enter on a row into an intent.
-	OnActivate func(row int) gunim.Intent
+	OnActivate func(row int, u *gunim.UI) gunim.Intent
 	// OnType, when set, turns the text typed at the grid into an intent, to find the row it names: text typed close
 	// together adds up, as [TypeAhead] gathers it, and [FindTyped] finds it.
-	OnType func(text string) gunim.Intent
+	OnType func(text string, u *gunim.UI) gunim.Intent
 	typed  TypeAhead
 	// OnResize turns a column resized by a drag into an intent.
-	OnResize func(column int, width float32) gunim.Intent
+	OnResize func(column int, width float32, u *gunim.UI) gunim.Intent
 	// OnHeader turns a click on a column's title into an intent, as to sort by it.
-	OnHeader func(column int) gunim.Intent
+	OnHeader func(column int, u *gunim.UI) gunim.Intent
 	// OnClose turns a click on a closable column's cross into an intent.
-	OnClose func(column int) gunim.Intent
+	OnClose func(column int, u *gunim.UI) gunim.Intent
 	// Copy returns the text Ctrl+C copies for row i, and the row's
 	// [GridRow.Text] when nil. Without Copy, Ctrl+C looks at the first
 	// [MostCopiedRows] rows selected and takes those that have arrived,
@@ -175,12 +181,12 @@ type DataGrid struct {
 	// in place of copying their text, as for a list of files, or for a
 	// grid whose rows arrive as they come into view, which copies the
 	// selection whole from where its rows come from.
-	OnCopy func(sel [][2]int) gunim.Intent
+	OnCopy func(sel [][2]int, u *gunim.UI) gunim.Intent
 	// OnCopied, when set, turns a copy Ctrl+C made itself into an intent
 	// saying how many rows it copied of how many were selected, so an
 	// application can say when rows were left out: those still to
 	// arrive, or past MostCopiedRows.
-	OnCopied func(copied, selected int) gunim.Intent
+	OnCopied func(copied, selected int, u *gunim.UI) gunim.Intent
 	// NoHeader hides the column titles, and NoBar the scrollbar, for a
 	// grid that shows its position some other way.
 	NoHeader bool
@@ -191,7 +197,7 @@ type DataGrid struct {
 	// the press was, in the grid's space. A nil data drags nothing.
 	DragRows func(sel [][2]int, at geom.Point) (data any, ghost gunim.Node, grab geom.Point)
 	// OnDragEnd, when set, hears how a drag of the rows ended.
-	OnDragEnd func(e input.DragEnd) gunim.Intent
+	OnDragEnd func(e input.DragEnd, u *gunim.UI) gunim.Intent
 
 	// lift is a press that may become a drag, and away how far the rows
 	// dragged have dimmed.
@@ -471,9 +477,7 @@ func (g *DataGrid) selectAndTell(i int, u *gunim.UI) {
 		g.reveal(i)
 	}
 	if g.OnSelect != nil {
-		if v := g.OnSelect(i); v != nil {
-			u.Send(g, v)
-		}
+		g.send(g.OnSelect(i, u), u)
 	}
 	u.Invalidate()
 }
@@ -657,7 +661,7 @@ func (g *DataGrid) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) 
 		count := int(math.Ceil(g.Visible())) + 1
 		if first != g.sentFirst || count != g.sentCount {
 			g.sentFirst, g.sentCount = first, count
-			if v := g.OnView(first, count); v != nil {
+			if v := g.OnView(first, count, f.UI()); v != nil {
 				f.Send(g, v)
 			}
 		}
@@ -900,8 +904,8 @@ func (g *DataGrid) paintCell(p *paint.Painter, th *theme.Live, i, c int, spans [
 			}
 		}
 		run.Paint(p, geom.Pt(pen, ty), ink)
-		if s.On != nil {
-			g.links = append(g.links, gridLink{r: geom.Rc(start, y, pen-start+run.Advance, g.rowH), on: s.On, ctrl: s.OnCtrl})
+		if s.OnClick != nil {
+			g.links = append(g.links, gridLink{r: geom.Rc(start, y, pen-start+run.Advance, g.rowH), on: s.OnClick, ctrl: s.OnCtrlClick})
 			if run.Advance > 0 {
 				p.RRect(geom.Rc(pen, ty+run.Ascent+1.5, run.Advance, 1), 0, paint.Solid(ink))
 			}
@@ -1262,7 +1266,7 @@ func (g *DataGrid) Handle(e input.Event, u *gunim.UI) bool {
 			return false
 		}
 		if g.drag == dragEdge && g.OnResize != nil {
-			g.send(g.OnResize(g.dragCol, g.Columns[g.dragCol].Width), u)
+			g.send(g.OnResize(g.dragCol, g.Columns[g.dragCol].Width, u), u)
 		}
 		g.drag = dragNone
 		u.Invalidate()
@@ -1276,7 +1280,7 @@ func (g *DataGrid) Handle(e input.Event, u *gunim.UI) bool {
 		g.lift = gridLift{}
 		g.away.Animate(0, Settle.Get(th))
 		if g.OnDragEnd != nil {
-			g.send(g.OnDragEnd(e), u)
+			g.send(g.OnDragEnd(e, u), u)
 		}
 		return true
 	case input.KeyPress:
@@ -1321,12 +1325,12 @@ func (g *DataGrid) press(e input.PointerDown, u *gunim.UI) bool {
 		if c >= 0 && g.Columns[c].Closable && g.OnClose != nil {
 			x := g.xs[c][0] + g.xs[c][1] - g.left
 			if e.Pos.X >= x-GridCellPadding.Get(th)-g.header/2 {
-				g.send(g.OnClose(c), u)
+				g.send(g.OnClose(c, u), u)
 				return true
 			}
 		}
 		if c >= 0 && g.OnHeader != nil {
-			g.send(g.OnHeader(c), u)
+			g.send(g.OnHeader(c, u), u)
 		}
 		return true
 	}
@@ -1341,19 +1345,19 @@ func (g *DataGrid) press(e input.PointerDown, u *gunim.UI) bool {
 	for _, l := range g.links {
 		if l.r.Contains(e.Pos) {
 			if e.Mods.Has(input.ModControl) && l.ctrl != nil {
-				g.send(l.ctrl, u)
+				g.send(l.ctrl(u), u)
 			} else {
-				g.send(l.on, u)
+				g.send(l.on(u), u)
 			}
 			return true
 		}
 	}
 	if g.OnClick != nil {
-		g.send(g.OnClick(i), u)
+		g.send(g.OnClick(i, u), u)
 	}
 	if e.Clicks == 2 {
 		if g.OnActivate != nil {
-			g.send(g.OnActivate(i), u)
+			g.send(g.OnActivate(i, u), u)
 		}
 		return true
 	}
@@ -1443,7 +1447,7 @@ func (g *DataGrid) key(e input.KeyPress, u *gunim.UI) bool {
 		switch {
 		case e.Key == input.KeyC && g.OnCopy != nil:
 			if sel := g.SelectedRows(); len(sel) > 0 {
-				g.send(g.OnCopy(sel), u)
+				g.send(g.OnCopy(sel, u), u)
 				return true
 			}
 			return false
@@ -1501,7 +1505,7 @@ func (g *DataGrid) key(e input.KeyPress, u *gunim.UI) bool {
 		if g.selected < 0 || g.OnActivate == nil {
 			return false
 		}
-		g.send(g.OnActivate(g.selected), u)
+		g.send(g.OnActivate(g.selected, u), u)
 	case input.KeyEscape:
 		if g.selected < 0 && len(g.runs) == 0 {
 			return false
@@ -1591,7 +1595,7 @@ func (g *DataGrid) setRuns(runs [][2]int, u *gunim.UI) {
 	}
 	g.runs = runs
 	if g.OnSelectRows != nil {
-		g.send(g.OnSelectRows(slices.Clone(runs), g.selected), u)
+		g.send(g.OnSelectRows(slices.Clone(runs), g.selected, u), u)
 	}
 	u.Invalidate()
 }
@@ -1656,7 +1660,7 @@ const sortScale = 0.7
 // gridLink is where a span that is a link was drawn, and what it sends.
 type gridLink struct {
 	r        geom.Rect
-	on, ctrl gunim.Intent
+	on, ctrl func(u *gunim.UI) gunim.Intent
 }
 
 // addRun adds the rows from a to b, b left out, to runs, which are in
@@ -1746,7 +1750,7 @@ func countRuns(runs [][2]int) int {
 // copied tells the application, through OnCopied, what Ctrl+C copied.
 func (g *DataGrid) copied(copied, selected int, u *gunim.UI) {
 	if g.OnCopied != nil {
-		g.send(g.OnCopied(copied, selected), u)
+		g.send(g.OnCopied(copied, selected, u), u)
 	}
 }
 

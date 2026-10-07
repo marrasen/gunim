@@ -87,7 +87,7 @@ func newBrowser() *browser {
 	b.split = widget.NewSplit(b.dnd.side, b.main)
 	b.split.Fixed = true
 	b.split.SetShare(sidebarWidth, nil)
-	b.split.OnMove = func(w float32) gunim.Intent { return SidebarMoved{Width: w} }
+	b.split.OnCommit = func(w float32, u *gunim.UI) gunim.Intent { return SidebarMoved{Width: w} }
 	b.page = widget.Column(b.title, b.dnd.crumbs, b.banner.fold, b.split, b.ops.fold, b.status).Grow(b.split, 1)
 	b.page.Cross = widget.CrossStretch
 	b.page.Gap = noGap

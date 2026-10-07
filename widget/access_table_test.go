@@ -18,8 +18,8 @@ func TestADataGridReadsAsATable(t *testing.T) {
 	g.Row = func(i int) (GridRow, bool) {
 		return GridRow{Cells: [][]GridSpan{{{Text: "file" + strconv.Itoa(i)}}, {{Text: strconv.Itoa(i) + " KB"}}}}, true
 	}
-	g.OnSelect = func(row int) gunim.Intent { return gridSelected{row} }
-	g.OnHeader = func(c int) gunim.Intent { return gridHeaderPressed{c} }
+	g.OnSelect = func(row int, u *gunim.UI) gunim.Intent { return gridSelected{row} }
+	g.OnHeader = func(c int, u *gunim.UI) gunim.Intent { return gridHeaderPressed{c} }
 	g.rows = 50
 	g.selected = 2
 	w, run := stage(t, &frame{child: g, size: geom.Sz(400, 300)})
@@ -88,7 +88,7 @@ func TestARowAScreenReaderHoldsStaysThatRowAsTheGridScrolls(t *testing.T) {
 	g.Row = func(i int) (GridRow, bool) {
 		return GridRow{Cells: [][]GridSpan{{{Text: "file" + strconv.Itoa(i)}}}}, true
 	}
-	g.OnSelect = func(row int) gunim.Intent { return gridSelected{row} }
+	g.OnSelect = func(row int, u *gunim.UI) gunim.Intent { return gridSelected{row} }
 	g.rows = 500
 	w, run := stage(t, &frame{child: g, size: geom.Sz(400, 300)})
 	w.Offscreen().ListenForAccess()

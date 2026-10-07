@@ -38,13 +38,13 @@ func (a *TypeAhead) Reset() { a.text = "" }
 // take works e for a list at from that sends on(text) with the text to find, and reports whether it took e: text
 // typed, and a Space while the search is under way, which the text that follows carries. A press of the pointer
 // starts the search again.
-func (a *TypeAhead) take(e input.Event, u *gunim.UI, from gunim.Node, on func(text string) gunim.Intent) bool {
+func (a *TypeAhead) take(e input.Event, u *gunim.UI, from gunim.Node, on func(text string, u *gunim.UI) gunim.Intent) bool {
 	if on == nil {
 		return false
 	}
 	switch e := e.(type) {
 	case input.TextInput:
-		if v := on(a.Type(e.Text, u.Now())); v != nil {
+		if v := on(a.Type(e.Text, u.Now()), u); v != nil {
 			u.Send(from, v)
 		}
 		return true

@@ -57,7 +57,7 @@ func TestAllDayBarsLeaveRoomToSayHowManyMore(t *testing.T) {
 	m := NewMonth(monday)
 	m.events = busyDay(2, 5)
 	var listed time.Time
-	m.More = func(day time.Time, _ geom.Rect, _ *gunim.UI) { listed = day }
+	m.OnMore = func(day time.Time, _ geom.Rect, _ *gunim.UI) gunim.Intent { listed = day; return nil }
 	w, run, _ := stage(t, m)
 	for f := range 20 {
 		ch, ok := moreOn(m, 30)
@@ -112,7 +112,7 @@ func TestAShortMonthKeepsEventsInTheirDays(t *testing.T) {
 		// A click on the next week's day number picks that day.
 		next := m.cell(37)
 		var picked time.Time
-		m.OnDay = func(day time.Time) gunim.Intent { picked = day; return nil }
+		m.OnDay = func(day time.Time, u *gunim.UI) gunim.Intent { picked = day; return nil }
 		at := geom.Pt(next.Min.X+10, next.Min.Y+min(dayNumH, next.Size().H)/2)
 		w.Input(input.PointerDown{Pos: at, Button: input.ButtonPrimary, Clicks: 1})
 		w.Input(input.PointerUp{Pos: at, Button: input.ButtonPrimary})
@@ -158,8 +158,14 @@ func TestAMonthClickActsOnceAsThePrimaryButtonLetsGo(t *testing.T) {
 	start := monday.Add(34 * time.Hour)
 	m.events = []Event{{ID: "a", Title: "Review", Start: start, End: start.Add(time.Hour)}}
 	opened, created := 0, 0
-	m.Open = func(string, geom.Rect, *gunim.UI) { opened++ }
-	m.Create = func(time.Time, geom.Rect, *gunim.UI) { created++ }
+	m.OnOpen = func(string, geom.Rect, *gunim.UI) gunim.Intent {
+		opened++
+		return nil
+	}
+	m.OnCreate = func(time.Time, geom.Rect, *gunim.UI) gunim.Intent {
+		created++
+		return nil
+	}
 	w, run, _ := stage(t, m)
 	tue := m.cell(29)
 	at := geom.Pt(tue.Min.X+30, tue.Min.Y+dayNumH+chipH/2)

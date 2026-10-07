@@ -58,7 +58,7 @@ func click(w *gunim.Window, x, y float32) {
 
 func TestCheckboxFlipsOnClickAndSpace(t *testing.T) {
 	c := NewCheckbox("Tick")
-	c.OnChange = func(on bool) gunim.Intent { return flipped{on} }
+	c.OnChange = func(on bool, u *gunim.UI) gunim.Intent { return flipped{on} }
 	w, run := stage(t, &frame{child: c, size: geom.Sz(200, 28)})
 	click(w, 10, 14)
 	run(1)
@@ -88,7 +88,7 @@ func TestSwitchStartsWhereOnSays(t *testing.T) {
 func TestSliderFollowsPointerAndKeys(t *testing.T) {
 	s := NewSlider(0, 100)
 	s.Snap = 1
-	s.OnChange = func(v float32) gunim.Intent { return slid{v} }
+	s.OnChange = func(v float32, u *gunim.UI) gunim.Intent { return slid{v} }
 	w, run := stage(t, &frame{child: s, size: geom.Sz(218, 28)})
 	// The track runs from 9 to 209, inside the knob's half at each end.
 	w.Input(input.PointerDown{Pos: geom.Pt(109, 14), Clicks: 1})
@@ -118,7 +118,7 @@ func TestSliderFollowsPointerAndKeys(t *testing.T) {
 func TestTabsShowOnePageAtATime(t *testing.T) {
 	a, b := &recorder{}, &recorder{}
 	tabs := NewTabs([]string{"One", "Two"}, a, b)
-	tabs.OnChange = func(i int) gunim.Intent { return tabbed{i} }
+	tabs.OnChange = func(i int, u *gunim.UI) gunim.Intent { return tabbed{i} }
 	w, run := stage(t, &frame{child: tabs, size: geom.Sz(300, 200)})
 	click(w, 150, 100)
 	run(1)
@@ -287,7 +287,7 @@ func TestTabsCanBeSelectedBeforeTheirPagesArrive(t *testing.T) {
 func TestFaderRunsUpTheHeight(t *testing.T) {
 	s := NewVerticalSlider(0, 100)
 	s.Snap = 1
-	s.OnChange = func(v float32) gunim.Intent { return slid{v} }
+	s.OnChange = func(v float32, u *gunim.UI) gunim.Intent { return slid{v} }
 	w, run := stage(t, &frame{child: s, size: geom.Sz(28, 218)})
 	// The track runs from 9 at the top to 209 at the bottom, inside the
 	// knob's half at each end, and the top of it is the maximum.
@@ -328,7 +328,7 @@ type committed struct{ v float32 }
 func TestASliderHeldByItsKnobMovesAsFarAsThePointer(t *testing.T) {
 	s := NewSlider(-100, 100)
 	s.SetValue(0, nil)
-	s.OnCommit = func(v float32) gunim.Intent { return committed{v} }
+	s.OnCommit = func(v float32, u *gunim.UI) gunim.Intent { return committed{v} }
 	w, run := stage(t, &frame{child: s, size: geom.Sz(218, 28)})
 	run(1)
 	// The knob is in the middle, at 109; a press beside its middle takes
@@ -364,7 +364,7 @@ func TestADoubleClickSendsASliderBackToRest(t *testing.T) {
 	s := NewSlider(-100, 100)
 	s.Rest, s.HasRest = 0, true
 	s.SetValue(60, nil)
-	s.OnCommit = func(v float32) gunim.Intent { return committed{v} }
+	s.OnCommit = func(v float32, u *gunim.UI) gunim.Intent { return committed{v} }
 	w, run := stage(t, &frame{child: s, size: geom.Sz(218, 28)})
 	run(1)
 	w.Input(input.PointerDown{Pos: geom.Pt(30, 14), Clicks: 1})
@@ -414,7 +414,10 @@ func TestSliderTellsTheWindowAsItMoves(t *testing.T) {
 	s := NewSlider(0, 100)
 	s.Snap = 1
 	var seen []float32
-	s.OnMove(func(v float32, _ *gunim.UI) { seen = append(seen, v) })
+	s.OnChange = func(v float32, _ *gunim.UI) gunim.Intent {
+		seen = append(seen, v)
+		return nil
+	}
 	w, run := stage(t, &frame{child: s, size: geom.Sz(218, 28)})
 	w.Input(input.PointerDown{Pos: geom.Pt(109, 14), Clicks: 1})
 	run(1)

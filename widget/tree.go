@@ -59,9 +59,9 @@ type TreeItem struct {
 type Tree struct {
 	anim.Group
 	Item func(Key) TreeItem
-	// OnActivate turns a click, Enter or Space on a row into an intent for the application, such as opening a
-	// branch or showing a file. A nil intent sends nothing.
-	OnActivate func(Key) gunim.Intent
+	// OnActivate runs on the UI goroutine with the row a click, Enter or Space activates, such as to open a branch
+	// or show a file. A non-nil result is sent to the application as the tree's intent.
+	OnActivate func(key Key, u *gunim.UI) gunim.Intent
 
 	list   *VirtualList
 	keys   []Key
@@ -169,9 +169,7 @@ func (t *Tree) activate(key Key, u *gunim.UI) {
 	if t.OnActivate == nil {
 		return
 	}
-	if in := t.OnActivate(key); in != nil {
-		u.Send(t, in)
-	}
+	send(u, t, t.OnActivate(key, u))
 }
 
 func (t *Tree) item(key Key) TreeItem {

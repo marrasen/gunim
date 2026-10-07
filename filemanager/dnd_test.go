@@ -234,7 +234,7 @@ func TestContextMenuItemsReachTheirIntents(t *testing.T) {
 			if m.Items()[i].Disabled {
 				t.Fatalf("%q is dimmed", label)
 			}
-			m.Picked(i, u)
+			m.OnPick(i, u)
 		})
 		h.frames(3)
 	}

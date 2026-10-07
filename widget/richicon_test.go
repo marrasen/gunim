@@ -67,7 +67,7 @@ func TestAnInlineIconWrapsAsAWord(t *testing.T) {
 }
 
 func TestALinkedIconIsPartOfTheLink(t *testing.T) {
-	r := NewRichText(RichSpan{Text: "See the "}, RichSpan{Icon: icon.ExternalLink, Text: "manual", On: openedLink{"m"}})
+	r := NewRichText(RichSpan{Text: "See the "}, RichSpan{Icon: icon.ExternalLink, Text: "manual", OnClick: Sends(openedLink{"m"})})
 	w, run := stage(t, &frame{child: r, size: geom.Sz(600, 100)})
 	_, pc := iconPiece(t, r, 1)
 	at := geom.Pt(pc.At.X+pc.Run.Size/2, pc.At.Y+pc.Run.Height()/2)

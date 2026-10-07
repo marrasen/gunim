@@ -29,14 +29,14 @@ type Link struct {
 	// Size and Face default to the theme's [TextSize] and [Font].
 	Size theme.Token[float32]
 	Face theme.Token[*text.Face]
-	// On is the intent sent when the link is clicked. Leave it nil for a
-	// link whose whole job is local; see [Link.OnActivate].
-	On gunim.Intent
+	// OnClick runs on the UI goroutine when the link is clicked, or
+	// pressed by Enter or Space. It may act in the window through u; a
+	// non-nil result is sent to the application as the link's intent.
+	OnClick func(u *gunim.UI) gunim.Intent
 
-	activate func(*gunim.UI)
-	hover    *anim.Float
-	ring     *anim.Float
-	shaped   shapedText
+	hover  *anim.Float
+	ring   *anim.Float
+	shaped shapedText
 	// laid is the text cut to its box, ending in an ellipsis, for a link
 	// given less room than its text takes.
 	laid laidText
@@ -52,10 +52,6 @@ func NewLink(s string) *Link {
 	l.Add(l.hover, l.ring)
 	return l
 }
-
-// OnActivate wires behaviour that runs inside the window when the link
-// is clicked.
-func (l *Link) OnActivate(fn func(*gunim.UI)) { l.activate = fn }
 
 func (l *Link) run(th *theme.Live) text.Run {
 	return l.shaped.shape(faceIn(l.Face, th), l.Text, l.textSize(th))
@@ -154,11 +150,8 @@ func (l *Link) Focusable() bool { return true }
 
 func (l *Link) fire(u *gunim.UI) {
 	u.Cue(gunim.CuePress, l)
-	if l.activate != nil {
-		l.activate(u)
-	}
-	if l.On != nil {
-		u.Send(l, l.On)
+	if l.OnClick != nil {
+		send(u, l, l.OnClick(u))
 	}
 }
 

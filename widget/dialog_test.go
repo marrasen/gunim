@@ -90,7 +90,8 @@ func TestADangerDialogOpensOnCancelSoEnterCancels(t *testing.T) {
 		d = NewDialog(title)
 		d.Danger = true
 		d.Body = NewForm().Add("Name", NewTextField())
-		d.Accept, d.Dismiss = "delete", "keep"
+		d.OnAccept = Sends("delete")
+		d.OnDismiss = Sends("keep")
 		return d
 	}, nil)
 	c := w.Client()
@@ -122,7 +123,7 @@ func TestADialogWithNoCancelHasOKAlone(t *testing.T) {
 		d = NewDialog(title)
 		d.Body = NewLabel("Written down.")
 		d.SetButtons("Done", "")
-		d.Accept = "done"
+		d.OnAccept = Sends("done")
 		return d
 	}, nil)
 	c := w.Client()
@@ -160,10 +161,13 @@ func TestAnActionLeavesTheDialogOpen(t *testing.T) {
 	gunim.RegisterView(w, "form", func(title string) *Dialog {
 		d = NewDialog(title)
 		box = NewCheckbox("Show")
-		box.OnFlip(func(on bool, _ *gunim.UI) { field.Secret = !on })
+		box.OnChange = func(on bool, _ *gunim.UI) gunim.Intent {
+			field.Secret = !on
+			return nil
+		}
 		field.Secret = true
 		d.Body = NewForm().Add("Password", field).Add("", box)
-		d.AddAction("Generate", func(*gunim.UI) { field.SetText("made", nil) })
+		d.AddAction("Generate", func(*gunim.UI) gunim.Intent { field.SetText("made", nil); return nil })
 		return d
 	}, nil)
 	c := w.Client()
@@ -205,9 +209,9 @@ func TestADialogWidensForItsButtons(t *testing.T) {
 	gunim.RegisterView(w, "many", func(title string) *Dialog {
 		d = NewDialog(title)
 		d.Body = NewLabel("Several things can be done here.")
-		d.AddAction("Copy Prompt", func(*gunim.UI) {})
-		d.AddAction("Copy Setup", func(*gunim.UI) {})
-		d.AddButton("Stop Sharing", func() gunim.Intent { return nil })
+		d.AddAction("Copy Prompt", func(*gunim.UI) gunim.Intent { return nil })
+		d.AddAction("Copy Setup", func(*gunim.UI) gunim.Intent { return nil })
+		d.AddButton("Stop Sharing", func(u *gunim.UI) gunim.Intent { return nil })
 		d.SetButtons("Done", "Cancel")
 		return d
 	}, func(_ *Dialog, _ string, got *gunim.UI) { u = got })
@@ -245,7 +249,8 @@ func TestACarefulDialogOpensOnCancelInItsUsualColours(t *testing.T) {
 	gunim.RegisterView(w, "trust", func(title string) *Dialog {
 		d = NewDialog(title)
 		d.Careful = true
-		d.Accept, d.Dismiss = "trust", "leave"
+		d.OnAccept = Sends("trust")
+		d.OnDismiss = Sends("leave")
 		return d
 	}, nil)
 	c := w.Client()
@@ -303,7 +308,7 @@ func TestADialogEmbeddedInAViewClosesItself(t *testing.T) {
 	var v *ownDialog
 	gunim.RegisterView(w, "own", func(title string) *ownDialog {
 		v = &ownDialog{Dialog: NewDialog(title), note: "mine"}
-		v.Accept, v.Dismiss = "ok", "cancel"
+		v.OnAccept, v.OnDismiss = Sends("ok"), Sends("cancel")
 		return v
 	}, nil)
 	c := w.Client()
@@ -364,7 +369,8 @@ func TestADialogHoldsTheKeyboardWhileItIsOpen(t *testing.T) {
 	gunim.RegisterView(w, "ask", func(string) *Dialog {
 		d := NewDialog("Name")
 		d.Body = NewForm().Add("Name", field)
-		d.Accept, d.Dismiss = "ok", "cancel"
+		d.OnAccept = Sends("ok")
+		d.OnDismiss = Sends("cancel")
 		return d
 	}, nil)
 	c := w.Client()
@@ -428,7 +434,8 @@ func TestADialogKeepsItsKeysFromTheWindowBehind(t *testing.T) {
 	w := gunimtest.New(t, geom.Sz(800, 600), nil)
 	d := NewDialog("Edit")
 	d.Body = NewForm().Add("Name", NewTextField())
-	d.Accept, d.Dismiss = "ok", "cancel"
+	d.OnAccept = Sends("ok")
+	d.OnDismiss = Sends("cancel")
 	gunim.RegisterView(w, "window", func(struct{}) gunim.Node { return keys },
 		func(n gunim.Node, _ struct{}, u *gunim.UI) { u.Insert(n, d) })
 	if err := w.Client().Mount(gunim.Root, "window", "window", nil); err != nil {
@@ -456,7 +463,8 @@ func TestADangerDialogRingsCancelAndTheArrowsMoveAlong(t *testing.T) {
 		d = NewDialog(title)
 		d.Danger = true
 		d.Body = NewLabel("It goes for good.")
-		d.Accept, d.Dismiss = "delete", "keep"
+		d.OnAccept = Sends("delete")
+		d.OnDismiss = Sends("keep")
 		return d
 	}, nil)
 	c := w.Client()
@@ -507,8 +515,8 @@ func TestADialogsKeysComeFirst(t *testing.T) {
 		d = NewDialog(title)
 		d.Body = NewLabel("Pick one.")
 		d.SetButtons("Type", "")
-		d.AddButton("Cancel", func() gunim.Intent { return "cancel" })
-		d.AddButton("Copy", func() gunim.Intent { return "copy" })
+		d.AddButton("Cancel", func(u *gunim.UI) gunim.Intent { return "cancel" })
+		d.AddButton("Copy", func(u *gunim.UI) gunim.Intent { return "copy" })
 		d.Keys = func(e input.Event, u *gunim.UI) bool {
 			if k, ok := e.(input.KeyPress); ok && k.Key == input.KeyDown {
 				heard = append(heard, k.Key)

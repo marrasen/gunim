@@ -95,7 +95,10 @@ func (a *TextArea) complete(u *gunim.UI) {
 	if c == nil || c.popup == nil || !c.popup.Open() {
 		c = &completing{}
 		c.menu = NewMenu(nil)
-		c.menu.Pick = func(i int, u *gunim.UI) { a.accept(i, u) }
+		c.menu.OnPick = func(i int, u *gunim.UI) gunim.Intent {
+			a.accept(i, u)
+			return nil
+		}
 		c.popup = u.OpenPopup(a, c.menu, gunim.PopupOptions{
 			Anchor:  a.triggerBox(start),
 			Max:     geom.Sz(360, 320),

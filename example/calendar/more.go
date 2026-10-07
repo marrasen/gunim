@@ -32,7 +32,10 @@ func newMoreCard(day time.Time, evs []calendar.Event, left bool, pick func(id st
 	title := widget.NewLabel(day.Format("Monday 2 January"))
 	title.Face = widget.BoldFont
 	closer := widget.NewIconButton(icon.X, "Close (Esc)")
-	closer.OnActivate(done)
+	closer.OnClick = func(u *gunim.UI) gunim.Intent {
+		done(u)
+		return nil
+	}
 	spacer := widget.NewSpacer()
 	head := widget.Row(title, spacer, closer).Grow(spacer, 1)
 	head.Cross = widget.CrossCenter
@@ -49,11 +52,15 @@ func newMoreCard(day time.Time, evs []calendar.Event, left bool, pick func(id st
 			label = e.Title
 		}
 		l := widget.NewLink(label)
-		l.OnActivate(func(u *gunim.UI) { pick(e.ID, u) })
+		l.OnClick = func(u *gunim.UI) gunim.Intent {
+			pick(e.ID, u)
+			return nil
+		}
 		rows = append(rows, &dotRow{color: e, child: l})
 	}
 	whole := widget.NewLink("Show the day by the hour")
-	whole.Icon, whole.On = icon.CalendarDays, DayOpened{Day: day}
+	whole.Icon = icon.CalendarDays
+	whole.OnClick = widget.Sends(DayOpened{Day: day})
 	rows = append(rows, whole)
 	col := widget.Column(rows...)
 	col.Cross = widget.CrossStretch

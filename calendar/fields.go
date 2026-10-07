@@ -21,8 +21,9 @@ import (
 // Down keys move the day by one.
 type DateField struct {
 	anim.Group
-	// OnChange runs when the user picks a day.
-	OnChange func(day time.Time, u *gunim.UI)
+	// OnChange runs on the UI goroutine when the user picks a day; a non-nil result is sent to the application as the
+	// field's intent.
+	OnChange func(day time.Time, u *gunim.UI) gunim.Intent
 
 	value time.Time
 	popup *gunim.Popup
@@ -55,7 +56,7 @@ func (f *DateField) SetValue(day time.Time, u *gunim.UI) {
 func (f *DateField) set(day time.Time, u *gunim.UI) {
 	f.SetValue(day, u)
 	if f.OnChange != nil {
-		f.OnChange(f.value, u)
+		send(u, f, f.OnChange(f.value, u))
 	}
 }
 
@@ -65,9 +66,10 @@ func (f *DateField) open(u *gunim.UI) {
 		return
 	}
 	m := NewMiniMonth(f.value)
-	m.Pick = func(day time.Time, u *gunim.UI) {
+	m.OnPick = func(day time.Time, u *gunim.UI) gunim.Intent {
 		f.set(day, u)
 		f.close(u)
+		return nil
 	}
 	f.popup = u.OpenPopup(f, &fitted{child: widget.NewCard(widget.NewPad(m))}, gunim.PopupOptions{
 		Anchor:  geom.Rc(0, 0, f.size.W, f.size.H+4),
@@ -196,8 +198,9 @@ type TimeField struct {
 	*widget.TextField
 	// Step is how far Up and Down move the time; zero is 15 minutes.
 	Step time.Duration
-	// OnChange runs when the time changes by the keys, the list, or as the field is left.
-	OnChange func(t time.Duration, u *gunim.UI)
+	// OnChange runs on the UI goroutine when the time changes by the keys, the list, or as the field is left; a
+	// non-nil result is sent to the application as the field's intent.
+	OnChange func(t time.Duration, u *gunim.UI) gunim.Intent
 	// From, when set, makes the list start just after the time it returns, with each time's length from it, as for
 	// the end of an event.
 	From func() (time.Duration, bool)
@@ -242,14 +245,15 @@ func (f *TimeField) openList(u *gunim.UI) {
 		items = append(items, widget.MenuItem{Label: label, Checked: t == now})
 	}
 	m := widget.NewMenu(items)
-	m.Pick = func(i int, u *gunim.UI) {
+	m.OnPick = func(i int, u *gunim.UI) gunim.Intent {
 		f.closeList()
 		if i < len(f.times) {
 			f.SetValue(f.times[i], u)
 			if f.OnChange != nil {
-				f.OnChange(f.times[i], u)
+				send(u, f, f.OnChange(f.times[i], u))
 			}
 		}
+		return nil
 	}
 	f.list = u.OpenPopup(f, m, gunim.PopupOptions{Anchor: geom.Rc(0, 0, 90, widget.FieldHeight.Get(u.Theme())+2),
 		Max: geom.Sz(240, 480), Dismiss: func(*gunim.UI) { f.closeList() }})
@@ -335,14 +339,14 @@ func (f *TimeField) Handle(e input.Event, u *gunim.UI) bool {
 		t = (t + by + 24*time.Hour) % (24 * time.Hour)
 		f.SetValue(t.Truncate(step), u)
 		if f.OnChange != nil {
-			f.OnChange(t.Truncate(step), u)
+			send(u, f, f.OnChange(t.Truncate(step), u))
 		}
 		return true
 	case input.FocusLost:
 		if t, ok := f.Value(); ok {
 			f.SetText(clockOf(t), u)
 			if f.OnChange != nil {
-				f.OnChange(t, u)
+				send(u, f, f.OnChange(t, u))
 			}
 		}
 	}

@@ -193,29 +193,29 @@ func buildPage(s Page) *page {
 	title.Size = widget.HeadingSize
 
 	fruit := widget.NewDropdown(widget.Labels(fruits...))
-	fruit.OnChange = func(i int) gunim.Intent { return Chose{Fruit: i} }
+	fruit.OnChange = func(i int, u *gunim.UI) gunim.Intent { return Chose{Fruit: i} }
 	fruit.Label = "Fruit"
 	fruitRow := widget.Row(widget.NewLabel("Fruit"), fruit)
 	fruitRow.Cross = widget.CrossCenter
 
 	area := widget.NewCard(widget.NewLabel("Right-click anywhere in this card for a context menu."))
 	menu := widget.NewContextMenu(area, widget.Labels(actions...))
-	menu.OnPick = func(i int) gunim.Intent { return Picked{Action: i} }
+	menu.OnPick = func(i int, u *gunim.UI) gunim.Intent { return Picked{Action: i} }
 
 	toggle := widget.NewButton("Switch theme")
-	toggle.On = ThemeToggled{}
+	toggle.OnClick = widget.Sends(ThemeToggled{})
 	tipped := widget.NewTooltip(toggle, "Switches between the dark and light themes")
 	popups := widget.Column(fruitRow, menu, widget.Row(tipped))
 	popups.Cross = widget.CrossStretch
 
 	check := widget.NewCheckbox("Send me the newsletter")
-	check.OnChange = func(on bool) gunim.Intent { return Toggled{Name: "Newsletter", On: on} }
+	check.OnChange = func(on bool, u *gunim.UI) gunim.Intent { return Toggled{Name: "Newsletter", On: on} }
 	sw := widget.NewSwitch("Dark mode")
 	sw.SetChecked(true, nil)
-	sw.OnChange = func(on bool) gunim.Intent { return Toggled{Name: "Dark mode", On: on} }
+	sw.OnChange = func(on bool, u *gunim.UI) gunim.Intent { return Toggled{Name: "Dark mode", On: on} }
 	slider := widget.NewSlider(0, 100)
 	slider.Snap = 1
-	slider.OnChange = func(v float32) gunim.Intent { return Slid{Value: v} }
+	slider.OnChange = func(v float32, u *gunim.UI) gunim.Intent { return Slid{Value: v} }
 	toggles := widget.Column(check, sw, widget.NewLabel("Volume"), slider)
 	toggles.Cross = widget.CrossStretch
 
@@ -224,7 +224,7 @@ func buildPage(s Page) *page {
 		img := widget.NewImage(pic)
 		img.Fit, img.Radius, img.Size = widget.FitCover, 8, geom.Sz(112, 70)
 		drag := widget.NewDraggable(widget.NewHero(heroTag(i), img), pictureRef{Index: i, Picture: pic})
-		drag.OnClick = Opened{Index: i}
+		drag.OnClick = widget.Sends(Opened{Index: i})
 		drag.Ghost = func() gunim.Node {
 			ghost := widget.NewImage(pic)
 			ghost.Fit, ghost.Radius, ghost.Size = widget.FitCover, 8, geom.Sz(112, 70)
@@ -243,19 +243,19 @@ func buildPage(s Page) *page {
 	items := widget.NewVirtualList(func(k widget.Key) gunim.Node {
 		label := widget.NewLabel("Item " + string(k))
 		remove := widget.NewButton("Remove")
-		remove.On = Removed{Item: k}
+		remove.OnClick = widget.Sends(Removed{Item: k})
 		row := widget.Row(label, remove).Grow(label, 1)
 		row.Cross = widget.CrossCenter
 		return widget.NewCard(row)
 	})
 	add := widget.NewButton("Add at the top")
-	add.On = Added{}
+	add.OnClick = widget.Sends(Added{})
 	items.DragScroll = true
 	long := widget.Column(widget.Row(add), items).Grow(items, 1)
 	long.Cross = widget.CrossStretch
 
 	tasks := widget.NewList()
-	tasks.Reorder = func(keys []widget.Key) gunim.Intent { return Arranged{Tasks: keys} }
+	tasks.OnReorder = func(keys []widget.Key, u *gunim.UI) gunim.Intent { return Arranged{Tasks: keys} }
 	// Hold a task near the top or the bottom to scroll the list.
 	taskView := widget.NewScroll(tasks)
 	arrange := widget.Column(widget.NewLabel("Drag the tasks into order. Hold one near an edge to scroll."), taskView).Grow(taskView, 1)
@@ -497,7 +497,7 @@ func buildBasket(Basket) *basket {
 		}
 		return slices.ContainsFunc(paths, isImage)
 	}
-	target.OnDrop = func(d input.Drop) gunim.Intent {
+	target.OnDrop = func(d input.Drop, u *gunim.UI) gunim.Intent {
 		if r, ok := d.Data.(pictureRef); ok {
 			return Basketed{Index: r.Index}
 		}

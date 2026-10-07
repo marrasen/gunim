@@ -82,35 +82,40 @@ type calView struct {
 func buildCal(s Cal) *calView {
 	v := &calView{state: s}
 	today := widget.NewButton("Today")
-	today.On = TodayAsked{}
+	today.OnClick = widget.Sends(TodayAsked{})
 	back := widget.NewIconButton(icon.ChevronLeft, "Back (Page Up)")
-	back.On = Stepped{By: -1}
+	back.OnClick = widget.Sends(Stepped{By: -1})
 	next := widget.NewIconButton(icon.ChevronRight, "Next (Page Down)")
-	next.On = Stepped{By: 1}
+	next.OnClick = widget.Sends(Stepped{By: 1})
 	v.title = newFadeLabel(s.Title)
 	v.views = widget.NewSegmented("Day", "Week", "Month")
-	v.views.OnChange = func(i int) gunim.Intent { return ViewChosen{View: View(i)} }
+	v.views.OnChange = func(i int, u *gunim.UI) gunim.Intent { return ViewChosen{View: View(i)} }
 	themeButton := widget.NewIconButton(icon.SunMoon, "Switch theme")
-	themeButton.On = ThemeToggled{}
+	themeButton.OnClick = widget.Sends(ThemeToggled{})
 	find := widget.NewIconButton(icon.Search, "Find an event (Ctrl+F)")
-	find.OnActivate(func(u *gunim.UI) { v.openSearch(u) })
+	find.OnClick = func(u *gunim.UI) gunim.Intent {
+		v.openSearch(u)
+		return nil
+	}
 	spacer := widget.NewSpacer()
 	bar := widget.Row(today, back, next, v.title, spacer, find, v.views, themeButton).Grow(spacer, 1)
 	bar.Cross = widget.CrossCenter
 
 	add := widget.NewButton("New event")
-	add.Icon, add.Kind, add.On = icon.Plus, widget.ButtonPrimary, NewAsked{}
+	add.Icon, add.Kind = icon.Plus, widget.ButtonPrimary
+	add.OnClick = widget.Sends(NewAsked{})
 	v.mini = calendar.NewMiniMonth(s.Day)
-	v.mini.OnPick = func(day time.Time) gunim.Intent { return DayPicked{Day: day} }
+	v.mini.OnPick = func(day time.Time, u *gunim.UI) gunim.Intent { return DayPicked{Day: day} }
 	caption := widget.NewLabel("Calendars")
 	caption.Face, caption.Color = widget.BoldFont, widget.PaletteHint
 	v.cals = widget.NewList()
-	v.cals.OnClick = func(k widget.Key) gunim.Intent { return CalendarToggled{ID: string(k)} }
+	v.cals.OnActivate = func(k widget.Key, u *gunim.UI) gunim.Intent { return CalendarToggled{ID: string(k)} }
 	v.invites = widget.NewLink("")
-	v.invites.Icon, v.invites.On = icon.Mail, InvitesAsked{}
+	v.invites.Icon = icon.Mail
+	v.invites.OnClick = widget.Sends(InvitesAsked{})
 	v.weekends = widget.NewCheckbox("Show weekends")
 	v.weekends.SetChecked(!s.HideWeekends, nil)
-	v.weekends.OnChange = func(bool) gunim.Intent { return WeekendsToggled{} }
+	v.weekends.OnChange = func(bool, *gunim.UI) gunim.Intent { return WeekendsToggled{} }
 	side := widget.Column(add, v.mini, caption, v.cals, v.weekends, v.invites)
 	side.Cross = widget.CrossStretch
 	sidebar := &panel{child: widget.NewPad(side), fill: SidebarFill, width: sidebarW}
@@ -118,31 +123,42 @@ func buildCal(s Cal) *calView {
 	busy := func() bool { return v.swallow }
 	v.days = calendar.NewDays(s.Day, 7)
 	v.days.WorkDay = [2]time.Duration{8 * time.Hour, 17 * time.Hour}
-	v.days.OnDay = func(day time.Time) gunim.Intent { return DayOpened{Day: day} }
-	v.days.Create = func(start, end time.Time, allDay bool, box geom.Rect, u *gunim.UI) {
+	v.days.OnDay = func(day time.Time, u *gunim.UI) gunim.Intent { return DayOpened{Day: day} }
+	v.days.OnCreate = func(start, end time.Time, allDay bool, box geom.Rect, u *gunim.UI) gunim.Intent {
 		v.openQuick(v.days, Draft{Start: start, End: end, AllDay: allDay}, box, u)
+		return nil
 	}
-	v.days.OnChange = func(id string, start, end time.Time) gunim.Intent {
+	v.days.OnChange = func(id string, start, end time.Time, u *gunim.UI) gunim.Intent {
 		return EventChanged{ID: id, Start: start, End: end}
 	}
-	v.days.Open = func(id string, box geom.Rect, u *gunim.UI) { v.openCard(v.days, id, box, u) }
-	v.days.OnEdit = func(id string) gunim.Intent { return EditAsked{ID: id} }
-	v.days.OnDelete = func(id string) gunim.Intent { return DeleteAsked{ID: id} }
-	v.days.OnStep = func(by int) gunim.Intent { return Stepped{By: by} }
+	v.days.OnOpen = func(id string, box geom.Rect, u *gunim.UI) gunim.Intent {
+		v.openCard(v.days, id, box, u)
+		return nil
+	}
+	v.days.OnEdit = func(id string, u *gunim.UI) gunim.Intent { return EditAsked{ID: id} }
+	v.days.OnDelete = func(id string, u *gunim.UI) gunim.Intent { return DeleteAsked{ID: id} }
+	v.days.OnStep = func(by int, u *gunim.UI) gunim.Intent { return Stepped{By: by} }
 	v.days.Busy = busy
 	v.month = calendar.NewMonth(s.Day)
-	v.month.OnDay = func(day time.Time) gunim.Intent { return DayOpened{Day: day} }
-	v.month.Create = func(day time.Time, box geom.Rect, u *gunim.UI) {
+	v.month.OnDay = func(day time.Time, u *gunim.UI) gunim.Intent { return DayOpened{Day: day} }
+	v.month.OnCreate = func(day time.Time, box geom.Rect, u *gunim.UI) gunim.Intent {
 		v.openQuick(v.month, Draft{Start: day, End: calendar.AddDays(day, 1), AllDay: true}, box, u)
+		return nil
 	}
-	v.month.OnChange = func(id string, start, end time.Time) gunim.Intent {
+	v.month.OnChange = func(id string, start, end time.Time, u *gunim.UI) gunim.Intent {
 		return EventChanged{ID: id, Start: start, End: end}
 	}
-	v.month.Open = func(id string, box geom.Rect, u *gunim.UI) { v.openCard(v.month, id, box, u) }
-	v.month.OnEdit = func(id string) gunim.Intent { return EditAsked{ID: id} }
-	v.month.OnDelete = func(id string) gunim.Intent { return DeleteAsked{ID: id} }
-	v.month.OnStep = func(by int) gunim.Intent { return Stepped{By: by} }
-	v.month.More = func(day time.Time, box geom.Rect, u *gunim.UI) { v.openMore(day, box, u) }
+	v.month.OnOpen = func(id string, box geom.Rect, u *gunim.UI) gunim.Intent {
+		v.openCard(v.month, id, box, u)
+		return nil
+	}
+	v.month.OnEdit = func(id string, u *gunim.UI) gunim.Intent { return EditAsked{ID: id} }
+	v.month.OnDelete = func(id string, u *gunim.UI) gunim.Intent { return DeleteAsked{ID: id} }
+	v.month.OnStep = func(by int, u *gunim.UI) gunim.Intent { return Stepped{By: by} }
+	v.month.OnMore = func(day time.Time, box geom.Rect, u *gunim.UI) gunim.Intent {
+		v.openMore(day, box, u)
+		return nil
+	}
 	v.month.Busy = busy
 	v.area = newSwitcher(v.eventMenu(v.days, v.days.EventAt), v.eventMenu(v.month, v.month.EventAt))
 
@@ -154,11 +170,13 @@ func buildCal(s Cal) *calView {
 	v.toasts = widget.NewToasts()
 	v.palette = widget.NewPalette()
 	v.palette.Placeholder = "Find an event by its title, place or notes"
-	v.palette.Search = func(q string, u *gunim.UI) { u.Send(v, SearchAsked{Query: q}) }
-	v.palette.Pick = func(i int, u *gunim.UI) {
+	// The palette opens from the view, and its intents come from there.
+	v.palette.OnSearch = func(q string, _ *gunim.UI) gunim.Intent { return SearchAsked{Query: q} }
+	v.palette.OnPick = func(i int, _ *gunim.UI) gunim.Intent {
 		if i < len(v.found) {
-			u.Send(v, EventShown{ID: v.found[i].ID})
+			return EventShown{ID: v.found[i].ID}
 		}
+		return nil
 	}
 	return v
 }
@@ -231,9 +249,11 @@ func (v *calView) notice(n Notice, u *gunim.UI) {
 	t := widget.Toast{Title: n.Title, Body: n.Body, Kind: widget.ToastInfo}
 	switch {
 	case n.Undo:
-		t.Action, t.On, t.Icon = "Undo", UndoAsked{}, icon.Check
+		t.Action, t.Icon = "Undo", icon.Check
+		t.OnClick = widget.Sends(UndoAsked{})
 	case n.ID != "":
-		t.Action, t.On, t.Icon = "Show", EventShown{ID: n.ID}, icon.Mail
+		t.Action, t.Icon = "Show", icon.Mail
+		t.OnClick = widget.Sends(EventShown{ID: n.ID})
 	}
 	v.toasts.Show(t, u)
 }
@@ -396,7 +416,7 @@ func (v *calView) eventMenu(view gunim.Node, at func(geom.Point) (string, bool))
 		c.SetItems(items)
 		return true
 	}
-	c.OnPick = func(i int) gunim.Intent {
+	c.OnPick = func(i int, u *gunim.UI) gunim.Intent {
 		switch {
 		case i == 0:
 			return EditAsked{ID: id}

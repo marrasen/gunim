@@ -42,13 +42,17 @@ func newQuickCard(d Draft, left bool, done, more func(*gunim.UI)) *quickCard {
 	whenLabel.Color, whenLabel.MaxLines = widget.PaletteHint, 2
 	options := widget.NewButton("More options")
 	options.Ghost = true
-	options.OnActivate(func(u *gunim.UI) {
+	options.OnClick = func(u *gunim.UI) gunim.Intent {
 		u.Send(q, MoreAsked{Draft: q.draft()})
 		more(u)
-	})
+		return nil
+	}
 	save := widget.NewButton("Save")
 	save.Kind = widget.ButtonPrimary
-	save.OnActivate(func(u *gunim.UI) { q.save(u) })
+	save.OnClick = func(u *gunim.UI) gunim.Intent {
+		q.save(u)
+		return nil
+	}
 	spacer := widget.NewSpacer()
 	buttons := widget.Row(options, spacer, save).Grow(spacer, 1)
 	buttons.Cross = widget.CrossCenter

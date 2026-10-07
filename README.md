@@ -462,7 +462,7 @@ of them is a plain value.
 ```go
 // Window half: the wiring is data.
 b := widget.NewButton("Delete everything")
-b.On = DeleteRequested{Target: "everything"}
+b.OnClick = widget.Sends(DeleteRequested{Target: "everything"})
 
 // Application half: reached only through Client, which returns at once.
 c.Mount(gunim.Root, "confirm", "confirm", ConfirmState{Title: "Delete everything?"})

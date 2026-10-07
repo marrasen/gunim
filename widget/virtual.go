@@ -46,10 +46,11 @@ type VirtualList struct {
 	// HoldOnPrepend keeps what is in view still when items arrive before the first one, even with the view at the
 	// top of the list, as older messages loaded above a timeline should. Such items come at once, without growing in.
 	HoldOnPrepend bool
-	// OnReachStart, when set, is sent as the view comes within a screen of the start of the list, for loading the
-	// items before the first. It is sent once, and again after items arrive before the first or the view has
-	// gone well away from the start.
-	OnReachStart func() gunim.Intent
+	// OnReachStart, when set, runs from the list's layout, with the window's UI, as the view comes within a screen
+	// of the start of the list; a non-nil result is sent as the list's intent. It is for loading the items before
+	// the first. It runs once, and again after items arrive before the first or the view has gone well away from
+	// the start.
+	OnReachStart func(u *gunim.UI) gunim.Intent
 	// reached says OnReachStart was sent and waits for older items.
 	reached bool
 	// openAt is the row the view opens at, in place of the end; see OpenAt.
@@ -541,7 +542,9 @@ func (l *VirtualList) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Chil
 		switch at := l.offset.Value(); {
 		case !l.reached && at < own.H:
 			l.reached = true
-			f.Send(l, l.OnReachStart())
+			if v := l.OnReachStart(f.UI()); v != nil {
+				f.Send(l, v)
+			}
 		case l.reached && at > 3*own.H:
 			l.reached = false
 		}

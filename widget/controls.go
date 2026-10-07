@@ -27,11 +27,12 @@ type toggle struct {
 	// KeepFocus leaves the keyboard where it is when the control is
 	// clicked, as on a toast; Tab still reaches it.
 	KeepFocus bool
-	// OnChange turns the new state into an intent for the application.
-	OnChange func(on bool) gunim.Intent
-	// flipped is local behaviour, set by OnFlip.
-	flipped func(on bool, u *gunim.UI)
-	tip     tipper
+	// OnChange runs on the UI goroutine when the user flips the control,
+	// with the new state. It may act in the window through u, such as a
+	// box that shows a password field's text; a non-nil result is sent
+	// to the application as the control's intent.
+	OnChange func(on bool, u *gunim.UI) gunim.Intent
+	tip      tipper
 
 	// lit runs from 0 to 1 as the control turns on.
 	lit   *anim.Float
@@ -81,10 +82,6 @@ func (t *toggle) SetChecked(on bool, u *gunim.UI) {
 	t.lit.Animate(value(on), Bounce.Get(u.Theme()))
 }
 
-// OnFlip wires behaviour that runs inside the window when the user
-// flips the control, such as a box that shows a password field's text.
-func (t *toggle) OnFlip(fn func(on bool, u *gunim.UI)) { t.flipped = fn }
-
 func (t *toggle) flip(n gunim.Node, u *gunim.UI) {
 	t.checked = !t.checked
 	if t.checked {
@@ -93,11 +90,8 @@ func (t *toggle) flip(n gunim.Node, u *gunim.UI) {
 		u.Cue(gunim.CueToggleOff, n)
 	}
 	t.lit.Animate(value(t.checked), Bounce.Get(u.Theme()))
-	if t.flipped != nil {
-		t.flipped(t.checked, u)
-	}
 	if t.OnChange != nil {
-		u.Send(n, t.OnChange(t.checked))
+		send(u, n, t.OnChange(t.checked, u))
 	}
 }
 
@@ -314,13 +308,16 @@ type Slider struct {
 	// Snap rounds the value to multiples of itself, counted from Min;
 	// zero leaves it free.
 	Snap float32
-	// OnChange turns a new value into an intent for the application.
-	OnChange func(v float32) gunim.Intent
-	// OnCommit turns the value a gesture ends on into an intent: as a drag
-	// is let go, a double click returns to Rest, or a key steps. OnChange
-	// runs on every step of a drag; OnCommit once, for an application that
-	// saves, or keeps undo history, per change made.
-	OnCommit func(v float32) gunim.Intent
+	// OnChange runs on the UI goroutine as the user moves the value, on
+	// every step of a drag. It may act in the window through u, such as a
+	// number beside the slider that follows it; a non-nil result is sent
+	// to the application as the slider's intent.
+	OnChange func(v float32, u *gunim.UI) gunim.Intent
+	// OnCommit runs, in the same way, with the value a gesture ends on: as
+	// a drag is let go, a double click returns to Rest, or a key steps. It
+	// runs once per change made, for an application that saves, or keeps
+	// undo history.
+	OnCommit func(v float32, u *gunim.UI) gunim.Intent
 	// Rest, with HasRest set, is the value the slider rests at, such as
 	// nought on a scale from -100 to 100: the fill runs from it to the
 	// knob, a small mark shows it on the track, and a double click glides
@@ -335,8 +332,6 @@ type Slider struct {
 	// pressed, for a slider among keys of a view's own, such as a photo
 	// viewer's arrows; it still takes the keyboard by Tab.
 	KeepFocus bool
-	// moved is local behaviour, set by OnMove.
-	moved func(v float32, u *gunim.UI)
 
 	value float32
 	// drag is the value a drag has carried the knob to, unclamped, and
@@ -371,10 +366,6 @@ func NewVerticalSlider(lo, hi float32) *Slider {
 	return s
 }
 
-// OnMove wires behaviour that runs inside the window as the value
-// changes, such as a number beside the slider that follows it.
-func (s *Slider) OnMove(fn func(v float32, u *gunim.UI)) { s.moved = fn }
-
 // Value returns the slider's value.
 func (s *Slider) Value() float32 { return s.value }
 
@@ -397,7 +388,7 @@ func (s *Slider) fracOf(v float32) float32 {
 // commit tells the application the value a gesture ended on.
 func (s *Slider) commit(u *gunim.UI) {
 	if s.OnCommit != nil {
-		u.Send(s, s.OnCommit(s.value))
+		send(u, s, s.OnCommit(s.value, u))
 	}
 }
 
@@ -442,11 +433,8 @@ func (s *Slider) set(v float32, m anim.Motion, u *gunim.UI) {
 	}
 	s.value = v
 	s.at.Animate(s.frac(), m)
-	if s.moved != nil {
-		s.moved(v, u)
-	}
 	if s.OnChange != nil {
-		u.Send(s, s.OnChange(v))
+		send(u, s, s.OnChange(v, u))
 	}
 }
 
@@ -719,8 +707,9 @@ type Tabs struct {
 	// Disabled lists the tabs that cannot be chosen now, in order, and may
 	// be shorter than Titles. They are drawn faint.
 	Disabled []bool
-	// OnChange turns the chosen tab into an intent for the application.
-	OnChange func(i int) gunim.Intent
+	// OnChange runs on the UI goroutine when the user chooses a tab; a
+	// non-nil result is sent to the application as the tabs' intent.
+	OnChange func(i int, u *gunim.UI) gunim.Intent
 
 	bar   *tabBar
 	pages []gunim.Node
@@ -829,7 +818,7 @@ func (t *Tabs) choose(i int, u *gunim.UI) {
 	t.SetSelected(i, u)
 	u.Cue(gunim.CueSelect, t)
 	if t.OnChange != nil {
-		u.Send(t, t.OnChange(i))
+		send(u, t, t.OnChange(i, u))
 	}
 }
 

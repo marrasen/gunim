@@ -30,9 +30,9 @@ type MiniMonth struct {
 	From, To time.Time
 	// FirstWeekday is the day weeks start on.
 	FirstWeekday time.Weekday
-	// OnPick turns a day picked into an intent. Pick, when set, runs as well, such as for a field to take the day.
-	OnPick func(day time.Time) gunim.Intent
-	Pick   func(day time.Time, u *gunim.UI)
+	// OnPick runs on the UI goroutine with a day picked. It may act in the window through u, such as for a field to
+	// take the day; a non-nil result is sent to the application as the month's intent.
+	OnPick func(day time.Time, u *gunim.UI) gunim.Intent
 
 	// month is the month showing, which the arrows move without picking anything.
 	month time.Time
@@ -259,11 +259,8 @@ func (m *MiniMonth) pick(day time.Time, u *gunim.UI) {
 	if !SameDay(MonthStart(day), m.month) {
 		m.show(MonthStart(day), u)
 	}
-	if m.Pick != nil {
-		m.Pick(day, u)
-	}
 	if m.OnPick != nil {
-		u.Send(m, m.OnPick(day))
+		send(u, m, m.OnPick(day, u))
 	}
 }
 

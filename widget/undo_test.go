@@ -76,7 +76,7 @@ func TestNewTextForgetsTheHistory(t *testing.T) {
 
 func TestUndoSendsTheChange(t *testing.T) {
 	wr := newWriter(t, 400)
-	wr.area.OnChange = func(s string) gunim.Intent { return changed{s} }
+	wr.area.OnChange = func(s string, u *gunim.UI) gunim.Intent { return changed{s} }
 	wr.typeEach("hi")
 	sent(wr.w)
 	wr.key(input.KeyZ, input.ModControl)

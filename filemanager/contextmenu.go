@@ -193,7 +193,10 @@ func (pg *listingPage) contextMenu(g gunim.Node, rowAt func(geom.Point) int, sel
 		}
 		return true
 	}
-	m.Picked = func(i int, u *gunim.UI) { pg.b.dnd.menuPicked(m, st, i, u) }
+	m.OnPick = func(i int, u *gunim.UI) gunim.Intent {
+		pg.b.dnd.menuPicked(m, st, i, u)
+		return nil
+	}
 	return m
 }
 
@@ -331,7 +334,10 @@ type sideMenu struct {
 func newSideMenu(b *browser) *sideMenu {
 	s := &sideMenu{b: b, m: widget.NewContextMenu(b.side, nil)}
 	s.m.Prepare = s.prepare
-	s.m.Picked = func(i int, u *gunim.UI) { b.dnd.menuPicked(s.m, s.st, i, u) }
+	s.m.OnPick = func(i int, u *gunim.UI) gunim.Intent {
+		b.dnd.menuPicked(s.m, s.st, i, u)
+		return nil
+	}
 	b.side.menuAt = func(h *sectionHead, u *gunim.UI) {
 		hr, ok := u.Bounds(h)
 		mr, ok2 := u.Bounds(s.m)

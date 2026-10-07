@@ -46,9 +46,10 @@ type Split struct {
 	// Glide, when set, is the motion SetShare glides with, in place of
 	// [Settle].
 	Glide theme.Token[anim.Spring]
-	// OnMove, when set, makes the intent sent once the pointer lets the
-	// divider go, with the first pane's new share.
-	OnMove func(share float32) gunim.Intent
+	// OnCommit, when set, runs on the UI goroutine once the pointer lets
+	// the divider go, with the first pane's new share; a non-nil result is
+	// sent to the application as the split's intent.
+	OnCommit func(share float32, u *gunim.UI) gunim.Intent
 
 	// laid is set by the first layout; a share set before it shows at once.
 	laid          bool
@@ -304,8 +305,8 @@ func (s *Split) light(on bool, u *gunim.UI) {
 }
 
 func (s *Split) moved(u *gunim.UI) {
-	if s.OnMove != nil {
-		u.Send(s, s.OnMove(s.share.Target()))
+	if s.OnCommit != nil {
+		send(u, s, s.OnCommit(s.share.Target(), u))
 	}
 }
 

@@ -28,11 +28,10 @@ type MenuButton struct {
 	// Active draws the button's border in the accent colour, as when its
 	// choices narrow something down.
 	Active bool
-	// OnPick turns the item picked into an intent.
-	OnPick func(i int) gunim.Intent
-	// Picked runs on the UI goroutine as an item is picked, for a pick
-	// that does its work in the window, such as opening a dialog.
-	Picked func(i int, u *gunim.UI)
+	// OnPick runs on the UI goroutine as an item is picked. It may act in
+	// the window through u, such as opening a dialog; a non-nil result is
+	// sent to the application as the button's intent.
+	OnPick func(i int, u *gunim.UI) gunim.Intent
 
 	hover *anim.Float
 	ring  *anim.Float
@@ -128,7 +127,7 @@ func (b *MenuButton) open(u *gunim.UI) {
 	m := NewMenu(nil)
 	b.sync(m)
 	m.MinWidth = b.size.W
-	m.Pick = func(i int, u *gunim.UI) {
+	m.OnPick = func(i int, u *gunim.UI) gunim.Intent {
 		if b.StayOpen {
 			items := b.list.items
 			items[i].Checked = !items[i].Checked
@@ -138,14 +137,10 @@ func (b *MenuButton) open(u *gunim.UI) {
 			b.close(u)
 		}
 		if b.OnPick != nil {
-			if v := b.OnPick(i); v != nil {
-				u.Send(b, v)
-			}
-		}
-		if b.Picked != nil {
-			b.Picked(i, u)
+			send(u, b, b.OnPick(i, u))
 		}
 		u.Invalidate()
+		return nil
 	}
 	b.menu = m
 	u.Cue(gunim.CueOpen, b)

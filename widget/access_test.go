@@ -18,7 +18,7 @@ type saved struct{}
 func accessStage(t *testing.T) (*gunim.Window, *Tabs, *Checkbox, func(int)) {
 	t.Helper()
 	b := NewButton("Save")
-	b.On = saved{}
+	b.OnClick = Sends(saved{})
 	c := NewCheckbox("Wrap lines")
 	s := NewSlider(0, 10)
 	s.Snap = 1
