@@ -115,24 +115,29 @@ type tableLift struct {
 	dragging bool
 }
 
-// RowAt returns the row at p, in the table's space, as last laid out.
+// RowAt returns the row drawn at p, in the table's space. While rows
+// come, go or move, it is the row drawn there now, and none in the room
+// a leaving row still takes.
 func (t *Table) RowAt(p geom.Point) (Key, bool) {
 	if t.rowH <= 0 || p.Y < t.headH {
 		return "", false
 	}
-	i := int((p.Y - t.headH + t.list.Offset()) / t.rowH)
-	if i < 0 || i >= len(t.keys) {
+	k, _, _, ok := t.list.drawnAt(p.Y - t.headH)
+	if _, in := t.index[k]; !ok || !in {
 		return "", false
 	}
-	return t.keys[i], true
+	return k, true
 }
 
-// RowRect returns where row key is, in the table's space, as last laid
-// out, which may be outside the part in view.
+// RowRect returns where row key is drawn, in the table's space, which
+// may be outside the part in view.
 func (t *Table) RowRect(key Key) (geom.Rect, bool) {
 	i, ok := t.index[key]
 	if !ok || t.rowH <= 0 {
 		return geom.Rect{}, false
+	}
+	if top, h, ok := t.list.drawn(key); ok {
+		return geom.Rc(0, t.headH+top, t.width, h), true
 	}
 	y := t.headH + float32(i)*t.rowH - t.list.Offset()
 	return geom.Rc(0, y, t.width, t.rowH), true

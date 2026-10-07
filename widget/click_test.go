@@ -12,9 +12,15 @@ import (
 // stageUI returns the UI of w, a window from stage.
 func stageUI(t *testing.T, w *gunim.Window, run func(int)) *gunim.UI {
 	t.Helper()
+	return viewUI(t, w, "stage", run)
+}
+
+// viewUI returns the UI of w, through its view called view.
+func viewUI(t *testing.T, w *gunim.Window, view string, run func(int)) *gunim.UI {
+	t.Helper()
 	var u *gunim.UI
-	gunim.RegisterPatch(w, "stage", func(_ gunim.Node, _ probeFocus, ui *gunim.UI) { u = ui })
-	if err := w.Client().Patch("stage", probeFocus{}); err != nil {
+	gunim.RegisterPatch(w, view, func(_ gunim.Node, _ probeFocus, ui *gunim.UI) { u = ui })
+	if err := w.Client().Patch(view, probeFocus{}); err != nil {
 		t.Fatal(err)
 	}
 	run(1)

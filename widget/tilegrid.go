@@ -166,9 +166,13 @@ func (g *TileGrid) ShowTile(i int, u *gunim.UI) {
 	u.Invalidate()
 }
 
-// TileRect returns where tile i sits, heading for its place, in the grid's own space.
+// TileRect returns where tile i is drawn, in the grid's own space: where it is on its way while the tiles spring
+// to new places, and its place for a tile not built.
 func (g *TileGrid) TileRect(i int) geom.Rect {
 	r := g.target(i)
+	if tc, ok := g.live[i]; ok {
+		r = tc.rect()
+	}
 	return r.Add(geom.Pt(0, -g.offset.Value()))
 }
 
@@ -231,11 +235,31 @@ func (g *TileGrid) target(i int) geom.Rect {
 	return geom.Rc(g.left+float32(c)*g.step.W, g.pad+float32(r)*g.step.H, g.Size.W, g.Size.H)
 }
 
-// TileAt returns the tile at p, in the grid's own space, or -1 for none.
+// TileAt returns the tile drawn at p, in the grid's own space, or -1 for none.
 func (g *TileGrid) TileAt(p geom.Point) int { return g.at(p) }
 
-// at returns the tile at p, in the grid's space, or -1 over empty space.
+// at returns the tile drawn at p, in the grid's space, or -1 over empty space. While the tiles spring to new places,
+// or fly in, a tile is found where it is drawn now.
 func (g *TileGrid) at(p geom.Point) int {
+	// Where two tiles cross on their way, the later one is found.
+	in, hit := p.Add(geom.Pt(0, g.offset.Value())), -1
+	for i, tc := range g.live {
+		if i > hit && tc.fade.Value() > 0.001 && tc.rect().Contains(in) {
+			hit = i
+		}
+	}
+	if hit >= 0 {
+		return hit
+	}
+	// A tile not built is where its place is; one built and drawn elsewhere is not here.
+	if i := g.placeAt(p); i >= 0 && g.live[i] == nil {
+		return i
+	}
+	return -1
+}
+
+// placeAt returns the tile whose place is at p, in the grid's space, or -1.
+func (g *TileGrid) placeAt(p geom.Point) int {
 	if g.cols == 0 || g.step.W <= 0 || g.step.H <= 0 {
 		return -1
 	}
