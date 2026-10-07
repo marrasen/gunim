@@ -129,8 +129,8 @@ type Days struct {
 	// tap is a press on a heading or a button over the rows of whole days, which acts as the pointer lets go.
 	tap  tap
 	drag *dayDrag
-	// ringed says the grid shows that it has the keyboard.
-	ringed bool
+	// ring runs from 0 to 1 as the grid shows that it has the keyboard.
+	ring *anim.Float
 	// ghostHeld is the drag that drew out an event being named, whose ghost stays until ClearGhost.
 	ghostHeld *dayDrag
 	texts     map[textKey]text.Paragraph
@@ -211,10 +211,10 @@ type textKey struct {
 
 // NewDays returns a grid of count days from first.
 func NewDays(first time.Time, count int) *Days {
-	d := &Days{First: Day(first), Count: count, scroll: anim.NewFloat(0), slide: anim.NewFloat(0),
+	d := &Days{First: Day(first), Count: count, scroll: anim.NewFloat(0), slide: anim.NewFloat(0), ring: anim.NewFloat(0),
 		ghost: anim.NewRect(geom.Rect{}), ghostIn: anim.NewFloat(0), held: map[string]heldEvent{},
 		sprites: map[string]*sprite{}, heads: anim.NewFloat(1)}
-	d.Add(d.scroll, d.slide, d.ghost, d.ghostIn, d.heads)
+	d.Add(d.scroll, d.slide, d.ghost, d.ghostIn, d.heads, d.ring)
 	return d
 }
 
@@ -804,10 +804,8 @@ func (d *Days) longBox(p longPlace) geom.Rect {
 // Paint implements [gunim.Node].
 func (d *Days) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
 	th := f.Theme
-	if d.ringed {
-		// Drawn last, over the rest
-		defer widget.GroupRing(p, geom.Rect{Max: box.Point()}, 0, 1, th)
-	}
+	// The ring is drawn last, over the rest.
+	defer widget.GroupRing(p, geom.Rect{Max: box.Point()}, 0, d.ring.Value(), th)
 	line := widget.MenuBorder.Get(th)
 	faint := widget.PaletteHint.Get(th)
 	hourH := d.hour()
@@ -1263,11 +1261,13 @@ func (d *Days) Handle(e input.Event, u *gunim.UI) bool {
 		}
 		return eventKeys(e, u, d, d.stops(), d.selected, func(id string) { d.choose(id, u) }, d.OnOpen, d.OnDelete)
 	case input.FocusRing:
-		d.ringed = ringShown(e)
-		u.Invalidate()
+		to := float32(0)
+		if ringShown(e) {
+			to = 1
+		}
+		d.ring.Animate(to, widget.Quick.Get(u.Theme()))
 	case input.FocusLost:
-		d.ringed = false
-		u.Invalidate()
+		d.ring.Animate(0, widget.Settle.Get(u.Theme()))
 	case input.FocusGained:
 		// Tabbing in chooses the first event, for the keys to move on from.
 		if e.Keyed && d.selected == "" {

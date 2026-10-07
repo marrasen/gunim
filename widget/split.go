@@ -2,8 +2,10 @@ package widget
 
 import (
 	"image/color"
+	"strconv"
 
 	"github.com/marrasen/gunim"
+	"github.com/marrasen/gunim/access"
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
@@ -34,6 +36,12 @@ const splitMin = 48
 // as the divider springs into place. At a share of 0 or 1 the divider
 // narrows away and one pane has all the space. A double click on the
 // divider evens the panes out.
+//
+// The divider takes the keyboard by Tab, between the two panes, and a
+// ring grows round it. The arrow keys along the split glide it a step,
+// a fiftieth of the space, and with Shift a tenth; Home and End take it
+// as far as a drag can, and Enter evens the panes out. Each move sends
+// OnCommit, as letting go of a drag does.
 type Split struct {
 	anim.Group
 	// Axis lays the panes side by side, which is the zero value, or one
@@ -47,15 +55,17 @@ type Split struct {
 	// [Settle].
 	Glide theme.Token[anim.Spring]
 	// OnCommit, when set, runs on the UI goroutine once the pointer lets
-	// the divider go, with the first pane's new share; a non-nil result is
-	// sent to the application as the split's intent.
+	// the divider go, or a key moves it, with the first pane's new share; a
+	// non-nil result is sent to the application as the split's intent.
 	OnCommit func(share float32, u *gunim.UI) gunim.Intent
 
 	// laid is set by the first layout; a share set before it shows at once.
 	laid          bool
 	first, second gunim.Node
-	share         *anim.Float
-	hot           *anim.Float
+	// bar is the divider as the keyboard knows it, between the panes.
+	bar   *splitBar
+	share *anim.Float
+	hot   *anim.Float
 	// held is set while the pointer drags the divider, grab being how
 	// far into the gap it took hold.
 	held bool
@@ -70,12 +80,14 @@ type Split struct {
 // NewSplit returns first and second split evenly.
 func NewSplit(first, second gunim.Node) *Split {
 	s := &Split{first: first, second: second, share: anim.NewFloat(0.5), hot: anim.NewFloat(0)}
-	s.Add(s.share, s.hot)
+	s.bar = &splitBar{s: s, ring: anim.NewFloat(0)}
+	s.Add(s.share, s.hot, s.bar.ring)
 	return s
 }
 
-// Children implements [gunim.Composite].
-func (s *Split) Children() []gunim.Node { return []gunim.Node{s.first, s.second} }
+// Children implements [gunim.Composite]: the first pane, the divider, and the second pane, in the order Tab visits
+// them.
+func (s *Split) Children() []gunim.Node { return []gunim.Node{s.first, s.bar, s.second} }
 
 // Panes returns the two panes.
 func (s *Split) Panes() (first, second gunim.Node) { return s.first, s.second }
@@ -83,16 +95,16 @@ func (s *Split) Panes() (first, second gunim.Node) { return s.first, s.second }
 // SetPane puts n in place of pane i, 0 for the first and 1 for the
 // second. The pane it replaces leaves the way it animates out.
 func (s *Split) SetPane(i int, n gunim.Node, u *gunim.UI) {
-	old := &s.first
+	old, at := &s.first, 0
 	if i == 1 {
-		old = &s.second
+		old, at = &s.second, 2
 	}
 	if *old == n {
 		return
 	}
 	u.Remove(*old)
 	*old = n
-	u.InsertAt(s, i, n)
+	u.InsertAt(s, at, n)
 }
 
 // Held reports whether the pointer is dragging the divider.
@@ -177,6 +189,8 @@ func (s *Split) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) 
 			s.place(kid, 0, a, own)
 		case s.second:
 			s.place(kid, a+s.gap, b, own)
+		case s.bar:
+			s.place(kid, a, s.gap, own)
 		default:
 			// A pane on its way out keeps the first pane's place.
 			s.place(kid, 0, a, own)
@@ -237,6 +251,9 @@ func (s *Split) Cursor(p geom.Point) input.Cursor {
 	return input.CursorResizeH
 }
 
+// ClaimsPointer implements [gunim.PointerClaimer]: the split takes the pointer on the divider, for dragging it.
+func (s *Split) ClaimsPointer(p geom.Point) bool { return s.inGap(p) }
+
 // DragsTouch implements [gunim.TouchDragger]: a finger on the divider
 // drags it.
 func (s *Split) DragsTouch() bool { return s.held }
@@ -262,7 +279,8 @@ func (s *Split) Handle(e input.Event, u *gunim.UI) bool {
 		if s.held {
 			space := s.length - s.gap
 			if space > 0 {
-				a := min(max(s.along(e.Pos)-s.grab, min(splitMin, space/2)), max(space-splitMin, space/2))
+				lo, hi := limits(space)
+				a := min(max(s.along(e.Pos)-s.grab, lo), hi)
 				if s.Fixed {
 					s.share.Jump(a)
 				} else {
@@ -304,10 +322,108 @@ func (s *Split) light(on bool, u *gunim.UI) {
 	u.Invalidate()
 }
 
+// limits returns how near the ends a drag or a key takes the first pane's length along space.
+func limits(space float32) (lo, hi float32) {
+	return min(splitMin, space/2), max(space-splitMin, space/2)
+}
+
+// key moves the divider for k, and reports whether k was one of its keys.
+func (s *Split) key(k input.KeyPress, u *gunim.UI) bool {
+	space := s.length - s.gap
+	if space <= 0 || k.Mods.Has(input.ModControl) || k.Mods.Has(input.ModAlt) {
+		return false
+	}
+	back, on := input.KeyLeft, input.KeyRight
+	if s.Axis == Vertical {
+		back, on = input.KeyUp, input.KeyDown
+	}
+	step := space / 50
+	if k.Mods.Has(input.ModShift) {
+		step = space / 10
+	}
+	lo, hi := limits(space)
+	a := s.share.Target()
+	if !s.Fixed {
+		a *= space
+	}
+	switch k.Key {
+	case back:
+		a = max(min(a, hi)-step, lo)
+	case on:
+		a = min(max(a, lo)+step, hi)
+	case input.KeyHome:
+		a = lo
+	case input.KeyEnd:
+		a = hi
+	case input.KeyEnter, input.KeyKPEnter:
+		if s.Fixed {
+			return false
+		}
+		a = space / 2
+	default:
+		return false
+	}
+	if !s.Fixed {
+		a /= space
+	}
+	if a != s.share.Target() {
+		s.share.Animate(a, Quick.Get(u.Theme()))
+		u.Invalidate()
+		s.moved(u)
+	}
+	return true
+}
+
 func (s *Split) moved(u *gunim.UI) {
 	if s.OnCommit != nil {
 		send(u, s, s.OnCommit(s.share.Target(), u))
 	}
+}
+
+// splitBar is a split's divider as the keyboard knows it: a node in the gap between the panes that takes the keys
+// and grows a ring round the divider's line. The split itself takes the pointer there.
+type splitBar struct {
+	s    *Split
+	ring *anim.Float
+}
+
+// Focusable implements [gunim.Focusable].
+func (b *splitBar) Focusable() bool { return true }
+
+// FocusOnPress implements [gunim.PressFocuser]: dragging the divider leaves the keyboard in the pane that has it.
+func (b *splitBar) FocusOnPress() bool { return false }
+
+// Handle implements [gunim.Handler].
+func (b *splitBar) Handle(e input.Event, u *gunim.UI) bool {
+	switch e := e.(type) {
+	case input.KeyPress:
+		return b.s.key(e, u)
+	case input.FocusRing:
+		b.ring.Animate(ringTo(e), Quick.Get(u.Theme()))
+	case input.FocusLost:
+		b.ring.Animate(0, Settle.Get(u.Theme()))
+	default:
+		return false
+	}
+	return true
+}
+
+// Layout implements [gunim.Node]: the bar is the gap it is given.
+func (b *splitBar) Layout(c gunim.Constraints, _ gunim.Frame, _ gunim.Children) geom.Size {
+	return c.Min
+}
+
+// Paint implements [gunim.Node]: the ring round the divider's line.
+func (b *splitBar) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
+	FocusRing(p, geom.Rect{Max: box.Point()}, min(box.W, box.H)/2, b.ring.Value(), f.Theme)
+}
+
+// Access implements [gunim.Accessible]: the divider reads as a slider of the first pane's share, in percent.
+func (b *splitBar) Access() access.Info {
+	s := b.s
+	v := float64(s.fraction() * 100)
+	return access.Info{Role: access.RoleSlider, Name: "Divider", Value: strconv.Itoa(int(v+0.5)) + "%",
+		Range: &access.Range{Min: 0, Max: 100, Value: v}}
 }
 
 // mixColor blends from a toward b by t, from 0 to 1.

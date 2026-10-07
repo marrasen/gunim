@@ -49,15 +49,15 @@ type MiniMonth struct {
 	side float32
 	// tap is a press on an arrow or a day, which acts as the pointer lets go.
 	tap tap
-	// ringed says the month shows that it has the keyboard.
-	ringed bool
+	// ring runs from 0 to 1 as the month shows that it has the keyboard.
+	ring *anim.Float
 }
 
 // NewMiniMonth returns a small month showing day's month, with day marked, and weeks starting on Monday.
 func NewMiniMonth(day time.Time) *MiniMonth {
 	m := &MiniMonth{From: Day(day), To: Day(day), FirstWeekday: time.Monday, month: MonthStart(day), hover: -1,
-		slide: anim.NewFloat(0), band: anim.NewRect(geom.Rect{}), hot: anim.NewRect(geom.Rect{}), hotIn: anim.NewFloat(0)}
-	m.Add(m.slide, m.band, m.hot, m.hotIn)
+		slide: anim.NewFloat(0), band: anim.NewRect(geom.Rect{}), hot: anim.NewRect(geom.Rect{}), hotIn: anim.NewFloat(0), ring: anim.NewFloat(0)}
+	m.Add(m.slide, m.band, m.hot, m.hotIn, m.ring)
 	return m
 }
 
@@ -152,10 +152,8 @@ func (m *MiniMonth) bandOf(first, last int) geom.Rect {
 // Paint implements [gunim.Node].
 func (m *MiniMonth) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
 	th := f.Theme
-	if m.ringed {
-		// Drawn last, over the rest
-		defer widget.GroupRing(p, geom.Rect{Max: box.Point()}, 0, 1, th)
-	}
+	// The ring is drawn last, over the rest.
+	defer widget.GroupRing(p, geom.Rect{Max: box.Point()}, 0, m.ring.Value(), th)
 	ink, faint := widget.Ink.Get(th), widget.PaletteHint.Get(th)
 	regular, bold := widget.Font.Get(th), widget.BoldFont.Get(th)
 	now := f.Now.In(m.month.Location())
@@ -274,11 +272,13 @@ func (m *MiniMonth) Handle(e input.Event, u *gunim.UI) bool {
 	case input.PointerLeave:
 		m.lightCell(-1, u)
 	case input.FocusRing:
-		m.ringed = ringShown(e)
-		u.Invalidate()
+		to := float32(0)
+		if ringShown(e) {
+			to = 1
+		}
+		m.ring.Animate(to, widget.Quick.Get(u.Theme()))
 	case input.FocusLost:
-		m.ringed = false
-		u.Invalidate()
+		m.ring.Animate(0, widget.Settle.Get(u.Theme()))
 	case input.PointerDown:
 		if e.Button != input.ButtonPrimary {
 			return false

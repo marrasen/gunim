@@ -45,6 +45,12 @@ type CurveGuide struct {
 // point pops in, a removed one shrinks away as the curve settles, the
 // point under the pointer grows, and a curve set from outside morphs into
 // its new shape.
+//
+// The curve takes the keyboard by Tab, its first point chosen, with a
+// ring round it. Tab and Shift+Tab choose the next point and the one
+// before, and leave the curve past its ends. The arrow keys glide the
+// chosen point a hundredth of the way, a tenth with Shift; Delete or
+// Backspace removes a point between the ends.
 type ToneCurve struct {
 	anim.Group
 	// Color is the curve's colour; the zero value takes the theme's
@@ -55,8 +61,9 @@ type ToneCurve struct {
 	// MaxPoints caps the points, ends included; zero is 16.
 	MaxPoints int
 	// OnChange runs on the UI goroutine with the points at every step of a
-	// drag, and OnCommit as the drag ends or a point goes. A non-nil
-	// result is sent to the application as the curve's intent.
+	// drag or press of a key, and OnCommit as the drag ends, a point goes,
+	// or the keys stop moving a point for half a second. A non-nil result
+	// is sent to the application as the curve's intent.
 	OnChange func(pts []geom.Point, u *gunim.UI) gunim.Intent
 	OnCommit func(pts []geom.Point, u *gunim.UI) gunim.Intent
 
@@ -71,7 +78,14 @@ type ToneCurve struct {
 	morph    *anim.Float
 	held     int
 	hover    int
-	box      geom.Size
+	// chosen is the point the keys act on, ring how far its ring has grown, and nudge how far the point shows from
+	// where it is, in the box, as it glides there after a key moved it. settle stops the wait for a commit after the
+	// keys moved a point.
+	chosen int
+	ring   *anim.Float
+	nudge  *anim.Point
+	settle func()
+	box    geom.Size
 	// laid is set by the first layout. Points set before it show at
 	// once, with no morph from the straight line.
 	laid bool
@@ -84,8 +98,8 @@ type goneDot struct {
 
 // NewToneCurve returns a straight curve, from black to white.
 func NewToneCurve() *ToneCurve {
-	c := &ToneCurve{morph: anim.NewFloat(1), held: -1, hover: -1}
-	c.Add(c.morph)
+	c := &ToneCurve{morph: anim.NewFloat(1), held: -1, hover: -1, ring: anim.NewFloat(0), nudge: anim.NewPoint(geom.Point{})}
+	c.Add(c.morph, c.ring, c.nudge)
 	c.setPoints(nil)
 	c.from = c.to
 	return c
@@ -209,10 +223,113 @@ func (c *ToneCurve) maxPoints() int {
 	return 16
 }
 
+// Focusable implements [gunim.Focusable].
+func (c *ToneCurve) Focusable() bool { return true }
+
+// keyStep is how far an arrow key moves a point, and keySettle how long the keys rest before the move commits.
+const (
+	keyStep   = 0.01
+	keySettle = 500 * time.Millisecond
+)
+
+// key acts on a key press, and reports whether it was one of the curve's keys.
+func (c *ToneCurve) key(k input.KeyPress, u *gunim.UI) bool {
+	if k.Mods.Has(input.ModControl) || k.Mods.Has(input.ModAlt) || c.held >= 0 {
+		return false
+	}
+	th := u.Theme()
+	c.chosen = min(max(c.chosen, 0), len(c.pts)-1)
+	step := float32(keyStep)
+	if k.Mods.Has(input.ModShift) {
+		step *= 10
+	}
+	var d geom.Point
+	switch k.Key {
+	case input.KeyTab:
+		next := c.chosen + 1
+		if k.Mods.Has(input.ModShift) {
+			next = c.chosen - 1
+		}
+		if next < 0 || next >= len(c.pts) {
+			return false // the keyboard moves on
+		}
+		c.chosen = next
+		u.Invalidate()
+		return true
+	case input.KeyDelete, input.KeyBackspace:
+		i := c.chosen
+		if i <= 0 || i >= len(c.pts)-1 {
+			return false
+		}
+		c.removePoint(i, th)
+		c.chosen = min(i, len(c.pts)-1)
+		c.commitNow(u)
+		u.Invalidate()
+		return true
+	case input.KeyLeft:
+		d.X = -step
+	case input.KeyRight:
+		d.X = step
+	case input.KeyUp:
+		d.Y = step
+	case input.KeyDown:
+		d.Y = -step
+	default:
+		return false
+	}
+	was := c.toBox(c.pts[c.chosen])
+	from := c.shown()
+	c.held = c.chosen
+	q := c.pts[c.chosen].Add(d)
+	c.moveHeld(geom.Pt(clamp01(q.X), clamp01(q.Y)))
+	c.held = -1
+	// The curve and the point glide to their new place.
+	c.from = from
+	c.morph.Jump(0)
+	c.morph.Animate(1, Quick.Get(th))
+	c.nudge.Jump(c.nudge.Value().Add(was.Sub(c.toBox(c.pts[c.chosen]))))
+	c.nudge.Animate(geom.Point{}, Quick.Get(th))
+	if c.OnChange != nil {
+		send(u, c, c.OnChange(c.Points(), u))
+	}
+	if c.settle != nil {
+		c.settle()
+	}
+	c.settle = u.After(keySettle, c.commitNow)
+	u.Invalidate()
+	return true
+}
+
+// commitNow sends OnCommit, and ends the wait for one.
+func (c *ToneCurve) commitNow(u *gunim.UI) {
+	if c.settle != nil {
+		c.settle()
+		c.settle = nil
+	}
+	if c.OnCommit != nil {
+		send(u, c, c.OnCommit(c.Points(), u))
+	}
+}
+
 // Handle implements [gunim.Handler].
 func (c *ToneCurve) Handle(e input.Event, u *gunim.UI) bool {
 	th := u.Theme()
 	switch e := e.(type) {
+	case input.KeyPress:
+		return c.key(e, u)
+	case input.FocusGained:
+		c.chosen = 0
+		return false
+	case input.FocusRing:
+		c.ring.Animate(ringTo(e), Quick.Get(th))
+		return true
+	case input.FocusLost:
+		c.ring.Animate(0, Settle.Get(th))
+		// A move the keys made and that has yet to commit commits as the keyboard leaves.
+		if c.settle != nil {
+			c.commitNow(u)
+		}
+		return true
 	case input.PointerMove:
 		if c.held >= 0 {
 			c.moveHeld(c.fromBox(e.Pos))
@@ -375,14 +492,24 @@ func (c *ToneCurve) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ guni
 	for _, g := range c.gone {
 		paintDot(p, c.toBox(g.at), dot*g.size.Value(), ink, CurveFill.Get(th), false)
 	}
+	ring := c.ring.Value()
 	for i, q := range c.pts {
 		grow := float32(1)
+		at := c.toBox(q)
+		if i == c.chosen {
+			at = at.Add(c.nudge.Value())
+			grow += 0.25 * min(max(ring, 0), 1)
+		}
 		if i == c.held {
 			grow = 1.45
 		} else if i == c.hover {
-			grow = 1.25
+			grow = max(grow, 1.25)
 		}
-		paintDot(p, c.toBox(q), dot*grow*c.size[i].Value(), ink, CurveFill.Get(th), i == c.held)
+		d := dot * grow * c.size[i].Value()
+		paintDot(p, at, d, ink, CurveFill.Get(th), i == c.held)
+		if i == c.chosen {
+			FocusRing(p, geom.Rc(at.X-d/2, at.Y-d/2, d, d), d/2, ring, th)
+		}
 	}
 }
 

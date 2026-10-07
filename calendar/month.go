@@ -97,9 +97,9 @@ type Month struct {
 	drag     *monthDrag
 	// tap is a press on a day or how many more it has, which acts as the pointer lets go.
 	tap tap
-	// ringed says the month shows that it has the keyboard.
-	ringed bool
-	texts  map[textKey]text.Paragraph
+	// ring runs from 0 to 1 as the month shows that it has the keyboard.
+	ring  *anim.Float
+	texts map[textKey]text.Paragraph
 }
 
 // monthDrag is an event taken hold of: where the pointer took it, and the day it is over.
@@ -115,9 +115,9 @@ type monthDrag struct {
 
 // NewMonth returns the month holding day, with weeks starting on Monday.
 func NewMonth(day time.Time) *Month {
-	m := &Month{Month: MonthStart(day), FirstWeekday: time.Monday, slide: anim.NewFloat(0),
+	m := &Month{Month: MonthStart(day), FirstWeekday: time.Monday, slide: anim.NewFloat(0), ring: anim.NewFloat(0),
 		sprites: map[string]*sprite{}}
-	m.Add(m.slide)
+	m.Add(m.slide, m.ring)
 	return m
 }
 
@@ -564,10 +564,8 @@ func (m *Month) moved(e Event, g *monthDrag) (time.Time, time.Time) {
 // Paint implements [gunim.Node].
 func (m *Month) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
 	th := f.Theme
-	if m.ringed {
-		// Drawn last, over the rest
-		defer widget.GroupRing(p, geom.Rect{Max: box.Point()}, 0, 1, th)
-	}
+	// The ring is drawn last, over the rest.
+	defer widget.GroupRing(p, geom.Rect{Max: box.Point()}, 0, m.ring.Value(), th)
 	line := widget.MenuBorder.Get(th)
 	faint := widget.PaletteHint.Get(th)
 	ink := widget.Ink.Get(th)
@@ -782,11 +780,13 @@ func (m *Month) Handle(e input.Event, u *gunim.UI) bool {
 		}
 		return eventKeys(e, u, m, m.stops(), m.selected, func(id string) { m.SetSelected(id, u) }, m.OnOpen, m.OnDelete)
 	case input.FocusRing:
-		m.ringed = ringShown(e)
-		u.Invalidate()
+		to := float32(0)
+		if ringShown(e) {
+			to = 1
+		}
+		m.ring.Animate(to, widget.Quick.Get(u.Theme()))
 	case input.FocusLost:
-		m.ringed = false
-		u.Invalidate()
+		m.ring.Animate(0, widget.Settle.Get(u.Theme()))
 	case input.FocusGained:
 		if e.Keyed && m.selected == "" {
 			if s, ok := nextStop(m.stops(), "", input.KeyDown); ok {
