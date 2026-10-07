@@ -100,7 +100,7 @@ func onCOM(fn func() error) error {
 	switch {
 	case uint32(hr) == rpcEChangedMode:
 	case failed(uint32(hr)):
-		return fmt.Errorf("starting COM to reach the Recycle Bin: HRESULT %#x", uint32(hr))
+		return fmt.Errorf("starting COM: HRESULT %#x", uint32(hr))
 	default:
 		defer func() { _, _, _ = procCoUninitialize.Call() }()
 	}

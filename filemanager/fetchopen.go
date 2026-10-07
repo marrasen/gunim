@@ -52,7 +52,7 @@ func (a *app) openFiles(paths []string) {
 		return
 	}
 	if a.fetches() {
-		a.fetchToOpen(paths)
+		a.fetchToOpen(paths, a.c.Open)
 		return
 	}
 	open, ok := a.systemOpen()
@@ -80,8 +80,8 @@ type remoteFile struct {
 // computer's own, with the computer's programs: a copy fetched before
 // and unchanged since at once, and the others once fetched, as an
 // operation of the window. It asks first before it fetches much, or
-// many.
-func (a *app) fetchToOpen(paths []string) {
+// many. open opens each copy on this computer.
+func (a *app) fetchToOpen(paths []string, open func(path string) error) {
 	fsys, copies := a.fs, a.hub.openCopies()
 	go func() {
 		var ready []string
@@ -104,14 +104,14 @@ func (a *app) fetchToOpen(paths []string) {
 			}
 			want = append(want, f)
 		}
-		a.post(func() { a.fetchOrOpen(fsys, copies, ready, want, dirs) })
+		a.post(func() { a.fetchOrOpen(fsys, copies, ready, want, dirs, open) })
 	}()
 }
 
 // fetchOrOpen opens the copies ready, and fetches those wanted from fsys
-// to open them, after asking where they are many or large. dirs counts
-// the folders asked for, which stay where they are.
-func (a *app) fetchOrOpen(fsys FS, copies *openCopies, ready []string, want []remoteFile, dirs int) {
+// to open them with open, after asking where they are many or large.
+// dirs counts the folders asked for, which stay where they are.
+func (a *app) fetchOrOpen(fsys FS, copies *openCopies, ready []string, want []remoteFile, dirs int, open func(path string) error) {
 	if len(ready)+len(want) == 0 {
 		if dirs > 0 {
 			a.fail("Folders here cannot open with this computer's programs.")
@@ -119,7 +119,6 @@ func (a *app) fetchOrOpen(fsys FS, copies *openCopies, ready []string, want []re
 		return
 	}
 	if len(ready) > 0 {
-		open := a.c.Open
 		go func() {
 			for _, p := range ready {
 				if err := open(p); err != nil {
@@ -141,7 +140,7 @@ func (a *app) fetchOrOpen(fsys FS, copies *openCopies, ready []string, want []re
 	if len(want) == 1 {
 		them = "it"
 	}
-	start := func() { a.startFetch(fsys, copies, want) }
+	start := func() { a.startFetch(fsys, copies, want, open) }
 	switch n := len(ready) + len(want); {
 	case total > fetchAsk:
 		a.confirm(Confirm{Title: "Fetch " + humanBytes(total) + " to open " + them + "?",
@@ -165,9 +164,8 @@ func (a *app) fetchBody(ps PathStyle, want []remoteFile) string {
 }
 
 // startFetch fetches the files of want from fsys into copies, as one
-// operation of the window, and opens each with its program once it is
-// here.
-func (a *app) startFetch(fsys FS, copies *openCopies, want []remoteFile) {
+// operation of the window, and opens each with open once it is here.
+func (a *app) startFetch(fsys FS, copies *openCopies, want []remoteFile, open func(path string) error) {
 	ps := fsys.Paths()
 	what := ps.Base(want[0].path)
 	if len(want) > 1 {
@@ -178,7 +176,6 @@ func (a *app) startFetch(fsys FS, copies *openCopies, want []remoteFile) {
 	for _, f := range want {
 		total += f.size
 	}
-	open := a.c.Open
 	a.ops.wg.Go(func() {
 		var done int64
 		var last time.Time
