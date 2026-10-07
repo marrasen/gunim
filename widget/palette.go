@@ -2,15 +2,19 @@ package widget
 
 import (
 	"image/color"
+	"math"
 	"strconv"
+	"strings"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
+	"github.com/marrasen/gunim/driver"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/match"
 	"github.com/marrasen/gunim/paint"
+	"github.com/marrasen/gunim/text"
 	"github.com/marrasen/gunim/theme"
 )
 
@@ -24,7 +28,7 @@ var (
 	PaletteHint = theme.Color("palette.hint", color.NRGBA{R: 0x8a, G: 0x93, B: 0xa6, A: 0xff})
 )
 
-// paletteRows is how many items show before the list scrolls.
+// paletteRows is how many items show before the list scrolls, where the screen has room for them.
 const paletteRows = 10
 
 // PaletteItem is one thing a [Palette] offers: its title, a hint shown
@@ -115,6 +119,7 @@ func (p *Palette) Open(opener gunim.Node, anchor geom.Rect, u *gunim.UI) {
 	p.card = newPaletteCard(p)
 	w := PaletteWidth.Get(u.Theme())
 	x := anchor.Center().X - w/2
+	p.card.centre, p.card.at = anchor.Center().X, geom.Pt(x, anchor.Min.Y)
 	p.popup = u.OpenPopup(opener, p.card, gunim.PopupOptions{
 		Anchor:  geom.Rect{Min: geom.Pt(x, anchor.Min.Y), Max: geom.Pt(x+w, anchor.Min.Y)},
 		Max:     geom.Sz(w+200, 800),
@@ -202,12 +207,20 @@ type paletteCard struct {
 	// commands, and each letter typed ranks them all again.
 	list  *VirtualList
 	found []match.Found
-	// at is where the query matched each item found, by index, and index
-	// each item's index by its key.
-	at    map[int][]int
-	index map[Key]int
+	// place is each item's place in found, by its key.
+	place map[Key]int
 	hot   int
-	in    *anim.Float
+	// ranked is the Items the matcher's items, keys and icons were taken from: items as the matcher takes them, keys
+	// their keys, numbered which keys are made from the index, and icons0 whether any has an icon. pool is the
+	// indices found by last, the query typed last, in order: a query that extends it finds only items among them.
+	ranked   []PaletteItem
+	items    []match.Item
+	keys     []Key
+	numbered []bool
+	icons0   bool
+	pool     []int
+	last     string
+	in       *anim.Float
 	// height is the list's height, gliding as the list changes.
 	height *anim.Float
 
@@ -218,10 +231,19 @@ type paletteCard struct {
 	transparent                bool
 	// icons says an item has an icon, found as the items change rather than for each row every frame.
 	icons bool
+	// room and wide are how tall and how wide the screen lets the palette's window be, from FitPopup, or 0 where
+	// nothing says, and edge the screen's left edge in the opener's space. shown is how many rows the list shows
+	// before it scrolls.
+	room, wide, edge float32
+	shown            int
+	// centre is the middle of the anchor the palette opened on, and at the top left of the card's anchor now, in the
+	// opener's space: the card keeps centred on centre, on the screen.
+	centre float32
+	at     geom.Point
 }
 
 func newPaletteCard(p *Palette) *paletteCard {
-	c := &paletteCard{p: p, field: NewTextField(), in: anim.NewFloat(0), height: anim.NewFloat(0)}
+	c := &paletteCard{p: p, field: NewTextField(), in: anim.NewFloat(0), height: anim.NewFloat(0), shown: paletteRows}
 	c.list = NewVirtualList(func(k Key) gunim.Node { return newPaletteRow(c, k) })
 	c.field.Placeholder = p.Placeholder
 	c.field.OnEdit = c.filter
@@ -234,6 +256,19 @@ func (c *paletteCard) Children() []gunim.Node { return []gunim.Node{c.field, c.l
 
 // PopupPadding implements [gunim.PopupPadder].
 func (c *paletteCard) PopupPadding() geom.Insets { return geom.Uniform(c.margin) }
+
+// FitPopup implements [gunim.PopupFitter]: the palette keeps to the taller of the room below its anchor and above
+// it, and to the screen's width.
+func (c *paletteCard) FitPopup(r driver.Room) {
+	c.room, c.wide = 0, 0
+	if room := max(r.Below, r.Above); !math.IsInf(float64(room), 1) {
+		c.room = room
+	}
+	if wide := r.Left + r.Right; !math.IsInf(float64(wide), 1) {
+		// The room was measured from the window's edge, the card's less its padding as it was then.
+		c.wide, c.edge = wide, c.at.X-c.margin-r.Left
+	}
+}
 
 // Transition implements [gunim.Transitioner].
 func (c *paletteCard) Transition(p gunim.Presence, f gunim.Frame) bool {
@@ -254,11 +289,7 @@ func (c *paletteCard) filter(q string, u *gunim.UI) {
 		c.p.Search(q, u)
 		return
 	}
-	items := make([]match.Item, len(c.p.Items))
-	for i, it := range c.p.Items {
-		items[i] = match.Item{Title: it.Title, Also: it.Also}
-	}
-	c.found = match.Rank(items, q)
+	c.found = c.rank(q)
 	c.p.typedItems = nil
 	if c.p.Typed != nil {
 		c.p.typedItems = c.p.Typed(q)
@@ -277,33 +308,95 @@ func (c *paletteCard) filter(q string, u *gunim.UI) {
 // show shows the items as given, for a palette whose Search ranks them.
 // The highlight stays on the item under key was while the items hold it.
 func (c *paletteCard) show(was Key, u *gunim.UI) {
+	c.take()
 	c.found = make([]match.Found, len(c.p.Items))
 	for i, it := range c.p.Items {
 		c.found[i] = match.Found{Index: i, At: it.At}
 	}
-	for k := range c.found {
-		if was != "" && c.p.keyOf(k) == was {
-			c.refill(u)
-			c.hot = k
-			c.light(u)
-			return
-		}
+	c.refill(u)
+	if k, ok := c.place[was]; ok && was != "" {
+		c.hot = k
+		c.light(u)
+		return
 	}
 	c.list.ScrollTo(0, Quick.Get(u.Theme()))
-	c.refill(u)
+}
+
+// rank ranks the items for q. A query that extends the one before it ranks only what that one found: each letter
+// added can only lose items.
+func (c *paletteCard) rank(q string) []match.Found {
+	c.take()
+	var found []match.Found
+	if c.last != "" && strings.HasPrefix(q, c.last) {
+		some := make([]match.Item, len(c.pool))
+		for k, i := range c.pool {
+			some[k] = c.items[i]
+		}
+		found = match.Rank(some, q)
+		for k := range found {
+			found[k].Index = c.pool[found[k].Index]
+		}
+	} else {
+		found = match.Rank(c.items, q)
+	}
+	// The pool keeps the order of Items, so ties rank as they would among all of them.
+	in := make([]bool, len(c.items))
+	for _, f := range found {
+		in[f.Index] = true
+	}
+	c.pool = c.pool[:0]
+	for i, ok := range in {
+		if ok {
+			c.pool = append(c.pool, i)
+		}
+	}
+	c.last = q
+	return found
+}
+
+// take reads Items again, as they may have changed in place: as the matcher takes them, their keys, and whether any
+// has an icon. An item whose words have changed ranks the next query among all of them.
+func (c *paletteCard) take() {
+	same := c.items != nil && sameSlice(c.ranked, c.p.Items)
+	if !same {
+		c.items = make([]match.Item, len(c.p.Items))
+		c.keys = make([]Key, len(c.p.Items))
+		c.numbered = make([]bool, len(c.p.Items))
+	}
+	c.ranked = c.p.Items
+	c.icons0 = false
+	for i, it := range c.p.Items {
+		if m := &c.items[i]; m.Title != it.Title || !sameSlice(m.Also, it.Also) {
+			*m = match.Item{Title: it.Title, Also: it.Also}
+			same = false
+		}
+		switch {
+		case it.Key != "":
+			c.keys[i], c.numbered[i] = it.Key, false
+		case !c.numbered[i]:
+			// Made once: a key for each item each letter typed is a lot of garbage.
+			c.keys[i], c.numbered[i] = Key(strconv.Itoa(i)), true
+		}
+		c.icons0 = c.icons0 || it.Icon != nil
+	}
+	if !same {
+		c.last, c.pool = "", nil
+	}
 }
 
 // refill puts the items found in the list, the highlight on the first.
 func (c *paletteCard) refill(u *gunim.UI) {
 	c.hot = 0
-	c.icons = c.p.hasIcons()
-	c.at = make(map[int][]int, len(c.found))
-	c.index = make(map[Key]int, len(c.found))
+	c.icons = c.icons0 || hasIcons(c.p.typedItems)
+	c.place = make(map[Key]int, len(c.found))
 	keys := make([]Key, len(c.found))
-	for i, f := range c.found {
-		c.at[f.Index] = f.At
-		keys[i] = c.p.keyOf(f.Index)
-		c.index[keys[i]] = f.Index
+	for k, f := range c.found {
+		if f.Index < len(c.keys) {
+			keys[k] = c.keys[f.Index]
+		} else {
+			keys[k] = c.p.keyOf(f.Index)
+		}
+		c.place[keys[k]] = k
 	}
 	c.list.SetKeys(keys, u)
 	c.light(u)
@@ -375,9 +468,9 @@ func (c *paletteCard) Handle(e input.Event, u *gunim.UI) bool {
 	case input.KeyDown:
 		c.move(1, u)
 	case input.KeyPageUp:
-		c.move(-paletteRows, u)
+		c.move(-c.shown, u)
 	case input.KeyPageDown:
-		c.move(paletteRows, u)
+		c.move(c.shown, u)
 	case input.KeyEnter, input.KeyKPEnter:
 		c.pick(k.Mods.Has(input.ModControl), u)
 	case input.KeyEscape:
@@ -398,7 +491,13 @@ func (c *paletteCard) Layout(cs gunim.Constraints, f gunim.Frame, kids gunim.Chi
 		c.margin = MenuMargin.Get(th)
 	}
 	c.pad, c.rowH, c.spacing = MenuPadding.Get(th)*2, PaletteRowHeight.Get(th), ListSpacing.Get(th)
-	w := PaletteWidth.Get(th)
+	// Too wide for its box or the screen, the palette keeps to them, and cuts its items' text short.
+	wide := cs.Max.W
+	if c.wide > 0 {
+		wide = min(wide, c.wide)
+	}
+	w := max(min(PaletteWidth.Get(th), wide-2*c.margin), 2*c.pad+1)
+	c.centreOn(w)
 	inner := w - 2*c.pad
 	fh := kids.At(0).Layout(gunim.Tight(geom.Sz(inner, FieldHeight.Get(th)))).H
 	kids.At(0).Place(geom.Pt(c.margin+c.pad, c.margin+c.pad))
@@ -407,7 +506,15 @@ func (c *paletteCard) Layout(cs gunim.Constraints, f gunim.Frame, kids gunim.Chi
 		// The status line sits under the field.
 		fh += paletteStatus(th)
 	}
-	lh := max(0, c.height.Value())
+	// Too tall for its box or the screen, the list shows fewer rows and scrolls the rest. It counts on room for the
+	// status line, so the rows shown stay the same as the line comes and goes.
+	tall := cs.Max.H
+	if c.room > 0 {
+		tall = min(tall, c.room)
+	}
+	step := c.rowH + c.spacing
+	c.shown = int(min(paletteRows, max(1, (tall-2*c.margin-3*c.pad-c.fieldH-paletteStatus(th))/step)))
+	lh := min(max(0, c.height.Value()), float32(c.shown)*step)
 	kids.At(1).Layout(gunim.Tight(geom.Sz(inner, lh)))
 	gap := min(c.pad, lh)
 	kids.At(1).Place(geom.Pt(c.margin+c.pad, c.margin+c.pad+fh+gap))
@@ -418,9 +525,21 @@ func (c *paletteCard) Layout(cs gunim.Constraints, f gunim.Frame, kids gunim.Chi
 	// window resized every frame of the card's motion is slow, and on
 	// Windows very slow. Below the card, the pointer passes through.
 	if c.transparent {
-		h = max(h, c.pad+fh+c.pad+paletteRows*(c.rowH+c.spacing)+c.pad+paletteStatus(th))
+		h = max(h, 3*c.pad+c.fieldH+paletteStatus(th)+float32(c.shown)*step)
 	}
 	return cs.Constrain(geom.Sz(w+2*c.margin, h+2*c.margin))
+}
+
+// centreOn moves the popup so a card w wide is centred where the palette opened, and on the screen.
+func (c *paletteCard) centreOn(w float32) {
+	x := c.centre - w/2
+	if c.wide > 0 {
+		x = max(min(x, c.edge+c.wide-c.margin-w), c.edge+c.margin)
+	}
+	if x != c.at.X && c.p.popup != nil {
+		c.at.X = x
+		c.p.popup.Move(geom.Rect{Min: c.at, Max: geom.Pt(x+w, c.at.Y)})
+	}
 }
 
 // Covers implements [gunim.Shaped]: the card is the palette's, and the
@@ -472,9 +591,10 @@ type paletteRow struct {
 	anim.Group
 	c   *paletteCard
 	key Key
-	// index is the item's index, and item and at the item and its marks
-	// as last laid out, which the row keeps drawing as it leaves.
+	// index is the item's index, place its place in the list, and item and at the item and its marks as last laid
+	// out, which the row keeps drawing as it leaves.
 	index  int
+	place  int
 	item   PaletteItem
 	at     []int
 	hot    *anim.Float
@@ -495,11 +615,14 @@ func newPaletteRow(c *paletteCard, key Key) *paletteRow {
 	return r
 }
 
-// refresh takes the row's item afresh, while the palette still holds it.
-func (r *paletteRow) refresh() {
-	if i, ok := r.c.index[r.key]; ok {
-		r.index, r.item, r.at = i, r.c.p.item(i), r.c.at[i]
+// refresh takes the row's item afresh, while the palette still holds it, and reports whether it does.
+func (r *paletteRow) refresh() bool {
+	k, ok := r.c.place[r.key]
+	if ok {
+		f := r.c.found[k]
+		r.place, r.index, r.item, r.at = k, f.Index, r.c.p.item(f.Index), f.At
 	}
+	return ok
 }
 
 // Layout implements [gunim.Node]. The row lights as it is laid out, when
@@ -529,11 +652,25 @@ func (r *paletteRow) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gun
 	pad := MenuRowPadding.Get(th)
 	size := TextSize.Get(th)
 	item := r.item
-	run := r.title.shape(faceIn(Font, th), item.Title, size)
+	face := faceIn(Font, th)
+	run := r.title.shape(face, item.Title, size)
 	top := (box.H - run.Height()) / 2
 	lead := pad
 	if r.c.icons {
 		lead += IconSize.Get(th) + IconGap.Get(th)
+	}
+	// The hint and the tick keep their places at the end, and a title too long for the rest is cut short.
+	end := box.W - pad
+	var hint text.Run
+	if item.Hint != "" {
+		hint = r.hint.shape(face, item.Hint, size*0.9)
+		end -= hint.Advance + pad
+	}
+	if item.Checked {
+		end -= IconSize.Get(th) + pad
+	}
+	if run.Advance > end-lead {
+		run = cutRun(run, face.Shape("…", size), end-lead)
 	}
 	// The matched letters sit on marks, joined where they run on.
 	mark := PaletteMark.Get(th)
@@ -543,8 +680,11 @@ func (r *paletteRow) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gun
 		for j+1 < len(at) && at[j+1] == at[j]+1 {
 			j++
 		}
-		x0, x1 := run.CaretX(at[i]), run.CaretX(at[j]+1)
-		p.RRect(geom.Rc(lead+x0-1, top, x1-x0+2, run.Height()), 3, paint.Solid(mark))
+		// Carets keep the whole title's places, so marks past a cut stop at its end.
+		x0, x1 := min(run.CaretX(at[i]), run.Advance), min(run.CaretX(at[j]+1), run.Advance)
+		if x1 > x0 {
+			p.RRect(geom.Rc(lead+x0-1, top, x1-x0+2, run.Height()), 3, paint.Solid(mark))
+		}
 		i = j + 1
 	}
 	ink := Ink.Get(th)
@@ -556,19 +696,14 @@ func (r *paletteRow) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gun
 		paintIcon(p, th, item.Icon, geom.Rc(pad, (box.H-s)/2, s, s), ink, 1)
 	}
 	run.Paint(p, geom.Pt(lead, top), ink)
-	end := box.W - pad
 	if item.Hint != "" {
-		hint := r.hint.shape(faceIn(Font, th), item.Hint, size*0.9)
-		end -= hint.Advance + pad
 		hint.Paint(p, geom.Pt(box.W-pad-hint.Advance, (box.H-hint.Height())/2), PaletteHint.Get(th))
 	}
 	if item.Checked {
 		s := IconSize.Get(th)
-		paintIcon(p, th, icon.Check, geom.Rc(end-s, (box.H-s)/2, s, s), ink, 1)
-		end -= s + pad
+		paintIcon(p, th, icon.Check, geom.Rc(end+pad, (box.H-s)/2, s, s), ink, 1)
 	}
 	if x := lead + run.Advance + size*0.8; item.Detail != "" && end-x > size {
-		face := faceIn(Font, th)
 		detail := r.detail.shape(face, item.Detail, size*0.85)
 		if detail.Advance > end-x {
 			detail = cutRun(detail, face.Shape("…", detail.Size), end-x)
@@ -584,11 +719,9 @@ func (r *paletteRow) Handle(e input.Event, u *gunim.UI) bool {
 		// A move alone: the palette opening under a pointer at rest, or
 		// the rows shifting under it as the query narrows, leaves the
 		// highlight on the best match, where Enter picks it.
-		for k, f := range r.c.found {
-			if f.Index == r.index && r.c.hot != k {
-				r.c.hot = k
-				r.c.light(u)
-			}
+		if r.refresh() && r.c.hot != r.place {
+			r.c.hot = r.place
+			r.c.light(u)
 		}
 		return false
 	case input.PointerDown:
@@ -597,7 +730,7 @@ func (r *paletteRow) Handle(e input.Event, u *gunim.UI) bool {
 	case input.PointerUp:
 		// A click picks this row's own item, while the palette still
 		// holds it.
-		_, held := r.c.index[r.key]
+		_, held := r.c.place[r.key]
 		if r.click.release(e, over(e.Pos, r.size)) && held {
 			r.c.p.choose(r.index, e.Mods.Has(input.ModControl), u)
 		}
@@ -617,13 +750,11 @@ func (p *Palette) item(i int) PaletteItem {
 	return PaletteItem{}
 }
 
-// hasIcons reports whether any item has an icon, so the titles leave room for them.
-func (p *Palette) hasIcons() bool {
-	for _, list := range [][]PaletteItem{p.Items, p.typedItems} {
-		for _, it := range list {
-			if it.Icon != nil {
-				return true
-			}
+// hasIcons reports whether any of items has an icon, so the titles leave room for them.
+func hasIcons(items []PaletteItem) bool {
+	for _, it := range items {
+		if it.Icon != nil {
+			return true
 		}
 	}
 	return false
