@@ -226,9 +226,9 @@ func (s *sidebar) set(p Places, u *gunim.UI) {
 		}
 	}
 	if len(p.Favourites) == 0 {
-		s.hint.SetText("Pin a folder here with Ctrl+D.")
+		s.hint.Text = "Pin a folder here with Ctrl+D."
 	} else {
-		s.hint.SetText("")
+		s.hint.Text = ""
 	}
 	u.Invalidate()
 }

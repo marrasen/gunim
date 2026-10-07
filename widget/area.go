@@ -133,14 +133,17 @@ func (a *TextArea) hostIndex(p geom.Point, u *gunim.UI) int { return a.indexAt(p
 // Text returns the area's text.
 func (a *TextArea) Text() string { return string(a.text) }
 
-// SetText replaces the text and puts the caret at its end. Call it from
-// a view's update function; see [TextField.SetText].
-func (a *TextArea) SetText(s string) {
+// SetText replaces the text, puts the caret at its end, and sends no
+// intent; see [TextField.SetText].
+func (a *TextArea) SetText(s string, u *gunim.UI) {
 	a.closeCompletion()
 	a.dismissedAt = -1
 	a.setText([]rune(s))
 	a.set(len(a.text), false)
 	a.forget()
+	if u != nil {
+		u.Invalidate()
+	}
 }
 
 // Step implements [gunim.Animator].

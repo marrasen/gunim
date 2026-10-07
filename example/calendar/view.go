@@ -367,8 +367,8 @@ func (v *calView) openCard(from gunim.Node, id string, box geom.Rect, u *gunim.U
 	v.card = u.OpenPopup(from, c, gunim.PopupOptions{Anchor: anchor, Max: geom.Sz(cardW+80, 700),
 		Dismiss: v.dismiss(func(u *gunim.UI) { v.closeCard(u) })})
 	u.Focus(c)
-	v.days.Select(id, u)
-	v.month.Select(id, u)
+	v.days.SetSelected(id, u)
+	v.month.SetSelected(id, u)
 }
 
 // eventMenu wraps view in the menu a right click on one of its events opens: edit it, make a copy of it, delete
@@ -428,8 +428,8 @@ func (v *calView) closeCard(u *gunim.UI) {
 	}
 	v.card.Close()
 	v.card, v.cardID = nil, ""
-	v.days.Select("", u)
-	v.month.Select("", u)
+	v.days.SetSelected("", u)
+	v.month.SetSelected("", u)
 }
 
 // backFromCard takes the card away from inside it, as Escape or its close button does. The keyboard goes back to

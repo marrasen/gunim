@@ -49,7 +49,7 @@ func TestADataGridReadsAsATable(t *testing.T) {
 	size := find(table, access.RoleColumnHeader, "Size")
 	w.Input(access.Request{ID: size.ID, Action: access.ActionPress})
 	run(2)
-	if sel, _ := g.Selected(); sel != 5 {
+	if sel := g.Selected(); sel != 5 {
 		t.Fatalf("pressing a cell of row 5 selected row %d", sel)
 	}
 	if got := sent(w); len(got) != 2 || got[0] != (gridSelected{5}) || got[1] != (gridHeaderPressed{1}) {
@@ -108,7 +108,7 @@ func TestARowAScreenReaderHoldsStaysThatRowAsTheGridScrolls(t *testing.T) {
 	}
 	w.Input(access.Request{ID: row5.ID, Action: access.ActionPress})
 	run(1)
-	if sel, _ := g.Selected(); sel != 5 {
+	if sel := g.Selected(); sel != 5 {
 		t.Fatalf("pressing the row read as file5 after a scroll selected row %d", sel)
 	}
 	scroll(100)

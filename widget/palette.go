@@ -184,7 +184,7 @@ func (p *Palette) SetQuery(q string, u *gunim.UI) {
 	if !p.IsOpen() {
 		return
 	}
-	p.card.field.SetText(q)
+	p.card.field.SetText(q, u)
 	p.card.field.Select(len(q), len(q))
 	p.card.filter(q, u)
 }

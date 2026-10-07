@@ -124,9 +124,6 @@ func NewButton(label string) *Button {
 // stays on the UI side of the boundary by construction.
 func (b *Button) OnActivate(fn func(*gunim.UI)) { b.activate = fn }
 
-// SetLabel changes the label. Call it from a view's update function.
-func (b *Button) SetLabel(label string) { b.Label = label }
-
 // Handle implements [gunim.Handler].
 func (b *Button) Handle(e input.Event, u *gunim.UI) bool {
 	// A tooltip shows even on a button that cannot act, since saying

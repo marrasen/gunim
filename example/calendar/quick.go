@@ -35,7 +35,7 @@ func newQuickCard(d Draft, left bool, done, more func(*gunim.UI)) *quickCard {
 		cals = append(cals, widget.MenuItem{Label: c.Name, Swatch: c.Color})
 	}
 	q.cal = widget.NewDropdown(cals)
-	q.cal.Selected = max(slices.IndexFunc(d.Calendars, func(c Calendar) bool { return c.ID == d.Calendar }), 0)
+	q.cal.SetSelected(max(slices.IndexFunc(d.Calendars, func(c Calendar) bool { return c.ID == d.Calendar }), 0), nil)
 	ev := calendar.Event{Start: d.Start, End: d.End, AllDay: d.AllDay}
 	day, hours := when2(ev)
 	whenLabel := widget.NewLabel(day + " · " + hours)
@@ -62,8 +62,8 @@ func newQuickCard(d Draft, left bool, done, more func(*gunim.UI)) *quickCard {
 func (q *quickCard) draft() Draft {
 	d := q.d
 	d.Title = strings.TrimSpace(q.name.Text())
-	if q.cal.Selected < len(d.Calendars) {
-		d.Calendar = d.Calendars[q.cal.Selected].ID
+	if q.cal.Selected() < len(d.Calendars) {
+		d.Calendar = d.Calendars[q.cal.Selected()].ID
 	}
 	if d.AllDay {
 		// The editor and save take an all-day event's end as its last day.

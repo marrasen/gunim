@@ -148,7 +148,7 @@ func (iv *iconView) show(on, animate bool, u *gunim.UI) {
 	iv.live = iv.live || on || animate
 	g, tiles := iv.pg.grid, iv.grid
 	hadFocus := u.Focused() == gunim.Node(g) || u.Focused() == gunim.Node(tiles)
-	cursor, _ := g.Selected()
+	cursor := g.Selected()
 	if on {
 		tiles.SetSelected(g.SelectedRows(), cursor, u)
 		at := int(g.Top())
@@ -336,7 +336,7 @@ func (t *iconTile) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Childre
 	r, ok := t.iv.pg.view(t.i)
 	if ok && r.Name != t.name {
 		t.name = r.Name
-		t.label.SetText(r.Name)
+		t.label.Text = r.Name
 		t.hero.Tag = t.iv.pg.b.shell.Paths.Join(t.iv.dir, r.Name)
 		t.aspect.Jump(1)
 		t.pic.reset()

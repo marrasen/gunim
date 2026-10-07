@@ -29,14 +29,14 @@ func newEditor(d Draft) *widget.Dialog {
 	}
 	dlg := widget.NewDialog(title)
 	name := widget.NewTextField()
-	name.SetText(d.Title)
+	name.SetText(d.Title, nil)
 	name.Placeholder = "Add a title"
 	cals := make([]widget.MenuItem, 0, len(d.Calendars))
 	for _, c := range d.Calendars {
 		cals = append(cals, widget.MenuItem{Label: c.Name, Swatch: c.Color})
 	}
 	cal := widget.NewDropdown(cals)
-	cal.Selected = max(slices.IndexFunc(d.Calendars, func(c Calendar) bool { return c.ID == d.Calendar }), 0)
+	cal.SetSelected(max(slices.IndexFunc(d.Calendars, func(c Calendar) bool { return c.ID == d.Calendar }), 0), nil)
 	allDay := widget.NewCheckbox("All day")
 	allDay.SetChecked(d.AllDay, nil)
 	end := d.End
@@ -48,8 +48,8 @@ func newEditor(d Draft) *widget.Dialog {
 	startTime := calendar.NewTimeField(d.Start.Sub(calendar.Day(d.Start)))
 	endTime := calendar.NewTimeField(d.End.Sub(calendar.Day(d.End)))
 	if d.AllDay {
-		startTime.TextField.SetText("09:00")
-		endTime.TextField.SetText("10:00")
+		startTime.SetText("09:00", nil)
+		endTime.SetText("10:00", nil)
 	}
 	lasts := widget.NewLabel("")
 	lasts.Color = widget.PaletteHint
@@ -59,14 +59,14 @@ func newEditor(d Draft) *widget.Dialog {
 		case allDay.Checked():
 			days := int(endDay.Value().Sub(startDay.Value()).Hours()/24+0.5) + 1
 			if days <= 1 {
-				lasts.SetText("")
+				lasts.Text = ""
 			} else {
-				lasts.SetText(strconv.Itoa(days) + " days")
+				lasts.Text = strconv.Itoa(days) + " days"
 			}
 		case ok && e.After(s):
-			lasts.SetText(lasting(e.Sub(s)))
+			lasts.Text = lasting(e.Sub(s))
 		default:
-			lasts.SetText("")
+			lasts.Text = ""
 		}
 		if u != nil {
 			u.Invalidate()
@@ -108,13 +108,13 @@ func newEditor(d Draft) *widget.Dialog {
 		showLength(u)
 	})
 	repeat := widget.NewDropdown(widget.Labels(repeatNames...))
-	repeat.Selected = int(d.Repeat)
+	repeat.SetSelected(int(d.Repeat), nil)
 	where := widget.NewTextField()
-	where.SetText(d.Location)
+	where.SetText(d.Location, nil)
 	where.Placeholder = "A room, an address or a link"
 	notes := widget.NewTextArea()
 	notes.Rows = 3
-	notes.SetText(d.Notes)
+	notes.SetText(d.Notes, nil)
 
 	starts := widget.Row(startDay, startClock)
 	ends := widget.Row(endDay, endClock, lasts)
@@ -154,9 +154,9 @@ func newEditor(d Draft) *widget.Dialog {
 	}
 	dlg.OnAccept = func() gunim.Intent {
 		out := Draft{ID: d.ID, Title: strings.TrimSpace(name.Text()), Location: strings.TrimSpace(where.Text()),
-			Notes: strings.TrimSpace(notes.Text()), AllDay: allDay.Checked(), Repeat: Repeat(repeat.Selected)}
-		if cal.Selected < len(d.Calendars) {
-			out.Calendar = d.Calendars[cal.Selected].ID
+			Notes: strings.TrimSpace(notes.Text()), AllDay: allDay.Checked(), Repeat: Repeat(repeat.Selected())}
+		if cal.Selected() < len(d.Calendars) {
+			out.Calendar = d.Calendars[cal.Selected()].ID
 		}
 		if out.AllDay {
 			out.Start, out.End = startDay.Value(), endDay.Value()

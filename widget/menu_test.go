@@ -70,8 +70,8 @@ func TestDropdownPicksWithTheKeyboard(t *testing.T) {
 		w.Input(input.KeyPress{Key: k})
 		run(1)
 	}
-	if d.IsOpen() || d.Selected != 2 {
-		t.Fatalf("open %v, selected %d; want closed on 2", d.IsOpen(), d.Selected)
+	if d.IsOpen() || d.Selected() != 2 {
+		t.Fatalf("open %v, selected %d; want closed on 2", d.IsOpen(), d.Selected())
 	}
 	select {
 	case e := <-w.Client().Intents():
@@ -160,7 +160,7 @@ func TestATooltipsWordsTurnOverAsTheyChange(t *testing.T) {
 func TestADropdownKeepsWithinItsMaxWidth(t *testing.T) {
 	d := NewDropdown(Labels("All sessions", "#12  2024-02-15 10:17:39+01:00  v5.4.1  3 err"))
 	d.MaxWidth = 150
-	d.Selected = 1
+	d.SetSelected(1, nil)
 	stage(t, &frame{child: Row(d), size: geom.Sz(600, 100)})
 	if d.size.W != 150 {
 		t.Fatalf("the drop-down is %v wide, want its MaxWidth of 150", d.size.W)
@@ -182,7 +182,7 @@ func TestAnOpenDropdownShowsItsItemsAsTheyAreNow(t *testing.T) {
 	d.popup.Input(input.PointerDown{Pos: p, Clicks: 1, Time: time.Now()})
 	d.popup.Input(input.PointerUp{Pos: p, Time: time.Now()})
 	run(2)
-	if got := d.Items()[d.Selected].Label; got != "Cherry" {
+	if got := d.Items()[d.Selected()].Label; got != "Cherry" {
 		t.Fatalf("a click on the Cherry shown chose %q", got)
 	}
 }

@@ -43,10 +43,12 @@ func NewDateField(day time.Time) *DateField {
 // Value returns the day the field holds.
 func (f *DateField) Value() time.Time { return f.value }
 
-// SetValue puts day in the field.
+// SetValue puts day in the field and sends no intent. u may be nil, as before the field is laid out.
 func (f *DateField) SetValue(day time.Time, u *gunim.UI) {
 	f.value = Day(day)
-	u.Invalidate()
+	if u != nil {
+		u.Invalidate()
+	}
 }
 
 // set puts day in the field as the user picked it.
@@ -276,18 +278,15 @@ func spanText(d time.Duration) string {
 // NewTimeField returns a field holding the time of day t, as a span from midnight.
 func NewTimeField(t time.Duration) *TimeField {
 	f := &TimeField{TextField: widget.NewTextField()}
-	f.TextField.SetText(clockOf(t))
+	f.SetText(clockOf(t), nil)
 	return f
 }
 
 // Value returns the time of day the field holds, and false when what it holds is not one.
 func (f *TimeField) Value() (time.Duration, bool) { return ParseClock(f.Text()) }
 
-// SetValue puts the time of day t in the field.
-func (f *TimeField) SetValue(t time.Duration, u *gunim.UI) {
-	f.TextField.SetText(clockOf(t))
-	u.Invalidate()
-}
+// SetValue puts the time of day t in the field and sends no intent. u may be nil, as before the field is laid out.
+func (f *TimeField) SetValue(t time.Duration, u *gunim.UI) { f.SetText(clockOf(t), u) }
 
 // Layout implements [gunim.Node].
 func (f *TimeField) Layout(c gunim.Constraints, fr gunim.Frame, kids gunim.Children) geom.Size {
@@ -341,7 +340,7 @@ func (f *TimeField) Handle(e input.Event, u *gunim.UI) bool {
 		return true
 	case input.FocusLost:
 		if t, ok := f.Value(); ok {
-			f.TextField.SetText(clockOf(t))
+			f.SetText(clockOf(t), u)
 			if f.OnChange != nil {
 				f.OnChange(t, u)
 			}

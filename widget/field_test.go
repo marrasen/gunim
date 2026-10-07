@@ -329,7 +329,7 @@ func TestTabTakesTheGhost(t *testing.T) {
 
 func TestSelectPicksARunOfText(t *testing.T) {
 	ty := newTyper(t)
-	ty.field.SetText("report.pdf")
+	ty.field.SetText("report.pdf", nil)
 	ty.field.Select(0, 6)
 	if start, end := ty.field.Selection(); start != 0 || end != 6 {
 		t.Fatalf("selected %d to %d, want 0 to 6", start, end)
@@ -348,7 +348,7 @@ func TestSelectPicksARunOfText(t *testing.T) {
 // field when it reports true.
 func TestAFieldsKeysComeFirst(t *testing.T) {
 	f := NewTextField()
-	f.SetText("ab")
+	f.SetText("ab", nil)
 	took := 0
 	f.Keys = func(e input.KeyPress, u *gunim.UI) bool {
 		if e.Key == input.KeyLeft {

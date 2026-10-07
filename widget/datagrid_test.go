@@ -86,13 +86,13 @@ func TestArrowKeysMoveTheSelectionAndSaySo(t *testing.T) {
 	w, run := stage(t, &frame{child: g, size: geom.Sz(400, 300)})
 	click(w, 100, 26+22*3+5)
 	run(1)
-	if i, ok := g.Selected(); !ok || i != 3 {
-		t.Fatalf("a click on the fourth row selected %v %v, want row 3", i, ok)
+	if i := g.Selected(); i != 3 {
+		t.Fatalf("a click on the fourth row selected %v, want row 3", i)
 	}
 	w.Input(input.KeyPress{Key: input.KeyDown})
 	w.Input(input.KeyPress{Key: input.KeyEnd})
 	run(60)
-	if i, _ := g.Selected(); i != 99 {
+	if i := g.Selected(); i != 99 {
 		t.Fatalf("after End, row %v is selected, want 99", i)
 	}
 	if top := g.Top(); top+g.Visible() < 100 {

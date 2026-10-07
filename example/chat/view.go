@@ -307,7 +307,7 @@ func (v *chatView) set(s Chat, u *gunim.UI) {
 	if !v.solo {
 		v.rail.set(s.Projects, s.Project, u)
 		if s.Project < len(s.Projects) {
-			v.projectName.SetText(s.Projects[s.Project].Name)
+			v.projectName.Text = s.Projects[s.Project].Name
 		}
 		widget.Sync(v.convs, u, s.Conversations,
 			func(c Conversation) widget.Key { return widget.Key(c.ID) },
@@ -320,7 +320,7 @@ func (v *chatView) set(s Chat, u *gunim.UI) {
 		v.members.set(s.Members, u)
 	}
 	v.loading.set(s.Loading, u)
-	v.title.SetText(s.Title)
+	v.title.Text = s.Title
 	v.composer.Placeholder = "Message " + s.Title
 	if s.Title != "" && !isDirect(s) {
 		v.composer.Placeholder = "Message #" + s.Title
@@ -386,7 +386,7 @@ func (v *chatView) set(s Chat, u *gunim.UI) {
 
 	if s.Draft.Seq != v.draftSeq {
 		v.draftSeq = s.Draft.Seq
-		v.composer.SetText(s.Draft.Text)
+		v.composer.SetText(s.Draft.Text, u)
 		u.Focus(v.composer)
 	}
 }
@@ -434,9 +434,9 @@ func isDirect(s Chat) bool {
 // setTyping shows who is typing, or nobody.
 func (v *chatView) setTyping(who string, u *gunim.UI) {
 	if who == "" {
-		v.typing.SetText(" ")
+		v.typing.Text = " "
 	} else {
-		v.typing.SetText(who + " is typing…")
+		v.typing.Text = who + " is typing…"
 	}
 	u.Invalidate()
 }
@@ -445,13 +445,13 @@ func (v *chatView) setTyping(who string, u *gunim.UI) {
 func (v *chatView) setLink(l Link, u *gunim.UI) {
 	switch l {
 	case Online:
-		v.link.SetLabel("Online")
+		v.link.Label = "Online"
 		v.link.Icon = icon.Wifi
 	case Offline:
-		v.link.SetLabel("Offline")
+		v.link.Label = "Offline"
 		v.link.Icon = icon.WifiOff
 	case Reconnecting:
-		v.link.SetLabel("Connecting")
+		v.link.Label = "Connecting"
 		v.link.Icon = icon.Wifi
 	}
 	v.linkBar.set(l, u)

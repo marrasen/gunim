@@ -136,9 +136,17 @@ func (m *Month) Step(dt time.Duration) bool {
 // Selected returns the ID of the event chosen, or an empty ID.
 func (m *Month) Selected() string { return m.selected }
 
-// Select marks the event id as chosen, lifting it, or marks none for an empty id.
-func (m *Month) Select(id string, u *gunim.UI) {
+// SetSelected marks the event id as chosen, lifting it, or marks none for an empty id, and sends no intent. With a nil
+// u the lifts jump.
+func (m *Month) SetSelected(id string, u *gunim.UI) {
 	m.selected = id
+	if u == nil {
+		m.aimLifts(nil)
+		for _, s := range m.sprites {
+			s.lift.Jump(s.lift.Target())
+		}
+		return
+	}
 	m.aimLifts(u.Theme())
 	u.Invalidate()
 }
@@ -770,7 +778,7 @@ func (m *Month) Handle(e input.Event, u *gunim.UI) bool {
 			m.aimLifts(u.Theme())
 			return true
 		}
-		return eventKeys(e, u, m, m.stops(), m.selected, func(id string) { m.Select(id, u) }, m.Open, m.OnDelete)
+		return eventKeys(e, u, m, m.stops(), m.selected, func(id string) { m.SetSelected(id, u) }, m.Open, m.OnDelete)
 	case input.FocusRing:
 		m.ringed = ringShown(e)
 		u.Invalidate()
@@ -780,7 +788,7 @@ func (m *Month) Handle(e input.Event, u *gunim.UI) bool {
 	case input.FocusGained:
 		if e.Keyed && m.selected == "" {
 			if s, ok := nextStop(m.stops(), "", input.KeyDown); ok {
-				m.Select(s.id, u)
+				m.SetSelected(s.id, u)
 			}
 		}
 	case input.PointerDown:

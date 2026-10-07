@@ -27,7 +27,7 @@ func newLongPickerIn(t *testing.T, sel int) (*gunim.Window, *Dropdown, func(int)
 		items[i] = fmt.Sprintf("Item %d", i)
 	}
 	d := NewDropdown(Labels(items...))
-	d.Selected = sel
+	d.SetSelected(sel, nil)
 	w, run := stage(t, &frame{child: d, size: geom.Sz(200, 36)})
 	w.Input(input.PointerDown{Pos: geom.Pt(20, 18), Clicks: 1})
 	w.Input(input.PointerUp{Pos: geom.Pt(20, 18)})
@@ -119,8 +119,8 @@ func TestTheWheelScrollsAMenuAndAClickPicksTheRowUnderIt(t *testing.T) {
 	d.popup.Input(input.PointerDown{Pos: left, Clicks: 1, Time: time.Now()})
 	d.popup.Input(input.PointerUp{Pos: left, Time: time.Now()})
 	run(2)
-	if d.Selected != want {
-		t.Fatalf("a click on row %d picked %d", want, d.Selected)
+	if d.Selected() != want {
+		t.Fatalf("a click on row %d picked %d", want, d.Selected())
 	}
 }
 
@@ -210,8 +210,8 @@ func TestTheHighlightFollowsTheRowUnderThePointerAsTheWheelScrolls(t *testing.T)
 	}
 	w.Input(input.KeyPress{Key: input.KeyEnter})
 	run(2)
-	if d.Selected != want {
-		t.Fatalf("Enter picked %d, with the highlight on row %d under the pointer", d.Selected, want)
+	if d.Selected() != want {
+		t.Fatalf("Enter picked %d, with the highlight on row %d under the pointer", d.Selected(), want)
 	}
 }
 

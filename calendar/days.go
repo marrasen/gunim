@@ -301,9 +301,17 @@ func (d *Days) SetDays(first time.Time, count int, u *gunim.UI) {
 // Selected returns the ID of the event chosen, or an empty ID.
 func (d *Days) Selected() string { return d.selected }
 
-// Select marks the event id as chosen, lifting it and ringing it in the accent, or marks none for an empty id.
-func (d *Days) Select(id string, u *gunim.UI) {
+// SetSelected marks the event id as chosen, lifting it and ringing it in the accent, or marks none for an empty id,
+// and sends no intent. With a nil u the lifts jump.
+func (d *Days) SetSelected(id string, u *gunim.UI) {
 	d.selected = id
+	if u == nil {
+		d.aimLifts(nil)
+		for _, s := range d.sprites {
+			s.lift.Jump(s.lift.Target())
+		}
+		return
+	}
 	d.aimLifts(u.Theme())
 	u.Invalidate()
 }
@@ -347,7 +355,7 @@ func (d *Days) stops() []stop {
 
 // choose chooses the event id by the keys, and scrolls it into sight.
 func (d *Days) choose(id string, u *gunim.UI) {
-	d.Select(id, u)
+	d.SetSelected(id, u)
 	if id != "" {
 		d.Reveal(id, u)
 	}

@@ -113,7 +113,7 @@ func textOps(ops []paint.Op) []*paint.TextOp {
 
 func TestALongFieldDrawsTheTextInViewEachFrame(t *testing.T) {
 	ty := newTyper(t)
-	ty.field.SetText(bigLine(200000))
+	ty.field.SetText(bigLine(200000), nil)
 	ty.run(2)
 	ty.key(input.KeyHome, 0)
 	ty.run(30)

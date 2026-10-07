@@ -47,21 +47,26 @@ func NewProgressBar() *ProgressBar {
 	return b
 }
 
-// Set moves the fill to v, from 0 to 1, gliding there.
-func (b *ProgressBar) Set(v float32, u *gunim.UI) {
+// SetValue moves the fill to v, from 0 to 1, and sends no intent. Once
+// the bar is laid out the fill glides there; before that, or with a nil
+// u, it jumps.
+func (b *ProgressBar) SetValue(v float32, u *gunim.UI) {
 	v = min(max(v, 0), 1)
 	if v == b.value.Target() {
 		return
 	}
-	if !b.laid {
+	if !b.laid || u == nil {
 		b.value.Jump(v)
 		return
 	}
 	b.value.Animate(v, Settle.Get(u.Theme()))
 }
 
-// Value is where the fill is now, from 0 to 1.
-func (b *ProgressBar) Value() float32 { return min(max(b.value.Value(), 0), 1) }
+// Value returns the value the fill is heading for, from 0 to 1.
+func (b *ProgressBar) Value() float32 { return min(max(b.value.Target(), 0), 1) }
+
+// Shown returns where the fill is now, on its way to Value.
+func (b *ProgressBar) Shown() float32 { return min(max(b.value.Value(), 0), 1) }
 
 // Step implements [anim.Animator]. An indeterminate bar keeps drawing
 // while it is painted, as its stripe is always moving. One out of sight
@@ -107,7 +112,7 @@ func (b *ProgressBar) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gu
 		return
 	}
 	b.since = time.Time{}
-	if w := b.Value() * box.W; w > 0 {
+	if w := b.Shown() * box.W; w > 0 {
 		p.RRect(geom.Rect{Max: geom.Pt(max(w, box.H), box.H)}, radius, paint.Solid(fill))
 	}
 }

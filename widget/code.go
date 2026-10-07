@@ -212,15 +212,18 @@ func NewCodeEditor() *CodeEditor {
 func (c *CodeEditor) Text() string { return string(c.text) }
 
 // SetText replaces the code, puts the caret at its start, scrolls to
-// the top and forgets the history, for a file opened afresh. Call it
-// from a view's update function.
-func (c *CodeEditor) SetText(s string) {
+// the top at once and forgets the history, for a file opened afresh. It
+// sends no intent; u may be nil, as before the editor is laid out.
+func (c *CodeEditor) SetText(s string, u *gunim.UI) {
 	c.setText([]rune(s))
 	c.set(0, false)
 	c.forget()
 	c.scrollX.Jump(0)
 	c.scrollY.Jump(0)
 	c.edited = true
+	if u != nil {
+		u.Invalidate()
+	}
 }
 
 // Replace puts s in place of the code as one step of undo, keeping the

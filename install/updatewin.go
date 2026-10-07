@@ -811,7 +811,7 @@ func updatePage(p *page, sc scene) {
 		}
 		act := widget.NewButton("Update Now")
 		if sc.Ready {
-			act.SetLabel("Restart Now")
+			act.Label = "Restart Now"
 		}
 		act.Kind = widget.ButtonPrimary
 		act.On = updateNow{}

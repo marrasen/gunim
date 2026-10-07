@@ -52,8 +52,8 @@ func newFilesPane() *filesPane {
 	f.share = widget.NewMenuButton("Share", nil)
 	f.share.Icon = icon.Share2
 	f.share.OnPick = func(i int) gunim.Intent {
-		row, ok := f.grid.Selected()
-		if !ok || row >= len(f.files.Entries) || f.files.Entries[row].Folder || i >= len(f.convs) {
+		row := f.grid.Selected()
+		if row < 0 || row >= len(f.files.Entries) || f.files.Entries[row].Folder || i >= len(f.convs) {
 			return nil
 		}
 		return FileShared{Folder: f.files.Path, Name: f.files.Entries[row].Name, Conversation: f.convs[i]}
@@ -118,7 +118,8 @@ func (f *filesPane) set(project string, files Files, convs []Conversation, u *gu
 		f.selected = files.Selected
 		for i, e := range files.Entries {
 			if e.Name == files.Selected {
-				f.grid.Select(i, true, u)
+				f.grid.SetSelected(i, u)
+				f.grid.Reveal(i, u)
 			}
 		}
 	}

@@ -128,9 +128,6 @@ func NewDialog(title string) *Dialog {
 	return d
 }
 
-// SetTitle changes the title. Call it from a view's update function.
-func (d *Dialog) SetTitle(title string) { d.Title = title }
-
 // SetButtons names the dialog's buttons, such as "Connect" and
 // "Cancel". An empty cancel leaves the dialog with OK alone, for one
 // that only tells; Escape still closes it.
@@ -164,7 +161,7 @@ func (d *Dialog) Close(u *gunim.UI) { d.finish(u, nil) }
 func (d *Dialog) accept(u *gunim.UI) {
 	if d.Check != nil {
 		if msg := d.Check(); msg != "" {
-			d.problem.SetText(msg)
+			d.problem.Text = msg
 			// A kick sideways that a springy motion rings down to rest.
 			d.shake.Jump(1)
 			d.shake.Animate(0, anim.Spring{Response: 0.18, Damping: 0.12})
@@ -172,7 +169,7 @@ func (d *Dialog) accept(u *gunim.UI) {
 			return
 		}
 	}
-	d.problem.SetText("")
+	d.problem.Text = ""
 	what := d.Accept
 	if d.OnAccept != nil {
 		what = d.OnAccept()

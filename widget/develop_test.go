@@ -159,7 +159,7 @@ func TestASliderRowCountsAlongAndResets(t *testing.T) {
 	s := NewSlider(-100, 100)
 	s.Snap = 1
 	s.Rest, s.HasRest = 0, true
-	s.Set(80)
+	s.SetValue(80, nil)
 	s.OnCommit = func(v float32) gunim.Intent { return committed{v} }
 	row := NewSliderRow("Contrast", s)
 	w, run := stage(t, &frame{child: row, size: geom.Sz(300, 28)})

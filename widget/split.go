@@ -43,10 +43,15 @@ type Split struct {
 	// space changes, as a sidebar does. Share and SetShare then count
 	// that length, where they otherwise count a share from 0 to 1.
 	Fixed bool
+	// Glide, when set, is the motion SetShare glides with, in place of
+	// [Settle].
+	Glide theme.Token[anim.Spring]
 	// OnMove, when set, makes the intent sent once the pointer lets the
 	// divider go, with the first pane's new share.
 	OnMove func(share float32) gunim.Intent
 
+	// laid is set by the first layout; a share set before it shows at once.
+	laid          bool
 	first, second gunim.Node
 	share         *anim.Float
 	hot           *anim.Float
@@ -97,18 +102,24 @@ func (s *Split) Held() bool { return s.held }
 func (s *Split) Share() float32 { return s.share.Target() }
 
 // SetShare aims the first pane's share of the space at v, from 0 to 1,
-// or its length with Fixed, and glides there with motion. A nil motion
-// jumps.
-func (s *Split) SetShare(v float32, motion anim.Motion) {
+// or its length with Fixed, and sends no intent. Once the split is laid
+// out the divider glides there with Glide; before that, or with a nil u,
+// it jumps.
+func (s *Split) SetShare(v float32, u *gunim.UI) {
 	if !s.Fixed {
 		v = min(max(v, 0), 1)
 	}
 	v = max(v, 0)
-	if motion == nil {
+	if !s.laid || u == nil {
 		s.share.Jump(v)
 		return
 	}
-	s.share.Animate(v, motion)
+	glide := Settle
+	if s.Glide.Key() != "" {
+		glide = s.Glide
+	}
+	s.share.Animate(v, glide.Get(u.Theme()))
+	u.Invalidate()
 }
 
 func (s *Split) along(p geom.Point) float32 {
@@ -149,6 +160,7 @@ func (s *Split) firstLength() float32 {
 // Layout implements [gunim.Node]. The split fills the space it is
 // given.
 func (s *Split) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
+	s.laid = true
 	own := c.Max
 	s.own = own
 	s.length = own.W

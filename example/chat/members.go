@@ -80,7 +80,7 @@ func newMembersPanel(close func(*gunim.UI)) *membersPanel {
 
 // set shows members.
 func (m *membersPanel) set(members []Member, u *gunim.UI) {
-	m.title.SetText("Members · " + strconv.Itoa(len(members)))
+	m.title.Text = "Members · " + strconv.Itoa(len(members))
 	widget.Sync(m.list, u, members,
 		memberKey,
 		newMemberRow,

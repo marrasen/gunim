@@ -25,7 +25,7 @@ func TestTabsCutToAFewTitlesJumpBackAndKeepTheirLine(t *testing.T) {
 		tabs.Titles = tabs.Titles[:c.N]
 		u.Invalidate()
 	})
-	gunim.RegisterPatch(w, "stage", func(_ gunim.Node, c chooseTab, u *gunim.UI) { tabs.Select(c.I, u) })
+	gunim.RegisterPatch(w, "stage", func(_ gunim.Node, c chooseTab, u *gunim.UI) { tabs.SetSelected(c.I, u) })
 	if err := w.Client().Patch("stage", chooseTab{19}); err != nil {
 		t.Fatal(err)
 	}

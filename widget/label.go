@@ -69,9 +69,6 @@ type textSelection struct {
 // NewLabel returns a label showing s.
 func NewLabel(s string) *Label { return &Label{Text: s, Size: TextSize, Color: Ink} }
 
-// SetText changes the text. Call it from a view's update function.
-func (l *Label) SetText(s string) { l.Text = s }
-
 func (l *Label) paragraph(f gunim.Frame, width float32) text.Paragraph {
 	if l.NoWrap {
 		// A width of zero sets each line unbroken.

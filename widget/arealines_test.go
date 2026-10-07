@@ -81,7 +81,7 @@ func TestALongAreaDrawsTheLinesInViewEachFrame(t *testing.T) {
 		b.WriteString(strings.Repeat("x", i%40))
 		b.WriteString("\n")
 	}
-	wr.area.SetText(b.String())
+	wr.area.SetText(b.String(), nil)
 	wr.run(2)
 	wr.key(input.KeyHome, input.ModControl)
 	wr.run(30)

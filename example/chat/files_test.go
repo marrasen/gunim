@@ -111,8 +111,8 @@ func TestASharedFileShowsInTheConversationAndOpensFromIt(t *testing.T) {
 	if s.Area != "files" || s.Files.Path != "Design" || s.Files.Selected != "Colours.pdf" {
 		t.Fatalf("opening the file shows %q at %q with %q selected", s.Area, s.Files.Path, s.Files.Selected)
 	}
-	row, ok := h.v.files.grid.Selected()
-	if !ok || s.Files.Entries[row].Name != "Colours.pdf" {
+	row := h.v.files.grid.Selected()
+	if row < 0 || s.Files.Entries[row].Name != "Colours.pdf" {
 		t.Fatal("the grid does not have the file selected")
 	}
 }

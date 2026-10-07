@@ -86,7 +86,7 @@ func (b *promptBody) Focusables() []gunim.Node { return []gunim.Node{b} }
 func newPromptDialog(s Prompt) *widget.Dialog {
 	d := widget.NewDialog(s.Title)
 	field := &promptBody{TextField: widget.NewTextField()}
-	field.SetText(s.Text)
+	field.SetText(s.Text, nil)
 	field.Select(0, s.Stem)
 	d.Body = field
 	d.SetButtons(s.OK, "Cancel")

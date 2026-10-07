@@ -228,7 +228,7 @@ closure, on the way out:
 
 ```go
 field.OnSubmit = func(text string) gunim.Intent {
-    field.SetText("")
+    field.SetText("", nil)
     return Added{Text: text}
 }
 ```
@@ -413,7 +413,7 @@ application as an intent:
 
 ```go
 p.code = widget.NewCodeEditor()
-p.code.SetText(source)
+p.code.SetText(source, nil)
 p.code.OnChange = func(s string) gunim.Intent { return Edited{Lesson: i, Source: s} }
 ```
 

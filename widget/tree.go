@@ -105,12 +105,22 @@ func (t *Tree) Cursor() (Key, bool) {
 	return t.cursor, ok
 }
 
-// Select puts the cursor on key's row and scrolls it into view, as for the file a tree's application shows.
-func (t *Tree) Select(key Key, u *gunim.UI) {
+// SetCursor puts the cursor on key's row and scrolls it into view, as for the file a tree's application shows, and
+// sends no intent. The pill slides over from where it was; with a nil u it jumps, and the view stays.
+func (t *Tree) SetCursor(key Key, u *gunim.UI) {
 	if key == t.cursor {
 		return
 	}
-	if i, ok := t.index[key]; ok {
+	i, ok := t.index[key]
+	if u == nil {
+		t.cursor = key
+		if ok {
+			t.at = i
+		}
+		t.lag.Jump(0)
+		return
+	}
+	if ok {
 		t.move(i, u)
 		return
 	}

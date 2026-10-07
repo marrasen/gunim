@@ -72,7 +72,7 @@ func (p *pathBar) setListing(l Listing, u *gunim.UI) {
 			cs[i] = widget.Crumb{Name: c.Name, Path: c.Path}
 		}
 		p.addr.SetPath(p.b.shell.Paths.Show(l.Path), cs, u)
-		p.filter.SetText(l.Filter)
+		p.filter.SetText(l.Filter, u)
 	}
 }
 
@@ -110,7 +110,7 @@ func (f *filterField) Handle(e input.Event, u *gunim.UI) bool {
 		switch k.Key {
 		case input.KeyEscape:
 			if f.Text() != "" {
-				f.SetText("")
+				f.SetText("", u)
 				u.Send(f, FilterChanged{})
 			}
 			f.bar.b.focusListing(u)
@@ -153,7 +153,7 @@ func (b *bannerView) set(s Banner, u *gunim.UI) {
 		b.shut(u)
 		return
 	}
-	b.label.SetText(s.Text)
+	b.label.Text = s.Text
 	b.fold.set(true, u)
 }
 

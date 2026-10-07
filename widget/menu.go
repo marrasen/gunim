@@ -950,7 +950,8 @@ func (m *Menu) gutter() float32 {
 type Dropdown struct {
 	anim.Group
 
-	Selected int
+	// selected is the chosen item.
+	selected int
 	// Label names the drop-down for a screen reader, as the label
 	// beside it does on screen.
 	Label string
@@ -1005,6 +1006,29 @@ func (d *Dropdown) Items() []MenuItem { return d.list.items }
 // SetItems makes items the choices. The drop-down keeps the slice: a change to it goes through SetItems again. The
 // list open shows them at once.
 func (d *Dropdown) SetItems(items []MenuItem) { d.list = newMenuList(items) }
+
+// Selected returns the chosen item.
+func (d *Dropdown) Selected() int { return d.selected }
+
+// SetSelected chooses item i and sends no intent. The drop-down shows it at once, and the list open glides its
+// highlight there; before the first layout, or with a nil u, the highlight jumps.
+func (d *Dropdown) SetSelected(i int, u *gunim.UI) {
+	if i == d.selected {
+		return
+	}
+	d.selected = i
+	if d.menu == nil || !d.IsOpen() {
+		return
+	}
+	m := d.menu
+	m.Highlight(i)
+	if u == nil {
+		m.hotY.Jump(m.hotY.Target())
+		m.hotOn.Jump(m.hotOn.Target())
+		return
+	}
+	u.Invalidate()
+}
 
 // Focusable implements [gunim.Focusable].
 func (d *Dropdown) Focusable() bool { return !d.Disabled }
@@ -1075,7 +1099,7 @@ func (d *Dropdown) key(k input.KeyPress, u *gunim.UI) bool {
 func (d *Dropdown) listMenu() *Menu {
 	m := NewMenu(nil)
 	d.sync(m)
-	m.Highlight(d.Selected)
+	m.Highlight(d.selected)
 	return m
 }
 
@@ -1092,8 +1116,8 @@ func (d *Dropdown) open(u *gunim.UI) {
 	m := d.listMenu()
 	m.Pick = func(i int, u *gunim.UI) {
 		d.close(u)
-		if i != d.Selected {
-			d.Selected = i
+		if i != d.selected {
+			d.selected = i
 			if d.picked != nil {
 				d.picked(i, u)
 			}
@@ -1180,8 +1204,8 @@ func (d *Dropdown) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 	p.RRectStroke(r, radius, paint.Solid(fill), paint.Stroke{Width: 1, Color: FieldBorder.Get(th)})
 
 	pad := FieldPadding.Get(th)
-	if items := d.list.items; d.Selected >= 0 && d.Selected < len(items) {
-		it := &items[d.Selected]
+	if items := d.list.items; d.selected >= 0 && d.selected < len(items) {
+		it := &items[d.selected]
 		x := pad
 		if it.Icon != nil {
 			s := IconSize.Get(th)

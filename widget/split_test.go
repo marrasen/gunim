@@ -92,13 +92,14 @@ func TestADoubleClickOnTheDividerEvensThePanes(t *testing.T) {
 }
 
 func TestANewPaneSlidesInAsTheDividerSprings(t *testing.T) {
-	_, s, run := newSplitStage(t)
+	w, s, run := newSplitStage(t)
+	u := viewUI(t, w, "split", run)
 	s.SetShare(1, nil)
 	run(1)
 	if a, g := s.firstLength(), s.gap; a != 406 || g != 0 {
 		t.Fatalf("at a share of 1 the first pane is %v wide with a gap of %v, want 406 and 0", a, g)
 	}
-	s.SetShare(0.5, Settle.Default())
+	s.SetShare(0.5, u)
 	last := s.firstLength()
 	for i := range 90 {
 		run(1)

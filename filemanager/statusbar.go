@@ -30,8 +30,8 @@ func newStatusBar() *statusBar {
 }
 
 func (s *statusBar) set(st Status, u *gunim.UI) {
-	s.left.SetText(st.Left)
-	s.right.SetText(st.Right)
+	s.left.Text = st.Left
+	s.right.Text = st.Right
 	u.Invalidate()
 }
 

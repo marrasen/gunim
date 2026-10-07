@@ -181,8 +181,8 @@ func (p *opsPanel) done(d OpDone, u *gunim.UI) {
 	r.graph.SetRunning(false)
 	if d.OK {
 		r.bar.Indeterminate = false
-		r.bar.Set(1, u)
-		r.detail.SetText("Done")
+		r.bar.SetValue(1, u)
+		r.detail.Text = "Done"
 		r.badge.cheer(u)
 	}
 	u.Invalidate()

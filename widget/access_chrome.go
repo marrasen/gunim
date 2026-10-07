@@ -134,7 +134,7 @@ func (s *Split) AccessAct(r access.Request, u *gunim.UI) bool {
 	if !r.SetValue || r.Part != 0 {
 		return false
 	}
-	s.SetShare(float32(r.Value), Quick.Get(u.Theme()))
+	s.SetShare(float32(r.Value), u)
 	if s.OnMove != nil {
 		if v := s.OnMove(s.share.Target()); v != nil {
 			u.Send(s, v)

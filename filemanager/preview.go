@@ -201,11 +201,11 @@ func (pg *previewPage) counted(c Counted) {
 	if c.Counting {
 		suffix = " so far"
 	}
-	pg.holds.SetText(c.Items + suffix)
-	pg.size.SetText(c.Size + suffix)
+	pg.holds.Text = c.Items + suffix
+	pg.size.Text = c.Size + suffix
 	if c.Err != "" {
 		pg.holds.Color = ErrorInk
-		pg.holds.SetText(c.Items + " counted, then: " + c.Err)
+		pg.holds.Text = c.Items + " counted, then: " + c.Err
 	}
 }
 

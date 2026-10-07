@@ -104,7 +104,7 @@ func TestCtrlASelectsEveryRowAndEscapeClears(t *testing.T) {
 	if got := lastRows(t, w); len(got) != 0 {
 		t.Fatalf("Escape left %v selected", got)
 	}
-	if _, ok := g.Selected(); ok {
+	if g.Selected() >= 0 {
 		t.Fatal("Escape left the keyboard on a row")
 	}
 }

@@ -98,7 +98,7 @@ func buildLesson3(Todo) *todoPage {
 	// OnSubmit turns the text into an intent. Emptying the field is
 	// local to the window, so it happens here, on the way out.
 	field.OnSubmit = func(text string) gunim.Intent {
-		field.SetText("")
+		field.SetText("", nil)
 		return Added{Text: text}
 	}
 	reverse := widget.NewButton("Reverse")

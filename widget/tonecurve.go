@@ -101,8 +101,8 @@ func (c *ToneCurve) SetPoints(pts []geom.Point, u *gunim.UI) {
 	}
 	c.from = c.shown()
 	c.setPoints(pts)
-	// Before the first layout, the curve takes its shape at once.
-	if !c.laid {
+	// Before the first layout, or with no UI, the curve takes its shape at once.
+	if !c.laid || u == nil {
 		c.from = c.to
 		c.morph.Jump(1)
 		return

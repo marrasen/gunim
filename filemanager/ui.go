@@ -82,6 +82,7 @@ func newBrowser() *browser {
 	b.palette = newFilesPalette(b)
 	b.dnd = newDndView(b)
 	b.main = widget.NewSplit(b.dnd.listing, b.preview)
+	b.main.Glide = Page
 	b.main.SetShare(0.72, nil)
 	b.split = widget.NewSplit(b.dnd.side, b.main)
 	b.split.Fixed = true
@@ -118,7 +119,7 @@ func (b *browser) setShell(s Shell, u *gunim.UI) {
 		share = 1
 	}
 	if b.shown {
-		b.main.SetShare(share, Page.Get(u.Theme()))
+		b.main.SetShare(share, u)
 	} else {
 		b.main.SetShare(share, nil)
 	}

@@ -272,20 +272,20 @@ func (pg *listingPage) set(l Listing, u *gunim.UI) {
 	switch {
 	case l.Err != "":
 		pg.msg.Color = ErrorInk
-		pg.msg.SetText(l.Err)
+		pg.msg.Text = l.Err
 	case l.Loading:
-		pg.msg.SetText("")
+		pg.msg.Text = ""
 	case l.All == 0:
 		pg.msg.Color = Faint
-		pg.msg.SetText("This folder is empty.")
+		pg.msg.Text = "This folder is empty."
 	case l.Total == 0 && l.Filter != "":
 		pg.msg.Color = Faint
-		pg.msg.SetText("Nothing here matches “" + l.Filter + "”.")
+		pg.msg.Text = "Nothing here matches “" + l.Filter + "”."
 	case l.Total == 0:
 		pg.msg.Color = Faint
-		pg.msg.SetText("Everything here is hidden. Show hidden files with Ctrl+H.")
+		pg.msg.Text = "Everything here is hidden. Show hidden files with Ctrl+H."
 	default:
-		pg.msg.SetText("")
+		pg.msg.Text = ""
 	}
 	u.Invalidate()
 }

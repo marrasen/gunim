@@ -103,7 +103,7 @@ func newPage(i int, intro string, demo gunim.Node, source string) *page {
 	// lesson and back.
 	p.code = widget.NewCodeEditor()
 	p.code.Label = lessonFile(i)
-	p.code.SetText(source)
+	p.code.SetText(source, nil)
 	p.code.OnChange = func(s string) gunim.Intent { return Edited{Lesson: i, Source: s} }
 
 	title := widget.NewLabel(lessonFile(i))

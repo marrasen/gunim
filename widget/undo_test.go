@@ -68,7 +68,7 @@ func TestAPasteIsAStepOfItsOwn(t *testing.T) {
 func TestNewTextForgetsTheHistory(t *testing.T) {
 	wr := newWriter(t, 400)
 	wr.typeEach("draft")
-	wr.area.SetText("")
+	wr.area.SetText("", nil)
 	wr.run(1)
 	wr.key(input.KeyZ, input.ModControl)
 	wr.want("", 0)

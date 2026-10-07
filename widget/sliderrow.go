@@ -39,6 +39,8 @@ var (
 // Gradient, OnChange and OnCommit.
 type SliderRow struct {
 	anim.Group
+	// Label names the row's slider.
+	Label  string
 	Slider *Slider
 	// Format writes the value for the readout. Nil writes it with as many
 	// decimals as the slider's Snap has, or two.
@@ -59,7 +61,7 @@ type SliderRow struct {
 
 // NewSliderRow returns a row of s, labelled label.
 func NewSliderRow(label string, s *Slider) *SliderRow {
-	r := &SliderRow{Slider: s, label: NewLabel(label), value: NewLabel(""), off: anim.NewFloat(0), hot: anim.NewFloat(0), active: anim.NewFloat(0)}
+	r := &SliderRow{Label: label, Slider: s, label: NewLabel(label), value: NewLabel(""), off: anim.NewFloat(0), hot: anim.NewFloat(0), active: anim.NewFloat(0)}
 	r.label.Size, r.label.NoWrap, r.label.MaxLines = SliderRowSize, true, 1
 	r.value.Size, r.value.Color, r.value.NoWrap, r.value.Align = SliderRowSize, SliderRowInk, true, text.AlignEnd
 	r.Add(r.off, r.hot, r.active)
@@ -102,9 +104,6 @@ func PaintActive(p *paint.Painter, th *theme.Live, box geom.Size, k float32) {
 	p.RRect(geom.Rc(r.Min.X+2, (box.H-h)/2, 3, h), 1.5, paint.Solid(bar))
 }
 
-// SetLabel changes the row's label.
-func (r *SliderRow) SetLabel(s string) { r.label.SetText(s) }
-
 // format writes v for the readout.
 func (r *SliderRow) format(v float32) string {
 	if r.Format != nil {
@@ -124,6 +123,7 @@ func (r *SliderRow) Children() []gunim.Node { return []gunim.Node{r.label, r.Sli
 // left, the readout, and room for the reset mark.
 func (r *SliderRow) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
 	th := f.Theme
+	r.label.Text = r.Label
 	w := c.Max.W
 	if w <= 0 {
 		w = FieldWidth.Get(th) * 1.5
@@ -133,7 +133,7 @@ func (r *SliderRow) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Childr
 	s := r.Slider
 	// The readout follows the knob, so it counts as the knob glides.
 	if t := r.format(s.Shown()); t != r.value.Text {
-		r.value.SetText(t)
+		r.value.Text = t
 	}
 	off := s.HasRest && math.Abs(float64(s.Value()-s.Rest)) > 1e-6
 	if to := map[bool]float32{false: 0, true: 1}[off]; r.laid {

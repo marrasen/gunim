@@ -89,9 +89,9 @@ func (d *propsDialog) show(size, holds string, counting bool, err string) {
 		size = "Counting…"
 		more = ""
 	}
-	d.size.SetText(size + more)
+	d.size.Text = size + more
 	if d.holds != nil {
-		d.holds.SetText(holds)
+		d.holds.Text = holds
 	}
-	d.err.SetText(err)
+	d.err.Text = err
 }

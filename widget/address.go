@@ -65,7 +65,7 @@ func (a *AddressBar) SetPath(full string, cs []Crumb, u *gunim.UI) {
 
 // Edit turns the places into a field holding the path, all selected, with the keyboard.
 func (a *AddressBar) Edit(u *gunim.UI) {
-	a.field.SetText(a.path)
+	a.field.SetText(a.path, u)
 	a.field.Select(0, len([]rune(a.path)))
 	a.show(true, u)
 	u.Focus(a.field)

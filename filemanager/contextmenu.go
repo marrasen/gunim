@@ -476,7 +476,7 @@ func (v *dndView) keys(e input.KeyPress, u *gunim.UI) bool {
 		return false
 	}
 	at := geom.Pt(40, 40)
-	if row, ok := l.cur.grid.Selected(); ok {
+	if row := l.cur.grid.Selected(); row >= 0 {
 		if r, ok := l.cur.grid.RowRect(row); ok {
 			at = geom.Pt(r.Min.X+40, r.Max.Y)
 		}

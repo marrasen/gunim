@@ -338,12 +338,13 @@ func (g *DataGrid) SetRows(n int, u *gunim.UI) {
 	u.Invalidate()
 }
 
-// Selected returns the selected row, and false when there is none.
-func (g *DataGrid) Selected() (int, bool) { return g.selected, g.selected >= 0 }
+// Selected returns the selected row, or -1 when there is none.
+func (g *DataGrid) Selected() int { return g.selected }
 
-// Select selects row i, or clears the selection for -1, without telling
-// OnSelect. With reveal, the view scrolls to show it.
-func (g *DataGrid) Select(i int, reveal bool, u *gunim.UI) {
+// SetSelected selects row i, or clears the selection for -1, and sends no
+// intent. The view stays where it is; [DataGrid.Reveal] brings the row
+// into it.
+func (g *DataGrid) SetSelected(i int, u *gunim.UI) {
 	if i < 0 || i >= g.rows {
 		i = -1
 	}
@@ -352,8 +353,22 @@ func (g *DataGrid) Select(i int, reveal bool, u *gunim.UI) {
 	if i >= 0 {
 		g.runs = [][2]int{{i, i + 1}}
 	}
-	if reveal && i >= 0 {
-		g.reveal(i)
+	if u != nil {
+		u.Invalidate()
+	}
+}
+
+// Reveal scrolls the view just far enough to show row i whole. Once the
+// grid is laid out the view glides there; before that, or with a nil u,
+// it jumps.
+func (g *DataGrid) Reveal(i int, u *gunim.UI) {
+	if i < 0 || i >= g.rows {
+		return
+	}
+	g.reveal(i)
+	if u == nil || g.rowH <= 0 {
+		g.top, g.vel = g.goal, 0
+		return
 	}
 	u.Invalidate()
 }

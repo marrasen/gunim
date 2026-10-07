@@ -179,8 +179,8 @@ func (d *Dropdown) Access() access.Info {
 		Actions: []string{access.ActionPress},
 	}
 	items := d.list.items
-	if d.Selected >= 0 && d.Selected < len(items) {
-		info.Value = items[d.Selected].Label
+	if d.selected >= 0 && d.selected < len(items) {
+		info.Value = items[d.selected].Label
 	}
 	if d.IsOpen() {
 		info.State |= access.StateExpanded

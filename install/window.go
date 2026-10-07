@@ -645,7 +645,7 @@ func updateStage(st *stage, sc scene, u *gunim.UI) {
 			st.page.notes.show(sc, u)
 		}
 		if l := st.page.status; l != nil && (l.Text != sc.Status || st.page.trouble != sc.Trouble) {
-			l.SetText(sc.Status)
+			l.Text = sc.Status
 			l.Color = inkSoft
 			if sc.Trouble {
 				l.Color = failInk
@@ -663,7 +663,7 @@ func updateStage(st *stage, sc scene, u *gunim.UI) {
 		// The work's last step says it is done; the page under the ring
 		// keeps the step before until the next page comes.
 		if l, ok := st.page.step.(*widget.Label); ok && sc.Step != "Done" && l.Text != sc.Step+"…" {
-			l.SetText(sc.Step + "…")
+			l.Text = sc.Step + "…"
 		}
 	}
 	u.Invalidate()
@@ -846,7 +846,7 @@ func welcomePage(p *page, sc scene) {
 		again.Disabled = sc.NoRoom
 		open := widget.NewButton("Open")
 		if sc.Mode == Downgrade {
-			open.SetLabel("Open " + sc.Have)
+			open.Label = "Open " + sc.Have
 		}
 		open.Kind = widget.ButtonPrimary
 		open.On = opened{}

@@ -401,25 +401,18 @@ func (s *Slider) commit(u *gunim.UI) {
 	}
 }
 
-// SetValue sets the value without an intent. Call it from a view's
-// update function; the knob glides to it. It keeps the value as it is,
-// within the range, off Snap's steps too: only the slider's own moves
-// round to them, so a value stored with more precision shows as it is.
+// SetValue sets the value and sends no intent. Once the slider is laid
+// out the knob glides to it; before that, or with a nil u, it jumps. It
+// keeps the value as it is, within the range, off Snap's steps too: only
+// the slider's own moves round to them, so a value stored with more
+// precision shows as it is.
 func (s *Slider) SetValue(v float32, u *gunim.UI) {
 	s.value = max(s.Min, min(v, s.Max))
-	if !s.laid {
+	if !s.laid || u == nil {
 		s.at.Jump(s.frac())
 		return
 	}
 	s.at.Animate(s.frac(), Quick.Get(u.Theme()))
-}
-
-// Set sets the value with the knob jumping straight to it, and tells
-// nobody. It is for a place with no UI to hand, such as a field beside
-// the slider reporting what was typed into it.
-func (s *Slider) Set(v float32) {
-	s.value = max(s.Min, min(v, s.Max))
-	s.at.Jump(s.frac())
 }
 
 func (s *Slider) clamp(v float32) float32 {
@@ -778,10 +771,16 @@ func (t *Tabs) Children() []gunim.Node { return append([]gunim.Node{t.bar}, t.pa
 // Selected returns the chosen tab.
 func (t *Tabs) Selected() int { return t.selected }
 
-// Select chooses tab i without an intent. Call it from a view's update
-// function.
-func (t *Tabs) Select(i int, u *gunim.UI) {
+// SetSelected chooses tab i and sends no intent. Once the tabs are laid
+// out, the new page slides in and the line glides under its title;
+// before that, or with a nil u, the tab shows at once.
+func (t *Tabs) SetSelected(i int, u *gunim.UI) {
 	if i < 0 || i >= max(t.count, len(t.Titles)) || i == t.selected {
+		return
+	}
+	if !t.laid || u == nil {
+		t.selected, t.prev, t.laid = i, -1, false
+		t.slide.Jump(1)
 		return
 	}
 	t.prev, t.from = t.selected, 1
@@ -827,7 +826,7 @@ func (t *Tabs) choose(i int, u *gunim.UI) {
 	if i == t.selected || i < 0 || i >= t.count || flag(t.Disabled, i) {
 		return
 	}
-	t.Select(i, u)
+	t.SetSelected(i, u)
 	u.Cue(gunim.CueSelect, t)
 	if t.OnChange != nil {
 		u.Send(t, t.OnChange(i))

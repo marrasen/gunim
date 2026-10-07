@@ -14,7 +14,7 @@ import (
 func TestADropdownShowsTheChosenItemsIcon(t *testing.T) {
 	plain := NewDropdown(Labels("Details", "Icons"))
 	d := NewDropdown([]MenuItem{{Label: "Details", Icon: icon.List}, {Label: "Icons", Icon: icon.LayoutGrid}})
-	d.Selected = 1
+	d.SetSelected(1, nil)
 	w, run := stage(t, Column(plain, d))
 	run(2)
 	if gap := d.size.W - plain.size.W; gap != IconSize.Default()+IconGap.Default() {

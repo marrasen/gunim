@@ -141,14 +141,18 @@ func (t *TextField) hostIndex(p geom.Point, u *gunim.UI) int { return t.indexAt(
 // Text returns the field's text.
 func (t *TextField) Text() string { return string(t.text) }
 
-// SetText replaces the text and puts the caret at its end. Call it from
-// a view's update function. An application that sets the text on every
+// SetText replaces the text, puts the caret at its end, and sends no
+// intent. The field draws it on the next frame; u may be nil, as before
+// the field is laid out. An application that sets the text on every
 // change it hears about should skip the ones the field sent, or it will
 // move the caret under the user's fingers.
-func (t *TextField) SetText(s string) {
+func (t *TextField) SetText(s string, u *gunim.UI) {
 	t.setText([]rune(s))
 	t.set(len(t.text), false)
 	t.forget()
+	if u != nil {
+		u.Invalidate()
+	}
 }
 
 // Select selects the text from rune start to rune end, with the caret at

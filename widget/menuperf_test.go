@@ -97,7 +97,7 @@ func BenchmarkOpenMenuFrame(b *testing.B) {
 // BenchmarkOpenDropdownMenu opens the list of a drop-down of 100 000 items: its menu's first layout and paint.
 func BenchmarkOpenDropdownMenu(b *testing.B) {
 	d := NewDropdown(manyItems(100_000))
-	d.Selected = 50_000
+	d.SetSelected(50_000, nil)
 	f := gunim.Frame{Scale: 1}
 	d.Layout(gunim.Loose(geom.Sz(400, 36)), f, gunim.Children{})
 	c := gunim.Loose(geom.Sz(600, 480))
@@ -158,7 +158,7 @@ func TestALongMenuDrawsOnlyTheRowsInView(t *testing.T) {
 
 func TestOpeningALongDropdownMeasuresNoItemAgain(t *testing.T) {
 	d := NewDropdown(manyItems(5000))
-	d.Selected = 2500
+	d.SetSelected(2500, nil)
 	f := gunim.Frame{Scale: 1}
 	d.Layout(gunim.Loose(geom.Sz(400, 36)), f, gunim.Children{})
 	open := func() {

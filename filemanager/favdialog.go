@@ -36,7 +36,7 @@ func (b *favEditBody) Focusables() []gunim.Node { return b.focus }
 
 func newFavouriteDialog(s FavouriteEdit) *favDialog {
 	d := &favDialog{Dialog: widget.NewDialog("Edit favourite"), name: widget.NewTextField()}
-	d.name.SetText(s.Name)
+	d.name.SetText(s.Name, nil)
 	d.name.Select(0, utf8.RuneCountInString(s.Name))
 	d.name.Placeholder = s.Folder
 	d.colors = newPickGrid(FavouriteColors, s.Color, func(p *paint.Painter, th *theme.Live, i int, r geom.Rect) {

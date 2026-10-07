@@ -53,7 +53,7 @@ func (n *NumberField) OnSet(fn func(v float64, u *gunim.UI)) { n.set = fn }
 // NewNumberField returns a field holding lo, bounded by lo and hi.
 func NewNumberField(lo, hi float64) *NumberField {
 	n := &NumberField{TextField: NewTextField(), Min: lo, Max: hi, value: lo}
-	n.TextField.SetText(n.format(lo))
+	n.SetText(n.format(lo), nil)
 	n.TextField.OnEdit = func(s string, u *gunim.UI) {
 		v, ok := parseNumber(s)
 		if !ok {
@@ -79,11 +79,11 @@ func NewNumberField(lo, hi float64) *NumberField {
 // Value returns the number the field holds.
 func (n *NumberField) Value() float64 { return n.value }
 
-// SetValue sets the value and rewrites the text. Call it from a view's
-// update function.
-func (n *NumberField) SetValue(v float64) {
+// SetValue sets the value, held to Min and Max, rewrites the text, and
+// sends no intent. u may be nil, as before the field is laid out.
+func (n *NumberField) SetValue(v float64, u *gunim.UI) {
 	n.value = n.clamp(v)
-	n.TextField.SetText(n.format(n.value))
+	n.SetText(n.format(n.value), u)
 }
 
 func (n *NumberField) clamp(v float64) float64 {
@@ -130,8 +130,7 @@ func (n *NumberField) commit(v float64, u *gunim.UI) {
 	v = n.clamp(v)
 	changed := v != n.value
 	n.value = v
-	n.TextField.SetText(n.format(v))
-	u.Invalidate()
+	n.SetText(n.format(v), u)
 	if !changed {
 		return
 	}

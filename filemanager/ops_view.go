@@ -97,16 +97,16 @@ func newOpRow(o OpView) *opRow {
 }
 
 func (r *opRow) set(o OpView, u *gunim.UI) {
-	r.title.SetText(o.Title)
+	r.title.Text = o.Title
 	r.progress(o.Done, o.Unknown, o.Detail, u)
 }
 
 func (r *opRow) progress(done float32, unknown bool, detail string, u *gunim.UI) {
 	r.bar.Indeterminate = unknown
 	if !unknown {
-		r.bar.Set(done, u)
+		r.bar.SetValue(done, u)
 	}
-	r.detail.SetText(detail)
+	r.detail.Text = detail
 	u.Invalidate()
 }
 

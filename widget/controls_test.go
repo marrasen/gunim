@@ -164,7 +164,7 @@ func TestTabsLayOutOnlyThePagesShowing(t *testing.T) {
 	pages := []*layoutCounter{{}, {}, {}}
 	tabs := NewTabs([]string{"One", "Two", "Three"}, pages[0], pages[1], pages[2])
 	w, run := stage(t, &frame{child: tabs, size: geom.Sz(300, 200)})
-	gunim.RegisterPatch(w, "stage", func(_ gunim.Node, c chooseTab, u *gunim.UI) { tabs.Select(c.I, u) })
+	gunim.RegisterPatch(w, "stage", func(_ gunim.Node, c chooseTab, u *gunim.UI) { tabs.SetSelected(c.I, u) })
 	run(10)
 	if pages[1].laid != 0 || pages[2].laid != 0 {
 		t.Fatalf("with the first page showing, the others were laid out %d and %d times", pages[1].laid, pages[2].laid)
@@ -190,7 +190,7 @@ func TestTabsAskedForNoHeightKeepTheTallestPagesHeight(t *testing.T) {
 	// A Scroll lays its child out with no height of its own, as a dialog measures its body.
 	sc := NewScroll(tabs)
 	w, run := stage(t, &frame{child: sc, size: geom.Sz(300, 600)})
-	gunim.RegisterPatch(w, "stage", func(_ gunim.Node, c chooseTab, u *gunim.UI) { tabs.Select(c.I, u) })
+	gunim.RegisterPatch(w, "stage", func(_ gunim.Node, c chooseTab, u *gunim.UI) { tabs.SetSelected(c.I, u) })
 	run(2)
 	want := tabs.head + 300
 	if err := w.Client().Patch("stage", chooseTab{1}); err != nil {
@@ -271,7 +271,7 @@ func TestTabsTakePagesMountedUnderThemAndSkipDisabledOnes(t *testing.T) {
 func TestTabsCanBeSelectedBeforeTheirPagesArrive(t *testing.T) {
 	tabs := NewTabs([]string{"One", "Two", "Three"})
 	w := gunimtest.New(t, geom.Sz(600, 400), nil)
-	gunim.RegisterView(w, "tabs", func(struct{}) *Tabs { return tabs }, func(tb *Tabs, _ struct{}, u *gunim.UI) { tb.Select(2, u) })
+	gunim.RegisterView(w, "tabs", func(struct{}) *Tabs { return tabs }, func(tb *Tabs, _ struct{}, u *gunim.UI) { tb.SetSelected(2, u) })
 	page := newSpot(10, 10)
 	gunim.RegisterView(w, "page", func(struct{}) *spot { return page }, nil)
 	c := w.Client()
@@ -327,7 +327,7 @@ type committed struct{ v float32 }
 
 func TestASliderHeldByItsKnobMovesAsFarAsThePointer(t *testing.T) {
 	s := NewSlider(-100, 100)
-	s.Set(0)
+	s.SetValue(0, nil)
 	s.OnCommit = func(v float32) gunim.Intent { return committed{v} }
 	w, run := stage(t, &frame{child: s, size: geom.Sz(218, 28)})
 	run(1)
@@ -363,7 +363,7 @@ func TestASliderHeldByItsKnobMovesAsFarAsThePointer(t *testing.T) {
 func TestADoubleClickSendsASliderBackToRest(t *testing.T) {
 	s := NewSlider(-100, 100)
 	s.Rest, s.HasRest = 0, true
-	s.Set(60)
+	s.SetValue(60, nil)
 	s.OnCommit = func(v float32) gunim.Intent { return committed{v} }
 	w, run := stage(t, &frame{child: s, size: geom.Sz(218, 28)})
 	run(1)
@@ -392,11 +392,11 @@ func TestADoubleClickSendsASliderBackToRest(t *testing.T) {
 func TestASliderSetFromOutsideKeepsItsValueOffTheSteps(t *testing.T) {
 	s := NewSlider(-5, 5)
 	s.Snap = 0.05
-	s.Set(1.49)
+	s.SetValue(1.49, nil)
 	if s.Value() != 1.49 {
 		t.Fatalf("Set(1.49) on a slider of steps of 0.05 left %v", s.Value())
 	}
-	s.Set(9)
+	s.SetValue(9, nil)
 	if s.Value() != 5 {
 		t.Fatalf("Set(9) on a slider to 5 left %v", s.Value())
 	}
