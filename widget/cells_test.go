@@ -47,6 +47,17 @@ func newCellStage(t testing.TB) (*gunim.Window, *CellGrid, func(int)) {
 	return w, g, run
 }
 
+// drawnOps returns ops up to the last that draws, past the ends of the layers round it, such as the grid's clip.
+func drawnOps(ops []paint.Op) []paint.Op {
+	for len(ops) > 1 {
+		if _, end := ops[len(ops)-1].(*paint.LayerEndOp); !end {
+			break
+		}
+		ops = ops[:len(ops)-1]
+	}
+	return ops
+}
+
 func TestAGridFitsWholeCellsToItsSpace(t *testing.T) {
 	_, g, _ := newCellStage(t)
 	cell := g.CellSize()
@@ -116,10 +127,48 @@ func TestABlockCursorShowsItsCharacterInTheCellsBackground(t *testing.T) {
 	g.SetRow(0, row)
 	g.SetCursor(Cursor{Col: 1, Row: 0, Visible: true, Color: color.NRGBA{R: 0xff, A: 0xff}})
 	run(30)
-	ops := w.Offscreen().Ops()
+	ops := drawnOps(w.Offscreen().Ops())
 	last, ok := ops[len(ops)-1].(*paint.TextOp)
 	if !ok || last.Color != bg || len(last.Glyphs) != 1 {
 		t.Fatalf("the last op is %+v, want b in the cell's background", ops[len(ops)-1])
+	}
+}
+
+func TestASqueezedGridDrawsItsCellsInsideItsBox(t *testing.T) {
+	g := NewCellGrid()
+	g.Size = 14
+	g.Resize(80, 30)
+	for y := range 30 {
+		g.SetRow(y, cellsOf(fmt.Sprintf("row %d: the quick brown fox jumps over the lazy dog, again and again", y)))
+	}
+	g.SetCursor(Cursor{Col: 70, Row: 29, Visible: true})
+	box := geom.Sz(150, 95)
+	w, run := stage(t, &frame{child: g, size: box})
+	for i := range 5 {
+		run(1)
+		depth, cells := 0, 0
+		for _, op := range w.Offscreen().Ops() {
+			switch op := op.(type) {
+			case *paint.LayerOp:
+				if op.Opts.Clip {
+					b := geom.Rect{Min: op.Transform.Apply(op.Opts.Bounds.Min), Max: op.Transform.Apply(op.Opts.Bounds.Max)}
+					if b.Min.X < 0 || b.Min.Y < 0 || b.Max.X > box.W || b.Max.Y > box.H {
+						t.Fatalf("frame %d: the grid clips to %v, past its %v box", i, b, box)
+					}
+				}
+				depth++
+			case *paint.LayerEndOp:
+				depth--
+			case *paint.CellsOp, *paint.TextOp:
+				cells++
+				if depth == 0 {
+					t.Fatalf("frame %d: the grid drew %T outside a clip to its box", i, op)
+				}
+			}
+		}
+		if cells == 0 {
+			t.Fatalf("frame %d: the grid drew no cells", i)
+		}
 	}
 }
 
@@ -178,7 +227,7 @@ func TestAnOutlineCursorIsHollow(t *testing.T) {
 	red := color.NRGBA{R: 0xff, A: 0xff}
 	g.SetCursor(Cursor{Col: 2, Row: 1, Visible: true, Shape: CursorOutline, Color: red})
 	run(30)
-	ops := w.Offscreen().Ops()
+	ops := drawnOps(w.Offscreen().Ops())
 	last, ok := ops[len(ops)-1].(*paint.RRectOp)
 	if !ok || last.Fill.Solid.A != 0 || last.Stroke.Color != red || last.Stroke.Width <= 0 {
 		t.Fatalf("the last op is %+v, want a red outline with nothing inside", ops[len(ops)-1])

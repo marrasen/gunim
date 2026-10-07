@@ -391,6 +391,11 @@ func (g *CellGrid) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 		return
 	}
 	defer func() { g.run, g.painted = p.RunFrom(mark), key }()
+	// The cells keep to the box: a grid squeezed before its program has
+	// answered the new size, or one whose program keeps its own width,
+	// cuts off the columns and the row that do not fit. An opaque layer
+	// that clips to a rectangle clips in place, with no offscreen pass.
+	defer p.Layer(paint.LayerOpts{Bounds: geom.Rect{Max: box.Point()}, Opacity: 1, Clip: true})()
 	p.RRect(geom.Rect{Max: box.Point()}, 0, paint.Solid(bg))
 	defer p.Push(paint.Translate(pixelSnap(p.Transform(), f.Scale)))()
 	// Redraw every row when the ink changes, as it does through a theme switch
