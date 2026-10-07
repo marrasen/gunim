@@ -74,6 +74,33 @@ func TestALiveGraphHeadGlidesToEachSample(t *testing.T) {
 
 // A running graph slides on every frame, not only as samples come, and
 // draws its fill and its head; stopped, it rests.
+func TestALiveGraphCutsItsLabelToANarrowBox(t *testing.T) {
+	g := NewLiveGraph(100*time.Millisecond, 50)
+	g.Label = func(v float64) string { return "123 456 789 bytes a second" }
+	for _, v := range []float64{10, 30, 20, 50, 40} {
+		g.Add(v)
+	}
+	g.SetRunning(true)
+	w, run := stage(t, &frame{child: g, size: geom.Sz(60, 60)})
+	for range 30 {
+		run(1)
+		texts := 0
+		for _, op := range w.Offscreen().Ops() {
+			if tx, ok := op.(*paint.TextOp); ok {
+				texts++
+				for _, gl := range tx.Glyphs {
+					if x := tx.Transform.Apply(gl.At).X; x < 0 || x > 60 {
+						t.Fatalf("a glyph of the label is at x %v, outside the graph's 60 px", x)
+					}
+				}
+			}
+		}
+		if texts == 0 {
+			t.Fatal("the graph drew no label")
+		}
+	}
+}
+
 func TestALiveGraphSlidesEveryFrame(t *testing.T) {
 	g := NewLiveGraph(100*time.Millisecond, 50)
 	g.Label = func(v float64) string { return "fast" }

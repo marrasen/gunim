@@ -65,6 +65,7 @@ type LiveGraph struct {
 	// which fill it while there are few, to Span.
 	across *anim.Float
 	text   shapedText
+	ell    shapedText
 }
 
 // headSlack is how many samples behind the newest the head aims to be
@@ -302,8 +303,8 @@ func (g *LiveGraph) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ guni
 	p.RRect(geom.Rc(headAt.X-3, headAt.Y-3, 6, 6), 3, paint.Solid(color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}))
 	p.RRect(geom.Rc(headAt.X-2, headAt.Y-2, 4, 4), 2, paint.Solid(accent))
 	if g.Label != nil {
-		// Over the plot, at the end the samples come in at.
-		run := g.text.shape(faceIn(Font, th), g.Label(g.said), TextSize.Get(th)*0.85)
+		// Over the plot, at the end the samples come in at, and cut to the box.
+		run := fitRun(g.text.shape(faceIn(Font, th), g.Label(g.said), TextSize.Get(th)*0.85), &g.ell, box.W)
 		ink := Ink.Get(th)
 		ink.A = 0xc0
 		run.Paint(p, geom.Pt(max(0, box.W-run.Advance), 0), ink)

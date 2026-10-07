@@ -7,6 +7,7 @@ import (
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
+	"github.com/marrasen/gunim/paint"
 )
 
 // newOverviewStage mounts a grid of n rows with an overview beside it,
@@ -78,6 +79,34 @@ func TestTheOverviewSaysWhatTheBandUnderThePointerHolds(t *testing.T) {
 	run(1)
 	if asked != 50 {
 		t.Fatalf("the pointer halfway down asked about band %d, want 50", asked)
+	}
+}
+
+func TestTheOverviewReadoutStaysInTheWindowAtItsLeftEdge(t *testing.T) {
+	o := NewOverview(nil)
+	o.Bands = make([]OverviewBand, 10)
+	o.Readout = func(int) string { return "a readout of some length" }
+	o.hover = 5
+	box := geom.Sz(20, 300)
+	for _, left := range []float32{0, 400} {
+		var p paint.Painter
+		func() {
+			defer p.Push(paint.Translate(geom.Pt(left, 0)))()
+			o.Paint(&p, gunim.Frame{Scale: 1}, box, gunim.Children{})
+		}()
+		p.PaintFloats()
+		var card geom.Rect
+		for _, op := range p.Ops() {
+			if r, ok := op.(*paint.RRectOp); ok && r.Shadow.Blur > 0 {
+				card = geom.Rect{Min: r.Transform.Apply(r.Rect.Min), Max: r.Transform.Apply(r.Rect.Max)}
+			}
+		}
+		if card.Empty() || card.Min.X < 0 {
+			t.Fatalf("with the strip at x %v, the readout is at %v; want it inside the window", left, card)
+		}
+		if beside := card.Max.X <= left || card.Min.X >= left+box.W; !beside {
+			t.Fatalf("with the strip at x %v, the readout at %v covers the strip", left, card)
+		}
 	}
 }
 
