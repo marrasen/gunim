@@ -42,6 +42,19 @@ func TestARowShrinksChildrenInProportionToTheirSize(t *testing.T) {
 	}
 }
 
+func TestARowSqueezesALabelNoNarrowerThanItsWidestWord(t *testing.T) {
+	l := NewLabel("Fruit")
+	s := newSpot(200, 20)
+	_, run := stage(t, &frame{child: Row(l, s), size: geom.Sz(220, 50)})
+	run(1)
+	if n := len(l.laid.p.Lines); n != 1 {
+		t.Fatalf("the label broke its one word over %d lines", n)
+	}
+	if end := s.at.X + s.box.W; end > 220.5 {
+		t.Fatalf("the spot ends at %v, past the row's 220 px", end)
+	}
+}
+
 func TestAColumnShrinksToo(t *testing.T) {
 	a, b := newSpot(20, 300), newSpot(20, 300)
 	_, run := stage(t, &frame{child: Column(a, b), size: geom.Sz(50, 100)})

@@ -55,8 +55,9 @@ const (
 // A child can grow to share the space over, in proportion to the weight
 // [Flex.Grow] gives it. When the children want more room than a
 // bounded Flex has, those that do not grow shrink in proportion to their
-// natural size, as in CSS flexbox: each is laid out again within its
-// share, so a label wraps and a button shortens its label. A growing
+// natural size, as in CSS flexbox, a label no narrower than its widest
+// word while the others can give room: each is laid out again within
+// its share, so a label wraps and a button shortens its label. A growing
 // child then gets a sliver. A child that will not shrink, such as one
 // with a fixed size, ends at the Flex's far edge, so every child stays
 // inside, where a click can reach it. When a child arrives or leaves, the others
@@ -182,15 +183,14 @@ func (f *Flex) Layout(c gunim.Constraints, fr gunim.Frame, kids gunim.Children) 
 	// proportion to their natural size, and are laid out again within
 	// their share: a label wraps, a button shortens its label.
 	if maxMain > 0 && used > maxMain && natural > 0 {
-		scale := max(0, maxMain-gaps) / natural
+		rooms := f.shrink(kids, sizes, fr, max(0, maxMain-gaps))
 		used = gaps
 		for i := range n {
 			kid := kids.At(i)
 			if f.grow[kid.Node()] > 0 {
 				continue
 			}
-			room := max(squeezed, f.main(sizes[i])*scale)
-			sizes[i] = kid.Layout(f.within(room, maxCross))
+			sizes[i] = kid.Layout(f.within(max(squeezed, rooms[i]), maxCross))
 			used += f.main(sizes[i])
 		}
 	}
@@ -225,6 +225,68 @@ func (f *Flex) Layout(c gunim.Constraints, fr gunim.Frame, kids gunim.Children) 
 	f.place(c, fr, kids, sizes, own, pos, gap+step)
 	f.last, f.laid = c, true
 	return own
+}
+
+// shrinker is a node that knows the least room it takes along a row
+// before it looks broken, such as a label's longest word.
+type shrinker interface {
+	minWidth(f gunim.Frame) float32
+}
+
+// shrink shares room among the children that do not grow, given their
+// natural sizes, as CSS flexbox does: each shrinks in proportion to its
+// size, down to its least width, and those at their least leave the rest
+// to shrink further. Where the least widths alone are too wide, every
+// child shrinks in proportion to its size.
+func (f *Flex) shrink(kids gunim.Children, sizes []geom.Size, fr gunim.Frame, room float32) []float32 {
+	n := len(sizes)
+	rooms := make([]float32, n)
+	least := make([]float32, n)
+	var natural, floor float32
+	for i := range n {
+		if f.grow[kids.At(i).Node()] > 0 {
+			continue
+		}
+		natural += f.main(sizes[i])
+		if s, ok := kids.At(i).Node().(shrinker); ok && f.Axis == Horizontal {
+			least[i] = min(s.minWidth(fr), f.main(sizes[i]))
+		}
+		floor += least[i]
+	}
+	if floor >= room {
+		for i := range n {
+			rooms[i] = f.main(sizes[i]) * room / natural
+		}
+		return rooms
+	}
+	frozen := make([]bool, n)
+	for {
+		// Share what the children at their least leave among the rest.
+		left, flexible := room, float32(0)
+		for i := range n {
+			if frozen[i] {
+				left -= rooms[i]
+			} else {
+				flexible += f.main(sizes[i])
+			}
+		}
+		froze := false
+		for i := range n {
+			if frozen[i] {
+				continue
+			}
+			rooms[i] = 0
+			if flexible > 0 {
+				rooms[i] = f.main(sizes[i]) * left / flexible
+			}
+			if rooms[i] < least[i] {
+				rooms[i], frozen[i], froze = least[i], true, true
+			}
+		}
+		if !froze {
+			return rooms
+		}
+	}
 }
 
 // within are the constraints for a child that does not grow, squeezed to

@@ -2,6 +2,7 @@ package widget
 
 import (
 	"image/color"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/marrasen/gunim"
@@ -40,9 +41,20 @@ type Label struct {
 
 	laid laidText
 	sel  textSelection
+	// word is the width of the longest word, for the text, face and size
+	// in wordOf.
+	word   float32
+	wordOf wordKey
 	// across is how far a NoWrap label is scrolled sideways, and over
 	// how far it can be: its longest line's width past the box's.
 	across, over float32
+}
+
+// wordKey is the text, face and size a label's widest word was measured for.
+type wordKey struct {
+	face *text.Face
+	s    string
+	size float32
 }
 
 // textSelection is the selection in text that is read but not edited.
@@ -66,6 +78,26 @@ func (l *Label) paragraph(f gunim.Frame, width float32) text.Paragraph {
 		width = 0
 	}
 	return l.laid.layout(faceIn(l.Face, f.Theme), l.Text, text.Style{Size: l.Size.Get(f.Theme), Align: l.Align, MaxLines: l.MaxLines}, width)
+}
+
+// minWidth is the width of the label's widest word: a row that runs short
+// squeezes the label no narrower, where it can, so it wraps between
+// words. A label that keeps its lines whole scrolls, and takes any width.
+func (l *Label) minWidth(f gunim.Frame) float32 {
+	if l.NoWrap {
+		return 0
+	}
+	face, size := faceIn(l.Face, f.Theme), l.Size.Get(f.Theme)
+	if key := (wordKey{face, l.Text, size}); key != l.wordOf {
+		words := strings.Fields(l.Text)
+		l.word = 0
+		// The widest word is among the longest few.
+		for _, i := range longest(words, 8) {
+			l.word = max(l.word, face.Shape(words[i], size).Advance)
+		}
+		l.wordOf = key
+	}
+	return l.word
 }
 
 // Layout implements [gunim.Node].
