@@ -233,6 +233,8 @@ func Light() theme.Theme {
 		theme.Set(SyntaxNumber, color.NRGBA{R: 0x98, G: 0x68, B: 0x01, A: 0xff}),
 		theme.Set(SyntaxComment, color.NRGBA{R: 0x8a, G: 0x8f, B: 0x98, A: 0xff}),
 		theme.Set(SyntaxOperator, color.NRGBA{R: 0x5f, G: 0x67, B: 0x75, A: 0xff}),
+		theme.Set(ColorPickerCheckLight, color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}),
+		theme.Set(ColorPickerCheckDark, color.NRGBA{R: 0xd5, G: 0xd9, B: 0xe1, A: 0xff}),
 	)
 }
 
