@@ -321,10 +321,10 @@ func (c *ToneCurve) Handle(e input.Event, u *gunim.UI) bool {
 		c.chosen = 0
 		return false
 	case input.FocusRing:
-		c.ring.Animate(ringTo(e), Quick.Get(th))
+		c.ring.Animate(ringTo(e), RingFade.Get(th))
 		return true
 	case input.FocusLost:
-		c.ring.Animate(0, Settle.Get(th))
+		c.ring.Animate(0, RingFade.Get(th))
 		// A move the keys made and that has yet to commit commits as the keyboard leaves.
 		if c.settle != nil {
 			c.commitNow(u)

@@ -57,7 +57,7 @@ func TestTheLooksComeFromTheTheme(t *testing.T) {
 		t.Fatal("a slider's knob casts a shadow other than KnobShadow")
 	}
 
-	// The ring grows 3 past the control, and rounds that much wider.
+	// The ring sits 3 past the control, and rounds that much wider.
 	ringed := func(ops []paint.Op) bool {
 		for _, r := range rrects(ops) {
 			if r.Stroke.Width == 2 && r.Radius == 11+3 {

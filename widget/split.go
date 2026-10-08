@@ -36,7 +36,7 @@ const splitMin = 48
 // divider evens the panes out.
 //
 // The divider takes the keyboard by Tab, between the two panes, and a
-// ring grows round it. The arrow keys along the split glide it a step,
+// ring fades in round it. The arrow keys along the split glide it a step,
 // a fiftieth of the space, and with Shift a tenth; Home and End take it
 // as far as a drag can, and Enter evens the panes out. Each move sends
 // OnCommit, as letting go of a drag does.
@@ -405,7 +405,7 @@ func (s *Split) moved(u *gunim.UI) {
 }
 
 // splitBar is a split's divider as the keyboard knows it: a node in the gap between the panes that takes the keys
-// and grows a ring round the divider's line. The split itself takes the pointer there.
+// and shows a ring round the divider's line. The split itself takes the pointer there.
 type splitBar struct {
 	s    *Split
 	ring *anim.Float
@@ -423,9 +423,9 @@ func (b *splitBar) Handle(e input.Event, u *gunim.UI) bool {
 	case input.KeyPress:
 		return b.s.key(e, u)
 	case input.FocusRing:
-		b.ring.Animate(ringTo(e), Quick.Get(u.Theme()))
+		b.ring.Animate(ringTo(e), RingFade.Get(u.Theme()))
 	case input.FocusLost:
-		b.ring.Animate(0, Settle.Get(u.Theme()))
+		b.ring.Animate(0, RingFade.Get(u.Theme()))
 	default:
 		return false
 	}

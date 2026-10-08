@@ -55,7 +55,7 @@ func (g *Group) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim
 func (g *Group) Handle(e input.Event, u *gunim.UI) bool {
 	switch e := e.(type) {
 	case input.FocusRing:
-		g.ring.Animate(ringTo(e), Quick.Get(u.Theme()))
+		g.ring.Animate(ringTo(e), RingFade.Get(u.Theme()))
 		u.Invalidate()
 		return true
 	case input.KeyPress:

@@ -36,6 +36,9 @@ var (
 	// Bounce is the motion for things arriving, with a visible
 	// overshoot.
 	Bounce = theme.Spring("motion.bounce", anim.Bouncy)
+	// RingFade is the motion of a focus ring fading in and out: short,
+	// so a Tab shows one ring at a time.
+	RingFade = theme.Spring("motion.ring", anim.Spring{Response: 0.12, Damping: 1})
 )
 
 // Button tokens.

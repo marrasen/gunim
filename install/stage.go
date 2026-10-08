@@ -390,6 +390,14 @@ func (s *stage) finish(u *gunim.UI) {
 	})
 }
 
+// updateBegun lights the window's edges in the program's accent as the
+// user starts an update, from was, the page before.
+func (s *stage) updateBegun(was string, u *gunim.UI) {
+	if was == pageUpdate {
+		s.echo.Glow(u, widget.Accent)
+	}
+}
+
 // fail turns the ring red and shakes the icon.
 func (s *stage) fail(u *gunim.UI) {
 	s.tint.Animate(failInk.Get(u.Theme()), widget.Quick.Get(u.Theme()))

@@ -1035,7 +1035,7 @@ func (d *Dropdown) Handle(e input.Event, u *gunim.UI) bool {
 	}
 	switch e := e.(type) {
 	case input.FocusLost:
-		d.ring.Animate(0, Settle.Get(th))
+		d.ring.Animate(0, RingFade.Get(th))
 		d.close(u)
 	case input.PointerEnter:
 		d.hover.Animate(1, Quick.Get(th))
@@ -1052,7 +1052,7 @@ func (d *Dropdown) Handle(e input.Event, u *gunim.UI) bool {
 		}
 	case input.PointerUp:
 	case input.FocusRing:
-		d.ring.Animate(ringTo(e), Quick.Get(th))
+		d.ring.Animate(ringTo(e), RingFade.Get(th))
 	case input.KeyPress:
 		return d.key(e, u)
 	default:

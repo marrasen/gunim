@@ -277,9 +277,9 @@ func (m *MiniMonth) Handle(e input.Event, u *gunim.UI) bool {
 		if ringShown(e) {
 			to = 1
 		}
-		m.ring.Animate(to, widget.Quick.Get(u.Theme()))
+		m.ring.Animate(to, widget.RingFade.Get(u.Theme()))
 	case input.FocusLost:
-		m.ring.Animate(0, widget.Settle.Get(u.Theme()))
+		m.ring.Animate(0, widget.RingFade.Get(u.Theme()))
 	case input.PointerDown:
 		if e.Button != input.ButtonPrimary {
 			return false

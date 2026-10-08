@@ -308,7 +308,7 @@ func (c *crumbBar) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gu
 func (c *crumbBar) Handle(e input.Event, u *gunim.UI) bool {
 	switch e := e.(type) {
 	case input.FocusRing:
-		c.ring.Animate(ringTo(e), Quick.Get(u.Theme()))
+		c.ring.Animate(ringTo(e), RingFade.Get(u.Theme()))
 		return true
 	case input.PointerDown:
 		if e.Button != input.ButtonPrimary {

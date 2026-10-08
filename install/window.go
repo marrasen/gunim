@@ -627,8 +627,10 @@ func updateStage(st *stage, sc scene, u *gunim.UI) {
 			}
 		case pageClosing, pageRestarting:
 			st.spin(true, u)
+			st.updateBegun(was, u)
 		case pageWorking:
 			st.work(u)
+			st.updateBegun(was, u)
 		case pageDone, pageUpdated:
 			st.finish(u)
 		case pageRemoved:

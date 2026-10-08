@@ -18,7 +18,7 @@ var LinkInk = theme.Foreground("link.ink", color.NRGBA{R: 0x7c, G: 0x9c, B: 0xff
 
 // Link is text that does something when clicked, underlined under the
 // pointer: a small action among other text, where a button would be
-// too big, such as "show 12 more". It takes focus, grows a ring as a
+// too big, such as "show 12 more". It takes focus, shows a ring as a
 // [Button] does, and Enter or Space activates it. Disabled, it fades
 // faint and takes no clicks, keys or focus.
 type Link struct {

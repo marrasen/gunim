@@ -249,10 +249,10 @@ func (g *pickGrid) Handle(e input.Event, u *gunim.UI) bool {
 		if e.On {
 			to = 1
 		}
-		g.ring.Animate(to, widget.Quick.Get(u.Theme()))
+		g.ring.Animate(to, widget.RingFade.Get(u.Theme()))
 		u.Invalidate()
 	case input.FocusLost:
-		g.ring.Animate(0, widget.Settle.Get(u.Theme()))
+		g.ring.Animate(0, widget.RingFade.Get(u.Theme()))
 		u.Invalidate()
 	default:
 		return false

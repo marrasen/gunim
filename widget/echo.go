@@ -15,20 +15,19 @@ import (
 // how far past the window's edges the rings travel. A strength of 0
 // turns echoes off; 2 draws them twice as strong.
 var (
-	EchoProblem  = theme.Color("echo.problem", color.NRGBA{R: 0xff, G: 0x4d, B: 0x4d, A: 0xff})
-	EchoDone     = theme.Color("echo.done", color.NRGBA{R: 0x3d, G: 0xe0, B: 0x7a, A: 0xff})
-	EchoCall     = theme.Color("echo.call", color.NRGBA{R: 0xff, G: 0xb3, B: 0x2e, A: 0xff})
+	EchoProblem  = theme.Color("echo.problem", color.NRGBA{R: 0xe5, G: 0x48, B: 0x4d, A: 0xff})
+	EchoDone     = theme.Color("echo.done", color.NRGBA{R: 0x30, G: 0xa4, B: 0x6c, A: 0xff})
+	EchoCall     = theme.Color("echo.call", color.NRGBA{R: 0xf5, G: 0xa5, B: 0x24, A: 0xff})
 	EchoWait     = theme.Color("echo.wait", color.NRGBA{R: 0xa0, G: 0xa6, B: 0xb4, A: 0xff})
 	EchoStrength = theme.Number("echo.strength", 1)
-	EchoReach    = theme.Length("echo.reach", 64)
+	EchoReach    = theme.Length("echo.reach", 28)
 )
 
-// Echo sends rings out from the window's edges onto the desktop around
-// it, like a sonar's ping: a flash along the edge, then three rings
-// that grow outwards, thin and fade. EchoProblem for a failure and
+// Echo sends a soft wave of light out from the window's edges onto the
+// desktop around it, which widens and fades as it travels. EchoProblem for a failure and
 // EchoDone for a success say so past the window's own content, and
 // EchoCall asks for the user. While something is on its way, Wait sends
-// out one faint ring after another, like a phone's dial tone.
+// out one faint wave after another, like a phone's dial tone.
 //
 // The rings are drawn in a popup laid over the window, larger than it,
 // which lets the pointer through and paints nothing over the window
@@ -51,14 +50,12 @@ type Echo struct {
 	tone             theme.Token[color.NRGBA]
 }
 
-// echoLife is how long a ring takes to reach its end, echoFlash how
-// long the flash along the edge lasts, and echoBeat how often Wait
-// sends a ring.
+// echoLife is how long a wave takes to reach its end, echoGlow how
+// long a glow lasts, and echoBeat how often Wait sends a wave.
 const (
-	echoLife  = 1100 * time.Millisecond
-	echoFlash = 420 * time.Millisecond
-	echoGlow  = 700 * time.Millisecond
-	echoBeat  = 1400 * time.Millisecond
+	echoLife = 650 * time.Millisecond
+	echoGlow = 700 * time.Millisecond
+	echoBeat = 1400 * time.Millisecond
 )
 
 // NewEcho returns an echo for a window with the round corners of Windows 11.
@@ -68,12 +65,7 @@ func NewEcho() *Echo { return &Echo{} }
 // a token of the application's own. A ping while the last is still
 // travelling joins it, in the same popup.
 func (e *Echo) Ping(u *gunim.UI, tone theme.Token[color.NRGBA]) {
-	e.send(u,
-		echoRing{tone: tone, strength: 1, flash: true},
-		echoRing{tone: tone, strength: 1},
-		echoRing{at: 140 * time.Millisecond, tone: tone, strength: 0.7},
-		echoRing{at: 280 * time.Millisecond, tone: tone, strength: 0.45},
-	)
+	e.send(u, echoRing{tone: tone, strength: 1})
 }
 
 // Glow lights the window's edges in tone, softly, and lets them go
@@ -164,23 +156,19 @@ type echoView struct {
 	rings []echoRing
 }
 
-// echoRing is one ring, or the flash along the edge. Its colour is
+// echoRing is one wave, or a glow. Its colour is
 // looked up as it paints, so it follows a theme switch.
 type echoRing struct {
 	at       time.Duration
 	tone     theme.Token[color.NRGBA]
 	strength float32
-	flash    bool
 	// glow lights the edges and lets them go dark, travelling nowhere.
 	glow bool
 }
 
 // life is how long r shows.
 func (r echoRing) life() time.Duration {
-	switch {
-	case r.flash:
-		return echoFlash
-	case r.glow:
+	if r.glow {
 		return echoGlow
 	}
 	return echoLife
@@ -202,8 +190,9 @@ func (v *echoView) Step(dt time.Duration) bool {
 // Layout implements [gunim.Node].
 func (v *echoView) Layout(gunim.Constraints, gunim.Frame, gunim.Children) geom.Size { return v.size }
 
-// Paint implements [gunim.Node]. Each ring is a stroke with two wider,
-// fainter ones under it, for a glow, all kept outside the window.
+// Paint implements [gunim.Node]. A wave is a soft band of light that
+// leaves the window's edge, widens and fades, all kept outside the
+// window.
 func (v *echoView) Paint(p *paint.Painter, f gunim.Frame, _ geom.Size, _ gunim.Children) {
 	strength := EchoStrength.Get(f.Theme)
 	for _, r := range v.rings {
@@ -213,20 +202,35 @@ func (v *echoView) Paint(p *paint.Painter, f gunim.Frame, _ geom.Size, _ gunim.C
 		}
 		c := r.tone.Get(f.Theme)
 		t := float32(age) / float32(r.life())
-		fade := (1 - t) * (1 - t) * r.strength * strength
 		if r.glow {
 			// Up quickly, and down slowly, as a breath.
 			rise := float32(math.Sin(math.Pi * math.Pow(float64(t), 0.6)))
 			v.glow(p, c, rise*r.strength*strength)
 			continue
 		}
-		if r.flash {
-			v.ring(p, 1+5*t, 3, c, 0.8*fade)
+		// It eases out as it travels, comes up over its first tenth,
+		// and fades through the rest.
+		travel := 1 - float32(math.Pow(float64(1-t), 3))
+		rise := min(t/0.1, 1)
+		fade := rise * (1 - t) * (1 - t) * r.strength * strength
+		v.wave(p, travel*v.reach, 4+8*travel, c, 0.5*fade)
+	}
+}
+
+// wave paints a soft band of light centred d past the window's edges,
+// spread wide on each side, strongest at its middle.
+func (v *echoView) wave(p *paint.Painter, d, spread float32, c color.NRGBA, alpha float32) {
+	const step = 1.5
+	for x := -spread; x < spread; x += step {
+		at := d + x + step/2
+		if at < step/2 {
 			continue
 		}
-		w := 1 + 4*(1-t)
-		travel := 1 - float32(math.Pow(float64(1-t), 3))
-		v.ring(p, 2*w+1+travel*v.reach, w, c, fade)
+		k := (x + step/2) / spread
+		a := c
+		a.A = uint8(float32(c.A) * min(1, max(0, alpha*(1-k*k)*(1-k*k))))
+		rect := geom.Rect{Min: geom.Pt(v.inner.Min.X-at, v.inner.Min.Y-at), Max: geom.Pt(v.inner.Max.X+at, v.inner.Max.Y+at)}
+		p.RRectStroke(rect, v.radius+at, paint.Fill{}, paint.Stroke{Width: step, Color: a})
 	}
 }
 
@@ -245,14 +249,3 @@ func (v *echoView) glow(p *paint.Painter, c color.NRGBA, alpha float32) {
 
 // glowReach is how far past the window's edges a glow shows.
 const glowReach = 22
-
-// ring paints a ring d past the window's edges, w wide, with its glow.
-func (v *echoView) ring(p *paint.Painter, d, w float32, c color.NRGBA, alpha float32) {
-	d = max(d, 2*w)
-	rect := geom.Rect{Min: geom.Pt(v.inner.Min.X-d, v.inner.Min.Y-d), Max: geom.Pt(v.inner.Max.X+d, v.inner.Max.Y+d)}
-	for _, l := range [...]struct{ w, a float32 }{{4 * w, 0.14}, {2 * w, 0.3}, {w, 1}} {
-		a := c
-		a.A = uint8(float32(c.A) * min(1, max(0, alpha*l.a)))
-		p.RRectStroke(rect, v.radius+d, paint.Fill{}, paint.Stroke{Width: l.w, Color: a})
-	}
-}
