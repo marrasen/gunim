@@ -36,6 +36,8 @@ var structs = []any{
 	(*widget.Clicker)(nil),
 	(*widget.CodeEditor)(nil),
 	(*widget.CodeMark)(nil),
+	(*widget.ColorButton)(nil),
+	(*widget.ColorPicker)(nil),
 	(*widget.Completion)(nil),
 	(*widget.ContextMenu)(nil),
 	(*widget.Crumb)(nil),
