@@ -188,6 +188,9 @@ func (p *previewPanel) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Chi
 	if c.Max.H > 0 {
 		maxH = max(1, c.Max.H-y)
 	}
+	// The fold measures the window at its full height: the window keeps
+	// to the room itself.
+	p.scene.maxH = maxH
 	fs := kids.At(3).Layout(gunim.Constraints{Min: geom.Sz(w, 0), Max: geom.Sz(w, maxH)})
 	kids.At(3).Place(geom.Pt(0, y))
 	return c.Constrain(geom.Sz(w, y+fs.H))
@@ -222,6 +225,9 @@ type scene struct {
 	titleSize                        float32
 	sideAt, noteAt                   geom.Rect
 	bar                              float32
+	// maxH is the most height the panel has room for, or zero for no
+	// bound.
+	maxH float32
 }
 
 func newScene(content gunim.Node, spec *specimen) *scene {
@@ -260,8 +266,8 @@ func (s *scene) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) 
 	cs := kids.At(0).Layout(gunim.Constraints{Min: geom.Sz(w, 0), Max: geom.Sz(w, 0)})
 	kids.At(0).Place(geom.Pt(0, s.bar))
 	h := s.bar + cs.H
-	if c.Max.H > 0 {
-		h = min(h, c.Max.H)
+	if s.maxH > 0 {
+		h = min(h, s.maxH)
 	}
 	// The panel takes the right of the window under the title bar, two
 	// fifths of it, and the toast sits in the middle.

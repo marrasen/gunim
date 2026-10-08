@@ -683,8 +683,8 @@ func (fr *frame) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children)
 	narrow := w < Narrow.Get(th)
 	fr.preview.setNarrow(narrow, f.UI())
 	if narrow {
-		// The header and the preview keep to the page's width, in the
-		// middle, as the controls under them do.
+		// The header, the preview and the tabs keep to the page's width,
+		// in the middle.
 		pw := min(w-pad.Left-pad.Right, PageWidth.Get(th))
 		hw := pw + pad.Left + pad.Right
 		hs := header.Layout(gunim.Constraints{Min: geom.Sz(hw, 0), Max: geom.Sz(hw, 0)})
@@ -692,8 +692,8 @@ func (fr *frame) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children)
 		ps := preview.Layout(gunim.Constraints{Min: geom.Sz(pw, 0), Max: geom.Sz(pw, max(1, h*0.5))})
 		preview.Place(geom.Pt((w-pw)/2, hs.H))
 		top := hs.H + ps.H + HeadingGap.Get(th)
-		tabs.Layout(gunim.Tight(geom.Sz(w, max(0, h-top))))
-		tabs.Place(geom.Pt(0, top))
+		tabs.Layout(gunim.Tight(geom.Sz(hw, max(0, h-top))))
+		tabs.Place(geom.Pt((w-hw)/2, top))
 		return c.Constrain(geom.Sz(w, h))
 	}
 	// The controls take the left, the preview the right, a gutter
