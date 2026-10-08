@@ -39,6 +39,9 @@ const (
 // leafBox is the grid the leaf is drawn on.
 var leafBox = geom.Rc(0, 0, 24, 24)
 
+// windowSize is the window's size in units.
+var windowSize = geom.Sz(600, 340)
+
 func main() {
 	runFor := flag.Duration("for", 0, "quit after this long; zero runs until the window closes")
 	shot := flag.String("shot", "", "write the window to this PNG file after -after, and quit")
@@ -62,7 +65,7 @@ func run(runFor time.Duration, shot string, after time.Duration) error {
 		return err
 	}
 	err = gunim.Main(ctx, func(a *gunim.App) error {
-		w, err := a.NewWindow(gunim.WindowOptions{Title: "gunim vector art", Size: geom.Sz(720, 420), Root: root})
+		w, err := a.NewWindow(gunim.WindowOptions{Title: "gunim vector art", Size: windowSize, Root: root})
 		if err != nil {
 			return err
 		}
@@ -150,10 +153,12 @@ var (
 // Paint implements [gunim.Node].
 func (a *art) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, _ gunim.Children) {
 	p.RRect(geom.Rect{Max: box.Point()}, 0, paint.Solid(meadow))
-	a.fox.Paint(p, shape.Fit(a.fox.ViewBox, geom.Rc(20, 20, 380, 380)))
-	a.fox.Paint(p, shape.Fit(a.fox.ViewBox, geom.Rc(420, 300, 100, 100)))
+	// A driver keeps a mask at most 256 pixels across and stretches a bigger one, so the fox is drawn small enough
+	// that its largest part is about 126 units across: 252 pixels on a screen of two pixels to a unit.
+	a.fox.Paint(p, shape.Fit(a.fox.ViewBox, geom.Rc(30, 50, 240, 240)))
+	a.fox.Paint(p, shape.Fit(a.fox.ViewBox, geom.Rc(400, 215, 100, 100)))
 	// The leaf turns about its stem by a transform: its masks stay the size they were drawn at.
-	r := geom.Rc(470, 30, 220, 220)
+	r := geom.Rc(380, 30, 140, 140)
 	stem := geom.Pt(r.Center().X, r.Max.Y)
 	defer p.Push(paint.Rotate(float32(0.15*math.Sin(a.t*1.6)), stem))()
 	p.Mask(a.leaf.Fill(), a.leaf.Fill().In(leafBox, r), leafGreen)
