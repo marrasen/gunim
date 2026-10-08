@@ -817,9 +817,10 @@ func clearWindow(g gl.Context, bg [4]float32, alpha float32) {
 // background returns the colour of a frame's background, and 1, or 0
 // when it has none: its first op,
 // when that is a plain opaque rectangle from the window's top left
-// corner, as a window's surface paints, and does not add its light. A frame drawn for a smaller
-// window than the buffer holds leaves a strip the clear fills, and the
-// background colour makes that strip look like the window's own.
+// corner, as a window's surface paints, that does not add its light.
+// A frame drawn for a smaller window than the buffer holds leaves a
+// strip the clear fills, and the background colour makes that strip
+// look like the window's own.
 func background(ops []paint.Op) (bg [4]float32, alpha float32) {
 	if len(ops) == 0 {
 		return [4]float32{}, 0
