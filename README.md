@@ -12,8 +12,8 @@ still changes as the examples ask more of it.
 
 Text shapes and wraps in pure Go, including right-to-left and mixed
 scripts. Sound plays in pure Go on the desktop. The examples below are
-full programs: a music player, a file manager, a calendar, a chat
-client and a candy sudoku among them.
+full programs: a file manager, a calendar, a chat client and a candy
+sudoku among them.
 
 `example/twowindows` is where gunim started: two windows, each
 animating a rounded rectangle on its own render thread, built with
@@ -106,49 +106,12 @@ while they are still being dragged. On Windows an item drags from a window lying
 stays behind, as Explorer's do; a click there brings the window to the
 front. Ctrl+N opens another window on the same folder.
 
-`example/music` is a music player, for gunim's sound and animation
-together. The track playing is a picture disc that spins while it plays
-and runs down slowly as it pauses, ringed by bars that move with the
-music, pitch by pitch. Lights in the cover's colours drift behind
-everything and swell with the bass, and a new track's colours flow
-through the whole window, up under its title bar. The seek bar is the
-track itself, drawn as its loudness along it.
-
-```sh
-go run ./example/music
-go run ./example/music -dir ~/Music
-```
-
-It always has four songs made in code, so it plays anywhere. Its
-library follows folders of MP3, FLAC, Ogg Vorbis and WAV files, with
-their tags and covers: tracks copied in join it within seconds, and
-tracks deleted leave. It follows your music folder from the first run,
-and `-dir` or the library's Add a folder adds more. Playlists gather
-tracks by hand, and their rows move by their grips. The library and the
-playlists are kept between runs. Up next holds the tracks to play
-before the list goes on. Tracks drag from their rows, and files drag in
-from a file manager, and each drops where it is let go: on the track
-playing, to play now or join Up next; on a playlist or Up next, to join
-it at the gap shown; or on the library, which follows a folder dropped
-there. A drag resting on a list's back button slides it away, to drop
-on the shelf. The equalizer, E, is parametric: up to
-eight bands, each a bell, a shelf, a cut or a notch, dragged about a
-graph, with the sound's spectrum before and after it drawn behind them.
-
-Loudness gain plays each track, or each album played in order, at -18
-LUFS, measured in the background and kept between runs. Its button
-steps between no gain, track gain and album gain, and two tracks
-crossfading each keep their own. The volume bar shows the gain as the
-pointer comes over it, and I opens a card of the track's file, quality
-and loudness. Space plays and pauses, the arrows seek and set the
-volume, N and P skip, S shuffles and R repeats.
-
-The system's media controls show the track playing, with its cover, and
-play, pause, skip and seek it. The window's title names the track, so
-Alt+Tab and the taskbar show it. The window opens where it last closed,
-on a monitor still attached, and fades out with the music as it closes.
-
-![The music player](example/music/music.png)
+[Skiva](https://github.com/skalarit-ab/skiva) is a music player, for
+gunim's sound and animation together. The track playing is a picture
+disc that spins while it plays, ringed by bars that move with the
+music, and lights in the cover's colours drift behind everything. It
+started here as `example/music` and is now Skalarit AB's, on Google
+Play for Android.
 
 [Marras Mastering Studio](https://github.com/marrasen/mastering-studio)
 masters an album, an EP or a single, through chains of VST3 plugins. It
@@ -256,8 +219,8 @@ parts in tiers, as a game's music grows with its combo: its player is a
 phrase on. `band.Load` finds the
 parts in files cut at the song's bars, named as `blade-intro.ogg`,
 `blade-loop.ogg` and `blade-outro.ogg`.
-[gunim-music](https://github.com/marrasen/gunim-music) is a library of
-songs for it, ready to play:
+[gunim-game-audio](https://github.com/marrasen/gunim-game-audio) is a
+library of songs for it, ready to play:
 
 ```go
 song, err := music.Song(music.GreekThemes)
