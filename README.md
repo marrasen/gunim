@@ -397,6 +397,19 @@ share sheet, and `Client.CanShare` says where there is one to show.
 `Client.Vibrate` runs the phone's vibration motor in a pattern of on
 and off times, as the web's `navigator.vibrate` does.
 
+A node that implements `gunim.HeadingWatcher` hears which way the phone
+faces, as `input.Heading`: degrees clockwise from magnetic north, where
+the top edge of the screen points with the phone flat and where its
+back looks with it upright, with the sensor's accuracy, so a program can
+ask for a figure eight where the compass wants calibrating. The engine
+runs the sensors only while such a node is shown and watching, and
+stops them while the program is in the background. `Client.HasCompass`
+says whether there is a compass; a desktop has none, and its watchers
+hear nothing. The reading comes raw, a dozen or so times a second, for
+the program to smooth, and indoors it can be off by tens of degrees.
+`go run ./tools/gunimapk -run ./example/compass` shows a needle that
+points north.
+
 A tap on a text field opens the soft keyboard, whose edits, autocorrect
 and composition reach the field as `input.TextEdit`s, and the window
 slides up with the keyboard to keep the field in view. `Frame.Keyboard`
@@ -745,7 +758,7 @@ path data.
 | `gunim/markdown` | Shows Markdown as gunim text that the reader can select and copy |
 | `gunim/match` | Finds a typed query in lines of text, ranked as a command palette ranks them |
 | `gunim/emoji` | The emoji in a picker's groups, with their names for searching |
-| `gunim/input` | Pointer, keyboard and focus events, keys, buttons, modifiers |
+| `gunim/input` | Pointer, keyboard and focus events, keys, buttons, modifiers, and the compass's heading |
 | `gunim/theme` | Tokens, themes, and animated theme switching |
 | `gunim/text` | Fonts and fallback, shaping, paragraph layout, glyph rasterizing |
 | `gunim/access` | What a window says to screen readers: roles, names, states, actions |
