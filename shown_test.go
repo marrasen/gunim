@@ -110,3 +110,46 @@ func TestAMediaSeekGoesToTheFocusedNode(t *testing.T) {
 		t.Fatalf("heard seeks %v, want 42s", h.at)
 	}
 }
+
+// playKeys records, for each media key it hears, whether the state it
+// was last given says the music plays.
+type playKeys struct {
+	playing bool
+	heard   []bool
+}
+
+func (*playKeys) Layout(c Constraints, _ Frame, _ Children) geom.Size { return c.Max }
+func (*playKeys) Paint(*paint.Painter, Frame, geom.Size, Children)    {}
+func (*playKeys) Focusable() bool                                     { return true }
+func (p *playKeys) Handle(e input.Event, _ *UI) bool {
+	if k, ok := e.(input.KeyPress); ok && k.Key == input.KeyMediaPlay {
+		p.heard = append(p.heard, p.playing)
+		return true
+	}
+	return false
+}
+
+func TestAHiddenWindowsInputSeesTheStateSentWhileHidden(t *testing.T) {
+	w := NewOffscreen(geom.Sz(200, 200), nil)
+	type player struct{ Playing bool }
+	keys := &playKeys{}
+	RegisterView(w, "player", func(player) *playKeys { return keys }, func(k *playKeys, s player, u *UI) {
+		k.playing = s.Playing
+		u.Focus(k)
+	})
+	c := w.Client()
+	if err := c.Mount(Root, "player", "player", player{Playing: true}, "player"); err != nil {
+		t.Fatal(err)
+	}
+	w.Frame(time.Second / 60)
+	// The screen goes off; the music pauses from the lock screen, and the
+	// application sends the state; then play is pressed there.
+	w.Input(driver.WindowShown{Shown: false})
+	if err := c.Publish("player", player{Playing: false}); err != nil {
+		t.Fatal(err)
+	}
+	w.Input(input.KeyPress{Key: input.KeyMediaPlay})
+	if len(keys.heard) != 1 || keys.heard[0] {
+		t.Fatalf("play, pressed while hidden, saw playing %v, want the paused state sent while hidden", keys.heard)
+	}
+}

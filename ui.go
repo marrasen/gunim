@@ -864,7 +864,19 @@ func (w *Window) Frame(delta time.Duration) {
 // such as one from [NewOffscreen], and must be called from the goroutine
 // calling Frame. Positions are in window space, and the pointer is
 // routed through where the last frame drew each node.
-func (w *Window) Input(ev any) { w.ui.handlePlatform(ev) }
+func (w *Window) Input(ev any) { w.platform(ev) }
+
+// platform handles one of the platform's events. A window out of sight
+// draws no frames, and a frame is where the application's state reaches
+// the views; input handled meanwhile, as a media key with a phone's
+// screen off, would act on the state from before the window went out of
+// sight. So such a window applies the queue first.
+func (w *Window) platform(ev any) {
+	if !w.draws() {
+		w.applyPending()
+	}
+	w.ui.handlePlatform(ev)
+}
 
 // Err returns the error that ended the window. Read it once
 // [Client.Intents] has closed.
@@ -1003,7 +1015,7 @@ func (w *Window) wait() bool {
 		if _, asked := ev.(driver.CloseAsked); asked {
 			return w.ui.closeAsked()
 		}
-		w.ui.handlePlatform(ev)
+		w.platform(ev)
 		w.ui.focusNow()
 	case e := <-w.popupIn:
 		w.ui.popupEvent(e)
@@ -1014,7 +1026,7 @@ func (w *Window) wait() bool {
 	case <-w.leave:
 		w.ui.startLeaving()
 	case ev := <-w.injected:
-		w.ui.handlePlatform(ev)
+		w.platform(ev)
 		w.ui.focusNow()
 	case f, ok := <-w.dw.Presented():
 		if !ok {
