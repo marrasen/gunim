@@ -24,7 +24,7 @@
 //	song := &band.Wander{Title: "Greek Themes", BPM: 136, Parts: parts}
 //	mix.Play(song.Play(seed), audio.Options{Volume: 0.3, FadeIn: 2 * time.Second})
 //
-// github.com/marrasen/gunim-music holds songs for it, ready to play.
+// github.com/marrasen/gunim-game-audio holds songs for it, ready to play.
 package band
 
 import (

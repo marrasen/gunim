@@ -11,7 +11,7 @@ import (
 // The music is Greek Themes, a band of synths made in Reason at 136
 // BPM, which package band plays: each synth comes in, loops and leaves
 // in 16-bar phrases, and the brass plays its solo now and then.
-// github.com/marrasen/gunim-music holds the same song, for any program.
+// github.com/marrasen/gunim-game-audio holds the same song, for any program.
 
 // musicFiles are the synths' parts, made by music/encode.sh: each
 // synth's intro, loop and outro, or its solo.
