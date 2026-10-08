@@ -392,3 +392,55 @@ func TestTileGridReorderGlidesTilesOutOfView(t *testing.T) {
 		t.Fatalf("%d tiles still leaving", len(g.leaving))
 	}
 }
+
+func TestTileGridGroupsStartNewRowsUnderHeaders(t *testing.T) {
+	g, w, run := tileStage(t, 10)
+	built := map[int]int{}
+	g.Header = func(k int) gunim.Node { built[k]++; return &blank{} }
+	g.HeaderHeight = 30
+	// Three groups: tiles 0 to 2, 3 to 8, and 9.
+	do(t, w, func(u *gunim.UI) { g.SetGroups([]int{0, 3, 9}, u) })
+	run(120)
+	if built[0] != 1 || built[1] != 1 || built[2] != 1 {
+		t.Fatalf("headers built %v, want each group's once", built)
+	}
+	// Four columns 88 apart from x 28, rows 68 apart from y 14, each group's rows under its 30-tall header.
+	for _, c := range []struct {
+		i    int
+		x, y float32
+	}{{0, 28, 44}, {2, 204, 44}, {3, 28, 142}, {7, 28, 210}, {8, 116, 210}, {9, 28, 308}} {
+		if r := g.live[c.i].rect(); r.Min != geom.Pt(c.x, c.y) {
+			t.Fatalf("tile %d settled at %v, want (%v, %v)", c.i, r.Min, c.x, c.y)
+		}
+	}
+	if got := g.placeAt(geom.Pt(28+40, 142+30)); got != 3 {
+		t.Fatalf("the place of tile 3 finds %d", got)
+	}
+	if got := g.placeAt(geom.Pt(28+40, 120)); got != -1 {
+		t.Fatalf("a header finds tile %d", got)
+	}
+	// Down from tile 2 goes to the next row's third tile; down from tile 8 to the last group's only one.
+	press(w, geom.Pt(204+40, 44+30), 1, 0)
+	run(1)
+	w.Input(input.KeyPress{Key: input.KeyDown, Time: time.Now()})
+	run(1)
+	if _, c := g.Selected(); c != 5 {
+		t.Fatalf("down from tile 2 went to %d, want 5", c)
+	}
+	press(w, geom.Pt(116+40, 210+30), 1, 0)
+	run(1)
+	w.Input(input.KeyPress{Key: input.KeyDown, Time: time.Now()})
+	run(1)
+	if _, c := g.Selected(); c != 9 {
+		t.Fatalf("down from tile 8 went to %d, want 9", c)
+	}
+	// Without groups, the tiles go back to one run.
+	do(t, w, func(u *gunim.UI) { g.SetGroups(nil, u) })
+	run(120)
+	if r := g.live[9].rect(); r.Min != geom.Pt(116, 150) {
+		t.Fatalf("ungrouped, tile 9 settled at %v, want (116, 150)", r.Min)
+	}
+	if len(g.headers) != 0 {
+		t.Fatalf("%d headers left without groups", len(g.headers))
+	}
+}
