@@ -169,3 +169,24 @@ func TestAnOklabBlendKeepsItsBrightness(t *testing.T) {
 		t.Fatalf("Oklab midpoint %v is no brighter than sRGB's %v", ok, srgb)
 	}
 }
+
+// A spring of no response and a tween of no duration put the value where
+// it is going as they start, so the frame that asks shows it there.
+func TestAnInstantMotionLandsAtOnce(t *testing.T) {
+	for _, m := range []anim.Motion{anim.Spring{Response: 0, Damping: 1}, anim.Spring{Damping: 0.3}, anim.Tween{}} {
+		a := anim.NewFloat(0)
+		a.Animate(10, m)
+		if a.Value() != 10 || a.Active() {
+			t.Fatalf("%+v: at %v, moving %v, want at 10 and still", m, a.Value(), a.Active())
+		}
+		if a.Step(time.Second / 60) {
+			t.Fatalf("%+v: a step after landing still moves", m)
+		}
+	}
+	// A spring that is not instant still glides.
+	a := anim.NewFloat(0)
+	a.Animate(10, anim.Spring{Response: 0.01, Damping: 1})
+	if a.Value() != 0 || !a.Active() {
+		t.Fatal("a stiff spring landed before its first step")
+	}
+}
