@@ -11,6 +11,12 @@
 // the whole window. WM_NCHITTEST then says what each point is: an edge
 // from the frame's thickness, and the caption and the maximize button
 // from the application, through HitTestCallback.
+//
+// A window that is not resizable has the caption style without the thick
+// frame and the maximize box. Windows still draws its shadow, and on
+// Windows 11 its border and round corners, as round a dialog; but with
+// no thick frame and no maximize box it neither snaps the window nor
+// maximizes it, and its edges size nothing.
 
 package glfw
 
@@ -216,8 +222,8 @@ func (w *Window) clientPoint(lParam _LPARAM) (x, y int32) {
 }
 
 // chromeHit is what the point in a WM_NCHITTEST is: an edge to size the
-// window by, unless it is maximized, and otherwise what the application
-// says.
+// window by, unless it is maximized or not resizable, and otherwise what
+// the application says.
 func (w *Window) chromeHit(lParam _LPARAM) int {
 	x, y := w.clientPoint(lParam)
 	width, height, err := w.platformGetWindowSize()

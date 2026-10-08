@@ -1,6 +1,7 @@
 package gunim
 
 import (
+	"context"
 	"slices"
 	"testing"
 	"time"
@@ -101,5 +102,47 @@ func TestANativeFrameLeavesPressesToTheNodes(t *testing.T) {
 	w.Input(input.PointerDown{Pos: geom.Pt(150, 15), Button: input.ButtonPrimary, Clicks: 1, Time: time.Now()})
 	if fr.Moves != 0 || len(strip.events) == 0 {
 		t.Fatalf("with a native frame, the engine started %d moves and the strip saw %v", fr.Moves, strip.events)
+	}
+}
+
+// A fixed window keeps its size against the user: the driver is asked
+// for it, an edge sizes nothing, and neither a double click on the
+// caption nor the maximize button maximizes it, which the system is
+// not told of.
+func TestAFixedWindowKeepsItsSize(t *testing.T) {
+	d := &optionsDriver{}
+	err := runApp(context.Background(), d, func(a *App) error {
+		w, err := a.NewWindow(WindowOptions{Title: "fixed", Fixed: true})
+		if err != nil {
+			return err
+		}
+		w.Close()
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !d.got.Fixed {
+		t.Error("the driver was not asked for a fixed window")
+	}
+
+	w := newTestWindow()
+	w.ui.fixed = true
+	fr := w.MakeChromeless(false)
+	strip := &titleStrip{}
+	w.ui.Insert(w.ui.Root(), strip)
+	run(w, 1)
+	if !fr.Maximize.Empty() || len(fr.Caption) != 1 {
+		t.Fatalf("the system was told the caption is %v and the maximize button %v, want no button", fr.Caption, fr.Maximize)
+	}
+	w.Input(input.PointerDown{Pos: geom.Pt(799, 599), Button: input.ButtonPrimary, Clicks: 1, Time: time.Now()})
+	if len(fr.Resizes) != 0 {
+		t.Fatalf("a press in the bottom right corner sized by %v", fr.Resizes)
+	}
+	w.Input(input.PointerDown{Pos: geom.Pt(150, 15), Button: input.ButtonPrimary, Clicks: 1, Time: time.Now()})
+	w.Input(input.PointerDown{Pos: geom.Pt(150, 15), Button: input.ButtonPrimary, Clicks: 2, Time: time.Now()})
+	w.ui.ToggleMaximize()
+	if fr.IsMaximized || fr.Moves != 1 {
+		t.Fatalf("maximized %v after %d moves; want 1 move and no maximize", fr.IsMaximized, fr.Moves)
 	}
 }

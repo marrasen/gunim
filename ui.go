@@ -337,6 +337,11 @@ type WindowOptions struct {
 	UnderTitleBar bool
 	// Pinned opens the window kept above other windows; see [UI.SetPinned].
 	Pinned bool
+	// Fixed keeps the window at the size it opens at, as for a dialog sized to its question: the user cannot size it
+	// by its edges, maximize it, or snap it to a half or the whole of the screen, as Windows does on a drag to the
+	// screen's edge or with the Windows key and an arrow. A maximized Place opens at its bounds instead. Where a
+	// window manager tiles every window, it may still size the window as it will.
+	Fixed bool
 	// Hidden opens the window without showing it, as for an application
 	// that starts in the tray and may close it unseen.
 	Hidden bool
@@ -361,7 +366,7 @@ func (a *App) NewWindow(o WindowOptions) (*Window, error) {
 		Title: o.Title, Size: o.Size, Monitor: o.Monitor,
 		Kind: o.Kind, Anchor: geom.Rect{Min: o.Anchor, Max: o.Anchor}, Icons: o.Icons,
 		Chromeless: !o.SystemFrame && (newTitleBar != nil || o.TitleBar != nil), Border: o.Border, Text: o.Text, Place: o.Place,
-		Hidden: o.Hidden, DragFromBehind: o.DragFromBehind,
+		Hidden: o.Hidden, DragFromBehind: o.DragFromBehind, Fixed: o.Fixed,
 	}
 	if o.Parent != nil {
 		do.Parent = o.Parent.dw
@@ -375,6 +380,7 @@ func (a *App) NewWindow(o WindowOptions) (*Window, error) {
 	w.title = o.Title
 	w.askToClose = o.AskToClose
 	w.ui.underBar = o.UnderTitleBar
+	w.ui.fixed = o.Fixed
 	w.ui.startChrome(o.TitleBar)
 	if o.Pinned {
 		if err := w.ui.SetPinned(true); err != nil {
@@ -1211,6 +1217,8 @@ type UI struct {
 	titleBar TitleBar
 	// underBar says the application draws under the title bar; see [WindowOptions.UnderTitleBar].
 	underBar bool
+	// fixed says the user cannot size or maximize the window; see [WindowOptions.Fixed].
+	fixed bool
 	// modals are the modals in the tree, in the order they came; see Modal.
 	modals []modalHold
 	// pinned says the window is kept above other windows; see SetPinned.

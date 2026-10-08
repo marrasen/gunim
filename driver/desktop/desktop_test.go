@@ -12,6 +12,7 @@ import (
 
 	"github.com/marrasen/gunim/driver"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/internal/glfw"
 	"github.com/marrasen/gunim/paint"
 )
 
@@ -258,5 +259,41 @@ func TestAShotIsTheFrameTheRightWayUp(t *testing.T) {
 	top, bottom := img.RGBAAt(b.Dx()/2, 2), img.RGBAAt(b.Dx()/2, b.Dy()-3)
 	if top.R < 200 || bottom.R > 55 {
 		t.Fatalf("top %v and bottom %v, want white on top of black", top, bottom)
+	}
+}
+
+// A fixed window is not resizable, so the system neither sizes,
+// maximizes nor snaps it, and one without the option is.
+func TestAFixedWindowIsNotResizable(t *testing.T) {
+	if display == nil {
+		t.Skip("no display")
+	}
+	for _, fixed := range []bool{false, true} {
+		dw, err := display.NewWindow(driver.Options{Title: "gunim fixed", Size: geom.Sz(200, 120), Fixed: fixed})
+		if err != nil {
+			t.Fatal(err)
+		}
+		w, ok := dw.(*Window)
+		if !ok {
+			t.Fatalf("NewWindow made a %T", dw)
+		}
+		var resizable int
+		if err := display.call(func() error {
+			var err error
+			resizable, err = w.gw.GetAttrib(glfw.Resizable)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		want := glfw.True
+		if fixed {
+			want = glfw.False
+		}
+		if resizable != want {
+			t.Errorf("with Fixed %v the window has Resizable %d, want %d", fixed, resizable, want)
+		}
+		if err := dw.Close(); err != nil {
+			t.Error(err)
+		}
 	}
 }

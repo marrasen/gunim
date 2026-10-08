@@ -143,8 +143,10 @@ const (
 	_RID_INPUT                                                 = 0x10000003
 	_RIDEV_REMOVE                                              = 0x00000001
 	_SC_KEYMENU                                                = 0xf100
+	_SC_MAXIMIZE                                               = 0xf030
 	_SC_MONITORPOWER                                           = 0xf170
 	_SC_SCREENSAVE                                             = 0xf140
+	_SC_SIZE                                                   = 0xf000
 	_SIZE_MAXIMIZED                                            = 2
 	_SIZE_MINIMIZED                                            = 1
 	_SIZE_RESTORED                                             = 0

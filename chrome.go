@@ -63,7 +63,7 @@ func (u *UI) Minimize() {
 // ToggleMaximize maximizes the window, or restores it, for a title
 // bar's button.
 func (u *UI) ToggleMaximize() {
-	if u.chrome != nil {
+	if u.chrome != nil && !u.fixed {
 		_ = u.chrome.fr.SetMaximized(!u.chrome.maximized)
 	}
 }
@@ -118,8 +118,9 @@ func (u *UI) noteTitleBar(n Node, t paint.Transform, size geom.Size) {
 			u.chrome.caption = append(u.chrome.caption, windowRect(t, r))
 		}
 	}
-	// An empty rectangle is a title bar without a maximize button.
-	if m, ok := n.(MaximizeButton); ok {
+	// An empty rectangle is a title bar without a maximize button, and a
+	// fixed window has none whatever its title bar draws.
+	if m, ok := n.(MaximizeButton); ok && !u.fixed {
 		if r := m.MaximizeRect(size); !r.Empty() {
 			u.chrome.maximize = windowRect(t, r)
 		}
@@ -176,10 +177,10 @@ func (u *UI) framePress(p geom.Point, e input.PointerDown) bool {
 }
 
 // edgeAt is the edge or corner of the window p is near, where the
-// engine sizes a chromeless window itself.
+// engine sizes a chromeless window itself. A fixed window has none.
 func (u *UI) edgeAt(p geom.Point) (driver.Edge, bool) {
 	c := u.chrome
-	if c == nil || c.fr.NativeFrame() || c.maximized {
+	if c == nil || c.fr.NativeFrame() || c.maximized || u.fixed {
 		return 0, false
 	}
 	size := u.w.dw.Size()
