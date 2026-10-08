@@ -400,16 +400,30 @@ func (s *Speaker) State() State {
 	return st
 }
 
-// ControlPanel opens the ASIO driver's own settings, while one plays,
-// and returns once they close.
+// ControlPanel opens the own settings of the ASIO driver Options
+// names, and returns once they close. A driver that failed to open
+// opens its settings too, as a change there may let it start, and the
+// speaker tries it again once they close.
 func (s *Speaker) ControlPanel() error {
 	if out := s.out.Load(); out != nil {
 		if r, ok := out.output.(*ringOutput); ok {
 			return r.dev.ControlPanel()
 		}
 	}
-	return errors.New("speaker: no ASIO driver plays")
+	s.mu.Lock()
+	driver := s.o.Driver
+	s.mu.Unlock()
+	if driver == "" {
+		return errors.New("speaker: no ASIO driver is chosen")
+	}
+	err := driverPanel(driver)
+	s.askReset()
+	return err
 }
+
+// driverPanel opens the settings of a driver that plays nothing; a
+// test puts a function of its own here.
+var driverPanel = asio.ControlPanel
 
 // Err returns an error the speakers met while playing, if any.
 func (s *Speaker) Err() error {

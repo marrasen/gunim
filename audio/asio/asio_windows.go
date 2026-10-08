@@ -160,17 +160,9 @@ func Open(c Config) (*Device, error) {
 	if playing.Load() != nil {
 		return nil, ErrOpen
 	}
-	drivers, err := Drivers()
+	clsid, err := clsidOf(c.Name)
 	if err != nil {
 		return nil, err
-	}
-	i := slices.IndexFunc(drivers, func(d Driver) bool { return d.Name == c.Name })
-	if i < 0 {
-		return nil, fmt.Errorf("asio: no driver is called %q", c.Name)
-	}
-	clsid, err := windows.GUIDFromString(drivers[i].CLSID)
-	if err != nil {
-		return nil, fmt.Errorf("asio: %s: %w", c.Name, err)
 	}
 	t, err := newSTA()
 	if err != nil {
@@ -187,6 +179,70 @@ func Open(c Config) (*Device, error) {
 	return d, nil
 }
 
+// clsidOf returns the class ID of the driver named.
+func clsidOf(name string) (windows.GUID, error) {
+	drivers, err := Drivers()
+	if err != nil {
+		return windows.GUID{}, err
+	}
+	i := slices.IndexFunc(drivers, func(d Driver) bool { return d.Name == name })
+	if i < 0 {
+		return windows.GUID{}, fmt.Errorf("asio: no driver is called %q", name)
+	}
+	clsid, err := windows.GUIDFromString(drivers[i].CLSID)
+	if err != nil {
+		return windows.GUID{}, fmt.Errorf("asio: %s: %w", name, err)
+	}
+	return clsid, nil
+}
+
+// ControlPanel opens the settings of the driver named, while no device
+// plays through it: for a driver that refuses to start until its
+// settings change. It loads the driver on a thread of its own, starts
+// it where it starts, opens its panel, and lets it go once the panel
+// closes.
+func ControlPanel(name string) error {
+	openMu.Lock()
+	defer openMu.Unlock()
+	if playing.Load() != nil {
+		return ErrOpen
+	}
+	clsid, err := clsidOf(name)
+	if err != nil {
+		return err
+	}
+	t, err := newSTA()
+	if err != nil {
+		return err
+	}
+	defer t.stop()
+	t.run(func() {
+		d := &Device{}
+		if hr, _, _ := procCoCreateInstance.Call(uintptr(unsafe.Pointer(&clsid)), 0, windows.CLSCTX_INPROC_SERVER,
+			uintptr(unsafe.Pointer(&clsid)), uintptr(unsafe.Pointer(&d.obj))); hr != 0 {
+			err = fmt.Errorf("asio: loading %s: %w", name, windows.Errno(hr))
+			return
+		}
+		defer d.call(mRelease)
+		// A driver that refuses to start may still show its panel.
+		hwnd, _, _ := procGetDesktopWindow.Call()
+		_ = d.call(mInit, hwnd)
+		if r := d.call(mControlPanel); r != codeOK {
+			err = &Error{Op: "opening the settings of " + name, Code: r, Message: d.message()}
+		}
+	})
+	return err
+}
+
+// refused says why the driver refused to start: as it says, or, where
+// it says nothing, what is likely.
+func (d *Device) refused() string {
+	if m := d.message(); m != "" {
+		return m
+	}
+	return "the driver refused to start, and says nothing of why; another program may hold the device, or the driver's settings may need a change"
+}
+
 // open loads the driver and starts it. It runs on the device's thread.
 func (d *Device) open(clsid windows.GUID, c Config) error {
 	if hr, _, _ := procCoCreateInstance.Call(uintptr(unsafe.Pointer(&clsid)), 0, windows.CLSCTX_INPROC_SERVER,
@@ -195,7 +251,7 @@ func (d *Device) open(clsid windows.GUID, c Config) error {
 	}
 	hwnd, _, _ := procGetDesktopWindow.Call()
 	if d.call(mInit, hwnd) == 0 {
-		return &Error{Op: "starting " + c.Name, Message: d.message()}
+		return &Error{Op: "starting " + c.Name, Message: d.refused()}
 	}
 	var ins, outs int32
 	if r := d.call(mGetChannels, uintptr(unsafe.Pointer(&ins)), uintptr(unsafe.Pointer(&outs))); r != codeOK {

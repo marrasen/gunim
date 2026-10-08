@@ -18,5 +18,9 @@ func (*Device) Info() Info { return Info{} }
 // ControlPanel opens the driver's own settings.
 func (*Device) ControlPanel() error { return ErrUnsupported }
 
+// ControlPanel opens the settings of the driver named; on this system
+// it returns [ErrUnsupported].
+func ControlPanel(string) error { return ErrUnsupported }
+
 // Close stops the driver and lets it go.
 func (*Device) Close() error { return nil }
