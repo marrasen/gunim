@@ -63,6 +63,9 @@ type TileGrid struct {
 	n int
 	// Size is the size of each tile. Change it and the tiles spring to their new places and sizes.
 	Size geom.Size
+	// Pace is how fast the tiles arrive and depart, from Arrive and Depart, and fade in and out, from Reorder, as a
+	// multiple of their usual pace: 2 is twice as fast. Zero is 1.
+	Pace float32
 
 	// cols, left and step are the columns, the left edge of the first and the room from one tile to the next, as
 	// last laid out.
@@ -91,6 +94,10 @@ type TileGrid struct {
 	// rebuild drops the tiles built at the next layout.
 	rebuild bool
 	lift    tileLift
+	// reorder is where each tile was, for the next layout to carry the tiles from there, as Reorder sets it; leaving
+	// holds the tiles of items gone, fading out, and of items that moved out of view, gliding there.
+	reorder []int
+	leaving []*tileCell
 }
 
 // tileLift is a press on a tile that may become a drag of the tiles selected.
@@ -130,6 +137,23 @@ func (g *TileGrid) SetLen(n int, u *gunim.UI) {
 // come in, and with Depart before it for the old ones to leave first.
 func (g *TileGrid) Rebuild(u *gunim.UI) {
 	g.rebuild = true
+	u.Invalidate()
+}
+
+// Reorder shows the items in a new order, some of them gone and others new, as a sort or a filter of them changes:
+// from[j] is where item j was before, or -1 for an item new to the grid. The tiles of items that stay glide from
+// where they were to their new places, those of items gone fade out where they are, and those of new items fade in
+// at theirs as the others make room. The grid then holds len(from) tiles, tells OnView again, and lets the
+// selection go. Tile builds the new items' tiles; the tiles that stay are kept, so the application must know them
+// by their new places.
+func (g *TileGrid) Reorder(from []int, u *gunim.UI) {
+	g.reorder = slices.Clone(from)
+	if g.reorder == nil {
+		g.reorder = []int{}
+	}
+	g.n = len(from)
+	g.runs, g.cursor, g.anchor, g.hover = nil, -1, -1, -1
+	g.built = [2]int{}
 	u.Invalidate()
 }
 
@@ -656,6 +680,11 @@ func (g *TileGrid) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Childre
 			delete(g.live, i)
 			delete(children, tc)
 		}
+		for _, tc := range g.leaving {
+			kids.Drop(tc)
+			delete(children, tc)
+		}
+		g.leaving = nil
 		g.built = [2]int{}
 		g.depart, g.departing = nil, false
 	}
@@ -665,6 +694,12 @@ func (g *TileGrid) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Childre
 		first = max(0, int((offset-pad)/g.step.H)-1) * g.cols
 		last = min(g.n-1, (int((offset+own.H-pad)/g.step.H)+2)*g.cols-1)
 	}
+	from := g.reorder
+	g.reorder = nil
+	if from != nil {
+		g.reordered(from, first, last, th)
+	}
+	g.placeLeaving(children, offset, kids)
 	if !g.departing {
 		for i, tc := range g.live {
 			if i < first || i > last {
@@ -682,14 +717,21 @@ func (g *TileGrid) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Childre
 		switch {
 		case g.departing:
 			if g.depart != nil {
-				tc.fade.Animate(0, Settle.Get(th))
+				tc.fade.Animate(0, g.pacedSpring(Settle.Get(th)))
 				if r, ok := g.depart(i); ok {
-					tc.moveTo(r.Add(geom.Pt(0, offset)), motion)
+					tc.moveTo(r.Add(geom.Pt(0, offset)), g.pacedSpring(motion))
 				}
 			}
 		case tc.wait <= 0:
-			tc.moveTo(to, motion)
-			tc.fade.Animate(1, Settle.Get(th))
+			m, settle := motion, Settle.Get(th)
+			if tc.paced {
+				m, settle = g.pacedSpring(m), g.pacedSpring(settle)
+			}
+			tc.moveTo(to, m)
+			tc.fade.Animate(1, settle)
+			if !tc.moving() {
+				tc.paced = false
+			}
 		}
 		tc.g, tc.i = g, i
 		tc.selected = hasRun(g.runs, i)
@@ -718,7 +760,16 @@ func (g *TileGrid) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Childre
 				}
 				tc = newTileCell(g.Tile(i))
 				tc.jump(g.target(i))
-				if relaid || arrive != nil {
+				switch {
+				case from != nil && i < len(from) && from[i] >= 0:
+					// It comes from where it was, out of view.
+					tc.jump(g.target(from[i]))
+				case from != nil:
+					// It is new: it fades in as the tiles gone fade out.
+					tc.fade.Jump(0)
+					tc.paced = true
+					tc.wait = g.paced(reorderWait)
+				case relaid || arrive != nil:
 					tc.growIn()
 				}
 				g.live[i] = tc
@@ -731,7 +782,8 @@ func (g *TileGrid) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Childre
 				} else {
 					tc.growIn()
 				}
-				tc.wait = time.Duration(min(i-first, 24)) * 14 * time.Millisecond
+				tc.paced = true
+				tc.wait = g.paced(time.Duration(min(i-first, 24)) * 14 * time.Millisecond)
 			}
 			place(i, tc)
 		}
@@ -743,6 +795,73 @@ func (g *TileGrid) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Childre
 		}
 	}
 	return own
+}
+
+// reorderWait is how long a new tile waits, from Reorder, before it fades in: the tiles gone are fading by then.
+const reorderWait = 140 * time.Millisecond
+
+// paced returns d at the grid's Pace.
+func (g *TileGrid) paced(d time.Duration) time.Duration {
+	if g.Pace <= 0 {
+		return d
+	}
+	return time.Duration(float32(d) / g.Pace)
+}
+
+// pacedSpring returns s at the grid's Pace.
+func (g *TileGrid) pacedSpring(s anim.Spring) anim.Spring {
+	if g.Pace > 0 {
+		s.Response /= g.Pace
+	}
+	return s
+}
+
+// reordered carries the tiles built to the places from gives them, as Reorder asks: a tile whose item stays takes
+// its new place, and glides there at its next placing, or out of view, and the tile of an item gone fades out.
+func (g *TileGrid) reordered(from []int, first, last int, th *theme.Live) {
+	to := make(map[int]int, len(from))
+	for j, i := range from {
+		if i >= 0 {
+			to[i] = j
+		}
+	}
+	was := g.live
+	g.live = make(map[int]*tileCell, len(was))
+	for i, tc := range was {
+		tc.wait, tc.paced = 0, false
+		j, ok := to[i]
+		switch {
+		case !ok:
+			tc.fade.Animate(0, g.pacedSpring(Quick.Get(th)))
+			g.leaving = append(g.leaving, tc)
+		case j < first || j > last:
+			tc.moveTo(g.target(j), TileMotion.Get(th))
+			g.leaving = append(g.leaving, tc)
+		default:
+			g.live[j] = tc
+		}
+	}
+}
+
+// placeLeaving lays the tiles leaving out where they are on their way, and drops those that have got there.
+func (g *TileGrid) placeLeaving(children map[*tileCell]gunim.Child, offset float32, kids gunim.Children) {
+	keep := g.leaving[:0]
+	for _, tc := range g.leaving {
+		kid, ok := children[tc]
+		if !ok {
+			continue
+		}
+		if !tc.moving() {
+			kids.Drop(tc)
+			continue
+		}
+		r := tc.rect()
+		kid.Layout(gunim.Tight(geom.Sz(max(r.Size().W, 0), max(r.Size().H, 0))))
+		kid.Place(geom.Pt(r.Min.X, r.Min.Y-offset))
+		keep = append(keep, tc)
+	}
+	clear(g.leaving[len(keep):])
+	g.leaving = keep
 }
 
 // hold keeps the tile the keyboard is on, or the first in view, where it is on screen as the tiles move to a new
@@ -763,6 +882,9 @@ func (g *TileGrid) hold(oldCols int, oldStep geom.Size, oldPad float32) {
 	}
 	g.shift(d)
 	for _, tc := range g.live {
+		anim.Shift(tc.y, d)
+	}
+	for _, tc := range g.leaving {
 		anim.Shift(tc.y, d)
 	}
 }
@@ -817,6 +939,8 @@ type tileCell struct {
 	cursor         bool
 	// wait holds the tile where it is for a moment, so tiles arriving together go one after another.
 	wait time.Duration
+	// paced says the tile is arriving at the grid's Pace.
+	paced bool
 }
 
 func newTileCell(child gunim.Node) *tileCell {
