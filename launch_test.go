@@ -34,3 +34,25 @@ func TestOpenSaysWhenThereIsNoLauncher(t *testing.T) {
 		t.Fatalf("Reveal returned %v, want ErrNoLauncher", err)
 	}
 }
+
+func TestOpenLinkGoesToTheBrowserForWebAddressesAlone(t *testing.T) {
+	w := NewOffscreen(geom.Sz(400, 300), nil)
+	if err := w.Client().OpenLink("https://example.com/privacy"); !errors.Is(err, driver.ErrNoLinkOpener) {
+		t.Fatalf("with no browser, OpenLink returned %v, want ErrNoLinkOpener", err)
+	}
+	var opened []string
+	w.Offscreen().SetLinkOpener(func(url string) error { opened = append(opened, url); return nil })
+	for _, url := range []string{"https://example.com/privacy", "http://example.com/"} {
+		if err := w.Client().OpenLink(url); err != nil {
+			t.Fatalf("OpenLink(%q) returned %v", url, err)
+		}
+	}
+	for _, url := range []string{"file:///etc/passwd", "/usr/bin/calc", "javascript:alert(1)", "intent://x"} {
+		if err := w.Client().OpenLink(url); err == nil {
+			t.Errorf("OpenLink(%q) went to the browser, want an error", url)
+		}
+	}
+	if len(opened) != 2 || opened[0] != "https://example.com/privacy" || opened[1] != "http://example.com/" {
+		t.Fatalf("the browser got %q, want the two web addresses alone", opened)
+	}
+}
