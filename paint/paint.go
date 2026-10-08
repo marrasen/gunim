@@ -577,13 +577,18 @@ func Solid(c color.NRGBA) Fill { return Fill{Solid: c} }
 //
 // A linear gradient changes along the line from From to To, and stays
 // the same across it. A radial one changes in circles out from From,
-// and reaches End at the distance to To; a transform that scales one
-// way more than the other makes the circles ellipses.
+// and reaches End at the distance to To; Aspect, or a transform that
+// scales one way more than the other, makes the circles ellipses.
 type Gradient struct {
 	From, To   geom.Point
 	Start, End color.NRGBA
 	// Radial makes the gradient run out from From in circles.
 	Radial bool
+	// Aspect makes a radial gradient's circles ellipses: it reaches End
+	// at the distance to To along the line to To, and at Aspect times
+	// that distance at right angles to it. Zero keeps them circles, as 1
+	// does.
+	Aspect float32
 	// Stops are colours on the way from Start to End, in order, each at
 	// its place between 0, at From, and 1, at To. A shape draws a
 	// gradient of two colours a little quicker than one with stops.
@@ -602,7 +607,7 @@ func (g *Gradient) Equal(h *Gradient) bool {
 		return g == h
 	}
 	return g.From == h.From && g.To == h.To && g.Start == h.Start && g.End == h.End &&
-		g.Radial == h.Radial && slices.Equal(g.Stops, h.Stops)
+		g.Radial == h.Radial && g.Aspect == h.Aspect && slices.Equal(g.Stops, h.Stops)
 }
 
 // At returns the gradient's colour at t, from 0 at From to 1 at To:

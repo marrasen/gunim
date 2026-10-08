@@ -209,3 +209,22 @@ func TestAFadedLayerFadesTowardItsEdges(t *testing.T) {
 		}
 	}
 }
+
+func TestAnEllipticalGradientReachesEachAxisAtItsLength(t *testing.T) {
+	r, done := hiddenGL(t)
+	defer done()
+	pix := drawn(r, func(p *paint.Painter) {
+		p.RRect(geom.Rc(100, 100, 200, 200), 0, paint.Fill{Gradient: &paint.Gradient{
+			From: geom.Pt(200, 200), To: geom.Pt(300, 200), Start: red, End: blue, Radial: true, Aspect: 0.5,
+		}})
+	})
+	// Halfway out is 50 across, along the line to To, and 25 down.
+	for _, p := range [][2]int{{250, 200}, {150, 200}, {200, 175}, {200, 225}} {
+		if got := pixelAt(pix, p[0], p[1]); !near(got, [4]byte{0x80, 0, 0x7f, 0xff}, 6) {
+			t.Errorf("halfway out at %v the ellipse is %v, want halfway from red to blue", p, got)
+		}
+	}
+	if got := pixelAt(pix, 200, 140); !near(got, px(blue), 2) {
+		t.Errorf("60 down, past the ellipse's short axis, it is %v, want blue", got)
+	}
+}

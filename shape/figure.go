@@ -2,6 +2,7 @@ package shape
 
 import (
 	"image/color"
+	"math"
 
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/paint"
@@ -52,6 +53,9 @@ func (f *Figure) Paint(p *paint.Painter, r geom.Rect) {
 		case pt.FillGradient != nil:
 			// The gradient, in the view box's units, is mapped into r afresh: a copy for this paint alone.
 			g := *pt.FillGradient
+			if g.Radial && kx != ky {
+				g.Aspect = stretched(g, kx, ky)
+			}
 			g.From, g.To = m(g.From), m(g.To)
 			p.MaskFill(fill, fill.In(f.ViewBox, r), paint.Fill{Gradient: &g})
 		case pt.Fill.A > 0:
@@ -62,4 +66,24 @@ func (f *Figure) Paint(p *paint.Painter, r geom.Rect) {
 			p.Mask(s, s.In(f.ViewBox, r), pt.Stroke)
 		}
 	}
+}
+
+// stretched returns the Aspect of the radial gradient g once stretched by
+// kx across and ky down: the length of its axis across the line to To
+// over the length along it. An ellipse turned to the stretch keeps its
+// axes square; one turned against it is drawn with axes of the new
+// lengths, set square.
+func stretched(g paint.Gradient, kx, ky float32) float32 {
+	asp := g.Aspect
+	if asp <= 0 {
+		asp = 1
+	}
+	d := g.To.Sub(g.From)
+	along := geom.Pt(d.X*kx, d.Y*ky)
+	across := geom.Pt(-d.Y*asp*kx, d.X*asp*ky)
+	n := float32(math.Hypot(float64(along.X), float64(along.Y)))
+	if n <= 0 {
+		return g.Aspect
+	}
+	return float32(math.Hypot(float64(across.X), float64(across.Y))) / n
 }
