@@ -739,7 +739,7 @@ path data.
 | `gunim/audio/band` | Plays songs made for programs, as a game's music, such as looping parts that come and go |
 | `gunim/audio/vst3` | Hosts VST3 effects: their sound, state, parameters and editors |
 | `gunim/audioui` | Meters and faders, a spectrum and a spectrogram, a waveform, and loudness readings for audio programs |
-| `gunim/paint` | The per-frame draw list: rounded rects, shadows, gradients, text, images, masks, layers that clip and tilt, and 3D scenes |
+| `gunim/paint` | The per-frame draw list: rounded rects, shadows, gradients, text, images, masks, light that adds, layers that clip and tilt, and 3D scenes |
 | `gunim/icon` | Lucide's icons as strokes, drawn as tinted masks; `icon/byname` looks them up by name |
 | `gunim/shape` | Vector art: SVG path data filled or stroked as a mask, and SVG files read into figures |
 | `gunim/geom` | float32 points, sizes, rectangles, and 3D vectors and matrices |
@@ -822,6 +822,26 @@ Gradients with stops take their colours from a row of a small texture,
 drawn once per set of colours. An opaque layer clipped to an ellipse,
 `LayerOpts.Ellipse`, draws in place, with no offscreen pass: each quad
 inside it is cut to the ellipse as it draws.
+
+Shapes, masks and images can add their light to what is beneath them
+rather than cover it, as a game's sparks, trails and glows do: where
+two of them overlap they brighten each other, up to white.
+`p.Blend(paint.BlendAdd)` draws so until the function it returns is
+called, and an `RRectOp`, `MaskOp` or `ImageOp` carries its `Blend`
+as it carries its transform. A shape's shadow adds too, which makes a
+halo. Under the premultiplied blending everything draws with, a colour
+with an alpha of 0 adds itself and hides nothing, so the shader gives
+an added quad's colour that alpha, and it shares the batch of the
+quads around it. Inside a layer the light adds to what lies beneath
+the layer as it composites, times the layer's opacity. Text, cells,
+layers and scenes draw normally whatever the blend.
+
+```go
+defer p.Blend(paint.BlendAdd)()
+for _, s := range v.sparks {
+	p.ShadowRRect(s.Rect, s.Rect.Size().W/2, paint.Solid(s.Core), paint.Shadow{Blur: 12, Color: s.Glow})
+}
+```
 
 `LayerOpts.Tilt` turns a layer in depth, in perspective, about the
 middle of its bounds: a card turning over, a page leaning back. A
