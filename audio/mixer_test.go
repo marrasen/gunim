@@ -395,3 +395,31 @@ func TestHeardBeforeReadsTheSoundAsTheInsertsFoundIt(t *testing.T) {
 		t.Fatalf("heard %v, before the insert %v: want the channels swapped only in what is heard", heard[:2], before[:2])
 	}
 }
+
+// TestAMixerAtAnotherRate plays at 44.1 kHz: a seek and the position
+// count its frames at that rate.
+func TestAMixerAtAnotherRate(t *testing.T) {
+	m := NewMixer()
+	m.SetRate(44100)
+	if m.Rate() != 44100 {
+		t.Fatalf("the mixer plays at %d Hz", m.Rate())
+	}
+	src := NewClip(make([]float32, 2*44100*3)).Source()
+	v := m.Play(src, Options{})
+	if err := v.Seek(time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if got := v.Position(); got != time.Second {
+		t.Errorf("a second in, the voice is at %v", got)
+	}
+	if got := v.Len(); got != 3*time.Second {
+		t.Errorf("three seconds at 44.1 kHz last %v", got)
+	}
+	m.Mix(make([]float32, 2*44100))
+	if got := v.Position(); got != 2*time.Second {
+		t.Errorf("after a second mixed, the voice is at %v", got)
+	}
+	if got := m.Duration(44100); got != time.Second {
+		t.Errorf("44100 frames last %v", got)
+	}
+}

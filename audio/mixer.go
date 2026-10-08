@@ -14,8 +14,9 @@ import (
 const block = 128
 
 // historyFrames is how much of what it played the mixer keeps for an
-// [Analyzer]: a power of two, more than the speakers hold back.
-const historyFrames = 1 << 15
+// [Analyzer]: a power of two, more than the speakers hold back, as far
+// ahead as they grow to work at 192 kHz.
+const historyFrames = 1 << 18
 
 // declick is how long a pause, a resume and a stop with no fade of
 // their own take to fade, so the sound never clicks off.
@@ -47,12 +48,42 @@ type Mixer struct {
 	stereo, dryStereo []float32
 	// out is Read's buffer; Read runs on one goroutine at a time.
 	out []float32
+	// rate is how many frames a second the mixer gives, and every
+	// source it plays.
+	rate int
 }
 
-// NewMixer returns a mixer playing nothing.
+// NewMixer returns a mixer playing nothing, at [SampleRate].
 func NewMixer() *Mixer {
-	return &Mixer{history: make([]float32, historyFrames), buf: make([]float32, 2*block), gain: 1}
+	return &Mixer{history: make([]float32, historyFrames), buf: make([]float32, 2*block), gain: 1, rate: SampleRate}
 }
+
+// Rate returns how many frames a second the mixer gives. Every source
+// it plays gives frames at this rate.
+func (m *Mixer) Rate() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.rate
+}
+
+// SetRate sets how many frames a second the mixer gives, as package
+// audio/speaker does to match the device it plays on. Sounds made for
+// the rate before play at the wrong speed from then: an application
+// that changes the rate plays its sounds again, made for the new one.
+func (m *Mixer) SetRate(hz int) {
+	if hz <= 0 {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.rate = hz
+}
+
+// Frames returns how many frames last d, at the mixer's rate.
+func (m *Mixer) Frames(d time.Duration) int64 { return FramesAt(d, m.Rate()) }
+
+// Duration returns how long n frames last, at the mixer's rate.
+func (m *Mixer) Duration(n int64) time.Duration { return DurationAt(n, m.Rate()) }
 
 // Options says how a sound starts playing.
 type Options struct {
@@ -76,6 +107,10 @@ type Options struct {
 	// [Analyzer] to compare.
 	Insert Insert
 }
+
+// rated is an insert of this package's that works at the mixer's rate,
+// as an EQ does, told it before each block.
+type rated interface{ setRate(hz int) }
 
 // An Insert changes a voice's sound as it plays, in place, a block of
 // interleaved stereo frames at a time. It runs on the goroutine that
@@ -192,7 +227,7 @@ func (m *Mixer) Read(p []byte) (int, error) {
 func (m *Mixer) mixBlock(dst []float32) {
 	clear(dst)
 	frames := len(dst) / 2
-	dt := Duration(int64(frames))
+	dt := DurationAt(int64(frames), m.rate)
 	var dry []float32
 	if m.dry != nil {
 		dry = m.dry[:2*frames]
@@ -216,7 +251,7 @@ func (m *Mixer) mixBlock(dst []float32) {
 		peak = max(peak, v, -v)
 	}
 	g0 := m.gain
-	g1 := min(1, g0+(1-g0)*float32(frames)/float32(limiterRelease))
+	g1 := min(1, g0+(1-g0)*float32(frames)/(float32(m.rate)*limiterRelease))
 	if peak*g1 > limiterCeiling {
 		g1 = limiterCeiling / peak
 		g0 = min(g0, g1)
@@ -247,11 +282,11 @@ func (m *Mixer) mixBlock(dst []float32) {
 }
 
 // The limiter's ceiling, full scale, which a block's peak is brought
-// under, and how many frames it takes to come most of the way back to
+// under, and how many seconds it takes to come most of the way back to
 // full gain.
 const (
 	limiterCeiling = 1
-	limiterRelease = SampleRate * 8 / 100
+	limiterRelease = 0.08
 )
 
 // clip keeps a sample within -1 to 1, where rounding might take it a
@@ -361,6 +396,9 @@ func (v *Voice) mix(dst, dry, buf []float32, dt time.Duration) bool {
 		}
 	}
 	if v.insert != nil && n > 0 {
+		if r, ok := v.insert.(rated); ok {
+			r.setRate(v.m.rate)
+		}
 		v.insert.Process(buf[:2*n])
 	}
 	for i := range 2 * n {
@@ -538,7 +576,7 @@ func (v *Voice) Seek(d time.Duration) error {
 	if !ok {
 		return ErrNotSeekable
 	}
-	f := max(0, Frames(d))
+	f := max(0, FramesAt(d, v.m.rate))
 	if l := s.Len(); l >= 0 {
 		f = min(f, l)
 	}
@@ -587,10 +625,10 @@ func (v *Voice) Position() time.Duration {
 			if k.gen < v.gen {
 				return 0
 			}
-			return Duration(k.at + min(heard-k.mixed, int64(k.n)))
+			return DurationAt(k.at+min(heard-k.mixed, int64(k.n)), v.m.rate)
 		}
 	}
-	return Duration(k.at)
+	return DurationAt(k.at, v.m.rate)
 }
 
 // Len returns the length of the voice's sound, or -1 when it is
@@ -606,5 +644,5 @@ func (v *Voice) Len() time.Duration {
 	if l < 0 {
 		return -1
 	}
-	return Duration(l)
+	return DurationAt(l, v.m.rate)
 }

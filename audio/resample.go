@@ -19,7 +19,7 @@ type decoder interface {
 	info() Format
 }
 
-// resampler plays a decoder at [SampleRate], drawing a cubic curve
+// resampler plays a decoder at another rate, drawing a cubic curve
 // through the frames either side of each it makes.
 type resampler struct {
 	d decoder
@@ -45,8 +45,8 @@ type resampler struct {
 	filled bool
 }
 
-func newResampler(d decoder) *resampler {
-	return &resampler{d: d, step: float64(d.rate()) / SampleRate, in: make([]float32, 2*1024)}
+func newResampler(d decoder, to int) *resampler {
+	return &resampler{d: d, step: float64(d.rate()) / float64(to), in: make([]float32, 2*1024)}
 }
 
 // next returns the decoder's next frame, or false at its end.
@@ -154,7 +154,7 @@ func hermite(a, b, c, d, t float32) float32 {
 	return ((c3*t+c2)*t+c1)*t + c0
 }
 
-// direct plays a decoder already at [SampleRate].
+// direct plays a decoder at its own rate.
 type direct struct{ d decoder }
 
 // Read implements [Source].

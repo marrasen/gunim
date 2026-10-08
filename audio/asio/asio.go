@@ -1,0 +1,105 @@
+// Package asio plays sound through an ASIO driver, on Windows: the
+// driver an audio interface's maker ships with it. The interface plays
+// what the driver is given at the rate and in the buffers it is set to,
+// sample for sample, past the mixing and resampling of Windows' own
+// sound.
+//
+// The package speaks to drivers through its own definitions of the
+// driver's interface, in Go. It is for 64-bit Windows; elsewhere
+// [Drivers] lists none and [Open] returns [ErrUnsupported].
+//
+// A process plays through one driver at a time:
+//
+//	d, err := asio.Open(asio.Config{Name: drivers[0].Name, Rate: 44100,
+//		Fill: func(frames []float32) { mix.Mix(frames) }})
+//	...
+//	defer d.Close()
+package asio
+
+import (
+	"errors"
+	"fmt"
+)
+
+// A Driver is an ASIO driver installed on the computer.
+type Driver struct {
+	// Name is the driver's name, as it is listed under
+	// HKEY_LOCAL_MACHINE\SOFTWARE\ASIO, and as Config.Name takes it.
+	Name string
+	// CLSID is the class ID the driver is made from.
+	CLSID string
+}
+
+// Config says how to open a driver.
+type Config struct {
+	// Name is the driver's name, from [Drivers].
+	Name string
+	// Rate is the rate to play at, in frames a second. Zero keeps the
+	// rate the driver is at. A rate the driver refuses keeps its own
+	// too: [Device.Rate] tells the rate it plays at.
+	Rate int
+	// Buffer is how many frames the driver takes at a time. Zero takes
+	// the size the driver prefers, as its control panel sets it; another
+	// is brought to the nearest size the driver allows.
+	Buffer int
+	// Fill fills frames, stereo frames of interleaved float32 samples
+	// from -1 to 1, with what plays next. The driver calls it on a
+	// thread of its own, each time it takes a buffer, so it must be
+	// quick and return at once.
+	Fill func(frames []float32)
+	// Reset, where set, is called once, on a goroutine of its own, as
+	// the driver asks to be opened again: after its rate, buffer size
+	// or latency changes, as in its control panel. Close the device and
+	// open it again to play on.
+	Reset func()
+}
+
+// ErrUnsupported is returned by [Open] on a system without ASIO.
+var ErrUnsupported = errors.New("asio: ASIO plays on 64-bit Windows")
+
+// ErrOpen is returned by [Open] while another driver is open.
+var ErrOpen = errors.New("asio: a driver is open already")
+
+// Error is an error an ASIO driver returned.
+type Error struct {
+	// Op is what was asked of the driver.
+	Op string
+	// Code is the driver's error code, and Message what the driver
+	// says of it, where it says anything.
+	Code    int32
+	Message string
+}
+
+func (e *Error) Error() string {
+	name := codeNames[e.Code]
+	if name == "" {
+		name = fmt.Sprintf("error %d", e.Code)
+	}
+	if e.Message != "" {
+		return fmt.Sprintf("asio: %s: %s (%s)", e.Op, e.Message, name)
+	}
+	return fmt.Sprintf("asio: %s: %s", e.Op, name)
+}
+
+// The error codes of an ASIO driver.
+const (
+	codeOK               = 0
+	codeSuccess          = 0x3f4847a0
+	codeNotPresent       = -1000
+	codeHWMalfunction    = -999
+	codeInvalidParameter = -998
+	codeInvalidMode      = -997
+	codeSPNotAdvancing   = -996
+	codeNoClock          = -995
+	codeNoMemory         = -994
+)
+
+var codeNames = map[int32]string{
+	codeNotPresent:       "the hardware is missing",
+	codeHWMalfunction:    "the hardware is malfunctioning",
+	codeInvalidParameter: "a value was out of range",
+	codeInvalidMode:      "the hardware is in a bad mode or used in a bad mode",
+	codeSPNotAdvancing:   "the hardware is not running",
+	codeNoClock:          "the sample clock or rate cannot be found",
+	codeNoMemory:         "the driver ran out of memory",
+}
