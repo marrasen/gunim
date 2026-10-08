@@ -66,7 +66,7 @@ func TestAPingOpensAroundTheWindowAndCloses(t *testing.T) {
 	if o.e.pop == nil || !o.e.pop.Open() {
 		t.Fatal("the ping opened no popup")
 	}
-	if got, want := o.e.view.size, geom.Sz(800+2*80, 600+2*80); got != want {
+	if got, want := o.e.view.size, geom.Sz(800+2*44, 600+2*44); got != want {
 		t.Fatalf("the popup is %v, want %v", got, want)
 	}
 	// A second ping joins the first.
@@ -134,9 +134,9 @@ func TestAStrengthOfNoneSendsNoEcho(t *testing.T) {
 func TestTheRingsStayOutsideTheWindow(t *testing.T) {
 	v := &echoView{size: geom.Sz(360, 260), inner: geom.Rc(80, 80, 200, 100), reach: 64, radius: 8}
 	v.rings = []echoRing{
-		{tone: EchoDone, strength: 1, flash: true},
 		{tone: EchoDone, strength: 1},
 		{at: 140 * time.Millisecond, tone: EchoDone, strength: 0.7},
+		{tone: EchoCall, strength: 1, glow: true},
 		{tone: EchoWait, strength: 0.35},
 	}
 	for range 80 {

@@ -521,17 +521,17 @@ func (h *sectionHead) Handle(e input.Event, u *gunim.UI) bool {
 		return false
 	case input.FocusRing:
 		if e.On && e.Grouped {
-			h.ring.Animate(0, widget.Quick.Get(th))
+			h.ring.Animate(0, widget.RingFade.Get(th))
 			h.lit.Animate(1, widget.Quick.Get(th))
 			break
 		}
 		if e.On {
-			h.ring.Animate(1, widget.Quick.Get(th))
+			h.ring.Animate(1, widget.RingFade.Get(th))
 		} else {
-			h.ring.Animate(0, widget.Settle.Get(th))
+			h.ring.Animate(0, widget.RingFade.Get(th))
 		}
 	case input.FocusLost:
-		h.ring.Animate(0, widget.Settle.Get(th))
+		h.ring.Animate(0, widget.RingFade.Get(th))
 		h.lit.Animate(0, widget.Settle.Get(th))
 	default:
 		return false

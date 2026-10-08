@@ -71,7 +71,7 @@ type List struct {
 	// spacing is the gap between rows at the last layout.
 	spacing float32
 
-	// cursor is the row the keys work on; ring grows while the list shows it has the keyboard, and mark carries it to
+	// cursor is the row the keys work on; ring rises while the list shows it has the keyboard, and mark carries it to
 	// the cursor. whole says the list draws the ring round all of itself too, as no group round it does.
 	cursor Key
 	ring   *anim.Float

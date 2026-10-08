@@ -152,7 +152,7 @@ func (t *toggle) paintLabel(p *paint.Painter, f gunim.Frame, box geom.Size, mark
 //
 // The tick draws itself in, short stroke then long, as the box fills
 // with the accent colour; hover warms the border, a press squashes the
-// box, and focus grows a ring around it. A click anywhere on the
+// box, and focus fades a ring in around it. A click anywhere on the
 // checkbox or its label flips it, and so does Space.
 type Checkbox struct{ toggle }
 
@@ -844,9 +844,9 @@ func (b *tabBar) Handle(e input.Event, u *gunim.UI) bool {
 			return false
 		}
 	case input.FocusRing:
-		t.ring.Animate(ringTo(e), Quick.Get(th))
+		t.ring.Animate(ringTo(e), RingFade.Get(th))
 	case input.FocusLost:
-		t.ring.Animate(0, Settle.Get(th))
+		t.ring.Animate(0, RingFade.Get(th))
 	default:
 		return false
 	}
@@ -1034,18 +1034,18 @@ func (t *Tabs) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, kids gunim.
 	}
 }
 
-// FocusRing draws the ring a control grows around r, its corners radius round, as Tab brings the keyboard to it. t
-// runs from 0, no ring, to 1, the ring grown 3 pixels out in the accent colour: animate it with the control's own
-// value, as [Button] does, so an app's node rings the way the widgets do.
+// FocusRing draws the ring a control shows around r, its corners radius round, as Tab brings the keyboard to it: a
+// line 3 pixels out in the accent colour, at strength t from 0, no ring, to 1. It stays in place and fades: animate t
+// with the control's own value on [RingFade], as [Button] does, so an app's node rings the way the widgets do.
 func FocusRing(p *paint.Painter, r geom.Rect, radius, t float32, th *theme.Live) {
 	if t <= 0.01 {
 		return
 	}
 	ring := Accent.Get(th)
 	ring.A = uint8(float32(ring.A) * 0.56 * min(t, 1))
-	grow := 3 * t
-	p.RRectStroke(geom.Rect{Min: geom.Pt(r.Min.X-grow, r.Min.Y-grow), Max: geom.Pt(r.Max.X+grow, r.Max.Y+grow)},
-		radius+grow, paint.Fill{}, paint.Stroke{Width: 2, Color: ring})
+	const out = 3
+	p.RRectStroke(geom.Rect{Min: geom.Pt(r.Min.X-out, r.Min.Y-out), Max: geom.Pt(r.Max.X+out, r.Max.Y+out)},
+		radius+out, paint.Fill{}, paint.Stroke{Width: 2, Color: ring})
 }
 
 // ringTo is where a focus ring goes for e: 1 for an [input.FocusRing] that turns it on, and 0 otherwise.
@@ -1065,16 +1065,16 @@ type ringCue struct {
 // follow takes e.
 func (c *ringCue) follow(e input.FocusRing) { c.on, c.whole = e.On, e.On && !e.Grouped }
 
-// GroupRing draws the ring round a whole group or list that has the keyboard: an accent edge 2 pixels wide just
-// inside r, its corners radius round, at strength t from 0 to 1. A view with a cursor of its own, such as a calendar,
-// draws it round itself when the keyboard comes by Tab.
+// GroupRing draws the ring round a whole group or list that has the keyboard: a faint accent line 1 pixel wide just
+// inside r, its corners radius round, at strength t from 0 to 1. It stays quieter than the [FocusRing] of the control
+// inside it. A view with a cursor of its own, such as a calendar, draws it round itself when the keyboard comes by Tab.
 func GroupRing(p *paint.Painter, r geom.Rect, radius, t float32, th *theme.Live) {
 	if t <= 0.01 {
 		return
 	}
 	c := Accent.Get(th)
-	c.A = uint8(float32(c.A) * min(t, 1))
-	p.RRectStroke(r.Inset(geom.Uniform(1)), max(radius-1, 0), paint.Fill{}, paint.Stroke{Width: 2, Color: c})
+	c.A = uint8(float32(c.A) * 0.4 * min(t, 1))
+	p.RRectStroke(r.Inset(geom.Uniform(0.5)), max(radius-0.5, 0), paint.Fill{}, paint.Stroke{Width: 1, Color: c})
 }
 
 // bar draws a straight stroke from a to b, thick wide, with round ends.

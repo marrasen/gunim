@@ -11,21 +11,21 @@ import (
 )
 
 // ringShows returns how strongly the last frame of w drew the ring round a whole view from the window's corner, from
-// 0 for none to 1 for the accent colour in full.
+// 0 for none to 1 for the ring at its full strength.
 func ringShows(w *gunim.Window) float32 {
 	accent := widget.Accent.Get(nil)
 	for _, op := range w.Offscreen().Ops() {
-		if r, ok := op.(*paint.RRectOp); ok && r.Stroke.Width == 2 && r.Rect.Min == geom.Pt(1, 1) {
+		if r, ok := op.(*paint.RRectOp); ok && r.Stroke.Width == 1 && r.Rect.Min == geom.Pt(0.5, 0.5) {
 			c := r.Stroke.Color
 			if c.R == accent.R && c.G == accent.G && c.B == accent.B {
-				return float32(c.A) / float32(accent.A)
+				return float32(c.A) / (0.4 * float32(accent.A))
 			}
 		}
 	}
 	return 0
 }
 
-// The ring grows in as Tab brings the keyboard, frame by frame, and fades as a click puts it away.
+// The ring fades in as Tab brings the keyboard, frame by frame, and fades as a click puts it away.
 func TestTheViewsShowARingWhileTabHasThemTheKeyboard(t *testing.T) {
 	views := map[string]gunim.Node{"days": newWeek(), "month": NewMonth(monday), "small month": NewMiniMonth(monday)}
 	for name, n := range views {

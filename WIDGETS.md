@@ -88,7 +88,7 @@ hover, press, the focus ring and the disabled fade. A control in `widget` embeds
 | `Layout` | `c.follow(th)` | the disabled fade, jumping on the first layout |
 | `Handle`, first | `c.showTip(e, u, node)` | the tooltip, on a disabled control too |
 | `Handle`, when `Disabled` | `return c.handleDisabled(e, u, shut)` | focus let go, right clicks passed on, anything open shut |
-| `Handle` | `c.ringFollows(e, th)` | the focus ring growing and shrinking |
+| `Handle` | `c.ringFollows(e, th)` | the focus ring fading in and out |
 | `Paint` | `defer c.faint(p, box)()`, then `c.paintRing(p, r, radius, th)` | the disabled fade, and the one focus ring |
 | `Access` | `c.accessState()`, `c.accessName(label)` | disabled state and a name for screen readers |
 

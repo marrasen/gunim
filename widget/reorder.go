@@ -51,7 +51,7 @@ func (l *List) Handle(e input.Event, u *gunim.UI) bool {
 		return true
 	case input.FocusRing:
 		l.whole = e.On && !e.Grouped
-		l.ring.Animate(ringTo(e), Quick.Get(th))
+		l.ring.Animate(ringTo(e), RingFade.Get(th))
 		u.Invalidate()
 		return true
 	case input.PointerDown:

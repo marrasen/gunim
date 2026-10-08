@@ -18,7 +18,7 @@ import (
 // double-click sets it to 0 dB. Its 0 dB is marked half way up. The cap
 // lights under the pointer.
 //
-// It takes the keyboard by Tab, and a ring grows round its cap. Up and
+// It takes the keyboard by Tab, and a ring fades in round its cap. Up and
 // Down, or Right and Left, step it half a decibel, a tenth of one with
 // Shift; Page Up and Page Down step it a tenth of its travel; Home and
 // End take it to the bottom and the top.
@@ -157,9 +157,9 @@ func (f *Fader) Handle(e input.Event, u *gunim.UI) bool {
 		if e.On {
 			to = 1
 		}
-		f.ring.Animate(to, widget.Quick.Get(u.Theme()))
+		f.ring.Animate(to, widget.RingFade.Get(u.Theme()))
 	case input.FocusLost:
-		f.ring.Animate(0, widget.Settle.Get(u.Theme()))
+		f.ring.Animate(0, widget.RingFade.Get(u.Theme()))
 	default:
 		return false
 	}

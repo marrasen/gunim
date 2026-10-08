@@ -1266,9 +1266,9 @@ func (d *Days) Handle(e input.Event, u *gunim.UI) bool {
 		if ringShown(e) {
 			to = 1
 		}
-		d.ring.Animate(to, widget.Quick.Get(u.Theme()))
+		d.ring.Animate(to, widget.RingFade.Get(u.Theme()))
 	case input.FocusLost:
-		d.ring.Animate(0, widget.Settle.Get(u.Theme()))
+		d.ring.Animate(0, widget.RingFade.Get(u.Theme()))
 	case input.FocusGained:
 		// Tabbing in chooses the first event, for the keys to move on from.
 		if e.Keyed && d.selected == "" {

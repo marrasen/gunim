@@ -87,9 +87,9 @@ func (b *MenuButton) Handle(e input.Event, u *gunim.UI) bool {
 		b.toggle(u)
 	case input.PointerUp:
 	case input.FocusRing:
-		b.ring.Animate(ringTo(e), Quick.Get(th))
+		b.ring.Animate(ringTo(e), RingFade.Get(th))
 	case input.FocusLost:
-		b.ring.Animate(0, Settle.Get(th))
+		b.ring.Animate(0, RingFade.Get(th))
 		b.close(u)
 	case input.KeyPress:
 		return b.key(e, u)

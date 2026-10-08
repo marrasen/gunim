@@ -165,13 +165,13 @@ func (b *Button) Handle(e input.Event, u *gunim.UI) bool {
 	case input.FocusRing:
 		if e.On && e.Grouped {
 			// The group round it rings the whole; the button lights.
-			b.ring.Animate(0, Quick.Get(th))
+			b.ring.Animate(0, RingFade.Get(th))
 			b.walked.Animate(1, Quick.Get(th))
 			break
 		}
-		b.ring.Animate(ringTo(e), Quick.Get(th))
+		b.ring.Animate(ringTo(e), RingFade.Get(th))
 	case input.FocusLost:
-		b.ring.Animate(0, Settle.Get(th))
+		b.ring.Animate(0, RingFade.Get(th))
 		b.walked.Animate(0, Settle.Get(th))
 	default:
 		return false

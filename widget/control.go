@@ -101,7 +101,7 @@ func (c *Control) handleDisabled(e input.Event, u *gunim.UI, shut func(*gunim.UI
 	case input.PointerUp:
 		return e.Button == input.ButtonPrimary
 	case input.FocusLost:
-		c.ring.Animate(0, Settle.Get(u.Theme()))
+		c.ring.Animate(0, RingFade.Get(u.Theme()))
 		c.held = false
 		if shut != nil {
 			shut(u)
@@ -125,9 +125,9 @@ func (c *Control) paintRing(p *paint.Painter, r geom.Rect, radius float32, th *t
 func (c *Control) ringFollows(e input.Event, th *theme.Live) bool {
 	switch e := e.(type) {
 	case input.FocusRing:
-		c.ring.Animate(ringTo(e), Quick.Get(th))
+		c.ring.Animate(ringTo(e), RingFade.Get(th))
 	case input.FocusLost:
-		c.ring.Animate(0, Settle.Get(th))
+		c.ring.Animate(0, RingFade.Get(th))
 	default:
 		return false
 	}

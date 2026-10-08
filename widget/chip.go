@@ -29,7 +29,7 @@ var (
 // than its text takes, the text before it ends in an ellipsis.
 //
 // The chip warms as the pointer comes over the cross, and a click on the
-// cross removes it. It takes the keyboard by Tab, a ring grows round the
+// cross removes it. It takes the keyboard by Tab, a ring fades in round the
 // cross, and Delete or Backspace removes it. Disabled, it fades faint and
 // takes no clicks, keys or focus.
 type Chip struct {
