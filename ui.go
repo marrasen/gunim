@@ -921,6 +921,8 @@ func (w *Window) loop() {
 			w.err = errors.Join(w.err, fmt.Errorf("gunim: close window: %w", err))
 		}
 	}()
+	// The compass stops before the window closes.
+	defer w.ui.stopHeading()
 
 	for {
 		if !w.inFlight && w.wants() && w.draws() {
@@ -1267,6 +1269,9 @@ type UI struct {
 	fling *touchFling
 	// pinch is two fingers pinching now; see pinch.go.
 	pinch *pinchGesture
+	// compassOn says the window has the device's compass running, for a
+	// node that watches the heading; see heading.go.
+	compassOn bool
 	// caretAt is the text caret last told to the driver, and boxAt the
 	// bounds of the node it is in.
 	caretAt, boxAt geom.Rect
@@ -2197,6 +2202,7 @@ func (u *UI) frame(now time.Time, delta time.Duration) {
 	u.syncText(u.focus, false)
 	u.hoverAgain(now)
 	u.framePopups(f)
+	u.watchHeading()
 	u.publishAccess(u.w.dw, u.root, u.w.title)
 	u.focusMoved = false
 	for _, s := range u.popups {

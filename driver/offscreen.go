@@ -60,6 +60,8 @@ type OffscreenWindow struct {
 	// SetVibrator.
 	share   func(Share) error
 	vibrate func([]time.Duration) error
+	// compass answers WatchHeading; see SetCompass.
+	compass func(on bool)
 	// anchor is where a popup was last attached, and origin where the
 	// window sits on its pretend screen.
 	anchor geom.Rect
@@ -753,4 +755,30 @@ func (w *OffscreenWindow) Vibrate(pattern ...time.Duration) error {
 		return ErrNoVibrator
 	}
 	return fn(pattern)
+}
+
+// SetCompass gives the window a pretend compass, for a test standing in for a device with one: fn hears each call
+// to WatchHeading, and the test hands the window its readings as
+// [github.com/marrasen/gunim/input.Heading]. Without one, the window has no compass.
+func (w *OffscreenWindow) SetCompass(fn func(on bool)) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.compass = fn
+}
+
+// HasCompass implements [Compass]: the window has one once SetCompass gave it one.
+func (w *OffscreenWindow) HasCompass() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.compass != nil
+}
+
+// WatchHeading implements [Compass] with the function SetCompass set.
+func (w *OffscreenWindow) WatchHeading(on bool) {
+	w.mu.Lock()
+	fn := w.compass
+	w.mu.Unlock()
+	if fn != nil {
+		fn(on)
+	}
 }
