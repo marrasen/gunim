@@ -43,6 +43,30 @@
 // APK signed with a new key installs only once the old one is
 // uninstalled, which deletes the program's data.
 //
+// # Google Play
+//
+// An -o that ends in .aab writes an Android App Bundle, the form Google
+// Play takes, instead of an APK. Google's bundletool packs it, from the
+// same manifest, Java and libraries, and jarsigner signs it with the
+// key from -keystore, the upload key that Play knows the developer by.
+// Play signs the APKs it makes from the bundle with its own key.
+//
+//	go run ./tools/gunimapk -keystore ~/keys/upload.jks -id se.example.calculator \
+//		-version 1.0.0 -o calculator.aab ./example/calculator
+//
+// -version names the build as Play shows it to users; by default a
+// build is named for its commit and the time it was built. Each build's
+// version code is the minutes since 1970, so each is newer than the
+// last, as Play asks. gunimapk fetches bundletool 1.18.3 from GitHub the
+// first time, checks it against its SHA-256, and keeps it in the user's
+// cache; $BUNDLETOOL names a jar of its own instead. -install and -run
+// install a bundle through bundletool, as the APKs Play would make for
+// the device, signed with the debug key.
+//
+// Play takes only native libraries whose segments load at 16 KB
+// boundaries, for phones with 16 KB memory pages, so gunimapk checks
+// each library it builds and stops at one that would not load there.
+//
 // # Where the tools are
 //
 // It finds the Android SDK at $ANDROID_HOME or $ANDROID_SDK_ROOT, at the
@@ -60,12 +84,16 @@ package main
 import (
 	"archive/zip"
 	"context"
+	"crypto/sha256"
+	"debug/elf"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"io/fs"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -81,11 +109,13 @@ import (
 )
 
 // minSDK is the oldest Android the APK runs on: 8.0. targetSDK is the
-// one it is built for. Android 15 makes an app built for it draw under
-// the system bars, which the driver leaves to the system for now.
+// one it is built for, Android 16, which Google Play asks of new apps
+// and updates since 31 August 2026. An app built for it draws under the
+// system bars, which the driver does, and hears the back gesture
+// through a callback, which GunimActivity registers.
 const (
 	minSDK    = 26
-	targetSDK = 34
+	targetSDK = 36
 )
 
 // abis maps an Android ABI to its GOARCH and its clang target.
@@ -99,9 +129,10 @@ var abis = map[string]struct{ goarch, clang string }{
 func main() {
 	log.SetFlags(0)
 	log.SetPrefix("gunimapk: ")
-	out := flag.String("o", "", "the APK to write; the package's name and .apk by default")
+	out := flag.String("o", "", "the APK to write, or the App Bundle for Google Play, ending .aab; the package's name and .apk by default")
 	id := flag.String("id", "", "the application ID; org.gunim.<name> by default")
 	name := flag.String("name", "", "the application's label; the package's name by default")
+	version := flag.String("version", "", "the version name users see, as 1.0.0; the commit and the time it was built by default")
 	iconPNG := flag.String("icon", "", "a PNG file for the launcher's icon, square, 288 pixels or more")
 	iconBG := flag.String("icon-background", "", "the colour under the launcher's icon, as #rrggbb; the colour of the icon's edge by default")
 	permList := flag.String("permissions", "", "the permissions the program may ask for, comma separated: music")
@@ -152,7 +183,7 @@ func main() {
 	if *genKey && *keystore == "" {
 		log.Fatal("-genkey needs -keystore, the file to make")
 	}
-	o := options{pkg: pkg, out: *out, id: *id, name: *name, iconPNG: *iconPNG, iconBG: *iconBG, perms: perms,
+	o := options{pkg: pkg, out: *out, id: *id, name: *name, version: *version, iconPNG: *iconPNG, iconBG: *iconBG, perms: perms,
 		orientation: *orientation, abis: strings.Split(*abiList, ","), keystore: *keystore, keyAlias: *keyAlias, genKey: *genKey,
 		install: *install || *run, start: *run}
 	err := buildAPK(ctx, o)
@@ -165,6 +196,8 @@ func main() {
 // options are what the flags ask for.
 type options struct {
 	pkg, out, id, name string
+	// version is the version name, or "" for the commit and the time.
+	version string
 	// iconPNG is the launcher's icon, and iconBG the colour under it.
 	iconPNG, iconBG string
 	perms, abis     []string
@@ -181,6 +214,10 @@ type options struct {
 
 // release reports whether the build is a release build.
 func (o options) release() bool { return o.keystore != "" }
+
+// bundle reports whether the build is an App Bundle, for Google Play,
+// rather than an APK.
+func (o options) bundle() bool { return strings.EqualFold(filepath.Ext(o.out), ".aab") }
 
 // buildAPK builds the APK, installs it when o.install is set and starts
 // it when o.start is, and removes its working directory whatever
@@ -201,7 +238,11 @@ func buildAPK(ctx context.Context, o options) error {
 	}
 	adb := filepath.Join(b.sdk, "platform-tools", "adb")
 	if o.install {
-		if err := b.tool(adb, "install", "-r", o.out); err != nil {
+		install := func() error { return b.tool(adb, "install", "-r", o.out) }
+		if o.bundle() {
+			install = func() error { return b.installBundle(o.out, adb) }
+		}
+		if err := install(); err != nil {
 			return err
 		}
 	}
@@ -339,20 +380,35 @@ func (b *builder) build(o options) error {
 		}
 		res = append(res, compiled)
 	}
-	linked := filepath.Join(b.tmp, "linked.apk")
-	args := []string{"link", "-o", linked, "-I", b.androidJar,
+	version := o.version
+	if version == "" {
+		version = versionOf(b.ctx, pkg)
+	}
+	link := []string{"-I", b.androidJar,
 		"--manifest", manifest, "--min-sdk-version", strconv.Itoa(minSDK),
 		"--target-sdk-version", strconv.Itoa(targetSDK), "--version-code", strconv.FormatInt(time.Now().Unix()/60, 10),
-		"--version-name", versionOf(b.ctx, pkg)}
+		"--version-name", version}
 	if !o.release() {
-		args = append(args, "--debug-mode")
+		link = append(link, "--debug-mode")
 	}
-	args = append(args, res...)
-	if err := b.tool(filepath.Join(b.buildTools, "aapt2"), args...); err != nil {
+	link = append(link, res...)
+	files := []packed{{"classes.dex", dex}}
+	for _, lib := range libs {
+		rel, err := filepath.Rel(b.tmp, lib)
+		if err != nil {
+			return err
+		}
+		files = append(files, packed{filepath.ToSlash(rel), lib})
+	}
+	if o.bundle() {
+		return b.buildBundle(o, link, files)
+	}
+	linked := filepath.Join(b.tmp, "linked.apk")
+	if err := b.tool(filepath.Join(b.buildTools, "aapt2"), append([]string{"link", "-o", linked}, link...)...); err != nil {
 		return err
 	}
 	unaligned := filepath.Join(b.tmp, "unaligned.apk")
-	if err := pack(unaligned, linked, dex, libs, b.tmp); err != nil {
+	if err := pack(unaligned, linked, func(name string) string { return name }, files); err != nil {
 		return err
 	}
 	aligned := filepath.Join(b.tmp, "aligned.apk")
@@ -387,6 +443,170 @@ func signArgs(keystore, alias string, getenv func(string) string, out, apk strin
 		args = append(args, "--key-pass", "env:GUNIMAPK_KEY_PASS")
 	}
 	return append(args, "--out", out, apk)
+}
+
+// buildBundle writes the App Bundle o asks for: aapt2 links the
+// manifest and resources as protocol buffers, link being its arguments
+// after the output; they go with files into the base module, which
+// bundletool makes a bundle of; and jarsigner signs it.
+func (b *builder) buildBundle(o options, link []string, files []packed) error {
+	bundletool, btErr := b.bundletool()
+	if btErr != nil {
+		return btErr
+	}
+	linked := filepath.Join(b.tmp, "linked.zip")
+	if err := b.tool(filepath.Join(b.buildTools, "aapt2"), append([]string{"link", "--proto-format", "-o", linked}, link...)...); err != nil {
+		return err
+	}
+	for i := range files {
+		if files[i].name == "classes.dex" {
+			files[i].name = "dex/classes.dex"
+		}
+	}
+	base := filepath.Join(b.tmp, "base.zip")
+	if err := pack(base, linked, moduleName, files); err != nil {
+		return err
+	}
+	unsigned := filepath.Join(b.tmp, "unsigned.aab")
+	if err := b.tool(filepath.Join(b.javaBin, "java"), "-jar", bundletool, "build-bundle",
+		"--modules="+base, "--output="+unsigned); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(o.out), 0o755); err != nil {
+		return err
+	}
+	jarsigner := filepath.Join(b.javaBin, "jarsigner")
+	if o.release() {
+		return b.toolAsking(jarsigner, jarsignerArgs(o.keystore, o.keyAlias, os.Getenv, o.out, unsigned)...)
+	}
+	ks, keyErr := b.debugKey()
+	if keyErr != nil {
+		return keyErr
+	}
+	return b.tool(jarsigner, "-keystore", ks, "-storepass", "android", "-keypass", "android",
+		"-signedjar", o.out, unsigned, "androiddebugkey")
+}
+
+// moduleName returns where a file aapt2 linked goes in a bundle's
+// module: the manifest under manifest/, the resources as they are, and
+// anything else under root/.
+func moduleName(name string) string {
+	switch {
+	case name == "AndroidManifest.xml":
+		return "manifest/" + name
+	case name == "resources.pb", strings.HasPrefix(name, "res/"):
+		return name
+	}
+	return "root/" + name
+}
+
+// jarsignerArgs returns jarsigner's arguments to sign bundle into out
+// with the key alias from keystore, the passwords taken as signArgs
+// takes them.
+func jarsignerArgs(keystore, alias string, getenv func(string) string, out, bundle string) []string {
+	args := []string{"-keystore", keystore}
+	if getenv("GUNIMAPK_STORE_PASS") != "" {
+		args = append(args, "-storepass:env", "GUNIMAPK_STORE_PASS")
+	}
+	if getenv("GUNIMAPK_KEY_PASS") != "" {
+		args = append(args, "-keypass:env", "GUNIMAPK_KEY_PASS")
+	}
+	return append(args, "-signedjar", out, bundle, alias)
+}
+
+// installBundle installs bundle on the device adb sees, as the APKs
+// Google Play would make of it for that device, signed with the debug
+// key.
+func (b *builder) installBundle(bundle, adb string) error {
+	bundletool, err := b.bundletool()
+	if err != nil {
+		return err
+	}
+	ks, err := b.debugKey()
+	if err != nil {
+		return err
+	}
+	apks := filepath.Join(b.tmp, "device.apks")
+	javaExe := filepath.Join(b.javaBin, "java")
+	if err := b.tool(javaExe, "-jar", bundletool, "build-apks", "--bundle="+bundle, "--output="+apks,
+		"--connected-device", "--adb="+adb, "--ks="+ks, "--ks-pass=pass:android",
+		"--ks-key-alias=androiddebugkey", "--key-pass=pass:android"); err != nil {
+		return err
+	}
+	return b.tool(javaExe, "-jar", bundletool, "install-apks", "--apks="+apks, "--adb="+adb)
+}
+
+// bundletoolVersion is the bundletool gunimapk fetches from GitHub, and
+// bundletoolSHA256 the checksum of its jar there.
+const (
+	bundletoolVersion = "1.18.3"
+	bundletoolSHA256  = "a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29"
+)
+
+// bundletool returns Google's bundletool, as a jar: the one
+// $BUNDLETOOL names, or bundletoolVersion, fetched into the user's
+// cache the first time and checked against bundletoolSHA256.
+func (b *builder) bundletool() (string, error) {
+	if jar := os.Getenv("BUNDLETOOL"); jar != "" {
+		return jar, nil
+	}
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		return "", fmt.Errorf("no cache to keep bundletool in: %w; set BUNDLETOOL to its jar", err)
+	}
+	jar := filepath.Join(cache, "gunimapk", "bundletool-all-"+bundletoolVersion+".jar")
+	if exists(jar) {
+		return jar, nil
+	}
+	url := "https://github.com/google/bundletool/releases/download/" + bundletoolVersion +
+		"/bundletool-all-" + bundletoolVersion + ".jar"
+	log.Printf("fetching bundletool %s from %s", bundletoolVersion, url)
+	if err := fetch(b.ctx, url, jar, bundletoolSHA256); err != nil {
+		return "", fmt.Errorf("fetch bundletool: %w; set BUNDLETOOL to a jar of it", err)
+	}
+	return jar, nil
+}
+
+// fetch downloads url into file, if its SHA-256 is sum; a download that
+// fails or differs leaves no file.
+func fetch(ctx context.Context, url, file, sum string) (err error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
+	if err != nil {
+		return err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("%s: %s", url, resp.Status)
+	}
+	dir := filepath.Dir(file)
+	if mkErr := os.MkdirAll(dir, 0o755); mkErr != nil {
+		return mkErr
+	}
+	part, err := os.CreateTemp(dir, filepath.Base(file)+".*")
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = part.Close()
+		if err != nil {
+			_ = os.Remove(part.Name())
+		}
+	}()
+	h := sha256.New()
+	if _, err := io.Copy(io.MultiWriter(part, h), resp.Body); err != nil {
+		return err
+	}
+	if got := hex.EncodeToString(h.Sum(nil)); got != sum {
+		return fmt.Errorf("%s has SHA-256 %s, want %s", url, got, sum)
+	}
+	if err := part.Close(); err != nil {
+		return err
+	}
+	return os.Rename(part.Name(), file)
 }
 
 // genKey makes keystore with one key, alias, for signing release
@@ -425,7 +645,28 @@ func (b *builder) goLib(pkg, abi string) (string, error) {
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("build %s for %s: %w", pkg, abi, err)
 	}
-	return lib, nil
+	return lib, checkPages(lib)
+}
+
+// pageSize is the largest memory page Android runs on. Google Play
+// takes only native libraries whose segments load at its boundaries.
+const pageSize = 16 << 10
+
+// checkPages reports a library whose segments would not load on a
+// phone with 16 KB pages.
+func checkPages(lib string) error {
+	f, err := elf.Open(lib)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+	for _, p := range f.Progs {
+		if p.Type == elf.PT_LOAD && p.Align < pageSize {
+			return fmt.Errorf("%s: a segment loads at %d-byte boundaries; phones with 16 KB pages, and Google Play, need %d",
+				lib, p.Align, pageSize)
+		}
+	}
+	return nil
 }
 
 // dex compiles the Java half of the driver into classes.dex.
@@ -542,8 +783,12 @@ func (b *builder) runTool(stdin io.Reader, name string, args ...string) error {
 	return nil
 }
 
-// pack writes the APK: what aapt2 linked, the dex, and the libraries.
-func pack(out, linked, dex string, libs []string, root string) (err error) {
+// packed is a file to pack, by its name in the archive and its path.
+type packed struct{ name, path string }
+
+// pack writes an APK or a bundle's module: what aapt2 linked, each file
+// named as rename names it, and files, as the dex and the libraries.
+func pack(out, linked string, rename func(string) string, files []packed) (err error) {
 	f, err := os.Create(out)
 	if err != nil {
 		return err
@@ -560,7 +805,17 @@ func pack(out, linked, dex string, libs []string, root string) (err error) {
 	}
 	defer func() { _ = zr.Close() }()
 	for _, e := range zr.File {
-		if err := zw.Copy(e); err != nil {
+		h := e.FileHeader
+		h.Name = rename(e.Name)
+		w, err := zw.CreateRaw(&h)
+		if err != nil {
+			return err
+		}
+		r, err := e.OpenRaw()
+		if err != nil {
+			return err
+		}
+		if _, err := io.Copy(w, r); err != nil {
 			return err
 		}
 	}
@@ -577,15 +832,8 @@ func pack(out, linked, dex string, libs []string, root string) (err error) {
 		_, err = io.Copy(w, r)
 		return err
 	}
-	if err := add("classes.dex", dex); err != nil {
-		return err
-	}
-	for _, lib := range libs {
-		rel, err := filepath.Rel(root, lib)
-		if err != nil {
-			return err
-		}
-		if err := add(filepath.ToSlash(rel), lib); err != nil {
+	for _, f := range files {
+		if err := add(f.name, f.path); err != nil {
 			return err
 		}
 	}
@@ -616,7 +864,8 @@ var orientations = []string{
 // activity, with the launcher's icon from the resources when icon is
 // set, and the permissions perms names. The activity holds the screen
 // as orientation names, or turns with the phone where it is "". It
-// keeps itself across rotation and a keyboard coming and going, and
+// keeps itself across rotation and a keyboard coming and going, hears
+// the back gesture through the callback GunimActivity registers, and
 // slides up as the soft keyboard opens, to keep the text caret above it. The service is the one a program starts with
 // gunim's App.SetNowPlaying, to play media on in the background. The
 // provider hands the files a program shares with gunim's Client.Share to
@@ -641,7 +890,8 @@ func manifestFor(id, name string, icon bool, perms []string, orientation string)
 	<uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
 	<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
 	<uses-permission android:name="android.permission.VIBRATE"/>
-` + asks.String() + `	<application android:label="` + xmlEscape(name) + `"` + iconAttr + ` android:hasCode="true" android:extractNativeLibs="true">
+` + asks.String() + `	<application android:label="` + xmlEscape(name) + `"` + iconAttr + ` android:hasCode="true" android:extractNativeLibs="true"
+		android:enableOnBackInvokedCallback="true">
 		<activity android:name="gunim.android.GunimActivity" android:exported="true"
 			android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density"
 			android:windowSoftInputMode="adjustPan|stateAlwaysHidden"` + orientationAttr + `
