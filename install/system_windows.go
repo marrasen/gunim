@@ -724,12 +724,17 @@ func running(exe string) ([]int, error) {
 
 // launch starts the program at exe with args, on its own, with env
 // added to this program's environment.
+//
+// Detached, it is out of reach of a Ctrl+C in this program's console.
+// It is not put in a new process group: Windows has such a program
+// ignore Ctrl+C, and every program it starts would too, as a terminal's
+// shells.
 func launch(exe string, args []string, env ...string) error {
 	cmd := exec.Command(exe, args...)
 	if len(env) > 0 {
 		cmd.Env = append(os.Environ(), env...)
 	}
-	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NEW_PROCESS_GROUP | windows.DETACHED_PROCESS}
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.DETACHED_PROCESS}
 	if err := cmd.Start(); err != nil {
 		return err
 	}
