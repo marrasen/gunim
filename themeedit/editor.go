@@ -126,7 +126,8 @@ type Field struct {
 	// and Bounce.
 	Presets []Preset
 	// Min and Max, when Max is above Min, bound a length or a number,
-	// which then shows as a slider over that range.
+	// which then shows as a slider over that range with a field for
+	// the value beside it.
 	Min, Max float32
 }
 
@@ -144,8 +145,10 @@ type Preset struct {
 // Its header names the theme edited and counts the changes, with Reset
 // all beside them, which takes every value back and can be undone until
 // the next edit. Every row has one control for its value: a swatch that
-// opens a colour picker, a field for a number, a slider for a number
-// with a range, four fields for insets, or a spring's presets in words.
+// opens a colour picker, a field for a number, a slider and a field for
+// a number with a range, four fields for insets, or a spring's presets
+// in words. Every field for a number can be dragged up and down to
+// change it.
 // A changed row has a dot before its name and a button that resets it.
 //
 // Everything is reached by Tab, and every control is named for a screen
