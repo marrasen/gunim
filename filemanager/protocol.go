@@ -80,6 +80,8 @@ type Shell struct {
 	// Hosted are the commands the program's own menus offer for a pane,
 	// which the pane's menus leave out.
 	Hosted []string
+	// HostMenus says the program shows the pane's menus in its own.
+	HostMenus bool
 	// Pane says the file manager shows in a pane of a window the program
 	// draws, which leaves the window's title, theme and zoom alone.
 	Pane bool

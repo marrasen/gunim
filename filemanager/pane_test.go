@@ -147,9 +147,8 @@ func newPaneWorld(t *testing.T, spec ...string) *paneWorld {
 	return newPaneWorldWith(t, nil, spec...)
 }
 
-// newPaneWorldWith is newPaneWorld with the commands the host's menus
-// offer.
-func newPaneWorldWith(t *testing.T, hosted []string, spec ...string) *paneWorld {
+// newPaneWorldWith is newPaneWorld with the host set changes.
+func newPaneWorldWith(t *testing.T, set func(h *PaneHost), spec ...string) *paneWorld {
 	t.Helper()
 	root := t.TempDir()
 	p := &paneWorld{dir: filepath.Join(root, "dir")}
@@ -159,13 +158,16 @@ func newPaneWorldWith(t *testing.T, hosted []string, spec ...string) *paneWorld 
 	tree(t, p.dir, spec...)
 	ctx, cancel := context.WithCancel(context.Background())
 	h := NewHub(ctx, nil)
+	host := PaneHost{ID: "pane1", Title: func(_, folder string) {
+		p.mu.Lock()
+		p.titles = append(p.titles, folder)
+		p.mu.Unlock()
+	}}
+	if set != nil {
+		set(&host)
+	}
 	pw, err := h.NewPane(Options{Dir: p.dir, PrefsPath: filepath.Join(root, "prefs.json"), Poll: -1,
-		defaults: func() []Favourite { return nil }, trash: xdgTrash{dir: filepath.Join(root, "Trash")}},
-		PaneHost{ID: "pane1", Commands: hosted, Title: func(_, folder string) {
-			p.mu.Lock()
-			p.titles = append(p.titles, folder)
-			p.mu.Unlock()
-		}})
+		defaults: func() []Favourite { return nil }, trash: xdgTrash{dir: filepath.Join(root, "Trash")}}, host)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -287,7 +289,7 @@ func TestAPaneCloses(t *testing.T) {
 // runs them in the pane.
 func TestTheHostsCommandsLeaveThePanesMenus(t *testing.T) {
 	hosted := []string{CmdCopy, CmdCut, CmdPaste, CmdSelectAll, CmdNewWindow, CmdCloseApp}
-	p := newPaneWorldWith(t, hosted, "a.txt", "b.txt")
+	p := newPaneWorldWith(t, func(h *PaneHost) { h.Commands = hosted }, "a.txt", "b.txt")
 	s := newPaneScreen(t, p.pw)
 	p.pw.Attach(s.w.Client(), "slot")
 	var b *browser
@@ -311,5 +313,44 @@ func TestTheHostsCommandsLeaveThePanesMenus(t *testing.T) {
 	s.frames(2)
 	if !ran || len(b.listing.cur.grid.SelectedRows()) == 0 {
 		t.Fatal("Run didn't select all in the pane")
+	}
+}
+
+// A host that shows the pane's menus gets them as they are, ticks and
+// all, and the pane shows no button for them.
+func TestAHostShowsThePanesMenus(t *testing.T) {
+	p := newPaneWorldWith(t, func(h *PaneHost) {
+		h.HostMenus = true
+		h.Commands = []string{CmdCopy}
+	}, "a.txt")
+	s := newPaneScreen(t, p.pw)
+	p.pw.Attach(s.w.Client(), "slot")
+	var b *browser
+	s.until("the pane shows", func() bool {
+		b = s.browser()
+		return b != nil && b.listing.cur != nil
+	})
+	var menus []Menu
+	var button geom.Rect
+	gunim.RegisterPatch(s.w, "host", func(_ *slotHost, _ askFocus, u *gunim.UI) {
+		menus = Menus(u, "pane1")
+		button, _ = u.Bounds(b.title.bar.Menubar)
+	})
+	_ = s.w.Client().Patch("host", askFocus{})
+	s.frames(2)
+	titles := make([]string, 0, len(menus))
+	var hidden, copyItem bool
+	for _, m := range menus {
+		titles = append(titles, m.Title)
+		for _, it := range m.Items {
+			hidden = hidden || it.Cmd == CmdHidden
+			copyItem = copyItem || it.Cmd == CmdCopy
+		}
+	}
+	if !slices.Equal(titles, []string{"File", "Edit", "View", "Go"}) || !hidden || copyItem {
+		t.Fatalf("the host was given the menus %v, Show hidden %v, Copy %v", titles, hidden, copyItem)
+	}
+	if button.Size().W > 0 {
+		t.Fatalf("the pane shows its menus' button, at %v, while the host shows the menus", button)
 	}
 }

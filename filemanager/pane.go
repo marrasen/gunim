@@ -30,6 +30,10 @@ type PaneHost struct {
 	// offer for the pane, as CmdCopy and CmdPaste in an Edit menu of its
 	// own, which run them with [Run]. The pane's menus leave them out.
 	Commands []string
+	// HostMenus says the program shows the pane's menus in its own, as
+	// [Menus] gives them, so the pane shows no button of its own for
+	// them, and F10 and Alt are the program's.
+	HostMenus bool
 	// Open opens another file manager with o, as New window and a click
 	// with Ctrl held on a place ask: in a pane of its own, say. When nil,
 	// they open in windows of their own, on the hub's app.
@@ -124,6 +128,50 @@ func Run(u *gunim.UI, id, cmd string) bool {
 	return true
 }
 
+// Menu is one of a pane's menus, as [Menus] gives them.
+type Menu struct {
+	Title string
+	Items []MenuItem
+}
+
+// MenuItem is a line of a menu: what it says, the keys that run it, the
+// command [Run] runs for it, whether it is ticked, and whether a line
+// goes above it.
+type MenuItem struct {
+	Label, Hint, Cmd string
+	Checked, Line    bool
+}
+
+// Menus returns the menus of the pane whose host's ID is id, in the
+// window of u, as they are now, with their ticks and less the commands
+// the host's menus offer, or nil while the pane shows in no window
+// there. A program that shows them in its own menus asks again as its
+// menus open, as the ticks follow what the pane shows. It must be called
+// on the UI goroutine.
+func Menus(u *gunim.UI, id string) []Menu {
+	b, ok := u.Mounted(gunim.ID(id + "/" + string(browserID))).(*browser)
+	if !ok {
+		return nil
+	}
+	t := b.title
+	out := make([]Menu, 0, len(t.bar.Menus))
+	for m, bm := range t.bar.Menus {
+		menu := Menu{Title: bm.Title}
+		for i, label := range bm.Items {
+			it := MenuItem{Label: label, Cmd: t.cmds[m][i], Line: slices.Contains(bm.Breaks, i)}
+			if i < len(bm.Hints) {
+				it.Hint = bm.Hints[i]
+			}
+			if i < len(bm.Checked) {
+				it.Checked = bm.Checked[i]
+			}
+			menu.Items = append(menu.Items, it)
+		}
+		out = append(out, menu)
+	}
+	return out
+}
+
 // Focus gives the keyboard to the listing, as the program does when the
 // user turns to the file manager: to its pane, say.
 func (w *Window) Focus() {
@@ -168,6 +216,7 @@ func servePane(ctx context.Context, w *Window, o Options, h *Hub) (err error) {
 	a.ids = viewIDs{prefix: w.pane.host.ID + "/"}
 	a.shell.Pane = true
 	a.shell.Hosted = slices.Clone(w.pane.host.Commands)
+	a.shell.HostMenus = w.pane.host.HostMenus
 	a.join(h, w)
 	close(w.ready)
 	return a.serve(ctx, o, w.pane.in)

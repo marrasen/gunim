@@ -130,6 +130,9 @@ type menuButton struct {
 
 // CatchKey implements [gunim.KeyCatcher].
 func (m *menuButton) CatchKey(e input.Event, u *gunim.UI) bool {
+	if m.b.shell.HostMenus {
+		return false
+	}
 	switch e.(type) {
 	case input.KeyRelease, input.WindowFocusLost:
 		// Wherever the keyboard is, so Alt held as it left the pane does
