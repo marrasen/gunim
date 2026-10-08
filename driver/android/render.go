@@ -59,11 +59,18 @@ func (d *Driver) render() {
 			return
 		case sc := <-d.surfaces:
 			if sc.gone != nil {
-				C.gunim_egl_detach()
-				attached = false
-				if surface != nil {
-					C.gunim_window_release(surface)
-					surface = nil
+				// A surface other than the one drawn on is an old
+				// activity's, going after its replacement came.
+				if sc.window == nil || sc.window == surface {
+					C.gunim_egl_detach()
+					attached = false
+					if surface != nil {
+						C.gunim_window_release(surface)
+						surface = nil
+					}
+				}
+				if sc.window != nil {
+					C.gunim_window_release(sc.window)
 				}
 				close(sc.gone)
 				continue
@@ -121,10 +128,11 @@ func (d *Driver) idle() {
 			return
 		case <-d.wake:
 		case sc := <-d.surfaces:
+			if sc.window != nil {
+				C.gunim_window_release(sc.window)
+			}
 			if sc.gone != nil {
 				close(sc.gone)
-			} else {
-				C.gunim_window_release(sc.window)
 			}
 		}
 	}
