@@ -737,6 +737,14 @@ func windowProc(hWnd windows.HWND, uMsg uint32, wParam _WPARAM, lParam _LPARAM) 
 		// User trying to access application menu using ALT?
 		case _SC_KEYMENU:
 			return 0
+		// gunim change: a window that is not resizable has no thick
+		// frame or maximize box, so Windows offers neither; this turns
+		// away a request to size or maximize it that comes all the same,
+		// such as from the system menu Alt+Space opens.
+		case _SC_SIZE, _SC_MAXIMIZE:
+			if !window.resizable && window.monitor == nil {
+				return 0
+			}
 		}
 
 	case _WM_CLOSE:

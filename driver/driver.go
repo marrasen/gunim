@@ -177,6 +177,12 @@ type Options struct {
 	// opens at its bounds, then maximizes, so restoring it later gives
 	// those bounds back.
 	Place *Placement
+	// Fixed keeps the window at its size against the user: no edge
+	// sizes it, and the system neither maximizes nor snaps it. The
+	// application's own sizing, such as for a saved placement or a
+	// change of monitor scale, goes on as ever. A maximized Place opens
+	// at its bounds instead.
+	Fixed bool
 }
 
 // Kind is what sort of window to open. Each one maps onto a real window

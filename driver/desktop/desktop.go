@@ -492,6 +492,13 @@ func (d *Driver) openWindow(o driver.Options) (*Window, error) {
 	if o.Passthrough {
 		hints = append(hints, [2]int{int(glfw.MousePassthrough), glfw.True})
 	}
+	if o.Fixed {
+		// Not resizable: on Windows no thick frame or maximize box, so
+		// neither the edges, Snap nor the Windows key and an arrow size
+		// it; on X11 a minimum size the same as the maximum; on macOS no
+		// resizable style.
+		hints = append(hints, [2]int{int(glfw.Resizable), glfw.False})
+	}
 	for _, h := range hints {
 		if err := glfw.WindowHint(glfw.Hint(h[0]), h[1]); err != nil {
 			return nil, err
@@ -574,6 +581,10 @@ func (d *Driver) openWindow(o driver.Options) (*Window, error) {
 	var bounds [4]int
 	if o.Place != nil && o.Kind == driver.KindNormal && o.Parent == nil {
 		placed, bounds, place = w.placeAt(*o.Place)
+	}
+	if o.Fixed {
+		// A fixed window opens at its bounds, never maximized.
+		placed.Maximized = false
 	}
 	if place && placed.Maximized && maximizeHidden {
 		_ = gw.Maximize()
