@@ -55,6 +55,27 @@ func (w *Window) Open(path string) error {
 	})
 }
 
+var _ driver.LinkOpener = (*Window)(nil)
+
+// OpenLink implements [driver.LinkOpener] with ShellExecute, which hands
+// the page to the browser the system keeps for the web.
+func (w *Window) OpenLink(url string) error {
+	hwnd, err := w.launchOwner()
+	if err != nil {
+		return err
+	}
+	u, err := windows.UTF16PtrFromString(url)
+	if err != nil {
+		return fmt.Errorf("desktop: opening %s: %w", url, err)
+	}
+	return withCOM(func() error {
+		if err := windows.ShellExecute(hwnd, nil, u, nil, nil, windows.SW_SHOWNORMAL); err != nil {
+			return fmt.Errorf("desktop: opening %s: %w", url, err)
+		}
+		return nil
+	})
+}
+
 // Reveal implements [driver.Launcher]: File Explorer opens the folder
 // that holds path, with path selected. explorer.exe is started for it,
 // as the shell would hand the folder to whatever program opens folders,

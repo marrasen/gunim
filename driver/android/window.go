@@ -387,6 +387,10 @@ func (w *Window) Buzz() { buzz() }
 // files, which lets it read each one it was handed.
 func (w *Window) Share(s driver.Share) error { return share(s) }
 
+// OpenLink implements [driver.LinkOpener] with a view intent, which
+// opens the page in the browser the phone keeps for the web.
+func (w *Window) OpenLink(url string) error { return openLink(url) }
+
 // Vibrate implements [driver.Vibrator] with the phone's vibration motor.
 func (w *Window) Vibrate(pattern ...time.Duration) error { return vibrate(pattern) }
 
@@ -419,6 +423,7 @@ var (
 	_ driver.TextBoxPlacer   = (*Window)(nil)
 	_ driver.Buzzer          = (*Window)(nil)
 	_ driver.Sharer          = (*Window)(nil)
+	_ driver.LinkOpener      = (*Window)(nil)
 	_ driver.Vibrator        = (*Window)(nil)
 	_ driver.Compass         = (*Window)(nil)
 	_ driver.SafeAreaer      = (*Window)(nil)

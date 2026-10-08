@@ -257,6 +257,28 @@ public final class Native {
 		return true;
 	}
 
+	// openLink opens the web page at url in the browser the phone keeps
+	// for the web. It returns false where there is no activity to start
+	// it from. Android 11 and later hide which browsers there are from an
+	// app that does not list them, so a phone with none opens nothing.
+	static boolean openLink(String url) {
+		GunimActivity a = activity;
+		if (a == null) {
+			return false;
+		}
+		android.content.Intent view = new android.content.Intent(android.content.Intent.ACTION_VIEW,
+			android.net.Uri.parse(url));
+		view.addCategory(android.content.Intent.CATEGORY_BROWSABLE);
+		ui.post(() -> {
+			try {
+				a.startActivity(view);
+			} catch (android.content.ActivityNotFoundException e) {
+				// The browser went away since; the link opens nowhere.
+			}
+		});
+		return true;
+	}
+
 	// vibrate runs the vibration motor in a pattern of milliseconds, on
 	// and off in turn from on, and an empty one stops it. It returns
 	// false where the device has no motor.

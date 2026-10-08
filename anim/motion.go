@@ -20,7 +20,9 @@ const maxStep = 100 * time.Millisecond
 // duration matters.
 type Spring struct {
 	// Response is roughly how long the value takes to arrive, in
-	// seconds. Smaller is faster.
+	// seconds. Smaller is faster. Zero is instant: [Animated.Animate]
+	// puts the value where it is going at once, as Jump does, for a
+	// theme that turns a motion off.
 	Response float32
 	// Damping is the damping ratio. 1 settles straight onto the target,
 	// below 1 bounces, above 1 is sluggish.

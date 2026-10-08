@@ -48,29 +48,36 @@ var (
 	keys   = map[string]declared{}
 )
 
-// declared is a token's type and default, kept for [Declared].
+// declared is a token's type, default and kind, kept for [Declared]
+// and [Lookup].
 type declared struct {
-	typ reflect.Type
-	def any
+	typ  reflect.Type
+	def  any
+	kind Kind
 }
 
 // New declares a token with its own codec. The key names it within a
 // [Theme], and must be unique; two tokens with one key and different
-// types panic.
+// types panic. Its kind is [KindOther].
 func New[T any](key string, def T, c anim.Codec[T]) Token[T] {
+	return declare(key, def, c, KindOther)
+}
+
+// declare declares a token of kind k.
+func declare[T any](key string, def T, c anim.Codec[T], k Kind) Token[T] {
 	t := reflect.TypeFor[T]()
 	keysMu.Lock()
 	defer keysMu.Unlock()
 	if prev, ok := keys[key]; ok && prev.typ != t {
 		panic(fmt.Sprintf("theme: %q is already a %s token", key, prev.typ))
 	}
-	keys[key] = declared{typ: t, def: def}
+	keys[key] = declared{typ: t, def: def, kind: k}
 	return Token[T]{key: key, def: def, codec: c}
 }
 
 // Color declares a colour token.
 func Color(key string, def color.NRGBA) Token[color.NRGBA] {
-	return New(key, def, anim.ColorCodec)
+	return declare(key, def, anim.ColorCodec, KindColor)
 }
 
 // Foreground declares a colour token for what is drawn on top of other
@@ -82,7 +89,7 @@ func Color(key string, def color.NRGBA) Token[color.NRGBA] {
 // colour and back in with its new one instead, so the crossing happens
 // while it is out of sight.
 func Foreground(key string, def color.NRGBA) Token[color.NRGBA] {
-	t := New(key, def, anim.ColorCodec)
+	t := declare(key, def, anim.ColorCodec, KindForeground)
 	t.blend = fadeThrough
 	return t
 }
@@ -103,25 +110,29 @@ func fadeThrough(from, to color.NRGBA, p float32) color.NRGBA {
 
 // Length declares a length token in logical pixels: a radius, a gap, a
 // font size.
-func Length(key string, def float32) Token[float32] { return New(key, def, anim.FloatCodec) }
+func Length(key string, def float32) Token[float32] {
+	return declare(key, def, anim.FloatCodec, KindLength)
+}
 
 // Number declares a plain number token: a strength, a share, a count.
-func Number(key string, def float32) Token[float32] { return New(key, def, anim.FloatCodec) }
+func Number(key string, def float32) Token[float32] {
+	return declare(key, def, anim.FloatCodec, KindNumber)
+}
 
 // Insets declares a padding or margin token.
 func Insets(key string, def geom.Insets) Token[geom.Insets] {
-	return New(key, def, anim.InsetsCodec)
+	return declare(key, def, anim.InsetsCodec, KindInsets)
 }
 
 // Spring declares a motion token.
 func Spring(key string, def anim.Spring) Token[anim.Spring] {
-	return New(key, def, anim.SpringCodec)
+	return declare(key, def, anim.SpringCodec, KindSpring)
 }
 
 // Choice declares a token for a value that cannot blend, such as a
 // font: a switch changes it whole, halfway through.
 func Choice[T any](key string, def T) Token[T] {
-	t := New(key, def, anim.Codec[T]{})
+	t := declare(key, def, anim.Codec[T]{}, KindChoice)
 	t.blend = func(from, to T, p float32) T {
 		if p < 0.5 {
 			return from

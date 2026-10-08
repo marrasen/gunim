@@ -200,6 +200,15 @@ func (a *Animated[T]) heading(buf *[MaxScalars]float32) bool {
 }
 
 func (a *Animated[T]) startMotion(buf *[MaxScalars]float32, m Motion) {
+	// An instant motion lands now, so the frame that asks for it shows
+	// the value where it is going.
+	if instant(m) {
+		for i := range a.codec.N {
+			a.state[i] = State{Position: buf[i], From: buf[i], To: buf[i]}
+		}
+		a.active, a.motion = false, nil
+		return
+	}
 	moving := false
 	for i := range a.codec.N {
 		s := &a.state[i]
@@ -214,6 +223,19 @@ func (a *Animated[T]) startMotion(buf *[MaxScalars]float32, m Motion) {
 	a.active = moving
 	if !moving {
 		a.motion = nil
+	}
+}
+
+// instant reports whether m takes no time: a spring of no response, or
+// a tween of no duration.
+func instant(m Motion) bool {
+	switch m := m.(type) {
+	case Spring:
+		return m.Response <= 0
+	case Tween:
+		return m.Duration <= 0
+	default:
+		return false
 	}
 }
 

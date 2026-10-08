@@ -13,7 +13,7 @@
 static JavaVM *vm;
 static jclass nativeClass;
 static jmethodID midPermitted, midAsk, midUserFolder, midChooseFolder;
-static jmethodID midNowPlaying, midShowKeyboard, midCaret, midBuzz, midShare, midVibrate, midTextState, midClearTextState, midGetClipboard, midSetClipboard, midFinish;
+static jmethodID midNowPlaying, midShowKeyboard, midCaret, midBuzz, midShare, midVibrate, midOpenLink, midTextState, midClearTextState, midGetClipboard, midSetClipboard, midFinish;
 static jmethodID midHasCompass, midWatchHeading;
 
 // JNI_OnLoad runs on the thread that loads the library, which has the
@@ -36,6 +36,7 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *v, void *reserved) {
 	midBuzz = (*env)->GetStaticMethodID(env, c, "buzz", "()V");
 	midShare = (*env)->GetStaticMethodID(env, c, "share", "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Z");
 	midVibrate = (*env)->GetStaticMethodID(env, c, "vibrate", "([J)Z");
+	midOpenLink = (*env)->GetStaticMethodID(env, c, "openLink", "(Ljava/lang/String;)Z");
 	midHasCompass = (*env)->GetStaticMethodID(env, c, "hasCompass", "()Z");
 	midWatchHeading = (*env)->GetStaticMethodID(env, c, "watchHeading", "(Z)V");
 	midTextState = (*env)->GetStaticMethodID(env, c, "textState", "([CIIIIIZZJ)V");
@@ -236,6 +237,16 @@ int gunim_vibrate(const long long *ms, int n) {
 	}
 	jboolean ok = (*env)->CallStaticBooleanMethod(env, nativeClass, midVibrate, jm);
 	(*env)->DeleteLocalRef(env, jm);
+	envPut(a);
+	return ok ? 1 : 0;
+}
+
+int gunim_open_link(const uint16_t *url, int n) {
+	int a;
+	JNIEnv *env = envGet(&a);
+	jstring ju = (*env)->NewString(env, (const jchar *)url, n);
+	jboolean ok = (*env)->CallStaticBooleanMethod(env, nativeClass, midOpenLink, ju);
+	(*env)->DeleteLocalRef(env, ju);
 	envPut(a);
 	return ok ? 1 : 0;
 }

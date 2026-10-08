@@ -309,3 +309,44 @@ func TestAGradientFallsBackToTheColourAfterIt(t *testing.T) {
 		t.Fatalf("the third rect is %+v, want no fill and a blue stroke", pt)
 	}
 }
+
+func TestARadialGradientOnATallBoxIsAnEllipse(t *testing.T) {
+	f := mustSVG(t, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+<defs>
+<radialGradient id="g"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#00f"/></radialGradient>
+<radialGradient id="u" gradientUnits="userSpaceOnUse" cx="50" cy="50" r="10"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#00f"/></radialGradient>
+</defs>
+<rect x="40" y="0" width="20" height="100" fill="url(#g)"/>
+<rect x="0" y="0" width="100" height="100" fill="url(#u)"/>
+<g transform="scale(1 3)"><rect x="0" y="0" width="10" height="10" fill="url(#u)"/></g>
+</svg>`)
+	tall := f.Parts[0].FillGradient
+	if tall == nil || tall.From != geom.Pt(50, 50) || tall.To != geom.Pt(60, 50) || tall.Aspect != 5 {
+		t.Fatalf("a radial gradient by a box 20 wide and 100 tall is %+v, want 10 across and 50 down", tall)
+	}
+	if round := f.Parts[1].FillGradient; round == nil || round.Aspect != 0 {
+		t.Fatalf("a radial gradient in user space, unstretched, is %+v, want circles", round)
+	}
+	if scaled := f.Parts[2].FillGradient; scaled == nil || scaled.Aspect != 3 {
+		t.Fatalf("a radial gradient in a group scaled 3 times down is %+v, want ellipses 3 times as tall", scaled)
+	}
+}
+
+func TestAFigureStretchedStretchesItsRadialGradients(t *testing.T) {
+	f := mustSVG(t, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+<defs><radialGradient id="u" gradientUnits="userSpaceOnUse" cx="50" cy="50" r="50"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#00f"/></radialGradient></defs>
+<rect x="0" y="0" width="100" height="100" fill="url(#u)"/>
+</svg>`)
+	var p paint.Painter
+	p.Reset()
+	f.Paint(&p, geom.Rc(0, 0, 400, 100))
+	for _, op := range p.Ops() {
+		if m, ok := op.(*paint.MaskOp); ok {
+			if g := m.Gradient; g == nil || g.To != geom.Pt(400, 50) || g.Aspect != 0.25 {
+				t.Fatalf("a round gradient painted 4 times as wide as tall is %+v, want 200 across and 50 down", g)
+			}
+			return
+		}
+	}
+	t.Fatal("nothing painted")
+}

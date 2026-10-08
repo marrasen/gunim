@@ -20,6 +20,7 @@ int gunim_share(const uint16_t *text, int nt, const uint16_t *subject, int ns, c
 int gunim_vibrate(const long long *ms, int n);
 int gunim_has_compass(void);
 void gunim_watch_heading(int on);
+int gunim_open_link(const uint16_t *url, int n);
 int gunim_permitted(int p);
 void gunim_ask(int p, int code);
 void gunim_choose_folder(int code);

@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"runtime"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -109,7 +110,9 @@ type NowPlaying = driver.NowPlaying
 // controls: a phone's lock screen and quick settings, the media panel
 // of GNOME and KDE through MPRIS, and the panel Windows opens beside
 // the volume. On a phone it keeps the application running while it
-// plays unseen, as the system would stop it otherwise. The controls'
+// plays unseen, as the system would stop it otherwise; on Android that
+// needs the application built with gunimapk's -permissions playback,
+// and without it SetNowPlaying does nothing there. The controls'
 // buttons, and a keyboard's media keys, arrive at the main window, the
 // one used last, as the media keys of package input,
 // [input.KeyMediaPlayPause] and the rest, which the application handles
@@ -723,6 +726,22 @@ func (c Client) Open(path string) error {
 	return l.Open(path)
 }
 
+// OpenLink opens the web page at url in the system's browser, as a link
+// in another application does. It takes http and https addresses alone,
+// so a link is never a way to start a program. It returns once the
+// system has taken the request, and [driver.ErrNoLinkOpener] where gunim
+// cannot ask.
+func (c Client) OpenLink(url string) error {
+	if !strings.HasPrefix(url, "https://") && !strings.HasPrefix(url, "http://") {
+		return fmt.Errorf("gunim: open link %q: only http and https links open", url)
+	}
+	lo, ok := c.w.dw.(driver.LinkOpener)
+	if !ok {
+		return driver.ErrNoLinkOpener
+	}
+	return lo.OpenLink(url)
+}
+
 // Reveal shows the file or folder at path in the system's file manager,
 // selected where the system can. It returns [driver.ErrNoLauncher] where
 // gunim cannot ask.
@@ -864,7 +883,19 @@ func (w *Window) Frame(delta time.Duration) {
 // such as one from [NewOffscreen], and must be called from the goroutine
 // calling Frame. Positions are in window space, and the pointer is
 // routed through where the last frame drew each node.
-func (w *Window) Input(ev any) { w.ui.handlePlatform(ev) }
+func (w *Window) Input(ev any) { w.platform(ev) }
+
+// platform handles one of the platform's events. A window out of sight
+// draws no frames, and a frame is where the application's state reaches
+// the views; input handled meanwhile, as a media key with a phone's
+// screen off, would act on the state from before the window went out of
+// sight. So such a window applies the queue first.
+func (w *Window) platform(ev any) {
+	if !w.draws() {
+		w.applyPending()
+	}
+	w.ui.handlePlatform(ev)
+}
 
 // Err returns the error that ended the window. Read it once
 // [Client.Intents] has closed.
@@ -1005,7 +1036,7 @@ func (w *Window) wait() bool {
 		if _, asked := ev.(driver.CloseAsked); asked {
 			return w.ui.closeAsked()
 		}
-		w.ui.handlePlatform(ev)
+		w.platform(ev)
 		w.ui.focusNow()
 	case e := <-w.popupIn:
 		w.ui.popupEvent(e)
@@ -1016,7 +1047,7 @@ func (w *Window) wait() bool {
 	case <-w.leave:
 		w.ui.startLeaving()
 	case ev := <-w.injected:
-		w.ui.handlePlatform(ev)
+		w.platform(ev)
 		w.ui.focusNow()
 	case f, ok := <-w.dw.Presented():
 		if !ok {
