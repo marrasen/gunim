@@ -222,14 +222,24 @@ func (m *Menu) Access() access.Info {
 		if i == m.hot {
 			part.State = access.StateSelected
 		}
+		if len(m.list.items[i].subItems()) > 0 {
+			part.State |= access.StateExpandable | access.StateHasPopup
+			if i == m.subOpen() {
+				part.State |= access.StateExpanded
+			}
+		}
 		part.Bounds = geom.Rc(m.card.Min.X, m.rowY(i), m.card.Size().W, m.row)
 		info.Parts = append(info.Parts, part)
 	}
 	return info
 }
 
-// AccessAct implements [gunim.AccessActor]: pressing an item picks it.
+// AccessAct implements [gunim.AccessActor]: pressing an item picks it, or opens its submenu.
 func (m *Menu) AccessAct(r access.Request, u *gunim.UI) bool {
+	if r.Action == access.ActionPress && m.hasSub(r.Part) {
+		m.openSub(r.Part, true, u)
+		return true
+	}
 	if r.Action != access.ActionPress || r.Part < 0 || r.Part >= m.len() || m.OnPick == nil {
 		return false
 	}

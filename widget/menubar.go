@@ -252,25 +252,7 @@ func (b *Menubar) aiming() bool {
 	if b.menu == nil || b.panel == nil {
 		return false
 	}
-	from, to := b.list.wasPointer, b.list.pointer
-	card := b.panel.cardInList()
-	if card.Empty() {
-		return false
-	}
-	edge, step := card.Min.X, to.X-from.X
-	if b.panel.left {
-		edge, step = card.Max.X, from.X-to.X
-	}
-	span := edge - from.X
-	if b.panel.left {
-		span = from.X - edge
-	}
-	if step <= 0 || step >= span {
-		return false
-	}
-	// The pointer's slope stays within the wedge's, from where it was to the card's near corners
-	slope := (to.Y - from.Y) / step
-	return slope >= (card.Min.Y-from.Y)/span && slope <= (card.Max.Y-from.Y)/span
+	return headsFor(b.list.wasPointer, b.list.pointer, b.panel.cardInList(), b.panel.left)
 }
 
 // stopWaiting cancels a menu waiting to open beside a compact bar's list.

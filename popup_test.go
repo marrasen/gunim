@@ -83,6 +83,28 @@ func TestPopupFollowsItsAnchor(t *testing.T) {
 	}
 }
 
+func TestAPopupBesideItsAnchorOpensRightOrLeftAndMovesUpOntoTheScreen(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		area geom.Rect
+		want geom.Point
+	}{
+		// The recorder is at (10, 10), 100 by 50, and the menu 120 by 80.
+		{"right of it, top to top", geom.Rc(0, 0, 800, 600), geom.Pt(110, 10)},
+		{"left of it, the screen ending on the right", geom.Rc(-300, 0, 500, 600), geom.Pt(-110, 10)},
+		{"moved up, the screen ending below", geom.Rc(0, -100, 800, 160), geom.Pt(110, -21)},
+		{"no higher than the screen's top", geom.Rc(0, 0, 800, 60), geom.Pt(110, 0)},
+	} {
+		w, _, opener := newStage(t, paint.Identity)
+		w.mustOffscreen(t).SetWorkArea(tt.area)
+		w.ui.OpenPopup(opener, newMenu(), PopupOptions{Anchor: geom.Rect{Max: geom.Pt(100, 50)}, Beside: true})
+		run(w, 1)
+		if got := popupWindow(t, w).Anchor(); got != (geom.Rect{Min: tt.want, Max: tt.want}) {
+			t.Errorf("%s: the popup is put at %v, want %v", tt.name, got, tt.want)
+		}
+	}
+}
+
 func TestPressInPopupReachesItAndLeavesFocus(t *testing.T) {
 	w, opener, m, _ := openMenu(t, func(*UI) { t.Error("a press inside the popup dismissed it") })
 	w.ui.Focus(opener)
