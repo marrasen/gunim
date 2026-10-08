@@ -132,6 +132,14 @@ func fill(c *widget.ContextMenu, items []menuItem, off, on func(cmd string) bool
 	return cmds
 }
 
+// paneHints takes away the hint of Copy path in a pane, whose
+// Ctrl+Shift+C is the program's.
+func (b *browser) paneHints(m *widget.ContextMenu, cmds []string) {
+	if i := slices.Index(cmds, localCopyPath); i >= 0 && b.shell.Pane && i < len(m.Hints) {
+		m.Hints[i] = ""
+	}
+}
+
 // checked reports whether the menu bar ticks the item that sends cmd.
 func (t *titleBar) checked(cmd string) bool {
 	for m, cmds := range t.cmds {
@@ -159,6 +167,7 @@ func (pg *listingPage) contextMenu(g gunim.Node, rowAt func(geom.Point) int, sel
 			st = menuState{path: b.listing.path}
 			st.cmds = fill(m, emptyItems, func(cmd string) bool { return cmd == CmdPaste && clipEmpty },
 				b.title.checked)
+			b.paneHints(m, st.cmds)
 			return true
 		}
 		sel, dirs := pg.selectedRows(selected())
@@ -210,6 +219,7 @@ func (pg *listingPage) contextMenu(g gunim.Node, rowAt func(geom.Point) int, sel
 		if i := slices.Index(st.cmds, CmdTrash); i >= 0 {
 			m.Items[i] = trashLabel(b.shell.NoTrash)
 		}
+		b.paneHints(m, st.cmds)
 		return true
 	}
 	m.Picked = func(i int, u *gunim.UI) { pg.b.dnd.menuPicked(m, st, i, u) }
@@ -490,6 +500,11 @@ func (v *dndView) keys(e input.KeyPress, u *gunim.UI) bool {
 		u.Send(v.b, Command{Name: CmdProperties})
 		return true
 	case ctrl && shift && e.Key == input.KeyC:
+		if v.b.shell.Pane {
+			// The program's, as its Copy often is: Copy path is a
+			// menu's.
+			return false
+		}
 		v.copyPaths(u)
 		return true
 	case e.Key == input.KeyMenu, shift && e.Key == input.KeyF10:

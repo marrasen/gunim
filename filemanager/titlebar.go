@@ -1,6 +1,7 @@
 package filemanager
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/marrasen/gunim"
@@ -16,8 +17,11 @@ type menuItem struct {
 	label, hint, cmd string
 }
 
-// Commands the window does itself.
+// Commands the window does itself. A program runs them with [Run].
 const (
+	// CmdSelectAll selects every item, and CmdSelectNone none.
+	CmdSelectAll = localSelectAll
+
 	localEditPath   = "local.editpath"
 	localFilter     = "local.filter"
 	localSelectAll  = "local.selectall"
@@ -102,11 +106,14 @@ type titleBar struct {
 	// fetches says the menus are those of a file system whose files are
 	// fetched to open, and pane that they are a pane's.
 	fetches, pane bool
+	// hosted are the commands the program's menus offer, which these
+	// leave out.
+	hosted []string
 }
 
 func newTitleBar(b *browser) *titleBar {
 	t := &titleBar{b: b}
-	t.bar = &menuButton{Menubar: widget.NewMenubar(t.build(false, false)...), b: b}
+	t.bar = &menuButton{Menubar: widget.NewMenubar(t.build(false, false, nil)...), b: b}
 	t.bar.Compact = true
 	t.bar.Pick = t.pick
 	t.head = &titleHead{name: &titleText{Menubar: widget.NewMenubar()}, controls: widget.NewWindowControls()}
@@ -187,7 +194,7 @@ func (h *titleHead) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids g
 // a file system whose files are fetched to open, nothing shows in the
 // system's file manager, so the menus leave that out. The items keep
 // their ticks.
-func (t *titleBar) build(fetches, pane bool) []widget.BarMenu {
+func (t *titleBar) build(fetches, pane bool, hosted []string) []widget.BarMenu {
 	var was map[string]bool
 	if t.bar != nil {
 		was = map[string]bool{}
@@ -205,9 +212,12 @@ func (t *titleBar) build(fetches, pane bool) []widget.BarMenu {
 			items = without(items, CmdSystemIcons)
 		}
 		if pane {
-			// The program the pane is in picks the theme, and Ctrl+N opens
-			// what it opens: a pane, say.
+			// The program the pane is in picks the theme.
 			items = without(without(items, CmdThemeDark), CmdThemeLight)
+		}
+		for _, c := range hosted {
+			// The program's own menus offer it.
+			items = without(items, c)
 		}
 		if fetches {
 			items = without(items, CmdReveal)
@@ -232,7 +242,7 @@ func (t *titleBar) build(fetches, pane bool) []widget.BarMenu {
 		bars = append(bars, bm)
 		t.cmds = append(t.cmds, cmds)
 	}
-	t.fetches, t.pane = fetches, pane
+	t.fetches, t.pane, t.hosted = fetches, pane, slices.Clone(hosted)
 	return bars
 }
 
@@ -255,8 +265,10 @@ func without(items []menuItem, cmd string) []menuItem {
 }
 
 // pick runs the command of item i of menu m.
-func (t *titleBar) pick(m, i int, u *gunim.UI) {
-	cmd := t.cmds[m][i]
+func (t *titleBar) pick(m, i int, u *gunim.UI) { t.run(t.cmds[m][i], u) }
+
+// run runs cmd as a pick of it in the menus does.
+func (t *titleBar) run(cmd string, u *gunim.UI) {
 	switch cmd {
 	case localEditPath:
 		t.b.path.edit(u)
@@ -283,8 +295,8 @@ func (t *titleBar) check(cmd string, on bool) {
 }
 
 func (t *titleBar) setShell(s Shell, u *gunim.UI) {
-	if s.Fetches != t.fetches || s.Pane != t.pane {
-		t.bar.Menus = t.build(s.Fetches, s.Pane)
+	if s.Fetches != t.fetches || s.Pane != t.pane || !slices.Equal(s.Hosted, t.hosted) {
+		t.bar.Menus = t.build(s.Fetches, s.Pane, s.Hosted)
 	}
 	t.head.hidden = s.Pane
 	for m, cmds := range t.cmds {

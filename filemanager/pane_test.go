@@ -144,6 +144,13 @@ func (p *paneWorld) heard() []string {
 
 func newPaneWorld(t *testing.T, spec ...string) *paneWorld {
 	t.Helper()
+	return newPaneWorldWith(t, nil, spec...)
+}
+
+// newPaneWorldWith is newPaneWorld with the commands the host's menus
+// offer.
+func newPaneWorldWith(t *testing.T, hosted []string, spec ...string) *paneWorld {
+	t.Helper()
 	root := t.TempDir()
 	p := &paneWorld{dir: filepath.Join(root, "dir")}
 	if err := os.MkdirAll(p.dir, 0o755); err != nil {
@@ -154,7 +161,7 @@ func newPaneWorld(t *testing.T, spec ...string) *paneWorld {
 	h := NewHub(ctx, nil)
 	pw, err := h.NewPane(Options{Dir: p.dir, PrefsPath: filepath.Join(root, "prefs.json"), Poll: -1,
 		defaults: func() []Favourite { return nil }, trash: xdgTrash{dir: filepath.Join(root, "Trash")}},
-		PaneHost{ID: "pane1", Title: func(_, folder string) {
+		PaneHost{ID: "pane1", Commands: hosted, Title: func(_, folder string) {
 			p.mu.Lock()
 			p.titles = append(p.titles, folder)
 			p.mu.Unlock()
@@ -274,4 +281,35 @@ func TestAPaneCloses(t *testing.T) {
 		t.Fatal("Ctrl+W left the pane open")
 	}
 	s.until("the pane leaves the window", func() bool { return s.browser() == nil })
+}
+
+// The commands the host's menus offer leave the pane's, and the host
+// runs them in the pane.
+func TestTheHostsCommandsLeaveThePanesMenus(t *testing.T) {
+	hosted := []string{CmdCopy, CmdCut, CmdPaste, CmdSelectAll, CmdNewWindow, CmdCloseApp}
+	p := newPaneWorldWith(t, hosted, "a.txt", "b.txt")
+	s := newPaneScreen(t, p.pw)
+	p.pw.Attach(s.w.Client(), "slot")
+	var b *browser
+	s.until("the pane shows its rows", func() bool {
+		b = s.browser()
+		return b != nil && b.listing.cur != nil && b.listing.cur.grid.Rows() == 2
+	})
+	for _, cmds := range b.title.cmds {
+		for _, c := range hosted {
+			if slices.Contains(cmds, c) {
+				t.Fatalf("the pane's menus still offer %q", c)
+			}
+		}
+	}
+	if !slices.Contains(b.title.cmds[1], CmdRename) {
+		t.Fatal("the pane's menus lost what the host doesn't offer")
+	}
+	var ran bool
+	gunim.RegisterPatch(s.w, "host", func(_ *slotHost, _ askFocus, u *gunim.UI) { ran = Run(u, "pane1", CmdSelectAll) })
+	_ = s.w.Client().Patch("host", askFocus{})
+	s.frames(2)
+	if !ran || len(b.listing.cur.grid.SelectedRows()) == 0 {
+		t.Fatal("Run didn't select all in the pane")
+	}
 }

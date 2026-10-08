@@ -3,6 +3,7 @@ package filemanager
 import (
 	"context"
 	"errors"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -25,6 +26,10 @@ type PaneHost struct {
 	// where it names its panes. It is called on the pane's serve loop,
 	// so it must be quick, and must not wait for the program.
 	Title func(fs, folder string)
+	// Commands are the file manager's commands the program's own menus
+	// offer for the pane, as CmdCopy and CmdPaste in an Edit menu of its
+	// own, which run them with [Run]. The pane's menus leave them out.
+	Commands []string
 	// Open opens another file manager with o, as New window and a click
 	// with Ctrl held on a place ask: in a pane of its own, say. When nil,
 	// they open in windows of their own, on the hub's app.
@@ -106,6 +111,19 @@ func FocusIn(u *gunim.UI, id string) gunim.Node {
 	return b.listing.cur.focusNode()
 }
 
+// Run runs the command cmd in the pane whose host's ID is id, in the
+// window of u, as a pick of it in the pane's menus does, and reports
+// whether the pane shows there: for the program's own menu items, as
+// its Edit › Copy. It must be called on the UI goroutine.
+func Run(u *gunim.UI, id, cmd string) bool {
+	b, ok := u.Mounted(gunim.ID(id + "/" + string(browserID))).(*browser)
+	if !ok {
+		return false
+	}
+	b.title.run(cmd, u)
+	return true
+}
+
 // Focus gives the keyboard to the listing, as the program does when the
 // user turns to the file manager: to its pane, say.
 func (w *Window) Focus() {
@@ -149,6 +167,7 @@ func servePane(ctx context.Context, w *Window, o Options, h *Hub) (err error) {
 	a.quit = make(chan struct{})
 	a.ids = viewIDs{prefix: w.pane.host.ID + "/"}
 	a.shell.Pane = true
+	a.shell.Hosted = slices.Clone(w.pane.host.Commands)
 	a.join(h, w)
 	close(w.ready)
 	return a.serve(ctx, o, w.pane.in)

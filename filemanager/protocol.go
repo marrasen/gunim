@@ -77,6 +77,9 @@ type Shell struct {
 	// Actions are the program's own items on the context menu of the
 	// items selected.
 	Actions []ItemAction
+	// Hosted are the commands the program's own menus offer for a pane,
+	// which the pane's menus leave out.
+	Hosted []string
 	// Pane says the file manager shows in a pane of a window the program
 	// draws, which leaves the window's title, theme and zoom alone.
 	Pane bool
