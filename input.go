@@ -65,6 +65,9 @@ func (u *UI) handleRaw(root *state, ev any) {
 			u.dismissFor(nil, nil)
 		}
 		return
+	case input.Heading:
+		u.headingEvent(e)
+		return
 	case input.MediaSeek:
 		target := u.focus
 		if target == nil {
@@ -92,6 +95,10 @@ func (u *UI) handleRaw(root *state, ev any) {
 		u.w.hidden = !e.Shown
 		if e.Shown {
 			u.w.resumed, u.invalid = true, true
+		} else {
+			// Out of sight, the compass rests; the first frame shown runs
+			// it again.
+			u.watchHeading()
 		}
 		var ev input.Event = input.WindowShown{Time: time.Now()}
 		if !e.Shown {

@@ -425,6 +425,7 @@ var (
 	_ driver.Sharer          = (*Window)(nil)
 	_ driver.LinkOpener      = (*Window)(nil)
 	_ driver.Vibrator        = (*Window)(nil)
+	_ driver.Compass         = (*Window)(nil)
 	_ driver.SafeAreaer      = (*Window)(nil)
 	_ driver.KeyboardCoverer = (*Window)(nil)
 	_ driver.Shooter         = (*Window)(nil)

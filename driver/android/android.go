@@ -135,6 +135,14 @@ type Driver struct {
 	panRest bool
 	quit    chan struct{}
 
+	// headingTo is the windows that watch the heading, and compassOn
+	// says the sensors run for them. compass says the phone has the
+	// sensors, once compassOnce has asked.
+	headingTo   map[*Window]bool
+	compassOn   bool
+	compass     bool
+	compassOnce sync.Once
+
 	// wake nudges the render thread, and surfaces carries surface
 	// changes to it.
 	wake     chan struct{}
@@ -143,10 +151,11 @@ type Driver struct {
 
 func newDriver() *Driver {
 	return &Driver{
-		sized:    make(chan struct{}),
-		quit:     make(chan struct{}),
-		wake:     make(chan struct{}, 1),
-		surfaces: make(chan surfaceChange),
+		sized:     make(chan struct{}),
+		headingTo: map[*Window]bool{},
+		quit:      make(chan struct{}),
+		wake:      make(chan struct{}, 1),
+		surfaces:  make(chan surfaceChange),
 	}
 }
 
@@ -675,6 +684,8 @@ func (d *Driver) closed(w *Window) {
 	if d.typing == w {
 		d.typing = nil
 	}
+	delete(d.headingTo, w)
+	d.runCompassLocked()
 	last := true
 	for _, x := range d.windows {
 		if x.fills {

@@ -14,6 +14,7 @@ static JavaVM *vm;
 static jclass nativeClass;
 static jmethodID midPermitted, midAsk, midUserFolder, midChooseFolder;
 static jmethodID midNowPlaying, midShowKeyboard, midCaret, midBuzz, midShare, midVibrate, midOpenLink, midTextState, midClearTextState, midGetClipboard, midSetClipboard, midFinish;
+static jmethodID midHasCompass, midWatchHeading;
 
 // JNI_OnLoad runs on the thread that loads the library, which has the
 // application's class loader, so it looks up the class Go calls back.
@@ -36,6 +37,8 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *v, void *reserved) {
 	midShare = (*env)->GetStaticMethodID(env, c, "share", "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Z");
 	midVibrate = (*env)->GetStaticMethodID(env, c, "vibrate", "([J)Z");
 	midOpenLink = (*env)->GetStaticMethodID(env, c, "openLink", "(Ljava/lang/String;)Z");
+	midHasCompass = (*env)->GetStaticMethodID(env, c, "hasCompass", "()Z");
+	midWatchHeading = (*env)->GetStaticMethodID(env, c, "watchHeading", "(Z)V");
 	midTextState = (*env)->GetStaticMethodID(env, c, "textState", "([CIIIIIZZJ)V");
 	midClearTextState = (*env)->GetStaticMethodID(env, c, "clearTextState", "()V");
 	midGetClipboard = (*env)->GetStaticMethodID(env, c, "getClipboard", "()Ljava/lang/String;");
@@ -246,6 +249,28 @@ int gunim_open_link(const uint16_t *url, int n) {
 	(*env)->DeleteLocalRef(env, ju);
 	envPut(a);
 	return ok ? 1 : 0;
+}
+
+int gunim_has_compass(void) {
+	int a;
+	JNIEnv *env = envGet(&a);
+	jboolean ok = (*env)->CallStaticBooleanMethod(env, nativeClass, midHasCompass);
+	envPut(a);
+	return ok ? 1 : 0;
+}
+
+void gunim_watch_heading(int on) {
+	int a;
+	JNIEnv *env = envGet(&a);
+	(*env)->CallStaticVoidMethod(env, nativeClass, midWatchHeading, (jboolean)(on != 0));
+	envPut(a);
+}
+
+JNIEXPORT void JNICALL Java_gunim_android_Native_heading(JNIEnv *env, jclass c, jfloatArray rotation, jint screen,
+	jint accuracy, jfloat error) {
+	float r[9];
+	(*env)->GetFloatArrayRegion(env, rotation, 0, 9, r);
+	goHeading(r, screen, accuracy, error);
 }
 
 void gunim_finish(void) {

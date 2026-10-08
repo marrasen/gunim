@@ -41,6 +41,7 @@ public final class Native {
 	static native void composing(String s, int selStart, int selEnd);
 	static native void answered(int code, boolean granted);
 	static native void chosen(int code, String path);
+	static native void heading(float[] rotation, int screen, int accuracy, float error);
 
 	// Called from Go.
 
@@ -307,6 +308,22 @@ public final class Native {
 		System.arraycopy(pattern, 0, timings, 1, pattern.length);
 		v.vibrate(android.os.VibrationEffect.createWaveform(timings, -1));
 		return true;
+	}
+
+	// hasCompass reports whether the phone has the sensors that tell
+	// which way it faces.
+	static boolean hasCompass() {
+		return app != null && GunimCompass.of(app).has();
+	}
+
+	// watchHeading starts or stops those sensors; while they run, Go
+	// hears each reading as heading.
+	static void watchHeading(boolean on) {
+		ui.post(() -> {
+			if (app != null) {
+				GunimCompass.of(app).watch(on);
+			}
+		});
 	}
 
 	static void finish() {

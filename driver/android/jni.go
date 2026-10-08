@@ -18,6 +18,7 @@ import (
 	"unsafe"
 
 	"github.com/marrasen/gunim/driver"
+	"github.com/marrasen/gunim/driver/internal/compass"
 	"github.com/marrasen/gunim/input"
 )
 
@@ -260,6 +261,20 @@ func vibrate(pattern []time.Duration) error {
 		return driver.ErrNoVibrator
 	}
 	return nil
+}
+
+// hasCompass reports whether the phone has the sensors that tell which
+// way it faces.
+func hasCompass() bool { return C.gunim_has_compass() != 0 }
+
+// watchHeading starts or stops those sensors.
+func watchHeading(on bool) { C.gunim_watch_heading(cBool(on)) }
+
+//export goHeading
+func goHeading(r *C.float, screen, accuracy C.int, err C.float) {
+	var m [9]float32
+	copy(m[:], unsafe.Slice((*float32)(unsafe.Pointer(r)), 9))
+	theDriver.heading(m, compass.Rotation(screen), int(accuracy), float32(err))
 }
 
 //export goAnswered

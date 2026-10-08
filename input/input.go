@@ -136,6 +136,41 @@ const (
 	PinchEnd
 )
 
+// Heading says which way the device faces, to a node that watches it: see gunim.HeadingWatcher. It goes to every
+// node shown that watches, and does not bubble.
+//
+// Degrees is clockwise from magnetic north, from 0 up to but not 360: 90 is east, 180 south. It is the way the top
+// edge of the screen points with the device lying flat, screen up, and the way its back looks with it held upright
+// before the user, and the same way at every tilt between. A screen turned with the device keeps its own top edge.
+//
+// It is the sensor's reading as it comes, a dozen or so times a second, and wavers by a degree or two; an
+// application that wants a steady needle smooths it, minding the step from 359 to 0. A phone's compass is a
+// magnetometer: indoors, near steel, a magnet or a speaker, the reading can be off by tens of degrees, and
+// Accuracy falls while the sensor knows it is unsure. Magnetic north lies a few degrees from true north in most
+// places.
+type Heading struct {
+	Degrees float32
+	// Accuracy is how far the sensor trusts the reading. At [HeadingUnreliable] or [HeadingLow] an application
+	// can ask the user to move the device in a figure eight, which calibrates it.
+	Accuracy HeadingAccuracy
+	// Error is how far off the sensor reckons Degrees may be, in degrees either way, or 0 where it does not say.
+	Error float32
+	Time  time.Time
+}
+
+// HeadingAccuracy is how far a compass trusts its reading, as Android's SENSOR_STATUS values say.
+type HeadingAccuracy uint8
+
+// The accuracies of a [Heading], worst first.
+const (
+	// HeadingUnreliable says the reading cannot be trusted: the compass needs calibrating, or something magnetic
+	// is near.
+	HeadingUnreliable HeadingAccuracy = iota
+	HeadingLow
+	HeadingMedium
+	HeadingHigh
+)
+
 // Keyboard events split press from release, and deliver the text a
 // keystroke produced as its own [TextInput]. Polled key state collapses
 // the two, so it reads Ctrl+C and the letter c the same way, which is
@@ -329,6 +364,7 @@ func (PointerDown) isEvent()  {}
 func (PointerUp) isEvent()    {}
 func (Scroll) isEvent()       {}
 func (Pinch) isEvent()        {}
+func (Heading) isEvent()      {}
 func (KeyPress) isEvent()     {}
 func (KeyRelease) isEvent()   {}
 func (AltTapped) isEvent()    {}
