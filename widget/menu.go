@@ -102,6 +102,9 @@ type Menu struct {
 	// room and wide are how tall and how wide the screen lets the menu's window be, from FitPopup, or 0 where nothing
 	// says.
 	room, wide float32
+	// cover lets the menu cover its anchor, as a context menu covers the point pressed: it slides up the screen to fit,
+	// and keeps to the screen's whole height rather than the taller side of its anchor.
+	cover bool
 }
 
 // menuRow is an item's text and hint, shaped.
@@ -312,16 +315,27 @@ func (m *Menu) reveal(i int) {
 }
 
 // FitPopup implements [gunim.PopupFitter]: the menu keeps to the taller of the room below its anchor and above it,
-// and scrolls what does not fit. It keeps to the screen's width, and cuts long items short.
+// or, one that covers its anchor, to the screen's height, and scrolls what does not fit. It keeps to the screen's
+// width, and cuts long items short.
 func (m *Menu) FitPopup(r driver.Room) {
 	m.room, m.wide = 0, 0
-	if room := max(r.Below, r.Above); !math.IsInf(float64(room), 1) {
+	room := max(r.Below, r.Above)
+	if m.cover {
+		room = r.Below + r.Above
+	}
+	if !math.IsInf(float64(room), 1) {
 		m.room = room
+	} else if m.cover {
+		// Nothing says where the screen ends: the menu keeps to a height most screens have.
+		m.room = coverRoom
 	}
 	if wide := r.Left + r.Right; !math.IsInf(float64(wide), 1) {
 		m.wide = wide
 	}
 }
+
+// coverRoom is the height a menu that covers its anchor keeps to where nothing says where the screen ends.
+const coverRoom = 480
 
 // DragsTouch implements [gunim.TouchDragger]: a finger on the bar's thumb drags it, and anywhere else scrolls the
 // rows.
@@ -719,7 +733,12 @@ func (m *Menu) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom
 	h := y + 2*m.pad
 	limit := c.Max.H
 	if m.room > 0 {
-		limit = min(limit, m.room)
+		room := m.room
+		if m.cover {
+			// The room counts the margin once, round the point covered; the window, margin and all, keeps to the screen.
+			room -= 2 * m.margin
+		}
+		limit = min(limit, room)
 	}
 	if limit -= 2 * m.margin; limit > 0 && h > limit {
 		// Too tall: the rows scroll, and the menu leaves room at the right for the bar.
@@ -1310,6 +1329,7 @@ func (c *ContextMenu) show(at geom.Point, u *gunim.UI) {
 	c.close(u)
 	m := NewMenu(nil)
 	m.setList(c.list)
+	m.cover = true
 	m.OnPick = func(i int, u *gunim.UI) gunim.Intent {
 		c.close(u)
 		if c.OnPick != nil {
@@ -1320,8 +1340,9 @@ func (c *ContextMenu) show(at geom.Point, u *gunim.UI) {
 	c.menu = m
 	u.Cue(gunim.CueOpen, c)
 	c.popup = u.OpenPopup(c, m, gunim.PopupOptions{
-		Anchor:  geom.Rect{Min: at, Max: at},
-		Max:     geom.Sz(600, 480),
+		Anchor: geom.Rect{Min: at, Max: at},
+		// As tall as the screen lets it be: the menu slides up to show all its items, and scrolls only past that.
+		Max:     geom.Sz(600, 4096),
 		Dismiss: dismissed(c, c.close),
 	})
 	if f := u.Focused(); f != c {

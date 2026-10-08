@@ -81,3 +81,57 @@ func TestAContextMenuCanActInsideTheWindow(t *testing.T) {
 		t.Fatalf("an OnPick of nil sent %v", got)
 	}
 }
+
+// fileMenu is a file manager's context menu on a file: seventeen items in four groups.
+func fileMenu() []MenuItem {
+	labels := [][]string{
+		{"Open", "Open with system", "Open with…", "Open in new window", "Show in system file manager", "Compare", "Send to"},
+		{"Cut", "Copy", "Paste"},
+		{"Rename", "Duplicate", "Move to trash", "Delete permanently"},
+		{"Pin to favourites", "Copy path", "Properties"},
+	}
+	var items []MenuItem
+	for _, group := range labels {
+		for i, l := range group {
+			items = append(items, MenuItem{Label: l, Break: i == 0 && len(items) > 0})
+		}
+	}
+	return items
+}
+
+// openContextMenuIn opens a context menu of items, over all of a window 800 by 600 on a screen of the same size, by
+// a press at at, and returns it with the size of the menu's window.
+func openContextMenuIn(t *testing.T, items []MenuItem, at geom.Point) (*ContextMenu, geom.Size) {
+	t.Helper()
+	c := NewContextMenu(&block{h: 600}, items)
+	w, run := stage(t, &frame{child: c, size: geom.Sz(800, 600)})
+	w.Offscreen().SetWorkArea(geom.Rc(0, 0, 800, 600))
+	w.Input(input.PointerDown{Pos: at, Button: input.ButtonSecondary, Clicks: 1, Time: time.Now()})
+	w.Input(input.PointerUp{Pos: at, Button: input.ButtonSecondary, Time: time.Now()})
+	run(20)
+	if c.menu == nil || c.popup == nil {
+		t.Fatal("the menu did not open")
+	}
+	return c, c.popup.Offscreen().Size()
+}
+
+func TestAFileMenuOpenedLowInTheWindowShowsAllItsItems(t *testing.T) {
+	// About 520 tall: more than the room above or below the press, but not the screen's.
+	c, size := openContextMenuIn(t, fileMenu(), geom.Pt(300, 380))
+	if c.menu.scroll.scrollable() {
+		t.Fatalf("a menu %v tall scrolls, on a screen 600 tall", c.menu.content()+2*c.menu.pad)
+	}
+	if size.H > 600 {
+		t.Fatalf("the menu's window is %v, on a screen 600 tall", size)
+	}
+}
+
+func TestAContextMenuTallerThanTheScreenScrolls(t *testing.T) {
+	c, size := openContextMenuIn(t, Labels(slices.Repeat([]string{"Item"}, 40)...), geom.Pt(300, 380))
+	if !c.menu.scroll.scrollable() {
+		t.Fatal("40 items on a screen 600 tall do not scroll")
+	}
+	if size.H > 600 {
+		t.Fatalf("the menu's window is %v, on a screen 600 tall", size)
+	}
+}
