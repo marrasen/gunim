@@ -110,7 +110,9 @@ type NowPlaying = driver.NowPlaying
 // controls: a phone's lock screen and quick settings, the media panel
 // of GNOME and KDE through MPRIS, and the panel Windows opens beside
 // the volume. On a phone it keeps the application running while it
-// plays unseen, as the system would stop it otherwise. The controls'
+// plays unseen, as the system would stop it otherwise; on Android that
+// needs the application built with gunimapk's -permissions playback,
+// and without it SetNowPlaying does nothing there. The controls'
 // buttons, and a keyboard's media keys, arrive at the main window, the
 // one used last, as the media keys of package input,
 // [input.KeyMediaPlayPause] and the rest, which the application handles

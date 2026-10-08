@@ -91,7 +91,7 @@ public class GunimService extends Service {
 	 */
 	static void show(Context app, State st) {
 		state = st;
-		if (app == null) {
+		if (app == null || !declared(app)) {
 			return;
 		}
 		audioFocus(app, st);
@@ -144,6 +144,27 @@ public class GunimService extends Service {
 			held = false;
 			lent = false;
 		}
+	}
+
+	// known is true once declared has looked, and has its answer.
+	private static boolean known, has;
+
+	/**
+	 * declared reports whether the program's manifest holds the service:
+	 * gunimapk puts it there for -permissions playback alone. A program
+	 * without it plays while it is in front, with no media controls.
+	 */
+	private static boolean declared(Context app) {
+		if (!known) {
+			known = true;
+			try {
+				app.getPackageManager().getServiceInfo(new android.content.ComponentName(app, GunimService.class), 0);
+				has = true;
+			} catch (android.content.pm.PackageManager.NameNotFoundException e) {
+				has = false;
+			}
+		}
+		return has;
 	}
 
 	/** listen starts or stops listening for the sound to go to the speaker. */
