@@ -170,3 +170,22 @@ func TestAFetchThatDiffersLeavesNoFile(t *testing.T) {
 		t.Fatalf("the cache holds %q, want only good.jar", names)
 	}
 }
+
+func TestTheMediaServiceComesWithPlaybackAlone(t *testing.T) {
+	const service, fgs = `gunim.android.GunimService`, `android.permission.FOREGROUND_SERVICE"`
+	plain := manifestFor("org.gunim.quiz", "Quiz", false, []string{"music"}, "")
+	if strings.Contains(plain, service) || strings.Contains(plain, fgs) {
+		t.Errorf("without playback, the manifest holds the media service or its permission:\n%s", plain)
+	}
+	player := manifestFor("org.gunim.player", "Player", false, []string{"music", "playback"}, "")
+	for _, want := range []string{service, fgs, `android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"`, `android:foregroundServiceType="mediaPlayback"`} {
+		if !strings.Contains(player, want) {
+			t.Errorf("with playback, the manifest lacks %s:\n%s", want, player)
+		}
+	}
+	for _, m := range []string{plain, player} {
+		if err := xml.Unmarshal([]byte(m), new(struct{})); err != nil {
+			t.Errorf("the manifest is not XML: %v\n%s", err, m)
+		}
+	}
+}

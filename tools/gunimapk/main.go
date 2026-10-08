@@ -20,6 +20,13 @@
 // turning, and stretching, as the phone tips over. By default the
 // program turns with the phone.
 //
+// -permissions names what the program may do beyond drawing, sound and
+// a light buzz: music, to read the phone's music once the user lets it,
+// and playback, to play on in the background, in the system's media
+// controls, as gunim's App.SetNowPlaying asks. Google Play asks the
+// developer why an app plays in the background, so leave playback out
+// of a program that only makes sound while it is in front, as a game.
+//
 // # Debug and release builds
 //
 // By default the APK is a debug build, signed with the debug key in
@@ -135,7 +142,7 @@ func main() {
 	version := flag.String("version", "", "the version name users see, as 1.0.0; the commit and the time it was built by default")
 	iconPNG := flag.String("icon", "", "a PNG file for the launcher's icon, square, 288 pixels or more")
 	iconBG := flag.String("icon-background", "", "the colour under the launcher's icon, as #rrggbb; the colour of the icon's edge by default")
-	permList := flag.String("permissions", "", "the permissions the program may ask for, comma separated: music")
+	permList := flag.String("permissions", "", "what the program may do beyond drawing and sound, comma separated: music, to read the phone's music, and playback, to play on in the background with the system's media controls")
 	orientation := flag.String("orientation", "", "hold the screen one way, by Android's name, as portrait or landscape; it turns with the phone by default")
 	abiList := flag.String("abi", "arm64-v8a,x86_64", "the ABIs to build for, comma separated")
 	install := flag.Bool("install", false, "install the APK with adb")
@@ -173,7 +180,7 @@ func main() {
 		perms = strings.Split(*permList, ",")
 		for _, p := range perms {
 			if _, ok := permissions[p]; !ok {
-				log.Fatalf("gunimapk: no permission %q; there is music", p)
+				log.Fatalf("gunimapk: no permission %q; there are music and playback", p)
 			}
 		}
 	}
@@ -841,12 +848,18 @@ func pack(out, linked string, rename func(string) string, files []packed) (err e
 }
 
 // permissions are the manifest's lines for each permission a program
-// may ask for with gunim's App.Ask, by -permissions' names: music is
-// its own permission since Android 13, and part of reading storage
-// before.
+// may need, by -permissions' names. music is the one a program asks for
+// with gunim's App.Ask to read the phone's music: its own permission
+// since Android 13, and part of reading storage before. playback lets a
+// program that calls App.SetNowPlaying play on unseen, as a foreground
+// service, which Google Play asks a developer to explain; a program
+// without it plays while it is in front, and shows no media controls.
 var permissions = map[string]string{
 	"music": `	<uses-permission android:name="android.permission.READ_MEDIA_AUDIO"/>
 	<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>
+`,
+	"playback": `	<uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+	<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
 `,
 }
 
@@ -866,7 +879,8 @@ var orientations = []string{
 // as orientation names, or turns with the phone where it is "". It
 // keeps itself across rotation and a keyboard coming and going, hears
 // the back gesture through the callback GunimActivity registers, and
-// slides up as the soft keyboard opens, to keep the text caret above it. The service is the one a program starts with
+// slides up as the soft keyboard opens, to keep the text caret above it. With
+// playback among perms it holds the service a program starts with
 // gunim's App.SetNowPlaying, to play media on in the background. The
 // provider hands the files a program shares with gunim's Client.Share to
 // the application they go to, and the vibration permission, which the
@@ -885,10 +899,14 @@ func manifestFor(id, name string, icon bool, perms []string, orientation string)
 	for _, p := range perms {
 		asks.WriteString(permissions[p])
 	}
+	service := ""
+	if slices.Contains(perms, "playback") {
+		service = `		<service android:name="gunim.android.GunimService" android:exported="false"
+			android:foregroundServiceType="mediaPlayback"/>
+`
+	}
 	return `<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="` + id + `">
-	<uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
-	<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
 	<uses-permission android:name="android.permission.VIBRATE"/>
 ` + asks.String() + `	<application android:label="` + xmlEscape(name) + `"` + iconAttr + ` android:hasCode="true" android:extractNativeLibs="true"
 		android:enableOnBackInvokedCallback="true">
@@ -901,9 +919,7 @@ func manifestFor(id, name string, icon bool, perms []string, orientation string)
 				<category android:name="android.intent.category.LAUNCHER"/>
 			</intent-filter>
 		</activity>
-		<service android:name="gunim.android.GunimService" android:exported="false"
-			android:foregroundServiceType="mediaPlayback"/>
-		<provider android:name="gunim.android.GunimFiles" android:authorities="` + id + `.gunim.files"
+` + service + `		<provider android:name="gunim.android.GunimFiles" android:authorities="` + id + `.gunim.files"
 			android:exported="false" android:grantUriPermissions="true"/>
 	</application>
 </manifest>
