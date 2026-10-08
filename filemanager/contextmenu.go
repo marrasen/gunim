@@ -27,7 +27,7 @@ const (
 var rowItems = []menuItem{
 	{"Open", "Enter", CmdOpen},
 	{"Open with system", "", CmdOpenSystem},
-	{"Open with…", "", localOpenWith},
+	{"Open with", "", localOpenWith},
 	{"Open in new window", "", localOpenWindow},
 	{"Show in system file manager", "", CmdReveal},
 	{"-", "", ""},
@@ -118,8 +118,14 @@ type menuState struct {
 // fill sets c's items from items, dimming those off says are off and
 // ticking those on says are on, and returns the commands in order.
 func fill(c *widget.ContextMenu, items []menuItem, off, on func(cmd string) bool) []string {
-	var lines []widget.MenuItem
-	var cmds []string
+	lines, cmds := menuLines(items, off, on)
+	c.SetItems(lines)
+	return cmds
+}
+
+// menuLines returns the lines of a menu of items, dimming those off says
+// are off and ticking those on says are on, and the commands in order.
+func menuLines(items []menuItem, off, on func(cmd string) bool) (lines []widget.MenuItem, cmds []string) {
 	line := false
 	for _, it := range items {
 		if it.label == "-" {
@@ -130,8 +136,7 @@ func fill(c *widget.ContextMenu, items []menuItem, off, on func(cmd string) bool
 		line = false
 		cmds = append(cmds, it.cmd)
 	}
-	c.SetItems(lines)
-	return cmds
+	return lines, cmds
 }
 
 // paneHints takes away the hint of Copy path in a pane, whose
@@ -165,14 +170,8 @@ func (pg *listingPage) contextMenu(g gunim.Node, rowAt func(geom.Point) int, sel
 	var st menuState
 	m.Prepare = func(at geom.Point, u *gunim.UI) bool {
 		b := pg.b
-		b.dnd.menuOf, b.dnd.menuPage, b.dnd.menuAt = m, pg, at
-		if w := b.dnd.with; w != nil {
-			st = menuState{path: w.Path}
-			st.cmds = fill(m, openWithItems(w.Apps), func(string) bool { return false }, func(string) bool { return false })
-			return true
-		}
 		// Another menu opened meanwhile: the programs asked for before
-		// no longer open one.
+		// no longer fill one.
 		b.dnd.withAsked = ""
 		row := rowAt(at)
 		clipEmpty := b.dnd.clip.Count == 0
@@ -241,10 +240,15 @@ func (pg *listingPage) contextMenu(g gunim.Node, rowAt func(geom.Point) int, sel
 			m.SetItems(items)
 		}
 		b.paneHints(m, st.cmds)
+		b.dnd.askOpenWith(m, st, u)
 		return true
 	}
 	m.OnPick = func(i int, u *gunim.UI) gunim.Intent {
 		pg.b.dnd.menuPicked(m, st, i, u)
+		return nil
+	}
+	m.OnPickSub = func(path []int, u *gunim.UI) gunim.Intent {
+		pg.b.dnd.subPicked(m, st, path, u)
 		return nil
 	}
 	return m
@@ -306,9 +310,6 @@ func (v *dndView) menuPicked(m *widget.ContextMenu, st menuState, i int, u *guni
 	switch cmd := st.cmds[i]; cmd {
 	case localCopyPath:
 		v.copyPaths(u)
-	case localOpenWith:
-		v.withAsked, v.withFocus = st.path, u.Focused()
-		u.Send(m, OpenWithAsked{Path: st.path})
 	case localOpenWindow:
 		if st.away {
 			u.Send(m, Visit{FS: st.fs, Path: st.path, NewWindow: true})
@@ -342,10 +343,6 @@ func (v *dndView) menuPicked(m *widget.ContextMenu, st menuState, i int, u *guni
 			u.Send(m, PlaceCommanded{Place: st.place, ID: id})
 			return
 		}
-		if id, ok := strings.CutPrefix(cmd, withCmd); ok {
-			u.Send(m, OpenWith{Path: st.path, ID: id})
-			return
-		}
 		u.Send(m, Command{Name: cmd})
 	}
 }
@@ -367,14 +364,18 @@ func (v *dndView) copyPaths(u *gunim.UI) {
 	u.SetClipboard(strings.Join(paths, "\n"))
 }
 
-// withCmd starts the command of a program in the Open with menu, before
-// its ID; with none, the item asks for the system's dialog.
+// withCmd starts the command of a program in the Open with submenu,
+// before its ID; with none, the item asks for the system's dialog.
 const withCmd = "with:"
 
-// openWithItems are the items of the Open with menu: the programs, and
-// the system's dialog to choose another.
-func openWithItems(apps []OpenWithApp) []menuItem {
+// openWithItems are the items of the Open with submenu: the programs,
+// and the system's dialog to choose another. Until found, the programs
+// are a dimmed line saying they are being looked for.
+func openWithItems(apps []OpenWithApp, found bool) []menuItem {
 	var items []menuItem
+	if !found {
+		items = append(items, menuItem{"Looking for apps…", "", ""})
+	}
 	for _, p := range apps {
 		items = append(items, menuItem{p.Name, "", withCmd + p.ID})
 	}
@@ -384,20 +385,73 @@ func openWithItems(apps []OpenWithApp) []menuItem {
 	return append(items, menuItem{"Choose another app…", "", withCmd})
 }
 
-// openWithMenu opens the Open with menu where the listing's menu was,
-// once the program has sent the programs for the file it was asked for.
+// openWithSub returns the Open with submenu of the file at path, and its
+// commands in order: the programs found for it, or a line saying they
+// are being looked for.
+func (v *dndView) openWithSub(path string) (sub *widget.Submenu, cmds []string) {
+	found := path != "" && path == v.withPath
+	var apps []OpenWithApp
+	if found {
+		apps = v.withApps
+	}
+	lines, cmds := menuLines(openWithItems(apps, found), func(cmd string) bool { return cmd == "" },
+		func(string) bool { return false })
+	return &widget.Submenu{Items: lines}, cmds
+}
+
+// askOpenWith gives the Open with item of menu m, which offered st, its
+// submenu, and asks the program for the programs that open its file. The
+// submenu fills in once they come.
+func (v *dndView) askOpenWith(m *widget.ContextMenu, st menuState, u *gunim.UI) {
+	i := slices.Index(st.cmds, localOpenWith)
+	items := m.Items()
+	if i < 0 || i >= len(items) {
+		return
+	}
+	items = slices.Clone(items)
+	items[i].Sub, _ = v.openWithSub(st.path)
+	m.SetItems(items)
+	if items[i].Disabled {
+		return
+	}
+	v.withMenu, v.withAt, v.withAsked = m, i, st.path
+	u.Send(m, OpenWithAsked{Path: st.path})
+}
+
+// openWithMenu fills the Open with submenu of the listing's menu with
+// the programs the program sent for the file it was asked for, in place,
+// while that menu is still open.
 func (v *dndView) openWithMenu(o OpenWithMenu, u *gunim.UI) {
-	pg := v.menuPage
-	if o.Path == "" || o.Path != v.withAsked || v.menuOf == nil || pg != v.b.listing.cur ||
-		v.menuOf != pg.shownMenu() || (u.Focused() != v.withFocus && u.Focused() != gunim.Node(v.menuOf)) {
-		// Asked of another menu, or the user has moved on: the page, its
-		// view or the keyboard is elsewhere now.
+	if o.Path == "" || o.Path != v.withAsked {
+		// Asked of another menu, which has opened since.
 		return
 	}
 	v.withAsked = ""
-	v.with = &o
-	defer func() { v.with = nil }()
-	v.menuOf.Open(v.menuAt, u)
+	v.withPath, v.withApps = o.Path, o.Apps
+	m := v.withMenu
+	items := m.Items()
+	if !m.Focusable() || v.withAt >= len(items) {
+		return
+	}
+	items = slices.Clone(items)
+	items[v.withAt].Sub, _ = v.openWithSub(o.Path)
+	m.SetItems(items)
+	u.Invalidate()
+}
+
+// subPicked does the item at path of a submenu of the context menu m,
+// which offered st: a program of Open with, or its dialog.
+func (v *dndView) subPicked(m *widget.ContextMenu, st menuState, path []int, u *gunim.UI) {
+	if len(path) != 2 || path[0] < 0 || path[0] >= len(st.cmds) || st.cmds[path[0]] != localOpenWith {
+		return
+	}
+	_, cmds := v.openWithSub(st.path)
+	if path[1] < 0 || path[1] >= len(cmds) {
+		return
+	}
+	if id, ok := strings.CutPrefix(cmds[path[1]], withCmd); ok {
+		u.Send(m, OpenWith{Path: st.path, ID: id})
+	}
 }
 
 // placeCmd starts the command of an item of the program's own in a
