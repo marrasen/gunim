@@ -114,7 +114,7 @@ func (u *UI) touchEvent(root *state, ev any) bool {
 			t.vel = t.vel.Mul(0.6).Add(delta.Mul(float32(0.4 / dt)))
 		}
 		t.last, t.lastAt = e.Pos, e.Time
-		u.handleRaw(root, input.Scroll{Pos: t.start, Delta: delta, Mods: e.Mods, Time: e.Time})
+		u.handleRaw(root, input.Scroll{Pos: t.start, Delta: delta, Mods: e.Mods, Touch: true, Time: e.Time})
 		return true
 	case input.PointerUp:
 		t := u.touch
@@ -196,6 +196,6 @@ func (u *UI) stepFling(dt time.Duration) bool {
 		u.fling = nil
 		return false
 	}
-	u.handleRaw(f.root, input.Scroll{Pos: f.at, Delta: f.vel.Mul(float32(s)), Time: u.now})
+	u.handleRaw(f.root, input.Scroll{Pos: f.at, Delta: f.vel.Mul(float32(s)), Touch: true, Time: u.now})
 	return true
 }

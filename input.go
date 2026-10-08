@@ -271,7 +271,7 @@ func (u *UI) handleRaw(root *state, ev any) {
 			return
 		}
 		u.dispatchAt(root, e.Pos, func(local geom.Point) input.Event {
-			return input.Scroll{Pos: local, Delta: e.Delta, Notches: e.Notches, Mods: e.Mods, Time: e.Time}
+			return input.Scroll{Pos: local, Delta: e.Delta, Notches: e.Notches, Mods: e.Mods, Touch: e.Touch, Time: e.Time}
 		})
 	case input.Pinch:
 		u.pinchEvent(root, e)

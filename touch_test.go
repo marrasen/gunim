@@ -301,3 +301,24 @@ func TestAFingerLightsNothingAsItPasses(t *testing.T) {
 		t.Fatal("the mouse moving over the node did not light it")
 	}
 }
+
+func TestAFingersScrollSaysAFingerScrolled(t *testing.T) {
+	// A slow drag, and a quick one that flings on after the finger lifts.
+	for _, rest := range []time.Duration{200 * time.Millisecond, 0} {
+		r := &recorder{}
+		ui, finger := touchStage(t, r)
+		swipe(finger, geom.Pt(100, 300), geom.Pt(100, 100), 10, time.Now(), rest)
+		for range 30 {
+			ui.Frame(16 * time.Millisecond)
+		}
+		_, n := scrolled(r)
+		if n == 0 {
+			t.Fatal("the finger scrolled nothing")
+		}
+		for _, e := range r.events {
+			if s, ok := e.(input.Scroll); ok && !s.Touch {
+				t.Fatalf("a finger's scroll (rest %v) came with Touch false: %+v", rest, s)
+			}
+		}
+	}
+}
