@@ -89,8 +89,8 @@ func (n *node) num(name string, def float32) (float32, error) {
 func length(v string) (float32, error) {
 	v = strings.TrimRight(strings.TrimSpace(v), "abcdefghijklmnopqrstuvwxyz%")
 	f, err := strconv.ParseFloat(v, 32)
-	if err != nil {
-		return 0, fmt.Errorf("shape: svg: %q is not a number", v)
+	if err != nil || !finite(float32(f)) {
+		return 0, fmt.Errorf("shape: svg: %q is not a finite number", v)
 	}
 	return float32(f), nil
 }
@@ -173,8 +173,7 @@ func (r *reader) draw(n *node, st style, ctm vecpath.Affine, f *Figure) error {
 		return err
 	}
 	if subs != nil {
-		r.part(n, subs, st, ctm, f)
-		return nil
+		return r.part(n, subs, st, ctm, f)
 	}
 	if n.XMLName.Local == "g" || n.XMLName.Local == "svg" || n.XMLName.Local == "a" {
 		for i := range n.Children {
@@ -253,12 +252,19 @@ func (r *reader) inherit(n *node, st style) (style, error) {
 }
 
 // part adds a shape to f, its outline subs in its own units.
-func (r *reader) part(n *node, subs []vecpath.Subpath, st style, ctm vecpath.Affine, f *Figure) {
+func (r *reader) part(n *node, subs []vecpath.Subpath, st style, ctm vecpath.Affine, f *Figure) error {
 	if len(subs) == 0 {
-		return
+		return nil
 	}
-	own := pathOf(subs)
-	pt := Part{Path: pathOf(vecpath.Transform(subs, ctm)), EvenOdd: st.evenOdd}
+	own, err := pathOf(subs)
+	if err != nil {
+		return fmt.Errorf("shape: svg: <%s>: %w", n.XMLName.Local, err)
+	}
+	path, err := pathOf(vecpath.Transform(subs, ctm))
+	if err != nil {
+		return fmt.Errorf("shape: svg: <%s> as transformed: %w", n.XMLName.Local, err)
+	}
+	pt := Part{Path: path, EvenOdd: st.evenOdd}
 	if !st.fill.none && n.XMLName.Local != "line" && n.XMLName.Local != "polyline" {
 		if st.fill.grad != "" {
 			pt.FillGradient = r.gradient(st.fill.grad, own.Bounds(), ctm, st.fillOpacity*st.opacity)
@@ -280,10 +286,14 @@ func (r *reader) part(n *node, subs []vecpath.Subpath, st style, ctm vecpath.Aff
 		pt.Stroke = faded(c, st.strokeOp*st.opacity)
 		// The stroke grows with the transform, as the mean of its two scales.
 		pt.Width = st.strokeWidth * float32(math.Sqrt(math.Abs(float64(ctm.A*ctm.D-ctm.B*ctm.C))))
+		if !finite(pt.Width) {
+			return fmt.Errorf("shape: svg: <%s>: its stroke, as transformed, is wider than float32 reaches", n.XMLName.Local)
+		}
 	}
 	if pt.Fill.A > 0 || pt.FillGradient != nil || (pt.Stroke.A > 0 && pt.Width > 0) {
 		f.Parts = append(f.Parts, pt)
 	}
+	return nil
 }
 
 // gradient is the gradient id, for a shape whose own bounds are box, mapped by ctm into the figure's units, its
@@ -382,6 +392,9 @@ func (r *reader) gradient(id string, box geom.Rect, ctm vecpath.Affine, op float
 	}
 	m = m.Then(ctm)
 	a, b = m.Apply(a), m.Apply(b)
+	if !finite(a.X, a.Y, b.X, b.Y) {
+		return nil
+	}
 	g := &paint.Gradient{From: geom.Pt(a.X, a.Y), To: geom.Pt(b.X, b.Y), Radial: radial}
 	g.Start, g.End = stops[0].Color, stops[len(stops)-1].Color
 	if stops[0].At > 0 || stops[len(stops)-1].At < 1 || len(stops) > 2 {
@@ -484,7 +497,7 @@ func viewBox(root *node, f *Figure) geom.Rect {
 			ok := true
 			for i, s := range fs {
 				x, err := strconv.ParseFloat(s, 32)
-				ok = ok && err == nil
+				ok = ok && err == nil && finite(float32(x))
 				n[i] = float32(x)
 			}
 			if ok && n[2] > 0 && n[3] > 0 {
@@ -528,6 +541,9 @@ func transform(s string) (vecpath.Affine, error) {
 			x, err := strconv.ParseFloat(f, 32)
 			if err != nil {
 				return m, fmt.Errorf("shape: svg: transform %q: %w", s, err)
+			}
+			if !finite(float32(x)) {
+				return m, fmt.Errorf("shape: svg: transform %q: %s is not a finite number", s, f)
 			}
 			v = append(v, float32(x))
 		}

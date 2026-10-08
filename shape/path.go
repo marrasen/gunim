@@ -15,6 +15,7 @@
 package shape
 
 import (
+	"errors"
 	"fmt"
 	"math"
 
@@ -29,20 +30,38 @@ type Path struct {
 	lo, hi vecpath.Pt
 }
 
-// NewPath reads SVG path data, as the d attribute of an SVG path holds it.
+// NewPath reads SVG path data, as the d attribute of an SVG path holds it. Path data whose points, or the width
+// and height of the box they lie in, reach past float32 is an error.
 func NewPath(d string) (*Path, error) {
 	subs, err := vecpath.Parse(d)
 	if err != nil {
 		return nil, fmt.Errorf("shape: %w", err)
 	}
-	return pathOf(subs), nil
+	return pathOf(subs)
 }
 
-// pathOf is the path of subpaths already read.
-func pathOf(subs []vecpath.Subpath) *Path {
+// errTooFar is the error for a path whose points, or the distances between them, reach past float32.
+var errTooFar = errors.New("shape: the path reaches past the range of float32")
+
+// pathOf is the path of subpaths already read, or errTooFar where its bounds, or their width or height, are not
+// finite numbers.
+func pathOf(subs []vecpath.Subpath) (*Path, error) {
 	p := &Path{subs: subs}
 	p.lo, p.hi, _ = vecpath.Bounds(subs)
-	return p
+	if !finite(p.lo.X, p.lo.Y, p.hi.X, p.hi.Y, p.hi.X-p.lo.X, p.hi.Y-p.lo.Y) {
+		return nil, errTooFar
+	}
+	return p, nil
+}
+
+// finite reports whether every v is a finite number.
+func finite(v ...float32) bool {
+	for _, x := range v {
+		if x-x != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // Bounds is the box the path lies in, in its own units, control points included.
@@ -113,7 +132,11 @@ func (s Stroke) Coverage(w, h int) []byte {
 	if s.Path == nil || len(s.Path.subs) == 0 || !(s.Width > 0) {
 		return make([]byte, w*h)
 	}
-	m, k := toPixels(s.bounds(), w, h)
+	b := s.bounds()
+	if !finite(b.Min.X, b.Min.Y, b.Max.X, b.Max.Y) {
+		return make([]byte, w*h)
+	}
+	m, k := toPixels(b, w, h)
 	dist := vecpath.NewDistances(w, h)
 	hw := s.Width * k / 2
 	for _, l := range vecpath.Flatten(s.Path.subs, m, false, nil) {
@@ -131,11 +154,16 @@ func (s Stroke) Coverage(w, h int) []byte {
 func toPixels(b geom.Rect, w, h int) (m func(vecpath.Pt) vecpath.Pt, k float32) {
 	bw, bh := b.Size().W, b.Size().H
 	kx, ky := float32(1), float32(1)
-	if bw > 0 {
-		kx = float32(w) / bw
+	// A side too thin for its scale to be a float32 counts as no side at all.
+	if k := float32(w) / bw; bw > 0 && finite(k) {
+		kx = k
+	} else {
+		bw = 0
 	}
-	if bh > 0 {
-		ky = float32(h) / bh
+	if k := float32(h) / bh; bh > 0 && finite(k) {
+		ky = k
+	} else {
+		bh = 0
 	}
 	switch {
 	case bw <= 0:

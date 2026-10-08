@@ -83,3 +83,13 @@ func TestAHoleStaysClearByEitherRule(t *testing.T) {
 		t.Fatal("a square inside another, run the same way, is filled by the nonzero rule")
 	}
 }
+
+func TestAFillLeavesOutEdgesFromPointsPastFloat32(t *testing.T) {
+	inf, nan := float32(math.Inf(1)), float32(math.NaN())
+	far := Polyline{Pts: []Pt{{-inf, 0}, {inf, 0}, {0, 10}}, Fill: true}
+	lost := Polyline{Pts: []Pt{{nan, 1}, {5, nan}, {2, 8}}, Fill: true}
+	m := Fill([]Polyline{square(2, 2, 7, 7, true), far, lost}, 10, 10, false)
+	if m[4*10+4] != 255 {
+		t.Fatalf("the square beside them is %d, want it filled", m[4*10+4])
+	}
+}

@@ -170,7 +170,12 @@ func Fill(lines []Polyline, w, h int, evenOdd bool) []byte {
 				if b.Y < a.Y {
 					dir = -1
 				}
-				xs = append(xs, crossing{a.X + (y-a.Y)/(b.Y-a.Y)*(b.X-a.X), dir})
+				x := a.X + (y-a.Y)/(b.Y-a.Y)*(b.X-a.X)
+				// An edge from a point past float32 crosses at no number; it is left out.
+				if x-x != 0 {
+					continue
+				}
+				xs = append(xs, crossing{x, dir})
 			}
 		}
 		if len(xs) < 2 {
@@ -208,7 +213,7 @@ func Fill(lines []Polyline, w, h int, evenOdd bool) []byte {
 // span adds weight to row for the run from x0 to x1, each pixel by the share of it the run covers.
 func span(row []float32, x0, x1, weight float32) {
 	x0, x1 = max(x0, 0), min(x1, float32(len(row)))
-	if x1 <= x0 {
+	if !(x0 < x1) {
 		return
 	}
 	i0, i1 := int(x0), int(x1)
