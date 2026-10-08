@@ -52,17 +52,17 @@ var extremes = []string{
 // extremeSVGs are SVG files with n in each place a number goes.
 func extremeSVGs(n string) []string {
 	r := strings.NewReplacer("N", n)
-	var out []string
+	out := make([]string, 0, 12)
 	for _, src := range []string{
-		`<svg viewBox="0 0 10 10"><path d="MN 0LN N L0 Nz" fill="red" stroke="blue"/></svg>`,
-		`<svg viewBox="0 0 10 10"><path d="M0 0lN 0lN NcN N N N N Nz" stroke-width="2" stroke="#000"/></svg>`,
-		`<svg viewBox="0 0 10 10"><path d="M1 1aN N N 0 1 5 5qN N 2 2tN N"/></svg>`,
-		`<svg viewBox="N N N N"><rect x="N" y="N" width="N" height="N" rx="N"/></svg>`,
+		`<svg viewBox="0 0 10 10"><path d="MN 0LN,N L0 Nz" fill="red" stroke="blue"/></svg>`,
+		`<svg viewBox="0 0 10 10"><path d="M0 0lN,0lN,NcN,N,N,N,N,Nz" stroke-width="2" stroke="#000"/></svg>`,
+		`<svg viewBox="0 0 10 10"><path d="M1 1aN,N,N,0,1,5,5qN,N,2,2tN,N"/></svg>`,
+		`<svg viewBox="N,N,N,N"><rect x="N" y="N" width="N" height="N" rx="N"/></svg>`,
 		`<svg width="N" height="N"><circle cx="N" cy="N" r="N"/><ellipse rx="N" ry="N"/></svg>`,
 		`<svg><line x1="N" y1="0" x2="1" y2="N" stroke="red" stroke-width="N"/></svg>`,
-		`<svg><polygon points="0,0 N,0 N,N"/><polyline points="N N 1 1 2 N" fill="red"/></svg>`,
+		`<svg><polygon points="0,0 N,0 N,N"/><polyline points="N,N 1,1 2,N" fill="red"/></svg>`,
 		`<svg><g transform="scale(N)"><rect width="10" height="10"/></g></svg>`,
-		`<svg><g transform="matrix(N 0 0 N N N) rotate(N 1 1) skewX(N)"><circle r="5"/></g></svg>`,
+		`<svg><g transform="matrix(N,0,0,N,N,N) rotate(N 1 1) skewX(N)"><circle r="5"/></g></svg>`,
 		`<svg><g opacity="N" fill-opacity="N"><rect width="5" height="5" stroke="red" stroke-width="N"/></g></svg>`,
 		`<svg><defs><linearGradient id="g" x1="N" y1="N" x2="N" y2="N" gradientTransform="scale(N)">` +
 			`<stop offset="N"/><stop offset="N%" stop-opacity="N"/></linearGradient></defs>` +

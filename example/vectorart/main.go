@@ -60,11 +60,11 @@ func run(runFor time.Duration, shot string, after time.Duration) error {
 		ctx, cancel = context.WithTimeout(ctx, runFor)
 		defer cancel()
 	}
-	root, err := newArt()
-	if err != nil {
-		return err
+	root, rerr := newArt()
+	if rerr != nil {
+		return rerr
 	}
-	err = gunim.Main(ctx, func(a *gunim.App) error {
+	err := gunim.Main(ctx, func(a *gunim.App) error {
 		w, err := a.NewWindow(gunim.WindowOptions{Title: "gunim vector art", Size: windowSize, Root: root})
 		if err != nil {
 			return err
