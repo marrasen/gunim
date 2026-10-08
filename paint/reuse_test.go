@@ -117,3 +117,55 @@ func TestASceneThatChangesDamagesAndOneThatStaysDoesNot(t *testing.T) {
 		t.Fatalf("the moved scene drawn the same again damaged %v", d)
 	}
 }
+
+func TestASceneKeptInARecordingSurvivesLaterFrames(t *testing.T) {
+	var p Painter
+	mesh := NewBox(geom.V3(1, 1, 1), color.NRGBA{G: 0xff, A: 0xff})
+	items := crowd(mesh, 100)
+	want := slices.Clone(items)
+	cam := Camera{Eye: geom.V3(0, 0, 10)}
+	p.Reset()
+	pop := p.Push(Translate(geom.Pt(50, 0)))
+	mark := p.Mark()
+	p.Scene(geom.Rc(0, 0, 200, 100), Scene{Camera: cam, Items: items})
+	var r Recording
+	p.Keep(mark, &r)
+	pop()
+
+	// Later frames draw other scenes, of as many items, over every
+	// buffer the kept one could have shared, and the caller moves its own.
+	for i := range 4 {
+		moveCrowd(items, float32(i+1))
+		p.Reset()
+		p.Scene(geom.Rc(0, 0, 200, 100), Scene{Camera: cam, Items: items})
+	}
+
+	p.Reset()
+	p.Replay(&r)
+	if len(p.Ops()) != 1 {
+		t.Fatalf("replayed %d commands, want the scene", len(p.Ops()))
+	}
+	s, ok := p.Ops()[0].(*SceneOp)
+	if !ok {
+		t.Fatalf("replayed a %T, want a scene", p.Ops()[0])
+	}
+	if !slices.Equal(s.Scene.Items, want) || s.Scene.Camera != cam || s.Rect != geom.Rc(0, 0, 200, 100) {
+		t.Fatalf("the kept scene came back changed: %+v", s)
+	}
+	// The replayed scene lies where it was drawn, in the space in force
+	// now, which is the window's.
+	if at := s.Transform.Apply(s.Rect.Min); at != geom.Pt(0, 0) {
+		t.Fatalf("the replayed scene starts at %v, want the origin", at)
+	}
+	// Replayed, the scene is the painter's, and the recording's own items
+	// stay as they are while frames go on.
+	p.Reset()
+	p.Scene(geom.Rc(0, 0, 200, 100), Scene{Items: items})
+	p.Reset()
+	p.Scene(geom.Rc(0, 0, 200, 100), Scene{Items: items})
+	p.Reset()
+	p.Replay(&r)
+	if got := p.Ops()[0].(*SceneOp).Scene.Items; !slices.Equal(got, want) {
+		t.Fatal("the recording's scene changed once replayed and drawn over")
+	}
+}
