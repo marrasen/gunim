@@ -61,21 +61,21 @@ func (h *harness) pickInMenu(label string) {
 	h.t.Helper()
 	h.ui(func(b *browser, u *gunim.UI) {
 		m := b.listing.cur.menu
-		i := slices.Index(m.Items, label)
+		i := slices.Index(labelsOf(m.Items()), label)
 		if i < 0 {
-			h.t.Fatalf("the menu %v has no %q", m.Items, label)
+			h.t.Fatalf("the menu %v has no %q", labelsOf(m.Items()), label)
 		}
-		if m.Disabled[i] {
+		if m.Items()[i].Disabled {
 			h.t.Fatalf("%q is dimmed", label)
 		}
-		m.Picked(i, u)
+		m.OnPick(i, u)
 	})
 }
 
 // menuItems returns the items of the listing's context menu.
 func (h *harness) menuItems() []string {
 	var items []string
-	h.ui(func(b *browser, _ *gunim.UI) { items = slices.Clone(b.listing.cur.menu.Items) })
+	h.ui(func(b *browser, _ *gunim.UI) { items = labelsOf(b.listing.cur.menu.Items()) })
 	return items
 }
 
