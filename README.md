@@ -613,6 +613,9 @@ That is the whole exit-animation contract. The engine calls `Transition`
 every frame while the node is entering or leaving. `Animate` ignores a
 target it is already heading for, so the repeated call is free.
 
+[WIDGETS.md](WIDGETS.md) holds the rules every widget follows, for its API, look, motion and tests, and a checklist
+for writing a new one.
+
 ## Themes
 
 A theme sets how widgets look and move: colours, but also paddings,
