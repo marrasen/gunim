@@ -49,6 +49,11 @@ type Window struct {
 	under color.NRGBA
 	// shot takes the pixels of the next frame drawn; see Shoot.
 	shot func(*image.RGBA)
+	// sharpAt is when the last frame, which drew a big mask stretched,
+	// is to be drawn again, sharp, or the zero time; sharpen says it is
+	// due.
+	sharpAt time.Time
+	sharpen bool
 
 	// state is the text state the engine told last, when stateSet, with
 	// the seq it went with, and editsIn the seq of the last keyboard edit

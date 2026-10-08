@@ -11,13 +11,14 @@ import (
 	"github.com/marrasen/gunim/text"
 )
 
-// settledMost is the most device pixels a settled mask is kept at, across or down.
+// settledMost is the most device pixels a settled mask is kept at in the atlas, across or down; a bigger one has a
+// texture of its own, see bigmasks.go.
 const settledMost = 256
 
 // mask queues a shape's coverage, tinted by the op's colour, through the greyscale glyph atlas.
 //
-// A settled shape is rasterized once per device size, up to settledMost, and kept in the atlas; one still changing is rasterized every
-// frame into the scratch strip. Under a plain translation the mask snaps to whole device pixels. Under a scale or
+// A settled shape is rasterized once per device size and kept; one still changing is rasterized every frame into
+// the scratch strip. Under a plain translation the mask snaps to whole device pixels. Under a scale or
 // rotation it keeps its resting size and the quad carries the transform, as glyphs do.
 func (r *Renderer) mask(op *paint.MaskOp) {
 	if op.Shape == nil || op.Color.A == 0 && op.Gradient == nil {
@@ -34,21 +35,32 @@ func (r *Renderer) mask(op *paint.MaskOp) {
 	if t.A == 1 && t.B == 0 && t.D == 0 && t.E == 1 {
 		ox, oy = float32(math.Round(float64(ox))), float32(math.Round(float64(oy)))
 	}
+	if op.Shape.Settled() && max(w, h) > settledMost {
+		// A big mask has a texture of its own, so it neither overflows the atlas nor empties it of the text in
+		// every window.
+		tex, stretched := r.bigMask(op.Shape, w, h)
+		if tex == 0 {
+			return
+		}
+		if stretched {
+			r.stretched(r.deviceRect(t, op.Rect))
+		}
+		r.uses(tex)
+		l := r.maskLook(op, w, h)
+		l.radius = 4
+		r.quad(corners(geom.Rect{Max: geom.Pt(float32(w), float32(h))}, geom.Rect{Max: geom.Pt(1, 1)}),
+			paint.Transform{A: t.A, B: t.B, C: ox, D: t.D, E: t.E, F: oy}, 1, &l)
+		return
+	}
 	var slot glyphSlot
 	if op.Shape.Settled() {
-		// A mask bigger than settledMost is kept at that size and stretched, so a big one neither overflows the
-		// atlas nor empties it of the text in every window.
-		sw, sh := w, h
-		if big := max(w, h); big > settledMost {
-			sw, sh = max(1, w*settledMost/big), max(1, h*settledMost/big)
-		}
-		key := glyphKey{shape: op.Shape, w: int32(sw), h: int32(sh)}
+		key := glyphKey{shape: op.Shape, w: int32(w), h: int32(h)}
 		s, ok := r.glyph(key, func() text.Mask {
-			pix := op.Shape.Coverage(sw, sh)
-			if len(pix) != sw*sh {
+			pix := op.Shape.Coverage(w, h)
+			if len(pix) != w*h {
 				return text.Mask{}
 			}
-			return text.Mask{Pix: pix, W: sw, H: sh}
+			return text.Mask{Pix: pix, W: w, H: h}
 		})
 		if !ok {
 			return
@@ -72,16 +84,7 @@ func (r *Renderer) mask(op *paint.MaskOp) {
 		Min: geom.Pt(float32(slot.x)/atlasSize, float32(slot.y)/atlasSize),
 		Max: geom.Pt(float32(slot.x+slot.w)/atlasSize, float32(slot.y+slot.h)/atlasSize),
 	}
-	l := look{kind: kindGlyph, color0: rgba(op.Color)}
-	if gr := op.Gradient; gr != nil {
-		// A corner's point is in device pixels of the mask; the
-		// gradient's are in the space of its rectangle.
-		fx, fy := size.W/float32(w), size.H/float32(h)
-		l.grad, l.mode = gr, r.rampMode(gr)
-		l.toGrad = func(p geom.Point) geom.Point {
-			return geom.Pt(op.Rect.Min.X+p.X*fx, op.Rect.Min.Y+p.Y*fy)
-		}
-	}
+	l := r.maskLook(op, w, h)
 	r.quad(corners(q, uv), paint.Transform{A: t.A, B: t.B, C: ox, D: t.D, E: t.E, F: oy}, 1, &l)
 }
 
@@ -100,4 +103,20 @@ func (r *Renderer) scratch(pix []byte, w, h int) glyphSlot {
 	g.TexSubImage2D(gl.TEXTURE_2D, 0, int32(slot.x), int32(slot.y), int32(w), int32(h), glRed, gl.UNSIGNED_BYTE, pix)
 	r.scratches++
 	return slot
+}
+
+// maskLook is the look of op's mask, drawn w by h device pixels.
+func (r *Renderer) maskLook(op *paint.MaskOp, w, h int) look {
+	l := look{kind: kindGlyph, color0: rgba(op.Color)}
+	if gr := op.Gradient; gr != nil {
+		// A corner's point is in device pixels of the mask; the
+		// gradient's are in the space of its rectangle.
+		size := op.Rect.Size()
+		fx, fy := size.W/float32(w), size.H/float32(h)
+		l.grad, l.mode = gr, r.rampMode(gr)
+		l.toGrad = func(p geom.Point) geom.Point {
+			return geom.Pt(op.Rect.Min.X+p.X*fx, op.Rect.Min.Y+p.Y*fy)
+		}
+	}
+	return l
 }

@@ -5,10 +5,9 @@
 // moved, turned, scaled by a transform, faded or tinted another colour, costs a quad. Drawing it at a new size in
 // pixels rasterizes it again, so an animation moves and scales a shape by a transform rather than by its rect.
 //
-// A driver keeps each mask at most 256 device pixels across, or down, and stretches a bigger one from that, as it
-// does any settled mask, so a mask past 256 pixels draws softer the bigger it is. The limit holds for each path,
-// and so for each part of a [Figure], not for the figure as a whole: a figure drawn 400 pixels wide whose largest
-// part is 250 pixels across draws sharp. On a screen of two pixels to a unit, 256 pixels are 128 units.
+// A mask past 256 device pixels across, or down, gets a texture of its own and draws as sharp as a small one. While
+// its size keeps changing, as in a window being resized, it draws its last size stretched, and sharp again once the
+// size holds for a frame.
 //
 //	leaf, err := shape.NewPath("M12 2C6 8 6 16 12 22C18 16 18 8 12 2Z")
 //	if err != nil {
