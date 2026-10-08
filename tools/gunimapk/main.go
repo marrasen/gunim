@@ -143,6 +143,7 @@ func main() {
 	iconPNG := flag.String("icon", "", "a PNG file for the launcher's icon, square, 288 pixels or more")
 	iconBG := flag.String("icon-background", "", "the colour under the launcher's icon, as #rrggbb; the colour of the icon's edge by default")
 	permList := flag.String("permissions", "", "what the program may do beyond drawing and sound, comma separated: music, to read the phone's music, and playback, to play on in the background with the system's media controls")
+	category := flag.String("category", "", "what kind of app the program is, by Android's name, as game; a game keeps -orientation on a tablet")
 	orientation := flag.String("orientation", "", "hold the screen one way, by Android's name, as portrait or landscape; it turns with the phone by default")
 	abiList := flag.String("abi", "arm64-v8a,x86_64", "the ABIs to build for, comma separated")
 	install := flag.Bool("install", false, "install the APK with adb")
@@ -184,6 +185,9 @@ func main() {
 			}
 		}
 	}
+	if *category != "" && !slices.Contains(categories, *category) {
+		log.Fatalf("no category %q; there are %s", *category, strings.Join(categories, ", "))
+	}
 	if *orientation != "" && !slices.Contains(orientations, *orientation) {
 		log.Fatalf("no orientation %q; there are %s", *orientation, strings.Join(orientations, ", "))
 	}
@@ -191,7 +195,7 @@ func main() {
 		log.Fatal("-genkey needs -keystore, the file to make")
 	}
 	o := options{pkg: pkg, out: *out, id: *id, name: *name, version: *version, iconPNG: *iconPNG, iconBG: *iconBG, perms: perms,
-		orientation: *orientation, abis: strings.Split(*abiList, ","), keystore: *keystore, keyAlias: *keyAlias, genKey: *genKey,
+		orientation: *orientation, category: *category, abis: strings.Split(*abiList, ","), keystore: *keystore, keyAlias: *keyAlias, genKey: *genKey,
 		install: *install || *run, start: *run}
 	err := buildAPK(ctx, o)
 	stop()
@@ -211,6 +215,8 @@ type options struct {
 	// orientation is Android's name for the one way the screen is held,
 	// or "" to turn with the phone.
 	orientation string
+	// category is Android's name for the kind of app, as game, or "".
+	category string
 	// keystore holds the key that signs a release build, named
 	// keyAlias; "" signs a debug build with the debug key. genKey makes
 	// the keystore first.
@@ -376,7 +382,7 @@ func (b *builder) build(o options) error {
 		return dexErr
 	}
 	manifest := filepath.Join(b.tmp, "AndroidManifest.xml")
-	if err := os.WriteFile(manifest, []byte(manifestFor(o.id, o.name, o.iconPNG != "", o.perms, o.orientation)), 0o644); err != nil {
+	if err := os.WriteFile(manifest, []byte(manifestFor(o)), 0o644); err != nil {
 		return err
 	}
 	var res []string
@@ -863,6 +869,11 @@ var permissions = map[string]string{
 `,
 }
 
+// categories are -category's names, Android's own for the kinds of app.
+// Android 16 keeps a game's orientation on a large screen, where it
+// lets other apps turn and resize.
+var categories = []string{"accessibility", "audio", "game", "image", "maps", "news", "productivity", "social", "video"}
+
 // orientations are -orientation's names, Android's own for the ways an
 // activity's screen may be held: portrait upright alone, sensorPortrait
 // upright or upside down, userPortrait as sensorPortrait while the user
@@ -874,20 +885,24 @@ var orientations = []string{
 }
 
 // manifestFor returns the manifest of an APK that starts gunim's
-// activity, with the launcher's icon from the resources when icon is
-// set, and the permissions perms names. The activity holds the screen
-// as orientation names, or turns with the phone where it is "". It
+// activity, as o asks: its ID and label, the launcher's icon from the
+// resources where o has one, the permissions o.perms names, and the
+// kind of app o.category names, where it names one; a game keeps its
+// orientation on a tablet, where Android 16 lets other apps turn. The
+// activity holds the screen as o.orientation names, or turns with the
+// phone where it is "". It
 // keeps itself across rotation and a keyboard coming and going, hears
 // the back gesture through the callback GunimActivity registers, and
 // slides up as the soft keyboard opens, to keep the text caret above it. With
-// playback among perms it holds the service a program starts with
+// playback among o.perms it holds the service a program starts with
 // gunim's App.SetNowPlaying, to play media on in the background. The
 // provider hands the files a program shares with gunim's Client.Share to
 // the application they go to, and the vibration permission, which the
 // system grants as the program installs, lets it run Client.Vibrate.
-func manifestFor(id, name string, icon bool, perms []string, orientation string) string {
+func manifestFor(o options) string {
+	id, name, perms, orientation := o.id, o.name, o.perms, o.orientation
 	iconAttr := ""
-	if icon {
+	if o.iconPNG != "" {
 		iconAttr = ` android:icon="@mipmap/ic_launcher"`
 	}
 	orientationAttr := ""
@@ -899,6 +914,10 @@ func manifestFor(id, name string, icon bool, perms []string, orientation string)
 	for _, p := range perms {
 		asks.WriteString(permissions[p])
 	}
+	categoryAttr := ""
+	if o.category != "" {
+		categoryAttr = ` android:appCategory="` + o.category + `"`
+	}
 	service := ""
 	if slices.Contains(perms, "playback") {
 		service = `		<service android:name="gunim.android.GunimService" android:exported="false"
@@ -908,7 +927,7 @@ func manifestFor(id, name string, icon bool, perms []string, orientation string)
 	return `<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="` + id + `">
 	<uses-permission android:name="android.permission.VIBRATE"/>
-` + asks.String() + `	<application android:label="` + xmlEscape(name) + `"` + iconAttr + ` android:hasCode="true" android:extractNativeLibs="true"
+` + asks.String() + `	<application android:label="` + xmlEscape(name) + `"` + iconAttr + categoryAttr + ` android:hasCode="true" android:extractNativeLibs="true"
 		android:enableOnBackInvokedCallback="true">
 		<activity android:name="gunim.android.GunimActivity" android:exported="true"
 			android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density"

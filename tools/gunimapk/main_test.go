@@ -72,11 +72,11 @@ func TestADebugBuildIsDebuggableAndAReleaseBuildIsNot(t *testing.T) {
 
 func TestTheActivityHoldsTheScreenOneWayOnlyWhenAsked(t *testing.T) {
 	const attr = `android:screenOrientation=`
-	turns := manifestFor("org.gunim.calc", "Calculator", false, nil, "")
+	turns := manifestFor(options{id: "org.gunim.calc", name: "Calculator"})
 	if strings.Contains(turns, attr) {
 		t.Errorf("with no orientation, the manifest holds the screen one way:\n%s", turns)
 	}
-	upright := manifestFor("org.gunim.calc", "Calculator", false, nil, "portrait")
+	upright := manifestFor(options{id: "org.gunim.calc", name: "Calculator", orientation: "portrait"})
 	if !strings.Contains(upright, attr+`"portrait"`) {
 		t.Errorf("asked for portrait, the manifest lets the screen turn:\n%s", upright)
 	}
@@ -125,7 +125,7 @@ func TestJarsignerTakesThePasswordsAsApksignerDoes(t *testing.T) {
 }
 
 func TestTheActivityHearsBackThroughTheCallback(t *testing.T) {
-	m := manifestFor("org.gunim.calc", "Calculator", false, nil, "")
+	m := manifestFor(options{id: "org.gunim.calc", name: "Calculator"})
 	if !strings.Contains(m, `android:enableOnBackInvokedCallback="true"`) {
 		t.Errorf("the manifest leaves the back callback off, so Android 13 to 15 send Back as a key and 16 sends nothing:\n%s", m)
 	}
@@ -173,11 +173,11 @@ func TestAFetchThatDiffersLeavesNoFile(t *testing.T) {
 
 func TestTheMediaServiceComesWithPlaybackAlone(t *testing.T) {
 	const service, fgs = `gunim.android.GunimService`, `android.permission.FOREGROUND_SERVICE"`
-	plain := manifestFor("org.gunim.quiz", "Quiz", false, []string{"music"}, "")
+	plain := manifestFor(options{id: "org.gunim.quiz", name: "Quiz", perms: []string{"music"}})
 	if strings.Contains(plain, service) || strings.Contains(plain, fgs) {
 		t.Errorf("without playback, the manifest holds the media service or its permission:\n%s", plain)
 	}
-	player := manifestFor("org.gunim.player", "Player", false, []string{"music", "playback"}, "")
+	player := manifestFor(options{id: "org.gunim.player", name: "Player", perms: []string{"music", "playback"}})
 	for _, want := range []string{service, fgs, `android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"`, `android:foregroundServiceType="mediaPlayback"`} {
 		if !strings.Contains(player, want) {
 			t.Errorf("with playback, the manifest lacks %s:\n%s", want, player)
@@ -187,5 +187,19 @@ func TestTheMediaServiceComesWithPlaybackAlone(t *testing.T) {
 		if err := xml.Unmarshal([]byte(m), new(struct{})); err != nil {
 			t.Errorf("the manifest is not XML: %v\n%s", err, m)
 		}
+	}
+}
+
+func TestAGameSaysSoInItsManifest(t *testing.T) {
+	const attr = `android:appCategory=`
+	if m := manifestFor(options{id: "org.gunim.calc", name: "Calculator"}); strings.Contains(m, attr) {
+		t.Errorf("with no category, the manifest names one:\n%s", m)
+	}
+	game := manifestFor(options{id: "org.gunim.quiz", name: "Quiz", category: "game", orientation: "portrait"})
+	if !strings.Contains(game, attr+`"game"`) {
+		t.Errorf("asked for game, the manifest leaves it out:\n%s", game)
+	}
+	if err := xml.Unmarshal([]byte(game), new(struct{})); err != nil {
+		t.Errorf("the manifest is not XML: %v\n%s", err, game)
 	}
 }
