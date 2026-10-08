@@ -54,14 +54,20 @@ type Painter struct {
 	// popFn is pop as a func value, made once, so Push allocates
 	// nothing.
 	popFn func()
-	// rrects, texts and masks hold the ops themselves, in blocks, so a
-	// frame allocates a block now and then, never an op at a time. The
-	// blocks of the frame before this one are reused; the driver is done
-	// with them by then. An op kept past that, in a Recording, is a
-	// copy, never one of these.
+	// rrects, texts, masks and scenes hold the ops themselves, in
+	// blocks, so a frame allocates a block now and then, never an op at
+	// a time. The blocks of the frame before this one are reused; the
+	// driver is done with them by then. An op kept past that, in a
+	// Recording, is a copy, never one of these.
 	rrects, prevRRects slab[RRectOp]
 	texts, prevTexts   slab[TextOp]
 	masks, prevMasks   slab[MaskOp]
+	scenes, prevScenes slab[SceneOp]
+	// items holds the items of every scene this frame records, back to
+	// back, and prevItems those of the frame before, kept from frame to
+	// frame as the blocks are. A scene of a thousand items drawn every
+	// frame would otherwise copy them to a new slice every frame.
+	items, prevItems []SceneItem
 	// floats holds painting put off until the rest of the frame is
 	// done; see Float.
 	floats []func(*Painter)
@@ -113,9 +119,15 @@ func (p *Painter) Reset() {
 	p.prevRRects, p.rrects = p.rrects, p.prevRRects
 	p.prevTexts, p.texts = p.texts, p.prevTexts
 	p.prevMasks, p.masks = p.masks, p.prevMasks
+	p.prevScenes, p.scenes = p.scenes, p.prevScenes
 	p.rrects.reset()
 	p.texts.reset()
 	p.masks.reset()
+	p.scenes.reset()
+	// The items of the frame before last let go of their meshes, so a
+	// mesh no longer drawn is not held on to by a buffer left unused.
+	clear(p.prevItems)
+	p.prevItems, p.items = p.items, p.prevItems[:0]
 	p.open = p.open[:0]
 	p.stack = p.stack[:0]
 	p.cur = Identity
