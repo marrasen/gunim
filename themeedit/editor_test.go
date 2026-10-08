@@ -36,7 +36,7 @@ func (h *heard) last(t *testing.T) theme.Theme {
 	return h.changes[len(h.changes)-1]
 }
 
-// cursorSection is the Chosen tab of a terminal: its cursor, its accent
+// cursorSection is the first tab of a terminal: its cursor, its accent
 // and the gap between its panes.
 var cursorSection = Section{Title: "Terminal", Fields: []Field{
 	{Key: widget.Caret.Key(), Label: "Cursor", Detail: "How the cursor moves along a line.",
@@ -45,15 +45,16 @@ var cursorSection = Section{Title: "Terminal", Fields: []Field{
 	{Key: widget.Gap.Key(), Label: "Gap", Detail: "The room between things in a row."},
 }}
 
-// edStage mounts an editor of o and returns it, the window, its UI, a
-// way to run frames, and what the editor tells the program.
-func edStage(t *testing.T, o Options) (*Editor, *gunim.Window, *gunim.UI, func(int), *heard) {
+// edStage mounts an editor of o in a window size big and returns it,
+// the window, its UI, a way to run frames, and what the editor tells
+// the program.
+func edStageSized(t *testing.T, size geom.Size, o Options) (*Editor, *gunim.Window, *gunim.UI, func(int), *heard) {
 	t.Helper()
 	h := &heard{}
 	o.OnChange = func(th theme.Theme, _ *gunim.UI) gunim.Intent { h.changes = append(h.changes, th); return nil }
 	o.OnCommit = func(over theme.Theme, _ *gunim.UI) gunim.Intent { h.commits = append(h.commits, over); return nil }
 	e := New(o)
-	w := gunimtest.New(t, geom.Sz(800, 600), nil)
+	w := gunimtest.New(t, size, nil)
 	gunim.RegisterView(w, "ed", func(struct{}) gunim.Node { return e }, nil)
 	if err := w.Client().Mount(gunim.Root, "ed", "ed", nil); err != nil {
 		t.Fatal(err)
@@ -75,6 +76,13 @@ func edStage(t *testing.T, o Options) (*Editor, *gunim.Window, *gunim.UI, func(i
 	return e, w, u, run, h
 }
 
+// edStage is edStageSized in a window wide enough for the preview
+// beside the controls.
+func edStage(t *testing.T, o Options) (*Editor, *gunim.Window, *gunim.UI, func(int), *heard) {
+	t.Helper()
+	return edStageSized(t, geom.Sz(1200, 800), o)
+}
+
 // key presses k with mods, lets it go, and runs a frame.
 func key(w *gunim.Window, run func(int), k input.Key, mods input.Mods) {
 	w.Input(input.KeyPress{Key: k, Mods: mods})
@@ -92,48 +100,62 @@ func TestTheEditorListsTheChosenFieldsAndEveryToken(t *testing.T) {
 	}
 	for _, k := range e.Chosen() {
 		if len(e.chosen[k]) != 1 {
-			t.Fatalf("%q has %d rows on the Chosen tab", k, len(e.chosen[k]))
+			t.Fatalf("%q has %d rows on the first tab", k, len(e.chosen[k]))
 		}
 	}
-	tokens := theme.Tokens()
+	if got := e.tabs.Titles; !slices.Equal(got, []string{"Basics", "All values"}) {
+		t.Fatalf("the tabs are %v", got)
+	}
 	listed := e.Listed()
+	tokens := make([]string, 0, len(theme.Tokens()))
+	for _, info := range theme.Tokens() {
+		tokens = append(tokens, info.Key)
+	}
 	if len(listed) != len(tokens) || len(listed) < 200 {
 		t.Fatalf("All values lists %d keys, want all %d tokens", len(listed), len(tokens))
 	}
-	for i, info := range tokens {
-		if listed[i] != info.Key {
-			t.Fatalf("All values lists %q at %d, want %q", listed[i], i, info.Key)
+	sorted := slices.Clone(listed)
+	slices.Sort(sorted)
+	if !slices.Equal(sorted, tokens) {
+		t.Fatal("All values does not list every token once")
+	}
+	// The groups are headed in words, and a group of one goes under
+	// Other, which comes last.
+	titles := make([]string, 0, len(e.all.keys))
+	for _, k := range e.all.keys {
+		g := e.all.items[k]
+		titles = append(titles, g.title)
+		if len(g.keys) == 1 && g.title != otherGroup {
+			t.Fatalf("the group %q has one row", g.title)
+		}
+		if g.title != Words(g.title) || strings.Contains(g.title, ".") {
+			t.Fatalf("a group is headed %q", g.title)
 		}
 	}
-	// Each group has a heading before its first key.
-	headings := 0
-	for _, k := range e.keys {
-		if strings.HasPrefix(string(k), headingKey) {
-			headings++
-		}
+	if !slices.Contains(titles, "Button") || titles[len(titles)-1] != otherGroup {
+		t.Fatalf("the groups are %v", titles)
 	}
-	if headings < 10 {
-		t.Fatalf("All values has %d headings", headings)
+	ShowAll := func() { e.ShowAllValues(u); run(5) }
+	ShowAll()
+	if n := len(e.all.rowsBuilt()); n == 0 || n > 80 {
+		t.Fatalf("All values built %d rows, want those in view alone", n)
 	}
-	e.tabs.SetSelected(1, u)
-	run(5)
-	if len(e.all) == 0 || len(e.all) > 60 {
-		t.Fatalf("All values built %d rows, want those in view alone", len(e.all))
+	// A row in a group is named without its group's word, its key under
+	// it.
+	r := e.all.rowOf(t, "address.chevron")
+	if r.line.title.Text != "Chevron" || r.line.detail.Text != "address.chevron" {
+		t.Fatalf("address.chevron's row says %q over %q", r.line.title.Text, r.line.detail.Text)
 	}
 }
 
-func TestSearchFiltersByKeyAndName(t *testing.T) {
-	e, _, u, run, _ := edStage(t, Options{Base: widget.Dark(), Sections: []Section{cursorSection}})
+func TestSearchAndFiltersNarrowAllValues(t *testing.T) {
+	over := theme.Make("mine", theme.Set(widget.Gap, 20), theme.Set(widget.Accent, color.NRGBA{R: 0xff, A: 0xff}))
+	e, _, u, run, _ := edStage(t, Options{Base: widget.Dark(), Overrides: over, Sections: []Section{cursorSection}})
 	e.Search("caret", u)
 	run(2)
 	got := e.Listed()
 	if !slices.Contains(got, "motion.caret") {
 		t.Fatalf("a search for caret lists %v", got)
-	}
-	for _, k := range got {
-		if !strings.Contains(strings.ToLower(k+" "+e.label(k)), "caret") {
-			t.Fatalf("a search for caret lists %q", k)
-		}
 	}
 	// A section's label finds its token, and every word must match.
 	e.Search("CURSOR motion", u)
@@ -148,18 +170,50 @@ func TestSearchFiltersByKeyAndName(t *testing.T) {
 	if len(e.Listed()) != len(theme.Tokens()) {
 		t.Fatal("an empty search does not list every token")
 	}
+
+	// Changed lists the overrides alone, and its count says so.
+	e.SetFilter(FilterChanged, u)
+	if got := e.Listed(); !slices.Equal(sortedOf(got), []string{"accent", "layout.gap"}) {
+		t.Fatalf("Changed lists %v", got)
+	}
+	if got := e.all.filters.Items[FilterChanged]; got != "Changed 2" {
+		t.Fatalf("the Changed filter says %q", got)
+	}
+	// A kind lists its own.
+	for f, kinds := range map[Filter][]theme.Kind{
+		FilterColours: {theme.KindColor, theme.KindForeground},
+		FilterMotion:  {theme.KindSpring},
+		FilterSizes:   {theme.KindLength, theme.KindNumber, theme.KindInsets},
+	} {
+		e.SetFilter(f, u)
+		got := e.Listed()
+		if len(got) == 0 {
+			t.Fatalf("%v lists nothing", f)
+		}
+		for _, k := range got {
+			if !slices.Contains(kinds, e.tokens[k].Kind) {
+				t.Fatalf("%v lists %q, a %v", f, k, e.tokens[k].Kind)
+			}
+		}
+	}
+	// The search and the filter work together.
+	e.SetFilter(FilterColours, u)
+	e.Search("button primary", u)
+	for _, k := range e.Listed() {
+		if !strings.HasPrefix(k, "button.primary") || kindFilter(e.tokens[k].Kind) != FilterColours {
+			t.Fatalf("colours searched for button primary lists %q", k)
+		}
+	}
 }
 
-func TestPickingAPresetSetsTheSpring(t *testing.T) {
+func TestPickingAPresetSetsTheSpringAndPlaysIt(t *testing.T) {
 	e, w, u, run, h := edStage(t, Options{Base: widget.Dark(), Sections: []Section{cursorSection}})
-	ctl, ok := e.chosen["motion.caret"][0].ctl.(*presetControl)
-	if !ok {
-		t.Fatalf("the cursor's control is a %T", e.chosen["motion.caret"][0].ctl)
+	ctl := ctlOf[*springControl](t, e.chosen["motion.caret"][0])
+	seg := ctl.presets.seg
+	if seg.Selected() != 0 || !slices.Equal(seg.Items, []string{"Glides", "Jumps"}) {
+		t.Fatalf("the cursor shows %v, item %d, want Glides of Glides and Jumps", seg.Items, seg.Selected())
 	}
-	if ctl.seg.Selected() != 0 {
-		t.Fatalf("the cursor shows preset %d, want Glides", ctl.seg.Selected())
-	}
-	u.Focus(ctl.seg)
+	u.Focus(seg)
 	key(w, run, input.KeyRight, 0)
 	if got := valueIn(h.last(t), widget.Caret); got != Instant {
 		t.Fatalf("Jumps gives the theme a caret of %+v, want instant", got)
@@ -167,25 +221,82 @@ func TestPickingAPresetSetsTheSpring(t *testing.T) {
 	if len(h.commits) != 1 || !h.commits[0].Has("motion.caret") {
 		t.Fatalf("OnCommit heard %v", h.commits)
 	}
-	if !e.Overrides().Has("motion.caret") || e.chosen["motion.caret"][0].reset.Disabled {
-		t.Fatal("the cursor does not show as overridden")
+	r := e.chosen["motion.caret"][0]
+	if !e.Overrides().Has("motion.caret") || !r.changed || r.reset.Disabled {
+		t.Fatal("the cursor does not show as changed")
 	}
-	// A value none of the presets has shows as Custom.
+	// The pick played the cursor in the preview.
+	if e.spec.term.jumps == 0 || e.preview.caption.Text == "" {
+		t.Fatal("picking Jumps did not play the cursor")
+	}
+	if ctl.fold.Open() {
+		t.Fatal("a preset shows the sliders")
+	}
+	// A value none of the presets has shows as Custom, with the sliders
+	// open under the row.
 	if err := e.Set("motion.caret", anim.Spring{Response: 0.3, Damping: 0.5}, true, u); err != nil {
 		t.Fatal(err)
 	}
-	if !ctl.custom || ctl.seg.Selected() != 2 || ctl.seg.Items[2] != "Custom" {
-		t.Fatalf("a spring of its own shows %v, item %d", ctl.seg.Items, ctl.seg.Selected())
+	if !ctl.presets.custom || seg.Selected() != 2 || seg.Items[2] != "Custom" || !ctl.fold.Open() {
+		t.Fatalf("a spring of its own shows %v, item %d, open %v", seg.Items, seg.Selected(), ctl.fold.Open())
+	}
+	if got := ctl.speed.Value(); got != 0.3 {
+		t.Fatalf("Speed shows %v", got)
+	}
+	if got := ctl.bounce.Value(); abs(got-0.5) > 1e-4 {
+		t.Fatalf("Bounce shows %v", got)
+	}
+	if speedWords(0.25) != "250 ms" || bounceWords(0) != "None" || bounceWords(0.4) != "40%" {
+		t.Fatal("the sliders' words are wrong")
 	}
 }
 
-func TestEditingAColourANumberAndASpringChangesTheTheme(t *testing.T) {
+func TestCustomRevealsASpringsSlidersInAllValues(t *testing.T) {
+	e, w, u, run, h := edStage(t, Options{Base: widget.Dark(), Sections: []Section{cursorSection}})
+	e.ShowAllValues(u)
+	e.Search("motion.quick", u)
+	run(5)
+	r := e.all.rowOf(t, "motion.quick")
+	spring := ctlOf[*springControl](t, r)
+	seg := spring.presets.seg
+	if got := seg.Items; !slices.Equal(got, []string{"Instant", "Snappy", "Gentle", "Bouncy", "Custom"}) {
+		t.Fatalf("a spring offers %v", got)
+	}
+	if seg.Selected() != 1 || spring.fold.Open() {
+		t.Fatalf("Snappy shows item %d, open %v", seg.Selected(), spring.fold.Open())
+	}
+	// Custom opens the sliders and changes nothing.
+	u.Focus(seg)
+	key(w, run, input.KeyEnd, 0)
+	run(3)
+	if !spring.fold.Open() || len(h.changes) != 0 {
+		t.Fatalf("Custom left the sliders open %v, and sent %d changes", spring.fold.Open(), len(h.changes))
+	}
+	if !slices.Contains(r.stops(), gunim.Node(spring.bounce)) {
+		t.Fatal("Tab does not reach the open sliders")
+	}
+	u.Focus(spring.bounce)
+	key(w, run, input.KeyRight, 0)
+	want := anim.Spring{Response: anim.Snappy.Response, Damping: 1 - (1 - anim.Snappy.Damping + 0.01)}
+	if got := valueIn(h.last(t), widget.Quick); abs(got.Damping-want.Damping) > 1e-4 || got.Response != want.Response {
+		t.Fatalf("Right on Bounce gives the theme %+v, want %+v", got, want)
+	}
+	if seg.Selected() != 4 {
+		t.Fatalf("the presets show %d, want Custom", seg.Selected())
+	}
+	// The commit played the motion, quick: the switch flipped.
+	if e.preview.caption.Text == "" || e.spec.sync.Checked() {
+		t.Fatal("the change did not play the quick motion")
+	}
+}
+
+func TestEditingAColourAndANumberChangesTheTheme(t *testing.T) {
 	e, w, u, run, h := edStage(t, Options{Base: widget.Dark(), Sections: []Section{cursorSection}})
 
 	// A colour, through its button's picker.
-	colour, ok := e.chosen["accent"][0].ctl.(*colorControl)
-	if !ok {
-		t.Fatalf("the accent's control is a %T", e.chosen["accent"][0].ctl)
+	colour := ctlOf[*colorControl](t, e.chosen["accent"][0])
+	if !colour.button.Hex {
+		t.Fatal("the accent's swatch does not show its hex")
 	}
 	u.Focus(colour.button)
 	key(w, run, input.KeyEnter, 0)
@@ -198,63 +309,159 @@ func TestEditingAColourANumberAndASpringChangesTheTheme(t *testing.T) {
 	if got == widget.Accent.Default() || got != colour.button.Value() {
 		t.Fatalf("an edit in the picker gives the theme an accent of %v; the button shows %v", got, colour.button.Value())
 	}
-	if colour.hex.Text != theme.Hex(got) {
-		t.Fatalf("the row says %q for %v", colour.hex.Text, got)
-	}
 	key(w, run, input.KeyEscape, 0)
 	run(30)
 
-	// A number, by its field's arrow key.
-	num, ok := e.chosen["layout.gap"][0].ctl.(*numberControl)
-	if !ok || num.slider == nil {
-		t.Fatalf("the gap's control is a %T with no slider", e.chosen["layout.gap"][0].ctl)
+	// A number with no range is a field alone.
+	num := ctlOf[*numberControl](t, e.chosen["layout.gap"][0])
+	if num.slider != nil || num.field == nil {
+		t.Fatal("the gap shows a slider and a field")
 	}
 	u.Focus(num.field)
 	key(w, run, input.KeyUp, 0)
 	if got := valueIn(h.last(t), widget.Gap); got != widget.Gap.Default()+1 {
 		t.Fatalf("Up in the gap's field gives the theme a gap of %v", got)
 	}
-	if num.slider.Value() != widget.Gap.Default()+1 {
-		t.Fatalf("the slider shows %v", num.slider.Value())
-	}
-
-	// A spring, by the damping slider of its row in All values.
-	e.tabs.SetSelected(1, u)
-	e.Search("motion.quick", u)
-	run(5)
-	r, ok := e.all["motion.quick"]
-	if !ok {
-		t.Fatal("All values built no row for motion.quick")
-	}
-	spring, ok := r.ctl.(*springControl)
-	if !ok {
-		t.Fatalf("motion.quick's control is a %T", r.ctl)
-	}
-	u.Focus(spring.damping)
-	key(w, run, input.KeyRight, 0)
-	want := anim.Spring{Response: anim.Snappy.Response, Damping: anim.Snappy.Damping + 0.01}
-	if got := valueIn(h.last(t), widget.Quick); abs(got.Damping-want.Damping) > 1e-4 || got.Response != want.Response {
-		t.Fatalf("Right on the damping gives the theme %+v, want %+v", got, want)
-	}
-	if spring.preview.left == 0 {
-		t.Fatal("the preview does not play the new spring")
-	}
-	// The presets show it as one of their own no longer.
-	if !spring.presets.custom {
-		t.Fatal("the spring's presets do not show Custom")
-	}
-	if got := e.Overrides().Keys(); !slices.Equal(got, []string{"accent", "layout.gap", "motion.quick"}) {
+	if got := e.Overrides().Keys(); !slices.Equal(got, []string{"accent", "layout.gap"}) {
 		t.Fatalf("the overrides are %v", got)
 	}
 }
 
-func TestResetTakesAValueBackToTheBase(t *testing.T) {
+func TestANumberWithARangeIsASliderAlone(t *testing.T) {
+	sec := Section{Title: "Look", Fields: []Field{{Key: widget.Gap.Key(), Label: "Gap", Min: 0, Max: 32}}}
+	e, w, u, run, h := edStage(t, Options{Base: widget.Dark(), Sections: []Section{sec}})
+	num := ctlOf[*numberControl](t, e.chosen["layout.gap"][0])
+	if num.slider == nil || num.field != nil {
+		t.Fatal("a gap with a range is not a slider alone")
+	}
+	if num.value.Text != "8" {
+		t.Fatalf("the slider's value reads %q", num.value.Text)
+	}
+	u.Focus(num.slider)
+	key(w, run, input.KeyRight, 0)
+	if got := valueIn(h.last(t), widget.Gap); got <= widget.Gap.Default() {
+		t.Fatalf("Right on the slider gives the theme a gap of %v", got)
+	}
+}
+
+func TestThePreviewWearsTheEditsAndTheControlsTheBase(t *testing.T) {
+	e, _, u, run, _ := edStage(t, Options{Base: widget.Dark(), Sections: []Section{cursorSection}})
+	red := color.NRGBA{R: 0xff, A: 0xff}
+	if err := e.Set("accent", red, true, u); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Set("text.size", float32(20), true, u); err != nil {
+		t.Fatal(err)
+	}
+	run(60)
+	controls := e.themed.ThemeScope()
+	preview := e.preview.themed.ThemeScope()
+	if got := widget.Accent.Get(preview); got != red {
+		t.Fatalf("the preview's accent is %v, want the edit's", got)
+	}
+	if got := widget.TextSize.Get(preview); got != 20 {
+		t.Fatalf("the preview's text is %v, want the edit's", got)
+	}
+	if got := widget.Accent.Get(controls); got != widget.Accent.Default() {
+		t.Fatalf("the controls' accent is %v, want the base's", got)
+	}
+	if got := widget.TextSize.Get(controls); got != widget.TextSize.Default() {
+		t.Fatalf("the controls' text is %v, want the base's", got)
+	}
+	// A new base dresses the controls.
+	e.SetBase(widget.Light(), u)
+	run(90)
+	if got, want := widget.Accent.Get(controls), valueIn(widget.Light(), widget.Accent); got != want {
+		t.Fatalf("after a new base the controls' accent is %v, want %v", got, want)
+	}
+	if got := widget.Accent.Get(preview); got != red {
+		t.Fatalf("after a new base the preview's accent is %v", got)
+	}
+}
+
+func TestThePreviewGoesAboveTheControlsWhenNarrow(t *testing.T) {
+	e, _, _, _, _ := edStage(t, Options{Base: widget.Dark(), Sections: []Section{cursorSection}})
+	if e.preview.narrow {
+		t.Fatal("a wide editor has the preview above the controls")
+	}
+	n, _, u, run, _ := edStageSized(t, geom.Sz(700, 900), Options{Base: widget.Dark(), Sections: []Section{cursorSection}})
+	if !n.preview.narrow {
+		t.Fatal("a narrow editor has the preview beside the controls")
+	}
+	pb, _ := u.Bounds(n.preview)
+	tb, _ := u.Bounds(n.tabs)
+	if pb.Max.Y > tb.Min.Y {
+		t.Fatalf("the preview at %v is not above the tabs at %v", pb, tb)
+	}
+	// Its button folds it away.
+	n.preview.toggle.OnClick(u)
+	run(30)
+	if n.preview.fold.Open() {
+		t.Fatal("the preview does not fold")
+	}
+}
+
+func TestPlayPicksADemoForEachMotion(t *testing.T) {
+	e, _, u, run, _ := edStage(t, Options{Base: widget.Dark(), Sections: []Section{cursorSection}})
+	sc := e.preview.scene
+	e.Play(widget.Settle.Key(), u)
+	run(30)
+	if sc.panel.Value() < 0.5 {
+		t.Fatalf("settling did not slide the panel in: %v", sc.panel.Value())
+	}
+	e.Play(widget.Bounce.Key(), u)
+	run(30)
+	if sc.toast.Value() < 0.5 || sc.fade.Value() < 0.5 {
+		t.Fatal("a bounce did not pop the toast")
+	}
+	e.Play(widget.HeroMotion.Key(), u)
+	run(30)
+	if sc.chipOn.Value() < 0.5 || sc.chip.Value() < 0.2 {
+		t.Fatal("a motion of no demo of its own did not slide the chip")
+	}
+	if e.preview.caption.Text != "Playing Motion hero" {
+		t.Fatalf("the preview says %q", e.preview.caption.Text)
+	}
+	// A key that is no motion plays nothing.
+	e.preview.caption.Text = ""
+	e.Play("accent", u)
+	if e.preview.caption.Text != "" {
+		t.Fatal("a colour played")
+	}
+	// The row's Play button plays its motion.
+	ctl := ctlOf[*springControl](t, e.chosen["motion.caret"][0])
+	e.spec.term.jumps = 0
+	ctl.play.OnClick(u)
+	if e.spec.term.jumps == 0 {
+		t.Fatal("the cursor's Play did not jump the cursor")
+	}
+
+	// With a preview of the program's own, the cursor plays as any
+	// motion does.
+	own, _, u2, _, _ := edStage(t, Options{Base: widget.Dark(), Preview: widget.NewLabel("Mine")})
+	own.Play(widget.Caret.Key(), u2)
+	if own.preview.scene.chipOn.Target() != 1 {
+		t.Fatal("the cursor did not slide the chip over the program's preview")
+	}
+}
+
+func TestResetTakesAValueBackAndResetAllCanBeUndone(t *testing.T) {
 	base := widget.Light()
 	over := theme.Make("mine", theme.Set(widget.Gap, 20), theme.Set(widget.Accent, color.NRGBA{R: 0xff, A: 0xff}))
 	e, w, u, run, h := edStage(t, Options{Base: base, Overrides: over, Sections: []Section{cursorSection}})
 	r := e.chosen["layout.gap"][0]
-	if r.reset.Disabled || r.changed.Text == "" {
-		t.Fatal("an overridden row does not say so")
+	if r.reset.Disabled || !r.changed || !r.line.changed {
+		t.Fatal("a changed row does not say so")
+	}
+	if r.reset.Tooltip != "Reset Gap to Light" {
+		t.Fatalf("the reset button says %q", r.reset.Tooltip)
+	}
+	if e.count.Text != "2 changes" || e.title.Text != "Editing Light" {
+		t.Fatalf("the header says %q, %q", e.title.Text, e.count.Text)
+	}
+	unchanged := e.chosen["motion.caret"][0]
+	if !unchanged.reset.Disabled || unchanged.changed || slices.Contains(unchanged.stops(), gunim.Node(unchanged.reset)) {
+		t.Fatal("an unchanged row offers a reset")
 	}
 	if num := ctlOf[*numberControl](t, r); num.field.Value() != 20 {
 		t.Fatalf("the gap shows %v, want the override's 20", num.field.Value())
@@ -270,27 +477,86 @@ func TestResetTakesAValueBackToTheBase(t *testing.T) {
 	if len(h.commits) != 1 || h.commits[0].Has("layout.gap") || !h.commits[0].Has("accent") {
 		t.Fatalf("OnCommit heard %v", h.commits)
 	}
-	if !r.reset.Disabled || r.changed.Text != "" {
-		t.Fatal("a row back at the base still shows as overridden")
+	if !r.reset.Disabled || r.changed {
+		t.Fatal("a row back at the base still shows as changed")
 	}
-	if num := ctlOf[*numberControl](t, r); num.field.Value() != float64(valueIn(base, widget.Gap)) {
-		t.Fatalf("the gap shows %v after Reset", num.field.Value())
+	if e.count.Text != "1 change" {
+		t.Fatalf("the header says %q", e.count.Text)
 	}
 
-	// Reset all takes the rest.
+	// Reset all takes the rest, and can be undone until the next edit.
 	u.Focus(e.resetAll)
 	key(w, run, input.KeyEnter, 0)
-	if e.Overrides().Len() != 0 || !e.resetAll.Disabled {
-		t.Fatalf("Reset all leaves %v", e.Overrides().Keys())
+	if e.Overrides().Len() != 0 || e.resetAll.Label != "Undo reset" || e.resetAll.Disabled {
+		t.Fatalf("Reset all leaves %v, the button says %q", e.Overrides().Keys(), e.resetAll.Label)
 	}
 	if got := valueIn(h.last(t), widget.Accent); got != valueIn(base, widget.Accent) {
 		t.Fatalf("after Reset all the accent is %v", got)
+	}
+	key(w, run, input.KeyEnter, 0)
+	if !e.Overrides().Has("accent") || e.resetAll.Label != "Reset all" {
+		t.Fatalf("Undo brought back %v", e.Overrides().Keys())
+	}
+	e.ResetAll(u)
+	_ = e.Set("layout.gap", 3, true, u)
+	if e.resetAll.Label != "Reset all" || e.undo != nil {
+		t.Fatal("an edit after Reset all leaves Undo")
+	}
+	e.Reset("layout.gap", u)
+	if !e.resetAll.Disabled {
+		t.Fatal("Reset all is lit with no changes")
 	}
 
 	// A new base shows in the rows it does not override.
 	e.SetBase(widget.Dark(), u)
 	if c := ctlOf[*colorControl](t, e.chosen["accent"][0]); c.button.Value() != widget.Accent.Default() {
 		t.Fatalf("after the base changed the accent shows %v", c.button.Value())
+	}
+}
+
+func TestTabReachesEveryGroupOfAllValues(t *testing.T) {
+	e, w, u, run, _ := edStage(t, Options{Base: widget.Dark()})
+	e.SetFilter(FilterColours, u)
+	run(10)
+	a := e.all
+	if a.groupRows(a.keys[0]) == nil {
+		t.Fatal("the first group is not built")
+	}
+	// Tab from each group's last stop goes to the next group's first,
+	// building it, down past what the view showed at first.
+	for i := 0; i < 12 && i+1 < len(a.keys); i++ {
+		g := a.items[a.keys[i]]
+		stops := a.stops(a.keys[i])
+		if len(stops) == 0 {
+			t.Fatalf("group %q is not built", g.title)
+		}
+		// The keyboard is where the user would have it: in view.
+		u.Focus(stops[len(stops)-1])
+		u.Reveal(stops[len(stops)-1])
+		run(30)
+		key(w, run, input.KeyTab, 0)
+		run(20)
+		next := a.stops(a.keys[i+1])
+		if len(next) == 0 {
+			t.Fatalf("Tab did not build group %q", a.items[a.keys[i+1]].title)
+		}
+		if f := u.Focused(); f != next[0] {
+			t.Fatalf("Tab from %q's last row went to %T, want %q's first", g.title, f, a.items[a.keys[i+1]].title)
+		}
+	}
+	// Shift+Tab goes back to the last stop of the group before, though
+	// the list has let it go since.
+	j := 12
+	stops := a.stops(a.keys[j])
+	if len(stops) == 0 {
+		t.Fatalf("group %q is not built", a.items[a.keys[j]].title)
+	}
+	u.Focus(stops[0])
+	key(w, run, input.KeyTab, input.ModShift)
+	run(20)
+	prev := a.stops(a.keys[j-1])
+	if len(prev) == 0 || u.Focused() != prev[len(prev)-1] {
+		t.Fatal("Shift+Tab did not go back to the group before")
 	}
 }
 
@@ -343,17 +609,31 @@ func TestOverridesGoToJSONAndBack(t *testing.T) {
 	_ = h
 }
 
+func TestImportAndExportShowOnlyWhereTheProgramTakesThem(t *testing.T) {
+	plain := New(Options{Base: widget.Dark()})
+	if plain.more != nil {
+		t.Fatal("an editor with no import or export has a menu for them")
+	}
+	both := New(Options{Base: widget.Dark(),
+		OnImport: func(*gunim.UI) gunim.Intent { return nil },
+		OnExport: func([]byte, *gunim.UI) gunim.Intent { return nil }})
+	if both.more == nil || len(both.more.Items()) != 2 || both.more.Items()[0].Label != "Import…" {
+		t.Fatal("an editor that imports and exports has no menu for them")
+	}
+}
+
 func TestEveryKindOfRowBuilds(t *testing.T) {
 	e, _, u, run, _ := edStage(t, Options{Base: widget.Dark(), Choices: map[string][]Preset{
 		widget.Font.Key(): {{Label: "Sans", Value: widget.Font.Default()}},
 	}})
+	e.ShowAllValues(u)
+	run(10)
+	got := map[string]*row{}
 	for _, k := range []string{"card.padding", "text.font", "text.font.mono", "button.fill", "ink", "motion.bounce", "text.size"} {
 		e.Search(k, u)
-		run(3)
-		r, ok := e.all[k]
-		if !ok {
-			t.Fatalf("no row for %q", k)
-		}
+		run(10)
+		r := e.all.rowOf(t, k)
+		got[k] = r
 		var want string
 		switch k {
 		case "card.padding":
@@ -373,12 +653,35 @@ func TestEveryKindOfRowBuilds(t *testing.T) {
 			t.Fatalf("%q has a %s, want a %s", k, got, want)
 		}
 	}
-	if d := ctlOf[*choiceControl](t, e.all["text.font"]).drop; d.Selected() != 0 {
+	if d := ctlOf[*choiceControl](t, got["text.font"]).drop; d.Selected() != 0 {
 		t.Fatalf("the font's drop-down shows %d", d.Selected())
 	}
-	if l := ctlOf[*textControl](t, e.all["text.font.mono"]).label.Text; l == "" {
+	if l := ctlOf[*textControl](t, got["text.font.mono"]).label.Text; l == "" {
 		t.Fatal("a font with no choices shows nothing")
 	}
+	if n := ctlOf[*numberControl](t, got["text.size"]); n.slider != nil {
+		t.Fatal("a number in All values shows a slider")
+	}
+}
+
+// rowOf returns the row All values shows for key, failing t where it
+// shows none.
+func (a *allValues) rowOf(t *testing.T, key string) *row {
+	t.Helper()
+	r := a.row(key)
+	if r == nil {
+		t.Fatalf("All values shows no row for %q", key)
+	}
+	return r
+}
+
+// rowsBuilt returns every row All values has built.
+func (a *allValues) rowsBuilt() []*row {
+	var out []*row
+	for _, rows := range a.built {
+		out = append(out, rows...)
+	}
+	return out
 }
 
 // ctlOf returns r's control as a T, failing t where it is another.
@@ -391,6 +694,75 @@ func ctlOf[T control](t *testing.T, r *row) T {
 	return c
 }
 
+// sortedOf returns a sorted copy of keys.
+func sortedOf(keys []string) []string {
+	out := slices.Clone(keys)
+	slices.Sort(out)
+	return out
+}
+
 func typeName(v any) string { return fmt.Sprintf("%T", v) }
 
 func abs(v float32) float32 { return max(v, -v) }
+
+func TestAShortNarrowEditorStartsWithThePreviewFoldedAndPlayOpensIt(t *testing.T) {
+	e, _, u, run, _ := edStageSized(t, geom.Sz(732, 540), Options{Base: widget.Dark(), Sections: []Section{cursorSection}})
+	run(30)
+	p := e.preview
+	if !p.narrow || !p.short || !p.shut || p.fold.Open() {
+		t.Fatal("a short narrow editor does not start with the preview folded away")
+	}
+	e.Play(widget.Settle.Key(), u)
+	run(2)
+	if !p.fold.Open() {
+		t.Fatal("Play did not open the folded preview")
+	}
+	// Once played, it folds away again.
+	run(int((2*hold + time.Second) / (time.Second / 60)))
+	if p.fold.Open() {
+		t.Fatal("the preview stayed open after playing")
+	}
+	// Opened by the user, it stays open.
+	p.toggle.OnClick(u)
+	run(30)
+	if !p.fold.Open() {
+		t.Fatal("the button did not open the preview")
+	}
+	e.Play(widget.Settle.Key(), u)
+	run(int((2*hold + time.Second) / (time.Second / 60)))
+	if !p.fold.Open() {
+		t.Fatal("playing folded a preview the user opened")
+	}
+}
+
+func TestRowsLineUpWithTheTabsAndAllValuesRowsAreEven(t *testing.T) {
+	over := theme.Make("mine", theme.Set(widget.Gap, 20))
+	e, _, u, run, _ := edStage(t, Options{Base: widget.Dark(), Overrides: over, Sections: []Section{cursorSection}})
+	// The tabs' line ends where the cards do.
+	if e.tabs.Inset.Key() != TabInset.Key() {
+		t.Fatal("the tabs are not inset as the page is")
+	}
+	// The dot of a changed row is after its name, inside the card.
+	r := e.chosen["layout.gap"][0]
+	if r.line.titleAt.Min.X != 0 || r.line.titleAt.Size().W <= 0 || r.line.titleAt.Size().W > 60 {
+		t.Fatalf("the title's words are at %v", r.line.titleAt)
+	}
+	// In All values every row with a field or a swatch is as tall.
+	e.ShowAllValues(u)
+	e.Search("address", u)
+	run(20)
+	heights := map[float32]bool{}
+	for _, k := range []string{"address.chevron", "address.crumb", "address.height"} {
+		b, ok := u.Bounds(e.all.rowOf(t, k).line)
+		if !ok {
+			t.Fatalf("no bounds for %q", k)
+		}
+		heights[b.Size().H] = true
+	}
+	if len(heights) != 1 {
+		t.Fatalf("the rows are of heights %v", heights)
+	}
+	if n := ctlOf[*numberControl](t, e.all.rowOf(t, "address.height")); n.field.Height.Key() != CompactHeight.Key() {
+		t.Fatal("a number in All values is not compact")
+	}
+}

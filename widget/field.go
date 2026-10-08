@@ -39,6 +39,9 @@ type TextField struct {
 	Clearable bool
 	// Face is the face the text is set in, and the theme's [Font] when unset.
 	Face theme.Token[*text.Face]
+	// Height, when set, is the field's height in place of the theme's [FieldHeight], for a compact field in a dense
+	// list.
+	Height theme.Token[float32]
 	// Secret shows each character as a dot, as a password field does,
 	// keeps the text off the clipboard, and gives a screen reader no
 	// value to read.
@@ -365,7 +368,11 @@ func (t *TextField) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children)
 	if w <= 0 {
 		w = FieldWidth.Get(th)
 	}
-	own := c.Constrain(geom.Sz(w, FieldHeight.Get(th)))
+	h := FieldHeight.Get(th)
+	if t.Height.Key() != "" {
+		h = t.Height.Get(th)
+	}
+	own := c.Constrain(geom.Sz(w, h))
 	t.size = own
 	t.follow(th)
 

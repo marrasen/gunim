@@ -1,14 +1,19 @@
-// Command themeedit shows the theme editor beside a few widgets and a
-// grid of cells whose cursor moves along a line, as a terminal's does.
-// Every edit shows at once on the widgets and the grid. The Chosen tab
-// picks out the cursor, which glides or jumps, the accent colour and
-// the gap between things; All values lists every token.
+// Command themeedit shows the theme editor in a window of its own. Its
+// first tab picks out the cursor, which glides or jumps, a few motions,
+// the accent colour and the gap between things; All values lists every
+// token. The preview beside the controls wears every edit at once, and
+// plays a motion as it changes.
 //
 // With -file, the editor starts from the values in that file, saves
 // each edit to it, and Import and Export read and write it.
 //
 //	CGO_ENABLED=0 go run ./example/themeedit
 //	CGO_ENABLED=0 go run ./example/themeedit -file mytheme.json
+//
+// With -shot, it writes the window to a PNG file after -after and
+// quits. The other flags set the editor up for the picture first:
+//
+//	CGO_ENABLED=0 go run ./example/themeedit -shot all.png -tab all -filter changed -changes
 package main
 
 import (
@@ -16,15 +21,18 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"image/color"
+	"image/png"
 	"io/fs"
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"time"
 
 	"github.com/marrasen/gunim"
+	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
-	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/theme"
 	"github.com/marrasen/gunim/themeedit"
 	"github.com/marrasen/gunim/widget"
@@ -32,14 +40,23 @@ import (
 
 // The vocabulary the two halves share.
 type (
-	// Page is the state the page renders: the values saved, as JSON.
-	Page struct{ Saved []byte }
+	// Page is the state the page renders: the values saved, as JSON,
+	// and whether the edits lie over the light theme.
+	Page struct {
+		Saved []byte
+		Light bool
+	}
 	// Saved travels as an edit ends, with the values changed as JSON.
 	Saved struct{ Data []byte }
-	// ImportAsked travels when the user presses Import.
+	// ImportAsked travels when the user picks Import.
 	ImportAsked struct{}
 	// Imported is the patch that hands the editor the file's values.
 	Imported struct{ Data []byte }
+	// Setup is the patch that sets the editor up for a picture: the tab,
+	// the search, the filter, a picker to open and a motion to play.
+	Setup struct {
+		Tab, Search, Filter, Picker, Play string
+	}
 )
 
 func init() {
@@ -47,29 +64,55 @@ func init() {
 	gunim.RegisterType[Saved]("themeedit.saved")
 	gunim.RegisterType[ImportAsked]("themeedit.import")
 	gunim.RegisterType[Imported]("themeedit.imported")
+	gunim.RegisterType[Setup]("themeedit.setup")
+}
+
+// options are the command's flags.
+type options struct {
+	runFor, after time.Duration
+	file, shot    string
+	size          geom.Size
+	light         bool
+	changes       bool
+	setup         Setup
 }
 
 func main() {
-	runFor := flag.Duration("for", 0, "quit after this long; zero runs until the window closes")
-	file := flag.String("file", "", "a file to read the theme's values from and save them to")
+	var o options
+	var size string
+	flag.DurationVar(&o.runFor, "for", 0, "quit after this long; zero runs until the window closes")
+	flag.StringVar(&o.file, "file", "", "a file to read the theme's values from and save them to")
+	flag.StringVar(&o.shot, "shot", "", "write the window to this PNG file after -after, and quit")
+	flag.DurationVar(&o.after, "after", 2*time.Second, "how long -shot waits")
+	flag.StringVar(&size, "size", "1100x700", "the window's size, as WxH")
+	flag.BoolVar(&o.light, "light", false, "lay the edits over the light theme")
+	flag.BoolVar(&o.changes, "changes", false, "start with a few values changed: the accent, the gap, settling, a custom bounce")
+	flag.StringVar(&o.setup.Tab, "tab", "", "the tab to show: basics or all")
+	flag.StringVar(&o.setup.Search, "search", "", "search All values for this")
+	flag.StringVar(&o.setup.Filter, "filter", "", "filter All values: all, changed, colours, sizes, motion or other")
+	flag.StringVar(&o.setup.Picker, "picker", "", "open the colour picker of this key")
+	flag.StringVar(&o.setup.Play, "play", "", "play the motion of this key in the preview")
 	flag.Parse()
-	if err := run(*runFor, *file); err != nil {
+	if _, err := fmt.Sscanf(size, "%fx%f", &o.size.W, &o.size.H); err != nil {
+		log.Fatalf("-size %q: want WxH, such as 1100x700", size)
+	}
+	if err := run(o); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func run(runFor time.Duration, file string) error {
+func run(o options) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	if runFor > 0 {
+	if o.runFor > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, runFor)
+		ctx, cancel = context.WithTimeout(ctx, o.runFor)
 		defer cancel()
 	}
 	return gunim.Main(ctx, func(a *gunim.App) error {
 		w, err := a.NewWindow(gunim.WindowOptions{
 			Title: "gunim theme editor",
-			Size:  geom.Sz(1100, 640),
+			Size:  o.size,
 			Root:  widget.NewSurface(),
 		})
 		if err != nil {
@@ -83,18 +126,18 @@ func run(runFor time.Duration, file string) error {
 				log.Print(err)
 			}
 		})
-		return serve(ctx, w.Client(), file)
+		gunim.RegisterPatch(w, "page", func(p *page, s Setup, u *gunim.UI) { p.setup(s, u) })
+		return serve(ctx, w.Client(), o)
 	})
 }
 
-// page is the editor beside the widgets it themes.
+// page is the editor, filling the window.
 type page struct {
 	*widget.Pad
 	editor *themeedit.Editor
-	typist *typist
 }
 
-// sections are what the Chosen tab picks out.
+// sections are what the first tab picks out.
 var sections = []themeedit.Section{
 	{Title: "Terminal", Fields: []themeedit.Field{{
 		Key:    widget.Caret.Key(),
@@ -105,21 +148,32 @@ var sections = []themeedit.Section{
 			{Label: "Jumps", Value: themeedit.Instant},
 		},
 	}}},
+	{Title: "Motion", Fields: []themeedit.Field{
+		{Key: widget.Quick.Key(), Label: "Quick moves", Detail: "Buttons, switches and highlights as they answer the pointer."},
+		{Key: widget.Settle.Key(), Label: "Settling", Detail: "Panels, tabs and panes as they open, close and move."},
+		{Key: widget.Bounce.Key(), Label: "Bounces", Detail: "What springs into place, such as a toast."},
+		{Key: theme.Switch.Key(), Label: "Theme change", Detail: "Every colour as the window takes another theme."},
+	}},
 	{Title: "Look", Fields: []themeedit.Field{
 		{Key: widget.Accent.Key(), Label: "Accent", Detail: "The colour of focus, selection and the chosen tab."},
+		{Key: widget.Background.Key(), Label: "Ground", Detail: "Behind the window's own parts."},
 		{Key: widget.Gap.Key(), Label: "Gap", Detail: "The room between things side by side.", Min: 0, Max: 32},
-		{Key: widget.Quick.Key(), Label: "Feedback", Detail: "How hover, press and focus move."},
+		{Key: widget.TextSize.Key(), Label: "Text size", Detail: "The window's own words.", Min: 10, Max: 22},
 	}},
 }
 
 func buildPage(s Page) *page {
-	// The editor starts from the dark theme, with what was saved over it.
+	base := widget.Dark()
+	if s.Light {
+		base = widget.Light()
+	}
+	// The editor starts from the base theme, with what was saved over it.
 	over, err := theme.UnmarshalValues(theme.Make("mine"), s.Saved)
 	if err != nil && len(s.Saved) > 0 {
 		log.Print(err)
 	}
 	ed := themeedit.New(themeedit.Options{
-		Base:      widget.Dark(),
+		Base:      base,
 		Overrides: over,
 		Sections:  sections,
 		OnChange: func(th theme.Theme, u *gunim.UI) gunim.Intent {
@@ -136,114 +190,59 @@ func buildPage(s Page) *page {
 		OnExport: func(data []byte, u *gunim.UI) gunim.Intent { return Saved{Data: data} },
 		OnImport: widget.Sends(ImportAsked{}),
 	})
+	pad := widget.NewPad(ed)
+	pad.Padding = noPadding
+	return &page{Pad: pad, editor: ed}
+}
 
-	// The base theme, which the edits lie over.
-	base := widget.NewSegmented("Dark", "Light")
-	base.Tooltip = "The theme the edits lie over"
-	base.OnChange = func(i int, u *gunim.UI) gunim.Intent {
-		ed.SetBase([]theme.Theme{widget.Dark(), widget.Light()}[i], u)
-		u.UseTheme(ed.Theme())
-		return nil
+// noPadding leaves the editor the whole window.
+var noPadding = theme.Insets("example.themeedit.padding", geom.Insets{})
+
+// setup sets the editor up as s says.
+func (p *page) setup(s Setup, u *gunim.UI) {
+	ed := p.editor
+	if s.Tab == "all" || s.Search != "" || s.Filter != "" {
+		ed.ShowAllValues(u)
 	}
-
-	button := widget.NewButton("A button")
-	primary := widget.NewButton("Primary")
-	primary.Kind = widget.ButtonPrimary
-	sw := widget.NewSwitch("A switch")
-	sw.SetChecked(true, nil)
-	slider := widget.NewSlider(0, 100)
-	slider.Label = "A slider"
-	slider.SetValue(40, nil)
-	drop := widget.NewDropdown(widget.Labels("Apple", "Banana", "Cherry"))
-	drop.Label = "Fruit"
-	field := widget.NewTextField()
-	field.Placeholder = "Type here"
-	buttons := widget.Row(button, primary)
-
-	ty := newTypist()
-	demo := widget.Column(widget.Row(widget.NewLabel("Base"), base), buttons, sw, slider, drop, field, ty)
-	demo.Cross = widget.CrossStretch
-	side := widget.NewCard(demo)
-
-	row := widget.Row(ed, side).Grow(ed, 1)
-	row.Cross = widget.CrossStretch
-	return &page{Pad: widget.NewPad(row), editor: ed, typist: ty}
-}
-
-// typist is a grid of cells with a cursor that moves along a line as if
-// someone typed, a cell every quarter second, and wraps to the next line
-// at the end.
-type typist struct {
-	grid    *widget.CellGrid
-	col     int
-	row     int
-	elapsed time.Duration
-}
-
-// typistCols and typistRows are the grid's size, in cells.
-const (
-	typistCols = 28
-	typistRows = 4
-)
-
-func newTypist() *typist {
-	g := widget.NewCellGrid()
-	g.Resize(typistCols, typistRows)
-	for y, line := range []string{"$ make the cursor jump", "$ open All values", "$ search motion", "$ "} {
-		cells := make([]widget.Cell, 0, len(line))
-		for _, r := range line {
-			cells = append(cells, widget.Cell{Rune: r})
+	if s.Search != "" {
+		ed.Search(s.Search, u)
+	}
+	for i := themeedit.FilterAll; i <= themeedit.FilterOther; i++ {
+		if strings.EqualFold(i.String(), s.Filter) {
+			ed.SetFilter(i, u)
 		}
-		g.SetRow(y, cells)
 	}
-	t := &typist{grid: g, col: 2}
-	t.place()
-	return t
-}
-
-// place puts the grid's cursor where the typist is.
-func (t *typist) place() {
-	t.grid.SetCursor(widget.Cursor{Col: t.col, Row: t.row, Visible: true})
-}
-
-// Children implements [gunim.Composite].
-func (t *typist) Children() []gunim.Node { return []gunim.Node{t.grid} }
-
-// Step implements [gunim.Animator]: every quarter second the cursor
-// moves on a cell.
-func (t *typist) Step(dt time.Duration) bool {
-	t.elapsed += dt
-	if t.elapsed < 250*time.Millisecond {
-		return false
+	if s.Picker != "" {
+		key := s.Picker
+		u.After(300*time.Millisecond, func(u *gunim.UI) {
+			if !ed.OpenPicker(key, u) {
+				log.Printf("no colour picker for %q in the tab showing", key)
+			}
+		})
 	}
-	t.elapsed = 0
-	t.col++
-	if t.col >= typistCols {
-		t.col, t.row = 2, (t.row+1)%typistRows
+	if s.Play != "" {
+		key := s.Play
+		u.After(500*time.Millisecond, func(u *gunim.UI) { ed.Play(key, u) })
 	}
-	t.place()
-	return true
 }
 
-// WakeIn implements [gunim.Waker].
-func (t *typist) WakeIn() time.Duration { return max(time.Millisecond, 250*time.Millisecond-t.elapsed) }
-
-// Layout implements [gunim.Node].
-func (t *typist) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
-	s := kids.At(0).Layout(gunim.Constraints{Max: geom.Sz(c.Max.W, 0)})
-	kids.At(0).Place(geom.Point{})
-	return c.Constrain(s)
+// changes are the values -changes starts with.
+func changes() []byte {
+	over := theme.Make("mine",
+		theme.Set(widget.Accent, color.NRGBA{R: 0xe8, G: 0x8a, B: 0x3c, A: 0xff}),
+		theme.Set(widget.Gap, 12),
+		theme.Set(widget.Settle, anim.Snappy),
+		theme.Set(widget.Bounce, anim.Spring{Response: 0.5, Damping: 0.6}),
+		theme.Set(widget.ButtonRadius, 14),
+	)
+	data, _ := theme.MarshalValues(over)
+	return data
 }
 
-// Paint implements [gunim.Node].
-func (t *typist) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim.Children) {
-	kids.At(0).Paint(p)
-}
-
-func serve(ctx context.Context, c gunim.Client, file string) error {
+func serve(ctx context.Context, c gunim.Client, o options) error {
 	var saved []byte
-	if file != "" {
-		data, err := os.ReadFile(file)
+	if o.file != "" {
+		data, err := os.ReadFile(o.file)
 		switch {
 		case err == nil:
 			saved = data
@@ -251,12 +250,33 @@ func serve(ctx context.Context, c gunim.Client, file string) error {
 			return err
 		}
 	}
-	if err := c.Mount(gunim.Root, "page", "page", Page{Saved: saved}); err != nil {
+	if o.changes {
+		saved = changes()
+	}
+	if o.light {
+		_ = c.SetTheme("light")
+	}
+	if err := c.Mount(gunim.Root, "page", "page", Page{Saved: saved, Light: o.light}); err != nil {
 		return err
+	}
+	if o.setup != (Setup{}) {
+		if err := c.Patch("page", o.setup); err != nil {
+			return err
+		}
+	}
+	var shoot <-chan time.Time
+	if o.shot != "" {
+		shoot = time.After(o.after)
 	}
 	for {
 		select {
 		case <-ctx.Done():
+			return nil
+		case <-shoot:
+			if err := writeShot(ctx, c, o.shot); err != nil {
+				return err
+			}
+			c.Close()
 			return nil
 		case ev, ok := <-c.Intents():
 			if !ok {
@@ -264,18 +284,18 @@ func serve(ctx context.Context, c gunim.Client, file string) error {
 			}
 			switch v := ev.Intent.(type) {
 			case Saved:
-				if file == "" {
+				if o.file == "" {
 					continue
 				}
-				if err := os.WriteFile(file, v.Data, 0o600); err != nil {
+				if err := os.WriteFile(o.file, v.Data, 0o600); err != nil {
 					log.Print(err)
 				}
 			case ImportAsked:
-				if file == "" {
+				if o.file == "" {
 					log.Print("Import reads the file -file names; none was given")
 					continue
 				}
-				data, err := os.ReadFile(file)
+				data, err := os.ReadFile(o.file)
 				if err != nil {
 					log.Print(err)
 					continue
@@ -286,4 +306,17 @@ func serve(ctx context.Context, c gunim.Client, file string) error {
 			}
 		}
 	}
+}
+
+// writeShot writes what the window shows to a PNG file.
+func writeShot(ctx context.Context, c gunim.Client, path string) error {
+	img, err := c.Shot(ctx)
+	if err != nil {
+		return err
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	return errors.Join(png.Encode(f, img), f.Close())
 }

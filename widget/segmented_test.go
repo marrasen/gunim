@@ -9,6 +9,7 @@ import (
 	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
+	"github.com/marrasen/gunim/theme"
 )
 
 type segmentChosen struct{ I int }
@@ -150,4 +151,44 @@ func (z *sized) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) 
 
 func (z *sized) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim.Children) {
 	kids.At(0).Paint(p)
+}
+
+func TestAFittedSegmentedControlGivesEachOptionItsOwnWidth(t *testing.T) {
+	s := NewSegmented("All 280", "Changed 2", "Other 5")
+	s.Fit = true
+	w, run := stage(t, &frame{child: Row(s), size: geom.Sz(600, 40)})
+	run(1)
+	if len(s.lefts) != 4 {
+		t.Fatalf("the options' edges are %v", s.lefts)
+	}
+	all, changed := s.lefts[1]-s.lefts[0], s.lefts[2]-s.lefts[1]
+	if changed <= all {
+		t.Fatalf("Changed is %v wide and All %v: not each its own width", changed, all)
+	}
+	if s.lefts[3] != s.size.W {
+		t.Fatalf("the options end at %v, the control at %v", s.lefts[3], s.size.W)
+	}
+	// A click hits the option drawn there, and the pill takes its span.
+	click(w, s.lefts[1]+changed-4, 14)
+	run(60)
+	if s.Selected() != 1 {
+		t.Fatalf("a click near Changed's right edge chose %d", s.Selected())
+	}
+	if x, wd := s.span(s.pill.Value()); x != s.lefts[1] || wd != changed {
+		t.Fatalf("the pill spans %v, %v, want Changed's %v, %v", x, wd, s.lefts[1], changed)
+	}
+	if b := s.Access().Parts[2].Bounds; b.Min.X != s.lefts[2] {
+		t.Fatalf("Other's bounds start at %v, want %v", b.Min.X, s.lefts[2])
+	}
+}
+
+func TestASegmentedTrackStandsApartFromALightCard(t *testing.T) {
+	light := theme.NewLive(Light())
+	if SegmentedTrack.Get(light) == CardFill.Get(light) || SegmentedTrack.Get(light) == FieldFill.Get(light) {
+		t.Fatal("in the light theme the track is the card's colour")
+	}
+	dark := theme.NewLive(Dark())
+	if SegmentedTrack.Get(dark) == CardFill.Get(dark) {
+		t.Fatal("in the dark theme the track is the card's colour")
+	}
 }
