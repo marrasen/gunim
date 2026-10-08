@@ -724,10 +724,13 @@ one by a transform rather than by its rect, and it is never drawn again.
 //go:embed fox.svg
 var foxSVG []byte
 
-var fox = shape.MustSVG(foxSVG) // read once
+fox, err := shape.ParseSVG(foxSVG) // read once, as the program starts
+if err != nil {
+	return err
+}
 
 func (v *view) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, _ gunim.Children) {
-	fox.Paint(p, shape.Fit(fox.ViewBox, geom.Rect{Max: box.Point()}))
+	v.fox.Paint(p, shape.Fit(v.fox.ViewBox, geom.Rect{Max: box.Point()}))
 }
 ```
 
@@ -735,7 +738,10 @@ A single path is a `shape.Path`, filled by the nonzero or the even-odd
 rule, its edges smoothed, or stroked with round caps and joins:
 
 ```go
-leaf := shape.MustPath("M12 2C6 8 6 16 12 22C18 16 18 8 12 2Z")
+leaf, err := shape.NewPath("M12 2C6 8 6 16 12 22C18 16 18 8 12 2Z")
+if err != nil {
+	return err
+}
 grid := geom.Rc(0, 0, 24, 24) // the units the path is written in
 p.Mask(leaf.Fill(), leaf.Fill().In(grid, r), green)
 p.Mask(leaf.Stroke(1), leaf.Stroke(1).In(grid, r), darkGreen)

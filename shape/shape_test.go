@@ -11,7 +11,7 @@ import (
 
 func TestAFilledPathCoversItsInsideAndItsBoundsMapIntoAPlace(t *testing.T) {
 	// A diamond on a 24-unit grid, from 4 to 20 each way.
-	d := MustPath("M12 4L20 12L12 20L4 12Z")
+	d := mustPath(t, "M12 4L20 12L12 20L4 12Z")
 	if b := d.Bounds(); b != geom.Rc(4, 4, 16, 16) {
 		t.Fatalf("bounds %v", b)
 	}
@@ -41,7 +41,7 @@ func TestAFilledPathCoversItsInsideAndItsBoundsMapIntoAPlace(t *testing.T) {
 }
 
 func TestAStrokeIsRoundAndWithinItsBounds(t *testing.T) {
-	line := MustPath("M0 0H10")
+	line := mustPath(t, "M0 0H10")
 	s := line.Stroke(2)
 	b := s.bounds()
 	if b.Min.X >= -1 || b.Max.X <= 11 || b.Min.Y >= -1 || b.Max.Y <= 1 {
@@ -114,7 +114,7 @@ func TestAnSVGIsReadIntoPartsWithTheirColoursGradientsAndTransforms(t *testing.T
 }
 
 func TestAFigurePaintsEachPartInPlace(t *testing.T) {
-	f := MustSVG([]byte(art))
+	f := mustSVG(t, art)
 	var p paint.Painter
 	p.Reset()
 	f.Paint(&p, geom.Rc(0, 0, 200, 100))
@@ -155,4 +155,24 @@ func TestAnSVGItCannotReadSaysWhy(t *testing.T) {
 			t.Errorf("%s: %v, want an error about %s", c.src, err, c.want)
 		}
 	}
+}
+
+// mustPath reads path data a test wrote.
+func mustPath(t testing.TB, d string) *Path {
+	t.Helper()
+	p, err := NewPath(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// mustSVG reads an SVG file a test wrote.
+func mustSVG(t testing.TB, src string) *Figure {
+	t.Helper()
+	f, err := ParseSVG([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return f
 }

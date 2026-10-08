@@ -46,15 +46,6 @@ func ParseSVG(src []byte) (*Figure, error) {
 	return f, nil
 }
 
-// MustSVG is [ParseSVG] for an SVG file built into the program, as with go:embed, which panics on an error.
-func MustSVG(src []byte) *Figure {
-	f, err := ParseSVG(src)
-	if err != nil {
-		panic(err)
-	}
-	return f
-}
-
 // node is an XML element with its attributes and children.
 type node struct {
 	XMLName  xml.Name

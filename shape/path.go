@@ -5,7 +5,10 @@
 // moved, turned, scaled by a transform, faded or tinted another colour, costs a quad. Drawing it at a new size in
 // pixels rasterizes it again, so an animation moves and scales a shape by a transform rather than by its rect.
 //
-//	leaf := shape.MustPath("M12 2C6 8 6 16 12 22C18 16 18 8 12 2Z")
+//	leaf, err := shape.NewPath("M12 2C6 8 6 16 12 22C18 16 18 8 12 2Z")
+//	if err != nil {
+//		return err
+//	}
 //	box := geom.Rc(0, 0, 24, 24)
 //	p.Mask(leaf.Fill(), leaf.Fill().In(box, r), green) // the 24-unit grid drawn into r
 //	p.Mask(leaf.Stroke(1.5), leaf.Stroke(1.5).In(box, r), darkGreen)
@@ -33,15 +36,6 @@ func NewPath(d string) (*Path, error) {
 		return nil, fmt.Errorf("shape: %w", err)
 	}
 	return pathOf(subs), nil
-}
-
-// MustPath is [NewPath] for path data written in the program, which panics on an error.
-func MustPath(d string) *Path {
-	p, err := NewPath(d)
-	if err != nil {
-		panic(err)
-	}
-	return p
 }
 
 // pathOf is the path of subpaths already read.

@@ -28,17 +28,16 @@ import (
 //go:embed fox.svg
 var foxSVG []byte
 
-// fox is read once, when the program starts; drawing it costs a quad for each of its parts.
-var fox = shape.MustSVG(foxSVG)
-
-// leaf is an oak leaf on a 24-unit grid, its vein a line down the middle.
-var (
-	leaf = shape.MustPath("M12 1C14 3 16 3 15.5 5.5C18 5 19 7 17 9C20 9 21 11 18.5 13C21 14 20 16 17.5 16" +
+// leafPath is an oak leaf on a 24-unit grid, and veinPath the line down its middle.
+const (
+	leafPath = "M12 1C14 3 16 3 15.5 5.5C18 5 19 7 17 9C20 9 21 11 18.5 13C21 14 20 16 17.5 16" +
 		"C18 18.5 16 19 14 18C14 20 13 21 12.5 22L11.5 22C11 21 10 20 10 18C8 19 6 18.5 6.5 16C4 16 3 14 5.5 13" +
-		"C3 11 4 9 7 9C5 7 6 5 8.5 5.5C8 3 10 3 12 1Z")
-	vein    = shape.MustPath("M12 3V23")
-	leafBox = geom.Rc(0, 0, 24, 24)
+		"C3 11 4 9 7 9C5 7 6 5 8.5 5.5C8 3 10 3 12 1Z"
+	veinPath = "M12 3V23"
 )
+
+// leafBox is the grid the leaf is drawn on.
+var leafBox = geom.Rc(0, 0, 24, 24)
 
 func main() {
 	runFor := flag.Duration("for", 0, "quit after this long; zero runs until the window closes")
@@ -58,8 +57,12 @@ func run(runFor time.Duration, shot string, after time.Duration) error {
 		ctx, cancel = context.WithTimeout(ctx, runFor)
 		defer cancel()
 	}
-	err := gunim.Main(ctx, func(a *gunim.App) error {
-		w, err := a.NewWindow(gunim.WindowOptions{Title: "gunim vector art", Size: geom.Sz(720, 420), Root: &art{}})
+	root, err := newArt()
+	if err != nil {
+		return err
+	}
+	err = gunim.Main(ctx, func(a *gunim.App) error {
+		w, err := a.NewWindow(gunim.WindowOptions{Title: "gunim vector art", Size: geom.Sz(720, 420), Root: root})
 		if err != nil {
 			return err
 		}
@@ -105,7 +108,29 @@ func writeShot(ctx context.Context, c gunim.Client, path string) error {
 }
 
 // art draws the fox and the leaf, the leaf swaying.
-type art struct{ t float64 }
+type art struct {
+	// fox is read once, as the program starts; drawing it costs a quad for each of its parts.
+	fox        *shape.Figure
+	leaf, vein *shape.Path
+	t          float64
+}
+
+// newArt reads the fox's SVG file and the leaf's path data.
+func newArt() (*art, error) {
+	fox, err := shape.ParseSVG(foxSVG)
+	if err != nil {
+		return nil, err
+	}
+	leaf, err := shape.NewPath(leafPath)
+	if err != nil {
+		return nil, err
+	}
+	vein, err := shape.NewPath(veinPath)
+	if err != nil {
+		return nil, err
+	}
+	return &art{fox: fox, leaf: leaf, vein: vein}, nil
+}
 
 // Step implements [gunim.Animator]: the leaf sways for ever.
 func (a *art) Step(dt time.Duration) bool {
@@ -125,13 +150,13 @@ var (
 // Paint implements [gunim.Node].
 func (a *art) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, _ gunim.Children) {
 	p.RRect(geom.Rect{Max: box.Point()}, 0, paint.Solid(meadow))
-	fox.Paint(p, shape.Fit(fox.ViewBox, geom.Rc(20, 20, 380, 380)))
-	fox.Paint(p, shape.Fit(fox.ViewBox, geom.Rc(420, 300, 100, 100)))
+	a.fox.Paint(p, shape.Fit(a.fox.ViewBox, geom.Rc(20, 20, 380, 380)))
+	a.fox.Paint(p, shape.Fit(a.fox.ViewBox, geom.Rc(420, 300, 100, 100)))
 	// The leaf turns about its stem by a transform: its masks stay the size they were drawn at.
 	r := geom.Rc(470, 30, 220, 220)
 	stem := geom.Pt(r.Center().X, r.Max.Y)
 	defer p.Push(paint.Rotate(float32(0.15*math.Sin(a.t*1.6)), stem))()
-	p.Mask(leaf.Fill(), leaf.Fill().In(leafBox, r), leafGreen)
-	p.Mask(leaf.Stroke(0.5), leaf.Stroke(0.5).In(leafBox, r), leafDark)
-	p.Mask(vein.Stroke(0.6), vein.Stroke(0.6).In(leafBox, r), leafDark)
+	p.Mask(a.leaf.Fill(), a.leaf.Fill().In(leafBox, r), leafGreen)
+	p.Mask(a.leaf.Stroke(0.5), a.leaf.Stroke(0.5).In(leafBox, r), leafDark)
+	p.Mask(a.vein.Stroke(0.6), a.vein.Stroke(0.6).In(leafBox, r), leafDark)
 }
