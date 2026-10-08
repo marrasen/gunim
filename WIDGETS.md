@@ -147,7 +147,8 @@ Everything moves; nothing jumps once the user can see it.
 - **Springs from the theme.** `Quick` is for direct feedback: hover, press, focus, highlight. `Settle` is for things
   coming to rest or going away. `Bounce` is for things arriving, with an overshoot.
 - **The first layout jumps.** Keep a `laid` flag. Before the first layout, put every spring at its target, so a value
-  set early shows at once instead of gliding up from zero.
+  set early shows at once instead of gliding up from zero. For an entrance the app asks for, give the widget a method
+  that says so, as `Split.SlideFrom(v)` opens a split at share v and glides it to its share.
 - **Arriving and leaving.** Implement `gunim.Transitioner` to animate in on `Entering` and out on `Exiting`; the
   engine keeps the node until it reports settled.
 - **Frames only while moving.** `Step` reports true only while something moves. A widget out of sight (on a hidden

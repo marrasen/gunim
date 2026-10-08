@@ -161,3 +161,32 @@ func TestAFixedSplitKeepsItsFirstPaneAsTheWindowResizes(t *testing.T) {
 		t.Fatalf("folded, the first pane is %v wide with a gap of %v, want 0 and 0", a, g)
 	}
 }
+
+func TestASplitAskedToSlideFromAShareGlidesFromThereOnEveryFrame(t *testing.T) {
+	s := NewSplit(newSpot(10, 10), newSpot(10, 10))
+	s.SlideFrom(1)
+	s.SetShare(0.4, nil)
+	_, run := stage(t, &frame{child: s, size: geom.Sz(600, 300)})
+	// The stage's first frame has laid the split out once.
+	last := s.share.Value()
+	if last < 0.9 {
+		t.Fatalf("on the first frame the share is %v, want it starting near 1", last)
+	}
+	for f := range 120 {
+		run(1)
+		at := s.share.Value()
+		if at > last+1e-4 || at < 0.4-1e-3 {
+			t.Fatalf("frame %d: the share went from %v to %v, want it gliding down to 0.4", f, last, at)
+		}
+		last = at
+	}
+	if last > 0.401 {
+		t.Fatalf("after two seconds the share is %v, want 0.4", last)
+	}
+	// Once laid out, SlideFrom does nothing.
+	s.SlideFrom(1)
+	run(5)
+	if at := s.share.Value(); at > 0.401 {
+		t.Fatalf("SlideFrom after the first layout moved the share to %v", at)
+	}
+}

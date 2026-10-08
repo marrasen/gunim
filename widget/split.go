@@ -58,7 +58,10 @@ type Split struct {
 	OnCommit func(share float32, u *gunim.UI) gunim.Intent
 
 	// laid is set by the first layout; a share set before it shows at once.
-	laid          bool
+	laid bool
+	// slide says the first layout starts the share at from and glides it to its target, as SlideFrom asks.
+	slide         bool
+	from          float32
 	first, second gunim.Node
 	// bar is the divider as the keyboard knows it, between the panes.
 	bar   *splitBar
@@ -130,12 +133,25 @@ func (s *Split) SetShare(v float32, u *gunim.UI) {
 		s.share.Jump(v)
 		return
 	}
-	glide := Settle
-	if s.Glide.Key() != "" {
-		glide = s.Glide
-	}
-	s.share.Animate(v, glide.Get(u.Theme()))
+	s.share.Animate(v, s.glide().Get(u.Theme()))
 	u.Invalidate()
+}
+
+// glide is the motion the divider glides with: Glide, or [Settle].
+func (s *Split) glide() theme.Token[anim.Spring] {
+	if s.Glide.Key() != "" {
+		return s.Glide
+	}
+	return Settle
+}
+
+// SlideFrom has a split still to be laid out open with the first pane's share at v, and glide from there to the
+// share SetShare gave it, with Glide: a pane slides in as it opens. Once the split is laid out it does nothing.
+func (s *Split) SlideFrom(v float32) {
+	if s.laid {
+		return
+	}
+	s.slide, s.from = true, v
 }
 
 func (s *Split) along(p geom.Point) float32 {
@@ -176,6 +192,11 @@ func (s *Split) firstLength() float32 {
 // Layout implements [gunim.Node]. The split fills the space it is
 // given.
 func (s *Split) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
+	if !s.laid && s.slide {
+		to := s.share.Target()
+		s.share.Jump(s.from)
+		s.share.Animate(to, s.glide().Get(f.Theme))
+	}
 	s.laid = true
 	own := c.Max
 	s.own = own
