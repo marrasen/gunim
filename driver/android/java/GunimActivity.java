@@ -37,9 +37,28 @@ public class GunimActivity extends Activity {
 				| android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
 			v.watchKeyboard(getWindow().getDecorView());
 		}
+		if (android.os.Build.VERSION.SDK_INT >= 33) {
+			watchBack();
+		}
 		v.requestFocus();
 		Native.start(java.util.TimeZone.getDefault().getID());
 		showBuild();
+	}
+
+	/**
+	 * watchBack hands the back gesture and button to Go as the back key,
+	 * which the driver takes as Escape. Android 13 and later tell an app
+	 * of them through this callback rather than as a key, and Android 16
+	 * only so, for an app built for it; GunimView takes the key on older
+	 * Android.
+	 */
+	@android.annotation.TargetApi(33)
+	private void watchBack() {
+		getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
+			android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, () -> {
+				Native.key(true, android.view.KeyEvent.KEYCODE_BACK, 0, 0, 0);
+				Native.key(false, android.view.KeyEvent.KEYCODE_BACK, 0, 0, 0);
+			});
 	}
 
 	/**

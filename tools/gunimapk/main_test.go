@@ -1,9 +1,15 @@
 package main
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/xml"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -78,5 +84,89 @@ func TestTheActivityHoldsTheScreenOneWayOnlyWhenAsked(t *testing.T) {
 		if err := xml.Unmarshal([]byte(m), new(struct{})); err != nil {
 			t.Errorf("the manifest is not XML: %v\n%s", err, m)
 		}
+	}
+}
+
+func TestAnOutputEndingAabIsABundle(t *testing.T) {
+	for out, want := range map[string]bool{"calc.apk": false, "calc.aab": true, "dist/Calc.AAB": true, "calc": false} {
+		if got := (options{out: out}).bundle(); got != want {
+			t.Errorf("-o %s: bundle is %v, want %v", out, got, want)
+		}
+	}
+}
+
+func TestABundlesModuleHoldsTheManifestWhereBundletoolLooks(t *testing.T) {
+	for name, want := range map[string]string{
+		"AndroidManifest.xml":                   "manifest/AndroidManifest.xml",
+		"resources.pb":                          "resources.pb",
+		"res/mipmap-anydpi-v26/ic_launcher.xml": "res/mipmap-anydpi-v26/ic_launcher.xml",
+		"kotlin/stray.txt":                      "root/kotlin/stray.txt",
+	} {
+		if got := moduleName(name); got != want {
+			t.Errorf("%s goes to %s, want %s", name, got, want)
+		}
+	}
+}
+
+func TestJarsignerTakesThePasswordsAsApksignerDoes(t *testing.T) {
+	none := func(string) string { return "" }
+	got := jarsignerArgs("k.jks", "upload", none, "o.aab", "u.aab")
+	want := []string{"-keystore", "k.jks", "-signedjar", "o.aab", "u.aab", "upload"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("with no passwords set, signs with %q, want %q, so jarsigner asks", got, want)
+	}
+	both := func(string) string { return "secret" }
+	got = jarsignerArgs("k.jks", "upload", both, "o.aab", "u.aab")
+	want = []string{"-keystore", "k.jks", "-storepass:env", "GUNIMAPK_STORE_PASS", "-keypass:env", "GUNIMAPK_KEY_PASS",
+		"-signedjar", "o.aab", "u.aab", "upload"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("with passwords set, signs with %q, want %q", got, want)
+	}
+}
+
+func TestTheActivityHearsBackThroughTheCallback(t *testing.T) {
+	m := manifestFor("org.gunim.calc", "Calculator", false, nil, "")
+	if !strings.Contains(m, `android:enableOnBackInvokedCallback="true"`) {
+		t.Errorf("the manifest leaves the back callback off, so Android 13 to 15 send Back as a key and 16 sends nothing:\n%s", m)
+	}
+}
+
+func TestALibraryAlignedTo4KBIsRefused(t *testing.T) {
+	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
+		t.Skip("the test's own binary is an ELF aligned to 4 KB on linux/amd64 alone")
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := checkPages(exe); err == nil {
+		t.Fatalf("%s loads at 4 KB boundaries, and passes as fit for 16 KB pages", exe)
+	}
+}
+
+func TestAFetchThatDiffersLeavesNoFile(t *testing.T) {
+	body := []byte("bundletool")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(body) }))
+	defer srv.Close()
+	sum := sha256.Sum256(body)
+	dir := t.TempDir()
+	bad := filepath.Join(dir, "bad.jar")
+	if err := fetch(context.Background(), srv.URL, bad, strings.Repeat("0", 64)); err == nil {
+		t.Error("a download with the wrong checksum is taken")
+	}
+	good := filepath.Join(dir, "good.jar")
+	if err := fetch(context.Background(), srv.URL, good, hex.EncodeToString(sum[:])); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "good.jar" {
+		names := make([]string, 0, len(entries))
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		t.Fatalf("the cache holds %q, want only good.jar", names)
 	}
 }
