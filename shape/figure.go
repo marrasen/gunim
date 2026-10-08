@@ -15,10 +15,6 @@ type Figure struct {
 	ViewBox geom.Rect
 	// Parts are drawn in order, the first at the back.
 	Parts []Part
-
-	// at and grads are the gradients last mapped, into at, so a figure drawn in one place maps them once.
-	at    geom.Rect
-	grads []*paint.Gradient
 }
 
 // Part is one path of a figure: filled, stroked, or both, the fill first.
@@ -37,22 +33,27 @@ type Part struct {
 }
 
 // Paint draws the figure with its view box stretched over r; [Fit] gives the place in r that keeps its shape.
+// Paint only reads the figure, so one figure may be painted at many places, and from many goroutines at once.
 func (f *Figure) Paint(p *paint.Painter, r geom.Rect) {
 	if f == nil || r.Empty() || f.ViewBox.Empty() {
 		return
 	}
-	if r != f.at || len(f.grads) != len(f.Parts) {
-		f.mapGradients(r)
+	kx, ky := r.Size().W/f.ViewBox.Size().W, r.Size().H/f.ViewBox.Size().H
+	m := func(q geom.Point) geom.Point {
+		return geom.Pt(r.Min.X+(q.X-f.ViewBox.Min.X)*kx, r.Min.Y+(q.Y-f.ViewBox.Min.Y)*ky)
 	}
-	for i, pt := range f.Parts {
+	for _, pt := range f.Parts {
 		if pt.Path == nil {
 			continue
 		}
 		fill := pt.Path.Fill()
 		fill.EvenOdd = pt.EvenOdd
 		switch {
-		case f.grads[i] != nil:
-			p.MaskFill(fill, fill.In(f.ViewBox, r), paint.Fill{Gradient: f.grads[i]})
+		case pt.FillGradient != nil:
+			// The gradient, in the view box's units, is mapped into r afresh: a copy for this paint alone.
+			g := *pt.FillGradient
+			g.From, g.To = m(g.From), m(g.To)
+			p.MaskFill(fill, fill.In(f.ViewBox, r), paint.Fill{Gradient: &g})
 		case pt.Fill.A > 0:
 			p.Mask(fill, fill.In(f.ViewBox, r), pt.Fill)
 		}
@@ -60,23 +61,5 @@ func (f *Figure) Paint(p *paint.Painter, r geom.Rect) {
 			s := pt.Path.Stroke(pt.Width)
 			p.Mask(s, s.In(f.ViewBox, r), pt.Stroke)
 		}
-	}
-}
-
-// mapGradients maps each part's gradient from the view box into r.
-func (f *Figure) mapGradients(r geom.Rect) {
-	f.at = r
-	f.grads = make([]*paint.Gradient, len(f.Parts))
-	kx, ky := r.Size().W/f.ViewBox.Size().W, r.Size().H/f.ViewBox.Size().H
-	m := func(q geom.Point) geom.Point {
-		return geom.Pt(r.Min.X+(q.X-f.ViewBox.Min.X)*kx, r.Min.Y+(q.Y-f.ViewBox.Min.Y)*ky)
-	}
-	for i, pt := range f.Parts {
-		if pt.FillGradient == nil {
-			continue
-		}
-		g := *pt.FillGradient
-		g.From, g.To = m(g.From), m(g.To)
-		f.grads[i] = &g
 	}
 }

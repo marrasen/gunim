@@ -2,7 +2,9 @@ package shape
 
 import (
 	"image/color"
+	"reflect"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/marrasen/gunim/geom"
@@ -222,4 +224,41 @@ func near(a, b geom.Rect) bool {
 		}
 	}
 	return true
+}
+
+// skyTo is where the sky's gradient ends as f paints into r.
+func skyTo(f *Figure, r geom.Rect) geom.Point {
+	var p paint.Painter
+	p.Reset()
+	f.Paint(&p, r)
+	for _, op := range p.Ops() {
+		if m, ok := op.(*paint.MaskOp); ok && m.Gradient != nil {
+			return m.Gradient.To
+		}
+	}
+	return geom.Point{}
+}
+
+func TestAFigurePaintsAtTwoPlacesAtOnceAndStaysAsItWas(t *testing.T) {
+	f := mustSVG(t, art)
+	was := *f
+	small, big := geom.Rc(0, 0, 100, 50), geom.Rc(10, 10, 400, 200)
+	var wg sync.WaitGroup
+	for _, c := range []struct {
+		r    geom.Rect
+		want geom.Point
+	}{{small, geom.Pt(0, 50)}, {big, geom.Pt(10, 210)}} {
+		wg.Go(func() {
+			for range 200 {
+				if got := skyTo(f, c.r); got != c.want {
+					t.Errorf("painted into %v, the sky runs to %v, want %v", c.r, got, c.want)
+					return
+				}
+			}
+		})
+	}
+	wg.Wait()
+	if !reflect.DeepEqual(*f, was) {
+		t.Fatal("painting changed the figure")
+	}
 }
