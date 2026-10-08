@@ -986,7 +986,9 @@ func (t *Tabs) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) g
 	if size.W <= 0 {
 		size.W = bs.W
 	}
-	page := geom.Sz(size.W, max(0, size.H-t.head))
+	// The pages start a gap below the titles' line.
+	top := t.head + TabGap.Get(f.Theme)
+	page := geom.Sz(size.W, max(0, size.H-top))
 	var tallest float32
 	// Asked for no particular height, the tabs are as tall as their tallest page, so a dialog holding them keeps its
 	// size from tab to tab; every page is measured for that. Given a height, only the pages showing are laid out.
@@ -997,11 +999,11 @@ func (t *Tabs) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) g
 		}
 		kid := kids.At(i)
 		s := kid.Layout(gunim.Constraints{Min: geom.Sz(page.W, 0), Max: page})
-		kid.Place(geom.Pt(0, t.head))
+		kid.Place(geom.Pt(0, top))
 		tallest = max(tallest, s.H)
 	}
 	if size.H <= 0 {
-		size.H = t.head + tallest
+		size.H = top + tallest
 	}
 	return c.Constrain(size)
 }

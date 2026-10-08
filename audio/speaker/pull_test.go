@@ -1,7 +1,9 @@
 package speaker
 
 import (
+	"errors"
 	"math"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -212,5 +214,51 @@ func TestSetChangesTheRate(t *testing.T) {
 	defer f.mu.Unlock()
 	if f.opens != 2 {
 		t.Errorf("the driver opened %d times, want 2", f.opens)
+	}
+}
+
+// TestADriverThatFailedOpensItsSettings has a driver fail to open, opens
+// its settings, and finds the speaker trying it again after.
+func TestADriverThatFailedOpensItsSettings(t *testing.T) {
+	f := useFake(t, asio.Info{Driver: "Fake", Rate: 48000, Buffer: 256, Bits: 32})
+	fail := true
+	was := openPull
+	openPull = func(c asio.Config) (pullDevice, error) {
+		if fail {
+			return nil, errors.New("the driver refused to start")
+		}
+		return f.open(c)
+	}
+	defer func() { openPull = was }()
+	var panels []string
+	wasPanel := driverPanel
+	driverPanel = func(name string) error {
+		panels = append(panels, name)
+		fail = false
+		return nil
+	}
+	defer func() { driverPanel = wasPanel }()
+	if os.Getenv("GUNIM_SPEAKER") != "1" {
+		t.Skip("the speaker falls back to the system's sound: set GUNIM_SPEAKER=1 to let it")
+	}
+	m := audio.NewMixer()
+	s, err := Open(m, Options{Driver: "Fake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if s.State().Problem == nil {
+		t.Fatal("a driver that refused to start tells no problem")
+	}
+	if err := s.ControlPanel(); err != nil || len(panels) != 1 || panels[0] != "Fake" {
+		t.Fatalf("the settings opened for %v: %v", panels, err)
+	}
+	select {
+	case <-s.Changed():
+	case <-time.After(3 * time.Second):
+		t.Fatal("the speaker never tried the driver again")
+	}
+	if st := s.State(); st.Driver != "Fake" || st.Problem != nil {
+		t.Errorf("after the settings, the speaker plays through %q, problem %v", st.Driver, st.Problem)
 	}
 }

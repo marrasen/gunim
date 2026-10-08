@@ -192,7 +192,7 @@ func TestTabsAskedForNoHeightKeepTheTallestPagesHeight(t *testing.T) {
 	w, run := stage(t, &frame{child: sc, size: geom.Sz(300, 600)})
 	gunim.RegisterPatch(w, "stage", func(_ gunim.Node, c chooseTab, u *gunim.UI) { tabs.SetSelected(c.I, u) })
 	run(2)
-	want := tabs.head + 300
+	want := tabs.head + TabGap.Default() + 300
 	if err := w.Client().Patch("stage", chooseTab{1}); err != nil {
 		t.Fatal(err)
 	}
@@ -425,5 +425,17 @@ func TestSliderTellsTheWindowAsItMoves(t *testing.T) {
 	run(1)
 	if len(seen) != 2 || seen[0] != 50 || seen[1] != 51 {
 		t.Errorf("OnMove saw %v, want 50 then 51", seen)
+	}
+}
+
+// TestATabsPageStartsAGapBelowTheTitles lays tabs out and finds the page
+// a gap below the line under the titles, so its first row stands clear.
+func TestATabsPageStartsAGapBelowTheTitles(t *testing.T) {
+	page := newSpot(300, 100)
+	tabs := NewTabs([]string{"One", "Two"}, page, newSpot(300, 100))
+	_, run := stage(t, &frame{child: tabs, size: geom.Sz(300, 300)})
+	run(60)
+	if want := tabs.head + TabGap.Default(); page.at.Y != want {
+		t.Fatalf("the page is drawn at %v, want %v: the titles' %v and a gap of %v", page.at.Y, want, tabs.head, TabGap.Default())
 	}
 }

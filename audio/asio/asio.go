@@ -75,6 +75,9 @@ func (e *Error) Error() string {
 	if name == "" {
 		name = fmt.Sprintf("error %d", e.Code)
 	}
+	if e.Message != "" && e.Code == codeOK {
+		return fmt.Sprintf("asio: %s: %s", e.Op, e.Message)
+	}
 	if e.Message != "" {
 		return fmt.Sprintf("asio: %s: %s (%s)", e.Op, e.Message, name)
 	}

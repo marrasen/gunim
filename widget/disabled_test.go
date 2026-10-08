@@ -17,7 +17,7 @@ func TestTabsTakeTheKeyboardOffAPageAsItHides(t *testing.T) {
 	w, run := stage(t, &frame{child: tabs, size: geom.Sz(300, 200)})
 	gunim.RegisterPatch(w, "stage", func(_ gunim.Node, c chooseTab, u *gunim.UI) { tabs.SetSelected(c.I, u) })
 	focused := focusProbe(t, w, run)
-	click(w, 20, tabs.head+10)
+	click(w, 20, tabs.head+TabGap.Default()+10)
 	run(1)
 	if f := focused(); f != a {
 		t.Fatalf("a click on the first page's field put the keyboard on %T", f)

@@ -351,6 +351,9 @@ var (
 	SliderRestMark = theme.Color("slider.rest", color.NRGBA{R: 0xa4, G: 0xab, B: 0xbb, A: 0xc0})
 	TabHeight      = theme.Length("tab.height", 38)
 	TabPadding     = theme.Length("tab.padding", 14)
+	// TabGap is the room between the line under a [Tabs]' titles and its
+	// page.
+	TabGap = theme.Length("tab.gap", 14)
 	// FocusRadius rounds the focus ring round a control with no corners of its own, such as a link or a tab's
 	// title.
 	FocusRadius = theme.Length("focus.radius", 5)
