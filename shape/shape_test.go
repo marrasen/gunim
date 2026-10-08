@@ -151,6 +151,11 @@ func TestAnSVGItCannotReadSaysWhy(t *testing.T) {
 		{`<svg><rect width="1" height="1" fill="chartreuseish"/></svg>`, "colour"},
 		{`<svg><g transform="spin(3)"/></svg>`, "transform"},
 		{`<svg`, "svg"},
+		{`<svg><ellipse rx="1" ry="tall"/></svg>`, `"tall"`},
+		{`<svg><style>.cls-1{fill:#f00}</style><rect class="cls-1" width="1" height="1"/></svg>`, "<style>"},
+		{`<svg><defs><style>rect{fill:red}</style></defs></svg>`, "<style>"},
+		{`<svg><defs><circle id="c" r="1"/></defs><use href="#c"/></svg>`, "<use>"},
+		{`<svg><g><use xlink:href="#c" x="3"/></g></svg>`, "<use>"},
 	} {
 		_, err := ParseSVG([]byte(c.src))
 		if err == nil || !strings.Contains(err.Error(), c.want) {
@@ -260,5 +265,47 @@ func TestAFigurePaintsAtTwoPlacesAtOnceAndStaysAsItWas(t *testing.T) {
 	wg.Wait()
 	if !reflect.DeepEqual(*f, was) {
 		t.Fatal("painting changed the figure")
+	}
+}
+
+func TestAnEmptyBoxMapsToAnEmptyRect(t *testing.T) {
+	d := mustPath(t, "M0 0L10 10")
+	for _, box := range []geom.Rect{{}, geom.Rc(0, 0, 0, 24), geom.Rc(0, 0, 24, 0), geom.Rc(5, 5, -3, 4)} {
+		at := d.Fill().In(box, geom.Rc(0, 0, 48, 48))
+		if !at.Empty() || !finite(at.Min.X, at.Min.Y, at.Max.X, at.Max.Y) {
+			t.Errorf("in the box %v the fill draws at %v, want an empty rect of numbers", box, at)
+		}
+	}
+}
+
+func TestAPercentSizeIsNoViewBox(t *testing.T) {
+	f := mustSVG(t, `<svg width="100%" height="100%"><rect x="10" y="20" width="30" height="40"/></svg>`)
+	if f.ViewBox != geom.Rc(10, 20, 30, 40) {
+		t.Fatalf("view box %v, want the box the parts lie in", f.ViewBox)
+	}
+	f = mustSVG(t, `<svg width="100%" height="50%" viewBox="0 0 5 6"><rect width="1" height="1"/></svg>`)
+	if f.ViewBox != geom.Rc(0, 0, 5, 6) {
+		t.Fatalf("view box %v, want the viewBox", f.ViewBox)
+	}
+}
+
+func TestAGradientFallsBackToTheColourAfterIt(t *testing.T) {
+	f := mustSVG(t, `<svg viewBox="0 0 10 10">
+		<defs><linearGradient id="g"><stop offset="0" stop-color="red"/><stop offset="1" stop-color="blue"/></linearGradient></defs>
+		<rect width="1" height="1" fill="url(#g) red"/>
+		<rect width="1" height="1" fill="url('#missing') lime"/>
+		<rect width="1" height="1" fill="url(#missing) none" stroke="url(#missing) blue"/>
+	</svg>`)
+	if len(f.Parts) != 3 {
+		t.Fatalf("%d parts", len(f.Parts))
+	}
+	if g := f.Parts[0].FillGradient; g == nil || g.Start != (color.NRGBA{R: 255, A: 255}) {
+		t.Fatalf("the first rect's gradient is %+v, want g", g)
+	}
+	if c := f.Parts[1].Fill; c != (color.NRGBA{G: 255, A: 255}) || f.Parts[1].FillGradient != nil {
+		t.Fatalf("the second rect is filled %v, want its fallback lime", c)
+	}
+	if pt := f.Parts[2]; pt.Fill.A != 0 || pt.FillGradient != nil || pt.Stroke != (color.NRGBA{B: 255, A: 255}) {
+		t.Fatalf("the third rect is %+v, want no fill and a blue stroke", pt)
 	}
 }

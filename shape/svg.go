@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"image/color"
 	"math"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -25,9 +26,16 @@ import (
 // gradientUnits, with their stops, transforms and the stops of a gradient they link to. A radial gradient is drawn
 // as a circle from its centre, its focus left out.
 //
-// It leaves out what is not a shape — text, images, filters, masks, clip paths, markers, patterns — and draws
-// every stroke with round caps and joins and no dashes. Opacity on a group is given to each shape in it, so shapes
-// in a faded group that overlap show through each other.
+// It leaves out text, images, filters, masks, clip paths, markers and patterns, and draws every stroke solid,
+// with round caps and joins. Opacity on a group is given to each shape in it, so shapes in a faded group that
+// overlap show through each other.
+//
+// A <style> sheet with rules in it, and a <use> element, are errors that name the element: the reader takes
+// presentation from attributes and style attributes, and draws each shape where it is written. An editor saves a
+// file this reads when told to keep styles on the elements and to unlink clones and symbols, as Illustrator does
+// with its "Presentation Attributes" styling.
+//
+// Numbers past float32, and paths whose bounds reach past it, are errors too.
 func ParseSVG(src []byte) (*Figure, error) {
 	var root node
 	if err := xml.NewDecoder(bytes.NewReader(src)).Decode(&root); err != nil {
@@ -37,7 +45,9 @@ func ParseSVG(src []byte) (*Figure, error) {
 		return nil, fmt.Errorf("shape: svg: the root is <%s>, not <svg>", root.XMLName.Local)
 	}
 	r := &reader{grads: map[string]*node{}}
-	r.collect(&root)
+	if err := r.collect(&root); err != nil {
+		return nil, err
+	}
 	f := &Figure{}
 	if err := r.draw(&root, rootStyle(), vecpath.Identity, f); err != nil {
 		return nil, err
@@ -51,6 +61,8 @@ type node struct {
 	XMLName  xml.Name
 	Attrs    []xml.Attr `xml:",any,attr"`
 	Children []node     `xml:",any"`
+	// Text is the text inside the element, as a style sheet holds its rules.
+	Text string `xml:",chardata"`
 }
 
 // attr returns the attribute named name, in any namespace, and whether there is one.
@@ -93,8 +105,7 @@ func (n *node) num(name string, def float32) (float32, error) {
 
 // length reads a number with a unit such as px or pt left off.
 func length(v string) (float32, error) {
-	v = strings.TrimRight(strings.TrimSpace(v), "abcdefghijklmnopqrstuvwxyz%")
-	f, err := strconv.ParseFloat(v, 32)
+	f, err := strconv.ParseFloat(strings.TrimRight(strings.TrimSpace(v), "abcdefghijklmnopqrstuvwxyz%"), 32)
 	if err != nil || !finite(float32(f)) {
 		return 0, fmt.Errorf("shape: svg: %q is not a finite number", v)
 	}
@@ -120,7 +131,7 @@ type style struct {
 	shown        bool
 }
 
-// rootStyle is SVG's initial style: filled black, not stroked.
+// rootStyle is SVG's initial style: filled black, with a stroke of none.
 func rootStyle() style {
 	black := color.NRGBA{A: 0xff}
 	return style{
@@ -134,20 +145,35 @@ type reader struct {
 	grads map[string]*node
 }
 
-// collect finds the gradients anywhere in the tree.
-func (r *reader) collect(n *node) {
+// errStyleSheet is the error for an SVG with a style sheet, whose rules the reader would leave out.
+var errStyleSheet = errors.New("shape: svg: a <style> sheet's rules are not read; " +
+	"give fill and stroke as attributes or in style attributes, as an editor does when told to")
+
+// collect finds the gradients anywhere in the tree. A style sheet with rules in it is an error.
+func (r *reader) collect(n *node) error {
 	switch n.XMLName.Local {
 	case "linearGradient", "radialGradient":
 		if id, ok := n.attr("id"); ok {
 			r.grads[id] = n
 		}
+	case "style":
+		if strings.TrimSpace(cssComments.ReplaceAllString(n.Text, "")) != "" {
+			return errStyleSheet
+		}
 	}
 	for i := range n.Children {
-		r.collect(&n.Children[i])
+		if err := r.collect(&n.Children[i]); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
-// skipped are the elements whose insides are never drawn as they stand.
+// cssComments matches the comments in a style sheet.
+var cssComments = regexp.MustCompile(`(?s)/\*.*?\*/`)
+
+// skipped are the elements the reader passes over with their children: definitions, drawn only where something
+// refers to them, and what it leaves out.
 var skipped = map[string]bool{
 	"defs": true, "symbol": true, "clipPath": true, "mask": true, "pattern": true, "marker": true, "filter": true,
 	"linearGradient": true, "radialGradient": true, "text": true, "image": true, "title": true, "desc": true,
@@ -159,6 +185,10 @@ var skipped = map[string]bool{
 func (r *reader) draw(n *node, st style, ctm vecpath.Affine, f *Figure) error {
 	if skipped[n.XMLName.Local] {
 		return nil
+	}
+	if n.XMLName.Local == "use" {
+		return errors.New("shape: svg: <use> is not read; the reader draws each shape where it is written, " +
+			"so unlink clones and symbols in the editor before saving")
 	}
 	st, err := r.inherit(n, st)
 	if err != nil {
@@ -207,19 +237,9 @@ func (r *reader) inherit(n *node, st style) (style, error) {
 		if !ok || v == "inherit" {
 			continue
 		}
-		var spec paintSpec
-		switch {
-		case v == "none" || v == "transparent":
-			spec.none = true
-		case strings.HasPrefix(v, "url("):
-			id := strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(v, "url("), ")")), "'"), "'")
-			spec.grad = strings.TrimPrefix(strings.Trim(id, `"`), "#")
-		default:
-			c, ok, cerr := colour(v, st.currentColor)
-			if cerr != nil {
-				return st, cerr
-			}
-			spec.none, spec.col = !ok, c
+		spec, perr := r.paint(v, st.currentColor)
+		if perr != nil {
+			return st, perr
 		}
 		*p.to = spec
 	}
@@ -255,6 +275,34 @@ func (r *reader) inherit(n *node, st style) (style, error) {
 		st.shown = false
 	}
 	return st, nil
+}
+
+// paint reads a fill or a stroke: none, a colour, or url(#id) of a gradient. A colour after the url is the fallback,
+// taken in place of a gradient the file does not hold.
+func (r *reader) paint(v string, current color.NRGBA) (paintSpec, error) {
+	var spec paintSpec
+	if rest, ok := strings.CutPrefix(v, "url("); ok {
+		ref, fallback, ok := strings.Cut(rest, ")")
+		if !ok {
+			return spec, fmt.Errorf("shape: svg: paint %q has no closing bracket", v)
+		}
+		id := strings.TrimPrefix(strings.Trim(strings.TrimSpace(ref), `"'`), "#")
+		if fallback = strings.TrimSpace(fallback); fallback == "" {
+			spec.grad = id
+			return spec, nil
+		}
+		if _, ok := r.grads[id]; ok {
+			spec.grad = id
+			return spec, nil
+		}
+		v = fallback
+	}
+	c, ok, err := colour(v, current)
+	if err != nil {
+		return spec, err
+	}
+	spec.none, spec.col = !ok, c
+	return spec, nil
 }
 
 // part adds a shape to f, its outline subs in its own units.
@@ -410,7 +458,8 @@ func (r *reader) gradient(id string, box geom.Rect, ctm vecpath.Affine, op float
 	return g
 }
 
-// outline is the shape element n's outline in its own units; nil, and no error, where n is not a shape.
+// outline is the outline of the shape element n, in its own units. For any other element, such as a group, it is
+// nil, with a nil error.
 func outline(n *node) ([]vecpath.Subpath, error) {
 	var d string
 	switch n.XMLName.Local {
@@ -458,11 +507,12 @@ func outline(n *node) ([]vecpath.Subpath, error) {
 		cy, err2 := n.num("cy", 0)
 		rx, err3 := n.num("r", 0)
 		ry := rx
+		var err4 error
 		if n.XMLName.Local == "ellipse" {
 			rx, err3 = n.num("rx", 0)
-			ry, _ = n.num("ry", rx)
+			ry, err4 = n.num("ry", rx)
 		}
-		if err := errors.Join(err1, err2, err3); err != nil {
+		if err := errors.Join(err1, err2, err3, err4); err != nil {
 			return nil, err
 		}
 		if rx <= 0 || ry <= 0 {
@@ -515,9 +565,12 @@ func viewBox(root *node, f *Figure) geom.Rect {
 			}
 		}
 	}
+	// A width or height in percent is a share of a place the file does not know, and no size of its own.
+	wv, _ := root.attr("width")
+	hv, _ := root.attr("height")
 	w, err1 := root.num("width", 0)
 	h, err2 := root.num("height", 0)
-	if err1 == nil && err2 == nil && w > 0 && h > 0 {
+	if err1 == nil && err2 == nil && w > 0 && h > 0 && !strings.HasSuffix(wv, "%") && !strings.HasSuffix(hv, "%") {
 		return geom.Rc(0, 0, w, h)
 	}
 	var b geom.Rect

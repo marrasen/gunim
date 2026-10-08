@@ -24,7 +24,7 @@ import (
 )
 
 // Path is SVG path data, in whatever units its numbers are: lines, cubic and quadratic Béziers and arcs, in one or
-// more subpaths. It must not change once drawn.
+// more subpaths. Its data is fixed once read.
 type Path struct {
 	subs   []vecpath.Subpath
 	lo, hi vecpath.Pt
@@ -43,8 +43,8 @@ func NewPath(d string) (*Path, error) {
 // errTooFar is the error for a path whose points, or the distances between them, reach past float32.
 var errTooFar = errors.New("shape: the path reaches past the range of float32")
 
-// pathOf is the path of subpaths already read, or errTooFar where its bounds, or their width or height, are not
-// finite numbers.
+// pathOf is the path of subpaths already read. Its bounds, and their width and height, must be finite numbers;
+// errTooFar says they reach past float32.
 func pathOf(subs []vecpath.Subpath) (*Path, error) {
 	p := &Path{subs: subs}
 	p.lo, p.hi, _ = vecpath.Bounds(subs)
@@ -84,7 +84,7 @@ type Fill struct {
 	EvenOdd bool
 }
 
-// Settled implements [paint.Shape]: a path never changes.
+// Settled implements [paint.Shape]: a fill is always settled, as its path stays as it was read.
 func (Fill) Settled() bool { return true }
 
 // In is where the fill draws when the box of its path's units, such as an SVG's view box, is drawn into r.
@@ -109,8 +109,8 @@ type Stroke struct {
 	Width float32
 }
 
-// Settled implements [paint.Shape]: a stroke of a width that is a number never changes; one that is not is drawn
-// again each frame, as it never equals the last one.
+// Settled implements [paint.Shape]: a stroke whose width is a number is settled. A NaN width equals nothing, the
+// last frame's included, so such a stroke is drawn again each frame.
 func (s Stroke) Settled() bool { return s.Width == s.Width }
 
 // In is where the stroke draws when the box of its path's units is drawn into r.
@@ -175,13 +175,22 @@ func toPixels(b geom.Rect, w, h int) (m func(vecpath.Pt) vecpath.Pt, k float32) 
 	return m, float32(math.Sqrt(float64(kx * ky)))
 }
 
-// mapRect is where b, in box's units, lies when box is drawn into r.
+// mapRect is where b, in box's units, lies when box is drawn into r. Where box is empty, or the place is no
+// finite rect, it is the empty rect at r's corner, which draws nothing.
 func mapRect(b, box, r geom.Rect) geom.Rect {
+	nothing := geom.Rect{Min: r.Min, Max: r.Min}
+	if box.Empty() {
+		return nothing
+	}
 	kx, ky := r.Size().W/box.Size().W, r.Size().H/box.Size().H
-	return geom.Rect{
+	at := geom.Rect{
 		Min: geom.Pt(r.Min.X+(b.Min.X-box.Min.X)*kx, r.Min.Y+(b.Min.Y-box.Min.Y)*ky),
 		Max: geom.Pt(r.Min.X+(b.Max.X-box.Min.X)*kx, r.Min.Y+(b.Max.Y-box.Min.Y)*ky),
 	}
+	if !finite(at.Min.X, at.Min.Y, at.Max.X, at.Max.Y) {
+		return nothing
+	}
+	return at
 }
 
 // Fit is the largest rect of box's shape centred in r, as an SVG's view box is drawn into a place of another

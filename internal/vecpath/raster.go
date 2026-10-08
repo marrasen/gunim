@@ -66,7 +66,7 @@ func NewDistances(w, h int) []float32 {
 
 // Segment lowers each pixel's squared distance in dist to that from the segment a b, over the pixels a band hw
 // either side of it can cover. It works row by row on the pixels near the segment, so a long diagonal costs its
-// length, not the area of its bounding box. A segment from a point that is not a finite number is left out.
+// length, not the area of its bounding box. It draws only a segment whose ends and width are finite numbers.
 func Segment(dist []float32, w, h int, a, b Pt, hw float32) {
 	if !finite(a.X, a.Y, b.X, b.Y, hw) {
 		return

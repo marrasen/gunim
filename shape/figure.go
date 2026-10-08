@@ -20,14 +20,14 @@ type Figure struct {
 // Part is one path of a figure: filled, stroked, or both, the fill first.
 type Part struct {
 	Path *Path
-	// Fill colours the inside; FillGradient, where set, in its place, in the view box's units. A fill with
-	// neither is not drawn.
+	// Fill colours the inside; FillGradient, where set, colours it in Fill's place, in the view box's units. The
+	// inside is drawn when Fill has some alpha or FillGradient is set.
 	Fill         color.NRGBA
 	FillGradient *paint.Gradient
 	// EvenOdd fills by the even-odd rule in place of nonzero.
 	EvenOdd bool
-	// Stroke colours a stroke Width units wide, with round caps and joins. A stroke with no colour or width is
-	// not drawn.
+	// Stroke colours a stroke Width units wide, with round caps and joins, drawn when both Stroke's alpha and
+	// Width are above zero.
 	Stroke color.NRGBA
 	Width  float32
 }
