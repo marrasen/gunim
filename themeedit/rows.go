@@ -7,7 +7,6 @@ import (
 	"reflect"
 
 	"github.com/marrasen/gunim"
-	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/paint"
@@ -18,72 +17,171 @@ import (
 
 // A control edits one value in a row.
 type control interface {
-	// node returns what the row shows.
+	// node returns what the row shows at its right.
 	node() gunim.Node
+	// below returns what the row shows under its words and control,
+	// such as a spring's sliders, or nil.
+	below() gunim.Node
 	// show shows v, telling no one.
 	show(v any, u *gunim.UI)
+	// stops returns the nodes Tab stops at in the control, in order.
+	stops() []gunim.Node
 }
 
-// row is one token's row: its name, its control, whether it is
-// overridden, and a button that resets it.
+// row is one token's row: its name, what it does, its control, and a
+// button that resets it, which shows only while the value is changed.
 type row struct {
 	key     string
 	ctl     control
-	changed *widget.Label
 	reset   *widget.IconButton
-	node    gunim.Node
+	line    *line
+	changed bool
 }
 
 // newRow returns a row for the token info describes, as field sets it
-// out. A row of All values shows the key; one of Chosen shows the
-// field's label and sentence.
-func (e *Editor) newRow(info theme.Info, f Field, all bool) *row {
+// out. A dense row, as All values has, shows the token's key under its
+// name in place of a sentence.
+func (e *Editor) newRow(info theme.Info, f Field, dense bool) *row {
 	r := &row{key: info.Key}
 	label := f.Label
 	if label == "" {
 		label = Words(info.Key)
 	}
 	edit := func(v any, commit bool, src control, u *gunim.UI) { _ = e.edit(info.Key, v, commit, src, u) }
-	r.ctl = newControl(info, f, label, e.choices[info.Key], all, edit)
+	play := func(u *gunim.UI) { e.Play(info.Key, u) }
+	r.ctl = newControl(info, f, label, e.choices[info.Key], dense, edit, play)
 	r.ctl.show(e.value(info.Key), nil)
 
-	var title, detail *widget.Label
-	if all {
-		title = widget.NewLabel(info.Key)
-		title.Face, title.Size, title.Selectable = widget.MonoFont, KeySize, true
-		detail = widget.NewLabel(label + " · " + info.Kind.String())
-	} else {
-		title = widget.NewLabel(label)
-		detail = widget.NewLabel(f.Detail)
+	title := widget.NewLabel(label)
+	detail := widget.NewLabel(f.Detail)
+	detail.Color = widget.Placeholder
+	if dense {
+		detail.Text = info.Key
+		detail.Face, detail.Size, detail.Selectable = widget.MonoFont, KeySize, true
 	}
-	detail.Size, detail.Color = DetailSize, widget.Placeholder
-	r.changed = widget.NewLabel("")
-	r.changed.Size, r.changed.Color = DetailSize, widget.Accent
-	head := widget.Row(title, r.changed)
-	head.Cross = widget.CrossCenter
-	names := widget.Column(head, detail)
-	names.Gap = NamesGap
-
-	r.reset = widget.NewIconButton(icon.RotateCcw, "Reset "+label+" to the base theme")
+	r.reset = widget.NewIconButton(icon.RotateCcw, "Reset "+label+" to "+e.baseName())
+	r.reset.IconSize = IconSize
 	r.reset.OnClick = func(u *gunim.UI) gunim.Intent {
 		e.Reset(info.Key, u)
 		return nil
 	}
+	r.line = &line{title: title, detail: detail, control: r.ctl.node(), reset: r.reset, below: r.ctl.below()}
 	r.mark(e.over.Has(info.Key), nil)
-	line := widget.Row(names, r.ctl.node(), r.reset).Grow(names, 1)
-	line.Cross = widget.CrossCenter
-	r.node = line
 	return r
 }
 
-// mark shows whether the row's value is overridden.
+// mark shows whether the row's value is changed: a dot before its name
+// and its reset button, or neither.
 func (r *row) mark(on bool, u *gunim.UI) {
+	r.changed = on
+	r.line.changed = on
 	r.reset.Disabled = !on
-	r.changed.Text = ""
-	if on {
-		r.changed.Text = "changed"
-	}
 	u.Invalidate()
+}
+
+// stops returns the nodes Tab stops at in the row, in order.
+func (r *row) stops() []gunim.Node {
+	out := r.ctl.stops()
+	if r.changed {
+		out = append(out, r.reset)
+	}
+	return out
+}
+
+// line lays a row out as a settings page does: its name, with what it
+// does under it in the faint ink, at the left, and its control at the
+// right, centred on each other. Where the words would have less than
+// [TextRoom], the control goes under them. The reset button keeps its
+// room at the far right whether it shows or not, so nothing moves as a
+// value changes, and a changed row has a dot before its name, in the
+// margin.
+type line struct {
+	title, detail *widget.Label
+	control       gunim.Node
+	reset         *widget.IconButton
+	// below, when set, goes under the rest across the whole row.
+	below gunim.Node
+	// changed shows the dot and the reset button.
+	changed bool
+	// titleAt is where the title was placed, for the dot.
+	titleAt geom.Rect
+}
+
+// Children implements [gunim.Composite].
+func (l *line) Children() []gunim.Node {
+	kids := []gunim.Node{l.title, l.detail, l.control, l.reset}
+	if l.below != nil {
+		kids = append(kids, l.below)
+	}
+	return kids
+}
+
+// Layout implements [gunim.Node].
+func (l *line) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
+	th := f.Theme
+	w := c.Max.W
+	gap := widget.Gap.Get(th)
+	title, detail, ctl, reset := kids.At(0), kids.At(1), kids.At(2), kids.At(3)
+	rs := reset.Layout(gunim.Constraints{})
+	slot := rs.W + gap
+	cs := ctl.Layout(gunim.Constraints{Max: geom.Sz(max(0, w-slot), 0)})
+	names := func(width float32) (float32, float32) {
+		ts := title.Layout(gunim.Constraints{Max: geom.Sz(width, 0)})
+		h := ts.H
+		if l.detail.Text != "" {
+			ds := detail.Layout(gunim.Constraints{Max: geom.Sz(width, 0)})
+			h += NamesGap.Get(th) + ds.H
+		} else {
+			detail.Layout(gunim.Tight(geom.Size{}))
+		}
+		return ts.H, h
+	}
+	var h float32
+	if room := w - cs.W - ControlGap.Get(th) - slot; room >= TextRoom.Get(th) {
+		th1, nh := names(room)
+		h = max(nh, cs.H, rs.H)
+		y := (h - nh) / 2
+		title.Place(geom.Pt(0, y))
+		detail.Place(geom.Pt(0, y+th1+NamesGap.Get(th)))
+		l.titleAt = geom.Rc(0, y, room, th1)
+		ctl.Place(geom.Pt(w-slot-cs.W, (h-cs.H)/2))
+		reset.Place(geom.Pt(w-rs.W, (h-rs.H)/2))
+	} else {
+		// The words take the whole row but the reset button's room, and
+		// the control goes under them, from the left.
+		th1, nh := names(max(0, w-slot))
+		title.Place(geom.Point{})
+		detail.Place(geom.Pt(0, th1+NamesGap.Get(th)))
+		l.titleAt = geom.Rc(0, 0, w-slot, th1)
+		reset.Place(geom.Pt(w-rs.W, (th1-rs.H)/2))
+		top := nh + gap
+		ctl.Place(geom.Pt(0, top))
+		h = top + cs.H
+	}
+	if l.below != nil {
+		b := kids.At(4)
+		bs := b.Layout(gunim.Constraints{Min: geom.Sz(w, 0), Max: geom.Sz(w, 0)})
+		b.Place(geom.Pt(0, h))
+		h += bs.H
+	}
+	return c.Constrain(geom.Sz(w, h))
+}
+
+// Paint implements [gunim.Node].
+func (l *line) Paint(p *paint.Painter, f gunim.Frame, _ geom.Size, kids gunim.Children) {
+	th := f.Theme
+	for i := range kids.Len() {
+		if i == 3 && !l.changed {
+			continue
+		}
+		kids.At(i).Paint(p)
+	}
+	if l.changed {
+		d := DotSize.Get(th)
+		x := l.titleAt.Min.X - DotGap.Get(th) - d
+		y := l.titleAt.Min.Y + l.titleAt.Size().H/2 - d/2
+		p.RRect(geom.Rc(x, y, d, d), d/2, paint.Solid(widget.Accent.Get(th)))
+	}
 }
 
 // editFunc sets a row's value from the control src, which already
@@ -91,21 +189,33 @@ func (r *row) mark(on bool, u *gunim.UI) {
 type editFunc func(v any, commit bool, src control, u *gunim.UI)
 
 // newControl returns the control for a value of info's kind, or one of
-// presets where there are presets.
-func newControl(info theme.Info, f Field, label string, choices []Preset, all bool, edit editFunc) control {
-	if len(f.Presets) > 0 && !all {
-		return newPresets(f.Presets, label, edit)
-	}
+// presets where there are presets. A dense row, as All values has,
+// shows a length or a number with a range as a field, where a row of
+// the Basics shows a slider.
+func newControl(info theme.Info, f Field, label string, choices []Preset, dense bool, edit editFunc, play func(*gunim.UI)) control {
 	switch info.Kind {
-	case theme.KindColor, theme.KindForeground:
-		return newColorControl(label, edit)
-	case theme.KindLength, theme.KindNumber:
-		return newNumberControl(info, f, label, edit)
-	case theme.KindInsets:
-		return newInsetsControl(label, edit)
 	case theme.KindSpring:
-		return newSpringControl(label, edit)
+		presets, custom := springPresets, true
+		if len(f.Presets) > 0 {
+			presets, custom = f.Presets, false
+		}
+		return newSpringControl(label, presets, custom, edit, play)
+	case theme.KindColor, theme.KindForeground:
+		if len(f.Presets) == 0 {
+			return newColorControl(label, edit)
+		}
+	case theme.KindLength, theme.KindNumber:
+		if len(f.Presets) == 0 {
+			return newNumberControl(info, f, label, dense, edit)
+		}
+	case theme.KindInsets:
+		if len(f.Presets) == 0 {
+			return newInsetsControl(label, edit)
+		}
 	case theme.KindChoice, theme.KindOther:
+	}
+	if len(f.Presets) > 0 {
+		return newPresets(f.Presets, label, false, edit)
 	}
 	if len(choices) > 0 {
 		return newChoiceControl(choices, label, edit)
@@ -113,76 +223,62 @@ func newControl(info theme.Info, f Field, label string, choices []Preset, all bo
 	return newTextControl()
 }
 
-// colorControl is a swatch that opens a colour picker, and the colour
-// in hex beside it.
+// colorControl is a swatch with the colour in hex beside it, which
+// opens a colour picker.
 type colorControl struct {
 	button *widget.ColorButton
-	hex    *widget.Label
-	row    *widget.Flex
 }
 
 func newColorControl(label string, edit editFunc) *colorControl {
-	c := &colorControl{button: widget.NewColorButton(color.NRGBA{}), hex: widget.NewLabel("")}
-	c.button.Label = label
-	c.hex.Face, c.hex.Size, c.hex.Color = widget.MonoFont, KeySize, widget.Placeholder
+	c := &colorControl{button: widget.NewColorButton(color.NRGBA{})}
+	c.button.Label, c.button.Hex = label, true
 	c.button.OnChange = func(v color.NRGBA, u *gunim.UI) gunim.Intent {
-		c.hex.Text = theme.Hex(v)
 		edit(v, false, c, u)
 		return nil
 	}
 	c.button.OnCommit = func(v color.NRGBA, u *gunim.UI) gunim.Intent {
-		c.hex.Text = theme.Hex(v)
 		edit(v, true, c, u)
 		return nil
 	}
-	c.row = widget.Row(c.hex, c.button)
-	c.row.Cross = widget.CrossCenter
 	return c
 }
 
-func (c *colorControl) node() gunim.Node { return c.row }
+func (c *colorControl) node() gunim.Node    { return c.button }
+func (c *colorControl) below() gunim.Node   { return nil }
+func (c *colorControl) stops() []gunim.Node { return []gunim.Node{c.button} }
 
 func (c *colorControl) show(v any, u *gunim.UI) {
 	if col, ok := v.(color.NRGBA); ok {
 		c.button.SetValue(col, u)
-		c.hex.Text = theme.Hex(col)
 	}
 }
 
-// numberControl is a field for a length or a number, with a slider
-// where the value has a sensible range.
+// numberControl is a field for a length or a number, or, for a field
+// of the Basics with a range, a slider with the value written beside
+// it. It is never both.
 type numberControl struct {
 	field  *widget.NumberField
 	slider *widget.Slider
-	row    gunim.Node
+	value  *widget.Label
+	// whole says the value is a whole number, and view is what the
+	// row shows.
+	whole bool
+	view  gunim.Node
 }
 
-func newNumberControl(info theme.Info, f Field, label string, edit editFunc) *numberControl {
+func newNumberControl(info theme.Info, f Field, label string, dense bool, edit editFunc) *numberControl {
 	def, _ := info.Default.(float32)
-	lo, hi, ok := numberRange(info.Kind, def, f)
-	c := &numberControl{field: widget.NewNumberField(-1e6, 1e6)}
-	if f.Max > f.Min {
-		c.field.Min, c.field.Max = float64(f.Min), float64(f.Max)
-	}
-	// A whole number steps by ones; any other by hundredths.
-	c.field.Decimals, c.field.Increment = 2, 0.01
-	if def == float32(math.Round(float64(def))) {
-		c.field.Decimals, c.field.Increment = 0, 1
-	}
-	c.field.Tooltip, c.field.Placeholder = label, label
-	c.field.OnChange = func(v float64, u *gunim.UI) gunim.Intent {
-		if c.slider != nil {
-			c.slider.SetValue(float32(v), u)
-		}
-		edit(float32(v), true, c, u)
-		return nil
-	}
-	kids := []gunim.Node{&sized{child: c.field, width: NumberWidth}}
-	if ok {
-		c.slider = widget.NewSlider(lo, hi)
+	c := &numberControl{whole: def == float32(math.Round(float64(def)))}
+	if f.Max > f.Min && !dense {
+		c.slider = widget.NewSlider(f.Min, f.Max)
 		c.slider.Label = label
+		if c.whole {
+			c.slider.Snap = 1
+		}
+		c.value = widget.NewLabel("")
+		c.value.Align, c.value.NoWrap = text.AlignEnd, true
 		c.slider.OnChange = func(v float32, u *gunim.UI) gunim.Intent {
-			c.field.SetValue(float64(v), u)
+			c.value.Text = c.format(v)
 			edit(v, false, c, u)
 			return nil
 		}
@@ -190,69 +286,88 @@ func newNumberControl(info theme.Info, f Field, label string, edit editFunc) *nu
 			edit(v, true, c, u)
 			return nil
 		}
-		kids = append([]gunim.Node{&sized{child: c.slider, width: SliderWidth}}, kids...)
+		r := widget.Row(&sized{child: c.slider, width: SliderWidth}, &sized{child: c.value, width: ValueWidth})
+		r.Cross = widget.CrossCenter
+		c.view = r
+		return c
 	}
-	r := widget.Row(kids...)
-	r.Cross = widget.CrossCenter
-	c.row = r
+	c.field = widget.NewNumberField(-1e6, 1e6)
+	if f.Max > f.Min {
+		c.field.Min, c.field.Max = float64(f.Min), float64(f.Max)
+	}
+	// A whole number steps by ones; any other by hundredths.
+	c.field.Decimals, c.field.Increment = 2, 0.01
+	if c.whole {
+		c.field.Decimals, c.field.Increment = 0, 1
+	}
+	c.field.Tooltip, c.field.Placeholder = label, label
+	c.field.OnChange = func(v float64, u *gunim.UI) gunim.Intent {
+		edit(float32(v), true, c, u)
+		return nil
+	}
+	c.view = &sized{child: c.field, width: NumberWidth}
 	return c
 }
 
-// numberRange returns the range a slider for a value of kind k with
-// default def covers: the field's, or one that suits def. It reports
-// false where none does.
-func numberRange(k theme.Kind, def float32, f Field) (lo, hi float32, ok bool) {
-	switch {
-	case f.Max > f.Min:
-		return f.Min, f.Max, true
-	case def >= 0 && def <= 1 && k == theme.KindNumber:
-		return 0, 1, true
-	case def > 0 && def < 1 && k == theme.KindLength:
-		return 0, 1, true
-	case def >= 1 && k == theme.KindLength:
-		// Three times the default, rounded up to a whole ten.
-		return 0, float32(math.Ceil(float64(def)*3/10) * 10), true
-	default:
-		return 0, 0, false
+// format writes v as the slider's readout.
+func (c *numberControl) format(v float32) string {
+	if c.whole {
+		return fmt.Sprintf("%.0f", v)
 	}
+	return fmt.Sprintf("%.2f", v)
 }
 
-func (c *numberControl) node() gunim.Node { return c.row }
+func (c *numberControl) node() gunim.Node  { return c.view }
+func (c *numberControl) below() gunim.Node { return nil }
+
+func (c *numberControl) stops() []gunim.Node {
+	if c.slider != nil {
+		return []gunim.Node{c.slider}
+	}
+	return []gunim.Node{c.field}
+}
 
 func (c *numberControl) show(v any, u *gunim.UI) {
 	f, ok := v.(float32)
 	if !ok {
 		return
 	}
-	c.field.SetValue(float64(f), u)
 	if c.slider != nil {
 		c.slider.SetValue(f, u)
+		c.value.Text = c.format(f)
+		u.Invalidate()
+		return
 	}
+	c.field.SetValue(float64(f), u)
 }
 
-// insetsControl is four fields: top, right, bottom and left.
+// insetsControl is four small fields, top, right, bottom and left, each
+// with its letter before it.
 type insetsControl struct {
 	sides [4]*widget.NumberField
-	row   gunim.Node
+	row   *widget.Flex
 }
 
 func newInsetsControl(label string, edit editFunc) *insetsControl {
 	c := &insetsControl{}
-	kids := make([]gunim.Node, 0, 4)
+	kids := make([]gunim.Node, 0, 8)
 	for i, name := range []string{"Top", "Right", "Bottom", "Left"} {
 		n := widget.NewNumberField(-1e4, 1e4)
-		n.Decimals = 1
-		n.Tooltip, n.Placeholder = label+": "+name, name
+		n.Decimals = 0
+		n.Tooltip = label + ": " + name
 		c.sides[i] = n
 		n.OnChange = func(_ float64, u *gunim.UI) gunim.Intent {
 			edit(c.value(), true, c, u)
 			return nil
 		}
-		kids = append(kids, &sized{child: n, width: SideWidth})
+		letter := widget.NewLabel(name[:1])
+		letter.Color, letter.Size = widget.Placeholder, KeySize
+		pair := widget.Row(letter, &sized{child: n, width: SideWidth})
+		pair.Cross, pair.Gap = widget.CrossCenter, NamesGap
+		kids = append(kids, pair)
 	}
-	r := widget.Row(kids...)
-	r.Cross = widget.CrossCenter
-	c.row = r
+	c.row = widget.Row(kids...)
+	c.row.Cross = widget.CrossCenter
 	return c
 }
 
@@ -262,14 +377,24 @@ func (c *insetsControl) value() geom.Insets {
 	return geom.Insets{Top: f(0), Right: f(1), Bottom: f(2), Left: f(3)}
 }
 
-func (c *insetsControl) node() gunim.Node { return c.row }
+func (c *insetsControl) node() gunim.Node  { return c.row }
+func (c *insetsControl) below() gunim.Node { return nil }
+
+func (c *insetsControl) stops() []gunim.Node {
+	return []gunim.Node{c.sides[0], c.sides[1], c.sides[2], c.sides[3]}
+}
 
 func (c *insetsControl) show(v any, u *gunim.UI) {
 	in, ok := v.(geom.Insets)
 	if !ok {
 		return
 	}
+	// A side that is not whole shows its tenths.
 	for i, s := range []float32{in.Top, in.Right, in.Bottom, in.Left} {
+		c.sides[i].Decimals = 0
+		if s != float32(math.Round(float64(s))) {
+			c.sides[i].Decimals = 1
+		}
 		c.sides[i].SetValue(float64(s), u)
 	}
 }
@@ -279,17 +404,26 @@ func (c *insetsControl) show(v any, u *gunim.UI) {
 type presetControl struct {
 	presets []Preset
 	seg     *widget.Segmented
-	// custom says the control shows Custom, after the presets.
-	custom bool
+	// always offers Custom whatever the value, as a spring's presets
+	// do, so the user can reach its sliders; custom says Custom is
+	// chosen.
+	always, custom bool
+	// onCustom runs as the user chooses Custom.
+	onCustom func(u *gunim.UI)
 }
 
-func newPresets(presets []Preset, label string, edit editFunc) *presetControl {
-	c := &presetControl{presets: presets, seg: widget.NewSegmented()}
-	c.seg.Tooltip = label
+func newPresets(presets []Preset, label string, always bool, edit editFunc) *presetControl {
+	c := &presetControl{presets: presets, seg: widget.NewSegmented(), always: always}
+	c.seg.Tooltip, c.seg.Fit = label, true
 	c.seg.OnChange = func(i int, u *gunim.UI) gunim.Intent {
 		if i < len(c.presets) {
-			edit(c.presets[i].Value, true, c, u)
 			c.setCustom(false)
+			edit(c.presets[i].Value, true, c, u)
+			return nil
+		}
+		c.setCustom(true)
+		if c.onCustom != nil {
+			c.onCustom(u)
 		}
 		return nil
 	}
@@ -297,23 +431,31 @@ func newPresets(presets []Preset, label string, edit editFunc) *presetControl {
 	return c
 }
 
-// setCustom shows Custom after the presets, or not.
+// setCustom chooses Custom, or not, and offers it after the presets
+// where it is chosen or always offered.
 func (c *presetControl) setCustom(on bool) {
 	c.custom = on
 	items := make([]string, 0, len(c.presets)+1)
 	for _, p := range c.presets {
 		items = append(items, p.Label)
 	}
-	if on {
+	if on || c.always {
 		items = append(items, "Custom")
 	}
 	c.seg.Items = items
 }
 
-func (c *presetControl) node() gunim.Node { return c.seg }
+func (c *presetControl) node() gunim.Node    { return c.seg }
+func (c *presetControl) below() gunim.Node   { return nil }
+func (c *presetControl) stops() []gunim.Node { return []gunim.Node{c.seg} }
 
+// show shows v: its preset, or Custom for a value none has. Custom
+// chosen by the user stays chosen while the value is one of its own.
 func (c *presetControl) show(v any, u *gunim.UI) {
 	i := presetOf(c.presets, v)
+	if c.custom && c.always {
+		i = -1
+	}
 	c.setCustom(i < 0)
 	if i < 0 {
 		i = len(c.presets)
@@ -329,74 +471,6 @@ func presetOf(presets []Preset, v any) int {
 		}
 	}
 	return -1
-}
-
-// springControl edits a spring: presets, a dot that moves with it, and
-// sliders for its response and damping.
-type springControl struct {
-	presets  *presetControl
-	preview  *preview
-	response *widget.Slider
-	damping  *widget.Slider
-	col      gunim.Node
-}
-
-func newSpringControl(label string, edit editFunc) *springControl {
-	c := &springControl{preview: newPreview(label)}
-	c.presets = newPresets(springPresets, label, func(v any, commit bool, _ control, u *gunim.UI) {
-		if s, ok := v.(anim.Spring); ok {
-			c.showSliders(s, u)
-			c.preview.play(s, u)
-		}
-		edit(v, commit, c, u)
-	})
-	c.response = widget.NewSlider(0, 1)
-	c.response.Snap, c.response.Label = 0.01, label+": response"
-	c.damping = widget.NewSlider(0.1, 1.5)
-	c.damping.Snap, c.damping.Label = 0.01, label+": damping"
-	slid := func(commit bool) func(float32, *gunim.UI) gunim.Intent {
-		return func(_ float32, u *gunim.UI) gunim.Intent {
-			s := c.value()
-			c.presets.show(s, u)
-			c.preview.play(s, u)
-			edit(s, commit, c, u)
-			return nil
-		}
-	}
-	c.response.OnChange, c.response.OnCommit = slid(false), slid(true)
-	c.damping.OnChange, c.damping.OnCommit = slid(false), slid(true)
-	resp := widget.NewSliderRow("Response", c.response)
-	resp.Format = func(v float32) string { return fmt.Sprintf("%.2f s", v) }
-	damp := widget.NewSliderRow("Damping", c.damping)
-	top := widget.Row(c.presets.node(), c.preview)
-	top.Cross = widget.CrossCenter
-	col := widget.Column(top, resp, damp)
-	col.Cross = widget.CrossStretch
-	c.col = &sized{child: col, width: SpringWidth}
-	return c
-}
-
-// value returns the spring the sliders hold.
-func (c *springControl) value() anim.Spring {
-	return anim.Spring{Response: c.response.Value(), Damping: c.damping.Value()}
-}
-
-// showSliders moves the sliders to s.
-func (c *springControl) showSliders(s anim.Spring, u *gunim.UI) {
-	c.response.SetValue(s.Response, u)
-	c.damping.SetValue(s.Damping, u)
-}
-
-func (c *springControl) node() gunim.Node { return c.col }
-
-func (c *springControl) show(v any, u *gunim.UI) {
-	s, ok := v.(anim.Spring)
-	if !ok {
-		return
-	}
-	c.presets.show(s, u)
-	c.showSliders(s, u)
-	c.preview.spring = s
 }
 
 // choiceControl picks one of the values a program offers for a token,
@@ -420,7 +494,9 @@ func newChoiceControl(choices []Preset, label string, edit editFunc) *choiceCont
 	return c
 }
 
-func (c *choiceControl) node() gunim.Node { return c.drop }
+func (c *choiceControl) node() gunim.Node    { return c.drop }
+func (c *choiceControl) below() gunim.Node   { return nil }
+func (c *choiceControl) stops() []gunim.Node { return []gunim.Node{c.drop} }
 
 func (c *choiceControl) show(v any, u *gunim.UI) { c.drop.SetSelected(presetOf(c.choices, v), u) }
 
@@ -429,11 +505,13 @@ type textControl struct{ label *widget.Label }
 
 func newTextControl() *textControl {
 	l := widget.NewLabel("")
-	l.Size, l.Color, l.MaxLines = DetailSize, widget.Placeholder, 1
+	l.Color, l.MaxLines, l.NoWrap = widget.Placeholder, 1, true
 	return &textControl{label: l}
 }
 
-func (c *textControl) node() gunim.Node { return c.label }
+func (c *textControl) node() gunim.Node    { return c.label }
+func (c *textControl) below() gunim.Node   { return nil }
+func (c *textControl) stops() []gunim.Node { return nil }
 
 func (c *textControl) show(v any, u *gunim.UI) {
 	c.label.Text = describe(v)
@@ -446,18 +524,18 @@ func describe(v any) string {
 	case fmt.Stringer:
 		return v.String()
 	case *text.Face:
-		return "a font"
+		return "A font"
 	}
 	rv := reflect.ValueOf(v)
 	if !rv.IsValid() {
-		return "none"
+		return "None"
 	}
 	switch k := rv.Kind(); k {
 	case reflect.String, reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Float32, reflect.Float64:
 		return fmt.Sprint(v)
 	default:
-		return "a " + rv.Type().String()
+		return "A " + rv.Type().String()
 	}
 }
 
