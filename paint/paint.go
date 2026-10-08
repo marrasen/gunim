@@ -41,6 +41,10 @@ type Painter struct {
 	open  []int
 	stack []Transform
 	cur   Transform
+	// blend is the blend in force, and blends the ones Blend put aside,
+	// innermost last.
+	blend  Blend
+	blends []Blend
 	// clip is the innermost clipping layer open, or nil, and proj the
 	// projection of the tilted layers open, or nil.
 	clip *Clip
@@ -54,6 +58,9 @@ type Painter struct {
 	// popFn is pop as a func value, made once, so Push allocates
 	// nothing.
 	popFn func()
+	// unblendFn is unblend as a func value, made once, so Blend
+	// allocates nothing.
+	unblendFn func()
 	// rrects, texts, masks and scenes hold the ops themselves, in
 	// blocks, so a frame allocates a block now and then, never an op at
 	// a time. The blocks of the frame before this one are reused; the
@@ -142,6 +149,7 @@ func (p *Painter) Reset() {
 	p.open = p.open[:0]
 	p.stack = p.stack[:0]
 	p.cur = Identity
+	p.blend, p.blends = BlendNormal, p.blends[:0]
 	p.ready = true
 	p.clip = nil
 	p.proj = nil
@@ -154,7 +162,8 @@ func (p *Painter) Reset() {
 // it then in window space, above everything and inside no clip. It is
 // for something that must leave its place in the tree for a moment,
 // such as an element flying from one screen to the next, which the
-// containers around it would otherwise clip.
+// containers around it would otherwise clip. It starts from
+// [BlendNormal], whatever blend was in force when it was put off.
 func (p *Painter) Float(fn func(*Painter)) { p.floats = append(p.floats, fn) }
 
 // PaintFloats runs the painting put off with Float, including any that
@@ -164,10 +173,10 @@ func (p *Painter) PaintFloats() {
 		fs := p.floats
 		p.floats = nil
 		for _, fn := range fs {
-			stack, cur, clip, proj := p.stack, p.cur, p.clip, p.proj
-			p.stack, p.cur, p.clip, p.proj = nil, Identity, nil, nil
+			stack, cur, clip, proj, blend := p.stack, p.cur, p.clip, p.proj, p.blend
+			p.stack, p.cur, p.clip, p.proj, p.blend = nil, Identity, nil, nil, BlendNormal
 			fn(p)
-			p.stack, p.cur, p.clip, p.proj = stack, cur, clip, proj
+			p.stack, p.cur, p.clip, p.proj, p.blend = stack, cur, clip, proj, blend
 		}
 	}
 }
@@ -689,6 +698,10 @@ type RRectOp struct {
 	// shape. A zero Shadow is skipped.
 	Inset     [2]Shadow
 	Transform Transform
+	// Blend is how the shape, its shadows and its stroke meet what is
+	// beneath them. It is set from the blend in force as the op is
+	// recorded; see [Painter.Blend].
+	Blend Blend
 }
 
 // Shadow is a soft drop shadow behind a shape. A zero Shadow is
@@ -752,14 +765,14 @@ func (p *Painter) takeRRect(op RRectOp) *RRectOp {
 
 // RRect records a rounded rectangle.
 func (p *Painter) RRect(r geom.Rect, radius float32, f Fill) {
-	p.record(p.takeRRect(RRectOp{Rect: r, Radius: radius, Fill: f, Transform: p.at()}), r)
+	p.record(p.takeRRect(RRectOp{Rect: r, Radius: radius, Fill: f, Transform: p.at(), Blend: p.blend}), r)
 }
 
 // RRectStroke records a rounded rectangle with an outline, which is
 // centred on the rectangle's edge.
 func (p *Painter) RRectStroke(r geom.Rect, radius float32, f Fill, s Stroke) {
 	half := s.Width / 2
-	p.record(p.takeRRect(RRectOp{Rect: r, Radius: radius, Fill: f, Stroke: s, Transform: p.at()}),
+	p.record(p.takeRRect(RRectOp{Rect: r, Radius: radius, Fill: f, Stroke: s, Transform: p.at(), Blend: p.blend}),
 		geom.Rect{Min: geom.Pt(r.Min.X-half, r.Min.Y-half), Max: geom.Pt(r.Max.X+half, r.Max.Y+half)})
 }
 
@@ -769,12 +782,14 @@ func (p *Painter) ShadowRRect(r geom.Rect, radius float32, f Fill, sh Shadow) {
 		Min: geom.Pt(r.Min.X-sh.Blur-sh.Spread+sh.Offset.X, r.Min.Y-sh.Blur-sh.Spread+sh.Offset.Y),
 		Max: geom.Pt(r.Max.X+sh.Blur+sh.Spread+sh.Offset.X, r.Max.Y+sh.Blur+sh.Spread+sh.Offset.Y),
 	}
-	p.record(p.takeRRect(RRectOp{Rect: r, Radius: radius, Fill: f, Shadow: sh, Transform: p.at()}), grown.Union(r))
+	p.record(p.takeRRect(RRectOp{Rect: r, Radius: radius, Fill: f, Shadow: sh, Transform: p.at(), Blend: p.blend}),
+		grown.Union(r))
 }
 
 // DrawRRect records op as it is, in the transform in force, with any
 // of a rounded rectangle's parts: a fill, a stroke, a drop shadow and
-// inset shadows.
+// inset shadows. It draws with op's Blend where that is set, else with
+// the blend in force.
 func (p *Painter) DrawRRect(op RRectOp) {
 	b := op.Rect
 	half := op.Stroke.Width / 2
@@ -787,6 +802,7 @@ func (p *Painter) DrawRRect(op RRectOp) {
 		})
 	}
 	op.Transform = p.at()
+	op.Blend = p.blendFor(op.Blend)
 	p.record(p.takeRRect(op), b)
 }
 
