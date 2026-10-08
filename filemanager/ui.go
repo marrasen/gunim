@@ -262,6 +262,9 @@ func (b *browser) Handle(e input.Event, u *gunim.UI) bool {
 		cmd = CmdHidden
 	case plain && k.Key == input.KeyD:
 		cmd = CmdPin
+	case plain && k.Key == input.KeyR:
+		// As a browser reloads, beside F5.
+		cmd = CmdRefresh
 	case plain && k.Key == input.KeyW:
 		cmd = CmdCloseApp
 	case plain && k.Key == input.Key1:
