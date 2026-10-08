@@ -65,8 +65,12 @@ func NewDistances(w, h int) []float32 {
 }
 
 // Segment lowers each pixel's squared distance in dist to that from the segment a b, over the pixels a band hw
-// either side of it can cover.
+// either side of it can cover. It works row by row on the pixels near the segment, so a long diagonal costs its
+// length, not the area of its bounding box. A segment from a point that is not a finite number is left out.
 func Segment(dist []float32, w, h int, a, b Pt, hw float32) {
+	if !finite(a.X, a.Y, b.X, b.Y, hw) {
+		return
+	}
 	r := hw + 1
 	x0 := max(0, int(math.Floor(float64(min(a.X, b.X)-r))))
 	y0 := max(0, int(math.Floor(float64(min(a.Y, b.Y)-r))))
@@ -74,10 +78,31 @@ func Segment(dist []float32, w, h int, a, b Pt, hw float32) {
 	y1 := min(h, int(math.Ceil(float64(max(a.Y, b.Y)+r))))
 	ab := b.Sub(a)
 	ll := ab.X*ab.X + ab.Y*ab.Y
+	// reach is how far from the segment a pixel's centre is looked at: past hw+0.5 a pixel is not covered, and the
+	// rest is room for rounding.
+	reach := hw + 1.5
+	lo, hi := min(a.X, b.X), max(a.X, b.X)
 	for y := y0; y < y1; y++ {
-		row := dist[y*w : (y+1)*w]
 		cy := float32(y) + 0.5
-		for x := x0; x < x1; x++ {
+		// A centre within reach of the segment lies within reach, across, of the part of it within reach up or down.
+		if ab.Y != 0 {
+			t0, t1 := (cy-reach-a.Y)/ab.Y, (cy+reach-a.Y)/ab.Y
+			if t0 > t1 {
+				t0, t1 = t1, t0
+			}
+			t0, t1 = max(t0, 0), min(t1, 1)
+			if t0 > t1 {
+				continue
+			}
+			lo, hi = a.X+t0*ab.X, a.X+t1*ab.X
+			if lo > hi {
+				lo, hi = hi, lo
+			}
+		}
+		rx0 := max(x0, int(math.Floor(float64(lo-reach))))
+		rx1 := min(x1, int(math.Ceil(float64(hi+reach))))
+		row := dist[y*w : (y+1)*w]
+		for x := rx0; x < rx1; x++ {
 			ap := Pt{float32(x) + 0.5 - a.X, cy - a.Y}
 			t := float32(0)
 			if ll > 0 {
@@ -89,6 +114,16 @@ func Segment(dist []float32, w, h int, a, b Pt, hw float32) {
 			}
 		}
 	}
+}
+
+// finite reports whether every v is a finite number.
+func finite(v ...float32) bool {
+	for _, x := range v {
+		if x-x != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // Inside marks the pixels whose centres lie inside the closed polygon pts, by the nonzero rule.
@@ -172,7 +207,7 @@ func Fill(lines []Polyline, w, h int, evenOdd bool) []byte {
 				}
 				x := a.X + (y-a.Y)/(b.Y-a.Y)*(b.X-a.X)
 				// An edge from a point past float32 crosses at no number; it is left out.
-				if x-x != 0 {
+				if !finite(x) {
 					continue
 				}
 				xs = append(xs, crossing{x, dir})

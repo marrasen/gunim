@@ -93,3 +93,70 @@ func TestAFillLeavesOutEdgesFromPointsPastFloat32(t *testing.T) {
 		t.Fatalf("the square beside them is %d, want it filled", m[4*10+4])
 	}
 }
+
+func TestASegmentWorksOnlyOnThePixelsNearIt(t *testing.T) {
+	const w = 256
+	dist := NewDistances(w, w)
+	Segment(dist, w, w, Pt{0, 0}, Pt{w, w}, 1)
+	// The corners off the diagonal lie in its bounding box, but far from it.
+	for _, i := range []int{w - 1, (w - 1) * w} {
+		if dist[i] != math.MaxFloat32 {
+			t.Fatalf("pixel %d, far from the line, was worked on: %v", i, dist[i])
+		}
+	}
+	if dist[100*w+100] != 0.0 {
+		t.Fatalf("a pixel on the line is %v from it", dist[100*w+100])
+	}
+}
+
+// bruteSegment lowers the squared distance of every pixel in the box round a b, as Segment did at first.
+func bruteSegment(dist []float32, w, h int, a, b Pt, hw float32) {
+	r := hw + 1
+	x0 := max(0, int(math.Floor(float64(min(a.X, b.X)-r))))
+	y0 := max(0, int(math.Floor(float64(min(a.Y, b.Y)-r))))
+	x1 := min(w, int(math.Ceil(float64(max(a.X, b.X)+r))))
+	y1 := min(h, int(math.Ceil(float64(max(a.Y, b.Y)+r))))
+	ab := b.Sub(a)
+	ll := ab.X*ab.X + ab.Y*ab.Y
+	for y := y0; y < y1; y++ {
+		for x := x0; x < x1; x++ {
+			ap := Pt{float32(x) + 0.5 - a.X, float32(y) + 0.5 - a.Y}
+			t := float32(0)
+			if ll > 0 {
+				t = min(max((ap.X*ab.X+ap.Y*ab.Y)/ll, 0), 1)
+			}
+			dx, dy := ap.X-t*ab.X, ap.Y-t*ab.Y
+			dist[y*w+x] = min(dist[y*w+x], dx*dx+dy*dy)
+		}
+	}
+}
+
+func TestASegmentCoversWhatItsWholeBoxWould(t *testing.T) {
+	const w, h = 40, 30
+	rng := uint32(1)
+	next := func(n float32) float32 {
+		rng = rng*1664525 + 1013904223
+		return float32(rng>>8)/(1<<24)*n*1.4 - n*0.2
+	}
+	for i := range 2000 {
+		a, b := Pt{next(w), next(h)}, Pt{next(w), next(h)}
+		switch i % 5 {
+		case 0:
+			b.Y = a.Y // level
+		case 1:
+			b.X = a.X // upright
+		case 2:
+			b = a // a dot
+		}
+		hw := next(4) + 0.3
+		got, want := NewDistances(w, h), NewDistances(w, h)
+		Segment(got, w, h, a, b, hw)
+		bruteSegment(want, w, h, a, b, hw)
+		g, m := Coverage(got, make([]bool, w*h), hw), Coverage(want, make([]bool, w*h), hw)
+		for j := range g {
+			if g[j] != m[j] {
+				t.Fatalf("%v to %v, %v either side: pixel %d, %d is %d, want %d", a, b, hw, j%w, j/w, g[j], m[j])
+			}
+		}
+	}
+}
