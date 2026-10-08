@@ -8,7 +8,7 @@ import (
 type (
 	toastFetch   struct{}
 	toastRestart struct{}
-	toastNotes     struct{}
+	toastNotes   struct{}
 )
 
 // TestTheUpdateToastsAskAndTell makes each toast, and finds its words,
