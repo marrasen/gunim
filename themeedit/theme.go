@@ -40,8 +40,8 @@ var (
 	// token's key under its name in All values.
 	TitleSize = theme.Length("themeedit.title.size", 16)
 	KeySize   = theme.Length("themeedit.key.size", 11.5)
-	// DotSize is the size of the dot before a changed row's name, and
-	// DotGap the room between the dot and the name.
+	// DotSize is the size of the dot after a changed row's name, and
+	// DotGap the room between the name and the dot.
 	DotSize = theme.Length("themeedit.dot.size", 6)
 	DotGap  = theme.Length("themeedit.dot.gap", 6)
 	// IconSize is the size of a row's Play and Reset icons.
@@ -52,6 +52,14 @@ var (
 	NumberWidth = theme.Length("themeedit.number.width", 96)
 	SideWidth   = theme.Length("themeedit.side.width", 56)
 	SliderWidth = theme.Length("themeedit.slider.width", 160)
+	// CompactHeight and CompactWidth are the size of a field for a
+	// number in All values, as tall as a swatch's button, so every row
+	// there is as tall as its words.
+	CompactHeight = theme.Length("themeedit.compact.height", 28)
+	CompactWidth  = theme.Length("themeedit.compact.width", 80)
+	// TabInset is how far in the tabs' titles start and their line
+	// ends: the page's own padding, so they line up with the cards.
+	TabInset = theme.Length("themeedit.tab.inset", 28)
 	// SliderPadding is the room round a spring's Speed and Bounce
 	// sliders, under its row.
 	SliderPadding = theme.Insets("themeedit.sliders.padding", geom.Insets{Top: 10})
@@ -61,6 +69,9 @@ var (
 	// Narrow the editor's width below which the preview goes above them.
 	PreviewWidth = theme.Length("themeedit.preview.width", 400)
 	Narrow       = theme.Length("themeedit.narrow", 900)
+	// Short is the height of a narrow editor below which the preview
+	// starts folded away, to its heading, and opens as a motion plays.
+	Short = theme.Length("themeedit.short", 760)
 	// PreviewRadius rounds the window the preview draws, and
 	// PreviewTitleHeight is the height of its title bar.
 	PreviewRadius      = theme.Length("themeedit.preview.radius", 10)

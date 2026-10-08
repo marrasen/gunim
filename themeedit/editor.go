@@ -292,6 +292,7 @@ func (e *Editor) build(o Options) {
 		}
 		e.tabs = widget.NewTabs([]string{title, "All values"}, widget.NewScroll(&page{child: e.buildChosen()}), e.all)
 	}
+	e.tabs.Inset = TabInset
 	e.frame = &frame{header: header, tabs: e.tabs, preview: e.preview}
 	e.themed = widget.NewThemed(e.frame, e.pinned(e.base))
 	e.showCount(nil)
@@ -681,7 +682,7 @@ func (fr *frame) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children)
 	pad := PagePadding.Get(th)
 	header, tabs, preview := kids.At(0), kids.At(1), kids.At(2)
 	narrow := w < Narrow.Get(th)
-	fr.preview.setNarrow(narrow, f.UI())
+	fr.preview.setNarrow(narrow, narrow && h < Short.Get(th), f.UI())
 	if narrow {
 		// The header, the preview and the tabs keep to the page's width,
 		// in the middle.

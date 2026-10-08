@@ -60,9 +60,13 @@ type previewPanel struct {
 	themed  *widget.Themed
 	scene   *scene
 	fold    *widget.Fold
-	// narrow says the panel is above the controls, and shut that the
-	// user folded it away there.
-	narrow, shut bool
+	// narrow says the panel is above the controls, and short that the
+	// editor is short too. shut says the preview is folded away there,
+	// chose that the user folded or opened it, which the editor leaves
+	// as it is from then on, and playing that a motion opened it for as
+	// long as it plays.
+	narrow, short, shut bool
+	chose, playing      bool
 	// stops cancels the steps of the demo playing.
 	stops []func()
 }
@@ -77,6 +81,7 @@ func newPreviewPanel(content gunim.Node, spec *specimen, th theme.Theme) *previe
 	p.toggle = widget.NewIconButton(icon.ChevronUp, "Hide the preview")
 	p.toggle.IconSize = IconSize
 	p.toggle.OnClick = func(u *gunim.UI) gunim.Intent {
+		p.chose, p.playing = true, false
 		p.setShut(!p.shut, u)
 		return nil
 	}
@@ -94,14 +99,18 @@ func (p *previewPanel) setShut(on bool, u *gunim.UI) {
 }
 
 // setNarrow puts the panel above the controls, or beside them, where
-// it never folds.
-func (p *previewPanel) setNarrow(on bool, u *gunim.UI) {
-	if p.narrow == on {
+// it never folds. Above the controls in a short editor it starts folded
+// away, until the user opens it.
+func (p *previewPanel) setNarrow(narrow, short bool, u *gunim.UI) {
+	if p.narrow == narrow && p.short == short {
 		return
 	}
-	p.narrow = on
-	p.toggle.Disabled = !on
-	p.fold.SetOpen(!on || !p.shut, u)
+	p.narrow, p.short = narrow, short
+	p.toggle.Disabled = !narrow
+	if !p.chose && !p.playing {
+		p.shut = short
+	}
+	p.setShut(p.shut, u)
 }
 
 // use dresses the preview in th, at once.
@@ -117,6 +126,8 @@ func (p *previewPanel) play(d demo, s anim.Spring, label string, base, edited th
 	}
 	p.stops = p.stops[:0]
 	if p.shut && p.narrow {
+		// The preview opens to play, and folds away again after.
+		p.playing = true
 		p.setShut(false, u)
 	}
 	p.caption.Text = "Playing " + label
@@ -159,6 +170,10 @@ func (p *previewPanel) play(d demo, s anim.Spring, label string, base, edited th
 	}
 	later(back+hold, func(u *gunim.UI) {
 		p.caption.Text = ""
+		if p.playing {
+			p.playing = false
+			p.setShut(true, u)
+		}
 		u.Invalidate()
 	})
 	u.Invalidate()

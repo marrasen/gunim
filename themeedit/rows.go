@@ -93,8 +93,7 @@ func (r *row) stops() []gunim.Node {
 // right, centred on each other. Where the words would have less than
 // [TextRoom], the control goes under them. The reset button keeps its
 // room at the far right whether it shows or not, so nothing moves as a
-// value changes, and a changed row has a dot before its name, in the
-// margin.
+// value changes, and a changed row has a dot just after its name.
 type line struct {
 	title, detail *widget.Label
 	control       gunim.Node
@@ -103,7 +102,7 @@ type line struct {
 	below gunim.Node
 	// changed shows the dot and the reset button.
 	changed bool
-	// titleAt is where the title was placed, for the dot.
+	// titleAt is where the title's words were placed, for the dot.
 	titleAt geom.Rect
 }
 
@@ -125,8 +124,12 @@ func (l *line) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) g
 	rs := reset.Layout(gunim.Constraints{})
 	slot := rs.W + gap
 	cs := ctl.Layout(gunim.Constraints{Max: geom.Sz(max(0, w-slot), 0)})
+	// The title leaves room for the dot after its words.
+	dot := DotGap.Get(th) + DotSize.Get(th)
+	var titleW float32
 	names := func(width float32) (float32, float32) {
-		ts := title.Layout(gunim.Constraints{Max: geom.Sz(width, 0)})
+		ts := title.Layout(gunim.Constraints{Max: geom.Sz(max(0, width-dot), 0)})
+		titleW = ts.W
 		h := ts.H
 		if l.detail.Text != "" {
 			ds := detail.Layout(gunim.Constraints{Max: geom.Sz(width, 0)})
@@ -143,7 +146,7 @@ func (l *line) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) g
 		y := (h - nh) / 2
 		title.Place(geom.Pt(0, y))
 		detail.Place(geom.Pt(0, y+th1+NamesGap.Get(th)))
-		l.titleAt = geom.Rc(0, y, room, th1)
+		l.titleAt = geom.Rc(0, y, titleW, th1)
 		ctl.Place(geom.Pt(w-slot-cs.W, (h-cs.H)/2))
 		reset.Place(geom.Pt(w-rs.W, (h-rs.H)/2))
 	} else {
@@ -152,7 +155,7 @@ func (l *line) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) g
 		th1, nh := names(max(0, w-slot))
 		title.Place(geom.Point{})
 		detail.Place(geom.Pt(0, th1+NamesGap.Get(th)))
-		l.titleAt = geom.Rc(0, 0, w-slot, th1)
+		l.titleAt = geom.Rc(0, 0, titleW, th1)
 		reset.Place(geom.Pt(w-rs.W, (th1-rs.H)/2))
 		top := nh + gap
 		ctl.Place(geom.Pt(0, top))
@@ -178,7 +181,7 @@ func (l *line) Paint(p *paint.Painter, f gunim.Frame, _ geom.Size, kids gunim.Ch
 	}
 	if l.changed {
 		d := DotSize.Get(th)
-		x := l.titleAt.Min.X - DotGap.Get(th) - d
+		x := l.titleAt.Max.X + DotGap.Get(th)
 		y := l.titleAt.Min.Y + l.titleAt.Size().H/2 - d/2
 		p.RRect(geom.Rc(x, y, d, d), d/2, paint.Solid(widget.Accent.Get(th)))
 	}
@@ -210,7 +213,7 @@ func newControl(info theme.Info, f Field, label string, choices []Preset, dense 
 		}
 	case theme.KindInsets:
 		if len(f.Presets) == 0 {
-			return newInsetsControl(label, edit)
+			return newInsetsControl(label, dense, edit)
 		}
 	case theme.KindChoice, theme.KindOther:
 	}
@@ -306,6 +309,10 @@ func newNumberControl(info theme.Info, f Field, label string, dense bool, edit e
 		return nil
 	}
 	c.view = &sized{child: c.field, width: NumberWidth}
+	if dense {
+		c.field.Height = CompactHeight
+		c.view = &sized{child: c.field, width: CompactWidth}
+	}
 	return c
 }
 
@@ -348,13 +355,16 @@ type insetsControl struct {
 	row   *widget.Flex
 }
 
-func newInsetsControl(label string, edit editFunc) *insetsControl {
+func newInsetsControl(label string, dense bool, edit editFunc) *insetsControl {
 	c := &insetsControl{}
 	kids := make([]gunim.Node, 0, 8)
 	for i, name := range []string{"Top", "Right", "Bottom", "Left"} {
 		n := widget.NewNumberField(-1e4, 1e4)
 		n.Decimals = 0
 		n.Tooltip = label + ": " + name
+		if dense {
+			n.Height = CompactHeight
+		}
 		c.sides[i] = n
 		n.OnChange = func(_ float64, u *gunim.UI) gunim.Intent {
 			edit(c.value(), true, c, u)

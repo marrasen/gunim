@@ -704,3 +704,65 @@ func sortedOf(keys []string) []string {
 func typeName(v any) string { return fmt.Sprintf("%T", v) }
 
 func abs(v float32) float32 { return max(v, -v) }
+
+func TestAShortNarrowEditorStartsWithThePreviewFoldedAndPlayOpensIt(t *testing.T) {
+	e, _, u, run, _ := edStageSized(t, geom.Sz(732, 540), Options{Base: widget.Dark(), Sections: []Section{cursorSection}})
+	run(30)
+	p := e.preview
+	if !p.narrow || !p.short || !p.shut || p.fold.Open() {
+		t.Fatal("a short narrow editor does not start with the preview folded away")
+	}
+	e.Play(widget.Settle.Key(), u)
+	run(2)
+	if !p.fold.Open() {
+		t.Fatal("Play did not open the folded preview")
+	}
+	// Once played, it folds away again.
+	run(int((2*hold + time.Second) / (time.Second / 60)))
+	if p.fold.Open() {
+		t.Fatal("the preview stayed open after playing")
+	}
+	// Opened by the user, it stays open.
+	p.toggle.OnClick(u)
+	run(30)
+	if !p.fold.Open() {
+		t.Fatal("the button did not open the preview")
+	}
+	e.Play(widget.Settle.Key(), u)
+	run(int((2*hold + time.Second) / (time.Second / 60)))
+	if !p.fold.Open() {
+		t.Fatal("playing folded a preview the user opened")
+	}
+}
+
+func TestRowsLineUpWithTheTabsAndAllValuesRowsAreEven(t *testing.T) {
+	over := theme.Make("mine", theme.Set(widget.Gap, 20))
+	e, _, u, run, _ := edStage(t, Options{Base: widget.Dark(), Overrides: over, Sections: []Section{cursorSection}})
+	// The tabs' line ends where the cards do.
+	if e.tabs.Inset.Key() != TabInset.Key() {
+		t.Fatal("the tabs are not inset as the page is")
+	}
+	// The dot of a changed row is after its name, inside the card.
+	r := e.chosen["layout.gap"][0]
+	if r.line.titleAt.Min.X != 0 || r.line.titleAt.Size().W <= 0 || r.line.titleAt.Size().W > 60 {
+		t.Fatalf("the title's words are at %v", r.line.titleAt)
+	}
+	// In All values every row with a field or a swatch is as tall.
+	e.ShowAllValues(u)
+	e.Search("address", u)
+	run(20)
+	heights := map[float32]bool{}
+	for _, k := range []string{"address.chevron", "address.crumb", "address.height"} {
+		b, ok := u.Bounds(e.all.rowOf(t, k).line)
+		if !ok {
+			t.Fatalf("no bounds for %q", k)
+		}
+		heights[b.Size().H] = true
+	}
+	if len(heights) != 1 {
+		t.Fatalf("the rows are of heights %v", heights)
+	}
+	if n := ctlOf[*numberControl](t, e.all.rowOf(t, "address.height")); n.field.Height.Key() != CompactHeight.Key() {
+		t.Fatal("a number in All values is not compact")
+	}
+}
