@@ -24,7 +24,8 @@ import (
 // stroke-width, stroke-opacity, opacity and display, as attributes or in a style attribute, inherited down
 // groups; colours as #rgb, #rrggbb, rgb() or the basic named colours; and linear and radial gradients, in either
 // gradientUnits, with their stops, transforms and the stops of a gradient they link to. A radial gradient is drawn
-// as a circle from its centre, its focus left out.
+// out from its centre, its focus left out, in ellipses where the box or a transform stretches it one way more than
+// the other; one skewed is drawn with its axes set square.
 //
 // It leaves out text, images, filters, masks, clip paths, markers and patterns, and draws every stroke solid,
 // with round caps and joins. Opacity on a group is given to each shape in it, so shapes in a faded group that
@@ -428,10 +429,10 @@ func (r *reader) gradient(id string, box geom.Rect, ctm vecpath.Affine, op float
 		f, _ := length(v)
 		return f
 	}
-	var a, b vecpath.Pt
+	var a, b, c vecpath.Pt
 	if radial {
 		cx, cy, rr := coord("cx", "50%"), coord("cy", "50%"), coord("r", "50%")
-		a, b = vecpath.Pt{X: cx, Y: cy}, vecpath.Pt{X: cx + rr, Y: cy}
+		a, b, c = vecpath.Pt{X: cx, Y: cy}, vecpath.Pt{X: cx + rr, Y: cy}, vecpath.Pt{X: cx, Y: cy + rr}
 	} else {
 		a = vecpath.Pt{X: coord("x1", "0%"), Y: coord("y1", "0%")}
 		b = vecpath.Pt{X: coord("x2", "100%"), Y: coord("y2", "0%")}
@@ -446,11 +447,20 @@ func (r *reader) gradient(id string, box geom.Rect, ctm vecpath.Affine, op float
 		m = m.Then(vecpath.Affine{A: box.Size().W, D: box.Size().H, E: box.Min.X, F: box.Min.Y})
 	}
 	m = m.Then(ctm)
-	a, b = m.Apply(a), m.Apply(b)
-	if !finite(a.X, a.Y, b.X, b.Y) {
+	a, b, c = m.Apply(a), m.Apply(b), m.Apply(c)
+	if !finite(a.X, a.Y, b.X, b.Y, c.X, c.Y) {
 		return nil
 	}
 	g := &paint.Gradient{From: geom.Pt(a.X, a.Y), To: geom.Pt(b.X, b.Y), Radial: radial}
+	if radial {
+		// The circle's radius down, against its radius across, as the
+		// box and the transforms stretch them.
+		along := math.Hypot(float64(b.X-a.X), float64(b.Y-a.Y))
+		down := math.Hypot(float64(c.X-a.X), float64(c.Y-a.Y))
+		if along > 0 && math.Abs(down/along-1) > 1e-4 {
+			g.Aspect = float32(down / along)
+		}
+	}
 	g.Start, g.End = stops[0].Color, stops[len(stops)-1].Color
 	if stops[0].At > 0 || stops[len(stops)-1].At < 1 || len(stops) > 2 {
 		g.Stops = stops

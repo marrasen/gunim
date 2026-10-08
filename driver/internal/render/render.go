@@ -988,7 +988,8 @@ type quadVert struct {
 // gradAt returns where p, in the gradient's own space, falls on it: in
 // x along a linear one, from 0 at From to 1 at To, and for a radial one
 // the point moved from From and scaled by the distance to To, whose
-// length is the place.
+// length is the place. An ellipse's point is taken along the line to To
+// and across it, the part across scaled by its Aspect as well.
 func gradAt(gr *paint.Gradient, p geom.Point) geom.Point {
 	d, v := gr.To.Sub(gr.From), p.Sub(gr.From)
 	if gr.Radial {
@@ -996,7 +997,12 @@ func gradAt(gr *paint.Gradient, p geom.Point) geom.Point {
 		if rad <= 0 {
 			return geom.Pt(1, 0)
 		}
-		return geom.Pt(v.X/rad, v.Y/rad)
+		if gr.Aspect <= 0 || gr.Aspect == 1 {
+			return geom.Pt(v.X/rad, v.Y/rad)
+		}
+		along := (v.X*d.X + v.Y*d.Y) / (rad * rad)
+		across := (d.X*v.Y - d.Y*v.X) / (rad * rad * gr.Aspect)
+		return geom.Pt(along, across)
 	}
 	n := d.X*d.X + d.Y*d.Y
 	if n <= 0 {
