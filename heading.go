@@ -59,6 +59,18 @@ func (u *UI) stopHeading() {
 	}
 }
 
+// noteHeadingNode notes s while its node can watch the heading, so a frame walks the tree for watchers only while
+// it holds one. [UI.forget] lets it go.
+func (u *UI) noteHeadingNode(s *state) {
+	if _, ok := s.node.(HeadingWatcher); !ok {
+		return
+	}
+	if u.headingNodes == nil {
+		u.headingNodes = map[*state]struct{}{}
+	}
+	u.headingNodes[s] = struct{}{}
+}
+
 // headingEvent hands a reading of the compass to every node shown that watches it.
 func (u *UI) headingEvent(e input.Heading) {
 	for _, s := range u.headingWatchers() {
@@ -72,6 +84,9 @@ func (u *UI) headingEvent(e input.Heading) {
 
 // headingWatchers returns the nodes the last frame drew, in the window and its popups, that watch the heading now.
 func (u *UI) headingWatchers() []*state {
+	if len(u.headingNodes) == 0 {
+		return nil
+	}
 	var ws []*state
 	for _, r := range u.roots() {
 		ws = u.gatherWatchers(r, ws)

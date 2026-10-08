@@ -529,6 +529,7 @@ func newWindow(dw driver.Window, root Node) *Window {
 		theme:  theme.NewLive(theme.Make("default")),
 		zoom:   1,
 	}
+	w.ui.noteHeadingNode(rootState)
 	return w
 }
 
@@ -1301,8 +1302,11 @@ type UI struct {
 	// pinch is two fingers pinching now; see pinch.go.
 	pinch *pinchGesture
 	// compassOn says the window has the device's compass running, for a
-	// node that watches the heading; see heading.go.
-	compassOn bool
+	// node that watches the heading, and headingNodes holds the nodes in
+	// the tree that can watch it, so a frame looks for watchers only
+	// while there are some; see heading.go.
+	compassOn    bool
+	headingNodes map[*state]struct{}
 	// caretAt is the text caret last told to the driver, and boxAt the
 	// bounds of the node it is in.
 	caretAt, boxAt geom.Rect
@@ -1743,6 +1747,7 @@ func (u *UI) InsertAt(parent Node, i int, child Node) {
 	cs := &state{node: child, parent: ps, presence: Entering}
 	ps.kids = insertKid(ps.kids, i, cs)
 	u.index[child] = cs
+	u.noteHeadingNode(cs)
 	u.invalid = true
 	if m, ok := child.(Modal); ok && m.Modal() {
 		u.Cue(CueOpen, nil)
@@ -2385,6 +2390,7 @@ func (u *UI) forget(s *state) {
 		delete(u.ids, s.id)
 	}
 	u.unsubscribe(s)
+	delete(u.headingNodes, s)
 	delete(u.index, s.node)
 	for _, a := range s.aliases {
 		if u.index[a] == s {

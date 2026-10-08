@@ -113,6 +113,9 @@ func TestTheCompassStopsOnceNothingWatches(t *testing.T) {
 	if !slices.Equal(*calls, []bool{true, false, true, false}) {
 		t.Fatalf("a watcher removed left the compass with %v, want it stopped", *calls)
 	}
+	if len(w.ui.headingNodes) != 0 {
+		t.Fatalf("with the watcher gone, frames still look for watchers among %d nodes", len(w.ui.headingNodes))
+	}
 }
 
 func TestAWatcherNotDrawnLeavesTheCompassOff(t *testing.T) {
