@@ -131,10 +131,15 @@ func (r *rose) say(u *gunim.UI) string {
 	case !r.heard:
 		return "Waiting for the compass…"
 	case r.heading.Accuracy <= input.HeadingLow:
-		return fmt.Sprintf("%.0f°: unsure. Move the phone in a figure eight.", r.heading.Degrees)
+		return fmt.Sprintf("%d°: unsure. Move the phone in a figure eight.", degrees(r.heading))
 	default:
-		return fmt.Sprintf("%.0f°", r.heading.Degrees)
+		return fmt.Sprintf("%d°", degrees(r.heading))
 	}
+}
+
+// degrees returns the heading in whole degrees, from 0 to 359: a heading a hair below 360 shows as 0, as north.
+func degrees(h input.Heading) int {
+	return int(math.Round(float64(h.Degrees))) % 360
 }
 
 // dial returns where the dial is drawn in box.
