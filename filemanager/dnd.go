@@ -229,17 +229,15 @@ type dndView struct {
 	crumbs  *widget.DropZone
 	// sideMenu is the context menu of the sidebar's places.
 	sideMenu *sideMenu
-	// menuOf is the listing's context menu last opened, on the page
-	// menuPage, at menuAt in its space: where the Open with menu opens.
-	menuOf   *widget.ContextMenu
-	menuPage *listingPage
-	menuAt   geom.Point
-	// withAsked is the file the program was asked the programs of, for
-	// the Open with menu, and withFocus what had the keyboard then; with
-	// is the programs it sent, while that menu opens.
+	// withMenu is the listing's context menu last opened on one file,
+	// whose item withAt opens the Open with submenu, and withAsked the
+	// file the program was asked the programs of, until they come.
+	// withApps are the programs that came last, for the file withPath.
+	withMenu  *widget.ContextMenu
+	withAt    int
 	withAsked string
-	withFocus gunim.Node
-	with      *OpenWithMenu
+	withPath  string
+	withApps  []OpenWithApp
 	vols      map[string]string
 	volErrs   map[string]string
 	clip      ClipState

@@ -46,6 +46,12 @@ type PopupOptions struct {
 	// Above opens the popup above the anchor, or below it where the screen runs out above and there is more room
 	// below, as for suggestions at a message box along the bottom of a window.
 	Above bool
+	// Beside opens the popup beside the anchor, as a submenu opens beside its menu: right of the anchor with the
+	// content's top at the anchor's top, or left of it where the screen runs out on the right and there is more room
+	// on the left. Where the screen runs out below, the popup moves up as far as keeps it on the screen. A
+	// [PopupFitter] is told the room from the anchor's top down and up, and from its right edge right and its left
+	// edge left.
+	Beside bool
 	// Owned keeps the popup just above its window, under any window in front of it, as for a glow round the window.
 	// Without it a popup stays above every window, as a menu does. Only Windows tells the two apart.
 	Owned bool
@@ -382,29 +388,50 @@ func (u *UI) framePopup(s *surface, f Frame) {
 }
 
 // fitPopup tells content that fits itself to the screen how much room there is round its anchor, asking the parent
-// window again only when the anchor has moved.
+// window again only when the anchor has moved. A popup opened beside its anchor keeps the room to place itself by,
+// fitter or not.
 func (u *UI) fitPopup(s *surface, parent driver.Window) {
 	r, ok := parent.(driver.PopupRoomer)
 	if !ok || s.closing {
 		return
 	}
+	var fits []PopupFitter
 	for _, k := range s.root.kids {
-		fit, ok := k.node.(PopupFitter)
-		if !ok {
-			continue
+		if fit, ok := k.node.(PopupFitter); ok {
+			fits = append(fits, fit)
 		}
-		a := u.popupAnchor(s)
-		at := a
-		if sc, ok := parent.(driver.Screener); ok {
-			// Where the anchor is on the screen, which changes as the window moves
-			at = geom.Rect{Min: sc.ToScreen(a.Min), Max: sc.ToScreen(a.Max)}
+	}
+	if len(fits) == 0 && !s.opts.Beside {
+		return
+	}
+	a := u.popupAnchor(s)
+	if s.opts.Beside {
+		// The room round the anchor itself, which the popup is put beside
+		a = u.openerRect(s)
+	}
+	at := a
+	if sc, ok := parent.(driver.Screener); ok {
+		// Where the anchor is on the screen, which changes as the window moves
+		at = geom.Rect{Min: sc.ToScreen(a.Min), Max: sc.ToScreen(a.Max)}
+	}
+	if !s.roomKnown || at != s.roomAt {
+		s.room = r.PopupRoom(a)
+		if s.opts.Beside {
+			s.room = besideRoom(a, s.room)
 		}
-		if !s.roomKnown || at != s.roomAt {
-			s.room = r.PopupRoom(a)
-			s.roomAt, s.roomKnown = at, true
-		}
+		s.roomAt, s.roomKnown = at, true
+	}
+	for _, fit := range fits {
 		fit.FitPopup(s.room)
 	}
+}
+
+// besideRoom turns room, round anchor a as [driver.PopupRoomer] tells it, into the room for a popup beside a: from
+// a's top down and up, from its right edge right, and from its left edge left.
+func besideRoom(a geom.Rect, room driver.Room) driver.Room {
+	room.Below += a.Size().H
+	room.Right -= a.Size().W
+	return room
 }
 
 // layoutPopup lays out a popup's content and returns the size its
@@ -418,10 +445,25 @@ func (u *UI) layoutPopup(s *surface, f Frame) geom.Size {
 // is in, moved by the content's padding. It is left as it is, top above
 // bottom, even where the padding turns it inside out: the popup lines
 // its top up with the bottom and its bottom with the top.
+//
+// A popup opened beside its anchor gets an anchor of no size, at where its window's top-left corner goes.
 func (u *UI) popupAnchor(s *surface) geom.Rect {
-	o := s.root.opener
-	a := s.opts.Anchor
-	anchor := geom.Rect{Min: o.screenAt(a.Min), Max: o.screenAt(a.Max)}
+	anchor := u.openerRect(s)
+	if s.opts.Beside {
+		room := driver.NoRoomLimit
+		if s.roomKnown {
+			room = s.room
+		}
+		var in geom.Insets
+		for _, k := range s.root.kids {
+			if pp, ok := k.node.(PopupPadder); ok {
+				in = pp.PopupPadding()
+				break
+			}
+		}
+		at := besideAt(anchor, s.root.size, in, room)
+		return geom.Rect{Min: at, Max: at}
+	}
 	for _, k := range s.root.kids {
 		pp, ok := k.node.(PopupPadder)
 		if !ok {
@@ -440,6 +482,30 @@ func (u *UI) popupAnchor(s *surface) geom.Rect {
 		break
 	}
 	return anchor
+}
+
+// openerRect returns s's anchor in the space of the window its opener is in.
+func (u *UI) openerRect(s *surface) geom.Rect {
+	o := s.root.opener
+	a := s.opts.Anchor
+	return geom.Rect{Min: o.screenAt(a.Min), Max: o.screenAt(a.Max)}
+}
+
+// besideAt returns where the window of a popup of size, padded by in, goes beside anchor a, given the room round a
+// as [besideRoom] tells it: its top-left corner. The content's card meets a's right edge, or its left edge where the
+// card does not fit on the right and there is more room on the left. Its top is level with a's top, or as much higher
+// as keeps the window a pixel above the screen's bottom, so rounding keeps it on the screen, though never above the
+// screen's top.
+func besideAt(a geom.Rect, size geom.Size, in geom.Insets, room driver.Room) geom.Point {
+	x := a.Max.X - in.Left
+	if right, left := size.W-in.Left, size.W-in.Right; right > room.Right && room.Left > room.Right {
+		x = a.Min.X - left
+	}
+	y := a.Min.Y - in.Top
+	if over := size.H - in.Top - (room.Below - 1); over > 0 {
+		y = max(y-over, a.Min.Y-room.Above)
+	}
+	return geom.Pt(x, y)
 }
 
 // popupCard is the part of a popup's content k that takes the pointer by its padding alone: its box less its

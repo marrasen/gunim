@@ -36,6 +36,13 @@ import (
 // Its items are [MenuItem]s, given to [NewMenu] and changed with
 // [Menu.SetItems]. The menu works out what it needs of them once, as they
 // are set: its width, and where its lines and captions are.
+//
+// An item with a submenu shows a chevron at its right, and opens its
+// submenu beside the menu once the pointer rests on it, or at once on a
+// click, Enter or Right. Left and Escape close the submenu again. The
+// submenu stays open while the pointer crosses other items on its way
+// there. It opens on the menu's right, or on its left where the screen
+// runs out, and moves up to stay on the screen.
 type Menu struct {
 	anim.Group
 
@@ -44,6 +51,11 @@ type Menu struct {
 	// window through u, as closing the popup the menu is in; a non-nil
 	// result is sent to the application as the menu's intent.
 	OnPick func(i int, u *gunim.UI) gunim.Intent
+	// OnPickSub runs, in the same way, when an item of a submenu is
+	// picked, with its path: the item of this menu whose submenu holds
+	// it, then the item in that submenu, and on down for a submenu in a
+	// submenu.
+	OnPickSub func(path []int, u *gunim.UI) gunim.Intent
 	// OnHighlight runs, in the same way, when the pointer or a key moves
 	// the highlight, with the item it moved to, or -1.
 	OnHighlight func(i int, u *gunim.UI) gunim.Intent
@@ -105,6 +117,18 @@ type Menu struct {
 	// cover lets the menu cover its anchor, as a context menu covers the point pressed: it slides up the screen to fit,
 	// and keeps to the screen's whole height rather than the taller side of its anchor.
 	cover bool
+
+	// sub is the submenu open, or nil. parent is the menu this one is the submenu of, or nil, and side the room the
+	// screen leaves beside the parent's item, from FitPopup.
+	sub    *subMenu
+	parent *Menu
+	side   driver.Room
+	// wait cancels a submenu waiting to open, or to close for another item, as the pointer rests; waitFor is the item
+	// it waits on.
+	wait    func()
+	waitFor int
+	// leaving says the menu is on its way out, and opens no submenu.
+	leaving bool
 }
 
 // menuRow is an item's text and hint, shaped.
@@ -131,6 +155,22 @@ type MenuItem struct {
 	Caption bool
 	// Break draws a line above the item, grouping the menu. A line above the first item draws nothing.
 	Break bool
+	// Sub makes the item open a submenu of its items, beside the menu, in place of being picked. The item shows a
+	// chevron at the right in place of a hint. A [Menu] and a [ContextMenu] open it; a pick in it runs their OnPickSub.
+	Sub *Submenu
+}
+
+// Submenu is the items of a [MenuItem]'s submenu. It is held by pointer, so items stay comparable.
+type Submenu struct {
+	Items []MenuItem
+}
+
+// subItems returns the items of the item's submenu, or nil for an item with none.
+func (it *MenuItem) subItems() []MenuItem {
+	if it.Sub == nil {
+		return nil
+	}
+	return it.Sub.Items
 }
 
 // Labels returns an item for each label, for a menu of plain lines.
@@ -166,14 +206,15 @@ func newMenuList(items []MenuItem) *menuList {
 		it := &items[i]
 		top.see(i, it.Label)
 		// Most items are plain lines, with none of these.
-		if it.Hint != "" || it.Icon != nil || it.Swatch != (color.NRGBA{}) || it.Checked || it.Caption || it.Break {
+		if it.Hint != "" || it.Icon != nil || it.Swatch != (color.NRGBA{}) || it.Checked || it.Caption || it.Break ||
+			len(it.subItems()) > 0 {
 			if it.Break && i > 0 {
 				l.lines = append(l.lines, i)
 			}
 			if it.Caption {
 				l.heads = append(l.heads, i)
 			}
-			if it.Hint != "" {
+			if it.Hint != "" || len(it.subItems()) > 0 {
 				l.hinted = append(l.hinted, i)
 			}
 			ticks = ticks || it.Checked
@@ -319,6 +360,10 @@ func (m *Menu) reveal(i int) {
 // width, and cuts long items short.
 func (m *Menu) FitPopup(r driver.Room) {
 	m.room, m.wide = 0, 0
+	if m.parent != nil {
+		m.fitBeside(r)
+		return
+	}
 	room := max(r.Below, r.Above)
 	if m.cover {
 		room = r.Below + r.Above
@@ -372,19 +417,42 @@ func (m *Menu) Highlighted() int { return m.hot }
 // picks the item whose key it is, or moves the highlight among several.
 // It is for the node that opened the menu, which keeps the keyboard, to
 // pass keys on. It reports whether it used the key.
+//
+// With a submenu open, Right on an item with a submenu opens it and
+// moves the keys there, Left closes it and brings them back, and Escape
+// closes the submenu the keys are in, or one open beside it. The menu
+// passes the other keys on to the submenu that has the keys.
 func (m *Menu) Key(k input.KeyPress, u *gunim.UI) bool {
+	if m.subKey(k) {
+		return true
+	}
+	if km := m.keyMenu(); km != m {
+		return km.Key(k, u)
+	}
 	defer m.toldUnlessPicked(m.hot, m.picks, u)
 	switch k.Key {
 	case input.KeyDown:
 		m.Highlight(m.around(1))
+		m.keyedAway()
 	case input.KeyUp:
 		m.Highlight(m.around(-1))
+		m.keyedAway()
 	case input.KeyHome:
 		m.Highlight(m.step(m.hot, 0, 1))
+		m.keyedAway()
 	case input.KeyEnd:
 		m.Highlight(m.step(m.hot, m.len()-1, -1))
+		m.keyedAway()
+	case input.KeyRight:
+		if !m.hasSub(m.hot) {
+			return false
+		}
+		m.openSub(m.hot, true, u)
 	case input.KeyEnter, input.KeyKPEnter, input.KeySpace:
-		if m.enabled(m.hot) && m.OnPick != nil {
+		switch {
+		case m.hasSub(m.hot):
+			m.openSub(m.hot, true, u)
+		case m.enabled(m.hot) && m.OnPick != nil:
 			m.pick(m.hot, u)
 		}
 	default:
@@ -414,7 +482,12 @@ func (m *Menu) pickByKey(k input.KeyPress, u *gunim.UI) bool {
 		return false
 	}
 	m.Highlight(on[0])
-	if len(on) == 1 && m.OnPick != nil {
+	m.keyedAway()
+	switch {
+	case len(on) > 1:
+	case m.hasSub(on[0]):
+		m.openSub(on[0], true, u)
+	case m.OnPick != nil:
 		m.pick(on[0], u)
 	}
 	return true
@@ -455,6 +528,8 @@ func (m *Menu) Transition(p gunim.Presence, f gunim.Frame) bool {
 		m.in.Animate(1, Quick.Get(f.Theme))
 	case gunim.Exiting:
 		m.in.Animate(0, Quick.Get(f.Theme))
+		m.leaving = true
+		m.stopWait()
 	case gunim.Present:
 	}
 	return !m.in.Active()
@@ -495,14 +570,20 @@ func (m *Menu) Handle(e input.Event, u *gunim.UI) bool {
 		// The pointer arriving without moving, as when the menu opens
 		// under it, leaves the highlight where the keys put it. A move
 		// follows any real arrival.
+		m.pointerIn(u)
 	case input.PointerMove:
 		m.wasPointer, m.pointer = m.pointer, e.Pos
+		m.pointerIn(u)
 		if i := m.rowAt(e.Pos); i >= 0 {
 			m.Highlight(i)
+			m.hover(i, u)
 		}
 	case input.PointerDown:
 	case input.PointerUp:
-		if i := m.rowAt(e.Pos); m.enabled(i) && m.OnPick != nil {
+		switch i := m.rowAt(e.Pos); {
+		case m.hasSub(i):
+			m.openSub(i, false, u)
+		case m.enabled(i) && m.OnPick != nil:
 			m.pick(i, u)
 		}
 	default:
@@ -638,6 +719,9 @@ const menuTick = 18
 // menuHintGap is the room between an item's text and its hint.
 const menuHintGap = 32
 
+// menuSubRoom is the room after an item's text for the chevron of its submenu.
+const menuSubRoom = 28
+
 // measure returns the width of the widest item's text with its hint, in face at size. It measures the items again
 // only when they, the face or the size change.
 func (m *Menu) measure(face *text.Face, size float32) float32 {
@@ -649,7 +733,9 @@ func (m *Menu) measure(face *text.Face, size float32) float32 {
 	w := float32(0)
 	measure := func(i int) {
 		line := face.Shape(m.label(i), size).Advance
-		if h := l.items[i].Hint; h != "" {
+		if len(l.items[i].subItems()) > 0 {
+			line += menuSubRoom
+		} else if h := l.items[i].Hint; h != "" {
 			line += menuHintGap + face.Shape(h, size*0.9).Advance
 		}
 		w = max(w, line)
@@ -765,6 +851,7 @@ func (m *Menu) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom
 	}
 	m.glide = true
 	m.followPointer()
+	m.placeSub()
 	return c.Constrain(geom.Sz(w+2*m.margin, h+2*m.margin))
 }
 
@@ -775,6 +862,7 @@ func (m *Menu) newRows() {
 	if m.hot >= 0 && !m.enabled(m.hot) {
 		m.moveUntold(m.step(-1, min(m.hot, m.len()-1), -1))
 	}
+	m.newSubRows()
 	if !m.glide {
 		return
 	}
@@ -897,7 +985,15 @@ func (m *Menu) Paint(p *paint.Painter, f gunim.Frame, _ geom.Size, _ gunim.Child
 			paintSwatch(p, th, it.Swatch, geom.Pt(x, m.rowY(i)+m.row/2))
 		}
 		fits := room
-		if it.Hint != "" {
+		if len(it.subItems()) > 0 {
+			c := hint
+			if !m.enabled(i) {
+				c = dimHint
+			}
+			s := IconSize.Get(th)
+			paintIcon(p, th, icon.ChevronRight, geom.Rc(card.Max.X-pad-bar-s+4, m.rowY(i)+(m.row-s)/2, s, s), c, 1)
+			fits -= menuSubRoom
+		} else if it.Hint != "" {
 			h := r.hint.shape(face, it.Hint, size*0.9)
 			c := hint
 			if !m.enabled(i) {
@@ -1242,7 +1338,8 @@ func paintChevron(p *paint.Painter, th *theme.Live, c geom.Point, ink color.NRGB
 // While the menu is open, the context menu holds the keyboard: Up,
 // Down, Home and End move the highlight, Enter or Space picks, and
 // Escape or Tab closes the menu. It hands the keyboard back once the
-// menu closes.
+// menu closes. An item with a submenu opens it on Right, Enter or Space,
+// or as the pointer rests on it; Left and Escape close the submenu.
 type ContextMenu struct {
 	// Prepare, when set, runs as the secondary button goes down at at, in
 	// the context menu's space, before the menu opens. It may set the items
@@ -1253,6 +1350,10 @@ type ContextMenu struct {
 	// the clipboard; a non-nil result is sent to the application as the
 	// context menu's intent.
 	OnPick func(i int, u *gunim.UI) gunim.Intent
+	// OnPickSub runs in the same way with the path of an item picked in
+	// a submenu: the item whose submenu holds it, then the item in that
+	// submenu, and on down; see [Menu.OnPickSub].
+	OnPickSub func(path []int, u *gunim.UI) gunim.Intent
 
 	child gunim.Node
 	popup *gunim.Popup
@@ -1271,7 +1372,8 @@ func NewContextMenu(child gunim.Node, items []MenuItem) *ContextMenu {
 func (c *ContextMenu) Items() []MenuItem { return c.list.items }
 
 // SetItems makes items the menu's items, as Prepare may for the place pressed. The context menu keeps the slice: a
-// change to it goes through SetItems again. The menu open shows them at once.
+// change to it goes through SetItems again. The menu open shows them at once, and so does a submenu open, as for
+// items that arrive after the menu opened.
 func (c *ContextMenu) SetItems(items []MenuItem) {
 	c.list = newMenuList(items)
 	if c.menu != nil {
@@ -1303,6 +1405,10 @@ func (c *ContextMenu) Handle(e input.Event, u *gunim.UI) bool {
 		}
 		switch e.Key {
 		case input.KeyEscape, input.KeyTab:
+			if e.Key == input.KeyEscape && c.menu.Key(e, u) {
+				// A submenu closed, and the menu stays.
+				break
+			}
 			u.Cue(gunim.CueClose, c)
 			c.close(u)
 		default:
@@ -1334,6 +1440,13 @@ func (c *ContextMenu) show(at geom.Point, u *gunim.UI) {
 		c.close(u)
 		if c.OnPick != nil {
 			send(u, c, c.OnPick(i, u))
+		}
+		return nil
+	}
+	m.OnPickSub = func(path []int, u *gunim.UI) gunim.Intent {
+		c.close(u)
+		if c.OnPickSub != nil {
+			send(u, c, c.OnPickSub(path, u))
 		}
 		return nil
 	}

@@ -11,11 +11,13 @@ import (
 )
 
 // openWithSystem stands in for the system's side of Open with: it offers
-// Editor and Viewer for any file, and records what it was asked.
+// Editor and Viewer for any file, and records what it was asked. With a
+// gate, it answers once the gate lets it.
 type openWithSystem struct {
 	mu     sync.Mutex
 	exts   []string
 	opened []string // "id path", or "dialog path"
+	gate   chan struct{}
 }
 
 // asked returns the extensions the programs were asked for, and what was
@@ -34,8 +36,12 @@ func fakeOpenWith(t *testing.T, works bool) *openWithSystem {
 	openWithWorks = func() bool { return works }
 	openWithApps = func(ext string) ([]OpenWithApp, error) {
 		s.mu.Lock()
-		defer s.mu.Unlock()
 		s.exts = append(s.exts, ext)
+		gate := s.gate
+		s.mu.Unlock()
+		if gate != nil {
+			<-gate
+		}
 		return []OpenWithApp{{ID: "editor.exe", Name: "Editor"}, {ID: "viewer.exe", Name: "Viewer"}, {ID: "editor.exe", Name: "Editor"}}, nil
 	}
 	openWithApp = func(p, id string) error {
@@ -56,27 +62,54 @@ func fakeOpenWith(t *testing.T, works bool) *openWithSystem {
 	return s
 }
 
-// pickInMenu picks the item labelled in the listing's context menu.
-func (h *harness) pickInMenu(label string) {
+// hold has the system wait to answer for the programs until the test
+// ends, or until the function returned lets it.
+func (s *openWithSystem) hold(t *testing.T) (answer func()) {
+	gate := make(chan struct{})
+	s.mu.Lock()
+	s.gate = gate
+	s.mu.Unlock()
+	var once sync.Once
+	answer = func() { once.Do(func() { close(gate) }) }
+	t.Cleanup(answer)
+	return answer
+}
+
+// withItems returns the labels of the Open with submenu of the listing's
+// context menu, which are dimmed, and whether the menu is open.
+func (h *harness) withItems() (items []string, off []bool, open bool) {
 	h.t.Helper()
+	const label = "Open with"
+	h.ui(func(b *browser, _ *gunim.UI) {
+		m := b.listing.cur.menu
+		i := slices.Index(labelsOf(m.Items()), label)
+		if i < 0 || m.Items()[i].Sub == nil {
+			h.t.Fatalf("the menu %v has no %q with a submenu", labelsOf(m.Items()), label)
+		}
+		sub := m.Items()[i].Sub.Items
+		items, off, open = labelsOf(sub), disabledOf(sub), m.Focusable()
+	})
+	return items, off, open
+}
+
+// pickWith picks the item sub in the Open with submenu of the listing's
+// context menu.
+func (h *harness) pickWith(sub string) {
+	h.t.Helper()
+	const label = "Open with"
 	h.ui(func(b *browser, u *gunim.UI) {
 		m := b.listing.cur.menu
 		i := slices.Index(labelsOf(m.Items()), label)
-		if i < 0 {
-			h.t.Fatalf("the menu %v has no %q", labelsOf(m.Items()), label)
+		if i < 0 || m.Items()[i].Sub == nil {
+			h.t.Fatalf("the menu %v has no %q with a submenu", labelsOf(m.Items()), label)
 		}
-		if m.Items()[i].Disabled {
-			h.t.Fatalf("%q is dimmed", label)
+		items := m.Items()[i].Sub.Items
+		j := slices.Index(labelsOf(items), sub)
+		if j < 0 || items[j].Disabled {
+			h.t.Fatalf("the submenu %v has no %q to pick", labelsOf(items), sub)
 		}
-		m.OnPick(i, u)
+		m.OnPickSub([]int{i, j}, u)
 	})
-}
-
-// menuItems returns the items of the listing's context menu.
-func (h *harness) menuItems() []string {
-	var items []string
-	h.ui(func(b *browser, _ *gunim.UI) { items = labelsOf(b.listing.cur.menu.Items()) })
-	return items
 }
 
 func TestOpenWithOffersTheSystemsProgramsForAFile(t *testing.T) {
@@ -89,20 +122,22 @@ func TestOpenWithOffersTheSystemsProgramsForAFile(t *testing.T) {
 		h, _, _ := newFetchHarness(t, set, "a.txt", "sub/")
 		h.until("the rows arrive", func() bool { return len(h.shown()) == 2 })
 		items, off := h.rowMenu("sub")
-		if i := slices.Index(items, "Open with…"); i < 0 || !off[i] {
+		if i := slices.Index(items, "Open with"); i < 0 || !off[i] {
 			t.Fatalf("remote %v: Open with on a folder is in %v, dimmed %v", remote, items, off)
 		}
+		if exts, _ := sys.asked(); len(exts) != 0 {
+			t.Fatalf("remote %v: a folder's menu asked for the programs of %v", remote, exts)
+		}
 		items, off = h.rowMenu("a.txt")
-		if i := slices.Index(items, "Open with…"); i < 0 || off[i] {
+		if i := slices.Index(items, "Open with"); i < 0 || off[i] {
 			t.Fatalf("remote %v: Open with on a file is in %v, dimmed %v", remote, items, off)
 		}
-		h.pickInMenu("Open with…")
 		want := []string{"Editor", "Viewer", "Choose another app…"}
-		h.until("the programs' menu opens", func() bool { return slices.Equal(h.menuItems(), want) })
+		h.until("the programs fill the submenu", func() bool { got, _, _ := h.withItems(); return slices.Equal(got, want) })
 		if exts, _ := sys.asked(); !slices.Equal(exts, []string{".txt"}) {
 			t.Fatalf("remote %v: the programs were asked for %v", remote, exts)
 		}
-		h.pickInMenu("Viewer")
+		h.pickWith("Viewer")
 		h.until("the file opens with Viewer", func() bool { _, o := sys.asked(); return len(o) == 1 })
 		h.idle()
 		_, opened := sys.asked()
@@ -118,10 +153,13 @@ func TestOpenWithOffersTheSystemsProgramsForAFile(t *testing.T) {
 			t.Fatalf("opened %s", p)
 		}
 
+		// Opened again, the menu shows the programs found before at once, and asks again.
 		h.rowMenu("a.txt")
-		h.pickInMenu("Open with…")
-		h.until("the programs' menu opens again", func() bool { return slices.Equal(h.menuItems(), want) })
-		h.pickInMenu("Choose another app…")
+		if got, _, _ := h.withItems(); !slices.Equal(got, want) {
+			t.Fatalf("remote %v: opened again, the submenu has %v", remote, got)
+		}
+		h.until("the programs are asked for again", func() bool { exts, _ := sys.asked(); return len(exts) == 2 })
+		h.pickWith("Choose another app…")
 		h.until("the dialog opens", func() bool { _, o := sys.asked(); return len(o) == 2 })
 		if _, o := sys.asked(); !strings.HasPrefix(o[1], "dialog ") || filepath.Base(o[1]) != "a.txt" {
 			t.Fatalf("remote %v: asked %v", remote, o)
@@ -129,11 +167,43 @@ func TestOpenWithOffersTheSystemsProgramsForAFile(t *testing.T) {
 	}
 }
 
+func TestOpenWithLooksForTheProgramsWhileItsMenuIsOpen(t *testing.T) {
+	sys := fakeOpenWith(t, true)
+	answer := sys.hold(t)
+	h, _, _ := newFetchHarness(t, nil, "a.txt")
+	h.until("the rows arrive", func() bool { return len(h.shown()) == 1 })
+	h.rowMenu("a.txt")
+	h.until("the programs are asked for", func() bool { exts, _ := sys.asked(); return len(exts) == 1 })
+	items, off, open := h.withItems()
+	if !slices.Equal(items, []string{"Looking for apps…", "Choose another app…"}) || !off[0] || off[1] || !open {
+		t.Fatalf("before the programs come the submenu has %v, dimmed %v, the menu open %v", items, off, open)
+	}
+	answer()
+	h.until("the programs fill the submenu in place", func() bool {
+		items, _, open := h.withItems()
+		return open && slices.Equal(items, []string{"Editor", "Viewer", "Choose another app…"})
+	})
+}
+
+func TestOpenWithStillChoosesAnotherAppWhereNoProgramsCome(t *testing.T) {
+	sys := fakeOpenWith(t, true)
+	sys.hold(t)
+	h, _, _ := newFetchHarness(t, nil, "a.txt")
+	h.until("the rows arrive", func() bool { return len(h.shown()) == 1 })
+	h.rowMenu("a.txt")
+	h.until("the programs are asked for", func() bool { exts, _ := sys.asked(); return len(exts) == 1 })
+	h.pickWith("Choose another app…")
+	h.until("the dialog opens", func() bool { _, o := sys.asked(); return len(o) == 1 })
+	if _, o := sys.asked(); o[0] != "dialog "+filepath.Join(h.dir, "a.txt") {
+		t.Fatalf("asked %v", o)
+	}
+}
+
 func TestOpenWithIsNotOfferedWhereTheSystemHasNoPrograms(t *testing.T) {
 	fakeOpenWith(t, false)
 	h, _, _ := newFetchHarness(t, nil, "a.txt")
 	h.until("the rows arrive", func() bool { return len(h.shown()) == 1 })
-	if items, _ := h.rowMenu("a.txt"); slices.Contains(items, "Open with…") {
+	if items, _ := h.rowMenu("a.txt"); slices.Contains(items, "Open with") {
 		t.Fatalf("the menu %v offers Open with", items)
 	}
 }
@@ -147,21 +217,18 @@ func TestExtOfTakesTheLastDot(t *testing.T) {
 }
 
 func TestAnOpenWithAnswerForAnotherMenuIsDropped(t *testing.T) {
-	fakeOpenWith(t, true)
+	sys := fakeOpenWith(t, true)
+	sys.hold(t)
 	h, _, _ := newFetchHarness(t, nil, "a.txt", "b.txt")
 	h.until("the rows arrive", func() bool { return len(h.shown()) == 2 })
 	h.rowMenu("a.txt")
-	h.pickInMenu("Open with…")
-	h.until("the programs' menu opens", func() bool { return slices.Contains(h.menuItems(), "Viewer") })
-	// Asked for a.txt again, b.txt's menu opens before the answer comes.
-	h.ui(func(b *browser, u *gunim.UI) {
-		b.dnd.withAsked = filepath.Join(h.dir, "a.txt")
-	})
-	items, _ := h.rowMenu("b.txt")
+	// b.txt's menu opens before the answer for a.txt comes.
+	h.rowMenu("b.txt")
+	h.until("the programs are asked for both", func() bool { exts, _ := sys.asked(); return len(exts) == 2 })
 	h.ui(func(b *browser, u *gunim.UI) {
 		b.dnd.openWithMenu(OpenWithMenu{Path: filepath.Join(h.dir, "a.txt"), Apps: []OpenWithApp{{ID: "x", Name: "X"}}}, u)
 	})
-	if got := h.menuItems(); !slices.Equal(got, items) {
-		t.Fatalf("b.txt's menu %v turned into %v", items, got)
+	if got, _, _ := h.withItems(); !slices.Equal(got, []string{"Looking for apps…", "Choose another app…"}) {
+		t.Fatalf("b.txt's submenu turned into %v", got)
 	}
 }

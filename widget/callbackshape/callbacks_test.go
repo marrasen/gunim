@@ -91,6 +91,7 @@ var structs = []any{
 	(*widget.SliderRow)(nil),
 	(*widget.Spacer)(nil),
 	(*widget.Split)(nil),
+	(*widget.Submenu)(nil),
 	(*widget.Surface)(nil),
 	(*widget.Switch)(nil),
 	(*widget.Table)(nil),

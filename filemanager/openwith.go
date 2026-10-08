@@ -8,12 +8,12 @@ import (
 	"github.com/marrasen/gunim"
 )
 
-// Open with: the programs the computer has for a file, offered in a menu
-// of their own, and the system's dialog to choose another. Only Windows
-// tells them; elsewhere the item does not show.
+// Open with: the programs the computer has for a file, offered in a
+// submenu of the file's context menu, and the system's dialog to choose
+// another. Only Windows tells them; elsewhere the item does not show.
 
-// OpenWithAsked asks for the programs that open the file at Path, for a
-// menu of them.
+// OpenWithAsked asks for the programs that open the file at Path, for the
+// Open with submenu, as the context menu opens on the file.
 type OpenWithAsked struct {
 	Path string
 }
@@ -25,7 +25,7 @@ type OpenWithApp struct {
 }
 
 // OpenWithMenu is a patch with the programs that open the file at Path,
-// for the menu of them to open.
+// which fill the Open with submenu in place while the menu is open.
 type OpenWithMenu struct {
 	Path string
 	Apps []OpenWithApp
