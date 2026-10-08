@@ -43,7 +43,7 @@ func (r *Renderer) image(op *paint.ImageOp) {
 		Max: geom.Pt(src.Max.X/float32(iw), src.Max.Y/float32(ih)),
 	}
 	r.quad(corners(op.Rect, uv), op.Transform, r.scale, &look{
-		rect: op.Rect, radius: op.Radius, kind: kindImage,
+		rect: op.Rect, radius: op.Radius, kind: kindImage, add: op.Blend == paint.BlendAdd,
 		color0: [4]float32{0, 0, 0, op.Opacity},
 	})
 }

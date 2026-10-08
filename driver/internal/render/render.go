@@ -209,7 +209,8 @@ type clipEllipse struct {
 //	a_rect   the shape's rectangle in its own space
 //	a_param  corner radius, stroke width, kind, and a flag or the
 //	         gradient's mode; for a glyph, its subpixel order and
-//	         contrast in place of the first two
+//	         contrast in place of the first two. The kind is plus
+//	         kindAdd for a quad that adds its light
 //	a_color0 the fill, the shadow's colour or the glyph's; for an image
 //	         or a layer, the opacity in alpha
 //	a_color1 the gradient's end colour, or a glyph's gamma ratios
@@ -230,6 +231,14 @@ const (
 	kindLayer
 	kindInset
 )
+
+// kindAdd, added to a quad's kind, has it add its colour to what is
+// beneath, for [paint.BlendAdd]. The blending stays as it is, so the
+// quad shares a batch with the ones around it: under premultiplied
+// blending, a colour of alpha 0 adds itself and hides nothing, so the
+// shader outputs the quad's colour with alpha 0. Where the program
+// blends by channel it hides nothing in any channel either.
+const kindAdd = 8
 
 // The gradient modes, in a_param.w: two colours, a_color0 to a_color1,
 // along a line or out in circles, and from gradRamp a row of the ramp
@@ -402,7 +411,8 @@ vec4 glyph(out vec4 cover) {
 }
 
 vec4 shade(out vec4 cover) {
-	int kind = int(v_param.z + 0.5);
+	// The kind, less kindAdd.
+	int kind = int(v_param.z + 0.5) & 7;
 	if (kind == 2) {
 		return glyph(cover);
 	}
@@ -475,6 +485,11 @@ void main() {
 	col *= c;
 	cover *= c;
 #endif
+	if (int(v_param.z + 0.5) >= 8) {
+		// Added light: its colour, hiding nothing beneath it.
+		col.a = 0.0;
+		cover = vec4(0.0);
+	}
 	fragColor = col;
 #ifdef DUAL
 	fragCover = cover;
@@ -802,7 +817,7 @@ func clearWindow(g gl.Context, bg [4]float32, alpha float32) {
 // background returns the colour of a frame's background, and 1, or 0
 // when it has none: its first op,
 // when that is a plain opaque rectangle from the window's top left
-// corner, as a window's surface paints. A frame drawn for a smaller
+// corner, as a window's surface paints, and does not add its light. A frame drawn for a smaller
 // window than the buffer holds leaves a strip the clear fills, and the
 // background colour makes that strip look like the window's own.
 func background(ops []paint.Op) (bg [4]float32, alpha float32) {
@@ -811,7 +826,7 @@ func background(ops []paint.Op) (bg [4]float32, alpha float32) {
 	}
 	op, ok := ops[0].(*paint.RRectOp)
 	if !ok || op.Radius != 0 || op.Transform != paint.Identity || op.Fill.Gradient != nil ||
-		op.Fill.Solid.A != 0xff || op.Shadow.Color.A != 0 || op.Stroke.Width > 0 ||
+		op.Fill.Solid.A != 0xff || op.Shadow.Color.A != 0 || op.Stroke.Width > 0 || op.Blend != paint.BlendNormal ||
 		op.Rect.Min.X > 0 || op.Rect.Min.Y > 0 {
 		return [4]float32{}, 0
 	}
@@ -1017,6 +1032,8 @@ type look struct {
 	radius, stroke float32
 	kind           int
 	flag           bool
+	// add has the quad add its colour to what is beneath; see kindAdd.
+	add            bool
 	color0, color1 [4]float32
 	extra          [4]float32
 	strokeColor    [4]float32
@@ -1058,6 +1075,10 @@ func (r *Renderer) emit(corners [4]quadVert, at [4]geom.Point, w [4]float32, sca
 	if l.flag {
 		flag = 1
 	}
+	kind := float32(l.kind)
+	if l.add {
+		kind += kindAdd
+	}
 	sx, sy := 2*scale/float32(r.fbW), 2*scale/float32(r.fbH)
 	for i, c := range corners {
 		p := at[i]
@@ -1084,7 +1105,7 @@ func (r *Renderer) emit(corners [4]quadVert, at [4]geom.Point, w [4]float32, sca
 			p.X*sx-1, 1-p.Y*sy,
 			c.local.X, c.local.Y,
 			l.rect.Min.X, l.rect.Min.Y, l.rect.Max.X, l.rect.Max.Y,
-			l.radius, l.stroke, float32(l.kind), flag,
+			l.radius, l.stroke, kind, flag,
 			l.color0[0], l.color0[1], l.color0[2], l.color0[3],
 			l.color1[0], l.color1[1], l.color1[2], l.color1[3],
 			extra[0], extra[1], extra[2], extra[3],
@@ -1113,17 +1134,20 @@ func corners(q, uv geom.Rect) [4]quadVert {
 
 func (r *Renderer) rrect(op *paint.RRectOp) {
 	r.uses(0)
+	// Every part of an added shape adds, its shadow too, which makes it
+	// a halo.
+	add := op.Blend == paint.BlendAdd
 	// The shadow goes first, underneath, on a quad grown to hold it.
 	if sh := op.Shadow; sh.Color.A > 0 {
 		grow := sh.Blur + sh.Spread + 2
 		r.quad(corners(grow4(op.Rect.Add(sh.Offset), grow), geom.Rect{}), op.Transform, r.scale, &look{
-			rect: op.Rect, radius: op.Radius, kind: kindShadow,
+			rect: op.Rect, radius: op.Radius, kind: kindShadow, add: add,
 			color0: rgba(sh.Color),
 			extra:  [4]float32{sh.Offset.X, sh.Offset.Y, sh.Blur, sh.Spread},
 		})
 	}
 
-	l := look{rect: op.Rect, radius: op.Radius, kind: kindShape, color0: rgba(op.Fill.Solid)}
+	l := look{rect: op.Rect, radius: op.Radius, kind: kindShape, add: add, color0: rgba(op.Fill.Solid)}
 	l.color1 = l.color0
 	empty := l.color0[3] == 0
 	if gr := op.Fill.Gradient; gr != nil {
@@ -1154,12 +1178,12 @@ func (r *Renderer) rrect(op *paint.RRectOp) {
 			continue
 		}
 		r.quad(corners(grow4(op.Rect, 2), geom.Rect{}), op.Transform, r.scale, &look{
-			rect: op.Rect, radius: op.Radius, kind: kindInset, color0: rgba(sh.Color),
+			rect: op.Rect, radius: op.Radius, kind: kindInset, add: add, color0: rgba(sh.Color),
 			extra: [4]float32{sh.Offset.X, sh.Offset.Y, sh.Blur, sh.Spread},
 		})
 	}
 	if stroked {
-		r.quad(grown, op.Transform, r.scale, &look{rect: op.Rect, radius: op.Radius, kind: kindShape,
+		r.quad(grown, op.Transform, r.scale, &look{rect: op.Rect, radius: op.Radius, kind: kindShape, add: add,
 			stroke: op.Stroke.Width, strokeColor: rgba(op.Stroke.Color)})
 	}
 }
