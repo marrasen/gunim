@@ -96,7 +96,7 @@ type App struct {
 	// Updates is where newer releases come from, such as [GitHub]. With
 	// one, the installer offers to keep the program up to date, and an
 	// installed release then looks for a newer one a minute after it
-	// starts and once a day: as the user's [UpdateMode] says, it puts it
+	// starts and every four hours: as the user's [UpdateMode] says, it puts it
 	// in place for the next start by itself, tells the program, or does
 	// nothing. Nil looks for none.
 	Updates Source

@@ -642,10 +642,11 @@ func Restart(a App, args ...string) error {
 }
 
 // How soon after it starts an installed program first looks for a newer
-// release, and how often after that.
+// release, and how often after that: often enough that a program left
+// open all day finds a release the same day.
 var (
 	updateFirst = time.Minute
-	updateEvery = 24 * time.Hour
+	updateEvery = 4 * time.Hour
 )
 
 // keepUpToDate looks for newer releases of a while ctx lasts, as the
