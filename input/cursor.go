@@ -29,6 +29,9 @@ const (
 	// over a window's corners.
 	CursorResizeNWSE
 	CursorResizeNESW
+	// CursorNone hides the pointer, for a node that draws its own in
+	// its place, such as a magnifier under a colour picker.
+	CursorNone
 	// CursorInherit leaves the shape to the nodes around the one that
 	// names it.
 	CursorInherit

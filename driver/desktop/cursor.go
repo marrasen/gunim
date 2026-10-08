@@ -26,6 +26,13 @@ func (w *Window) SetCursor(c input.Cursor) {
 		if w.closed {
 			return
 		}
+		// The pointer hides over the window while CursorNone is named,
+		// and shows again with any other.
+		mode := glfw.CursorNormal
+		if c == input.CursorNone {
+			mode = glfw.CursorHidden
+		}
+		_ = w.gw.SetInputMode(glfw.CursorMode, mode)
 		_ = w.gw.SetCursor(w.d.cursor(c))
 	})
 }
