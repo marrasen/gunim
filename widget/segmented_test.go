@@ -9,6 +9,7 @@ import (
 	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
+	"github.com/marrasen/gunim/theme"
 )
 
 type segmentChosen struct{ I int }
@@ -178,5 +179,16 @@ func TestAFittedSegmentedControlGivesEachOptionItsOwnWidth(t *testing.T) {
 	}
 	if b := s.Access().Parts[2].Bounds; b.Min.X != s.lefts[2] {
 		t.Fatalf("Other's bounds start at %v, want %v", b.Min.X, s.lefts[2])
+	}
+}
+
+func TestASegmentedTrackStandsApartFromALightCard(t *testing.T) {
+	light := theme.NewLive(Light())
+	if SegmentedTrack.Get(light) == CardFill.Get(light) || SegmentedTrack.Get(light) == FieldFill.Get(light) {
+		t.Fatal("in the light theme the track is the card's colour")
+	}
+	dark := theme.NewLive(Dark())
+	if SegmentedTrack.Get(dark) == CardFill.Get(dark) {
+		t.Fatal("in the dark theme the track is the card's colour")
 	}
 }

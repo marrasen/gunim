@@ -652,6 +652,11 @@ type Tabs struct {
 	// OnChange runs on the UI goroutine when the user chooses a tab; a
 	// non-nil result is sent to the application as the tabs' intent.
 	OnChange func(i int, u *gunim.UI) gunim.Intent
+	// Inset, when set, keeps the titles and the line under them that
+	// far in from the left and the right: the first title's words start
+	// at it, and the line ends there, so they line up with a page whose
+	// content is inset as far. The pages keep the whole width.
+	Inset theme.Token[float32]
 
 	bar   *tabBar
 	pages []gunim.Node
@@ -863,7 +868,7 @@ func (b *tabBar) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) ge
 		t.shaped = make([]shapedText, len(t.Titles))
 	}
 	t.spans = t.spans[:0]
-	x := float32(0)
+	x := max(0, t.inset(th)-pad)
 	for i, s := range t.Titles {
 		w := t.shaped[i].shape(faceIn(Font, th), s, TextSize.Get(th)).Advance + 2*pad + t.iconRoom(i, th)
 		t.spans = append(t.spans, [2]float32{x, x + w})
@@ -892,6 +897,14 @@ func (b *tabBar) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) ge
 	t.fitOff(th)
 	t.laid = true
 	return geom.Sz(w, t.head)
+}
+
+// inset returns how far in the titles and their line keep, or zero.
+func (t *Tabs) inset(th *theme.Live) float32 {
+	if t.Inset.Key() == "" {
+		return 0
+	}
+	return t.Inset.Get(th)
 }
 
 // tabsRoom is the room the row leaves beside a title it brings into view, so the next title's edge shows.
@@ -937,7 +950,8 @@ func (b *tabBar) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.C
 	t := b.t
 	th := f.Theme
 	pad := TabPadding.Get(th)
-	p.RRect(geom.Rc(0, t.head-1, box.W, 1), 0, paint.Solid(FieldBorder.Get(th)))
+	in := t.inset(th)
+	p.RRect(geom.Rc(in, t.head-1, max(0, box.W-2*in), 1), 0, paint.Solid(FieldBorder.Get(th)))
 	if t.wide > t.room {
 		// The titles fade where more of them lie past the edge.
 		at, fade := t.off.Value(), ScrollFade.Get(th)

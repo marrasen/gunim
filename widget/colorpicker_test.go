@@ -325,3 +325,23 @@ func TestAMenuButtonWithAnIconAloneIsSquareAndNamedByItsTooltip(t *testing.T) {
 		t.Fatalf("the button is named %q", got)
 	}
 }
+
+func TestAFieldWithAHeightIsThatTall(t *testing.T) {
+	f := NewTextField()
+	f.Height = ControlHeight
+	_, run := stage(t, &frame{child: Row(f), size: geom.Sz(400, 60)})
+	run(1)
+	if f.size.H != ControlHeight.Default() {
+		t.Fatalf("the field is %v tall", f.size.H)
+	}
+}
+
+func TestTabsWithAnInsetStartTheirTitlesThere(t *testing.T) {
+	tabs := NewTabs([]string{"One", "Two"}, NewSpacer(), NewSpacer())
+	tabs.Inset = ControlHeight
+	_, run := stage(t, &frame{child: tabs, size: geom.Sz(400, 100)})
+	run(1)
+	if got, want := tabs.spans[0][0]+TabPadding.Default(), ControlHeight.Default(); got != want {
+		t.Fatalf("the first title's words start at %v, want %v", got, want)
+	}
+}

@@ -19,6 +19,8 @@ var (
 	SegmentedHeight = theme.Length("segmented.height", 28)
 	// SegmentedPadding is the room either side of an option's icon and label.
 	SegmentedPadding = theme.Length("segmented.padding", 12)
+	// SegmentedTrack fills the track the options sit in, a shade apart from a card or the window behind it.
+	SegmentedTrack = theme.Color("segmented.track", color.NRGBA{R: 0x12, G: 0x14, B: 0x19, A: 0xff})
 )
 
 // Segmented is a row of options in a rounded track, one of them chosen, with a pill that springs to the chosen one.
@@ -35,7 +37,7 @@ type Segmented struct {
 	Icons []*icon.Icon
 	// IconSize, when set, is the icons' size in place of [IconSize].
 	IconSize theme.Token[float32]
-	// Track, when set, fills the track in place of [FieldFill].
+	// Track, when set, fills the track in place of [SegmentedTrack].
 	Track theme.Token[color.NRGBA]
 	// Fit makes each option as wide as its own icon and label, in place of every option as wide as the widest: for
 	// options of lengths far apart, such as filters with counts.
@@ -281,7 +283,7 @@ func (s *Segmented) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ guni
 	h := box.H
 	track := geom.Rect{Max: box.Point()}
 	s.paintRing(p, track, h/2, th)
-	fill := FieldFill.Get(th)
+	fill := SegmentedTrack.Get(th)
 	if s.Track.Key() != "" {
 		fill = s.Track.Get(th)
 	}
