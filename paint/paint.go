@@ -54,12 +54,14 @@ type Painter struct {
 	// popFn is pop as a func value, made once, so Push allocates
 	// nothing.
 	popFn func()
-	// rrects and texts hold the ops themselves, in blocks, so a frame
-	// allocates a block now and then, never an op at a time. The blocks
-	// of the frame before this one are reused; the driver is done with
-	// them by then.
+	// rrects, texts and masks hold the ops themselves, in blocks, so a
+	// frame allocates a block now and then, never an op at a time. The
+	// blocks of the frame before this one are reused; the driver is done
+	// with them by then. An op kept past that, in a Recording, is a
+	// copy, never one of these.
 	rrects, prevRRects slab[RRectOp]
 	texts, prevTexts   slab[TextOp]
+	masks, prevMasks   slab[MaskOp]
 	// floats holds painting put off until the rest of the frame is
 	// done; see Float.
 	floats []func(*Painter)
@@ -110,8 +112,10 @@ func (p *Painter) Reset() {
 	p.prevTilts, p.tilts = p.tilts, false
 	p.prevRRects, p.rrects = p.rrects, p.prevRRects
 	p.prevTexts, p.texts = p.texts, p.prevTexts
+	p.prevMasks, p.masks = p.masks, p.prevMasks
 	p.rrects.reset()
 	p.texts.reset()
+	p.masks.reset()
 	p.open = p.open[:0]
 	p.stack = p.stack[:0]
 	p.cur = Identity

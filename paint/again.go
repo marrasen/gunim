@@ -63,8 +63,7 @@ func (p *Painter) Again(run Run) bool {
 			c := *op
 			p.ops = append(p.ops, &c)
 		case *MaskOp:
-			c := *op
-			p.ops = append(p.ops, &c)
+			p.ops = append(p.ops, p.takeMask(*op))
 		case *CellsOp:
 			c := *op
 			p.ops = append(p.ops, &c)

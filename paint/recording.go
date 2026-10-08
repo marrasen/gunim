@@ -108,7 +108,7 @@ func (p *Painter) Replay(r *Recording) {
 		case *MaskOp:
 			c := *op
 			c.Transform = p.at()
-			p.record(&c, k.bounds)
+			p.record(p.takeMask(c), k.bounds)
 		case *LayerOp:
 			closers = append(closers, p.Layer(op.Opts))
 		case *LayerEndOp:
