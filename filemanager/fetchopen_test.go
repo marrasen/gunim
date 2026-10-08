@@ -368,3 +368,37 @@ func TestAHubThatStartsTakesAwayCopiesADayOld(t *testing.T) {
 		t.Fatalf("the hub's folder is %s", dir)
 	}
 }
+
+// The program's own actions show on the menu of the items selected,
+// dimmed where they do not apply, and a pick hands it the items.
+func TestTheProgramsActionsShowOnTheItemsMenu(t *testing.T) {
+	got := make(chan []string, 1)
+	h := newMenuHarness(t, func(o *Options) {
+		o.ItemActions = []ItemAction{{Label: "View here", ID: "view", Files: true, One: true}}
+		o.ItemAction = func(_ *Window, _ string, paths []string, id string) {
+			if id == "view" {
+				got <- paths
+			}
+		}
+	}, "a.txt", "sub/")
+	h.until("the rows arrive", func() bool { return len(h.shown()) == 2 })
+	items, off := h.rowMenu("sub")
+	if i := slices.Index(items, "View here"); i < 0 || !off[i] {
+		t.Fatalf("on a folder, the menu is %v, dimmed %v", items, off)
+	}
+	items, off = h.rowMenu("a.txt")
+	i := slices.Index(items, "View here")
+	if i < 0 || off[i] {
+		t.Fatalf("on a file, the menu is %v, dimmed %v", items, off)
+	}
+	h.ui(func(b *browser, u *gunim.UI) { b.listing.cur.menu.OnPick(i, u) })
+	h.frames(2)
+	select {
+	case paths := <-got:
+		if len(paths) != 1 || paths[0] != filepath.Join(h.dir, "a.txt") {
+			t.Fatalf("the action was handed %q", paths)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the action never reached the program")
+	}
+}

@@ -66,7 +66,9 @@ func (a *listingArea) grid() *widget.DataGrid {
 // filtered or read again.
 func (a *listingArea) setListing(l Listing, u *gunim.UI) {
 	if a.cur == nil || l.Path != a.path {
-		focused := a.cur == nil || u.Focused() == a.cur.focusNode()
+		// The first folder takes the keyboard in a window of its own; in
+		// a pane, the program gives it when the user turns to the pane.
+		focused := a.cur == nil && !a.b.shell.Pane || a.cur != nil && u.Focused() == a.cur.focusNode()
 		if a.cur != nil {
 			a.widths = a.cur.widths()
 		}
@@ -362,7 +364,7 @@ func (pg *listingPage) row(i int) (widget.GridRow, bool) {
 		return widget.GridRow{}, false
 	}
 	name := []widget.GridSpan{
-		{Text: " ", Fill: tintToken(r.Tint)},
+		{Text: " ", Fill: TintToken(r.Tint)},
 		{Text: "  "},
 	}
 	if r.IconKey != "" {

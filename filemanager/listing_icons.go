@@ -538,7 +538,7 @@ func (p *tilePic) paintIcon(pt *paint.Painter, th *theme.Live, box geom.Size, op
 	}
 	s := min(box.W, box.H)
 	page := geom.Rc((box.W-s*0.72)/2, (box.H-s*0.86)/2, s*0.72, s*0.86)
-	c := tintToken(p.tint).Get(th)
+	c := TintToken(p.tint).Get(th)
 	c.A = uint8(float32(c.A) * opacity)
 	pt.ShadowRRect(page, s*0.08, paint.Solid(c), paint.Shadow{Offset: geom.Pt(0, s*0.03), Blur: s * 0.08,
 		Color: color.NRGBA{A: uint8(0x50 * opacity)}})

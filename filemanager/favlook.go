@@ -47,7 +47,7 @@ func favColor(name string) theme.Token[color.NRGBA] {
 	if tok, ok := favColors[name]; ok {
 		return tok
 	}
-	return tintToken(TintFolder)
+	return TintToken(TintFolder)
 }
 
 // favIcons are the icons of the favourites, by the names FavouriteIcons

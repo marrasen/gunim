@@ -1,6 +1,8 @@
 package filemanager
 
 import (
+	"image/color"
+
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/icon"
@@ -26,6 +28,8 @@ type pathBar struct {
 	filter        *filterField
 	row           *widget.Flex
 	path          string
+	// room is the browser's width, as it was laid out last.
+	room float32
 }
 
 func newPathBar(b *browser) *pathBar {
@@ -45,7 +49,10 @@ func newPathBar(b *browser) *pathBar {
 	p.filter.Icon, p.filter.Clearable = icon.Search, true
 	p.filter.OnChange = func(s string, u *gunim.UI) gunim.Intent { return FilterChanged{Text: s} }
 	nav := func(b *widget.IconButton) gunim.Node { return widget.NewSized(b, navSize, navSize) }
-	p.row = widget.Row(nav(p.back), nav(p.fwd), nav(p.up), p.addr, widget.NewSized(p.filter, 220, 0)).Grow(p.addr, 1)
+	// The menus sit behind a button left of Back, drawn as the path bar's
+	// buttons are, on nothing of their own.
+	menus := &menuSlot{child: widget.NewThemed(widget.NewSized(b.title.bar, navSize+8, navSize), menuButtonTheme()), b: b}
+	p.row = widget.Row(menus, nav(p.back), nav(p.fwd), nav(p.up), p.addr, &filterBox{child: p.filter, bar: p}).Grow(p.addr, 1)
 	p.row.Cross = widget.CrossCenter
 	p.row.Gap = smallGap
 	return p
@@ -54,8 +61,77 @@ func newPathBar(b *browser) *pathBar {
 // smallGap is the gap between the path bar's parts.
 var smallGap = theme.Length("files.gap.small", 4)
 
+// menuSlot holds the menus' button, and nothing where the program shows
+// the menus in its own.
+type menuSlot struct {
+	child gunim.Node
+	b     *browser
+}
+
+// Children implements [gunim.Composite].
+func (m *menuSlot) Children() []gunim.Node { return []gunim.Node{m.child} }
+
+// Layout implements [gunim.Node].
+func (m *menuSlot) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
+	if m.b.shell.HostMenus {
+		kids.At(0).Layout(gunim.Tight(geom.Size{}))
+		return geom.Size{}
+	}
+	size := kids.At(0).Layout(c)
+	kids.At(0).Place(geom.Point{})
+	return size
+}
+
+// Paint implements [gunim.Node].
+func (m *menuSlot) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim.Children) {
+	if !m.b.shell.HostMenus {
+		kids.At(0).Paint(p)
+	}
+}
+
+// filterBox gives the filter a share of the path bar: 220 wide, and
+// narrower in a narrow browser, as a pane among others can be, so the
+// path keeps room. Where too little is left, it gives the path all of
+// it, and the filter hides.
+type filterBox struct {
+	child  gunim.Node
+	bar    *pathBar
+	hidden bool
+}
+
+// Children implements [gunim.Composite].
+func (f *filterBox) Children() []gunim.Node { return []gunim.Node{f.child} }
+
+// Layout implements [gunim.Node].
+func (f *filterBox) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
+	room := f.bar.room
+	w := min(max(room*0.25, 120), 220)
+	if f.hidden = room > 0 && room < 560; f.hidden {
+		w = 0
+	}
+	cs := c
+	cs.Min.W, cs.Max.W = w, w
+	size := kids.At(0).Layout(cs)
+	kids.At(0).Place(geom.Point{})
+	size.W = w
+	return c.Constrain(size)
+}
+
+// Paint implements [gunim.Node].
+func (f *filterBox) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim.Children) {
+	if !f.hidden {
+		kids.At(0).Paint(p)
+	}
+}
+
 // navSize is the size of the back, forward and up buttons.
 const navSize = 32
+
+// menuButtonTheme draws the menus' button with no fill of its own, as
+// high as the path bar's buttons, so the menus open below them.
+func menuButtonTheme() theme.Theme {
+	return theme.Make("files.menubutton", theme.Set(widget.MenubarFill, color.NRGBA{}), theme.Set(widget.MenubarHeight, navSize))
+}
 
 // newNavButton returns a button that sends cmd, which leaves the keyboard with the listing when clicked.
 func newNavButton(ic *icon.Icon, tooltip, cmd string) *widget.IconButton {
@@ -146,7 +222,7 @@ func newBannerView(away func(u *gunim.UI)) *bannerView {
 	b.fold = newFold(&bannerBox{child: row})
 	b.dismiss.OnClick = func(u *gunim.UI) gunim.Intent {
 		b.shut(u)
-		return nil
+		return BannerDismissed{Seq: b.seq}
 	}
 	return b
 }

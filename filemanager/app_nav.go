@@ -571,6 +571,10 @@ func (a *app) publishListing() {
 		l.Err = n.err.Error()
 	}
 	a.patch(l)
+	if t := a.fs.ID() + "\x00" + l.Title; a.pane != nil && a.pane.host.Title != nil && t != a.title {
+		a.title = t
+		a.pane.host.Title(a.fs.ID(), l.Title)
+	}
 }
 
 // crumbs splits path, of style ps, into the folders along it.

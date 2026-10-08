@@ -21,6 +21,10 @@
 // [TransferProgress]. Through [Options.FSName] the program names each
 // file system, as the window's title says first.
 //
+// A program that draws windows of its own can show a file manager in a
+// pane of one, among panes of its own, with [Hub.NewPane], and move it
+// from window to window as it likes; see [PaneHost].
+//
 // The window and the program are two halves that speak only in values.
 // The protocol files hold the vocabulary, one file per area. The app
 // files are the program half, which does all the disk work. The view
@@ -70,6 +74,17 @@ type Shell struct {
 	// Where names the file system, as the title says first, and is empty
 	// where the program gives it no name.
 	Where string
+	// Actions are the program's own items on the context menu of the
+	// items selected.
+	Actions []ItemAction
+	// Hosted are the commands the program's own menus offer for a pane,
+	// which the pane's menus leave out.
+	Hosted []string
+	// HostMenus says the program shows the pane's menus in its own.
+	HostMenus bool
+	// Pane says the file manager shows in a pane of a window the program
+	// draws, which leaves the window's title, theme and zoom alone.
+	Pane bool
 	// UploadEdited says what happens to a file fetched to open that
 	// changes on this computer: ask, always upload it, or never; empty
 	// asks.
@@ -179,6 +194,24 @@ type Banner struct {
 	Text string
 }
 
+// ItemAction is an item of the program's own on the context menu of the
+// items selected: its label, and the ID the program knows it by. Files
+// offers it for files alone, and One for one item alone.
+type ItemAction struct {
+	Label, ID  string
+	Files, One bool
+}
+
+// ItemActed says the user picked the program's item ID on the context
+// menu of the items at Paths.
+type ItemActed struct {
+	ID    string
+	Paths []string
+}
+
+// BannerDismissed says the user dismissed banner Seq.
+type BannerDismissed struct{ Seq int }
+
 // NeedRows asks for the blocks of listing Gen that start at Starts.
 type NeedRows struct {
 	Gen    int
@@ -282,6 +315,8 @@ type SidebarMoved struct {
 
 func init() {
 	gunim.RegisterType[Shell]("files.shell")
+	gunim.RegisterType[BannerDismissed]("files.bannerdismissed")
+	gunim.RegisterType[ItemActed]("files.itemacted")
 	gunim.RegisterType[Listing]("files.listing")
 	gunim.RegisterType[RowBlock]("files.rows")
 	gunim.RegisterType[Selection]("files.selection")

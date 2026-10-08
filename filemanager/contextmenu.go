@@ -109,6 +109,8 @@ type menuState struct {
 	place Place
 	// section is the ID of the section whose heading the menu is about.
 	section string
+	// paths are the items selected, for an action of the program's own.
+	paths []string
 }
 
 // fill sets c's items from items, dimming those off says are off and
@@ -128,6 +130,17 @@ func fill(c *widget.ContextMenu, items []menuItem, off, on func(cmd string) bool
 	}
 	c.SetItems(lines)
 	return cmds
+}
+
+// paneHints takes away the hint of Copy path in a pane, whose
+// Ctrl+Shift+C is the program's.
+func (b *browser) paneHints(m *widget.ContextMenu, cmds []string) {
+	items := m.Items()
+	if i := slices.Index(cmds, localCopyPath); i >= 0 && b.shell.Pane && i < len(items) {
+		items = slices.Clone(items)
+		items[i].Hint = ""
+		m.SetItems(items)
+	}
 }
 
 // checked reports whether the menu bar ticks the item that sends cmd.
@@ -157,6 +170,7 @@ func (pg *listingPage) contextMenu(g gunim.Node, rowAt func(geom.Point) int, sel
 			st = menuState{path: b.listing.path}
 			st.cmds = fill(m, emptyItems, func(cmd string) bool { return cmd == CmdPaste && clipEmpty },
 				b.title.checked)
+			b.paneHints(m, st.cmds)
 			return true
 		}
 		sel, dirs := pg.selectedRows(selected())
@@ -168,6 +182,18 @@ func (pg *listingPage) contextMenu(g gunim.Node, rowAt func(geom.Point) int, sel
 		items := rowItems
 		if b.shell.Fetches {
 			items = without(items, CmdReveal)
+		}
+		if acts := b.shell.Actions; len(acts) > 0 {
+			// The program's own, after the ways to open.
+			at := slices.IndexFunc(items, func(it menuItem) bool { return it.label == "-" })
+			own := make([]menuItem, 0, len(acts)+1)
+			for _, act := range acts {
+				own = append(own, menuItem{act.Label, "", actionCmd + act.ID})
+			}
+			items = slices.Concat(items[:at], own, items[at:])
+		}
+		for _, r := range sel {
+			st.paths = append(st.paths, b.shell.Paths.Join(b.listing.path, r.Name))
 		}
 		st.cmds = fill(m, items, func(cmd string) bool {
 			switch cmd {
@@ -184,6 +210,13 @@ func (pg *listingPage) contextMenu(g gunim.Node, rowAt func(geom.Point) int, sel
 			case CmdPin:
 				return dirs == 0
 			}
+			if id, ok := strings.CutPrefix(cmd, actionCmd); ok {
+				for _, act := range b.shell.Actions {
+					if act.ID == id {
+						return act.Files && dirs > 0 || act.One && !one
+					}
+				}
+			}
 			return false
 		}, func(string) bool { return false })
 		if i := slices.Index(st.cmds, CmdTrash); i >= 0 {
@@ -191,6 +224,7 @@ func (pg *listingPage) contextMenu(g gunim.Node, rowAt func(geom.Point) int, sel
 			items[i].Label = trashLabel(b.shell.NoTrash)
 			m.SetItems(items)
 		}
+		b.paneHints(m, st.cmds)
 		return true
 	}
 	m.OnPick = func(i int, u *gunim.UI) gunim.Intent {
@@ -281,6 +315,10 @@ func (v *dndView) menuPicked(m *widget.ContextMenu, st menuState, i int, u *guni
 			u.Send(m, in)
 		}
 	default:
+		if id, ok := strings.CutPrefix(cmd, actionCmd); ok {
+			u.Send(m, ItemActed{ID: id, Paths: st.paths})
+			return
+		}
 		if id, ok := strings.CutPrefix(cmd, placeCmd); ok {
 			u.Send(m, PlaceCommanded{Place: st.place, ID: id})
 			return
@@ -309,6 +347,10 @@ func (v *dndView) copyPaths(u *gunim.UI) {
 // placeCmd starts the command of an item of the program's own in a
 // place's menu, before the item's ID.
 const placeCmd = "place:"
+
+// actionCmd starts the command of an action of the program's own on the
+// items selected.
+const actionCmd = "action:"
 
 // sideMenu is the sidebar's context menu for its places and favourites.
 // Where the program adds items of its own, the menu asks it for them as
@@ -471,6 +513,11 @@ func (v *dndView) keys(e input.KeyPress, u *gunim.UI) bool {
 		u.Send(v.b, Command{Name: CmdProperties})
 		return true
 	case ctrl && shift && e.Key == input.KeyC:
+		if v.b.shell.Pane {
+			// The program's, as its Copy often is: Copy path is a
+			// menu's.
+			return false
+		}
 		v.copyPaths(u)
 		return true
 	case e.Key == input.KeyMenu, shift && e.Key == input.KeyF10:

@@ -1689,7 +1689,7 @@ func (u *UI) InsertAt(parent Node, i int, child Node) {
 		if wasLeaving {
 			reenter(cs)
 			u.invalid = true
-			u.arrived(cs)
+			u.rearrived(cs)
 		}
 		return
 	}
@@ -1850,9 +1850,14 @@ func (u *UI) Focus(n Node) bool {
 		if next.leaving() {
 			return false
 		}
-		// A modal keeps the keyboard.
-		if m := u.modal(); m != nil && !inside(next, m) {
-			return false
+		// A modal keeps the keyboard. One in a scope takes it for what is
+		// focused under it from outside the scope.
+		if h, ok := u.holdFor(next); ok && !inside(next, h.s) {
+			if h.scope == nil || u.focus != nil && inside(u.focus, h.scope) {
+				return false
+			}
+			// Coming into the scope from outside it.
+			next, n = h.s, h.s.node
 		}
 	}
 	if next == u.focus {

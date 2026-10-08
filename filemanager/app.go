@@ -62,6 +62,13 @@ type Options struct {
 	// PlaceCommand does what the program's item id of place p asks, on a
 	// goroutine of its own. w is the window the menu opened in.
 	PlaceCommand func(w *Window, p Place, id string)
+	// ItemActions are items of the program's own on the context menu of
+	// the items selected, such as View in a reader of its own, and
+	// ItemAction does what one asks, on a goroutine of its own: id is the
+	// action's, w the window the menu opened in, and paths the items, on
+	// the file system of ID fs.
+	ItemActions []ItemAction
+	ItemAction  func(w *Window, fs string, paths []string, id string)
 	// Transfer copies or moves items between file systems, as a drop or a
 	// paste asks, as one of the window's operations: its progress and a
 	// way to stop it show with the window's own, and it asks about names
@@ -116,7 +123,15 @@ type Transfer struct {
 // work done elsewhere comes back through done.
 type app struct {
 	ctx context.Context
-	c   gunim.Client
+	// c is where the window half shows, and parent the ID it is mounted
+	// under there. ids makes the IDs of its views.
+	c      screen
+	parent gunim.ID
+	ids    viewIDs
+	// pane joins a file manager in a pane to its program, and is nil for
+	// one in a window of its own. quit closes once a pane closes.
+	pane *paneLink
+	quit chan struct{}
 	// iconsSent are the icons Windows shows that the window was sent, or
 	// asked for.
 	iconsSent map[string]bool
@@ -147,6 +162,16 @@ type app struct {
 	places  []Place
 	favs    []Favourite
 	banner  int
+	// bannerText is what the banner says until it is dismissed, for a
+	// window a pane comes to, and held the notices said while a pane was
+	// in none.
+	bannerText string
+	held       []Notice
+	// closeAsked says the user is being asked whether to stop what runs
+	// and close.
+	closeAsked bool
+	// title is the file system and the folder the pane's host was last told of.
+	title string
 	// script is what is left of the steps to run, once the first folder
 	// is read.
 	script    []string
@@ -182,10 +207,17 @@ func serveWindow(ctx context.Context, w *Window, o Options, h *Hub) (err error) 
 	c := w.c
 	a, err := launch(ctx, c, o, h)
 	if err != nil {
+		close(w.ready)
 		return err
 	}
 	a.win, w.a = w, a
 	close(w.ready)
+	return a.serve(ctx, o, c.Intents())
+}
+
+// serve runs the serve loop on the intents of in until ctx ends, in
+// closes or the user closes a pane.
+func (a *app) serve(ctx context.Context, o Options, in <-chan gunim.Envelope) error {
 	handlers := a.handlers
 	var tick <-chan time.Time
 	if o.Poll >= 0 {
@@ -202,14 +234,18 @@ func serveWindow(ctx context.Context, w *Window, o Options, h *Hub) (err error) 
 		case <-ctx.Done():
 			a.stopAll()
 			return nil
+		case <-a.quit:
+			a.detach()
+			a.stopAll()
+			return nil
 		case fn := <-a.done:
 			fn()
 		case <-tick:
 			a.poll()
-		case ev, ok := <-c.Intents():
+		case ev, ok := <-in:
 			if !ok {
 				a.stopAll()
-				return c.Err()
+				return a.c.c.Err()
 			}
 			a.take(handlers, ev)
 		}
@@ -219,24 +255,32 @@ func serveWindow(ctx context.Context, w *Window, o Options, h *Hub) (err error) 
 // launch makes the application half and fills the window. A nil h puts
 // the window in a hub of its own.
 func launch(ctx context.Context, c gunim.Client, o Options, h *Hub) (*app, error) {
-	a, err := newApp(ctx, c, o)
+	a, err := newApp(ctx, screen{c: c, on: true}, o)
 	if err != nil {
 		return nil, err
 	}
-	if err := c.Mount(gunim.Root, browserID, "browser", a.shell); err != nil {
+	a.parent = gunim.Root
+	if err := c.Mount(a.parent, a.ids.browser(), "browser", a.shell); err != nil {
 		return nil, err
 	}
-	a.hub = joinHub(a, h)
-	a.win = newWindow(c)
-	a.publishClip()
-	a.handlers = []handler{a.handleDnd, a.handleNav, a.handleOps, a.handlePreview, a.handlePlaces, a.handleShell,
-		a.handleIcons, a.handleViewer, a.handleSearch, a.handleTheme}
-	a.startup(o)
+	a.join(h, newWindow(c))
 	return a, nil
 }
 
+// join puts a in hub h, or in a hub of its own when h is nil, as the
+// file manager of w, and starts it.
+func (a *app) join(h *Hub, w *Window) {
+	a.hub = joinHub(a, h)
+	a.win = w
+	w.a = a
+	a.publishClip()
+	a.handlers = []handler{a.handleDnd, a.handleNav, a.handleOps, a.handlePreview, a.handlePlaces, a.handleShell,
+		a.handleIcons, a.handleViewer, a.handleSearch, a.handleTheme}
+	a.startup(a.opts)
+}
+
 // newApp makes the application half, with the settings read.
-func newApp(ctx context.Context, c gunim.Client, o Options) (*app, error) {
+func newApp(ctx context.Context, c screen, o Options) (*app, error) {
 	if o.FS == nil {
 		o.FS = LocalFS()
 	}
@@ -260,7 +304,7 @@ func newApp(ctx context.Context, c gunim.Client, o Options) (*app, error) {
 	a.shell = Shell{Light: a.prefs.Light, ShowHidden: a.prefs.ShowHidden, ShowPreview: !a.prefs.HidePreview,
 		SystemIcons: a.systemIconsOn(),
 		Sidebar:     a.prefs.Sidebar, FS: a.fs.ID(), Paths: a.ps, NoTrash: tr == nil,
-		Transfers: o.Transfer != nil, PlaceMenu: o.PlaceMenu != nil, Name: o.Name, UploadEdited: a.prefs.UploadEdited}
+		Transfers: o.Transfer != nil, PlaceMenu: o.PlaceMenu != nil, Actions: o.ItemActions, Name: o.Name, UploadEdited: a.prefs.UploadEdited}
 	a.shell.Where, a.shell.Fetches = a.where(), a.fetches()
 	a.nav.sort, a.nav.desc = a.prefs.Sort, a.prefs.Desc
 	return a, nil
@@ -271,7 +315,7 @@ func (a *app) startup(o Options) {
 	if a.prefsErr != nil {
 		a.fail(a.prefsErr.Error() + " Settings will not be saved until the file is fixed or removed.")
 	}
-	if a.prefs.Zoom > 0 {
+	if a.prefs.Zoom > 0 && a.pane == nil {
 		a.send(a.c.SetZoom(a.prefs.Zoom))
 	}
 	a.loadFavourites()
@@ -302,7 +346,9 @@ func (a *app) handle(handlers []handler, in gunim.Intent) {
 	case gunim.CommandFailed:
 		log.Printf("command %s failed on %q%q: %s", v.Command, v.ID, v.Key, v.Reason)
 	case gunim.Zoomed:
-		a.savePrefs(func(p *prefs) { p.Zoom = v.Zoom })
+		if a.pane == nil {
+			a.savePrefs(func(p *prefs) { p.Zoom = v.Zoom })
+		}
 	}
 }
 
@@ -333,6 +379,11 @@ func (a *app) handleShell(in gunim.Intent) bool {
 	case CloseAsked:
 		a.close()
 		return true
+	case BannerDismissed:
+		if v.Seq == a.banner {
+			a.bannerText = ""
+		}
+		return true
 	case SidebarMoved:
 		a.shell.Sidebar = v.Width
 		a.savePrefs(func(p *prefs) { p.Sidebar = v.Width })
@@ -345,17 +396,39 @@ func (a *app) handleShell(in gunim.Intent) bool {
 func (a *app) close() {
 	n := len(a.ops.running)
 	if n == 0 {
-		a.c.Leave()
+		a.leave()
 		return
 	}
-	a.confirm(Confirm{Title: "Stop " + plural(n, "operation") + " and close?",
+	if a.closeAsked {
+		// Asked already, and waiting for the answer.
+		return
+	}
+	a.closeAsked = true
+	a.ask(Confirm{Title: "Stop " + plural(n, "operation") + " and close?",
 		Body: "What is running stops where it has got to. Anything half copied is taken away.", OK: "Stop and close"},
-		func() {
+		func(v Confirmed) {
+			a.closeAsked = false
+			if !v.OK {
+				return
+			}
 			for _, r := range a.ops.running {
 				r.cancel()
 			}
-			a.c.Leave()
+			a.leave()
 		})
+}
+
+// leave closes the window, or a pane, at once.
+func (a *app) leave() {
+	if a.pane != nil {
+		select {
+		case <-a.quit:
+		default:
+			close(a.quit)
+		}
+		return
+	}
+	a.c.Leave()
 }
 
 // where names the file system the window shows, for its title, or is
@@ -375,7 +448,7 @@ func (a *app) renameFS() {
 	}
 }
 
-func (a *app) publishShell() { a.send(a.c.Update(browserID, a.shell)) }
+func (a *app) publishShell() { a.send(a.c.Update(a.ids.browser(), a.shell)) }
 
 // post runs fn on the serve loop, unless the app has stopped.
 func (a *app) post(fn func()) {
@@ -389,7 +462,11 @@ func (a *app) post(fn func()) {
 // patch sends a patch to the browser.
 func (a *app) patch(v any) {
 	a.logShown(v)
-	a.send(a.c.Patch(string(browserID), v))
+	if n, ok := v.(Notice); ok && !a.c.on && a.pane != nil && len(a.held) < 8 {
+		// Said once the pane shows.
+		a.held = append(a.held, n)
+	}
+	a.send(a.c.Patch(string(a.ids.browser()), v))
 }
 
 // logShown tells Options.Log of a failure or a warning v shows.
@@ -424,6 +501,7 @@ func (a *app) send(err error) {
 // fail shows msg in the banner under the path bar.
 func (a *app) fail(msg string) {
 	a.banner++
+	a.bannerText = msg
 	a.patch(Banner{Seq: a.banner, Text: msg})
 }
 
