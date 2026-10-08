@@ -24,8 +24,9 @@ var (
 // Segmented is a row of options in a rounded track, one of them chosen, with a pill that springs to the chosen one.
 //
 // A click on an option chooses it. With focus, Left and Right choose the option beside the chosen one, and Home and
-// End the first and the last. Disabled, it fades faint and takes no clicks or keys. Every option is as wide as the widest. Given less room, the options share it, and a label
-// too long for its share ends in an ellipsis.
+// End the first and the last. Disabled, it fades faint and takes no clicks or keys. Every option is as wide as the widest,
+// or, with Fit, as wide as its own label. Given less room, the options share it, and a label too long for its share ends
+// in an ellipsis.
 type Segmented struct {
 	Control
 	// Items are the options' labels and Icons their icons, in order: an icon, a label or both. The longer
@@ -36,6 +37,9 @@ type Segmented struct {
 	IconSize theme.Token[float32]
 	// Track, when set, fills the track in place of [FieldFill].
 	Track theme.Token[color.NRGBA]
+	// Fit makes each option as wide as its own icon and label, in place of every option as wide as the widest: for
+	// options of lengths far apart, such as filters with counts.
+	Fit bool
 	// OnChange runs on the UI goroutine when the user chooses an option; a non-nil result is sent to the
 	// application as the control's intent.
 	OnChange func(i int, u *gunim.UI) gunim.Intent
@@ -48,9 +52,11 @@ type Segmented struct {
 	click  Clicker
 	shaped []shapedText
 	ell    shapedText
-	// width is each option's width, and size the control's, from the last layout.
+	// width is each option's width, and size the control's, from the last layout. With Fit, lefts holds each
+	// option's left edge, and one more for the right edge of the last.
 	width float32
 	size  geom.Size
+	lefts []float32
 }
 
 // NewSegmented returns a segmented control of labels, the first chosen.
@@ -92,6 +98,14 @@ func (s *Segmented) choose(i int, u *gunim.UI) {
 
 // at returns the option at x in the control's space, or -1.
 func (s *Segmented) at(x float32) int {
+	if s.Fit && len(s.lefts) == s.Len()+1 {
+		for i := range s.Len() {
+			if x >= s.lefts[i] && x < s.lefts[i+1] {
+				return i
+			}
+		}
+		return -1
+	}
 	if s.width <= 0 || x < 0 {
 		return -1
 	}
@@ -206,6 +220,15 @@ func (s *Segmented) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children)
 		s.pill.Jump(float32(s.selected))
 	}
 	s.follow(th)
+	if s.Fit {
+		total := float32(0)
+		for i := range n {
+			total += s.content(i, th) + 2*SegmentedPadding.Get(th)
+		}
+		s.size = c.Constrain(geom.Sz(total, SegmentedHeight.Get(th)))
+		s.fit(s.size.W, th)
+		return s.size
+	}
 	s.size = c.Constrain(geom.Sz(s.width*float32(n), SegmentedHeight.Get(th)))
 	// Given another width, the options share it: squeezed into less room,
 	// or spread across more, never past the track.
@@ -213,6 +236,42 @@ func (s *Segmented) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children)
 		s.width = s.size.W / float32(n)
 	}
 	return s.size
+}
+
+// fit sets each option's left edge, with Fit, for a control w wide: each option as wide as its own content, every
+// option's share of the room left over, or short of it, the same.
+func (s *Segmented) fit(w float32, th *theme.Live) {
+	n := s.Len()
+	s.lefts = s.lefts[:0]
+	total := float32(0)
+	for i := range n {
+		total += s.content(i, th) + 2*SegmentedPadding.Get(th)
+	}
+	extra := float32(0)
+	if n > 0 {
+		extra = (w - total) / float32(n)
+	}
+	x := float32(0)
+	for i := range n {
+		s.lefts = append(s.lefts, x)
+		x += max(0, s.content(i, th)+2*SegmentedPadding.Get(th)+extra)
+	}
+	s.lefts = append(s.lefts, x)
+}
+
+// span returns option i's left edge and width, or, for a place between two options, as the pill is while it moves,
+// the edge and width part way between theirs.
+func (s *Segmented) span(at float32) (x, w float32) {
+	if !s.Fit || len(s.lefts) != s.Len()+1 {
+		return at * s.width, s.width
+	}
+	n := s.Len()
+	i := int(max(0, min(at, float32(n-1))))
+	j := min(i+1, n-1)
+	t := at - float32(i)
+	x0, w0 := s.lefts[i], s.lefts[i+1]-s.lefts[i]
+	x1, w1 := s.lefts[j], s.lefts[j+1]-s.lefts[j]
+	return x0 + (x1-x0)*t, w0 + (w1-w0)*t
 }
 
 // Paint implements [gunim.Node].
@@ -234,9 +293,12 @@ func (s *Segmented) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ guni
 		return
 	}
 	s.width = box.W / float32(n)
+	if s.Fit {
+		s.fit(box.W, th)
+	}
 	at := s.pill.Value()
-	p.RRect(geom.Rc(at*s.width+2, 2, max(0, s.width-4), max(0, h-4)), max(0, h-4)/2, paint.Solid(Accent.Get(th)))
-	pad := min(SegmentedPadding.Get(th), s.width/4)
+	px, pw := s.span(at)
+	p.RRect(geom.Rc(px+2, 2, max(0, pw-4), max(0, h-4)), max(0, h-4)/2, paint.Solid(Accent.Get(th)))
 
 	faint, strong := Placeholder.Get(th), ButtonStrongInk.Get(th)
 	for i := range n {
@@ -247,8 +309,10 @@ func (s *Segmented) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ guni
 			ink = Ink.Get(th)
 		}
 		ink = anim.Mix(anim.ColorCodec, ink, strong, near)
-		room := s.width - 2*pad
-		x := float32(i)*s.width + pad + max(0, room-s.content(i, th))/2
+		left, width := s.span(float32(i))
+		pad := min(SegmentedPadding.Get(th), width/4)
+		room := width - 2*pad
+		x := left + pad + max(0, room-s.content(i, th))/2
 		if ic := s.icon(i); ic != nil {
 			size := s.iconSize(th)
 			if size > room {
@@ -273,8 +337,9 @@ func (s *Segmented) Access() access.Info {
 		if name == "" {
 			name = iconName(s.icon(i))
 		}
+		x, w := s.span(float32(i))
 		part := access.Info{Role: access.RoleButton, Name: name, State: access.StateCheckable | s.accessState(),
-			Actions: []string{access.ActionPress}, Bounds: geom.Rc(float32(i)*s.width, 0, s.width, s.size.H)}
+			Actions: []string{access.ActionPress}, Bounds: geom.Rc(x, 0, w, s.size.H)}
 		if i == s.selected {
 			part.State |= access.StateChecked
 		}

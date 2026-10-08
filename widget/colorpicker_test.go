@@ -8,6 +8,7 @@ import (
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/access"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/input"
 )
 
@@ -288,5 +289,39 @@ func TestAColorButtonPaintsItsColour(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("the button does not paint its colour")
+	}
+}
+
+func TestAColorButtonWithHexIsAChipWithItsHexAndOpensByOpen(t *testing.T) {
+	b := NewColorButton(color.NRGBA{R: 0x12, G: 0x34, B: 0x56, A: 0xff})
+	b.Label, b.Hex = "Accent", true
+	w, run := stage(t, &frame{child: Row(b), size: geom.Sz(400, 40)})
+	u := stageUI(t, w, run)
+	if b.size.H != ControlHeight.Default() || b.size.W < ColorChipWidth.Default()*2 {
+		t.Fatalf("the button is %v", b.size)
+	}
+	if got := b.hexText.s; got != "#123456" {
+		t.Fatalf("the button writes %q", got)
+	}
+	b.Open(u)
+	run(10)
+	if !b.IsOpen() {
+		t.Fatal("Open opened no picker")
+	}
+	if p := b.Picker(); p.hex.Face.Key() != MonoFont.Key() {
+		t.Fatal("the picker's hex field is not in the mono face")
+	}
+}
+
+func TestAMenuButtonWithAnIconAloneIsSquareAndNamedByItsTooltip(t *testing.T) {
+	b := NewMenuButton("", Labels("Import…", "Export…"))
+	b.Icon, b.Tooltip = icon.Ellipsis, "Import and export"
+	_, run := stage(t, &frame{child: Row(b), size: geom.Sz(400, 60)})
+	run(1)
+	if b.size.W != b.size.H || b.size.H != ButtonHeight.Default() {
+		t.Fatalf("the button is %v, want a square as tall as a button", b.size)
+	}
+	if got := b.Access().Name; got != "Import and export" {
+		t.Fatalf("the button is named %q", got)
 	}
 }

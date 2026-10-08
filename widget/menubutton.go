@@ -22,6 +22,10 @@ import (
 // and Down open it; Up, Down, Home and End move through it; Enter or
 // Space picks; Escape and Tab close it.
 //
+// With an Icon and no Title it is a square button showing the icon
+// alone, clear until the pointer comes over it, as an [IconButton] is:
+// for a menu of more actions, such as "⋯". Its Tooltip names it.
+//
 // With StayOpen the menu stays open after a pick, and a pick ticks or
 // unticks the item, for a set of choices where several can be on, such
 // as the files a filter lets through.
@@ -182,6 +186,10 @@ func (b *MenuButton) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children
 	run := b.shown.shape(faceIn(Font, th), b.Title, TextSize.Get(th))
 	pad := FieldPadding.Get(th)
 	b.size = c.Constrain(geom.Sz(b.iconRoom(th)+run.Advance+2*pad+chevron+pad, FieldHeight.Get(th)))
+	if b.iconOnly() {
+		h := ButtonHeight.Get(th)
+		b.size = c.Constrain(geom.Sz(h, h))
+	}
 	b.follow(th)
 	if b.Disabled && b.popup != nil {
 		b.shut(th)
@@ -194,6 +202,10 @@ func (b *MenuButton) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gun
 	defer b.faint(p, box)()
 	th := f.Theme
 	r := geom.Rect{Max: box.Point()}
+	if b.iconOnly() {
+		b.paintIconOnly(p, th, box)
+		return
+	}
 	radius := FieldRadius.Get(th)
 	b.paintRing(p, r, radius, th)
 	fill := anim.Mix(anim.ColorCodec, ButtonFill.Get(th), ButtonHover.Get(th), b.hover.Value())
@@ -219,6 +231,24 @@ func (b *MenuButton) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gun
 	paintChevron(p, th, c, Ink.Get(th))
 }
 
+// iconOnly reports whether the button shows its icon alone.
+func (b *MenuButton) iconOnly() bool { return b.Title == "" && b.Icon != nil }
+
+// paintIconOnly draws a button that shows its icon alone: clear, but
+// for a fill under the pointer and while the menu is open.
+func (b *MenuButton) paintIconOnly(p *paint.Painter, th *theme.Live, box geom.Size) {
+	r := geom.Rect{Max: box.Point()}
+	radius := ButtonRadius.Get(th)
+	b.paintRing(p, r, radius, th)
+	if on := max(b.hover.Value(), b.turn.Value()); on > 0.001 {
+		fill := ButtonHover.Get(th)
+		fill.A = uint8(float32(fill.A) * min(on, 1))
+		p.RRect(r, radius, paint.Solid(fill))
+	}
+	s := IconSize.Get(th)
+	paintIcon(p, th, b.Icon, geom.Rc((box.W-s)/2, (box.H-s)/2, s, s), Ink.Get(th), 1)
+}
+
 // iconRoom is the room the icon takes before the title, with its gap.
 func (b *MenuButton) iconRoom(th *theme.Live) float32 {
 	if b.Icon == nil {
@@ -237,6 +267,9 @@ func (b *MenuButton) Access() access.Info {
 	}
 	if b.IsOpen() {
 		info.State |= access.StateExpanded
+	}
+	if info.Name == "" {
+		info.Name = b.Tooltip
 	}
 	if info.Name == "" {
 		info.Name = iconName(b.Icon)

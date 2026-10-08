@@ -34,6 +34,13 @@ var (
 	ColorPickerChecker    = theme.Length("colorpicker.checker", 6)
 	ColorPickerCheckLight = theme.Color("colorpicker.check.light", color.NRGBA{R: 0x8c, G: 0x91, B: 0x9c, A: 0xff})
 	ColorPickerCheckDark  = theme.Color("colorpicker.check.dark", color.NRGBA{R: 0x4c, G: 0x51, B: 0x5c, A: 0xff})
+	// ColorChipWidth and ColorChipHeight are the size of the chip a
+	// [ColorButton] with Hex shows its colour in, ColorChipRadius rounds
+	// it, and ColorHexSize is the size of the hex beside it.
+	ColorChipWidth  = theme.Length("colorbutton.chip.width", 28)
+	ColorChipHeight = theme.Length("colorbutton.chip.height", 20)
+	ColorChipRadius = theme.Length("colorbutton.chip.radius", 5)
+	ColorHexSize    = theme.Length("colorbutton.hex.size", 12)
 )
 
 // ColorPicker picks a colour: a square of saturation across and
@@ -100,7 +107,7 @@ func NewColorPicker(c color.NRGBA) *ColorPicker {
 	p.alpBar = &pickStrip{Control: newControl(), p: p, opacity: true}
 	p.swatch = &pickSwatch{Control: newControl(), p: p}
 	p.hex = NewTextField()
-	p.hex.Placeholder = "Hex colour"
+	p.hex.Placeholder, p.hex.Face = "Hex colour", MonoFont
 	p.hex.OnChange = func(s string, u *gunim.UI) gunim.Intent {
 		if typed, err := theme.ParseHex(s); err == nil {
 			p.setColor(typed, Quick.Get(u.Theme()), false, u)
@@ -647,8 +654,15 @@ func (q *pickSwatch) Paint(pt *paint.Painter, f gunim.Frame, box geom.Size, _ gu
 	// The old half lightens under the pointer, as a button does.
 	old = anim.Mix(anim.ColorCodec, old, anim.Mix(anim.ColorCodec, old, Ink.Get(th), 0.2), q.hover.Value())
 	pt.RRect(r, radius, paint.Solid(now))
-	defer pt.Layer(paint.LayerOpts{Bounds: geom.Rc(0, 0, half, box.H), Opacity: 1, Clip: true})()
-	pt.RRect(r, radius, paint.Solid(old))
+	func() {
+		defer pt.Layer(paint.LayerOpts{Bounds: geom.Rc(0, 0, half, box.H), Opacity: 1, Clip: true})()
+		pt.RRect(r, radius, paint.Solid(old))
+	}()
+	// A line between the two, and a border round both, so either shows
+	// against the panel and the other whatever their colours.
+	border := FieldBorder.Get(th)
+	pt.RRect(geom.Rc(half-0.5, 0, 1, box.H), 0, paint.Solid(border))
+	pt.RRectStroke(r, radius, paint.Fill{}, paint.Stroke{Width: 1, Color: border})
 }
 
 // Access implements [gunim.Accessible].
@@ -705,6 +719,10 @@ type ColorButton struct {
 	Label string
 	// Opaque leaves out the picker's strip of opacity.
 	Opaque bool
+	// Hex shows the colour as a small chip with the colour written in
+	// hex before it, in the mono face, as a list of colours does. The
+	// whole of it is the button, clear until the pointer comes over it.
+	Hex bool
 	// OnChange runs on the UI goroutine as the user changes the colour in
 	// the picker, on every step of a drag; OnCommit runs with the colour
 	// each gesture ends on. A non-nil result is sent to the application
@@ -716,6 +734,9 @@ type ColorButton struct {
 	popup  *gunim.Popup
 	picker *ColorPicker
 	size   geom.Size
+	// hexText is the colour in hex, and hexRoom the hex's room: as wide
+	// as a colour with opacity takes, so the chips of a column line up.
+	hexText, hexRoom shapedText
 }
 
 // NewColorButton returns a button showing c.
@@ -747,8 +768,9 @@ func (b *ColorButton) Picker() *ColorPicker {
 	return b.picker
 }
 
-// open shows the picker below the button and gives it the keyboard.
-func (b *ColorButton) open(u *gunim.UI) {
+// Open shows the picker below the button and gives it the keyboard, as
+// a click does.
+func (b *ColorButton) Open(u *gunim.UI) {
 	if b.IsOpen() {
 		return
 	}
@@ -771,7 +793,7 @@ func (b *ColorButton) open(u *gunim.UI) {
 	p.done = b.close
 	b.picker = p
 	u.Cue(gunim.CueOpen, b)
-	b.popup = u.OpenPopup(b, newPickPopup(p), gunim.PopupOptions{
+	b.popup = u.OpenPopup(b, newPickPopup(p, b.Label), gunim.PopupOptions{
 		Anchor:  geom.Rc(0, 0, b.size.W, b.size.H+4),
 		Dismiss: b.close,
 	})
@@ -806,7 +828,7 @@ func (b *ColorButton) Handle(e input.Event, u *gunim.UI) bool {
 		if b.IsOpen() {
 			b.close(u)
 		} else {
-			b.open(u)
+			b.Open(u)
 		}
 	case input.PointerUp:
 	case input.KeyPress:
@@ -815,7 +837,7 @@ func (b *ColorButton) Handle(e input.Event, u *gunim.UI) bool {
 		}
 		switch e.Key {
 		case input.KeySpace, input.KeyEnter, input.KeyKPEnter, input.KeyDown:
-			b.open(u)
+			b.Open(u)
 		default:
 			return false
 		}
@@ -837,6 +859,14 @@ func (b *ColorButton) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Childre
 		b.popup.Close()
 		b.popup = nil
 	}
+	if b.Hex {
+		face, size := faceIn(MonoFont, th), ColorHexSize.Get(th)
+		b.hexText.shape(face, theme.Hex(b.value), size)
+		room := b.hexRoom.shape(face, "#00000000", size).Advance
+		pad := ControlGap.Get(th)
+		b.size = c.Constrain(geom.Sz(pad+room+pad+ColorChipWidth.Get(th)+pad/2, ControlHeight.Get(th)))
+		return b.size
+	}
 	h := FieldHeight.Get(th)
 	b.size = c.Constrain(geom.Sz(h*1.5, h))
 	return b.size
@@ -847,6 +877,10 @@ func (b *ColorButton) Paint(pt *paint.Painter, f gunim.Frame, box geom.Size, _ g
 	defer b.faint(pt, box)()
 	th := f.Theme
 	r := geom.Rect{Max: box.Point()}
+	if b.Hex {
+		b.paintHex(pt, th, box)
+		return
+	}
 	radius := FieldRadius.Get(th)
 	b.paintRing(pt, r, radius, th)
 	fill := anim.Mix(anim.ColorCodec, ButtonFill.Get(th), ButtonHover.Get(th), b.hover.Value())
@@ -855,6 +889,28 @@ func (b *ColorButton) Paint(pt *paint.Painter, f gunim.Frame, box geom.Size, _ g
 	sr := max(0, radius-3)
 	paintChecks(pt, th, in, sr)
 	pt.RRect(in, sr, paint.Solid(b.value))
+}
+
+// paintHex draws the button with Hex: clear but for a fill under the
+// pointer, the hex at the right of its room, and the chip after it, its
+// edge drawn so a colour like the ground still shows.
+func (b *ColorButton) paintHex(pt *paint.Painter, th *theme.Live, box geom.Size) {
+	r := geom.Rect{Max: box.Point()}
+	radius := FieldRadius.Get(th)
+	b.paintRing(pt, r, radius, th)
+	if hv := b.hover.Value(); hv > 0.001 {
+		fill := ButtonHover.Get(th)
+		fill.A = uint8(float32(fill.A) * min(hv, 1))
+		pt.RRect(r, radius, paint.Solid(fill))
+	}
+	pad := ControlGap.Get(th)
+	cw, ch := ColorChipWidth.Get(th), ColorChipHeight.Get(th)
+	chip := geom.Rc(box.W-pad/2-cw, (box.H-ch)/2, cw, ch)
+	run := b.hexText.run
+	run.Paint(pt, geom.Pt(chip.Min.X-pad/2-run.Advance, (box.H-run.Height())/2), Placeholder.Get(th))
+	cr := ColorChipRadius.Get(th)
+	paintChecks(pt, th, chip, cr)
+	pt.RRectStroke(chip, cr, paint.Solid(b.value), paint.Stroke{Width: 1, Color: FieldBorder.Get(th)})
 }
 
 // Access implements [gunim.Accessible]: a button with a popup, the
@@ -877,27 +933,38 @@ func (b *ColorButton) AccessAct(r access.Request, u *gunim.UI) bool {
 	if b.IsOpen() {
 		b.close(u)
 	} else {
-		b.open(u)
+		b.Open(u)
 	}
 	return true
 }
 
-// pickPopup is the panel a [ColorButton]'s picker shows in. It holds
-// the keyboard while it is open, and fades in and out.
+// pickPopup is the panel a [ColorButton]'s picker shows in, as a menu
+// is drawn: a card with the menu's fill, border and shadow, and the
+// button's label at its top, naming what is picked. It holds the
+// keyboard while it is open, and fades in and out.
 type pickPopup struct {
 	anim.Group
 	child gunim.Node
 	in    *anim.Float
+	title string
+	run   shapedText
+	// margin is the room round the card for its shadow, where the
+	// popup's window can show one, and head the room the title takes.
+	margin, head float32
+	card         geom.Rect
 }
 
-func newPickPopup(child gunim.Node) *pickPopup {
-	p := &pickPopup{child: child, in: anim.NewFloat(0)}
+func newPickPopup(child gunim.Node, title string) *pickPopup {
+	p := &pickPopup{child: child, in: anim.NewFloat(0), title: title}
 	p.Add(p.in)
 	return p
 }
 
 // Modal implements [gunim.Modal]: the keyboard keeps to the picker.
 func (p *pickPopup) Modal() bool { return true }
+
+// PopupPadding implements [gunim.PopupPadder]: the room for the shadow.
+func (p *pickPopup) PopupPadding() geom.Insets { return geom.Uniform(p.margin) }
 
 // Children implements [gunim.Composite].
 func (p *pickPopup) Children() []gunim.Node { return []gunim.Node{p.child} }
@@ -916,15 +983,38 @@ func (p *pickPopup) Transition(pr gunim.Presence, f gunim.Frame) bool {
 
 // Layout implements [gunim.Node].
 func (p *pickPopup) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
-	return inset(c, geom.Uniform(ColorPickerGap.Get(f.Theme)+2), kids)
+	th := f.Theme
+	p.margin = 0
+	if f.Transparent {
+		p.margin = MenuMargin.Get(th)
+	}
+	pad := ColorPickerGap.Get(th) + 2
+	p.head = 0
+	if p.title != "" {
+		run := p.run.shape(faceIn(BoldFont, th), p.title, TextSize.Get(th))
+		p.head = run.Height() + ColorPickerGap.Get(th)
+	}
+	in := geom.Insets{Top: p.margin + pad + p.head, Right: p.margin + pad, Bottom: p.margin + pad, Left: p.margin + pad}
+	size := inset(c, in, kids)
+	p.card = geom.Rect{Min: geom.Pt(p.margin, p.margin), Max: geom.Pt(size.W-p.margin, size.H-p.margin)}
+	return size
 }
 
 // Paint implements [gunim.Node].
 func (p *pickPopup) Paint(pt *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.Children) {
 	th := f.Theme
-	r := geom.Rect{Max: box.Point()}
-	defer pt.Layer(paint.LayerOpts{Bounds: r, Opacity: clamp01(p.in.Value())})()
-	pt.RRectStroke(r, MenuRadius.Get(th), paint.Solid(MenuFill.Get(th)), paint.Stroke{Width: 1, Color: MenuBorder.Get(th)})
+	t := clamp01(p.in.Value())
+	defer pt.Layer(paint.LayerOpts{Bounds: geom.Rect{Max: box.Point()}, Opacity: t})()
+	radius := MenuRadius.Get(th)
+	if p.margin > 0 {
+		pt.ShadowRRect(p.card, radius, paint.Solid(MenuFill.Get(th)), paint.Shadow{
+			Offset: geom.Pt(0, 3), Blur: p.margin * 0.6, Color: MenuShadow.Get(th)})
+	}
+	pt.RRectStroke(p.card, radius, paint.Solid(MenuFill.Get(th)), paint.Stroke{Width: 1, Color: MenuBorder.Get(th)})
+	if p.title != "" {
+		pad := ColorPickerGap.Get(th) + 2
+		p.run.run.Paint(pt, geom.Pt(p.card.Min.X+pad, p.card.Min.Y+pad), Ink.Get(th))
+	}
 	kids.At(0).Paint(pt)
 }
 
