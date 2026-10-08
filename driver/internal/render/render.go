@@ -90,6 +90,11 @@ type Renderer struct {
 
 	glyphs, lcdGlyphs, colorGlyphs glyphTexture
 	images                         map[*paint.Image]*imageTexture
+	// bigs holds the masks too big for the atlas; see bigmasks.go.
+	bigs bigMasks
+	// now is when the frame being drawn started, from clock, or time.Now where clock is nil.
+	now   time.Time
+	clock func() time.Time
 	// scratchX is where the next mask goes in the scratch strip, and scratches counts the masks put there, for tests.
 	scratchX, scratches int
 	// dual says the draw program blends each channel by a colour of its
@@ -122,6 +127,13 @@ type Renderer struct {
 	// Redrawn is the device-pixel area the last frame redrew, for
 	// tests.
 	Redrawn geom.Rect
+	// Stretched is the logical-pixel area where the last frame drew a
+	// big mask stretched, while its size changed, and SharpAt when a
+	// frame draws it sharp. The next frame redraws the area whatever
+	// its damage; a driver with no new frame by SharpAt draws its last
+	// one again.
+	Stretched geom.Rect
+	SharpAt   time.Time
 	// Under is the window's background, where a frame's first op leaves
 	// it uncovered; see driver.Backgrounder.
 	Under color.NRGBA
@@ -351,23 +363,25 @@ uniform sampler2D u_tex;
 // contrast in v_param.y and corrected for gamma by the ratios in
 // v_color1. v_param.x is 0 for a greyscale glyph, 1 or 2 for one
 // on subpixels that run red to blue or blue to red, and 3 for a colour
-// glyph, whose own colours only fade with the text's alpha; cover gets
-// the coverage of each channel.
+// glyph, whose own colours only fade with the text's alpha, and 4 for a
+// greyscale mask read from u_tex in place of the atlas; cover gets the
+// coverage of each channel.
 vec4 glyph(out vec4 cover) {
 	vec4 c = v_color0;
 	vec4 g = v_color1;
 	float k = v_param.y;
-	if (v_param.x > 2.5) {
+	if (v_param.x > 2.5 && v_param.x < 3.5) {
 		vec4 col = texture(u_color, v_extra.xy) * c.a;
 		cover = vec4(col.a);
 		return col;
 	}
-	if (v_param.x < 0.5) {
+	if (v_param.x < 0.5 || v_param.x > 3.5) {
 		if (v_param.w > 0.5) {
 			// A mask coloured by a gradient.
 			c = gradient(v_param.w, v_extra.zw, c, c);
 		}
-		float a = texture(u_atlas, v_extra.xy).r;
+		// A mask too big for the atlas has a texture of its own.
+		float a = v_param.x > 3.5 ? texture(u_tex, v_extra.xy).r : texture(u_atlas, v_extra.xy).r;
 		// The contrast applies to dark text and fades out for light.
 		k *= clamp(4.0 * (0.75 - dot(c.rgb, vec3(0.30, 0.59, 0.11))), 0.0, 1.0);
 		a = a * (k + 1.0) / (a * k + 1.0);
@@ -641,6 +655,7 @@ func (r *Renderer) Release() {
 		g.DeleteTexture(r.ramps.tex)
 	}
 	r.releaseScenes()
+	r.releaseBigMasks()
 	if r.lcdGlyphs.tex != 0 {
 		g.DeleteTexture(r.lcdGlyphs.tex)
 	}
@@ -662,6 +677,16 @@ func (r *Renderer) Draw(ops []paint.Op, damage geom.Rect, fbW, fbH int, scale fl
 	}
 	g := r.GL
 	r.fbW, r.fbH, r.scale = fbW, fbH, scale
+	r.now = time.Now()
+	if r.clock != nil {
+		r.now = r.clock()
+	}
+	// What the last frame drew stretched is drawn again, to be sharp.
+	if !r.Stretched.Empty() {
+		damage = damage.Union(r.Stretched)
+		r.Stretched, r.SharpAt = geom.Rect{}, time.Time{}
+	}
+	r.bigs.newFrame()
 	r.stack, r.depth = r.stack[:0], 0
 	r.ellipse = clipEllipse{}
 	// bindDraw, below, makes the plain draw program current.
@@ -750,6 +775,7 @@ func (r *Renderer) Draw(ops []paint.Op, damage geom.Rect, fbW, fbH int, scale fl
 		r.flush()
 	}
 	r.evictImages()
+	r.evictBigMasks()
 	r.evictMeshes()
 }
 

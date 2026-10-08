@@ -1084,13 +1084,22 @@ func (w *Window) render() {
 	var ft frameTimes
 	// shownEdge is the edge the last frame presented left for the border
 	shownEdge := float32(-1)
+	// When a frame draws a big mask stretched, sharpen fires once the mask can be sharp, to draw the frame again,
+	// as again. A frame drawn before then takes its place. The engine keeps a frame's ops until it presents the
+	// frame after, so they hold.
+	var sharpen <-chan time.Time
+	var again frame
 	for {
 		var f frame
+		redraw := false
 		select {
 		case <-w.quit:
 			return
 		case f = <-w.frames:
+		case <-sharpen:
+			f, redraw = again, true
 		}
+		sharpen = nil
 		if r != nil {
 			r.Corner, r.Edge = w.cornerRadius()
 			w.mu.Lock()
@@ -1111,6 +1120,10 @@ func (w *Window) render() {
 				r.WindowFBO = fbo
 			}
 			r.Draw(f.ops, f.damage, fbW, fbH, scale)
+			if !r.Stretched.Empty() {
+				again = frame{ops: f.ops}
+				sharpen = time.After(time.Until(r.SharpAt))
+			}
 			var gpu time.Duration
 			if framesFinish {
 				// Waits for the GPU, to time it apart from the rest.
@@ -1160,6 +1173,10 @@ func (w *Window) render() {
 			} else {
 				last = pace(last, rate)
 			}
+		}
+		if redraw {
+			// The engine waits for none.
+			continue
 		}
 		select {
 		case w.presented <- driver.Frame{Shown: last}:

@@ -140,6 +140,9 @@ func (d *Driver) frame(g gl.Context, shared *render.Shared, c *compositor) {
 		fbW, fbH int
 		under    color.NRGBA
 		shot     func(*image.RGBA)
+		// again marks the window's last frame drawn again, to sharpen
+		// what it drew stretched; the engine waits for none.
+		again bool
 	}
 	var jobs []job
 	var stack []layer
@@ -151,7 +154,10 @@ func (d *Driver) frame(g gl.Context, shared *render.Shared, c *compositor) {
 		if w.next != nil {
 			jobs = append(jobs, job{w: w, f: w.next, fbW: fbW, fbH: fbH, under: w.under, shot: w.shot})
 			w.next, w.shot = nil, nil
+		} else if w.sharpen && w.last != nil {
+			jobs = append(jobs, job{w: w, f: &frame{ops: w.last}, fbW: fbW, fbH: fbH, under: w.under, again: true})
 		}
+		w.sharpen = false
 		if !w.hidden {
 			x, y := int(math.Round(float64(r.Min.X*scale))), int(math.Round(float64(r.Min.Y*scale)))-pan
 			stack = append(stack, layer{w: w, x: x, y: y, fbW: fbW, fbH: fbH})
@@ -198,6 +204,7 @@ func (d *Driver) frame(g gl.Context, shared *render.Shared, c *compositor) {
 			w.r.WindowFBO, w.onTex = w.fbo, true
 		}
 		w.r.Draw(j.f.ops, j.f.damage, j.fbW, j.fbH, scale)
+		d.sharpenAt(w, w.r.SharpAt)
 		if j.shot != nil {
 			g.BindFramebuffer(gl.FRAMEBUFFER, w.r.WindowFBO)
 			pix := make([]byte, j.fbW*j.fbH*4)
@@ -240,11 +247,33 @@ func (d *Driver) frame(g gl.Context, shared *render.Shared, c *compositor) {
 	}
 	now := time.Now()
 	for _, j := range jobs {
+		if j.again {
+			continue
+		}
 		select {
 		case j.w.presented <- driver.Frame{Shown: now}:
 		case <-j.w.quit:
 		}
 	}
+}
+
+// sharpenAt has w draw its last frame again at the time at, the zero
+// time for never, so a big mask the frame drew stretched is drawn
+// sharp. A frame drawn before then takes its place. The engine keeps a
+// frame's ops until it presents the frame after, so they hold.
+func (d *Driver) sharpenAt(w *Window, at time.Time) {
+	d.mu.Lock()
+	w.sharpAt = at
+	d.mu.Unlock()
+	if at.IsZero() {
+		return
+	}
+	time.AfterFunc(time.Until(at), func() {
+		d.mu.Lock()
+		w.sharpen = w.sharpen || w.sharpAt.Equal(at)
+		d.mu.Unlock()
+		d.kick()
+	})
 }
 
 // upright turns pixels read from GL, bottom row first, into a picture

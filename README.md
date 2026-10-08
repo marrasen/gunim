@@ -720,11 +720,10 @@ each size in pixels it is drawn at, kept, and tinted as it draws, so a
 drawing of a dozen parts costs a dozen quads a frame. Move, turn or scale
 one by a transform rather than by its rect, and it is never drawn again.
 
-The driver keeps each mask at most 256 device pixels across, or down,
-and stretches a bigger one, so a path or a figure's part drawn past 256
-pixels comes out softer the bigger it is: on a screen of two pixels to
-a unit, that is past 128 units. The limit is for each part, not the
-whole figure.
+A mask past 256 device pixels across gets a texture of its own and
+draws as sharp as a small one. While its size keeps changing, as in a
+window being resized, it draws its last size stretched, and sharp again
+once the size holds for a frame.
 
 ```go
 //go:embed fox.svg

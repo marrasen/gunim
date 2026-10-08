@@ -153,8 +153,6 @@ var (
 // Paint implements [gunim.Node].
 func (a *art) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, _ gunim.Children) {
 	p.RRect(geom.Rect{Max: box.Point()}, 0, paint.Solid(meadow))
-	// A driver keeps a mask at most 256 pixels across and stretches a bigger one, so the fox is drawn small enough
-	// that its largest part is about 126 units across: 252 pixels on a screen of two pixels to a unit.
 	a.fox.Paint(p, shape.Fit(a.fox.ViewBox, geom.Rc(30, 50, 240, 240)))
 	a.fox.Paint(p, shape.Fit(a.fox.ViewBox, geom.Rc(400, 215, 100, 100)))
 	// The leaf turns about its stem by a transform: its masks stay the size they were drawn at.
