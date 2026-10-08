@@ -176,3 +176,50 @@ func mustSVG(t testing.TB, src string) *Figure {
 	}
 	return f
 }
+
+func TestARectKeepsANegativePlaceAndAMissingOneIsZero(t *testing.T) {
+	f := mustSVG(t, `<svg viewBox="-10 -10 20 20">
+		<rect x="-10" y="-10" width="10" height="10"/>
+		<rect width="4" height="5"/>
+		<rect x="-8" y="-6" width="8" height="6" rx="1" ry="auto"/>
+	</svg>`)
+	if len(f.Parts) != 3 {
+		t.Fatalf("%d parts", len(f.Parts))
+	}
+	for i, want := range []geom.Rect{geom.Rc(-10, -10, 10, 10), geom.Rc(0, 0, 4, 5), geom.Rc(-8, -6, 8, 6)} {
+		if b := f.Parts[i].Path.Bounds(); !near(b, want) {
+			t.Errorf("rect %d lies in %v, want %v", i, b, want)
+		}
+	}
+}
+
+func TestAFilledPolylineFillsAndALineDoesNot(t *testing.T) {
+	f := mustSVG(t, `<svg viewBox="0 0 10 10">
+		<polyline points="0,0 10,0 10,10" fill="red"/>
+		<line x1="0" y1="0" x2="10" y2="10" fill="red" stroke="blue"/>
+	</svg>`)
+	if len(f.Parts) != 2 {
+		t.Fatalf("%d parts, want the polyline and the line", len(f.Parts))
+	}
+	if pl := f.Parts[0]; pl.Fill != (color.NRGBA{R: 255, A: 255}) {
+		t.Fatalf("the polyline's fill is %v, want red", pl.Fill)
+	}
+	if l := f.Parts[1]; l.Fill.A != 0 || l.Stroke != (color.NRGBA{B: 255, A: 255}) {
+		t.Fatalf("the line is %+v, want only its stroke", l)
+	}
+	// Filled, a polyline closes back to its first point, as SVG fills it: the triangle above the diagonal.
+	m := f.Parts[0].Path.Fill().Coverage(10, 10)
+	if m[1*10+8] != 255 || m[8*10+1] != 0 {
+		t.Fatalf("above the diagonal %d, below it %d", m[1*10+8], m[8*10+1])
+	}
+}
+
+// near reports whether a and b are the same rect but for float32's rounding in curves.
+func near(a, b geom.Rect) bool {
+	for _, d := range []float32{a.Min.X - b.Min.X, a.Min.Y - b.Min.Y, a.Max.X - b.Max.X, a.Max.Y - b.Max.Y} {
+		if d < -1e-4 || d > 1e-4 {
+			return false
+		}
+	}
+	return true
+}

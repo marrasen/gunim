@@ -76,12 +76,18 @@ func (n *node) prop(name string) (string, bool) {
 	return n.attr(name)
 }
 
-// num reads a numeric attribute, with a unit such as px left off, or def where there is none.
-func (n *node) num(name string, def float32) (float32, error) {
+// has reports whether n has the attribute named name, with a value other than auto.
+func (n *node) has(name string) bool {
 	v, ok := n.attr(name)
-	if !ok || v == "" {
+	return ok && v != "" && v != "auto"
+}
+
+// num reads a numeric attribute, with a unit such as px left off, or def where there is none or it is auto.
+func (n *node) num(name string, def float32) (float32, error) {
+	if !n.has(name) {
 		return def, nil
 	}
+	v, _ := n.attr(name)
 	return length(v)
 }
 
@@ -265,7 +271,8 @@ func (r *reader) part(n *node, subs []vecpath.Subpath, st style, ctm vecpath.Aff
 		return fmt.Errorf("shape: svg: <%s> as transformed: %w", n.XMLName.Local, err)
 	}
 	pt := Part{Path: path, EvenOdd: st.evenOdd}
-	if !st.fill.none && n.XMLName.Local != "line" && n.XMLName.Local != "polyline" {
+	// A line has no inside; a polyline does, closed back to its first point, as SVG fills one.
+	if !st.fill.none && n.XMLName.Local != "line" {
 		if st.fill.grad != "" {
 			pt.FillGradient = r.gradient(st.fill.grad, own.Bounds(), ctm, st.fillOpacity*st.opacity)
 			if pt.FillGradient == nil {
@@ -421,20 +428,23 @@ func outline(n *node) ([]vecpath.Subpath, error) {
 		var v [6]float32
 		for i, name := range []string{"x", "y", "width", "height", "rx", "ry"} {
 			var err error
-			if v[i], err = n.num(name, -1); err != nil {
+			if v[i], err = n.num(name, 0); err != nil {
 				return nil, err
 			}
 		}
-		x, y, w, h, rx, ry := max(v[0], 0), max(v[1], 0), v[2], v[3], v[4], v[5]
+		x, y, w, h, rx, ry := v[0], v[1], v[2], v[3], v[4], v[5]
 		if w <= 0 || h <= 0 {
 			return []vecpath.Subpath{}, nil
 		}
-		// A corner's missing radius takes the other one's.
-		if rx < 0 {
-			rx = ry
-		}
-		if ry < 0 {
+		// A corner's radius that is missing, or negative, takes the other one's.
+		rxSet, rySet := n.has("rx") && rx >= 0, n.has("ry") && ry >= 0
+		switch {
+		case rxSet && !rySet:
 			ry = rx
+		case rySet && !rxSet:
+			rx = ry
+		case !rxSet && !rySet:
+			rx, ry = 0, 0
 		}
 		rx, ry = min(max(rx, 0), w/2), min(max(ry, 0), h/2)
 		if rx == 0 || ry == 0 {
