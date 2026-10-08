@@ -56,6 +56,8 @@ type OffscreenWindow struct {
 	saver func(SaveOptions) (string, error)
 	// open and reveal answer Open and Reveal; see SetLauncher.
 	open, reveal func(string) error
+	// link answers OpenLink; see SetLinkOpener.
+	link func(string) error
 	// share and vibrate answer Share and Vibrate; see SetSharer and
 	// SetVibrator.
 	share   func(Share) error
@@ -714,6 +716,26 @@ func (w *OffscreenWindow) Reveal(path string) error {
 		return ErrNoLauncher
 	}
 	return fn(path)
+}
+
+// SetLinkOpener sets what OpenLink does, for a test standing in for the
+// system's browser.
+func (w *OffscreenWindow) SetLinkOpener(fn func(url string) error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.link = fn
+}
+
+// OpenLink implements [LinkOpener] with the function SetLinkOpener set,
+// and returns [ErrNoLinkOpener] without one.
+func (w *OffscreenWindow) OpenLink(url string) error {
+	w.mu.Lock()
+	fn := w.link
+	w.mu.Unlock()
+	if fn == nil {
+		return ErrNoLinkOpener
+	}
+	return fn(url)
 }
 
 // SetSharer sets what Share does, for a test standing in for the system.

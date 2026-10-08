@@ -233,6 +233,17 @@ func share(s driver.Share) error {
 	return nil
 }
 
+// openLink opens the web page at url in the phone's browser.
+func openLink(url string) error {
+	u, up := utf16Of(url)
+	ok := C.gunim_open_link(up, C.int(len(u)))
+	runtime.KeepAlive(u)
+	if ok == 0 {
+		return driver.ErrNoLinkOpener
+	}
+	return nil
+}
+
 // vibrate runs the motor in pattern, on and off in turn, from on.
 func vibrate(pattern []time.Duration) error {
 	ms := make([]C.longlong, len(pattern))

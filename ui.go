@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"runtime"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -721,6 +722,22 @@ func (c Client) Open(path string) error {
 		return driver.ErrNoLauncher
 	}
 	return l.Open(path)
+}
+
+// OpenLink opens the web page at url in the system's browser, as a link
+// in another application does. It takes http and https addresses alone,
+// so a link is never a way to start a program. It returns once the
+// system has taken the request, and [driver.ErrNoLinkOpener] where gunim
+// cannot ask.
+func (c Client) OpenLink(url string) error {
+	if !strings.HasPrefix(url, "https://") && !strings.HasPrefix(url, "http://") {
+		return fmt.Errorf("gunim: open link %q: only http and https links open", url)
+	}
+	lo, ok := c.w.dw.(driver.LinkOpener)
+	if !ok {
+		return driver.ErrNoLinkOpener
+	}
+	return lo.OpenLink(url)
 }
 
 // Reveal shows the file or folder at path in the system's file manager,
