@@ -239,24 +239,17 @@ func (d *Days) Step(dt time.Duration) bool {
 	return moving
 }
 
-// edgeScroll scrolls the grid while a drag holds the pointer near the top or bottom of the hours, faster the nearer
-// it is, and carries the drag along. It reports whether it scrolled.
+// edgeScroll scrolls the grid while a drag holds the pointer near the top or bottom of the hours, as
+// [gunim.EdgeSpeed] says, and carries the drag along. It reports whether it scrolled.
 func (d *Days) edgeScroll(dt time.Duration) bool {
 	if d.drag == nil || d.drag.allDay || !d.drag.moved {
 		return false
 	}
-	const zone = 40
-	top, bottom := d.bodyTop(), d.box.H
-	speed := float32(0)
-	switch y := d.pointer.Y; {
-	case y < top+zone:
-		speed = -(top + zone - y) / zone
-	case y > bottom-zone:
-		speed = (y - (bottom - zone)) / zone
-	default:
+	v := gunim.EdgeSpeed(d.pointer.Y, d.bodyTop(), d.box.H)
+	if v == 0 {
 		return false
 	}
-	to := d.clampScroll(d.scrollY() + min(max(speed, -1), 1)*900*float32(dt.Seconds()))
+	to := d.clampScroll(d.scrollY() + v*float32(dt.Seconds()))
 	if to == d.scrollY() {
 		return false
 	}

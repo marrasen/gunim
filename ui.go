@@ -1335,6 +1335,9 @@ type UI struct {
 	dragOverData any
 	dragOverMods input.Mods
 	dragOverFrom *Window
+	// edgeLast is the scroll view a drag over this window was last over,
+	// which scrolls on while the drag is held past its edge.
+	edgeLast *state
 	// dragAnswer is what the node under a drag answers as it takes
 	// DragOver, and dragAnswered the answer last sent back.
 	dragAnswer   any
