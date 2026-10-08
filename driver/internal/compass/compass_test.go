@@ -106,10 +106,10 @@ func TestRollingTheDeviceALittleKeepsItsHeading(t *testing.T) {
 			t.Errorf("flat and rolled %v°, the heading is %v, %v; want 60", r, got, ok)
 		}
 	}
-	// Upright, a hand holding it a little crooked leaves its back looking the same way.
-	for _, s := range []float64{-25, -10, 10, 25} {
+	// Upright, a hand holding it crooked leaves its back looking the same way.
+	for _, s := range []float64{-60, -45, -25, -10, 10, 25, 45, 60} {
 		got, ok := Heading(lying(yaw(60), pitch(90), spin(s)), Rotation0)
-		if !ok || !near(float64(got), 60, 1) {
+		if !ok || !near(float64(got), 60, 1e-3) {
 			t.Errorf("upright and crooked %v°, the heading is %v, %v; want 60", s, got, ok)
 		}
 	}
@@ -121,6 +121,25 @@ func TestADeviceOnItsSideFacesWhereItsTopEdgePoints(t *testing.T) {
 	got, ok := Heading(lying(yaw(90), roll(90)), Rotation0)
 	if !ok || !near(float64(got), 90, 1e-3) {
 		t.Fatalf("on its side, the heading is %v, %v; want 90", got, ok)
+	}
+}
+
+func TestTurningOntoItsSideMovesTheHeadingSmoothly(t *testing.T) {
+	// Upright, its back looking at 60°, turned in quarter-degree steps until it lies on its side, its top edge
+	// at 330°. The heading swings from the back to the top edge, with no jump between two readings.
+	last := 60.0
+	for s := 0.0; s <= 90; s += 0.25 {
+		got, ok := Heading(lying(yaw(60), pitch(90), spin(s)), Rotation0)
+		if !ok {
+			t.Fatalf("crooked %v°, there is no heading", s)
+		}
+		if !near(float64(got), last, 2) {
+			t.Fatalf("from crooked %v° to %v°, the heading jumps from %v to %v", s-0.25, s, last, got)
+		}
+		last = float64(got)
+	}
+	if !near(last, 330, 1e-3) {
+		t.Fatalf("on its side, the heading is %v; want 330", last)
 	}
 }
 

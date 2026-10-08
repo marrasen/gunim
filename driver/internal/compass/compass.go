@@ -22,6 +22,10 @@ const (
 // the device lies so that no way stands out.
 const level = 1e-3
 
+// edge is how long the screen's right edge is across the ground, out of 1, below which the top edge starts to
+// count: the right edge stands within 30° of straight up or down.
+const edge = 0.5
+
 // Heading returns which way the device faces, in degrees clockwise from north, from 0 up to but not 360, and false
 // where no way stands out.
 //
@@ -34,19 +38,21 @@ const level = 1e-3
 // The way the device faces is the way the top edge of its screen points while it lies flat, screen up, and the way
 // its back looks while it stands upright before the viewer, and the same way at every tilt between: the way
 // straight ahead of the screen's right edge, across the ground. So tipping the device toward the viewer, or rolling
-// it a little to one side, leaves its heading where it was. Held on its side, with that edge pointing up or down,
-// the top edge's way across the ground takes over.
+// it to one side, leaves its heading where it was: both turn the device about its right edge or about the way it
+// faces. Held within 30° of on its side, with that edge pointing up or down, the top edge's way across the
+// ground takes over, smoothly.
 func Heading(r [9]float32, rot Rotation) (degrees float32, ok bool) {
 	// right and up are the screen's right and top edges as it shows its content, in the world.
 	right, up := axes(r, rot)
 	// Turned a quarter anticlockwise on the ground, seen from above, east goes to north: straight ahead of the right
 	// edge.
 	east, north := -right[1], right[0]
-	// On its side, the right edge points up or down and has no way across the ground: the top edge has one then.
-	side := right[2] * right[2]
-	side *= side
-	east += up[0] * side
-	north += up[1] * side
+	// On its side, the right edge points up or down and has little way across the ground: the top edge has one then.
+	if flat := math.Hypot(right[0], right[1]); flat < edge {
+		side := (1 - flat/edge) * (1 - flat/edge)
+		east += up[0] * side
+		north += up[1] * side
+	}
 	if math.Hypot(east, north) < level {
 		return 0, false
 	}
