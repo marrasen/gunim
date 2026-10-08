@@ -327,20 +327,54 @@ func TestEditingAColourAndANumberChangesTheTheme(t *testing.T) {
 	}
 }
 
-func TestANumberWithARangeIsASliderAlone(t *testing.T) {
+func TestANumberWithARangeIsASliderWithAField(t *testing.T) {
 	sec := Section{Title: "Look", Fields: []Field{{Key: widget.Gap.Key(), Label: "Gap", Min: 0, Max: 32}}}
 	e, w, u, run, h := edStage(t, Options{Base: widget.Dark(), Sections: []Section{sec}})
 	num := ctlOf[*numberControl](t, e.chosen["layout.gap"][0])
-	if num.slider == nil || num.field != nil {
-		t.Fatal("a gap with a range is not a slider alone")
+	if num.slider == nil || num.field == nil {
+		t.Fatal("a gap with a range is not a slider with a field")
 	}
-	if num.value.Text != "8" {
-		t.Fatalf("the slider's value reads %q", num.value.Text)
+	if num.field.Text() != "8" {
+		t.Fatalf("the slider's field reads %q", num.field.Text())
 	}
 	u.Focus(num.slider)
 	key(w, run, input.KeyRight, 0)
-	if got := valueIn(h.last(t), widget.Gap); got <= widget.Gap.Default() {
-		t.Fatalf("Right on the slider gives the theme a gap of %v", got)
+	if got := valueIn(h.last(t), widget.Gap); got <= widget.Gap.Default() || num.field.Value() != float64(got) {
+		t.Fatalf("Right on the slider gives the theme a gap of %v and the field %v", got, num.field.Value())
+	}
+	u.Focus(num.field)
+	key(w, run, input.KeyUp, 0)
+	if got := valueIn(h.last(t), widget.Gap); num.slider.Value() != got || num.field.Value() != float64(got) {
+		t.Fatalf("Up in the field gives a gap of %v, the slider %v", got, num.slider.Value())
+	}
+}
+
+func TestDraggingANumberCommitsOnceItIsLetGo(t *testing.T) {
+	e, w, u, run, h := edStage(t, Options{Base: widget.Dark(), Sections: []Section{cursorSection}})
+	num := ctlOf[*numberControl](t, e.chosen["layout.gap"][0])
+	r, ok := u.Bounds(num.field)
+	if !ok {
+		t.Fatal("the gap's field is not laid out")
+	}
+	at := r.Center()
+	commits := len(h.commits)
+	w.Input(input.PointerMove{Pos: at, Time: time.Now()})
+	w.Input(input.PointerDown{Pos: at, Button: input.ButtonPrimary, Clicks: 1, Time: time.Now()})
+	run(1)
+	for i := range 5 {
+		w.Input(input.PointerMove{Pos: at.Add(geom.Pt(0, -8*float32(i+1))), Time: time.Now()})
+		run(1)
+	}
+	if got := valueIn(h.last(t), widget.Gap); got != widget.Gap.Default()+10 {
+		t.Fatalf("a drag 40 pixels up gives a gap of %v", got)
+	}
+	if len(h.commits) != commits {
+		t.Fatalf("the drag committed %d times on the way", len(h.commits)-commits)
+	}
+	w.Input(input.PointerUp{Pos: at.Add(geom.Pt(0, -40)), Button: input.ButtonPrimary, Time: time.Now()})
+	run(1)
+	if len(h.commits) != commits+1 {
+		t.Fatalf("letting go committed %d times, want once", len(h.commits)-commits)
 	}
 }
 

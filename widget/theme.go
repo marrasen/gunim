@@ -143,6 +143,7 @@ func Light() theme.Theme {
 		theme.Set(Gap, 12),
 		theme.Set(HeadingSize, 24),
 		theme.Set(FieldFill, color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}),
+		theme.Set(FieldPressed, color.NRGBA{R: 0x2f, G: 0x6f, B: 0xe0, A: 0x1c}),
 		theme.Set(SegmentedTrack, color.NRGBA{R: 0xe4, G: 0xe8, B: 0xf0, A: 0xff}),
 		theme.Set(FieldBorder, color.NRGBA{R: 0xc8, G: 0xd0, B: 0xdc, A: 0xff}),
 		theme.Set(Selection, color.NRGBA{R: 0x2f, G: 0x6f, B: 0xe0, A: 0x40}),
@@ -290,6 +291,10 @@ var (
 	FieldWidth   = theme.Length("field.width", 240)
 	FieldPadding = theme.Length("field.padding", 10)
 	FieldRadius  = theme.Length("field.radius", 8)
+	// FieldPressed tints a number field while it is pressed or dragged
+	// to change its value. It is laid over the field's fill, so a
+	// see-through colour keeps the fill showing through.
+	FieldPressed = theme.Color("field.pressed", color.NRGBA{R: 0x5e, G: 0x9c, B: 0xff, A: 0x30})
 	// Caret is the motion the caret and the selection glide with.
 	// Make it very stiff for a caret that jumps.
 	Caret = theme.Spring("motion.caret", anim.Spring{Response: 0.09, Damping: 1})
