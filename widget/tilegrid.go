@@ -63,6 +63,10 @@ type TileGrid struct {
 	n int
 	// Size is the size of each tile. Change it and the tiles spring to their new places and sizes.
 	Size geom.Size
+	// Header builds the header of group k, from SetGroups, laid out across the grid HeaderHeight tall above the
+	// group's first row. Zero HeaderHeight is 40.
+	Header       func(group int) gunim.Node
+	HeaderHeight float32
 	// Pace is how fast the tiles arrive and depart, from Arrive and Depart, and fade in and out, from Reorder, as a
 	// multiple of their usual pace: 2 is twice as fast. Zero is 1.
 	Pace float32
@@ -98,6 +102,12 @@ type TileGrid struct {
 	// holds the tiles of items gone, fading out, and of items that moved out of view, gliding there.
 	reorder []int
 	leaving []*tileCell
+	// lay is where the tiles go, as last laid out, and was where they went before a Reorder. groups is each
+	// group's first tile, from SetGroups, regroup says they changed, and headers holds the headers built.
+	lay, was tileLayout
+	groups   []int
+	regroup  bool
+	headers  map[int]*headerCell
 }
 
 // tileLift is a press on a tile that may become a drag of the tiles selected.
@@ -112,7 +122,7 @@ type tileLift struct {
 
 // NewTileGrid returns an empty grid of tiles of size.
 func NewTileGrid(size geom.Size) *TileGrid {
-	return &TileGrid{scrolling: newScrolling(), Size: size, live: map[int]*tileCell{}, cursor: -1, anchor: -1,
+	return &TileGrid{scrolling: newScrolling(), Size: size, live: map[int]*tileCell{}, headers: map[int]*headerCell{}, cursor: -1, anchor: -1,
 		hover: -1, band: anim.NewRect(geom.Rect{}), bandIn: anim.NewFloat(0), revealNext: -1, jumpRow: -1}
 }
 
@@ -147,7 +157,7 @@ func (g *TileGrid) Rebuild(u *gunim.UI) {
 // selection go. Tile builds the new items' tiles; the tiles that stay are kept, so the application must know them
 // by their new places.
 func (g *TileGrid) Reorder(from []int, u *gunim.UI) {
-	g.reorder = slices.Clone(from)
+	g.reorder, g.was = slices.Clone(from), g.lay
 	if g.reorder == nil {
 		g.reorder = []int{}
 	}
@@ -256,11 +266,7 @@ func (g *TileGrid) Step(dt time.Duration) bool {
 }
 
 // target returns where tile i belongs, in the content's space, as last laid out.
-func (g *TileGrid) target(i int) geom.Rect {
-	cols := max(g.cols, 1)
-	r, c := i/cols, i%cols
-	return geom.Rc(g.left+float32(c)*g.step.W, g.pad+float32(r)*g.step.H, g.Size.W, g.Size.H)
-}
+func (g *TileGrid) target(i int) geom.Rect { return g.lay.target(i) }
 
 // TileAt returns the tile drawn at p, in the grid's own space, or -1 for none.
 func (g *TileGrid) TileAt(p geom.Point) int { return g.at(p) }
@@ -287,21 +293,23 @@ func (g *TileGrid) at(p geom.Point) int {
 
 // placeAt returns the tile whose place is at p, in the grid's space, or -1.
 func (g *TileGrid) placeAt(p geom.Point) int {
-	if g.cols == 0 || g.step.W <= 0 || g.step.H <= 0 {
+	l := g.lay
+	if g.cols == 0 || l.step.W <= 0 || l.step.H <= 0 {
 		return -1
 	}
-	x, y := p.X-g.left, p.Y+g.offset.Value()-g.pad
-	if x < 0 || y < 0 {
+	x := p.X - l.left
+	if x < 0 {
 		return -1
 	}
-	c, r := int(x/g.step.W), int(y/g.step.H)
-	if c >= g.cols || x-float32(c)*g.step.W > g.Size.W || y-float32(r)*g.step.H > g.Size.H {
+	c := int(x / l.step.W)
+	if c >= l.cols || x-float32(c)*l.step.W > l.size.W {
 		return -1
 	}
-	if i := r*g.cols + c; i < g.n {
-		return i
+	r, in := l.rowAt(p.Y + g.offset.Value())
+	if !in {
+		return -1
 	}
-	return -1
+	return l.at(r, c)
 }
 
 // inBand returns the runs of tiles band touches, in the content's space.
@@ -321,26 +329,32 @@ func (g *TileGrid) inBand(band geom.Rect) [][2]int {
 		}
 		return max(0, k)
 	}
+	l := g.lay
 	row := func(y float32, end bool) int {
-		r := (y - g.pad) / g.step.H
+		r, _ := l.rowAt(y)
+		top := l.rowY(r)
 		if end {
-			return int(math.Floor(float64(r)))
+			// Above a row, in its gap or its group's header, the band has not reached it.
+			if y < top {
+				r--
+			}
+			return r
 		}
-		k := int(math.Floor(float64(r)))
-		if y-g.pad-float32(k)*g.step.H > g.Size.H {
-			k++
+		// Past a row's tiles, into the gap, the band has not reached the next.
+		if y > top+l.size.H {
+			r++
 		}
-		return max(0, k)
+		return max(0, r)
 	}
 	c0, c1 := col(band.Min.X, false), col(band.Max.X, true)
-	r0, r1 := row(band.Min.Y, false), row(band.Max.Y, true)
+	r0, r1 := row(band.Min.Y, false), min(row(band.Max.Y, true), l.rows()-1)
 	var runs [][2]int
 	for r := r0; r <= r1 && c0 <= c1; r++ {
-		a, b := r*g.cols+c0, min(r*g.cols+c1+1, g.n)
-		if a >= b {
-			break
+		a := l.at(r, c0)
+		if a < 0 {
+			continue
 		}
-		runs = addRun(runs, a, b)
+		runs = addRun(runs, a, min(l.rowLast(r), l.rowFirst(r)+c1)+1)
 	}
 	return runs
 }
@@ -514,9 +528,19 @@ func (g *TileGrid) key(e input.KeyPress, u *gunim.UI) bool {
 		}
 		return false
 	}
-	cols := max(g.cols, 1)
-	page := cols * max(1, int(g.viewport/max(g.step.H, 1)))
+	l := g.lay
+	pageRows := max(1, int(g.viewport/max(l.step.H, 1)))
 	at := g.cursor
+	// rowsBy is the tile rows away from the keyboard's, in its column, or the row's last where it is shorter, and
+	// no further than the first or last row.
+	rowsBy := func(d int) int {
+		if at < 0 || l.rows() == 0 {
+			return 0
+		}
+		r, c := l.rowCol(at)
+		r = min(max(r+d, 0), l.rows()-1)
+		return min(l.rowFirst(r)+c, l.rowLast(r))
+	}
 	var to int
 	switch e.Key {
 	case input.KeyLeft:
@@ -524,13 +548,13 @@ func (g *TileGrid) key(e input.KeyPress, u *gunim.UI) bool {
 	case input.KeyRight:
 		to = at + 1
 	case input.KeyUp:
-		to = at - cols
+		to = rowsBy(-1)
 	case input.KeyDown:
-		to = at + cols
+		to = rowsBy(1)
 	case input.KeyPageUp:
-		to = at - page
+		to = rowsBy(-pageRows)
 	case input.KeyPageDown:
-		to = at + page
+		to = rowsBy(pageRows)
 	case input.KeyHome:
 		to = 0
 	case input.KeyEnd:
@@ -556,13 +580,6 @@ func (g *TileGrid) key(e input.KeyPress, u *gunim.UI) bool {
 	}
 	if at < 0 {
 		to = 0
-	}
-	// Up from the first row and down from the last stay in the column, and go no further.
-	if (e.Key == input.KeyUp || e.Key == input.KeyDown) && (to < 0 || to >= g.n) && at >= 0 {
-		to = at
-		if e.Key == input.KeyDown && at/cols < (g.n-1)/cols {
-			to = g.n - 1
-		}
 	}
 	to = min(max(to, 0), g.n-1)
 	g.setCursor(to, u)
@@ -635,19 +652,29 @@ func (g *TileGrid) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Childre
 	gap, pad := TileGap.Get(th), TilePadding.Get(th)
 	motion := TileMotion.Get(th)
 
-	oldStep, oldPad, oldCols := g.step, g.pad, g.cols
+	old := g.lay
 	g.pad = pad
 	g.step = geom.Sz(g.Size.W+gap, g.Size.H+gap)
 	g.cols = max(1, int((own.W-2*pad+gap)/g.step.W))
 	g.left = max(pad, (own.W-float32(g.cols)*g.step.W+gap)/2)
-	rows := (g.n + g.cols - 1) / g.cols
-	content := 2*pad + float32(rows)*g.step.H - gap
-	relaid := oldCols != 0 && (oldStep != g.step || oldCols != g.cols || oldPad != g.pad)
-	if relaid {
-		g.hold(oldCols, oldStep, oldPad)
+	head := g.HeaderHeight
+	if head <= 0 {
+		head = 40
+	}
+	regrouped := g.regroup
+	g.lay = newTileLayout(g.n, g.cols, g.left, g.pad, g.step, g.Size, g.groups, head)
+	content := g.lay.content(gap)
+	relaid := old.cols != 0 && (old.step != g.step || old.cols != g.cols || old.pad != g.pad || regrouped)
+	if relaid && g.reorder == nil {
+		g.hold(old)
 	}
 	if i := min(g.jumpRow, g.n-1); i >= 0 {
-		g.jumpTo(g.target(i).Min.Y - pad)
+		y := g.target(i).Min.Y - pad
+		if r, c := g.lay.rowCol(i); c == 0 && r == g.lay.rowBase[g.lay.groupOf(i)] {
+			// The first row of a group shows its header too.
+			y -= g.lay.head
+		}
+		g.jumpTo(max(0, y))
 	}
 	g.jumpRow = -1
 	g.fit(max(content, 0), own, th)
@@ -687,13 +714,17 @@ func (g *TileGrid) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Childre
 		g.leaving = nil
 		g.built = [2]int{}
 		g.depart, g.departing = nil, false
+		g.regroup = true
 	}
 	offset := g.offset.Value()
 	first, last := 0, -1
-	if g.n > 0 {
-		first = max(0, int((offset-pad)/g.step.H)-1) * g.cols
-		last = min(g.n-1, (int((offset+own.H-pad)/g.step.H)+2)*g.cols-1)
+	if g.n > 0 && g.lay.rows() > 0 {
+		r0, _ := g.lay.rowAt(offset)
+		r1, _ := g.lay.rowAt(offset + own.H)
+		first = g.lay.rowFirst(max(0, r0-1))
+		last = g.lay.rowLast(min(g.lay.rows()-1, r1+2))
 	}
+	g.placeHeaders(first, last, offset, float32(g.cols)*g.step.W-gap, kids, motion, Settle.Get(th))
 	from := g.reorder
 	g.reorder = nil
 	if from != nil {
@@ -763,7 +794,7 @@ func (g *TileGrid) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Childre
 				switch {
 				case from != nil && i < len(from) && from[i] >= 0:
 					// It comes from where it was, out of view.
-					tc.jump(g.target(from[i]))
+					tc.jump(g.was.target(from[i]))
 				case from != nil:
 					// It is new: it fades in as the tiles gone fade out.
 					tc.fade.Jump(0)
@@ -865,13 +896,19 @@ func (g *TileGrid) placeLeaving(children map[*tileCell]gunim.Child, offset float
 }
 
 // hold keeps the tile the keyboard is on, or the first in view, where it is on screen as the tiles move to a new
-// layout, and moves the tiles built by as much as the view moves, so each springs from where it was.
-func (g *TileGrid) hold(oldCols int, oldStep geom.Size, oldPad float32) {
+// layout, and moves the tiles built by as much as the view moves, so each springs from where it was. A view at the
+// top stays there.
+func (g *TileGrid) hold(old tileLayout) {
 	offset := g.offset.Value()
+	if offset <= 0 {
+		// At the top it stays at the top, a first group's header with it.
+		return
+	}
 	i := g.cursor
-	oldY := func(i int) float32 { return oldPad + float32(i/oldCols)*oldStep.H }
-	if i < 0 || oldY(i)+oldStep.H < offset || oldY(i) > offset+g.viewport {
-		i = max(0, int((offset-oldPad)/oldStep.H)) * oldCols
+	oldY := func(i int) float32 { return old.target(i).Min.Y }
+	if i < 0 || i >= old.n || oldY(i)+old.step.H < offset || oldY(i) > offset+g.viewport {
+		r, _ := old.rowAt(offset)
+		i = max(0, old.rowFirst(r))
 	}
 	if i >= g.n {
 		return
@@ -901,6 +938,11 @@ func (g *TileGrid) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gu
 	func() {
 		defer g.layer(p, geom.Rect{Max: box.Point()}, f.Theme)()
 		offset := g.offset.Value()
+		for kid := range kids.All {
+			if _, ok := kid.Node().(*headerCell); ok {
+				kid.Paint(p)
+			}
+		}
 		for kid := range kids.All {
 			tc, ok := kid.Node().(*tileCell)
 			if !ok || kid.Presence() == gunim.Exiting {
