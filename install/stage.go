@@ -172,6 +172,8 @@ func (s *stage) lively() float32 { return min(max(s.live.Value(), 0), 1) }
 const (
 	iconSmall = 124
 	iconLarge = 152
+	// iconLeast is as small as the icon gets to leave a long page room.
+	iconLeast = 56
 )
 
 // Layout implements [gunim.Node].
@@ -179,20 +181,30 @@ func (s *stage) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) 
 	box := c.Max
 	lift := s.lift.Value()
 	size := iconSmall + (iconLarge-iconSmall)*lift
-	top := f.Safe.Top + 30 + size/2
-	middle := box.H*0.36 + f.Safe.Top/2
-	s.iconAt = geom.Pt(box.W/2, top+(middle-top)*lift)
-	s.iconSize = size
-	under := s.iconAt.Y + size/2 + 26 + 12*lift
-	for i := range kids.Len() {
-		k := kids.At(i)
-		if k.Node() == s.letter {
-			sz := k.Layout(gunim.Loose(box))
-			k.Place(geom.Pt(-sz.W/2, -sz.H/2))
-			continue
+	place := func() {
+		top := f.Safe.Top + 30 + size/2
+		middle := box.H*0.36 + f.Safe.Top/2
+		s.iconAt = geom.Pt(box.W/2, top+(middle-top)*lift)
+		s.iconSize = size
+		under := s.iconAt.Y + size/2 + 26 + 12*lift
+		for i := range kids.Len() {
+			k := kids.At(i)
+			if k.Node() == s.letter {
+				sz := k.Layout(gunim.Loose(box))
+				k.Place(geom.Pt(-sz.W/2, -sz.H/2))
+				continue
+			}
+			k.Layout(gunim.Tight(geom.Sz(box.W, max(box.H-under, 0))))
+			k.Place(geom.Pt(0, under))
 		}
-		k.Layout(gunim.Tight(geom.Sz(box.W, max(box.H-under, 0))))
-		k.Place(geom.Pt(0, under))
+	}
+	place()
+	// A page with more to say than the window has room for, under an
+	// icon at its full size, has the icon smaller, so its last lines
+	// stay clear of the buttons.
+	if s.page != nil && s.page.short > 0 && size > iconLeast {
+		size = max(size-s.page.short, iconLeast)
+		place()
 	}
 	return box
 }

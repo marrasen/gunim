@@ -47,6 +47,9 @@ type page struct {
 	staggering bool
 	// at is where each item was placed.
 	at map[gunim.Node]geom.Point
+	// short is how far the items ran into the room the foot keeps, at
+	// the last layout: what the stage takes off the icon to fit them.
+	short float32
 }
 
 // stagger is how far apart the items start arriving, and arrival how
@@ -96,11 +99,13 @@ func (p *page) Step(dt time.Duration) bool {
 	return moving || p.staggering
 }
 
-// margin is the space left at the page's sides and under its foot, and
-// fillGap the space between the item that fills and the foot.
+// margin is the space left at the page's sides and under its foot,
+// fillGap the space between the item that fills and the foot, and
+// footGap the least space between the other items and the foot.
 const (
 	margin  = 28
 	fillGap = 18
+	footGap = 12
 )
 
 // Layout implements [gunim.Node].
@@ -148,6 +153,10 @@ func (p *page) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) g
 		k.Place(at)
 		p.at[n] = at
 		y += size.H
+	}
+	p.short = 0
+	if p.foot != nil {
+		p.short = max(y+footGap-footTop, 0)
 	}
 	return box
 }

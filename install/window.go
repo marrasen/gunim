@@ -783,6 +783,10 @@ func welcomePage(p *page, sc scene) {
 	case Upgrade:
 		title, act = "Update "+sc.Name, "Update"
 		sub = "From " + sc.Have + " to " + sc.Version
+		if sc.Have == "" {
+			// Installed before the installer kept its version.
+			sub = "To " + sc.Version + ", in place of the copy installed"
+		}
 	case Reinstall:
 		sub = sc.Version + " is installed already"
 		act = "Reinstall"
