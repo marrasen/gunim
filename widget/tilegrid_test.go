@@ -312,3 +312,83 @@ func TestTileGridRebuildsItsTilesForANewSet(t *testing.T) {
 		t.Fatalf("tile 0 was built %d times; want once", built[0])
 	}
 }
+
+func TestTileGridReordersItsTiles(t *testing.T) {
+	g, w, run := tileStage(t, 8)
+	nodes := map[*tileCell]int{}
+	for i, tc := range g.live {
+		nodes[tc] = i
+	}
+	was := map[int]geom.Rect{}
+	for i := range 8 {
+		was[i] = g.live[i].rect()
+	}
+	var built []int
+	g.Tile = func(i int) gunim.Node { built = append(built, i); return &blank{} }
+	sent(w)
+	// Item 2 goes, a new item comes first, and the rest turn about.
+	from := []int{-1, 7, 6, 5, 4, 3, 1, 0}
+	do(t, w, func(u *gunim.UI) { g.Reorder(from, u) })
+	run(1)
+	if !slices.Equal(built, []int{0}) {
+		t.Fatalf("Reorder built tiles %v, want only the new one, 0", built)
+	}
+	for j, i := range from[1:] {
+		tc := g.live[j+1]
+		if nodes[tc] != i {
+			t.Fatalf("tile %d is the tile that was %d, want %d", j+1, nodes[tc], i)
+		}
+	}
+	if r := g.live[1].rect(); r.Min.Y < was[7].Min.Y-20 {
+		t.Fatalf("a frame in, item 7 is at %v; want it gliding from %v", r, was[7])
+	}
+	if f := g.live[0].fade.Value(); f > 0.01 {
+		t.Fatalf("the new tile shows at once, faded in %v", f)
+	}
+	if len(g.leaving) != 1 || g.leaving[0].fade.Target() != 0 {
+		t.Fatalf("the tile of item 2 is not fading out: %d leaving", len(g.leaving))
+	}
+	run(120)
+	for j := range from {
+		if r := g.live[j].rect(); r != g.target(j) {
+			t.Fatalf("tile %d settled at %v, want %v", j, r, g.target(j))
+		}
+		if f := g.live[j].fade.Value(); f != 1 {
+			t.Fatalf("tile %d settled faded to %v", j, f)
+		}
+	}
+	if len(g.leaving) != 0 {
+		t.Fatalf("%d tiles still leaving", len(g.leaving))
+	}
+	var told bool
+	for _, in := range sent(w) {
+		if _, ok := in.(tilesInView); ok {
+			told = true
+		}
+	}
+	if !told {
+		t.Fatal("Reorder did not tell OnView the tiles anew")
+	}
+}
+
+func TestTileGridReorderGlidesTilesOutOfView(t *testing.T) {
+	g, w, run := tileStage(t, 100)
+	far := g.live[0]
+	from := make([]int, 100)
+	for j := range from {
+		from[j] = (j + 60) % 100
+	}
+	// Item 0 is now tile 40, out of view: it glides there, then goes.
+	do(t, w, func(u *gunim.UI) { g.Reorder(from, u) })
+	run(1)
+	if len(g.leaving) == 0 || !slices.Contains(g.leaving, far) {
+		t.Fatal("the tile of item 0 did not leave for its place out of view")
+	}
+	if far.fade.Target() != 1 || far.y.Target() != g.target(40).Min.Y {
+		t.Fatalf("item 0 heads for %v faded to %v, want %v", far.y.Target(), far.fade.Target(), g.target(40).Min.Y)
+	}
+	run(120)
+	if len(g.leaving) != 0 {
+		t.Fatalf("%d tiles still leaving", len(g.leaving))
+	}
+}
