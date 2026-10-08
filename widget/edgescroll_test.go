@@ -186,3 +186,53 @@ func TestARowHeldAtTheTopScrollsBackUp(t *testing.T) {
 		t.Fatalf("order %v, want row 8 first", order)
 	}
 }
+
+func TestARowHeldAZoneFromTheBottomScrollsTheList(t *testing.T) {
+	w, s, _, run := newScrolledReorderList(t)
+	// Carry row 1 down to 44 above the bottom edge of a view 200 tall,
+	// inside the zone of 48 but no nearer.
+	w.Input(input.PointerDown{Pos: geom.Pt(100, 66), Clicks: 1})
+	for y := float32(76); y <= 156; y += 16 {
+		w.Input(input.PointerMove{Pos: geom.Pt(100, min(y, 156))})
+		run(1)
+	}
+	w.Input(input.PointerMove{Pos: geom.Pt(100, 156)})
+	run(60)
+	if at := s.Offset(); at < 100 {
+		t.Fatalf("a second held 44 above the bottom scrolled the view to %v, want at least 100", at)
+	}
+	w.Input(input.PointerUp{Pos: geom.Pt(100, 156)})
+}
+
+func TestADragHeldPastTheBottomOfAListOfTargetsScrollsIt(t *testing.T) {
+	// A draggable 40 tall on top, under it a view of twenty targets 40
+	// tall, and under that a bar 40 tall that takes no drop.
+	d := NewDraggable(&block{h: 40}, "apple")
+	targets := make([]gunim.Node, 20)
+	for i := range targets {
+		target := NewDropTarget(&block{h: 40})
+		target.OnDrop = func(input.Drop, *gunim.UI) gunim.Intent { return takenBy{i} }
+		targets[i] = target
+	}
+	list := Column(targets...)
+	list.Cross = CrossStretch
+	s := NewScroll(list)
+	col := Column(d, s, &block{h: 40}).Grow(s, 1)
+	col.Cross = CrossStretch
+	w, run := stage(t, &frame{child: col, size: geom.Sz(300, 240)})
+	run(10)
+
+	// Carry the drag down past the view's bottom, at 200, onto the bar.
+	w.Input(input.PointerDown{Pos: geom.Pt(100, 20), Clicks: 1, Time: time.Now()})
+	for y := float32(36); y <= 220; y += 16 {
+		w.Input(input.PointerMove{Pos: geom.Pt(100, min(y, 220)), Time: time.Now()})
+		run(1)
+	}
+	w.Input(input.PointerMove{Pos: geom.Pt(100, 220), Time: time.Now()})
+	run(60)
+	if at := s.Offset(); at < 300 {
+		t.Fatalf("a second held 20 past the bottom edge scrolled the view to %v, want at least 300", at)
+	}
+	w.Input(input.PointerUp{Pos: geom.Pt(100, 220), Time: time.Now()})
+	run(30)
+}

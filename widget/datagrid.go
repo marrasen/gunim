@@ -1173,17 +1173,8 @@ func (g *DataGrid) EdgeScroll(p geom.Point, dt time.Duration, u *gunim.UI) geom.
 	if g.rowH <= 0 {
 		return geom.Point{}
 	}
-	top, bottom := g.header, g.view.H
-	zone := min(float32(edgeZone), (bottom-top)/4)
-	var v float32
-	switch {
-	case p.Y < top+zone:
-		t := min((top+zone-p.Y)/zone, 2)
-		v = -edgeSpeed * t * t
-	case p.Y > bottom-zone:
-		t := min((p.Y-bottom+zone)/zone, 2)
-		v = edgeSpeed * t * t
-	default:
+	v := gunim.EdgeSpeed(p.Y, g.header, g.view.H)
+	if v == 0 {
 		return geom.Point{}
 	}
 	secs := float32(min(dt, 50*time.Millisecond).Seconds())
