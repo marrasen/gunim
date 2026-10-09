@@ -195,3 +195,19 @@ func TestAWindowFadingOutTurnsBackWhereItIs(t *testing.T) {
 		t.Fatal("turned back, the window went off the screen")
 	}
 }
+
+// A window fading out or in fades where it stands, at its own size: it
+// comes back exactly where what stood in for it lands.
+func TestAFadingWindowKeepsItsSize(t *testing.T) {
+	w, _, _ := newStage(t, paint.Identity)
+	w.Client().Fade(true)
+	w.Frame(time.Second / 60)
+	w.Frame(LeaveTime / 2)
+	l, ok := w.Offscreen().Ops()[0].(*paint.LayerOp)
+	if !ok || l.Opts.Opacity >= 1 {
+		t.Fatalf("halfway out, the frame starts with %#v", w.Offscreen().Ops()[0])
+	}
+	if l.Transform.A != 1 {
+		t.Fatalf("halfway out, the window is drawn at scale %v, want its own size", l.Transform.A)
+	}
+}

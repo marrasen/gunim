@@ -679,7 +679,8 @@ func (c Client) Leave() {
 	}
 }
 
-// Fade fades the window out, as [Client.Leave] does, but keeps it open:
+// Fade fades the window out, as [Client.Leave] does but without
+// shrinking, and keeps it open:
 // once it has gone it is off the screen and out of the pointer's way,
 // and where the system has a task bar its button stays there. Fade with
 // out unset brings it back, fading in, from as far as it had gone. Input
@@ -950,6 +951,17 @@ func (w *Window) Err() error { return w.err }
 func (w *Window) Placement() (p driver.Placement, ok bool) {
 	if r, is := w.dw.(driver.PlacementReader); is {
 		return r.Placement()
+	}
+	return p, false
+}
+
+// FromScreen turns p, in screen coordinates, the space
+// [driver.Placement.Bounds] is in, into the window's own logical space,
+// as the window stands now: its place, its monitor's scale and its zoom.
+// It reports false where the window cannot say where it is.
+func (w *Window) FromScreen(p geom.Point) (geom.Point, bool) {
+	if sc, ok := w.dw.(driver.Screener); ok {
+		return sc.FromScreen(p), true
 	}
 	return p, false
 }
@@ -2242,6 +2254,10 @@ func (u *UI) frame(now time.Time, delta time.Duration) {
 			// Eased in: slow to start, gone quickly.
 			gone = max(gone, k*k)
 		}
+		// A window stepping aside fades where it stands, and shrinks no
+		// more than leaving or arriving makes it: it comes back exactly
+		// where it was, as what stood in for it meanwhile lands there.
+		shrink := gone
 		if k := u.fadeBy(now); k > 0 {
 			gone = max(gone, k*k)
 		}
@@ -2264,7 +2280,7 @@ func (u *UI) frame(now time.Time, delta time.Duration) {
 			}
 			b.SetBackground(c)
 		}
-		scale := 1 - leaveShrink*gone
+		scale := 1 - leaveShrink*shrink
 		if fd, ok := u.w.dw.(driver.Fader); ok {
 			fd.SetFade(1-gone, scale)
 		}
