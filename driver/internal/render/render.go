@@ -827,7 +827,7 @@ func background(ops []paint.Op) (bg [4]float32, alpha float32) {
 	}
 	op, ok := ops[0].(*paint.RRectOp)
 	if !ok || op.Radius != 0 || op.Transform != paint.Identity || op.Fill.Gradient != nil ||
-		op.Fill.Solid.A != 0xff || op.Shadow.Color.A != 0 || op.Stroke.Width > 0 || op.Blend != paint.BlendNormal ||
+		op.Fill.Solid.A != 0xff || op.Shadow.Color.A != 0 || op.Stroke.Width > 0 || op.Blend == paint.BlendAdd ||
 		op.Rect.Min.X > 0 || op.Rect.Min.Y > 0 {
 		return [4]float32{}, 0
 	}
@@ -838,7 +838,7 @@ func background(ops []paint.Op) (bg [4]float32, alpha float32) {
 // window that reads its rows from the top.
 func (r *Renderer) present(canvas uint32) {
 	if !r.FlipWindow {
-		r.composite(canvas, nil, 1, false, 0)
+		r.composite(canvas, nil, 1, false, 0, false)
 		return
 	}
 	r.uses(canvas)
@@ -1228,14 +1228,16 @@ func (r *Renderer) openLayer(op *paint.LayerOp) {
 
 // inPlace reports whether a layer draws the same straight into the
 // target around it as composited from a target of its own, and the
-// device-pixel box it clips to: it is opaque, blurs nothing, and clips
+// device-pixel box it clips to: it is opaque, blurs nothing, adds
+// nothing, and clips
 // to an upright rectangle, to an upright ellipse inside no other, or
 // not at all. The quads drawn inside an ellipse carry it, and are cut
 // to it as they draw; a grid of cells keeps to its box.
 func (r *Renderer) inPlace(op *paint.LayerOp) (geom.Rect, bool) {
 	o, t := op.Opts, op.Transform
 	switch {
-	case o.Opacity < 1 || o.Blur > 0 || o.Backdrop > 0 || o.Fade != (geom.Insets{}) || tilted(op):
+	case o.Opacity < 1 || o.Blur > 0 || o.Backdrop > 0 || o.Fade != (geom.Insets{}) || tilted(op) ||
+		o.Blend == paint.BlendAdd:
 		return geom.Rect{}, false
 	case !o.Clip:
 		return r.region(op, false), true
@@ -1288,7 +1290,7 @@ func (r *Renderer) closeLayer() {
 	if o.Backdrop > 0 {
 		behind := r.blur(r.layers[depth-1].tex, r.region(op, true), o.Backdrop*r.scale)
 		r.GL.BindFramebuffer(gl.FRAMEBUFFER, r.fbo(depth-1))
-		r.composite(behind, op, o.Opacity, true, radius)
+		r.composite(behind, op, o.Opacity, true, radius, false)
 		// The next blur at this resolution reuses the texture.
 		r.flush()
 	}
@@ -1301,7 +1303,7 @@ func (r *Renderer) closeLayer() {
 	if tilted(op) {
 		r.compositeTilted(contents, op, o.Opacity, radius)
 	} else {
-		r.composite(contents, op, o.Opacity, o.Clip, radius)
+		r.composite(contents, op, o.Opacity, o.Clip, radius, o.Blend == paint.BlendAdd)
 	}
 	// The next layer at this depth draws into the same texture.
 	r.flush()
@@ -1311,10 +1313,11 @@ func (r *Renderer) closeLayer() {
 // target at opacity. With clip it covers op's bounds, rounded by
 // radius; without, the whole window. A layer that fades covers its
 // bounds too, fading toward their edges. A nil op composites the whole
-// window unclipped.
-func (r *Renderer) composite(tex uint32, op *paint.LayerOp, opacity float32, clip bool, radius float32) {
+// window unclipped. With add, tex adds its colours to what is beneath,
+// times opacity, and hides nothing.
+func (r *Renderer) composite(tex uint32, op *paint.LayerOp, opacity float32, clip bool, radius float32, add bool) {
 	r.uses(tex)
-	l := look{kind: kindLayer, color0: [4]float32{0, 0, 0, opacity}}
+	l := look{kind: kindLayer, add: add, color0: [4]float32{0, 0, 0, opacity}}
 	fade := op != nil && op.Opts.Fade != (geom.Insets{})
 	if clip && op != nil || fade {
 		b := op.Opts.Bounds
@@ -1369,7 +1372,7 @@ func (r *Renderer) compositeTilted(tex uint32, op *paint.LayerOp, opacity, radiu
 		}
 	}
 	r.uses(tex)
-	l := look{kind: kindImage, rect: b, color0: [4]float32{0, 0, 0, opacity}}
+	l := look{kind: kindImage, rect: b, add: o.Blend == paint.BlendAdd, color0: [4]float32{0, 0, 0, opacity}}
 	if o.Clip && o.Ellipse {
 		l.stroke = 1
 	} else if o.Clip {
