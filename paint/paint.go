@@ -42,7 +42,8 @@ type Painter struct {
 	stack []Transform
 	cur   Transform
 	// blend is the blend in force, and blends the ones Blend put aside,
-	// innermost last.
+	// innermost last. Only a zero Painter holds BlendInherit, which
+	// blendFor takes as BlendNormal.
 	blend  Blend
 	blends []Blend
 	// clip is the innermost clipping layer open, or nil, and proj the
@@ -250,7 +251,7 @@ func sameOp(a, b Op) bool {
 		return a2 == b2
 	case *TextOp:
 		b, ok := b.(*TextOp)
-		return ok && a.Size == b.Size && a.Color == b.Color && a.Transform == b.Transform &&
+		return ok && a.Size == b.Size && a.Color == b.Color && a.Transform == b.Transform && a.Blend == b.Blend &&
 			slices.Equal(a.Glyphs, b.Glyphs)
 	case *ImageOp:
 		b, ok := b.(*ImageOp)
@@ -408,6 +409,14 @@ type LayerOpts struct {
 	// scrolls on past its edge. A layer that fades shows only within
 	// Bounds, clipping or not. A tilted layer does not fade.
 	Fade geom.Insets
+	// Blend is how the whole layer meets what is beneath it as it
+	// composites, after its contents have drawn into it with their own
+	// blends; [BlendInherit] takes the blend in force, as an op does.
+	// A layer that adds with [BlendAdd] adds its colours, times
+	// Opacity, to what is beneath, and hides nothing: the layer's
+	// alpha goes unused. Its Backdrop, if any, still draws normally
+	// beneath it. An added layer always draws offscreen.
+	Blend Blend
 }
 
 // Layer opens an offscreen group and returns the function that closes
@@ -415,6 +424,7 @@ type LayerOpts struct {
 //
 //	defer p.Layer(paint.LayerOpts{Opacity: t, Backdrop: 12 * t})()
 func (p *Painter) Layer(o LayerOpts) func() {
+	o.Blend = p.blendFor(o.Blend)
 	if o.Blur > 0 || o.Backdrop > 0 {
 		p.blurs = true
 	}
@@ -699,8 +709,9 @@ type RRectOp struct {
 	Inset     [2]Shadow
 	Transform Transform
 	// Blend is how the shape, its shadows and its stroke meet what is
-	// beneath them. It is set from the blend in force as the op is
-	// recorded; see [Painter.Blend].
+	// beneath them. The painter sets it from the blend in force as the
+	// op is recorded, unless the op asks for one of its own in
+	// DrawRRect; see [Painter.Blend].
 	Blend Blend
 }
 
@@ -725,6 +736,10 @@ type TextOp struct {
 	Size      float32
 	Color     color.NRGBA
 	Transform Transform
+	// Blend is how the glyphs meet what is beneath them, set from the
+	// blend in force as the op is recorded; see [Painter.Blend]. Text
+	// added with [BlendAdd] glows over what it crosses.
+	Blend Blend
 }
 
 // Glyph is one positioned glyph from a shaped run.
@@ -765,14 +780,14 @@ func (p *Painter) takeRRect(op RRectOp) *RRectOp {
 
 // RRect records a rounded rectangle.
 func (p *Painter) RRect(r geom.Rect, radius float32, f Fill) {
-	p.record(p.takeRRect(RRectOp{Rect: r, Radius: radius, Fill: f, Transform: p.at(), Blend: p.blend}), r)
+	p.record(p.takeRRect(RRectOp{Rect: r, Radius: radius, Fill: f, Transform: p.at(), Blend: p.blendNow()}), r)
 }
 
 // RRectStroke records a rounded rectangle with an outline, which is
 // centred on the rectangle's edge.
 func (p *Painter) RRectStroke(r geom.Rect, radius float32, f Fill, s Stroke) {
 	half := s.Width / 2
-	p.record(p.takeRRect(RRectOp{Rect: r, Radius: radius, Fill: f, Stroke: s, Transform: p.at(), Blend: p.blend}),
+	p.record(p.takeRRect(RRectOp{Rect: r, Radius: radius, Fill: f, Stroke: s, Transform: p.at(), Blend: p.blendNow()}),
 		geom.Rect{Min: geom.Pt(r.Min.X-half, r.Min.Y-half), Max: geom.Pt(r.Max.X+half, r.Max.Y+half)})
 }
 
@@ -782,14 +797,14 @@ func (p *Painter) ShadowRRect(r geom.Rect, radius float32, f Fill, sh Shadow) {
 		Min: geom.Pt(r.Min.X-sh.Blur-sh.Spread+sh.Offset.X, r.Min.Y-sh.Blur-sh.Spread+sh.Offset.Y),
 		Max: geom.Pt(r.Max.X+sh.Blur+sh.Spread+sh.Offset.X, r.Max.Y+sh.Blur+sh.Spread+sh.Offset.Y),
 	}
-	p.record(p.takeRRect(RRectOp{Rect: r, Radius: radius, Fill: f, Shadow: sh, Transform: p.at(), Blend: p.blend}),
+	p.record(p.takeRRect(RRectOp{Rect: r, Radius: radius, Fill: f, Shadow: sh, Transform: p.at(), Blend: p.blendNow()}),
 		grown.Union(r))
 }
 
 // DrawRRect records op as it is, in the transform in force, with any
 // of a rounded rectangle's parts: a fill, a stroke, a drop shadow and
-// inset shadows. It draws with op's Blend where that is set, else with
-// the blend in force.
+// inset shadows. It draws with op's Blend, or with the blend in force
+// where that is [BlendInherit].
 func (p *Painter) DrawRRect(op RRectOp) {
 	b := op.Rect
 	half := op.Stroke.Width / 2
@@ -811,7 +826,7 @@ func (p *Painter) DrawRRect(op RRectOp) {
 // is the usual way to call it.
 func (p *Painter) Text(g []Glyph, size float32, c color.NRGBA, bounds geom.Rect) {
 	op := p.texts.take()
-	*op = TextOp{Glyphs: g, Size: size, Color: c, Transform: p.at()}
+	*op = TextOp{Glyphs: g, Size: size, Color: c, Transform: p.at(), Blend: p.blendNow()}
 	p.record(op, bounds)
 }
 

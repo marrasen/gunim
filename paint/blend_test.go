@@ -8,18 +8,22 @@ import (
 	"github.com/marrasen/gunim/geom"
 )
 
-// blendOf returns the blend an op was recorded with, and false for an op
-// that takes none.
-func blendOf(op Op) (Blend, bool) {
+// blendOf returns the blend an op was recorded with, and BlendInherit
+// for an op that takes none.
+func blendOf(op Op) Blend {
 	switch op := op.(type) {
 	case *RRectOp:
-		return op.Blend, true
+		return op.Blend
 	case *MaskOp:
-		return op.Blend, true
+		return op.Blend
 	case *ImageOp:
-		return op.Blend, true
+		return op.Blend
+	case *TextOp:
+		return op.Blend
+	case *LayerOp:
+		return op.Opts.Blend
 	}
-	return 0, false
+	return BlendInherit
 }
 
 // everyKind records one of each op that takes a blend, in each of the
@@ -34,9 +38,11 @@ func everyKind(p *Painter, img *Image) {
 	p.Mask(square{true}, r, red)
 	p.MaskFill(square{true}, r, Fill{Gradient: &Gradient{To: geom.Pt(10, 0), Start: red, End: red}})
 	p.Image(img, r, ImageOpts{Opacity: 1})
+	p.Text([]Glyph{{ID: 1}}, 12, red, r)
+	p.Layer(LayerOpts{Bounds: r, Opacity: 0.5})()
 }
 
-func TestEveryShapeMaskAndImageRecordedUnderBlendAddAdds(t *testing.T) {
+func TestEveryShapeMaskImageTextAndLayerRecordedUnderBlendAddAdds(t *testing.T) {
 	var p Painter
 	p.Reset()
 	img := NewImage(image.NewRGBA(image.Rect(0, 0, 2, 2)))
@@ -50,7 +56,10 @@ func TestEveryShapeMaskAndImageRecordedUnderBlendAddAdds(t *testing.T) {
 		if i < n {
 			want = BlendAdd
 		}
-		if b, _ := blendOf(op); b != want {
+		if _, end := op.(*LayerEndOp); end {
+			continue
+		}
+		if b := blendOf(op); b != want {
 			t.Errorf("op %d, a %T, has blend %v, want %v", i, op, b, want)
 		}
 	}
@@ -68,7 +77,7 @@ func TestBlendScopesNestAndPutBackTheBlendBefore(t *testing.T) {
 	outer()
 	p.RRect(r, 0, Solid(color.NRGBA{A: 0xff}))
 	for i, want := range []Blend{BlendNormal, BlendAdd, BlendNormal} {
-		if b, _ := blendOf(p.Ops()[i]); b != want {
+		if b := blendOf(p.Ops()[i]); b != want {
 			t.Errorf("op %d has blend %v, want %v", i, b, want)
 		}
 	}
@@ -78,7 +87,7 @@ func TestAShapeThatAsksToAddAddsOutsideAnyScope(t *testing.T) {
 	var p Painter
 	p.Reset()
 	p.DrawRRect(RRectOp{Rect: geom.Rc(0, 0, 10, 10), Fill: Solid(color.NRGBA{R: 0xff, A: 0xff}), Blend: BlendAdd})
-	if b, _ := blendOf(p.Ops()[0]); b != BlendAdd {
+	if b := blendOf(p.Ops()[0]); b != BlendAdd {
 		t.Fatalf("the shape has blend %v, want the BlendAdd it asked for", b)
 	}
 }
@@ -98,7 +107,7 @@ func TestABlendLeftInForceEndsWithTheFrame(t *testing.T) {
 	p.Blend(BlendAdd)
 	p.Reset()
 	p.RRect(geom.Rc(0, 0, 10, 10), 0, Solid(color.NRGBA{A: 0xff}))
-	if b, _ := blendOf(p.Ops()[0]); b != BlendNormal {
+	if b := blendOf(p.Ops()[0]); b != BlendNormal {
 		t.Fatalf("the next frame's shape has blend %v, want BlendNormal", b)
 	}
 }
@@ -111,10 +120,10 @@ func TestAFloatDrawsNormallyWhateverTheBlendItWasPutOffUnder(t *testing.T) {
 	p.PaintFloats()
 	p.RRect(geom.Rc(0, 0, 10, 10), 0, Solid(color.NRGBA{A: 0xff}))
 	end()
-	if b, _ := blendOf(p.Ops()[0]); b != BlendNormal {
+	if b := blendOf(p.Ops()[0]); b != BlendNormal {
 		t.Errorf("the float's shape has blend %v, want BlendNormal", b)
 	}
-	if b, _ := blendOf(p.Ops()[1]); b != BlendAdd {
+	if b := blendOf(p.Ops()[1]); b != BlendAdd {
 		t.Errorf("after the floats the shape has blend %v, want the BlendAdd still in force", b)
 	}
 }
@@ -127,6 +136,8 @@ func TestOnlyTheBlendChangingDamagesTheOp(t *testing.T) {
 		"shape": func(p *Painter) { p.RRect(r, 2, Solid(red)) },
 		"mask":  func(p *Painter) { p.Mask(square{true}, r, red) },
 		"image": func(p *Painter) { p.Image(img, r, ImageOpts{Opacity: 1}) },
+		"text":  func(p *Painter) { p.Text([]Glyph{{ID: 1}}, 12, red, r) },
+		"layer": func(p *Painter) { p.Layer(LayerOpts{Bounds: r, Opacity: 0.5})() },
 	} {
 		var p Painter
 		p.Reset()
@@ -160,7 +171,7 @@ func TestAnAddedShapeKeepsItsBlendThroughAgain(t *testing.T) {
 		t.Fatal("the run from the frame before was refused")
 	}
 	for i, op := range p.Ops() {
-		if b, _ := blendOf(op); b != BlendAdd {
+		if b := blendOf(op); b != BlendAdd {
 			t.Errorf("carried op %d has blend %v, want BlendAdd", i, b)
 		}
 	}
@@ -169,7 +180,7 @@ func TestAnAddedShapeKeepsItsBlendThroughAgain(t *testing.T) {
 	}
 }
 
-func TestAReplayAddsWhatAddedAndTakesTheBlendInForceForTheRest(t *testing.T) {
+func TestAReplayKeepsTheBlendsItWasRecordedWith(t *testing.T) {
 	var p Painter
 	p.Reset()
 	r := geom.Rc(0, 0, 10, 10)
@@ -187,9 +198,57 @@ func TestAReplayAddsWhatAddedAndTakesTheBlendInForceForTheRest(t *testing.T) {
 	end = p.Blend(BlendAdd)
 	p.Replay(&rec)
 	end()
-	for i, want := range []Blend{BlendNormal, BlendAdd, BlendAdd, BlendAdd} {
-		if b, _ := blendOf(p.Ops()[i]); b != want {
+	for i, want := range []Blend{BlendNormal, BlendAdd, BlendNormal, BlendAdd} {
+		if b := blendOf(p.Ops()[i]); b != want {
 			t.Errorf("replayed op %d, a %T, has blend %v, want %v", i, p.Ops()[i], b, want)
+		}
+	}
+}
+
+func TestAShapeThatAsksToDrawNormallyDoesSoInsideAnAddScope(t *testing.T) {
+	var p Painter
+	p.Reset()
+	r := geom.Rc(0, 0, 10, 10)
+	defer p.Blend(BlendAdd)()
+	p.DrawRRect(RRectOp{Rect: r, Fill: Solid(color.NRGBA{A: 0xff}), Blend: BlendNormal})
+	p.Layer(LayerOpts{Bounds: r, Opacity: 1, Blend: BlendNormal})()
+	p.DrawRRect(RRectOp{Rect: r, Fill: Solid(color.NRGBA{A: 0xff})})
+	// The ops are the shape, the layer and its end, and the shape that
+	// takes the blend in force.
+	ops := p.Ops()
+	for i, want := range map[int]Blend{0: BlendNormal, 1: BlendNormal, 3: BlendAdd} {
+		if b := blendOf(ops[i]); b != want {
+			t.Errorf("op %d, a %T, has blend %v, want %v", i, ops[i], b, want)
+		}
+	}
+}
+
+func TestBlendInheritKeepsTheBlendInForce(t *testing.T) {
+	var p Painter
+	p.Reset()
+	r := geom.Rc(0, 0, 10, 10)
+	outer := p.Blend(BlendAdd)
+	inner := p.Blend(BlendInherit)
+	p.RRect(r, 0, Solid(color.NRGBA{A: 0xff}))
+	inner()
+	outer()
+	p.RRect(r, 0, Solid(color.NRGBA{A: 0xff}))
+	for i, want := range []Blend{BlendAdd, BlendNormal} {
+		if b := blendOf(p.Ops()[i]); b != want {
+			t.Errorf("op %d has blend %v, want %v", i, b, want)
+		}
+	}
+}
+
+func TestAZeroPainterRecordsBlendNormal(t *testing.T) {
+	var p Painter
+	p.RRect(geom.Rc(0, 0, 10, 10), 0, Solid(color.NRGBA{A: 0xff}))
+	end := p.Blend(BlendInherit)
+	p.RRect(geom.Rc(0, 0, 10, 10), 0, Solid(color.NRGBA{A: 0xff}))
+	end()
+	for i, op := range p.Ops() {
+		if b := blendOf(op); b != BlendNormal {
+			t.Errorf("op %d has blend %v, want BlendNormal", i, b)
 		}
 	}
 }

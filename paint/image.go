@@ -122,5 +122,5 @@ func (p *Painter) Image(img *Image, r geom.Rect, o ImageOpts) {
 		return
 	}
 	p.record(&ImageOp{Image: img, Rect: r, Src: o.Src, Radius: o.Radius, Opacity: o.Opacity, Transform: p.at(),
-		Blend: p.blend}, r)
+		Blend: p.blendNow()}, r)
 }
