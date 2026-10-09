@@ -8,8 +8,8 @@ import (
 )
 
 // The failures and warnings a window shows reach Options.Log, in a
-// banner, a notice or a dialog, and what went well does not.
-func TestFailuresAndWarningsAreLogged(t *testing.T) {
+// banner, a notice or a dialog, and so does every other notice.
+func TestFailuresWarningsAndNoticesAreLogged(t *testing.T) {
 	var mu sync.Mutex
 	var lines []string
 	h := newHarnessWith(t, func(o *Options) {
@@ -25,7 +25,7 @@ func TestFailuresAndWarningsAreLogged(t *testing.T) {
 	h.a.showError(ErrorBox{Title: "Couldn't copy", Body: "Local: open D:\\x: denied"})
 	mu.Lock()
 	defer mu.Unlock()
-	if !slices.Equal(lines, []string{"files: Opening x: gone", "files: Stopped: copying: 2 done.", `files: Couldn't copy: Local: open D:\x: denied`}) {
+	if !slices.Equal(lines, []string{"files: Opening x: gone", "files: Stopped: copying: 2 done.", "files: Copied", `files: Couldn't copy: Local: open D:\x: denied`}) {
 		t.Fatalf("the log has %q", lines)
 	}
 }

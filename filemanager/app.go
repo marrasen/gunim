@@ -40,9 +40,9 @@ type Options struct {
 	// as the window is open on another. An AnyFSFavourites keeps them
 	// on any file system, and the window lists them all.
 	Favourites FavouriteStore
-	// Log, when set, hears each failure and warning the window shows, as
-	// one line, for a program to keep in a log of its own: what the
-	// window says goes once it is dismissed.
+	// Log, when set, hears each failure and warning the window shows,
+	// and each notice, as one line, for a program to keep in a log of its
+	// own: what the window says goes once it is dismissed.
 	Log func(line string)
 	// Visit goes to the folder at path on the file system of ID fs, for
 	// a place or a favourite on another file system than the window's,
@@ -475,7 +475,8 @@ func (a *app) patch(v any) {
 	a.send(a.c.Patch(string(a.ids.browser()), v))
 }
 
-// logShown tells Options.Log of a failure or a warning v shows.
+// logShown tells Options.Log of a failure or a warning v shows, and of
+// every notice.
 func (a *app) logShown(v any) {
 	switch v := v.(type) {
 	case Banner:
@@ -483,9 +484,7 @@ func (a *app) logShown(v any) {
 			a.logLine(v.Text)
 		}
 	case Notice:
-		if v.Kind == "warning" || v.Kind == "error" {
-			a.logLine(v.Title, v.Body)
-		}
+		a.logLine(v.Title, v.Body)
 	case ErrorBox:
 		a.logLine(v.Title, v.Body)
 	case Preview:
