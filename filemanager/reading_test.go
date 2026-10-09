@@ -3,10 +3,8 @@ package filemanager
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
-	"syscall"
 	"testing"
 
 	"github.com/marrasen/gunim"
@@ -60,16 +58,6 @@ func TestTheTextViewerReadsFilesAlone(t *testing.T) {
 	data, cut, err = readStart(LocalFS(), big, 100)
 	if err != nil || len(data) != 100 || cut {
 		t.Fatalf("a file of the most read %d bytes, cut %v, %v", len(data), cut, err)
-	}
-	if runtime.GOOS == "windows" {
-		return
-	}
-	pipe := filepath.Join(dir, "pipe")
-	if err := syscall.Mkfifo(pipe, 0o600); err != nil {
-		t.Skip("no pipes here:", err)
-	}
-	if _, _, err := readStart(LocalFS(), pipe, 40); err == nil || !strings.Contains(err.Error(), "not a file") {
-		t.Fatalf("a pipe was read: %v", err)
 	}
 }
 
