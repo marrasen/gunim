@@ -452,6 +452,8 @@ func (a *app) listed(gen int, path string, es []entry, mod time.Time, err error)
 		if errors.Is(err, fs.ErrNotExist) {
 			n.err = fmt.Errorf("%s no longer exists", a.ps.Show(path))
 		}
+		// Once: a poll that finds it still failing does not list again.
+		a.logLine("Listing "+a.ps.Show(path), n.err.Error())
 		a.publishListing()
 		a.publishStatus()
 		return
@@ -901,6 +903,9 @@ func (a *app) readSpace() {
 		}
 		a.post(func() {
 			if a.ps.Same(a.nav.path, path) {
+				if err != nil && (a.nav.spaceErr == nil || a.nav.spaceErr.Error() != err.Error()) {
+					a.logLine("Reading the free space of "+a.ps.Show(path), err.Error())
+				}
 				a.nav.space, a.nav.spaceErr = s, err
 				a.publishStatus()
 			}

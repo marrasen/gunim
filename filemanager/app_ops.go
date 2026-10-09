@@ -561,8 +561,9 @@ func (a *app) prompt(p Prompt, got func(name string)) {
 	}})
 }
 
-// showError says an operation failed, in a dialog.
+// showError says an operation failed, in a dialog, and to Options.Log.
 func (a *app) showError(e ErrorBox) {
+	a.logShown(e)
 	a.showDialog(&dialog{view: "error", state: e, answer: func(gunim.Intent) {}})
 }
 

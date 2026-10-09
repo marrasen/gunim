@@ -472,23 +472,45 @@ func (a *app) patch(v any) {
 
 // logShown tells Options.Log of a failure or a warning v shows.
 func (a *app) logShown(v any) {
-	if a.opts.Log == nil {
-		return
-	}
 	switch v := v.(type) {
 	case Banner:
 		if v.Text != "" {
-			a.opts.Log("files: " + v.Text)
+			a.logLine(v.Text)
 		}
 	case Notice:
 		if v.Kind == "warning" || v.Kind == "error" {
-			line := "files: " + v.Title
-			if v.Body != "" {
-				line += ": " + v.Body
-			}
-			a.opts.Log(line)
+			a.logLine(v.Title, v.Body)
+		}
+	case ErrorBox:
+		a.logLine(v.Title, v.Body)
+	case Preview:
+		if v.Err != "" {
+			a.logLine("Previewing "+v.Shown, v.Err)
+		}
+	case Counted:
+		if v.Err != "" {
+			a.logLine("Counting what a folder holds", v.Err)
+		}
+	case PropsCounted:
+		if v.Err != "" {
+			a.logLine("Counting the items for Properties", v.Err)
 		}
 	}
+}
+
+// logLine tells Options.Log of a failure: what failed, then why, when
+// it says something.
+func (a *app) logLine(what string, why ...string) {
+	if a.opts.Log == nil {
+		return
+	}
+	parts := []string{"files: " + what}
+	for _, w := range why {
+		if w != "" {
+			parts = append(parts, w)
+		}
+	}
+	a.opts.Log(strings.Join(parts, ": "))
 }
 
 // send logs a command the window did not take. A window that has closed

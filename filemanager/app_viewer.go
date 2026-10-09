@@ -171,6 +171,7 @@ func (a *app) pictureDecoded(seq int, pic *paint.Image, w, h int, err error) {
 	v.view.W, v.view.H = w, h
 	if err != nil {
 		v.view.Err = err.Error()
+		a.logLine("Showing a picture", v.view.Err)
 	} else {
 		v.view.Image = pic
 	}
