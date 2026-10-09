@@ -242,6 +242,9 @@ func sceneFrameAllocs(r *Renderer, n int) float64 {
 // thousands of them a frame would otherwise make garbage by the
 // megabyte each second.
 func TestASceneItemDrawsWithoutAllocating(t *testing.T) {
+	if raceOn {
+		t.Skip("the race detector allocates of its own")
+	}
 	r, done := hiddenGL(t)
 	defer done()
 	one, many := sceneFrameAllocs(r, 1), sceneFrameAllocs(r, 500)

@@ -132,8 +132,12 @@ const maxCallArgs = 16
 // address of other memory goes to purego.SyscallN directly, which keeps
 // that memory alive and in place until the call returns, where call
 // cannot. A context is used by one thread at a time, as the GL context
-// it calls is, so one list serves all its calls.
+// it calls is, so one list serves all its calls. More arguments than
+// the list holds is a mistake in gunim, and panics.
 func (c *defaultContext) call(fn uintptr, args ...uintptr) uintptr {
+	if len(args) > len(c.args) {
+		panic("gl: call has more arguments than its list holds")
+	}
 	n := copy(c.args[:], args)
 	ret, _, _ := purego.SyscallN(fn, c.args[:n]...)
 	runtime.KeepAlive(c)
