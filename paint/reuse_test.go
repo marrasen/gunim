@@ -2,8 +2,11 @@ package paint
 
 import (
 	"image/color"
+	"runtime"
 	"slices"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/marrasen/gunim/geom"
 )
@@ -177,5 +180,41 @@ func TestASceneKeptInARecordingSurvivesLaterFrames(t *testing.T) {
 	p.Replay(&r)
 	if got := sceneAt(t, &p, 0).Scene.Items; !slices.Equal(got, want) {
 		t.Fatal("the recording's scene changed once replayed and drawn over")
+	}
+}
+
+// A mesh drawn once, in a scene whose items the painter copied into an
+// array it then outgrew, is let go once later frames draw fewer scenes.
+func TestAMeshNoLongerDrawnIsLetGo(t *testing.T) {
+	var p Painter
+	box := NewBox(geom.V3(1, 1, 1), color.NRGBA{A: 0xff})
+	var gone atomic.Bool
+	func() {
+		once := NewBox(geom.V3(2, 2, 2), color.NRGBA{R: 0xff, A: 0xff})
+		runtime.AddCleanup(once, func(b *atomic.Bool) { b.Store(true) }, &gone)
+		p.Reset()
+		p.Scene(geom.Rc(0, 0, 100, 100), Scene{Items: crowd(box, 10)})
+		p.Scene(geom.Rc(0, 0, 100, 100), Scene{Items: crowd(once, 1)})
+		// The item buffer grows here, and the scene before keeps the
+		// array it outgrew.
+		p.Scene(geom.Rc(0, 0, 100, 100), Scene{Items: crowd(box, 2000)})
+	}()
+	few := crowd(box, 1)
+	for range 4 {
+		p.Reset()
+		p.Scene(geom.Rc(0, 0, 100, 100), Scene{Items: few})
+	}
+	for range 10 {
+		runtime.GC()
+		if gone.Load() {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	// The painter lives on, as a window's does, so only what it holds
+	// can keep the mesh.
+	runtime.KeepAlive(&p)
+	if !gone.Load() {
+		t.Fatal("a mesh last drawn four frames ago is still held")
 	}
 }

@@ -96,13 +96,21 @@ func (s *slab[T]) take() *T {
 	}
 	v := &s.blocks[s.at][s.n]
 	s.n++
-	var zero T
-	*v = zero
 	return v
 }
 
-// reset makes every block available again.
-func (s *slab[T]) reset() { s.at, s.n = 0, 0 }
+// reset makes every block available again. It zeroes what was taken,
+// so take hands out zeroed Ts, and an op the next frame leaves untaken
+// holds on to nothing: no mesh, item array, shape or glyphs.
+func (s *slab[T]) reset() {
+	for _, b := range s.blocks[:s.at] {
+		clear(b)
+	}
+	if s.at < len(s.blocks) {
+		clear(s.blocks[s.at][:s.n])
+	}
+	s.at, s.n = 0, 0
+}
 
 // Everything is the damage that covers the whole window.
 var Everything = geom.Rect{Min: geom.Pt(-1e9, -1e9), Max: geom.Pt(1e9, 1e9)}
@@ -112,6 +120,9 @@ var Everything = geom.Rect{Min: geom.Pt(-1e9, -1e9), Max: geom.Pt(1e9, 1e9)}
 // it are reused.
 func (p *Painter) Reset() {
 	p.hasPrev = p.ready
+	// The ops of the frame before last are let go, all the way to the
+	// buffer's end, so a frame of fewer ops keeps none of them alive.
+	clear(p.prev[:cap(p.prev)])
 	p.prev, p.ops = p.ops, p.prev[:0]
 	p.prevBounds, p.bounds = p.bounds, p.prevBounds[:0]
 	p.prevBlurs, p.blurs = p.blurs, false
