@@ -3,6 +3,7 @@ package speaker
 import (
 	"encoding/binary"
 	"io"
+	"log"
 	"math"
 	"sync/atomic"
 	"time"
@@ -24,6 +25,9 @@ type otoOutput struct {
 	buffer atomic.Int64
 	// buf is Read's frames; the player reads on one goroutine.
 	buf []float32
+	// logged is when held last logged, in Unix nanoseconds: test
+	// diagnostics.
+	logged atomic.Int64
 }
 
 func openOto(s *Speaker, o Options) (*otoOutput, error) {
@@ -81,7 +85,16 @@ func (o *otoOutput) rate() int { return o.hz }
 // sent on that it has not played, which on Android counts a Bluetooth
 // headset's own delay.
 func (o *otoOutput) held() int64 {
-	return int64(o.player.UnplayedSize() / 8)
+	unplayed := o.player.UnplayedSize()
+	// Test diagnostics: every 5 s, and once a second while over 2 s.
+	now := time.Now().UnixNano()
+	gap := time.Duration(now - o.logged.Load())
+	if gap > 5*time.Second || unplayed/8 > 2*o.hz && gap > time.Second {
+		o.logged.Store(now)
+		log.Printf("gunimheld: unplayed %d frames (%v), buffered %d frames",
+			unplayed/8, audio.DurationAt(int64(unplayed/8), o.hz), o.player.BufferedSize()/8)
+	}
+	return int64(unplayed / 8)
 }
 
 func (o *otoOutput) setAhead(d time.Duration) {
