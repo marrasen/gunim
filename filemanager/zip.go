@@ -210,6 +210,12 @@ func (r *runner) zipItem(zw *zip.Writer, p, rel string, info fs.FileInfo) error 
 
 // pour writes what in reads of the file at p to w, counting the bytes.
 func (r *runner) pour(w io.Writer, in io.Reader, p string) error {
+	return r.pourAs(w, in, r.env.fs.Paths().Show(p), "the zip", true)
+}
+
+// pourAs writes what in reads of from to w, which writes to, both said
+// as they are shown, counting the bytes when count is set.
+func (r *runner) pourAs(w io.Writer, in io.Reader, from, to string, count bool) error {
 	buf := make([]byte, copyBuffer)
 	for {
 		if err := r.ctx.Err(); err != nil {
@@ -218,10 +224,12 @@ func (r *runner) pour(w io.Writer, in io.Reader, p string) error {
 		n, rerr := in.Read(buf)
 		if n > 0 {
 			if _, err := w.Write(buf[:n]); err != nil {
-				return fmt.Errorf("writing the zip: %w", err)
+				return fmt.Errorf("writing %s: %w", to, err)
 			}
-			r.p.bytes += int64(n)
-			r.tell(false)
+			if count {
+				r.p.bytes += int64(n)
+				r.tell(false)
+			}
 			if err := r.pace(n); err != nil {
 				return err
 			}
@@ -230,7 +238,7 @@ func (r *runner) pour(w io.Writer, in io.Reader, p string) error {
 			return nil
 		}
 		if rerr != nil {
-			return fmt.Errorf("reading %s: %w", r.env.fs.Paths().Show(p), rerr)
+			return fmt.Errorf("reading %s: %w", from, rerr)
 		}
 	}
 }

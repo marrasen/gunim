@@ -25,6 +25,8 @@ const (
 	OpUndo
 	// OpZip writes items into a new zip file.
 	OpZip
+	// OpExtract extracts an archive into a new folder.
+	OpExtract
 )
 
 // job is a file operation to run.
@@ -35,8 +37,9 @@ type job struct {
 	// dest is the folder a copy or a move goes into, or the folder a new
 	// folder goes in.
 	dest string
-	// name is the new name of a rename, the name of a new folder, or
-	// the name of a zip, made in dest.
+	// name is the new name of a rename, the name of a new folder, the
+	// name of a zip, or of the folder an archive is extracted into, made
+	// in dest.
 	name string
 	// undo is the record an undo reverses.
 	undo *record
@@ -158,6 +161,8 @@ func runJob(ctx context.Context, j job, e env) (record, error) {
 		err = r.undo(j.undo)
 	case OpZip:
 		err = r.zipAll(j.srcs, j.dest, j.name)
+	case OpExtract:
+		err = r.extractAll(j.srcs[0], j.dest, j.name)
 	}
 	r.tell(true)
 	return r.rec, err
@@ -833,7 +838,7 @@ func (r *runner) undoStep(k OpKind, s step) error {
 	fsys := r.env.fs
 	ps := fsys.Paths()
 	switch k {
-	case OpCopy, OpNewFolder, OpZip:
+	case OpCopy, OpNewFolder, OpZip, OpExtract:
 		if r.env.trash == nil {
 			return errTrashless
 		}
@@ -883,10 +888,10 @@ func caseOnly(fsys FS, s step, info fs.FileInfo) bool {
 }
 
 // undoable reports whether rec can be undone, on a file system with a
-// trash when trash is set. Undoing a copy, a new folder or a zip moves
-// what it made to the trash.
+// trash when trash is set. Undoing a copy, a new folder, a zip or an
+// extraction moves what it made to the trash.
 func undoable(rec record, trash bool) bool {
-	if !trash && (rec.kind == OpCopy || rec.kind == OpNewFolder || rec.kind == OpZip) {
+	if !trash && (rec.kind == OpCopy || rec.kind == OpNewFolder || rec.kind == OpZip || rec.kind == OpExtract) {
 		return false
 	}
 	return len(rec.steps) > 0 && rec.kind != OpDelete && rec.kind != OpUndo

@@ -57,6 +57,7 @@ var menus = []struct {
 		{"-", "", ""},
 		{"Rename", "F2", CmdRename},
 		{"Create zip…", "", CmdZip},
+		{"Extract…", "", CmdExtract},
 		{"Move to trash", "Delete", CmdTrash},
 		{"Delete permanently", "Shift+Delete", CmdDelete},
 		{"-", "", ""},

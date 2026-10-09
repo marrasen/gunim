@@ -267,8 +267,11 @@ const (
 	CmdPaste   = "paste"
 	// CmdZip makes a zip of the items selected, in their folder, and
 	// CmdPasteZip makes one of the items on the clipboard, in the folder
-	// showing. Each asks for the zip's name first.
+	// showing. Each asks for the zip's name first. CmdExtract extracts
+	// the archive selected, a zip or a tar, into a new folder beside it,
+	// asking for the folder's name first.
 	CmdZip       = "zip"
+	CmdExtract   = "extract"
 	CmdPasteZip  = "pastezip"
 	CmdTrash     = "trash"
 	CmdDelete    = "delete"

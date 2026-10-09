@@ -39,6 +39,7 @@ var rowItems = []menuItem{
 	{"Rename", "F2", CmdRename},
 	{"Duplicate", "", CmdDuplicate},
 	{"Create zip…", "", CmdZip},
+	{"Extract…", "", CmdExtract},
 	{"Move to trash", "Delete", CmdTrash},
 	{"Delete permanently", "Shift+Delete", CmdDelete},
 	{"-", "", ""},
@@ -210,6 +211,10 @@ func (pg *listingPage) contextMenu(g gunim.Node, rowAt func(geom.Point) int, sel
 		}
 		if !b.shell.OpenWith {
 			items = without(items, localOpenWith)
+		}
+		if !one || sel[0].Dir || !isArchive(sel[0].Name) {
+			// Only for an archive it can open.
+			items = without(items, CmdExtract)
 		}
 		st.cmds = fill(m, items, func(cmd string) bool {
 			switch cmd {

@@ -202,6 +202,13 @@ func (a *app) opsCommand(name string) bool {
 		if paths := a.selectedPaths(); len(paths) > 0 && here != "" {
 			a.askZip(a.fs.ID(), a.ps, paths, here)
 		}
+	case CmdExtract:
+		paths := a.selectedPaths()
+		if len(paths) != 1 || here == "" || !isArchive(a.ps.Base(paths[0])) {
+			a.patch(Notice{Title: "Select a zip or tar archive to extract", Kind: "info"})
+			return true
+		}
+		a.askExtract(paths[0])
 	case CmdPasteZip:
 		if here == "" {
 			return true
@@ -447,12 +454,12 @@ func (a *app) finish(id int, j job, rec record, err error) {
 			a.patch(Notice{Title: "Partly done: " + r.title, Undo: undo, Kind: "warning"})
 		}
 	}
-	if j.kind == OpRename || j.kind == OpNewFolder || j.kind == OpZip {
+	if j.kind == OpRename || j.kind == OpNewFolder || j.kind == OpZip || j.kind == OpExtract {
 		if err != nil {
 			a.nav.pick = nil
 		}
 	}
-	if (j.kind == OpCopy || j.kind == OpMove || j.kind == OpZip) && len(rec.landed) > 0 && a.ps.Same(j.dest, a.nav.path) {
+	if (j.kind == OpCopy || j.kind == OpMove || j.kind == OpZip || j.kind == OpExtract) && len(rec.landed) > 0 && a.ps.Same(j.dest, a.nav.path) {
 		// What a paste or a drop brought into the folder showing is
 		// selected, so the user sees what came.
 		a.nav.pick = rec.landed
@@ -490,6 +497,8 @@ func (a *app) doneTitle(j job, rec record) string {
 		return "Made " + j.name
 	case OpZip:
 		return "Made " + j.name
+	case OpExtract:
+		return "Extracted to " + j.name
 	case OpUndo:
 		return "Undone"
 	}
@@ -501,7 +510,7 @@ func failedTitle(j job) string {
 	return map[OpKind]string{
 		OpCopy: "The copy stopped", OpMove: "The move stopped", OpTrash: "Moving to the trash stopped",
 		OpDelete: "Deleting stopped", OpRename: "The rename failed", OpNewFolder: "The folder was not made",
-		OpUndo: "Undo stopped", OpZip: "The zip was not made",
+		OpUndo: "Undo stopped", OpZip: "The zip was not made", OpExtract: "The archive was not extracted",
 	}[j.kind]
 }
 
