@@ -1,0 +1,849 @@
+gunim: the main thread of kakel-master has not answered for 12 s, at 2026-10-09T17:11:04+02:00; where each goroutine is:
+
+goroutine 39 [running]:
+github.com/marrasen/gunim/driver/desktop.writeHang(0x2c864e9a0)
+	D:/GolandProjects/gunim/driver/desktop/hang.go:63 +0x76
+github.com/marrasen/gunim/driver/desktop.watchHang.func1()
+	D:/GolandProjects/gunim/driver/desktop/hang.go:51 +0x1ef
+created by github.com/marrasen/gunim/driver/desktop.watchHang in goroutine 1
+	D:/GolandProjects/gunim/driver/desktop/hang.go:32 +0x10c
+
+goroutine 1 [syscall, locked to thread]:
+syscall.syscalln(0x7ff7783e4a5e?, 0x3096b1ebd0b8?, {0x3096b2491480?, 0x3096b1ebd108?, 0x7ff7783e4af4?})
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/runtime/syscall_windows.go:427 +0x48
+syscall.SyscallN(0x7ff700000000?, {0x3096b2491480?, 0x0?, 0x7ff77838055c?})
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/syscall/dll_windows.go:99 +0x1e
+golang.org/x/sys/windows.(*Proc).Call(0x1ff72911378?, {0x3096b2491480?, 0x3096b2491480?, 0x7ff779e06f60?})
+	D:/GoCache/mod/golang.org/x/sys@v0.48.0/windows/dll_windows.go:166 +0x1c
+golang.org/x/sys/windows.(*LazyProc).Call(0x7ff779db6a48, {0x3096b2491480, 0x1, 0x1})
+	D:/GoCache/mod/golang.org/x/sys@v0.48.0/windows/dll_windows.go:316 +0x4a
+github.com/marrasen/gunim/internal/glfw._DestroyWindow(0x150a98)
+	D:/GolandProjects/gunim/internal/glfw/api_windows.go:1077 +0x4e
+github.com/marrasen/gunim/internal/glfw.(*drawnShadow).destroy(0x7ff779db7c90?)
+	D:/GolandProjects/gunim/internal/glfw/win32_shadow_windows.go:349 +0x59
+github.com/marrasen/gunim/internal/glfw.(*Window).dropShadow(0x3096b183f008)
+	D:/GolandProjects/gunim/internal/glfw/win32_shadow_windows.go:500 +0x13d
+github.com/marrasen/gunim/internal/glfw.(*Window).platformDestroyWindow(0x3096b183f008)
+	D:/GolandProjects/gunim/internal/glfw/win32_window_windows.go:1684 +0x30
+github.com/marrasen/gunim/internal/glfw.(*Window).Destroy(0x3096b183f008)
+	D:/GolandProjects/gunim/internal/glfw/window.go:356 +0x177
+github.com/marrasen/gunim/driver/desktop.(*Window).shutdown(0x3096b138c008)
+	D:/GolandProjects/gunim/driver/desktop/window.go:447 +0x14f
+github.com/marrasen/gunim/driver/desktop.(*Window).Close.func1.1()
+	D:/GolandProjects/gunim/driver/desktop/window.go:417 +0x17
+github.com/marrasen/gunim/driver/desktop.(*Driver).call.func1()
+	D:/GolandProjects/gunim/driver/desktop/desktop.go:184 +0x23
+github.com/marrasen/gunim/driver/desktop.(*Driver).runTasks(0x3096b0fb06c0)
+	D:/GolandProjects/gunim/driver/desktop/desktop.go:230 +0x2b2
+github.com/marrasen/gunim/driver/desktop.(*Driver).Run(0x3096b0fb06c0, {0x7ff779a63718, 0x3096b10546e0}, 0x3096b1241110)
+	D:/GolandProjects/gunim/driver/desktop/desktop.go:123 +0x1a5
+github.com/marrasen/gunim.runApp({0x7ff779a638a0, 0x3096b0f1de80}, {0x7ff779a62608, 0x3096b0fb06c0}, 0x3096b1240e70)
+	D:/GolandProjects/gunim/ui.go:74 +0x22e
+github.com/marrasen/gunim.Main({0x7ff779a638a0, 0x3096b0f1de80}, 0x3096b1240e70)
+	D:/GolandProjects/gunim/ui.go:59 +0xbc
+main.run()
+	D:/GolandProjects/kakel/main.go:117 +0x78d
+main.main()
+	D:/GolandProjects/kakel/main.go:49 +0xd7
+
+goroutine 37 [syscall]:
+os/signal.signal_recv()
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/runtime/sigqueue.go:152 +0x98
+os/signal.loop()
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/os/signal/signal_unix.go:23 +0x13
+created by os/signal.Notify.func2.1 in goroutine 1
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/os/signal/signal.go:164 +0x1f
+
+goroutine 38 [select]:
+os/signal.NotifyContext.func1()
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/os/signal/signal.go:304 +0x7c
+created by os/signal.NotifyContext in goroutine 1
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/os/signal/signal.go:303 +0x165
+
+goroutine 21 [chan receive]:
+github.com/marrasen/gunim/driver/desktop.(*Driver).call(0x3096b0fb06c0, 0x3096b5500080)
+	D:/GolandProjects/gunim/driver/desktop/desktop.go:187 +0xe8
+github.com/marrasen/gunim/driver/desktop.(*Driver).Monitors(0x3096b0fb06c0)
+	D:/GolandProjects/gunim/driver/desktop/desktop.go:260 +0x85
+github.com/marrasen/gunim.(*App).Monitors(...)
+	D:/GolandProjects/gunim/ui.go:164
+github.com/marrasen/kakel/app.(*app).overviewAlone(0x7ff7797fdc70?)
+	D:/GolandProjects/kakel/app/overview.go:303 +0x3e
+github.com/marrasen/kakel/app.(*app).publish(0x3096b1343308)
+	D:/GolandProjects/kakel/app/app.go:1242 +0x4d6
+github.com/marrasen/kakel/app.(*app).run(0x3096b1343308, {0x7ff779a638a0, 0x3096b0f1de80})
+	D:/GolandProjects/kakel/app/app.go:1049 +0x168d
+github.com/marrasen/kakel/app.Start({_, _}, {{0x3096b133e200}, 0x3096b133e200, 0x3096b12a2000, 0x3096b13540b0, 0x3096b13540c0, {0x402e000000000000, {0x0, 0x0}, ...}, ...})
+	D:/GolandProjects/kakel/app/app.go:2424 +0x46c
+main.run.func2(0x3096b0fcd650)
+	D:/GolandProjects/kakel/main.go:134 +0xc6f
+github.com/marrasen/gunim.runApp.func1.1()
+	D:/GolandProjects/gunim/ui.go:76 +0x30
+created by github.com/marrasen/gunim.runApp.func1 in goroutine 1
+	D:/GolandProjects/gunim/ui.go:75 +0xb2
+
+goroutine 199 [select]:
+github.com/marrasen/gunim/driver/internal/inbox.(*Inbox).feed(0x3096b0e86040)
+	D:/GolandProjects/gunim/driver/internal/inbox/inbox.go:67 +0x1f0
+created by github.com/marrasen/gunim/driver/internal/inbox.New in goroutine 1
+	D:/GolandProjects/gunim/driver/internal/inbox/inbox.go:26 +0xe5
+
+goroutine 60 [syscall, locked to thread]:
+syscall.syscalln(0x3096b5587aa8?, 0x7ff7783e7dff?, {0x3096b3d0a810?, 0x3096b5587ab8?, 0x7ff7783eeaff?})
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/runtime/syscall_windows.go:427 +0x48
+syscall.SyscallN(0x7ff7783724e0?, {0x3096b3d0a810?, 0x1c5bab700000000?, 0x0?})
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/syscall/dll_windows.go:99 +0x1e
+github.com/ebitengine/purego.syscall_syscallN(...)
+	D:/GoCache/mod/github.com/ebitengine/purego@v0.11.0/syscall_windows.go:15
+github.com/ebitengine/purego.SyscallN(0x3096b5587b98?, {0x3096b3d0a810?, 0x0?, 0x3096b1477008?})
+	D:/GoCache/mod/github.com/ebitengine/purego@v0.11.0/syscall.go:79 +0x25
+github.com/marrasen/gunim/internal/gl.(*defaultContext).call(0x3096b3d0a808, 0x7fffe8f85780?, {0x3096b5587b50?, 0x3096b5587b80?, 0x3096b5587b98?})
+	D:/GolandProjects/gunim/internal/gl/default_purego.go:142 +0x7d
+github.com/marrasen/gunim/internal/gl.(*defaultContext).BindFramebuffer(0x3096b5587ed0?, 0xb5587b98?, 0x3096?)
+	D:/GolandProjects/gunim/internal/gl/default_purego.go:205 +0x34
+github.com/marrasen/gunim/driver/desktop.(*presenter).begin(0x3096b147e160, 0x3096b5587c28?, 0x294?)
+	D:/GolandProjects/gunim/driver/desktop/present_windows.go:335 +0xf9
+github.com/marrasen/gunim/driver/desktop.(*Window).render(0x3096b138c2c8)
+	D:/GolandProjects/gunim/driver/desktop/window.go:1116 +0x5de
+created by github.com/marrasen/gunim/driver/desktop.(*Driver).openWindow in goroutine 1
+	D:/GolandProjects/gunim/driver/desktop/desktop.go:624 +0x11bb
+
+goroutine 198 [chan receive]:
+github.com/marrasen/gunim/driver/desktop.vblankWaiter(...)
+	D:/GolandProjects/gunim/driver/desktop/vblank_windows.go:156
+created by github.com/marrasen/gunim/driver/desktop.(*vblank).wait in goroutine 60
+	D:/GolandProjects/gunim/driver/desktop/vblank_windows.go:130 +0x428
+
+goroutine 109 [select, locked to thread]:
+github.com/marrasen/gunim/driver/desktop.newUIAWindow.func1()
+	D:/GolandProjects/gunim/driver/desktop/uia_windows.go:205 +0x1b1
+created by github.com/marrasen/gunim/driver/desktop.newUIAWindow in goroutine 1
+	D:/GolandProjects/gunim/driver/desktop/uia_windows.go:193 +0xff
+
+goroutine 11 [chan receive]:
+main.stressWindows({0x7ff779a638a0, 0x3096b0f1de80}, 0x3096b0fcd650)
+	D:/GolandProjects/kakel/stress.go:62 +0x21c
+created by main.run.func2 in goroutine 21
+	D:/GolandProjects/kakel/main.go:133 +0x699
+
+goroutine 80 [select]:
+github.com/marrasen/gunim/filemanager.(*app).serve(_, {_, _}, {{0x7ff779a66160, 0x7ff779e515a0}, 0x0, {0x3096b1e5a9f0, 0x21}, {0x3096b1e5ab70, 0x2f}, ...}, ...)
+	D:/GolandProjects/gunim/filemanager/app.go:239 +0x1fe
+github.com/marrasen/gunim/filemanager.servePane({_, _}, _, {{0x7ff779a66160, 0x7ff779e515a0}, 0x0, {0x3096b1e5a9f0, 0x21}, {0x3096b1e5ab70, 0x2f}, ...}, ...)
+	D:/GolandProjects/gunim/filemanager/pane.go:216 +0x3a8
+github.com/marrasen/gunim/filemanager.(*Hub).NewPane.func1()
+	D:/GolandProjects/gunim/filemanager/pane.go:62 +0x95
+sync.(*WaitGroup).Go.func1()
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/sync/waitgroup.go:258 +0x4a
+created by sync.(*WaitGroup).Go in goroutine 21
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/sync/waitgroup.go:238 +0x7d
+
+goroutine 176 [chan receive]:
+github.com/marrasen/kakel/app.(*app).serveWin.func1()
+	D:/GolandProjects/kakel/app/ownwindows.go:108 +0x65
+created by github.com/marrasen/kakel/app.(*app).serveWin in goroutine 21
+	D:/GolandProjects/kakel/app/ownwindows.go:107 +0x90
+
+goroutine 50 [sync.Cond.Wait]:
+sync.runtime_notifyListWait(0x3096b1358090, 0x4f7)
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/runtime/sema.go:617 +0x1b4
+sync.(*Cond).Wait(0x3096b38c2020?)
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/sync/cond.go:71 +0x73
+github.com/marrasen/oto/v3/internal/mux.(*Mux).wait(0x3096b13580c0, {0x3096b38c2020, 0x1, 0x1})
+	D:/GoCache/mod/github.com/marrasen/oto/v3@v3.5.1-gunim.5/internal/mux/mux.go:129 +0xd6
+github.com/marrasen/oto/v3/internal/mux.(*Mux).loop(0x3096b13580c0)
+	D:/GoCache/mod/github.com/marrasen/oto/v3@v3.5.1-gunim.5/internal/mux/mux.go:139 +0x65
+created by github.com/marrasen/oto/v3/internal/mux.New in goroutine 27
+	D:/GoCache/mod/github.com/marrasen/oto/v3@v3.5.1-gunim.5/internal/mux/mux.go:79 +0x145
+
+goroutine 159 [select]:
+github.com/marrasen/gunim/audio/speaker.(*Speaker).watch(0x3096b127a000)
+	D:/GolandProjects/gunim/audio/speaker/speaker.go:257 +0x105
+created by github.com/marrasen/gunim/audio/speaker.Open in goroutine 27
+	D:/GolandProjects/gunim/audio/speaker/speaker.go:173 +0x445
+
+goroutine 52 [chan receive, locked to thread]:
+github.com/marrasen/oto/v3.newCOMThread.func1()
+	D:/GoCache/mod/github.com/marrasen/oto/v3@v3.5.1-gunim.5/driver_wasapi_windows.go:59 +0x149
+created by github.com/marrasen/oto/v3.newCOMThread in goroutine 51
+	D:/GoCache/mod/github.com/marrasen/oto/v3@v3.5.1-gunim.5/driver_wasapi_windows.go:44 +0xba
+
+goroutine 244 [select]:
+github.com/marrasen/gunim/driver/internal/inbox.(*Inbox).feed(0x3096b22c3940)
+	D:/GolandProjects/gunim/driver/internal/inbox/inbox.go:67 +0x1f0
+created by github.com/marrasen/gunim/driver/internal/inbox.New in goroutine 1
+	D:/GolandProjects/gunim/driver/internal/inbox/inbox.go:26 +0xe5
+
+goroutine 243 [select, locked to thread]:
+github.com/marrasen/gunim/driver/desktop.(*Window).render(0x3096b26ee848)
+	D:/GolandProjects/gunim/driver/desktop/window.go:1095 +0x332
+created by github.com/marrasen/gunim/driver/desktop.(*Driver).openWindow in goroutine 1
+	D:/GolandProjects/gunim/driver/desktop/desktop.go:624 +0x11bb
+
+goroutine 82 [select]:
+github.com/marrasen/kakel/app.onApp[...](0x3096b1343308, 0x3096b5500100)
+	D:/GolandProjects/kakel/app/agents.go:341 +0x1c7
+github.com/marrasen/kakel/app.(*app).stress(0x3096b1343308, {0x7ff779a638a0?, 0x3096b0f1de80?}, 0x45d964b800)
+	D:/GolandProjects/kakel/app/stress.go:201 +0xb05
+created by github.com/marrasen/kakel/app.(*app).run in goroutine 21
+	D:/GolandProjects/kakel/app/app.go:963 +0xd85
+
+goroutine 84 [select]:
+github.com/marrasen/kakel/app.StressPause({0x7ff779a63788, 0x3096b0fcc230})
+	D:/GolandProjects/kakel/app/stress.go:63 +0xdd
+github.com/marrasen/kakel/app.(*app).stress.func9()
+	D:/GolandProjects/kakel/app/stress.go:186 +0x45
+created by github.com/marrasen/kakel/app.(*app).stress in goroutine 82
+	D:/GolandProjects/kakel/app/stress.go:185 +0x825
+
+goroutine 85 [select]:
+github.com/marrasen/kakel/app.StressPause({0x7ff779a63788, 0x3096b0fcc230})
+	D:/GolandProjects/kakel/app/stress.go:63 +0xdd
+github.com/marrasen/kakel/app.(*app).stress.func9()
+	D:/GolandProjects/kakel/app/stress.go:186 +0x45
+created by github.com/marrasen/kakel/app.(*app).stress in goroutine 82
+	D:/GolandProjects/kakel/app/stress.go:185 +0x825
+
+goroutine 86 [select]:
+github.com/marrasen/kakel/app.StressPause({0x7ff779a63788, 0x3096b0fcc230})
+	D:/GolandProjects/kakel/app/stress.go:63 +0xdd
+github.com/marrasen/kakel/app.(*app).stress.func9()
+	D:/GolandProjects/kakel/app/stress.go:186 +0x45
+created by github.com/marrasen/kakel/app.(*app).stress in goroutine 82
+	D:/GolandProjects/kakel/app/stress.go:185 +0x825
+
+goroutine 87 [select]:
+github.com/marrasen/kakel/app.StressPause({0x7ff779a63788, 0x3096b0fcc230})
+	D:/GolandProjects/kakel/app/stress.go:63 +0xdd
+github.com/marrasen/kakel/app.(*app).stress.func9()
+	D:/GolandProjects/kakel/app/stress.go:186 +0x45
+created by github.com/marrasen/kakel/app.(*app).stress in goroutine 82
+	D:/GolandProjects/kakel/app/stress.go:185 +0x825
+
+goroutine 88 [select]:
+github.com/marrasen/kakel/app.StressPause({0x7ff779a63788, 0x3096b0fcc230})
+	D:/GolandProjects/kakel/app/stress.go:63 +0xdd
+github.com/marrasen/kakel/app.(*app).stress.func9()
+	D:/GolandProjects/kakel/app/stress.go:186 +0x45
+created by github.com/marrasen/kakel/app.(*app).stress in goroutine 82
+	D:/GolandProjects/kakel/app/stress.go:185 +0x825
+
+goroutine 89 [select]:
+github.com/marrasen/kakel/app.StressPause({0x7ff779a63788, 0x3096b0fcc230})
+	D:/GolandProjects/kakel/app/stress.go:63 +0xdd
+github.com/marrasen/kakel/app.(*app).stress.func9()
+	D:/GolandProjects/kakel/app/stress.go:186 +0x45
+created by github.com/marrasen/kakel/app.(*app).stress in goroutine 82
+	D:/GolandProjects/kakel/app/stress.go:185 +0x825
+
+goroutine 90 [select]:
+github.com/marrasen/kakel/app.StressPause({0x7ff779a63788, 0x3096b0fcc230})
+	D:/GolandProjects/kakel/app/stress.go:63 +0xdd
+github.com/marrasen/kakel/app.(*app).stress.func9()
+	D:/GolandProjects/kakel/app/stress.go:186 +0x45
+created by github.com/marrasen/kakel/app.(*app).stress in goroutine 82
+	D:/GolandProjects/kakel/app/stress.go:185 +0x825
+
+goroutine 98 [chan receive]:
+github.com/marrasen/gunim/driver/desktop.(*Driver).call(0x3096b0fb06c0, 0x3096b1355960)
+	D:/GolandProjects/gunim/driver/desktop/desktop.go:187 +0xe8
+github.com/marrasen/gunim/driver/desktop.(*Driver).Monitors(0x3096b0fb06c0)
+	D:/GolandProjects/gunim/driver/desktop/desktop.go:260 +0x85
+github.com/marrasen/gunim.(*App).Monitors(...)
+	D:/GolandProjects/gunim/ui.go:164
+github.com/marrasen/gunim.(*App).PointerMonitor(0x3096b0fcd650)
+	D:/GolandProjects/gunim/ui.go:172 +0x50
+github.com/marrasen/gunim/install.openStage(_, _, {_, _}, _, {{0x7ff778f3bf2c, 0x5}, {0x0, 0x0}, {0x7ff778f49519, ...}, ...})
+	D:/GolandProjects/gunim/install/window.go:214 +0x3ba
+github.com/marrasen/gunim/install.ShowAbout({_, _}, _, {{0x7ff778f3bf2c, 0x5}, {0x0, 0x0}, {0x7ff778f3bf2c, 0x5}, {0x0, ...}, ...}, ...)
+	D:/GolandProjects/gunim/install/updatewin.go:133 +0x21c
+main.stressWindows.func1()
+	D:/GolandProjects/kakel/stress.go:47 +0x2b1
+created by main.stressWindows in goroutine 11
+	D:/GolandProjects/kakel/stress.go:37 +0x170
+
+goroutine 99 [chan receive]:
+github.com/marrasen/gunim/driver/desktop.(*Driver).call(0x3096b0fb06c0, 0x3096b1355540)
+	D:/GolandProjects/gunim/driver/desktop/desktop.go:187 +0xe8
+github.com/marrasen/gunim/driver/desktop.(*Driver).Monitors(0x3096b0fb06c0)
+	D:/GolandProjects/gunim/driver/desktop/desktop.go:260 +0x85
+github.com/marrasen/gunim.(*App).Monitors(...)
+	D:/GolandProjects/gunim/ui.go:164
+github.com/marrasen/gunim.(*App).PointerMonitor(0x3096b0fcd650)
+	D:/GolandProjects/gunim/ui.go:172 +0x50
+github.com/marrasen/gunim/install.openStage(_, _, {_, _}, _, {{0x7ff778f3bf2c, 0x5}, {0x0, 0x0}, {0x7ff778f49519, ...}, ...})
+	D:/GolandProjects/gunim/install/window.go:214 +0x3ba
+github.com/marrasen/gunim/install.ShowWhatsNew({_, _}, _, {{0x7ff778f3bf2c, 0x5}, {0x0, 0x0}, {0x7ff778f3bf2c, 0x5}, {0x0, ...}, ...}, ...)
+	D:/GolandProjects/gunim/install/updatewin.go:106 +0x19a
+main.stressWindows.func1()
+	D:/GolandProjects/kakel/stress.go:45 +0x1d7
+created by main.stressWindows in goroutine 11
+	D:/GolandProjects/kakel/stress.go:37 +0x170
+
+goroutine 100 [chan receive]:
+github.com/marrasen/gunim/driver/desktop.(*Driver).call(0x3096b0fb06c0, 0x3096b3f2ad30)
+	D:/GolandProjects/gunim/driver/desktop/desktop.go:187 +0xe8
+github.com/marrasen/gunim/driver/desktop.(*Driver).Monitors(0x3096b0fb06c0)
+	D:/GolandProjects/gunim/driver/desktop/desktop.go:260 +0x85
+github.com/marrasen/gunim.(*App).Monitors(...)
+	D:/GolandProjects/gunim/ui.go:164
+github.com/marrasen/gunim.(*App).PointerMonitor(0x3096b0fcd650)
+	D:/GolandProjects/gunim/ui.go:172 +0x50
+github.com/marrasen/gunim/install.openStage(_, _, {_, _}, _, {{0x7ff778f3bf2c, 0x5}, {0x0, 0x0}, {0x7ff778f49519, ...}, ...})
+	D:/GolandProjects/gunim/install/window.go:214 +0x3ba
+github.com/marrasen/gunim/install.ShowWhatsNew({_, _}, _, {{0x7ff778f3bf2c, 0x5}, {0x0, 0x0}, {0x7ff778f3bf2c, 0x5}, {0x0, ...}, ...}, ...)
+	D:/GolandProjects/gunim/install/updatewin.go:106 +0x19a
+main.stressWindows.func1()
+	D:/GolandProjects/kakel/stress.go:45 +0x1d7
+created by main.stressWindows in goroutine 11
+	D:/GolandProjects/kakel/stress.go:37 +0x170
+
+goroutine 113 [select]:
+github.com/marrasen/gunim/driver/internal/inbox.(*Inbox).feed(0x3096b142e0c0)
+	D:/GolandProjects/gunim/driver/internal/inbox/inbox.go:67 +0x1f0
+created by github.com/marrasen/gunim/driver/internal/inbox.New in goroutine 1
+	D:/GolandProjects/gunim/driver/internal/inbox/inbox.go:26 +0xe5
+
+goroutine 110 [select, locked to thread]:
+github.com/marrasen/gunim/driver/desktop.(*Window).render(0x3096b138c848)
+	D:/GolandProjects/gunim/driver/desktop/window.go:1095 +0x332
+created by github.com/marrasen/gunim/driver/desktop.(*Driver).openWindow in goroutine 1
+	D:/GolandProjects/gunim/driver/desktop/desktop.go:624 +0x11bb
+
+goroutine 197 [select, locked to thread]:
+github.com/marrasen/gunim.(*Window).wait(0x3096b1792400)
+	D:/GolandProjects/gunim/ui.go:1067 +0x56d
+github.com/marrasen/gunim.(*Window).loop(0x3096b1792400)
+	D:/GolandProjects/gunim/ui.go:1001 +0x213
+created by github.com/marrasen/gunim.(*App).NewWindow in goroutine 194
+	D:/GolandProjects/gunim/ui.go:410 +0x6d9
+
+goroutine 188 [select, locked to thread]:
+github.com/marrasen/gunim/driver/desktop.(*Window).render(0x3096b143b8c8)
+	D:/GolandProjects/gunim/driver/desktop/window.go:1095 +0x332
+created by github.com/marrasen/gunim/driver/desktop.(*Driver).openWindow in goroutine 1
+	D:/GolandProjects/gunim/driver/desktop/desktop.go:624 +0x11bb
+
+goroutine 134 [select, locked to thread]:
+github.com/marrasen/gunim/driver/desktop.newUIAWindow.func1()
+	D:/GolandProjects/gunim/driver/desktop/uia_windows.go:205 +0x1b1
+created by github.com/marrasen/gunim/driver/desktop.newUIAWindow in goroutine 1
+	D:/GolandProjects/gunim/driver/desktop/uia_windows.go:193 +0xff
+
+goroutine 112 [syscall, locked to thread]:
+syscall.syscalln(0x3096b2fc9ab8?, 0x7ff7783807b3?, {0x3096b33cee30?, 0x3096b2fc9c2e?, 0x2?})
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/runtime/syscall_windows.go:427 +0x48
+syscall.SyscallN(0x1ff05e108c8?, {0x3096b33cee30?, 0x3096b33cee30?, 0x3096b1267008?})
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/syscall/dll_windows.go:99 +0x1e
+github.com/ebitengine/purego.syscall_syscallN(...)
+	D:/GoCache/mod/github.com/ebitengine/purego@v0.11.0/syscall_windows.go:15
+github.com/ebitengine/purego.SyscallN(0xffffffffffffffff?, {0x3096b33cee30?, 0x20?, 0x2?})
+	D:/GoCache/mod/github.com/ebitengine/purego@v0.11.0/syscall.go:79 +0x25
+github.com/marrasen/gunim/internal/gl.(*defaultContext).DeleteFramebuffer(0x3096b3d2f408, 0x15)
+	D:/GolandProjects/gunim/internal/gl/default_purego.go:299 +0x74
+github.com/marrasen/gunim/driver/desktop.(*presenter).close(0x3096b2a100b0)
+	D:/GolandProjects/gunim/driver/desktop/present_windows.go:426 +0x3e
+github.com/marrasen/gunim/driver/desktop.(*Window).render.func2()
+	D:/GolandProjects/gunim/driver/desktop/window.go:1073 +0x2f
+github.com/marrasen/gunim/driver/desktop.(*Window).render(0x3096b0f862c8)
+	D:/GolandProjects/gunim/driver/desktop/window.go:1097 +0xe44
+created by github.com/marrasen/gunim/driver/desktop.(*Driver).openWindow in goroutine 1
+	D:/GolandProjects/gunim/driver/desktop/desktop.go:624 +0x11bb
+
+goroutine 65 [select]:
+github.com/marrasen/gunim/driver/internal/inbox.(*Inbox).feed(0x3096b22c38c0)
+	D:/GolandProjects/gunim/driver/internal/inbox/inbox.go:67 +0x1f0
+created by github.com/marrasen/gunim/driver/internal/inbox.New in goroutine 1
+	D:/GolandProjects/gunim/driver/internal/inbox/inbox.go:26 +0xe5
+
+goroutine 217 [select, locked to thread]:
+github.com/marrasen/gunim/driver/desktop.(*Window).render(0x3096b1b00008)
+	D:/GolandProjects/gunim/driver/desktop/window.go:1095 +0x332
+created by github.com/marrasen/gunim/driver/desktop.(*Driver).openWindow in goroutine 1
+	D:/GolandProjects/gunim/driver/desktop/desktop.go:624 +0x11bb
+
+goroutine 81 [chan receive]:
+github.com/marrasen/kakel/app.(*app).newFilePane.func3()
+	D:/GolandProjects/kakel/app/fmpanes.go:95 +0x3c
+created by github.com/marrasen/kakel/app.(*app).newFilePane in goroutine 21
+	D:/GolandProjects/kakel/app/fmpanes.go:94 +0x7f7
+
+goroutine 180 [chan receive]:
+github.com/marrasen/gunim/filemanager.readIcons(0x7ff779e048b0)
+	D:/GolandProjects/gunim/filemanager/sysicon.go:136 +0x45
+created by github.com/marrasen/gunim/filemanager.(*app).wantIcon in goroutine 80
+	D:/GolandProjects/gunim/filemanager/sysicon.go:118 +0x42f
+
+goroutine 186 [select]:
+github.com/marrasen/gunim/driver/internal/inbox.(*Inbox).feed(0x3096b12b0800)
+	D:/GolandProjects/gunim/driver/internal/inbox/inbox.go:67 +0x1f0
+created by github.com/marrasen/gunim/driver/internal/inbox.New in goroutine 1
+	D:/GolandProjects/gunim/driver/internal/inbox/inbox.go:26 +0xe5
+
+goroutine 215 [select]:
+github.com/marrasen/gunim/driver/internal/inbox.(*Inbox).feed(0x3096b12b0500)
+	D:/GolandProjects/gunim/driver/internal/inbox/inbox.go:67 +0x1f0
+created by github.com/marrasen/gunim/driver/internal/inbox.New in goroutine 1
+	D:/GolandProjects/gunim/driver/internal/inbox/inbox.go:26 +0xe5
+
+goroutine 242 [select, locked to thread]:
+github.com/marrasen/gunim/driver/desktop.newUIAWindow.func1()
+	D:/GolandProjects/gunim/driver/desktop/uia_windows.go:205 +0x1b1
+created by github.com/marrasen/gunim/driver/desktop.newUIAWindow in goroutine 1
+	D:/GolandProjects/gunim/driver/desktop/uia_windows.go:193 +0xff
+
+goroutine 108 [select]:
+github.com/marrasen/gunim/driver/internal/inbox.(*Inbox).feed(0x3096b12b08c0)
+	D:/GolandProjects/gunim/driver/internal/inbox/inbox.go:67 +0x1f0
+created by github.com/marrasen/gunim/driver/internal/inbox.New in goroutine 1
+	D:/GolandProjects/gunim/driver/internal/inbox/inbox.go:26 +0xe5
+
+goroutine 184 [select]:
+github.com/marrasen/gunim/driver/internal/inbox.(*Inbox).feed(0x3096b12b0300)
+	D:/GolandProjects/gunim/driver/internal/inbox/inbox.go:67 +0x1f0
+created by github.com/marrasen/gunim/driver/internal/inbox.New in goroutine 1
+	D:/GolandProjects/gunim/driver/internal/inbox/inbox.go:26 +0xe5
+
+goroutine 32 [IO wait]:
+internal/poll.runtime_pollWait(0x1ff74e08200, 0x72)
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x3096b427f701?, 0x309600000001?, 0x0)
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*FD).waitIO(0x3096b13760e0, 0x3096b0f143c0)
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/internal/poll/fd_windows.go:233 +0x3d
+internal/poll.(*FD).execIO(0x3096b13760e0, 0x72, 0x3096b427f900, {0x3096b427f8c0, 0x1, 0x3096b0fed875?})
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/internal/poll/fd_windows.go:310 +0x27e
+internal/poll.(*FD).Read(0x3096b13760e0, {0x3096b0fed300, 0x1300, 0x1300})
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/internal/poll/fd_windows.go:611 +0x21f
+net.(*netFD).Read(0x3096b13760e0, {0x3096b0fed300?, 0x3096b13760e0?, 0x3096b427f9d8?})
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/net/fd_posix.go:68 +0x25
+net.(*conn).Read(0x3096b0f02118, {0x3096b0fed300?, 0x3096b427fa00?, 0x2000?})
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/net/net.go:196 +0x45
+crypto/tls.(*Conn).readFromUntil(0x3096b15c4c08, {0x1ff7b1a4be8, 0x3096b0f02118}, 0x3096b427fc20?)
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/crypto/tls/conn.go:820 +0xf4
+crypto/tls.(*Conn).readRecordOrCCS(0x3096b15c4c08, 0x0)
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/crypto/tls/conn.go:626 +0x3fb
+crypto/tls.(*Conn).readRecord(...)
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/crypto/tls/conn.go:588
+crypto/tls.(*Conn).Read(0x3096b15c4c08, {0x3096b12a1000, 0x1000, 0x7ff7783dcf00?})
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/crypto/tls/conn.go:1392 +0x148
+bufio.(*Reader).Read(0x3096b12b8a20, {0x3096b12b2044, 0x9, 0x7ff779a5a118?})
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/bufio/bufio.go:245 +0x193
+io.ReadAtLeast({0x7ff779a5ab78, 0x3096b12b8a20}, {0x3096b12b2044, 0x9, 0x9}, 0x9)
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/io/io.go:335 +0x83
+io.ReadFull(...)
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/io/io.go:354
+net/http/internal/http2.readFrameHeader({0x3096b12b2044, 0x9, 0x0?}, {0x7ff779a5ab78?, 0x3096b12b8a20?})
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/net/http/internal/http2/frame.go:252 +0x65
+net/http/internal/http2.(*Framer).ReadFrameHeader(0x3096b12b2000)
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/net/http/internal/http2/frame.go:525 +0x67
+net/http/internal/http2.(*Framer).ReadFrame(0x3096b12b2000)
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/net/http/internal/http2/frame.go:584 +0x18
+net/http/internal/http2.(*clientConnReadLoop).run(0x3096b427ffa8)
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/net/http/internal/http2/transport.go:2047 +0xdb
+net/http/internal/http2.(*ClientConn).readLoop(0x3096b3838700)
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/net/http/internal/http2/transport.go:1913 +0x52
+created by net/http/internal/http2.(*Transport).newClientConn in goroutine 31
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/net/http/internal/http2/transport.go:703 +0xda7
+
+goroutine 196 [select, locked to thread]:
+github.com/marrasen/gunim/driver/desktop.newUIAWindow.func1()
+	D:/GolandProjects/gunim/driver/desktop/uia_windows.go:205 +0x1b1
+created by github.com/marrasen/gunim/driver/desktop.newUIAWindow in goroutine 1
+	D:/GolandProjects/gunim/driver/desktop/uia_windows.go:193 +0xff
+
+goroutine 179 [chan receive]:
+github.com/marrasen/gunim/filemanager.readIcons(0x7ff779e04890)
+	D:/GolandProjects/gunim/filemanager/sysicon.go:136 +0x45
+created by github.com/marrasen/gunim/filemanager.(*app).wantIcon in goroutine 80
+	D:/GolandProjects/gunim/filemanager/sysicon.go:117 +0x3ff
+
+goroutine 226 [chan receive]:
+github.com/marrasen/gunim/driver/desktop.vblankWaiter(...)
+	D:/GolandProjects/gunim/driver/desktop/vblank_windows.go:156
+created by github.com/marrasen/gunim/driver/desktop.(*vblank).wait in goroutine 185
+	D:/GolandProjects/gunim/driver/desktop/vblank_windows.go:130 +0x428
+
+goroutine 190 [select, locked to thread]:
+github.com/marrasen/gunim/driver/desktop.newUIAWindow.func1()
+	D:/GolandProjects/gunim/driver/desktop/uia_windows.go:205 +0x1b1
+created by github.com/marrasen/gunim/driver/desktop.newUIAWindow in goroutine 1
+	D:/GolandProjects/gunim/driver/desktop/uia_windows.go:193 +0xff
+
+goroutine 195 [select]:
+github.com/marrasen/gunim/driver/internal/inbox.(*Inbox).feed(0x3096b1590b40)
+	D:/GolandProjects/gunim/driver/internal/inbox/inbox.go:67 +0x1f0
+created by github.com/marrasen/gunim/driver/internal/inbox.New in goroutine 1
+	D:/GolandProjects/gunim/driver/internal/inbox/inbox.go:26 +0xe5
+
+goroutine 122 [select, locked to thread]:
+github.com/marrasen/gunim/driver/desktop.newUIAWindow.func1()
+	D:/GolandProjects/gunim/driver/desktop/uia_windows.go:205 +0x1b1
+created by github.com/marrasen/gunim/driver/desktop.newUIAWindow in goroutine 1
+	D:/GolandProjects/gunim/driver/desktop/uia_windows.go:193 +0xff
+
+goroutine 191 [syscall, locked to thread]:
+syscall.syscalln(0x7ff7786c820a?, 0x1ff05d5e1f0?, {0x3096b13a3998?, 0x3096b5a10318?, 0x3096b13a3a00?})
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/runtime/syscall_windows.go:427 +0x48
+syscall.Syscall(0x3?, 0x28?, 0x10?, 0x20?, 0x40?)
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/syscall/dll_windows.go:49 +0x28
+github.com/marrasen/gunim/internal/glfw.wglCreateContextAttribsARB(0x3096b53e4480?, 0x3096b0e76dd0?, 0x3096b0e76e20?)
+	D:/GolandProjects/gunim/internal/glfw/api_windows.go:1834 +0x34
+github.com/marrasen/gunim/internal/glfw.(*Window).createContextWGL(0x3096b1500008, 0x3096b0e76dd0, 0x3096b0e76e20)
+	D:/GolandProjects/gunim/internal/glfw/wgl_context_windows.go:551 +0x697
+github.com/marrasen/gunim/internal/glfw.(*Window).platformCreateDeferredContext(0x3096b1500008, 0x3096b0e76dd0, 0x3096b0e76e20)
+	D:/GolandProjects/gunim/internal/glfw/defer_windows.go:13 +0x45
+github.com/marrasen/gunim/internal/glfw.(*Window).CreateDeferredContext(0x3096b13f37b0?)
+	D:/GolandProjects/gunim/internal/glfw/defer.go:62 +0x6b
+github.com/marrasen/gunim/driver/desktop.(*Window).startGL(0x3096b2312848)
+	D:/GolandProjects/gunim/driver/desktop/window.go:1283 +0x46
+github.com/marrasen/gunim/driver/desktop.(*Window).render(0x3096b2312848)
+	D:/GolandProjects/gunim/driver/desktop/window.go:1060 +0xc5
+created by github.com/marrasen/gunim/driver/desktop.(*Driver).openWindow in goroutine 1
+	D:/GolandProjects/gunim/driver/desktop/desktop.go:624 +0x11bb
+
+goroutine 111 [select, locked to thread]:
+github.com/marrasen/gunim/driver/desktop.newUIAWindow.func1()
+	D:/GolandProjects/gunim/driver/desktop/uia_windows.go:205 +0x1b1
+created by github.com/marrasen/gunim/driver/desktop.newUIAWindow in goroutine 1
+	D:/GolandProjects/gunim/driver/desktop/uia_windows.go:193 +0xff
+
+goroutine 63 [select, locked to thread]:
+github.com/marrasen/gunim/driver/desktop.newUIAWindow.func1()
+	D:/GolandProjects/gunim/driver/desktop/uia_windows.go:205 +0x1b1
+created by github.com/marrasen/gunim/driver/desktop.newUIAWindow in goroutine 1
+	D:/GolandProjects/gunim/driver/desktop/uia_windows.go:193 +0xff
+
+goroutine 189 [chan receive]:
+github.com/marrasen/gunim/driver/desktop.vblankWaiter(...)
+	D:/GolandProjects/gunim/driver/desktop/vblank_windows.go:156
+created by github.com/marrasen/gunim/driver/desktop.(*vblank).wait in goroutine 135
+	D:/GolandProjects/gunim/driver/desktop/vblank_windows.go:130 +0x428
+
+goroutine 121 [select]:
+github.com/marrasen/gunim/driver/internal/inbox.(*Inbox).feed(0x3096b142e000)
+	D:/GolandProjects/gunim/driver/internal/inbox/inbox.go:67 +0x1f0
+created by github.com/marrasen/gunim/driver/internal/inbox.New in goroutine 1
+	D:/GolandProjects/gunim/driver/internal/inbox/inbox.go:26 +0xe5
+
+goroutine 187 [select, locked to thread]:
+github.com/marrasen/gunim/driver/desktop.newUIAWindow.func1()
+	D:/GolandProjects/gunim/driver/desktop/uia_windows.go:205 +0x1b1
+created by github.com/marrasen/gunim/driver/desktop.newUIAWindow in goroutine 1
+	D:/GolandProjects/gunim/driver/desktop/uia_windows.go:193 +0xff
+
+goroutine 216 [select, locked to thread]:
+github.com/marrasen/gunim/driver/desktop.newUIAWindow.func1()
+	D:/GolandProjects/gunim/driver/desktop/uia_windows.go:205 +0x1b1
+created by github.com/marrasen/gunim/driver/desktop.newUIAWindow in goroutine 1
+	D:/GolandProjects/gunim/driver/desktop/uia_windows.go:193 +0xff
+
+goroutine 185 [select, locked to thread]:
+github.com/marrasen/gunim/driver/desktop.(*Window).render(0x3096b143ab08)
+	D:/GolandProjects/gunim/driver/desktop/window.go:1095 +0x332
+created by github.com/marrasen/gunim/driver/desktop.(*Driver).openWindow in goroutine 1
+	D:/GolandProjects/gunim/driver/desktop/desktop.go:624 +0x11bb
+
+goroutine 212 [chan receive, locked to thread]:
+github.com/marrasen/gunim/driver/desktop.(*Window).Close.func1()
+	D:/GolandProjects/gunim/driver/desktop/window.go:411 +0x5b
+sync.(*Once).doSlow(0x3096b143ab08?, 0x3096b1375680?)
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/sync/once.go:78 +0xab
+sync.(*Once).Do(...)
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/sync/once.go:69
+github.com/marrasen/gunim/driver/desktop.(*Window).Close(0x3096b5615c30?)
+	D:/GolandProjects/gunim/driver/desktop/window.go:408 +0x46
+github.com/marrasen/gunim.(*UI).closeAllPopups(0x3096b1826c08)
+	D:/GolandProjects/gunim/popup.go:758 +0xda
+github.com/marrasen/gunim.(*UI).startLeaving(...)
+	D:/GolandProjects/gunim/ui.go:2341
+github.com/marrasen/gunim.(*Window).wait(0x3096b3822800)
+	D:/GolandProjects/gunim/ui.go:1089 +0x7dc
+github.com/marrasen/gunim.(*Window).loop(0x3096b3822800)
+	D:/GolandProjects/gunim/ui.go:1001 +0x213
+created by github.com/marrasen/gunim.(*App).NewWindow in goroutine 99
+	D:/GolandProjects/gunim/ui.go:410 +0x6d9
+
+goroutine 181 [chan receive, locked to thread]:
+github.com/marrasen/gunim/driver/desktop.(*Driver).call(0x3096b0fb06c0, 0x3096b5500000)
+	D:/GolandProjects/gunim/driver/desktop/desktop.go:187 +0xe8
+github.com/marrasen/gunim/driver/desktop.(*Window).Close.func1()
+	D:/GolandProjects/gunim/driver/desktop/window.go:416 +0x1c8
+sync.(*Once).doSlow(0x0?, 0x0?)
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/sync/once.go:78 +0xab
+sync.(*Once).Do(...)
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/sync/once.go:69
+github.com/marrasen/gunim/driver/desktop.(*Window).Close(0x0?)
+	D:/GolandProjects/gunim/driver/desktop/window.go:408 +0x46
+github.com/marrasen/gunim.(*Window).loop.func2()
+	D:/GolandProjects/gunim/ui.go:989 +0x30
+github.com/marrasen/gunim.(*Window).loop(0x3096b1792e00)
+	D:/GolandProjects/gunim/ui.go:1002 +0x23f
+created by github.com/marrasen/gunim.(*App).NewWindow in goroutine 100
+	D:/GolandProjects/gunim/ui.go:410 +0x6d9
+
+goroutine 62 [select, locked to thread]:
+github.com/marrasen/gunim/driver/desktop.newUIAWindow.func1()
+	D:/GolandProjects/gunim/driver/desktop/uia_windows.go:205 +0x1b1
+created by github.com/marrasen/gunim/driver/desktop.newUIAWindow in goroutine 1
+	D:/GolandProjects/gunim/driver/desktop/uia_windows.go:193 +0xff
+
+goroutine 218 [syscall]:
+syscall.syscalln(0x0?, 0x0?, {0x3096b14dde30?, 0x0?, 0x0?})
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/runtime/syscall_windows.go:427 +0x48
+syscall.SyscallN(0x3096b173de28?, {0x3096b14dde30?, 0x0?, 0x0?})
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/syscall/dll_windows.go:99 +0x1e
+syscall.WaitForSingleObject(0x1238, 0xffffffff)
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/syscall/zsyscall_windows.go:1159 +0x69
+os.(*Process).wait(0x3096b5b231c0)
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/os/exec_windows.go:28 +0x89
+os.(*Process).Wait(...)
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/os/exec.go:347
+github.com/marrasen/kakel/session.startIn.func1()
+	D:/GolandProjects/kakel/session/pty_windows.go:49 +0x1c
+github.com/marrasen/kakel/session.(*local).Wait.func1()
+	D:/GolandProjects/kakel/session/local.go:210 +0x1f
+sync.(*Once).doSlow(0x3096b136b8c8?, 0x3096b14dddf0?)
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/sync/once.go:78 +0xab
+sync.(*Once).Do(...)
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/sync/once.go:69
+github.com/marrasen/kakel/session.(*local).Wait(0x3096b32ce120)
+	D:/GolandProjects/kakel/session/local.go:210 +0x3b
+github.com/marrasen/kakel/session.StartLocal.func1()
+	D:/GolandProjects/kakel/session/local.go:146 +0x1c
+created by github.com/marrasen/kakel/session.StartLocal in goroutine 21
+	D:/GolandProjects/kakel/session/local.go:145 +0x71b
+
+goroutine 158 [syscall, locked to thread]:
+syscall.syscalln(0x0?, 0x0?, {0x3096b13f7e28?, 0x3096b2cc82e8?, 0x0?})
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/runtime/syscall_windows.go:427 +0x48
+syscall.SyscallN(0x3096b13f7e40?, {0x3096b13f7e28?, 0x3096b1356060?, 0x3096b15a34e0?})
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/syscall/dll_windows.go:99 +0x1e
+golang.org/x/sys/windows.WaitForSingleObject(0x6e8, 0xffffffff)
+	D:/GoCache/mod/golang.org/x/sys@v0.48.0/windows/zsyscall_windows.go:3641 +0x69
+github.com/marrasen/oto/v3.(*wasapiContext).loopOnRenderThread(0x3096b0e76000)
+	D:/GoCache/mod/github.com/marrasen/oto/v3@v3.5.1-gunim.5/driver_wasapi_windows.go:471 +0xae
+github.com/marrasen/oto/v3.(*wasapiContext).loop(0x3096b0e76000)
+	D:/GoCache/mod/github.com/marrasen/oto/v3@v3.5.1-gunim.5/driver_wasapi_windows.go:451 +0x9f
+github.com/marrasen/oto/v3.(*wasapiContext).run(0x3096b0e76000)
+	D:/GoCache/mod/github.com/marrasen/oto/v3@v3.5.1-gunim.5/driver_wasapi_windows.go:252 +0x78
+created by github.com/marrasen/oto/v3.(*wasapiContext).start in goroutine 51
+	D:/GoCache/mod/github.com/marrasen/oto/v3@v3.5.1-gunim.5/driver_wasapi_windows.go:232 +0x65
+
+goroutine 123 [select, locked to thread]:
+github.com/marrasen/gunim/driver/desktop.(*Window).render(0x3096b1c42008)
+	D:/GolandProjects/gunim/driver/desktop/window.go:1095 +0x332
+created by github.com/marrasen/gunim/driver/desktop.(*Driver).openWindow in goroutine 1
+	D:/GolandProjects/gunim/driver/desktop/desktop.go:624 +0x11bb
+
+goroutine 64 [select, locked to thread]:
+github.com/marrasen/gunim/driver/desktop.(*Window).render(0x3096b46e3088)
+	D:/GolandProjects/gunim/driver/desktop/window.go:1095 +0x332
+created by github.com/marrasen/gunim/driver/desktop.(*Driver).openWindow in goroutine 1
+	D:/GolandProjects/gunim/driver/desktop/desktop.go:624 +0x11bb
+
+goroutine 127 [select, locked to thread]:
+github.com/marrasen/gunim/driver/desktop.newUIAWindow.func1()
+	D:/GolandProjects/gunim/driver/desktop/uia_windows.go:205 +0x1b1
+created by github.com/marrasen/gunim/driver/desktop.newUIAWindow in goroutine 1
+	D:/GolandProjects/gunim/driver/desktop/uia_windows.go:193 +0xff
+
+goroutine 228 [select]:
+github.com/marrasen/gunim/driver/internal/inbox.(*Inbox).feed(0x3096b12b0e40)
+	D:/GolandProjects/gunim/driver/internal/inbox/inbox.go:67 +0x1f0
+created by github.com/marrasen/gunim/driver/internal/inbox.New in goroutine 1
+	D:/GolandProjects/gunim/driver/internal/inbox/inbox.go:26 +0xe5
+
+goroutine 135 [syscall, locked to thread]:
+syscall.syscalln(0x3f800000?, 0x3096b389a010?, {0x3096b389a010?, 0x4?, 0x3096b2891648?})
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/runtime/syscall_windows.go:427 +0x48
+syscall.SyscallN(0x3096b389a010?, {0x3096b389a010?, 0x3096b28916b0?, 0x3096b2891688?})
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/syscall/dll_windows.go:99 +0x1e
+github.com/ebitengine/purego.syscall_syscallN(...)
+	D:/GoCache/mod/github.com/ebitengine/purego@v0.11.0/syscall_windows.go:15
+github.com/ebitengine/purego.SyscallN(0x3096b389a010?, {0x3096b389a010?, 0x3096b28916e0?, 0x2?})
+	D:/GoCache/mod/github.com/ebitengine/purego@v0.11.0/syscall.go:79 +0x25
+github.com/marrasen/gunim/internal/gl.(*defaultContext).call(0x3096b389a008, 0x7fffe8f8ec20?, {0x3096b28916c8?, 0x3096b3827a40?, 0xde1?})
+	D:/GolandProjects/gunim/internal/gl/default_purego.go:142 +0x7d
+github.com/marrasen/gunim/internal/gl.(*defaultContext).GenerateMipmap(0x3096b209d508?, 0xb209d8c8?)
+	D:/GolandProjects/gunim/internal/gl/default_purego.go:356 +0x2d
+github.com/marrasen/gunim/driver/internal/render.(*Renderer).blur(0x3096b209d508, 0x23, {{0x0?, 0x0?}, {0x0?, 0x0?}}, 0x0?)
+	D:/GolandProjects/gunim/driver/internal/render/blur.go:81 +0x2a8
+github.com/marrasen/gunim/driver/internal/render.(*Renderer).closeLayer(0x3096b209d508)
+	D:/GolandProjects/gunim/driver/internal/render/render.go:1310 +0x3eb
+github.com/marrasen/gunim/driver/internal/render.(*Renderer).replay(0x3096b209d508, {0x3096b5522008?, 0x3096b5522008?, 0x339?})
+	D:/GolandProjects/gunim/driver/internal/render/render.go:898 +0x2f7
+github.com/marrasen/gunim/driver/internal/render.(*Renderer).Draw(0x3096b209d508, {0x3096b5522008, 0x88, 0x8f}, {{0x0?, 0x0?}, {0x1?, 0x0?}}, 0x320, 0x339, ...)
+	D:/GolandProjects/gunim/driver/internal/render/render.go:770 +0x9b8
+github.com/marrasen/gunim/driver/desktop.(*Window).render(0x3096b26ee2c8)
+	D:/GolandProjects/gunim/driver/desktop/window.go:1122 +0x667
+created by github.com/marrasen/gunim/driver/desktop.(*Driver).openWindow in goroutine 1
+	D:/GolandProjects/gunim/driver/desktop/desktop.go:624 +0x11bb
+
+goroutine 136 [chan receive, locked to thread]:
+github.com/marrasen/gunim/driver/desktop.(*Window).Close.func1()
+	D:/GolandProjects/gunim/driver/desktop/window.go:411 +0x5b
+sync.(*Once).doSlow(0x3096b26ee2c8?, 0x3096b0ea8f00?)
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/sync/once.go:78 +0xab
+sync.(*Once).Do(...)
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/sync/once.go:69
+github.com/marrasen/gunim/driver/desktop.(*Window).Close(0x1?)
+	D:/GolandProjects/gunim/driver/desktop/window.go:408 +0x46
+github.com/marrasen/gunim.(*UI).closeAllPopups(0x3096b1827808)
+	D:/GolandProjects/gunim/popup.go:758 +0xda
+github.com/marrasen/gunim.(*UI).startLeaving(...)
+	D:/GolandProjects/gunim/ui.go:2341
+github.com/marrasen/gunim.(*Window).wait(0x3096b1475400)
+	D:/GolandProjects/gunim/ui.go:1089 +0x7dc
+github.com/marrasen/gunim.(*Window).loop(0x3096b1475400)
+	D:/GolandProjects/gunim/ui.go:1001 +0x213
+created by github.com/marrasen/gunim.(*App).NewWindow in goroutine 100
+	D:/GolandProjects/gunim/ui.go:410 +0x6d9
+
+goroutine 139 [syscall]:
+syscall.syscalln(0x0?, 0x0?, {0x3096b173de30?, 0x2?, 0x0?})
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/runtime/syscall_windows.go:427 +0x48
+syscall.SyscallN(0x3096b173de58?, {0x3096b173de30?, 0x3096b1827808?, 0x7ff779a5dbc0?})
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/syscall/dll_windows.go:99 +0x1e
+syscall.WaitForSingleObject(0x99c, 0xffffffff)
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/syscall/zsyscall_windows.go:1159 +0x69
+os.(*Process).wait(0x3096b1e74000)
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/os/exec_windows.go:28 +0x89
+os.(*Process).Wait(...)
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/os/exec.go:347
+github.com/marrasen/kakel/session.startIn.func1()
+	D:/GolandProjects/kakel/session/pty_windows.go:49 +0x1c
+github.com/marrasen/kakel/session.(*local).Wait.func1()
+	D:/GolandProjects/kakel/session/local.go:210 +0x1f
+sync.(*Once).doSlow(0x3096b173df80?, 0x3096b173df70?)
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/sync/once.go:78 +0xab
+sync.(*Once).Do(...)
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/sync/once.go:69
+github.com/marrasen/kakel/session.(*local).Wait(0x3096b31f8000)
+	D:/GolandProjects/kakel/session/local.go:210 +0x3b
+github.com/marrasen/kakel/session.StartLocal.func1()
+	D:/GolandProjects/kakel/session/local.go:146 +0x1c
+created by github.com/marrasen/kakel/session.StartLocal in goroutine 21
+	D:/GolandProjects/kakel/session/local.go:145 +0x71b
+
+goroutine 140 [select]:
+github.com/marrasen/kakel/ui/term.(*Terminal).writeLoop(0x3096b1370a08, 0x3096b1e75880)
+	D:/GolandProjects/kakel/ui/term/term.go:1749 +0xf2
+created by github.com/marrasen/kakel/ui/term.(*Terminal).begin in goroutine 21
+	D:/GolandProjects/kakel/ui/term/term.go:425 +0x87
+
+goroutine 141 [syscall]:
+syscall.syscalln(0x0?, 0x0?, {0x3096b1577b50?, 0x180?, 0x0?})
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/runtime/syscall_windows.go:427 +0x48
+syscall.SyscallN(0x3096b1577b58?, {0x3096b1577b50?, 0x180?, 0x7ff779893c58?})
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/syscall/dll_windows.go:99 +0x1e
+syscall.readFile(0x5e8, {0x3096b3032000?, 0x10000, 0x4?}, 0x7ff779843c28?, 0x3096b1577c48?)
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/syscall/zsyscall_windows.go:1030 +0xb9
+syscall.ReadFile(...)
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/syscall/syscall_windows.go:510
+internal/poll.(*FD).Read.func1(0x7ff779dafbe0?)
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/internal/poll/fd_windows.go:597 +0x4a
+internal/poll.(*FD).execIO(0x3096b20fa900, 0x72, 0x3096b1577da0, {0x3096b1577d70, 0x1, 0x24?})
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/internal/poll/fd_windows.go:303 +0x1ed
+internal/poll.(*FD).Read(0x3096b20fa900, {0x3096b3032000, 0x10000, 0x10000})
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/internal/poll/fd_windows.go:596 +0x2e5
+os.(*File).read(...)
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/os/file_posix.go:30
+os.(*File).Read(0x3096b0f02648, {0x3096b3032000?, 0xcbd4eeecf559f802?, 0x10000?})
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/os/file.go:144 +0x4f
+github.com/marrasen/kakel/internal/conpty.(*Console).Read(...)
+	D:/GolandProjects/kakel/internal/conpty/conpty_windows.go:232
+github.com/marrasen/kakel/session.(*local).Read(0x0?, {0x3096b3032000?, 0x3096b1577ed0?, 0x7ff778d78c6f?})
+	D:/GolandProjects/kakel/session/local.go:166 +0x1f
+github.com/marrasen/kakel/screen.countedSession.Read({{0x7ff779a64668?, 0x3096b31f8000?}, 0x3096b2010060?}, {0x3096b3032000?, 0x3096b1577f00?, 0x7ff778924b8a?})
+	D:/GolandProjects/kakel/screen/shell.go:131 +0x39
+github.com/marrasen/kakel/ui/term.(*Terminal).readLoop(0x3096b1370a08, 0x3096b1e75880)
+	D:/GolandProjects/kakel/ui/term/term.go:1796 +0x186
+created by github.com/marrasen/kakel/ui/term.(*Terminal).begin in goroutine 21
+	D:/GolandProjects/kakel/ui/term/term.go:426 +0xe5
+
+goroutine 219 [select]:
+github.com/marrasen/kakel/ui/term.(*Terminal).writeLoop(0x3096b11b3808, 0x3096b5b23800)
+	D:/GolandProjects/kakel/ui/term/term.go:1749 +0xf2
+created by github.com/marrasen/kakel/ui/term.(*Terminal).begin in goroutine 21
+	D:/GolandProjects/kakel/ui/term/term.go:425 +0x87
+
+goroutine 220 [syscall]:
+syscall.syscalln(0x0?, 0x0?, {0x3096b33b3b50?, 0x180?, 0x0?})
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/runtime/syscall_windows.go:427 +0x48
+syscall.SyscallN(0x3096b33b3b58?, {0x3096b33b3b50?, 0x180?, 0x7ff779893c58?})
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/syscall/dll_windows.go:99 +0x1e
+syscall.readFile(0x644, {0x3096b6050000?, 0x10000, 0x4?}, 0x7ff779843c28?, 0x3096b33b3c48?)
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/syscall/zsyscall_windows.go:1030 +0xb9
+syscall.ReadFile(...)
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/syscall/syscall_windows.go:510
+internal/poll.(*FD).Read.func1(0x7ff779dafbe0?)
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/internal/poll/fd_windows.go:597 +0x4a
+internal/poll.(*FD).execIO(0x3096b217c9c0, 0x72, 0x3096b33b3da0, {0x3096b33b3d70, 0x1, 0x24?})
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/internal/poll/fd_windows.go:303 +0x1ed
+internal/poll.(*FD).Read(0x3096b217c9c0, {0x3096b6050000, 0x10000, 0x10000})
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/internal/poll/fd_windows.go:596 +0x2e5
+os.(*File).read(...)
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/os/file_posix.go:30
+os.(*File).Read(0x3096b12822d8, {0x3096b6050000?, 0xa329dc18b8158186?, 0x10000?})
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/os/file.go:144 +0x4f
+github.com/marrasen/kakel/internal/conpty.(*Console).Read(...)
+	D:/GolandProjects/kakel/internal/conpty/conpty_windows.go:232
+github.com/marrasen/kakel/session.(*local).Read(0x0?, {0x3096b6050000?, 0x3096b33b3ed0?, 0x7ff778d78c6f?})
+	D:/GolandProjects/kakel/session/local.go:166 +0x1f
+github.com/marrasen/kakel/screen.countedSession.Read({{0x7ff779a64668?, 0x3096b32ce120?}, 0x3096b2088100?}, {0x3096b6050000?, 0x3096b33b3f00?, 0x7ff778924b8a?})
+	D:/GolandProjects/kakel/screen/shell.go:131 +0x39
+github.com/marrasen/kakel/ui/term.(*Terminal).readLoop(0x3096b11b3808, 0x3096b5b23800)
+	D:/GolandProjects/kakel/ui/term/term.go:1796 +0x186
+created by github.com/marrasen/kakel/ui/term.(*Terminal).begin in goroutine 21
+	D:/GolandProjects/kakel/ui/term/term.go:426 +0xe5
+
+goroutine 245 [select, locked to thread]:
+github.com/marrasen/gunim/driver/desktop.newUIAWindow.func1()
+	D:/GolandProjects/gunim/driver/desktop/uia_windows.go:205 +0x1b1
+created by github.com/marrasen/gunim/driver/desktop.newUIAWindow in goroutine 1
+	D:/GolandProjects/gunim/driver/desktop/uia_windows.go:193 +0xff
+
+goroutine 246 [select, locked to thread]:
+github.com/marrasen/gunim/driver/desktop.(*Window).render(0x3096b26eeb08)
+	D:/GolandProjects/gunim/driver/desktop/window.go:1095 +0x332
+created by github.com/marrasen/gunim/driver/desktop.(*Driver).openWindow in goroutine 1
+	D:/GolandProjects/gunim/driver/desktop/desktop.go:624 +0x11bb
+
+goroutine 221 [select]:
+github.com/marrasen/gunim/driver/internal/inbox.(*Inbox).feed(0x3096b1358500)
+	D:/GolandProjects/gunim/driver/internal/inbox/inbox.go:67 +0x1f0
+created by github.com/marrasen/gunim/driver/internal/inbox.New in goroutine 1
+	D:/GolandProjects/gunim/driver/internal/inbox/inbox.go:26 +0xe5
+
+goroutine 222 [select, locked to thread]:
+github.com/marrasen/gunim/driver/desktop.newUIAWindow.func1()
+	D:/GolandProjects/gunim/driver/desktop/uia_windows.go:205 +0x1b1
+created by github.com/marrasen/gunim/driver/desktop.newUIAWindow in goroutine 1
+	D:/GolandProjects/gunim/driver/desktop/uia_windows.go:193 +0xff
+
+goroutine 223 [select, locked to thread]:
+github.com/marrasen/gunim/driver/desktop.(*Window).render(0x3096b4754588)
+	D:/GolandProjects/gunim/driver/desktop/window.go:1095 +0x332
+created by github.com/marrasen/gunim/driver/desktop.(*Driver).openWindow in goroutine 1
+	D:/GolandProjects/gunim/driver/desktop/desktop.go:624 +0x11bb
+
+goroutine 128 [syscall, locked to thread]:
+syscall.syscalln(0x3096b14a7ab8?, 0x7ff7783807b3?, {0x3096b3ae5330?, 0x3096b14a7c2e?, 0x2?})
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/runtime/syscall_windows.go:427 +0x48
+syscall.SyscallN(0x1ff728886e0?, {0x3096b3ae5330?, 0x3096b3ae5330?, 0x3096b2af8008?})
+	D:/GoCache/mod/golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64/src/syscall/dll_windows.go:99 +0x1e
+github.com/ebitengine/purego.syscall_syscallN(...)
+	D:/GoCache/mod/github.com/ebitengine/purego@v0.11.0/syscall_windows.go:15
+github.com/ebitengine/purego.SyscallN(0xffffffffffffffff?, {0x3096b3ae5330?, 0x10?, 0x1?})
+	D:/GoCache/mod/github.com/ebitengine/purego@v0.11.0/syscall.go:79 +0x25
+github.com/marrasen/gunim/internal/gl.(*defaultContext).DeleteFramebuffer(0x3096b3514408, 0x1)
+	D:/GolandProjects/gunim/internal/gl/default_purego.go:299 +0x74
+github.com/marrasen/gunim/driver/desktop.(*presenter).close(0x3096b46d4420)
+	D:/GolandProjects/gunim/driver/desktop/present_windows.go:426 +0x3e
+github.com/marrasen/gunim/driver/desktop.(*Window).render.func2()
+	D:/GolandProjects/gunim/driver/desktop/window.go:1073 +0x2f
+github.com/marrasen/gunim/driver/desktop.(*Window).render(0x3096b1e66008)
+	D:/GolandProjects/gunim/driver/desktop/window.go:1097 +0xe44
+created by github.com/marrasen/gunim/driver/desktop.(*Driver).openWindow in goroutine 1
+	D:/GolandProjects/gunim/driver/desktop/desktop.go:624 +0x11bb
