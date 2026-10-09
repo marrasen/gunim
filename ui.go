@@ -348,6 +348,11 @@ type WindowOptions struct {
 	// Hidden opens the window without showing it, as for an application
 	// that starts in the tray and may close it unseen.
 	Hidden bool
+	// Theme is the theme the window draws in from its first frame, until the application names another with
+	// [Client.SetTheme], which comes a frame or more later: for a window that must look right from the start, as a
+	// see-through one, which would otherwise show the default theme's opaque background as it opens. A theme with no
+	// name leaves the default.
+	Theme theme.Theme
 	// DragFromBehind lets a drag start from the window while another
 	// window is in front of it, as from Explorer's windows: a press on
 	// the window's content leaves it where it is, a drag from the press
@@ -380,6 +385,9 @@ func (a *App) NewWindow(o WindowOptions) (*Window, error) {
 	}
 
 	w := newWindow(dw, o.Root)
+	if o.Theme.Name != "" {
+		w.ui.theme = theme.NewLive(o.Theme)
+	}
 	w.title = o.Title
 	w.askToClose = o.AskToClose
 	w.ui.underBar = o.UnderTitleBar
