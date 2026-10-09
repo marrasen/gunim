@@ -109,6 +109,10 @@ func (u *UI) handleRaw(root *state, ev any) {
 			target = u.appRoot()
 		}
 		u.bubble(target, ev)
+		// The whole window went out of sight, not one view: a view under
+		// a dialog or an intro that holds the keyboard hears it too, so a
+		// game's music stops with it.
+		u.tellViews(target, ev)
 		return
 	case driver.FilesOver:
 		if root != u.root {
@@ -811,6 +815,21 @@ func (u *UI) bubbleTo(s *state, e input.Event, top *state) bool {
 		}
 	}
 	return false
+}
+
+// tellViews hands e to each view mounted at the root that bubbling it
+// up from start did not pass, so every view in the window hears it
+// once. A view on its way out hears nothing.
+func (u *UI) tellViews(start *state, e input.Event) {
+	passed := map[*state]bool{}
+	for s := start; s != nil; s = s.parent {
+		passed[s] = true
+	}
+	for _, k := range slices.Clone(u.appRoot().kids) {
+		if !passed[k] && k.presence != Exiting {
+			u.deliver(k, e)
+		}
+	}
 }
 
 // deliver hands e to exactly one node and stops there. Enter, leave and
