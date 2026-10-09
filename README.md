@@ -743,7 +743,7 @@ path data.
 | `gunim/icon` | Lucide's icons as strokes, drawn as tinted masks; `icon/byname` looks them up by name |
 | `gunim/shape` | Vector art: SVG path data filled or stroked as a mask, and SVG files read into figures |
 | `gunim/geom` | float32 points, sizes, rectangles, and 3D vectors and matrices |
-| `gunim/syntax` | Splits source code into tokens to colour; `syntax.Go` reads Go with `go/scanner` |
+| `gunim/syntax` | Splits source code into tokens to colour; `syntax.Go` reads Go with `go/scanner`, and `Bash`, `PowerShell` and `Batch` read what is typed at bash, PowerShell and the Command Prompt |
 | `gunim/markdown` | Shows Markdown as gunim text that the reader can select and copy |
 | `gunim/match` | Finds a typed query in lines of text, ranked as a command palette ranks them |
 | `gunim/emoji` | The emoji in a picker's groups, with their names for searching |
