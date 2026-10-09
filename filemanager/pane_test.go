@@ -354,3 +354,22 @@ func TestAHostShowsThePanesMenus(t *testing.T) {
 		t.Fatalf("the pane shows its menus' button, at %v, while the host shows the menus", button)
 	}
 }
+
+// A pane that moves to another window shows the system's icons there
+// too, though the new window starts with none of them.
+func TestAPaneKeepsItsIconsInAnotherWindow(t *testing.T) {
+	fakeIcons(t)
+	p := newPaneWorld(t, "sub/", "a.txt")
+	one := newPaneScreen(t, p.pw)
+	two := newPaneScreen(t, p.pw)
+	p.pw.Attach(one.w.Client(), "slot")
+	one.until("the icons show in the first window", func() bool {
+		b := one.browser()
+		return b != nil && b.icons["dir"].Small != nil && b.icons["ext:.txt"].Small != nil
+	})
+	p.pw.Attach(two.w.Client(), "slot")
+	two.until("the icons show in the second window", func() bool {
+		b := two.browser()
+		return b != nil && b.icons["dir"].Small != nil && b.icons["ext:.txt"].Small != nil
+	})
+}

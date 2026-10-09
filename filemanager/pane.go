@@ -227,6 +227,9 @@ func (a *app) attach(c gunim.Client, parent gunim.ID) {
 	clear(a.iconsSent)
 	a.send(a.c.Mount(parent, a.ids.browser(), "browser", a.shell))
 	a.republish()
+	// So those of the folder showing are sent again: the next listing
+	// may be a long way off, and its rows draw none until then.
+	a.keyIcons(a.nav.path, a.nav.all)
 }
 
 // detach takes the pane out of its window. The dialog asking stays
