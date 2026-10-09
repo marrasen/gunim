@@ -53,6 +53,16 @@ func gameFrame() (frame func(), items int) {
 	}, len(crowd)
 }
 
+// sceneAt returns the painter's i-th op, which must be a scene.
+func sceneAt(t *testing.T, p *Painter, i int) *SceneOp {
+	t.Helper()
+	s, ok := p.Ops()[i].(*SceneOp)
+	if !ok {
+		t.Fatalf("op %d is a %T, want a scene", i, p.Ops()[i])
+	}
+	return s
+}
+
 func TestASceneDrawnEveryFrameAllocatesNothing(t *testing.T) {
 	frame, items := gameFrame()
 	// The first frames grow the painter's buffers to what a frame takes.
@@ -79,14 +89,14 @@ func TestASceneKeepsItsItemsAsTheyWereWhenRecorded(t *testing.T) {
 	want := slices.Clone(items)
 	p.Scene(geom.Rc(0, 0, 100, 100), Scene{Items: items})
 	moveCrowd(items, 5)
-	got := p.Ops()[0].(*SceneOp).Scene.Items
+	got := sceneAt(t, &p, 0).Scene.Items
 	if !slices.Equal(got, want) {
 		t.Fatalf("the op's items changed with the caller's slice: %v", got)
 	}
 	// An append to one scene's items does not reach the next scene's.
 	p.Scene(geom.Rc(0, 0, 100, 100), Scene{Items: want})
 	_ = append(got, SceneItem{Shine: 99})
-	if next := p.Ops()[1].(*SceneOp).Scene.Items; !slices.Equal(next, want) {
+	if next := sceneAt(t, &p, 1).Scene.Items; !slices.Equal(next, want) {
 		t.Fatalf("an append to the first scene's items reached the second's: %v", next)
 	}
 }
@@ -165,7 +175,7 @@ func TestASceneKeptInARecordingSurvivesLaterFrames(t *testing.T) {
 	p.Scene(geom.Rc(0, 0, 200, 100), Scene{Items: items})
 	p.Reset()
 	p.Replay(&r)
-	if got := p.Ops()[0].(*SceneOp).Scene.Items; !slices.Equal(got, want) {
+	if got := sceneAt(t, &p, 0).Scene.Items; !slices.Equal(got, want) {
 		t.Fatal("the recording's scene changed once replayed and drawn over")
 	}
 }
