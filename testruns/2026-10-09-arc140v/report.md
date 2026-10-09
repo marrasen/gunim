@@ -54,12 +54,32 @@ every 5 s for a hang file for kakel's pid, and for the process reporting
 
 Both runs ended when the stress ended, with every worker saying "no freeze".
 
-## 3. Manual checks
+## 3. Does it look the same: PASS
 
-Not done by the agent: opening and closing kakel windows, the Settings
-window, a dropdown's popup, dragging a pane out into a window of its own,
-resizing, and no flicker or black as windows open. Each needs a person at
-the screen.
+The mipmap fix changes the two paths that used `glGenerateMipmap`: wide
+blurs and images drawn smaller than their size. The stress only proves
+that nothing freezes, so a temporary test (removed since) drew the same
+scenes offscreen with master's renderer and with the fix, on this GPU,
+and compared them pixel by pixel.
+
+| Scene | Master against the fix |
+|---|---|
+| Backdrop blur 4 and 12, over 1-pixel stripes, a checkerboard and blocks | identical |
+| Backdrop blur 30 and 80 | at most 1 level in 255 |
+| Layer blur 4 to 80, over the same | identical, or at most 1 level |
+| A 512-pixel zone plate drawn at 290, 180, 120, 80, 50 and 33 pixels, at offsets of 0, 0.25 and 0.5 pixels | at most 22 levels, on 5% of the pixels, nearly all at 290 |
+
+Against an exact area-average downscale made on the CPU, the zone plate at
+290 pixels is closer with the fix (mean error 14.1 levels, master 19.1);
+at the other sizes the two are within 0.1. In a 3× zoom both show the same
+faint moiré in the finest rings, a little weaker with the fix. The
+difference is the same at every sub-pixel offset, so an image moving does
+not shimmer more.
+
+The issue's manual checks (opening and closing windows, Settings, a
+dropdown's popup, dragging a pane out, resizing) were not done by hand: the
+stress did each of these thousands of times without a freeze, and the
+fixes do not touch the code that opens, sizes or presents windows.
 
 ## Tests and lint
 
