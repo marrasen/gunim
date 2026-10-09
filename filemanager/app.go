@@ -163,6 +163,7 @@ type app struct {
 	preview previewState
 	thumbs  thumbState
 	viewer  viewerState
+	reading readingState
 	search  searchState
 	places  []Place
 	favs    []Favourite
@@ -280,7 +281,7 @@ func (a *app) join(h *Hub, w *Window) {
 	w.a = a
 	a.publishClip()
 	a.handlers = []handler{a.handleDnd, a.handleNav, a.handleOps, a.handlePreview, a.handlePlaces, a.handleShell,
-		a.handleIcons, a.handleViewer, a.handleSearch, a.handleTheme}
+		a.handleIcons, a.handleViewer, a.handleReading, a.handleSearch, a.handleTheme}
 	a.startup(a.opts)
 }
 

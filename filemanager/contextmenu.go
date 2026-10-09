@@ -26,6 +26,7 @@ const (
 // rowItems are the context menu of the items selected.
 var rowItems = []menuItem{
 	{"Open", "Enter", CmdOpen},
+	{"View", "Space", CmdViewer},
 	{"Open with system", "", CmdOpenSystem},
 	{"Open with", "", localOpenWith},
 	{"Open in new window", "", localOpenWindow},
@@ -226,6 +227,8 @@ func (pg *listingPage) contextMenu(g gunim.Node, rowAt func(geom.Point) int, sel
 				return clipEmpty
 			case CmdRename:
 				return !one
+			case CmdViewer:
+				return !one || sel[0].Dir
 			case localOpenWindow:
 				return !one || !sel[0].Dir
 			case localOpenWith:

@@ -81,7 +81,7 @@ func newBrowser() *browser {
 	b.banner = newBannerView(b.focusListing)
 	b.side = newSidebar()
 	b.listing = newListingArea(b)
-	b.preview = newPreviewPane()
+	b.preview = newPreviewPane(func(key string) *paint.Image { return b.icons[key].Large })
 	b.ops = newOpsPanel()
 	b.status = newStatusBar()
 	b.palette = newFilesPalette(b)

@@ -339,6 +339,15 @@ func (s screen) Open(path string) error {
 	return s.c.Open(path)
 }
 
+// OpenLink opens a web address in the browser, as
+// [gunim.Client.OpenLink] does.
+func (s screen) OpenLink(url string) error {
+	if !s.on {
+		return nil
+	}
+	return s.c.OpenLink(url)
+}
+
 // Reveal shows a file in the system's file manager, as [gunim.Client.Reveal] does.
 func (s screen) Reveal(path string) error {
 	if !s.on {
@@ -365,6 +374,9 @@ func (v viewIDs) browser() gunim.ID { return gunim.ID(v.prefix) + browserID }
 func (v viewIDs) dialog(n int) gunim.ID {
 	return gunim.ID(v.prefix) + dialogID + gunim.ID("-"+strconv.Itoa(n))
 }
+
+// reading is the ID of the nth text viewer.
+func (v viewIDs) reading(n int) gunim.ID { return gunim.ID(v.prefix + "reading-" + strconv.Itoa(n)) }
 
 // viewer is the ID of the nth picture viewer.
 func (v viewIDs) viewer(n int) gunim.ID { return gunim.ID(v.prefix + "viewer-" + strconv.Itoa(n)) }
