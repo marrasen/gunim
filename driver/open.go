@@ -347,6 +347,14 @@ type Attender interface {
 	RequestAttention()
 }
 
+// A Cloaker is a [Window] that can be taken off the screen while it
+// stays open, out of the pointer's way, and put back as it was: on
+// Windows cloaked, as the system does a window on another desktop,
+// keeping its button on the task bar; elsewhere hidden.
+type Cloaker interface {
+	SetCloaked(on bool)
+}
+
 // A Fronter is a [Window] that can come to the front with the keyboard,
 // shown again first if it was minimized: one of an application's
 // windows the user asked for from another. Where the platform keeps a

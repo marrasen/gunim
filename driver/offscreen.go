@@ -35,8 +35,9 @@ type OffscreenWindow struct {
 	mu    sync.Mutex
 	size  geom.Size
 	scale float32
-	// pinned says the window was last asked to stay above other windows.
-	pinned bool
+	// pinned says the window was last asked to stay above other windows,
+	// and cloaked that it was last taken off the screen.
+	pinned, cloaked bool
 	// zoom multiplies scale, and divides the size the content is laid out in.
 	zoom float32
 	rate float64
@@ -536,6 +537,20 @@ func (w *OffscreenWindow) SetClipboardImage(png []byte) {
 
 // Close implements [Window].
 func (w *OffscreenWindow) Close() error { return nil }
+
+// SetCloaked implements [Cloaker]: Cloaked reports it.
+func (w *OffscreenWindow) SetCloaked(on bool) {
+	w.mu.Lock()
+	w.cloaked = on
+	w.mu.Unlock()
+}
+
+// Cloaked reports whether the window was last cloaked; see [Cloaker].
+func (w *OffscreenWindow) Cloaked() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.cloaked
+}
 
 // Hide implements [Recycler].
 func (w *OffscreenWindow) Hide() error {

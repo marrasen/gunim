@@ -41,6 +41,14 @@ func (u *UI) handleRaw(root *state, ev any) {
 		// A window on its way out takes nothing more.
 		return
 	}
+	if u.fadeOut {
+		// Nor does one fading out, or out, save word of the keyboard.
+		switch ev.(type) {
+		case driver.WindowFocus, driver.WindowShown, driver.WindowCovered:
+		default:
+			return
+		}
+	}
 	if root == u.root {
 		switch e := ev.(type) {
 		case input.PointerMove, input.PointerDown, input.Scroll, input.KeyPress:

@@ -434,8 +434,10 @@ type Window struct {
 	// Client.Input.
 	shots    chan shotRequest
 	injected chan input.Event
-	// leave asks the window to animate out and close.
+	// leave asks the window to animate out and close, and fade to fade
+	// out, or back in, and stay open; see Client.Fade.
 	leave chan struct{}
+	fade  chan bool
 	// title is the window's title, which a screen reader reads for it.
 	title string
 	// askToClose is sent to the application when the user asks to close
@@ -523,6 +525,7 @@ func newWindow(dw driver.Window, root Node) *Window {
 		popupIn:  make(chan popupEvent, 16),
 		shots:    make(chan shotRequest),
 		leave:    make(chan struct{}, 1),
+		fade:     make(chan bool, 1),
 		injected: make(chan input.Event),
 		dragIn:   make(chan dragMsg, 64),
 		blends:   true,
@@ -673,6 +676,30 @@ func (c Client) Leave() {
 	select {
 	case c.w.leave <- struct{}{}:
 	default:
+	}
+}
+
+// Fade fades the window out, as [Client.Leave] does, but keeps it open:
+// once it has gone it is off the screen and out of the pointer's way,
+// and where the system has a task bar its button stays there. Fade with
+// out unset brings it back, fading in, from as far as it had gone. Input
+// is ignored while it is out or on its way, and its popups close as it
+// starts. It draws no frames while it is out.
+//
+// It is for a window that steps aside for a while, as a program's
+// windows do while an overview of them shows.
+func (c Client) Fade(out bool) {
+	for {
+		select {
+		case c.w.fade <- out:
+			return
+		default:
+			// The last word counts: an earlier one not yet read goes.
+			select {
+			case <-c.w.fade:
+			default:
+			}
+		}
 	}
 }
 
@@ -878,6 +905,8 @@ func (w *Window) Frame(delta time.Duration) {
 			w.ui.dragMsg(m)
 		case <-w.leave:
 			w.ui.startLeaving()
+		case out := <-w.fade:
+			w.ui.setFade(out)
 		default:
 			drained = true
 		}
@@ -990,7 +1019,10 @@ func (w *Window) wants() bool {
 // are, unless it is closing, as a window leaving animates out, or a
 // shot waits on a frame.
 func (w *Window) draws() bool {
-	return !w.hidden && !w.covered || w.ui.goingAway || w.ui.shotsOwed.Load() > 0
+	if w.ui.away && !w.ui.goingAway {
+		return w.ui.shotsOwed.Load() > 0
+	}
+	return !w.hidden && !w.covered || w.ui.goingAway || w.ui.fadeMoving() || w.ui.shotsOwed.Load() > 0
 }
 
 // wait blocks until something happens, handles it, and reports whether
@@ -1055,6 +1087,8 @@ func (w *Window) wait() bool {
 		w.ui.shoot(req)
 	case <-w.leave:
 		w.ui.startLeaving()
+	case out := <-w.fade:
+		w.ui.setFade(out)
 	case ev := <-w.injected:
 		w.platform(ev)
 		w.ui.focusNow()
@@ -1287,6 +1321,14 @@ type UI struct {
 	// is the frame it began in.
 	arriving  bool
 	arrivedAt time.Time
+	// fadeOut says the window is fading out, or out, as Client.Fade
+	// asked, and faded how far it has gone, from 0 to 1, having gone
+	// fadeFrom at the frame fadeAt. away says it has gone whole, and is
+	// off the screen.
+	fadeOut         bool
+	faded, fadeFrom float32
+	fadeAt          time.Time
+	away            bool
 	// spare holds popup windows hidden to open again, and spared counts
 	// the ones made ahead of time.
 	spare  []spareWindow
@@ -2200,6 +2242,9 @@ func (u *UI) frame(now time.Time, delta time.Duration) {
 			// Eased in: slow to start, gone quickly.
 			gone = max(gone, k*k)
 		}
+		if k := u.fadeBy(now); k > 0 {
+			gone = max(gone, k*k)
+		}
 		// The window's background shows where the tree paints nothing, such
 		// as the gap beside a split's handle. Where the window can show what
 		// is behind it, a fading window draws it itself, inside its shape,
@@ -2241,6 +2286,7 @@ func (u *UI) frame(now time.Time, delta time.Duration) {
 		u.w.err = fmt.Errorf("gunim: present frame: %w", err)
 		u.w.Close()
 	}
+	u.fadedAway()
 	u.sendTitleBar()
 	u.placeCaret()
 	u.syncText(u.focus, false)
@@ -2293,6 +2339,62 @@ func (u *UI) startLeaving() {
 	}
 	u.goingAway, u.invalid = true, true
 	u.closeAllPopups()
+}
+
+// setFade starts the window fading out, or back in: see [Client.Fade].
+func (u *UI) setFade(out bool) {
+	if out == u.fadeOut {
+		return
+	}
+	u.fadeOut, u.invalid = out, true
+	u.fadeFrom, u.fadeAt = u.faded, time.Time{}
+	if out {
+		u.closeAllPopups()
+		return
+	}
+	if u.away {
+		// On the screen again, as it was last drawn: gone whole.
+		u.away = false
+		if c, ok := u.w.dw.(driver.Cloaker); ok {
+			c.SetCloaked(false)
+		}
+	}
+}
+
+// fadeMoving reports whether the window is fading, out or in.
+func (u *UI) fadeMoving() bool {
+	return u.fadeOut && u.faded < 1 || !u.fadeOut && u.faded > 0
+}
+
+// fadeBy is how far the window has faded, from 0 to 1, at the frame
+// stamped now, moving it on toward where Client.Fade asked.
+func (u *UI) fadeBy(now time.Time) float32 {
+	if !u.fadeMoving() {
+		return u.faded
+	}
+	if u.fadeAt.IsZero() {
+		u.fadeAt = now
+	}
+	step := float32(now.Sub(u.fadeAt)) / float32(LeaveTime)
+	if u.fadeOut {
+		u.faded = min(u.fadeFrom+step, 1)
+	} else {
+		u.faded = max(u.fadeFrom-step, 0)
+	}
+	u.animating = true
+	return u.faded
+}
+
+// fadedAway takes a window that has faded out whole off the screen, once
+// that last frame has gone to it.
+func (u *UI) fadedAway() {
+	if !u.fadeOut || u.faded < 1 || u.away {
+		return
+	}
+	u.away = true
+	if c, ok := u.w.dw.(driver.Cloaker); ok {
+		c.SetCloaked(true)
+	}
 }
 
 // leftBy is how far the window has gone in leaving, from 0 to 1, at the

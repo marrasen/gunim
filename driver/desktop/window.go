@@ -1341,6 +1341,16 @@ func charOf(k glfw.Key, scancode int) rune {
 	return r[0]
 }
 
+// SetCloaked implements [driver.Cloaker].
+func (w *Window) SetCloaked(on bool) {
+	w.debugf("cloaked %v", on)
+	w.d.post(func() {
+		if !w.closed {
+			setCloaked(w, on)
+		}
+	})
+}
+
 // Hide implements [driver.Recycler].
 func (w *Window) Hide() error {
 	return w.d.call(func() error {
