@@ -344,6 +344,9 @@ type compositor struct {
 	// last is the stack laid last, so a change in it, as a popup
 	// moving or hiding, draws a frame with no window presenting.
 	last []layer
+	// at holds a layer's rect for the GL, kept here so handing it
+	// through gl.Context allocates nothing.
+	at [4]float32
 }
 
 const compositeVertex = `#version 300 es
@@ -460,7 +463,8 @@ func (c *compositor) draw(g gl.Context, stack []layer, w, h int) {
 		x1 := 2*float32(l.x+l.w.texW)/float32(w) - 1
 		y1 := 1 - 2*float32(l.y)/float32(h)
 		y0 := 1 - 2*float32(l.y+l.w.texH)/float32(h)
-		g.Uniform4fv(c.rect, []float32{x0, y0, x1, y1})
+		c.at = [4]float32{x0, y0, x1, y1}
+		g.Uniform4fv(c.rect, c.at[:])
 		g.BindTexture(gl.TEXTURE_2D, l.w.tex)
 		g.DrawElements(gl.TRIANGLES, 6, glUnsignedShort, 0)
 	}
