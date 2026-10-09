@@ -823,18 +823,21 @@ drawn once per set of colours. An opaque layer clipped to an ellipse,
 `LayerOpts.Ellipse`, draws in place, with no offscreen pass: each quad
 inside it is cut to the ellipse as it draws.
 
-Shapes, masks and images can add their light to what is beneath them
-rather than cover it, as a game's sparks, trails and glows do: where
-two of them overlap they brighten each other, up to white.
-`p.Blend(paint.BlendAdd)` draws so until the function it returns is
-called, and an `RRectOp`, `MaskOp` or `ImageOp` carries its `Blend`
-as it carries its transform. A shape's shadow adds too, which makes a
-halo. Under the premultiplied blending everything draws with, a colour
-with an alpha of 0 adds itself and hides nothing, so the shader gives
-an added quad's colour that alpha, and it shares the batch of the
-quads around it. Inside a layer the light adds to what lies beneath
-the layer as it composites, times the layer's opacity. Text, cells,
-layers and scenes draw normally whatever the blend.
+Shapes, masks, images, text and whole layers can add their light to
+what is beneath them rather than cover it, as a game's sparks, trails
+and glows do: where two of them overlap they brighten each other, up
+to white. `p.Blend(paint.BlendAdd)` draws so until the function it
+returns is called. Each op records the blend in force as it records
+its transform, unless it asks for its own: an `RRectOp` or
+`LayerOpts` with `Blend: paint.BlendNormal` covers what is beneath
+even inside an added stretch. A shape's shadow adds too, which makes
+a halo. Under the premultiplied blending everything draws with, a
+colour with an alpha of 0 adds itself and hides nothing, so the shader
+gives an added quad's colour that alpha, and it shares the batch of
+the quads around it. Inside a layer the light adds to what lies
+beneath the layer as it composites, times the layer's opacity. A layer
+with `Blend: paint.BlendAdd` adds all it holds, times its opacity.
+Cells and scenes draw normally whatever the blend.
 
 ```go
 defer p.Blend(paint.BlendAdd)()
