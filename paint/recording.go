@@ -95,7 +95,9 @@ func (p *Painter) Keep(mark int, r *Recording) {
 // Empty reports whether the recording holds nothing to draw.
 func (r *Recording) Empty() bool { return r == nil || len(r.ops) == 0 }
 
-// Replay draws the recording again, in the current space.
+// Replay draws the recording again, in the current space. Each command
+// keeps the blend it was recorded with, as [Painter.Again] keeps it,
+// whatever the blend in force.
 func (p *Painter) Replay(r *Recording) {
 	if r.Empty() {
 		return
