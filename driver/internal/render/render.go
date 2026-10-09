@@ -425,6 +425,10 @@ vec4 shade(out vec4 cover) {
 		float d = sdRRect(v_local - v_extra.xy, r, v_param.x + spread);
 		float blur = max(v_extra.z, 0.5);
 		col = premul(v_color0) * (1.0 - smoothstep(-blur, blur, d));
+		if (v_param.y > 0.5) {
+			// Kept outside the shape, as CSS's box-shadow is.
+			col *= 1.0 - coverage(sdRRect(v_local, v_rect, v_param.x));
+		}
 	} else if (kind == 3) {
 		float cov;
 		if (v_param.y > 0.5) {
@@ -1141,11 +1145,17 @@ func (r *Renderer) rrect(op *paint.RRectOp) {
 	// The shadow goes first, underneath, on a quad grown to hold it.
 	if sh := op.Shadow; sh.Color.A > 0 {
 		grow := sh.Blur + sh.Spread + 2
-		r.quad(corners(grow4(op.Rect.Add(sh.Offset), grow), geom.Rect{}), op.Transform, r.scale, &look{
+		l := &look{
 			rect: op.Rect, radius: op.Radius, kind: kindShadow, add: add,
 			color0: rgba(sh.Color),
 			extra:  [4]float32{sh.Offset.X, sh.Offset.Y, sh.Blur, sh.Spread},
-		})
+		}
+		if sh.Outside {
+			// The stroke's place carries Outside to the shader: a
+			// shadow has no stroke.
+			l.stroke = 1
+		}
+		r.quad(corners(grow4(op.Rect.Add(sh.Offset), grow), geom.Rect{}), op.Transform, r.scale, l)
 	}
 
 	l := look{rect: op.Rect, radius: op.Radius, kind: kindShape, add: add, color0: rgba(op.Fill.Solid)}

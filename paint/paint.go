@@ -722,6 +722,11 @@ type Shadow struct {
 	Blur   float32
 	Spread float32
 	Color  color.NRGBA
+	// Outside keeps the shadow out from under the shape, as CSS's
+	// box-shadow is: a see-through shape, such as frosted glass, then
+	// shows what lies behind it undarkened. A drop shadow, Outside
+	// applies to it alone, not to an inset shadow.
+	Outside bool
 }
 
 // TextOp draws a run of already-shaped text.
