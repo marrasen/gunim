@@ -394,6 +394,23 @@ func (w *Window) OpenLink(url string) error { return openLink(url) }
 // Vibrate implements [driver.Vibrator] with the phone's vibration motor.
 func (w *Window) Vibrate(pattern ...time.Duration) error { return vibrate(pattern) }
 
+// ExcludeSystemGestures implements [driver.GestureExcluder] with the
+// view's system gesture exclusion, from Android 10; before it, where
+// back is a button, it does nothing.
+func (w *Window) ExcludeSystemGestures(rects []geom.Rect) error {
+	w.d.mu.Lock()
+	at, f := w.rectLocked().Min, w.d.density
+	w.d.mu.Unlock()
+	px := func(v float32) int32 { return int32(math.Round(float64(v * f))) }
+	xy := make([]int32, 0, 4*len(rects))
+	for _, r := range rects {
+		r = r.Add(at)
+		xy = append(xy, px(r.Min.X), px(r.Min.Y), px(r.Max.X), px(r.Max.Y))
+	}
+	excludeGestures(xy)
+	return nil
+}
+
 // ChooseFiles implements [driver.FileChooser] for folders: the system's
 // chooser of folders, for a folder on the phone's storage or a card,
 // which a program reads once it has the permission for what it reads,
@@ -425,6 +442,7 @@ var (
 	_ driver.Sharer          = (*Window)(nil)
 	_ driver.LinkOpener      = (*Window)(nil)
 	_ driver.Vibrator        = (*Window)(nil)
+	_ driver.GestureExcluder = (*Window)(nil)
 	_ driver.Compass         = (*Window)(nil)
 	_ driver.SafeAreaer      = (*Window)(nil)
 	_ driver.KeyboardCoverer = (*Window)(nil)

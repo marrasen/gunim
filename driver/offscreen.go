@@ -63,6 +63,8 @@ type OffscreenWindow struct {
 	// SetVibrator.
 	share   func(Share) error
 	vibrate func([]time.Duration) error
+	// excluded is what ExcludeSystemGestures last kept.
+	excluded []geom.Rect
 	// compass answers WatchHeading; see SetCompass.
 	compass func(on bool)
 	// anchor is where a popup was last attached, and origin where the
@@ -832,6 +834,22 @@ func (w *OffscreenWindow) Vibrate(pattern ...time.Duration) error {
 		return ErrNoVibrator
 	}
 	return fn(pattern)
+}
+
+// ExcludeSystemGestures implements [GestureExcluder] by keeping rects,
+// for a test to read with SystemGesturesExcluded.
+func (w *OffscreenWindow) ExcludeSystemGestures(rects []geom.Rect) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.excluded = append(w.excluded[:0], rects...)
+	return nil
+}
+
+// SystemGesturesExcluded is what ExcludeSystemGestures last kept.
+func (w *OffscreenWindow) SystemGesturesExcluded() []geom.Rect {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return append([]geom.Rect(nil), w.excluded...)
 }
 
 // SetCompass gives the window a pretend compass, for a test standing in for a device with one: fn hears each call

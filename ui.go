@@ -831,6 +831,21 @@ func (c Client) Vibrate(pattern ...time.Duration) error {
 	return v.Vibrate(pattern...)
 }
 
+// ExcludeSystemGestures keeps swipes in from the screen's edges within
+// rects, in the window's units, for the program rather than the system:
+// on Android, a drag begun at the edge inside one steers the game
+// instead of going back. Each call replaces the last, and a call with
+// none gives the edges back. Android honours at most 200 dp of each
+// side's height. It returns [driver.ErrNoSystemGestures] where the
+// system takes no edge swipes, as a desktop.
+func (c Client) ExcludeSystemGestures(rects ...geom.Rect) error {
+	g, ok := c.w.dw.(driver.GestureExcluder)
+	if !ok {
+		return driver.ErrNoSystemGestures
+	}
+	return g.ExcludeSystemGestures(rects)
+}
+
 // awaitDialog runs show, which shows a dialog, and waits for its answer,
 // the window to close, or ctx to end.
 func awaitDialog[T any](ctx context.Context, c Client, show func() (T, error)) (T, error) {

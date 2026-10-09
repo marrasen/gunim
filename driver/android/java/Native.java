@@ -59,6 +59,23 @@ public final class Native {
 		});
 	}
 
+	// excludeGestures keeps the system's edge gestures, as back, out of
+	// the rects in r, four pixel coordinates each, from Android 10.
+	static void excludeGestures(int[] r) {
+		if (android.os.Build.VERSION.SDK_INT < 29) {
+			return;
+		}
+		java.util.ArrayList<android.graphics.Rect> rects = new java.util.ArrayList<>();
+		for (int i = 0; i + 3 < r.length; i += 4) {
+			rects.add(new android.graphics.Rect(r[i], r[i + 1], r[i + 2], r[i + 3]));
+		}
+		ui.post(() -> {
+			if (view != null) {
+				view.setSystemGestureExclusionRects(rects);
+			}
+		});
+	}
+
 	static void caret(int x0, int y0, int x1, int y1) {
 		ui.post(() -> {
 			if (view != null) {
