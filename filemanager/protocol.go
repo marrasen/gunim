@@ -256,15 +256,20 @@ type Command struct {
 
 // The commands.
 const (
-	CmdBack      = "back"
-	CmdForward   = "forward"
-	CmdUp        = "up"
-	CmdHome      = "home"
-	CmdRefresh   = "refresh"
-	CmdOpen      = "open"
-	CmdCopy      = "copy"
-	CmdCut       = "cut"
-	CmdPaste     = "paste"
+	CmdBack    = "back"
+	CmdForward = "forward"
+	CmdUp      = "up"
+	CmdHome    = "home"
+	CmdRefresh = "refresh"
+	CmdOpen    = "open"
+	CmdCopy    = "copy"
+	CmdCut     = "cut"
+	CmdPaste   = "paste"
+	// CmdZip makes a zip of the items selected, in their folder, and
+	// CmdPasteZip makes one of the items on the clipboard, in the folder
+	// showing. Each asks for the zip's name first.
+	CmdZip       = "zip"
+	CmdPasteZip  = "pastezip"
 	CmdTrash     = "trash"
 	CmdDelete    = "delete"
 	CmdRename    = "rename"

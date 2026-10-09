@@ -104,9 +104,10 @@ type Options struct {
 }
 
 // Transfer is items going from one file system to another, which the
-// window cannot do itself: copied, or moved when Move is set. A drop or
-// a paste of items from several folders makes one Transfer for each,
-// and each runs as an operation of its own.
+// window cannot do itself: copied, or moved when Move is set, or put
+// into a new zip file when Zip is set. A drop or a paste of items from
+// several folders makes one Transfer for each, and each runs as an
+// operation of its own; a paste as a zip makes one Transfer of all.
 type Transfer struct {
 	// FromFS is the ID of the file system the items are on, and Paths
 	// the items, all in one folder.
@@ -117,6 +118,10 @@ type Transfer struct {
 	ToFS string
 	Into string
 	Move bool
+	// Zip, when set, is the name of a new zip file in Into that the
+	// items go into, with all that folders among them hold: ZipFiles
+	// makes it. Nothing may be at its path already.
+	Zip string
 }
 
 // app is the application half. Everything on it runs on the serve loop;
