@@ -76,28 +76,22 @@ func (o *otoOutput) Read(p []byte) (int, error) {
 
 func (o *otoOutput) rate() int { return o.hz }
 
-// output returns how long the sound past the player's buffer takes to
-// be heard: as the system reports it, where it does, which on Android
-// counts a Bluetooth headset's own delay; or device.
-func (o *otoOutput) output() time.Duration {
-	if d, ok := o.ctx.OutputLatency(); ok {
-		return d
-	}
-	return device
-}
-
+// held returns how many frames the mixer gave that are not heard yet:
+// those in the player's buffer, and, where the system reports it, those
+// sent on that it has not played, which on Android counts a Bluetooth
+// headset's own delay.
 func (o *otoOutput) held() int64 {
-	return int64(o.player.BufferedSize()/8) + audio.FramesAt(o.output(), o.hz)
+	return int64(o.player.UnplayedSize() / 8)
 }
 
 func (o *otoOutput) setAhead(d time.Duration) {
-	frames := audio.FramesAt(max(d-o.output(), device), o.hz)
+	frames := audio.FramesAt(max(d-device, device), o.hz)
 	o.buffer.Store(frames)
 	o.player.SetBufferSize(int(frames) * 8)
 }
 
 func (o *otoOutput) latency() time.Duration {
-	return o.output() + audio.DurationAt(o.buffer.Load(), o.hz)
+	return device + audio.DurationAt(o.buffer.Load(), o.hz)
 }
 
 func (o *otoOutput) fill(st *State) {
