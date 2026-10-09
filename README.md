@@ -12,8 +12,8 @@ still changes as the examples ask more of it.
 
 Text shapes and wraps in pure Go, including right-to-left and mixed
 scripts. Sound plays in pure Go on the desktop. The examples below are
-full programs: a file manager, a calendar, a chat client and a candy
-sudoku among them.
+full programs: a file manager, a calendar and a chat client among
+them.
 
 `example/twowindows` is where gunim started: two windows, each
 animating a rounded rectangle on its own render thread, built with
@@ -128,30 +128,9 @@ masters an album, an EP or a single, through chains of VST3 plugins. It
 started here as `example/mastering` and is now a project of its own,
 built on gunim's `audio`, `audio/vst3` and `audioui`.
 
-`example/sudoku` is a sudoku of candies, made for a phone and laid out
-for a desktop too, to see how far the animation goes. Each digit is a
-candy of its own colour and shape. Candies drop in and wobble like
-jelly; a wrong one shakes, crumbles and breaks a heart as the board
-shakes; a finished row sweeps with light; quick candies build a combo
-that calls out "Sweet!" with stars; a won board bounces under fireworks.
-Picking a candy sets every candy of its digit hopping, a new level's
-candies run in and leap into their cells, and after a win Pac-Man eats
-the board row by row. Each digit is a note on a marimba, so filling the
-board plays tunes. The music is a song in ten synths, each coming and
-going in 16-bar phrases, so it never plays the same twice: Greek
-Themes, which package `audio/band` plays. A map winds
-through 60 levels, from Easy to Expert, in three layers that scroll at
-their own speeds, and a heart hops along it as each level opens.
-
-```sh
-go run ./example/sudoku
-```
-
-Tap a cell, then a candy; or a candy, then each cell it goes in. On a
-desktop the arrows move, digits place, and Shift with a digit pencils a
-note. Progress is kept between runs.
-
-![The candy sudoku and its map](example/sudoku/sudoku.png)
+Bonbon Sudoku, a sudoku of candies made for a phone, started here as
+`example/sudoku`, to see how far the animation goes. It is now an app of
+Skalarit AB's, on its way to Google Play.
 
 Three smaller examples show one thing each. `example/widgets` is a
 gallery of the widgets, with a dark and a light theme to switch
