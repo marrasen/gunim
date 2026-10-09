@@ -800,3 +800,83 @@ func TestRowsLineUpWithTheTabsAndAllValuesRowsAreEven(t *testing.T) {
 		t.Fatal("a number in All values is not compact")
 	}
 }
+
+// clickOn clicks the middle of n.
+func clickOn(t *testing.T, w *gunim.Window, u *gunim.UI, run func(int), n gunim.Node) {
+	t.Helper()
+	r, ok := u.Bounds(n)
+	if !ok {
+		t.Fatalf("%T is not laid out", n)
+	}
+	at := r.Center()
+	w.Input(input.PointerMove{Pos: at, Time: time.Now()})
+	w.Input(input.PointerDown{Pos: at, Button: input.ButtonPrimary, Clicks: 1, Time: time.Now()})
+	w.Input(input.PointerUp{Pos: at, Button: input.ButtonPrimary, Time: time.Now()})
+	run(2)
+}
+
+// With OnSave, the edits are a draft: Save hands them to the program,
+// and Discard takes them back to those last saved.
+func TestADraftIsKeptOnlyBySave(t *testing.T) {
+	var saves []theme.Theme
+	saved := theme.Make("dark", theme.Set(widget.Gap, float32(20)))
+	e, w, u, run, _ := edStage(t, Options{Base: widget.Dark(), Overrides: saved, Sections: []Section{cursorSection},
+		OnSave: func(over theme.Theme, _ *gunim.UI) gunim.Intent { saves = append(saves, over); return nil }})
+	if e.save == nil || e.discard == nil {
+		t.Fatal("the header has no Save and Discard")
+	}
+	if e.Unsaved() || !e.save.Disabled || !e.discard.Disabled {
+		t.Fatal("opened, the editor has changes to save")
+	}
+	red := color.NRGBA{R: 0xff, A: 0xff}
+	if err := e.Set(widget.Accent.Key(), red, true, u); err != nil {
+		t.Fatal(err)
+	}
+	run(1)
+	if !e.Unsaved() || e.save.Disabled || e.discard.Disabled || !strings.Contains(e.count.Text, "not saved") {
+		t.Fatalf("edited, unsaved %v, Save off %v, Discard off %v, the count says %q", e.Unsaved(), e.save.Disabled, e.discard.Disabled, e.count.Text)
+	}
+	if len(saves) != 0 {
+		t.Fatal("an edit was saved before Save")
+	}
+	clickOn(t, w, u, run, e.discard)
+	if e.Unsaved() || e.Overrides().Has(widget.Accent.Key()) || !e.Overrides().Has(widget.Gap.Key()) {
+		t.Fatalf("discarded, the overrides are %v, want those saved", e.Overrides().Keys())
+	}
+	if err := e.Set(widget.Accent.Key(), red, true, u); err != nil {
+		t.Fatal(err)
+	}
+	run(1)
+	clickOn(t, w, u, run, e.save)
+	if len(saves) != 1 || valueIn(saves[0], widget.Accent) != red || valueIn(saves[0], widget.Gap) != 20 {
+		t.Fatalf("Save handed the program %v", saves)
+	}
+	if e.Unsaved() || !e.save.Disabled || strings.Contains(e.count.Text, "not saved") {
+		t.Fatal("saved, the editor still has changes to save")
+	}
+	// Reset all is a draft too, and so is going back to what was saved.
+	e.ResetAll(u)
+	if !e.Unsaved() {
+		t.Fatal("Reset all left nothing to save")
+	}
+	e.Undo(u)
+	if e.Unsaved() {
+		t.Fatal("undone back to the values saved, the editor has changes to save")
+	}
+	// Values the program gives are saved ones.
+	e.SetOverrides(theme.Make("dark"), u)
+	if e.Unsaved() {
+		t.Fatal("given new overrides, the editor has changes to save")
+	}
+}
+
+// Without OnSave, every edit is live, and there is nothing to save.
+func TestWithoutOnSaveThereIsNoSave(t *testing.T) {
+	e, _, u, _, _ := edStage(t, Options{Base: widget.Dark(), Sections: []Section{cursorSection}})
+	if err := e.Set(widget.Accent.Key(), color.NRGBA{R: 0xff, A: 0xff}, true, u); err != nil {
+		t.Fatal(err)
+	}
+	if e.save != nil || e.discard != nil || e.Unsaved() || strings.Contains(e.count.Text, "not saved") {
+		t.Fatal("an editor without OnSave has a draft")
+	}
+}
