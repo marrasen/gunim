@@ -54,12 +54,20 @@ type Painter struct {
 	// popFn is pop as a func value, made once, so Push allocates
 	// nothing.
 	popFn func()
-	// rrects and texts hold the ops themselves, in blocks, so a frame
-	// allocates a block now and then, never an op at a time. The blocks
-	// of the frame before this one are reused; the driver is done with
-	// them by then.
+	// rrects, texts, masks and scenes hold the ops themselves, in
+	// blocks, so a frame allocates a block now and then, never an op at
+	// a time. The blocks of the frame before this one are reused; the
+	// driver is done with them by then. An op kept past that, in a
+	// Recording, is a copy, never one of these.
 	rrects, prevRRects slab[RRectOp]
 	texts, prevTexts   slab[TextOp]
+	masks, prevMasks   slab[MaskOp]
+	scenes, prevScenes slab[SceneOp]
+	// items holds the items of every scene this frame records, back to
+	// back, and prevItems those of the frame before, kept from frame to
+	// frame as the blocks are. A scene of a thousand items drawn every
+	// frame would otherwise copy them to a new slice every frame.
+	items, prevItems []SceneItem
 	// floats holds painting put off until the rest of the frame is
 	// done; see Float.
 	floats []func(*Painter)
@@ -88,13 +96,21 @@ func (s *slab[T]) take() *T {
 	}
 	v := &s.blocks[s.at][s.n]
 	s.n++
-	var zero T
-	*v = zero
 	return v
 }
 
-// reset makes every block available again.
-func (s *slab[T]) reset() { s.at, s.n = 0, 0 }
+// reset makes every block available again. It zeroes what was taken,
+// so take hands out zeroed Ts, and an op the next frame leaves untaken
+// holds on to nothing: no mesh, item array, shape or glyphs.
+func (s *slab[T]) reset() {
+	for _, b := range s.blocks[:s.at] {
+		clear(b)
+	}
+	if s.at < len(s.blocks) {
+		clear(s.blocks[s.at][:s.n])
+	}
+	s.at, s.n = 0, 0
+}
 
 // Everything is the damage that covers the whole window.
 var Everything = geom.Rect{Min: geom.Pt(-1e9, -1e9), Max: geom.Pt(1e9, 1e9)}
@@ -104,14 +120,25 @@ var Everything = geom.Rect{Min: geom.Pt(-1e9, -1e9), Max: geom.Pt(1e9, 1e9)}
 // it are reused.
 func (p *Painter) Reset() {
 	p.hasPrev = p.ready
+	// The ops of the frame before last are let go, all the way to the
+	// buffer's end, so a frame of fewer ops keeps none of them alive.
+	clear(p.prev[:cap(p.prev)])
 	p.prev, p.ops = p.ops, p.prev[:0]
 	p.prevBounds, p.bounds = p.bounds, p.prevBounds[:0]
 	p.prevBlurs, p.blurs = p.blurs, false
 	p.prevTilts, p.tilts = p.tilts, false
 	p.prevRRects, p.rrects = p.rrects, p.prevRRects
 	p.prevTexts, p.texts = p.texts, p.prevTexts
+	p.prevMasks, p.masks = p.masks, p.prevMasks
+	p.prevScenes, p.scenes = p.scenes, p.prevScenes
 	p.rrects.reset()
 	p.texts.reset()
+	p.masks.reset()
+	p.scenes.reset()
+	// The items of the frame before last let go of their meshes, so a
+	// mesh no longer drawn is not held on to by a buffer left unused.
+	clear(p.prevItems)
+	p.prevItems, p.items = p.items, p.prevItems[:0]
 	p.open = p.open[:0]
 	p.stack = p.stack[:0]
 	p.cur = Identity

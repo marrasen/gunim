@@ -851,7 +851,11 @@ tap on the head puts a glass bubble round it.
 The painter compares each frame with the one before, and the driver
 redraws only the part that changed into a canvas it keeps, then copies
 the canvas to the window. A button easing into its hover colour costs
-the button. Images upload to the GPU once, with mipmaps, and stay while
+the button. The painter records each frame into the storage of the
+frame before last, which the driver is done with: shapes, text, masks
+and scenes, a scene's items too. So a game that draws a scene of
+thousands of items and hundreds of masks every frame makes no garbage
+for the collector, which on a phone would otherwise cost frames. Images upload to the GPU once, with mipmaps, and stay while
 frames draw them. A layer's `Blur` and `Backdrop` are Gaussian
 blurs, run at half or a quarter of the resolution when they are wide.
 Text is shaped and wrapped by go-text/typesetting, a

@@ -219,11 +219,51 @@ func (w *OffscreenWindow) Post(ev any) { w.input <- ev }
 func (w *OffscreenWindow) Present(ops []paint.Op, damage geom.Rect) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	// The engine reuses its buffers once the frame is reported shown,
-	// so keep a copy for Ops to return.
-	w.ops = slices.Clone(ops)
+	// The engine reuses its buffers, the ops themselves among them, two
+	// frames on, so keep a copy for Ops to return.
+	w.ops = keepOps(ops)
 	w.damage = damage
 	return nil
+}
+
+// keepOps copies ops deep enough that later frames leave the copy as
+// it is: each op, and the glyphs, items or cells it lists. What an op
+// points to that the engine never reuses, such as a mesh, an image or
+// a gradient, is shared.
+func keepOps(ops []paint.Op) []paint.Op {
+	kept := make([]paint.Op, len(ops))
+	for i, op := range ops {
+		switch op := op.(type) {
+		case *paint.RRectOp:
+			c := *op
+			kept[i] = &c
+		case *paint.TextOp:
+			c := *op
+			c.Glyphs = slices.Clone(op.Glyphs)
+			kept[i] = &c
+		case *paint.MaskOp:
+			c := *op
+			kept[i] = &c
+		case *paint.SceneOp:
+			c := *op
+			c.Scene.Items = slices.Clone(op.Scene.Items)
+			kept[i] = &c
+		case *paint.ImageOp:
+			c := *op
+			kept[i] = &c
+		case *paint.CellsOp:
+			c := *op
+			c.Cells = slices.Clone(op.Cells)
+			kept[i] = &c
+		case *paint.LayerOp:
+			c := *op
+			kept[i] = &c
+		default:
+			// A LayerEndOp holds nothing.
+			kept[i] = op
+		}
+	}
+	return kept
 }
 
 // SetCursor implements [CursorSetter].
