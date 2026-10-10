@@ -102,8 +102,8 @@ func (r *runner) zipAll(srcs []string, dest, name, password string) error {
 	if to.ID() == from.ID() {
 		skip = part
 	}
-	zw := zip.NewWriter(out)
-	r.password = password
+	// Each item is protected with the password, where it is not empty.
+	zw := zipcrypt.NewWriter(zip.NewWriter(out), password)
 	for _, src := range srcs {
 		if err := r.zipTree(zw, src, skip); err != nil {
 			return errors.Join(err, zw.Close(), out.Close(), to.Remove(part))
@@ -129,7 +129,7 @@ func (r *runner) zipAll(srcs []string, dest, name, password string) error {
 
 // zipTree writes the item at src, and all it holds, into zw, under its
 // own name, leaving out the file at skip.
-func (r *runner) zipTree(zw *zip.Writer, src, skip string) error {
+func (r *runner) zipTree(zw *zipcrypt.Writer, src, skip string) error {
 	fsys := r.env.fs
 	ps := fsys.Paths()
 	top := ps.Dir(src)
@@ -165,7 +165,7 @@ func (r *runner) zipTree(zw *zip.Writer, src, skip string) error {
 }
 
 // zipItem writes the item at p, found as info, into zw as rel.
-func (r *runner) zipItem(zw *zip.Writer, p, rel string, info fs.FileInfo) error {
+func (r *runner) zipItem(zw *zipcrypt.Writer, p, rel string, info fs.FileInfo) error {
 	fsys := r.env.fs
 	ps := fsys.Paths()
 	h, err := zip.FileInfoHeader(info)
@@ -178,7 +178,7 @@ func (r *runner) zipItem(zw *zip.Writer, p, rel string, info fs.FileInfo) error 
 	case mode.IsDir():
 		h.Name += "/"
 		h.Method = zip.Store
-		_, err = zipcrypt.Create(zw, h, r.password)
+		_, err = zw.Create(h)
 		return err
 	case mode&fs.ModeSymlink != 0:
 		l, ok := fsys.(Linker)
@@ -191,7 +191,7 @@ func (r *runner) zipItem(zw *zip.Writer, p, rel string, info fs.FileInfo) error 
 		}
 		h.Method = zip.Store
 		var w io.Writer
-		if w, err = zipcrypt.Create(zw, h, r.password); err == nil {
+		if w, err = zw.Create(h); err == nil {
 			_, err = io.WriteString(w, target)
 		}
 		return err
@@ -200,7 +200,7 @@ func (r *runner) zipItem(zw *zip.Writer, p, rel string, info fs.FileInfo) error 
 		return nil
 	}
 	h.Method = zip.Deflate
-	w, err := zipcrypt.Create(zw, h, r.password)
+	w, err := zw.Create(h)
 	if err != nil {
 		return err
 	}

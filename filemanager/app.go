@@ -562,8 +562,13 @@ func (a *app) savePrefs(change func(p *prefs)) {
 }
 
 // stopAll cancels what is running, and waits for the operations to stop,
-// so none is left writing once the app has gone.
+// so none is left writing once the app has gone. Once is enough.
 func (a *app) stopAll() {
+	select {
+	case <-a.stopped:
+		return
+	default:
+	}
 	for _, r := range a.ops.running {
 		r.cancel()
 	}

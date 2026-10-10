@@ -148,8 +148,6 @@ type runner struct {
 	// made holds the folders a copy made at the top of what it copies,
 	// for the copy to stay out of.
 	made []fs.FileInfo
-	// password protects the zip being made, where it is not empty.
-	password string
 }
 
 // runJob runs j, stopping at the first error, and returns what it did.

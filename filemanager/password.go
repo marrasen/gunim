@@ -58,9 +58,10 @@ func init() {
 }
 
 // askPassword asks for the password ask is about: through the program,
-// where it asks for passwords, and else in a dialog of the window's. It
+// where it asks for passwords, and else in a dialog of the window's, of
+// operation op, which goes when the operation ends, or of none for 0. It
 // may run on any goroutine, and waits for the answer or the end of ctx.
-func (a *app) askPassword(ctx context.Context, ask PasswordAsk) (Password, error) {
+func (a *app) askPassword(ctx context.Context, op int, ask PasswordAsk) (Password, error) {
 	if a.opts.Password != nil {
 		return a.opts.Password(ctx, a.win, ask)
 	}
@@ -78,7 +79,7 @@ func (a *app) askPassword(ctx context.Context, ask PasswordAsk) (Password, error
 		}
 		a.ops.tokens++
 		p.Token = a.ops.tokens
-		a.showDialog(&dialog{view: "password", state: p, answer: func(in gunim.Intent) {
+		a.showDialog(&dialog{view: "password", state: p, op: op, answer: func(in gunim.Intent) {
 			v, _ := in.(PasswordGiven)
 			reply <- v
 		}})
@@ -94,6 +95,21 @@ func (a *app) askPassword(ctx context.Context, ask PasswordAsk) (Password, error
 	}
 }
 
+// untilStopped returns a context that ends with the app's, or once the
+// app stops, as when its window or pane closes, which the app's own does
+// not; cancel lets it go sooner.
+func (a *app) untilStopped() (ctx context.Context, cancel context.CancelFunc) {
+	ctx, cancel = context.WithCancel(a.ctx)
+	go func() {
+		select {
+		case <-a.stopped:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	return ctx, cancel
+}
+
 // passwords hands an extraction the password of the archive it opens:
 // the one given last, or a new one asked for when there is none yet or
 // it was wrong. worked says the last one opened what it protects.
@@ -101,6 +117,8 @@ type passwords struct {
 	ask   func(ctx context.Context, wrong bool) (Password, error)
 	got   *Password
 	wrong bool
+	// proven says an item read through with the password checked.
+	proven bool
 }
 
 // asks reports whether get asks for a password.
@@ -123,7 +141,7 @@ func (p *passwords) get(ctx context.Context) (string, error) {
 }
 
 // failed says the password given last was wrong.
-func (p *passwords) failed() { p.wrong = true }
+func (p *passwords) failed() { p.wrong, p.proven = true, false }
 
 // worked says the password given last opened what it protects.
 func (p *passwords) worked() {

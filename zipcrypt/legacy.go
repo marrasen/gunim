@@ -3,6 +3,8 @@ package zipcrypt
 import (
 	"archive/zip"
 	"compress/flate"
+	"errors"
+	"fmt"
 	"hash"
 	"hash/crc32"
 	"io"
@@ -59,24 +61,60 @@ func openLegacy(f *zip.File, raw io.Reader, password string) (io.ReadCloser, err
 	if f.Flags&flagDescriptor != 0 {
 		check = byte(f.ModifiedTime >> 8)
 	}
-	var keys *legacyKeys
+	// Each way the password may be written whose check byte matches; a
+	// wrong one matches once in 256 times.
+	var passed []*legacyKeys
 	for _, form := range legacyForms(password) {
 		k, head := newLegacyKeys(form), stored
 		k.decrypt(head[:])
 		if head[legacyHeader-1] == check {
-			keys = k
-			break
+			passed = append(passed, k)
 		}
 	}
-	if keys == nil {
+	switch len(passed) {
+	case 0:
 		return nil, ErrPassword
+	case 1:
+		return legacyBody(f, raw, passed[0])
 	}
+	// Told apart by reading the entry through with each, from the start,
+	// for the one whose CRC checks. The way the right one is written
+	// always matches, so one does, unless the entry is damaged.
+	for _, k := range passed {
+		if legacyChecks(f, *k) {
+			return legacyBody(f, raw, k)
+		}
+	}
+	return nil, ErrDamaged
+}
+
+// legacyBody returns what f holds, decrypted with keys, its bytes after
+// the header coming from raw.
+func legacyBody(f *zip.File, raw io.Reader, keys *legacyKeys) (io.ReadCloser, error) {
 	body := &legacyReader{in: io.LimitReader(raw, int64(f.CompressedSize64-legacyHeader)), keys: keys}
 	out, err := decompress(f.Method, body)
 	if err != nil {
 		return nil, err
 	}
 	return &checked{in: out, crc: crc32.NewIEEE(), want: f.CRC32, size: f.UncompressedSize64}, nil
+}
+
+// legacyChecks reports whether f, read through with keys as they are
+// once its header is decrypted, holds what its CRC says.
+func legacyChecks(f *zip.File, keys legacyKeys) bool {
+	raw, err := f.OpenRaw()
+	if err != nil {
+		return false
+	}
+	if _, cerr := io.CopyN(io.Discard, raw, legacyHeader); cerr != nil {
+		return false
+	}
+	rc, err := legacyBody(f, raw, &keys)
+	if err != nil {
+		return false
+	}
+	_, err = io.Copy(io.Discard, rc)
+	return errors.Join(err, rc.Close()) == nil
 }
 
 // legacyReader decrypts what in reads.
@@ -110,6 +148,12 @@ func (c *checked) Read(p []byte) (int, error) {
 	n, err := c.in.Read(p)
 	c.crc.Write(p[:n])
 	c.read += uint64(n)
+	// What does not decompress was damaged, or decrypted with a wrong
+	// password that passed the check before it.
+	var corrupt flate.CorruptInputError
+	if errors.As(err, &corrupt) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return n, fmt.Errorf("%w: %w", ErrDamaged, err)
+	}
 	if err == io.EOF {
 		if c.read != c.size || !c.noCRC && c.crc.Sum32() != c.want {
 			return n, ErrDamaged

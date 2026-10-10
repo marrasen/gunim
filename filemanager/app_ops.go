@@ -243,10 +243,17 @@ func (a *app) askZip(fs string, ps PathStyle, paths []string, dest string) {
 	base := a.ps.Base(name)
 	stem := utf8.RuneCountInString(strings.TrimSuffix(base, zipExt))
 	p := Prompt{Title: "Create zip", Text: base, OK: "Create", Stem: stem, Check: "Protect with a password"}
+	// The file system the zip goes on, which the window may turn from
+	// while the password is asked for.
+	here := a.fs
 	a.promptWith(p, func(v Prompted) {
 		name := withZipExt(v.Text)
 		what := whatIn(ps, paths)
 		start := func(pw Password) {
+			if a.fs != here {
+				a.fail("The window turned to another place while the password was asked for, so " + name + " was not made.")
+				return
+			}
 			if fs != a.fs.ID() {
 				if a.opts.Transfer == nil {
 					a.fail("A zip of items elsewhere cannot be made here.")
@@ -265,9 +272,12 @@ func (a *app) askZip(fs string, ps PathStyle, paths []string, dest string) {
 		}
 		at := a.ps.Join(dest, name)
 		ask := PasswordAsk{FS: a.fs.ID(), Path: at, Where: a.ps.Show(at), Make: true}
+		// Asked until the window closes, which waits for the question.
+		ctx, cancel := a.untilStopped()
 		a.ops.wg.Go(func() {
+			defer cancel()
 			// No password, and no zip: the user turned it down.
-			if pw, err := a.askPassword(a.ctx, ask); err == nil && pw.Text != "" {
+			if pw, err := a.askPassword(ctx, 0, ask); err == nil && pw.Text != "" {
 				a.post(func() { start(pw) })
 			}
 		})
@@ -319,7 +329,7 @@ func (a *app) startOp(j job, title string) {
 		ask := PasswordAsk{FS: a.fs.ID(), Path: j.srcs[0], Where: a.ps.Show(j.srcs[0])}
 		e.password = func(ctx context.Context, wrong bool) (Password, error) {
 			ask.Wrong = wrong
-			return a.askPassword(ctx, ask)
+			return a.askPassword(ctx, id, ask)
 		}
 	}
 	a.ops.wg.Go(func() {

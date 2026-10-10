@@ -215,23 +215,62 @@ func (x *extractor) zip(zr *zip.Reader) error {
 
 // zipFile writes the file f of a zip, its mode mode.
 func (x *extractor) zipFile(f *zip.File, mode fs.FileMode) error {
-	rc, err := x.open(f)
-	if err != nil {
+	for {
+		rc, err := x.open(f)
+		if err != nil {
+			return err
+		}
+		bytes := x.r.p.bytes
+		err = errors.Join(x.file(f.Name, rc, mode, f.Modified, true), rc.Close())
+		if x.retry(f, err) {
+			// What came out goes, and does not count.
+			x.r.p.bytes = bytes
+			if p, ierr := x.inside(f.Name); ierr == nil {
+				_ = x.r.env.fs.Remove(p)
+			}
+			continue
+		}
 		return err
 	}
-	err = x.file(f.Name, rc, mode, f.Modified, true)
-	return errors.Join(err, rc.Close())
+}
+
+// retry reports whether f, read through with err, is to be read again
+// with another password: one that no item of the zip has proved yet,
+// read through with which f does not check. That password is taken for
+// wrong, as its first bytes may pass with a wrong one: once in 256 times
+// for the old protection, and once in 65536 for AES. An item read
+// through with no error proves the password.
+func (x *extractor) retry(f *zip.File, err error) bool {
+	if !zipcrypt.Encrypted(f) {
+		return false
+	}
+	if err == nil {
+		x.pw.proven = true
+		return false
+	}
+	if errors.Is(err, zipcrypt.ErrDamaged) && !x.pw.proven {
+		x.pw.failed()
+		return true
+	}
+	return false
 }
 
 // zipLink notes the symbolic link f of a zip, whose contents are where
 // it points.
 func (x *extractor) zipLink(f *zip.File) error {
-	rc, err := x.open(f)
-	if err != nil {
-		return err
+	var target []byte
+	var err error
+	for {
+		var rc io.ReadCloser
+		if rc, err = x.open(f); err != nil {
+			return err
+		}
+		target, err = io.ReadAll(io.LimitReader(rc, 4096))
+		err = errors.Join(err, rc.Close())
+		if !x.retry(f, err) {
+			break
+		}
 	}
-	target, err := io.ReadAll(io.LimitReader(rc, 4096))
-	err = errors.Join(err, rc.Close())
 	if err != nil {
 		return fmt.Errorf("reading %s from %s: %w", f.Name, x.archive, err)
 	}

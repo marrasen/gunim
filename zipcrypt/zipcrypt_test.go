@@ -3,14 +3,18 @@ package zipcrypt
 import (
 	"archive/zip"
 	"bytes"
+	"crypto/rand"
 	"errors"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // fox is what fox.txt in the test archives holds.
@@ -62,16 +66,16 @@ func read(t *testing.T, f *zip.File, password string) string {
 func write(t *testing.T, password string, files map[string]string) []byte {
 	t.Helper()
 	var buf bytes.Buffer
-	zw := zip.NewWriter(&buf)
-	if _, err := Create(zw, &zip.FileHeader{Name: "folder/"}, password); err != nil {
+	zw := NewWriter(zip.NewWriter(&buf), password)
+	if _, err := zw.Create(&zip.FileHeader{Name: "folder/"}); err != nil {
 		t.Fatal(err)
 	}
-	for name, body := range files {
-		w, err := Create(zw, &zip.FileHeader{Name: name, Method: zip.Deflate}, password)
+	for _, name := range slices.Sorted(maps.Keys(files)) {
+		w, err := zw.Create(&zip.FileHeader{Name: name, Method: zip.Deflate, Modified: when})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := io.WriteString(w, body); err != nil {
+		if _, err := io.WriteString(w, files[name]); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -81,8 +85,15 @@ func write(t *testing.T, password string, files map[string]string) []byte {
 	return buf.Bytes()
 }
 
-func TestCreateWritesWhatOpenReads(t *testing.T) {
-	files := map[string]string{"fox.txt": fox, "empty.txt": "", "folder/one.txt": "1"}
+// when is the time the test entries were changed.
+var when = time.Date(2026, 10, 10, 12, 34, 56, 0, time.UTC)
+
+func TestTheWriterWritesWhatOpenReads(t *testing.T) {
+	big := make([]byte, 300<<10)
+	if _, err := rand.Read(big); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{"fox.txt": fox, "empty.txt": "", "folder/one.txt": "1", "räksmörgås.txt": "åäö", "big.bin": string(big)}
 	data := write(t, "pässword", files)
 	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
@@ -105,7 +116,14 @@ func TestCreateWritesWhatOpenReads(t *testing.T) {
 			t.Fatalf("%s opened with the wrong password: %v", f.Name, err)
 		}
 		if got := read(t, f, "pässword"); got != files[f.Name] {
-			t.Fatalf("%s holds %q", f.Name, got)
+			t.Fatalf("%s holds %d bytes, not what was written", f.Name, len(got))
+		}
+		// AE-2: a CRC in the clear would tell what a small file holds.
+		if f.CRC32 != 0 {
+			t.Fatalf("%s stores its CRC, %08x", f.Name, f.CRC32)
+		}
+		if !f.Modified.Equal(when) {
+			t.Fatalf("%s was changed at %v, want %v", f.Name, f.Modified, when)
 		}
 	}
 	if bytes.Contains(data, []byte("quick brown fox")) {
@@ -154,14 +172,14 @@ func TestAnEmptyPasswordProtectsNothing(t *testing.T) {
 }
 
 // 7-Zip, where it is installed, reads what Create writes.
-func TestSevenZipReadsWhatCreateWrites(t *testing.T) {
+func TestSevenZipReadsWhatTheWriterWrites(t *testing.T) {
 	sz, err := exec.LookPath("7z")
 	if err != nil {
 		t.Skip("7z is not installed")
 	}
 	dir := t.TempDir()
 	path := filepath.Join(dir, "made.zip")
-	if werr := os.WriteFile(path, write(t, "hunter2", map[string]string{"fox.txt": fox}), 0o600); werr != nil {
+	if werr := os.WriteFile(path, write(t, "hunter2", map[string]string{"fox.txt": fox, "räksmörgås.txt": "åäö", "empty.txt": ""}), 0o600); werr != nil {
 		t.Fatal(werr)
 	}
 	out := filepath.Join(dir, "out")
@@ -171,6 +189,9 @@ func TestSevenZipReadsWhatCreateWrites(t *testing.T) {
 	got, err := os.ReadFile(filepath.Join(out, "fox.txt"))
 	if err != nil || string(got) != fox {
 		t.Fatalf("7z extracted %q, %v", got, err)
+	}
+	if got, err := os.ReadFile(filepath.Join(out, "räksmörgås.txt")); err != nil || string(got) != "åäö" {
+		t.Fatalf("7z extracted the file of a name beyond ASCII as %q, %v", got, err)
 	}
 	if b, terr := exec.CommandContext(t.Context(), sz, "t", "-pwrong", path).CombinedOutput(); terr == nil {
 		t.Fatalf("7z took the wrong password:\n%s", b)
@@ -204,5 +225,46 @@ func TestLegacyFormsOfAPassword(t *testing.T) {
 	}
 	if got := legacyForms("日本"); len(got) != 1 {
 		t.Fatalf("a password neither code page holds has the forms %q", got)
+	}
+}
+
+// Each entry of a zip made on Windows, its password in code page 850,
+// opens: a wrong way of writing the password passes the check byte of
+// some of them, once in 256 times, and must not be taken for the right.
+func TestEveryEntryOpensWhateverWayThePasswordPasses(t *testing.T) {
+	zipTool, err := exec.LookPath("zip")
+	if err != nil {
+		t.Skip("zip is not installed")
+	}
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	if merr := os.Mkdir(src, 0o755); merr != nil {
+		t.Fatal(merr)
+	}
+	for i := range 400 {
+		name := filepath.Join(src, "f"+strconv.Itoa(i))
+		if werr := os.WriteFile(name, []byte(strings.Repeat(strconv.Itoa(i), i+1)), 0o644); werr != nil {
+			t.Fatal(werr)
+		}
+	}
+	path := filepath.Join(dir, "many.zip")
+	cmd := exec.CommandContext(t.Context(), zipTool, "-q", "-r", "-P", "sk\x94l", path, "src")
+	cmd.Dir = dir
+	if b, zerr := cmd.CombinedOutput(); zerr != nil {
+		t.Fatalf("zip: %v\n%s", zerr, b)
+	}
+	zr, err := zip.OpenReader(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = zr.Close() }()
+	for _, f := range zr.File {
+		if strings.HasSuffix(f.Name, "/") {
+			continue
+		}
+		i, _ := strconv.Atoi(strings.TrimPrefix(f.Name, "src/f"))
+		if got := read(t, f, "sköl"); got != strings.Repeat(strconv.Itoa(i), i+1) {
+			t.Fatalf("%s holds %q", f.Name, got)
+		}
 	}
 }

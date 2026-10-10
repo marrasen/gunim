@@ -4,8 +4,9 @@
 //
 // It reads both kinds of protection in common use: the old one of
 // PKWARE's, which zip -P, Windows' Explorer and most tools make, and
-// WinZip's AES, which 7-Zip and WinZip make. It writes AES alone, with a
-// 256-bit key, as the old kind is weak enough to break in minutes.
+// WinZip's AES, which 7-Zip and WinZip make. Its Writer writes AES alone,
+// with a 256-bit key, as the old kind is weak enough to break in
+// minutes.
 //
 // The names of the entries, and their sizes and times, are not
 // protected, by either kind: only what they hold.
