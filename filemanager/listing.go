@@ -213,6 +213,7 @@ func newListingPage(b *browser, widths []float32) *listingPage {
 	g := widget.NewDataGrid(cols...)
 	g.Multi = true
 	g.NoBar = true
+	g.Glide = true
 	g.Row = pg.row
 	g.OnView = func(first, count int, _ *gunim.UI) gunim.Intent { return pg.need(first, count) }
 	g.OnSelectRows = func(sel [][2]int, cursor int, u *gunim.UI) gunim.Intent {

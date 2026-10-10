@@ -288,3 +288,39 @@ func TestOnCopiedSaysHowManyRowsWereCopied(t *testing.T) {
 		t.Fatalf("OnCopied heard %v, want 50 rows copied of 100", got)
 	}
 }
+
+func TestWithGlideTheSelectionSlidesAsTheKeysMoveIt(t *testing.T) {
+	g, w, run, clickRow := multiGrid(t)
+	g.Glide = true
+	clickRow(5, 0)
+	if g.gliding() {
+		t.Fatal("a click slid the selection")
+	}
+	w.Input(input.KeyPress{Key: input.KeyDown})
+	run(1)
+	if !g.gliding() || g.glideAt <= 5 || g.glideAt >= 6 {
+		t.Fatalf("a frame after Down from 5 the selection is at %v, sliding %v; want on its way to 6", g.glideAt, g.gliding())
+	}
+	run(60)
+	if g.gliding() || lastChange(t, w).Cursor != 6 {
+		t.Fatalf("the slide did not settle on 6: at %v, sliding %v", g.glideAt, g.gliding())
+	}
+	w.Input(input.KeyPress{Key: input.KeyEnd})
+	run(1)
+	if g.gliding() {
+		t.Fatal("End slid the selection across more than the view")
+	}
+	w.Input(input.KeyPress{Key: input.KeyUp, Mods: input.ModShift})
+	run(1)
+	if g.gliding() {
+		t.Fatal("Shift+Up slid a selection of two rows")
+	}
+
+	g.Glide = false
+	clickRow(2, 0)
+	w.Input(input.KeyPress{Key: input.KeyDown})
+	run(1)
+	if g.gliding() {
+		t.Fatal("without Glide the selection slid")
+	}
+}
