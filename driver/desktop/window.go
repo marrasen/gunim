@@ -394,6 +394,17 @@ func (w *Window) ClipboardImage() ([]byte, error) {
 	return b, err
 }
 
+// SetClipboardImage implements [driver.ImageClipboard]. It decodes png and readies it for the platform on the
+// caller's goroutine, so a large picture does not hold up the main thread, and puts it on the clipboard on the main
+// thread, where GLFW has to.
+func (w *Window) SetClipboardImage(png []byte) error {
+	img, err := glfw.PrepareClipboardImage(png)
+	if err != nil {
+		return err
+	}
+	return w.d.call(func() error { return glfw.SetClipboardImage(img) })
+}
+
 var _ driver.ImageClipboard = (*Window)(nil)
 
 // SetClipboard implements [driver.Window].

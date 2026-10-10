@@ -267,7 +267,9 @@ and `UI`:
   system keeps for it, and `Client.Reveal` shows it in the system's file
   manager.
 - **The clipboard.** `UI.SetClipboard` and `UI.ReadClipboard` carry
-  text, and `UI.ClipboardImage` reads a picture.
+  text. `UI.ClipboardImage` reads a picture, and `UI.SetClipboardImage`
+  and `Client.SetClipboardImage` put one there, on Windows, X11 and
+  macOS.
 - **Drag and drop.** Files and pictures drag between windows, out to
   other programs and in from them, and a drop target lights while
   another program's files hover over it. With
