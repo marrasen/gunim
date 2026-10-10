@@ -830,6 +830,21 @@ func (c Client) Vibrate(pattern ...time.Duration) error {
 	return v.Vibrate(pattern...)
 }
 
+// TakeFingers says whether the window takes more than one finger at
+// once on a touch screen, as a game steered with one thumb while the
+// other taps does. On, a second finger is no pinch: the first finger
+// goes on as the pointer, untouched, and each further one arrives as
+// [input.Finger] at the node it came down on. Off, as a window starts, a
+// second finger pinches. It returns [driver.ErrNoFingers] where the
+// window has no touch screen gunim reads more than one finger of.
+func (c Client) TakeFingers(on bool) error {
+	f, ok := c.w.dw.(driver.FingerTaker)
+	if !ok {
+		return driver.ErrNoFingers
+	}
+	return f.TakeFingers(on)
+}
+
 // SetClipboardImage puts the picture png, a PNG file's bytes, on the system clipboard in place of what it held, as
 // copying a picture in another program does. It returns once the clipboard holds it, and
 // [driver.ErrNoClipboardImage] where the platform cannot put a picture there. It is safe from any goroutine.
@@ -1369,6 +1384,8 @@ type UI struct {
 	fling *touchFling
 	// pinch is two fingers pinching now; see pinch.go.
 	pinch *pinchGesture
+	// fingers is where each finger beyond the first goes; see fingers.go.
+	fingers map[int]*state
 	// compassOn says the window has the device's compass running, for a
 	// node that watches the heading, and headingNodes holds the nodes in
 	// the tree that can watch it, so a frame looks for watchers only
@@ -1920,6 +1937,7 @@ func (u *UI) Remove(n Node) bool {
 		u.capture = nil
 	}
 	u.losePinch(s)
+	u.loseFingers(s)
 	u.left()
 	return true
 }
@@ -2523,6 +2541,7 @@ func (u *UI) forget(s *state) {
 		u.capture = nil
 	}
 	u.losePinch(s)
+	u.loseFingers(s)
 	if s.id != "" && u.ids[s.id] == s {
 		delete(u.ids, s.id)
 	}

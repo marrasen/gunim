@@ -63,6 +63,8 @@ type OffscreenWindow struct {
 	// SetVibrator.
 	share   func(Share) error
 	vibrate func([]time.Duration) error
+	// fingers is what TakeFingers last said.
+	fingers bool
 	// compass answers WatchHeading; see SetCompass.
 	compass func(on bool)
 	// anchor is where a popup was last attached, and origin where the
@@ -839,6 +841,23 @@ func (w *OffscreenWindow) Vibrate(pattern ...time.Duration) error {
 		return ErrNoVibrator
 	}
 	return fn(pattern)
+}
+
+// TakeFingers implements [FingerTaker] by keeping on, for a test to read
+// with FingersTaken; a test hands the window its fingers as
+// [input.Finger].
+func (w *OffscreenWindow) TakeFingers(on bool) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.fingers = on
+	return nil
+}
+
+// FingersTaken is what TakeFingers last said.
+func (w *OffscreenWindow) FingersTaken() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.fingers
 }
 
 // SetCompass gives the window a pretend compass, for a test standing in for a device with one: fn hears each call

@@ -300,6 +300,8 @@ func (u *UI) handleRaw(root *state, ev any) {
 		})
 	case input.Pinch:
 		u.pinchEvent(root, e)
+	case input.Finger:
+		u.fingerEvent(root, e)
 	case input.PointerLeave:
 		if root == u.root {
 			u.pointerIn = false
