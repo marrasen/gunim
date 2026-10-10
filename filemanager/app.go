@@ -176,8 +176,12 @@ type app struct {
 	// closeAsked says the user is being asked whether to stop what runs
 	// and close.
 	closeAsked bool
-	// title is the file system and the folder the pane's host was last told of.
-	title string
+	// title is the file system and the folder the pane's host was last told of,
+	// and folder the file system and the path.
+	title, folder string
+	// note is what the program said of a folder for the status bar,
+	// shown while that folder is.
+	note note
 	// script is what is left of the steps to run, once the first folder
 	// is read.
 	script    []string

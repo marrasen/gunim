@@ -185,9 +185,10 @@ type Bands struct {
 	Bands []Band
 }
 
-// Status is the status bar.
+// Status is the status bar. Note is the program's, as [Window.SetNote]
+// gives it, between the two.
 type Status struct {
-	Left, Right string
+	Left, Note, Right string
 }
 
 // Banner is a line under the path bar, for an error that stopped
