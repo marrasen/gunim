@@ -15,6 +15,8 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"github.com/marrasen/gunim/zipcrypt"
 )
 
 // The archives Extract opens, by what their names end with, longest
@@ -79,23 +81,38 @@ func (r *runner) extractAll(src, dest, name string) error {
 		return fmt.Errorf("reading %s: %w", ps.Show(src), err)
 	}
 	defer func() { _ = in.Close() }()
+	x := &extractor{r: r, root: root, archive: ps.Show(src), pw: &passwords{ask: r.env.password}}
+	ext := strings.ToLower(archiveExt(ps.Base(src)))
+	var zr *zip.Reader
+	if ext == ".zip" {
+		if zr, err = zip.NewReader(&seekReaderAt{rs: in}, info.Size()); err != nil {
+			return fmt.Errorf("reading %s: %w", x.archive, err)
+		}
+		// The password is asked for, and tried, before anything is made,
+		// so a zip that does not open leaves nothing behind.
+		if uerr := x.unlock(zr); uerr != nil {
+			return uerr
+		}
+	}
 	if merr := fsys.Mkdir(root, 0o777); merr != nil {
 		return fmt.Errorf("writing %s: %w", ps.Show(root), merr)
 	}
 	// Undone, the folder goes, with all that came into it.
 	r.did("", root)
 	r.rec.landed = []string{name}
-	x := &extractor{r: r, root: root, archive: ps.Show(src)}
-	ext := strings.ToLower(archiveExt(ps.Base(src)))
-	if ext == ".zip" {
-		err = x.zip(in, info.Size())
+	if zr != nil {
+		err = x.zip(zr)
 	} else {
 		err = x.tar(in, info.Size(), ext)
 	}
 	if err != nil {
 		return err
 	}
-	return x.makeLinks()
+	if err := x.makeLinks(); err != nil {
+		return err
+	}
+	x.pw.worked()
+	return nil
 }
 
 // extractor is an archive being extracted into the folder root.
@@ -105,6 +122,8 @@ type extractor struct {
 	archive string
 	// links are the links the archive makes, made once all else is.
 	links []archiveLink
+	// pw gives the password of a zip a password protects.
+	pw *passwords
 }
 
 // archiveLink is a link in an archive: a symbolic one at path pointing
@@ -115,12 +134,58 @@ type archiveLink struct {
 	hard         bool
 }
 
-// zip extracts a zip archive that in reads, size bytes long.
-func (x *extractor) zip(in io.ReadSeeker, size int64) error {
-	zr, err := zip.NewReader(&seekReaderAt{rs: in}, size)
-	if err != nil {
-		return fmt.Errorf("reading %s: %w", x.archive, err)
+// unlock asks for the password of zr, where one protects any of it,
+// until the first item it protects opens with it.
+func (x *extractor) unlock(zr *zip.Reader) error {
+	for _, f := range zr.File {
+		if !zipcrypt.Encrypted(f) {
+			continue
+		}
+		rc, err := x.open(f)
+		if err != nil {
+			return err
+		}
+		return rc.Close()
 	}
+	return nil
+}
+
+// open opens the item f of a zip, with the zip's password where one
+// protects it, asked for again while the one given is wrong.
+func (x *extractor) open(f *zip.File) (io.ReadCloser, error) {
+	if !zipcrypt.Encrypted(f) {
+		return f.Open()
+	}
+	for {
+		if x.pw.asks() {
+			x.r.p.waiting = "Waiting for the password"
+			x.r.tell(true)
+		}
+		pw, err := x.pw.get(x.r.ctx)
+		x.r.p.waiting = ""
+		if err != nil {
+			if cerr := x.r.ctx.Err(); cerr != nil {
+				return nil, cerr
+			}
+			// Cancelled, or turned down: the extraction stops, and says
+			// so, as a stop at a clash does.
+			return nil, errStopped
+		}
+		rc, err := zipcrypt.Open(f, pw)
+		if errors.Is(err, zipcrypt.ErrPassword) {
+			x.pw.failed()
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("reading %s from %s: %w", f.Name, x.archive, err)
+		}
+		return rc, nil
+	}
+}
+
+// zip extracts the zip archive zr.
+func (x *extractor) zip(zr *zip.Reader) error {
+	var err error
 	r := x.r
 	r.p.itemsTotal = len(zr.File)
 	for _, f := range zr.File {
@@ -150,9 +215,9 @@ func (x *extractor) zip(in io.ReadSeeker, size int64) error {
 
 // zipFile writes the file f of a zip, its mode mode.
 func (x *extractor) zipFile(f *zip.File, mode fs.FileMode) error {
-	rc, err := f.Open()
+	rc, err := x.open(f)
 	if err != nil {
-		return fmt.Errorf("reading %s from %s: %w", f.Name, x.archive, err)
+		return err
 	}
 	err = x.file(f.Name, rc, mode, f.Modified, true)
 	return errors.Join(err, rc.Close())
@@ -161,9 +226,9 @@ func (x *extractor) zipFile(f *zip.File, mode fs.FileMode) error {
 // zipLink notes the symbolic link f of a zip, whose contents are where
 // it points.
 func (x *extractor) zipLink(f *zip.File) error {
-	rc, err := f.Open()
+	rc, err := x.open(f)
 	if err != nil {
-		return fmt.Errorf("reading %s from %s: %w", f.Name, x.archive, err)
+		return err
 	}
 	target, err := io.ReadAll(io.LimitReader(rc, 4096))
 	err = errors.Join(err, rc.Close())

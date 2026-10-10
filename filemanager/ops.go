@@ -43,6 +43,10 @@ type job struct {
 	name string
 	// undo is the record an undo reverses.
 	undo *record
+	// password protects a zip being made, and worked is told once one
+	// is made with it.
+	password string
+	worked   func()
 }
 
 // step is one item an operation moved or made: what was at from is now at
@@ -73,6 +77,9 @@ type progress struct {
 	items, itemsTotal int
 	bytes, bytesTotal int64
 	current           string
+	// waiting, when set, says what the operation waits for, in place of
+	// how far it has got.
+	waiting string
 }
 
 // choice is an answer to a name clash.
@@ -116,6 +123,9 @@ type env struct {
 	to    FS
 	// ask asks the user about a clash, and waits for the answer.
 	ask func(ctx context.Context, c clash) (answer, error)
+	// password asks for the password of the archive being extracted,
+	// again where the last was wrong, and waits for the answer.
+	password func(ctx context.Context, wrong bool) (Password, error)
 	// report hears how far the operation has got, every reportEvery, or
 	// every 50 ms when that is zero.
 	report      func(progress)
@@ -138,6 +148,8 @@ type runner struct {
 	// made holds the folders a copy made at the top of what it copies,
 	// for the copy to stay out of.
 	made []fs.FileInfo
+	// password protects the zip being made, where it is not empty.
+	password string
 }
 
 // runJob runs j, stopping at the first error, and returns what it did.
@@ -160,7 +172,7 @@ func runJob(ctx context.Context, j job, e env) (record, error) {
 	case OpUndo:
 		err = r.undo(j.undo)
 	case OpZip:
-		err = r.zipAll(j.srcs, j.dest, j.name)
+		err = r.zipAll(j.srcs, j.dest, j.name, j.password)
 	case OpExtract:
 		err = r.extractAll(j.srcs[0], j.dest, j.name)
 	}
