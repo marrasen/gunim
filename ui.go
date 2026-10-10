@@ -830,6 +830,21 @@ func (c Client) Vibrate(pattern ...time.Duration) error {
 	return v.Vibrate(pattern...)
 }
 
+// ExcludeSystemGestures keeps swipes in from the screen's edges within
+// rects, in the window's units, for the program rather than the system:
+// on Android, a drag begun at the edge inside one steers the game
+// instead of going back. Each call replaces the last, and a call with
+// none gives the edges back. Android honours at most 200 dp of each
+// side's height. It returns [driver.ErrNoSystemGestures] where the
+// system takes no edge swipes, as a desktop.
+func (c Client) ExcludeSystemGestures(rects ...geom.Rect) error {
+	g, ok := c.w.dw.(driver.GestureExcluder)
+	if !ok {
+		return driver.ErrNoSystemGestures
+	}
+	return g.ExcludeSystemGestures(rects)
+}
+
 // SetClipboardImage puts the picture png, a PNG file's bytes, on the system clipboard in place of what it held, as
 // copying a picture in another program does. It returns once the clipboard holds it, and
 // [driver.ErrNoClipboardImage] where the platform cannot put a picture there. It is safe from any goroutine.
