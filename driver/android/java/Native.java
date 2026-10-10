@@ -29,6 +29,7 @@ public final class Native {
 	static native void metrics(float density, float refreshRate);
 	static native void touch(int action, float x, float y, long time);
 	static native void pinch(int action, float x0, float y0, float x1, float y1);
+	static native void finger(int action, int id, float x, float y);
 	static native void key(boolean down, int code, int meta, int ch, int repeat);
 	static native void focus(boolean focused);
 	static native void shown(boolean shown);
@@ -192,6 +193,14 @@ public final class Native {
 			return Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC).getAbsolutePath();
 		}
 		return null;
+	}
+
+	// fingers says a finger beyond the first is a finger of its own, not
+	// a pinch: see takeFingers.
+	static volatile boolean fingers;
+
+	static void takeFingers(boolean on) {
+		fingers = on;
 	}
 
 	static void buzz() {

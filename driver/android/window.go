@@ -394,6 +394,13 @@ func (w *Window) OpenLink(url string) error { return openLink(url) }
 // Vibrate implements [driver.Vibrator] with the phone's vibration motor.
 func (w *Window) Vibrate(pattern ...time.Duration) error { return vibrate(pattern) }
 
+// TakeFingers implements [driver.FingerTaker]: the view sends a finger
+// beyond the first as a finger of its own rather than a pinch.
+func (w *Window) TakeFingers(on bool) error {
+	takeFingers(on)
+	return nil
+}
+
 // ChooseFiles implements [driver.FileChooser] for folders: the system's
 // chooser of folders, for a folder on the phone's storage or a card,
 // which a program reads once it has the permission for what it reads,
@@ -425,6 +432,7 @@ var (
 	_ driver.Sharer          = (*Window)(nil)
 	_ driver.LinkOpener      = (*Window)(nil)
 	_ driver.Vibrator        = (*Window)(nil)
+	_ driver.FingerTaker     = (*Window)(nil)
 	_ driver.Compass         = (*Window)(nil)
 	_ driver.SafeAreaer      = (*Window)(nil)
 	_ driver.KeyboardCoverer = (*Window)(nil)

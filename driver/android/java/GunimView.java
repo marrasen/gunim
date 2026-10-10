@@ -65,6 +65,13 @@ final class GunimView extends SurfaceView implements SurfaceHolder.Callback {
 			Native.touch(0, e.getX(0), e.getY(0), e.getEventTime());
 			return true;
 		case MotionEvent.ACTION_POINTER_DOWN:
+			if (Native.fingers && !pinching) {
+				// A finger of its own, while the first goes on as the
+				// pointer.
+				int i = e.getActionIndex();
+				Native.finger(0, e.getPointerId(i), e.getX(i), e.getY(i));
+				return true;
+			}
 			if (pointer >= 0 && !pinching) {
 				second = e.getPointerId(e.getActionIndex());
 				pinching = true;
@@ -80,6 +87,14 @@ final class GunimView extends SurfaceView implements SurfaceHolder.Callback {
 			if (i >= 0) {
 				Native.touch(1, e.getX(i), e.getY(i), e.getEventTime());
 			}
+			if (Native.fingers) {
+				for (int k = 0; k < e.getPointerCount(); k++) {
+					int id = e.getPointerId(k);
+					if (id != pointer) {
+						Native.finger(1, id, e.getX(k), e.getY(k));
+					}
+				}
+			}
 			return true;
 		}
 		case MotionEvent.ACTION_POINTER_UP: {
@@ -91,17 +106,26 @@ final class GunimView extends SurfaceView implements SurfaceHolder.Callback {
 				int i = e.getActionIndex();
 				Native.touch(2, e.getX(i), e.getY(i), e.getEventTime());
 				pointer = -1;
+			} else if (!pinching) {
+				int i = e.getActionIndex();
+				Native.finger(2, id, e.getX(i), e.getY(i));
 			}
 			return true;
 		}
 		case MotionEvent.ACTION_UP:
-			// The last finger lifts: the touch ends, whatever it became.
+			// The last finger lifts: the touch ends, whatever it became;
+			// a finger of its own, when the first lifted before it,
+			// lifts as itself.
+			if (!pinching && pointer < 0 && Native.fingers) {
+				Native.finger(2, e.getPointerId(0), e.getX(0), e.getY(0));
+			}
 			Native.touch(2, e.getX(0), e.getY(0), e.getEventTime());
 			pointer = -1;
 			pinching = false;
 			return true;
 		case MotionEvent.ACTION_CANCEL:
 			Native.touch(3, 0, 0, e.getEventTime());
+			Native.finger(3, -1, 0, 0);
 			pointer = -1;
 			pinching = false;
 			return true;

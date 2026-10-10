@@ -45,6 +45,11 @@ func goTouch(action C.int, x, y C.float, ms C.longlong) {
 	theDriver.touch(int(action), float32(x), float32(y), time.Now())
 }
 
+//export goFinger
+func goFinger(action, id C.int, x, y C.float) {
+	theDriver.finger(int(action), int(id), float32(x), float32(y), time.Now())
+}
+
 //export goPinch
 func goPinch(action C.int, x0, y0, x1, y1 C.float) {
 	theDriver.pinch(int(action), float32(x0), float32(y0), float32(x1), float32(y1), time.Now())
@@ -212,6 +217,16 @@ func goMedia(action C.int, ms C.longlong) {
 
 // buzz gives the short buzz a long press gives.
 func buzz() { C.gunim_buzz() }
+
+// takeFingers tells the view whether a finger beyond the first is a
+// finger of its own or a pinch.
+func takeFingers(on bool) {
+	v := C.int(0)
+	if on {
+		v = 1
+	}
+	C.gunim_take_fingers(v)
+}
 
 // share hands s to the share sheet: the paths go to Java as one
 // string, each ended by a NUL, which no path holds.

@@ -80,6 +80,43 @@ func (d *Driver) touch(action int, x, y float32, now time.Time) {
 	}
 }
 
+// finger turns a finger beyond the first, while the view takes fingers,
+// into [input.Finger] for the window it came down in, wherever it goes
+// after. action is a touch's; a cancel lifts every finger at
+// [input.Away]. x and y are in device pixels.
+func (d *Driver) finger(action, id int, x, y float32, now time.Time) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if action == touchCancel {
+		for id, w := range d.fingers {
+			w.in.Push(input.Finger{ID: id, Pos: input.Away, Phase: input.FingerUp, Time: now})
+		}
+		clear(d.fingers)
+		return
+	}
+	at := geom.Pt(x/d.density, (y+float32(math.Round(d.pan)))/d.density)
+	w := d.fingers[id]
+	phase := input.FingerMove
+	switch action {
+	case touchDown:
+		if w = d.hitLocked(at); w == nil {
+			return
+		}
+		if d.fingers == nil {
+			d.fingers = map[int]*Window{}
+		}
+		d.fingers[id] = w
+		phase = input.FingerDown
+	case touchUp:
+		delete(d.fingers, id)
+		phase = input.FingerUp
+	}
+	if w == nil {
+		return
+	}
+	w.in.Push(input.Finger{ID: id, Pos: at.Sub(w.pos), Phase: phase, Time: now})
+}
+
 // Pinch actions, as GunimView sends them.
 const (
 	pinchStart = iota
