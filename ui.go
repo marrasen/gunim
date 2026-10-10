@@ -7,7 +7,6 @@ import (
 	"image"
 	"os"
 	"reflect"
-	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -846,6 +845,20 @@ func (c Client) ExcludeSystemGestures(rects ...geom.Rect) error {
 	return g.ExcludeSystemGestures(rects)
 }
 
+// SetClipboardImage puts the picture png, a PNG file's bytes, on the system clipboard in place of what it held, as
+// copying a picture in another program does. It returns once the clipboard holds it, and
+// [driver.ErrNoClipboardImage] where the platform cannot put a picture there. It is safe from any goroutine.
+func (c Client) SetClipboardImage(png []byte) error { return setClipboardImage(c.w.dw, png) }
+
+// setClipboardImage puts png on dw's clipboard, where dw can.
+func setClipboardImage(dw driver.Window, png []byte) error {
+	ic, ok := dw.(driver.ImageClipboard)
+	if !ok {
+		return driver.ErrNoClipboardImage
+	}
+	return ic.SetClipboardImage(png)
+}
+
 // awaitDialog runs show, which shows a dialog, and waits for its answer,
 // the window to close, or ctx to end.
 func awaitDialog[T any](ctx context.Context, c Client, show func() (T, error)) (T, error) {
@@ -997,14 +1010,7 @@ func (w *Window) Close() { w.closeOnce.Do(func() { close(w.done) }) }
 // for an intent. Every frame after the first waits for the one before
 // it to reach the screen, so the window draws at most once per refresh
 // whatever the application does with [Client].
-//
-// The loop keeps its OS thread for life, so a driver can raise that
-// thread's priority and the thread ends with the loop.
 func (w *Window) loop() {
-	runtime.LockOSThread()
-	if r, ok := w.dw.(driver.Raiser); ok {
-		r.RaiseThread()
-	}
 	defer close(w.out)
 	defer w.ui.closeAllPopups()
 	defer func() {
@@ -1656,6 +1662,11 @@ func (u *UI) ClipboardImage() ([]byte, error) {
 	}
 	return c.ClipboardImage()
 }
+
+// SetClipboardImage puts the picture png, a PNG file's bytes, on the system clipboard in place of what it held, as
+// copying a picture in another program does. It returns [driver.ErrNoClipboardImage] where the platform cannot put
+// a picture there. [Client.SetClipboardImage] does the same from the application's side.
+func (u *UI) SetClipboardImage(png []byte) error { return setClipboardImage(u.w.dw, png) }
 
 // SetTitle changes the window's title, where the platform can.
 func (u *UI) SetTitle(title string) {
