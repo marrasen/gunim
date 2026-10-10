@@ -577,6 +577,10 @@ func (a *app) publishListing() {
 		a.title = t
 		a.pane.host.Title(a.fs.ID(), l.Title)
 	}
+	if f := a.fs.ID() + "\x00" + l.Path; a.pane != nil && a.pane.host.Folder != nil && l.Path != "" && f != a.folder {
+		a.folder = f
+		a.pane.host.Folder(a.fs.ID(), l.Path)
+	}
 }
 
 // crumbs splits path, of style ps, into the folders along it.
@@ -862,8 +866,14 @@ func (a *app) publishStatusOf(selected func() []entry) {
 	case n.space.total > 0:
 		s.Right = fmt.Sprintf("%s free of %s", humanBytes(int64(n.space.free)), humanBytes(int64(n.space.total)))
 	}
+	if a.note.fs == a.fs.ID() && a.note.path == n.path {
+		s.Note = a.note.text
+	}
 	a.patch(s)
 }
+
+// note is what the program said of the folder path on file system fs.
+type note struct{ fs, path, text string }
 
 func plural(n int, what string) string {
 	if n == 1 {
