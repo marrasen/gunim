@@ -830,6 +830,20 @@ func (c Client) Vibrate(pattern ...time.Duration) error {
 	return v.Vibrate(pattern...)
 }
 
+// SetClipboardImage puts the picture png, a PNG file's bytes, on the system clipboard in place of what it held, as
+// copying a picture in another program does. It returns once the clipboard holds it, and
+// [driver.ErrNoClipboardImage] where the platform cannot put a picture there. It is safe from any goroutine.
+func (c Client) SetClipboardImage(png []byte) error { return setClipboardImage(c.w.dw, png) }
+
+// setClipboardImage puts png on dw's clipboard, where dw can.
+func setClipboardImage(dw driver.Window, png []byte) error {
+	ic, ok := dw.(driver.ImageClipboard)
+	if !ok {
+		return driver.ErrNoClipboardImage
+	}
+	return ic.SetClipboardImage(png)
+}
+
 // awaitDialog runs show, which shows a dialog, and waits for its answer,
 // the window to close, or ctx to end.
 func awaitDialog[T any](ctx context.Context, c Client, show func() (T, error)) (T, error) {
@@ -1633,6 +1647,11 @@ func (u *UI) ClipboardImage() ([]byte, error) {
 	}
 	return c.ClipboardImage()
 }
+
+// SetClipboardImage puts the picture png, a PNG file's bytes, on the system clipboard in place of what it held, as
+// copying a picture in another program does. It returns [driver.ErrNoClipboardImage] where the platform cannot put
+// a picture there. [Client.SetClipboardImage] does the same from the application's side.
+func (u *UI) SetClipboardImage(png []byte) error { return setClipboardImage(u.w.dw, png) }
 
 // SetTitle changes the window's title, where the platform can.
 func (u *UI) SetTitle(title string) {
