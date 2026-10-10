@@ -170,6 +170,9 @@ type Selection struct {
 	Gen    int
 	Runs   [][2]int
 	Cursor int
+	// Slide has the selection slide there, as it does for a key that
+	// moves it, for a row found by the name typed.
+	Slide bool
 }
 
 // Band is what the overview strip shows for a stretch of rows: the
