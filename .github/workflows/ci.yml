@@ -34,6 +34,16 @@ jobs:
       - name: Test
         run: go test ./...
 
+      - name: Soak the fixed flakes (temporary)
+        shell: bash
+        run: |
+          go test -count=50 -run 'TestWritersAtOnceNeverMix|TestAGoodUpdatePasses|TestWindow|TestCloseTheProgramFromTheInstaller' ./install/
+          go test -count=50 -timeout 60m -run 'DragOut|EndingADrag|StoppingAFetch|OlderLookup|MostRecentClipboard' ./filemanager/
+          go test -count=50 -run 'TestTheIconIsDrawnAtEverySize' ./example/calculator/
+          go test -count=50 -run 'TestLearnSetsTheGainAsOneStep|TestMatchingToPinkNoise' ./audio/plug/maximizer/ ./audio/plug/eq/
+          go test -c -o /tmp/audio.test ./audio/ || go test -c -o audio.test.exe ./audio/
+          for i in $(seq 50); do (test -f /tmp/audio.test && /tmp/audio.test || ./audio.test.exe) -test.run 'TestReadingAWAVMakesNothing|TestMixingMakesNothingAsTheSoundsChange' -test.count=1 || exit 1; done
+
       - name: Build
         run: go build ./...
 
