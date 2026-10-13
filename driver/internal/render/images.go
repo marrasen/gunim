@@ -3,6 +3,7 @@
 package render
 
 import (
+	"runtime"
 	"time"
 
 	"github.com/marrasen/gunim/geom"
@@ -66,11 +67,27 @@ func (r *Renderer) texture(img *paint.Image) uint32 {
 	g.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
 	g.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
 	g.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, int32(w), int32(h), gl.RGBA, gl.UNSIGNED_BYTE, img.Pix())
+	if !mipmapsByPass {
+		g.GenerateMipmap(gl.TEXTURE_2D)
+	}
 	g.ActiveTexture(gl.TEXTURE0)
-	r.mipmaps(t.tex, w, h)
+	if mipmapsByPass {
+		r.mipmaps(t.tex, w, h)
+	}
+	// The batch may hold a quad reading whatever was on unit 1; flush
+	// binds it again.
 	r.images[img] = t
 	return t.tex
 }
+
+// mipmapsByPass says an image's mipmaps are drawn by a pass of our own
+// (mipmaps), not made by glGenerateMipmap: on Windows alone, for Intel's
+// driver (see blurFactors). Elsewhere the pass leaves every level below
+// the first empty on some phones' GPUs, the Pixel 11 Pro's and the
+// Galaxy S22's: an image drawn at less than its size there fades toward
+// clear, all but gone at half its size (a Läxkompis map's tiles, its
+// land a ghost of itself). glGenerateMipmap makes them right there.
+const mipmapsByPass = runtime.GOOS == "windows"
 
 // mipmaps fills in the mipmap levels of tex, a w by h texture holding
 // level 0, each the one above averaged two by two by the blur shader.
