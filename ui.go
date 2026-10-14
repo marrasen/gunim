@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/driver"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
@@ -309,6 +310,11 @@ type WindowOptions struct {
 	// existing one.
 	Parent *Window
 	Anchor geom.Point
+	// Owned makes an ordinary window belong to Parent, as a palette or a plugin's window does: it stays in front of
+	// Parent, and Windows keeps it off the taskbar. It is an ordinary window in every other way: it moves to any
+	// monitor, has its title bar, and opens at Place where that is set, or else at Anchor in Parent's space. Windows
+	// and X11 do so; macOS leaves it an ordinary window.
+	Owned bool
 	// Root is the node at the top of the tree. A nil Root gets an empty
 	// [Box], and views can be mounted into it later through
 	// [Client.Mount].
@@ -402,7 +408,7 @@ func (a *App) NewWindow(o WindowOptions) (*Window, error) {
 	}
 	do := driver.Options{
 		Title: o.Title, Size: o.Size, Monitor: o.Monitor,
-		Kind: o.Kind, Anchor: geom.Rect{Min: o.Anchor, Max: o.Anchor}, Icons: o.Icons,
+		Kind: o.Kind, Anchor: geom.Rect{Min: o.Anchor, Max: o.Anchor}, Icons: o.Icons, Owned: o.Owned && o.Parent != nil,
 		Chromeless: !o.SystemFrame && (newTitleBar != nil || o.TitleBar != nil), Border: o.Border, Text: o.Text, Place: o.Place,
 		Hidden: o.Hidden, DragFromBehind: o.DragFromBehind, Fixed: o.Fixed, NoColorManagement: o.NoColorManagement,
 	}
@@ -978,6 +984,7 @@ func NewOffscreenWith(o WindowOptions) *Window {
 // one share: its theme, title, AskToClose, zoom keys and zoom.
 func (w *Window) setUp(o WindowOptions) {
 	if o.Theme.Name != "" {
+		anim.SetScale(float64(theme.Scale.In(o.Theme)))
 		w.ui.theme = theme.NewLive(o.Theme)
 	}
 	w.title = o.Title
@@ -1150,14 +1157,14 @@ func (w *Window) wants() bool {
 }
 
 // draws reports whether the window draws its frames: while it is
-// hidden or covered it draws none, and its animations hold where they
-// are, unless it is closing, as a window leaving animates out, or a
-// shot waits on a frame.
+// hidden, or covered with none of its popups in sight, it draws none, and
+// its animations hold where they are, unless it is closing, as a window
+// leaving animates out, or a shot waits on a frame.
 func (w *Window) draws() bool {
 	if w.ui.away && !w.ui.goingAway {
 		return w.ui.shotsOwed.Load() > 0
 	}
-	return !w.hidden && !w.covered || w.ui.goingAway || w.ui.fadeMoving() || w.ui.shotsOwed.Load() > 0
+	return !w.hidden && (!w.covered || w.ui.popupInSight()) || w.ui.goingAway || w.ui.fadeMoving() || w.ui.shotsOwed.Load() > 0
 }
 
 // wait blocks until something happens, handles it, and reports whether
@@ -1755,7 +1762,11 @@ func (u *UI) on(s *state, fn func()) {
 
 // UseTheme switches the window to th. Every themed value animates from
 // where it is to th's, with th's [theme.Switch] motion.
+//
+// It sets how long every animation in the program takes from th's
+// [theme.Scale].
 func (u *UI) UseTheme(th theme.Theme) {
+	anim.SetScale(float64(theme.Scale.In(th)))
 	u.theme.Use(th)
 	u.invalid = true
 }

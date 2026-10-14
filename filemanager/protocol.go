@@ -92,6 +92,9 @@ type Shell struct {
 	// changes on this computer: ask, always upload it, or never; empty
 	// asks.
 	UploadEdited string
+	// Usage is the ID of the Disk usage page showing over the browser,
+	// which the keyboard goes to in place of the listing; "" for none.
+	Usage gunim.ID
 }
 
 // Crumb is one folder of the path bar.
@@ -123,6 +126,10 @@ type Listing struct {
 	// Err says why the folder cannot be shown.
 	Err                        string
 	CanBack, CanForward, CanUp bool
+	// ReadOnly names the archive the folder is in, or is, whose items
+	// the window reads and does not change, so the menus offer nothing
+	// that would.
+	ReadOnly string
 }
 
 // Row is one entry as the grid shows it.
