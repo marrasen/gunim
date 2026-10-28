@@ -125,7 +125,61 @@ func fromOklab(l, a, b float32) (r, g, bl uint8) {
 		fromLinear(-0.0041960863*lm - 0.7034186147*mm + 1.7076147010*sm)
 }
 
-func toLinear(c uint8) float32 {
+// toLinear turns an sRGB channel into linear light. It reads a table
+// made once with [srgbToLinear], since a channel has only 256 values.
+func toLinear(c uint8) float32 { return linearOf[c] }
+
+// fromLinear turns linear light back into an sRGB channel. It looks up
+// the first level whose threshold v falls below, in place of raising v
+// to a power, and gives exactly what [linearToSRGB] gives.
+func fromLinear(v float32) uint8 {
+	// Count the thresholds at or below v by binary search.
+	lo, hi := 0, len(srgbSteps)
+	for lo < hi {
+		mid := int(uint(lo+hi) >> 1)
+		if srgbSteps[mid] <= v {
+			lo = mid + 1
+		} else {
+			hi = mid
+		}
+	}
+	return uint8(lo)
+}
+
+var (
+	// linearOf holds srgbToLinear for every channel value.
+	linearOf [256]float32
+	// srgbSteps holds, for each level k from 1 to 255, the smallest
+	// float32 that linearToSRGB turns into k or more, at index k-1.
+	srgbSteps [255]float32
+)
+
+func init() {
+	for c := range linearOf {
+		linearOf[c] = srgbToLinear(uint8(c))
+	}
+	for k := range srgbSteps {
+		srgbSteps[k] = firstReaching(uint8(k + 1))
+	}
+}
+
+// firstReaching returns the smallest float32 in 0..1 that linearToSRGB
+// turns into level k or more. It bisects on the bit patterns, which
+// order positive float32s as their values.
+func firstReaching(k uint8) float32 {
+	lo, hi := uint32(0), math.Float32bits(1) // linearToSRGB(1) is 255
+	for lo < hi {
+		mid := lo + (hi-lo)/2
+		if linearToSRGB(math.Float32frombits(mid)) >= k {
+			hi = mid
+		} else {
+			lo = mid + 1
+		}
+	}
+	return math.Float32frombits(lo)
+}
+
+func srgbToLinear(c uint8) float32 {
 	v := float64(c) / 255
 	if v <= 0.04045 {
 		return float32(v / 12.92)
@@ -133,7 +187,7 @@ func toLinear(c uint8) float32 {
 	return float32(math.Pow((v+0.055)/1.055, 2.4))
 }
 
-func fromLinear(v float32) uint8 {
+func linearToSRGB(v float32) uint8 {
 	x := float64(max(0, min(v, 1)))
 	if x <= 0.0031308 {
 		x *= 12.92
