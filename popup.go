@@ -885,6 +885,7 @@ func (w *Window) forward(s *surface) {
 // called from the goroutine calling Frame: never on a window its loop
 // runs, which takes [Client.Input].
 func (w *Window) Inject(ev input.Event) {
+	w.ui.paintOwed()
 	w.route(ev)
 	w.ui.focusNow()
 }

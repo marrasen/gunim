@@ -39,8 +39,8 @@ func TestAChromelessWindowReportsItsTitleBar(t *testing.T) {
 	if !w.ui.Chromeless() {
 		t.Fatal("the window says it has the system's title bar")
 	}
-	if !slices.Equal(fr.Caption, []geom.Rect{geom.Rc(100, 0, 200, 30)}) || fr.Maximize != geom.Rc(300, 0, 46, 30) {
-		t.Fatalf("the system was told the caption is %v and the maximize button %v", fr.Caption, fr.Maximize)
+	if !slices.Equal(fr.Caption(), []geom.Rect{geom.Rc(100, 0, 200, 30)}) || fr.MaximizeButton() != geom.Rc(300, 0, 46, 30) {
+		t.Fatalf("the system was told the caption is %v and the maximize button %v", fr.Caption(), fr.MaximizeButton())
 	}
 }
 
@@ -85,8 +85,8 @@ func TestATitleBarWithoutMaximizeKeepsTheWindowsSize(t *testing.T) {
 	strip := &fixedStrip{}
 	w.ui.Insert(w.ui.Root(), strip)
 	run(w, 1)
-	if !fr.Maximize.Empty() || len(fr.Caption) != 1 {
-		t.Fatalf("the system was told the caption is %v and the maximize button %v, want no button", fr.Caption, fr.Maximize)
+	if !fr.MaximizeButton().Empty() || len(fr.Caption()) != 1 {
+		t.Fatalf("the system was told the caption is %v and the maximize button %v, want no button", fr.Caption(), fr.MaximizeButton())
 	}
 	w.Input(input.PointerDown{Pos: geom.Pt(150, 15), Button: input.ButtonPrimary, Clicks: 1, Time: time.Now()})
 	w.Input(input.PointerDown{Pos: geom.Pt(150, 15), Button: input.ButtonPrimary, Clicks: 2, Time: time.Now()})
@@ -132,8 +132,8 @@ func TestAFixedWindowKeepsItsSize(t *testing.T) {
 	strip := &titleStrip{}
 	w.ui.Insert(w.ui.Root(), strip)
 	run(w, 1)
-	if !fr.Maximize.Empty() || len(fr.Caption) != 1 {
-		t.Fatalf("the system was told the caption is %v and the maximize button %v, want no button", fr.Caption, fr.Maximize)
+	if !fr.MaximizeButton().Empty() || len(fr.Caption()) != 1 {
+		t.Fatalf("the system was told the caption is %v and the maximize button %v, want no button", fr.Caption(), fr.MaximizeButton())
 	}
 	w.Input(input.PointerDown{Pos: geom.Pt(799, 599), Button: input.ButtonPrimary, Clicks: 1, Time: time.Now()})
 	if len(fr.Resizes) != 0 {
