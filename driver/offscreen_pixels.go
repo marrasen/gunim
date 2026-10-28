@@ -54,6 +54,7 @@ var drawOps = func([]paint.Op, int, int, float32, color.NRGBA) (*image.RGBA, err
 // background. Text draws without the system's own text settings, and the window's corners and colour conversion are
 // left out. It is for a test that looks at what the window shows, and fails with ErrCannotDraw where nothing can draw.
 func (w *OffscreenWindow) Pixels() (*image.RGBA, error) {
+	w.looked()
 	w.mu.Lock()
 	ops, size, scale, zoom, under := w.ops, w.drawnSize, w.drawnScale, w.drawnZoom, w.under
 	w.mu.Unlock()

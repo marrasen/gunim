@@ -114,8 +114,32 @@ type OffscreenWindow struct {
 	raised    int
 	border    Border
 
+	// look runs before what the window drew is read; see OnLook.
+	look func()
+
 	presented chan Frame
 	input     chan any
+}
+
+// OnLook has fn run before each read of what the window drew: its ops,
+// damage, cursor, accessibility tree, pointer region, edge swipe bands
+// and pixels. A window that paints only when looked at paints then; nil
+// stops it. The reads then belong on the goroutine that steps the window.
+func (w *OffscreenWindow) OnLook(fn func()) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.look = fn
+}
+
+// looked runs the function OnLook set, outside the lock, as it may
+// present a frame.
+func (w *OffscreenWindow) looked() {
+	w.mu.Lock()
+	fn := w.look
+	w.mu.Unlock()
+	if fn != nil {
+		fn()
+	}
 }
 
 // SetTitle implements [Titler].
@@ -290,6 +314,7 @@ func (w *OffscreenWindow) SetCursor(c input.Cursor) {
 
 // Cursor returns the pointer's shape last set.
 func (w *OffscreenWindow) Cursor() input.Cursor {
+	w.looked()
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.cursor
@@ -298,6 +323,7 @@ func (w *OffscreenWindow) Cursor() input.Cursor {
 // Damage returns the part of the window the last frame changed, in
 // logical pixels: empty when it changed nothing.
 func (w *OffscreenWindow) Damage() geom.Rect {
+	w.looked()
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.damage
@@ -305,6 +331,7 @@ func (w *OffscreenWindow) Damage() geom.Rect {
 
 // Ops returns the commands recorded by the last frame.
 func (w *OffscreenWindow) Ops() []paint.Op {
+	w.looked()
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.ops
@@ -432,6 +459,7 @@ func (w *OffscreenWindow) PublishAccess(t *access.Tree) {
 
 // AccessTree returns the last accessibility tree published.
 func (w *OffscreenWindow) AccessTree() *access.Tree {
+	w.looked()
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.tree
@@ -653,6 +681,7 @@ func (w *OffscreenWindow) SetPointerRegion(rects []geom.Rect) {
 // PointerRegion returns where the window was last told it takes the pointer, in its logical pixels, and nil where
 // it takes it all over.
 func (w *OffscreenWindow) PointerRegion() []geom.Rect {
+	w.looked()
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return slices.Clone(w.region)
@@ -936,6 +965,7 @@ func (w *OffscreenWindow) KeepEdgeSwipes(bands []geom.Rect) {
 
 // EdgeSwipesKept returns the bands KeepEdgeSwipes last kept, and how many times it has been called.
 func (w *OffscreenWindow) EdgeSwipesKept() (bands []geom.Rect, calls int) {
+	w.looked()
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return append([]geom.Rect(nil), w.edgeSwipes...), w.edgeSwipeCalls

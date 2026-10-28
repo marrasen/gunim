@@ -1026,12 +1026,18 @@ func (w *Window) Offscreen() *driver.OffscreenWindow {
 	return d
 }
 
-// Frame advances the window by delta and draws once.
+// Frame advances the window by delta and draws once; see
+// [Window.PaintWhenLooked] for a window that draws only when looked at.
 //
 // It is the body of the window's own loop, exposed so that a caller
 // holding an offscreen window can step time. Commands queued through
 // [Client] are applied first, the same way the loop applies them.
 func (w *Window) Frame(delta time.Duration) {
+	if w.ui.owed && w.stirring(delta) {
+		// What comes before the frame lays out may go by where the last
+		// frame drew things, as a timer asking where a node is.
+		w.ui.paintOwed()
+	}
 	for drained := false; !drained; {
 		select {
 		case e := <-w.popupIn:
@@ -1052,6 +1058,55 @@ func (w *Window) Frame(delta time.Duration) {
 	w.ui.frame(w.clock, delta)
 }
 
+// stirring reports whether a frame delta on has more to do before it
+// lays out than step time: commands or events to take, or timers due.
+func (w *Window) stirring(delta time.Duration) bool {
+	w.inMu.Lock()
+	pending := len(w.pending) > 0
+	w.inMu.Unlock()
+	if pending || len(w.popupIn) > 0 || len(w.dragIn) > 0 || len(w.leave) > 0 || len(w.fade) > 0 {
+		return true
+	}
+	at, ok := w.ui.nextTimer()
+	return ok && !at.After(w.clock.Add(delta))
+}
+
+// PaintWhenLooked has a window from [NewOffscreen] paint a frame only
+// when something looks at what it drew, for a test that steps many
+// frames and checks few pixels. Each frame still steps time, settles
+// the tree and lays it out. The frame last laid out paints, as it would
+// have, before anything goes by where it drew things: input, which finds
+// what it lands on; [Window.Access]; [Window.Pixels]; [Window.Paint]; and
+// reading the driver window's ops, damage, cursor, accessibility tree or
+// pixels. A frame also paints at once for a shot, and while what comes
+// next goes by where it drew things: a node to bring into view, a popup
+// or a native child open, the pointer held, a drag, a fling.
+//
+// Two things differ from a window that paints every frame. A node that
+// changes its state as it paints changes it when the frame paints, not
+// when it lays out, which is a node's bug to fix. The driver window's
+// damage is what changed since the frame painted before, which may be
+// frames back. It must be called from the goroutine calling Frame.
+func (w *Window) PaintWhenLooked(on bool) {
+	o := w.Offscreen()
+	if o == nil {
+		return
+	}
+	w.ui.lazy = on
+	if !on {
+		w.ui.paintOwed()
+		o.OnLook(nil)
+		return
+	}
+	o.OnLook(w.ui.paintOwed)
+}
+
+// Paint paints the frame last laid out, where a window that paints when
+// looked at left it unpainted; see [Window.PaintWhenLooked]. It is for a
+// test that reads what the window drew another way, as a chromeless
+// window's title bar. It must be called from the goroutine calling Frame.
+func (w *Window) Paint() { w.ui.paintOwed() }
+
 // Input hands the window a platform event, as a driver would: a pointer
 // move, a click, a key, the close button as [driver.CloseAsked]. It is
 // for a window driven with [Window.Frame],
@@ -1069,6 +1124,8 @@ func (w *Window) Input(ev any) { w.platform(ev) }
 // screen off, would act on the state from before the window went out of
 // sight. So such a window applies the queue first.
 func (w *Window) platform(ev any) {
+	// Input lands where the last frame drew things.
+	w.ui.paintOwed()
 	if _, asked := ev.(driver.CloseAsked); asked {
 		// The close button, as the loop takes it.
 		w.ui.AskToClose()
@@ -1629,6 +1686,12 @@ type UI struct {
 	// stepped says [Window.Frame] steps the window's time, as a test
 	// does: its clock is the steps', and the wall clock's plays no part.
 	stepped bool
+	// lazy says the window paints a frame only when something looks at
+	// it; see [Window.PaintWhenLooked]. owed says the last frame was laid
+	// out and left unpainted, and owedFrame is what painting it takes.
+	// painting is set while a frame paints.
+	lazy, owed, painting bool
+	owedFrame            framePaint
 	// locals holds what Local stores.
 	locals map[any]any
 	// pointer is where the pointer was last in the window. drag is the
@@ -2497,102 +2560,14 @@ func (u *UI) frame(now time.Time, delta time.Duration) {
 	// A node asked to take the keyboard once laid out takes it now, so this frame paints it with the keyboard.
 	u.focusLaidOut()
 
-	// 4. Record the frame and hand it to the driver.
-	u.painter.Reset()
-	u.beginTitleBar()
-	u.root.toWindow, u.root.drawn = paint.Identity, u.seq
-	left := false
-	func() {
-		// gone is how far the window is from being all there: coming in
-		// as it opens, or going as it leaves.
-		gone := float32(0)
-		if u.arriving {
-			// The window comes in once its first frame, drawn all gone,
-			// is on the screen: the system may take a while to show it,
-			// and a window shown late would be most of the way in.
-			if u.arrivedAt.IsZero() && u.stepped {
-				u.arrivedAt = now
-			}
-			k := float32(0)
-			if !u.arrivedAt.IsZero() {
-				k = min(float32(now.Sub(u.arrivedAt))/float32(ArriveTime), 1)
-			}
-			u.arriving = k < 1
-			u.animating = true
-			// Eased out: quick to show, settling into place.
-			gone = (1 - k) * (1 - k)
-		}
-		if u.goingAway {
-			k := u.leftBy(now)
-			left = k >= 1
-			u.animating = true
-			// Eased in: slow to start, gone quickly.
-			gone = max(gone, k*k)
-		}
-		// A window stepping aside fades where it stands, and shrinks no
-		// more than leaving or arriving makes it: it comes back exactly
-		// where it was, as what stood in for it meanwhile lands there.
-		shrink := gone
-		if k := u.fadeBy(now); k > 0 {
-			gone = max(gone, k*k)
-		}
-		// The window's background shows where the tree paints nothing, such
-		// as the gap beside a split's handle. Where the window can show what
-		// is behind it, a fading window draws it itself, inside its shape,
-		// so the window fades and shrinks whole: background, corners, border
-		// and shadow. Elsewhere it fades into the dark.
-		var radius, edge float32
-		blends := false
-		if o, ok := u.w.dw.(driver.Outliner); ok {
-			radius, edge, blends = o.Outline()
-		}
-		whole := gone > 0 && blends
-		if b, ok := u.w.dw.(driver.Backgrounder); ok {
-			c := WindowBackground.Get(f.Theme)
-			c.A = uint8(float32(c.A)*(1-gone) + 0.5)
-			if whole {
-				c.A = 0
-			}
-			b.SetBackground(c)
-		}
-		scale := 1 - leaveShrink*shrink
-		if fd, ok := u.w.dw.(driver.Fader); ok {
-			fd.SetFade(1-gone, scale)
-		}
-		if gone > 0 {
-			box := geom.Rect{Max: size.Point()}
-			defer u.painter.Push(paint.Scale(scale, box.Center()))()
-			if whole {
-				shape := box.Inset(geom.Uniform(edge))
-				defer u.painter.Layer(paint.LayerOpts{Bounds: shape, Opacity: 1 - gone, Clip: true, Radius: max(0, radius-edge)})()
-				u.painter.RRect(shape, 0, paint.Solid(WindowBackground.Get(f.Theme)))
-			} else {
-				defer u.painter.Layer(paint.LayerOpts{Bounds: box, Opacity: 1 - gone})()
-			}
-		}
-		u.root.node.Paint(&u.painter, f, u.root.size, Children{ns: u.root.kids, f: f, s: u.root})
-		u.painter.PaintFloats()
-	}()
-	if err := u.w.dw.Present(u.painter.Ops(), u.painter.Damage()); err != nil {
-		u.w.err = fmt.Errorf("gunim: present frame: %w", err)
-		u.w.Close()
-	}
-	u.fadedAway()
-	u.placeNatives(f.Scale)
-	u.sendTitleBar()
-	u.placeCaret()
-	u.syncText(u.focus, false)
-	u.hoverAgain(now)
-	u.framePopups(f)
-	u.revealDrawn()
-	u.watchHeading()
-	u.keepEdgeSwipes()
-	u.publishAccess(u.w.dw, u.root, u.w.title)
-	u.focusMoved = false
-	for _, s := range u.popups {
-		if s.dw != nil {
-			u.publishAccess(s.dw, s.root, "")
-		}
+	// 4. Record the frame and hand it to the driver, or, for a window
+	//    that paints only when looked at, keep what painting it takes.
+	fp, left := u.fading(now, f, size)
+	if u.mustPaint() {
+		u.paintFrame(fp)
+	} else {
+		u.owed, u.owedFrame = true, fp
+		u.fadedAway()
 	}
 
 	// 5. Layout and paint may have started animations: a caret aimed at
@@ -2620,6 +2595,150 @@ func (u *UI) frame(now time.Time, delta time.Duration) {
 	if left {
 		u.w.Close()
 	}
+}
+
+// framePaint is what painting a frame laid out takes: the frame, the
+// window's size, and how far the window is from being all there.
+type framePaint struct {
+	f    Frame
+	size geom.Size
+	// gone is how far the window is from being all there, scale what it
+	// shrinks to, and whole says it fades whole, inside its shape, which
+	// has radius and edge.
+	gone, scale, radius, edge float32
+	whole                     bool
+}
+
+// fading moves the window's coming, going and fading on to the frame
+// stamped now, and tells the driver how far it has faded. It reports
+// what painting the frame takes, and whether the window has now left.
+func (u *UI) fading(now time.Time, f Frame, size geom.Size) (fp framePaint, left bool) {
+	// gone is how far the window is from being all there: coming in
+	// as it opens, or going as it leaves.
+	gone := float32(0)
+	if u.arriving {
+		// The window comes in once its first frame, drawn all gone,
+		// is on the screen: the system may take a while to show it,
+		// and a window shown late would be most of the way in.
+		if u.arrivedAt.IsZero() && u.stepped {
+			u.arrivedAt = now
+		}
+		k := float32(0)
+		if !u.arrivedAt.IsZero() {
+			k = min(float32(now.Sub(u.arrivedAt))/float32(ArriveTime), 1)
+		}
+		u.arriving = k < 1
+		u.animating = true
+		// Eased out: quick to show, settling into place.
+		gone = (1 - k) * (1 - k)
+	}
+	if u.goingAway {
+		k := u.leftBy(now)
+		left = k >= 1
+		u.animating = true
+		// Eased in: slow to start, gone quickly.
+		gone = max(gone, k*k)
+	}
+	// A window stepping aside fades where it stands, and shrinks no
+	// more than leaving or arriving makes it: it comes back exactly
+	// where it was, as what stood in for it meanwhile lands there.
+	shrink := gone
+	if k := u.fadeBy(now); k > 0 {
+		gone = max(gone, k*k)
+	}
+	// The window's background shows where the tree paints nothing, such
+	// as the gap beside a split's handle. Where the window can show what
+	// is behind it, a fading window draws it itself, inside its shape,
+	// so the window fades and shrinks whole: background, corners, border
+	// and shadow. Elsewhere it fades into the dark.
+	var radius, edge float32
+	blends := false
+	if o, ok := u.w.dw.(driver.Outliner); ok {
+		radius, edge, blends = o.Outline()
+	}
+	whole := gone > 0 && blends
+	if b, ok := u.w.dw.(driver.Backgrounder); ok {
+		c := WindowBackground.Get(f.Theme)
+		c.A = uint8(float32(c.A)*(1-gone) + 0.5)
+		if whole {
+			c.A = 0
+		}
+		b.SetBackground(c)
+	}
+	scale := 1 - leaveShrink*shrink
+	if fd, ok := u.w.dw.(driver.Fader); ok {
+		fd.SetFade(1-gone, scale)
+	}
+	return framePaint{f: f, size: size, gone: gone, scale: scale, radius: radius, edge: edge, whole: whole}, left
+}
+
+// mustPaint reports whether this frame paints. A window that paints when
+// looked at paints only for a shot, and while what it does next goes by
+// where it drew things: a node to bring into view, a popup or a native
+// child to place, and the pointer held, carrying a drag, or flinging.
+func (u *UI) mustPaint() bool {
+	return !u.lazy || u.shotsOwed.Load() > 0 || len(u.revealing) > 0 || len(u.popups) > 0 || len(u.nativeNodes) > 0 ||
+		u.capture != nil || u.drag != nil || u.dragOver || u.fling != nil
+}
+
+// paintFrame paints the frame laid out, as fp says, hands it to the
+// driver, and does what goes by where it drew things: hover, the caret,
+// popups, the accessibility tree.
+func (u *UI) paintFrame(fp framePaint) {
+	u.painting = true
+	defer func() { u.painting = false }()
+	f, size := fp.f, fp.size
+	u.painter.Reset()
+	u.beginTitleBar()
+	u.root.toWindow, u.root.drawn = paint.Identity, u.seq
+	func() {
+		if gone := fp.gone; gone > 0 {
+			box := geom.Rect{Max: size.Point()}
+			defer u.painter.Push(paint.Scale(fp.scale, box.Center()))()
+			if fp.whole {
+				shape := box.Inset(geom.Uniform(fp.edge))
+				defer u.painter.Layer(paint.LayerOpts{Bounds: shape, Opacity: 1 - gone, Clip: true, Radius: max(0, fp.radius-fp.edge)})()
+				u.painter.RRect(shape, 0, paint.Solid(WindowBackground.Get(f.Theme)))
+			} else {
+				defer u.painter.Layer(paint.LayerOpts{Bounds: box, Opacity: 1 - gone})()
+			}
+		}
+		u.root.node.Paint(&u.painter, f, u.root.size, Children{ns: u.root.kids, f: f, s: u.root})
+		u.painter.PaintFloats()
+	}()
+	if err := u.w.dw.Present(u.painter.Ops(), u.painter.Damage()); err != nil {
+		u.w.err = fmt.Errorf("gunim: present frame: %w", err)
+		u.w.Close()
+	}
+	u.fadedAway()
+	u.placeNatives(f.Scale)
+	u.sendTitleBar()
+	u.placeCaret()
+	u.syncText(u.focus, false)
+	u.hoverAgain(f.Now)
+	u.framePopups(f)
+	u.revealDrawn()
+	u.watchHeading()
+	u.keepEdgeSwipes()
+	u.publishAccess(u.w.dw, u.root, u.w.title)
+	u.focusMoved = false
+	for _, s := range u.popups {
+		if s.dw != nil {
+			u.publishAccess(s.dw, s.root, "")
+		}
+	}
+}
+
+// paintOwed paints the frame last laid out, where the window left it
+// unpainted, before anything goes by where it drew things. It paints
+// the frame as the frame itself would have: nothing has changed since.
+func (u *UI) paintOwed() {
+	if !u.owed || u.painting {
+		return
+	}
+	u.owed = false
+	u.paintFrame(u.owedFrame)
+	u.owedFrame = framePaint{}
 }
 
 // leaveShrink is how much of its size a window's content loses as it
