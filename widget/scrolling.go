@@ -56,6 +56,8 @@ type scrolling struct {
 	// th is the window's live theme, kept from Layout for Step, which
 	// has no frame. It is a handle to the live values, never a copy.
 	th *theme.Live
+	// u is the window's UI, kept from Layout for its clock.
+	u *gunim.UI
 
 	content, viewport, width float32
 
@@ -171,7 +173,7 @@ func (s *scrolling) Step(dt time.Duration) bool {
 		s.stillSince, s.still = time.Time{}, 0
 	case s.bar.Target() > 0:
 		if s.stillSince.IsZero() {
-			s.stillSince = time.Now()
+			s.stillSince = s.u.Clock()
 		}
 		s.still += dt
 		if s.lingered() >= barLinger {
@@ -196,7 +198,7 @@ func (s *scrolling) WakeIn() time.Duration {
 // lingered is how long the bar has stayed since the content was still:
 // the frames' time, or the clock's where the window slept through it.
 func (s *scrolling) lingered() time.Duration {
-	return max(s.still, time.Since(s.stillSince))
+	return max(s.still, s.u.Clock().Sub(s.stillSince))
 }
 
 // scrollable reports whether the content is taller than the view.
@@ -414,7 +416,7 @@ func (s *scrolling) base() float32 {
 // track records where the pointer is, for the fling's speed.
 func (s *scrolling) track(y float32, t time.Time) {
 	if t.IsZero() {
-		t = time.Now()
+		t = s.u.Clock()
 	}
 	copy(s.trail[1:], s.trail[:len(s.trail)-1])
 	s.trail[0] = sample{y, t}
@@ -437,7 +439,7 @@ func (s *scrolling) speed() float32 {
 		first = p
 	}
 	dt := last.t.Sub(first.t).Seconds()
-	if dt <= 0 || time.Since(last.t) > 100*time.Millisecond {
+	if dt <= 0 || s.u.Clock().Sub(last.t) > 100*time.Millisecond {
 		return 0
 	}
 	return float32(float64(last.y-first.y) / dt)
@@ -490,8 +492,8 @@ func (s *scrolling) revealContent(r geom.Rect, u *gunim.UI) {
 // fit takes the content's height and the view's size from a layout,
 // and brings the offset back inside when the content has shrunk under
 // it.
-func (s *scrolling) fit(content float32, view geom.Size, th *theme.Live) {
-	s.th = th
+func (s *scrolling) fit(content float32, view geom.Size, f gunim.Frame) {
+	s.th, s.u = f.Theme, f.UI()
 	s.content, s.viewport, s.width = content, view.H, view.W
 	if s.held || s.flinging {
 		return
@@ -501,7 +503,7 @@ func (s *scrolling) fit(content float32, view geom.Size, th *theme.Live) {
 		if s.jumped {
 			s.offset.Jump(t)
 		} else {
-			s.offset.Animate(t, Settle.Get(th))
+			s.offset.Animate(t, Settle.Get(s.th))
 		}
 	}
 	s.jumped = false
