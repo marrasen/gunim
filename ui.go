@@ -1835,6 +1835,13 @@ func (u *UI) themeOf(s *state) *theme.Live {
 // on runs fn with s as the node being served, so Theme finds its scope.
 func (u *UI) on(s *state, fn func()) {
 	u.stirred = true
+	u.ask(s, fn)
+}
+
+// ask is on for fn that only asks s, as the pointer's shape: it leaves
+// the frame calm, for Steady nodes to be carried while the pointer
+// rests on them.
+func (u *UI) ask(s *state, fn func()) {
 	prev := u.current
 	u.current = s
 	defer func() { u.current = prev }()
