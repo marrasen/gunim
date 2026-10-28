@@ -171,7 +171,7 @@ type WAVLayout struct {
 // end of the file, where r tells its size: as a [bytes.Reader],
 // [io.SectionReader] or [os.File] does.
 func ReadWAVLayout(r io.ReaderAt) (WAVLayout, error) {
-	return readWAVLayout(r, false, 0)
+	return layoutOfWAV(r, false, 0)
 }
 
 // RecoverWAVLayout reads the header of a WAV file that was written as
@@ -181,16 +181,16 @@ func ReadWAVLayout(r io.ReaderAt) (WAVLayout, error) {
 // header puts the samples and what it says they are, and takes the
 // length from size, the file's size, as the whole frames it holds.
 func RecoverWAVLayout(r io.ReaderAt, size int64) (WAVLayout, error) {
-	return readWAVLayout(r, true, size)
+	return layoutOfWAV(r, true, size)
 }
 
-// readWAVLayout reads the header of the WAV file r holds; where torn
+// layoutOfWAV reads the header of the WAV file r holds; where torn
 // says the header may be, it takes the file's length from size.
-func readWAVLayout(r io.ReaderAt, torn bool, size int64) (WAVLayout, error) {
+func layoutOfWAV(r io.ReaderAt, torn bool, size int64) (WAVLayout, error) {
 	var l WAVLayout
 	haveFmt, haveData := false, false
 	var bad error
-	wide, err := walkWAV(r, torn, func(c WAVChunk) bool {
+	wide, err := chunksOfWAV(r, torn, func(c WAVChunk) bool {
 		switch c.ID {
 		case "fmt ":
 			l.WAVSpec, bad = readWAVFmt(r, c)
@@ -271,14 +271,14 @@ type WAVChunk struct {
 // written to a stream does, runs to the end of the file, where r tells
 // its size, as for [ReadWAVLayout].
 func WalkWAV(r io.ReaderAt, fn func(WAVChunk) bool) error {
-	_, err := walkWAV(r, false, fn)
+	_, err := chunksOfWAV(r, false, fn)
 	return err
 }
 
-// walkWAV is WalkWAV, also reporting whether the file is wide, RF64 or
+// chunksOfWAV is WalkWAV, also reporting whether the file is wide, RF64 or
 // BW64. Where torn says the header may have torn as it changed form,
 // it takes RIFF, RF64 and BW64 alike, and a ds64 chunk's sizes or none.
-func walkWAV(r io.ReaderAt, torn bool, fn func(WAVChunk) bool) (wide bool, err error) {
+func chunksOfWAV(r io.ReaderAt, torn bool, fn func(WAVChunk) bool) (wide bool, err error) {
 	var riff [12]byte
 	if err := readWAVAt(r, riff[:], 0); err != nil {
 		if errors.Is(err, ErrWAVHeader) {
@@ -367,6 +367,7 @@ func readerSize(r io.ReaderAt) (int64, bool) {
 // it stands.
 type seekReaderAt struct{ r io.ReadSeeker }
 
+// ReadAt reads b from s at off.
 func (s seekReaderAt) ReadAt(b []byte, off int64) (int, error) {
 	if _, err := s.r.Seek(off, io.SeekStart); err != nil {
 		return 0, err
