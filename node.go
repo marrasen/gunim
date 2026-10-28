@@ -250,7 +250,9 @@ type KeyCatcher interface {
 // the node the pointer is over, and the nodes around it in turn, and
 // takes the first answer other than [input.CursorInherit]; while a node
 // holds the pointer, as during a drag, it asks that node. p is the
-// pointer, in the node's space.
+// pointer, in the node's space. Cursor only answers: it is asked after
+// every frame the pointer rests in, and those frames carry [Steady]
+// nodes, so what it changed might not be drawn.
 type CursorShaper interface {
 	Node
 	Cursor(p geom.Point) input.Cursor
