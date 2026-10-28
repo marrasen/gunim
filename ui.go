@@ -1033,20 +1033,22 @@ func (w *Window) Offscreen() *driver.OffscreenWindow {
 // holding an offscreen window can step time. Commands queued through
 // [Client] are applied first, the same way the loop applies them.
 func (w *Window) Frame(delta time.Duration) {
-	if w.ui.owed && w.stirring(delta) {
-		// What comes before the frame lays out may go by where the last
-		// frame drew things, as a timer asking where a node is.
-		w.ui.paintOwed()
-	}
+	// What comes before the frame lays out may go by where the last
+	// frame drew things, as a timer asking where a node is: each kind of
+	// work paints a frame owed as it is taken, before it runs.
 	for drained := false; !drained; {
 		select {
 		case e := <-w.popupIn:
+			w.ui.paintOwed()
 			w.ui.popupEvent(e)
 		case m := <-w.dragIn:
+			w.ui.paintOwed()
 			w.ui.dragMsg(m)
 		case <-w.leave:
+			w.ui.paintOwed()
 			w.ui.startLeaving()
 		case out := <-w.fade:
+			w.ui.paintOwed()
 			w.ui.setFade(out)
 		default:
 			drained = true
@@ -1058,35 +1060,33 @@ func (w *Window) Frame(delta time.Duration) {
 	w.ui.frame(w.clock, delta)
 }
 
-// stirring reports whether a frame delta on has more to do before it
-// lays out than step time: commands or events to take, or timers due.
-func (w *Window) stirring(delta time.Duration) bool {
-	w.inMu.Lock()
-	pending := len(w.pending) > 0
-	w.inMu.Unlock()
-	if pending || len(w.popupIn) > 0 || len(w.dragIn) > 0 || len(w.leave) > 0 || len(w.fade) > 0 {
-		return true
-	}
-	at, ok := w.ui.nextTimer()
-	return ok && !at.After(w.clock.Add(delta))
-}
-
 // PaintWhenLooked has a window from [NewOffscreen] paint a frame only
 // when something looks at what it drew, for a test that steps many
 // frames and checks few pixels. Each frame still steps time, settles
 // the tree and lays it out. The frame last laid out paints, as it would
 // have, before anything goes by where it drew things: input, which finds
-// what it lands on; [Window.Access]; [Window.Pixels]; [Window.Paint]; and
-// reading the driver window's ops, damage, cursor, accessibility tree or
-// pixels. A frame also paints at once for a shot, and while what comes
-// next goes by where it drew things: a node to bring into view, a popup
-// or a native child open, the pointer held, a drag, a fling.
+// what it lands on; commands, events and timers a frame takes, which may
+// ask where a node is; [Window.Access]; [Window.Pixels]; [Window.Paint];
+// and reading the driver window's ops, damage, cursor, accessibility
+// tree, pointer region, edge swipe bands, pixels, or its pretend frame's
+// caption and maximize button. A frame also paints at once for a shot,
+// and while what comes next goes by where it drew things: a node to
+// bring into view, a popup or a native child open, the pointer held, a
+// drag, a fling.
 //
-// Two things differ from a window that paints every frame. A node that
-// changes its state as it paints changes it when the frame paints, not
-// when it lays out, which is a node's bug to fix. The driver window's
-// damage is what changed since the frame painted before, which may be
-// frames back. It must be called from the goroutine calling Frame.
+// Some things differ from a window that paints every frame:
+//   - A node that changes its state as it paints changes it when the
+//     frame paints, not when it lays out, which is a node's bug to fix.
+//   - Test code that changes a node or the model a node paints from
+//     between Frame and a look, not through a command, has that new state
+//     paint on the layout of the frame before. Let a frame pass after
+//     such a change before looking, or look before making it.
+//   - Hover follows what moves under a still pointer at the next paint,
+//     not frame by frame.
+//   - The driver window's damage is what changed since the frame painted
+//     before, which may be frames back.
+//
+// It must be called from the goroutine calling Frame.
 func (w *Window) PaintWhenLooked(on bool) {
 	o := w.Offscreen()
 	if o == nil {
@@ -1495,6 +1495,8 @@ func (w *Window) applyPending() {
 
 	if len(batch) > 0 {
 		w.ui.stirred = true
+		// The commands may ask where the last frame drew things.
+		w.ui.paintOwed()
 	}
 	for _, cmd := range batch {
 		w.ui.apply(cmd)
@@ -1840,6 +1842,10 @@ func (u *UI) runTimers() {
 		due = append(due, t)
 		return true
 	})
+	if len(due) > 0 {
+		// A timer may ask where the last frame drew things.
+		u.paintOwed()
+	}
 	for _, t := range due {
 		t.fn(u)
 	}
@@ -2687,6 +2693,8 @@ func (u *UI) mustPaint() bool {
 func (u *UI) paintFrame(fp framePaint) {
 	u.painting = true
 	defer func() { u.painting = false }()
+	// This frame is the newest painted: an older one owed is owed no more.
+	u.owed, u.owedFrame = false, framePaint{}
 	f, size := fp.f, fp.size
 	u.painter.Reset()
 	u.beginTitleBar()
@@ -2736,9 +2744,7 @@ func (u *UI) paintOwed() {
 	if !u.owed || u.painting {
 		return
 	}
-	u.owed = false
 	u.paintFrame(u.owedFrame)
-	u.owedFrame = framePaint{}
 }
 
 // leaveShrink is how much of its size a window's content loses as it

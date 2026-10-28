@@ -122,8 +122,8 @@ type OffscreenWindow struct {
 }
 
 // OnLook has fn run before each read of what the window drew: its ops,
-// damage, cursor, accessibility tree, pointer region, edge swipe bands
-// and pixels. A window that paints only when looked at paints then; nil
+// damage, cursor, accessibility tree, pointer region, edge swipe bands,
+// pixels, and its pretend frame's caption and maximize button. A window that paints only when looked at paints then; nil
 // stops it. The reads then belong on the goroutine that steps the window.
 func (w *OffscreenWindow) OnLook(fn func()) {
 	w.mu.Lock()
@@ -700,9 +700,11 @@ type OffscreenFrame struct {
 	// Native says the pretend system moves and sizes the window itself,
 	// as Windows does.
 	Native bool
-	// Caption and Maximize are the title bar last reported.
-	Caption  []geom.Rect
-	Maximize geom.Rect
+	// caption and maximize are the title bar last reported, and w the
+	// window that reports it; see Caption and MaximizeButton.
+	caption  []geom.Rect
+	maximize geom.Rect
+	w        *OffscreenWindow
 	// Moves counts the moves started, Resizes the edges sized by, and
 	// Minimized the minimizes.
 	Moves     int
@@ -712,13 +714,32 @@ type OffscreenFrame struct {
 	IsMaximized bool
 }
 
+// Caption is the part of the title bar that moves the window, as last
+// reported. Reading it is a look; see [OffscreenWindow.OnLook].
+func (f *OffscreenFrame) Caption() []geom.Rect {
+	f.w.looked()
+	f.w.mu.Lock()
+	defer f.w.mu.Unlock()
+	return slices.Clone(f.caption)
+}
+
+// MaximizeButton is where the title bar's maximize button is, as last
+// reported, empty for none. Reading it is a look; see
+// [OffscreenWindow.OnLook].
+func (f *OffscreenFrame) MaximizeButton() geom.Rect {
+	f.w.looked()
+	f.w.mu.Lock()
+	defer f.w.mu.Unlock()
+	return f.maximize
+}
+
 // MakeChromeless makes the window one whose application draws its
 // title bar, with a pretend system that moves and sizes it itself when
 // native, and leaves that to the engine otherwise.
 func (w *OffscreenWindow) MakeChromeless(native bool) *OffscreenFrame {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	w.frame = &OffscreenFrame{Native: native}
+	w.frame = &OffscreenFrame{Native: native, w: w}
 	return w.frame
 }
 
@@ -734,7 +755,7 @@ func (w *OffscreenWindow) SetTitleBar(caption []geom.Rect, maximize geom.Rect) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.frame != nil {
-		w.frame.Caption, w.frame.Maximize = slices.Clone(caption), maximize
+		w.frame.caption, w.frame.maximize = slices.Clone(caption), maximize
 	}
 }
 

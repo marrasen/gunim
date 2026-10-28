@@ -141,3 +141,32 @@ func TestAnAttachedPopupGoesWhereADisplayPutsIt(t *testing.T) {
 		t.Errorf("a window attached to nothing moved to %v", got)
 	}
 }
+
+func TestReadsOfWhatAnOffscreenWindowDrewAreLooks(t *testing.T) {
+	w := Offscreen(geom.Sz(100, 100))
+	fr := w.MakeChromeless(false)
+	looks := 0
+	w.OnLook(func() { looks++ })
+	reads := []func(){
+		func() { w.Ops() },
+		func() { w.Damage() },
+		func() { w.Cursor() },
+		func() { w.AccessTree() },
+		func() { w.PointerRegion() },
+		func() { w.EdgeSwipesKept() },
+		func() { _, _ = w.Pixels() },
+		func() { fr.Caption() },
+		func() { fr.MaximizeButton() },
+	}
+	for i, read := range reads {
+		read()
+		if looks != i+1 {
+			t.Fatalf("read %d made %d looks in all, want %d", i, looks, i+1)
+		}
+	}
+	w.OnLook(nil)
+	w.Ops()
+	if looks != len(reads) {
+		t.Fatal("a read looked with no hook set")
+	}
+}

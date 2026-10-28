@@ -135,3 +135,79 @@ func TestAWindowPaintsEveryFrameAgainOnceToldTo(t *testing.T) {
 		t.Fatalf("painted %d times, want once a frame since", c.paints)
 	}
 }
+
+func TestAFramePaintedAtOnceLeavesNoOlderFrameOwed(t *testing.T) {
+	w, c := lookedAt(t)
+	run(w, 3)
+	// A node to bring into view paints the frame at once.
+	w.ui.Reveal(c)
+	run(w, 1)
+	if c.paints != 1 || w.ui.owed {
+		t.Fatalf("painted %d times, a frame still owed: %v; want once, none owed", c.paints, w.ui.owed)
+	}
+	w.Offscreen().Ops()
+	if c.paints != 1 {
+		t.Fatalf("a look painted an older frame again: %d paints", c.paints)
+	}
+	if _, ok := w.ui.Bounds(c); !ok {
+		t.Fatal("the node painted shows nowhere")
+	}
+}
+
+func TestACommandFindsANodeWhereTheFrameBeforeLaidItOut(t *testing.T) {
+	w := newTestWindow()
+	w.PaintWhenLooked(true)
+	c := &paintCount{}
+	RegisterView(w, "box", func(struct{}) *paintCount { return c }, nil)
+	var ok bool
+	RegisterPatch(w, "box", func(n *paintCount, _ struct{}, u *UI) { _, ok = u.Bounds(n) })
+	cl := w.Client()
+	if err := cl.Mount(Root, "box", "box", struct{}{}); err != nil {
+		t.Fatal(err)
+	}
+	run(w, 3)
+	if err := cl.Patch("box", struct{}{}); err != nil {
+		t.Fatal(err)
+	}
+	run(w, 1)
+	if !ok {
+		t.Fatal("a patch found the node nowhere, the frame before left unpainted")
+	}
+}
+
+func TestAnInjectedClickLandsWhereTheFrameLaidOutButLeftUnpainted(t *testing.T) {
+	w, st, r := newStage(t, paint.Identity)
+	w.PaintWhenLooked(true)
+	st.t = paint.Translate(geom.Pt(300, 0))
+	run(w, 3)
+	w.Inject(input.PointerDown{Pos: geom.Pt(350, 30), Time: time.Now()})
+	if got, want := pressedAt(t, r), geom.Pt(40, 20); !near(got, want) {
+		t.Fatalf("press at %v in the child's space, want %v", got, want)
+	}
+}
+
+// shaped names a hand for the pointer over it.
+type shaped struct{ recorder }
+
+func (*shaped) Cursor(geom.Point) input.Cursor { return input.CursorHand }
+
+func TestTheCursorReadIsTheLastFrameLaidOut(t *testing.T) {
+	w := newTestWindow()
+	st := &stage{t: paint.Identity}
+	sh := &shaped{}
+	w.ui.Insert(w.ui.Root(), st)
+	w.ui.Insert(st, sh)
+	run(w, 1)
+	w.PaintWhenLooked(true)
+	w.Input(input.PointerMove{Pos: geom.Pt(50, 30), Time: time.Now()})
+	run(w, 1)
+	if got := w.Offscreen().Cursor(); got != input.CursorHand {
+		t.Fatalf("over the node the pointer is %v, want a hand", got)
+	}
+	// The node slides away from under the still pointer.
+	st.t = paint.Translate(geom.Pt(300, 0))
+	run(w, 3)
+	if got := w.Offscreen().Cursor(); got != input.CursorArrow {
+		t.Fatalf("with the node gone from under it the pointer is %v, want an arrow", got)
+	}
+}
