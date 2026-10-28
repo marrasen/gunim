@@ -33,19 +33,31 @@ func LEDAt(u float32) float32 {
 
 // LEDColour is the colour of a light at db: Safe up to -18 dB, turning
 // Near by -9, and Over from -3 to full scale.
-func LEDColour(th *theme.Live, db float32) color.NRGBA {
-	safe, near, over := Safe.Get(th), Near.Get(th), Over.Get(th)
+func LEDColour(th *theme.Live, db float32) color.NRGBA { return ledColoursOf(th).at(db) }
+
+// ledColours are the colours lights turn through, as the theme has them
+// now. A theme's colour costs a conversion each time it is read, so a
+// meter reads them once each paint, not once each light.
+type ledColours struct{ safe, near, over color.NRGBA }
+
+// ledColoursOf reads the lights' colours from th.
+func ledColoursOf(th *theme.Live) ledColours {
+	return ledColours{safe: Safe.Get(th), near: Near.Get(th), over: Over.Get(th)}
+}
+
+// at is the colour of a light at db; see [LEDColour].
+func (c ledColours) at(db float32) color.NRGBA {
 	switch {
 	case db < -18:
-		return safe
+		return c.safe
 	case db < -9:
-		return Mix(safe, near, (db+18)/9)
+		return Mix(c.safe, c.near, (db+18)/9)
 	case db < -3:
-		return near
+		return c.near
 	case db < -1:
-		return Mix(near, over, (db+3)/2)
+		return Mix(c.near, c.over, (db+3)/2)
 	}
-	return over
+	return c.over
 }
 
 // Paint draws lv in r: each channel's lights lit full up to its RMS
@@ -66,6 +78,20 @@ func (s LEDs) Paint(p *paint.Painter, th *theme.Live, r geom.Rect, lv *Levels) {
 	pitch := (long + s.Gap) / float32(n)
 	thick := (across - s.Sep) / 2
 	dark := Faded(widget.Ink.Get(th), 0.07)
+	// Each light's colour is worked out the first time a channel lights
+	// it, and kept for the other.
+	cs := ledColoursOf(th)
+	var buf [64]color.NRGBA
+	var known [64]bool
+	colour := func(i int) color.NRGBA {
+		if i >= len(buf) {
+			return cs.at(LEDAt((float32(i) + 0.5) / float32(n)))
+		}
+		if !known[i] {
+			buf[i], known[i] = cs.at(LEDAt((float32(i)+0.5)/float32(n))), true
+		}
+		return buf[i]
+	}
 	for ch := range 2 {
 		lit, peak, hold := MeterAt(lv.RMS[ch]), MeterAt(lv.Peak[ch]), MeterAt(lv.Hold[ch])
 		held := -1
@@ -78,9 +104,9 @@ func (s LEDs) Paint(p *paint.Painter, th *theme.Live, r geom.Rect, lv *Levels) {
 			c := dark
 			switch {
 			case lv.RMS[ch] > -59 && mid <= lit, i == held:
-				c = LEDColour(th, LEDAt(mid))
+				c = colour(i)
 			case lv.Peak[ch] > -59 && mid <= peak:
-				c = Faded(LEDColour(th, LEDAt(mid)), 0.4)
+				c = Faded(colour(i), 0.4)
 			}
 			var at geom.Rect
 			if s.Upright {
