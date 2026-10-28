@@ -1820,7 +1820,7 @@ func (u *UI) redrawAt(t time.Time) {
 // this one, and returns a function that cancels it. The window sleeps
 // while it waits, so a tooltip's delay costs no frames.
 func (u *UI) After(d time.Duration, fn func(u *UI)) (stop func()) {
-	t := &timer{at: u.clock().Add(d), fn: fn}
+	t := &timer{at: u.timerClock().Add(d), fn: fn}
 	u.timers = append(u.timers, t)
 	return func() {
 		u.timers = slices.DeleteFunc(u.timers, func(o *timer) bool { return o == t })
@@ -1830,7 +1830,7 @@ func (u *UI) After(d time.Duration, fn func(u *UI)) (stop func()) {
 // wakeAfter has the window draw a frame d from now, for a [Waker]: one
 // timer at a time, the earliest asked for.
 func (u *UI) wakeAfter(d time.Duration) {
-	at := u.clock().Add(d)
+	at := u.timerClock().Add(d)
 	if u.wakeStop != nil && !u.wakeAt.After(at) {
 		return
 	}
@@ -1844,12 +1844,12 @@ func (u *UI) wakeAfter(d time.Duration) {
 	})
 }
 
-// clock returns the later of the last frame's time and the wall
+// timerClock returns the later of the last frame's time and the wall
 // clock's: the frame's time runs a refresh ahead while frames draw, and
 // is long past once the window has slept. A window stepped by
 // [Window.Frame] keeps the time its steps make alone, so a timer comes
 // due after the steps it waits for, however long they take to draw.
-func (u *UI) clock() time.Time {
+func (u *UI) timerClock() time.Time {
 	if u.stepped || u.byFrames {
 		return u.now
 	}
