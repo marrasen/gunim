@@ -41,7 +41,7 @@ func TestTheSRGBTablesMatchThePowerForm(t *testing.T) {
 	}
 	for _, s := range srgbSteps {
 		b := math.Float32bits(s)
-		for d := uint32(0); d <= 256; d++ {
+		for d := range uint32(257) {
 			check(math.Float32frombits(b + d))
 			check(math.Float32frombits(b - d))
 		}
