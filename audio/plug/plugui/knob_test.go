@@ -253,3 +253,24 @@ func TestATaperTurnsTheKnobUnevenly(t *testing.T) {
 		t.Errorf("a step of Up took the knob to %v, want %v", h.values[4], want)
 	}
 }
+
+// TestArrowsWithCtrlAltOrSuperPassTheKnobBy checks the knob leaves those
+// keys to the window's shortcuts, such as Alt+Left to the loop's start.
+func TestArrowsWithCtrlAltOrSuperPassTheKnobBy(t *testing.T) {
+	h := &host{values: map[uint32]float64{3: 100}}
+	k := NewKnob(h, release)
+	for _, m := range []input.Mods{input.ModAlt, input.ModControl, input.ModSuper, input.ModAlt | input.ModShift} {
+		for _, key := range []input.Key{input.KeyLeft, input.KeyRight, input.KeyUp, input.KeyDown, input.KeyHome, input.KeyEnd} {
+			if k.Handle(input.KeyPress{Key: key, Mods: m}, nil) {
+				t.Errorf("the knob took %v with %v", key, m)
+			}
+		}
+	}
+	if h.values[3] != 100 || len(h.log) != 0 {
+		t.Errorf("the keys turned the knob to %v, sending %v", h.values[3], h.log)
+	}
+	// Shift alone still steps ten times as far.
+	if !k.Handle(input.KeyPress{Key: input.KeyLeft, Mods: input.ModShift}, nil) || h.values[3] >= 100 {
+		t.Errorf("Shift+Left left the knob at %v", h.values[3])
+	}
+}

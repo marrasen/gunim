@@ -410,6 +410,11 @@ func (k *Knob) Handle(e input.Event, u *gunim.UI) bool {
 		k.hover.Animate(0, widget.Quick.Get(u.Theme()))
 		u.Invalidate()
 	case input.KeyPress:
+		// Ctrl, Alt or Super with a key is the window's shortcut, such as
+		// Alt+Left to the loop's start: the knob leaves it be.
+		if e.Mods.Has(input.ModControl) || e.Mods.Has(input.ModAlt) || e.Mods.Has(input.ModSuper) {
+			return false
+		}
 		d := k.stepSize()
 		if e.Mods.Has(input.ModShift) {
 			d *= 10

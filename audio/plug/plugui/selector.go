@@ -243,6 +243,11 @@ func (s *Selector) Handle(e input.Event, u *gunim.UI) bool {
 		s.tip.Hide(u)
 		s.pick(s.at(e.Pos), u)
 	case input.KeyPress:
+		// Ctrl, Alt or Super with a key is the window's shortcut, such as
+		// Alt+Left to the loop's start: the selector leaves it be.
+		if e.Mods.Has(input.ModControl) || e.Mods.Has(input.ModAlt) || e.Mods.Has(input.ModSuper) {
+			return false
+		}
 		switch e.Key {
 		case input.KeyLeft, input.KeyUp:
 			s.pick(s.sel-1, u)

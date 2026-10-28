@@ -508,6 +508,11 @@ func (s *Slider) Handle(e input.Event, u *gunim.UI) bool {
 			s.commit(u)
 		}
 	case input.KeyPress:
+		// Ctrl, Alt or Super with a key is the window's shortcut, such as
+		// Alt+Left to the loop's start: the slider leaves it be.
+		if e.Mods.Has(input.ModControl) || e.Mods.Has(input.ModAlt) || e.Mods.Has(input.ModSuper) {
+			return false
+		}
 		// Shift steps ten times as far.
 		if e.Mods.Has(input.ModShift) {
 			step *= 10
@@ -836,6 +841,11 @@ func (b *tabBar) Handle(e input.Event, u *gunim.UI) bool {
 		t.scrollTo(to, Quick.Get(th))
 		u.Invalidate()
 	case input.KeyPress:
+		// Ctrl, Alt or Super with a key is the window's shortcut, such as
+		// Alt+Left to the loop's start: the tab strip leaves it be.
+		if e.Mods.Has(input.ModControl) || e.Mods.Has(input.ModAlt) || e.Mods.Has(input.ModSuper) {
+			return false
+		}
 		switch e.Key {
 		case input.KeyLeft:
 			t.choose(t.enabled(t.selected-1, -1), u)
