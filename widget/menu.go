@@ -843,7 +843,7 @@ func (m *Menu) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom
 		w = min(w, wide)
 	}
 	m.card = geom.Rc(m.margin, m.margin, w, h)
-	m.scroll.fit(y, geom.Sz(m.card.Max.X, h-2*m.pad), th)
+	m.scroll.fit(y, geom.Sz(m.card.Max.X, h-2*m.pad), f)
 	if m.fresh {
 		m.newRows()
 	}

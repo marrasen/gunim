@@ -117,9 +117,9 @@ func (u *UI) handleRaw(root *state, ev any) {
 			u.watchHeading()
 			u.keepEdgeSwipes()
 		}
-		var ev input.Event = input.WindowShown{Time: time.Now()}
+		var ev input.Event = input.WindowShown{Time: u.Clock()}
 		if !e.Shown {
-			ev = input.WindowHidden{Time: time.Now()}
+			ev = input.WindowHidden{Time: u.Clock()}
 		}
 		target := u.focus
 		if target == nil {
@@ -143,7 +143,7 @@ func (u *UI) handleRaw(root *state, ev any) {
 		return
 	case driver.FilesLeft:
 		if root == u.root && u.dragAt != nil {
-			u.deliver(u.dragAt, input.DragLeave{Time: time.Now()})
+			u.deliver(u.dragAt, input.DragLeave{Time: u.Clock()})
 			u.dragAt = nil
 		}
 		return
@@ -162,9 +162,9 @@ func (u *UI) handleRaw(root *state, ev any) {
 		} else if u.w.app != nil {
 			u.w.app.windows.focus(u.w)
 		}
-		var ev input.Event = input.WindowFocusGained{Time: time.Now()}
+		var ev input.Event = input.WindowFocusGained{Time: u.Clock()}
 		if !e.Focused {
-			ev = input.WindowFocusLost{Time: time.Now()}
+			ev = input.WindowFocusLost{Time: u.Clock()}
 		}
 		target := u.focus
 		if target == nil {
@@ -341,7 +341,7 @@ func (u *UI) handleRaw(root *state, ev any) {
 		}
 		u.keyEvent(ev)
 		if tapped {
-			u.keyEvent(input.AltTapped{Time: time.Now()})
+			u.keyEvent(input.AltTapped{Time: u.Clock()})
 		}
 	default:
 		u.keyEvent(ev)

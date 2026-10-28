@@ -55,6 +55,8 @@ type LiveGraph struct {
 	// it runs, the window sleeping between, and moves on by the time
 	// that passed.
 	stepped time.Time
+	// u is the window's UI, kept from Layout for its clock.
+	u *gunim.UI
 	// painted says the graph was painted since the last step: one out of
 	// sight asks for no frames.
 	painted bool
@@ -152,7 +154,7 @@ func (g *LiveGraph) Step(dt time.Duration) bool {
 
 // advance moves the graph on by dt, and reports whether it moves on.
 func (g *LiveGraph) advance(dt time.Duration) bool {
-	now := time.Now()
+	now := g.u.Clock()
 	if !g.stepped.IsZero() {
 		// The window slept between the graph's frames: the time that
 		// passed, rather than a refresh's.
@@ -213,6 +215,7 @@ func (g *LiveGraph) WakeIn() time.Duration {
 
 // Layout implements [gunim.Node]: nothing until there are two samples.
 func (g *LiveGraph) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
+	g.u = f.UI()
 	if len(g.samples) < 2 {
 		return c.Constrain(geom.Size{})
 	}

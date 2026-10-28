@@ -1101,6 +1101,30 @@ func (w *Window) PaintWhenLooked(on bool) {
 	o.OnLook(w.ui.paintOwed)
 }
 
+// TimeByFrames has a window from [NewOffscreen] keep time by its frames
+// alone, for a test that counts frames: everything the window times goes
+// by the time [Window.Frame] has stepped, never by the wall clock, so a
+// slow machine takes the same frames as a fast one. A window stepped by
+// Frame runs its timers so already; this takes in the rest: the times
+// on the events the window makes itself (focus, shown and hidden, a
+// drag's steps, Alt tapped), and what nodes time with [UI.Clock], as an
+// editor's pause that ends a step of undo, a table's pause in typing to
+// find a row, how long a scrollbar lingers, a drag's speed for a fling,
+// and a live graph catching up after the window slept.
+//
+// It must be called from the goroutine calling Frame.
+func (w *Window) TimeByFrames(on bool) {
+	if w.Offscreen() == nil {
+		return
+	}
+	w.ui.byFrames = on
+	if w.ui.now.IsZero() {
+		// Before its first frame, the window's time is where its
+		// frames will start from.
+		w.ui.now = w.clock
+	}
+}
+
 // Paint paints the frame last laid out, where a window that paints when
 // looked at left it unpainted; see [Window.PaintWhenLooked]. It is for a
 // test that reads what the window drew another way, as a chromeless
@@ -1688,6 +1712,9 @@ type UI struct {
 	// stepped says [Window.Frame] steps the window's time, as a test
 	// does: its clock is the steps', and the wall clock's plays no part.
 	stepped bool
+	// byFrames says everything the window times goes by the time its
+	// frames have stepped; see [Window.TimeByFrames].
+	byFrames bool
 	// lazy says the window paints a frame only when something looks at
 	// it; see [Window.PaintWhenLooked]. owed says the last frame was laid
 	// out and left unpainted, and owedFrame is what painting it takes.
@@ -1823,13 +1850,25 @@ func (u *UI) wakeAfter(d time.Duration) {
 // [Window.Frame] keeps the time its steps make alone, so a timer comes
 // due after the steps it waits for, however long they take to draw.
 func (u *UI) clock() time.Time {
-	if u.stepped {
+	if u.stepped || u.byFrames {
 		return u.now
 	}
 	if now := time.Now(); now.After(u.now) {
 		return now
 	}
 	return u.now
+}
+
+// Clock returns the time now, for a node that counts the time between
+// events, as an editor that joins quick typing into one step of undo:
+// the wall clock's, or, in a window that keeps time by its frames alone
+// ([Window.TimeByFrames]), the time its frames have stepped. A nil UI,
+// as a frame made outside a window has, reads the wall clock.
+func (u *UI) Clock() time.Time {
+	if u != nil && u.byFrames {
+		return u.now
+	}
+	return time.Now()
 }
 
 // runTimers runs the timers whose time has come.

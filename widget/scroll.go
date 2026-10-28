@@ -66,7 +66,7 @@ func (s *Scroll) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children)
 		kid.Place(geom.Pt(0, -onPixels(s.offset.Value(), f.Scale)))
 		return geom.Sz(own.W, max(size.H, c.Min.H))
 	}
-	s.fit(size.H, own, f.Theme)
+	s.fit(size.H, own, f)
 	kid.Place(geom.Pt(0, -onPixels(s.offset.Value(), f.Scale)))
 	return own
 }
