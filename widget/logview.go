@@ -2,193 +2,171 @@ package widget
 
 import (
 	"image/color"
-	"time"
+	"strconv"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/access"
 	"github.com/marrasen/gunim/geom"
-	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/theme"
 )
 
 // LogView tokens.
 var (
-	// LogViewHeight is a log view's height, and LogViewSize its words'.
+	// LogViewHeight is a log view's height, LogViewSize its words', and
+	// LogViewLine a line's height as a share of LogViewSize.
 	LogViewHeight = theme.Length("logview.height", 440)
 	LogViewSize   = theme.Length("logview.size", 12.5)
-	// LogViewPadding is the room round its lines.
+	LogViewLine   = theme.Length("logview.line", 1.55)
+	// LogViewPadding is the room round its lines, and LogViewLeadGap the
+	// room after a line's lead.
 	LogViewPadding = theme.Length("logview.padding", 12)
-	// LogViewNew is how long a line just come takes to fade in.
-	LogViewNew = 400 * time.Millisecond
+	LogViewLeadGap = theme.Length("logview.lead.gap", 12)
+	// LogViewLead colours a line's lead, such as its time.
+	LogViewLead = theme.Foreground("logview.lead", color.NRGBA{R: 0x8a, G: 0x93, B: 0xa6, A: 0xff})
 )
 
 // LogLine is one line of a [LogView]: a faint Lead, such as the time it
 // was written, then its Text in Ink, the theme's [Ink] when unset.
 type LogLine struct {
 	Lead, Text string
-	Ink        color.NRGBA
+	Ink        theme.Token[color.NRGBA]
 }
-
-// LogSource gives a [LogView] its lines: the last most of them, oldest
-// first, and the number past the last line ever written, which grows by
-// one with each line, so the view can tell what is new however many
-// lines the source keeps.
-type LogSource func(most int) (lines []LogLine, end int64)
 
 // LogView shows lines as they are written, as a connection's log or a
-// build's output: in the theme's mono face, newest at the bottom, each
-// line fading in as it comes. At the bottom it follows new lines;
-// scrolled back by the wheel, what is shown stays where it is as more
-// come. The wheel at either end, or with a key held, passes on to what
-// scrolls round it.
+// build's output, in the theme's mono face in a field's box, newest at
+// the bottom.
 //
-// It looks for new lines while it is drawn, a few times a second.
+// A line written while the newest is in view grows in at the bottom,
+// and the view glides down to keep it there; scrolled up, the view
+// stays on the lines it shows as more come. It scrolls as a [Scroll]
+// does: the wheel, a finger and the keys glide it with a spring, and a
+// thin bar shows while it moves. Only the lines in view are built, so a
+// long log costs what a short one does.
+//
+// The app gives it the lines with SetLines from its view's update.
 type LogView struct {
-	// Source gives the lines.
-	Source LogSource
-	// OnSeen runs on the UI goroutine as the view shows the newest line,
-	// with the end the source said, so an application can count what
-	// has not been read; a non-nil result is sent to the application as
-	// the view's intent.
+	// OnSeen runs from the view's layout, with the window's UI, as the
+	// newest line comes into view: the end SetLines was given, so an app
+	// can count the lines not read yet. A non-nil result is sent to the
+	// application as the view's intent.
 	OnSeen func(end int64, u *gunim.UI) gunim.Intent
-	// seen is the end OnSeen was last told.
-	seen int64
 
-	// back is how many lines it is scrolled up from the newest, end the
-	// source's end as last drawn, wheel what the wheel has turned short
-	// of a line, and came when each line from first on arrived.
-	back  int
-	end   int64
-	wheel float32
-	came  map[int64]time.Time
+	list  *VirtualList
+	lines map[Key]LogLine
+	// end is the number past the newest line, and seen the end OnSeen
+	// was last told.
+	end, seen int64
 }
 
-// NewLogView returns a log view of source.
-func NewLogView(source LogSource) *LogView {
-	return &LogView{Source: source, came: map[int64]time.Time{}}
+// NewLogView returns an empty log view.
+func NewLogView() *LogView {
+	v := &LogView{lines: map[Key]LogLine{}}
+	v.list = NewVirtualList(func(k Key) gunim.Node { return &logRow{v: v, key: k} })
+	v.list.StickToEnd = true
+	v.list.Spacing = noSpacing
+	return v
 }
 
-// Layout implements [gunim.Node].
-func (v *LogView) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
-	return c.Constrain(geom.Sz(c.Max.W, LogViewHeight.Get(f.Theme)))
+// noSpacing sets a log's lines against each other.
+var noSpacing = theme.Length("logview.spacing", 0)
+
+// End returns the number past the newest line, as SetLines was given.
+func (v *LogView) End() int64 { return v.end }
+
+// SetLines shows lines, oldest first, the newest numbered end-1, and
+// sends no intent. The numbers say which lines are new: a line kept from
+// before stays as it is, and a new one grows in. u may be nil.
+func (v *LogView) SetLines(lines []LogLine, end int64, u *gunim.UI) {
+	first := end - int64(len(lines))
+	keys := make([]Key, len(lines))
+	next := make(map[Key]LogLine, len(lines))
+	for i, l := range lines {
+		k := Key(strconv.FormatInt(first+int64(i), 10))
+		keys[i], next[k] = k, l
+	}
+	v.lines, v.end = next, end
+	v.list.SetKeys(keys, u)
 }
 
-// logStep is the room a line takes.
-func logStep(th *theme.Live) float32 { return LogViewSize.Get(th) * 1.55 }
+// Children implements [gunim.Composite].
+func (v *LogView) Children() []gunim.Node { return []gunim.Node{v.list} }
 
-// Paint implements [gunim.Node]: a box of the lines that fit, each
-// one's lead faint, fading in as it comes.
-func (v *LogView) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
+// Layout implements [gunim.Node]: the lines in a box LogViewHeight
+// tall, LogViewPadding in from its edges.
+func (v *LogView) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
+	th := f.Theme
+	size := c.Constrain(geom.Sz(c.Max.W, LogViewHeight.Get(th)))
+	pad := LogViewPadding.Get(th)
+	inner := geom.Sz(max(size.W-2*pad, 0), max(size.H-2*pad, 0))
+	k := kids.At(0)
+	k.Layout(gunim.Tight(inner))
+	k.Place(geom.Pt(pad, pad))
+	if v.OnSeen != nil && v.end > v.seen && v.list.AtEnd() {
+		v.seen = v.end
+		if in := v.OnSeen(v.end, f.UI()); in != nil {
+			f.Send(v, in)
+		}
+	}
+	return size
+}
+
+// Paint implements [gunim.Node]: a field's box, then the lines.
+func (v *LogView) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.Children) {
 	th := f.Theme
 	r := geom.Rect{Max: box.Point()}
-	p.RRect(r, 8, paint.Solid(FieldFill.Get(th)))
-	p.RRectStroke(r.Inset(geom.Uniform(0.5)), 8, paint.Fill{}, paint.Stroke{Width: 1, Color: DialogBorder.Get(th)})
-	if v.Source == nil {
+	radius := FieldRadius.Get(th)
+	p.RRect(r, radius, paint.Solid(FieldFill.Get(th)))
+	p.RRectStroke(r.Inset(geom.Uniform(0.5)), radius, paint.Fill{}, paint.Stroke{Width: 1, Color: FieldBorder.Get(th)})
+	kids.At(0).Paint(p)
+}
+
+// Access implements [gunim.Accessible]: a list of lines.
+func (v *LogView) Access() access.Info { return access.Info{Role: access.RoleList, Name: "Log"} }
+
+// logRow is one line of a log view.
+type logRow struct {
+	v    *LogView
+	key  Key
+	lead shapedText
+	text shapedText
+}
+
+// Layout implements [gunim.Node]: one line.
+func (r *logRow) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
+	th := f.Theme
+	return c.Constrain(geom.Sz(c.Max.W, LogViewSize.Get(th)*LogViewLine.Get(th)))
+}
+
+// Paint implements [gunim.Node]: the lead faint, then the words in the
+// line's colour, faded where they are cut.
+func (r *logRow) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
+	l, ok := r.v.lines[r.key]
+	if !ok {
 		return
 	}
-	f.RedrawAt(f.Now.Add(250 * time.Millisecond))
-	pad, size, step := LogViewPadding.Get(th), LogViewSize.Get(th), logStep(th)
-	fits := max(int((box.H-2*pad)/step), 1)
-	lines, end := v.Source(fits + v.back + 1)
-	// Scrolled back, the lines looked at stay where they are as more
-	// come: as far back again as there are new ones.
-	if v.back > 0 && v.end > 0 && end > v.end {
-		v.back += int(end - v.end)
-		lines, end = v.Source(fits + v.back + 1)
+	th := f.Theme
+	face, size := faceIn(MonoFont, th), LogViewSize.Get(th)
+	x := float32(0)
+	if l.Lead != "" {
+		run := r.lead.shape(face, l.Lead, size)
+		run.Paint(p, geom.Pt(0, box.H/2-run.Height()/2), LogViewLead.Get(th))
+		x = run.Advance + LogViewLeadGap.Get(th)
 	}
-	if v.came == nil {
-		v.came = map[int64]time.Time{}
-	}
-	first := end - int64(len(lines))
-	if v.end > 0 {
-		for n := max(v.end, first); n < end; n++ {
-			v.came[n] = f.Now
-		}
-	}
-	for n := range v.came {
-		if n < first {
-			delete(v.came, n)
-		}
-	}
-	v.end = end
-	v.back = min(v.back, max(0, len(lines)-fits))
-	last := len(lines) - v.back
-	start := max(0, last-fits)
-	if v.back == 0 && v.OnSeen != nil && end != v.seen {
-		v.seen = end
-		if u := f.UI(); u != nil {
-			if in := v.OnSeen(end, u); in != nil {
-				u.Send(v, in)
-			}
-		}
-	}
-	face := faceIn(MonoFont, th)
 	ink := Ink.Get(th)
-	lead := ink
-	lead.A = 0x90
-	y := pad
-	for i, l := range lines[start:last] {
-		alpha := float32(1)
-		if at, ok := v.came[first+int64(start+i)]; ok {
-			if t := float32(f.Now.Sub(at)) / float32(LogViewNew); t < 1 {
-				alpha = max(t, 0)
-				f.RedrawAt(f.Now.Add(time.Second / 60))
-			}
-		}
-		x := pad
-		if l.Lead != "" {
-			run := face.Shape(l.Lead, size)
-			run.Paint(p, geom.Pt(x, y), fadeTo(lead, alpha))
-			x += run.Advance + 12
-		}
-		c := l.Ink
-		if c == (color.NRGBA{}) {
-			c = ink
-		}
-		face.Shape(l.Text, size).PaintFaded(p, geom.Pt(x, y), fadeTo(c, alpha), box.W-pad-x, TextFade.Get(th))
-		y += step
+	if l.Ink.Key() != "" {
+		ink = l.Ink.Get(th)
 	}
+	run := r.text.shape(face, l.Text, size)
+	run.PaintFaded(p, geom.Pt(x, box.H/2-run.Height()/2), ink, max(box.W-x, 0), TextFade.Get(th))
 }
 
-// fadeTo is c at a of its alpha.
-func fadeTo(c color.NRGBA, a float32) color.NRGBA {
-	c.A = uint8(float32(c.A) * min(max(a, 0), 1))
-	return c
-}
-
-// Handle implements [gunim.Handler]: the wheel scrolls back through the
-// lines, and down to the newest, which the view then follows.
-func (v *LogView) Handle(e input.Event, u *gunim.UI) bool {
-	s, ok := e.(input.Scroll)
-	if !ok || v.Source == nil || s.Mods != 0 {
-		return false
+// Access implements [gunim.Accessible]: the line's words.
+func (r *logRow) Access() access.Info {
+	l := r.v.lines[r.key]
+	name := l.Text
+	if l.Lead != "" {
+		name = l.Lead + " " + l.Text
 	}
-	n := s.Notches.Y
-	if n == 0 {
-		n = s.Delta.Y / 40
-	}
-	// Up a notch is back three lines; what falls short of a line is kept
-	// for the next turn, as a touchpad turns in fractions.
-	v.wheel += n * 3
-	whole := int(v.wheel)
-	v.wheel -= float32(whole)
-	switch {
-	case whole > 0:
-		lines, _ := v.Source(v.back + whole + 1 + int(LogViewHeight.Get(u.Theme())/logStep(u.Theme())))
-		if v.back+int(LogViewHeight.Get(u.Theme())/logStep(u.Theme())) >= len(lines) {
-			// At the top: what is round it scrolls instead.
-			return false
-		}
-	case whole < 0 && v.back == 0:
-		return false
-	}
-	v.back = max(0, v.back+whole)
-	u.Invalidate()
-	return true
-}
-
-// Access implements [gunim.Accessible]: the lines shown, as text.
-func (v *LogView) Access() access.Info {
-	return access.Info{Role: access.RoleLabel, Name: "Log"}
+	return access.Info{Role: access.RoleLabel, Name: name}
 }

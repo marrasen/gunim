@@ -17,8 +17,10 @@ func SelectionAt(l *List) geom.Rect { return l.sel.Value() }
 // BadgeShown is how far a badge has grown in, 0 to 1.
 func BadgeShown(b *Badge) float32 { return b.shown.Value() }
 
-// LogBack is how many lines a log view is scrolled up from the newest.
-func LogBack(v *LogView) int { return v.back }
+// LogAtEnd reports whether a log view is at its newest line, and
+// LogOffset is how far down it is scrolled.
+func LogAtEnd(v *LogView) bool     { return v.list.AtEnd() }
+func LogOffset(v *LogView) float32 { return v.list.offset.Value() }
 
 // KnobAt is how far a status switch's knob is towards on, 0 to 1.
 func KnobAt(s *StatusSwitch) float32 { return s.knob.Value() }
