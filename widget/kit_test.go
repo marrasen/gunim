@@ -171,3 +171,16 @@ func TestACompactLiveGraphSamplesItself(t *testing.T) {
 		t.Fatalf("half a second on, Sample was asked %d times; want about 5", asked)
 	}
 }
+
+// A plain log view's lines take the whole of it, with no box round
+// them.
+func TestAPlainLogViewIsAllLines(t *testing.T) {
+	v := widget.NewLogView()
+	v.Plain = true
+	v.SetLines([]widget.LogLine{{Text: "one"}}, 1, nil)
+	w, _ := mountKit(t, geom.Sz(400, 300), v, func(int) {})
+	frameN(w, 2)
+	if at := widget.LogListAt(v); at != (geom.Point{}) {
+		t.Fatalf("a plain log's lines start at %v, not at its corner", at)
+	}
+}
