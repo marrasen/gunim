@@ -47,6 +47,8 @@ type fakePlugin struct {
 	processing []bool
 	active     map[[3]int]bool
 	setStates  int
+	// terminates counts the component's terminate calls.
+	terminates int
 }
 
 // fakeBlock is a block as the fake heard it.
@@ -104,7 +106,13 @@ func arrangement(n int) uint64 {
 var fakeCompKind = &kind{iids: []uid{iidComponent}, other: fakeOther, make: func() []uintptr {
 	return []uintptr{
 		newCallback(func(this, ctx uintptr) uintptr { return ok() }),
-		newCallback(func(this uintptr) uintptr { return ok() }),
+		newCallback(func(this uintptr) uintptr {
+			f := fakeOf(this)
+			f.mu.Lock()
+			f.terminates++
+			f.mu.Unlock()
+			return ok()
+		}),
 		newCallback(func(this, cid uintptr) uintptr { return resultOf(resultFalse) }),
 		newCallback(func(this, mode uintptr) uintptr { return ok() }),
 		newCallback(func(this, media, dir uintptr) uintptr {

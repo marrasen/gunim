@@ -193,9 +193,11 @@ type Plugin struct {
 	// gestures counts the editor's gestures under way.
 	gestures atomic.Int32
 
-	closed bool
+	// closed says Close has run. It and active are read on the audio's
+	// goroutine, the app's and the plugins' thread, so they are atomic.
+	closed atomic.Bool
 	// active says the plugin is set up to process, as New leaves it.
-	active bool
+	active atomic.Bool
 	// ed is the editor, open, on the plugins' thread.
 	ed         *editor
 	editorOpen atomic.Bool
@@ -462,7 +464,7 @@ func (p *Plugin) activate() error {
 	p.latency.Store(int32(call(p.proc, mGetLatencySamples)))
 	p.readTail()
 	call(p.proc, mSetProcessing, 1)
-	p.active = true
+	p.active.Store(true)
 	return nil
 }
 
@@ -470,19 +472,21 @@ func (p *Plugin) activate() error {
 func (p *Plugin) deactivate() {
 	call(p.proc, mSetProcessing, 0)
 	call(p.comp, mSetActive, 0)
-	p.active = false
+	p.active.Store(false)
 }
 
 // SetActive starts or stops the plugin's processing. A plugin stopped
 // takes no time of the computer's, nor sound; started again, it starts
-// from silence. Process must not run meanwhile.
+// from silence. Process must not run meanwhile. A plugin closed stays
+// as it is.
 func (p *Plugin) SetActive(on bool) error {
 	var err error
 	onUI(func() {
 		switch {
-		case on && !p.active:
+		case p.closed.Load():
+		case on && !p.active.Load():
 			err = p.activate()
-		case !on && p.active:
+		case !on && p.active.Load():
 			p.deactivate()
 		}
 	})
@@ -501,12 +505,16 @@ func (p *Plugin) Configure(cfg Config) error {
 	if cfg.Rate <= 0 || cfg.Channels > 2 {
 		return fmt.Errorf("vst3: %s: no plugin runs at %d frames a second in %d channels", p.Class.Name, cfg.Rate, cfg.Channels)
 	}
-	if cfg == p.cfg || p.closed {
+	if cfg == p.cfg || p.closed.Load() {
 		return nil
 	}
 	var err error
 	onUI(func() {
-		if p.active {
+		// Close may have run on the plugins' thread since.
+		if p.closed.Load() {
+			return
+		}
+		if p.active.Load() {
 			p.deactivate()
 		}
 		p.cfg = cfg
@@ -548,7 +556,7 @@ func (p *Plugin) readTail() {
 // filters' and delays' memories, for a jump in the sound.
 func (p *Plugin) Reset() {
 	onUI(func() {
-		if p.active {
+		if !p.closed.Load() && p.active.Load() {
 			p.deactivate()
 			_ = p.activate()
 		}
@@ -561,7 +569,7 @@ func (p *Plugin) Reset() {
 // audio's goroutine, as VST3 lets processing be stopped and started
 // there: the notes sounding end in the next block, and the pedals lift.
 func (p *Plugin) resetNow() {
-	if p.closed || !p.active {
+	if p.closed.Load() || !p.active.Load() {
 		return
 	}
 	call(p.proc, mSetProcessing, 0)
@@ -577,7 +585,7 @@ func (p *Plugin) SetPosition(frame int64) { p.ctx.projectTime = frame }
 // place: through its main buses, and into each aux input too, as a
 // sidechain keys on the sound it changes.
 func (p *Plugin) Process(frames []float32) {
-	if p.closed || !p.active {
+	if p.closed.Load() || !p.active.Load() {
 		return
 	}
 	n := len(frames) / 2
@@ -690,9 +698,11 @@ func (p *Plugin) Values() map[uint32]float64 {
 // Flush passes the changes waiting for the processor on, as a plugin
 // not processing takes them, so its state holds them: with a moment of
 // silence, as not every plugin takes them without sound, as VST3 allows.
-// It must not run alongside Process.
+// It runs Process on the caller's goroutine, so it must not run
+// alongside Process, nor alongside Close: the atomic closed flag does
+// not make that safe.
 func (p *Plugin) Flush() {
-	if p.closed || !p.active {
+	if p.closed.Load() || !p.active.Load() {
 		return
 	}
 	if !p.edits.waits() {
@@ -731,7 +741,7 @@ func (p *Plugin) restart(flags int32) {
 // onTick passes the processor's changes to the controller, and asks the
 // plugin its tail, on the plugins' thread.
 func (p *Plugin) onTick() {
-	if p.active {
+	if p.active.Load() {
 		p.readTail()
 	}
 	if !p.outputs.look() {
@@ -771,7 +781,7 @@ func (p *Plugin) Params() []Param {
 func (p *Plugin) Text(id uint32, v float64) string {
 	var s [128]uint16
 	onUI(func() {
-		if p.ctrl != 0 && !p.closed {
+		if p.ctrl != 0 && !p.closed.Load() {
 			callFloatArg(p.ctrl, mGetParamStringByValue, uintptr(id), v, uintptr(unsafe.Pointer(&s[0])))
 		}
 	})
@@ -893,12 +903,16 @@ func (p *Plugin) SetState(b []byte) error {
 	return err
 }
 
-// Close stops the plugin and lets it go. Process must have returned.
+// Close stops the plugin and lets it go, once: a second Close, at the
+// same time or after, does nothing. Process, ProcessBlock and Flush must
+// have returned and must not run alongside it, as Close does not wait
+// for a block under way. That closed is atomic only keeps the race
+// detector quiet and stops a double close; it does not make processing
+// while closing safe.
 func (p *Plugin) Close() {
-	if p.closed {
+	if !p.closed.CompareAndSwap(false, true) {
 		return
 	}
-	p.closed = true
 	untick(p)
 	if p.ara != nil {
 		p.ara.unbind()
@@ -907,7 +921,7 @@ func (p *Plugin) Close() {
 		if p.ed != nil {
 			p.ed.close()
 		}
-		if p.proc != 0 && p.active {
+		if p.proc != 0 && p.active.Load() {
 			p.deactivate()
 		}
 		if p.compCP != 0 && p.ctrlCP != 0 {

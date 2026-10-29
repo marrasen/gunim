@@ -397,7 +397,7 @@ type Edit struct {
 
 // pause stops p, a renderer, until the edit ends, once.
 func (e *Edit) pause(p *Plugin) {
-	if p.active && !p.closed {
+	if p.active.Load() && !p.closed.Load() {
 		p.deactivate()
 		e.paused = append(e.paused, p)
 	}
@@ -406,7 +406,7 @@ func (e *Edit) pause(p *Plugin) {
 // resume starts the renderers the edit stopped again.
 func (e *Edit) resume() {
 	for _, p := range e.paused {
-		if !p.closed {
+		if !p.closed.Load() {
 			_ = p.activate()
 		}
 	}

@@ -146,11 +146,11 @@ func (x *Extension) SetRegions(regions ...*PlaybackRegion) error {
 	var err error
 	onUI(func() {
 		p := x.p
-		if x.d.closed || p.closed {
+		if x.d.closed || p.closed.Load() {
 			err = ErrClosed
 			return
 		}
-		was := p.active
+		was := p.active.Load()
 		if was {
 			p.deactivate()
 		}
