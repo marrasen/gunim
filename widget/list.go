@@ -83,6 +83,9 @@ type List struct {
 	// fill is, gliding to selected's row, and selShown how far it has
 	// faded in.
 	selected Key
+	// laidOut says the list has been laid out once: rows that come
+	// after it grow in.
+	laidOut  bool
 	sel      *anim.Rect
 	selShown *anim.Float
 }
@@ -174,6 +177,9 @@ func Sync[T any, N gunim.Node](l *List, u *gunim.UI, items []T,
 		}
 
 		r := newRow(k, build(item))
+		// What the list holds as it is first shown is there at once, as
+		// a widget's first layout jumps; what comes after grows in.
+		r.instant = !l.laidOut
 		l.rows[k] = r
 		u.Insert(l, r)
 	}
@@ -185,6 +191,8 @@ func Sync[T any, N gunim.Node](l *List, u *gunim.UI, items []T,
 		}
 		leaving[k] = true
 		if r, ok := l.rows[k]; ok {
+			// A row that came at once still goes as any row does.
+			r.instant = false
 			u.Remove(r)
 		}
 	}
@@ -307,6 +315,7 @@ func (l *List) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) g
 		y -= spacing
 	}
 	l.height = y
+	l.laidOut = true
 	if s, ok := l.slots[l.selected]; ok && l.selected != "" {
 		// The first time, and coming back after none, it is there at
 		// once and fades in; after that it glides.
