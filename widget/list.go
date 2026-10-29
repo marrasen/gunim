@@ -50,6 +50,11 @@ type List struct {
 	// as one click, as a link takes them, so a row that goes somewhere
 	// goes there once.
 	ClickOnce bool
+	// Selected is the row shown as picked, as a sidebar's page is: a
+	// fill under it glides to the next row picked, stretching from one
+	// to the other, and fades in and out as Selected is set and cleared.
+	// The empty key picks none.
+	Selected Key
 	// SkipFocus passes the keyboard by a list with OnActivate, for rows that
 	// take it themselves: Tab goes past the list, a click leaves the
 	// keyboard where it is, and the keys go on to what holds the list.
@@ -79,13 +84,17 @@ type List struct {
 	// walk shows the cursor while the arrow keys move it, with no focus ring showing, until a click.
 	walk *anim.Float
 	mark *anim.Rect
+	// sel is where the selection's fill is, gliding to Selected's row,
+	// and selShown how far it has faded in.
+	sel      *anim.Rect
+	selShown *anim.Float
 }
 
 // NewList returns an empty list.
 func NewList() *List {
 	l := &List{rows: map[Key]*row{}, slots: map[Key][2]float32{}, lift: anim.NewFloat(0), ring: anim.NewFloat(0),
-		walk: anim.NewFloat(0), mark: anim.NewRect(geom.Rect{})}
-	l.Add(l.lift, l.ring, l.walk, l.mark)
+		walk: anim.NewFloat(0), mark: anim.NewRect(geom.Rect{}), sel: anim.NewRect(geom.Rect{}), selShown: anim.NewFloat(0)}
+	l.Add(l.lift, l.ring, l.walk, l.mark, l.sel, l.selShown)
 	return l
 }
 
@@ -301,6 +310,19 @@ func (l *List) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) g
 		y -= spacing
 	}
 	l.height = y
+	if s, ok := l.slots[l.Selected]; ok && l.Selected != "" {
+		// The first time, and coming back after none, it is there at
+		// once and fades in; after that it glides.
+		to := geom.Rc(0, s[0], width, s[1])
+		if l.selShown.Value() < 0.01 {
+			l.sel.Jump(to)
+		} else {
+			l.sel.Animate(to, move)
+		}
+		l.selShown.Animate(1, move)
+	} else {
+		l.selShown.Animate(0, Settle.Get(f.Theme))
+	}
 	if s, ok := l.slots[l.cursor]; ok {
 		to := geom.Rc(0, s[0], width, s[1])
 		if l.cursorShown() < 0.01 {
@@ -315,6 +337,11 @@ func (l *List) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) g
 // Paint implements [gunim.Node]. A row that is lifted, being dragged or
 // settling from a drop, is drawn last, over the rest, with a shadow.
 func (l *List) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.Children) {
+	if t := l.selShown.Value(); t > 0.001 {
+		c := ListSelected.Get(f.Theme)
+		c.A = uint8(float32(c.A) * min(t, 1))
+		p.RRect(l.sel.Value(), RowRadius.Get(f.Theme), paint.Solid(c))
+	}
 	var lifted gunim.Child
 	up := false
 	for kid := range kids.All {
