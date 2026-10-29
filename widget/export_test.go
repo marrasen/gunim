@@ -13,3 +13,12 @@ func RowY(l *List, k Key) (float32, bool) {
 
 // SelectionAt is where a list's selection fill is now.
 func SelectionAt(l *List) geom.Rect { return l.sel.Value() }
+
+// BadgeShown is how far a badge has grown in, 0 to 1.
+func BadgeShown(b *Badge) float32 { return b.shown.Value() }
+
+// LogBack is how many lines a log view is scrolled up from the newest.
+func LogBack(v *LogView) int { return v.back }
+
+// KnobAt is how far a status switch's knob is towards on, 0 to 1.
+func KnobAt(s *StatusSwitch) float32 { return s.knob.Value() }
