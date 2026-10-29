@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"io"
 	"math"
+	"slices"
 	"testing"
 )
 
@@ -140,11 +142,56 @@ func TestAnAIFFCutShortPlaysWhatItHolds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.Len() != 59 {
-		t.Errorf("Len %d, want the 59 whole frames left", s.Len())
+	if s.Len() != 100 {
+		t.Errorf("Len %d before reading, want the 100 the header tells of", s.Len())
 	}
 	if n := len(readAll(t, s)) / 2; n != 59 {
-		t.Errorf("%d frames, want 59", n)
+		t.Errorf("%d frames, want the 59 whole frames left", n)
+	}
+	if s.Len() != 59 {
+		t.Errorf("Len %d after reading, want 59", s.Len())
+	}
+}
+
+func TestAIFFChunksComeInAnyOrder(t *testing.T) {
+	frames := [][]float64{{0.5, -0.5}, {0.25, -0.25}}
+	b := aiffFile(SampleRate, 2, 16, "", 0, frames)
+	// Move COMM, the first chunk, 8 and 18 bytes, to the end.
+	comm := slices.Clone(b[12 : 12+26])
+	moved := append(append(slices.Clone(b[:12]), b[12+26:]...), comm...)
+	s, err := Decode(bytes.NewReader(moved))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := readAll(t, s); len(got) != 4 || !near(float64(got[2]), 0.25, 1e-4) {
+		t.Errorf("read %v", got)
+	}
+}
+
+func TestAnAIFFStreamedRunsToTheEndOfTheFile(t *testing.T) {
+	frames := [][]float64{{0.5, -0.5}, {0.25, -0.25}, {0, 0}}
+	for _, size := range []uint32{0, math.MaxUint32} {
+		b := aiffFile(SampleRate, 2, 16, "", 0, frames)
+		ssnd := bytes.Index(b, []byte("SSND"))
+		binary.BigEndian.PutUint32(b[ssnd+4:], size)
+		s, err := Decode(bytes.NewReader(b))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n := len(readAll(t, s)) / 2; n != 3 {
+			t.Errorf("SSND of size %#x: %d frames, want 3", size, n)
+		}
+	}
+}
+
+func TestIsSoundFileGoesByTheName(t *testing.T) {
+	for name, want := range map[string]bool{
+		"loop.AIF": true, "a.aiff": true, "x.Wav": true, "y.oga": true,
+		"notes.txt": false, "aif": false, "song.hejsong": false,
+	} {
+		if IsSoundFile(name) != want {
+			t.Errorf("IsSoundFile(%q) is %v", name, !want)
+		}
 	}
 }
 
@@ -186,5 +233,26 @@ func TestReadingAnAIFFMakesNothing(t *testing.T) {
 	})
 	if n != 0 {
 		t.Fatalf("reading made %d things", n)
+	}
+}
+
+// failingReader fails every read past its first from bytes.
+type failingReader struct {
+	*bytes.Reader
+	from int64
+}
+
+func (f failingReader) Read(b []byte) (int, error) {
+	if at, _ := f.Seek(0, io.SeekCurrent); at >= f.from {
+		return 0, errDisk
+	}
+	return f.Reader.Read(b)
+}
+
+func TestAnAIFFReadErrorIsNoFormatError(t *testing.T) {
+	b := aiffFile(SampleRate, 2, 16, "", 0, [][]float64{{0, 0}})
+	_, err := Decode(failingReader{bytes.NewReader(b), 12 + 26})
+	if !errors.Is(err, errDisk) || errors.Is(err, ErrFormat) {
+		t.Errorf("Decode: %v, want the read's error", err)
 	}
 }

@@ -55,11 +55,19 @@ func newAIFF(r io.ReadSeeker) (*aiff, error) {
 	return a, nil
 }
 
-// readAIFFHeader reads the chunks of the AIFF file r holds, up to its
-// samples.
+// readAIFFHeader reads the chunks of the AIFF file r holds, which may
+// come in any order, for its COMM and SSND chunks.
+//
+// Its frames are as many as the header tells of. A file cut short of
+// them ends where it stops, as it is read. An SSND chunk whose size is
+// 0 or 0xFFFFFFFF, as a program writing to a stream leaves it, runs to
+// the end of the file, where r tells its size.
 func readAIFFHeader(r io.ReaderAt) (*aiff, error) {
 	var form [12]byte
 	if err := readAIFFAt(r, form[:], 0); err != nil {
+		if errors.Is(err, ErrAIFFHeader) {
+			return nil, ErrFormat
+		}
 		return nil, err
 	}
 	kind := string(form[8:])
@@ -68,11 +76,16 @@ func readAIFFHeader(r io.ReaderAt) (*aiff, error) {
 	}
 	be := binary.BigEndian
 	a := &aiff{}
-	haveComm := false
-	for at := int64(12); ; {
+	haveComm, haveSound := false, false
+	// sound is the SSND chunk's samples' size.
+	var sound int64
+	for at := int64(12); !haveComm || !haveSound; {
 		var h [8]byte
 		if err := readAIFFAt(r, h[:], at); err != nil {
-			if !haveComm {
+			switch {
+			case !errors.Is(err, ErrAIFFHeader):
+				return nil, err
+			case !haveComm:
 				return nil, fmt.Errorf("%w: no COMM chunk", ErrAIFFHeader)
 			}
 			return nil, fmt.Errorf("%w: no SSND chunk", ErrAIFFHeader)
@@ -85,26 +98,30 @@ func readAIFFHeader(r io.ReaderAt) (*aiff, error) {
 			}
 			haveComm = true
 		case "SSND":
-			if !haveComm {
-				return nil, fmt.Errorf("%w: SSND before COMM", ErrAIFFHeader)
-			}
 			var s [4]byte
 			if err := readAIFFAt(r, s[:], body); err != nil {
 				return nil, err
 			}
 			// The samples start after the chunk's offset and block
 			// size, and the offset's bytes of padding.
-			a.data = body + 8 + int64(be.Uint32(s[:]))
-			n := size - 8 - int64(be.Uint32(s[:]))
-			if end, ok := readerSize(r); ok {
-				// A file cut short ends where it stops.
-				n = min(n, end-a.data)
+			offset := int64(be.Uint32(s[:]))
+			a.data, haveSound = body+8+offset, true
+			if size == 0 || size == math.MaxUint32 {
+				end, ok := readerSize(r)
+				if !ok {
+					return nil, fmt.Errorf("%w: an SSND chunk of no size", ErrAIFFHeader)
+				}
+				// The file ends with the samples.
+				size = end - body
+				sound = size - 8 - offset
+				break
 			}
-			a.frames = min(a.frames, max(0, n)/int64(a.channels*a.width))
-			return a, nil
+			sound = size - 8 - offset
 		}
 		at = body + size + size&1
 	}
+	a.frames = min(a.frames, max(0, sound)/int64(a.channels*a.width))
+	return a, nil
 }
 
 // readComm reads the COMM chunk of size at body, of an AIFF-C file where
@@ -134,7 +151,7 @@ func (a *aiff) readComm(r io.ReaderAt, body, size int64, c bool) error {
 		return fmt.Errorf("%w: %d channels", ErrAIFFHeader, a.channels)
 	}
 	if a.channels > wavMaxChannels {
-		return fmt.Errorf("%w: %d channels, more than %d", ErrSampleFormat, a.channels, wavMaxChannels)
+		return fmt.Errorf("%w: aiff: %d channels, more than %d", ErrSampleFormat, a.channels, wavMaxChannels)
 	}
 	compression := "NONE"
 	if c {
@@ -152,7 +169,7 @@ func (a *aiff) readComm(r io.ReaderAt, body, size int64, c bool) error {
 		return fmt.Errorf("%w: aiff: compression %q", ErrSampleFormat, compression)
 	}
 	if !a.float && (a.bits < 1 || a.bits > 32) {
-		return fmt.Errorf("%w: integer samples of %d bits", ErrSampleFormat, a.bits)
+		return fmt.Errorf("%w: aiff: integer samples of %d bits", ErrSampleFormat, a.bits)
 	}
 	a.width = (a.bits + 7) / 8
 	return nil

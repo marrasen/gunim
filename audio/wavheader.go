@@ -67,10 +67,10 @@ func (s WAVSpec) check() error {
 		if s.Float {
 			kind = "float"
 		}
-		return fmt.Errorf("%w: %s samples of %d bits", ErrSampleFormat, kind, s.Bits)
+		return fmt.Errorf("%w: wav: %s samples of %d bits", ErrSampleFormat, kind, s.Bits)
 	}
 	if s.Channels > wavMaxChannels {
-		return fmt.Errorf("%w: %d channels, more than %d", ErrSampleFormat, s.Channels, wavMaxChannels)
+		return fmt.Errorf("%w: wav: %d channels, more than %d", ErrSampleFormat, s.Channels, wavMaxChannels)
 	}
 	if s.Channels < 1 || s.Rate < 1 {
 		return fmt.Errorf("%w: %d channels at %d Hz", ErrWAVHeader, s.Channels, s.Rate)
@@ -249,7 +249,7 @@ func readWAVFmt(r io.ReaderAt, c WAVChunk) (WAVSpec, error) {
 	case wavFloat:
 		s.Float = true
 	default:
-		return WAVSpec{}, fmt.Errorf("%w: format %#x of %d bits", ErrSampleFormat, tag, s.Bits)
+		return WAVSpec{}, fmt.Errorf("%w: wav: format %#x of %d bits", ErrSampleFormat, tag, s.Bits)
 	}
 	return s, s.check()
 }

@@ -5,10 +5,24 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
+	"slices"
+	"strings"
 )
 
 // ErrFormat is returned by [Decode] for a sound in no format it reads.
 var ErrFormat = errors.New("audio: unknown format")
+
+// Extensions are the file extensions of the sounds [Decode] reads, in
+// lower case, each with its dot, for a file picker's patterns. A program
+// tells the files it takes by them, so they must not be changed.
+var Extensions = []string{".wav", ".aif", ".aiff", ".aifc", ".mp3", ".ogg", ".oga", ".flac"}
+
+// IsSoundFile reports whether name ends in one of [Extensions], in any
+// case: whether it names a sound [Decode] reads, going by its name.
+func IsSoundFile(name string) bool {
+	return slices.Contains(Extensions, strings.ToLower(filepath.Ext(name)))
+}
 
 // Decode returns a source playing the sound r holds: WAV (RIFF, or RF64
 // and BW64 past 4 GB), AIFF (or AIFF-C), MP3, Ogg Vorbis or FLAC, told
