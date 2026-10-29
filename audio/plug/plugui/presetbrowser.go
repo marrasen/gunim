@@ -681,9 +681,8 @@ func (l *presetList) AccessAct(r access.Request, u *gunim.UI) bool {
 // scroll at top and h of it in view, each as part makes it from the
 // row and its index, keyed by the row and cut to what of it shows; and
 // the rows' keys in turn, kept in kept.
-func rowParts(rows []listRow, top, h, w float32, kept []uint64, part func(i int, r listRow) access.Info) ([]access.Info, []uint64) {
-	kept = kept[:0]
-	var out []access.Info
+func rowParts(rows []listRow, top, h, w float32, kept []uint64, part func(i int, r listRow) access.Info) (parts []access.Info, keys []uint64) {
+	keys = kept[:0]
 	for i, r := range rows {
 		y0, y1 := max(r.y, top), min(r.y+r.h, top+h)
 		if y1 <= y0 {
@@ -691,10 +690,10 @@ func rowParts(rows []listRow, top, h, w float32, kept []uint64, part func(i int,
 		}
 		p := part(i, r)
 		p.Bounds, p.Key = geom.Rc(0, y0, w, y1-y0), r.key
-		out = append(out, p)
-		kept = append(kept, r.key)
+		parts = append(parts, p)
+		keys = append(keys, r.key)
 	}
-	return out, kept
+	return parts, keys
 }
 
 // rowOfPart is the row of rows a press on part r.Part is for: the row
