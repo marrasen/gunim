@@ -161,7 +161,7 @@ func TestTheRowsSayWhatTheyShowAndAPressActs(t *testing.T) {
 	if h := rowNamed(t, groups, "Factory"); h.Role != access.RoleHeading {
 		t.Fatalf("the bank's caption is %v", h.Role)
 	}
-	if g := rowNamed(t, groups, "Bass"); g.Role != access.RoleListItem || g.Value != "3" || !g.State.Has(access.StateSelected) {
+	if g := rowNamed(t, groups, "Bass"); g.Role != access.RoleListItem || g.Description != "3 presets" || g.Value != "" || !g.State.Has(access.StateSelected) {
 		t.Fatalf("the group shown says %+v", g.Info)
 	}
 	presets := listNamed(t, w, "Presets")
@@ -212,5 +212,121 @@ func TestOnlyTheRowsInViewAreListed(t *testing.T) {
 	}
 	if names["Keys 1"] || !names["Keys 41"] {
 		t.Fatalf("scrolled down, the rows listed are %v", names)
+	}
+	inView(t, listNamed(t, w, "Presets"))
+}
+
+// inView fails unless every row of list lies in the column's view, under
+// the search field and inside the window, a row half scrolled away cut
+// to the part that shows.
+func inView(t *testing.T, list *access.Node) {
+	t.Helper()
+	for _, k := range list.Children {
+		if k.Bounds.Min.Y < fieldH+colGap-0.5 || k.Bounds.Max.Y > 480.5 || k.Bounds.Empty() {
+			t.Fatalf("the row %q stands at %v, out of view", k.Name, k.Bounds)
+		}
+	}
+}
+
+// The groups column lists the groups in view as it scrolls too.
+func TestOnlyTheGroupsInViewAreListed(t *testing.T) {
+	src := &presetHost{}
+	for i := range 60 {
+		src.list = append(src.list, plug.Preset{Bank: "Factory", Group: "Group " + strconv.Itoa(i+1), Name: "Sound"})
+	}
+	b := NewPresetBrowser(src)
+	w := mountBrowser(t, b)
+	groups := listNamed(t, w, "Groups")
+	if n := len(groups.Children); n < 5 || n > 30 || groups.Children[0].Name != "Factory" {
+		t.Fatalf("%d of 61 rows listed, the first %q", n, groups.Children[0].Name)
+	}
+	inView(t, groups)
+	b.gs.JumpTo(26*40 + 13)
+	for range 5 {
+		w.Frame(time.Second / 60)
+	}
+	names := map[string]bool{}
+	groups = listNamed(t, w, "Groups")
+	for _, k := range groups.Children {
+		names[k.Name] = true
+	}
+	if names["Factory"] || names["Group 1"] || !names["Group 42"] {
+		t.Fatalf("scrolled down, the groups listed are %v", names)
+	}
+	inView(t, groups)
+}
+
+// During a search the presets column lists what it finds under their
+// groups' captions, and no group is selected: each counts what it finds.
+func TestASearchListsWhatItFindsUnderTheirGroups(t *testing.T) {
+	b := NewPresetBrowser(newPresetHost())
+	w := mountBrowser(t, b)
+	b.query = "dirty"
+	b.fill(nil)
+	w.Frame(time.Second / 60)
+	presets := listNamed(t, w, "Presets")
+	if len(presets.Children) != 2 || presets.Children[0].Role != access.RoleHeading || presets.Children[0].Name != "Bass" || presets.Children[1].Name != "Growl" {
+		t.Fatalf("the search lists %d rows", len(presets.Children))
+	}
+	for _, g := range listNamed(t, w, "Groups").Children {
+		if g.State.Has(access.StateSelected) {
+			t.Fatalf("during a search, the group %q is selected", g.Name)
+		}
+	}
+	if g := rowNamed(t, listNamed(t, w, "Groups"), "Bass"); g.Description != "1 preset" {
+		t.Fatalf("during a search, Bass says %q", g.Description)
+	}
+	if g := rowNamed(t, listNamed(t, w, "Groups"), "Pads"); g.Description != "0 presets" {
+		t.Fatalf("during a search, Pads says %q", g.Description)
+	}
+}
+
+// A press acts on the row it was read from, wherever that row now
+// stands, and on none once it has gone, though the rows changed since
+// the tree was read, with no frame between.
+func TestAPressAfterTheRowsChangeActsOnTheRowItWasFor(t *testing.T) {
+	src := newPresetHost()
+	b := NewPresetBrowser(src)
+	w := mountBrowser(t, b)
+	growl := rowNamed(t, listNamed(t, w, "Presets"), "Growl").ID
+	// Pads shows its presets: Growl is gone from the column.
+	w.Input(access.Request{ID: rowNamed(t, listNamed(t, w, "Groups"), "Pads").ID, Action: access.ActionPress})
+	w.Input(access.Request{ID: growl, Action: access.ActionPress})
+	w.Frame(time.Second / 60)
+	if b.group != "Pads" || len(src.picked) != 0 {
+		t.Fatalf("the press on Growl, gone, picked %v; the group shown is %s", src.picked, b.group)
+	}
+	// Back on Bass, its presets come in a new order.
+	b.showGroup("Factory", "Bass", nil)
+	w.Frame(time.Second / 60)
+	sub := rowNamed(t, listNamed(t, w, "Presets"), "Sub").ID
+	src.list[1], src.list[2] = src.list[2], src.list[1]
+	b.Refresh(nil)
+	w.Input(access.Request{ID: sub, Action: access.ActionPress})
+	w.Frame(time.Second / 60)
+	if len(src.picked) != 1 || src.picked[0] != "Sub" {
+		t.Fatalf("the press on Sub, moved, picked %v", src.picked)
+	}
+}
+
+// Two presets of one name in one group, as two folders a bank is read
+// from may hold, are two rows apart: a press on each picks it.
+func TestTwoPresetsOfOneNameAreRowsApart(t *testing.T) {
+	src := &presetHost{list: []plug.Preset{
+		{Bank: "Factory", Group: "Bass", Name: "Sub", Pitch: 1},
+		{Bank: "Factory", Group: "Bass", Name: "Sub", Pitch: 2},
+	}}
+	b := NewPresetBrowser(src)
+	w := mountBrowser(t, b)
+	presets := listNamed(t, w, "Presets")
+	if len(presets.Children) != 3 || presets.Children[1].ID == presets.Children[2].ID {
+		t.Fatalf("the two Subs list as %d rows, IDs apart %v", len(presets.Children), len(presets.Children) == 3 && presets.Children[1].ID != presets.Children[2].ID)
+	}
+	for i, want := range []float64{1, 2} {
+		w.Input(access.Request{ID: listNamed(t, w, "Presets").Children[1+i].ID, Action: access.ActionPress})
+		w.Frame(time.Second / 60)
+		if src.cur.Pitch != want {
+			t.Fatalf("a press on Sub %d picked the one of pitch %v", i+1, src.cur.Pitch)
+		}
 	}
 }
