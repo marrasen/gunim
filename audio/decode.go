@@ -11,8 +11,8 @@ import (
 var ErrFormat = errors.New("audio: unknown format")
 
 // Decode returns a source playing the sound r holds: WAV (RIFF, or RF64
-// and BW64 past 4 GB), MP3, Ogg Vorbis or FLAC, told apart by how it
-// starts. The source plays at
+// and BW64 past 4 GB), AIFF (or AIFF-C), MP3, Ogg Vorbis or FLAC, told
+// apart by how it starts. The source plays at
 // [SampleRate], resampling a sound recorded at another, and in stereo:
 // a mono sound plays in both speakers, and a sound of more channels
 // plays its first two.
@@ -80,6 +80,9 @@ func openDecoder(r io.ReadSeeker) (decoder, error) {
 	case len(h) >= 12 && string(h[8:12]) == "WAVE" &&
 		(bytes.HasPrefix(h, []byte("RIFF")) || bytes.HasPrefix(h, []byte("RF64")) || bytes.HasPrefix(h, []byte("BW64"))):
 		d, err = newWAV(r)
+	case len(h) >= 12 && bytes.HasPrefix(h, []byte("FORM")) &&
+		(string(h[8:12]) == "AIFF" || string(h[8:12]) == "AIFC"):
+		d, err = newAIFF(r)
 	case bytes.HasPrefix(h, []byte("OggS")):
 		d, err = newVorbis(r)
 	case bytes.HasPrefix(h, []byte("fLaC")):
@@ -100,7 +103,8 @@ func openDecoder(r io.ReadSeeker) (decoder, error) {
 
 // Format is what a sound is stored as.
 type Format struct {
-	// Name names the format: "MP3", "FLAC", "Ogg Vorbis" or "WAV".
+	// Name names the format: "MP3", "FLAC", "Ogg Vorbis", "WAV" or
+	// "AIFF".
 	Name string
 	// SampleRate is the rate it was recorded at, in hertz, before it
 	// is resampled to play.

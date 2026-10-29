@@ -23,10 +23,12 @@ import (
 // sense. It is an [ErrFormat] too.
 var ErrWAVHeader = fmt.Errorf("%w: wav: the header is cut short or broken", ErrFormat)
 
-// ErrSampleFormat is a WAV file of samples in a format gunim does not
-// read: it reads integers of 8 to 32 bits and floats of 32, in up to 64
-// channels. It is an [ErrFormat] too.
-var ErrSampleFormat = fmt.Errorf("%w: wav: the sample format is not supported", ErrFormat)
+// ErrSampleFormat is a WAV or AIFF file of samples in a format gunim
+// does not read. Of WAV it reads integers of 8 to 32 bits and floats of
+// 32; of AIFF integers of 1 to 32 bits and floats of 32 or 64, packed
+// with no compression. Either in up to 64 channels. It is an
+// [ErrFormat] too.
+var ErrSampleFormat = fmt.Errorf("%w: the sample format is not supported", ErrFormat)
 
 // wavMaxChannels is the most channels a WAV file gunim reads may have.
 const wavMaxChannels = 64
