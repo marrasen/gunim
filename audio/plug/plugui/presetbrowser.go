@@ -2,6 +2,7 @@ package plugui
 
 import (
 	"fmt"
+	"hash/fnv"
 	"image/color"
 	"strconv"
 	"strings"
@@ -54,6 +55,8 @@ type PresetBrowser struct {
 	groups      *groupList
 	presets     *presetList
 	gs, ps      *widget.Scroll
+	// colH is how tall the columns show, as last laid out.
+	colH float32
 }
 
 // NewPresetBrowser returns a browser of src's presets.
@@ -262,6 +265,7 @@ func (b *PresetBrowser) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Ch
 	kids.At(0).Place(geom.Point{})
 	top := float32(fieldH + colGap)
 	h := max(size.H-top, 0)
+	b.colH = h
 	gw := float32(int(size.W * groupsW))
 	kids.At(1).Layout(gunim.Tight(geom.Sz(gw, h)))
 	kids.At(1).Place(geom.Pt(0, top))
@@ -301,6 +305,9 @@ type listRow struct {
 	count       int
 	p           plug.Preset
 	y, h        float32
+	// key names the row by what it shows, apart from every other row of
+	// its column (keyRows).
+	key uint64
 }
 
 // groupList is the column of groups, under their banks' captions, each
@@ -309,6 +316,8 @@ type groupList struct {
 	b     *PresetBrowser
 	rows  []listRow
 	hover int
+	// parts are the keys of the rows the access tree last listed.
+	parts []uint64
 	// pill is the row the pill marking the group shown stands on, lit
 	// how far the pill under the pointer shows, at hoverY.
 	pill, lit, hoverY *anim.Float
@@ -340,6 +349,7 @@ func (g *groupList) fill() {
 			}
 		}
 	}
+	keyRows(g.rows)
 }
 
 func (g *groupList) index(bank, group string) int {
@@ -438,9 +448,42 @@ func (g *groupList) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ guni
 	}
 }
 
-// Access implements [gunim.Accessible]: the groups read as a list.
+// Access implements [gunim.Accessible]: the groups read as a list of
+// the rows in view, each bank's caption a heading, and each group by
+// its name, with how many presets it holds or the search finds in it,
+// the group shown selected.
 func (g *groupList) Access() access.Info {
-	return access.Info{Role: access.RoleList, Name: "Groups"}
+	info := access.Info{Role: access.RoleList, Name: "Groups"}
+	shown := -1
+	if g.b.query == "" {
+		shown = g.index(g.b.bank, g.b.group)
+	}
+	info.Parts, g.parts = rowParts(g.rows, g.b.gs.Offset(), g.b.colH, g.size.W, g.parts, func(i int, r listRow) access.Info {
+		if r.header {
+			return access.Info{Role: access.RoleHeading, Name: r.bank}
+		}
+		about := strconv.Itoa(r.count) + " presets"
+		if r.count == 1 {
+			about = "1 preset"
+		}
+		part := access.Info{Role: access.RoleListItem, Name: r.label, Description: about, Actions: []string{access.ActionPress}}
+		if i == shown {
+			part.State = access.StateSelected
+		}
+		return part
+	})
+	return info
+}
+
+// AccessAct implements [gunim.AccessActor]: a press on a group shows
+// its presets, as a click does.
+func (g *groupList) AccessAct(r access.Request, u *gunim.UI) bool {
+	i, ok := rowOfPart(g.rows, g.parts, r)
+	if !ok || g.rows[i].header {
+		return false
+	}
+	g.b.showGroup(g.rows[i].bank, g.rows[i].group, u)
+	return true
 }
 
 // presetList is the column of presets: the group's, or those a search
@@ -449,6 +492,8 @@ type presetList struct {
 	b     *PresetBrowser
 	rows  []listRow
 	hover int
+	// parts are the keys of the rows the access tree last listed.
+	parts []uint64
 	// pill is the row the pill marking the preset playing stands on,
 	// shown how far it shows; lit is how far the pill under the pointer
 	// shows, at hoverY.
@@ -464,6 +509,7 @@ func (l *presetList) fill() {
 		y += r.h
 		l.rows = append(l.rows, r)
 	}
+	defer func() { keyRows(l.rows) }()
 	if l.b.query == "" {
 		if l.b.group == "" && l.b.bank == "" {
 			return
@@ -596,9 +642,100 @@ func (l *presetList) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gun
 	}
 }
 
-// Access implements [gunim.Accessible]: the presets read as a list.
+// Access implements [gunim.Accessible]: the presets read as a list of
+// the rows in view, each group's caption a heading, and each preset by
+// its name, described by where it is filed and its tags, as "Factory ·
+// Kits · drums", the one playing selected.
 func (l *presetList) Access() access.Info {
-	return access.Info{Role: access.RoleList, Name: "Presets"}
+	info := access.Info{Role: access.RoleList, Name: "Presets"}
+	cur := l.current()
+	info.Parts, l.parts = rowParts(l.rows, l.b.ps.Offset(), l.b.colH, l.size.W, l.parts, func(i int, r listRow) access.Info {
+		if r.header {
+			return access.Info{Role: access.RoleHeading, Name: r.label}
+		}
+		about := r.p.Bank + " · " + r.p.Group
+		if r.p.Drums {
+			about += " · drums"
+		}
+		part := access.Info{Role: access.RoleListItem, Name: r.p.Name, Description: about, Actions: []string{access.ActionPress}}
+		if i == cur {
+			part.State = access.StateSelected
+		}
+		return part
+	})
+	return info
+}
+
+// AccessAct implements [gunim.AccessActor]: a press on a preset picks
+// it, as a click does.
+func (l *presetList) AccessAct(r access.Request, u *gunim.UI) bool {
+	i, ok := rowOfPart(l.rows, l.parts, r)
+	if !ok || l.rows[i].header {
+		return false
+	}
+	l.b.pick(l.rows[i].p, u)
+	return true
+}
+
+// rowParts are the parts of the rows of a column w wide that show, its
+// scroll at top and h of it in view, each as part makes it from the
+// row and its index, keyed by the row and cut to what of it shows; and
+// the rows' keys in turn, kept in kept.
+func rowParts(rows []listRow, top, h, w float32, kept []uint64, part func(i int, r listRow) access.Info) (parts []access.Info, keys []uint64) {
+	keys = kept[:0]
+	for i, r := range rows {
+		y0, y1 := max(r.y, top), min(r.y+r.h, top+h)
+		if y1 <= y0 {
+			continue
+		}
+		p := part(i, r)
+		p.Bounds, p.Key = geom.Rc(0, y0, w, y1-y0), r.key
+		parts = append(parts, p)
+		keys = append(keys, r.key)
+	}
+	return parts, keys
+}
+
+// rowOfPart is the row of rows a press on part r.Part is for: the row
+// it showed as the column last listed its parts, wherever that row
+// stands now, and false once it has gone.
+func rowOfPart(rows []listRow, parts []uint64, r access.Request) (int, bool) {
+	if r.Action != access.ActionPress || r.Part < 0 || r.Part >= len(parts) {
+		return 0, false
+	}
+	for i, row := range rows {
+		if row.key == parts[r.Part] {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+// keyRows keys each of rows by what it shows, so a screen reader holding
+// one keeps it as the column scrolls or fills again: a caption by its
+// bank and group, a group by its bank and its name, a preset by where
+// it is filed and its name. Rows that show the same, as two presets of
+// one name a bank read from two folders holds, are keyed apart by how
+// many came before.
+func keyRows(rows []listRow) {
+	seen := map[uint64]int{}
+	for i := range rows {
+		r := &rows[i]
+		h := fnv.New64a()
+		kind := "row"
+		if r.header {
+			kind = "caption"
+		}
+		for _, s := range [...]string{kind, r.bank, r.group, r.p.Name} {
+			h.Write([]byte(s))
+			h.Write([]byte{0})
+		}
+		base := h.Sum64()
+		n := seen[base]
+		seen[base]++
+		h.Write([]byte(strconv.Itoa(n)))
+		r.key = max(h.Sum64(), 1)
+	}
 }
 
 // rowAt returns the row of rows at y, or -1.
