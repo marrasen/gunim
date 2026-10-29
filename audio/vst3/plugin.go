@@ -478,19 +478,39 @@ func (p *Plugin) deactivate() {
 // SetActive starts or stops the plugin's processing. A plugin stopped
 // takes no time of the computer's, nor sound; started again, it starts
 // from silence. Process must not run meanwhile. A plugin closed stays
-// as it is.
+// as it is, and starting it gives ErrClosed.
 func (p *Plugin) SetActive(on bool) error {
 	var err error
-	onUI(func() {
+	if !p.whileOpen(func() {
 		switch {
-		case p.closed.Load():
 		case on && !p.active.Load():
 			err = p.activate()
 		case !on && p.active.Load():
 			p.deactivate()
 		}
-	})
+	}) && on {
+		return ErrClosed
+	}
 	return err
+}
+
+// ErrClosed is the error of a plugin, or an ARA document, closed.
+var ErrClosed = errors.New("vst3: closed")
+
+// whileOpen runs job on the plugins' thread, unless the plugin is closed
+// by then, and reports whether it ran. Close lets the plugin's objects
+// go on that thread too, after it marks the plugin closed, so a job that
+// runs finds them all there.
+func (p *Plugin) whileOpen(job func()) bool {
+	ran := false
+	onUI(func() {
+		if p.closed.Load() {
+			return
+		}
+		ran = true
+		job()
+	})
+	return ran
 }
 
 // Configure sets the plugin up to run as cfg says, keeping its state:
@@ -505,15 +525,14 @@ func (p *Plugin) Configure(cfg Config) error {
 	if cfg.Rate <= 0 || cfg.Channels > 2 {
 		return fmt.Errorf("vst3: %s: no plugin runs at %d frames a second in %d channels", p.Class.Name, cfg.Rate, cfg.Channels)
 	}
-	if cfg == p.cfg || p.closed.Load() {
+	if p.closed.Load() {
+		return ErrClosed
+	}
+	if cfg == p.cfg {
 		return nil
 	}
 	var err error
-	onUI(func() {
-		// Close may have run on the plugins' thread since.
-		if p.closed.Load() {
-			return
-		}
+	if !p.whileOpen(func() {
 		if p.active.Load() {
 			p.deactivate()
 		}
@@ -521,14 +540,17 @@ func (p *Plugin) Configure(cfg Config) error {
 		if err = p.setupBuses(); err == nil {
 			err = p.activate()
 		}
-	})
+	}) {
+		// Close ran since.
+		return ErrClosed
+	}
 	return err
 }
 
 // Latency is how many frames late the plugin's sound comes out.
 func (p *Plugin) Latency() int {
 	if p.restarts.Load()&restartLatency != 0 {
-		onUI(func() {
+		p.whileOpen(func() {
 			p.restarts.And(^int32(restartLatency))
 			p.latency.Store(int32(call(p.proc, mGetLatencySamples)))
 		})
@@ -555,8 +577,8 @@ func (p *Plugin) readTail() {
 // Reset clears what the plugin holds of the sound before, as its
 // filters' and delays' memories, for a jump in the sound.
 func (p *Plugin) Reset() {
-	onUI(func() {
-		if !p.closed.Load() && p.active.Load() {
+	p.whileOpen(func() {
+		if p.active.Load() {
 			p.deactivate()
 			_ = p.activate()
 		}
@@ -683,7 +705,7 @@ func (p *Plugin) Value(id uint32) float64 {
 // the controller has them.
 func (p *Plugin) Values() map[uint32]float64 {
 	out := make(map[uint32]float64, len(p.edits.slots))
-	onUI(func() {
+	p.whileOpen(func() {
 		if p.ctrl == 0 {
 			return
 		}
@@ -757,7 +779,7 @@ func (p *Plugin) onTick() {
 // Params returns the plugin's parameters.
 func (p *Plugin) Params() []Param {
 	var out []Param
-	onUI(func() {
+	p.whileOpen(func() {
 		if p.ctrl == 0 {
 			return
 		}
@@ -780,8 +802,8 @@ func (p *Plugin) Params() []Param {
 // writes it to show, as "-3.0 dB"; empty where it writes none.
 func (p *Plugin) Text(id uint32, v float64) string {
 	var s [128]uint16
-	onUI(func() {
-		if p.ctrl != 0 && !p.closed.Load() {
+	p.whileOpen(func() {
+		if p.ctrl != 0 {
 			callFloatArg(p.ctrl, mGetParamStringByValue, uintptr(id), v, uintptr(unsafe.Pointer(&s[0])))
 		}
 	})
@@ -792,7 +814,7 @@ func (p *Plugin) Text(id uint32, v float64) string {
 // processor. A parameter the controller does not list is not set.
 func (p *Plugin) Set(id uint32, v float64) {
 	if p.ctrl != 0 {
-		onUI(func() { callFloat(p.ctrl, mSetParamNormalized, uintptr(id), v) })
+		p.whileOpen(func() { callFloat(p.ctrl, mSetParamNormalized, uintptr(id), v) })
 	}
 	p.edits.put(id, v)
 }
@@ -826,7 +848,7 @@ const stateMagic = "gVS3"
 func (p *Plugin) State() ([]byte, error) {
 	var comp, ctrl []byte
 	var err error
-	onUI(func() {
+	if !p.whileOpen(func() {
 		if comp, err = p.componentState(); err != nil {
 			return
 		}
@@ -837,7 +859,9 @@ func (p *Plugin) State() ([]byte, error) {
 			}
 			drop(sp)
 		}
-	})
+	}) {
+		return nil, ErrClosed
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -877,7 +901,7 @@ func (p *Plugin) SetState(b []byte) error {
 	if err != nil {
 		return err
 	}
-	onUI(func() {
+	if !p.whileOpen(func() {
 		edits := p.editsMade.Load()
 		defer p.editsMade.Store(edits)
 		s, sp := newStream(append([]byte(nil), comp...))
@@ -899,12 +923,18 @@ func (p *Plugin) SetState(b []byte) error {
 			}
 		}
 		p.readValues()
-	})
+	}) {
+		return ErrClosed
+	}
 	return err
 }
 
 // Close stops the plugin and lets it go, once: a second Close, at the
-// same time or after, does nothing. Process, ProcessBlock and Flush must
+// same time or after, does nothing, and does not wait for the first to
+// finish letting the plugin go. Once it has begun, the methods that ask
+// the plugin on the plugins' thread ask it nothing: Values, Params,
+// Text, Set, State, SetState, Latency, SetActive, Configure, Reset and
+// the editor's EditorSize, EditorResizable, OpenEditor and EmbedEditor. Process, ProcessBlock and Flush must
 // have returned and must not run alongside it, as Close does not wait
 // for a block under way. That closed is atomic only keeps the race
 // detector quiet and stops a double close; it does not make processing

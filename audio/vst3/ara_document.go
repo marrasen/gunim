@@ -265,9 +265,6 @@ const (
 	EverythingChanged ContentFlags = 0
 )
 
-// ErrClosed is the error of a document closed.
-var ErrClosed = errors.New("vst3: the ARA document is closed")
-
 // The document controller's functions, by their place in its table.
 const (
 	dcDestroy = iota

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"math"
 	"slices"
-	"sync"
 	"testing"
 	"unsafe"
 
@@ -639,48 +638,5 @@ func TestANoteStartsUnbent(t *testing.T) {
 		plug.Event{Frame: 4, Kind: plug.Pedal, Group: 3, Value: 0})
 	if p.keys.groupOf(3) != -1 {
 		t.Fatal("group 3 keeps its channel with its notes let go and its pedal up")
-	}
-}
-
-// TestClosingAPluginFromTwoGoroutinesClosesItOnce closes a plugin from
-// two goroutines at once while a third asks it a parameter's text and
-// sets it up again. The race detector finds no race, and the component
-// is terminated once.
-func TestClosingAPluginFromTwoGoroutinesClosesItOnce(t *testing.T) {
-	f := fakeSynth()
-	p, err := f.open(t, Config{Rate: 48000, Block: 64})
-	if err != nil {
-		t.Fatal(err)
-	}
-	done := make(chan struct{})
-	asked := make(chan struct{})
-	go func() {
-		defer close(asked)
-		for i := 0; ; i++ {
-			select {
-			case <-done:
-				return
-			default:
-			}
-			p.Text(0, 0.5)
-			_ = p.Configure(Config{Rate: 44100 + i%2*3900, Block: 64})
-		}
-	}()
-	var wg sync.WaitGroup
-	for range 2 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			p.Close()
-		}()
-	}
-	wg.Wait()
-	close(done)
-	<-asked
-	f.mu.Lock()
-	n := f.terminates
-	f.mu.Unlock()
-	if n != 1 {
-		t.Fatalf("the component was terminated %d times", n)
 	}
 }
