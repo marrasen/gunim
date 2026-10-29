@@ -114,6 +114,7 @@ var structs = []any{
 	(*widget.OverviewBand)(nil),
 	(*widget.OverviewPart)(nil),
 	(*widget.Pad)(nil),
+	(*widget.Pages)(nil),
 	(*widget.Palette)(nil),
 	(*widget.Panel)(nil),
 	(*widget.PaletteItem)(nil),
