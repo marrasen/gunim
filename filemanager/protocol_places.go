@@ -27,7 +27,8 @@ type Place struct {
 	// Lit draws the place's icon green, as a machine connected is.
 	Lit bool
 	// Color and Icon are a favourite's colour and icon, by name, as
-	// Favourite has them.
+	// Favourite has them; a place given either shows them as a
+	// favourite does.
 	Color, Icon string
 	// Title, when set, is the heading of the place's group in place of
 	// the group's own name: as the name of the machine a window shows,
