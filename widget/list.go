@@ -29,6 +29,8 @@ type Key string
 //
 // With OnActivate set, the list takes focus and keeps a cursor on a row:
 // Up, Down, Home and End move it, and Enter or Space clicks its row.
+// With OnReorder set too, Alt+Up and Alt+Down move the cursor's row a
+// place, as a drag would.
 //
 // Its look and motion come from the theme: [ListSpacing] between rows,
 // [Quick] to carry rows in and to their new places, and [Settle] to
@@ -41,6 +43,11 @@ type List struct {
 	// and runs on the UI goroutine with the order a drop leaves. See
 	// [List.Handle].
 	OnReorder func(keys []Key, u *gunim.UI) gunim.Intent
+	// ReorderGroup, when set with OnReorder, says which rows move
+	// together, as a list's profiles under their heading: a row moves
+	// only among the rows of its own group, and one whose group is ""
+	// does not move. Unset, every row moves anywhere.
+	ReorderGroup func(key Key) string
 	// OnActivate, when set, runs on a click on a row that nothing inside
 	// the row takes, so a row can be both clicked and dragged, and on
 	// Enter or Space on the cursor's row. Like OnReorder, a non-nil
@@ -427,6 +434,9 @@ func (l *List) moveCursor(keys []Key, i int, u *gunim.UI) {
 
 // key works the cursor: Up, Down, Home and End move it, and Enter or Space clicks its row.
 func (l *List) key(e input.KeyPress, u *gunim.UI) bool {
+	if e.Mods == input.ModAlt && (e.Key == input.KeyUp || e.Key == input.KeyDown) && l.OnReorder != nil {
+		return l.moveRow(e.Key == input.KeyDown, u)
+	}
 	if l.OnActivate == nil || l.SkipFocus || e.Mods.Has(input.ModControl) || e.Mods.Has(input.ModAlt) {
 		return false
 	}
