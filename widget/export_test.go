@@ -24,3 +24,6 @@ func LogOffset(v *LogView) float32 { return v.list.offset.Value() }
 
 // KnobAt is how far a status switch's knob is towards on, 0 to 1.
 func KnobAt(s *StatusSwitch) float32 { return s.knob.Value() }
+
+// LogListAt is where a log view's lines start, inside it.
+func LogListAt(v *LogView) geom.Point { return v.listAt }

@@ -34,8 +34,8 @@ type LogLine struct {
 }
 
 // LogView shows lines as they are written, as a connection's log or a
-// build's output, in the theme's mono face in a field's box, newest at
-// the bottom.
+// build's output, in the theme's mono face in a field's box, or in none
+// when Plain, newest at the bottom.
 //
 // A line written while the newest is in view grows in at the bottom,
 // and the view glides down to keep it there; scrolled up, the view
@@ -46,6 +46,10 @@ type LogLine struct {
 //
 // The app gives it the lines with SetLines from its view's update.
 type LogView struct {
+	// Plain leaves the field's box out, and the room inside it: the
+	// lines are the whole of the view, for a log that is a page of its
+	// own.
+	Plain bool
 	// OnSeen runs from the view's layout, with the window's UI, as the
 	// newest line comes into view: the end SetLines was given, so an app
 	// can count the lines not read yet. A non-nil result is sent to the
@@ -55,8 +59,9 @@ type LogView struct {
 	list  *VirtualList
 	lines map[Key]LogLine
 	// end is the number past the newest line, and seen the end OnSeen
-	// was last told.
+	// was last told; listAt is where the lines start.
 	end, seen int64
+	listAt    geom.Point
 }
 
 // NewLogView returns an empty log view.
@@ -98,10 +103,14 @@ func (v *LogView) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children
 	th := f.Theme
 	size := c.Constrain(geom.Sz(c.Max.W, LogViewHeight.Get(th)))
 	pad := LogViewPadding.Get(th)
+	if v.Plain {
+		pad = 0
+	}
 	inner := geom.Sz(max(size.W-2*pad, 0), max(size.H-2*pad, 0))
 	k := kids.At(0)
 	k.Layout(gunim.Tight(inner))
-	k.Place(geom.Pt(pad, pad))
+	v.listAt = geom.Pt(pad, pad)
+	k.Place(v.listAt)
 	if v.OnSeen != nil && v.end > v.seen && v.list.AtEnd() {
 		v.seen = v.end
 		if in := v.OnSeen(v.end, f.UI()); in != nil {
@@ -113,6 +122,10 @@ func (v *LogView) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children
 
 // Paint implements [gunim.Node]: a field's box, then the lines.
 func (v *LogView) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.Children) {
+	if v.Plain {
+		kids.At(0).Paint(p)
+		return
+	}
 	th := f.Theme
 	r := geom.Rect{Max: box.Point()}
 	radius := FieldRadius.Get(th)
