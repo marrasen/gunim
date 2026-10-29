@@ -1,10 +1,13 @@
 package plugui
 
 import (
+	"slices"
+	"strconv"
 	"testing"
 	"time"
 
 	"github.com/marrasen/gunim"
+	"github.com/marrasen/gunim/access"
 	"github.com/marrasen/gunim/audio/plug"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/gunimtest"
@@ -110,5 +113,104 @@ func TestABrowserOfNoPresetsShowsNoGroup(t *testing.T) {
 	mountBrowser(t, b)
 	if len(b.groups.rows) != 0 || len(b.presets.rows) != 0 || b.groups.index(b.bank, b.group) >= 0 {
 		t.Fatal("a browser of no presets lists rows")
+	}
+}
+
+// listNamed is the list named name in the window's tree.
+func listNamed(t *testing.T, w *gunim.Window, name string) *access.Node {
+	t.Helper()
+	var found *access.Node
+	var walk func(n *access.Node)
+	walk = func(n *access.Node) {
+		if n.Role == access.RoleList && n.Name == name {
+			found = n
+		}
+		for _, k := range n.Children {
+			walk(k)
+		}
+	}
+	walk(w.Access().Root)
+	if found == nil {
+		t.Fatalf("the window shows no list %q", name)
+	}
+	return found
+}
+
+// rowNamed is the row of list named name.
+func rowNamed(t *testing.T, list *access.Node, name string) *access.Node {
+	t.Helper()
+	for _, k := range list.Children {
+		if k.Name == name {
+			return k
+		}
+	}
+	t.Fatalf("the list %q has no row %q", list.Name, name)
+	return nil
+}
+
+// Each row of the columns says what it shows: the banks and groups as
+// captions, a group with how many presets it holds, and a preset by its
+// name and where it is filed, the one playing selected. A press on a
+// group shows its presets; a press on a preset picks it.
+func TestTheRowsSayWhatTheyShowAndAPressActs(t *testing.T) {
+	src := newPresetHost()
+	src.list = slices.Insert(src.list, 3, plug.Preset{Bank: "Factory", Group: "Bass", Name: "Kit", Drums: true})
+	b := NewPresetBrowser(src)
+	w := mountBrowser(t, b)
+	groups := listNamed(t, w, "Groups")
+	if h := rowNamed(t, groups, "Factory"); h.Role != access.RoleHeading {
+		t.Fatalf("the bank's caption is %v", h.Role)
+	}
+	if g := rowNamed(t, groups, "Bass"); g.Role != access.RoleListItem || g.Value != "3" || !g.State.Has(access.StateSelected) {
+		t.Fatalf("the group shown says %+v", g.Info)
+	}
+	presets := listNamed(t, w, "Presets")
+	if h := rowNamed(t, presets, "Bass"); h.Role != access.RoleHeading {
+		t.Fatalf("the group's caption is %v", h.Role)
+	}
+	if p := rowNamed(t, presets, "Growl"); p.Role != access.RoleListItem || p.Description != "Factory · Bass" || !p.State.Has(access.StateSelected) {
+		t.Fatalf("the preset playing says %+v", p.Info)
+	}
+	if p := rowNamed(t, presets, "Kit"); p.Description != "Factory · Bass · drums" || p.State.Has(access.StateSelected) {
+		t.Fatalf("a drum kit says %+v", p.Info)
+	}
+	w.Input(access.Request{ID: rowNamed(t, presets, "Sub").ID, Action: access.ActionPress})
+	w.Frame(time.Second / 60)
+	if len(src.picked) != 1 || src.picked[0] != "Sub" {
+		t.Fatalf("a press on Sub picked %v", src.picked)
+	}
+	w.Input(access.Request{ID: rowNamed(t, listNamed(t, w, "Groups"), "Pads").ID, Action: access.ActionPress})
+	w.Frame(time.Second / 60)
+	if b.group != "Pads" {
+		t.Fatalf("a press on Pads shows %s", b.group)
+	}
+	rowNamed(t, listNamed(t, w, "Presets"), "Glass")
+}
+
+// Only the rows in view are listed, as the column scrolls.
+func TestOnlyTheRowsInViewAreListed(t *testing.T) {
+	src := &presetHost{}
+	for i := range 60 {
+		src.list = append(src.list, plug.Preset{Bank: "Factory", Group: "Keys", Name: "Keys " + strconv.Itoa(i+1)})
+	}
+	b := NewPresetBrowser(src)
+	w := mountBrowser(t, b)
+	presets := listNamed(t, w, "Presets")
+	if n := len(presets.Children); n < 5 || n > 30 {
+		t.Fatalf("%d of 61 rows listed", n)
+	}
+	if first := presets.Children[0].Name; first != "Keys" {
+		t.Fatalf("the first row listed is %q", first)
+	}
+	b.ps.JumpTo(26 * 40)
+	for range 5 {
+		w.Frame(time.Second / 60)
+	}
+	names := map[string]bool{}
+	for _, k := range listNamed(t, w, "Presets").Children {
+		names[k.Name] = true
+	}
+	if names["Keys 1"] || !names["Keys 41"] {
+		t.Fatalf("scrolled down, the rows listed are %v", names)
 	}
 }
