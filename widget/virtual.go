@@ -559,7 +559,7 @@ func (l *VirtualList) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Chil
 			l.again = true
 		}
 	}
-	l.fit(content, own, f.Theme)
+	l.fit(content, own, f)
 	l.still = false
 	l.laidOut = true
 	return own

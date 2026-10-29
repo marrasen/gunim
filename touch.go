@@ -175,7 +175,7 @@ func (u *UI) longPress(t *touchPress) {
 		return
 	}
 	t.chosen, t.held = true, true
-	now := u.clock()
+	now := u.timerClock()
 	u.handleRaw(t.root, input.PointerUp{Pos: input.Away, Button: input.ButtonPrimary, Touch: true, Time: now})
 	u.handleRaw(t.root, input.PointerDown{Pos: t.start, Button: input.ButtonSecondary, Clicks: 1, Touch: true, Time: now})
 	if b, ok := u.windowOf(t.root).(driver.Buzzer); ok {

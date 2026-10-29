@@ -735,7 +735,7 @@ func (g *TileGrid) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Childre
 		g.jumpToY(max(0, y))
 	}
 	g.jumpRow = -1
-	g.fit(max(content, 0), own, th)
+	g.fit(max(content, 0), own, f)
 	if i := g.revealNext; i >= 0 && i < g.n {
 		g.revealNext = -1
 		r := g.target(i)
