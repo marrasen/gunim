@@ -193,9 +193,11 @@ type Plugin struct {
 	// gestures counts the editor's gestures under way.
 	gestures atomic.Int32
 
-	closed bool
+	// closed says Close has run. It and active are read on the audio's
+	// goroutine, the app's and the plugins' thread, so they are atomic.
+	closed atomic.Bool
 	// active says the plugin is set up to process, as New leaves it.
-	active bool
+	active atomic.Bool
 	// ed is the editor, open, on the plugins' thread.
 	ed         *editor
 	editorOpen atomic.Bool
@@ -462,7 +464,7 @@ func (p *Plugin) activate() error {
 	p.latency.Store(int32(call(p.proc, mGetLatencySamples)))
 	p.readTail()
 	call(p.proc, mSetProcessing, 1)
-	p.active = true
+	p.active.Store(true)
 	return nil
 }
 
@@ -470,23 +472,45 @@ func (p *Plugin) activate() error {
 func (p *Plugin) deactivate() {
 	call(p.proc, mSetProcessing, 0)
 	call(p.comp, mSetActive, 0)
-	p.active = false
+	p.active.Store(false)
 }
 
 // SetActive starts or stops the plugin's processing. A plugin stopped
 // takes no time of the computer's, nor sound; started again, it starts
-// from silence. Process must not run meanwhile.
+// from silence. Process must not run meanwhile. A plugin closed stays
+// as it is, and starting it gives ErrClosed.
 func (p *Plugin) SetActive(on bool) error {
 	var err error
-	onUI(func() {
+	if !p.whileOpen(func() {
 		switch {
-		case on && !p.active:
+		case on && !p.active.Load():
 			err = p.activate()
-		case !on && p.active:
+		case !on && p.active.Load():
 			p.deactivate()
 		}
-	})
+	}) && on {
+		return ErrClosed
+	}
 	return err
+}
+
+// ErrClosed is the error of a plugin, or an ARA document, closed.
+var ErrClosed = errors.New("vst3: closed")
+
+// whileOpen runs job on the plugins' thread, unless the plugin is closed
+// by then, and reports whether it ran. Close lets the plugin's objects
+// go on that thread too, after it marks the plugin closed, so a job that
+// runs finds them all there.
+func (p *Plugin) whileOpen(job func()) bool {
+	ran := false
+	onUI(func() {
+		if p.closed.Load() {
+			return
+		}
+		ran = true
+		job()
+	})
+	return ran
 }
 
 // Configure sets the plugin up to run as cfg says, keeping its state:
@@ -501,26 +525,32 @@ func (p *Plugin) Configure(cfg Config) error {
 	if cfg.Rate <= 0 || cfg.Channels > 2 {
 		return fmt.Errorf("vst3: %s: no plugin runs at %d frames a second in %d channels", p.Class.Name, cfg.Rate, cfg.Channels)
 	}
-	if cfg == p.cfg || p.closed {
+	if p.closed.Load() {
+		return ErrClosed
+	}
+	if cfg == p.cfg {
 		return nil
 	}
 	var err error
-	onUI(func() {
-		if p.active {
+	if !p.whileOpen(func() {
+		if p.active.Load() {
 			p.deactivate()
 		}
 		p.cfg = cfg
 		if err = p.setupBuses(); err == nil {
 			err = p.activate()
 		}
-	})
+	}) {
+		// Close ran since.
+		return ErrClosed
+	}
 	return err
 }
 
 // Latency is how many frames late the plugin's sound comes out.
 func (p *Plugin) Latency() int {
 	if p.restarts.Load()&restartLatency != 0 {
-		onUI(func() {
+		p.whileOpen(func() {
 			p.restarts.And(^int32(restartLatency))
 			p.latency.Store(int32(call(p.proc, mGetLatencySamples)))
 		})
@@ -547,8 +577,8 @@ func (p *Plugin) readTail() {
 // Reset clears what the plugin holds of the sound before, as its
 // filters' and delays' memories, for a jump in the sound.
 func (p *Plugin) Reset() {
-	onUI(func() {
-		if p.active {
+	p.whileOpen(func() {
+		if p.active.Load() {
 			p.deactivate()
 			_ = p.activate()
 		}
@@ -561,7 +591,7 @@ func (p *Plugin) Reset() {
 // audio's goroutine, as VST3 lets processing be stopped and started
 // there: the notes sounding end in the next block, and the pedals lift.
 func (p *Plugin) resetNow() {
-	if p.closed || !p.active {
+	if p.closed.Load() || !p.active.Load() {
 		return
 	}
 	call(p.proc, mSetProcessing, 0)
@@ -577,7 +607,7 @@ func (p *Plugin) SetPosition(frame int64) { p.ctx.projectTime = frame }
 // place: through its main buses, and into each aux input too, as a
 // sidechain keys on the sound it changes.
 func (p *Plugin) Process(frames []float32) {
-	if p.closed || !p.active {
+	if p.closed.Load() || !p.active.Load() {
 		return
 	}
 	n := len(frames) / 2
@@ -675,7 +705,7 @@ func (p *Plugin) Value(id uint32) float64 {
 // the controller has them.
 func (p *Plugin) Values() map[uint32]float64 {
 	out := make(map[uint32]float64, len(p.edits.slots))
-	onUI(func() {
+	p.whileOpen(func() {
 		if p.ctrl == 0 {
 			return
 		}
@@ -690,9 +720,11 @@ func (p *Plugin) Values() map[uint32]float64 {
 // Flush passes the changes waiting for the processor on, as a plugin
 // not processing takes them, so its state holds them: with a moment of
 // silence, as not every plugin takes them without sound, as VST3 allows.
-// It must not run alongside Process.
+// It runs Process on the caller's goroutine, so it must not run
+// alongside Process, nor alongside Close: the atomic closed flag does
+// not make that safe.
 func (p *Plugin) Flush() {
-	if p.closed || !p.active {
+	if p.closed.Load() || !p.active.Load() {
 		return
 	}
 	if !p.edits.waits() {
@@ -731,7 +763,7 @@ func (p *Plugin) restart(flags int32) {
 // onTick passes the processor's changes to the controller, and asks the
 // plugin its tail, on the plugins' thread.
 func (p *Plugin) onTick() {
-	if p.active {
+	if p.active.Load() {
 		p.readTail()
 	}
 	if !p.outputs.look() {
@@ -747,7 +779,7 @@ func (p *Plugin) onTick() {
 // Params returns the plugin's parameters.
 func (p *Plugin) Params() []Param {
 	var out []Param
-	onUI(func() {
+	p.whileOpen(func() {
 		if p.ctrl == 0 {
 			return
 		}
@@ -770,8 +802,8 @@ func (p *Plugin) Params() []Param {
 // writes it to show, as "-3.0 dB"; empty where it writes none.
 func (p *Plugin) Text(id uint32, v float64) string {
 	var s [128]uint16
-	onUI(func() {
-		if p.ctrl != 0 && !p.closed {
+	p.whileOpen(func() {
+		if p.ctrl != 0 {
 			callFloatArg(p.ctrl, mGetParamStringByValue, uintptr(id), v, uintptr(unsafe.Pointer(&s[0])))
 		}
 	})
@@ -782,7 +814,7 @@ func (p *Plugin) Text(id uint32, v float64) string {
 // processor. A parameter the controller does not list is not set.
 func (p *Plugin) Set(id uint32, v float64) {
 	if p.ctrl != 0 {
-		onUI(func() { callFloat(p.ctrl, mSetParamNormalized, uintptr(id), v) })
+		p.whileOpen(func() { callFloat(p.ctrl, mSetParamNormalized, uintptr(id), v) })
 	}
 	p.edits.put(id, v)
 }
@@ -816,7 +848,7 @@ const stateMagic = "gVS3"
 func (p *Plugin) State() ([]byte, error) {
 	var comp, ctrl []byte
 	var err error
-	onUI(func() {
+	if !p.whileOpen(func() {
 		if comp, err = p.componentState(); err != nil {
 			return
 		}
@@ -827,7 +859,9 @@ func (p *Plugin) State() ([]byte, error) {
 			}
 			drop(sp)
 		}
-	})
+	}) {
+		return nil, ErrClosed
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -867,7 +901,7 @@ func (p *Plugin) SetState(b []byte) error {
 	if err != nil {
 		return err
 	}
-	onUI(func() {
+	if !p.whileOpen(func() {
 		edits := p.editsMade.Load()
 		defer p.editsMade.Store(edits)
 		s, sp := newStream(append([]byte(nil), comp...))
@@ -889,16 +923,26 @@ func (p *Plugin) SetState(b []byte) error {
 			}
 		}
 		p.readValues()
-	})
+	}) {
+		return ErrClosed
+	}
 	return err
 }
 
-// Close stops the plugin and lets it go. Process must have returned.
+// Close stops the plugin and lets it go, once: a second Close, at the
+// same time or after, does nothing, and does not wait for the first to
+// finish letting the plugin go. Once it has begun, the methods that ask
+// the plugin on the plugins' thread ask it nothing: Values, Params,
+// Text, Set, State, SetState, Latency, SetActive, Configure, Reset and
+// the editor's EditorSize, EditorResizable, OpenEditor and EmbedEditor. Process, ProcessBlock and Flush must
+// have returned and must not run alongside it, as Close does not wait
+// for a block under way. That closed is atomic only keeps the race
+// detector quiet and stops a double close; it does not make processing
+// while closing safe.
 func (p *Plugin) Close() {
-	if p.closed {
+	if !p.closed.CompareAndSwap(false, true) {
 		return
 	}
-	p.closed = true
 	untick(p)
 	if p.ara != nil {
 		p.ara.unbind()
@@ -907,7 +951,7 @@ func (p *Plugin) Close() {
 		if p.ed != nil {
 			p.ed.close()
 		}
-		if p.proc != 0 && p.active {
+		if p.proc != 0 && p.active.Load() {
 			p.deactivate()
 		}
 		if p.compCP != 0 && p.ctrlCP != 0 {

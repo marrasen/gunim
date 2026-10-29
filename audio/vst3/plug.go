@@ -23,7 +23,7 @@ import (
 // It makes nothing, and takes no lock.
 func (p *Plugin) ProcessBlock(b *plug.Block) {
 	k := min(b.Frames, p.cfg.Block)
-	if p.closed || !p.active || k <= 0 {
+	if p.closed.Load() || !p.active.Load() || k <= 0 {
 		silence(b, 0)
 		return
 	}

@@ -87,7 +87,7 @@ func (p *Plugin) createView() uintptr {
 // without opening it, or its size now where it is open; ok is false
 // where it has no editor here.
 func (p *Plugin) EditorSize() (w, h int, ok bool) {
-	onUI(func() {
+	p.whileOpen(func() {
 		if p.ed != nil {
 			w, h, ok = p.ed.w, p.ed.h, true
 			return
@@ -115,7 +115,7 @@ func (p *Plugin) EditorSize() (w, h int, ok bool) {
 // open, or else one made for the question.
 func (p *Plugin) EditorResizable() bool {
 	var ok bool
-	onUI(func() {
+	p.whileOpen(func() {
 		if p.ed != nil {
 			ok = p.ed.resizable
 			return
@@ -137,7 +137,7 @@ func (p *Plugin) EditorResizable() bool {
 // brings it to the front where it is open.
 func (p *Plugin) OpenEditor(title string) error {
 	var err error
-	onUI(func() {
+	if !p.whileOpen(func() {
 		if p.ed != nil {
 			if !p.ed.win.child {
 				p.ed.win.raise()
@@ -145,7 +145,9 @@ func (p *Plugin) OpenEditor(title string) error {
 			return
 		}
 		err = p.attachEditor(title, 0, nil)
-	})
+	}) {
+		return ErrClosed
+	}
 	return err
 }
 
@@ -162,14 +164,16 @@ func (p *Plugin) EmbedEditor(parent uintptr, sized func(w, h int)) (w, h int, er
 	if parent == 0 {
 		return 0, 0, fmt.Errorf("vst3: %s: no window to embed its editor in", p.Class.Name)
 	}
-	onUI(func() {
+	if !p.whileOpen(func() {
 		if p.ed != nil {
 			p.ed.close()
 		}
 		if err = p.attachEditor("", parent, sized); err == nil {
 			w, h = p.ed.w, p.ed.h
 		}
-	})
+	}) {
+		return 0, 0, ErrClosed
+	}
 	return w, h, err
 }
 
