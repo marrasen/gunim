@@ -14,7 +14,7 @@ var PageSlide = theme.Length("pages.slide", 24)
 // Pages shows one page at a time, as the right side of a settings
 // sidebar does, and animates each change: the page coming slides in
 // from the side it was asked to come from as it fades in, and the page
-// going fades out where it stood, on top of nothing else's room.
+// going fades out where it stood, taking none of the room.
 //
 // Show changes the page. A page asked for again while it is shown stays
 // as it is, with what was typed in it.
@@ -137,15 +137,15 @@ func newPageFrame(child gunim.Node, from geom.Point) *pageFrame {
 	return f
 }
 
-// Transition implements [gunim.Transitioner]: a page comes in quickly
-// and goes gently.
+// Transition implements [gunim.Transitioner]: a page comes in and goes
+// quickly, so the one going is out of the way of the one coming.
 func (f *pageFrame) Transition(p gunim.Presence, fr gunim.Frame) bool {
 	switch p {
 	case gunim.Entering, gunim.Present:
 		f.shown.Animate(1, Quick.Get(fr.Theme))
 	case gunim.Exiting:
 		f.leaving = true
-		f.shown.Animate(0, Settle.Get(fr.Theme))
+		f.shown.Animate(0, Quick.Get(fr.Theme))
 	}
 	return !f.shown.Active()
 }
@@ -169,8 +169,13 @@ func (f *pageFrame) Layout(c gunim.Constraints, fr gunim.Frame, kids gunim.Child
 
 // Paint implements [gunim.Node].
 func (f *pageFrame) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, kids gunim.Children) {
-	if t := f.shown.Value(); t < 0.999 {
-		defer p.Layer(paint.LayerOpts{Bounds: geom.Rect{Max: box.Point()}, Opacity: max(t, 0)})()
+	if t := min(max(f.shown.Value(), 0), 1); t < 0.999 {
+		if f.leaving {
+			// Going, it fades sooner than it moves, so its words are
+			// mostly gone before the next page's settle over them.
+			t *= t
+		}
+		defer p.Layer(paint.LayerOpts{Bounds: geom.Rect{Max: box.Point()}, Opacity: t})()
 	}
 	kids.At(0).Paint(p)
 }
