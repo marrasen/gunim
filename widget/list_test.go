@@ -253,3 +253,17 @@ func TestTheSelectionGlidesToTheRowPicked(t *testing.T) {
 		t.Fatalf("settled, the selection is at %v, want %v", y, 3*cellHeight)
 	}
 }
+
+// What a list holds as it is first shown is there at once, at its full
+// height on the first frame; a row that comes after grows in.
+func TestAListsFirstRowsAreThereAtOnce(t *testing.T) {
+	f := newListFixture(t)
+	f.publish(t, []string{"a", "b", "c"}, 1)
+	if got := f.list.Height(); got != 3*cellHeight {
+		t.Fatalf("on its first frame the list is %v tall, want %v", got, 3*cellHeight)
+	}
+	f.publish(t, []string{"a", "b", "c", "d"}, 1)
+	if got := f.list.Height(); got >= 4*cellHeight {
+		t.Fatalf("a frame after d came, the list is %v tall; want d still growing in", got)
+	}
+}
