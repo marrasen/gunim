@@ -234,3 +234,22 @@ func TestAnArrivingRowStartsWhereItBelongs(t *testing.T) {
 		}
 	}
 }
+
+// The selection's fill glides from the row picked to the next one,
+// part way between them a few frames after.
+func TestTheSelectionGlidesToTheRowPicked(t *testing.T) {
+	f := newListFixture(t)
+	f.publish(t, []string{"a", "b", "c", "d"}, 120)
+	f.list.Selected = "a"
+	f.run(120)
+	f.list.Selected = "d"
+	f.run(3)
+	y := widget.SelectionAt(f.list).Min.Y
+	if y <= 0 || y >= 3*cellHeight {
+		t.Fatalf("a few frames after picking d, the selection is at %v; want it between a and d", y)
+	}
+	f.run(120)
+	if y := widget.SelectionAt(f.list).Min.Y; y != 3*cellHeight {
+		t.Fatalf("settled, the selection is at %v, want %v", y, 3*cellHeight)
+	}
+}

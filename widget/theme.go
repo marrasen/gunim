@@ -107,6 +107,8 @@ var (
 	ListSpacing = theme.Length("list.spacing", 6)
 	// RowRadius rounds a row's clip.
 	RowRadius = theme.Length("list.row.radius", 4)
+	// ListSelected fills the row a [List] shows as picked.
+	ListSelected = theme.Color("list.selected", color.NRGBA{R: 0x2b, G: 0x3b, B: 0x5c, A: 0xff})
 )
 
 // Light is a light theme. It changes more than colour: padding and
@@ -136,6 +138,7 @@ func Light() theme.Theme {
 		theme.Set(DialogWidth, 460),
 		theme.Set(DialogHeight, 220),
 		theme.Set(ListSpacing, 10),
+		theme.Set(ListSelected, color.NRGBA{R: 0xdc, G: 0xe6, B: 0xf7, A: 0xff}),
 		theme.Set(RowRadius, 10),
 		theme.Set(Background, color.NRGBA{R: 0xf3, G: 0xf5, B: 0xf9, A: 0xff}),
 		theme.Set(Margin, geom.Uniform(24)),
