@@ -10,8 +10,9 @@ import (
 // ErrFormat is returned by [Decode] for a sound in no format it reads.
 var ErrFormat = errors.New("audio: unknown format")
 
-// Decode returns a source playing the sound r holds: WAV, MP3, Ogg
-// Vorbis or FLAC, told apart by how it starts. The source plays at
+// Decode returns a source playing the sound r holds: WAV (RIFF, or RF64
+// and BW64 past 4 GB), MP3, Ogg Vorbis or FLAC, told apart by how it
+// starts. The source plays at
 // [SampleRate], resampling a sound recorded at another, and in stereo:
 // a mono sound plays in both speakers, and a sound of more channels
 // plays its first two.
@@ -76,7 +77,8 @@ func openDecoder(r io.ReadSeeker) (decoder, error) {
 	var d decoder
 	h := head[:n]
 	switch {
-	case bytes.HasPrefix(h, []byte("RIFF")) && len(h) >= 12 && string(h[8:12]) == "WAVE":
+	case len(h) >= 12 && string(h[8:12]) == "WAVE" &&
+		(bytes.HasPrefix(h, []byte("RIFF")) || bytes.HasPrefix(h, []byte("RF64")) || bytes.HasPrefix(h, []byte("BW64"))):
 		d, err = newWAV(r)
 	case bytes.HasPrefix(h, []byte("OggS")):
 		d, err = newVorbis(r)
