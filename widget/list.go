@@ -50,11 +50,6 @@ type List struct {
 	// as one click, as a link takes them, so a row that goes somewhere
 	// goes there once.
 	ClickOnce bool
-	// Selected is the row shown as picked, as a sidebar's page is: a
-	// fill under it glides to the next row picked, stretching from one
-	// to the other, and fades in and out as Selected is set and cleared.
-	// The empty key picks none.
-	Selected Key
 	// SkipFocus passes the keyboard by a list with OnActivate, for rows that
 	// take it themselves: Tab goes past the list, a click leaves the
 	// keyboard where it is, and the keys go on to what holds the list.
@@ -84,8 +79,10 @@ type List struct {
 	// walk shows the cursor while the arrow keys move it, with no focus ring showing, until a click.
 	walk *anim.Float
 	mark *anim.Rect
-	// sel is where the selection's fill is, gliding to Selected's row,
-	// and selShown how far it has faded in.
+	// selected is the row shown as picked; sel is where the selection's
+	// fill is, gliding to selected's row, and selShown how far it has
+	// faded in.
+	selected Key
 	sel      *anim.Rect
 	selShown *anim.Float
 }
@@ -310,7 +307,7 @@ func (l *List) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) g
 		y -= spacing
 	}
 	l.height = y
-	if s, ok := l.slots[l.Selected]; ok && l.Selected != "" {
+	if s, ok := l.slots[l.selected]; ok && l.selected != "" {
 		// The first time, and coming back after none, it is there at
 		// once and fades in; after that it glides.
 		to := geom.Rc(0, s[0], width, s[1])
@@ -362,6 +359,22 @@ func (l *List) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.
 	if l.whole {
 		GroupRing(p, geom.Rect{Max: box.Point()}, RowRadius.Get(f.Theme), l.ring.Value(), f.Theme)
 	}
+}
+
+// Selected returns the row shown as picked, or the empty key for none.
+func (l *List) Selected() Key { return l.selected }
+
+// SetSelected shows row k as picked, as a sidebar's page is, and sends
+// no intent. Once the list is laid out, a fill under the row glides from
+// the row picked before, stretching from one to the other, and fades in
+// as a row is picked after none and out as the empty key picks none.
+// Before, it is there at once. u may be nil.
+func (l *List) SetSelected(k Key, u *gunim.UI) {
+	if l.selected == k {
+		return
+	}
+	l.selected = k
+	u.Invalidate()
 }
 
 // Focusable implements [gunim.Focusable]: a list with OnActivate set takes focus.

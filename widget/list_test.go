@@ -240,9 +240,9 @@ func TestAnArrivingRowStartsWhereItBelongs(t *testing.T) {
 func TestTheSelectionGlidesToTheRowPicked(t *testing.T) {
 	f := newListFixture(t)
 	f.publish(t, []string{"a", "b", "c", "d"}, 120)
-	f.list.Selected = "a"
+	f.list.SetSelected("a", nil)
 	f.run(120)
-	f.list.Selected = "d"
+	f.list.SetSelected("d", nil)
 	f.run(3)
 	y := widget.SelectionAt(f.list).Min.Y
 	if y <= 0 || y >= 3*cellHeight {

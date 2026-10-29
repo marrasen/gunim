@@ -139,6 +139,7 @@ func Light() theme.Theme {
 		theme.Set(DialogHeight, 220),
 		theme.Set(ListSpacing, 10),
 		theme.Set(ListSelected, color.NRGBA{R: 0xdc, G: 0xe6, B: 0xf7, A: 0xff}),
+		theme.Set(LogViewLead, color.NRGBA{R: 0x6b, G: 0x73, B: 0x85, A: 0xff}),
 		theme.Set(RowRadius, 10),
 		theme.Set(Background, color.NRGBA{R: 0xf3, G: 0xf5, B: 0xf9, A: 0xff}),
 		theme.Set(Margin, geom.Uniform(24)),

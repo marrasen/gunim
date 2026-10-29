@@ -16,27 +16,38 @@ import (
 
 // StatusSwitch tokens.
 var (
-	// StatusSwitchHeight is its height, and StatusSwitchPadding the room
-	// at its ends.
+	// StatusSwitchHeight is its height, StatusSwitchPadding the room at
+	// its ends, and StatusSwitchGap the room between its words, its
+	// Extra and its switch.
 	StatusSwitchHeight  = theme.Length("statusswitch.height", 28)
 	StatusSwitchPadding = theme.Length("statusswitch.padding", 10)
-	// StatusSwitchTrack is its switch's track: its width and height.
-	StatusSwitchTrackW = theme.Length("statusswitch.track.width", 24)
-	StatusSwitchTrackH = theme.Length("statusswitch.track.height", 14)
-	// StatusSwitchFill is how strongly the state's colour fills the
-	// chip, as alpha.
-	StatusSwitchFill = theme.Length("statusswitch.fill", 0x1c)
+	StatusSwitchGap     = theme.Length("statusswitch.gap", 8)
+	// StatusSwitchTrackWidth and StatusSwitchTrackHeight size its
+	// switch's track.
+	StatusSwitchTrackWidth  = theme.Length("statusswitch.track.width", 24)
+	StatusSwitchTrackHeight = theme.Length("statusswitch.track.height", 14)
+	// StatusSwitchTint is how much of the state's colour fills the chip,
+	// from 0 to 1.
+	StatusSwitchTint = theme.Length("statusswitch.tint", 0.11)
+	// StatusSwitchBreath is how faint the knob gets as it breathes while
+	// busy, from 0 to 1, and StatusSwitchBreathTime one breath.
+	StatusSwitchBreath     = theme.Length("statusswitch.breath", 0.45)
+	StatusSwitchBreathTime = theme.Length("statusswitch.breath.time", 2)
 )
 
 // StatusSwitch says how something is, in words in a rounded chip of the
 // state's colour, with a switch at its end that changes it: a
 // connection, a sync, a server. Its words say only the state, the same
-// whatever a click will do; a click, or Space or Enter, flips the
-// switch and runs OnToggle with the state asked for. While Busy, as for
-// something on its way on, the knob breathes.
+// whatever a click will do.
 //
-// The knob slides as Checked changes, and the chip's colour fades from one
-// state's to the next. A key held down does not flip it again and again.
+// The knob slides as the state changes, and the chip's colour fades from
+// one state's to the next. A press squashes the knob; under the pointer
+// the chip lightens. While busy, as for something on its way on, the
+// knob breathes.
+//
+// A click, or Space or Enter with the keyboard on it, runs OnChange
+// with the state asked for; a key held down asks once. The app sets the
+// state with SetChecked once it has changed.
 type StatusSwitch struct {
 	Control
 	// Label is the state in words, as "connected" or "23 ms".
@@ -44,8 +55,6 @@ type StatusSwitch struct {
 	// Ink is the state's colour: of the words, the chip's fill and the
 	// switch. Unset, it is the theme's [Ink].
 	Ink theme.Token[color.NRGBA]
-	// Checked says the switch is on, and Busy that its knob breathes.
-	Checked, Busy bool
 	// Bare leaves the words out, and the chip's fill shows only under
 	// the pointer: the switch alone, its colour saying the state, for
 	// where room is short.
@@ -53,26 +62,54 @@ type StatusSwitch struct {
 	// Extra, when set, is drawn between the words and the switch, such
 	// as a compact [LiveGraph] of what goes over a connection.
 	Extra gunim.Node
-	// OnToggle runs on the UI goroutine when the switch is flipped, with
+	// OnChange runs on the UI goroutine when the switch is flipped, with
 	// the state asked for; a non-nil result is sent to the application
 	// as the switch's intent.
-	OnToggle func(on bool, u *gunim.UI) gunim.Intent
+	OnChange func(on bool, u *gunim.UI) gunim.Intent
 
-	knob, tone *anim.Float
-	// now is the state's colour, and was the one before, which tone
-	// fades from.
-	now, was color.NRGBA
-	inked    bool
-	size     geom.Size
-	text     shapedText
-	laid     bool
+	// checked and busy are the state; knob runs from off to on, and tone
+	// from the last state's colour, was, to this one's, now.
+	checked, busy bool
+	knob, tone    *anim.Float
+	now, was      color.NRGBA
+	inked         bool
+	click         Clicker
+	size          geom.Size
+	text          shapedText
+	laid          bool
 }
 
-// NewStatusSwitch returns a status switch saying label.
+// NewStatusSwitch returns a status switch saying label, off.
 func NewStatusSwitch(label string) *StatusSwitch {
 	s := &StatusSwitch{Control: newControl(), Label: label, knob: anim.NewFloat(0), tone: anim.NewFloat(1)}
 	s.Add(s.knob, s.tone)
 	return s
+}
+
+// Checked reports whether the switch is on.
+func (s *StatusSwitch) Checked() bool { return s.checked }
+
+// SetChecked turns the switch on or off and sends no intent. Once laid
+// out, the knob slides there; before, it is there at once. u may be nil.
+func (s *StatusSwitch) SetChecked(on bool, u *gunim.UI) {
+	if s.checked == on {
+		return
+	}
+	s.checked = on
+	u.Invalidate()
+}
+
+// Busy reports whether the knob breathes.
+func (s *StatusSwitch) Busy() bool { return s.busy }
+
+// SetBusy has the knob breathe, as for something on its way, or rest,
+// and sends no intent. u may be nil.
+func (s *StatusSwitch) SetBusy(busy bool, u *gunim.UI) {
+	if s.busy == busy {
+		return
+	}
+	s.busy = busy
+	u.Invalidate()
 }
 
 // Children implements [gunim.Composite]: Extra, when set.
@@ -83,12 +120,17 @@ func (s *StatusSwitch) Children() []gunim.Node {
 	return []gunim.Node{s.Extra}
 }
 
-// target is the state's colour now.
+// target is the state's colour.
 func (s *StatusSwitch) target(th *theme.Live) color.NRGBA {
 	if s.Ink.Key() != "" {
 		return s.Ink.Get(th)
 	}
 	return Ink.Get(th)
+}
+
+// colour is the chip's colour now, fading from the state before's.
+func (s *StatusSwitch) colour() color.NRGBA {
+	return anim.Mix(anim.ColorCodec, s.was, s.now, min(max(s.tone.Value(), 0), 1))
 }
 
 // Layout implements [gunim.Node]: as wide as its words, Extra and
@@ -97,7 +139,7 @@ func (s *StatusSwitch) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Chi
 	th := f.Theme
 	s.follow(th)
 	to := float32(0)
-	if s.Checked {
+	if s.checked {
 		to = 1
 	}
 	if !s.laid {
@@ -116,30 +158,23 @@ func (s *StatusSwitch) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Chi
 		s.now, s.inked = ink, true
 	}
 	s.laid = true
-	pad, tw := StatusSwitchPadding.Get(th), StatusSwitchTrackW.Get(th)
+	pad, gap, tw := StatusSwitchPadding.Get(th), StatusSwitchGap.Get(th), StatusSwitchTrackWidth.Get(th)
 	w := pad + tw + pad
 	var extra geom.Size
 	if s.Extra != nil {
-		k := kids.At(0)
-		extra = k.Layout(gunim.Constraints{Max: geom.Sz(c.Max.W, StatusSwitchHeight.Get(th))})
+		extra = kids.At(0).Layout(gunim.Constraints{Max: geom.Sz(c.Max.W, StatusSwitchHeight.Get(th))})
 		if extra.W > 0 {
-			w += extra.W + 8
+			w += extra.W + gap
 		}
 	}
 	if !s.Bare {
-		w += s.text.shape(faceIn(Font, th), s.Label, BadgeSize.Get(th)).Advance + 8
+		w += s.text.shape(faceIn(Font, th), s.Label, BadgeSize.Get(th)).Advance + gap
 	}
 	s.size = c.Constrain(geom.Sz(w, StatusSwitchHeight.Get(th)))
 	if s.Extra != nil {
-		k := kids.At(0)
-		k.Place(geom.Pt(s.size.W-pad-tw-8-extra.W, (s.size.H-extra.H)/2))
+		kids.At(0).Place(geom.Pt(s.size.W-pad-tw-gap-extra.W, (s.size.H-extra.H)/2))
 	}
 	return s.size
-}
-
-// colour is the chip's colour now, fading from the state before's.
-func (s *StatusSwitch) colour() color.NRGBA {
-	return anim.Mix(anim.ColorCodec, s.was, s.now, min(max(s.tone.Value(), 0), 1))
 }
 
 // Paint implements [gunim.Node].
@@ -147,62 +182,61 @@ func (s *StatusSwitch) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kid
 	defer s.faint(p, box)()
 	th := f.Theme
 	ink := s.colour()
-	lit := min(max(s.hover.Value(), s.ring.Value()), 1)
 	r := geom.Rect{Max: box.Point()}
 	radius := box.H / 2
 	fill := ink
-	fill.A = uint8(min(max(StatusSwitchFill.Get(th), 0), 255))
+	fill.A = uint8(float32(fill.A) * min(max(StatusSwitchTint.Get(th), 0), 1))
 	if s.Bare {
 		fill.A = 0
 	}
-	fill = anim.Mix(anim.ColorCodec, fill, ChipHover.Get(th), lit*0.6)
-	if s.held {
-		fill = ChipHover.Get(th)
-	}
+	fill = anim.Mix(anim.ColorCodec, fill, ChipHover.Get(th), min(max(s.hover.Value(), 0), 1))
 	p.RRect(r, radius, paint.Solid(fill))
 	s.paintRing(p, r, radius, th)
-	pad, tw, thh := StatusSwitchPadding.Get(th), StatusSwitchTrackW.Get(th), StatusSwitchTrackH.Get(th)
+	pad, gap := StatusSwitchPadding.Get(th), StatusSwitchGap.Get(th)
+	tw, tht := StatusSwitchTrackWidth.Get(th), StatusSwitchTrackHeight.Get(th)
 	x := box.W - pad - tw
 	if s.Bare && s.Extra == nil {
 		x = (box.W - tw) / 2
 	}
 	if !s.Bare {
 		run := s.text.shape(faceIn(Font, th), s.Label, BadgeSize.Get(th))
-		run.PaintFaded(p, geom.Pt(pad, box.H/2-run.Height()/2), ink, max(x-pad-8, 0), TextFade.Get(th))
+		run.PaintFaded(p, geom.Pt(pad, box.H/2-run.Height()/2), ink, max(x-pad-gap, 0), TextFade.Get(th))
 	}
 	if s.Extra != nil {
 		kids.At(0).Paint(p)
 	}
-	s.paintSwitch(p, f, geom.Rc(x, box.H/2-thh/2, tw, thh), ink)
+	s.paintSwitch(p, f, geom.Rc(x, box.H/2-tht/2, tw, tht), ink)
 }
 
-// paintSwitch draws the switch in track: filled in the state's colour
-// while on, an outline in it while off, its knob breathing while Busy.
+// paintSwitch draws the switch in track, as a [Switch] draws its own:
+// the track the state's colour while on and the switch's off colour,
+// edged in it, while off; the knob squashed by a press, and breathing
+// while busy.
 func (s *StatusSwitch) paintSwitch(p *paint.Painter, f gunim.Frame, track geom.Rect, ink color.NRGBA) {
 	th := f.Theme
-	t := min(max(s.knob.Value(), 0), 1)
-	fill := ink
-	fill.A = uint8(float32(0xd0) * t)
+	on := min(max(s.knob.Value(), 0), 1)
 	h := track.Size().H
-	p.RRect(track, h/2, paint.Solid(fill))
+	p.RRect(track, h/2, paint.Solid(anim.Mix(anim.ColorCodec, SwitchOff.Get(th), ink, on)))
 	p.RRectStroke(track.Inset(geom.Uniform(0.5)), h/2, paint.Fill{}, paint.Stroke{Width: 1, Color: ink})
-	d := h - 4
-	kx := track.Min.X + 2 + (track.Size().W-4-d)*t
-	kc := anim.Mix(anim.ColorCodec, ink, CardFill.Get(th), t)
-	if s.Busy {
-		// Breathing, a second each way.
-		phase := math.Mod(float64(f.Now.UnixMilli())/1000, 2)
-		if phase > 1 {
-			phase = 2 - phase
-		}
-		kc.A = uint8(110 + 145*phase)
+	inset := float32(2)
+	d := h - 2*inset
+	stretch := d * 0.3 * s.squash.Value()
+	kx := track.Min.X + inset + (track.Size().W-2*inset-d-stretch)*on
+	knob := Knob.Get(th)
+	if s.busy {
+		// Breathing, a breath each StatusSwitchBreathTime seconds.
+		period := float64(max(StatusSwitchBreathTime.Get(th), 0.1))
+		phase := math.Mod(float64(f.Now.UnixMilli())/1000, period) / period
+		deep := 1 - float32(math.Abs(1-2*phase))*min(max(StatusSwitchBreath.Get(th), 0), 1)
+		knob.A = uint8(float32(knob.A) * deep)
 		f.RedrawAt(f.Now.Add(time.Second / 30))
 	}
-	p.RRect(geom.Rc(kx, track.Min.Y+2, d, d), d/2, paint.Solid(kc))
+	p.ShadowRRect(geom.Rc(kx, track.Min.Y+inset, d+stretch, d), d/2, paint.Solid(knob),
+		paint.Shadow{Offset: geom.Pt(0, 1), Blur: 2, Color: KnobShadow.Get(th)})
 }
 
 // Handle implements [gunim.Handler]: a click, or Space or Enter with
-// the keyboard on it, flips the switch.
+// the keyboard on it, asks for the other state.
 func (s *StatusSwitch) Handle(e input.Event, u *gunim.UI) bool {
 	s.showTip(e, u, s)
 	th := u.Theme()
@@ -218,18 +252,21 @@ func (s *StatusSwitch) Handle(e input.Event, u *gunim.UI) bool {
 		s.hover.Animate(1, Quick.Get(th))
 	case input.PointerLeave:
 		s.hover.Animate(0, Settle.Get(th))
-		s.held = false
+		s.squash.Animate(0, Bounce.Get(th))
 	case input.PointerDown:
 		if e.Button != input.ButtonPrimary {
 			return false
 		}
 		s.held = true
+		s.click.Press(e, 0)
+		s.squash.Animate(1, Quick.Get(th))
 	case input.PointerUp:
 		if !s.held {
 			return false
 		}
 		s.held = false
-		if over(e.Pos, s.size) == 0 {
+		s.squash.Animate(0, Bounce.Get(th))
+		if s.click.Release(e, over(e.Pos, s.size)) {
 			s.flip(u)
 		}
 	case input.KeyPress:
@@ -237,29 +274,45 @@ func (s *StatusSwitch) Handle(e input.Event, u *gunim.UI) bool {
 			return false
 		}
 		if !e.Repeat {
+			s.squash.Retarget(1, Quick.Get(th))
+			s.squash.Animate(0, Bounce.Get(th))
 			s.flip(u)
 		}
 	default:
 		return false
 	}
-	u.Invalidate()
 	return true
 }
 
-// flip runs OnToggle with the state asked for.
+// flip runs OnChange with the state asked for, sounding the toggle.
 func (s *StatusSwitch) flip(u *gunim.UI) {
-	if s.OnToggle == nil {
+	on := !s.checked
+	cue := gunim.CueToggleOn
+	if !on {
+		cue = gunim.CueToggleOff
+	}
+	if s.OnChange == nil {
+		u.Cue(cue, s)
 		return
 	}
-	on := !s.Checked
-	act0(u, s, gunim.CuePress, func(u *gunim.UI) gunim.Intent { return s.OnToggle(on, u) })
+	act0(u, s, cue, func(u *gunim.UI) gunim.Intent { return s.OnChange(on, u) })
 }
 
 // Access implements [gunim.Accessible]: a switch, named by its words.
 func (s *StatusSwitch) Access() access.Info {
 	st := s.accessState() | access.StateCheckable
-	if s.Checked {
+	if s.checked {
 		st |= access.StateChecked
 	}
 	return access.Info{Role: access.RoleSwitch, Name: s.accessName(s.Label), State: st, Actions: []string{access.ActionPress}}
+}
+
+// AccessAct implements [gunim.AccessActor]: a screen reader's press
+// flips it.
+func (s *StatusSwitch) AccessAct(r access.Request, u *gunim.UI) bool {
+	if r.Action != access.ActionPress || s.Disabled {
+		return false
+	}
+	s.flip(u)
+	return true
 }

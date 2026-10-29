@@ -19,14 +19,14 @@ var (
 	BadgePadding = theme.Length("badge.padding", 7)
 	// BadgeSize is its words' size.
 	BadgeSize = theme.Length("badge.size", 12)
-	// BadgeFill is how strongly a badge's colour fills it, as alpha.
-	BadgeFill = theme.Length("badge.fill", 0x2c)
+	// BadgeTint is how much of a badge's colour fills it, from 0 to 1.
+	BadgeTint = theme.Length("badge.tint", 0.17)
 )
 
 // Badge is a small rounded label in a colour of its own, as a count of
 // problems beside a row, or "new". It grows and fades in as it is
 // shown, and shrinks and fades out as it is hidden, keeping its words
-// while it goes; a change of words while it shows turns over in place.
+// while it goes. It takes no keys.
 type Badge struct {
 	anim.Group
 	// Text is what it says.
@@ -34,10 +34,10 @@ type Badge struct {
 	// Ink colours its words and, faintly, its fill; unset, it is the
 	// theme's [Accent].
 	Ink theme.Token[color.NRGBA]
-	// Hidden hides it: it shrinks and fades out, and takes no room once
-	// it has.
-	Hidden bool
 
+	// hidden says it is hidden, or on its way out; shown is how far it
+	// has grown in.
+	hidden bool
 	shown  *anim.Float
 	said   string
 	shaped shapedText
@@ -49,6 +49,20 @@ func NewBadge(text string) *Badge {
 	b := &Badge{Text: text, shown: anim.NewFloat(0)}
 	b.Add(b.shown)
 	return b
+}
+
+// Hidden reports whether the badge is hidden.
+func (b *Badge) Hidden() bool { return b.hidden }
+
+// SetHidden hides the badge, or shows it again, and sends no intent.
+// Once laid out, it shrinks and fades out, or grows and fades in; before,
+// it is gone or there at once. u may be nil.
+func (b *Badge) SetHidden(hidden bool, u *gunim.UI) {
+	if b.hidden == hidden {
+		return
+	}
+	b.hidden = hidden
+	u.Invalidate()
 }
 
 // ink is the badge's colour.
@@ -63,7 +77,7 @@ func (b *Badge) ink(th *theme.Live) color.NRGBA {
 // it has grown in.
 func (b *Badge) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
 	th := f.Theme
-	on := !b.Hidden && b.Text != ""
+	on := !b.hidden && b.Text != ""
 	if on {
 		b.said = b.Text
 	}
@@ -100,7 +114,7 @@ func (b *Badge) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Ch
 	defer p.Layer(paint.LayerOpts{Bounds: geom.Rect{Max: box.Point()}, Opacity: t})()
 	ink := b.ink(th)
 	fill := ink
-	fill.A = uint8(min(max(BadgeFill.Get(th), 0), 255))
+	fill.A = uint8(float32(fill.A) * min(max(BadgeTint.Get(th), 0), 1))
 	p.RRect(geom.Rect{Max: box.Point()}, box.H/2, paint.Solid(fill))
 	pad := BadgePadding.Get(th)
 	run := b.shaped.shape(faceIn(Font, th), b.said, BadgeSize.Get(th))
@@ -109,7 +123,7 @@ func (b *Badge) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Ch
 
 // Access implements [gunim.Accessible]: a badge reads as its words.
 func (b *Badge) Access() access.Info {
-	if b.Hidden {
+	if b.hidden {
 		return access.Info{Role: access.RoleLabel}
 	}
 	return access.Info{Role: access.RoleLabel, Name: b.Text}
