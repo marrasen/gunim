@@ -85,6 +85,17 @@ func binaryPath(path string) (string, error) {
 	return lib, nil
 }
 
+// bundleOf returns the .vst3 folder that holds the macOS library bin, at
+// Contents/MacOS/<name>, or "" where bin is a bare file.
+func bundleOf(bin string) string {
+	macOS := filepath.Dir(bin)
+	contents := filepath.Dir(macOS)
+	if filepath.Base(macOS) != "MacOS" || filepath.Base(contents) != "Contents" {
+		return ""
+	}
+	return filepath.Dir(contents)
+}
+
 // Open loads the plugin at path, a .vst3 bundle or file, and reads the
 // classes its factory makes.
 func Open(path string) (*Module, error) {
