@@ -337,6 +337,9 @@ type WindowOptions struct {
 	// Border is the thin line round a chromeless window's edge, where the platform draws one, as Windows 11 does: a
 	// colour of the application's own, or none. Its zero value is the system's; see [UI.SetBorder].
 	Border driver.Border
+	// Corner is the radius, in logical pixels, of a chromeless window's corners where gunim draws its shadow, as on
+	// Windows 11. Zero is the system's, 8.
+	Corner float32
 	// Instant opens and closes a chromeless window at once. Without it the window grows a little and fades in as it
 	// opens, over [ArriveTime], and fades out as it closes, the way [Client.Leave] takes it away. A window with the
 	// system's frame comes and goes as the system animates it.
@@ -410,7 +413,7 @@ func (a *App) NewWindow(o WindowOptions) (*Window, error) {
 	do := driver.Options{
 		Title: o.Title, Size: o.Size, Monitor: o.Monitor,
 		Kind: o.Kind, Anchor: geom.Rect{Min: o.Anchor, Max: o.Anchor}, Icons: o.Icons, Owned: o.Owned && o.Parent != nil,
-		Chromeless: !o.SystemFrame && (newTitleBar != nil || o.TitleBar != nil), Border: o.Border, Text: o.Text, Place: o.Place,
+		Chromeless: !o.SystemFrame && (newTitleBar != nil || o.TitleBar != nil), Border: o.Border, Corner: o.Corner, Text: o.Text, Place: o.Place,
 		Hidden: o.Hidden, DragFromBehind: o.DragFromBehind, Fixed: o.Fixed, NoColorManagement: o.NoColorManagement,
 	}
 	if o.Parent != nil {

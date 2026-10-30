@@ -58,8 +58,10 @@ var (
 // edges, which leave the middle of the window uncovered for tools that pick a window by its rectangle.
 type drawnShadow struct {
 	hwnds [4]windows.HWND
-	dc    _HDC
-	bmp   _HBITMAP
+	// corner is the radius of the window's corners, in logical pixels.
+	corner float64
+	dc     _HDC
+	bmp    _HBITMAP
 	// measure draws solid green bands instead of a shadow, for measuring how closely it follows.
 	measure bool
 
@@ -93,7 +95,7 @@ type drawnShadow struct {
 // SetDrawnShadow draws the window's shadow and border in a window of gunim's own, or with measure set, green bands
 // for measuring. The window's corners stay square, so Windows draws no shadow of its own. The shadow stays hidden
 // until SetShadowOpacity shows it. It is a gunim addition, on Windows alone.
-func (w *Window) SetDrawnShadow(measure bool) error {
+func (w *Window) SetDrawnShadow(measure bool, corner float64) error {
 	if !_glfw.initialized {
 		return NotInitialized
 	}
@@ -115,7 +117,7 @@ func (w *Window) SetDrawnShadow(measure bool) error {
 		}
 		shadowClassRegistered = true
 	}
-	s := &drawnShadow{measure: measure, restore: 1, scale: 1}
+	s := &drawnShadow{measure: measure, corner: corner, restore: 1, scale: 1}
 	for i := range s.hwnds {
 		h, err := _CreateWindowExW(_WS_EX_LAYERED|_WS_EX_TRANSPARENT|_WS_EX_TOOLWINDOW|_WS_EX_NOACTIVATE, shadowClassName,
 			"", _WS_POPUP, 0, 0, 1, 1, w.platform.handle, 0, _glfw.platformWindow.instance, nil)
@@ -359,7 +361,7 @@ func (s *drawnShadow) destroy() error {
 func (s *drawnShadow) draw(winW, winH, dpi int32, b *windowBorder) error {
 	k := float64(dpi) / 96
 	// Fitted to the shadow Windows 11 draws round an active window, and a weaker, shorter one round an inactive one
-	sigma, drop, inset, radius, strength := 22.7*k, 21.3*k, 2*k, 8*k, 0.366
+	sigma, drop, inset, radius, strength := 22.7*k, 21.3*k, 2*k, s.corner*k, 0.366
 	if !s.active {
 		sigma, strength = 18.7*k, 0.25
 	}

@@ -105,6 +105,8 @@ type Window struct {
 	// border is the line round a chromeless window's edge the application asked for, and edge the width, in device
 	// pixels, a drawn one is drawn at now; see applyBorder.
 	border driver.Border
+	// corner is the radius of the corners, in logical pixels, a window with a drawn shadow cuts; zero is 8.
+	corner float32
 	edge   float32
 	// covered says the window is cloaked, which the drawn shadow follows. It is used on the main thread.
 	covered bool
@@ -1550,7 +1552,15 @@ func (w *Window) cornerRadius() (radius, edge float32) {
 	if !on {
 		return 0, 0
 	}
-	return 8 * k, edge
+	return w.cornerLogical() * k, edge
+}
+
+// cornerLogical is the radius of the corners in logical pixels: the one asked for, or else Windows 11's.
+func (w *Window) cornerLogical() float32 {
+	if w.corner > 0 {
+		return w.corner
+	}
+	return 8
 }
 
 // Outline implements [driver.Outliner].
