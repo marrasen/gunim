@@ -58,12 +58,12 @@ var (
 // edges, which leave the middle of the window uncovered for tools that pick a window by its rectangle.
 type drawnShadow struct {
 	hwnds [4]windows.HWND
-	// corner is the radius of the window's corners, in logical pixels.
-	corner float64
-	dc     _HDC
-	bmp    _HBITMAP
-	// measure draws solid green bands instead of a shadow, for measuring how closely it follows.
+	dc    _HDC
+	bmp   _HBITMAP
+	// measure draws solid green bands instead of a shadow, for measuring how closely it follows, and corner is the
+	// radius of the window's corners, in logical pixels.
 	measure bool
+	corner  float64
 
 	// size, dpi and the window's size are what the bitmap was drawn for.
 	w, h, dpi int32
@@ -93,7 +93,8 @@ type drawnShadow struct {
 }
 
 // SetDrawnShadow draws the window's shadow and border in a window of gunim's own, or with measure set, green bands
-// for measuring. The window's corners stay square, so Windows draws no shadow of its own. The shadow stays hidden
+// for measuring, cut round at corners of radius corner, in logical pixels; 0 cuts none. The window's own corners stay
+// square, so Windows draws no shadow of its own. The shadow stays hidden
 // until SetShadowOpacity shows it. It is a gunim addition, on Windows alone.
 func (w *Window) SetDrawnShadow(measure bool, corner float64) error {
 	if !_glfw.initialized {
@@ -421,7 +422,7 @@ func (s *drawnShadow) draw(winW, winH, dpi int32, b *windowBorder) error {
 	mx, my := float64(x0+x1)/2, float64(y0+y1)/2
 	hw, hh := float64(winW)*sc/2, float64(winH)*sc/2
 	fx0, fy0, fx1, fy1 := mx-hw, my-hh, mx+hw, my+hh
-	radius, edge = radius*sc, edge*sc
+	radius, edge = min(radius*sc, hw, hh), edge*sc
 	x0, y0, x1, y1 = int32(math.Ceil(fx0)), int32(math.Ceil(fy0)), int32(fx1), int32(fy1)
 	// A blurred rectangle is the product of a blurred edge across and a blurred edge down
 	blur := func(p, a, b float64) float64 {
@@ -433,7 +434,12 @@ func (s *drawnShadow) draw(winW, winH, dpi int32, b *windowBorder) error {
 	}
 	// Rows and columns this far inside the window are covered by it whole
 	reach := int32(max(radius, edge)) + 2
-	s.inX, s.inY = x0-side+reach+1, y0-top+reach+1
+	s.inX, s.inY = min(x0-side+reach+1, winW/2), min(y0-top+reach+1, winH/2)
+	// The shadow is cast by the window's rounded shape, the blurred rectangle less what its corners cut away
+	cast := roundedShade{x0: fx0 + inset, y0: fy0 + drop, x1: fx1 - inset, y1: fy1 + drop, r: max(radius-inset, 0), sigma: sigma}
+	shade := func(x int32, y int32, square float64) float64 {
+		return max(square-strength*cast.cut(float64(x)+0.5, float64(y)+0.5), 0)
+	}
 	for y := int32(0); y < H; y++ {
 		down := strength * blur(float64(y)+0.5, fy0+drop, fy1+drop)
 		row := px[y*W : (y+1)*W]
@@ -446,7 +452,7 @@ func (s *drawnShadow) draw(winW, winH, dpi int32, b *windowBorder) error {
 			}
 			// The border lies between the window's edge and its content
 			border := (outer - inner) * bc[3] / 0xff
-			a := border + down*across[x]*(1-outer)
+			a := border + shade(x, y, down*across[x])*(1-outer)
 			r := uint32(bc[0]*border + 0.5)
 			g := uint32(bc[1]*border + 0.5)
 			b := uint32(bc[2]*border + 0.5)
@@ -454,7 +460,7 @@ func (s *drawnShadow) draw(winW, winH, dpi int32, b *windowBorder) error {
 		}
 		// Outside the window's rectangle there is only shadow, and inside it, only near its edge and corners, the
 		// window's shape and border
-		shadow := func(x int32) uint32 { return uint32(down*across[x]*255+0.5) << 24 }
+		shadow := func(x int32) uint32 { return uint32(shade(x, y, down*across[x])*255+0.5) << 24 }
 		if y < y0-1 || y > y1 {
 			for x := range row {
 				row[x] = shadow(int32(x))
@@ -474,6 +480,37 @@ func (s *drawnShadow) draw(winW, winH, dpi int32, b *windowBorder) error {
 		}
 	}
 	return nil
+}
+
+// roundedShade is the blurred rectangle x0, y0, x1, y1, its corners rounded by r, blurred by sigma.
+type roundedShade struct{ x0, y0, x1, y1, r, sigma float64 }
+
+// cut is how much less of the shadow falls at (px, py) than the square rectangle's: the rows the corners round,
+// each blurred across by the width its corner cuts away, and summed under the blur down. It is 0 away from the
+// corners.
+func (c roundedShade) cut(px, py float64) float64 {
+	r, reach := c.r, 4*c.sigma
+	if r <= 0 || px > c.x0+r+reach && px < c.x1-r-reach || py > c.y0+r+reach && py < c.y1-r-reach {
+		return 0
+	}
+	const steps = 12
+	s2 := c.sigma * math.Sqrt2
+	edge := func(p, a, b float64) float64 { return 0.5 * (math.Erf((p-a)/s2) - math.Erf((p-b)/s2)) }
+	full := edge(px, c.x0, c.x1)
+	var sum float64
+	// The rows the top corners round, and then the bottom's
+	for _, band := range [2][2]float64{{c.y0, c.y0 + r}, {c.y1 - r, c.y1}} {
+		dy := (band[1] - band[0]) / steps
+		for i := range steps {
+			y := band[0] + (float64(i)+0.5)*dy
+			in := min(y-c.y0, c.y1-y)
+			off := r - math.Sqrt(max(r*r-(r-in)*(r-in), 0))
+			t := (y - py) / c.sigma
+			w := math.Exp(-t*t/2) / (c.sigma * math.Sqrt(2*math.Pi)) * dy
+			sum += w * (full - edge(px, c.x0+off, c.x1-off))
+		}
+	}
+	return sum
 }
 
 // sdRRect is the signed distance from (px, py) to the rectangle x0, y0, x1, y1 with corners rounded by r: negative

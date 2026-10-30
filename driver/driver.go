@@ -163,7 +163,7 @@ type Options struct {
 	// Border is the line round a chromeless window's edge; see [Border].
 	Border Border
 	// Corner is the radius, in logical pixels, of a chromeless window's corners where the driver draws its shadow;
-	// zero is the system's.
+	// zero is the system's, and a negative one cuts none.
 	Corner float32
 	// DragFromBehind, for a [KindNormal] window, leaves the window where
 	// it is when the left button is pressed on its content while another

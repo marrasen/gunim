@@ -338,7 +338,8 @@ type WindowOptions struct {
 	// colour of the application's own, or none. Its zero value is the system's; see [UI.SetBorder].
 	Border driver.Border
 	// Corner is the radius, in logical pixels, of a chromeless window's corners where gunim draws its shadow, as on
-	// Windows 11. Zero is the system's, 8.
+	// Windows 11. Zero is the system's, 8, and a negative one cuts none. Where the system draws the shadow, as without
+	// DXGI, it keeps its own corners; [driver.Outliner] reports the radius the window has.
 	Corner float32
 	// Instant opens and closes a chromeless window at once. Without it the window grows a little and fades in as it
 	// opens, over [ArriveTime], and fades out as it closes, the way [Client.Leave] takes it away. A window with the

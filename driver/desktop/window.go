@@ -105,9 +105,10 @@ type Window struct {
 	// border is the line round a chromeless window's edge the application asked for, and edge the width, in device
 	// pixels, a drawn one is drawn at now; see applyBorder.
 	border driver.Border
-	// corner is the radius of the corners, in logical pixels, a window with a drawn shadow cuts; zero is 8.
-	corner float32
 	edge   float32
+	// corner is the radius of the corners, in logical pixels, a window with a drawn shadow cuts, set once as the
+	// window opens; see cornerLogical.
+	corner float32
 	// covered says the window is cloaked, which the drawn shadow follows. It is used on the main thread.
 	covered bool
 	// focusUncovered asks for the keyboard again as the window is
@@ -1547,17 +1548,21 @@ func (w *Window) cornerRadius() (radius, edge float32) {
 		return 0, 0
 	}
 	w.mu.Lock()
-	on, k, edge := w.shadow, w.content, w.edge
+	on, k, edge, corner := w.shadow, w.content, w.edge, w.cornerLogical()
 	w.mu.Unlock()
 	if !on {
 		return 0, 0
 	}
-	return w.cornerLogical() * k, edge
+	return corner * k, edge
 }
 
-// cornerLogical is the radius of the corners in logical pixels: the one asked for, or else Windows 11's.
+// cornerLogical is the radius of the corners in logical pixels: the one asked for, none for a negative one, or else
+// Windows 11's.
 func (w *Window) cornerLogical() float32 {
-	if w.corner > 0 {
+	switch {
+	case w.corner < 0:
+		return 0
+	case w.corner > 0:
 		return w.corner
 	}
 	return 8
