@@ -21,6 +21,7 @@ package plug
 
 import (
 	"cmp"
+	"context"
 	"fmt"
 	"image/color"
 	"math"
@@ -104,6 +105,11 @@ type Descriptor struct {
 	// Patches are the patches the plugin comes with, as starting points.
 	// The host keeps those a user saves beside them.
 	Patches []Patch
+	// Actions are what the plugin does at a click, beyond setting a
+	// parameter, as an Auto that sets a part of it from the track it
+	// reads. A host offers them where it shows the plugin, and runs
+	// them through its [Actor].
+	Actions []Action
 	// New makes one of the plugin, working for h.
 	New func(h Host) Plugin
 }
@@ -547,6 +553,24 @@ func Register(d Descriptor) {
 	registry[d.ID] = d
 }
 
+// Action is what a plugin does at a click: its ID, for good; what a
+// button says, Name; and the part of the plugin it sets, Group, as a
+// section's name, or empty for the whole plugin.
+type Action struct {
+	ID, Name, Group string
+}
+
+// Actor is a plugin that does its [Descriptor.Actions].
+type Actor interface {
+	Plugin
+	// Act does action id and returns the parameters it sets, which the
+	// host sets as one edit. It runs on a goroutine of the host's, on
+	// the plugin made for the views, and may take long: it stops, with
+	// ctx's error, as ctx ends. params reads a parameter's value as the
+	// host has it, and progress tells how far it has got, from 0 to 1.
+	Act(ctx context.Context, id string, params func(id uint32) float64, progress func(float64)) (map[uint32]float64, error)
+}
+
 // check returns what is wrong with d, if anything.
 func check(d *Descriptor) error {
 	if d.ID == "" || d.Name == "" || d.New == nil {
@@ -580,6 +604,13 @@ func check(d *Descriptor) error {
 		if p.Log && p.Min <= 0 {
 			return fmt.Errorf("%s: parameter %q runs by ratios from %g, not above zero", d.ID, p.Name, p.Min)
 		}
+	}
+	acts := map[string]bool{}
+	for _, a := range d.Actions {
+		if a.ID == "" || a.Name == "" || acts[a.ID] {
+			return fmt.Errorf("%s has an action of ID %q twice, or unnamed", d.ID, a.ID)
+		}
+		acts[a.ID] = true
 	}
 	names := map[string]bool{}
 	for _, pt := range d.Patches {

@@ -97,6 +97,9 @@ func TestRegisterRefusesMistakes(t *testing.T) {
 			ControlIn: []ControlPort{{Name: "Kick", Min: -1, Max: 1, Trigger: true}}},
 		"trigger defaulting to a hit": {ID: "test.trigdef", Name: "X", New: newer,
 			ControlIn: []ControlPort{{Name: "Kick", Max: 1, Default: 1, Trigger: true}}},
+		"action unnamed": {ID: "test.actname", Name: "X", New: newer, Actions: []Action{{ID: "auto"}}},
+		"actions of one ID": {ID: "test.acttwice", Name: "X", New: newer,
+			Actions: []Action{{ID: "auto", Name: "Auto"}, {ID: "auto", Name: "Auto EQ"}}},
 		"measuring input": {ID: "test.measin", Name: "X", New: newer,
 			ControlIn: []ControlPort{{Name: "GR", Unit: "dB", Min: -60, Measures: MeasureCompression}}},
 		"measure not in dB": {ID: "test.measunit", Name: "X", New: newer,
@@ -359,5 +362,13 @@ func TestPortsInFollowTheState(t *testing.T) {
 	pad := d.PortsIn([]byte("pad"))
 	if pad.HasAuxOut(0) || pad.HasControlOut(0) || len(pad.AuxOut) != 3 {
 		t.Errorf("a melodic state has aux outputs %v and control outputs %v, want none", pad.AuxOut, pad.ControlOut)
+	}
+}
+
+func TestRegisterTakesActionsOfTheirOwnIDs(t *testing.T) {
+	d := Descriptor{ID: "test.actions", Name: "X", New: func(Host) Plugin { return nil },
+		Actions: []Action{{ID: "auto-eq", Name: "Auto", Group: "EQ"}, {ID: "auto-all", Name: "Auto all"}}}
+	if err := check(&d); err != nil {
+		t.Fatalf("two actions of their own IDs were refused: %v", err)
 	}
 }
