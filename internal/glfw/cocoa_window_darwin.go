@@ -269,9 +269,12 @@ func registerGLFWClasses() error {
 					if window == nil {
 						return
 					}
-					const visible = 1 << 1 // NSWindowOcclusionStateVisible
-					state := objc.Send[uint](window.platform.object, objc.RegisterName("occlusionState"))
-					window.inputCovered(state&visible == 0)
+					if window.platform.object == 0 {
+						return
+					}
+					state := uintptr(window.platform.object.Send(sel_occlusionState))
+					window.platform.occluded = (state & NSWindowOcclusionStateVisible) == 0
+					window.inputCovered(window.platform.occluded)
 				},
 			},
 			{
@@ -325,20 +328,6 @@ func registerGLFWClasses() error {
 						window.platformIconifyWindow()
 					}
 					window.inputWindowFocus(false)
-				},
-			},
-			{
-				Cmd: objc.RegisterName("windowDidChangeOcclusionState:"),
-				Fn: func(self objc.ID, _ objc.SEL, notification objc.ID) {
-					window := getGoWindow(self)
-					if window == nil {
-						return
-					}
-					if window.platform.object == 0 {
-						return
-					}
-					state := uintptr(window.platform.object.Send(sel_occlusionState))
-					window.platform.occluded = (state & NSWindowOcclusionStateVisible) == 0
 				},
 			},
 		},
