@@ -72,7 +72,7 @@ func TestTheSystemsSoundMixesOnItsThread(t *testing.T) {
 }
 
 // TestTheSystemsSoundFallsBackToOto plays through oto where the
-// system's device fails to open.
+// system's device fails to open, the state telling why.
 func TestTheSystemsSoundFallsBackToOto(t *testing.T) {
 	useFakeSystem(t, asio.Info{}, true)
 	m := audio.NewMixer()
@@ -84,7 +84,7 @@ func TestTheSystemsSoundFallsBackToOto(t *testing.T) {
 	if _, ok := s.out.Load().output.(*otoOutput); !ok {
 		t.Errorf("plays through %T, want oto", s.out.Load().output)
 	}
-	if st := s.State(); st.Problem != nil || st.ASIO != nil {
+	if st := s.State(); st.Problem == nil || st.Problem.Error() != "no device" || st.ASIO != nil {
 		t.Errorf("state %+v", st)
 	}
 }

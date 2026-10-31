@@ -296,6 +296,7 @@ func (s *Speaker) open() (output, error) {
 			out.start(ahead)
 			return out, nil
 		}
+		s.problem = errors.Join(s.problem, err)
 		s.logf("%v; playing through oto", err)
 	}
 	out, err := openOto(s, s.o)

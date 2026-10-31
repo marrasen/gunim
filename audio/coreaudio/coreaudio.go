@@ -19,7 +19,10 @@ type Config struct {
 	// Rate is the rate to play at, in frames a second. The device is set
 	// to it, as a DAW sets it, which the other applications playing
 	// through it are converted to. A rate the device refuses plays at
-	// the device's own: [Info].Rate tells. Zero keeps the device's.
+	// the device's own: [Info].Rate tells. Zero keeps the device's. Where
+	// the device's rate then moves, as another application sets it, Reset
+	// is called and Open plays at the device's new rate while asked the
+	// same rate again.
 	Rate int
 	// Buffer is how many frames the device takes at a time, brought into
 	// the range it allows. Zero keeps the size it has.
