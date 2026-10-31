@@ -569,7 +569,7 @@ func (d *Driver) openWindow(o driver.Options) (*Window, error) {
 	}
 	if o.Chromeless && o.Kind == driver.KindNormal {
 		w.mu.Lock()
-		w.border = o.Border
+		w.border, w.corner = o.Border, o.Corner
 		w.mu.Unlock()
 		w.setChromeless()
 		if err := applyBorder(w); err != nil {
