@@ -263,7 +263,7 @@ func (m *Module) create(id, iid uid) uintptr {
 // nothing.
 func (m *Module) Close() error {
 	var err error
-	onUI(func() {
+	onExit(func() {
 		if m.factory != 0 {
 			release(m.factory)
 			m.factory = 0

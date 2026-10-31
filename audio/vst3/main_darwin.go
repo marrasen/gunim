@@ -50,6 +50,18 @@ func onMain(f func()) bool {
 	return true
 }
 
+// onExit runs f, a module's exit, where it can run safely: on the main thread, at once, where it runs there
+// already, with or without a driver; else as onUI does. A module whose editor or controller lived on the main
+// thread tears down AppKit state as it exits, and traps if that runs on another thread. This happens as a program
+// ends and its driver has already let the main thread go.
+func onExit(f func()) {
+	if onMainThread() {
+		f()
+		return
+	}
+	onUI(f)
+}
+
 // ticksElsewhere says the tickers run on the main thread, not the
 // package's own.
 func ticksElsewhere() bool { return mainthread.Available() }
