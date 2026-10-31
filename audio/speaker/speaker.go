@@ -2,6 +2,9 @@
 // speakers: through PulseAudio or PipeWire, else ALSA, on Linux,
 // WASAPI on Windows, Core Audio on macOS and Oboe on Android; and on
 // Windows through an ASIO driver too, as package audio/asio plays.
+// On macOS the device asks for each buffer on its own thread, as
+// package audio/coreaudio plays it, as an ASIO driver does, so Buffer
+// and Direct set how soon the sound is heard there too.
 //
 // A process opens the speakers once and plays everything through the
 // one mixer:
@@ -72,7 +75,9 @@ type Options struct {
 	// Buffer is how many frames an ASIO driver takes at a time, brought
 	// to the nearest size the driver allows. Zero takes the size its
 	// control panel sets. The latency is never less than a buffer and
-	// the driver's own latency, whatever Latency asks for.
+	// the driver's own latency, whatever Latency asks for. On macOS it
+	// sets the system's own sound's buffer too: the process's own, as
+	// other applications playing keep theirs. Zero keeps the device's.
 	Buffer int
 	// Direct mixes each buffer an ASIO driver takes on the driver's own
 	// thread, as it takes it, in place of reading the mixer ahead into a
@@ -83,7 +88,8 @@ type Options struct {
 	// buffer plays, with nothing to spare, and a buffer that takes longer
 	// counts in [State].Dropouts. Latency and Fixed are let be, and the
 	// speaker never works further ahead: choose the Buffer to fit.
-	// Through the system's own sound it changes nothing.
+	// Through the system's own sound it changes nothing, but on macOS,
+	// where the device's thread mixes as an ASIO driver's does.
 	Direct bool
 	// Record opens the inputs of the ASIO driver too, for package
 	// audio/capture to record. A driver may then open a device of its
@@ -274,7 +280,7 @@ func (s *Speaker) open() (output, error) {
 	s.reads.Store(0)
 	ahead := time.Duration(s.ahead.Load())
 	if s.o.Driver != "" {
-		out, err := openRing(s, s.o)
+		out, err := openRing(s, s.o, false)
 		if err == nil {
 			s.m.SetRate(out.rate())
 			out.start(ahead)
@@ -282,6 +288,16 @@ func (s *Speaker) open() (output, error) {
 		}
 		s.problem = err
 		s.logf("%v; playing through the system's sound", err)
+	}
+	if openSystem != nil {
+		out, err := openRing(s, s.o, true)
+		if err == nil {
+			s.m.SetRate(out.rate())
+			out.start(ahead)
+			return out, nil
+		}
+		s.problem = errors.Join(s.problem, err)
+		s.logf("%v; playing through oto", err)
 	}
 	out, err := openOto(s, s.o)
 	if err != nil {
@@ -423,9 +439,10 @@ func (s *Speaker) Set(o Options) error {
 	if o.latency() != prev.latency() || o.Fixed != prev.Fixed {
 		s.setAhead(o.latency())
 	}
+	pulls := o.Driver != "" || openSystem != nil
 	if o.Driver != prev.Driver || o.rate() != prev.rate() ||
-		(o.Driver != "" && (o.Buffer != prev.Buffer || o.Record != prev.Record || o.Direct != prev.Direct ||
-			!slices.Equal(o.Outputs, prev.Outputs))) {
+		(pulls && (o.Buffer != prev.Buffer || o.Direct != prev.Direct)) ||
+		(o.Driver != "" && (o.Record != prev.Record || !slices.Equal(o.Outputs, prev.Outputs))) {
 		return s.reopenLocked()
 	}
 	return nil
@@ -490,7 +507,9 @@ type State struct {
 	// than they play.
 	Dropouts int64
 	// ASIO is what the driver says of itself, while one plays; its
-	// Played tells the output each channel plays on.
+	// Played tells the output each channel plays on. On macOS it is
+	// what the system's own device says, as it plays as a driver does:
+	// Driver is empty all the same.
 	ASIO *asio.Info
 	// Aux is how many channels play past the mixer's two, which
 	// [Options].Aux fills: as many as Options.Outputs names past two,
