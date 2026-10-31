@@ -302,6 +302,7 @@ func TestProcessingAllocatesNothing(t *testing.T) {
 	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(1))
 	var made uint64
 	key := [][][]float32{{loud(512, 3), loud(512, 4)}}
+	ctl := [][]float32{make([]float32, 512), make([]float32, 512), make([]float32, 512)}
 	for i := range 64 {
 		b := &plug.Block{In: ch, Out: ch, Frames: 512, Position: plug.Position{Frame: int64(512 * i)},
 			Changes: set(float64(InputID), float64(i%24), float64(GateOnID), float64(i%2), float64(CompRatioID), float64(1+i%8),
@@ -309,6 +310,9 @@ func TestProcessingAllocatesNothing(t *testing.T) {
 		if i%4 >= 2 {
 			// Half the blocks keyed by a sidechain.
 			b.AuxIn = key
+		}
+		if i%2 == 1 {
+			b.ControlOut = ctl
 		}
 		var before, after runtime.MemStats
 		runtime.ReadMemStats(&before)
@@ -735,8 +739,14 @@ func TestListeningPlaysTheSidechain(t *testing.T) {
 
 func TestTheControlOutputsCarryEachPartsReduction(t *testing.T) {
 	p, _ := newDynamics(t)
+	// Loud, then quiet enough for the gate to shut.
 	n := 24000
 	main := [][]float32{loud(n, 1), loud(n, 2)}
+	for _, ch := range main {
+		for f := n / 2; f < n; f++ {
+			ch[f] *= 0.001
+		}
+	}
 	ports := plugtest.Ports{In: main, Changes: set(float64(GateOnID), 1, float64(GateThresholdID), -30,
 		float64(CompThresholdID), -30, float64(CompRatioID), 8, float64(CompAttackID), 1, float64(InputID), 12)}
 	r := plugtest.Drive(t, &Descriptor, &p.proc, plug.Setup{Rate: 48000, MaxBlock: 512, Channels: 2}, n, ports)
@@ -767,8 +777,8 @@ func TestTheControlOutputsCarryEachPartsReduction(t *testing.T) {
 			t.Errorf("%s over %d frames kept reaches %v, the trace %v", port.Name, kept, outLeast, traceLeast)
 		}
 	}
-	if least[CompOut] > -6 || least[LimitOut] > -1 {
-		t.Errorf("driven 12 dB over, the outputs reach only %v dB of compression and %v dB of limiting",
-			least[CompOut], least[LimitOut])
+	if least[GateOut] > -20 || least[CompOut] > -6 || least[LimitOut] > -1 {
+		t.Errorf("the outputs reach only %v dB of gating, %v dB of compression and %v dB of limiting",
+			least[GateOut], least[CompOut], least[LimitOut])
 	}
 }

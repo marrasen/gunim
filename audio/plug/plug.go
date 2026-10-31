@@ -635,7 +635,10 @@ func checkPorts(d *Descriptor) error {
 		if p.Measures == MeasureNone {
 			continue
 		}
-		if int(p.Measures) >= len(measureNames) || p.Trigger || p.Unit != "dB" || p.Max != 0 {
+		if int(p.Measures) >= len(measureNames) {
+			return fmt.Errorf("%s: control output %q measures %v, which is no measure", d.ID, p.Name, p.Measures)
+		}
+		if p.Trigger || p.Unit != "dB" || p.Max != 0 {
 			return fmt.Errorf("%s: control output %q measures %v, so runs in dB up to 0 and is no trigger", d.ID,
 				p.Name, p.Measures)
 		}
