@@ -285,7 +285,10 @@ func Load(path string) (*Module, error) {
 // the program's, and ends the plugins' thread. A program calls it as it
 // ends, once it has closed the plugins made from them, and their
 // editors: some modules crash as they unload with the process instead,
-// their exit not run. Load loads a module again after.
+// their exit not run. On macOS it calls them from the main thread, once
+// the driver has stopped, so each exit runs there: a module whose editor
+// lived there may trap if its exit runs on another thread. Load loads a
+// module again after.
 func Shutdown() error {
 	modulesMu.Lock()
 	ms := modules
