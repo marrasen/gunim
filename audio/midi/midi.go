@@ -44,6 +44,11 @@
 // within a millisecond. WinMM stamps messages that arrive to the
 // millisecond. Its port names are 31 characters at most.
 //
+// On macOS it speaks CoreMIDI, loaded as the program runs. CoreMIDI
+// holds a message sent ahead itself, and sends it at its time. A port
+// is listed by its display name, as Audio MIDI Setup shows it, and a
+// message that arrives keeps the time CoreMIDI stamped it with.
+//
 // Elsewhere [Outputs] and [Inputs] return [ErrUnsupported].
 package midi
 
@@ -59,7 +64,7 @@ import (
 var (
 	// ErrUnsupported is returned on a system the package has no MIDI
 	// for.
-	ErrUnsupported = errors.New("midi: MIDI plays on Linux and Windows")
+	ErrUnsupported = errors.New("midi: MIDI plays on Linux, Windows and macOS")
 	// ErrNotFound is returned by OpenOut and OpenIn for a name that
 	// names no port.
 	ErrNotFound = errors.New("midi: no port of that name")
@@ -255,9 +260,9 @@ func (o *Out) Err() error {
 //
 // Send is quick, and makes nothing new for a channel or system
 // message, so a host can call it from the goroutine that renders its
-// sound. On Linux a sysex is handed whole to the sequencer. On Windows
-// a sysex due now is sent before Send returns, and one sent ahead is
-// copied to wait.
+// sound. On Linux a sysex is handed whole to the sequencer, and on
+// macOS to CoreMIDI. On Windows a sysex due now is sent before Send
+// returns, and one sent ahead is copied to wait.
 func (o *Out) Send(at time.Time, m Message) error {
 	if e := o.state.Load(); e != nil {
 		return *e
