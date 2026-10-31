@@ -3,6 +3,7 @@
 package coreaudio
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -402,7 +403,7 @@ func (d *Device) unlisten(ws []watched) error {
 // the output to open again where it no longer plays as it opened. The
 // device's own settings, made as it opened, are told of too, a moment
 // later.
-func changed(id uint32, n uint32, addrs unsafe.Pointer, client unsafe.Pointer) int32 {
+func changed(id, n uint32, addrs, client unsafe.Pointer) int32 {
 	d := current.Load()
 	if d == nil || d.c.Reset == nil {
 		return noErr
@@ -426,7 +427,7 @@ func changed(id uint32, n uint32, addrs unsafe.Pointer, client unsafe.Pointer) i
 }
 
 // render fills the device's buffers, on the device's thread.
-func render(dev uint32, now, in, inTime unsafe.Pointer, out unsafe.Pointer, outTime, client unsafe.Pointer) int32 {
+func render(dev uint32, now, in, inTime, out, outTime, client unsafe.Pointer) int32 {
 	n := int(*(*uint32)(out))
 	bufs := unsafe.Slice((*audioBuffer)(unsafe.Add(out, bufferListHeader)), n)
 	d := current.Load()
@@ -457,10 +458,9 @@ func render(dev uint32, now, in, inTime unsafe.Pointer, out unsafe.Pointer, outT
 				break
 			}
 			for i := range min(frames, len(s)/k) {
-				switch {
-				case d.info.Outputs == 1:
+				if d.info.Outputs == 1 {
 					s[i*k+c] = (st[2*i] + st[2*i+1]) / 2
-				default:
+				} else {
 					s[i*k+c] = st[2*i+src]
 				}
 			}
@@ -490,7 +490,7 @@ func (d *Device) Info() Info { return d.info }
 // ControlPanel opens Audio MIDI Setup, where the device's own settings
 // are.
 func (d *Device) ControlPanel() error {
-	return exec.Command("open", "-b", "com.apple.audio.AudioMIDISetup").Run()
+	return exec.CommandContext(context.Background(), "open", "-b", "com.apple.audio.AudioMIDISetup").Run()
 }
 
 // Close stops the device and lets it go. Fill is not called once it

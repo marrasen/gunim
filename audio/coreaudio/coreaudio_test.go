@@ -48,5 +48,7 @@ func TestPlaysAtTheDevicesPace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("opening again after Close: %v", err)
 	}
-	d2.Close()
+	if err := d2.Close(); err != nil {
+		t.Fatal(err)
+	}
 }

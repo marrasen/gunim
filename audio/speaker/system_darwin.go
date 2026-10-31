@@ -23,6 +23,7 @@ var openSystem = func(c asio.Config) (pullDevice, error) {
 // does.
 type systemDevice struct{ *coreaudio.Device }
 
+// Info returns what the device says of itself, as a driver says it.
 func (d systemDevice) Info() asio.Info {
 	i := d.Device.Info()
 	played := []int{0, 1}
