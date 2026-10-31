@@ -227,3 +227,31 @@ func TestADefaultFirstDialogTabsToOKFirst(t *testing.T) {
 		t.Fatalf("intents %v, want leave", got)
 	}
 }
+
+// A label stands level with its field's first line: beside a field as tall as a control, at its middle; beside a tall
+// field, as a column of controls, at its top, not halfway down.
+func TestAFormLabelStandsLevelWithItsFieldsFirstLine(t *testing.T) {
+	short := NewTextField()
+	tall := Column(NewCheckbox("One"), NewCheckbox("Two"), NewCheckbox("Three"), NewCheckbox("Four"))
+	form := NewForm().Add("Name", short).Add("Options", tall)
+	w, run := stage(t, &frame{child: form, size: geom.Sz(500, 300)})
+	run(10)
+	u := stageUI(t, w, run)
+	mid := func(n gunim.Node) float32 {
+		r, ok := u.Bounds(n)
+		if !ok {
+			t.Fatal("a part of the form does not show")
+		}
+		return r.Center().Y
+	}
+	if d := mid(form.rows[0].label) - mid(short); d < -1 || d > 1 {
+		t.Errorf("the label stands %v off its field's middle", d)
+	}
+	first, ok := u.Bounds(tall.Children()[0])
+	if !ok {
+		t.Fatal("the column does not show")
+	}
+	if d := mid(form.rows[1].label) - first.Center().Y; d < -2 || d > 2 {
+		t.Errorf("the label beside a tall field stands %v off its first line", d)
+	}
+}
