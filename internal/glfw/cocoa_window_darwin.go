@@ -1194,6 +1194,7 @@ func (w *Window) platformDestroyWindow() error {
 	}
 
 	if w.platform.object != 0 {
+		w.endAttachedSheet()
 		w.platform.object.Send(sel_orderOut, 0)
 	}
 
