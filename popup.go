@@ -909,6 +909,10 @@ func (w *Window) route(ev input.Event) {
 		defer func() { u.injectHeld = nil }()
 	}
 	if ok {
+		if u.pointerIn {
+			// The pointer leaves the window for the popup's, as the system tells a window it moves out of
+			w.platform(input.PointerLeave{Time: u.Clock()})
+		}
 		u.popupEvent(popupEvent{s: s, ev: local})
 		return
 	}
