@@ -6,6 +6,7 @@
 package glfw
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/ebitengine/purego/objc"
@@ -35,6 +36,10 @@ type FileDialog struct {
 // was chosen.
 const nsModalResponseOK = 1
 
+// nsModalResponseCancel is NSModalResponseCancel, the answer a sheet ends
+// with when its window is destroyed.
+const nsModalResponseCancel = 0
+
 // ShowFileDialog shows the system's open or save panel as a sheet on the
 // window, and returns at once. done runs on the main thread when the
 // panel closes, with the paths chosen, none where it was cancelled. It
@@ -42,6 +47,9 @@ const nsModalResponseOK = 1
 func (w *Window) ShowFileDialog(d FileDialog, done func(paths []string)) error {
 	if !_glfw.initialized {
 		return NotInitialized
+	}
+	if w.platform.object == 0 {
+		return fmt.Errorf("glfw: the window for a file dialog is destroyed: %w", InvalidValue)
 	}
 	pool := cocoa.NSAutoreleasePool_new()
 	defer pool.Release()
@@ -53,7 +61,7 @@ func (w *Window) ShowFileDialog(d FileDialog, done func(paths []string)) error {
 	panel := objc.ID(objc.GetClass(class)).Send(objc.RegisterName(maker))
 	// The sheet holds the panel while it shows; this keeps it past the
 	// pool until the answer is read.
-	panel.Send(objc.RegisterName("retain"))
+	panel.Send(sel_retain)
 	if d.Message != "" {
 		panel.Send(objc.RegisterName("setMessage:"), nsString(d.Message))
 	}
@@ -80,7 +88,13 @@ func (w *Window) ShowFileDialog(d FileDialog, done func(paths []string)) error {
 	}
 
 	var handler objc.Block
+	// finished keeps a second answer from releasing the panel again.
+	finished := false
 	handler = objc.NewBlock(func(_ objc.Block, response int) {
+		if finished {
+			return
+		}
+		finished = true
 		pool := cocoa.NSAutoreleasePool_new()
 		defer pool.Release()
 		var paths []string
@@ -95,7 +109,7 @@ func (w *Window) ShowFileDialog(d FileDialog, done func(paths []string)) error {
 				}
 			}
 		}
-		panel.Send(objc.RegisterName("release"))
+		panel.Send(sel_release)
 		handler.Release()
 		done(paths)
 	})
@@ -117,5 +131,13 @@ func appendURLPath(paths []string, url objc.ID) []string {
 
 // nsString returns s as an autoreleased NSString.
 func nsString(s string) objc.ID {
-	return cocoa.NSString_alloc().InitWithUTF8String(s).Send(objc.RegisterName("autorelease"))
+	return cocoa.NSString_alloc().InitWithUTF8String(s).Send(sel_autorelease)
+}
+
+// endAttachedSheet ends the sheet on w, if one shows, as cancelled.
+func (w *Window) endAttachedSheet() {
+	sheet := w.platform.object.Send(objc.RegisterName("attachedSheet"))
+	if sheet != 0 {
+		w.platform.object.Send(objc.RegisterName("endSheet:returnCode:"), sheet, nsModalResponseCancel)
+	}
 }

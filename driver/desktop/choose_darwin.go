@@ -40,15 +40,21 @@ func (w *Window) showPanel(d glfw.FileDialog) ([]string, error) {
 }
 
 // extensions returns the extensions the filters' patterns name, as "hej"
-// for "*.hej". The panel offers no choice of filter, so it shows the
-// files of every one. A pattern other than "*.ext", such as "*", shows
-// every file.
+// for "*.hej" and "gz" for "*.tar.gz". The panel offers no choice of
+// filter, so it shows the files of every one. A pattern other than
+// "*.ext", such as "*", shows every file.
 func extensions(filters []driver.FileFilter) []string {
 	var out []string
 	for _, f := range filters {
 		for _, p := range f.Patterns {
 			e, ok := strings.CutPrefix(p, "*.")
 			if !ok || e == "" || strings.ContainsAny(e, "*?[") {
+				return nil
+			}
+			if i := strings.LastIndexByte(e, '.'); i >= 0 {
+				e = e[i+1:]
+			}
+			if e == "" {
 				return nil
 			}
 			out = append(out, e)
