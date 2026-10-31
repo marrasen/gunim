@@ -732,3 +732,43 @@ func TestListeningPlaysTheSidechain(t *testing.T) {
 		}
 	}
 }
+
+func TestTheControlOutputsCarryEachPartsReduction(t *testing.T) {
+	p, _ := newDynamics(t)
+	n := 24000
+	main := [][]float32{loud(n, 1), loud(n, 2)}
+	ports := plugtest.Ports{In: main, Changes: set(float64(GateOnID), 1, float64(GateThresholdID), -30,
+		float64(CompThresholdID), -30, float64(CompRatioID), 8, float64(CompAttackID), 1, float64(InputID), 12)}
+	r := plugtest.Drive(t, &Descriptor, &p.proc, plug.Setup{Rate: 48000, MaxBlock: 512, Channels: 2}, n, ports)
+	// A trace keeps the least of each short run of frames, so each frame
+	// is at or over its run's, and the least of all frames kept match.
+	var least [3]float32
+	for c, tr := range []*plug.Trace{GateOut: &p.proc.gateTrace, CompOut: &p.proc.compTrace, LimitOut: &p.proc.limitTrace} {
+		port := Descriptor.ControlOut[c]
+		var outLeast, traceLeast float32
+		kept := 0
+		for f, got := range r.ControlOut[c] {
+			if got != got || got < float32(port.Min) || got > 0 {
+				t.Fatalf("%s at frame %d is %v, out of its range", port.Name, f, got)
+			}
+			least[c] = min(least[c], got)
+			want, ok := tr.Get(int64(f))
+			if !ok {
+				continue
+			}
+			kept++
+			want = max(want, float32(port.Min))
+			if got < want {
+				t.Fatalf("%s at frame %d is %v, under the traced %v", port.Name, f, got, want)
+			}
+			outLeast, traceLeast = min(outLeast, got), min(traceLeast, want)
+		}
+		if kept < n/4 || outLeast != traceLeast {
+			t.Errorf("%s over %d frames kept reaches %v, the trace %v", port.Name, kept, outLeast, traceLeast)
+		}
+	}
+	if least[CompOut] > -6 || least[LimitOut] > -1 {
+		t.Errorf("driven 12 dB over, the outputs reach only %v dB of compression and %v dB of limiting",
+			least[CompOut], least[LimitOut])
+	}
+}
