@@ -478,8 +478,7 @@ func (d *Driver) openWindow(o driver.Options) (*Window, error) {
 	case driver.KindPopup:
 		hints = append(hints,
 			[2]int{int(glfw.Popup), glfw.True},
-			// Cocoa has no popup hint yet; there, a popup is a borderless
-			// window floating above the rest.
+			// Floating keeps a Cocoa popup above its parent.
 			[2]int{int(glfw.Floating), glfw.True},
 			[2]int{int(glfw.Decorated), glfw.False},
 			[2]int{int(glfw.FocusOnShow), glfw.False})
