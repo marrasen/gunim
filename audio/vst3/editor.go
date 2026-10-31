@@ -3,6 +3,7 @@ package vst3
 import (
 	"fmt"
 	"image"
+	"math"
 	"unsafe"
 
 	"github.com/marrasen/gunim/audio/plug"
@@ -13,6 +14,11 @@ import (
 // host's window, which the host places.
 
 type viewRect struct{ left, top, right, bottom int32 }
+
+// toPixels and fromPixels turn a size in the view's units, points on
+// macOS, into the host's pixels at scale s, and back.
+func toPixels(n int, s float64) int   { return int(math.Round(float64(n) * s)) }
+func fromPixels(n int, s float64) int { return int(math.Round(float64(n) / s)) }
 
 func (r viewRect) size() (w, h int) { return int(r.right - r.left), int(r.bottom - r.top) }
 
@@ -53,7 +59,8 @@ var frameKind = &kind{
 				f.e.w, f.e.h = w, h
 				call(view, mOnSize, uintptr(unsafe.Pointer(&r)))
 				if f.e.sized != nil && !f.e.placing {
-					f.e.sized(w, h)
+					s := f.e.win.scale()
+					f.e.sized(toPixels(w, s), toPixels(h, s))
 				}
 				return resultOf(resultOK)
 			}),
@@ -89,7 +96,8 @@ func (p *Plugin) createView() uintptr {
 func (p *Plugin) EditorSize() (w, h int, ok bool) {
 	p.whileOpen(func() {
 		if p.ed != nil {
-			w, h, ok = p.ed.w, p.ed.h, true
+			s := p.ed.win.scale()
+			w, h, ok = toPixels(p.ed.w, s), toPixels(p.ed.h, s), true
 			return
 		}
 		if p.ctrl == 0 {
@@ -104,6 +112,8 @@ func (p *Plugin) EditorSize() (w, h int, ok bool) {
 		release(v)
 		w, h = r.size()
 		ok = w > 0 && h > 0
+		s := (*window)(nil).scale()
+		w, h = toPixels(w, s), toPixels(h, s)
 	})
 	return w, h, ok
 }
@@ -152,7 +162,8 @@ func (p *Plugin) OpenEditor(title string) error {
 }
 
 // EmbedEditor shows the plugin's editor in parent, a window of the
-// system's: an HWND on Windows, and an X11 window's ID on Linux. It
+// system's: an HWND on Windows, an X11 window's ID on Linux, and an
+// NSView on macOS, which the editor's view is a subview of. It
 // opens hidden, for the host to put it in place with PlaceEditor, and
 // returns its size in pixels, which the host makes room for. sized
 // hears each size the editor takes of itself after, in turn, on the
@@ -169,7 +180,8 @@ func (p *Plugin) EmbedEditor(parent uintptr, sized func(w, h int)) (w, h int, er
 			p.ed.close()
 		}
 		if err = p.attachEditor("", parent, sized); err == nil {
-			w, h = p.ed.w, p.ed.h
+			s := p.ed.win.scale()
+			w, h = toPixels(p.ed.w, s), toPixels(p.ed.h, s)
 		}
 	}) {
 		return 0, 0, ErrClosed
@@ -195,15 +207,16 @@ func (p *Plugin) PlaceEditor(r image.Rectangle) (w, h int) {
 		if e == nil || !e.win.child {
 			return
 		}
+		s := e.win.scale()
 		if r.Empty() {
 			e.win.hide()
 		} else {
-			if cw, ch := r.Dx(), r.Dy(); e.resizable && (cw != e.w || ch != e.h) {
+			if cw, ch := fromPixels(r.Dx(), s), fromPixels(r.Dy(), s); e.resizable && (cw != e.w || ch != e.h) {
 				e.sizeTo(cw, ch)
 			}
 			e.win.place(r.Min.X, r.Min.Y)
 		}
-		w, h = e.w, e.h
+		w, h = toPixels(e.w, s), toPixels(e.h, s)
 	})
 	return w, h
 }

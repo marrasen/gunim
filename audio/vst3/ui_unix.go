@@ -25,7 +25,9 @@ func uiRun(ready chan struct{}) {
 				return
 			}
 		case <-t.C:
-			runTickers()
+			if !ticksElsewhere() {
+				runTickers()
+			}
 		}
 	}
 }

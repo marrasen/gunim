@@ -75,6 +75,9 @@ func binaryPath(path string) (string, error) {
 		}
 		lib = filepath.Join(path, "Contents", arch+"-win", name+".vst3")
 	case "darwin":
+		if exe := bundleExecutable(path); exe != "" {
+			name = exe
+		}
 		lib = filepath.Join(path, "Contents", "MacOS", name)
 	default:
 		lib = filepath.Join(path, "Contents", arch+"-linux", name+".so")
@@ -83,6 +86,31 @@ func binaryPath(path string) (string, error) {
 		return "", fmt.Errorf("vst3: %s holds no library for this platform: %w", path, err)
 	}
 	return lib, nil
+}
+
+// bundleExecutable returns the library a macOS bundle names in its
+// Info.plist, as CFBundleExecutable, which may differ from the bundle's
+// own name, as iZotope's do; or "" where it names none.
+func bundleExecutable(bundle string) string {
+	b, err := os.ReadFile(filepath.Join(bundle, "Contents", "Info.plist"))
+	if err != nil {
+		return ""
+	}
+	_, rest, ok := strings.Cut(string(b), "<key>CFBundleExecutable</key>")
+	if !ok {
+		return ""
+	}
+	rest = strings.TrimSpace(rest)
+	v, ok := strings.CutPrefix(rest, "<string>")
+	if !ok {
+		return ""
+	}
+	v, _, ok = strings.Cut(v, "</string>")
+	v = strings.TrimSpace(v)
+	if !ok || v == "" || strings.ContainsAny(v, "/\\") {
+		return ""
+	}
+	return v
 }
 
 // bundleOf returns the .vst3 folder that holds the macOS library bin, at

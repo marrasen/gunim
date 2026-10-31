@@ -390,7 +390,8 @@ type Pinner interface {
 // A NativeWindow is a [Window] that can hand out the system's own window behind it, for a window of the system's to
 // sit inside it, as a plugin's editor does.
 type NativeWindow interface {
-	// NativeHandle returns the system's window: an HWND on Windows, and an X11 window's ID on Linux.
+	// NativeHandle returns the system's window: an HWND on Windows, an X11 window's ID on Linux, and the window's
+	// content view, an NSView, on macOS.
 	NativeHandle() (uintptr, error)
 }
 

@@ -28,6 +28,7 @@ import (
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/internal/gl"
 	"github.com/marrasen/gunim/internal/glfw"
+	"github.com/marrasen/gunim/internal/mainthread"
 )
 
 // init pins the main goroutine to the main thread, which is where
@@ -116,6 +117,9 @@ func (d *Driver) Run(ctx context.Context, ready func()) error {
 	stopHang := watchHang(d, hangEvery, hangAfter)
 	defer stopHang()
 
+	// Work that must run on the main thread, as macOS's plugin editors
+	// must, runs among the driver's own.
+	mainthread.Set(d.post)
 	ready()
 	var err error
 	for !d.quit {
@@ -131,6 +135,7 @@ func (d *Driver) Run(ctx context.Context, ready func()) error {
 
 	// Refuse new work, finish what was already queued, and take down
 	// whatever windows are still open.
+	mainthread.Set(nil)
 	d.mu.Lock()
 	d.stopped = true
 	d.mu.Unlock()
