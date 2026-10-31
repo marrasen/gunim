@@ -143,7 +143,7 @@ func newWindow(title string, w, h int, e *editor, parent uintptr) (*window, erro
 	own.Send(selSetReleasedWhenClose, false)
 	t := cocoa.NSString_alloc().InitWithUTF8String(title)
 	own.Send(selSetTitle, t.ID)
-	t.ID.Send(selRelease)
+	t.Send(selRelease)
 	own.Send(selSetContentView, view)
 	win.own, win.del = own, objc.ID(class).Send(selNew)
 	own.Send(selSetDelegate, win.del)

@@ -8,6 +8,3 @@ func onMain(func()) bool { return false }
 
 // ticksElsewhere says the package's own thread runs the tickers.
 func ticksElsewhere() bool { return false }
-
-// onMainThread is for macOS.
-func onMainThread() bool { return false }

@@ -11,7 +11,7 @@ import (
 // bundle's.
 func TestABundleNamesItsOwnLibrary(t *testing.T) {
 	dir := t.TempDir()
-	make := func(bundle, exe, plist string) string {
+	makeBundle := func(bundle, exe, plist string) string {
 		b := filepath.Join(dir, bundle+".vst3")
 		if err := os.MkdirAll(filepath.Join(b, "Contents", "MacOS"), 0o755); err != nil {
 			t.Fatal(err)
@@ -26,11 +26,11 @@ func TestABundleNamesItsOwnLibrary(t *testing.T) {
 		}
 		return b
 	}
-	named := make("Ozone EQ", "PluginHooksVST3", `<?xml version="1.0"?><plist><dict>
+	named := makeBundle("Ozone EQ", "PluginHooksVST3", `<?xml version="1.0"?><plist><dict>
 	<key>CFBundleExecutable</key>
 	<string>PluginHooksVST3</string>
 </dict></plist>`)
-	plain := make("Plain", "Plain", "")
+	plain := makeBundle("Plain", "Plain", "")
 	for _, c := range []struct{ bundle, want string }{
 		{named, filepath.Join(named, "Contents", "MacOS", "PluginHooksVST3")},
 		{plain, filepath.Join(plain, "Contents", "MacOS", "Plain")},
