@@ -154,6 +154,10 @@ type window struct {
 	child         bool
 }
 
+// scale is how many of the host's pixels make one of the view's:
+// Windows' views size in pixels.
+func (w *window) scale() float64 { return 1 }
+
 const (
 	wsCaption      = 0x00C00000
 	wsSysMenu      = 0x00080000
