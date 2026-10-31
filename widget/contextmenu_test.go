@@ -453,3 +453,42 @@ func TestAScrolledMenusHiddenRowsHaveNoBounds(t *testing.T) {
 		t.Fatal("a hidden item can't be pressed")
 	}
 }
+
+// A context menu its button toggles closes on a second press on the
+// button, rather than closing as the press lands and opening again as
+// the click ends; a press outside its anchor closes it too.
+func TestAContextMenuItsButtonTogglesClosesOnASecondPress(t *testing.T) {
+	b := NewButton("Grid")
+	b.KeepFocus = true
+	c := NewContextMenu(b, []MenuItem{{Label: "1/4"}, {Label: "1/8"}})
+	b.OnClick = func(u *gunim.UI) gunim.Intent {
+		c.Toggle(geom.Pt(0, 40), u)
+		return nil
+	}
+	w, run := stage(t, &frame{child: c, size: geom.Sz(400, 300)})
+	run(5)
+	click := func(at geom.Point) {
+		w.Input(input.PointerDown{Pos: at, Button: input.ButtonPrimary, Clicks: 1, Time: time.Now()})
+		w.Input(input.PointerUp{Pos: at, Button: input.ButtonPrimary, Time: time.Now()})
+		run(10)
+	}
+	on := geom.Pt(10, 10)
+	click(on)
+	if !c.Focusable() {
+		t.Fatal("a click on the button opened no menu")
+	}
+	click(on)
+	if c.Focusable() {
+		t.Fatal("a second click on the button left the menu open")
+	}
+	click(on)
+	if !c.Focusable() {
+		t.Fatal("a third click on the button opened no menu")
+	}
+	// Below the anchor, still on the button, which fills the frame.
+	w.Input(input.PointerDown{Pos: geom.Pt(390, 290), Button: input.ButtonPrimary, Clicks: 1, Time: time.Now()})
+	run(2)
+	if c.Focusable() {
+		t.Fatal("a press outside the anchor and the menu left the menu open")
+	}
+}
