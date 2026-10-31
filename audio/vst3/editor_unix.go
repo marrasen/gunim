@@ -147,6 +147,9 @@ func newWindow(title string, w, h int, e *editor, parent uintptr) (*window, erro
 
 func (w *window) handle() uintptr { return w.id }
 
+// ticksElsewhere says the package's own thread runs the tickers.
+func ticksElsewhere() bool { return false }
+
 // scale is how many of the host's pixels make one of the view's: X11's
 // views size in pixels.
 func (w *window) scale() float64 { return 1 }
