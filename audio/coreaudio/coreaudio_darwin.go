@@ -22,10 +22,15 @@ const (
 	systemObject = 1
 
 	scopeGlobal = 0x676c6f62 // 'glob'
+	scopeInput  = 0x696e7074 // 'inpt'
 	scopeOutput = 0x6f757470 // 'outp'
 	elementMain = 0
 
 	propDefaultOutputDevice = 0x644f7574 // 'dOut'
+	propDefaultInputDevice  = 0x64496e20 // 'dIn '
+	propDevices             = 0x64657623 // 'dev#'
+	propDeviceUID           = 0x75696420 // 'uid '
+	propElementName         = 0x6c63686e // 'lchn'
 	propName                = 0x6c6e616d // 'lnam'
 	propDeviceIsAlive       = 0x6c69766e // 'livn'
 	propBufferFrameSize     = 0x6673697a // 'fsiz'
@@ -120,7 +125,9 @@ func load() error {
 		purego.RegisterLibFunc(&deviceStop, ca, "AudioDeviceStop")
 		purego.RegisterLibFunc(&cfStringGetCString, cf, "CFStringGetCString")
 		purego.RegisterLibFunc(&cfRelease, cf, "CFRelease")
+		purego.RegisterLibFunc(&createInputProcID, ca, "AudioDeviceCreateIOProcID")
 		ioProc = purego.NewCallback(render)
+		recordProc = purego.NewCallback(record)
 		listener = purego.NewCallback(changed)
 	})
 	return loadErr
@@ -153,9 +160,15 @@ func getBytes(id, selector, scope uint32) []byte {
 }
 
 // name returns the device's name.
-func name(dev uint32) string {
+func name(dev uint32) string { return stringOf(dev, propName, scopeGlobal, elementMain) }
+
+// stringOf returns a property of the object id that is a CFString, or
+// "" where it has none.
+func stringOf(id, selector, scope, element uint32) string {
 	var ref uintptr
-	if !get(dev, propName, scopeGlobal, &ref) || ref == 0 {
+	addr := propertyAddress{selector, scope, element}
+	size := uint32(unsafe.Sizeof(ref))
+	if getPropertyData(id, &addr, 0, nil, &size, unsafe.Pointer(&ref)) != noErr || ref == 0 {
 		return ""
 	}
 	defer cfRelease(ref)
@@ -173,8 +186,12 @@ func name(dev uint32) string {
 
 // outputChannels returns how many channels each of the device's output
 // buffers holds, in order.
-func outputChannels(dev uint32) []int {
-	b := getBytes(dev, propStreamConfiguration, scopeOutput)
+func outputChannels(dev uint32) []int { return bufferChannels(dev, scopeOutput) }
+
+// bufferChannels returns how many channels each of the device's buffers
+// of scope holds, in order.
+func bufferChannels(dev, scope uint32) []int {
+	b := getBytes(dev, propStreamConfiguration, scope)
 	if len(b) < bufferListHeader {
 		return nil
 	}
@@ -193,8 +210,12 @@ func outputChannels(dev uint32) []int {
 
 // streamLatency returns the latency of the device's first output stream,
 // and false where the device reports none.
-func streamLatency(dev uint32) (int, bool) {
-	b := getBytes(dev, propStreams, scopeOutput)
+func streamLatency(dev uint32) (int, bool) { return firstStreamLatency(dev, scopeOutput) }
+
+// firstStreamLatency returns the latency of the device's first stream
+// of scope, and false where the device reports none.
+func firstStreamLatency(dev, scope uint32) (int, bool) {
+	b := getBytes(dev, propStreams, scope)
 	if len(b) < 4 {
 		return 0, false
 	}
@@ -335,21 +356,25 @@ func Open(c Config) (*Device, error) {
 // setRate sets the device to rate, where it is not at it already, and
 // waits a moment for it to change, as the device changes in its own
 // time.
-func (d *Device) setRate(rate int) {
+func (d *Device) setRate(rate int) { setRate(d.dev, rate, d.info.Device, d.logf) }
+
+// setRate sets device dev, called name, to rate, as Device.setRate
+// does, telling logf where it will not.
+func setRate(dev uint32, rate int, name string, logf func(string, ...any)) {
 	var now float64
-	if rate <= 0 || !get(d.dev, propNominalSampleRate, scopeGlobal, &now) || int(math.Round(now)) == rate {
+	if rate <= 0 || !get(dev, propNominalSampleRate, scopeGlobal, &now) || int(math.Round(now)) == rate {
 		return
 	}
-	if st := set(d.dev, propNominalSampleRate, scopeGlobal, float64(rate)); st != noErr {
-		d.logf("%s refuses %d Hz: %d", d.info.Device, rate, st)
+	if st := set(dev, propNominalSampleRate, scopeGlobal, float64(rate)); st != noErr {
+		logf("%s refuses %d Hz: %d", name, rate, st)
 		return
 	}
 	for deadline := time.Now().Add(time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
-		if get(d.dev, propNominalSampleRate, scopeGlobal, &now) && int(math.Round(now)) == rate {
+		if get(dev, propNominalSampleRate, scopeGlobal, &now) && int(math.Round(now)) == rate {
 			return
 		}
 	}
-	d.logf("%s stays at %v Hz", d.info.Device, now)
+	logf("%s stays at %v Hz", name, now)
 }
 
 // A watched is a property a change of which opens the output again.

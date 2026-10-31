@@ -1,8 +1,9 @@
 // Package capture records sound from the computer's inputs: a
 // microphone, a guitar plugged into an audio interface, a synth's
 // output. It records through PulseAudio or PipeWire on Linux, WASAPI
-// on Windows, and on Windows through the ASIO driver the speakers play
-// through too, as package audio/speaker opens it.
+// on Windows, Core Audio on macOS, and on Windows through the ASIO
+// driver the speakers play through too, as package audio/speaker opens
+// it.
 //
 // Each block recorded carries a stamp: the mixer frame of the speakers
 // that was being heard as the block's first frame reached the input.
@@ -186,6 +187,14 @@ type Info struct {
 // ErrLost is the error of a stream whose device went away: unplugged,
 // taken by the system, or an ASIO driver the speakers opened again.
 var ErrLost = errors.New("capture: the input went away")
+
+// ErrDenied is returned by [Open] for an input the system lets the
+// application record nothing from: on macOS, until the application is
+// allowed the microphone in System Settings, under Privacy & Security.
+// The first time an application records there, the system asks whether
+// it may; until it is answered, what comes in is silent.
+var ErrDenied = errors.New("capture: this application may not record: allow it in System Settings, " +
+	"under Privacy & Security, Microphone")
 
 // lost is how long a device may hand on nothing before the stream
 // counts it gone.
