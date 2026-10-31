@@ -240,6 +240,36 @@ type ControlPort struct {
 	// falls past the block's end. A host joins a trigger output only to
 	// a trigger input, and the other way round.
 	Trigger bool
+	// Measures says what an output reports of the plugin's processing,
+	// for a host to draw as a meter. A measuring port runs in dB, at
+	// most 0.
+	Measures Measure
+}
+
+// Measure is what a control output reports of the plugin's processing.
+type Measure uint8
+
+// The measures.
+const (
+	// MeasureNone is a plain control.
+	MeasureNone Measure = iota
+	// MeasureCompression is a compressor's gain reduction.
+	MeasureCompression
+	// MeasureLimiting is a limiter's gain reduction.
+	MeasureLimiting
+	// MeasureGate is a gate's or expander's gain reduction: 0 open.
+	MeasureGate
+)
+
+var measureNames = [...]string{MeasureNone: "none", MeasureCompression: "compression", MeasureLimiting: "limiting",
+	MeasureGate: "gate"}
+
+// String returns the measure's name, as "compression".
+func (m Measure) String() string {
+	if int(m) < len(measureNames) {
+		return measureNames[m]
+	}
+	return fmt.Sprintf("Measure(%d)", m)
 }
 
 // PortKey is the key a project names p by: its Key, or its Name.
@@ -594,6 +624,23 @@ func checkPorts(d *Descriptor) error {
 				return fmt.Errorf("%s: %s %q is a trigger, so runs from 0 to 1, from 0, not from %g to %g, from %g",
 					d.ID, way, p.Name, p.Min, p.Max, p.Default)
 			}
+		}
+	}
+	for _, p := range d.ControlIn {
+		if p.Measures != MeasureNone {
+			return fmt.Errorf("%s: control input %q measures %v, which only an output may", d.ID, p.Name, p.Measures)
+		}
+	}
+	for _, p := range d.ControlOut {
+		if p.Measures == MeasureNone {
+			continue
+		}
+		if int(p.Measures) >= len(measureNames) {
+			return fmt.Errorf("%s: control output %q measures %v, which is no measure", d.ID, p.Name, p.Measures)
+		}
+		if p.Trigger || p.Unit != "dB" || p.Max != 0 {
+			return fmt.Errorf("%s: control output %q measures %v, so runs in dB up to 0 and is no trigger", d.ID,
+				p.Name, p.Measures)
 		}
 	}
 	return nil

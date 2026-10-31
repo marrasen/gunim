@@ -97,6 +97,16 @@ func TestRegisterRefusesMistakes(t *testing.T) {
 			ControlIn: []ControlPort{{Name: "Kick", Min: -1, Max: 1, Trigger: true}}},
 		"trigger defaulting to a hit": {ID: "test.trigdef", Name: "X", New: newer,
 			ControlIn: []ControlPort{{Name: "Kick", Max: 1, Default: 1, Trigger: true}}},
+		"measuring input": {ID: "test.measin", Name: "X", New: newer,
+			ControlIn: []ControlPort{{Name: "GR", Unit: "dB", Min: -60, Measures: MeasureCompression}}},
+		"measure not in dB": {ID: "test.measunit", Name: "X", New: newer,
+			ControlOut: []ControlPort{{Name: "GR", Min: -60, Measures: MeasureCompression}}},
+		"measure above 0": {ID: "test.measmax", Name: "X", New: newer,
+			ControlOut: []ControlPort{{Name: "GR", Unit: "dB", Min: -60, Max: 6, Measures: MeasureCompression}}},
+		"measuring trigger": {ID: "test.meastrig", Name: "X", New: newer,
+			ControlOut: []ControlPort{{Name: "GR", Unit: "dB", Min: -60, Trigger: true, Measures: MeasureGate}}},
+		"unknown measure": {ID: "test.measwhat", Name: "X", New: newer,
+			ControlOut: []ControlPort{{Name: "GR", Unit: "dB", Min: -60, Measures: Measure(99)}}},
 	} {
 		func() {
 			defer func() {
@@ -144,6 +154,15 @@ func TestRegisterTakesTriggersFromZeroToOne(t *testing.T) {
 		ControlOut: []ControlPort{{Name: "Kick", Max: 1, Trigger: true}, {Name: "Level", Max: 1}}}
 	if err := check(&d); err != nil {
 		t.Fatalf("a trigger in and out from 0 to 1 was refused: %v", err)
+	}
+}
+
+func TestRegisterTakesMeasuresInDecibels(t *testing.T) {
+	d := Descriptor{ID: "test.measures", Name: "X", New: func(Host) Plugin { return nil },
+		ControlOut: []ControlPort{{Name: "Gate", Unit: "dB", Min: -90, Measures: MeasureGate},
+			{Name: "Comp", Unit: "dB", Min: -60, Measures: MeasureCompression}}}
+	if err := check(&d); err != nil {
+		t.Fatalf("measuring outputs in dB up to 0 were refused: %v", err)
 	}
 }
 
