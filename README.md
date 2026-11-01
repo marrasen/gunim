@@ -203,7 +203,9 @@ effects and instruments in the system's folders and loads one. It runs
 sound through an effect in realtime or offline, plays notes on an
 instrument, with each note's own bend where the plugin takes VST3's
 note expression and the sustain pedal through the plugin's MIDI
-mapping, and carries sidechain inputs and extra outputs. It saves and
+mapping, and carries sidechain inputs and extra outputs. A note struck
+on a key already sounding on its channel ends the note before, as on a
+MIDI keyboard, since most plugins keep their notes by key. It saves and
 restores a plugin's state, and shows its own editor in a window, on
 Windows and Linux. A VST3 plugin also runs behind `audio/plug`'s
 interfaces, so a host plays VST3 and Go plugins through the same
