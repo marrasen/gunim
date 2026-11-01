@@ -507,13 +507,14 @@ type Window struct {
 	// caughtUp is when the window, out of sight, last applied the commands queued for it; see catchUp.
 	caughtUp time.Time
 
-	// inFlight is true from Present until the driver reports the frame
-	// shown. shown is when the last one was, and due is when the frame
-	// most recently drawn is predicted to be. All three belong to the
-	// UI goroutine.
-	inFlight bool
-	shown    time.Time
-	due      time.Time
+	// unshown counts the frames handed to the driver and not yet shown,
+	// and unreleased those whose ops it may still read; a driver that is
+	// no [driver.Releaser] lets them go as it shows them. shown is when
+	// the last one was, and due is when the frame most recently drawn is
+	// predicted to be. All belong to the UI goroutine.
+	unshown, unreleased int
+	shown               time.Time
+	due                 time.Time
 	// sent is when the frame in flight was handed to the driver, for GUNIM_DEBUG_POINTER to say when one is slow.
 	sent time.Time
 	// uiTimes sums how long frames take to build, for GUNIM_DEBUG_FRAMES.
@@ -1245,7 +1246,7 @@ func (w *Window) loop() {
 	defer w.ui.closeNatives()
 
 	for {
-		if !w.inFlight && w.wants() && w.draws() {
+		if w.free() && w.wants() && w.draws() {
 			w.draw()
 			continue
 		}
@@ -1256,6 +1257,28 @@ func (w *Window) loop() {
 			return
 		}
 	}
+}
+
+// free reports whether the window may build a frame now. With a driver
+// that is a [driver.Releaser], it builds the next frame while the one
+// before waits for the screen: at most two frames handed and not yet
+// shown, and the frame before the last one released, so the frame
+// built records into buffers nothing reads. Otherwise it builds once
+// the frame before is shown.
+func (w *Window) free() bool {
+	if _, ok := w.dw.(driver.Releaser); ok {
+		return w.unshown < 2 && w.unreleased < 2
+	}
+	return w.unshown == 0
+}
+
+// released is the driver's channel of frames let go, or nil where it
+// tells none apart from Presented.
+func (w *Window) released() <-chan struct{} {
+	if r, ok := w.dw.(driver.Releaser); ok {
+		return r.Released()
+	}
+	return nil
 }
 
 // wants reports whether anything is waiting to be drawn: queued
@@ -1332,7 +1355,7 @@ func (w *Window) wait() bool {
 	var at time.Time
 	switch timer, ok := w.ui.nextTimer(); {
 	case w.draws():
-		if ok && !w.inFlight {
+		if ok && w.free() {
 			at = wakeFor(timer, w.shown, refreshInterval(w.dw.RefreshRate()))
 		}
 	case w.queued():
@@ -1378,11 +1401,16 @@ func (w *Window) wait() bool {
 		w.ui.focusNow()
 	case got := <-w.accesses:
 		got <- w.ui.clientAccess()
+	case <-w.released():
+		w.unreleased = max(w.unreleased-1, 0)
 	case f, ok := <-w.dw.Presented():
 		if !ok {
 			return false
 		}
-		w.inFlight = false
+		w.unshown = max(w.unshown-1, 0)
+		if w.released() == nil {
+			w.unreleased = max(w.unreleased-1, 0)
+		}
 		w.shown = f.Shown
 		if w.ui.arriving && w.ui.arrivedAt.IsZero() {
 			w.ui.arrivedAt = w.shown
@@ -1415,6 +1443,11 @@ func (w *Window) draw() {
 	applied := time.Since(t0)
 	interval := refreshInterval(w.dw.RefreshRate())
 	due := nextVsync(w.shown, interval, time.Now())
+	if w.unshown > 0 {
+		// Built while the frame before waits for the screen, it shows a
+		// refresh after that one at the soonest.
+		due = later(due, w.due.Add(interval))
+	}
 	delta := interval
 	if w.ui.animating && due.After(w.due) && !w.resumed {
 		delta = due.Sub(w.due)
@@ -1430,7 +1463,16 @@ func (w *Window) draw() {
 	if uiFramesDebug {
 		w.uiTimes.add(w, applied, w.sent.Sub(start))
 	}
-	w.inFlight = true
+	w.unshown++
+	w.unreleased++
+}
+
+// later returns the later of a and b.
+func later(a, b time.Time) time.Time {
+	if b.After(a) {
+		return b
+	}
+	return a
 }
 
 // slowFrame is how long building a frame, or its trip to the screen, may take before GUNIM_DEBUG_POINTER says so:

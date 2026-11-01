@@ -194,6 +194,21 @@ type Recycler interface {
 	Show() error
 }
 
+// A Releaser is a [Window] that tells when it is done with a frame's
+// ops, apart from when the frame is shown: one token on Released for
+// each frame handed to Present, once it has drawn it, before it waits
+// for the screen, and before the frame's [Frame] on Presented. The
+// engine then builds the next frame while this one waits to be shown,
+// with at most two frames handed and not yet shown, and records into a
+// frame's buffers only once that frame is released. So Present takes a
+// second frame while the first is still on its way, and a frame being
+// built overlaps the one being drawn. A Window that is no Releaser lets
+// a frame's ops go when it shows the frame, and is handed one frame at
+// a time.
+type Releaser interface {
+	Released() <-chan struct{}
+}
+
 // WindowFocus is sent on [Window.Input] when the window gains or loses
 // the keyboard.
 type WindowFocus struct{ Focused bool }
