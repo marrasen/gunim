@@ -1351,6 +1351,9 @@ func corners(q, uv geom.Rect) [4]quadVert {
 }
 
 func (r *Renderer) rrect(op *paint.RRectOp) {
+	if !r.cull.Empty() && r.rrectOutside(op) {
+		return
+	}
 	r.uses(0)
 	// Every part of an added shape adds, its shadow too, which makes it
 	// a halo.
@@ -1411,6 +1414,28 @@ func (r *Renderer) rrect(op *paint.RRectOp) {
 			stroke: op.Stroke.Width, strokeColor: rgba(op.Stroke.Color)})
 	}
 }
+
+// rrectOutside reports whether all op draws, its shadow and stroke too,
+// lies outside what a frame drawn in part redraws: found before its
+// looks are made, as most of a frame's ops lie outside its boxes.
+func (r *Renderer) rrectOutside(op *paint.RRectOp) bool {
+	reach := op.Stroke.Width/2 + 2
+	if sh := op.Shadow; sh.Color.A > 0 {
+		reach = max(reach, sh.Blur+sh.Spread+2+max(abs32(sh.Offset.X), abs32(sh.Offset.Y)))
+	}
+	b, t := grow4(op.Rect, reach), op.Transform
+	lo := t.Apply(b.Min)
+	hi := lo
+	for _, c := range [3]geom.Point{{X: b.Max.X, Y: b.Min.Y}, b.Max, {X: b.Min.X, Y: b.Max.Y}} {
+		q := t.Apply(c)
+		lo = geom.Pt(min(lo.X, q.X), min(lo.Y, q.Y))
+		hi = geom.Pt(max(hi.X, q.X), max(hi.Y, q.Y))
+	}
+	return r.outside(geom.Rect{Min: lo.Mul(r.scale), Max: hi.Mul(r.scale)})
+}
+
+// abs32 is v's size.
+func abs32(v float32) float32 { return max(v, -v) }
 
 // openLayer starts drawing into a fresh offscreen target, or goes on
 // drawing into the current one, scissored, for a layer that can draw
