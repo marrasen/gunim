@@ -1278,6 +1278,7 @@ func (w *Window) render() {
 				w.fail(fmt.Errorf("desktop: swap buffers: %w", err))
 			}
 			if framesDebug {
+				ft.boxes = append(ft.boxes[:0], r.Boxes...)
 				ft.add(w, t1.Sub(t0), t2.Sub(t1), time.Since(t2), gpu, &r.Stats, rate, fbW, fbH, r.Converting())
 			}
 			w.uncover()
@@ -1334,6 +1335,8 @@ type frameTimes struct {
 	waitMax             time.Duration
 	gpu, gpuMax         time.Duration
 	sent                render.Stats
+	// boxes are the device-pixel boxes the last frame redrew.
+	boxes []geom.Rect
 }
 
 // add counts a frame that took draw, wait and present, and logs the
@@ -1380,7 +1383,8 @@ func (ft *frameTimes) add(w *Window, draw, wait, present, gpu time.Duration, sen
 		w, ft.sent.Quads/ft.n, float64(ft.sent.Bytes)/float64(ft.n)/1e6, ft.sent.Flushes/ft.n, ft.sent.Layers/ft.n,
 		100*ft.sent.Redrawn/float64(ft.n), float64(ft.sent.Boxes)/float64(ft.n),
 		ms(ft.sent.FlushTime/n), ms(ft.gpu/n), ms(ft.gpuMax), colour)
-	*ft = frameTimes{from: now}
+	log.Printf("gunim frames %p redrew last: %v", w, ft.boxes)
+	*ft = frameTimes{from: now, boxes: ft.boxes}
 }
 
 // skip counts a frame left undrawn as unchanged, and logs once a second
