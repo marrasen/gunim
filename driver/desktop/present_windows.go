@@ -198,6 +198,8 @@ type presenter struct {
 	w, h     int
 	// whole is set until a frame of the swap chain's size has been shown, which must cover all of it.
 	whole bool
+	// rects are the dirty rectangles of the frame presented last, kept for their room.
+	rects [][4]int32
 
 	wglDXOpenDevice, wglDXCloseDevice       uintptr
 	wglDXRegisterObject, wglDXUnregisterObj uintptr
@@ -339,9 +341,9 @@ func (p *presenter) begin(w, h int) (uint32, error) {
 	return p.fbo, nil
 }
 
-// present hands the frame drawn since begin to the window, where it differs from the last one within dirty, in
-// device pixels from the top left.
-func (p *presenter) present(dirty geom.Rect) error {
+// present hands the frame drawn since begin to the window, where it differs from the last one within the boxes
+// of dirty, in device pixels from the top left.
+func (p *presenter) present(dirty []geom.Rect) error {
 	obj := p.object
 	if r, _, _ := syscall.SyscallN(p.wglDXUnlockObjects, p.share, 1, uintptr(unsafe.Pointer(&obj))); r == 0 {
 		return errors.New("desktop: wglDXUnlockObjectsNV failed")
@@ -353,22 +355,29 @@ func (p *presenter) present(dirty geom.Rect) error {
 	call(p.context, d3d11ContextCopyResource, back, p.texture)
 	release(back)
 	// The pacing is the vertical blank wait's, so present at once.
-	rect := &[4]int32{
-		max(int32(dirty.Min.X), 0), max(int32(dirty.Min.Y), 0),
-		min(int32(math.Ceil(float64(dirty.Max.X))), int32(p.w)), min(int32(math.Ceil(float64(dirty.Max.Y))), int32(p.h)),
+	rects := p.rects[:0]
+	for _, d := range dirty {
+		rect := [4]int32{
+			max(int32(d.Min.X), 0), max(int32(d.Min.Y), 0),
+			min(int32(math.Ceil(float64(d.Max.X))), int32(p.w)), min(int32(math.Ceil(float64(d.Max.Y))), int32(p.h)),
+		}
+		if rect[2] > rect[0] && rect[3] > rect[1] {
+			rects = append(rects, rect)
+		}
 	}
-	if p.whole || rect[2] <= rect[0] || rect[3] <= rect[1] {
+	p.rects = rects
+	if p.whole || len(rects) == 0 {
 		if hr := call(p.swap, dxgiSwapChainPresent, 0, 0); failed(hr) {
 			return fmt.Errorf("desktop: Present: HRESULT %#x", uint32(hr))
 		}
 		p.whole = false
 		return nil
 	}
-	// Tells the compositor which part of the window changed.
-	// The rectangle is on the heap, which Go does not move, and kept alive past the call.
-	params := presentParameters{DirtyRectsCount: 1, DirtyRects: uintptr(unsafe.Pointer(rect))}
+	// Tells the compositor which parts of the window changed.
+	// The rectangles are on the heap, which Go does not move, and kept alive past the call.
+	params := presentParameters{DirtyRectsCount: uint32(len(rects)), DirtyRects: uintptr(unsafe.Pointer(&rects[0]))}
 	hr := call(p.swap, dxgiSwapChain1Present1, 0, 0, uintptr(unsafe.Pointer(&params)))
-	runtime.KeepAlive(rect)
+	runtime.KeepAlive(rects)
 	if failed(hr) {
 		return fmt.Errorf("desktop: Present1: HRESULT %#x", uint32(hr))
 	}
