@@ -394,6 +394,22 @@ func (k *keyboard) find(id int32) *sounding {
 	return nil
 }
 
+// strikeAnew ends the note other than id sounding on key pitch of channel ch, at frame f, so note id of group g,
+// starting there, owns the key, as on a MIDI keyboard: the ended note's own NoteOff then finds nothing to end.
+func (k *keyboard) strikeAnew(p *Plugin, ch, pitch int16, id, g, f int32) {
+	for i := range k.notes {
+		n := &k.notes[i]
+		if !n.used || n.id == id || n.channel != ch || n.pitch != pitch {
+			continue
+		}
+		n.used = false
+		p.events.add(noteOff(f, n.channel, n.pitch, 0, n.id, n.tuning))
+		if n.group != g {
+			k.release(k.groupOf(n.group))
+		}
+	}
+}
+
 // play turns e into the plugin's events and changes, at its frame.
 func (k *keyboard) play(p *Plugin, e *plug.Event) {
 	f := int32(e.Frame)
@@ -404,6 +420,7 @@ func (k *keyboard) play(p *Plugin, e *plug.Event) {
 		tuning := float32((e.Pitch - float64(pitch)) * 100)
 		_, ch := k.channel(e.Group)
 		k.rest(p, ch, f)
+		k.strikeAnew(p, ch, pitch, e.Note, e.Group, f)
 		n := k.find(e.Note)
 		for i := range k.notes {
 			if n != nil {

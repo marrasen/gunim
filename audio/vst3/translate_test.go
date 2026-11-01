@@ -116,6 +116,48 @@ func TestNotesReachAPluginAsItsEvents(t *testing.T) {
 	}
 }
 
+// TestANoteOnAKeySoundingStrikesItAnew plays two notes of one group on one key, overlapping, as a plugin that keeps
+// its notes by key hears them: the first ends where the second starts, and its own NoteOff ends nothing, so the
+// second plays to its end. A note of another group, on a channel of its own, sounds on.
+func TestANoteOnAKeySoundingStrikesItAnew(t *testing.T) {
+	f := fakeSynth()
+	p, err := f.open(t, Config{Rate: 48000, Block: 256})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(p.Close)
+	b := stereoBlock(128)
+	b.Events = []plug.Event{
+		{Frame: 10, Kind: plug.NoteOn, Note: 7, Group: 3, Pitch: 60, Velocity: 1},
+		{Frame: 15, Kind: plug.NoteOn, Note: 9, Group: 4, Pitch: 60, Velocity: 1},
+		{Frame: 20, Kind: plug.NoteOn, Note: 8, Group: 3, Pitch: 60, Velocity: 0.5},
+		{Frame: 30, Kind: plug.NoteOff, Note: 7},
+		{Frame: 40, Kind: plug.NoteOff, Note: 8},
+		{Frame: 50, Kind: plug.NoteOff, Note: 9},
+	}
+	p.ProcessBlock(b)
+	type ev struct {
+		kind    uint16
+		at      int32
+		ch, key int16
+		note    int32
+	}
+	events := f.last(t).events
+	got := make([]ev, 0, len(events))
+	for _, e := range events {
+		id := e.i32(16)
+		if e.kind == evNoteOff {
+			id = e.i32(8)
+		}
+		got = append(got, ev{e.kind, e.offset, e.channel(), e.pitch(), id})
+	}
+	want := []ev{{evNoteOn, 10, 0, 60, 7}, {evNoteOn, 15, 1, 60, 9}, {evNoteOff, 20, 0, 60, 7}, {evNoteOn, 20, 0, 60, 8},
+		{evNoteOff, 40, 0, 60, 8}, {evNoteOff, 50, 1, 60, 9}}
+	if !slices.Equal(got, want) {
+		t.Errorf("the fake heard %+v, want %+v", got, want)
+	}
+}
+
 // TestABendIsANotesOwnWherePluginsTakeIt bends a note of a plugin that
 // takes VST3's tuning expression: the note alone bends, from its key,
 // so the cents its key was tuned by count in. 60.5 plays as key 61
