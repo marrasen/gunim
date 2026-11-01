@@ -135,10 +135,10 @@ type Renderer struct {
 	// pass of its own, for the dirty rectangles a driver presents.
 	Redrawn geom.Rect
 	Boxes   []geom.Rect
-	// damage and boxes are the frame's damage and its device boxes,
+	// damage and deviceBoxesBuf are the frame's damage and its device boxes,
 	// kept from frame to frame for their room.
-	damage, boxes []geom.Rect
-	one           [1]geom.Rect
+	damage, deviceBoxesBuf []geom.Rect
+	one                    [1]geom.Rect
 	// Stretched is the logical-pixel area where the last frame drew a
 	// big mask stretched, while its size changed, and SharpAt when a
 	// frame draws it sharp. The next frame redraws the area whatever
@@ -1018,7 +1018,7 @@ func (r *Renderer) shape() (rect geom.Rect, radius float32) {
 // empty ones and merging those that overlap once grown to whole pixels,
 // so no pixel is drawn twice.
 func (r *Renderer) deviceBoxes(ds []geom.Rect) []geom.Rect {
-	bs := r.boxes[:0]
+	bs := r.deviceBoxesBuf[:0]
 	for _, d := range ds {
 		b := r.deviceBox(d)
 		if b.Empty() {
@@ -1036,7 +1036,7 @@ func (r *Renderer) deviceBoxes(ds []geom.Rect) []geom.Rect {
 		}
 		bs = append(bs, b)
 	}
-	r.boxes = bs
+	r.deviceBoxesBuf = bs
 	return bs
 }
 
