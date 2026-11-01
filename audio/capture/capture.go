@@ -1,8 +1,9 @@
 // Package capture records sound from the computer's inputs: a
 // microphone, a guitar plugged into an audio interface, a synth's
 // output. It records through PulseAudio or PipeWire on Linux, WASAPI
-// on Windows, and on Windows through the ASIO driver the speakers play
-// through too, as package audio/speaker opens it.
+// on Windows, Core Audio on macOS, and on Windows through the ASIO
+// driver the speakers play through too, as package audio/speaker opens
+// it.
 //
 // Each block recorded carries a stamp: the mixer frame of the speakers
 // that was being heard as the block's first frame reached the input.
@@ -22,6 +23,10 @@
 //
 // A stream ends as its device goes away: [Stream.Done] closes, and
 // [Stream.Err] returns [ErrLost].
+//
+// On macOS an application that records must have
+// NSMicrophoneUsageDescription in its Info.plist: without it, macOS
+// ends the application as it asks for the microphone.
 //
 // A stream hands its blocks to a function on the device's thread, or
 // keeps them in a ring a goroutine reads. Either way the recording
@@ -181,11 +186,24 @@ type Info struct {
 	// driver that plays and records in one; otherwise they are
 	// reckoned from the latencies the system reports.
 	Exact bool
+	// Problem is why the stream records otherwise than asked, and nil
+	// where it records as asked. On macOS it tells of a device that
+	// keeps another rate, which the stream converts from, or refuses the
+	// buffer asked for; PulseAudio and WASAPI convert themselves.
+	Problem error
 }
 
 // ErrLost is the error of a stream whose device went away: unplugged,
 // taken by the system, or an ASIO driver the speakers opened again.
 var ErrLost = errors.New("capture: the input went away")
+
+// ErrDenied is returned by [Open] for an input the system lets the
+// application record nothing from: on macOS, until the application is
+// allowed the microphone in System Settings, under Privacy & Security.
+// The first time an application records there, the system asks whether
+// it may; until it is answered, what comes in is silent.
+var ErrDenied = errors.New("capture: this application may not record: allow it in System Settings, " +
+	"under Privacy & Security, Microphone")
 
 // lost is how long a device may hand on nothing before the stream
 // counts it gone.
@@ -253,6 +271,7 @@ type format struct {
 	rate     int
 	buffer   int
 	latency  int
+	problem  error
 }
 
 // Open opens an input and starts recording.
@@ -316,6 +335,7 @@ func (s *Stream) ready(f format, mixRate int) error {
 	}
 	s.info.Device, s.info.Name = o.Device, f.name
 	s.info.Rate, s.info.Channels, s.info.Buffer = f.rate, len(s.sel), f.buffer
+	s.info.Problem = f.problem
 	s.latency.Store(int64(f.latency))
 	s.info.Latency = audio.DurationAt(int64(f.latency), f.rate)
 	if o.OnBlock != nil {

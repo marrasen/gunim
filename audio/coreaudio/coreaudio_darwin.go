@@ -22,10 +22,15 @@ const (
 	systemObject = 1
 
 	scopeGlobal = 0x676c6f62 // 'glob'
+	scopeInput  = 0x696e7074 // 'inpt'
 	scopeOutput = 0x6f757470 // 'outp'
 	elementMain = 0
 
 	propDefaultOutputDevice = 0x644f7574 // 'dOut'
+	propDefaultInputDevice  = 0x64496e20 // 'dIn '
+	propDevices             = 0x64657623 // 'dev#'
+	propDeviceUID           = 0x75696420 // 'uid '
+	propElementName         = 0x6c63686e // 'lchn'
 	propName                = 0x6c6e616d // 'lnam'
 	propDeviceIsAlive       = 0x6c69766e // 'livn'
 	propBufferFrameSize     = 0x6673697a // 'fsiz'
@@ -120,8 +125,13 @@ func load() error {
 		purego.RegisterLibFunc(&deviceStop, ca, "AudioDeviceStop")
 		purego.RegisterLibFunc(&cfStringGetCString, cf, "CFStringGetCString")
 		purego.RegisterLibFunc(&cfRelease, cf, "CFRelease")
+		purego.RegisterLibFunc(&createInputProcID, ca, "AudioDeviceCreateIOProcID")
+		purego.RegisterLibFunc(&addInputListener, ca, "AudioObjectAddPropertyListener")
+		purego.RegisterLibFunc(&removeInputListener, ca, "AudioObjectRemovePropertyListener")
 		ioProc = purego.NewCallback(render)
+		recordProc = purego.NewCallback(record)
 		listener = purego.NewCallback(changed)
+		inputListener = purego.NewCallback(inputChanged)
 	})
 	return loadErr
 }
@@ -137,46 +147,72 @@ func set[T any](id, selector, scope uint32, v T) int32 {
 	return setPropertyData(id, &addr, 0, nil, uint32(unsafe.Sizeof(v)), unsafe.Pointer(&v))
 }
 
-// getBytes reads a property of variable size.
-func getBytes(id, selector, scope uint32) []byte {
+// getBytes reads a property of variable size, nil where it is empty.
+func getBytes(id, selector, scope uint32) ([]byte, error) {
 	addr := propertyAddress{selector, scope, elementMain}
 	var size uint32
-	if getPropertyDataSize(id, &addr, 0, nil, &size) != noErr || size == 0 {
-		return nil
+	if st := getPropertyDataSize(id, &addr, 0, nil, &size); st != noErr {
+		return nil, fmt.Errorf("coreaudio: AudioObjectGetPropertyDataSize: %d", st)
+	}
+	if size == 0 {
+		return nil, nil
 	}
 	// Of uint64s, for the pointers and float64s the property holds.
 	buf := make([]uint64, (size+7)/8)
-	if getPropertyData(id, &addr, 0, nil, &size, unsafe.Pointer(&buf[0])) != noErr {
-		return nil
+	if st := getPropertyData(id, &addr, 0, nil, &size, unsafe.Pointer(&buf[0])); st != noErr {
+		return nil, fmt.Errorf("coreaudio: AudioObjectGetPropertyData: %d", st)
 	}
-	return unsafe.Slice((*byte)(unsafe.Pointer(&buf[0])), size)
+	return unsafe.Slice((*byte)(unsafe.Pointer(&buf[0])), size), nil
 }
 
 // name returns the device's name.
-func name(dev uint32) string {
-	var ref uintptr
-	if !get(dev, propName, scopeGlobal, &ref) || ref == 0 {
+func name(dev uint32) string { return stringOf(dev, propName, scopeGlobal, elementMain) }
+
+// stringOf returns a property of the object id that is a CFString, or
+// "" where it has none.
+func stringOf(id, selector, scope, element uint32) string {
+	s, err := readString(id, selector, scope, element)
+	if err != nil {
 		return ""
+	}
+	return s
+}
+
+// readString returns a property of the object id that is a CFString, or
+// why it reads none.
+func readString(id, selector, scope, element uint32) (string, error) {
+	var ref uintptr
+	addr := propertyAddress{selector, scope, element}
+	size := uint32(unsafe.Sizeof(ref))
+	if st := getPropertyData(id, &addr, 0, nil, &size, unsafe.Pointer(&ref)); st != noErr {
+		return "", fmt.Errorf("coreaudio: AudioObjectGetPropertyData: %d", st)
+	}
+	if ref == 0 {
+		return "", errors.New("coreaudio: the property holds no string")
 	}
 	defer cfRelease(ref)
 	buf := make([]byte, 256)
 	if !cfStringGetCString(ref, &buf[0], len(buf), cfStringEncodingUTF8) {
-		return ""
+		return "", errors.New("coreaudio: CFStringGetCString failed")
 	}
 	for i, b := range buf {
 		if b == 0 {
-			return string(buf[:i])
+			return string(buf[:i]), nil
 		}
 	}
-	return string(buf)
+	return string(buf), nil
 }
 
 // outputChannels returns how many channels each of the device's output
 // buffers holds, in order.
-func outputChannels(dev uint32) []int {
-	b := getBytes(dev, propStreamConfiguration, scopeOutput)
-	if len(b) < bufferListHeader {
-		return nil
+func outputChannels(dev uint32) ([]int, error) { return bufferChannels(dev, scopeOutput) }
+
+// bufferChannels returns how many channels each of the device's buffers
+// of scope holds, in order.
+func bufferChannels(dev, scope uint32) ([]int, error) {
+	b, err := getBytes(dev, propStreamConfiguration, scope)
+	if err != nil || len(b) < bufferListHeader {
+		return nil, err
 	}
 	n := int(*(*uint32)(unsafe.Pointer(&b[0])))
 	size := int(unsafe.Sizeof(audioBuffer{}))
@@ -188,14 +224,18 @@ func outputChannels(dev uint32) []int {
 		}
 		chans = append(chans, int((*audioBuffer)(unsafe.Pointer(&b[at])).channels))
 	}
-	return chans
+	return chans, nil
 }
 
 // streamLatency returns the latency of the device's first output stream,
 // and false where the device reports none.
-func streamLatency(dev uint32) (int, bool) {
-	b := getBytes(dev, propStreams, scopeOutput)
-	if len(b) < 4 {
+func streamLatency(dev uint32) (int, bool) { return firstStreamLatency(dev, scopeOutput) }
+
+// firstStreamLatency returns the latency of the device's first stream
+// of scope, and false where the device reports none.
+func firstStreamLatency(dev, scope uint32) (int, bool) {
+	b, err := getBytes(dev, propStreams, scope)
+	if err != nil || len(b) < 4 {
 		return 0, false
 	}
 	var lat uint32
@@ -264,7 +304,11 @@ func Open(c Config) (*Device, error) {
 	if f.formatID != formatLinearPCM || f.formatFlags&formatIsFloat == 0 || f.bitsPerChannel != 32 {
 		return nil, fmt.Errorf("coreaudio: %s takes no 32-bit float samples", d.info.Device)
 	}
-	d.chans = outputChannels(dev)
+	chans, err := outputChannels(dev)
+	if err != nil {
+		return nil, fmt.Errorf("%w, reading %s's outputs", err, d.info.Device)
+	}
+	d.chans = chans
 	for _, n := range d.chans {
 		d.info.Outputs += n
 	}
@@ -336,20 +380,38 @@ func Open(c Config) (*Device, error) {
 // waits a moment for it to change, as the device changes in its own
 // time.
 func (d *Device) setRate(rate int) {
+	if err := setRate(d.dev, rate, d.info.Device); err != nil && d.c.Log != nil {
+		d.c.Log("%v", err)
+	}
+}
+
+// rateSet are the rates the process last set the devices to. openMu
+// guards it.
+var rateSet = map[uint32]int{}
+
+// setRate sets device dev, called name, to rate, as Device.setRate
+// does, and returns why it stays at another.
+func setRate(dev uint32, rate int, name string) error {
 	var now float64
-	if rate <= 0 || !get(d.dev, propNominalSampleRate, scopeGlobal, &now) || int(math.Round(now)) == rate {
-		return
+	if rate <= 0 {
+		return nil
 	}
-	if st := set(d.dev, propNominalSampleRate, scopeGlobal, float64(rate)); st != noErr {
-		d.logf("%s refuses %d Hz: %d", d.info.Device, rate, st)
-		return
+	if !get(dev, propNominalSampleRate, scopeGlobal, &now) {
+		return fmt.Errorf("coreaudio: %s reports no rate", name)
 	}
+	if int(math.Round(now)) == rate {
+		return nil
+	}
+	if st := set(dev, propNominalSampleRate, scopeGlobal, float64(rate)); st != noErr {
+		return fmt.Errorf("coreaudio: %s refuses %d Hz: %d", name, rate, st)
+	}
+	rateSet[dev] = rate
 	for deadline := time.Now().Add(time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
-		if get(d.dev, propNominalSampleRate, scopeGlobal, &now) && int(math.Round(now)) == rate {
-			return
+		if get(dev, propNominalSampleRate, scopeGlobal, &now) && int(math.Round(now)) == rate {
+			return nil
 		}
 	}
-	d.logf("%s stays at %v Hz", d.info.Device, now)
+	return fmt.Errorf("coreaudio: %s stays at %v Hz in place of %d Hz", name, now, rate)
 }
 
 // A watched is a property a change of which opens the output again.
