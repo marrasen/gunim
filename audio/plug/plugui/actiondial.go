@@ -41,12 +41,18 @@ type ActionDial struct {
 	// pointer is on it, and glow how far it glows, as the task ends.
 	progress, hover, glow *anim.Float
 	tip                   widget.PartTip
+	// squash is how far it is pressed in; held says a press is on it, and size is how big it was laid out.
+	squash  *anim.Float
+	held    bool
+	clicker widget.Clicker
+	size    geom.Size
 }
 
 // NewActionDial returns a dial titled title, with ic on its cap.
 func NewActionDial(title string, ic *icon.Icon) *ActionDial {
-	d := &ActionDial{Title: title, Icon: ic, progress: anim.NewFloat(0), hover: anim.NewFloat(0), glow: anim.NewFloat(0)}
-	d.Add(d.progress, d.hover, d.glow)
+	d := &ActionDial{Title: title, Icon: ic, progress: anim.NewFloat(0), hover: anim.NewFloat(0), glow: anim.NewFloat(0),
+		squash: anim.NewFloat(0), clicker: widget.Clicker{Repeats: true}}
+	d.Add(d.progress, d.hover, d.glow, d.squash)
 	return d
 }
 
@@ -95,7 +101,8 @@ func (d *ActionDial) Step(dt time.Duration) bool { return d.Group.Step(dt) }
 
 // Layout implements [gunim.Node]: as big as a knob.
 func (d *ActionDial) Layout(c gunim.Constraints, _ gunim.Frame, _ gunim.Children) geom.Size {
-	return c.Constrain(geom.Sz(KnobW, KnobH))
+	d.size = c.Constrain(geom.Sz(KnobW, KnobH))
+	return d.size
 }
 
 // Paint implements [gunim.Node].
@@ -127,6 +134,8 @@ func (d *ActionDial) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gun
 	if t := float64(min(max(d.progress.Value(), 0), 1)); t > 0.005 {
 		arc(t, 3.5, accent)
 	}
+	// The cap presses in, as a button squashes.
+	popCap := p.Push(paint.Scale(1-0.1*d.squash.Value(), c))
 	p.ShadowRRect(geom.Rc(c.X-r+6, c.Y-r+6, 2*r-12, 2*r-12), r-6, paint.Fill{Gradient: &paint.Gradient{
 		From: geom.Pt(c.X, c.Y-r), To: geom.Pt(c.X, c.Y+r), Start: KnobCapTop.Get(th), End: KnobCapBottom.Get(th)}},
 		paint.Shadow{Offset: geom.Pt(0, 2), Blur: 4, Color: color.NRGBA{A: 0x90}})
@@ -138,6 +147,7 @@ func (d *ActionDial) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gun
 	} else if d.Icon != nil {
 		widget.PaintIcon(p, th, d.Icon, geom.Rc(c.X-7, c.Y-7, 14, 14), mark)
 	}
+	popCap()
 	name := audioui.Shaped(d.Title, text, false, false)
 	name.Paint(p, geom.Pt((box.W-name.Advance)/2, c.Y+r+4), audioui.Faded(ink, 0.6+0.3*hover))
 	val := audioui.Shaped(d.Value, text, false, true)
@@ -165,16 +175,32 @@ func (d *ActionDial) Handle(e input.Event, u *gunim.UI) bool {
 	switch e := e.(type) {
 	case input.PointerEnter:
 		d.hover.Animate(1, widget.Quick.Get(u.Theme()))
+		if d.held {
+			d.squash.Animate(1, widget.Quick.Get(u.Theme()))
+		}
 		return false
 	case input.PointerLeave:
 		d.hover.Animate(0, widget.Quick.Get(u.Theme()))
+		d.squash.Animate(0, widget.Bounce.Get(u.Theme()))
 		return false
 	case input.PointerDown:
 		if e.Button != input.ButtonPrimary {
 			return false
 		}
 		d.tip.Hide(u)
-		d.click(u)
+		d.held = true
+		d.clicker.Press(e, 0)
+		d.squash.Animate(1, widget.Quick.Get(u.Theme()))
+	case input.PointerUp:
+		if !d.held {
+			return false
+		}
+		d.held = false
+		d.squash.Animate(0, widget.Bounce.Get(u.Theme()))
+		// It acts on the release over it, so a press dragged away does nothing.
+		if d.clicker.Release(e, over(e.Pos, d.size)) {
+			d.click(u)
+		}
 	case input.KeyPress:
 		if e.Key != input.KeySpace && e.Key != input.KeyEnter {
 			return false
