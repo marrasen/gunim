@@ -98,10 +98,12 @@ func (p *Painter) Again(run Run) bool {
 			p.open = p.open[:len(p.open)-1]
 			p.ops = append(p.ops, &LayerEndOp{})
 		}
-		b := p.prevBounds[run.from+i]
+		b, sh := p.prevBounds[run.from+i], p.prevShows[run.from+i]
 		p.bounds = append(p.bounds, b)
+		p.shows = append(p.shows, sh)
 		for _, j := range p.open {
 			p.bounds[j] = p.bounds[j].Union(b)
+			p.shows[j] = p.shows[j].Union(sh)
 		}
 		if _, ok := p.ops[len(p.ops)-1].(*LayerOp); ok {
 			p.open = append(p.open, len(p.ops)-1)

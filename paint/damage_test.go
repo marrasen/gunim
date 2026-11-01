@@ -99,3 +99,69 @@ func TestDamageOfTheFirstFrameIsEverything(t *testing.T) {
 		t.Fatalf("damage %v, want Everything", rs)
 	}
 }
+
+// Ops that came early in a frame, more than the lookahead finds, damage
+// where they stand: the ops after them find their step again, and
+// damage nothing.
+func TestDamageFindsItsStepAfterManyOpsCame(t *testing.T) {
+	paint := func(extra int) func(p *Painter) {
+		return func(p *Painter) {
+			// A row of dots whose count changes, as particles on a wire.
+			for i := range extra {
+				p.RRect(geom.Rc(float32(10+i*3), 10, 2, 2), 0, light)
+			}
+			// Then a long still list below.
+			for i := range 500 {
+				p.RRect(geom.Rc(10, float32(100+i*2), 1000, 1), 0, dark)
+			}
+		}
+	}
+	rs := damageOf(paint(5), paint(40))
+	var all geom.Rect
+	for _, r := range rs {
+		all = all.Union(r)
+	}
+	if all.Max.Y > 20 {
+		t.Fatalf("35 dots that came damaged %v, want only the dots' row", rs)
+	}
+}
+
+// A layer's end paired out of step with another op, as at a frame's
+// tail where too few ops are left to look ahead, damages nothing of its
+// own: the window-sized layer round everything is not redrawn whole.
+func TestDamageOfALayerEndOutOfStepIsNotTheWholeLayer(t *testing.T) {
+	paint := func(words int) func(p *Painter) {
+		return func(p *Painter) {
+			end := p.Layer(LayerOpts{Bounds: geom.Rc(0, 0, 2000, 1000), Opacity: 1, Clip: true})
+			p.RRect(geom.Rc(0, 0, 2000, 1000), 0, dark)
+			// A readout at the end whose runs come and go.
+			for i := range words {
+				p.RRect(geom.Rc(float32(1800+i*10), 10, 8, 8), 0, light)
+			}
+			end()
+		}
+	}
+	for _, rs := range [][]geom.Rect{damageOf(paint(2), paint(4)), damageOf(paint(4), paint(2))} {
+		for _, r := range rs {
+			if s := r.Size(); s.W > 100 || s.H > 100 {
+				t.Fatalf("a readout's runs coming or going damaged %v, want only the readout", rs)
+			}
+		}
+	}
+}
+
+// What a clip cuts away damages nothing: a change scrolled out of sight
+// in a clipping layer leaves the frame undamaged.
+func TestDamageOutsideAClipIsNone(t *testing.T) {
+	paint := func(f Fill) func(p *Painter) {
+		return func(p *Painter) {
+			end := p.Layer(LayerOpts{Bounds: geom.Rc(0, 0, 100, 100), Opacity: 1, Clip: true})
+			p.RRect(geom.Rc(0, 0, 100, 100), 0, dark)
+			p.RRect(geom.Rc(500, 500, 10, 10), 0, f)
+			end()
+		}
+	}
+	if rs := damageOf(paint(dark), paint(light)); len(rs) != 0 {
+		t.Fatalf("a change cut away by the clip damaged %v", rs)
+	}
+}
