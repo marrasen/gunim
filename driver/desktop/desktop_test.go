@@ -82,6 +82,12 @@ func TestWindowPresentsAndReportsTheFrame(t *testing.T) {
 		case <-time.After(5 * time.Second):
 			t.Fatalf("frame %d was never reported shown", i)
 		}
+		// Its ops were let go before it was shown.
+		select {
+		case <-w.(driver.Releaser).Released():
+		default:
+			t.Fatalf("frame %d was shown, and its ops never released", i)
+		}
 	}
 }
 

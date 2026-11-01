@@ -63,8 +63,11 @@ type Window struct {
 	in        *inbox.Inbox
 	presented chan driver.Frame
 	frames    chan frame
-	quit      chan struct{}
-	done      chan struct{}
+	// released carries a token for each frame whose ops the render
+	// thread is done with ([driver.Releaser]).
+	released chan struct{}
+	quit     chan struct{}
+	done     chan struct{}
 	// closeOnce runs Close once; quitOnce closes quit once, whichever
 	// of Close and shutdown gets there first. They are separate so that
 	// shutdown, run on the main thread while Close waits for it, waits on
@@ -235,8 +238,9 @@ func newWindow(d *Driver, gw *glfw.Window) *Window {
 		d:         d,
 		opened:    time.Now(),
 		gw:        gw,
-		presented: make(chan driver.Frame, 1),
-		frames:    make(chan frame, 1),
+		presented: make(chan driver.Frame, 2),
+		frames:    make(chan frame, 2),
+		released:  make(chan struct{}, 2),
 		quit:      make(chan struct{}),
 		drew:      make(chan struct{}, 1),
 		done:      make(chan struct{}),
@@ -252,6 +256,11 @@ func newWindow(d *Driver, gw *glfw.Window) *Window {
 
 // Presented implements [driver.Window].
 func (w *Window) Presented() <-chan driver.Frame { return w.presented }
+
+// Released implements [driver.Releaser]: a frame's ops are let go once
+// it is drawn, before it waits for the vertical blank, so the engine
+// builds the next frame while this one waits to be shown.
+func (w *Window) Released() <-chan struct{} { return w.released }
 
 // Input implements [driver.Window].
 func (w *Window) Input() <-chan any { return w.in.Out() }
@@ -1175,6 +1184,19 @@ func (w *Window) render() {
 	// frame after, so they hold.
 	var sharpen <-chan time.Time
 	var again frame
+	// held says the ops of the frame drawn last are held for again,
+	// and not yet released: the engine records into them two frames on.
+	held := false
+	// release lets the ops go. The engine holds at most two frames
+	// unreleased, so the channel always has room for its tokens; a
+	// caller that hands frames and reads no tokens, as a test, has them
+	// dropped rather than holding up the render thread.
+	release := func() {
+		select {
+		case w.released <- struct{}{}:
+		default:
+		}
+	}
 	for {
 		var f frame
 		redraw := false
@@ -1184,8 +1206,21 @@ func (w *Window) render() {
 		case f = <-w.frames:
 		case <-sharpen:
 			f, redraw = again, true
+			// A frame come meanwhile is drawn instead: the engine may
+			// already be recording into the ops of the one held.
+			select {
+			case f = <-w.frames:
+				redraw = false
+			default:
+			}
 		}
 		sharpen = nil
+		taken := time.Now()
+		if !redraw && held {
+			// The frame held for again gives way to this one.
+			held, again = false, frame{}
+			release()
+		}
 		if r != nil {
 			r.Corner, r.Edge = w.cornerRadius()
 			w.mu.Lock()
@@ -1225,6 +1260,7 @@ func (w *Window) render() {
 				if framesDebug {
 					ft.skip(w, rate, fbW, fbH)
 				}
+				release()
 				select {
 				case w.presented <- driver.Frame{Shown: last}:
 				case <-w.quit:
@@ -1267,6 +1303,19 @@ func (w *Window) render() {
 				}
 				readback(pix, fbW, fbH)
 			}
+			// Drawn, the frame's ops are let go, unless they are held to
+			// draw it again sharp. The engine builds the next frame while
+			// this one waits for the vertical blank.
+			switch {
+			case sharpen != nil:
+				held = true
+			case redraw:
+				held = false
+				again = frame{}
+				release()
+			default:
+				release()
+			}
 			t1 := time.Now()
 			synced := vb.wait()
 			t2 := time.Now()
@@ -1279,7 +1328,7 @@ func (w *Window) render() {
 			}
 			if framesDebug {
 				ft.boxes = append(ft.boxes[:0], r.Boxes...)
-				ft.add(w, t1.Sub(t0), t2.Sub(t1), time.Since(t2), gpu, &r.Stats, rate, fbW, fbH, r.Converting())
+				ft.add(w, taken, t1.Sub(t0), t2.Sub(t1), time.Since(t2), gpu, &r.Stats, rate, fbW, fbH, r.Converting())
 			}
 			w.uncover()
 			if r.Edge != shownEdge {
@@ -1300,6 +1349,10 @@ func (w *Window) render() {
 			} else {
 				last = pace(last, rate)
 			}
+		}
+		if r == nil && !redraw {
+			// No renderer drew the frame, and none holds its ops.
+			release()
 		}
 		if redraw {
 			// The engine waits for none.
@@ -1335,15 +1388,22 @@ type frameTimes struct {
 	waitMax             time.Duration
 	gpu, gpuMax         time.Duration
 	sent                render.Stats
+	// shown is when the frame before was presented.
+	shown time.Time
 	// boxes are the device-pixel boxes the last frame redrew.
 	boxes []geom.Rect
 }
 
 // add counts a frame that took draw, wait and present, and logs the
 // second's sums once one has passed, with how many frames were left
-// undrawn meanwhile as unchanged. A frame is late where the three
-// together took longer than a refresh at rate.
-func (ft *frameTimes) add(w *Window, draw, wait, present, gpu time.Duration, sent *render.Stats, rate float64, fbW, fbH int, converting bool) {
+// undrawn meanwhile as unchanged. A frame is late where it missed a
+// refresh it was there in time for: shown more than a refresh and a half
+// after the frame before, though the render thread had it, taken at
+// taken, less than a refresh after that one was shown. The three
+// together may take longer than a refresh with none late, as a frame
+// built while the one before waits for the screen waits for its own
+// refresh in turn.
+func (ft *frameTimes) add(w *Window, taken time.Time, draw, wait, present, gpu time.Duration, sent *render.Stats, rate float64, fbW, fbH int, converting bool) {
 	ft.gpu += gpu
 	ft.gpuMax = max(ft.gpuMax, gpu)
 	ft.sent.Flushes += sent.Flushes
@@ -1365,9 +1425,13 @@ func (ft *frameTimes) add(w *Window, draw, wait, present, gpu time.Duration, sen
 	ft.drawMax = max(ft.drawMax, draw)
 	ft.waitMax = max(ft.waitMax, wait)
 	ft.presentMax = max(ft.presentMax, present)
-	if rate > 0 && draw+wait+present > time.Duration(float64(time.Second)/rate)*11/10 {
-		ft.late++
+	if rate > 0 && !ft.shown.IsZero() {
+		interval := time.Duration(float64(time.Second) / rate)
+		if now.Sub(ft.shown) > interval*3/2 && taken.Sub(ft.shown) < interval {
+			ft.late++
+		}
 	}
+	ft.shown = now
 	if now.Sub(ft.from) < time.Second {
 		return
 	}
@@ -1384,13 +1448,15 @@ func (ft *frameTimes) add(w *Window, draw, wait, present, gpu time.Duration, sen
 		100*ft.sent.Redrawn/float64(ft.n), float64(ft.sent.Boxes)/float64(ft.n),
 		ms(ft.sent.FlushTime/n), ms(ft.gpu/n), ms(ft.gpuMax), colour)
 	log.Printf("gunim frames %p redrew last: %v", w, ft.boxes)
-	*ft = frameTimes{from: now, boxes: ft.boxes}
+	*ft = frameTimes{from: now, boxes: ft.boxes, shown: ft.shown}
 }
 
 // skip counts a frame left undrawn as unchanged, and logs once a second
 // has passed with none drawn.
 func (ft *frameTimes) skip(w *Window, rate float64, fbW, fbH int) {
 	now := time.Now()
+	// It waited for its refresh as a frame shown does.
+	ft.shown = now
 	if ft.from.IsZero() {
 		ft.from = now
 	}
