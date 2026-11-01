@@ -267,7 +267,9 @@ func (u *UI) accessRequest(r access.Request) {
 		r.Part = at - 1
 	}
 	if r.Focus {
+		u.userFocus = true
 		u.Focus(s.node)
+		u.userFocus = false
 	}
 	if a, ok := s.node.(AccessActor); ok && (r.Action != "" || r.SetValue) {
 		u.on(s, func() { a.AccessAct(r, u) })

@@ -505,9 +505,9 @@ func (u *UI) focusAt(p geom.Point, touch bool) {
 				return
 			}
 			if pf, ok := s.node.(PressFocuser); !ok || pf.FocusOnPress() {
-				u.clicking = true
+				u.userFocus = true
 				u.Focus(s.node)
-				u.clicking = false
+				u.userFocus = false
 			}
 			return
 		}

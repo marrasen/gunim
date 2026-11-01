@@ -1649,10 +1649,10 @@ type UI struct {
 	focusStep   int
 	// mods are the modifier keys held, as the last input said, for the intents sent.
 	mods input.Mods
-	// keyed says a key press is being delivered, so focus it moves is keyed, and clicking that a press is moving
-	// the focus.
-	keyed    bool
-	clicking bool
+	// keyed says a key press is being delivered, so focus it moves is keyed, and userFocus that the user is moving
+	// the focus, by a press or through assistive technology.
+	keyed     bool
+	userFocus bool
 	// goingAway says the window is animating out, and leftAt is the frame
 	// it began in.
 	goingAway bool
@@ -2372,7 +2372,8 @@ func (u *UI) HasFocus(n Node) bool {
 // A node that is leaving takes no input, so focusing one does nothing.
 // Focus reports whether n took focus: false for a node leaving, or out
 // of the tree, which leaves focus where it was, and in an offscreen
-// window counts as a [Stray].
+// window counts as a [Stray]. It is false too for a node a [Modal] keeps
+// out, which takes the focus once the modal leaves, unless the user asked.
 func (u *UI) Focus(n Node) bool {
 	var next *state
 	if n != nil {
@@ -2387,6 +2388,9 @@ func (u *UI) Focus(n Node) bool {
 		// A modal keeps the keyboard. One in a scope takes it for what is
 		// focused under it from outside the scope.
 		if h, ok := u.holdFor(next); ok && !inside(next, h.s) {
+			if !u.userFocus {
+				u.focusAfter(h, next)
+			}
 			if h.scope == nil || u.focus != nil && inside(u.focus, h.scope) {
 				return false
 			}
@@ -2399,7 +2403,7 @@ func (u *UI) Focus(n Node) bool {
 	}
 	// Focused from code, a modal already holding the keyboard, as a dialog that gave it to its first field, keeps it
 	// where it is
-	if m, ok := n.(Modal); ok && m.Modal() && !u.clicking && u.focus != nil && u.focus.within(next) {
+	if m, ok := n.(Modal); ok && m.Modal() && !u.userFocus && u.focus != nil && u.focus.within(next) {
 		return true
 	}
 	if u.focus != nil {
