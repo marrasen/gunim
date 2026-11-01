@@ -41,6 +41,11 @@ type Power struct {
 	checked bool
 	on      *anim.Float
 	hover   *anim.Float
+	// squash is how far it is pressed in; held says a press is on it, and size is how big it was laid out.
+	squash *anim.Float
+	held   bool
+	click  widget.Clicker
+	size   geom.Size
 	// OnChange is called as a click changes it, with what it is now.
 	OnChange func(on bool, u *gunim.UI) gunim.Intent
 	// Name is what it switches, for its tooltip and for access.
@@ -50,8 +55,9 @@ type Power struct {
 
 // NewPower returns a power lamp, off, switching name.
 func NewPower(name string) *Power {
-	p := &Power{Name: name, on: anim.NewFloat(0), hover: anim.NewFloat(0)}
-	p.Add(p.on, p.hover)
+	p := &Power{Name: name, on: anim.NewFloat(0), hover: anim.NewFloat(0), squash: anim.NewFloat(0),
+		click: widget.Clicker{Repeats: true}}
+	p.Add(p.on, p.hover, p.squash)
 	return p
 }
 
@@ -74,13 +80,16 @@ func (p *Power) Step(dt time.Duration) bool { return p.Group.Step(dt) }
 
 // Layout implements [gunim.Node].
 func (p *Power) Layout(c gunim.Constraints, _ gunim.Frame, _ gunim.Children) geom.Size {
-	return c.Constrain(geom.Sz(PowerSize, PowerSize))
+	p.size = c.Constrain(geom.Sz(PowerSize, PowerSize))
+	return p.size
 }
 
 // Paint implements [gunim.Node].
 func (p *Power) Paint(pt *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
 	th := f.Theme
-	PaintPower(pt, geom.Pt(box.W/2, box.H/2), p.on.Value(), p.hover.Value(), widget.Accent.Get(th), widget.Ink.Get(th))
+	mid := geom.Pt(box.W/2, box.H/2)
+	defer pt.Push(paint.Scale(1-0.12*p.squash.Value(), mid))()
+	PaintPower(pt, mid, p.on.Value(), p.hover.Value(), widget.Accent.Get(th), widget.Ink.Get(th))
 }
 
 // tooltip says what a click does.
@@ -101,16 +110,32 @@ func (p *Power) Handle(e input.Event, u *gunim.UI) bool {
 	switch e := e.(type) {
 	case input.PointerEnter:
 		p.hover.Animate(1, widget.Quick.Get(u.Theme()))
+		if p.held {
+			p.squash.Animate(1, widget.Quick.Get(u.Theme()))
+		}
 		return false
 	case input.PointerLeave:
 		p.hover.Animate(0, widget.Quick.Get(u.Theme()))
+		p.squash.Animate(0, widget.Bounce.Get(u.Theme()))
 		return false
 	case input.PointerDown:
 		if e.Button != input.ButtonPrimary {
 			return false
 		}
 		p.tip.Hide(u)
-		p.toggle(u)
+		p.held = true
+		p.click.Press(e, 0)
+		p.squash.Animate(1, widget.Quick.Get(u.Theme()))
+	case input.PointerUp:
+		if !p.held {
+			return false
+		}
+		p.held = false
+		p.squash.Animate(0, widget.Bounce.Get(u.Theme()))
+		// It acts on the release over it, so a press dragged away does nothing.
+		if p.click.Release(e, over(e.Pos, p.size)) {
+			p.toggle(u)
+		}
 	case input.KeyPress:
 		if e.Key != input.KeySpace && e.Key != input.KeyEnter {
 			return false
@@ -150,4 +175,12 @@ func (p *Power) AccessAct(r access.Request, u *gunim.UI) bool {
 	}
 	p.toggle(u)
 	return true
+}
+
+// over is 0 for pos inside a part of size, and -1 elsewhere: the target a [widget.Clicker] takes.
+func over(pos geom.Point, size geom.Size) int {
+	if (geom.Rect{Max: size.Point()}).Contains(pos) {
+		return 0
+	}
+	return -1
 }
