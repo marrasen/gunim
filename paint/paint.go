@@ -322,7 +322,10 @@ func (p *Painter) DamageRects() []geom.Rect {
 					}
 				}
 				misses++
-			} else if wait--; wait <= 0 {
+			} else {
+				wait--
+			}
+			if misses >= 4 && wait <= 0 {
 				if k, k2, ok := p.resync(i, i1, j, j1, same); ok {
 					// The ops between came, and those before passed by
 					// went: the loop after damages those.
