@@ -4,6 +4,7 @@ package capture
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"os"
 	"testing"
@@ -69,6 +70,50 @@ func TestConverterChangesTheRateAndKeepsTheStamps(t *testing.T) {
 		}
 		if worst > 0.002 {
 			t.Errorf("%d to %d Hz: the tone is off by as much as %.4f", from, to, worst)
+		}
+	}
+}
+
+// The converter takes more than four of the device's frames to a frame
+// made, in blocks of every size, for ten seconds: it makes as many
+// frames as the rates say, of the tone taken in, and each frame's stamp
+// stays on when it came in.
+func TestConverterTakesLargeSteps(t *testing.T) {
+	for _, rates := range [][2]int{{192000, 44100}, {192000, 32000}, {48000, 8000}, {96000, 8000}} {
+		from, to := rates[0], rates[1]
+		step := float64(from) / float64(to)
+		for _, sizes := range [][]int{{1}, {3}, {5}, {64}, {512}, {4096}, {1, 7, 128, 513, 2, 64, 3}} {
+			t.Run(fmt.Sprintf("%d to %d in %v", from, to, sizes), func(t *testing.T) {
+				c := newConverter(2, from, to, 512)
+				made, in, late, off := 0, 0, 0.0, 0.0
+				for blk := 0; in < 10*from; blk++ {
+					k := sizes[blk%len(sizes)]
+					now := in + k
+					c.convert(sine(in, k, 100, float64(from)), k, func(out []float32, ago int64) {
+						// Frame made is frame made*step taken in, which came
+						// in now-made*step frames ago.
+						want := (float64(now) - float64(made)*step) / step
+						late = max(late, math.Abs(float64(ago)-want))
+						for i := range len(out) / 2 {
+							if o := made + i; o >= 4 {
+								tone := 0.5 * math.Sin(2*math.Pi*100*float64(o)*step/float64(from))
+								off = max(off, math.Abs(float64(out[2*i])-tone))
+							}
+						}
+						made += len(out) / 2
+					})
+					in = now
+				}
+				if late > 1 {
+					t.Errorf("a stamp is off by %.2f frames", late)
+				}
+				if off > 0.002 {
+					t.Errorf("the tone is off by as much as %.4f", off)
+				}
+				if want := float64(in) / step; math.Abs(float64(made)-want) > 3/step+1 {
+					t.Errorf("made %d frames of %d, want %.0f", made, in, want)
+				}
+			})
 		}
 	}
 }

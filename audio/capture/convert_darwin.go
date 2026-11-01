@@ -17,7 +17,7 @@ type converter struct {
 	step float64
 	// most is how many frames convert takes in at once; held keeps the
 	// last frames taken in, n of them, before the next; at is where the
-	// next frame made falls among them.
+	// next frame made falls among them, or past them, where step is large.
 	most int
 	held []float32
 	n    int
@@ -66,8 +66,9 @@ func (c *converter) convert(frames []float32, ago int, put func(in []float32, ag
 			lag := float64(ago) - (start - float64(first))
 			put(c.out[:made*ch], int64(math.Round(lag/c.step)))
 		}
-		// Keep the frame before the next to make, and those after.
-		drop := int(c.at) - 1
+		// Keep the frame before the next to make, and those after; at
+		// past them all skips the frames between in the next call.
+		drop := min(int(c.at)-1, c.n)
 		copy(c.held, c.held[drop*ch:c.n*ch])
 		c.n -= drop
 		c.at -= float64(drop)
