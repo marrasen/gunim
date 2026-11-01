@@ -71,7 +71,7 @@ func TestWindowPresentsAndReportsTheFrame(t *testing.T) {
 		Transform: paint.Identity,
 	}}
 	for i := range 3 {
-		if err := w.Present(ops, geom.Rect{}); err != nil {
+		if err := w.Present(ops, nil); err != nil {
 			t.Fatalf("frame %d: %v", i, err)
 		}
 		select {
@@ -160,7 +160,7 @@ func TestBackdropFramesStayUpright(t *testing.T) {
 		// Several frames, since the flip came and went from frame to
 		// frame.
 		for i := range 4 {
-			if err := w.Present(ops, geom.Rect{}); err != nil {
+			if err := w.Present(ops, nil); err != nil {
 				t.Fatal(err)
 			}
 			var f frame
@@ -211,7 +211,7 @@ func TestEachWindowTakesItsMonitorsRate(t *testing.T) {
 		go func() {
 			deadline := time.Now().Add(time.Second)
 			for time.Now().Before(deadline) {
-				if err := w.Present(nil, geom.Rect{}); err != nil {
+				if err := w.Present(nil, nil); err != nil {
 					break
 				}
 				<-w.Presented()
@@ -253,7 +253,7 @@ func TestAShotIsTheFrameTheRightWayUp(t *testing.T) {
 		&paint.RRectOp{Rect: geom.Rect{Max: size.Point()}, Fill: paint.Solid(color.NRGBA{A: 0xff}), Transform: paint.Identity},
 		&paint.RRectOp{Rect: geom.Rect{Max: geom.Pt(size.W, size.H/2)}, Fill: paint.Solid(color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}), Transform: paint.Identity},
 	}
-	if err := w.Present(ops, geom.Rect{}); err != nil {
+	if err := w.Present(ops, nil); err != nil {
 		t.Fatal(err)
 	}
 	var img *image.RGBA

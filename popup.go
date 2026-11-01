@@ -392,7 +392,7 @@ func (u *UI) framePopup(s *surface, f Frame) {
 		s.stale = true
 		return
 	}
-	if err := s.dw.Present(pp.Ops(), paint.Everything); err != nil {
+	if err := s.dw.Present(pp.Ops(), everything); err != nil {
 		u.w.err = fmt.Errorf("gunim: present popup: %w", err)
 		u.closePopup(s)
 		return
@@ -1004,3 +1004,7 @@ func withPos(ev input.Event, p geom.Point) input.Event {
 	}
 	return ev
 }
+
+// everything is the damage of a popup's frame: a popup draws all of
+// itself every frame.
+var everything = []geom.Rect{paint.Everything}

@@ -21,5 +21,5 @@ type presenter struct{}
 func (w *Window) startPresenter(gl.Context) (*presenter, error) { return nil, errNoDXGI }
 
 func (p *presenter) begin(int, int) (uint32, error) { return 0, errNoDXGI }
-func (p *presenter) present(geom.Rect) error        { return errNoDXGI }
+func (p *presenter) present([]geom.Rect) error      { return errNoDXGI }
 func (p *presenter) close()                         {}

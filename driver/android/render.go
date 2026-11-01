@@ -211,7 +211,7 @@ func (d *Driver) frame(g gl.Context, shared *render.Shared, c *compositor) {
 		} else {
 			w.r.WindowFBO, w.onTex = w.fbo, true
 		}
-		w.r.Draw(j.f.ops, j.f.damage, j.fbW, j.fbH, scale)
+		w.r.DrawRects(j.f.ops, j.f.damage, j.fbW, j.fbH, scale)
 		d.sharpenAt(w, w.r.SharpAt)
 		if j.shot != nil {
 			g.BindFramebuffer(gl.FRAMEBUFFER, w.r.WindowFBO)

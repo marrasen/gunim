@@ -452,7 +452,7 @@ type watched struct {
 	given, copies [][]paint.Op
 }
 
-func (w *watched) Present(ops []paint.Op, damage geom.Rect) error {
+func (w *watched) Present(ops []paint.Op, damage []geom.Rect) error {
 	err := w.OffscreenWindow.Present(ops, damage)
 	w.given, w.copies = append(w.given, ops), append(w.copies, w.Ops())
 	return err

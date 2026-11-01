@@ -44,8 +44,9 @@ type OffscreenWindow struct {
 	// drawnSize, drawnScale and drawnZoom are the size, scale and zoom the last frame was presented at.
 	drawnSize             geom.Size
 	drawnScale, drawnZoom float32
-	// damage is the part of the window the last frame changed.
-	damage geom.Rect
+	// damage is the part of the window the last frame changed, as
+	// rectangles apart.
+	damage []geom.Rect
 	// cursor is the pointer's shape last set.
 	cursor input.Cursor
 	clip   string
@@ -250,14 +251,14 @@ func (w *OffscreenWindow) Tick() { w.presented <- Frame{Shown: time.Now()} }
 func (w *OffscreenWindow) Post(ev any) { w.input <- ev }
 
 // Present implements [Window] by keeping the op list and the damage.
-func (w *OffscreenWindow) Present(ops []paint.Op, damage geom.Rect) error {
+func (w *OffscreenWindow) Present(ops []paint.Op, damage []geom.Rect) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	// The engine reuses its buffers, the ops themselves among them, two
 	// frames on, so keep a copy for Ops to return.
 	w.ops = keepOps(ops)
 	w.drawnSize, w.drawnScale, w.drawnZoom = w.size, w.scale, w.zoom
-	w.damage = damage
+	w.damage = append(w.damage[:0], damage...)
 	return nil
 }
 
@@ -326,7 +327,21 @@ func (w *OffscreenWindow) Damage() geom.Rect {
 	w.looked()
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return w.damage
+	var all geom.Rect
+	for _, r := range w.damage {
+		all = all.Union(r)
+	}
+	return all
+}
+
+// DamageRects returns the rectangles apart the last frame changed in,
+// in logical pixels, as the engine gave them: none when it changed
+// nothing.
+func (w *OffscreenWindow) DamageRects() []geom.Rect {
+	w.looked()
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return slices.Clone(w.damage)
 }
 
 // Ops returns the commands recorded by the last frame.

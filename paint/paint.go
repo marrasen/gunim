@@ -37,6 +37,8 @@ type Painter struct {
 	hasPrev    bool
 	blurs      bool
 	prevBlurs  bool
+	// dmg gathers the damage [Painter.DamageRects] returns.
+	dmg damage
 	// open holds the index of each layer open, innermost last.
 	open  []int
 	stack []Transform
@@ -223,11 +225,33 @@ var lookAhead = [...]int{1, 2, 3, 4, 5, 6, 7, 8}
 // ops ahead on either side for the two to match again, so a few ops that
 // came or went, as a meter lighting more of its lights draws, damage
 // where they stand, and not every op after them.
+//
+// It is the rectangle round [Painter.DamageRects].
 func (p *Painter) Damage() geom.Rect {
-	if !p.hasPrev || p.blurs || p.prevBlurs || p.tilts || p.prevTilts {
-		return Everything
+	var all geom.Rect
+	for _, r := range p.DamageRects() {
+		all = all.Union(r)
 	}
-	var d geom.Rect
+	return all
+}
+
+// DamageRects returns the damage as at most [MaxDamageRects]
+// rectangles, apart, so a frame that changes two places far from each
+// other, as a playhead at the top of a window and a meter at its
+// bottom, redraws those two and not everything between them. Changes
+// that touch or lie near each other share a rectangle. It returns none
+// for a frame that changed nothing, and [Everything] alone where
+// [Painter.Damage] is Everything.
+//
+// The slice is the painter's, and holds until the next call: a driver
+// keeps it with the ops until the frame is shown.
+func (p *Painter) DamageRects() []geom.Rect {
+	d := &p.dmg
+	d.reset()
+	if !p.hasPrev || p.blurs || p.prevBlurs || p.tilts || p.prevTilts {
+		d.rs = append(d.rs, Everything)
+		return d.rs
+	}
 	// matched marks the ops of the frame before that this frame's match;
 	// the rest went, and damage where they stood.
 	p.matched = slices.Grow(p.matched[:0], len(p.prev))[:len(p.prev)]
@@ -257,7 +281,7 @@ func (p *Painter) Damage() geom.Rect {
 				}
 				if k := slices.IndexFunc(lookAhead[:], func(k int) bool { return in(i+k, i1, j, j1) }); k >= 0 {
 					for range lookAhead[k] {
-						d = d.Union(p.bounds[i])
+						d.add(p.bounds[i])
 						i++
 					}
 					continue
@@ -265,11 +289,12 @@ func (p *Painter) Damage() geom.Rect {
 				misses++
 			}
 			p.matched[j] = true
-			d = d.Union(p.bounds[i]).Union(p.prevBounds[j])
+			d.add(p.bounds[i])
+			d.add(p.prevBounds[j])
 			i, j = i+1, j+1
 		}
 		for ; i < i1; i++ {
-			d = d.Union(p.bounds[i])
+			d.add(p.bounds[i])
 		}
 	}
 	i, j := 0, 0
@@ -288,10 +313,10 @@ func (p *Painter) Damage() geom.Rect {
 
 	for k, ok := range p.matched {
 		if !ok {
-			d = d.Union(p.prevBounds[k])
+			d.add(p.prevBounds[k])
 		}
 	}
-	return d
+	return d.rects()
 }
 
 // sameOp reports whether two ops draw the same thing.

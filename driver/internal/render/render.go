@@ -130,9 +130,15 @@ type Renderer struct {
 	// quicker when most of it changed: it saves the copy. big says the
 	// frame before changed most of the window too.
 	direct, big bool
-	// Redrawn is the device-pixel area the last frame redrew, for
-	// tests.
+	// Redrawn is the device-pixel area round all the last frame
+	// redrew, for tests, and Boxes the boxes apart it redrew, each in a
+	// pass of its own, for the dirty rectangles a driver presents.
 	Redrawn geom.Rect
+	Boxes   []geom.Rect
+	// damage and boxes are the frame's damage and its device boxes,
+	// kept from frame to frame for their room.
+	damage, boxes []geom.Rect
+	one           [1]geom.Rect
 	// Stretched is the logical-pixel area where the last frame drew a
 	// big mask stretched, while its size changed, and SharpAt when a
 	// frame draws it sharp. The next frame redraws the area whatever
@@ -777,6 +783,15 @@ func (r *Renderer) Unchanged(damage geom.Rect, fbW, fbH int, scale float32) bool
 // area that changed since the last frame, and copies the canvas to the
 // window.
 func (r *Renderer) Draw(ops []paint.Op, damage geom.Rect, fbW, fbH int, scale float32) {
+	r.one[0] = damage
+	r.DrawRects(ops, r.one[:], fbW, fbH, scale)
+}
+
+// DrawRects is [Renderer.Draw] for damage as rectangles apart
+// ([paint.Painter.DamageRects]). Each is a pass over the ops, which
+// draws only what touches it, so two small changes far apart cost two
+// small redraws, not the window between them.
+func (r *Renderer) DrawRects(ops []paint.Op, damage []geom.Rect, fbW, fbH int, scale float32) {
 	if fbW <= 0 || fbH <= 0 {
 		return
 	}
@@ -787,8 +802,9 @@ func (r *Renderer) Draw(ops []paint.Op, damage geom.Rect, fbW, fbH int, scale fl
 		r.now = r.clock()
 	}
 	// What the last frame drew stretched is drawn again, to be sharp.
+	r.damage = append(r.damage[:0], damage...)
 	if !r.Stretched.Empty() {
-		damage = damage.Union(r.Stretched)
+		r.damage = append(r.damage, r.Stretched)
 		r.Stretched, r.SharpAt = geom.Rect{}, time.Time{}
 	}
 	r.bigs.newFrame()
@@ -804,11 +820,18 @@ func (r *Renderer) Draw(ops []paint.Op, damage geom.Rect, fbW, fbH int, scale fl
 		// A blur spreads a change past its bounds, and a backdrop reads
 		// what the canvas holds.
 		if l, ok := op.(*paint.LayerOp); ok && (l.Opts.Backdrop > 0 || l.Opts.Blur > 0) {
-			damage = paint.Everything
+			r.damage = append(r.damage[:0], paint.Everything)
 			backdrop = backdrop || l.Opts.Backdrop > 0
 		}
 	}
-	box := r.deviceBox(damage)
+	boxes := r.deviceBoxes(r.damage)
+	box := geom.Rect{}
+	var redrawn float32
+	for _, b := range boxes {
+		box = box.Union(b)
+		s := b.Size()
+		redrawn += s.W * s.H
+	}
 	window := geom.Rect{Max: geom.Pt(float32(fbW), float32(fbH))}
 	// A frame that changed more than half the window, after one that
 	// did too, goes straight to it, unless it needs the canvas for a
@@ -817,14 +840,17 @@ func (r *Renderer) Draw(ops []paint.Op, damage geom.Rect, fbW, fbH int, scale fl
 	// is kept, since big frames between small ones, as an animation's
 	// between the breaths of a mark beside it, would each leave the
 	// next small one to draw the whole window.
-	s, ws := box.Size(), window.Size()
-	big := s.W*s.H > ws.W*ws.H/2
+	ws := window.Size()
+	big := redrawn > ws.W*ws.H/2
 	r.direct = !backdrop && !r.FlipWindow && big && r.big && r.Corner == 0 && r.color.lut == nil
 	r.big = big
 	if r.fit(&r.layers[0]) || !r.canvasOK || scale != r.canvasScale {
 		if !r.direct {
 			box = window
 		}
+	}
+	if box == window || len(boxes) == 0 {
+		boxes = append(boxes[:0], box)
 	}
 	r.Redrawn = box
 	if r.color.changed {
@@ -835,7 +861,16 @@ func (r *Renderer) Draw(ops []paint.Op, damage geom.Rect, fbW, fbH int, scale fl
 	if r.direct {
 		// Straight to the window, which holds nothing after a swap.
 		box = window
+		boxes = append(boxes[:0], box)
 		r.canvasOK = false
+	}
+	r.Boxes = append(r.Boxes[:0], boxes...)
+	if framesDebug && !box.Empty() {
+		r.Stats.Boxes += len(boxes)
+		for _, b := range boxes {
+			s := b.Size()
+			r.Stats.Redrawn += float64(s.W*s.H) / float64(ws.W*ws.H)
+		}
 	}
 	g.BindFramebuffer(gl.FRAMEBUFFER, r.fbo(0))
 	g.Viewport(0, 0, int32(fbW), int32(fbH))
@@ -848,19 +883,30 @@ func (r *Renderer) Draw(ops []paint.Op, damage geom.Rect, fbW, fbH int, scale fl
 		clearWindow(g, bg, alpha)
 	}
 	if !box.Empty() {
-		r.setClip(box)
-		g.Clear(glColorBufferBit)
-		g.ClearColor(0, 0, 0, 0)
-		// What lies outside the box, or outside the clip it is drawn
-		// under, is dropped before it reaches the GPU: on a whole frame
-		// too, as a long list in a scroll sends thousands of glyphs the
-		// clip would only have cut. A layer draws into a target the
-		// window's size, in the window's pixels, and anything it blurs
-		// was cut to the clip first, so the test holds inside one too.
-		r.cull = box
-		r.replay(ops)
-		r.flush()
-		r.cull = geom.Rect{}
+		// Each box is a pass of its own: cleared, and every op that
+		// touches it drawn again, cut to it. A pixel outside every box
+		// keeps what the canvas holds.
+		for i, b := range boxes {
+			if i > 0 {
+				r.stack, r.depth = r.stack[:0], 0
+				r.ellipse = clipEllipse{}
+				r.scratchX = 0
+				r.bindDraw()
+			}
+			r.setClip(b)
+			g.Clear(glColorBufferBit)
+			g.ClearColor(0, 0, 0, 0)
+			// What lies outside the box, or outside the clip it is drawn
+			// under, is dropped before it reaches the GPU: on a whole frame
+			// too, as a long list in a scroll sends thousands of glyphs the
+			// clip would only have cut. A layer draws into a target the
+			// window's size, in the window's pixels, and anything it blurs
+			// was cut to the clip first, so the test holds inside one too.
+			r.cull = b
+			r.replay(ops)
+			r.flush()
+			r.cull = geom.Rect{}
+		}
 		r.setClip(window)
 	}
 	if !r.direct {
@@ -967,6 +1013,33 @@ func (r *Renderer) shape() (rect geom.Rect, radius float32) {
 	return geom.Rect{Min: geom.Pt(w.Min.X+e, w.Min.Y+e), Max: geom.Pt(w.Max.X-e, w.Max.Y-e)}, max(r.Corner-r.Edge, 0) / r.scale
 }
 
+// deviceBoxes turns damage in logical pixels into the whole device
+// pixels each rectangle touches, within the window, leaving out the
+// empty ones and merging those that overlap once grown to whole pixels,
+// so no pixel is drawn twice.
+func (r *Renderer) deviceBoxes(ds []geom.Rect) []geom.Rect {
+	bs := r.boxes[:0]
+	for _, d := range ds {
+		b := r.deviceBox(d)
+		if b.Empty() {
+			continue
+		}
+		for i := 0; i < len(bs); {
+			if q := bs[i]; q.Min.X < b.Max.X && b.Min.X < q.Max.X && q.Min.Y < b.Max.Y && b.Min.Y < q.Max.Y {
+				b = q.Union(b)
+				bs[i] = bs[len(bs)-1]
+				bs = bs[:len(bs)-1]
+				i = 0
+				continue
+			}
+			i++
+		}
+		bs = append(bs, b)
+	}
+	r.boxes = bs
+	return bs
+}
+
 // deviceBox turns damage in logical pixels into the whole device pixels
 // it touches, within the window.
 func (r *Renderer) deviceBox(d geom.Rect) geom.Rect {
@@ -982,7 +1055,14 @@ func (r *Renderer) deviceBox(d geom.Rect) geom.Rect {
 
 // replay queues ops into the canvas.
 func (r *Renderer) replay(ops []paint.Op) {
-	for _, op := range ops {
+	for i := 0; i < len(ops); i++ {
+		op := ops[i]
+		if l, ok := op.(*paint.LayerOp); ok && r.culled(l) {
+			// A layer that clips to a box wholly outside what the frame
+			// redraws draws nothing there, nor does anything in it.
+			i = layerEnd(ops, i)
+			continue
+		}
 		if _, ok := op.(*paint.CellsOp); !ok && r.cellsState.pending != nil {
 			// The cells first, with the glyphs that spill out of them,
 			// beneath whatever comes after them, as a cursor.
@@ -1015,10 +1095,42 @@ func (r *Renderer) replay(ops []paint.Op) {
 	}
 }
 
+// culled reports whether layer op, and all inside it, lies outside what
+// a frame drawn in part redraws: it clips to an upright box, blurs
+// nothing, and the box misses the part redrawn.
+func (r *Renderer) culled(op *paint.LayerOp) bool {
+	o := op.Opts
+	if r.cull.Empty() || !o.Clip || o.Blur > 0 || o.Backdrop > 0 || tilted(op) {
+		return false
+	}
+	return r.outside(r.region(op, true))
+}
+
+// layerEnd returns the index of the op that closes the layer ops[i]
+// opens, or the last op for a layer never closed.
+func layerEnd(ops []paint.Op, i int) int {
+	depth := 0
+	for j := i; j < len(ops); j++ {
+		switch ops[j].(type) {
+		case *paint.LayerOp:
+			depth++
+		case *paint.LayerEndOp:
+			depth--
+			if depth == 0 {
+				return j
+			}
+		}
+	}
+	return len(ops) - 1
+}
+
 // Stats counts what frames send the GPU, while GUNIM_DEBUG_FRAMES is
-// set: draw calls, quads, the bytes of their vertices, and layers.
+// set: draw calls, quads, the bytes of their vertices, and layers; and
+// the boxes the frames redrew, and their share of the window, summed.
 type Stats struct {
 	Flushes, Quads, Bytes, Layers int
+	Boxes                         int
+	Redrawn                       float64
 	// FlushTime is spent handing vertices and draws to the driver.
 	FlushTime time.Duration
 }

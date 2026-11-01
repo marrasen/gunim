@@ -62,7 +62,7 @@ func TestAnOffscreenWindowKeepsAFrameAsItWasPresented(t *testing.T) {
 	var p, alone paint.Painter
 	g := newGame(mesh)
 	g.frame(&p, 1)
-	if err := w.Present(p.Ops(), paint.Everything); err != nil {
+	if err := w.Present(p.Ops(), []geom.Rect{paint.Everything}); err != nil {
 		t.Fatal(err)
 	}
 	kept := w.Ops()
@@ -75,7 +75,7 @@ func TestAnOffscreenWindowKeepsAFrameAsItWasPresented(t *testing.T) {
 	// the painter's and the game's.
 	for n := 2; n < 6; n++ {
 		g.frame(&p, n)
-		if err := w.Present(p.Ops(), paint.Everything); err != nil {
+		if err := w.Present(p.Ops(), []geom.Rect{paint.Everything}); err != nil {
 			t.Fatal(err)
 		}
 		if !reflect.DeepEqual(kept, alone.Ops()) {

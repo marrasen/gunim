@@ -232,13 +232,16 @@ type Window interface {
 	Input() <-chan any
 
 	// Present hands a frame to the render thread and returns at once;
-	// the display takes it later. damage is the region that changed,
-	// which a driver may use to present just that part of the surface.
+	// the display takes it later. damage is the region that changed, as
+	// a few rectangles apart ([paint.Painter.DamageRects]), none where
+	// nothing did, which a driver may use to redraw and present just
+	// those parts of the surface. Like ops, it is the driver's until the
+	// frame is shown.
 	//
 	// ops belong to the driver until the matching Frame arrives on
 	// Presented; the engine records the next frame into the same
 	// buffers only after that.
-	Present(ops []paint.Op, damage geom.Rect) error
+	Present(ops []paint.Op, damage []geom.Rect) error
 
 	// Size is the current size in logical pixels, and Scale is device
 	// pixels per logical pixel on the monitor the window is on.

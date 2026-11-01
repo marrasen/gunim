@@ -2757,7 +2757,7 @@ func (u *UI) paintFrame(fp framePaint) {
 		u.root.node.Paint(&u.painter, f, u.root.size, Children{ns: u.root.kids, f: f, s: u.root})
 		u.painter.PaintFloats()
 	}()
-	if err := u.w.dw.Present(u.painter.Ops(), u.painter.Damage()); err != nil {
+	if err := u.w.dw.Present(u.painter.Ops(), u.painter.DamageRects()); err != nil {
 		u.w.err = fmt.Errorf("gunim: present frame: %w", err)
 		u.w.Close()
 	}

@@ -258,7 +258,7 @@ func (w *Window) Input() <-chan any { return w.in.Out() }
 
 // Present implements [driver.Window]. It hands ops to the render thread
 // and returns at once.
-func (w *Window) Present(ops []paint.Op, damage geom.Rect) error {
+func (w *Window) Present(ops []paint.Op, damage []geom.Rect) error {
 	w.mu.Lock()
 	err := w.err
 	w.mu.Unlock()
@@ -1124,7 +1124,7 @@ func shotBack(was func([]byte, int, int), shot func(*image.RGBA)) func([]byte, i
 // the window that changed since the frame before.
 type frame struct {
 	ops    []paint.Op
-	damage geom.Rect
+	damage []geom.Rect
 }
 
 // render is the window's render thread. It owns the GL context: it
@@ -1211,7 +1211,7 @@ func (w *Window) render() {
 				log.Printf("gunim frames %p colour: %v", w, colorInfo)
 			}
 			if readback == nil && !redraw && !lost && r.Corner == shownCorner && r.Edge == shownEdge &&
-				r.Under == shownUnder && r.Unchanged(f.damage, fbW, fbH, scale) {
+				r.Under == shownUnder && r.Unchanged(damageBounds(f.damage), fbW, fbH, scale) {
 				// Nothing on screen would change: the window keeps the
 				// frame it shows, and this one is neither drawn nor
 				// presented. It still waits for the vertical blank, so
@@ -1241,7 +1241,7 @@ func (w *Window) render() {
 				}
 				r.WindowFBO = fbo
 			}
-			r.Draw(f.ops, f.damage, fbW, fbH, scale)
+			r.DrawRects(f.ops, f.damage, fbW, fbH, scale)
 			if !r.Stretched.Empty() {
 				again = frame{ops: f.ops}
 				sharpen = time.After(time.Until(r.SharpAt))
@@ -1271,7 +1271,7 @@ func (w *Window) render() {
 			synced := vb.wait()
 			t2 := time.Now()
 			if w.pres != nil {
-				if err := w.pres.present(r.Redrawn); err != nil {
+				if err := w.pres.present(r.Boxes); err != nil {
 					w.fail(err)
 				}
 			} else if err := w.gw.SwapBuffers(); err != nil {
@@ -1348,6 +1348,8 @@ func (ft *frameTimes) add(w *Window, draw, wait, present, gpu time.Duration, sen
 	ft.sent.Bytes += sent.Bytes
 	ft.sent.Layers += sent.Layers
 	ft.sent.FlushTime += sent.FlushTime
+	ft.sent.Boxes += sent.Boxes
+	ft.sent.Redrawn += sent.Redrawn
 	*sent = render.Stats{}
 	now := time.Now()
 	if ft.from.IsZero() {
@@ -1374,8 +1376,9 @@ func (ft *frameTimes) add(w *Window, draw, wait, present, gpu time.Duration, sen
 	if converting {
 		colour = "converted to the display's profile"
 	}
-	log.Printf("gunim frames %p sent each frame: %d quads, %.1f MB in %d draws, %d layers; handing them over took %.1f ms; gpu %.1f ms (max %.1f); colour %s",
+	log.Printf("gunim frames %p sent each frame: %d quads, %.1f MB in %d draws, %d layers; redrawn %.1f%% in %.1f boxes; handing them over took %.1f ms; gpu %.1f ms (max %.1f); colour %s",
 		w, ft.sent.Quads/ft.n, float64(ft.sent.Bytes)/float64(ft.n)/1e6, ft.sent.Flushes/ft.n, ft.sent.Layers/ft.n,
+		100*ft.sent.Redrawn/float64(ft.n), float64(ft.sent.Boxes)/float64(ft.n),
 		ms(ft.sent.FlushTime/n), ms(ft.gpu/n), ms(ft.gpuMax), colour)
 	*ft = frameTimes{from: now}
 }
@@ -1630,4 +1633,13 @@ func (w *Window) debugf(format string, args ...any) {
 		return
 	}
 	fmt.Fprintf(os.Stderr, "gunim window %p %6.1f ms: %s\n", w, float64(time.Since(w.opened).Microseconds())/1000, fmt.Sprintf(format, args...))
+}
+
+// damageBounds is the rectangle round rs, empty for none.
+func damageBounds(rs []geom.Rect) geom.Rect {
+	var all geom.Rect
+	for _, r := range rs {
+		all = all.Union(r)
+	}
+	return all
 }

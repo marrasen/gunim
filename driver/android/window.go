@@ -89,7 +89,7 @@ type Window struct {
 // frame is one frame for the render thread.
 type frame struct {
 	ops    []paint.Op
-	damage geom.Rect
+	damage []geom.Rect
 }
 
 func newWindow(d *Driver, o driver.Options) *Window {
@@ -123,7 +123,7 @@ func (w *Window) Input() <-chan any { return w.in.Out() }
 
 // Present implements [driver.Window]. It leaves the frame for the
 // render thread, which draws it with the next frame of the surface.
-func (w *Window) Present(ops []paint.Op, damage geom.Rect) error {
+func (w *Window) Present(ops []paint.Op, damage []geom.Rect) error {
 	w.d.mu.Lock()
 	if w.closed {
 		w.d.mu.Unlock()
