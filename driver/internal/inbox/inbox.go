@@ -14,7 +14,7 @@ import (
 // channel. So the platform's thread, which pumps events for every
 // window, always hands input over at once, and a window slow to read
 // its input leaves the others running. Pointer moves queued back to back
-// arrive as the last of them.
+// with the same modifiers arrive as the last of them.
 type Inbox struct {
 	out  chan any
 	quit <-chan struct{}
@@ -103,7 +103,7 @@ func (q *Inbox) send(ev any) bool {
 }
 
 // lastMove returns the newest of the pointer moves queued right after ev, dropping the ones before it, or ev itself
-// when ev is no pointer move. It runs with q.mu held.
+// when ev is not a pointer move. It runs with q.mu held.
 func (q *Inbox) lastMove(ev any) any {
 	m, ok := ev.(input.PointerMove)
 	if !ok {

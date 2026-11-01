@@ -65,10 +65,28 @@ func TestInboxSwapsAWaitingMove(t *testing.T) {
 	quit := make(chan struct{})
 	defer close(quit)
 	q := New(quit)
-	for x := range 4 {
-		q.Push(input.PointerMove{Pos: geom.Pt(float32(x), 0)})
-		time.Sleep(10 * time.Millisecond)
+	drained := func() {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			q.mu.Lock()
+			n := len(q.items)
+			q.mu.Unlock()
+			if n == 0 {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("%d events still queued", n)
+			}
+			time.Sleep(time.Millisecond)
+		}
 	}
+	q.Push(input.PointerMove{Pos: geom.Pt(0, 0)})
+	drained()
+	for x := 1; x < 4; x++ {
+		q.Push(input.PointerMove{Pos: geom.Pt(float32(x), 0)})
+	}
+	drained()
 	q.Close()
 
 	var got []any
