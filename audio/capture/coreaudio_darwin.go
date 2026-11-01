@@ -4,6 +4,7 @@ package capture
 
 import (
 	"errors"
+	"fmt"
 	"sync/atomic"
 	"time"
 
@@ -59,12 +60,15 @@ func openSystem(s *Stream, id string, rate int, buffer time.Duration) (format, e
 		rate = info.Rate
 	}
 	scale := func(n int) int { return int(int64(n) * int64(rate) / int64(max(info.Rate, 1))) }
+	problem := info.Problem
 	if rate != info.Rate {
 		b.conv = newConverter(info.Channels, info.Rate, rate, maxBlock)
+		problem = errors.Join(fmt.Errorf("capture: %s records at %d Hz, converted to %d Hz", info.Device, info.Rate,
+			rate), problem)
 	}
 	s.b = b
 	return format{name: info.Device, channels: info.Channels, rate: rate, buffer: max(1, scale(info.Buffer)),
-		latency: scale(info.Latency)}, nil
+		latency: scale(info.Latency), problem: problem}, nil
 }
 
 func (b *coreIn) start() error {
@@ -92,8 +96,8 @@ func (b *coreIn) watch() {
 	defer close(b.done)
 	select {
 	case <-b.in.Done():
-		if b.in.Err() != nil {
-			b.s.lose(ErrLost)
+		if err := b.in.Err(); err != nil {
+			b.s.lose(fmt.Errorf("%w: %w", ErrLost, err))
 		}
 	case <-b.quit:
 	}

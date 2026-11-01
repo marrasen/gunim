@@ -219,6 +219,9 @@ func TestMacInputConvertsTheOutputsRate(t *testing.T) {
 	if out.Info().Rate == rate {
 		t.Skipf("the output plays at %d Hz itself", rate)
 	}
+	if in.Info().Problem == nil {
+		t.Error("the stream converts and tells no Problem")
+	}
 	const rec = time.Second
 	got := readFor(t, in, rec)
 	if got < rate*8/10 || got > rate*12/10 {

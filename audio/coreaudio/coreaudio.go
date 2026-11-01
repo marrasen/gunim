@@ -10,7 +10,9 @@
 //
 // It records too: [Inputs] lists the devices that record, and
 // [OpenInput] records one the same way, its thread handing on each
-// buffer as it comes in.
+// buffer as it comes in. An application that records must have
+// NSMicrophoneUsageDescription in its Info.plist: without it, macOS
+// ends the application as it asks for the microphone.
 package coreaudio
 
 import "errors"
@@ -125,4 +127,8 @@ type InputInfo struct {
 	// to the buffer that holds it handed on: the buffer, and the
 	// device's and its stream's own latency and safety offset.
 	Latency int
+	// Problem is why the input records otherwise than asked: at another
+	// rate, or with another buffer, than [InputConfig] asks for. It is
+	// nil where it records as asked.
+	Problem error
 }

@@ -24,6 +24,10 @@
 // A stream ends as its device goes away: [Stream.Done] closes, and
 // [Stream.Err] returns [ErrLost].
 //
+// On macOS an application that records must have
+// NSMicrophoneUsageDescription in its Info.plist: without it, macOS
+// ends the application as it asks for the microphone.
+//
 // A stream hands its blocks to a function on the device's thread, or
 // keeps them in a ring a goroutine reads. Either way the recording
 // side takes no lock and allocates nothing.
@@ -182,6 +186,11 @@ type Info struct {
 	// driver that plays and records in one; otherwise they are
 	// reckoned from the latencies the system reports.
 	Exact bool
+	// Problem is why the stream records otherwise than asked, and nil
+	// where it records as asked. On macOS it tells of a device that
+	// keeps another rate, which the stream converts from, or refuses the
+	// buffer asked for; PulseAudio and WASAPI convert themselves.
+	Problem error
 }
 
 // ErrLost is the error of a stream whose device went away: unplugged,
@@ -262,6 +271,7 @@ type format struct {
 	rate     int
 	buffer   int
 	latency  int
+	problem  error
 }
 
 // Open opens an input and starts recording.
@@ -325,6 +335,7 @@ func (s *Stream) ready(f format, mixRate int) error {
 	}
 	s.info.Device, s.info.Name = o.Device, f.name
 	s.info.Rate, s.info.Channels, s.info.Buffer = f.rate, len(s.sel), f.buffer
+	s.info.Problem = f.problem
 	s.latency.Store(int64(f.latency))
 	s.info.Latency = audio.DurationAt(int64(f.latency), f.rate)
 	if o.OnBlock != nil {
