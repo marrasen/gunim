@@ -1,0 +1,479 @@
+2026/11/03 19:14:54 speaker: WASAPI plays Out 1-2 (MOTU M Series) at 48000 Hz, 2 channels, 512 frames a period, 1126 in its buffer, 0 of stream latency, low latency false
+2026/11/03 19:14:54 speaker: WASAPI records In 1-2 (MOTU M Series), 2 channels, 512 frames of latency
+2026/11/03 19:14:54 speaker: working 38.125ms ahead
+2026/11/03 19:14:56 speaker: ran dry 2 times in 250ms
+2026/11/03 19:14:56 speaker: working 55.145833ms ahead
+2026/11/03 19:14:59 speaker: WASAPI: the device's clock first moved 2.9729ms after it started
+2026/11/03 19:14:59 
+Playing through WASAPI at 48000 Hz.
+Latency 66ms.
+Device delay 41.3ms, input 10.7ms, burst 512 frames.
+Ran dry 2 times.
+A frame lights the screen 33.6ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.014.
+
+Tap to measure the round trip.
+
+2026/11/03 19:14:59 speaker: WASAPI input: a packet of 512 frames at device position 266439168, read 60.8µs after its stamp, the soonest in 5s; the input's period is 512 frames (10.666666ms)
+2026/11/03 19:14:59 speaker: WASAPI output: the clock read 300ns after its stamp, the soonest in 5s, with 2149 frames written past the position it told; device delay 41.333333ms
+2026/11/03 19:15:04 speaker: WASAPI input: a packet of 512 frames at device position 266733056, read 40.3µs after its stamp, the soonest in 5s; the input's period is 512 frames (10.666666ms)
+2026/11/03 19:15:04 speaker: WASAPI output: the clock read 100ns after its stamp, the soonest in 5s, with 2149 frames written past the position it told; device delay 41.333333ms
+2026/11/03 19:15:04 
+Playing through WASAPI at 48000 Hz.
+Latency 66ms.
+Device delay 41.3ms, input 10.7ms, burst 512 frames.
+Ran dry 2 times.
+A frame lights the screen 31.2ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.014.
+
+Tap to measure the round trip.
+
+2026/11/03 19:15:09 speaker: WASAPI input: a packet of 512 frames at device position 266947072, read 43.5µs after its stamp, the soonest in 5s; the input's period is 512 frames (10.666666ms)
+2026/11/03 19:15:09 speaker: WASAPI output: the clock read 100ns after its stamp, the soonest in 5s, with 2149 frames written past the position it told; device delay 40.1875ms
+2026/11/03 19:15:09 
+Playing through WASAPI at 48000 Hz.
+Latency 66ms.
+Device delay 41.3ms, input 10.7ms, burst 512 frames.
+Ran dry 2 times.
+A frame lights the screen 30.2ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.014.
+
+Tap to measure the round trip.
+
+2026/11/03 19:15:14 speaker: WASAPI input: a packet of 512 frames at device position 267373056, read 42.8µs after its stamp, the soonest in 5s; the input's period is 512 frames (10.666666ms)
+2026/11/03 19:15:14 speaker: WASAPI output: the clock read 200ns after its stamp, the soonest in 5s, with 2149 frames written past the position it told; device delay 41.333333ms
+2026/11/03 19:15:14 
+Playing through WASAPI at 48000 Hz.
+Latency 66ms.
+Device delay 41.3ms, input 10.7ms, burst 512 frames.
+Ran dry 2 times.
+A frame lights the screen 32.4ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.014.
+
+Tap to measure the round trip.
+
+2026/11/03 19:15:18 
+Playing through WASAPI at 48000 Hz.
+Latency 66ms.
+Device delay 41.3ms, input 10.7ms, burst 512 frames.
+Ran dry 2 times.
+A frame lights the screen 28.8ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.014.
+
+Tap to measure the round trip.
+offset 23.4ms, round trip 99ms, level 0.02
+2026/11/03 19:15:19 speaker: WASAPI input: a packet of 512 frames at device position 267622912, read 46.7µs after its stamp, the soonest in 5s; the input's period is 512 frames (10.666666ms)
+2026/11/03 19:15:19 speaker: WASAPI output: the clock read 200ns after its stamp, the soonest in 5s, with 2149 frames written past the position it told; device delay 41.354166ms
+2026/11/03 19:15:19 
+Playing through WASAPI at 48000 Hz.
+Latency 64.9ms.
+Device delay 40.2ms, input 10.7ms, burst 512 frames.
+Ran dry 2 times.
+A frame lights the screen 32.4ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.014.
+
+Tap to measure the round trip.
+measuring…
+2026/11/03 19:15:20 
+Playing through WASAPI at 48000 Hz.
+Latency 66ms.
+Device delay 41.4ms, input 10.7ms, burst 512 frames.
+Ran dry 2 times.
+A frame lights the screen 31.5ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.014.
+
+Tap to measure the round trip.
+offset 22.9ms, round trip 98.5ms, level 0.02
+2026/11/03 19:15:22 
+Playing through WASAPI at 48000 Hz.
+Latency 66ms.
+Device delay 41.4ms, input 10.7ms, burst 512 frames.
+Ran dry 2 times.
+A frame lights the screen 31.4ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.014.
+
+Tap to measure the round trip.
+offset 23.5ms, round trip 99ms, level 0.02
+2026/11/03 19:15:24 speaker: WASAPI input: a packet of 512 frames at device position 267708928, read 31.8µs after its stamp, the soonest in 5s; the input's period is 512 frames (10.666666ms)
+2026/11/03 19:15:24 speaker: WASAPI output: the clock read 100ns after its stamp, the soonest in 5s, with 2149 frames written past the position it told; device delay 40.1875ms
+2026/11/03 19:15:24 
+Playing through WASAPI at 48000 Hz.
+Latency 66ms.
+Device delay 41.3ms, input 10.7ms, burst 512 frames.
+Ran dry 2 times.
+A frame lights the screen 31.1ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.014.
+
+Tap to measure the round trip.
+measuring…
+2026/11/03 19:15:24 
+Playing through WASAPI at 48000 Hz.
+Latency 66ms.
+Device delay 41.3ms, input 10.7ms, burst 512 frames.
+Ran dry 2 times.
+A frame lights the screen 32.1ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.005.
+
+Tap to measure the round trip.
+capture: the click was not heard in the recording
+2026/11/03 19:15:29 speaker: WASAPI input: a packet of 512 frames at device position 267887616, read 38.7µs after its stamp, the soonest in 5s; the input's period is 512 frames (10.666666ms)
+2026/11/03 19:15:29 speaker: WASAPI output: the clock read 100ns after its stamp, the soonest in 5s, with 2149 frames written past the position it told; device delay 41.291666ms
+2026/11/03 19:15:29 
+Playing through WASAPI at 48000 Hz.
+Latency 66ms.
+Device delay 41.3ms, input 10.7ms, burst 512 frames.
+Ran dry 2 times.
+A frame lights the screen 31.8ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.014.
+
+Tap to measure the round trip.
+capture: the click was not heard in the recording
+2026/11/03 19:15:31 
+Playing through WASAPI at 48000 Hz.
+Latency 66ms.
+Device delay 41.3ms, input 10.7ms, burst 512 frames.
+Ran dry 2 times.
+A frame lights the screen 31.6ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.011.
+
+Tap to measure the round trip.
+offset 23.5ms, round trip 99ms, level 0.02
+2026/11/03 19:15:34 speaker: WASAPI input: a packet of 512 frames at device position 268251648, read 44.9µs after its stamp, the soonest in 5s; the input's period is 512 frames (10.666666ms)
+2026/11/03 19:15:34 speaker: WASAPI output: the clock read 200ns after its stamp, the soonest in 5s, with 2149 frames written past the position it told; device delay 41.3125ms
+2026/11/03 19:15:34 
+Playing through WASAPI at 48000 Hz.
+Latency 66ms.
+Device delay 41.3ms, input 10.7ms, burst 512 frames.
+Ran dry 2 times.
+A frame lights the screen 32.3ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.014.
+
+Tap to measure the round trip.
+measuring…
+2026/11/03 19:15:39 speaker: WASAPI input: a packet of 512 frames at device position 268585984, read 36.1µs after its stamp, the soonest in 5s; the input's period is 512 frames (10.666666ms)
+2026/11/03 19:15:39 speaker: WASAPI output: the clock read 100ns after its stamp, the soonest in 5s, with 2149 frames written past the position it told; device delay 41.375ms
+2026/11/03 19:15:39 
+Playing through WASAPI at 48000 Hz.
+Latency 64.9ms.
+Device delay 40.3ms, input 10.7ms, burst 512 frames.
+Ran dry 2 times.
+A frame lights the screen 30.2ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.014.
+
+Tap to measure the round trip.
+offset 23.5ms, round trip 99ms, level 0.02
+2026/11/03 19:15:44 speaker: WASAPI input: a packet of 512 frames at device position 268629504, read 24.4µs after its stamp, the soonest in 5s; the input's period is 512 frames (10.666666ms)
+2026/11/03 19:15:44 speaker: WASAPI output: the clock read 100ns after its stamp, the soonest in 5s, with 2149 frames written past the position it told; device delay 40.208333ms
+2026/11/03 19:15:44 
+Playing through WASAPI at 48000 Hz.
+Latency 66ms.
+Device delay 41.3ms, input 10.7ms, burst 512 frames.
+Ran dry 2 times.
+A frame lights the screen 30.5ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.014.
+
+Tap to measure the round trip.
+offset 23.5ms, round trip 99ms, level 0.02
+2026/11/03 19:15:49 speaker: WASAPI input: a packet of 512 frames at device position 269003776, read 23.9µs after its stamp, the soonest in 5s; the input's period is 512 frames (10.666666ms)
+2026/11/03 19:15:49 speaker: WASAPI output: the clock read 100ns after its stamp, the soonest in 5s, with 2149 frames written past the position it told; device delay 41.354166ms
+2026/11/03 19:15:49 
+Playing through WASAPI at 48000 Hz.
+Latency 66ms.
+Device delay 41.4ms, input 10.7ms, burst 512 frames.
+Ran dry 2 times.
+A frame lights the screen 32.1ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.014.
+
+Tap to measure the round trip.
+offset 23.5ms, round trip 99ms, level 0.02
+2026/11/03 19:15:54 speaker: WASAPI input: a packet of 512 frames at device position 269181440, read 16.4µs after its stamp, the soonest in 5s; the input's period is 512 frames (10.666666ms)
+2026/11/03 19:15:54 speaker: WASAPI output: the clock read 100ns after its stamp, the soonest in 5s, with 2149 frames written past the position it told; device delay 41.333333ms
+2026/11/03 19:15:54 
+Playing through WASAPI at 48000 Hz.
+Latency 64.9ms.
+Device delay 40.2ms, input 10.7ms, burst 512 frames.
+Ran dry 2 times.
+A frame lights the screen 33.8ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.014.
+
+Tap to measure the round trip.
+offset 23.5ms, round trip 99ms, level 0.02
+2026/11/03 19:15:57 speaker: WASAPI: wasapi: the device went away; opening the default device again
+2026/11/03 19:15:57 speaker: WASAPI: Out 1-2 (MOTU M Series) plays at 44100 Hz and records 2 channels, where the last played at 48000 Hz and recorded 2; opening the output again
+2026/11/03 19:15:57 speaker: WASAPI plays Out 1-2 (MOTU M Series) at 44100 Hz, 2 channels, 512 frames a period, 1126 in its buffer, 0 of stream latency, low latency false
+2026/11/03 19:15:57 speaker: WASAPI records In 1-2 (MOTU M Series), 2 channels, 470 frames of latency
+2026/11/03 19:15:57 speaker: opened again, at 44100 Hz, working 51.133786ms ahead
+2026/11/03 19:15:59 
+Playing through WASAPI at 44100 Hz.
+Latency 75.4ms.
+Device delay 49.8ms, input 10.7ms, burst 512 frames.
+Ran dry 2 times.
+A frame lights the screen 32.5ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.000.
+
+Tap to measure the round trip.
+offset 23.5ms, round trip 99ms, level 0.02
+2026/11/03 19:16:02 speaker: WASAPI: the device's clock first moved 384.2981ms after it started
+2026/11/03 19:16:02 speaker: WASAPI input: a packet of 471 frames at device position 204800, read 21.3735ms after its stamp, the soonest in 5s; the input's period is 470 frames (10.657596ms)
+2026/11/03 19:16:02 speaker: WASAPI output: the clock read 100ns after its stamp, the soonest in 5s, with 2251 frames written past the position it told; device delay 48.299319ms
+2026/11/03 19:16:04 
+Playing through WASAPI at 44100 Hz.
+Latency 75.5ms.
+Device delay 49.9ms, input 10.7ms, burst 512 frames.
+Ran dry 2 times.
+A frame lights the screen 32.5ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.000.
+
+Tap to measure the round trip.
+offset 23.5ms, round trip 99ms, level 0.02
+2026/11/03 19:16:07 speaker: WASAPI input: a packet of 470 frames at device position 457728, read 21.3632ms after its stamp, the soonest in 5s; the input's period is 470 frames (10.657596ms)
+2026/11/03 19:16:07 speaker: WASAPI output: the clock read 100ns after its stamp, the soonest in 5s, with 2251 frames written past the position it told; device delay 48.752834ms
+2026/11/03 19:16:09 
+Playing through WASAPI at 44100 Hz.
+Latency 75.4ms.
+Device delay 49.8ms, input 10.7ms, burst 512 frames.
+Ran dry 2 times.
+A frame lights the screen 32.5ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.000.
+
+Tap to measure the round trip.
+offset 23.5ms, round trip 99ms, level 0.02
+2026/11/03 19:16:12 speaker: WASAPI input: a packet of 471 frames at device position 527360, read 21.369ms after its stamp, the soonest in 5s; the input's period is 470 frames (10.657596ms)
+2026/11/03 19:16:12 speaker: WASAPI output: the clock read 100ns after its stamp, the soonest in 5s, with 2250 frames written past the position it told; device delay 49.546485ms
+2026/11/03 19:16:14 
+Playing through WASAPI at 44100 Hz.
+Latency 73.6ms.
+Device delay 48ms, input 10.7ms, burst 512 frames.
+Ran dry 2 times.
+A frame lights the screen 32.1ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.000.
+
+Tap to measure the round trip.
+offset 23.5ms, round trip 99ms, level 0.02
+2026/11/03 19:16:17 speaker: WASAPI input: a packet of 471 frames at device position 711680, read 21.3809ms after its stamp, the soonest in 5s; the input's period is 470 frames (10.657596ms)
+2026/11/03 19:16:17 speaker: WASAPI output: the clock read 200ns after its stamp, the soonest in 5s, with 2249 frames written past the position it told; device delay 48.752834ms
+2026/11/03 19:16:19 
+Playing through WASAPI at 44100 Hz.
+Latency 75.2ms.
+Device delay 49.6ms, input 10.7ms, burst 512 frames.
+Ran dry 2 times.
+A frame lights the screen 32.5ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.000.
+
+Tap to measure the round trip.
+offset 23.5ms, round trip 99ms, level 0.02
+2026/11/03 19:16:22 speaker: WASAPI input: a packet of 471 frames at device position 1185792, read 21.4062ms after its stamp, the soonest in 5s; the input's period is 470 frames (10.657596ms)
+2026/11/03 19:16:22 speaker: WASAPI output: the clock read 200ns after its stamp, the soonest in 5s, with 2245 frames written past the position it told; device delay 50.136054ms
+2026/11/03 19:16:24 
+Playing through WASAPI at 44100 Hz.
+Latency 74.3ms.
+Device delay 48.7ms, input 10.7ms, burst 512 frames.
+Ran dry 2 times.
+A frame lights the screen 32.5ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.000.
+
+Tap to measure the round trip.
+offset 23.5ms, round trip 99ms, level 0.02
+2026/11/03 19:16:25 speaker: WASAPI: wasapi: the device went away; opening the default device again
+2026/11/03 19:16:25 speaker: WASAPI: Out 1-2 (MOTU M Series) plays at 48000 Hz and records 2 channels, where the last played at 44100 Hz and recorded 2; opening the output again
+2026/11/03 19:16:25 speaker: WASAPI plays Out 1-2 (MOTU M Series) at 48000 Hz, 2 channels, 512 frames a period, 1126 in its buffer, 0 of stream latency, low latency false
+2026/11/03 19:16:25 speaker: WASAPI records In 1-2 (MOTU M Series), 2 channels, 512 frames of latency
+2026/11/03 19:16:25 speaker: opened again, at 48000 Hz, working 48.125ms ahead
+2026/11/03 19:16:29 
+Playing through WASAPI at 48000 Hz.
+Latency 90ms.
+Device delay 65.4ms, input 10.7ms, burst 512 frames.
+Ran dry 2 times.
+A frame lights the screen 32.4ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.001.
+
+Tap to measure the round trip.
+offset 23.5ms, round trip 99ms, level 0.02
+2026/11/03 19:16:30 speaker: WASAPI: the device's clock first moved 380.029ms after it started
+2026/11/03 19:16:30 speaker: WASAPI input: a packet of 512 frames at device position 59392, read 10.6853ms after its stamp, the soonest in 5s; the input's period is 512 frames (10.666666ms)
+2026/11/03 19:16:30 speaker: WASAPI output: the clock read 100ns after its stamp, the soonest in 5s, with 3107 frames written past the position it told; device delay 65.354166ms
+2026/11/03 19:16:34 
+Playing through WASAPI at 48000 Hz.
+Latency 90ms.
+Device delay 65.4ms, input 10.7ms, burst 512 frames.
+Ran dry 2 times.
+A frame lights the screen 32.4ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.014.
+
+Tap to measure the round trip.
+offset 23.5ms, round trip 99ms, level 0.02
+2026/11/03 19:16:35 speaker: WASAPI input: a packet of 512 frames at device position 461312, read 10.6789ms after its stamp, the soonest in 5s; the input's period is 512 frames (10.666666ms)
+2026/11/03 19:16:35 speaker: WASAPI output: the clock read 100ns after its stamp, the soonest in 5s, with 3107 frames written past the position it told; device delay 65.354166ms
+2026/11/03 19:16:39 
+Playing through WASAPI at 48000 Hz.
+Latency 90ms.
+Device delay 65.4ms, input 10.7ms, burst 512 frames.
+Ran dry 2 times.
+A frame lights the screen 32.3ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.014.
+
+Tap to measure the round trip.
+offset 23.5ms, round trip 99ms, level 0.02
+2026/11/03 19:16:40 speaker: WASAPI input: a packet of 512 frames at device position 496640, read 10.6781ms after its stamp, the soonest in 5s; the input's period is 512 frames (10.666666ms)
+2026/11/03 19:16:40 speaker: WASAPI output: the clock read 100ns after its stamp, the soonest in 5s, with 3108 frames written past the position it told; device delay 65.333333ms
+2026/11/03 19:16:44 
+Playing through WASAPI at 48000 Hz.
+Latency 90ms.
+Device delay 65.4ms, input 10.7ms, burst 512 frames.
+Ran dry 2 times.
+A frame lights the screen 32.6ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.014.
+
+Tap to measure the round trip.
+offset 23.5ms, round trip 99ms, level 0.02
+2026/11/03 19:16:45 speaker: WASAPI input: a packet of 512 frames at device position 894976, read 10.6783ms after its stamp, the soonest in 5s; the input's period is 512 frames (10.666666ms)
+2026/11/03 19:16:45 speaker: WASAPI output: the clock read 100ns after its stamp, the soonest in 5s, with 3114 frames written past the position it told; device delay 65.354166ms
+2026/11/03 19:16:49 
+Playing through WASAPI at 48000 Hz.
+Latency 90ms.
+Device delay 65.4ms, input 10.7ms, burst 512 frames.
+Ran dry 2 times.
+A frame lights the screen 32.2ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.014.
+
+Tap to measure the round trip.
+offset 23.5ms, round trip 99ms, level 0.02
+2026/11/03 19:16:50 speaker: WASAPI input: a packet of 512 frames at device position 1133568, read 10.6777ms after its stamp, the soonest in 5s; the input's period is 512 frames (10.666666ms)
+2026/11/03 19:16:50 speaker: WASAPI output: the clock read 100ns after its stamp, the soonest in 5s, with 3110 frames written past the position it told; device delay 65.333333ms
+2026/11/03 19:16:52 
+Playing through WASAPI at 48000 Hz.
+Latency 90ms.
+Device delay 65.3ms, input 10.7ms, burst 512 frames.
+Ran dry 2 times.
+A frame lights the screen 30.4ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.003.
+
+Tap to measure the round trip.
+offset -8.6ms, round trip 92.1ms, level 0.02
+2026/11/03 19:16:54 
+Playing through WASAPI at 48000 Hz.
+Latency 90ms.
+Device delay 65.4ms, input 10.7ms, burst 512 frames.
+Ran dry 2 times.
+A frame lights the screen 31.5ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.014.
+
+Tap to measure the round trip.
+measuring…
+2026/11/03 19:16:54 
+Playing through WASAPI at 48000 Hz.
+Latency 90ms.
+Device delay 65.4ms, input 10.7ms, burst 512 frames.
+Ran dry 2 times.
+A frame lights the screen 31.5ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.014.
+
+Tap to measure the round trip.
+offset -8.5ms, round trip 92.2ms, level 0.02
+2026/11/03 19:16:55 speaker: WASAPI input: a packet of 512 frames at device position 1365504, read 10.6786ms after its stamp, the soonest in 5s; the input's period is 512 frames (10.666666ms)
+2026/11/03 19:16:55 speaker: WASAPI output: the clock read 100ns after its stamp, the soonest in 5s, with 3108 frames written past the position it told; device delay 65.354166ms
+2026/11/03 19:16:57 
+Playing through WASAPI at 48000 Hz.
+Latency 90ms.
+Device delay 65.4ms, input 10.7ms, burst 512 frames.
+Ran dry 2 times.
+A frame lights the screen 31.4ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.014.
+
+Tap to measure the round trip.
+offset -8.5ms, round trip 92.1ms, level 0.02
+2026/11/03 19:16:59 
+Playing through WASAPI at 48000 Hz.
+Latency 90ms.
+Device delay 65.4ms, input 10.7ms, burst 512 frames.
+Ran dry 2 times.
+A frame lights the screen 32ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.014.
+
+Tap to measure the round trip.
+measuring…
+2026/11/03 19:17:00 speaker: WASAPI input: a packet of 512 frames at device position 1652736, read 10.6772ms after its stamp, the soonest in 5s; the input's period is 512 frames (10.666666ms)
+2026/11/03 19:17:00 speaker: WASAPI output: the clock read 100ns after its stamp, the soonest in 5s, with 3108 frames written past the position it told; device delay 65.354166ms
+2026/11/03 19:17:00 
+Playing through WASAPI at 48000 Hz.
+Latency 90ms.
+Device delay 65.4ms, input 10.7ms, burst 512 frames.
+Ran dry 2 times.
+A frame lights the screen 31.7ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.014.
+
+Tap to measure the round trip.
+offset -8.6ms, round trip 92.1ms, level 0.02
+2026/11/03 19:17:04 
+Playing through WASAPI at 48000 Hz.
+Latency 90ms.
+Device delay 65.4ms, input 10.7ms, burst 512 frames.
+Ran dry 2 times.
+A frame lights the screen 32ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.014.
+
+Tap to measure the round trip.
+offset -8.6ms, round trip 92.1ms, level 0.02
+2026/11/03 19:17:05 speaker: WASAPI input: a packet of 512 frames at device position 1700864, read 10.6779ms after its stamp, the soonest in 5s; the input's period is 512 frames (10.666666ms)
+2026/11/03 19:17:05 speaker: WASAPI output: the clock read 100ns after its stamp, the soonest in 5s, with 3108 frames written past the position it told; device delay 65.375ms
+2026/11/03 19:17:09 
+Playing through WASAPI at 48000 Hz.
+Latency 90ms.
+Device delay 65.3ms, input 10.7ms, burst 512 frames.
+Ran dry 2 times.
+A frame lights the screen 32.4ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.014.
+
+Tap to measure the round trip.
+offset -8.6ms, round trip 92.1ms, level 0.02
+2026/11/03 19:17:10 speaker: WASAPI input: a packet of 512 frames at device position 1952256, read 10.6792ms after its stamp, the soonest in 5s; the input's period is 512 frames (10.666666ms)
+2026/11/03 19:17:10 speaker: WASAPI output: the clock read 100ns after its stamp, the soonest in 5s, with 3116 frames written past the position it told; device delay 65.354166ms
+2026/11/03 19:17:14 
+Playing through WASAPI at 48000 Hz.
+Latency 90.2ms.
+Device delay 65.5ms, input 10.7ms, burst 512 frames.
+Ran dry 2 times.
+A frame lights the screen 32.5ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.014.
+
+Tap to measure the round trip.
+offset -8.6ms, round trip 92.1ms, level 0.02
+2026/11/03 19:17:15 speaker: WASAPI input: a packet of 512 frames at device position 2188288, read 10.6781ms after its stamp, the soonest in 5s; the input's period is 512 frames (10.666666ms)
+2026/11/03 19:17:15 speaker: WASAPI output: the clock read 100ns after its stamp, the soonest in 5s, with 3108 frames written past the position it told; device delay 65.354166ms
