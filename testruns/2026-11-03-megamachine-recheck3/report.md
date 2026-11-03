@@ -90,7 +90,48 @@ The log shows a result once when it is new, and then again every 5 s, so it hold
 
 Stamps moved back 52–62 µs at 48 kHz after the return, with the soonest packet read 10.68 ms after its stamp. That is the same pattern as recheck2's cable starts.
 
+## Run 2: the silence repeats
+
+This is a second fresh start with the same steps: [rate-2.log](rate-2.log), [rate-2.png](rate-2.png). This time the monitors stayed at a normal level throughout. Out 1-2 was set to 44100 Hz at 22:28:31 and back to 48000 Hz at 22:29:02. The three clicks came about 40 s after the return.
+
+**At 44.1 kHz it was silent again, and the mic shows it.** The window's microphone peak, the loudest sample in the last second:
+
+| | Peak |
+|---|---|
+| 48 kHz, fresh | 0.131–0.132 |
+| 44.1 kHz | **0.002–0.012** |
+| 48 kHz, after the return | 0.130–0.133 |
+
+While it was silent, the output meter for Out 1-2 in `mmsys.cpl` was moving. So the endpoint was taking the stream's samples, but nothing reached the monitors.
+
+The reopen logged the same way as in run 1:
+
+```
+22:28:31 speaker: WASAPI: the device's clock first moved 380.5711ms after it started, past 100ms: the endpoint was still warming up, and its clock may miss frames for the whole open; opening it once more
+22:28:31 speaker: WASAPI plays Out 1-2 (MOTU M Series) again
+22:28:32 speaker: WASAPI: opened once more, the device's clock first moved 370.9657ms after it started, past 100ms again: it plays as it is
+22:28:36 speaker: WASAPI: the device's clock first moved 370.9657ms after it started, to frame 688; by then 1376 frames were written, 0 of them silence, and its buffer held 688, so the engine had taken 688, 0 past the frame the clock told
+22:28:36 speaker: WASAPI output: the clock read 100ns after its stamp, the soonest in 5s, with 1126 frames written past the position it told: 1126 in its buffer, 0 taken by the engine; 0 frames of silence written since it opened; device delay 26.031746ms
+22:28:41 speaker: WASAPI output: the clock read 100ns after its stamp, the soonest in 5s, with 1126 frames written past the position it told: 1126 in its buffer, 0 taken by the engine; 0 frames of silence written since it opened; device delay 26.00907ms
+```
+
+All six output lines at 44.1 kHz, from 22:28:36 to 22:29:01, read 1126 in the buffer and 0 taken by the engine, with a device delay of 25.1–26.1 ms. Nothing logged a stall or a dropout.
+
+The return to 48 kHz again started at once, without a second open:
+
+```
+22:29:07 speaker: WASAPI: the device's clock first moved 3.499ms after it started, to frame 1; by then 1728 frames were written, 320 of them silence, and its buffer held 704, so the engine had taken 1024, 1023 past the frame the clock told
+22:29:07 speaker: WASAPI output: the clock read 100ns after its stamp, the soonest in 5s, with 1897 frames written past the position it told: 1126 in its buffer, 771 taken by the engine; 320 frames of silence written since it opened; device delay 42.5ms
+22:29:12 speaker: WASAPI output: the clock read 100ns after its stamp, the soonest in 5s, with 2149 frames written past the position it told: 1126 in its buffer, 1023 taken by the engine; 320 frames of silence written since it opened; device delay 42.5ms
+```
+
+After the return:
+- The device delay read 41.7–42.5 ms, and the engine took 765–1024 frames.
+- At 22:29:11, 9 s after the return, the output `ran dry 2 times in 250ms`, and the lead grew to 53.3 ms. The fresh start in run 1 had no dropout.
+- Of the three clicks, one measured **+12.2 ms, round trip 89.3 ms, level 0.19**. The other two returned `capture: the click was not heard in the recording`.
+
 ## Open
 
-- **The silent 44.1 kHz open.** After the second start, which was late again, the engine took no frames for 20 s and nothing played. The device delay read 25.8 ms, and nothing logged a stall. This happened in this one run; it has not been repeated.
-- The return to 48 kHz started at once, so this run doesn't show what a second start does after a late *48 kHz* start.
+- **The silent 44.1 kHz open, in 2 of 2 runs.** Both times the endpoint started late, was opened once more, and started late again (370.8 and 371.0 ms). After that the engine took no frames and nothing played, while the `mmsys.cpl` meter moved. The device delay read about 26 ms, and nothing logged a stall. In recheck2, the one open at 44.1 kHz, also late (380 ms), played normally with 1022 frames taken. So the second open, made right after the first, seems to be what leaves the endpoint silent.
+- In both runs the return to 48 kHz started at once. So neither run shows what a second start does after a late *48 kHz* start.
+- Two of run 2's three measurements did not hear the click. That run also had a dropout 9 s after the return.
