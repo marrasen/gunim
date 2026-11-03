@@ -1,0 +1,8 @@
+=== RUN   TestWASAPIPlaysOnThisMachine
+    wasapi_live_windows_test.go:54: {Name:Out 1-2 (MOTU M Series) ID:{0.0.0.00000000}.{0f51fdba-8a2b-4262-bcef-9c39f74746ec} Rate:48000 Channels:2 Period:512 Buffer:1126 Latency:0 LowLatency:false InputName:Loopback (MOTU M Series) InputID:{0.0.1.00000000}.{4965387c-c216-44aa-80dc-457fb42e280d} Inputs:2 InputBuffer:4800 InputLatency:512 InputErr:<nil>}
+    wasapi_live_windows_test.go:62: state {Driver:WASAPI Rate:48000 DeviceRate:0 Bits:0 Dither:false Latency:38.125ms Frames:1830 Fixed:false Dropouts:0 Info:0x9244d222000 Aux:0 Bluetooth:false Problem:<nil>}, info &{Driver:WASAPI Rate:48000 Buffer:512 MinBuffer:512 MaxBuffer:1126 PreferredBuffer:512 Latency:1126 Bits:32 Float:true Outputs:2 OutputNames:[Out 1-2 (MOTU M Series) 1 Out 1-2 (MOTU M Series) 2] Played:[0 1] Inputs:2 Recorded:2 InputNames:[Loopback (MOTU M Series) 1 Loopback (MOTU M Series) 2] InputLatency:512}
+    wasapi_live_windows_test.go:83: delay 42.5ms, latency 57.166666ms, dropouts 0, packets 235
+--- PASS: TestWASAPIPlaysOnThisMachine (2.95s)
+PASS
+ok  	github.com/marrasen/gunim/audio/speaker	3.750s
+live exit 0

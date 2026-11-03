@@ -1,0 +1,354 @@
+2026/11/03 17:35:47 speaker: WASAPI plays Out 1-2 (MOTU M Series) at 48000 Hz, 2 channels, 512 frames a period, 1126 in its buffer, 0 of stream latency, low latency false
+2026/11/03 17:35:47 speaker: WASAPI records Loopback (MOTU M Series), 2 channels, 512 frames of latency
+2026/11/03 17:35:47 speaker: working 38.125ms ahead
+2026/11/03 17:35:52 
+Playing through WASAPI at 48000 Hz.
+Latency 58.7ms.
+Device delay 44ms, input 10.7ms, burst 512 frames.
+Ran dry 0 times.
+A frame lights the screen 32.3ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.300.
+
+Tap to measure the round trip.
+
+2026/11/03 17:35:57 
+Playing through WASAPI at 48000 Hz.
+Latency 58.9ms.
+Device delay 44.2ms, input 10.7ms, burst 512 frames.
+Ran dry 0 times.
+A frame lights the screen 33.3ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.300.
+
+Tap to measure the round trip.
+
+2026/11/03 17:36:02 
+Playing through WASAPI at 48000 Hz.
+Latency 58.7ms.
+Device delay 44ms, input 10.7ms, burst 512 frames.
+Ran dry 0 times.
+A frame lights the screen 32.4ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.300.
+
+Tap to measure the round trip.
+
+2026/11/03 17:36:07 
+Playing through WASAPI at 48000 Hz.
+Latency 58.7ms.
+Device delay 44ms, input 10.7ms, burst 512 frames.
+Ran dry 0 times.
+A frame lights the screen 31.9ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.300.
+
+Tap to measure the round trip.
+
+2026/11/03 17:36:12 
+Playing through WASAPI at 48000 Hz.
+Latency 58.7ms.
+Device delay 44ms, input 10.7ms, burst 512 frames.
+Ran dry 0 times.
+A frame lights the screen 32.5ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.300.
+
+Tap to measure the round trip.
+
+2026/11/03 17:36:17 
+Playing through WASAPI at 48000 Hz.
+Latency 58.7ms.
+Device delay 44ms, input 10.7ms, burst 512 frames.
+Ran dry 0 times.
+A frame lights the screen 32.5ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.300.
+
+Tap to measure the round trip.
+
+2026/11/03 17:36:19 speaker: WASAPI: wasapi: the device went away; opening the default device again
+2026/11/03 17:36:19 speaker: WASAPI: Out 1-2 (MOTU M Series) plays at 44100 Hz and records 2 channels, where the last played at 48000 Hz and recorded 2; opening the output again
+2026/11/03 17:36:19 speaker: WASAPI plays Out 1-2 (MOTU M Series) at 44100 Hz, 2 channels, 512 frames a period, 1126 in its buffer, 0 of stream latency, low latency false
+2026/11/03 17:36:19 speaker: WASAPI records Loopback (MOTU M Series), 2 channels, 470 frames of latency
+2026/11/03 17:36:19 speaker: opened again, at 44100 Hz, working 41.133786ms ahead
+2026/11/03 17:36:22 
+Playing through WASAPI at 44100 Hz.
+Latency 62.7ms.
+Device delay 47.1ms, input 10.7ms, burst 512 frames.
+Ran dry 0 times.
+A frame lights the screen 32.6ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.000.
+
+Tap to measure the round trip.
+
+2026/11/03 17:36:27 
+Playing through WASAPI at 44100 Hz.
+Latency 62.2ms.
+Device delay 46.6ms, input 10.7ms, burst 512 frames.
+Ran dry 0 times.
+A frame lights the screen 32.7ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.000.
+
+Tap to measure the round trip.
+
+2026/11/03 17:36:32 
+Playing through WASAPI at 44100 Hz.
+Latency 62.9ms.
+Device delay 47.3ms, input 10.7ms, burst 512 frames.
+Ran dry 0 times.
+A frame lights the screen 32.6ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.000.
+
+Tap to measure the round trip.
+
+2026/11/03 17:36:37 
+Playing through WASAPI at 44100 Hz.
+Latency 61.4ms.
+Device delay 45.8ms, input 10.7ms, burst 512 frames.
+Ran dry 0 times.
+A frame lights the screen 32.7ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.000.
+
+Tap to measure the round trip.
+
+2026/11/03 17:36:42 
+Playing through WASAPI at 44100 Hz.
+Latency 62.6ms.
+Device delay 47ms, input 10.7ms, burst 512 frames.
+Ran dry 0 times.
+A frame lights the screen 32.6ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.000.
+
+Tap to measure the round trip.
+
+2026/11/03 17:36:47 
+Playing through WASAPI at 44100 Hz.
+Latency 62.4ms.
+Device delay 46.8ms, input 10.7ms, burst 512 frames.
+Ran dry 0 times.
+A frame lights the screen 32.6ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.000.
+
+Tap to measure the round trip.
+
+2026/11/03 17:36:50 speaker: WASAPI: wasapi: the device went away; opening the default device again
+2026/11/03 17:36:50 speaker: WASAPI: Out 1-2 (MOTU M Series) plays at 48000 Hz and records 2 channels, where the last played at 44100 Hz and recorded 2; opening the output again
+2026/11/03 17:36:50 speaker: WASAPI plays Out 1-2 (MOTU M Series) at 48000 Hz, 2 channels, 512 frames a period, 1126 in its buffer, 0 of stream latency, low latency false
+2026/11/03 17:36:50 speaker: WASAPI records Loopback (MOTU M Series), 2 channels, 512 frames of latency
+2026/11/03 17:36:50 speaker: opened again, at 48000 Hz, working 38.125ms ahead
+2026/11/03 17:36:52 
+Playing through WASAPI at 48000 Hz.
+Latency 61.2ms.
+Device delay 46.5ms, input 10.7ms, burst 512 frames.
+Ran dry 0 times.
+A frame lights the screen 32.8ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.300.
+
+Tap to measure the round trip.
+
+2026/11/03 17:36:57 
+Playing through WASAPI at 48000 Hz.
+Latency 61.2ms.
+Device delay 46.5ms, input 10.7ms, burst 512 frames.
+Ran dry 0 times.
+A frame lights the screen 32.1ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.300.
+
+Tap to measure the round trip.
+
+2026/11/03 17:37:02 
+Playing through WASAPI at 48000 Hz.
+Latency 61.2ms.
+Device delay 46.5ms, input 10.7ms, burst 512 frames.
+Ran dry 0 times.
+A frame lights the screen 32.5ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.300.
+
+Tap to measure the round trip.
+
+2026/11/03 17:37:07 
+Playing through WASAPI at 48000 Hz.
+Latency 61.7ms.
+Device delay 47ms, input 10.7ms, burst 512 frames.
+Ran dry 0 times.
+A frame lights the screen 32.5ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.300.
+
+Tap to measure the round trip.
+
+2026/11/03 17:37:12 
+Playing through WASAPI at 48000 Hz.
+Latency 61.2ms.
+Device delay 46.5ms, input 10.7ms, burst 512 frames.
+Ran dry 0 times.
+A frame lights the screen 32.3ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.300.
+
+Tap to measure the round trip.
+
+2026/11/03 17:37:17 
+Playing through WASAPI at 48000 Hz.
+Latency 61.2ms.
+Device delay 46.5ms, input 10.7ms, burst 512 frames.
+Ran dry 0 times.
+A frame lights the screen 32.5ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.300.
+
+Tap to measure the round trip.
+
+2026/11/03 17:37:22 
+Playing through WASAPI at 48000 Hz.
+Latency 61.7ms.
+Device delay 47ms, input 10.7ms, burst 512 frames.
+Ran dry 0 times.
+A frame lights the screen 32.6ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.300.
+
+Tap to measure the round trip.
+
+2026/11/03 17:37:27 
+Playing through WASAPI at 48000 Hz.
+Latency 61.2ms.
+Device delay 46.5ms, input 10.7ms, burst 512 frames.
+Ran dry 0 times.
+A frame lights the screen 31.9ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.300.
+
+Tap to measure the round trip.
+
+2026/11/03 17:37:32 
+Playing through WASAPI at 48000 Hz.
+Latency 61.2ms.
+Device delay 46.5ms, input 10.7ms, burst 512 frames.
+Ran dry 0 times.
+A frame lights the screen 31.9ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.300.
+
+Tap to measure the round trip.
+
+2026/11/03 17:37:37 
+Playing through WASAPI at 48000 Hz.
+Latency 61.1ms.
+Device delay 46.5ms, input 10.7ms, burst 512 frames.
+Ran dry 0 times.
+A frame lights the screen 32.1ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.300.
+
+Tap to measure the round trip.
+
+2026/11/03 17:37:42 
+Playing through WASAPI at 48000 Hz.
+Latency 61.7ms.
+Device delay 47.1ms, input 10.7ms, burst 512 frames.
+Ran dry 0 times.
+A frame lights the screen 32.2ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.300.
+
+Tap to measure the round trip.
+
+2026/11/03 17:37:47 
+Playing through WASAPI at 48000 Hz.
+Latency 61.2ms.
+Device delay 46.5ms, input 10.7ms, burst 512 frames.
+Ran dry 0 times.
+A frame lights the screen 32.5ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.300.
+
+Tap to measure the round trip.
+
+2026/11/03 17:37:52 
+Playing through WASAPI at 48000 Hz.
+Latency 61.2ms.
+Device delay 46.5ms, input 10.7ms, burst 512 frames.
+Ran dry 0 times.
+A frame lights the screen 32.3ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.300.
+
+Tap to measure the round trip.
+
+2026/11/03 17:37:57 
+Playing through WASAPI at 48000 Hz.
+Latency 61.7ms.
+Device delay 47ms, input 10.7ms, burst 512 frames.
+Ran dry 0 times.
+A frame lights the screen 32.6ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.300.
+
+Tap to measure the round trip.
+
+2026/11/03 17:38:02 
+Playing through WASAPI at 48000 Hz.
+Latency 61.7ms.
+Device delay 47ms, input 10.7ms, burst 512 frames.
+Ran dry 0 times.
+A frame lights the screen 32.4ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.300.
+
+Tap to measure the round trip.
+
+2026/11/03 17:38:07 
+Playing through WASAPI at 48000 Hz.
+Latency 61.2ms.
+Device delay 46.5ms, input 10.7ms, burst 512 frames.
+Ran dry 0 times.
+A frame lights the screen 32.3ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.300.
+
+Tap to measure the round trip.
+
+2026/11/03 17:38:12 
+Playing through WASAPI at 48000 Hz.
+Latency 61.2ms.
+Device delay 46.5ms, input 10.7ms, burst 512 frames.
+Ran dry 0 times.
+A frame lights the screen 31.9ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.300.
+
+Tap to measure the round trip.
+
+2026/11/03 17:38:17 
+Playing through WASAPI at 48000 Hz.
+Latency 61.8ms.
+Device delay 47.1ms, input 10.7ms, burst 512 frames.
+Ran dry 0 times.
+A frame lights the screen 32.2ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.300.
+
+Tap to measure the round trip.
+
+2026/11/03 17:38:22 
+Playing through WASAPI at 48000 Hz.
+Latency 61.1ms.
+Device delay 46.5ms, input 10.7ms, burst 512 frames.
+Ran dry 0 times.
+A frame lights the screen 32.4ms after it is drawn.
+
+Microphone: recording, latency 10.7ms, peak 0.300.
+
+Tap to measure the round trip.
+
