@@ -232,6 +232,7 @@ func (d *Driver) viewportChanged() {
 		return float32(v)
 	}
 	safe := geom.Insets{Top: read("paddingTop"), Right: read("paddingRight"), Bottom: read("paddingBottom"), Left: read("paddingLeft")}
+	d.placeAccess()
 	d.mu.Lock()
 	changed := safe != d.safe || cover != d.keyboard
 	d.safe, d.keyboard = safe, cover

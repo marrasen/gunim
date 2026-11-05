@@ -25,6 +25,9 @@
 // is gunim's alone, so the browser's own find and print don't run in a program.
 // Cut, copy and paste in a text field stay the browser's, which edits the mirror.
 //
+// What a window holds also goes on the page as unseen elements with ARIA roles, lying
+// over the canvas and out of the pointer's way, for screen readers: see access.go.
+//
 // Gunim takes every touch on the canvas, and scrolls and pans for itself. A page
 // that wants the browser to have some of them, as to scroll the page with
 // vertical swipes, sets touch-action in the canvas's own style attribute, and
@@ -123,6 +126,16 @@ type Driver struct {
 	observed  js.Func
 	stopped   bool
 	quit      chan struct{}
+
+	// accessRoot is the element the windows' trees go in, and accessAt where it lies.
+	// accessFocus is the element the canvas names as focused, in accessFocusIn.
+	// accessFieldIn is the window whose text field the text mirror stands for.
+	// windowsMade numbers the windows.
+	accessRoot                   js.Value
+	accessAt                     geom.Rect
+	accessFocus, accessTitle     string
+	accessFocusIn, accessFieldIn *Window
+	windowsMade                  uint64
 }
 
 // listener is one DOM event the driver listens to.
@@ -264,6 +277,7 @@ func near(exact, worked int, scale float32) bool {
 
 // resized follows the canvas to its new size, and reports whether it changed.
 func (d *Driver) resized() bool {
+	d.placeAccess()
 	if !d.measure() {
 		return false
 	}
@@ -339,6 +353,12 @@ func (d *Driver) stop() {
 	for _, el := range []js.Value{d.plain, d.secret, d.safeProbe} {
 		el.Call("remove")
 	}
+	if d.accessRoot.Truthy() {
+		d.accessRoot.Call("remove")
+		for _, name := range []string{"role", "aria-owns", "aria-label", "aria-activedescendant"} {
+			d.canvas.Call("removeAttribute", name)
+		}
+	}
 }
 
 // Monitors implements [driver.Driver]: the browser's viewport.
@@ -360,6 +380,8 @@ func (d *Driver) NewWindow(o driver.Options) (driver.Window, error) {
 	w := newWindow(d, o)
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	d.windowsMade++
+	w.accessNum = d.windowsMade
 	if p, ok := o.Parent.(*Window); ok {
 		w.parent = p
 	}
@@ -426,6 +448,7 @@ func (d *Driver) closed(w *Window) {
 	}
 	delete(d.headingTo, w)
 	d.runCompassLocked()
+	d.forgetAccessLocked(w)
 	if d.hover == w {
 		d.hover = nil
 	}
@@ -868,6 +891,8 @@ func (d *Driver) listen(doc js.Value) {
 			return
 		}
 		kept := browserKey(name, code, m)
+		// A key can move focus, which a screen reader wants to hear of at once.
+		w.accessSoon = true
 		if kept {
 			d.kept[code] = true
 		} else {

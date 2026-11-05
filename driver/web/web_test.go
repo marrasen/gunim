@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/marrasen/gunim/access"
 	"github.com/marrasen/gunim/audio"
 	"github.com/marrasen/gunim/audio/speaker"
 	"github.com/marrasen/gunim/driver"
@@ -1258,6 +1259,224 @@ func TestBrowser(t *testing.T) {
 			t.Errorf("the page logged %q", got)
 		}
 	})
+	t.Run("the window's tree goes on the page as elements", func(t *testing.T) {
+		button := &access.Node{Info: access.Info{Role: access.RoleButton, Name: "Save", Actions: []string{access.ActionPress}}, ID: 2, Bounds: geom.Rect{Min: geom.Pt(10, 20), Max: geom.Pt(60, 40)}, Focusable: true}
+		check := &access.Node{Info: access.Info{Role: access.RoleCheckbox, Name: "Loud", State: access.StateCheckable | access.StateChecked, Actions: []string{access.ActionPress}}, ID: 3, Bounds: geom.Rect{Min: geom.Pt(10, 50), Max: geom.Pt(60, 70)}}
+		slide := &access.Node{Info: access.Info{Role: access.RoleSlider, Name: "Level", Value: "half", Range: &access.Range{Min: 0, Max: 10, Value: 5, Step: 1}}, ID: 4, Bounds: geom.Rect{Min: geom.Pt(10, 80), Max: geom.Pt(60, 90)}}
+		label := &access.Node{Info: access.Info{Role: access.RoleLabel, Name: "Hello"}, ID: 5, Bounds: geom.Rect{Min: geom.Pt(10, 100), Max: geom.Pt(60, 110)}}
+		field := &access.Node{Info: access.Info{Role: access.RoleTextField, Name: "Notes", Value: "abc", State: access.StateEditable}, ID: 6, Bounds: geom.Rect{Min: geom.Pt(10, 120), Max: geom.Pt(60, 140)}, Focusable: true}
+		secret := &access.Node{Info: access.Info{Role: access.RoleTextField, Name: "Password", State: access.StateEditable}, ID: 7, Bounds: geom.Rect{Min: geom.Pt(10, 150), Max: geom.Pt(60, 170)}, Focusable: true}
+		group := &access.Node{Info: access.Info{Role: access.RoleGroup}, ID: 8, Bounds: geom.Rect{Min: geom.Pt(5, 5), Max: geom.Pt(100, 200)}, Children: []*access.Node{button, check, slide, label, field, secret}}
+		root := &access.Node{Info: access.Info{Role: access.RoleWindow, Name: "App"}, ID: 1, Bounds: geom.Rect{Max: geom.Pt(320, 240)}, Children: []*access.Node{group}}
+		publish := func() { w.PublishAccess(access.NewTree(root)) }
+		doc := js.Global().Get("document")
+		publish()
+		find := func(id uint64) js.Value {
+			return doc.Call("querySelector", fmt.Sprintf(`#gunim-access [data-gunim-id="%d"]`, id))
+		}
+		attr := func(id uint64, name string) string {
+			el := find(id)
+			if el.IsNull() {
+				t.Fatalf("no element for %d", id)
+			}
+			return el.Call("getAttribute", name).String()
+		}
+		for _, c := range []struct {
+			id         uint64
+			name, want string
+		}{
+			{1, "role", "group"}, {1, "aria-label", "App"},
+			{2, "role", "button"}, {2, "aria-label", "Save"},
+			{3, "role", "checkbox"}, {3, "aria-checked", "true"},
+			{4, "role", "slider"}, {4, "aria-valuenow", "5"}, {4, "aria-valuemax", "10"}, {4, "aria-valuetext", "half"},
+			{6, "role", "textbox"}, {6, "aria-label", "Notes"},
+		} {
+			if got := attr(c.id, c.name); got != c.want {
+				t.Errorf("node %d's %s is %q, want %q", c.id, c.name, got, c.want)
+			}
+		}
+		if got := find(5).Get("textContent").String(); got != "Hello" {
+			t.Errorf("the label holds %q", got)
+		}
+		if got := find(6).Get("textContent").String(); got != "abc" {
+			t.Errorf("the field holds %q", got)
+		}
+		if got := find(8).Call("getAttribute", "role"); !got.IsNull() {
+			t.Errorf("a nameless group has the role %v", got)
+		}
+		// Where it was drawn, for what reads by touch: a parent's offset taken off.
+		r, cr := find(2).Call("getBoundingClientRect"), d.canvas.Call("getBoundingClientRect")
+		if got := r.Get("left").Float() - cr.Get("left").Float(); math.Abs(got-10) > .5 {
+			t.Errorf("the button lies %v in from the canvas's left", got)
+		}
+		if got := r.Get("width").Float(); math.Abs(got-50) > .5 {
+			t.Errorf("the button is %v wide", got)
+		}
+		// Unseen, and out of the pointer's way.
+		style := js.Global().Call("getComputedStyle", d.accessRoot)
+		if style.Get("opacity").String() != "0" || style.Get("pointerEvents").String() != "none" {
+			t.Errorf("the layer has opacity %v, pointer-events %v", style.Get("opacity"), style.Get("pointerEvents"))
+		}
+		// A publish that changes nothing touches nothing.
+		seen := js.Global().Get("Array").New()
+		note := js.FuncOf(func(_ js.Value, a []js.Value) any { seen.Call("push", a[0].Length()); return nil })
+		defer note.Release()
+		watch := js.Global().Get("MutationObserver").New(note)
+		defer watch.Call("disconnect")
+		watch.Call("observe", d.accessRoot, map[string]any{"subtree": true, "childList": true, "attributes": true, "characterData": true})
+		publish()
+		if got := watch.Call("takeRecords").Length(); got != 0 {
+			t.Errorf("a publish with no change made %d changes on the page", got)
+		}
+		// One change makes one.
+		check.State = access.StateCheckable
+		publish()
+		if got := attr(3, "aria-checked"); got != "false" {
+			t.Errorf("unchecked, it says %q", got)
+		}
+		if got := watch.Call("takeRecords").Length(); got != 1 {
+			t.Errorf("one change made %d on the page", got)
+		}
+		// A screen reader's click presses; a field's takes focus; a slider's keys set it.
+		drain(w)
+		requests := func() (got []access.Request) {
+			for _, e := range drain(w) {
+				if r, ok := e.(access.Request); ok {
+					got = append(got, r)
+				}
+			}
+			return got
+		}
+		find(2).Call("click")
+		if got := requests(); len(got) != 1 || got[0].ID != 2 || got[0].Action != access.ActionPress {
+			t.Errorf("a click on the button came to %+v", got)
+		}
+		find(6).Call("click")
+		if got := requests(); len(got) != 1 || got[0].ID != 6 || !got[0].Focus {
+			t.Errorf("a click on the field came to %+v", got)
+		}
+		find(8).Call("click")
+		if got := requests(); len(got) != 0 {
+			t.Errorf("a click on a plain group came to %+v", got)
+		}
+		find(4).Call("dispatchEvent", js.Global().Get("KeyboardEvent").New("keydown", map[string]any{"bubbles": true, "cancelable": true, "key": "ArrowUp"}))
+		if got := requests(); len(got) != 1 || !got[0].SetValue || got[0].Value != 6 {
+			t.Errorf("turning the slider up came to %+v", got)
+		}
+		// Focus: the canvas names the node, and keeps the browser's focus.
+		button.Focused = true
+		publish()
+		if got := d.canvas.Call("getAttribute", "aria-activedescendant").String(); got != find(2).Get("id").String() {
+			t.Errorf("the canvas names %q as focused", got)
+		}
+		// On a text field, the mirror is the node, with its name, unhidden.
+		button.Focused, field.Focused = false, true
+		publish()
+		if got := d.canvas.Call("getAttribute", "aria-activedescendant"); !got.IsNull() {
+			t.Errorf("with a field focused, the canvas names %v", got)
+		}
+		if d.text.Call("hasAttribute", "aria-hidden").Bool() || d.text.Call("getAttribute", "aria-label").String() != "Notes" {
+			t.Errorf("the mirror has aria-hidden %v and label %v", d.text.Call("getAttribute", "aria-hidden"), d.text.Call("getAttribute", "aria-label"))
+		}
+		field.Focused = false
+		publish()
+		if d.text.Call("getAttribute", "aria-hidden").String() != "true" || d.text.Call("hasAttribute", "aria-label").Bool() {
+			t.Error("with focus gone, the mirror still stands for the field")
+		}
+		// A secret's text never goes on the page: the widget gives no value for it.
+		if got := find(7).Get("textContent").String(); got != "" {
+			t.Errorf("the password's element holds %q", got)
+		}
+		// Moved, reordered and gone.
+		group.Children = []*access.Node{label, button}
+		button.Bounds = geom.Rect{Min: geom.Pt(30, 20), Max: geom.Pt(80, 40)}
+		publish()
+		if !find(3).IsNull() {
+			t.Error("a node that went stays on the page")
+		}
+		if got := find(8).Get("firstElementChild").Call("getAttribute", "data-gunim-id").String(); got != "5" {
+			t.Errorf("after the reorder, node %s comes first", got)
+		}
+		if got := find(2).Call("getBoundingClientRect").Get("left").Float() - cr.Get("left").Float(); math.Abs(got-30) > .5 {
+			t.Errorf("the moved button lies %v in", got)
+		}
+		// A popup's tree goes beside it, moved to where the popup lies, and goes with it.
+		pw, err := d.NewWindow(driver.Options{Kind: driver.KindPopup, Parent: w, Size: geom.Sz(40, 40), Anchor: geom.Rect{Min: geom.Pt(20, 20), Max: geom.Pt(20, 20)}, Over: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		p := pw.(*Window)
+		item := &access.Node{Info: access.Info{Role: access.RoleMenuItem, Name: "Cut"}, ID: 21, Bounds: geom.Rect{Max: geom.Pt(40, 20)}}
+		p.PublishAccess(access.NewTree(&access.Node{Info: access.Info{Role: access.RoleWindow}, ID: 20, Bounds: geom.Rect{Max: geom.Pt(40, 40)}, Children: []*access.Node{item}}))
+		if got := find(21).Call("getBoundingClientRect").Get("left").Float() - cr.Get("left").Float(); math.Abs(got-float64(p.pos.X)) > .5 {
+			t.Errorf("the popup's item lies %v in, the popup %v", got, p.pos.X)
+		}
+		_ = p.Hide()
+		if got := js.Global().Call("getComputedStyle", p.accessTop).Get("display").String(); got != "none" {
+			t.Errorf("a hidden popup's tree has display %q", got)
+		}
+		_ = p.Close()
+		if !find(21).IsNull() {
+			t.Error("a closed popup's tree stays on the page")
+		}
+	})
+	t.Run("a window hands over its tree as things come to rest", func(t *testing.T) {
+		p, err := d.NewWindow(driver.Options{Kind: driver.KindPopup, Parent: w, Size: geom.Sz(40, 40), Anchor: geom.Rect{Min: geom.Pt(20, 20), Max: geom.Pt(20, 20)}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		pw := p.(*Window)
+		defer func() { _ = pw.Close() }()
+		if !pw.AccessWanted() {
+			t.Fatal("a new window doesn't want its tree")
+		}
+		tree := access.NewTree(&access.Node{Info: access.Info{Role: access.RoleWindow}, ID: 30, Bounds: geom.Rect{Max: geom.Pt(40, 40)}})
+		pw.PublishAccess(tree)
+		if pw.AccessWanted() {
+			t.Fatal("it wants its tree again on the next frame")
+		}
+		start := time.Now()
+		drain(pw)
+		// Turned down, it owes one: a redraw comes once things rest.
+		redraws := make(chan struct{}, 8)
+		go func() {
+			for e := range pw.Input() {
+				if _, ok := e.(driver.Redraw); ok {
+					redraws <- struct{}{}
+				}
+			}
+		}()
+		select {
+		case <-redraws:
+		case <-time.After(10 * time.Second):
+			t.Fatal("no redraw came to catch the page up")
+		}
+		if took := time.Since(start); took < accessQuiet/2 {
+			t.Fatalf("the redraw came after %v, before things had rested", took)
+		}
+		if !pw.AccessWanted() {
+			t.Fatal("the redraw came with no tree wanted")
+		}
+		pw.PublishAccess(tree)
+		if pw.AccessWanted() {
+			t.Fatal("handing it over left it wanting more")
+		}
+		// Frames that go on moving put it off, up to accessMost.
+		pw.d.mu.Lock()
+		pw.accessLast = time.Now().Add(-accessMost)
+		pw.d.mu.Unlock()
+		if !pw.AccessWanted() {
+			t.Fatal("something moving kept the tree off the page for good")
+		}
+		// A key doesn't wait, as it can move focus.
+		pw.PublishAccess(tree)
+		pw.d.mu.Lock()
+		pw.accessSoon = true
+		pw.d.mu.Unlock()
+		if !pw.AccessWanted() {
+			t.Fatal("after a key it still waits")
+		}
+	})
 	t.Run("sound opens before the first gesture", func(t *testing.T) {
 		// A browser holds sound back until a click, a key or a touch. Open can't wait
 		// for that: what the first click plays is set up after it.
@@ -1377,6 +1596,12 @@ func TestBrowser(t *testing.T) {
 		}
 		if len(d.listening) != 0 || !d.plain.Get("isConnected").IsUndefined() && d.plain.Get("isConnected").Bool() {
 			t.Errorf("%d listeners left, text mirror on the page: %v", len(d.listening), d.plain.Get("isConnected"))
+		}
+		if got := doc.Call("getElementById", "gunim-access"); !got.IsNull() {
+			t.Error("the elements for screen readers stay on the page")
+		}
+		if d.canvas.Call("hasAttribute", "aria-owns").Bool() {
+			t.Error("the canvas still names them")
 		}
 		// What the page sends now reaches nothing, and logs nothing.
 		pointer(d, "pointerdown", 1, 40, 40)

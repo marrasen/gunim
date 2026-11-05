@@ -57,6 +57,18 @@ type Window struct {
 	sharpTimer        *time.Timer
 	sharpen           bool
 	takesFingers      bool
+
+	// What the page's elements say of the window: see access.go. They are guarded by
+	// the driver's mu.
+
+	accessNum, accessSeen   uint64
+	accessEls               map[uint64]*accessEl
+	accessTop               js.Value
+	accessPlace             geom.Rect
+	accessKids              []uint64
+	accessLast, accessAsked time.Time
+	accessSoon              bool
+	accessOwed              *time.Timer
 }
 
 type frame struct {
@@ -190,6 +202,9 @@ func (w *Window) SetBackground(c color.NRGBA) {
 func (w *Window) Hide() error {
 	w.d.mu.Lock()
 	w.hidden = true
+	if w.accessTop.Truthy() {
+		w.accessTop.Get("style").Set("display", "none")
+	}
 	w.d.kickLocked()
 	w.d.mu.Unlock()
 	return nil
@@ -199,6 +214,9 @@ func (w *Window) Hide() error {
 func (w *Window) Show() error {
 	w.d.mu.Lock()
 	w.hidden = false
+	if w.accessTop.Truthy() {
+		w.accessTop.Get("style").Set("display", "")
+	}
 	w.d.kickLocked()
 	w.d.mu.Unlock()
 	return nil
