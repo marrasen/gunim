@@ -30,10 +30,16 @@ func (u *UI) handleOn(root *state, ev any) {
 		u.accessDue(root)
 		return
 	}
-	if u.touchEvent(root, ev) {
-		return
+	if !u.touchEvent(root, ev) {
+		u.handleRaw(root, ev)
 	}
-	u.handleRaw(root, ev)
+	// A driver that keeps a copy of the text hears what a key or a press did at
+	// once, not at the next frame, which may be some way off. An input method
+	// working on the copy meanwhile would work on old text. See TextStater.
+	switch ev.(type) {
+	case input.KeyPress, input.TextInput, input.Composing, input.TextEdit, input.PointerDown, input.PointerUp:
+		u.syncText(u.focus, false)
+	}
 }
 
 // handleRaw is handleOn past the reading of a finger's moves in

@@ -46,11 +46,18 @@ type Window struct {
 	closed bool
 	next   *frame
 	under  color.NRGBA
+	// stale says the window was hidden and has presented nothing since, so its
+	// last frame is the popup's before, and it stays out of sight.
+	stale bool
+	held  compose.Held
 
 	// The fields below belong to the frame loop.
 
-	pane              compose.Pane
-	state             *input.TextState
+	pane  compose.Pane
+	state *input.TextState
+	// composedState is the engine's latest state while a composition keeps state on the
+	// stretch of text the mirror holds, for when the composition ends.
+	composedState     *input.TextState
 	stateSeq, editSeq uint64
 	textBox           geom.Rect
 	shot              func(*image.RGBA)
@@ -122,6 +129,7 @@ func (w *Window) Present(ops []paint.Op, damage []geom.Rect) error {
 		return errClosed
 	}
 	w.next = &frame{ops: ops, damage: damage}
+	w.stale = false
 	w.d.kickLocked()
 	return nil
 }
@@ -160,16 +168,22 @@ func (w *Window) Close() error {
 	return nil
 }
 
-// Place implements [driver.Placer].
+// Place implements [driver.Placer]. A new size takes effect on the screen with the
+// frame the engine presents next, which asks for the animation frame.
 func (w *Window) Place(anchor geom.Rect, size geom.Size) error {
 	w.d.mu.Lock()
 	defer w.d.mu.Unlock()
 	if w.parent == nil || w.fills {
 		return nil
 	}
+	was, resized := w.rectLocked(), size != w.size
 	w.size = size
 	w.d.placeLocked(w, anchor)
-	w.d.kickLocked()
+	if resized {
+		w.held.Resized(was)
+	} else {
+		w.d.kickLocked()
+	}
 	return nil
 }
 
@@ -207,7 +221,7 @@ func (w *Window) SetBackground(c color.NRGBA) {
 // Hide implements [driver.Recycler].
 func (w *Window) Hide() error {
 	w.d.mu.Lock()
-	w.hidden = true
+	w.hidden, w.stale = true, true
 	if w.accessTop != nil {
 		w.accessTop.el.Get("style").Set("display", "none")
 		w.d.clearAccessFocusLocked(w)
@@ -217,7 +231,8 @@ func (w *Window) Hide() error {
 	return nil
 }
 
-// Show implements [driver.Recycler].
+// Show implements [driver.Recycler]. The window shows from its next frame, as the
+// last one it drew was for the popup before.
 func (w *Window) Show() error {
 	w.d.mu.Lock()
 	w.hidden = false
@@ -255,7 +270,25 @@ func (w *Window) SetTextInput(active bool) {
 		d.syncText(w)
 		d.focusMirror()
 	} else {
-		d.text.Call("blur")
+		d.leaveMirror()
+	}
+}
+
+// leaveMirror ends typing: nothing of the field stays in the page, and the keyboard
+// goes back to the canvas, unless the page's own element has it.
+func (d *Driver) leaveMirror() {
+	doc := js.Global().Get("document")
+	d.movingFocus = true
+	defer func() { d.movingFocus = false }()
+	if active := doc.Get("activeElement"); active.Equal(d.plain) || active.Equal(d.secret) {
+		active.Call("blur")
+	}
+	d.syncingText = true
+	d.plain.Set("value", "")
+	d.secret.Set("value", "")
+	d.syncingText = false
+	d.text = d.plain
+	if active := doc.Get("activeElement"); active.IsNull() || active.Equal(doc.Get("body")) {
 		d.canvas.Call("focus", map[string]any{"preventScroll": true})
 	}
 }
@@ -328,9 +361,17 @@ func (w *Window) SetTextState(state *input.TextState, seq uint64) {
 		w.d.mu.Unlock()
 		return
 	}
-	if state == nil {
+	w.composedState = nil
+	switch {
+	case state == nil:
 		w.state = nil
-	} else {
+	case w.d.composing && w.d.typing == w && w.state != nil:
+		// A composition holds the mirror as it is, and domEdited reads the mirror
+		// against w.state. In a long text a new state can be another stretch, as the
+		// stretch follows the caret, so w.state stays on the stretch the mirror holds.
+		kept := *state
+		w.composedState = &kept
+	default:
 		kept := *state
 		w.state = &kept
 	}

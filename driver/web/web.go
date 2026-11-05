@@ -11,14 +11,22 @@
 // the canvas bottom first.
 //
 // The canvas's CSS size is the windows' logical size, and the page's
-// devicePixelRatio their scale, so a page lays the canvas out as it
-// likes and gunim follows it. Frames are drawn in requestAnimationFrame,
-// and only while a window has a frame to show.
+// devicePixelRatio their scale, or less past what the GPU can draw, so a
+// page lays the canvas out as it likes and gunim follows it. Frames are
+// drawn in requestAnimationFrame, and in the ResizeObserver's step for a
+// new size, and only while there is something new to show.
 //
 // The browser's own pointer, keyboard and focus events become gunim's
 // input. Text comes through a hidden textarea, or a password field for a
 // secret, focused while a window takes text, so a phone's soft keyboard and
 // input methods work.
+//
+// The mirror holds what the engine holds at every moment the browser can act on it.
+// The browser types into it straight after a key's listeners return, and Go runs every
+// goroutine until it goes idle before it hands back to the browser. So a key the
+// listener passes on has reached the engine, and the engine's new text state has
+// reached the mirror, before the browser does anything more. The engine sends that
+// state as soon as it has handled the key: see [driver.TextStater].
 //
 // Each key has one owner. The browser keeps a short list, as reloading and
 // zooming, and gunim never hears those. Every other key with Control or Command
@@ -30,8 +38,9 @@
 //
 // Gunim takes every touch on the canvas, and scrolls and pans for itself. A page
 // that wants the browser to have some of them, as to scroll the page with
-// vertical swipes, sets touch-action in the canvas's own style attribute, and
-// that is kept. Elements a page lays over the canvas keep their own events.
+// vertical swipes, sets touch-action on the canvas, in its style attribute or a
+// stylesheet, and that is kept. Elements a page lays over the canvas keep their
+// own events.
 package web
 
 import (
@@ -39,6 +48,7 @@ import (
 	"errors"
 	"log"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -53,6 +63,12 @@ import (
 	"github.com/marrasen/gunim/internal/gl"
 )
 
+// heldKey is a key gunim heard go down.
+type heldKey struct {
+	w   *Window
+	key input.Key
+}
+
 // Driver is the browser implementation of [driver.Driver].
 type Driver struct {
 	mu sync.Mutex
@@ -61,23 +77,37 @@ type Driver struct {
 	canvas, text, plain, secret js.Value
 	g                           gl.Context
 	comp                        *compose.Compositor
+	// ctx is the WebGL context behind g, which says what the GPU can draw.
+	ctx js.Value
 
-	// scale is the page's devicePixelRatio, and cssW and cssH the
+	// scale is the page's devicePixelRatio, or less past bufferLimit, and cssW and cssH the
 	// canvas's size in CSS pixels, which are logical pixels. surfW and
 	// surfH are its drawing buffer's size in device pixels.
-	// lastTouch says the last press was a finger or a pen, not a mouse.
+	// lastTouch says the last input was a finger or a pen, not a mouse or a key.
 	lastTouch bool
-	// kept holds the keys down that stay the browser\'s, by their place.
-	kept         map[string]bool
-	scale        float32
-	cssW, cssH   float32
-	surfW, surfH int
+	// held holds the keys down that gunim heard go down, by their place, and the
+	// window each went to. buttons holds the buttons down in the window pressed.
+	held    map[string]heldKey
+	buttons []input.Button
+	// pressTouch says the press held is a finger's or a pen's. movingFocus says the
+	// driver is moving the keyboard between what it owns.
+	pressTouch, movingFocus bool
+	scale                   float32
+	cssW, cssH              float32
+	surfW, surfH            int
 	// exactW and exactH are the canvas's size in device pixels, from a browser
-	// that says.
+	// that says. pinned says the canvas has been through pinAutoSize.
 	exactW, exactH int
+	pinned         bool
+	// bufferLimit is the longest side of a drawing buffer the GPU and browser can
+	// draw on, or 0 for not known, and limitSaid says the log has told of it.
+	bufferLimit int
+	limitSaid   bool
 
-	// windows is the stack of open windows, bottom first.
+	// windows is the stack of open windows, bottom first, and gone the panes of
+	// windows closed, for the next frame to free.
 	windows []*Window
+	gone    []*compose.Pane
 	// pressed is the window a press started in, which keeps the
 	// pointer until it lifts, and hover the window a hovering mouse is
 	// over.
@@ -103,20 +133,37 @@ type Driver struct {
 	// typing is the window that takes text.
 	typing                 *Window
 	composing, syncingText bool
-	compStart              int
-	compSuffix, clipboard  string
+	// secretAway says focus left the password field, which holds nothing until it
+	// comes back.
+	secretAway bool
+	compStart  int
+	compSuffix string
+
+	// pageScale is the page's devicePixelRatio as last measured, scaleQuery the media
+	// query that tells of it changing, and scaleChanged what hears that.
+	pageScale    float32
+	scaleQuery   js.Value
+	scaleChanged js.Func
 
 	safeProbe      js.Value
 	safe           geom.Insets
 	keyboard       float32
 	viewportHeight float64
 	lost           bool
-	rate           float64
-	lastRAF        float64
-	samples        []float64
-	stats          frameStats
-	frameAsked     bool
-	raf            js.Func
+	// lostTimer runs out when a lost context has been gone too long, and lostNote
+	// is what then tells the user.
+	lostTimer *time.Timer
+	lostNote  js.Value
+	rate      float64
+	lastRAF   float64
+	// gaps is a ring of the last gaps between animation frames, gapCount of them
+	// so far and the next at gapAt, and sortedGaps room to sort them in.
+	gaps            [60]float64
+	sortedGaps      [60]float64
+	gapAt, gapCount int
+	stats           frameStats
+	frameAsked      bool
+	raf             js.Func
 	// rafID is the animation frame asked for, while frameAsked says one is.
 	rafID js.Value
 	// listening holds what the driver listens to, and observer and observed the
@@ -176,13 +223,7 @@ func openDriver() (*Driver, error) {
 	}
 	canvas := doc.Call("getElementById", "gunim")
 	if canvas.IsNull() {
-		canvas = doc.Call("createElement", "canvas")
-		canvas.Set("id", "gunim")
-		s := canvas.Get("style")
-		s.Set("display", "block")
-		s.Set("width", "100vw")
-		s.Set("height", "100vh")
-		doc.Get("body").Call("appendChild", canvas)
+		canvas = makeCanvas(doc)
 	}
 	opts := js.ValueOf(map[string]any{
 		"alpha": false, "antialias": false, "depth": false, "stencil": false,
@@ -197,7 +238,8 @@ func openDriver() (*Driver, error) {
 	if err != nil {
 		return nil, err
 	}
-	d := &Driver{canvas: canvas, g: g, comp: comp, quit: make(chan struct{}), rate: 60, fingers: map[int]*Window{}, headingTo: map[*Window]bool{}, kept: map[string]bool{}}
+	d := &Driver{canvas: canvas, g: g, ctx: ctx, comp: comp, quit: make(chan struct{}), rate: 60, fingers: map[int]*Window{}, headingTo: map[*Window]bool{}, held: map[string]heldKey{}}
+	d.bufferLimit = gpuLimit(ctx)
 	d.measure()
 	d.raf = js.FuncOf(func(_ js.Value, args []js.Value) any {
 		defer survive("animation frame")
@@ -207,6 +249,7 @@ func openDriver() (*Driver, error) {
 		d.mu.Lock()
 		d.frameAsked = false
 		d.mu.Unlock()
+		d.checkScale()
 		d.frame()
 		return nil
 	})
@@ -217,19 +260,67 @@ func openDriver() (*Driver, error) {
 	return d, nil
 }
 
-// pinAutoSize fixes a side of the canvas that takes its size from its drawing
-// buffer, as one with no CSS size does. Otherwise sizing the buffer to match
-// the canvas would grow the canvas, without end at a scale above 1.
+// makeCanvas makes the canvas for a page with none, filling the page, and takes
+// off the body's default margins, which would have the page scroll by them. Its
+// height follows the phone's address bar as that comes and goes, where 100vh would
+// leave the bottom of the canvas out of reach. A browser without dvh refuses the
+// second height and keeps the first.
+func makeCanvas(doc js.Value) js.Value {
+	canvas := doc.Call("createElement", "canvas")
+	canvas.Set("id", "gunim")
+	s := canvas.Get("style")
+	s.Set("display", "block")
+	s.Set("width", "100vw")
+	s.Set("height", "100vh")
+	s.Set("height", "100dvh")
+	body := doc.Get("body")
+	body.Get("style").Set("margin", "0")
+	body.Call("appendChild", canvas)
+	return canvas
+}
+
+// gpuLimit returns the longest side the GPU can draw on, going by the textures,
+// the renderbuffers and the viewport it has.
+func gpuLimit(ctx js.Value) int {
+	param := func(name string) int { return ctx.Call("getParameter", ctx.Get(name)).Int() }
+	dims := ctx.Call("getParameter", ctx.Get("MAX_VIEWPORT_DIMS"))
+	return min(param("MAX_TEXTURE_SIZE"), param("MAX_RENDERBUFFER_SIZE"), dims.Index(0).Int(), dims.Index(1).Int())
+}
+
+// pinAutoSize keeps the canvas's CSS size from following its drawing buffer, which
+// is about to take the canvas's size in device pixels. It runs once, as the canvas
+// first has a size, and leaves the buffer as it found it.
+//
+// A side with no CSS size at all follows the buffer alone, and would grow without
+// end at a scale above 1: that side is fixed where it is. A side given as auto
+// while the other side has a size, as height:auto with width:100%, follows the
+// other side at the buffer's ratio, and stays free to. The ratio then goes into
+// CSS, so the buffer's rounding can't nudge the canvas, which the browser would
+// report as a ResizeObserver loop.
 func pinAutoSize(c js.Value) {
 	w, h := c.Get("clientWidth").Int(), c.Get("clientHeight").Int()
-	c.Set("width", w*2+7)
-	c.Set("height", h*2+7)
+	bw, bh := c.Get("width").Int(), c.Get("height").Int()
+	moved := func() bool { return c.Get("clientWidth").Int() != w || c.Get("clientHeight").Int() != h }
+	// Twice the buffer at the same ratio moves only a side that follows it alone.
+	c.Set("width", bw*2)
+	c.Set("height", bh*2)
 	if c.Get("clientWidth").Int() != w {
 		c.Get("style").Set("width", strconv.Itoa(w)+"px")
 	}
 	if c.Get("clientHeight").Int() != h {
 		c.Get("style").Set("height", strconv.Itoa(h)+"px")
 	}
+	// Another ratio moves a side that follows the other.
+	c.Set("width", bw*2+7)
+	if moved() && bw > 0 && bh > 0 {
+		c.Get("style").Set("aspectRatio", strconv.Itoa(bw)+" / "+strconv.Itoa(bh))
+	}
+	c.Set("width", bw)
+	c.Set("height", bh)
+	// Lay it out as it now stands. The page's own ResizeObserver hears after the
+	// driver's, of the last layout, and a try above would read to it as a size that
+	// then changed, which the browser reports as a loop.
+	c.Get("clientWidth")
 }
 
 // measure reads the canvas's size and the page's scale, and sizes the
@@ -238,6 +329,9 @@ func (d *Driver) measure() bool {
 	w := float32(d.canvas.Get("clientWidth").Float())
 	h := float32(d.canvas.Get("clientHeight").Float())
 	s := float32(js.Global().Get("devicePixelRatio").Float())
+	d.mu.Lock()
+	d.pageScale = s
+	d.mu.Unlock()
 	if s <= 0 || math.IsNaN(float64(s)) {
 		s = 1
 	}
@@ -251,29 +345,79 @@ func (d *Driver) measure() bool {
 		return changed
 	}
 	d.mu.Lock()
-	unsized := d.cssW == 0 || d.cssH == 0
+	pin := !d.pinned
+	d.pinned = true
 	d.mu.Unlock()
-	if unsized {
+	if pin {
 		pinAutoSize(d.canvas)
 	}
 	pw, ph := int(math.Round(float64(w*s))), int(math.Round(float64(h*s)))
 	d.mu.Lock()
+	defer d.mu.Unlock()
 	// clientWidth rounds, so at a fractional scale the browser's own count of
 	// device pixels is the one that fills the canvas exactly. Further off than
 	// rounding explains, it is out of date, or the scale is emulated.
 	if near(d.exactW, pw, s) && near(d.exactH, ph, s) {
 		pw, ph = d.exactW, d.exactH
 	}
-	changed := w != d.cssW || h != d.cssH || s != d.scale
-	d.cssW, d.cssH, d.scale = w, h, s
+	changed := w != d.cssW || h != d.cssH
+	d.cssW, d.cssH = w, h
+	if lw, lh, ls := fitLimit(w, h, s, pw, ph, d.bufferLimit); lw != pw || lh != ph {
+		d.sayLimitLocked(pw, ph, s, ls)
+		pw, ph, s = lw, lh, ls
+	}
 	if pw != d.surfW || ph != d.surfH {
-		d.surfW, d.surfH = pw, ph
 		d.canvas.Set("width", pw)
 		d.canvas.Set("height", ph)
+		// The browser can give a smaller buffer than it was asked for, as it does
+		// past what it counts as the GPU's limit or its own, and says so only here.
+		if !d.lost && d.ctx.Truthy() {
+			bw, bh := d.ctx.Get("drawingBufferWidth").Int(), d.ctx.Get("drawingBufferHeight").Int()
+			if bw > 0 && bh > 0 && (bw < pw || bh < ph) {
+				// A new limit holds from here on, so the next look at the same size
+				// doesn't ask for the big buffer again.
+				d.bufferLimit = max(bw, bh)
+				lw, lh, ls := fitLimit(w, h, s, pw, ph, d.bufferLimit)
+				d.sayLimitLocked(pw, ph, s, ls)
+				pw, ph, s = lw, lh, ls
+				d.canvas.Set("width", pw)
+				d.canvas.Set("height", ph)
+			}
+		}
+		d.surfW, d.surfH = pw, ph
 		changed = true
 	}
-	d.mu.Unlock()
+	if s != d.scale {
+		d.scale = s
+		changed = true
+	}
 	return changed
+}
+
+// fitLimit returns the drawing buffer's size and the scale for a canvas of w×h
+// logical pixels with no side past limit: the canvas stays whole and in its place,
+// drawn at a lower scale, and the browser stretches it to fit. It is pw×ph at scale
+// when that fits, or there is no limit known.
+func fitLimit(w, h, scale float32, pw, ph, limit int) (lw, lh int, ls float32) {
+	if limit <= 0 || (pw <= limit && ph <= limit) {
+		return pw, ph, scale
+	}
+	ls = min(float32(limit)/w, float32(limit)/h)
+	lw = min(limit, int(math.Round(float64(w*ls))))
+	lh = min(limit, int(math.Round(float64(h*ls))))
+	return max(lw, 1), max(lh, 1), ls
+}
+
+// sayLimitLocked tells the log once why a canvas draws at less than the page's
+// scale.
+func (d *Driver) sayLimitLocked(pw, ph int, wanted, got float32) {
+	if d.limitSaid {
+		return
+	}
+	d.limitSaid = true
+	log.Printf("gunim: web: a canvas of %dx%d device pixels is past the longest side of %d the GPU can draw, so it draws at scale %.3g, not %.3g. "+
+		`On a phone, a page with no <meta name="viewport" content="width=device-width, initial-scale=1"> lays out about 980 px wide, which does this`,
+		pw, ph, d.bufferLimit, got, wanted)
 }
 
 // near says a count of device pixels is within rounding of what was worked out
@@ -285,13 +429,17 @@ func near(exact, worked int, scale float32) bool {
 // resized follows the canvas to its new size, and reports whether it changed.
 func (d *Driver) resized() bool {
 	d.placeAccess()
+	d.mu.Lock()
+	scale := d.scale
+	d.mu.Unlock()
 	if !d.measure() {
 		return false
 	}
 	d.mu.Lock()
 	var fill []*Window
 	for _, w := range d.windows {
-		if w.fills {
+		// At a new scale, every window draws afresh for it.
+		if w.fills || d.scale != scale {
 			fill = append(fill, w)
 		}
 	}
@@ -345,7 +493,16 @@ func (d *Driver) stop() {
 		js.Global().Call("cancelAnimationFrame", d.rafID)
 		d.frameAsked = false
 	}
+	if d.lostTimer != nil {
+		d.lostTimer.Stop()
+		d.lostTimer = nil
+	}
 	d.mu.Unlock()
+	d.scaleQuery.Call("removeEventListener", "change", d.scaleChanged)
+	d.scaleChanged.Release()
+	if d.lostNote.Truthy() {
+		d.lostNote.Call("remove")
+	}
 	for _, l := range d.listening {
 		l.target.Call("removeEventListener", l.name, l.fn)
 		l.fn.Release()
@@ -459,11 +616,17 @@ func (d *Driver) closed(w *Window) {
 	if d.hover == w {
 		d.hover = nil
 	}
-	if d.typing == w {
+	typing := d.typing == w
+	if typing {
 		d.typing = nil
+		d.composing = false
 	}
+	d.gone = append(d.gone, &w.pane)
 	last := len(d.windows) == 0
 	d.mu.Unlock()
+	if typing {
+		d.leaveMirror()
+	}
 	if last {
 		select {
 		case <-d.quit:
@@ -525,6 +688,21 @@ func (d *Driver) touchOf(e js.Value) bool {
 func (d *Driver) at(e js.Value) geom.Point {
 	r := d.canvas.Call("getBoundingClientRect")
 	return geom.Pt(float32(e.Get("clientX").Float()-r.Get("left").Float()), float32(e.Get("clientY").Float()-r.Get("top").Float()))
+}
+
+// pageTouchAction returns what the page asks of the browser for touches on the
+// canvas, in its style attribute or a stylesheet, or "none", for gunim to take them
+// all, if the page asks nothing. A stylesheet's "auto" can't be told from no
+// rule at all, and counts as none.
+func pageTouchAction(c js.Value) string {
+	if t := c.Get("style").Get("touchAction").String(); t != "" {
+		return t
+	}
+	t := js.Global().Call("getComputedStyle", c).Get("touchAction")
+	if !t.Truthy() || t.String() == "auto" {
+		return "none"
+	}
+	return t.String()
 }
 
 // pinchState is two fingers pressing. touch says what presses is a finger, which a
@@ -632,11 +810,13 @@ const (
 
 func (d *Driver) listen(doc js.Value) {
 	c := d.canvas
-	d.touchAction = c.Get("style").Get("touchAction").String()
-	if d.touchAction == "" {
-		d.touchAction = "none"
-	}
+	d.touchAction = pageTouchAction(c)
 	c.Get("style").Set("touchAction", d.touchAction)
+	// The driver's focus call on a press would have the browser draw its focus
+	// ring round the whole canvas. Windows draw focus in their own way.
+	if c.Get("style").Get("outline").String() == "" {
+		c.Get("style").Set("outline", "none")
+	}
 	c.Get("style").Set("userSelect", "none")
 	c.Get("style").Set("webkitUserSelect", "none")
 	c.Get("style").Set("webkitTapHighlightColor", "transparent")
@@ -713,6 +893,8 @@ func (d *Driver) listen(doc js.Value) {
 		}
 		d.lastAt, d.lastTap = now, p
 		d.pressed = w
+		d.pressTouch = touch
+		d.buttons = append(d.buttons[:0], buttonOf(e))
 		clicks, local := d.clicks, p.Sub(w.rectLocked().Min)
 		d.mu.Unlock()
 		// The driver moves focus itself. A mouse's press is cancelled at its
@@ -776,7 +958,15 @@ func (d *Driver) listen(doc js.Value) {
 			w.in.Push(input.PointerMove{Pos: local, Mods: modsOf(e), Touch: touch, Time: now})
 			// One button going down or up while another is held comes as a move.
 			if held && !finger && e.Get("button").Int() >= 0 {
-				if b := buttonOf(e); e.Get("buttons").Int()&buttonBit(e.Get("button").Int()) != 0 {
+				b := buttonOf(e)
+				down := e.Get("buttons").Int()&buttonBit(e.Get("button").Int()) != 0
+				d.mu.Lock()
+				d.buttons = slices.DeleteFunc(d.buttons, func(x input.Button) bool { return x == b })
+				if down {
+					d.buttons = append(d.buttons, b)
+				}
+				d.mu.Unlock()
+				if down {
 					w.in.Push(input.PointerDown{Pos: local, Button: b, Mods: modsOf(e), Clicks: 1, Time: now})
 				} else {
 					w.in.Push(input.PointerUp{Pos: local, Button: b, Mods: modsOf(e), Time: now})
@@ -798,6 +988,7 @@ func (d *Driver) listen(doc js.Value) {
 		}
 		w := d.pressed
 		d.pressed = nil
+		d.buttons = d.buttons[:0]
 		var local geom.Point
 		pinched := w != nil && d.pinch.pinched
 		if w != nil {
@@ -872,8 +1063,35 @@ func (d *Driver) listen(doc js.Value) {
 	})
 
 	key := func(e js.Value, down bool) {
+		name, code := e.Get("key").String(), e.Get("code").String()
+		m, now := modsOf(e), stamp(e)
+		if altGr(e) {
+			m &^= input.ModControl | input.ModAlt
+		}
+		if !down {
+			// A key gunim heard go down comes up, whatever is held as it does.
+			d.mu.Lock()
+			h, heard := d.held[keyPlace(code, name)]
+			delete(d.held, keyPlace(code, name))
+			d.mu.Unlock()
+			if heard {
+				h.w.in.Push(input.KeyRelease{Key: h.key, Mods: m, Time: now})
+			}
+			return
+		}
+		// A soft keyboard's keys have no place. Any other key means a keyboard is at
+		// hand, so a field takes the keyboard from here on, whatever a finger did last.
+		if code != "" {
+			d.mu.Lock()
+			d.lastTouch = false
+			typing := d.typing != nil
+			d.mu.Unlock()
+			if typing && !d.text.Equal(doc.Get("activeElement")) {
+				d.focusMirror()
+			}
+		}
 		// A dead key is half a character, which the browser finishes.
-		if e.Get("key").String() == "Dead" {
+		if name == "Dead" {
 			return
 		}
 		if d.text.Equal(doc.Get("activeElement")) && d.editKeyOwnedByDOM(e) {
@@ -883,37 +1101,17 @@ func (d *Driver) listen(doc js.Value) {
 		if w == nil {
 			return
 		}
-		k := keyOf(e.Get("code").String(), e.Get("key").String())
-		m, now := modsOf(e), stamp(e)
-		if altGr(e) {
-			m &^= input.ModControl | input.ModAlt
-		}
-		// A key's owner is settled as it goes down, whatever is held as it comes up.
-		name, code := e.Get("key").String(), e.Get("code").String()
-		d.mu.Lock()
-		if !down {
-			kept := d.kept[code]
-			delete(d.kept, code)
-			d.mu.Unlock()
-			if !kept {
-				w.in.Push(input.KeyRelease{Key: k, Mods: m, Time: now})
-			}
+		if browserKey(name, code, m) {
 			return
 		}
-		kept := browserKey(name, code, m)
+		k := keyOf(code, name)
+		d.mu.Lock()
+		d.held[keyPlace(code, name)] = heldKey{w, k}
 		w.accessInputCame()
 		if len([]rune(name)) != 1 || m&(input.ModControl|input.ModSuper) != 0 {
 			d.accessKeyAt = now
 		}
-		if kept {
-			d.kept[code] = true
-		} else {
-			delete(d.kept, code)
-		}
 		d.mu.Unlock()
-		if kept {
-			return
-		}
 		typed := len([]rune(name)) == 1 && m&(input.ModControl|input.ModSuper) == 0
 		var char rune
 		if r := []rune(strings.ToLower(name)); len(r) == 1 {
@@ -955,9 +1153,24 @@ func (d *Driver) listen(doc js.Value) {
 	}
 	win := js.Global()
 	d.on(win, "focus", true, func(js.Value) { focus(true) })
-	d.on(win, "blur", true, func(js.Value) { focus(false) })
+	d.on(win, "blur", true, func(js.Value) {
+		focus(false)
+		d.releaseHeld()
+	})
+	// Focus going to the page's own element takes the keys' releases with it.
+	for _, el := range []js.Value{c, d.plain, d.secret} {
+		d.on(el, "blur", true, func(e js.Value) {
+			to := e.Get("relatedTarget")
+			if !d.movingFocus && !to.Equal(c) && !to.Equal(d.plain) && !to.Equal(d.secret) {
+				d.releaseHeld()
+			}
+		})
+	}
 	d.on(doc, "visibilitychange", true, func(js.Value) {
 		shown := doc.Get("visibilityState").String() == "visible"
+		if !shown {
+			d.releaseHeld()
+		}
 		d.mu.Lock()
 		ws := append([]*Window(nil), d.windows...)
 		d.mu.Unlock()
@@ -974,6 +1187,7 @@ func (d *Driver) listen(doc js.Value) {
 		return nil
 	})
 	d.on(win, "resize", true, func(js.Value) { d.resized() })
+	d.watchScale()
 	if ro := win.Get("ResizeObserver"); !ro.IsUndefined() {
 		d.observed = js.FuncOf(func(_ js.Value, args []js.Value) any {
 			defer survive("resize")
@@ -989,6 +1203,86 @@ func (d *Driver) listen(doc js.Value) {
 		} else {
 			d.observer.Call("observe", c)
 		}
+	}
+}
+
+// releaseHeld lets go of every key, button and finger gunim holds down, as focus
+// has left and the browser won't say when they come up. The buttons and fingers
+// let go away from everything, so nothing takes it as a click.
+func (d *Driver) releaseHeld() {
+	now := time.Now()
+	d.mu.Lock()
+	keys := d.held
+	d.held = map[string]heldKey{}
+	pressed, touch, buttons := d.pressed, d.pressTouch, slices.Clone(d.buttons)
+	if pressed != nil {
+		d.pinchEndLocked(pressed, now)
+		if d.pinch.pinched {
+			// The press was let go as the pinch started.
+			buttons = nil
+		}
+	}
+	d.pressed, d.buttons, d.pinch = nil, d.buttons[:0], pinchState{}
+	fingers := d.fingers
+	d.fingers = map[int]*Window{}
+	d.mu.Unlock()
+	for _, h := range keys {
+		h.w.in.Push(input.KeyRelease{Key: h.key, Time: now})
+	}
+	if pressed != nil {
+		for _, b := range buttons {
+			pressed.in.Push(input.PointerUp{Pos: input.Away, Button: b, Touch: touch, Time: now})
+		}
+		pressed.in.Push(input.PointerLeave{Time: now})
+	}
+	for id, w := range fingers {
+		w.in.Push(input.Finger{ID: id, Pos: input.Away, Phase: input.FingerUp, Time: now})
+	}
+}
+
+// keyPlace is what tells a held key from another: its place, or for a soft
+// keyboard's key, which has none, its value.
+func keyPlace(code, name string) string {
+	if code != "" {
+		return code
+	}
+	return name
+}
+
+// watchScale listens for the page's scale to change. That can come with no resize,
+// as on a move to another screen, and a media query is what tells of it on a page at
+// rest. DevTools' emulation changes the scale with no such event, so each animation
+// frame looks as well; see checkScale.
+func (d *Driver) watchScale() {
+	d.scaleChanged = js.FuncOf(func(js.Value, []js.Value) any {
+		defer survive("scale")
+		d.armScale()
+		d.resized()
+		return nil
+	})
+	d.armScale()
+}
+
+// armScale listens for the page's scale to leave what it is now. A query says only
+// whether the scale matches, so each change needs one of its own.
+func (d *Driver) armScale() {
+	win := js.Global()
+	if d.scaleQuery.Truthy() {
+		d.scaleQuery.Call("removeEventListener", "change", d.scaleChanged)
+	}
+	d.scaleQuery = win.Call("matchMedia", "(resolution: "+strconv.FormatFloat(win.Get("devicePixelRatio").Float(), 'f', -1, 64)+"dppx)")
+	d.scaleQuery.Call("addEventListener", "change", d.scaleChanged)
+}
+
+// checkScale follows the page's scale if it has changed with nothing to say so.
+func (d *Driver) checkScale() {
+	s := float32(js.Global().Get("devicePixelRatio").Float())
+	d.mu.Lock()
+	same := s == d.pageScale
+	d.mu.Unlock()
+	if !same {
+		d.armScale()
+		d.resized()
 	}
 }
 
@@ -1047,16 +1341,47 @@ func altGr(e js.Value) bool {
 	if e.Call("getModifierState", "AltGraph").Bool() {
 		return true
 	}
-	r := []rune(e.Get("key").String())
+	name := e.Get("key").String()
+	r := []rune(name)
 	if !e.Get("ctrlKey").Bool() || !e.Get("altKey").Bool() || len(r) != 1 {
 		return false
 	}
-	return !unicode.IsLetter(r[0]) || r[0] > unicode.MaxASCII
+	if unicode.IsLetter(r[0]) && r[0] <= unicode.MaxASCII {
+		return false
+	}
+	return !plainCharacter(name, e.Get("code").String(), e.Get("shiftKey").Bool())
+}
+
+// usKeys holds what each place types on an American keyboard, alone and with Shift.
+var usKeys = map[string]string{
+	"Digit1": "1!", "Digit2": "2@", "Digit3": "3#", "Digit4": "4$", "Digit5": "5%",
+	"Digit6": "6^", "Digit7": "7&", "Digit8": "8*", "Digit9": "9(", "Digit0": "0)",
+	"Minus": "-_", "Equal": "=+", "BracketLeft": "[{", "BracketRight": "]}", "Backslash": "\\|",
+	"Semicolon": ";:", "Quote": "'\"", "Backquote": "`~", "Comma": ",<", "Period": ".>", "Slash": "/?",
+	"Space": "  ",
+}
+
+// plainCharacter says Control and Alt with a key gave what the key gives anyway, so
+// no AltGr layer is at work: 1 on the 1 key of an American keyboard. A browser that
+// reports AltGr itself never gets this far.
+func plainCharacter(name, code string, shift bool) bool {
+	if strings.HasPrefix(code, "Numpad") {
+		return true
+	}
+	us, ok := usKeys[code]
+	if !ok {
+		return false
+	}
+	if shift {
+		return name == us[1:2]
+	}
+	return name == us[:1]
 }
 
 // browserKey says a key stays the browser's alone, and gunim never hears it:
 // reloading, zooming, the developer tools, going back and forward, tabs, the
-// address bar and full screen. name is the key's value and code its place.
+// address bar, full screen and its settings, and the system's own keys for hiding
+// and moving between windows. name is the key's value and code its place.
 func browserKey(name, code string, m input.Mods) bool {
 	command := m&(input.ModControl|input.ModSuper) != 0
 	alt := m&input.ModAlt != 0
@@ -1072,12 +1397,28 @@ func browserKey(name, code string, m input.Mods) bool {
 	case !command:
 		return arrow || name == "Home" || lower == "d"
 	case alt:
-		// On a Mac: the developer tools, and moving along the tabs.
-		return m&input.ModSuper != 0 && (lower == "i" || lower == "j" || lower == "c" || arrow)
+		if m&input.ModSuper == 0 {
+			return false
+		}
+		// On a Mac: the developer tools, moving along the tabs, and hiding the other
+		// windows or minimizing them all, which with Shift are other shortcuts.
+		return lower == "i" || lower == "j" || lower == "c" || arrow || m&input.ModShift == 0 && (lower == "h" || lower == "m")
 	}
 	if m&input.ModControl != 0 && m&input.ModSuper != 0 {
 		// Full screen on a Mac.
 		return lower == "f"
+	}
+	if m&input.ModSuper != 0 {
+		// The system's own on a Mac: moving between windows, either way, on the key left
+		// of the 1 or, on some keyboards, of the Z.
+		if lower == "`" || lower == "~" || code == "Backquote" || code == "IntlBackslash" {
+			return true
+		}
+		// And hiding and minimizing the window, and the browser's settings. With Shift
+		// these are other shortcuts, and the program's.
+		if m&input.ModShift == 0 && (lower == "h" || lower == "m" || lower == ",") {
+			return true
+		}
 	}
 	switch lower {
 	case "r", "t", "n", "w", "l", "f5", "tab", "pageup", "pagedown",
@@ -1113,6 +1454,8 @@ func shortcutName(name, code string) string {
 		return "["
 	case code == "BracketRight":
 		return "]"
+	case code == "Comma":
+		return ","
 	}
 	return strings.ToLower(name)
 }
@@ -1139,7 +1482,7 @@ func gunimKey(name string, m input.Mods, inText bool) bool {
 }
 
 // keyWindow returns the window keys go to: the one taking text, or the
-// topmost that fills the canvas.
+// topmost that shows.
 func (d *Driver) keyWindow() *Window {
 	d.mu.Lock()
 	defer d.mu.Unlock()
