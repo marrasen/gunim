@@ -255,6 +255,8 @@ func (d *Driver) compositionEnded() {
 func (d *Driver) listenText(doc js.Value) {
 	for _, t := range []js.Value{d.plain, d.secret} {
 		d.on(t, "blur", true, func(js.Value) { d.mirrorBlurred(t) })
+		// Focus coming back, after a switch of window, comes by no call of focusText.
+		d.on(t, "focus", true, func(js.Value) { t.Call("removeAttribute", "aria-hidden") })
 		d.on(t, "compositionstart", false, func(js.Value) {
 			w := d.typingWindow()
 			if w == nil {

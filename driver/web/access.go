@@ -24,8 +24,11 @@ import (
 //   - While frames go on coming it waits accessLongest, with elements left where they
 //     are until things rest, so what a scroll moves is moved once. A screen reader, or
 //     someone moving about by keys, might be reading along, so for them it waits
-//     accessMost. So does a first publish, for a page that never rests. Keys that type
-//     don't count: gathering a long document's text between them would drop frames.
+//     accessMost. So does a first publish, for a page that never rests. Keys in the
+//     text mirror don't count: gathering a long document's text between them would
+//     drop frames.
+//   - While a popup is open, a key doesn't wait, as it may light up a menu's items.
+//     Nor does a window a popup leaves, for someone who may be reading along.
 //   - A tree that came out the same doubles the wait, up to accessLongest, so a caret
 //     costs little. The user's input ends that wait.
 //   - As focus moves, and after a screen reader's own request, it doesn't wait.
@@ -37,8 +40,8 @@ const (
 )
 
 // accessTextMost is how much of a field's text goes on its element. Chrome lays that
-// text out again each time it changes, and the field with focus has all of its text
-// in the text mirror, where a screen reader reads it.
+// text out again each time it changes. The field with focus has the stretch of its
+// text around the caret in the text mirror, where a screen reader reads it.
 const accessTextMost = 4096
 
 // The attributes an element can have, in the order accessEl keeps them.
@@ -137,7 +140,7 @@ func (d *Driver) accessLayerLocked() js.Value {
 	doc := js.Global().Get("document")
 	root := doc.Call("createElement", "div")
 	root.Set("id", "gunim-access")
-	root.Get("style").Set("cssText", "position:fixed;opacity:0;pointer-events:none;overflow:hidden;contain:strict;user-select:none;-webkit-user-select:none")
+	root.Get("style").Set("cssText", "position:fixed;opacity:0;pointer-events:none;overflow:hidden;overflow:clip;contain:strict;user-select:none;-webkit-user-select:none")
 	doc.Get("body").Call("appendChild", root)
 	d.accessRoot = root
 	for i, name := range canvasAttrs {
@@ -255,6 +258,45 @@ func (w *Window) accessRested() {
 	w.in.Push(driver.AccessDue{})
 }
 
+// popupKeyWent hurries each open popup's tree after a key. Keys light up a menu's
+// items, with no move of focus for the engine to tell, and a screen reader names
+// what's lit from the tree. The tree comes after the key, which is ahead of it in the
+// window's input.
+func (d *Driver) popupKeyWent() {
+	d.mu.Lock()
+	var open []*Window
+	for _, w := range d.windows {
+		if w.parent != nil && !w.hidden && !w.closed {
+			w.accessSoon = true
+			open = append(open, w)
+		}
+	}
+	d.mu.Unlock()
+	for _, w := range open {
+		w.in.Push(driver.AccessDue{})
+	}
+}
+
+// popupLeft hurries the tree of the window under a popup that has closed or hidden,
+// when someone may be reading along: focus goes back there, with no move of it for the
+// engine to tell. A tooltip the mouse leaves costs nothing.
+func (w *Window) popupLeft() {
+	d, under := w.d, w.parent
+	if under == nil {
+		return
+	}
+	d.mu.Lock()
+	reading := d.accessUsed || time.Since(d.accessKeyAt) < accessKeyLasts
+	gone := under.closed || d.stopped
+	if reading && !gone {
+		under.accessSoon = true
+	}
+	d.mu.Unlock()
+	if reading && !gone {
+		under.in.Push(driver.AccessDue{})
+	}
+}
+
 // accessInputCame ends the wait a tree that came out the same put in place, as the
 // user's input can change anything. It runs with mu held.
 func (w *Window) accessInputCame() { w.accessGap = 0 }
@@ -268,7 +310,8 @@ func (w *Window) PublishAccess(t *access.Tree) {
 		return
 	}
 	now := time.Now()
-	w.accessMoving = now.Sub(w.accessAsked) < accessQuiet
+	// A screen reader goes by where elements are, so for one they are placed anyway.
+	w.accessMoving = now.Sub(w.accessAsked) < accessQuiet && !d.accessUsed
 	w.accessLast, w.accessSoon = now, false
 	w.accessChanged, w.accessHot = false, 0
 	layer := d.accessLayerLocked()

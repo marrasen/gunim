@@ -164,6 +164,7 @@ func (w *Window) Close() error {
 		w.d.closed(w)
 		close(w.quit)
 		w.in.Close()
+		w.popupLeft()
 	})
 	return nil
 }
@@ -228,6 +229,7 @@ func (w *Window) Hide() error {
 	}
 	w.d.kickLocked()
 	w.d.mu.Unlock()
+	w.popupLeft()
 	return nil
 }
 

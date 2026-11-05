@@ -1105,10 +1105,13 @@ func (d *Driver) listen(doc js.Value) {
 			return
 		}
 		k := keyOf(code, name)
+		// Editing in the mirror is typing, which a screen reader follows there. Any other
+		// key is someone moving about, who might be reading along.
+		inField := d.text.Equal(doc.Get("activeElement")) && name != "Tab" && name != "Escape"
 		d.mu.Lock()
 		d.held[keyPlace(code, name)] = heldKey{w, k}
 		w.accessInputCame()
-		if len([]rune(name)) != 1 || m&(input.ModControl|input.ModSuper) != 0 {
+		if !inField {
 			d.accessKeyAt = now
 		}
 		d.mu.Unlock()
@@ -1118,6 +1121,9 @@ func (d *Driver) listen(doc js.Value) {
 			char = r[0]
 		}
 		w.in.Push(input.KeyPress{Key: k, Mods: m, Repeat: e.Get("repeat").Bool(), Typed: typed, Char: char, Time: now})
+		if !inField {
+			d.popupKeyWent()
+		}
 		if typed && !d.text.Equal(doc.Get("activeElement")) {
 			// No textarea to type into: the key's text goes along. The key is
 			// cancelled, as the handler may move focus to the mirror before the

@@ -2324,6 +2324,9 @@ func TestBrowser(t *testing.T) {
 			t.Error("a key that moves about isn't noted")
 		}
 		d.accessKeyAt = time.Time{}
+		d.mu.Lock()
+		pw.accessSoon = false // The key hurried this popup's tree: that has its own test.
+		d.mu.Unlock()
 		// Frames that go on coming wait long, unless someone may be reading along.
 		frame := func() bool {
 			pw.d.mu.Lock()
@@ -2383,6 +2386,153 @@ func TestBrowser(t *testing.T) {
 			t.Error("a closed window wants its tree")
 		}
 		time.Sleep(accessQuiet + 50*time.Millisecond)
+	})
+	t.Run("a screen reader hears of keys, a field's focus, and where things are", func(t *testing.T) {
+		doc := js.Global().Get("document")
+		was, wasUsed, wasAt := d.typing, d.accessUsed, d.accessKeyAt
+		defer func() {
+			d.typing, d.accessUsed, d.accessKeyAt = was, wasUsed, wasAt
+			d.canvas.Call("focus")
+			drain(w)
+		}()
+		// A key counts as moving about away from the mirror, Space among them.
+		d.accessUsed, d.accessKeyAt = false, time.Time{}
+		d.typing = nil
+		d.canvas.Call("focus")
+		key(d.canvas, " ", "Space")
+		if d.accessKeyAt.IsZero() {
+			t.Error("Space on a checkbox isn't someone moving about")
+		}
+		// In the mirror, editing keys are typing, and Tab and Escape still leave it.
+		d.typing, d.accessKeyAt = w, time.Time{}
+		d.text.Call("focus")
+		for _, k := range [][2]string{{"a", "KeyA"}, {" ", "Space"}, {"Backspace", "Backspace"}, {"Enter", "Enter"}, {"Shift", "ShiftLeft"}} {
+			key(d.text, k[0], k[1])
+			if !d.accessKeyAt.IsZero() {
+				t.Errorf("%q in the mirror counts as moving about", k[0])
+			}
+		}
+		key(d.text, "Tab", "Tab")
+		if d.accessKeyAt.IsZero() {
+			t.Error("Tab from the mirror isn't someone moving about")
+		}
+		// Focus coming back to the mirror, as after a switch of window, unhides it.
+		d.text.Call("blur")
+		if d.text.Call("getAttribute", "aria-hidden").String() != "true" {
+			t.Error("a blurred mirror isn't hidden")
+		}
+		d.text.Call("focus")
+		if !doc.Get("activeElement").Equal(d.text) {
+			t.Skip("the page has no focus to give")
+		}
+		if d.text.Call("hasAttribute", "aria-hidden").Bool() {
+			t.Error("the mirror stays hidden as focus comes back")
+		}
+		d.typing = nil
+		d.canvas.Call("focus")
+		drain(w)
+
+		// With no popup open, a key leaves the tree to wait. With one, it comes after the key.
+		soon := func() bool {
+			d.mu.Lock()
+			defer d.mu.Unlock()
+			return w.accessSoon
+		}
+		w.PublishAccess(access.NewTree(&access.Node{Info: access.Info{Role: access.RoleWindow}, ID: 40, Bounds: geom.Rect{Max: geom.Pt(40, 40)}}))
+		key(d.canvas, "ArrowDown", "ArrowDown")
+		if soon() {
+			t.Error("a key hurried the tree with no popup open")
+		}
+		drain(w)
+		raw, err := d.NewWindow(driver.Options{Kind: driver.KindPopup, Parent: w, Size: geom.Sz(40, 40), Anchor: geom.Rect{Min: geom.Pt(20, 20), Max: geom.Pt(20, 20)}, Over: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		popup := raw.(*Window)
+		defer func() { _ = popup.Close() }()
+		drain(popup)
+		key(d.canvas, "ArrowDown", "ArrowDown")
+		d.mu.Lock()
+		popupSoon := popup.accessSoon
+		d.mu.Unlock()
+		if !popupSoon {
+			t.Error("a key in a menu waits for things to rest")
+		}
+		evs := drain(popup)
+		press, due := -1, -1
+		for i, x := range evs {
+			switch x.(type) {
+			case input.KeyPress:
+				press = i
+			case driver.AccessDue:
+				due = i
+			}
+		}
+		if press < 0 || due < press {
+			t.Errorf("the key at %d, the tree asked for at %d: %v", press, due, evs)
+		}
+		// The window under hears as the popup leaves, if someone may be reading along.
+		// A tooltip the mouse leaves costs it nothing.
+		drain(w)
+		d.accessKeyAt = time.Time{}
+		_ = popup.Hide()
+		if soon() {
+			t.Error("a popup leaving hurried the tree with nobody at the keyboard")
+		}
+		_ = popup.Show()
+		d.accessKeyAt = time.Now()
+		_ = popup.Hide()
+		if !soon() {
+			t.Error("a popup leaving someone at the keyboard waits for things to rest")
+		}
+		if !slices.ContainsFunc(drain(w), func(x any) bool { _, ok := x.(driver.AccessDue); return ok }) {
+			t.Error("a popup leaving asks for no tree")
+		}
+		d.mu.Lock()
+		w.accessSoon = false
+		d.mu.Unlock()
+		_ = popup.Show()
+		_ = popup.Close()
+		if !soon() {
+			t.Error("a popup closing leaves the window under to wait")
+		}
+		d.accessKeyAt = time.Time{}
+		drain(w)
+		// Elements are placed for a screen reader even while things move, and otherwise
+		// wait for rest.
+		place := func(y float32) *access.Tree {
+			kid := &access.Node{Info: access.Info{Role: access.RoleButton, Name: "Go"}, ID: 42, Bounds: geom.Rect{Min: geom.Pt(0, y), Max: geom.Pt(20, y+5)}}
+			return access.NewTree(&access.Node{Info: access.Info{Role: access.RoleWindow}, ID: 41, Bounds: geom.Rect{Max: geom.Pt(40, 40)}, Children: []*access.Node{kid}})
+		}
+		w.PublishAccess(place(5))
+		el := doc.Call("querySelector", `#gunim-access [data-gunim-id="42"]`)
+		at := el.Call("getAttribute", "style").String()
+		moving := func() {
+			d.mu.Lock()
+			w.accessAsked = time.Now()
+			d.mu.Unlock()
+		}
+		moving()
+		w.PublishAccess(place(20))
+		if got := el.Call("getAttribute", "style").String(); got != at {
+			t.Errorf("with nobody reading, moving things are placed: %q", got)
+		}
+		d.accessUsed = true
+		moving()
+		w.PublishAccess(place(20))
+		if got := el.Call("getAttribute", "style").String(); got == at {
+			t.Error("for a screen reader, moving things stay where they were")
+		}
+		// A screen reader's scroll can't move the layer, only the program can.
+		root := d.accessRoot
+		spacer := doc.Call("createElement", "div")
+		spacer.Get("style").Set("cssText", "position:absolute;top:5000px;height:10px;width:10px")
+		root.Call("appendChild", spacer)
+		defer spacer.Call("remove")
+		root.Set("scrollTop", 500)
+		if got := root.Get("scrollTop").Float(); got != 0 {
+			t.Errorf("the layer scrolled to %v", got)
+		}
 	})
 	t.Run("Chrome reads every role and state", func(t *testing.T) {
 		at := float32(0)
