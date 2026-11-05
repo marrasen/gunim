@@ -9,6 +9,9 @@
 // ran. It talks to Chrome over --remote-debugging-pipe, which takes no WebSocket
 // client, and that pipe is not there on Windows.
 //
+// A test can ask for Chrome's accessibility tree, which it can't read from inside the
+// page: it sets window.axAsked, and this answers in window.axTree.
+//
 // With -serve it builds and serves the page and stops there, to open in any other
 // browser or on a phone. The result is then on the page, and in window.testResult.
 package main
@@ -49,7 +52,7 @@ WebAssembly.instantiateStreaming(fetch("web.test.wasm"), go.importObject)
 
 // progress asks the page for what the tests printed since it last asked.
 const progress = `window.testResult ? JSON.stringify({
-  done: testResult.done, code: testResult.code,
+  done: testResult.done, code: testResult.code, ax: !!window.axAsked,
   more: testResult.output.slice(testResult.read, testResult.read = testResult.output.length),
 }) : ""`
 
@@ -177,6 +180,14 @@ func runTests(c *debugger, url string) error {
 	if err := c.call(session, "Emulation.setFocusEmulationEnabled", map[string]any{"enabled": true}, nil); err != nil {
 		return err
 	}
+	// Says to the tests that a test can ask for Chrome's accessibility tree: it has no
+	// other way to read it than this debugging protocol.
+	if err := c.call(session, "Page.enable", map[string]any{}, nil); err != nil {
+		return err
+	}
+	if err := c.call(session, "Page.addScriptToEvaluateOnNewDocument", map[string]any{"source": "window.axRunner = true"}, nil); err != nil {
+		return err
+	}
 	if err := c.call(session, "Page.navigate", map[string]any{"url": url}, nil); err != nil {
 		return err
 	}
@@ -190,6 +201,7 @@ func runTests(c *debugger, url string) error {
 			Done bool
 			Code int
 			More string
+			AX   bool
 		}
 		if answer.Result.Value != "" {
 			if err := json.Unmarshal([]byte(answer.Result.Value), &now); err != nil {
@@ -198,6 +210,12 @@ func runTests(c *debugger, url string) error {
 		}
 		fmt.Print(now.More)
 		output.WriteString(now.More)
+		if now.AX {
+			if err := answerAX(c, session); err != nil {
+				return err
+			}
+			continue
+		}
 		if now.Done {
 			if now.Code != 0 {
 				return fmt.Errorf("the tests failed, with code %d", now.Code)
@@ -210,6 +228,22 @@ func runTests(c *debugger, url string) error {
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
+}
+
+// answerAX hands the page Chrome's accessibility tree, for a test that asked.
+func answerAX(c *debugger, session string) error {
+	if err := c.call(session, "Accessibility.enable", map[string]any{}, nil); err != nil {
+		return err
+	}
+	var tree json.RawMessage
+	if err := c.call(session, "Accessibility.getFullAXTree", map[string]any{}, &tree); err != nil {
+		return err
+	}
+	text, err := json.Marshal(string(tree))
+	if err != nil {
+		return err
+	}
+	return c.call(session, "Runtime.evaluate", map[string]any{"expression": "window.axTree = " + string(text) + "; window.axAsked = false"}, nil)
 }
 
 // debugger speaks Chrome's DevTools protocol over the pipe: a JSON message
