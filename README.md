@@ -462,7 +462,7 @@ A test that skips fails the run. Name a browser with `-chrome path`. On Windows,
 
 A browser holds sound back until the user's first click, key or touch. `speaker.Open` returns at once all the same, and what plays meanwhile sounds from that first gesture on.
 
-Screen readers read a page through unseen elements with ARIA roles that lie over the canvas, kept up to date as things come to rest. A key press or a screen reader's own request updates them at once.
+Screen readers read a page through unseen elements with ARIA roles that lie over the canvas, kept up to date as things come to rest, at once as focus moves or a screen reader asks for something. A slider is a real range input. Exploring by touch doesn't work yet.
 
 Host files, plugins, native audio drivers and other windows of the system aren't there.
 
