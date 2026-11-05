@@ -159,7 +159,7 @@ func (w *Window) SetTitle(title string) {
 // ShowKeyboard focuses what takes text, which brings up a phone's keyboard.
 func (w *Window) ShowKeyboard() {
 	w.d.syncText(w)
-	w.d.text.Call("focus", map[string]any{"preventScroll": true})
+	w.d.focusText()
 }
 
 // SetTextBox says where the text being edited is.
@@ -237,7 +237,6 @@ func (d *Driver) readViewport(keepField bool) {
 		return float32(v)
 	}
 	safe := geom.Insets{Top: read("paddingTop"), Right: read("paddingRight"), Bottom: read("paddingBottom"), Left: read("paddingLeft")}
-	d.placeAccess()
 	d.mu.Lock()
 	changed := safe != d.safe || cover != d.keyboard
 	d.safe, d.keyboard = safe, cover

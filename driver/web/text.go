@@ -97,7 +97,7 @@ func (d *Driver) useMirror(secret bool) {
 	d.syncingText = false
 	d.text = to
 	if focused {
-		to.Call("focus", map[string]any{"preventScroll": true})
+		d.focusText()
 	}
 }
 func (d *Driver) domEdited(composing bool) {
@@ -155,6 +155,7 @@ func (d *Driver) domEdited(composing bool) {
 }
 func (d *Driver) listenText(doc js.Value) {
 	for _, t := range []js.Value{d.plain, d.secret} {
+		d.on(t, "blur", true, func(js.Value) { d.mirrorBlurred(t) })
 		d.on(t, "compositionstart", false, func(js.Value) {
 			w := d.typingWindow()
 			if w == nil {

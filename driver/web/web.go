@@ -128,14 +128,21 @@ type Driver struct {
 	quit      chan struct{}
 
 	// accessRoot is the element the windows' trees go in, and accessAt where it lies.
-	// accessFocus is the element the canvas names as focused, in accessFocusIn.
-	// accessFieldIn is the window whose text field the text mirror stands for.
-	// windowsMade numbers the windows.
-	accessRoot                   js.Value
-	accessAt                     geom.Rect
-	accessFocus, accessTitle     string
-	accessFocusIn, accessFieldIn *Window
-	windowsMade                  uint64
+	// accessFocus is the element the canvas names as focused, in accessFocusIn, and
+	// accessHotIn the window whose lit menu item that is. accessFieldIn is the window
+	// whose text field the text mirror stands for, by mirrorLabel on mirrorNamed.
+	// pageAttrs is what the page had on the canvas. accessUsed says a screen reader has
+	// asked for something, and accessKeyAt is when a key that doesn't type last went
+	// down. windowsMade numbers the windows.
+	accessRoot                                js.Value
+	accessAt                                  geom.Rect
+	accessFocus, accessTitle, mirrorLabel     string
+	accessFocusIn, accessFieldIn, accessHotIn *Window
+	mirrorNamed                               js.Value
+	pageAttrs                                 [len(canvasAttrs)]js.Value
+	accessUsed                                bool
+	accessKeyAt                               time.Time
+	windowsMade                               uint64
 }
 
 // listener is one DOM event the driver listens to.
@@ -355,8 +362,8 @@ func (d *Driver) stop() {
 	}
 	if d.accessRoot.Truthy() {
 		d.accessRoot.Call("remove")
-		for _, name := range []string{"role", "aria-owns", "aria-label", "aria-activedescendant"} {
-			d.canvas.Call("removeAttribute", name)
+		for i := range canvasAttrs {
+			d.restoreCanvasAttr(i)
 		}
 	}
 }
@@ -693,6 +700,7 @@ func (d *Driver) listen(doc js.Value) {
 			d.mu.Unlock()
 			return
 		}
+		w.accessInputCame()
 		d.pointer = id
 		d.pinch = pinchState{touch: e.Get("pointerType").String() == "touch", first: p}
 		if w.takesFingers && e.Get("pointerType").String() != "mouse" {
@@ -793,6 +801,7 @@ func (d *Driver) listen(doc js.Value) {
 		var local geom.Point
 		pinched := w != nil && d.pinch.pinched
 		if w != nil {
+			w.accessInputCame()
 			local = p.Sub(w.rectLocked().Min)
 			d.pinchEndLocked(w, now)
 		}
@@ -842,6 +851,7 @@ func (d *Driver) listen(doc js.Value) {
 		var local geom.Point
 		if w != nil {
 			local = p.Sub(w.rectLocked().Min)
+			w.accessInputCame()
 		}
 		d.mu.Unlock()
 		if w == nil {
@@ -891,8 +901,10 @@ func (d *Driver) listen(doc js.Value) {
 			return
 		}
 		kept := browserKey(name, code, m)
-		// A key can move focus, which a screen reader wants to hear of at once.
-		w.accessSoon = true
+		w.accessInputCame()
+		if len([]rune(name)) != 1 || m&(input.ModControl|input.ModSuper) != 0 {
+			d.accessKeyAt = now
+		}
 		if kept {
 			d.kept[code] = true
 		} else {

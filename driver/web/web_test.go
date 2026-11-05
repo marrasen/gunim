@@ -14,6 +14,7 @@ import (
 	"syscall/js"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/marrasen/gunim/access"
 	"github.com/marrasen/gunim/audio"
@@ -1295,7 +1296,7 @@ func TestBrowser(t *testing.T) {
 			{1, "role", "group"}, {1, "aria-label", "App"},
 			{2, "role", "button"}, {2, "aria-label", "Save"},
 			{3, "role", "checkbox"}, {3, "aria-checked", "true"},
-			{4, "role", "slider"}, {4, "aria-valuenow", "5"}, {4, "aria-valuemax", "10"}, {4, "aria-valuetext", "half"},
+			{4, "aria-label", "Level"}, {4, "value", "5"}, {4, "max", "10"}, {4, "step", "1"}, {4, "aria-valuetext", "half"},
 			{6, "role", "textbox"}, {6, "aria-label", "Notes"},
 		} {
 			if got := attr(c.id, c.name); got != c.want {
@@ -1366,10 +1367,69 @@ func TestBrowser(t *testing.T) {
 		if got := requests(); len(got) != 0 {
 			t.Errorf("a click on a plain group came to %+v", got)
 		}
-		find(4).Call("dispatchEvent", js.Global().Get("KeyboardEvent").New("keydown", map[string]any{"bubbles": true, "cancelable": true, "key": "ArrowUp"}))
-		if got := requests(); len(got) != 1 || !got[0].SetValue || got[0].Value != 6 {
-			t.Errorf("turning the slider up came to %+v", got)
+		if tag := find(4).Get("tagName").String(); tag != "INPUT" || find(4).Get("type").String() != "range" {
+			t.Errorf("the slider is a %v of type %v", tag, find(4).Get("type"))
 		}
+		find(4).Set("value", 6)
+		find(4).Call("dispatchEvent", js.Global().Get("Event").New("input", map[string]any{"bubbles": true}))
+		if got := requests(); len(got) != 1 || !got[0].SetValue || got[0].Value != 6 {
+			t.Errorf("a new value on the slider came to %+v", got)
+		}
+		// The widget has the last word: a publish puts the value it holds back.
+		publish()
+		if got := find(4).Get("value").String(); got != "5" {
+			t.Errorf("after a publish with the old value, the input says %s", got)
+		}
+		slide.Range.Value = 7
+		publish()
+		if got := find(4).Get("value").String(); got != "7" {
+			t.Errorf("after a publish with a new value, the input says %s", got)
+		}
+		// A click and a new value don't wait for things to rest, and hold a screen reader's
+		// page to the short wait.
+		soon := func() bool {
+			d.mu.Lock()
+			defer d.mu.Unlock()
+			return w.accessSoon
+		}
+		publish()
+		find(2).Call("click")
+		requests()
+		if !soon() {
+			t.Error("a screen reader's click waits for things to rest")
+		}
+		if !d.accessUsed {
+			t.Error("a screen reader's click isn't noted")
+		}
+		publish()
+		find(4).Set("value", 8)
+		find(4).Call("dispatchEvent", js.Global().Get("Event").New("input", map[string]any{"bubbles": true}))
+		requests()
+		if !soon() {
+			t.Error("a screen reader's new value waits for things to rest")
+		}
+		publish()
+		d.accessUsed = false
+		// A screen reader's click on a field lets a phone's keyboard come up.
+		d.mu.Lock()
+		d.lastTouch = true
+		d.mu.Unlock()
+		find(6).Call("click")
+		requests()
+		publish()
+		d.accessUsed = false
+		if d.lastTouch {
+			t.Error("a click on the field's element leaves a finger as the last input")
+		}
+		// A screen reader's focus on a slider keeps the keys on the canvas.
+		d.canvas.Call("focus")
+		find(4).Call("focus", map[string]any{"preventScroll": true})
+		if !d.canvas.Equal(doc.Get("activeElement")) {
+			t.Errorf("focus on the slider left %v with the browser's focus", doc.Get("activeElement").Get("tagName"))
+		}
+		requests()
+		publish()
+		d.accessUsed = false
 		// Focus: the canvas names the node, and keeps the browser's focus.
 		button.Focused = true
 		publish()
@@ -1378,18 +1438,63 @@ func TestBrowser(t *testing.T) {
 		}
 		// On a text field, the mirror is the node, with its name, unhidden.
 		button.Focused, field.Focused = false, true
+		// While the canvas has the browser's focus, it names the field's element.
+		publish()
+		if got := d.canvas.Call("getAttribute", "aria-activedescendant").String(); got != find(6).Get("id").String() {
+			t.Errorf("with the canvas focused, it names %q for the field", got)
+		}
+		// On the text mirror, the mirror is the field: its name, and seen by assistive
+		// technology, and the moment it takes focus, not at the next publish.
+		if d.text.Call("getAttribute", "aria-hidden").String() != "true" {
+			t.Error("the mirror isn't hidden while it has no focus")
+		}
+		d.focusText()
+		if d.text.Call("hasAttribute", "aria-hidden").Bool() {
+			t.Error("the mirror took focus still hidden, which Chrome warns of")
+		}
 		publish()
 		if got := d.canvas.Call("getAttribute", "aria-activedescendant"); !got.IsNull() {
-			t.Errorf("with a field focused, the canvas names %v", got)
+			t.Errorf("with the mirror focused, the canvas names %v", got)
 		}
-		if d.text.Call("hasAttribute", "aria-hidden").Bool() || d.text.Call("getAttribute", "aria-label").String() != "Notes" {
-			t.Errorf("the mirror has aria-hidden %v and label %v", d.text.Call("getAttribute", "aria-hidden"), d.text.Call("getAttribute", "aria-label"))
+		if got := d.text.Call("getAttribute", "aria-label").String(); got != "Notes" {
+			t.Errorf("the mirror is called %q", got)
 		}
+		// A publish with no change touches the mirror no more than the rest.
+		mirrors := js.Global().Get("MutationObserver").New(note)
+		defer mirrors.Call("disconnect")
+		mirrors.Call("observe", d.text, map[string]any{"attributes": true})
+		publish()
+		if got := mirrors.Call("takeRecords").Length(); got != 0 {
+			t.Errorf("a publish with no change made %d changes on the mirror", got)
+		}
+		mirrors.Call("disconnect")
 		field.Focused = false
 		publish()
+		d.text.Call("blur")
 		if d.text.Call("getAttribute", "aria-hidden").String() != "true" || d.text.Call("hasAttribute", "aria-label").Bool() {
 			t.Error("with focus gone, the mirror still stands for the field")
 		}
+		// A field's text is cut short on its element, where Chrome lays it out, and the
+		// one with focus keeps what it has as keys change it.
+		long := strings.Repeat("é", 3*accessTextMost)
+		field.Value = long
+		publish()
+		if got := find(6).Get("textContent").String(); len(got) > accessTextMost+8 || !utf8.ValidString(got) || !strings.HasPrefix(long, strings.TrimSuffix(got, "…")) {
+			t.Errorf("the field's element holds %d bytes", len(got))
+		}
+		field.Focused = true
+		field.Value = "x" + long
+		publish()
+		watch.Call("takeRecords")
+		field.Value = "y" + long
+		publish()
+		if got := watch.Call("takeRecords").Length(); got != 0 {
+			t.Errorf("a key in the focused field made %d changes on its element", got)
+		}
+		field.Focused, field.Value = false, "abc"
+		publish()
+		d.text.Call("blur")
+		watch.Call("takeRecords")
 		// A secret's text never goes on the page: the widget gives no value for it.
 		if got := find(7).Get("textContent").String(); got != "" {
 			t.Errorf("the password's element holds %q", got)
@@ -1407,6 +1512,57 @@ func TestBrowser(t *testing.T) {
 		if got := find(2).Call("getBoundingClientRect").Get("left").Float() - cr.Get("left").Float(); math.Abs(got-30) > .5 {
 			t.Errorf("the moved button lies %v in", got)
 		}
+		// What scrolled from out of sight to out of sight stays where it is.
+		far := &access.Node{Info: access.Info{Role: access.RoleButton, Name: "Far"}, ID: 40, Bounds: geom.Rect{Min: geom.Pt(10, 5000), Max: geom.Pt(60, 5020)}}
+		group.Children = append(group.Children, far)
+		publish()
+		watch.Call("takeRecords")
+		far.Bounds = geom.Rect{Min: geom.Pt(10, 6000), Max: geom.Pt(60, 6020)}
+		publish()
+		if got := watch.Call("takeRecords").Length(); got != 0 {
+			t.Errorf("moving out of sight made %d changes", got)
+		}
+		far.Bounds = geom.Rect{Min: geom.Pt(10, 60), Max: geom.Pt(60, 80)}
+		publish()
+		if got := find(40).Call("getBoundingClientRect").Get("top").Float() - cr.Get("top").Float(); math.Abs(got-60) > .5 {
+			t.Errorf("back in sight, it lies %v down", got)
+		}
+		// While things move, elements stay put, and are placed once they rest.
+		d.mu.Lock()
+		w.accessAsked = time.Now()
+		d.mu.Unlock()
+		far.Bounds = geom.Rect{Min: geom.Pt(10, 90), Max: geom.Pt(60, 110)}
+		publish()
+		if got := find(40).Call("getBoundingClientRect").Get("top").Float() - cr.Get("top").Float(); math.Abs(got-60) > .5 {
+			t.Errorf("while things move, it moved to %v", got)
+		}
+		if !w.accessUnplaced {
+			t.Error("nothing notes an element is left to place")
+		}
+		d.mu.Lock()
+		w.accessAsked = time.Time{}
+		d.mu.Unlock()
+		publish()
+		if got := find(40).Call("getBoundingClientRect").Get("top").Float() - cr.Get("top").Float(); math.Abs(got-90) > .5 {
+			t.Errorf("at rest, it lies %v down, want 90", got)
+		}
+		group.Children = group.Children[:len(group.Children)-1]
+		publish()
+		// The layer follows the canvas as the page moves it.
+		follow := func(what string, move func()) {
+			t.Helper()
+			st := d.canvas.Get("style")
+			was := st.Get("marginTop").String()
+			st.Set("marginTop", "37px")
+			defer func() { st.Set("marginTop", was); d.placeAccess() }()
+			move()
+			r := d.accessRoot.Call("getBoundingClientRect").Get("top").Float()
+			if want := d.canvas.Call("getBoundingClientRect").Get("top").Float(); math.Abs(r-want) > .5 {
+				t.Errorf("after %s, the layer's top is %v and the canvas's %v", what, r, want)
+			}
+		}
+		follow("a resize", func() { js.Global().Call("dispatchEvent", js.Global().Get("Event").New("resize")) })
+		follow("a scroll", func() { js.Global().Call("dispatchEvent", js.Global().Get("Event").New("scroll")) })
 		// A popup's tree goes beside it, moved to where the popup lies, and goes with it.
 		pw, err := d.NewWindow(driver.Options{Kind: driver.KindPopup, Parent: w, Size: geom.Sz(40, 40), Anchor: geom.Rect{Min: geom.Pt(20, 20), Max: geom.Pt(20, 20)}, Over: true})
 		if err != nil {
@@ -1418,13 +1574,65 @@ func TestBrowser(t *testing.T) {
 		if got := find(21).Call("getBoundingClientRect").Get("left").Float() - cr.Get("left").Float(); math.Abs(got-float64(p.pos.X)) > .5 {
 			t.Errorf("the popup's item lies %v in, the popup %v", got, p.pos.X)
 		}
+		tree := func(focused bool) *access.Tree {
+			field := &access.Node{Info: access.Info{Role: access.RoleTextField, Name: "Search"}, ID: 22, Bounds: geom.Rect{Max: geom.Pt(40, 10)}, Focused: focused}
+			return access.NewTree(&access.Node{Info: access.Info{Role: access.RoleWindow}, ID: 20, Bounds: geom.Rect{Max: geom.Pt(40, 40)}, Children: []*access.Node{field}})
+		}
+		named := func() js.Value { return d.canvas.Call("getAttribute", "aria-activedescendant") }
+		// Focused in a popup, then hidden: nothing names its hidden element.
+		p.PublishAccess(tree(true))
+		if got := named().String(); got != find(22).Get("id").String() {
+			t.Errorf("the canvas names %q for the popup's field", got)
+		}
 		_ = p.Hide()
-		if got := js.Global().Call("getComputedStyle", p.accessTop).Get("display").String(); got != "none" {
+		if got := js.Global().Call("getComputedStyle", p.accessTop.el).Get("display").String(); got != "none" {
 			t.Errorf("a hidden popup's tree has display %q", got)
+		}
+		if got := named(); !got.IsNull() {
+			t.Errorf("the canvas names %v in a hidden popup", got)
+		}
+		d.mu.Lock()
+		p.accessSoon, p.accessAsked, p.accessLast = true, time.Now(), time.Now().Add(-accessLongest)
+		d.mu.Unlock()
+		if p.AccessWanted() || p.AccessFocusWanted() {
+			t.Error("a hidden window wants its tree")
+		}
+		d.mu.Lock()
+		p.accessSoon = false
+		d.mu.Unlock()
+		_ = p.Show()
+		if got := js.Global().Call("getComputedStyle", p.accessTop.el).Get("display").String(); got == "none" {
+			t.Error("shown again, its tree is still hidden")
+		}
+		// Standing for a popup's field as it closes: nothing is left of that.
+		d.focusText()
+		p.PublishAccess(tree(true))
+		if got := d.text.Call("getAttribute", "aria-label").String(); got != "Search" {
+			t.Errorf("the mirror is called %q", got)
 		}
 		_ = p.Close()
 		if !find(21).IsNull() {
 			t.Error("a closed popup's tree stays on the page")
+		}
+		if got := d.text.Call("getAttribute", "aria-label"); !got.IsNull() {
+			t.Errorf("after the popup closed, the mirror is called %v", got)
+		}
+		d.text.Call("blur")
+		if d.text.Call("getAttribute", "aria-hidden").String() != "true" {
+			t.Error("after the popup closed, the mirror isn't hidden")
+		}
+		// Named in a popup as it closes.
+		pw2, err := d.NewWindow(driver.Options{Kind: driver.KindPopup, Parent: w, Size: geom.Sz(40, 40), Anchor: geom.Rect{Min: geom.Pt(20, 20), Max: geom.Pt(20, 20)}, Over: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		pw2.(*Window).PublishAccess(tree(true))
+		if named().IsNull() {
+			t.Error("the canvas names nothing for the second popup's field")
+		}
+		_ = pw2.Close()
+		if got := named(); !got.IsNull() {
+			t.Errorf("after the popup closed, the canvas names %v", got)
 		}
 	})
 	t.Run("a window hands over its tree as things come to rest", func(t *testing.T) {
@@ -1434,54 +1642,307 @@ func TestBrowser(t *testing.T) {
 		}
 		pw := p.(*Window)
 		defer func() { _ = pw.Close() }()
-		if !pw.AccessWanted() {
-			t.Fatal("a new window doesn't want its tree")
-		}
+		used := d.accessUsed
+		d.accessUsed, d.accessKeyAt = false, time.Time{}
+		defer func() { d.accessUsed = used }()
 		tree := access.NewTree(&access.Node{Info: access.Info{Role: access.RoleWindow}, ID: 30, Bounds: geom.Rect{Max: geom.Pt(40, 40)}})
-		pw.PublishAccess(tree)
+		// The first frame of a new window pays nothing.
 		if pw.AccessWanted() {
-			t.Fatal("it wants its tree again on the next frame")
+			t.Fatal("a new window wants its tree on its first frame")
 		}
 		start := time.Now()
 		drain(pw)
-		// Turned down, it owes one: a redraw comes once things rest.
-		redraws := make(chan struct{}, 8)
+		// Rest comes, and the tree is asked for with no frame: no redraw, ever.
+		due := make(chan struct{}, 8)
 		go func() {
 			for e := range pw.Input() {
-				if _, ok := e.(driver.Redraw); ok {
-					redraws <- struct{}{}
+				switch e.(type) {
+				case driver.AccessDue:
+					due <- struct{}{}
+				case driver.Redraw:
+					t.Error("handing over the tree woke a frame")
 				}
 			}
 		}()
-		select {
-		case <-redraws:
-		case <-time.After(10 * time.Second):
-			t.Fatal("no redraw came to catch the page up")
+		waitDue := func(what string) time.Duration {
+			t.Helper()
+			from := time.Now()
+			select {
+			case <-due:
+			case <-time.After(30 * time.Second):
+				t.Fatalf("no tree was asked for %s", what)
+			}
+			return time.Since(from)
 		}
+		waitDue("as things came to rest")
 		if took := time.Since(start); took < accessQuiet/2 {
-			t.Fatalf("the redraw came after %v, before things had rested", took)
+			t.Fatalf("it came after %v, before things had rested", took)
 		}
 		if !pw.AccessWanted() {
-			t.Fatal("the redraw came with no tree wanted")
+			t.Fatal("asked for, the tree isn't wanted")
 		}
 		pw.PublishAccess(tree)
 		if pw.AccessWanted() {
 			t.Fatal("handing it over left it wanting more")
 		}
-		// Frames that go on moving put it off, up to accessMost.
-		pw.d.mu.Lock()
-		pw.accessLast = time.Now().Add(-accessMost)
-		pw.d.mu.Unlock()
-		if !pw.AccessWanted() {
-			t.Fatal("something moving kept the tree off the page for good")
-		}
-		// A key doesn't wait, as it can move focus.
+		// A tree that came out the same doubles the wait, for what ticks, as a caret.
 		pw.PublishAccess(tree)
+		if pw.accessGap != accessMost {
+			t.Fatalf("after a tree with no change the wait is %v", pw.accessGap)
+		}
+		pw.AccessWanted() // A frame, which a caret's blink is.
+		if took := waitDue("after a frame with a long wait"); took < accessMost/2 {
+			t.Fatalf("the wait of %v took only %v", pw.accessGap, took)
+		}
+		pw.PublishAccess(tree)
+		if pw.accessGap != 2*accessMost {
+			t.Fatalf("after two trees with no change the wait is %v", pw.accessGap)
+		}
+		// The user's input ends the wait: each of a key, a press and the wheel.
+		for _, c := range []struct {
+			name string
+			send func()
+		}{
+			{"a press", func() { pointerIn(d, pw, "pointerdown", 9, 5, 5) }},
+			{"a lift", func() { pointerIn(d, pw, "pointerup", 9, 5, 5) }},
+			{"the wheel", func() {
+				r := d.canvas.Call("getBoundingClientRect")
+				d.canvas.Call("dispatchEvent", js.Global().Get("WheelEvent").New("wheel", map[string]any{
+					"bubbles": true, "cancelable": true, "deltaY": 10,
+					"clientX": r.Get("left").Float() + float64(pw.pos.X) + 5, "clientY": r.Get("top").Float() + float64(pw.pos.Y) + 5,
+				}))
+			}},
+		} {
+			d.mu.Lock()
+			pw.accessGap = accessLongest
+			d.mu.Unlock()
+			c.send()
+			d.mu.Lock()
+			gap := pw.accessGap
+			d.mu.Unlock()
+			if gap != 0 {
+				t.Errorf("%s left the wait at %v", c.name, gap)
+			}
+		}
+		d.mu.Lock()
+		pw.accessGap = accessLongest
+		d.mu.Unlock()
+		wasTyping := d.typing
+		d.typing = pw
+		key(d.canvas, "g", "KeyG")
+		if pw.accessGap != 0 {
+			t.Errorf("a key left the wait at %v", pw.accessGap)
+		}
+		if !d.accessKeyAt.IsZero() {
+			t.Error("a key that types counts as moving about")
+		}
+		key(d.canvas, "Tab", "Tab")
+		d.typing = wasTyping
+		if time.Since(d.accessKeyAt) > 5*time.Second {
+			t.Error("a key that moves about isn't noted")
+		}
+		d.accessKeyAt = time.Time{}
+		// Frames that go on coming wait long, unless someone may be reading along.
+		frame := func() bool {
+			pw.d.mu.Lock()
+			pw.accessAsked = time.Now()
+			pw.accessLast = time.Now().Add(-2 * accessMost)
+			pw.d.mu.Unlock()
+			return pw.AccessWanted()
+		}
+		if frame() {
+			t.Error("something moving 2 s took the tree from a page nobody has used")
+		}
+		d.accessKeyAt = time.Now()
+		if !frame() {
+			t.Error("something moving kept the tree from someone at the keyboard")
+		}
+		d.accessKeyAt = time.Now().Add(-accessKeyLasts)
+		if frame() {
+			t.Error("a key long ago still hurries the tree")
+		}
+		d.accessKeyAt = time.Time{}
+		d.accessUsed = true
+		if !frame() {
+			t.Error("something moving kept the tree from a screen reader")
+		}
+		d.accessUsed = false
 		pw.d.mu.Lock()
-		pw.accessSoon = true
+		pw.accessLast = time.Now().Add(-accessLongest)
+		pw.accessAsked = time.Now()
 		pw.d.mu.Unlock()
 		if !pw.AccessWanted() {
-			t.Fatal("after a key it still waits")
+			t.Error("something moving kept the tree off the page for good")
+		}
+		// A page that never rests still gets its first tree.
+		other, err := d.NewWindow(driver.Options{Kind: driver.KindPopup, Parent: w, Size: geom.Sz(40, 40), Anchor: geom.Rect{Min: geom.Pt(20, 20), Max: geom.Pt(20, 20)}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = other.Close() }()
+		ow := other.(*Window)
+		ow.d.mu.Lock()
+		ow.accessLast, ow.accessAsked = time.Now().Add(-2*accessMost), time.Now()
+		ow.d.mu.Unlock()
+		if !ow.AccessWanted() {
+			t.Error("a page that never rests waits long for its first tree")
+		}
+		// Focus doesn't wait, and a key alone gives no tree.
+		pw.PublishAccess(tree)
+		if !pw.AccessFocusWanted() {
+			t.Error("focus waits")
+		}
+		if pw.AccessWanted() {
+			t.Error("the tree is wanted with nothing having asked")
+		}
+		// A closed window is asked nothing, and its timer stops.
+		_ = pw.Close()
+		if pw.AccessWanted() || pw.AccessFocusWanted() {
+			t.Error("a closed window wants its tree")
+		}
+		time.Sleep(accessQuiet + 50*time.Millisecond)
+	})
+	t.Run("Chrome reads every role and state", func(t *testing.T) {
+		at := float32(0)
+		node := func(role access.Role, name string, state access.State, kids ...*access.Node) *access.Node {
+			at += 2
+			return &access.Node{Info: access.Info{Role: role, Name: name, State: state}, ID: 1000 + uint64(at), Bounds: geom.Rect{Min: geom.Pt(at, at), Max: geom.Pt(at+20, at+10)}, Children: kids}
+		}
+		press := func(n *access.Node) *access.Node { n.Actions = []string{access.ActionPress}; return n }
+		value := func(n *access.Node, v string) *access.Node { n.Value = v; return n }
+		rng := func(n *access.Node, r access.Range) *access.Node { n.Range = &r; return n }
+		desc := func(n *access.Node, v string) *access.Node { n.Description = v; return n }
+		checkable, checked := access.StateCheckable, access.StateCheckable|access.StateChecked
+		top := node(access.RoleWindow, "ax window", 0,
+			press(node(access.RoleButton, "ax plain button", 0)),
+			press(node(access.RoleButton, "ax toggle on", checked)),
+			press(node(access.RoleButton, "ax toggle off", checkable)),
+			desc(press(node(access.RoleButton, "ax told", access.StateDisabled)), "says more"),
+			press(node(access.RoleButton, "ax popup", access.StateHasPopup|access.StateExpandable|access.StateExpanded)),
+			value(press(node(access.RoleButton, "ax colour", access.StateExpandable)), "#ff0000"),
+			press(node(access.RoleCheckbox, "ax ticked", checked)),
+			press(node(access.RoleCheckbox, "ax blank", checkable)),
+			press(node(access.RoleSwitch, "ax on", checked)),
+			value(rng(node(access.RoleSlider, "ax level", 0), access.Range{Max: 10, Value: 4, Step: 2}), "four"),
+			value(node(access.RoleTextField, "ax field", access.StateEditable), "typed"),
+			node(access.RoleTextField, "ax notes", access.StateMultiline|access.StateEditable),
+			node(access.RoleTextField, "ax locked", access.StateReadOnly),
+			node(access.RoleHeading, "ax title", 0),
+			node(access.RoleImage, "ax picture", 0),
+			node(access.RoleLink, "ax link", 0),
+			node(access.RoleGroup, "ax group", 0),
+			node(access.RoleScrollArea, "ax scroll", 0),
+			node(access.RoleTooltip, "ax tip", 0),
+			node(access.RoleDialog, "ax dialog", access.StateModal),
+			rng(node(access.RoleProgressBar, "ax bar", 0), access.Range{Max: 1, Value: 0.5}),
+			value(node(access.RoleProgressBar, "ax working", 0), "working"),
+			rng(node(access.RoleScrollBar, "ax scrollbar", 0), access.Range{Max: 100, Value: 20}),
+			value(press(node(access.RoleComboBox, "ax combo", access.StateExpandable|access.StateHasPopup)), "Chosen"),
+			node(access.RoleList, "ax list", 0, node(access.RoleListItem, "ax item", 0)),
+			node(access.RoleList, "ax tiles", 0, press(node(access.RoleListItem, "ax tile on", access.StateSelected)), press(node(access.RoleListItem, "ax tile off", 0))),
+			node(access.RoleTabList, "ax tabs", 0, press(node(access.RoleTab, "ax tab on", access.StateSelected)), press(node(access.RoleTab, "ax tab off", 0))),
+			node(access.RoleTable, "ax table", 0,
+				node(access.RoleRow, "ax head", 0, node(access.RoleColumnHeader, "ax column", 0)),
+				node(access.RoleRow, "ax row on", access.StateSelected, node(access.RoleCell, "ax cell", 0))),
+			node(access.RoleMenuBar, "ax bar menu", 0),
+			node(access.RoleMenu, "ax menu", 0,
+				press(node(access.RoleMenuItem, "ax menu item", 0)),
+				press(node(access.RoleMenuItem, "ax menu ticked", access.StateChecked)),
+				press(node(access.RoleMenuItem, "ax menu ticks", checked)),
+				press(node(access.RoleMenuItem, "ax menu lit", access.StateSelected))),
+		)
+		tree := access.NewTree(top)
+		w.PublishAccess(tree)
+		defer w.PublishAccess(access.NewTree(&access.Node{Info: access.Info{Role: access.RoleWindow}, ID: 999, Bounds: geom.Rect{Max: geom.Pt(10, 10)}}))
+		ax := AskAX(t)
+		for _, c := range []struct {
+			role, name string
+			want       map[string]string
+			lacks      []string
+		}{
+			{role: "group", name: "ax window"},
+			{role: "button", name: "ax plain button", lacks: []string{"pressed"}},
+			{role: "button", name: "ax toggle on", want: map[string]string{"pressed": "true"}},
+			{role: "button", name: "ax toggle off", want: map[string]string{"pressed": "false"}},
+			{role: "button", name: "ax told", want: map[string]string{"disabled": "true", "description": "says more"}},
+			{role: "button", name: "ax popup", want: map[string]string{"expanded": "true", "hasPopup": "menu"}},
+			{role: "button", name: "ax colour: #ff0000", want: map[string]string{"expanded": "false"}},
+			{role: "checkbox", name: "ax ticked", want: map[string]string{"checked": "true"}},
+			{role: "checkbox", name: "ax blank", want: map[string]string{"checked": "false"}},
+			{role: "switch", name: "ax on", want: map[string]string{"checked": "true"}},
+			{role: "slider", name: "ax level", want: map[string]string{"valuemax": "10", "value": "4"}},
+			{role: "textbox", name: "ax field", want: map[string]string{"value": "typed"}},
+			{role: "textbox", name: "ax notes", want: map[string]string{"multiline": "true"}},
+			{role: "textbox", name: "ax locked", want: map[string]string{"readonly": "true"}},
+			{role: "heading", name: "ax title", want: map[string]string{"level": "2"}},
+			{role: "image", name: "ax picture"},
+			{role: "link", name: "ax link"},
+			{role: "group", name: "ax group"},
+			{role: "group", name: "ax scroll"},
+			{role: "tooltip", name: "ax tip"},
+			{role: "dialog", name: "ax dialog", want: map[string]string{"modal": "true"}},
+			{role: "progressbar", name: "ax bar", want: map[string]string{"value": "0.5", "valuemax": "1"}},
+			{role: "progressbar", name: "ax working: working"},
+			{role: "scrollbar", name: "ax scrollbar", want: map[string]string{"value": "20"}},
+			{role: "combobox", name: "ax combo: Chosen", want: map[string]string{"expanded": "false", "hasPopup": "menu"}},
+			{role: "list", name: "ax list"},
+			{role: "listitem", name: "ax item"},
+			{role: "listbox", name: "ax tiles"},
+			{role: "option", name: "ax tile on", want: map[string]string{"selected": "true"}},
+			{role: "option", name: "ax tile off", want: map[string]string{"selected": "false"}},
+			{role: "tablist", name: "ax tabs"},
+			{role: "tab", name: "ax tab on", want: map[string]string{"selected": "true"}},
+			{role: "tab", name: "ax tab off", want: map[string]string{"selected": "false"}},
+			{role: "grid", name: "ax table"},
+			{role: "row", name: "ax row on", want: map[string]string{"selected": "true"}},
+			{role: "columnheader", name: "ax column"},
+			{role: "gridcell", name: "ax cell"},
+			{role: "menubar", name: "ax bar menu"},
+			{role: "menu", name: "ax menu"},
+			{role: "menuitem", name: "ax menu item"},
+			{role: "menuitemcheckbox", name: "ax menu ticked", want: map[string]string{"checked": "true"}},
+			{role: "menuitemcheckbox", name: "ax menu ticks", want: map[string]string{"checked": "true"}},
+			{role: "menuitem", name: "ax menu lit"},
+		} {
+			n := ax.Find(c.role, c.name)
+			if n == nil {
+				t.Errorf("Chrome has no %s called %q", c.role, c.name)
+				continue
+			}
+			for prop, want := range c.want {
+				var got string
+				var ok bool
+				switch prop {
+				case "description":
+					got, ok = n.Description.Value, n.Description.Value != ""
+				case "value":
+					got, ok = fmt.Sprint(n.Value.Value), n.Value.Value != nil
+				default:
+					got, ok = n.Prop(prop)
+				}
+				if !ok || got != want {
+					t.Errorf("Chrome's %s %q has %s %q (shown: %v), want %q", c.role, c.name, prop, got, ok, want)
+				}
+			}
+			for _, prop := range c.lacks {
+				if got, ok := n.Prop(prop); ok {
+					t.Errorf("Chrome's %s %q has %s %q", c.role, c.name, prop, got)
+				}
+			}
+		}
+		// The menu item lit up, which no state shows, is the one the canvas names.
+		var canvas *AXNode
+		for i := range ax {
+			if _, ok := ax[i].Prop("activedescendant"); ok {
+				canvas = &ax[i]
+			}
+		}
+		if canvas == nil {
+			t.Fatal("nothing in Chrome's tree names an active descendant")
+		}
+		lit := js.Global().Get("document").Call("querySelector", `[aria-label="ax menu lit"]`).Get("id").String()
+		if got, _ := canvas.Prop("activedescendant"); got != lit {
+			t.Errorf("Chrome has the canvas naming %q, want %q", got, lit)
 		}
 	})
 	t.Run("sound opens before the first gesture", func(t *testing.T) {
@@ -1662,7 +2123,22 @@ func TestBrowser(t *testing.T) {
 		if got := errs.stop(); len(got) != 0 {
 			t.Errorf("the page logged %q", got)
 		}
-		// A program can open it again, and each event is heard once.
+		for _, name := range []string{"role", "aria-label", "aria-owns", "aria-activedescendant"} {
+			if d.canvas.Call("hasAttribute", name).Bool() {
+				t.Errorf("the canvas still has %s=%v", name, d.canvas.Call("getAttribute", name))
+			}
+		}
+		// A program can open it again, and each event is heard once. A role, a name and
+		// so on from the page stay as they were, and come back as they were.
+		theirs := map[string]string{"role": "img", "aria-label": "The game", "aria-owns": "theirs", "aria-activedescendant": "mine"}
+		for name, v := range theirs {
+			d.canvas.Call("setAttribute", name, v)
+		}
+		defer func() {
+			for name := range theirs {
+				d.canvas.Call("removeAttribute", name)
+			}
+		}()
 		before := count()
 		again, err := Open()
 		if err != nil || again == d {
@@ -1685,8 +2161,29 @@ func TestBrowser(t *testing.T) {
 			t.Errorf("a press came %d times", downs)
 		}
 		pointer(again, "pointerup", 1, 40, 40)
+		next.PublishAccess(access.NewTree(&access.Node{
+			Info: access.Info{Role: access.RoleWindow, Name: "A title"}, ID: 1, Bounds: geom.Rect{Max: geom.Pt(10, 10)},
+			Children: []*access.Node{{Info: access.Info{Role: access.RoleButton, Name: "Go"}, ID: 2, Focused: true}},
+		}))
+		if got := d.canvas.Call("getAttribute", "role").String(); got != "img" {
+			t.Errorf("the page's role became %q", got)
+		}
+		if got := d.canvas.Call("getAttribute", "aria-label").String(); got != "The game" {
+			t.Errorf("the page's name became %q", got)
+		}
+		if got := d.canvas.Call("getAttribute", "aria-owns").String(); got != "theirs gunim-access" {
+			t.Errorf("the canvas owns %q", got)
+		}
 		_ = next.Close()
+		if got := d.canvas.Call("getAttribute", "aria-activedescendant").String(); got != "mine" {
+			t.Errorf("with the window gone, the canvas names %q", got)
+		}
 		_ = again.Run(context.Background(), func() {})
+		for name, want := range theirs {
+			if got := d.canvas.Call("getAttribute", name).String(); got != want {
+				t.Errorf("after the driver left, %s is %q, want %q", name, got, want)
+			}
+		}
 		if got := count(); got != before {
 			t.Errorf("the page holds %d elements, from %d", got, before)
 		}
@@ -1705,6 +2202,11 @@ func pointer(d *Driver, kind string, id int, x, y float64) {
 		"clientX": r.Get("left").Float() + x, "clientY": r.Get("top").Float() + y,
 	})
 	d.canvas.Call("dispatchEvent", e)
+}
+
+// pointerIn sends a touch's event to the canvas at a point in w.
+func pointerIn(d *Driver, w *Window, kind string, id int, x, y float64) {
+	pointer(d, kind, id, x+float64(w.pos.X), y+float64(w.pos.Y))
 }
 
 // define sets a property of a browser object, and returns what puts it back.
