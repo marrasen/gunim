@@ -238,7 +238,7 @@ func (m *Menu) Access() access.Info {
 			part.State = access.StateSelected
 		}
 		if it.Checked {
-			part.State |= access.StateChecked
+			part.State |= access.StateCheckable | access.StateChecked
 		}
 		if it.Disabled {
 			part.State |= access.StateDisabled

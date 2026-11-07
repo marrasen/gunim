@@ -2917,8 +2917,11 @@ func (u *UI) paintFrame(fp framePaint) {
 	u.revealDrawn()
 	u.watchHeading()
 	u.keepEdgeSwipes()
-	u.publishAccess(u.w.dw, u.root, u.w.title)
-	u.focusMoved = false
+	if u.focusMoved {
+		u.focusNow()
+	} else {
+		u.publishAccess(u.w.dw, u.root, u.w.title)
+	}
 	for _, s := range u.popups {
 		if s.dw != nil {
 			u.publishAccess(s.dw, s.root, "")

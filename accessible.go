@@ -239,7 +239,28 @@ func (u *UI) focusNow() {
 		return
 	}
 	u.focusMoved = false
+	if t, ok := u.w.dw.(driver.AccessFocusTaker); ok {
+		if pub, ok := u.w.dw.(driver.AccessPublisher); ok && t.AccessFocusWanted() {
+			pub.PublishAccess(u.accessTree(u.root, u.w.title))
+		}
+		return
+	}
 	u.publishAccess(u.w.dw, u.root, u.w.title)
+}
+
+// accessDue hands root's window its tree as the last frame drew it, for
+// [driver.AccessDue]. It wakes no frame.
+func (u *UI) accessDue(root *state) {
+	if root == u.root {
+		u.publishAccess(u.w.dw, u.root, u.w.title)
+		return
+	}
+	for _, s := range u.popups {
+		if s.root == root && s.dw != nil {
+			u.publishAccess(s.dw, s.root, "")
+			return
+		}
+	}
 }
 
 // accessRequest carries out a screen reader's request.
