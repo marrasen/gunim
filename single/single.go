@@ -24,6 +24,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 )
@@ -42,7 +43,8 @@ type Handover struct {
 	Take func(bool) `json:"-"`
 }
 
-// wire is what a handover sends: the handover, and the token.
+// wire is what a handover sends: the token, first, and the handover.
+// The one running checks the token before it reads the rest.
 type wire struct {
 	Token string `json:"token"`
 	Handover
@@ -70,7 +72,8 @@ const handTime = 3 * time.Second
 
 // Hand hands h to the copy running for dir, and reports whether one
 // took it. With none running, or one that does not answer, it reports
-// false, and the caller runs as the one.
+// false, and the caller runs as the one. A handover whose encoding is
+// longer than maxLine is not sent, and Hand returns an error.
 func Hand(dir string, h Handover) (bool, error) {
 	raw, err := os.ReadFile(filepath.Join(dir, File))
 	if err != nil {
@@ -82,6 +85,13 @@ func Hand(dir string, h Handover) (bool, error) {
 		// listens on that port now is not the program.
 		return false, nil
 	}
+	msg, err := json.Marshal(wire{Token: r.Token, Handover: h})
+	if err != nil {
+		return false, err
+	}
+	if len(msg)+1 > maxLine {
+		return false, fmt.Errorf("the command line is %d bytes encoded, more than the %d a handover carries", len(msg)+1, maxLine)
+	}
 	letToFront(r.PID)
 	d := net.Dialer{Timeout: handTime}
 	conn, err := d.DialContext(context.Background(), "tcp", r.Addr)
@@ -91,10 +101,6 @@ func Hand(dir string, h Handover) (bool, error) {
 	}
 	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(handTime))
-	msg, err := json.Marshal(wire{Token: r.Token, Handover: h})
-	if err != nil {
-		return false, err
-	}
 	if _, err := conn.Write(append(msg, '\n')); err != nil {
 		return false, nil
 	}
@@ -106,16 +112,47 @@ func Hand(dir string, h Handover) (bool, error) {
 }
 
 // maxLine is the longest handover line the one running reads,
-// newline included.
-const maxLine = 1 << 20
+// newline included. Linux's default 2 MiB of arguments fits in it even
+// with every byte escaped to six, as JSON does with &, < and >.
+const maxLine = 16 << 20
 
-// maxServing is how many connections the one running serves at once:
-// more wait to be accepted.
-const maxServing = 8
+// maxProving is how many connections the one running keeps while they
+// have not shown the token: a new one closes the oldest.
+const maxProving = 64
 
-// readTime is how long the one running waits for a connection's
-// whole line.
-var readTime = handTime
+// proveTime is how long the one running waits for a connection to show
+// the token, and readTime how long it then waits for the whole line.
+var (
+	proveTime = time.Second
+	readTime  = handTime
+)
+
+// proving holds the connections that have not shown the token yet,
+// oldest first.
+type proving struct {
+	mu    sync.Mutex
+	conns []net.Conn
+}
+
+// add keeps conn, closing the oldest kept when maxProving are.
+func (p *proving) add(conn net.Conn) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if len(p.conns) == maxProving {
+		_ = p.conns[0].Close()
+		p.conns = p.conns[1:]
+	}
+	p.conns = append(p.conns, conn)
+}
+
+// done lets conn go, if it is kept.
+func (p *proving) done(conn net.Conn) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if i := slices.Index(p.conns, conn); i >= 0 {
+		p.conns = slices.Delete(p.conns, i, i+1)
+	}
+}
 
 // Listen makes this the copy running for dir, and sends what later
 // ones hand it on the channel, each to be answered with Take, until
@@ -170,24 +207,19 @@ func Listen(ctx context.Context, dir string) (handovers <-chan Handover, stop fu
 		stop()
 	}()
 	go func() {
-		slots := make(chan struct{}, maxServing)
+		var p proving
 		for {
-			select {
-			case slots <- struct{}{}:
-			case <-ctx.Done():
-				return
-			}
 			conn, err := l.Accept()
 			if err != nil {
-				<-slots
 				if errors.Is(err, net.ErrClosed) {
 					return
 				}
 				continue
 			}
+			p.add(conn)
 			go func() {
-				defer func() { <-slots }()
-				serve(ctx, conn, r.Token, out)
+				defer p.done(conn)
+				serve(ctx, conn, r.Token, out, func() { p.done(conn) })
 			}()
 		}
 	}()
@@ -195,18 +227,26 @@ func Listen(ctx context.Context, dir string) (handovers <-chan Handover, stop fu
 }
 
 // serve takes one handover, carrying the token, and answers it. It
-// drops a connection whose line is longer than maxLine or does not
-// arrive within readTime.
-func serve(ctx context.Context, conn net.Conn, token string, out chan<- Handover) {
+// drops a connection that does not start with the token within
+// proveTime, and one whose line is longer than maxLine or does not
+// arrive within readTime. It calls proven once the token is shown.
+func serve(ctx context.Context, conn net.Conn, token string, out chan<- Handover, proven func()) {
 	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(handTime))
+	_ = conn.SetReadDeadline(time.Now().Add(proveTime))
+	want := []byte(`{"token":"` + token + `"`)
+	start := make([]byte, len(want))
+	if _, err := io.ReadFull(conn, start); err != nil || subtle.ConstantTimeCompare(start, want) != 1 {
+		return
+	}
+	proven()
 	_ = conn.SetReadDeadline(time.Now().Add(readTime))
-	line, err := bufio.NewReader(io.LimitReader(conn, maxLine)).ReadBytes('\n')
+	rest, err := bufio.NewReader(io.LimitReader(conn, int64(maxLine-len(want)))).ReadBytes('\n')
 	if err != nil {
 		return
 	}
 	var w wire
-	if json.Unmarshal(line, &w) != nil || subtle.ConstantTimeCompare([]byte(w.Token), []byte(token)) != 1 {
+	if json.Unmarshal(slices.Concat(start, rest), &w) != nil {
 		return
 	}
 	// Answered once the one running has taken it, or not: never before.
