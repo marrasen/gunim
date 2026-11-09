@@ -277,8 +277,10 @@ func TestManyConnectionsKeepMemoryBounded(t *testing.T) {
 	wg.Wait()
 	close(done)
 	<-sampled
-	// A line served is read into a buffer up to about twice maxLine.
-	const bound = 4 * maxServing * maxLine
+	// A line served is read into a buffer up to about twice maxLine, and
+	// the lines of dropped connections stay in the heap until the next
+	// collection, which comes when the heap has doubled.
+	const bound = 8 * maxServing * maxLine
 	if grew := peak.Load() - min(base, peak.Load()); grew > bound {
 		t.Errorf("%d connections grew the heap by %d MiB, over %d MiB", conns, grew>>20, bound>>20)
 	}
