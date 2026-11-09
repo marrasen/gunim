@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -104,6 +105,18 @@ func Hand(dir string, h Handover) (bool, error) {
 	return true, nil
 }
 
+// maxLine is the longest handover line the one running reads,
+// newline included.
+const maxLine = 1 << 20
+
+// maxServing is how many connections the one running serves at once:
+// more wait to be accepted.
+const maxServing = 8
+
+// readTime is how long the one running waits for a connection's
+// whole line.
+var readTime = handTime
+
 // Listen makes this the copy running for dir, and sends what later
 // ones hand it on the channel, each to be answered with Take, until
 // stop is called or ctx ends. stop takes the file away, unless another
@@ -157,25 +170,38 @@ func Listen(ctx context.Context, dir string) (handovers <-chan Handover, stop fu
 		stop()
 	}()
 	go func() {
+		slots := make(chan struct{}, maxServing)
 		for {
+			select {
+			case slots <- struct{}{}:
+			case <-ctx.Done():
+				return
+			}
 			conn, err := l.Accept()
 			if err != nil {
+				<-slots
 				if errors.Is(err, net.ErrClosed) {
 					return
 				}
 				continue
 			}
-			go serve(ctx, conn, r.Token, out)
+			go func() {
+				defer func() { <-slots }()
+				serve(ctx, conn, r.Token, out)
+			}()
 		}
 	}()
 	return out, stop, nil
 }
 
-// serve takes one handover, carrying the token, and answers it.
+// serve takes one handover, carrying the token, and answers it. It
+// drops a connection whose line is longer than maxLine or does not
+// arrive within readTime.
 func serve(ctx context.Context, conn net.Conn, token string, out chan<- Handover) {
 	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(handTime))
-	line, err := bufio.NewReader(conn).ReadBytes('\n')
+	_ = conn.SetReadDeadline(time.Now().Add(readTime))
+	line, err := bufio.NewReader(io.LimitReader(conn, maxLine)).ReadBytes('\n')
 	if err != nil {
 		return
 	}
