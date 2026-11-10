@@ -532,8 +532,9 @@ type Window struct {
 	uiTimes uiTimes
 
 	closeOnce sync.Once
-	// framing is held by [Window.Frame] for its whole body, and by an offscreen window's Close as it
-	// closes the popups. popupsOwed says a Close has yet to close them, as a frame was in flight.
+	// framing is held by each call that drives an offscreen window, as [Window.Frame] and
+	// [Window.Input], and by Close as it closes the popups. popupsOwed says a Close has yet to close
+	// them, as such a call was in flight.
 	framing    sync.Mutex
 	popupsOwed atomic.Bool
 	// clock is the synthetic frame time used by [Window.Frame], so an
@@ -1068,9 +1069,7 @@ func (w *Window) Offscreen() *driver.OffscreenWindow {
 // holding an offscreen window can step time. Commands queued through
 // [Client] are applied first, the same way the loop applies them.
 func (w *Window) Frame(delta time.Duration) {
-	w.framing.Lock()
-	defer w.closeOwedPopups()
-	defer w.framing.Unlock()
+	defer w.drive()()
 	// What comes before the frame lays out may go by where the last
 	// frame drew things, as a timer asking where a node is: each kind of
 	// work paints a frame owed as it is taken, before it runs.
@@ -1130,13 +1129,20 @@ func (w *Window) PaintWhenLooked(on bool) {
 	if o == nil {
 		return
 	}
+	defer w.drive()()
 	w.ui.lazy = on
 	if !on {
 		w.ui.paintOwed()
 		o.OnLook(nil)
 		return
 	}
-	o.OnLook(w.ui.paintOwed)
+	o.OnLook(w.paintOnLook)
+}
+
+// paintOnLook paints the frame owed before a read of what the offscreen window drew.
+func (w *Window) paintOnLook() {
+	defer w.drive()()
+	w.ui.paintOwed()
 }
 
 // TimeByFrames has a window from [NewOffscreen] keep time by its frames
@@ -1155,6 +1161,7 @@ func (w *Window) TimeByFrames(on bool) {
 	if w.Offscreen() == nil {
 		return
 	}
+	defer w.drive()()
 	w.ui.byFrames = on
 	if w.ui.now.IsZero() {
 		// Before its first frame, the window's time is where its
@@ -1167,7 +1174,10 @@ func (w *Window) TimeByFrames(on bool) {
 // looked at left it unpainted; see [Window.PaintWhenLooked]. It is for a
 // test that reads what the window drew another way, as a chromeless
 // window's title bar. It must be called from the goroutine calling Frame.
-func (w *Window) Paint() { w.ui.paintOwed() }
+func (w *Window) Paint() {
+	defer w.drive()()
+	w.ui.paintOwed()
+}
 
 // Input hands the window a platform event, as a driver would: a pointer
 // move, a click, a key, the close button as [driver.CloseAsked]. It is
@@ -1178,7 +1188,10 @@ func (w *Window) Paint() { w.ui.paintOwed() }
 // this window alone, as a platform's does: a click where a popup shows
 // lands in the window under it. [Window.Inject] hands an event to an
 // open popup where it lands, as a person's click does.
-func (w *Window) Input(ev any) { w.platform(ev) }
+func (w *Window) Input(ev any) {
+	defer w.drive()()
+	w.platform(ev)
+}
 
 // platform handles one of the platform's events. A window out of sight
 // draws no frames, and a frame is where the application's state reaches
@@ -1237,7 +1250,8 @@ func (w *Window) RefreshRate() float64 { return w.dw.RefreshRate() }
 // animated goodbye, unmount the root's views first and call Close once
 // they have gone. It is safe from any goroutine. An offscreen window,
 // which has no loop of its own, closes its popups in Close, or at the end
-// of the [Window.Frame] in flight.
+// of the call driving it that is in flight, as [Window.Frame] or
+// [Window.Input].
 func (w *Window) Close() {
 	w.closeOnce.Do(func() {
 		close(w.done)
@@ -1249,7 +1263,18 @@ func (w *Window) Close() {
 	})
 }
 
-// closeOwedPopups closes the popups a Close left, unless a frame is in flight, which closes them as it ends.
+// drive locks framing for a call that drives an offscreen window, as [Window.Frame] and [Window.Input] are, and
+// returns what ends the call: it unlocks, then closes the popups a Close left meanwhile.
+func (w *Window) drive() (end func()) {
+	w.framing.Lock()
+	return func() {
+		w.framing.Unlock()
+		w.closeOwedPopups()
+	}
+}
+
+// closeOwedPopups closes the popups a Close left, unless a call that drives the window is in flight, which closes them
+// as it ends.
 func (w *Window) closeOwedPopups() {
 	for w.popupsOwed.Load() && w.framing.TryLock() {
 		if w.popupsOwed.Swap(false) {
