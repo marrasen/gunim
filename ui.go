@@ -532,6 +532,10 @@ type Window struct {
 	uiTimes uiTimes
 
 	closeOnce sync.Once
+	// framing is held by [Window.Frame] for its whole body, and by an offscreen window's Close as it
+	// closes the popups. popupsOwed says a Close has yet to close them, as a frame was in flight.
+	framing    sync.Mutex
+	popupsOwed atomic.Bool
 	// clock is the synthetic frame time used by [Window.Frame], so an
 	// offscreen window steps at whatever rate the caller chooses.
 	clock time.Time
@@ -1064,6 +1068,9 @@ func (w *Window) Offscreen() *driver.OffscreenWindow {
 // holding an offscreen window can step time. Commands queued through
 // [Client] are applied first, the same way the loop applies them.
 func (w *Window) Frame(delta time.Duration) {
+	w.framing.Lock()
+	defer w.closeOwedPopups()
+	defer w.framing.Unlock()
 	// What comes before the frame lays out may go by where the last
 	// frame drew things, as a timer asking where a node is: each kind of
 	// work paints a frame owed as it is taken, before it runs.
@@ -1228,16 +1235,28 @@ func (w *Window) RefreshRate() float64 { return w.dw.RefreshRate() }
 
 // Close shuts the window down at once and drops any queued work. For an
 // animated goodbye, unmount the root's views first and call Close once
-// they have gone. An offscreen window, which has no loop of its own,
-// closes its popups in Close, so call it where the window is driven.
+// they have gone. It is safe from any goroutine. An offscreen window,
+// which has no loop of its own, closes its popups in Close, or at the end
+// of the [Window.Frame] in flight.
 func (w *Window) Close() {
 	w.closeOnce.Do(func() {
 		close(w.done)
 		if w.app == nil {
 			// An offscreen window has no loop to close its popups.
-			w.ui.closeAllPopups()
+			w.popupsOwed.Store(true)
+			w.closeOwedPopups()
 		}
 	})
+}
+
+// closeOwedPopups closes the popups a Close left, unless a frame is in flight, which closes them as it ends.
+func (w *Window) closeOwedPopups() {
+	for w.popupsOwed.Load() && w.framing.TryLock() {
+		if w.popupsOwed.Swap(false) {
+			w.ui.closeAllPopups()
+		}
+		w.framing.Unlock()
+	}
 }
 
 // loop is the window's whole life.
