@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 )
 
@@ -25,6 +26,46 @@ func TestClosingAnOffscreenWindowFromTheAppWhileFramesRun(t *testing.T) {
 	}
 	wg.Wait()
 	w.Frame(time.Second / 60)
+	if len(w.ui.popups) != 0 {
+		t.Fatalf("closed, the window still has %d popups", len(w.ui.popups))
+	}
+	select {
+	case <-s.stop:
+	default:
+		t.Fatal("closed, the popup's goroutine was not told to stop")
+	}
+}
+
+// Close from the application's goroutine is safe against every call that drives an offscreen window, not
+// only Frame: input to the window, input routed to a popup, input to the popup itself, and the access tree.
+func TestClosingAnOffscreenWindowFromTheAppWhileItIsDriven(t *testing.T) {
+	w, _, _, pop := openMenu(t, nil)
+	s := w.ui.popups[0]
+	start, closed := make(chan struct{}), make(chan struct{})
+	go func() {
+		<-start
+		w.Client().Close()
+		close(closed)
+	}()
+	// Drive the window until the Close has returned, and a while after.
+	after := 50
+	for i := 0; after > 0; i++ {
+		if i == 1 {
+			close(start)
+		}
+		select {
+		case <-closed:
+			after--
+		default:
+		}
+		y := float32(60 + i%20)
+		w.Inject(input.PointerMove{Pos: geom.Pt(20, y)})
+		w.Input(input.PointerDown{Pos: geom.Pt(300, 200), Button: input.ButtonPrimary, Clicks: 1})
+		w.Input(input.PointerUp{Pos: geom.Pt(300, 200), Button: input.ButtonPrimary})
+		pop.Input(input.PointerMove{Pos: geom.Pt(10, 10)})
+		_ = w.Access()
+		w.Frame(time.Second / 60)
+	}
 	if len(w.ui.popups) != 0 {
 		t.Fatalf("closed, the window still has %d popups", len(w.ui.popups))
 	}
