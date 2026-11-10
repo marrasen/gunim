@@ -537,6 +537,9 @@ type Window struct {
 	// them, as such a call was in flight.
 	framing    sync.Mutex
 	popupsOwed atomic.Bool
+	// driveDepth counts the calls driving the window that are in flight, one inside another. Only the
+	// goroutine that drives the window reads or writes it.
+	driveDepth int
 	// clock is the synthetic frame time used by [Window.Frame], so an
 	// offscreen window steps at whatever rate the caller chooses.
 	clock time.Time
@@ -1265,9 +1268,16 @@ func (w *Window) Close() {
 
 // drive locks framing for a call that drives an offscreen window, as [Window.Frame] and [Window.Input] are, and
 // returns what ends the call: it unlocks, then closes the popups a Close left meanwhile.
+// A call made inside another, as a view's Input inside a frame, only counts.
 func (w *Window) drive() (end func()) {
+	if w.driveDepth > 0 {
+		w.driveDepth++
+		return func() { w.driveDepth-- }
+	}
 	w.framing.Lock()
+	w.driveDepth = 1
 	return func() {
+		w.driveDepth = 0
 		w.framing.Unlock()
 		w.closeOwedPopups()
 	}

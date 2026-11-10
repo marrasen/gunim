@@ -88,6 +88,37 @@ func (c *selfCloser) Step(time.Duration) bool {
 	return false
 }
 
+// selfInput hands its window input from inside a frame, as the file manager's scripted drag does.
+type selfInput struct{ w *Window }
+
+func (*selfInput) Layout(c Constraints, _ Frame, _ Children) geom.Size {
+	return c.Constrain(geom.Sz(1, 1))
+}
+func (*selfInput) Paint(*paint.Painter, Frame, geom.Size, Children) {}
+func (c *selfInput) Step(time.Duration) bool {
+	c.w.Input(input.PointerMove{Pos: geom.Pt(20, 20)})
+	c.w.Inject(input.PointerMove{Pos: geom.Pt(20, 30)})
+	_ = c.w.Access()
+	return false
+}
+
+// A call that drives the window, made inside a frame, runs there, and does not wait for the frame to end.
+func TestDrivingAnOffscreenWindowInsideItsFrame(t *testing.T) {
+	w, _, m, _ := openMenu(t, nil)
+	w.ui.Insert(m, &selfInput{w: w})
+	done := make(chan struct{})
+	go func() {
+		w.Frame(time.Second / 60)
+		w.Input(input.PointerMove{Pos: geom.Pt(30, 30)})
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a frame that handed its window input did not end")
+	}
+}
+
 // A window that closes inside its own frame still closes its popups, by the end of that frame.
 func TestAnOffscreenWindowClosedInItsFrameClosesItsPopups(t *testing.T) {
 	w, _, m, _ := openMenu(t, nil)
