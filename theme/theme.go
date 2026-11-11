@@ -127,8 +127,12 @@ func FontSize(key string, def float32) Token[float32] {
 	return t
 }
 
-// ScaleText returns a copy of th with every token declared by [FontSize] multiplied by s, as for the user's text size
-// setting. Scale the theme as made, not one scaled already.
+// TextRow declares a length token for room that holds a line of text, as a row's or a button's height, which
+// [ScaleText] scales with the text.
+func TextRow(key string, def float32) Token[float32] { return FontSize(key, def) }
+
+// ScaleText returns a copy of th with every token declared by [FontSize] or [TextRow] multiplied by s, as for the
+// user's text size setting. Scale the theme as made, not one scaled already.
 func ScaleText(th Theme, s float32) Theme {
 	keysMu.Lock()
 	sizes := map[string]float32{}

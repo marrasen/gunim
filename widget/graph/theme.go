@@ -24,8 +24,8 @@ var (
 	NodeShadow = theme.Color("graph.node.shadow", color.NRGBA{A: 0x70})
 	// HeadHeight is how tall a box's head is, with its title, and
 	// RowHeight each row of its ports.
-	HeadHeight = theme.Length("graph.head.height", 34)
-	RowHeight  = theme.Length("graph.row.height", 20)
+	HeadHeight = theme.TextRow("graph.head.height", 34)
+	RowHeight  = theme.TextRow("graph.row.height", 20)
 	// TitleInk and TitleSize are a box's title; SubInk its line under
 	// the title; LabelInk and LabelSize its ports' names.
 	TitleInk  = theme.Foreground("graph.title.ink", color.NRGBA{R: 0xec, G: 0xef, B: 0xf4, A: 0xff})

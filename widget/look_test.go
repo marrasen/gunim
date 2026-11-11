@@ -29,8 +29,11 @@ func TestForLookScalesTextAndStopsMotion(t *testing.T) {
 	if got, want := HeadingSize.In(th), HeadingSize.In(Light())*1.5; got != want {
 		t.Errorf("heading size = %v, want %v", got, want)
 	}
-	if got := ButtonHeight.In(th); got != ButtonHeight.In(Light()) {
-		t.Errorf("button height = %v, want it left at %v", got, ButtonHeight.In(Light()))
+	if got, want := ButtonHeight.In(th), ButtonHeight.In(Light())*1.5; got != want {
+		t.Errorf("button height = %v, want %v, grown with the text it holds", got, want)
+	}
+	if got := ButtonRadius.In(th); got != ButtonRadius.In(Light()) {
+		t.Errorf("button radius = %v, want it left at %v", got, ButtonRadius.In(Light()))
 	}
 	if got := theme.Scale.In(th); got != 0 {
 		t.Errorf("motion scale = %v, want 0 for fewer animations", got)

@@ -55,7 +55,7 @@ var (
 	// CompactHeight and CompactWidth are the size of a field for a
 	// number in All values, as tall as a swatch's button, so every row
 	// there is as tall as its words.
-	CompactHeight = theme.Length("themeedit.compact.height", 28)
+	CompactHeight = theme.TextRow("themeedit.compact.height", 28)
 	CompactWidth  = theme.Length("themeedit.compact.width", 80)
 	// TabInset is how far in the tabs' titles start and their line
 	// ends: the page's own padding, so they line up with the cards.
@@ -76,7 +76,7 @@ var (
 	// PreviewRadius rounds the window the preview draws, and
 	// PreviewTitleHeight is the height of its title bar.
 	PreviewRadius      = theme.Length("themeedit.preview.radius", 10)
-	PreviewTitleHeight = theme.Length("themeedit.preview.title.height", 30)
+	PreviewTitleHeight = theme.TextRow("themeedit.preview.title.height", 30)
 	// TerminalSize is the size of the preview terminal's text.
 	TerminalSize = theme.FontSize("themeedit.terminal.size", 12)
 )

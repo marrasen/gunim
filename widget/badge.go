@@ -15,7 +15,7 @@ import (
 var (
 	// BadgeHeight is a badge's height, and BadgePadding the room at
 	// its ends.
-	BadgeHeight  = theme.Length("badge.height", 18)
+	BadgeHeight  = theme.TextRow("badge.height", 18)
 	BadgePadding = theme.Length("badge.padding", 7)
 	// BadgeSize is its words' size.
 	BadgeSize = theme.FontSize("badge.size", 12)
