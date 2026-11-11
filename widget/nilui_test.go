@@ -42,6 +42,8 @@ func TestEverySetterTakesANilUI(t *testing.T) {
 		"Table.SetKeys":           func() { NewTable(TableColumn{Title: "a"}).SetKeys([]Key{"a"}, u) },
 		"Table.SetCursor":         func() { tb := NewTable(TableColumn{Title: "a"}); tb.SetKeys([]Key{"a"}, u); tb.SetCursor("a", u) },
 		"Segmented.SetSelected":   func() { NewSegmented("a", "b").SetSelected(1, u) },
+		"RadioGroup.SetSelected":  func() { NewRadioGroup(RadioItem{Label: "a"}, RadioItem{Label: "b"}).SetSelected(1, u) },
+		"RadioGroup.SetItems":     func() { NewRadioGroup().SetItems([]RadioItem{{Label: "a"}}, u) },
 		"Tree.SetKeys":            func() { NewTree().SetKeys([]Key{"a"}, u) },
 		"Tree.SetCursor":          func() { tr := NewTree(); tr.SetKeys([]Key{"a"}, u); tr.SetCursor("a", u) },
 		"Split.SetPane":           func() { NewSplit(newSpot(1, 1), newSpot(1, 1)).SetPane(0, newSpot(2, 2), u) },

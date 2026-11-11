@@ -140,7 +140,8 @@ ChipRadius = theme.Length("chip.radius", 12)                   // a size in logi
   `widget.Light().With(calendar.Light...)`. `calendar` and `audioui` do this.
 
 **States look alike.** Hover lightens the fill through the hover spring. Press squashes through its spring. Disabled
-fades the whole control through `Faint`. Focus draws `FocusRing`. Selection uses `Accent`.
+fades the whole control through `Faint`. Focus draws `FocusRing`. Selection uses `Accent`, as the chosen card of a
+`RadioGroup` takes it for its border, its dot and a tint.
 
 ## Motion
 
