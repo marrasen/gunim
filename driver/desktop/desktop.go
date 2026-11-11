@@ -20,6 +20,7 @@ import (
 	"reflect"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/marrasen/gunim/driver"
@@ -44,6 +45,9 @@ type Driver struct {
 	// isES records whether the GL library loaded is OpenGL ES, which
 	// decides the context to ask GLFW for and the shader dialect.
 	isES bool
+
+	// flyoutGone is when a flyout last closed as the user turned away, in Unix nanoseconds; see flyoutJustLeft.
+	flyoutGone atomic.Int64
 
 	mu      sync.Mutex
 	tasks   []func()
@@ -639,6 +643,9 @@ func (d *Driver) openWindow(o driver.Options) (*Window, error) {
 			return nil, err
 		}
 		w.debugf("shown")
+		if w.flyout {
+			startFlyout(w)
+		}
 	}
 	if place && placeAgainShown && !o.Hidden {
 		// The bounds chosen, not the newest ones noted: a window sized

@@ -19,8 +19,7 @@ func (d *Driver) SetTray(t driver.Tray) error {
 			icon.OnPick = func(id int) { go pick(id) }
 		}
 		if t.OnClick != nil {
-			click := t.OnClick
-			icon.OnClick = func() { go click() }
+			icon.OnClick = d.trayClick(t.OnClick)
 		}
 	}
 	done := make(chan error, 1)

@@ -21,14 +21,21 @@ import (
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/driver"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/widget"
 )
 
-// Quit travels when the user presses Quit in the flyout.
-type Quit struct{}
+// Quit travels when the user presses Quit in the flyout, and Dismiss when they press Escape in it.
+type (
+	Quit    struct{}
+	Dismiss struct{}
+)
 
-func init() { gunim.RegisterType[Quit]("tray.quit") }
+func init() {
+	gunim.RegisterType[Quit]("tray.quit")
+	gunim.RegisterType[Dismiss]("tray.dismiss")
+}
 
 // margin is the room round the flyout's card for its shadow.
 const margin = 24
@@ -75,8 +82,11 @@ func run(open bool, shot string) error {
 			flyout = w
 			go func() {
 				for in := range w.Client().Intents() {
-					if _, ok := in.Intent.(Quit); ok {
+					switch in.Intent.(type) {
+					case Quit:
 						quit()
+					case Dismiss:
+						w.Client().Close()
 					}
 				}
 				mu.Lock()
@@ -169,6 +179,15 @@ func (c *card) Layout(cs gunim.Constraints, _ gunim.Frame, kids gunim.Children) 
 	kids.At(0).Layout(gunim.Tight(in))
 	kids.At(0).Place(geom.Pt(margin, margin))
 	return cs.Max
+}
+
+// Handle implements [gunim.Handler]: Escape closes the flyout, which is the application's to do.
+func (c *card) Handle(e input.Event, u *gunim.UI) bool {
+	if k, ok := e.(input.KeyPress); ok && k.Key == input.KeyEscape {
+		u.Send(c, Dismiss{})
+		return true
+	}
+	return false
 }
 
 // Paint implements [gunim.Node].

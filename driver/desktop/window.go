@@ -191,8 +191,13 @@ type Window struct {
 	// transparent is whether the window blends with what is behind it,
 	// read once as it opens.
 	transparent bool
-	// flyout says the window is a [driver.KindFlyout], and held that it has had the keyboard since it opened.
+	// flyout says the window is a [driver.KindFlyout], and held that it has had the keyboard since it opened. flyAt and
+	// flyMargin are what it was placed beside, to place it again as its monitor's scale changes, and outside is the
+	// watch for a press outside it, or 0.
 	flyout, held bool
+	flyAt        geom.Rect
+	flyMargin    float32
+	outside      uintptr //nolint:unused // used on Windows
 	// noColor leaves the window's colours unconverted, set once as it
 	// opens; see [driver.Options.NoColorManagement].
 	noColor bool
@@ -505,6 +510,7 @@ func (w *Window) shutdown() {
 	if w.closed {
 		return
 	}
+	stopFlyout(w)
 	// Where the window was as it closed, for Placement to say after.
 	p, ok := w.placementNow()
 	w.mu.Lock()
@@ -566,6 +572,7 @@ func (w *Window) stopRender() { w.quitOnce.Do(func() { close(w.quit) }) }
 // anchor, or centred on a chosen monitor. It runs on the main thread.
 func (w *Window) position(o driver.Options) error {
 	if o.Kind == driver.KindFlyout {
+		w.flyAt, w.flyMargin = o.Anchor, o.Margin
 		return w.placeFlyout(o.Anchor, o.Margin)
 	}
 	if p, ok := o.Parent.(*Window); ok {
@@ -656,7 +663,25 @@ func (w *Window) flyoutFocus(focused bool) {
 		w.held = true
 	case w.held:
 		w.held = false
-		w.in.Push(driver.CloseAsked{})
+		w.flyoutLeft()
+	}
+}
+
+// flyoutLeft has a flyout ask to close as the user turns to something else, and notes when, for the click on the
+// tray icon that may follow. It runs on the main thread.
+func (w *Window) flyoutLeft() {
+	w.d.flyoutGone.Store(time.Now().UnixNano())
+	w.in.Push(driver.CloseAsked{})
+}
+
+// flyoutRescaled puts a flyout back beside the tray icon once its monitor's scale changed: Windows has moved it to
+// the rectangle it suggests for the new scale by then. It runs on the main thread.
+func (w *Window) flyoutRescaled() {
+	if !w.flyout {
+		return
+	}
+	if err := w.placeFlyout(w.flyAt, w.flyMargin); err != nil {
+		w.debugf("flyout not placed again: %v", err)
 	}
 }
 
@@ -1015,6 +1040,7 @@ func (w *Window) install() {
 	})
 	_, _ = gw.SetContentScaleCallback(func(_ *glfw.Window, x, _ float32) {
 		w.debugf("content scale %v", x)
+		w.flyoutRescaled()
 		remeasure()
 		w.updateColor(false)
 	})
@@ -1738,6 +1764,9 @@ func (w *Window) Show() error {
 			return err
 		}
 		w.measure()
+		if w.flyout {
+			startFlyout(w)
+		}
 		return nil
 	})
 }
