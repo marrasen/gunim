@@ -41,7 +41,7 @@ const (
 type highContrast struct {
 	cbSize        uint32
 	dwFlags       uint32
-	defaultScheme *uint16
+	defaultScheme uintptr // a pointer Windows owns
 }
 
 // SystemLook implements [driver.LookReader].
@@ -76,7 +76,9 @@ func (d *Driver) WatchSystemLook(fn func(driver.SystemLook, error)) (func(), err
 	if r.err != nil {
 		return func() {}, fmt.Errorf("desktop: watch the settings: %w", r.err)
 	}
+	ended := make(chan struct{})
 	go func() {
+		defer close(ended)
 		for {
 			select {
 			case <-done:
@@ -84,6 +86,12 @@ func (d *Driver) WatchSystemLook(fn func(driver.SystemLook, error)) (func(), err
 			case <-kick:
 			}
 			l, err := lookNow()
+			// stop may have come while the settings were read.
+			select {
+			case <-done:
+				return
+			default:
+			}
 			if err != nil {
 				fn(driver.SystemLook{}, err)
 				continue
@@ -100,6 +108,7 @@ func (d *Driver) WatchSystemLook(fn func(driver.SystemLook, error)) (func(), err
 			close(done)
 			d.post(func() { glfw.UnwatchSettings(r.id) })
 		})
+		<-ended
 	}, nil
 }
 
@@ -134,7 +143,7 @@ func readLook() (driver.SystemLook, error) {
 	if err != nil {
 		return l, err
 	}
-	l.TextScale = float32(scale) / 100
+	l.TextScale = textScale(scale)
 	hc := highContrast{cbSize: uint32(unsafe.Sizeof(highContrast{}))}
 	if ok, _, err := procSystemParametersInfoW.Call(spiGetHighContrast, uintptr(hc.cbSize), uintptr(unsafe.Pointer(&hc)), 0); ok == 0 {
 		return l, fmt.Errorf("desktop: SystemParametersInfo(SPI_GETHIGHCONTRAST): %w", err)
@@ -150,7 +159,11 @@ func readLook() (driver.SystemLook, error) {
 	return l, nil
 }
 
-// readDWORD reads a value under HKEY_CURRENT_USER, or gives def where the user never set it.
+// textScale is TextScaleFactor, in percent, as a scale kept to the 1 to 2.25 Windows offers.
+func textScale(percent uint64) float32 { return min(max(float32(percent)/100, 1), 2.25) }
+
+// readDWORD reads a value under HKEY_CURRENT_USER, or gives def where the user never set it or something wrote it as
+// another type than a number. A failure to read the registry is an error.
 func readDWORD(path, name string, def uint64) (uint64, error) {
 	k, err := registry.OpenKey(registry.CURRENT_USER, path, registry.QUERY_VALUE)
 	if errors.Is(err, windows.ERROR_FILE_NOT_FOUND) {
@@ -161,13 +174,20 @@ func readDWORD(path, name string, def uint64) (uint64, error) {
 	}
 	defer func() { _ = k.Close() }()
 	v, _, err := k.GetIntegerValue(name)
-	if errors.Is(err, windows.ERROR_FILE_NOT_FOUND) {
-		return def, nil
-	}
+	v, err = dwordOr(v, err, def)
 	if err != nil {
 		return 0, fmt.Errorf("desktop: read %s\\%s: %w", path, name, err)
 	}
 	return v, nil
+}
+
+// dwordOr is what a value read as v, with err, means: def where it is missing or of another type than a number, and
+// err where reading it failed.
+func dwordOr(v uint64, err error, def uint64) (uint64, error) {
+	if errors.Is(err, windows.ERROR_FILE_NOT_FOUND) || errors.Is(err, registry.ErrUnexpectedType) {
+		return def, nil
+	}
+	return v, err
 }
 
 // sysColor is the colour GetSysColor gives for index i.

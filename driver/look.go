@@ -39,6 +39,7 @@ type LookReader interface {
 	// SystemLook reads the settings as they are now.
 	SystemLook() (SystemLook, error)
 	// WatchSystemLook calls fn with the settings each time the user changes one, on a goroutine of the driver's,
-	// until stop is called. fn gets an error, and no look, when the settings could not be read again.
+	// until stop is called. fn gets an error, and no look, when the settings could not be read again. stop returns once
+	// a call to fn in progress has returned, and no call comes after, so call it from outside fn.
 	WatchSystemLook(fn func(SystemLook, error)) (stop func(), err error)
 }

@@ -285,7 +285,8 @@ func (a *App) SystemLook() (SystemLook, error) {
 }
 
 // WatchSystemLook calls fn, on a goroutine of gunim's, each time the user changes one of the settings
-// [App.SystemLook] reads, until stop is called. fn gets an error when the settings could not be read again.
+// [App.SystemLook] reads, until stop is called. fn gets an error when the settings could not be read again. stop
+// returns once a call to fn in progress has returned, and no call comes after, so call it from outside fn.
 func (a *App) WatchSystemLook(fn func(SystemLook, error)) (stop func(), err error) {
 	lr, ok := a.drv.(driver.LookReader)
 	if !ok {
