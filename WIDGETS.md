@@ -140,15 +140,15 @@ ChipRadius = theme.Length("chip.radius", 12)                   // a size in logi
   `widget.Light().With(calendar.Light...)`. `calendar` and `audioui` do this.
 
 **States look alike.** Hover lightens the fill through the hover spring. Press squashes through its spring. Disabled
-fades the whole control through `Faint`. Focus draws `FocusRing`. Selection uses `Accent`, as the chosen card of a
-`RadioGroup` takes it for its border, its dot and a tint.
+fades the whole control through `Faint`. Focus draws `FocusRing`. Selection uses `Accent`.
 
 ## Motion
 
 Everything moves; nothing jumps once the user can see it.
 
 - **Springs from the theme.** `Quick` is for direct feedback: hover, press, focus, highlight. `Settle` is for things
-  coming to rest or going away. `Bounce` is for things arriving, with an overshoot.
+  coming to rest or going away. `Bounce` is for things arriving, with an overshoot, as a `RadioGroup`'s dot
+  springs in.
 - **The first layout jumps.** Keep a `laid` flag. Before the first layout, put every spring at its target, so a value
   set early shows at once instead of gliding up from zero. For an entrance the app asks for, give the widget a method
   that says so, as `Split.SlideFrom(v)` opens a split at share v and glides it to its share.

@@ -1,7 +1,7 @@
 package widget
 
 import (
-	"sort"
+	"math"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/access"
@@ -20,8 +20,13 @@ var (
 	RadioGap  = theme.Length("radio.gap", 8)
 	// RadioPadding is the room inside a choice's card.
 	RadioPadding = theme.Insets("radio.padding", geom.Insets{Top: 12, Right: 16, Bottom: 12, Left: 16})
-	// RadioTint is how much of the accent fills the chosen card, from 0 to 1.
-	RadioTint = theme.Number("radio.tint", 0.12)
+	// RadioTint is how much of the accent fills the chosen card, from 0 to 1, and RadioHover how much of the button's
+	// hover fill a card under the pointer takes.
+	RadioTint  = theme.Number("radio.tint", 0.12)
+	RadioHover = theme.Number("radio.hover", 0.5)
+	// RadioDetailScale is the size of a choice's explanation against [TextSize], and RadioDetailGap the room above it.
+	RadioDetailScale = theme.Number("radio.detail.scale", 0.93)
+	RadioDetailGap   = theme.Length("radio.detail.gap", 2)
 	// RadioWidth is the group's width where it is given no bound.
 	RadioWidth = theme.Length("radio.width", 360)
 )
@@ -38,7 +43,7 @@ type RadioItem struct {
 // The chosen card's border and fill turn to the accent, and its circle fills with a dot that springs in, while the
 // card left fades back. A click on a card chooses it. With focus, Up and Down, or Left and Right, choose the choice
 // before or after, and Home and End the first and the last; the focus ring goes round the chosen card. Disabled, it
-// fades faint and takes no clicks or keys. Long explanations wrap.
+// fades faint and takes no clicks or keys. Labels and explanations wrap, and the card grows to hold them.
 type RadioGroup struct {
 	Control
 	// OnChange runs on the UI goroutine when the user chooses; a non-nil result is sent to the application as the
@@ -56,25 +61,38 @@ type RadioGroup struct {
 	// ringTop and ringH place the focus ring, gliding to the chosen card.
 	ringTop, ringH *anim.Float
 	click          Clicker
-	// tops holds each choice's top and one more for the bottom, measured for width at sizes, and version counts
-	// SetItems so the measure follows.
-	tops     []float32
-	labels   []shapedText
-	details  []laidText
-	ell      shapedText
-	width    float32
-	sizes    [2]float32
-	version  int
-	measured int
-	gapV     float32
-	size     geom.Size
-	from, to int
+
+	// heights holds each choice's card and the gap after it, and tree their running sums. A choice is measured as it
+	// comes into view: gens holds the generation each was measured in, and gen moves on whenever look changes, so a
+	// new width or theme costs nothing until a card shows. fresh says the items changed since the last estimate.
+	heights []float32
+	tree    fenwick
+	gens    []uint32
+	gen     uint32
+	look    radioLook
+	fresh   bool
+	labels  []laidText
+	details []laidText
+	// view is the part of the group the last paint showed, and from and to the choices it painted.
+	viewTop, viewBottom float32
+	size                geom.Size
+	from, to            int
+	// measures counts the cards measured, for a test.
+	measures int
+}
+
+// radioLook holds every value a card's measure reads.
+type radioLook struct {
+	w, size, detailScale, detailGap, gap, radio, ctlGap float32
+	pad                                                 geom.Insets
+	bold, face                                          *text.Face
 }
 
 // NewRadioGroup returns a group of items, the first chosen.
 func NewRadioGroup(items ...RadioItem) *RadioGroup {
 	g := &RadioGroup{Control: newControl(), was: -1, hot: -1, cold: -1, on: anim.NewFloat(1), off: anim.NewFloat(0),
-		hotV: anim.NewFloat(0), coldV: anim.NewFloat(0), ringTop: anim.NewFloat(0), ringH: anim.NewFloat(0)}
+		hotV: anim.NewFloat(0), coldV: anim.NewFloat(0), ringTop: anim.NewFloat(0), ringH: anim.NewFloat(0),
+		gen: 1, viewBottom: 2000}
 	g.Add(g.on, g.off, g.hotV, g.coldV, g.ringTop, g.ringH)
 	g.SetItems(items, nil)
 	return g
@@ -87,9 +105,9 @@ func (g *RadioGroup) Items() []RadioItem { return g.items }
 func (g *RadioGroup) SetItems(items []RadioItem, u *gunim.UI) {
 	g.items = items
 	g.selected = min(max(g.selected, 0), max(len(items)-1, 0))
-	g.labels = make([]shapedText, len(items))
+	g.labels = make([]laidText, len(items))
 	g.details = make([]laidText, len(items))
-	g.version++
+	g.fresh = true
 	u.Invalidate()
 }
 
@@ -111,6 +129,7 @@ func (g *RadioGroup) SetSelected(i int, u *gunim.UI) {
 		return
 	}
 	th := u.Theme()
+	g.ensure(i)
 	g.off.Jump(g.on.Value())
 	g.off.Animate(0, Settle.Get(th))
 	g.on.Jump(0)
@@ -140,22 +159,21 @@ func (g *RadioGroup) placeRing(th *theme.Live) {
 	g.ringH.Animate(h, Quick.Get(th))
 }
 
-// span returns choice i's top and height, from the last measure.
+// span returns choice i's top and height, as last measured.
 func (g *RadioGroup) span(i int) (top, h float32) {
-	if i < 0 || i+1 >= len(g.tops) {
+	if i < 0 || i >= len(g.heights) {
 		return 0, 0
 	}
-	return g.tops[i], g.tops[i+1] - g.tops[i] - g.gapV
+	return float32(g.tree.sum(i)), g.heights[i] - g.look.gap
 }
 
 // at returns the choice at y, or -1 for none, as in a gap.
 func (g *RadioGroup) at(y float32) int {
-	n := len(g.tops) - 1
-	if n <= 0 || y < 0 {
+	if len(g.heights) == 0 || y < 0 {
 		return -1
 	}
-	i := sort.Search(n, func(i int) bool { return g.tops[i+1] > y }) // the first card whose bottom is past y
-	if i >= n {
+	i := g.tree.find(float64(y))
+	if i >= len(g.heights) {
 		return -1
 	}
 	if top, h := g.span(i); y >= top+h {
@@ -230,34 +248,49 @@ func (g *RadioGroup) setHot(i int, th *theme.Live) {
 	}
 }
 
-// textRoom is how wide the label and detail run in a card w wide.
-func textRoom(w float32, th *theme.Live) float32 {
-	pad := RadioPadding.Get(th)
-	return max(0, w-pad.Left-pad.Right-RadioSize.Get(th)-ControlGap.Get(th))
+// room is how wide the label and detail run in a card.
+func (l radioLook) room() float32 { return max(0, l.w-l.pad.Left-l.pad.Right-l.radio-l.ctlGap) }
+
+// lookIn gathers the values a card's measure reads, for a group w wide in th.
+func lookIn(w float32, th *theme.Live) radioLook {
+	return radioLook{w: w, size: TextSize.Get(th), detailScale: RadioDetailScale.Get(th),
+		detailGap: RadioDetailGap.Get(th), gap: RadioGap.Get(th), radio: RadioSize.Get(th), ctlGap: ControlGap.Get(th),
+		pad: RadioPadding.Get(th), bold: faceIn(BoldFont, th), face: faceIn(Font, th)}
 }
 
-// measure sets each choice's top for a group w wide, when the width, the text sizes or the items have changed.
-func (g *RadioGroup) measure(w float32, th *theme.Live) {
-	size := TextSize.Get(th)
-	sizes := [2]float32{size, RadioGap.Get(th)}
-	if w == g.width && sizes == g.sizes && g.measured == g.version && len(g.tops) == len(g.items)+1 {
+// estimate is a card's height and gap before it is measured: one line of label.
+func (l radioLook) estimate() float32 {
+	return l.pad.Top + max(l.radio, l.size*1.25) + l.pad.Bottom + l.gap
+}
+
+// ensure measures choice i where its measure is older than the look.
+func (g *RadioGroup) ensure(i int) {
+	if i < 0 || i >= len(g.heights) || g.gens[i] == g.gen {
 		return
 	}
-	g.width, g.sizes, g.measured, g.gapV = w, sizes, g.version, sizes[1]
-	pad := RadioPadding.Get(th)
-	room := textRoom(w, th)
-	bold, face := faceIn(BoldFont, th), faceIn(Font, th)
-	g.tops = append(g.tops[:0], 0)
-	y := float32(0)
-	for i, it := range g.items {
-		h := g.labels[i].shape(bold, it.Label, size).Height()
-		if it.Detail != "" {
-			h += 2 + g.details[i].layout(face, it.Detail, text.Style{Size: size * 0.93}, room).Size.H
-		}
-		h = max(h, RadioSize.Get(th))
-		y += pad.Top + h + pad.Bottom + sizes[1]
-		g.tops = append(g.tops, y)
+	g.measures++
+	l, it := g.look, g.items[i]
+	h := g.labels[i].layout(l.bold, it.Label, text.Style{Size: l.size}, l.room()).Size.H
+	if it.Detail != "" {
+		h += l.detailGap + g.details[i].layout(l.face, it.Detail, text.Style{Size: l.size * l.detailScale}, l.room()).Size.H
 	}
+	h = l.pad.Top + max(h, l.radio) + l.pad.Bottom + l.gap
+	g.tree.add(i, float64(h-g.heights[i]))
+	g.heights[i], g.gens[i] = h, g.gen
+}
+
+// ensureView measures the choices from top to bottom.
+func (g *RadioGroup) ensureView(top, bottom float32) (from, to int) {
+	from = min(g.tree.find(float64(max(top, 0))), max(len(g.heights)-1, 0))
+	to = from - 1
+	for i := from; i < len(g.heights); i++ {
+		if t, _ := g.span(i); t >= bottom {
+			break
+		}
+		g.ensure(i)
+		to = i
+	}
+	return from, to
 }
 
 // Layout implements [gunim.Node]: as wide as it is given, and as tall as its cards.
@@ -267,10 +300,25 @@ func (g *RadioGroup) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children
 	if w <= 0 {
 		w = RadioWidth.Get(th)
 	}
-	g.measure(w, th)
+	if l := lookIn(w, th); l != g.look || g.fresh {
+		g.look = l
+		g.gen++
+	}
+	if g.fresh || len(g.heights) != len(g.items) {
+		g.fresh = false
+		est := g.look.estimate()
+		g.heights = make([]float32, len(g.items))
+		for i := range g.heights {
+			g.heights[i] = est
+		}
+		g.gens = make([]uint32, len(g.items))
+		g.tree.reset(g.heights)
+	}
+	g.ensureView(g.viewTop, g.viewBottom)
+	g.ensure(g.selected)
 	h := float32(0)
-	if n := len(g.tops); n > 1 {
-		h = g.tops[n-1] - g.gapV
+	if n := len(g.heights); n > 0 {
+		h = float32(g.tree.sum(n)) - g.look.gap
 	}
 	first := !g.laid
 	g.follow(th)
@@ -286,15 +334,15 @@ func (g *RadioGroup) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gun
 	defer g.faint(p, box)()
 	th := f.Theme
 	top, bottom := float32(0), box.H
+	// The next layout measures all the clip shows, however far the cards grow; with no clip, all of them.
+	g.viewTop, g.viewBottom = 0, float32(math.Inf(1))
 	if v, ok := p.Visible(); ok {
 		top, bottom = max(top, v.Min.Y), min(bottom, v.Max.Y)
+		g.viewTop, g.viewBottom = v.Min.Y, v.Max.Y
 	}
-	n := len(g.tops) - 1
-	g.from = sort.Search(n, func(i int) bool { return g.tops[i+1] > top })
-	g.to = g.from
-	for i := g.from; i < n && g.tops[i] < bottom; i++ {
+	g.from, g.to = g.ensureView(top, bottom)
+	for i := g.from; i <= g.to; i++ {
 		g.paintCard(p, th, i, box.W)
-		g.to = i
 	}
 	radius := CardRadius.Get(th)
 	g.paintRing(p, geom.Rc(0, g.ringTop.Value(), box.W, g.ringH.Value()), radius, th)
@@ -324,38 +372,39 @@ func (g *RadioGroup) paintCard(p *paint.Painter, th *theme.Live, i int, w float3
 	accent := Accent.Get(th)
 	fill := paint.Faded(accent, min(max(RadioTint.Get(th), 0), 1)*chosen)
 	if lit > 0.01 {
-		fill = anim.Mix(anim.ColorCodec, fill, ButtonHover.Get(th), min(lit, 1)*(1-chosen)*0.5)
+		fill = anim.Mix(anim.ColorCodec, fill, ButtonHover.Get(th), min(lit, 1)*(1-chosen)*RadioHover.Get(th))
 	}
 	border := anim.Mix(anim.ColorCodec, FieldBorder.Get(th), accent, chosen)
 	p.RRectStroke(card.Inset(geom.Uniform(0.5)), radius, paint.Solid(fill), paint.Stroke{Width: 1 + chosen, Color: border})
 
-	pad := RadioPadding.Get(th)
-	size := RadioSize.Get(th)
-	label := g.labels[i].run
-	circle := geom.Rc(pad.Left, top+pad.Top+max(0, label.Height()-size)/2, size, size)
+	l := g.look
+	label := g.labels[i].p
+	first := label.LineHeight
+	circle := geom.Rc(l.pad.Left, top+l.pad.Top+max(0, first-l.radio)/2, l.radio, l.radio)
 	ring := anim.Mix(anim.ColorCodec, Placeholder.Get(th), accent, chosen)
-	p.RRectStroke(circle.Inset(geom.Uniform(1)), size/2-1, paint.Solid(paint.Faded(accent, chosen)),
+	p.RRectStroke(circle.Inset(geom.Uniform(1)), l.radio/2-1, paint.Solid(paint.Faded(accent, chosen)),
 		paint.Stroke{Width: 2, Color: ring})
 	if chosen > 0.01 {
-		dot := size * 0.4 * max(chosen, 0)
+		dot := l.radio * 0.4 * max(chosen, 0)
 		c := circle.Center()
 		p.RRect(geom.Rc(c.X-dot/2, c.Y-dot/2, dot, dot), dot/2, paint.Solid(ButtonStrongInk.Get(th)))
 	}
 
-	x := circle.Max.X + ControlGap.Get(th)
-	room := textRoom(w, th)
-	ink := Ink.Get(th)
-	run := fitRun(label, &g.ell, room)
-	run.Paint(p, geom.Pt(x, top+pad.Top), ink)
+	x := circle.Max.X + l.ctlGap
+	label.Paint(p, geom.Pt(x, top+l.pad.Top), Ink.Get(th))
 	if it.Detail != "" {
-		g.details[i].p.Paint(p, geom.Pt(x, top+pad.Top+label.Height()+2), Placeholder.Get(th))
+		g.details[i].p.Paint(p, geom.Pt(x, top+l.pad.Top+label.Size.H+l.detailGap), Placeholder.Get(th))
 	}
 }
 
 // Access implements [gunim.Accessible]: a group with a checkable button for each choice in view, the chosen one
 // checked.
 func (g *RadioGroup) Access() access.Info {
-	info := access.Info{Role: access.RoleGroup, Name: g.Tooltip, State: g.accessState(), Active: g.selected + 1}
+	info := access.Info{Role: access.RoleGroup, Name: g.Tooltip, State: g.accessState()}
+	// Active counts the parts, which start at the first choice in view.
+	if g.selected >= g.from && g.selected <= g.to {
+		info.Active = g.selected - g.from + 1
+	}
 	for i := g.from; i <= g.to && i < len(g.items); i++ {
 		it := g.items[i]
 		top, h := g.span(i)

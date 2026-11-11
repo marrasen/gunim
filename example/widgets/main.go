@@ -331,17 +331,6 @@ func moreIcons() *widget.Card {
 	return widget.NewCard(col)
 }
 
-// choices lays out a card with a radio group: one choice of three, each with a line that explains it.
-func choices() *widget.Card {
-	g := widget.NewRadioGroup(
-		widget.RadioItem{Label: "Put them back", Detail: "Your PCs get the old versions. The newer ones stay in the history."},
-		widget.RadioItem{Label: "Copy them to a folder", Detail: "Your libraries stay as they are."},
-		widget.RadioItem{Label: "Do nothing yet"},
-	)
-	g.Tooltip = "Restore"
-	return widget.NewCard(widget.Row(widget.NewSized(g, 360, 0)))
-}
-
 // bigIcon is the size of the large icons in the gallery.
 var bigIcon = theme.Length("gallery.icon.big", 48)
 
@@ -487,4 +476,15 @@ func writeShot(ctx context.Context, c gunim.Client, path string) error {
 		return err
 	}
 	return errors.Join(png.Encode(f, img), f.Close())
+}
+
+// choices lays out a card with a radio group: one choice of three, each with a line that explains it.
+func choices() *widget.Card {
+	g := widget.NewRadioGroup(
+		widget.RadioItem{Label: "Put them back", Detail: "Your PCs get the old versions. The newer ones stay in the history."},
+		widget.RadioItem{Label: "Copy them to a folder", Detail: "Your libraries stay as they are."},
+		widget.RadioItem{Label: "Do nothing yet"},
+	)
+	g.Tooltip = "Restore"
+	return widget.NewCard(widget.Row(widget.NewSized(g, 360, 0)))
 }
