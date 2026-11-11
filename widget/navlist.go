@@ -17,31 +17,42 @@ import (
 
 // NavList tokens.
 var (
-	// NavRowHeight is a row's height, and NavGap the room between rows.
+	// NavRowHeight is a row's least height, NavRowRoom the room above and below its line of text together, which
+	// makes a row taller than that under large text, and NavGap the room between rows.
 	NavRowHeight = theme.Length("nav.row", 40)
+	NavRowRoom   = theme.Length("nav.row.room", 22)
 	NavGap       = theme.Length("nav.gap", 2)
 	// NavPadding is the room either end of a row, and NavRadius rounds its pill and hover.
 	NavPadding = theme.Length("nav.padding", 12)
 	NavRadius  = theme.Length("nav.radius", 6)
-	// NavMark is the height of the accent mark at the pill's left.
-	NavMark = theme.Length("nav.mark", 16)
+	// NavMark and NavMarkWidth are the height and width of the accent mark at the pill's left.
+	NavMark      = theme.Length("nav.mark", 16)
+	NavMarkWidth = theme.Length("nav.mark.width", 3)
 	// NavWidth is the list's width where it is given no bound.
 	NavWidth = theme.Length("nav.width", 220)
 	// NavHover lights the row under the pointer, and NavSelected fills the pill behind the chosen row.
 	NavHover    = theme.Color("nav.hover", color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x0e})
 	NavSelected = theme.Color("nav.selected", color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x16})
+	// NavSelectedInk colours the chosen row's label and icon where a theme sets it, as a contrast theme does, and
+	// else [Ink].
+	NavSelectedInk = theme.Foreground("nav.selected.ink", color.NRGBA{R: 0xec, G: 0xef, B: 0xf4, A: 0xff})
 )
 
 // NavItem is one row of a [NavList].
 type NavItem struct {
 	Label string
 	Icon  *icon.Icon
-	// Count shows in a badge at the row's end, as the number of problems on a page. Zero shows none.
-	Count int
+	// Count shows in a badge at the row's end, as the number of problems on a page. Zero shows none. CountLabel is
+	// what a screen reader says for it, such as "4 files", and the number alone when empty.
+	Count      int
+	CountLabel string
 	// CountInk colours the badge, and is the theme's [Accent] when unset.
 	CountInk theme.Token[color.NRGBA]
 	// Trail is a quiet icon at the row's end, as for a row that opens a window of its own.
 	Trail *icon.Icon
+	// Acts makes the row act without being chosen, as one that opens a window of its own does: a click, Enter or
+	// Space sends OnActivate, and the pill stays where it is.
+	Acts bool
 	// Foot puts the row, and the rows after it, at the bottom of the list, when the list is taller than its rows.
 	Foot bool
 }
@@ -50,13 +61,17 @@ type NavItem struct {
 //
 // A pill glides behind the chosen row, with an accent mark at its left, and the chosen label turns bold. A row's count
 // grows in and out in a badge at its end. A click chooses a row. With focus, Up and Down move the focus ring between
-// rows, Home and End go to the ends, and Enter or Space chooses the row with the ring. Disabled, it fades faint and
-// takes no clicks or keys. A label cut short shows whole in a tooltip.
+// rows, Home and End go to the ends, and Enter or Space chooses the row with the ring. A row marked Acts acts in
+// place of being chosen. Disabled, it fades faint and takes no clicks or keys. A label cut short shows whole in a
+// tooltip. Rows grow with large text.
 type NavList struct {
 	Control
 	// OnSelect runs on the UI goroutine when the user chooses a row; a non-nil result is sent to the application as
 	// the list's intent.
 	OnSelect func(i int, u *gunim.UI) gunim.Intent
+	// OnActivate runs on the UI goroutine when the user activates a row marked Acts, as one that opens a window; a
+	// non-nil result is sent to the application as the list's intent.
+	OnActivate func(i int, u *gunim.UI) gunim.Intent
 
 	items    []NavItem
 	selected int
@@ -78,8 +93,9 @@ type NavList struct {
 	// size is the list's size from the last layout, and shown the rows painted last.
 	size     geom.Size
 	from, to int
-	// rowH and gap are a row's height and the gap after it, from the last layout.
+	// rowH and gap are a row's height and the gap after it, from the last layout, and line measures a line of text.
 	rowH, gap float32
+	line      shapedText
 }
 
 // navBadge is a badge growing in or shrinking out, keeping its words while it goes.
@@ -143,7 +159,7 @@ func (n *NavList) SetItems(items []NavItem, u *gunim.UI) {
 	u.Invalidate()
 }
 
-// Selected returns the chosen row.
+// Selected returns the chosen row, and 0 for a list with no rows.
 func (n *NavList) Selected() int { return n.selected }
 
 // SetSelected chooses row i and sends no intent. Once laid out the pill glides to it; before that, or with a nil u, it
@@ -163,9 +179,15 @@ func (n *NavList) SetSelected(i int, u *gunim.UI) {
 	u.Invalidate()
 }
 
-// choose chooses row i and tells the application.
+// choose chooses row i, or acts for a row marked Acts, and tells the application.
 func (n *NavList) choose(i int, u *gunim.UI) {
 	n.moveCursor(i, u)
+	if i >= 0 && i < len(n.items) && n.items[i].Acts {
+		if n.OnActivate != nil {
+			act(u, n, gunim.CuePress, n.OnActivate, i)
+		}
+		return
+	}
 	if i < 0 || i >= len(n.items) || i == n.selected {
 		return
 	}
@@ -351,7 +373,8 @@ func (n *NavList) Step(dt time.Duration) bool {
 // is given.
 func (n *NavList) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
 	th := f.Theme
-	n.rowH, n.gap = NavRowHeight.Get(th), NavGap.Get(th)
+	line := n.line.shape(faceIn(Font, th), "Ag", TextSize.Get(th)).Height()
+	n.rowH, n.gap = max(NavRowHeight.Get(th), line+NavRowRoom.Get(th)), NavGap.Get(th)
 	h := n.rows()
 	if n.foot >= 0 && c.Max.H > 0 {
 		h = max(h, c.Max.H)
@@ -375,7 +398,7 @@ func (n *NavList) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) g
 func (n *NavList) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
 	defer n.faint(p, box)()
 	th := f.Theme
-	rowH := NavRowHeight.Get(th)
+	rowH := n.rowH
 	radius := NavRadius.Get(th)
 	view := geom.Rect{Max: box.Point()}
 	if v, ok := p.Visible(); ok {
@@ -384,8 +407,8 @@ func (n *NavList) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.
 	if len(n.items) > 0 {
 		y := n.top(n.selected) + n.lag.Value()
 		p.RRect(geom.Rc(0, y, box.W, rowH), radius, paint.Solid(NavSelected.Get(th)))
-		mark := min(NavMark.Get(th), rowH-8)
-		p.RRect(geom.Rc(0, y+(rowH-mark)/2, 3, mark), 1.5, paint.Solid(Accent.Get(th)))
+		mark, mw := min(NavMark.Get(th), rowH), NavMarkWidth.Get(th)
+		p.RRect(geom.Rc(0, y+(rowH-mark)/2, mw, mark), mw/2, paint.Solid(Accent.Get(th)))
 	}
 	n.from, n.to = n.near(view.Min.Y), n.near(view.Max.Y)
 	for i := range n.shaped {
@@ -429,6 +452,15 @@ func (n *NavList) paintRow(p *paint.Painter, th *theme.Live, i int, r geom.Rect)
 	}
 	pad := NavPadding.Get(th)
 	ink := Ink.Get(th)
+	quiet := Placeholder.Get(th)
+	// On the pill, where a theme sets an ink for it, the row takes that ink as the pill covers it.
+	on := float32(0)
+	if th.Sets(NavSelectedInk.Key()) {
+		pill := n.top(n.selected) + n.lag.Value()
+		on = max(0, min(r.Max.Y, pill+n.rowH)-max(r.Min.Y, pill)) / max(n.rowH, 1)
+		sel := NavSelectedInk.Get(th)
+		ink, quiet = anim.Mix(anim.ColorCodec, ink, sel, on), anim.Mix(anim.ColorCodec, quiet, sel, on)
+	}
 	x, right := r.Min.X+pad, r.Max.X-pad
 	mid := r.Min.Y + r.Size().H/2
 	size := IconSize.Get(th)
@@ -454,6 +486,9 @@ func (n *NavList) paintRow(p *paint.Painter, th *theme.Live, i int, r geom.Rect)
 		if it.CountInk.Key() != "" {
 			bink = it.CountInk.Get(th)
 		}
+		if on > 0 {
+			bink = anim.Mix(anim.ColorCodec, bink, ink, on)
+		}
 		func() {
 			defer p.Layer(paint.LayerOpts{Bounds: badge, Opacity: shown})()
 			fill := bink
@@ -464,7 +499,7 @@ func (n *NavList) paintRow(p *paint.Painter, th *theme.Live, i int, r geom.Rect)
 		}()
 		right -= w + ControlGap.Get(th)
 	case it.Trail != nil:
-		PaintIcon(p, th, it.Trail, geom.Rc(right-size, mid-size/2, size, size), Placeholder.Get(th))
+		PaintIcon(p, th, it.Trail, geom.Rc(right-size, mid-size/2, size, size), quiet)
 		right -= size + ControlGap.Get(th)
 	}
 	face := faceIn(Font, th)
@@ -481,13 +516,20 @@ func (n *NavList) paintRow(p *paint.Painter, th *theme.Live, i int, r geom.Rect)
 
 // Access implements [gunim.Accessible]: a list with an item for each row in view, the chosen one selected.
 func (n *NavList) Access() access.Info {
-	info := access.Info{Role: access.RoleList, Name: n.Tooltip, State: n.accessState(), Active: n.cursor + 1}
+	info := access.Info{Role: access.RoleList, Name: n.Tooltip, State: n.accessState()}
+	// Active counts the parts, which start at the first row in view.
+	if n.cursor >= n.from && n.cursor <= n.to && n.cursor < len(n.items) {
+		info.Active = n.cursor - n.from + 1
+	}
 	for i := n.from; i <= n.to && i < len(n.items); i++ {
 		it := n.items[i]
 		part := access.Info{Role: access.RoleListItem, Name: it.Label, State: n.accessState(), Key: uint64(i) + 1,
 			Actions: []string{access.ActionPress}}
 		part.Bounds = geom.Rc(0, n.top(i), n.size.W, n.rowH)
-		if it.Count > 0 {
+		switch {
+		case it.Count > 0 && it.CountLabel != "":
+			part.Description = it.CountLabel
+		case it.Count > 0:
 			part.Description = strconv.Itoa(it.Count)
 		}
 		if i == n.selected {

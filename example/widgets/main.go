@@ -336,8 +336,8 @@ func places() *widget.Card {
 	nav := widget.NewNavList(
 		widget.NavItem{Label: "Overview", Icon: icon.Home},
 		widget.NavItem{Label: "Storage", Icon: icon.HardDrive},
-		widget.NavItem{Label: "Can't sync", Icon: icon.CircleAlert, Count: 4, CountInk: widget.ToastWarningInk},
-		widget.NavItem{Label: "Time travel", Icon: icon.History, Trail: icon.ExternalLink},
+		widget.NavItem{Label: "Can't sync", Icon: icon.CircleAlert, Count: 4, CountLabel: "4 files", CountInk: widget.ToastWarningInk},
+		widget.NavItem{Label: "Time travel", Icon: icon.History, Trail: icon.ExternalLink, Acts: true},
 	)
 	nav.Tooltip = "Pages"
 	return widget.NewCard(widget.Row(widget.NewSized(nav, 220, 0)))
