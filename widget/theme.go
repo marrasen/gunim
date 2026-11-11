@@ -17,7 +17,7 @@ var (
 	// Accent marks focus and selection.
 	Accent = theme.Color("accent", color.NRGBA{R: 0x5e, G: 0x9c, B: 0xff, A: 0xff})
 	// TextSize is the body text size.
-	TextSize = theme.Length("text.size", 14)
+	TextSize = theme.FontSize("text.size", 14)
 	// Font is the face text is set in, BoldFont the face for strong text, ItalicFont and BoldItalicFont the faces
 	// for emphasis, and MonoFont the face for code and logs.
 	Font           = theme.Choice("text.font", text.Default())
@@ -86,7 +86,7 @@ var (
 	// DialogTitleSize was the size of the heading a dialog drew its
 	// title in. A dialog now shows its title in a title bar, in
 	// [TextSize], and nothing in gunim reads this.
-	DialogTitleSize = theme.Length("dialog.title.size", 17)
+	DialogTitleSize = theme.FontSize("dialog.title.size", 17)
 	DialogWidth     = theme.Length("dialog.width", 420)
 	// DialogHeight is a dialog's height until its first layout, which
 	// sizes it to its title bar, body and buttons.
@@ -294,7 +294,7 @@ var (
 	CardRadius  = theme.Length("card.radius", 10)
 	CardPadding = theme.Insets("card.padding", geom.Insets{Top: 10, Right: 12, Bottom: 10, Left: 14})
 	// HeadingSize is the size of a heading's text.
-	HeadingSize = theme.Length("text.heading.size", 22)
+	HeadingSize = theme.FontSize("text.heading.size", 22)
 )
 
 // Text field tokens.
@@ -353,7 +353,7 @@ var (
 
 	TooltipFill    = theme.Color("tooltip.fill", color.NRGBA{R: 0xec, G: 0xef, B: 0xf4, A: 0xf4})
 	TooltipInk     = theme.Foreground("tooltip.ink", color.NRGBA{R: 0x16, G: 0x18, B: 0x1e, A: 0xff})
-	TooltipSize    = theme.Length("tooltip.size", 12.5)
+	TooltipSize    = theme.FontSize("tooltip.size", 12.5)
 	TooltipRadius  = theme.Length("tooltip.radius", 6)
 	TooltipPadding = theme.Insets("tooltip.padding", geom.Insets{Top: 4, Right: 8, Bottom: 5, Left: 8})
 	// TooltipMaxWidth is as wide as a tooltip's words run before they wrap.

@@ -29,10 +29,10 @@ var (
 	// TitleInk and TitleSize are a box's title; SubInk its line under
 	// the title; LabelInk and LabelSize its ports' names.
 	TitleInk  = theme.Foreground("graph.title.ink", color.NRGBA{R: 0xec, G: 0xef, B: 0xf4, A: 0xff})
-	TitleSize = theme.Length("graph.title.size", 13)
+	TitleSize = theme.FontSize("graph.title.size", 13)
 	SubInk    = theme.Foreground("graph.sub.ink", color.NRGBA{R: 0x8a, G: 0x93, B: 0xa6, A: 0xff})
 	LabelInk  = theme.Foreground("graph.label.ink", color.NRGBA{R: 0x9a, G: 0xa1, B: 0xb0, A: 0xff})
-	LabelSize = theme.Length("graph.label.size", 10)
+	LabelSize = theme.FontSize("graph.label.size", 10)
 	// PortInk is a port's colour where it says none, and PortHole the
 	// fill of a port no wire joins.
 	PortInk  = theme.Color("graph.port.ink", color.NRGBA{R: 0x4f, G: 0xd6, B: 0xc0, A: 0xff})
