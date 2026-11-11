@@ -347,7 +347,8 @@ An application reaches the rest of the desktop through `App`, `Client`
 and `UI`:
 
 - **The tray.** `App.SetTray` shows an icon with a menu, and
-  `App.TrayNotify` a message from it. With `App.StayOpen` the
+  `App.TrayNotify` a message from it. On Windows, `Tray.OnNotifyClick`
+  hears a click on the message, to open the page it is about. With `App.StayOpen` the
   application runs on with no window open. Linux speaks
   StatusNotifierItem.
 - **Keys from every program.** `App.RegisterHotKey` hears a key

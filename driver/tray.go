@@ -23,6 +23,9 @@ type Tray struct {
 	// and are to hand the work on rather than do it there.
 	OnPick  func(id int)
 	OnClick func()
+	// OnNotifyClick runs with a click on the message [TrayNotifier.TrayNotify] showed last, as for a message that
+	// opens the page it is about. It runs on a goroutine of the driver's. Only Windows says so.
+	OnNotifyClick func()
 }
 
 // TrayItem is a line of a tray icon's menu: a command, a submenu, or a

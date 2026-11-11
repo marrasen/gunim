@@ -48,9 +48,11 @@ const (
 	niifUser      = 0x4
 	ninSelect     = 0x400
 	ninKeySelect  = 0x401
-	wmContextMenu = 0x007b
-	wsPopup       = 0x80000000
-	wsExTool      = 0x00000080
+	// ninBalloonUserClick is NIN_BALLOONUSERCLICK: a click on the message TrayNotify showed.
+	ninBalloonUserClick = 0x405
+	wmContextMenu       = 0x007b
+	wsPopup             = 0x80000000
+	wsExTool            = 0x00000080
 
 	mfString    = 0x0
 	mfGrayed    = 0x1
@@ -91,14 +93,16 @@ type TrayMenuItem struct {
 }
 
 // TrayIcon is what the tray shows: the icon at several sizes, its
-// tooltip and menu, and what a pick from the menu and a click on the
-// icon call. They are called on the main thread.
+// tooltip and menu, and what a pick from the menu, a click on the
+// icon and a click on its message call. They are called on the main
+// thread.
 type TrayIcon struct {
-	Images  []image.Image
-	Tooltip string
-	Items   []TrayMenuItem
-	OnPick  func(id int)
-	OnClick func()
+	Images        []image.Image
+	Tooltip       string
+	Items         []TrayMenuItem
+	OnPick        func(id int)
+	OnClick       func()
+	OnNotifyClick func()
 }
 
 // trayState is the icon shown.
@@ -317,6 +321,10 @@ func trayProc(hWnd windows.HWND, uMsg uint32, wParam _WPARAM, lParam _LPARAM) ui
 			s.showMenu(int32(int16(wParam&0xffff)), int32(int16(wParam>>16&0xffff)))
 		case wmContextMenu:
 			s.showMenu(int32(int16(wParam&0xffff)), int32(int16(wParam>>16&0xffff)))
+		case ninBalloonUserClick:
+			if s.t.OnNotifyClick != nil {
+				s.t.OnNotifyClick()
+			}
 		}
 		return 0
 	case uMsg == trayTaskbarCreated && trayTaskbarCreated != 0:
