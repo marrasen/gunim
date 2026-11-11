@@ -69,6 +69,8 @@ type OffscreenWindow struct {
 	awake   func(bool) error
 	// fingers is what TakeFingers last said.
 	fingers bool
+	// announced is what Announce said, in order.
+	announced []string
 	// edgeSwipes is what KeepEdgeSwipes last kept, and edgeSwipeCalls how many times it was called.
 	edgeSwipes     []geom.Rect
 	edgeSwipeCalls int
@@ -475,6 +477,20 @@ func (w *OffscreenWindow) PublishAccess(t *access.Tree) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.tree = t
+}
+
+// Announce implements [Announcer] by keeping text.
+func (w *OffscreenWindow) Announce(text string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.announced = append(w.announced, text)
+}
+
+// Announced returns what Announce said, in order.
+func (w *OffscreenWindow) Announced() []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return slices.Clone(w.announced)
 }
 
 // AccessTree returns the last accessibility tree published.

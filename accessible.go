@@ -229,6 +229,19 @@ func (u *UI) publishAccess(dw driver.Window, root *state, title string) {
 	pub.PublishAccess(u.accessTree(root, title))
 }
 
+// Announce has a screen reader say text, as for a change the user did not make: "Syncing 3 files" turning into "You're
+// up to date". A new announcement cuts short one not yet read. On Windows it goes through UI Automation's
+// notification event; elsewhere, and on a nil u, it does nothing. A node that keeps saying how things stand is better
+// given [access.RoleStatus], which a screen reader follows by itself.
+func (u *UI) Announce(text string) {
+	if u == nil || u.w == nil {
+		return
+	}
+	if a, ok := u.w.dw.(driver.Announcer); ok {
+		a.Announce(text)
+	}
+}
+
 // focusNow tells assistive technology at once when input moved focus,
 // from the tree as the last frame drew it with focus where it is now.
 // A screen reader reading a key press looks for the focus straight

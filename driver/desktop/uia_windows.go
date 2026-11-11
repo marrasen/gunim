@@ -44,6 +44,7 @@ var (
 	procUiaRaiseAutomationPropertyChangedEvent = uiaCore.NewProc("UiaRaiseAutomationPropertyChangedEvent")
 	procUiaRaiseStructureChangedEvent          = uiaCore.NewProc("UiaRaiseStructureChangedEvent")
 	procUiaClientsAreListening                 = uiaCore.NewProc("UiaClientsAreListening")
+	procUiaRaiseNotificationEvent              = uiaCore.NewProc("UiaRaiseNotificationEvent")
 	procSafeArrayCreateVector                  = oleaut32.NewProc("SafeArrayCreateVector")
 	procSafeArrayPutElement                    = oleaut32.NewProc("SafeArrayPutElement")
 	procSysAllocString                         = oleaut32.NewProc("SysAllocString")
@@ -107,18 +108,25 @@ const (
 	hrNotAvailable     = 0x80040201 // UIA_E_ELEMENTNOTAVAILABLE
 	hrInvalidOperation = 0x80131509 // UIA_E_INVALIDOPERATION
 
-	uiaRootObjectID      = -25
-	uiaAppendRuntimeID   = 3
-	providerServerSide   = 1
-	vtEmpty              = 0
-	vtI4                 = 3
-	vtR8                 = 5
-	vtBSTR               = 8
-	vtBool               = 11
-	variantTrue          = 0xffff
-	childrenInvalidated  = 2
-	eventFocusChanged    = 20005
-	eventElementSelected = 20012
+	uiaRootObjectID        = -25
+	uiaAppendRuntimeID     = 3
+	providerServerSide     = 1
+	vtEmpty                = 0
+	vtI4                   = 3
+	vtR8                   = 5
+	vtBSTR                 = 8
+	vtBool                 = 11
+	variantTrue            = 0xffff
+	childrenInvalidated    = 2
+	eventFocusChanged      = 20005
+	eventElementSelected   = 20012
+	eventLiveRegionChanged = 20024
+	propLiveSetting        = 30135
+	livePolite             = 1
+	liveAssertive          = 2
+	notificationOther      = 4
+	notificationMostRecent = 3
+	notificationAnnounceID = "gunim.announce"
 
 	propControlType         = 30003
 	propName                = 30005
@@ -153,6 +161,7 @@ const (
 	ctMenuBar     = 50010
 	ctMenuItem    = 50011
 	ctProgressBar = 50012
+	ctRadioButton = 50013
 	ctScrollBar   = 50014
 	ctSlider      = 50015
 	ctTab         = 50018
@@ -298,6 +307,10 @@ func (uw *uiaWindow) publish(t *access.Tree) {
 	diff = func(n *access.Node) {
 		if o := old.Find(n.ID); o != nil {
 			uw.diff(o, n, n == t.Root)
+		} else if n.Role == access.RoleAlert {
+			// An alert is read as it appears.
+			id := n.ID
+			uw.raise(func() { uw.event(id, eventLiveRegionChanged) })
 		}
 		for _, k := range n.Children {
 			diff(k)
@@ -323,9 +336,19 @@ func (uw *uiaWindow) diff(o, n *access.Node, root bool) {
 	if !slices.EqualFunc(o.Children, n.Children, func(a, b *access.Node) bool { return a.ID == b.ID }) {
 		uw.raise(func() { uw.structure(id) })
 	}
-	if o.State.Has(access.StateChecked) != n.State.Has(access.StateChecked) {
+	switch {
+	case n.Role == access.RoleRadioButton && isSelected(o) != isSelected(n):
+		was, is := isSelected(o), isSelected(n)
+		uw.raise(func() { uw.changed(id, propIsSelected, boolVariant(was), boolVariant(is)) })
+		if is {
+			uw.raise(func() { uw.event(id, eventElementSelected) })
+		}
+	case o.State.Has(access.StateChecked) != n.State.Has(access.StateChecked):
 		was, is := toggleState(o), toggleState(n)
 		uw.raise(func() { uw.changed(id, propToggleState, intVariant(was), intVariant(is)) })
+	}
+	if live(n) && (o.Name != n.Name || o.Value != n.Value || !live(o)) {
+		uw.raise(func() { uw.event(id, eventLiveRegionChanged) })
 	}
 	if o.State.Has(access.StateExpanded) != n.State.Has(access.StateExpanded) {
 		was, is := expandState(o), expandState(n)
@@ -358,6 +381,29 @@ func (uw *uiaWindow) event(id uint64, event int32) {
 	defer e.release()
 	hr, _, _ := procUiaRaiseAutomationEvent.Call(e.iface(ifSimple), uintptr(event))
 	uiaLog("event %d from node %d: HRESULT %#x", event, id, uint32(hr))
+}
+
+// announce has a screen reader say text, from the window, through UiaRaiseNotificationEvent. Windows before 10
+// version 1709 has no such call, and says nothing.
+func (uw *uiaWindow) announce(text string) {
+	if uw.closed.Load() || procUiaRaiseNotificationEvent.Find() != nil {
+		return
+	}
+	if r, _, _ := procUiaClientsAreListening.Call(); r == 0 {
+		return
+	}
+	uw.raise(func() {
+		e := uw.element(0)
+		defer e.release()
+		words, activity := bstr(text), bstr(notificationAnnounceID)
+		defer func() {
+			_, _, _ = procSysFreeString.Call(words)
+			_, _, _ = procSysFreeString.Call(activity)
+		}()
+		hr, _, _ := procUiaRaiseNotificationEvent.Call(e.iface(ifSimple), notificationOther, notificationMostRecent,
+			words, activity)
+		uiaLog("announced %q: HRESULT %#x", text, uint32(hr))
+	})
 }
 
 // changed raises a property's change on node id, and frees the two
@@ -479,19 +525,19 @@ func (e *element) supports(k int) bool {
 		return e.id == 0
 	case ifInvoke:
 		switch n.Role {
-		case access.RoleCheckbox, access.RoleSwitch, access.RoleTab, access.RoleComboBox:
+		case access.RoleCheckbox, access.RoleSwitch, access.RoleTab, access.RoleComboBox, access.RoleRadioButton:
 			return false
 		default:
 			return slices.Contains(n.Actions, access.ActionPress)
 		}
 	case ifToggle:
-		return n.State.Has(access.StateCheckable)
+		return n.State.Has(access.StateCheckable) && n.Role != access.RoleRadioButton
 	case ifValue:
 		return hasValue(n)
 	case ifRange:
 		return n.Range != nil
 	case ifSelectionItem:
-		return n.Role == access.RoleTab || n.Role == access.RoleRow
+		return n.Role == access.RoleTab || n.Role == access.RoleRow || n.Role == access.RoleRadioButton
 	case ifExpandCollapse:
 		return n.State.Has(access.StateExpandable)
 	}
@@ -568,6 +614,11 @@ func controlType(n *access.Node) int32 {
 		return ctProgressBar
 	case access.RoleScrollBar:
 		return ctScrollBar
+	case access.RoleStatus, access.RoleAlert:
+		// Text whose live setting says how soon a screen reader reads its changes.
+		return ctText
+	case access.RoleRadioButton:
+		return ctRadioButton
 	case access.RoleGroup:
 		return ctGroup
 	}
@@ -658,9 +709,28 @@ func (e *element) property(id int32) variant {
 		if n.Role == access.RoleDialog {
 			return boolVariant(true)
 		}
+	case propLiveSetting:
+		if n.Role == access.RoleStatus {
+			return intVariant(livePolite)
+		}
+		if n.Role == access.RoleAlert {
+			return intVariant(liveAssertive)
+		}
+	case propIsSelected:
+		if n.Role == access.RoleRadioButton {
+			return boolVariant(isSelected(n))
+		}
 	}
 	return variant{}
 }
+
+// isSelected reports whether n is selected, as a tab or a row is, or, for a radio button, chosen.
+func isSelected(n *access.Node) bool {
+	return n.State.Has(access.StateSelected) || n.Role == access.RoleRadioButton && n.State.Has(access.StateChecked)
+}
+
+// live reports whether a screen reader follows n's changes as they come.
+func live(n *access.Node) bool { return n.Role == access.RoleStatus || n.Role == access.RoleAlert }
 
 // screenRect returns r, in the window's space, in screen pixels.
 func (e *element) screenRect(r geom.Rect) [4]float64 {
@@ -994,7 +1064,7 @@ func tables() {
 			func(this uintptr) uintptr { return hrInvalidOperation },
 			func(this, p uintptr) uintptr {
 				return withNode(this, ifSelectionItem, func(_ *element, n *access.Node) uintptr {
-					boolOut(p, n.State.Has(access.StateSelected))
+					boolOut(p, isSelected(n))
 					return hrOK
 				})
 			},

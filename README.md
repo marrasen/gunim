@@ -1106,6 +1106,14 @@ examples read out, and a screen reader can press, check, set and move
 focus through them. On Windows it answers UI Automation, which
 Narrator reads, on 64-bit Windows. macOS comes later.
 
+A node that says how things stand takes `access.RoleStatus`, and one
+that says what the user must hear at once takes `access.RoleAlert`. A
+screen reader reads either one again as its words change, without the
+user moving to it. `UI.Announce` has a screen reader say words that
+show nowhere as a node, through UI Automation's notification event on
+Windows. A choice of several is a `RoleGroup` of
+`access.RoleRadioButton`s.
+
 A Go program for Windows is a console program, and started from
 Explorer or a shortcut it gets a console window of its own. The driver
 lets go of a console the program was given alone, as it starts, and

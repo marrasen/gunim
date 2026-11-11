@@ -346,6 +346,12 @@ type AccessPublisher interface {
 	PublishAccess(t *access.Tree)
 }
 
+// An Announcer is a [Window] that has a screen reader say something that shows nowhere as a node, such as a change
+// the user did not make: "You're up to date". It is safe to call from any goroutine.
+type Announcer interface {
+	Announce(text string)
+}
+
 // A Titler is a [Window] whose title the application can change, as
 // the platform shows it on the title bar and in the task switcher.
 type Titler interface {
