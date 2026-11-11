@@ -426,7 +426,7 @@ func TestAMenusItemsSayTheirTickTheirShortcutAndWhetherTheyAreOff(t *testing.T) 
 	if len(parts) != 5 {
 		t.Fatalf("the menu says %d items", len(parts))
 	}
-	if p := parts[0]; p.Name != "Mute clip" || p.Description != "M" || !p.State.Has(access.StateChecked) {
+	if p := parts[0]; p.Name != "Mute clip" || p.Description != "M" || !p.State.Has(access.StateCheckable|access.StateChecked) {
 		t.Errorf("a ticked item with a shortcut says %+v", p)
 	}
 	if p := parts[1]; !p.State.Has(access.StateDisabled) || p.State.Has(access.StateChecked) {

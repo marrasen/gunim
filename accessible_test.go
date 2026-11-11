@@ -2,8 +2,10 @@ package gunim
 
 import (
 	"testing"
+	"time"
 
 	"github.com/marrasen/gunim/access"
+	"github.com/marrasen/gunim/driver"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/paint"
 )
@@ -81,5 +83,64 @@ func TestEveryPartOfAGreatManyHasItsOwnID(t *testing.T) {
 	run(w, 1)
 	if m.pushed != want {
 		t.Fatalf("a press on part %d reached part %d", want, m.pushed)
+	}
+}
+
+// lateTaker is a window that turns down each frame's tree, as a browser's does, and
+// wants it as focus moves.
+type lateTaker struct {
+	*driver.OffscreenWindow
+	trees []*access.Tree
+}
+
+func (*lateTaker) AccessWanted() bool             { return false }
+func (*lateTaker) AccessFocusWanted() bool        { return true }
+func (l *lateTaker) PublishAccess(t *access.Tree) { l.trees = append(l.trees, t) }
+
+func TestATreeThatFramesTurnedDownComesAsFocusMoves(t *testing.T) {
+	l := &lateTaker{OffscreenWindow: driver.Offscreen(geom.Sz(400, 400))}
+	w := newWindow(l, nil)
+	a, b := &button{size: geom.Sz(50, 20)}, &button{size: geom.Sz(50, 20)}
+	w.ui.Insert(w.ui.Root(), &stack{kids: []Node{a, b}})
+	for range 3 {
+		w.Frame(time.Second / 60)
+	}
+	if len(l.trees) != 0 {
+		t.Fatalf("frames handed over %d trees", len(l.trees))
+	}
+	// Focus moved between frames comes with the next frame, though it turns them down.
+	w.ui.invalid = true
+	w.ui.focusMoved = true
+	w.Frame(time.Second / 60)
+	if len(l.trees) != 1 {
+		t.Fatalf("a frame with focus moved handed over %d trees", len(l.trees))
+	}
+	w.ui.invalid = true
+	w.Frame(time.Second / 60)
+	if len(l.trees) != 1 {
+		t.Fatalf("the frame after handed over %d trees", len(l.trees))
+	}
+	// And at once, between frames, as a key moves it.
+	w.ui.focusMoved = true
+	w.ui.focusNow()
+	if len(l.trees) != 2 {
+		t.Fatalf("focus moved with no frame handed over %d trees", len(l.trees))
+	}
+}
+
+func TestATreeAskedForAtRestWakesNoFrame(t *testing.T) {
+	dw := driver.Offscreen(geom.Sz(400, 400))
+	dw.ListenForAccess()
+	w := newWindow(dw, nil)
+	w.ui.Insert(w.ui.Root(), &recorder{})
+	w.Frame(time.Second / 60)
+	first := dw.AccessTree()
+	w.ui.invalid = false
+	w.Input(driver.AccessDue{})
+	if dw.AccessTree() == first {
+		t.Error("asked for its tree, the window handed over none")
+	}
+	if w.ui.invalid {
+		t.Error("handing over the tree asked for a frame")
 	}
 }

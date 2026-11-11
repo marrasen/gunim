@@ -33,6 +33,9 @@
 // is gunim's alone, so the browser's own find and print don't run in a program.
 // Cut, copy and paste in a text field stay the browser's, which edits the mirror.
 //
+// What a window holds also goes on the page as unseen elements with ARIA roles, lying
+// over the canvas and out of the pointer's way, for screen readers: see access.go.
+//
 // Gunim takes every touch on the canvas, and scrolls and pans for itself. A page
 // that wants the browser to have some of them, as to scroll the page with
 // vertical swipes, sets touch-action on the canvas, in its style attribute or a
@@ -170,6 +173,23 @@ type Driver struct {
 	observed  js.Func
 	stopped   bool
 	quit      chan struct{}
+
+	// accessRoot is the element the windows' trees go in, and accessAt where it lies.
+	// accessFocus is the element the canvas names as focused, in accessFocusIn, and
+	// accessHotIn the window whose lit menu item that is. accessFieldIn is the window
+	// whose text field the text mirror stands for, by mirrorLabel on mirrorNamed.
+	// pageAttrs is what the page had on the canvas. accessUsed says a screen reader has
+	// asked for something, and accessKeyAt is when a key that doesn't type last went
+	// down. windowsMade numbers the windows.
+	accessRoot                                js.Value
+	accessAt                                  geom.Rect
+	accessFocus, accessTitle, mirrorLabel     string
+	accessFocusIn, accessFieldIn, accessHotIn *Window
+	mirrorNamed                               js.Value
+	pageAttrs                                 [len(canvasAttrs)]js.Value
+	accessUsed                                bool
+	accessKeyAt                               time.Time
+	windowsMade                               uint64
 }
 
 // listener is one DOM event the driver listens to.
@@ -408,6 +428,7 @@ func near(exact, worked int, scale float32) bool {
 
 // resized follows the canvas to its new size, and reports whether it changed.
 func (d *Driver) resized() bool {
+	d.placeAccess()
 	d.mu.Lock()
 	scale := d.scale
 	d.mu.Unlock()
@@ -496,6 +517,12 @@ func (d *Driver) stop() {
 	for _, el := range []js.Value{d.plain, d.secret, d.safeProbe} {
 		el.Call("remove")
 	}
+	if d.accessRoot.Truthy() {
+		d.accessRoot.Call("remove")
+		for i := range canvasAttrs {
+			d.restoreCanvasAttr(i)
+		}
+	}
 }
 
 // Monitors implements [driver.Driver]: the browser's viewport.
@@ -517,6 +544,8 @@ func (d *Driver) NewWindow(o driver.Options) (driver.Window, error) {
 	w := newWindow(d, o)
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	d.windowsMade++
+	w.accessNum = d.windowsMade
 	if p, ok := o.Parent.(*Window); ok {
 		w.parent = p
 	}
@@ -583,6 +612,7 @@ func (d *Driver) closed(w *Window) {
 	}
 	delete(d.headingTo, w)
 	d.runCompassLocked()
+	d.forgetAccessLocked(w)
 	if d.hover == w {
 		d.hover = nil
 	}
@@ -850,6 +880,7 @@ func (d *Driver) listen(doc js.Value) {
 			d.mu.Unlock()
 			return
 		}
+		w.accessInputCame()
 		d.pointer = id
 		d.pinch = pinchState{touch: e.Get("pointerType").String() == "touch", first: p}
 		if w.takesFingers && e.Get("pointerType").String() != "mouse" {
@@ -961,6 +992,7 @@ func (d *Driver) listen(doc js.Value) {
 		var local geom.Point
 		pinched := w != nil && d.pinch.pinched
 		if w != nil {
+			w.accessInputCame()
 			local = p.Sub(w.rectLocked().Min)
 			d.pinchEndLocked(w, now)
 		}
@@ -1010,6 +1042,7 @@ func (d *Driver) listen(doc js.Value) {
 		var local geom.Point
 		if w != nil {
 			local = p.Sub(w.rectLocked().Min)
+			w.accessInputCame()
 		}
 		d.mu.Unlock()
 		if w == nil {
@@ -1072,8 +1105,15 @@ func (d *Driver) listen(doc js.Value) {
 			return
 		}
 		k := keyOf(code, name)
+		// Editing in the mirror is typing, which a screen reader follows there. Any other
+		// key is someone moving about, who might be reading along.
+		inField := d.text.Equal(doc.Get("activeElement")) && name != "Tab" && name != "Escape"
 		d.mu.Lock()
 		d.held[keyPlace(code, name)] = heldKey{w, k}
+		w.accessInputCame()
+		if !inField {
+			d.accessKeyAt = now
+		}
 		d.mu.Unlock()
 		typed := len([]rune(name)) == 1 && m&(input.ModControl|input.ModSuper) == 0
 		var char rune
@@ -1081,6 +1121,9 @@ func (d *Driver) listen(doc js.Value) {
 			char = r[0]
 		}
 		w.in.Push(input.KeyPress{Key: k, Mods: m, Repeat: e.Get("repeat").Bool(), Typed: typed, Char: char, Time: now})
+		if !inField {
+			d.popupKeyWent()
+		}
 		if typed && !d.text.Equal(doc.Get("activeElement")) {
 			// No textarea to type into: the key's text goes along. The key is
 			// cancelled, as the handler may move focus to the mirror before the

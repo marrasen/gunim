@@ -26,6 +26,10 @@ func (u *UI) handlePlatform(ev any) { u.handleOn(u.root, ev) }
 // press in a popup leaves focus where it is, so the node that opened a
 // menu keeps the keyboard while the menu is clicked.
 func (u *UI) handleOn(root *state, ev any) {
+	if _, due := ev.(driver.AccessDue); due {
+		u.accessDue(root)
+		return
+	}
 	if !u.touchEvent(root, ev) {
 		u.handleRaw(root, ev)
 	}

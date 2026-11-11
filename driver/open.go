@@ -356,6 +356,19 @@ type AccessPublisher interface {
 	PublishAccess(t *access.Tree)
 }
 
+// An AccessFocusTaker is an [AccessPublisher] that turns down most frames, as gathering
+// its tree would cost every user, but wants its tree at once as focus moves: a screen
+// reader told of that a frame later takes the news for what it already knows.
+// AccessFocusWanted says whether it takes the tree now, in place of AccessWanted.
+type AccessFocusTaker interface {
+	AccessFocusWanted() bool
+}
+
+// AccessDue is sent on [Window.Input] by an [AccessPublisher] that turned down a frame's
+// tree and wants it now that things have come to rest. The engine gathers it from the
+// last frame, and draws no frame for it.
+type AccessDue struct{}
+
 // A Titler is a [Window] whose title the application can change, as
 // the platform shows it on the title bar and in the task switcher.
 type Titler interface {

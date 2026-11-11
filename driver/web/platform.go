@@ -169,7 +169,7 @@ func (w *Window) SetTitle(title string) {
 // ShowKeyboard focuses what takes text, which brings up a phone's keyboard.
 func (w *Window) ShowKeyboard() {
 	w.d.syncText(w)
-	w.d.text.Call("focus", map[string]any{"preventScroll": true})
+	w.d.focusText()
 }
 
 // SetTextBox says where the text being edited is.

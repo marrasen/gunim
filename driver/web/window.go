@@ -12,6 +12,7 @@ import (
 	"syscall/js"
 	"time"
 
+	"github.com/marrasen/gunim/access"
 	"github.com/marrasen/gunim/driver"
 	"github.com/marrasen/gunim/driver/internal/compose"
 	"github.com/marrasen/gunim/driver/internal/inbox"
@@ -64,6 +65,22 @@ type Window struct {
 	sharpTimer        *time.Timer
 	sharpen           bool
 	takesFingers      bool
+
+	// What the page's elements say of the window: see access.go. They are guarded by
+	// the driver's mu.
+
+	accessNum, accessSeen, accessHot uint64
+	accessEls                        map[uint64]*accessEl
+	accessTop                        *accessEl
+	accessOne                        [1]*access.Node
+	accessLast, accessAsked          time.Time
+	accessGap                        time.Duration
+	accessSight                      geom.Rect
+	accessOwed                       *time.Timer
+	// accessSoon says the next chance hands over the tree. accessMoving says this
+	// publish came while frames still come, accessChanged that it changed the page, and
+	// accessUnplaced that elements are left to place once things rest.
+	accessSoon, accessMoving, accessChanged, accessUnplaced bool
 }
 
 type frame struct {
@@ -80,6 +97,7 @@ func newWindow(d *Driver, o driver.Options) *Window {
 		above:       o.Above,
 		passthrough: o.Passthrough,
 		transparent: o.Kind == driver.KindPopup,
+		accessLast:  time.Now(),
 	}
 	w.in = inbox.New(w.quit)
 	w.pane.Transparent = w.transparent
@@ -146,6 +164,7 @@ func (w *Window) Close() error {
 		w.d.closed(w)
 		close(w.quit)
 		w.in.Close()
+		w.popupLeft()
 	})
 	return nil
 }
@@ -204,8 +223,13 @@ func (w *Window) SetBackground(c color.NRGBA) {
 func (w *Window) Hide() error {
 	w.d.mu.Lock()
 	w.hidden, w.stale = true, true
+	if w.accessTop != nil {
+		w.accessTop.el.Get("style").Set("display", "none")
+		w.d.clearAccessFocusLocked(w)
+	}
 	w.d.kickLocked()
 	w.d.mu.Unlock()
+	w.popupLeft()
 	return nil
 }
 
@@ -214,6 +238,9 @@ func (w *Window) Hide() error {
 func (w *Window) Show() error {
 	w.d.mu.Lock()
 	w.hidden = false
+	if w.accessTop != nil {
+		w.accessTop.el.Get("style").Set("display", "")
+	}
 	w.d.kickLocked()
 	w.d.mu.Unlock()
 	return nil
@@ -280,7 +307,7 @@ func (d *Driver) focusMirror() {
 	doc := js.Global().Get("document")
 	active := doc.Get("activeElement")
 	if active.IsNull() || active.Equal(d.canvas) || active.Equal(d.text) || active.Equal(doc.Get("body")) {
-		d.text.Call("focus", map[string]any{"preventScroll": true})
+		d.focusText()
 	}
 }
 
