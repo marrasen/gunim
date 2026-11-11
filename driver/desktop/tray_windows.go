@@ -4,6 +4,7 @@ package desktop
 
 import (
 	"github.com/marrasen/gunim/driver"
+	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/internal/glfw"
 )
 
@@ -36,6 +37,17 @@ func (d *Driver) TrayNotify(title, body string) error {
 		return errClosed
 	}
 	return <-done
+}
+
+// TrayRect implements [driver.TrayLocator], through Shell_NotifyIconGetRect on the main thread.
+func (d *Driver) TrayRect() (geom.Rect, error) {
+	var r geom.Rect
+	err := d.call(func() error {
+		l, t, rt, b, err := glfw.TrayIconRect()
+		r = geom.Rect{Min: geom.Pt(float32(l), float32(t)), Max: geom.Pt(float32(rt), float32(b))}
+		return err
+	})
+	return r, err
 }
 
 // closeTray takes the icon away, as the application ends, on the main

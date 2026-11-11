@@ -136,6 +136,9 @@ type Options struct {
 	// Passthrough lets the pointer through the window to whatever is
 	// under it, as for the picture carried under the pointer in a drag.
 	Passthrough bool
+	// Margin, for a [KindFlyout], is the room in logical pixels round the card the application draws, left for its
+	// shadow. Placement puts the card, not the window, beside the tray icon.
+	Margin float32
 	// Over puts a popup's top-left corner at Anchor.Min exactly, for a
 	// popup laid over its parent, such as a glow reaching past the
 	// parent's edges. It stays there even where the screen runs out.
@@ -217,6 +220,11 @@ const (
 	// focus. Its surface is transparent where the display server can
 	// blend windows, so a popup can have round corners and a shadow.
 	KindPopup
+	// KindFlyout is a window that opens from the tray icon, as a panel of the application's state. It is bare and
+	// transparent like a popup, so the application draws its rounded card and shadow, but it takes the keyboard. It
+	// keeps off the taskbar, stays above other windows, and asks to close, with [CloseAsked], once it loses the
+	// keyboard. It opens beside Anchor, the tray icon's rectangle in screen coordinates: see [FlyoutPlace].
+	KindFlyout
 )
 
 // A Window is one on-screen surface with its own GL context.

@@ -492,6 +492,15 @@ func (d *Driver) openWindow(o driver.Options) (*Window, error) {
 			// framebuffer to.
 			hints = append(hints, [2]int{int(glfw.TransparentFramebuffer), glfw.True})
 		}
+	case driver.KindFlyout:
+		hints = append(hints,
+			[2]int{int(glfw.Flyout), glfw.True},
+			[2]int{int(glfw.Floating), glfw.True},
+			[2]int{int(glfw.Decorated), glfw.False},
+			[2]int{int(glfw.FocusOnShow), glfw.True})
+		if !d.dxgi {
+			hints = append(hints, [2]int{int(glfw.TransparentFramebuffer), glfw.True})
+		}
 	case driver.KindUtility:
 		hints = append(hints, [2]int{int(glfw.Floating), glfw.True})
 	case driver.KindNormal:
@@ -535,10 +544,11 @@ func (d *Driver) openWindow(o driver.Options) (*Window, error) {
 		}
 		w.ctx = ctx
 	}
-	if o.Kind == driver.KindPopup {
+	if o.Kind == driver.KindPopup || o.Kind == driver.KindFlyout {
 		t, err := gw.GetAttrib(glfw.TransparentFramebuffer)
 		w.transparent = d.dxgi || (err == nil && t == glfw.True)
 	}
+	w.flyout = o.Kind == driver.KindFlyout
 	if err := w.position(o); err != nil {
 		_ = gw.Destroy()
 		return nil, err
