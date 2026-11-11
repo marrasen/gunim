@@ -230,16 +230,20 @@ func (u *UI) publishAccess(dw driver.Window, root *state, title string) {
 }
 
 // Announce has a screen reader say text, as for a change the user did not make: "Syncing 3 files" turning into "You're
-// up to date". A new announcement cuts short one not yet read. On Windows it goes through UI Automation's
-// notification event; elsewhere, and on a nil u, it does nothing. A node that keeps saying how things stand is better
+// up to date". A new announcement cuts short one not yet read. It reports whether it passed the words on.
+//
+// On Windows it goes through UI Automation's notification event, from this window. So it needs the window open, and
+// a screen reader to have looked at it; an application in the tray with no window open has nothing to speak from.
+// Elsewhere, and on a nil u, it does nothing and reports false. A node that keeps saying how things stand is better
 // given [access.RoleStatus], which a screen reader follows by itself.
-func (u *UI) Announce(text string) {
+func (u *UI) Announce(text string) bool {
 	if u == nil || u.w == nil {
-		return
+		return false
 	}
 	if a, ok := u.w.dw.(driver.Announcer); ok {
-		a.Announce(text)
+		return a.Announce(text)
 	}
+	return false
 }
 
 // focusNow tells assistive technology at once when input moved focus,

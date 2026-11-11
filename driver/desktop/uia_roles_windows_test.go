@@ -4,6 +4,7 @@ package desktop
 
 import (
 	"testing"
+	"time"
 
 	"github.com/marrasen/gunim/access"
 )
@@ -32,7 +33,8 @@ func TestARadioButtonIsSelectedWhenChecked(t *testing.T) {
 
 // queued returns a window whose events queue up untouched, and a count of what is queued.
 func queued() (uw *uiaWindow, count func() int) {
-	uw = &uiaWindow{events: make(chan func(), 64), stop: make(chan struct{})}
+	uw = &uiaWindow{events: make(chan func(), 64), stop: make(chan struct{}), speak: make(chan struct{}, 1),
+		liveAt: map[uint64]time.Time{}, livePending: map[uint64]bool{}}
 	return uw, func() int {
 		n := 0
 		for {

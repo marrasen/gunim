@@ -57,10 +57,9 @@ func (w *Window) AccessWanted() bool {
 }
 
 // Announce implements [driver.Announcer].
-func (w *Window) Announce(text string) {
-	if uw := w.acc.uw.Load(); uw != nil {
-		uw.announce(text)
-	}
+func (w *Window) Announce(text string) bool {
+	uw := w.acc.uw.Load()
+	return uw != nil && uw.announce(text)
 }
 
 // PublishAccess implements [driver.AccessPublisher].

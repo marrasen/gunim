@@ -479,11 +479,12 @@ func (w *OffscreenWindow) PublishAccess(t *access.Tree) {
 	w.tree = t
 }
 
-// Announce implements [Announcer] by keeping text.
-func (w *OffscreenWindow) Announce(text string) {
+// Announce implements [Announcer] by keeping text, and reports it passed on.
+func (w *OffscreenWindow) Announce(text string) bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.announced = append(w.announced, text)
+	return true
 }
 
 // Announced returns what Announce said, in order.
