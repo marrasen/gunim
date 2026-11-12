@@ -31,11 +31,12 @@ var LiveGraphHead = theme.Color("livegraph.head", color.NRGBA{R: 0xff, G: 0xff, 
 // come in, with a bright head on the newest and what it says beside it.
 // The scale glides to the highest value in view rather than jumping.
 //
-// Samples come with [LiveGraph.Add], about one every Every. The head
-// stays at the right edge and runs a little behind the newest sample,
-// so the curve slides past it at an even pace however unevenly samples
-// come, and a new sample bends the curve into its value over a few
-// frames rather than at once. The graph rests while it is not running.
+// Samples come with [LiveGraph.Add], about one every Every, or a span
+// of them at once with [LiveGraph.Fill]. The head stays at the right
+// edge and runs a little behind the newest sample, so the curve slides
+// past it at an even pace however unevenly samples come, and a new
+// sample bends the curve into its value over a few frames rather than
+// at once. The graph rests while it is not running.
 type LiveGraph struct {
 	// Every is how often a sample comes.
 	Every time.Duration
@@ -140,6 +141,33 @@ func (g *LiveGraph) Add(v float64) {
 	if len(g.samples) == 1 || g.glow-g.saidAt >= 1 {
 		g.said, g.saidAt = g.recent(), g.glow
 	}
+}
+
+// Fill puts samples, oldest first, in place of the graph's history, as when a page opens or a filter changes. The
+// head starts on the newest, with the rest already drawn to its left and the scale already at their highest, so the
+// graph shows them at once rather than sliding through them. An empty samples clears the graph.
+func (g *LiveGraph) Fill(samples []float64) {
+	if n := len(samples) - g.Span - 2; n > 0 {
+		samples = samples[n:]
+	}
+	g.samples = g.samples[:0]
+	for _, v := range samples {
+		g.samples = append(g.samples, max(0, v))
+	}
+	n := len(g.samples)
+	g.shown, g.vel = make([]float64, n), make([]float64, n)
+	for k := range g.shown {
+		g.shown[k] = g.weighed(k)
+	}
+	g.pos, g.speed, g.pace = max(float64(n-1), 0), 0, 0
+	g.sinceSample = 0
+	g.across.Jump(float32(min(max(n, minAcross), g.Span)))
+	most := 0.0
+	for _, s := range g.samples {
+		most = max(most, s)
+	}
+	g.top.Jump(float32(max(most*1.15, g.Floor)))
+	g.said, g.saidAt = g.recent(), g.glow
 }
 
 // SetRunning starts the graph sliding, or rests it.

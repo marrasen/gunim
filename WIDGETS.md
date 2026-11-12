@@ -151,6 +151,9 @@ Everything moves; nothing jumps once the user can see it.
 - **The first layout jumps.** Keep a `laid` flag. Before the first layout, put every spring at its target, so a value
   set early shows at once instead of gliding up from zero. For an entrance the app asks for, give the widget a method
   that says so, as `Split.SlideFrom(v)` opens a split at share v and glides it to its share.
+- **History arrives whole.** A widget that plays values in as they come also takes a whole span at once, and shows
+  it at its end. `LiveGraph.Fill(samples)` puts the head on the newest sample, with the rest already drawn to its
+  left. Replaying a span through `Add` slides through it at its own pace, so old values show as current.
 - **Arriving and leaving.** Implement `gunim.Transitioner` to animate in on `Entering` and out on `Exiting`; the
   engine keeps the node until it reports settled.
 - **Frames only while moving.** `Step` reports true only while something moves. A widget out of sight (on a hidden
