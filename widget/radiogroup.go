@@ -397,7 +397,7 @@ func (g *RadioGroup) paintCard(p *paint.Painter, th *theme.Live, i int, w float3
 	}
 }
 
-// Access implements [gunim.Accessible]: a group with a checkable button for each choice in view, the chosen one
+// Access implements [gunim.Accessible]: a group with a radio button for each choice in view, the chosen one
 // checked.
 func (g *RadioGroup) Access() access.Info {
 	info := access.Info{Role: access.RoleGroup, Name: g.Tooltip, State: g.accessState()}
@@ -408,8 +408,8 @@ func (g *RadioGroup) Access() access.Info {
 	for i := g.from; i <= g.to && i < len(g.items); i++ {
 		it := g.items[i]
 		top, h := g.span(i)
-		part := access.Info{Role: access.RoleButton, Name: it.Label, Description: it.Detail, Key: uint64(i) + 1,
-			State: access.StateCheckable | g.accessState(), Actions: []string{access.ActionPress},
+		part := access.Info{Role: access.RoleRadioButton, Name: it.Label, Description: it.Detail, Key: uint64(i) + 1,
+			State: g.accessState(), Actions: []string{access.ActionPress},
 			Bounds: geom.Rc(0, top, g.size.W, h)}
 		if i == g.selected {
 			part.State |= access.StateChecked

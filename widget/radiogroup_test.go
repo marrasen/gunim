@@ -143,6 +143,11 @@ func TestARadioGroupReadsAsCheckableChoices(t *testing.T) {
 	if info.Role != access.RoleGroup || len(info.Parts) != 3 {
 		t.Fatalf("the group reads as %v with %d parts, want a group of 3", info.Role, len(info.Parts))
 	}
+	for i, part := range info.Parts {
+		if part.Role != access.RoleRadioButton {
+			t.Fatalf("choice %d reads as %v, want a radio button", i, part.Role)
+		}
+	}
 	p := info.Parts[1]
 	if p.Name != "Copy them to a folder on this PC" || p.Description != "Your libraries stay as they are." ||
 		!p.State.Has(access.StateChecked) {
