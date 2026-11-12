@@ -349,11 +349,23 @@ An application reaches the rest of the desktop through `App`, `Client`
 and `UI`:
 
 - **The tray.** `App.SetTray` shows an icon with a menu, and
-  `App.TrayNotify` a message from it. A window of `driver.KindFlyout`
-  opens beside the icon, at `App.TrayRect` on Windows, takes the
-  keyboard, and closes once the user turns to something else. With `App.StayOpen` the
+  `App.TrayNotify` a message from it. On Windows, `Tray.OnNotifyClick`
+  hears a click on the message, to open the page it is about, and
+  `Tray.OnNotifyGone` hears it leave the screen. A window of
+  `driver.KindFlyout` opens beside the icon, at `App.TrayRect` on
+  Windows, takes the keyboard, and closes once the user turns to
+  something else. With `App.StayOpen` the
   application runs on with no window open. Linux speaks
   StatusNotifierItem.
+- **The system's look.** `App.SystemLook` reads what the user chose
+  for every application: light or dark, fewer animations, a text size
+  and a contrast theme. `App.WatchSystemLook` hears each change.
+  `widget.ForLook` turns them into a theme. It scales every size
+  declared with `theme.FontSize` or `theme.TextRow`, sets `theme.Scale`
+  to 0 for fewer animations, and gives every widget colour one of the
+  contrast theme's colours. `calendar`, `widget/graph`, `widget/dock`
+  and `audioui` each add theirs with a `Contrast` of their own. Windows
+  alone is read so far.
 - **Keys from every program.** `App.RegisterHotKey` hears a key
   whatever program has the keyboard, on Windows and on X11.
 - **Media controls.** `App.SetNowPlaying` tells the system what plays,
@@ -793,6 +805,12 @@ takes the theme sets it for the whole program with `anim.SetScale`.
 It leaves flings alone, and any value marked `RealTime`, such as a
 fade in sound or a meter's needle.
 
+Declare a size of text with `theme.FontSize` rather than
+`theme.Length`. `theme.ScaleText` then scales it with the rest, as
+for the user's text size setting. Declare the height of a row,
+a button or anything else that holds a line of text with
+`theme.TextRow`, so it grows with the text.
+
 Colours blend through Oklab, so a switch keeps its brightness and its
 hues. Text colours are declared with `theme.Foreground`: they fade out
 in the old colour and back in with the new one. Text and background
@@ -949,7 +967,7 @@ path data.
 | `gunim/widget/dock` | Views in tabs and splits over many windows, which the user drags along a bar, into another group, to a pane's edge to split it, or out into a window of its own; the layout is plain data the program keeps, and the widgets say what the user asks for |
 | `gunim/widget/graph` | Boxes joined by wires on a plane that pans and zooms: wires drawn from port to port that snap to a port they may join, boxes dragged, wires replugged or pulled out, a band to pick boxes by; the graph is plain data the program keeps, and the view says what the user asks for |
 | `gunim/calendar` | A calendar's views: a day or a week by the hour, a month, and a small month to pick a day from |
-| `gunim/widget` | `Row`, `Column`, `Scroll`, a `TileGrid` that builds only the tiles in view and selects with a band, `Label` whose text the mouse can select and copy when `Selectable`, `TextField`, `NumberField` that sits at the right, steps with the arrows and the wheel, drags up and down as in a design tool, and holds itself to its bounds, `TextArea`, `Card`, `Button`, `Icon`, `IconButton`, `Checkbox`, `Switch`, `Slider`, which runs up the height as a fader when its `Axis` is vertical, fills from a resting value a double click glides back to, colours its track with a `Gradient` and drags finely with Shift, a `SliderRow` that labels one with a readout counting along and a reset mark, a `ToneCurve` that edits a monotone curve through points, a `Histogram` of red, green and blue mixed as light, `Tabs`, a `Segmented` control whose pill springs to the option chosen, `Dropdown`, a `ColorPicker` of a square, a hue strip, an opacity strip and a hex field, and a `ColorButton` that opens one in a popup, `ContextMenu`, `Tooltip`, `Image`, `Hero` for elements that fly between screens, `Draggable` and `DropTarget` for drag and drop within and between windows and to and from file managers, a `DragGhost` that trails the pointer and says what a drop would do, a `DropZone` that lights the spot under a drag and springs it open, `Dialog`, a keyed `List`, a `VirtualList` that builds only the rows in view, a `DataGrid` that draws millions of rows of styled cells by index and drags the rows selected, an `Overview` strip that maps and scrolls it, a `MenuButton` whose menu can stay open to tick several items, removable `Chip`s and a `Wrap` that flows them onto lines, `RichText` that wraps text in several styles with links, a `CodeEditor` with line numbers, tab stops, highlighting and marks such as a compiler's errors, and their theme tokens |
+| `gunim/widget` | `Row`, `Column`, `Scroll`, a `TileGrid` that builds only the tiles in view and selects with a band, `Label` whose text the mouse can select and copy when `Selectable`, `TextField`, `NumberField` that sits at the right, steps with the arrows and the wheel, drags up and down as in a design tool, and holds itself to its bounds, `TextArea`, `Card`, `Button`, `Icon`, `IconButton`, `Checkbox`, `Switch`, `Slider`, which runs up the height as a fader when its `Axis` is vertical, fills from a resting value a double click glides back to, colours its track with a `Gradient` and drags finely with Shift, a `SliderRow` that labels one with a readout counting along and a reset mark, a `ToneCurve` that edits a monotone curve through points, a `Histogram` of red, green and blue mixed as light, `Tabs`, a `Segmented` control whose pill springs to the option chosen, a `NavList` of icon-and-label rows for moving between pages, with a pill that glides to the chosen one and a count in a badge, `Dropdown`, a `ColorPicker` of a square, a hue strip, an opacity strip and a hex field, and a `ColorButton` that opens one in a popup, `ContextMenu`, `Tooltip`, `Image`, `Hero` for elements that fly between screens, `Draggable` and `DropTarget` for drag and drop within and between windows and to and from file managers, a `DragGhost` that trails the pointer and says what a drop would do, a `DropZone` that lights the spot under a drag and springs it open, `Dialog`, a keyed `List`, a `VirtualList` that builds only the rows in view, a `DataGrid` that draws millions of rows of styled cells by index and drags the rows selected, an `Overview` strip that maps and scrolls it, a `MenuButton` whose menu can stay open to tick several items, removable `Chip`s and a `Wrap` that flows them onto lines, `RichText` that wraps text in several styles with links, a `CodeEditor` with line numbers, tab stops, highlighting and marks such as a compiler's errors, and their theme tokens |
 
 Commands, intents, topics and the `Client` live in `wire.go` and
 `view.go`. `driver.Offscreen` plus `Window.Frame` run a window with no
@@ -1109,6 +1127,18 @@ reads: the tabs, fields, checkboxes, sliders and buttons of the
 examples read out, and a screen reader can press, check, set and move
 focus through them. On Windows it answers UI Automation, which
 Narrator reads, on 64-bit Windows. macOS comes later.
+
+A node that says how things stand takes `access.RoleStatus`, and one
+that says what the user must hear at once takes `access.RoleAlert`. On
+Windows a screen reader reads either one again as its words change,
+without the user moving to it, at most once a second, so change a
+status's words only at the steps that matter. `UI.Announce` has a
+screen reader say words that show nowhere as a node, through UI
+Automation's notification event, from an open window a screen reader
+has looked at. A choice of several is a `RoleGroup` of
+`access.RoleRadioButton`s. On Linux the roles reach Orca, but a change
+of a status or an alert is not read out by itself yet, and
+`UI.Announce` says nothing.
 
 A Go program for Windows is a console program, and started from
 Explorer or a shortcut it gets a console window of its own. The driver

@@ -56,6 +56,15 @@ type Descriptor struct {
 	// past its name and kind: "mono" and "phase" find a gain and stereo
 	// tool. A browser searches them, and shows none.
 	Keywords []string
+	// KeepsMono says a mono sound in comes out mono, at every setting:
+	// the same sound on both sides in gives the same sound on both
+	// out, as an EQ, a compressor or a gate with its sides linked
+	// gives. A reverb, a stereo delay, a chorus, a pan or a widener
+	// spreads the sound, and leaves it false. For an instrument, it
+	// says the instrument's sound is mono. A host may write a chain of
+	// such plugins to one channel, as a stem of a mono track. False is
+	// the safe guess, and the zero value.
+	KeepsMono bool
 	// Notes says the plugin takes notes, in [Block.Events]. An
 	// instrument does.
 	Notes bool
@@ -135,7 +144,9 @@ func (d *Descriptor) Instrument() bool {
 // Generator category, as "Generator|LFO", one plug adds beside VST3's.
 // A generator makes control alone, on its [Descriptor.ControlOut]
 // ports: the host gives it blocks whose In and Out are nil, and places
-// it in no chain of sound.
+// it in no chain of sound. It may declare aux and control ports of
+// every kind beside, as an envelope follower reads the sound at an aux
+// input.
 func (d *Descriptor) Generator() bool {
 	category, _, _ := strings.Cut(d.Kind, "|")
 	return category == "Generator"
@@ -160,7 +171,9 @@ type Ports struct {
 
 // PortsIn returns the ports a plugin of d has in state: what d.Ports
 // says, within the ports d declares, or every port d declares where
-// d.Ports is nil.
+// d.Ports is nil. Each call makes four new slices, and may decode
+// state, so a host that asks often, as once a frame, keeps the answer
+// until the state changes.
 func (d *Descriptor) PortsIn(state []byte) Ports {
 	all := func(n int) []bool {
 		out := make([]bool, n)

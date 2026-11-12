@@ -125,6 +125,8 @@ knows.
 ChipFill   = theme.Color("chip.fill", color.NRGBA{...})        // a colour
 ChipInk    = theme.Foreground("chip.ink", color.NRGBA{...})    // a colour drawn on top: text, icons
 ChipRadius = theme.Length("chip.radius", 12)                   // a size in logical pixels
+ChipSize   = theme.FontSize("chip.size", 12)                   // a size of text, which the user's text size scales
+ChipHeight = theme.TextRow("chip.height", 24)                  // room for a line of text, which grows with it
 ```
 
 - **Keys** read `<widget>.<part>[.<state>]`: `button.primary.hover`, `scroll.bar.width`, `menu.row.height`.
@@ -140,7 +142,8 @@ ChipRadius = theme.Length("chip.radius", 12)                   // a size in logi
   `widget.Light().With(calendar.Light...)`. `calendar` and `audioui` do this.
 
 **States look alike.** Hover lightens the fill through the hover spring. Press squashes through its spring. Disabled
-fades the whole control through `Faint`. Focus draws `FocusRing`. Selection uses `Accent`.
+fades the whole control through `Faint`. Focus draws `FocusRing`. Selection uses `Accent`. In a column of rows, the
+chosen row sits on a pill that glides to it, with an accent mark at its left, as in `Tree` and `NavList`.
 
 ## Motion
 
