@@ -66,10 +66,20 @@ Menus use `[]MenuItem{Label, Hint, Icon, Swatch, Checked, Disabled, Caption, Bre
 ones. Use one struct per item for anything that gives each item several facts; parallel slices of different lengths
 were a source of bugs.
 
-**Keys keep state on its item.** Where items can move, give the item struct a `Key`, as `NavItem.Key`. `SetItems`
-then keeps the chosen item and the focus ring on the items with those keys, and an item with no `Key` keeps its
-place. A widget with a focus ring over its items gives `Cursor()` and `SetCursor(i, u)`, and keeps the ring where the
-user left it when focus comes back.
+**Keys keep state on its item.** Where items can move, give the item struct a `Key`, as `NavItem.Key`. Then, as in
+`NavList`:
+
+- `SetItems` keeps the chosen item and the focus ring on the items with those keys. An item with no `Key` keeps its
+  place.
+- When the ring's item or the chosen item goes, each keeps its place, kept inside the list, and no intent is sent.
+- A repeated key follows the first item with it. Keys are meant to be unique.
+- The screen reader's part for an item takes its key from the item's `Key`, so a hold on it follows the item.
+- The ring glides with its item, and stays where the user left it when focus comes back.
+
+A widget with a ring over its items gives `Cursor`, and `SetCursor` where the app moves the ring, which scrolls the
+item into view. A view of many rows names the item by its `Key`: `List`, `Table` and `Tree` give `Cursor() (Key,
+bool)`, and `Table` and `Tree` give `SetCursor(key, u)`. `NavList`, a short column of rows its app builds whole, names
+the row by its place: `Cursor() int` and `SetCursor(i, u)`.
 
 **Shared names.**
 
@@ -209,8 +219,9 @@ and on open. 100 000 items must cost the same per frame as 100.
 Every interactive widget implements `gunim.Accessible` (`Access()`) and, when a screen reader can act on it,
 `gunim.AccessActor` (`AccessAct`). It reports a role, a name (its `Label`, or `Tooltip` when it shows none), its value,
 and `StateDisabled` while disabled (`Control.accessState` gives it). A view of rows publishes the rows in view.
-A widget that draws no name of its own still takes a `Label` for screen readers, as `NavList` does, and passes it to
-`accessName`. Then a name such as "Pages" need not also pop up as a tooltip.
+A widget that draws no name of its own takes a `Label` for screen readers, as `NavList` does, and passes it to
+`accessName`. A name such as "Pages" then doesn't also pop up as a tooltip. `Tooltip` stays the name where `Label` is
+empty.
 
 ## Tests
 

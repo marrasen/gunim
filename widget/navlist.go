@@ -1,6 +1,7 @@
 package widget
 
 import (
+	"hash/fnv"
 	"image/color"
 	"slices"
 	"strconv"
@@ -41,8 +42,9 @@ var (
 
 // NavItem is one row of a [NavList].
 type NavItem struct {
-	// Key names the row across SetItems, so the chosen row, the focus ring and a badge stay on it as rows move. Keys
-	// are unique in a list; rows with no Key keep their place.
+	// Key names the row across SetItems, so the chosen row, the focus ring, a badge and a screen reader's hold stay
+	// on it as rows move. A row with no Key keeps its place. Keys are meant to be unique: where one repeats, the first
+	// row with it, old or new, is the one followed, and the others count as rows with no match.
 	Key   Key
 	Label string
 	Icon  *icon.Icon
@@ -129,8 +131,9 @@ func NewNavList(items ...NavItem) *NavList {
 // Items returns the rows.
 func (n *NavList) Items() []NavItem { return n.items }
 
-// SetItems makes items the rows, and sends no intent. The chosen row and the focus ring stay on their rows, found
-// by Key, or keep their places. Once laid out, a count that comes or goes grows or shrinks its badge.
+// SetItems makes items the rows, and sends no intent. The chosen row and the focus ring stay on their rows, found by
+// Key, and the ring glides with its row. Where their row goes, they keep its place: the row now there is chosen, or
+// has the ring, kept inside the list. Once laid out, a count that comes or goes grows or shrinks its badge.
 func (n *NavList) SetItems(items []NavItem, u *gunim.UI) {
 	from := n.oldRows(items)
 	badges := map[int]*navBadge{}
@@ -193,6 +196,14 @@ func (n *NavList) SetItems(items []NavItem, u *gunim.UI) {
 		}
 	}
 	clear(n.shaped)
+	if n.laid {
+		// The ring goes with its row, gliding on where it was gliding.
+		if to := n.top(n.cursor); n.ringY.Active() && u != nil {
+			n.ringY.Animate(to, Quick.Get(u.Theme()))
+		} else {
+			n.ringY.Jump(to)
+		}
+	}
 	u.Invalidate()
 }
 
@@ -201,7 +212,7 @@ func (n *NavList) SetItems(items []NavItem, u *gunim.UI) {
 func (n *NavList) oldRows(items []NavItem) []int {
 	byKey := map[Key]int{}
 	for i, it := range n.items {
-		if it.Key != "" {
+		if _, seen := byKey[it.Key]; it.Key != "" && !seen {
 			byKey[it.Key] = i
 		}
 	}
@@ -211,6 +222,8 @@ func (n *NavList) oldRows(items []NavItem) []int {
 		switch was, ok := byKey[it.Key]; {
 		case it.Key != "" && ok:
 			from[i] = was
+			// Only the first new row with a key follows the old one.
+			delete(byKey, it.Key)
 		case it.Key == "" && i < len(n.items) && n.items[i].Key == "":
 			from[i] = i
 		}
@@ -222,7 +235,7 @@ func (n *NavList) oldRows(items []NavItem) []int {
 func (n *NavList) Cursor() int { return n.cursor }
 
 // SetCursor puts the focus ring on row i, where it shows with focus, and sends no intent. Once laid out the ring glides
-// there; before that, or with a nil u, it jumps.
+// there and the row scrolls into view; before that, or with a nil u, it jumps.
 func (n *NavList) SetCursor(i int, u *gunim.UI) {
 	if i < 0 || i >= len(n.items) {
 		return
@@ -275,13 +288,14 @@ func (n *NavList) choose(i int, u *gunim.UI) {
 	act(u, n, gunim.CueSelect, n.OnSelect, i)
 }
 
-// moveCursor puts the focus ring on row i.
+// moveCursor puts the focus ring on row i, and scrolls the row into view.
 func (n *NavList) moveCursor(i int, u *gunim.UI) {
 	if len(n.items) == 0 {
 		return
 	}
 	n.cursor = min(max(i, 0), len(n.items)-1)
 	n.ringY.Animate(n.top(n.cursor), Quick.Get(u.Theme()))
+	u.RevealRect(n, geom.Rc(0, n.top(n.cursor), n.size.W, n.rowH))
 	u.Invalidate()
 }
 
@@ -601,7 +615,7 @@ func (n *NavList) Access() access.Info {
 	}
 	for i := n.from; i <= n.to && i < len(n.items); i++ {
 		it := n.items[i]
-		part := access.Info{Role: access.RoleListItem, Name: it.Label, State: n.accessState(), Key: uint64(i) + 1,
+		part := access.Info{Role: access.RoleListItem, Name: it.Label, State: n.accessState(), Key: partKey(it.Key, i),
 			Actions: []string{access.ActionPress}}
 		part.Bounds = geom.Rc(0, n.top(i), n.size.W, n.rowH)
 		switch {
@@ -616,6 +630,18 @@ func (n *NavList) Access() access.Info {
 		info.Parts = append(info.Parts, part)
 	}
 	return info
+}
+
+// partKey is the key of row i's part for a screen reader: from the row's Key, so a hold on it follows the row, and
+// from its place for a row with none.
+func partKey(k Key, i int) uint64 {
+	if k == "" {
+		return uint64(i) + 1
+	}
+	h := fnv.New64a()
+	h.Write([]byte(k))
+	// The top bit keeps it apart from the keys of rows with none.
+	return h.Sum64() | 1<<63
 }
 
 // AccessAct implements [gunim.AccessActor]: pressing a row chooses it.
