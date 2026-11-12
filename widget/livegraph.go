@@ -96,6 +96,8 @@ type LiveGraph struct {
 	across *anim.Float
 	text   shapedText
 	ell    shapedText
+	// tall says the graph has been laid out at full height.
+	tall bool
 }
 
 // headSlack is how many samples behind the newest the head aims to be
@@ -143,30 +145,37 @@ func (g *LiveGraph) Add(v float64) {
 	}
 }
 
-// Fill puts samples, oldest first, in place of the graph's history, as when a page opens or a filter changes. The
-// head starts on the newest, with the rest already drawn to its left and the scale already at their highest, so the
-// graph shows them at once rather than sliding through them. An empty samples clears the graph.
+// Fill puts samples, oldest first, in place of the graph's history, at
+// once: the head starts on the newest, the rest drawn to its left.
 func (g *LiveGraph) Fill(samples []float64) {
 	if n := len(samples) - g.Span - 2; n > 0 {
 		samples = samples[n:]
 	}
-	g.samples = g.samples[:0]
+	g.samples, g.shown, g.vel = g.samples[:0], g.shown[:0], g.vel[:0]
 	for _, v := range samples {
 		g.samples = append(g.samples, max(0, v))
 	}
-	n := len(g.samples)
-	g.shown, g.vel = make([]float64, n), make([]float64, n)
-	for k := range g.shown {
-		g.shown[k] = g.weighed(k)
+	for k := range g.samples {
+		g.shown, g.vel = append(g.shown, g.weighed(k)), append(g.vel, 0)
 	}
-	g.pos, g.speed, g.pace = max(float64(n-1), 0), 0, 0
+	g.pos = max(float64(len(g.samples)-1), 0)
+	// A running graph keeps sliding at one sample an Every.
+	g.speed, g.pace = 0, 0
+	if g.running {
+		g.speed, g.pace = 1/g.every(), 1/g.every()
+	}
 	g.sinceSample = 0
-	g.across.Jump(float32(min(max(n, minAcross), g.Span)))
+	g.across.Jump(float32(min(max(len(g.samples), minAcross), g.Span)))
 	most := 0.0
 	for _, s := range g.samples {
 		most = max(most, s)
 	}
-	g.top.Jump(float32(max(most*1.15, g.Floor)))
+	// With no traffic in the span, the scale stays, as with Add.
+	if top := max(most*1.15, g.Floor); top > 0 {
+		g.top.Jump(float32(top))
+	} else {
+		g.top.Jump(g.top.Value())
+	}
 	g.said, g.saidAt = g.recent(), g.glow
 }
 
@@ -273,7 +282,8 @@ func (g *LiveGraph) WakeIn() time.Duration {
 	return liveRate
 }
 
-// Layout implements [gunim.Node]: nothing until there are two samples.
+// Layout implements [gunim.Node]: nothing until there are two samples,
+// and its room kept after, even once Fill empties it.
 func (g *LiveGraph) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
 	g.u = f.UI()
 	w := c.Max.W
@@ -283,9 +293,10 @@ func (g *LiveGraph) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children)
 	if g.Compact {
 		return c.Constrain(geom.Sz(w, LiveGraphCompactHeight.Get(f.Theme)))
 	}
-	if len(g.samples) < 2 {
+	if len(g.samples) < 2 && !g.tall {
 		return c.Constrain(geom.Size{})
 	}
+	g.tall = true
 	return c.Constrain(geom.Sz(w, LiveGraphHeight.Get(f.Theme)))
 }
 
