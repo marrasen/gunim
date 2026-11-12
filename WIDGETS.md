@@ -66,6 +66,11 @@ Menus use `[]MenuItem{Label, Hint, Icon, Swatch, Checked, Disabled, Caption, Bre
 ones. Use one struct per item for anything that gives each item several facts; parallel slices of different lengths
 were a source of bugs.
 
+**Keys keep state on its item.** Where items can move, give the item struct a `Key`, as `NavItem.Key`. `SetItems`
+then keeps the chosen item and the focus ring on the items with those keys, and an item with no `Key` keeps its
+place. A widget with a focus ring over its items gives `Cursor()` and `SetCursor(i, u)`, and keeps the ring where the
+user left it when focus comes back.
+
 **Shared names.**
 
 - `Items` holds the choices of a dropdown, a segmented control or a menu. `Titles` holds the titles of tabs.
@@ -204,6 +209,8 @@ and on open. 100 000 items must cost the same per frame as 100.
 Every interactive widget implements `gunim.Accessible` (`Access()`) and, when a screen reader can act on it,
 `gunim.AccessActor` (`AccessAct`). It reports a role, a name (its `Label`, or `Tooltip` when it shows none), its value,
 and `StateDisabled` while disabled (`Control.accessState` gives it). A view of rows publishes the rows in view.
+A widget that draws no name of its own still takes a `Label` for screen readers, as `NavList` does, and passes it to
+`accessName`. Then a name such as "Pages" need not also pop up as a tooltip.
 
 ## Tests
 

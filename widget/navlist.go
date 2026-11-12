@@ -2,6 +2,7 @@ package widget
 
 import (
 	"image/color"
+	"slices"
 	"strconv"
 	"time"
 
@@ -40,6 +41,9 @@ var (
 
 // NavItem is one row of a [NavList].
 type NavItem struct {
+	// Key names the row across SetItems, so the chosen row, the focus ring and a badge stay on it as rows move. Keys
+	// are unique in a list; rows with no Key keep their place.
+	Key   Key
 	Label string
 	Icon  *icon.Icon
 	// Count shows in a badge at the row's end, as the number of problems on a page. Zero shows none. CountLabel is
@@ -66,6 +70,9 @@ type NavItem struct {
 // tooltip. Rows grow with large text.
 type NavList struct {
 	Control
+	// Label names the list for a screen reader, such as "Pages". It is not drawn, and shows no popup as Tooltip does;
+	// the list takes Tooltip as its name where Label is empty.
+	Label string
 	// OnSelect runs on the UI goroutine when the user chooses a row; a non-nil result is sent to the application as
 	// the list's intent.
 	OnSelect func(i int, u *gunim.UI) gunim.Intent
@@ -122,28 +129,60 @@ func NewNavList(items ...NavItem) *NavList {
 // Items returns the rows.
 func (n *NavList) Items() []NavItem { return n.items }
 
-// SetItems makes items the rows, keeping the chosen row's place, and sends no intent. Once laid out, a count that
-// comes or goes grows or shrinks its badge.
+// SetItems makes items the rows, and sends no intent. The chosen row and the focus ring stay on their rows, found
+// by Key, or keep their places. Once laid out, a count that comes or goes grows or shrinks its badge.
 func (n *NavList) SetItems(items []NavItem, u *gunim.UI) {
+	from := n.oldRows(items)
+	badges := map[int]*navBadge{}
+	for i, was := range from {
+		if b := n.badges[was]; was >= 0 && b != nil {
+			badges[i] = b
+		}
+	}
 	if n.laid && u != nil {
-		for i := range min(len(items), len(n.items)) {
-			was, is := n.items[i].Count > 0, items[i].Count > 0
-			if was == is {
+		for i, was := range from {
+			if was < 0 {
 				continue
 			}
-			b := n.badges[i]
+			had, has := n.items[was].Count > 0, items[i].Count > 0
+			if had == has {
+				continue
+			}
+			b := badges[i]
 			if b == nil {
-				b = &navBadge{shown: anim.NewFloat(anim.OnOff(was))}
-				n.badges[i] = b
+				b = &navBadge{shown: anim.NewFloat(anim.OnOff(had))}
+				badges[i] = b
 				n.Add(b.shown)
 			}
-			if was {
-				b.text = strconv.Itoa(n.items[i].Count)
+			if had {
+				b.text = strconv.Itoa(n.items[was].Count)
 				b.shown.Animate(0, Settle.Get(u.Theme()))
 			} else {
 				b.shown.Animate(1, Quick.Get(u.Theme()))
 			}
 		}
+	}
+	for i, b := range n.badges {
+		if !slices.Contains(from, i) {
+			n.Remove(b.shown)
+		}
+	}
+	n.badges = badges
+	selected, cursor := n.selected, n.cursor
+	n.selected, n.cursor = 0, 0
+	for i, was := range from {
+		if was == selected {
+			n.selected = i
+		}
+		if was == cursor {
+			n.cursor = i
+		}
+	}
+	if !slices.Contains(from, selected) {
+		n.selected = min(max(selected, 0), max(len(items)-1, 0))
+	}
+	if !slices.Contains(from, cursor) {
+		n.cursor = min(max(cursor, 0), max(len(items)-1, 0))
 	}
 	n.items = items
 	n.foot = -1
@@ -153,22 +192,63 @@ func (n *NavList) SetItems(items []NavItem, u *gunim.UI) {
 			break
 		}
 	}
-	n.selected = min(max(n.selected, 0), max(len(items)-1, 0))
-	n.cursor = min(max(n.cursor, 0), max(len(items)-1, 0))
 	clear(n.shaped)
 	u.Invalidate()
+}
+
+// oldRows returns, for each of items, the row it was before: the row with its Key, or for a row with no Key the row in
+// its place, or -1 for none.
+func (n *NavList) oldRows(items []NavItem) []int {
+	byKey := map[Key]int{}
+	for i, it := range n.items {
+		if it.Key != "" {
+			byKey[it.Key] = i
+		}
+	}
+	from := make([]int, len(items))
+	for i, it := range items {
+		from[i] = -1
+		switch was, ok := byKey[it.Key]; {
+		case it.Key != "" && ok:
+			from[i] = was
+		case it.Key == "" && i < len(n.items) && n.items[i].Key == "":
+			from[i] = i
+		}
+	}
+	return from
+}
+
+// Cursor returns the row the focus ring is on.
+func (n *NavList) Cursor() int { return n.cursor }
+
+// SetCursor puts the focus ring on row i, where it shows with focus, and sends no intent. Once laid out the ring glides
+// there; before that, or with a nil u, it jumps.
+func (n *NavList) SetCursor(i int, u *gunim.UI) {
+	if i < 0 || i >= len(n.items) {
+		return
+	}
+	if !n.laid || u == nil {
+		n.cursor = i
+		n.ringY.Jump(n.top(i))
+		return
+	}
+	n.moveCursor(i, u)
 }
 
 // Selected returns the chosen row, and 0 for a list with no rows.
 func (n *NavList) Selected() int { return n.selected }
 
-// SetSelected chooses row i and sends no intent. Once laid out the pill glides to it; before that, or with a nil u, it
-// jumps.
+// SetSelected chooses row i and sends no intent, and brings the focus ring along where it was on the chosen row. Once
+// laid out the pill glides to it; before that, or with a nil u, it jumps.
 func (n *NavList) SetSelected(i int, u *gunim.UI) {
 	if i < 0 || i >= len(n.items) || i == n.selected {
 		return
 	}
 	from := n.top(n.selected) + n.lag.Value()
+	// A ring left on the chosen row goes along with it.
+	if n.cursor == n.selected {
+		n.SetCursor(i, u)
+	}
 	n.selected = i
 	if !n.laid || u == nil {
 		n.lag.Jump(0)
@@ -301,10 +381,8 @@ func (n *NavList) Handle(e input.Event, u *gunim.UI) bool {
 			n.choose(i, u)
 		}
 	case input.FocusGained:
-		if e.Keyed {
-			n.cursor = n.selected
-			n.ringY.Jump(n.top(n.cursor))
-		}
+		// The ring comes back on the row it was left on.
+		n.ringY.Jump(n.top(n.cursor))
 	case input.KeyPress:
 		if e.Mods.Has(input.ModControl) || e.Mods.Has(input.ModAlt) || e.Mods.Has(input.ModSuper) {
 			return false
@@ -516,7 +594,7 @@ func (n *NavList) paintRow(p *paint.Painter, th *theme.Live, i int, r geom.Rect)
 
 // Access implements [gunim.Accessible]: a list with an item for each row in view, the chosen one selected.
 func (n *NavList) Access() access.Info {
-	info := access.Info{Role: access.RoleList, Name: n.Tooltip, State: n.accessState()}
+	info := access.Info{Role: access.RoleList, Name: n.accessName(n.Label), State: n.accessState()}
 	// Active counts the parts, which start at the first row in view.
 	if n.cursor >= n.from && n.cursor <= n.to && n.cursor < len(n.items) {
 		info.Active = n.cursor - n.from + 1
