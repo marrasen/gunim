@@ -35,6 +35,16 @@ var knownMisses = map[string]map[string]string{
 		"touch to flip p50": "https://github.com/marrasen/gunim/issues/417",
 		"touch to flip p99": "https://github.com/marrasen/gunim/issues/417",
 	},
+	// The gallery redraws its whole window as it scrolls, at most of a
+	// refresh's GPU time, and its spinner keeps the engine busy out of
+	// sight.
+	"widgets": {
+		"frame rate while moving": "https://github.com/marrasen/gunim/issues/420",
+		"missed flips":            "https://github.com/marrasen/gunim/issues/420",
+		"touch to flip p50":       "https://github.com/marrasen/gunim/issues/417",
+		"touch to flip p99":       "https://github.com/marrasen/gunim/issues/417",
+		"CPU at rest, screen on":  "https://github.com/marrasen/gunim/issues/420",
+	},
 }
 
 func TestOnTheScreen(t *testing.T) {

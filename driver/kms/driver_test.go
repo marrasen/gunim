@@ -36,6 +36,14 @@ func TestASignalEndsRunAndGivesTheScreenBack(t *testing.T) {
 	for _, sig := range []syscall.Signal{syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM} {
 		t.Run(sig.String(), func(t *testing.T) {
 			d := idleDriver(t)
+			// A render thread that runs until Close stops it: one already
+			// ended would end Run before the signal came, and the signal,
+			// with its default handling back, would end the test.
+			d.done = make(chan struct{})
+			go func() {
+				<-d.quit
+				close(d.done)
+			}()
 			d.catchSignals()
 			ran := make(chan error, 1)
 			go func() { ran <- d.Run(context.Background(), func() {}) }()

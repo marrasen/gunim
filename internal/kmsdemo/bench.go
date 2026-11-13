@@ -114,9 +114,8 @@ const (
 	blankOff   = 2 * time.Second
 	blankCheck = 4 * time.Second
 	blankTap   = 5 * time.Second
-	// blankWoke is how long after the tap the wake is checked: past the
-	// 300 ms fade up, and before the bench's own dim starts again, a
-	// second after the tap.
+	// blankWoke is how long after the tap the screen has to wake: past
+	// the 300 ms fade up.
 	blankWoke = 700 * time.Millisecond
 	settle    = 2 * time.Second
 )
@@ -290,17 +289,31 @@ func blankAndWake(ctx context.Context, d *kms.Driver, tapped bool, logf func(str
 		return b, nil
 	}
 	logf("blanked; waiting for the script's tap")
+	// A dark screen stays dark until touched; a dim after the tap would
+	// come long after the check.
+	d.SetBlank(kms.Blank{Dim: time.Minute, Off: 2 * time.Minute})
 	d.ResetStats()
-	if !sleep(ctx, time.Until(start.Add(blankTap+blankWoke))) {
+	if !sleep(ctx, time.Until(start.Add(blankTap))) {
 		return nil, ctx.Err()
 	}
-	s := d.Stats()
-	on, err = d.DisplayOn()
-	if err != nil {
-		return nil, err
+	// The tap comes by the script's clock, which drifts from the bench's
+	// by some milliseconds over a run: the wake is looked for until
+	// blankWoke after it was due, and a little more.
+	var s kms.Stats
+	for deadline := time.Now().Add(blankWoke + time.Second); ; {
+		s = d.Stats()
+		if on, err = d.DisplayOn(); err != nil {
+			return nil, err
+		}
+		b.WokeBacklight = backlightStep()
+		b.Woke = !d.Blanked() && on && b.WokeBacklight == lit && s.Frames > 0
+		if b.Woke || time.Now().After(deadline) {
+			break
+		}
+		if !sleep(ctx, 50*time.Millisecond) {
+			return nil, ctx.Err()
+		}
 	}
-	b.WokeBacklight = backlightStep()
-	b.Woke = !d.Blanked() && on && b.WokeBacklight == lit && s.Frames > 0
 	logf("after the tap: blanked %v, display on %v, backlight %d of %d before, %d frames", d.Blanked(), on, b.WokeBacklight, lit, s.Frames)
 	b.Swallowed = s.Touch.N == 0
 	return b, nil

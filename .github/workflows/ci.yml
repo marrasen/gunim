@@ -132,7 +132,8 @@ jobs:
         run: |
           uname -r
           sudo apt-get update -q
-          sudo apt-get install -y -q "linux-modules-extra-$(uname -r)" libgbm1 libegl1 libegl-mesa0 libgles2
+          sudo apt-get install -y -q libgbm1 libegl1 libegl-mesa0 libgles2
+          modinfo vkms || find /lib/modules/"$(uname -r)" -name 'vkms*'
           sudo modprobe vkms
           ls -l /dev/dri
           for c in /sys/class/drm/card*-*; do echo "$c $(cat "$c/status")"; done
