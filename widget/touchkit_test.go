@@ -2,6 +2,7 @@ package widget
 
 import (
 	"image/color"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -1043,17 +1044,29 @@ func TestAStackSwipeCalledOffSpringsBack(t *testing.T) {
 	}
 }
 
-// A screen fills its box with the window's background under what it draws, so the one under it never shows through.
+// The screen under one sliding in shows only in the strip left of it, so nothing of it shows through the screen
+// coming, on any frame of the slide.
 func TestAStackScreenHidesTheOneUnder(t *testing.T) {
-	f := newStackFrame(NewLabel("x"), 0.5)
-	th := theme.NewLive(Dark())
-	ops := paintedIn(f, geom.Sz(400, 300), th)
-	for _, r := range rrects(ops) {
-		if r.Fill.Solid == Background.Get(th) && r.Rect == geom.Rc(200, 0, 200, 300) {
-			return
+	s, w, g, run := stackStage(t)
+	s.Push(NewButton("Bed"), g.ui)
+	top := s.front()
+	for i := range 20 {
+		run(1)
+		edge := top.off.Value() * 400
+		if edge < 0.5 {
+			break
+		}
+		found := false
+		for _, op := range w.Offscreen().Ops() {
+			if l, ok := op.(*paint.LayerOp); ok && l.Opts.Clip {
+				b := l.Opts.Bounds
+				found = found || b.Min.X == 0 && math.Abs(float64(b.Max.X-edge)) < 0.5 && b.Max.Y == 300
+			}
+		}
+		if !found {
+			t.Fatalf("frame %d: the screen under is not cut off at the coming screen's edge, %v", i, edge)
 		}
 	}
-	t.Fatalf("a screen half slid in paints %v, want the background under it", rrects(ops))
 }
 
 // The touch kit's text reads at 4.5:1 and its edges stand out at 3:1, in the dark theme and the light.

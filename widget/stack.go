@@ -280,8 +280,9 @@ func (s *Stack) shows(fr *stackFrame) bool {
 	return false
 }
 
-// Paint implements [gunim.Node]: the screen that is being uncovered, slid left and dimmed by the scrim as far as
-// it is covered, then what covers it: the top screen as it comes or is swiped, or the screens going.
+// Paint implements [gunim.Node]: the screen that is being uncovered, slid left, dimmed by the scrim as far as it is
+// covered and cut off where what covers it starts, then what covers it: the top screen as it comes or is swiped,
+// or the screens going.
 func (s *Stack) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.Children) {
 	n := len(s.screens)
 	var top, below gunim.Child
@@ -301,20 +302,20 @@ func (s *Stack) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim
 			going = append(going, k)
 		}
 	}
-	// under is the screen being uncovered, and covers the share of it still covered.
-	under, hasUnder, covers := below, hasBelow, float32(0)
+	// under is the screen being uncovered, and edge, a share of the width, where what covers it starts.
+	under, hasUnder, edge := below, hasBelow, float32(1)
 	var over []gunim.Child
 	switch {
 	case len(going) > 0:
-		under, hasUnder, covers = top, hasTop, 1
+		under, hasUnder = top, hasTop
 		for _, k := range going {
 			if fr, ok := k.Node().(*stackFrame); ok {
-				covers = min(covers, 1-fr.off.Value())
+				edge = min(edge, fr.off.Value())
 			}
 		}
 		over = going
 	case hasBelow:
-		covers = 1 - s.front().off.Value()
+		edge = s.front().off.Value()
 		if hasTop {
 			over = []gunim.Child{top}
 		}
@@ -324,16 +325,23 @@ func (s *Stack) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim
 	}
 	// The screens slide past the stack's edges, and are cut off there; a clip to a rectangle costs no layer.
 	defer p.Layer(paint.LayerOpts{Bounds: geom.Rect{Max: box.Point()}, Clip: true, Opacity: 1})()
-	if hasUnder {
-		t := min(max(covers, 0), 1)
+	if edge = min(max(edge, 0), 1); hasUnder && edge > 0.001 {
+		// The screen under shows only in the strip left of what covers it: it is cut off at that edge, so it
+		// never shows through a screen sliding over it, and the GPU draws no more of it than shows. Where the
+		// screen over it draws nothing, the window's own background shows, which is drawn under every frame.
+		t := 1 - edge
+		strip := geom.Rect{Max: geom.Pt(edge*box.W, box.H)}
 		func() {
-			defer p.Push(paint.Translate(geom.Pt(-stackBelow*t*box.W, 0)))()
-			under.Paint(p)
+			defer p.Layer(paint.LayerOpts{Bounds: strip, Clip: true, Opacity: 1})()
+			func() {
+				defer p.Push(paint.Translate(geom.Pt(-stackBelow*t*box.W, 0)))()
+				under.Paint(p)
+			}()
+			if scrim := Scrim.Get(f.Theme); t > 0.001 {
+				scrim.A = uint8(float32(scrim.A)*t + 0.5)
+				p.RRect(strip, 0, paint.Solid(scrim))
+			}
 		}()
-		if scrim := Scrim.Get(f.Theme); t > 0.001 {
-			scrim.A = uint8(float32(scrim.A)*t + 0.5)
-			p.RRect(geom.Rect{Max: box.Point()}, 0, paint.Solid(scrim))
-		}
 	}
 	for _, k := range over {
 		k.Paint(p)
@@ -397,15 +405,11 @@ func (f *stackFrame) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Child
 	return size
 }
 
-// Paint implements [gunim.Node]: the window's background where the screen is, then the screen, so a screen sliding
-// over another hides it, though it draws nothing of its own in places. What lies past the stack's edge is cut off.
-func (f *stackFrame) Paint(p *paint.Painter, fr gunim.Frame, box geom.Size, kids gunim.Children) {
-	if f.off.Value() >= 0.999 {
+// Paint implements [gunim.Node]. The screen it slides over is cut off where it starts, so what it leaves clear shows
+// the window's background; see [Stack.Paint].
+func (f *stackFrame) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim.Children) {
+	if f.off.Value() >= 0.999 || kids.Len() == 0 {
 		return
 	}
-	at := min(max(f.off.Value(), 0), 1) * box.W
-	p.RRect(geom.Rc(at, 0, box.W-at, box.H), 0, paint.Solid(Background.Get(fr.Theme)))
-	if kids.Len() > 0 {
-		kids.At(0).Paint(p)
-	}
+	kids.At(0).Paint(p)
 }
