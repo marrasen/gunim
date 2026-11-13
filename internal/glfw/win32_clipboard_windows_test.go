@@ -109,7 +109,7 @@ func TestSensitiveTextWhoseMarkFailsIsNotLeftOnTheClipboard(t *testing.T) {
 }
 
 // The clear goes by ownership for the sensitive text: a copy made since, even of the same text, survives.
-func TestTheSensitiveTextIsClearedOnlyWhileTheClipboardIsStillOurs(t *testing.T) {
+func TestSensitiveTextIsClearedOnlyWhileTheClipboardIsStillOurs(t *testing.T) {
 	defer onRealClipboard(t)()
 	if err := SetClipboardStringSensitive("hunter2"); err != nil {
 		t.Fatal(err)
@@ -147,5 +147,94 @@ func TestTheSensitiveTextIsClearedOnlyWhileTheClipboardIsStillOurs(t *testing.T)
 	}
 	if cleared, err := ClearClipboardStringIf("a path"); cleared || err != nil {
 		t.Fatalf("clearing an empty clipboard cleared %v, %v", cleared, err)
+	}
+}
+
+const _CF_TEXT = 1
+
+// asAnotherProgram opens the clipboard with no window, as a program does that has none of ours, and closes it after f.
+func asAnotherProgram(t *testing.T, f func()) {
+	t.Helper()
+	for range 100 {
+		if r, _, _ := procOpenClipboard.Call(0); r != 0 {
+			defer closeClipboard()
+			f()
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("the clipboard stayed held by another program for a second")
+}
+
+// putRaw puts b on the open clipboard in format.
+func putRaw(t *testing.T, format uintptr, b []byte) {
+	t.Helper()
+	object, err := globalBytes(b)
+	if err == nil {
+		err = setClipboardData(format, object)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Reading the text, as a paste does, or a program adding a format of its own leaves the text ours, and the clear takes
+// it off.
+func TestSensitiveTextIsClearedAfterAPasteOrAnAddedFormat(t *testing.T) {
+	defer onRealClipboard(t)()
+	if err := SetClipboardStringSensitive("hunter2"); err != nil {
+		t.Fatal(err)
+	}
+	asAnotherProgram(t, func() {
+		// A paste into a program that asks for CF_TEXT, which Windows makes from our CF_UNICODETEXT.
+		for _, format := range []uintptr{_CF_TEXT, _CF_UNICODETEXT} {
+			if h, _, e := procGetClipboardData.Call(format); h == 0 {
+				t.Fatalf("reading format %d: %v", format, e)
+			}
+		}
+	})
+	asAnotherProgram(t, func() {
+		id, err := registerFormat("gunim test tag")
+		if err != nil {
+			t.Fatal(err)
+		}
+		putRaw(t, id, []byte{1, 0, 0, 0})
+	})
+	if cleared, err := ClearClipboardStringIf("hunter2"); !cleared || err != nil {
+		t.Fatalf("after a paste and an added format, the clear cleared %v, %v; want the password off", cleared, err)
+	}
+	if _, _, _, text := onClipboard(t); text {
+		t.Fatal("after the clear the clipboard still holds text")
+	}
+}
+
+// Another program that replaces the clipboard, even with the same text and a mark of its own as a password manager
+// sets, makes it theirs: the clear leaves it, and reads nothing of theirs.
+func TestSensitiveTextReplacedByAnotherProgramIsLeftAlone(t *testing.T) {
+	defer onRealClipboard(t)()
+	if err := SetClipboardStringSensitive("hunter2"); err != nil {
+		t.Fatal(err)
+	}
+	asAnotherProgram(t, func() {
+		if r, _, e := procEmptyClipboard.Call(); r == 0 {
+			t.Fatal(e)
+		}
+		id, err := registerFormat(excludeFromMonitors)
+		if err != nil {
+			t.Fatal(err)
+		}
+		putRaw(t, id, []byte{0, 0, 0, 0})
+		putRaw(t, _CF_UNICODETEXT, []byte{'h', 0, 'u', 0, 'n', 0, 't', 0, 'e', 0, 'r', 0, '2', 0, 0, 0})
+	})
+	if cleared, err := ClearClipboardStringIf("hunter2"); cleared || err != nil {
+		t.Fatalf("with another program's copy of the same password, the clear cleared %v, %v; want it left", cleared,
+			err)
+	}
+	// Text this program never marked is not ours either, and is left without being read.
+	if cleared, err := ClearClipboardStringIf("other"); cleared || err != nil {
+		t.Fatalf("clearing other text on another program's clipboard cleared %v, %v", cleared, err)
+	}
+	if s, err := platformGetClipboardString(); s != "hunter2" || err != nil {
+		t.Fatalf("the other program's copy reads %q, %v", s, err)
 	}
 }

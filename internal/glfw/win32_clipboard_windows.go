@@ -37,17 +37,17 @@ var (
 	procGlobalUnlock = kernel32.NewProc("GlobalUnlock")
 )
 
-// openClipboard opens the clipboard for the helper window. Another
-// process may hold it for a moment, so it tries a few times.
+// openClipboard opens the clipboard for the helper window. Another process, such as the clipboard history right after
+// a change, may hold it for a moment, so it tries for about 100 ms.
 func openClipboard() error {
 	var err error
-	for range 3 {
+	for range 50 {
 		r, _, e := procOpenClipboard.Call(uintptr(_glfw.platformWindow.helperWindowHandle))
 		if r != 0 {
 			return nil
 		}
 		err = e
-		time.Sleep(time.Millisecond)
+		time.Sleep(2 * time.Millisecond)
 	}
 	return fmt.Errorf("glfw: failed to open clipboard: %w", err)
 }
@@ -68,12 +68,12 @@ func SetClipboardStringSensitive(str string) error {
 	return setClipboardText(str, true)
 }
 
-// ClearClipboardStringIf empties the clipboard if it still holds the text str, and reports whether it did. It must be
-// called on the main thread.
+// ClearClipboardStringIf empties the clipboard if it still holds the text str that this program put there, and reports
+// whether it did. It must be called on the main thread.
 //
-// For the text SetClipboardStringSensitive put there last, it goes by ownership: the clipboard is emptied only if
-// nothing has changed it since, and nothing on it is read. Other text is read and compared. Either way the clipboard
-// is held open from the check to the emptying, so no other program can put something there in between.
+// For the text SetClipboardStringSensitive put there last, it goes by ownership and reads nothing. Other text is read
+// and compared, but only while this program owns the clipboard, so another program's text is never read. Either way
+// the clipboard is held open from the check to the emptying, so no other program can put something there in between.
 func ClearClipboardStringIf(str string) (bool, error) {
 	if !_glfw.initialized {
 		return false, NotInitialized
@@ -88,6 +88,10 @@ func ClearClipboardStringIf(str string) (bool, error) {
 			return false, err
 		}
 	} else {
+		owner, _, _ := procGetClipboardOwner.Call()
+		if owner != uintptr(_glfw.platformWindow.helperWindowHandle) {
+			return false, nil
+		}
 		if r, _, _ := procIsClipboardFormatAvailable.Call(_CF_UNICODETEXT); r == 0 {
 			return false, nil
 		}
@@ -107,27 +111,42 @@ func ClearClipboardStringIf(str string) (bool, error) {
 // and the text's SHA-256, so the text itself is not kept.
 type ownership struct {
 	set bool
-	seq uintptr
+	seq uint32
 	sum [32]byte
 }
 
 var (
 	owned                          ownership
 	procGetClipboardSequenceNumber = user32.NewProc("GetClipboardSequenceNumber")
+	procGetClipboardOwner          = user32.NewProc("GetClipboardOwner")
 )
 
-// stillOurs reports whether the clipboard still holds the sensitive text put there last: its sequence number is
-// unchanged, and its first mark is still there. It must be called with the clipboard open.
+// stillOurs reports whether the clipboard still holds the sensitive text put there last: its first mark is there, and
+// the helper window owns the clipboard. A program that replaces what the clipboard holds empties it, which makes it the
+// owner; one that only adds a format, or renders CF_TEXT from our text, does not. Where the clipboard has no owner, the
+// sequence number noted at the copy decides. It must be called with the clipboard open.
 func stillOurs() (bool, error) {
-	if seq, _, _ := procGetClipboardSequenceNumber.Call(); seq != owned.seq {
-		return false, nil
-	}
 	id, err := registerFormat(sensitiveFormats[0].name)
 	if err != nil {
 		return false, err
 	}
-	r, _, _ := procIsClipboardFormatAvailable.Call(id)
-	return r != 0, nil
+	if r, _, _ := procIsClipboardFormatAvailable.Call(id); r == 0 {
+		return false, nil
+	}
+	switch owner, _, _ := procGetClipboardOwner.Call(); owner {
+	case uintptr(_glfw.platformWindow.helperWindowHandle):
+		return true, nil
+	case 0:
+		return clipboardSequence() == owned.seq, nil
+	default:
+		return false, nil
+	}
+}
+
+// clipboardSequence returns the clipboard's sequence number, a DWORD.
+func clipboardSequence() uint32 {
+	seq, _, _ := procGetClipboardSequenceNumber.Call()
+	return uint32(seq)
 }
 
 // registerFormat returns the number of the clipboard format called name.
@@ -196,8 +215,7 @@ func setClipboardText(str string, sensitive bool) error {
 		return err
 	}
 	if sensitive && str != "" {
-		seq, _, _ := procGetClipboardSequenceNumber.Call()
-		owned = ownership{set: true, seq: seq, sum: sha256.Sum256([]byte(str))}
+		owned = ownership{set: true, seq: clipboardSequence(), sum: sha256.Sum256([]byte(str))}
 	}
 	return nil
 }

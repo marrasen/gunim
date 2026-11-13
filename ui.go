@@ -2384,11 +2384,13 @@ func (u *UI) SetClipboardSensitive(s string) error {
 // a password off once the user has had time to paste it, without clearing what they copied since. An error says the
 // clipboard could not be read or emptied.
 //
-// On Windows, for the text [UI.SetClipboardSensitive] put there last, it goes by ownership: the clipboard is emptied
-// only if nothing has changed it since, so the user's own later copy of the same text survives, and nothing another
-// program put there is read. Other text is read and compared. Nothing can reach the clipboard between the check and the
-// emptying. Elsewhere the clipboard is read and then set to "", so text another program puts there in that moment can
-// be lost.
+// On Windows it clears only text this program put there. For the text [UI.SetClipboardSensitive] put there last, it
+// goes by ownership and reads nothing: the text is still ours while this program owns the clipboard and the
+// sensitive mark is there, so a paste or a format another program adds leaves it ours, and the user's own later copy
+// of the same text, made elsewhere, survives. Other text is read and compared, but only while this program owns the
+// clipboard, so another program's text is never read and the call never waits on it. Nothing can reach the clipboard
+// between the check and the emptying. Elsewhere the clipboard is read and then set to "", so text another program
+// puts there in that moment can be lost.
 func (u *UI) ClearClipboardIf(s string) (bool, error) {
 	if c, ok := u.w.dw.(driver.SensitiveClipboard); ok {
 		return c.ClearClipboardIf(s)
