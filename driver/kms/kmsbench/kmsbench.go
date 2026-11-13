@@ -8,46 +8,25 @@
 //
 // A program hands Bench a Scene: a function that opens its window as the bench starts, and what
 // makes it still for the rest. The touch script plays through the driver's own input path, so it
-// needs no uinput and no finger.
+// needs no uinput and no finger. DragScript and TouchScript make two such scripts. tools/kmsbench
+// runs it on gunim's own demo and widgets gallery, and a program that brings its own scene links
+// neither.
 //
 //	r, err := kmsbench.Bench(ctx, kmsbench.Options{
-//		KMS:   kms.Options{Rotate: 90, VT: "free"},
-//		Scene: &kmsbench.Scene{Name: "status", Open: openStatus},
-//		Warm:  3 * time.Second, Moving: time.Minute, Rest: time.Minute,
+//		KMS:     kms.Options{Rotate: 90, VT: "free"},
+//		Scene:   kmsbench.Scene{Name: "status", Open: openStatus},
+//		Started: started, // when the program started
+//		Warm:    3 * time.Second, Moving: time.Minute, Rest: time.Minute,
 //	})
 //	missed, err := kmsbench.Report(os.Stdout, r)
 package kmsbench
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"text/tabwriter"
 	"time"
-
-	"github.com/marrasen/gunim/internal/kmsdemo"
 )
-
-type (
-	// Options say how to run the bench. Scene is the program's own scene.
-	Options = kmsdemo.BenchOptions
-	// Scene is a program's own scene for the bench.
-	Scene = kmsdemo.BenchScene
-	// Result is what the bench measured.
-	Result = kmsdemo.Result
-	// Goal is one goal, with what was measured against it.
-	Goal = kmsdemo.Goal
-	// BlankResult is what the bench found as it blanked the screen and woke it.
-	BlankResult = kmsdemo.BlankResult
-)
-
-// Bench opens the screen, shows the scene, and measures it: moving with a touch script playing,
-// then still, then blanked and woken.
-func Bench(ctx context.Context, o Options) (Result, error) { return kmsdemo.Bench(ctx, o) }
-
-// DragScript drags up and down the picture, d long, for a screen turned rotate degrees clockwise:
-// a scene's script when it sets none.
-func DragScript(rotate int, d time.Duration) []byte { return kmsdemo.DragScript(rotate, d) }
 
 // Report writes r as tools/kmsbench prints it: a table of the goals, a line of figures, and what
 // the bench measures elsewhere. It returns how many goals were missed.
@@ -73,7 +52,7 @@ func Report(w io.Writer, r Result) (missed int, err error) {
 	}
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintln(w, "Measured elsewhere:")
-	for _, s := range kmsdemo.NotHere {
+	for _, s := range NotHere {
 		_, _ = fmt.Fprintln(w, "  "+s)
 	}
 	if missed > 0 {
