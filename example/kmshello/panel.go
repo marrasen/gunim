@@ -57,7 +57,6 @@ func newPanel(s Plants) *panel {
 	case "pin":
 		p.stack.Push(p.pinScreen(), nil)
 	case "settings", "hold":
-		p.stack.Push(p.pinScreen(), nil)
 		p.stack.Push(p.settingsScreen(), nil)
 	}
 	p.Keyboard = widget.NewKeyboard(p.stack)
@@ -87,19 +86,23 @@ func (p *panel) show(s Plants, u *gunim.UI) {
 }
 
 // tour walks the screens, one step a second, for measuring how the panel draws while it moves: a bed's screen
-// slides in, its keyboard comes up and goes down, the screen slides out, and the PIN pad slides in and out.
+// slides in, its keyboard comes up and goes down, the screen slides out, and the PIN pad slides in, gives way to
+// the settings as a right PIN does, and they slide out.
 func (p *panel) tour(step int, u *gunim.UI) {
-	switch step % 6 {
+	switch step % 7 {
 	case 0:
-		p.open(step/6%len(p.beds), u)
+		p.open(step/7%len(p.beds), u)
 	case 1:
 		u.Focus(p.screen.name)
 	case 2:
 		u.Focus(nil)
-	case 3, 5:
+	case 3, 6:
 		p.stack.Pop(u)
 	case 4:
 		p.stack.Push(p.pinScreen(), u)
+	case 5:
+		p.stack.Pop(u)
+		p.stack.Push(p.settingsScreen(), u)
 	}
 	u.After(time.Second, func(u *gunim.UI) { p.tour(step+1, u) })
 }
@@ -223,7 +226,8 @@ func newBedScreen(p *panel, i int, b Bed) *bedScreen {
 	s.name.OnCommit = func(text string, _ *gunim.UI) gunim.Intent { return Rename{Bed: i, Name: text} }
 	named := widget.Row(widget.NewLabel("Name"), s.name).Grow(s.name, 1)
 	named.Cross = widget.CrossCenter
-	body := widget.Column(s.morning, length, named)
+	// The name comes first: with the keyboard up for it, nothing lies half scrolled away above it.
+	body := widget.Column(named, s.morning, length)
 	body.Cross = widget.CrossStretch
 	scroll := widget.NewScroll(body)
 	page := widget.Column(top, scroll).Grow(scroll, 1)
@@ -260,6 +264,9 @@ func (p *panel) pinScreen() gunim.Node {
 			pad.SetWaiting(3*time.Second, u)
 			return nil
 		}
+		// The PIN pad gives way to the settings: they replace it, so going back from them, by the button or the
+		// swipe, lands on the beds.
+		p.stack.Pop(u)
 		p.stack.Push(p.settingsScreen(), u)
 		return nil
 	}
@@ -275,11 +282,8 @@ func (p *panel) settingsScreen() gunim.Node {
 	reset := widget.NewHoldButton("Reset all beds")
 	reset.Icon = icon.RotateCcw
 	reset.OnClick = widget.Sends(ResetAll{})
-	// Back goes past the PIN pad, to the beds, and locks the settings again.
-	top := topBar("Plants", heading("Settings"), func(u *gunim.UI) {
-		p.stack.Pop(u)
-		p.stack.Pop(u)
-	})
+	// Back goes to the beds, and locks the settings again.
+	top := topBar("Plants", heading("Settings"), func(u *gunim.UI) { p.stack.Pop(u) })
 	words := widget.NewLabel("Resetting puts both beds back as they came: their names, their schedules and their " +
 		"moisture. Hold the button down until it fills.")
 	page := widget.Column(top, words, widget.Row(reset))

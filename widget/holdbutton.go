@@ -14,6 +14,10 @@ import (
 	"github.com/marrasen/gunim/theme"
 )
 
+// HoldGlow is the glow a finger spreads on a [HoldButton]: no colour, so it suits both the plain fill and the kind's
+// that fills over it.
+var HoldGlow = theme.Color("hold.glow", color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x2c})
+
 // holdKeep is how long a finger holds a [HoldButton] still before the button keeps it: a finger that moves sooner
 // scrolls what the button sits in, and lets the hold go. It comes before the engine's long press, at 400 ms.
 const holdKeep = 250 * time.Millisecond
@@ -25,8 +29,9 @@ const holdKeep = 250 * time.Millisecond
 // end, at an even pace. Let go early, and the fill drains back on a spring, and nothing happens; press again before
 // it has drained, and it fills on from where it is. Once it is full the button acts, once, springs back from its
 // press, and shows a tick in place of its icon until it is let go. A press after it has acted starts from empty. It
-// lights and squashes under the finger, as [Button] does. A finger that moves at once scrolls what the button sits
-// in, as on any other button; one held still for a moment keeps the hold.
+// lights and squashes under the finger, as [Button] does. Inside something that scrolls, a finger that moves at once
+// scrolls it, as on any other button, and one held still for a moment keeps the hold; where nothing scrolls, the
+// button keeps the finger from the start.
 //
 // Space or Enter held down holds it from the keyboard. A screen reader's press acts at once, and no hold is asked
 // of it there: the hold guards against a slip of the finger, and the PIN asked before the change is the real guard.
@@ -202,10 +207,15 @@ func (b *HoldButton) press(e input.PointerDown, u *gunim.UI) {
 		b.begin(u)
 		return
 	}
-	b.keep = u.After(holdKeep, func(*gunim.UI) {
-		b.keep = nil
-		b.kept = b.held
-	})
+	if !scrollsAround(u, b) {
+		// Nothing round it scrolls: the button keeps the finger at once, and a finger that rolls a little holds on.
+		b.kept = true
+	} else {
+		b.keep = u.After(holdKeep, func(*gunim.UI) {
+			b.keep = nil
+			b.kept = b.held
+		})
+	}
 	if !b.touch.waiting {
 		b.begin(u)
 		return
@@ -256,7 +266,8 @@ func (b *HoldButton) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gun
 			p.RRect(r, radius, paint.Solid(anim.Mix(anim.ColorCodec, rest.Get(th), hover.Get(th), lit)))
 		}()
 	}
-	b.paintGlow(p, r, radius, th)
+	// A glow of no colour, which suits the plain fill and the kind's alike.
+	b.paintGlowIn(p, r, radius, HoldGlow.Get(th))
 	// The ink changes where the fill does, so the words read over both.
 	if split < box.W-0.5 {
 		func() {

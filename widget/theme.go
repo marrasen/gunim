@@ -144,6 +144,7 @@ func Light() theme.Theme {
 		theme.Set(Accent, color.NRGBA{R: 0x2f, G: 0x6f, B: 0xe0, A: 0xff}),
 		theme.Set(PressGlow, color.NRGBA{R: 0x2f, G: 0x6f, B: 0xe0, A: 0x24}),
 		theme.Set(PinDotEdge, color.NRGBA{R: 0x6a, G: 0x72, B: 0x82, A: 0xff}),
+		theme.Set(HoldGlow, color.NRGBA{R: 0x16, G: 0x18, B: 0x1e, A: 0x18}),
 		theme.Set(KeyboardKeyEdge, color.NRGBA{R: 0x6a, G: 0x72, B: 0x82, A: 0xff}),
 		theme.Set(CaptionInk, color.NRGBA{R: 0x5a, G: 0x62, B: 0x70, A: 0xff}),
 		theme.Set(KeyboardFill, color.NRGBA{R: 0xd5, G: 0xd9, B: 0xe1, A: 0xff}),

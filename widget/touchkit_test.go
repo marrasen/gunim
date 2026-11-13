@@ -2,7 +2,7 @@ package widget
 
 import (
 	"image/color"
-	"math"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -1044,28 +1044,161 @@ func TestAStackSwipeCalledOffSpringsBack(t *testing.T) {
 	}
 }
 
-// The screen under one sliding in shows only in the strip left of it, so nothing of it shows through the screen
-// coming, on any frame of the slide.
-func TestAStackScreenHidesTheOneUnder(t *testing.T) {
-	s, w, g, run := stackStage(t)
-	s.Push(NewButton("Bed"), g.ui)
-	top := s.front()
-	for i := range 20 {
-		run(1)
-		edge := top.off.Value() * 400
-		if edge < 0.5 {
-			break
-		}
-		found := false
-		for _, op := range w.Offscreen().Ops() {
-			if l, ok := op.(*paint.LayerOp); ok && l.Opts.Clip {
-				b := l.Opts.Bounds
-				found = found || b.Min.X == 0 && math.Abs(float64(b.Max.X-edge)) < 0.5 && b.Max.Y == 300
+// fill is a screen of one colour, for telling which screen shows where. One that is low fills only its lower half,
+// and draws nothing above, as a screen with no fill of its own leaves gaps.
+type fill struct {
+	c   color.NRGBA
+	low bool
+}
+
+func (f *fill) Layout(c gunim.Constraints, _ gunim.Frame, _ gunim.Children) geom.Size { return c.Max }
+
+func (f *fill) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, _ gunim.Children) {
+	r := geom.Rect{Max: box.Point()}
+	if f.low {
+		r.Min.Y = box.H / 2
+	}
+	p.RRect(r, 0, paint.Solid(f.c))
+}
+
+// shownAt returns the colour of the last opaque fill ops draw at pt, in the window's space, inside the clips round
+// it, and false where none does.
+func shownAt(ops []paint.Op, pt geom.Point) (color.NRGBA, bool) {
+	inside := func(r geom.Rect) bool {
+		return pt.X >= r.Min.X && pt.X < r.Max.X && pt.Y >= r.Min.Y && pt.Y < r.Max.Y
+	}
+	moved := func(t paint.Transform, r geom.Rect) geom.Rect {
+		return geom.Rect{Min: t.Apply(r.Min), Max: t.Apply(r.Max)}.Normalized()
+	}
+	clips := []bool{true}
+	var got color.NRGBA
+	found := false
+	for _, op := range ops {
+		switch op := op.(type) {
+		case *paint.LayerOp:
+			in := clips[len(clips)-1]
+			if op.Opts.Clip {
+				in = in && inside(moved(op.Transform, op.Opts.Bounds))
+			}
+			clips = append(clips, in)
+		case *paint.LayerEndOp:
+			clips = clips[:len(clips)-1]
+		case *paint.RRectOp:
+			if clips[len(clips)-1] && op.Fill.Solid.A == 0xff && inside(moved(op.Transform, op.Rect)) {
+				got, found = op.Fill.Solid, true
 			}
 		}
-		if !found {
-			t.Fatalf("frame %d: the screen under is not cut off at the coming screen's edge, %v", i, edge)
+	}
+	return got, found
+}
+
+var (
+	red   = color.NRGBA{R: 0xff, A: 0xff}
+	green = color.NRGBA{G: 0xff, A: 0xff}
+	blue  = color.NRGBA{B: 0xff, A: 0xff}
+)
+
+// colourStack mounts a stack whose first screen is red, in a window 400 by 300, with screens pushed and settled
+// over it.
+func colourStack(t *testing.T, over ...*fill) (*Stack, *gunim.Window, *grab, func(int)) {
+	t.Helper()
+	s := NewStack(&fill{c: red})
+	w, g, run := touchStage(t, s, geom.Sz(400, 300))
+	for _, f := range over {
+		s.Push(f, g.ui)
+	}
+	run(90)
+	return s, w, g, run
+}
+
+// seen returns the colours the window shows across the stack at y, every 10 pixels from 5, and "none" where nothing
+// opaque is drawn.
+func seen(w *gunim.Window, y float32) []string {
+	name := map[color.NRGBA]string{red: "red", green: "green", blue: "blue"}
+	var out []string
+	for x := float32(5); x < 400; x += 10 {
+		c, ok := shownAt(w.Offscreen().Ops(), geom.Pt(x, y))
+		switch {
+		case !ok:
+			out = append(out, "none")
+		case name[c] != "":
+			out = append(out, name[c])
+		default:
+			out = append(out, "other")
 		}
+	}
+	return out
+}
+
+// checkSeen fails unless what shows is want left of edge, a share of the width, and over right of it.
+func checkSeen(t *testing.T, frame int, got []string, edge float32, want, over string) {
+	t.Helper()
+	for i, c := range got {
+		x := float32(5 + 10*i)
+		switch {
+		case x < edge*400-1 && c != want:
+			t.Fatalf("frame %d: at %v, left of the edge at %v, the stack shows %s, want %s: %v", frame, x, edge*400, c, want, got)
+		case x > edge*400+1 && c != over:
+			t.Fatalf("frame %d: at %v, right of the edge at %v, the stack shows %s, want %s: %v", frame, x, edge*400, c, over, got)
+		}
+	}
+}
+
+// As a screen is popped, it shows right of its edge and the screen under it left of it, on every frame.
+func TestAStackPopShowsEachScreenInItsOwnPlace(t *testing.T) {
+	s, w, g, run := colourStack(t, &fill{c: green})
+	going := s.front()
+	s.Pop(g.ui)
+	for i := range 60 {
+		run(1)
+		if !slices.Contains(s.gone, going) {
+			break
+		}
+		checkSeen(t, i, seen(w, 150), going.off.Value(), "red", "green")
+	}
+}
+
+// Two screens popped at once slide off together, and the one under the top one never shows through it, even where
+// the top one draws nothing.
+func TestAStackDoublePopShowsOnlyTheTopScreenGoing(t *testing.T) {
+	s, w, g, run := colourStack(t, &fill{c: green}, &fill{c: blue, low: true})
+	top := s.front()
+	s.Pop(g.ui)
+	s.Pop(g.ui)
+	for i := range 60 {
+		run(1)
+		if !slices.Contains(s.gone, top) {
+			break
+		}
+		checkSeen(t, i, seen(w, 225), top.off.Value(), "red", "blue")
+		checkSeen(t, i, seen(w, 75), top.off.Value(), "red", "none")
+	}
+	if s.Len() != 1 || s.Top() == nil {
+		t.Fatalf("after two pops the stack holds %d screens", s.Len())
+	}
+}
+
+// A Pop and a Push in one go replace the top screen: the screen popped stays in its place under the one coming, on
+// every frame, and goes once it is covered; the screen under both never shows.
+func TestAStackPopThenPushReplaces(t *testing.T) {
+	s, w, g, run := colourStack(t, &fill{c: green})
+	popped := s.front()
+	s.Pop(g.ui)
+	s.Push(&fill{c: blue}, g.ui)
+	coming := s.front()
+	for i := range 90 {
+		run(1)
+		checkSeen(t, i, seen(w, 150), coming.off.Value(), "green", "blue")
+		if coming.off.Value() < 0.001 && !coming.off.Active() {
+			break
+		}
+	}
+	run(2)
+	if _, ok := g.ui.Bounds(popped.child); ok || slices.Contains(s.gone, popped) {
+		t.Fatal("the screen replaced is still in the tree once the new one covers it")
+	}
+	if got := seen(w, 150); slices.ContainsFunc(got, func(c string) bool { return c != "blue" }) {
+		t.Fatalf("settled, the stack shows %v, want the new screen alone", got)
 	}
 }
 
@@ -1109,5 +1242,72 @@ func TestAKeyboardKeepsTheFieldInSight(t *testing.T) {
 	if fb.Max.Y > k.top || fb.Min.Y < 48 {
 		t.Fatalf("the field lies from %v to %v, want it whole between 48 and the keyboard's top %v",
 			fb.Min.Y, fb.Max.Y, k.top)
+	}
+}
+
+// Where nothing round it scrolls, a hold button keeps the finger at once: one that rolls 12 pixels at 100 ms holds
+// on, and the button acts.
+func TestAHoldButtonKeepsAFingerThatRollsWhereNothingScrolls(t *testing.T) {
+	b := NewHoldButton("Reset all beds")
+	b.OnClick = Sends(pressed{8})
+	w, _, run := touchStage(t, Row(b), geom.Sz(400, 100))
+	at := geom.Pt(30, 24)
+	touchDown(w, at)
+	run(6)
+	w.Input(input.PointerMove{Pos: at.Add(geom.Pt(0, 12)), Touch: true, Time: time.Now()})
+	run(1)
+	if !b.Holding() {
+		t.Fatal("a finger that rolled 12 pixels at 100 ms let the hold go, with nothing to scroll")
+	}
+	run(60)
+	if got := sent(w); len(got) != 1 {
+		t.Fatalf("held a second with a roll in it, the button sent %v, want one intent", got)
+	}
+	touchUp(w, at.Add(geom.Pt(0, 12)))
+	run(1)
+}
+
+// The PIN handed over is wiped though OnCommit panics, and a slice kept from one commit reads zeros, never the next
+// PIN.
+func TestAPinPadWipesThePinThoughOnCommitPanics(t *testing.T) {
+	p, w, g, run := pinStage(t)
+	var kept []byte
+	p.OnCommit = func(pin []byte, _ *gunim.UI) gunim.Intent {
+		kept = pin
+		panic("the check failed")
+	}
+	for _, d := range []int{9, 7, 3, 1} {
+		tapKey(w, run, p, pinKey(d))
+	}
+	func() {
+		defer func() { _ = recover() }()
+		p.press(pinEnter, g.ui)
+	}()
+	if string(kept) != "\x00\x00\x00\x00" {
+		t.Fatalf("after OnCommit panicked the PIN handed over reads %q, want wiped", kept)
+	}
+	p.OnCommit = func([]byte, *gunim.UI) gunim.Intent { return nil }
+	for _, d := range []int{2, 4, 6, 8} {
+		tapKey(w, run, p, pinKey(d))
+	}
+	tapKey(w, run, p, pinEnter)
+	if string(kept) != "\x00\x00\x00\x00" {
+		t.Fatalf("a slice kept from the last commit reads %q after the next, want it untouched and wiped", kept)
+	}
+}
+
+// A Length set shorter than the digits typed drops those past it, and the pad hands over what is left.
+func TestAPinPadShortenedWithDigitsTypedHandsOverWhatFits(t *testing.T) {
+	p, w, _, run := pinStage(t)
+	var got string
+	p.OnCommit = func(pin []byte, _ *gunim.UI) gunim.Intent { got = string(pin); return nil }
+	for _, d := range []int{1, 2, 3, 4, 5, 6} {
+		tapKey(w, run, p, pinKey(d))
+	}
+	p.Length = 4
+	run(1)
+	tapKey(w, run, p, pinEnter)
+	if got != "1234" {
+		t.Fatalf("shortened to 4 with 6 typed, the pad handed over %q, want 1234", got)
 	}
 }

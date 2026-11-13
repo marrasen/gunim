@@ -68,18 +68,18 @@ type PinPad struct {
 
 	// Label is the pad's name for a screen reader. NewPinPad sets it to "PIN".
 	Label string
-	// Length is the most digits a PIN has, and the number of dots shown.
+	// Length is the most digits a PIN has, and the number of dots shown. Set shorter than the digits typed, it
+	// drops those past it.
 	Length int
 	// Enter is the word on the key that hands the PIN over, which says what the PIN is for, as "Unlock".
 	Enter string
 	// OnCommit runs as the commit key or Enter hands over the digits typed, with them as ASCII digits. The pad has
-	// cleared its own by then, and wipes pin as OnCommit returns: check it there, and keep no reference to it, in the
-	// intent or elsewhere. It runs only with one digit or more.
+	// cleared its own by then. pin is a slice of its own for each call, and the pad wipes it as OnCommit returns,
+	// or panics: check the PIN inside OnCommit, and keep no reference to pin, in the intent or elsewhere. A
+	// reference kept reads zeros, never the next PIN. It runs only with one digit or more.
 	OnCommit func(pin []byte, u *gunim.UI) gunim.Intent
 
 	digits []byte
-	// handed is the copy of the digits OnCommit is handed, made once with digits and wiped after each call.
-	handed []byte
 	// deleteName is the delete key's name for a screen reader, in the theme of the last layout.
 	deleteName string
 	waitText   shapedText
@@ -208,6 +208,7 @@ func (p *PinPad) press(i int, u *gunim.UI) {
 	if p.waiting || p.Disabled {
 		return
 	}
+	p.fit()
 	th := u.Theme()
 	switch i {
 	case pinDelete:
@@ -221,14 +222,7 @@ func (p *PinPad) press(i int, u *gunim.UI) {
 		if len(p.digits) == 0 {
 			return
 		}
-		if cap(p.handed) < len(p.digits) {
-			p.handed = make([]byte, 0, p.Length)
-		}
-		pin := p.handed[:len(p.digits)]
-		copy(pin, p.digits)
-		p.wipe(u)
-		act(u, p, gunim.CuePress, p.OnCommit, pin)
-		clear(pin)
+		p.commit(u)
 	default:
 		if len(p.digits) >= p.Length {
 			return
@@ -248,6 +242,24 @@ func (p *PinPad) press(i int, u *gunim.UI) {
 		u.Cue(gunim.CueTick, p)
 	}
 	u.Invalidate()
+}
+
+// commit hands the digits to OnCommit in a slice of their own, clears the pad's, and wipes the slice as OnCommit
+// returns, or panics.
+func (p *PinPad) commit(u *gunim.UI) {
+	pin := make([]byte, len(p.digits))
+	copy(pin, p.digits)
+	defer clear(pin)
+	p.wipe(u)
+	act(u, p, gunim.CuePress, p.OnCommit, pin)
+}
+
+// fit keeps the digits within Length: where it was set shorter than the digits typed, those past it are wiped.
+func (p *PinPad) fit() {
+	if n := max(p.Length, 1); len(p.digits) > n {
+		clear(p.digits[n:])
+		p.digits = p.digits[:n]
+	}
 }
 
 // dot returns the spring of the i-th dot, making it where the length grew.
@@ -371,6 +383,7 @@ func (p *PinPad) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) ge
 		p.until = time.Time{}
 	}
 	p.follow(th)
+	p.fit()
 	p.deleteName = PinDelete.Get(th)
 	gap, least, want := PinKeyGap.Get(th), PinKeyLeast.Get(th), PinKeySize.Get(th)
 	row := PinDotRow.Get(th)

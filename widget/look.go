@@ -116,7 +116,7 @@ func contrastSorted(c gunim.ContrastColors) contrastGroups {
 		},
 		tints: []theme.Token[color.NRGBA]{ListSelected, Selection, FieldPressed, SliderRowActive, ButtonHover,
 			ChipHover, MenubarHot, WindowButtonHot, OverviewHover, OverviewBox, GridCursor, TableCursor, PaletteMark,
-			BandFill, TileHover, TileSelected, TreeHover, TreeSelected, CodeLineFill, PressGlow},
+			BandFill, TileHover, TileSelected, TreeHover, TreeSelected, CodeLineFill, PressGlow, HoldGlow},
 		marks: []theme.Token[color.NRGBA]{OverviewMark, OverviewBoxEdge, TableStrong, SplitHot, GridRule, BandEdge,
 			TileCursor},
 		entries: entries,

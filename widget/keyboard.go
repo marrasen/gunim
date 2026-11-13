@@ -29,7 +29,7 @@ var (
 	// KeyboardFill is the fill behind the keys, and KeyboardKeyFill the fill of a key that types no letter, such as
 	// Shift and Enter.
 	KeyboardFill    = theme.Color("keyboard.fill", color.NRGBA{R: 0x17, G: 0x1a, B: 0x21, A: 0xff})
-	KeyboardKeyFill = theme.Color("keyboard.key.fill", color.NRGBA{R: 0x2f, G: 0x34, B: 0x40, A: 0xff})
+	KeyboardKeyFill = theme.Color("keyboard.key.fill", color.NRGBA{R: 0x1d, G: 0x20, B: 0x28, A: 0xff})
 	// KeyboardKeyEdge edges every key, so a key stands clear of the panel at 3:1 or more.
 	KeyboardKeyEdge = theme.Color("keyboard.key.edge", color.NRGBA{R: 0x7a, G: 0x82, B: 0x92, A: 0xff})
 	// The names a screen reader gives the keys that type no letter, and the keyboard's own.

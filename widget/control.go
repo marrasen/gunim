@@ -1,6 +1,7 @@
 package widget
 
 import (
+	"image/color"
 	"math"
 	"time"
 
@@ -211,6 +212,11 @@ func (c *Control) squashIn(th *theme.Live) {
 // paintGlow draws the glow of a finger's press over r, a shape with corners radius round: brightest where the
 // finger landed, and fading out as it spreads.
 func (c *Control) paintGlow(p *paint.Painter, r geom.Rect, radius float32, th *theme.Live) {
+	c.paintGlowIn(p, r, radius, PressGlow.Get(th))
+}
+
+// paintGlowIn is paintGlow in glow, for a control whose fill the press glow does not suit.
+func (c *Control) paintGlowIn(p *paint.Painter, r geom.Rect, radius float32, glow color.NRGBA) {
 	t := &c.touch
 	shine, spread := min(max(t.shine.Value(), 0), 1), max(t.spread.Value(), 0)
 	if shine < 0.01 || spread < 0.01 || r.Empty() {
@@ -221,7 +227,6 @@ func (c *Control) paintGlow(p *paint.Painter, r geom.Rect, radius float32, th *t
 		d := corner.Sub(t.at)
 		far = max(far, float32(math.Hypot(float64(d.X), float64(d.Y))))
 	}
-	glow := PressGlow.Get(th)
 	glow.A = uint8(float32(glow.A)*shine + 0.5)
 	gone := glow
 	gone.A = 0
