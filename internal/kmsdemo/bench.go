@@ -232,13 +232,27 @@ func Bench(ctx context.Context, o BenchOptions) (Result, error) {
 		if err := still(); err != nil {
 			return err
 		}
-		// The ball lands, the trails fade and a fling ends first.
+		// The ball lands, the trails fade, a fling ends and a scrollbar
+		// fades first: the rest is measured from when no frame has come for
+		// a second. It ends when it would have, as the touch script's tap
+		// for the blanking comes at a time set in advance.
+		restEnd := time.Now().Add(settle + o.Rest)
 		if !sleep(ctx, settle) {
 			return ctx.Err()
 		}
+		for n := d.Stats().Frames; time.Until(restEnd) > time.Second; {
+			if !sleep(ctx, time.Second) {
+				return ctx.Err()
+			}
+			m := d.Stats().Frames
+			if m == n {
+				break
+			}
+			n = m
+		}
 		d.ResetStats()
 		cpu0, t0 = cpuTime(), time.Now()
-		if !sleep(ctx, o.Rest) {
+		if !sleep(ctx, time.Until(restEnd)) {
 			return ctx.Err()
 		}
 		res.CPURest = percent(cpuTime()-cpu0, time.Since(t0))
