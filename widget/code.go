@@ -113,7 +113,10 @@ var codeWave = func() shape.Stroke {
 // outdent, Enter keeps the line's indent and adds one after an opening
 // bracket, a closing brace takes one back, and Home goes to the first
 // character of the line before its start. Lines stay whole and the
-// code scrolls both ways.
+// code scrolls both ways. With TabMovesOn, the editor is one field
+// among others: Tab and Shift+Tab move focus on and back, a tab typed
+// or pasted becomes a space, and Enter keeps the line's indent and adds
+// none.
 //
 // The caret glides between places, a band follows it from line to
 // line, and a mark from [CodeEditor.SetMarks] fades in on its line
@@ -139,6 +142,12 @@ type CodeEditor struct {
 	Label string
 	// Numbers shows line numbers down the left. NewCodeEditor sets it.
 	Numbers bool
+	// TabMovesOn leaves Tab and Shift+Tab to move focus on and back, as
+	// in a form, rather than indent. The code then holds no tab the user
+	// types or pastes: each becomes a space. Enter keeps the line's
+	// indent and adds none after an opening bracket, and a closing brace
+	// takes none back.
+	TabMovesOn bool
 
 	focus   *anim.Float
 	caretAt *anim.Point
@@ -228,7 +237,8 @@ func NewCodeEditor() *CodeEditor {
 		scrollY:    anim.NewFloat(0),
 		numberRuns: map[int]text.Run{},
 	}
-	c.multiline, c.tabs, c.Numbers = true, true, true
+	c.multiline, c.Numbers = true, true
+	c.tabs = func() bool { return !c.TabMovesOn }
 	c.Add(c.focus, c.caretAt, c.band, c.scrollX, c.scrollY, c.rows)
 	c.changed = func(u *gunim.UI) {
 		if c.OnChange != nil {
@@ -496,7 +506,7 @@ func (c *CodeEditor) submits(k input.KeyPress) bool {
 // typed at the start of a line.
 func (c *CodeEditor) typed(s string, u *gunim.UI) {
 	start, end := c.Selection()
-	if s == "}" && start == end && len(c.preedit) == 0 {
+	if s == "}" && start == end && len(c.preedit) == 0 && !c.TabMovesOn {
 		ls := c.lineStartOf(start)
 		if before := c.text[ls:start]; len(before) > 0 && onlyIndent(before) && before[len(before)-1] == '\t' {
 			c.replace(start-1, start, []rune("}"), u)
@@ -513,7 +523,7 @@ func (c *CodeEditor) codeKey(k input.KeyPress, u *gunim.UI) bool {
 	shift := k.Mods.Has(input.ModShift)
 	switch {
 	case k.Key == input.KeyTab && !ctrl && !k.Mods.Has(input.ModAlt):
-		if c.readOnly {
+		if c.readOnly || c.TabMovesOn {
 			return false // focus moves on
 		}
 		start, end := c.Selection()
@@ -527,7 +537,7 @@ func (c *CodeEditor) codeKey(k input.KeyPress, u *gunim.UI) bool {
 		}
 		return true
 	case (k.Key == input.KeyEnter || k.Key == input.KeyKPEnter) && !c.readOnly && len(c.preedit) == 0:
-		start, _ := c.Selection()
+		start, end := c.Selection()
 		ls := c.lineStartOf(start)
 		line := c.text[ls:start]
 		n := 0
@@ -535,11 +545,13 @@ func (c *CodeEditor) codeKey(k input.KeyPress, u *gunim.UI) bool {
 			n++
 		}
 		indent := string(line[:n])
-		if t := strings.TrimRightFunc(string(line), unicode.IsSpace); strings.HasSuffix(t, "{") ||
-			strings.HasSuffix(t, "(") || strings.HasSuffix(t, "[") || strings.HasSuffix(t, ":") {
+		if t := strings.TrimRightFunc(string(line), unicode.IsSpace); !c.TabMovesOn && (strings.HasSuffix(t, "{") ||
+			strings.HasSuffix(t, "(") || strings.HasSuffix(t, "[") || strings.HasSuffix(t, ":")) {
 			indent += "\t"
 		}
-		c.insert("\n"+indent, u)
+		// The indent goes in as it is, tabs and all, even where typed
+		// tabs become spaces.
+		c.replace(start, end, []rune("\n"+indent), u)
 		return true
 	case k.Key == input.KeyHome && !ctrl:
 		ls := c.lineStartOf(c.caret)
