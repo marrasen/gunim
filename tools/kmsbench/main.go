@@ -63,7 +63,9 @@ func run() int {
 	if o.Screen == "widgets" && !warmSet {
 		// The gallery's start-up toasts leave 5 s in, fading as layers of
 		// their own, and its first scroll shows text never drawn before:
-		// both are over by 6 s, so the figures are of scrolling.
+		// both are over by 6 s, so the goals hold the scrolling. What the
+		// start-up costs shows on its own line, "missed flips while warming
+		// up"; -warm 3s measures it with the scrolling, as before.
 		o.Warm = 6 * time.Second
 	}
 	o.KMS.Scale = float32(*scale)
