@@ -45,6 +45,7 @@ func run() int {
 	flag.DurationVar(&o.Warm, "warm", 3*time.Second, "how long the scene moves before the figures start")
 	flag.DurationVar(&o.Moving, "moving", 60*time.Second, "how long to measure the scene moving")
 	flag.DurationVar(&o.Rest, "rest", 60*time.Second, "how long to measure the scene still")
+	flag.BoolVar(&o.Still, "still", false, "keep the scene still while the touch script plays: only the fingers draw")
 	flag.Parse()
 	o.KMS.Scale = float32(*scale)
 	if *script != "" {

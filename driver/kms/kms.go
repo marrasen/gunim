@@ -13,7 +13,12 @@
 // context, and an atomic commit shows each frame at the next vblank, with
 // a page-flip event when it does. The engine draws its next frame on that
 // event, so frames go at the panel's rate while something moves, and none
-// go while nothing does. libgbm, libEGL and libGLESv2 load at run time
+// go while nothing does. The driver tells the engine of a flip a lead before
+// the next vblank, not at once, so the next frame reads touches as late as
+// it can and still makes that vblank. It learns the lead from the frames: a
+// screen that redraws little starts its frames late in the refresh, and one
+// heavy on the GPU starts them at once. GUNIM_KMS_LEAD sets a fixed lead in
+// milliseconds, for measuring. libgbm, libEGL and libGLESv2 load at run time
 // through purego, so the build stays CGO_ENABLED=0; the program then needs
 // Mesa's libraries on the machine: on Raspberry Pi OS,
 //
@@ -59,6 +64,7 @@ import (
 	"math"
 	"os"
 	"os/signal"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -160,6 +166,9 @@ type Driver struct {
 	software       bool
 	// renderer is GL's name for what draws.
 	renderer string
+	// lead is how long before a vblank the windows hear of the flip
+	// before it; 0 tells them at once.
+	lead time.Duration
 
 	// wake is an eventfd that wakes the render thread from its poll, and
 	// cmds the work it is woken for besides frames.
@@ -256,6 +265,9 @@ func (d *Driver) open() error {
 	d.panelW, d.panelH = d.scr.width(), d.scr.height()
 	d.picW, d.picH = d.turn.size(d.panelW, d.panelH)
 	d.rate = d.scr.mode.rate()
+	if v, err := strconv.ParseFloat(os.Getenv("GUNIM_KMS_LEAD"), 64); err == nil {
+		d.lead = time.Duration(v * float64(time.Millisecond))
+	}
 	d.density = o.Scale
 	if d.density <= 0 {
 		d.density = density(d.panelW, d.scr.conn.mmWidth)

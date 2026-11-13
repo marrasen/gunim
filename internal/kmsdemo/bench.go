@@ -32,6 +32,11 @@ type BenchOptions struct {
 	// how long it is measured moving with the touch script playing, and
 	// Rest how long it is measured still.
 	Warm, Moving, Rest time.Duration
+	// Still keeps the scene still while the touch script plays, so only
+	// the fingers draw, as on a screen that mostly stands, where Moving
+	// measures the scene moving on every frame. The frame rate is then
+	// the touches', not the panel's.
+	Still bool
 	// Log, if set, hears what the bench does.
 	Log func(string)
 }
@@ -92,7 +97,7 @@ func Bench(ctx context.Context, o BenchOptions) (Result, error) {
 			return err
 		}
 		res.Software = d.Software()
-		if err := c.Mount(gunim.Root, "demo", View, State{}); err != nil {
+		if err := c.Mount(gunim.Root, "demo", View, State{Still: o.Still}); err != nil {
 			return err
 		}
 		go func() {

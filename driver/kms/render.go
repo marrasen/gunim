@@ -64,6 +64,14 @@ type renderThread struct {
 	rotate   bool
 	// flight is the windows whose frames are in the commit on its way.
 	flight []*Window
+	// held is the windows whose frames the last flip showed, which hear
+	// so at releaseAt, with heldFrame.
+	held      []*Window
+	heldFrame driver.Frame
+	releaseAt time.Time
+	// paced says the windows heard of the last flip late, by pace's lead.
+	paced bool
+	pace  pacer
 	// jobs, stack and gone are the frame's, kept from frame to frame; see
 	// collect.
 	jobs  []job
@@ -203,11 +211,16 @@ func (r *renderThread) loop() error {
 	var wake [8]byte
 	for {
 		fds[0].Revents, fds[1].Revents = 0, 0
-		wait := -1
+		var wait time.Duration = -1
 		if r.flying {
-			wait = int(flipTimeout / time.Millisecond)
+			wait = flipTimeout
 		}
-		n, err := unix.Poll(fds, wait)
+		if len(r.held) > 0 {
+			if w := time.Until(r.releaseAt); wait < 0 || w < wait {
+				wait = max(w, 0)
+			}
+		}
+		n, err := ppoll(fds, wait)
 		if err != nil && err != unix.EINTR {
 			return fmt.Errorf("poll: %w", err)
 		}
@@ -224,6 +237,9 @@ func (r *renderThread) loop() error {
 		}
 		if fds[1].Revents&unix.POLLIN != 0 {
 			_, _ = unix.Read(d.wake, wake[:]) // only empties it
+		}
+		if len(r.held) > 0 && !time.Now().Before(r.releaseAt) {
+			r.release()
 		}
 		for {
 			select {
@@ -260,10 +276,91 @@ func (r *renderThread) waitFlip() {
 		}
 		if fds[0].Revents&unix.POLLIN != 0 {
 			if err := r.d.scr.card.readEvents(r.events[:], r.flipped); err != nil {
-				return
+				break
 			}
 		}
 	}
+	r.release()
+}
+
+// pacer learns how late in a refresh the windows can start a frame and
+// still have it reach the next vblank, so that frame reads touches as late
+// as it can. Its lead is how long before the vblank they hear of the flip
+// before it. It starts at a whole refresh, which tells them at once, and
+// shortens a step at a time while frames make their vblank, a little at a
+// time so misses stay rare. A frame that misses lengthens it at once by
+// more, and holds it there a while: the frame's cost, the GPU's above all,
+// sets how late a frame can start.
+type pacer struct {
+	lead time.Duration
+	// good counts frames made since the lead last moved, and hold how many
+	// more to make before it may shorten again.
+	good, hold int
+}
+
+const (
+	paceStep    = 500 * time.Microsecond // shorter, after paceEvery frames made
+	paceEvery   = 30
+	paceBack    = 2 * time.Millisecond // longer, on a miss
+	paceHold    = 1800                 // frames before shortening again
+	paceMinLead = 4 * time.Millisecond
+)
+
+// now returns the lead for the next frame: fixed, where GUNIM_KMS_LEAD sets
+// it, else the one learnt.
+func (p *pacer) now(fixed, period time.Duration) time.Duration {
+	if fixed > 0 {
+		return fixed
+	}
+	if p.lead <= 0 || p.lead > period {
+		p.lead = period
+	}
+	return p.lead
+}
+
+// flipped learns from a flip: whether its frame was drawn straight after
+// the flip before, whether the windows heard of that flip late, and how
+// many vblanks the frame missed.
+func (p *pacer) flipped(straight, paced bool, missed int, period time.Duration) {
+	if !straight {
+		return
+	}
+	if missed > 0 && paced {
+		p.lead = min(p.lead+paceBack, period)
+		p.good, p.hold = 0, paceHold
+		return
+	}
+	if p.hold > 0 {
+		p.hold--
+		return
+	}
+	if p.good++; p.good >= paceEvery {
+		p.good = 0
+		p.lead = max(p.lead-paceStep, paceMinLead)
+	}
+}
+
+// ppoll waits on fds for up to wait, or for ever where wait is negative,
+// to the microsecond.
+func ppoll(fds []unix.PollFd, wait time.Duration) (int, error) {
+	if wait < 0 {
+		return unix.Ppoll(fds, nil, nil)
+	}
+	ts := unix.NsecToTimespec(int64(wait))
+	return unix.Ppoll(fds, &ts, nil)
+}
+
+// release tells the windows whose frames the last flip showed that it
+// did, so they draw their next frame.
+func (r *renderThread) release() {
+	for _, w := range r.held {
+		select {
+		case w.presented <- r.heldFrame:
+		case <-w.quit:
+		}
+	}
+	clear(r.held)
+	r.held = r.held[:0]
 }
 
 // collect takes, under the driver's lock, the frames waiting into r.jobs
@@ -415,16 +512,23 @@ func (r *renderThread) flipped(ev flipEvent) {
 	straight := !r.prevFlip.IsZero() && r.handed.Sub(r.prevFlip) < period
 	d.stats.shown(ev.sequence, r.prevFlip, r.handed, r.committed, at, r.touchAt, straight, missed)
 	r.prevFlip, r.prevSeq = at, ev.sequence
+	r.pace.flipped(straight, r.paced, missed, period)
 	r.g.release(r.shown)
 	r.shown, r.pending, r.flying = r.pending, 0, false
-	f := driver.Frame{Shown: at, Lag: period/2 + lcdLag}
-	for _, w := range r.flight {
-		select {
-		case w.presented <- f:
-		case <-w.quit:
-		}
-	}
+	// The windows hear of the flip lead before the next vblank, not at
+	// once, so the frame they draw next reads touches that late, and
+	// still reaches the screen at that vblank.
+	r.heldFrame = driver.Frame{Shown: at, Lag: period/2 + lcdLag}
+	r.held = append(r.held, r.flight...)
 	r.flight = r.flight[:0]
+	r.releaseAt = time.Time{}
+	if lead := r.pace.now(r.d.lead, period); lead < period {
+		r.releaseAt = at.Add(period - lead)
+	}
+	r.paced = time.Now().Before(r.releaseAt)
+	if !r.paced {
+		r.release()
+	}
 }
 
 // monoTime turns a time on the monotonic clock, as the kernel stamps

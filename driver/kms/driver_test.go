@@ -289,3 +289,43 @@ func TestCollectingAFrameAllocatesNothing(t *testing.T) {
 		t.Fatalf("%v allocations a frame", n)
 	}
 }
+
+// The pacer starts by telling windows of a flip at once, shortens its lead
+// a step at a time while frames make their vblank, and on a miss lengthens
+// it at once and holds it. Frames drawn after a rest teach it nothing.
+func TestThePacerLearnsHowLateAFrameCanStart(t *testing.T) {
+	const period = 16667 * time.Microsecond
+	var p pacer
+	if got := p.now(0, period); got != period {
+		t.Fatalf("starts with a lead of %v, want a whole refresh", got)
+	}
+	for range paceEvery {
+		p.flipped(true, false, 0, period)
+	}
+	if got := p.now(0, period); got != period-paceStep {
+		t.Fatalf("after %d frames made: %v, want a step shorter", paceEvery, got)
+	}
+	for range 100 * paceEvery {
+		p.flipped(true, true, 0, period)
+	}
+	if got := p.now(0, period); got != paceMinLead {
+		t.Fatalf("after many frames made: %v, want the floor, %v", got, paceMinLead)
+	}
+	p.flipped(false, true, 3, period)
+	if got := p.now(0, period); got != paceMinLead {
+		t.Fatalf("a frame after a rest moved the lead to %v", got)
+	}
+	p.flipped(true, true, 1, period)
+	if got := p.now(0, period); got != paceMinLead+paceBack {
+		t.Fatalf("after a miss: %v, want %v", got, paceMinLead+paceBack)
+	}
+	for range paceHold {
+		p.flipped(true, true, 0, period)
+	}
+	if got := p.now(0, period); got != paceMinLead+paceBack {
+		t.Fatalf("shortened to %v while holding after a miss", got)
+	}
+	if got := p.now(5*time.Millisecond, period); got != 5*time.Millisecond {
+		t.Fatalf("a fixed lead came out %v", got)
+	}
+}
