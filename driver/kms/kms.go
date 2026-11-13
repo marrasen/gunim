@@ -655,16 +655,25 @@ func (d *Driver) NewWindow(o driver.Options) (driver.Window, error) {
 	}
 	w.hidden = o.Hidden
 	d.windows = append(d.windows, w)
-	hidden := d.hidden
-	d.mu.Unlock()
 	// A window that opens while the screen doesn't show it hears so at once,
-	// as the others did.
-	if hidden {
+	// as the others did. It hears it under mu, as tell tells the windows,
+	// so a wake just after can't reach it first (#430). Push takes only the
+	// inbox's own lock, and never waits.
+	if d.hidden {
 		w.in.Push(driver.WindowShown{Shown: false})
+	}
+	d.mu.Unlock()
+	if newWindowGap != nil {
+		newWindowGap()
 	}
 	d.kick()
 	return w, nil
 }
+
+// newWindowGap, if set, runs as NewWindow lets go of mu: a test runs a
+// wake there, where it once came between the window's adding and its
+// hearing it is hidden.
+var newWindowGap func()
 
 // screenLocked returns the picture in logical pixels. It runs with mu
 // held, though nothing in it changes.
@@ -751,12 +760,18 @@ func (d *Driver) tell() {
 		return
 	}
 	d.hidden = !shown
-	d.mu.Unlock()
-	if shown {
-		d.pushAll(driver.WindowShown{Shown: true}, driver.Redraw{})
-	} else {
-		d.pushAll(driver.WindowShown{Shown: false})
+	// The windows hear it under mu, so a window opening meanwhile hears the
+	// hide it opened under before this, never after. Push takes only the
+	// inbox's own lock, and never waits.
+	for _, w := range d.windows {
+		if shown {
+			w.in.Push(driver.WindowShown{Shown: true})
+			w.in.Push(driver.Redraw{})
+		} else {
+			w.in.Push(driver.WindowShown{Shown: false})
+		}
 	}
+	d.mu.Unlock()
 }
 
 // DisplayOn asks the kernel whether the display controller is on: the
