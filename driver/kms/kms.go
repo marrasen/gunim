@@ -66,6 +66,7 @@ import (
 	"os/signal"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -168,8 +169,11 @@ type Driver struct {
 	// lightMu guards light: a write to the backlight goes over I²C, and
 	// holds up nothing else. lightTo carries the step the render thread
 	// wants to the goroutine that writes it, and lightDone ends that.
-	lightMu   sync.Mutex
-	lightTo   chan int
+	lightMu sync.Mutex
+	lightTo chan int
+	// lit is the step the backlight was last written at: a step that
+	// failed to write is asked again.
+	lit       atomic.Int32
 	lightDone chan struct{}
 	lightWG   sync.WaitGroup
 	// errs carries the errors of what the driver does on its own, as the
@@ -307,6 +311,7 @@ func (d *Driver) open() error {
 	if d.light, err = openBacklight(o.Backlight); err != nil {
 		return err
 	}
+	d.light = usableBacklight(d.light)
 	st := state{}
 	if d.light != nil {
 		st.Backlight, st.Level = d.light.dir, d.light.was
@@ -343,6 +348,7 @@ func (d *Driver) open() error {
 			}
 		}
 		level = d.light.brightness()
+		d.lit.Store(int32(d.light.cur))
 		d.startLight()
 	}
 	if o.Brightness > 0 {
@@ -735,6 +741,8 @@ func (d *Driver) startLight() {
 				d.lightMu.Unlock()
 				if err != nil {
 					d.fail(err)
+				} else {
+					d.lit.Store(int32(n))
 				}
 			case <-d.lightDone:
 				return

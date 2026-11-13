@@ -89,6 +89,21 @@ func (b *backlight) setLevel(n int) error {
 	return nil
 }
 
+// usableBacklight returns b, or nil where its file cannot be written, as
+// for a user the udev rule in the README has not given it to: the driver
+// then dims with the shade over the picture alone, as with no backlight,
+// and leaves the backlight as it is.
+func usableBacklight(b *backlight) *backlight {
+	if b == nil {
+		return nil
+	}
+	if err := b.writable(); err != nil {
+		log.Printf("gunim: kms: %v; the screen dims without it, and blanking leaves it lit", err)
+		return nil
+	}
+	return b
+}
+
 // writable returns an error where the backlight's file cannot be written,
 // as for a user the udev rule in the README has not given it to. It opens
 // the file and writes nothing.
