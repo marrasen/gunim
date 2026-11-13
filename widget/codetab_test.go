@@ -38,40 +38,56 @@ func codeFormStage(t *testing.T, movesOn bool) codeForm {
 }
 
 // With TabMovesOn, Tab and Shift+Tab move through the editor as through
-// any field, and its focus fades out on every frame as the keyboard
-// leaves.
+// any field, and as the keyboard leaves it either way, its focus fades
+// out on every frame.
 func TestCodeTabMovesOnLeavesTabToFocus(t *testing.T) {
 	form := codeFormStage(t, true)
 	code, field, save, w, run, focused := form.code, form.field, form.save, form.w, form.run, form.focused
-	steps := []struct {
-		mods input.Mods
-		want gunim.Node
-	}{
-		{0, code},
-		{0, save},
-		{input.ModShift, code},
-		{input.ModShift, field},
-	}
-	for i, s := range steps {
-		w.Input(input.KeyPress{Key: input.KeyTab, Mods: s.mods})
+	// A fade from 1 to 0 takes many frames; a frame that moves the
+	// focus further than this is a jump.
+	const fadeStep = 0.25
+	press := func(mods input.Mods, want gunim.Node) {
+		t.Helper()
+		w.Input(input.KeyPress{Key: input.KeyTab, Mods: mods})
 		run(1)
-		if f := focused(); f != s.want {
-			t.Fatalf("step %d: Tab put the keyboard on %T, want %T", i, f, s.want)
+		if f := focused(); f != want {
+			t.Fatalf("Tab with %v put the keyboard on %T, want %T", mods, f, want)
 		}
-		if s.want == field {
-			// The editor's focus fades out, never rising, frame by frame.
-			last := code.focus.Value()
-			for range 40 {
-				run(1)
-				v := code.focus.Value()
-				if v > last+1e-6 {
-					t.Fatalf("the editor's focus rose from %v to %v as the keyboard left", last, v)
-				}
-				last = v
+	}
+	for _, way := range []struct {
+		name       string
+		mods       input.Mods
+		from, onto gunim.Node
+	}{
+		{"Tab", 0, field, save},
+		{"Shift+Tab", input.ModShift, save, field},
+	} {
+		if f := focused(); f != way.from {
+			t.Fatalf("%s: the keyboard is on %T, want %T", way.name, f, way.from)
+		}
+		press(way.mods, code)
+		run(60)
+		last := code.focus.Value()
+		if last != 1 {
+			t.Fatalf("%s: the editor's focus rests at %v with the keyboard on it, want 1", way.name, last)
+		}
+		// From the frame the key goes in, the focus falls on every frame,
+		// by no more than a step a fade takes, until it rests at 0.
+		w.Input(input.KeyPress{Key: input.KeyTab, Mods: way.mods})
+		frames := 0
+		for ; last > 0; frames++ {
+			if frames > 120 {
+				t.Fatalf("%s: the editor's focus is still at %v after %d frames", way.name, last, frames)
 			}
-			if last > 0.01 {
-				t.Fatalf("the editor's focus rests at %v after the keyboard left, want 0", last)
+			run(1)
+			v := code.focus.Value()
+			if v >= last || v < 0 || last-v > fadeStep {
+				t.Fatalf("%s: frame %d took the editor's focus from %v to %v, want a fall of at most %v", way.name, frames, last, v, fadeStep)
 			}
+			last = v
+		}
+		if f := focused(); f != way.onto {
+			t.Fatalf("%s: the keyboard left the editor for %T, want %T", way.name, f, way.onto)
 		}
 	}
 	if got := code.Text(); got != "ls" {
@@ -145,5 +161,25 @@ func TestCodeTabMovesOnEnterAddsNoIndent(t *testing.T) {
 	run(1)
 	if got := c.Text(); got != "\tx\n\t}" {
 		t.Fatalf("a closing brace made %q, want the indent kept", got)
+	}
+}
+
+// With TabMovesOn, Paste from the right-click menu turns tabs to spaces
+// too, as it goes through the editor's own paste.
+func TestCodeTabMovesOnMenuPasteTurnsTabsToSpaces(t *testing.T) {
+	c, w, run := codeStage(t, "")
+	c.TabMovesOn = true
+	if err := w.Offscreen().SetClipboard("a\tb"); err != nil {
+		t.Fatal(err)
+	}
+	rightClick(w, 300, 150)
+	run(2)
+	if c.menuItems == nil {
+		t.Fatal("a right click opened no edit menu")
+	}
+	c.menuItems.OnPick(editPaste, stageUI(t, w, run))
+	run(2)
+	if got := c.Text(); got != "a b" {
+		t.Fatalf("Paste from the menu made %q, want the tab a space", got)
 	}
 }

@@ -146,7 +146,9 @@ type CodeEditor struct {
 	// in a form, rather than indent. The code then holds no tab the user
 	// types or pastes: each becomes a space. Enter keeps the line's
 	// indent and adds none after an opening bracket, and a closing brace
-	// takes none back.
+	// takes none back. Set it before the editor is used: tabs typed
+	// while it was off stay in the undo history, and Redo can bring
+	// them back.
 	TabMovesOn bool
 
 	focus   *anim.Float
