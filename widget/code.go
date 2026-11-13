@@ -120,7 +120,8 @@ var codeWave = func() shape.Stroke {
 //
 // The caret glides between places, a band follows it from line to
 // line, and a mark from [CodeEditor.SetMarks] fades in on its line
-// with its message after the code.
+// with its message after the code. A Placeholder fades out as the
+// first character goes in, and back in when the code is empty again.
 type CodeEditor struct {
 	anim.Group
 	editor
@@ -150,8 +151,16 @@ type CodeEditor struct {
 	// while it was off stay in the undo history, and Redo can bring
 	// them back.
 	TabMovesOn bool
+	// Placeholder shows faintly where the first line's code would be
+	// while the editor holds none, as a hint at what to type. It is not
+	// part of the code: it cannot be selected or copied, and it is cut
+	// with an ellipsis where it is wider than the editor. A screen
+	// reader takes it as the editor's name when Label is empty.
+	Placeholder string
 
-	focus   *anim.Float
+	focus *anim.Float
+	// hint carries how much the placeholder shows, from 0 to 1.
+	hint    *anim.Float
 	caretAt *anim.Point
 	band    *anim.Float
 	// rows carries how many lines tall the editor is under MaxRows.
@@ -161,6 +170,9 @@ type CodeEditor struct {
 	marks   []*codeMark
 
 	held bool
+
+	// hintRun and hintEll are the placeholder and an ellipsis, shaped.
+	hintRun, hintEll shapedText
 
 	// The layout: the face, sizes and highlighter it is for, and the
 	// lines, kept up as the code changes.
@@ -234,6 +246,7 @@ func NewCodeEditor() *CodeEditor {
 		focus:      anim.NewFloat(0),
 		caretAt:    anim.NewPoint(geom.Point{}),
 		band:       anim.NewFloat(0),
+		hint:       anim.NewFloat(0),
 		rows:       anim.NewFloat(0),
 		scrollX:    anim.NewFloat(0),
 		scrollY:    anim.NewFloat(0),
@@ -241,7 +254,7 @@ func NewCodeEditor() *CodeEditor {
 	}
 	c.multiline, c.Numbers = true, true
 	c.tabs = func() bool { return !c.TabMovesOn }
-	c.Add(c.focus, c.caretAt, c.band, c.scrollX, c.scrollY, c.rows)
+	c.Add(c.focus, c.caretAt, c.band, c.scrollX, c.scrollY, c.rows, c.hint)
 	c.changed = func(u *gunim.UI) {
 		if c.OnChange != nil {
 			send(u, c, c.OnChange(c.Text(), u))
@@ -494,8 +507,26 @@ func (c *CodeEditor) Handle(e input.Event, u *gunim.UI) bool {
 	if _, lost := e.(input.FocusLost); !lost {
 		c.blink.restart(u)
 	}
+	// An edit starts the placeholder's fade on the frame it shows in.
+	c.followHint(th)
 	u.Invalidate()
 	return true
+}
+
+// followHint fades the placeholder in while there is no code, nor any
+// being composed, and out once there is; before the first layout it
+// jumps.
+func (c *CodeEditor) followHint(th *theme.Live) {
+	hint := float32(0)
+	if c.Placeholder != "" && len(c.text) == 0 && len(c.preedit) == 0 {
+		hint = 1
+	}
+	switch {
+	case !c.laid:
+		c.hint.Jump(hint)
+	case hint != c.hint.Target():
+		c.hint.Animate(hint, Quick.Get(th))
+	}
 }
 
 // submits reports whether k is an Enter that runs OnCommit.
@@ -913,6 +944,7 @@ func (c *CodeEditor) Layout(cs gunim.Constraints, f gunim.Frame, _ gunim.Childre
 	} else {
 		c.band.Animate(at.Y, motion)
 	}
+	c.followHint(th)
 
 	// Follow the caret when it has moved, the code has changed, or the
 	// view has changed size, so the wheel can scroll away from it.
@@ -1001,6 +1033,7 @@ func (c *CodeEditor) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gun
 
 	// The code, the lines in view and the pieces of them in view.
 	lift := (c.lineH - c.glyphH) / 2
+	c.paintPlaceholder(p, th, geom.Pt(o.X, o.Y+lift))
 	for li := first; li < last; li++ {
 		l := c.laidLine(li)
 		y := o.Y + float32(li)*c.lineH + lift
@@ -1062,6 +1095,18 @@ func (c *CodeEditor) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gun
 		edge.A = uint8(float32(edge.A) * focus * 0.8)
 		p.RRectStroke(all.Inset(geom.Uniform(0.5)), radius, paint.Fill{}, paint.Stroke{Width: 1, Color: edge})
 	}
+}
+
+// paintPlaceholder draws the placeholder with its top-left at at, where
+// the first line's code would be, in the code's face, faded by how much
+// it shows and cut to the width of the view.
+func (c *CodeEditor) paintPlaceholder(p *paint.Painter, th *theme.Live, at geom.Point) {
+	shown := min(max(c.hint.Value(), 0), 1)
+	if c.Placeholder == "" || shown <= 0 || c.laidFace == nil {
+		return
+	}
+	run := fitRun(c.hintRun.shape(c.laidFace, c.Placeholder, c.laidSize), &c.hintEll, c.view.W)
+	run.Paint(p, at, fadedBy(Placeholder.Get(th), shown))
 }
 
 // paintGutter draws the line numbers of lines first to last.
