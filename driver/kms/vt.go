@@ -134,7 +134,7 @@ func whichVT(which string, left *state) (num int, take bool, err error) {
 		num = ownVT()
 		return num, num != 0, nil
 	case "free":
-		if left != nil && left.Opened && left.VT > 0 {
+		if left != nil && left.Opened && left.VT > 0 && leftAsItWas(consoles, left.VT) {
 			return left.VT, true, nil
 		}
 		return 0, true, nil
@@ -289,12 +289,17 @@ func (t *vt) close() error {
 	if t.kbSaved {
 		errs = append(errs, c.ioctlInt(t.fd, kdSKBMode, uintptr(t.kbMode)))
 	}
-	if t.prev > 0 {
+	// Back to the VT before only from this one: where someone switched to
+	// another meanwhile, the screen stays theirs.
+	var st vtStat
+	errs = append(errs, c.ioctl(t.fd, vtGetState, unsafe.Pointer(&st)))
+	back := t.prev > 0 && int(st.active) == t.num
+	if back {
 		errs = append(errs, c.ioctlInt(t.fd, vtActivate, uintptr(t.prev)), waitActive(c, t.fd, t.prev))
 	}
 	errs = append(errs, c.close(t.fd))
 	t.fd = -1
-	if t.opened && t.prev > 0 {
+	if t.opened && back {
 		errs = append(errs, disallocate(c, t.num))
 	}
 	if err := errors.Join(errs...); err != nil {
@@ -356,11 +361,29 @@ func disallocate(c console, n int) error {
 	return nil
 }
 
+// leftAsItWas reports whether VT n is still in graphics mode, as a run that
+// crashed on it left it. A free VT in text mode again was taken since, as
+// by a login, and is someone else's.
+func leftAsItWas(c console, n int) bool {
+	fd, err := c.open(n)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = c.close(fd) }()
+	var mode int32
+	return c.ioctl(fd, kdGetMode, unsafe.Pointer(&mode)) == nil && mode == kdGraphics
+}
+
 // repairVT puts back a VT a run before took and did not give back, as its
 // state file says: text mode and a working keyboard on it, the VT that
 // showed before it showing again, and the VT given back if it opened it.
 func repairVT(c console, s state) error {
 	if s.VT <= 0 {
+		return nil
+	}
+	if s.Opened && !leftAsItWas(c, s.VT) {
+		// The free VT it took is someone else's now: it stays as it is.
+		log.Printf("gunim: kms: VT %d, which a run before took, is in use again; leaving it alone", s.VT)
 		return nil
 	}
 	fd, err := c.open(s.VT)

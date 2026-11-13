@@ -372,3 +372,67 @@ func TestAPopupLiesOverItsWindowAndTakesItsTouches(t *testing.T) {
 		t.Fatalf("placed again, the popup lies at %+v", l)
 	}
 }
+
+// Someone switches to another VT while the screen is blanked, and back:
+// the screen wakes as they return, from off, and the wait for dimming
+// starts again, so it doesn't go dark at once.
+func TestReturningToTheVTWakesABlankedScreen(t *testing.T) {
+	d := testDriver(0, 1)
+	d.blank = newBlanker(Blank{Dim: time.Minute, Off: 5 * time.Minute}, 1, bt0)
+	d.blank.step(after(5 * time.Minute))
+	d.blank.step(after(6 * time.Minute))
+	w, _ := d.NewWindow(driver.Options{})
+	win := w.(*Window)
+	defer func() { _ = win.Close() }()
+	r := &renderThread{d: d, off: true, away: true}
+	now := after(10 * time.Minute)
+	r.returned(now)
+	if r.off || r.away || r.set || d.away {
+		t.Fatalf("off %v, away %v, set %v, driver away %v; want the screen taken back and set again", r.off, r.away, r.set, d.away)
+	}
+	if d.blank.state != screenOn || !d.blank.last.Equal(now) {
+		t.Fatalf("the screen is %v, last woken %v; want on, from now", d.blank.state, d.blank.last.Sub(bt0))
+	}
+	if at := d.blank.next(now.Add(wakeFade)); !at.Equal(now.Add(time.Minute)) {
+		t.Fatalf("dims again at %v, want a minute after the return", at.Sub(now))
+	}
+	if _, ok := nextInput(t, win).(input.WindowShown); !ok {
+		t.Fatal("the window did not hear it is shown")
+	}
+}
+
+// A backlight step whose write failed is asked again: the step counts as
+// lit only once the backlight's goroutine has written it.
+func TestAFailedBacklightStepIsAskedAgain(t *testing.T) {
+	d := testDriver(0, 1)
+	d.light = &backlight{dir: t.TempDir(), max: 31, cur: 15}
+	d.lightTo = make(chan int, 1)
+	d.lit.Store(15)
+	r := &renderThread{d: d, lit: 15}
+	asked := func() int {
+		select {
+		case n := <-d.lightTo:
+			return n
+		default:
+			return -1
+		}
+	}
+	r.light(15)
+	if n := asked(); n != -1 {
+		t.Fatalf("asked for %d, the step the backlight is at", n)
+	}
+	r.light(0)
+	if n := asked(); n != 0 {
+		t.Fatalf("asked for %d, want 0", n)
+	}
+	// The write failed: the backlight is still at 15.
+	r.light(0)
+	if n := asked(); n != 0 {
+		t.Fatalf("after a failed write, asked for %d, want 0 again", n)
+	}
+	d.lit.Store(0) // written
+	r.light(0)
+	if n := asked(); n != -1 {
+		t.Fatalf("asked for %d once written", n)
+	}
+}

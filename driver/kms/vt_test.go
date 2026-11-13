@@ -272,9 +272,19 @@ func TestARestartTakesTheCrashedRunsVTAsItIs(t *testing.T) {
 // A free VT a crashed run opened is taken again, and the VT before it kept;
 // any other VT asked for repairs the crashed run's.
 func TestWhichVTReusesACrashedRunsFreeVT(t *testing.T) {
+	c := newFakeConsole(1)
+	c.mode[4] = kdGraphics
+	was := consoles
+	consoles = c
+	t.Cleanup(func() { consoles = was })
 	left := state{VT: 4, Prev: 1, Opened: true}
 	if n, take, err := whichVT("free", &left); err != nil || !take || n != 4 {
 		t.Fatalf("free after a crash on a free VT: %d %v %v", n, take, err)
+	}
+	// Someone logged in on it since: it is in text mode, and theirs.
+	c.mode[4] = kdText
+	if n, take, err := whichVT("free", &left); err != nil || !take || n != 0 {
+		t.Fatalf("free after the crashed run's VT was taken again: %d %v %v; want a new free VT", n, take, err)
 	}
 	if n, take, err := whichVT("free", nil); err != nil || !take || n != 0 {
 		t.Fatalf("free: %d %v %v", n, take, err)
@@ -412,5 +422,78 @@ func TestADarkBacklightIsNotKeptAsFound(t *testing.T) {
 	}
 	if got, _ := os.ReadFile(filepath.Join(bl, "brightness")); string(got) != "16" {
 		t.Fatalf("put back %q", got)
+	}
+}
+
+// A free VT a crashed run left, and someone has since logged in on, is in
+// text mode again: the next run's repair leaves it alone, and switches no
+// one away from it.
+func TestARepairLeavesAFreeVTInUseAlone(t *testing.T) {
+	c := newFakeConsole(4)
+	c.mode[4] = kdText
+	c.allocated[4] = true
+	if err := repairVT(c, state{VT: 4, Prev: 1, Opened: true}); err != nil {
+		t.Fatal(err)
+	}
+	if c.active != 4 || !c.allocated[4] || len(c.calls) != 0 {
+		t.Fatalf("showing %d, VT 4 allocated %v, calls %v; want VT 4 left alone", c.active, c.allocated[4], c.calls)
+	}
+}
+
+// On exit the driver switches back to the VT before only from its own: one
+// someone switched to meanwhile stays on the screen, and a free VT stays
+// allocated, as no switch made it safe to give back.
+func TestExitSwitchesBackOnlyFromItsOwnVT(t *testing.T) {
+	c := newFakeConsole(1)
+	v, err := takeVT(c, 0, nil, nil)
+	if err != nil || c.active != 2 {
+		t.Fatalf("took VT %d, showing %d, %v", v.num, c.active, err)
+	}
+	c.active = 5 // Ctrl+Alt+F5, or chvt 5
+	c.calls = nil
+	if err := v.close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, call := range c.calls {
+		if strings.HasPrefix(call, "show") || strings.HasPrefix(call, "give back") {
+			t.Fatalf("closed with %v, want no switch and no give back", c.calls)
+		}
+	}
+	if c.active != 5 {
+		t.Fatalf("showing %d, want 5", c.active)
+	}
+}
+
+// A backlight the user may not write is no backlight: the shade dims alone,
+// and blanking leaves the backlight lit as it was.
+func TestABacklightThatCannotBeWrittenIsNone(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root writes any file")
+	}
+	dir := t.TempDir()
+	bl := filepath.Join(dir, "panel")
+	if err := os.Mkdir(bl, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, v := range map[string]string{"max_brightness": "31", "brightness": "15"} {
+		if err := os.WriteFile(filepath.Join(bl, name), []byte(v), 0o444); err != nil {
+			t.Fatal(err)
+		}
+	}
+	was := sysBacklight
+	sysBacklight = dir
+	t.Cleanup(func() { sysBacklight = was })
+	b, err := openBacklight("")
+	if err != nil || b == nil {
+		t.Fatalf("%v, %v", b, err)
+	}
+	if usableBacklight(b) != nil {
+		t.Fatal("a read-only backlight is used")
+	}
+	if err := os.Chmod(filepath.Join(bl, "brightness"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if usableBacklight(b) != b {
+		t.Fatal("a writable backlight is not used")
 	}
 }

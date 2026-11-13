@@ -324,6 +324,10 @@ func (r *renderThread) blanking() {
 	case off && !r.off && !r.flying && !r.away:
 		r.powerOff()
 		return
+	case off && r.off && !r.away:
+		// A backlight write that failed is tried again.
+		r.light(0)
+		return
 	case !off && r.off:
 		r.powerOn()
 	}
@@ -366,9 +370,10 @@ func (r *renderThread) powerOn() {
 var debugBlank = os.Getenv("GUNIM_DEBUG_FRAMES") != ""
 
 // light asks the backlight for a step, where it is not on it already. The
-// backlight's own goroutine writes it, as a write goes over I²C.
+// backlight's own goroutine writes it, as a write goes over I²C. A step
+// whose write failed is asked again the next time.
 func (r *renderThread) light(level int) {
-	if r.d.light == nil || level == r.lit {
+	if r.d.light == nil || level == r.lit && int32(level) == r.d.lit.Load() {
 		return
 	}
 	if debugBlank {
@@ -851,7 +856,7 @@ func (d *Driver) leaveVT() {
 }
 
 // returnVT takes the screen back as its VT shows again: DRM master, then
-// the mode, with every window drawn whole.
+// the mode, with every window drawn whole and the screen awake.
 func (d *Driver) returnVT() {
 	r := d.rt
 	if err := d.vt.acquired(); err != nil {
@@ -860,14 +865,22 @@ func (d *Driver) returnVT() {
 	if err := d.scr.card.setMaster(); err != nil {
 		log.Printf("gunim: kms: take the screen back: %v", err)
 	}
-	r.away, r.set, r.back = false, false, time.Now()
+	r.returned(time.Now())
+}
+
+// returned takes the screen back on the render thread's side: someone just
+// switched to this VT, so the screen wakes, from blanked too, and the wait
+// for dimming starts again. The display, off or not, is set again by the
+// next frame's modeset.
+func (r *renderThread) returned(now time.Time) {
+	d := r.d
+	r.away, r.set, r.off, r.back = false, false, false, now
 	d.mu.Lock()
 	d.away = false
+	d.blank.wake(now)
 	d.mu.Unlock()
 	r.prevFlip, r.prevSeq = time.Time{}, 0
-	if !r.off {
-		d.pushAll(input.WindowShown{Time: time.Now()}, driver.Redraw{})
-	}
+	d.pushAll(input.WindowShown{Time: now}, driver.Redraw{})
 }
 
 // pushAll sends evs to every window.
