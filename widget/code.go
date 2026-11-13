@@ -120,8 +120,9 @@ var codeWave = func() shape.Stroke {
 //
 // The caret glides between places, a band follows it from line to
 // line, and a mark from [CodeEditor.SetMarks] fades in on its line
-// with its message after the code. A Placeholder fades out as the
-// first character goes in, and back in when the code is empty again.
+// with its message after the code. A Placeholder goes at once as the
+// first character goes in, and fades back in when the code is empty
+// again.
 type CodeEditor struct {
 	anim.Group
 	editor
@@ -156,6 +157,12 @@ type CodeEditor struct {
 	// part of the code: it cannot be selected or copied, and it is cut
 	// with an ellipsis where it is wider than the editor. A screen
 	// reader takes it as the editor's name when Label is empty.
+	//
+	// It is never drawn under code or a composition: on the frame the
+	// first character shows, typed, pasted, composed or brought back by
+	// undo or redo, it is gone, as the character takes its place. When
+	// the code is empty again it fades in from nothing on the theme's
+	// Quick spring.
 	Placeholder string
 
 	focus *anim.Float
@@ -514,19 +521,26 @@ func (c *CodeEditor) Handle(e input.Event, u *gunim.UI) bool {
 }
 
 // followHint fades the placeholder in while there is no code, nor any
-// being composed, and out once there is; before the first layout it
-// jumps.
+// being composed, and drops it at once when there is, even part-way
+// through fading in, so it is never drawn under the code; before the
+// first layout it jumps.
 func (c *CodeEditor) followHint(th *theme.Live) {
 	hint := float32(0)
-	if c.Placeholder != "" && len(c.text) == 0 && len(c.preedit) == 0 {
+	if c.hintShows() {
 		hint = 1
 	}
 	switch {
-	case !c.laid:
+	case !c.laid || hint == 0:
 		c.hint.Jump(hint)
 	case hint != c.hint.Target():
 		c.hint.Animate(hint, Quick.Get(th))
 	}
+}
+
+// hintShows reports whether the placeholder may show: there is one,
+// and the editor holds no code and no composition.
+func (c *CodeEditor) hintShows() bool {
+	return c.Placeholder != "" && len(c.text) == 0 && len(c.preedit) == 0
 }
 
 // submits reports whether k is an Enter that runs OnCommit.
@@ -1102,7 +1116,7 @@ func (c *CodeEditor) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gun
 // it shows and cut to the width of the view.
 func (c *CodeEditor) paintPlaceholder(p *paint.Painter, th *theme.Live, at geom.Point) {
 	shown := min(max(c.hint.Value(), 0), 1)
-	if c.Placeholder == "" || shown <= 0 || c.laidFace == nil {
+	if !c.hintShows() || shown <= 0 || c.laidFace == nil {
 		return
 	}
 	run := fitRun(c.hintRun.shape(c.laidFace, c.Placeholder, c.laidSize), &c.hintEll, c.view.W)

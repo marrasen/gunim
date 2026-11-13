@@ -38,6 +38,28 @@ func hintOp(w *gunim.Window) *paint.TextOp {
 	return nil
 }
 
+// goneAt runs the frame an edit shows in and the frames after it, and
+// fails on any of them that draws the placeholder or leaves its spring
+// above nothing, as the editor holds code or a composition on all of
+// them. The placeholder must never be drawn under the code, not even
+// fading out.
+func goneAt(t *testing.T, c *CodeEditor, w *gunim.Window, run func(int), what string) {
+	t.Helper()
+	for frame := range 30 {
+		run(1)
+		if len(c.text) == 0 && len(c.preedit) == 0 {
+			t.Fatalf("%s: frame %d has no code and no composition", what, frame)
+		}
+		if v := c.hint.Value(); v != 0 || c.hint.Active() {
+			t.Fatalf("%s: frame %d has the placeholder at %v, moving %v, under the code; want it gone at once",
+				what, frame, v, c.hint.Active())
+		}
+		if hintOp(w) != nil {
+			t.Fatalf("%s: frame %d drew the placeholder under the code", what, frame)
+		}
+	}
+}
+
 // fadeTo runs frames until the placeholder rests at want, and fails on
 // a frame that moves it the wrong way or by a jump. The first frame, the
 // one the edit shows in, must already move it. What shows is the spring
@@ -138,20 +160,21 @@ func TestCodePlaceholderSitsWhereTheCodeWouldBe(t *testing.T) {
 	}
 }
 
-// Typing, pasting and composing each fade the placeholder out, and
-// emptying the code, by deleting, undoing or cancelling, fades it back,
-// on every frame.
-func TestCodePlaceholderFadesOutAndBack(t *testing.T) {
+// Typing, pasting, composing, undo and redo each put the placeholder
+// away on the very frame the first character shows, and keep it away
+// while there is code. Emptying the code, by deleting, undoing or
+// cancelling, fades it back from nothing, on every frame.
+func TestCodePlaceholderGoesAtOnceAndFadesBack(t *testing.T) {
 	c, w, run := placeholderStage(t)
 	if c.hint.Value() != 1 {
 		t.Fatalf("the placeholder starts at %v, want 1 from the first frame", c.hint.Value())
 	}
 
-	w.Input(input.TextInput{Text: "ls"})
-	fadeTo(t, c, w, run, 0, "typing")
-	typeKeys(w, run, 0, input.KeyBackspace, input.KeyBackspace)
+	w.Input(input.TextInput{Text: "l"})
+	goneAt(t, c, w, run, "typing")
+	w.Input(input.KeyPress{Key: input.KeyBackspace})
 	if c.Text() != "" {
-		t.Fatalf("two backspaces left %q", c.Text())
+		t.Fatalf("a backspace left %q", c.Text())
 	}
 	fadeTo(t, c, w, run, 1, "deleting all")
 
@@ -159,25 +182,56 @@ func TestCodePlaceholderFadesOutAndBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	w.Input(input.KeyPress{Key: input.KeyV, Mods: input.ModControl})
-	fadeTo(t, c, w, run, 0, "pasting")
+	goneAt(t, c, w, run, "pasting")
 	w.Input(input.KeyPress{Key: input.KeyZ, Mods: input.ModControl})
-	fadeTo(t, c, w, run, 1, "undo")
+	fadeTo(t, c, w, run, 1, "undoing the paste")
 	w.Input(input.KeyPress{Key: input.KeyZ, Mods: input.ModControl | input.ModShift})
 	if c.Text() != "make" {
 		t.Fatalf("redo made %q, want the paste back", c.Text())
 	}
-	fadeTo(t, c, w, run, 0, "redo")
+	goneAt(t, c, w, run, "redo")
 	typeKeys(w, run, input.ModControl, input.KeyA)
 	w.Input(input.KeyPress{Key: input.KeyDelete})
 	fadeTo(t, c, w, run, 1, "deleting the selection")
+	w.Input(input.KeyPress{Key: input.KeyZ, Mods: input.ModControl})
+	if c.Text() != "make" {
+		t.Fatalf("undo made %q, want the deleted code back", c.Text())
+	}
+	goneAt(t, c, w, run, "undoing the delete")
+	typeKeys(w, run, input.ModControl, input.KeyA)
+	w.Input(input.KeyPress{Key: input.KeyDelete})
+	fadeTo(t, c, w, run, 1, "deleting the selection again")
 
 	w.Input(input.Composing{Text: "に", Selected: [2]int{3, 3}})
-	fadeTo(t, c, w, run, 0, "composing")
+	goneAt(t, c, w, run, "composing")
 	if c.Text() != "" {
 		t.Fatalf("a composition put %q in the code", c.Text())
 	}
 	w.Input(input.Composing{})
 	fadeTo(t, c, w, run, 1, "cancelling the composition")
+}
+
+// Emptying the code and typing again while the placeholder is still
+// fading in puts it away at once, from wherever the fade had got to.
+func TestCodePlaceholderGoesAtOnceMidFade(t *testing.T) {
+	for _, edit := range []struct {
+		what string
+		in   input.Event
+	}{
+		{"typing", input.TextInput{Text: "x"}},
+		{"composing", input.Composing{Text: "に", Selected: [2]int{3, 3}}},
+	} {
+		c, w, run := placeholderStage(t)
+		w.Input(input.TextInput{Text: "l"})
+		goneAt(t, c, w, run, edit.what+" first")
+		typeKeys(w, run, 0, input.KeyBackspace)
+		run(2)
+		if v := c.hint.Value(); v <= 0 || v >= 1 || hintOp(w) == nil {
+			t.Fatalf("%s: three frames after emptying, the placeholder is at %v, want part-way in", edit.what, v)
+		}
+		w.Input(edit.in)
+		goneAt(t, c, w, run, edit.what+" mid-fade")
+	}
 }
 
 // The placeholder is never code: the text getter, a selection, Copy and
