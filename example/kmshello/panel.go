@@ -75,7 +75,29 @@ func (p *panel) show(s Plants, u *gunim.UI) {
 		p.opened = true
 		u.Focus(p.screen.name)
 	}
+	if !p.opened && s.Show == "tour" {
+		p.opened = true
+		p.tour(0, u)
+	}
 	u.Invalidate()
+}
+
+// tour walks the screens, one step a second, for measuring how the panel draws while it moves: a bed's screen
+// slides in, its keyboard comes up and goes down, the screen slides out, and the PIN pad slides in and out.
+func (p *panel) tour(step int, u *gunim.UI) {
+	switch step % 6 {
+	case 0:
+		p.open(step/6%len(p.beds), u)
+	case 1:
+		u.Focus(p.screen.name)
+	case 2:
+		u.Focus(nil)
+	case 3, 5:
+		p.stack.Pop(u)
+	case 4:
+		p.stack.Push(p.pinScreen(), u)
+	}
+	u.After(time.Second, func(u *gunim.UI) { p.tour(step+1, u) })
 }
 
 // open pushes bed i's own screen.

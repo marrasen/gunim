@@ -15,6 +15,8 @@
 //	go run ./example/kmshello
 //
 // -light draws it in the light theme, and -shot file.png saves a picture of it and ends, for documentation.
+// -show tour walks the screens by itself, a step a second, for measuring frames on the hardware with
+// GUNIM_DEBUG_FRAMES=1.
 package main
 
 import (
@@ -40,7 +42,8 @@ type (
 	// Plants is what the panel shows.
 	Plants struct {
 		Beds []Bed
-		// Show is the screen to open on, for a picture of it: "", "bed", "name" or "pin".
+		// Show is the screen to open on, for a picture of it: "", "bed", "name" or "pin". "tour" walks the screens
+		// one step a second, for measuring how the panel draws while it moves.
 		Show string
 	}
 	// Bed is one bed: its name, how moist its soil is in per cent, whether it is being watered, whether it is
@@ -92,7 +95,7 @@ func main() {
 	var k kmsFlags
 	flag.BoolVar(&o.light, "light", false, "draw in the light theme")
 	flag.StringVar(&o.shot, "shot", "", "save a picture of the panel to this PNG file, and end")
-	flag.StringVar(&o.show, "show", "", `open on a screen, for a picture: "bed", "name" or "pin"`)
+	flag.StringVar(&o.show, "show", "", `open on a screen, for a picture: "bed", "name" or "pin"; "tour" walks them`)
 	desktop := flag.Bool("window", !kmsDefault(), "open a window on the desktop, not the full screen through KMS")
 	k.add()
 	flag.Parse()

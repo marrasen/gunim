@@ -382,20 +382,20 @@ func (k *Keyboard) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Childre
 	child.Layout(gunim.Tight(geom.Sz(size.W, max(size.H-shown, 0))))
 	child.Place(geom.Point{})
 
-	// The keys: ten to a row, each row centred.
+	// The keys: ten to a row, each row centred. A key as wide as several takes the gaps between them too.
 	unit := (size.W - 11*gap) / 10
+	wide := func(key kbKey) float32 { return key.wide*unit + (key.wide-1)*gap }
 	k.rects = k.rects[:0]
 	y := k.top + gap
 	for _, row := range rows {
 		w := -gap
 		for _, key := range row {
-			w += key.wide*unit + gap
+			w += wide(key) + gap
 		}
 		x := (size.W - w) / 2
 		for _, key := range row {
-			kw := key.wide*unit + (key.wide-1)*gap
-			k.rects = append(k.rects, geom.Rc(x, y, kw, h))
-			x += kw + gap
+			k.rects = append(k.rects, geom.Rc(x, y, wide(key), h))
+			x += wide(key) + gap
 		}
 		y += h + gap
 	}

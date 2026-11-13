@@ -64,7 +64,7 @@ func TestTheTouchThemeFollowsTheDesignLanguage(t *testing.T) {
 		t.Fatal("the touch theme sets text in another face than Inter")
 	}
 	for _, tok := range []theme.Token[float32]{ButtonHeight, FieldHeight, ControlHeight, MenuRowHeight, TabHeight,
-		SegmentedHeight, ChipHeight, NavRowHeight, PinKeyLeast} {
+		SegmentedHeight, ChipHeight, NavRowHeight, PinKeyLeast, KeyboardKey} {
 		if v := tok.Get(th); v < 48 {
 			t.Errorf("%s is %v under the touch theme, want 48 or more", tok.Key(), v)
 		}
@@ -689,6 +689,14 @@ func TestAKeyboardSlidesUpForAField(t *testing.T) {
 	}
 	if !k.Shown() || last > 400-k.height+0.5 {
 		t.Fatalf("open, the keyboard's top is at %v, want %v", last, 400-k.height)
+	}
+	for i, r := range k.rects {
+		if r.Min.X < 0 || r.Max.X > 600 || r.Max.Y > 400 {
+			t.Fatalf("key %d lies at %v, outside the keyboard's 600 by 400", i, r)
+		}
+		if r.Size().H < KeyboardKey.Get(theme.NewLive(Dark().With(Touch...))) {
+			t.Fatalf("key %d is %v tall", i, r.Size().H)
+		}
 	}
 	g.ui.Focus(nil)
 	run(60)

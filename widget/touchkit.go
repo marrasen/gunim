@@ -93,6 +93,7 @@ var Touch = []theme.Entry{
 	theme.Set(TreeRowHeight, 48),
 	theme.Set(PaletteRowHeight, 48),
 	theme.Set(ListSpacing, 8),
+	theme.Set(KeyboardKey, 48),
 
 	theme.Set(Gap, 8),
 	theme.Set(Margin, geom.Uniform(16)),
