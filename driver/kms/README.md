@@ -168,10 +168,12 @@ presses what lies under it. `Window.KeepAwake(true)` holds the screen on; `Windo
 with no touch. A backlight write that fails while the screen fades reaches `Driver.Errors`.
 
 While the screen is off, and while another VT has it, the windows draw no frames, so their
-timers and intents wait. They hear `input.WindowHidden` as that starts and `input.WindowShown` as
-it ends, as on other platforms. `Driver.Showing` says which it is now, from any goroutine. A
-program that proves it is alive from its window, as to systemd's watchdog, asks it meanwhile:
-a window that has gone quiet while the screen shows is hung, and one that is quiet while the
+timers (`UI.After`) wait for the screen to show again. They hear `input.WindowHidden` as that
+starts and `input.WindowShown` as it ends, once each, as on other platforms; a window that opens
+meanwhile hears it is hidden. `Driver.Showing` says which it is now, from any goroutine, and turns
+true as the kernel switches back to the driver's VT, before the screen is taken back. A program
+that proves it is alive from a window's timer, as to systemd's watchdog, asks it meanwhile: a
+window whose timers stop while the screen shows is hung, and one whose timers wait while the
 screen doesn't show is waiting.
 
 ## Measuring
