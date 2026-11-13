@@ -1,6 +1,7 @@
 # Plan: `driver/kms`, full-screen touch on a Raspberry Pi
 
-A plan only, for the owner to read and adjust. No code yet.
+The owner answered the open questions on 2026-11-13 (section 7), and the plan below follows those answers. K1 is
+the first code.
 
 **The point.** gunim gets a new driver, `driver/kms`. It draws one full-screen UI straight to a Raspberry Pi 5's
 screen, with no X or Wayland, and takes touch from the kernel. The first user is Hjortron's touch console (M3 in
@@ -77,16 +78,24 @@ Read: `docs/poc-plan.md` (M3), `docs/design.md` §9 and §11, `docs/install-pi.m
   loaded at run time, `PrivateNetwork=yes`, the PIN before every change, and a screen that blanks and wakes on touch.
 - **Design §11** wants the front, the store and the console as three separate users, each in its own sandbox, and
   "a single static Go binary" whose only runtime libraries are Mesa's, for the console.
-- **The trial Pi** runs Debian 13 with kernel `6.18.50+rpt-rpi-2712`. Debian 13 ships Mesa 25.0.
+- **The trial Pi** runs Raspberry Pi OS Lite on Debian 13, with kernel `6.18.50+rpt-rpi-2712`, and Mesa 26.2.6 from
+  Raspberry Pi's archive (`libgbm1`, `libgl1-mesa-dri`). It does not have Mesa's EGL and OpenGL ES libraries
+  (`libegl1`, `libegl-mesa0`, `libgles2`), so Hjortron's install adds them (section 5.2).
 
 ### The platform, from primary sources
 
 **The Pi 5's display and GPU.**
 
-- Display and GPU are two kernel drivers. Mesa's V3D page says: "the kernel uses the VC4 DRM driver for display
+- Display and GPU are separate kernel drivers. Mesa's V3D page says: "the kernel uses the VC4 DRM driver for display
   support", while rendering goes through the V3D kernel driver. Mesa's `kmsro` helpers share buffers between the
-  two. So there are two device files: a primary node for vc4 (`/dev/dri/cardN`, for modesetting) and a render node
-  for v3d (`/dev/dri/renderD128`). The card numbers are not fixed, so the driver finds vc4 by name. [Mesa V3D]
+  two. [Mesa V3D]
+- **On the trial Pi the DSI panel is not on vc4.** It is on the RP1 chip's DSI controller, with a driver of its own,
+  `drm-rp1-dsi`. So there are three cards: `card0` is `drm-rp1-dsi` with the connector `DSI-2`, `card1` is v3d, and
+  `card2` is `vc4-drm` with the two HDMI ports. The render node is v3d's `/dev/dri/renderD128`. Mesa has a `kmsro`
+  entry for it (`drm-rp1-dsi_dri.so`). The card numbers are not fixed, so the driver finds the screen by a connected
+  connector on a card that can set modes, not by a driver's name.
+- `drm-rp1-dsi` is a `drm_simple_display_pipe`: one plane, linear buffers in contiguous memory, formats such as
+  `XRGB8888` and `RGB565`, and no rotation property (`drivers/gpu/drm/rp1/rp1-dsi/rp1_dsi.c` on `rpi-6.18.y`).
 - V3D is a "conformant GLES3.1 driver" on V3D 7.1, the Pi 5's GPU (VideoCore VII). [Mesa V3D] It was conformant
   for OpenGL ES 3.1 and Vulkan 1.2 at the Pi 5's launch [Igalia 2023], and Vulkan 1.3 since 2024 [Igalia XDC 2024].
   gunim's renderer needs only OpenGL ES 3.0, so it has room to spare.
@@ -98,7 +107,8 @@ Read: `docs/poc-plan.md` (M3), `docs/design.md` §9 and §11, `docs/install-pi.m
   DPMS", which is how the screen turns off. [KMS]
 - **Rotation.** vc4's planes support only `DRM_MODE_ROTATE_0`, `DRM_MODE_ROTATE_180`, `REFLECT_X` and `REFLECT_Y`
   (`drm_plane_create_rotation_property` in `drivers/gpu/drm/vc4/vc4_plane.c`, checked on the `rpi-6.18.y` branch).
-  So a landscape UI on this portrait panel has to be drawn turned by gunim. The display hardware cannot do 90°.
+  `drm-rp1-dsi` has no rotation at all. So a landscape UI on this portrait panel has to be drawn turned by gunim. The
+  display hardware cannot do 90°.
 
 **The Touch Display 2.** [Pi Touch Display 2]
 
@@ -106,7 +116,11 @@ Read: `docs/poc-plan.md` (M3), `docs/design.md` §9 and §11, `docs/install-pi.m
 - The 7" active area is 87 × 154.5 mm, about 210 pixels per inch. The 5" is 62 × 110.5 mm, about 295 pixels per
   inch.
 - It runs at 60 Hz (`video=DSI-1:720x1280@60` in the docs). Video and touch come over the DSI ribbon. Power comes
-  from the GPIO header.
+  from the GPIO header. On the trial Pi the mode is 720 × 1280 with an 83 333 kHz clock, 937 by 1 482 in total:
+  60.01 Hz.
+- **The trial Pi has one fitted**: a 7" on `card0-DSI-2`, found by `display_auto_detect=1` with no `dtoverlay` line
+  in `config.txt`. Its touch shows up as `11-005d Goodix Capacitive TouchScreen`, and its backlight as
+  `/sys/class/backlight/panel_backlight@1`, at 15 of 31.
 - The kernel's `rotate=` on the command line "only affects the text-mode console". It does nothing for a KMS program.
 - The device tree overlay is `vc4-kms-dsi-ili9881-7inch` (or `-5inch`), with `rotation`, `invx`, `invy`, `swapxy`,
   `sizex`, `sizey` and `disable_touch`. [Pi overlays]
@@ -150,7 +164,8 @@ Read: `docs/poc-plan.md` (M3), `docs/design.md` §9 and §11, `docs/install-pi.m
 ## 1. Goals in numbers
 
 All figures are for a Pi 5 (4 GB) with the 7" Touch Display 2 at 60 Hz, running the heaviest Hjortron screen while it
-animates, unless a line says otherwise.
+animates, unless a line says otherwise. There are no power goals: there is no USB-C power meter (decision 11), so CPU
+use and frames at rest stand in for power.
 
 | Goal | Target | How it is measured |
 |---|---|---|
@@ -163,8 +178,8 @@ animates, unless a line says otherwise.
 | Memory, Hjortron UI process | RSS ≤ 120 MB; no growth over a 1-hour run | `/proc/self/status`, heap after GC |
 | Garbage per frame in the driver | 0 allocations | `testing.AllocsPerRun` |
 | CPU at rest, screen on | ≤ 0.5 % of one core, 0 frames drawn | `/proc/self/stat` over 60 s |
-| Screen blanked | backlight 0, CRTC off, 0 frames | the driver's state, and a USB-C power meter |
-| Power | blanked ≤ +0.1 W over the console not running; animating ≤ +1.5 W | USB-C power meter (open question 11) |
+| CPU while animating | recorded in each PR, no target yet | `/proc/self/stat` over 60 s |
+| Screen blanked | backlight 0, CRTC off, 0 frames | the driver's state |
 | The store's speed while the UI animates | at most 3 % slower | Hjortron's upload measurement with and without the demo running |
 
 **Why these numbers.**
@@ -187,7 +202,8 @@ animates, unless a line says otherwise.
   if any is missed and prints which. The touch script plays through the driver's own input path from a recorded
   file, so it needs no `uinput` and no root.
 - **The same run as a Go test**: `go test -tags kmspi ./driver/kms/...` on the Pi. It skips with a message where
-  there is no vc4 device. No CI machine has a Pi, so the owner runs it at each milestone (open question 10).
+  there is no screen to take. No CI machine has a Pi, so an agent runs it on the trial Pi over SSH at each
+  milestone, and the figures go in that milestone's PR (decision 10).
 - **Tests that run everywhere, in CI.** These need no Pi:
   - evdev decoding from byte streams recorded once on the trial Pi and checked in: taps, five fingers, a palm, and a
     `SYN_DROPPED` (events lost to a full buffer) with the resync that follows;
@@ -247,22 +263,24 @@ gunim engine (unchanged)  ── driver.Driver / driver.Window ──  driver/km
 would cost more than the whole driver.
 
 **With no GPU.** If EGL or GBM fails on the hardware GPU, the driver tries Mesa's software renderer through the same
-path. `LIBGL_ALWAYS_SOFTWARE=1` should give Mesa's `kms_swrast` and llvmpipe on GBM; K2 checks that on the Pi. The
+path. `LIBGL_ALWAYS_SOFTWARE=1` should give Mesa's `kms_swrast` and llvmpipe on GBM; K1 checks that on the Pi. The
 program looks the same and runs slower.
-The driver logs why, and sets a flag the app can read (`kms.Window.Software()`), so an app can show a banner or drop
-blurs. If that fails too, `kms.Open` returns the error and the program stops. systemd then shows it in the journal.
+The driver logs why, and sets a flag the app can read (`kms.Window.Software()`), so an app can show a small notice or
+drop blurs. Hjortron's console shows a small notice that it draws without the GPU (decision 8). If that fails too, `kms.Open` returns the error and the program stops. systemd then shows it in the journal.
 The driver never shows a blank screen while claiming to run.
 
 ### 2.3 Buffers, commits and vsync
 
-1. **Find the display.** Open each `/dev/dri/card*`, ask `DRM_IOCTL_VERSION` for its name, and keep the one called
-   `vc4` that has a connected connector. `kms.Options.Connector` can name one (`"DSI-1"`, `"HDMI-A-1"`). The default
-   prefers DSI, then the first connected HDMI.
+1. **Find the display.** Open each `/dev/dri/card*` and keep the cards that can set modes (they have connectors;
+   v3d has none). Of their connected connectors, the default prefers DSI, then the first connected HDMI.
+   `kms.Options.Connector` can name one (`"DSI-2"`, `"HDMI-A-1"`). On the trial Pi that is `drm-rp1-dsi` on
+   `card0`, and on a Pi with its panel on vc4 it is vc4.
 2. **Take it.** Turn on `DRM_CLIENT_CAP_UNIVERSAL_PLANES` and `DRM_CLIENT_CAP_ATOMIC`. Read the connector's preferred
    mode, its CRTC and its primary plane. Opening the card first makes the process master with no capability.
 3. **Make the context.** `gbm_create_device` on the card. `eglGetPlatformDisplay(EGL_PLATFORM_GBM_KHR, ...)`
-   [EGL GBM], an ES 3 context, and a `gbm_surface` of the mode's size in `XRGB8888`. If the surface wants format
-   modifiers, ask for the ones the plane's `IN_FORMATS` lists.
+   [EGL GBM], an ES 3 context, and a `gbm_surface` of the mode's size in `XRGB8888`, with
+   `GBM_BO_USE_SCANOUT | GBM_BO_USE_RENDERING`. If the plane lists format modifiers (`IN_FORMATS`), ask for those.
+   `drm-rp1-dsi` lists none, so its buffers are linear, in memory the display can reach.
 4. **Each frame.** `compose` draws into the surface. Then `eglSwapBuffers`, `gbm_surface_lock_front_buffer`, and
    `DRM_IOCTL_MODE_ADDFB2` for that buffer, kept in a small cache keyed by buffer so each buffer is added once.
 5. **Commit.** One atomic commit sets `FB_ID` on the primary plane, with `DRM_MODE_PAGE_FLIP_EVENT` and
@@ -331,7 +349,9 @@ vary by 100 %.
 
 ### 2.7 Rotation
 
-- `kms.Options.Rotate` takes 0, 90, 180 or 270. 0 and 180 can use the plane's rotation property, which costs nothing.
+- `kms.Options.Rotate` takes 0, 90, 180 or 270, and Hjortron uses 90 (decision 1).
+- 180 can use the plane's rotation property where there is one, which costs nothing. `drm-rp1-dsi` has none, so there
+  it is drawn turned like 90 and 270.
 - 90 and 270 are drawn turned. gunim lays the window out at the turned size (1280 × 720 for landscape). `compose`
   draws it into its texture as usual, and its last pass lays that texture on the screen with a turned quad. That
   pass is one full-screen copy, under half a millisecond on V3D.
@@ -354,7 +374,8 @@ vary by 100 %.
   - the backlight takes the nearest step at or above the value;
   - a black overlay in the final `compose` pass makes up the rest.
   The fade is smooth even though the hardware is not.
-- **Blanking**, set by `kms.Options.Blank` (a dim time and an off time):
+- **Blanking**, set by `kms.Options.Blank` (a dim time and an off time). Hjortron dims after 1 minute and turns off
+  after 5 (decision 6):
   1. after the dim time, fade to 30 % over 1 s;
   2. after the off time, fade to black over 600 ms, set the backlight to 0, then commit `ACTIVE = 0`. The panel and
      the CRTC are off. No frames run and no GPU work happens.
@@ -376,7 +397,9 @@ UI. The driver:
 - turns off the VT's keyboard handling (`KDSKBMODE K_OFF`), so keys don't reach a login behind it;
 - with `kms.Options.VTSwitch`, takes Ctrl+Alt+F1 to F12 itself and switches VT (`VT_ACTIVATE`). It lets go of DRM
   master while away (`VT_SETMODE VT_PROCESS`), and takes it back on return. This keeps root's login on another VT,
-  with a USB keyboard, which Hjortron's install guide relies on (`Alt+F2`);
+  with a USB keyboard, which Hjortron's install guide relies on (`Alt+F2`). It is a repair path only (decision 9);
+- with `kms.Options.VT` set to "free", opens the first free VT and switches to it, and switches back on exit. That is
+  how a test run over SSH leaves tty1 and its login alone;
 - puts the VT back as it found it on exit, on `SIGTERM` and on a panic. The unit's `TTYReset=yes` covers a crash
   that skips even that.
 
@@ -414,8 +437,8 @@ What a touch screen adds is listed below, then a small design language that hold
    and `audioui` add their light values. It raises row heights, paddings and the least target size, and turns off
    what a finger can't use (tooltips, hover).
 5. **A PIN pad, an on-screen keyboard and a hold-to-confirm button** (section 3.3).
-6. **A font.** Raspberry Pi OS Lite has few fonts, and a sandbox may hide them. The touch kit embeds one UI font
-   under the SIL Open Font License, such as Inter, at regular and semibold, about 600 KB (open question 12). gunim's
+6. **A font.** Raspberry Pi OS Lite has few fonts, and a sandbox may hide them. The touch kit embeds Inter, under
+   the SIL Open Font License, at regular and semibold, about 600 KB (decision 12). gunim's
    shaping, hinting and glyph atlas then work as anywhere. At 1.25 scale on 210 ppi, body text of 17 logical pixels
    is 21 device pixels: sharp with greyscale smoothing.
 7. **Brightness fades,** smooth across 32 backlight steps (section 2.9).
@@ -438,8 +461,8 @@ springs from the theme, the first layout jumps, tests on every frame from awkwar
   number keys.
 - **`widget.Keyboard`**: letters, digits and a few signs, in a panel that slides up from the bottom. It feeds
   `TextField` through the same `input.TextEdit` path Android's keyboard uses.
-- **`widget.HoldButton`**: for the gravest changes, such as revoking a device, if the owner wants it on top of the
-  PIN. Press and hold for 1 s while a ring fills. Lifting early lets the ring drain back (open question 7).
+- **`widget.HoldButton`**: for the gravest changes, on top of the PIN. Hjortron uses it to revoke a device and to
+  remove a guest (decision 7). Press and hold for 1 s while a ring fills. Lifting early lets the ring drain back.
 - **`widget.Stack`**: screens pushed and popped, with the edge swipe of 3.2.
 
 ### 3.4 A small design language
@@ -495,12 +518,15 @@ the console service what the front is to the store.
   refused.
 - The UI keeps a typed PIN only until it is sent, then clears it.
 
+Decisions 3 and 5 settle this: two processes, with the UI never running as root, and a narrow protocol of
+Hjortron's own.
+
 **What a hacked UI can do:** show wrong figures on its own screen, and send requests, each still needing the PIN.
 It cannot read the PIN's hash, write a file, or reach the network.
 
 **A separate binary.** `hjortron-touch` links purego and Mesa, so it is dynamically linked. Keeping it apart leaves
-`hjortron` (front, store and console service) a static binary, as design §11 asks. `hjortron upgrade` then installs
-and signs the two together (open question 4).
+`hjortron` (front, store and console service) a static binary, as design §11 asks. `hjortron upgrade` installs
+`hjortron-touch` with `hjortron`, each with its signature, or installs neither (decision 4).
 
 ### 4.2 Running as the console user, and device permissions
 
@@ -601,13 +627,14 @@ package kms // github.com/marrasen/gunim/driver/kms
 
 // Options configures the screen. The zero value suits a Touch Display 2 in portrait.
 type Options struct {
-	Connector string          // "DSI-1", "HDMI-A-1"; empty prefers DSI, then the first connected HDMI
+	Connector string          // "DSI-2", "HDMI-A-1"; empty prefers DSI, then the first connected HDMI
 	Rotate    int             // 0, 90, 180 or 270, clockwise
 	Scale     float32         // logical pixels; 0 works it out from the panel's size
 	Touch     string          // an evdev path or device name; empty finds the touch screen
 	Blank     Blank           // when the screen dims and turns off; the zero value never does
 	Brightness float32        // 0..1 at start; 0 keeps the current level
 	VTSwitch  bool            // take Ctrl+Alt+Fn to switch virtual terminals
+	VT        string          // the VT to draw on: empty for the one we were started on, "free" for a free one
 	Software  bool            // draw with Mesa's software renderer even where there is a GPU
 }
 
@@ -691,8 +718,8 @@ Build and copy it from any machine:
 GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o kmshello ./example/kmshello
 ```
 
-On the Pi it needs Mesa (`libgbm1`, `libegl1`, `libgles2`; Raspberry Pi OS Lite has them) and a user in the groups
-of section 4.2. `driver/kms/README.md` gives a generic systemd unit, the udev rule for the backlight, and the
+On the Pi it needs Mesa (`libgbm1`, `libegl1`, `libegl-mesa0`, `libgles2`) and a user in the groups of section
+4.2. Raspberry Pi OS Lite has `libgbm1` but not the other three, so they need `apt install`. `driver/kms/README.md` gives a generic systemd unit, the udev rule for the backlight, and the
 `config.txt` line for each panel size.
 
 ### 5.3 What travels and what doesn't
@@ -708,14 +735,19 @@ of section 4.2. `driver/kms/README.md` gives a generic systemd unit, the udev ru
 ## 6. Milestones
 
 Each is one or more PRs, small enough to review. Each ends with something the owner can run. K1 to K3 are in gunim;
-K4 to K6 are in Hjortron.
+K4 to K6 are in Hjortron. An agent runs `kmsbench` and the `kmspi` tests on the trial Pi over SSH for each one, and
+the PR records the figures (decision 10).
 
-### K1: the first demo on the trial Pi
+### K1: the driver's core and the first demo on the trial Pi
 
-`example/kmsdemo`, the least driver that draws and reads touch:
+`driver/kms` with its core, and `example/kmsdemo` on top:
 
 - one window, no popups; DRM, GBM, EGL and an atomic flip each frame; evdev touch, protocol B;
-- `-rotate 0|90|180|270`;
+- rotation, `-rotate 0|90|180|270`;
+- the sysfs backlight: `SetBrightness`, put back as found on exit;
+- the software fallback: Mesa's software renderer when the GPU fails, and `Software()`;
+- the VT: graphics mode, a free VT for runs over SSH, giving it back, and switching with `VTSwitch`;
+- `tools/kmsbench` and the `kmspi` test tag, with the CI tests that need no Pi;
 - a full-screen animated test pattern:
   - a slow colour sweep, to show banding;
   - a spinning ring and a bouncing ball, on springs, to show smoothness;
@@ -725,8 +757,9 @@ K4 to K6 are in Hjortron.
 - on screen and on stdout once a second: fps, missed flips, p50 and p99 frame time, p50 and p99 touch-to-flip;
 - a three-finger hold of 3 s, or Ctrl+C, exits and gives the screen back to the text console.
 
-To try it: build on any PC with the line in 5.2, copy it to the trial Pi on the USB stick, stop `pi-screen.service`,
-and run `sudo ./kmsdemo -rotate 90` from SSH. (As root in K1 only. K2 runs it as an ordinary user.)
+To try it: build on any PC with the line in 5.2, copy it to the trial Pi, and run `sudo ./kmsdemo -rotate 90 -vt free`
+from SSH. It takes a free VT, so tty1 and `pi-screen.service` stay as they are, and it switches back on exit. (As
+root in K1 only, for the VT and the backlight. K2 runs it as an ordinary user.)
 
 **Done when** the owner sees 60 fps with no missed flips, the dots sit under the fingers in all four rotations, and
 the text console comes back on exit.
@@ -735,11 +768,9 @@ the text console comes back on exit.
 
 - popups through `compose`; `Presented` paced by flip events with `Shown` and `Lag`;
 - touch resampling; the shared `driver/internal/touch`, with Android's tests still passing;
-- the VT: graphics mode, giving it back, and switching with `VTSwitch`;
-- brightness and blanking, waking with the touch swallowed;
+- blanking, with brightness fades, waking with the touch swallowed;
 - runs as an ordinary user, with the generic unit and the udev rule in `driver/kms/README.md`;
-- the software fallback;
-- `tools/kmsbench`, the `kmspi` test tag, and the CI tests of section 1; the `vkms` try;
+- the rest of section 1's goals in `kmsbench`, and the `vkms` try;
 - `example/widgets` runs on the Pi, as a check that nothing in the widgets needs a desktop.
 
 **Done when** `kmsbench` passes every goal on the demo and on `example/widgets`, and a `kill -9` mid-animation
@@ -747,9 +778,9 @@ brings the screen back within 2 s under systemd.
 
 ### K3: the touch kit
 
-- `widget.Touch` theme entries and the embedded font;
+- `widget.Touch` theme entries and the embedded Inter, regular and semibold;
 - press feedback on touch-down in `widget.Control`;
-- `widget.Stack` with the edge swipe; `widget.PinPad`; `widget.Keyboard`; `widget.HoldButton` if wanted;
+- `widget.Stack` with the edge swipe; `widget.PinPad`; `widget.Keyboard`; `widget.HoldButton`;
 - `example/kmshello`, which also runs on the desktop with a mouse, for work away from the Pi;
 - the design language of 3.4 written into `WIDGETS.md` as its own section.
 
@@ -768,7 +799,8 @@ stopped store shows as stopped, and `kmsbench -screen status` passes.
 ### K5: Hjortron, changes with the PIN
 
 - one console command at a time over the socket, each behind the PIN pad: revoke a device, add a device to the USB
-  stick, caps and quotas, shares, guests, keys pin;
+  stick, caps and quotas, shares, guests, keys pin. Revoking a device and removing a guest also take a hold to
+  confirm;
 - the 3-second wait enforced in the service, with a test that sends wrong PINs as fast as it can;
 - `TestP14_EveryCommandAsksOrSaysWhyNot` extended to every request on the socket;
 - an adversarial test UI that sends random and malformed requests and changes nothing without the PIN.
@@ -789,42 +821,34 @@ touch console.
 
 ---
 
-## 7. Open questions for the owner
+## 7. Decisions
 
-Each has a recommendation. Answer any you disagree with and leave the rest.
+The owner answered these on 2026-11-13, on gunim PR #379. The plan above follows them.
 
-1. **Which way up for Hjortron?** Recommendation: **landscape** (`Rotate: 90`). The storage graph and the lists read
-   better wide, and the navigation fits down the left edge.
-2. **Which size of display?** Recommendation: **7"**. Targets are bigger for the same layout. The driver works out
-   the scale for 5" and 10" too, so another project can choose.
-3. **Two processes, or one root process?** Recommendation: **two** (section 4.1). It costs a small socket protocol,
-   and keeps Mesa and the GPU driver away from root.
-4. **A separate `hjortron-touch` binary?** Recommendation: **yes**. It keeps `hjortron` static. `hjortron upgrade`
-   takes both, each with its signature, and installs them together or not at all.
-5. **The socket: a narrow Hjortron protocol, or gunim's generic socket transport?** The README says gunim's split
-   could carry its values over a socket, and that transport doesn't exist yet. Recommendation: **narrow and
-   Hjortron's own**, as the front and the store speak. A generic transport would let a hacked UI send any value the
-   app takes. A fixed list is easier to check.
-6. **When does the screen dim and turn off?** Recommendation: dim after **1 minute**, off after **5**. The waking
-   touch is always swallowed.
-7. **Any confirm beyond the PIN?** Recommendation: **the PIN alone, every time**, as the console does today. Add
-   hold-to-confirm only for revoking a device and removing a guest, if you want a second step there.
-8. **With no GPU, fall back to software, or stop?** Recommendation: **fall back**, and show a small banner on the
-   console saying it draws without the GPU. Stop with an error only if that fails too.
-9. **Keep VT switching for root's login on tty2?** Recommendation: **yes**. Install-pi's repairs use `Alt+F2`, and
-   without switching a keyboard can't reach it.
-10. **How do we test on the Pi without a CI Pi?** Recommendation: the owner runs `kmsbench` and the `kmspi` tests at
-    each milestone, and each PR records the figures. Try `vkms` in CI in K2. A self-hosted runner on the trial Pi
-    would be better, but it needs the network open to GitHub, which the hardened Pi must not have. So it could only
-    be a second Pi.
-11. **Power figures.** Do you have a USB-C power meter? Recommendation: a cheap inline one is enough for the two
-    power goals. Without one, drop them and keep CPU use and frames at rest.
-12. **The font.** Recommendation: embed **Inter**, regular and semibold, in the touch kit (OFL, about 600 KB). The
-    alternative is Noto Sans, which covers more scripts and is larger.
-13. **Is a Touch Display 2 on the trial Pi now?** K1 needs one, on the DSI port, with
-    `dtoverlay=vc4-kms-dsi-ili9881-7inch` (or `-5inch`) in `config.txt`. Whether `display_auto_detect=1` finds it
-    without that line is not checked yet.
-14. **The name.** `driver/kms` is what Hjortron's docs call it. Recommendation: keep it.
+1. **Which way up for Hjortron?** **Landscape** (`Rotate: 90`). The storage graph and the lists read better wide,
+   and the navigation fits down the left edge.
+2. **Which size of display?** **7"**. The driver works out the scale for 5" and 10" too, so another project can
+   choose.
+3. **Two processes, or one root process?** **Two** (section 4.1). The touch UI never runs as root.
+4. **A separate `hjortron-touch` binary?** **Yes**. It keeps `hjortron` static. `hjortron upgrade` installs it with
+   `hjortron`, or installs neither.
+5. **The socket.** **A narrow protocol of Hjortron's own**, as the front and the store speak. A fixed list is easier
+   to check than a generic transport.
+6. **When does the screen dim and turn off?** Dim after **1 minute**, off after **5**. The waking touch is
+   swallowed.
+7. **Any confirm beyond the PIN?** **The PIN for every action, plus hold to confirm** for revoking a device and
+   removing a guest (`widget.HoldButton`).
+8. **With no GPU?** **Fall back to software drawing**, with a small notice on the screen. Stop only if that fails
+   too.
+9. **VT switching?** **Keep it**, for root's login on tty2. It is a repair path only.
+10. **Testing on the Pi.** Each milestone runs `kmsbench` and the `kmspi` tests on the trial Pi, run over SSH by an
+    agent, with the figures recorded in each PR. Try `vkms` in CI in K2.
+11. **Power figures.** **None.** There is no USB-C power meter, so the two power goals are dropped. CPU use and
+    frames at rest stay.
+12. **The font.** **Inter**, regular and semibold, embedded in the touch kit.
+13. **Is a Touch Display 2 on the trial Pi?** **Yes**: a 7", on `card0-DSI-2` at 720 × 1280, with a Goodix touch
+    controller, found by `display_auto_detect=1` with no overlay line.
+14. **The name.** **Keep `driver/kms`**.
 
 ---
 
