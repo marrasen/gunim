@@ -78,8 +78,9 @@ type Animator interface {
 // asks, as a spinner's turning. The engine steps an ornament only while
 // some of it showed in the last frame painted: painted in that frame,
 // within the clips round it and the window. One out of sight, as on a row
-// scrolled away, lets the window rest, and moves on from where it stopped
-// once it shows again.
+// scrolled away, lets the window rest. What it steps waits meanwhile, and
+// goes on once it shows again; what it works out from the frame's time,
+// as widget.Icon's spin does, shows where that time has it.
 //
 // Every other Animator is stepped on every frame, seen or not: a row
 // growing out of sight moves the rows in sight.
