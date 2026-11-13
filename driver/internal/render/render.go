@@ -110,6 +110,11 @@ type Renderer struct {
 	// fades in place; see fadeInPlace.
 	transparent bool
 	backdrop    target
+	// opaque is where the frame's first op, an opaque fill, covers the
+	// canvas, in device pixels, and fading says a layer fades in place
+	// now; see fadeInPlace.
+	opaque geom.Rect
+	fading bool
 	// dual says the draw program blends each channel by a colour of its
 	// own, which glyphs on subpixels need.
 	dual bool
@@ -939,6 +944,15 @@ func (r *Renderer) DrawRects(ops []paint.Op, damage []geom.Rect, fbW, fbH int, s
 	g.Viewport(0, 0, int32(fbW), int32(fbH))
 	r.bindDraw()
 	bg, alpha := background(ops)
+	r.opaque = geom.Rect{}
+	if alpha == 1 {
+		// The frame starts with an opaque fill: under it, the canvas is
+		// opaque wherever the fill reaches. The window's own colour goes
+		// under the canvas only as it is laid on the window.
+		if op, ok := ops[0].(*paint.RRectOp); ok {
+			r.opaque = geom.Rect{Min: op.Rect.Min.Mul(scale), Max: op.Rect.Max.Mul(scale)}
+		}
+	}
 	if alpha == 0 && r.Under.A > 0 {
 		bg, alpha = rgba(r.Under), float32(r.Under.A)/0xff
 	}
@@ -1189,10 +1203,18 @@ var noFadeInPlace bool
 // greyscale, as the layer's own target would draw it; and only where the
 // layer's bounds lie on whole device pixels, which the clip cuts exactly
 // as the layer whole would. ops[i] is the layer, and its contents follow.
+//
+// It also draws the layer whole where the copy would be laid back wrong:
+// where the frame has no opaque fill under the layer, as the canvas is
+// clear until the window's colour goes under it; inside another layer
+// fading in place, whose copy it would take; where the two bands meet, so
+// the copy would be laid twice; and inside a rounded clip, which cuts the
+// contents as they draw but not the copy.
 func (r *Renderer) fadeInPlace(ops []paint.Op, i int, op *paint.LayerOp) bool {
 	o, t := op.Opts, op.Transform
 	f := o.Fade
-	if noFadeInPlace || r.subpixels || r.transparent || r.depth != 0 || r.direct || f == (geom.Insets{}) ||
+	if noFadeInPlace || r.subpixels || r.transparent || r.depth != 0 || r.direct || r.fading || r.cut.on ||
+		f == (geom.Insets{}) ||
 		f.Left != 0 || f.Right != 0 || f.Top < 0 || f.Bottom < 0 || !o.Clip || o.Opacity < 1 || o.Blur > 0 ||
 		o.Backdrop > 0 || o.Ellipse || o.Radius > 0 || o.Blend == paint.BlendAdd || tilted(op) || t.B != 0 || t.D != 0 ||
 		!(t.A > 0) || !(t.E > 0) {
@@ -1205,6 +1227,9 @@ func (r *Renderer) fadeInPlace(ops []paint.Op, i int, op *paint.LayerOp) bool {
 	reg := r.region(op, true)
 	whole := func(v float32) bool { return math.Abs(float64(v)-math.Round(float64(v))) < 1e-3 }
 	if !whole(reg.Min.X) || !whole(reg.Max.X) || !whole(reg.Min.Y) || !whole(reg.Max.Y) {
+		return false
+	}
+	if !contains(r.opaque, intersect(reg, geom.Rect{Max: geom.Pt(float32(r.fbW), float32(r.fbH))})) {
 		return false
 	}
 	b := o.Bounds
@@ -1221,6 +1246,9 @@ func (r *Renderer) fadeInPlace(ops []paint.Op, i int, op *paint.LayerOp) bool {
 		h := float32(math.Ceil(float64(f.Bottom * t.E * r.scale)))
 		bands[n] = geom.Rect{Min: geom.Pt(reg.Min.X, max(reg.Max.Y-h, reg.Min.Y)), Max: reg.Max}
 		n++
+	}
+	if n == 2 && bands[0].Max.Y > bands[1].Min.Y {
+		return false
 	}
 	g := r.GL
 	// What is queued draws first: the copy takes the target as it is.
@@ -1240,7 +1268,9 @@ func (r *Renderer) fadeInPlace(ops []paint.Op, i int, op *paint.LayerOp) bool {
 
 	l := paint.LayerOp{Opts: paint.LayerOpts{Bounds: b, Opacity: 1, Clip: true}, Transform: t}
 	r.openLayer(&l)
+	r.fading = true
 	r.replayOps(ops[i+1 : end])
+	r.fading = false
 	r.closeLayer()
 
 	// The copy back over the bands, at one less the fade, which a
@@ -1257,6 +1287,11 @@ func (r *Renderer) fadeInPlace(ops []paint.Op, i int, op *paint.LayerOp) bool {
 		r.Stats.FadesInPlace++
 	}
 	return true
+}
+
+// contains reports whether a holds all of b; an empty b it holds.
+func contains(a, b geom.Rect) bool {
+	return b.Empty() || b.Min.X >= a.Min.X && b.Min.Y >= a.Min.Y && b.Max.X <= a.Max.X && b.Max.Y <= a.Max.Y
 }
 
 // culled reports whether layer op, and all inside it, lies outside what
