@@ -1,7 +1,9 @@
 package widget
 
 import (
+	"cmp"
 	"slices"
+	"time"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/access"
@@ -59,6 +61,8 @@ type Stack struct {
 	laid        bool
 	// backName is StackBack in the theme of the last layout.
 	backName string
+	// z is the order the next screen pushed takes.
+	z uint64
 }
 
 // NewStack returns a stack showing first, which arrives with no motion.
@@ -90,18 +94,31 @@ func (s *Stack) front() *stackFrame {
 }
 
 // Push slides screen in over the top one, and sends no intent. Before the stack is mounted, or with a nil u, it
-// shows at once.
+// shows at once. A Push in the frame of a Pop replaces the screen popped: as a PIN pad gives way to what its PIN
+// opens, the screen popped stays where it is, and the new one slides in over it.
 func (s *Stack) Push(screen gunim.Node, u *gunim.UI) {
 	if screen == nil {
 		return
 	}
 	f := newStackFrame(screen, 1)
+	s.z++
+	f.z = s.z
 	s.endDrag(u)
 	inside := u != nil && u.HasFocus(s)
 	s.screens = append(s.screens, f)
 	if u == nil || !s.laid {
 		f.off.Jump(0)
 		return
+	}
+	// A screen popped in this same frame, as a PIN pad dropped once its PIN is right, is replaced: it stays where it
+	// is, and the new screen slides in over it, as over any other.
+	for _, g := range s.gone {
+		if g.replaced == nil && g.poppedAt.Equal(u.Now()) {
+			g.off.Jump(g.off.Value())
+			g.replaced = func() bool {
+				return !slices.Contains(s.screens, f) || f.off.Value() < 0.001 && !f.off.Active()
+			}
+		}
 	}
 	u.Insert(s, f)
 	u.Cue(gunim.CueOpen, f)
@@ -123,6 +140,7 @@ func (s *Stack) Pop(u *gunim.UI) bool {
 	if u == nil || !s.laid {
 		return true
 	}
+	f.poppedAt = u.Now()
 	s.gone = append(s.gone, f)
 	u.Cue(gunim.CueClose, f)
 	moveFocus := u.HasFocus(f)
@@ -265,86 +283,78 @@ func (s *Stack) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) 
 	return size
 }
 
-// shows reports whether fr is drawn this frame: the top screen, those going, and the screen below the top one
-// while the top one is off its place.
-func (s *Stack) shows(fr *stackFrame) bool {
-	n := len(s.screens)
-	switch {
-	case n > 0 && fr == s.screens[n-1]:
-		return true
-	case slices.Contains(s.gone, fr):
-		return true
-	case n > 1 && fr == s.screens[n-2]:
-		return len(s.gone) == 0 && s.screens[n-1].off.Value() > 0.001
+// layered returns the screens drawn this frame, bottom first: the highest one resting in its place, and every one
+// above it, coming, going or swiped. Those under the one resting are hidden by it.
+func (s *Stack) layered() []*stackFrame {
+	all := make([]*stackFrame, 0, len(s.screens)+len(s.gone))
+	all = append(append(all, s.screens...), s.gone...)
+	slices.SortFunc(all, func(a, b *stackFrame) int { return cmp.Compare(a.z, b.z) })
+	for i := len(all) - 1; i >= 0; i-- {
+		if all[i].off.Value() < 0.001 {
+			return all[i:]
+		}
 	}
-	return false
+	return all
 }
 
-// Paint implements [gunim.Node]: the screen that is being uncovered, slid left, dimmed by the scrim as far as it is
-// covered and cut off where what covers it starts, then what covers it: the top screen as it comes or is swiped,
-// or the screens going.
+// shows reports whether fr is drawn this frame.
+func (s *Stack) shows(fr *stackFrame) bool { return slices.Contains(s.layered(), fr) }
+
+// Paint implements [gunim.Node]: the screens drawn, bottom first, each cut off where the one above it starts, so
+// none shows through another as it slides. The one at the bottom slides left as it is uncovered, a third as fast,
+// and lies under the scrim as far as it is covered. Where a screen draws nothing, the window's own background shows,
+// which is drawn under every frame.
 func (s *Stack) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.Children) {
-	n := len(s.screens)
-	var top, below gunim.Child
-	var going []gunim.Child
-	hasTop, hasBelow := false, false
-	for k := range kids.All {
-		fr, ok := k.Node().(*stackFrame)
-		if !ok || !s.shows(fr) {
-			continue
-		}
-		switch {
-		case fr == s.screens[n-1]:
-			top, hasTop = k, true
-		case n > 1 && fr == s.screens[n-2]:
-			below, hasBelow = k, true
-		default:
-			going = append(going, k)
-		}
-	}
-	// under is the screen being uncovered, and edge, a share of the width, where what covers it starts.
-	under, hasUnder, edge := below, hasBelow, float32(1)
-	var over []gunim.Child
-	switch {
-	case len(going) > 0:
-		under, hasUnder = top, hasTop
-		for _, k := range going {
-			if fr, ok := k.Node().(*stackFrame); ok {
-				edge = min(edge, fr.off.Value())
+	layers := s.layered()
+	child := func(fr *stackFrame) (gunim.Child, bool) {
+		for k := range kids.All {
+			if k.Node() == gunim.Node(fr) {
+				return k, true
 			}
 		}
-		over = going
-	case hasBelow:
-		edge = s.front().off.Value()
-		if hasTop {
-			over = []gunim.Child{top}
+		return gunim.Child{}, false
+	}
+	if len(layers) == 1 {
+		if k, ok := child(layers[0]); ok {
+			k.Paint(p)
 		}
-	case hasTop:
-		top.Paint(p)
 		return
 	}
 	// The screens slide past the stack's edges, and are cut off there; a clip to a rectangle costs no layer.
 	defer p.Layer(paint.LayerOpts{Bounds: geom.Rect{Max: box.Point()}, Clip: true, Opacity: 1})()
-	if edge = min(max(edge, 0), 1); hasUnder && edge > 0.001 {
-		// The screen under shows only in the strip left of what covers it: it is cut off at that edge, so it
-		// never shows through a screen sliding over it, and the GPU draws no more of it than shows. Where the
-		// screen over it draws nothing, the window's own background shows, which is drawn under every frame.
-		t := 1 - edge
-		strip := geom.Rect{Max: geom.Pt(edge*box.W, box.H)}
+	for i, fr := range layers {
+		k, ok := child(fr)
+		if !ok {
+			continue
+		}
+		left, right := min(max(fr.off.Value(), 0), 1)*box.W, box.W
+		for _, above := range layers[i+1:] {
+			right = min(right, min(max(above.off.Value(), 0), 1)*box.W)
+		}
+		if i == 0 {
+			left = 0
+		}
+		if right-left < 0.5 {
+			continue
+		}
+		strip := geom.Rect{Min: geom.Pt(left, 0), Max: geom.Pt(right, box.H)}
 		func() {
 			defer p.Layer(paint.LayerOpts{Bounds: strip, Clip: true, Opacity: 1})()
+			if i > 0 {
+				k.Paint(p)
+				return
+			}
+			// The bottom one, as covered as the strip left of the screens over it is narrow.
+			t := 1 - right/box.W
 			func() {
 				defer p.Push(paint.Translate(geom.Pt(-stackBelow*t*box.W, 0)))()
-				under.Paint(p)
+				k.Paint(p)
 			}()
 			if scrim := Scrim.Get(f.Theme); t > 0.001 {
 				scrim.A = uint8(float32(scrim.A)*t + 0.5)
 				p.RRect(strip, 0, paint.Solid(scrim))
 			}
 		}()
-	}
-	for _, k := range over {
-		k.Paint(p)
 	}
 }
 
@@ -376,6 +386,12 @@ type stackFrame struct {
 	off   *anim.Float
 	// focus says the keyboard is to go into the screen once it is laid out.
 	focus bool
+	// z orders the screens, those going among them: a screen pushed lies over every one pushed before it.
+	z uint64
+	// poppedAt is the frame's time a screen was popped at; replaced, where set, says a screen popped in the frame
+	// a new one was pushed stays where it is under the new one, until it reports the new one has covered it.
+	poppedAt time.Time
+	replaced func() bool
 }
 
 func newStackFrame(child gunim.Node, off float32) *stackFrame {
@@ -385,8 +401,11 @@ func newStackFrame(child gunim.Node, off float32) *stackFrame {
 }
 
 // Transition implements [gunim.Transitioner]: a screen going slides off to the right on Settle, and the engine
-// holds it until it has.
+// holds it until it has. One replaced stays where it is until the screen that replaced it has covered it.
 func (f *stackFrame) Transition(p gunim.Presence, fr gunim.Frame) bool {
+	if p == gunim.Exiting && f.replaced != nil {
+		return f.replaced()
+	}
 	if p == gunim.Exiting {
 		f.off.Animate(1, Settle.Get(fr.Theme))
 		return f.off.Value() >= 0.999 || !f.off.Active()
