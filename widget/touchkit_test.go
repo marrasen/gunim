@@ -1,6 +1,7 @@
 package widget
 
 import (
+	"image/color"
 	"strings"
 	"testing"
 	"time"
@@ -38,7 +39,7 @@ func (g *grab) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim.Ch
 // the UI and a function that runs n frames of 1/60 s.
 func touchStage(t *testing.T, root gunim.Node, size geom.Size) (*gunim.Window, *grab, func(int)) {
 	t.Helper()
-	g := &grab{child: NewThemed(root, Dark().With(Touch...))}
+	g := &grab{child: NewThemed(root, Dark().With(Touch()...))}
 	w, run := stage(t, &frame{child: g, size: size})
 	w.TimeByFrames(true)
 	run(1)
@@ -59,7 +60,7 @@ func touchUp(w *gunim.Window, p geom.Point) {
 
 // The touch theme sets text in Inter, makes the targets at least 48 tall and turns tooltips off.
 func TestTheTouchThemeFollowsTheDesignLanguage(t *testing.T) {
-	th := theme.NewLive(Dark().With(Touch...))
+	th := theme.NewLive(Dark().With(Touch()...))
 	if Font.Get(th) != text.Inter(false) || BoldFont.Get(th) != text.Inter(true) {
 		t.Fatal("the touch theme sets text in another face than Inter")
 	}
@@ -297,14 +298,14 @@ func TestAHoldButtonHoldsFromTheKeyboard(t *testing.T) {
 	}
 }
 
-// A hold button tells a screen reader it is a button, its name, and that it asks to be held; a press from one acts.
+// A hold button tells a screen reader it is a button and its name, and asks no hold of it: a press from one acts.
 func TestAHoldButtonSpeaksToAScreenReader(t *testing.T) {
 	b := NewHoldButton("Revoke laptop")
 	b.OnClick = Sends(pressed{4})
 	w, g, run := touchStage(t, Row(b), geom.Sz(400, 100))
 	info := b.Access()
-	if info.Role != access.RoleButton || info.Name != "Revoke laptop" || info.Description == "" {
-		t.Fatalf("access %+v, want a button named Revoke laptop that says to hold it", info)
+	if info.Role != access.RoleButton || info.Name != "Revoke laptop" || info.Description != "" {
+		t.Fatalf("access %+v, want a plain button named Revoke laptop, asking for no hold", info)
 	}
 	if !b.AccessAct(access.Request{Part: -1, Action: access.ActionPress}, g.ui) {
 		t.Fatal("a screen reader's press was refused")
@@ -349,7 +350,12 @@ func pinKey(d int) int {
 func TestAPinPadHandsThePinOverOnceAndClearsIt(t *testing.T) {
 	p, w, _, run := pinStage(t)
 	var got []string
-	p.OnCommit = func(pin string, _ *gunim.UI) gunim.Intent { got = append(got, pin); return nil }
+	var handed []byte
+	p.OnCommit = func(pin []byte, _ *gunim.UI) gunim.Intent {
+		got, handed = append(got, string(pin)), pin
+		return nil
+	}
+	first := &p.digits[:1][0]
 	for _, d := range []int{9, 7, 3, 1, 5} {
 		tapKey(w, run, p, pinKey(d))
 	}
@@ -374,6 +380,14 @@ func TestAPinPadHandsThePinOverOnceAndClearsIt(t *testing.T) {
 	if p.Len() != 0 {
 		t.Fatalf("after handing it over the pad holds %d digits, want none", p.Len())
 	}
+	for i, b := range append(handed[:cap(handed)], p.digits[:cap(p.digits)]...) {
+		if b != 0 {
+			t.Fatalf("byte %d of the PIN is still %q once OnCommit has returned, want wiped", i, b)
+		}
+	}
+	if &p.digits[:1][0] != first {
+		t.Fatal("the digits moved to another array as they were typed, leaving a copy behind")
+	}
 	tapKey(w, run, p, pinEnter)
 	if len(got) != 1 {
 		t.Fatalf("an empty pad handed over %q", got[1:])
@@ -395,7 +409,7 @@ func TestAPinPadStopsAtItsLength(t *testing.T) {
 func TestAPinPadTakesAKeyboard(t *testing.T) {
 	p, w, g, run := pinStage(t)
 	var got string
-	p.OnCommit = func(pin string, _ *gunim.UI) gunim.Intent { got = pin; return nil }
+	p.OnCommit = func(pin []byte, _ *gunim.UI) gunim.Intent { got = string(pin); return nil }
 	g.ui.Focus(p)
 	for _, k := range []input.Key{input.Key2, input.KeyKP0, input.Key8, input.KeyBackspace, input.Key6} {
 		key(w, run, k, 0)
@@ -403,6 +417,11 @@ func TestAPinPadTakesAKeyboard(t *testing.T) {
 	key(w, run, input.KeyKPEnter, 0)
 	if got != "206" {
 		t.Fatalf("the keys handed over %q, want 206", got)
+	}
+	for i, l := range p.lit {
+		if l.Value() != 0 || l.Target() != 0 {
+			t.Fatalf("key %d on the screen lit for a key typed on a keyboard", i)
+		}
 	}
 }
 
@@ -434,13 +453,16 @@ func TestAPinPadKeepsItsDigitsFromAScreenReader(t *testing.T) {
 // once it has.
 func TestAPinPadWaitsAfterAWrongPin(t *testing.T) {
 	p, w, _, run := pinStage(t)
-	p.OnCommit = func(_ string, u *gunim.UI) gunim.Intent { p.SetWaiting(500*time.Millisecond, u); return nil }
+	p.OnCommit = func(_ []byte, u *gunim.UI) gunim.Intent { p.SetWaiting(500*time.Millisecond, u); return nil }
 	for _, d := range []int{1, 2, 3, 4} {
 		tapKey(w, run, p, pinKey(d))
 	}
 	tapKey(w, run, p, pinEnter)
 	if !p.Waiting() {
 		t.Fatal("the pad does not wait after a wrong PIN")
+	}
+	if d := p.Access().Description; !strings.Contains(d, "Wrong PIN") || !strings.Contains(d, "1 s") {
+		t.Fatalf("waiting, the pad says %q to a screen reader, want why and for how long", d)
 	}
 	moved, last := false, p.wait.Value()
 	for i := range 20 {
@@ -694,7 +716,7 @@ func TestAKeyboardSlidesUpForAField(t *testing.T) {
 		if r.Min.X < 0 || r.Max.X > 600 || r.Max.Y > 400 {
 			t.Fatalf("key %d lies at %v, outside the keyboard's 600 by 400", i, r)
 		}
-		if r.Size().H < KeyboardKey.Get(theme.NewLive(Dark().With(Touch...))) {
+		if r.Size().H < KeyboardKey.Get(theme.NewLive(Dark().With(Touch()...))) {
 			t.Fatalf("key %d is %v tall", i, r.Size().H)
 		}
 	}
@@ -787,9 +809,9 @@ func TestTheTouchKitDrawsInsideItsBox(t *testing.T) {
 	st := NewStack(NewLabel("Home"))
 	w, g, run := touchStage(t, Column(Row(hold), pad, NewSized(kb, 600, 320), NewSized(st, 600, 100)), geom.Sz(600, 1000))
 	st.Push(NewLabel("Plants"), g.ui)
-	th := theme.NewLive(Dark().With(Touch...))
+	th := theme.NewLive(Dark().With(Touch()...))
 	touchDown(w, geom.Pt(20, 20))
-	pad.OnCommit = func(_ string, u *gunim.UI) gunim.Intent { pad.SetWaiting(time.Second, u); return nil }
+	pad.OnCommit = func(_ []byte, u *gunim.UI) gunim.Intent { pad.SetWaiting(time.Second, u); return nil }
 	g.ui.Focus(f)
 	for i := range 40 {
 		run(1)
@@ -810,4 +832,269 @@ func TestTheTouchKitDrawsInsideItsBox(t *testing.T) {
 	}
 	touchUp(w, geom.Pt(20, 20))
 	run(1)
+}
+
+// A hold that acted leaves nothing to carry on: a press soon after starts from empty, and needs a full Hold again.
+func TestAHoldButtonActsOnceForEachFullHold(t *testing.T) {
+	b := NewHoldButton("Revoke laptop")
+	b.OnClick = Sends(pressed{6})
+	w, _, run := touchStage(t, Row(b), geom.Sz(400, 100))
+	at := geom.Pt(30, 24)
+	touchDown(w, at)
+	run(64)
+	touchUp(w, at)
+	run(3)
+	if got := sent(w); len(got) != 1 {
+		t.Fatalf("one full hold sent %v, want one intent", got)
+	}
+	touchDown(w, at)
+	run(1)
+	if p := b.Progress(); p > 0.05 {
+		t.Fatalf("pressed again 50 ms after acting, the button starts %v full, want empty", p)
+	}
+	run(30)
+	if got := sent(w); len(got) != 0 {
+		t.Fatalf("half a second into the next hold it sent %v, want nothing yet", got)
+	}
+	run(34)
+	if got := sent(w); len(got) != 1 {
+		t.Fatalf("a second full hold sent %v, want one intent", got)
+	}
+	touchUp(w, at)
+	run(1)
+}
+
+// The button fills from its start to its end as it is held, and shows a tick once it has acted, until let go.
+func TestAHoldButtonFillsAndShowsItIsDone(t *testing.T) {
+	b := NewHoldButton("Remove guest")
+	w, _, run := touchStage(t, Row(b), geom.Sz(400, 100))
+	at := geom.Pt(30, 24)
+	touchDown(w, at)
+	run(30)
+	th := theme.NewLive(Dark().With(Touch()...))
+	box := b.size
+	var clips []float32
+	for _, op := range paintedIn(b, box, th) {
+		if l, ok := op.(*paint.LayerOp); ok && l.Opts.Clip && l.Opts.Bounds.Min.X == 0 {
+			clips = append(clips, l.Opts.Bounds.Max.X)
+		}
+	}
+	if len(clips) == 0 || clips[0] < box.W*0.4 || clips[0] > box.W*0.6 {
+		t.Fatalf("half way through the hold the fill reaches %v of %v, want about half", clips, box.W)
+	}
+	run(40)
+	if b.done.Value() < 0.9 {
+		t.Fatalf("held past a second, the tick shows %v, want it in", b.done.Value())
+	}
+	touchUp(w, at)
+	run(90)
+	if b.done.Value() > 0.01 || b.Progress() > 0.01 {
+		t.Fatalf("let go, the tick shows %v and the fill %v, want both gone", b.done.Value(), b.Progress())
+	}
+}
+
+// In a list, a finger that lands on a hold button and moves scrolls the list, and the hold lets go unacted.
+func TestAFingerMovingOnAHoldButtonScrolls(t *testing.T) {
+	kids := make([]gunim.Node, 0, 20)
+	b := NewHoldButton("Remove guest")
+	b.OnClick = Sends(pressed{7})
+	kids = append(kids, Row(b))
+	for range 19 {
+		kids = append(kids, NewButton("Row"))
+	}
+	sc := NewScroll(Column(kids...))
+	w, _, run := touchStage(t, sc, geom.Sz(300, 300))
+	at := geom.Pt(30, 24)
+	touchDown(w, at)
+	run(8)
+	if b.DragsTouch() {
+		t.Fatal("130 ms after landing the button keeps the finger from scrolling")
+	}
+	for i := range 8 {
+		w.Input(input.PointerMove{Pos: geom.Pt(at.X, at.Y-float32(i+1)*12), Touch: true, Time: time.Now()})
+		run(1)
+	}
+	touchUp(w, geom.Pt(at.X, at.Y-96))
+	run(90)
+	if got := sent(w); len(got) != 0 {
+		t.Fatalf("a finger that scrolled sent %v", got)
+	}
+	if b.Holding() || b.Progress() > 0.01 {
+		t.Fatalf("after the scroll the button holds %v at %v, want let go and empty", b.Holding(), b.Progress())
+	}
+}
+
+// Inside something that scrolls, a PIN key lights only once the press has waited, as every control does.
+func TestAPinKeyInAScrollLightsAfterTheWait(t *testing.T) {
+	p := NewPinPad(4, "OK")
+	sc := NewScroll(Column(p, NewSized(NewLabel(""), 10, 900)))
+	w, _, run := touchStage(t, sc, geom.Sz(360, 420))
+	c := p.keys[4].Center()
+	touchDown(w, c)
+	for i := range 3 {
+		run(1)
+		if v := p.lit[4].Value(); v != 0 {
+			t.Fatalf("frame %d after landing in a scroll the key is lit %v, want dark yet", i, v)
+		}
+	}
+	run(5)
+	if p.lit[4].Target() != 1 {
+		t.Fatal("held still past the wait, the key does not light")
+	}
+	touchUp(w, c)
+	run(1)
+}
+
+// A theme in another language names the keys and the actions a screen reader hears.
+func TestTheTouchKitSpeaksTheThemesLanguage(t *testing.T) {
+	sv := Dark().With(append(Touch(),
+		theme.Set(PinDelete, "Radera"),
+		theme.Set(KeyboardShiftName, "Skift"),
+		theme.Set(KeyboardName, "Tangentbord"),
+		theme.Set(StackBack, "Tillbaka"))...)
+	p := NewPinPad(4, "Lås upp")
+	f := NewTextField()
+	k := NewKeyboard(Column(f))
+	s := NewStack(Column(p, NewSized(k, 600, 300)))
+	g := &grab{child: NewThemed(s, sv)}
+	w, run := stage(t, &frame{child: g, size: geom.Sz(600, 800)})
+	_ = w
+	s.Push(NewLabel("Två"), g.ui)
+	g.ui.Focus(f)
+	run(2)
+	if got := p.Access().Parts[pinDelete].Name; got != "Radera" {
+		t.Errorf("the delete key is named %q, want the theme's Radera", got)
+	}
+	if got := s.Access().Description; got != "Tillbaka" {
+		t.Errorf("the stack's way back is named %q, want the theme's Tillbaka", got)
+	}
+	info := k.Access()
+	if info.Name != "Tangentbord" {
+		t.Errorf("the keyboard is named %q, want Tangentbord", info.Name)
+	}
+	found := false
+	for _, part := range info.Parts {
+		found = found || part.Name == "Skift"
+	}
+	if !found {
+		t.Error("no key is named Skift")
+	}
+}
+
+// Delete takes off one character as a reader sees it, and a finger that slides off it stops it repeating.
+func TestKeyboardDeleteTakesOneCharacterAndStopsOffTheKey(t *testing.T) {
+	k, f, w, g, run := keyboardStage(t)
+	g.ui.Focus(f)
+	f.SetText("café 👩‍👩‍👧", g.ui)
+	run(60)
+	del := kbIndex(t, k, "", keyDelete)
+	tapKb(w, run, k, del)
+	if got := f.Text(); got != "café " {
+		t.Fatalf("Delete after a family emoji left %q, want the emoji gone whole", got)
+	}
+	tapKb(w, run, k, del)
+	tapKb(w, run, k, del)
+	if got := f.Text(); got != "caf" {
+		t.Fatalf("Delete after an accented e left %q, want the e and its accent gone together", got)
+	}
+	f.SetText("abcdefghijklmnopqrstuvwxyz", g.ui)
+	run(1)
+	c := k.rects[del].Center()
+	touchDown(w, c)
+	run(30)
+	w.Input(input.PointerMove{Pos: k.rects[0].Center(), Touch: true, Time: time.Now()})
+	run(1)
+	left := f.Text()
+	run(60)
+	if f.Text() != left || len(left) >= 26 {
+		t.Fatalf("held, Delete left %q, and slid off, %q; want it to have deleted, then stopped", left, f.Text())
+	}
+	touchUp(w, k.rects[0].Center())
+	run(1)
+}
+
+// The letters page has a comma and a full stop, as the signs page does.
+func TestTheKeyboardHasACommaOnTheLetters(t *testing.T) {
+	k, _, _, _, _ := keyboardStage(t)
+	kbIndex(t, k, ",", keyChar)
+	kbIndex(t, k, ".", keyChar)
+}
+
+// A swipe past a third that is called off, its press let go at Away, springs back; Escape goes back too.
+func TestAStackSwipeCalledOffSpringsBack(t *testing.T) {
+	s, w, g, run := stackStage(t)
+	s.Push(NewButton("Bed"), g.ui)
+	run(60)
+	t0 := time.Now()
+	w.Input(input.PointerDown{Pos: geom.Pt(6, 150), Button: input.ButtonPrimary, Clicks: 1, Time: t0})
+	for i := 1; i <= 10; i++ {
+		w.Input(input.PointerMove{Pos: geom.Pt(6+float32(i)*25, 150), Time: t0.Add(time.Duration(i) * 100 * time.Millisecond)})
+		run(1)
+	}
+	w.Input(input.PointerUp{Pos: input.Away, Button: input.ButtonPrimary, Time: t0.Add(1100 * time.Millisecond)})
+	run(60)
+	if s.Len() != 2 || s.front().off.Value() > 0.01 {
+		t.Fatalf("a swipe called off past half way left %d screens, the top %v off", s.Len(), s.front().off.Value())
+	}
+	g.ui.Focus(s.Top())
+	key(w, run, input.KeyEscape, 0)
+	if s.Len() != 1 {
+		t.Fatalf("Escape left %d screens, want 1", s.Len())
+	}
+}
+
+// A screen fills its box with the window's background under what it draws, so the one under it never shows through.
+func TestAStackScreenHidesTheOneUnder(t *testing.T) {
+	f := newStackFrame(NewLabel("x"), 0.5)
+	th := theme.NewLive(Dark())
+	ops := paintedIn(f, geom.Sz(400, 300), th)
+	for _, r := range rrects(ops) {
+		if r.Fill.Solid == Background.Get(th) && r.Rect == geom.Rc(200, 0, 200, 300) {
+			return
+		}
+	}
+	t.Fatalf("a screen half slid in paints %v, want the background under it", rrects(ops))
+}
+
+// The touch kit's text reads at 4.5:1 and its edges stand out at 3:1, in the dark theme and the light.
+func TestTheTouchKitMeetsItsContrast(t *testing.T) {
+	for name, base := range map[string]theme.Theme{"dark": Dark(), "light": Light()} {
+		th := theme.NewLive(base.With(Touch()...))
+		for _, c := range []struct {
+			what   string
+			fg, bg theme.Token[color.NRGBA]
+			least  float64
+		}{
+			{"a caption on a card", CaptionInk, CardFill, 4.5},
+			{"a caption on the window", CaptionInk, Background, 4.5},
+			{"white on a danger button pressed", ButtonStrongInk, ButtonDangerHover, 4.5},
+			{"white on a danger button", ButtonStrongInk, ButtonDangerFill, 4.5},
+			{"an empty PIN dot", PinDotEdge, Background, 3},
+			{"a field's border", FieldBorder, FieldFill, 3},
+			{"a key's edge on the keyboard", KeyboardKeyEdge, KeyboardFill, 3},
+		} {
+			if got := ratio(c.fg.Get(th), c.bg.Get(th)); got < c.least {
+				t.Errorf("%s: %s reads at %.2f:1, want %.1f:1 or more", name, c.what, got, c.least)
+			}
+		}
+	}
+}
+
+// With the keyboard up, the focused field is scrolled clear of it, its border whole, though it started out of sight.
+func TestAKeyboardKeepsTheFieldInSight(t *testing.T) {
+	f := NewTextField()
+	body := Column(NewSized(NewLabel("Above"), 10, 260), f)
+	sc := NewScroll(body)
+	k := NewKeyboard(Column(NewSized(NewLabel("Top"), 10, 48), sc).Grow(sc, 1))
+	_, g, run := touchStage(t, k, geom.Sz(600, 420))
+	g.ui.Focus(f)
+	run(90)
+	fb, ok := g.ui.Bounds(f)
+	if !ok {
+		t.Fatal("the field is not laid out")
+	}
+	if fb.Max.Y > k.top || fb.Min.Y < 48 {
+		t.Fatalf("the field lies from %v to %v, want it whole between 48 and the keyboard's top %v",
+			fb.Min.Y, fb.Max.Y, k.top)
+	}
 }

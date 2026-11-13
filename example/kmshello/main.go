@@ -14,9 +14,10 @@
 //
 //	go run ./example/kmshello
 //
-// -light draws it in the light theme, and -shot file.png saves a picture of it and ends, for documentation.
-// -show tour walks the screens by itself, a step a second, for measuring frames on the hardware with
-// GUNIM_DEBUG_FRAMES=1.
+// -light draws it in the light theme, and -shot file.png saves a picture of it -wait after it opens, and ends, for
+// documentation. -show opens it on a screen: "bed", "name" (with the keyboard up), "pin" or "settings"; "hold"
+// opens the settings and lays a finger on the reset button, which -wait 2.5s shows done. -show tour walks the
+// screens by itself, a step a second, for measuring frames on the hardware with GUNIM_DEBUG_FRAMES=1.
 package main
 
 import (
@@ -31,8 +32,10 @@ import (
 	"time"
 
 	"github.com/marrasen/gunim"
+	"github.com/marrasen/gunim/access"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/icon"
+	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/theme"
 	"github.com/marrasen/gunim/widget"
 )
@@ -42,8 +45,9 @@ type (
 	// Plants is what the panel shows.
 	Plants struct {
 		Beds []Bed
-		// Show is the screen to open on, for a picture of it: "", "bed", "name" or "pin". "tour" walks the screens
-		// one step a second, for measuring how the panel draws while it moves.
+		// Show is the screen to open on, for a picture of it: "", "bed", "name", "pin" or "settings"; "hold" opens
+		// the settings and holds the reset button down. "tour" walks the screens one step a second, for measuring
+		// how the panel draws while it moves.
 		Show string
 	}
 	// Bed is one bed: its name, how moist its soil is in per cent, whether it is being watered, whether it is
@@ -87,6 +91,7 @@ type options struct {
 	light bool
 	shot  string
 	show  string
+	wait  time.Duration
 	size  geom.Size
 }
 
@@ -95,7 +100,9 @@ func main() {
 	var k kmsFlags
 	flag.BoolVar(&o.light, "light", false, "draw in the light theme")
 	flag.StringVar(&o.shot, "shot", "", "save a picture of the panel to this PNG file, and end")
-	flag.StringVar(&o.show, "show", "", `open on a screen, for a picture: "bed", "name" or "pin"; "tour" walks them`)
+	flag.StringVar(&o.show, "show", "", `open on a screen, for a picture: "bed", "name", "pin" or "settings"; `+
+		`"hold" holds the reset button down; "tour" walks the screens`)
+	flag.DurationVar(&o.wait, "wait", 1500*time.Millisecond, "how long after it opens -shot takes its picture")
 	desktop := flag.Bool("window", !kmsDefault(), "open a window on the desktop, not the full screen through KMS")
 	k.add()
 	flag.Parse()
@@ -138,7 +145,7 @@ func run(ctx context.Context, a *gunim.App, o options) error {
 		Title: "Plants",
 		Size:  o.size,
 		Root:  widget.NewSurface(),
-		Theme: th.With(widget.Touch...),
+		Theme: th.With(widget.Touch()...),
 	})
 	if err != nil {
 		return err
@@ -150,7 +157,10 @@ func run(ctx context.Context, a *gunim.App, o options) error {
 		return err
 	}
 	if o.shot != "" {
-		go shoot(ctx, c, o.shot)
+		go shoot(ctx, c, o.shot, o.wait)
+	}
+	if o.show == "hold" {
+		go holdReset(ctx, c)
 	}
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
@@ -175,12 +185,12 @@ func run(ctx context.Context, a *gunim.App, o options) error {
 	}
 }
 
-// shoot saves a picture of the window to path once its screens have settled, and closes it.
-func shoot(ctx context.Context, c gunim.Client, path string) {
+// shoot saves a picture of the window to path after wait, once its screens have settled, and closes it.
+func shoot(ctx context.Context, c gunim.Client, path string, wait time.Duration) {
 	select {
 	case <-ctx.Done():
 		return
-	case <-time.After(1500 * time.Millisecond):
+	case <-time.After(wait):
 	}
 	defer c.Close()
 	img, err := c.Shot(ctx)
@@ -199,6 +209,47 @@ func shoot(ctx context.Context, c gunim.Client, path string) {
 	}
 	if err != nil {
 		log.Print(err)
+	}
+}
+
+// holdReset lays a finger on the reset button half a second after the panel opens, and keeps it there, for a
+// picture of the button filling, or of it done with a long enough -wait.
+func holdReset(ctx context.Context, c gunim.Client) {
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(500 * time.Millisecond):
+	}
+	tree, err := c.Access(ctx)
+	if err != nil {
+		log.Print(err)
+		return
+	}
+	var find func(n *access.Node) *access.Node
+	find = func(n *access.Node) *access.Node {
+		if n.Role == access.RoleButton && n.Name == "Reset all beds" {
+			return n
+		}
+		for _, k := range n.Children {
+			if f := find(k); f != nil {
+				return f
+			}
+		}
+		return nil
+	}
+	b := find(tree.Root)
+	if b == nil {
+		log.Print("kmshello: no reset button to hold")
+		return
+	}
+	at, now := b.Bounds.Center(), time.Now()
+	for _, e := range []input.Event{
+		input.PointerMove{Pos: at, Touch: true, Time: now},
+		input.PointerDown{Pos: at, Button: input.ButtonPrimary, Clicks: 1, Touch: true, Time: now},
+	} {
+		if err := c.Input(ctx, e); err != nil {
+			log.Print(err)
+		}
 	}
 }
 

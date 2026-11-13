@@ -2,6 +2,7 @@ package widget
 
 import (
 	"fmt"
+	"image/color"
 	"math"
 	"strconv"
 	"time"
@@ -31,8 +32,14 @@ var (
 	PinDotRow = theme.Length("pinpad.dot.row", 40)
 	// PinShake is how far the row of dots swings as it shakes for a wrong PIN.
 	PinShake = theme.Length("pinpad.shake", 12)
+	// PinRing is the width of the ring that drains through a wait.
+	PinRing = theme.Length("pinpad.ring", 3)
+	// PinDotEdge is the ring of a dot for a digit not yet typed.
+	PinDotEdge = theme.Color("pinpad.dot.edge", color.NRGBA{R: 0x80, G: 0x88, B: 0x96, A: 0xff})
 	// PinDelete is the delete key's name for a screen reader.
 	PinDelete = theme.Choice("pinpad.delete", "Delete")
+	// PinWaitWords say why the pad waits, and for how long: %d is the seconds left.
+	PinWaitWords = theme.Choice("pinpad.wait", "Wrong PIN. Try again in %d s")
 )
 
 // The keys of a [PinPad], in the order they are laid out: 1 to 9, delete, 0 and the key that commits.
@@ -47,8 +54,12 @@ const (
 // Typed digits show as dots, never as digits, and never reach a screen reader.
 //
 // A dot fills with a small bounce for each digit, and empties as one is deleted. A key lights and glows under the
-// finger. [PinPad.SetWaiting] shakes the row of dots, for a wrong PIN, and shows the wait in their place as a ring
-// that drains; the pad takes no digits until it has. Once its digits are handed over, the pad clears them.
+// finger; inside something that scrolls, it waits to light as every control does. [PinPad.SetWaiting] shakes the row
+// of dots, for a wrong PIN, and shows the wait in their place: a ring that drains, and [PinWaitWords], "Wrong PIN.
+// Try again in 3 s", counting down. The pad takes no digits until the wait is over.
+//
+// The digits live in one array as long as the PIN, made once, and are wiped in place as they are deleted, cleared
+// or handed over, so no copy of them is left behind in memory the pad let go of.
 //
 // It also takes a keyboard: the digits, on the number row or the number pad, Backspace to delete, Enter to hand the
 // PIN over and Escape to clear what has been typed.
@@ -61,11 +72,19 @@ type PinPad struct {
 	Length int
 	// Enter is the word on the key that hands the PIN over, which says what the PIN is for, as "Unlock".
 	Enter string
-	// OnCommit runs as the commit key or Enter hands over the digits typed, with them. The pad has cleared them by
-	// then. It runs only with one digit or more.
-	OnCommit func(pin string, u *gunim.UI) gunim.Intent
+	// OnCommit runs as the commit key or Enter hands over the digits typed, with them as ASCII digits. The pad has
+	// cleared its own by then, and wipes pin as OnCommit returns: check it there, and keep no reference to it, in the
+	// intent or elsewhere. It runs only with one digit or more.
+	OnCommit func(pin []byte, u *gunim.UI) gunim.Intent
 
 	digits []byte
+	// handed is the copy of the digits OnCommit is handed, made once with digits and wiped after each call.
+	handed []byte
+	// deleteName is the delete key's name for a screen reader, in the theme of the last layout.
+	deleteName string
+	waitText   shapedText
+	// waitFormat is PinWaitWords in the theme of the last frame painted.
+	waitFormat string
 	// dots fill from 0 to 1 as a digit is typed; lit lights each key while it is pressed.
 	dots []*anim.Float
 	lit  [pinKeys]*anim.Float
@@ -100,6 +119,7 @@ func NewPinPad(length int, enter string) *PinPad {
 		dim:     anim.NewFloat(0),
 		pressed: -1,
 	}
+	p.digits = make([]byte, 0, p.Length)
 	p.wait.RealTime()
 	p.Add(p.shake, p.wait, p.dim)
 	for i := range p.lit {
@@ -128,7 +148,7 @@ func (p *PinPad) SetWaiting(d time.Duration, u *gunim.UI) {
 		p.stopWaiting(u)
 		return
 	}
-	p.waiting = true
+	p.waiting, p.span = true, d
 	p.wait.Jump(1)
 	p.wait.Animate(0, anim.Tween{Duration: d, Ease: anim.Linear})
 	if u == nil || !p.laid {
@@ -201,9 +221,14 @@ func (p *PinPad) press(i int, u *gunim.UI) {
 		if len(p.digits) == 0 {
 			return
 		}
-		pin := string(p.digits)
+		if cap(p.handed) < len(p.digits) {
+			p.handed = make([]byte, 0, p.Length)
+		}
+		pin := p.handed[:len(p.digits)]
+		copy(pin, p.digits)
 		p.wipe(u)
 		act(u, p, gunim.CuePress, p.OnCommit, pin)
+		clear(pin)
 	default:
 		if len(p.digits) >= p.Length {
 			return
@@ -211,6 +236,12 @@ func (p *PinPad) press(i int, u *gunim.UI) {
 		digit := byte('0' + (i+1)%10)
 		if i == pinZero {
 			digit = '0'
+		}
+		if cap(p.digits) < p.Length {
+			// Length grew: the digits move to a longer array, and the old one is wiped.
+			longer := append(make([]byte, 0, p.Length), p.digits...)
+			clear(p.digits)
+			p.digits = longer
 		}
 		p.digits = append(p.digits, digit)
 		p.dot(len(p.digits)-1).Animate(1, Bounce.Get(th))
@@ -259,6 +290,13 @@ func (p *PinPad) Handle(e input.Event, u *gunim.UI) bool {
 		p.click.Press(e, i)
 		if !p.touch.waiting {
 			p.lit[i].Animate(1, Quick.Get(th))
+		} else {
+			// Inside something that scrolls, the key lights once the press has waited, as the glow does.
+			u.After(pressWait, func(u *gunim.UI) {
+				if p.held && p.pressed == i {
+					p.lit[i].Animate(1, Quick.Get(u.Theme()))
+				}
+			})
 		}
 	case input.PointerUp:
 		if !p.held {
@@ -309,9 +347,7 @@ func (p *PinPad) key(e input.KeyPress, u *gunim.UI) bool {
 	default:
 		return false
 	}
-	// The key lights as it would under a finger.
-	p.lit[i].Retarget(1, Quick.Get(u.Theme()))
-	p.lit[i].Animate(0, Settle.Get(u.Theme()))
+	// The key on the screen stays as it is: the press was on another keyboard.
 	p.press(i, u)
 	return true
 }
@@ -335,6 +371,7 @@ func (p *PinPad) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) ge
 		p.until = time.Time{}
 	}
 	p.follow(th)
+	p.deleteName = PinDelete.Get(th)
 	gap, least, want := PinKeyGap.Get(th), PinKeyLeast.Get(th), PinKeySize.Get(th)
 	row := PinDotRow.Get(th)
 	h := want
@@ -378,18 +415,23 @@ func (p *PinPad) paintDots(pt *paint.Painter, th *theme.Live) {
 	r := p.dotRow
 	c := r.Center()
 	if w := p.wait.Value(); p.waiting || w > 0.002 {
-		d := r.Size().H * 0.7
-		width := HoldRing.Get(th)
+		// A ring that drains, and the words of the wait beside it, the two centred together.
+		d := r.Size().H * 0.6
+		width, gap := PinRing.Get(th), IconGap.Get(th)
 		col := Ink.Get(th)
 		col.A = uint8(float32(col.A) * min(max(p.dim.Value(), 0), 1))
-		p.ring = arc(p.ring[:0], c, d/2-width/2, width, w, col)
+		run := p.waitText.shape(faceIn(Font, th), p.waitWords(th), TextSize.Get(th))
+		run = fitRun(run, &p.waitText, max(r.Size().W-d-gap, 0))
+		x := c.X - (d+gap+run.Advance)/2
+		p.ring = arc(p.ring[:0], geom.Pt(x+d/2, c.Y), d/2-width/2, width, w, col)
 		pt.Ribbon(p.ring)
+		run.Paint(pt, geom.Pt(x+d+gap, c.Y-run.Height()/2), col)
 		return
 	}
 	size, gap := PinDot.Get(th), PinDotGap.Get(th)
 	n := p.Length
 	x := c.X - (float32(n)*size+float32(n-1)*gap)/2 + p.shake.Value()*PinShake.Get(th)
-	ink, edge := Ink.Get(th), FieldBorder.Get(th)
+	ink, edge := Ink.Get(th), PinDotEdge.Get(th)
 	for i := range n {
 		at := geom.Rc(x+float32(i)*(size+gap), c.Y-size/2, size, size)
 		pt.RRectStroke(at, size/2, paint.Solid(FieldFill.Get(th)), paint.Stroke{Width: 1.5, Color: edge})
@@ -435,10 +477,27 @@ func (p *PinPad) paintKey(pt *paint.Painter, th *theme.Live, i int, r geom.Rect,
 	run.Paint(pt, geom.Pt(r.Center().X-run.Advance/2, r.Center().Y-run.Height()/2), col)
 }
 
+// waitWords are the words of the wait, in th's language, or the last layout's with a nil th, with the seconds left.
+func (p *PinPad) waitWords(th *theme.Live) string {
+	words := p.waitFormat
+	if th != nil {
+		words = PinWaitWords.Get(th)
+		p.waitFormat = words
+	}
+	if words == "" {
+		words = PinWaitWords.Default()
+	}
+	left := int(math.Ceil(float64(min(max(p.wait.Value(), 0), 1)) * p.span.Seconds()))
+	return fmt.Sprintf(words, max(left, 1))
+}
+
 // keyName is key i's name for a screen reader.
 func (p *PinPad) keyName(i int) string {
 	switch i {
 	case pinDelete:
+		if p.deleteName != "" {
+			return p.deleteName
+		}
 		return PinDelete.Default()
 	case pinEnter:
 		return p.Enter
@@ -457,6 +516,9 @@ func (p *PinPad) Access() access.Info {
 		Value: fmt.Sprintf("%d/%d", len(p.digits), p.Length),
 		State: p.accessState(),
 	}
+	if p.waiting {
+		info.Description = p.waitWords(nil)
+	}
 	for i, r := range p.keys {
 		k := access.Info{Role: access.RoleButton, Name: p.keyName(i), Bounds: r, Actions: []string{access.ActionPress}}
 		if p.waiting || p.Disabled {
@@ -474,4 +536,20 @@ func (p *PinPad) AccessAct(r access.Request, u *gunim.UI) bool {
 	}
 	p.press(r.Part, u)
 	return true
+}
+
+// arc appends to pts a ribbon round c at radius r, w wide, from the top clockwise for frac of the way round, and
+// returns it. It takes about one point for each 3 pixels of its length.
+func arc(pts []paint.RibbonPoint, c geom.Point, r, w, frac float32, col color.NRGBA) []paint.RibbonPoint {
+	frac = min(max(frac, 0), 1)
+	n := max(int(math.Ceil(float64(2*math.Pi*r*frac/3))), 2) + 1
+	for i := range n {
+		a := -math.Pi/2 + 2*math.Pi*float64(frac)*float64(i)/float64(n-1)
+		pts = append(pts, paint.RibbonPoint{
+			At:    geom.Pt(c.X+r*float32(math.Cos(a)), c.Y+r*float32(math.Sin(a))),
+			Width: w,
+			Color: col,
+		})
+	}
+	return pts
 }

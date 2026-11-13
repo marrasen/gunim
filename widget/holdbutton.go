@@ -2,7 +2,6 @@ package widget
 
 import (
 	"image/color"
-	"math"
 	"time"
 
 	"github.com/marrasen/gunim"
@@ -15,74 +14,78 @@ import (
 	"github.com/marrasen/gunim/theme"
 )
 
-// HoldButton tokens.
-var (
-	// HoldRing is the width of the ring that fills as a [HoldButton] is held.
-	HoldRing = theme.Length("hold.ring", 3)
-	// HoldHint is what a screen reader says a [HoldButton] asks for, after its name.
-	HoldHint = theme.Choice("hold.hint", "Press and hold to confirm")
-)
+// holdKeep is how long a finger holds a [HoldButton] still before the button keeps it: a finger that moves sooner
+// scrolls what the button sits in, and lets the hold go. It comes before the engine's long press, at 400 ms.
+const holdKeep = 250 * time.Millisecond
 
 // HoldButton is a button for the gravest changes, such as revoking a device: it acts only once it has been held
 // down for Hold, one second unless set.
 //
-// While it is held, a ring at its start fills, at an even pace, from the top round. Let go early, and the ring
-// drains back on a spring, and nothing happens; press again before it has drained, and it fills on from where it
-// is. Once the ring is full the button acts, once, and springs back from its press. It lights and squashes under
-// the finger, as [Button] does.
+// It starts quiet, in a plain button's colours. While it is held, its kind's colour fills it from its start to its
+// end, at an even pace. Let go early, and the fill drains back on a spring, and nothing happens; press again before
+// it has drained, and it fills on from where it is. Once it is full the button acts, once, springs back from its
+// press, and shows a tick in place of its icon until it is let go. A press after it has acted starts from empty. It
+// lights and squashes under the finger, as [Button] does. A finger that moves at once scrolls what the button sits
+// in, as on any other button; one held still for a moment keeps the hold.
 //
-// Space or Enter held down holds it from the keyboard. A screen reader's press acts at once: the hold guards against
-// a slip of the finger, which a screen reader's request is not.
+// Space or Enter held down holds it from the keyboard. A screen reader's press acts at once, and no hold is asked
+// of it there: the hold guards against a slip of the finger, and the PIN asked before the change is the real guard.
 type HoldButton struct {
 	Control
 
 	Label string
-	// Icon shows inside the ring.
+	// Icon shows before the label.
 	Icon *icon.Icon
-	// Kind colours the button, as a [Button]'s. NewHoldButton makes it [ButtonDanger].
+	// Kind is the colour that fills the button as it is held. NewHoldButton makes it [ButtonDanger].
 	Kind ButtonKind
 	// Hold is how long the button must be held to act.
 	Hold time.Duration
 	// OnClick runs once the button has been held for Hold. A non-nil result is sent as the button's intent.
 	OnClick func(u *gunim.UI) gunim.Intent
 
-	// fill runs from 0 to 1 as the ring fills, on the clock, and back as it drains.
-	fill *anim.Float
-	// holding says a press or a key holds the button now, key which key, and fired that this hold has acted.
-	holding, fired bool
-	key            input.Key
-	// stop ends the wait for the hold to be long enough.
-	stop  func()
-	size  geom.Size
-	text  shapedText
-	ell   shapedText
-	ring  []paint.RibbonPoint
-	track []paint.RibbonPoint
+	// fill runs from 0 to 1 as the button fills, on the clock, and back as it drains; done runs to 1 as it acts.
+	fill, done *anim.Float
+	// holding says a press or a key holds the button now, key which key, fired that the last hold acted, and kept
+	// that a finger has held still long enough for the button to keep it.
+	holding, fired, kept bool
+	key                  input.Key
+	// stop ends the wait for the hold to be long enough, and start the wait of a finger's press inside something
+	// that scrolls, or for the button to keep it.
+	stop, start, keep func()
+	size              geom.Size
+	text              shapedText
+	ell               shapedText
 }
 
 // NewHoldButton returns a button showing label that acts once held for a second.
 func NewHoldButton(label string) *HoldButton {
-	b := &HoldButton{Control: newControl(), Label: label, Kind: ButtonDanger, Hold: time.Second, fill: anim.NewFloat(0)}
-	// The ring keeps time: it fills over Hold however the theme speeds up or slows down motion.
+	b := &HoldButton{Control: newControl(), Label: label, Kind: ButtonDanger, Hold: time.Second,
+		fill: anim.NewFloat(0), done: anim.NewFloat(0)}
+	// The fill keeps time: it fills over Hold however the theme speeds up or slows down motion.
 	b.fill.RealTime()
-	b.Add(b.fill)
+	b.Add(b.fill, b.done)
 	return b
 }
 
-// Progress returns how full the ring is, from 0 to 1.
-func (b *HoldButton) Progress() float32 { return min(max(b.fill.Value(), 0), 1) }
+// DragsTouch implements [gunim.TouchDragger]: once a finger has held the button still for a moment, it keeps
+// holding it, and never turns into a long press or a scroll.
+func (b *HoldButton) DragsTouch() bool { return b.held && b.kept }
 
-// DragsTouch implements [gunim.TouchDragger]: a finger holding the button keeps holding it, and never turns into a
-// long press or a scroll while it does.
-func (b *HoldButton) DragsTouch() bool { return b.held }
+// Progress returns how full the button is, from 0 to 1.
+func (b *HoldButton) Progress() float32 { return min(max(b.fill.Value(), 0), 1) }
 
 // Holding reports whether the button is held down now.
 func (b *HoldButton) Holding() bool { return b.holding }
 
-// begin starts a hold: the ring fills from where it is, and the button acts once it is full.
+// begin starts a hold: the button fills from where it is, or from empty after a hold that acted, and acts once it
+// is full.
 func (b *HoldButton) begin(u *gunim.UI) {
 	if b.holding {
 		return
+	}
+	if b.fired {
+		b.fill.Jump(0)
+		b.done.Animate(0, Quick.Get(u.Theme()))
 	}
 	b.holding, b.fired = true, false
 	hold := max(b.Hold, time.Millisecond)
@@ -99,14 +102,23 @@ func (b *HoldButton) complete(u *gunim.UI) {
 		return
 	}
 	b.fired = true
-	b.fill.Animate(1, Quick.Get(u.Theme()))
+	th := u.Theme()
+	b.fill.Animate(1, Quick.Get(th))
+	b.done.Animate(1, Bounce.Get(th))
 	// The press springs back, so the button shows it has acted while the finger is still on it.
-	b.squash.Animate(0, Bounce.Get(u.Theme()))
+	b.squash.Animate(0, Bounce.Get(th))
 	act0(u, b, gunim.CuePress, b.OnClick)
 }
 
-// end ends a hold: a ring short of full drains back, and one that is full drains once let go.
+// end ends a hold: a fill short of full drains back, and a full one drains once let go, its tick going with it.
 func (b *HoldButton) end(th *theme.Live) {
+	for _, stop := range []*func(){&b.start, &b.keep} {
+		if *stop != nil {
+			(*stop)()
+			*stop = nil
+		}
+	}
+	b.kept = false
 	if !b.holding {
 		return
 	}
@@ -117,6 +129,7 @@ func (b *HoldButton) end(th *theme.Live) {
 	}
 	b.squash.Animate(0, Bounce.Get(th))
 	b.fill.Retarget(0, Settle.Get(th))
+	b.done.Animate(0, Settle.Get(th))
 }
 
 // Handle implements [gunim.Handler].
@@ -144,7 +157,7 @@ func (b *HoldButton) Handle(e input.Event, u *gunim.UI) bool {
 		}
 		b.held = true
 		b.squashIn(th)
-		b.begin(u)
+		b.press(e, u)
 	case input.PointerMove:
 		// A finger that slides off lets go of the hold; the button keeps it until it lifts.
 		if b.held && b.holding && over(e.Pos, b.size) < 0 {
@@ -182,7 +195,30 @@ func (b *HoldButton) Handle(e input.Event, u *gunim.UI) bool {
 	return true
 }
 
-// Layout implements [gunim.Node]: the ring, a gap and the label, inside the button's padding.
+// press starts the hold of a press: at once, or for a finger inside something that scrolls, once the press has
+// waited to show, as the light does. A finger held still a moment is then kept.
+func (b *HoldButton) press(e input.PointerDown, u *gunim.UI) {
+	if !e.Touch {
+		b.begin(u)
+		return
+	}
+	b.keep = u.After(holdKeep, func(*gunim.UI) {
+		b.keep = nil
+		b.kept = b.held
+	})
+	if !b.touch.waiting {
+		b.begin(u)
+		return
+	}
+	b.start = u.After(pressWait, func(u *gunim.UI) {
+		b.start = nil
+		if b.held {
+			b.begin(u)
+		}
+	})
+}
+
+// Layout implements [gunim.Node]: the icon, a gap and the label, inside the button's padding.
 func (b *HoldButton) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
 	th := f.Theme
 	b.follow(th)
@@ -190,7 +226,7 @@ func (b *HoldButton) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children
 		b.end(th)
 	}
 	h := ButtonHeight.Get(th)
-	w := 2*ButtonPadding.Get(th) + b.ringSize(th)
+	w := 2*ButtonPadding.Get(th) + IconSize.Get(th)
 	if b.Label != "" {
 		w += IconGap.Get(th) + b.text.shape(faceIn(Font, th), b.Label, TextSize.Get(th)).Advance
 	}
@@ -198,10 +234,8 @@ func (b *HoldButton) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children
 	return b.size
 }
 
-// ringSize is the ring's width across, with its icon inside.
-func (b *HoldButton) ringSize(th *theme.Live) float32 { return IconSize.Get(th) + 4*HoldRing.Get(th) }
-
-// Paint implements [gunim.Node].
+// Paint implements [gunim.Node]: a plain button's fill, the kind's colour over it as far as the button is full,
+// and the icon and label, in the plain ink over the plain fill and the kind's ink over the kind's.
 func (b *HoldButton) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
 	defer b.faint(p, box)()
 	th := f.Theme
@@ -211,49 +245,64 @@ func (b *HoldButton) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gun
 		defer p.Push(paint.Scale(s, r.Center()))()
 	}
 	b.paintRing(p, r, radius, th)
+	plainRest, plainHover, plainInk := kindColours(ButtonPlain, th)
 	rest, hover, ink := kindColours(b.Kind, th)
-	fill := anim.Mix(anim.ColorCodec, rest.Get(th), hover.Get(th), min(max(b.hover.Value(), 0), 1))
-	p.RRect(r, radius, paint.Solid(fill))
+	lit := min(max(b.hover.Value(), 0), 1)
+	p.RRect(r, radius, paint.Solid(anim.Mix(anim.ColorCodec, plainRest.Get(th), plainHover.Get(th), lit)))
+	split := box.W * b.Progress()
+	if split > 0.5 {
+		func() {
+			defer p.Layer(paint.LayerOpts{Bounds: geom.Rc(0, 0, split, box.H), Clip: true, Opacity: 1})()
+			p.RRect(r, radius, paint.Solid(anim.Mix(anim.ColorCodec, rest.Get(th), hover.Get(th), lit)))
+		}()
+	}
 	b.paintGlow(p, r, radius, th)
-	inked := ink.Get(th)
+	// The ink changes where the fill does, so the words read over both.
+	if split < box.W-0.5 {
+		func() {
+			defer p.Layer(paint.LayerOpts{Bounds: geom.Rc(split, 0, box.W-split, box.H), Clip: true, Opacity: 1})()
+			b.paintContent(p, th, box, plainInk.Get(th))
+		}()
+	}
+	if split > 0.5 {
+		defer p.Layer(paint.LayerOpts{Bounds: geom.Rc(0, 0, split, box.H), Clip: true, Opacity: 1})()
+		b.paintContent(p, th, box, ink.Get(th))
+	}
+}
 
+// paintContent draws the icon, or the tick once the button has acted, and the label, in ink.
+func (b *HoldButton) paintContent(p *paint.Painter, th *theme.Live, box geom.Size, ink color.NRGBA) {
 	pad := min(ButtonPadding.Get(th), box.W/4)
-	d := b.ringSize(th)
-	c := geom.Pt(pad+d/2, box.H/2)
+	s := IconSize.Get(th)
+	x := pad
 	if b.Label == "" {
-		c.X = box.W / 2
+		x = (box.W - s) / 2
 	}
-	w := HoldRing.Get(th)
-	faint := inked
-	faint.A = uint8(float32(faint.A)*0.35 + 0.5)
-	b.track = arc(b.track[:0], c, d/2-w/2, w, 1, faint)
-	p.Ribbon(b.track)
-	if t := b.Progress(); t > 0.002 {
-		b.ring = arc(b.ring[:0], c, d/2-w/2, w, t, inked)
-		p.Ribbon(b.ring)
+	at := geom.Rc(x, (box.H-s)/2, s, s)
+	done := min(max(b.done.Value(), 0), 1)
+	if b.Icon != nil && done < 1 {
+		drawIcon(p, th, b.Icon, at, ink, 1-done)
 	}
-	if b.Icon != nil {
-		s := IconSize.Get(th) * 0.75
-		drawIcon(p, th, b.Icon, geom.Rc(c.X-s/2, c.Y-s/2, s, s), inked, 1)
+	if done > 0 {
+		drawIcon(p, th, icon.Check, at, ink, done)
 	}
 	if b.Label == "" {
 		return
 	}
-	x := c.X + d/2 + IconGap.Get(th)
+	x += s + IconGap.Get(th)
 	if end := box.W - pad; x < end {
 		run := fitRun(b.text.shape(faceIn(Font, th), b.Label, TextSize.Get(th)), &b.ell, end-x)
-		run.Paint(p, geom.Pt(x, (box.H-run.Height())/2), inked)
+		run.Paint(p, geom.Pt(x, (box.H-run.Height())/2), ink)
 	}
 }
 
-// Access implements [gunim.Accessible].
+// Access implements [gunim.Accessible]: a button, which a screen reader presses as any other.
 func (b *HoldButton) Access() access.Info {
 	name := b.accessName(b.Label)
 	if name == "" {
 		name = iconName(b.Icon)
 	}
-	return access.Info{Role: access.RoleButton, Name: name, Description: HoldHint.Default(), State: b.accessState(),
-		Actions: []string{access.ActionPress}}
+	return access.Info{Role: access.RoleButton, Name: name, State: b.accessState(), Actions: []string{access.ActionPress}}
 }
 
 // AccessAct implements [gunim.AccessActor]: a press acts at once.
@@ -263,20 +312,4 @@ func (b *HoldButton) AccessAct(r access.Request, u *gunim.UI) bool {
 	}
 	act0(u, b, gunim.CuePress, b.OnClick)
 	return true
-}
-
-// arc appends to pts a ribbon round c at radius r, w wide, from the top clockwise for frac of the way round, and
-// returns it. It takes about one point for each 3 pixels of its length.
-func arc(pts []paint.RibbonPoint, c geom.Point, r, w, frac float32, col color.NRGBA) []paint.RibbonPoint {
-	frac = min(max(frac, 0), 1)
-	n := max(int(math.Ceil(float64(2*math.Pi*r*frac/3))), 2) + 1
-	for i := range n {
-		a := -math.Pi/2 + 2*math.Pi*float64(frac)*float64(i)/float64(n-1)
-		pts = append(pts, paint.RibbonPoint{
-			At:    geom.Pt(c.X+r*float32(math.Cos(a)), c.Y+r*float32(math.Sin(a))),
-			Width: w,
-			Color: col,
-		})
-	}
-	return pts
 }

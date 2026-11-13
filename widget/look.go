@@ -99,6 +99,7 @@ func contrastSorted(c gunim.ContrastColors) contrastGroups {
 			SyntaxKeyword, SyntaxBuiltin, SyntaxType, SyntaxFunction, SyntaxString, SyntaxNumber, SyntaxComment,
 			SyntaxOperator, SyntaxVariable),
 		set(c.GrayText, Placeholder),
+		set(c.WindowText, PinDotEdge, KeyboardKeyEdge, CaptionInk),
 		set(c.HotLight, LinkInk),
 		// No shadows.
 		set(none, DialogShadow, PanelShadow, MenuShadow, ToolbarShadow, KnobShadow, ButtonShadow, CodeFill),

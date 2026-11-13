@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/subtle"
 	"fmt"
 	"math"
 	"time"
@@ -55,6 +56,9 @@ func newPanel(s Plants) *panel {
 		p.open(0, nil)
 	case "pin":
 		p.stack.Push(p.pinScreen(), nil)
+	case "settings", "hold":
+		p.stack.Push(p.pinScreen(), nil)
+		p.stack.Push(p.settingsScreen(), nil)
 	}
 	p.Keyboard = widget.NewKeyboard(p.stack)
 	return p
@@ -116,8 +120,21 @@ func heading(s string) *widget.Label {
 // caption is a line of quiet text in the size for captions.
 func caption(s string) *widget.Label {
 	l := widget.NewLabel(s)
-	l.Size, l.Color = widget.CaptionSize, widget.Placeholder
+	l.Size, l.Color = widget.CaptionSize, widget.CaptionInk
 	return l
+}
+
+// topBar is a screen's top: a back button saying where it goes, and the screen's title, 16 apart.
+func topBar(to string, title *widget.Label, back func(u *gunim.UI)) *widget.Flex {
+	b := widget.NewButton(to)
+	b.Icon = icon.ChevronLeft
+	b.OnClick = func(u *gunim.UI) gunim.Intent {
+		back(u)
+		return nil
+	}
+	top := widget.Row(b, title).Grow(title, 1)
+	top.Cross, top.Gap = widget.CrossCenter, widget.ControlGap
+	return top
 }
 
 // bedCard is a bed on the first screen: its name and status, its moisture as one big figure, and its buttons.
@@ -189,14 +206,7 @@ func newBedScreen(p *panel, i int, b Bed) *bedScreen {
 		value:   widget.NewLabel(""),
 		name:    widget.NewTextField(),
 	}
-	back := widget.NewButton("Plants")
-	back.Icon = icon.ChevronLeft
-	back.OnClick = func(u *gunim.UI) gunim.Intent {
-		p.stack.Pop(u)
-		return nil
-	}
-	top := widget.Row(back, s.title).Grow(s.title, 1)
-	top.Cross = widget.CrossCenter
+	top := topBar("Plants", s.title, func(u *gunim.UI) { p.stack.Pop(u) })
 	s.morning.OnChange = func(on bool, _ *gunim.UI) gunim.Intent { return SetMorning{Bed: i, On: on} }
 	s.minutes.Label, s.minutes.Snap = "Minutes of water", 1
 	s.minutes.OnChange = func(v float32, u *gunim.UI) gunim.Intent {
@@ -244,23 +254,18 @@ func minutes(n int) string {
 func (p *panel) pinScreen() gunim.Node {
 	pad := widget.NewPinPad(len(pin), "Unlock")
 	pad.Label = "PIN for the settings"
-	pad.OnCommit = func(typed string, u *gunim.UI) gunim.Intent {
-		if typed != pin {
+	pad.OnCommit = func(typed []byte, u *gunim.UI) gunim.Intent {
+		// The pad wipes typed as this returns: it is checked here, and kept nowhere.
+		if subtle.ConstantTimeCompare(typed, []byte(pin)) != 1 {
 			pad.SetWaiting(3*time.Second, u)
 			return nil
 		}
 		p.stack.Push(p.settingsScreen(), u)
 		return nil
 	}
-	back := widget.NewButton("Plants")
-	back.Icon = icon.ChevronLeft
-	back.OnClick = func(u *gunim.UI) gunim.Intent {
-		p.stack.Pop(u)
-		return nil
-	}
-	top := widget.Row(back, heading("Enter the PIN"))
-	top.Cross = widget.CrossCenter
+	top := topBar("Plants", heading("Enter the PIN"), func(u *gunim.UI) { p.stack.Pop(u) })
 	side := widget.Column(top, caption("The PIN is 2468 in this example."))
+	side.Cross, side.Gap = widget.CrossStretch, widget.ControlGap
 	page := widget.Row(side, widget.NewSpacer(), pad).Grow(side, 1)
 	return widget.NewPad(page)
 }
@@ -270,17 +275,14 @@ func (p *panel) settingsScreen() gunim.Node {
 	reset := widget.NewHoldButton("Reset all beds")
 	reset.Icon = icon.RotateCcw
 	reset.OnClick = widget.Sends(ResetAll{})
-	lock := widget.NewButton("Lock the settings")
-	lock.Icon = icon.Lock
-	lock.OnClick = func(u *gunim.UI) gunim.Intent {
-		// Back past the PIN pad, to the beds.
+	// Back goes past the PIN pad, to the beds, and locks the settings again.
+	top := topBar("Plants", heading("Settings"), func(u *gunim.UI) {
 		p.stack.Pop(u)
 		p.stack.Pop(u)
-		return nil
-	}
+	})
 	words := widget.NewLabel("Resetting puts both beds back as they came: their names, their schedules and their " +
-		"moisture. Hold the button down until its ring is full.")
-	gap := widget.NewSpacer()
-	page := widget.Column(heading("Settings"), words, reset, gap, lock).Grow(gap, 1)
+		"moisture. Hold the button down until it fills.")
+	page := widget.Column(top, words, widget.Row(reset))
+	page.Cross, page.Gap = widget.CrossStretch, widget.ControlGap
 	return widget.NewPad(page)
 }

@@ -35,7 +35,8 @@ const stackFling = 0.8
 // place if it went less than a third of the way slowly, and off otherwise. Screens come and go on Settle. The screens
 // below the top one keep their state, as what was typed in them.
 //
-// Alt+Left and a mouse's back button go back too, as the swipe does. Going back by any of these runs OnPop; Pop,
+// Escape, Alt+Left and a mouse's back button go back too, as the swipe does, when what has the keyboard leaves
+// them. Going back by any of these runs OnPop; Pop,
 // the app's own, does not.
 type Stack struct {
 	anim.Group
@@ -56,6 +57,8 @@ type Stack struct {
 	// the last layout.
 	width, band float32
 	laid        bool
+	// backName is StackBack in the theme of the last layout.
+	backName string
 }
 
 // NewStack returns a stack showing first, which arrives with no motion.
@@ -189,7 +192,9 @@ func (s *Stack) Handle(e input.Event, u *gunim.UI) bool {
 		top := s.front()
 		v := s.drag.trail.Velocity(e.Time).X / max(s.width, 1)
 		off := top.off.Value()
-		goes := s.drag.on && (off >= 1.0/3 || v > stackFling) && v > -stackFling
+		// A press let go at Away was taken from the finger, as by a long press or the window losing it: the swipe
+		// is called off, and the screen springs back.
+		goes := s.drag.on && !away(e.Pos) && (off >= 1.0/3 || v > stackFling) && v > -stackFling
 		s.drag.on = false
 		// The screen springs on with the finger's speed, whichever way it goes.
 		anim.Fling(top.off, v, anim.Decay{})
@@ -202,7 +207,7 @@ func (s *Stack) Handle(e input.Event, u *gunim.UI) bool {
 		u.Invalidate()
 		return true
 	case input.KeyPress:
-		if e.Key == input.KeyLeft && e.Mods == input.ModAlt {
+		if e.Key == input.KeyLeft && e.Mods == input.ModAlt || e.Key == input.KeyEscape && e.Mods == 0 {
 			return s.back(u)
 		}
 	case input.HistoryStep:
@@ -235,6 +240,7 @@ func (s *Stack) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) 
 	size := fillOr(c, geom.Sz(400, 300))
 	s.width = size.W
 	s.band = min(StackEdge.Get(f.Theme), size.W/4)
+	s.backName = StackBack.Get(f.Theme)
 	live := map[*stackFrame]bool{}
 	tight := gunim.Tight(size)
 	for k := range kids.All {
@@ -338,7 +344,10 @@ func (s *Stack) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim
 func (s *Stack) Access() access.Info {
 	info := access.Info{Role: access.RoleGroup}
 	if len(s.screens) > 1 {
-		info.Description = StackBack.Default()
+		info.Description = s.backName
+		if info.Description == "" {
+			info.Description = StackBack.Default()
+		}
 		info.Actions = []string{access.ActionClose}
 	}
 	return info
@@ -388,10 +397,15 @@ func (f *stackFrame) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Child
 	return size
 }
 
-// Paint implements [gunim.Node].
-func (f *stackFrame) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, kids gunim.Children) {
+// Paint implements [gunim.Node]: the window's background where the screen is, then the screen, so a screen sliding
+// over another hides it, though it draws nothing of its own in places. What lies past the stack's edge is cut off.
+func (f *stackFrame) Paint(p *paint.Painter, fr gunim.Frame, box geom.Size, kids gunim.Children) {
 	if f.off.Value() >= 0.999 {
 		return
 	}
-	kids.At(0).Paint(p)
+	at := min(max(f.off.Value(), 0), 1) * box.W
+	p.RRect(geom.Rc(at, 0, box.W-at, box.H), 0, paint.Solid(Background.Get(fr.Theme)))
+	if kids.Len() > 0 {
+		kids.At(0).Paint(p)
+	}
 }

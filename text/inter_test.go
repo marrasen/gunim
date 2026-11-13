@@ -5,35 +5,25 @@ import (
 	"testing"
 )
 
-// A face read on its first use stays unread until something sets text in it, and then reads once, however many
-// goroutines ask at the same moment.
-func TestInterIsReadOnItsFirstUse(t *testing.T) {
-	f := parseLate(interRegular, "Inter")
-	if f.face != nil {
-		t.Fatal("the face was read before anything used it")
-	}
+// Inter reads its faces once, however many goroutines ask at the same moment, and hands out the same two.
+func TestInterIsReadOnce(t *testing.T) {
 	var wg sync.WaitGroup
-	runs := make([]Run, 8)
-	for i := range runs {
+	got := make([]*Face, 8)
+	for i := range got {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			runs[i] = f.Shape("Revoke laptop", 17)
+			got[i] = Inter(i%2 == 1)
 		}()
 	}
 	wg.Wait()
-	for i, r := range runs {
-		if r.Advance <= 0 || r.Advance != runs[0].Advance {
-			t.Fatalf("run %d is %v wide, want %v, more than 0", i, r.Advance, runs[0].Advance)
-		}
-		for _, g := range r.Glyphs {
-			if g.Face != f.id {
-				t.Fatalf("run %d sets a glyph in face %d, want Inter's own %d", i, g.Face, f.id)
-			}
+	for i, f := range got {
+		if want := Inter(i%2 == 1); f != want || f == nil {
+			t.Fatalf("call %d returned %p, want %p", i, f, want)
 		}
 	}
-	if got, ok := Lookup(f.id); !ok || got != f {
-		t.Fatalf("Lookup(%d) = %p, %v; want the face itself", f.id, got, ok)
+	if Inter(false) == Inter(true) {
+		t.Fatal("regular and semibold are the same face")
 	}
 }
 

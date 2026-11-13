@@ -642,7 +642,7 @@ such measures. Built with `-tags gunimkms`, `gunim.Main` opens the driver itself
 options. The driver is for 64-bit Linux, as on a Raspberry Pi 4 or 5 with a 64-bit system.
 
 The touch kit is what a screen worked by a finger needs on top. `widget.Touch` is a theme laid over another, as
-`widget.Dark().With(widget.Touch...)`. It sets text in Inter, built into the program, makes every target at least
+`widget.Dark().With(widget.Touch()...)`. It sets text in Inter, built into the program, makes every target at least
 48 pixels, and turns tooltips off. Every control lights and squashes under a finger on the frame it lands, with a
 glow from the finger. `widget.Stack` goes back by a swipe from the left edge, and `widget.PinPad`,
 `widget.Keyboard` and `widget.HoldButton` take a PIN, typing and a hold to confirm. `WIDGETS.md` has the design

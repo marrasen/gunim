@@ -68,8 +68,6 @@ type Face struct {
 	zonesSet bool
 	// colored says which glyphs draw in colours of their own, as they are asked about.
 	colored map[uint32]bool
-	// late holds the font of a face read on its first use, and nil for a face read at once.
-	late *lateFont
 }
 
 // Parse reads a TrueType or OpenType font.
@@ -107,61 +105,16 @@ func faceOf(ff *font.Face) *Face {
 	if f, ok := byFont[ff]; ok {
 		return f
 	}
-	f := &Face{}
-	f.take(ff)
-	f.id = uint32(len(faces))
-	faces = append(faces, f)
-	return f
-}
-
-// take makes ff the font f draws with. It runs with mu held.
-func (f *Face) take(ff *font.Face) {
-	f.face, f.upem = ff, float32(ff.Upem())
+	f := &Face{face: ff, upem: float32(ff.Upem())}
 	if ext, ok := ff.FontHExtents(); ok {
 		f.ascent, f.descent, f.gap = ext.Ascender, -ext.Descender, ext.LineGap
 	} else {
 		f.ascent, f.descent = 0.8*f.upem, 0.2*f.upem
 	}
-	byFont[ff] = f
-}
-
-// lateFont is the font of a face read on its first use: its file, and
-// the once that reads it.
-type lateFont struct {
-	data []byte
-	name string
-	once sync.Once
-}
-
-// parseLate returns a face for the font in data, read on its first use,
-// so a program that never sets text in it pays nothing for it. A font
-// that fails to read then panics with name in the message, as the
-// built-in faces do: data is a font built into the program.
-func parseLate(data []byte, name string) *Face {
-	mu.Lock()
-	defer mu.Unlock()
-	f := &Face{late: &lateFont{data: data, name: name}}
 	f.id = uint32(len(faces))
 	faces = append(faces, f)
+	byFont[ff] = f
 	return f
-}
-
-// ready reads f's font where f is read on its first use and this is it.
-// Every way in to a face calls it before it reads the font, without mu
-// held.
-func (f *Face) ready() {
-	if f.late == nil {
-		return
-	}
-	f.late.once.Do(func() {
-		ff, err := font.ParseTTF(bytes.NewReader(f.late.data))
-		if err != nil {
-			panic("text: the built-in " + f.late.name + " font fails to parse: " + err.Error())
-		}
-		mu.Lock()
-		f.take(ff)
-		mu.Unlock()
-	})
 }
 
 // Default returns Go Regular, the face gunim uses when a widget names
@@ -181,14 +134,11 @@ func GoSans(bold, italic bool) *Face { return sansFaces.get(bold, italic) }
 // rasterize the glyphs of a [paint.TextOp].
 func Lookup(id uint32) (*Face, bool) {
 	mu.Lock()
+	defer mu.Unlock()
 	if int(id) >= len(faces) {
-		mu.Unlock()
 		return nil, false
 	}
-	f := faces[id]
-	mu.Unlock()
-	f.ready()
-	return f, true
+	return faces[id], true
 }
 
 // Fallback sets the faces that draw the characters f lacks, in order of
@@ -197,9 +147,6 @@ func Lookup(id uint32) (*Face, bool) {
 //
 //	face := text.Default().Fallback(hebrew, arabic)
 func (f *Face) Fallback(others ...*Face) *Face {
-	for _, o := range others {
-		o.ready()
-	}
 	mu.Lock()
 	f.fallback = append([]*Face(nil), others...)
 	mu.Unlock()
@@ -430,7 +377,6 @@ func (r Run) PaintFaded(p *paint.Painter, topLeft geom.Point, c color.NRGBA, roo
 //
 // Bidirectional text and fallback faces work as they do in [Face.Layout].
 func (f *Face) Shape(s string, size float32) Run {
-	f.ready()
 	runes := []rune(s)
 	for i, r := range runes {
 		if isLineBreak(r) {
@@ -550,7 +496,6 @@ func (p Paragraph) Paint(painter *paint.Painter, topLeft geom.Point, c color.NRG
 // to left while the text around it sets left to right. Characters the
 // face lacks come from its [Face.Fallback] faces.
 func (f *Face) Layout(s string, st Style, width float32) Paragraph {
-	f.ready()
 	if st.LineHeight <= 0 {
 		st.LineHeight = 1
 	}

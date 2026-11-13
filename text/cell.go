@@ -56,7 +56,6 @@ func (b *builtins) get(bold, italic bool) *Face {
 // at zero, and its advance at size logical pixels. ok is false when no
 // font has r.
 func (f *Face) Glyph(r rune, size float32) (g paint.Glyph, advance float32, ok bool) {
-	f.ready()
 	mu.Lock()
 	defer mu.Unlock()
 	ff := (&fontmap{f: f}).resolve(r)
@@ -72,7 +71,6 @@ func (f *Face) Glyph(r rune, size float32) (g paint.Glyph, advance float32, ok b
 // reaches above and below the baseline, and the gap it leaves between
 // lines.
 func (f *Face) Metrics(size float32) (ascent, descent, gap float32) {
-	f.ready()
 	scale := size / f.upem
 	return f.ascent * scale, f.descent * scale, f.gap * scale
 }

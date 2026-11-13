@@ -6,6 +6,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/go-text/typesetting/segmenter"
+
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/access"
 	"github.com/marrasen/gunim/anim"
@@ -28,6 +30,8 @@ var (
 	// Shift and Enter.
 	KeyboardFill    = theme.Color("keyboard.fill", color.NRGBA{R: 0x17, G: 0x1a, B: 0x21, A: 0xff})
 	KeyboardKeyFill = theme.Color("keyboard.key.fill", color.NRGBA{R: 0x2f, G: 0x34, B: 0x40, A: 0xff})
+	// KeyboardKeyEdge edges every key, so a key stands clear of the panel at 3:1 or more.
+	KeyboardKeyEdge = theme.Color("keyboard.key.edge", color.NRGBA{R: 0x7a, G: 0x82, B: 0x92, A: 0xff})
 	// The names a screen reader gives the keys that type no letter, and the keyboard's own.
 	KeyboardName      = theme.Choice("keyboard.name", "Keyboard")
 	KeyboardShiftName = theme.Choice("keyboard.shift", "Shift")
@@ -79,20 +83,22 @@ func keyRows(signs bool) [][]kbKey {
 		return out
 	}
 	page, del := kbKey{kind: keyPage, wide: 1.5}, kbKey{kind: keyDelete, wide: 1.5}
-	hide, space, enter := kbKey{kind: keyHide, wide: 1}, kbKey{kind: keySpace, text: " ", wide: 5}, kbKey{kind: keyEnter, wide: 1.5}
+	hide, space, enter := kbKey{kind: keyHide, wide: 1}, kbKey{kind: keySpace, text: " ", wide: 4}, kbKey{kind: keyEnter, wide: 1.5}
+	comma, stop := kbKey{kind: keyChar, text: ",", wide: 1}, kbKey{kind: keyChar, text: ".", wide: 1}
+	bottom := []kbKey{page, hide, comma, space, stop, enter}
 	if signs {
 		return [][]kbKey{
 			chars("1234567890"),
 			chars(`-/:;()&@"`),
-			join(chars("+=_.,?!'"), []kbKey{del}),
-			{page, hide, space, {kind: keyChar, text: ",", wide: 1}, enter},
+			join(chars("+=_?!'#%"), []kbKey{del}),
+			bottom,
 		}
 	}
 	return [][]kbKey{
 		chars("qwertyuiop"),
 		chars("asdfghjkl"),
 		join([]kbKey{{kind: keyShift, wide: 1.5}}, chars("zxcvbnm"), []kbKey{del}),
-		{page, hide, space, {kind: keyChar, text: ".", wide: 1}, enter},
+		bottom,
 	}
 }
 
@@ -116,7 +122,12 @@ const (
 // on. The key with a chevron hides the keyboard, and the keyboard focus with it.
 //
 // A key types into the focused node through the same edit a phone's keyboard makes, [input.TextEdit], so a text
-// field takes it as it takes a phone's typing. Enter in a field of one line is the Enter key, which commits.
+// field takes it as it takes a phone's typing. Delete takes off one character as it is seen, an accented letter or
+// an emoji whole, and a finger that slides off it stops it. Enter in a field of one line is the Enter key, which
+// commits.
+//
+// The keyboard has no way to know of a keyboard plugged in. An app that sees one, as by the keys it hears, sets
+// Disabled, and the keyboard on the screen stays down.
 type Keyboard struct {
 	Control
 	child gunim.Node
@@ -134,6 +145,8 @@ type Keyboard struct {
 	pressed int
 	// repeat stops a held Delete deleting on.
 	repeat func()
+	// names are the names of the keys that type no letter, and the keyboard's own, in the theme of the last layout.
+	names map[string]string
 	// top is where the keys start, height the panel's height when open, and size the whole box, at the last layout.
 	top, height float32
 	size        geom.Size
@@ -208,6 +221,16 @@ func (k *Keyboard) Handle(e input.Event, u *gunim.UI) bool {
 		}
 		if at := k.keyAt(e.Pos); k.click.Release(e, at) && at >= 0 && k.keys[at].kind != keyDelete {
 			k.press(at, u)
+		}
+	case input.PointerMove:
+		if !k.held {
+			return false
+		}
+		// A finger that slides off the key it pressed lets it go: the key goes dark, and Delete stops.
+		if i := k.pressed; i >= 0 && k.keyAt(e.Pos) != i {
+			k.stopRepeat()
+			k.lit[i].Animate(0, Settle.Get(th))
+			k.pressed = -1
 		}
 	default:
 		return false
@@ -328,10 +351,28 @@ func (k *Keyboard) deleteBack(u *gunim.UI) {
 			k.tap(input.KeyBackspace, u)
 			return
 		}
-		_, size := utf8.DecodeLastRuneInString(st.Text[:i])
-		a -= size
+		a -= lastCharacter(st.Text[:i])
 	}
 	u.Type(input.TextEdit{Replace: [2]int{a, b}, Selection: [2]int{a, a}, Composing: [2]int{a, a}, Time: u.Now()})
+}
+
+// lastCharacter returns how many bytes the last character of s takes, as a reader sees a character: a letter with
+// its accents, or an emoji with its joiners and skin tone, whole.
+func lastCharacter(s string) int {
+	// A character is a few runes at most; the last few dozen hold it.
+	start := len(s)
+	for n := 0; n < 32 && start > 0; n++ {
+		_, size := utf8.DecodeLastRuneInString(s[:start])
+		start -= size
+	}
+	runes := []rune(s[start:])
+	var seg segmenter.Segmenter
+	seg.Init(runes)
+	last := 0
+	for it := seg.GraphemeIterator(); it.Next(); {
+		last = it.Grapheme().Offset
+	}
+	return len(string(runes[last:]))
 }
 
 // enter starts a new line in text of many lines, and is the Enter key in text of one.
@@ -355,6 +396,13 @@ func (k *Keyboard) tap(key input.Key, u *gunim.UI) {
 func (k *Keyboard) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
 	th := f.Theme
 	k.follow(th)
+	if k.names == nil {
+		k.names = map[string]string{}
+	}
+	for _, t := range []theme.Token[string]{KeyboardName, KeyboardShiftName, KeyboardDelete, KeyboardEnter, KeyboardSpace,
+		KeyboardHide, KeyboardSigns, KeyboardLetters} {
+		k.names[t.Key()] = t.Get(th)
+	}
 	want := false
 	if u := f.UI(); u != nil {
 		want = u.FocusTakesText() && !k.Disabled
@@ -399,15 +447,20 @@ func (k *Keyboard) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Childre
 		}
 		y += h + gap
 	}
-	if k.reveal && k.open.Value() > 0.99 {
+	// The field is brought into view once the keyboard has landed: on the way up, the room above it still shrinks.
+	if u := f.UI(); u != nil && k.reveal && !k.open.Active() && k.open.Value() > 0.99 {
 		k.reveal = false
-		if u := f.UI(); u != nil {
-			if n := u.Focused(); n != nil {
-				u.Reveal(n)
-			}
-		}
+		u.After(0, k.revealFocus)
 	}
 	return size
+}
+
+// revealFocus scrolls the focused node into the room above the keyboard, now it has landed, whole and with room
+// round it where there is more to scroll.
+func (k *Keyboard) revealFocus(u *gunim.UI) {
+	if n := u.Focused(); n != nil && k.Shown() {
+		u.Reveal(n)
+	}
 }
 
 // Paint implements [gunim.Node].
@@ -444,7 +497,8 @@ func (k *Keyboard) paintKey(p *paint.Painter, th *theme.Live, i int, r geom.Rect
 	if key.kind == keyEnter {
 		rest = ButtonPrimaryFill.Get(th)
 	}
-	p.RRect(r, radius, paint.Solid(anim.Mix(anim.ColorCodec, rest, ButtonHover.Get(th), lit)))
+	p.RRectStroke(r, radius, paint.Solid(anim.Mix(anim.ColorCodec, rest, ButtonHover.Get(th), lit)),
+		paint.Stroke{Width: 1, Color: KeyboardKeyEdge.Get(th)})
 	if i == k.pressed {
 		k.paintGlow(p, r, radius, th)
 	}
@@ -495,25 +549,33 @@ func (k *Keyboard) paintKey(p *paint.Painter, th *theme.Live, i int, r geom.Rect
 	run.Paint(p, geom.Pt(c.X-run.Advance/2, c.Y-run.Height()/2), ink)
 }
 
+// name is t in the theme of the last layout, or its default before one.
+func (k *Keyboard) name(t theme.Token[string]) string {
+	if v, ok := k.names[t.Key()]; ok {
+		return v
+	}
+	return t.Default()
+}
+
 // keyName is key i's name for a screen reader.
 func (k *Keyboard) keyName(i int) string {
 	key := k.keys[i]
 	switch key.kind {
 	case keyShift:
-		return KeyboardShiftName.Default()
+		return k.name(KeyboardShiftName)
 	case keyDelete:
-		return KeyboardDelete.Default()
+		return k.name(KeyboardDelete)
 	case keyEnter:
-		return KeyboardEnter.Default()
+		return k.name(KeyboardEnter)
 	case keySpace:
-		return KeyboardSpace.Default()
+		return k.name(KeyboardSpace)
 	case keyHide:
-		return KeyboardHide.Default()
+		return k.name(KeyboardHide)
 	case keyPage:
 		if k.signs {
-			return KeyboardLetters.Default()
+			return k.name(KeyboardLetters)
 		}
-		return KeyboardSigns.Default()
+		return k.name(KeyboardSigns)
 	case keyChar:
 	}
 	return k.typed(key)
@@ -521,7 +583,7 @@ func (k *Keyboard) keyName(i int) string {
 
 // Access implements [gunim.Accessible]: the keyboard while it is up, with a part for each key.
 func (k *Keyboard) Access() access.Info {
-	info := access.Info{Role: access.RoleGroup, Name: KeyboardName.Default(), State: k.accessState()}
+	info := access.Info{Role: access.RoleGroup, Name: k.name(KeyboardName), State: k.accessState()}
 	if !k.Shown() {
 		// Down, it has no keys to press.
 		return info

@@ -18,7 +18,6 @@ import (
 // IsColor reports whether glyph id is drawn in colours of its own, as an emoji font's are, rather than in the
 // text's colour. [Face.RasterizeColor] renders it.
 func (f *Face) IsColor(id uint32) bool {
-	f.ready()
 	mu.Lock()
 	defer mu.Unlock()
 	if c, ok := f.colored[id]; ok {
@@ -40,7 +39,6 @@ func (f *Face) IsColor(id uint32) bool {
 // It draws the glyph's COLR paint, or scales its bitmap from the nearest size the font keeps, and returns an empty
 // mask for a glyph with neither.
 func (f *Face) RasterizeColor(id uint32, sizePx float32) Mask {
-	f.ready()
 	mu.Lock()
 	paint, colr := f.face.GlyphDataColor(font.GID(id))
 	var bitmap font.GlyphBitmap
