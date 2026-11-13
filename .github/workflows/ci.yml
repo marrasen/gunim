@@ -34,6 +34,12 @@ jobs:
       - name: Test
         run: go test ./...
 
+      # The tests on the real clipboard, named in the log. In CI they
+      # fail rather than skip when they cannot run.
+      - name: Test the clipboard
+        if: runner.os == 'Windows'
+        run: go test -v -count=1 -run 'Sensitive' ./internal/glfw/ ./driver/desktop/
+
       - name: Build
         run: go build ./...
 

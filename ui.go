@@ -2355,6 +2355,17 @@ func (u *UI) SetClipboard(s string) {
 	}
 }
 
+// MarksClipboardSensitive reports whether [UI.SetClipboardSensitive] marks text sensitive on this platform, so the
+// system keeps it out of its history: true on Windows. Where it is false, an app may warn the user, or clear the text
+// sooner.
+func (u *UI) MarksClipboardSensitive() bool {
+	if u == nil || u.w == nil {
+		return false
+	}
+	_, ok := u.w.dw.(driver.SensitiveClipboard)
+	return ok
+}
+
 // SetClipboardSensitive puts s, such as a password, on the system clipboard marked as sensitive, and returns an error
 // where it could not.
 //
@@ -2373,8 +2384,11 @@ func (u *UI) SetClipboardSensitive(s string) error {
 // a password off once the user has had time to paste it, without clearing what they copied since. An error says the
 // clipboard could not be read or emptied.
 //
-// On Windows nothing can reach the clipboard between the read and the emptying. Elsewhere the clipboard is read and
-// then set to "", so text another program puts there in that moment can be lost.
+// On Windows, for the text [UI.SetClipboardSensitive] put there last, it goes by ownership: the clipboard is emptied
+// only if nothing has changed it since, so the user's own later copy of the same text survives, and nothing another
+// program put there is read. Other text is read and compared. Nothing can reach the clipboard between the check and the
+// emptying. Elsewhere the clipboard is read and then set to "", so text another program puts there in that moment can
+// be lost.
 func (u *UI) ClearClipboardIf(s string) (bool, error) {
 	if c, ok := u.w.dw.(driver.SensitiveClipboard); ok {
 		return c.ClearClipboardIf(s)

@@ -9,6 +9,7 @@ package glfw
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"image/png"
@@ -67,9 +68,12 @@ func SetClipboardStringSensitive(str string) error {
 	return setClipboardText(str, true)
 }
 
-// ClearClipboardStringIf empties the clipboard if it holds the text str, and reports whether it did. It holds the
-// clipboard open from the read to the emptying, so no other program can put something there in between. It must be
+// ClearClipboardStringIf empties the clipboard if it still holds the text str, and reports whether it did. It must be
 // called on the main thread.
+//
+// For the text SetClipboardStringSensitive put there last, it goes by ownership: the clipboard is emptied only if
+// nothing has changed it since, and nothing on it is read. Other text is read and compared. Either way the clipboard
+// is held open from the check to the emptying, so no other program can put something there in between.
 func ClearClipboardStringIf(str string) (bool, error) {
 	if !_glfw.initialized {
 		return false, NotInitialized
@@ -78,32 +82,84 @@ func ClearClipboardStringIf(str string) (bool, error) {
 		return false, err
 	}
 	defer closeClipboard()
-	now, err := clipboardText()
-	if errors.Is(err, FormatUnavailable) {
-		return false, nil
-	}
-	if err != nil || now != str {
-		return false, err
+	if owned.set && owned.sum == sha256.Sum256([]byte(str)) {
+		ours, err := stillOurs()
+		if err != nil || !ours {
+			return false, err
+		}
+	} else {
+		if r, _, _ := procIsClipboardFormatAvailable.Call(_CF_UNICODETEXT); r == 0 {
+			return false, nil
+		}
+		now, err := clipboardText()
+		if err != nil || now != str {
+			return false, err
+		}
 	}
 	if r, _, e := procEmptyClipboard.Call(); r == 0 {
 		return false, fmt.Errorf("glfw: failed to empty the clipboard: %w", e)
 	}
+	owned = ownership{}
 	return true, nil
 }
 
-// Clipboard formats that mark what is on the clipboard as sensitive. Windows reads the first by its presence, and
-// the other two as a DWORD, where 0 says no.
+// ownership is what the clipboard held when SetClipboardStringSensitive last put text there: its sequence number,
+// and the text's SHA-256, so the text itself is not kept.
+type ownership struct {
+	set bool
+	seq uintptr
+	sum [32]byte
+}
+
+var (
+	owned                          ownership
+	procGetClipboardSequenceNumber = user32.NewProc("GetClipboardSequenceNumber")
+)
+
+// stillOurs reports whether the clipboard still holds the sensitive text put there last: its sequence number is
+// unchanged, and its first mark is still there. It must be called with the clipboard open.
+func stillOurs() (bool, error) {
+	if seq, _, _ := procGetClipboardSequenceNumber.Call(); seq != owned.seq {
+		return false, nil
+	}
+	id, err := registerFormat(sensitiveFormats[0].name)
+	if err != nil {
+		return false, err
+	}
+	r, _, _ := procIsClipboardFormatAvailable.Call(id)
+	return r != 0, nil
+}
+
+// registerFormat returns the number of the clipboard format called name.
+func registerFormat(name string) (uintptr, error) {
+	p, err := windows.UTF16PtrFromString(name)
+	if err != nil {
+		return 0, err
+	}
+	id, _, e := procRegisterClipboardFormatW.Call(uintptr(unsafe.Pointer(p)))
+	if id == 0 {
+		return 0, fmt.Errorf("glfw: failed to register the clipboard format %s: %w", name, e)
+	}
+	return id, nil
+}
+
+// Clipboard formats that mark what is on the clipboard as sensitive. Windows reads the first by its presence, and the
+// next two as a DWORD, where 0 says no. Older clipboard managers look for the last by its presence.
 const (
 	excludeFromMonitors = "ExcludeClipboardContentFromMonitorProcessing"
 	includeInHistory    = "CanIncludeInClipboardHistory"
 	uploadToCloud       = "CanUploadToCloudClipboard"
+	viewerIgnore        = "Clipboard Viewer Ignore"
 )
 
 // sensitiveFormats are the formats a sensitive text is put with, and the DWORD each holds.
 var sensitiveFormats = []struct {
 	name  string
 	value uint32
-}{{excludeFromMonitors, 0}, {includeInHistory, 0}, {uploadToCloud, 0}}
+}{{excludeFromMonitors, 0}, {includeInHistory, 0}, {uploadToCloud, 0}, {viewerIgnore, 0}}
+
+// markFails, set by a test, makes setting the mark called name fail.
+var markFails func(name string) bool
 
 // globalBytes copies b into new movable global memory, for the clipboard to own.
 func globalBytes(b []byte) (uintptr, error) {
@@ -131,9 +187,23 @@ func setClipboardData(format, object uintptr) error {
 	return nil
 }
 
-// setClipboardText replaces the clipboard with str, and with sensitive marks it so. A sensitive text whose marks
-// cannot all be set is taken off again, and the error returned.
+// setClipboardText replaces the clipboard with str, and with sensitive marks it so and notes the clipboard's sequence
+// number for ClearClipboardStringIf. A sensitive text whose marks cannot all be set is taken off again, and the error
+// returned.
 func setClipboardText(str string, sensitive bool) error {
+	owned = ownership{}
+	if err := putClipboardText(str, sensitive); err != nil {
+		return err
+	}
+	if sensitive && str != "" {
+		seq, _, _ := procGetClipboardSequenceNumber.Call()
+		owned = ownership{set: true, seq: seq, sum: sha256.Sum256([]byte(str))}
+	}
+	return nil
+}
+
+// putClipboardText does setClipboardText's work, with the clipboard open, and closes it before it returns.
+func putClipboardText(str string, sensitive bool) error {
 	text, err := windows.UTF16FromString(str)
 	if err != nil {
 		return errors.New("glfw: the text holds a NUL character, which the clipboard cannot hold")
@@ -141,13 +211,9 @@ func setClipboardText(str string, sensitive bool) error {
 	formats := make([]uintptr, len(sensitiveFormats))
 	if sensitive {
 		for i, f := range sensitiveFormats {
-			name, err := windows.UTF16PtrFromString(f.name)
+			id, err := registerFormat(f.name)
 			if err != nil {
 				return err
-			}
-			id, _, e := procRegisterClipboardFormatW.Call(uintptr(unsafe.Pointer(name)))
-			if id == 0 {
-				return fmt.Errorf("glfw: failed to register the clipboard format %s: %w", f.name, e)
 			}
 			formats[i] = id
 		}
@@ -175,7 +241,10 @@ func setClipboardText(str string, sensitive bool) error {
 	// Other programs see the clipboard only once it closes, with the marks and the text together.
 	for i, f := range sensitiveFormats {
 		mark, err := globalBytes(binaryDWORD(f.value))
-		if err == nil {
+		if err == nil && markFails != nil && markFails(f.name) {
+			_, _, _ = procGlobalFree.Call(mark)
+			err = fmt.Errorf("glfw: failed to set clipboard data: the mark %s, for a test", f.name)
+		} else if err == nil {
 			err = setClipboardData(formats[i], mark)
 		}
 		if err != nil {
