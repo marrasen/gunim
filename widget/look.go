@@ -85,8 +85,8 @@ func contrastSorted(c gunim.ContrastColors) contrastGroups {
 		// Grounds.
 		set(c.Window, Background, CardFill, DialogFill, PanelFill, MenuFill, FieldFill, ToolbarFill, MenubarFill,
 			TooltipFill, CurveFill, HistogramFill, OverviewFill, CodeEditorFill, CodeGutterFill, ChordInputFill, Knob,
-			ColorPickerCheckLight),
-		set(c.ButtonFace, ButtonFill, ChipFill, ChipCap, SegmentedTrack),
+			ColorPickerCheckLight, KeyboardFill),
+		set(c.ButtonFace, ButtonFill, ChipFill, ChipCap, SegmentedTrack, KeyboardKeyFill),
 		set(c.ButtonText, ButtonInk),
 		// Text, lines and status.
 		set(c.WindowText, Ink, TooltipInk, MenuHint, PaletteHint, TableHeader, ChipLead, AddressCrumbInk,
@@ -115,7 +115,7 @@ func contrastSorted(c gunim.ContrastColors) contrastGroups {
 		},
 		tints: []theme.Token[color.NRGBA]{ListSelected, Selection, FieldPressed, SliderRowActive, ButtonHover,
 			ChipHover, MenubarHot, WindowButtonHot, OverviewHover, OverviewBox, GridCursor, TableCursor, PaletteMark,
-			BandFill, TileHover, TileSelected, TreeHover, TreeSelected, CodeLineFill},
+			BandFill, TileHover, TileSelected, TreeHover, TreeSelected, CodeLineFill, PressGlow},
 		marks: []theme.Token[color.NRGBA]{OverviewMark, OverviewBoxEdge, TableStrong, SplitHot, GridRule, BandEdge,
 			TileCursor},
 		entries: entries,
