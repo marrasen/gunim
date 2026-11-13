@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"syscall"
 	"testing"
@@ -462,5 +463,81 @@ func TestCloseGivesUpOnAStuckRenderThread(t *testing.T) {
 	}
 	if c.active != 1 || c.mode[2] != kdText {
 		t.Fatalf("the VT was not put back: showing %d, mode %d", c.active, c.mode[2])
+	}
+}
+
+// A frame that takes longer to build than the lead leaves it is handed over
+// after its vblank. Counted from the flip before, it would look like a
+// frame after a rest, and the pacer would never learn: 12 s of light frames
+// teach a short lead, and a heavier screen after it would stay at 30 fps.
+// Counted from the release, it is a miss, and the pacer backs off.
+func TestThePacerBacksOffWhenFramesGetHeavier(t *testing.T) {
+	const (
+		period = 16667 * time.Microsecond
+		gpu    = time.Millisecond
+	)
+	var p pacer
+	t0 := time.Now()
+	vblank := t0 // the vblank the frame before flipped on
+	// run draws n frames that take cost to build, and returns the
+	// vblanks they missed.
+	run := func(n int, cost time.Duration) (misses int) {
+		for range n {
+			lead := p.now(0, period)
+			paced := lead < period
+			release := vblank
+			if paced {
+				release = vblank.Add(period - lead)
+			}
+			handed := release.Add(cost)
+			next := vblank.Add(period)
+			missed := 0
+			for handed.Add(gpu).After(next) {
+				next = next.Add(period)
+				missed++
+			}
+			start := frameStart(vblank, release, paced)
+			straight := handed.Sub(start) < period
+			p.flipped(straight, paced, missed, period)
+			misses += missed
+			vblank = next
+		}
+		return misses
+	}
+	run(int(12*time.Second/period), 2*time.Millisecond)
+	if got := p.now(0, period); got >= 6*time.Millisecond {
+		t.Fatalf("12 s of light frames left a lead of %v, want it learnt short", got)
+	}
+	run(int(10*time.Second/period), 6*time.Millisecond)
+	if got := p.now(0, period); got < 7*time.Millisecond {
+		t.Fatalf("heavier frames left a lead of %v, want at least their 7 ms", got)
+	}
+	if misses := run(1000, 6*time.Millisecond); misses > 1 {
+		t.Fatalf("%d vblanks missed in 1 000 frames once the lead was learnt", misses)
+	}
+}
+
+// A second start while a live run holds the state file stops before it
+// touches a VT: it would reset the live run's VT to text mode with its
+// keyboard on, and take its switching.
+func TestASecondStartLeavesTheLiveRunsVTAlone(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "gunim-kms.json")
+	wasPath, wasConsoles := statePath, consoles
+	statePath = func() string { return p }
+	c := newFakeConsole(7)
+	c.mode[7], c.kb[7], c.process[7] = kdGraphics, kOff, true
+	consoles = c
+	t.Cleanup(func() { statePath, consoles = wasPath, wasConsoles })
+	live, _, _, err := lockState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer live.done()
+	d, err := Open(Options{VT: "7"})
+	if !errors.Is(err, errStateHeld) || d != nil {
+		t.Fatalf("Open beside a live run: %v, %v", d, err)
+	}
+	if len(c.calls) != 0 || len(c.fds) != 0 || c.mode[7] != kdGraphics || c.kb[7] != kOff || !c.process[7] {
+		t.Fatalf("the live run's VT was touched: %v", c.calls)
 	}
 }

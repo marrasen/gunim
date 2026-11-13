@@ -119,7 +119,10 @@ type Options struct {
 	// from the state file it keeps under /run while it runs. Under systemd,
 	// TTYReset=yes with TTYPath= sets the unit's own VT back to text mode
 	// with a working keyboard before and after each run; it covers neither
-	// a "free" VT nor the backlight.
+	// a "free" VT nor the backlight. A unit that is not root keeps the state
+	// file in its RuntimeDirectory=, which systemd removes as the unit stops,
+	// crash or not: such a unit needs RuntimeDirectoryPreserve=restart for
+	// the next run to find it.
 	VT string
 	// VTSwitch takes Ctrl+Alt+F1 to F12 from a keyboard, which the VT's
 	// own keyboard handling would, to switch VT. Keyboards are found as
@@ -171,8 +174,9 @@ type Driver struct {
 	software       bool
 	// renderer is GL's name for what draws.
 	renderer string
-	// lead is how long before a vblank the windows hear of the flip
-	// before it; 0 tells them at once.
+	// lead, where GUNIM_KMS_LEAD sets it, is a fixed time before a vblank
+	// at which the windows hear of the flip before it. 0 has the pacer
+	// learn it from the frames.
 	lead time.Duration
 
 	// wake is an eventfd that wakes the render thread from its poll, and
@@ -239,8 +243,9 @@ func (d *Driver) open() error {
 	sf, left, found, err := lockState()
 	switch {
 	case errors.Is(err, errStateHeld):
-		// A live run holds the screen: what it took is its own.
-		log.Printf("gunim: kms: %v", err)
+		// A live run holds the screen. Its VT and backlight are its own:
+		// stop before touching either.
+		return err
 	case err != nil:
 		log.Printf("gunim: kms: %v; a crash would leave the VT for the next run to find as it is", err)
 	case found:
@@ -349,7 +354,10 @@ func (d *Driver) catchSignals() {
 
 // uncatchSignals gives stopSignals their default handling back, so a
 // second one ends the process, and with pipes stops catching SIGPIPE too,
-// once the screen is back. It is safe to call twice.
+// once the screen is back. It is safe to call twice. signal.Reset clears
+// every handler for those signals in the process, the application's own
+// too: one that still wants them after Close, as to save work on SIGTERM
+// while it ends, calls signal.Notify again.
 func (d *Driver) uncatchSignals(pipes bool) {
 	if d.sigs != nil {
 		signal.Stop(d.sigs)

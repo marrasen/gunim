@@ -72,16 +72,9 @@ func lockState() (sf *stateFile, left state, found bool, err error) {
 		})
 		return nil, state{}, false, nil
 	}
-	f, err := os.OpenFile(p, os.O_RDWR|os.O_CREATE, 0o600)
+	f, err := openLocked(p)
 	if err != nil {
-		return nil, state{}, false, fmt.Errorf("state file: %w", err)
-	}
-	if err := unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
-		_ = f.Close()
-		if errors.Is(err, unix.EWOULDBLOCK) {
-			return nil, state{}, false, errStateHeld
-		}
-		return nil, state{}, false, fmt.Errorf("state file: lock: %w", err)
+		return nil, state{}, false, err
 	}
 	sf = &stateFile{f: f, path: p}
 	b, err := os.ReadFile(p)
@@ -93,6 +86,33 @@ func lockState() (sf *stateFile, left state, found bool, err error) {
 		}
 	}
 	return sf, left, found, nil
+}
+
+// openLocked opens the file at p and locks it. A run that ends removes the
+// file while it holds the lock, so a file opened before that removal and
+// locked after it is no longer the one at p: it tries again, with the file
+// at p now.
+func openLocked(p string) (*os.File, error) {
+	for range 10 {
+		f, err := os.OpenFile(p, os.O_RDWR|os.O_CREATE, 0o600)
+		if err != nil {
+			return nil, fmt.Errorf("state file: %w", err)
+		}
+		if err := unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
+			_ = f.Close()
+			if errors.Is(err, unix.EWOULDBLOCK) {
+				return nil, errStateHeld
+			}
+			return nil, fmt.Errorf("state file: lock: %w", err)
+		}
+		held, err1 := f.Stat()
+		named, err2 := os.Stat(p)
+		if err1 == nil && err2 == nil && os.SameFile(held, named) {
+			return f, nil
+		}
+		_ = f.Close()
+	}
+	return nil, errors.New("state file: removed again and again as it was locked")
 }
 
 // write keeps s for a run after this one, should this one end without

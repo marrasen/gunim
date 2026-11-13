@@ -69,9 +69,11 @@ type renderThread struct {
 	held      []*Window
 	heldFrame driver.Frame
 	releaseAt time.Time
-	// paced says the windows heard of the last flip late, by pace's lead.
-	paced bool
-	pace  pacer
+	// paced says the windows heard of the last flip late, by pace's lead,
+	// at releasedAt.
+	paced      bool
+	releasedAt time.Time
+	pace       pacer
 	// jobs, stack and gone are the frame's, kept from frame to frame; see
 	// collect.
 	jobs  []job
@@ -224,9 +226,6 @@ func (r *renderThread) loop() error {
 		if err != nil && !errors.Is(err, unix.EINTR) {
 			return fmt.Errorf("poll: %w", err)
 		}
-		if r.flying && time.Since(r.committed) >= flipTimeout {
-			return fmt.Errorf("no flip event %v after a commit", flipTimeout)
-		}
 		if fds[0].Revents&(unix.POLLERR|unix.POLLHUP|unix.POLLNVAL) != 0 {
 			return errors.New("the card is gone")
 		}
@@ -234,6 +233,10 @@ func (r *renderThread) loop() error {
 			if err := d.scr.card.readEvents(r.events[:], r.flipped); err != nil {
 				return fmt.Errorf("read the card's events: %w", err)
 			}
+		}
+		// After the events, so a flip that came late but came counts.
+		if r.flying && time.Since(r.committed) >= flipTimeout {
+			return fmt.Errorf("no flip event %v after a commit", flipTimeout)
 		}
 		if fds[1].Revents&unix.POLLIN != 0 {
 			_, _ = unix.Read(d.wake, wake[:]) // only empties it
@@ -301,7 +304,7 @@ type pacer struct {
 const (
 	paceStep    = 500 * time.Microsecond // shorter, after paceEvery frames made
 	paceEvery   = 30
-	paceBack    = 2 * time.Millisecond // longer, on a miss
+	paceBack    = 3 * time.Millisecond // longer, on a miss
 	paceHold    = 1800                 // frames before shortening again
 	paceMinLead = 4 * time.Millisecond
 )
@@ -341,6 +344,26 @@ func (p *pacer) flipped(straight, paced bool, missed int, period time.Duration) 
 	}
 }
 
+// frameStart returns when the engine could start the frame now flipping:
+// as the flip before came, or where the driver held that flip's report back
+// for the pacer, as it let it go. A frame is drawn straight after the one
+// before where it was handed over within a refresh of that: so a frame
+// that took longer to build than the lead left it, and missed its vblank,
+// counts as a miss the pacer learns from, not as one after a rest.
+func frameStart(prevFlip, released time.Time, paced bool) time.Time {
+	if paced && !released.IsZero() {
+		return released
+	}
+	return prevFlip
+}
+
+func minTime(a, b time.Time) time.Time {
+	if a.Before(b) {
+		return a
+	}
+	return b
+}
+
 // ppoll waits on fds for up to wait, or for ever where wait is negative,
 // to the microsecond.
 func ppoll(fds []unix.PollFd, wait time.Duration) (int, error) {
@@ -354,6 +377,7 @@ func ppoll(fds []unix.PollFd, wait time.Duration) (int, error) {
 // release tells the windows whose frames the last flip showed that it
 // did, so they draw their next frame.
 func (r *renderThread) release() {
+	r.releasedAt = time.Now()
 	for _, w := range r.held {
 		select {
 		case w.presented <- r.heldFrame:
@@ -511,8 +535,9 @@ func (r *renderThread) flipped(ev flipEvent) {
 	if r.prevSeq != 0 && ev.sequence > r.prevSeq+1 {
 		missed = int(ev.sequence - r.prevSeq - 1)
 	}
-	straight := !r.prevFlip.IsZero() && r.handed.Sub(r.prevFlip) < period
-	d.stats.shown(ev.sequence, r.prevFlip, r.handed, r.committed, at, r.touchAt, straight, missed)
+	from := frameStart(r.prevFlip, r.releasedAt, r.paced)
+	straight := !from.IsZero() && r.handed.Sub(from) < period
+	d.stats.shown(ev.sequence, from, r.handed, r.committed, at, r.touchAt, straight, missed)
 	r.prevFlip, r.prevSeq = at, ev.sequence
 	r.pace.flipped(straight, r.paced, missed, period)
 	r.g.release(r.shown)
@@ -524,10 +549,13 @@ func (r *renderThread) flipped(ev flipEvent) {
 	r.held = append(r.held, r.flight...)
 	r.flight = r.flight[:0]
 	r.releaseAt = time.Time{}
+	now := time.Now()
 	if lead := r.pace.now(r.d.lead, period); lead < period {
-		r.releaseAt = at.Add(period - lead)
+		// A flip stamped off the monotonic clock could put the release far
+		// ahead: never more than a refresh from now.
+		r.releaseAt = minTime(at.Add(period-lead), now.Add(period))
 	}
-	r.paced = time.Now().Before(r.releaseAt)
+	r.paced = now.Before(r.releaseAt)
 	if !r.paced {
 		r.release()
 	}

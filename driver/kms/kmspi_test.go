@@ -74,9 +74,10 @@ func TestFallsBackToTheCPUOnTheScreen(t *testing.T) {
 func bench(t *testing.T, ko kms.Options) {
 	o := kmsdemo.BenchOptions{
 		KMS: ko,
-		// 30 s moving: a rate of 1 missed flip in 1 000 needs that many frames
-		// to tell, as the driver's pacer finds its edge once as it starts.
-		Warm: 2 * time.Second, Moving: 30 * time.Second, Rest: 5 * time.Second,
+		// 10 s warm: the driver's pacer learns its lead in the first seconds,
+		// missing a vblank or two as it finds the edge. 30 s moving: a rate
+		// of 1 missed flip in 1 000 needs that many frames to tell.
+		Warm: 10 * time.Second, Moving: 30 * time.Second, Rest: 5 * time.Second,
 		Log: func(s string) { t.Log(s) },
 	}
 	r, err := kmsdemo.Bench(context.Background(), o)

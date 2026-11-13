@@ -415,7 +415,9 @@ UI. The driver:
   and on a panic on the render thread. `SIGKILL`, `os.Exit`, a panic on another goroutine and a crash in Mesa's C
   code skip that. For those, it keeps a state file under `/run` while it runs, locked: the VT it took, the VT before,
   and the backlight's level. The next run finds the file unlocked and puts those back first. The unit's
-  `TTYReset=yes` also covers the unit's own VT, but not a free VT, and never the backlight.
+  `TTYReset=yes` also covers the unit's own VT, but not a free VT, and never the backlight. A unit that is not
+  root keeps the state file in its `RuntimeDirectory=`, which systemd removes as the unit stops, crash or not, so it
+  needs `RuntimeDirectoryPreserve=restart` for the next run to find the file (section 4.2).
 
 ---
 
@@ -572,6 +574,9 @@ SupplementaryGroups=video render input
 ExecStart=/usr/local/bin/hjortron-touch
 TTYPath=/dev/tty1
 TTYReset=yes
+# driver/kms's state file, kept across a restart after a crash (section 2.10)
+RuntimeDirectory=hjortron-touch
+RuntimeDirectoryPreserve=restart
 TTYVTDisallocate=yes
 StandardInput=tty-force
 Restart=always

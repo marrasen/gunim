@@ -17,7 +17,9 @@ type Stats struct {
 	// while the program drew one frame straight after another.
 	Frames, Missed int
 	// Frame is the time from the flip before to the commit, for frames
-	// drawn straight after the one before: the whole frame, from the
+	// drawn straight after the one before; where the driver held the flip's
+	// report back to start the frame later, from when it let it go. It is
+	// the whole frame, from the
 	// engine's step and layout through paint to the GPU's draw. Draw is
 	// the driver's part alone: from the frame handed over to its commit.
 	// Touch is from a touch to the flip of the first frame after it.
