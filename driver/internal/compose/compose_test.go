@@ -41,6 +41,8 @@ type fakeGL struct {
 	// settings.
 	attached map[uint32]uint32
 	params   map[uint32]map[uint32]int32
+	// turn is the last matrix the compositor turned its layers by.
+	turn [4]float32
 }
 
 // glCall is the state a clear or a laid texture went by.
@@ -114,11 +116,12 @@ func (g *fakeGL) Enable(c uint32) {
 	g.scissor = g.scissor || c == glScissorTest
 	g.blend = g.blend || c == gl.BLEND
 }
-func (g *fakeGL) ClearColor(r, c, b, a float32)       { g.clear = [4]float32{r, c, b, a} }
-func (g *fakeGL) Clear(uint32)                        { g.record("clear") }
-func (g *fakeGL) BlendFuncSeparate(a, b, c, d uint32) { g.blendFn = [4]uint32{a, b, c, d} }
-func (g *fakeGL) ActiveTexture(t uint32)              { g.active = t }
-func (g *fakeGL) Uniform4fv(_ int32, v []float32)     { g.rects = append(g.rects, [4]float32(v)) }
+func (g *fakeGL) ClearColor(r, c, b, a float32)         { g.clear = [4]float32{r, c, b, a} }
+func (g *fakeGL) Clear(uint32)                          { g.record("clear") }
+func (g *fakeGL) BlendFuncSeparate(a, b, c, d uint32)   { g.blendFn = [4]uint32{a, b, c, d} }
+func (g *fakeGL) ActiveTexture(t uint32)                { g.active = t }
+func (g *fakeGL) Uniform4fv(_ int32, v []float32)       { g.rects = append(g.rects, [4]float32(v)) }
+func (g *fakeGL) UniformMatrix2fv(_ int32, v []float32) { g.turn = [4]float32(v) }
 func (g *fakeGL) DrawElements(uint32, int32, uint32, int) {
 	g.laid = append(g.laid, g.texture)
 	g.record("lay")
@@ -822,5 +825,38 @@ func TestUpright(t *testing.T) {
 	img := Upright([]byte{1, 0, 0, 255, 2, 0, 0, 255}, 1, 2)
 	if img.RGBAAt(0, 0).R != 2 || img.RGBAAt(0, 1).R != 1 {
 		t.Fatalf("got %v", img.Pix)
+	}
+}
+
+// A screen turned sideways, as a portrait panel shown in landscape, takes
+// its window through the texture, turned, with the viewport the panel's own
+// way up.
+func TestTurnedLaysTheWindowTurnedOnTheSurface(t *testing.T) {
+	b := newBench(t)
+	b.c.SetTurn(90)
+	p := newPane()
+	l := Layer{Pane: p, W: 1280, H: 720}
+	b.frame([]Layer{l}, 1280, 720, &l)
+	if got, want := took(p), []drawn{{fbo: p.fbo, w: 1280, h: 720}}; !slices.Equal(got, want) {
+		t.Fatalf("drew %v, want %v", got, want)
+	}
+	if !slices.Equal(b.g.laid, []uint32{p.tex}) {
+		t.Fatalf("laid %v, want %d", b.g.laid, p.tex)
+	}
+	if want := [4]float32{0, -1, 1, 0}; b.g.turn != want {
+		t.Fatalf("turned by %v, want %v", b.g.turn, want)
+	}
+	lay := b.g.calls[len(b.g.calls)-1]
+	if lay.kind != "lay" || lay.viewW != 720 || lay.viewH != 1280 {
+		t.Fatalf("laid with %+v, want a viewport of 720x1280", lay)
+	}
+	b.c.SetTurn(0)
+	if want := [4]float32{1, 0, 0, 1}; b.g.turn != want {
+		t.Fatalf("turned back by %v, want %v", b.g.turn, want)
+	}
+	l.W, l.H = 720, 1280
+	b.frame([]Layer{l}, 720, 1280, &l)
+	if got := took(p); len(got) != 1 || got[0].fbo != 0 {
+		t.Fatalf("drew %v, want straight onto the surface again", got)
 	}
 }

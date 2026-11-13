@@ -1,0 +1,484 @@
+//go:build linux
+
+package kms
+
+import (
+	"encoding/binary"
+	"errors"
+	"fmt"
+	"image"
+	"image/color"
+	"log"
+	"math"
+	"runtime"
+	"runtime/debug"
+	"syscall"
+	"time"
+
+	"golang.org/x/sys/unix"
+
+	"github.com/marrasen/gunim/driver"
+	"github.com/marrasen/gunim/driver/internal/compose"
+	"github.com/marrasen/gunim/input"
+	"github.com/marrasen/gunim/internal/gl"
+)
+
+// lcdLag is how long the panel's liquid crystal takes to change, after
+// scan-out reaches a line: an estimate, which slow-motion video of the
+// screen checks.
+const lcdLag = 8 * time.Millisecond
+
+// flipWait is how long the render thread waits for a flip it must see
+// before it lets go of the screen.
+const flipWait = 200 * time.Millisecond
+
+// renderThread is the render thread's own state. One goroutine, locked to
+// its OS thread, owns the EGL context and the card: it draws, commits, and
+// waits in poll on the card for the flip event and on an eventfd for new
+// work.
+type renderThread struct {
+	d *Driver
+	g *gpu
+	c *compose.Compositor
+	// gl is the context the compositor draws with.
+	gl gl.Context
+	// fbs is the framebuffer made of each GBM buffer, made once each.
+	fbs map[uintptr]uint32
+	// shown is the buffer on the screen, and pending the one committed,
+	// whose flip is on its way. flying says a commit waits for its flip.
+	shown, pending uintptr
+	flying         bool
+	// set says the mode is set; a commit after the screen came back from
+	// another VT sets it again. away says another VT has the screen.
+	set, away bool
+	// rotation is the plane's rotation property value, where the plane
+	// turns the picture itself (rotate says it does).
+	rotation uint64
+	rotate   bool
+	// flight is the windows whose frames are in the commit on its way.
+	flight []*Window
+	// For the figures: when the frame on its way was handed over and
+	// committed, the touch it answers, and the flip before it.
+	handed, committed, touchAt time.Time
+	prevFlip                   time.Time
+	prevSeq                    uint32
+	events                     [1024]byte
+}
+
+// render runs the render thread. It reports on started once the screen
+// shows its first frame, or why it could not.
+func (d *Driver) render(started chan<- error) {
+	runtime.LockOSThread()
+	defer close(d.done)
+	// A panic here ends the run as an error, so Run still puts the screen,
+	// the VT and the backlight back.
+	defer func() {
+		if p := recover(); p != nil {
+			d.err = fmt.Errorf("render thread: %v", p)
+			log.Printf("gunim: kms: %v\n%s", d.err, debug.Stack())
+			select {
+			case started <- d.err:
+			default:
+			}
+		}
+	}()
+	r := &renderThread{d: d, fbs: map[uintptr]uint32{}}
+	d.rt = r
+	if err := r.start(); err != nil {
+		r.stop()
+		started <- err
+		return
+	}
+	started <- nil
+	if d.vt != nil {
+		go d.watchVT()
+	}
+	err := r.loop()
+	r.stop()
+	if err != nil {
+		log.Printf("gunim: kms: %v", err)
+		d.err = err
+	}
+}
+
+// start makes the GL context, with the GPU or else on the CPU, and shows
+// a black frame, which sets the mode.
+func (r *renderThread) start() error {
+	d := r.d
+	if v, err := d.scr.card.cap(capTimestampMonotonic); err != nil || v != 1 {
+		log.Print("gunim: kms: the card's flip times are not on the monotonic clock: the figures are off")
+	}
+	var err error
+	if !d.o.Software {
+		r.g, err = startGPU(d.scr.card.fd, d.panelW, d.panelH, false)
+		if err == nil {
+			r.gl, err = loadGL(r.g)
+		}
+		if err != nil {
+			log.Printf("gunim: kms: no GPU, so the CPU draws: %v", err)
+			if r.g != nil {
+				r.g.stop()
+			}
+		}
+	}
+	if r.g == nil || err != nil || d.o.Software {
+		gerr := err
+		r.g, err = startGPU(d.scr.card.fd, d.panelW, d.panelH, true)
+		if err == nil {
+			r.gl, err = loadGL(r.g)
+		}
+		if err != nil {
+			return errors.Join(gerr, fmt.Errorf("software drawing: %w", err))
+		}
+		d.software = true
+	}
+	if r.g.software && !d.o.Software {
+		log.Printf("gunim: kms: Mesa draws on the CPU (%s): the GPU's driver did not load", r.g.renderer)
+	}
+	d.software = r.g.software
+	d.renderer = r.g.renderer
+	r.c, err = compose.New(r.gl, "kms")
+	if err != nil {
+		return err
+	}
+	if v, ok := d.scr.planeRotation(int(d.turn)); ok && (d.turn == 0 || d.turn == 180) {
+		r.rotation, r.rotate = v, true
+		r.c.SetTurn(0)
+	} else {
+		if v, ok := d.scr.planeRotation(0); ok {
+			r.rotation, r.rotate = v, true
+		}
+		r.c.SetTurn(int(d.turn))
+	}
+	// The first frame is black, and sets the mode.
+	r.gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
+	r.gl.Viewport(0, 0, int32(d.panelW), int32(d.panelH))
+	r.gl.ClearColor(0, 0, 0, 1)
+	r.gl.Clear(0x4000)
+	r.gl.ClearColor(0, 0, 0, 0)
+	r.handed = time.Now()
+	return r.commit()
+}
+
+// loadGL loads OpenGL ES's functions for the context made current.
+func loadGL(g *gpu) (gl.Context, error) {
+	c, err := gl.NewDefaultContext()
+	if err == nil {
+		err = c.LoadFunctions()
+	}
+	if err != nil {
+		return nil, fmt.Errorf("OpenGL ES %s from %s: %w", g.version, g.vendor, err)
+	}
+	return c, nil
+}
+
+// loop serves frames and the driver's work until the driver quits.
+func (r *renderThread) loop() error {
+	d := r.d
+	fds := []unix.PollFd{{Fd: int32(d.scr.card.fd), Events: unix.POLLIN}, {Fd: int32(d.wake), Events: unix.POLLIN}}
+	var wake [8]byte
+	for {
+		fds[0].Revents, fds[1].Revents = 0, 0
+		if _, err := unix.Poll(fds, -1); err != nil && err != unix.EINTR {
+			return fmt.Errorf("poll: %w", err)
+		}
+		if fds[0].Revents&unix.POLLIN != 0 {
+			if err := d.scr.card.readEvents(r.events[:], r.flipped); err != nil {
+				return fmt.Errorf("read the card's events: %w", err)
+			}
+		}
+		if fds[1].Revents&unix.POLLIN != 0 {
+			_, _ = unix.Read(d.wake, wake[:]) // only empties it
+		}
+		for {
+			select {
+			case fn := <-d.cmds:
+				fn()
+				continue
+			default:
+			}
+			break
+		}
+		select {
+		case <-d.quit:
+			r.waitFlip()
+			return nil
+		default:
+		}
+		if !r.flying && !r.away {
+			if err := r.frame(); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+// waitFlip waits for the flip on its way, for a while, so its buffer can
+// go back.
+func (r *renderThread) waitFlip() {
+	deadline := time.Now().Add(flipWait)
+	fds := []unix.PollFd{{Fd: int32(r.d.scr.card.fd), Events: unix.POLLIN}}
+	for r.flying && time.Now().Before(deadline) {
+		fds[0].Revents = 0
+		if _, err := unix.Poll(fds, int(flipWait/time.Millisecond)); err != nil && err != unix.EINTR {
+			return
+		}
+		if fds[0].Revents&unix.POLLIN != 0 {
+			if err := r.d.scr.card.readEvents(r.events[:], r.flipped); err != nil {
+				return
+			}
+		}
+	}
+}
+
+// job is a window's frame to draw.
+type job struct {
+	w        *Window
+	f        *frame
+	fbW, fbH int
+	under    color.NRGBA
+	shot     func(*image.RGBA)
+	// again marks the window's last frame drawn again, to sharpen what it
+	// drew stretched; the engine waits for none.
+	again bool
+}
+
+// frame draws the frames waiting, lays the windows on the screen, and
+// commits the result, if anything changed.
+func (r *renderThread) frame() error {
+	d := r.d
+	d.mu.Lock()
+	var jobs []job
+	var stack []compose.Layer
+	gone := d.gone
+	d.gone = nil
+	scale := d.density
+	for _, w := range d.windows {
+		rect := w.held.Rect(w.rectLocked(), w.next != nil)
+		fbW, fbH := int(math.Round(float64(rect.Size().W*scale))), int(math.Round(float64(rect.Size().H*scale)))
+		if w.next != nil {
+			j := job{w: w, f: w.next, fbW: fbW, fbH: fbH, under: w.under}
+			if fbW > 0 && fbH > 0 {
+				j.shot, w.shot = w.shot, nil
+			}
+			jobs = append(jobs, j)
+			w.next = nil
+		} else if w.sharpen && w.pane.Last != nil {
+			jobs = append(jobs, job{w: w, f: &frame{ops: w.pane.Last}, fbW: fbW, fbH: fbH, under: w.under, again: true})
+		}
+		w.sharpen = false
+		if !w.hidden && !w.stale {
+			x, y := int(math.Round(float64(rect.Min.X*scale))), int(math.Round(float64(rect.Min.Y*scale)))
+			stack = append(stack, compose.Layer{Pane: &w.pane, X: x, Y: y, W: fbW, H: fbH, Under: w.under})
+		}
+	}
+	handed, touchAt := d.handed, d.touchAt
+	if len(jobs) > 0 {
+		d.handed, d.touchAt = time.Time{}, time.Time{}
+	}
+	d.mu.Unlock()
+	for _, p := range gone {
+		r.c.Release(p)
+	}
+	if len(jobs) == 0 && !r.c.Dirty(stack) {
+		return nil
+	}
+	if handed.IsZero() {
+		handed = time.Now()
+	}
+	c := r.c
+	c.Begin(stack, d.picW, d.picH)
+	for _, j := range jobs {
+		if !c.Draw(&j.w.pane, j.f.ops, j.f.damage, j.fbW, j.fbH, j.under, scale) {
+			if j.shot != nil {
+				j.w.keepShot(j.shot)
+			}
+			continue
+		}
+		if j.shot != nil {
+			c.Shoot(&j.w.pane, j.fbW, j.fbH, j.shot)
+		}
+	}
+	c.Finish(stack, d.picW, d.picH, scale)
+	r.flight = r.flight[:0]
+	for _, j := range jobs {
+		if !j.again {
+			r.flight = append(r.flight, j.w)
+		}
+	}
+	r.handed, r.touchAt = handed, touchAt
+	return r.commit()
+}
+
+// commit ends the frame drawn, and shows it from the next vblank: it sets
+// the mode on the first frame, and after the screen comes back from
+// another VT.
+func (r *renderThread) commit() error {
+	d := r.d
+	bo, err := r.g.swap()
+	if err != nil {
+		var e eglErr
+		if errors.As(err, &e) && e.code == eglContextLost {
+			return fmt.Errorf("the GPU lost its context: %w", err)
+		}
+		return err
+	}
+	fb, ok := r.fbs[bo]
+	if !ok {
+		handle, stride, w, h, format := boInfo(bo)
+		fb, err = d.scr.card.addFB(w, h, format, handle, stride)
+		if err != nil {
+			r.g.release(bo)
+			return fmt.Errorf("add a framebuffer: %w", err)
+		}
+		r.fbs[bo] = fb
+	}
+	if !r.set {
+		err = d.scr.modeset(fb, r.rotation, r.rotate, 1)
+		r.set = err == nil
+	} else {
+		err = d.scr.flip(fb, 1)
+	}
+	if err != nil {
+		r.g.release(bo)
+		return err
+	}
+	r.committed = time.Now()
+	r.pending, r.flying = bo, true
+	return nil
+}
+
+// flipped takes a flip event: the frame committed is on the screen. The
+// buffer shown before goes back to the surface, and each window whose
+// frame it held hears so.
+func (r *renderThread) flipped(ev flipEvent) {
+	if !r.flying {
+		return
+	}
+	d := r.d
+	at := monoTime(time.Duration(ev.sec)*time.Second + time.Duration(ev.usec)*time.Microsecond)
+	period := time.Duration(float64(time.Second) / d.rate)
+	missed := 0
+	if r.prevSeq != 0 && ev.sequence > r.prevSeq+1 {
+		missed = int(ev.sequence - r.prevSeq - 1)
+	}
+	straight := !r.prevFlip.IsZero() && r.handed.Sub(r.prevFlip) < period
+	d.stats.shown(ev.sequence, r.prevFlip, r.handed, r.committed, at, r.touchAt, straight, missed)
+	r.prevFlip, r.prevSeq = at, ev.sequence
+	r.g.release(r.shown)
+	r.shown, r.pending, r.flying = r.pending, 0, false
+	f := driver.Frame{Shown: at, Lag: period/2 + lcdLag}
+	for _, w := range r.flight {
+		select {
+		case w.presented <- f:
+		case <-w.quit:
+		}
+	}
+	r.flight = r.flight[:0]
+}
+
+// monoTime turns a time on the monotonic clock, as the kernel stamps
+// flips and touches with, into a time.Time.
+func monoTime(mono time.Duration) time.Time {
+	now := time.Now()
+	var ts unix.Timespec
+	if unix.ClockGettime(unix.CLOCK_MONOTONIC, &ts) != nil {
+		return now
+	}
+	return now.Add(mono - time.Duration(ts.Nano()))
+}
+
+// stop lets go of every buffer and framebuffer, and the context. The card
+// stays open for release to close.
+func (r *renderThread) stop() {
+	d := r.d
+	if r.c != nil {
+		d.mu.Lock()
+		panes := d.gone
+		d.gone = nil
+		for _, w := range d.windows {
+			panes = append(panes, &w.pane)
+		}
+		d.mu.Unlock()
+		for _, p := range panes {
+			r.c.Release(p)
+		}
+	}
+	if r.g != nil {
+		r.g.release(r.pending)
+		r.g.release(r.shown)
+		r.pending, r.shown = 0, 0
+		for bo, fb := range r.fbs {
+			_ = d.scr.card.rmFB(fb) // the card frees it as it closes, if not
+			delete(r.fbs, bo)
+		}
+		r.g.stop()
+	}
+}
+
+// watchVT takes the kernel's asks to switch VT, and lets go of the screen
+// or takes it back on the render thread.
+func (d *Driver) watchVT() {
+	for {
+		select {
+		case <-d.quit:
+			return
+		case s := <-d.vt.signals:
+			switch s {
+			case syscall.SIGUSR1:
+				d.do(d.leaveVT)
+			case syscall.SIGUSR2:
+				d.do(d.returnVT)
+			}
+		}
+	}
+}
+
+// leaveVT lets go of the screen for another VT: it waits for the flip on
+// its way, drops DRM master, and tells the kernel to switch.
+func (d *Driver) leaveVT() {
+	r := d.rt
+	r.waitFlip()
+	r.away = true
+	if err := d.scr.card.dropMaster(); err != nil {
+		log.Printf("gunim: kms: let go of the screen: %v", err)
+	}
+	if err := d.vt.released(); err != nil {
+		log.Printf("gunim: kms: switch VT: %v", err)
+	}
+	d.pushAll(input.WindowHidden{Time: time.Now()})
+}
+
+// returnVT takes the screen back as its VT shows again: DRM master, then
+// the mode, with every window drawn whole.
+func (d *Driver) returnVT() {
+	r := d.rt
+	if err := d.vt.acquired(); err != nil {
+		log.Printf("gunim: kms: take the VT back: %v", err)
+	}
+	if err := d.scr.card.setMaster(); err != nil {
+		log.Printf("gunim: kms: take the screen back: %v", err)
+	}
+	r.away, r.set = false, false
+	r.prevFlip, r.prevSeq = time.Time{}, 0
+	d.pushAll(input.WindowShown{Time: time.Now()}, driver.Redraw{})
+}
+
+// pushAll sends evs to every window.
+func (d *Driver) pushAll(evs ...any) {
+	d.mu.Lock()
+	ws := append([]*Window(nil), d.windows...)
+	d.mu.Unlock()
+	for _, w := range ws {
+		for _, ev := range evs {
+			w.in.Push(ev)
+		}
+	}
+}
+
+// putUint64 is the eventfd's count, as it takes it.
+func putUint64(n uint64) [8]byte {
+	var b [8]byte
+	binary.NativeEndian.PutUint64(b[:], n)
+	return b
+}

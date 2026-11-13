@@ -1,4 +1,4 @@
-//go:build !android && !js
+//go:build !android && !js && !(gunimkms && linux)
 
 package gunim
 

@@ -105,6 +105,7 @@ type Compositor struct {
 
 	prog     uint32
 	rect     int32
+	turnLoc  int32
 	vao, vbo uint32
 	ibo      uint32
 	// last is the stack laid last, so a change in it, as a popup moving or
@@ -117,15 +118,20 @@ type Compositor struct {
 	// soloDrew says it has. See Begin.
 	solo     *Pane
 	soloDrew bool
+	// turn is how far the windows are turned on the surface, clockwise, and
+	// turnM the matrix for it; see SetTurn.
+	turn  int
+	turnM [4]float32
 }
 
 const compositeVertex = `#version 300 es
 uniform vec4 rect;
+uniform mat2 turn;
 in vec2 corner;
 out vec2 uv;
 void main() {
 	uv = corner;
-	gl_Position = vec4(mix(rect.xy, rect.zw, corner), 0.0, 1.0);
+	gl_Position = vec4(turn * mix(rect.xy, rect.zw, corner), 0.0, 1.0);
 }
 `
 
@@ -160,10 +166,11 @@ func New(g gl.Context, name string) (*Compositor, error) {
 	if g.GetProgrami(p, gl.LINK_STATUS) == gl.FALSE {
 		return nil, fmt.Errorf("%s: link compositor: %s", name, g.GetProgramInfoLog(p))
 	}
-	c := &Compositor{g: g, name: name, prog: p, rect: g.GetUniformLocation(p, "rect")}
+	c := &Compositor{g: g, name: name, prog: p, rect: g.GetUniformLocation(p, "rect"), turnLoc: g.GetUniformLocation(p, "turn")}
 	c.open = c.openRenderer
 	g.UseProgram(p)
 	g.Uniform1i(g.GetUniformLocation(p, "tex"), 0)
+	c.SetTurn(0)
 
 	c.vao = g.CreateVertexArray()
 	g.BindVertexArray(c.vao)
@@ -197,6 +204,37 @@ func compileShader(g gl.Context, name string, kind uint32, src string) (uint32, 
 	return s, nil
 }
 
+// SetTurn turns the windows on the surface by deg clockwise: 0, 90, 180 or
+// 270, for a screen mounted another way up than its own, as a panel in
+// portrait shown in landscape. The sizes and places the compositor is
+// given are then the windows' own, the right way up for them: a surface
+// turned 90° is h×w where the screen is w×h. Every window is then laid
+// through its texture, so the frame costs one more copy of the screen.
+func (c *Compositor) SetTurn(deg int) {
+	c.turn = deg
+	switch deg {
+	case 90:
+		c.turnM = [4]float32{0, -1, 1, 0}
+	case 180:
+		c.turnM = [4]float32{-1, 0, 0, -1}
+	case 270:
+		c.turnM = [4]float32{0, 1, -1, 0}
+	default:
+		c.turn, c.turnM = 0, [4]float32{1, 0, 0, 1}
+	}
+	c.g.UseProgram(c.prog)
+	c.g.UniformMatrix2fv(c.turnLoc, c.turnM[:])
+	c.last = c.last[:0]
+}
+
+// view returns the surface's own size for windows laid on w×h.
+func (c *Compositor) view(w, h int) (vw, vh int32) {
+	if c.turn == 90 || c.turn == 270 {
+		return int32(h), int32(w)
+	}
+	return int32(w), int32(h)
+}
+
 // Dirty reports whether stack differs from the stack laid last.
 func (c *Compositor) Dirty(stack []Layer) bool {
 	if len(stack) != len(c.last) {
@@ -216,7 +254,7 @@ func (c *Compositor) Dirty(stack []Layer) bool {
 // screen again each frame.
 func (c *Compositor) Begin(stack []Layer, w, h int) {
 	c.solo, c.soloDrew = nil, false
-	if len(stack) == 1 {
+	if len(stack) == 1 && c.turn == 0 {
 		if l := stack[0]; l.X == 0 && l.Y == 0 && l.W == w && l.H == h {
 			c.solo = l.Pane
 		}
@@ -370,7 +408,8 @@ func (p *Pane) dropTexture(g gl.Context) {
 func (c *Compositor) clear(under color.NRGBA, w, h int) {
 	g := c.g
 	g.BindFramebuffer(gl.FRAMEBUFFER, 0)
-	g.Viewport(0, 0, int32(w), int32(h))
+	vw, vh := c.view(w, h)
+	g.Viewport(0, 0, vw, vh)
 	g.Disable(glScissorTest)
 	a := float32(under.A) / 0xff
 	g.ClearColor(float32(under.R)/0xff*a, float32(under.G)/0xff*a, float32(under.B)/0xff*a, 1)
