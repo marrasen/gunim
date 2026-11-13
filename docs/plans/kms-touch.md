@@ -803,9 +803,10 @@ the text console comes back on exit.
 brings the screen back within 2 s under systemd.
 
 **Where it stands** (#419). The demo passes every goal but the touch ones (#417), as an ordinary user under
-systemd, and a `kill -9` brings the screen back in 1.3 s. `example/widgets` misses its frame goals while it
-scrolls, and spends CPU at rest on a spinner out of sight (#420). K2 found two things the GPU path needs on
-V3D: no dual-source blending, which Mesa blends in the shader, and frames that change nothing left undrawn.
+systemd, and a `kill -9` brings the screen back in 1.3 s. `example/widgets` passes every goal but the touch
+ones too, since #420: a scroll's fading edges are drawn in place, and a spinner out of sight lets the window
+rest. The GPU path on V3D needs no dual-source blending, which Mesa blends in the shader; frames that change
+nothing left undrawn; and as few targets of their own as a frame can do with, each a pass over the screen.
 
 ### K3: the touch kit
 
