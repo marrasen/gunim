@@ -89,6 +89,17 @@ func (b *backlight) setLevel(n int) error {
 	return nil
 }
 
+// writable returns an error where the backlight's file cannot be written,
+// as for a user the udev rule in the README has not given it to. It opens
+// the file and writes nothing.
+func (b *backlight) writable() error {
+	f, err := os.OpenFile(filepath.Join(b.dir, "brightness"), os.O_WRONLY, 0)
+	if err != nil {
+		return fmt.Errorf("backlight: %w", err)
+	}
+	return f.Close()
+}
+
 // brightness returns the brightness now, from 0 to 1.
 func (b *backlight) brightness() float32 {
 	if b.max == 0 {

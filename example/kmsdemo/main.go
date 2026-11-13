@@ -130,10 +130,8 @@ func (f *figures) line() string {
 	}
 	s := f.d.Stats()
 	fps := float64(s.Frames-f.prev.Frames) / now.Sub(f.at).Seconds()
-	// Slow frames count: their missed vblanks are missed flips, and their
-	// times are frame times.
 	f.last = fmt.Sprintf("%.1f fps · %d missed, %d slow · frame p50 %.1f ms p99 %.1f ms · touch to flip p50 %.1f ms p99 %.1f ms",
-		fps, s.Missed+s.LateMissed, s.Late, ms(s.All.P50), ms(s.All.P99), ms(s.Touch.P50), ms(s.Touch.P99))
+		fps, s.Missed, s.Late, ms(s.Frame.P50), ms(s.Frame.P99), ms(s.Touch.P50), ms(s.Touch.P99))
 	f.prev, f.at = s, now
 	return f.last
 }

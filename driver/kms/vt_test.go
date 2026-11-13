@@ -27,6 +27,8 @@ type fakeConsole struct {
 	fds   map[int]int
 	next  int
 	calls []string
+	// noTTY0 refuses /dev/tty0, as for a user outside the group tty.
+	noTTY0 bool
 }
 
 func newFakeConsole(active int) *fakeConsole {
@@ -37,6 +39,9 @@ func newFakeConsole(active int) *fakeConsole {
 }
 
 func (c *fakeConsole) open(n int) (int, error) {
+	if n == 0 && c.noTTY0 {
+		return -1, unix.EACCES
+	}
 	c.next++
 	c.fds[c.next] = n
 	if n > 0 {
@@ -117,7 +122,7 @@ func (c *fakeConsole) ioctlInt(fd int, req, arg uintptr) error {
 // given back to the kernel.
 func TestAFreeVTIsTakenAndGivenBack(t *testing.T) {
 	c := newFakeConsole(1)
-	v, err := takeVT(c, 0, nil)
+	v, err := takeVT(c, 0, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +151,7 @@ func TestAFreeVTIsTakenAndGivenBack(t *testing.T) {
 func TestAVTLeftBrokenIsPutRightFirst(t *testing.T) {
 	c := newFakeConsole(1)
 	c.mode[1], c.kb[1] = kdGraphics, kOff
-	v, err := takeVT(c, 1, nil)
+	v, err := takeVT(c, 1, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +171,7 @@ func TestAVTLeftBrokenIsPutRightFirst(t *testing.T) {
 // the run after takes a fresh VT and returns to the right one.
 func TestACrashedRunsVTIsRepairedFromItsState(t *testing.T) {
 	c := newFakeConsole(1)
-	crashed, err := takeVT(c, 0, nil)
+	crashed, err := takeVT(c, 0, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +186,7 @@ func TestACrashedRunsVTIsRepairedFromItsState(t *testing.T) {
 	if c.active != 1 || c.allocated[2] || c.mode[2] != kdText || c.process[2] {
 		t.Fatalf("after the repair: showing %d, VT 2 allocated %v, mode %d", c.active, c.allocated[2], c.mode[2])
 	}
-	next, err := takeVT(c, 0, nil)
+	next, err := takeVT(c, 0, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,6 +195,95 @@ func TestACrashedRunsVTIsRepairedFromItsState(t *testing.T) {
 	}
 	if err := next.close(); err != nil || c.active != 1 {
 		t.Fatalf("the next run left VT %d showing: %v", c.active, err)
+	}
+}
+
+// An ordinary user, as a service's, opens no /dev/tty0: the driver asks
+// its own VT which shows, and takes it, and only a free VT is out of reach.
+func TestAnOrdinaryUserTakesItsOwnVT(t *testing.T) {
+	c := newFakeConsole(1)
+	c.noTTY0 = true
+	v, err := takeVT(c, 1, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.prev != 0 || c.mode[1] != kdGraphics || c.kb[1] != kOff {
+		t.Fatalf("took VT 1 from %d, mode %d, keyboard %d", v.prev, c.mode[1], c.kb[1])
+	}
+	if err := v.close(); err != nil {
+		t.Fatal(err)
+	}
+	// Another VT, from the one showing: it switches, and back on exit.
+	v, err = takeVT(c, 3, nil, nil)
+	if err != nil || c.active != 3 {
+		t.Fatalf("VT 3: showing %d, %v", c.active, err)
+	}
+	if err := v.close(); err != nil || c.active != 1 {
+		t.Fatalf("after VT 3: showing %d, %v", c.active, err)
+	}
+	if _, err := takeVT(c, 0, nil, nil); err == nil || !strings.Contains(err.Error(), "/dev/tty0") {
+		t.Fatalf("a free VT without /dev/tty0: %v", err)
+	}
+}
+
+// A run started again on the VT of a run that crashed takes it as it is:
+// it keeps that run's VT before, and switches to it only where it shows. A
+// VT that someone switched away from is taken away, to wait for them.
+func TestARestartTakesTheCrashedRunsVTAsItIs(t *testing.T) {
+	c := newFakeConsole(1)
+	crashed, err := takeVT(c, 3, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	left := state{VT: crashed.num, Prev: crashed.prev}
+	for fd := range c.fds {
+		_ = c.close(fd)
+	}
+	// Someone switches to the login on VT 2 as the run crashes.
+	c.active = 2
+	c.calls = nil
+	v, err := takeVT(c, 3, &left, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !v.reused || !v.away || v.prev != 1 || c.active != 2 {
+		t.Fatalf("reused %v, away %v, from %d, showing %d; want reused, away, from 1, and VT 2 still showing", v.reused, v.away, v.prev, c.active)
+	}
+	for _, call := range c.calls {
+		if strings.HasPrefix(call, "show") {
+			t.Fatalf("the restart switched VT: %v", c.calls)
+		}
+	}
+	if c.mode[3] != kdGraphics || !c.process[3] {
+		t.Fatalf("VT 3: mode %d, switching %v", c.mode[3], c.process[3])
+	}
+	// The VT showing as the run restarts is taken, not away.
+	_ = v.close()
+	c.active = 3
+	left = state{VT: 3, Prev: 1}
+	if v, err = takeVT(c, 3, &left, nil); err != nil || v.away || v.prev != 1 {
+		t.Fatalf("away %v, from %d, %v", v.away, v.prev, err)
+	}
+	if err := v.close(); err != nil || c.active != 1 {
+		t.Fatalf("the restart's exit left VT %d showing, %v; want the first run's VT before, 1", c.active, err)
+	}
+}
+
+// A free VT a crashed run opened is taken again, and the VT before it kept;
+// any other VT asked for repairs the crashed run's.
+func TestWhichVTReusesACrashedRunsFreeVT(t *testing.T) {
+	left := state{VT: 4, Prev: 1, Opened: true}
+	if n, take, err := whichVT("free", &left); err != nil || !take || n != 4 {
+		t.Fatalf("free after a crash on a free VT: %d %v %v", n, take, err)
+	}
+	if n, take, err := whichVT("free", nil); err != nil || !take || n != 0 {
+		t.Fatalf("free: %d %v %v", n, take, err)
+	}
+	if n, _, err := whichVT("/dev/tty6", &left); err != nil || n != 6 {
+		t.Fatalf("/dev/tty6: %d %v", n, err)
+	}
+	if _, _, err := whichVT("64", nil); err == nil {
+		t.Fatal("VT 64 taken")
 	}
 }
 
@@ -277,7 +371,7 @@ func TestAServiceKeepsItsStateInItsRuntimeDirectory(t *testing.T) {
 func TestTheStateIsWrittenBeforeTheSwitch(t *testing.T) {
 	c := newFakeConsole(1)
 	var seen []string
-	v, err := takeVT(c, 0, func(v *vt) error {
+	v, err := takeVT(c, 0, nil, func(v *vt) error {
 		seen = append(seen, fmt.Sprintf("VT %d from %d, showing %d", v.num, v.prev, c.active))
 		return nil
 	})

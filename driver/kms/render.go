@@ -20,6 +20,8 @@ import (
 
 	"github.com/marrasen/gunim/driver"
 	"github.com/marrasen/gunim/driver/internal/compose"
+	"github.com/marrasen/gunim/driver/internal/render"
+	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/internal/gl"
 )
@@ -56,8 +58,14 @@ type renderThread struct {
 	shown, pending uintptr
 	flying         bool
 	// set says the mode is set; a commit after the screen came back from
-	// another VT sets it again. away says another VT has the screen.
-	set, away bool
+	// another VT, or woke, sets it again. away says another VT has the
+	// screen, and off that the display is off, blanked.
+	set, away, off bool
+	// shade is the black laid over the picture, and level the backlight's
+	// step that goes with it, for the brightness the blanker says; lit is
+	// the step last asked of the backlight.
+	shade      float32
+	level, lit int
 	// rotation is the plane's rotation property value, where the plane
 	// turns the picture itself (rotate says it does).
 	rotation uint64
@@ -79,12 +87,15 @@ type renderThread struct {
 	jobs  []job
 	stack []compose.Layer
 	gone  []*compose.Pane
-	// For the figures: when the frame on its way was handed over and
-	// committed, the touch it answers, and the flip before it.
-	handed, committed, touchAt time.Time
-	prevFlip                   time.Time
-	prevSeq                    uint32
-	events                     [1024]byte
+	// For the figures: when the frame on its way was begun, handed over
+	// and committed, the touch it answers, and the flip before it. back is
+	// when the screen came back from another VT or from off: a frame the
+	// engine began before then waited for the screen, and counts from then.
+	began, handed, committed, touchAt time.Time
+	back                              time.Time
+	prevFlip                          time.Time
+	prevSeq                           uint32
+	events                            [1024]byte
 }
 
 // render runs the render thread. It reports on started once the screen
@@ -104,7 +115,10 @@ func (d *Driver) render(started chan<- error) {
 			}
 		}
 	}()
-	r := &renderThread{d: d, fbs: map[uintptr]uint32{}}
+	r := &renderThread{d: d, fbs: map[uintptr]uint32{}, lit: -1}
+	if d.light != nil {
+		r.lit = d.light.cur
+	}
 	d.rt = r
 	if err := r.start(); err != nil {
 		r.stop()
@@ -158,6 +172,10 @@ func (r *renderThread) start() error {
 	if err != nil {
 		return err
 	}
+	// Text is greyscale here: a panel turned, or of unknown subpixels,
+	// has no use for subpixel text. Mesa's V3D blends a second colour in
+	// the shader, at about twice a full frame's GPU time, so none is asked.
+	r.c.NoDualSource()
 	if v, ok := d.scr.planeRotation(int(d.turn)); ok && (d.turn == 0 || d.turn == 180) {
 		r.rotation, r.rotate = v, true
 		r.c.SetTurn(0)
@@ -166,6 +184,20 @@ func (r *renderThread) start() error {
 			r.rotation, r.rotate = v, true
 		}
 		r.c.SetTurn(int(d.turn))
+	}
+	if d.vt != nil && d.vt.away {
+		// The VT a crashed run left is not the one showing: someone is at
+		// another. The screen is theirs until they switch to this VT, which
+		// the kernel tells the driver of, as on any return; see returnVT.
+		r.away = true
+		d.mu.Lock()
+		d.away = true
+		d.mu.Unlock()
+		if err := d.scr.card.dropMaster(); err != nil {
+			log.Printf("gunim: kms: let go of the screen: %v", err)
+		}
+		log.Printf("gunim: kms: VT %d is not showing; waiting for a switch to it", d.vt.num)
+		return nil
 	}
 	// The first frame is black, and sets the mode.
 	r.gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
@@ -222,6 +254,14 @@ func (r *renderThread) loop() error {
 				wait = max(w, 0)
 			}
 		}
+		d.mu.Lock()
+		next := d.blank.next(time.Now())
+		d.mu.Unlock()
+		if !next.IsZero() {
+			if w := time.Until(next); wait < 0 || w < wait {
+				wait = max(w, 0)
+			}
+		}
 		_, err := ppoll(fds, wait)
 		if err != nil && !errors.Is(err, unix.EINTR) {
 			return fmt.Errorf("poll: %w", err)
@@ -259,12 +299,83 @@ func (r *renderThread) loop() error {
 			return nil
 		default:
 		}
-		if !r.flying && !r.away {
+		r.blanking()
+		if !r.flying && !r.away && !r.off {
 			if err := r.frame(); err != nil {
 				return err
 			}
 		}
 	}
+}
+
+// blanking moves the screen's blanking on to now: it turns the display off
+// once the blanker has faded it to black, and on again as it wakes, and
+// sets the shade over the picture and the backlight's step for the
+// brightness the blanker shows.
+func (r *renderThread) blanking() {
+	d := r.d
+	now := time.Now()
+	d.mu.Lock()
+	d.blank.step(now)
+	off := d.blank.state == screenOff
+	bright := d.blank.bright(now)
+	d.mu.Unlock()
+	switch {
+	case off && !r.off && !r.flying && !r.away:
+		r.powerOff()
+		return
+	case !off && r.off:
+		r.powerOn()
+	}
+	steps := 0
+	if d.light != nil {
+		steps = d.light.max
+	}
+	r.level, r.shade = lightFor(bright, steps)
+	r.c.SetShade(r.shade)
+}
+
+// powerOff turns the display off, with the backlight: no frames are drawn
+// until it wakes, and the windows hear they are hidden. A display that
+// will not turn off stays on, black, and the error reaches Errors.
+func (r *renderThread) powerOff() {
+	d := r.d
+	if len(r.held) > 0 {
+		r.release()
+	}
+	r.off = true
+	log.Print("gunim: kms: the screen is off")
+	r.light(0)
+	if err := d.scr.off(); err != nil {
+		d.fail(fmt.Errorf("kms: turn the screen off: %w", err))
+	}
+	d.pushAll(input.WindowHidden{Time: time.Now()})
+}
+
+// powerOn has the next frame turn the display on, with the mode set again,
+// and every window drawn whole.
+func (r *renderThread) powerOn() {
+	log.Print("gunim: kms: the screen wakes")
+	r.off, r.set, r.back = false, false, time.Now()
+	r.prevFlip, r.prevSeq = time.Time{}, 0
+	r.d.pushAll(input.WindowShown{Time: time.Now()}, driver.Redraw{})
+}
+
+// debugBlank, set by GUNIM_DEBUG_FRAMES, logs each backlight step asked
+// for, and has each second's line say what the renderers sent the GPU.
+var debugBlank = os.Getenv("GUNIM_DEBUG_FRAMES") != ""
+
+// light asks the backlight for a step, where it is not on it already. The
+// backlight's own goroutine writes it, as a write goes over I²C.
+func (r *renderThread) light(level int) {
+	if r.d.light == nil || level == r.lit {
+		return
+	}
+	if debugBlank {
+		log.Printf("gunim: kms: backlight step %d", level)
+	}
+	r.lit = level
+	r.d.wantLight(level)
 }
 
 // waitFlip waits for the flip on its way, for a while, so its buffer can
@@ -291,9 +402,11 @@ func (r *renderThread) waitFlip() {
 // as it can. Its lead is how long before the vblank they hear of the flip
 // before it. It starts at a whole refresh, which tells them at once, and
 // shortens a step at a time while frames make their vblank, a little at a
-// time so misses stay rare. A frame that misses lengthens it at once by
-// more, and holds it there a while: the frame's cost, the GPU's above all,
-// sets how late a frame can start.
+// time so misses stay rare. A frame that misses sends it back to a whole
+// refresh at once, and holds it there a while: the frame's cost, the GPU's
+// above all, sets how late a frame can start, and a screen that rests
+// between heavy frames, as a list does between scrolls, teaches a short
+// lead in its rests that its next scroll would miss frame after frame.
 type pacer struct {
 	lead time.Duration
 	// good counts frames made since the lead last moved, and hold how many
@@ -304,8 +417,7 @@ type pacer struct {
 const (
 	paceStep    = 500 * time.Microsecond // shorter, after paceEvery frames made
 	paceEvery   = 30
-	paceBack    = 3 * time.Millisecond // longer, on a miss
-	paceHold    = 1800                 // frames before shortening again
+	paceHold    = 1800 // frames made at a whole refresh after a miss, before shortening again
 	paceMinLead = 4 * time.Millisecond
 )
 
@@ -329,7 +441,7 @@ func (p *pacer) flipped(straight, paced bool, missed int, period time.Duration) 
 		return
 	}
 	if missed > 0 && paced {
-		p.lead = min(p.lead+paceBack, period)
+		p.lead = period
 		p.good, p.hold = 0, paceHold
 		return
 	}
@@ -343,6 +455,11 @@ func (p *pacer) flipped(straight, paced bool, missed int, period time.Duration) 
 		p.lead = max(p.lead-paceStep, paceMinLead)
 	}
 }
+
+// straightGap is how soon after the windows hear of a flip the engine must
+// begin a frame for it to count as drawn straight after the one before: it
+// begins at once where something moves, and later only after a rest.
+const straightGap = 2 * time.Millisecond
 
 // frameStart returns when the engine could start the frame now flipping:
 // as the flip before came, or where the driver held that flip's report back
@@ -375,9 +492,13 @@ func ppoll(fds []unix.PollFd, wait time.Duration) (int, error) {
 }
 
 // release tells the windows whose frames the last flip showed that it
-// did, so they draw their next frame.
+// did, so they draw their next frame, with the fingers' moves since,
+// resampled to the frame's start, ahead of it.
 func (r *renderThread) release() {
 	r.releasedAt = time.Now()
+	r.d.mu.Lock()
+	r.d.flushTouchLocked(r.releasedAt)
+	r.d.mu.Unlock()
 	for _, w := range r.held {
 		select {
 		case w.presented <- r.heldFrame:
@@ -393,7 +514,7 @@ func (r *renderThread) release() {
 // and the windows showing into r.stack, and the panes of windows closed,
 // which belong to the render thread from then on. It keeps the slices from
 // frame to frame, so a frame allocates nothing here.
-func (r *renderThread) collect() (gone []*compose.Pane, handed, touchAt time.Time) {
+func (r *renderThread) collect() (gone []*compose.Pane, handed, touchAt, began time.Time) {
 	d := r.d
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -411,6 +532,12 @@ func (r *renderThread) collect() (gone []*compose.Pane, handed, touchAt time.Tim
 			if fbW > 0 && fbH > 0 {
 				j.shot, w.shot = w.shot, nil
 			}
+			if b := w.next.began; !b.IsZero() && (began.IsZero() || b.Before(began)) {
+				began = b
+			}
+			// The windows hear of this frame's flip with the fingers'
+			// moves resampled, so the moves wait for it.
+			d.input.holding = true
 			r.jobs = append(r.jobs, j)
 			w.next, w.hasNext = frame{}, false
 		case w.sharpen && w.pane.Last != nil:
@@ -426,7 +553,7 @@ func (r *renderThread) collect() (gone []*compose.Pane, handed, touchAt time.Tim
 	if len(r.jobs) > 0 {
 		d.handed, d.touchAt = time.Time{}, time.Time{}
 	}
-	return r.gone, handed, touchAt
+	return r.gone, handed, touchAt, began
 }
 
 // job is a window's frame to draw.
@@ -445,13 +572,17 @@ type job struct {
 // commits the result, if anything changed.
 func (r *renderThread) frame() error {
 	d := r.d
-	gone, handed, touchAt := r.collect()
+	gone, handed, touchAt, began := r.collect()
 	for _, p := range gone {
 		r.c.Release(p)
 	}
 	jobs, stack := r.jobs, r.stack
 	scale := d.density
 	if len(jobs) == 0 && !r.c.Dirty(stack) {
+		return nil
+	}
+	if r.unchanged(jobs, stack, scale) {
+		r.skip(jobs)
 		return nil
 	}
 	if handed.IsZero() {
@@ -469,6 +600,10 @@ func (r *renderThread) frame() error {
 		if j.shot != nil {
 			c.Shoot(&j.w.pane, j.fbW, j.fbH, j.shot)
 		}
+		if debugBlank && j.w.pane.R != nil {
+			d.stats.drew(&j.w.pane.R.Stats)
+			j.w.pane.R.Stats = render.Stats{}
+		}
 	}
 	c.Finish(stack, d.picW, d.picH, scale)
 	r.flight = r.flight[:0]
@@ -477,8 +612,72 @@ func (r *renderThread) frame() error {
 			r.flight = append(r.flight, j.w)
 		}
 	}
-	r.handed, r.touchAt = handed, touchAt
-	return r.commit()
+	if !began.IsZero() && began.Before(r.back) {
+		began = r.back
+	}
+	if handed.Before(r.back) {
+		handed = r.back
+	}
+	if !touchAt.IsZero() && touchAt.Before(r.back) {
+		touchAt = r.back
+	}
+	r.began, r.handed, r.touchAt = began, handed, touchAt
+	if err := r.commit(); err != nil {
+		return err
+	}
+	r.light(r.level)
+	return nil
+}
+
+// unchanged reports whether the frames waiting would change nothing on the
+// screen: each window's renderer says its frame draws nothing new, no
+// screenshot waits, and the stack and the shade are as laid. An app with an
+// animation out of sight, as a spinner scrolled away, presents such frames
+// at the panel's rate.
+func (r *renderThread) unchanged(jobs []job, stack []compose.Layer, scale float32) bool {
+	if len(jobs) == 0 || r.c.Dirty(stack) {
+		return false
+	}
+	for _, j := range jobs {
+		p := j.w.pane.R
+		if j.again || j.shot != nil || p == nil || !p.Unchanged(bounds(j.f.damage), j.fbW, j.fbH, scale) {
+			return false
+		}
+	}
+	return true
+}
+
+// skip takes frames that change nothing: none is drawn or committed, and
+// the windows hear of them at the next vblank, as if each had flipped
+// then, so the engine still draws at the panel's pace.
+func (r *renderThread) skip(jobs []job) {
+	r.flight = r.flight[:0]
+	for _, j := range jobs {
+		// The window's last frame is this one: the engine may reuse the
+		// ops of the one before.
+		j.w.pane.Last = j.f.ops
+		r.flight = append(r.flight, j.w)
+	}
+	period := time.Duration(float64(time.Second) / r.d.rate)
+	now := time.Now()
+	next := now
+	if !r.prevFlip.IsZero() && r.prevFlip.Before(now) {
+		next = now.Add(period - now.Sub(r.prevFlip)%period)
+	}
+	r.heldFrame = driver.Frame{Shown: next, Lag: period/2 + lcdLag}
+	r.held = append(r.held, r.flight...)
+	r.flight = r.flight[:0]
+	r.releaseAt = next
+	r.paced = false
+}
+
+// bounds returns the rectangle round every rectangle in rs.
+func bounds(rs []geom.Rect) geom.Rect {
+	var all geom.Rect
+	for _, r := range rs {
+		all = all.Union(r)
+	}
+	return all
 }
 
 // commit ends the frame drawn, and shows it from the next vblank: it sets
@@ -536,8 +735,16 @@ func (r *renderThread) flipped(ev flipEvent) {
 		missed = int(ev.sequence - r.prevSeq - 1)
 	}
 	from := frameStart(r.prevFlip, r.releasedAt, r.paced)
-	straight := !from.IsZero() && r.handed.Sub(from) < period
-	d.stats.shown(ev.sequence, from, r.handed, r.committed, at, r.touchAt, straight, missed)
+	straight := false
+	switch {
+	case from.IsZero():
+	case r.began.IsZero():
+		straight = r.handed.Sub(from) < period
+	default:
+		straight = r.began.Sub(from) < straightGap
+	}
+	d.stats.shown(shownFrame{seq: ev.sequence, prev: r.prevFlip, began: r.began, handed: r.handed, commit: r.committed,
+		flip: at, touch: r.touchAt, straight: straight, missed: missed, period: period})
 	r.prevFlip, r.prevSeq = at, ev.sequence
 	r.pace.flipped(straight, r.paced, missed, period)
 	r.g.release(r.shown)
@@ -624,8 +831,18 @@ func (d *Driver) leaveVT() {
 	r := d.rt
 	r.waitFlip()
 	r.away = true
+	d.mu.Lock()
+	d.away = true
+	level := d.blank.level
+	d.mu.Unlock()
 	if err := d.scr.card.dropMaster(); err != nil {
 		log.Printf("gunim: kms: let go of the screen: %v", err)
+	}
+	// The other VT shares the backlight: it shows at the app's brightness,
+	// not dimmed or dark.
+	if d.light != nil {
+		step, _ := lightFor(level, d.light.max)
+		r.light(max(step, 1))
 	}
 	if err := d.vt.released(); err != nil {
 		log.Printf("gunim: kms: switch VT: %v", err)
@@ -643,9 +860,14 @@ func (d *Driver) returnVT() {
 	if err := d.scr.card.setMaster(); err != nil {
 		log.Printf("gunim: kms: take the screen back: %v", err)
 	}
-	r.away, r.set = false, false
+	r.away, r.set, r.back = false, false, time.Now()
+	d.mu.Lock()
+	d.away = false
+	d.mu.Unlock()
 	r.prevFlip, r.prevSeq = time.Time{}, 0
-	d.pushAll(input.WindowShown{Time: time.Now()}, driver.Redraw{})
+	if !r.off {
+		d.pushAll(input.WindowShown{Time: time.Now()}, driver.Redraw{})
+	}
 }
 
 // pushAll sends evs to every window.
