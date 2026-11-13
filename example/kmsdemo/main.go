@@ -45,6 +45,8 @@ func main() {
 	flag.StringVar(&o.Record, "record", "", "write the touch screen's events to this file")
 	replay := flag.String("replay", "", "play a recording through the driver in place of the touch screen")
 	still := flag.Bool("still", false, "start with nothing moving")
+	flag.DurationVar(&o.Blank.Dim, "dim", 0, "dim the screen after this long untouched; 0 never does")
+	flag.DurationVar(&o.Blank.Off, "off", 0, "turn the screen off after this long untouched; 0 never does")
 	flag.Parse()
 	o.Scale, o.Brightness = float32(scale), float32(brightness)
 	if *replay != "" {

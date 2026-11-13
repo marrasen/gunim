@@ -51,8 +51,9 @@ SUBSYSTEM=="backlight", ACTION=="add", RUN+="/bin/chgrp video $sys$devpath/brigh
 
 Raspberry Pi OS ships this same rule as `/lib/udev/rules.d/60-backlight.rules`. On a system without
 it, add the file and run `sudo udevadm trigger --subsystem-match=backlight --action=add`, or reboot.
-Without write access, `Window.SetBrightness` returns the error, and blanking dims with a black shade
-over the picture alone.
+Without write access, the driver leaves the backlight alone, as on a screen with none: it logs so
+at start, `Window.SetBrightness` and blanking dim with a black shade over the picture alone, and a
+blanked screen is black with its backlight still lit.
 
 ## A systemd unit
 
@@ -65,8 +66,11 @@ names and the path to suit.
 # /etc/systemd/system/mytouch.service
 [Unit]
 Description=My touch screen
-After=systemd-udev-settle.service
+# The login on tty1 lets go of it first. And systemd never stops starting
+# the program again, however often it ends.
+After=getty@tty1.service
 Conflicts=getty@tty1.service
+StartLimitIntervalSec=0
 
 [Service]
 User=mytouch
@@ -124,7 +128,14 @@ only root and the group `tty` open. A service runs on the VT systemd gives it, a
 The driver catches SIGHUP, SIGINT, SIGTERM and SIGQUIT, and gives the screen back on each. After a
 `kill -9` or a crash in Mesa's C code, the next run finds the state file and puts the VT and the
 backlight back first. It takes the crashed run's VT again as it is: it never switches the screen
-away from someone at a login on another VT. It waits until they switch back to its VT.
+away from someone at a login on another VT. It waits until they switch back to its VT, and the
+journal says so: "VT 1 is not showing; waiting for a switch to it". Until then the screen shows the
+other VT. To bring the program back, switch to its VT: Ctrl+Alt+F1 on a keyboard for tty1, or from
+SSH:
+
+```sh
+sudo chvt 1
+```
 
 ## The screen
 
