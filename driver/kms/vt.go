@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/unix"
@@ -23,7 +24,6 @@ const (
 	vtGetState    = 0x5603
 	vtRelDisp     = 0x5605
 	vtActivate    = 0x5606
-	vtWaitActive  = 0x5607
 	vtDisallocate = 0x5608
 
 	vtAuto    = 0
@@ -100,7 +100,10 @@ type vt struct {
 // if it runs on one, "free" for a free one, or a number or /dev/ttyN.
 // It returns nil with no error where there is no VT to take, as for a
 // program started over SSH with which empty.
-func openVT(which string) (*vt, error) {
+//
+// before runs once the VT to take and the VT showing are known, before the
+// switch, so the state file holds them should the run die on the way.
+func openVT(which string, before func(*vt) error) (*vt, error) {
 	num := 0
 	switch which {
 	case "":
@@ -115,7 +118,7 @@ func openVT(which string) (*vt, error) {
 		}
 		num = n
 	}
-	return takeVT(consoles, num)
+	return takeVT(consoles, num, before)
 }
 
 // ownVT returns the VT the program's standard input is, or 0.
@@ -135,7 +138,7 @@ func ownVT() int {
 // A VT found in graphics mode, or with its keyboard off, was left so by a
 // run that ended without putting it back: takeVT puts it back to text mode
 // and a working keyboard first, and takes that as how it found it.
-func takeVT(c console, num int) (*vt, error) {
+func takeVT(c console, num int, before func(*vt) error) (*vt, error) {
 	t := &vt{c: c, fd: -1}
 	tty0, err := c.open(0)
 	if err != nil {
@@ -169,11 +172,18 @@ func takeVT(c console, num int) (*vt, error) {
 	}
 	if int(st.active) != num {
 		t.prev = int(st.active)
+	}
+	if before != nil {
+		if err := before(t); err != nil {
+			return nil, err
+		}
+	}
+	if t.prev > 0 {
 		if err := c.ioctlInt(t.fd, vtActivate, uintptr(num)); err != nil {
 			return nil, fmt.Errorf("VT %d: switch to it: %w", num, err)
 		}
-		if err := c.ioctlInt(t.fd, vtWaitActive, uintptr(num)); err != nil {
-			return nil, fmt.Errorf("VT %d: wait for it: %w", num, err)
+		if err := waitActive(c, num); err != nil {
+			return nil, err
 		}
 	}
 	if err := c.ioctl(t.fd, kdGKBMode, unsafe.Pointer(&t.kbMode)); err != nil {
@@ -246,7 +256,7 @@ func (t *vt) close() error {
 		errs = append(errs, c.ioctlInt(t.fd, kdSKBMode, uintptr(t.kbMode)))
 	}
 	if t.prev > 0 {
-		errs = append(errs, c.ioctlInt(t.fd, vtActivate, uintptr(t.prev)), c.ioctlInt(t.fd, vtWaitActive, uintptr(t.prev)))
+		errs = append(errs, c.ioctlInt(t.fd, vtActivate, uintptr(t.prev)), waitActive(c, t.prev))
 	}
 	errs = append(errs, c.close(t.fd))
 	t.fd = -1
@@ -257,6 +267,35 @@ func (t *vt) close() error {
 		return fmt.Errorf("VT %d: put back: %w", t.num, err)
 	}
 	return nil
+}
+
+// vtWait is how long a switch of VT may take before the driver gives up on
+// it.
+const vtWait = 2 * time.Second
+
+// waitActive waits until VT n shows, for vtWait at most. It asks the VT's
+// state in a loop, where VT_WAITACTIVE would block in the kernel with no
+// limit, and retry for ever as signals broke it off.
+func waitActive(c console, n int) error {
+	tty0, err := c.open(0)
+	if err != nil {
+		return fmt.Errorf("VT: %w", err)
+	}
+	defer func() { _ = c.close(tty0) }()
+	deadline := time.Now().Add(vtWait)
+	for {
+		var st vtStat
+		if err := c.ioctl(tty0, vtGetState, unsafe.Pointer(&st)); err != nil {
+			return fmt.Errorf("VT: state: %w", err)
+		}
+		if int(st.active) == n {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("VT %d did not show within %v", n, vtWait)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 }
 
 // disallocate gives VT n back to the kernel. It is busy where another
@@ -296,7 +335,7 @@ func repairVT(c console, s state) error {
 	}
 	back := int(st.active) == s.VT && s.Prev > 0
 	if back {
-		errs = append(errs, c.ioctlInt(fd, vtActivate, uintptr(s.Prev)), c.ioctlInt(fd, vtWaitActive, uintptr(s.Prev)))
+		errs = append(errs, c.ioctlInt(fd, vtActivate, uintptr(s.Prev)), waitActive(c, s.Prev))
 	}
 	errs = append(errs, c.close(fd))
 	if s.Opened && back {

@@ -7,6 +7,11 @@ import (
 	"unsafe"
 )
 
+// An atomicer takes atomic commits: a card, or a test's stand-in.
+type atomicer interface {
+	atomic(req *modeAtomic) error
+}
+
 // atomicReq builds one atomic commit: properties to set on objects,
 // grouped by object as the kernel wants them. It keeps its arrays from one
 // commit to the next, so a frame's commit allocates nothing.
@@ -40,7 +45,7 @@ func (a *atomicReq) add(obj, prop uint32, v uint64) {
 
 // commit sends the request to d with flags, and userData for the flip
 // event it asks for.
-func (a *atomicReq) commit(d dev, flags uint32, userData uint64) error {
+func (a *atomicReq) commit(d atomicer, flags uint32, userData uint64) error {
 	if len(a.objs) == 0 {
 		return nil
 	}

@@ -203,10 +203,12 @@ const (
 	connectorHDMIA = 11
 )
 
-// A dev is the calls the driver makes on a DRM file. The real one makes
-// them on the kernel, and a test stands in for it.
+// A dev is the calls the driver makes on a DRM file to set what the screen
+// shows. The real one makes them on the kernel, and a test stands in for
+// it.
 type dev interface {
-	atomic(req *modeAtomic) error
+	atomicer
+	createBlob(b []byte) (uint32, error)
 }
 
 // card is an open DRM primary node.

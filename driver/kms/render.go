@@ -220,11 +220,11 @@ func (r *renderThread) loop() error {
 				wait = max(w, 0)
 			}
 		}
-		n, err := ppoll(fds, wait)
-		if err != nil && err != unix.EINTR {
+		_, err := ppoll(fds, wait)
+		if err != nil && !errors.Is(err, unix.EINTR) {
 			return fmt.Errorf("poll: %w", err)
 		}
-		if n == 0 && r.flying && time.Since(r.committed) >= flipTimeout {
+		if r.flying && time.Since(r.committed) >= flipTimeout {
 			return fmt.Errorf("no flip event %v after a commit", flipTimeout)
 		}
 		if fds[0].Revents&(unix.POLLERR|unix.POLLHUP|unix.POLLNVAL) != 0 {
@@ -334,7 +334,8 @@ func (p *pacer) flipped(straight, paced bool, missed int, period time.Duration) 
 		p.hold--
 		return
 	}
-	if p.good++; p.good >= paceEvery {
+	p.good++
+	if p.good >= paceEvery {
 		p.good = 0
 		p.lead = max(p.lead-paceStep, paceMinLead)
 	}
@@ -357,6 +358,7 @@ func (r *renderThread) release() {
 		select {
 		case w.presented <- r.heldFrame:
 		case <-w.quit:
+		case <-r.d.quit:
 		}
 	}
 	clear(r.held)

@@ -95,9 +95,10 @@ type timeline struct {
 	last               time.Duration
 	since              time.Time
 
-	// The second's figures, for GUNIM_DEBUG_FRAMES.
-	secFrames, secMissed int
-	secFrame, secTouch   ring
+	// The second's figures, for GUNIM_DEBUG_FRAMES, slow frames among
+	// them.
+	secFrames, secMissed, secSlow int
+	secFrame, secTouch            ring
 
 	trace *json.Encoder
 }
@@ -136,6 +137,7 @@ func (t *timeline) shown(seq uint32, prev, handed, commit, flip, touch time.Time
 	t.secFrames++
 	if !prev.IsZero() {
 		t.all.add(commit.Sub(prev))
+		t.secFrame.add(commit.Sub(prev))
 	}
 	switch {
 	case straight:
@@ -144,12 +146,13 @@ func (t *timeline) shown(seq uint32, prev, handed, commit, flip, touch time.Time
 		if !prev.IsZero() {
 			d := commit.Sub(prev)
 			t.frame.add(d)
-			t.secFrame.add(d)
 			t.last = d
 		}
 	case !prev.IsZero():
 		t.late++
 		t.lateMissed += missed
+		t.secSlow++
+		t.secMissed += missed
 	}
 	t.draw.add(commit.Sub(handed))
 	if !touch.IsZero() {
@@ -197,14 +200,15 @@ func (t *timeline) reset() {
 	t.since = time.Now()
 }
 
-// second returns the last second's figures and starts the next.
-func (t *timeline) second() (frames, missed int, frame, touch Percentiles) {
+// second returns the last second's figures, slow frames among them, and
+// starts the next.
+func (t *timeline) second() (frames, missed, slow int, frame, touch Percentiles) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	frames, missed = t.secFrames, t.secMissed
+	frames, missed, slow = t.secFrames, t.secMissed, t.secSlow
 	frame, touch = percentiles(t.secFrame.times()), percentiles(t.secTouch.times())
-	t.secFrames, t.secMissed = 0, 0
+	t.secFrames, t.secMissed, t.secSlow = 0, 0, 0
 	t.secFrame.reset()
 	t.secTouch.reset()
-	return frames, missed, frame, touch
+	return frames, missed, slow, frame, touch
 }

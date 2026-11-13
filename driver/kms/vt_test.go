@@ -3,10 +3,12 @@
 package kms
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"unsafe"
 
@@ -97,7 +99,6 @@ func (c *fakeConsole) ioctlInt(fd int, req, arg uintptr) error {
 	case vtActivate:
 		c.active = int(arg)
 		c.calls = append(c.calls, fmt.Sprintf("show %d", arg))
-	case vtWaitActive:
 	case vtDisallocate:
 		if c.active == int(arg) {
 			return unix.EBUSY
@@ -116,7 +117,7 @@ func (c *fakeConsole) ioctlInt(fd int, req, arg uintptr) error {
 // given back to the kernel.
 func TestAFreeVTIsTakenAndGivenBack(t *testing.T) {
 	c := newFakeConsole(1)
-	v, err := takeVT(c, 0)
+	v, err := takeVT(c, 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +146,7 @@ func TestAFreeVTIsTakenAndGivenBack(t *testing.T) {
 func TestAVTLeftBrokenIsPutRightFirst(t *testing.T) {
 	c := newFakeConsole(1)
 	c.mode[1], c.kb[1] = kdGraphics, kOff
-	v, err := takeVT(c, 1)
+	v, err := takeVT(c, 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +166,7 @@ func TestAVTLeftBrokenIsPutRightFirst(t *testing.T) {
 // the run after takes a fresh VT and returns to the right one.
 func TestACrashedRunsVTIsRepairedFromItsState(t *testing.T) {
 	c := newFakeConsole(1)
-	crashed, err := takeVT(c, 0)
+	crashed, err := takeVT(c, 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +181,7 @@ func TestACrashedRunsVTIsRepairedFromItsState(t *testing.T) {
 	if c.active != 1 || c.allocated[2] || c.mode[2] != kdText || c.process[2] {
 		t.Fatalf("after the repair: showing %d, VT 2 allocated %v, mode %d", c.active, c.allocated[2], c.mode[2])
 	}
-	next, err := takeVT(c, 0)
+	next, err := takeVT(c, 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,25 +198,95 @@ func TestStateFilesRoundTrip(t *testing.T) {
 	was := statePath
 	statePath = func() string { return p }
 	t.Cleanup(func() { statePath = was })
-	if _, ok := readState(); ok {
-		t.Fatal("found a state file before one was written")
-	}
-	if err := writeState(state{}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(p); !os.IsNotExist(err) {
-		t.Fatal("wrote a state file with nothing in it")
+	sf, _, found, err := lockState()
+	if err != nil || found {
+		t.Fatalf("a fresh state file: found %v, %v", found, err)
 	}
 	want := state{VT: 2, Prev: 1, Opened: true, Backlight: "/sys/class/backlight/x", Level: 15}
-	if err := writeState(want); err != nil {
+	if err := sf.write(want); err != nil {
 		t.Fatal(err)
 	}
-	if got, ok := readState(); !ok || got != want {
-		t.Fatalf("read %+v, %v", got, ok)
+	// The run dies: the kernel lets go of its lock, and the file stays.
+	sf.keep()
+	sf, left, found, err := lockState()
+	if err != nil || !found || left != want {
+		t.Fatalf("the next run found %+v (%v), %v", left, found, err)
 	}
-	removeState()
-	if _, ok := readState(); ok {
-		t.Fatal("the state file stayed")
+	sf.done()
+	if _, err := os.Stat(p); !os.IsNotExist(err) {
+		t.Fatal("the state file stayed once put back")
+	}
+}
+
+// A second start while a run holds the screen leaves that run's state
+// alone: the file is locked, and nothing is repaired or written.
+func TestALiveRunsStateIsLeftAlone(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "gunim-kms.json")
+	was := statePath
+	statePath = func() string { return p }
+	t.Cleanup(func() { statePath = was })
+	live, _, _, err := lockState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer live.done()
+	want := state{VT: 2, Prev: 1}
+	if err := live.write(want); err != nil {
+		t.Fatal(err)
+	}
+	second, _, found, err := lockState()
+	if !errors.Is(err, errStateHeld) || second != nil || found {
+		t.Fatalf("a second start got %v, %v, found %v", second, err, found)
+	}
+	b, _ := os.ReadFile(p)
+	if !strings.Contains(string(b), `"vt":2`) {
+		t.Fatalf("the live run's state became %q", b)
+	}
+}
+
+// With no runtime directory there is no state file, and a run goes on.
+func TestNoPlaceForAStateFile(t *testing.T) {
+	was := statePath
+	statePath = func() string { return "" }
+	t.Cleanup(func() { statePath = was })
+	sf, _, found, err := lockState()
+	if sf != nil || found || err != nil {
+		t.Fatalf("got %v, found %v, %v", sf, found, err)
+	}
+	if err := sf.write(state{VT: 2}); err != nil {
+		t.Fatal(err)
+	}
+	sf.done()
+	sf.keep()
+}
+
+// systemd's RuntimeDirectory= gives a service that is not root a place.
+func TestAServiceKeepsItsStateInItsRuntimeDirectory(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root keeps its state under /run")
+	}
+	t.Setenv("RUNTIME_DIRECTORY", "/run/hjortron-touch:/run/other")
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user/1000")
+	if got := statePath(); got != "/run/hjortron-touch/gunim-kms.json" {
+		t.Fatalf("state at %s", got)
+	}
+}
+
+// The state is written before the VT switches, so a run that dies on the
+// way leaves it for the next.
+func TestTheStateIsWrittenBeforeTheSwitch(t *testing.T) {
+	c := newFakeConsole(1)
+	var seen []string
+	v, err := takeVT(c, 0, func(v *vt) error {
+		seen = append(seen, fmt.Sprintf("VT %d from %d, showing %d", v.num, v.prev, c.active))
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = v.close() }()
+	if want := []string{"VT 2 from 1, showing 1"}; !slices.Equal(seen, want) {
+		t.Fatalf("before the switch: %v, want %v", seen, want)
 	}
 }
 

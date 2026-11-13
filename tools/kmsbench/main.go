@@ -57,7 +57,7 @@ func run() int {
 		o.KMS.Replay = f
 	}
 	o.Log = func(s string) { log.Print("kmsbench: ", s) }
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT)
 	defer stop()
 	r, err := kmsdemo.Bench(ctx, o)
 	if err != nil {

@@ -17,6 +17,8 @@ import (
 // atomic commit sets on each.
 type screen struct {
 	card *card
+	// dev takes the screen's commits: the card, or a test's stand-in.
+	dev  dev
 	conn connector
 	mode modeInfo
 	crtc uint32
@@ -122,7 +124,7 @@ func takeScreen(c *card, want string) (*screen, int, error) {
 	if err := c.setClientCap(clientCapAtomic, 1); err != nil {
 		return nil, -1, fmt.Errorf("%s: no atomic modesetting: %w", c.path, err)
 	}
-	s := &screen{card: c, conn: pick}
+	s := &screen{card: c, dev: c, conn: pick}
 	s.mode, _ = pick.preferred()
 	if err := s.findCrtc(crtcs); err != nil {
 		return nil, -1, err
@@ -251,7 +253,7 @@ func (s *screen) setPlane(fb uint32, rotation uint64, rotate bool) {
 // CRTC, and the plane. It tests the commit first, then commits it with a
 // flip event, and blocks until the kernel has taken it.
 func (s *screen) modeset(fb uint32, rotation uint64, rotate bool, userData uint64) error {
-	c := s.card
+	c := s.dev
 	if s.modeBlob == 0 {
 		id, err := c.createBlob(s.mode.bytes())
 		if err != nil {
@@ -282,7 +284,7 @@ func (s *screen) modeset(fb uint32, rotation uint64, rotate bool, userData uint6
 func (s *screen) flip(fb uint32, userData uint64) error {
 	s.req.reset()
 	s.req.add(s.plane, s.planeProps["FB_ID"].id, uint64(fb))
-	return s.masterErr(s.req.commit(s.card, atomicNonblock|atomicPageFlipEvent, userData))
+	return s.masterErr(s.req.commit(s.dev, atomicNonblock|atomicPageFlipEvent, userData))
 }
 
 // masterErr explains a refused commit: another program has the screen.

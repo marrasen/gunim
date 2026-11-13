@@ -109,7 +109,10 @@ type Options struct {
 	//
 	// The driver puts the VT, and the backlight's level, back as it found
 	// them when Run ends: on its context, the last window closing, and on
-	// SIGHUP, SIGINT and SIGTERM, which it catches itself. SIGKILL,
+	// SIGHUP, SIGINT, SIGTERM and SIGQUIT, which it catches itself. It
+	// catches SIGPIPE too, so a closed stdout or stderr fails the write in
+	// place of ending the process with the screen held. Once it is putting
+	// things back, a second such signal ends the process at once. SIGKILL,
 	// os.Exit, a panic on a goroutine other than the render thread and a
 	// crash in Mesa's C code skip that. The kernel still frees the screen
 	// then, and the next run puts the VT and the backlight back first,
@@ -150,9 +153,11 @@ type Driver struct {
 	stats *timeline
 	// trace is the file GUNIM_KMS_TRACE writes to.
 	trace *os.File
-	// sigs hears SIGHUP, SIGINT and SIGTERM, on which Run gives the screen
-	// back.
-	sigs chan os.Signal
+	// sigs hears the signals on which Run gives the screen back, and pipes
+	// SIGPIPE, which it only keeps from ending the process.
+	sigs, pipes chan os.Signal
+	// state is the state file, locked while the run holds the screen.
+	state *stateFile
 	// lightMu guards light: a write to the backlight goes over I²C, and
 	// holds up nothing else.
 	lightMu sync.Mutex
@@ -172,8 +177,10 @@ type Driver struct {
 
 	// wake is an eventfd that wakes the render thread from its poll, and
 	// cmds the work it is woken for besides frames.
-	wake int
-	cmds chan func()
+	// wakeMu guards wake against a kick after release closed it.
+	wakeMu sync.RWMutex
+	wake   int
+	cmds   chan func()
 	// stop is an eventfd that ends the input readers' poll.
 	stop int
 
@@ -229,13 +236,20 @@ func Open(o Options) (*Driver, error) {
 func (d *Driver) open() error {
 	o := d.o
 	d.catchSignals()
-	if s, ok := readState(); ok {
+	sf, left, found, err := lockState()
+	switch {
+	case errors.Is(err, errStateHeld):
+		// A live run holds the screen: what it took is its own.
+		log.Printf("gunim: kms: %v", err)
+	case err != nil:
+		log.Printf("gunim: kms: %v; a crash would leave the VT for the next run to find as it is", err)
+	case found:
 		log.Print("gunim: kms: a run before this one ended without giving the screen back; putting back what it took")
-		if err := repair(s); err != nil {
+		if err := repair(left); err != nil {
 			log.Printf("gunim: kms: %v", err)
 		}
-		removeState()
 	}
+	d.state = sf
 	if p := os.Getenv("GUNIM_KMS_TRACE"); p != "" {
 		f, err := os.Create(p)
 		if err != nil {
@@ -255,9 +269,25 @@ func (d *Driver) open() error {
 			return err
 		}
 	}
-	var err error
-	if d.vt, err = openVT(o.VT); err != nil {
+	// The backlight is read first, and the state file written before the
+	// VT switches, so a run that dies on the way leaves both for the next.
+	if d.light, err = openBacklight(o.Backlight); err != nil {
 		return err
+	}
+	st := state{}
+	if d.light != nil {
+		st.Backlight, st.Level = d.light.dir, d.light.was
+	}
+	if d.vt, err = openVT(o.VT, func(v *vt) error {
+		st.VT, st.Prev, st.Opened = v.num, v.prev, v.opened
+		return d.state.write(st)
+	}); err != nil {
+		return err
+	}
+	if d.vt == nil {
+		if err := d.state.write(st); err != nil {
+			log.Printf("gunim: kms: %v", err)
+		}
 	}
 	if d.scr, err = findScreen(o); err != nil {
 		return err
@@ -271,19 +301,6 @@ func (d *Driver) open() error {
 	d.density = o.Scale
 	if d.density <= 0 {
 		d.density = density(d.panelW, d.scr.conn.mmWidth)
-	}
-	if d.light, err = openBacklight(o.Backlight); err != nil {
-		return err
-	}
-	st := state{}
-	if d.vt != nil {
-		st.VT, st.Prev, st.Opened = d.vt.num, d.vt.prev, d.vt.opened
-	}
-	if d.light != nil {
-		st.Backlight, st.Level = d.light.dir, d.light.was
-	}
-	if err := writeState(st); err != nil {
-		log.Printf("gunim: kms: %v; a crash would leave the VT for the next run to find as it is", err)
 	}
 	if d.light != nil && o.Brightness > 0 {
 		if err := d.light.set(o.Brightness); err != nil {
@@ -317,11 +334,30 @@ func (d *Driver) open() error {
 	return nil
 }
 
-// catchSignals has SIGHUP, SIGINT and SIGTERM end Run, which gives the
-// screen back, in place of ending the process with the screen taken.
+// stopSignals are the signals that end Run, which gives the screen back,
+// in place of ending the process with the screen held.
+var stopSignals = []os.Signal{syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT}
+
+// catchSignals catches stopSignals for Run, and SIGPIPE, which would end
+// the process on a write to a closed stdout or stderr.
 func (d *Driver) catchSignals() {
 	d.sigs = make(chan os.Signal, 1)
-	signal.Notify(d.sigs, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(d.sigs, stopSignals...)
+	d.pipes = make(chan os.Signal, 1)
+	signal.Notify(d.pipes, syscall.SIGPIPE)
+}
+
+// uncatchSignals gives stopSignals their default handling back, so a
+// second one ends the process, and with pipes stops catching SIGPIPE too,
+// once the screen is back. It is safe to call twice.
+func (d *Driver) uncatchSignals(pipes bool) {
+	if d.sigs != nil {
+		signal.Stop(d.sigs)
+		signal.Reset(stopSignals...)
+	}
+	if pipes && d.pipes != nil {
+		signal.Stop(d.pipes)
+	}
 }
 
 // density works out the scale for a panel w pixels wide and mm millimetres
@@ -389,11 +425,11 @@ func (d *Driver) Run(ctx context.Context, ready func()) error {
 
 // logSecond logs the last second's frames, for GUNIM_DEBUG_FRAMES.
 func (d *Driver) logSecond() {
-	n, missed, f, t := d.stats.second()
+	n, missed, slow, f, t := d.stats.second()
 	if n == 0 {
 		return
 	}
-	line := fmt.Sprintf("gunim: kms: %d frames, %d missed, frame p50 %.1f ms p99 %.1f ms", n, missed, ms(f.P50), ms(f.P99))
+	line := fmt.Sprintf("gunim: kms: %d frames, %d missed, %d slow, frame p50 %.1f ms p99 %.1f ms", n, missed, slow, ms(f.P50), ms(f.P99))
 	if t.N > 0 {
 		line += fmt.Sprintf(", touch to flip p50 %.1f ms p99 %.1f ms", ms(t.P50), ms(t.P99))
 	}
@@ -409,19 +445,39 @@ func ms(d time.Duration) float64 { return float64(d.Microseconds()) / 1000 }
 // on, if any.
 func (d *Driver) Close() error {
 	d.endOnce.Do(func() {
+		// From here a second signal ends the process at once, should
+		// putting things back hang.
+		d.uncatchSignals(false)
 		d.quitOnce.Do(func() { close(d.quit) })
 		d.kick()
-		<-d.done
-		d.release()
+		select {
+		case <-d.done:
+			d.releaseDevices()
+		case <-time.After(closeWait):
+			// The render thread is stuck, as in a hung GPU's ioctl: its card
+			// and buffers stay for the process's end to free.
+			log.Printf("gunim: kms: the render thread did not stop within %v; putting the VT and the backlight back without it", closeWait)
+		}
+		d.releaseHeld()
 		close(d.ended)
 	})
 	return d.err
 }
 
-// release gives back what Open took, in the order that leaves the screen
-// as it was: the input, the card (whose last close has the kernel show
-// its text console again), the backlight's level, then the VT.
+// closeWait is how long Close waits for the render thread before it puts
+// the VT and the backlight back without it; a test shortens it.
+var closeWait = 3 * time.Second
+
+// release gives back everything Open took, for an Open that failed.
 func (d *Driver) release() {
+	d.releaseDevices()
+	d.releaseHeld()
+}
+
+// releaseDevices gives back the input and the card, whose last close has
+// the kernel show its text console again. It runs once the render thread
+// has ended.
+func (d *Driver) releaseDevices() {
 	d.quitOnce.Do(func() { close(d.quit) })
 	// A recording still being read ends as it closes, and the readers as
 	// stop is written.
@@ -447,28 +503,36 @@ func (d *Driver) release() {
 	if d.scr != nil {
 		d.scr.close()
 	}
+	d.wakeMu.Lock()
 	for _, fd := range []int{d.wake, d.stop} {
 		if fd >= 0 {
 			_ = unix.Close(fd)
 		}
 	}
+	d.wake, d.stop = -1, -1
+	d.wakeMu.Unlock()
+}
+
+// releaseHeld puts back what outlives the process, the backlight's level
+// and the VT, and removes the state file once both are back. Where either
+// fails, the file stays for the next run to finish the job.
+func (d *Driver) releaseHeld() {
 	d.lightMu.Lock()
-	if err := d.light.restore(); err != nil {
-		log.Printf("gunim: kms: %v", err)
-	}
+	errLight := d.light.restore()
 	d.lightMu.Unlock()
-	if err := d.vt.close(); err != nil {
-		log.Printf("gunim: kms: %v", err)
+	errVT := d.vt.close()
+	if err := errors.Join(errLight, errVT); err != nil {
+		log.Printf("gunim: kms: %v; the state file stays for the next run", err)
+		d.state.keep()
+	} else {
+		d.state.done()
 	}
-	if d.vt != nil || d.light != nil {
-		removeState()
-	}
+	d.state = nil
 	if d.trace != nil {
 		_ = d.trace.Close()
+		d.trace = nil
 	}
-	if d.sigs != nil {
-		signal.Stop(d.sigs)
-	}
+	d.uncatchSignals(true)
 }
 
 // Closed closes once the driver has given the screen back.
@@ -551,6 +615,8 @@ func (d *Driver) windowClosed(w *Window) {
 
 // kick wakes the render thread.
 func (d *Driver) kick() {
+	d.wakeMu.RLock()
+	defer d.wakeMu.RUnlock()
 	if d.wake < 0 {
 		return
 	}

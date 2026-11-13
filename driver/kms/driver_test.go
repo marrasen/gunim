@@ -5,6 +5,7 @@ package kms
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"syscall"
 	"testing"
@@ -327,5 +328,139 @@ func TestThePacerLearnsHowLateAFrameCanStart(t *testing.T) {
 	}
 	if got := p.now(5*time.Millisecond, period); got != 5*time.Millisecond {
 		t.Fatalf("a fixed lead came out %v", got)
+	}
+}
+
+// screenDev takes a screen's commits, as the kernel would, and keeps each:
+// its flags and the properties it set, as object.property = value.
+type screenDev struct {
+	s       *screen
+	names   map[uint32]string
+	commits []commitSeen
+	blobs   int
+}
+
+type commitSeen struct {
+	flags uint32
+	set   []string
+}
+
+func (f *screenDev) atomic(r *modeAtomic) error {
+	c := commitSeen{flags: r.flags}
+	k := 0
+	for i, obj := range f.s.req.objs {
+		for range f.s.req.counts[i] {
+			c.set = append(c.set, fmt.Sprintf("%d.%s=%d", obj, f.names[f.s.req.props[k]], f.s.req.values[k]))
+			k++
+		}
+	}
+	f.commits = append(f.commits, c)
+	return nil
+}
+
+func (f *screenDev) createBlob([]byte) (uint32, error) { f.blobs++; return 77, nil }
+
+// testScreen is a screen with a connector 1, a CRTC 2 and a primary plane
+// 3, with their properties, committing to a screenDev.
+func testScreen() (*screen, *screenDev) {
+	s := &screen{conn: connector{id: 1}, crtc: 2, plane: 3, mode: modeInfo{HDisplay: 720, VDisplay: 1280}}
+	names := map[uint32]string{}
+	id := uint32(100)
+	props := func(ns ...string) map[string]prop {
+		m := map[string]prop{}
+		for _, n := range ns {
+			id++
+			m[n] = prop{id: id}
+			names[id] = n
+		}
+		return m
+	}
+	s.connProps = props("CRTC_ID")
+	s.crtcProps = props("MODE_ID", "ACTIVE")
+	s.planeProps = props("FB_ID", "CRTC_ID", "SRC_X", "SRC_Y", "SRC_W", "SRC_H", "CRTC_X", "CRTC_Y", "CRTC_W", "CRTC_H")
+	f := &screenDev{s: s, names: names}
+	s.dev = f
+	return s, f
+}
+
+// The first frame sets the mode: a test commit first, with
+// ALLOW_MODESET, then the same commit for real, with a flip event, which
+// blocks until the kernel takes it. It sets the mode's blob and ACTIVE on
+// the CRTC, the connector on the CRTC, and the whole plane.
+func TestTheModesetIsTestedFirstAndAllowsAModeset(t *testing.T) {
+	s, f := testScreen()
+	if err := s.modeset(9, 0, false, 1); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.commits) != 2 || f.blobs != 1 {
+		t.Fatalf("%d commits, %d blobs", len(f.commits), f.blobs)
+	}
+	test, set := f.commits[0], f.commits[1]
+	if test.flags != atomicTestOnly|atomicAllowModeset {
+		t.Errorf("the first commit's flags are %#x, want TEST_ONLY | ALLOW_MODESET", test.flags)
+	}
+	if set.flags != atomicAllowModeset|atomicPageFlipEvent {
+		t.Errorf("the modeset's flags are %#x, want ALLOW_MODESET | PAGE_FLIP_EVENT, and blocking", set.flags)
+	}
+	want := []string{
+		"1.CRTC_ID=2", "2.MODE_ID=77", "2.ACTIVE=1",
+		"3.FB_ID=9", "3.CRTC_ID=2", "3.SRC_X=0", "3.SRC_Y=0", "3.SRC_W=47185920", "3.SRC_H=83886080",
+		"3.CRTC_X=0", "3.CRTC_Y=0", "3.CRTC_W=720", "3.CRTC_H=1280",
+	}
+	if !slices.Equal(test.set, want) || !slices.Equal(set.set, want) {
+		t.Fatalf("set %v then %v, want %v", test.set, set.set, want)
+	}
+	// A frame after: the framebuffer alone, without blocking, with a flip
+	// event.
+	if err := s.flip(10, 1); err != nil {
+		t.Fatal(err)
+	}
+	flip := f.commits[2]
+	if flip.flags != atomicNonblock|atomicPageFlipEvent || !slices.Equal(flip.set, []string{"3.FB_ID=10"}) {
+		t.Fatalf("a flip committed %#x with %v", flip.flags, flip.set)
+	}
+}
+
+// A kick after Close writes nothing: the eventfd is closed, and its number
+// may name another file by then.
+func TestAKickAfterCloseWritesNothing(t *testing.T) {
+	d := idleDriver(t)
+	fd, err := unix.Eventfd(0, unix.EFD_CLOEXEC|unix.EFD_NONBLOCK)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.wake = fd
+	if err := d.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if d.wake != -1 {
+		t.Fatalf("wake is %d after Close", d.wake)
+	}
+	d.kick() // must not touch fd, which the test's next file may reuse
+}
+
+// A render thread that never stops, as one stuck on a hung GPU, holds
+// Close up only so long: the VT and the backlight still go back.
+func TestCloseGivesUpOnAStuckRenderThread(t *testing.T) {
+	was := closeWait
+	closeWait = 50 * time.Millisecond
+	t.Cleanup(func() { closeWait = was })
+	d := &Driver{quit: make(chan struct{}), done: make(chan struct{}), ended: make(chan struct{}),
+		wake: -1, stop: -1, stats: newTimeline(nil)}
+	c := newFakeConsole(1)
+	v, err := takeVT(c, 0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.vt = v
+	closed := make(chan error, 1)
+	go func() { closed <- d.Close() }()
+	select {
+	case <-closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close waited for ever on the render thread")
+	}
+	if c.active != 1 || c.mode[2] != kdText {
+		t.Fatalf("the VT was not put back: showing %d, mode %d", c.active, c.mode[2])
 	}
 }
