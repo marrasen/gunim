@@ -35,8 +35,10 @@ type BenchOptions struct {
 	// screen once the bench has blanked it.
 	KMS kms.Options
 	// Screen is what the bench shows: "demo", the test pattern, or
-	// "widgets", the gallery of example/widgets.
+	// "widgets", the gallery of example/widgets. Scene, if set, is an
+	// application's own scene in their place, and Screen is its Name.
 	Screen string
+	Scene  *BenchScene
 	// Warm is how long the scene moves before the figures start, Moving
 	// how long it is measured moving with the touch script playing, and
 	// Rest how long it is measured still.
@@ -53,6 +55,28 @@ type BenchOptions struct {
 	Shot string
 	// Log, if set, hears what the bench does.
 	Log func(string)
+}
+
+// BenchScene is a scene of an application's own for the bench, as a
+// program built on driver/kms measures its own screen with the bench's
+// goals.
+type BenchScene struct {
+	// Name names the scene in the result, as "status".
+	Name string
+	// Open opens the scene's window on a, which draws on the screen d
+	// drives, as the bench starts. It returns the window's client, for
+	// the picture of BenchOptions.Shot, and what makes the scene still for
+	// the rest; a nil still is for a scene that is still once the touch
+	// script ends.
+	Open func(ctx context.Context, a *gunim.App, d *kms.Driver) (c gunim.Client, still func() error, err error)
+	// Script makes the made-up touch script, d long, for a screen turned
+	// rotate degrees clockwise, with its header line, as DragScript's has.
+	// Nil plays DragScript.
+	Script func(rotate int, d time.Duration) []byte
+	// WarmTouch starts the script with the warm-up, as the gallery's does,
+	// so its first moves, which draw what was never drawn before, are not
+	// measured. Without it the script starts as the measuring does.
+	WarmTouch bool
 }
 
 // Result is what the bench measured.
@@ -140,10 +164,15 @@ func Bench(ctx context.Context, o BenchOptions) (Result, error) {
 			o.Log(fmt.Sprintf(f, args...))
 		}
 	}
-	if o.Screen == "" {
+	switch {
+	case o.Scene != nil:
+		if o.Scene.Open == nil {
+			return Result{}, errors.New("kmsbench: a scene with no Open")
+		}
+		o.Screen = o.Scene.Name
+	case o.Screen == "":
 		o.Screen = "demo"
-	}
-	if o.Screen != "demo" && o.Screen != "widgets" {
+	case o.Screen != "demo" && o.Screen != "widgets":
 		return Result{}, fmt.Errorf("kmsbench: no screen %q: want demo or widgets", o.Screen)
 	}
 	began := time.Now()
@@ -155,7 +184,7 @@ func Bench(ctx context.Context, o BenchOptions) (Result, error) {
 	// measured.
 	warmTouch := false
 	if gate.r == nil {
-		warmTouch = o.Screen == "widgets"
+		warmTouch = o.Screen == "widgets" || o.Scene != nil && o.Scene.WarmTouch
 		lead := time.Duration(0)
 		if warmTouch {
 			lead = o.Warm
@@ -165,7 +194,15 @@ func Bench(ctx context.Context, o BenchOptions) (Result, error) {
 			tap = lead + o.Moving + settle + o.Rest + blankTap
 			tapped = true
 		}
-		gate.r = io.NopCloser(bytes.NewReader(ScriptFor(o.Screen, o.KMS.Rotate, lead+o.Moving, tap)))
+		script := ScriptFor(o.Screen, o.KMS.Rotate, lead+o.Moving, tap)
+		if o.Scene != nil {
+			moves := DragScript
+			if o.Scene.Script != nil {
+				moves = o.Scene.Script
+			}
+			script = append(moves(o.KMS.Rotate, lead+o.Moving), tapScript(tap)...)
+		}
+		gate.r = io.NopCloser(bytes.NewReader(script))
 	}
 	o.KMS.Replay = gate
 	d, err := kms.Open(o.KMS)
@@ -178,14 +215,31 @@ func Bench(ctx context.Context, o BenchOptions) (Result, error) {
 	var benchErr error
 	err = gunim.MainWith(ctx, d, func(a *gunim.App) error {
 		defer cancel()
-		w, err := a.NewWindow(gunim.WindowOptions{Title: "kmsbench", Root: widget.NewSurface(), Theme: widget.Dark()})
-		if err != nil {
-			return err
-		}
-		c := w.Client()
 		res.Software = d.Software()
 		still := func() error { return nil }
-		switch o.Screen {
+		var c gunim.Client
+		var w *gunim.Window
+		if o.Scene != nil {
+			var stillScene func() error
+			var err error
+			if c, stillScene, err = o.Scene.Open(ctx, a, d); err != nil {
+				return err
+			}
+			if stillScene != nil {
+				still = stillScene
+			}
+		} else {
+			var err error
+			if w, err = a.NewWindow(gunim.WindowOptions{Title: "kmsbench", Root: widget.NewSurface(), Theme: widget.Dark()}); err != nil {
+				return err
+			}
+			c = w.Client()
+		}
+		builtIn := o.Screen
+		if o.Scene != nil {
+			builtIn = ""
+		}
+		switch builtIn {
 		case "demo":
 			Register(w, Options{Scale: d.Monitors()[0].Scale, Software: d.Software(), FrameMS: func() float64 { return float64(d.Stats().Last.Microseconds()) / 1000 }})
 			if err := c.TakeFingers(true); err != nil {
@@ -555,7 +609,7 @@ var NotHere = []string{
 func ScriptFor(screen string, rotate int, d, tap time.Duration) []byte {
 	var b []byte
 	if screen == "widgets" {
-		b = dragScript(rotate, d)
+		b = drags(rotate, d)
 	} else {
 		b = Script(d)
 	}
@@ -565,12 +619,12 @@ func ScriptFor(screen string, rotate int, d, tap time.Duration) []byte {
 	return b
 }
 
-// dragScript drags along the picture's height, in reports 17 ms apart:
+// drags moves a finger along the picture's height, in reports 17 ms apart:
 // up 500 panel pixels in 300 ms and let go, which flings the gallery on
 // down the page, then, after a wait, back down the same way. It ends with
 // one more drag up, so the page rests scrolled down, with the gallery's
 // spinner out of sight, for the bench's rest.
-func dragScript(rotate int, d time.Duration) []byte {
+func drags(rotate int, d time.Duration) []byte {
 	var b bytes.Buffer
 	fmt.Fprintf(&b, "gunim-evdev 1 0 719 0 1279 5\n")
 	at := time.Duration(0)
@@ -733,4 +787,19 @@ func Script(d time.Duration) []byte {
 		at += tapGap
 	}
 	return b.Bytes()
+}
+
+// DragScript drags up and down the picture, as the gallery's made-up
+// script does, d long, for a screen turned rotate degrees clockwise: the
+// default script of a BenchScene.
+func DragScript(rotate int, d time.Duration) []byte { return drags(rotate, d) }
+
+// tapScript is the tap that wakes the screen at the end of the blanking,
+// at tap from the script's start, or nothing for a tap of 0. It carries no
+// header, so it goes after a script that has one.
+func tapScript(tap time.Duration) []byte {
+	if tap <= 0 {
+		return nil
+	}
+	return tapAt(tap, 600, 640)
 }

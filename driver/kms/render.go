@@ -22,7 +22,6 @@ import (
 	"github.com/marrasen/gunim/driver/internal/compose"
 	"github.com/marrasen/gunim/driver/internal/render"
 	"github.com/marrasen/gunim/geom"
-	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/internal/gl"
 )
 
@@ -353,7 +352,7 @@ func (r *renderThread) powerOff() {
 	if err := d.scr.off(); err != nil {
 		d.fail(fmt.Errorf("kms: turn the screen off: %w", err))
 	}
-	d.pushAll(input.WindowHidden{Time: time.Now()})
+	d.pushAll(driver.WindowShown{Shown: false})
 }
 
 // powerOn has the next frame turn the display on, with the mode set again,
@@ -362,7 +361,7 @@ func (r *renderThread) powerOn() {
 	log.Print("gunim: kms: the screen wakes")
 	r.off, r.set, r.back = false, false, time.Now()
 	r.prevFlip, r.prevSeq = time.Time{}, 0
-	r.d.pushAll(input.WindowShown{Time: time.Now()}, driver.Redraw{})
+	r.d.pushAll(driver.WindowShown{Shown: true}, driver.Redraw{})
 }
 
 // debugBlank, set by GUNIM_DEBUG_FRAMES, logs each backlight step asked
@@ -852,7 +851,7 @@ func (d *Driver) leaveVT() {
 	if err := d.vt.released(); err != nil {
 		log.Printf("gunim: kms: switch VT: %v", err)
 	}
-	d.pushAll(input.WindowHidden{Time: time.Now()})
+	d.pushAll(driver.WindowShown{Shown: false})
 }
 
 // returnVT takes the screen back as its VT shows again: DRM master, then
@@ -880,7 +879,7 @@ func (r *renderThread) returned(now time.Time) {
 	d.blank.wake(now)
 	d.mu.Unlock()
 	r.prevFlip, r.prevSeq = time.Time{}, 0
-	d.pushAll(input.WindowShown{Time: now}, driver.Redraw{})
+	d.pushAll(driver.WindowShown{Shown: true}, driver.Redraw{})
 }
 
 // pushAll sends evs to every window.

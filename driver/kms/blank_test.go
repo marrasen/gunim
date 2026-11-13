@@ -396,8 +396,41 @@ func TestReturningToTheVTWakesABlankedScreen(t *testing.T) {
 	if at := d.blank.next(now.Add(wakeFade)); !at.Equal(now.Add(time.Minute)) {
 		t.Fatalf("dims again at %v, want a minute after the return", at.Sub(now))
 	}
-	if _, ok := nextInput(t, win).(input.WindowShown); !ok {
-		t.Fatal("the window did not hear it is shown")
+	if ev, ok := nextInput(t, win).(driver.WindowShown); !ok || !ev.Shown {
+		t.Fatalf("the window heard %v, not that it is shown", ev)
+	}
+	if !d.Showing() {
+		t.Fatal("the screen taken back doesn't count as showing")
+	}
+}
+
+// Showing is false while the screen is off and while another VT has it,
+// and true otherwise, dimmed too.
+func TestShowingFollowsTheScreenAndTheVT(t *testing.T) {
+	d := testDriver(0, 1)
+	d.blank = newBlanker(Blank{Dim: time.Minute, Off: 5 * time.Minute}, 1, bt0)
+	if !d.Showing() {
+		t.Fatal("a screen just opened doesn't count as showing")
+	}
+	d.blank.step(after(2 * time.Minute))
+	if !d.Showing() {
+		t.Fatal("a dimmed screen doesn't count as showing")
+	}
+	d.blank.step(after(5 * time.Minute))
+	d.blank.step(after(6 * time.Minute))
+	if d.blank.state != screenOff || d.Showing() {
+		t.Fatalf("the screen is %v and showing %v; want off, not showing", d.blank.state, d.Showing())
+	}
+	r := &renderThread{d: d, off: true}
+	r.returned(after(7 * time.Minute))
+	if !d.Showing() {
+		t.Fatal("a woken screen doesn't count as showing")
+	}
+	d.mu.Lock()
+	d.away = true
+	d.mu.Unlock()
+	if d.Showing() {
+		t.Fatal("a screen another VT has counts as showing")
 	}
 }
 

@@ -711,6 +711,19 @@ func (d *Driver) Blanked() bool {
 	return d.blank.state == screenOff
 }
 
+// Showing reports whether the screen shows the app: it is not off, and
+// the driver's VT is the one showing. While it is not, no frames are
+// drawn, so a timer or an intent in a window waits for the screen to show
+// again; a program that checks it is alive, as for systemd's watchdog,
+// asks here meanwhile. The windows hear each change as the window shown
+// or hidden (input.WindowShown and input.WindowHidden), as on other
+// drivers.
+func (d *Driver) Showing() bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return !d.away && d.blank.state != screenOff
+}
+
 // DisplayOn asks the kernel whether the display controller is on: the
 // screen's CRTC active. It is false while the screen is blanked.
 func (d *Driver) DisplayOn() (bool, error) {

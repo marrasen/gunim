@@ -27,14 +27,13 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
-	"text/tabwriter"
 	"time"
 
+	"github.com/marrasen/gunim/driver/kms/kmsbench"
 	"github.com/marrasen/gunim/internal/kmsdemo"
 )
 
@@ -89,36 +88,13 @@ func run() int {
 		log.Print("kmsbench: stopped before the end")
 		return 1
 	}
-	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintf(tw, "Goal\tTarget\tMeasured\t\n")
-	failed := 0
-	for _, g := range r.Goals() {
-		mark := "ok"
-		if !g.OK {
-			mark = "MISSED"
-			failed++
-		}
-		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", g.Name, g.Target, g.Got, mark)
-	}
-	if err := tw.Flush(); err != nil {
+	missed, err := kmsbench.Report(os.Stdout, r)
+	if err != nil {
 		log.Print(err)
 		return 1
 	}
-	fmt.Printf("\n%.2f Hz; %d frames in %.1f s while moving; draw p50 %.1f ms p99 %.1f ms; frame max %.1f ms; %d touch reports answered",
-		r.Rate, r.Moving.Frames, r.MovingFor.Seconds(), ms(r.Moving.Draw.P50), ms(r.Moving.Draw.P99), ms(r.Moving.Frame.Max), r.Moving.Touch.N)
-	if r.Software {
-		fmt.Print("; drawn by the CPU")
-	}
-	fmt.Println()
-	fmt.Println("Measured elsewhere:")
-	for _, s := range kmsdemo.NotHere {
-		fmt.Println("  " + s)
-	}
-	if failed > 0 {
-		fmt.Printf("%d goals missed\n", failed)
+	if missed > 0 {
 		return 1
 	}
 	return 0
 }
-
-func ms(d time.Duration) float64 { return float64(d.Microseconds()) / 1000 }
