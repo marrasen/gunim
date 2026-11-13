@@ -1,11 +1,10 @@
-//go:build linux
+//go:build linux && (arm64 || amd64)
 
 package kms
 
 import (
 	"log"
 	"time"
-	"unsafe"
 
 	"golang.org/x/sys/unix"
 
@@ -170,34 +169,51 @@ func (d *Driver) startInput() {
 	}
 }
 
-// readTouch reads the touch screen until the driver quits. It takes the
-// device for itself, so nothing else on the system hears its touches, and
-// has its events stamped on the monotonic clock, as flips are.
+// readTouch reads the touch screen until the driver quits. Open has taken
+// the device for the driver and set its clock; see inputDev.take. Fingers
+// already down as it starts come down at once, and a device that goes
+// away lifts every finger down, so no node waits on a lost lift.
 func (d *Driver) readTouch(dev *inputDev) {
-	if err := ioctlInt(dev.fd, eviocgrab, 1); err != nil {
-		log.Printf("gunim: kms: %s: could not take the touch screen for itself: %v", dev.path, err)
-	}
-	clock := int32(unix.CLOCK_MONOTONIC)
-	if err := ioctlIntPtr(dev.fd, eviocsclockid, &clock); err != nil {
-		log.Printf("gunim: kms: %s: touch times are not on the monotonic clock, so touch to flip is off: %v", dev.path, err)
-	}
 	m := touchMap{x: dev.x, y: dev.y}
 	dec := newMTDecoder(dev.slots)
 	dec.resync = dev.mtSlots
-	d.readEvents(dev, func(e event) {
+	if cs := dec.resynced(); cs != nil {
+		d.touchReport(m, cs, time.Now())
+	}
+	gone := d.readEvents(dev, func(e event) {
 		if d.rec != nil {
 			d.rec.write(e)
 		}
 		if cs := dec.feed(e); cs != nil {
-			d.touchReport(m, cs, monoTime(e.time()))
+			d.touchReport(m, cs, eventTime(e, dev.realtime, time.Now()))
 		}
 	})
+	if gone {
+		if cs := dec.liftAll(); cs != nil {
+			d.touchReport(m, cs, time.Now())
+		}
+	}
+}
+
+// eventTime returns when an event happened: its stamp on the monotonic
+// clock, or now where the device stamps on another clock, or where the
+// stamp lies in the future or long past, as one from before the clock was
+// set would.
+func eventTime(e event, realtime bool, now time.Time) time.Time {
+	if realtime {
+		return now
+	}
+	t := monoTime(e.time())
+	if t.After(now.Add(time.Second)) || t.Before(now.Add(-time.Minute)) {
+		return now
+	}
+	return t
 }
 
 // readKeys reads a keyboard until the driver quits, for Ctrl+Alt+Fn.
 func (d *Driver) readKeys(dev *inputDev) {
 	var ctrl, alt bool
-	d.readEvents(dev, func(e event) {
+	_ = d.readEvents(dev, func(e event) {
 		if e.typ != evKey {
 			return
 		}
@@ -217,37 +233,38 @@ func (d *Driver) readKeys(dev *inputDev) {
 	})
 }
 
-// readEvents calls fn for each event dev reads, until the driver quits.
-func (d *Driver) readEvents(dev *inputDev, fn func(event)) {
+// readEvents calls fn for each event dev reads, until the driver quits or
+// the device goes away, which it reports. It sleeps in poll until the
+// device or the driver's stop has something, so a reader at rest costs
+// nothing.
+func (d *Driver) readEvents(dev *inputDev, fn func(event)) (gone bool) {
 	buf := make([]byte, 64*liveEventSize)
-	fds := []unix.PollFd{{Fd: int32(dev.fd), Events: unix.POLLIN}}
+	fds := []unix.PollFd{{Fd: int32(dev.fd), Events: unix.POLLIN}, {Fd: int32(d.stop), Events: unix.POLLIN}}
 	for {
 		select {
 		case <-d.quit:
-			return
+			return false
 		default:
 		}
-		fds[0].Revents = 0
-		n, err := unix.Poll(fds, 250)
-		if err == unix.EINTR || n == 0 {
+		fds[0].Revents, fds[1].Revents = 0, 0
+		_, err := unix.Poll(fds, -1)
+		if err == unix.EINTR {
 			continue
 		}
-		if err != nil || fds[0].Revents&(unix.POLLERR|unix.POLLHUP|unix.POLLNVAL) != 0 {
-			select {
-			case <-d.quit:
-				// Closed as the driver quit.
-			default:
-				log.Printf("gunim: kms: %s: gone: %v", dev.path, err)
-			}
-			return
+		if fds[1].Revents != 0 {
+			return false
 		}
-		n, err = unix.Read(dev.fd, buf)
+		if err != nil || fds[0].Revents&(unix.POLLERR|unix.POLLHUP|unix.POLLNVAL) != 0 && fds[0].Revents&unix.POLLIN == 0 {
+			log.Printf("gunim: kms: %s: gone: %v", dev.path, err)
+			return true
+		}
+		n, err := unix.Read(dev.fd, buf)
 		if err == unix.EINTR || err == unix.EAGAIN {
 			continue
 		}
-		if err != nil {
-			log.Printf("gunim: kms: %s: %v", dev.path, err)
-			return
+		if err != nil || n == 0 {
+			log.Printf("gunim: kms: %s: gone: %v", dev.path, err)
+			return true
 		}
 		for o := 0; o+liveEventSize <= n; o += liveEventSize {
 			fn(decodeEvent(buf[o:], liveEventSize))
@@ -281,9 +298,4 @@ func (d *Driver) replay() {
 			d.touchReport(m, cs, time.Now())
 		}
 	}
-}
-
-// ioctlIntPtr calls an ioctl whose argument points at an int.
-func ioctlIntPtr(fd int, req uintptr, v *int32) error {
-	return ioctl(fd, req, unsafe.Pointer(v))
 }

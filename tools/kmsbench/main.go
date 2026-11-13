@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux && (arm64 || amd64)
 
 // Command kmsbench measures gunim's KMS driver on the screen it runs on,
 // such as a Raspberry Pi with a Touch Display 2, against the goals of
@@ -56,7 +56,7 @@ func run() int {
 		o.KMS.Replay = f
 	}
 	o.Log = func(s string) { log.Print("kmsbench: ", s) }
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
 	r, err := kmsdemo.Bench(ctx, o)
 	if err != nil {
@@ -83,7 +83,7 @@ func run() int {
 		return 1
 	}
 	fmt.Printf("\n%.2f Hz; %d frames in %.1f s while moving; draw p50 %.1f ms p99 %.1f ms; frame max %.1f ms; %d touch reports answered",
-		r.Rate, r.Moving.Frames, r.MovingFor.Seconds(), ms(r.Moving.Draw.P50), ms(r.Moving.Draw.P99), ms(r.Moving.Frame.Max), r.Moving.Touch.N)
+		r.Rate, r.Moving.Frames, r.MovingFor.Seconds(), ms(r.Moving.Draw.P50), ms(r.Moving.Draw.P99), ms(r.Moving.All.Max), r.Moving.Touch.N)
 	if r.Software {
 		fmt.Print("; drawn by the CPU")
 	}

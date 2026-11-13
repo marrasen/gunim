@@ -636,8 +636,10 @@ err = gunim.MainWith(ctx, d, fn)
 ```
 
 `example/kmsdemo` is a test pattern with a dot under each finger, and `tools/kmsbench` measures
-the driver against the goals in [docs/plans/kms-touch.md](docs/plans/kms-touch.md). Built with
-`-tags gunimkms`, `gunim.Main` opens the driver itself with its default options.
+the driver against the goals in [docs/plans/kms-touch.md](docs/plans/kms-touch.md). `kms.Options`'
+`Record` and `Replay` record a touch screen's events and play them back through the driver, for
+such measures. Built with `-tags gunimkms`, `gunim.Main` opens the driver itself with its default
+options. The driver is for 64-bit Linux, as on a Raspberry Pi 4 or 5 with a 64-bit system.
 
 ## The split
 

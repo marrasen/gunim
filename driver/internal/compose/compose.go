@@ -30,7 +30,7 @@ import (
 // GL constants the gl package leaves out.
 const (
 	glColorBufferBit = 0x4000
-	glLinear         = 0x2601
+	glNearest        = 0x2600
 	glRGBA8          = 0x8058
 	glStaticDraw     = 0x88E4
 	glUnsignedShort  = 0x1403
@@ -57,6 +57,9 @@ type Pane struct {
 	Last         []paint.Op
 	LastW, LastH int
 	OnTex        bool
+	// InCanvas says the frame stays in the renderer's canvas, which the
+	// compositor lays itself: see [Compositor.SetTurn].
+	InCanvas bool
 
 	drawer     drawer
 	target     uint32
@@ -69,7 +72,7 @@ type Pane struct {
 func (p *Pane) Forget() {
 	p.R, p.drawer = nil, nil
 	p.tex, p.fbo, p.texW, p.texH = 0, 0, 0, 0
-	p.target, p.OnTex = 0, false
+	p.target, p.OnTex, p.InCanvas = 0, false, false
 }
 
 // Release frees what a closed window holds of the GPU: its renderer, its
@@ -118,6 +121,8 @@ type Compositor struct {
 	// soloDrew says it has. See Begin.
 	solo     *Pane
 	soloDrew bool
+	// turned says solo is laid turned, from its canvas.
+	turned bool
 	// turn is how far the windows are turned on the surface, clockwise, and
 	// turnM the matrix for it; see SetTurn.
 	turn  int
@@ -208,8 +213,11 @@ func compileShader(g gl.Context, name string, kind uint32, src string) (uint32, 
 // 270, for a screen mounted another way up than its own, as a panel in
 // portrait shown in landscape. The sizes and places the compositor is
 // given are then the windows' own, the right way up for them: a surface
-// turned 90° is h×w where the screen is w×h. Every window is then laid
-// through its texture, so the frame costs one more copy of the screen.
+// turned 90° is h×w where the screen is w×h. A window alone and filling
+// the screen stays in its renderer's canvas, which the compositor lays
+// turned, so turning costs no more copies of the screen than not turning.
+// Windows with a popup over them are laid through their textures, at one
+// copy more.
 func (c *Compositor) SetTurn(deg int) {
 	c.turn = deg
 	switch deg {
@@ -253,10 +261,10 @@ func (c *Compositor) Dirty(stack []Layer) bool {
 // straight onto it: a copy through its texture would cost the GPU the whole
 // screen again each frame.
 func (c *Compositor) Begin(stack []Layer, w, h int) {
-	c.solo, c.soloDrew = nil, false
-	if len(stack) == 1 && c.turn == 0 {
+	c.solo, c.soloDrew, c.turned = nil, false, false
+	if len(stack) == 1 {
 		if l := stack[0]; l.X == 0 && l.Y == 0 && l.W == w && l.H == h {
-			c.solo = l.Pane
+			c.solo, c.turned = l.Pane, c.turn != 0
 		}
 	}
 }
@@ -277,10 +285,14 @@ func (c *Compositor) Draw(p *Pane, ops []paint.Op, damage []geom.Rect, w, h int,
 		p.drawer = d
 	}
 	p.Last, p.LastW, p.LastH = ops, w, h
-	if p == c.solo {
+	switch {
+	case p == c.solo && c.turned:
+		p.inCanvas(c.g)
+		c.soloDrew = true
+	case p == c.solo:
 		p.onSurface(c.g)
 		c.soloDrew = true
-	} else {
+	default:
 		p.onTexture(c.g)
 	}
 	p.Sharp(p.drawer.drawRects(p.target, under, ops, damage, w, h, scale))
@@ -290,7 +302,11 @@ func (c *Compositor) Draw(p *Pane, ops []paint.Op, damage []geom.Rect, w, h int,
 // Shoot hands fn the pixels of the frame [Compositor.Draw] just drew into
 // p, w×h device pixels, on a goroutine of its own.
 func (c *Compositor) Shoot(p *Pane, w, h int, fn func(*image.RGBA)) {
-	c.g.BindFramebuffer(gl.FRAMEBUFFER, p.target)
+	fbo := p.target
+	if p.InCanvas && p.drawer != nil {
+		_, fbo = p.drawer.canvas()
+	}
+	c.g.BindFramebuffer(gl.FRAMEBUFFER, fbo)
 	pix := make([]byte, w*h*4)
 	c.g.ReadPixels(pix, 0, 0, int32(w), int32(h), gl.RGBA, gl.UNSIGNED_BYTE)
 	go fn(Upright(pix, w, h))
@@ -300,7 +316,22 @@ func (c *Compositor) Shoot(p *Pane, w, h int, fn func(*image.RGBA)) {
 // same stack Begin had, on a surface of w×h device pixels. The driver shows
 // it next.
 func (c *Compositor) Finish(stack []Layer, w, h int, scale float32) {
-	if c.solo != nil {
+	switch {
+	case c.solo != nil && c.turned:
+		p := c.solo
+		switch {
+		case c.soloDrew:
+		case p.Last == nil:
+		case p.InCanvas && p.LastW == w && p.LastH == h:
+			// The canvas still holds the last frame.
+		default:
+			// The last frame went to the window's texture, or at another
+			// size: again, into the canvas.
+			p.LastW, p.LastH = w, h
+			p.redraw(c.g, inCanvas, scale)
+		}
+		c.layCanvas(stack[0], w, h)
+	case c.solo != nil:
 		switch {
 		case c.soloDrew:
 		case c.solo.Last == nil:
@@ -312,10 +343,10 @@ func (c *Compositor) Finish(stack []Layer, w, h int, scale float32) {
 			// changed size, but the surface holds nothing after it was shown: the
 			// last frame again, to fill it.
 			c.solo.LastW, c.solo.LastH = w, h
-			c.solo.redraw(c.g, true, scale)
+			c.solo.redraw(c.g, onSurface, scale)
 		}
 		c.last = append(c.last[:0], stack...)
-	} else {
+	default:
 		for _, l := range stack {
 			// A window last drawn straight onto the surface has its texture
 			// behind, and a window with a new size and no frame for it yet would
@@ -325,7 +356,7 @@ func (c *Compositor) Finish(stack []Layer, w, h int, scale float32) {
 				if l.Pane.Last != nil {
 					l.Pane.LastW, l.Pane.LastH = l.W, l.H
 				}
-				l.Pane.redraw(c.g, false, scale)
+				l.Pane.redraw(c.g, onTexture, scale)
 			}
 		}
 		c.lay(stack, w, h)
@@ -342,16 +373,46 @@ func (c *Compositor) Finish(stack []Layer, w, h int, scale float32) {
 
 // redraw draws the window's last frame again, whole, straight onto the
 // surface or into its texture.
-func (p *Pane) redraw(g gl.Context, surface bool, scale float32) {
+func (p *Pane) redraw(g gl.Context, where place, scale float32) {
 	if p.drawer == nil || p.Last == nil {
 		return
 	}
-	if surface {
+	switch where {
+	case onSurface:
 		p.onSurface(g)
-	} else {
+	case onTexture:
 		p.onTexture(g)
+	case inCanvas:
+		p.inCanvas(g)
 	}
 	p.Sharp(p.drawer.draw(p.target, p.Last, p.LastW, p.LastH, scale))
+}
+
+// place is where a window's frame goes.
+type place uint8
+
+const (
+	onSurface place = iota
+	onTexture
+	inCanvas
+)
+
+// keep tells the window's renderer whether its frames stay in its canvas.
+func (p *Pane) keep(on bool) {
+	if p.drawer != nil {
+		p.drawer.keep(on)
+	}
+}
+
+// inCanvas has the window's next draw stay in its renderer's canvas, for
+// the compositor to lay turned. Its texture has no use then, as on the
+// surface.
+func (p *Pane) inCanvas(g gl.Context) {
+	if p.texW != p.LastW || p.texH != p.LastH {
+		p.dropTexture(g)
+	}
+	p.keep(true)
+	p.target, p.OnTex, p.InCanvas = 0, false, true
 }
 
 // onSurface has the window's next draw go straight onto the surface. Its
@@ -362,7 +423,8 @@ func (p *Pane) onSurface(g gl.Context) {
 	if p.texW != p.LastW || p.texH != p.LastH {
 		p.dropTexture(g)
 	}
-	p.target, p.OnTex = 0, false
+	p.keep(false)
+	p.target, p.OnTex, p.InCanvas = 0, false, false
 }
 
 // onTexture has the window's next draw go into its texture, made at the size
@@ -371,7 +433,8 @@ func (p *Pane) onTexture(g gl.Context) {
 	if p.texW != p.LastW || p.texH != p.LastH {
 		p.resize(g, p.LastW, p.LastH)
 	}
-	p.target, p.OnTex = p.fbo, true
+	p.keep(false)
+	p.target, p.OnTex, p.InCanvas = p.fbo, true, false
 }
 
 // resize gives the window a texture of width×height device pixels to draw
@@ -382,8 +445,9 @@ func (p *Pane) resize(g gl.Context, width, height int) {
 		p.fbo = g.CreateFramebuffer()
 	}
 	g.BindTexture(gl.TEXTURE_2D, p.tex)
-	g.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, glLinear)
-	g.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, glLinear)
+	// Laid at its own size, pixel for pixel, a texture needs no filtering.
+	g.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, glNearest)
+	g.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, glNearest)
 	g.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
 	g.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
 	g.TexImage2D(gl.TEXTURE_2D, 0, glRGBA8, int32(width), int32(height), gl.RGBA, gl.UNSIGNED_BYTE, nil)
@@ -423,27 +487,82 @@ func (c *Compositor) clear(under color.NRGBA, w, h int) {
 func (c *Compositor) lay(stack []Layer, w, h int) {
 	g := c.g
 	c.last = append(c.last[:0], stack...)
-	c.clear(color.NRGBA{}, w, h)
-	g.Enable(gl.BLEND)
-	g.BlendFuncSeparate(gl.ONE, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
-	g.UseProgram(c.prog)
-	g.BindVertexArray(c.vao)
-	g.ActiveTexture(gl.TEXTURE0)
-	for _, l := range stack {
+	// An opaque window covering the surface at the bottom hides the clear,
+	// and needs no blending.
+	covered := len(stack) > 0 && stack[0].Pane.tex != 0 && covers(stack[0], stack[0].Pane.texW, stack[0].Pane.texH, w, h)
+	if !covered {
+		c.clear(color.NRGBA{}, w, h)
+	}
+	c.startLaying(w, h)
+	for i, l := range stack {
 		p := l.Pane
 		if p.tex == 0 {
 			continue
 		}
-		x0 := 2*float32(l.X)/float32(w) - 1
-		x1 := 2*float32(l.X+p.texW)/float32(w) - 1
-		y1 := 1 - 2*float32(l.Y)/float32(h)
-		y0 := 1 - 2*float32(l.Y+p.texH)/float32(h)
-		c.at = [4]float32{x0, y0, x1, y1}
-		g.Uniform4fv(c.rect, c.at[:])
-		g.BindTexture(gl.TEXTURE_2D, p.tex)
-		g.DrawElements(gl.TRIANGLES, 6, glUnsignedShort, 0)
+		c.layOne(p.tex, l.X, l.Y, p.texW, p.texH, w, h, i == 0 && covered)
 	}
 	g.BindVertexArray(0)
+}
+
+// covers reports whether a layer of tw×th device pixels is opaque and covers
+// a surface of w×h.
+func covers(l Layer, tw, th, w, h int) bool {
+	return !l.Pane.Transparent && l.X <= 0 && l.Y <= 0 && l.X+tw >= w && l.Y+th >= h
+}
+
+// layCanvas lays a window alone on the surface, filling it, from its
+// renderer's canvas, turned: the frame's only copy onto the surface.
+func (c *Compositor) layCanvas(l Layer, w, h int) {
+	p := l.Pane
+	c.last = append(c.last[:0], l)
+	var tex uint32
+	if p.drawer != nil && p.Last != nil {
+		tex, _ = p.drawer.canvas()
+	}
+	if tex == 0 {
+		// The first frame is still on its way.
+		c.clear(l.Under, w, h)
+		return
+	}
+	opaque := !p.Transparent
+	if !opaque {
+		c.clear(color.NRGBA{}, w, h)
+	}
+	c.startLaying(w, h)
+	c.layOne(tex, 0, 0, w, h, w, h, opaque)
+	c.g.BindVertexArray(0)
+}
+
+// startLaying binds what laying textures on the surface, w×h, draws with.
+func (c *Compositor) startLaying(w, h int) {
+	g := c.g
+	g.BindFramebuffer(gl.FRAMEBUFFER, 0)
+	vw, vh := c.view(w, h)
+	g.Viewport(0, 0, vw, vh)
+	g.Disable(glScissorTest)
+	g.BlendFuncSeparate(gl.ONE, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+	g.UseProgram(c.prog)
+	g.BindVertexArray(c.vao)
+	g.ActiveTexture(gl.TEXTURE0)
+}
+
+// layOne lays the texture tex, tw×th, at x, y on the surface, w×h, over what
+// is there, or in its place where opaque.
+func (c *Compositor) layOne(tex uint32, x, y, tw, th, w, h int, opaque bool) {
+	g := c.g
+	if opaque {
+		g.Disable(gl.BLEND)
+	} else {
+		g.Enable(gl.BLEND)
+	}
+	x0 := 2*float32(x)/float32(w) - 1
+	x1 := 2*float32(x+tw)/float32(w) - 1
+	y1 := 1 - 2*float32(y)/float32(h)
+	y0 := 1 - 2*float32(y+th)/float32(h)
+	c.at = [4]float32{x0, y0, x1, y1}
+	g.Uniform4fv(c.rect, c.at[:])
+	g.BindTexture(gl.TEXTURE_2D, tex)
+	g.DrawElements(gl.TRIANGLES, 6, glUnsignedShort, 0)
 }
 
 // Upright turns pixels read from GL, bottom row first, into a picture the
@@ -465,6 +584,11 @@ type drawer interface {
 	draw(fbo uint32, ops []paint.Op, w, h int, scale float32) (sharpAt time.Time)
 	rebind()
 	release()
+	// keep has the frames stay in the canvas, or go to the framebuffer
+	// handed to draw, and canvas returns the canvas's texture and
+	// framebuffer.
+	keep(on bool)
+	canvas() (tex, fbo uint32)
 }
 
 // openRenderer makes p's renderer, and is the drawer of every real window.
@@ -506,3 +630,7 @@ func (d rendererDrawer) draw(fbo uint32, ops []paint.Op, w, h int, scale float32
 func (d rendererDrawer) rebind() { d.r.Rebind() }
 
 func (d rendererDrawer) release() { d.r.Release() }
+
+func (d rendererDrawer) keep(on bool) { d.r.KeepInCanvas = on }
+
+func (d rendererDrawer) canvas() (tex, fbo uint32) { return d.r.CanvasTexture(), d.r.Canvas() }

@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux && (arm64 || amd64)
 
 package kms
 
@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"slices"
@@ -109,13 +110,17 @@ type inputDev struct {
 	// fingers it tracks.
 	x, y  absInfo
 	slots int
+	// realtime says its events are stamped on the wall clock, where the
+	// monotonic one could not be set: their stamps then mean nothing to
+	// flips, and the driver stamps them as it reads them.
+	realtime bool
 }
 
 func bitSet(b []byte, n int) bool { return n/8 < len(b) && b[n/8]&(1<<(n%8)) != 0 }
 
 // openInput opens an evdev device and reads what it is.
 func openInput(path string) (*inputDev, error) {
-	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_CLOEXEC, 0)
+	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -148,9 +153,42 @@ func openInput(path string) (*inputDev, error) {
 
 func (d *inputDev) close() { _ = unix.Close(d.fd) }
 
-// findInputs opens the touch screen and the keyboards. want names the
-// touch screen by path or name, or is empty for the first one found.
-func findInputs(want string) (touch *inputDev, keyboards []*inputDev, err error) {
+// take takes a touch screen for the driver: the device to itself, so
+// nothing else on the system hears its touches, and its events stamped on
+// the monotonic clock, as flips are. Events queued before then go, as
+// they carry the other clock. Another program holding the device is an
+// error: the kernel would hand it every touch, and the driver none.
+func (d *inputDev) take() error {
+	if err := ioctlInt(d.fd, eviocgrab, 1); err != nil {
+		return fmt.Errorf("%s: another program holds the touch screen: %w", d.path, err)
+	}
+	clock := int32(unix.CLOCK_MONOTONIC)
+	if err := ioctl(d.fd, eviocsclockid, unsafe.Pointer(&clock)); err != nil {
+		log.Printf("gunim: kms: %s: touch events are not stamped on the monotonic clock, so they are stamped as read: %v", d.path, err)
+		d.realtime = true
+	}
+	drain(d.fd)
+	return nil
+}
+
+// drain reads and drops what waits on fd, which does not block.
+func drain(fd int) {
+	buf := make([]byte, 64*liveEventSize)
+	for {
+		n, _ := unix.Read(fd, buf)
+		if n <= 0 {
+			return
+		}
+	}
+}
+
+// findInputs opens the touch screen, where withTouch, and the keyboards,
+// where withKeys. want names the touch screen by path or name, or is empty
+// for the first one found. It takes the touch screen it finds; see take.
+func findInputs(want string, withTouch, withKeys bool) (touch *inputDev, keyboards []*inputDev, err error) {
+	if !withTouch && !withKeys {
+		return nil, nil, nil
+	}
 	paths, _ := filepath.Glob("/dev/input/event*")
 	// event2 before event10.
 	slices.SortFunc(paths, func(a, b string) int {
@@ -167,16 +205,31 @@ func findInputs(want string) (touch *inputDev, keyboards []*inputDev, err error)
 			continue
 		}
 		switch {
-		case d.touch && touch == nil && (want == "" || want == p || strings.EqualFold(want, d.name)):
+		case withTouch && d.touch && touch == nil && (want == "" || want == p || strings.EqualFold(want, d.name)):
 			touch = d
-		case d.keys:
+		case withKeys && d.keys:
 			keyboards = append(keyboards, d)
 		default:
 			d.close()
 		}
 	}
-	if touch == nil && want != "" {
-		return nil, keyboards, fmt.Errorf("no touch screen %q: %w", want, errors.Join(errs...))
+	closeAll := func() {
+		if touch != nil {
+			touch.close()
+		}
+		for _, k := range keyboards {
+			k.close()
+		}
+	}
+	if withTouch && touch == nil && want != "" {
+		closeAll()
+		return nil, nil, fmt.Errorf("no touch screen %q: %w", want, errors.Join(errs...))
+	}
+	if touch != nil {
+		if err := touch.take(); err != nil {
+			closeAll()
+			return nil, nil, err
+		}
 	}
 	return touch, keyboards, nil
 }
@@ -215,8 +268,9 @@ type mtDecoder struct {
 	slot    int
 	dropped bool
 	// resync reads a device's slots again after SYN_DROPPED: for an
-	// ABS_MT code, the value of each slot. It is nil for a recording,
-	// which then lifts every finger.
+	// ABS_MT code, the value of each slot, and for ABS_MT_SLOT the slot
+	// its events go to now, as one value. It is nil for a recording, which
+	// then lifts every finger.
 	resync func(code uint16) []int32
 	out    []contact
 }
@@ -307,6 +361,11 @@ func (m *mtDecoder) resynced() []contact {
 	var ids, xs, ys []int32
 	if m.resync != nil {
 		ids, xs, ys = m.resync(absMTTrackingID), m.resync(absMTPositionX), m.resync(absMTPositionY)
+		// The slot events go to now: the kernel sends no ABS_MT_SLOT
+		// again for events lost.
+		if cur := m.resync(absMTSlot); len(cur) == 1 {
+			m.slot = int(cur[0])
+		}
 	}
 	for i := range m.slots {
 		s := &m.slots[i]
@@ -324,8 +383,25 @@ func (m *mtDecoder) resynced() []contact {
 	return m.report()
 }
 
-// mtSlots reads one ABS_MT axis of every slot from the device.
+// liftAll lifts every finger down, as for a device gone, and returns the
+// lifts.
+func (m *mtDecoder) liftAll() []contact {
+	for i := range m.slots {
+		m.track(&m.slots[i], -1)
+	}
+	return m.report()
+}
+
+// mtSlots reads one ABS_MT axis of every slot from the device, or for
+// ABS_MT_SLOT the slot its events go to now.
 func (d *inputDev) mtSlots(code uint16) []int32 {
+	if code == absMTSlot {
+		var a absInfo
+		if err := ioctl(d.fd, eviocgabs(absMTSlot), unsafe.Pointer(&a)); err != nil {
+			return nil
+		}
+		return []int32{a.value}
+	}
 	buf := make([]int32, 1+d.slots)
 	buf[0] = int32(code)
 	if err := ioctl(d.fd, eviocgmtslots(uintptr(4*len(buf))), unsafe.Pointer(&buf[0])); err != nil {

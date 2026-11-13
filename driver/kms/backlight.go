@@ -1,10 +1,11 @@
-//go:build linux
+//go:build linux && (arm64 || amd64)
 
 package kms
 
 import (
 	"errors"
 	"fmt"
+	"log"
 	"math"
 	"os"
 	"path/filepath"
@@ -45,7 +46,14 @@ func openBacklight(name string) (*backlight, error) {
 		if err != nil {
 			return nil, fmt.Errorf("backlight: %w", err)
 		}
-		return &backlight{dir: d, max: maxV, was: cur, cur: cur}, nil
+		b := &backlight{dir: d, max: maxV, was: cur, cur: cur}
+		if cur == 0 && maxV > 0 {
+			// A dark panel at start is no level to come back to: a run
+			// before may have blanked it and ended. Half way is.
+			b.was = (maxV + 1) / 2
+			log.Printf("gunim: kms: the backlight was at 0; it goes back to %d of %d on exit", b.was, maxV)
+		}
+		return b, nil
 	}
 	if name != "" {
 		return nil, fmt.Errorf("backlight: no %s under %s", name, sysBacklight)

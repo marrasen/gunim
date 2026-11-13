@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux && (arm64 || amd64)
 
 package kmsdemo
 
@@ -231,12 +231,16 @@ type Goal struct {
 func (r Result) Goals() []Goal {
 	ms := func(d time.Duration) string { return fmt.Sprintf("%.1f ms", float64(d.Microseconds())/1000) }
 	fps := float64(r.Moving.Frames) / r.MovingFor.Seconds()
-	missedPer1000 := 1000 * float64(r.Moving.Missed) / math.Max(1, float64(r.Moving.Frames))
+	// The scene moves on every frame, so a frame handed over a refresh or
+	// more after the flip before is a slow one: its vblanks count as
+	// missed, and its time counts.
+	missed := r.Moving.Missed + r.Moving.LateMissed
+	missedPer1000 := 1000 * float64(missed) / math.Max(1, float64(r.Moving.Frames))
 	gs := []Goal{
 		{"frame rate while moving", fmt.Sprintf("≥ %.1f fps", r.Rate*0.99), fmt.Sprintf("%.1f fps", fps), fps >= r.Rate*0.99},
-		{"missed flips", "≤ 1 in 1 000 frames", fmt.Sprintf("%d in %d", r.Moving.Missed, r.Moving.Frames), missedPer1000 <= 1},
-		{"frame time p50", "≤ 4.0 ms", ms(r.Moving.Frame.P50), r.Moving.Frame.P50 <= 4*time.Millisecond},
-		{"frame time p99", "≤ 8.0 ms", ms(r.Moving.Frame.P99), r.Moving.Frame.P99 <= 8*time.Millisecond},
+		{"missed flips", "≤ 1 in 1 000 frames", fmt.Sprintf("%d in %d (%d slow frames)", missed, r.Moving.Frames, r.Moving.Late), missedPer1000 <= 1},
+		{"frame time p50", "≤ 4.0 ms", ms(r.Moving.All.P50), r.Moving.All.P50 <= 4*time.Millisecond},
+		{"frame time p99", "≤ 8.0 ms", ms(r.Moving.All.P99), r.Moving.All.P99 <= 8*time.Millisecond},
 		{"touch to flip p50", "≤ 20.0 ms", ms(r.Moving.Touch.P50), r.Moving.Touch.N > 0 && r.Moving.Touch.P50 <= 20*time.Millisecond},
 		{"touch to flip p99", "≤ 30.0 ms", ms(r.Moving.Touch.P99), r.Moving.Touch.N > 0 && r.Moving.Touch.P99 <= 30*time.Millisecond},
 		{"start to first frame", "≤ 1.0 s warm", fmt.Sprintf("%.2f s", r.Start.Seconds()), r.Start <= time.Second},

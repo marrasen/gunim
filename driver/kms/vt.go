@@ -1,10 +1,11 @@
-//go:build linux
+//go:build linux && (arm64 || amd64)
 
 package kms
 
 import (
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"strconv"
@@ -30,10 +31,12 @@ const (
 	vtAckAcq  = 2
 
 	kdSetMode  = 0x4B3A
+	kdGetMode  = 0x4B3B
 	kdText     = 0x00
 	kdGraphics = 0x01
 	kdGKBMode  = 0x4B44
 	kdSKBMode  = 0x4B45
+	kUnicode   = 0x03
 	kOff       = 0x04
 
 	ttyMajor = 4
@@ -48,6 +51,28 @@ type vtStat struct {
 	active, signal, state uint16
 }
 
+// console is the calls the VT code makes on the kernel's consoles. The
+// real one makes them on /dev/ttyN, and a test stands in for it.
+type console interface {
+	// open opens /dev/ttyN, or /dev/tty0 for n 0, the VT showing.
+	open(n int) (int, error)
+	ioctl(fd int, req uintptr, arg unsafe.Pointer) error
+	ioctlInt(fd int, req, arg uintptr) error
+	close(fd int) error
+}
+
+type kernelConsole struct{}
+
+func (kernelConsole) open(n int) (int, error) {
+	return unix.Open("/dev/tty"+strconv.Itoa(n), unix.O_RDWR|unix.O_CLOEXEC|unix.O_NOCTTY, 0)
+}
+func (kernelConsole) ioctl(fd int, req uintptr, arg unsafe.Pointer) error { return ioctl(fd, req, arg) }
+func (kernelConsole) ioctlInt(fd int, req, arg uintptr) error             { return ioctlInt(fd, req, arg) }
+func (kernelConsole) close(fd int) error                                  { return unix.Close(fd) }
+
+// consoles is the console the VT code uses; a test swaps it.
+var consoles console = kernelConsole{}
+
 // vt is the virtual terminal the driver draws on. The text console draws
 // on the same screen, so the driver puts its VT in graphics mode, where
 // the console leaves the screen alone, and turns the VT's keyboard off,
@@ -55,6 +80,7 @@ type vtStat struct {
 // in hand: the kernel asks before it switches, and the driver lets go of
 // the screen first.
 type vt struct {
+	c   console
 	fd  int
 	num int
 	// prev is the VT that showed before the driver switched to its own, or
@@ -62,7 +88,7 @@ type vt struct {
 	// gives back.
 	prev   int
 	opened bool
-	// kbMode is the VT's keyboard mode before, once kbSaved.
+	// kbMode is the VT's keyboard mode to put back, once kbSaved.
 	kbMode  int32
 	kbSaved bool
 	// signals carries the kernel's asks: SIGUSR1 to switch away, SIGUSR2
@@ -78,12 +104,9 @@ func openVT(which string) (*vt, error) {
 	num := 0
 	switch which {
 	case "":
-		var st unix.Stat_t
-		if unix.Fstat(0, &st) != nil || unix.Major(st.Rdev) != ttyMajor || unix.Minor(st.Rdev) == 0 ||
-			unix.Minor(st.Rdev) >= 64 || st.Mode&unix.S_IFMT != unix.S_IFCHR {
+		if num = ownVT(); num == 0 {
 			return nil, nil
 		}
-		num = int(unix.Minor(st.Rdev))
 	case "free":
 	default:
 		n, err := strconv.Atoi(strings.TrimPrefix(which, "/dev/tty"))
@@ -92,25 +115,46 @@ func openVT(which string) (*vt, error) {
 		}
 		num = n
 	}
-	t := &vt{fd: -1}
-	tty0, err := unix.Open("/dev/tty0", unix.O_RDWR|unix.O_CLOEXEC|unix.O_NOCTTY, 0)
+	return takeVT(consoles, num)
+}
+
+// ownVT returns the VT the program's standard input is, or 0.
+func ownVT() int {
+	var st unix.Stat_t
+	if unix.Fstat(0, &st) != nil || st.Mode&unix.S_IFMT != unix.S_IFCHR || unix.Major(st.Rdev) != ttyMajor {
+		return 0
+	}
+	if n := int(unix.Minor(st.Rdev)); n < 64 {
+		return n
+	}
+	return 0
+}
+
+// takeVT takes VT num, or a free one for 0, on c.
+//
+// A VT found in graphics mode, or with its keyboard off, was left so by a
+// run that ended without putting it back: takeVT puts it back to text mode
+// and a working keyboard first, and takes that as how it found it.
+func takeVT(c console, num int) (*vt, error) {
+	t := &vt{c: c, fd: -1}
+	tty0, err := c.open(0)
 	if err != nil {
 		return nil, fmt.Errorf("VT: %w", err)
 	}
-	defer func() { _ = unix.Close(tty0) }()
+	defer func() { _ = c.close(tty0) }()
 	var st vtStat
-	if err := ioctl(tty0, vtGetState, unsafe.Pointer(&st)); err != nil {
+	if err := c.ioctl(tty0, vtGetState, unsafe.Pointer(&st)); err != nil {
 		return nil, fmt.Errorf("VT: state: %w", err)
 	}
 	if num == 0 {
 		var n int32
-		if err := ioctl(tty0, vtOpenQry, unsafe.Pointer(&n)); err != nil || n < 1 {
+		if err := c.ioctl(tty0, vtOpenQry, unsafe.Pointer(&n)); err != nil || n < 1 {
 			return nil, fmt.Errorf("VT: no free VT: %w", err)
 		}
 		num, t.opened = int(n), true
 	}
 	t.num = num
-	t.fd, err = unix.Open("/dev/tty"+strconv.Itoa(num), unix.O_RDWR|unix.O_CLOEXEC|unix.O_NOCTTY, 0)
+	t.fd, err = c.open(num)
 	if err != nil {
 		return nil, fmt.Errorf("VT %d: %w", num, err)
 	}
@@ -120,46 +164,70 @@ func openVT(which string) (*vt, error) {
 			_ = t.close() // the error that brought it here says more
 		}
 	}()
+	if err := saneVT(c, t.fd, num); err != nil {
+		return nil, err
+	}
 	if int(st.active) != num {
 		t.prev = int(st.active)
-		if err := ioctlInt(t.fd, vtActivate, uintptr(num)); err != nil {
+		if err := c.ioctlInt(t.fd, vtActivate, uintptr(num)); err != nil {
 			return nil, fmt.Errorf("VT %d: switch to it: %w", num, err)
 		}
-		if err := ioctlInt(t.fd, vtWaitActive, uintptr(num)); err != nil {
+		if err := c.ioctlInt(t.fd, vtWaitActive, uintptr(num)); err != nil {
 			return nil, fmt.Errorf("VT %d: wait for it: %w", num, err)
 		}
 	}
-	if err := ioctl(t.fd, kdGKBMode, unsafe.Pointer(&t.kbMode)); err != nil {
+	if err := c.ioctl(t.fd, kdGKBMode, unsafe.Pointer(&t.kbMode)); err != nil {
 		return nil, fmt.Errorf("VT %d: keyboard mode: %w", num, err)
 	}
 	t.kbSaved = true
-	if err := ioctlInt(t.fd, kdSKBMode, kOff); err != nil {
+	if err := c.ioctlInt(t.fd, kdSKBMode, kOff); err != nil {
 		return nil, fmt.Errorf("VT %d: keyboard off: %w", num, err)
 	}
-	if err := ioctlInt(t.fd, kdSetMode, kdGraphics); err != nil {
+	if err := c.ioctlInt(t.fd, kdSetMode, kdGraphics); err != nil {
 		return nil, fmt.Errorf("VT %d: graphics mode: %w", num, err)
 	}
 	t.signals = make(chan os.Signal, 4)
 	signal.Notify(t.signals, syscall.SIGUSR1, syscall.SIGUSR2)
 	m := vtMode{mode: vtProcess, relsig: int16(syscall.SIGUSR1), acqsig: int16(syscall.SIGUSR2)}
-	if err := ioctl(t.fd, vtSetMode, unsafe.Pointer(&m)); err != nil {
+	if err := c.ioctl(t.fd, vtSetMode, unsafe.Pointer(&m)); err != nil {
 		return nil, fmt.Errorf("VT %d: take switching: %w", num, err)
 	}
 	ok = true
 	return t, nil
 }
 
+// saneVT puts VT num, open as fd, back to text mode and a working
+// keyboard where a run before left it in graphics mode or with its
+// keyboard off, so neither is taken for how the VT was.
+func saneVT(c console, fd, num int) error {
+	var mode int32
+	if err := c.ioctl(fd, kdGetMode, unsafe.Pointer(&mode)); err == nil && mode != kdText {
+		log.Printf("gunim: kms: VT %d was left in graphics mode; putting it back in text mode first", num)
+		if err := c.ioctlInt(fd, kdSetMode, kdText); err != nil {
+			return fmt.Errorf("VT %d: text mode: %w", num, err)
+		}
+	}
+	var kb int32
+	if err := c.ioctl(fd, kdGKBMode, unsafe.Pointer(&kb)); err == nil && kb == kOff {
+		log.Printf("gunim: kms: VT %d was left with its keyboard off; turning it on first", num)
+		if err := c.ioctlInt(fd, kdSKBMode, kUnicode); err != nil {
+			return fmt.Errorf("VT %d: keyboard on: %w", num, err)
+		}
+	}
+	return nil
+}
+
 // activate switches to VT n, as Ctrl+Alt+Fn would.
 func (t *vt) activate(n int) error {
-	return ioctlInt(t.fd, vtActivate, uintptr(n))
+	return t.c.ioctlInt(t.fd, vtActivate, uintptr(n))
 }
 
 // released tells the kernel the driver has let go of the screen, and the
 // switch away can go ahead.
-func (t *vt) released() error { return ioctlInt(t.fd, vtRelDisp, 1) }
+func (t *vt) released() error { return t.c.ioctlInt(t.fd, vtRelDisp, 1) }
 
 // acquired tells the kernel the driver has the screen again.
-func (t *vt) acquired() error { return ioctlInt(t.fd, vtRelDisp, vtAckAcq) }
+func (t *vt) acquired() error { return t.c.ioctlInt(t.fd, vtRelDisp, vtAckAcq) }
 
 // close puts the VT back as the driver found it, switches back to the VT
 // that showed before, and gives back a VT it opened.
@@ -167,32 +235,75 @@ func (t *vt) close() error {
 	if t == nil || t.fd < 0 {
 		return nil
 	}
+	c := t.c
 	var errs []error
 	if t.signals != nil {
 		signal.Stop(t.signals)
 	}
 	m := vtMode{mode: vtAuto}
-	errs = append(errs, ioctl(t.fd, vtSetMode, unsafe.Pointer(&m)), ioctlInt(t.fd, kdSetMode, kdText))
+	errs = append(errs, c.ioctl(t.fd, vtSetMode, unsafe.Pointer(&m)), c.ioctlInt(t.fd, kdSetMode, kdText))
 	if t.kbSaved {
-		errs = append(errs, ioctlInt(t.fd, kdSKBMode, uintptr(t.kbMode)))
+		errs = append(errs, c.ioctlInt(t.fd, kdSKBMode, uintptr(t.kbMode)))
 	}
 	if t.prev > 0 {
-		errs = append(errs, ioctlInt(t.fd, vtActivate, uintptr(t.prev)), ioctlInt(t.fd, vtWaitActive, uintptr(t.prev)))
+		errs = append(errs, c.ioctlInt(t.fd, vtActivate, uintptr(t.prev)), c.ioctlInt(t.fd, vtWaitActive, uintptr(t.prev)))
 	}
-	errs = append(errs, unix.Close(t.fd))
+	errs = append(errs, c.close(t.fd))
 	t.fd = -1
 	if t.opened && t.prev > 0 {
-		if tty0, err := unix.Open("/dev/tty0", unix.O_RDWR|unix.O_CLOEXEC|unix.O_NOCTTY, 0); err == nil {
-			// Busy where another program opened it meanwhile, which is
-			// fine: it is theirs then.
-			if err := ioctlInt(tty0, vtDisallocate, uintptr(t.num)); err != nil && !errors.Is(err, unix.EBUSY) {
-				errs = append(errs, err)
-			}
-			_ = unix.Close(tty0)
-		}
+		errs = append(errs, disallocate(c, t.num))
 	}
 	if err := errors.Join(errs...); err != nil {
 		return fmt.Errorf("VT %d: put back: %w", t.num, err)
+	}
+	return nil
+}
+
+// disallocate gives VT n back to the kernel. It is busy where another
+// program opened it meanwhile, which is fine: it is theirs then.
+func disallocate(c console, n int) error {
+	tty0, err := c.open(0)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = c.close(tty0) }()
+	if err := c.ioctlInt(tty0, vtDisallocate, uintptr(n)); err != nil && !errors.Is(err, unix.EBUSY) {
+		return err
+	}
+	return nil
+}
+
+// repairVT puts back a VT a run before took and did not give back, as its
+// state file says: text mode and a working keyboard on it, the VT that
+// showed before it showing again, and the VT given back if it opened it.
+func repairVT(c console, s state) error {
+	if s.VT <= 0 {
+		return nil
+	}
+	fd, err := c.open(s.VT)
+	if err != nil {
+		return fmt.Errorf("VT %d: %w", s.VT, err)
+	}
+	m := vtMode{mode: vtAuto}
+	errs := []error{
+		c.ioctl(fd, vtSetMode, unsafe.Pointer(&m)),
+		c.ioctlInt(fd, kdSetMode, kdText),
+		c.ioctlInt(fd, kdSKBMode, kUnicode),
+	}
+	var st vtStat
+	if tty0, err := c.open(0); err == nil {
+		errs = append(errs, c.ioctl(tty0, vtGetState, unsafe.Pointer(&st)), c.close(tty0))
+	}
+	back := int(st.active) == s.VT && s.Prev > 0
+	if back {
+		errs = append(errs, c.ioctlInt(fd, vtActivate, uintptr(s.Prev)), c.ioctlInt(fd, vtWaitActive, uintptr(s.Prev)))
+	}
+	errs = append(errs, c.close(fd))
+	if s.Opened && back {
+		errs = append(errs, disallocate(c, s.VT))
+	}
+	if err := errors.Join(errs...); err != nil {
+		return fmt.Errorf("VT %d: put back what a run before left: %w", s.VT, err)
 	}
 	return nil
 }

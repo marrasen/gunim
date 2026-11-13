@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux && (arm64 || amd64)
 
 // Command kmsdemo shows gunim's KMS driver at work on a screen with no
 // window system, as a Raspberry Pi with a Touch Display 2: an animated
@@ -60,7 +60,7 @@ func main() {
 }
 
 func run(o kms.Options, still bool) error {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
 	d, err := kms.Open(o)
 	if err != nil {
@@ -92,6 +92,8 @@ func run(o kms.Options, still bool) error {
 			for {
 				select {
 				case <-ctx.Done():
+					// The window closes, which ends its intents and the app.
+					c.Close()
 					return
 				case <-t.C:
 					fmt.Println(figures.line())

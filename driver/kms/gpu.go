@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux && (arm64 || amd64)
 
 package kms
 
@@ -149,6 +149,19 @@ const (
 	gbmBoUseRendering = 1 << 2
 )
 
+// softwareEnv asks Mesa's GBM to draw on the CPU: kms_swrast with
+// llvmpipe, into dumb buffers the screen can show. GBM reads
+// GBM_ALWAYS_SOFTWARE as gbm_create_device loads its driver; purego's
+// runtime hands os.Setenv to the C library's setenv. LIBGL_ALWAYS_SOFTWARE
+// is not used: Mesa 26.2's swap on GBM jumps to a null function with it.
+// The variable stays set for the process and its children.
+func softwareEnv() error {
+	if err := os.Setenv("GBM_ALWAYS_SOFTWARE", "1"); err != nil {
+		return fmt.Errorf("ask Mesa for software drawing: %w", err)
+	}
+	return nil
+}
+
 // gpu is the GL context on the screen: a GBM device on the card, a GBM
 // surface of the mode's size, and an EGL context drawing into it.
 type gpu struct {
@@ -181,13 +194,8 @@ func startGPU(fd, w, h int, software bool) (*gpu, error) {
 		return nil, err
 	}
 	if software {
-		// kms_swrast draws with llvmpipe into dumb buffers the screen can
-		// show. LIBGL_ALWAYS_SOFTWARE is the other way to ask, and Mesa
-		// 26.2's swap on GBM jumps to a null function with it. Mesa reads
-		// the variable as it loads its driver, which gbm_create_device does;
-		// purego's runtime hands os.Setenv to the C library's setenv.
-		if err := os.Setenv("MESA_LOADER_DRIVER_OVERRIDE", "kms_swrast"); err != nil {
-			return nil, fmt.Errorf("ask Mesa for software drawing: %w", err)
+		if err := softwareEnv(); err != nil {
+			return nil, err
 		}
 	}
 	g := &gpu{software: software}

@@ -1,10 +1,11 @@
-//go:build linux
+//go:build linux && (arm64 || amd64)
 
 package kms
 
 import (
 	"errors"
 	"runtime"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/unix"
@@ -30,11 +31,19 @@ func ior(typ, nr, size uintptr) uintptr { return ioc(iocRead, typ, nr, size) }
 func drmIOWR(nr, size uintptr) uintptr { return ioc(iocRead|iocWrite, 'd', nr, size) }
 
 // ioctl calls the ioctl req on fd with arg, again where a signal broke it
-// off.
+// off, and for a DRM call, again where the driver says to try again, as
+// libdrm does: at once, and after a while with a pause, so a driver that
+// keeps saying so does not spin a core.
 func ioctl(fd int, req uintptr, arg unsafe.Pointer) error {
-	for {
+	for tries := 0; ; tries++ {
 		_, _, e := unix.Syscall(unix.SYS_IOCTL, uintptr(fd), req, uintptr(arg))
-		if e == unix.EINTR || e == unix.EAGAIN && req>>8&0xff == 'd' {
+		if e == unix.EINTR {
+			continue
+		}
+		if e == unix.EAGAIN && req>>8&0xff == 'd' {
+			if tries >= 100 {
+				time.Sleep(time.Millisecond)
+			}
 			continue
 		}
 		if e != 0 {

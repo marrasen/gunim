@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux && (arm64 || amd64)
 
 package kms
 
@@ -497,7 +497,7 @@ func TestMissedFlipsCountOnlyWhileMoving(t *testing.T) {
 // testDriver is a driver with a screen of the trial Pi's size and no
 // screen behind it, for the input path.
 func testDriver(tr turn, scale float32) *Driver {
-	d := &Driver{turn: tr, panelW: 720, panelH: 1280, density: scale, wake: -1, quit: make(chan struct{})}
+	d := &Driver{turn: tr, panelW: 720, panelH: 1280, density: scale, wake: -1, stop: -1, quit: make(chan struct{})}
 	d.picW, d.picH = tr.size(720, 1280)
 	return d
 }

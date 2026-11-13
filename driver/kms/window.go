@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux && (arm64 || amd64)
 
 package kms
 
@@ -48,10 +48,11 @@ type Window struct {
 	// held keeps the window where its frame showed it, until its frame at
 	// a new size comes.
 	held compose.Held
-	// next is the frame waiting for the render thread, and under the
-	// colour under the window's frames.
-	next  *frame
-	under color.NRGBA
+	// next is the frame waiting for the render thread, while hasNext, and
+	// under the colour under the window's frames.
+	next    frame
+	hasNext bool
+	under   color.NRGBA
 	// shot takes the pixels of the next frame drawn; see Shoot.
 	shot func(*image.RGBA)
 	// sharpAt is when the last frame, which drew a big mask stretched, is
@@ -111,7 +112,7 @@ func (w *Window) Present(ops []paint.Op, damage []geom.Rect) error {
 		d.mu.Unlock()
 		return errClosed
 	}
-	w.next = &frame{ops: ops, damage: damage}
+	w.next, w.hasNext = frame{ops: ops, damage: damage}, true
 	w.stale = false
 	if d.handed.IsZero() {
 		d.handed = time.Now()
@@ -156,7 +157,7 @@ func (w *Window) Close() error {
 	w.closeOnce.Do(func() {
 		w.d.mu.Lock()
 		w.closed = true
-		w.next = nil
+		w.next, w.hasNext = frame{}, false
 		w.d.mu.Unlock()
 		w.d.windowClosed(w)
 		close(w.quit)
@@ -280,8 +281,8 @@ func (w *Window) SetBrightness(v float32) error {
 	if w.d.light == nil {
 		return errNoBacklight
 	}
-	w.d.mu.Lock()
-	defer w.d.mu.Unlock()
+	w.d.lightMu.Lock()
+	defer w.d.lightMu.Unlock()
 	return w.d.light.set(v)
 }
 
@@ -291,8 +292,8 @@ func (w *Window) Brightness() float32 {
 	if w.d.light == nil {
 		return 1
 	}
-	w.d.mu.Lock()
-	defer w.d.mu.Unlock()
+	w.d.lightMu.Lock()
+	defer w.d.lightMu.Unlock()
 	return w.d.light.brightness()
 }
 

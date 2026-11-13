@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux && (arm64 || amd64)
 
 package kms
 
@@ -10,6 +10,7 @@ import (
 	"image/color"
 	"log"
 	"math"
+	"os"
 	"runtime"
 	"runtime/debug"
 	"syscall"
@@ -31,6 +32,12 @@ const lcdLag = 8 * time.Millisecond
 // flipWait is how long the render thread waits for a flip it must see
 // before it lets go of the screen.
 const flipWait = 200 * time.Millisecond
+
+// flipTimeout is how long a commit waits for its flip event before the
+// render thread gives up, as for an event the kernel lost: the run ends
+// with an error, for systemd to start it again, in place of a screen that
+// silently stops.
+const flipTimeout = 500 * time.Millisecond
 
 // renderThread is the render thread's own state. One goroutine, locked to
 // its OS thread, owns the EGL context and the card: it draws, commits, and
@@ -57,6 +64,11 @@ type renderThread struct {
 	rotate   bool
 	// flight is the windows whose frames are in the commit on its way.
 	flight []*Window
+	// jobs, stack and gone are the frame's, kept from frame to frame; see
+	// collect.
+	jobs  []job
+	stack []compose.Layer
+	gone  []*compose.Pane
 	// For the figures: when the frame on its way was handed over and
 	// committed, the touch it answers, and the flip before it.
 	handed, committed, touchAt time.Time
@@ -108,31 +120,26 @@ func (r *renderThread) start() error {
 	if v, err := d.scr.card.cap(capTimestampMonotonic); err != nil || v != 1 {
 		log.Print("gunim: kms: the card's flip times are not on the monotonic clock: the figures are off")
 	}
-	var err error
-	if !d.o.Software {
-		r.g, err = startGPU(d.scr.card.fd, d.panelW, d.panelH, false)
-		if err == nil {
-			r.gl, err = loadGL(r.g)
-		}
+	onCPU, err := startDrawing(d.o.Software, func(software bool) error {
+		g, err := startGPU(d.scr.card.fd, d.panelW, d.panelH, software)
 		if err != nil {
-			log.Printf("gunim: kms: no GPU, so the CPU draws: %v", err)
-			if r.g != nil {
-				r.g.stop()
-			}
+			return err
 		}
+		if !software && os.Getenv("GUNIM_KMS_FAIL_GPU") != "" {
+			g.stop()
+			return errors.New("GUNIM_KMS_FAIL_GPU is set")
+		}
+		if r.gl, err = loadGL(g); err != nil {
+			g.stop()
+			return err
+		}
+		r.g = g
+		return nil
+	})
+	if err != nil {
+		return err
 	}
-	if r.g == nil || err != nil || d.o.Software {
-		gerr := err
-		r.g, err = startGPU(d.scr.card.fd, d.panelW, d.panelH, true)
-		if err == nil {
-			r.gl, err = loadGL(r.g)
-		}
-		if err != nil {
-			return errors.Join(gerr, fmt.Errorf("software drawing: %w", err))
-		}
-		d.software = true
-	}
-	if r.g.software && !d.o.Software {
+	if r.g.software && !onCPU {
 		log.Printf("gunim: kms: Mesa draws on the CPU (%s): the GPU's driver did not load", r.g.renderer)
 	}
 	d.software = r.g.software
@@ -160,6 +167,23 @@ func (r *renderThread) start() error {
 	return r.commit()
 }
 
+// startDrawing makes the GL context with try: on the GPU, or else, where
+// that fails or where software asks, on the CPU. It reports whether it
+// asked for the CPU. The fallback runs in the same process, after the
+// GPU's attempt has let go of what it took.
+func startDrawing(software bool, try func(software bool) error) (onCPU bool, err error) {
+	if !software {
+		if err = try(false); err == nil {
+			return false, nil
+		}
+		log.Printf("gunim: kms: no GPU, so the CPU draws: %v", err)
+	}
+	if err2 := try(true); err2 != nil {
+		return true, errors.Join(err, fmt.Errorf("software drawing: %w", err2))
+	}
+	return true, nil
+}
+
 // loadGL loads OpenGL ES's functions for the context made current.
 func loadGL(g *gpu) (gl.Context, error) {
 	c, err := gl.NewDefaultContext()
@@ -179,8 +203,19 @@ func (r *renderThread) loop() error {
 	var wake [8]byte
 	for {
 		fds[0].Revents, fds[1].Revents = 0, 0
-		if _, err := unix.Poll(fds, -1); err != nil && err != unix.EINTR {
+		wait := -1
+		if r.flying {
+			wait = int(flipTimeout / time.Millisecond)
+		}
+		n, err := unix.Poll(fds, wait)
+		if err != nil && err != unix.EINTR {
 			return fmt.Errorf("poll: %w", err)
+		}
+		if n == 0 && r.flying && time.Since(r.committed) >= flipTimeout {
+			return fmt.Errorf("no flip event %v after a commit", flipTimeout)
+		}
+		if fds[0].Revents&(unix.POLLERR|unix.POLLHUP|unix.POLLNVAL) != 0 {
+			return errors.New("the card is gone")
 		}
 		if fds[0].Revents&unix.POLLIN != 0 {
 			if err := d.scr.card.readEvents(r.events[:], r.flipped); err != nil {
@@ -231,10 +266,50 @@ func (r *renderThread) waitFlip() {
 	}
 }
 
+// collect takes, under the driver's lock, the frames waiting into r.jobs
+// and the windows showing into r.stack, and the panes of windows closed,
+// which belong to the render thread from then on. It keeps the slices from
+// frame to frame, so a frame allocates nothing here.
+func (r *renderThread) collect() (gone []*compose.Pane, handed, touchAt time.Time) {
+	d := r.d
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	r.jobs, r.stack = r.jobs[:0], r.stack[:0]
+	r.gone = append(r.gone[:0], d.gone...)
+	clear(d.gone)
+	d.gone = d.gone[:0]
+	scale := d.density
+	for _, w := range d.windows {
+		rect := w.held.Rect(w.rectLocked(), w.hasNext)
+		fbW, fbH := int(math.Round(float64(rect.Size().W*scale))), int(math.Round(float64(rect.Size().H*scale)))
+		switch {
+		case w.hasNext:
+			j := job{w: w, f: w.next, fbW: fbW, fbH: fbH, under: w.under}
+			if fbW > 0 && fbH > 0 {
+				j.shot, w.shot = w.shot, nil
+			}
+			r.jobs = append(r.jobs, j)
+			w.next, w.hasNext = frame{}, false
+		case w.sharpen && w.pane.Last != nil:
+			r.jobs = append(r.jobs, job{w: w, f: frame{ops: w.pane.Last}, fbW: fbW, fbH: fbH, under: w.under, again: true})
+		}
+		w.sharpen = false
+		if !w.hidden && !w.stale {
+			x, y := int(math.Round(float64(rect.Min.X*scale))), int(math.Round(float64(rect.Min.Y*scale)))
+			r.stack = append(r.stack, compose.Layer{Pane: &w.pane, X: x, Y: y, W: fbW, H: fbH, Under: w.under})
+		}
+	}
+	handed, touchAt = d.handed, d.touchAt
+	if len(r.jobs) > 0 {
+		d.handed, d.touchAt = time.Time{}, time.Time{}
+	}
+	return r.gone, handed, touchAt
+}
+
 // job is a window's frame to draw.
 type job struct {
 	w        *Window
-	f        *frame
+	f        frame
 	fbW, fbH int
 	under    color.NRGBA
 	shot     func(*image.RGBA)
@@ -247,39 +322,12 @@ type job struct {
 // commits the result, if anything changed.
 func (r *renderThread) frame() error {
 	d := r.d
-	d.mu.Lock()
-	var jobs []job
-	var stack []compose.Layer
-	gone := d.gone
-	d.gone = nil
-	scale := d.density
-	for _, w := range d.windows {
-		rect := w.held.Rect(w.rectLocked(), w.next != nil)
-		fbW, fbH := int(math.Round(float64(rect.Size().W*scale))), int(math.Round(float64(rect.Size().H*scale)))
-		if w.next != nil {
-			j := job{w: w, f: w.next, fbW: fbW, fbH: fbH, under: w.under}
-			if fbW > 0 && fbH > 0 {
-				j.shot, w.shot = w.shot, nil
-			}
-			jobs = append(jobs, j)
-			w.next = nil
-		} else if w.sharpen && w.pane.Last != nil {
-			jobs = append(jobs, job{w: w, f: &frame{ops: w.pane.Last}, fbW: fbW, fbH: fbH, under: w.under, again: true})
-		}
-		w.sharpen = false
-		if !w.hidden && !w.stale {
-			x, y := int(math.Round(float64(rect.Min.X*scale))), int(math.Round(float64(rect.Min.Y*scale)))
-			stack = append(stack, compose.Layer{Pane: &w.pane, X: x, Y: y, W: fbW, H: fbH, Under: w.under})
-		}
-	}
-	handed, touchAt := d.handed, d.touchAt
-	if len(jobs) > 0 {
-		d.handed, d.touchAt = time.Time{}, time.Time{}
-	}
-	d.mu.Unlock()
+	gone, handed, touchAt := r.collect()
 	for _, p := range gone {
 		r.c.Release(p)
 	}
+	jobs, stack := r.jobs, r.stack
+	scale := d.density
 	if len(jobs) == 0 && !r.c.Dirty(stack) {
 		return nil
 	}
@@ -323,6 +371,8 @@ func (r *renderThread) commit() error {
 		}
 		return err
 	}
+	// Mesa keeps a surface's buffers for the surface's life, so a buffer's
+	// address names it for as long as the cache lives.
 	fb, ok := r.fbs[bo]
 	if !ok {
 		handle, stride, w, h, format := boInfo(bo)

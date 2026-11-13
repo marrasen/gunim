@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux && (arm64 || amd64)
 
 package kms
 
@@ -24,6 +24,13 @@ type Stats struct {
 	Frame, Draw, Touch Percentiles
 	// Last is the newest frame's time, as Frame measures it.
 	Last time.Duration
+	// Late is the frames handed over a refresh or more after the flip
+	// before, and LateMissed the vblanks they missed. While something moves
+	// on every frame, as in tools/kmsbench, each one is a slow frame on the
+	// CPU's side; otherwise the first frame after a rest is one too. All
+	// is Frame for every frame with a flip before it, late ones too.
+	Late, LateMissed int
+	All              Percentiles
 	// Since is when the figures started.
 	Since time.Time
 }
@@ -83,6 +90,8 @@ type timeline struct {
 	missed int
 	// frame, draw and touch keep the last statsKept frames' times.
 	frame, draw, touch ring
+	all                ring
+	late, lateMissed   int
 	last               time.Duration
 	since              time.Time
 
@@ -107,7 +116,7 @@ type traceFrame struct {
 
 func newTimeline(trace io.Writer) *timeline {
 	t := &timeline{since: time.Now(),
-		frame: newRing(statsKept), draw: newRing(statsKept), touch: newRing(statsKept),
+		frame: newRing(statsKept), draw: newRing(statsKept), touch: newRing(statsKept), all: newRing(statsKept),
 		secFrame: newRing(240), secTouch: newRing(240)}
 	if trace != nil {
 		t.trace = json.NewEncoder(trace)
@@ -125,7 +134,11 @@ func (t *timeline) shown(seq uint32, prev, handed, commit, flip, touch time.Time
 	defer t.mu.Unlock()
 	t.frames++
 	t.secFrames++
-	if straight {
+	if !prev.IsZero() {
+		t.all.add(commit.Sub(prev))
+	}
+	switch {
+	case straight:
 		t.missed += missed
 		t.secMissed += missed
 		if !prev.IsZero() {
@@ -134,6 +147,9 @@ func (t *timeline) shown(seq uint32, prev, handed, commit, flip, touch time.Time
 			t.secFrame.add(d)
 			t.last = d
 		}
+	case !prev.IsZero():
+		t.late++
+		t.lateMissed += missed
 	}
 	t.draw.add(commit.Sub(handed))
 	if !touch.IsZero() {
@@ -148,10 +164,7 @@ func (t *timeline) shown(seq uint32, prev, handed, commit, flip, touch time.Time
 			}
 			return at.Sub(prev).Microseconds()
 		}
-		f := traceFrame{Seq: seq, Handed: us(handed), Commit: us(commit), Flip: us(flip), Straight: straight}
-		if straight {
-			f.MissedHere = missed
-		}
+		f := traceFrame{Seq: seq, Handed: us(handed), Commit: us(commit), Flip: us(flip), Straight: straight, MissedHere: missed}
 		if !touch.IsZero() {
 			f.Touch = flip.Sub(touch).Microseconds()
 		}
@@ -167,6 +180,7 @@ func (t *timeline) stats() Stats {
 		Frames: t.frames, Missed: t.missed,
 		Frame: percentiles(t.frame.times()), Draw: percentiles(t.draw.times()), Touch: percentiles(t.touch.times()),
 		Last: t.last, Since: t.since,
+		Late: t.late, LateMissed: t.lateMissed, All: percentiles(t.all.times()),
 	}
 }
 
@@ -178,6 +192,8 @@ func (t *timeline) reset() {
 	t.frame.reset()
 	t.draw.reset()
 	t.touch.reset()
+	t.all.reset()
+	t.late, t.lateMissed = 0, 0
 	t.since = time.Now()
 }
 

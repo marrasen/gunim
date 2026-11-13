@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux && (arm64 || amd64)
 
 // Package kms is gunim's driver for a screen with no window system: one
 // full-screen UI drawn straight to the display through the Linux kernel's
@@ -58,7 +58,9 @@ import (
 	"log"
 	"math"
 	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -96,15 +98,31 @@ type Options struct {
 	// driver switches to a VT other than the one showing, and back on
 	// exit. A program started over SSH runs on no VT: with VT empty it
 	// leaves the VTs alone, and "free" keeps the text console of the VT
-	// showing out of its way.
+	// showing out of its way. With no VT taken, a keyboard still types
+	// into the login on the VT behind the picture.
+	//
+	// The driver puts the VT, and the backlight's level, back as it found
+	// them when Run ends: on its context, the last window closing, and on
+	// SIGHUP, SIGINT and SIGTERM, which it catches itself. SIGKILL,
+	// os.Exit, a panic on a goroutine other than the render thread and a
+	// crash in Mesa's C code skip that. The kernel still frees the screen
+	// then, and the next run puts the VT and the backlight back first,
+	// from the state file it keeps under /run while it runs. Under systemd,
+	// TTYReset=yes with TTYPath= sets the unit's own VT back to text mode
+	// with a working keyboard before and after each run; it covers neither
+	// a "free" VT nor the backlight.
 	VT string
 	// VTSwitch takes Ctrl+Alt+F1 to F12 from a keyboard, which the VT's
-	// own keyboard handling would, to switch VT.
+	// own keyboard handling would, to switch VT. Keyboards are found as
+	// the driver opens; one plugged in later is not read yet. The switch
+	// waits on the render thread to let go of the screen, so a render
+	// thread stuck on a hung GPU holds every VT switch.
 	VTSwitch bool
 	// Software draws with Mesa's software renderer even where there is a
 	// GPU.
 	Software bool
-	// Record writes the touch screen's events to a file, for Replay.
+	// Record writes the touch screen's events to a file, for Replay. It is
+	// for measuring the driver, as tools/kmsbench does.
 	Record string
 	// Replay plays a recording made with Record through the driver's own
 	// input path, as if a finger made it, in place of the touch screen.
@@ -124,6 +142,14 @@ type Driver struct {
 	keys  []*inputDev
 	rec   *recorder
 	stats *timeline
+	// trace is the file GUNIM_KMS_TRACE writes to.
+	trace *os.File
+	// sigs hears SIGHUP, SIGINT and SIGTERM, on which Run gives the screen
+	// back.
+	sigs chan os.Signal
+	// lightMu guards light: a write to the backlight goes over I²C, and
+	// holds up nothing else.
+	lightMu sync.Mutex
 
 	// panelW and panelH are the panel's own size in pixels; picW and picH
 	// the picture's, turned.
@@ -139,6 +165,8 @@ type Driver struct {
 	// cmds the work it is woken for besides frames.
 	wake int
 	cmds chan func()
+	// stop is an eventfd that ends the input readers' poll.
+	stop int
 
 	mu sync.Mutex
 	// windows is the stack of open windows, bottom first, and gone the
@@ -155,8 +183,8 @@ type Driver struct {
 	// clipboard is the process's own: there is no system to share it with.
 	clipboard string
 
-	// readers counts the input readers running, which end within a
-	// quarter second of quit, before their files close.
+	// readers counts the input readers running, which end as stop is
+	// written, before their files close.
 	readers sync.WaitGroup
 
 	quit     chan struct{}
@@ -170,75 +198,118 @@ type Driver struct {
 }
 
 // Open takes the screen and starts drawing on it: black, until a window
-// opens. On error it gives back what it took.
-func Open(o Options) (d *Driver, err error) {
+// opens. On error it gives back what it took. [Driver.Run] or
+// [Driver.Close] gives back the rest.
+func Open(o Options) (*Driver, error) {
 	t := turn(o.Rotate)
 	if !t.valid() {
 		return nil, fmt.Errorf("kms: Rotate is %d: want 0, 90, 180 or 270", o.Rotate)
 	}
-	d = &Driver{o: o, turn: t, cmds: make(chan func(), 8), quit: make(chan struct{}), done: make(chan struct{}), ended: make(chan struct{})}
-	defer func() {
-		if err != nil {
-			d.release()
-			d = nil
+	d := &Driver{o: o, turn: t, cmds: make(chan func(), 8), quit: make(chan struct{}), done: make(chan struct{}),
+		ended: make(chan struct{}), wake: -1, stop: -1}
+	if err := d.open(); err != nil {
+		// The render thread, if it started, has ended.
+		d.quitOnce.Do(func() { close(d.quit) })
+		d.release()
+		return nil, fmt.Errorf("kms: %w", err)
+	}
+	return d, nil
+}
+
+// open takes what Open takes, in order. What it took stays for release.
+func (d *Driver) open() error {
+	o := d.o
+	d.catchSignals()
+	if s, ok := readState(); ok {
+		log.Print("gunim: kms: a run before this one ended without giving the screen back; putting back what it took")
+		if err := repair(s); err != nil {
+			log.Printf("gunim: kms: %v", err)
 		}
-	}()
-	var trace io.Writer
+		removeState()
+	}
 	if p := os.Getenv("GUNIM_KMS_TRACE"); p != "" {
 		f, err := os.Create(p)
 		if err != nil {
-			return nil, fmt.Errorf("kms: GUNIM_KMS_TRACE: %w", err)
+			return fmt.Errorf("GUNIM_KMS_TRACE: %w", err)
 		}
-		trace = f
+		d.trace = f
 	}
-	d.stats = newTimeline(trace)
+	if d.trace != nil {
+		d.stats = newTimeline(d.trace)
+	} else {
+		d.stats = newTimeline(nil)
+	}
+	if o.Software {
+		// Before Mesa first loads, so it reads it with no thread of its own
+		// running.
+		if err := softwareEnv(); err != nil {
+			return err
+		}
+	}
+	var err error
 	if d.vt, err = openVT(o.VT); err != nil {
-		return nil, fmt.Errorf("kms: %w", err)
+		return err
 	}
 	if d.scr, err = findScreen(o); err != nil {
-		return nil, fmt.Errorf("kms: %w", err)
+		return err
 	}
 	d.panelW, d.panelH = d.scr.width(), d.scr.height()
-	d.picW, d.picH = t.size(d.panelW, d.panelH)
+	d.picW, d.picH = d.turn.size(d.panelW, d.panelH)
 	d.rate = d.scr.mode.rate()
 	d.density = o.Scale
 	if d.density <= 0 {
 		d.density = density(d.panelW, d.scr.conn.mmWidth)
 	}
 	if d.light, err = openBacklight(o.Backlight); err != nil {
-		return nil, fmt.Errorf("kms: %w", err)
+		return err
+	}
+	st := state{}
+	if d.vt != nil {
+		st.VT, st.Prev, st.Opened = d.vt.num, d.vt.prev, d.vt.opened
+	}
+	if d.light != nil {
+		st.Backlight, st.Level = d.light.dir, d.light.was
+	}
+	if err := writeState(st); err != nil {
+		log.Printf("gunim: kms: %v; a crash would leave the VT for the next run to find as it is", err)
 	}
 	if d.light != nil && o.Brightness > 0 {
 		if err := d.light.set(o.Brightness); err != nil {
-			return nil, fmt.Errorf("kms: %w", err)
+			return err
 		}
 	}
-	if o.Replay == nil {
-		if d.touch, d.keys, err = findInputs(o.Touch); err != nil {
-			return nil, fmt.Errorf("kms: %w", err)
-		}
-	} else if o.VTSwitch {
-		_, d.keys, _ = findInputs("")
+	if d.touch, d.keys, err = findInputs(o.Touch, o.Replay == nil, o.VTSwitch); err != nil {
+		return err
 	}
 	if d.touch != nil && o.Record != "" {
 		if d.rec, err = newRecorder(o.Record, d.touch); err != nil {
-			return nil, fmt.Errorf("kms: record touch: %w", err)
+			return fmt.Errorf("record touch: %w", err)
 		}
 	}
 	if d.wake, err = unix.Eventfd(0, unix.EFD_CLOEXEC|unix.EFD_NONBLOCK); err != nil {
-		return nil, fmt.Errorf("kms: eventfd: %w", err)
+		return fmt.Errorf("eventfd: %w", err)
+	}
+	if d.stop, err = unix.Eventfd(0, unix.EFD_CLOEXEC|unix.EFD_NONBLOCK); err != nil {
+		return fmt.Errorf("eventfd: %w", err)
 	}
 	started := make(chan error, 1)
 	go d.render(started)
 	if err := <-started; err != nil {
 		<-d.done
-		return nil, fmt.Errorf("kms: %w", err)
+		return err
 	}
 	log.Printf("gunim: kms: %s on %s (%s), %dx%d at %.2f Hz, %d×%d mm, scale %.2f, turned %d°; %s",
 		d.scr.conn.name(), d.scr.card.path, d.scr.card.name, d.panelW, d.panelH, d.rate,
 		d.scr.conn.mmWidth, d.scr.conn.mmHeight, d.density, o.Rotate, d.inputsLine())
 	d.startInput()
-	return d, nil
+	return nil
+}
+
+// catchSignals has SIGHUP, SIGINT and SIGTERM end Run, which gives the
+// screen back, in place of ending the process with the screen taken.
+func (d *Driver) catchSignals() {
+	d.sigs = make(chan os.Signal, 1)
+	signal.Notify(d.sigs, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
 }
 
 // density works out the scale for a panel w pixels wide and mm millimetres
@@ -277,8 +348,9 @@ func (d *Driver) inputsLine() string {
 
 // Run implements [driver.Driver]. The render thread and the input readers
 // pump the events, so Run waits for ctx to end, the last window to close,
-// or the render thread to fail. It then gives back the screen, the VT and
-// the backlight as it found them.
+// the render thread to fail, or SIGHUP, SIGINT or SIGTERM. It then gives
+// back the screen, the VT and the backlight as it found them. A signal is
+// a normal end, as ctx ending is: Run returns nil for it.
 func (d *Driver) Run(ctx context.Context, ready func()) error {
 	ready()
 	var stop <-chan time.Time
@@ -292,14 +364,15 @@ func (d *Driver) Run(ctx context.Context, ready func()) error {
 		case <-ctx.Done():
 		case <-d.quit:
 		case <-d.done:
+		case s := <-d.sigs:
+			log.Printf("gunim: kms: %v: giving the screen back", s)
 		case <-stop:
 			d.logSecond()
 			continue
 		}
 		break
 	}
-	d.close()
-	return d.err
+	return d.Close()
 }
 
 // logSecond logs the last second's frames, for GUNIM_DEBUG_FRAMES.
@@ -317,8 +390,12 @@ func (d *Driver) logSecond() {
 
 func ms(d time.Duration) float64 { return float64(d.Microseconds()) / 1000 }
 
-// close stops the render thread and gives everything back, once.
-func (d *Driver) close() {
+// Close stops the render thread and gives back the screen, the VT and the
+// backlight as the driver found them, for a program that opened the driver
+// and ends without running it. It is safe to call more than once, and
+// after Run, which calls it; it returns the error the render thread ended
+// on, if any.
+func (d *Driver) Close() error {
 	d.endOnce.Do(func() {
 		d.quitOnce.Do(func() { close(d.quit) })
 		d.kick()
@@ -326,6 +403,7 @@ func (d *Driver) close() {
 		d.release()
 		close(d.ended)
 	})
+	return d.err
 }
 
 // release gives back what Open took, in the order that leaves the screen
@@ -333,9 +411,14 @@ func (d *Driver) close() {
 // its text console again), the backlight's level, then the VT.
 func (d *Driver) release() {
 	d.quitOnce.Do(func() { close(d.quit) })
-	// A recording still being read ends as it closes.
+	// A recording still being read ends as it closes, and the readers as
+	// stop is written.
 	if d.o.Replay != nil {
 		_ = d.o.Replay.Close()
+	}
+	if d.stop >= 0 {
+		one := putUint64(1)
+		_, _ = unix.Write(d.stop, one[:])
 	}
 	d.readers.Wait()
 	if d.rec != nil {
@@ -352,14 +435,27 @@ func (d *Driver) release() {
 	if d.scr != nil {
 		d.scr.close()
 	}
-	if d.wake > 0 {
-		_ = unix.Close(d.wake)
+	for _, fd := range []int{d.wake, d.stop} {
+		if fd >= 0 {
+			_ = unix.Close(fd)
+		}
 	}
+	d.lightMu.Lock()
 	if err := d.light.restore(); err != nil {
 		log.Printf("gunim: kms: %v", err)
 	}
+	d.lightMu.Unlock()
 	if err := d.vt.close(); err != nil {
 		log.Printf("gunim: kms: %v", err)
+	}
+	if d.vt != nil || d.light != nil {
+		removeState()
+	}
+	if d.trace != nil {
+		_ = d.trace.Close()
+	}
+	if d.sigs != nil {
+		signal.Stop(d.sigs)
 	}
 }
 
@@ -443,7 +539,7 @@ func (d *Driver) windowClosed(w *Window) {
 
 // kick wakes the render thread.
 func (d *Driver) kick() {
-	if d.wake <= 0 {
+	if d.wake < 0 {
 		return
 	}
 	one := putUint64(1)
