@@ -138,13 +138,14 @@ func TestResamplingCarriesOnByEightMillisecondsAtMost(t *testing.T) {
 	var r Resampler
 	r.Down(0, at(0), geom.Pt(0, 0))
 	r.Move(0, at(17), geom.Pt(17, 0))
-	// Sampled 9 ms before the frame's start, 17 ms less 8.
-	out := r.At(at(109), nil)
+	// Sampled 9 ms before the frame's start, 17 ms less 8: at 26 ms, 9 ms
+	// past the newest report, carried on 8.
+	out := r.At(at(35), nil)
 	if len(out) != 1 || out[0].Pos.X != 25 {
 		t.Fatalf("got %v, want the finger carried on to 25", out)
 	}
 	// Nothing new: no move, and no further.
-	if out := r.At(at(129), nil); len(out) != 0 {
+	if out := r.At(at(45), nil); len(out) != 0 {
 		t.Errorf("got %v after the furthest carry, want nothing", out)
 	}
 	if r.Pending() {
@@ -155,7 +156,7 @@ func TestResamplingCarriesOnByEightMillisecondsAtMost(t *testing.T) {
 	if !r.Pending() {
 		t.Error("not Pending with a report not sent")
 	}
-	if out := r.At(at(29), nil); len(out) != 0 {
+	if out := r.At(at(34), nil); len(out) != 0 {
 		t.Errorf("got %v for a time before the move sent, want nothing", out)
 	}
 	out = r.At(at(39), nil)
@@ -165,6 +166,29 @@ func TestResamplingCarriesOnByEightMillisecondsAtMost(t *testing.T) {
 	r.Up(0)
 	if out := r.At(at(209), nil); len(out) != 0 {
 		t.Errorf("got %v for a lifted finger", out)
+	}
+}
+
+// A finger that stops reporting has stopped: once two report gaps pass,
+// it goes back to where it was last reported, from ahead of it.
+func TestAFingerThatStopsShowsWhereItIs(t *testing.T) {
+	var r Resampler
+	r.Down(0, at(0), geom.Pt(0, 0))
+	r.Move(0, at(17), geom.Pt(17, 0))
+	r.Move(0, at(34), geom.Pt(34, 0))
+	if out := r.At(at(51), nil); len(out) != 1 || out[0].Pos.X != 42 {
+		t.Fatalf("got %v, want the finger carried on to 42", out)
+	}
+	// Two gaps, 34 ms, after the last report: still carried, no further.
+	if out := r.At(at(77), nil); len(out) != 0 {
+		t.Fatalf("got %v within two gaps, want nothing", out)
+	}
+	out := r.At(at(78), nil)
+	if len(out) != 1 || out[0].Pos.X != 34 {
+		t.Fatalf("got %v past two gaps, want the finger back at 34", out)
+	}
+	if out := r.At(at(120), nil); len(out) != 0 {
+		t.Fatalf("got %v once back, want nothing", out)
 	}
 }
 

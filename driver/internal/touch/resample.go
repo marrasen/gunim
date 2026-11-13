@@ -33,6 +33,9 @@ const (
 // either side of that time, or, where the newest is older, carried on from
 // the last two by at most [MaxPredict].
 //
+// A finger with no report for two report gaps has stopped: it goes back to
+// where it was last reported.
+//
 // Landings and lifts don't pass through it: they go at once, so a tap is
 // never late.
 type Resampler struct {
@@ -153,6 +156,11 @@ func (k *track) at(t time.Time) sample {
 		gap := newest.t.Sub(prev.t)
 		if gap <= 0 || gap > staleGap {
 			return newest
+		}
+		if t.Sub(newest.t) > 2*gap {
+			// No report for two gaps: the finger stopped, where it was
+			// last reported, behind the move carried on past it.
+			return sample{t, newest.p}
 		}
 		ahead := min(t.Sub(newest.t), MaxPredict, gap/2)
 		f := float32(ahead) / float32(gap)
