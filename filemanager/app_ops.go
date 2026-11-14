@@ -37,6 +37,8 @@ type opsState struct {
 	away clipboard
 	// limit holds copies to that many bytes a second, for the demo.
 	limit float64
+	// noPanel keeps operations out of the progress panel however long they run, for the tests.
+	noPanel bool
 	// dialogs are the dialogs to show, the first showing.
 	dialogs []*dialog
 	shown   int
@@ -360,14 +362,16 @@ func (a *app) newOp(title string, kind OpKind) (id int, ctx context.Context, can
 	id = a.ops.next
 	ctx, cancel = context.WithCancel(a.ctx)
 	a.ops.running[id] = &opRun{id: id, title: title, kind: kind, cancel: cancel, started: time.Now()}
-	time.AfterFunc(showAfter, func() {
-		a.post(func() {
-			if r, ok := a.ops.running[id]; ok {
-				r.visible = true
-				a.publishOps()
-			}
+	if !a.ops.noPanel {
+		time.AfterFunc(showAfter, func() {
+			a.post(func() {
+				if r, ok := a.ops.running[id]; ok {
+					r.visible = true
+					a.publishOps()
+				}
+			})
 		})
-	})
+	}
 	return id, ctx, cancel
 }
 

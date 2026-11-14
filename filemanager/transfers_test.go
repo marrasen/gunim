@@ -340,6 +340,9 @@ func TestATransferRunsAsAnOperationWithItsProgress(t *testing.T) {
 	if r.title != "Copying x.txt to sub" {
 		t.Fatalf("the transfer is called %q", r.title)
 	}
+	// The panel takes it, as it does an operation that has run a moment.
+	r.visible = true
+	h.a.publishOps()
 	c.p.Report(50, 100, 0, 1, "/srv/x.txt")
 	h.until("a card shows the transfer", func() bool {
 		return h.b.ops.card(id) != nil && r.visible && r.last.bytes == 50

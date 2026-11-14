@@ -48,6 +48,7 @@ func TestTheSpeedComesFromACopysProgress(t *testing.T) {
 
 func TestACopyDrawsItsSpeedAndCheersAsItEnds(t *testing.T) {
 	h := newHarness(t, "sub/")
+	h.a.ops.noPanel = false
 	if err := os.WriteFile(filepath.Join(h.dir, "big.bin"), make([]byte, 3<<20), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -78,6 +79,7 @@ func TestACopyDrawsItsSpeedAndCheersAsItEnds(t *testing.T) {
 // with no toast saying it again, until the user closes it or undoes it.
 func TestALongOperationsCardStaysUntilClosed(t *testing.T) {
 	h := newHarness(t, "sub/")
+	h.a.ops.noPanel = false
 	if err := os.WriteFile(filepath.Join(h.dir, "big.bin"), make([]byte, 2<<20), 0o644); err != nil {
 		t.Fatal(err)
 	}
