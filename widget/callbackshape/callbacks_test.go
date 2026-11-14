@@ -175,6 +175,7 @@ var structs = []any{
 	(*calendar.MiniMonth)(nil),
 	(*calendar.Month)(nil),
 	(*calendar.TimeField)(nil),
+	(*audioui.Calibrator)(nil),
 	(*audioui.CurveView)(nil),
 	(*audioui.Curves)(nil),
 	(*audioui.Fader)(nil),

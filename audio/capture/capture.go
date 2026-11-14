@@ -270,8 +270,11 @@ type Stream struct {
 
 // A clock is the speaker, as the stream counts its frames.
 type clock interface {
+	// Heard counts the speaker's delay; Delay is that delay, which the
+	// stamps the driver gives exactly leave out.
 	Heard() int64
 	Latency() time.Duration
+	Delay() time.Duration
 }
 
 // A backend is a device recording into a stream. Open opens it, and
@@ -389,10 +392,15 @@ func (s *Stream) putAgo(in []float32, ago int64) {
 }
 
 // putAt takes a block from the device whose first frame sounded with
-// mixer frame heard, exactly. It runs on the device's thread.
+// mixer frame heard at the output, exactly. The speaker's delay past
+// the output moves it earlier: the listener played along with, and a
+// microphone heard, the frame that reached them. It runs on the
+// device's thread.
 func (s *Stream) putAt(in []float32, heard int64) {
 	if s.clock == nil {
 		heard = -1
+	} else if d := s.clock.Delay(); d != 0 {
+		heard -= int64(math.Round(d.Seconds() * float64(s.info.Rate) * s.ratio))
 	}
 	s.put(in, heard)
 }

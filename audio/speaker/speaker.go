@@ -237,6 +237,9 @@ type Speaker struct {
 	retry time.Time
 	// out is the output playing, nil while it changes.
 	out atomic.Pointer[outlet]
+	// delay is how much later than the output reports the sound reaches
+	// the listener, as SetDelay set it, in nanoseconds.
+	delay atomic.Int64
 	// ahead is how far ahead the mixer works, as Latency set it and dry
 	// spells grew it, in nanoseconds. margin is what dry spells grew past
 	// it, for an output that keeps it apart: see margined.
@@ -374,7 +377,7 @@ func Open(m *audio.Mixer, o Options) (*Speaker, error) {
 	isOpened = true
 	s.out.Store(&outlet{out})
 	m.SetLatency(s.held)
-	s.logf("working %v ahead", s.Latency())
+	s.logf("working %v ahead", s.outLatency())
 	go s.watch()
 	return s, nil
 }
@@ -602,27 +605,54 @@ func (s *Speaker) logf(format string, args ...any) {
 }
 
 // held returns how many frames the mixer gave that are still to be
-// heard.
+// heard: those the output holds, and the delay's worth past them.
 func (s *Speaker) held() int64 {
 	if out := s.out.Load(); out != nil {
-		return out.held()
+		return max(0, out.held()+audio.FramesAt(time.Duration(s.delay.Load()), out.rate()))
 	}
 	return 0
 }
 
 // Heard returns the mixer's frame at the speakers now: how many of the
-// frames it mixed have been heard. Package audio/capture stamps what it
-// records with it.
+// frames it mixed have been heard. It counts the delay [Speaker.SetDelay]
+// set. Package audio/capture stamps what it records with it.
 func (s *Speaker) Heard() int64 { return s.m.Heard() }
 
 // Latency returns how long a sound takes to be heard after it starts,
-// as the speaker works now.
+// as the speaker works now. It counts the delay [Speaker.SetDelay] set.
 func (s *Speaker) Latency() time.Duration {
+	return s.outLatency() + time.Duration(s.delay.Load())
+}
+
+// outLatency is how far ahead of the output the mixer works, as the
+// output reports it.
+func (s *Speaker) outLatency() time.Duration {
 	if out := s.out.Load(); out != nil {
 		return out.latency()
 	}
 	return time.Duration(s.ahead.Load())
 }
+
+// SetDelay sets how much later than the output reports the sound
+// reaches the listener. Windows reports a Bluetooth headset's delay to
+// no application, so a headset there plays a few hundred milliseconds
+// later than the output says; package audio/calibrate measures it by
+// ear. [Speaker.Heard], [Speaker.Latency], [Speaker.Anchor], the
+// mixer's Heard, a voice's position and the stamps of package
+// audio/capture all count it. A negative delay is for an output that
+// reports more than it holds. The delay stays as set while the output
+// opens again or moves to another device: an application that keeps a
+// delay for each device sets it again on [Speaker.Changed].
+//
+// Heard never goes back, so as the delay grows, Heard stands still
+// until the sound catches up; as it shrinks, Heard leaps on.
+func (s *Speaker) SetDelay(d time.Duration) {
+	s.delay.Store(int64(d))
+	s.logf("delay set to %v", d)
+}
+
+// Delay returns the delay [Speaker.SetDelay] set.
+func (s *Speaker) Delay() time.Duration { return time.Duration(s.delay.Load()) }
 
 // watch grows the buffer while the sound runs dry, and opens the
 // output again as a driver asks, and where it failed to open.
@@ -677,19 +707,19 @@ func (s *Speaker) grow() {
 		return
 	}
 	if m, ok := out.output.(margined); ok {
-		if s.Latency() >= MaxLatency {
+		if s.outLatency() >= MaxLatency {
 			return
 		}
 		s.margin.Store(min(s.margin.Load()+int64(step), int64(MaxLatency)))
 		m.remargin()
 	} else {
-		ahead := max(time.Duration(s.ahead.Load()), s.Latency())
+		ahead := max(time.Duration(s.ahead.Load()), s.outLatency())
 		if ahead >= MaxLatency {
 			return
 		}
 		s.setAhead(min(ahead+step, MaxLatency))
 	}
-	s.logf("working %v ahead", s.Latency())
+	s.logf("working %v ahead", s.outLatency())
 }
 
 // setAhead sets how far ahead the mixer works, as far as MaxLatency.
@@ -712,7 +742,7 @@ func (s *Speaker) SetLatency(d time.Duration) {
 	s.margin.Store(0)
 	s.setAhead(max(d, device))
 	s.mu.Unlock()
-	s.logf("working %v ahead", s.Latency())
+	s.logf("working %v ahead", s.outLatency())
 }
 
 // Set changes how the speakers play. A change of driver, of a rate the
@@ -797,7 +827,7 @@ func (s *Speaker) reopenLocked() error {
 		}
 	}
 	s.smu.Unlock()
-	s.logf("opened again, at %d Hz, working %v ahead", out.rate(), s.Latency())
+	s.logf("opened again, at %d Hz, working %v ahead", out.rate(), s.outLatency())
 	select {
 	case s.changed <- struct{}{}:
 	default:
@@ -855,11 +885,14 @@ type State struct {
 	// Bits and Dither are how the sound is rounded as it leaves.
 	Bits   int
 	Dither bool
-	// Latency is how far ahead of the speakers the mixer works, and
-	// Frames the same in frames at Rate. Fixed says it is held there.
+	// Latency is how far ahead of the speakers the mixer works, as the
+	// output reports it, and Frames the same in frames at Rate. Fixed
+	// says it is held there. Delay is the delay [Speaker.SetDelay] set,
+	// which [Speaker.Latency] adds to Latency.
 	Latency time.Duration
 	Frames  int64
 	Fixed   bool
+	Delay   time.Duration
 	// Dropouts counts the times the sound ran dry since the speakers
 	// opened: where Direct is set, the buffers that took longer to mix
 	// than they play. An ASIO driver that says it lost sound adds to it.
@@ -936,6 +969,7 @@ func (s *Speaker) State() State {
 		st.Bits = 0
 	}
 	st.Dropouts = s.dropouts.Load()
+	st.Delay = s.Delay()
 	if out := s.out.Load(); out != nil {
 		st.Rate = out.rate()
 		st.Latency = out.latency()
@@ -1016,7 +1050,7 @@ func (s *Speaker) Suspend() error {
 	s.faded = true
 	s.m.FadeOut(SuspendFade)
 	asked := s.asked
-	time.AfterFunc(SuspendFade+s.Latency(), func() {
+	time.AfterFunc(SuspendFade+s.outLatency(), func() {
 		s.smu.Lock()
 		defer s.smu.Unlock()
 		if s.asked == asked && !s.stopped {
