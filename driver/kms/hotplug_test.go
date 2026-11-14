@@ -18,13 +18,19 @@ import (
 // one Open read already, are left alone.
 func TestKeyWatcher_FindsKeyboardsPluggedInLater(t *testing.T) {
 	dir := t.TempDir()
+	// A node appears whole, as the kernel makes a device's node: written under another name, then
+	// renamed into place. Written in place, the watcher could open it between the create and the
+	// write, and find it empty.
 	put := func(name, what string, mode os.FileMode) {
 		t.Helper()
-		p := filepath.Join(dir, name)
-		if err := os.WriteFile(p, []byte(what), mode); err != nil {
+		tmp := filepath.Join(dir, "new-"+name)
+		if err := os.WriteFile(tmp, []byte(what), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.Chmod(p, mode); err != nil {
+		if err := os.Chmod(tmp, mode); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Rename(tmp, filepath.Join(dir, name)); err != nil {
 			t.Fatal(err)
 		}
 	}
