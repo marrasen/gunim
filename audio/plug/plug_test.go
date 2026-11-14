@@ -105,6 +105,14 @@ func TestRegisterRefusesMistakes(t *testing.T) {
 			ControlIn: []ControlPort{{Name: "Kick", Min: -1, Max: 1, Trigger: true}}},
 		"trigger defaulting to a hit": {ID: "test.trigdef", Name: "X", New: newer,
 			ControlIn: []ControlPort{{Name: "Kick", Max: 1, Default: 1, Trigger: true}}},
+		"hits ahead on a control that is no trigger": {ID: "test.hitsplain", Name: "X", New: newer,
+			ControlIn: []ControlPort{{Name: "Cutoff", Max: 1, Ahead: time.Second}}},
+		"hits ahead below zero": {ID: "test.hitsbehind", Name: "X", New: newer,
+			ControlIn: []ControlPort{{Name: "Riser", Max: 1, Trigger: true, Ahead: -time.Millisecond}}},
+		"hits too far ahead": {ID: "test.hitsfar", Name: "X", New: newer,
+			ControlIn: []ControlPort{{Name: "Riser", Max: 1, Trigger: true, Ahead: MaxHitAhead + time.Millisecond}}},
+		"hits ahead on an output": {ID: "test.hitsout", Name: "X", New: newer,
+			ControlOut: []ControlPort{{Name: "Kick", Max: 1, Trigger: true, Ahead: time.Second}}},
 		"action unnamed": {ID: "test.actname", Name: "X", New: newer, Actions: []Action{{ID: "auto"}}},
 		"actions of one ID": {ID: "test.acttwice", Name: "X", New: newer,
 			Actions: []Action{{ID: "auto", Name: "Auto"}, {ID: "auto", Name: "Auto EQ"}}},
@@ -186,6 +194,22 @@ func TestRegisterTakesTriggersFromZeroToOne(t *testing.T) {
 		ControlOut: []ControlPort{{Name: "Kick", Max: 1, Trigger: true}, {Name: "Level", Max: 1}}}
 	if err := check(&d); err != nil {
 		t.Fatalf("a trigger in and out from 0 to 1 was refused: %v", err)
+	}
+}
+
+func TestATriggerInputHearsOfItsHitsAhead(t *testing.T) {
+	d := Descriptor{ID: "test.hitsahead", Name: "X", New: func(Host) Plugin { return nil },
+		ControlIn: []ControlPort{{Name: "Riser", Max: 1, Trigger: true, Ahead: MaxHitAhead},
+			{Name: "Kick", Max: 1, Trigger: true}, {Name: "Short", Max: 1, Trigger: true, Ahead: time.Second}}}
+	if err := check(&d); err != nil {
+		t.Fatalf("a trigger input hearing of its hits ahead was refused: %v", err)
+	}
+	if got := d.HitAhead(); got != MaxHitAhead {
+		t.Errorf("the plugin hears of hits %v ahead, want its longest, %v", got, MaxHitAhead)
+	}
+	plain := Descriptor{ControlIn: []ControlPort{{Name: "Kick", Max: 1, Trigger: true}}}
+	if got := plain.HitAhead(); got != 0 {
+		t.Errorf("a plugin of plain triggers hears of hits %v ahead, want none", got)
 	}
 }
 

@@ -450,6 +450,128 @@ func TestHearingChordNewsAllocatesNothing(t *testing.T) {
 	}
 }
 
+// hitNews is news of a hit as a plugin heard it: the block's first
+// frame, and where the hit lands, counted from the start.
+type hitNews struct {
+	block    int
+	kind     plug.HitKind
+	id       int32
+	lands    int
+	velocity float64
+	beat     float64
+}
+
+// hitListener is an instrument that keeps the hit news it hears and the
+// pulses on its trigger input, in room made before it plays.
+type hitListener struct {
+	recorder
+	news   []hitNews
+	pulses []Pulse
+}
+
+func (l *hitListener) Prepare(s plug.Setup) {
+	l.recorder.Prepare(s)
+	l.news = make([]hitNews, 0, 64)
+	l.pulses = make([]Pulse, 0, 64)
+}
+
+func (l *hitListener) Process(b *plug.Block) {
+	at := int(b.Position.Frame)
+	for i := range b.Hits {
+		h := &b.Hits[i]
+		lands := at + h.Frame
+		if h.Kind == plug.HitRemoved {
+			lands = -1
+		}
+		l.news = append(l.news, hitNews{at, h.Kind, h.ID, lands, h.Velocity, h.Beat})
+	}
+	for f, v := range b.ControlInput(0) {
+		if v > 0 {
+			l.pulses = append(l.pulses, Pulse{Frame: at + f, Velocity: v})
+		}
+	}
+	for _, ch := range b.Out {
+		clear(ch[:b.Frames])
+	}
+}
+
+// hitDescriptor is an instrument whose one trigger input hears of its
+// hits a second ahead.
+var hitDescriptor = plug.Descriptor{Notes: true,
+	ControlIn: []plug.ControlPort{{Name: "Riser", Max: 1, Trigger: true, Ahead: time.Second}}}
+
+func TestHitNewsReachesTheBlockItIsSentIn(t *testing.T) {
+	s := plug.Setup{Rate: 48000, MaxBlock: 64, Channels: 1}
+	l := &hitListener{}
+	in := make([]float32, 512)
+	in[320], in[500] = 0.5, 1
+	Drive(t, &hitDescriptor, l, s, 512, Ports{ControlIn: [][]float32{in}, Hits: []HitAhead{
+		{At: 10, HitNews: plug.HitNews{Kind: plug.HitComing, ID: 1, Frame: 300, Velocity: 0.5}},
+		{At: 200, HitNews: plug.HitNews{Kind: plug.HitMoved, ID: 1, Frame: 320, Velocity: 0.5}},
+		{At: 130, HitNews: plug.HitNews{Kind: plug.HitComing, ID: 2, Frame: 400, Velocity: 1}},
+		{At: 260, HitNews: plug.HitNews{Kind: plug.HitRemoved, ID: 2, Frame: 400}},
+		// A hit landing in the block its news comes in.
+		{At: 450, HitNews: plug.HitNews{Kind: plug.HitComing, ID: 3, Frame: 500, Velocity: 1}},
+	}})
+	want := []hitNews{
+		{0, plug.HitComing, 1, 300, 0.5, 0},
+		{128, plug.HitComing, 2, 400, 1, 0},
+		{192, plug.HitMoved, 1, 320, 0.5, 0},
+		{256, plug.HitRemoved, 2, -1, 0, 0},
+		{448, plug.HitComing, 3, 500, 1, 0},
+	}
+	if !slices.Equal(l.news, want) {
+		t.Fatalf("the plugin heard %+v, want %+v", l.news, want)
+	}
+	if pulses := []Pulse{{320, 0.5}, {500, 1}}; !slices.Equal(l.pulses, pulses) {
+		t.Fatalf("the pulses came as %+v, want %+v", l.pulses, pulses)
+	}
+}
+
+func TestAnnounceHitsTellsOfEachPulseAheadOfIt(t *testing.T) {
+	s := plug.Setup{Rate: 48000, MaxBlock: 64, Channels: 1}
+	in := make([]float32, 48000)
+	in[100], in[36000] = 0.25, 1
+	got := AnnounceHits(s, 24000, 0, 120, in)
+	want := []HitAhead{
+		{At: 0, HitNews: plug.HitNews{Kind: plug.HitComing, ID: 1, Frame: 100, Velocity: 0.25, Beat: 100.0 * 120 / 60 / 48000, BarBeats: 4}},
+		{At: 12000, HitNews: plug.HitNews{Kind: plug.HitComing, ID: 2, Frame: 36000, Velocity: 1, Beat: 1.5, BarBeats: 4}},
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("the hits were told of as %+v, want %+v", got, want)
+	}
+	// Each lands on its pulse, as the plugin hears it.
+	l := &hitListener{}
+	Drive(t, &hitDescriptor, l, s, len(in), Ports{ControlIn: [][]float32{in}, Hits: got, Tempo: 120})
+	if len(l.news) != 2 || len(l.pulses) != 2 {
+		t.Fatalf("the plugin heard %d hits told of and %d pulses, want 2 of each", len(l.news), len(l.pulses))
+	}
+	for i, n := range l.news {
+		if n.lands != l.pulses[i].Frame || n.velocity != float64(l.pulses[i].Velocity) {
+			t.Errorf("hit %d was told of as landing at %d at %v, and its pulse came at %d at %v", n.id, n.lands,
+				n.velocity, l.pulses[i].Frame, l.pulses[i].Velocity)
+		}
+	}
+}
+
+func TestHearingHitNewsAllocatesNothing(t *testing.T) {
+	if raceOn {
+		t.Skip("the race detector allocates of its own")
+	}
+	s := plug.Setup{Rate: 48000, MaxBlock: 128, Channels: 2}
+	in := make([]float32, 32*300+200)
+	for i := range 32 {
+		in[i*300+200] = 1
+	}
+	hits := AnnounceHits(s, 150, 0, 120, in)
+	made := AllocsUnder(t, "plugtest.playBlocks", func() {
+		Drive(t, &hitDescriptor, &hitListener{}, s, len(in), Ports{ControlIn: [][]float32{in}, Hits: hits})
+	})
+	if made != 0 {
+		t.Errorf("hearing hit news made %d things", made)
+	}
+}
+
 func TestAChordTellsWhatIsInItsKey(t *testing.T) {
 	c := Chord(plug.ChordComing, 0, 1, 1, "C", 60, 64, 67)
 	for p, want := range map[float64]bool{60: true, 61: false, 62.2: true, 66: false, 71: true, -1: true, 13: false} {

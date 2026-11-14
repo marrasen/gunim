@@ -116,6 +116,9 @@ type Block struct {
 	// the host sends it, for a plugin with a [Descriptor.ChordAhead],
 	// an instrument or an effect.
 	Chords []ChordNews
+	// Hits is news of the hits coming on the trigger inputs with a
+	// [ControlPort.Ahead], in the order the host sends it.
+	Hits []HitNews
 	// Position is where the block starts.
 	Position Position
 }

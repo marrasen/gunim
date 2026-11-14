@@ -106,6 +106,9 @@ type Ports struct {
 	Upcoming []Ahead
 	// Chords is news of chords, for a plugin that looks ahead to them.
 	Chords []ChordAhead
+	// Hits is news of hits, for a trigger input that hears of them
+	// ahead, as [AnnounceHits] makes it.
+	Hits []HitAhead
 	// Tempo is each block's [plug.Position.Tempo] and EndTempo, in
 	// quarter notes a minute: zero where none is known. Each block's [plug.Position.Beat]
 	// counts the beats at that tempo from the start.
@@ -142,6 +145,37 @@ func Chord(k plug.ChordKind, frame int, id, group int32, name string, tones ...f
 		c.Bass = float64(36 + c.Root)
 	}
 	return c
+}
+
+// HitAhead is news of a hit as [Drive] sends it: in the block holding
+// frame At, with Frame, where the hit lands, counted from the start
+// too. Drive turns it into the block's own count. A Removed's Frame is
+// 0.
+type HitAhead struct {
+	At int
+	plug.HitNews
+}
+
+// AnnounceHits returns the news a host sends of the hits in values, a
+// trigger's as long as the run, for control input port hearing window
+// frames ahead: a Coming for each, window frames before it, or at the
+// start. Each hit's ID counts from 1, in the order of their frames. Its
+// Beat is where it lands at tempo, in quarter notes a minute, as
+// [Drive] counts [plug.Position.Beat] at that [Ports.Tempo], in bars of
+// four; a tempo of zero leaves both 0.
+func AnnounceHits(s plug.Setup, window, port int, tempo float64, values []float32) []HitAhead {
+	var out []HitAhead
+	for f, v := range values {
+		if !(v > 0) {
+			continue
+		}
+		n := plug.HitNews{Kind: plug.HitComing, Port: port, ID: int32(len(out) + 1), Frame: f, Velocity: float64(v)}
+		if tempo > 0 {
+			n.Beat, n.BarBeats = float64(f)*tempo/60/s.Rate, 4
+		}
+		out = append(out, HitAhead{At: max(f-window, 0), HitNews: n})
+	}
+	return out
 }
 
 // Announce returns the news a host sends of the NoteOns in events, for
@@ -255,6 +289,19 @@ func Drive(t *testing.T, d *plug.Descriptor, pr plug.Processor, s plug.Setup, fr
 			t.Fatalf("plugtest: chord news sent at frame %d of chord %d starting at %d, before it is sent", c.At, c.ID, c.Frame)
 		}
 	}
+	hits := slices.Clone(p.Hits)
+	slices.SortStableFunc(hits, func(a, b HitAhead) int { return a.At - b.At })
+	for _, h := range hits {
+		if h.At < 0 || h.At >= frames {
+			t.Fatalf("plugtest: hit news sent at frame %d falls outside the %d run", h.At, frames)
+		}
+		if h.Port < 0 || h.Port >= len(d.ControlIn) || d.ControlIn[h.Port].Ahead <= 0 {
+			t.Fatalf("plugtest: hit news sent at frame %d for control input %d, which hears of no hits ahead", h.At, h.Port)
+		}
+		if h.Kind != plug.HitRemoved && h.Frame < h.At {
+			t.Fatalf("plugtest: hit news sent at frame %d of hit %d landing at %d, before it is sent", h.At, h.ID, h.Frame)
+		}
+	}
 
 	// What comes out, and the room each block writes to.
 	res := Result{Out: channels(s.Channels, frames), AuxOut: make([][][]float32, len(d.AuxOut)),
@@ -316,6 +363,16 @@ func Drive(t *testing.T, d *plug.Descriptor, pr plug.Processor, s plug.Setup, fr
 			}
 			b.Chords = append(b.Chords, c)
 			chords = chords[1:]
+		}
+		for len(hits) > 0 && hits[0].At < at+n {
+			h := hits[0].HitNews
+			if h.Kind == plug.HitRemoved {
+				h.Frame = 0
+			} else {
+				h.Frame -= at
+			}
+			b.Hits = append(b.Hits, h)
+			hits = hits[1:]
 		}
 		for len(changes) > 0 && changes[0].Frame < at+n {
 			c := changes[0]
