@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime"
 )
 
 // space is how much room a volume has, in bytes.
@@ -18,10 +19,11 @@ type userPlace struct {
 }
 
 // LocalPlaces returns the places of the computer's own file system: the
-// user's home, and the volumes with their space. A volume whose space
-// cannot be read carries the error. The user's own folders, such as
-// Documents, are not places but favourites, which the user can unpin:
-// see DefaultFavourites. It is what a window on the computer's own file
+// user's home, the volumes with their space, and the trash, where the
+// window can open the system's. A volume whose space cannot be read
+// carries the error. The user's own folders, such as Documents, are not
+// places but favourites, which the user can unpin: see
+// DefaultFavourites. It is what a window on the computer's own file
 // system offers when its options give no places, and a start for a
 // caller that adds its own.
 func LocalPlaces() ([]Place, error) {
@@ -44,7 +46,27 @@ func LocalPlaces() ([]Place, error) {
 		}
 		out = append(out, v)
 	}
+	if p, ok := TrashPlace(LocalFS()); ok {
+		out = append(out, p)
+	}
 	return out, nil
+}
+
+// TrashPlace is the sidebar's place for the trash of fsys, and false where
+// a window cannot open a trash there. LocalPlaces has it for the
+// computer's own file system, and a window that is given no places has it
+// for any; a program that gives the places itself, with Options.Places or
+// PlacesOn, adds it where it wants the trash among them.
+func TrashPlace(fsys FS) (Place, bool) {
+	t, _ := optional[Trasher](fsys)
+	if !canOpen(t) {
+		return Place{}, false
+	}
+	name := "Trash"
+	if _, local := bareTrash(t).(localFS); local && runtime.GOOS == "windows" {
+		name = "Recycle Bin"
+	}
+	return Place{Name: name, Path: TrashPath, Kind: "trash", FS: fsys.ID()}, true
 }
 
 // rootCause returns the innermost error err wraps.

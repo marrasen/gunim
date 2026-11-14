@@ -1,6 +1,7 @@
 package filemanager
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -725,13 +726,46 @@ func (r *runner) moveAcross(src, dst string, replacing bool) error {
 // errTrashless says a file system has no trash.
 var errTrashless = errors.New("this file system has no trash; delete permanently instead")
 
-// trashAll moves srcs to the trash.
+// errNotTrashable says the trash cannot take an item, as one on another
+// volume than it, though it takes others. trashAll passes such an item
+// by, and the window asks to delete it for good, so it is said only where
+// that is certain: never of a failure that may pass.
+var errNotTrashable = errors.New("it cannot go to the trash")
+
+// cannotTrash is errNotTrashable, saying why in words a question about
+// deleting the item can show.
+type cannotTrash struct {
+	why string
+	err error
+}
+
+func (c cannotTrash) Error() string { return c.why }
+
+func (c cannotTrash) Unwrap() error { return c.err }
+
+// Is makes the error match errNotTrashable.
+func (c cannotTrash) Is(target error) bool { return target == errNotTrashable }
+
+// notTrashed says the trash could not take paths, for the reason err gives
+// of the first, while it took the other items.
+type notTrashed struct {
+	paths []string
+	err   error
+}
+
+func (e *notTrashed) Error() string { return e.err.Error() }
+
+func (e *notTrashed) Unwrap() error { return e.err }
+
+// trashAll moves srcs to the trash. An item the trash cannot take is
+// passed by, and the others go; the error then names those left.
 func (r *runner) trashAll(srcs []string) error {
 	if r.env.trash == nil {
 		return errTrashless
 	}
 	r.p.itemsTotal = len(srcs)
 	r.tell(true)
+	var left notTrashed
 	for _, src := range srcs {
 		if err := r.ctx.Err(); err != nil {
 			return err
@@ -740,11 +774,19 @@ func (r *runner) trashAll(srcs []string) error {
 		r.tell(false)
 		at := time.Now()
 		to, err := r.env.trash.Trash(src)
+		if errors.Is(err, errNotTrashable) {
+			left.paths = append(left.paths, src)
+			left.err = cmp.Or(left.err, err)
+			continue
+		}
 		if err != nil {
 			return err
 		}
 		r.rec.steps = append(r.rec.steps, step{from: src, to: to, at: at})
 		r.p.items++
+	}
+	if len(left.paths) > 0 {
+		return &left
 	}
 	return nil
 }

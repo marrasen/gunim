@@ -38,7 +38,8 @@ type Options struct {
 	// PlacesOn, when set, finds the places as Places does, for the file
 	// system of ID fs the window shows: so the sidebar can show the
 	// places of the machine the window is on. It is asked again as the
-	// window turns to another file system. It goes before Places.
+	// window turns to another file system. It goes before Places. Neither
+	// has the trash's place unless it adds it: see TrashPlace.
 	PlacesOn func(fs string) ([]Place, error)
 	// PlacesArranged hears the places of group in the order a drag, or
 	// Alt and an arrow, left them in, for the program to keep, on the
@@ -187,6 +188,7 @@ type app struct {
 	thumbs  thumbState
 	viewer  viewerState
 	usage   usageState
+	bin     trashCanState
 	reading readingState
 	search  searchState
 	tree    deepState
@@ -311,7 +313,8 @@ func (a *app) join(h *Hub, w *Window) {
 	w.a = a
 	a.publishClip()
 	a.handlers = []handler{a.handleDnd, a.handleNav, a.handleOps, a.handlePreview, a.handlePlaces, a.handleShell,
-		a.handleIcons, a.handleViewer, a.handleReading, a.handleSearch, a.handleTheme, a.handleUsage}
+		a.handleIcons, a.handleViewer, a.handleReading, a.handleSearch, a.handleTheme, a.handleUsage,
+		a.handleTrashCan}
 	a.startup(a.opts)
 }
 
@@ -339,7 +342,7 @@ func newApp(ctx context.Context, c screen, o Options) (*app, error) {
 	a.iconsSent = map[string]bool{}
 	a.shell = Shell{Light: a.prefs.Light, ShowHidden: a.prefs.ShowHidden, ShowPreview: !a.prefs.HidePreview,
 		SystemIcons: a.systemIconsOn(),
-		Sidebar:     a.prefs.Sidebar, FS: a.fs.ID(), Paths: a.ps, NoTrash: tr == nil,
+		Sidebar:     a.prefs.Sidebar, FS: a.fs.ID(), Paths: a.ps, NoTrash: tr == nil, NoTrashCan: !canOpen(tr),
 		Transfers: o.Transfer != nil, PlaceMenu: o.PlaceMenu != nil, Actions: o.ItemActions, Name: o.Name, UploadEdited: a.prefs.UploadEdited}
 	a.shell.Where, a.shell.Fetches = a.where(), a.fetches()
 	a.shell.OpenWith = a.openWithOn()
@@ -598,6 +601,7 @@ func (a *app) stopAll() {
 	a.search.stop()
 	a.tree.stop()
 	a.usage.stop()
+	a.bin.end()
 	a.hub.leave(a)
 	close(a.stopped)
 	a.ops.wg.Wait()

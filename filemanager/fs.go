@@ -75,6 +75,53 @@ type Trasher interface {
 	Describe(trashed string) string
 }
 
+// TrashCan is a trash the window can open: Go › Trash shows what it holds
+// on a page of its own, where the user puts items back or deletes them for
+// good. Without one, the trash is the system's to open. A trash that finds
+// only when it reads that the system has none fails TrashItems with an
+// error that matches errors.ErrUnsupported.
+type TrashCan interface {
+	Trasher
+	// TrashItems lists what the trash holds, in no set order, and stops
+	// early with ctx's error when ctx ends.
+	TrashItems(ctx context.Context) ([]TrashItem, error)
+	// RestoreItem puts it back where it came from, where nothing may be.
+	RestoreItem(it TrashItem) error
+	// PurgeItem deletes it for good.
+	PurgeItem(ctx context.Context, it TrashItem) error
+	// EmptyTrash deletes all the trash holds for good.
+	EmptyTrash(ctx context.Context) error
+}
+
+// TrashItem is an item in a trash.
+type TrashItem struct {
+	// ID is where the trash keeps the item, which names it there.
+	ID string
+	// Name is the item's own name, and Original the whole path it came
+	// from.
+	Name, Original string
+	// Deleted is when it went to the trash, zero where the trash does not
+	// say.
+	Deleted time.Time
+	// Size is a file's bytes, and -1 for a folder.
+	Size int64
+	Dir  bool
+}
+
+// NoReplaceRenamer is a file system that renames in one step that fails
+// where something is at the new path. The trash restores through it where
+// the file system has it, so an item that turns up where another is
+// restored is never replaced.
+type NoReplaceRenamer interface {
+	// RenameNoReplace moves the item at from to to, and fails with an
+	// error that matches fs.ErrExist where something is at to. Where it
+	// cannot move this item so, as a folder on a file system that has no
+	// such rename, it fails with an error that matches
+	// errors.ErrUnsupported, having moved nothing, and the caller renames
+	// as it can.
+	RenameNoReplace(from, to string) error
+}
+
 // SpaceReporter is a file system that knows how much room its volumes
 // have. Without one, or when Space fails with an error that matches
 // errors.ErrUnsupported, the window says nothing of free space.
