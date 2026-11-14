@@ -67,11 +67,13 @@ func TestKeyWatcher_FindsKeyboardsPluggedInLater(t *testing.T) {
 		return gone[p]
 	}
 	quit := make(chan struct{})
-	read := func(dev *inputDev) {
+	read := func(dev *inputDev) bool {
 		found <- filepath.Base(dev.path)
 		select {
 		case <-goneOf(dev.path):
+			return true
 		case <-quit:
+			return false
 		}
 	}
 	if err := watchKeyboards(dir, nil, []string{filepath.Join(dir, "event0")}, stop, open, read, run); err != nil {
@@ -166,8 +168,10 @@ type fakeKeyboards struct {
 	mu    sync.Mutex
 	typed map[string]int // the write end of the newest pipe for each node
 	opens map[string]int
-	// broken says each open gives a keyboard whose reader ends at once.
+	// broken says each open gives a keyboard whose reader ends at once;
+	// breaks says so for the nth open of a node, from 1, where set.
 	broken bool
+	breaks func(n int) bool
 	times  []time.Time // when each open was
 }
 
@@ -185,7 +189,7 @@ func (k *fakeKeyboards) open(p string) (*inputDev, error) {
 	k.typed[p] = fds[1]
 	k.opens[p]++
 	k.times = append(k.times, time.Now())
-	if k.broken {
+	if k.broken || k.breaks != nil && k.breaks(k.opens[p]) {
 		_ = unix.Close(fds[1])
 		k.typed[p] = -1
 	}
@@ -339,7 +343,7 @@ func TestKeyWatcher_LooksAgainAfterAnOverflow(t *testing.T) {
 		open: func(p string) (*inputDev, error) {
 			return &inputDev{fd: -1, path: p, keys: true}, nil
 		},
-		found: func(dev *inputDev) { found <- dev.path },
+		found: func(dev *inputDev) bool { found <- dev.path; return false },
 	}
 	var readers sync.WaitGroup
 	run := func(fn func()) { readers.Add(1); go func() { defer readers.Done(); fn() }() }
@@ -381,7 +385,7 @@ func TestKeyWatcher_WaitsForTheFolder(t *testing.T) {
 	}
 	var readers sync.WaitGroup
 	run := func(fn func()) { readers.Add(1); go func() { defer readers.Done(); fn() }() }
-	if err := watchKeyboards(dir, nil, nil, stop, open, func(dev *inputDev) { found <- dev.path }, run); err != nil {
+	if err := watchKeyboards(dir, nil, nil, stop, open, func(dev *inputDev) bool { found <- dev.path; return false }, run); err != nil {
 		t.Fatalf("a missing folder: %v", err)
 	}
 	plug := func(name string) {
@@ -637,5 +641,171 @@ func TestKeyWatcher_CloseEndsTheWaitToReadAgain(t *testing.T) {
 	}
 	if after := openFDs(t); after != before {
 		t.Fatalf("%d files open after the watcher stopped, %d before", after, before)
+	}
+}
+
+// keysDriver is a driver on VT 1 that reads keyboards, for a test, and
+// stops it at the test's end.
+func keysDriver(t *testing.T) (*Driver, switchConsole, func(func())) {
+	t.Helper()
+	stop, err := unix.Eventfd(0, unix.EFD_CLOEXEC|unix.EFD_NONBLOCK)
+	if err != nil {
+		t.Fatal(err)
+	}
+	con := switchConsole{switched: make(chan int, 4)}
+	d := &Driver{o: Options{VTSwitch: true}, vt: &vt{c: con, fd: 7, num: 1}, quit: make(chan struct{}), stop: stop}
+	run := func(fn func()) { d.readers.Add(1); go func() { defer d.readers.Done(); fn() }() }
+	t.Cleanup(func() { _ = unix.Close(stop) })
+	return d, con, run
+}
+
+// stopKeys stops d's readers, as Close does, and waits for them.
+func stopKeys(t *testing.T, d *Driver) {
+	t.Helper()
+	select {
+	case <-d.quit:
+	default:
+		close(d.quit)
+	}
+	if _, err := unix.Write(d.stop, []byte{1, 0, 0, 0, 0, 0, 0, 0}); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() { d.readers.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the readers didn't stop")
+	}
+}
+
+func wantSwitchTo(t *testing.T, con switchConsole, n int) {
+	t.Helper()
+	select {
+	case got := <-con.switched:
+		if got != n {
+			t.Fatalf("switched to VT %d, want %d", got, n)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("no switch to VT %d", n)
+	}
+}
+
+// A reader that ends as the driver quits is not a keyboard gone: Close
+// closes quit first and writes stop later, and nothing opens the node
+// again in between.
+func TestKeyWatcher_NoReadingAgainAsTheDriverQuits(t *testing.T) {
+	shortReopen(t, 10*time.Millisecond, 10*time.Millisecond)
+	dir := t.TempDir()
+	node := filepath.Join(dir, "event3")
+	if err := os.WriteFile(node, []byte("keyboard"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	d, _, run := keysDriver(t)
+	kb := &fakeKeyboards{t: t, typed: map[string]int{}, opens: map[string]int{}}
+	if err := watchKeyboards(dir, nil, nil, d.stop, kb.open, d.readKeys, run); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the keyboard wasn't read", func() bool {
+		d.keysMu.Lock()
+		defer d.keysMu.Unlock()
+		return len(d.keyDevs) == 1
+	})
+	close(d.quit)
+	// A key wakes the reader, which sees quit and ends, before stop is
+	// written.
+	kb.send(node, event{typ: evKey, code: keyA, value: 1})
+	waitFor(t, "the reader didn't end on quit", func() bool {
+		d.keysMu.Lock()
+		defer d.keysMu.Unlock()
+		return len(d.keyDevs) == 0
+	})
+	time.Sleep(200 * time.Millisecond)
+	if n := kb.opened(node); n != 1 {
+		t.Fatalf("%s opened %d times as the driver quit, want 1", node, n)
+	}
+	stopKeys(t, d)
+	kb.unplug(node)
+}
+
+// A reader that ran for keyReopenReset starts the back-off again: after a
+// run of failures has grown the wait, the next end is retried after
+// keyReopenFirst, not after the grown wait.
+func TestKeyWatcher_BackOffStartsAgainAfterALongRead(t *testing.T) {
+	shortReopen(t, 20*time.Millisecond, 10*time.Second)
+	keyReopenReset = 150 * time.Millisecond
+	dir := t.TempDir()
+	node := filepath.Join(dir, "event5")
+	if err := os.WriteFile(node, []byte("keyboard"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	d, con, run := keysDriver(t)
+	// Opens 2 to 6 fail at once: the waits grow 20, 40, 80, 160, 320 ms,
+	// and the next would be 640 ms.
+	kb := &fakeKeyboards{t: t, typed: map[string]int{}, opens: map[string]int{},
+		breaks: func(n int) bool { return n >= 2 && n <= 6 }}
+	if err := watchKeyboards(dir, nil, nil, d.stop, kb.open, d.readKeys, run); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the keyboard wasn't read", func() bool { return kb.opened(node) == 1 })
+	kb.unplug(node)
+	waitFor(t, "the keyboard wasn't read after its failures", func() bool {
+		if kb.opened(node) != 7 {
+			return false
+		}
+		d.keysMu.Lock()
+		defer d.keysMu.Unlock()
+		return len(d.keyDevs) == 1
+	})
+	kb.typeKeys(node, keyF1+1)
+	wantSwitchTo(t, con, 2)
+	time.Sleep(300 * time.Millisecond) // longer than keyReopenReset
+	ended := time.Now()
+	kb.unplug(node)
+	waitFor(t, "the keyboard wasn't opened again", func() bool { return kb.opened(node) == 8 })
+	if took := time.Since(ended); took > 400*time.Millisecond {
+		t.Fatalf("opened again after %v: the back-off didn't start again", took)
+	}
+	stopKeys(t, d)
+	kb.unplug(node)
+}
+
+// startInput hands Open's keyboards to the watcher, which closes them, so
+// Close mustn't: d.keys goes nil. Where the watch can't start, as when
+// inotify fails, d.keys stays for Close, and each keyboard is read as
+// before.
+func TestStartInput_KeyboardsWithAndWithoutTheWatcher(t *testing.T) {
+	for _, watchFails := range []bool{false, true} {
+		dir := t.TempDir()
+		node := filepath.Join(dir, "event1")
+		if err := os.WriteFile(node, []byte("keyboard"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		d, con, _ := keysDriver(t)
+		kb := &fakeKeyboards{t: t, typed: map[string]int{}, opens: map[string]int{}}
+		dev, err := kb.open(node)
+		if err != nil {
+			t.Fatal(err)
+		}
+		d.keys = []*inputDev{dev}
+		saved := watchInputs
+		watchInputs = func(keys []*inputDev, known []string, stop int, found func(*inputDev) bool, run func(func())) error {
+			if watchFails {
+				return unix.EMFILE
+			}
+			return watchKeyboards(dir, keys, known, stop, kb.open, found, run)
+		}
+		d.startInput()
+		watchInputs = saved
+		if watchFails != (len(d.keys) == 1) {
+			t.Fatalf("watch fails %v: %d keyboards left for Close", watchFails, len(d.keys))
+		}
+		kb.typeKeys(node, keyF1+1)
+		wantSwitchTo(t, con, 2)
+		stopKeys(t, d)
+		for _, k := range d.keys {
+			k.close()
+		}
+		kb.unplug(node)
 	}
 }

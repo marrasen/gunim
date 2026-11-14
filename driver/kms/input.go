@@ -180,6 +180,11 @@ func (d *Driver) hitLocked(p geom.Point) *Window {
 	return nil
 }
 
+// watchInputs watches /dev/input for keyboards: watchKeyboards, or a test's.
+var watchInputs = func(keys []*inputDev, known []string, stop int, found func(*inputDev) bool, run func(func())) error {
+	return watchKeyboards("/dev/input", keys, known, stop, openInput, found, run)
+}
+
 // startInput starts a reader for the touch screen, or the recording to play,
 // and for each keyboard.
 func (d *Driver) startInput() {
@@ -205,7 +210,7 @@ func (d *Driver) startInput() {
 		if d.touch != nil {
 			known = append(known, d.touch.path)
 		}
-		err := watchKeyboards("/dev/input", d.keys, known, d.stop, openInput, d.readKeys, run)
+		err := watchInputs(d.keys, known, d.stop, d.readKeys, run)
 		if err == nil {
 			d.keys = nil
 			return
@@ -213,7 +218,7 @@ func (d *Driver) startInput() {
 		log.Printf("gunim: kms: can't watch /dev/input for keyboards plugged in later: %v", err)
 	}
 	for _, k := range d.keys {
-		run(func() { d.readKeys(k) })
+		run(func() { _ = d.readKeys(k) })
 	}
 }
 
@@ -261,13 +266,14 @@ func eventTime(e event, realtime bool, now time.Time) time.Time {
 	return t
 }
 
-// readKeys reads a keyboard until the driver quits, for Ctrl+Alt+Fn.
-func (d *Driver) readKeys(dev *inputDev) {
+// readKeys reads a keyboard until the driver quits, or the keyboard goes,
+// which it reports, for Ctrl+Alt+Fn.
+func (d *Driver) readKeys(dev *inputDev) (gone bool) {
 	d.addKeyboard(dev)
 	defer d.dropKeyboard(dev)
 	var ctrl, alt bool
 	resumed := dev.resumed.Load()
-	_ = d.readEvents(dev, func(e event) {
+	return d.readEvents(dev, func(e event) {
 		if dev.muted.Load() {
 			// Another VT shows: the keys are someone else's.
 			return
