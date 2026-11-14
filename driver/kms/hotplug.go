@@ -26,8 +26,16 @@ import (
 // can't be opened yet is tried again when its mode or owner changes
 // (IN_ATTRIB). A keyboard that goes away is forgotten, so the same node
 // coming back is read again.
+//
+// A keyboard whose reader ends while its node is still there, as after a
+// transient POLLERR, is opened again from the same node: after
+// keyReopenFirst, then twice as long each time, up to keyReopenMax. A
+// reader that ran for keyReopenReset starts the count again. It stops once
+// the node has gone or the driver quits.
 type keyWatcher struct {
 	dir string
+	// stop is the driver's stop: readable once it quits.
+	stop int
 	// open opens a device and says what it is: openInput, or a test's.
 	open func(path string) (*inputDev, error)
 	// found starts reading a keyboard it found, and returns once the
@@ -50,11 +58,24 @@ const watchMask = unix.IN_CREATE | unix.IN_ATTRIB | unix.IN_MOVED_TO | unix.IN_D
 // isn't there, as before the kernel's input core has made it.
 var keyWatchRetry = 5 * time.Second
 
+// How soon a keyboard whose reader ended while its node stays is opened
+// again: first after keyReopenFirst, then twice as long each time, up to
+// keyReopenMax. A reader that ran for keyReopenReset starts again at
+// keyReopenFirst. Tests shorten them.
+var (
+	keyReopenFirst = time.Second
+	keyReopenMax   = 30 * time.Second
+	keyReopenReset = time.Minute
+)
+
 // watchKeyboards watches dir for keyboards until stop is readable, and
-// hands each new one to found. known are the nodes Open read already. A
-// folder that isn't there yet is looked for again every keyWatchRetry. It
-// returns an error only where inotify itself fails.
-func watchKeyboards(dir string, known []string, stop int, open func(string) (*inputDev, error), found func(*inputDev), run func(func())) error {
+// hands each new one to found. keys are the keyboards Open found: the
+// watcher reads them through found from now on, and closes them as it does
+// the ones it finds. known are other nodes Open read already, as the touch
+// screen's. A folder that isn't there yet is looked for again every
+// keyWatchRetry. It returns an error only where inotify itself fails, and
+// then has taken none of keys.
+func watchKeyboards(dir string, keys []*inputDev, known []string, stop int, open func(string) (*inputDev, error), found func(*inputDev), run func(func())) error {
 	fd, err := unix.InotifyInit1(unix.IN_CLOEXEC | unix.IN_NONBLOCK)
 	if err != nil {
 		return err
@@ -65,9 +86,13 @@ func watchKeyboards(dir string, known []string, stop int, open func(string) (*in
 		return err
 	}
 	watching := err == nil
-	w := &keyWatcher{dir: dir, open: open, found: found, seen: map[string]*inputDev{}}
+	w := &keyWatcher{dir: dir, stop: stop, open: open, found: found, seen: map[string]*inputDev{}}
 	for _, p := range known {
 		w.seen[p] = nil
+	}
+	for _, k := range keys {
+		w.seen[k.path] = k
+		w.read(k, run)
 	}
 	run(func() {
 		defer func() { _ = unix.Close(fd) }()
@@ -224,11 +249,123 @@ func (w *keyWatcher) try(p string, run func(func())) {
 	w.seen[p] = dev
 	w.mu.Unlock()
 	log.Printf("gunim: kms: keyboard %q on %s, plugged in after the start", dev.name, p)
+	w.read(dev, run)
+}
+
+// read reads a keyboard whose node seen holds, and closes it once its
+// reader ends. While the node stays, and seen still holds the keyboard, it
+// opens the node again and reads it anew, backing off as it goes; see
+// keyWatcher. The keyboard stays in seen while it waits, so nothing else
+// opens the node meanwhile.
+func (w *keyWatcher) read(dev *inputDev, run func(func())) {
 	run(func() {
-		w.found(dev)
-		dev.close()
-		w.forget(p, dev)
+		p := dev.path
+		wait := keyReopenFirst
+		// quiet says the tries are keyReopenMax apart already, and logged
+		// once as such: a device that keeps failing doesn't fill the log.
+		quiet := false
+		for {
+			began := time.Now()
+			w.found(dev)
+			dev.close()
+			if time.Since(began) >= keyReopenReset {
+				wait, quiet = keyReopenFirst, false
+			}
+			for {
+				if !w.sleep(0) || !w.ours(p, dev) {
+					w.forget(p, dev)
+					return
+				}
+				switch {
+				case wait < keyReopenMax:
+					log.Printf("gunim: kms: %s: the reader ended, but the node is still there; reading it again in %v", p, wait)
+				case !quiet:
+					log.Printf("gunim: kms: %s: the reader keeps ending; reading it again every %v, without a word each time", p, wait)
+					quiet = true
+				}
+				if !w.sleep(wait) {
+					w.forget(p, dev)
+					return
+				}
+				wait = min(2*wait, keyReopenMax)
+				next, again := w.reopen(p, dev, quiet)
+				if next != nil {
+					dev = next
+					break
+				}
+				if !again {
+					return
+				}
+			}
+		}
 	})
+}
+
+// ours says whether seen still holds dev for p, and the node is there.
+func (w *keyWatcher) ours(p string, dev *inputDev) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.seen[p] != dev {
+		return false
+	}
+	_, err := os.Lstat(p)
+	return err == nil
+}
+
+// reopen opens p again in old's place, where seen still holds old: the
+// keyboard to read next, or nil with again saying whether to try once
+// more later. It opens with mu held, so try can't open the node meanwhile.
+// quiet leaves out the log of a keyboard read again.
+func (w *keyWatcher) reopen(p string, old *inputDev, quiet bool) (dev *inputDev, again bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.seen[p] != old {
+		// Removed, or a new device in its place: that one is read already.
+		return nil, false
+	}
+	dev, err := w.open(p)
+	switch {
+	case errors.Is(err, unix.ENOENT):
+		delete(w.seen, p)
+		return nil, false
+	case err != nil:
+		if !quiet {
+			log.Printf("gunim: kms: %s: %v", p, err)
+		}
+		return nil, true
+	case !dev.keys:
+		w.seen[p] = nil
+		dev.close()
+		return nil, false
+	}
+	w.seen[p] = dev
+	if !quiet {
+		log.Printf("gunim: kms: keyboard %q on %s, read again", dev.name, p)
+	}
+	return dev, false
+}
+
+// sleep waits for d, and says false where the driver quit meanwhile, or
+// had quit already.
+func (w *keyWatcher) sleep(d time.Duration) bool {
+	fds := []unix.PollFd{{Fd: int32(w.stop), Events: unix.POLLIN}}
+	for deadline := time.Now().Add(d); ; {
+		left := time.Until(deadline)
+		if left < 0 {
+			left = 0
+		}
+		fds[0].Revents = 0
+		n, err := unix.Poll(fds, int((left+time.Millisecond-1)/time.Millisecond))
+		if err == unix.EINTR {
+			continue
+		}
+		if err != nil || n > 0 {
+			return false
+		}
+		if left == 0 || time.Now().After(deadline) {
+			return true
+		}
+	}
 }
 
 // forget lets a node be opened again once the keyboard read from it has
