@@ -39,8 +39,8 @@ type keyWatcher struct {
 	// open opens a device and says what it is: openInput, or a test's.
 	open func(path string) (*inputDev, error)
 	// found starts reading a keyboard it found, and returns once the
-	// keyboard has gone or the driver quits.
-	found func(dev *inputDev)
+	// keyboard has gone, which it reports, or the driver quits.
+	found func(dev *inputDev) (gone bool)
 
 	mu sync.Mutex
 	// seen holds the nodes being read, or found to be no keyboard, so
@@ -75,7 +75,7 @@ var (
 // screen's. A folder that isn't there yet is looked for again every
 // keyWatchRetry. It returns an error only where inotify itself fails, and
 // then has taken none of keys.
-func watchKeyboards(dir string, keys []*inputDev, known []string, stop int, open func(string) (*inputDev, error), found func(*inputDev), run func(func())) error {
+func watchKeyboards(dir string, keys []*inputDev, known []string, stop int, open func(string) (*inputDev, error), found func(*inputDev) bool, run func(func())) error {
 	fd, err := unix.InotifyInit1(unix.IN_CLOEXEC | unix.IN_NONBLOCK)
 	if err != nil {
 		return err
@@ -253,7 +253,8 @@ func (w *keyWatcher) try(p string, run func(func())) {
 }
 
 // read reads a keyboard whose node seen holds, and closes it once its
-// reader ends. While the node stays, and seen still holds the keyboard, it
+// reader ends. Where the reader ended as the device went, and the node
+// stays, and seen still holds the keyboard, it
 // opens the node again and reads it anew, backing off as it goes; see
 // keyWatcher. The keyboard stays in seen while it waits, so nothing else
 // opens the node meanwhile.
@@ -266,8 +267,14 @@ func (w *keyWatcher) read(dev *inputDev, run func(func())) {
 		quiet := false
 		for {
 			began := time.Now()
-			w.found(dev)
+			gone := w.found(dev)
 			dev.close()
+			if !gone {
+				// The driver quits: Close writes stop only after the
+				// readers see quit, so stop alone can't tell yet.
+				w.forget(p, dev)
+				return
+			}
 			if time.Since(began) >= keyReopenReset {
 				wait, quiet = keyReopenFirst, false
 			}
