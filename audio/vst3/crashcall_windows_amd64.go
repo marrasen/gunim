@@ -26,6 +26,8 @@ import (
 // Going straight there also leaves Go's last handler out of it, which would take the answer for a crash.
 //
 // The plugin's frames are not unwound: its destructors don't run, as they are code of a module no longer to be trusted.
+// The loader's lock is the one thing let go for it, where the thread crashed holding it: held for good, it keeps every
+// new thread of the process from starting.
 //
 // Faults a frame walk doesn't reach stay crashes, reported as ever: a plugin's frames without unwind information, as
 // code it generates may be, or a stack it corrupted; its editor's window procedure, which Windows calls; and threads it
@@ -109,8 +111,8 @@ func epilogue() []byte {
 
 // wrapperCode lays out the wrapper: wrapper(fn, a1, a2, ...) calls fn(a1, a2, ...), its floating registers moved along
 // with its integer ones, as the system's call fills both. The function ends at end; the landing and the routine follow.
-// restore is where RtlRestoreContext is.
-func wrapperCode(restore uintptr) (code, unwindInfo []byte, end int) {
+// restore is where RtlRestoreContext is, and leave where RtlLeaveCriticalSection is.
+func wrapperCode(restore, leave uintptr) (code, unwindInfo []byte, end int) {
 	pro, unwind := prologue()
 	code = cat(pro,
 		[]byte{0x0F, 0xAE, 0x5C, 0x24, frameMXCSR},    // stmxcsr [rsp+frameMXCSR]
@@ -146,7 +148,26 @@ func wrapperCode(restore uintptr) (code, unwindInfo []byte, end int) {
 		0xD9, 0x6C, 0x24, frameX87,
 		// ldmxcsr [rsp+frameMXCSR]
 		0x0F, 0xAE, 0x54, 0x24, frameMXCSR,
-		// movq xmm0,[rsp+frameFault]
+		// mov rax,gs:[0x60]: the PEB
+		0x65, 0x48, 0x8B, 0x04, 0x25, 0x60, 0, 0, 0,
+		// mov rbx,[rax+0x110]: the loader's lock
+		0x48, 0x8B, 0x98, 0x10, 0x01, 0, 0,
+		// mov esi,gs:[0x48]: this thread
+		0x65, 0x8B, 0x34, 0x25, 0x48, 0, 0, 0,
+		// held: cmp [rbx+0x10],rsi: the thread that owns it
+		0x48, 0x39, 0x73, 0x10,
+		// jne free
+		0x75, 17,
+		// mov rcx,rbx
+		0x48, 0x89, 0xD9,
+		// mov rax,leave
+		0x48, 0xB8,
+	}, le64(uint64(leave)), []byte{
+		// call rax
+		0xFF, 0xD0,
+		// jmp held: once for each time the plugin took it
+		0xEB, 0xE9,
+		// free: movq xmm0,[rsp+frameFault]
 		0xF3, 0x0F, 0x7E, 0x44, 0x24, frameFault,
 		// mov eax,[rsp+frameCode]
 		0x8B, 0x84, 0x24,
@@ -205,7 +226,11 @@ func makeWrapper() error {
 	if err != nil {
 		return err
 	}
-	code, unwind, end := wrapperCode(restore)
+	leave, err := windows.GetProcAddress(windows.Handle(windows.NewLazySystemDLL("ntdll.dll").Handle()), "RtlLeaveCriticalSection")
+	if err != nil {
+		return err
+	}
+	code, unwind, end := wrapperCode(restore, leave)
 	code = append(code, make([]byte, -len(code)&15)...)
 	tableAt := len(code)
 	unwindAt := tableAt + 16

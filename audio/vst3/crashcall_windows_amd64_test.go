@@ -363,6 +363,8 @@ func runCrashCase(t *testing.T, name string) {
 		runReusedCase(t)
 	case "loaderlock":
 		runLoaderLockCase(t)
+	case "lockheld":
+		runLockHeldCase(t)
 	case "partbus":
 		runPartBusCase(t)
 	case "realplace":
@@ -469,7 +471,7 @@ func TestEndNow(t *testing.T) {
 // A plugin's crash during a call into it comes back as a call that failed, in each way a plugin can get there.
 func TestCrashesInACall(t *testing.T) {
 	t.Parallel()
-	for _, name := range []string{"crash", "system", "registers", "own", "vectored", "throw", "throwgcc", "helper", "unowned", "freed", "gonefree", "preparegone", "sharedown", "sharedfault", "sharedafter", "setstate", "shared", "reused", "loaderlock", "partbus", "ctrlstate", "everyplace", "realplace", "thread", "busy"} {
+	for _, name := range []string{"crash", "system", "registers", "own", "vectored", "throw", "throwgcc", "helper", "unowned", "freed", "gonefree", "preparegone", "sharedown", "sharedfault", "sharedafter", "setstate", "shared", "reused", "loaderlock", "lockheld", "partbus", "ctrlstate", "everyplace", "realplace", "thread", "busy"} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			// Past the helper's own limit, for a helper that can't end itself: the kill needs no lock of the helper's.
@@ -677,6 +679,49 @@ func runLoaderLockCase(t *testing.T) {
 	fmt.Println("lived")
 	// The loader's lock stays held, so this process ends without running its modules' exits.
 	EndNow(0)
+}
+
+// runLockHeldCase has a plugin crash holding the loader's lock, taken twice: the thread comes back without it, so a
+// thread started after runs.
+func runLockHeldCase(t *testing.T) {
+	if err := installGuard(); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := windows.GetProcAddress(windows.Handle(windows.NewLazySystemDLL("ntdll.dll").Handle()), "LdrLockLoaderLock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	take := cat(
+		[]byte{0x31, 0xC9, 0x31, 0xD2},          // xor ecx,ecx; xor edx,edx
+		[]byte{0x4C, 0x8D, 0x44, 0x24, 0x20},    // lea r8,[rsp+0x20]: its cookie
+		[]byte{0x48, 0xB8}, imm64(uint64(lock)), // mov rax,lock
+		[]byte{0xFF, 0xD0}, // call rax
+	)
+	at := withTable(t, cat(
+		[]byte{0x48, 0x83, 0xEC, 0x38}, // sub rsp,0x38
+		take, take,
+		[]byte{0x48, 0x8B, 0x04, 0x25, 0x5C, 0, 0, 0}, // mov rax,[0x5c]
+		[]byte{0xCC}, // int3: it never gets here
+	), []byte{1, 4, 1, 0, 4, 6<<4 | 2, 0, 0})
+	started := native(t, []byte{0x31, 0xC0, 0xC3}) // xor eax,eax; ret
+	// A thread started while the lock is held never runs, so Go gets the threads it may need first.
+	spareThreads(runtime.GOMAXPROCS(0) + 4)
+	// A normal end waits on the lock too, so a failure ends the process at once.
+	fail := func(format string, args ...any) {
+		fmt.Printf("FAIL: "+format+"\n", args...)
+		EndNow(1)
+	}
+	if r := callN(at, nil); r != crashedResult {
+		fail("the call gave %#x", r)
+	}
+	h, _, err := windows.NewLazySystemDLL("kernel32.dll").NewProc("CreateThread").Call(0, 0, started, 0, 0, 0)
+	if h == 0 {
+		fail("no thread: %v", err)
+	}
+	if ev, err := windows.WaitForSingleObject(windows.Handle(h), 10000); ev != windows.WAIT_OBJECT_0 {
+		fail("a thread started after the crash hadn't run in 10s (%#x, %v): the loader's lock is still held", ev, err)
+	}
+	fmt.Println("lived")
 }
 
 // runPartBusCase has a plugin write nonsense for a bus, then fault. What it wrote is no bus: nothing is made of it.
