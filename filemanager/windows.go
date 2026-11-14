@@ -31,7 +31,13 @@ type Hub struct {
 	clips map[string]clipboard
 	last  clipboard
 	seq   int
-	favs  map[string]*memFavourites
+	// sysSeq is the system clipboard's seq at the last cut or copy, so
+	// Paste can tell whether another program copied since.
+	sysSeq uint32
+	// cuts holds the seqs of the system clipboard's cuts that a move is
+	// moving or has moved, so each moves once.
+	cuts map[uint32]bool
+	favs map[string]*memFavourites
 	// open opens a window with o and serves it, and is nil where no
 	// window can open, as in a test.
 	open func(o Options) error
@@ -362,6 +368,7 @@ func (a *app) clipChanged() {
 		h.clips = map[string]clipboard{}
 	}
 	h.seq++
+	h.sysSeq = systemClip.seq()
 	c := clipboard{paths: slices.Clone(a.ops.clip), cut: a.ops.cut, fs: a.fs.ID(), ps: a.ps, seq: h.seq}
 	h.clips[c.fs], h.last = c, c
 	h.mu.Unlock()

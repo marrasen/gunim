@@ -68,6 +68,9 @@ func explainWhy(err error) string {
 	msg := strings.ToLower(err.Error())
 	var why string
 	switch {
+	case errors.Is(err, errClipboardChanged):
+		// Before what the message says, which holds a file's name.
+		why = "the clipboard changed after the paste began. Paste again to take what it holds now."
 	case strings.Contains(msg, "used by another process"), strings.Contains(msg, "sharing violation"):
 		why = "it is open in another program. Close it there and try again."
 	case errors.Is(err, fs.ErrPermission), strings.Contains(msg, "access is denied"):

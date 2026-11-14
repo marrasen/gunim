@@ -5,6 +5,7 @@ import (
 	"errors"
 	"slices"
 	"strings"
+	"sync"
 )
 
 // TransferProgress is how a transfer reports to the window it runs in.
@@ -76,11 +77,16 @@ func lastName(path string) string {
 // transfer has the program copy the items at paths on the file system of
 // ID from, which writes them as ps, into the folder into on the file
 // system of ID to, or move them there with move: one transfer for each
-// folder they are in, each an operation of the window.
-func (a *app) transfer(from string, ps PathStyle, paths []string, to, into string, move bool) {
+// folder they are in, each an operation of the window. ended, when set,
+// is told once every one has ended, and whether every one went well, on
+// the goroutine of the one that ended last.
+func (a *app) transfer(from string, ps PathStyle, paths []string, to, into string, move bool, ended func(ok bool)) {
 	if to == a.fs.ID() {
 		if at := a.archiveOf(into, true); at != "" {
 			a.refuseArchive(at)
+			if ended != nil {
+				ended(false)
+			}
 			return
 		}
 	}
@@ -93,8 +99,23 @@ func (a *app) transfer(from string, ps PathStyle, paths []string, to, into strin
 		}
 		ts[i].Paths = append(ts[i].Paths, p)
 	}
+	var each func(ok bool)
+	if ended != nil {
+		var mu sync.Mutex
+		left, all := len(ts), true
+		each = func(ok bool) {
+			mu.Lock()
+			left--
+			all = all && ok
+			last, well := left == 0, all
+			mu.Unlock()
+			if last {
+				ended(well)
+			}
+		}
+	}
 	for _, t := range ts {
-		a.startTransfer(t, ps, nil)
+		a.startTransfer(t, ps, each)
 	}
 }
 
@@ -115,8 +136,10 @@ func (a *app) placeLabel(fs, path string) string {
 
 // startTransfer runs t through the program in the background, as an
 // operation of the window, with paths of the file system it comes from
-// written as ps. worked, when set, is told once it went well.
-func (a *app) startTransfer(t Transfer, ps PathStyle, worked func()) {
+// written as ps. ended, when set, is told on the transfer's goroutine once
+// it has ended, and whether it went well: also where the window closed
+// meanwhile.
+func (a *app) startTransfer(t Transfer, ps PathStyle, ended func(ok bool)) {
 	if t.From == nil {
 		t.From = a.archiveSource(t.FromFS, t.Paths)
 	}
@@ -142,12 +165,10 @@ func (a *app) startTransfer(t Transfer, ps PathStyle, worked func()) {
 	a.ops.wg.Go(func() {
 		err := do(ctx, w, t, p)
 		stopped := ctx.Err() != nil
-		a.post(func() {
-			if err == nil && worked != nil {
-				worked()
-			}
-			a.transferred(id, t, ps, done, err, stopped)
-		})
+		if ended != nil {
+			ended(err == nil)
+		}
+		a.post(func() { a.transferred(id, t, ps, done, err, stopped) })
 	})
 }
 
