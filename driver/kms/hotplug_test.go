@@ -8,6 +8,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unsafe"
 
 	"golang.org/x/sys/unix"
 )
@@ -132,6 +133,171 @@ func TestKeyWatcher_FindsKeyboardsPluggedInLater(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("the watcher didn't stop")
+	}
+}
+
+// switchConsole is a console that only switches VT, and tells of each
+// switch, for a test whose readers run on goroutines of their own.
+type switchConsole struct{ switched chan int }
+
+func (c switchConsole) open(int) (int, error)                    { return 7, nil }
+func (c switchConsole) ioctl(int, uintptr, unsafe.Pointer) error { return nil }
+func (c switchConsole) close(int) error                          { return nil }
+func (c switchConsole) ioctlInt(_ int, req, arg uintptr) error {
+	if req == vtActivate {
+		c.switched <- int(arg)
+	}
+	return nil
+}
+
+// fakeKeyboards are keyboards for the watcher: each node's file says
+// "keyboard", and each open gives a pipe the test types into.
+type fakeKeyboards struct {
+	t     *testing.T
+	mu    sync.Mutex
+	typed map[string]int // the write end of the newest pipe for each node
+	opens map[string]int
+}
+
+func (k *fakeKeyboards) open(p string) (*inputDev, error) {
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return nil, err
+	}
+	var fds [2]int
+	if err := unix.Pipe2(fds[:], unix.O_CLOEXEC); err != nil {
+		k.t.Fatal(err)
+	}
+	k.mu.Lock()
+	k.typed[p] = fds[1]
+	k.opens[p]++
+	k.mu.Unlock()
+	return &inputDev{fd: fds[0], path: p, name: string(b), keys: string(b) == "keyboard"}, nil
+}
+
+// typeKeys types Ctrl+Alt+Fn on the newest keyboard at p.
+func (k *fakeKeyboards) typeKeys(p string, fn uint16) {
+	k.mu.Lock()
+	fd := k.typed[p]
+	k.mu.Unlock()
+	buf := make([]byte, 0, 6*liveEventSize)
+	for _, e := range []event{
+		{typ: evKey, code: keyLeftCtrl, value: 1}, {typ: evKey, code: keyLeftAlt, value: 1}, {typ: evKey, code: fn, value: 1},
+		{typ: evKey, code: fn, value: 0}, {typ: evKey, code: keyLeftAlt, value: 0}, {typ: evKey, code: keyLeftCtrl, value: 0},
+	} {
+		b := make([]byte, liveEventSize)
+		encodeEvent(b, e)
+		buf = append(buf, b...)
+	}
+	if _, err := unix.Write(fd, buf); err != nil {
+		k.t.Fatal(err)
+	}
+}
+
+// unplug ends the newest keyboard at p, as a device that goes away.
+func (k *fakeKeyboards) unplug(p string) {
+	k.mu.Lock()
+	fd := k.typed[p]
+	k.mu.Unlock()
+	_ = unix.Close(fd)
+}
+
+func (k *fakeKeyboards) opened(p string) int {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return k.opens[p]
+}
+
+// A keyboard plugged in after Open switches VT through readKeys, as the
+// driver's own keyboards do. A node removed and made again while its old
+// reader still runs gets a reader of its own, and the old reader, as it
+// ends, leaves the new one's place alone: a later change of the node opens
+// nothing more.
+func TestKeyWatcher_ALateKeyboardSwitchesVT(t *testing.T) {
+	dir := t.TempDir()
+	stop, err := unix.Eventfd(0, unix.EFD_CLOEXEC|unix.EFD_NONBLOCK)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = unix.Close(stop) }()
+	con := switchConsole{switched: make(chan int, 4)}
+	d := &Driver{o: Options{VTSwitch: true}, vt: &vt{c: con, fd: 7, num: 1}, quit: make(chan struct{}), stop: stop}
+	kb := &fakeKeyboards{t: t, typed: map[string]int{}, opens: map[string]int{}}
+	run := func(fn func()) {
+		d.readers.Add(1)
+		go func() { defer d.readers.Done(); fn() }()
+	}
+	if err := watchKeyboards(dir, nil, stop, kb.open, d.readKeys, run); err != nil {
+		t.Fatal(err)
+	}
+	node := filepath.Join(dir, "event4")
+	plug := func() {
+		t.Helper()
+		tmp := filepath.Join(dir, "new")
+		if err := os.WriteFile(tmp, []byte("keyboard"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Rename(tmp, node); err != nil {
+			t.Fatal(err)
+		}
+	}
+	waitOpens := func(n int) {
+		t.Helper()
+		for deadline := time.Now().Add(5 * time.Second); kb.opened(node) < n; time.Sleep(10 * time.Millisecond) {
+			if time.Now().After(deadline) {
+				t.Fatalf("%s opened %d times, want %d", node, kb.opened(node), n)
+			}
+		}
+	}
+	wantSwitch := func(n int) {
+		t.Helper()
+		select {
+		case got := <-con.switched:
+			if got != n {
+				t.Fatalf("switched to VT %d, want %d", got, n)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("no switch to VT %d", n)
+		}
+	}
+	plug()
+	waitOpens(1)
+	kb.typeKeys(node, keyF1+1) // F2
+	wantSwitch(2)
+
+	// Removed and made again while the first reader still runs.
+	kb.mu.Lock()
+	first := kb.typed[node]
+	kb.mu.Unlock()
+	if err := os.Remove(node); err != nil {
+		t.Fatal(err)
+	}
+	plug()
+	waitOpens(2)
+	// The first reader ends now, after the new one began.
+	_ = unix.Close(first)
+	time.Sleep(200 * time.Millisecond)
+	if err := os.Chmod(node, 0o640); err != nil { // IN_ATTRIB on the node
+		t.Fatal(err)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if n := kb.opened(node); n != 2 {
+		t.Fatalf("the old reader's end let the node be opened again: %d opens", n)
+	}
+	kb.typeKeys(node, keyF1+2) // F3, on the new keyboard
+	wantSwitch(3)
+
+	close(d.quit)
+	if _, err := unix.Write(stop, []byte{1, 0, 0, 0, 0, 0, 0, 0}); err != nil {
+		t.Fatal(err)
+	}
+	kb.unplug(node)
+	done := make(chan struct{})
+	go func() { d.readers.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the readers didn't stop")
 	}
 }
 
