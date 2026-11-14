@@ -137,9 +137,9 @@ type Options struct {
 	// the next run to find it.
 	VT string
 	// VTSwitch takes Ctrl+Alt+F1 to F12 from a keyboard, which the VT's
-	// own keyboard handling would, to switch VT. Keyboards are found as
-	// the driver opens; one plugged in later is not read yet. The switch
-	// waits on the render thread to let go of the screen, so a render
+	// own keyboard handling would, to switch VT. A keyboard plugged in
+	// later is read from then on, as the driver watches /dev/input. The
+	// switch waits on the render thread to let go of the screen, so a render
 	// thread stuck on a hung GPU holds every VT switch.
 	VTSwitch bool
 	// Software draws with Mesa's software renderer even where there is a
