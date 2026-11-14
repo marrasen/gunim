@@ -192,6 +192,7 @@ func (r *renderThread) start() error {
 		d.mu.Lock()
 		d.away = true
 		d.mu.Unlock()
+		d.setKeysAway(true)
 		d.tell()
 		if err := d.scr.card.dropMaster(); err != nil {
 			log.Printf("gunim: kms: let go of the screen: %v", err)
@@ -854,8 +855,33 @@ func (d *Driver) leaveVT() {
 		step, _ := lightFor(level, d.light.max)
 		r.light(max(step, 1))
 	}
-	if err := d.vt.released(); err != nil {
-		log.Printf("gunim: kms: switch VT: %v", err)
+	d.afterRelease(d.vt.released(), func() {
+		if err := d.scr.card.setMaster(); err != nil {
+			log.Printf("gunim: kms: take the screen back: %v", err)
+		}
+		r.returned(time.Now())
+	})
+}
+
+// afterRelease handles the kernel's answer to the driver letting go of the
+// screen. Where the kernel refused, as when a stray SIGUSR1 asked for a
+// switch nobody made, and the driver's VT still shows, nothing else would
+// ever give the screen and the keyboards back: the screen would stay black
+// and Ctrl+Alt+Fn would do nothing. So it takes them back itself, with
+// takeBack.
+func (d *Driver) afterRelease(err error, takeBack func()) {
+	if err == nil {
+		return
+	}
+	log.Printf("gunim: kms: switch VT: %v", err)
+	on, serr := d.vt.showing()
+	if serr != nil {
+		log.Printf("gunim: kms: which VT shows: %v", serr)
+		return
+	}
+	if on {
+		log.Printf("gunim: kms: VT %d still shows, so the driver takes the screen back", d.vt.num)
+		takeBack()
 	}
 }
 
@@ -869,6 +895,7 @@ func (r *renderThread) left() float32 {
 	d.away, d.back = true, false
 	level := d.blank.level
 	d.mu.Unlock()
+	d.setKeysAway(true)
 	d.tell()
 	return level
 }
@@ -897,6 +924,7 @@ func (r *renderThread) returned(now time.Time) {
 	d.away, d.back = false, false
 	d.blank.wake(now)
 	d.mu.Unlock()
+	d.setKeysAway(false)
 	r.prevFlip, r.prevSeq = time.Time{}, 0
 	d.tell()
 }

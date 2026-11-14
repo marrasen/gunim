@@ -137,12 +137,21 @@ func TestKeyWatcher_FindsKeyboardsPluggedInLater(t *testing.T) {
 }
 
 // switchConsole is a console that only switches VT, and tells of each
-// switch, for a test whose readers run on goroutines of their own.
-type switchConsole struct{ switched chan int }
+// switch, for a test whose readers run on goroutines of their own. active
+// is the VT it says shows.
+type switchConsole struct {
+	switched chan int
+	active   int
+}
 
-func (c switchConsole) open(int) (int, error)                    { return 7, nil }
-func (c switchConsole) ioctl(int, uintptr, unsafe.Pointer) error { return nil }
-func (c switchConsole) close(int) error                          { return nil }
+func (c switchConsole) open(int) (int, error) { return 7, nil }
+func (c switchConsole) ioctl(_ int, req uintptr, arg unsafe.Pointer) error {
+	if req == vtGetState {
+		(*vtStat)(arg).active = uint16(c.active)
+	}
+	return nil
+}
+func (c switchConsole) close(int) error { return nil }
 func (c switchConsole) ioctlInt(_ int, req, arg uintptr) error {
 	if req == vtActivate {
 		c.switched <- int(arg)
@@ -165,7 +174,8 @@ func (k *fakeKeyboards) open(p string) (*inputDev, error) {
 		return nil, err
 	}
 	var fds [2]int
-	if err := unix.Pipe2(fds[:], unix.O_CLOEXEC); err != nil {
+	// Not blocking, as a device's file: the driver drains it as another VT takes the screen.
+	if err := unix.Pipe2(fds[:], unix.O_CLOEXEC|unix.O_NONBLOCK); err != nil {
 		k.t.Fatal(err)
 	}
 	k.mu.Lock()
@@ -177,14 +187,18 @@ func (k *fakeKeyboards) open(p string) (*inputDev, error) {
 
 // typeKeys types Ctrl+Alt+Fn on the newest keyboard at p.
 func (k *fakeKeyboards) typeKeys(p string, fn uint16) {
+	k.send(p,
+		event{typ: evKey, code: keyLeftCtrl, value: 1}, event{typ: evKey, code: keyLeftAlt, value: 1}, event{typ: evKey, code: fn, value: 1},
+		event{typ: evKey, code: fn, value: 0}, event{typ: evKey, code: keyLeftAlt, value: 0}, event{typ: evKey, code: keyLeftCtrl, value: 0})
+}
+
+// send writes events on the newest keyboard at p.
+func (k *fakeKeyboards) send(p string, events ...event) {
 	k.mu.Lock()
 	fd := k.typed[p]
 	k.mu.Unlock()
-	buf := make([]byte, 0, 6*liveEventSize)
-	for _, e := range []event{
-		{typ: evKey, code: keyLeftCtrl, value: 1}, {typ: evKey, code: keyLeftAlt, value: 1}, {typ: evKey, code: fn, value: 1},
-		{typ: evKey, code: fn, value: 0}, {typ: evKey, code: keyLeftAlt, value: 0}, {typ: evKey, code: keyLeftCtrl, value: 0},
-	} {
+	buf := make([]byte, 0, len(events)*liveEventSize)
+	for _, e := range events {
 		b := make([]byte, liveEventSize)
 		encodeEvent(b, e)
 		buf = append(buf, b...)

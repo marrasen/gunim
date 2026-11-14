@@ -261,8 +261,20 @@ func eventTime(e event, realtime bool, now time.Time) time.Time {
 
 // readKeys reads a keyboard until the driver quits, for Ctrl+Alt+Fn.
 func (d *Driver) readKeys(dev *inputDev) {
+	d.addKeyboard(dev)
+	defer d.dropKeyboard(dev)
 	var ctrl, alt bool
+	resumed := dev.resumed.Load()
 	_ = d.readEvents(dev, func(e event) {
+		if dev.muted.Load() {
+			// Another VT shows: the keys are someone else's.
+			return
+		}
+		if n := dev.resumed.Load(); n != resumed {
+			// Back from another VT: Ctrl and Alt may have changed meanwhile.
+			resumed = n
+			ctrl, alt = dev.modifiers()
+		}
 		if e.typ != evKey {
 			return
 		}
