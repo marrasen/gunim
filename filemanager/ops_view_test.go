@@ -12,6 +12,7 @@ import (
 
 func TestPausingHoldsACopyUntilItCarriesOn(t *testing.T) {
 	h := newHarness(t, "sub/")
+	h.a.ops.noPanel = false
 	if err := os.WriteFile(filepath.Join(h.dir, "big.bin"), make([]byte, 3<<20), 0o644); err != nil {
 		t.Fatal(err)
 	}

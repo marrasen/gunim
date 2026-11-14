@@ -50,11 +50,16 @@ func openHarnessWith(t *testing.T, h *Hub, base, dir string, set func(o *Options
 	if o.FS == nil {
 		o.trash = xdgTrash{dir: filepath.Join(base, "Trash")}
 	}
+	hs.said = &sayings{}
+	if o.Log == nil {
+		o.Log = hs.said.log
+	}
 	a, err := launch(ctx, hs.w.Client(), o, h)
 	if err != nil {
 		t.Fatal(err)
 	}
 	hs.a = a
+	a.ops.noPanel = true
 	t.Cleanup(func() {
 		cancel()
 		a.stopAll()

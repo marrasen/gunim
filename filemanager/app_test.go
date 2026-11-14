@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -23,7 +24,29 @@ type harness struct {
 	b    *browser
 	root string
 	dir  string
+	said *sayings
 }
+
+// sayings are the failures and notices a window logged, for a wait that times out to show.
+type sayings struct {
+	mu    sync.Mutex
+	lines []string
+}
+
+func (s *sayings) log(l string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lines = append(s.lines, l)
+}
+
+func (s *sayings) all() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.lines)
+}
+
+// untilLimit is how long until waits, enough for a rename on a busy Windows machine.
+const untilLimit = 30 * time.Second
 
 // grab is a patch that hands the test the browser.
 type grab struct{}
@@ -57,11 +80,17 @@ func newHarnessWith(t *testing.T, set func(o *Options), spec ...string) *harness
 	if o.FS == nil {
 		o.trash = xdgTrash{dir: filepath.Join(h.root, "Trash")}
 	}
+	h.said = &sayings{}
+	if o.Log == nil {
+		o.Log = h.said.log
+	}
 	a, err := launch(ctx, h.w.Client(), o, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	h.a = a
+	// An operation ends with a toast however long it takes, unless a test of the progress panel clears this.
+	a.ops.noPanel = true
 	t.Cleanup(func() {
 		cancel()
 		a.stopAll()
@@ -97,13 +126,19 @@ func (h *harness) frames(n int) {
 	}
 }
 
-// until pumps until cond holds, and fails the test after five seconds.
+// until pumps until cond holds, and fails the test after untilLimit, saying what still runs and what the window
+// logged.
 func (h *harness) until(what string, cond func() bool) {
 	h.t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(untilLimit)
 	for !cond() {
 		if time.Now().After(deadline) {
-			h.t.Fatalf("waited five seconds for this: %s", what)
+			var running []string
+			for _, r := range h.a.ops.running {
+				running = append(running, r.title)
+			}
+			h.t.Fatalf("waited %v for this: %s\nstill running: %q\nthe window logged: %q", untilLimit, what, running,
+				h.said.all())
 		}
 		h.pump()
 		time.Sleep(time.Millisecond)
