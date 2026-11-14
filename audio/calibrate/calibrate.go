@@ -102,10 +102,12 @@ type Options struct {
 	// along with an output known to need none.
 	SkipWatch bool
 	Habit     time.Duration
-	// HeardAt, where set, is the mixer frame heard at t, as the
-	// speaker reports it, for an application that keeps a clock of its
-	// own. Where it is nil, the speaker's [speaker.Speaker.Anchor] gives
-	// it, or, without a speaker, the mixer's [audio.Mixer.HeardAt].
+	// HeardAt, where set, is the mixer frame at the output at t, as the
+	// output reports it, leaving out any delay set with
+	// [speaker.Speaker.SetDelay], for an application that keeps a clock
+	// of its own. Where it is nil, the speaker's [speaker.Speaker.Anchor]
+	// gives it, with the speaker's delay added back, or, without a
+	// speaker, the mixer's [audio.Mixer.HeardAt].
 	HeardAt func(t time.Time) int64
 }
 
@@ -154,13 +156,11 @@ func (p Pass) within() float64 {
 
 // A Result is what a calibration found.
 type Result struct {
-	// Delay is the delay to set with [speaker.Speaker.SetDelay]: the one
-	// the speaker counted as the calibration ran, and what it measured
-	// past it.
+	// Delay is the delay to set with [speaker.Speaker.SetDelay]: all the
+	// delay the output leaves out, the listen pass's median less the
+	// habit. A calibration measures it whole, whatever delay the speaker
+	// had set, so a delay set wrong before leaves it alone.
 	Delay time.Duration
-	// Measured is what the calibration measured past the delay the
-	// speaker counted: the listen pass's median less the habit.
-	Measured time.Duration
 	// Within says how sure Delay is: about 19 times in 20, the true
 	// delay lies within this either side of it. It counts how many taps
 	// each pass kept and how closely they lay.
@@ -175,14 +175,20 @@ type Result struct {
 	// Enough says each pass counted at least half the taps it asked
 	// for; the beats ran out on a pass with fewer.
 	Enough bool
+	// Edge says the listen pass's median lies near an end of the span a
+	// tap may land in: some taps may have gone to the next beat or the
+	// one before, and Delay may be a whole beat off. A delay past the
+	// span, as one of over half a second at the default beat, reads so.
+	Edge bool
 }
 
 // Sure is the most Within may be for [Result.Sure].
 const Sure = 20 * time.Millisecond
 
 // Sure reports whether the result is worth keeping: each pass counted
-// enough taps, and Delay is within [Sure] either side.
-func (r Result) Sure() bool { return r.Enough && r.Within <= Sure }
+// enough taps, the median lies clear of the span's ends, and Delay is
+// within [Sure] either side.
+func (r Result) Sure() bool { return r.Enough && !r.Edge && r.Within <= Sure }
 
 // A Tap says how a tap counted.
 type Tap int
@@ -208,10 +214,8 @@ type Calibration struct {
 	v   *audio.Voice
 	// rate is the mixer's rate as the clicks started, and per the
 	// frames from one beat to the next at it.
-	rate int
-	per  int64
-	// base is the delay the speaker counted as the calibration started.
-	base  time.Duration
+	rate  int
+	per   int64
 	stage Stage
 	// from is the pass's first beat, which counts from the clicks'
 	// start.
@@ -221,7 +225,8 @@ type Calibration struct {
 	taps  []tapAt
 	watch Pass
 	res   Result
-	// heardAt is the mixer frame heard at t.
+	// heardAt is the mixer frame at the output at t, as the output
+	// reports it.
 	heardAt func(t time.Time) int64
 }
 
@@ -240,15 +245,28 @@ func New(mix *audio.Mixer, spk *speaker.Speaker, o Options) *Calibration {
 	if c.heardAt != nil {
 		return c
 	}
-	c.heardAt = func(t time.Time) int64 {
-		if c.spk != nil {
-			if a := c.spk.Anchor(); a.Period > 0 {
-				return a.FrameAt(t)
-			}
+	heard := func(t time.Time) int64 {
+		if a := spk.Anchor(); a.Period > 0 {
+			return a.FrameAt(t)
 		}
-		return c.mix.HeardAt(t)
+		return mix.HeardAt(t)
 	}
+	if spk == nil {
+		c.heardAt = mix.HeardAt
+		return c
+	}
+	c.heardAt = atOutput(heard, spk.Delay, mix.Rate)
 	return c
+}
+
+// atOutput turns heard, the frame heard at t counting the delay set
+// with SetDelay, into the frame at the output, as the output reports it:
+// a calibration measures the delay whole, from none, whatever was set.
+// Should the application change the delay while a calibration runs,
+// the frames heard stand still for a while, or leap, and the anchor
+// takes a few seconds to follow: set it once the calibration is done.
+func atOutput(heard func(time.Time) int64, delay func() time.Duration, rate func() int) func(time.Time) int64 {
+	return func(t time.Time) int64 { return heard(t) + audio.FramesAt(delay(), rate()) }
 }
 
 // Options returns the options the calibration runs with.
@@ -267,10 +285,6 @@ func (c *Calibration) Start(t time.Time) {
 		c.src.start.Store(-1)
 		c.src.from.Store(math.MaxInt64)
 		c.v = c.mix.Play(c.src, audio.Options{})
-	}
-	c.base = 0
-	if c.spk != nil {
-		c.base = c.spk.Delay()
 	}
 	c.watch, c.res = Pass{}, Result{}
 	if c.o.SkipWatch {
@@ -334,7 +348,7 @@ func (c *Calibration) Beat(t time.Time) (k int64, phase float64, ok bool) {
 	}
 	x := c.beats(t)
 	if c.stage == Done {
-		x -= c.res.Measured.Seconds() / c.o.period().Seconds()
+		x -= c.res.Delay.Seconds() / c.o.period().Seconds()
 	}
 	k = int64(math.Floor(x))
 	return k, x - float64(k), true
@@ -380,12 +394,7 @@ func (c *Calibration) Tap(t time.Time) (Tap, time.Duration) {
 	if (c.stage != Watch && c.stage != Listen) || !c.ready(t) {
 		return Early, 0
 	}
-	// A tap may land 30% of a beat before its beat, round the habit in
-	// the listen pass, and 70% after; in the watch pass, half either way.
-	lead, centre := 0.5, 0.0
-	if c.stage == Listen {
-		lead, centre = 0.3, c.habit().Seconds()/c.o.period().Seconds()
-	}
+	lead, centre := c.window()
 	x := c.beats(t)
 	k := int64(math.Floor(x - centre + lead))
 	off := (x - float64(k)) * c.o.period().Seconds()
@@ -417,6 +426,21 @@ func (c *Calibration) Update(t time.Time) bool {
 	return true
 }
 
+// window is the span a tap may land in about its beat, in beats: from
+// lead before centre to 1-lead after it. In the listen pass it is 30%
+// of a beat before the habit and 70% after, as a delay the output
+// leaves out is late; in the watch pass, half a beat either way.
+func (c *Calibration) window() (lead, centre float64) {
+	if c.stage == Listen {
+		return 0.3, c.habit().Seconds() / c.o.period().Seconds()
+	}
+	return 0.5, 0
+}
+
+// edgeWithin is the least distance from an end of the window inside
+// which a median is near its edge.
+const edgeWithin = 60 * time.Millisecond
+
 // habit is the listener's habit: the watch pass's median, or the
 // options' where it was skipped.
 func (c *Calibration) habit() time.Duration {
@@ -435,8 +459,14 @@ func (c *Calibration) next(t time.Time) {
 		return
 	}
 	r := Result{Watch: c.watch, Listen: p, Habit: c.habit()}
-	r.Measured = p.Median - r.Habit
-	r.Delay = c.base + r.Measured
+	r.Delay = p.Median - r.Habit
+	// Near an end of the window, the taps may part between two beats.
+	lead, centre := c.window()
+	beat := c.o.period().Seconds()
+	lo, hi := (centre-lead)*beat, (centre+1-lead)*beat
+	near := max(edgeWithin.Seconds(), 3*p.Spread.Seconds())
+	m := p.Median.Seconds()
+	r.Edge = len(p.Offsets) > 0 && (m-lo < near || hi-m < near)
 	w := p.within()
 	if !c.o.SkipWatch {
 		w = math.Hypot(w, c.watch.within())

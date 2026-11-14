@@ -206,6 +206,9 @@ func (k *Calibrator) words() {
 		case !r.Enough:
 			k.title.Text = "Too few taps to tell"
 			k.note.Text = "Tap on every beat you can, and try again."
+		case r.Edge:
+			k.title.Text = "Out of reach"
+			k.note.Text = "The taps fell between two beats, so this may be a whole beat off. Try again."
 		case !r.Sure():
 			k.title.Text = "A rough measure"
 			k.note.Text = "The taps lay far apart. Try again for a closer one. The circle flashes with each click, as it is now."
@@ -396,6 +399,8 @@ func (k *Calibrator) paintResult(p *paint.Painter, f gunim.Frame, box geom.Size)
 	switch {
 	case !r.Enough:
 		word, wc = "Too few taps", over
+	case r.Edge:
+		word, wc = "Out of reach", over
 	case !r.Sure():
 		word, wc = "Rough", near
 	}

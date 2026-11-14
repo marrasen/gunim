@@ -187,21 +187,47 @@ func TestAKnownHabitSkipsTheWatch(t *testing.T) {
 	}
 }
 
-// The delay the speaker counted already adds to what the calibration measures past it, and once done, the beat
-// shows as the listener hears it.
-func TestTheResultAddsToTheDelayCounted(t *testing.T) {
+// A delay set on the speaker before, here 500 ms too much, is left out of the measure: the calibration finds the
+// whole delay the output leaves out. Once done, setting the delay found leaves the beat shown where it was.
+func TestADelaySetBeforeIsLeftOutOfTheMeasure(t *testing.T) {
 	l := newListener(t, Options{Taps: 8})
-	l.c.base = 100 * time.Millisecond
-	l.delay = 50 * time.Millisecond
+	output := l.c.heardAt
+	set := 730 * time.Millisecond
+	// The speaker's Heard counts the delay set: the frame the output reports, less it.
+	heard := func(at time.Time) int64 { return output(at) - audio.FramesAt(set, l.mix.Rate()) }
+	l.c.heardAt = atOutput(heard, func() time.Duration { return set }, l.mix.Rate)
+	l.delay = 230 * time.Millisecond
 	l.pass(everyBeat)
 	l.pass(everyBeat)
 	r := l.c.Result()
-	if !near(r.Delay, 150*time.Millisecond, time.Millisecond) || !near(r.Measured, 50*time.Millisecond, time.Millisecond) {
-		t.Fatalf("Delay %v, Measured %v: want 150ms and 50ms", r.Delay, r.Measured)
+	if !near(r.Delay, 230*time.Millisecond, time.Millisecond) || !r.Sure() {
+		t.Fatalf("with 730ms set before, the calibration found %v, sure %v: want 230ms, sure", r.Delay, r.Sure())
 	}
-	k, phase, _ := l.c.Beat(l.beatAt(30).Add(50 * time.Millisecond))
+	at := l.beatAt(30).Add(230 * time.Millisecond)
+	k, phase, _ := l.c.Beat(at)
 	if k != 30 || phase > 0.001 {
-		t.Fatalf("once done, the beat 50ms past where the speaker hears beat 30 is beat %d at %.3f, want 30 at 0", k, phase)
+		t.Fatalf("once done, the beat 230ms past where the output plays beat 30 is beat %d at %.3f, want 30 at 0", k, phase)
+	}
+	set = r.Delay
+	if k2, phase2, _ := l.c.Beat(at); k2 != k || math.Abs(phase2-phase) > 0.001 {
+		t.Fatalf("setting the delay found moved the beat shown from %d at %.3f to %d at %.3f", k, phase, k2, phase2)
+	}
+}
+
+// A delay near the end of what the taps' window reaches is marked unsure; one well inside it is sure.
+func TestAMedianNearTheWindowsEdgeIsUnsure(t *testing.T) {
+	for _, c := range []struct {
+		delay time.Duration
+		sure  bool
+	}{{-230 * time.Millisecond, false}, {-150 * time.Millisecond, true}, {450 * time.Millisecond, true},
+		{520 * time.Millisecond, false}} {
+		l := newListener(t, Options{})
+		l.delay = c.delay
+		l.pass(everyBeat)
+		l.pass(everyBeat)
+		if r := l.c.Result(); r.Sure() != c.sure || r.Edge == c.sure {
+			t.Errorf("a delay of %v measured %v, edge %v, sure %v: want sure %v", c.delay, r.Delay, r.Edge, r.Sure(), c.sure)
+		}
 	}
 }
 
@@ -232,5 +258,17 @@ func TestTheClicksSoundFromTheListenPass(t *testing.T) {
 	f := loud(int(first-l.mix.Mixed()) + per)
 	if f < first || f > first+2 {
 		t.Fatalf("the first click sounds at frame %d, want the pass's first beat at %d", f, first)
+	}
+}
+
+// An output that reports more delay than it holds, by more than the taps' window reaches, has every tap match the
+// beat before: the result lands near the window's edge, and must say it is unsure.
+func TestADelayABeatOffIsUnsure(t *testing.T) {
+	l := newListener(t, Options{})
+	l.delay = -260 * time.Millisecond
+	l.pass(everyBeat)
+	l.pass(everyBeat)
+	if r := l.c.Result(); r.Sure() {
+		t.Fatalf("a delay of -260ms measured %v within %v, and says it is sure", r.Delay, r.Within)
 	}
 }
