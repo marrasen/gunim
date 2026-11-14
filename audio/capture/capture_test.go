@@ -22,10 +22,14 @@ func (d *fakeDevice) start() error { d.started = true; return nil }
 func (d *fakeDevice) close() error { d.closed = true; return nil }
 
 // fakeClock stands in for a speaker, heard at frame now.
-type fakeClock struct{ now atomic.Int64 }
+type fakeClock struct {
+	now   atomic.Int64
+	delay time.Duration
+}
 
 func (c *fakeClock) Heard() int64           { return c.now.Load() }
-func (c *fakeClock) Latency() time.Duration { return 10 * time.Millisecond }
+func (c *fakeClock) Latency() time.Duration { return 10*time.Millisecond + c.delay }
+func (c *fakeClock) Delay() time.Duration   { return c.delay }
 
 // openFake opens a stream on a fake device of f, counting by clock
 // where it is set, at mixRate.
@@ -351,5 +355,17 @@ func TestDriverInputsListsTheDriversInputsBeforeTheyOpen(t *testing.T) {
 	d, ok = driverDevice(sys, duplex.NewTap(driver.CoreAudio, 48000, 64, 32, []string{"Mic 1"}))
 	if !ok || d.Channels != 1 || d.ChannelNames[0] != "Mic 1" {
 		t.Fatalf("Core Audio as the system's sound, its inputs open: %+v, %v", d, ok)
+	}
+}
+
+// A speaker's delay past its output moves the stamps a driver gives exactly earlier by as much, at the mixer's rate,
+// as it moves the speaker's Heard, which reckoned stamps count from: either way a block is stamped with the frame
+// the listener heard as it came in.
+func TestASpeakersDelayMovesExactStampsToo(t *testing.T) {
+	clock := &fakeClock{delay: 250 * time.Millisecond}
+	s, _ := openFake(t, Options{}, format{name: "Fake", channels: 1, rate: 24000, buffer: 64}, clock, 48000)
+	s.putAt(frames(0, 64, 1), 100000)
+	if b := s.Read(make([]float32, 64)); b.Heard != 100000-12000 {
+		t.Fatalf("a block the driver stamped at 100000 reads heard %d, want %d", b.Heard, 100000-12000)
 	}
 }

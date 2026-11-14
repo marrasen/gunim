@@ -1,13 +1,20 @@
-// Command synccheck checks by eye and ear whether gunim's picture keeps
-// in step with its sound: it plays four rising notes and shows their
-// numbers, 1 to 4, as the speaker says each is heard. Buttons shift the
-// picture earlier or later until the two feel together; the shift left
-// is how far the delay the speaker reports is off. Other buttons switch
-// between gunim's own driver named, as AAudio on Android or PipeWire on
-// Linux, and the system's own sound, and turn Options.Quick on and
-// off. Done logs a line that starts "SYNCCHECK", with the shift and what
-// the speaker reports. On Android the speaker's log is on, for the
-// delays AAudio and the Bluetooth route report.
+// Command synccheck measures how late gunim's sound reaches the ears,
+// and then shows by eye whether the picture keeps in step with it.
+//
+// It opens on audioui's Calibrator: the listener taps along with a
+// bouncing ball, then with clicks they hear, and the calibrator finds
+// the delay the speaker leaves out, as a Bluetooth headset's on
+// Windows. Use sets it on the speaker. The check then plays four rising
+// notes and shows their numbers, 1 to 4, as the speaker says each is
+// heard, now counting the delay measured: they should land together.
+//
+// Buttons switch between gunim's own driver named, as AAudio on Android
+// or PipeWire on Linux, and the system's own sound, turn Options.Quick
+// on and off, and calibrate again. The delay measured is kept for each
+// driver and route, as an application would keep it. Done logs a line
+// that starts "SYNCCHECK", with what the speaker reports and the delay
+// measured. On Android the speaker's log is on, for the delays AAudio
+// and the Bluetooth route report.
 //
 //	go run ./tools/gunimapk -run ./example/synccheck
 //	go run ./example/synccheck   # on Linux, through PipeWire
@@ -29,8 +36,10 @@ import (
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/audio"
+	"github.com/marrasen/gunim/audio/calibrate"
 	audiodriver "github.com/marrasen/gunim/audio/driver"
 	"github.com/marrasen/gunim/audio/speaker"
+	"github.com/marrasen/gunim/audioui"
 	"github.com/marrasen/gunim/driver"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/paint"
@@ -70,20 +79,18 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	err := gunim.Main(ctx, func(a *gunim.App) error {
-		w, err := a.NewWindow(gunim.WindowOptions{Title: name, Size: geom.Sz(380, 640), Root: widget.NewSurface()})
+		w, err := a.NewWindow(gunim.WindowOptions{Title: name, Size: geom.Sz(400, 680), Root: widget.NewSurface()})
 		if err != nil {
 			return err
 		}
+		w.RegisterTheme(widget.Light().With(audioui.Light...))
 		mix := audio.NewMixer()
 		spk, err := speaker.Open(mix, speaker.Options{Name: name, Driver: native})
 		if err != nil {
 			return err
 		}
 		defer func() { _ = spk.Close() }()
-		n := &notes{rate: mix.Rate(), mix: mix}
-		n.start.Store(-1)
-		mix.Play(n, audio.Options{})
-		gunim.RegisterView(w, "sync", func(struct{}) *view { return newView(mix, spk, n) }, nil)
+		gunim.RegisterView(w, "sync", func(struct{}) *view { return newView(mix, spk) }, nil)
 		c := w.Client()
 		if err := c.Mount(gunim.Root, "sync", "sync", struct{}{}); err != nil {
 			return err
@@ -140,14 +147,39 @@ func (s *notes) Read(dst []float32) (int, error) {
 	return len(dst) / 2, nil
 }
 
-var digitSize = theme.Length("synccheck.digit", 160)
+var (
+	digitSize = theme.FontSize("synccheck.digit", 160)
+	boxDim    = theme.Color("synccheck.box", color.NRGBA{R: 60, G: 60, B: 70, A: 255})
+	boxLit    = theme.Color("synccheck.box.lit", color.NRGBA{R: 80, G: 220, B: 120, A: 255})
+)
+
+// route is what a delay is kept for: the driver and the route playing.
+type route struct {
+	driver, info string
+	route        speaker.Route
+}
+
+func routeOf(st speaker.State) route {
+	r := route{driver: st.Driver, route: st.Route}
+	if st.Info != nil {
+		r.info = st.Info.Driver
+	}
+	return r
+}
 
 type view struct {
-	mix   *audio.Mixer
-	spk   *speaker.Speaker
-	notes *notes
-	// shift moves the picture later, or earlier where negative.
-	shift time.Duration
+	mix *audio.Mixer
+	spk *speaker.Speaker
+	// cal runs the calibration while checking is false; notes plays
+	// the check while it is true.
+	cal      *audioui.Calibrator
+	checking bool
+	notes    *notes
+	voice    *audio.Voice
+	// result is the last calibration accepted, and delays the delay
+	// kept for each route.
+	result calibrate.Result
+	delays map[route]time.Duration
 	// driver and quick are what the speaker was last set to.
 	driver string
 	quick  bool
@@ -157,13 +189,16 @@ type view struct {
 	digit   *widget.Label
 	info    *widget.Label
 	button  []*widget.Button
+	present time.Time
 }
 
-// set opens the speaker as v.driver and v.quick say.
+// set opens the speaker as v.driver and v.quick say, and sets the
+// delay kept for the route it now plays through.
 func (v *view) set() {
 	if err := v.spk.Set(speaker.Options{Name: name, Driver: v.driver, Quick: v.quick}); err != nil {
 		log.Print(err)
 	}
+	v.spk.SetDelay(v.delays[routeOf(v.spk.State())])
 }
 
 // through names the driver playing.
@@ -182,17 +217,22 @@ func onOff(on bool) string {
 	return "off"
 }
 
-func newView(mix *audio.Mixer, spk *speaker.Speaker, n *notes) *view {
-	v := &view{mix: mix, spk: spk, notes: n, driver: native, digit: widget.NewLabel(""),
-		info: widget.NewLabel("")}
+func newView(mix *audio.Mixer, spk *speaker.Speaker) *view {
+	v := &view{mix: mix, spk: spk, driver: native, digit: widget.NewLabel(""), info: widget.NewLabel(""),
+		delays: map[route]time.Duration{}}
 	v.digit.Size = digitSize
-	for _, ms := range []int{-50, -10, 10, 50} {
-		b := widget.NewButton(fmt.Sprintf("%+d ms", ms))
-		b.OnClick = func(*gunim.UI) gunim.Intent {
-			v.shift += time.Duration(ms) * time.Millisecond
-			return nil
-		}
-		v.button = append(v.button, b)
+	v.cal = audioui.NewCalibrator(calibrate.New(mix, spk, calibrate.Options{}))
+	v.cal.OnAccept = func(r calibrate.Result, u *gunim.UI) gunim.Intent {
+		v.result = r
+		v.spk.SetDelay(r.Delay)
+		v.delays[routeOf(v.spk.State())] = r.Delay
+		v.check(true, u)
+		return nil
+	}
+	again := widget.NewButton("Calibrate again")
+	again.OnClick = func(u *gunim.UI) gunim.Intent {
+		v.check(false, u)
+		return nil
 	}
 	sw := widget.NewButton("Switch driver")
 	sw.OnClick = func(*gunim.UI) gunim.Intent {
@@ -219,16 +259,41 @@ func newView(mix *audio.Mixer, spk *speaker.Speaker, n *notes) *view {
 		if st.Info != nil && st.Rate > 0 {
 			device = audio.DurationAt(int64(st.Info.Latency), st.Rate)
 		}
-		log.Printf("SYNCCHECK driver=%q quick=%v route=%v shift=%v latency=%v device=%v", st.Driver, v.quick,
-			st.Route, v.shift, st.Latency.Round(100*time.Microsecond), device.Round(100*time.Microsecond))
-		v.saved, v.savedAt = fmt.Sprintf("Saved: %s, Quick %s, picture %+v.", through(st), onOff(v.quick), v.shift), time.Now()
+		r := v.result
+		log.Printf("SYNCCHECK driver=%q quick=%v route=%v latency=%v device=%v delay=%v within=%v habit=%v sure=%v",
+			st.Driver, v.quick, st.Route, st.Latency.Round(100*time.Microsecond), device.Round(100*time.Microsecond),
+			st.Delay.Round(time.Millisecond), r.Within.Round(time.Millisecond), r.Habit.Round(time.Millisecond), r.Sure())
+		v.saved, v.savedAt = fmt.Sprintf("Saved: %s, Quick %s, delay %v.", through(st), onOff(v.quick),
+			st.Delay.Round(time.Millisecond)), time.Now()
 		return nil
 	}
-	v.button = append(v.button, sw, quick, done)
+	v.button = append(v.button, again, sw, quick, done)
 	return v
 }
 
+// check moves to the check by eye, or back to the calibration, which
+// starts again.
+func (v *view) check(on bool, u *gunim.UI) {
+	v.checking = on
+	if on {
+		v.cal.Calibration().Stop()
+		v.notes = &notes{rate: v.mix.Rate(), mix: v.mix}
+		v.notes.start.Store(-1)
+		v.voice = v.mix.Play(v.notes, audio.Options{})
+	} else {
+		if v.voice != nil {
+			v.voice.Stop(0)
+			v.voice = nil
+		}
+		v.cal.Start(u)
+	}
+	u.Invalidate()
+}
+
 func (v *view) Children() []gunim.Node {
+	if !v.checking {
+		return []gunim.Node{v.cal}
+	}
 	kids := make([]gunim.Node, 0, 2+len(v.button))
 	kids = append(kids, v.digit, v.info)
 	for _, b := range v.button {
@@ -237,18 +302,22 @@ func (v *view) Children() []gunim.Node {
 	return kids
 }
 
-// Step keeps the window drawing every frame.
-func (v *view) Step(time.Duration) bool { return true }
+// Step keeps the window drawing every frame while the check plays.
+func (v *view) Step(time.Duration) bool { return v.checking }
 
-// lit returns the note, 0 to 3, whose number shows now, or -1: a number
-// shows for 250 ms from when its note is heard, moved by shift.
+// lit returns the note, 0 to 3, whose number shows at the frame's
+// present time, or -1: a number shows for 250 ms from when its note is
+// heard, with the delay set on the speaker.
 func (v *view) lit() int {
+	if v.notes == nil {
+		return -1
+	}
 	start := v.notes.start.Load()
 	if start < 0 {
 		return -1
 	}
 	rate := int64(v.notes.rate)
-	h := v.mix.Heard() - start - rate*int64(v.shift)/int64(time.Second)
+	h := v.mix.HeardAt(v.present) - start
 	if h < 0 {
 		return -1
 	}
@@ -260,31 +329,34 @@ func (v *view) lit() int {
 	return -1
 }
 
-func (v *view) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
+func (v *view) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
+	v.present = f.Present
+	if !v.checking {
+		kid := kids.At(0)
+		kid.Layout(gunim.Tight(c.Max))
+		kid.Place(geom.Point{})
+		return c.Max
+	}
 	if b := v.lit(); b >= 0 {
 		v.digit.Text = strconv.Itoa(b + 1)
 	} else {
 		v.digit.Text = ""
 	}
 	st := v.spk.State()
-	later := "later"
-	if v.shift < 0 {
-		later = "earlier"
-	}
-	v.info.Text = fmt.Sprintf("Playing through %s, route %v, Quick %s.\nReported latency %v.\n\nPicture shifted %v %s.\n\n"+
-		"Shift the picture until each number shows exactly as its note sounds. Then press Done.",
-		through(st), st.Route, onOff(v.quick), st.Latency.Round(100*time.Microsecond), v.shift.Abs(), later)
+	v.info.Text = fmt.Sprintf("Playing through %s, route %v, Quick %s.\nReported latency %v, delay measured %v.\n\n"+
+		"Each number should show exactly as its note sounds. If they part, calibrate again.",
+		through(st), st.Route, onOff(v.quick), st.Latency.Round(100*time.Microsecond), st.Delay.Round(time.Millisecond))
 	if time.Since(v.savedAt) < 4*time.Second {
 		v.info.Text += "\n\n" + v.saved
 	}
 	w := c.Max.W - 32
 	i := 0
-	x, y := float32(16), c.Max.H-200
+	x, y := float32(16), c.Max.H-140
 	for kid := range kids.All {
 		switch i {
 		case 0:
 			kid.Layout(gunim.Tight(geom.Sz(w, 220)))
-			kid.Place(geom.Pt(c.Max.W/2-40, 80))
+			kid.Place(geom.Pt(c.Max.W/2-40, 60))
 		case 1:
 			kid.Layout(gunim.Tight(geom.Sz(w, 220)))
 			kid.Place(geom.Pt(16, 320))
@@ -301,17 +373,19 @@ func (v *view) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) g
 	return c.Max
 }
 
-func (v *view) Paint(p *paint.Painter, _ gunim.Frame, size geom.Size, kids gunim.Children) {
-	// Four boxes under the number, the one heard now lit.
-	lit := v.lit()
-	bw := (size.W - 32 - 3*12) / 4
-	for i := range 4 {
-		r := geom.Rect{Min: geom.Pt(16+float32(i)*(bw+12), 280), Max: geom.Pt(16+float32(i)*(bw+12)+bw, 300)}
-		c := color.NRGBA{R: 60, G: 60, B: 70, A: 255}
-		if i == lit {
-			c = color.NRGBA{R: 80, G: 220, B: 120, A: 255}
+func (v *view) Paint(p *paint.Painter, f gunim.Frame, size geom.Size, kids gunim.Children) {
+	if v.checking {
+		// Four boxes under the number, the one heard now lit.
+		lit := v.lit()
+		bw := (size.W - 32 - 3*12) / 4
+		for i := range 4 {
+			r := geom.Rect{Min: geom.Pt(16+float32(i)*(bw+12), 280), Max: geom.Pt(16+float32(i)*(bw+12)+bw, 300)}
+			c := boxDim.Get(f.Theme)
+			if i == lit {
+				c = boxLit.Get(f.Theme)
+			}
+			p.RRect(r, 6, paint.Solid(c))
 		}
-		p.RRect(r, 6, paint.Solid(c))
 	}
 	for kid := range kids.All {
 		kid.Paint(p)
