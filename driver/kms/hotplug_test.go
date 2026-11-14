@@ -134,3 +134,100 @@ func TestKeyWatcher_FindsKeyboardsPluggedInLater(t *testing.T) {
 		t.Fatal("the watcher didn't stop")
 	}
 }
+
+// After the kernel's event queue overflows, the watcher looks at every
+// node again, so a keyboard whose events were lost is still found.
+func TestKeyWatcher_LooksAgainAfterAnOverflow(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "event9"), []byte("keyboard"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	found := make(chan string, 1)
+	w := &keyWatcher{dir: dir, seen: map[string]*inputDev{},
+		open: func(p string) (*inputDev, error) {
+			return &inputDev{fd: -1, path: p, keys: true}, nil
+		},
+		found: func(dev *inputDev) { found <- dev.path },
+	}
+	var readers sync.WaitGroup
+	run := func(fn func()) { readers.Add(1); go func() { defer readers.Done(); fn() }() }
+	if gone := w.handle(unix.IN_Q_OVERFLOW, "", run); gone {
+		t.Fatal("an overflow counted as the watch gone")
+	}
+	select {
+	case p := <-found:
+		if filepath.Base(p) != "event9" {
+			t.Fatalf("found %s", p)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no new look after the overflow")
+	}
+	readers.Wait()
+	if !w.handle(unix.IN_IGNORED, "", run) {
+		t.Fatal("IN_IGNORED didn't count as the watch gone")
+	}
+}
+
+// A folder that isn't there yet is looked for until it is, and one that
+// goes and comes back is watched again.
+func TestKeyWatcher_WaitsForTheFolder(t *testing.T) {
+	saved := keyWatchRetry
+	keyWatchRetry = 20 * time.Millisecond
+	t.Cleanup(func() { keyWatchRetry = saved })
+	dir := filepath.Join(t.TempDir(), "input")
+	stop, err := unix.Eventfd(0, unix.EFD_CLOEXEC|unix.EFD_NONBLOCK)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = unix.Close(stop) }()
+	found := make(chan string, 4)
+	open := func(p string) (*inputDev, error) {
+		if _, err := os.Stat(p); err != nil {
+			return nil, err
+		}
+		return &inputDev{fd: -1, path: p, keys: true}, nil
+	}
+	var readers sync.WaitGroup
+	run := func(fn func()) { readers.Add(1); go func() { defer readers.Done(); fn() }() }
+	if err := watchKeyboards(dir, nil, stop, open, func(dev *inputDev) { found <- dev.path }, run); err != nil {
+		t.Fatalf("a missing folder: %v", err)
+	}
+	plug := func(name string) {
+		t.Helper()
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		tmp := filepath.Join(dir, "new")
+		if err := os.WriteFile(tmp, []byte("keyboard"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Rename(tmp, filepath.Join(dir, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := func(name string) {
+		t.Helper()
+		select {
+		case p := <-found:
+			if filepath.Base(p) != name {
+				t.Fatalf("found %s, want %s", p, name)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s wasn't found", name)
+		}
+	}
+	time.Sleep(60 * time.Millisecond)
+	plug("event1")
+	want("event1")
+	// The folder goes, and comes back with a keyboard at the same node.
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(60 * time.Millisecond)
+	plug("event1")
+	want("event1")
+	if _, err := unix.Write(stop, []byte{1, 0, 0, 0, 0, 0, 0, 0}); err != nil {
+		t.Fatal(err)
+	}
+	readers.Wait()
+}
