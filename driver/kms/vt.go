@@ -266,6 +266,15 @@ func (t *vt) activate(n int) error {
 	return t.c.ioctlInt(t.fd, vtActivate, uintptr(n))
 }
 
+// showing says whether the driver's VT is the one showing.
+func (t *vt) showing() (bool, error) {
+	var st vtStat
+	if err := t.c.ioctl(t.fd, vtGetState, unsafe.Pointer(&st)); err != nil {
+		return false, err
+	}
+	return int(st.active) == t.num, nil
+}
+
 // released tells the kernel the driver has let go of the screen, and the
 // switch away can go ahead.
 func (t *vt) released() error { return t.c.ioctlInt(t.fd, vtRelDisp, 1) }

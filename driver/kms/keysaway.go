@@ -6,6 +6,8 @@ import (
 	"log"
 	"runtime"
 	"unsafe"
+
+	"golang.org/x/sys/unix"
 )
 
 // While another VT shows, the driver reads no keyboard. The kernel's own
@@ -100,19 +102,47 @@ func (d *Driver) setKeysAway(away bool) {
 
 // muteKeyboard masks or clears one keyboard. It runs with keysMu held.
 func (d *Driver) muteKeyboard(dev *inputDev, mute bool) {
-	dev.muted.Store(mute)
 	mask := d.maskKeys
 	if mask == nil {
 		mask = setEventMask
 	}
-	if err := mask(dev, mute); err != nil {
-		// A kernel before 4.4 has no EVIOCSMASK. The reader still drops
-		// what it reads while muted, but the keys reach this process.
-		log.Printf("gunim: kms: %s: can't stop the kernel queueing keys while another VT shows: %v", dev.path, err)
-	}
 	if mute {
+		dev.muted.Store(true)
+		if err := mask(dev, true); err != nil {
+			// A kernel before 4.4 has no EVIOCSMASK. The reader still drops
+			// what it reads while muted, but the keys reach this process.
+			log.Printf("gunim: kms: %s: can't stop the kernel queueing keys while another VT shows: %v", dev.path, err)
+		}
 		drain(dev.fd)
 		return
 	}
+	// A mask left in place would leave the keyboard deaf on the driver's own
+	// VT, Ctrl+Alt+Fn too: try again, and then open the device afresh, as a
+	// new file has no mask.
+	if err := mask(dev, false); err != nil {
+		log.Printf("gunim: kms: %s: clearing the mask: %v; trying again", dev.path, err)
+		if err := mask(dev, false); err != nil {
+			reopen := d.reopenKeys
+			if reopen == nil {
+				reopen = reopenInput
+			}
+			if err := reopen(dev); err != nil {
+				log.Printf("gunim: kms: %s: can't read the keyboard again: %v", dev.path, err)
+			}
+		}
+	}
+	// The reader reads which keys are down before it reads keys again.
 	dev.resumed.Add(1)
+	dev.muted.Store(false)
+}
+
+// reopenInput opens the device again in place of the file the driver
+// reads: the reader polls the same descriptor, now a new file with no mask.
+func reopenInput(dev *inputDev) error {
+	fd, err := unix.Open(dev.path, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NONBLOCK, 0)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = unix.Close(fd) }()
+	return unix.Dup3(fd, dev.fd, unix.O_CLOEXEC)
 }

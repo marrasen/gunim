@@ -237,6 +237,9 @@ type Driver struct {
 	keyDevs  map[*inputDev]struct{}
 	keysAway bool
 	maskKeys func(dev *inputDev, mute bool) error
+	// reopenKeys, if set, stands in for opening a keyboard afresh. Only
+	// tests set it.
+	reopenKeys func(dev *inputDev) error
 	// back says the kernel switched back to the driver's VT, which the
 	// render thread has yet to take the screen back for. watchVT sets it
 	// as the kernel asks, so Showing turns true even where the render
