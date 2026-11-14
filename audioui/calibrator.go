@@ -120,7 +120,7 @@ func NewCalibrator(c *calibrate.Calibration) *Calibrator {
 	})
 	k.again = widget.NewButton("Start over")
 	k.again.OnClick = func(u *gunim.UI) gunim.Intent {
-		k.start(u.Now(), u)
+		k.restart(u.Now(), u)
 		u.Focus(k.target)
 		return nil
 	}
@@ -144,15 +144,23 @@ func (k *Calibrator) Calibration() *calibrate.Calibration { return k.cal }
 // Step implements [anim.Stepper]: the result panel's spring.
 func (k *Calibrator) Step(dt time.Duration) bool { return k.moves.Note(k.Group.Step(dt)) }
 
-// start starts the calibration at t, or again.
-func (k *Calibrator) start(t time.Time, u *gunim.UI) {
+// restart starts the calibration at t, or again.
+func (k *Calibrator) restart(t time.Time, u *gunim.UI) {
 	k.cal.Start(t)
 	k.changed(u)
 }
 
+// Start starts the calibration again from its first pass, at the
+// frame's time, as Try again does: the result slides away.
+func (k *Calibrator) Start(u *gunim.UI) { k.restart(u.Now(), u) }
+
 // changed redoes the words after the calibration moved on, and tells a
-// screen reader of a new stage.
-func (k *Calibrator) changed(u *gunim.UI) {
+// screen reader of a new stage. Once laid out, the result panel moves
+// to the stage on the theme's spring: from u's theme, or th where u is
+// nil, as when the calibration moved on in a frame's layout.
+func (k *Calibrator) changed(u *gunim.UI) { k.changedIn(u.Theme(), u) }
+
+func (k *Calibrator) changedIn(th *theme.Live, u *gunim.UI) {
 	was := k.seen.stage
 	k.words()
 	k.version++
@@ -160,8 +168,8 @@ func (k *Calibrator) changed(u *gunim.UI) {
 	if k.cal.Stage() == calibrate.Done {
 		to = 1
 	}
-	if u != nil && k.laid {
-		k.done.Animate(to, widget.Settle.Get(u.Theme()))
+	if th != nil && k.laid {
+		k.done.Animate(to, widget.Settle.Get(th))
 	} else {
 		k.done.Jump(to)
 	}
@@ -254,7 +262,7 @@ func (k *Calibrator) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Child
 	// The words first, from what the target moved on to this frame: the
 	// target is laid out after them, in the room they leave, but moves
 	// the calibration on first.
-	k.target.update(f.Present)
+	k.target.update(f.Present, f.Theme)
 	y := float32(16) + f.Safe.Top
 	steps := kids.At(1)
 	steps.Layout(gunim.Tight(geom.Sz(w, calSteps)))
@@ -460,12 +468,13 @@ type ripple struct {
 const rippleFor = 450 * time.Millisecond
 
 // update moves the calibration on at present, the frame's present time,
-// and redoes the words where it moved on.
-func (t *calTarget) update(present time.Time) {
+// and redoes the words where it moved on: by its beats running out, or
+// by a call from outside, as Start on the calibration itself.
+func (t *calTarget) update(present time.Time, th *theme.Live) {
 	t.at = present
 	k := t.k
-	if k.cal.Update(present) {
-		k.changed(nil)
+	if k.cal.Update(present) || k.cal.Stage() != k.seen.stage {
+		k.changedIn(th, nil)
 		return
 	}
 	counted, _, practice := k.cal.Progress(present)
@@ -506,7 +515,7 @@ func (t *calTarget) tap(when time.Time, u *gunim.UI) {
 	k := t.k
 	switch k.cal.Stage() {
 	case calibrate.Ready:
-		k.start(when, u)
+		k.restart(when, u)
 		return
 	case calibrate.Done:
 		return

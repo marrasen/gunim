@@ -285,7 +285,7 @@ func (v *view) check(on bool, u *gunim.UI) {
 			v.voice.Stop(0)
 			v.voice = nil
 		}
-		v.cal.Calibration().Start(u.Now())
+		v.cal.Start(u)
 	}
 	u.Invalidate()
 }

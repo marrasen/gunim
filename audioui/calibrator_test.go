@@ -313,3 +313,35 @@ func TestCalibratorPictures(t *testing.T) {
 		}
 	}
 }
+
+// A calibration started again from outside, through Calibration, as an application's own button does, takes the
+// words and the result panel back to the first pass: the panel slides away, frame by frame, with no jump.
+func TestAStartFromOutsideTakesTheResultAway(t *testing.T) {
+	s := newCalStage(t, geom.Sz(380, 640), calibrate.Options{Taps: 4, Practice: 1})
+	s.w.Input(input.KeyPress{Key: input.KeyTab})
+	s.w.Input(input.KeyPress{Key: input.KeySpace})
+	s.run(1)
+	s.tapAlong(0, nil)
+	s.tapAlong(100*time.Millisecond, nil)
+	s.run(60)
+	if s.k.cal.Stage() != calibrate.Done || s.k.done.Value() < 0.99 {
+		t.Fatalf("at %v the result panel is in %v of the way", s.k.cal.Stage(), s.k.done.Value())
+	}
+	s.k.Calibration().Start(s.now)
+	last := float32(1)
+	for i := range 60 {
+		s.run(1)
+		d := s.k.done.Value()
+		if i == 0 && d < 0.5 {
+			t.Fatalf("the frame after the start the result panel is at %v: it jumped away", d)
+		}
+		if d > last+0.05 {
+			t.Fatalf("frame %d the result panel came back, %v to %v", i, last, d)
+		}
+		last = d
+	}
+	if last > 0.01 || s.k.title.Text == "The sound's delay" || s.k.again.Label != "Start over" {
+		t.Fatalf("a second after the start, at %v, the panel is at %v, the title reads %q and the button %q",
+			s.k.cal.Stage(), last, s.k.title.Text, s.k.again.Label)
+	}
+}
