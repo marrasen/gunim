@@ -18,41 +18,6 @@ import (
 	"github.com/marrasen/gunim/widget"
 )
 
-// reduction reads how far the compressor and limiter turn the sound
-// heard down, together, in decibels, below zero: from what the plugin
-// kept for the very frames heard, so it moves with the sound. Between
-// the chunks the sound comes in it holds, and once the sound stops it
-// reads nothing.
-type reduction struct {
-	h    plug.Host
-	l    plug.Listener
-	last float32
-}
-
-func newReduction(h plug.Host) *reduction {
-	_, out := h.Sound()
-	return &reduction{h: h, l: plug.Listener{Sound: out}}
-}
-
-// read reads it, a frame of the window, dt, on, and whether the sound
-// plays.
-func (r *reduction) read(dt time.Duration) (db float32, live bool) {
-	frames, _, playing := r.l.Hear(4096, dt)
-	switch {
-	case len(frames) > 0:
-		end := r.l.At()
-		r.last = 0
-		for f := end - int64(len(frames)/2); f < end; f += plug.TraceFrames {
-			c, _ := r.h.Traced(CompGRID, f)
-			l, _ := r.h.Traced(LimitGRID, f)
-			r.last = min(r.last, c+l)
-		}
-	case !playing:
-		r.last = 0
-	}
-	return r.last, playing
-}
-
 // vuOf reads the level of a sound in VU, 0 VU at ref() dBFS: the
 // average of the frames heard since the last chunk, as a VU meter
 // rectifies, held between chunks, and whether the sound plays.
@@ -84,13 +49,14 @@ func vuOf(s plug.Sound, ref func() float64) func(time.Duration) (float32, bool) 
 type chip struct {
 	label  *plugui.ChipText
 	values map[uint32]float64
-	r      *reduction
+	r      *plugui.Reduced
 	shown  *anim.Float
 	group  anim.Group
 }
 
 func newChip(h plug.Host) *chip {
-	c := &chip{label: plugui.NewChipText(""), values: map[uint32]float64{}, r: newReduction(h), shown: anim.NewFloat(0)}
+	c := &chip{label: plugui.NewChipText(""), values: map[uint32]float64{}, r: plugui.NewReduced(h, CompGRID, LimitGRID),
+		shown: anim.NewFloat(0)}
 	for _, id := range []uint32{CompOnID, CompRatioID, LimitOnID, LimitCeilingID} {
 		c.values[id] = h.Param(id)
 	}
@@ -141,7 +107,7 @@ func (c *chip) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.
 
 // Step implements [gunim.Animator]: the bar follows the reduction.
 func (c *chip) Step(dt time.Duration) bool {
-	db, live := c.r.read(dt)
+	db, live := c.r.Read(dt)
 	c.shown.Animate(db, anim.Snappy)
 	return c.group.Step(dt) || live
 }
@@ -160,7 +126,9 @@ func (c *chip) Follow(id uint32, v float64, u *gunim.UI) {
 
 // panel is the history of the sound, beside two VU meters, of how far
 // the compressor and limiter turn the sound down and of the sound that
-// comes out, over the sections' knobs.
+// comes out, over the sections' knobs, with a bar in the gate's, the
+// compressor's and the limiter's section of how far each turns the
+// sound down.
 type panel struct {
 	hist *plugui.History
 	// marks are where the history's lines are drawn: the thresholds and
@@ -190,7 +158,7 @@ type panel struct {
 const keySection = 3
 
 func newPanel(h plug.Host) *panel {
-	r := newReduction(h)
+	r := plugui.NewReduced(h, CompGRID, LimitGRID)
 	_, out := h.Sound()
 	p := &panel{ref: h.Param(MeterID),
 		tuner: plugui.NewTuner("Tune how the sound shows behind the controls")}
@@ -206,7 +174,7 @@ func newPanel(h plug.Host) *panel {
 		{Name: "THRESHOLD", Color: widget.Ink, At: func() (float64, bool) { return m.compAt, m.compOn }},
 		{Name: "CEILING", Color: HistoryCut, At: func() (float64, bool) { return m.ceiling, m.limOn }},
 	}, false)
-	p.gr = newVU("GAIN REDUCTION", r.read)
+	p.gr = newVU("GAIN REDUCTION", r.Read)
 	p.out = newVU("OUTPUT", vuOf(out, func() float64 { return p.ref }))
 	p.zero = plugui.NewTrimPot(h, param(MeterID))
 	p.zero.Tooltip = "The level that reads 0 VU on the output meter, in dBFS"
@@ -238,10 +206,13 @@ func newPanel(h plug.Host) *panel {
 	side.Add(p.side, 56).Add(p.listen, 32)
 	p.sections = []*plugui.Section{
 		plugui.NewSection(h, &Descriptor, "INPUT", 0, InputID),
-		plugui.NewSection(h, &Descriptor, "GATE", GateOnID, GateThresholdID, GateRangeID, GateAttackID, GateReleaseID),
-		plugui.NewSection(h, &Descriptor, "COMPRESSOR", CompOnID, CompThresholdID, CompRatioID, CompKneeID, CompAttackID, CompReleaseID, CompMakeupID),
+		plugui.NewSection(h, &Descriptor, "GATE", GateOnID, GateThresholdID, GateRangeID, GateAttackID, GateReleaseID).
+			Meter(h, HistoryGate, gateBarDB, GateGRID),
+		plugui.NewSection(h, &Descriptor, "COMPRESSOR", CompOnID, CompThresholdID, CompRatioID, CompKneeID, CompAttackID, CompReleaseID, CompMakeupID).
+			Meter(h, HistoryCut, barDB, CompGRID),
 		side,
-		plugui.NewSection(h, &Descriptor, "LIMITER", LimitOnID, LimitCeilingID, LimitReleaseID),
+		plugui.NewSection(h, &Descriptor, "LIMITER", LimitOnID, LimitCeilingID, LimitReleaseID).
+			Meter(h, HistoryCut, barDB, LimitGRID),
 		plugui.NewSection(h, &Descriptor, "OUTPUT", 0, OutputID),
 	}
 	p.key = newKeyBolt(h)
@@ -301,11 +272,15 @@ func (p *panel) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) 
 }
 
 // The panel's sizes: how far in from its edges the glass stands, how
-// tall the meters are at most, and the room round them on their pane.
+// tall the meters are at most, the room round them on their pane, and
+// how many decibels fill the bar in a section's head, the gate's and
+// the others'.
 const (
 	panelInset = 16
 	meterH     = 130
 	meterPad   = 10
+	gateBarDB  = 40
+	barDB      = 12
 )
 
 // Paint implements [gunim.Node]: the history, then on it the meters'

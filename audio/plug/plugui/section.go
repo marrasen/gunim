@@ -1,6 +1,7 @@
 package plugui
 
 import (
+	"image/color"
 	"math"
 
 	"github.com/marrasen/gunim"
@@ -9,19 +10,22 @@ import (
 	"github.com/marrasen/gunim/audioui"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/paint"
+	"github.com/marrasen/gunim/theme"
 	"github.com/marrasen/gunim/widget"
 )
 
 // Section is a part of a plugin's controls, on a card of glass: its
 // name, after a power lamp where it can be switched off; its knobs,
-// greyed while it is off; and after them any other controls it has, as
-// a selector or a button.
+// greyed while it is off; after them any other controls it has, as a
+// selector or a button; and, at the right of its head, a bar of how far
+// it turns the sound down, where it has a meter.
 type Section struct {
 	Name   string
 	On     uint32
 	Switch *Power
 	Knobs  []*Knob
 	extras []extra
+	bar    *sectionBar
 	size   geom.Size
 }
 
@@ -71,6 +75,23 @@ func (s *Section) Add(n gunim.Node, w float32) *Section {
 	return s
 }
 
+// Meter puts a bar at the right of the section's head of how far its
+// part turns the sound h gives down: the sum of what the processor keeps
+// by frame of ids, in c, full decibels filling it.
+func (s *Section) Meter(h plug.Host, c theme.Token[color.NRGBA], full float64, ids ...uint32) *Section {
+	s.bar = newSectionBar(NewReduced(h, ids...), c, full)
+	return s
+}
+
+// Metered returns the IDs the section's bar sums, or none where it has
+// no bar.
+func (s *Section) Metered() []uint32 {
+	if s.bar == nil {
+		return nil
+	}
+	return s.bar.r.ids
+}
+
 // dim greys the knobs while the section is off.
 func (s *Section) dim(on bool) {
 	for _, k := range s.Knobs {
@@ -78,14 +99,19 @@ func (s *Section) dim(on bool) {
 	}
 }
 
-// Width is how wide the section is: its controls', or its name's,
-// after the power lamp, where that is wider.
+// Width is how wide the section is: its controls', or its head's, the
+// name after the power lamp and the bar at its least, where that is
+// wider.
 func (s *Section) Width() float32 {
 	w := float32(len(s.Knobs))*KnobW + 2*SectionPad
 	for _, e := range s.extras {
 		w += e.w + SectionPad
 	}
-	return max(w, s.nameX()+audioui.Shaped(s.Name, sectionText, true, false).Advance+SectionPad)
+	head := s.nameEnd()
+	if s.bar != nil {
+		head += sectionBarMin + SectionPad
+	}
+	return max(w, head)
 }
 
 // sectionText is how big the section's name is.
@@ -98,6 +124,11 @@ func (s *Section) nameX() float32 {
 		return SectionPad + PowerSize
 	}
 	return SectionPad
+}
+
+// nameEnd is where the room after the section's name starts.
+func (s *Section) nameEnd() float32 {
+	return s.nameX() + audioui.Shaped(s.Name, sectionText, true, false).Advance + SectionPad
 }
 
 // Follow takes a parameter set elsewhere, where it is the section's.
@@ -116,7 +147,7 @@ func (s *Section) Follow(id uint32, v float64, u *gunim.UI) {
 
 // Children implements [gunim.Composite]: the switch first, as Tab reaches it before the knobs.
 func (s *Section) Children() []gunim.Node {
-	kids := make([]gunim.Node, 0, len(s.Knobs)+len(s.extras)+1)
+	kids := make([]gunim.Node, 0, len(s.Knobs)+len(s.extras)+2)
 	if s.Switch != nil {
 		kids = append(kids, s.Switch)
 	}
@@ -126,12 +157,16 @@ func (s *Section) Children() []gunim.Node {
 	for _, e := range s.extras {
 		kids = append(kids, e.n)
 	}
+	if s.bar != nil {
+		kids = append(kids, s.bar)
+	}
 	return kids
 }
 
 // Layout implements [gunim.Node]: the knobs in a row under the name,
 // the other controls after them, each in the middle of the knobs'
-// height, and the switch at the top right.
+// height, the switch at the top left, and the bar at the top right, as
+// wide as the room after the name lets it.
 func (s *Section) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
 	s.size = c.Constrain(geom.Sz(s.Width(), SectionH))
 	first := 0
@@ -153,6 +188,12 @@ func (s *Section) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children
 		sz := k.Layout(gunim.Constraints{Min: geom.Sz(e.w, 0), Max: geom.Sz(e.w, KnobH)})
 		k.Place(geom.Pt(x, SectionHead+(KnobH-sz.H)/2))
 		x += e.w
+	}
+	if s.bar != nil {
+		k := kids.At(kids.Len() - 1)
+		w := max(min(s.size.W-SectionPad-s.nameEnd(), sectionBarMax), 0)
+		k.Layout(gunim.Tight(geom.Sz(w, sectionBarH)))
+		k.Place(geom.Pt(s.size.W-SectionPad-w, SectionHead/2+2-sectionBarH/2))
 	}
 	return s.size
 }
