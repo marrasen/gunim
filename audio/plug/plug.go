@@ -276,6 +276,10 @@ type ControlPort struct {
 	// falls past the block's end. A host joins a trigger output only to
 	// a trigger input, and the other way round.
 	Trigger bool
+	// Ahead is how long before a hit lands the plugin asks to hear of
+	// it, in [Block.Hits], for a trigger input: a riser that lands on
+	// the hit. It is at most [MaxHitAhead]. Zero asks for none.
+	Ahead time.Duration
 	// Measures says what an output reports of the plugin's processing,
 	// for a host to draw as a meter. A measuring port runs in dB, at
 	// most 0.
@@ -716,6 +720,15 @@ func checkPorts(d *Descriptor) error {
 	for _, p := range d.ControlIn {
 		if p.Measures != MeasureNone {
 			return fmt.Errorf("%s: control input %q measures %v, which only an output may", d.ID, p.Name, p.Measures)
+		}
+		if p.Ahead < 0 || p.Ahead > MaxHitAhead || p.Ahead > 0 && !p.Trigger {
+			return fmt.Errorf("%s: control input %q hears of hits %v ahead, which takes a trigger and a duration from zero to %v",
+				d.ID, p.Name, p.Ahead, MaxHitAhead)
+		}
+	}
+	for _, p := range d.ControlOut {
+		if p.Ahead != 0 {
+			return fmt.Errorf("%s: control output %q hears of hits %v ahead, which only an input may", d.ID, p.Name, p.Ahead)
 		}
 	}
 	for _, p := range d.ControlOut {
