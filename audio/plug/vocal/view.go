@@ -27,50 +27,17 @@ var (
 	TargetLine = theme.Color("vocal.target", color.NRGBA{R: 0x5a, G: 0xd8, B: 0x9a, A: 0xff})
 )
 
-// downOf reads how far the two compressors turn the voice heard down,
-// together: from what the processor kept for the frames heard, held
-// between the chunks the sound comes in, nothing once it stops.
-type downOf struct {
-	h    plug.Host
-	l    plug.Listener
-	last float32
-}
-
-func newDownOf(h plug.Host) *downOf {
-	_, out := h.Sound()
-	return &downOf{h: h, l: plug.Listener{Sound: out}}
-}
-
-// read reads it, a frame of the window, dt, on, and whether the sound
-// plays.
-func (r *downOf) read(dt time.Duration) (db float32, live bool) {
-	frames, _, playing := r.l.Hear(4096, dt)
-	switch {
-	case len(frames) > 0:
-		end := r.l.At()
-		r.last = 0
-		for f := end - int64(len(frames)/2); f < end; f += plug.TraceFrames {
-			peak, _ := r.h.Traced(PeakGRID, f)
-			glue, _ := r.h.Traced(GlueGRID, f)
-			r.last = min(r.last, peak+glue)
-		}
-	case !playing:
-		r.last = 0
-	}
-	return r.last, playing
-}
-
 // chip shows, in a plugin's chip in a chain, the plugin's name, and a
 // bar of how far the compressors turn the voice down, from the right.
 type chip struct {
 	label *plugui.ChipText
-	r     *downOf
+	r     *plugui.Reduced
 	shown *anim.Float
 	group anim.Group
 }
 
 func newChip(h plug.Host) *chip {
-	c := &chip{label: plugui.NewChipText("Vocal"), r: newDownOf(h), shown: anim.NewFloat(0)}
+	c := &chip{label: plugui.NewChipText("Vocal"), r: plugui.NewReduced(h, PeakGRID, GlueGRID), shown: anim.NewFloat(0)}
 	c.group.Add(c.shown)
 	return c
 }
@@ -105,7 +72,7 @@ func (c *chip) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.
 
 // Step implements [gunim.Animator]: the bar follows the reduction.
 func (c *chip) Step(dt time.Duration) bool {
-	db, live := c.r.read(dt)
+	db, live := c.r.Read(dt)
 	c.shown.Animate(db, anim.Snappy)
 	return c.group.Step(dt) || live
 }
@@ -116,7 +83,9 @@ func (c *chip) Access() access.Info { return c.label.Access() }
 // panel is the voice's history, filling the panel, with how far the
 // gate, the de-esser and the compressors turn it down; over it, on
 // glass, the macros and Learn, and, in full, a section for each part of
-// the chain.
+// the chain, with a bar in the gate's, the de-esser's and each
+// compressor's of how far it turns the voice down, in its colour in the
+// history.
 type panel struct {
 	p        *plugin
 	h        plug.Host
@@ -134,6 +103,13 @@ type panel struct {
 	// least is the size the panel lays out at least at: the window view's least size in full, and none otherwise.
 	least geom.Size
 }
+
+// How many decibels fill the bar in a section's head: the gate's, and
+// the de-esser's and each compressor's.
+const (
+	gateBarDB = 40
+	barDB     = 12
+)
 
 // The macros, in their row.
 var macroIDs = []uint32{DeEssID, RumbleID, PresenceID, SquashID, ParallelID, TapeID, OctaveID, WidthID}
@@ -167,13 +143,17 @@ func newPanel(pl *plugin, h plug.Host, full bool) *panel {
 	if full {
 		p.least = Descriptor.ViewMinSize
 		p.sections = append(p.sections,
-			plugui.NewSection(h, &Descriptor, "GATE", GateOnID, GateThresholdID, GateRangeID, GateReleaseID),
-			plugui.NewSection(h, &Descriptor, "DE-ESSER", DeEssOnID, DeEssFreqID, DeEssThresholdID, DeEssRangeID),
+			plugui.NewSection(h, &Descriptor, "GATE", GateOnID, GateThresholdID, GateRangeID, GateReleaseID).
+				Meter(h, GateColor, gateBarDB, GateGRID),
+			plugui.NewSection(h, &Descriptor, "DE-ESSER", DeEssOnID, DeEssFreqID, DeEssThresholdID, DeEssRangeID).
+				Meter(h, DeEssColor, barDB, DeEssGRID),
 			plugui.NewSection(h, &Descriptor, "LEVELS", 0, InputID, OutputID, WidthFreqID),
 			plugui.NewSection(h, &Descriptor, "CLEAN EQ", CleanOnID, LowShelfFqID, LowShelfID, MudFreqID, MudGainID, MudQID),
 			plugui.NewSection(h, &Descriptor, "TONE EQ", ToneOnID, HighPassID, PresenceFreqID, PresenceGainID, AirFreqID, AirGainID),
-			plugui.NewSection(h, &Descriptor, "PEAK COMP", PeakOnID, PeakThresholdID, PeakRatioID, PeakAttackID, PeakReleaseID),
-			plugui.NewSection(h, &Descriptor, "GLUE COMP", GlueOnID, GlueThresholdID, GlueRatioID, GlueAttackID, GlueReleaseID),
+			plugui.NewSection(h, &Descriptor, "PEAK COMP", PeakOnID, PeakThresholdID, PeakRatioID, PeakAttackID, PeakReleaseID).
+				Meter(h, PeakColor, barDB, PeakGRID),
+			plugui.NewSection(h, &Descriptor, "GLUE COMP", GlueOnID, GlueThresholdID, GlueRatioID, GlueAttackID, GlueReleaseID).
+				Meter(h, GlueColor, barDB, GlueGRID),
 		)
 	}
 	return p

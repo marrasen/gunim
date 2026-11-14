@@ -2,6 +2,7 @@ package dynamics
 
 import (
 	"math"
+	"slices"
 	"testing"
 	"time"
 
@@ -138,5 +139,19 @@ func TestEachSectionsPowerLampStandsAtTheLeftOfItsHead(t *testing.T) {
 	if lamp.Size() != geom.Sz(plugui.PowerSize, plugui.PowerSize) || lamp.Min.X > sec.Min.X+plugui.SectionPad ||
 		lamp.Max.Y > knob.Min.Y || lamp.Min.Y < sec.Min.Y {
 		t.Errorf("the compressor's lamp is at %v, in the section at %v over its knob at %v", lamp, sec, knob)
+	}
+}
+
+func TestThePartsThatTurnTheSoundDownHaveABar(t *testing.T) {
+	p, h := newDynamics(t)
+	pn, ok := p.View(plug.Panel, h).(*panel)
+	if !ok {
+		t.Fatal("the panel is of another type")
+	}
+	want := map[string][]uint32{"GATE": {GateGRID}, "COMPRESSOR": {CompGRID}, "LIMITER": {LimitGRID}}
+	for _, s := range pn.sections {
+		if !slices.Equal(s.Metered(), want[s.Name]) {
+			t.Errorf("%s has a bar of %v, want of %v", s.Name, s.Metered(), want[s.Name])
+		}
 	}
 }

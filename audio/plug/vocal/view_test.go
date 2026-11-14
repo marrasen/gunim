@@ -1,6 +1,7 @@
 package vocal
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -128,5 +129,16 @@ func TestEverySectionShowsInFullAndNoneOverlaps(t *testing.T) {
 	}
 	if pn.learn.Value != "No track" || !pn.learn.Disabled {
 		t.Errorf("with no track, Learn reads %q, disabled %v", pn.learn.Value, pn.learn.Disabled)
+	}
+}
+
+func TestThePartsThatTurnTheVoiceDownHaveABar(t *testing.T) {
+	p := Descriptor.New(nil).(*plugin)
+	pn := p.View(plug.Full, &host{values: map[uint32]float64{}}).(*panel)
+	want := map[string][]uint32{"GATE": {GateGRID}, "DE-ESSER": {DeEssGRID}, "PEAK COMP": {PeakGRID}, "GLUE COMP": {GlueGRID}}
+	for _, s := range pn.sections {
+		if !slices.Equal(s.Metered(), want[s.Name]) {
+			t.Errorf("%s has a bar of %v, want of %v", s.Name, s.Metered(), want[s.Name])
+		}
 	}
 }
