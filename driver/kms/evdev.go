@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unsafe"
 
@@ -103,6 +104,11 @@ type inputDev struct {
 	fd   int
 	path string
 	name string
+	// muted says another VT shows, so the keyboard's events are not the
+	// driver's; resumed counts the returns, after which the reader reads
+	// which keys are down again (keysaway.go).
+	muted   atomic.Bool
+	resumed atomic.Uint32
 	// touch says it is a touch screen: direct, with multi-touch slots.
 	// keys says it has letter keys, as a keyboard has.
 	touch, keys bool

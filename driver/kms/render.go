@@ -192,6 +192,7 @@ func (r *renderThread) start() error {
 		d.mu.Lock()
 		d.away = true
 		d.mu.Unlock()
+		d.setKeysAway(true)
 		d.tell()
 		if err := d.scr.card.dropMaster(); err != nil {
 			log.Printf("gunim: kms: let go of the screen: %v", err)
@@ -869,6 +870,7 @@ func (r *renderThread) left() float32 {
 	d.away, d.back = true, false
 	level := d.blank.level
 	d.mu.Unlock()
+	d.setKeysAway(true)
 	d.tell()
 	return level
 }
@@ -897,6 +899,7 @@ func (r *renderThread) returned(now time.Time) {
 	d.away, d.back = false, false
 	d.blank.wake(now)
 	d.mu.Unlock()
+	d.setKeysAway(false)
 	r.prevFlip, r.prevSeq = time.Time{}, 0
 	d.tell()
 }

@@ -138,9 +138,11 @@ type Options struct {
 	VT string
 	// VTSwitch takes Ctrl+Alt+F1 to F12 from a keyboard, which the VT's
 	// own keyboard handling would, to switch VT. A keyboard plugged in
-	// later is read from then on, as the driver watches /dev/input. The
-	// switch waits on the render thread to let go of the screen, so a render
-	// thread stuck on a hung GPU holds every VT switch.
+	// later is read from then on, as the driver watches /dev/input. While
+	// another VT shows, the driver reads no keyboard: the kernel queues
+	// none of their events for it, and its own keyboard handling switches
+	// back. The switch waits on the render thread to let go of the
+	// screen, so a render thread stuck on a hung GPU holds every VT switch.
 	VTSwitch bool
 	// Software draws with Mesa's software renderer even where there is a
 	// GPU.
@@ -228,6 +230,13 @@ type Driver struct {
 	blank *blanker
 	// away says another VT has the screen: touches then reach no window.
 	away bool
+	// keysMu guards keyDevs, the keyboards being read, and keysAway, which
+	// says they are masked as another VT shows (keysaway.go). maskKeys, if
+	// set, stands in for EVIOCSMASK. Only tests set it.
+	keysMu   sync.Mutex
+	keyDevs  map[*inputDev]struct{}
+	keysAway bool
+	maskKeys func(dev *inputDev, mute bool) error
 	// back says the kernel switched back to the driver's VT, which the
 	// render thread has yet to take the screen back for. watchVT sets it
 	// as the kernel asks, so Showing turns true even where the render

@@ -165,7 +165,8 @@ func (k *fakeKeyboards) open(p string) (*inputDev, error) {
 		return nil, err
 	}
 	var fds [2]int
-	if err := unix.Pipe2(fds[:], unix.O_CLOEXEC); err != nil {
+	// Not blocking, as a device's file: the driver drains it as another VT takes the screen.
+	if err := unix.Pipe2(fds[:], unix.O_CLOEXEC|unix.O_NONBLOCK); err != nil {
 		k.t.Fatal(err)
 	}
 	k.mu.Lock()
