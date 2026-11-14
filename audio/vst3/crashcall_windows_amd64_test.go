@@ -2,6 +2,7 @@ package vst3
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -471,9 +472,17 @@ func TestCrashesInACall(t *testing.T) {
 	for _, name := range []string{"crash", "system", "registers", "own", "vectored", "throw", "throwgcc", "helper", "unowned", "freed", "gonefree", "preparegone", "sharedown", "sharedfault", "sharedafter", "setstate", "shared", "reused", "loaderlock", "partbus", "ctrlstate", "everyplace", "realplace", "thread", "busy"} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			cmd := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestCrashCase$", "-test.v", "-test.timeout=120s")
+			// Past the helper's own limit, for a helper that can't end itself: the kill needs no lock of the helper's.
+			const limit = 150 * time.Second
+			ctx, cancel := context.WithTimeout(t.Context(), limit)
+			defer cancel()
+			cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestCrashCase$", "-test.v", "-test.timeout=120s")
 			cmd.Env = append(os.Environ(), crashCaseEnv+"="+name)
+			cmd.WaitDelay = 10 * time.Second
 			out, err := cmd.CombinedOutput()
+			if ctx.Err() != nil {
+				t.Fatalf("the helper process hadn't ended after %v and was killed (%v); its output:\n%s", limit, err, out)
+			}
 			if err != nil {
 				t.Fatalf("%v\n%s", err, out)
 			}
@@ -599,6 +608,26 @@ func runReusedCase(t *testing.T) {
 	fmt.Println("lived")
 }
 
+// spareThreads has Go start n threads and leave them idle, and returns once every thread Go started is running.
+func spareThreads(n int) {
+	// A collection stops each thread that was given work, so it ends only once those have started.
+	defer runtime.GC()
+	var ready, done sync.WaitGroup
+	release := make(chan struct{})
+	for range n {
+		ready.Add(1)
+		done.Go(func() {
+			runtime.LockOSThread()
+			defer runtime.UnlockOSThread()
+			ready.Done()
+			<-release
+		})
+	}
+	ready.Wait()
+	close(release)
+	done.Wait()
+}
+
 // runLoaderLockCase holds the loader's lock on another thread, as a thread held in a plugin may: reading the crashes and
 // a crash itself of a module known wait on nothing.
 func runLoaderLockCase(t *testing.T) {
@@ -612,6 +641,13 @@ func runLoaderLockCase(t *testing.T) {
 	if err := lock.Find(); err != nil {
 		t.Fatal(err)
 	}
+	// A thread started while the lock is held never runs, so Go gets the threads it may need first.
+	spareThreads(runtime.GOMAXPROCS(0) + 4)
+	// A normal end waits on the lock too, so from here a failure ends the process at once.
+	fail := func(format string, args ...any) {
+		fmt.Printf("FAIL: "+format+"\n", args...)
+		EndNow(1)
+	}
 	held := make(chan struct{})
 	go func() {
 		runtime.LockOSThread()
@@ -620,7 +656,11 @@ func runLoaderLockCase(t *testing.T) {
 		close(held)
 		select {}
 	}()
-	<-held
+	select {
+	case <-held:
+	case <-time.After(10 * time.Second):
+		fail("the loader's lock wasn't taken in 10s")
+	}
 	done := make(chan []Crash, 1)
 	go func() {
 		callN(at, nil)
@@ -629,10 +669,10 @@ func runLoaderLockCase(t *testing.T) {
 	select {
 	case cs := <-done:
 		if len(cs) != 1 || cs[0].Module != file {
-			t.Fatalf("crashes: %+v", cs)
+			fail("crashes: %+v", cs)
 		}
 	case <-time.After(10 * time.Second):
-		t.Fatal("it waits on the loader's lock")
+		fail("it waits on the loader's lock")
 	}
 	fmt.Println("lived")
 	// The loader's lock stays held, so this process ends without running its modules' exits.
