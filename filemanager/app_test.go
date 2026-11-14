@@ -133,7 +133,7 @@ func (h *harness) until(what string, cond func() bool) {
 	deadline := time.Now().Add(untilLimit)
 	for !cond() {
 		if time.Now().After(deadline) {
-			var running []string
+			running := make([]string, 0, len(h.a.ops.running))
 			for _, r := range h.a.ops.running {
 				running = append(running, r.title)
 			}
