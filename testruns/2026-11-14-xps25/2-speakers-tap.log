@@ -1,0 +1,26 @@
+Press Enter on each click you hear, 20 times. The first 3 presses are practice.
+press  1: unplayed   +104ms  buffered   +170ms
+press  2: unplayed    +36ms  buffered   +100ms
+press  3: unplayed    +29ms  buffered    +90ms
+press  4: unplayed    +24ms  buffered    +90ms
+press  5: unplayed    +47ms  buffered   +110ms
+press  6: unplayed    +34ms  buffered   +100ms
+press  7: unplayed    +21ms  buffered    +90ms
+press  8: unplayed    +21ms  buffered    +90ms
+press  9: unplayed     +7ms  buffered    +70ms
+press 10: unplayed    +41ms  buffered   +110ms
+press 11: unplayed    +46ms  buffered   +110ms
+press 12: unplayed    +35ms  buffered   +100ms
+press 13: unplayed    +32ms  buffered   +100ms
+press 14: unplayed    +17ms  buffered    +80ms
+press 15: unplayed    +37ms  buffered   +100ms
+press 16: unplayed    +36ms  buffered   +100ms
+press 17: unplayed    +30ms  buffered   +100ms
+press 18: unplayed    +49ms  buffered   +110ms
+press 19: unplayed    +35ms  buffered   +100ms
+press 20: unplayed    +13ms  buffered    +80ms
+press 21: unplayed     +4ms  buffered    +70ms
+press 22: unplayed     +9ms  buffered    +70ms
+press 23: unplayed    +10ms  buffered    +70ms
+TAP median offset past the click: with UnplayedSize +32 ms, with BufferedSize +100 ms, 20 presses
+DONE <nil>
