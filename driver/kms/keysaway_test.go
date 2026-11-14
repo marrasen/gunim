@@ -69,7 +69,7 @@ func newKeysWorld(t *testing.T, active int) *keysWorld {
 		w.d.readers.Add(1)
 		go func() { defer w.d.readers.Done(); fn() }()
 	}
-	if err := watchKeyboards(w.dir, nil, stop, w.kb.open, w.d.readKeys, run); err != nil {
+	if err := watchKeyboards(w.dir, nil, nil, stop, w.kb.open, w.d.readKeys, run); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(w.close)
@@ -275,4 +275,32 @@ func TestKeys_MaskIsWholeLongs(t *testing.T) {
 	if maskBytes != 8 || maskBytes*8 < evCnt {
 		t.Fatalf("the mask is %d bytes", maskBytes)
 	}
+}
+
+// A keyboard read again while another VT shows, after its reader ended with
+// its node still there, is masked as it is opened, and switches nothing
+// until the driver's VT is back.
+func TestKeys_AKeyboardReadAgainWhileAwayIsMasked(t *testing.T) {
+	shortReopen(t, 20*time.Millisecond, 100*time.Millisecond)
+	w := newKeysWorld(t, 2)
+	a := w.plug("event1")
+	w.r.left()
+	w.maskMu.Lock()
+	delete(w.muted, "event1")
+	w.maskMu.Unlock()
+	w.kb.unplug(a) // the reader ends; the node stays
+	waitFor(t, "the keyboard wasn't opened again", func() bool { return w.kb.opened(a) == 2 })
+	waitFor(t, "the keyboard wasn't read again", func() bool {
+		w.d.keysMu.Lock()
+		defer w.d.keysMu.Unlock()
+		return len(w.d.keyDevs) == 1
+	})
+	if m, asked := w.isMuted("event1"); !asked || !m {
+		t.Fatal("the keyboard read again while away wasn't masked")
+	}
+	w.kb.typeKeys(a, keyF1+2)
+	w.noSwitch("while another VT showed")
+	w.r.returned(time.Now())
+	w.kb.typeKeys(a, keyF1+2)
+	w.wantSwitch(3)
 }

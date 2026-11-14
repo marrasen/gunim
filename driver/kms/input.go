@@ -196,22 +196,24 @@ func (d *Driver) startInput() {
 	case d.touch != nil:
 		run(func() { d.readTouch(d.touch) })
 	}
-	for _, k := range d.keys {
-		run(func() { d.readKeys(k) })
-	}
 	if d.o.VTSwitch {
 		// A keyboard plugged in later must reach the other VTs too: the
-		// driver turned the kernel's keyboard off on this one.
-		known := make([]string, 0, len(d.keys)+1)
-		for _, k := range d.keys {
-			known = append(known, k.path)
-		}
+		// driver turned the kernel's keyboard off on this one. The watcher
+		// reads Open's keyboards too, so one whose reader ends while its
+		// node stays is read again, and closes them.
+		var known []string
 		if d.touch != nil {
 			known = append(known, d.touch.path)
 		}
-		if err := watchKeyboards("/dev/input", known, d.stop, openInput, d.readKeys, run); err != nil {
-			log.Printf("gunim: kms: can't watch /dev/input for keyboards plugged in later: %v", err)
+		err := watchKeyboards("/dev/input", d.keys, known, d.stop, openInput, d.readKeys, run)
+		if err == nil {
+			d.keys = nil
+			return
 		}
+		log.Printf("gunim: kms: can't watch /dev/input for keyboards plugged in later: %v", err)
+	}
+	for _, k := range d.keys {
+		run(func() { d.readKeys(k) })
 	}
 }
 
