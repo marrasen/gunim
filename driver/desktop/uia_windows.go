@@ -405,6 +405,14 @@ func (uw *uiaWindow) diff(o, n *access.Node, root bool) {
 		was, is := o.Name, n.Name
 		uw.raise(func() { uw.changed(id, propName, stringVariant(was), stringVariant(is)) })
 	}
+	if o.State.Has(access.StateDisabled) != n.State.Has(access.StateDisabled) && !root {
+		was, is := !o.State.Has(access.StateDisabled), !n.State.Has(access.StateDisabled)
+		uw.raise(func() { uw.changed(id, propIsEnabled, boolVariant(was), boolVariant(is)) })
+	}
+	if o.Description != n.Description {
+		was, is := o.Description, n.Description
+		uw.raise(func() { uw.changed(id, propHelpText, stringVariant(was), stringVariant(is)) })
+	}
 	switch {
 	case n.Range != nil && (o.Range == nil || o.Range.Value != n.Range.Value):
 		was, is := n.Range.Value, n.Range.Value

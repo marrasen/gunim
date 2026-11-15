@@ -97,3 +97,12 @@ func TestScreenReadersReadAndPressThroughATSPI(t *testing.T) {
 		}
 	}
 }
+
+// A node's description reaches a screen reader through AT-SPI as the Description property, without a bus.
+func TestTheDescriptionReachesATSPI(t *testing.T) {
+	o := &object{node: &access.Node{ID: 2, Info: access.Info{Role: access.RoleButton, Name: "Save",
+		Description: "Works only with the Echo up", State: access.StateDisabled}}}
+	if v, ok := o.property(ifAccessible, "Description"); !ok || v != "Works only with the Echo up" {
+		t.Fatalf("AT-SPI reads the description as %v (%v), want the node's", v, ok)
+	}
+}
