@@ -2038,11 +2038,11 @@ type UI struct {
 	// theme, a scroll or a drag move: only then are Steady nodes' subtrees
 	// carried (steady.go). keptPainted counts the nodes painted for a
 	// [Drawing].
-	stirred bool
-	calm    bool
-	// themeMoved is the frame in which the window's theme last moved.
-	themeMoved  uint64
+	stirred     bool
+	calm        bool
 	keptPainted int
+	// themeMoved is the frame in which the window's theme last moved.
+	themeMoved uint64
 	// pending holds intents the application has yet to take. See
 	// [UI.post] for why it grows instead of blocking or dropping.
 	pending []Envelope

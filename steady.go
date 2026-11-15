@@ -49,8 +49,9 @@ func sameKey(a, b any) (same bool) {
 // seq or at the end of the one before.
 func (s *state) moving(seq uint64) bool { return movedLately(s.moved, seq) }
 
-// movedLately reports whether something that last moved in frame at still counts as moving in frame seq: in that
-// frame or the one after, as the step that lands a value reports rest.
+// movedLately reports whether something that last moved in frame
+// at still counts as moving in frame seq: in that frame or the one
+// after, as the step that lands a value reports rest.
 func movedLately(at, seq uint64) bool { return at+1 >= seq }
 
 // still reports whether no node in s's subtree is moving, and all are
