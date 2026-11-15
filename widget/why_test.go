@@ -279,3 +279,35 @@ func TestAScreenReaderCannotFocusADisabledControl(t *testing.T) {
 		}
 	}
 }
+
+// A screen reader's request to focus a label or a list that takes no keyboard goes through as it always has; only a
+// disabled control refuses it.
+func TestAScreenReaderFocusesALabelAndAListButNotADisabledControl(t *testing.T) {
+	label, list, held := NewLabel("Volume"), NewList(), NewButton("Save")
+	held.Disabled = true
+	w, run := stage(t, &frame{child: Column(label, list, held), size: geom.Sz(400, 300)})
+	w.Offscreen().ListenForAccess()
+	run(2)
+	focused := focusProbe(t, w, run)
+	tree := w.Offscreen().AccessTree()
+	for _, c := range []struct {
+		name string
+		role access.Role
+		want gunim.Node
+	}{
+		{"Volume", access.RoleLabel, label},
+		{"", access.RoleList, list},
+		// The disabled button leaves the keyboard on the list, where the request before put it.
+		{"Save", access.RoleButton, list},
+	} {
+		n := find(tree.Root, c.role, c.name)
+		if n == nil {
+			t.Fatalf("the tree holds no %v %q", c.role, c.name)
+		}
+		w.Input(access.Request{ID: n.ID, Focus: true})
+		run(2)
+		if f := focused(); f != c.want {
+			t.Errorf("a screen reader's focus on the %v %q put the keyboard on %T, want %T", c.role, c.name, f, c.want)
+		}
+	}
+}
