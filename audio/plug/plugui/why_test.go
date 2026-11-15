@@ -276,3 +276,33 @@ func TestAPowerLampFadesAsItIsDisabled(t *testing.T) {
 		t.Error("settled, the lamp still asks for frames")
 	}
 }
+
+// A selector with no tips and a dial with no tooltip, freed while they show their reason, close the tooltip, and
+// show none after the pointer leaves.
+func TestAReasonsTooltipClosesAsTheControlIsFreed(t *testing.T) {
+	sel := NewSelector("Stereo", []string{"Left", "Both"}, nil)
+	d := NewActionDial("Learn", nil)
+	for _, h := range []held{
+		{"selector", sel, func(on bool, w string) { sel.Locked, sel.Why = on, w },
+			func() geom.Point { return sel.cells[0].Center() }, "", "", nil},
+		{"action dial", d, func(on bool, w string) { d.Disabled, d.Why = on, w },
+			func() geom.Point { return geom.Pt(50, 50) }, "", "", nil},
+	} {
+		h.grey(true, why)
+		w := rest(t, h)
+		if got := shownTip(w); got != why {
+			t.Fatalf("resting on the greyed %s, the tooltip says %q, want %q", h.name, got, why)
+		}
+		h.grey(false, "")
+		frames(w, 30)
+		if got := shownTip(w); got != "" {
+			t.Errorf("freed under the pointer, the %s's tooltip still says %q", h.name, got)
+		}
+		w.Input(input.PointerMove{Pos: geom.Pt(400, 400), Time: time.Now()})
+		w.Input(input.PointerLeave{Time: time.Now()})
+		frames(w, 60)
+		if got := shownTip(w); got != "" {
+			t.Errorf("after the pointer left the freed %s, a tooltip says %q", h.name, got)
+		}
+	}
+}
