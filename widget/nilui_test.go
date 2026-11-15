@@ -31,6 +31,7 @@ func TestEverySetterTakesANilUI(t *testing.T) {
 		},
 		"Drawer.SetOpen":          func() { NewDrawer(newSpot(1, 1), newSpot(1, 1)).SetOpen(true, u) },
 		"TextField.SetText":       func() { NewTextField().SetText("t", u) },
+		"TextField.SetShown":      func() { f := NewTextField(); f.Secret = true; f.SetShown(true, u) },
 		"Histogram.SetCounts":     func() { NewHistogram().SetCounts([3][256]uint32{}, u) },
 		"Fold.SetOpen":            func() { NewFold(newSpot(1, 1), false).SetOpen(true, u) },
 		"Image.SetSource":         func() { NewImage(nil).SetSource(nil, u) },

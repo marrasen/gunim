@@ -37,12 +37,17 @@ func (f *Form) Add(label string, field gunim.Node) *Form {
 	return f
 }
 
-// Focusables returns the fields that take the keyboard, in order.
+// Focusables returns the fields that take the keyboard, and the stops inside them such as a secret field's eye, in
+// order.
 func (f *Form) Focusables() []gunim.Node {
 	var out []gunim.Node
 	for _, r := range f.rows {
 		if fo, ok := r.field.(gunim.Focusable); ok && fo.Focusable() {
 			out = append(out, r.field)
+		}
+		// A field's own stops, such as a secret field's eye, come after it.
+		if p, ok := r.field.(parts); ok {
+			out = append(out, p.tabStops()...)
 		}
 	}
 	return out
