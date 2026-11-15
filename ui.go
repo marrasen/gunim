@@ -2041,6 +2041,8 @@ type UI struct {
 	stirred     bool
 	calm        bool
 	keptPainted int
+	// themeMoved is the frame in which the window's theme last moved.
+	themeMoved uint64
 	// pending holds intents the application has yet to take. See
 	// [UI.post] for why it grows instead of blocking or dropping.
 	pending []Envelope
@@ -3083,8 +3085,13 @@ func (u *UI) frame(now, present time.Time, delta time.Duration) {
 
 	// 1. Advance every animated value by the real elapsed time, the
 	//    theme's included.
-	animating := u.theme.Step(delta) || scrolled
-	u.calm = u.calm && !animating
+	themed := u.theme.Step(delta)
+	if themed {
+		u.themeMoved = u.seq
+	}
+	animating := themed || scrolled
+	// The theme's last step lands a value though it reports rest, so the frame after its glide is not calm either.
+	u.calm = u.calm && !animating && !movedLately(u.themeMoved, u.seq)
 	for _, r := range u.roots() {
 		if u.step(r, delta, r) {
 			animating = true
