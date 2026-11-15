@@ -47,12 +47,12 @@ const (
 //
 // Every shape is one quad and one signed distance field, so a rounded
 // rectangle stays crisp at any size, scale or fractional position.
-// Shapes, shadows, glyphs, images, ribbons and finished layers all go
+// Shapes, shadows, glyphs, images, ribbons, areas and finished layers all go
 // through one program, and each quad carries everything its pixels need
 // in its vertices: the transform is applied on the CPU, and the colours
 // and geometry ride along. So a run of ops of any of those kinds is one
-// draw call. A ribbon is a quad for each stretch between its points; see
-// ribbons.go. A batch ends when the frame moves to another target, when
+// draw call. A ribbon is a quad for each stretch between its points, and
+// so is an area; see ribbons.go and areas.go. A batch ends when the frame moves to another target, when
 // it needs another image, or when it is full.
 //
 // A layer draws into an offscreen texture the size of the window and
@@ -207,6 +207,11 @@ type Renderer struct {
 	// ribbonCorners holds a ribbon's points as its quads are cut, kept
 	// from one ribbon to the next; see ribbons.go.
 	ribbonCorners []ribbonCorner
+	// areaCorners and areaSides hold an area's points and the stretches
+	// between them as its quads are cut, kept from one area to the next;
+	// see areas.go.
+	areaCorners []areaCorner
+	areaSides   []areaSide
 
 	fbW, fbH int
 	scale    float32
@@ -261,8 +266,8 @@ type clipCut struct {
 //	         the shape's half sizes are 1, times the depth; 1 where
 //	         there is one; and the depth, 1 for a flat quad
 //
-// A ribbon's quads use a_local and a_extra otherwise, as their pixels
-// do not share them; see ribbons.go.
+// A ribbon's quads and an area's use a_local and a_extra otherwise, as
+// their pixels do not share them; see ribbons.go and areas.go.
 const vertFloats = 32
 
 // The kinds of quad, in a_param.z.
@@ -532,14 +537,16 @@ vec4 shade(out vec4 cover) {
 		if (v_color0.a < 0.0) fade = 1.0 - fade;
 		col = texture(u_tex, v_uv) * abs(v_color0.a) * cov * fade;
 	} else if (kind == 6) {
-		// A piece of a ribbon: v_local.x is how far across it the pixel
-		// lies and v_local.y its half width there, both in device
-		// pixels, and v_extra its premultiplied colour there. The
-		// coverage is the share of the pixel, a pixel wide, that lies
-		// within the ribbon, so a ribbon thinner than a pixel fades
-		// rather than breaking up.
+		// A piece of a ribbon or of an area: v_local.x is how far
+		// across it the pixel lies and v_local.y its half width there,
+		// both in device pixels, and v_extra its premultiplied colour
+		// there. The coverage is the share of the pixel, a pixel wide,
+		// that lies within the ribbon, so a ribbon thinner than a pixel
+		// fades rather than breaking up. An area's colour runs on past
+		// its edges at the pace it changes across it, so past them it
+		// may leave what a colour can be, and is held to that.
 		float a = v_local.x, h = max(v_local.y, 0.0);
-		col = v_extra * clamp(min(a + 0.5, h) - max(a - 0.5, -h), 0.0, 1.0);
+		col = clamp(v_extra, 0.0, 1.0) * clamp(min(a + 0.5, h) - max(a - 0.5, -h), 0.0, 1.0);
 	} else if (kind == 5) {
 		// An inset shadow: inside the shape, where the shape moved by
 		// the offset and shrunk by the spread leaves it, softened.
@@ -1180,6 +1187,8 @@ func (r *Renderer) replayOps(ops []paint.Op) {
 			r.scene(op)
 		case *paint.RibbonOp:
 			r.ribbon(op)
+		case *paint.AreaOp:
+			r.area(op)
 		}
 	}
 }

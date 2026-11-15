@@ -311,6 +311,10 @@ func keepOps(ops []paint.Op) []paint.Op {
 			c := *op
 			c.Points = slices.Clone(op.Points)
 			kept[i] = &c
+		case *paint.AreaOp:
+			c := *op
+			c.Points = slices.Clone(op.Points)
+			kept[i] = &c
 		case *paint.CellsOp:
 			c := *op
 			c.Cells = slices.Clone(op.Cells)

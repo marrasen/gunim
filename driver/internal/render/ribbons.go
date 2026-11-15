@@ -89,10 +89,10 @@ func (r *Renderer) ribbon(op *paint.RibbonOp) {
 			}
 		}
 		r.uses(0)
-		r.ribbonVert(quad[0], a, 1, add)
-		r.ribbonVert(quad[1], a, -1, add)
-		r.ribbonVert(quad[2], b, -1, add)
-		r.ribbonVert(quad[3], b, 1, add)
+		r.bandVert(quad[0], a.across, a.half, a.color, add)
+		r.bandVert(quad[1], -a.across, a.half, a.color, add)
+		r.bandVert(quad[2], -b.across, b.half, b.color, add)
+		r.bandVert(quad[3], b.across, b.half, b.color, add)
 	}
 }
 
@@ -214,9 +214,11 @@ func ribbonNormals(cs []ribbonCorner) bool {
 	return true
 }
 
-// ribbonVert queues one corner of a ribbon's quad, at p in device
-// pixels, on the side of c that side gives, 1 or -1.
-func (r *Renderer) ribbonVert(p geom.Point, c *ribbonCorner, side float32, add bool) {
+// bandVert queues one corner of a quad of a ribbon or an area, at p in
+// device pixels: across is how far across the band the corner lies,
+// half the band's half width there, and col its colour there,
+// premultiplied.
+func (r *Renderer) bandVert(p geom.Point, across, half float32, col [4]float32, add bool) {
 	kind := float32(kindRibbon)
 	if add {
 		kind += kindAdd
@@ -225,10 +227,9 @@ func (r *Renderer) ribbonVert(p geom.Point, c *ribbonCorner, side float32, add b
 	if e := r.cut; e.on {
 		clip = [4]float32{(p.X - e.centre.X) / e.rad.X, (p.Y - e.centre.Y) / e.rad.Y, 1, 1}
 	}
-	col := c.color
 	r.verts = append(r.verts,
 		p.X*2/float32(r.fbW)-1, 1-p.Y*2/float32(r.fbH),
-		side*c.across, c.half,
+		across, half,
 		0, 0, 0, 0,
 		0, 0, kind, 0,
 		0, 0, 0, 0,

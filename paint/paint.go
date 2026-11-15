@@ -74,7 +74,7 @@ type Painter struct {
 	// unblendFn is unblend as a func value, made once, so Blend
 	// allocates nothing.
 	unblendFn func()
-	// rrects, texts, masks, scenes and ribbons hold the ops themselves, in
+	// rrects, texts, masks, scenes, ribbons and areas hold the ops themselves, in
 	// blocks, so a frame allocates a block now and then, never an op at
 	// a time. The blocks of the frame before this one are reused; the
 	// driver is done with them by then. An op kept past that, in a
@@ -84,6 +84,7 @@ type Painter struct {
 	masks, prevMasks     slab[MaskOp]
 	scenes, prevScenes   slab[SceneOp]
 	ribbons, prevRibbons slab[RibbonOp]
+	areas, prevAreas     slab[AreaOp]
 	// items holds the items of every scene this frame records, back to
 	// back, and prevItems those of the frame before, kept from frame to
 	// frame as the blocks are. A scene of a thousand items drawn every
@@ -93,6 +94,9 @@ type Painter struct {
 	// to back, and prevPoints those of the frame before, kept from frame
 	// to frame as items are.
 	points, prevPoints []RibbonPoint
+	// edges holds the points of every area this frame records, and
+	// prevEdges those of the frame before, as points does a ribbon's.
+	edges, prevEdges []AreaPoint
 	// floats holds painting put off until the rest of the frame is
 	// done; see Float.
 	floats []func(*Painter)
@@ -160,16 +164,19 @@ func (p *Painter) Reset() {
 	p.prevMasks, p.masks = p.masks, p.prevMasks
 	p.prevScenes, p.scenes = p.scenes, p.prevScenes
 	p.prevRibbons, p.ribbons = p.ribbons, p.prevRibbons
+	p.prevAreas, p.areas = p.areas, p.prevAreas
 	p.rrects.reset()
 	p.texts.reset()
 	p.masks.reset()
 	p.scenes.reset()
 	p.ribbons.reset()
+	p.areas.reset()
 	// The items of the frame before last let go of their meshes, so a
 	// mesh no longer drawn is not held on to by a buffer left unused.
 	clear(p.prevItems)
 	p.prevItems, p.items = p.items, p.prevItems[:0]
 	p.prevPoints, p.points = p.points, p.prevPoints[:0]
+	p.prevEdges, p.edges = p.edges, p.prevEdges[:0]
 	p.open = p.open[:0]
 	p.stack = p.stack[:0]
 	p.cur = Identity
@@ -534,6 +541,9 @@ func sameOp(a, b Op) bool {
 	case *RibbonOp:
 		b, ok := b.(*RibbonOp)
 		return ok && sameRibbon(a, b)
+	case *AreaOp:
+		b, ok := b.(*AreaOp)
+		return ok && sameArea(a, b)
 	}
 	return false
 }

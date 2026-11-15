@@ -691,6 +691,10 @@ type opGraph struct {
 	unknown, paused, bar bool
 	// spin counts the seconds while the operation counts.
 	spin float64
+	// line and fill hold the graph's points as they are drawn, kept from
+	// frame to frame.
+	line []paint.RibbonPoint
+	fill []paint.AreaPoint
 }
 
 type speedAt struct {
@@ -808,35 +812,27 @@ func (g *opGraph) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.
 	}
 	top := float64(g.top.Value())
 	yOf := func(v float64) float32 { return 2 + (box.H-2)*(1-float32(min(v/top, 1))) }
+	// The fill's colour at the top of the graph and at its foot.
 	hi, lo := ink, ink
 	hi.A, lo.A = 0x80, 0x14
-	grad := &paint.Gradient{From: geom.Pt(0, 0), To: geom.Pt(0, box.H), Start: hi, End: lo}
-	// Columns a device pixel wide, whose edges fall on device pixels.
-	dev := max(f.Scale, 1)
-	col := 1 / dev
-	var line []geom.Point
-	for x := float32(0); x < now; x += col {
-		next := min(x+col, now)
-		y := yOf(g.rateAt((x + next) / 2 / box.W))
-		p.RRect(geom.Rect{Min: geom.Pt(x, y), Max: geom.Pt(next, box.H)}, 0, paint.Fill{Gradient: grad})
-	}
+	// The speed so far: the line through its points, one ribbon, over
+	// the fill under them, one area, which fades toward the foot. A
+	// point for each 2 px, closer than a smooth curve needs, as the
+	// speed jumps from one sample to the next.
+	g.line, g.fill = g.line[:0], g.fill[:0]
 	for x := float32(0); ; x += 2 {
 		x = min(x, now)
-		line = append(line, geom.Pt(x, yOf(g.rateAt(x/box.W))))
+		at := geom.Pt(x, yOf(g.rateAt(x/box.W)))
+		fill := ink
+		fill.A = uint8(float32(hi.A) + (float32(lo.A)-float32(hi.A))*min(max(at.Y/box.H, 0), 1) + 0.5)
+		g.line = append(g.line, paint.RibbonPoint{At: at, Width: 1.5, Color: ink})
+		g.fill = append(g.fill, paint.AreaPoint{At: at, Base: geom.Pt(x, box.H), Color: fill, BaseColor: lo})
 		if x >= now {
 			break
 		}
 	}
-	for i := 1; i < len(line); i++ {
-		a, b := line[i-1], line[i]
-		if d := dist(a, b); d > 0 {
-			angle := float32(math.Atan2(float64(b.Y-a.Y), float64(b.X-a.X)))
-			func() {
-				defer p.Push(paint.Rotate(angle, a))()
-				p.RRect(geom.Rc(a.X, a.Y-0.75, d+0.5, 1.5), 0.75, paint.Solid(ink))
-			}()
-		}
-	}
+	p.Area(g.fill)
+	p.Ribbon(g.line)
 	// Now: a line up at how far it has got.
 	if now < box.W-1 {
 		p.RRect(geom.Rc(now-0.75, 0, 1.5, box.H), 0, paint.Solid(ink))
@@ -855,6 +851,9 @@ func (g *opGraph) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.
 // opRing is a folded card's ring, round as far as the operation has got.
 type opRing struct {
 	done *glide
+	// arc holds the points of what is done as it is drawn, kept from
+	// frame to frame.
+	arc []paint.RibbonPoint
 }
 
 // Layout implements [gunim.Node].
@@ -866,36 +865,45 @@ func (r *opRing) Layout(gunim.Constraints, gunim.Frame, gunim.Children) geom.Siz
 func (r *opRing) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
 	th := f.Theme
 	track := widget.Ink.Get(th)
-	track.A = 0x24
+	track.A = 0x3c
 	accent := widget.Accent.Get(th)
 	if r.done.value() >= 1 {
 		accent = Success.Get(th)
 	}
 	mid := geom.Pt(box.W/2, box.H/2)
 	rad := box.W/2 - 1.5
-	const n = 64
-	from, to := 0.0, float64(r.done.value())
+	const width = 2.5
+	from, to := 0.0, float64(min(max(r.done.value(), 0), 1))
 	if r.done.unknown {
 		// A quarter of the ring goes round while the operation counts.
 		from = math.Mod(float64(time.Now().UnixMilli())/1200, 1)
 		to = from + 0.25
 	}
-	for i := range n {
-		a0, a1 := float64(i)/n, float64(i+1)/n
-		c := track
-		if a := a0 + 0.5/n; (a >= from && a < to) || a+1 < to {
-			c = accent
-		}
-		pt := func(t float64) geom.Point {
-			ang := -math.Pi/2 + 2*math.Pi*t
-			return mid.Add(geom.Pt(rad*float32(math.Cos(ang)), rad*float32(math.Sin(ang))))
-		}
-		a, b := pt(a0), pt(a1)
-		angle := float32(math.Atan2(float64(b.Y-a.Y), float64(b.X-a.X)))
-		func() {
-			defer p.Push(paint.Rotate(angle, a))()
-			p.RRect(geom.Rc(a.X, a.Y-1.25, dist(a, b)+0.5, 2.5), 1.25, paint.Solid(c))
-		}()
+	// The ring is one shape: the track, or all of it done.
+	circle := geom.Rc(mid.X-rad, mid.Y-rad, 2*rad, 2*rad)
+	if to-from >= 1 {
+		p.RRectStroke(circle, rad, paint.Fill{}, paint.Stroke{Width: width, Color: accent})
+		return
+	}
+	p.RRectStroke(circle, rad, paint.Fill{}, paint.Stroke{Width: width, Color: track})
+	if to <= from {
+		return
+	}
+	// What is done is one ribbon round it, from the top, with a round
+	// end either side.
+	pt := func(t float64) geom.Point {
+		ang := -math.Pi/2 + 2*math.Pi*t
+		return mid.Add(geom.Pt(rad*float32(math.Cos(ang)), rad*float32(math.Sin(ang))))
+	}
+	const round = 48
+	n := max(int(math.Ceil(round*(to-from))), 1)
+	r.arc = r.arc[:0]
+	for i := range n + 1 {
+		r.arc = append(r.arc, paint.RibbonPoint{At: pt(from + (to-from)*float64(i)/float64(n)), Width: width, Color: accent})
+	}
+	p.Ribbon(r.arc)
+	for _, end := range [...]geom.Point{pt(from), pt(to)} {
+		p.RRect(geom.Rc(end.X-width/2, end.Y-width/2, width, width), width/2, paint.Solid(accent))
 	}
 }
 

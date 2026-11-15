@@ -32,7 +32,7 @@ type carried struct{ at, from, n int }
 // Again records run, from the frame before, into this frame unchanged,
 // and reports whether it could. It can when run is from this painter's
 // frame before this one and holds only shapes, text, images, masks,
-// ribbons and cells, and layers that neither blur nor tilt, each closed
+// ribbons, areas and cells, and layers that neither blur nor tilt, each closed
 // in the run that opens it; with false nothing is recorded, and the
 // node draws as usual.
 //
@@ -51,7 +51,7 @@ func (p *Painter) Again(run Run) bool {
 	depth := 0
 	for _, op := range p.prev[run.from:run.to] {
 		switch op := op.(type) {
-		case *RRectOp, *TextOp, *ImageOp, *MaskOp, *CellsOp, *RibbonOp:
+		case *RRectOp, *TextOp, *ImageOp, *MaskOp, *CellsOp, *RibbonOp, *AreaOp:
 		case *LayerOp:
 			// A blur spreads past its bounds, a backdrop reads what lies
 			// under it, and a tilt changes the space input is taken in.
@@ -92,6 +92,8 @@ func (p *Painter) Again(run Run) bool {
 			// Its points are copied, as the frame after next reuses the
 			// buffer they lie in.
 			p.ops = append(p.ops, p.takeRibbon(op, op.Points))
+		case *AreaOp:
+			p.ops = append(p.ops, p.takeArea(op, op.Points))
 		case *LayerOp:
 			c := *op
 			p.ops = append(p.ops, &c)

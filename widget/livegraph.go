@@ -98,6 +98,10 @@ type LiveGraph struct {
 	ell    shapedText
 	// tall says the graph has been laid out at full height.
 	tall bool
+	// line and fill hold the curve's points as they are drawn, kept from
+	// frame to frame.
+	line []paint.RibbonPoint
+	fill []paint.AreaPoint
 }
 
 // headSlack is how many samples behind the newest the head aims to be
@@ -324,67 +328,34 @@ func (g *LiveGraph) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ guni
 	plotTop := plot.top
 	pos := g.pos
 	first := max(0, pos-float64(box.W/step)-1)
-	var pts []geom.Point
-	for x := max(0, xOf(first)); ; x += 2 {
-		head := xOf(pos)
-		if x > head {
-			x = head
-		}
-		t := pos - float64((head-x)/step)
-		pts = append(pts, geom.Pt(x, yOf(valueAt(t))))
+	// The curve, a point for each 3 px of it: the line through them, one
+	// ribbon, over the fill under them, one area, fading to nothing at
+	// the foot.
+	head := xOf(pos)
+	faded := accent
+	faded.A = 0
+	span := max(box.H-plotTop, 1e-3)
+	g.line, g.fill = g.line[:0], g.fill[:0]
+	for x := max(0, xOf(first)); ; x += 3 {
+		x = min(x, head)
+		at := geom.Pt(x, yOf(valueAt(pos-float64((head-x)/step))))
+		fill := accent
+		fill.A = uint8(0x60*min(max((box.H-at.Y)/span, 0), 1) + 0.5)
+		g.line = append(g.line, paint.RibbonPoint{At: at, Width: 1.5, Color: accent})
+		g.fill = append(g.fill, paint.AreaPoint{At: at, Base: geom.Pt(x, box.H), Color: fill, BaseColor: faded})
 		if x >= head {
 			break
 		}
 	}
-	// The fill, fading to nothing at the foot: columns two device
-	// pixels wide, whose edges fall on device pixels, so they meet
-	// without a seam or an overlap either would show as a stripe.
-	fill := accent
-	fill.A = 0x60
-	faded := accent
-	faded.A = 0
-	grad := &paint.Gradient{From: geom.Pt(0, plotTop), To: geom.Pt(0, box.H), Start: fill, End: faded}
-	// t maps the graph's x to the window's, in logical pixels, and dev
-	// is device pixels per logical one.
-	t := p.Transform()
-	sx, dev := max(t.A, 1e-3), max(f.Scale, 1)
-	snap := func(x float32) float32 {
-		wx := sx*x + t.C
-		return (float32(math.Round(float64(wx*dev)))/dev - t.C) / sx
-	}
-	head := xOf(pos)
-	colW := 2 / (dev * sx)
-	for x := snap(max(0, xOf(first))); x < head; {
-		next := min(snap(x+colW), head)
-		if next <= x {
-			next = x + colW
-		}
-		mid := (x + next) / 2
-		y := yOf(valueAt(pos - float64((head-mid)/step)))
-		p.RRect(geom.Rect{Min: geom.Pt(x, y), Max: geom.Pt(next, box.H)}, 0, paint.Fill{Gradient: grad})
-		x = next
-	}
-	// The line, a short stroke between each point and the next.
-	for i := 1; i < len(pts); i++ {
-		a, b := pts[i-1], pts[i]
-		d := b.Sub(a)
-		length := float32(math.Hypot(float64(d.X), float64(d.Y)))
-		if length <= 0 {
-			continue
-		}
-		angle := float32(math.Atan2(float64(d.Y), float64(d.X)))
-		func() {
-			defer p.Push(paint.Rotate(angle, a))()
-			p.RRect(geom.Rc(a.X, a.Y-0.75, length+0.5, 1.5), 0.75, paint.Solid(accent))
-		}()
-	}
+	p.Area(g.fill)
+	p.Ribbon(g.line)
 	// The foot.
 	foot := Ink.Get(th)
 	foot.A = 0x20
 	p.RRect(geom.Rc(0, box.H-1, box.W, 1), 0, paint.Solid(foot))
 	// The head: a dot on the newest, and a ring breathing out of it
 	// while the graph runs.
-	headAt := pts[len(pts)-1]
+	headAt := g.line[len(g.line)-1].At
 	dot, reach := float32(3), float32(7)
 	if g.Compact {
 		dot, reach = 2, 3
