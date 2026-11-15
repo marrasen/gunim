@@ -18,11 +18,11 @@ import (
 	"github.com/marrasen/gunim/widget"
 )
 
-// speedEvery is how often an operation's speed is sampled, and
-// speedSpan how many samples its graph shows.
+// speedEvery is how often an operation's speed is sampled, and nameEvery
+// how often the name of the item it is on changes, so it can be read.
 const (
 	speedEvery = 200 * time.Millisecond
-	speedSpan  = 50
+	nameEvery  = 500 * time.Millisecond
 )
 
 // cheerFor is how long a finished operation's card stays, showing it
@@ -84,23 +84,23 @@ func (s *speedometer) add(now time.Time, bytes int64) bool {
 	return true
 }
 
-// left is how many seconds the rest of total takes from done, as of
-// now, or 0 when that is unknown. It counts down a second a second, and
-// drifts toward the estimate at the smoothed speed only when that is
-// well off, rather than leaping with every swing of the speed.
-func (s *speedometer) left(now time.Time, done, total int64) float64 {
-	if s.smooth <= 0 || total <= done {
+// left is how many seconds are left as of now, where guess is how long
+// the rest takes at what the work costs now, or 0 when that is unknown.
+// It counts down a second a second, and drifts toward the guess only
+// by as much as that is well off, rather than leaping with every swing
+// of the speed.
+func (s *speedometer) left(now time.Time, guess float64) float64 {
+	if guess <= 0 {
 		return 0
 	}
-	guess := float64(total-done) / s.smooth
 	if s.etaAt.IsZero() {
 		s.eta, s.etaAt = guess, now
 		return guess
 	}
 	if dt := now.Sub(s.etaAt).Seconds(); dt > 0 {
 		s.eta = max(0, s.eta-dt)
-		if math.Abs(guess-s.eta) > etaSlack*s.eta {
-			s.eta += (guess - s.eta) * (1 - math.Exp(-dt/etaDrift))
+		if off, slack := guess-s.eta, etaSlack*s.eta; math.Abs(off) > slack {
+			s.eta += (off - math.Copysign(slack, off)) * (1 - math.Exp(-dt/etaDrift))
 		}
 		s.etaAt = now
 	}
@@ -203,6 +203,48 @@ func (a *app) manyCopy(small bool) {
 	a.ops.limit = rate * (1 << 20)
 	a.startOp(job{kind: OpCopy, srcs: srcs, dest: to}, "Copying "+a.what(srcs)+" to "+a.ps.placeName(to))
 	a.ops.limit = 0
+}
+
+// manyMove moves six folders of photos, Trip 1 to Trip 6, into a folder
+// Backup beside them, slowly and as a move across volumes goes: by a
+// copy and a delete. It makes the folders first where they are not
+// there: 40 photos each, small ones and a few big.
+func (a *app) manyMove() {
+	if a.fs.ID() != "" {
+		a.fail("many-move makes its files on the computer's own disk only.")
+		return
+	}
+	to := a.ps.Join(a.nav.path, "Backup")
+	if err := os.MkdirAll(to, 0o755); err != nil {
+		a.fail("Making the folders: " + err.Error())
+		return
+	}
+	var srcs []string
+	for d := range 6 {
+		dir := a.ps.Join(a.nav.path, fmt.Sprintf("Trip %d", d+1))
+		if _, err := os.Stat(dir); err == nil {
+			srcs = append(srcs, dir)
+			continue
+		}
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			a.fail("Making the folders: " + err.Error())
+			return
+		}
+		for i := range 40 {
+			size := int64(150<<10 + i%7*90<<10)
+			if i%20 == 19 {
+				size = 24 << 20
+			}
+			if err := makeBig(a.ps.Join(dir, fmt.Sprintf("%05d.jpg", i+1)), size); err != nil {
+				a.fail("Making the files: " + err.Error())
+				return
+			}
+		}
+		srcs = append(srcs, dir)
+	}
+	a.ops.limit, a.ops.across = 12*(1<<20), true
+	a.startOp(job{kind: OpMove, srcs: srcs, dest: to}, "Moving "+a.what(srcs)+" to "+a.ps.placeName(to))
+	a.ops.limit, a.ops.across = 0, false
 }
 
 func registerSpeed(w *gunim.Window) {

@@ -382,17 +382,22 @@ func (c *opCard) progress(p OpProgress, u *gunim.UI) {
 	case many && !p.Unknown:
 		left = percent(p.Done)
 	}
-	if !p.Unknown {
-		switch {
-		case cheered:
-		case many:
-			file = p.File
-		default:
-			file = percent(p.Done)
+	switch {
+	case cheered:
+	case p.Unknown:
+		// How many it has found says the count is going.
+		if p.Counted > 0 && !p.Paused && !waiting {
+			file = plural(p.Counted, "item") + " found"
 		}
-		if p.BytesTotal > 0 {
-			moved = humanBytes(p.Bytes) + " of " + humanBytes(p.BytesTotal)
-		}
+	case p.Doing != "":
+		file = p.Doing
+	case many:
+		file = p.File
+	default:
+		file = percent(p.Done)
+	}
+	if !p.Unknown && p.BytesTotal > 0 {
+		moved = humanBytes(p.Bytes) + " of " + humanBytes(p.BytesTotal)
 	}
 	// The speeds: while many items go, in bytes and in items a second
 	// under the item it is on, and once done, both on average beside

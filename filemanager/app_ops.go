@@ -35,8 +35,10 @@ type opsState struct {
 	clip []string
 	cut  bool
 	away clipboard
-	// limit holds copies to that many bytes a second, for the demo.
-	limit float64
+	// limit holds copies to that many bytes a second, and across has
+	// moves go as across volumes, for the demo.
+	limit  float64
+	across bool
 	// noPanel keeps operations out of the progress panel however long they run, for the tests.
 	noPanel bool
 	// dialogs are the dialogs to show, the first showing.
@@ -63,6 +65,15 @@ type opRun struct {
 	last    progress
 	// meter measures the bytes it moves a second, and items the items.
 	meter, items speedometer
+	// cost learns what its items and its bytes cost in time, which says
+	// how far it has got and how long is left, and done is how far it
+	// was last said to be, which it never falls back from.
+	cost costs
+	done float32
+	// file is the name of the item it is on as the card says it, since
+	// fileAt.
+	file   string
+	fileAt time.Time
 	// from names the folder the items come from, where known.
 	from string
 	// pause pauses the operation, where it can be, and paused says it is.
@@ -401,6 +412,7 @@ func (a *app) startOp(j job, title string) {
 		ask:     func(ctx context.Context, c clash) (answer, error) { return a.askClash(ctx, id, c) },
 		report:  func(p progress) { a.post(func() { a.progressed(id, p) }) },
 		limit:   a.ops.limit,
+		across:  a.ops.across,
 		outside: systemClip.outside,
 	}
 	if j.kind == OpExtract {
@@ -468,9 +480,22 @@ func (a *app) progressed(id int, p progress) {
 		return
 	}
 	now := time.Now()
+	if p.leaps != r.last.leaps {
+		// What was counted done without work is no part of the speed.
+		r.meter.at, r.items.at = time.Time{}, time.Time{}
+		r.cost.rest()
+	}
 	sampled := !r.paused && r.meter.add(now, p.bytes)
 	if !r.paused {
 		r.items.add(now, int64(p.items))
+	}
+	switch {
+	case r.paused:
+	case p.counting || p.waiting != "":
+		// Counting what there is to do, or waiting, is none of the work.
+		r.cost.rest()
+	default:
+		r.cost.add(now, p.whole(), p.bytes)
 	}
 	r.last = p
 	if r.visible {
@@ -496,11 +521,16 @@ func (a *app) pauseOp(id int, on bool) {
 		// counts down from where it stopped.
 		r.meter.at, r.items.at = time.Time{}, time.Time{}
 		r.meter.etaAt = time.Now()
+		r.cost.rest()
 	}
 	if r.visible {
 		a.patch(r.tick(time.Now()))
 	}
 }
+
+// removingOriginals is what a move says while it takes away the
+// originals of what it copied to another volume.
+const removingOriginals = "Removing the originals"
 
 // tick is how the corner shows r at now.
 func (r *opRun) tick(now time.Time) OpTick {
@@ -508,22 +538,38 @@ func (r *opRun) tick(now time.Time) OpTick {
 	t := OpTick{ID: r.id}
 	t.Paused = r.paused
 	t.Bytes, t.BytesTotal, t.Items, t.ItemsTotal = p.bytes, p.bytesTotal, p.items, p.itemsTotal
-	t.File = lastName(p.current)
+	if p.bytesTotal > 0 {
+		t.Bytes = min(p.bytes, p.bytesTotal)
+	}
+	if p.itemsTotal > 0 {
+		t.Items = min(p.items, p.itemsTotal)
+	}
+	// The name stays long enough to be read, however fast the items go.
+	if name := lastName(p.current); name != r.file && (r.file == "" || now.Sub(r.fileAt) >= nameEvery) {
+		r.file, r.fileAt = name, now
+	}
+	t.File = r.file
 	switch {
 	case p.waiting != "":
 		t.Unknown = true
 		t.Waiting = p.waiting
-	case p.bytesTotal > 0:
-		t.Done = float32(float64(p.bytes) / float64(p.bytesTotal))
-		if !r.paused && r.asking == "" {
-			t.Speed = r.meter.shown
-			t.ItemSpeed = r.items.shown
-			if t.Speed > 0 {
-				t.Left = r.meter.left(now, p.bytes, p.bytesTotal)
-			}
+	case p.counting:
+		t.Unknown = true
+		t.Counted = p.counted
+	case p.bytesTotal > 0 || p.itemsTotal > 0:
+		steps, stepsTotal := p.steps()
+		r.done = max(r.done, float32(r.cost.share(steps, stepsTotal, p.bytes, p.bytesTotal)))
+		t.Done = r.done
+		if p.removing {
+			t.Doing = removingOriginals
 		}
-	case p.itemsTotal > 0:
-		t.Done = float32(p.items) / float32(p.itemsTotal)
+		if !r.paused && r.asking == "" {
+			if !p.removing {
+				t.Speed = r.meter.shown
+				t.ItemSpeed = r.items.shown
+			}
+			t.Left = r.meter.left(now, r.cost.left(steps, stepsTotal, p.bytes, p.bytesTotal))
+		}
 	default:
 		t.Unknown = true
 	}
@@ -784,6 +830,7 @@ func (a *app) asking(op int, what string) {
 		// The time spent asking is no part of the speed.
 		r.meter.at, r.items.at = time.Time{}, time.Time{}
 		r.meter.etaAt = time.Now()
+		r.cost.rest()
 	}
 	if r.visible {
 		a.patch(r.tick(time.Now()))

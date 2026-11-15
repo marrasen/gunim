@@ -31,12 +31,19 @@ type OpView struct {
 
 // OpProgress is how far an operation has got.
 type OpProgress struct {
-	// Done is how far it has got, from 0 to 1, and Unknown is set while
-	// it is still counting what there is to do.
+	// Done is how far it has got, from 0 to 1: the share of the time all
+	// of it takes that what is done took, by what its items and its
+	// bytes turn out to cost. Unknown is set while it is still counting
+	// what there is to do, and Counted is then how many items it has
+	// found so far.
 	Done    float32
 	Unknown bool
+	Counted int
 	// Waiting, when set, says what the operation waits for.
 	Waiting string
+	// Doing, when set, says what the operation does now, where that is
+	// not what its title says, in place of the item it is on.
+	Doing string
 	// Bytes of BytesTotal and Items of ItemsTotal are done; a total of
 	// zero is not known.
 	Bytes, BytesTotal int64

@@ -15,8 +15,9 @@ const scriptPause = 700 * time.Millisecond
 // "palette:text" to open the palette with text typed, "theme:light" or
 // "theme:dark" to switch the theme, "big-copy" or
 // "big-copy:MB a second" to copy a 2 GB file slowly, "many-copy" to copy
-// 60 photos slowly, or "many-copy:small" 3,000 small files, "pause" to pause
-// the newest operation,
+// 60 photos slowly, or "many-copy:small" 3,000 small files, "many-move" to
+// move six folders of photos as across volumes, "pause" to pause the
+// newest operation,
 // "edit-favourite:name" to open the Edit favourite dialog of the
 // favourite of that name, "usage-by:all", ":device" or ":online" and
 // "usage-colour:type" or ":cloud" to change how Disk usage looks,
@@ -56,6 +57,8 @@ func (a *app) scriptStep(step string) {
 		a.bigCopy(arg)
 	case "many-copy":
 		a.manyCopy(arg == "small")
+	case "many-move":
+		a.manyMove()
 	case "pause":
 		a.pauseOp(a.ops.next, true)
 	case "palette":
