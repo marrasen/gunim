@@ -104,7 +104,7 @@ type Knob struct {
 	ring    *anim.Float
 	focused bool
 	// pressed says the knob was pressed and the pointer has not left it since, so it takes the wheel; over says the
-	// pointer is on it, and locked whether it was locked as last laid out.
+	// pointer is on it, and locked says it was locked as last laid out.
 	pressed, over, locked bool
 	tip                   widget.PartTip
 	// Disabled greys the knob, as for a section switched off, though it

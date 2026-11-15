@@ -210,8 +210,8 @@ func (p *Power) toggle(u *gunim.UI) {
 	}
 }
 
-// Access implements [gunim.Accessible]: a switch that can be checked, named as what it
-// switches. Disabled, it offers no press and is described by Why.
+// Access implements [gunim.Accessible]: a switch that can be checked, named as what it switches. Disabled, it offers
+// no press and is described by Why.
 func (p *Power) Access() access.Info {
 	st := access.StateCheckable
 	if p.checked {

@@ -118,9 +118,18 @@ starts on. A finger has no hover otherwise: the engine sends no enter or leave a
 **Saying why.** A program that greys a control gives the reason in `Why`, as `b.Disabled, b.Why = true, "Works only
 with the Echo up"`. While disabled, the tooltip says `Why` alone and a screen reader reads it as the description. A
 disabled control without one shows its `Tooltip`, and leaves out how to work it where the widget writes that itself,
-as a knob's "Drag up or down". An enabled control ignores `Why`. A disabled control keeps the keyboard where it was,
-takes no key, and Tab moves on past it. `plugui`'s `Knob`, `Selector`, `Power` and `ActionDial` take `Why` the
-same way, while they are greyed.
+as a knob's "Drag up or down". An enabled control ignores `Why`, and a tooltip left with no words closes.
+
+**Greying mid-gesture.** A control that turns disabled in the middle of a drag, a press or a turn of the wheel ends
+it on that frame: its end runs once, and it writes nothing more.
+
+**Keys while greyed.** A disabled control keeps the keyboard where it was and takes no key. Tab and Shift+Tab move to
+the next and the previous control in order from there.
+
+**plugui.** `Knob`, `Selector`, `Power` and `ActionDial` grey by the same rules, with a `Locked` knob or selector or a
+`Disabled` lamp or dial: each glides faint, fades its focus ring, lights nothing under the pointer, keeps a click to
+itself and passes the rest on. A knob with `Disabled` alone still turns, so it stays lit, focusable and enabled to a
+screen reader, and says `Why` before how to turn it. `calendar.DateField` takes `Why` too.
 
 An app's widget outside the package draws the same way with the exported helpers `widget.Faint`, `widget.FocusRing`
 (round a control) and `widget.GroupRing` (round a view with a cursor of its own, such as a calendar).
