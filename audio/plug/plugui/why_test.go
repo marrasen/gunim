@@ -320,3 +320,18 @@ func TestAGreyedKnobThatTurnsReadsAsEnabled(t *testing.T) {
 		t.Error("greyed but turning, the knob takes no keyboard or screen reader's value")
 	}
 }
+
+// A power lamp reads as a switch that can be checked, on or off, enabled or disabled, so a screen reader can read
+// it and, while it is enabled, press it.
+func TestAPowerLampReadsAsCheckable(t *testing.T) {
+	p := NewPower("gate")
+	for _, c := range []struct{ on, disabled bool }{{false, false}, {true, false}, {false, true}, {true, true}} {
+		p.SetChecked(c.on, nil)
+		p.Disabled = c.disabled
+		info := p.Access()
+		if !info.State.Has(access.StateCheckable) || info.State.Has(access.StateChecked) != c.on {
+			t.Errorf("on %v, disabled %v, the lamp reads as state %v, want checkable and checked %v", c.on,
+				c.disabled, info.State, c.on)
+		}
+	}
+}

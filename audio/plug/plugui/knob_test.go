@@ -147,7 +147,7 @@ func TestAPowerLampSwitchesAndGlides(t *testing.T) {
 	if s := p.Layout(gunim.Constraints{Max: geom.Sz(100, 100)}, gunim.Frame{}, gunim.Children{}); s != geom.Sz(PowerSize, PowerSize) {
 		t.Errorf("it stands %v", s)
 	}
-	if info := p.Access(); info.Role != access.RoleSwitch || info.State != access.StateChecked || info.Name != "gate" {
+	if info := p.Access(); info.Role != access.RoleSwitch || info.State != access.StateCheckable|access.StateChecked || info.Name != "gate" {
 		t.Errorf("it reads as %+v", info)
 	}
 }
