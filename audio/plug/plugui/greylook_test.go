@@ -28,7 +28,9 @@ func (a *around) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children)
 	return c.Max
 }
 
-func (a *around) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim.Children) { kids.At(0).Paint(p) }
+func (a *around) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim.Children) {
+	kids.At(0).Paint(p)
+}
 
 func (a *around) Handle(e input.Event, _ *gunim.UI) bool {
 	switch e := e.(type) {

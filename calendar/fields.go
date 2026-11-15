@@ -19,13 +19,16 @@ import (
 
 // DateField holds a day. A click, Enter or Space opens a small month under it to pick the day from, and the Up and
 // Down keys move the day by one. Its border turns to the accent colour while it has the keyboard. Disabled, it fades
-// faint and takes no clicks, keys or focus.
+// faint and takes no clicks, keys or focus, and its tooltip says Why.
 type DateField struct {
 	anim.Group
 	// Label names the field for a screen reader, as the label beside it does on screen.
 	Label string
 	// Disabled fades the field faint, and it then takes no clicks, keys or focus, for a day that cannot be set now.
 	Disabled bool
+	// Why says why the field is disabled: while Disabled, its tooltip says Why, and a screen reader reads it as the
+	// field's description.
+	Why string
 	// OnChange runs on the UI goroutine when the user picks a day; a non-nil result is sent to the application as the
 	// field's intent.
 	OnChange func(day time.Time, u *gunim.UI) gunim.Intent
@@ -37,6 +40,9 @@ type DateField struct {
 	dim  *anim.Float
 	laid bool
 	size geom.Size
+	// tip shows Why, and over says the pointer is on the field.
+	tip  widget.PartTip
+	over bool
 	// text is the day as last laid out, for key.
 	text    text.Paragraph
 	textKey textKey
@@ -108,6 +114,9 @@ func (f *DateField) Layout(c gunim.Constraints, fr gunim.Frame, _ gunim.Children
 		f.dim.Animate(off, widget.Quick.Get(fr.Theme))
 	}
 	f.laid = true
+	if f.over {
+		f.tip.Retext(f.tipText())
+	}
 	if f.Disabled && f.popup != nil {
 		f.popup.Close()
 		f.popup = nil
@@ -177,6 +186,13 @@ func (f *fitted) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim.
 
 // Handle implements [gunim.Handler].
 func (f *DateField) Handle(e input.Event, u *gunim.UI) bool {
+	switch e.(type) {
+	case input.PointerEnter:
+		f.over = true
+	case input.PointerLeave:
+		f.over = false
+	}
+	f.tip.Handle(e, u, f, f.tipText())
 	if _, lost := e.(input.FocusLost); f.Disabled && !lost {
 		// A click on it reaches nothing round it; a right click passes to a context menu.
 		if d, ok := e.(input.PointerDown); ok {
@@ -213,6 +229,14 @@ func (f *DateField) Handle(e input.Event, u *gunim.UI) bool {
 		return true
 	}
 	return false
+}
+
+// tipText is what the field's tooltip says: Why while it is disabled, and nothing otherwise.
+func (f *DateField) tipText() string {
+	if f.Disabled {
+		return f.Why
+	}
+	return ""
 }
 
 // Focusable implements [gunim.Focusable].

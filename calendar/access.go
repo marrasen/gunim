@@ -129,7 +129,8 @@ func (m *MiniMonth) AccessAct(r access.Request, u *gunim.UI) bool {
 	return true
 }
 
-// Access implements [gunim.Accessible]: a drop-down holding the day, open while the small month shows.
+// Access implements [gunim.Accessible]: a drop-down holding the day, open while the small month shows. Disabled, it
+// offers no press, and Why is its description.
 func (f *DateField) Access() access.Info {
 	info := access.Info{Role: access.RoleComboBox, Name: f.Label, Value: f.value.Format("Monday 2 January 2006"),
 		State: access.StateExpandable | access.StateHasPopup, Actions: []string{access.ActionPress}}
@@ -138,6 +139,7 @@ func (f *DateField) Access() access.Info {
 	}
 	if f.Disabled {
 		info.State |= access.StateDisabled
+		info.Actions, info.Description = nil, f.Why
 	}
 	return info
 }
