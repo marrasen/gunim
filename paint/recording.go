@@ -16,12 +16,13 @@ import (
 type Recording struct {
 	ops []keptOp
 	// glyphs holds every text command's glyphs, back to back, items
-	// every scene's items, and points every ribbon's points. A kept
-	// command never points into the painter's own buffers, which later
-	// frames reuse.
+	// every scene's items, points every ribbon's points and edges every
+	// area's. A kept command never points into the painter's own
+	// buffers, which later frames reuse.
 	glyphs []Glyph
 	items  []SceneItem
 	points []RibbonPoint
+	edges  []AreaPoint
 }
 
 // keptOp is one command, its transform taken back into the recording's
@@ -31,8 +32,8 @@ type keptOp struct {
 	rel    Transform
 	bounds geom.Rect
 	// from and to are where a text command's glyphs lie in the glyph
-	// buffer, a scene's items in the item buffer, or a ribbon's points
-	// in the point buffer.
+	// buffer, a scene's items in the item buffer, or a ribbon's or an
+	// area's points in the buffer of them.
 	from, to int
 }
 
@@ -44,7 +45,7 @@ func (p *Painter) Mark() int { return len(p.ops) }
 // the stretch must have closed in it.
 func (p *Painter) Keep(mark int, r *Recording) {
 	inv, ok := p.at().Invert()
-	r.ops, r.glyphs, r.points = r.ops[:0], r.glyphs[:0], r.points[:0]
+	r.ops, r.glyphs, r.points, r.edges = r.ops[:0], r.glyphs[:0], r.points[:0], r.edges[:0]
 	clear(r.items)
 	r.items = r.items[:0]
 	if !ok {
@@ -82,6 +83,13 @@ func (p *Painter) Keep(mark int, r *Recording) {
 			k.from = len(r.points)
 			r.points = append(r.points, op.Points...)
 			k.to = len(r.points)
+			c.Points = nil
+			k.op, own = &c, op.Transform
+		case *AreaOp:
+			c := *op
+			k.from = len(r.edges)
+			r.edges = append(r.edges, op.Points...)
+			k.to = len(r.edges)
 			c.Points = nil
 			k.op, own = &c, op.Transform
 		case *LayerOp:
@@ -144,6 +152,10 @@ func (p *Painter) Replay(r *Recording) {
 			// A ribbon's width reaches as far as the space it is drawn in
 			// scales it, so its bounds are found again for this one.
 			p.record(c, ribbonBounds(c.Points, c.Transform))
+		case *AreaOp:
+			c := p.takeArea(op, r.edges[k.from:k.to])
+			c.Transform = p.at()
+			p.record(c, k.bounds)
 		case *LayerOp:
 			closers = append(closers, p.Layer(op.Opts))
 		case *LayerEndOp:

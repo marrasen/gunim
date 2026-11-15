@@ -530,6 +530,18 @@ func drawn(op paint.Op) (geom.Rect, bool) {
 			}
 		}
 		return transformed(o.Transform, r), true
+	case *paint.AreaOp:
+		if len(o.Points) == 0 {
+			return geom.Rect{}, false
+		}
+		r := geom.Rect{Min: o.Points[0].At, Max: o.Points[0].At}
+		for _, pt := range o.Points {
+			for _, at := range [...]geom.Point{pt.At, pt.Base} {
+				r.Min = geom.Pt(min(r.Min.X, at.X), min(r.Min.Y, at.Y))
+				r.Max = geom.Pt(max(r.Max.X, at.X), max(r.Max.Y, at.Y))
+			}
+		}
+		return transformed(o.Transform, r), true
 	}
 	return geom.Rect{}, false
 }

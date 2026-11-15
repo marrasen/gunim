@@ -45,9 +45,12 @@ cover much of the window. Moving parts in more places than that merge into boxes
   Each of those is an op, a transform push and a quad. Their rounded ends overlap, and with a faded colour every
   joint shows a darker bead. A ribbon is smooth, even in colour and cheap. Its width and colour can change along
   it, for a taper or a fade.
+- **The fill under a curve is one area.** Draw it as one `Painter.Area`, through the points of the curve's ribbon,
+  each with the point on the base under it. Its colour can change along it and from the curve to the base, for a
+  fill that fades toward its foot. `widget.LiveGraph` draws its fill and its line so.
 - **A circle is one `RRect`** with its radius at half its size, or one `RRectStroke` for a ring.
-- **A level is a few runs, not a column each.** Draw a waveform, a meter or a spectrum as one ribbon, or as runs
-  of a colour. Never draw one `RRect` per pixel column.
+- **A level is a few runs, not a column each.** Draw a waveform, a meter or a spectrum as one ribbon, as one area,
+  or as runs of a colour. Never draw one `RRect` per pixel column.
 - **Leave out what can't show.** Skip parts outside `Painter.Visible()`, parts faded to nothing and parts a later
   op covers. Blurred and tilted layers make the damage the whole window, so use them only where they show.
 - **Shape text once.** Keep shaped runs (`audioui.Shaped`, or a cache keyed on the text), never shape per frame.

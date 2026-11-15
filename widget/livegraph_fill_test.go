@@ -27,15 +27,16 @@ func graphDrawn(w *gunim.Window, width float32) graphOps {
 	for _, op := range w.Offscreen().Ops() {
 		switch r := op.(type) {
 		case *paint.RRectOp:
-			if r.Fill.Gradient != nil {
-				o.left = min(o.left, r.Transform.Apply(r.Rect.Min).X)
-				o.right = max(o.right, r.Transform.Apply(r.Rect.Max).X)
-			}
 			if r.Radius == 2 {
 				o.head, o.hasHead = r.Transform.Apply(r.Rect.Center()), true
 			}
 			if r.Rect.Size().H == 1 && r.Rect.Size().W == width {
 				o.baseline = true
+			}
+		case *paint.AreaOp:
+			for _, pt := range r.Points {
+				x := r.Transform.Apply(pt.At).X
+				o.left, o.right = min(o.left, x), max(o.right, x)
 			}
 		case *paint.TextOp:
 			o.texts++

@@ -113,21 +113,21 @@ func TestALiveGraphSlidesEveryFrame(t *testing.T) {
 	headAt := func() geom.Point {
 		t.Helper()
 		var at geom.Point
-		fills := 0
+		areas, ribbons := 0, 0
 		for _, op := range w.Offscreen().Ops() {
-			r, ok := op.(*paint.RRectOp)
-			if !ok {
-				continue
-			}
-			if r.Fill.Gradient != nil {
-				fills++
-			}
-			if r.Radius == 2 {
-				at = r.Transform.Apply(r.Rect.Center())
+			switch op := op.(type) {
+			case *paint.AreaOp:
+				areas++
+			case *paint.RibbonOp:
+				ribbons++
+			case *paint.RRectOp:
+				if op.Radius == 2 {
+					at = op.Transform.Apply(op.Rect.Center())
+				}
 			}
 		}
-		if fills == 0 {
-			t.Fatal("the graph draws no fill")
+		if areas != 1 || ribbons != 1 {
+			t.Fatalf("the graph draws %d areas and %d ribbons, want its fill as one area and its line as one ribbon", areas, ribbons)
 		}
 		return at
 	}
@@ -146,4 +146,33 @@ func TestALiveGraphSlidesEveryFrame(t *testing.T) {
 		}
 	}
 	t.Fatal("stopped, the graph asks for frames five seconds on")
+}
+
+func TestALiveGraphDrawsNoMoreCommandsHoweverWideItIs(t *testing.T) {
+	drawn := func(width float32) (ops, points int) {
+		g := NewLiveGraph(100*time.Millisecond, 50)
+		history := make([]float64, 60)
+		for i := range history {
+			history[i] = float64(10 + i%7*9)
+		}
+		g.Fill(history)
+		g.SetRunning(true)
+		w, run := stage(t, &frame{child: g, size: geom.Sz(width, 60)})
+		run(1)
+		for _, op := range w.Offscreen().Ops() {
+			if a, ok := op.(*paint.AreaOp); ok {
+				points = len(a.Points)
+			}
+		}
+		return len(w.Offscreen().Ops()), points
+	}
+	narrow, few := drawn(300)
+	wide, many := drawn(1200)
+	if wide != narrow {
+		t.Fatalf("a graph 1200 wide draws %d commands and one 300 wide %d, want as many", wide, narrow)
+	}
+	// A point for each 3 px of the curve, not a shape for each column.
+	if few < 60 || few > 110 || many < 300 || many > 410 {
+		t.Fatalf("the fills have %d and %d points, want about a third of 300 and of 1200", few, many)
+	}
 }
