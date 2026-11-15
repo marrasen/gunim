@@ -1,6 +1,7 @@
 package widget
 
 import (
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -8,6 +9,7 @@ import (
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
+	"github.com/marrasen/gunim/paint"
 )
 
 // A control with no tooltip of its own, enabled again while it shows its reason, closes the tooltip, fading.
@@ -352,5 +354,56 @@ func TestTabMovesOnFromAControlDisabledInAGroup(t *testing.T) {
 		if f := focused(); f != want {
 			t.Fatalf("Tab with %v from B1, disabled in its group, put the keyboard on %T %p, want %s", mods, f, f, name)
 		}
+	}
+}
+
+// cardMidTurn lays out a tooltip card of from, turns it to to, and returns it with what it paints a few frames on.
+func cardMidTurn(t *testing.T, from, to string) (*tip, []paint.Op) {
+	t.Helper()
+	card := newTip(from)
+	_, run := stage(t, &frame{child: card, size: geom.Sz(560, 160)})
+	run(30)
+	card.turnTo(to)
+	run(4)
+	if v := card.turn.Value(); v <= 0.05 || v >= 0.95 {
+		t.Fatalf("four frames into the turn, the words are %v turned, want part way", v)
+	}
+	return card, painted(card, geom.Sz(560, 160))
+}
+
+// While the card glides to new words, everything it writes is cut to the card.
+func TestATooltipsWordsAreCutToItsCardWhileItGlides(t *testing.T) {
+	long := strings.Repeat("All of these words wrap ", 12)
+	card, ops := cardMidTurn(t, long, "Short")
+	want := geom.Rc(0, 0, card.w.Value(), card.h.Value())
+	cut := false
+	for _, op := range ops {
+		if l, ok := op.(*paint.LayerOp); ok && l.Opts.Clip && l.Opts.Bounds == want {
+			cut = true
+		}
+		if _, ok := op.(*paint.TextOp); ok && !cut {
+			t.Fatal("the card writes words before it cuts them to the card")
+		}
+	}
+	if !cut {
+		t.Fatalf("mid-glide, nothing cuts the words to the card %v", want)
+	}
+}
+
+// Wrapped words turning away keep their lines, rather than running out on one line.
+func TestATooltipsWrappedWordsKeepTheirLinesAsTheyTurnAway(t *testing.T) {
+	long := strings.Repeat("All of these words wrap ", 12)
+	_, ops := cardMidTurn(t, long, "Short")
+	lines := map[float32]bool{}
+	for _, op := range ops {
+		if tx, ok := op.(*paint.TextOp); ok {
+			for _, g := range tx.Glyphs {
+				lines[float32(math.Round(float64(tx.Transform.Apply(g.At).Y)))] = true
+			}
+		}
+	}
+	// The old words take two lines or more, and the new one.
+	if len(lines) < 3 {
+		t.Fatalf("mid-turn, the card writes on %d lines, want the old words' lines and the new one", len(lines))
 	}
 }
