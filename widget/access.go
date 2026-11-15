@@ -26,7 +26,8 @@ func (b *Button) Access() access.Info {
 	if name == "" {
 		name = iconName(b.Icon)
 	}
-	return access.Info{Role: access.RoleButton, Name: name, State: b.state(), Actions: []string{access.ActionPress}}
+	return b.accessHeld(access.Info{Role: access.RoleButton, Name: name, State: b.state(),
+		Actions: []string{access.ActionPress}})
 }
 
 // state is the button's state: active, disabled, both or neither.
@@ -63,16 +64,16 @@ func (t *TextField) Access() access.Info {
 	if !t.Secret {
 		value = t.Text()
 	}
-	return access.Info{Role: access.RoleTextField, Name: t.accessName(t.Placeholder), Value: value,
-		State: access.StateEditable | t.accessState()}
+	return t.accessHeld(access.Info{Role: access.RoleTextField, Name: t.accessName(t.Placeholder), Value: value,
+		State: access.StateEditable | t.accessState()})
 }
 
 // Access implements [gunim.Accessible].
 func (a *TextArea) Access() access.Info {
-	return access.Info{
+	return a.accessHeld(access.Info{
 		Role: access.RoleTextField, Name: a.accessName(a.Placeholder), Value: a.textString(),
 		State: access.StateEditable | access.StateMultiline | a.accessState(),
-	}
+	})
 }
 
 // Access implements [gunim.Accessible].
@@ -96,7 +97,8 @@ func (t *toggle) access(role access.Role) access.Info {
 	if t.checked {
 		s |= access.StateChecked
 	}
-	return access.Info{Role: role, Name: t.accessName(t.Label), State: s, Actions: []string{access.ActionPress}}
+	return t.accessHeld(access.Info{Role: role, Name: t.accessName(t.Label), State: s,
+		Actions: []string{access.ActionPress}})
 }
 
 // Access implements [gunim.Accessible].
@@ -129,13 +131,13 @@ func (s *Slider) Access() access.Info {
 	if name == "" {
 		name = s.row
 	}
-	return access.Info{
+	return s.accessHeld(access.Info{
 		Role:  access.RoleSlider,
 		Name:  s.accessName(name),
 		State: s.accessState(),
 		Value: strconv.FormatFloat(float64(s.value), 'g', 4, 32),
 		Range: &access.Range{Min: float64(s.Min), Max: float64(s.Max), Value: float64(s.value), Step: float64(s.Snap)},
-	}
+	})
 }
 
 // AccessAct implements [gunim.AccessActor]: a new value.
@@ -196,7 +198,7 @@ func (d *Dropdown) Access() access.Info {
 			info.Value = items[h].Label
 		}
 	}
-	return info
+	return d.accessHeld(info)
 }
 
 // AccessAct implements [gunim.AccessActor]: press opens the list, or

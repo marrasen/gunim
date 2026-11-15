@@ -629,7 +629,7 @@ func (n *NavList) Access() access.Info {
 		}
 		info.Parts = append(info.Parts, part)
 	}
-	return info
+	return n.accessHeld(info)
 }
 
 // partKey is the key of row i's part for a screen reader: from the row's Key, so a hold on it follows the row, and

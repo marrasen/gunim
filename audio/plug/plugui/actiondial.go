@@ -32,6 +32,9 @@ type ActionDial struct {
 	// does nothing.
 	Tooltip  string
 	Disabled bool
+	// Why says why the dial is disabled: while Disabled, its tooltip says Why alone, and a screen reader reads it as
+	// the dial's description.
+	Why string
 	// Stale greys the value: what it says no longer holds.
 	Stale bool
 	// OnClick is called as it is clicked.
@@ -104,6 +107,7 @@ func (d *ActionDial) Step(dt time.Duration) bool { return d.Group.Step(dt) }
 // Layout implements [gunim.Node]: as big as a knob.
 func (d *ActionDial) Layout(c gunim.Constraints, _ gunim.Frame, _ gunim.Children) geom.Size {
 	d.size = c.Constrain(geom.Sz(KnobW, KnobH))
+	d.tip.Retext(d.tipText())
 	return d.size
 }
 
@@ -164,9 +168,20 @@ func (d *ActionDial) Focusable() bool { return !d.Disabled }
 // Handle implements [gunim.Handler]: a click, or Space or Enter, clicks
 // it.
 func (d *ActionDial) Handle(e input.Event, u *gunim.UI) bool {
-	d.tip.Handle(e, u, d, d.Tooltip)
+	d.tip.Handle(e, u, d, d.tipText())
 	if followRing(d.ring, e, u) {
 		return true
+	}
+	if d.Disabled {
+		if pe, ok := e.(input.PointerDown); ok {
+			return pe.Button == input.ButtonPrimary
+		}
+		if pe, ok := e.(input.PointerUp); ok {
+			return pe.Button == input.ButtonPrimary
+		}
+		if _, ok := e.(input.KeyPress); ok {
+			return false
+		}
 	}
 	switch e := e.(type) {
 	case input.PointerEnter:
@@ -208,6 +223,14 @@ func (d *ActionDial) Handle(e input.Event, u *gunim.UI) bool {
 	return true
 }
 
+// tipText is what the dial's tooltip says: Why while disabled with one, else Tooltip.
+func (d *ActionDial) tipText() string {
+	if d.Disabled && d.Why != "" {
+		return d.Why
+	}
+	return d.Tooltip
+}
+
 // click clicks it, unless it is disabled.
 func (d *ActionDial) click(u *gunim.UI) {
 	if d.Disabled || d.OnClick == nil {
@@ -220,17 +243,17 @@ func (d *ActionDial) click(u *gunim.UI) {
 // Access implements [gunim.Accessible]: a button, named by its title,
 // its value saying how it stands.
 func (d *ActionDial) Access() access.Info {
-	st := access.State(0)
 	if d.Disabled {
-		st = access.StateDisabled
+		return access.Info{Role: access.RoleButton, Name: d.Title, Value: d.Value, Description: d.tipText(),
+			State: access.StateDisabled}
 	}
-	return access.Info{Role: access.RoleButton, Name: d.Title, Value: d.Value, Description: d.Tooltip, State: st,
+	return access.Info{Role: access.RoleButton, Name: d.Title, Value: d.Value, Description: d.Tooltip,
 		Actions: []string{access.ActionPress}}
 }
 
 // AccessAct implements [gunim.AccessActor]: pressing clicks it.
 func (d *ActionDial) AccessAct(r access.Request, u *gunim.UI) bool {
-	if r.Action != access.ActionPress {
+	if r.Action != access.ActionPress || d.Disabled {
 		return false
 	}
 	d.click(u)

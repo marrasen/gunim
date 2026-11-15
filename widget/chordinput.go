@@ -303,5 +303,6 @@ func (c *ChordInput) end(u *gunim.UI, fn func()) {
 
 // Access implements [gunim.Accessible].
 func (c *ChordInput) Access() access.Info {
-	return access.Info{Role: access.RoleTextField, Name: c.accessName(c.Prompt), Value: c.shown(), State: c.accessState()}
+	return c.accessHeld(access.Info{Role: access.RoleTextField, Name: c.accessName(c.Prompt), Value: c.shown(),
+		State: c.accessState()})
 }

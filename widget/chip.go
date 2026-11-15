@@ -266,7 +266,8 @@ func (c *Chip) Access() access.Info {
 	if c.Lead != "" {
 		name = c.Lead + " " + c.Label
 	}
-	return access.Info{Role: access.RoleButton, Name: "Remove " + name, State: c.accessState(), Actions: []string{access.ActionPress}}
+	return c.accessHeld(access.Info{Role: access.RoleButton, Name: "Remove " + name, State: c.accessState(),
+		Actions: []string{access.ActionPress}})
 }
 
 // AccessAct implements [gunim.AccessActor].

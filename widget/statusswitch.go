@@ -305,7 +305,8 @@ func (s *StatusSwitch) Access() access.Info {
 	if s.checked {
 		st |= access.StateChecked
 	}
-	return access.Info{Role: access.RoleSwitch, Name: s.accessName(s.Label), State: st, Actions: []string{access.ActionPress}}
+	return s.accessHeld(access.Info{Role: access.RoleSwitch, Name: s.accessName(s.Label), State: st,
+		Actions: []string{access.ActionPress}})
 }
 
 // AccessAct implements [gunim.AccessActor]: a screen reader's press

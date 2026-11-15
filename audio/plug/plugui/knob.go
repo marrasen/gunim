@@ -110,6 +110,9 @@ type Knob struct {
 	// still turns; Locked greys it and it does not turn, as a gain a cut
 	// has none of. Each glides there.
 	Disabled, Locked bool
+	// Why says why the knob is greyed: while Disabled or Locked, its tooltip says Why, and a screen reader reads it
+	// as the knob's description.
+	Why string
 	// grey is how far the knob's arc has gone grey, faint how far a lock
 	// has faded it, turned how far round its needle shows, and laid says
 	// it has been laid out, before which they jump to where they are set.
@@ -254,6 +257,9 @@ func (k *Knob) normalAt(t float64) float64 {
 // lay reads the needle's glide from f's theme, and on the first layout puts every spring where it is set.
 func (k *Knob) lay(f gunim.Frame) {
 	k.glide = KnobGlide.Get(f.Theme)
+	if k.hover.Target() > 0 && !k.held {
+		k.tip.Retext(k.tooltip())
+	}
 	if !k.laid {
 		k.laid = true
 		k.aim(func(a *anim.Float, v float32) { a.Jump(v) })
@@ -499,11 +505,21 @@ func (k *Knob) stepTo(v float64, u *gunim.UI) {
 	k.end(u)
 }
 
-// tooltip is what the knob's tooltip says.
+// tooltip is what the knob's tooltip says: Why while greyed with one, and how to turn it only while it turns.
 func (k *Knob) tooltip() string {
+	what := k.Tooltip
+	if k.Why != "" && (k.Disabled || k.Locked) {
+		what = k.Why
+	}
+	if k.Locked {
+		if what == "" {
+			return k.p.Name
+		}
+		return what
+	}
 	how := "Drag up or down, or turn the wheel, with Shift for fine steps; double-click to reset"
-	if k.Tooltip != "" {
-		return k.Tooltip + ". " + how
+	if what != "" {
+		return what + ". " + how
 	}
 	return k.p.Name + ": " + strings.ToLower(how[:1]) + how[1:]
 }
@@ -727,15 +743,18 @@ func (k *Knob) openMenu(pos geom.Point, u *gunim.UI) bool {
 // Access implements [gunim.Accessible]: a slider, named as its
 // parameter, its value as the parameter writes it.
 func (k *Knob) Access() access.Info {
-	st := access.State(0)
+	st, about := access.State(0), ""
 	if k.Disabled || k.Locked {
-		st = access.StateDisabled
+		st, about = access.StateDisabled, k.Why
+	}
+	if k.Locked {
+		st |= access.StateReadOnly
 	}
 	step := 0.0
 	if k.p.Steps > 0 {
 		step = (k.p.Max - k.p.Min) / float64(k.p.Steps)
 	}
-	return access.Info{Role: access.RoleSlider, Name: k.p.Name, Value: k.p.Text(k.v), State: st,
+	return access.Info{Role: access.RoleSlider, Name: k.p.Name, Value: k.p.Text(k.v), Description: about, State: st,
 		Range: &access.Range{Min: k.p.Min, Max: k.p.Max, Value: k.v, Step: step}}
 }
 

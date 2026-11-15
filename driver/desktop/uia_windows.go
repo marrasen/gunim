@@ -947,6 +947,11 @@ func boolOut(p uintptr, b bool) {
 	out(p, int32(0))
 }
 
+// rangeReadOnly reports whether n's value takes no change: read only, or disabled.
+func rangeReadOnly(n *access.Node) bool {
+	return n.State.Has(access.StateReadOnly) || n.State.Has(access.StateDisabled)
+}
+
 // withNode runs fn with e's node, or answers that it is gone.
 func withNode(this uintptr, k int, fn func(e *element, n *access.Node) uintptr) uintptr {
 	e := elementAt(this, k)
@@ -1156,7 +1161,12 @@ func tables() {
 		}
 		add(ifRange,
 			rangeGet(func(r *access.Range) float64 { return r.Value }),
-			func(this, p uintptr) uintptr { boolOut(p, false); return hrOK },
+			func(this, p uintptr) uintptr {
+				return withNode(this, ifRange, func(_ *element, n *access.Node) uintptr {
+					boolOut(p, rangeReadOnly(n))
+					return hrOK
+				})
+			},
 			rangeGet(func(r *access.Range) float64 { return r.Max }),
 			rangeGet(func(r *access.Range) float64 { return r.Min }),
 			rangeGet(func(r *access.Range) float64 { return (r.Max - r.Min) / 10 }),

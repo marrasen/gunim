@@ -86,7 +86,7 @@ the row by its place: `Cursor() int` and `SetCursor(i, u)`.
 - `Items` holds the choices of a dropdown, a segmented control or a menu. `Titles` holds the titles of tabs.
 - `Label` is a control's own text, and also its name for a screen reader.
 - `Axis` says which way a widget runs (`Slider`, `Split`, `Group`).
-- `Disabled`, `Tooltip` and `KeepFocus` mean the same on every control (see Control below).
+- `Disabled`, `Why`, `Tooltip` and `KeepFocus` mean the same on every control (see Control below).
 - `KeepFocus` leaves the keyboard where it is on a click. `SkipFocus` takes the widget out of the Tab order.
 
 **Doc comments.** A widget's doc comment says what it is, how it moves, and its keys, in that order. Write plain
@@ -94,8 +94,8 @@ English in short sentences. Say what a thing is; a sentence that opens with what
 
 ## Control: the shared base
 
-`widget.Control` holds what every interactive widget shares: `Disabled`, `Tooltip`, `KeepFocus`, and springs for
-hover, press, the focus ring and the disabled fade. A control in `widget` embeds it and calls its methods:
+`widget.Control` holds what every interactive widget shares: `Disabled`, `Why`, `Tooltip`, `KeepFocus`, and springs
+for hover, press, the focus ring and the disabled fade. A control in `widget` embeds it and calls its methods:
 
 | Where | Call | What it gives |
 |---|---|---|
@@ -108,11 +108,19 @@ hover, press, the focus ring and the disabled fade. A control in `widget` embeds
 | `Paint` | `defer c.faint(p, box)()`, then `c.paintRing(p, r, radius, th)` | the disabled fade, and the one focus ring |
 | `Paint`, over the fill | `c.paintGlow(p, r, radius, th)` | the glow that spreads from a finger as it presses |
 | `Access` | `c.accessState()`, `c.accessName(label)` | disabled state and a name for screen readers |
+| `Access`, last | `return c.accessHeld(info)` | while disabled: no actions, and `Why` as the description |
 
 A finger's press shows on the frame it lands. `showTip` lights the control through its hover spring, `squashIn`
 squashes it, and `paintGlow` draws a soft glow out from where the finger landed. Inside something that scrolls, all
 three wait up to 80 ms for the finger to show whether it taps or scrolls, so a scroll lights none of the controls it
 starts on. A finger has no hover otherwise: the engine sends no enter or leave as it moves.
+
+**Saying why.** A program that greys a control gives the reason in `Why`, as `b.Disabled, b.Why = true, "Works only
+with the Echo up"`. While disabled, the tooltip says `Why` alone and a screen reader reads it as the description. A
+disabled control without one shows its `Tooltip`, and leaves out how to work it where the widget writes that itself,
+as a knob's "Drag up or down". An enabled control ignores `Why`. A disabled control keeps the keyboard where it was,
+takes no key, and Tab moves on past it. `plugui`'s `Knob`, `Selector`, `Power` and `ActionDial` take `Why` the
+same way, while they are greyed.
 
 An app's widget outside the package draws the same way with the exported helpers `widget.Faint`, `widget.FocusRing`
 (round a control) and `widget.GroupRing` (round a view with a cursor of its own, such as a calendar).
@@ -225,7 +233,8 @@ and on open. 100 000 items must cost the same per frame as 100.
 
 Every interactive widget implements `gunim.Accessible` (`Access()`) and, when a screen reader can act on it,
 `gunim.AccessActor` (`AccessAct`). It reports a role, a name (its `Label`, or `Tooltip` when it shows none), its value,
-and `StateDisabled` while disabled (`Control.accessState` gives it). A view of rows publishes the rows in view.
+and `StateDisabled` while disabled (`Control.accessState` gives it). While disabled it offers no actions, and `Why` is
+its description (`Control.accessHeld` does both). A view of rows publishes the rows in view.
 A widget that draws no name of its own takes a `Label` for screen readers, as `NavList` does, and passes it to
 `accessName`. A name such as "Pages" then doesn't also pop up as a tooltip. `Tooltip` stays the name where `Label` is
 empty.

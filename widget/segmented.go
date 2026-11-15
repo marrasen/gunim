@@ -371,7 +371,7 @@ func (s *Segmented) Access() access.Info {
 		}
 		info.Parts = append(info.Parts, part)
 	}
-	return info
+	return s.accessHeld(info)
 }
 
 // AccessAct implements [gunim.AccessActor]: pressing an option chooses it.

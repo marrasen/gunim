@@ -38,6 +38,7 @@ func PaintPower(p *paint.Painter, c geom.Point, on, hover float32, accent, ink c
 // gliding as it changes, lighting a little under the pointer, its
 // tooltip saying what a click does. Tab brings the keyboard to it, a
 // focus ring fades in round it, and Space or Enter switches it.
+// Disabled, it fades faint and takes no click, key or focus.
 type Power struct {
 	anim.Group
 	checked bool
@@ -48,22 +49,31 @@ type Power struct {
 	// squash is how far it is pressed in; held says a press is on it, and size is how big it was laid out.
 	squash *anim.Float
 	held   bool
-	click  widget.Clicker
-	size   geom.Size
+	// dim is how far it has faded faint as Disabled turns on, laid says it has been laid out, before which dim
+	// jumps, and over says the pointer is on it.
+	dim        *anim.Float
+	laid, over bool
+	click      widget.Clicker
+	size       geom.Size
 	// OnChange is called as a click changes it, with what it is now.
 	OnChange func(on bool, u *gunim.UI) gunim.Intent
 	// Name is what it switches, for its tooltip and for access.
 	Name string
 	// Tooltip, where set, replaces the default tooltip, which says whether Name is on and what a click does.
 	Tooltip string
-	tip     widget.PartTip
+	// Disabled fades the lamp faint, and it takes no click, key or focus, for a switch something else holds.
+	Disabled bool
+	// Why says why the lamp is disabled: while Disabled, its tooltip says Why alone, and a screen reader reads it as
+	// the lamp's description.
+	Why string
+	tip widget.PartTip
 }
 
 // NewPower returns a power lamp, off, switching name.
 func NewPower(name string) *Power {
 	p := &Power{Name: name, on: anim.NewFloat(0), hover: anim.NewFloat(0), ring: anim.NewFloat(0),
-		squash: anim.NewFloat(0), click: widget.Clicker{Repeats: true}}
-	p.Add(p.on, p.hover, p.ring, p.squash)
+		squash: anim.NewFloat(0), dim: anim.NewFloat(0), click: widget.Clicker{Repeats: true}}
+	p.Add(p.on, p.hover, p.ring, p.squash, p.dim)
 	return p
 }
 
@@ -84,9 +94,26 @@ func (p *Power) SetChecked(on bool, u *gunim.UI) {
 // Step implements [gunim.Animator].
 func (p *Power) Step(dt time.Duration) bool { return p.Group.Step(dt) }
 
-// Layout implements [gunim.Node].
-func (p *Power) Layout(c gunim.Constraints, _ gunim.Frame, _ gunim.Children) geom.Size {
+// Layout implements [gunim.Node]: the lamp fades as Disabled changes, jumping on the first layout, and lets go of a
+// press as it turns disabled.
+func (p *Power) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
 	p.size = c.Constrain(geom.Sz(PowerSize, PowerSize))
+	off := anim.OnOff(p.Disabled)
+	switch {
+	case !p.laid:
+		p.laid = true
+		p.dim.Jump(off)
+	case p.dim.Target() != off:
+		p.dim.Animate(off, widget.Quick.Get(f.Theme))
+		if p.Disabled {
+			p.held = false
+			p.squash.Animate(0, widget.Settle.Get(f.Theme))
+			p.hover.Animate(0, widget.Quick.Get(f.Theme))
+		}
+	}
+	if p.over {
+		p.tip.Retext(p.tooltip())
+	}
 	return p.size
 }
 
@@ -94,14 +121,20 @@ func (p *Power) Layout(c gunim.Constraints, _ gunim.Frame, _ gunim.Children) geo
 func (p *Power) Paint(pt *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
 	th := f.Theme
 	mid := geom.Pt(box.W/2, box.H/2)
+	dim := min(max(p.dim.Value(), 0), 1)
+	defer widget.Faint(pt, box, dim*0.6)()
 	// The ring hugs the lamp, so it stays clear of a section's title beside it.
-	widget.FocusRing(pt, geom.Rc(mid.X-6, mid.Y-6, 12, 12), 6, p.ring.Value(), th)
+	widget.FocusRing(pt, geom.Rc(mid.X-6, mid.Y-6, 12, 12), 6, p.ring.Value()*(1-dim), th)
 	defer pt.Push(paint.Scale(1-0.12*p.squash.Value(), mid))()
 	PaintPower(pt, mid, p.on.Value(), p.hover.Value(), widget.Accent.Get(th), widget.Ink.Get(th))
 }
 
-// tooltip says whether it is on and what a click does, as "Follow song: on. Click to turn off.".
+// tooltip says whether it is on and what a click does, as "Follow song: on. Click to turn off.". Disabled, it says
+// Why where set, and leaves out what a click does.
 func (p *Power) tooltip() string {
+	if p.Disabled && p.Why != "" {
+		return p.Why
+	}
 	if p.Tooltip != "" {
 		return p.Tooltip
 	}
@@ -109,23 +142,36 @@ func (p *Power) tooltip() string {
 	if p.checked {
 		now, to = "on", "off"
 	}
+	how := " Click to turn " + to + "."
+	if p.Disabled {
+		how = ""
+	}
 	if p.Name == "" {
 		r, n := utf8.DecodeRuneInString(now)
-		return string(unicode.ToUpper(r)) + now[n:] + ". Click to turn " + to + "."
+		return string(unicode.ToUpper(r)) + now[n:] + "." + how
 	}
 	r, n := utf8.DecodeRuneInString(p.Name)
-	return string(unicode.ToUpper(r)) + p.Name[n:] + ": " + now + ". Click to turn " + to + "."
+	return string(unicode.ToUpper(r)) + p.Name[n:] + ": " + now + "." + how
 }
 
-// Focusable implements [gunim.Focusable].
-func (p *Power) Focusable() bool { return true }
+// Focusable implements [gunim.Focusable]: the lamp takes the keyboard while it is enabled.
+func (p *Power) Focusable() bool { return !p.Disabled }
 
 // Handle implements [gunim.Handler]: a click, or Space or Enter,
 // switches it.
 func (p *Power) Handle(e input.Event, u *gunim.UI) bool {
 	p.tip.Handle(e, u, p, p.tooltip())
+	switch e.(type) {
+	case input.PointerEnter:
+		p.over = true
+	case input.PointerLeave:
+		p.over = false
+	}
 	if followRing(p.ring, e, u) {
 		return true
+	}
+	if p.Disabled {
+		return p.handleDisabled(e)
 	}
 	switch e := e.(type) {
 	case input.PointerEnter:
@@ -167,6 +213,18 @@ func (p *Power) Handle(e input.Event, u *gunim.UI) bool {
 	return true
 }
 
+// handleDisabled takes the primary button's presses of a disabled lamp, so a click on it reaches nothing round it,
+// and passes every other event by.
+func (p *Power) handleDisabled(e input.Event) bool {
+	switch e := e.(type) {
+	case input.PointerDown:
+		return e.Button == input.ButtonPrimary
+	case input.PointerUp:
+		return e.Button == input.ButtonPrimary
+	}
+	return false
+}
+
 // toggle switches it, as the user did.
 func (p *Power) toggle(u *gunim.UI) {
 	p.SetChecked(!p.checked, u)
@@ -179,18 +237,21 @@ func (p *Power) toggle(u *gunim.UI) {
 }
 
 // Access implements [gunim.Accessible]: a switch, named as what it
-// switches.
+// switches. Disabled, it offers no press and is described by Why.
 func (p *Power) Access() access.Info {
 	st := access.State(0)
 	if p.checked {
 		st = access.StateChecked
+	}
+	if p.Disabled {
+		return access.Info{Role: access.RoleSwitch, Name: p.Name, Description: p.Why, State: st | access.StateDisabled}
 	}
 	return access.Info{Role: access.RoleSwitch, Name: p.Name, State: st, Actions: []string{access.ActionPress}}
 }
 
 // AccessAct implements [gunim.AccessActor]: pressing switches it.
 func (p *Power) AccessAct(r access.Request, u *gunim.UI) bool {
-	if r.Action != access.ActionPress {
+	if r.Action != access.ActionPress || p.Disabled {
 		return false
 	}
 	p.toggle(u)

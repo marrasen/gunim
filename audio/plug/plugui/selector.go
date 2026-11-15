@@ -40,6 +40,9 @@ type Selector struct {
 	OnPick func(i int, u *gunim.UI)
 	// Locked greys the selector, and it picks nothing.
 	Locked bool
+	// Why says why the selector is locked: while Locked, its tooltip says Why over every lamp, and a screen reader
+	// reads it as the selector's description.
+	Why string
 	// Columns, where set, sets the lamps in rows of so many, as four
 	// two by two, which takes less room across; else all in one row.
 	Columns int
@@ -139,6 +142,9 @@ func (s *Selector) lampsAt() (top, foot float32) {
 func (s *Selector) Layout(c gunim.Constraints, _ gunim.Frame, _ gunim.Children) geom.Size {
 	cols, _ := s.grid()
 	s.size = c.Constrain(geom.Sz(max(float32(cols)*lampCol+16, 48), SelectorH))
+	if s.hot >= 0 || s.Why != "" {
+		s.tip.Retext(s.tipAt(s.hot))
+	}
 	// The columns lampCol apart, about the middle.
 	left := (s.size.W - float32(cols)*lampCol) / 2
 	top, _ := s.lampsAt()
@@ -247,9 +253,7 @@ func (s *Selector) Focusable() bool { return !s.Locked }
 func (s *Selector) Handle(e input.Event, u *gunim.UI) bool {
 	tip := ""
 	if pe, ok := e.(input.PointerMove); ok {
-		if i := s.at(pe.Pos); i >= 0 && i < len(s.tips) {
-			tip = s.names[i] + ": " + s.tips[i]
-		}
+		tip = s.tipAt(s.at(pe.Pos))
 	}
 	if _, ok := e.(input.PointerMove); ok || isLeave(e) {
 		s.tip.Handle(e, u, s, tip)
@@ -295,8 +299,8 @@ func (s *Selector) Handle(e input.Event, u *gunim.UI) bool {
 		}
 	case input.KeyPress:
 		// Ctrl, Alt or Super with a key is the window's shortcut, such as
-		// Alt+Left to the loop's start: the selector leaves it be.
-		if e.Mods.Has(input.ModControl) || e.Mods.Has(input.ModAlt) || e.Mods.Has(input.ModSuper) {
+		// Alt+Left to the loop's start: the selector leaves it be, and a locked one leaves every key be.
+		if s.Locked || e.Mods.Has(input.ModControl) || e.Mods.Has(input.ModAlt) || e.Mods.Has(input.ModSuper) {
 			return false
 		}
 		i, ok := s.move(e.Key)
@@ -308,6 +312,17 @@ func (s *Selector) Handle(e input.Event, u *gunim.UI) bool {
 		return false
 	}
 	return true
+}
+
+// tipAt is what the tooltip says over lamp i: Why while locked with one, else what the option does.
+func (s *Selector) tipAt(i int) string {
+	if s.Locked && s.Why != "" {
+		return s.Why
+	}
+	if i >= 0 && i < len(s.tips) {
+		return s.names[i] + ": " + s.tips[i]
+	}
+	return ""
 }
 
 // move returns the option key moves to from the one chosen, and false for a key that moves nothing.
@@ -354,15 +369,18 @@ func (s *Selector) Access() access.Info {
 		info.Name = s.Label
 	}
 	if s.Locked {
-		info.State = access.StateDisabled
+		info.State, info.Description = access.StateDisabled, s.Why
 	}
 	for i, n := range s.names {
 		part := access.Info{Role: access.RoleTab, Name: n, Actions: []string{access.ActionPress}}
+		if s.Locked {
+			part.Actions, part.State = nil, access.StateDisabled
+		}
 		if i < len(s.tips) {
 			part.Description = s.tips[i]
 		}
 		if i == s.sel {
-			part.State = access.StateSelected
+			part.State |= access.StateSelected
 		}
 		if i < len(s.cells) {
 			part.Bounds = s.cells[i]
@@ -375,7 +393,7 @@ func (s *Selector) Access() access.Info {
 // AccessAct implements [gunim.AccessActor]: pressing an option picks
 // it.
 func (s *Selector) AccessAct(r access.Request, u *gunim.UI) bool {
-	if r.Action != access.ActionPress || r.Part < 0 || r.Part >= len(s.names) {
+	if r.Action != access.ActionPress || r.Part < 0 || r.Part >= len(s.names) || s.Locked {
 		return false
 	}
 	s.pick(r.Part, u)

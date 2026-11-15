@@ -539,7 +539,7 @@ func (p *PinPad) Access() access.Info {
 		}
 		info.Parts = append(info.Parts, k)
 	}
-	return info
+	return p.accessHeld(info)
 }
 
 // AccessAct implements [gunim.AccessActor]: a press on a key does what the key does.

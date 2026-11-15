@@ -81,3 +81,16 @@ func TestAStatusThatChangesIsReadAgain(t *testing.T) {
 		t.Fatalf("a label's new words raised %d events, want the name's change alone", n)
 	}
 }
+
+// A slider held disabled or read only reads as one whose value takes no change; one that turns does not.
+func TestAHeldSliderIsReadOnly(t *testing.T) {
+	for _, c := range []struct {
+		state access.State
+		want  bool
+	}{{0, false}, {access.StateDisabled, true}, {access.StateReadOnly, true}} {
+		n := &access.Node{Info: access.Info{Role: access.RoleSlider, State: c.state, Range: &access.Range{Max: 1}}}
+		if got := rangeReadOnly(n); got != c.want {
+			t.Errorf("a slider of state %v reads read only %v, want %v", c.state, got, c.want)
+		}
+	}
+}

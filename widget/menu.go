@@ -1684,6 +1684,14 @@ func (p *PartTip) Handle(e input.Event, u *gunim.UI, owner gunim.Node, words str
 // Hide hides the tooltip, such as while the part under the pointer is dragged.
 func (p *PartTip) Hide(u *gunim.UI) { p.tip.hide(u) }
 
+// Retext turns the words of the tooltip showing over to words, from Layout, as the part's text changes under a
+// resting pointer. It opens none, and does nothing while none shows or waits to.
+func (p *PartTip) Retext(words string) {
+	if p.tip.card != nil || p.tip.stop != nil {
+		p.tip.retext(words)
+	}
+}
+
 // tipper shows a tooltip for the node it serves.
 type tipper struct {
 	text  string

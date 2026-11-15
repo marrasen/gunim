@@ -153,7 +153,8 @@ func (l *Link) fire(u *gunim.UI) {
 
 // Access implements [gunim.Accessible].
 func (l *Link) Access() access.Info {
-	return access.Info{Role: access.RoleLink, Name: l.accessName(l.Text), State: l.accessState(), Actions: []string{access.ActionPress}}
+	return l.accessHeld(access.Info{Role: access.RoleLink, Name: l.accessName(l.Text), State: l.accessState(),
+		Actions: []string{access.ActionPress}})
 }
 
 // AccessAct implements [gunim.AccessActor].

@@ -417,8 +417,8 @@ func (q *pickPlane) Paint(pt *paint.Painter, f gunim.Frame, box geom.Size, _ gun
 // Access implements [gunim.Accessible].
 func (q *pickPlane) Access() access.Info {
 	p := q.p
-	return access.Info{Role: access.RoleSlider, Name: "Saturation and brightness",
-		Value: fmt.Sprintf("saturation %d%%, brightness %d%%", percent(p.s), percent(p.v))}
+	return q.accessHeld(access.Info{Role: access.RoleSlider, Name: "Saturation and brightness",
+		Value: fmt.Sprintf("saturation %d%%, brightness %d%%", percent(p.s), percent(p.v))})
 }
 
 // pickStrip is a colour picker's strip of hues, or of opacity.
@@ -557,12 +557,12 @@ func (q *pickStrip) Paint(pt *paint.Painter, f gunim.Frame, box geom.Size, _ gun
 func (q *pickStrip) Access() access.Info {
 	if q.opacity {
 		v := float64(percent(q.p.a))
-		return access.Info{Role: access.RoleSlider, Name: "Opacity", Value: strconv.Itoa(int(v)) + "%",
-			Range: &access.Range{Min: 0, Max: 100, Value: v, Step: 1}}
+		return q.accessHeld(access.Info{Role: access.RoleSlider, Name: "Opacity", Value: strconv.Itoa(int(v)) + "%",
+			Range: &access.Range{Min: 0, Max: 100, Value: v, Step: 1}})
 	}
 	v := math.Round(float64(q.p.h) * 360)
-	return access.Info{Role: access.RoleSlider, Name: "Hue", Value: strconv.Itoa(int(v)) + "°",
-		Range: &access.Range{Min: 0, Max: 360, Value: v, Step: 1}}
+	return q.accessHeld(access.Info{Role: access.RoleSlider, Name: "Hue", Value: strconv.Itoa(int(v)) + "°",
+		Range: &access.Range{Min: 0, Max: 360, Value: v, Step: 1}})
 }
 
 // AccessAct implements [gunim.AccessActor]: a new value.
@@ -667,7 +667,8 @@ func (q *pickSwatch) Paint(pt *paint.Painter, f gunim.Frame, box geom.Size, _ gu
 
 // Access implements [gunim.Accessible].
 func (q *pickSwatch) Access() access.Info {
-	return access.Info{Role: access.RoleButton, Name: "Back to " + theme.Hex(q.p.was), Actions: []string{access.ActionPress}}
+	return q.accessHeld(access.Info{Role: access.RoleButton, Name: "Back to " + theme.Hex(q.p.was),
+		Actions: []string{access.ActionPress}})
 }
 
 // AccessAct implements [gunim.AccessActor].
@@ -921,7 +922,7 @@ func (b *ColorButton) Access() access.Info {
 	if b.IsOpen() {
 		info.State |= access.StateExpanded
 	}
-	return info
+	return b.accessHeld(info)
 }
 
 // AccessAct implements [gunim.AccessActor]: press opens the picker, or

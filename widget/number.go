@@ -464,7 +464,7 @@ func (n *NumberField) Access() access.Info {
 		top = math.MaxFloat64
 	}
 	info.Range = &access.Range{Min: n.Min, Max: top, Value: n.value, Step: n.step()}
-	return info
+	return n.accessHeld(info)
 }
 
 // AccessAct implements [gunim.AccessActor]: a screen reader setting the

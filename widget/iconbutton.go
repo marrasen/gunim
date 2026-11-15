@@ -28,5 +28,6 @@ func (b *IconButton) Access() access.Info {
 	if name == "" {
 		name = iconName(b.Icon)
 	}
-	return access.Info{Role: access.RoleButton, Name: name, State: b.state(), Actions: []string{access.ActionPress}}
+	return b.accessHeld(access.Info{Role: access.RoleButton, Name: name, State: b.state(),
+		Actions: []string{access.ActionPress}})
 }

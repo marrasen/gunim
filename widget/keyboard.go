@@ -586,7 +586,7 @@ func (k *Keyboard) Access() access.Info {
 	info := access.Info{Role: access.RoleGroup, Name: k.name(KeyboardName), State: k.accessState()}
 	if !k.Shown() {
 		// Down, it has no keys to press.
-		return info
+		return k.accessHeld(info)
 	}
 	for i, r := range k.rects {
 		if i >= len(k.keys) {
@@ -598,7 +598,7 @@ func (k *Keyboard) Access() access.Info {
 		}
 		info.Parts = append(info.Parts, part)
 	}
-	return info
+	return k.accessHeld(info)
 }
 
 // AccessAct implements [gunim.AccessActor]: a press on a key does what the key does.

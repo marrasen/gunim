@@ -313,7 +313,8 @@ func (b *HoldButton) Access() access.Info {
 	if name == "" {
 		name = iconName(b.Icon)
 	}
-	return access.Info{Role: access.RoleButton, Name: name, State: b.accessState(), Actions: []string{access.ActionPress}}
+	return b.accessHeld(access.Info{Role: access.RoleButton, Name: name, State: b.accessState(),
+		Actions: []string{access.ActionPress}})
 }
 
 // AccessAct implements [gunim.AccessActor]: a press acts at once.
