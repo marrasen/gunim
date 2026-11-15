@@ -218,3 +218,26 @@ func TestASelectorAndADialGlideToGrey(t *testing.T) {
 		}
 	}
 }
+
+// A dial's reason that goes for a frame and comes back under a resting pointer shows again after the delay.
+func TestADialsReasonThatComesBackShowsAgain(t *testing.T) {
+	d := NewActionDial("Learn", nil)
+	d.Disabled, d.Why = true, why
+	w := stageNode(t, d)
+	w.Input(input.PointerMove{Pos: geom.Pt(50, 50), Time: time.Now()})
+	frames(w, 60)
+	if got := shownTip(w); got != why {
+		t.Fatalf("resting on the disabled dial, the tooltip says %q", got)
+	}
+	d.Disabled = false
+	frames(w, 1)
+	d.Disabled = true
+	frames(w, 2)
+	if got := shownTip(w); got != "" {
+		t.Fatalf("enabled for a frame, the dial's tooltip still says %q", got)
+	}
+	frames(w, 60)
+	if got := shownTip(w); got != why {
+		t.Fatalf("disabled again under the resting pointer, the dial's tooltip says %q, want %q", got, why)
+	}
+}

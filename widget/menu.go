@@ -1663,6 +1663,7 @@ type PartTip struct {
 
 // Handle follows the pointer event e over owner, with words the tooltip of the part under it.
 func (p *PartTip) Handle(e input.Event, u *gunim.UI, owner gunim.Node, words string) {
+	p.tip.note(e, u, owner, tipDelay)
 	if words != p.tip.text {
 		p.tip.hide(u)
 		p.tip.text = words
@@ -1685,9 +1686,9 @@ func (p *PartTip) Handle(e input.Event, u *gunim.UI, owner gunim.Node, words str
 func (p *PartTip) Hide(u *gunim.UI) { p.tip.hide(u) }
 
 // Retext turns the words of the tooltip showing over to words, from Layout, as the part's text changes under a
-// resting pointer. It opens none, and does nothing while none shows or waits to.
+// resting pointer. Words that come back while the pointer rests show after the delay.
 func (p *PartTip) Retext(words string) {
-	if p.tip.card != nil || p.tip.stop != nil {
+	if p.tip.card != nil || p.tip.stop != nil || p.tip.resting {
 		p.tip.retext(words)
 	}
 }
@@ -1705,17 +1706,41 @@ type tipper struct {
 	quiet bool
 	// card is the popup's card while it shows, whose words turn over as the text changes.
 	card *tip
+	// resting says the pointer is on the owner, in the window of u.
+	resting bool
+	u       *gunim.UI
 }
 
-// retext turns the words of the tooltip showing over to words, where they differ, and closes it for no words.
-func (t *tipper) retext(words string) {
-	t.text = words
-	if words == "" {
-		t.hide(nil)
-		return
+// note follows the pointer coming over owner, resting on it and leaving it, for a tooltip that waits delay.
+func (t *tipper) note(e input.Event, u *gunim.UI, owner gunim.Node, delay time.Duration) {
+	switch e := e.(type) {
+	case input.PointerEnter:
+		t.resting, t.u, t.owner, t.delay, t.at = true, u, owner, delay, e.Pos
+	case input.PointerMove:
+		t.resting, t.u, t.owner, t.delay, t.at = true, u, owner, delay, e.Pos
+	case input.PointerLeave:
+		t.resting = false
 	}
-	if t.card != nil && t.card.text != words {
-		t.card.turnTo(words)
+}
+
+// retext turns the words of the tooltip showing over to words, where they differ. A tooltip showing closes for no
+// words, and words that come back while the pointer rests show after the delay.
+func (t *tipper) retext(words string) {
+	was := t.text
+	t.text = words
+	switch {
+	case words == "":
+		if t.popup != nil {
+			t.popup.Close()
+			t.popup, t.card = nil, nil
+		}
+	case t.card != nil:
+		if t.card.text != words {
+			t.card.turnTo(words)
+		}
+	case was == "" && t.popup == nil && t.stop == nil && t.resting && !t.quiet && t.u != nil &&
+		Tooltips.Get(t.u.Theme()):
+		t.wait(t.u)
 	}
 }
 
@@ -1727,7 +1752,7 @@ func (t *tipper) handle(e input.Event, u *gunim.UI, owner gunim.Node, words stri
 		t.hide(u)
 		return
 	}
-	t.owner, t.delay = owner, delay
+	t.note(e, u, owner, delay)
 	t.retext(words)
 	switch e := e.(type) {
 	case input.PointerEnter:

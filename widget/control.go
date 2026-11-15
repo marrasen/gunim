@@ -121,6 +121,7 @@ func (c *Control) track(e input.Event) {
 func (c *Control) showTip(e input.Event, u *gunim.UI, n gunim.Node) {
 	c.track(e)
 	c.feel(e, u, n)
+	c.tip.note(e, u, n, tipDelay)
 	words := c.tipText()
 	if words == "" && c.tip.popup == nil && c.tip.stop == nil {
 		return

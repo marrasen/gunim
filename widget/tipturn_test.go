@@ -275,3 +275,57 @@ func TestAPressOnAPartThatOutlivesADisableActsOnNothing(t *testing.T) {
 		}
 	}
 }
+
+// A tooltip whose words arrive while the pointer rests, before the delay ends, shows them; one whose words never
+// come shows nothing, not an empty card.
+func TestATooltipsLateWordsShow(t *testing.T) {
+	for _, late := range []string{"Hello", ""} {
+		tip := NewTooltip(NewButton("Hover me"), "")
+		w, run := stage(t, &frame{child: tip, size: geom.Sz(200, 36)})
+		gunim.RegisterPatch(w, "stage", func(_ gunim.Node, s setWhy, u *gunim.UI) { tip.Text = s.Why; u.Invalidate() })
+		w.Input(input.PointerMove{Pos: geom.Pt(20, 18), Time: time.Now()})
+		run(18)
+		if err := w.Client().Patch("stage", setWhy{late}); err != nil {
+			t.Fatal(err)
+		}
+		run(60)
+		got := ""
+		if tip.tip.card != nil {
+			got = tip.tip.card.text
+		}
+		if late == "" && tip.tip.popup != nil {
+			t.Errorf("with no words at the delay's end, a tooltip shows %q", got)
+		}
+		if late != "" && got != late {
+			t.Errorf("words that came within the delay show as %q, want %q", got, late)
+		}
+	}
+}
+
+// A reason that goes for a frame and comes back under a resting pointer closes the tooltip, and shows it again after
+// the delay.
+func TestAReasonThatComesBackShowsAgain(t *testing.T) {
+	b := NewButton("Save")
+	m := member{"button", b, &b.Control}
+	b.Disabled, b.Why = true, why
+	w, run, disable := familyStage(t, []member{m})
+	w.Input(input.PointerMove{Pos: geom.Pt(6, 6), Time: time.Now()})
+	run(60)
+	if b.tip.card == nil || b.tip.card.text != why {
+		t.Fatal("resting on the disabled button, no tooltip of its reason showed")
+	}
+	disable(false)
+	run(1)
+	if b.tip.popup != nil {
+		t.Fatal("enabled under the pointer with no tooltip of its own, the button's reason stayed open")
+	}
+	disable(true)
+	run(2)
+	if b.tip.popup != nil {
+		t.Fatal("enabled for a frame, the button's tooltip of its reason stayed open")
+	}
+	run(60)
+	if b.tip.card == nil || b.tip.card.text != why {
+		t.Fatal("disabled again under the resting pointer, the button's reason did not show again")
+	}
+}
