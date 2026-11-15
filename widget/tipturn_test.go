@@ -329,3 +329,28 @@ func TestAReasonThatComesBackShowsAgain(t *testing.T) {
 		t.Fatal("disabled again under the resting pointer, the button's reason did not show again")
 	}
 }
+
+// Tab and Shift+Tab move on from a control disabled with the keyboard on it inside a group, to the controls after
+// and before the group.
+func TestTabMovesOnFromAControlDisabledInAGroup(t *testing.T) {
+	for _, back := range []bool{false, true} {
+		a, b1, b2, c := NewButton("A"), NewButton("B1"), NewButton("B2"), NewButton("C")
+		w, run := stage(t, &frame{child: Column(a, NewGroup(Horizontal, Row(b1, b2)), c), size: geom.Sz(300, 400)})
+		focused := focusProbe(t, w, run)
+		tab(w, run, 0)
+		tab(w, run, 0)
+		if f := focused(); f != b1 {
+			t.Fatalf("two Tabs put the keyboard on %T %p, want B1", f, f)
+		}
+		b1.Disabled = true
+		run(2)
+		mods, want, name := input.Mods(0), gunim.Node(c), "C"
+		if back {
+			mods, want, name = input.ModShift, a, "A"
+		}
+		tab(w, run, mods)
+		if f := focused(); f != want {
+			t.Fatalf("Tab with %v from B1, disabled in its group, put the keyboard on %T %p, want %s", mods, f, f, name)
+		}
+	}
+}

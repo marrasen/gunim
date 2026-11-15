@@ -636,6 +636,13 @@ func (u *UI) FocusNext(forward bool) {
 			}
 		}
 		if _, ok := s.node.(TabGroup); ok && s != u.root {
+			// A group holding the focus where it takes it no longer counts from there.
+			if u.focus != nil && u.focus.within(s) {
+				if f, ok := u.focus.node.(Focusable); ok && !f.Focusable() {
+					order, stale = append(order, u.focus), u.focus
+					return
+				}
+			}
 			if stop := u.tabStop(s); stop != nil {
 				order = append(order, stop)
 			}
