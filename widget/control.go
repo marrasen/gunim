@@ -14,9 +14,9 @@ import (
 	"github.com/marrasen/gunim/theme"
 )
 
-// Control is the part every interactive widget shares: the fields Disabled, Tooltip and KeepFocus, the springs for
-// hover, press, the focus ring and fading faint, and the rules that go with them. A program sets its fields through
-// the widget, as button.Disabled.
+// Control is the part every interactive widget shares: the fields Disabled, Why, Tooltip and KeepFocus, the springs
+// for hover, press, the focus ring and fading faint, and the rules that go with them. A program sets its fields
+// through the widget, as button.Disabled.
 //
 // A finger's press shows on the frame it lands: the control lights as under the pointer, squashes, and a soft glow
 // spreads out from the finger. Inside something that scrolls, the press waits up to 80 ms for the finger to show
@@ -31,6 +31,9 @@ type Control struct {
 	// Disabled fades the control faint, and it then takes no clicks, keys or focus, for a choice that does not apply
 	// now. A right click still passes to a context menu round it.
 	Disabled bool
+	// Why says why the control is disabled: while Disabled, its tooltip says Why alone, and a screen reader reads it
+	// as the control's description. An enabled control ignores it.
+	Why string
 	// Tooltip says what the control does, or why it cannot: a popup shows it once the pointer has rested on the
 	// control, disabled too, and a screen reader reads it as the name where the control shows none.
 	Tooltip string
@@ -83,6 +86,7 @@ func (c *Control) FocusOnPress() bool { return !c.KeepFocus }
 // follow keeps the faint on Disabled, from Layout. The first layout puts it there at once; after that it fades. As the
 // control turns disabled it lets go of a press, and its hover fades; enabled again under the pointer, it lights.
 func (c *Control) follow(th *theme.Live) {
+	c.tip.retext(c.tipText())
 	off := anim.OnOff(c.Disabled)
 	if !c.laid {
 		c.laid = true
@@ -117,10 +121,20 @@ func (c *Control) track(e input.Event) {
 func (c *Control) showTip(e input.Event, u *gunim.UI, n gunim.Node) {
 	c.track(e)
 	c.feel(e, u, n)
-	if c.Tooltip == "" && c.tip.popup == nil && c.tip.stop == nil {
+	c.tip.note(e, u, n, tipDelay)
+	words := c.tipText()
+	if words == "" && c.tip.popup == nil && c.tip.stop == nil {
 		return
 	}
-	c.tip.handle(e, u, n, c.Tooltip, tipDelay)
+	c.tip.handle(e, u, n, words, tipDelay)
+}
+
+// tipText is what the control's tooltip says: Why while it is disabled with one, else Tooltip.
+func (c *Control) tipText() string {
+	if c.Disabled && c.Why != "" {
+		return c.Why
+	}
+	return c.Tooltip
 }
 
 // feel follows a finger pressing the control n and lifting, to light it and spread a glow from the finger. A press
@@ -300,6 +314,33 @@ func (c *Control) accessState() access.State {
 		return access.StateDisabled
 	}
 	return 0
+}
+
+// accessHeld is info as a screen reader hears it while the control is disabled: disabled, offering no actions, its
+// parts too, and described by Why where it has one. An enabled control's info comes back as it is.
+func (c *Control) accessHeld(info access.Info) access.Info {
+	if !c.Disabled {
+		return info
+	}
+	info.State |= access.StateDisabled
+	if c.Why != "" {
+		info.Description = c.Why
+	}
+	return heldInfo(info)
+}
+
+// heldInfo is info and its parts offering no actions.
+func heldInfo(info access.Info) access.Info {
+	info.Actions = nil
+	if len(info.Parts) > 0 {
+		parts := make([]access.Info, len(info.Parts))
+		for i, p := range info.Parts {
+			parts[i] = heldInfo(p)
+			parts[i].State |= access.StateDisabled
+		}
+		info.Parts = parts
+	}
+	return info
 }
 
 // accessName is the control's name for a screen reader: own, what it shows, or its tooltip where it shows nothing.

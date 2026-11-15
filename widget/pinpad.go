@@ -367,6 +367,9 @@ func (p *PinPad) key(e input.KeyPress, u *gunim.UI) bool {
 // Layout implements [gunim.Node]: the row of dots over a 3 by 4 grid of keys, as large as the room allows, between
 // PinKeyLeast and PinKeySize tall and up to half as wide again.
 func (p *PinPad) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
+	if p.Disabled {
+		p.click.Cancel()
+	}
 	th := f.Theme
 	if !p.laid {
 		for i, d := range p.dots {
@@ -539,7 +542,7 @@ func (p *PinPad) Access() access.Info {
 		}
 		info.Parts = append(info.Parts, k)
 	}
-	return info
+	return p.accessHeld(info)
 }
 
 // AccessAct implements [gunim.AccessActor]: a press on a key does what the key does.

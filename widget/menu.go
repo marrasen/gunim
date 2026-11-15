@@ -1663,6 +1663,7 @@ type PartTip struct {
 
 // Handle follows the pointer event e over owner, with words the tooltip of the part under it.
 func (p *PartTip) Handle(e input.Event, u *gunim.UI, owner gunim.Node, words string) {
+	p.tip.note(e, u, owner, tipDelay)
 	if words != p.tip.text {
 		p.tip.hide(u)
 		p.tip.text = words
@@ -1684,6 +1685,14 @@ func (p *PartTip) Handle(e input.Event, u *gunim.UI, owner gunim.Node, words str
 // Hide hides the tooltip, such as while the part under the pointer is dragged.
 func (p *PartTip) Hide(u *gunim.UI) { p.tip.hide(u) }
 
+// Retext turns the words of the tooltip showing over to words, from Layout, as the part's text changes under a
+// resting pointer. Words that come back while the pointer rests show after the delay.
+func (p *PartTip) Retext(words string) {
+	if p.tip.card != nil || p.tip.stop != nil || p.tip.resting {
+		p.tip.retext(words)
+	}
+}
+
 // tipper shows a tooltip for the node it serves.
 type tipper struct {
 	text  string
@@ -1697,13 +1706,41 @@ type tipper struct {
 	quiet bool
 	// card is the popup's card while it shows, whose words turn over as the text changes.
 	card *tip
+	// resting says the pointer is on the owner, in the window of u.
+	resting bool
+	u       *gunim.UI
 }
 
-// retext turns the words of the tooltip showing over to words, where they differ.
+// note follows the pointer coming over owner, resting on it and leaving it, for a tooltip that waits delay.
+func (t *tipper) note(e input.Event, u *gunim.UI, owner gunim.Node, delay time.Duration) {
+	switch e := e.(type) {
+	case input.PointerEnter:
+		t.resting, t.u, t.owner, t.delay, t.at = true, u, owner, delay, e.Pos
+	case input.PointerMove:
+		t.resting, t.u, t.owner, t.delay, t.at = true, u, owner, delay, e.Pos
+	case input.PointerLeave:
+		t.resting = false
+	}
+}
+
+// retext turns the words of the tooltip showing over to words, where they differ. A tooltip showing closes for no
+// words, and words that come back while the pointer rests show after the delay.
 func (t *tipper) retext(words string) {
+	was := t.text
 	t.text = words
-	if t.card != nil && t.card.text != words && words != "" {
-		t.card.turnTo(words)
+	switch {
+	case words == "":
+		if t.popup != nil {
+			t.popup.Close()
+			t.popup, t.card = nil, nil
+		}
+	case t.card != nil:
+		if t.card.text != words {
+			t.card.turnTo(words)
+		}
+	case was == "" && t.popup == nil && t.stop == nil && t.resting && !t.quiet && t.u != nil &&
+		Tooltips.Get(t.u.Theme()):
+		t.wait(t.u)
 	}
 }
 
@@ -1715,7 +1752,7 @@ func (t *tipper) handle(e input.Event, u *gunim.UI, owner gunim.Node, words stri
 		t.hide(u)
 		return
 	}
-	t.owner, t.delay = owner, delay
+	t.note(e, u, owner, delay)
 	t.retext(words)
 	switch e := e.(type) {
 	case input.PointerEnter:
@@ -1785,16 +1822,20 @@ func (t *Tooltip) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim
 
 // tip is a tooltip's popup: a small card of text that fades in, and
 // whose words turn over as they change: was, the words before, slide up
-// and away as turn runs to 1, and text comes up under them.
+// and away as turn runs to 1, and text comes up under them, while the card glides to the new words' size.
 type tip struct {
-	text, was   string
-	in, turn    *anim.Float
+	text, was string
+	in, turn  *anim.Float
+	// w and h are the card's size, gliding to the size of the words; sized says they have been set once.
+	w, h        *anim.Float
+	sized       bool
 	run, wasRun shapedText
-	// para is the text wrapped, for words wider than [TooltipMaxWidth], which shows them without turning over.
-	para        laidText
-	wrapped     bool
-	margin      float32
-	transparent bool
+	// para and wasPara are the words wrapped, for words wider than [TooltipMaxWidth]; wrapped and wasWrapped say
+	// which words are.
+	para, wasPara       laidText
+	wrapped, wasWrapped bool
+	margin              float32
+	transparent         bool
 	// wide is how wide the screen lets the tooltip's window be, from FitPopup, or 0 where nothing says.
 	wide float32
 }
@@ -1812,8 +1853,11 @@ func (t *tip) FitPopup(r driver.Room) {
 }
 
 func newTip(words string) *tip {
-	return &tip{text: words, in: anim.NewFloat(0), turn: anim.NewFloat(1)}
+	return &tip{text: words, in: anim.NewFloat(0), turn: anim.NewFloat(1), w: anim.NewFloat(0), h: anim.NewFloat(0)}
 }
+
+// tipGlide is how the card's size glides as its words change.
+var tipGlide = anim.Spring{Response: 0.3, Damping: 1}
 
 // turnTo turns the words over to s.
 func (t *tip) turnTo(s string) {
@@ -1825,7 +1869,9 @@ func (t *tip) turnTo(s string) {
 // Step implements [gunim.Animator].
 func (t *tip) Step(dt time.Duration) bool {
 	in := t.in.Step(dt)
-	return t.turn.Step(dt) || in
+	turn := t.turn.Step(dt)
+	w, h := t.w.Step(dt), t.h.Step(dt)
+	return in || turn || w || h
 }
 
 // Transition implements [gunim.Transitioner].
@@ -1843,7 +1889,7 @@ func (t *tip) Transition(p gunim.Presence, f gunim.Frame) bool {
 // PopupPadding implements [gunim.PopupPadder].
 func (t *tip) PopupPadding() geom.Insets { return geom.Uniform(t.margin) }
 
-// Layout implements [gunim.Node].
+// Layout implements [gunim.Node]: as big as the card, which glides to the size of its words.
 func (t *tip) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
 	th := f.Theme
 	t.transparent = f.Transparent
@@ -1851,39 +1897,45 @@ func (t *tip) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.
 	if f.Transparent {
 		t.margin = MenuMargin.Get(th)
 	}
-	run := t.run.shape(faceIn(Font, th), t.text, TooltipSize.Get(th))
 	pad := TooltipPadding.Get(th)
 	widest := TooltipMaxWidth.Get(th)
 	if t.wide > 0 {
 		widest = max(min(widest, t.wide-pad.Left-pad.Right-2*t.margin), tipNarrowest)
 	}
-	t.wrapped = run.Advance > widest
-	if t.wrapped {
-		t.turn.Jump(1)
-		para := t.para.wrap(faceIn(Font, th), t.text, TooltipSize.Get(th), widest, tipLines)
-		return c.Constrain(geom.Sz(para.Size.W+pad.Left+pad.Right+2*t.margin,
-			para.Size.H+pad.Top+pad.Bottom+2*t.margin))
-	}
-	// As wide as the wider of the words, while they turn over.
-	w := run.Advance
+	var words geom.Size
+	words, t.wrapped = t.lay(th, &t.run, &t.para, t.text, widest)
 	if t.turn.Value() < 1 {
-		w = max(w, t.wasRun.shape(faceIn(Font, th), t.was, TooltipSize.Get(th)).Advance)
+		_, t.wasWrapped = t.lay(th, &t.wasRun, &t.wasPara, t.was, widest)
 	}
-	return c.Constrain(geom.Sz(w+pad.Left+pad.Right+2*t.margin, run.Height()+pad.Top+pad.Bottom+2*t.margin))
+	w, h := words.W+pad.Left+pad.Right, words.H+pad.Top+pad.Bottom
+	if !t.sized {
+		t.sized = true
+		t.w.Jump(w)
+		t.h.Jump(h)
+	} else if t.w.Target() != w || t.h.Target() != h {
+		t.w.Animate(w, tipGlide)
+		t.h.Animate(h, tipGlide)
+	}
+	return c.Constrain(geom.Sz(max(t.w.Value(), 0)+2*t.margin, max(t.h.Value(), 0)+2*t.margin))
+}
+
+// lay shapes s into run, or wraps it into para where it is wider than widest, and returns its size and whether it
+// wraps.
+func (t *tip) lay(th *theme.Live, run *shapedText, para *laidText, s string, widest float32) (geom.Size, bool) {
+	face, size := faceIn(Font, th), TooltipSize.Get(th)
+	r := run.shape(face, s, size)
+	if r.Advance <= widest {
+		return geom.Sz(r.Advance, r.Height()), false
+	}
+	return para.wrap(face, s, size, widest, tipLines).Size, true
 }
 
 // Paint implements [gunim.Node].
 func (t *tip) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
 	th := f.Theme
 	pad := TooltipPadding.Get(th)
-	card := geom.Rect{Min: geom.Pt(t.margin, t.margin), Max: geom.Pt(box.W-t.margin, box.H-t.margin)}
-	// Turning over, the card glides from the width of the words before
-	// to the width of the new.
-	turn := min(max(t.turn.Value(), 0), 1)
-	if turn < 1 {
-		from, to := t.wasRun.run.Advance, t.run.run.Advance
-		card.Max.X = card.Min.X + from + (to-from)*turn + pad.Left + pad.Right
-	}
+	card := geom.Rect{Min: geom.Pt(t.margin, t.margin)}
+	card.Max = card.Min.Add(geom.Pt(max(t.w.Value(), 0), max(t.h.Value(), 0)))
 	if t.transparent {
 		radius := TooltipRadius.Get(th)
 		defer p.Layer(paint.LayerOpts{Bounds: geom.Rect{Max: box.Point()}, Opacity: min(1, max(0, t.in.Value()))})()
@@ -1894,17 +1946,35 @@ func (t *tip) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Chil
 		p.RRect(card, 0, paint.Solid(TooltipFill.Get(th)))
 	}
 	at, ink := card.Min.Add(geom.Pt(pad.Left, pad.Top)), TooltipInk.Get(th)
-	if t.wrapped {
-		t.para.p.Paint(p, at, ink)
+	turn := min(max(t.turn.Value(), 0), 1)
+	if turn >= 1 && !t.w.Active() && !t.h.Active() {
+		t.paintWords(p, at, ink, t.wrapped, &t.run, &t.para)
 		return
 	}
-	if turn >= 1 {
-		t.run.run.Paint(p, at, ink)
-		return
-	}
-	// The words turning over, cut to the card.
+	// The words turning over, and the card gliding, cut to the card.
 	defer p.Layer(paint.LayerOpts{Bounds: card, Opacity: 1, Clip: true})()
-	h := t.run.run.Height()
-	t.wasRun.run.Paint(p, at.Sub(geom.Pt(0, h*turn)), fadedBy(ink, 1-turn))
-	t.run.run.Paint(p, at.Add(geom.Pt(0, h*(1-turn))), fadedBy(ink, turn))
+	if turn < 1 {
+		up := t.wordsHeight(t.wasWrapped, &t.wasRun, &t.wasPara)
+		t.paintWords(p, at.Sub(geom.Pt(0, up*turn)), fadedBy(ink, 1-turn), t.wasWrapped, &t.wasRun, &t.wasPara)
+	}
+	in := t.wordsHeight(t.wrapped, &t.run, &t.para)
+	t.paintWords(p, at.Add(geom.Pt(0, in*(1-turn))), fadedBy(ink, turn), t.wrapped, &t.run, &t.para)
+}
+
+// paintWords paints one set of words from pos in ink, wrapped into para or shaped into run.
+func (t *tip) paintWords(p *paint.Painter, pos geom.Point, ink color.NRGBA, wrapped bool, run *shapedText,
+	para *laidText) {
+	if wrapped {
+		para.p.Paint(p, pos, ink)
+		return
+	}
+	run.run.Paint(p, pos, ink)
+}
+
+// wordsHeight is how tall one set of words stands, wrapped into para or shaped into run.
+func (t *tip) wordsHeight(wrapped bool, run *shapedText, para *laidText) float32 {
+	if wrapped {
+		return para.p.Size.H
+	}
+	return run.run.Height()
 }

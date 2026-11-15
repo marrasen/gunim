@@ -416,7 +416,7 @@ func (g *RadioGroup) Access() access.Info {
 		}
 		info.Parts = append(info.Parts, part)
 	}
-	return info
+	return g.accessHeld(info)
 }
 
 // AccessAct implements [gunim.AccessActor]: pressing a choice chooses it.

@@ -394,6 +394,9 @@ func (k *Keyboard) tap(key input.Key, u *gunim.UI) {
 // Layout implements [gunim.Node]: the content in the room the keyboard leaves, and the keys under it as far as the
 // keyboard is up.
 func (k *Keyboard) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
+	if k.Disabled {
+		k.click.Cancel()
+	}
 	th := f.Theme
 	k.follow(th)
 	if k.names == nil {
@@ -586,7 +589,7 @@ func (k *Keyboard) Access() access.Info {
 	info := access.Info{Role: access.RoleGroup, Name: k.name(KeyboardName), State: k.accessState()}
 	if !k.Shown() {
 		// Down, it has no keys to press.
-		return info
+		return k.accessHeld(info)
 	}
 	for i, r := range k.rects {
 		if i >= len(k.keys) {
@@ -598,7 +601,7 @@ func (k *Keyboard) Access() access.Info {
 		}
 		info.Parts = append(info.Parts, part)
 	}
-	return info
+	return k.accessHeld(info)
 }
 
 // AccessAct implements [gunim.AccessActor]: a press on a key does what the key does.

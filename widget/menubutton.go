@@ -275,7 +275,7 @@ func (b *MenuButton) Access() access.Info {
 	if info.Name == "" {
 		info.Name = iconName(b.Icon)
 	}
-	return info
+	return b.accessHeld(info)
 }
 
 // AccessAct implements [gunim.AccessActor].

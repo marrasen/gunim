@@ -557,6 +557,12 @@ func (s *Slider) Handle(e input.Event, u *gunim.UI) bool {
 // height, or [FieldWidth] where that is unbounded, and is as wide as
 // the knob.
 func (s *Slider) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
+	if s.Disabled && s.held {
+		s.held = false
+		if s.value != s.pressed {
+			s.commit(f.UI())
+		}
+	}
 	s.follow(f.Theme)
 	if s.Axis == Vertical {
 		h := c.Max.H

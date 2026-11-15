@@ -103,13 +103,18 @@ type Knob struct {
 	// ring is how far the focus ring shows, and focused says the knob has the keyboard.
 	ring    *anim.Float
 	focused bool
-	// pressed says the knob was pressed and the pointer has not left it since, so it takes the wheel.
-	pressed bool
-	tip     widget.PartTip
+	// pressed says the knob was pressed and the pointer has not left it since, so it takes the wheel; over says the
+	// pointer is on it, and lockedWas says it was locked as last laid out.
+	pressed, over, lockedWas bool
+	tip                      widget.PartTip
 	// Disabled greys the knob, as for a section switched off, though it
-	// still turns; Locked greys it and it does not turn, as a gain a cut
-	// has none of. Each glides there.
+	// still turns, takes the keyboard and reads as enabled; Locked greys
+	// it and it does not turn, as a gain a cut has none of, and reads as
+	// disabled and read only. Each glides there.
 	Disabled, Locked bool
+	// Why says why the knob is greyed: while Disabled or Locked, its tooltip says Why, followed by how to turn it
+	// where it still turns, and a screen reader reads Why as the knob's description.
+	Why string
 	// grey is how far the knob's arc has gone grey, faint how far a lock
 	// has faded it, turned how far round its needle shows, and laid says
 	// it has been laid out, before which they jump to where they are set.
@@ -251,9 +256,20 @@ func (k *Knob) normalAt(t float64) float64 {
 	return t
 }
 
-// lay reads the needle's glide from f's theme, and on the first layout puts every spring where it is set.
+// lay reads the needle's glide from f's theme, ends a gesture a lock caught, and on the first layout puts every
+// spring where it is set.
 func (k *Knob) lay(f gunim.Frame) {
 	k.glide = KnobGlide.Get(f.Theme)
+	if k.Locked {
+		k.letGo(f.UI())
+	}
+	if k.laid && k.Locked != k.lockedWas {
+		k.hover.Animate(anim.OnOff(k.over && !k.Locked), widget.Quick.Get(f.Theme))
+	}
+	k.lockedWas = k.Locked
+	if k.over && !k.held {
+		k.tip.Retext(k.tooltip())
+	}
 	if !k.laid {
 		k.laid = true
 		k.aim(func(a *anim.Float, v float32) { a.Jump(v) })
@@ -389,7 +405,7 @@ func (k *Knob) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Chi
 	p.ShadowRRect(geom.Rc(c.X-r+6, c.Y-r+6, 2*r-12, 2*r-12), r-6, paint.Fill{Gradient: &paint.Gradient{
 		From: geom.Pt(c.X, c.Y-r), To: geom.Pt(c.X, c.Y+r), Start: KnobCapTop.Get(th), End: KnobCapBottom.Get(th)}},
 		paint.Shadow{Offset: geom.Pt(0, 2), Blur: 4, Color: color.NRGBA{A: 0x90}})
-	capRing(p, c, r, k.ring.Value(), th)
+	capRing(p, c, r, k.ring.Value()*(1-min(max(k.faint.Value(), 0), 1)), th)
 	a := knobFrom + knobSweep*t
 	audioui.Segment(p, geom.Pt(c.X+(r-13)*float32(math.Cos(a)), c.Y+(r-13)*float32(math.Sin(a))),
 		geom.Pt(c.X+(r-7)*float32(math.Cos(a)), c.Y+(r-7)*float32(math.Sin(a))), 2, ink)
@@ -499,11 +515,21 @@ func (k *Knob) stepTo(v float64, u *gunim.UI) {
 	k.end(u)
 }
 
-// tooltip is what the knob's tooltip says.
+// tooltip is what the knob's tooltip says: Why while greyed with one, and how to turn it only while it turns.
 func (k *Knob) tooltip() string {
+	what := k.Tooltip
+	if k.Why != "" && (k.Disabled || k.Locked) {
+		what = k.Why
+	}
+	if k.Locked {
+		if what == "" {
+			return k.p.Name
+		}
+		return what
+	}
 	how := "Drag up or down, or turn the wheel, with Shift for fine steps; double-click to reset"
-	if k.Tooltip != "" {
-		return k.Tooltip + ". " + how
+	if what != "" {
+		return what + ". " + how
 	}
 	return k.p.Name + ": " + strings.ToLower(how[:1]) + how[1:]
 }
@@ -538,10 +564,13 @@ func (k *Knob) Handle(e input.Event, u *gunim.UI) bool {
 	}
 	switch e.(type) {
 	case input.PointerEnter:
-		k.hover.Animate(1, widget.Quick.Get(u.Theme()))
+		k.over = true
+		if !k.Locked {
+			k.hover.Animate(1, widget.Quick.Get(u.Theme()))
+		}
 		return false
 	case input.PointerLeave:
-		k.pressed = false
+		k.over, k.pressed = false, false
 		k.endWheel(u)
 		if !k.held {
 			k.hover.Animate(0, widget.Quick.Get(u.Theme()))
@@ -549,7 +578,8 @@ func (k *Knob) Handle(e input.Event, u *gunim.UI) bool {
 		return false
 	}
 	if k.Locked {
-		return false
+		k.letGo(u)
+		return handleGreyed(e)
 	}
 	switch e := e.(type) {
 	case input.PointerDown:
@@ -692,6 +722,16 @@ func (k *Knob) wheel(by, steps float64, pad bool, u *gunim.UI) {
 	})
 }
 
+// letGo ends a drag or a turn by the wheel under way, once, for a knob locked in the middle of one.
+func (k *Knob) letGo(u *gunim.UI) {
+	k.pressed = false
+	if k.held {
+		k.held = false
+		k.end(u)
+	}
+	k.endWheel(u)
+}
+
 // endWheel ends a turn by the wheel under way.
 func (k *Knob) endWheel(u *gunim.UI) {
 	if k.wheelStop != nil {
@@ -725,17 +765,21 @@ func (k *Knob) openMenu(pos geom.Point, u *gunim.UI) bool {
 }
 
 // Access implements [gunim.Accessible]: a slider, named as its
-// parameter, its value as the parameter writes it.
+// parameter, its value as the parameter writes it, disabled and read
+// only while locked, and described by Why while greyed.
 func (k *Knob) Access() access.Info {
-	st := access.State(0)
+	st, about := access.State(0), ""
 	if k.Disabled || k.Locked {
-		st = access.StateDisabled
+		about = k.Why
+	}
+	if k.Locked {
+		st = access.StateDisabled | access.StateReadOnly
 	}
 	step := 0.0
 	if k.p.Steps > 0 {
 		step = (k.p.Max - k.p.Min) / float64(k.p.Steps)
 	}
-	return access.Info{Role: access.RoleSlider, Name: k.p.Name, Value: k.p.Text(k.v), State: st,
+	return access.Info{Role: access.RoleSlider, Name: k.p.Name, Value: k.p.Text(k.v), Description: about, State: st,
 		Range: &access.Range{Min: k.p.Min, Max: k.p.Max, Value: k.v, Step: step}}
 }
 

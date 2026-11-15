@@ -405,6 +405,14 @@ func (uw *uiaWindow) diff(o, n *access.Node, root bool) {
 		was, is := o.Name, n.Name
 		uw.raise(func() { uw.changed(id, propName, stringVariant(was), stringVariant(is)) })
 	}
+	if o.State.Has(access.StateDisabled) != n.State.Has(access.StateDisabled) && !root {
+		was, is := !o.State.Has(access.StateDisabled), !n.State.Has(access.StateDisabled)
+		uw.raise(func() { uw.changed(id, propIsEnabled, boolVariant(was), boolVariant(is)) })
+	}
+	if o.Description != n.Description {
+		was, is := o.Description, n.Description
+		uw.raise(func() { uw.changed(id, propHelpText, stringVariant(was), stringVariant(is)) })
+	}
 	switch {
 	case n.Range != nil && (o.Range == nil || o.Range.Value != n.Range.Value):
 		was, is := n.Range.Value, n.Range.Value
@@ -947,6 +955,11 @@ func boolOut(p uintptr, b bool) {
 	out(p, int32(0))
 }
 
+// rangeReadOnly reports whether n's value takes no change: read only, or disabled.
+func rangeReadOnly(n *access.Node) bool {
+	return n.State.Has(access.StateReadOnly) || n.State.Has(access.StateDisabled)
+}
+
 // withNode runs fn with e's node, or answers that it is gone.
 func withNode(this uintptr, k int, fn func(e *element, n *access.Node) uintptr) uintptr {
 	e := elementAt(this, k)
@@ -1156,7 +1169,12 @@ func tables() {
 		}
 		add(ifRange,
 			rangeGet(func(r *access.Range) float64 { return r.Value }),
-			func(this, p uintptr) uintptr { boolOut(p, false); return hrOK },
+			func(this, p uintptr) uintptr {
+				return withNode(this, ifRange, func(_ *element, n *access.Node) uintptr {
+					boolOut(p, rangeReadOnly(n))
+					return hrOK
+				})
+			},
 			rangeGet(func(r *access.Range) float64 { return r.Max }),
 			rangeGet(func(r *access.Range) float64 { return r.Min }),
 			rangeGet(func(r *access.Range) float64 { return (r.Max - r.Min) / 10 }),

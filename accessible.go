@@ -283,7 +283,8 @@ func (u *UI) accessRequest(r access.Request) {
 		}
 		r.Part = at - 1
 	}
-	if r.Focus {
+	// A disabled or locked control takes no focus from a screen reader.
+	if a, ok := s.node.(Accessible); r.Focus && (!ok || !a.Access().State.Has(access.StateDisabled)) {
 		u.userFocus = true
 		u.Focus(s.node)
 		u.userFocus = false

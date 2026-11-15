@@ -464,6 +464,9 @@ func (n *NavList) Step(dt time.Duration) bool {
 // Layout implements [gunim.Node]: as tall as its rows, or as tall as it is given with foot rows, and as wide as it
 // is given.
 func (n *NavList) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
+	if n.Disabled {
+		n.click.Cancel()
+	}
 	th := f.Theme
 	line := n.line.shape(faceIn(Font, th), "Ag", TextSize.Get(th)).Height()
 	n.rowH, n.gap = max(NavRowHeight.Get(th), line+NavRowRoom.Get(th)), NavGap.Get(th)
@@ -629,7 +632,7 @@ func (n *NavList) Access() access.Info {
 		}
 		info.Parts = append(info.Parts, part)
 	}
-	return info
+	return n.accessHeld(info)
 }
 
 // partKey is the key of row i's part for a screen reader: from the row's Key, so a hold on it follows the row, and

@@ -3,8 +3,10 @@
 package desktop
 
 import (
+	"syscall"
 	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/marrasen/gunim/access"
 )
@@ -79,5 +81,71 @@ func TestAStatusThatChangesIsReadAgain(t *testing.T) {
 	uw.diff(label, label2, false)
 	if n := count(); n != 1 {
 		t.Fatalf("a label's new words raised %d events, want the name's change alone", n)
+	}
+}
+
+// A slider held disabled or read only reads as one whose value takes no change; one that turns does not.
+func TestAHeldSliderIsReadOnly(t *testing.T) {
+	for _, c := range []struct {
+		state access.State
+		want  bool
+	}{{0, false}, {access.StateDisabled, true}, {access.StateReadOnly, true}} {
+		n := &access.Node{Info: access.Info{Role: access.RoleSlider, State: c.state, Range: &access.Range{Max: 1}}}
+		if got := rangeReadOnly(n); got != c.want {
+			t.Errorf("a slider of state %v reads read only %v, want %v", c.state, got, c.want)
+		}
+	}
+}
+
+// rangeReadOnlySlot is where IRangeValueProvider's get_IsReadOnly stands in its method table: after IUnknown's
+// three methods, SetValue and get_Value.
+const rangeReadOnlySlot = 5
+
+// A slider's IsReadOnly, as UI Automation reads it through the slider's provider, is true while it is disabled or
+// read only.
+func TestASliderReadsAsReadOnlyThroughItsProvider(t *testing.T) {
+	uw, _ := queued()
+	for _, c := range []struct {
+		state access.State
+		want  int32
+	}{{0, 0}, {access.StateDisabled, 1}, {access.StateReadOnly, 1}} {
+		slider := &access.Node{ID: 2, Info: access.Info{Role: access.RoleSlider, State: c.state,
+			Range: &access.Range{Max: 1}}}
+		uw.tree.Store(access.NewTree(&access.Node{ID: 1, Info: access.Info{Role: access.RoleWindow},
+			Children: []*access.Node{slider}}))
+		e := uw.element(2)
+		got := int32(-1)
+		hr, _, _ := syscall.SyscallN(uiaTables[ifRange][rangeReadOnlySlot],
+			uintptr(unsafe.Pointer(&e.ifaces[ifRange])), uintptr(unsafe.Pointer(&got)))
+		e.release()
+		if hr != hrOK || got != c.want {
+			t.Errorf("a slider of state %v reads IsReadOnly %d (result %#x), want %d", c.state, got, hr, c.want)
+		}
+	}
+}
+
+// A control turning disabled or enabled raises IsEnabled's change, and its reason changing raises HelpText's.
+func TestAControlGreyingRaisesItsChanges(t *testing.T) {
+	uw, count := queued()
+	node := func(st access.State, why string) *access.Node {
+		return &access.Node{ID: 5, Info: access.Info{Role: access.RoleButton, Name: "Save", State: st, Description: why}}
+	}
+	open, held := node(0, ""), node(access.StateDisabled, "Works only with the Echo up")
+	for _, c := range []struct {
+		what   string
+		was    *access.Node
+		is     *access.Node
+		events int
+	}{
+		{"turning disabled with a reason", open, held, 2},
+		{"with its reason changing", held, node(access.StateDisabled, "Go to the song's start"), 1},
+		{"turning disabled with no reason", open, node(access.StateDisabled, ""), 1},
+		{"turning enabled", node(access.StateDisabled, ""), open, 1},
+		{"nothing changing", held, held, 0},
+	} {
+		uw.diff(c.was, c.is, false)
+		if n := count(); n != c.events {
+			t.Errorf("a control %s raised %d events, want %d", c.what, n, c.events)
+		}
 	}
 }

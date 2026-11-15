@@ -333,6 +333,9 @@ func parseNumber(s string) (float64, bool) {
 // handed on as the click that puts the caret in.
 func (n *NumberField) handleDrag(e input.Event, u *gunim.UI) bool {
 	d := &n.drag
+	if n.Disabled && d.held {
+		n.endDrag(u)
+	}
 	switch e := e.(type) {
 	case input.PointerDown:
 		if !n.drags() || e.Button != input.ButtonPrimary || e.Touch || n.overClear(e.Pos) {
@@ -403,17 +406,30 @@ func (n *NumberField) handleDrag(e input.Event, u *gunim.UI) bool {
 		// The keyboard went elsewhere mid-drag, as when the window lost
 		// it: the drag ends where it got to.
 		if d.held {
-			moved, was := d.moving, d.was
-			n.letGo(u)
-			if moved && n.value != was && n.OnCommit != nil {
-				send(u, n, n.OnCommit(n.value, u))
-			}
-			if moved {
-				n.dragEnded(u)
-			}
+			n.endDrag(u)
 		}
 	}
 	return false
+}
+
+// endDrag ends a drag where it got to, committing the change it made.
+func (n *NumberField) endDrag(u *gunim.UI) {
+	moved, was := n.drag.moving, n.drag.was
+	n.letGo(u)
+	if moved && n.value != was && n.OnCommit != nil {
+		send(u, n, n.OnCommit(n.value, u))
+	}
+	if moved {
+		n.dragEnded(u)
+	}
+}
+
+// Layout implements [gunim.Node]: the text field's, ending a drag as the field is disabled.
+func (n *NumberField) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
+	if n.Disabled && n.drag.held {
+		n.endDrag(f.UI())
+	}
+	return n.TextField.Layout(c, f, kids)
 }
 
 // drags reports whether a press on the field would start a drag.
@@ -464,7 +480,7 @@ func (n *NumberField) Access() access.Info {
 		top = math.MaxFloat64
 	}
 	info.Range = &access.Range{Min: n.Min, Max: top, Value: n.value, Step: n.step()}
-	return info
+	return n.accessHeld(info)
 }
 
 // AccessAct implements [gunim.AccessActor]: a screen reader setting the
