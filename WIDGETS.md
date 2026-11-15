@@ -102,7 +102,7 @@ for hover, press, the focus ring and the disabled fade. A control in `widget` em
 | constructor | `newControl()`, then add the widget's own springs to its group | one `Step` for all the springs |
 | `Layout` | `c.follow(th)` | the disabled fade, jumping on the first layout |
 | `Handle`, first | `c.showTip(e, u, node)` | the tooltip, on a disabled control too, and a finger's press lit and glowing |
-| `Handle`, when `Disabled` | `return c.handleDisabled(e, u, shut)` | focus let go, right clicks passed on, anything open shut |
+| `Handle`, when `Disabled` | `return c.handleDisabled(e, u, shut)` | clicks kept, keys and right clicks passed on, and as the keyboard leaves, the ring faded and anything open shut |
 | `Handle` | `c.ringFollows(e, th)` | the focus ring fading in and out |
 | `Handle`, on a press | `c.squashIn(th)` in place of animating `squash` | the squash, which waits as the light does inside something that scrolls |
 | `Paint` | `defer c.faint(p, box)()`, then `c.paintRing(p, r, radius, th)` | the disabled fade, and the one focus ring |
@@ -118,13 +118,16 @@ starts on. A finger has no hover otherwise: the engine sends no enter or leave a
 **Saying why.** A program that greys a control gives the reason in `Why`, as `b.Disabled, b.Why = true, "Works only
 with the Echo up"`. While disabled, the tooltip says `Why` alone and a screen reader reads it as the description. A
 disabled control without one shows its `Tooltip`, and leaves out how to work it where the widget writes that itself,
-as a knob's "Drag up or down". An enabled control ignores `Why`, and a tooltip left with no words closes.
+as a knob's "Drag up or down". An enabled control ignores `Why`. A tooltip left with no words closes, and shows again
+after the delay when words come back while the pointer still rests on the control. A disabled control refuses a screen
+reader's request for the keyboard.
 
 **Greying mid-gesture.** A control that turns disabled in the middle of a drag, a press or a turn of the wheel ends
 it on that frame: its end runs once, and it writes nothing more.
 
 **Keys while greyed.** A disabled control keeps the keyboard where it was and takes no key. Tab and Shift+Tab move to
-the next and the previous control in order from there.
+the next and the previous control in order from there, inside a Tab group too, where the group's stop counts from
+there.
 
 **plugui.** `Knob`, `Selector`, `Power` and `ActionDial` grey by the same rules, with a `Locked` knob or selector or a
 `Disabled` lamp or dial: each glides faint, fades its focus ring, lights nothing under the pointer, keeps a click to
