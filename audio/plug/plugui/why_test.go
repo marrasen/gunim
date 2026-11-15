@@ -306,3 +306,17 @@ func TestAReasonsTooltipClosesAsTheControlIsFreed(t *testing.T) {
 		}
 	}
 }
+
+// A knob greyed but still turning reads as what it is: enabled and turning, with its reason as its description.
+func TestAGreyedKnobThatTurnsReadsAsEnabled(t *testing.T) {
+	k := NewKnob(&host{values: map[uint32]float64{3: 100}}, release)
+	k.Disabled, k.Why = true, why
+	info := k.Access()
+	if info.State.Has(access.StateDisabled) || info.State.Has(access.StateReadOnly) || info.Description != why {
+		t.Errorf("greyed but turning, the knob reads as state %v, described %q; want enabled, described %q",
+			info.State, info.Description, why)
+	}
+	if !k.Focusable() || !k.AccessAct(access.Request{SetValue: true, Value: 500}, nil) {
+		t.Error("greyed but turning, the knob takes no keyboard or screen reader's value")
+	}
+}

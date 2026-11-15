@@ -107,11 +107,12 @@ type Knob struct {
 	pressed bool
 	tip     widget.PartTip
 	// Disabled greys the knob, as for a section switched off, though it
-	// still turns; Locked greys it and it does not turn, as a gain a cut
-	// has none of. Each glides there.
+	// still turns, takes the keyboard and reads as enabled; Locked greys
+	// it and it does not turn, as a gain a cut has none of, and reads as
+	// disabled and read only. Each glides there.
 	Disabled, Locked bool
-	// Why says why the knob is greyed: while Disabled or Locked, its tooltip says Why, and a screen reader reads it
-	// as the knob's description.
+	// Why says why the knob is greyed: while Disabled or Locked, its tooltip says Why, followed by how to turn it
+	// where it still turns, and a screen reader reads Why as the knob's description.
 	Why string
 	// grey is how far the knob's arc has gone grey, faint how far a lock
 	// has faded it, turned how far round its needle shows, and laid says
@@ -756,14 +757,15 @@ func (k *Knob) openMenu(pos geom.Point, u *gunim.UI) bool {
 }
 
 // Access implements [gunim.Accessible]: a slider, named as its
-// parameter, its value as the parameter writes it.
+// parameter, its value as the parameter writes it, disabled and read
+// only while locked, and described by Why while greyed.
 func (k *Knob) Access() access.Info {
 	st, about := access.State(0), ""
 	if k.Disabled || k.Locked {
-		st, about = access.StateDisabled, k.Why
+		about = k.Why
 	}
 	if k.Locked {
-		st |= access.StateReadOnly
+		st = access.StateDisabled | access.StateReadOnly
 	}
 	step := 0.0
 	if k.p.Steps > 0 {
