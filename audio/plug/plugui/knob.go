@@ -103,9 +103,10 @@ type Knob struct {
 	// ring is how far the focus ring shows, and focused says the knob has the keyboard.
 	ring    *anim.Float
 	focused bool
-	// pressed says the knob was pressed and the pointer has not left it since, so it takes the wheel.
-	pressed bool
-	tip     widget.PartTip
+	// pressed says the knob was pressed and the pointer has not left it since, so it takes the wheel; over says the
+	// pointer is on it, and locked whether it was locked as last laid out.
+	pressed, over, locked bool
+	tip                   widget.PartTip
 	// Disabled greys the knob, as for a section switched off, though it
 	// still turns, takes the keyboard and reads as enabled; Locked greys
 	// it and it does not turn, as a gain a cut has none of, and reads as
@@ -262,7 +263,11 @@ func (k *Knob) lay(f gunim.Frame) {
 	if k.Locked {
 		k.letGo(f.UI())
 	}
-	if k.hover.Target() > 0 && !k.held {
+	if k.laid && k.Locked != k.locked {
+		k.hover.Animate(anim.OnOff(k.over && !k.Locked), widget.Quick.Get(f.Theme))
+	}
+	k.locked = k.Locked
+	if k.over && !k.held {
 		k.tip.Retext(k.tooltip())
 	}
 	if !k.laid {
@@ -400,7 +405,7 @@ func (k *Knob) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Chi
 	p.ShadowRRect(geom.Rc(c.X-r+6, c.Y-r+6, 2*r-12, 2*r-12), r-6, paint.Fill{Gradient: &paint.Gradient{
 		From: geom.Pt(c.X, c.Y-r), To: geom.Pt(c.X, c.Y+r), Start: KnobCapTop.Get(th), End: KnobCapBottom.Get(th)}},
 		paint.Shadow{Offset: geom.Pt(0, 2), Blur: 4, Color: color.NRGBA{A: 0x90}})
-	capRing(p, c, r, k.ring.Value(), th)
+	capRing(p, c, r, k.ring.Value()*(1-min(max(k.faint.Value(), 0), 1)), th)
 	a := knobFrom + knobSweep*t
 	audioui.Segment(p, geom.Pt(c.X+(r-13)*float32(math.Cos(a)), c.Y+(r-13)*float32(math.Sin(a))),
 		geom.Pt(c.X+(r-7)*float32(math.Cos(a)), c.Y+(r-7)*float32(math.Sin(a))), 2, ink)
@@ -559,10 +564,13 @@ func (k *Knob) Handle(e input.Event, u *gunim.UI) bool {
 	}
 	switch e.(type) {
 	case input.PointerEnter:
-		k.hover.Animate(1, widget.Quick.Get(u.Theme()))
+		k.over = true
+		if !k.Locked {
+			k.hover.Animate(1, widget.Quick.Get(u.Theme()))
+		}
 		return false
 	case input.PointerLeave:
-		k.pressed = false
+		k.over, k.pressed = false, false
 		k.endWheel(u)
 		if !k.held {
 			k.hover.Animate(0, widget.Quick.Get(u.Theme()))
@@ -571,7 +579,7 @@ func (k *Knob) Handle(e input.Event, u *gunim.UI) bool {
 	}
 	if k.Locked {
 		k.letGo(u)
-		return false
+		return handleGreyed(e)
 	}
 	switch e := e.(type) {
 	case input.PointerDown:

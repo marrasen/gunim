@@ -8,6 +8,9 @@ import (
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
+	"github.com/marrasen/gunim/paint"
+	"github.com/marrasen/gunim/theme"
+	"github.com/marrasen/gunim/widget"
 )
 
 // count is how many times what appears in log.
@@ -161,5 +164,57 @@ func TestAPowerLampDisabledMidPressSwitchesNothing(t *testing.T) {
 	pass(w)
 	if switched != 0 || p.held || p.Checked() {
 		t.Fatalf("disabled mid-press, the lamp switched %d times, held %v, on %v", switched, p.held, p.Checked())
+	}
+}
+
+// faded is how faint n paints itself into box: one less the opacity of the first layer it opens, or 0.
+func faded(n gunim.Node, box geom.Size) float32 {
+	var p paint.Painter
+	n.Paint(&p, gunim.Frame{Scale: 1, Theme: theme.NewLive(widget.Dark())}, box, gunim.Children{})
+	for _, op := range p.Ops() {
+		if l, ok := op.(*paint.LayerOp); ok && !l.Opts.Clip {
+			return 1 - l.Opts.Opacity
+		}
+	}
+	return 0
+}
+
+// A selector and an action dial laid out greyed start grey; greyed after that, they fade frame by frame, and back.
+func TestASelectorAndADialGlideToGrey(t *testing.T) {
+	sel := NewSelector("Stereo", []string{"Left", "Both"}, nil)
+	d := NewActionDial("Learn", nil)
+	for _, c := range []struct {
+		name string
+		node gunim.Node
+		grey func(bool)
+	}{
+		{"selector", sel, func(on bool) { sel.Locked = on }},
+		{"action dial", d, func(on bool) { d.Disabled = on }},
+	} {
+		c.grey(true)
+		w := stageNode(t, c.node)
+		box := geom.Sz(100, 100)
+		full := faded(c.node, box)
+		if full < 0.3 {
+			t.Fatalf("laid out greyed, the %s paints %v faint", c.name, full)
+		}
+		c.grey(false)
+		frames(w, 40)
+		if f := faded(c.node, box); f > 0.001 {
+			t.Fatalf("freed, the %s settles %v faint", c.name, f)
+		}
+		for _, on := range []bool{true, false} {
+			c.grey(on)
+			last := map[bool]float32{true: 0, false: full}[on]
+			for f := range 40 {
+				frames(w, 1)
+				got := faded(c.node, box)
+				// A spring may bounce a little past where it rests.
+				if (on && got < last-0.02) || (!on && got > last+0.02) || (f == 1 && (got < 0.01 || got > full-0.01)) {
+					t.Fatalf("frame %d after greyed %v, the %s went from %v to %v faint", f+1, on, c.name, last, got)
+				}
+				last = got
+			}
+		}
 	}
 }

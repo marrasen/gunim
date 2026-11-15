@@ -51,13 +51,15 @@ type ActionDial struct {
 	held    bool
 	clicker widget.Clicker
 	size    geom.Size
+	// grey is how far it has faded as Disabled turns on.
+	grey greying
 }
 
 // NewActionDial returns a dial titled title, with ic on its cap.
 func NewActionDial(title string, ic *icon.Icon) *ActionDial {
 	d := &ActionDial{Title: title, Icon: ic, progress: anim.NewFloat(0), hover: anim.NewFloat(0), glow: anim.NewFloat(0),
-		ring: anim.NewFloat(0), squash: anim.NewFloat(0), clicker: widget.Clicker{Repeats: true}}
-	d.Add(d.progress, d.hover, d.glow, d.ring, d.squash)
+		ring: anim.NewFloat(0), squash: anim.NewFloat(0), clicker: widget.Clicker{Repeats: true}, grey: newGreying()}
+	d.Add(d.progress, d.hover, d.glow, d.ring, d.squash, d.grey.dim)
 	return d
 }
 
@@ -104,9 +106,13 @@ func (d *ActionDial) Finish(done bool, u *gunim.UI) {
 // Step implements [gunim.Animator].
 func (d *ActionDial) Step(dt time.Duration) bool { return d.Group.Step(dt) }
 
-// Layout implements [gunim.Node]: as big as a knob. It lets go of a press as it is disabled.
+// Layout implements [gunim.Node]: as big as a knob. As it is disabled it fades, lets go of a press, and its light
+// fades; enabled again under the pointer, it lights.
 func (d *ActionDial) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
 	d.size = c.Constrain(geom.Sz(KnobW, KnobH))
+	if d.grey.follow(d.Disabled, f.Theme) {
+		d.hover.Animate(anim.OnOff(d.grey.over && !d.Disabled), widget.Quick.Get(f.Theme))
+	}
 	if d.Disabled && d.held {
 		d.held = false
 		d.squash.Animate(0, widget.Bounce.Get(f.Theme))
@@ -120,8 +126,7 @@ func (d *ActionDial) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gun
 	th := f.Theme
 	ink, accent := widget.Ink.Get(th), widget.Accent.Get(th)
 	hover, glow := d.hover.Value(), d.glow.Value()
-	end := widget.Faint(p, box, anim.OnOff(d.Disabled)*0.6)
-	defer end()
+	defer d.grey.faint(p, box)()
 	const r, text = float32(17), float32(10.5)
 	c := geom.Pt(box.W/2, 4+r)
 	if lit := max(hover, glow); lit > 0.01 {
@@ -148,7 +153,7 @@ func (d *ActionDial) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gun
 		widget.PaintIcon(p, th, d.Icon, geom.Rc(c.X-7, c.Y-7, 14, 14), mark)
 	}
 	popCap()
-	capRing(p, c, r, d.ring.Value(), th)
+	capRing(p, c, r, d.grey.ring(d.ring.Value()), th)
 	name := audioui.Shaped(d.Title, text, false, false)
 	name.Paint(p, geom.Pt((box.W-name.Advance)/2, c.Y+r+4), paint.Faded(ink, 0.6+0.3*hover))
 	val := audioui.Shaped(d.Value, text, false, true)
@@ -173,19 +178,12 @@ func (d *ActionDial) Focusable() bool { return !d.Disabled }
 // it.
 func (d *ActionDial) Handle(e input.Event, u *gunim.UI) bool {
 	d.tip.Handle(e, u, d, d.tipText())
+	d.grey.track(e)
 	if followRing(d.ring, e, u) {
 		return true
 	}
 	if d.Disabled {
-		if pe, ok := e.(input.PointerDown); ok {
-			return pe.Button == input.ButtonPrimary
-		}
-		if pe, ok := e.(input.PointerUp); ok {
-			return pe.Button == input.ButtonPrimary
-		}
-		if _, ok := e.(input.KeyPress); ok {
-			return false
-		}
+		return handleGreyed(e)
 	}
 	switch e := e.(type) {
 	case input.PointerEnter:

@@ -242,12 +242,12 @@ func TestAPowerLampFadesAsItIsDisabled(t *testing.T) {
 	p := NewPower("gate")
 	p.Disabled = true
 	w := stageNode(t, p)
-	if got := p.dim.Value(); got != 1 {
+	if got := p.grey.dim.Value(); got != 1 {
 		t.Fatalf("laid out disabled, the lamp starts %v faint", got)
 	}
 	p.Disabled = false
 	frames(w, 30)
-	if got := p.dim.Value(); got > 0.001 {
+	if got := p.grey.dim.Value(); got > 0.001 {
 		t.Fatalf("enabled, the lamp settles %v faint", got)
 	}
 	w.Input(input.PointerMove{Pos: geom.Pt(50, 50), Time: time.Now()})
@@ -257,7 +257,7 @@ func TestAPowerLampFadesAsItIsDisabled(t *testing.T) {
 	last := float32(0)
 	for f := range 40 {
 		frames(w, 1)
-		got := p.dim.Value()
+		got := p.grey.dim.Value()
 		// A spring may bounce a little past where it rests.
 		if got < last-0.02 || (f == 1 && (got <= 0.001 || got >= 0.999)) {
 			t.Fatalf("frame %d after it was disabled, the lamp went from %v to %v faint", f+1, last, got)

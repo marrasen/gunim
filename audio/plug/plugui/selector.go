@@ -25,7 +25,8 @@ import (
 type Selector struct {
 	anim.Group
 	names, tips []string
-	sel, hot    int
+	// sel is the option chosen, hot the one lit under the pointer, and under the one under the pointer, lit or not.
+	sel, hot, under int
 	// lit is how lit each lamp is, and shown the name shown, by option,
 	// gliding as it changes.
 	lit   []*anim.Float
@@ -51,6 +52,8 @@ type Selector struct {
 	// Label, where set, names the selector for a screen reader in place of Title.
 	Label string
 	tip   widget.PartTip
+	// grey is how far it has faded as Locked turns on.
+	grey  greying
 	cells []geom.Rect
 	size  geom.Size
 }
@@ -61,13 +64,13 @@ const SelectorH = KnobH
 // NewSelector returns a selector titled title of the options names, each
 // with its tooltip of tips, the first chosen.
 func NewSelector(title string, names, tips []string) *Selector {
-	s := &Selector{Title: title, names: names, tips: tips, hot: -1, shown: anim.NewFloat(0), ring: anim.NewFloat(0),
-		press: anim.NewFloat(0), click: widget.Clicker{Repeats: true}}
+	s := &Selector{Title: title, names: names, tips: tips, hot: -1, under: -1, shown: anim.NewFloat(0), ring: anim.NewFloat(0),
+		press: anim.NewFloat(0), grey: newGreying(), click: widget.Clicker{Repeats: true}}
 	for i := range names {
 		s.lit = append(s.lit, anim.NewFloat(float32(anim.OnOff(i == 0))))
 		s.Add(s.lit[i])
 	}
-	s.Add(s.shown, s.ring, s.press)
+	s.Add(s.shown, s.ring, s.press, s.grey.dim)
 	return s
 }
 
@@ -138,16 +141,27 @@ func (s *Selector) lampsAt() (top, foot float32) {
 
 // Layout implements [gunim.Node]: a lamp each, evenly across, in rows
 // of Columns where it is set, as tall as a knob, the title and the
-// name under them. It lets go of a press as it is locked.
+// name under them. As it is locked it fades, lets go of a press, and
+// lights no lamp under the pointer; freed under it, it lights the lamp there.
 func (s *Selector) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
 	cols, _ := s.grid()
 	s.size = c.Constrain(geom.Sz(max(float32(cols)*lampCol+16, 48), SelectorH))
+	if s.grey.follow(s.Locked, f.Theme) {
+		hot := s.under
+		if s.Locked {
+			hot = -1
+		}
+		if hot != s.hot {
+			s.hot = hot
+			s.glide(f.UI())
+		}
+	}
 	if s.Locked && s.held {
 		s.held = false
 		s.press.Animate(0, widget.Bounce.Get(f.Theme))
 	}
-	if s.hot >= 0 || s.Why != "" {
-		s.tip.Retext(s.tipAt(s.hot))
+	if s.grey.over {
+		s.tip.Retext(s.tipAt(s.under))
 	}
 	// The columns lampCol apart, about the middle.
 	left := (s.size.W - float32(cols)*lampCol) / 2
@@ -163,15 +177,14 @@ func (s *Selector) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) 
 func (s *Selector) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
 	th := f.Theme
 	ink, accent := widget.Ink.Get(th), widget.Accent.Get(th)
-	end := widget.Faint(p, box, anim.OnOff(s.Locked)*0.6)
-	defer end()
+	defer s.grey.faint(p, box)()
 	if len(s.cells) > 0 {
 		// The ring runs round the lamps' grid, 6 out from the middle of the lamps at its corners.
 		g := geom.Rect{Min: s.cells[0].Min, Max: s.cells[len(s.cells)-1].Max}
 		for _, r := range s.cells {
 			g = g.Union(r)
 		}
-		widget.FocusRing(p, g.Inset(geom.Uniform(lampCol/2-6)), 6, s.ring.Value(), th)
+		widget.FocusRing(p, g.Inset(geom.Uniform(lampCol/2-6)), 6, s.grey.ring(s.ring.Value()), th)
 	}
 	for i, r := range s.cells {
 		lit := s.lit[i].Value()
@@ -256,14 +269,22 @@ func (s *Selector) Focusable() bool { return !s.Locked }
 // Handle implements [gunim.Handler].
 func (s *Selector) Handle(e input.Event, u *gunim.UI) bool {
 	tip := ""
-	if pe, ok := e.(input.PointerMove); ok {
-		tip = s.tipAt(s.at(pe.Pos))
+	switch pe := e.(type) {
+	case input.PointerMove:
+		s.under = s.at(pe.Pos)
+		tip = s.tipAt(s.under)
+	case input.PointerLeave:
+		s.under = -1
 	}
 	if _, ok := e.(input.PointerMove); ok || isLeave(e) {
 		s.tip.Handle(e, u, s, tip)
 	}
+	s.grey.track(e)
 	if followRing(s.ring, e, u) {
 		return true
+	}
+	if s.Locked {
+		return handleGreyed(e)
 	}
 	switch e := e.(type) {
 	case input.PointerMove:
@@ -303,8 +324,8 @@ func (s *Selector) Handle(e input.Event, u *gunim.UI) bool {
 		}
 	case input.KeyPress:
 		// Ctrl, Alt or Super with a key is the window's shortcut, such as
-		// Alt+Left to the loop's start: the selector leaves it be, and a locked one leaves every key be.
-		if s.Locked || e.Mods.Has(input.ModControl) || e.Mods.Has(input.ModAlt) || e.Mods.Has(input.ModSuper) {
+		// Alt+Left to the loop's start: the selector leaves it be.
+		if e.Mods.Has(input.ModControl) || e.Mods.Has(input.ModAlt) || e.Mods.Has(input.ModSuper) {
 			return false
 		}
 		i, ok := s.move(e.Key)
