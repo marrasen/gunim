@@ -104,9 +104,9 @@ type Knob struct {
 	ring    *anim.Float
 	focused bool
 	// pressed says the knob was pressed and the pointer has not left it since, so it takes the wheel; over says the
-	// pointer is on it, and locked says it was locked as last laid out.
-	pressed, over, locked bool
-	tip                   widget.PartTip
+	// pointer is on it, and lockedWas says it was locked as last laid out.
+	pressed, over, lockedWas bool
+	tip                      widget.PartTip
 	// Disabled greys the knob, as for a section switched off, though it
 	// still turns, takes the keyboard and reads as enabled; Locked greys
 	// it and it does not turn, as a gain a cut has none of, and reads as
@@ -263,10 +263,10 @@ func (k *Knob) lay(f gunim.Frame) {
 	if k.Locked {
 		k.letGo(f.UI())
 	}
-	if k.laid && k.Locked != k.locked {
+	if k.laid && k.Locked != k.lockedWas {
 		k.hover.Animate(anim.OnOff(k.over && !k.Locked), widget.Quick.Get(f.Theme))
 	}
-	k.locked = k.Locked
+	k.lockedWas = k.Locked
 	if k.over && !k.held {
 		k.tip.Retext(k.tooltip())
 	}

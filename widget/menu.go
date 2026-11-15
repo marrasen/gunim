@@ -1936,14 +1936,14 @@ func (t *tip) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Chil
 	t.paintWords(p, at.Add(geom.Pt(0, in*(1-turn))), fadedBy(ink, turn), t.wrapped, &t.run, &t.para)
 }
 
-// paintWords paints one set of words at at in ink, wrapped into para or shaped into run.
-func (t *tip) paintWords(p *paint.Painter, at geom.Point, ink color.NRGBA, wrapped bool, run *shapedText,
+// paintWords paints one set of words from pos in ink, wrapped into para or shaped into run.
+func (t *tip) paintWords(p *paint.Painter, pos geom.Point, ink color.NRGBA, wrapped bool, run *shapedText,
 	para *laidText) {
 	if wrapped {
-		para.p.Paint(p, at, ink)
+		para.p.Paint(p, pos, ink)
 		return
 	}
-	run.run.Paint(p, at, ink)
+	run.run.Paint(p, pos, ink)
 }
 
 // wordsHeight is how tall one set of words stands, wrapped into para or shaped into run.
