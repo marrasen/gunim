@@ -89,6 +89,17 @@ type progress struct {
 	// waiting, when set, says what the operation waits for, in place of
 	// how far it has got.
 	waiting string
+	// counting says it is still finding out how much there is to do, and
+	// counted how many items it has found so far.
+	counting bool
+	counted  int
+	// removed of removeTotal originals are taken away, of what a move
+	// across volumes copied, and removing says it is at that now.
+	removed, removeTotal int
+	removing             bool
+	// leaps counts the times items or bytes were counted as done that
+	// took no work, as those skipped are, which say nothing of the speed.
+	leaps int
 }
 
 // choice is an answer to a name clash.
@@ -142,8 +153,11 @@ type env struct {
 	// every 50 ms when that is zero.
 	report      func(progress)
 	reportEvery time.Duration
-	// limit, when above zero, holds a copy to that many bytes a second.
-	limit float64
+	// limit, when above zero, holds a copy to that many bytes a second,
+	// and across has every move go as one across volumes, by a copy and
+	// a delete, for the demo and the tests.
+	limit  float64
+	across bool
 	// pause, when set, holds the operation while it is paused.
 	pause *pauseGate
 	// outside runs fn with the files the system clipboard holds as
@@ -201,6 +215,10 @@ type runner struct {
 	// made holds the folders a copy made at the top of what it copies,
 	// for the copy to stay out of.
 	made []fs.FileInfo
+	// buf is what a copy reads into, made once for all its files.
+	buf []byte
+	// moving is the items a move, or the undo of one, moves in turn.
+	moving *moving
 }
 
 // runJob runs j, stopping at the first error, and returns what it did.
@@ -257,7 +275,7 @@ func (r *runner) tell(now bool) {
 func (r *runner) did(from, to string) { r.rec.steps = append(r.rec.steps, step{from: from, to: to}) }
 
 // measure counts the items and bytes under path, stopping at the first
-// error.
+// error. While the operation is counting, it tells how many it has found.
 func (r *runner) measure(path string) (items int, bytes int64, err error) {
 	err = walkTree(r.ctx, r.env.fs, path, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -267,6 +285,10 @@ func (r *runner) measure(path string) (items int, bytes int64, err error) {
 			return err
 		}
 		items++
+		if r.p.counting {
+			r.p.counted++
+			r.tell(false)
+		}
 		if d.Type().IsRegular() {
 			info, err := d.Info()
 			if err != nil {
@@ -281,16 +303,28 @@ func (r *runner) measure(path string) (items int, bytes int64, err error) {
 
 // planBytes adds what srcs hold to the totals.
 func (r *runner) planBytes(srcs []string) error {
-	for _, s := range srcs {
-		n, b, err := r.measure(s)
-		if err != nil {
-			return err
+	return r.count(func() error {
+		for _, s := range srcs {
+			n, b, err := r.measure(s)
+			if err != nil {
+				return err
+			}
+			r.p.itemsTotal += n
+			r.p.bytesTotal += b
 		}
-		r.p.itemsTotal += n
-		r.p.bytesTotal += b
-	}
+		return nil
+	})
+}
+
+// count runs fn, which finds out how much there is to do, and has the
+// operation say meanwhile that it is counting, not how far it has got.
+func (r *runner) count(fn func() error) error {
+	r.p.counting, r.p.counted = true, 0
 	r.tell(true)
-	return nil
+	err := fn()
+	r.p.counting = false
+	r.tell(true)
+	return err
 }
 
 // into checks that src on fsys is not a folder that dir lies inside. It
@@ -431,6 +465,7 @@ func (r *runner) skipped(src string) error {
 	}
 	r.p.items += n
 	r.p.bytes += b
+	r.p.leaps++
 	r.tell(false)
 	return nil
 }
@@ -579,14 +614,18 @@ func (r *runner) writeFile(in io.Reader, src, dst string, info fs.FileInfo) erro
 	fail := func(e error) error {
 		return errors.Join(e, out.Close(), fsys.Remove(part))
 	}
-	buf := make([]byte, copyBuffer)
+	// One buffer serves every file: a new one for each costs more than
+	// many a small file takes to copy.
+	if r.buf == nil {
+		r.buf = make([]byte, copyBuffer)
+	}
 	for {
 		if err := r.ctx.Err(); err != nil {
 			return errors.Join(err, out.Close(), fsys.Remove(part))
 		}
-		n, rerr := in.Read(buf)
+		n, rerr := in.Read(r.buf)
 		if n > 0 {
-			if _, err := out.Write(buf[:n]); err != nil {
+			if _, err := out.Write(r.buf[:n]); err != nil {
 				return fail(fmt.Errorf("writing %s: %w", dst, err))
 			}
 			r.p.bytes += int64(n)
@@ -619,15 +658,108 @@ func (r *runner) writeFile(in io.Reader, src, dst string, info fs.FileInfo) erro
 	return nil
 }
 
-// moveAll moves srcs into dest.
-func (r *runner) moveAll(srcs []string, dest string) error {
+// moving is the items a move moves in turn, and how they count. One the
+// file system moves by a rename is one item, whatever it holds. Once a
+// rename fails as one across volumes, the move copies and deletes, and
+// what the items still to go hold is counted at once, so the totals stand
+// from then on and the progress never falls back.
+type moving struct {
+	srcs []string
+	// at is the item being moved, and items, bytes and removed the
+	// progress as it started.
+	at             int
+	items, removed int
+	bytes          int64
+	// sizes holds what each item holds, for those counted.
+	sizes []treeSize
+}
+
+// treeSize is what an item holds: itself and all under it.
+type treeSize struct {
+	items   int
+	bytes   int64
+	counted bool
+}
+
+// moves starts a move of srcs in turn, each one item until it is counted.
+func (r *runner) moves(srcs []string) {
+	r.moving = &moving{srcs: srcs, sizes: make([]treeSize, len(srcs))}
 	r.p.itemsTotal = len(srcs)
 	r.tell(true)
+}
+
+// begin notes that item i of the move starts.
+func (r *runner) begin(i int) {
+	m := r.moving
+	m.at, m.items, m.bytes, m.removed = i, r.p.items, r.p.bytes, r.p.removed
+}
+
+// end counts the item the move is at as done. One that was counted is
+// then done with all it held, whatever of it was skipped, merged or
+// moved by a rename after all.
+func (r *runner) end() {
+	m := r.moving
+	if size := m.sizes[m.at]; size.counted {
+		items, bytes, removed := m.items+size.items, m.bytes+size.bytes, m.removed+size.items
+		if r.p.items != items || r.p.bytes != bytes || r.p.removed != removed {
+			r.p.leaps++
+		}
+		r.p.items, r.p.bytes, r.p.removed = items, bytes, removed
+	} else {
+		r.p.items++
+	}
+	r.tell(false)
+}
+
+// countAcross counts what src holds, as a move is to copy and delete it
+// across volumes, and with it what the items the move has still to move
+// hold, which are most likely across volumes too.
+func (r *runner) countAcross(src string) error {
+	m := r.moving
+	if m == nil {
+		// One item moved by itself.
+		n, b, err := r.measure(src)
+		r.p.itemsTotal += n
+		r.p.bytesTotal += b
+		r.p.removeTotal += n
+		return err
+	}
+	if m.sizes[m.at].counted {
+		return nil
+	}
+	return r.count(func() error {
+		for i := m.at; i < len(m.srcs); i++ {
+			if m.sizes[i].counted {
+				continue
+			}
+			n, b, err := r.measure(m.srcs[i])
+			switch {
+			case err == nil:
+			case i == m.at || r.ctx.Err() != nil:
+				return err
+			default:
+				// One that cannot be read fails in its turn, not now.
+				continue
+			}
+			m.sizes[i] = treeSize{items: n, bytes: b, counted: true}
+			// It was one item until now.
+			r.p.itemsTotal += n - 1
+			r.p.bytesTotal += b
+			r.p.removeTotal += n
+		}
+		return nil
+	})
+}
+
+// moveAll moves srcs into dest.
+func (r *runner) moveAll(srcs []string, dest string) error {
+	r.moves(srcs)
 	ps := r.env.fs.Paths()
-	for _, src := range srcs {
+	for i, src := range srcs {
+		r.begin(i)
 		dst := ps.Join(dest, ps.Base(src))
 		if ps.Same(src, dst) {
-			r.p.items++
+			r.end()
 			continue
 		}
 		if err := into(r.env.fs, src, dest); err != nil {
@@ -643,8 +775,7 @@ func (r *runner) moveAll(srcs []string, dest string) error {
 			}
 			r.rec.landed = append(r.rec.landed, ps.Base(to))
 		}
-		r.p.items++
-		r.tell(false)
+		r.end()
 	}
 	return nil
 }
@@ -666,7 +797,10 @@ func (r *runner) moveItem(src, dst string, merge, top bool) error {
 		return fmt.Errorf("moving %s: %w", src, statErr)
 	}
 	replacing := statErr == nil
-	err := r.env.fs.Rename(src, dst)
+	err := ErrCrossDevice
+	if !r.env.across {
+		err = r.env.fs.Rename(src, dst)
+	}
 	switch {
 	case err == nil && replacing:
 		r.rec.replaced++
@@ -731,17 +865,13 @@ func (r *runner) mergeInto(src, dst string) (kept bool, err error) {
 // moveAcross moves src to another volume by copying it and deleting it.
 // A copy that fails is taken away again.
 func (r *runner) moveAcross(src, dst string, replacing bool) error {
-	_, b, err := r.measure(src)
-	if err != nil {
+	if err := r.countAcross(src); err != nil {
 		return err
 	}
-	r.p.bytesTotal += b
 	info, err := r.env.fs.Lstat(src)
 	if err != nil {
 		return fmt.Errorf("reading %s: %w", src, err)
 	}
-	items := r.p.items
-	defer func() { r.p.items = items }()
 	if err := r.copyItem(src, dst, false, replacing, false); err != nil {
 		if replacing || !realDir(info) {
 			return err
@@ -749,7 +879,9 @@ func (r *runner) moveAcross(src, dst string, replacing bool) error {
 		// The cleanup runs even when the operation was cancelled.
 		return errors.Join(err, removeAll(context.WithoutCancel(r.ctx), r.env.fs, dst))
 	}
-	return r.removeTree(src)
+	r.p.removing = true
+	defer func() { r.p.removing = false }()
+	return r.removeTree(src, &r.p.removed)
 }
 
 // errTrashless says a file system has no trash.
@@ -781,16 +913,21 @@ func (r *runner) trashAll(srcs []string) error {
 
 // deleteAll deletes srcs for good.
 func (r *runner) deleteAll(srcs []string) error {
-	for _, s := range srcs {
-		n, _, err := r.measure(s)
-		if err != nil {
-			return err
+	err := r.count(func() error {
+		for _, s := range srcs {
+			n, _, err := r.measure(s)
+			if err != nil {
+				return err
+			}
+			r.p.itemsTotal += n
 		}
-		r.p.itemsTotal += n
+		return nil
+	})
+	if err != nil {
+		return err
 	}
-	r.tell(true)
 	for _, s := range srcs {
-		if err := r.removeTree(s); err != nil {
+		if err := r.removeTree(s, &r.p.items); err != nil {
 			return err
 		}
 		r.did(s, "")
@@ -798,8 +935,9 @@ func (r *runner) deleteAll(srcs []string) error {
 	return nil
 }
 
-// removeTree deletes path and all it holds, the contents first.
-func (r *runner) removeTree(path string) error {
+// removeTree deletes path and all it holds, the contents first, and
+// counts each item it deletes in done.
+func (r *runner) removeTree(path string, done *int) error {
 	if err := r.ctx.Err(); err != nil {
 		return err
 	}
@@ -814,7 +952,7 @@ func (r *runner) removeTree(path string) error {
 			return fmt.Errorf("reading %s: %w", fsys.Paths().Show(path), err)
 		}
 		for _, k := range kids {
-			if err := r.removeTree(fsys.Paths().Join(path, k.Name())); err != nil {
+			if err := r.removeTree(fsys.Paths().Join(path, k.Name()), done); err != nil {
 				return err
 			}
 		}
@@ -823,7 +961,7 @@ func (r *runner) removeTree(path string) error {
 	if err := fsys.Remove(path); err != nil {
 		return fmt.Errorf("deleting %s: %w", fsys.Paths().Show(path), err)
 	}
-	r.p.items++
+	*done++
 	r.tell(false)
 	return nil
 }
@@ -895,9 +1033,14 @@ func (r *runner) newFolder(dir, name string) error {
 func (r *runner) undo(rec *record) error {
 	steps := slices.Clone(rec.steps)
 	slices.Reverse(steps)
-	r.p.itemsTotal = len(steps)
-	r.tell(true)
+	// What a move moved goes back as it came, across volumes too.
+	tos := make([]string, len(steps))
 	for i, s := range steps {
+		tos[i] = s.to
+	}
+	r.moves(tos)
+	for i, s := range steps {
+		r.begin(i)
 		err := r.ctx.Err()
 		if err == nil {
 			r.p.current = s.to
@@ -911,7 +1054,7 @@ func (r *runner) undo(rec *record) error {
 			r.rec.left = slices.Clone(rec.steps[:len(steps)-i])
 			return err
 		}
-		r.p.items++
+		r.end()
 	}
 	return nil
 }
