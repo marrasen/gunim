@@ -185,7 +185,8 @@ func TestAnActionLeavesTheDialogOpen(t *testing.T) {
 	for range 3 {
 		w.Frame(time.Second / 60)
 	}
-	// Tab from the field to the box, and Space ticks it.
+	// Tab from the field past its eye to the box, and Space ticks it.
+	w.Input(input.KeyPress{Key: input.KeyTab})
 	w.Input(input.KeyPress{Key: input.KeyTab})
 	w.Input(input.KeyPress{Key: input.KeySpace})
 	// Tab on to the action, and Enter presses it.
