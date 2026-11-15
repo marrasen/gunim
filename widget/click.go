@@ -39,6 +39,9 @@ func (c *Clicker) Release(e input.PointerUp, at int) bool {
 	return held && at >= 0 && at == c.at
 }
 
+// Cancel drops the click under way, so its release does nothing, as when the widget turns disabled.
+func (c *Clicker) Cancel() { c.held = false }
+
 // over is the target for a widget of size with one target: 0 for pos inside it, and -1 elsewhere.
 func over(pos geom.Point, size geom.Size) int {
 	if (geom.Rect{Max: size.Point()}).Contains(pos) {

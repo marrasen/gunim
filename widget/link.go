@@ -64,6 +64,9 @@ func (l *Link) textSize(th *theme.Live) float32 {
 
 // Layout implements [gunim.Node].
 func (l *Link) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
+	if l.Disabled {
+		l.click.Cancel()
+	}
 	s := l.run(f.Theme).Box()
 	s.W += l.iconWidth(f.Theme)
 	l.box = c.Constrain(s)

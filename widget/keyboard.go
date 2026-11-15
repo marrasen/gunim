@@ -394,6 +394,9 @@ func (k *Keyboard) tap(key input.Key, u *gunim.UI) {
 // Layout implements [gunim.Node]: the content in the room the keyboard leaves, and the keys under it as far as the
 // keyboard is up.
 func (k *Keyboard) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
+	if k.Disabled {
+		k.click.Cancel()
+	}
 	th := f.Theme
 	k.follow(th)
 	if k.names == nil {

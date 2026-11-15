@@ -218,3 +218,60 @@ func TestTabMovesOnFromAControlDisabledWithTheKeyboard(t *testing.T) {
 		}
 	}
 }
+
+// A press on a control that is disabled and enabled again before it is let go acts on no release.
+func TestAPressThatOutlivesADisableActsOnNothing(t *testing.T) {
+	for _, m := range heldFamily() {
+		calls := 0
+		listen(m.node, &calls)
+		w, run, disable := familyStage(t, []member{m})
+		at := geom.Pt(6, 6)
+		w.Input(input.PointerMove{Pos: at, Time: time.Now()})
+		w.Input(input.PointerDown{Pos: at, Clicks: 1, Time: time.Now()})
+		run(1)
+		disable(true)
+		run(2)
+		disable(false)
+		run(2)
+		sent(w)
+		calls = 0
+		w.Input(input.PointerUp{Pos: at, Time: time.Now()})
+		run(30)
+		if n := len(sent(w)); n != 0 || calls != 0 {
+			t.Errorf("pressed, disabled, enabled and let go, the %s sent %d intents and ran its callbacks %d times",
+				m.name, n, calls)
+		}
+	}
+}
+
+// A press on the second part of a segmented control or a nav list, outliving a disable, acts on nothing.
+func TestAPressOnAPartThatOutlivesADisableActsOnNothing(t *testing.T) {
+	seg := NewSegmented("Day", "Week")
+	nav := NewNavList(NavItem{Label: "Home"}, NavItem{Label: "Files"})
+	for _, c := range []struct {
+		m  member
+		at func() geom.Point
+	}{
+		{member{"segmented", seg, &seg.Control}, func() geom.Point { return geom.Pt(seg.size.W*3/4, seg.size.H/2) }},
+		{member{"nav list", nav, &nav.Control}, func() geom.Point { return geom.Pt(20, nav.size.H*3/4) }},
+	} {
+		calls := 0
+		listen(c.m.node, &calls)
+		w, run, disable := familyStage(t, []member{c.m})
+		at := c.at()
+		w.Input(input.PointerMove{Pos: at, Time: time.Now()})
+		w.Input(input.PointerDown{Pos: at, Clicks: 1, Time: time.Now()})
+		run(1)
+		disable(true)
+		run(2)
+		disable(false)
+		run(2)
+		calls = 0
+		w.Input(input.PointerUp{Pos: at, Time: time.Now()})
+		run(30)
+		if calls != 0 {
+			t.Errorf("pressed on its second part, disabled, enabled and let go, the %s ran its callbacks %d times",
+				c.m.name, calls)
+		}
+	}
+}
