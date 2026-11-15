@@ -18,6 +18,8 @@ screen. A frame steps, lays out and paints the tree, and then the renderer draws
   ops from the frame before, with no `Layout` or `Paint`. A view without a key is laid out and painted on every
   frame anything in the window moves. `widget.NewSteady(child, key)` and `widget.NewSteadyPaint(paint, key)` make one
   without a node type of its own.
+- **A key may hold the theme.** A part keyed on `f.Theme` is painted again on every frame of a theme switch's glide,
+  the frame its last value lands on included, so it always ends on the new theme's values.
 - **Keep what moves apart from what stands.** A subtree is carried only while no node in it moves (`Step` true,
   or `WakeIn`), enters or leaves. A meter, a cursor or a lit step goes in a small node of its own, next to the still
   body, not inside it. One live meter inside a panel has the whole panel painted again on every frame.
