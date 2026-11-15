@@ -52,7 +52,9 @@ type TextField struct {
 	// the field the keyboard, and the text shows only while the field has
 	// it (see KeepShown). A screen reader may read the text while it shows.
 	// A type that embeds TextField and has its own Children gets no eye;
-	// Alt+F8 still works there.
+	// Alt+F8 still works there. Linux window managers commonly take Alt+F8
+	// to resize the window, so there the eye is reached by mouse or screen
+	// reader.
 	Secret bool
 	// SkipEye leaves the eye out of a Secret field, and turns off Alt+F8.
 	SkipEye bool
@@ -63,7 +65,7 @@ type TextField struct {
 	// "Hide text" when "".
 	EyeLabel, EyeHideLabel string
 	// KeepShown keeps the text shown while the field lacks the keyboard,
-	// and while the window is hidden. Without it the field hides the text
+	// while another window has the keyboard, and while the window is hidden. Without it the field hides the text
 	// again then.
 	KeepShown bool
 	// OnChange runs on the UI goroutine each time the user changes the
@@ -233,6 +235,12 @@ func (t *TextField) Handle(e input.Event, u *gunim.UI) bool {
 	}
 	if k, ok := e.(input.KeyPress); ok && t.Keys != nil && t.Keys(k, u) {
 		return true
+	}
+	_, away := e.(input.WindowFocusLost)
+	if away && !t.KeepShown {
+		// The keyboard stays on the field while another window has it, so
+		// hide the text here, before the caret takes the event.
+		t.SetShown(false, u)
 	}
 	if t.blink.windowFocus(e, u) {
 		return false

@@ -200,6 +200,30 @@ func TestTheTextHidesAgainWhenTheKeyboardLeavesOrTheWindowHides(t *testing.T) {
 	}
 }
 
+func TestTheTextHidesAgainWhenAnotherWindowTakesTheKeyboard(t *testing.T) {
+	for _, keep := range []bool{false, true} {
+		field := NewTextField()
+		field.Secret, field.KeepShown = true, keep
+		w, run := stage(t, &frame{child: field, size: geom.Sz(300, 100)})
+		u := stageUI(t, w, run)
+		u.Focus(field)
+		w.Input(input.TextInput{Text: "hunter2"})
+		run(1)
+		field.SetShown(true, u)
+		run(1)
+		w.Input(driver.WindowFocus{Focused: false})
+		run(5)
+		if field.Shown() != keep || dotted(t, field) == keep {
+			t.Fatalf("KeepShown %v: after another window took the keyboard, the text shows: %v", keep, field.Shown())
+		}
+		w.Input(driver.WindowFocus{Focused: true})
+		run(1)
+		if field.Shown() != keep {
+			t.Fatalf("KeepShown %v: after the window got the keyboard back, the text shows: %v", keep, field.Shown())
+		}
+	}
+}
+
 func TestAFieldWithSkipEyeHasNoEye(t *testing.T) {
 	ty := newSecretTyper(t, func(f *TextField) { f.SkipEye = true })
 	u := stageUI(t, ty.w, ty.run)
