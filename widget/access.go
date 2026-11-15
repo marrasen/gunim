@@ -58,10 +58,10 @@ func (b *Button) AccessAct(r access.Request, u *gunim.UI) bool {
 	return true
 }
 
-// Access implements [gunim.Accessible].
+// Access implements [gunim.Accessible]. A Secret field gives its text only while it shows it.
 func (t *TextField) Access() access.Info {
 	value := ""
-	if !t.Secret {
+	if !t.Secret || t.showing {
 		value = t.Text()
 	}
 	return t.accessHeld(access.Info{Role: access.RoleTextField, Name: t.accessName(t.Placeholder), Value: value,

@@ -44,8 +44,30 @@ type TextField struct {
 	Height theme.Token[float32]
 	// Secret shows each character as a dot, as a password field does,
 	// keeps the text off the clipboard, and gives a screen reader no
-	// value to read.
+	// value to read. An eye at the end of the field shows the text in
+	// place of the dots while it is pressed in, and the text stays off the
+	// clipboard. As in Windows' own password boxes, the eye is not a Tab
+	// stop, so a form's Tab order stays as it was: Alt+F8 in the field
+	// shows and hides the text from the keyboard. A press on the eye gives
+	// the field the keyboard, and the text shows only while the field has
+	// it (see KeepShown). A screen reader may read the text while it shows.
+	// A type that embeds TextField and has its own Children gets no eye;
+	// Alt+F8 still works there. Linux window managers commonly take Alt+F8
+	// to resize the window, so there the eye is reached by mouse or screen
+	// reader.
 	Secret bool
+	// SkipEye leaves the eye out of a Secret field, and turns off Alt+F8.
+	SkipEye bool
+	// EyeLabel is what the eye's tooltip and a screen reader call it,
+	// such as "Show password". It is "Show text" when "". A screen reader
+	// also says whether the eye is pressed in. EyeHideLabel is what the
+	// tooltip says while the text shows, such as "Hide password". It is
+	// "Hide text" when "".
+	EyeLabel, EyeHideLabel string
+	// KeepShown keeps the text shown while the field lacks the keyboard,
+	// while another window has the keyboard, and while the window is hidden. Without it the field hides the text
+	// again then.
+	KeepShown bool
 	// OnChange runs on the UI goroutine each time the user changes the
 	// text, and OnCommit when they press Enter. Each may act in the window
 	// through u, as a palette filters its list as the query changes; a
@@ -97,6 +119,15 @@ type TextField struct {
 	line      longLine
 	dots      []rune
 	wasSecret bool
+
+	// eye is the eye of a Secret field, eyeOn whether it shows, and
+	// showing whether the text shows in place of the dots. fits says which
+	// of the icon, the X and the eye fit in the field's width.
+	eye     *fieldEye
+	eyeOn   bool
+	eyeX    float32
+	showing bool
+	fits    fieldFits
 }
 
 // NewTextField returns an empty field.
@@ -205,14 +236,35 @@ func (t *TextField) Handle(e input.Event, u *gunim.UI) bool {
 	if k, ok := e.(input.KeyPress); ok && t.Keys != nil && t.Keys(k, u) {
 		return true
 	}
+	_, away := e.(input.WindowFocusLost)
+	if away && !t.KeepShown {
+		// The keyboard stays on the field while another window has it, so
+		// hide the text here, before the caret takes the event.
+		t.SetShown(false, u)
+	}
 	if t.blink.windowFocus(e, u) {
 		return false
+	}
+	if _, hidden := e.(input.WindowHidden); hidden {
+		if !t.KeepShown {
+			t.SetShown(false, u)
+		}
+		return false
+	}
+	if k, ok := e.(input.KeyPress); ok && k.Key == input.KeyF8 && k.Mods == input.ModAlt && t.wantsEye() {
+		// Alt+F8 shows and hides the text, as in Windows' own password boxes.
+		t.SetShown(!t.showing, u)
+		return true
 	}
 	switch e := e.(type) {
 	case input.FocusGained:
 		t.focus.Animate(1, Quick.Get(u.Theme()))
 		t.blink.restart(u)
 	case input.FocusLost:
+		if t.showing {
+			// The next layout hides the text.
+			u.Invalidate()
+		}
 		t.focus.Animate(0, Settle.Get(u.Theme()))
 		t.blink.halt()
 		t.anchor = t.caret
@@ -316,9 +368,9 @@ func (t *TextField) clearable() bool {
 	return t.Clearable && len(t.text) > 0 && len(t.preedit) == 0
 }
 
-// overClear reports whether p, in the field's space, is on the X.
+// overClear reports whether p, in the field's space, is on the X, which stands before the eye where there is one.
 func (t *TextField) overClear(p geom.Point) bool {
-	return t.clearable() && p.X >= t.size.W-t.trail
+	return t.clearable() && t.fits.clear && p.X >= t.size.W-t.trail && (!t.eyeOn || p.X < t.eyeX)
 }
 
 // clear empties the field as typing would, sending OnChange.
@@ -327,14 +379,43 @@ func (t *TextField) clear(u *gunim.UI) {
 	t.replace(0, len(t.text), nil, u)
 }
 
-// room returns the room before the text, for the icon, and after it, for the X.
+// fieldFits says which of the parts round the text fit in the field.
+type fieldFits struct{ icon, clear, eye bool }
+
+// fit picks the parts round the text that fit in width w, so each stays inside the field and leaves the text room
+// for an icon's width. A narrow field drops the X first, then the leading icon, then the eye.
+func (t *TextField) fit(th *theme.Live, w float32) fieldFits {
+	pad, part := FieldPadding.Get(th), IconSize.Get(th)+IconGap.Get(th)
+	fits := fieldFits{icon: t.Icon != nil, clear: t.Clearable, eye: t.wantsEye()}
+	need := func() float32 {
+		n := 2*pad + IconSize.Get(th)
+		for _, on := range []bool{fits.icon, fits.clear, fits.eye} {
+			if on {
+				n += part
+			}
+		}
+		return n
+	}
+	for _, drop := range []*bool{&fits.clear, &fits.icon, &fits.eye} {
+		if need() <= w {
+			break
+		}
+		*drop = false
+	}
+	return fits
+}
+
+// room returns the room before the text, for the icon, and after it, for the X and the eye, as fit chose them.
 func (t *TextField) room(th *theme.Live) (lead, trail float32) {
 	pad := FieldPadding.Get(th)
 	lead, trail = pad, pad
-	if t.Icon != nil {
+	if t.fits.icon {
 		lead += IconSize.Get(th) + IconGap.Get(th)
 	}
-	if t.Clearable {
+	if t.fits.clear {
+		trail += IconSize.Get(th) + IconGap.Get(th)
+	}
+	if t.fits.eye {
 		trail += IconSize.Get(th) + IconGap.Get(th)
 	}
 	return lead, trail
@@ -363,11 +444,12 @@ func (t *TextField) run(th *theme.Live) *longLine {
 	shown, _ := t.shown()
 	t.secret = t.Secret
 	head, tail, was, changed := t.shownChange()
-	if t.Secret != t.wasSecret {
-		t.wasSecret = t.Secret
+	masked := t.Secret && !t.showing
+	if masked != t.wasSecret {
+		t.wasSecret = masked
 		head, tail, was, changed = 0, 0, t.line.end(), true
 	}
-	if t.Secret {
+	if masked {
 		for len(t.dots) < len(shown) {
 			t.dots = append(t.dots, '•')
 		}
@@ -379,7 +461,7 @@ func (t *TextField) run(th *theme.Live) *longLine {
 
 // Layout implements [gunim.Node]. The field fills the width it is given,
 // or the theme's [FieldWidth] when the width is unbounded.
-func (t *TextField) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
+func (t *TextField) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
 	th := f.Theme
 	w := c.Max.W
 	if w <= 0 {
@@ -392,12 +474,14 @@ func (t *TextField) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children)
 	own := c.Constrain(geom.Sz(w, h))
 	t.size = own
 	t.follow(th)
+	t.fits = t.fit(th, own.W)
+	t.layEye(kids, f, own, th)
 
 	// Aim the caret, the selection and the scroll. Each glides there.
 	run := t.run(th)
 	t.lead, t.trail = t.room(th)
 	inner := own.W - t.lead - t.trail
-	if on := anim.OnOff(t.clearable()); on != t.clearOn.Target() {
+	if on := anim.OnOff(t.clearable() && t.fits.clear); on != t.clearOn.Target() {
 		if on == 1 {
 			t.clearOn.Animate(1, Bounce.Get(th))
 		} else {
@@ -431,7 +515,7 @@ func (t *TextField) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children)
 }
 
 // Paint implements [gunim.Node].
-func (t *TextField) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
+func (t *TextField) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.Children) {
 	defer t.faint(p, box)()
 	th := f.Theme
 	focus := t.focus.Value()
@@ -457,10 +541,11 @@ func (t *TextField) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ guni
 	pad := FieldPadding.Get(th)
 	lead, trail := t.room(th)
 	s := IconSize.Get(th)
-	if t.Icon != nil {
+	if t.fits.icon {
 		drawIcon(p, th, t.Icon, geom.Rc(pad, (box.H-s)/2, s, s), Placeholder.Get(th), 1)
 	}
 	t.paintClear(p, th, box)
+	t.paintEye(p, kids)
 	inner := geom.Rect{Min: geom.Pt(lead-pad/2, 0), Max: geom.Pt(box.W-trail+pad/2, box.H)}
 	defer p.Layer(paint.LayerOpts{Bounds: inner, Opacity: 1, Clip: true})()
 
@@ -499,11 +584,11 @@ func (t *TextField) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ guni
 // paintClear draws the X at the end of the field, growing and fading in with clearOn.
 func (t *TextField) paintClear(p *paint.Painter, th *theme.Live, box geom.Size) {
 	on := t.clearOn.Value()
-	if !t.Clearable || on <= 0.01 {
+	if !t.fits.clear || on <= 0.01 {
 		return
 	}
 	s := IconSize.Get(th)
-	r := geom.Rc(box.W-FieldPadding.Get(th)-s, (box.H-s)/2, s, s)
+	r := geom.Rc(box.W-t.trail+IconGap.Get(th), (box.H-s)/2, s, s)
 	ink := anim.Mix(anim.ColorCodec, Placeholder.Get(th), Ink.Get(th), min(max(t.clearHot.Value(), 0), 1))
 	ink.A = uint8(float32(ink.A) * min(on, 1))
 	defer p.Push(paint.Scale(0.5+0.5*on, r.Center()))()
