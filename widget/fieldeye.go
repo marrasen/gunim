@@ -10,32 +10,39 @@ import (
 	"github.com/marrasen/gunim/theme"
 )
 
-// eyeName is what the eye is called when the field gives it no EyeLabel.
-const eyeName = "Show text"
+// eyeName is what the eye is called when the field gives it no EyeLabel, and hideName what its tooltip says while
+// the text shows when the field gives it no EyeHideLabel.
+const (
+	eyeName  = "Show text"
+	hideName = "Hide text"
+)
 
 // fieldEye is the eye at the end of a Secret field. Pressing it shows the field's text in place of the dots, and
-// pressing it again hides it. It is a Tab stop of its own, and a screen reader reads it as a toggle button that is
-// pressed while the text shows. A click on it leaves the keyboard in the field.
+// pressing it again hides it. Like the reveal button in Windows' own password boxes, it is not a Tab stop: from the
+// keyboard, Alt+F8 in the field does the same. A screen reader reads it as a toggle button that is pressed while the
+// text shows. A press on it gives the keyboard to the field, and leaves the caret and the selection where they are.
 type fieldEye struct {
 	IconButton
 	t *TextField
-	// has says the eye has the keyboard.
-	has bool
 }
 
 func newFieldEye(t *TextField) *fieldEye {
 	e := &fieldEye{IconButton: IconButton{Button: *NewButton("")}, t: t}
 	e.Icon, e.Ghost, e.self = icon.Eye, true, e
-	e.KeepFocus = true
 	e.IconSize = IconSize
 	e.OnClick = func(u *gunim.UI) gunim.Intent {
+		// A screen reader presses the eye without a pointer, so the field may not have the keyboard yet. The text
+		// shows only while it does.
+		if u != nil && !u.HasFocus(t) {
+			u.Focus(t)
+		}
 		t.SetShown(!t.showing, u)
 		return nil
 	}
 	return e
 }
 
-// name is what the eye is called, on its tooltip and to a screen reader.
+// name is what the eye is called to a screen reader, which also hears whether it is pressed.
 func (e *fieldEye) name() string {
 	if e.t.EyeLabel != "" {
 		return e.t.EyeLabel
@@ -43,35 +50,26 @@ func (e *fieldEye) name() string {
 	return eyeName
 }
 
-// Focusable implements [gunim.Focusable]: the eye takes the keyboard while it shows and the field is enabled.
-func (e *fieldEye) Focusable() bool { return e.t.wantsEye() && !e.t.Disabled }
+// tipText is the eye's tooltip: what a press on it does now.
+func (e *fieldEye) tipText() string {
+	if !e.t.showing {
+		return e.name() + " (Alt+F8)"
+	}
+	if e.t.EyeHideLabel != "" {
+		return e.t.EyeHideLabel + " (Alt+F8)"
+	}
+	return hideName + " (Alt+F8)"
+}
+
+// Focusable implements [gunim.Focusable]: never, so Tab passes the eye, and a press on it focuses the field.
+func (e *fieldEye) Focusable() bool { return false }
 
 // Cursor implements [gunim.CursorShaper]: an arrow, as over any button.
 func (e *fieldEye) Cursor(geom.Point) input.Cursor { return input.CursorArrow }
 
-// Handle implements [gunim.Handler]. Space and Enter flip the eye. The other keys go on to the nodes round the
-// field, past the field, so typing while the eye has the keyboard changes nothing in the text.
-func (e *fieldEye) Handle(ev input.Event, u *gunim.UI) bool {
-	switch ev.(type) {
-	case input.FocusGained:
-		e.has = true
-	case input.FocusLost:
-		e.has = false
-		e.t.leaving = true
-		u.Invalidate()
-	}
-	done := e.Button.Handle(ev, u)
-	switch ev.(type) {
-	case input.FocusGained, input.FocusLost, input.FocusRing, input.TextInput, input.Composing, input.TextEdit:
-		// These are the eye's own; the field must not take them as its own.
-		return true
-	}
-	return done
-}
-
 // Access implements [gunim.Accessible]: a toggle button, pressed while the text shows.
 func (e *fieldEye) Access() access.Info {
-	if !e.t.wantsEye() {
+	if !e.t.eyeOn {
 		return access.Info{Role: access.RoleGroup}
 	}
 	return e.accessHeld(access.Info{Role: access.RoleButton, Name: e.name(),
@@ -101,7 +99,9 @@ func (t *TextField) eyeNode() *fieldEye {
 func (t *TextField) Shown() bool { return t.showing }
 
 // SetShown shows a Secret field's text in place of the dots, or hides it again, as its eye does. It sends no
-// intent, and does nothing for a field that is not Secret. The text stays off the clipboard either way. u may be nil.
+// intent, and does nothing for a field that is not Secret. The text stays off the clipboard either way. Without
+// KeepShown, the text shows only while the field has the keyboard: shown while it lacks it, the text hides again at
+// the next layout. u may be nil.
 func (t *TextField) SetShown(on bool, u *gunim.UI) {
 	on = on && t.Secret
 	if on == t.showing {
@@ -121,40 +121,41 @@ func (t *TextField) SetShown(on bool, u *gunim.UI) {
 }
 
 // eyeChild finds the eye among the field's children. A field made Secret after it was put in the tree builds its
-// eye here, and lays it out from the next frame.
+// eye here, and lays it out from the next frame. A type that embeds TextField and has children of its own gets no
+// eye, so its own children stay as they are; Alt+F8 still shows its text.
 func (t *TextField) eyeChild(kids gunim.Children, f gunim.Frame) (gunim.Child, bool) {
-	if t.eye != nil {
-		for k := range kids.All {
-			if k.Node() == gunim.Node(t.eye) {
-				return k, true
-			}
+	others := false
+	for k := range kids.All {
+		if t.eye != nil && k.Node() == gunim.Node(t.eye) {
+			return k, true
 		}
+		others = true
 	}
-	if t.wantsEye() && f.UI() != nil {
+	if t.wantsEye() && !others && f.UI() != nil {
 		kids.Build(t.eyeNode())
 	}
 	return gunim.Child{}, false
 }
 
-// layEye lays the eye out at the end of the field, and hides the text again when the keyboard has left the field
-// and its eye.
+// layEye lays the eye out at the end of the field when it fits, and hides the text again when the field lacks the
+// keyboard.
 func (t *TextField) layEye(kids gunim.Children, f gunim.Frame, box geom.Size, th *theme.Live) {
-	if !t.wantsEye() {
+	if !t.wantsEye() || !t.KeepShown && (f.UI() == nil || !f.UI().HasFocus(t)) {
 		t.SetShown(false, nil)
 	}
-	if t.leaving {
-		t.leaving = false
-		if !t.KeepShown && !t.has && (t.eye == nil || !t.eye.has) {
-			t.SetShown(false, nil)
-		}
-	}
 	k, ok := t.eyeChild(kids, f)
-	t.eyeOn = ok && t.wantsEye()
+	t.eyeOn = ok && t.wantsEye() && t.fits.eye
+	if !ok {
+		return
+	}
 	if !t.eyeOn {
+		// Out of room, or no longer Secret: the eye takes no space, so no press lands on it.
+		k.Layout(gunim.Tight(geom.Size{}))
+		k.Place(geom.Pt(box.W, box.H/2))
 		return
 	}
 	t.eye.Disabled = t.Disabled
-	t.eye.Tooltip = t.eye.name()
+	t.eye.Tooltip = t.eye.tipText()
 	s := k.Layout(gunim.Loose(box))
 	t.eyeX = box.W - FieldPadding.Get(th) - IconSize.Get(th) - IconPadding.Get(th)
 	k.Place(geom.Pt(t.eyeX, (box.H-s.H)/2))
@@ -170,15 +171,4 @@ func (t *TextField) paintEye(p *paint.Painter, kids gunim.Children) {
 			k.Paint(p)
 		}
 	}
-}
-
-// parts is a field with Tab stops of its own inside it, such as a secret field's eye.
-type parts interface{ tabStops() []gunim.Node }
-
-// tabStops returns the eye, while Tab can stop at it.
-func (t *TextField) tabStops() []gunim.Node {
-	if t.eye == nil || !t.eyeOn || !t.eye.Focusable() {
-		return nil
-	}
-	return []gunim.Node{t.eye}
 }

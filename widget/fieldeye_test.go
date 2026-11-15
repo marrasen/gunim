@@ -1,13 +1,16 @@
 package widget
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/access"
 	"github.com/marrasen/gunim/driver"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/input"
+	"github.com/marrasen/gunim/paint"
 )
 
 // dotted reports whether the field draws dots in place of its text.
@@ -64,12 +67,22 @@ func TestTheEyeShowsAndHidesTheTextAndKeepsItOffTheClipboard(t *testing.T) {
 		ty.key(input.KeyEnd, 0)
 	}
 
+	// Select "t" in the middle of the text: the anchor at 3, the caret at 4.
+	u := stageUI(t, ty.w, ty.run)
+	ty.key(input.KeyHome, 0)
+	for range 3 {
+		ty.key(input.KeyRight, 0)
+	}
+	ty.key(input.KeyRight, input.ModShift)
 	ty.clickEye()
 	if dotted(t, ty.field) || !ty.field.Shown() {
 		t.Fatal("pressed, the eye left the text hidden")
 	}
-	if !ty.field.has {
+	if !u.HasFocus(ty.field) {
 		t.Fatal("a click on the eye took the keyboard out of the field")
+	}
+	if ty.field.anchor != 3 || ty.field.caret != 4 {
+		t.Fatalf("a click on the eye moved the selection to %d..%d, want 3..4", ty.field.anchor, ty.field.caret)
 	}
 	copyAll()
 	ty.want("hunter2", 7)
@@ -85,29 +98,29 @@ func TestTheEyeShowsAndHidesTheTextAndKeepsItOffTheClipboard(t *testing.T) {
 	ty.want("hunter2", 7)
 }
 
-func TestTabReachesTheEyeAndSpaceOrEnterFlipsIt(t *testing.T) {
-	ty := newSecretTyper(t, func(*TextField) {})
-	u := stageUI(t, ty.w, ty.run)
-	ty.key(input.KeyTab, 0)
-	if u.Focused() != gunim.Node(ty.field.eye) {
-		t.Fatalf("Tab from the field went to %T, want its eye", u.Focused())
-	}
-	for i, k := range []input.Key{input.KeySpace, input.KeyEnter, input.KeyKPEnter} {
-		ty.key(k, 0)
-		if want := i%2 == 0; ty.field.Shown() != want {
-			t.Fatalf("after %v the text shows: %v, want %v", k, ty.field.Shown(), want)
+func TestTabPassesTheEyeAndAltF8FlipsIt(t *testing.T) {
+	field := NewTextField()
+	field.Secret = true
+	other := NewButton("Other")
+	w, run := stage(t, &frame{child: Column(field, other), size: geom.Sz(300, 100)})
+	u := stageUI(t, w, run)
+	u.Focus(field)
+	w.Input(input.TextInput{Text: "hunter2"})
+	run(2)
+	for i := range 4 {
+		w.Input(input.KeyPress{Key: input.KeyF8, Mods: input.ModAlt})
+		run(1)
+		if want := i%2 == 0; field.Shown() != want || dotted(t, field) == want {
+			t.Fatalf("after Alt+F8 number %d the text shows: %v, want %v", i+1, field.Shown(), want)
 		}
 	}
-	// Typing while the eye has the keyboard leaves the text as it is.
-	ty.typeText("x")
-	ty.key(input.KeyBackspace, 0)
-	ty.want("hunter2", 7)
-	if !ty.field.Shown() {
-		t.Fatal("moving the keyboard between the field and its eye hid the text")
+	if field.Text() != "hunter2" {
+		t.Fatalf("Alt+F8 changed the text to %q", field.Text())
 	}
-	ty.key(input.KeyTab, input.ModShift)
-	if u.Focused() != gunim.Node(ty.field) || !ty.field.Shown() {
-		t.Fatal("Shift+Tab from the eye went elsewhere than the field, or hid the text")
+	w.Input(input.KeyPress{Key: input.KeyTab})
+	run(1)
+	if u.Focused() != gunim.Node(other) {
+		t.Fatalf("Tab from the field went to %T, want the next control past the eye", u.Focused())
 	}
 }
 
@@ -131,6 +144,19 @@ func TestAScreenReaderHearsTheEyesNameAndWhetherItIsPressed(t *testing.T) {
 	}
 	if v := ty.field.Access().Value; v != "hunter2" {
 		t.Fatalf("with its text shown the field reads out %q", v)
+	}
+	// The tooltip says what a press does now: hide the text.
+	shownTip := eye.Tooltip
+	ty.field.EyeHideLabel = "Hide password"
+	ty.run(1)
+	if !strings.Contains(eye.Tooltip, ty.field.EyeHideLabel) {
+		t.Fatalf("while the text shows the eye's tooltip is %q, want it to name EyeHideLabel", eye.Tooltip)
+	}
+	ty.field.EyeHideLabel = ""
+	eye.AccessAct(access.Request{Action: access.ActionPress}, nil)
+	ty.run(1)
+	if eye.Tooltip == shownTip || !strings.Contains(eye.Tooltip, ty.field.EyeLabel) {
+		t.Fatalf("while the text hides the eye's tooltip is %q, the same as while it shows, or without EyeLabel", eye.Tooltip)
 	}
 	ty.field.EyeLabel = ""
 	if eye.Access().Name == "" {
@@ -160,15 +186,6 @@ func TestTheTextHidesAgainWhenTheKeyboardLeavesOrTheWindowHides(t *testing.T) {
 		if field.Shown() != keep {
 			t.Fatalf("KeepShown %v: after the keyboard left, the text shows: %v", keep, field.Shown())
 		}
-		// From the eye too.
-		u.Focus(field.eye)
-		field.SetShown(true, u)
-		run(1)
-		u.Focus(other)
-		run(1)
-		if field.Shown() != keep {
-			t.Fatalf("KeepShown %v: after the keyboard left the eye, the text shows: %v", keep, field.Shown())
-		}
 	}
 	for _, keep := range []bool{false, true} {
 		field, w, run, u := setup(t, keep)
@@ -193,7 +210,8 @@ func TestAFieldWithSkipEyeHasNoEye(t *testing.T) {
 	if u.Focused() != gunim.Node(ty.field) {
 		t.Fatalf("Tab went to %T, want round to the field alone", u.Focused())
 	}
-	if !dotted(t, ty.field) {
+	ty.key(input.KeyF8, input.ModAlt)
+	if !dotted(t, ty.field) || ty.field.Shown() {
 		t.Fatal("the field shows its text")
 	}
 }
@@ -212,7 +230,7 @@ func TestAFieldMadeSecretLaterGrowsAnEyeAndLosesItAgain(t *testing.T) {
 	}
 	ty.field.Secret = false
 	ty.run(2)
-	if ty.field.eyeOn || ty.field.Shown() || ty.field.eye.Focusable() {
+	if ty.field.eyeOn || ty.field.Shown() || ty.field.eye.Access().Role == access.RoleButton {
 		t.Fatal("a field no longer secret still shows its eye")
 	}
 	ty.field.Secret = true
@@ -244,5 +262,91 @@ func TestTheEyeStaysInsideTheFieldWithTheX(t *testing.T) {
 	ty.want("", 0)
 	if ty.field.Shown() {
 		t.Fatal("the X pressed the eye")
+	}
+}
+
+func TestAClickOnTheEyeWhileAnotherControlHasTheKeyboardStillHidesTheTextLater(t *testing.T) {
+	field := NewTextField()
+	field.Secret = true
+	other := NewButton("Other")
+	w, run := stage(t, &frame{child: Column(field, other), size: geom.Sz(300, 100)})
+	u := stageUI(t, w, run)
+	u.Focus(field)
+	w.Input(input.TextInput{Text: "hunter2"})
+	run(2)
+	u.Focus(other)
+	run(1)
+
+	click(w, field.eyeX+field.eye.size.W/2, 18)
+	run(2)
+	if !field.Shown() {
+		t.Fatal("a click on the eye left the text hidden")
+	}
+	if !u.HasFocus(field) {
+		t.Fatalf("a click on the eye left the keyboard on %T, want the field", u.Focused())
+	}
+	// The text hides once the keyboard leaves, and when the window hides.
+	u.Focus(other)
+	run(2)
+	if field.Shown() {
+		t.Fatal("the text still shows after the keyboard left the field")
+	}
+	click(w, field.eyeX+field.eye.size.W/2, 18)
+	run(2)
+	w.Input(driver.WindowShown{Shown: false})
+	w.Input(driver.WindowShown{Shown: true})
+	run(2)
+	if field.Shown() {
+		t.Fatal("the text still shows after the window hid")
+	}
+}
+
+func TestTextShownFromCodeHidesAgainWhileTheFieldLacksTheKeyboard(t *testing.T) {
+	field := NewTextField()
+	field.Secret = true
+	other := NewButton("Other")
+	w, run := stage(t, &frame{child: Column(field, other), size: geom.Sz(300, 100)})
+	u := stageUI(t, w, run)
+	u.Focus(other)
+	field.SetText("hunter2", u)
+	run(2)
+	field.SetShown(true, u)
+	run(2)
+	if field.Shown() {
+		t.Fatal("text shown while another control has the keyboard stays shown")
+	}
+}
+
+func TestANarrowFieldDropsPartsRatherThanDrawOutside(t *testing.T) {
+	for _, width := range []float32{30, 40, 60, 76, 90, 110, 300} {
+		field := NewTextField()
+		field.Secret, field.Clearable, field.Icon = true, true, icon.Search
+		w, run := stage(t, &frame{child: field, size: geom.Sz(width, 36)})
+		u := stageUI(t, w, run)
+		u.Focus(field)
+		w.Input(input.TextInput{Text: "hunter2"})
+		run(30)
+		box := geom.Sz(width, 36)
+		if spill := spills(w.Offscreen().Ops(), box, 3); len(spill) > 0 {
+			t.Fatalf("at %v px the field paints outside its box: %v", width, spill)
+		}
+		// No two parts overlap, and the text keeps room between them.
+		ms := maskOps(w.Offscreen())
+		at := func(m *paint.MaskOp) geom.Rect {
+			return geom.Rect{Min: m.Transform.Apply(m.Rect.Min), Max: m.Transform.Apply(m.Rect.Max)}
+		}
+		for i := range ms {
+			for j := i + 1; j < len(ms); j++ {
+				if a, b := at(ms[i]), at(ms[j]); a.Min.X < b.Max.X && b.Min.X < a.Max.X {
+					t.Fatalf("at %v px two parts overlap: %v and %v", width, a, b)
+				}
+			}
+		}
+		if field.lead+field.trail > width {
+			t.Fatalf("at %v px the parts take %v px, more than the field", width, field.lead+field.trail)
+		}
+		if width >= 110 && len(ms) != 3 {
+			t.Fatalf("at %v px the field drew %d parts, want the icon, the X and the eye", width, len(ms))
+		}
 	}
 }

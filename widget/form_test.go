@@ -94,8 +94,8 @@ func TestASecretFieldShowsDotsAndKeepsOffTheClipboard(t *testing.T) {
 
 func TestTabGoesRoundTheFieldsAndButtons(t *testing.T) {
 	w, _, fields, run := newSignInStage(t)
-	// Host, password, the password's eye, checkbox, Cancel, Connect, and round to the host.
-	for range 6 {
+	// Host, password, checkbox, Cancel, Connect, and round to the host.
+	for range 5 {
 		w.Input(input.KeyPress{Key: input.KeyTab})
 	}
 	w.Input(input.TextInput{Text: "x"})
