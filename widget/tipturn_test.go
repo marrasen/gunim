@@ -182,3 +182,39 @@ func TestANumberFieldDisabledMidDragEndsTheDrag(t *testing.T) {
 			"and stands at %v, want %v", changes-was, commits, ends, n.Value(), at)
 	}
 }
+
+// Tab and Shift+Tab move on from a control that turned disabled while it had the keyboard, to the next and the
+// previous control in order; until then the keyboard stays on it.
+func TestTabMovesOnFromAControlDisabledWithTheKeyboard(t *testing.T) {
+	for _, back := range []bool{false, true} {
+		a, b, c, d := NewButton("A"), NewButton("B"), NewButton("C"), NewButton("D")
+		clicks := 0
+		b.OnClick = func(*gunim.UI) gunim.Intent { clicks++; return nil }
+		w, run := stage(t, &frame{child: Column(a, b, c, d), size: geom.Sz(300, 400)})
+		focused := focusProbe(t, w, run)
+		tab(w, run, 0)
+		tab(w, run, 0)
+		if f := focused(); f != b {
+			t.Fatalf("two Tabs put the keyboard on %T %p, want B", f, f)
+		}
+		b.Disabled = true
+		run(2)
+		if f := focused(); f != b {
+			t.Fatalf("disabled with the keyboard on it, B let it go to %T %p", f, f)
+		}
+		w.Input(input.KeyPress{Key: input.KeySpace})
+		w.Input(input.KeyPress{Key: input.KeyEnter})
+		run(2)
+		if clicks != 0 {
+			t.Fatalf("disabled with the keyboard on it, B took %d keys", clicks)
+		}
+		mods, want, name := input.Mods(0), gunim.Node(c), "C"
+		if back {
+			mods, want, name = input.ModShift, a, "A"
+		}
+		tab(w, run, mods)
+		if f := focused(); f != want {
+			t.Fatalf("Tab with %v from the disabled B put the keyboard on %T %p, want %s", mods, f, f, name)
+		}
+	}
+}

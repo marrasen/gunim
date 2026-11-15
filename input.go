@@ -616,9 +616,13 @@ func (u *UI) tab(ev input.Event) {
 // FocusNext moves keyboard focus to the next [Focusable] node the last
 // frame drew, in the order they were painted, or to the previous one
 // when forward is false. It wraps around at either end, and scrolls the
-// node into view through every [Revealer] around it.
+// node into view through every [Revealer] around it. It counts from the
+// node with the focus, though that node takes the focus no longer, as a
+// control disabled while it had it.
 func (u *UI) FocusNext(forward bool) {
 	var order []*state
+	// stale is the node with the focus, in order to count from, where it takes the focus no longer.
+	var stale *state
 	var walk func(s *state)
 	walk = func(s *state) {
 		if s.presence == Exiting || (s != u.root && s.drawn != u.seq) {
@@ -641,6 +645,8 @@ func (u *UI) FocusNext(forward bool) {
 			if _, skip := s.node.(TabSkipper); !skip {
 				order = append(order, s)
 			}
+		} else if ok && s == u.focus {
+			order, stale = append(order, s), s
 		}
 		for _, k := range s.kids {
 			walk(k)
@@ -671,6 +677,9 @@ func (u *UI) FocusNext(forward bool) {
 		next = (at + 1) % len(order)
 	default:
 		next = (at - 1 + len(order)) % len(order)
+	}
+	if order[next] == stale {
+		return
 	}
 	u.Focus(order[next].node)
 	u.revealState(order[next])
