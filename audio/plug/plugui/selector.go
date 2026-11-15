@@ -138,10 +138,14 @@ func (s *Selector) lampsAt() (top, foot float32) {
 
 // Layout implements [gunim.Node]: a lamp each, evenly across, in rows
 // of Columns where it is set, as tall as a knob, the title and the
-// name under them.
-func (s *Selector) Layout(c gunim.Constraints, _ gunim.Frame, _ gunim.Children) geom.Size {
+// name under them. It lets go of a press as it is locked.
+func (s *Selector) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
 	cols, _ := s.grid()
 	s.size = c.Constrain(geom.Sz(max(float32(cols)*lampCol+16, 48), SelectorH))
+	if s.Locked && s.held {
+		s.held = false
+		s.press.Animate(0, widget.Bounce.Get(f.Theme))
+	}
 	if s.hot >= 0 || s.Why != "" {
 		s.tip.Retext(s.tipAt(s.hot))
 	}

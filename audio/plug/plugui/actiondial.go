@@ -104,9 +104,13 @@ func (d *ActionDial) Finish(done bool, u *gunim.UI) {
 // Step implements [gunim.Animator].
 func (d *ActionDial) Step(dt time.Duration) bool { return d.Group.Step(dt) }
 
-// Layout implements [gunim.Node]: as big as a knob.
-func (d *ActionDial) Layout(c gunim.Constraints, _ gunim.Frame, _ gunim.Children) geom.Size {
+// Layout implements [gunim.Node]: as big as a knob. It lets go of a press as it is disabled.
+func (d *ActionDial) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
 	d.size = c.Constrain(geom.Sz(KnobW, KnobH))
+	if d.Disabled && d.held {
+		d.held = false
+		d.squash.Animate(0, widget.Bounce.Get(f.Theme))
+	}
 	d.tip.Retext(d.tipText())
 	return d.size
 }

@@ -254,9 +254,13 @@ func (k *Knob) normalAt(t float64) float64 {
 	return t
 }
 
-// lay reads the needle's glide from f's theme, and on the first layout puts every spring where it is set.
+// lay reads the needle's glide from f's theme, ends a gesture a lock caught, and on the first layout puts every
+// spring where it is set.
 func (k *Knob) lay(f gunim.Frame) {
 	k.glide = KnobGlide.Get(f.Theme)
+	if k.Locked {
+		k.letGo(f.UI())
+	}
 	if k.hover.Target() > 0 && !k.held {
 		k.tip.Retext(k.tooltip())
 	}
@@ -565,6 +569,7 @@ func (k *Knob) Handle(e input.Event, u *gunim.UI) bool {
 		return false
 	}
 	if k.Locked {
+		k.letGo(u)
 		return false
 	}
 	switch e := e.(type) {
@@ -706,6 +711,16 @@ func (k *Knob) wheel(by, steps float64, pad bool, u *gunim.UI) {
 		k.wheelStop = nil
 		k.endWheel(u)
 	})
+}
+
+// letGo ends a drag or a turn by the wheel under way, once, for a knob locked in the middle of one.
+func (k *Knob) letGo(u *gunim.UI) {
+	k.pressed = false
+	if k.held {
+		k.held = false
+		k.end(u)
+	}
+	k.endWheel(u)
 }
 
 // endWheel ends a turn by the wheel under way.

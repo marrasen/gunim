@@ -95,3 +95,90 @@ func TestATooltipsCardGlidesAsItsWordsChange(t *testing.T) {
 		}
 	}
 }
+
+// pressDrag presses at from, moves through to, and leaves the button down.
+func pressDrag(w *gunim.Window, run func(int), from geom.Point, to ...geom.Point) {
+	w.Input(input.PointerMove{Pos: from, Time: time.Now()})
+	w.Input(input.PointerDown{Pos: from, Button: input.ButtonPrimary, Clicks: 1, Time: time.Now()})
+	run(1)
+	for _, p := range to {
+		w.Input(input.PointerMove{Pos: p, Time: time.Now()})
+		run(1)
+	}
+}
+
+// passOver moves the pointer along y with no button down.
+func passOver(w *gunim.Window, run func(int), y float32) {
+	for _, x := range []float32{10, 80, 160, 240, 160, 80} {
+		w.Input(input.PointerMove{Pos: geom.Pt(x, y), Time: time.Now()})
+		run(1)
+	}
+}
+
+// A slider disabled in the middle of a drag ends the drag at once: one commit for the change made, and no more
+// changes, then or after.
+func TestASliderDisabledMidDragEndsTheDrag(t *testing.T) {
+	s := NewSlider(0, 100)
+	s.SetValue(50, nil)
+	changes, commits := 0, 0
+	s.OnChange = func(float32, *gunim.UI) gunim.Intent { changes++; return nil }
+	s.OnCommit = func(float32, *gunim.UI) gunim.Intent { commits++; return nil }
+	w, run := stage(t, &frame{child: Column(s), size: geom.Sz(300, 100)})
+	y := s.size.H / 2
+	pressDrag(w, run, geom.Pt(150, y), geom.Pt(170, y), geom.Pt(190, y))
+	if changes == 0 || commits != 0 {
+		t.Fatalf("the drag changed the slider %d times and committed %d, want changes and no commit yet", changes,
+			commits)
+	}
+	was, at := changes, s.Value()
+	s.Disabled = true
+	run(1)
+	if commits != 1 || s.held {
+		t.Fatalf("a frame after it was disabled mid-drag, the slider committed %d times and is held %v", commits,
+			s.held)
+	}
+	w.Input(input.PointerMove{Pos: geom.Pt(250, y), Time: time.Now()})
+	w.Input(input.PointerUp{Pos: geom.Pt(250, y), Time: time.Now()})
+	run(1)
+	s.Disabled = false
+	run(30)
+	passOver(w, run, y)
+	if changes != was || commits != 1 || s.Value() != at {
+		t.Fatalf("after it was disabled mid-drag, the slider changed %d more times, committed %d, and stands at %v, "+
+			"want %v", changes-was, commits, s.Value(), at)
+	}
+}
+
+// A number field disabled in the middle of a drag ends the drag at once: one commit, one end of the drag, and no
+// more changes.
+func TestANumberFieldDisabledMidDragEndsTheDrag(t *testing.T) {
+	n := NewNumberField(0, 1000)
+	n.SetValue(500, nil)
+	changes, commits, ends := 0, 0, 0
+	n.OnChange = func(float64, *gunim.UI) gunim.Intent { changes++; return nil }
+	n.OnCommit = func(float64, *gunim.UI) gunim.Intent { commits++; return nil }
+	n.OnDragEnd = func(float64, *gunim.UI) gunim.Intent { ends++; return nil }
+	w, run := stage(t, &frame{child: Column(n), size: geom.Sz(300, 100)})
+	y := float32(14)
+	pressDrag(w, run, geom.Pt(60, y), geom.Pt(60, y-10), geom.Pt(60, y-30), geom.Pt(60, y-50))
+	if changes == 0 {
+		t.Fatal("the drag changed the field none")
+	}
+	was, at := changes, n.Value()
+	n.Disabled = true
+	run(1)
+	if commits != 1 || ends != 1 || n.drag.held {
+		t.Fatalf("a frame after it was disabled mid-drag, the field committed %d times, ended %d drags, held %v",
+			commits, ends, n.drag.held)
+	}
+	w.Input(input.PointerMove{Pos: geom.Pt(60, y-90), Time: time.Now()})
+	w.Input(input.PointerUp{Pos: geom.Pt(60, y-90), Time: time.Now()})
+	run(1)
+	n.Disabled = false
+	run(30)
+	passOver(w, run, y)
+	if changes != was || commits != 1 || ends != 1 || n.Value() != at {
+		t.Fatalf("after it was disabled mid-drag, the field changed %d more times, committed %d, ended %d drags, "+
+			"and stands at %v, want %v", changes-was, commits, ends, n.Value(), at)
+	}
+}
