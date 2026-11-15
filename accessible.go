@@ -283,7 +283,8 @@ func (u *UI) accessRequest(r access.Request) {
 		}
 		r.Part = at - 1
 	}
-	if r.Focus {
+	// A node that takes no keyboard now, as a disabled control, takes no focus from a screen reader either.
+	if f, ok := s.node.(Focusable); r.Focus && (!ok || f.Focusable()) {
 		u.userFocus = true
 		u.Focus(s.node)
 		u.userFocus = false

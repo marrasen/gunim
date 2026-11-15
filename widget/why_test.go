@@ -249,3 +249,33 @@ func TestADisabledControlTakesNothing(t *testing.T) {
 		}
 	}
 }
+
+// A screen reader's request to focus a disabled control leaves the keyboard where it was.
+func TestAScreenReaderCannotFocusADisabledControl(t *testing.T) {
+	for _, m := range heldFamily() {
+		m.c.Disabled, m.c.Why = true, why
+		w, run := stage(t, &frame{child: Column(m.node), size: geom.Sz(400, 300)})
+		w.Offscreen().ListenForAccess()
+		run(2)
+		var held *access.Node
+		var walk func(n *access.Node)
+		walk = func(n *access.Node) {
+			if held == nil && n.State.Has(access.StateDisabled) && n.Description == why {
+				held = n
+			}
+			for _, k := range n.Children {
+				walk(k)
+			}
+		}
+		walk(w.Offscreen().AccessTree().Root)
+		if held == nil {
+			t.Fatalf("the disabled %s is not in the tree", m.name)
+		}
+		focused := focusProbe(t, w, run)
+		w.Input(access.Request{ID: held.ID, Focus: true})
+		run(2)
+		if f := focused(); f != nil {
+			t.Errorf("a screen reader focused the disabled %s, and the keyboard is on %T", m.name, f)
+		}
+	}
+}
