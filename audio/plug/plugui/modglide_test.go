@@ -139,7 +139,7 @@ func TestAKnobsMarkStandsWhereItsSourceIs(t *testing.T) {
 	sine := func(hz float64, per time.Duration) func(time.Duration) plug.Modulation {
 		return func(at time.Duration) plug.Modulation {
 			if per > 0 {
-				at = at / per * per
+				at = at.Truncate(per)
 			}
 			return plug.Modulation{Low: -0.3, High: 0.3, Now: 0.5 + 0.4*math.Sin(2*math.Pi*hz*at.Seconds())}
 		}
@@ -503,7 +503,7 @@ func needleRuns(t *testing.T) map[string][]float32 {
 		set(0.5 + 0.4*math.Sin(2*math.Pi*5*at.Seconds()))
 	})
 	run("set once per block", func(_ int, at time.Duration, _ *gunim.Window, set func(float64)) {
-		set(0.5 + 0.4*math.Sin(2*math.Pi*5*(at/block*block).Seconds()))
+		set(0.5 + 0.4*math.Sin(2*math.Pi*5*at.Truncate(block).Seconds()))
 	})
 	run("dragged and reset", func(i int, _ time.Duration, w *gunim.Window, _ func(float64)) {
 		pt := func(y float32) geom.Point { return geom.Pt(KnobW/2, y) }
