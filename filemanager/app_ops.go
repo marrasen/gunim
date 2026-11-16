@@ -422,6 +422,7 @@ func (a *app) startOp(j job, title string) {
 			return a.askPassword(ctx, id, ask)
 		}
 	}
+	fsID, ps := a.fs.ID(), a.ps
 	a.ops.wg.Go(func() {
 		rec, err := runJob(ctx, j, e)
 		if j.cut != nil {
@@ -429,7 +430,29 @@ func (a *app) startOp(j job, title string) {
 			// folder already, leaves the cut to be pasted elsewhere.
 			a.hub.endCut(j.cut.seq, err == nil && (len(rec.steps) > 0 || rec.replaced > 0))
 		}
-		a.post(func() { a.finish(id, j, rec, err) })
+		// The program hears of the end once: from finish, or, where the
+		// window closed before finish could run, from here. Only one
+		// that had not finished stopped as the window closed.
+		var once sync.Once
+		ended := func(closed bool) {
+			once.Do(func() {
+				if a.opts.Ended != nil {
+					go a.opts.Ended(a.win, endOf(j, fsID, ps, rec, err, closed))
+				}
+			})
+		}
+		ran := make(chan struct{})
+		a.post(func() {
+			a.finish(id, j, rec, err)
+			ended(err != nil && (a.leaving || a.ctx.Err() != nil))
+			close(ran)
+		})
+		select {
+		case <-ran:
+		case <-a.stopped:
+			// An operation that finished ended well, closed or not.
+			ended(err != nil)
+		}
 	})
 }
 
@@ -667,6 +690,14 @@ func (a *app) finish(id int, j job, rec record, err error) {
 			j.worked()
 		}
 		n := Notice{Title: a.doneTitle(j, rec), Undo: undo, Kind: "success"}
+		if len(rec.warnings) > 0 {
+			// One warning for the operation, in place of the cheer.
+			w := a.warnNotice(j, rec, nil)
+			w.Undo = undo
+			a.endCard(r, false, Notice{})
+			a.patch(w)
+			break
+		}
 		switch {
 		case rec.replaced > 0:
 			n.Body = plural(rec.replaced, "file") + " replaced, which undo cannot bring back."
@@ -716,6 +747,10 @@ func (a *app) finish(id int, j job, rec record, err error) {
 		// What a paste or a drop brought into the folder showing is
 		// selected, so the user sees what came.
 		a.nav.pick = rec.landed
+	}
+	if err != nil && len(rec.warnings) > 0 {
+		// What it wrote before it stopped is warned of too.
+		a.patch(a.warnNotice(j, rec, err))
 	}
 	a.touched(j)
 	a.relist()

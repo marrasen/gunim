@@ -80,6 +80,11 @@ type record struct {
 	// landed holds the names a copy or a move left in its folder, made,
 	// merged into or put in place of others, for the window to select.
 	landed []string
+	// warnings are the items it wrote whole whose permissions or time
+	// the file system refused to set, and written counts the files it
+	// wrote whole.
+	warnings []Warning
+	written  int
 }
 
 // progress is how far an operation has got.
@@ -220,6 +225,8 @@ type runner struct {
 	buf []byte
 	// moving is the items a move, or the undo of one, moves in turn.
 	moving *moving
+	// warned holds where each item's warning is in rec.warnings.
+	warned map[string]int
 }
 
 // runJob runs j, stopping at the first error, and returns what it did.
@@ -550,9 +557,33 @@ func (r *runner) copyDir(src, dst string, info fs.FileInfo, merge, top bool) err
 		}
 	}
 	if st, ok := optional[Stamper](fsys); ok && !merge {
-		if err := st.Chtimes(dst, info.ModTime()); err != nil {
+		w := Warning{Path: dst}
+		if err := stamped(&w, r.narrow(st, dst, info.Mode()), true); err != nil {
+			return fmt.Errorf("setting the mode of %s: %w", dst, err)
+		}
+		w.Private = w.Mode && closedToOthers(info.Mode())
+		if err := stamped(&w, st.Chtimes(dst, info.ModTime()), false); err != nil {
 			return fmt.Errorf("setting the time of %s: %w", dst, err)
 		}
+		r.warn(w)
+	}
+	return nil
+}
+
+// narrow takes from the new folder dir the permissions the original, of
+// mode, did not grant, where its file system made it with more than it
+// was asked for, as a server that ignores the mode does. A folder that
+// grants no more is left as it is: the umask, a default ACL and the bits
+// it took from its parent, such as setgid, stay. Where it changes the
+// mode, it keeps those bits, and the folder stays open to the user, so
+// more can go in later.
+func (r *runner) narrow(st Stamper, dir string, mode fs.FileMode) error {
+	want := mode.Perm() | 0o700
+	// A folder that can't be read has nothing to compare with, and stays
+	// as it was made.
+	if made, err := r.env.fs.Lstat(dir); err == nil && made.Mode().Perm()&^want != 0 {
+		keep := made.Mode() & (fs.ModeSetuid | fs.ModeSetgid | fs.ModeSticky)
+		return st.Chmod(dir, made.Mode().Perm()&want|keep)
 	}
 	return nil
 }
@@ -603,7 +634,8 @@ func (r *runner) copyFile(src, dst string, info fs.FileInfo) (err error) {
 // writeFile writes what in reads of src to dst, on the runner's file
 // system, through a part file beside dst that it then renames over dst,
 // so dst is never left half written. The file takes the mode and the
-// time info gives, where the file system can set them.
+// time info gives, where the file system can set them. Where it refuses
+// to, the file goes in place without them, with a warning.
 func (r *runner) writeFile(in io.Reader, src, dst string, info fs.FileInfo) error {
 	fsys := r.env.fs
 	// The part file's name is short, so a dst whose name is near the
@@ -645,17 +677,23 @@ func (r *runner) writeFile(in io.Reader, src, dst string, info fs.FileInfo) erro
 	if err := out.Close(); err != nil {
 		return errors.Join(fmt.Errorf("writing %s: %w", dst, err), fsys.Remove(part))
 	}
+	w := Warning{Path: dst}
 	if st, ok := optional[Stamper](fsys); ok {
-		if err := st.Chmod(part, info.Mode().Perm()); err != nil {
+		if err := stamped(&w, st.Chmod(part, info.Mode().Perm()), true); err != nil {
 			return errors.Join(fmt.Errorf("setting the mode of %s: %w", dst, err), fsys.Remove(part))
 		}
-		if err := st.Chtimes(part, info.ModTime()); err != nil {
+		w.Private = w.Mode && closedToOthers(info.Mode())
+		if err := stamped(&w, st.Chtimes(part, info.ModTime()), false); err != nil {
 			return errors.Join(fmt.Errorf("setting the time of %s: %w", dst, err), fsys.Remove(part))
 		}
+		// The answer was of the part file, which is about to be dst.
+		w.Err = renamed(w.Err, part, dst)
 	}
 	if err := fsys.Rename(part, dst); err != nil {
 		return errors.Join(fmt.Errorf("writing %s: %w", dst, err), fsys.Remove(part))
 	}
+	r.rec.written++
+	r.warn(w)
 	return nil
 }
 
@@ -873,12 +911,19 @@ func (r *runner) moveAcross(src, dst string, replacing bool) error {
 	if err != nil {
 		return fmt.Errorf("reading %s: %w", src, err)
 	}
+	written := r.rec.written
 	if err := r.copyItem(src, dst, false, replacing, false); err != nil {
 		if replacing || !realDir(info) {
 			return err
 		}
-		// The cleanup runs even when the operation was cancelled.
-		return errors.Join(err, removeAll(context.WithoutCancel(r.ctx), r.env.fs, dst))
+		// The cleanup runs even when the operation was cancelled. What
+		// it takes away is no longer warned of, or counted as written.
+		cerr := removeAll(context.WithoutCancel(r.ctx), r.env.fs, dst)
+		r.unwarn(dst)
+		if cerr == nil {
+			r.rec.written = written
+		}
+		return errors.Join(err, cerr)
 	}
 	r.p.removing = true
 	defer func() { r.p.removing = false }()

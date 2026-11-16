@@ -73,9 +73,18 @@ type uploadHarness struct {
 func newUploadHarness(t *testing.T, toasts bool) *uploadHarness {
 	t.Helper()
 	lfs := &logFS{bareFS: bareFS{LocalFS()}}
-	h, _, l := newFetchHarness(t, func(o *Options) { o.FS = lfs }, "report.txt")
+	u := newUploadHarnessOn(t, lfs, toasts)
+	u.fs = lfs
+	return u
+}
+
+// newUploadHarnessOn is newUploadHarness on fsys, a file system whose
+// ID is "elsewhere".
+func newUploadHarnessOn(t *testing.T, fsys FS, toasts bool) *uploadHarness {
+	t.Helper()
+	h, _, l := newFetchHarness(t, func(o *Options) { o.FS = fsys }, "report.txt")
 	h.a.hub.copies.every = -1
-	u := &uploadHarness{harness: h, fs: lfs, remote: filepath.Join(h.dir, "report.txt"), now: time.Now()}
+	u := &uploadHarness{harness: h, remote: filepath.Join(h.dir, "report.txt"), now: time.Now()}
 	if !toasts {
 		u.notices = notices(h)
 	}

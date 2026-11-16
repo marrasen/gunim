@@ -704,9 +704,11 @@ func (p *outsidePaste) stamp() error {
 		if it.mod.IsZero() {
 			continue
 		}
-		if err := st.Chtimes(p.to[it.name], it.mod); err != nil {
+		w := Warning{Path: p.to[it.name]}
+		if err := stamped(&w, st.Chtimes(p.to[it.name], it.mod), false); err != nil {
 			return fmt.Errorf("setting the time of %s: %w", p.r.env.fs.Paths().Show(p.to[it.name]), err)
 		}
+		p.r.warn(w)
 	}
 	return nil
 }

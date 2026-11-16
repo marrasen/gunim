@@ -102,6 +102,28 @@ type Options struct {
 	// on its own goroutine, as it opens, as it turns to another file
 	// system and when its hub refreshes, so FSName must be quick.
 	FSName func(fs string) string
+	// Ended, when set, hears how each of the window's own operations
+	// ended, such as a copy, a move, an extract or a delete, with what it
+	// did. It hears each operation once, also one that the window
+	// closing stopped: then OpEnd.Err matches ErrWindowClosed, and OpEnd
+	// holds what the operation did before it stopped. One that finished
+	// as the window closed ended well, with a nil Err. An operation that
+	// waits for the user, as to replace a file, has not ended.
+	//
+	// Each call runs on a goroutine of its own, so calls may overlap,
+	// and need not come in the order the operations ended.
+	//
+	// A transfer is the program's own, and Ended does not hear of it. Nor
+	// does it hear of an upload of a file opened with another program,
+	// which says how it went in the window.
+	//
+	// A Chmod or a Chtimes of an item an operation wrote that fails with
+	// an error matching errors.ErrUnsupported or fs.ErrPermission is a
+	// warning: the item stays, without its permissions or its time, and
+	// the window shows one warning for the operation as it ends, whether
+	// it went well or not. Ended hears each such item in
+	// OpEnd.Warnings. An upload warns so too.
+	Ended func(w *Window, e OpEnd)
 	// Name is what the window's title calls the program, and Files when
 	// empty.
 	Name string
@@ -203,6 +225,8 @@ type app struct {
 	// closeAsked says the user is being asked whether to stop what runs
 	// and close.
 	closeAsked bool
+	// leaving says the window, or the pane, is closing.
+	leaving bool
 	// title is the file system and the folder the pane's host was last told of,
 	// and folder the file system and the path.
 	title, folder string
@@ -468,6 +492,7 @@ func (a *app) close() {
 
 // leave closes the window, or a pane, at once.
 func (a *app) leave() {
+	a.leaving = true
 	if a.pane != nil {
 		select {
 		case <-a.quit:

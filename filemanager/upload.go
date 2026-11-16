@@ -402,17 +402,18 @@ func (a *app) startUpload(k copyKey, dst string) {
 		})
 	}
 	a.ops.wg.Go(func() {
-		li, ri, err := uploadCopy(ctx, fsys, e.local, dst, report, held)
+		li, ri, ws, err := uploadCopy(ctx, fsys, e.local, dst, report, held)
 		stopped := ctx.Err() != nil
-		a.post(func() { a.uploaded(id, k, e.local, dst, li, ri, err, stopped) })
+		a.post(func() { a.uploaded(id, k, e.local, dst, li, ri, ws, err, stopped) })
 	})
 }
 
 // uploaded takes the end of upload operation id, which wrote the copy at
 // local of k to dst: li is the copy as it was read, ri dst as written,
-// err why it stopped short, and stopped says the user stopped it. One
-// that failed offers itself again, for the user to try once more.
-func (a *app) uploaded(id int, k copyKey, local, dst string, li, ri fs.FileInfo, err error, stopped bool) {
+// ws what the file system refused to keep of it, err why it stopped
+// short, and stopped says the user stopped it. One that failed offers
+// itself again, for the user to try once more.
+func (a *app) uploaded(id int, k copyKey, local, dst string, li, ri fs.FileInfo, ws []Warning, err error, stopped bool) {
 	c := a.hub.openCopies()
 	name := a.ps.Base(dst)
 	r, ok := a.ops.running[id]
@@ -422,7 +423,12 @@ func (a *app) uploaded(id int, k copyKey, local, dst string, li, ri fs.FileInfo,
 		a.dropDialogs(id)
 	}
 	n := Notice{Title: "Uploaded " + name, Body: "to " + a.uploadWhere(dst), Kind: "success"}
-	carded := ok && a.endCard(r, err == nil, n)
+	if err == nil && len(ws) > 0 {
+		// The warning in place of the cheer.
+		n = warnBody(ws)
+		n.Title = "Uploaded " + name + ", but couldn't " + lost(1, ws, "keep")
+	}
+	carded := ok && a.endCard(r, err == nil && len(ws) == 0, n)
 	switch {
 	case stopped || errors.Is(err, context.Canceled):
 		c.release(k, a, false)
@@ -472,54 +478,56 @@ func (u upInfo) Mode() fs.FileMode { return u.mode }
 // file beside dst that it renames over it, as a copy within the window
 // does. While a program holds local, so it cannot be read, as on
 // Windows, it waits and tries again, and held hears it is waiting. It
-// returns local as it was read and dst as it is then.
-func uploadCopy(ctx context.Context, fsys FS, local, dst string, report func(progress), held func()) (li, ri fs.FileInfo, err error) {
+// returns local as it was read, dst as it is then, and what the file
+// system refused to keep of dst, its permissions or its time.
+func uploadCopy(ctx context.Context, fsys FS, local, dst string, report func(progress), held func()) (li, ri fs.FileInfo, ws []Warning, err error) {
 	mode := fs.FileMode(0o644)
 	if info, serr := fsys.Stat(dst); serr == nil {
 		mode = info.Mode().Perm()
 	}
 	for {
-		li, err = uploadOnce(ctx, fsys, local, dst, mode, report)
+		li, ws, err = uploadOnce(ctx, fsys, local, dst, mode, report)
 		if err == nil {
 			ri, err = fsys.Stat(dst)
 			if err != nil {
 				err = fmt.Errorf("reading %s: %w", dst, err)
 			}
-			return li, ri, err
+			return li, ri, ws, err
 		}
 		if !errors.Is(err, errHeld) || ctx.Err() != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		held()
 		select {
 		case <-ctx.Done():
-			return nil, nil, ctx.Err()
+			return nil, nil, nil, ctx.Err()
 		case <-time.After(heldRetry):
 		}
 	}
 }
 
-// uploadOnce tries the upload once.
-func uploadOnce(ctx context.Context, fsys FS, local, dst string, mode fs.FileMode, report func(progress)) (fs.FileInfo, error) {
+// uploadOnce tries the upload once, and returns local as it was read,
+// and what the file system refused to keep of dst.
+func uploadOnce(ctx context.Context, fsys FS, local, dst string, mode fs.FileMode, report func(progress)) (fs.FileInfo, []Warning, error) {
 	in, err := os.Open(local)
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil, fmt.Errorf("the copy on this computer is gone: %w", err)
+		return nil, nil, fmt.Errorf("the copy on this computer is gone: %w", err)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", errHeld, err)
+		return nil, nil, fmt.Errorf("%w: %w", errHeld, err)
 	}
 	defer func() { _ = in.Close() }()
 	li, err := in.Stat()
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", errHeld, err)
+		return nil, nil, fmt.Errorf("%w: %w", errHeld, err)
 	}
 	r := &runner{ctx: ctx, env: env{fs: fsys, report: report},
 		p: progress{itemsTotal: 1, bytesTotal: li.Size(), current: dst}}
 	r.tell(true)
 	if err := r.writeFile(heldReader{in}, local, dst, upInfo{li, mode}); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	r.p.items = 1
 	r.tell(true)
-	return li, nil
+	return li, r.rec.warnings, nil
 }
