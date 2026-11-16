@@ -525,9 +525,6 @@ type row struct {
 	// laid is set by the row's first layout, and placed once the list
 	// has put it somewhere.
 	laid, placed bool
-	// before is the key before the row's in a virtual list at its last layout, and ordered says it has had one.
-	before  Key
-	ordered bool
 }
 
 func newRow(key Key, child gunim.Node) *row {
