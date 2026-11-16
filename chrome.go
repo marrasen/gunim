@@ -15,10 +15,12 @@ import (
 
 // titleBar is what the engine knows of a chromeless window's title bar:
 // the driver that moves and sizes the window, and the caption and
-// maximize button found as the frame painted, in window space.
+// maximize button found as the frame painted, in window space. spare
+// is the room cover builds the caption in.
 type titleBar struct {
 	fr        driver.Framer
 	caption   []geom.Rect
+	spare     []geom.Rect
 	maximize  geom.Rect
 	sent      []geom.Rect
 	sentMax   geom.Rect
@@ -131,6 +133,11 @@ func (u *UI) closeAsked() bool {
 // noteTitleBar notes where a node that is part of the title bar is, as
 // it paints, under the transform t.
 func (u *UI) noteTitleBar(n Node, t paint.Transform, size geom.Size) {
+	if c, ok := n.(CaptionCover); ok {
+		for _, r := range c.CoversCaption(size) {
+			u.chrome.cover(windowRect(t, r))
+		}
+	}
 	if c, ok := n.(Caption); ok {
 		for _, r := range c.CaptionRects(size) {
 			u.chrome.caption = append(u.chrome.caption, windowRect(t, r))
@@ -143,6 +150,46 @@ func (u *UI) noteTitleBar(n Node, t paint.Transform, size geom.Size) {
 			u.chrome.maximize = windowRect(t, r)
 		}
 	}
+}
+
+// cover takes r, in window space, out of the caption found so far, and
+// the maximize button with it where r reaches it.
+func (c *titleBar) cover(r geom.Rect) {
+	if r.Empty() {
+		return
+	}
+	out := c.spare[:0]
+	for _, k := range c.caption {
+		out = appendOutside(out, k, r)
+	}
+	c.caption, c.spare = out, c.caption
+	if m := c.maximize; min(m.Max.X, r.Max.X) > max(m.Min.X, r.Min.X) && min(m.Max.Y, r.Max.Y) > max(m.Min.Y, r.Min.Y) {
+		c.maximize = geom.Rect{}
+	}
+}
+
+// appendOutside appends to dst the parts of r that lie outside cut: r
+// itself where they don't meet, and up to four rectangles round cut
+// where they do.
+func appendOutside(dst []geom.Rect, r, cut geom.Rect) []geom.Rect {
+	x0, y0 := max(r.Min.X, cut.Min.X), max(r.Min.Y, cut.Min.Y)
+	x1, y1 := min(r.Max.X, cut.Max.X), min(r.Max.Y, cut.Max.Y)
+	if x0 >= x1 || y0 >= y1 {
+		return append(dst, r)
+	}
+	if r.Min.Y < y0 {
+		dst = append(dst, geom.Rect{Min: r.Min, Max: geom.Pt(r.Max.X, y0)})
+	}
+	if y1 < r.Max.Y {
+		dst = append(dst, geom.Rect{Min: geom.Pt(r.Min.X, y1), Max: r.Max})
+	}
+	if r.Min.X < x0 {
+		dst = append(dst, geom.Rect{Min: geom.Pt(r.Min.X, y0), Max: geom.Pt(x0, y1)})
+	}
+	if x1 < r.Max.X {
+		dst = append(dst, geom.Rect{Min: geom.Pt(x1, y0), Max: geom.Pt(r.Max.X, y1)})
+	}
+	return dst
 }
 
 // beginTitleBar forgets the title bar found last frame, before this

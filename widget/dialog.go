@@ -18,6 +18,10 @@ import (
 // Dialog is a modal panel that fades, scales and blurs its way in and
 // out.
 //
+// A press on its title bar drags the panel about the window, and Alt
+// with an arrow key moves it a step, or four with Shift. The panel
+// stays whole inside the window.
+//
 // It is the worked example for the whole design. The application says
 // "remove this dialog" and then stops thinking about it. The dialog
 // stays in the tree, watches its own [gunim.Presence], animates itself
@@ -126,15 +130,32 @@ type Dialog struct {
 	problemClear float32
 	// scroll holds the body, once mounted, so a long one scrolls.
 	scroll *Scroll
+	// moveX and moveY are how far the user has moved the panel from
+	// rested, where the last layout put it in box, less safe. dragged is
+	// set while the pointer drags the panel, grab being the pointer's place
+	// less how far the panel had moved as it took hold.
+	moveX, moveY *anim.Float
+	rested       geom.Rect
+	box          geom.Size
+	safe         geom.Insets
+	dragged      bool
+	grab         geom.Point
+	// cover is what CoversCaption returns.
+	cover [1]geom.Rect
 }
+
+// dialogStep is how far an arrow key with Alt moves the panel, in
+// logical pixels.
+const dialogStep = 24
 
 // NewDialog returns a dialog with an OK and a Cancel button. Mount it
 // from a view and it animates itself in.
 func NewDialog(title string) *Dialog {
-	d := &Dialog{Title: title, in: anim.NewFloat(0), shake: anim.NewFloat(0), problemIn: anim.NewFloat(0), problemRoom: anim.NewFloat(0)}
+	d := &Dialog{Title: title, in: anim.NewFloat(0), shake: anim.NewFloat(0), problemIn: anim.NewFloat(0), problemRoom: anim.NewFloat(0),
+		moveX: anim.NewFloat(0), moveY: anim.NewFloat(0)}
 	d.problem = NewLabel("")
 	d.problem.Color = DialogProblem
-	d.Add(d.in, d.shake, d.problemIn, d.problemRoom)
+	d.Add(d.in, d.shake, d.problemIn, d.problemRoom, d.moveX, d.moveY)
 
 	d.ok = NewButton("OK")
 	d.ok.OnClick = func(u *gunim.UI) gunim.Intent {
@@ -346,6 +367,10 @@ func (d *Dialog) Handle(e input.Event, u *gunim.UI) bool {
 			d.cycle(u, !k.Mods.Has(input.ModShift))
 			return true
 		case input.KeyLeft, input.KeyRight, input.KeyUp, input.KeyDown:
+			if k.Mods.Has(input.ModAlt) && d.hasBar() {
+				d.nudge(k, u)
+				return true
+			}
 			// From a button, the arrows go along the row of buttons, as
 			// in the system's own dialogs. A field keeps its arrows.
 			if d.step(u, k.Key == input.KeyRight || k.Key == input.KeyDown) {
@@ -374,14 +399,92 @@ func (d *Dialog) Handle(e input.Event, u *gunim.UI) bool {
 		return true
 	}
 	// A modal swallows the pointer events that reach it, keeping clicks
-	// off whatever lies behind, and keeps the window's menus shut.
+	// off whatever lies behind, and keeps the window's menus shut. A
+	// press on the title bar drags the panel.
 	switch e := e.(type) {
-	case input.PointerDown, input.PointerUp, input.Scroll, input.AltTapped:
+	case input.PointerDown:
+		if e.Button == input.ButtonPrimary && d.onBar(e.Pos, u.Theme()) {
+			at := d.moved(d.box)
+			d.moveX.Jump(at.X)
+			d.moveY.Jump(at.Y)
+			d.dragged, d.grab = true, e.Pos.Sub(at)
+		}
+		return true
+	case input.PointerMove:
+		if !d.dragged {
+			return false
+		}
+		to := d.kept(e.Pos.Sub(d.grab), d.box)
+		d.moveX.Jump(to.X)
+		d.moveY.Jump(to.Y)
+		u.Invalidate()
+		return true
+	case input.PointerUp:
+		d.dragged = false
+		return true
+	case input.Scroll, input.AltTapped:
 		return true
 	case input.KeyPress:
 		return e.Key == input.KeyF10 || e.Mods.Has(input.ModAlt)
 	}
 	return false
+}
+
+// onBar reports whether p is on the title bar, where it is drawn.
+func (d *Dialog) onBar(p geom.Point, th *theme.Live) bool {
+	r := d.rested.Add(d.moved(d.box))
+	return r.Contains(p) && p.Y < r.Min.Y+d.barHeight(th)
+}
+
+// nudge glides the panel a step the way the arrow k points, or four
+// with Shift.
+func (d *Dialog) nudge(k input.KeyPress, u *gunim.UI) {
+	step := float32(dialogStep)
+	if k.Mods.Has(input.ModShift) {
+		step *= 4
+	}
+	to := geom.Pt(d.moveX.Target(), d.moveY.Target())
+	switch k.Key {
+	case input.KeyLeft:
+		to.X -= step
+	case input.KeyRight:
+		to.X += step
+	case input.KeyUp:
+		to.Y -= step
+	default:
+		to.Y += step
+	}
+	to = d.kept(to, d.box)
+	th := u.Theme()
+	d.moveX.Animate(to.X, Quick.Get(th))
+	d.moveY.Animate(to.Y, Quick.Get(th))
+	u.Invalidate()
+}
+
+// moved is how far the panel is drawn from where it is laid out in
+// size.
+func (d *Dialog) moved(size geom.Size) geom.Point {
+	return d.kept(geom.Pt(d.moveX.Value(), d.moveY.Value()), size)
+}
+
+// kept returns by, a move of the panel from where it is laid out in
+// size, held back to keep the panel whole inside size, less safe. A
+// panel that reaches outside at rest stays there.
+func (d *Dialog) kept(by geom.Point, size geom.Size) geom.Point {
+	r, in := d.rested, d.safe
+	return geom.Pt(
+		min(max(by.X, min(in.Left-r.Min.X, 0)), max(size.W-in.Right-r.Max.X, 0)),
+		min(max(by.Y, min(in.Top-r.Min.Y, 0)), max(size.H-in.Bottom-r.Max.Y, 0)))
+}
+
+// DragsTouch implements [gunim.TouchDragger]: a finger on the title bar
+// drags the panel.
+func (d *Dialog) DragsTouch() bool { return d.dragged }
+
+// CoversCaption implements [gunim.CaptionCover]: the panel.
+func (d *Dialog) CoversCaption(size geom.Size) []geom.Rect {
+	d.cover[0] = d.rested.Add(d.moved(size))
+	return d.cover[:]
 }
 
 // Modal implements [gunim.Modal]: the dialog holds the keyboard while it is open.
@@ -512,6 +615,7 @@ func (d *Dialog) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children)
 	if d.GrowDown && d.topIn != size {
 		d.top, d.topIn = (size.H-d.height)/2, size
 	}
+	d.box, d.safe = size, f.Safe
 	panel := d.panel(size, f)
 	if hasBody {
 		at := panel.Min.Add(geom.Pt(pad, bar+pad))
@@ -533,8 +637,15 @@ func (d *Dialog) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children)
 	return size
 }
 
-// panel returns the dialog's own rectangle, centred in size, or with GrowDown its top where it first stood.
+// panel returns the dialog's own rectangle: centred in size, or with GrowDown its top where it first stood, and
+// moved as far as the user moved it.
 func (d *Dialog) panel(size geom.Size, f gunim.Frame) geom.Rect {
+	d.rested = d.rest(size, f)
+	return d.rested.Add(d.moved(size))
+}
+
+// rest returns the panel's rectangle where the user has not moved it.
+func (d *Dialog) rest(size geom.Size, f gunim.Frame) geom.Rect {
 	w, h := d.laidWidth, d.height
 	if w <= 0 {
 		w = DialogWidth.Get(f.Theme)

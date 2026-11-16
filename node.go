@@ -355,6 +355,16 @@ type Caption interface {
 	CaptionRects(size geom.Size) []geom.Rect
 }
 
+// A CaptionCover is a node drawn over part of the window, as a dialog's
+// panel is. CoversCaption are the parts of the node, in its own space,
+// that are its own to press: no [Caption] painted before it moves the
+// window there, and a [MaximizeButton] it reaches is told to the system
+// as none.
+type CaptionCover interface {
+	Node
+	CoversCaption(size geom.Size) []geom.Rect
+}
+
 // A MaximizeButton is the maximize button of a chromeless window's
 // title bar. The system is told where it is, since Windows 11 hangs its
 // snap layouts on it. MaximizeRect is where it is in the node's space.
