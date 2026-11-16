@@ -422,6 +422,7 @@ func (a *app) startOp(j job, title string) {
 			return a.askPassword(ctx, id, ask)
 		}
 	}
+	fsID, ps := a.fs.ID(), a.ps
 	a.ops.wg.Go(func() {
 		rec, err := runJob(ctx, j, e)
 		if j.cut != nil {
@@ -429,7 +430,27 @@ func (a *app) startOp(j job, title string) {
 			// folder already, leaves the cut to be pasted elsewhere.
 			a.hub.endCut(j.cut.seq, err == nil && (len(rec.steps) > 0 || rec.replaced > 0))
 		}
-		a.post(func() { a.finish(id, j, rec, err) })
+		// The program hears of the end once: from finish, or, where the
+		// window closed before finish could run, from here.
+		var once sync.Once
+		ended := func(closed bool) {
+			once.Do(func() {
+				if a.opts.Ended != nil {
+					go a.opts.Ended(a.win, endOf(j, fsID, ps, rec, err, closed))
+				}
+			})
+		}
+		ran := make(chan struct{})
+		a.post(func() {
+			a.finish(id, j, rec, err)
+			ended(a.leaving || a.ctx.Err() != nil)
+			close(ran)
+		})
+		select {
+		case <-ran:
+		case <-a.stopped:
+			ended(true)
+		}
 	})
 }
 
@@ -656,7 +677,7 @@ func (a *app) finish(id int, j job, rec record, err error) {
 		n := Notice{Title: a.doneTitle(j, rec), Undo: undo, Kind: "success"}
 		if len(rec.warnings) > 0 {
 			// One warning for the operation, in place of the cheer.
-			w := a.warnNotice(a.opEnd(j, rec, nil).Into, rec.warnings)
+			w := a.warnNotice(j, rec)
 			w.Undo = undo
 			a.endCard(r, false, Notice{})
 			a.patch(w)
@@ -712,8 +733,9 @@ func (a *app) finish(id int, j job, rec record, err error) {
 		// selected, so the user sees what came.
 		a.nav.pick = rec.landed
 	}
-	if a.opts.Ended != nil {
-		go a.opts.Ended(a.win, a.opEnd(j, rec, err))
+	if err != nil && len(rec.warnings) > 0 {
+		// What it wrote before it stopped is warned of too.
+		a.patch(a.warnNotice(j, rec))
 	}
 	a.touched(j)
 	a.relist()

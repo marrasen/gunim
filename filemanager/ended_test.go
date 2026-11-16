@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -19,6 +21,7 @@ import (
 type refusingFS struct {
 	FS
 	modeErr, timeErr error
+	failOpen         string
 }
 
 func (r refusingFS) Chmod(path string, mode fs.FileMode) error {
@@ -117,6 +120,10 @@ func TestACopyWherePermissionsAreRefusedKeepsTheFilesAndWarnsOnce(t *testing.T) 
 		if !w.Mode || w.Time || !errors.Is(w.Err, errors.ErrUnsupported) || filepath.Dir(w.Path) != web {
 			t.Fatalf("a warning is %+v", w)
 		}
+		// The answer is of the user's file, not the part file it was.
+		if msg := w.Err.Error(); strings.Contains(msg, ".part") || !strings.Contains(msg, w.Path) {
+			t.Fatalf("the answer for %s says %q", w.Path, msg)
+		}
 	}
 	for _, name := range []string{"a.txt", "b.txt"} {
 		if got := contents(t, filepath.Join(web, name)); got != name {
@@ -129,7 +136,7 @@ func TestACopyWherePermissionsAreRefusedKeepsTheFilesAndWarnsOnce(t *testing.T) 
 	h.until("the warning shows", func() bool { return len(warnings(got())) > 0 })
 	h.frames(4)
 	ws := warnings(got())
-	if len(ws) != 1 || !strings.Contains(ws[0].Body, errOpUnsupported.Error()) {
+	if len(ws) != 1 || !strings.Contains(ws[0].Body, errOpUnsupported.Error()) || strings.Contains(ws[0].Body, ".part") {
 		t.Fatalf("the warnings shown are %+v, want one with the file system's answer", ws)
 	}
 	if len(h.a.ops.dialogs) > 0 {
@@ -166,23 +173,61 @@ func TestARefusedTimeIsAWarning(t *testing.T) {
 	}
 }
 
-// A refused permissions change of a file only its owner could read says
-// others may now read the copy.
-func TestARefusedPrivateFileSaysOthersMayReadIt(t *testing.T) {
-	h, e, got := refusingHarness(t, errOpUnsupported, nil, "a.txt", "web/")
-	if err := os.Chmod(filepath.Join(h.dir, "a.txt"), 0o600); err != nil {
-		t.Fatal(err)
+// copyRefused gives the items named in modes their modes, and copies
+// those at the top of the window's folder into its folder web, on a file
+// system that refuses every Chmod. It returns how the copy ended and the
+// warnings shown.
+func copyRefused(t *testing.T, modes map[string]fs.FileMode, spec ...string) (OpEnd, []Notice) {
+	t.Helper()
+	h, e, got := refusingHarness(t, errOpUnsupported, nil, append(spec, "web/")...)
+	srcs := make([]string, 0, len(modes))
+	for name, mode := range modes {
+		p := filepath.Join(h.dir, name)
+		if err := os.Chmod(p, mode); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(name, "/") {
+			srcs = append(srcs, p)
+		}
 	}
 	h.a.post(func() {
-		h.a.startOp(job{kind: OpCopy, srcs: []string{filepath.Join(h.dir, "a.txt")}, dest: filepath.Join(h.dir, "web")}, "Copying")
+		h.a.startOp(job{kind: OpCopy, srcs: srcs, dest: filepath.Join(h.dir, "web")}, "Copying")
 	})
 	h.until("the copy ends", func() bool { return len(e.all()) == 1 })
-	if ws := e.all()[0].Warnings; len(ws) != 1 || !ws[0].Private {
-		t.Fatalf("the warnings are %+v, want the file marked private", ws)
-	}
 	h.until("the warning shows", func() bool { return len(warnings(got())) > 0 })
-	if w := warnings(got())[0]; w.Body == errOpUnsupported.Error() {
-		t.Fatalf("the warning says only %q", w.Body)
+	return e.all()[0], warnings(got())
+}
+
+// An item others could not read, whose permissions the file system
+// refused, is marked private, and its warning says more than for one
+// others could read. A folder is marked so too.
+func TestARefusedItemOthersCouldNotReadIsPrivate(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows keeps no permissions for others")
+	}
+	// What a warning says, but for the path, which is in a folder of
+	// each test's own.
+	said := func(end OpEnd, n []Notice) string { return strings.ReplaceAll(n[0].Body, end.Warnings[0].Path, "") }
+	end, n := copyRefused(t, map[string]fs.FileMode{"a.txt": 0o644}, "a.txt")
+	if ws := end.Warnings; len(ws) != 1 || ws[0].Private {
+		t.Fatalf("the warnings are %+v, want a.txt not marked private", ws)
+	}
+	open := said(end, n)
+	end, n = copyRefused(t, map[string]fs.FileMode{"a.txt": 0o640}, "a.txt")
+	if ws := end.Warnings; len(ws) != 1 || !ws[0].Private {
+		t.Fatalf("the warnings are %+v, want a.txt marked private", ws)
+	}
+	if closed := said(end, n); !strings.HasPrefix(closed, open) || closed == open {
+		t.Fatalf("the warning of a file others could not read says %q, and of one they could %q", closed, open)
+	}
+	end, _ = copyRefused(t, map[string]fs.FileMode{"src": 0o750, "src/a.txt": 0o644}, "src/a.txt")
+	for _, w := range end.Warnings {
+		if want := filepath.Base(w.Path) == "src"; w.Private != want {
+			t.Fatalf("the warning of %s is %+v", w.Path, w)
+		}
+	}
+	if len(end.Warnings) != 2 {
+		t.Fatalf("the warnings are %+v, want the folder's and the file's", end.Warnings)
 	}
 }
 
@@ -270,5 +315,115 @@ func TestADeleteAndAStoppedCopyTellTheProgram(t *testing.T) {
 	h.until("the copy ends", func() bool { return len(e.all()) == 2 })
 	if end := e.all()[1]; !errors.Is(end.Err, context.Canceled) || end.Failed != 0 {
 		t.Fatalf("the stopped copy ended as %+v", end)
+	}
+}
+
+// refusingFS fails to open the file named failOpen, where it is set.
+func (r refusingFS) Open(path string) (io.ReadSeekCloser, error) {
+	if r.failOpen != "" && filepath.Base(path) == r.failOpen {
+		return nil, &fs.PathError{Op: "open", Path: path, Err: errors.New("unreadable")}
+	}
+	return r.FS.Open(path)
+}
+
+// A move across volumes that fails takes away what it copied, and warns
+// of none of it. What it moved stays where it was.
+func TestAFailedMoveAcrossWarnsOfNothingItTookAway(t *testing.T) {
+	e := &endings{}
+	h := newHarnessWith(t, func(o *Options) {
+		o.FS = refusingFS{FS: LocalFS(), modeErr: errOpUnsupported, failOpen: "b.txt"}
+		o.Ended = e.ended
+	}, "src/a.txt", "src/b.txt", "web/")
+	h.a.post(func() {
+		h.a.ops.across = true
+		h.a.startOp(job{kind: OpMove, srcs: []string{filepath.Join(h.dir, "src")}, dest: filepath.Join(h.dir, "web")}, "Moving src")
+	})
+	h.until("the move ends", func() bool { return len(e.all()) == 1 })
+	end := e.all()[0]
+	if end.Err == nil || len(end.Warnings) != 0 {
+		t.Fatalf("the move ended as %+v, want a failure with no warnings", end)
+	}
+	if _, err := os.Stat(filepath.Join(h.dir, "web", "src")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the copy is left: %v", err)
+	}
+	if got := contents(t, filepath.Join(h.dir, "src", "a.txt")); got != "src/a.txt" {
+		t.Fatalf("a.txt holds %q", got)
+	}
+}
+
+// A window that closes while a copy waits on a question tells the
+// program once, with what the copy wrote before.
+func TestClosingTheWindowEndsItsOperationsOnce(t *testing.T) {
+	h, e, _ := refusingHarness(t, errOpUnsupported, nil, "a.txt", "b.txt", "web/b.txt")
+	h.a.post(func() {
+		h.a.startOp(job{kind: OpCopy, srcs: []string{filepath.Join(h.dir, "a.txt"), filepath.Join(h.dir, "b.txt")},
+			dest: filepath.Join(h.dir, "web")}, "Copying")
+	})
+	h.until("the clash is asked about", func() bool { return len(h.a.ops.dialogs) == 1 })
+	// As the serve loop does once the window's context ends.
+	h.close()
+	h.a.stopAll()
+	deadline := time.Now().Add(untilLimit)
+	for len(e.all()) == 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	time.Sleep(50 * time.Millisecond)
+	got := e.all()
+	if len(got) != 1 {
+		t.Fatalf("the program heard %d ends, want one", len(got))
+	}
+	if end := got[0]; !errors.Is(end.Err, ErrWindowClosed) || len(end.Warnings) != 1 ||
+		filepath.Base(end.Warnings[0].Path) != "a.txt" {
+		t.Fatalf("the copy ended as %+v", end)
+	}
+}
+
+// A copy stopped at a question still warns of what it wrote before.
+func TestAStoppedCopyWarnsOfWhatItWrote(t *testing.T) {
+	h, e, got := refusingHarness(t, errOpUnsupported, nil, "a.txt", "b.txt", "web/b.txt")
+	h.a.post(func() {
+		h.a.startOp(job{kind: OpCopy, srcs: []string{filepath.Join(h.dir, "a.txt"), filepath.Join(h.dir, "b.txt")},
+			dest: filepath.Join(h.dir, "web")}, "Copying")
+	})
+	h.until("the clash is asked about", func() bool { return len(h.a.ops.dialogs) == 1 })
+	ask := h.a.ops.dialogs[0].state.(ClashAsk)
+	h.answer(ClashAnswered{Op: ask.Op, Stop: true})
+	h.until("the copy ends", func() bool { return len(e.all()) == 1 })
+	h.until("the warning shows", func() bool {
+		for _, n := range warnings(got()) {
+			if strings.Contains(n.Body, errOpUnsupported.Error()) {
+				return true
+			}
+		}
+		return false
+	})
+}
+
+// An upload to a file system that refuses its permissions keeps the
+// upload, and warns in place of saying it went well.
+func TestAnUploadWherePermissionsAreRefusedWarns(t *testing.T) {
+	u := newUploadHarnessOn(t, refusingFS{FS: bareFS{LocalFS()}, modeErr: errOpUnsupported}, false)
+	u.edit("draft two")
+	u.step()
+	u.step()
+	u.until("the change is offered", func() bool { return len(u.offers()) == 1 })
+	u.answerOffer(0, false)
+	u.until("the upload warns", func() bool {
+		for _, n := range u.notices() {
+			if n.Kind == "warning" && strings.Contains(n.Body, errOpUnsupported.Error()) && !strings.Contains(n.Body, ".part") {
+				return true
+			}
+		}
+		return false
+	})
+	if got := contents(t, u.remote); got != "draft two" {
+		t.Fatalf("the remote holds %q", got)
+	}
+	if u.told("Uploaded report.txt") {
+		for _, n := range u.notices() {
+			if n.Kind == "success" {
+				t.Fatalf("the upload also says it went well: %+v", n)
+			}
+		}
 	}
 }

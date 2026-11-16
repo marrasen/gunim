@@ -222,6 +222,8 @@ type runner struct {
 	buf []byte
 	// moving is the items a move, or the undo of one, moves in turn.
 	moving *moving
+	// warned holds where each item's warning is in rec.warnings.
+	warned map[string]int
 }
 
 // runJob runs j, stopping at the first error, and returns what it did.
@@ -552,7 +554,13 @@ func (r *runner) copyDir(src, dst string, info fs.FileInfo, merge, top bool) err
 		}
 	}
 	if st, ok := optional[Stamper](fsys); ok && !merge {
+		// Made open to the user, so the copy could go in, the folder now
+		// takes the original's permissions, still open to the user.
 		w := Warning{Path: dst}
+		if err := stamped(&w, st.Chmod(dst, info.Mode().Perm()|0o700), true); err != nil {
+			return fmt.Errorf("setting the mode of %s: %w", dst, err)
+		}
+		w.Private = w.Mode && closedToOthers(info.Mode())
 		if err := stamped(&w, st.Chtimes(dst, info.ModTime()), false); err != nil {
 			return fmt.Errorf("setting the time of %s: %w", dst, err)
 		}
@@ -655,10 +663,12 @@ func (r *runner) writeFile(in io.Reader, src, dst string, info fs.FileInfo) erro
 		if err := stamped(&w, st.Chmod(part, info.Mode().Perm()), true); err != nil {
 			return errors.Join(fmt.Errorf("setting the mode of %s: %w", dst, err), fsys.Remove(part))
 		}
-		w.Private = w.Mode && ownerOnly(info.Mode())
+		w.Private = w.Mode && closedToOthers(info.Mode())
 		if err := stamped(&w, st.Chtimes(part, info.ModTime()), false); err != nil {
 			return errors.Join(fmt.Errorf("setting the time of %s: %w", dst, err), fsys.Remove(part))
 		}
+		// The answer was of the part file, which is about to be dst.
+		w.Err = renamed(w.Err, part, dst)
 	}
 	if err := fsys.Rename(part, dst); err != nil {
 		return errors.Join(fmt.Errorf("writing %s: %w", dst, err), fsys.Remove(part))
@@ -885,8 +895,11 @@ func (r *runner) moveAcross(src, dst string, replacing bool) error {
 		if replacing || !realDir(info) {
 			return err
 		}
-		// The cleanup runs even when the operation was cancelled.
-		return errors.Join(err, removeAll(context.WithoutCancel(r.ctx), r.env.fs, dst))
+		// The cleanup runs even when the operation was cancelled. What
+		// it takes away is no longer warned of.
+		cerr := removeAll(context.WithoutCancel(r.ctx), r.env.fs, dst)
+		r.unwarn(dst)
+		return errors.Join(err, cerr)
 	}
 	r.p.removing = true
 	defer func() { r.p.removing = false }()

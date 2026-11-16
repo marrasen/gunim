@@ -25,6 +25,8 @@ type harness struct {
 	root string
 	dir  string
 	said *sayings
+	// close ends the window's context, as a window closing does.
+	close context.CancelFunc
 }
 
 // sayings are the failures and notices a window logged, for a wait that times out to show.
@@ -89,6 +91,7 @@ func newHarnessWith(t *testing.T, set func(o *Options), spec ...string) *harness
 		t.Fatal(err)
 	}
 	h.a = a
+	h.close = cancel
 	// An operation ends with a toast however long it takes, unless a test of the progress panel clears this.
 	a.ops.noPanel = true
 	t.Cleanup(func() {

@@ -396,7 +396,7 @@ func (x *extractor) file(name string, in io.Reader, mode fs.FileMode, mod time.T
 		if err := stamped(&w, st.Chmod(p, mode), true); err != nil {
 			return fmt.Errorf("setting the mode of %s: %w", ps.Show(p), err)
 		}
-		w.Private = w.Mode && ownerOnly(mode)
+		w.Private = w.Mode && closedToOthers(mode)
 		if !mod.IsZero() {
 			if err := stamped(&w, st.Chtimes(p, mod), false); err != nil {
 				return fmt.Errorf("setting the time of %s: %w", ps.Show(p), err)

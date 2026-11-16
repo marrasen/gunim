@@ -45,8 +45,9 @@ type Warning struct {
 	// Mode says the file system refused the item's permissions, and Time
 	// the time it last changed.
 	Mode, Time bool
-	// Private says only its owner could read the original. Without its
-	// permissions, others may be able to read the item.
+	// Private says others, beyond the owner and the group, could not
+	// read the original. Without its permissions, they may be able to
+	// read the item.
 	Private bool
 	// Err is the file system's first refusal for the item.
 	Err error
@@ -59,10 +60,12 @@ func refused(err error) bool {
 	return errors.Is(err, errors.ErrUnsupported) || errors.Is(err, fs.ErrPermission)
 }
 
-// ownerOnly reports whether only the owner may read an item of mode.
-func ownerOnly(mode fs.FileMode) bool {
+// closedToOthers reports whether others than its owner and its group could
+// not read an item of mode, so that without it they may. A mode of 0
+// says nothing.
+func closedToOthers(mode fs.FileMode) bool {
 	perm := mode.Perm()
-	return perm != 0 && perm&0o077 == 0
+	return perm != 0 && perm&0o004 == 0
 }
 
 // stamped takes what a Chmod, with mode set, or a Chtimes of an item
@@ -89,31 +92,79 @@ func (r *runner) warn(w Warning) {
 	if !w.Mode && !w.Time {
 		return
 	}
-	for i := range r.rec.warnings {
+	if i, ok := r.warned[w.Path]; ok {
 		k := &r.rec.warnings[i]
-		if k.Path != w.Path {
-			continue
-		}
 		k.Mode, k.Time, k.Private = k.Mode || w.Mode, k.Time || w.Time, k.Private || w.Private
 		if k.Err == nil {
 			k.Err = w.Err
 		}
 		return
 	}
+	if r.warned == nil {
+		r.warned = map[string]int{}
+	}
+	r.warned[w.Path] = len(r.rec.warnings)
 	r.rec.warnings = append(r.rec.warnings, w)
 }
 
-// opEnd is how job j ended, having done rec, with err.
-func (a *app) opEnd(j job, rec record, err error) OpEnd {
-	e := OpEnd{Kind: j.kind, FS: a.fs.ID(), Done: len(rec.steps) + rec.replaced, Warnings: rec.warnings, Err: err}
+// unwarn forgets the warnings of the items at path, and under it, that
+// the operation has taken away again.
+func (r *runner) unwarn(path string) {
+	fsys := r.env.fs
+	ps := fsys.Paths()
+	kept := r.rec.warnings[:0]
+	for _, w := range r.rec.warnings {
+		if ps.inside(w.Path, path) {
+			if _, err := fsys.Lstat(w.Path); errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+		}
+		kept = append(kept, w)
+	}
+	clear(r.rec.warnings[len(kept):])
+	r.rec.warnings = kept
+	clear(r.warned)
+	for i, w := range kept {
+		r.warned[w.Path] = i
+	}
+}
+
+// renamed is err, an error about the part file part, said of the file
+// dst it became: the user never sees the part file, and it is gone.
+func renamed(err error, part, dst string) error {
+	if err == nil || part == dst {
+		return err
+	}
+	return &renamedErr{msg: strings.ReplaceAll(err.Error(), part, dst), err: err}
+}
+
+// renamedErr is an error said of another path. It still matches what
+// the error it wraps matches.
+type renamedErr struct {
+	msg string
+	err error
+}
+
+func (e *renamedErr) Error() string { return e.msg }
+func (e *renamedErr) Unwrap() error { return e.err }
+
+// ErrWindowClosed is what OpEnd.Err matches when the window closed while
+// the operation ran.
+var ErrWindowClosed = errors.New("the window closed")
+
+// endOf is how job j ended on the file system of ID fsID, whose paths
+// are written as ps, having done rec, with err. closed says the window
+// closed meanwhile.
+func endOf(j job, fsID string, ps PathStyle, rec record, err error, closed bool) OpEnd {
+	e := OpEnd{Kind: j.kind, FS: fsID, Done: doneCount(rec), Warnings: rec.warnings, Err: err}
 	switch j.kind {
 	case OpCopy, OpMove, OpNewFolder, OpZip:
 		e.Into = j.dest
 	case OpExtract:
-		e.Into = a.ps.Join(j.dest, j.name)
+		e.Into = ps.Join(j.dest, j.name)
 	case OpRename:
 		if len(j.srcs) > 0 {
-			e.Into = a.ps.Dir(j.srcs[0])
+			e.Into = ps.Dir(j.srcs[0])
 		}
 	case OpTrash, OpDelete, OpUndo:
 		// They write nothing new, or put items back where they were.
@@ -127,46 +178,82 @@ func (a *app) opEnd(j job, rec record, err error) OpEnd {
 	default:
 		e.Failed = 1
 	}
+	if closed {
+		if e.Err == nil {
+			e.Err = ErrWindowClosed
+		} else {
+			e.Err = fmt.Errorf("%w: %w", ErrWindowClosed, e.Err)
+		}
+	}
 	return e
 }
 
-// warnNotice is the one notice for the warnings ws of an operation that
-// wrote into the folder into, with the file system's answer as its body.
-func (a *app) warnNotice(into string, ws []Warning) Notice {
-	mode, time, private := false, false, false
+// doneCount is how many items rec says an operation did, as its notice
+// counts them.
+func doneCount(rec record) int { return len(rec.steps) + rec.replaced }
+
+// warnNotice is the one notice for the warnings of operation j, which
+// did rec, with the file system's answer as its body.
+func (a *app) warnNotice(j job, rec record) Notice {
+	n := doneCount(rec)
+	what := plural(n, "item")
+	if n == 1 && len(rec.landed) == 1 {
+		what = rec.landed[0]
+	}
+	into := endOf(j, "", a.ps, rec, nil, false).Into
+	if into == "" {
+		into = a.ps.Dir(rec.warnings[0].Path)
+	}
+	w := warnBody(rec.warnings)
+	w.Title = "Wrote " + what + " to " + a.ps.placeName(into) + ", but couldn't " + lost(n, rec.warnings, "set")
+	if rec.replaced > 0 {
+		w.Body += " " + plural(rec.replaced, "file") + " replaced, which undo cannot bring back."
+	}
+	return w
+}
+
+// warnBody is a warning notice with no title yet, whose body is the file
+// system's first answer of ws, and says when others may now read what
+// only its owner could.
+func warnBody(ws []Warning) Notice {
+	n := Notice{Kind: "warning"}
+	private := false
 	for _, w := range ws {
-		mode, time, private = mode || w.Mode, time || w.Time, private || w.Private
-	}
-	what, their := plural(len(ws), "item"), "their"
-	if len(ws) == 1 {
-		what, their = a.ps.Base(ws[0].Path), "its"
-	}
-	var lost string
-	switch {
-	case mode && time:
-		lost = "set " + their + " permissions or the time " + pronoun(len(ws)) + " last changed"
-	case mode:
-		lost = "set " + their + " permissions"
-	default:
-		lost = "set the time " + pronoun(len(ws)) + " last changed"
-	}
-	n := Notice{Title: "Wrote " + what + " to " + a.ps.placeName(into) + ", but couldn't " + lost, Kind: "warning"}
-	for _, w := range ws {
-		if w.Err != nil {
-			n.Body = w.Err.Error()
-			break
+		if w.Err != nil && n.Body == "" {
+			n.Body = upperFirst(w.Err.Error()) + "."
 		}
+		private = private || w.Private
 	}
 	if private {
-		n.Body = strings.TrimSpace(n.Body + " Only the owner could read the original, and others may now be able to read the copy.")
+		n.Body = strings.TrimSpace(n.Body + " Others couldn't read the original, and may be able to read it now.")
 	}
 	return n
 }
 
-// pronoun is "it" for one item, and "they" for more.
-func pronoun(n int) string {
-	if n == 1 {
-		return "it"
+// lost says what the file system refused for n items, as ws say, verb
+// being what the window tried to do: "set their permissions", say.
+func lost(n int, ws []Warning, verb string) string {
+	mode, time := false, false
+	for _, w := range ws {
+		mode, time = mode || w.Mode, time || w.Time
 	}
-	return "they"
+	their, they := "their", "they"
+	if n == 1 {
+		their, they = "its", "it"
+	}
+	switch {
+	case mode && time:
+		return verb + " " + their + " permissions or the time " + they + " last changed"
+	case mode:
+		return verb + " " + their + " permissions"
+	}
+	return verb + " the time " + they + " last changed"
+}
+
+// upperFirst is s with its first letter in capitals.
+func upperFirst(s string) string {
+	for i, c := range s {
+		return strings.ToUpper(string(c)) + s[i+len(string(c)):]
+	}
+	return s
 }
