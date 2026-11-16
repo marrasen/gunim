@@ -299,9 +299,8 @@ func (t *Table) move(i int, u *gunim.UI) {
 		return
 	}
 	t.cursor = min(max(i, 0), len(t.keys)-1)
-	h := TableRowHeight.Get(u.Theme())
-	t.list.revealContent(geom.Rc(0, float32(t.cursor)*h, 1, h), u)
-	u.Invalidate()
+	// Where the row stands, which differs from its place in the order while rows move.
+	t.list.RevealKey(t.keys[t.cursor], u)
 }
 
 // Children implements [gunim.Composite].

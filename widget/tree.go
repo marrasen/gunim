@@ -142,9 +142,8 @@ func (t *Tree) move(i int, u *gunim.UI) {
 	} else {
 		t.lag.Jump(0)
 	}
-	h := TreeRowHeight.Get(u.Theme())
-	t.list.revealContent(geom.Rc(0, float32(i)*h, 1, h), u)
-	u.Invalidate()
+	// Where the row stands, which differs from its place in the order while rows move.
+	t.list.RevealKey(t.keys[i], u)
 }
 
 // rowY is where key's row is in the list's content, while the row is built.

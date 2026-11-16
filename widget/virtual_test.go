@@ -1,7 +1,11 @@
 package widget
 
 import (
+	"fmt"
+	"math/rand/v2"
+	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -596,5 +600,333 @@ func TestVirtualListWithoutHoldingAsksAgainAfterOlderItems(t *testing.T) {
 	run(60)
 	if n := asked(); n != 1 {
 		t.Fatalf("back at the top after older items came, the list asked %d times, want once more", n)
+	}
+}
+
+// drawnOverlap returns the first pair of rows that show over each other, in order, and how far they overlap.
+func drawnOverlap(l *VirtualList) (a, b Key, by float32) {
+	var prev *row
+	for _, k := range l.order {
+		r, ok := l.live[k]
+		if !ok || l.gone[k] || r.fade.Value() <= 0 {
+			continue
+		}
+		if prev != nil {
+			if d := prev.y.Value() + min(prev.height.Value(), prev.inner) - r.y.Value(); d > 0.5 {
+				return prev.key, r.key, d
+			}
+		}
+		prev = r
+	}
+	return "", "", 0
+}
+
+func TestVirtualListThatSticksNeverDrawsArrivingRowsOverEachOther(t *testing.T) {
+	w, l, run := newStuckVirtual(t, keys(50), 120)
+	run(30)
+	for n := 51; n <= 62; n++ {
+		if err := w.Client().Update("v", shownKeys{keys(n)}); err != nil {
+			t.Fatal(err)
+		}
+		run(1)
+		if a, b, by := drawnOverlap(l); by > 0 {
+			t.Fatalf("with %d rows, row %s overlaps row %s by %v", n, a, b, by)
+		}
+	}
+	for f := range 120 {
+		run(1)
+		if a, b, by := drawnOverlap(l); by > 0 {
+			t.Fatalf("frame %d after the burst, row %s overlaps row %s by %v", f, a, b, by)
+		}
+	}
+}
+
+// watchOrder runs frames after the keys change to next, failing on the first frame that draws two rows over each other,
+// and returns how many frames a row grew in or a place closed.
+func watchOrder(t *testing.T, w *gunim.Window, l *VirtualList, view gunim.ID, next []Key, frames int, update func([]Key) any) (growing int) {
+	t.Helper()
+	if err := w.Client().Update(view, update(next)); err != nil {
+		t.Fatal(err)
+	}
+	for f := range frames {
+		w.Frame(time.Second / 60)
+		if a, b, by := drawnOverlap(l); by > 0 {
+			t.Fatalf("frame %d after the change, row %s overlaps row %s by %v", f, a, b, by)
+		}
+		moving := len(l.spacers) > 0
+		for _, r := range l.live {
+			moving = moving || r.height.Value() < r.inner-0.5
+		}
+		if moving {
+			growing++
+		}
+	}
+	return growing
+}
+
+// wantStacked fails unless the rows in view stand in the order of want, each under the one before.
+func wantStacked(t *testing.T, l *VirtualList, want []Key) {
+	t.Helper()
+	if !slices.Equal(l.order, want) {
+		t.Fatalf("the order is %q, want %q", l.order, want)
+	}
+	var prev *row
+	for _, k := range want {
+		r, ok := l.live[k]
+		if !ok {
+			continue
+		}
+		if prev != nil && r.y.Value() < prev.y.Value()+prev.inner-0.5 {
+			t.Fatalf("row %s at %v stands over row %s at %v", k, r.y.Value(), prev.key, prev.y.Value())
+		}
+		prev = r
+	}
+}
+
+func asShown(ks []Key) any { return shownKeys{ks} }
+
+// A few rows moved in the list close at their old places and grow in at their new ones. A change that moves more
+// rows in view, such as a sort, a reversal or a shuffle, takes effect at once. On no frame is a row drawn over another.
+func TestVirtualListAnimatesAFewMovesAndJumpsForMany(t *testing.T) {
+	// spread moves n rows in view, every other one from the top, to the end of the list.
+	spread := func(n int) []Key {
+		var stay, moved []Key
+		for i, k := range keys(20) {
+			if i%2 == 0 && i < 2*n {
+				moved = append(moved, k)
+			} else {
+				stay = append(stay, k)
+			}
+		}
+		return append(stay, moved...)
+	}
+	few, more := spread(moveLimit), spread(moveLimit+1)
+	reversed := slices.Clone(keys(20))
+	slices.Reverse(reversed)
+	type moveCase struct {
+		name    string
+		next    []Key
+		animate bool
+	}
+	const shuffles = 3
+	cases := make([]moveCase, 0, 4+shuffles)
+	cases = append(cases,
+		moveCase{"two rows to the top", slices.Concat([]Key{"3", "4"}, keys(3), keys(20)[5:]), true},
+		moveCase{fmt.Sprint(moveLimit, " rows to the end"), few, true},
+		moveCase{fmt.Sprint(moveLimit+1, " rows to the end"), more, false},
+		moveCase{"turned round", reversed, false})
+	rng := rand.New(rand.NewPCG(4, 72))
+	for i := range shuffles {
+		ks := keys(20)
+		rng.Shuffle(len(ks), func(a, b int) { ks[a], ks[b] = ks[b], ks[a] })
+		cases = append(cases, moveCase{fmt.Sprint("shuffled ", i), ks, false})
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			w, l, run := newVirtual(t, keys(20), 40)
+			run(10)
+			growing := watchOrder(t, w, l, "v", c.next, 120, asShown)
+			if c.animate && growing == 0 {
+				t.Fatal("the moved rows took their new places at once, with no motion")
+			}
+			if !c.animate && growing > 0 {
+				t.Fatalf("rows grew in for %d frames, want the new order at once", growing)
+			}
+			wantStacked(t, l, c.next)
+		})
+	}
+}
+
+// A long list scrolled down and then turned round, as a second click on a column's title does, keeps the row that was
+// first in view at the top of the view.
+func TestVirtualListTurnedRoundKeepsItsPlace(t *testing.T) {
+	w, l, run := newVirtual(t, keys(1000), 40)
+	run(10)
+	l.jumpToY(4600)
+	run(10)
+	first, top := firstInView(l)
+	reversed := slices.Clone(keys(1000))
+	slices.Reverse(reversed)
+	watchOrder(t, w, l, "v", reversed, 120, asShown)
+	if got, at := firstInView(l); got != first || abs32(at-top) > 0.5 {
+		t.Fatalf("after turning round, row %s is first in view at %v, want row %s at %v", got, at, first, top)
+	}
+}
+
+// Two rows swapped in a list of 100,000 animate without a count of the whole list on each frame.
+func TestVirtualListSwapsTwoRowsCheaplyInALongList(t *testing.T) {
+	w, l, run := newVirtual(t, keys(100_000), 40)
+	run(10)
+	next := keys(100_000)
+	next[2], next[5] = next[5], next[2]
+	before := l.indexed
+	if growing := watchOrder(t, w, l, "v", next, 120, asShown); growing == 0 {
+		t.Fatal("the swapped rows took their new places at once, with no motion")
+	}
+	if n := l.indexed - before; n > 3 {
+		t.Fatalf("the swap counted the whole list %d times, want at most 3", n)
+	}
+	wantStacked(t, l, next)
+}
+
+// Keys that change again while moved rows still grow in keep every row apart, and end in the newest order.
+func TestVirtualListMovesAgainWhileRowsStillMove(t *testing.T) {
+	w, l, run := newVirtual(t, keys(8), 40)
+	run(10)
+	first := []Key{"5", "6", "7", "0", "1", "2", "3", "4"}
+	watchOrder(t, w, l, "v", first, 4, asShown)
+	again := []Key{"2", "5", "6", "new", "7", "0", "1", "3"}
+	watchOrder(t, w, l, "v", again, 120, asShown)
+	wantStacked(t, l, again)
+}
+
+// An item added between two rows grows in there, and items added at the end grow in there, with no row drawn over
+// another.
+func TestVirtualListInsertsWithoutDrawingOneOverAnother(t *testing.T) {
+	w, l, run := newVirtual(t, keys(6), 40)
+	run(10)
+	middle := slices.Insert(keys(6), 3, "new")
+	if growing := watchOrder(t, w, l, "v", middle, 60, asShown); growing == 0 {
+		t.Fatal("the new row came at once, with no motion")
+	}
+	wantStacked(t, l, middle)
+	end := append(slices.Clone(middle), "a", "b", "c")
+	watchOrder(t, w, l, "v", end, 60, asShown)
+	wantStacked(t, l, end)
+}
+
+// newTableOf mounts a table of keys in a 600 by 400 window, with the keyboard, and returns it with its window.
+func newTableOf(t *testing.T, ks []Key) (*gunim.Window, *Table) {
+	t.Helper()
+	tbl := NewTable(TableColumn{Title: "Name"})
+	tbl.Row = func(k Key) TableRow { return TableRow{Cells: []string{"row " + string(k)}} }
+	w := gunimtest.New(t, geom.Sz(600, 400), nil)
+	gunim.RegisterView(w, "t", func(shownKeys) *Table { return tbl },
+		func(tb *Table, s shownKeys, u *gunim.UI) { tb.SetKeys(s.Keys, u) })
+	if err := w.Client().Mount(gunim.Root, "t", "t", shownKeys{ks}); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Client().Focus("t"); err != nil {
+		t.Fatal(err)
+	}
+	for range 10 {
+		w.Frame(time.Second / 60)
+	}
+	return w, tbl
+}
+
+// A table sorted by a click on a title shows its new order at once, with no row drawn over another.
+func TestATableSortsAtOnce(t *testing.T) {
+	w, tbl := newTableOf(t, keys(12))
+	sorted := keys(12)
+	slices.SortFunc(sorted, func(a, b Key) int { return strings.Compare(string(b), string(a)) })
+	if growing := watchOrder(t, w, tbl.list, "t", sorted, 120, asShown); growing > 0 {
+		t.Fatalf("rows grew in for %d frames after a sort, want the new order at once", growing)
+	}
+	wantStacked(t, tbl.list, sorted)
+}
+
+// cursorStaysInView moves a cursor down to the last row wholly in view, moves two rows from above it to below it, so
+// their places close above it, and moves the cursor on. On each frame, the place the view is going to must hold the
+// cursor's row as it stands then, rather than where its number in the order puts it.
+func cursorStaysInView(t *testing.T, w *gunim.Window, l *VirtualList, view gunim.ID, cursor func() Key) {
+	t.Helper()
+	all := keys(40)
+	for {
+		i := slices.Index(all, cursor())
+		top, h, ok := l.RowRect(all[i+1])
+		if !ok || top+h > l.viewport {
+			break
+		}
+		w.Input(input.KeyPress{Key: input.KeyDown})
+		w.Frame(time.Second / 60)
+	}
+	at := slices.Index(all, cursor())
+	next := slices.Concat(all[:1], all[3:at+2], all[1:3], all[at+2:])
+	if err := w.Client().Update(view, shownKeys{next}); err != nil {
+		t.Fatal(err)
+	}
+	w.Frame(time.Second / 60)
+	w.Input(input.KeyPress{Key: input.KeyDown})
+	for f := range 60 {
+		w.Frame(time.Second / 60)
+		top, h, ok := l.RowRect(cursor())
+		if !ok {
+			t.Fatalf("frame %d: the cursor's row is not built", f)
+		}
+		// In the content, and against where the view is going rather than where its spring is on the way.
+		top += l.Offset()
+		if top < l.target-0.5 || top+h > l.target+l.viewport+0.5 {
+			t.Fatalf("frame %d: the cursor's row stands at %v to %v, and the view goes to %v to %v",
+				f, top, top+h, l.target, l.target+l.viewport)
+		}
+	}
+}
+
+func TestATablesCursorStaysInViewWhileRowsMove(t *testing.T) {
+	w, tbl := newTableOf(t, keys(40))
+	cursorStaysInView(t, w, tbl.list, "t", func() Key { return tbl.keys[tbl.cursor] })
+}
+
+func TestATreesCursorStaysInViewWhileRowsMove(t *testing.T) {
+	tr := NewTree()
+	tr.Item = func(k Key) TreeItem { return TreeItem{Text: "row " + string(k)} }
+	w := gunimtest.New(t, geom.Sz(600, 400), nil)
+	gunim.RegisterView(w, "t", func(shownKeys) *Tree { return tr },
+		func(tr *Tree, s shownKeys, u *gunim.UI) { tr.SetKeys(s.Keys, u) })
+	if err := w.Client().Mount(gunim.Root, "t", "t", shownKeys{keys(40)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Client().Focus("t"); err != nil {
+		t.Fatal(err)
+	}
+	for range 10 {
+		w.Frame(time.Second / 60)
+	}
+	w.Input(input.KeyPress{Key: input.KeyDown})
+	w.Frame(time.Second / 60)
+	cursorStaysInView(t, w, tr.list, "t", func() Key { k, _ := tr.Cursor(); return k })
+}
+
+func TestInOrderKeepsTheLongestRisingRun(t *testing.T) {
+	for _, c := range []struct {
+		seq  []int
+		want int
+	}{{nil, 0}, {[]int{3, 4, 0, 1, 2}, 3}, {[]int{4, 3, 2, 1, 0}, 1}, {[]int{0, 1, 2}, 3}, {[]int{2, 0, 3, 1, 4}, 3}} {
+		kept := inOrder(c.seq)
+		var run []int
+		for i, k := range kept {
+			if k {
+				run = append(run, c.seq[i])
+			}
+		}
+		if len(run) != c.want || !slices.IsSorted(run) {
+			t.Errorf("inOrder(%v) keeps %v, want a rising run of %d", c.seq, run, c.want)
+		}
+	}
+}
+
+// BenchmarkVirtualListFrameWhileTwoRowsSwap is a frame of a list of 100,000 rows while two rows in view swap places,
+// after the frame that takes in the new order, which counts the whole list as a change of keys always has.
+func BenchmarkVirtualListFrameWhileTwoRowsSwap(b *testing.B) {
+	w, _, run := newVirtual(&testing.T{}, keys(100_000), 40)
+	run(10)
+	orders := [2][]Key{keys(100_000), keys(100_000)}
+	orders[1][2], orders[1][5] = orders[1][5], orders[1][2]
+	b.ReportAllocs()
+	b.ResetTimer()
+	frames := 0
+	for i := 0; frames < b.N; i++ {
+		b.StopTimer()
+		if err := w.Client().Update("v", shownKeys{orders[i%2]}); err != nil {
+			b.Fatal(err)
+		}
+		w.Frame(time.Second / 60)
+		b.StartTimer()
+		// The frames of one swap's motion.
+		for range 29 {
+			w.Frame(time.Second / 60)
+			frames++
+		}
 	}
 }
