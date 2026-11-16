@@ -3,6 +3,7 @@ package plugui
 import (
 	"fmt"
 	"math"
+	"strconv"
 	"testing"
 	"time"
 
@@ -28,13 +29,15 @@ type heard struct {
 
 // timings are the frames a test plays, by name: even ones at a rate, and uneven ones.
 func timings(name string, d time.Duration) []time.Duration {
-	uneven := []time.Duration{8, 33, 12, 16, 50, 8, 16, 16, 25}
+	uneven := []int{8, 33, 12, 16, 50, 8, 16, 16, 25}
 	var out []time.Duration
 	for i, at := 0, time.Duration(0); at < d; i++ {
-		step := uneven[i%len(uneven)] * time.Millisecond
+		step := time.Duration(uneven[i%len(uneven)]) * time.Millisecond
 		if name != "uneven" {
-			var hz float64
-			fmt.Sscan(name, &hz)
+			hz, err := strconv.ParseFloat(name, 64)
+			if err != nil {
+				panic(err)
+			}
 			step = time.Duration(float64(time.Second) / hz)
 		}
 		out = append(out, step)
@@ -58,7 +61,7 @@ func play(t *testing.T, p plug.Param, v float64, dts []time.Duration, src source
 		n := k.p.Normal(v)
 		return k.turnOf(m.Now), k.round(n + m.Low), k.round(n + m.High)
 	}
-	var out []heard
+	out := make([]heard, 0, len(dts))
 	last := heard{drawn: markOf(t, w)}
 	last.at, last.from, last.to = ask(h.mod[p.ID])
 	elapsed := time.Duration(0)
@@ -278,9 +281,9 @@ func (s *shelf) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim.C
 type put struct{ On bool }
 
 // mountShelf mounts a shelf, to show from the next frame, and returns the window, and what puts k on or takes it off.
-func mountShelf(t *testing.T, s *shelf, k *Knob) (*gunim.Window, func(on bool)) {
+func mountShelf(t *testing.T, s *shelf, k *Knob) (w *gunim.Window, show func(on bool)) {
 	t.Helper()
-	w := gunimtest.New(t, geom.Sz(KnobW, KnobH), nil)
+	w = gunimtest.New(t, geom.Sz(KnobW, KnobH), nil)
 	gunim.RegisterView(w, "shelf", func(struct{}) gunim.Node { return s }, nil)
 	gunim.RegisterPatch(w, "shelf", func(_ gunim.Node, p put, u *gunim.UI) {
 		if p.On {
