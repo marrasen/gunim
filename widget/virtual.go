@@ -21,7 +21,9 @@ import (
 // are dropped. Changes to the items animate: a new item in view grows
 // into place, and a removed one collapses while its neighbours close
 // the gap. An item moved in view closes at its old place and grows in
-// at its new one. The rows always stack, so no row is drawn over another.
+// at its new one, when a few move. A change that moves more rows in view,
+// such as a sort, takes effect at once, with the first row in view kept
+// in its place. The rows always stack, so no row is drawn over another.
 //
 // A row's height is known once it has been laid out. Until then the
 // list assumes Estimate. When a row above the view turns out taller or
@@ -79,6 +81,10 @@ type VirtualList struct {
 	spacers map[Key]*spacer
 	// moves counts the spacers made, so each has a key of its own.
 	moves int
+	// revealKey is the row RevealKey keeps in view while rows move, "" for none.
+	revealKey Key
+	// indexed counts the counts of the whole list, which cost time in its length.
+	indexed int
 
 	// entry holds each row's height and the spacing after it, in
 	// order, and tops sums them, so finding the row at an offset and
@@ -138,6 +144,7 @@ func closing(spacing, h float32, r *row) float32 {
 
 // index builds entry and tops from the order and the known heights.
 func (l *VirtualList) index() {
+	l.indexed++
 	l.entry = l.entry[:0]
 	for _, k := range l.order {
 		l.entry = append(l.entry, l.entryFor(k, l.gap))
@@ -148,6 +155,7 @@ func (l *VirtualList) index() {
 
 // entryFor is the room row k takes with spacing after it, from its
 // known height, or as much as is left of it while it leaves.
+// A row in view counts at the height it has now, as it grows in or leaves.
 func (l *VirtualList) entryFor(k Key, spacing float32) float32 {
 	if sp, ok := l.spacers[k]; ok {
 		h := max(sp.h.Value(), 0)
@@ -158,7 +166,7 @@ func (l *VirtualList) entryFor(k Key, spacing float32) float32 {
 	}
 	h := l.height(k)
 	r, ok := l.live[k]
-	if ok && l.gone[k] {
+	if ok && (l.gone[k] || r.laid) {
 		h = r.height.Value()
 	}
 	return h + closing(spacing, h, r)
@@ -318,30 +326,87 @@ func (l *VirtualList) SetKeys(keys []Key, u *gunim.UI) {
 	u.Invalidate()
 }
 
+// RevealKey scrolls just far enough to show key's row whole, and keeps it shown where it stands until rows stop moving.
+func (l *VirtualList) RevealKey(key Key, u *gunim.UI) {
+	l.revealKey = key
+	u.Invalidate()
+}
+
+// keepRevealed shows the row RevealKey asked for, where it stands now, and lets it go once no row moves.
+func (l *VirtualList) keepRevealed(u *gunim.UI) {
+	if l.revealKey == "" {
+		return
+	}
+	i := slices.Index(l.order, l.revealKey)
+	if i < 0 || l.gone[l.revealKey] {
+		l.revealKey = ""
+		return
+	}
+	top := float32(l.tops.sum(i))
+	h := l.height(l.revealKey)
+	if r, ok := l.live[l.revealKey]; ok {
+		top, h = r.y.Value(), r.inner
+	}
+	l.revealContent(geom.Rc(0, top, 1, h), u)
+	if l.settled() {
+		l.revealKey = ""
+	}
+}
+
+// settled says no row grows, closes or moves.
+func (l *VirtualList) settled() bool {
+	if len(l.spacers) > 0 {
+		return false
+	}
+	for k, r := range l.live {
+		if l.gone[k] || r.height.Active() {
+			return false
+		}
+	}
+	return true
+}
+
+// moveLimit is the most rows in view a change may move and still animate. A change that moves more, such as a sort,
+// takes effect at once.
+const moveLimit = 3
+
 // moveRows finds the rows in view that next moves out of order, and returns the order with a closing spacer in place
-// of each, marked as leaving. The row itself grows in at its new place. The rows kept in order are the most there can
-// be, so a sort moves as few rows as it can.
+// of each, marked as leaving. The row itself grows in at its new place. The rows in view kept in order are the most
+// there can be. When more than moveLimit rows in view move, it returns the order as it is, and the change takes effect at once.
 func (l *VirtualList) moveRows(next []Key, staying, leaving map[Key]bool, u *gunim.UI) []Key {
-	at := make(map[Key]int, len(l.order))
+	// Only rows in view move with motion, so only they count, and the work stays small however long the list.
+	at := make(map[Key]int, len(l.live))
 	for i, k := range l.order {
-		if staying[k] && !l.gone[k] {
+		if _, ok := l.live[k]; ok && staying[k] && !l.gone[k] {
 			at[k] = i
 		}
 	}
 	var seq []int
 	var seqKeys []Key
 	for _, k := range next {
+		if len(seq) == len(at) {
+			break
+		}
 		if i, ok := at[k]; ok {
 			seq, seqKeys = append(seq, i), append(seqKeys, k)
 		}
 	}
 	kept := inOrder(seq)
+	moved := 0
+	for j := range seqKeys {
+		if !kept[j] {
+			moved++
+		}
+	}
+	if moved > moveLimit {
+		return l.order
+	}
 	prev, cloned := l.order, false
 	for j, k := range seqKeys {
-		r, ok := l.live[k]
-		if kept[j] || !ok {
+		if kept[j] {
 			continue
 		}
+		r := l.live[k]
 		if !cloned {
 			prev, cloned = slices.Clone(l.order), true
 		}
@@ -483,11 +548,11 @@ func (l *VirtualList) Step(dt time.Duration) bool {
 	for k, sp := range l.spacers {
 		if sp.h.Step(dt) {
 			moving = true
-		} else {
-			delete(l.spacers, k)
-			delete(l.gone, k)
-			l.order = deleteKey(l.order, k)
+			continue
 		}
+		delete(l.spacers, k)
+		delete(l.gone, k)
+		l.order = deleteKey(l.order, k)
 		l.dirty = true
 	}
 	return moving || again
@@ -590,6 +655,18 @@ func (l *VirtualList) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Chil
 		}
 		if !built {
 			if l.gone[k] {
+				// A closing place shrinks here, as a row does below, with no count of the whole list.
+				if e := l.entryFor(k, spacing); e != l.entry[i] {
+					d := e - l.entry[i]
+					above := y < offset && y+l.entry[i] <= offset
+					l.entry[i] = e
+					l.tops.add(i, float64(d))
+					if above {
+						offset += d
+						l.shift(d)
+						carry += d
+					}
+				}
 				y += l.entry[i]
 				continue
 			}
@@ -666,6 +743,7 @@ func (l *VirtualList) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Chil
 		}
 	}
 	l.fit(content, own, f)
+	l.keepRevealed(f.UI())
 	l.still = false
 	l.laidOut = true
 	return own
