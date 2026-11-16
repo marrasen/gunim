@@ -598,3 +598,41 @@ func TestVirtualListWithoutHoldingAsksAgainAfterOlderItems(t *testing.T) {
 		t.Fatalf("back at the top after older items came, the list asked %d times, want once more", n)
 	}
 }
+
+// drawnOverlap returns the first pair of rows that show over each other, in order, and how far they overlap.
+func drawnOverlap(l *VirtualList) (a, b Key, by float32) {
+	var prev *row
+	for _, k := range l.order {
+		r, ok := l.live[k]
+		if !ok || l.gone[k] || r.fade.Value() <= 0 {
+			continue
+		}
+		if prev != nil {
+			if d := prev.y.Value() + min(prev.height.Value(), prev.inner) - r.y.Value(); d > 0.5 {
+				return prev.key, r.key, d
+			}
+		}
+		prev = r
+	}
+	return "", "", 0
+}
+
+func TestVirtualListThatSticksNeverDrawsArrivingRowsOverEachOther(t *testing.T) {
+	w, l, run := newStuckVirtual(t, keys(50), 120)
+	run(30)
+	for n := 51; n <= 62; n++ {
+		if err := w.Client().Update("v", shownKeys{keys(n)}); err != nil {
+			t.Fatal(err)
+		}
+		run(1)
+		if a, b, by := drawnOverlap(l); by > 0 {
+			t.Fatalf("with %d rows, row %s overlaps row %s by %v", n, a, b, by)
+		}
+	}
+	for f := range 120 {
+		run(1)
+		if a, b, by := drawnOverlap(l); by > 0 {
+			t.Fatalf("frame %d after the burst, row %s overlaps row %s by %v", f, a, b, by)
+		}
+	}
+}

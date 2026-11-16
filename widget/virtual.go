@@ -530,6 +530,16 @@ func (l *VirtualList) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Chil
 				carry += d
 			}
 		}
+		// A row with the same row before it as at its last layout moves only as the rows above it grow, close,
+		// come or go, so it moves with them at once and never slides over a neighbour. A moved row springs.
+		var before Key
+		if i > 0 {
+			before = l.order[i-1]
+		}
+		if r.ordered && r.before == before {
+			anim.Shift(r.y, y-r.y.Target())
+		}
+		r.before, r.ordered = before, true
 		r.y.Animate(y, move)
 		kid.Place(geom.Pt(0, r.y.Value()-onPixels(offset, f.Scale)))
 		y += l.entry[i]
