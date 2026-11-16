@@ -348,6 +348,8 @@ func TestAKnobDrawsItsArcsAsRibbons(t *testing.T) {
 	h := &menuHost{host: host{values: map[uint32]float64{1: 0.5}},
 		mod: map[uint32]plug.Modulation{1: {Low: -0.2, High: 0.2, Now: 0.6}}}
 	k := NewKnob(h, mix)
+	// A frame steps the knob before it lays it out, so the mark shows.
+	k.Step(0)
 	k.Layout(gunim.Tight(geom.Sz(KnobW, KnobH)), gunim.Frame{}, gunim.Children{})
 	var p paint.Painter
 	k.Paint(&p, gunim.Frame{Scale: 1}, geom.Sz(KnobW, KnobH), gunim.Children{})
