@@ -264,11 +264,3 @@ func lost(n int, ws []Warning, verb string) string {
 	}
 	return verb + " the time " + they + " last changed"
 }
-
-// upperFirst is s with its first letter in capitals.
-func upperFirst(s string) string {
-	for i, c := range s {
-		return strings.ToUpper(string(c)) + s[i+len(string(c)):]
-	}
-	return s
-}

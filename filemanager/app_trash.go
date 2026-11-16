@@ -411,6 +411,9 @@ func trashNote(items []TrashItem, worked int, done string, failed error) (note s
 
 // upperFirst is s with its first letter in upper case.
 func upperFirst(s string) string {
+	if s == "" {
+		return s
+	}
 	r, n := utf8.DecodeRuneInString(s)
 	return string(unicode.ToUpper(r)) + s[n:]
 }
