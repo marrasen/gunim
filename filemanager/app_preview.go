@@ -162,6 +162,7 @@ func (a *app) showPreviewOf(sel []entry) {
 			}
 			a.post(func() {
 				if a.preview.seq == seq {
+					a.modFact(&pv, e.Mod)
 					pv.NoReveal = a.fetches()
 					a.patch(pv)
 					if e.Dir {
@@ -178,6 +179,7 @@ func (a *app) showPreviewOf(sel []entry) {
 		}
 		pv := Preview{Seq: seq, Title: info.Name, Type: "This folder", Path: n.path, Shown: a.ps.Show(n.path), Tint: TintFolder, IconKey: key, Dir: true,
 			Facts: []Fact{{"Holds", plural(len(n.all), "item")}, {"Modified", fmtTime(n.mod)}, {"In", a.ps.placeName(a.ps.Dir(n.path))}}, NoReveal: a.fetches()}
+		a.modFact(&pv, n.mod)
 		a.patch(pv)
 	}
 }
@@ -261,6 +263,18 @@ func itemPreview(ctx context.Context, fsys FS, seq int, path string, e entry, fe
 }
 
 func fmtTime(t time.Time) string { return t.Format("2006-01-02 15:04:05") }
+
+// modFact says the Modified fact of pv in the words of Options.TimeText, when the program gave one.
+func (a *app) modFact(pv *Preview, mod time.Time) {
+	if a.opts.TimeText == nil {
+		return
+	}
+	for i := range pv.Facts {
+		if pv.Facts[i].Label == "Modified" {
+			pv.Facts[i].Value = a.opts.TimeText(mod)
+		}
+	}
+}
 
 // thumbnail reads the picture at path on fsys and makes it at most
 // thumbSize across. A picture too large to read quickly gives none.

@@ -736,7 +736,11 @@ func (a *app) sendRows(v NeedRows) {
 		a.sendIcons(n.rows[start:end])
 		rows := make([]Row, 0, end-start)
 		for _, e := range n.rows[start:end] {
-			rows = append(rows, rowOf(e))
+			r := rowOf(e)
+			if a.opts.TimeText != nil {
+				r.Modified = a.opts.TimeText(e.Mod)
+			}
+			rows = append(rows, r)
 		}
 		a.patch(RowBlock{Gen: n.gen, Start: start, Rows: rows})
 	}
