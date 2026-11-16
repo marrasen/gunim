@@ -32,6 +32,13 @@ type PaneHost struct {
 	// on the pane's serve loop, so it must be quick, and must not wait
 	// for the program.
 	Folder func(fs, path string)
+	// Selected hears the ID of the file system the pane shows and the
+	// whole paths of the items selected, in the order the listing shows
+	// them, each time the selection changes: none when nothing is. A
+	// program shows something of the items beside the pane with it, as a
+	// file's details. It is called on the pane's serve loop, so it must
+	// be quick, and must not wait for the program.
+	Selected func(fs string, paths []string)
 	// Commands are the file manager's commands the program's own menus
 	// offer for the pane, as CmdCopy and CmdPaste in an Edit menu of its
 	// own, which run them with [Run]. The pane's menus leave them out.

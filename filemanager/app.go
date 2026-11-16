@@ -204,6 +204,10 @@ type app struct {
 	// title is the file system and the folder the pane's host was last told of,
 	// and folder the file system and the path.
 	title, folder string
+	// selectedTold is the selection the pane's host was last told of, and
+	// selectedSent says it was told at all.
+	selectedTold string
+	selectedSent bool
 	// note is what the program said of a folder for the status bar,
 	// shown while that folder is.
 	note note

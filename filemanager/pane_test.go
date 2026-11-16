@@ -420,3 +420,44 @@ func TestAPaneShowsTheHostsNoteOnItsFolder(t *testing.T) {
 	p.pw.SetNote(fs, sub, "")
 	s.until("an empty note takes it away", func() bool { return b.status.note.Text == "" })
 }
+
+// The host hears what the user selects in a pane, once for each change, and hears when nothing is selected.
+func TestAPaneTellsTheHostWhatIsSelected(t *testing.T) {
+	var mu sync.Mutex
+	var told [][]string
+	p := newPaneWorldWith(t, func(h *PaneHost) {
+		h.Selected = func(_ string, paths []string) {
+			mu.Lock()
+			told = append(told, slices.Clone(paths))
+			mu.Unlock()
+		}
+	}, "a.txt", "b.txt")
+	last := func() ([]string, int) {
+		mu.Lock()
+		defer mu.Unlock()
+		if len(told) == 0 {
+			return nil, 0
+		}
+		return told[len(told)-1], len(told)
+	}
+	s := newPaneScreen(t, p.pw)
+	p.pw.Attach(s.w.Client(), "slot")
+	var b *browser
+	s.until("the pane shows", func() bool {
+		b = s.browser()
+		return b != nil && b.path.path == p.dir && b.listing.cur != nil && b.listing.cur.grid.Rows() == 2
+	})
+	gen := b.listing.cur.gen
+	a, bb := filepath.Join(p.dir, "a.txt"), filepath.Join(p.dir, "b.txt")
+	p.pw.Deliver(gunim.Envelope{From: "pane1/browser", Intent: Selected{Gen: gen, Runs: [][2]int{{0, 1}}, Cursor: 0}})
+	s.until("the host hears a.txt", func() bool { got, _ := last(); return slices.Equal(got, []string{a}) })
+	_, n := last()
+	p.pw.Deliver(gunim.Envelope{From: "pane1/browser", Intent: Selected{Gen: gen, Runs: [][2]int{{0, 1}}, Cursor: 0}})
+	p.pw.Deliver(gunim.Envelope{From: "pane1/browser", Intent: Selected{Gen: gen, Runs: [][2]int{{0, 2}}, Cursor: 1}})
+	s.until("the host hears both", func() bool { got, _ := last(); return slices.Equal(got, []string{a, bb}) })
+	if _, m := last(); m != n+1 {
+		t.Fatalf("the host heard the same selection again: %d calls after %d", m, n)
+	}
+	p.pw.Deliver(gunim.Envelope{From: "pane1/browser", Intent: Selected{Gen: gen, Cursor: -1}})
+	s.until("the host hears that nothing is selected", func() bool { got, m := last(); return m > n+1 && len(got) == 0 })
+}
