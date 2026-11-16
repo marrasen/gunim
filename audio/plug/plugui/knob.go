@@ -80,7 +80,8 @@ const (
 // host's menu for it, where the host is a [plug.ParamMenuHost]; where
 // it is a [plug.ModulationHost], a ring outside the knob spans the
 // reach of the control moving the parameter, either side of its value,
-// and a dot on the arc shows its value as heard. A value that runs
+// and a dot on the arc shows its value as heard on each frame; the
+// mark fades in and out as control comes and goes. A value that runs
 // either side of zero fills its arc from zero. It lights as the pointer comes over it, and its tooltip
 // says how to turn it. Tab brings the keyboard to it, and a focus ring
 // fades in round it. A second button pressed mid-turn ends the turn
@@ -144,6 +145,26 @@ type Knob struct {
 	// says control moved it then.
 	shown  plug.Modulation
 	modded bool
+	// mark is the modulation's mark, nil until control first moves the parameter, and shownAgain says the knob is new
+	// or comes into the tree, so its next paint shows the mark as it is.
+	mark       *modMark
+	shownAgain bool
+}
+
+// modMark is how far a knob's modulation mark shows, on fading on the theme's quick spring fade as control comes and
+// goes, and last the modulation the mark was last drawn at.
+type modMark struct {
+	on   *anim.Float
+	fade anim.Spring
+	last plug.Modulation
+}
+
+// markNow makes the modulation's mark once control first moves the parameter.
+func (k *Knob) markNow() {
+	if k.mark == nil && k.modded {
+		k.mark = &modMark{on: anim.NewFloat(0)}
+		k.Add(k.mark.on)
+	}
 }
 
 // Taper is how far round a knob turns for its value, where that is not
@@ -221,6 +242,7 @@ func (k *Knob) Step(dt time.Duration) bool {
 	m, modded := k.modulation()
 	changed := modded != k.modded || modded && m != k.shown
 	k.shown, k.modded = m, modded
+	k.markNow()
 	return moving || changed
 }
 
@@ -230,6 +252,7 @@ func (k *Knob) Transition(p gunim.Presence, f gunim.Frame) bool {
 	switch p {
 	case gunim.Entering:
 		k.aim(func(a *anim.Float, v float32) { a.Jump(v) })
+		k.shownAgain = true
 	case gunim.Exiting:
 		k.pressed = false
 		k.endWheel(f.UI())
@@ -260,6 +283,17 @@ func (k *Knob) normalAt(t float64) float64 {
 // spring where it is set.
 func (k *Knob) lay(f gunim.Frame) {
 	k.glide = KnobGlide.Get(f.Theme)
+	// A knob built in layout has not stepped yet, so it asks the host here.
+	if _, modded := k.modulation(); modded {
+		k.modded = true
+	}
+	k.markNow()
+	if mk := k.mark; mk != nil {
+		mk.fade = widget.Quick.Get(f.Theme)
+		if on := anim.OnOff(k.modded); mk.on.Target() != on {
+			mk.on.Animate(on, mk.fade)
+		}
+	}
 	if k.Locked {
 		k.letGo(f.UI())
 	}
@@ -290,6 +324,7 @@ func NewKnobFunc(p plug.Param, v float64, begin func(*gunim.UI), set func(float6
 	k := &Knob{p: p, v: v, begin: begin, set: set, end: end, hover: anim.NewFloat(0), ring: anim.NewFloat(0),
 		grey: anim.NewFloat(0), faint: anim.NewFloat(0), turned: anim.NewFloat(0), glide: KnobGlide.Default()}
 	k.turned.Jump(float32(k.turnOf(v)))
+	k.shownAgain = true
 	k.Add(k.hover, k.ring, k.grey, k.faint, k.turned)
 	return k
 }
@@ -399,9 +434,20 @@ func (k *Knob) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Chi
 		arc(zero, t, 5, paint.Faded(accent, 0.25))
 	}
 	arc(zero, t, 3.5, accent)
-	if m, ok := k.modulation(); ok {
-		k.paintModulation(p, m, c, r, anim.MixColor(accent, KnobRing.Get(th), 0.7))
+	if mk := k.mark; mk != nil {
+		m, ok := k.modulation()
+		if k.shownAgain || f.UI() != nil && f.UI().Presence(k) == gunim.Entering {
+			// A knob coming into the tree shows the mark as it is.
+			mk.on.Jump(anim.OnOff(ok))
+		}
+		if ok {
+			mk.last = m
+		}
+		if on := min(max(mk.on.Value(), 0), 1); on > 0.004 {
+			k.paintModulation(p, mk.last, on, c, r, anim.MixColor(accent, KnobRing.Get(th), 0.7))
+		}
 	}
+	k.shownAgain = false
 	p.ShadowRRect(geom.Rc(c.X-r+6, c.Y-r+6, 2*r-12, 2*r-12), r-6, paint.Fill{Gradient: &paint.Gradient{
 		From: geom.Pt(c.X, c.Y-r), To: geom.Pt(c.X, c.Y+r), Start: KnobCapTop.Get(th), End: KnobCapBottom.Get(th)}},
 		paint.Shadow{Offset: geom.Pt(0, 2), Blur: 4, Color: color.NRGBA{A: 0x90}})
@@ -471,8 +517,9 @@ func capRing(p *paint.Painter, c geom.Point, r, t float32, th *theme.Live) {
 // paintModulation draws how control moves the knob's value: a ring
 // outside the arc, of radius r about c, as far below and above the
 // value as the control reaches, or all round where
-// control sets the value; and a dot on the arc at the value heard, all in ring.
-func (k *Knob) paintModulation(p *paint.Painter, m plug.Modulation, c geom.Point, r float32, ring color.NRGBA) {
+// control sets the value; and a dot on the arc at the value heard, all in ring, as far shown as on.
+func (k *Knob) paintModulation(p *paint.Painter, m plug.Modulation, on float32, c geom.Point, r float32,
+	ring color.NRGBA) {
 	at := func(t float64, rad float32) geom.Point {
 		a := knobFrom + knobSweep*t
 		return geom.Pt(c.X+rad*float32(math.Cos(a)), c.Y+rad*float32(math.Sin(a)))
@@ -483,10 +530,11 @@ func (k *Knob) paintModulation(p *paint.Painter, m plug.Modulation, c geom.Point
 		t0, t1, a = 0, 1, 0.35
 	}
 	if math.Abs(t1-t0) >= 1.0/40 {
-		arcRibbon(p, c, r+5, t0, t1, 1.5, paint.Faded(ring, a))
+		arcRibbon(p, c, r+5, t0, t1, 1.5, paint.Faded(ring, a*on))
 	}
 	dot := at(k.turnOf(m.Now), r)
-	p.ShadowRRect(geom.Rc(dot.X-3, dot.Y-3, 6, 6), 3, paint.Solid(ring), paint.Shadow{Blur: 6, Color: paint.Faded(ring, 0.6)})
+	p.ShadowRRect(geom.Rc(dot.X-3, dot.Y-3, 6, 6), 3, paint.Solid(paint.Faded(ring, on)),
+		paint.Shadow{Blur: 6, Color: paint.Faded(ring, 0.6*on)})
 }
 
 // turn sets the knob to v as one move of the gesture held.
