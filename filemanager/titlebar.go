@@ -20,7 +20,8 @@ type menuItem struct {
 // Commands the window does itself. A program runs them with [Run].
 const (
 	// CmdSelectAll selects every item, and CmdSelectNone none.
-	CmdSelectAll = localSelectAll
+	CmdSelectAll  = localSelectAll
+	CmdSelectNone = localSelectNone
 
 	localEditPath   = "local.editpath"
 	localFilter     = "local.filter"
