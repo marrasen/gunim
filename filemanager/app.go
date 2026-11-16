@@ -107,9 +107,9 @@ type Options struct {
 	// Poll is how often the folder showing is checked for changes: every
 	// two seconds when zero, and never when below zero.
 	Poll time.Duration
-	// TimeText says when an item was modified, in the list and the
-	// preview, such as in the format the user's system uses. When nil,
-	// it is 2006-01-02 15:04.
+	// TimeText says a time in the list, the preview and the Properties
+	// dialog, such as in the format the user's system uses. When nil,
+	// the list says 2006-01-02 15:04, and the others add the seconds.
 	TimeText func(t time.Time) string
 	// Select is a name to select once the first folder is read, and
 	// Script the steps of a script to run after that, split by commas,

@@ -19,7 +19,7 @@ func (a *app) properties() {
 	}
 	fsys := a.fs
 	go func() {
-		p, count, err := readProps(fsys, paths)
+		p, count, err := readProps(fsys, paths, a.timeText)
 		a.post(func() {
 			if err != nil {
 				a.fail("Reading the properties: " + err.Error())
@@ -30,9 +30,9 @@ func (a *app) properties() {
 	}()
 }
 
-// readProps reads what the Properties dialog says of paths on fsys, and
+// readProps reads what the Properties dialog says of paths on fsys, with times in the words of when, and
 // whether what they hold is still to be counted.
-func readProps(fsys FS, paths []string) (p Props, count bool, err error) {
+func readProps(fsys FS, paths []string, when func(time.Time) string) (p Props, count bool, err error) {
 	ps := fsys.Paths()
 	p.Location = ps.Show(ps.Dir(paths[0]))
 	if len(paths) > 1 {
@@ -75,13 +75,13 @@ func readProps(fsys FS, paths []string) (p Props, count bool, err error) {
 	} else {
 		p.Size = sizeWords(info.Size())
 	}
-	p.Modified = fmtTime(info.ModTime())
+	p.Modified = when(info.ModTime())
 	if tr, ok := optional[TimesReporter](fsys); ok {
 		if created, accessed, ok := tr.Times(info); ok {
 			if !created.IsZero() {
-				p.Created = fmtTime(created)
+				p.Created = when(created)
 			}
-			p.Accessed = fmtTime(accessed)
+			p.Accessed = when(accessed)
 		}
 	}
 	if at, ok := optional[Attributer](fsys); ok {

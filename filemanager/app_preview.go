@@ -156,13 +156,12 @@ func (a *app) showPreviewOf(sel []entry) {
 			case <-ctx.Done():
 				return
 			}
-			pv := itemPreview(ctx, fsys, seq, path, e, fetch)
+			pv := itemPreview(ctx, fsys, seq, path, e, fetch, a.timeText)
 			if ctx.Err() != nil {
 				return
 			}
 			a.post(func() {
 				if a.preview.seq == seq {
-					a.modFact(&pv, e.Mod)
 					pv.NoReveal = a.fetches()
 					a.patch(pv)
 					if e.Dir {
@@ -178,8 +177,7 @@ func (a *app) showPreviewOf(sel []entry) {
 			key = "dir"
 		}
 		pv := Preview{Seq: seq, Title: info.Name, Type: "This folder", Path: n.path, Shown: a.ps.Show(n.path), Tint: TintFolder, IconKey: key, Dir: true,
-			Facts: []Fact{{"Holds", plural(len(n.all), "item")}, {"Modified", fmtTime(n.mod)}, {"In", a.ps.placeName(a.ps.Dir(n.path))}}, NoReveal: a.fetches()}
-		a.modFact(&pv, n.mod)
+			Facts: []Fact{{"Holds", plural(len(n.all), "item")}, {"Modified", a.timeText(n.mod)}, {"In", a.ps.placeName(a.ps.Dir(n.path))}}, NoReveal: a.fetches()}
 		a.patch(pv)
 	}
 }
@@ -208,7 +206,7 @@ func manyPreview(seq int, sel []entry) Preview {
 
 // itemPreview reads what the pane shows for the item at path on fsys. A file kept online only is read, and so
 // downloaded, only when fetch says the user asked.
-func itemPreview(ctx context.Context, fsys FS, seq int, path string, e entry, fetch bool) Preview {
+func itemPreview(ctx context.Context, fsys FS, seq int, path string, e entry, fetch bool, when func(time.Time) string) Preview {
 	ps := fsys.Paths()
 	pv := Preview{Seq: seq, Title: e.base(), Type: e.Type, Path: path, Shown: ps.Show(path), Tint: tintOf(e), IconKey: e.iconKey, Dir: e.Dir}
 	if !e.Dir {
@@ -218,7 +216,7 @@ func itemPreview(ctx context.Context, fsys FS, seq int, path string, e entry, fe
 		}
 		pv.Facts = append(pv.Facts, Fact{"Size", size})
 	}
-	pv.Facts = append(pv.Facts, Fact{"Modified", fmtTime(e.Mod)})
+	pv.Facts = append(pv.Facts, Fact{"Modified", when(e.Mod)})
 	if l, ok := optional[Linker](fsys); ok && e.Kind == KindLink {
 		target, err := l.Readlink(path)
 		if err != nil {
@@ -264,16 +262,13 @@ func itemPreview(ctx context.Context, fsys FS, seq int, path string, e entry, fe
 
 func fmtTime(t time.Time) string { return t.Format("2006-01-02 15:04:05") }
 
-// modFact says the Modified fact of pv in the words of Options.TimeText, when the program gave one.
-func (a *app) modFact(pv *Preview, mod time.Time) {
-	if a.opts.TimeText == nil {
-		return
+// timeText says a time in the preview and the Properties dialog: in the words of Options.TimeText when the program
+// gave one, and as fmtTime otherwise.
+func (a *app) timeText(t time.Time) string {
+	if a.opts.TimeText != nil {
+		return a.opts.TimeText(t)
 	}
-	for i := range pv.Facts {
-		if pv.Facts[i].Label == "Modified" {
-			pv.Facts[i].Value = a.opts.TimeText(mod)
-		}
-	}
+	return fmtTime(t)
 }
 
 // thumbnail reads the picture at path on fsys and makes it at most
