@@ -134,6 +134,10 @@ there.
 itself and passes the rest on. A knob with `Disabled` alone still turns, so it stays lit, focusable and enabled to a
 screen reader, and says `Why` before how to turn it. `calendar.DateField` takes `Why` too.
 
+**A modulation's mark.** A `plugui.Knob` whose host is a `plug.ModulationHost` draws how control moves it from what
+the host says each frame. The mark fades as it comes and goes, glides when its value steps after a rest, and follows a
+value that keeps changing, never further in a frame than the value itself moved.
+
 An app's widget outside the package draws the same way with the exported helpers `widget.Faint`, `widget.FocusRing`
 (round a control) and `widget.GroupRing` (round a view with a cursor of its own, such as a calendar).
 

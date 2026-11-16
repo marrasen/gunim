@@ -80,7 +80,9 @@ const (
 // host's menu for it, where the host is a [plug.ParamMenuHost]; where
 // it is a [plug.ModulationHost], a ring outside the knob spans the
 // reach of the control moving the parameter, either side of its value,
-// and a dot on the arc shows its value as heard. A value that runs
+// and a dot on the arc shows its value as heard. The mark fades in and
+// out as control comes and goes, glides when its value steps after a
+// rest, and follows a value that keeps changing. A value that runs
 // either side of zero fills its arc from zero. It lights as the pointer comes over it, and its tooltip
 // says how to turn it. Tab brings the keyboard to it, and a focus ring
 // fades in round it. A second button pressed mid-turn ends the turn

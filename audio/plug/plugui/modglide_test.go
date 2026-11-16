@@ -63,7 +63,9 @@ func markOf(t *testing.T, w *gunim.Window) mark {
 
 // largestStep is the largest share of its way a spring moves in one frame at 60 Hz, and how many frames it takes to
 // come within a thousandth of the way.
-func largestStep(sp anim.Spring) (share float64, settle int) { return largestStepIn(sp, time.Second/60) }
+func largestStep(sp anim.Spring) (share float64, settle int) {
+	return largestStepIn(sp, time.Second/60)
+}
 
 // largestStepIn is largestStep with frames dt long.
 func largestStepIn(sp anim.Spring, dt time.Duration) (share float64, settle int) {

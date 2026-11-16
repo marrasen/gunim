@@ -547,7 +547,9 @@ type Modulation struct {
 
 // ModulationHost is a [Host] that says how control moves its
 // parameters, for a control to show the value as heard beside its own.
-// A view asks it each frame.
+// A view asks it each frame, and draws what it says gliding: a mark
+// fades as it comes and goes, glides when its value steps after a
+// rest, and follows a value that keeps changing.
 type ModulationHost interface {
 	// Modulation returns how control moves parameter id, and false
 	// where no control does.
