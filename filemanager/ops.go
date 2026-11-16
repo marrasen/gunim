@@ -79,6 +79,9 @@ type record struct {
 	// landed holds the names a copy or a move left in its folder, made,
 	// merged into or put in place of others, for the window to select.
 	landed []string
+	// warnings are the items it wrote whole whose permissions or time
+	// the file system refused to set.
+	warnings []Warning
 }
 
 // progress is how far an operation has got.
@@ -549,9 +552,11 @@ func (r *runner) copyDir(src, dst string, info fs.FileInfo, merge, top bool) err
 		}
 	}
 	if st, ok := optional[Stamper](fsys); ok && !merge {
-		if err := st.Chtimes(dst, info.ModTime()); err != nil {
+		w := Warning{Path: dst}
+		if err := stamped(&w, st.Chtimes(dst, info.ModTime()), false); err != nil {
 			return fmt.Errorf("setting the time of %s: %w", dst, err)
 		}
+		r.warn(w)
 	}
 	return nil
 }
@@ -602,7 +607,8 @@ func (r *runner) copyFile(src, dst string, info fs.FileInfo) (err error) {
 // writeFile writes what in reads of src to dst, on the runner's file
 // system, through a part file beside dst that it then renames over dst,
 // so dst is never left half written. The file takes the mode and the
-// time info gives, where the file system can set them.
+// time info gives, where the file system can set them. Where it refuses
+// to, the file goes in place without them, with a warning.
 func (r *runner) writeFile(in io.Reader, src, dst string, info fs.FileInfo) error {
 	fsys := r.env.fs
 	// The part file's name is short, so a dst whose name is near the
@@ -644,17 +650,20 @@ func (r *runner) writeFile(in io.Reader, src, dst string, info fs.FileInfo) erro
 	if err := out.Close(); err != nil {
 		return errors.Join(fmt.Errorf("writing %s: %w", dst, err), fsys.Remove(part))
 	}
+	w := Warning{Path: dst}
 	if st, ok := optional[Stamper](fsys); ok {
-		if err := st.Chmod(part, info.Mode().Perm()); err != nil {
+		if err := stamped(&w, st.Chmod(part, info.Mode().Perm()), true); err != nil {
 			return errors.Join(fmt.Errorf("setting the mode of %s: %w", dst, err), fsys.Remove(part))
 		}
-		if err := st.Chtimes(part, info.ModTime()); err != nil {
+		w.Private = w.Mode && ownerOnly(info.Mode())
+		if err := stamped(&w, st.Chtimes(part, info.ModTime()), false); err != nil {
 			return errors.Join(fmt.Errorf("setting the time of %s: %w", dst, err), fsys.Remove(part))
 		}
 	}
 	if err := fsys.Rename(part, dst); err != nil {
 		return errors.Join(fmt.Errorf("writing %s: %w", dst, err), fsys.Remove(part))
 	}
+	r.warn(w)
 	return nil
 }
 

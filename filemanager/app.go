@@ -101,6 +101,18 @@ type Options struct {
 	// on its own goroutine, as it opens, as it turns to another file
 	// system and when its hub refreshes, so FSName must be quick.
 	FSName func(fs string) string
+	// Ended, when set, hears how each of the window's own operations
+	// ended, such as a copy, a move, an extract or a delete, with what it
+	// did, on a goroutine of its own. An operation that waits for the
+	// user, as to replace a file, has not ended. A transfer is the
+	// program's own, and Ended does not hear of it.
+	//
+	// A Chmod or a Chtimes of an item an operation wrote that fails with
+	// an error matching errors.ErrUnsupported or fs.ErrPermission is a
+	// warning: the item stays, without its permissions or its time, and
+	// the window shows one warning for the operation as it ends. Ended
+	// hears each such item in OpEnd.Warnings.
+	Ended func(w *Window, e OpEnd)
 	// Name is what the window's title calls the program, and Files when
 	// empty.
 	Name string

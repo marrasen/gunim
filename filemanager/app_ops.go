@@ -654,6 +654,14 @@ func (a *app) finish(id int, j job, rec record, err error) {
 			j.worked()
 		}
 		n := Notice{Title: a.doneTitle(j, rec), Undo: undo, Kind: "success"}
+		if len(rec.warnings) > 0 {
+			// One warning for the operation, in place of the cheer.
+			w := a.warnNotice(a.opEnd(j, rec, nil).Into, rec.warnings)
+			w.Undo = undo
+			a.endCard(r, false, Notice{})
+			a.patch(w)
+			break
+		}
 		switch {
 		case rec.replaced > 0:
 			n.Body = plural(rec.replaced, "file") + " replaced, which undo cannot bring back."
@@ -703,6 +711,9 @@ func (a *app) finish(id int, j job, rec record, err error) {
 		// What a paste or a drop brought into the folder showing is
 		// selected, so the user sees what came.
 		a.nav.pick = rec.landed
+	}
+	if a.opts.Ended != nil {
+		go a.opts.Ended(a.win, a.opEnd(j, rec, err))
 	}
 	a.touched(j)
 	a.relist()

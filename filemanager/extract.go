@@ -391,14 +391,18 @@ func (x *extractor) file(name string, in io.Reader, mode fs.FileMode, mod time.T
 		if mode == 0 {
 			mode = 0o644
 		}
-		if err := st.Chmod(p, mode); err != nil {
+		// Refused, the file stays without them, with a warning.
+		w := Warning{Path: p}
+		if err := stamped(&w, st.Chmod(p, mode), true); err != nil {
 			return fmt.Errorf("setting the mode of %s: %w", ps.Show(p), err)
 		}
+		w.Private = w.Mode && ownerOnly(mode)
 		if !mod.IsZero() {
-			if err := st.Chtimes(p, mod); err != nil {
+			if err := stamped(&w, st.Chtimes(p, mod), false); err != nil {
 				return fmt.Errorf("setting the time of %s: %w", ps.Show(p), err)
 			}
 		}
+		x.r.warn(w)
 	}
 	return nil
 }
