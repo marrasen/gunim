@@ -431,7 +431,8 @@ func (a *app) startOp(j job, title string) {
 			a.hub.endCut(j.cut.seq, err == nil && (len(rec.steps) > 0 || rec.replaced > 0))
 		}
 		// The program hears of the end once: from finish, or, where the
-		// window closed before finish could run, from here.
+		// window closed before finish could run, from here. Only one
+		// that had not finished stopped as the window closed.
 		var once sync.Once
 		ended := func(closed bool) {
 			once.Do(func() {
@@ -443,13 +444,14 @@ func (a *app) startOp(j job, title string) {
 		ran := make(chan struct{})
 		a.post(func() {
 			a.finish(id, j, rec, err)
-			ended(a.leaving || a.ctx.Err() != nil)
+			ended(err != nil && (a.leaving || a.ctx.Err() != nil))
 			close(ran)
 		})
 		select {
 		case <-ran:
 		case <-a.stopped:
-			ended(true)
+			// An operation that finished ended well, closed or not.
+			ended(err != nil)
 		}
 	})
 }
@@ -677,7 +679,7 @@ func (a *app) finish(id int, j job, rec record, err error) {
 		n := Notice{Title: a.doneTitle(j, rec), Undo: undo, Kind: "success"}
 		if len(rec.warnings) > 0 {
 			// One warning for the operation, in place of the cheer.
-			w := a.warnNotice(j, rec)
+			w := a.warnNotice(j, rec, nil)
 			w.Undo = undo
 			a.endCard(r, false, Notice{})
 			a.patch(w)
@@ -735,7 +737,7 @@ func (a *app) finish(id int, j job, rec record, err error) {
 	}
 	if err != nil && len(rec.warnings) > 0 {
 		// What it wrote before it stopped is warned of too.
-		a.patch(a.warnNotice(j, rec))
+		a.patch(a.warnNotice(j, rec, err))
 	}
 	a.touched(j)
 	a.relist()

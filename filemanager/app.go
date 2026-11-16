@@ -103,9 +103,10 @@ type Options struct {
 	FSName func(fs string) string
 	// Ended, when set, hears how each of the window's own operations
 	// ended, such as a copy, a move, an extract or a delete, with what it
-	// did. It hears each operation once, also one that ends because the
-	// window closed: then OpEnd.Err matches ErrWindowClosed, and OpEnd
-	// holds what the operation did before it stopped. An operation that
+	// did. It hears each operation once, also one that the window
+	// closing stopped: then OpEnd.Err matches ErrWindowClosed, and OpEnd
+	// holds what the operation did before it stopped. One that finished
+	// as the window closed ended well, with a nil Err. An operation that
 	// waits for the user, as to replace a file, has not ended.
 	//
 	// Each call runs on a goroutine of its own, so calls may overlap,

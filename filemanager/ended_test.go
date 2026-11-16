@@ -22,6 +22,19 @@ type refusingFS struct {
 	FS
 	modeErr, timeErr error
 	failOpen         string
+	// mkdirMode, where set, is the mode Mkdir makes every folder with,
+	// as a server that ignores the mode asked for does.
+	mkdirMode fs.FileMode
+}
+
+func (r refusingFS) Mkdir(path string, perm fs.FileMode) error {
+	if r.mkdirMode != 0 {
+		if err := r.FS.Mkdir(path, r.mkdirMode); err != nil {
+			return err
+		}
+		return os.Chmod(path, r.mkdirMode)
+	}
+	return r.FS.Mkdir(path, perm)
 }
 
 func (r refusingFS) Chmod(path string, mode fs.FileMode) error {
@@ -175,11 +188,17 @@ func TestARefusedTimeIsAWarning(t *testing.T) {
 
 // copyRefused gives the items named in modes their modes, and copies
 // those at the top of the window's folder into its folder web, on a file
-// system that refuses every Chmod. It returns how the copy ended and the
+// system that refuses every Chmod and makes every folder open to all to
+// read. It returns how the copy ended and the
 // warnings shown.
 func copyRefused(t *testing.T, modes map[string]fs.FileMode, spec ...string) (OpEnd, []Notice) {
 	t.Helper()
-	h, e, got := refusingHarness(t, errOpUnsupported, nil, append(spec, "web/")...)
+	e := &endings{}
+	h := newHarnessWith(t, func(o *Options) {
+		o.FS = refusingFS{FS: LocalFS(), modeErr: errOpUnsupported, mkdirMode: 0o755}
+		o.Ended = e.ended
+	}, append(spec, "web/")...)
+	got := notices(h)
 	srcs := make([]string, 0, len(modes))
 	for name, mode := range modes {
 		p := filepath.Join(h.dir, name)
@@ -340,8 +359,8 @@ func TestAFailedMoveAcrossWarnsOfNothingItTookAway(t *testing.T) {
 	})
 	h.until("the move ends", func() bool { return len(e.all()) == 1 })
 	end := e.all()[0]
-	if end.Err == nil || len(end.Warnings) != 0 {
-		t.Fatalf("the move ended as %+v, want a failure with no warnings", end)
+	if end.Err == nil || len(end.Warnings) != 0 || end.Written != 0 {
+		t.Fatalf("the move ended as %+v, want a failure with no warnings or files written", end)
 	}
 	if _, err := os.Stat(filepath.Join(h.dir, "web", "src")); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("the copy is left: %v", err)
@@ -425,5 +444,61 @@ func TestAnUploadWherePermissionsAreRefusedWarns(t *testing.T) {
 				t.Fatalf("the upload also says it went well: %+v", n)
 			}
 		}
+	}
+}
+
+// A copy of a folder that fails partway counts the files it wrote and
+// left, and its warning says that many.
+func TestAFailedFolderCopyCountsTheFilesItWrote(t *testing.T) {
+	e := &endings{}
+	h := newHarnessWith(t, func(o *Options) {
+		o.FS = refusingFS{FS: LocalFS(), modeErr: errOpUnsupported, failOpen: "b.txt"}
+		o.Ended = e.ended
+	}, "src/a.txt", "src/b.txt", "web/")
+	got := notices(h)
+	h.a.post(func() {
+		h.a.startOp(job{kind: OpCopy, srcs: []string{filepath.Join(h.dir, "src")}, dest: filepath.Join(h.dir, "web")}, "Copying src")
+	})
+	h.until("the copy ends", func() bool { return len(e.all()) == 1 })
+	end := e.all()[0]
+	if end.Err == nil || end.Done != 0 || end.Written != 1 || len(end.Warnings) != 1 {
+		t.Fatalf("the copy ended as %+v, want one file written and warned of", end)
+	}
+	h.until("the warning shows", func() bool {
+		for _, n := range warnings(got()) {
+			if strings.Contains(n.Body, errOpUnsupported.Error()) {
+				return strings.Contains(n.Title, "1") && !strings.Contains(n.Title, "0")
+			}
+		}
+		return false
+	})
+}
+
+// An operation that finished just as the window closed, before the
+// window took its end, ended well.
+func TestAnOperationFinishedAsTheWindowClosedEndedWell(t *testing.T) {
+	h, e, _ := refusingHarness(t, nil, nil, "a.txt", "web/")
+	h.a.post(func() {
+		h.a.startOp(job{kind: OpCopy, srcs: []string{filepath.Join(h.dir, "a.txt")}, dest: filepath.Join(h.dir, "web")}, "Copying a.txt")
+	})
+	// The copy starts, but its end is left waiting for the window.
+	select {
+	case fn := <-h.a.done:
+		fn()
+	case <-time.After(untilLimit):
+		t.Fatal("the copy did not start")
+	}
+	deadline := time.Now().Add(untilLimit)
+	for len(h.a.done) == 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	h.close()
+	h.a.stopAll()
+	for len(e.all()) == 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	got := e.all()
+	if len(got) != 1 || got[0].Err != nil || got[0].Done != 1 {
+		t.Fatalf("the program heard %+v, want the copy ended well", got)
 	}
 }

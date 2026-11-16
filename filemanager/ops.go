@@ -80,8 +80,10 @@ type record struct {
 	// merged into or put in place of others, for the window to select.
 	landed []string
 	// warnings are the items it wrote whole whose permissions or time
-	// the file system refused to set.
+	// the file system refused to set, and written counts the files it
+	// wrote whole.
 	warnings []Warning
+	written  int
 }
 
 // progress is how far an operation has got.
@@ -554,10 +556,8 @@ func (r *runner) copyDir(src, dst string, info fs.FileInfo, merge, top bool) err
 		}
 	}
 	if st, ok := optional[Stamper](fsys); ok && !merge {
-		// Made open to the user, so the copy could go in, the folder now
-		// takes the original's permissions, still open to the user.
 		w := Warning{Path: dst}
-		if err := stamped(&w, st.Chmod(dst, info.Mode().Perm()|0o700), true); err != nil {
+		if err := stamped(&w, r.narrow(st, dst, info.Mode()), true); err != nil {
 			return fmt.Errorf("setting the mode of %s: %w", dst, err)
 		}
 		w.Private = w.Mode && closedToOthers(info.Mode())
@@ -565,6 +565,24 @@ func (r *runner) copyDir(src, dst string, info fs.FileInfo, merge, top bool) err
 			return fmt.Errorf("setting the time of %s: %w", dst, err)
 		}
 		r.warn(w)
+	}
+	return nil
+}
+
+// narrow takes from the new folder dir the permissions the original, of
+// mode, did not grant, where its file system made it with more than it
+// was asked for, as a server that ignores the mode does. A folder that
+// grants no more is left as it is: the umask, a default ACL and the bits
+// it took from its parent, such as setgid, stay. Where it changes the
+// mode, it keeps those bits, and the folder stays open to the user, so
+// more can go in later.
+func (r *runner) narrow(st Stamper, dir string, mode fs.FileMode) error {
+	want := mode.Perm() | 0o700
+	// A folder that can't be read has nothing to compare with, and stays
+	// as it was made.
+	if made, err := r.env.fs.Lstat(dir); err == nil && made.Mode().Perm()&^want != 0 {
+		keep := made.Mode() & (fs.ModeSetuid | fs.ModeSetgid | fs.ModeSticky)
+		return st.Chmod(dir, made.Mode().Perm()&want|keep)
 	}
 	return nil
 }
@@ -673,6 +691,7 @@ func (r *runner) writeFile(in io.Reader, src, dst string, info fs.FileInfo) erro
 	if err := fsys.Rename(part, dst); err != nil {
 		return errors.Join(fmt.Errorf("writing %s: %w", dst, err), fsys.Remove(part))
 	}
+	r.rec.written++
 	r.warn(w)
 	return nil
 }
@@ -891,14 +910,18 @@ func (r *runner) moveAcross(src, dst string, replacing bool) error {
 	if err != nil {
 		return fmt.Errorf("reading %s: %w", src, err)
 	}
+	written := r.rec.written
 	if err := r.copyItem(src, dst, false, replacing, false); err != nil {
 		if replacing || !realDir(info) {
 			return err
 		}
 		// The cleanup runs even when the operation was cancelled. What
-		// it takes away is no longer warned of.
+		// it takes away is no longer warned of, or counted as written.
 		cerr := removeAll(context.WithoutCancel(r.ctx), r.env.fs, dst)
 		r.unwarn(dst)
+		if cerr == nil {
+			r.rec.written = written
+		}
 		return errors.Join(err, cerr)
 	}
 	r.p.removing = true

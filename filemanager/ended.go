@@ -24,6 +24,9 @@ type OpEnd struct {
 	// or deleted, as its notice counts them: a folder is one item, with
 	// all it holds.
 	Done int
+	// Written is how many files it wrote whole and left in place, each
+	// file in a folder counted, also where the operation stopped short.
+	Written int
 	// Failed is how many items it could not do: the one it stopped at,
 	// since an operation stops at its first failure. It is zero for an
 	// operation that went well, or that the user stopped.
@@ -148,15 +151,15 @@ type renamedErr struct {
 func (e *renamedErr) Error() string { return e.msg }
 func (e *renamedErr) Unwrap() error { return e.err }
 
-// ErrWindowClosed is what OpEnd.Err matches when the window closed while
-// the operation ran.
+// ErrWindowClosed is what OpEnd.Err matches when the window closed
+// before the operation finished, and so stopped it.
 var ErrWindowClosed = errors.New("the window closed")
 
 // endOf is how job j ended on the file system of ID fsID, whose paths
 // are written as ps, having done rec, with err. closed says the window
-// closed meanwhile.
+// closed before it finished.
 func endOf(j job, fsID string, ps PathStyle, rec record, err error, closed bool) OpEnd {
-	e := OpEnd{Kind: j.kind, FS: fsID, Done: doneCount(rec), Warnings: rec.warnings, Err: err}
+	e := OpEnd{Kind: j.kind, FS: fsID, Done: doneCount(rec), Written: rec.written, Warnings: rec.warnings, Err: err}
 	switch j.kind {
 	case OpCopy, OpMove, OpNewFolder, OpZip:
 		e.Into = j.dest
@@ -193,12 +196,24 @@ func endOf(j job, fsID string, ps PathStyle, rec record, err error, closed bool)
 func doneCount(rec record) int { return len(rec.steps) + rec.replaced }
 
 // warnNotice is the one notice for the warnings of operation j, which
-// did rec, with the file system's answer as its body.
-func (a *app) warnNotice(j job, rec record) Notice {
+// did rec and stopped short with err, or went well, with the file
+// system's answer as its body. One that went well counts the items it
+// did, as its notice would; one that stopped short counts the files it
+// wrote, as the items it was given may not be done.
+func (a *app) warnNotice(j job, rec record, err error) Notice {
 	n := doneCount(rec)
 	what := plural(n, "item")
 	if n == 1 && len(rec.landed) == 1 {
 		what = rec.landed[0]
+	}
+	if err != nil {
+		n = rec.written
+		what = plural(n, "file")
+		if n == 0 {
+			// Only folders it made, whose time was refused.
+			n = len(rec.warnings)
+			what = plural(n, "item")
+		}
 	}
 	into := endOf(j, "", a.ps, rec, nil, false).Into
 	if into == "" {

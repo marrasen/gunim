@@ -404,6 +404,7 @@ func (x *extractor) file(name string, in io.Reader, mode fs.FileMode, mod time.T
 		}
 		x.r.warn(w)
 	}
+	x.r.rec.written++
 	return nil
 }
 
