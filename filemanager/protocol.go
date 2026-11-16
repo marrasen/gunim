@@ -335,7 +335,6 @@ const (
 	CmdSortSize    = "sort.size"
 	CmdSortTime    = "sort.time"
 	CmdSortType    = "sort.type"
-	CmdSelectNone  = "selectnone"
 	// The commands that say what happens to a file fetched to open
 	// that changes on this computer.
 	CmdUploadAsk    = "upload." + uploadAsk

@@ -91,6 +91,27 @@ func (a *app) reveal(path string) {
 // showPreview works out the preview for the selection, in the background.
 func (a *app) showPreview() { a.showPreviewOf(a.selectedEntries()) }
 
+// tellSelected tells the pane's host which items are selected, when that
+// has changed since it was last told.
+func (a *app) tellSelected(sel []entry) {
+	if a.pane == nil || a.pane.host.Selected == nil {
+		return
+	}
+	paths := make([]string, len(sel))
+	for i, e := range sel {
+		paths[i] = a.ps.Join(a.nav.path, e.Name)
+	}
+	key := a.fs.ID() + "\x00" + strings.Join(paths, "\x00")
+	if a.nav.err != nil {
+		key, paths = a.fs.ID(), nil
+	}
+	if a.selectedTold == key && a.selectedSent {
+		return
+	}
+	a.selectedTold, a.selectedSent = key, true
+	a.pane.host.Selected(a.fs.ID(), paths)
+}
+
 // showPreviewOf works out the preview for sel, the rows selected, in order.
 func (a *app) showPreviewOf(sel []entry) {
 	n := &a.nav
@@ -98,6 +119,7 @@ func (a *app) showPreviewOf(sel []entry) {
 		// The preview stays as it is until the folder is read.
 		return
 	}
+	a.tellSelected(sel)
 	var subject string
 	switch {
 	case n.err != nil:
