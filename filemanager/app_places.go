@@ -123,8 +123,8 @@ func (a *app) loadPlaces() {
 }
 
 // defaultPlaces are the places of a window whose options give none: the
-// home folder and the drives of the computer, for its own file
-// system, and the home folder and the top for another.
+// home folder, the drives and the trash of the computer, for its own file
+// system, and the home folder, the top and any trash for another.
 func (a *app) defaultPlaces() ([]Place, error) {
 	if a.fs.ID() == "" {
 		return LocalPlaces()
@@ -144,6 +144,9 @@ func (a *app) defaultPlaces() ([]Place, error) {
 		} else {
 			out[1].Free, out[1].Total = free, total
 		}
+	}
+	if p, ok := TrashPlace(a.fs); ok {
+		out = append(out, p)
 	}
 	return out, nil
 }
