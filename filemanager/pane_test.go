@@ -314,6 +314,12 @@ func TestTheHostsCommandsLeaveThePanesMenus(t *testing.T) {
 	if !ran || len(b.listing.cur.grid.SelectedRows()) == 0 {
 		t.Fatal("Run didn't select all in the pane")
 	}
+	gunim.RegisterPatch(s.w, "host", func(_ *slotHost, _ askFocus, u *gunim.UI) { ran = Run(u, "pane1", CmdSelectNone) })
+	_ = s.w.Client().Patch("host", askFocus{})
+	s.frames(2)
+	if !ran || len(b.listing.cur.grid.SelectedRows()) != 0 {
+		t.Fatal("Run didn't select none in the pane")
+	}
 }
 
 // A host that shows the pane's menus gets them as they are, ticks and
