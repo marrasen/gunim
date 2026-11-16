@@ -61,25 +61,37 @@ func markOf(t *testing.T, w *gunim.Window) mark {
 	return m
 }
 
-// largestStep is the largest share of its way a spring moves in one frame at 60 Hz.
-func largestStep(sp anim.Spring) float64 {
+// largestStep is the largest share of its way a spring moves in one frame at 60 Hz, and how many frames it takes to
+// come within a thousandth of the way.
+func largestStep(sp anim.Spring) (share float64, settle int) { return largestStepIn(sp, time.Second/60) }
+
+// largestStepIn is largestStep with frames dt long.
+func largestStepIn(sp anim.Spring, dt time.Duration) (share float64, settle int) {
 	f := anim.NewFloat(0)
 	f.Animate(1, sp)
 	most, last := 0.0, float32(0)
-	for f.Step(time.Second / 60) {
+	for n := 1; f.Step(dt); n++ {
 		most, last = max(most, float64(f.Value()-last)), f.Value()
+		if settle == 0 && 1-f.Value() < 1e-3 {
+			settle = n
+		}
 	}
-	return max(most, float64(1-last))
+	if settle == 0 {
+		settle = 1
+	}
+	return max(most, float64(1-last)), settle
 }
 
 // markGlides checks a value a frame at a time from its read at the frame before to want: no frame moves it further than
-// the spring's own largest step of the way, and it ends on want.
+// the spring's own largest step of the way, it comes within a thousandth of the way no later than the spring does,
+// and it ends on want.
 func markGlides(t *testing.T, what string, w *gunim.Window, sp anim.Spring, read func(mark) float64, want float64) {
 	t.Helper()
 	from := read(markOf(t, w))
 	way := math.Abs(want - from)
-	most := largestStep(sp)*way + 1e-3
-	last := from
+	share, settle := largestStep(sp)
+	most := share*way + 1e-3
+	last, near := from, 0
 	for f := range 60 {
 		frames(w, 1)
 		got := read(markOf(t, w))
@@ -87,10 +99,16 @@ func markGlides(t *testing.T, what string, w *gunim.Window, sp anim.Spring, read
 			t.Fatalf("%s: frame %d moved the mark %.4f of %.4f at once, more than the spring's own %.4f", what, f+1, d,
 				way, most)
 		}
+		if near == 0 && math.Abs(got-want) <= 1e-3*max(way, 1) {
+			near = f + 1
+		}
 		last = got
 	}
 	if math.Abs(last-want) > 1e-3 {
 		t.Fatalf("%s: settled, the mark stands at %.4f, want %.4f", what, last, want)
+	}
+	if near > settle+1 {
+		t.Fatalf("%s: the mark came near its end on frame %d, later than the spring's own %d", what, near, settle)
 	}
 }
 
@@ -134,7 +152,8 @@ func TestAKnobsModulationMarkGlides(t *testing.T) {
 	}
 }
 
-// A knob follows a modulation that moves on every frame, a 5 Hz and a 20 Hz sine, as closely as the frames allow.
+// A knob follows a modulation that moves on every frame, a 5 Hz and a 20 Hz sine, from its fourth frame on: from rest it
+// glides into the movement, as the needle does, and catches up by no more than the sine's own step.
 func TestAKnobFollowsAMovingModulation(t *testing.T) {
 	for _, hz := range []float64{5, 20} {
 		h := &menuHost{host: host{values: map[uint32]float64{3: 100}}, mod: map[uint32]plug.Modulation{}}
@@ -146,7 +165,7 @@ func TestAKnobFollowsAMovingModulation(t *testing.T) {
 			now := 100 * math.Pow(10, 0.5*math.Sin(2*math.Pi*hz*float64(f)/60))
 			h.mod[3] = plug.Modulation{Low: -0.2, High: 0.2, Now: now}
 			frames(w, 1)
-			if f >= 2 {
+			if f >= 3 {
 				lag = max(lag, math.Abs(markOf(t, w).at-k.turnOf(now))*knobSweep*180/math.Pi)
 			}
 		}
