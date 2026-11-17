@@ -56,7 +56,7 @@ func (f *FFT) Transform(x []complex128) {
 	if bits.TrailingZeros(uint(n))%2 == 1 {
 		w0 := f.tw[1]
 		for i := 0; i+1 < n; i += 2 {
-			u, t := x[i], w0*x[i+1]
+			u, t := x[i], mul(w0, x[i+1])
 			x[i], x[i+1] = u+t, u-t
 		}
 		half = 2
@@ -75,14 +75,20 @@ func (f *FFT) stages(x []complex128, half int) {
 		x0, x1, x2, x3 = x0[:len(wa)], x1[:len(wa)], x2[:len(wa)], x3[:len(wa)]
 		wb, wc := wb[:len(wa)], wc[:len(wa)]
 		for k, w := range wa {
-			u, t := x0[k], w*x1[k]
+			u, t := x0[k], mul(w, x1[k])
 			a0, a1 := u+t, u-t
-			u, t = x2[k], w*x3[k]
+			u, t = x2[k], mul(w, x3[k])
 			a2, a3 := u+t, u-t
-			t = wb[k] * a2
+			t = mul(wb[k], a2)
 			x0[k], x2[k] = a0+t, a0-t
-			t = wc[k] * a3
+			t = mul(wc[k], a3)
 			x1[k], x3[k] = a1+t, a1-t
 		}
 	}
+}
+
+// mul is w times x as Go works out a complex product, its first products rounded so that a fused multiply-add takes
+// only the second, as it does in a plain w*x.
+func mul(w, x complex128) complex128 {
+	return complex(float64(real(w)*real(x))-imag(w)*imag(x), float64(real(w)*imag(x))+imag(w)*real(x))
 }
