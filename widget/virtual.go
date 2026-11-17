@@ -33,6 +33,8 @@ import (
 //
 // The list scrolls itself, as a [Scroll] does: the wheel and the keys
 // glide it with a spring, and a thin bar shows while it moves.
+//
+// Under a [Steady] parent that carries it at rest, rows move and reorder without the fades.
 type VirtualList struct {
 	scrolling
 
@@ -84,13 +86,14 @@ type VirtualList struct {
 	moves int
 	// revealKey is the row RevealKey keeps in view while rows move, "" for none.
 	revealKey Key
-	// swap fades the order before a large reorder out, from 1 to 0; swapRun is what the rows drew then, kept in
-	// swapRec at the next paint, and shown is what the rows drew in the last paint.
-	swap         *anim.Float
-	swapRun      paint.Run
-	swapRec      paint.Recording
-	swapRecalled bool
-	shown        paint.Run
+	// swap fades the order before a large reorder out, from 1 to 0.
+	swap *anim.Float
+	// swapRun is what the rows drew before a large reorder, until the next paint keeps it.
+	swapRun paint.Run
+	// swapRec holds what swapRun drew, while swap fades it out.
+	swapRec paint.Recording
+	// shown is what the rows drew in the last paint.
+	shown paint.Run
 	// indexed counts the counts of the whole list, which cost time in its length.
 	indexed int
 
@@ -109,16 +112,17 @@ type VirtualList struct {
 type spacer struct {
 	h    *anim.Float
 	full float32
-	// key is the moved row's key, and row the row while it grows in; the spacer takes the height the row has yet
-	// to grow, and closes on h once the row is let go.
+	// key is the moved row's key.
 	key Key
+	// row is the moved row while it grows in at its new place; the spacer takes the height it has yet to grow.
 	row *row
-	// run is what the row drew before it moved, kept in rec at the next paint, recalled once that is done.
-	run      paint.Run
-	rec      paint.Recording
-	recalled bool
-	// top is the place's top in the view at the last layout, and laid says that layout reached it.
-	top  float32
+	// run is what the row drew before it moved, until the next paint keeps it.
+	run paint.Run
+	// rec holds what run drew.
+	rec paint.Recording
+	// top is the place's top in the view at the last layout.
+	top float32
+	// laid says the last layout reached the place.
 	laid bool
 }
 
@@ -478,9 +482,13 @@ func (l *VirtualList) moveRows(next []Key, staying, leaving map[Key]bool, u *gun
 	return prev
 }
 
-// crossFade fades what the rows drew before a large reorder out over the rows in their new order.
+// crossFade fades what the rows drew before a large reorder out over the rows in their new order. An order fading
+// out stays while it shows more than half.
 func (l *VirtualList) crossFade(u *gunim.UI) {
-	l.swapRun, l.swapRecalled = l.shown, false
+	if l.swap.Value() >= 0.5 {
+		return
+	}
+	l.swapRun = l.shown
 	l.swap.Jump(1)
 	l.swap.Animate(0, Quick.Get(u.Theme()))
 }
@@ -610,6 +618,8 @@ func (l *VirtualList) Step(dt time.Duration) bool {
 	l.again = false
 	if l.swap.Step(dt) {
 		moving = true
+	} else if !l.swapRec.Empty() {
+		l.swapRec = paint.Recording{}
 	}
 	for k, sp := range l.spacers {
 		if sp.row != nil {
@@ -833,15 +843,13 @@ func (l *VirtualList) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids
 	func() {
 		defer l.layer(p, geom.Rect{Max: box.Point()}, f.Theme)()
 		offset := l.offset.Value()
-		mark := p.Mark()
-		defer func() { l.shown = p.RunFrom(mark) }()
-		if !l.swapRecalled {
-			l.swapRecalled = true
+		if l.swapRun != (paint.Run{}) {
 			if !l.swapRun.Keep(&l.swapRec) {
 				l.swap.Jump(0)
 			}
+			l.swapRun = paint.Run{}
 		}
-		if s := l.swap.Value(); s > 0 {
+		if s := l.swap.Value(); s > 0 && !l.swapRec.Empty() {
 			// The order before a large reorder fades out, and the rows in the new one fade in over it.
 			func() {
 				defer p.Layer(paint.LayerOpts{Bounds: geom.Rect{Max: box.Point()}, Opacity: s})()
@@ -849,6 +857,9 @@ func (l *VirtualList) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids
 			}()
 			defer p.Layer(paint.LayerOpts{Bounds: geom.Rect{Max: box.Point()}, Opacity: 1 - s})()
 		}
+		// What the rows draw is kept apart from the order fading out, so a recording never holds an older one.
+		mark := p.Mark()
+		defer func() { l.shown = p.RunFrom(mark) }()
 		for _, sp := range l.spacers {
 			l.paintPlace(p, sp, box, f)
 		}
@@ -872,15 +883,17 @@ func (l *VirtualList) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids
 
 // paintPlace draws the row a spacer's place held, as it was drawn there, fading out as the place closes.
 func (l *VirtualList) paintPlace(p *paint.Painter, sp *spacer, box geom.Size, f gunim.Frame) {
-	if !sp.recalled {
-		sp.recalled = true
+	if sp.run != (paint.Run{}) {
 		sp.run.Keep(&sp.rec)
+		sp.run = paint.Run{}
 	}
 	h := l.spacerHeight(sp)
 	if !sp.laid || h <= 0 || sp.full <= 0 || sp.rec.Empty() || sp.top > box.H || sp.top+h < 0 {
 		return
 	}
+	// The row fades out ahead of its place closing, so a highlight it was drawn with goes before the place is shut.
 	t := h / sp.full
+	t *= t
 	defer p.Push(paint.Translate(geom.Pt(0, sp.top)))()
 	defer p.Layer(paint.LayerOpts{
 		Bounds:  geom.Rc(0, 0, box.W, h),

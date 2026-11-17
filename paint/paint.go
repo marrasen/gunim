@@ -15,6 +15,7 @@ import (
 	"image/color"
 	"math"
 	"slices"
+	"weak"
 
 	"github.com/marrasen/gunim/geom"
 )
@@ -70,6 +71,8 @@ type Painter struct {
 	ready bool
 	// frame counts the frames Reset started.
 	frame uint64
+	// self is a weak pointer to the painter, made once, for its runs.
+	self weak.Pointer[Painter]
 	// popFn is pop as a func value, made once, so Push allocates
 	// nothing.
 	popFn func()

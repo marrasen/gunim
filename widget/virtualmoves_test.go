@@ -193,3 +193,60 @@ func TestVirtualListCrossFadesALargeReorder(t *testing.T) {
 	}
 	wantStacked(t, l, reversed)
 }
+
+// A list reordered on every frame keeps what it draws to about two views: the order fading out holds what the rows
+// drew, never the copy of an older order fading under them. At rest it keeps no recording.
+func TestVirtualListReorderedOnEveryFrameStaysCheap(t *testing.T) {
+	w, l, step := newTagged(t, keys(20), 40)
+	view := len(w.Offscreen().Ops())
+	reversed := slices.Clone(keys(20))
+	slices.Reverse(reversed)
+	for f := range 100 {
+		next := keys(20)
+		if f%2 == 0 {
+			next = reversed
+		}
+		if err := w.Client().Update("v", shownKeys{next}); err != nil {
+			t.Fatal(err)
+		}
+		step()
+		if n := len(w.Offscreen().Ops()); n > 2*view+8 {
+			t.Fatalf("frame %d drew %d ops, want at most %d, twice the %d of one view", f, n, 2*view+8, view)
+		}
+	}
+	for range 60 {
+		step()
+	}
+	if !l.swapRec.Empty() || l.swapRun != (paint.Run{}) {
+		t.Fatal("at rest the list still keeps the order it faded out")
+	}
+}
+
+// A moved row's old place fades out ahead of closing, so a highlight it was drawn with is faint by the time the
+// place is half shut, and the place keeps no run or recording once it has closed.
+func TestVirtualListFadesAMovedRowOutAheadOfItsPlace(t *testing.T) {
+	w, l, step := newTagged(t, keys(6), 40)
+	old := 40 + l.gap
+	if err := w.Client().Update("v", shownKeys{[]Key{"0", "2", "3", "4", "5", "1"}}); err != nil {
+		t.Fatal(err)
+	}
+	checked := false
+	for f := range 60 {
+		rows := step()
+		for _, sp := range l.spacers {
+			at, ok := drawnAt(rows, "1", old)
+			if open := l.spacerHeight(sp) / sp.full; ok && open <= 0.5 {
+				checked = true
+				if at > 0.3 {
+					t.Fatalf("frame %d: the old place is %v open and drawn at %v, want 0.3 at most", f, open, at)
+				}
+			}
+			if f > 0 && sp.run != (paint.Run{}) {
+				t.Fatalf("frame %d: the old place still holds the run it kept", f)
+			}
+		}
+	}
+	if !checked {
+		t.Fatal("the old place never showed half shut")
+	}
+}

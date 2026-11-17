@@ -1,6 +1,10 @@
 package paint
 
-import "github.com/marrasen/gunim/geom"
+import (
+	"weak"
+
+	"github.com/marrasen/gunim/geom"
+)
 
 // A Run is a stretch of one frame's commands, which a node that draws
 // the same again next frame can hand on with [Painter.Again] rather
@@ -11,7 +15,8 @@ import "github.com/marrasen/gunim/geom"
 // and the last of them, so a run from another painter, or from another
 // frame than the one before, is told apart and refused.
 type Run struct {
-	p           *Painter
+	// p is the painter that drew the run, held weakly so a kept run never keeps it alive.
+	p           weak.Pointer[Painter]
 	from, to    int
 	first, last Op
 	// at is the space in force as the run was taken, and frame the painter's frame then.
@@ -21,7 +26,10 @@ type Run struct {
 
 // RunFrom returns the commands recorded since mark as a run.
 func (p *Painter) RunFrom(mark int) Run {
-	r := Run{p: p, from: mark, to: len(p.ops), at: p.at(), frame: p.frame}
+	if p.self.Value() != p {
+		p.self = weak.Make(p)
+	}
+	r := Run{p: p.self, from: mark, to: len(p.ops), at: p.at(), frame: p.frame}
 	if r.to > r.from {
 		r.first, r.last = p.ops[r.from], p.ops[r.to-1]
 	}
@@ -30,7 +38,7 @@ func (p *Painter) RunFrom(mark int) Run {
 
 // before reports whether run is from this painter's frame before this one.
 func (p *Painter) before(run Run) bool {
-	if run.p != p || !p.hasPrev || run.frame+1 != p.frame || run.from < 0 || run.to > len(p.prev) || run.from > run.to {
+	if run.p.Value() != p || !p.hasPrev || run.frame+1 != p.frame || run.from < 0 || run.to > len(p.prev) || run.from > run.to {
 		return false
 	}
 	return run.to == run.from || p.prev[run.from] == run.first && p.prev[run.to-1] == run.last
@@ -39,7 +47,7 @@ func (p *Painter) before(run Run) bool {
 // held returns the run's commands and their bounds while its painter holds them: in the frame they were drawn in, or
 // in the one after.
 func (run Run) held() ([]Op, []geom.Rect, bool) {
-	p := run.p
+	p := run.p.Value()
 	if p == nil {
 		return nil, nil, false
 	}
@@ -169,10 +177,7 @@ func (p *Painter) Again(run Run) bool {
 // from the frame before, drew, command for command, at the same bounds:
 // for checking that a node which said it would draw the same did.
 func (p *Painter) SameAs(run Run, mark int) bool {
-	if run.p != p || !p.hasPrev || run.frame+1 != p.frame || run.from < 0 || run.to > len(p.prev) || run.from > run.to || mark < 0 || mark > len(p.ops) {
-		return false
-	}
-	if len(p.ops)-mark != run.to-run.from {
+	if !p.before(run) || mark < 0 || mark > len(p.ops) || len(p.ops)-mark != run.to-run.from {
 		return false
 	}
 	for i := range run.to - run.from {
