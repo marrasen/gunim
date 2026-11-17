@@ -559,9 +559,9 @@ func TestADocumentClosesItsPluginsAndObjects(t *testing.T) {
 	x.analyse(t)
 	p, _ := bound(t, x.a, x.d, PlaybackRenderer)
 	_ = p.ARA().SetRegions(x.r1, x.r2)
-	x.d.Close()
-	x.d.Close()
 	fd := x.a.docs[0]
+	x.d.Close()
+	x.d.Close()
 	if !fd.destroyed || !p.closed.Load() {
 		t.Fatalf("destroyed %v, plugin closed %v", fd.destroyed, p.closed.Load())
 	}

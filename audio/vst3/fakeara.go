@@ -325,10 +325,8 @@ type fakeDoc struct {
 	regions  map[uintptr]*fakeRegion
 	// news is what the fake tells at its next notifyModelUpdates.
 	news []func()
-	// readers are the audio readers made, to destroy.
-	readers []uintptr
-	exts    []*fakeExt
-	wg      sync.WaitGroup
+	exts []*fakeExt
+	wg   sync.WaitGroup
 	// The edit cycle's restores, for ARA's rules of partial
 	// persistence: the sources made in it, the sources and
 	// modifications whose states it restored, and whether it restored
@@ -426,6 +424,30 @@ func (d *fakeDoc) later(fn func()) {
 	d.mu.Unlock()
 }
 
+// forget lets go of a destroyed document and of every object left in it.
+func (d *fakeDoc) forget() {
+	d.mu.Lock()
+	dropAll(d.contexts)
+	dropAll(d.seqs)
+	dropAll(d.sources)
+	dropAll(d.mods)
+	dropAll(d.regions)
+	d.news = nil
+	d.mu.Unlock()
+	dropHandle(d.ref)
+	d.a.mu.Lock()
+	d.a.docs = slices.DeleteFunc(d.a.docs, func(e *fakeDoc) bool { return e == d })
+	d.a.mu.Unlock()
+}
+
+// dropAll drops the handle of every object in m, and empties it.
+func dropAll[T any](m map[uintptr]T) {
+	for ref := range m {
+		dropHandle(ref)
+	}
+	clear(m)
+}
+
 // readContent reads a musical context's content through the host.
 func (d *fakeDoc) readContent(c *fakeContext) {
 	c.reads++
@@ -466,9 +488,6 @@ func (d *fakeDoc) startAnalysis(s *fakeSource) {
 		d.a.violate("the host made no audio reader")
 		return
 	}
-	d.mu.Lock()
-	d.readers = append(d.readers, rd)
-	d.mu.Unlock()
 	d.later(func() { callProgress(d.host.model, s.host, 0, 0) })
 	d.wg.Add(1)
 	go func() {
@@ -505,6 +524,7 @@ func (d *fakeDoc) startAnalysis(s *fakeSource) {
 			}
 		}
 		ok = ok && d.host.audio.call(1, rd, uintptr(half), uintptr(int64(n)-half), uintptr(unsafe.Pointer(&bufs[0])))&0xffffffff != 0
+		d.host.audio.call(2, rd)
 		if !ok {
 			d.a.violate("a read of the source failed")
 		}
@@ -667,6 +687,7 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 			d.a.violate("the document went with %d content readers open", d.contentReaders)
 		}
 		d.destroyed = true
+		d.forget()
 		return 0
 	})
 	set(dcGetFactory, func(ctl uintptr) uintptr { return fakeDocOf(ctl).a.factory.addr() })
@@ -751,6 +772,7 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 		d.mu.Lock()
 		delete(d.contexts, ref)
 		d.mu.Unlock()
+		dropHandle(ref)
 		return 0
 	})
 	srcFields := []int{fPtr, fPtr, fPtr, fI64, fF64, fI32, fI32, fI32, fPtr}
@@ -804,6 +826,7 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 		d.mu.Lock()
 		delete(d.sources, ref)
 		d.mu.Unlock()
+		dropHandle(ref)
 		return 0
 	})
 	modFields := []int{fPtr, fPtr, fPtr}
@@ -837,6 +860,7 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 		d.mu.Lock()
 		delete(d.mods, ref)
 		d.mu.Unlock()
+		dropHandle(ref)
 		return 0
 	})
 	regionFields := []int{fPtr, fI32, fF64, fF64, fF64, fF64, fPtr, fPtr, fPtr, fPtr}
@@ -879,6 +903,7 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 		d.mu.Lock()
 		delete(d.regions, ref)
 		d.mu.Unlock()
+		dropHandle(ref)
 		return 0
 	})
 	// Content, through a function of each kind of object's.
@@ -1020,6 +1045,7 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 		d.mu.Lock()
 		delete(d.seqs, ref)
 		d.mu.Unlock()
+		dropHandle(ref)
 		return 0
 	})
 	set(dcGetPlaybackRegionHeadAndTailTime, func(ctl, ref, head, tail uintptr) uintptr {
@@ -1241,6 +1267,7 @@ func (d *fakeDoc) edit(id string, gain, from, length float64) {
 type fakeExt struct {
 	d             *fakeDoc
 	f             *fakeInstance
+	ref           uintptr
 	roles         Roles
 	inst          *cstruct
 	regions       []uintptr
@@ -1278,6 +1305,7 @@ var fakeARAEntry2Kind = &kind{iids: []uid{iidARAPlugInEntry2}, other: fakeInstOt
 			}
 			x := &fakeExt{d: d, f: f, roles: Roles(assigned)}
 			ref := newHandle(x)
+			x.ref = ref
 			t := fakeExtTables()
 			x.inst = newStruct(extensionFields...)
 			if x.roles&PlaybackRenderer != 0 {
@@ -1500,11 +1528,17 @@ var fakeInstCompKind = &kind{iids: []uid{iidComponent}, other: fakeInstOther, ma
 		newCallback(func(this uintptr) uintptr {
 			// Terminated, it lets go of its ARA extension, as a plugin
 			// destroyed does.
-			if x := instOf(this).araExt; x != nil {
+			f := instOf(this)
+			if x := f.araExt; x != nil {
 				x.d.mu.Lock()
 				x.d.exts = slices.DeleteFunc(x.d.exts, func(e *fakeExt) bool { return e == x })
 				x.d.mu.Unlock()
+				dropHandle(x.ref)
+				f.araExt = nil
 			}
+			f.ara.mu.Lock()
+			f.ara.instances = slices.DeleteFunc(f.ara.instances, func(e *fakeInstance) bool { return e == f })
+			f.ara.mu.Unlock()
 			return ok()
 		}),
 		newCallback(func(this, cid uintptr) uintptr { return resultOf(resultFalse) }),
