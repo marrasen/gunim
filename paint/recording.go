@@ -43,18 +43,33 @@ func (p *Painter) Mark() int { return len(p.ops) }
 // Keep copies the commands recorded since mark into r, in the space in
 // force now, which should be the one in force at mark. Layers opened in
 // the stretch must have closed in it.
-func (p *Painter) Keep(mark int, r *Recording) {
-	inv, ok := p.at().Invert()
+func (p *Painter) Keep(mark int, r *Recording) { r.keep(p.ops[mark:], p.bounds[mark:], p.at()) }
+
+// Keep keeps the run's commands in r, in the space the run was taken in, and reports whether it could. It can while
+// the run's painter holds them, in the frame they were drawn in and the one after; it draws nothing.
+func (run Run) Keep(r *Recording) bool {
+	ops, bounds, ok := run.held()
+	if !ok {
+		r.keep(nil, nil, Identity)
+		return false
+	}
+	r.keep(ops, bounds, run.at)
+	return true
+}
+
+// keep copies ops, with their window bounds, into r, in the space at.
+func (r *Recording) keep(ops []Op, bounds []geom.Rect, at Transform) {
+	inv, ok := at.Invert()
 	r.ops, r.glyphs, r.points, r.edges = r.ops[:0], r.glyphs[:0], r.points[:0], r.edges[:0]
 	clear(r.items)
 	r.items = r.items[:0]
 	if !ok {
 		return
 	}
-	for i := mark; i < len(p.ops); i++ {
+	for i := range ops {
 		k := keptOp{}
 		var own Transform
-		switch op := p.ops[i].(type) {
+		switch op := ops[i].(type) {
 		case *RRectOp:
 			c := *op
 			k.op, own = &c, op.Transform
@@ -96,7 +111,7 @@ func (p *Painter) Keep(mark int, r *Recording) {
 			c := *op
 			k.op, own = &c, op.Transform
 		case *LayerEndOp:
-			k.op, own = &LayerEndOp{}, p.at()
+			k.op, own = &LayerEndOp{}, at
 		default:
 			continue
 		}
@@ -104,7 +119,7 @@ func (p *Painter) Keep(mark int, r *Recording) {
 		// The bounds were kept in window space; back into the command's
 		// own space, as record takes them.
 		if back, ok := own.Invert(); ok {
-			k.bounds = box(back, p.bounds[i])
+			k.bounds = box(back, bounds[i])
 		}
 		r.ops = append(r.ops, k)
 	}

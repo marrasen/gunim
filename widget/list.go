@@ -525,6 +525,8 @@ type row struct {
 	// laid is set by the row's first layout, and placed once the list
 	// has put it somewhere.
 	laid, placed bool
+	// run is what the item drew in the row's last paint.
+	run paint.Run
 }
 
 func newRow(key Key, child gunim.Node) *row {
@@ -609,7 +611,7 @@ func (r *row) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.C
 	// fade and the clip while it opens and closes, and each one ends a
 	// batch of drawing.
 	if t >= 1 && r.slide.Value() >= 1 && box.H >= r.inner {
-		kids.At(0).Paint(p)
+		r.paintItem(p, kids)
 		return
 	}
 	// Clipping to the animated height keeps the item its own size while
@@ -622,5 +624,12 @@ func (r *row) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.C
 		Radius:  RowRadius.Get(f.Theme),
 	})()
 	defer p.Push(paint.Translate(geom.Pt(-16*(1-r.slide.Value()), 0)))()
+	r.paintItem(p, kids)
+}
+
+// paintItem paints the item and keeps its run, which a virtual list draws again where the row was moved from.
+func (r *row) paintItem(p *paint.Painter, kids gunim.Children) {
+	mark := p.Mark()
 	kids.At(0).Paint(p)
+	r.run = p.RunFrom(mark)
 }

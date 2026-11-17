@@ -14,15 +14,52 @@ type Run struct {
 	p           *Painter
 	from, to    int
 	first, last Op
+	// at is the space in force as the run was taken, and frame the painter's frame then.
+	at    Transform
+	frame uint64
 }
 
 // RunFrom returns the commands recorded since mark as a run.
 func (p *Painter) RunFrom(mark int) Run {
-	r := Run{p: p, from: mark, to: len(p.ops)}
+	r := Run{p: p, from: mark, to: len(p.ops), at: p.at(), frame: p.frame}
 	if r.to > r.from {
 		r.first, r.last = p.ops[r.from], p.ops[r.to-1]
 	}
 	return r
+}
+
+// before reports whether run is from this painter's frame before this one.
+func (p *Painter) before(run Run) bool {
+	if run.p != p || !p.hasPrev || run.frame+1 != p.frame || run.from < 0 || run.to > len(p.prev) || run.from > run.to {
+		return false
+	}
+	return run.to == run.from || p.prev[run.from] == run.first && p.prev[run.to-1] == run.last
+}
+
+// held returns the run's commands and their bounds while its painter holds them: in the frame they were drawn in, or
+// in the one after.
+func (run Run) held() ([]Op, []geom.Rect, bool) {
+	p := run.p
+	if p == nil {
+		return nil, nil, false
+	}
+	var ops []Op
+	var bounds []geom.Rect
+	switch {
+	case run.frame == p.frame:
+		ops, bounds = p.ops, p.bounds
+	case run.frame+1 == p.frame && p.hasPrev:
+		ops, bounds = p.prev, p.prevBounds
+	default:
+		return nil, nil, false
+	}
+	if run.from < 0 || run.to > len(ops) || run.from > run.to {
+		return nil, nil, false
+	}
+	if run.to > run.from && (ops[run.from] != run.first || ops[run.to-1] != run.last) {
+		return nil, nil, false
+	}
+	return ops[run.from:run.to], bounds[run.from:run.to], true
 }
 
 // carried is a stretch of this frame's commands copied from the frame
@@ -42,10 +79,7 @@ type carried struct{ at, from, n int }
 // commands carried to the place they held as unchanged, without
 // comparing them.
 func (p *Painter) Again(run Run) bool {
-	if run.p != p || !p.hasPrev || run.from < 0 || run.to > len(p.prev) || run.from > run.to {
-		return false
-	}
-	if run.to > run.from && (p.prev[run.from] != run.first || p.prev[run.to-1] != run.last) {
+	if !p.before(run) {
 		return false
 	}
 	depth := 0
@@ -135,7 +169,7 @@ func (p *Painter) Again(run Run) bool {
 // from the frame before, drew, command for command, at the same bounds:
 // for checking that a node which said it would draw the same did.
 func (p *Painter) SameAs(run Run, mark int) bool {
-	if run.p != p || !p.hasPrev || run.from < 0 || run.to > len(p.prev) || run.from > run.to || mark < 0 || mark > len(p.ops) {
+	if run.p != p || !p.hasPrev || run.frame+1 != p.frame || run.from < 0 || run.to > len(p.prev) || run.from > run.to || mark < 0 || mark > len(p.ops) {
 		return false
 	}
 	if len(p.ops)-mark != run.to-run.from {

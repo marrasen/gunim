@@ -68,6 +68,8 @@ type Painter struct {
 	// ready is false in a zero Painter, whose cur has never been set;
 	// at reads it as the identity until then.
 	ready bool
+	// frame counts the frames Reset started.
+	frame uint64
 	// popFn is pop as a func value, made once, so Push allocates
 	// nothing.
 	popFn func()
@@ -149,6 +151,7 @@ var Everything = geom.Rect{Min: geom.Pt(-1e9, -1e9), Max: geom.Pt(1e9, 1e9)}
 // [Painter.Damage] compares against, and the buffers of the one before
 // it are reused.
 func (p *Painter) Reset() {
+	p.frame++
 	p.hasPrev = p.ready
 	// The ops of the frame before last are let go, all the way to the
 	// buffer's end, so a frame of fewer ops keeps none of them alive.

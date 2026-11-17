@@ -268,3 +268,25 @@ func TestClipsAlikeAreTheSame(t *testing.T) {
 		t.Fatal("no clip is not the same as no clip")
 	}
 }
+
+// A run from two frames back is refused, though the frame before drew the same commands from the same buffers.
+func TestARunFromAnOlderFrameIsRefused(t *testing.T) {
+	var p Painter
+	red := color.NRGBA{R: 0xff, A: 0xff}
+	p.Reset()
+	mark := p.Mark()
+	cells(&p, 5, red)
+	run := p.RunFrom(mark)
+	p.Reset()
+	cells(&p, 5, red)
+	p.Reset()
+	cells(&p, 5, red)
+	p.Reset()
+	if p.Again(run) {
+		t.Fatal("a run from two frames back was carried")
+	}
+	var r Recording
+	if run.Keep(&r) {
+		t.Fatal("a run from two frames back was kept")
+	}
+}

@@ -60,3 +60,59 @@ func TestARecordingIsDrawnAgainElsewhere(t *testing.T) {
 		t.Fatalf("kept again, the recording holds %d commands and %d glyphs", len(r.ops), len(r.glyphs))
 	}
 }
+
+// What a node drew the frame before is kept from its run, in the space it drew in, and nothing is drawn. A run from
+// an older frame is refused.
+func TestARunFromTheFrameBeforeIsKept(t *testing.T) {
+	var p Painter
+	red := color.NRGBA{R: 0xff, A: 0xff}
+	p.Reset()
+	pop := p.Push(Translate(geom.Pt(100, 50)))
+	mark := p.Mark()
+	func() {
+		defer p.Layer(LayerOpts{Bounds: geom.Rc(0, 0, 40, 20), Opacity: 0.5})()
+		p.RRect(geom.Rc(10, 5, 20, 10), 2, Solid(red))
+	}()
+	run := p.RunFrom(mark)
+	pop()
+
+	p.Reset()
+	var r Recording
+	if !run.Keep(&r) {
+		t.Fatal("the run from the frame before was refused")
+	}
+	if n := len(p.Ops()); n != 0 {
+		t.Fatalf("recalling drew %d commands, want none", n)
+	}
+	pop = p.Push(Translate(geom.Pt(0, 200)))
+	p.Replay(&r)
+	pop()
+	ops := p.Ops()
+	if len(ops) != 3 {
+		t.Fatalf("replayed %d commands, want the layer, the rectangle and the layer's end", len(ops))
+	}
+	rr, ok := ops[1].(*RRectOp)
+	if !ok || rr.Fill.Solid != red {
+		t.Fatalf("the second command is %#v", ops[1])
+	}
+	// Its corner, at (10, 5) in the node's space, lands at 200 + 5.
+	if at := rr.Transform.Apply(rr.Rect.Min); at != geom.Pt(10, 205) {
+		t.Fatalf("the rectangle starts at %v, want (10, 205)", at)
+	}
+
+	p.Reset()
+	if run.Keep(&r) || !r.Empty() {
+		t.Fatal("a run from two frames back was kept")
+	}
+
+	// A run is kept from the painter that drew it, as a popup's next frame may paint with another, and in the
+	// frame it was drawn in.
+	var q Painter
+	q.Reset()
+	mark = q.Mark()
+	q.RRect(geom.Rc(0, 0, 4, 4), 0, Solid(red))
+	run = q.RunFrom(mark)
+	if !run.Keep(&r) || len(r.ops) != 1 {
+		t.Fatal("a run in the frame it was drawn in was not kept")
+	}
+}

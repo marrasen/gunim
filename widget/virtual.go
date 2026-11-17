@@ -20,10 +20,11 @@ import (
 // Rows that scroll into view appear at once, and rows that scroll out
 // are dropped. Changes to the items animate: a new item in view grows
 // into place, and a removed one collapses while its neighbours close
-// the gap. An item moved in view closes at its old place and grows in
-// at its new one, when a few move. A change that moves more rows in view,
-// such as a sort, takes effect at once, with the first row in view kept
-// in its place. The rows always stack, so no row is drawn over another.
+// the gap. An item moved in view fades out as its old place closes, and
+// grows and fades in at its new one, when a few move. A change that moves
+// more rows in view, such as a sort, lays out at once, with the first row
+// in view kept in its place, and the rows in view cross-fade from the old
+// order to the new. The rows always stack, so no row is laid over another.
 //
 // A row's height is known once it has been laid out. Until then the
 // list assumes Estimate. When a row above the view turns out taller or
@@ -83,6 +84,13 @@ type VirtualList struct {
 	moves int
 	// revealKey is the row RevealKey keeps in view while rows move, "" for none.
 	revealKey Key
+	// swap fades the order before a large reorder out, from 1 to 0; swapRun is what the rows drew then, kept in
+	// swapRec at the next paint, and shown is what the rows drew in the last paint.
+	swap         *anim.Float
+	swapRun      paint.Run
+	swapRec      paint.Recording
+	swapRecalled bool
+	shown        paint.Run
 	// indexed counts the counts of the whole list, which cost time in its length.
 	indexed int
 
@@ -96,10 +104,46 @@ type VirtualList struct {
 	gap   float32
 }
 
-// spacer is the room a moved row left, closing from full.
+// spacer is the room a moved row left, closing from full as the row grows in at its new place, and drawing the row
+// as it was, fading out.
 type spacer struct {
 	h    *anim.Float
 	full float32
+	// key is the moved row's key, and row the row while it grows in; the spacer takes the height the row has yet
+	// to grow, and closes on h once the row is let go.
+	key Key
+	row *row
+	// run is what the row drew before it moved, kept in rec at the next paint, recalled once that is done.
+	run      paint.Run
+	rec      paint.Recording
+	recalled bool
+	// top is the place's top in the view at the last layout, and laid says that layout reached it.
+	top  float32
+	laid bool
+}
+
+// spacerHeight is how tall sp is now.
+func (l *VirtualList) spacerHeight(sp *spacer) float32 {
+	if l.partnered(sp) {
+		return max(0, min(sp.full, sp.full-sp.row.height.Value()))
+	}
+	return max(sp.h.Value(), 0)
+}
+
+// partnered says sp's row is still built and growing in at its new place.
+func (l *VirtualList) partnered(sp *spacer) bool {
+	return sp.row != nil && l.live[sp.key] == sp.row && !l.gone[sp.key]
+}
+
+// letGo has sp close on its own spring from the height it has now.
+func (l *VirtualList) letGo(sp *spacer) {
+	if sp.row == nil {
+		return
+	}
+	h := l.spacerHeight(sp)
+	sp.row = nil
+	sp.h.Jump(h)
+	sp.h.Animate(0, Quick.Get(l.th))
 }
 
 // anchor returns the first row at or below the top of the view, and
@@ -158,10 +202,10 @@ func (l *VirtualList) index() {
 // A row in view counts at the height it has now, as it grows in or leaves.
 func (l *VirtualList) entryFor(k Key, spacing float32) float32 {
 	if sp, ok := l.spacers[k]; ok {
-		h := max(sp.h.Value(), 0)
 		if sp.full <= 0 {
 			return 0
 		}
+		h := l.spacerHeight(sp)
 		return h + spacing*h/sp.full
 	}
 	h := l.height(k)
@@ -232,6 +276,7 @@ func NewVirtualList(build func(Key) gunim.Node) *VirtualList {
 		scrolling: newScrolling(),
 		Spacing:   ListSpacing,
 		build:     build,
+		swap:      anim.NewFloat(0),
 		gone:      map[Key]bool{},
 		heights:   map[Key]float32{},
 		live:      map[Key]*row{},
@@ -366,13 +411,13 @@ func (l *VirtualList) settled() bool {
 	return true
 }
 
-// moveLimit is the most rows in view a change may move and still animate. A change that moves more, such as a sort,
-// takes effect at once.
+// moveLimit is the most rows in view a change may move and still animate each row. A change that moves more, such as
+// a sort, lays out at once and cross-fades.
 const moveLimit = 3
 
 // moveRows finds the rows in view that next moves out of order, and returns the order with a closing spacer in place
 // of each, marked as leaving. The row itself grows in at its new place. The rows in view kept in order are the most
-// there can be. When more than moveLimit rows in view move, it returns the order as it is, and the change takes effect at once.
+// there can be. When more than moveLimit rows in view move, it returns the order as it is and starts a cross-fade.
 func (l *VirtualList) moveRows(next []Key, staying, leaving map[Key]bool, u *gunim.UI) []Key {
 	// Only rows in view move with motion, so only they count, and the work stays small however long the list.
 	at := make(map[Key]int, len(l.live))
@@ -399,6 +444,9 @@ func (l *VirtualList) moveRows(next []Key, staying, leaving map[Key]bool, u *gun
 		}
 	}
 	if moved > moveLimit {
+		if len(seqKeys) > 0 {
+			l.crossFade(u)
+		}
 		return l.order
 	}
 	prev, cloned := l.order, false
@@ -412,14 +460,29 @@ func (l *VirtualList) moveRows(next []Key, staying, leaving map[Key]bool, u *gun
 		}
 		l.moves++
 		gap := Key(fmt.Sprintf("%s\x00moved%d", k, l.moves))
-		sp := &spacer{h: anim.NewFloat(r.height.Value()), full: r.height.Value()}
-		sp.h.Animate(0, Settle.Get(u.Theme()))
+		for _, sp := range l.spacers {
+			if sp.row == r {
+				l.letGo(sp)
+			}
+		}
+		sp := &spacer{h: anim.NewFloat(r.height.Value()), full: r.height.Value(), key: k, row: r, run: r.run}
 		l.spacers[gap] = sp
 		l.gone[gap], leaving[gap] = true, true
 		prev[at[k]] = gap
+		quick := Quick.Get(u.Theme())
 		r.height.Jump(0)
+		r.height.Animate(r.inner, quick)
+		r.fade.Jump(0)
+		r.fade.Animate(1, quick)
 	}
 	return prev
+}
+
+// crossFade fades what the rows drew before a large reorder out over the rows in their new order.
+func (l *VirtualList) crossFade(u *gunim.UI) {
+	l.swapRun, l.swapRecalled = l.shown, false
+	l.swap.Jump(1)
+	l.swap.Animate(0, Quick.Get(u.Theme()))
 }
 
 // inOrder marks the longest run of seq that rises, in time n log n.
@@ -545,7 +608,17 @@ func (l *VirtualList) Step(dt time.Duration) bool {
 	moving := l.scrolling.Step(dt)
 	again := l.again
 	l.again = false
+	if l.swap.Step(dt) {
+		moving = true
+	}
 	for k, sp := range l.spacers {
+		if sp.row != nil {
+			if l.partnered(sp) && sp.row.height.Active() {
+				moving = true
+				continue
+			}
+			l.letGo(sp)
+		}
 		if sp.h.Step(dt) {
 			moving = true
 			continue
@@ -636,6 +709,9 @@ func (l *VirtualList) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Chil
 	}
 	offset := l.offset.Value()
 	top, bottom := offset-overscan, offset+own.H+overscan
+	for _, sp := range l.spacers {
+		sp.laid = false
+	}
 	keep := make(map[Key]bool, len(l.live))
 	i := l.tops.find(float64(max(top, 0)))
 	// A row closed to nothing just above takes no room, and may be one
@@ -666,6 +742,9 @@ func (l *VirtualList) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Chil
 						l.shift(d)
 						carry += d
 					}
+				}
+				if sp, ok := l.spacers[k]; ok {
+					sp.top, sp.laid = y-onPixels(offset, f.Scale), true
 				}
 				y += l.entry[i]
 				continue
@@ -754,9 +833,29 @@ func (l *VirtualList) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids
 	func() {
 		defer l.layer(p, geom.Rect{Max: box.Point()}, f.Theme)()
 		offset := l.offset.Value()
+		mark := p.Mark()
+		defer func() { l.shown = p.RunFrom(mark) }()
+		if !l.swapRecalled {
+			l.swapRecalled = true
+			if !l.swapRun.Keep(&l.swapRec) {
+				l.swap.Jump(0)
+			}
+		}
+		if s := l.swap.Value(); s > 0 {
+			// The order before a large reorder fades out, and the rows in the new one fade in over it.
+			func() {
+				defer p.Layer(paint.LayerOpts{Bounds: geom.Rect{Max: box.Point()}, Opacity: s})()
+				p.Replay(&l.swapRec)
+			}()
+			defer p.Layer(paint.LayerOpts{Bounds: geom.Rect{Max: box.Point()}, Opacity: 1 - s})()
+		}
+		for _, sp := range l.spacers {
+			l.paintPlace(p, sp, box, f)
+		}
 		for kid := range kids.All {
+			// A row dropped as out of view stands where it was, which the order no longer holds.
 			r, ok := kid.Node().(*row)
-			if !ok {
+			if !ok || l.live[r.key] != r {
 				continue
 			}
 			// Only what reaches the view is drawn; the rows built
@@ -769,6 +868,28 @@ func (l *VirtualList) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids
 		}
 	}()
 	l.paintBar(p, f)
+}
+
+// paintPlace draws the row a spacer's place held, as it was drawn there, fading out as the place closes.
+func (l *VirtualList) paintPlace(p *paint.Painter, sp *spacer, box geom.Size, f gunim.Frame) {
+	if !sp.recalled {
+		sp.recalled = true
+		sp.run.Keep(&sp.rec)
+	}
+	h := l.spacerHeight(sp)
+	if !sp.laid || h <= 0 || sp.full <= 0 || sp.rec.Empty() || sp.top > box.H || sp.top+h < 0 {
+		return
+	}
+	t := h / sp.full
+	defer p.Push(paint.Translate(geom.Pt(0, sp.top)))()
+	defer p.Layer(paint.LayerOpts{
+		Bounds:  geom.Rc(0, 0, box.W, h),
+		Opacity: t,
+		Clip:    true,
+		Radius:  RowRadius.Get(f.Theme),
+	})()
+	defer p.Push(paint.Translate(geom.Pt(-16*(1-t), 0)))()
+	p.Replay(&sp.rec)
 }
 
 func deleteKey(keys []Key, k Key) []Key {
