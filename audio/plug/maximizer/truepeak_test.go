@@ -96,3 +96,40 @@ func TestTheTruePeakIsTheFiltersEveryPhase(t *testing.T) {
 		}
 	}
 }
+
+// TestOverAndMostFindTheTruePeaksRunFinds checks that the runs that skip quiet frames give run's true peaks to the
+// bit wherever they are read: over ceiling, and the most of a run.
+func TestOverAndMostFindTheTruePeaksRunFinds(t *testing.T) {
+	m := music(48000, 3)
+	x := make([]float64, len(m))
+	for i, v := range m {
+		// Fade in and out, so runs start quiet and grow loud, as after a skipped stretch.
+		x[i] = float64(v) * math.Abs(math.Sin(2*math.Pi*float64(i)/9000))
+	}
+	var all, over, most truePeak
+	want, got := make([]float64, len(x)), make([]float64, len(x))
+	all.run(x, want)
+	skipped := 0
+	for i := 0; i < len(x); i += 777 {
+		e := min(i+777, len(x))
+		ceiling := 0.05 + 0.3*float64(i%5)
+		over.over(x[i:e], got[i:e], ceiling)
+		floor := 0.1 * float64(i%7)
+		wantMost := floor
+		for j := i; j < e; j++ {
+			if want[j] > ceiling && math.Float64bits(got[j]) != math.Float64bits(want[j]) {
+				t.Fatalf("frame %d over %v: %v, run's %v", j, ceiling, got[j], want[j])
+			}
+			if got[j] == 0 && want[j] != 0 {
+				skipped++
+			}
+			wantMost = max(wantMost, want[j])
+		}
+		if g := most.most(x[i:e], floor); math.Float64bits(g) != math.Float64bits(wantMost) {
+			t.Fatalf("frames %d to %d from %v: most %v, run's %v", i, e, floor, g, wantMost)
+		}
+	}
+	if skipped == 0 {
+		t.Fatal("over skipped no frame")
+	}
+}
