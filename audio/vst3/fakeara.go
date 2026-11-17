@@ -325,10 +325,8 @@ type fakeDoc struct {
 	regions  map[uintptr]*fakeRegion
 	// news is what the fake tells at its next notifyModelUpdates.
 	news []func()
-	// readers are the audio readers made, to destroy.
-	readers []uintptr
-	exts    []*fakeExt
-	wg      sync.WaitGroup
+	exts []*fakeExt
+	wg   sync.WaitGroup
 	// The edit cycle's restores, for ARA's rules of partial
 	// persistence: the sources made in it, the sources and
 	// modifications whose states it restored, and whether it restored
@@ -426,6 +424,31 @@ func (d *fakeDoc) later(fn func()) {
 	d.mu.Unlock()
 }
 
+// forget lets go of a destroyed document and of every object left in it.
+func (d *fakeDoc) forget() {
+	d.mu.Lock()
+	dropAll(d.contexts)
+	dropAll(d.seqs)
+	dropAll(d.sources)
+	dropAll(d.mods)
+	dropAll(d.regions)
+	d.news = nil
+	d.mu.Unlock()
+	dropHandle(d.ref)
+	destroyedDocs.Store(d.ref, d.a)
+	d.a.mu.Lock()
+	d.a.docs = slices.DeleteFunc(d.a.docs, func(e *fakeDoc) bool { return e == d })
+	d.a.mu.Unlock()
+}
+
+// dropAll drops the handle of every object in m, and empties it.
+func dropAll[T any](m map[uintptr]T) {
+	for ref := range m {
+		dropHandle(ref)
+	}
+	clear(m)
+}
+
 // readContent reads a musical context's content through the host.
 func (d *fakeDoc) readContent(c *fakeContext) {
 	c.reads++
@@ -466,9 +489,6 @@ func (d *fakeDoc) startAnalysis(s *fakeSource) {
 		d.a.violate("the host made no audio reader")
 		return
 	}
-	d.mu.Lock()
-	d.readers = append(d.readers, rd)
-	d.mu.Unlock()
 	d.later(func() { callProgress(d.host.model, s.host, 0, 0) })
 	d.wg.Add(1)
 	go func() {
@@ -505,6 +525,7 @@ func (d *fakeDoc) startAnalysis(s *fakeSource) {
 			}
 		}
 		ok = ok && d.host.audio.call(1, rd, uintptr(half), uintptr(int64(n)-half), uintptr(unsafe.Pointer(&bufs[0])))&0xffffffff != 0
+		d.host.audio.call(2, rd)
 		if !ok {
 			d.a.violate("a read of the source failed")
 		}
@@ -643,8 +664,21 @@ func (d *fakeDoc) regionNotes(r *fakeRegion) []Note {
 	return out
 }
 
-// fakeDocOf returns the fake document of ref.
-func fakeDocOf(ref uintptr) *fakeDoc { return handle[fakeDoc](ref) }
+// fakeDocOf returns the fake document of ref, or nil, writing down a call into a destroyed one.
+func fakeDocOf(ref uintptr) *fakeDoc {
+	d := handle[fakeDoc](ref)
+	if d == nil {
+		if v, ok := destroyedDocs.Load(ref); ok {
+			if a, ok := v.(*fakeARAPlugin); ok {
+				a.violate("a call into a destroyed document")
+			}
+		}
+	}
+	return d
+}
+
+// destroyedDocs holds the fake of each destroyed document, by its handle.
+var destroyedDocs sync.Map
 
 // The document controller's functions, made once.
 var fakeDCTable = sync.OnceValue(func() fnTable {
@@ -656,6 +690,9 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	set := func(i int, fn any) { fns[i] = newCallback(fn) }
 	set(dcDestroy, func(ctl uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		d.wg.Wait()
 		d.mu.Lock()
 		left := len(d.contexts) + len(d.seqs) + len(d.sources) + len(d.mods) + len(d.regions)
@@ -667,11 +704,21 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 			d.a.violate("the document went with %d content readers open", d.contentReaders)
 		}
 		d.destroyed = true
+		d.forget()
 		return 0
 	})
-	set(dcGetFactory, func(ctl uintptr) uintptr { return fakeDocOf(ctl).a.factory.addr() })
+	set(dcGetFactory, func(ctl uintptr) uintptr {
+		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
+		return d.a.factory.addr()
+	})
 	set(dcBeginEditing, func(ctl uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		if d.editing {
 			d.a.violate("beginEditing twice")
 		}
@@ -681,6 +728,9 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	})
 	set(dcEndEditing, func(ctl uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		if !d.editing {
 			d.a.violate("endEditing with no beginEditing")
 		}
@@ -698,6 +748,9 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	})
 	set(dcNotifyModelUpdates, func(ctl uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		if d.editing {
 			d.a.violate("notifyModelUpdates while editing")
 		}
@@ -712,6 +765,9 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	})
 	set(dcUpdateDocumentProperties, func(ctl, props uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		d.mustEdit("updateDocumentProperties")
 		d.name = readAt(props, fPtr, fPtr).str(1)
 		return 0
@@ -719,6 +775,9 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	ctxFields := []int{fPtr, fPtr, fI32, fPtr}
 	set(dcCreateMusicalContext, func(ctl, host, props uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		d.mustEdit("createMusicalContext")
 		c := &fakeContext{host: host, name: readAt(props, ctxFields...).str(1)}
 		d.readContent(c)
@@ -730,18 +789,27 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	})
 	set(dcUpdateMusicalContextProperties, func(ctl, ref, props uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		d.mustEdit("updateMusicalContextProperties")
 		d.contexts[ref].name = readAt(props, ctxFields...).str(1)
 		return 0
 	})
 	set(dcUpdateMusicalContextContent, func(ctl, ref, rng, flags uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		d.mustEdit("updateMusicalContextContent")
 		d.readContent(d.contexts[ref])
 		return 0
 	})
 	set(dcDestroyMusicalContext, func(ctl, ref uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		d.mustEdit("destroyMusicalContext")
 		for _, s := range d.seqs {
 			if s.ctx == ref {
@@ -751,6 +819,7 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 		d.mu.Lock()
 		delete(d.contexts, ref)
 		d.mu.Unlock()
+		dropHandle(ref)
 		return 0
 	})
 	srcFields := []int{fPtr, fPtr, fPtr, fI64, fF64, fI32, fI32, fI32, fPtr}
@@ -760,6 +829,9 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	}
 	set(dcCreateAudioSource, func(ctl, host, props uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		d.mustEdit("createAudioSource")
 		s := &fakeSource{host: host}
 		readSource(props, s)
@@ -772,6 +844,9 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	})
 	set(dcUpdateAudioSourceProperties, func(ctl, ref, props uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		d.mustEdit("updateAudioSourceProperties")
 		s := d.sources[ref]
 		if s.enabled {
@@ -782,6 +857,9 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	})
 	set(dcEnableAudioSourceSamplesAccess, func(ctl, ref, on uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		s := d.sources[ref]
 		s.enabled = on&0xffffffff != 0
 		if !s.enabled {
@@ -792,6 +870,9 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	})
 	set(dcDestroyAudioSource, func(ctl, ref uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		d.mustEdit("destroyAudioSource")
 		if d.sources[ref].enabled {
 			d.a.violate("an audio source went with its samples open")
@@ -804,11 +885,15 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 		d.mu.Lock()
 		delete(d.sources, ref)
 		d.mu.Unlock()
+		dropHandle(ref)
 		return 0
 	})
 	modFields := []int{fPtr, fPtr, fPtr}
 	set(dcCreateAudioModification, func(ctl, src, host, props uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		d.mustEdit("createAudioModification")
 		if d.sources[src] == nil {
 			d.a.violate("a modification of no source")
@@ -822,12 +907,18 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	})
 	set(dcUpdateAudioModificationProperties, func(ctl, ref, props uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		d.mustEdit("updateAudioModificationProperties")
 		d.mods[ref].id = readAt(props, modFields...).str(2)
 		return 0
 	})
 	set(dcDestroyAudioModification, func(ctl, ref uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		d.mustEdit("destroyAudioModification")
 		for _, r := range d.regions {
 			if r.mod == ref {
@@ -837,6 +928,7 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 		d.mu.Lock()
 		delete(d.mods, ref)
 		d.mu.Unlock()
+		dropHandle(ref)
 		return 0
 	})
 	regionFields := []int{fPtr, fI32, fF64, fF64, fF64, fF64, fPtr, fPtr, fPtr, fPtr}
@@ -848,6 +940,9 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	}
 	set(dcCreatePlaybackRegion, func(ctl, mod, host, props uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		d.mustEdit("createPlaybackRegion")
 		r := &fakeRegion{host: host, mod: mod}
 		readRegion(props, r)
@@ -862,6 +957,9 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	})
 	set(dcUpdatePlaybackRegionProperties, func(ctl, ref, props uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		d.mustEdit("updatePlaybackRegionProperties")
 		d.mu.Lock()
 		readRegion(props, d.regions[ref])
@@ -870,6 +968,9 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	})
 	set(dcDestroyPlaybackRegion, func(ctl, ref uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		d.mustEdit("destroyPlaybackRegion")
 		for _, x := range d.exts {
 			if slices.Contains(x.regions, ref) || slices.Contains(x.editorRegions, ref) {
@@ -879,6 +980,7 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 		d.mu.Lock()
 		delete(d.regions, ref)
 		d.mu.Unlock()
+		dropHandle(ref)
 		return 0
 	})
 	// Content, through a function of each kind of object's.
@@ -886,12 +988,18 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	contentFns := func(available, grade, reader int, ev events) {
 		set(available, func(ctl, ref, kind uintptr) uintptr {
 			d := fakeDocOf(ctl)
+			if d == nil {
+				return 0
+			}
 			d.mu.Lock()
 			defer d.mu.Unlock()
 			return araBool(ev(d, ref, ContentType(int32(uint32(kind)))) != nil)
 		})
 		set(grade, func(ctl, ref, kind uintptr) uintptr {
 			d := fakeDocOf(ctl)
+			if d == nil {
+				return 0
+			}
 			d.mu.Lock()
 			defer d.mu.Unlock()
 			if ev(d, ref, ContentType(int32(uint32(kind)))) != nil {
@@ -901,6 +1009,9 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 		})
 		set(reader, func(ctl, ref, kind, rng uintptr) uintptr {
 			d := fakeDocOf(ctl)
+			if d == nil {
+				return 0
+			}
 			d.mu.Lock()
 			e := ev(d, ref, ContentType(int32(uint32(kind))))
 			d.mu.Unlock()
@@ -934,6 +1045,9 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	set(dcGetContentReaderDataForEvent, getContentReaderDataForEvent)
 	set(dcDestroyContentReader, func(ctl, reader uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		if handle[contentReader](reader) == nil {
 			d.a.violate("a content reader destroyed that is none")
 			return 0
@@ -945,6 +1059,9 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	set(dcGetProcessingAlgorithmsCount, func(ctl uintptr) uintptr { return uintptr(len(fakeAlgorithms)) })
 	set(dcGetProcessingAlgorithmProperties, func(ctl, i uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		k := int(int32(uint32(i)))
 		if k < 0 || k >= len(d.a.algorithms) {
 			d.a.violate("the properties of algorithm %d asked for", k)
@@ -954,12 +1071,18 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	})
 	set(dcGetProcessingAlgorithmForAudioSource, func(ctl, ref uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		d.mu.Lock()
 		defer d.mu.Unlock()
 		return uintptr(d.sources[ref].algo)
 	})
 	set(dcRequestProcessingAlgorithmForAudioSource, func(ctl, ref, i uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		d.mustEdit("requestProcessingAlgorithmForAudioSource")
 		k := int(int32(uint32(i)))
 		if k < 0 || k >= len(fakeAlgorithms) {
@@ -973,12 +1096,18 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	})
 	set(dcIsAudioSourceContentAnalysisIncomplete, func(ctl, ref, kind uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		d.mu.Lock()
 		defer d.mu.Unlock()
 		return araBool(!d.sources[ref].analysed)
 	})
 	set(dcRequestAudioSourceContentAnalysis, func(ctl, ref, n, types uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		if n == 0 || *ptr[int32](types) != int32(ContentNotes) {
 			d.a.violate("an analysis asked for content the fake analyzes none of")
 		}
@@ -990,6 +1119,9 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	seqFields := []int{fPtr, fPtr, fI32, fPtr, fPtr}
 	set(dcCreateRegionSequence, func(ctl, host, props uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		d.mustEdit("createRegionSequence")
 		r := readAt(props, seqFields...)
 		q := &fakeSeq{host: host, name: r.str(1), ctx: r.ptr(3)}
@@ -1004,6 +1136,9 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	})
 	set(dcUpdateRegionSequenceProperties, func(ctl, ref, props uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		d.mustEdit("updateRegionSequenceProperties")
 		r := readAt(props, seqFields...)
 		d.seqs[ref].name, d.seqs[ref].ctx = r.str(1), r.ptr(3)
@@ -1011,6 +1146,9 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	})
 	set(dcDestroyRegionSequence, func(ctl, ref uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		d.mustEdit("destroyRegionSequence")
 		for _, r := range d.regions {
 			if r.seq == ref {
@@ -1020,6 +1158,7 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 		d.mu.Lock()
 		delete(d.seqs, ref)
 		d.mu.Unlock()
+		dropHandle(ref)
 		return 0
 	})
 	set(dcGetPlaybackRegionHeadAndTailTime, func(ctl, ref, head, tail uintptr) uintptr {
@@ -1028,11 +1167,17 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	})
 	set(dcRestoreObjectsFromArchive, func(ctl, reader, filter uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		d.mustEdit("restoreObjectsFromArchive")
 		return araBool(d.restore(reader, filter))
 	})
 	set(dcStoreObjectsToArchive, func(ctl, writer, filter uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		if d.editing {
 			d.a.violate("storeObjectsToArchive while editing")
 		}
@@ -1241,6 +1386,7 @@ func (d *fakeDoc) edit(id string, gain, from, length float64) {
 type fakeExt struct {
 	d             *fakeDoc
 	f             *fakeInstance
+	ref           uintptr
 	roles         Roles
 	inst          *cstruct
 	regions       []uintptr
@@ -1278,6 +1424,7 @@ var fakeARAEntry2Kind = &kind{iids: []uid{iidARAPlugInEntry2}, other: fakeInstOt
 			}
 			x := &fakeExt{d: d, f: f, roles: Roles(assigned)}
 			ref := newHandle(x)
+			x.ref = ref
 			t := fakeExtTables()
 			x.inst = newStruct(extensionFields...)
 			if x.roles&PlaybackRenderer != 0 {
@@ -1500,11 +1647,17 @@ var fakeInstCompKind = &kind{iids: []uid{iidComponent}, other: fakeInstOther, ma
 		newCallback(func(this uintptr) uintptr {
 			// Terminated, it lets go of its ARA extension, as a plugin
 			// destroyed does.
-			if x := instOf(this).araExt; x != nil {
+			f := instOf(this)
+			if x := f.araExt; x != nil {
 				x.d.mu.Lock()
 				x.d.exts = slices.DeleteFunc(x.d.exts, func(e *fakeExt) bool { return e == x })
 				x.d.mu.Unlock()
+				dropHandle(x.ref)
+				f.araExt = nil
 			}
+			f.ara.mu.Lock()
+			f.ara.instances = slices.DeleteFunc(f.ara.instances, func(e *fakeInstance) bool { return e == f })
+			f.ara.mu.Unlock()
 			return ok()
 		}),
 		newCallback(func(this, cid uintptr) uintptr { return resultOf(resultFalse) }),

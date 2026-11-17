@@ -7,6 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"weak"
 
 	"github.com/marrasen/gunim/anim"
 )
@@ -43,6 +44,8 @@ func fadeOver(d time.Duration) anim.Motion {
 // mixer last made. A voice's source and insert run where it mixes, so
 // they must not wait either: a sound read from a file plays through a
 // [Stream].
+//
+// Whoever stops mixing a mixer calls [Mixer.Close], as when its speakers close: until then it keeps its voices.
 type Mixer struct {
 	// incoming are the voices played, waiting for the next block to
 	// take them up; the mixer's alone are voices, those mixing, and buf.
@@ -85,6 +88,10 @@ type Mixer struct {
 	// mixing touches no channel.
 	news    atomic.Pointer[Voice]
 	telling atomic.Bool
+	// closed says Close was called; own is held by a mix, or by Close as it drops the voices.
+	closed, own atomic.Bool
+	// quit, closed by Close, ends the teller.
+	quit chan struct{}
 }
 
 // mixRings are the history kept besides the mono mix, once wanted:
@@ -107,7 +114,56 @@ func NewMixer() *Mixer {
 	m.fade.RealTime()
 	m.rate.Store(SampleRate)
 	m.rings.Store(&mixRings{})
+	m.quit = make(chan struct{})
 	return m
+}
+
+// Close ends every voice, lets go of their sounds and stops the goroutine that tells their news. Whoever stops
+// mixing the mixer calls it, as when its speakers close for good. A closed mixer mixes silence, and a sound played
+// into it is done at once. It is safe to call twice, and during a mix, and returns nil. A caller that drops a mixer
+// and its voices without Close, and keeps only a Done, may wait on it for ever.
+func (m *Mixer) Close() error {
+	if !m.closed.CompareAndSwap(false, true) {
+		return nil
+	}
+	m.release()
+	close(m.quit)
+	return nil
+}
+
+// release drops the voices of a closed mixer, until none waits, unless a mix or another release holds them, which
+// then drops them.
+func (m *Mixer) release() {
+	for m.own.CompareAndSwap(false, true) {
+		m.drop()
+		m.own.Store(false)
+		if m.incoming.Load() == nil {
+			return
+		}
+	}
+}
+
+// drop ends the voices of a closed mixer, with own held.
+func (m *Mixer) drop() {
+	m.takeIncoming()
+	for v := m.voices; v != nil; {
+		next := v.next
+		v.next = nil
+		v.src, v.then, v.insert, v.rated = nil, nil, nil, nil
+		v.thenAsk.Store(nil)
+		v.ended = true
+		v.ending.Store(true)
+		m.count.Add(-1)
+		v.finish()
+		v = next
+	}
+	m.voices = nil
+	// Voices that ended in the last mix, not told yet.
+	for v := m.news.Swap(nil); v != nil; v = v.nextNews.Load() {
+		if v.ending.Load() {
+			v.finish()
+		}
+	}
 }
 
 // Rate returns how many frames a second the mixer gives. Every source
@@ -215,6 +271,10 @@ func (m *Mixer) Play(src Source, o Options) *Voice {
 			break
 		}
 	}
+	if m.closed.Load() {
+		m.release()
+		return v
+	}
 	m.startTelling()
 	return v
 }
@@ -260,8 +320,11 @@ func (m *Mixer) Playing() int { return int(m.count.Load()) }
 
 // Sounding reports whether a voice sounds: one playing, or fading as
 // it pauses or stops, or played or resumed since the mixer last mixed.
-// Voices paused, and none, are silence.
+// Voices paused, and none, and a closed mixer, are silence.
 func (m *Mixer) Sounding() bool {
+	if m.closed.Load() {
+		return false
+	}
 	return m.sounding.Load() || m.sounds.Load() != m.soundsSeen.Load()
 }
 
@@ -332,10 +395,23 @@ func (m *Mixer) HeardAt(t time.Time) int64 {
 // Mix fills dst, len(dst)/2 frames, with the sounds playing, and
 // silence where none plays. One goroutine at a time mixes.
 func (m *Mixer) Mix(dst []float32) {
+	if !m.own.CompareAndSwap(false, true) {
+		// Close is dropping the voices.
+		clear(dst)
+		return
+	}
+	if m.closed.Load() {
+		clear(dst)
+		dst = nil
+	}
 	for len(dst) >= 2 {
 		n := min(len(dst)/2, block)
 		m.mixBlock(dst[:2*n])
 		dst = dst[2*n:]
+	}
+	m.own.Store(false)
+	if m.closed.Load() {
+		m.release()
 	}
 }
 
@@ -543,6 +619,8 @@ type Voice struct {
 	inNews   atomic.Bool
 	nextNews atomic.Pointer[Voice]
 	ending   atomic.Bool
+	// finished says Done is closed.
+	finished atomic.Bool
 }
 
 // voiceSource holds a source, so a turn to it is the swap of a pointer,
@@ -835,59 +913,85 @@ const (
 // startTelling starts the teller, where it is not running.
 func (m *Mixer) startTelling() {
 	if m.telling.CompareAndSwap(false, true) {
-		go m.tellNews()
+		go tellNews(weak.Make(m), m.quit)
 	}
 }
 
 // tellNews tells the voices' news, as the mixer leaves it: it closes
 // the Done of each that ended, and sends on the Turned of each that
-// turned. It runs while voices play, and a moment after.
-func (m *Mixer) tellNews() {
+// turned. It runs while voices play, and a moment after, until the
+// mixer closes or nothing holds it.
+func tellNews(w weak.Pointer[Mixer], quit <-chan struct{}) {
 	t := time.NewTimer(tellEvery)
 	defer t.Stop()
-	idle, quiet := time.Duration(0), time.Duration(0)
-	for range t.C {
-		news := m.news.Swap(nil)
-		every := tellEvery
-		if news == nil {
-			if quiet += every; quiet > 100*time.Millisecond {
-				every = tellQuiet
-			}
-		} else {
-			quiet = 0
-		}
-		t.Reset(every)
-		for v := news; v != nil; {
-			next := v.nextNews.Load()
-			v.inNews.Store(false)
-			for g := v.gens.Load(); v.told < g; v.told++ {
-				select {
-				case v.turned <- struct{}{}:
-				default:
-				}
-			}
-			if v.ending.Load() {
-				select {
-				case <-v.done:
-				default:
-					close(v.done)
-				}
-			}
-			v = next
-		}
-		if news != nil || m.count.Load() > 0 {
-			idle = 0
-			continue
-		}
-		if idle += every; idle < tellIdle {
-			continue
-		}
-		// Stopping: unless a voice came meanwhile, which starts it again.
-		m.telling.Store(false)
-		if m.count.Load() == 0 && m.news.Load() == nil || !m.telling.CompareAndSwap(false, true) {
+	var p tellPace
+	for {
+		select {
+		case <-t.C:
+		case <-quit:
 			return
 		}
-		idle = 0
+		every, more := tellOnce(w, &p)
+		if !more {
+			return
+		}
+		t.Reset(every)
+	}
+}
+
+// tellPace is how long the teller has found no news, and no voice.
+type tellPace struct{ idle, quiet time.Duration }
+
+// tellOnce tells the news there is, and returns how long to wait before it looks again, or false where the teller
+// stops.
+func tellOnce(w weak.Pointer[Mixer], p *tellPace) (time.Duration, bool) {
+	m := w.Value()
+	if m == nil || m.closed.Load() {
+		return 0, false
+	}
+	news := m.news.Swap(nil)
+	every := tellEvery
+	if news == nil {
+		if p.quiet += every; p.quiet > 100*time.Millisecond {
+			every = tellQuiet
+		}
+	} else {
+		p.quiet = 0
+	}
+	for v := news; v != nil; {
+		next := v.nextNews.Load()
+		v.inNews.Store(false)
+		for g := v.gens.Load(); v.told < g; v.told++ {
+			select {
+			case v.turned <- struct{}{}:
+			default:
+			}
+		}
+		if v.ending.Load() {
+			v.finish()
+		}
+		v = next
+	}
+	if news != nil || m.count.Load() > 0 {
+		p.idle = 0
+		return every, true
+	}
+	if p.idle += every; p.idle < tellIdle {
+		return every, true
+	}
+	// Stopping: unless a voice came meanwhile, which starts it again.
+	m.telling.Store(false)
+	if m.count.Load() == 0 && m.news.Load() == nil || !m.telling.CompareAndSwap(false, true) {
+		return 0, false
+	}
+	p.idle = 0
+	return every, true
+}
+
+// finish closes the voice's Done, once.
+func (v *Voice) finish() {
+	if v.finished.CompareAndSwap(false, true) {
+		close(v.done)
 	}
 }
 
