@@ -53,24 +53,29 @@ func TestThePreviewSaysTimesAsTheProgramAsks(t *testing.T) {
 	})
 }
 
+// propsShown opens the Properties dialog of a file, as its command does, and gives what the dialog says.
+func propsShown(h *harness, name string) Props {
+	h.t.Helper()
+	h.choose(name)
+	h.do(Command{Name: CmdProperties})
+	h.until("the dialog shows", func() bool { return len(h.a.ops.dialogs) == 1 })
+	p, ok := h.a.ops.dialogs[0].state.(Props)
+	if !ok {
+		h.t.Fatal("the dialog isn't Properties")
+	}
+	return p
+}
+
 // The Properties dialog says its times in the program's words, and in its own without them.
 func TestThePropertiesSayTimesAsTheProgramAsks(t *testing.T) {
-	h := newHarness(t, "a.txt")
-	path := h.a.ps.Join(h.dir, "a.txt")
-	p, _, err := readProps(LocalFS(), []string{path}, func(time.Time) string { return said })
-	if err != nil {
-		t.Fatal(err)
-	}
+	p := propsShown(newHarnessWith(t, saysProgramTime, "a.txt"), "a.txt")
 	if p.Modified != said {
 		t.Fatalf("Modified says %q", p.Modified)
 	}
 	if p.Created != "" && p.Created != said {
 		t.Fatalf("Created says %q", p.Created)
 	}
-	p, _, err = readProps(LocalFS(), []string{path}, fmtTime)
-	if err != nil {
-		t.Fatal(err)
-	}
+	p = propsShown(newHarness(t, "a.txt"), "a.txt")
 	if p.Modified == said || p.Modified == "" {
 		t.Fatalf("with no program's words, Modified says %q", p.Modified)
 	}
