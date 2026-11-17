@@ -56,19 +56,44 @@ func bessel0(x float64) float64 {
 	return s
 }
 
-// truePeak finds a channel's true peaks: the last tpTaps samples, at
-// in a ring held twice over, end to end, so the last tpTaps are always
+// truePeak finds a channel's true peaks: the last tpSpan samples, at
+// in a ring held twice over, end to end, so the last tpSpan are always
 // side by side, from at on.
 type truePeak struct {
-	ring [2 * tpTaps]float64
+	ring [2 * tpSpan]float64
 	at   int
-	// last is the last phase of the frame before.
-	last float64
+	// last is the last phase of the frame before; stale says it is still to work out.
+	last  float64
+	stale bool
+	loud  loudest
 }
+
+// tpSpan is the samples a frame's true peak reads: the filter's window and the sample before it.
+const tpSpan = tpTaps + 1
+
+// tpBound is a little over the most a true peak can be, as a ratio of the loudest sample it reads.
+var tpBound = func() float64 {
+	most := 1.0
+	for p := range tpPhases {
+		s := 0.0
+		for _, v := range tpFilter[p] {
+			s += math.Abs(v)
+		}
+		most = max(most, s)
+	}
+	// The parabola rises at most a quarter over the phases it is drawn through.
+	return 1.25 * most * (1 + 1e-9)
+}()
 
 // push takes the next sample, and returns the true peak from the sample
 // tpDelay before it to the next, a ratio of full scale.
 func (t *truePeak) push(x float64) float64 {
+	t.loud.push(x)
+	return t.peak(x)
+}
+
+// peak is push without following the loudest sample.
+func (t *truePeak) peak(x float64) float64 {
 	v := t.phases(x)
 	m := 1
 	for i := 2; i <= tpPhases; i++ {
@@ -98,7 +123,10 @@ func (t *truePeak) push(x float64) float64 {
 // out from the sums and differences of the samples, each a pair of them
 // as far from the middle of the window: half the products.
 func (t *truePeak) phases(x float64) (v [tpPhases + 2]float64) {
-	w := t.add(x)
+	w, before := t.add(x)
+	if t.stale {
+		t.last, t.stale = lastPhase(before), false
+	}
 	var e1, o1, e2, o2, e3, o3, e4 float64
 	for k := range tpTaps / 2 {
 		s, d := w[k]+w[tpTaps-1-k], w[k]-w[tpTaps-1-k]
@@ -136,15 +164,27 @@ var tpHalves = func() (h [tpTaps / 2][tpPhases - 1]float64) {
 	return h
 }()
 
-// add takes the next sample in, and returns the last tpTaps samples,
-// oldest first.
-func (t *truePeak) add(x float64) *[tpTaps]float64 {
-	t.ring[t.at], t.ring[t.at+tpTaps] = x, x
+// lastPhase is phase tpPhases-1 of the window w, worked out as phases works it out.
+func lastPhase(w *[tpTaps]float64) float64 {
+	var e1, o1 float64
+	for k := range tpTaps / 2 {
+		s, d := w[k]+w[tpTaps-1-k], w[k]-w[tpTaps-1-k]
+		h := &tpHalves[k]
+		e1 += h[0] * s
+		o1 += h[1] * d
+	}
+	return e1 - o1
+}
+
+// add takes the next sample in, and returns the last tpTaps samples and
+// the tpTaps before the last, oldest first.
+func (t *truePeak) add(x float64) (w, before *[tpTaps]float64) {
+	t.ring[t.at], t.ring[t.at+tpSpan] = x, x
 	t.at++
-	if t.at == tpTaps {
+	if t.at == tpSpan {
 		t.at = 0
 	}
-	return (*[tpTaps]float64)(t.ring[t.at : t.at+tpTaps])
+	return (*[tpTaps]float64)(t.ring[t.at+1 : t.at+1+tpTaps]), (*[tpTaps]float64)(t.ring[t.at : t.at+tpTaps])
 }
 
 // run pushes each of x in turn, and puts the true peak each returns in
@@ -156,5 +196,76 @@ func (t *truePeak) run(x, out []float64) {
 	}
 }
 
+// over puts in out, for each of x, its true peak where it may pass ceiling, and 0 where it cannot.
+func (t *truePeak) over(x, out []float64, ceiling float64) {
+	out = out[:len(x)]
+	for i, v := range x {
+		t.loud.push(v)
+		if t.loud.most()*tpBound <= ceiling {
+			t.add(v)
+			t.stale = true
+			out[i] = 0
+			continue
+		}
+		out[i] = t.peak(v)
+	}
+}
+
+// most returns the most of floor and the true peaks of x.
+func (t *truePeak) most(x []float64, floor float64) float64 {
+	// A frame's true peak is at least the sample tpDelay before it, so the loudest of those starts the floor.
+	for _, v := range x[:max(0, len(x)-tpDelay)] {
+		floor = max(floor, math.Abs(v))
+	}
+	for _, v := range x {
+		t.loud.push(v)
+		if t.loud.most()*tpBound < floor {
+			t.add(v)
+			t.stale = true
+			continue
+		}
+		floor = max(floor, t.peak(v))
+	}
+	return floor
+}
+
 // reset forgets the samples before.
 func (t *truePeak) reset() { *t = truePeak{} }
+
+// loudest follows, a little over, the loudest of the last tpSpan samples: the loudest of the run of tpRun samples
+// coming in, and of the tpRuns runs before it, a NaN the loudest of all.
+type loudest struct {
+	runs [tpRuns]float64
+	at   int
+	cur  float64
+	n    int
+	past float64
+}
+
+// tpRun and tpRuns are how loudest splits the samples, in runs that span at least tpSpan.
+const (
+	tpRun  = 16
+	tpRuns = (tpSpan + tpRun - 1) / tpRun
+)
+
+// push takes the next sample in.
+func (l *loudest) push(x float64) {
+	l.cur = max(l.cur, math.Abs(x))
+	l.n++
+	if l.n < tpRun {
+		return
+	}
+	l.runs[l.at] = l.cur
+	l.at++
+	if l.at == tpRuns {
+		l.at = 0
+	}
+	l.cur, l.n = 0, 0
+	l.past = l.runs[0]
+	for _, v := range l.runs[1:] {
+		l.past = max(l.past, v)
+	}
+}
+
+// most is at least the loudest of the last tpSpan samples.
+func (l *loudest) most() float64 { return max(l.cur, l.past) }

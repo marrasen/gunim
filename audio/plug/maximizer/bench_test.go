@@ -2,12 +2,13 @@ package maximizer
 
 import (
 	"fmt"
+	"math"
 	"testing"
 
 	"github.com/marrasen/gunim/audio/plug"
 )
 
-// benchModes are the modes the benchmarks run, each 6 dB up.
+// benchModes are the modes the benchmarks run, each 6 dB up, and the defaults, as an export runs them.
 var benchModes = []struct {
 	name string
 	set  []plug.Change
@@ -15,6 +16,7 @@ var benchModes = []struct {
 	{"transparent", set(float64(GainID), 6, float64(ModeID), Transparent)},
 	{"punchy", set(float64(GainID), 6, float64(ModeID), Punchy, float64(LinkID), 50)},
 	{"loud", set(float64(GainID), 6, float64(ModeID), Loud, float64(CharacterID), 7)},
+	{"defaults", nil},
 }
 
 // BenchmarkTruePeak times a second of a channel's true peaks: an op is
@@ -88,5 +90,27 @@ func BenchmarkProcess(b *testing.B) {
 				}
 			}
 		})
+	}
+}
+
+// BenchmarkProcessSwell times a second of music that swells from silence and falls back, through the maximizer at
+// its defaults in blocks of 4096 frames, as an export runs it: an op is a second of sound.
+func BenchmarkProcessSwell(b *testing.B) {
+	const block = 4096
+	pr := Descriptor.New(nil).Processor()
+	pr.Prepare(plug.Setup{Rate: 48000, MaxBlock: block, Channels: 2, Offline: true})
+	l, r := music(48000, 1), music(48000, 2)
+	for i := range l {
+		g := float32(math.Sin(math.Pi * float64(i) / float64(len(l))))
+		l[i], r[i] = l[i]*g, r[i]*g
+	}
+	out := [][]float32{make([]float32, block), make([]float32, block)}
+	blk := &plug.Block{Out: out, Frames: block}
+	for b.Loop() {
+		for i := 0; i+block <= len(l); i += block {
+			blk.In = [][]float32{l[i : i+block], r[i : i+block]}
+			blk.Position.Frame += block
+			pr.Process(blk)
+		}
 	}
 }

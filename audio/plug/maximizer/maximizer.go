@@ -462,7 +462,7 @@ func (p *processor) stages(inL, inR, outL, outR []float32, f int64) {
 		}
 	}
 	for c := range 2 {
-		p.peaks[c].run(r.x[c][:n], r.tp[c][:n])
+		p.peaks[c].over(r.x[c][:n], r.tp[c][:n], p.ceiling)
 	}
 	tp0, tp1 := r.tp[0][:n], r.tp[1][:n]
 	o0, o1 := r.out[0][:n], r.out[1][:n]
@@ -516,11 +516,7 @@ func (p *processor) stages(inL, inR, outL, outR []float32, f int64) {
 		return
 	}
 	for c := range 2 {
-		tp := r.tp[c][:n]
-		p.outs[c].run(r.out[c][:n], tp)
-		for _, v := range tp {
-			p.blockPeak = max(p.blockPeak, v)
-		}
+		p.blockPeak = p.outs[c].most(r.out[c][:n], p.blockPeak)
 	}
 }
 
