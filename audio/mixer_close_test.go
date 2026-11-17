@@ -245,7 +245,7 @@ func mixHash(seed uint64, frames int) uint64 {
 	return h.Sum64()
 }
 
-// mixHashes are mixHash's hashes, by seed and block, as the mixer gave them before it had Close.
+// mixHashes are mixHash's hashes on amd64, by seed and block, as the mixer gave them before it had Close.
 var mixHashes = map[[2]int]uint64{
 	{1, 1}: 0x7d3ec7189633ed60, {1, 37}: 0x34951927473df395, {1, 128}: 0x9b752cb8fc019039,
 	{1, 200}: 0x94ed686fd662f4cf, {1, 1024}: 0x3e1263152589a347,
@@ -256,6 +256,9 @@ var mixHashes = map[[2]int]uint64{
 }
 
 func TestTheMixIsTheSameSampleForSample(t *testing.T) {
+	if runtime.GOARCH != "amd64" {
+		t.Skip("the hashes are amd64's: other machines fuse multiplies and adds, so their samples differ")
+	}
 	for _, seed := range []int{1, 2, 3} {
 		for _, frames := range []int{1, 37, 128, 200, 1024} {
 			got := mixHash(uint64(seed), frames)
