@@ -2,7 +2,9 @@ package paint
 
 import (
 	"image/color"
+	"runtime"
 	"testing"
+	"time"
 
 	"github.com/marrasen/gunim/geom"
 )
@@ -267,4 +269,52 @@ func TestClipsAlikeAreTheSame(t *testing.T) {
 	if !none.Same(nil) {
 		t.Fatal("no clip is not the same as no clip")
 	}
+}
+
+// A run from two frames back is refused, though the frame before drew the same commands from the same buffers.
+func TestARunFromAnOlderFrameIsRefused(t *testing.T) {
+	var p Painter
+	red := color.NRGBA{R: 0xff, A: 0xff}
+	p.Reset()
+	mark := p.Mark()
+	cells(&p, 5, red)
+	run := p.RunFrom(mark)
+	p.Reset()
+	cells(&p, 5, red)
+	p.Reset()
+	cells(&p, 5, red)
+	p.Reset()
+	if p.Again(run) {
+		t.Fatal("a run from two frames back was carried")
+	}
+	var r Recording
+	if run.Keep(&r) {
+		t.Fatal("a run from two frames back was kept")
+	}
+}
+
+// A run lets its painter go, as a list keeps a run past the popup that drew it.
+func TestARunLetsItsPainterGo(t *testing.T) {
+	gone := make(chan struct{})
+	run := func() Run {
+		p := new(Painter)
+		runtime.AddCleanup(p, func(c chan struct{}) { close(c) }, gone)
+		p.Reset()
+		mark := p.Mark()
+		cells(p, 3, color.NRGBA{A: 0xff})
+		return p.RunFrom(mark)
+	}()
+	for range 10 {
+		runtime.GC()
+		select {
+		case <-gone:
+			var r Recording
+			if run.Keep(&r) {
+				t.Fatal("a run kept what a painter let go of drew")
+			}
+			return
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	t.Fatal("the painter stayed alive while a run of it was kept")
 }
