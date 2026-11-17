@@ -154,6 +154,7 @@ func (w *Window) createContextNSGL(ctxconfig *ctxconfig, fbconfig_ *fbconfig) er
 
 	w.context.platform.object = context
 	w.context.platform.pixelFormat = pixelFormat
+	w.context.platform.cgl = uintptr(context.Send(sel_CGLContextObj))
 
 	// Set surface opacity for transparent windows.
 	if fbconfig_.transparent {
@@ -173,6 +174,8 @@ func (w *Window) createContextNSGL(ctxconfig *ctxconfig, fbconfig_ *fbconfig) er
 	w.context.extensionSupported = extensionSupportedNSGL
 	w.context.getProcAddress = getProcAddressNSGL
 	w.context.destroy = destroyContextNSGL
+	w.context.lock = lockNSGL
+	w.context.unlock = unlockNSGL
 
 	return nil
 }
@@ -210,8 +213,33 @@ func swapBuffersNSGL(window *Window) error {
 		}
 	}
 
+	lockNSGL(window)
 	window.context.platform.object.Send(sel_flushBuffer)
+	unlockNSGL(window)
 	return nil
+}
+
+// lockNSGL locks the window's CGL context. The render thread draws with a context and presents its frames while the
+// main thread updates it as the window changes size or screen; done at once, macOS stops the process with SIGTRAP.
+// Apple has a context shared between threads locked round each use.
+func lockNSGL(window *Window) {
+	if c := window.context.platform.cgl; c != 0 {
+		cglLockContext(c)
+	}
+}
+
+// unlockNSGL lets the window's CGL context go after lockNSGL.
+func unlockNSGL(window *Window) {
+	if c := window.context.platform.cgl; c != 0 {
+		cglUnlockContext(c)
+	}
+}
+
+// updateNSGL has the window's context follow its view's new size or screen, locked against the render thread.
+func updateNSGL(window *Window) {
+	lockNSGL(window)
+	window.context.platform.object.Send(sel_update)
+	unlockNSGL(window)
 }
 
 func swapIntervalNSGL(window *Window, interval int) error {
@@ -247,6 +275,7 @@ func destroyContextNSGL(window *Window) error {
 	if window.context.platform.object != 0 {
 		window.context.platform.object.Send(sel_release)
 		window.context.platform.object = 0
+		window.context.platform.cgl = 0
 	}
 
 	return nil

@@ -488,6 +488,23 @@ func GetCurrentContext() (*Window, error) {
 	return currentContext(), nil
 }
 
+// LockContext keeps the window's context to the calling thread until UnlockContext, where the platform shares it
+// with a thread of its own. On macOS the main thread updates the context as the window is resized, moved or changes
+// screen, and that must not run while another thread draws with it or presents its frame. Elsewhere it does nothing.
+// Hold it only while drawing, never while waiting on another thread.
+func (w *Window) LockContext() {
+	if w.context.lock != nil {
+		w.context.lock(w)
+	}
+}
+
+// UnlockContext lets the context go after LockContext.
+func (w *Window) UnlockContext() {
+	if w.context.unlock != nil {
+		w.context.unlock(w)
+	}
+}
+
 func (w *Window) SwapBuffers() error {
 	if !_glfw.initialized {
 		return NotInitialized

@@ -1428,6 +1428,9 @@ func (w *Window) render() {
 			// See ContextCreation: a frame's buffers go while no window's
 			// context is being made.
 			glfw.ContextCreation.RLock()
+			// The main thread updates the context as the window changes size or screen, which must not run while
+			// this draws. Taken inside ContextCreation, so the main thread making a context never waits on it.
+			w.gw.LockContext()
 			r.Held = f.held
 			r.DrawRects(f.ops, f.damage, fbW, fbH, scale)
 			buffersDone(r.GL)
@@ -1455,7 +1458,10 @@ func (w *Window) render() {
 					// The canvas is in sRGB; the window shows it converted.
 					convertPixels(r, pix)
 				}
+				w.gw.UnlockContext()
 				readback(pix, fbW, fbH)
+			} else {
+				w.gw.UnlockContext()
 			}
 			// Drawn, the frame's ops are let go, unless they are held to
 			// draw it again sharp. The engine builds the next frame while

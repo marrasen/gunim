@@ -174,6 +174,12 @@ type nsRange struct {
 
 // Framework handles.
 var openGLFramework uintptr
+
+// cglLockContext and cglUnlockContext lock a CGL context, so that one thread at a time uses it. See lockNSGL.
+var (
+	cglLockContext   func(ctx uintptr) int32
+	cglUnlockContext func(ctx uintptr) int32
+)
 var appKitFramework uintptr
 
 // CoreFoundation function pointers.
@@ -505,6 +511,8 @@ var (
 	sel_makeCurrentContext                  = objc.RegisterName("makeCurrentContext")
 	sel_clearCurrentContext                 = objc.RegisterName("clearCurrentContext")
 	sel_flushBuffer                         = objc.RegisterName("flushBuffer")
+	sel_CGLContextObj                       = objc.RegisterName("CGLContextObj")
+	sel_update                              = objc.RegisterName("update")
 	sel_setValues_forParameter              = objc.RegisterName("setValues:forParameter:")
 	sel_getValues_forParameter              = objc.RegisterName("getValues:forParameter:")
 	sel_setView                             = objc.RegisterName("setView:")
@@ -616,6 +624,8 @@ func init() {
 	if err != nil {
 		panic(fmt.Errorf("glfw: failed to dlopen OpenGL: %w", err))
 	}
+	purego.RegisterLibFunc(&cglLockContext, openGLFramework, "CGLLockContext")
+	purego.RegisterLibFunc(&cglUnlockContext, openGLFramework, "CGLUnlockContext")
 
 	// Look up ObjC classes (must be after loading AppKit).
 	class_NSApplication = objc.GetClass("NSApplication")

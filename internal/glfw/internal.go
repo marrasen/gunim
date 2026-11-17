@@ -108,6 +108,9 @@ type context struct {
 	extensionSupported func(string) bool
 	getProcAddress     func(string) uintptr
 	destroy            func(*Window) error
+	// lock and unlock, where set, keep the context to one thread at a time. See [Window.LockContext].
+	lock   func(*Window)
+	unlock func(*Window)
 
 	platform platformContextState
 }

@@ -243,7 +243,7 @@ func registerGLFWClasses() error {
 					}
 
 					if window.context.source == NativeContextAPI {
-						window.context.platform.object.Send(objc.RegisterName("update"))
+						updateNSGL(window)
 					}
 
 					if _glfw.platformWindow.disabledCursorWindow == window {
@@ -271,7 +271,7 @@ func registerGLFWClasses() error {
 					}
 
 					if window.context.source == NativeContextAPI {
-						window.context.platform.object.Send(objc.RegisterName("update"))
+						updateNSGL(window)
 					}
 
 					if _glfw.platformWindow.disabledCursorWindow == window {
@@ -734,7 +734,7 @@ func registerGLFWClasses() error {
 					}
 
 					if window.context.source == NativeContextAPI {
-						window.context.platform.object.Send(objc.RegisterName("update"))
+						updateNSGL(window)
 					}
 
 					window.inputWindowDamage()

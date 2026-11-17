@@ -468,7 +468,7 @@ func platformInit() error {
 				Fn: func(_ objc.ID, _ objc.SEL, _ objc.ID) {
 					for _, window := range _glfw.windows {
 						if window.context.client != NoAPI {
-							window.context.platform.object.Send(objc.RegisterName("update"))
+							updateNSGL(window)
 						}
 					}
 					_ = pollMonitorsNS()

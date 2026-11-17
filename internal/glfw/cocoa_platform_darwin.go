@@ -73,6 +73,7 @@ type tisState struct {
 type platformContextState struct {
 	object      objc.ID // NSOpenGLContext
 	pixelFormat objc.ID // NSOpenGLPixelFormat
+	cgl         uintptr // CGLContextObj, the CGL context under object
 }
 
 type platformLibraryContextState struct{}
