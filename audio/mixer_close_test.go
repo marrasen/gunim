@@ -6,6 +6,7 @@ import (
 	"math/rand/v2"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 	"weak"
@@ -303,5 +304,119 @@ func TestAHundredDroppedMixersFreeTheirMemory(t *testing.T) {
 			t.Errorf("closed %v: 100 dropped mixers keep %d goroutines and %.1f MB", closed, left-goroutines,
 				(float64(after)-float64(before))/(1<<20))
 		}
+	}
+}
+
+// allDone reports which of vs is not done, a moment after it should be, or -1.
+func allDone(vs []*Voice) int {
+	for i, v := range vs {
+		if !soon(v.Done()) {
+			return i
+		}
+	}
+	return -1
+}
+
+func TestPlaysAroundACloseAreAllDone(t *testing.T) {
+	const players, each = 4, 25
+	for round := range 200 {
+		m := NewMixer()
+		var mu sync.Mutex
+		var vs []*Voice
+		var wg sync.WaitGroup
+		for range players {
+			wg.Go(func() {
+				for range each {
+					v := m.Play(&endless{}, Options{})
+					mu.Lock()
+					vs = append(vs, v)
+					mu.Unlock()
+				}
+			})
+		}
+		runtime.Gosched()
+		if err := m.Close(); err != nil {
+			t.Fatal(err)
+		}
+		wg.Wait()
+		if i := allDone(vs); i >= 0 {
+			t.Fatalf("round %d: voice %d of %d is not done", round, i, len(vs))
+		}
+		if n := m.Playing(); n != 0 {
+			t.Fatalf("round %d: %d voices play after Close", round, n)
+		}
+	}
+}
+
+// closeAtRandom mixes, plays and stops voices on three goroutines, and closes the mixer at a moment seed picks. It
+// returns the voice not done after the close, and how many there were, or -1.
+func closeAtRandom(seed uint64) (late, of int) {
+	r := rand.New(rand.NewPCG(seed, 11))
+	m := NewMixer()
+	var mu sync.Mutex
+	var vs []*Voice
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		buf := make([]float32, 2*64)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				m.Mix(buf)
+			}
+		}
+	})
+	for p := range 2 {
+		wg.Go(func() {
+			for i := 0; ; i++ {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				v := m.Play(&endless{}, Options{})
+				if (i+p)%3 == 0 {
+					v.Stop(0)
+				}
+				mu.Lock()
+				vs = append(vs, v)
+				mu.Unlock()
+				runtime.Gosched()
+			}
+		})
+	}
+	time.Sleep(time.Duration(r.IntN(300)) * time.Microsecond)
+	_ = m.Close()
+	close(stop)
+	wg.Wait()
+	return allDone(vs), len(vs)
+}
+
+func TestACloseAtAnyMomentEndsEveryVoice(t *testing.T) {
+	for seed := range uint64(150) {
+		if late, of := closeAtRandom(seed); late >= 0 {
+			t.Fatalf("seed %d: voice %d of %d is not done", seed, late, of)
+		}
+	}
+}
+
+func TestAClosedMixerIsNotSounding(t *testing.T) {
+	m := NewMixer()
+	m.Play(&endless{}, Options{})
+	mix(m, 256)
+	if !m.Sounding() {
+		t.Fatal("a mixer playing a sound is not sounding")
+	}
+	_ = m.Close()
+	if m.Sounding() {
+		t.Error("a closed mixer is sounding")
+	}
+	mix(m, 256)
+	v := m.Play(&endless{}, Options{})
+	v.Resume(0)
+	if m.Sounding() {
+		t.Error("a closed mixer is sounding after a play and a resume")
 	}
 }

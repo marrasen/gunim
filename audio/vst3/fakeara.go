@@ -435,6 +435,7 @@ func (d *fakeDoc) forget() {
 	d.news = nil
 	d.mu.Unlock()
 	dropHandle(d.ref)
+	destroyedDocs.Store(d.ref, d.a)
 	d.a.mu.Lock()
 	d.a.docs = slices.DeleteFunc(d.a.docs, func(e *fakeDoc) bool { return e == d })
 	d.a.mu.Unlock()
@@ -663,8 +664,21 @@ func (d *fakeDoc) regionNotes(r *fakeRegion) []Note {
 	return out
 }
 
-// fakeDocOf returns the fake document of ref.
-func fakeDocOf(ref uintptr) *fakeDoc { return handle[fakeDoc](ref) }
+// fakeDocOf returns the fake document of ref, or nil, writing down a call into a destroyed one.
+func fakeDocOf(ref uintptr) *fakeDoc {
+	d := handle[fakeDoc](ref)
+	if d == nil {
+		if v, ok := destroyedDocs.Load(ref); ok {
+			if a, ok := v.(*fakeARAPlugin); ok {
+				a.violate("a call into a destroyed document")
+			}
+		}
+	}
+	return d
+}
+
+// destroyedDocs holds the fake of each destroyed document, by its handle.
+var destroyedDocs sync.Map
 
 // The document controller's functions, made once.
 var fakeDCTable = sync.OnceValue(func() fnTable {
@@ -676,6 +690,9 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	set := func(i int, fn any) { fns[i] = newCallback(fn) }
 	set(dcDestroy, func(ctl uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		d.wg.Wait()
 		d.mu.Lock()
 		left := len(d.contexts) + len(d.seqs) + len(d.sources) + len(d.mods) + len(d.regions)
@@ -690,9 +707,18 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 		d.forget()
 		return 0
 	})
-	set(dcGetFactory, func(ctl uintptr) uintptr { return fakeDocOf(ctl).a.factory.addr() })
+	set(dcGetFactory, func(ctl uintptr) uintptr {
+		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
+		return d.a.factory.addr()
+	})
 	set(dcBeginEditing, func(ctl uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		if d.editing {
 			d.a.violate("beginEditing twice")
 		}
@@ -702,6 +728,9 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	})
 	set(dcEndEditing, func(ctl uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		if !d.editing {
 			d.a.violate("endEditing with no beginEditing")
 		}
@@ -719,6 +748,9 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	})
 	set(dcNotifyModelUpdates, func(ctl uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		if d.editing {
 			d.a.violate("notifyModelUpdates while editing")
 		}
@@ -733,6 +765,9 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	})
 	set(dcUpdateDocumentProperties, func(ctl, props uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		d.mustEdit("updateDocumentProperties")
 		d.name = readAt(props, fPtr, fPtr).str(1)
 		return 0
@@ -740,6 +775,9 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	ctxFields := []int{fPtr, fPtr, fI32, fPtr}
 	set(dcCreateMusicalContext, func(ctl, host, props uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		d.mustEdit("createMusicalContext")
 		c := &fakeContext{host: host, name: readAt(props, ctxFields...).str(1)}
 		d.readContent(c)
@@ -751,18 +789,27 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	})
 	set(dcUpdateMusicalContextProperties, func(ctl, ref, props uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		d.mustEdit("updateMusicalContextProperties")
 		d.contexts[ref].name = readAt(props, ctxFields...).str(1)
 		return 0
 	})
 	set(dcUpdateMusicalContextContent, func(ctl, ref, rng, flags uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		d.mustEdit("updateMusicalContextContent")
 		d.readContent(d.contexts[ref])
 		return 0
 	})
 	set(dcDestroyMusicalContext, func(ctl, ref uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		d.mustEdit("destroyMusicalContext")
 		for _, s := range d.seqs {
 			if s.ctx == ref {
@@ -782,6 +829,9 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	}
 	set(dcCreateAudioSource, func(ctl, host, props uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		d.mustEdit("createAudioSource")
 		s := &fakeSource{host: host}
 		readSource(props, s)
@@ -794,6 +844,9 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	})
 	set(dcUpdateAudioSourceProperties, func(ctl, ref, props uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		d.mustEdit("updateAudioSourceProperties")
 		s := d.sources[ref]
 		if s.enabled {
@@ -804,6 +857,9 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	})
 	set(dcEnableAudioSourceSamplesAccess, func(ctl, ref, on uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		s := d.sources[ref]
 		s.enabled = on&0xffffffff != 0
 		if !s.enabled {
@@ -814,6 +870,9 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	})
 	set(dcDestroyAudioSource, func(ctl, ref uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		d.mustEdit("destroyAudioSource")
 		if d.sources[ref].enabled {
 			d.a.violate("an audio source went with its samples open")
@@ -832,6 +891,9 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	modFields := []int{fPtr, fPtr, fPtr}
 	set(dcCreateAudioModification, func(ctl, src, host, props uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		d.mustEdit("createAudioModification")
 		if d.sources[src] == nil {
 			d.a.violate("a modification of no source")
@@ -845,12 +907,18 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	})
 	set(dcUpdateAudioModificationProperties, func(ctl, ref, props uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		d.mustEdit("updateAudioModificationProperties")
 		d.mods[ref].id = readAt(props, modFields...).str(2)
 		return 0
 	})
 	set(dcDestroyAudioModification, func(ctl, ref uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		d.mustEdit("destroyAudioModification")
 		for _, r := range d.regions {
 			if r.mod == ref {
@@ -872,6 +940,9 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	}
 	set(dcCreatePlaybackRegion, func(ctl, mod, host, props uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		d.mustEdit("createPlaybackRegion")
 		r := &fakeRegion{host: host, mod: mod}
 		readRegion(props, r)
@@ -886,6 +957,9 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	})
 	set(dcUpdatePlaybackRegionProperties, func(ctl, ref, props uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		d.mustEdit("updatePlaybackRegionProperties")
 		d.mu.Lock()
 		readRegion(props, d.regions[ref])
@@ -894,6 +968,9 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	})
 	set(dcDestroyPlaybackRegion, func(ctl, ref uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		d.mustEdit("destroyPlaybackRegion")
 		for _, x := range d.exts {
 			if slices.Contains(x.regions, ref) || slices.Contains(x.editorRegions, ref) {
@@ -911,12 +988,18 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	contentFns := func(available, grade, reader int, ev events) {
 		set(available, func(ctl, ref, kind uintptr) uintptr {
 			d := fakeDocOf(ctl)
+			if d == nil {
+				return 0
+			}
 			d.mu.Lock()
 			defer d.mu.Unlock()
 			return araBool(ev(d, ref, ContentType(int32(uint32(kind)))) != nil)
 		})
 		set(grade, func(ctl, ref, kind uintptr) uintptr {
 			d := fakeDocOf(ctl)
+			if d == nil {
+				return 0
+			}
 			d.mu.Lock()
 			defer d.mu.Unlock()
 			if ev(d, ref, ContentType(int32(uint32(kind)))) != nil {
@@ -926,6 +1009,9 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 		})
 		set(reader, func(ctl, ref, kind, rng uintptr) uintptr {
 			d := fakeDocOf(ctl)
+			if d == nil {
+				return 0
+			}
 			d.mu.Lock()
 			e := ev(d, ref, ContentType(int32(uint32(kind))))
 			d.mu.Unlock()
@@ -959,6 +1045,9 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	set(dcGetContentReaderDataForEvent, getContentReaderDataForEvent)
 	set(dcDestroyContentReader, func(ctl, reader uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		if handle[contentReader](reader) == nil {
 			d.a.violate("a content reader destroyed that is none")
 			return 0
@@ -970,6 +1059,9 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	set(dcGetProcessingAlgorithmsCount, func(ctl uintptr) uintptr { return uintptr(len(fakeAlgorithms)) })
 	set(dcGetProcessingAlgorithmProperties, func(ctl, i uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		k := int(int32(uint32(i)))
 		if k < 0 || k >= len(d.a.algorithms) {
 			d.a.violate("the properties of algorithm %d asked for", k)
@@ -979,12 +1071,18 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	})
 	set(dcGetProcessingAlgorithmForAudioSource, func(ctl, ref uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		d.mu.Lock()
 		defer d.mu.Unlock()
 		return uintptr(d.sources[ref].algo)
 	})
 	set(dcRequestProcessingAlgorithmForAudioSource, func(ctl, ref, i uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		d.mustEdit("requestProcessingAlgorithmForAudioSource")
 		k := int(int32(uint32(i)))
 		if k < 0 || k >= len(fakeAlgorithms) {
@@ -998,12 +1096,18 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	})
 	set(dcIsAudioSourceContentAnalysisIncomplete, func(ctl, ref, kind uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		d.mu.Lock()
 		defer d.mu.Unlock()
 		return araBool(!d.sources[ref].analysed)
 	})
 	set(dcRequestAudioSourceContentAnalysis, func(ctl, ref, n, types uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		if n == 0 || *ptr[int32](types) != int32(ContentNotes) {
 			d.a.violate("an analysis asked for content the fake analyzes none of")
 		}
@@ -1015,6 +1119,9 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	seqFields := []int{fPtr, fPtr, fI32, fPtr, fPtr}
 	set(dcCreateRegionSequence, func(ctl, host, props uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		d.mustEdit("createRegionSequence")
 		r := readAt(props, seqFields...)
 		q := &fakeSeq{host: host, name: r.str(1), ctx: r.ptr(3)}
@@ -1029,6 +1136,9 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	})
 	set(dcUpdateRegionSequenceProperties, func(ctl, ref, props uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		d.mustEdit("updateRegionSequenceProperties")
 		r := readAt(props, seqFields...)
 		d.seqs[ref].name, d.seqs[ref].ctx = r.str(1), r.ptr(3)
@@ -1036,6 +1146,9 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	})
 	set(dcDestroyRegionSequence, func(ctl, ref uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		d.mustEdit("destroyRegionSequence")
 		for _, r := range d.regions {
 			if r.seq == ref {
@@ -1054,11 +1167,17 @@ var fakeDCTable = sync.OnceValue(func() fnTable {
 	})
 	set(dcRestoreObjectsFromArchive, func(ctl, reader, filter uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		d.mustEdit("restoreObjectsFromArchive")
 		return araBool(d.restore(reader, filter))
 	})
 	set(dcStoreObjectsToArchive, func(ctl, writer, filter uintptr) uintptr {
 		d := fakeDocOf(ctl)
+		if d == nil {
+			return 0
+		}
 		if d.editing {
 			d.a.violate("storeObjectsToArchive while editing")
 		}

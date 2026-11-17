@@ -120,7 +120,8 @@ func NewMixer() *Mixer {
 
 // Close ends every voice, lets go of their sounds and stops the goroutine that tells their news. Whoever stops
 // mixing the mixer calls it, as when its speakers close for good. A closed mixer mixes silence, and a sound played
-// into it is done at once. It is safe to call twice, and during a mix, and returns nil.
+// into it is done at once. It is safe to call twice, and during a mix, and returns nil. A caller that drops a mixer
+// and its voices without Close, and keeps only a Done, may wait on it for ever.
 func (m *Mixer) Close() error {
 	if !m.closed.CompareAndSwap(false, true) {
 		return nil
@@ -130,11 +131,20 @@ func (m *Mixer) Close() error {
 	return nil
 }
 
-// release drops the voices of a closed mixer, unless a mix holds them, which releases them as it ends.
+// release drops the voices of a closed mixer, until none waits, unless a mix or another release holds them, which
+// then drops them.
 func (m *Mixer) release() {
-	if !m.own.CompareAndSwap(false, true) {
-		return
+	for m.own.CompareAndSwap(false, true) {
+		m.drop()
+		m.own.Store(false)
+		if m.incoming.Load() == nil {
+			return
+		}
 	}
+}
+
+// drop ends the voices of a closed mixer, with own held.
+func (m *Mixer) drop() {
 	m.takeIncoming()
 	for v := m.voices; v != nil; {
 		next := v.next
@@ -154,7 +164,6 @@ func (m *Mixer) release() {
 			v.finish()
 		}
 	}
-	m.own.Store(false)
 }
 
 // Rate returns how many frames a second the mixer gives. Every source
@@ -311,8 +320,11 @@ func (m *Mixer) Playing() int { return int(m.count.Load()) }
 
 // Sounding reports whether a voice sounds: one playing, or fading as
 // it pauses or stops, or played or resumed since the mixer last mixed.
-// Voices paused, and none, are silence.
+// Voices paused, and none, and a closed mixer, are silence.
 func (m *Mixer) Sounding() bool {
+	if m.closed.Load() {
+		return false
+	}
 	return m.sounding.Load() || m.sounds.Load() != m.soundsSeen.Load()
 }
 

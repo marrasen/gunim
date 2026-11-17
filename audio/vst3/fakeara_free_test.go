@@ -83,3 +83,15 @@ func TestTheFakeLetsGoOfWhatAFinishedSessionRead(t *testing.T) {
 	noViolations(t, x.a)
 	runtime.KeepAlive(x.a)
 }
+
+func TestACallIntoADestroyedDocumentIsARuleBroken(t *testing.T) {
+	x := newADocument(t)
+	dc := x.d.dc
+	x.d.Close()
+	dc.call(dcBeginEditing)
+	dc.call(dcEndEditing)
+	dc.call(dcNotifyModelUpdates)
+	if got := x.a.broken(); len(got) != 3 {
+		t.Fatalf("calls into a destroyed document broke %q", got)
+	}
+}
