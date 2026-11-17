@@ -41,6 +41,9 @@ type opsState struct {
 	across bool
 	// noPanel keeps operations out of the progress panel however long they run, for the tests.
 	noPanel bool
+	// worked, where set, is called as each operation's work is done,
+	// before the window hears of its end, for the tests.
+	worked func()
 	// dialogs are the dialogs to show, the first showing.
 	dialogs []*dialog
 	shown   int
@@ -422,9 +425,12 @@ func (a *app) startOp(j job, title string) {
 			return a.askPassword(ctx, id, ask)
 		}
 	}
-	fsID, ps := a.fs.ID(), a.ps
+	fsID, ps, worked := a.fs.ID(), a.ps, a.ops.worked
 	a.ops.wg.Go(func() {
 		rec, err := runJob(ctx, j, e)
+		if worked != nil {
+			worked()
+		}
 		if j.cut != nil {
 			// A move that skipped all it was given, or found it in the
 			// folder already, leaves the cut to be pasted elsewhere.

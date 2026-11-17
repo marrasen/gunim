@@ -478,22 +478,33 @@ func TestAFailedFolderCopyCountsTheFilesItWrote(t *testing.T) {
 // window took its end, ended well.
 func TestAnOperationFinishedAsTheWindowClosedEndedWell(t *testing.T) {
 	h, e, _ := refusingHarness(t, nil, nil, "a.txt", "web/")
+	worked := make(chan struct{})
+	started := false
 	h.a.post(func() {
+		h.a.ops.worked = func() { close(worked) }
 		h.a.startOp(job{kind: OpCopy, srcs: []string{filepath.Join(h.dir, "a.txt")}, dest: filepath.Join(h.dir, "web")}, "Copying a.txt")
+		started = true
 	})
-	// The copy starts, but its end is left waiting for the window.
-	select {
-	case fn := <-h.a.done:
-		fn()
-	case <-time.After(untilLimit):
-		t.Fatal("the copy did not start")
+	// The window runs what it was asked before, up to the start of the
+	// copy, and no further.
+	for !started {
+		select {
+		case fn := <-h.a.done:
+			fn()
+		case <-time.After(untilLimit):
+			t.Fatal("the copy did not start")
+		}
 	}
-	deadline := time.Now().Add(untilLimit)
-	for len(h.a.done) == 0 && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
+	// The copy's work is done, but the window takes nothing more: its
+	// end, and any progress before it, are left waiting.
+	select {
+	case <-worked:
+	case <-time.After(untilLimit):
+		t.Fatal("the copy did not finish")
 	}
 	h.close()
 	h.a.stopAll()
+	deadline := time.Now().Add(untilLimit)
 	for len(e.all()) == 0 && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
 	}
