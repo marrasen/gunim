@@ -172,7 +172,9 @@ func (s *scrolling) Step(dt time.Duration) bool {
 	case moving || s.held || kept:
 		s.stillSince, s.still = time.Time{}, 0
 	case s.bar.Target() > 0:
-		if s.stillSince.IsZero() {
+		// Before its first layout the widget has no window, and a nil UI's clock is the wall's: the frames alone
+		// count until it has one.
+		if s.stillSince.IsZero() && s.u != nil {
 			s.stillSince = s.u.Clock()
 		}
 		s.still += dt
@@ -198,6 +200,9 @@ func (s *scrolling) WakeIn() time.Duration {
 // lingered is how long the bar has stayed since the content was still:
 // the frames' time, or the clock's where the window slept through it.
 func (s *scrolling) lingered() time.Duration {
+	if s.stillSince.IsZero() {
+		return s.still
+	}
 	return max(s.still, s.u.Clock().Sub(s.stillSince))
 }
 
