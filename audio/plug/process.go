@@ -46,6 +46,12 @@ type Processor interface {
 	// notes and puts down the pedals that sound at the new place, tells
 	// of the notes and chords coming within the look-ahead there, and of
 	// the chord sounding there, with a [ChordNow].
+	//
+	// Reset leaves an instrument's live part alone, where it has one
+	// ([Descriptor.LivePart]): a seek moves the music, not the keys the
+	// player holds. Its notes sound on, with their own bend, expression
+	// and pedal. The host ends them itself, with NoteOffs, as the keys
+	// let go.
 	Reset()
 }
 
@@ -98,6 +104,18 @@ type Block struct {
 	// [Descriptor.ControlOut]. The plugin writes every frame of each one
 	// connected, within the port's Min and Max.
 	ControlOut [][]float32
+	// LiveOut holds the live part's channels to write, as many as Out,
+	// for an instrument with a [Descriptor.LivePart]. The plugin writes
+	// every frame of it where it is not nil, silence where no live note
+	// sounds: the notes of [Event.Live] events, and their tails, go here
+	// and never to Out, and the music's notes go to Out and never here.
+	// Where it is nil the host sends no live events, and the plugin
+	// plays as one without a live part. A host keeps it connected while
+	// a live note is down and for the Tail after. Where it goes nil
+	// while live notes still sound, the plugin stops them at once and
+	// forgets them: they never move to Out, and a later NoteOff of one
+	// finds nothing.
+	LiveOut [][]float32
 	// Frames is how many frames each channel has.
 	Frames int
 	// Changes are the parameters changed during the block, in the order
@@ -265,6 +283,18 @@ type Event struct {
 	// plugin sounds it from where it stands. Clear, the note only sets
 	// what a later note reads, as a key switch does.
 	Ring bool
+	// Live marks a NoteOn, NoteOff, Expression or Pedal of the live
+	// part, for an instrument with a [Descriptor.LivePart], where
+	// [Block.LiveOut] is set. A live note sounds on LiveOut alone. A live
+	// Expression or Pedal touches only the live part's notes, and one
+	// of the music only the music's: a pedal held in a clip holds no key
+	// the player lets go. A note's ID names it within its part alone:
+	// the two parts may use the same IDs at once, and a live NoteOff or
+	// Expression finds only the live note of its ID. A host marks no
+	// other kind of event Live, and never tells of a live note ahead, in
+	// [Block.Upcoming], or as a past note: the keys are played as they
+	// come. A live NoteOn's Turn, Length and Whole are zero.
+	Live bool
 }
 
 // EventKind is what an [Event] does.
