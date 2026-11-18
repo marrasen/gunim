@@ -82,6 +82,8 @@ func TestRegisterRefusesMistakes(t *testing.T) {
 		"look-ahead without notes":  {ID: "test.ahead", Name: "X", New: newer, LookAhead: time.Second},
 		"past notes without notes":  {ID: "test.past", Name: "X", New: newer, Past: true},
 		"a live part without notes": {ID: "test.live", Name: "X", New: newer, LivePart: true},
+		"a live part on an effect": {ID: "test.livefx", Name: "X", New: newer, Kind: "Fx", Notes: true,
+			LivePart: true},
 		"look-ahead below zero": {ID: "test.behind", Name: "X", New: newer, Kind: "Instrument|Synth", Notes: true,
 			LookAhead: -time.Millisecond},
 		"effect's notes ahead beside chords": {ID: "test.fxahead", Name: "X", New: newer, Kind: "Fx",

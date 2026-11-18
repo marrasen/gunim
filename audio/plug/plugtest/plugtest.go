@@ -268,6 +268,9 @@ func Drive(t *testing.T, d *plug.Descriptor, pr plug.Processor, s plug.Setup, fr
 		if e.Live && !d.LivePart {
 			t.Fatalf("plugtest: a live event at frame %d, for %s, which has no live part", e.Frame, d.ID)
 		}
+		if e.Live && e.Kind != plug.NoteOn && e.Kind != plug.NoteOff && e.Kind != plug.Expression && e.Kind != plug.Pedal {
+			t.Fatalf("plugtest: a live event at frame %d of kind %d, which a host never marks Live", e.Frame, e.Kind)
+		}
 	}
 	resets := map[int]bool{}
 	for _, f := range p.ResetAt {
