@@ -30,6 +30,31 @@ func TestCtrlArrowsStopAtPunctuation(t *testing.T) {
 	ty.want("/me/", 0)
 }
 
+func TestCtrlShiftArrowsSelectToTheStops(t *testing.T) {
+	// With Shift, the same stops grow the selection, either way.
+	ty := newTyper(t)
+	ty.typeText("/home/me/my_file.txt")
+	sel := func(start, end int) {
+		t.Helper()
+		if s, e := ty.field.Selection(); s != start || e != end {
+			t.Fatalf("selection %d..%d, want %d..%d", s, e, start, end)
+		}
+	}
+	ty.key(input.KeyLeft, input.ModControl|input.ModShift)
+	sel(17, 20)
+	ty.key(input.KeyLeft, input.ModControl|input.ModShift)
+	sel(9, 20)
+	ty.key(input.KeyRight, input.ModControl|input.ModShift)
+	sel(16, 20)
+	ty.key(input.KeyHome, 0)
+	ty.key(input.KeyRight, input.ModControl|input.ModShift)
+	sel(0, 5)
+	ty.key(input.KeyRight, input.ModControl|input.ModShift)
+	sel(0, 8)
+	ty.key(input.KeyBackspace, 0)
+	ty.want("/my_file.txt", 0)
+}
+
 func TestAThemeChoosesTheWordStops(t *testing.T) {
 	// A themed scope round one field gives it stops of its own: here
 	// only the slash, so the dot stays inside a word.
