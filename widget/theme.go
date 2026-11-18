@@ -352,6 +352,15 @@ var (
 	FieldMenuCopy      = theme.Choice("field.menu.copy", "Copy")
 	FieldMenuPaste     = theme.Choice("field.menu.paste", "Paste")
 	FieldMenuSelectAll = theme.Choice("field.menu.select.all", "Select all")
+	// WordStops are the characters, besides spaces, that end a word in
+	// text that edits or selects: Ctrl+Left and Ctrl+Right stop at them,
+	// Ctrl+Backspace and Ctrl+Delete delete up to them, and a double
+	// click selects the word between them. A run of them is passed over
+	// like a space, so Ctrl+Left in /home/me/src stops before src, me
+	// and home. The default is a code editor's: the ASCII punctuation
+	// but the underscore. Empty ends words at spaces only. A theme sets
+	// them for every text field; a [NewThemed] scope, for one.
+	WordStops = theme.Choice("text.word.stops", "`~!@#$%^&*()-=+[{]}\\|;:'\",.<>/?")
 )
 
 // Text area tokens. The frame, colours and padding are the text

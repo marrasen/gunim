@@ -284,12 +284,12 @@ func (t *TextField) Handle(e input.Event, u *gunim.UI) bool {
 			break
 		}
 		t.closeHandles()
-		t.press(t.indexAt(e.Pos, u), e.Clicks, e.Mods.Has(input.ModShift))
+		t.press(t.indexAt(e.Pos, u), e.Clicks, e.Mods.Has(input.ModShift), WordStops.Get(u.Theme()))
 		t.held = true
 	case input.PointerMove:
 		t.clearHot.Animate(anim.OnOff(t.overClear(e.Pos)), Quick.Get(u.Theme()))
 		if t.wording {
-			t.dragWords(t.indexAt(e.Pos, u))
+			t.dragWords(t.indexAt(e.Pos, u), WordStops.Get(u.Theme()))
 			break
 		}
 		if !t.held {

@@ -173,7 +173,7 @@ func (l *Label) Handle(e input.Event, u *gunim.UI) bool {
 		if e.Clicks < 2 && e.Mods.Has(input.ModShift) {
 			l.sel.caret = i
 		} else {
-			l.sel.anchor, l.sel.caret = clickRange([]rune(l.Text), i, e.Clicks)
+			l.sel.anchor, l.sel.caret = clickRange([]rune(l.Text), i, e.Clicks, WordStops.Get(u.Theme()))
 		}
 		l.sel.held = true
 	case input.PointerMove:

@@ -457,11 +457,11 @@ func (c *CodeEditor) Handle(e input.Event, u *gunim.UI) bool {
 			break
 		}
 		c.closeHandles()
-		c.press(c.indexAt(e.Pos), e.Clicks, e.Mods.Has(input.ModShift))
+		c.press(c.indexAt(e.Pos), e.Clicks, e.Mods.Has(input.ModShift), WordStops.Get(u.Theme()))
 		c.held = true
 	case input.PointerMove:
 		if c.wording {
-			c.dragWords(c.indexAt(e.Pos))
+			c.dragWords(c.indexAt(e.Pos), WordStops.Get(u.Theme()))
 			break
 		}
 		if !c.held {

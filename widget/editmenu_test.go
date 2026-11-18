@@ -139,7 +139,7 @@ func TestALongPressPastTheLastWordSelectsOnlyThatWord(t *testing.T) {
 		{"one two", 3, 0, 3},               // just after a word, before a space
 		{"", 0, 0, 0},
 	} {
-		s, e := wordAt([]rune(c.text), c.i)
+		s, e := wordAt([]rune(c.text), c.i, "")
 		if s != c.start || e != c.end {
 			t.Errorf("wordAt(%q, %d) = %d–%d, want %d–%d", c.text, c.i, s, e, c.start, c.end)
 		}
