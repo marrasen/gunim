@@ -83,6 +83,15 @@ type Descriptor struct {
 	// [Processor.Tail] may still hold. A host leaves these events out
 	// for any other plugin. It needs Notes.
 	Past bool
+	// LivePart says the instrument plays a second stream of notes, the
+	// live part, into an output of its own: the keys a player plays,
+	// while the music's notes play on the main output as before. One
+	// instance plays both, so the host loads nothing twice. The host
+	// marks the live part's events [Event.Live] and gives its output in
+	// [Block.LiveOut]. It sends the main output down the track's chain,
+	// in line with the music, and the live output straight out, past
+	// every delay. It needs Notes.
+	LivePart bool
 	// ChordAhead is how long before a chord starts the plugin asks to
 	// hear of it, in [Block.Chords]. An instrument hears the chords of
 	// each lane that plays it: a sub on the chord's bass, unison on its
@@ -623,6 +632,9 @@ func check(d *Descriptor) error {
 	}
 	if d.Past && !d.Notes {
 		return fmt.Errorf("%s asks for past notes, which takes Notes", d.ID)
+	}
+	if d.LivePart && !d.Notes {
+		return fmt.Errorf("%s plays a live part, which takes Notes", d.ID)
 	}
 	if d.Generator() && len(d.ControlOut) == 0 {
 		return fmt.Errorf("%s is a generator, of kind %q, so it makes control: give it a ControlOut port", d.ID, d.Kind)

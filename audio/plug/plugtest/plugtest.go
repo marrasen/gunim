@@ -99,8 +99,14 @@ type Ports struct {
 	// Changes are changes to parameters, after each one's Default at
 	// frame 0.
 	Changes []plug.Change
-	// Events are notes, for a plugin that takes them.
+	// Events are notes, for a plugin that takes them. One marked
+	// [plug.Event.Live] plays the live part, for a plugin with a
+	// [plug.Descriptor.LivePart].
 	Events []plug.Event
+	// ResetAt are frames to call [plug.Processor.Reset] at, as a host
+	// does on a seek: each before the block starting there, so each is
+	// a whole number of blocks.
+	ResetAt []int
 	// Upcoming is news of notes, for a plugin that looks ahead, as
 	// [Announce] makes it.
 	Upcoming []Ahead
@@ -210,12 +216,17 @@ type Result struct {
 	// ControlOut holds each control output's values, by
 	// [plug.Descriptor.ControlOut].
 	ControlOut [][]float32
+	// LiveOut is the live part's channels, for a plugin with a
+	// [plug.Descriptor.LivePart], or nil for one without.
+	LiveOut [][]float32
 }
 
 // Drive prepares pr, a processor of the plugin d describes, as s says,
 // and runs it as a host does, for the given number of frames in blocks
 // of s.MaxBlock, with the ports in p connected and every output
-// connected, and returns what came out. The first block carries each of
+// connected, and returns what came out. A plugin with a
+// [plug.Descriptor.LivePart] gets [plug.Block.LiveOut] connected too, and
+// may be sent live events; one without is sent none. The first block carries each of
 // d's settable parameters' Default as a change at frame 0, and p's changes and
 // events go to the blocks they fall in, in the order of their frames, and
 // its news to the blocks holding their At, in the order of At.
@@ -254,6 +265,16 @@ func Drive(t *testing.T, d *plug.Descriptor, pr plug.Processor, s plug.Setup, fr
 		if e.Frame < 0 || e.Frame >= frames {
 			t.Fatalf("plugtest: an event at frame %d falls outside the %d played", e.Frame, frames)
 		}
+		if e.Live && !d.LivePart {
+			t.Fatalf("plugtest: a live event at frame %d, for %s, which has no live part", e.Frame, d.ID)
+		}
+	}
+	resets := map[int]bool{}
+	for _, f := range p.ResetAt {
+		if f <= 0 || f >= frames || f%s.MaxBlock != 0 {
+			t.Fatalf("plugtest: a reset at frame %d, which starts no block after the first of the %d run", f, frames)
+		}
+		resets[f] = true
 	}
 	var changes []plug.Change
 	for _, prm := range d.Params {
@@ -319,6 +340,10 @@ func Drive(t *testing.T, d *plug.Descriptor, pr plug.Processor, s plug.Setup, fr
 	if generator {
 		res.Out, out = nil, nil
 	}
+	var liveOut [][]float32
+	if d.LivePart {
+		res.LiveOut, liveOut = channels(s.Channels, frames), channels(s.Channels, s.MaxBlock)
+	}
 
 	// Every block is made before the first runs, so the running
 	// allocates nothing of its own.
@@ -328,7 +353,7 @@ func Drive(t *testing.T, d *plug.Descriptor, pr plug.Processor, s plug.Setup, fr
 		b := plug.Block{Frames: n, Position: plug.Position{Frame: int64(at), Song: int64(at), Playing: true, Tempo: p.Tempo, EndTempo: p.Tempo,
 			Beat: float64(at) * p.Tempo / 60 / s.Rate},
 			In: window(p.In, at, n), Out: window(out, 0, n), ControlIn: window(p.ControlIn, at, n),
-			ControlOut: window(controlOut, 0, n)}
+			ControlOut: window(controlOut, 0, n), LiveOut: window(liveOut, 0, n)}
 		for _, port := range p.AuxIn {
 			b.AuxIn = append(b.AuxIn, window(port, at, n))
 		}
@@ -383,7 +408,7 @@ func Drive(t *testing.T, d *plug.Descriptor, pr plug.Processor, s plug.Setup, fr
 		blocks = append(blocks, b)
 	}
 	pr.Prepare(s)
-	playBlocks(pr, blocks, &res)
+	playBlocks(pr, blocks, resets, &res)
 	return res
 }
 
@@ -437,12 +462,17 @@ func window(chans [][]float32, at, n int) [][]float32 {
 }
 
 // playBlocks runs pr over blocks, each with its outputs filled with NaN
-// first, and copies what comes out to res.
-func playBlocks(pr plug.Processor, blocks []plug.Block, res *Result) {
+// first, and copies what comes out to res. It resets pr before each block
+// starting at a frame in resets.
+func playBlocks(pr plug.Processor, blocks []plug.Block, resets map[int]bool, res *Result) {
 	at := 0
 	for i := range blocks {
 		b := &blocks[i]
+		if resets[at] {
+			pr.Reset()
+		}
 		fill(b.Out)
+		fill(b.LiveOut)
 		fill(b.ControlOut)
 		for _, port := range b.AuxOut {
 			fill(port)
@@ -450,6 +480,7 @@ func playBlocks(pr plug.Processor, blocks []plug.Block, res *Result) {
 		pr.Process(b)
 		keep(res.Out, b.Out, at)
 		keep(res.ControlOut, b.ControlOut, at)
+		keep(res.LiveOut, b.LiveOut, at)
 		for i, port := range b.AuxOut {
 			keep(res.AuxOut[i], port, at)
 		}

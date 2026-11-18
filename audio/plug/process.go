@@ -46,6 +46,12 @@ type Processor interface {
 	// notes and puts down the pedals that sound at the new place, tells
 	// of the notes and chords coming within the look-ahead there, and of
 	// the chord sounding there, with a [ChordNow].
+	//
+	// Reset leaves an instrument's live part alone, where it has one
+	// ([Descriptor.LivePart]): a seek moves the music, not the keys the
+	// player holds. Its notes sound on, with their own bend, expression
+	// and pedal. The host ends them itself, with NoteOffs, as the keys
+	// let go.
 	Reset()
 }
 
@@ -98,6 +104,14 @@ type Block struct {
 	// [Descriptor.ControlOut]. The plugin writes every frame of each one
 	// connected, within the port's Min and Max.
 	ControlOut [][]float32
+	// LiveOut holds the live part's channels to write, as many as Out,
+	// for an instrument with a [Descriptor.LivePart]. The plugin writes
+	// every frame of it where it is not nil: the notes of
+	// [Event.Live] events, and their tails, go here and never to Out,
+	// and the music's notes go to Out and never here. Where it is nil
+	// the host sends no live events, and the plugin runs as one without
+	// a live part.
+	LiveOut [][]float32
 	// Frames is how many frames each channel has.
 	Frames int
 	// Changes are the parameters changed during the block, in the order
@@ -265,6 +279,13 @@ type Event struct {
 	// plugin sounds it from where it stands. Clear, the note only sets
 	// what a later note reads, as a key switch does.
 	Ring bool
+	// Live marks a NoteOn, NoteOff, Expression or Pedal of the live
+	// part, for an instrument with a [Descriptor.LivePart], where
+	// [Block.LiveOut] is set. A live note sounds on LiveOut alone. A live
+	// Expression or Pedal touches only the live part's notes, and one
+	// of the music only the music's: a pedal held in a clip holds no key
+	// the player lets go. The two parts keep their own note IDs apart.
+	Live bool
 }
 
 // EventKind is what an [Event] does.
