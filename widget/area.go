@@ -182,12 +182,12 @@ func (a *TextArea) Handle(e input.Event, u *gunim.UI) bool {
 			break
 		}
 		a.closeHandles()
-		a.press(a.indexAt(e.Pos, u), e.Clicks, e.Mods.Has(input.ModShift))
+		a.press(a.indexAt(e.Pos, u), e.Clicks, e.Mods.Has(input.ModShift), WordStops.Get(u.Theme()))
 		a.held = true
 		a.complete(u)
 	case input.PointerMove:
 		if a.wording {
-			a.dragWords(a.indexAt(e.Pos, u))
+			a.dragWords(a.indexAt(e.Pos, u), WordStops.Get(u.Theme()))
 			break
 		}
 		if !a.held {

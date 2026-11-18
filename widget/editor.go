@@ -615,7 +615,7 @@ const (
 func (e *editor) contextPress(owner gunim.Node, i int, at geom.Point, touch bool, u *gunim.UI) {
 	if touch {
 		e.closeMenu()
-		e.press(i, 2, false)
+		e.press(i, 2, false, WordStops.Get(u.Theme()))
 		e.words = [2]int{min(e.anchor, e.caret), max(e.anchor, e.caret)}
 		e.wording = true
 		return
@@ -630,8 +630,8 @@ func (e *editor) contextPress(owner gunim.Node, i int, at geom.Point, touch bool
 // dragWords takes a finger held on a word moving on to rune i: the
 // selection runs from the first word to the word at i, whole words at a
 // time, either way.
-func (e *editor) dragWords(i int) {
-	ws, we := wordAt(e.text, i)
+func (e *editor) dragWords(i int, stops string) {
+	ws, we := wordAt(e.text, i, stops)
 	if ws == we {
 		ws, we = i, i
 	}
@@ -719,48 +719,26 @@ func (e *editor) closeMenu() {
 
 // press places the caret for a click at rune i: selecting a word on a
 // double click and everything on a triple, and extending with Shift.
-func (e *editor) press(i, clicks int, shift bool) {
+func (e *editor) press(i, clicks int, shift bool, stops string) {
 	if clicks < 2 {
 		e.set(i, shift)
 		return
 	}
-	e.anchor, e.caret = clickRange(e.text, i, clicks)
+	e.anchor, e.caret = clickRange(e.text, i, clicks, stops)
 	e.hinted, e.goal = false, false
 }
 
 // clickRange returns what a click at rune i of rs selects: nothing on a
-// single click, a word on a double and everything on a triple.
-func clickRange(rs []rune, i, clicks int) (anchor, caret int) {
+// single click, a word on a double and everything on a triple. Words
+// end at spaces and at the runes in stops.
+func clickRange(rs []rune, i, clicks int, stops string) (anchor, caret int) {
 	switch {
 	case clicks >= 3:
 		return 0, len(rs)
 	case clicks == 2:
-		return wordAt(rs, i)
+		return wordAt(rs, i, stops)
 	}
 	return i, i
-}
-
-// wordAt returns the word at rune i: the one i is in, or the one it ends,
-// for a click just after a word. On a space, with no word ending there,
-// it returns i alone, so a double click or a long press on the space
-// after a text's last word selects nothing past it.
-func wordAt(rs []rune, i int) (start, end int) {
-	i = max(0, min(i, len(rs)))
-	j := i
-	if j == len(rs) || unicode.IsSpace(rs[j]) {
-		if j == 0 || unicode.IsSpace(rs[j-1]) {
-			return i, i
-		}
-		j--
-	}
-	start, end = j, j
-	for start > 0 && !unicode.IsSpace(rs[start-1]) {
-		start--
-	}
-	for end < len(rs) && !unicode.IsSpace(rs[end]) {
-		end++
-	}
-	return start, end
 }
 
 // key handles a key press. It reports false for a key the widget or its
@@ -773,15 +751,16 @@ func (e *editor) key(k input.KeyPress, u *gunim.UI, n navigator) bool {
 	}
 	ctrl := k.Mods.Has(input.ModControl) || k.Mods.Has(input.ModSuper)
 	shift := k.Mods.Has(input.ModShift)
+	stops := WordStops.Get(u.Theme())
 	start, end := e.Selection()
 	switch k.Key {
 	case input.KeyLeft, input.KeyRight:
 		right := k.Key == input.KeyRight
 		switch {
 		case ctrl && right:
-			e.set(wordEnd(e.text, e.caret+1), shift)
+			e.set(wordEnd(e.text, e.caret, stops), shift)
 		case ctrl:
-			e.set(wordStart(e.text, e.caret-1), shift)
+			e.set(wordStart(e.text, e.caret, stops), shift)
 		case start != end && !shift:
 			if right {
 				e.set(end, false)
@@ -828,7 +807,7 @@ func (e *editor) key(k input.KeyPress, u *gunim.UI, n navigator) bool {
 		case start != end:
 			e.replace(start, end, nil, u)
 		case ctrl:
-			e.replace(wordStart(e.text, e.caret-1), e.caret, nil, u)
+			e.replace(wordStart(e.text, e.caret, stops), e.caret, nil, u)
 		case e.caret > 0:
 			e.replace(e.caret-1, e.caret, nil, u)
 		}
@@ -837,7 +816,7 @@ func (e *editor) key(k input.KeyPress, u *gunim.UI, n navigator) bool {
 		case start != end:
 			e.replace(start, end, nil, u)
 		case ctrl:
-			e.replace(e.caret, wordEnd(e.text, e.caret+1), nil, u)
+			e.replace(e.caret, wordEnd(e.text, e.caret, stops), nil, u)
 		case e.caret < len(e.text):
 			e.replace(e.caret, e.caret+1, nil, u)
 		}
@@ -957,32 +936,6 @@ func (e *editor) replace(start, end int, with []rune, u *gunim.UI) {
 	if e.changed != nil {
 		e.changed(u)
 	}
-}
-
-// wordStart returns where the word at or before i starts, skipping
-// spaces before it.
-func wordStart(rs []rune, i int) int {
-	i = max(0, min(i, len(rs)))
-	for i > 0 && unicode.IsSpace(rs[i-1]) {
-		i--
-	}
-	for i > 0 && !unicode.IsSpace(rs[i-1]) {
-		i--
-	}
-	return i
-}
-
-// wordEnd returns where the word at or after i ends, skipping spaces
-// before it.
-func wordEnd(rs []rune, i int) int {
-	i = max(0, min(i, len(rs)))
-	for i < len(rs) && unicode.IsSpace(rs[i]) {
-		i++
-	}
-	for i < len(rs) && !unicode.IsSpace(rs[i]) {
-		i++
-	}
-	return i
 }
 
 // aim sends a to v: at once after an edit, gliding with m otherwise.
