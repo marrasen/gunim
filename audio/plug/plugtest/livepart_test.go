@@ -30,6 +30,7 @@ func (p *twoParts) Process(b *plug.Block) {
 				*n++
 			case plug.NoteOff:
 				*n--
+			case plug.Expression, plug.Pedal, plug.PastStart, plug.PastNote:
 			}
 		}
 		for _, ch := range b.Out {
