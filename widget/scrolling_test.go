@@ -6,7 +6,9 @@ import (
 	"time"
 
 	"github.com/marrasen/gunim"
+	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
+	"github.com/marrasen/gunim/gunimtest"
 	"github.com/marrasen/gunim/input"
 )
 
@@ -250,5 +252,38 @@ func TestEveryViewThatScrollsWithTheWheelSaysSo(t *testing.T) {
 		if _, ok := c.n.(gunim.WheelScroller); !ok {
 			t.Errorf("%s scrolls with the wheel and is no WheelScroller", c.name)
 		}
+	}
+}
+
+// A view new to a window that keeps time by its frames, scrolled before its first layout, as a list that opens on the
+// row picked, keeps its bar up for the linger on the frames' clock. The wall clock, which runs apart from the frames'
+// in a test or a held-clock shot, has no say in when it fades.
+func TestABarScrolledBeforeItsFirstLayoutLingersOnTheFramesClock(t *testing.T) {
+	w := gunimtest.New(t, geom.Sz(300, 400), nil)
+	w.PaintWhenLooked(false)
+	w.TimeByFrames(true)
+	// The frames' clock runs two seconds ahead of the wall's.
+	for range 120 {
+		w.Frame(time.Second / 60)
+	}
+	l := NewVirtualList(func(k Key) gunim.Node { return &block{key: k, h: 40} })
+	l.ScrollTo(0, anim.Snappy)
+	gunim.RegisterView(w, "v", func(shownKeys) gunim.Node { return l },
+		func(_ gunim.Node, s shownKeys, u *gunim.UI) { l.SetKeys(s.Keys, u) })
+	if err := w.Client().Mount(gunim.Root, "v", "v", shownKeys{keys(100)}); err != nil {
+		t.Fatal(err)
+	}
+	// Half the linger.
+	for range 24 {
+		w.Frame(time.Second / 60)
+	}
+	if l.bar.Target() != 1 {
+		t.Fatalf("the bar fades after %v of the frames' time, before its linger of %v", 24*time.Second/60, barLinger)
+	}
+	for range 30 {
+		w.Frame(time.Second / 60)
+	}
+	if l.bar.Target() != 0 {
+		t.Fatalf("the bar stays up after %v of the frames' time, past its linger of %v", 54*time.Second/60, barLinger)
 	}
 }
