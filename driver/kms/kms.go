@@ -768,6 +768,28 @@ func (d *Driver) SetBlank(b Blank) {
 	d.kick()
 }
 
+// Sleep turns the screen off now, as it would after Blank.Off untouched:
+// it fades to black and the display controller turns off. A touch wakes
+// it, and that touch is swallowed. A program turns the screen off with it
+// at a time of its own, such as at night. It does nothing while a window
+// keeps the screen awake.
+func (d *Driver) Sleep() {
+	d.mu.Lock()
+	d.blank.sleep(time.Now())
+	d.mu.Unlock()
+	d.kick()
+}
+
+// Untouched reports how long the screen has gone untouched: since the
+// last touch, wake, or change of Blank or of keeping awake. A program that
+// shows something of its own after a while untouched, in place of the
+// dimming, asks here.
+func (d *Driver) Untouched() time.Duration {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return time.Since(d.blank.last)
+}
+
 // Blanked reports whether the screen is off: faded to black, with the
 // backlight at 0 and the display controller off, and no frames drawn.
 func (d *Driver) Blanked() bool {
