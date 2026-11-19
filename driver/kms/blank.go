@@ -141,6 +141,18 @@ func (b *blanker) wake(now time.Time) {
 	b.to(b.level, wakeFade, now)
 }
 
+// sleep fades the screen to black now and turns it off, as an untouched
+// screen does after Off. A touch wakes it. It does nothing while a window
+// keeps the screen awake, or a finger is down, or the screen is fading or
+// off already.
+func (b *blanker) sleep(now time.Time) {
+	if b.keep || b.fingers || b.state == screenFading || b.state == screenOff {
+		return
+	}
+	b.state = screenFading
+	b.to(0, offFade, now)
+}
+
 // setKeep holds the screen awake, or lets it blank again from now on.
 func (b *blanker) setKeep(on bool, now time.Time) {
 	if on == b.keep {
