@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 )
 
 // Two programs pointed at one folder: the second neither installs over
@@ -170,26 +171,11 @@ func TestAFolderIsNoInstall(t *testing.T) {
 // before the install, as one running where the program goes is.
 func TestACopyRunningFromAnOldPlaceCounts(t *testing.T) {
 	home, program := testHome(t)
-	sleep, err := exec.LookPath("sleep")
-	if err != nil {
-		t.Skip("no sleep to run")
-	}
-	raw, err := os.ReadFile(sleep)
-	if err != nil {
-		t.Fatal(err)
-	}
 	old := filepath.Join(home, "bin", "kakel")
-	if err = os.MkdirAll(filepath.Dir(old), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(old), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err = os.WriteFile(old, raw, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	cmd := exec.CommandContext(t.Context(), old, "30")
-	if err = cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+	cmd := runStandIn(t, old)
 	a := App{Name: "kakel", Version: "v0.6.0", Formerly: []string{old}}
 	for _, uninstall := range []bool{false, true} {
 		s, err := sessionFor(a, program, uninstall)
@@ -206,30 +192,15 @@ func TestACopyRunningFromAnOldPlaceCounts(t *testing.T) {
 // once, are not counted against a release on trial; and an install of a
 // copy by hand ends the trial.
 func TestStartsBesideARunningCopyAreNotCounted(t *testing.T) {
-	sleep, err := exec.LookPath("sleep")
-	if err != nil {
-		t.Skip("no sleep to run")
-	}
-	raw, err := os.ReadFile(sleep)
-	if err != nil {
-		t.Fatal(err)
-	}
 	dir := t.TempDir()
 	exe := filepath.Join(dir, "studio")
-	if err = os.WriteFile(exe, raw, 0o755); err != nil {
+	runStandIn(t, exe)
+	if err := os.WriteFile(exe+".old", []byte("one"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err = os.WriteFile(exe+".old", []byte("one"), 0o755); err != nil {
+	if err := (trial{Version: "v2.0.0"}).write(exe); err != nil {
 		t.Fatal(err)
 	}
-	if err = (trial{Version: "v2.0.0"}).write(exe); err != nil {
-		t.Fatal(err)
-	}
-	cmd := exec.CommandContext(t.Context(), exe, "30")
-	if err = cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
 	a := App{Name: "studio", Version: "v2.0.0", Dir: func() (string, error) { return dir, nil }}
 	for i := range trialStarts + 3 {
 		if onTrial(a, exe) {
@@ -306,4 +277,42 @@ func TestTrialsMovingTheProgramAside(t *testing.T) {
 	} {
 		test(t)
 	}
+}
+
+// standInEnv makes a copy of the test binary wait instead of running the
+// tests: it stands in for a copy of a program that is running.
+const standInEnv = "GUNIM_INSTALL_STAND_IN"
+
+func init() {
+	if os.Getenv(standInEnv) != "" {
+		time.Sleep(time.Minute)
+		os.Exit(0)
+	}
+}
+
+// runStandIn copies the test binary to path and runs it there until the
+// test ends: a running program at path. The tests once copied the
+// system's sleep. On Ubuntu 26.04 that is uutils coreutils, one program
+// for every command, which picks the command by the name it runs under:
+// a copy named kakel said "unknown program" and stopped at once.
+func runStandIn(t *testing.T, path string) *exec.Cmd {
+	t.Helper()
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(self)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(path, raw, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.CommandContext(t.Context(), path)
+	cmd.Env = append(os.Environ(), standInEnv+"=1")
+	if err = cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+	return cmd
 }
