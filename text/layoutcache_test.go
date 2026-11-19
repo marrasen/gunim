@@ -51,6 +51,14 @@ func TestTheCacheChangesNoLayout(t *testing.T) {
 		{Size: 9.5, LineHeight: 1.4, Align: AlignCenter},
 		{Size: 22, Align: AlignEnd, MaxLines: 1},
 		{Size: 13.25, MaxLines: 2},
+		// Styles that differ from the first in one field alone, so a key
+		// that left the field out gives the first one's layout.
+		{Size: 15, Align: AlignCenter},
+		{Size: 15, Align: AlignEnd},
+		{Size: 15, LineHeight: 1.4},
+		{Size: 15, LineHeight: 1},
+		{Size: 15, MaxLines: 1},
+		{Size: 15, MaxLines: -1},
 	}
 	for name, f := range faces {
 		for _, s := range cacheCorpus {
@@ -138,6 +146,27 @@ func TestNewFallbacksLayOutAgain(t *testing.T) {
 	f.Fallback()
 	if got := faceOfB(); got != f.id {
 		t.Fatalf("with the fallbacks gone, Ɓ came from face %d, want the bare face %d", got, f.id)
+	}
+}
+
+// TestTurningOffSystemFontsLaysOutAgain checks that the cache never
+// gives a layout that used a system font after system fonts are off.
+func TestTurningOffSystemFontsLaysOutAgain(t *testing.T) {
+	if err := LoadSystemFonts(); err != nil {
+		t.Skip("no system fonts on this machine")
+	}
+	defer UseSystemFonts(true)
+	f := bare(t)
+	faceOfJa := func() uint32 { return f.Layout("日", Style{Size: 16}, 0).Lines[0].Run.Glyphs[0].Face }
+	if faceOfJa() == f.id {
+		t.Skip("no system font has 日")
+	}
+	UseSystemFonts(false)
+	if got := faceOfJa(); got != f.id {
+		t.Fatalf("with system fonts off, 日 came from face %d, want the bare face %d", got, f.id)
+	}
+	if got := f.Shape("日", 16).Glyphs[0].Face; got != f.id {
+		t.Fatalf("with system fonts off, Shape put 日 in face %d, want the bare face %d", got, f.id)
 	}
 }
 
