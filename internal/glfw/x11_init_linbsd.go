@@ -1114,6 +1114,7 @@ func platformTerminate() error {
 	}
 
 	if _glfw.platformWindow.display != 0 {
+		releaseD3D12Spares() // gunim change
 		xCloseDisplay(_glfw.platformWindow.display)
 		_glfw.platformWindow.display = 0
 	}

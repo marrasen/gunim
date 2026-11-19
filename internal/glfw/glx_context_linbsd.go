@@ -349,6 +349,7 @@ func createContextGLX(window *Window, ctxconfig *ctxconfig, fbconfig *fbconfig) 
 	if err != nil {
 		return err
 	}
+	spareD3D12ContextIDs(native) // gunim change
 
 	if ctxconfig.client == OpenGLESAPI {
 		if !glx.ARB_create_context ||

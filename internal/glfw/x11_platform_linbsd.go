@@ -373,6 +373,12 @@ type platformLibraryContextState struct {
 		ARB_create_context_no_error    bool
 		ARB_context_flush_control      bool
 
+		// d3d12Checked says the renderer was asked whether it overruns its
+		// context numbers, and d3d12Spares holds the contexts that keep the
+		// numbers it has no room for: see spareD3D12ContextIDs. gunim change.
+		d3d12Checked bool
+		d3d12Spares  []uintptr
+
 		GetFBConfigs          func(display uintptr, screen int32, nelements *int32) uintptr
 		GetFBConfigAttrib     func(display uintptr, config uintptr, attribute int32, value *int32) int32
 		GetClientString       func(display uintptr, name int32) uintptr
