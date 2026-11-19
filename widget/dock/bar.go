@@ -296,7 +296,7 @@ type tabGone struct {
 // bar in the title bar leaves to move the window by.
 const (
 	tabCross     = 16
-	tabDot       = 12
+	tabDot       = 16
 	tabPlus      = 30
 	captionLeast = 64
 	// slop is how far a tab pressed goes before it lifts off the bar.
@@ -799,7 +799,7 @@ func (b *Bar) paintTab(p *paint.Painter, th *theme.Live, t tab, title, more text
 	if l.dot > 0.01 {
 		// The dot, in the title's ink, growing from its middle.
 		d := 6 * l.dot
-		at := geom.Pt(stop-tabDot/2, mid)
+		at := geom.Pt(stop-tabDot/2+2, mid)
 		p.RRect(geom.Rc(at.X-d/2, at.Y-d/2, d, d), d/2, paint.Solid(c))
 		stop -= tabDot * l.dot
 	}
