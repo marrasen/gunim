@@ -44,7 +44,18 @@ type cacheKey struct {
 	gen                     uint64
 }
 
+// layoutKey is the key for a [Face.Layout]. Arguments the layout treats
+// alike share a key: every width but one above zero sets lines unbroken,
+// a line height of zero or less is 1, and a line limit of zero or less
+// is none.
 func layoutKey(f *Face, s string, st Style, width float32) cacheKey {
+	if !(width > 0) {
+		width = 0
+	}
+	if st.LineHeight <= 0 {
+		st.LineHeight = 1
+	}
+	st.MaxLines = max(st.MaxLines, 0)
 	return cacheKey{
 		face: f, s: s, size: math.Float32bits(st.Size), lineHeight: math.Float32bits(st.LineHeight),
 		width: math.Float32bits(width), align: st.Align, maxLines: st.MaxLines, gen: generation.Load(),
@@ -56,8 +67,8 @@ func shapeKey(f *Face, s string, size float32) cacheKey {
 }
 
 // cacheEntry is one answer, in a list from the most recently used to the
-// least. Its run or paragraph never changes once it is in the cache: a
-// caller gets a copy.
+// least. Its run or paragraph never changes once it is in the cache: the
+// cache keeps a copy of its own, and gives each caller another.
 type cacheEntry struct {
 	key        cacheKey
 	run        Run

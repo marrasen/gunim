@@ -387,8 +387,9 @@ func (f *Face) Shape(s string, size float32) Run {
 	}
 	run, gen := f.shapeUncached(s, size)
 	k.gen = gen
-	cache.put(&cacheEntry{key: k, run: run, cost: entryOverhead + len(s) + runCost(&run)})
-	return run.clone()
+	kept := run.clone()
+	cache.put(&cacheEntry{key: k, run: kept, cost: entryOverhead + len(s) + runCost(&kept)})
+	return run
 }
 
 // shapeUncached is [Face.Shape] without the cache. It also returns the
@@ -523,8 +524,9 @@ func (f *Face) Layout(s string, st Style, width float32) Paragraph {
 	}
 	p, gen := f.layoutUncached(s, st, width)
 	k.gen = gen
-	cache.put(&cacheEntry{key: k, para: p, cost: entryOverhead + len(s) + paragraphCost(&p)})
-	return p.clone()
+	kept := p.clone()
+	cache.put(&cacheEntry{key: k, para: kept, cost: entryOverhead + len(s) + paragraphCost(&kept)})
+	return p
 }
 
 // layoutUncached is [Face.Layout] without the cache. It also returns the
