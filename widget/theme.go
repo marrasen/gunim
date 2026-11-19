@@ -266,6 +266,8 @@ func Light() theme.Theme {
 		theme.Set(CodeGutterFill, color.NRGBA{R: 0xf0, G: 0xf2, B: 0xf6, A: 0xff}),
 		theme.Set(CodeGutterInk, color.NRGBA{R: 0x9d, G: 0xa5, B: 0xb4, A: 0xff}),
 		theme.Set(CodeLineFill, color.NRGBA{R: 0x2f, G: 0x6f, B: 0xe0, A: 0x0c}),
+		theme.Set(CodeLitFill, color.NRGBA{R: 0x2f, G: 0x6f, B: 0xe0, A: 0x1c}),
+		theme.Set(CodeLitEdge, color.NRGBA{R: 0x2f, G: 0x6f, B: 0xe0, A: 0xff}),
 		theme.Set(CodeProblem, color.NRGBA{R: 0xc8, G: 0x34, B: 0x2c, A: 0xff}),
 		theme.Set(SyntaxKeyword, color.NRGBA{R: 0xa6, G: 0x26, B: 0xa4, A: 0xff}),
 		theme.Set(SyntaxBuiltin, color.NRGBA{R: 0x01, G: 0x84, B: 0xbc, A: 0xff}),
