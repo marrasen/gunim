@@ -149,6 +149,7 @@ func Lookup(id uint32) (*Face, bool) {
 func (f *Face) Fallback(others ...*Face) *Face {
 	mu.Lock()
 	f.fallback = append([]*Face(nil), others...)
+	generation.Add(1)
 	mu.Unlock()
 	return f
 }
@@ -376,7 +377,24 @@ func (r Run) PaintFaded(p *paint.Painter, topLeft geom.Point, c color.NRGBA, roo
 // wrapping. A line break in s is drawn as a space.
 //
 // Bidirectional text and fallback faces work as they do in [Face.Layout].
+//
+// Shape keeps what it makes. A call with the same string, face and size
+// copies the kept run and shapes nothing.
 func (f *Face) Shape(s string, size float32) Run {
+	k := shapeKey(f, s, size)
+	if e := cache.get(k); e != nil {
+		return e.run.clone()
+	}
+	run, gen := f.shapeUncached(s, size)
+	k.gen = gen
+	kept := run.clone()
+	cache.put(&cacheEntry{key: k, run: kept, cost: entryOverhead + len(s) + runCost(&kept)})
+	return run
+}
+
+// shapeUncached is [Face.Shape] without the cache. It also returns the
+// generation the run belongs to.
+func (f *Face) shapeUncached(s string, size float32) (run Run, gen uint64) {
 	runes := []rune(s)
 	for i, r := range runes {
 		if isLineBreak(r) {
@@ -385,11 +403,12 @@ func (f *Face) Shape(s string, size float32) Run {
 	}
 	mu.Lock()
 	defer mu.Unlock()
+	gen = generation.Load()
 	lines, _ := f.wrapLocked(runes, size, 0, shaping.WrapConfig{Direction: direction(runes)})
 	if len(lines) == 0 {
-		return f.emptyRun(size)
+		return f.emptyRun(size), gen
 	}
-	return f.lineRun(lines[0], size)
+	return f.lineRun(lines[0], size), gen
 }
 
 // Align places lines of different widths within a paragraph.
@@ -495,7 +514,24 @@ func (p Paragraph) Paint(painter *paint.Painter, topLeft geom.Point, c color.NRG
 // from its first letter with a direction, so Hebrew or Arabic sets right
 // to left while the text around it sets left to right. Characters the
 // face lacks come from its [Face.Fallback] faces.
+//
+// Layout keeps what it makes. A call with the same string, face, style
+// and width copies the kept paragraph and lays nothing out.
 func (f *Face) Layout(s string, st Style, width float32) Paragraph {
+	k := layoutKey(f, s, st, width)
+	if e := cache.get(k); e != nil {
+		return e.para.clone()
+	}
+	p, gen := f.layoutUncached(s, st, width)
+	k.gen = gen
+	kept := p.clone()
+	cache.put(&cacheEntry{key: k, para: kept, cost: entryOverhead + len(s) + paragraphCost(&kept)})
+	return p
+}
+
+// layoutUncached is [Face.Layout] without the cache. It also returns the
+// generation the paragraph belongs to.
+func (f *Face) layoutUncached(s string, st Style, width float32) (out Paragraph, gen uint64) {
 	if st.LineHeight <= 0 {
 		st.LineHeight = 1
 	}
@@ -505,10 +541,11 @@ func (f *Face) Layout(s string, st Style, width float32) Paragraph {
 	// Half the leading goes above the line and half below.
 	halfLeading := (step - ascent - descent) / 2
 
-	out := Paragraph{LineHeight: step}
+	out = Paragraph{LineHeight: step}
 	paras, seps := splitLines(s)
 	base := 0 // the rune where the current paragraph starts
 	mu.Lock()
+	gen = generation.Load()
 	var ellipsis shaping.Output
 	if st.MaxLines > 0 {
 		ellipsis = f.shapeLocked([]rune("…"), st.Size, di.DirectionLTR)
@@ -568,7 +605,7 @@ func (f *Face) Layout(s string, st Style, width float32) Paragraph {
 			l.At.X = spare
 		}
 	}
-	return out
+	return out, gen
 }
 
 // splitLines splits s at each line break into the runes of each line, and returns how many runes the break after

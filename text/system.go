@@ -25,7 +25,10 @@ var (
 func UseSystemFonts(on bool) {
 	mu.Lock()
 	defer mu.Unlock()
-	systemOn = on
+	if systemOn != on {
+		systemOn = on
+		generation.Add(1)
+	}
 }
 
 // LoadSystemFonts finds the system's fonts now, rather than when a
