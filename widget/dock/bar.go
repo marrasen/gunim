@@ -31,6 +31,10 @@ type Face struct {
 	// Closable gives the tab a ×, shown on the tab in front and the one
 	// under the pointer, and lets the middle button close it.
 	Closable bool
+	// Dot puts a dot after the title, as an editor marks a file with
+	// changes not saved. It grows in as it comes and shrinks away as it
+	// goes, the tab widening and narrowing with it.
+	Dot bool
 }
 
 // tab is a tab on a bar: the node it shows, and how it looks.
@@ -140,8 +144,10 @@ type Bar struct {
 	// is drawn, sliding after the tabs.
 	moves    map[string]*tabMove
 	arriving map[string]bool
-	gone     []tabGone
-	plusAt   *anim.Rect
+	// dots carry how far each tab's dot shows, 0 to 1, by its ID.
+	dots   map[string]*anim.Float
+	gone   []tabGone
+	plusAt *anim.Rect
 	// lit is how far the front tab's fill has come from the tab that
 	// was in front, was, where it was drawn, litFrom.
 	lit     *anim.Float
@@ -290,6 +296,7 @@ type tabGone struct {
 // bar in the title bar leaves to move the window by.
 const (
 	tabCross     = 16
+	tabDot       = 16
 	tabPlus      = 30
 	captionLeast = 64
 	// slop is how far a tab pressed goes before it lifts off the bar.
@@ -301,7 +308,7 @@ const (
 
 func makeBar(d *Dock, group string, win int) *Bar {
 	b := &Bar{d: d, group: group, Win: win, hot: -1, pressed: -1, landing: -1,
-		moves: map[string]*tabMove{}, arriving: map[string]bool{}, lit: anim.NewFloat(1), mark: anim.NewFloat(0)}
+		moves: map[string]*tabMove{}, arriving: map[string]bool{}, dots: map[string]*anim.Float{}, lit: anim.NewFloat(1), mark: anim.NewFloat(0)}
 	b.Add(b.lit, b.mark)
 	if d != nil {
 		b.OnPlusMenu = func(at geom.Rect, u *gunim.UI) gunim.Intent {
@@ -385,11 +392,45 @@ func (b *Bar) setStill(tabs []tab, front string, mark, still bool, u *gunim.UI) 
 		}
 	}
 	b.tabs, b.front = tabs, front
+	b.followDots(u)
 	if titlesChanged {
 		b.shapedFace = nil
 	}
 	u.Invalidate()
 	return moved
+}
+
+// followDots grows each tab's dot in or shrinks it away as its Dot
+// says, at once before the bar is first laid out.
+func (b *Bar) followDots(u *gunim.UI) {
+	if b.dots == nil {
+		b.dots = map[string]*anim.Float{}
+	}
+	for id := range b.dots {
+		if b.boxOf(id) < 0 {
+			delete(b.dots, id)
+		}
+	}
+	for _, t := range b.tabs {
+		d := b.dots[t.id]
+		if d == nil {
+			d = anim.NewFloat(anim.OnOff(t.Dot))
+			b.dots[t.id] = d
+		}
+		if !b.laid || u == nil {
+			d.Jump(anim.OnOff(t.Dot))
+		} else {
+			d.Animate(anim.OnOff(t.Dot), widget.Quick.Get(u.Theme()))
+		}
+	}
+}
+
+// dotOf is how far tab t's dot shows, 0 to 1.
+func (b *Bar) dotOf(t tab) float32 {
+	if d := b.dots[t.id]; d != nil {
+		return min(max(d.Value(), 0), 1)
+	}
+	return anim.OnOff(t.Dot)
 }
 
 // shape shapes the titles again where they or the text changed.
@@ -499,6 +540,11 @@ func (b *Bar) Step(dt time.Duration) bool {
 			moving = true
 		}
 	}
+	for _, d := range b.dots {
+		if d.Step(dt) {
+			moving = true
+		}
+	}
 	if b.plusAt != nil && b.plusAt.Step(dt) {
 		moving = true
 	}
@@ -603,6 +649,9 @@ func (b *Bar) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.
 		if b.more[i].Advance > 0 {
 			w += b.more[i].Advance + 6
 		}
+		if t.Dot {
+			w += tabDot
+		}
 		want[i] = min(max(w, least), widest)
 		total += want[i] + gap
 	}
@@ -651,7 +700,7 @@ func (b *Bar) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Chil
 		p.RRect(geom.Rect{Max: box.Point()}, BarRadius.Get(th), paint.Solid(BarFill.Get(th)))
 	}
 	for _, g := range b.gone {
-		b.paintTab(p, th, g.tab, g.title, g.more, g.box.Value(), g.open.Value(), tabLook{at: -1})
+		b.paintTab(p, th, g.tab, g.title, g.more, g.box.Value(), g.open.Value(), tabLook{at: -1, dot: anim.OnOff(g.tab.Dot)})
 	}
 	radius := TabRadius.Get(th)
 	if r := b.litAt(); r.Size().W > 0 {
@@ -677,6 +726,7 @@ func (b *Bar) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Chil
 			lifted:   t.id == b.carried,
 			cross:    b.crossShown(i),
 			crossLit: i == b.hot && b.crossHot,
+			dot:      b.dotOf(t),
 		})
 	}
 	if b.landing >= 0 && len(b.boxes) > 0 && b.landing <= len(b.boxes) {
@@ -699,8 +749,10 @@ func (b *Bar) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Chil
 // tabLook is how a tab is drawn. lit is how far it has the front tab's
 // ink, and at its place on the bar, -1 for one going.
 type tabLook struct {
-	at                                  int
-	lit                                 float32
+	at  int
+	lit float32
+	// dot is how far the dot after the title shows, 0 to 1.
+	dot                                 float32
 	hot, front, lifted, cross, crossLit bool
 }
 
@@ -743,6 +795,13 @@ func (b *Bar) paintTab(p *paint.Painter, th *theme.Live, t tab, title, more text
 	stop := r.Max.X - pad
 	if l.cross {
 		stop -= tabCross
+	}
+	if l.dot > 0.01 {
+		// The dot, in the title's ink, growing from its middle.
+		d := 6 * l.dot
+		at := geom.Pt(stop-tabDot/2+2, mid)
+		p.RRect(geom.Rc(at.X-d/2, at.Y-d/2, d, d), d/2, paint.Solid(c))
+		stop -= tabDot * l.dot
 	}
 	if more.Advance > 0 {
 		mc := faint

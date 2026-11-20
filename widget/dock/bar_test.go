@@ -377,3 +377,41 @@ func TestNarrowBarTabsKeepTheirLeastWidth(t *testing.T) {
 		}
 	}
 }
+
+// A tab's dot grows in, frame by frame, the tab widening with it, and
+// shrinks away again.
+func TestATabsDotGrowsInAndShrinksAway(t *testing.T) {
+	b := NewBar("g", 0)
+	tabs := barTabs{tabs: []Tab{{ID: "1", Face: Face{Title: "The film's script"}}, {ID: "2", Face: Face{Title: "Preview"}}}, front: "1"}
+	w, run, _ := stageBar(t, b, tabs)
+	narrow := b.boxes[0].Size().W
+	tabs.tabs[0].Dot = true
+	if err := w.Client().Update("v", tabs); err != nil {
+		t.Fatal(err)
+	}
+	last := float32(0)
+	grew := false
+	for range 40 {
+		run(1)
+		v := b.dotOf(b.tabs[0])
+		if v < last-0.01 {
+			t.Fatalf("the dot went from %v to %v as it grew in", last, v)
+		}
+		grew = grew || v > 0.05 && v < 0.95
+		last = v
+	}
+	if !grew || last < 0.99 {
+		t.Fatalf("the dot grew in %v, settling at %v", grew, last)
+	}
+	if w := b.boxes[0].Size().W; w <= narrow {
+		t.Fatalf("the tab with a dot is %v wide, no wider than %v without", w, narrow)
+	}
+	tabs.tabs[0].Dot = false
+	if err := w.Client().Update("v", tabs); err != nil {
+		t.Fatal(err)
+	}
+	run(40)
+	if v := b.dotOf(b.tabs[0]); v > 0.01 {
+		t.Fatalf("the dot shows %v after it went", v)
+	}
+}
