@@ -437,9 +437,17 @@ func shortReopen(t *testing.T, first, most time.Duration) {
 	t.Cleanup(func() { keyReopenFirst, keyReopenMax, keyReopenReset = f, m, r })
 }
 
-// openFDs counts this process's open files.
+// openFDs counts this process's open files. The runtime's poller opens two
+// of its own at its first use, which can come in the middle of a test, so a
+// pipe's open makes it open them first.
 func openFDs(t *testing.T) int {
 	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = r.Close()
+	_ = w.Close()
 	ents, err := os.ReadDir("/proc/self/fd")
 	if err != nil {
 		t.Fatal(err)
@@ -561,22 +569,29 @@ func TestKeyWatcher_BacksOffAKeyboardThatKeepsFailing(t *testing.T) {
 		t.Fatal(err)
 	}
 	node := filepath.Join(dir, "event7")
-	if err := os.WriteFile(node, []byte("keyboard"), 0o644); err != nil {
+	// The node appears whole, as the kernel makes it: written under another
+	// name, then renamed into place. Written in place, the watcher could open
+	// it between the create and the write, find it empty, take it for no
+	// keyboard, and never open it again.
+	tmp := filepath.Join(dir, "new")
+	if err := os.WriteFile(tmp, []byte("keyboard"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(time.Second)
-	n := kb.opened(node)
-	// 10, 20, 40, then 80 ms apart: about 15 opens in a second. A busy loop
-	// would make thousands.
-	if n < 4 || n > 20 {
-		t.Fatalf("%d opens in a second, want about 15", n)
+	if err := os.Rename(tmp, node); err != nil {
+		t.Fatal(err)
 	}
+	// The opens come 10, 20, 40, then 80 ms apart. A busy machine can make
+	// each wait longer, never shorter, so this waits for a count of opens and
+	// then checks each gap. A busy loop would make its opens far closer.
+	const opens = 8
+	waitFor(t, "8 opens of a keyboard that keeps failing", func() bool { return kb.opened(node) >= opens })
 	kb.mu.Lock()
 	times := append([]time.Time(nil), kb.times...)
 	kb.mu.Unlock()
-	for i := 4; i < len(times); i++ {
-		if gap := times[i].Sub(times[i-1]); gap < 70*time.Millisecond {
-			t.Fatalf("opens %d and %d were %v apart, want keyReopenMax", i-1, i, gap)
+	for i := 1; i < opens; i++ {
+		want := min(10*time.Millisecond<<(i-1), 80*time.Millisecond)
+		if gap := times[i].Sub(times[i-1]); gap < want {
+			t.Fatalf("opens %d and %d were %v apart, want at least %v", i-1, i, gap, want)
 		}
 	}
 	if _, err := unix.Write(stop, []byte{1, 0, 0, 0, 0, 0, 0, 0}); err != nil {
