@@ -156,7 +156,13 @@ type Range struct {
 	Step float64
 }
 
-// The actions nodes commonly take.
+// The actions nodes commonly take. A node's Actions may also name an
+// action of the app's own, in plain words a person hears, such as "Solo
+// alone": AT-SPI offers it by that name, and a request for it comes back
+// with that name as its Action. UI Automation has no pattern for an
+// action of the app's own, so there only ActionPress, ActionOpen and
+// ActionClose reach a node; give what a named action does another way in
+// too, such as a context menu.
 const (
 	// ActionPress presses a button, flips a checkbox or a switch,
 	// chooses a tab or a menu item.
