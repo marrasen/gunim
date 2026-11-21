@@ -37,7 +37,7 @@ func TestScreenReadersReadAndPressThroughATSPI(t *testing.T) {
 	aw := a.add(w, false)
 	defer a.remove(aw)
 	button := &access.Node{
-		Info:   access.Info{Role: access.RoleButton, Name: "Save", Actions: []string{access.ActionPress}},
+		Info:   access.Info{Role: access.RoleButton, Name: "Save", Actions: []string{access.ActionPress, "Save a copy"}},
 		ID:     2,
 		Bounds: geom.Rc(10, 10, 80, 30),
 	}
@@ -75,11 +75,26 @@ func TestScreenReadersReadAndPressThroughATSPI(t *testing.T) {
 		t.Fatalf("the window's children are %v (%v), want the button", kids, err)
 	}
 	btn := reader.Object(a.name, kids[0].Path)
-	var ok bool
-	if err = btn.Call(ifAction+".DoAction", 0, int32(0)).Store(&ok); err != nil || !ok {
-		t.Fatalf("pressing the button: %v, %v", ok, err)
+	// An action of the app's own is offered by its name, beside the press.
+	var second string
+	if err = btn.Call(ifAction+".GetName", 0, int32(1)).Store(&second); err != nil || second != "Save a copy" {
+		t.Fatalf("the button's second action is %q (%v), want \"Save a copy\"", second, err)
 	}
-	// The window's other input, such as a redraw, may come first.
+	// Each action reaches the window by its name: the press, then the
+	// app's own.
+	for i, want := range []string{access.ActionPress, "Save a copy"} {
+		var ok bool
+		if err = btn.Call(ifAction+".DoAction", 0, int32(i)).Store(&ok); err != nil || !ok {
+			t.Fatalf("doing action %d: %v, %v", i, ok, err)
+		}
+		waitRequest(t, w, 2, want)
+	}
+}
+
+// waitRequest waits for the request a screen reader made of node id with action to reach window w. The window's
+// other input, such as a redraw, may come first.
+func waitRequest(t *testing.T, w *Window, id uint64, action string) {
+	t.Helper()
 	timeout := time.After(2 * time.Second)
 	for {
 		select {
@@ -88,12 +103,12 @@ func TestScreenReadersReadAndPressThroughATSPI(t *testing.T) {
 			if !isReq {
 				continue
 			}
-			if r.ID != 2 || r.Action != access.ActionPress {
-				t.Fatalf("the window got %#v, want a press of the button", r)
+			if r.ID != id || r.Action != action {
+				t.Fatalf("the window got %#v, want %q of node %d", r, action, id)
 			}
 			return
 		case <-timeout:
-			t.Fatal("the press never reached the window")
+			t.Fatalf("%q never reached the window", action)
 		}
 	}
 }
