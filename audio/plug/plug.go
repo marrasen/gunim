@@ -108,6 +108,9 @@ type Descriptor struct {
 	// lanes play. Empty gives the main one alone, named "Notes". [Event.Port] names an input by its place here, and
 	// every input shares LookAhead and ChordAhead. It needs Notes. [Descriptor.NotesInputs] reads it.
 	NotesIn []NotesInput
+	// NotesOut lists the plugin's notes outputs, which [Block.NotesOut] carries by place. A plugin needs no Notes to
+	// have them.
+	NotesOut []NotesOutput
 	// AuxIn and AuxOut are the plugin's audio ports beyond its main
 	// input and output, as VST3's aux (auxiliary) buses: a sidechain
 	// in, or an output for each drum of a drum synth. A project names a
@@ -684,6 +687,9 @@ func check(d *Descriptor) error {
 	if err := checkNotesIn(d); err != nil {
 		return err
 	}
+	if err := checkNotesOut(d); err != nil {
+		return err
+	}
 	if err := checkPorts(d); err != nil {
 		return err
 	}
@@ -765,6 +771,24 @@ func checkNotesIn(d *Descriptor) error {
 			return fmt.Errorf("%s has two notes inputs of key %q", d.ID, in.Key)
 		}
 		keys[in.Key] = true
+	}
+	return nil
+}
+
+// checkNotesOut returns what is wrong with d's notes outputs, if anything.
+func checkNotesOut(d *Descriptor) error {
+	names, keys := map[string]bool{}, map[string]bool{}
+	for _, out := range d.NotesOut {
+		if out.Name == "" {
+			return fmt.Errorf("%s: notes output %q has no name", d.ID, out.Key)
+		}
+		if names[out.Name] {
+			return fmt.Errorf("%s has two notes outputs named %q", d.ID, out.Name)
+		}
+		if keys[out.Key] {
+			return fmt.Errorf("%s has two notes outputs of key %q", d.ID, out.Key)
+		}
+		names[out.Name], keys[out.Key] = true, true
 	}
 	return nil
 }
