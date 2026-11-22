@@ -2038,8 +2038,17 @@ type UI struct {
 	// theme, a scroll or a drag move: only then are Steady nodes' subtrees
 	// carried (steady.go). keptPainted counts the nodes painted for a
 	// [Drawing].
-	stirred     bool
-	calm        bool
+	stirred bool
+	calm    bool
+	// poked says input, a command or Invalidate reached the nodes in
+	// touchedBy since the last frame, which needs drawing, and apart that
+	// nothing else stirred this frame: SteadyApart nodes with none of
+	// them inside are carried by their keys. touches counts the frames
+	// that marked the nodes touched.
+	poked       bool
+	apart       bool
+	touchedBy   []*state
+	touches     uint64
 	keptPainted int
 	// themeMoved is the frame in which the window's theme last moved.
 	themeMoved uint64
@@ -2166,6 +2175,9 @@ type timer struct {
 	wake bool
 	// held marks a timer set while the window kept a held clock's time, which Advance cuts a frame at.
 	held bool
+	// node is the node whose handler or update set the timer, nil for
+	// none: the frame it runs in draws that node anew, not the window.
+	node *state
 }
 
 // redrawAt sets a timer that draws a frame at t, unless one due by then is already set.
@@ -2182,7 +2194,7 @@ func (u *UI) redrawAt(t time.Time) {
 // this one, and returns a function that cancels it. The window sleeps
 // while it waits, so a tooltip's delay costs no frames.
 func (u *UI) After(d time.Duration, fn func(u *UI)) (stop func()) {
-	t := &timer{at: u.timerClock().Add(d), fn: fn, held: u.onHeld}
+	t := &timer{at: u.timerClock().Add(d), fn: fn, held: u.onHeld, node: u.current}
 	u.timers = append(u.timers, t)
 	return func() {
 		u.timers = slices.DeleteFunc(u.timers, func(o *timer) bool { return o == t })
@@ -2271,6 +2283,12 @@ func (u *UI) runTimers() {
 		u.paintOwed()
 	}
 	for _, t := range due {
+		if t.node != nil && !t.wake && u.index[t.node.node] == t.node {
+			// A node's timer: that node is drawn anew, and so is what it
+			// invalidates from the timer.
+			u.on(t.node, func() { t.fn(u) })
+			continue
+		}
 		if !t.wake {
 			u.invalid = true
 		}
@@ -2334,9 +2352,41 @@ func (u *UI) themeOf(s *state) *theme.Live {
 }
 
 // on runs fn with s as the node being served, so Theme finds its scope.
+// The frame draws s anew.
 func (u *UI) on(s *state, fn func()) {
+	u.reach(s)
+	u.hear(s, fn)
+}
+
+// hear is on for fn that only listens, as an [Overhearer]: the frame is
+// stirred, and draws s anew only where fn calls Invalidate.
+func (u *UI) hear(s *state, fn func()) {
 	u.stirred = true
 	u.ask(s, fn)
+}
+
+// reach says input, a command or Invalidate reached s: the next frame
+// draws it anew, and the nodes round it. The frame is stirred, so a
+// Steady node that is no SteadyApart is drawn anew too, as ever.
+func (u *UI) reach(s *state) {
+	if s != nil {
+		u.touchedBy = append(u.touchedBy, s)
+		u.poked, u.stirred = true, true
+	}
+}
+
+// markTouched marks, for this frame, each node reached since the last
+// and the nodes round it, and forgets them.
+func (u *UI) markTouched() {
+	u.touches++
+	for _, s := range u.touchedBy {
+		for a := s; a != nil && a.touched != u.touches; a = a.parent {
+			a.touched = u.touches
+		}
+	}
+	clear(u.touchedBy)
+	u.touchedBy = u.touchedBy[:0]
+	u.poked = false
 }
 
 // ask is on for fn that only asks s, as the pointer's shape: it leaves
@@ -2516,7 +2566,12 @@ func (u *UI) Blends() bool { return u.w.blends }
 // it when something changed that the engine can see no other way. On a nil UI, as a setter is given before its
 // widget is mounted, it does nothing: the first frame draws the widget anyway.
 func (u *UI) Invalidate() {
-	if u != nil {
+	switch {
+	case u == nil:
+	case u.current != nil:
+		// From a handler, an update or a timer of a node: that node.
+		u.reach(u.current)
+	default:
 		u.invalid = true
 	}
 }
@@ -2875,7 +2930,8 @@ func (u *UI) Focus(n Node) bool {
 		}
 	}
 	u.ring()
-	u.invalid = true
+	u.reach(prev)
+	u.reach(next)
 	return true
 }
 
@@ -2927,8 +2983,9 @@ func (u *UI) showRings(keyboard bool) {
 		return
 	}
 	u.keyboardCue = keyboard
+	// The rings reach the nodes they go round.
 	u.ring()
-	u.invalid = true
+	u.poked, u.stirred = true, true
 }
 
 // takeText tells the driver whether the newly focused node takes typed
@@ -3046,7 +3103,7 @@ func (u *UI) springsMoving() bool {
 }
 
 // needsFrame reports whether there is anything to draw.
-func (u *UI) needsFrame() bool { return u.animating || u.invalid || u.due }
+func (u *UI) needsFrame() bool { return u.animating || u.invalid || u.due || u.poked }
 
 // frame runs one complete cycle: advance time, settle the tree, lay
 // out, paint, present.
@@ -3054,7 +3111,9 @@ func (u *UI) frame(now, present time.Time, delta time.Duration) {
 	u.now, u.present = now, present
 	// Timers run first, so what they invalidate is drawn in this frame
 	u.runTimers()
-	u.calm = !u.invalid && !u.stirred && !u.dragOver
+	u.apart = !u.invalid && !u.dragOver
+	u.calm = u.apart && !u.stirred
+	u.markTouched()
 	u.stirred = false
 	u.invalid = false
 	u.due = false
@@ -3091,7 +3150,8 @@ func (u *UI) frame(now, present time.Time, delta time.Duration) {
 	}
 	animating := themed || scrolled
 	// The theme's last step lands a value though it reports rest, so the frame after its glide is not calm either.
-	u.calm = u.calm && !animating && !movedLately(u.themeMoved, u.seq)
+	settled := !animating && !movedLately(u.themeMoved, u.seq)
+	u.calm, u.apart = u.calm && settled, u.apart && settled
 	for _, r := range u.roots() {
 		if u.step(r, delta, r) {
 			animating = true

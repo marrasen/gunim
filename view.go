@@ -366,7 +366,6 @@ func (u *UI) publish(key string, state any) error {
 			firstErr = err
 		}
 	}
-	u.invalid = true
 	return firstErr
 }
 
@@ -392,7 +391,10 @@ func (u *UI) patch(c Patch) error {
 		applied++
 		var err error
 		u.unchanged = false
-		u.on(s, func() { err = apply(s.node, c.Data, u) })
+		u.hear(s, func() { err = apply(s.node, c.Data, u) })
+		if !u.unchanged || err != nil {
+			u.reach(s)
+		}
 		changed = changed || !u.unchanged
 		if err != nil && firstErr == nil {
 			firstErr = err
@@ -403,7 +405,6 @@ func (u *UI) patch(c Patch) error {
 		return fmt.Errorf("no view watching %q handles patch %s", c.Key, t)
 	}
 	if changed || firstErr != nil {
-		u.invalid = true
 		u.stirredBy = true
 	}
 	return firstErr

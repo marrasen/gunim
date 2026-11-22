@@ -110,7 +110,8 @@ type Waker interface {
 // ok false, or a key that differs, it draws as usual.
 //
 // The engine draws the subtree anew, whatever the key, in a frame that
-// follows input, a command, a theme change or [UI.Invalidate], and
+// follows input, a command, a theme change or [UI.Invalidate] (but see
+// [SteadyApart]), and
 // where a node in it animates or waits to ([Waker]), enters or leaves,
 // or a [ThemeScope] above it moves; so a hover or a press inside needs
 // no part in the key. A subtree that puts painting off with
@@ -129,6 +130,33 @@ type Waker interface {
 type Steady interface {
 	Node
 	SteadyKey(f Frame) (key any, ok bool)
+}
+
+// A SteadyApart is a [Steady] node whose key also holds everything that
+// input, a command or [UI.Invalidate] elsewhere in the window can change
+// in its subtree. In a frame such things stirred, the engine draws anew
+// only the nodes they reached and the nodes round them: the node an
+// event was handled by, overheard aside; the nodes the pointer entered
+// and left, and the focus gained and lost; the view an [Update], a
+// [Publish] or a changed [Patch] reached; the node whose handler, or
+// whose [UI.After] timer, called [UI.Invalidate]. A SteadyApart node
+// with none of them inside it is carried where its key holds, as in a
+// calm frame. So a click on one row leaves the other rows carried.
+//
+// What the engine can lay on no node still draws the whole window anew:
+// [UI.Invalidate] from outside a handler or a timer, a theme change or a
+// zoom, a scroll, a drag over the window, a popup shown, a node mounted
+// or removed.
+//
+// Overheard input ([Overhearer]) reaches no node: a SteadyApart node
+// that draws what it overhears has it in its key, or calls
+// [UI.Invalidate].
+//
+// SteadyApart reports whether the key holds all that now, for a node
+// that wraps another and says what that one says.
+type SteadyApart interface {
+	Steady
+	SteadyApart() bool
 }
 
 // A Transitioner is a node that animates as it enters and leaves the
@@ -677,6 +705,9 @@ type keeping struct {
 // state is the engine's bookkeeping for one node. It stays inside the
 // package.
 type state struct {
+	// touched is the frame, by UI.touches, in which input, a command or
+	// Invalidate reached the node or a node inside it.
+	touched  uint64
 	node     Node
 	parent   *state
 	kids     []*state
