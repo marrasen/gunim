@@ -38,12 +38,27 @@ func (u *UI) handleOn(root *state, ev any) {
 	}
 }
 
+// onlyMoves reports whether ev is the pointer moving, or leaving the
+// window, with no button held and no drag under way.
+func (u *UI) onlyMoves(ev any) bool {
+	switch e := ev.(type) {
+	case input.PointerMove:
+		return !e.Touch && u.capture == nil && u.drag == nil
+	case input.PointerLeave:
+		return u.capture == nil && u.drag == nil
+	}
+	return false
+}
+
 // handleRaw is handleOn past the reading of a finger's moves in
 // touch.go, which sends what it makes of them here.
 func (u *UI) handleRaw(root *state, ev any) {
 	// The input asks for a frame, and stirs it: what it reaches is drawn
 	// anew, and every Steady node that is no SteadyApart.
 	u.poked, u.stirred = true, true
+	if !u.onlyMoves(ev) {
+		u.pressed = true
+	}
 	u.heldMods(ev)
 	if u.goingAway {
 		// A window on its way out takes nothing more.
@@ -1087,7 +1102,7 @@ func (u *UI) viewsPast(start *state) []*state {
 func (u *UI) offerOpened() {
 	for len(u.opened) > 0 && u.offerFiles(u.opened[0]) {
 		u.opened = u.opened[1:]
-		u.invalid, u.calm, u.apart = true, false, false
+		u.invalid, u.calm, u.apart, u.moved = true, false, false, false
 	}
 }
 
