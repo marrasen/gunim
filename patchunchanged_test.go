@@ -27,12 +27,13 @@ func TestAPatchThatChangedNothingLaidOutBuildsNoFrame(t *testing.T) {
 	u := w.ui
 	p := probeOf(t, u.ids["panel"].node)
 
+	asked := func() bool { return u.invalid || u.poked }
 	u.apply(Patch{Key: "jobs", Data: quietTick{At: 0}})
-	if u.invalid {
+	if asked() {
 		t.Error("a patch that changed nothing laid out asked for a frame")
 	}
 	u.apply(Patch{Key: "jobs", Data: quietTick{At: 1}})
-	if u.invalid {
+	if asked() {
 		t.Error("a patch that only moved a spring asked for a whole frame")
 	}
 	if !p.at.Active() {
@@ -44,14 +45,14 @@ func TestAPatchThatChangedNothingLaidOutBuildsNoFrame(t *testing.T) {
 	}
 
 	u.apply(Patch{Key: "jobs", Data: tick{At: 0}})
-	if !u.invalid {
+	if !asked() {
 		t.Error("a patch whose handler didn't say it changed nothing built no frame")
 	}
 	// Unchanged outside a patch does nothing to the next one.
 	run(w, 1)
 	u.Unchanged()
 	u.apply(Patch{Key: "jobs", Data: tick{At: 1}})
-	if !u.invalid {
+	if !asked() {
 		t.Error("Unchanged called before a patch kept the patch from building a frame")
 	}
 }

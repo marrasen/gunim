@@ -41,7 +41,9 @@ func (u *UI) handleOn(root *state, ev any) {
 // handleRaw is handleOn past the reading of a finger's moves in
 // touch.go, which sends what it makes of them here.
 func (u *UI) handleRaw(root *state, ev any) {
-	u.invalid = true
+	// The input asks for a frame, and stirs it: what it reaches is drawn
+	// anew, and every Steady node that is no SteadyApart.
+	u.poked, u.stirred = true, true
 	u.heldMods(ev)
 	if u.goingAway {
 		// A window on its way out takes nothing more.
@@ -533,7 +535,7 @@ func (u *UI) overhear(ev input.Event) {
 			held = nil
 		}
 		if o, ok := s.node.(Overhearer); ok {
-			u.on(s, func() { o.Overhear(ev, u) })
+			u.hear(s, func() { o.Overhear(ev, u) })
 		}
 		for _, k := range s.kids {
 			walk(k)
@@ -542,7 +544,7 @@ func (u *UI) overhear(ev input.Event) {
 	walk(u.root)
 	if held != nil && held.presence != Exiting {
 		if o, ok := held.node.(Overhearer); ok {
-			u.on(held, func() { o.Overhear(ev, u) })
+			u.hear(held, func() { o.Overhear(ev, u) })
 		}
 	}
 }
@@ -965,6 +967,8 @@ func (u *UI) updateHover(root *state, p geom.Point, t time.Time) {
 	}
 	prev := u.hover
 	u.hover = next
+	u.reach(prev)
+	u.reach(next)
 	for s := prev; s != nil && s.parent != nil && (next == nil || !next.within(s)); s = s.parent {
 		u.deliver(s, input.PointerLeave{Time: t})
 	}
@@ -1083,7 +1087,7 @@ func (u *UI) viewsPast(start *state) []*state {
 func (u *UI) offerOpened() {
 	for len(u.opened) > 0 && u.offerFiles(u.opened[0]) {
 		u.opened = u.opened[1:]
-		u.invalid, u.calm = true, false
+		u.invalid, u.calm, u.apart = true, false, false
 	}
 }
 
