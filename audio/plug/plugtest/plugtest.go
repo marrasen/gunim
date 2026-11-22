@@ -219,6 +219,9 @@ type Result struct {
 	// LiveOut is the live part's channels, for a plugin with a
 	// [plug.Descriptor.LivePart], or nil for one without.
 	LiveOut [][]float32
+	// NotesOut holds the events written on each notes output, by [plug.Descriptor.NotesOut], each with its Frame
+	// counted from the start.
+	NotesOut [][]plug.Event
 }
 
 // Drive prepares pr, a processor of the plugin d describes, as s says,
@@ -233,7 +236,9 @@ type Result struct {
 // Drive fills every output with NaN before each block, so a frame the
 // processor leaves unwritten shows. A generator, as
 // [plug.Descriptor.Generator] reports one, runs with In and Out nil,
-// and its Result's Out is nil too.
+// and its Result's Out is nil too. Every notes output is connected, with room for [plug.NotesOutRoom] events a
+// block, and Drive fails t where a plugin writes an event out of its block, out of order, of a kind a notes output
+// carries none of, or a NoteOn of a note still sounding.
 func Drive(t *testing.T, d *plug.Descriptor, pr plug.Processor, s plug.Setup, frames int, p Ports) Result {
 	t.Helper()
 	generator := d.Generator()
@@ -356,6 +361,44 @@ func Drive(t *testing.T, d *plug.Descriptor, pr plug.Processor, s plug.Setup, fr
 	if d.LivePart {
 		res.LiveOut, liveOut = channels(s.Channels, frames), channels(s.Channels, s.MaxBlock)
 	}
+	notesOut := make([]*plug.NotesWriter, len(d.NotesOut))
+	for i := range notesOut {
+		notesOut[i] = plug.NewNotesWriter(plug.NotesOutRoom)
+	}
+	res.NotesOut = make([][]plug.Event, len(d.NotesOut))
+	sounding := make([]map[int32]bool, len(d.NotesOut))
+	for i := range sounding {
+		sounding[i] = map[int32]bool{}
+	}
+	sent := func(b *plug.Block, at int) {
+		for i, w := range b.NotesOut {
+			last := 0
+			for _, e := range w.Events() {
+				if e.Frame < last || e.Frame >= b.Frames {
+					t.Fatalf("plugtest: %s wrote an event at frame %d of a block of %d, after one at %d, on notes output %d",
+						d.ID, e.Frame, b.Frames, last, i)
+				}
+				last = e.Frame
+				if e.Live || e.Kind != plug.NoteOn && e.Kind != plug.NoteOff && e.Kind != plug.Expression && e.Kind != plug.Pedal {
+					t.Fatalf("plugtest: %s wrote an event of kind %d, live %v, at frame %d on notes output %d",
+						d.ID, e.Kind, e.Live, e.Frame+at, i)
+				}
+				switch e.Kind {
+				case plug.NoteOn:
+					if sounding[i][e.Note] {
+						t.Fatalf("plugtest: %s started note %d at frame %d on notes output %d, while it still sounds",
+							d.ID, e.Note, e.Frame+at, i)
+					}
+					sounding[i][e.Note] = true
+				case plug.NoteOff:
+					delete(sounding[i], e.Note)
+				case plug.Expression, plug.Pedal, plug.PastStart, plug.PastNote:
+				}
+				e.Frame += at
+				res.NotesOut[i] = append(res.NotesOut[i], e)
+			}
+		}
+	}
 
 	// Every block is made before the first runs, so the running
 	// allocates nothing of its own.
@@ -365,7 +408,7 @@ func Drive(t *testing.T, d *plug.Descriptor, pr plug.Processor, s plug.Setup, fr
 		b := plug.Block{Frames: n, Position: plug.Position{Frame: int64(at), Song: int64(at), Playing: true, Tempo: p.Tempo, EndTempo: p.Tempo,
 			Beat: float64(at) * p.Tempo / 60 / s.Rate},
 			In: window(p.In, at, n), Out: window(out, 0, n), ControlIn: window(p.ControlIn, at, n),
-			ControlOut: window(controlOut, 0, n), LiveOut: window(liveOut, 0, n)}
+			ControlOut: window(controlOut, 0, n), LiveOut: window(liveOut, 0, n), NotesOut: notesOut}
 		for _, port := range p.AuxIn {
 			b.AuxIn = append(b.AuxIn, window(port, at, n))
 		}
@@ -420,7 +463,15 @@ func Drive(t *testing.T, d *plug.Descriptor, pr plug.Processor, s plug.Setup, fr
 		blocks = append(blocks, b)
 	}
 	pr.Prepare(s)
-	playBlocks(pr, blocks, resets, &res)
+	playBlocks(pr, blocks, resets, &res, func(b *plug.Block, at int, reset bool) {
+		if reset {
+			// The host ends the notes a reset plugin sent.
+			for i := range sounding {
+				clear(sounding[i])
+			}
+		}
+		sent(b, at)
+	})
 	return res
 }
 
@@ -475,13 +526,18 @@ func window(chans [][]float32, at, n int) [][]float32 {
 
 // playBlocks runs pr over blocks, each with its outputs filled with NaN
 // first, and copies what comes out to res. It resets pr before each block
-// starting at a frame in resets.
-func playBlocks(pr plug.Processor, blocks []plug.Block, resets map[int]bool, res *Result) {
+// starting at a frame in resets, clears the block's notes outputs, and calls after, where set, once each block is
+// processed.
+func playBlocks(pr plug.Processor, blocks []plug.Block, resets map[int]bool, res *Result,
+	after func(b *plug.Block, at int, reset bool)) {
 	at := 0
 	for i := range blocks {
 		b := &blocks[i]
 		if resets[at] {
 			pr.Reset()
+		}
+		for _, w := range b.NotesOut {
+			w.Clear()
 		}
 		fill(b.Out)
 		fill(b.LiveOut)
@@ -495,6 +551,9 @@ func playBlocks(pr plug.Processor, blocks []plug.Block, resets map[int]bool, res
 		keep(res.LiveOut, b.LiveOut, at)
 		for i, port := range b.AuxOut {
 			keep(res.AuxOut[i], port, at)
+		}
+		if after != nil {
+			after(b, at, resets[at])
 		}
 		at += b.Frames
 	}

@@ -137,6 +137,9 @@ type Block struct {
 	// Hits is news of the hits coming on the trigger inputs with a
 	// [ControlPort.Ahead], in the order the host sends it.
 	Hits []HitNews
+	// NotesOut holds a writer for each notes output, by [Descriptor.NotesOut], nil for an output with no wire. The
+	// host clears each one before the block, and reads it after.
+	NotesOut []*NotesWriter
 	// Position is where the block starts.
 	Position Position
 }
@@ -156,6 +159,14 @@ func (b *Block) ControlInput(i int) []float32 { return port(b.ControlIn, i) }
 // ControlOutput returns control output i's values to write, or nil where
 // it is unconnected.
 func (b *Block) ControlOutput(i int) []float32 { return port(b.ControlOut, i) }
+
+// NotesOutput returns notes output i's writer, or nil where it has no wire. Writing to nil takes nothing.
+func (b *Block) NotesOutput(i int) *NotesWriter {
+	if i < 0 || i >= len(b.NotesOut) {
+		return nil
+	}
+	return b.NotesOut[i]
+}
 
 // port returns ports[i], or nil where i is past the end or the port has
 // nothing in it.

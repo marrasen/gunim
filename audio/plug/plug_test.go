@@ -487,3 +487,30 @@ func TestTheFirstNotesInputMustBeTheMain(t *testing.T) {
 		t.Errorf("a plugin that takes no notes has notes inputs %v", fx.NotesInputs())
 	}
 }
+
+func TestNotesOutputsHaveNamesAndKeysOfTheirOwn(t *testing.T) {
+	newer := func(Host) Plugin { return nil }
+	fx := func(out ...NotesOutput) Descriptor {
+		return Descriptor{ID: "test.outputs", Name: "X", New: newer, Kind: "Fx|Tools", NotesOut: out}
+	}
+	for name, d := range map[string]Descriptor{
+		"two of one key":    fx(NotesOutput{Key: "pad", Name: "Pad"}, NotesOutput{Key: "pad", Name: "Bass"}),
+		"an unnamed output": fx(NotesOutput{Key: "pad"}),
+	} {
+		if check(&d) == nil {
+			t.Errorf("%s was taken", name)
+		}
+	}
+	d := fx(NotesOutput{Key: "pad", Name: "Pad"}, NotesOutput{Key: "bass", Name: "Bass", Description: "The pad's bass"})
+	if err := check(&d); err != nil {
+		t.Fatalf("two named outputs were refused: %v", err)
+	}
+	var b Block
+	if b.NotesOutput(0).Write(Event{Kind: NoteOn}) {
+		t.Errorf("an output with no wire took a note")
+	}
+	w := NewNotesWriter(1)
+	if !w.Write(Event{Kind: NoteOn}) || w.Write(Event{Kind: NoteOff}) || !w.Full() || len(w.Events()) != 1 {
+		t.Errorf("a writer with room for one wrote %v, full %v", w.Events(), w.Full())
+	}
+}
