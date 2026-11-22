@@ -2369,11 +2369,26 @@ func (u *UI) hear(s *state, fn func()) {
 // draws it anew, and the nodes round it. The frame is stirred, so a
 // Steady node that is no SteadyApart is drawn anew too, as ever.
 func (u *UI) reach(s *state) {
-	if s != nil {
-		u.touchedBy = append(u.touchedBy, s)
-		u.poked, u.stirred = true, true
+	if s == nil {
+		return
 	}
+	// A command that reached a node needs its frame, though its patch
+	// said it changed nothing: see Window.draw.
+	u.poked, u.stirred, u.stirredBy = true, true, true
+	if len(u.touchedBy) >= maxReached {
+		// So many, as a hidden window's queue taken frame after frame
+		// without drawing: the whole window is drawn anew instead.
+		u.invalid = true
+		clear(u.touchedBy)
+		u.touchedBy = u.touchedBy[:0]
+		return
+	}
+	u.touchedBy = append(u.touchedBy, s)
 }
+
+// maxReached is how many nodes a frame keeps as reached before it draws
+// the whole window anew instead.
+const maxReached = 256
 
 // markTouched marks, for this frame, each node reached since the last
 // and the nodes round it, and forgets them.

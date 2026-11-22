@@ -71,3 +71,33 @@ func TestASteadyApartNodeIsCarriedThroughWhatHappensElsewhere(t *testing.T) {
 		t.Error("a row whose key changed was carried")
 	}
 }
+
+// A patch that says it changed nothing, but whose handler invalidated, draws the node: every steady node round it is
+// drawn anew, as before SteadyApart.
+func TestAQuietPatchThatInvalidatesIsDrawn(t *testing.T) {
+	w := newProbeWindow(t)
+	RegisterPatch(w, "panel", func(_ *probe, _ quietTick, u *UI) {
+		u.Invalidate()
+		u.Unchanged()
+	})
+	if err := w.Client().Mount(Root, "panel", "panel", panelState{Label: "hello"}, "jobs"); err != nil {
+		t.Fatal(err)
+	}
+	run(w, 60)
+	w.inMu.Lock()
+	w.pending = append(w.pending, Patch{Key: "jobs", Data: quietTick{At: 0}})
+	w.inMu.Unlock()
+	n := w.Stats().Frames
+	w.draw()
+	if w.Stats().Frames != n+1 || w.ui.calm {
+		t.Errorf("a quiet patch that invalidated: %d frames built, calm %v; want one, not calm", w.Stats().Frames-n, w.ui.calm)
+	}
+}
+
+func TestSetZoomFromAHandlerDrawsTheWholeWindow(t *testing.T) {
+	w, _, _, _, leafA := apartStage(t)
+	w.ui.on(w.ui.index[leafA], func() { w.ui.SetZoom(1.5) })
+	if !w.ui.invalid {
+		t.Error("a zoom from a handler did not draw the whole window anew")
+	}
+}

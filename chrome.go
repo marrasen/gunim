@@ -98,7 +98,8 @@ func (u *UI) SetPinned(on bool) error {
 		return fmt.Errorf("gunim: pin window: %w", err)
 	}
 	u.pinned = on
-	u.Invalidate()
+	// The window's own chrome shows it, whichever node asked.
+	u.invalid = true
 	return nil
 }
 

@@ -62,7 +62,9 @@ func (u *UI) SetZoom(z float32) {
 	u.pointer = u.pointer.Mul(u.zoom / z)
 	u.zoom = z
 	setZoom(u.w.dw, z)
-	u.Invalidate()
+	// The whole window, though a node's handler asked: everything is
+	// drawn at the new zoom.
+	u.invalid = true
 }
 
 // setZoom zooms dw where its driver can, and reports whether it could.
