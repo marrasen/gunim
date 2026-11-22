@@ -26,10 +26,14 @@ func (u *UI) carries(s *state, k Steady, cs Constraints, f Frame) bool {
 		key = nil
 	}
 	calm := u.calm
-	if a, apart := k.(SteadyApart); apart && !calm && u.apart && s.touched != u.touches {
+	if !calm && u.apart && s.touched != u.touches {
 		// Only what the frame reached elsewhere stirred it, and the key
 		// says what that changed here.
-		calm = a.SteadyApart()
+		if a, apart := k.(SteadyApart); apart {
+			calm = a.SteadyApart()
+		} else if m, moves := k.(SteadyThroughMoves); moves && u.moved {
+			calm = m.SteadyThroughMoves()
+		}
 	}
 	carry := ok && calm && kp.ok && kp.laid+1 == u.seq && kp.drawn+1 == u.seq && kp.cs == cs &&
 		sameKey(kp.key, key) && still(s, u.seq) && !themeMoving(s, u.seq)

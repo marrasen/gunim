@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
 )
 
@@ -99,5 +100,36 @@ func TestSetZoomFromAHandlerDrawsTheWholeWindow(t *testing.T) {
 	w.ui.on(w.ui.index[leafA], func() { w.ui.SetZoom(1.5) })
 	if !w.ui.invalid {
 		t.Error("a zoom from a handler did not draw the whole window anew")
+	}
+}
+
+// movesRow is a steadyRow carried through the pointer moving elsewhere, and drawn anew by any other input.
+type movesRow struct{ *steadyRow }
+
+func (movesRow) SteadyThroughMoves() bool { return true }
+
+func TestASteadyThroughMovesNodeIsCarriedOnlyThroughThePointerMoving(t *testing.T) {
+	w := newTestWindow()
+	row := movesRow{&steadyRow{key: 1, ok: true, colour: rowBlue}}
+	w.ui.Insert(w.ui.Root(), row)
+	w.ui.Insert(row, &steadyLeaf{})
+	w.ui.Insert(w.ui.Root(), &ticker{})
+	run(w, 60)
+	drawn := func(ev input.Event) bool {
+		run(w, 5)
+		p := row.painted
+		w.Input(ev)
+		run(w, 1)
+		return row.painted != p
+	}
+	// The row lies at the top left, 200 by 40: the pointer moves below it.
+	if drawn(input.PointerMove{Pos: geom.Pt(300, 300)}) {
+		t.Error("the pointer moving elsewhere drew the row anew")
+	}
+	if !drawn(input.KeyPress{Key: input.KeyF13}) {
+		t.Error("a key carried the row")
+	}
+	if !drawn(input.PointerDown{Pos: geom.Pt(300, 300), Button: input.ButtonPrimary}) {
+		t.Error("a press elsewhere carried the row")
 	}
 }

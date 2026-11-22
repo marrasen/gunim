@@ -159,6 +159,22 @@ type SteadyApart interface {
 	SteadyApart() bool
 }
 
+// A SteadyThroughMoves is a [Steady] node carried, as a [SteadyApart] is,
+// only through frames where the input was the pointer moving with no
+// button held: the nodes it entered and left, and what handled the moves,
+// are drawn anew, and a SteadyThroughMoves node with none of them inside
+// is carried where its key holds. A press, a release, a key, a scroll, a
+// touch or a drag draws it anew, as every Steady node, and so do
+// commands unless its key moves with them.
+//
+// It suits a node whose view keeps state that any press or key may
+// change from elsewhere, as a selection: its key holds what the pointer
+// moving changes, and leaves the rest to the input.
+type SteadyThroughMoves interface {
+	Steady
+	SteadyThroughMoves() bool
+}
+
 // A Transitioner is a node that animates as it enters and leaves the
 // tree.
 //

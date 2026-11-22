@@ -2045,8 +2045,13 @@ type UI struct {
 	// nothing else stirred this frame: SteadyApart nodes with none of
 	// them inside are carried by their keys. touches counts the frames
 	// that marked the nodes touched.
-	poked       bool
-	apart       bool
+	poked bool
+	apart bool
+	// pressed says input other than the pointer moving with no button
+	// held came since the last frame, and moved that only such moves, or
+	// none, stirred this one: SteadyThroughMoves nodes are carried then.
+	pressed     bool
+	moved       bool
 	touchedBy   []*state
 	touches     uint64
 	keptPainted int
@@ -3128,6 +3133,7 @@ func (u *UI) frame(now, present time.Time, delta time.Duration) {
 	u.runTimers()
 	u.apart = !u.invalid && !u.dragOver
 	u.calm = u.apart && !u.stirred
+	u.moved, u.pressed = u.apart && !u.pressed, false
 	u.markTouched()
 	u.stirred = false
 	u.invalid = false
@@ -3166,7 +3172,7 @@ func (u *UI) frame(now, present time.Time, delta time.Duration) {
 	animating := themed || scrolled
 	// The theme's last step lands a value though it reports rest, so the frame after its glide is not calm either.
 	settled := !animating && !movedLately(u.themeMoved, u.seq)
-	u.calm, u.apart = u.calm && settled, u.apart && settled
+	u.calm, u.apart, u.moved = u.calm && settled, u.apart && settled, u.moved && settled
 	for _, r := range u.roots() {
 		if u.step(r, delta, r) {
 			animating = true
