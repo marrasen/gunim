@@ -224,8 +224,12 @@ type Event struct {
 	// the host sends some.
 	Note int32
 	// Group is the lane the note plays in: a Pedal holds only the notes
-	// of its own group.
+	// of its own group, on its own Port.
 	Group int32
+	// Port is the notes input the note comes in on, by its place in [Descriptor.NotesIn]: 0 is the main one. A lane
+	// wired into two inputs comes with the same Group on both, so a Pedal holds the notes of its Port and Group
+	// together, and a PastStart recalls them together.
+	Port int32
 	// Pitch is a NoteOn's MIDI note number, as 60 for middle C. It may
 	// fall between two, as 60.5.
 	Pitch float64
@@ -311,14 +315,14 @@ const (
 	// frame on. One at a NoteOn's frame, after it, sets where the note
 	// starts.
 	Expression
-	// Pedal moves the sustain pedal of Group to Value. While it is down,
-	// the group's notes let go ring on until it lifts.
+	// Pedal moves the sustain pedal of Port and Group to Value. While it
+	// is down, their notes let go ring on until it lifts.
 	Pedal
-	// PastStart opens a recall of Group's earlier notes, for a plugin
+	// PastStart opens a recall of the earlier notes of Port and Group, for a plugin
 	// with [Descriptor.Past]: it forgets what earlier notes set. The
 	// host sends it as playing starts, jumps or wraps, or an edit lands.
 	PastStart
-	// PastNote tells of a note of Group that started earlier in the
+	// PastNote tells of a note of Port and Group that started earlier in the
 	// music and takes no NoteOn. It carries a NoteOn's fields, and its
 	// Note is the note's alone while the pedal holds it. The recall's
 	// PastNotes and chased NoteOns come at one frame, after the
@@ -485,8 +489,10 @@ type Upcoming struct {
 	Frame int
 	// Note is the note's ID, which its NoteOn carries.
 	Note int32
-	// Group is the lane it plays in, as an [Event]'s.
+	// Group is the lane it plays in, and Port the notes input it comes
+	// in on, as an [Event]'s.
 	Group int32
+	Port  int32
 	// Pitch, Velocity, Turn, KeyTurn, Mod, Length, Whole and Legato are
 	// its NoteOn's.
 	Pitch    float64

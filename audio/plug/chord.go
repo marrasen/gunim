@@ -69,6 +69,10 @@ type ChordNews struct {
 	// play one plugin, each in a group of its own. An effect's chords
 	// come in the groups the host picks.
 	Group int32
+	// Port is the notes input the lane plays, as an [Event]'s: the
+	// notes of that Port and Group play over the chord. An effect's
+	// chords come on 0.
+	Port int32
 	// Length is how many frames the chord sounds from Frame, as the
 	// music has it, cut where a loop ends. Like a note's, it is news,
 	// not a promise: an edit, a stop or a jump may end it sooner, and

@@ -684,8 +684,32 @@ func TestANoteStartsUnbent(t *testing.T) {
 	block(plug.Event{Kind: plug.Expression, Group: 3, Note: 5, Expr: plug.Bend, Value: 1},
 		plug.Event{Frame: 1, Kind: plug.NoteOff, Note: 4}, plug.Event{Frame: 1, Kind: plug.NoteOff, Note: 5},
 		plug.Event{Frame: 4, Kind: plug.Pedal, Group: 3, Value: 0})
-	if p.keys.groupOf(3) != -1 {
+	if p.keys.groupOf(lane{group: 3}) != -1 {
 		t.Fatal("group 3 keeps its channel with its notes let go and its pedal up")
+	}
+}
+
+// TestOneGroupOnTwoInputsPlaysOnTwoChannels plays one group on two notes inputs: each plays on a channel of its own,
+// so a pedal on one input holds nothing on the other.
+func TestOneGroupOnTwoInputsPlaysOnTwoChannels(t *testing.T) {
+	f := fakeSynth()
+	p, err := f.open(t, Config{Rate: 48000, Block: 64})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(p.Close)
+	b := stereoBlock(64)
+	b.Events = []plug.Event{{Kind: plug.NoteOn, Group: 3, Note: 1, Pitch: 60, Velocity: 1},
+		{Kind: plug.NoteOn, Group: 3, Port: 1, Note: 2, Pitch: 60, Velocity: 1},
+		{Frame: 1, Kind: plug.Pedal, Group: 3, Port: 1, Value: 1}}
+	p.ProcessBlock(b)
+	got := f.last(t)
+	main, side := got.events[0].channel(), got.events[1].channel()
+	if main == side {
+		t.Fatalf("group 3 plays on channel %d on both inputs", main)
+	}
+	if !slices.Equal(got.changes[uint32(1000+side)], []point{{1, 1}}) || len(got.changes[uint32(1000+main)]) != 0 {
+		t.Fatalf("the pedal on the second input moved %v", got.changes)
 	}
 }
 

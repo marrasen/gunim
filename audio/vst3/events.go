@@ -153,7 +153,7 @@ var theEvents = sync.OnceValue(func() uintptr {
 // sounding is a note the plugin plays, as the keyboard remembers it.
 type sounding struct {
 	id      int32
-	group   int32
+	group   lane
 	channel int16
 	pitch   int16
 	tuning  float32
@@ -221,12 +221,18 @@ func (k *keyboard) learn(p *Plugin) {
 	}
 }
 
+// lane is the notes input and the group a note comes in on: a pedal holds the notes of one lane.
+type lane struct{ port, group int32 }
+
+// laneOf returns the lane e comes in on.
+func laneOf(e *plug.Event) lane { return lane{e.Port, e.Group} }
+
 // group is a group of notes playing, on a channel: a channel is a
 // group's while its notes sound or its controllers stand moved, and a
 // group comes to a channel of its own where one is free, and else
 // shares the one fewest share.
 type group struct {
-	g    int32
+	g    lane
 	ch   int16
 	used bool
 	// at holds where the group last moved its controllers: the mod
@@ -301,7 +307,7 @@ func (k *keyboard) lift(p *Plugin) {
 // maxGroups, and its channel: the one it has, or else a channel no
 // group has, the next in turn, or, with all 16 taken, the one fewest
 // groups share.
-func (k *keyboard) channel(g int32) (at int, ch int16) {
+func (k *keyboard) channel(g lane) (at int, ch int16) {
 	free := -1
 	for i := range k.groups {
 		if k.groups[i].used && k.groups[i].g == g {
@@ -326,7 +332,7 @@ func (k *keyboard) channel(g int32) (at int, ch int16) {
 	}
 	k.next = (best + 1) % channels
 	if free < 0 {
-		return -1, int16(uint32(g) % channels)
+		return -1, int16(uint32(g.group) % channels)
 	}
 	k.groups[free] = group{g: g, ch: int16(best), used: true, at: rest}
 	return free, int16(best)
@@ -377,7 +383,7 @@ func (k *keyboard) rest(p *Plugin, ch int16, f int32) {
 }
 
 // groupOf returns group g's place among the groups, or -1.
-func (k *keyboard) groupOf(g int32) int {
+func (k *keyboard) groupOf(g lane) int {
 	for i := range k.groups {
 		if k.groups[i].used && k.groups[i].g == g {
 			return i
@@ -399,7 +405,7 @@ func (k *keyboard) find(id int32) *sounding {
 // strikeAnew ends the note other than id sounding on key pitch of channel ch, at frame f, so note id of group g,
 // starting there, owns the key, as on a MIDI keyboard: the ended note's own NoteOff then finds nothing to end. A
 // plugin that tunes notes of their own keeps a note of another tuning on the key.
-func (k *keyboard) strikeAnew(p *Plugin, ch, pitch int16, tuning float32, id, g, f int32) {
+func (k *keyboard) strikeAnew(p *Plugin, ch, pitch int16, tuning float32, id int32, g lane, f int32) {
 	for i := range k.notes {
 		n := &k.notes[i]
 		if !n.used || n.id == id || n.channel != ch || n.pitch != pitch || k.tuning && n.tuning != tuning {
@@ -421,8 +427,8 @@ func (k *keyboard) play(p *Plugin, e *plug.Event) {
 		key := math.Round(e.Pitch)
 		pitch := int16(min(max(key, 0), 127))
 		tuning := float32((e.Pitch - float64(pitch)) * 100)
-		_, ch := k.channel(e.Group)
-		k.strikeAnew(p, ch, pitch, tuning, e.Note, e.Group, f)
+		_, ch := k.channel(laneOf(e))
+		k.strikeAnew(p, ch, pitch, tuning, e.Note, laneOf(e), f)
 		k.rest(p, ch, f)
 		n := k.find(e.Note)
 		for i := range k.notes {
@@ -437,7 +443,7 @@ func (k *keyboard) play(p *Plugin, e *plug.Event) {
 			// Every place taken: the oldest kept goes.
 			n = &k.notes[0]
 		}
-		*n = sounding{id: e.Note, group: e.Group, channel: ch, pitch: pitch, tuning: tuning, used: true}
+		*n = sounding{id: e.Note, group: laneOf(e), channel: ch, pitch: pitch, tuning: tuning, used: true}
 		// VST3 counts a note's length in 32 bits: one longer, over six
 		// hours even at 96 kHz, is told as unknown.
 		length := int32(0)
@@ -473,7 +479,7 @@ func (k *keyboard) play(p *Plugin, e *plug.Event) {
 			k.move(p, k.groupOf(n.group), n.channel, mapMod, f, min(max(e.Value, 0), 1))
 		}
 	case plug.Pedal:
-		gi, ch := k.channel(e.Group)
+		gi, ch := k.channel(laneOf(e))
 		k.move(p, gi, ch, mapPedal, f, min(max(e.Value, 0), 1))
 		k.release(gi)
 	case plug.PastStart, plug.PastNote:
