@@ -93,6 +93,11 @@ func stampLaid(s *state, seq uint64) {
 	for _, k := range s.kids {
 		if k.laid+1 == seq {
 			k.laid = seq
+			if kp := k.keep; kp != nil && kp.laid+1 == seq {
+				// A Steady node inside keeps its layout too, for a frame
+				// that carries it alone.
+				kp.laid, kp.carry = seq, false
+			}
 			stampLaid(k, seq)
 		}
 	}
@@ -110,6 +115,24 @@ func stampDrawn(s *state, seq uint64) {
 	}
 }
 
+// moveKept moves the runs the Steady nodes below s painted in the frame
+// before, inside outer, to where they lie in again, outer recorded anew
+// in frame seq: so the frame after can carry one of them alone, while
+// what is round it is drawn anew.
+func moveKept(s *state, outer, again paint.Run, p *paint.Painter, seq uint64) {
+	for _, k := range s.kids {
+		if k.drawn != seq {
+			continue
+		}
+		if kp := k.keep; kp != nil && kp.drawn+1 == seq {
+			if run, ok := p.Moved(kp.run, outer, again); ok {
+				kp.run, kp.drawn = run, seq
+			}
+		}
+		moveKept(k, outer, again, p, seq)
+	}
+}
+
 // paintKept paints c, a Steady node, kp what is kept of it: the run it
 // painted the frame before, where the frame carries it and it paints in
 // the same place, inside the same clips, under the same blend; else as
@@ -119,10 +142,11 @@ func (u *UI) paintKept(c Child, kp *keeping, p *paint.Painter, f Frame) {
 	same := kp.carry && kp.laid == u.seq && s.toWindow == kp.toWindow && s.proj == nil && s.clip.Same(kp.clip) &&
 		p.BlendInForce() == kp.blend
 	if same && !steadyDebug {
-		mark := p.Mark()
+		mark, old := p.Mark(), kp.run
 		if p.Again(kp.run) {
 			kp.run, kp.drawn = p.RunFrom(mark), u.seq
 			stampDrawn(s, u.seq)
+			moveKept(s, old, kp.run, p, u.seq)
 			if u.chrome != nil {
 				noteTitleBars(u, s, u.seq)
 			}

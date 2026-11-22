@@ -850,7 +850,11 @@ func (u *UI) popupEvent(e popupEvent) {
 		e.s.shown = true
 		e.s.inFlight, e.s.unshown = false, false
 		if e.s.stale {
-			u.invalid = true
+			// Its last frame was never shown: the popup is drawn again.
+			// What it carries is checked against the frame the popup's
+			// painter last showed, so the main window's SteadyApart
+			// nodes may be carried meanwhile.
+			u.reach(e.s.root)
 		}
 		return
 	}
