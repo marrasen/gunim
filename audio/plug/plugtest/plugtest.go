@@ -199,7 +199,7 @@ func Announce(s plug.Setup, window int, events ...plug.Event) []Ahead {
 			continue
 		}
 		out = append(out, Ahead{At: at, Upcoming: plug.Upcoming{Kind: plug.Coming, Frame: e.Frame, Note: e.Note,
-			Group: e.Group, Pitch: e.Pitch, Velocity: e.Velocity, Turn: e.Turn, KeyTurn: e.KeyTurn, Mod: e.Mod,
+			Group: e.Group, Port: e.Port, Pitch: e.Pitch, Velocity: e.Velocity, Turn: e.Turn, KeyTurn: e.KeyTurn, Mod: e.Mod,
 			Length: e.Length}})
 	}
 	return out
@@ -259,12 +259,19 @@ func Drive(t *testing.T, d *plug.Descriptor, pr plug.Processor, s plug.Setup, fr
 		long(fmt.Sprintf("aux input %d's", i), port)
 	}
 	long("the control inputs'", p.ControlIn)
+	inputs := len(d.NotesInputs())
+	port := func(what string, at int, port int32) {
+		if port < 0 || port > 0 && int(port) >= inputs {
+			t.Fatalf("plugtest: %s at frame %d comes on notes input %d, of %s's %d", what, at, port, d.ID, inputs)
+		}
+	}
 	events := slices.Clone(p.Events)
 	slices.SortStableFunc(events, func(a, b plug.Event) int { return a.Frame - b.Frame })
 	for _, e := range events {
 		if e.Frame < 0 || e.Frame >= frames {
 			t.Fatalf("plugtest: an event at frame %d falls outside the %d played", e.Frame, frames)
 		}
+		port("an event", e.Frame, e.Port)
 		if e.Live && !d.LivePart {
 			t.Fatalf("plugtest: a live event at frame %d, for %s, which has no live part", e.Frame, d.ID)
 		}
@@ -299,6 +306,7 @@ func Drive(t *testing.T, d *plug.Descriptor, pr plug.Processor, s plug.Setup, fr
 		if u.At < 0 || u.At >= frames {
 			t.Fatalf("plugtest: news sent at frame %d falls outside the %d run", u.At, frames)
 		}
+		port("news", u.At, u.Port)
 		if end := (u.At/s.MaxBlock + 1) * s.MaxBlock; u.Kind != plug.Removed && u.Frame < end {
 			t.Fatalf("plugtest: news sent at frame %d of note %d landing at %d, which is in its own block", u.At, u.Note, u.Frame)
 		}
@@ -309,6 +317,7 @@ func Drive(t *testing.T, d *plug.Descriptor, pr plug.Processor, s plug.Setup, fr
 		if c.At < 0 || c.At >= frames {
 			t.Fatalf("plugtest: chord news sent at frame %d falls outside the %d run", c.At, frames)
 		}
+		port("chord news", c.At, c.Port)
 		if (c.Kind == plug.ChordComing || c.Kind == plug.ChordMoved) && c.Frame < c.At {
 			t.Fatalf("plugtest: chord news sent at frame %d of chord %d starting at %d, before it is sent", c.At, c.ID, c.Frame)
 		}

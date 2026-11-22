@@ -24,7 +24,7 @@ const MaxChordAhead = 16 * time.Second
 // ChordAhead, and with Moved or Removed as an edit changes it. A chord
 // has no event of its own as it starts: it starts at its Coming's
 // Frame, or its last Moved's, and sounds for Length frames, or until
-// the next chord of its Group starts. Unlike a note's news in
+// the next chord of its Port and Group starts. Unlike a note's news in
 // [Block.Upcoming], a Coming or a Moved may start the chord in the very
 // block it comes in.
 //
@@ -37,7 +37,7 @@ const MaxChordAhead = 16 * time.Second
 // ChordAhead asks: each pass is told of as it comes.
 //
 // Now tells the chord sounding, so a plugin always knows it, for notes
-// played live too. The host sends one for each lane as playing starts
+// played live too. The host sends one for each lane on each Port as playing starts
 // or jumps, after a [Processor.Reset], after an edit, as playing stops,
 // and while the song stands still, as the playhead moves to another
 // chord. A Now of no tones says no chord sounds there; its key is still
@@ -45,9 +45,10 @@ const MaxChordAhead = 16 * time.Second
 // compare the tones here too.
 //
 // The news comes in the order the host sends it: by the frame it is
-// sent at, then by lane. For one lane at one frame, Removed and Moved
-// come before Now, and Now before Coming, so a Now and the Comings after
-// it say what sounds from there on.
+// sent at, then by lane, and within one lane by Port. For one lane on
+// one Port at one frame, Removed and Moved come before Now, and Now
+// before Coming, so a Now and the Comings after it say what sounds from
+// there on.
 //
 // Its one pointer is Name's, to a name the host keeps: a host fills a
 // block's news, and a plugin keeps it, with nothing allocated.
@@ -69,6 +70,10 @@ type ChordNews struct {
 	// play one plugin, each in a group of its own. An effect's chords
 	// come in the groups the host picks.
 	Group int32
+	// Port is the notes input the lane plays, as an [Event]'s: the
+	// notes of that Port and Group play over the chord. An effect's
+	// chords come on 0.
+	Port int32
 	// Length is how many frames the chord sounds from Frame, as the
 	// music has it, cut where a loop ends. Like a note's, it is news,
 	// not a promise: an edit, a stop or a jump may end it sooner, and

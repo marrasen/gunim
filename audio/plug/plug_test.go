@@ -454,3 +454,36 @@ func TestRegisterTakesActionsOfTheirOwnIDs(t *testing.T) {
 		t.Fatalf("two actions of their own IDs were refused: %v", err)
 	}
 }
+
+func TestTheFirstNotesInputMustBeTheMain(t *testing.T) {
+	newer := func(Host) Plugin { return nil }
+	synth := func(in ...NotesInput) Descriptor {
+		return Descriptor{ID: "test.inputs", Name: "X", New: newer, Kind: "Instrument|Synth", Notes: true, NotesIn: in}
+	}
+	for name, d := range map[string]Descriptor{
+		"a named input first": synth(NotesInput{Key: "riser", Name: "Riser"}, NotesInput{Name: "Notes"}),
+		"two of one key":      synth(NotesInput{Name: "Notes"}, NotesInput{Key: "riser", Name: "Riser"}, NotesInput{Key: "riser", Name: "Lift"}),
+		"two mains":           synth(NotesInput{Name: "Notes"}, NotesInput{Name: "More"}),
+		"an unnamed input":    synth(NotesInput{Name: "Notes"}, NotesInput{Key: "riser"}),
+		"inputs without notes": {ID: "test.inputs", Name: "X", New: newer,
+			NotesIn: []NotesInput{{Name: "Notes"}}},
+	} {
+		if check(&d) == nil {
+			t.Errorf("%s was taken", name)
+		}
+	}
+	d := synth(NotesInput{Name: "Notes"}, NotesInput{Key: "riser", Name: "Riser", Description: "Starts the riser"})
+	if err := check(&d); err != nil {
+		t.Fatalf("a main input and a named one were refused: %v", err)
+	}
+	if at := d.NotesInAt("riser"); at != 1 {
+		t.Errorf("the riser is at %d, want 1", at)
+	}
+	old := synth()
+	if in := old.NotesInputs(); len(in) != 1 || in[0] != (NotesInput{Name: "Notes"}) {
+		t.Errorf("a synth that lists no inputs has %v, want the main one alone, named Notes", in)
+	}
+	if fx := (Descriptor{}); fx.NotesInputs() != nil || fx.NotesInAt("") != -1 {
+		t.Errorf("a plugin that takes no notes has notes inputs %v", fx.NotesInputs())
+	}
+}

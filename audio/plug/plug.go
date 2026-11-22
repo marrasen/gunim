@@ -104,6 +104,10 @@ type Descriptor struct {
 	// beats a minute needs 8 seconds. It is at most [MaxChordAhead]. Zero
 	// asks for none.
 	ChordAhead time.Duration
+	// NotesIn lists the plugin's notes inputs. The first is the main one, with the key "", which the synth's own
+	// lanes play. Empty gives the main one alone, named "Notes". [Event.Port] names an input by its place here, and
+	// every input shares LookAhead and ChordAhead. It needs Notes. [Descriptor.NotesInputs] reads it.
+	NotesIn []NotesInput
 	// AuxIn and AuxOut are the plugin's audio ports beyond its main
 	// input and output, as VST3's aux (auxiliary) buses: a sidechain
 	// in, or an output for each drum of a drum synth. A project names a
@@ -230,6 +234,41 @@ func (p Ports) HasControlIn(i int) bool { return has(p.ControlIn, i) }
 
 // HasControlOut reports whether the plugin has control output i.
 func (p Ports) HasControlOut(i int) bool { return has(p.ControlOut, i) }
+
+// NotesInput is a notes input of a plugin's, as [Descriptor.NotesIn] lists them.
+type NotesInput struct {
+	// Key names the input in a project, for good, as [ControlPort.Key] does. The main input's is "".
+	Key string
+	// Name labels the input's port: "Notes", or "Riser".
+	Name string
+	// Description is the port's tooltip.
+	Description string
+}
+
+// mainNotesOnly is the notes inputs of a plugin that lists none.
+var mainNotesOnly = []NotesInput{{Name: "Notes"}}
+
+// NotesInputs returns d's notes inputs: NotesIn, or the main input alone, named "Notes", where NotesIn is empty. It
+// returns nil for a plugin that takes no notes. The caller must not change the list.
+func (d *Descriptor) NotesInputs() []NotesInput {
+	if !d.Notes {
+		return nil
+	}
+	if len(d.NotesIn) == 0 {
+		return mainNotesOnly
+	}
+	return d.NotesIn
+}
+
+// NotesInAt returns the place of the notes input of key among d's notes inputs, or -1.
+func (d *Descriptor) NotesInAt(key string) int {
+	for i, in := range d.NotesInputs() {
+		if in.Key == key {
+			return i
+		}
+	}
+	return -1
+}
 
 // AudioPort is an audio port of a plugin's, beyond its main input and
 // output.
@@ -642,6 +681,9 @@ func check(d *Descriptor) error {
 	if d.Generator() && len(d.ControlOut) == 0 {
 		return fmt.Errorf("%s is a generator, of kind %q, so it makes control: give it a ControlOut port", d.ID, d.Kind)
 	}
+	if err := checkNotesIn(d); err != nil {
+		return err
+	}
 	if err := checkPorts(d); err != nil {
 		return err
 	}
@@ -699,6 +741,30 @@ func checkViewSizes(d *Descriptor) error {
 	}
 	if d.ViewSize != (geom.Size{}) && (d.ViewMinSize.W > d.ViewSize.W || d.ViewMinSize.H > d.ViewSize.H) {
 		return fmt.Errorf("%s opens its view at %v, under its least size %v", d.ID, d.ViewSize, d.ViewMinSize)
+	}
+	return nil
+}
+
+// checkNotesIn returns what is wrong with d's notes inputs, if anything.
+func checkNotesIn(d *Descriptor) error {
+	if len(d.NotesIn) == 0 {
+		return nil
+	}
+	if !d.Notes {
+		return fmt.Errorf("%s lists notes inputs, which takes Notes", d.ID)
+	}
+	if k := d.NotesIn[0].Key; k != "" {
+		return fmt.Errorf("%s: its first notes input is the main one, so its key is \"\", not %q", d.ID, k)
+	}
+	keys := map[string]bool{}
+	for _, in := range d.NotesIn {
+		if in.Name == "" {
+			return fmt.Errorf("%s: notes input %q has no name", d.ID, in.Key)
+		}
+		if keys[in.Key] {
+			return fmt.Errorf("%s has two notes inputs of key %q", d.ID, in.Key)
+		}
+		keys[in.Key] = true
 	}
 	return nil
 }
