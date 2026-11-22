@@ -241,7 +241,7 @@ type group struct {
 }
 
 // maxGroups is how many groups the keyboard tells apart at once: past
-// it, a group plays on the channel its number picks.
+// it, a group plays on the channel its number and its port pick.
 const maxGroups = 64
 
 // rest is where each controller rests: the mod wheel and the pedal at
@@ -332,7 +332,7 @@ func (k *keyboard) channel(g lane) (at int, ch int16) {
 	}
 	k.next = (best + 1) % channels
 	if free < 0 {
-		return -1, int16(uint32(g.group) % channels)
+		return -1, int16((uint32(g.group) + uint32(g.port)) % channels)
 	}
 	k.groups[free] = group{g: g, ch: int16(best), used: true, at: rest}
 	return free, int16(best)

@@ -228,7 +228,8 @@ type Event struct {
 	Group int32
 	// Port is the notes input the note comes in on, by its place in [Descriptor.NotesIn]: 0 is the main one. A lane
 	// wired into two inputs comes with the same Group on both, so a Pedal holds the notes of its Port and Group
-	// together, and a PastStart recalls them together.
+	// together, and a PastStart recalls them together. A note's ID is its own across all the plugin's inputs: the
+	// host gives the copies of a note on two inputs IDs of their own.
 	Port int32
 	// Pitch is a NoteOn's MIDI note number, as 60 for middle C. It may
 	// fall between two, as 60.5.

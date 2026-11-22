@@ -37,3 +37,19 @@ func TestAPedalHoldsOnlyTheNotesOfItsPort(t *testing.T) {
 		t.Errorf("the probe heard %+v, want the six events, the second on port 1, the last at frame 100", heard)
 	}
 }
+
+func TestTheProbeCountsARecalledNoteThatRings(t *testing.T) {
+	pr := Probe.New(nil).Processor()
+	s := plug.Setup{Rate: 48000, Channels: 2, MaxBlock: 64}
+	res := Drive(t, &Probe, pr, s, 128, Ports{Events: []plug.Event{
+		{Frame: 0, Kind: plug.Pedal, Port: 1, Value: 1},
+		{Frame: 0, Kind: plug.PastStart, Port: 1},
+		{Frame: 0, Kind: plug.PastNote, Note: 1, Port: 1, Pitch: 60, Ring: true},
+		{Frame: 0, Kind: plug.PastNote, Note: 2, Port: 1, Pitch: 62},
+		{Frame: 50, Kind: plug.Pedal, Port: 1, Value: 0},
+	}})
+	if res.Out[1][10] != 1 || res.Out[1][50] != 0 || res.Out[0][10] != 0 {
+		t.Errorf("the recalled note rang %v on the side and %v on the main input, then %v as the pedal lifted",
+			res.Out[1][10], res.Out[0][10], res.Out[1][50])
+	}
+}

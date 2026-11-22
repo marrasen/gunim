@@ -9,7 +9,8 @@ import (
 )
 
 // Probe is a synth for tests that keeps what it hears. It takes notes on two inputs: the main one, and "side". Its
-// left channel sounds how many notes ring on the main input, and its right channel how many ring on "side".
+// left channel sounds how many notes ring on the main input, and its right channel how many ring on "side". A
+// PastNote with Ring set rings as a note its pedal holds, until the pedal of its port and group lifts.
 // Register it with plug.Register(plugtest.Probe) where a host's test finds plugins by ID.
 var Probe = plug.Descriptor{
 	ID:         "gunim.plugtest.probe",
@@ -38,16 +39,16 @@ type ProbeSynth struct {
 	pedals   []probePedal
 }
 
-// probeNote is a note ringing, and whether its key is still down.
+// probeNote is a note ringing, whether its key is still down, and whether it is the live part's.
 type probeNote struct {
 	id, port, group int32
-	down            bool
+	down, live      bool
 }
 
-// probePedal is the pedal of one port and group.
+// probePedal is the pedal of one port and group, of the live part or of the music.
 type probePedal struct {
 	port, group int32
-	down        bool
+	down, live  bool
 }
 
 // probeRoom is how many events, news and notes the probe keeps room for before it plays.
@@ -82,12 +83,13 @@ func (p *ProbeSynth) Prepare(plug.Setup) {
 	p.pedals = make([]probePedal, 0, probeRoom)
 }
 
-// Reset ends every note and lifts every pedal. The probe keeps what it heard.
+// Reset ends every note of the music and lifts its pedals, and leaves the live part alone. The probe keeps what it
+// heard.
 func (p *ProbeSynth) Reset() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.notes = p.notes[:0]
-	p.pedals = p.pedals[:0]
+	p.notes = slices.DeleteFunc(p.notes, func(n probeNote) bool { return !n.live })
+	p.pedals = slices.DeleteFunc(p.pedals, func(q probePedal) bool { return !q.live })
 }
 
 // Heard returns the events the probe heard, each with its Frame counted from the start of playing.
@@ -144,11 +146,15 @@ func (p *ProbeSynth) Process(b *plug.Block) {
 func (p *ProbeSynth) play(e plug.Event) {
 	switch e.Kind {
 	case plug.NoteOn:
-		p.notes = append(p.notes, probeNote{id: e.Note, port: e.Port, group: e.Group, down: true})
+		p.notes = append(p.notes, probeNote{id: e.Note, port: e.Port, group: e.Group, down: true, live: e.Live})
+	case plug.PastNote:
+		if e.Ring {
+			p.notes = append(p.notes, probeNote{id: e.Note, port: e.Port, group: e.Group})
+		}
 	case plug.NoteOff:
 		for i, n := range p.notes {
-			if n.id == e.Note && n.down {
-				if p.held(n.port, n.group) {
+			if n.id == e.Note && n.down && n.live == e.Live {
+				if p.held(n.port, n.group, n.live) {
 					p.notes[i].down = false
 				} else {
 					p.notes = slices.Delete(p.notes, i, i+1)
@@ -158,25 +164,27 @@ func (p *ProbeSynth) play(e plug.Event) {
 		}
 	case plug.Pedal:
 		down := e.Value >= 0.5
-		i := slices.IndexFunc(p.pedals, func(q probePedal) bool { return q.port == e.Port && q.group == e.Group })
+		i := slices.IndexFunc(p.pedals, func(q probePedal) bool {
+			return q.port == e.Port && q.group == e.Group && q.live == e.Live
+		})
 		if i < 0 {
-			p.pedals = append(p.pedals, probePedal{port: e.Port, group: e.Group, down: down})
+			p.pedals = append(p.pedals, probePedal{port: e.Port, group: e.Group, down: down, live: e.Live})
 		} else {
 			p.pedals[i].down = down
 		}
 		if !down {
 			p.notes = slices.DeleteFunc(p.notes, func(n probeNote) bool {
-				return !n.down && n.port == e.Port && n.group == e.Group
+				return !n.down && n.port == e.Port && n.group == e.Group && n.live == e.Live
 			})
 		}
-	case plug.Expression, plug.PastStart, plug.PastNote:
+	case plug.Expression, plug.PastStart:
 	}
 }
 
-// held reports whether the pedal of port and group is down.
-func (p *ProbeSynth) held(port, group int32) bool {
+// held reports whether the pedal of port and group, of the live part or of the music, is down.
+func (p *ProbeSynth) held(port, group int32, live bool) bool {
 	for _, q := range p.pedals {
-		if q.port == port && q.group == group {
+		if q.port == port && q.group == group && q.live == live {
 			return q.down
 		}
 	}

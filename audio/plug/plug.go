@@ -245,14 +245,17 @@ type NotesInput struct {
 	Description string
 }
 
+// mainNotesOnly is the notes inputs of a plugin that lists none.
+var mainNotesOnly = []NotesInput{{Name: "Notes"}}
+
 // NotesInputs returns d's notes inputs: NotesIn, or the main input alone, named "Notes", where NotesIn is empty. It
-// returns nil for a plugin that takes no notes.
+// returns nil for a plugin that takes no notes. The caller must not change the list.
 func (d *Descriptor) NotesInputs() []NotesInput {
 	if !d.Notes {
 		return nil
 	}
 	if len(d.NotesIn) == 0 {
-		return []NotesInput{{Name: "Notes"}}
+		return mainNotesOnly
 	}
 	return d.NotesIn
 }
@@ -742,11 +745,6 @@ func checkViewSizes(d *Descriptor) error {
 	return nil
 }
 
-// checkPorts returns what is wrong with d's ports, if anything: each
-// needs a name and a key of its own among those going its way, an
-// audio port a
-// channel count of zero or more, and a control port a range holding its
-// default: from 0 to 1, from 0, for a trigger.
 // checkNotesIn returns what is wrong with d's notes inputs, if anything.
 func checkNotesIn(d *Descriptor) error {
 	if len(d.NotesIn) == 0 {
@@ -771,6 +769,11 @@ func checkNotesIn(d *Descriptor) error {
 	return nil
 }
 
+// checkPorts returns what is wrong with d's ports, if anything: each
+// needs a name and a key of its own among those going its way, an
+// audio port a
+// channel count of zero or more, and a control port a range holding its
+// default: from 0 to 1, from 0, for a trigger.
 func checkPorts(d *Descriptor) error {
 	for way, ports := range map[string][]AudioPort{"aux input": d.AuxIn, "aux output": d.AuxOut} {
 		if err := apart(d.ID, way, ports, func(p AudioPort) string { return p.Name }); err != nil {
