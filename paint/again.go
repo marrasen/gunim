@@ -36,6 +36,26 @@ func (p *Painter) RunFrom(mark int) Run {
 	return r
 }
 
+// Moved returns run, recorded inside outer in the frame before, where
+// [Painter.Again] recorded outer again as again in this frame: the same
+// commands, at their new place. ok is false where run is no run of the
+// frame before inside outer, or again is no copy of outer in this frame.
+// A node carried inside a carried node keeps its run so, for a frame
+// that carries it alone.
+func (p *Painter) Moved(run, outer, again Run) (Run, bool) {
+	if run.p != outer.p || run.frame != outer.frame || run.from < outer.from || run.to > outer.to ||
+		again.p.Value() != p || again.frame != p.frame || again.to-again.from != outer.to-outer.from || again.to > len(p.ops) {
+		return Run{}, false
+	}
+	d := again.from - outer.from
+	run.from, run.to, run.frame, run.p = run.from+d, run.to+d, p.frame, again.p
+	run.first, run.last = nil, nil
+	if run.to > run.from {
+		run.first, run.last = p.ops[run.from], p.ops[run.to-1]
+	}
+	return run, true
+}
+
 // before reports whether run is from this painter's frame before this one.
 func (p *Painter) before(run Run) bool {
 	if run.p.Value() != p || !p.hasPrev || run.frame+1 != p.frame || run.from < 0 || run.to > len(p.prev) || run.from > run.to {

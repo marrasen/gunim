@@ -286,3 +286,31 @@ func TestASteadyNodeIsCarriedWhileThePointerRestsOnIt(t *testing.T) {
 		t.Fatalf("ten frames with the pointer resting on it, the row was painted %d times more", row.painted-painted)
 	}
 }
+
+// A Steady node inside one that was carried is carried itself, the frame the outer one is drawn anew.
+func TestASteadyNodeInsideACarriedOneIsCarriedWhenTheOuterIsDrawnAnew(t *testing.T) {
+	outer := &steadyRow{key: 1, ok: true, colour: rowBlue}
+	inner := &steadyRow{key: 1, ok: true, colour: color.NRGBA{R: 0x80, A: 0xff}}
+	w := newTestWindow()
+	w.ui.Insert(w.ui.Root(), outer)
+	w.ui.Insert(outer, inner)
+	w.ui.Insert(inner, &steadyLeaf{})
+	w.ui.Insert(w.ui.Root(), &ticker{})
+	run(w, 60)
+	po, pi := outer.painted, inner.painted
+	outer.key = 2
+	run(w, 1)
+	if outer.painted == po {
+		t.Fatal("the outer node's key changed, and it was carried")
+	}
+	if inner.painted != pi {
+		t.Error("the inner node, its key held, was drawn anew the frame after the outer one was carried")
+	}
+	if !hasColour(t, w, inner.colour) {
+		t.Error("the inner node is missing from the frame")
+	}
+	run(w, 1)
+	if !hasColour(t, w, inner.colour) || inner.painted != pi {
+		t.Error("the inner node, carried again, is missing or was drawn anew")
+	}
+}
