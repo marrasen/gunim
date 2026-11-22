@@ -238,7 +238,8 @@ type Result struct {
 // [plug.Descriptor.Generator] reports one, runs with In and Out nil,
 // and its Result's Out is nil too. Every notes output is connected, with room for [plug.NotesOutRoom] events a
 // block, and Drive fails t where a plugin writes an event out of its block, out of order, of a kind a notes output
-// carries none of, or a NoteOn of a note still sounding.
+// carries none of, or a NoteOn of a note still sounding. As a host does, Drive ends a full writer's notes at the
+// block's end.
 func Drive(t *testing.T, d *plug.Descriptor, pr plug.Processor, s plug.Setup, frames int, p Ports) Result {
 	t.Helper()
 	generator := d.Generator()
@@ -396,6 +397,10 @@ func Drive(t *testing.T, d *plug.Descriptor, pr plug.Processor, s plug.Setup, fr
 				}
 				e.Frame += at
 				res.NotesOut[i] = append(res.NotesOut[i], e)
+			}
+			if w.Full() {
+				// The host ends the notes of a full writer.
+				clear(sounding[i])
 			}
 		}
 	}

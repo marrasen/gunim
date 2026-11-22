@@ -775,26 +775,29 @@ func checkNotesIn(d *Descriptor) error {
 	return nil
 }
 
+// checkNotesOut returns what is wrong with d's notes outputs, if anything.
+func checkNotesOut(d *Descriptor) error {
+	names, keys := map[string]bool{}, map[string]bool{}
+	for _, out := range d.NotesOut {
+		if out.Name == "" {
+			return fmt.Errorf("%s: notes output %q has no name", d.ID, out.Key)
+		}
+		if names[out.Name] {
+			return fmt.Errorf("%s has two notes outputs named %q", d.ID, out.Name)
+		}
+		if keys[out.Key] {
+			return fmt.Errorf("%s has two notes outputs of key %q", d.ID, out.Key)
+		}
+		names[out.Name], keys[out.Key] = true, true
+	}
+	return nil
+}
+
 // checkPorts returns what is wrong with d's ports, if anything: each
 // needs a name and a key of its own among those going its way, an
 // audio port a
 // channel count of zero or more, and a control port a range holding its
 // default: from 0 to 1, from 0, for a trigger.
-// checkNotesOut returns what is wrong with d's notes outputs, if anything.
-func checkNotesOut(d *Descriptor) error {
-	keys := map[string]bool{}
-	for _, out := range d.NotesOut {
-		if out.Name == "" {
-			return fmt.Errorf("%s: notes output %q has no name", d.ID, out.Key)
-		}
-		if keys[out.Key] {
-			return fmt.Errorf("%s has two notes outputs of key %q", d.ID, out.Key)
-		}
-		keys[out.Key] = true
-	}
-	return nil
-}
-
 func checkPorts(d *Descriptor) error {
 	for way, ports := range map[string][]AudioPort{"aux input": d.AuxIn, "aux output": d.AuxOut} {
 		if err := apart(d.ID, way, ports, func(p AudioPort) string { return p.Name }); err != nil {

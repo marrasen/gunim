@@ -2,7 +2,8 @@ package plug
 
 // NotesOutput is a notes output of a plugin's, as [Descriptor.NotesOut] lists them.
 type NotesOutput struct {
-	// Key names the output in a project, for good, as [ControlPort.Key] does.
+	// Key names the output in a project, for good. It is the output's own among the plugin's notes outputs, and
+	// empty is a key like any other: it does not fall back to Name.
 	Key string
 	// Name labels the output's port: "Pad", or "Bass".
 	Name string
@@ -20,9 +21,11 @@ const NotesOutRoom = 1024
 // the output from its NoteOn to its NoteOff. The host sets each event's Group and Port. A plugin sends its notes as
 // the music has them, not as late as its own sound: the host lines them up with that sound.
 //
-// A plugin that is reset, or whose output goes nil, ends nothing on its own: the host ends every note it sent that
-// still sounds. Where the writer is full, Write keeps nothing more in the block, and the host ends those notes too, at
-// the block's end, and ignores the NoteOffs that come for them later.
+// The writer checks none of this, so the host checks what it reads: it drops Live events and frames outside the
+// block, and sorts by frame. A plugin that is reset, or whose output goes nil, ends nothing on its own: the host ends
+// every note it sent that still sounds. Once the writer is full, it refuses every event until Clear. The host then
+// ends every note it took that still sounds, and lifts a pedal that is down, at the block's end. The host ignores a
+// NoteOff or Expression for a note that isn't sounding, as for a refused NoteOn.
 type NotesWriter struct {
 	events []Event
 	full   bool
@@ -45,14 +48,22 @@ func (w *NotesWriter) Write(e Event) bool {
 	return true
 }
 
-// Events returns the events written in the block, for the host to read after Process.
-func (w *NotesWriter) Events() []Event { return w.events }
+// Events returns the events written in the block, for the host to read after Process. A nil writer has none.
+func (w *NotesWriter) Events() []Event {
+	if w == nil {
+		return nil
+	}
+	return w.events
+}
 
-// Full reports whether Write refused an event in the block.
-func (w *NotesWriter) Full() bool { return w.full }
+// Full reports whether Write refused an event in the block. A nil writer is never full.
+func (w *NotesWriter) Full() bool { return w != nil && w.full }
 
-// Clear forgets the block's events, for the host to call before each block.
+// Clear forgets the block's events, for the host to call before each block. It does nothing to a nil writer.
 func (w *NotesWriter) Clear() {
+	if w == nil {
+		return
+	}
 	w.events = w.events[:0]
 	w.full = false
 }

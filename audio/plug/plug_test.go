@@ -496,6 +496,7 @@ func TestNotesOutputsHaveNamesAndKeysOfTheirOwn(t *testing.T) {
 	for name, d := range map[string]Descriptor{
 		"two of one key":    fx(NotesOutput{Key: "pad", Name: "Pad"}, NotesOutput{Key: "pad", Name: "Bass"}),
 		"an unnamed output": fx(NotesOutput{Key: "pad"}),
+		"two of one name":   fx(NotesOutput{Key: "pad", Name: "Pad"}, NotesOutput{Key: "pad2", Name: "Pad"}),
 	} {
 		if check(&d) == nil {
 			t.Errorf("%s was taken", name)
@@ -506,9 +507,10 @@ func TestNotesOutputsHaveNamesAndKeysOfTheirOwn(t *testing.T) {
 		t.Fatalf("two named outputs were refused: %v", err)
 	}
 	var b Block
-	if b.NotesOutput(0).Write(Event{Kind: NoteOn}) {
+	if none := b.NotesOutput(0); none.Write(Event{Kind: NoteOn}) || none.Events() != nil || none.Full() {
 		t.Errorf("an output with no wire took a note")
 	}
+	b.NotesOutput(0).Clear()
 	w := NewNotesWriter(1)
 	if !w.Write(Event{Kind: NoteOn}) || w.Write(Event{Kind: NoteOff}) || !w.Full() || len(w.Events()) != 1 {
 		t.Errorf("a writer with room for one wrote %v, full %v", w.Events(), w.Full())
