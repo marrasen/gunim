@@ -22,3 +22,20 @@ func TestDriveReturnsTheNoteASenderWrites(t *testing.T) {
 		}
 	}
 }
+
+func TestDriveReturnsTheNewsATellerTells(t *testing.T) {
+	s := plug.Setup{Rate: 48000, Channels: 2, MaxBlock: 64}
+	res := Drive(t, &Teller, Teller.New(nil).Processor(), s, 1280, Ports{In: channels(2, 1280), NotesAhead: 256})
+	news := res.NotesNews[0]
+	if len(news) != 1 || news[0].Kind != plug.Coming || news[0].Frame != TellerFrame || news[0].Note != TellerNote.Note ||
+		news[0].At < TellerFrame-256-64 || news[0].At+64 > TellerFrame {
+		t.Fatalf("the teller told %+v, want one Coming of note %d landing at %d, told up to 256 frames ahead",
+			news, TellerNote.Note, TellerFrame)
+	}
+	if got := res.NotesOut[0]; len(got) != 2 || got[0] != TellerNote {
+		t.Errorf("the teller sent %+v, want its note at %d", got, TellerFrame)
+	}
+	if res := Drive(t, &Teller, Teller.New(nil).Processor(), s, 1280, Ports{In: channels(2, 1280)}); len(res.NotesNews[0]) != 0 {
+		t.Errorf("with no look-ahead asked, the teller told %+v", res.NotesNews[0])
+	}
+}
