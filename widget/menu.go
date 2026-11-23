@@ -84,6 +84,8 @@ type Menu struct {
 
 	// shown holds the rows in view shaped, by item. Rows that leave the view are dropped.
 	shown map[int]*menuRow
+	// cutTip shows a row's text and hint whole while the pointer rests on a row that shows either cut short.
+	cutTip PartTip
 	// ell, smallEll and hintEll are an ellipsis for an item's text, a caption's and a hint's, for text cut short.
 	ell, smallEll, hintEll shapedText
 	// widest is the widest item's text with its hint, measured once for what widthOf names.
@@ -134,8 +136,12 @@ type Menu struct {
 	leaving bool
 }
 
-// menuRow is an item's text and hint, shaped.
-type menuRow struct{ label, hint shapedText }
+// menuRow is an item's text and hint, shaped. cut says the last paint cut the text or the hint short, so the row's
+// tooltip gives them whole.
+type menuRow struct {
+	label, hint shapedText
+	cut         bool
+}
 
 // MenuItem is a line of a [Menu], and of the menus of a [Dropdown], a [MenuButton], a [ContextMenu] and a
 // [BarMenu].
@@ -558,6 +564,7 @@ func (m *Menu) Handle(e input.Event, u *gunim.UI) bool {
 	case input.PointerLeave:
 		m.inside, m.follow = false, false
 	}
+	m.cutTip.Handle(e, u, m, m.tipWords())
 	if m.scroll.scrollable() {
 		in := m.scrolled(e)
 		if m.scroll.barEvent(in, u) {
@@ -733,11 +740,36 @@ const menuTick = 24
 // menuHintGap is the room between an item's text and its hint.
 const menuHintGap = 32
 
-// hintRoom is the most room a hint may take in a row of room for its text and its hint, beside a text label wide:
-// what the label leaves, but never more than leaves the label half the row. A menu too narrow for both cuts the
-// hint short as well as the label, so a long hint never runs past the menu's edge or over the text.
-func hintRoom(room, label float32) float32 {
+// hintRoom is the most room a hint hint wide may take in a row of room for its text and its hint, beside a text
+// label wide. A hint that fits in half the row, as a shortcut, has all it needs, and a long label is cut short beside
+// it. A longer hint is cut short to what the label leaves, but never to less than half the row for the label, so a
+// hint never runs past the menu's edge or over the text.
+func hintRoom(room, label, hint float32) float32 {
+	if hint <= room/2 {
+		return min(hint, max(room-menuHintGap, 0))
+	}
 	return max(room-menuHintGap-min(label, room/2), 0)
+}
+
+// hintLeast is the fewest glyphs of a hint cut short that show before its ellipsis. A hint that would show fewer
+// shows not at all, and leaves its row to the text.
+const hintLeast = 3
+
+// tipWords is the tooltip of the row under the pointer: its text and its hint whole, where the last paint cut either
+// short, and none where it cut neither.
+func (m *Menu) tipWords() string {
+	if !m.inside {
+		return ""
+	}
+	i := m.rowAt(m.rest)
+	if i < 0 || m.shown[i] == nil || !m.shown[i].cut {
+		return ""
+	}
+	it := &m.list.items[i]
+	if it.Hint == "" || len(it.subItems()) > 0 {
+		return m.label(i)
+	}
+	return m.label(i) + " · " + it.Hint
 }
 
 // menuSubRoom is the room after an item's text for the chevron of its submenu.
@@ -1022,10 +1054,16 @@ func (m *Menu) Paint(p *paint.Painter, f gunim.Frame, _ geom.Size, _ gunim.Child
 			fits -= menuSubRoom
 		}
 		full := r.label.shape(face, m.label(i), size)
+		r.cut = false
 		if len(it.subItems()) == 0 && it.Hint != "" {
 			h := r.hint.shape(face, it.Hint, size*0.9)
-			if most := hintRoom(room, full.Advance); h.Advance > most {
-				h = cutRunWith(h, m.hintEll.shape(face, "…", size*0.9), most)
+			if most := hintRoom(room, full.Advance, h.Advance); h.Advance > most {
+				ell := m.hintEll.shape(face, "…", size*0.9)
+				h, r.cut = cutRunWith(h, ell, most), true
+				if len(h.Glyphs)-len(ell.Glyphs) < hintLeast {
+					// So little of the hint would show that the text has the row.
+					h.Advance = 0
+				}
 			}
 			if h.Advance > 0 {
 				h.Paint(p, geom.Pt(card.Max.X-pad-bar-h.Advance, m.rowY(i)+(m.row-h.Height())/2), rowHint)
@@ -1034,7 +1072,7 @@ func (m *Menu) Paint(p *paint.Painter, f gunim.Frame, _ geom.Size, _ gunim.Child
 		}
 		run := full
 		if run.Advance > fits {
-			run = cutRunWith(full, m.ell.shape(face, "…", size), fits)
+			run, r.cut = cutRunWith(full, m.ell.shape(face, "…", size), fits), true
 		}
 		y := m.rowY(i) + (m.row-run.Height())/2
 		run.Paint(p, geom.Pt(x+m.iconSpace, y), col)
