@@ -276,6 +276,40 @@ func TestAMenuKeepsToItsBoxAndCutsALongItemShortBeforeItsHint(t *testing.T) {
 	}
 }
 
+// A hint too long for the menu's box is cut short with an ellipsis inside the card, and the item's short text is drawn
+// whole before it.
+func TestAMenuCutsALongHintShortInsideItsCard(t *testing.T) {
+	m := NewMenu([]MenuItem{{Label: "Input", Hint: "Gain"}, {Label: "EQ", Hint: strings.Repeat("LF gain, LF freq, ", 12)}})
+	m.Layout(gunim.Loose(geom.Sz(360, 320)), gunim.Frame{Scale: 1}, gunim.Children{})
+	ops := painted(m, geom.Sz(360, 320))
+	face := faceIn(Font, nil)
+	label, ok := textAt(ops, face.Shape("EQ", TextSize.Default()))
+	if !ok {
+		t.Fatal("the short item's text is not drawn whole")
+	}
+	end, ok := cutEnd(ops)
+	if !ok {
+		t.Fatal("the long hint is not cut short")
+	}
+	var cut *paint.TextOp
+	ell := face.Shape("…", TextSize.Default()*0.9).Glyphs[0].ID
+	for _, op := range ops {
+		if tx, ok := op.(*paint.TextOp); ok && len(tx.Glyphs) > 0 && tx.Glyphs[len(tx.Glyphs)-1].ID == ell {
+			cut = tx
+		}
+	}
+	if cut == nil {
+		t.Fatal("no cut hint found")
+	}
+	if left := cut.Transform.C; left < label.Transform.C+face.Shape("EQ", TextSize.Default()).Advance || end > m.card.Max.X {
+		t.Fatalf("the cut hint runs from %v to %v: over the item's text at %v, or outside the card %v", left, end,
+			label.Transform.C, m.card)
+	}
+	if _, ok := textAt(ops, face.Shape("Gain", TextSize.Default()*0.9)); !ok {
+		t.Error("a short hint is not drawn whole")
+	}
+}
+
 func TestAMenuKeepsToTheScreensWidth(t *testing.T) {
 	d := NewDropdown(Labels("Short", strings.Repeat("A very long item ", 40)))
 	d.MaxWidth = 150

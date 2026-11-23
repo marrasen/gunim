@@ -84,8 +84,8 @@ type Menu struct {
 
 	// shown holds the rows in view shaped, by item. Rows that leave the view are dropped.
 	shown map[int]*menuRow
-	// ell and smallEll are an ellipsis for an item's text and for a caption's, for text cut short.
-	ell, smallEll shapedText
+	// ell, smallEll and hintEll are an ellipsis for an item's text, a caption's and a hint's, for text cut short.
+	ell, smallEll, hintEll shapedText
 	// widest is the widest item's text with its hint, measured once for what widthOf names.
 	widest  float32
 	widthOf menuWidth
@@ -733,6 +733,13 @@ const menuTick = 24
 // menuHintGap is the room between an item's text and its hint.
 const menuHintGap = 32
 
+// hintRoom is the most room a hint may take in a row of room for its text and its hint, beside a text label wide:
+// what the label leaves, but never more than leaves the label half the row. A menu too narrow for both cuts the
+// hint short as well as the label, so a long hint never runs past the menu's edge or over the text.
+func hintRoom(room, label float32) float32 {
+	return max(room-menuHintGap-min(label, room/2), 0)
+}
+
 // menuSubRoom is the room after an item's text for the chevron of its submenu.
 const menuSubRoom = 28
 
@@ -1013,13 +1020,18 @@ func (m *Menu) Paint(p *paint.Painter, f gunim.Frame, _ geom.Size, _ gunim.Child
 			s := IconSize.Get(th)
 			drawIcon(p, th, icon.ChevronRight, geom.Rc(card.Max.X-pad-bar-s+4, m.rowY(i)+(m.row-s)/2, s, s), c, 1)
 			fits -= menuSubRoom
-		} else if it.Hint != "" {
-			h := r.hint.shape(face, it.Hint, size*0.9)
-			c := rowHint
-			h.Paint(p, geom.Pt(card.Max.X-pad-bar-h.Advance, m.rowY(i)+(m.row-h.Height())/2), c)
-			fits -= menuHintGap + h.Advance
 		}
 		full := r.label.shape(face, m.label(i), size)
+		if len(it.subItems()) == 0 && it.Hint != "" {
+			h := r.hint.shape(face, it.Hint, size*0.9)
+			if most := hintRoom(room, full.Advance); h.Advance > most {
+				h = cutRunWith(h, m.hintEll.shape(face, "…", size*0.9), most)
+			}
+			if h.Advance > 0 {
+				h.Paint(p, geom.Pt(card.Max.X-pad-bar-h.Advance, m.rowY(i)+(m.row-h.Height())/2), rowHint)
+				fits -= menuHintGap + h.Advance
+			}
+		}
 		run := full
 		if run.Advance > fits {
 			run = cutRunWith(full, m.ell.shape(face, "…", size), fits)
