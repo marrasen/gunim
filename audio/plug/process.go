@@ -492,7 +492,9 @@ func (p Position) BeatAt(f, n int, rate float64) float64 {
 // as a loop runs on from its start, and after a Reset, the host tells
 // of the notes coming within the look-ahead from there. A note started
 // as it happens, as a key played live, comes unannounced, as does one
-// landing in the block where playing starts or jumps.
+// landing in the block where playing starts or jumps. A plugin tells of
+// the notes it sends on a notes output in the same way, with
+// [NotesWriter.Tell].
 type Upcoming struct {
 	Kind UpcomingKind
 	// Frame is where the note lands, counted from the block's start:

@@ -73,7 +73,8 @@ type Descriptor struct {
 	// into the beat, a breath, a grace note, a glide that arrives on
 	// time. The host tells it of each note it plays from the music, as
 	// the note comes within LookAhead, in [Block.Upcoming]. Zero asks
-	// for none. It needs Notes.
+	// for none. It needs Notes. News of the notes another plugin sends
+	// on a notes output may come sooner ([NotesWriter.Tell]).
 	LookAhead time.Duration
 	// Past asks to hear of the music's earlier notes where playing
 	// starts, jumps or wraps, or an edit lands, with [PastStart] and

@@ -515,4 +515,15 @@ func TestNotesOutputsHaveNamesAndKeysOfTheirOwn(t *testing.T) {
 	if !w.Write(Event{Kind: NoteOn}) || w.Write(Event{Kind: NoteOff}) || !w.Full() || len(w.Events()) != 1 {
 		t.Errorf("a writer with room for one wrote %v, full %v", w.Events(), w.Full())
 	}
+	if none := b.NotesOutput(0); none.Tell(Upcoming{}) || none.News() != nil || none.Ahead() != 0 {
+		t.Errorf("an output with no wire took news")
+	}
+	w.SetAhead(480)
+	if !w.Tell(Upcoming{Frame: 64}) || w.Tell(Upcoming{Frame: 96}) || len(w.News()) != 1 || w.Ahead() != 480 {
+		t.Errorf("a writer with room for one told %v, ahead %d", w.News(), w.Ahead())
+	}
+	w.Clear()
+	if len(w.News()) != 0 || w.Ahead() != 480 {
+		t.Errorf("a cleared writer kept news %v, ahead %d", w.News(), w.Ahead())
+	}
 }

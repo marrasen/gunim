@@ -115,6 +115,9 @@ type Ports struct {
 	// Hits is news of hits, for a trigger input that hears of them
 	// ahead, as [AnnounceHits] makes it.
 	Hits []HitAhead
+	// NotesAhead is how many frames ahead every notes output's wire asks to hear of notes, as
+	// [plug.NotesWriter.Ahead] gives it.
+	NotesAhead int
 	// Tempo is each block's [plug.Position.Tempo] and EndTempo, in
 	// quarter notes a minute: zero where none is known. Each block's [plug.Position.Beat]
 	// counts the beats at that tempo from the start.
@@ -222,6 +225,9 @@ type Result struct {
 	// NotesOut holds the events written on each notes output, by [plug.Descriptor.NotesOut], each with its Frame
 	// counted from the start.
 	NotesOut [][]plug.Event
+	// NotesNews holds the news told on each notes output, by [plug.Descriptor.NotesOut], each At the start of the block
+	// it was told in, and with its Frame counted from the start but a Removed's.
+	NotesNews [][]Ahead
 }
 
 // Drive prepares pr, a processor of the plugin d describes, as s says,
@@ -238,7 +244,8 @@ type Result struct {
 // [plug.Descriptor.Generator] reports one, runs with In and Out nil,
 // and its Result's Out is nil too. Every notes output is connected, with room for [plug.NotesOutRoom] events a
 // block, and Drive fails t where a plugin writes an event out of its block, out of order, of a kind a notes output
-// carries none of, or a NoteOn of a note still sounding. As a host does, Drive ends a full writer's notes at the
+// carries none of, or a NoteOn of a note still sounding. It fails t too where a plugin tells of a note landing in
+// the block it tells in, or tells of one twice with Coming. As a host does, Drive ends a full writer's notes at the
 // block's end.
 func Drive(t *testing.T, d *plug.Descriptor, pr plug.Processor, s plug.Setup, frames int, p Ports) Result {
 	t.Helper()
@@ -365,14 +372,36 @@ func Drive(t *testing.T, d *plug.Descriptor, pr plug.Processor, s plug.Setup, fr
 	notesOut := make([]*plug.NotesWriter, len(d.NotesOut))
 	for i := range notesOut {
 		notesOut[i] = plug.NewNotesWriter(plug.NotesOutRoom)
+		notesOut[i].SetAhead(p.NotesAhead)
 	}
 	res.NotesOut = make([][]plug.Event, len(d.NotesOut))
+	res.NotesNews = make([][]Ahead, len(d.NotesOut))
 	sounding := make([]map[int32]bool, len(d.NotesOut))
+	told := make([]map[int32]bool, len(d.NotesOut))
 	for i := range sounding {
-		sounding[i] = map[int32]bool{}
+		sounding[i], told[i] = map[int32]bool{}, map[int32]bool{}
 	}
 	sent := func(b *plug.Block, at int) {
 		for i, w := range b.NotesOut {
+			for _, u := range w.News() {
+				switch u.Kind {
+				case plug.Coming, plug.Moved:
+					if u.Frame < b.Frames {
+						t.Fatalf("plugtest: %s told of note %d landing at frame %d, in the block of %d at %d it tells in, on notes output %d",
+							d.ID, u.Note, u.Frame+at, b.Frames, at, i)
+					}
+					if u.Kind == plug.Coming && told[i][u.Note] {
+						t.Fatalf("plugtest: %s told of note %d with Coming twice, at frame %d on notes output %d", d.ID, u.Note, at, i)
+					}
+					told[i][u.Note] = true
+					u.Frame += at
+				case plug.Removed:
+					delete(told[i], u.Note)
+				default:
+					t.Fatalf("plugtest: %s told news of kind %d at frame %d on notes output %d", d.ID, u.Kind, at, i)
+				}
+				res.NotesNews[i] = append(res.NotesNews[i], Ahead{At: at, Upcoming: u})
+			}
 			last := 0
 			for _, e := range w.Events() {
 				if e.Frame < last || e.Frame >= b.Frames {
@@ -391,6 +420,7 @@ func Drive(t *testing.T, d *plug.Descriptor, pr plug.Processor, s plug.Setup, fr
 							d.ID, e.Note, e.Frame+at, i)
 					}
 					sounding[i][e.Note] = true
+					delete(told[i], e.Note)
 				case plug.NoteOff:
 					delete(sounding[i], e.Note)
 				case plug.Expression, plug.Pedal, plug.PastStart, plug.PastNote:
@@ -470,9 +500,10 @@ func Drive(t *testing.T, d *plug.Descriptor, pr plug.Processor, s plug.Setup, fr
 	pr.Prepare(s)
 	playBlocks(pr, blocks, resets, &res, func(b *plug.Block, at int, reset bool) {
 		if reset {
-			// The host ends the notes a reset plugin sent.
+			// The host ends the notes a reset plugin sent, and takes back those it told of.
 			for i := range sounding {
 				clear(sounding[i])
+				clear(told[i])
 			}
 		}
 		sent(b, at)
