@@ -405,11 +405,40 @@ type Position struct {
 	// moved before: a tempo-synced LFO. It holds where Tempo is above
 	// zero.
 	Beat float64
+	// Bar is the bar Frame falls in, with its meter, where the host
+	// tells it. It holds where Tempo is above zero.
+	Bar Bar
 	// Groove is the swing the music plays in at Frame: a host whose
 	// notes swing tells it here, so a plugin that keeps time, as a
 	// tempo-synced LFO or a gate does, can swing with them. The zero
 	// Groove is straight.
 	Groove Groove
+}
+
+// Bar is a bar of the music as a musician counts it: its number, where
+// its bar line falls and the meter it is in, so a plugin that plays in
+// bars, as a bass line or a drum pattern, plays them as the song has
+// them, in 6/8 as in 4/4. The zero Bar says the host tells none.
+type Bar struct {
+	// Number counts the bars from 1 at the start of the track, across
+	// every change of meter.
+	Number int
+	// Start is where the bar line falls, in quarter notes from the start
+	// of the track, as [Position.Beat] counts them.
+	Start float64
+	// Beats is how many beats the bar holds, and Unit the note each beat
+	// is, as a time signature writes them: 4 and 4 in 4/4, 6 and 8 in
+	// 6/8, 7 and 8 in 7/8.
+	Beats, Unit int
+}
+
+// Quarters returns how many quarter notes the bar holds: 4 in 4/4, 3 in
+// 3/4 and in 6/8, 3.5 in 7/8. The zero Bar holds none.
+func (b Bar) Quarters() float64 {
+	if b.Unit <= 0 {
+		return 0
+	}
+	return float64(b.Beats) * 4 / float64(b.Unit)
 }
 
 // Groove is a swing: the music's grid steps, each Grid quarter notes

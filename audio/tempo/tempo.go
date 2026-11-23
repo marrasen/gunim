@@ -540,6 +540,16 @@ func (m *Map) Pos(t Ticks) Pos {
 	return Pos{Bar: bar, Beat: beat + 1, Frac: float64(in-Ticks(beat)*x.Beat()) / float64(x.Beat())}
 }
 
+// BarAt is the bar a position falls in: its number, counting from 1 as
+// [Pos] does, where its bar line falls, and the meter in force there.
+func (m *Map) BarAt(t Ticks) (bar int, start Ticks, x Meter) {
+	r := m.ready()
+	i := r.meterIndex(t)
+	x = r.meters[i]
+	n := floorDiv(t-x.At, x.Length())
+	return r.bars[i] + int(n), x.At + n*x.Length(), x
+}
+
 // Ticks is the position a bar and beat falls on. A beat past the end of
 // its bar carries into the bars after it, so bar 1 beat 5 of 4/4 is
 // bar 2 beat 1.
