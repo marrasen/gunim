@@ -314,8 +314,9 @@ func TestAMenuCutsALongHintShortInsideItsCard(t *testing.T) {
 // A shortcut no wider than half the row shows whole beside a label too long for the menu, which is cut short.
 func TestALongLabelLeavesAShortcutWhole(t *testing.T) {
 	m := NewMenu([]MenuItem{{Label: strings.Repeat("Transpose up an octave ", 4), Hint: "Ctrl+Alt+Shift+F12"}})
-	m.Layout(gunim.Loose(geom.Sz(300, 100)), gunim.Frame{Scale: 1}, gunim.Children{})
-	ops := painted(m, geom.Sz(300, 100))
+	// At 250 the shortcut fits in half the row, but not in what the label leaves.
+	m.Layout(gunim.Loose(geom.Sz(250, 100)), gunim.Frame{Scale: 1}, gunim.Children{})
+	ops := painted(m, geom.Sz(250, 100))
 	hint := faceIn(Font, nil).Shape("Ctrl+Alt+Shift+F12", TextSize.Default()*0.9)
 	h, ok := textAt(ops, hint)
 	if !ok {
@@ -341,11 +342,12 @@ func TestAHintWithLittleRoomLeavesTheRowToItsText(t *testing.T) {
 	}
 }
 
-// Resting the pointer on a row whose hint is cut short shows its text and hint whole as a tooltip; a row shown whole
-// has none.
+// Resting the pointer on a row whose hint or text is cut short shows its text and hint whole as a tooltip; a row
+// shown whole has none. New items under the resting pointer, no longer cut, close the tooltip.
 func TestARowCutShortShowsItsWholeTextAsATooltip(t *testing.T) {
 	long := strings.Repeat("LF gain, LF freq, ", 12)
-	m := NewMenu([]MenuItem{{Label: "Input", Hint: "Gain"}, {Label: "EQ", Hint: long}})
+	longLabel := strings.Repeat("Transpose up an octave ", 4)
+	m := NewMenu([]MenuItem{{Label: "Input", Hint: "Gain"}, {Label: "EQ", Hint: long}, {Label: longLabel}})
 	w, run := stage(t, &frame{child: m, size: geom.Sz(360, 200)})
 	rowY := func(i int) float32 { return m.rowY(i) + m.row/2 }
 	w.Input(input.PointerMove{Pos: geom.Pt(60, rowY(1)), Time: time.Now()})
@@ -358,6 +360,28 @@ func TestARowCutShortShowsItsWholeTextAsATooltip(t *testing.T) {
 	run(60)
 	if m.cutTip.tip.popup != nil {
 		t.Fatalf("on a row shown whole a tooltip shows: %q", m.cutTip.tip.text)
+	}
+	w.Input(input.PointerMove{Pos: geom.Pt(60, rowY(2)), Time: time.Now()})
+	run(60)
+	if m.cutTip.tip.popup == nil || m.cutTip.tip.text != longLabel {
+		t.Fatalf("on a row whose text is cut the tooltip is %q (showing: %v), want the text whole",
+			m.cutTip.tip.text, m.cutTip.tip.popup != nil)
+	}
+	m.SetItems([]MenuItem{{Label: "Input"}, {Label: "EQ"}, {Label: "Gate"}})
+	run(60)
+	if m.cutTip.tip.popup != nil {
+		t.Fatalf("with short items under the pointer the old tooltip %q still shows", m.cutTip.tip.text)
+	}
+}
+
+// The touch theme shows no tooltips, a cut row's neither.
+func TestATouchMenuShowsNoTooltipForACutRow(t *testing.T) {
+	m := NewMenu([]MenuItem{{Label: "EQ", Hint: strings.Repeat("LF gain, LF freq, ", 12)}})
+	w, _, run := touchStage(t, m, geom.Sz(360, 200))
+	w.Input(input.PointerMove{Pos: geom.Pt(60, m.rowY(0)+m.row/2), Time: time.Now()})
+	run(90)
+	if m.cutTip.tip.popup != nil {
+		t.Fatalf("on the touch theme a cut row shows the tooltip %q", m.cutTip.tip.text)
 	}
 }
 

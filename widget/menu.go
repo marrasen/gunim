@@ -909,6 +909,8 @@ func (m *Menu) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom
 	m.glide = true
 	m.followPointer()
 	m.placeSub()
+	// A tooltip showing follows new items under the resting pointer, and closes where they are no longer cut.
+	m.cutTip.Retext(m.tipWords())
 	return c.Constrain(geom.Sz(w+2*m.margin, h+2*m.margin))
 }
 
@@ -916,6 +918,10 @@ func (m *Menu) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom
 // the rows, both at once: the new rows show where they are, and never slide in from where the old were.
 func (m *Menu) newRows() {
 	m.fresh = false
+	// What the rows showed cut short is for the old items, until the next paint.
+	for _, r := range m.shown {
+		r.cut = false
+	}
 	if m.hot >= 0 && !m.enabled(m.hot) {
 		m.moveUntold(m.step(-1, min(m.hot, m.len()-1), -1))
 	}
@@ -1028,8 +1034,9 @@ func (m *Menu) Paint(p *paint.Painter, f gunim.Frame, _ geom.Size, _ gunim.Child
 		if m.isCaption(i) {
 			small := size * 0.85
 			caption := r.label.shape(face, m.label(i), small)
+			r.cut = false
 			if fits := room + m.gut + m.iconSpace; caption.Advance > fits {
-				caption = cutRunWith(caption, m.smallEll.shape(face, "…", small), fits)
+				caption, r.cut = cutRunWith(caption, m.smallEll.shape(face, "…", small), fits), true
 			}
 			caption.Paint(p, geom.Pt(card.Min.X+pad, m.rowY(i)+(m.row-caption.Height())/2), hint)
 			continue
@@ -1713,6 +1720,11 @@ type PartTip struct {
 
 // Handle follows the pointer event e over owner, with words the tooltip of the part under it.
 func (p *PartTip) Handle(e input.Event, u *gunim.UI, owner gunim.Node, words string) {
+	if !Tooltips.Get(u.Theme()) {
+		// A theme for a finger shows none: nothing rests on a touch screen to ask for one.
+		p.tip.hide(u)
+		return
+	}
 	p.tip.note(e, u, owner, tipDelay)
 	if words != p.tip.text {
 		p.tip.hide(u)
