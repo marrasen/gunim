@@ -276,6 +276,115 @@ func TestAMenuKeepsToItsBoxAndCutsALongItemShortBeforeItsHint(t *testing.T) {
 	}
 }
 
+// A hint too long for the menu's box is cut short with an ellipsis inside the card, and the item's short text is drawn
+// whole before it.
+func TestAMenuCutsALongHintShortInsideItsCard(t *testing.T) {
+	m := NewMenu([]MenuItem{{Label: "Input", Hint: "Gain"}, {Label: "EQ", Hint: strings.Repeat("LF gain, LF freq, ", 12)}})
+	m.Layout(gunim.Loose(geom.Sz(360, 320)), gunim.Frame{Scale: 1}, gunim.Children{})
+	ops := painted(m, geom.Sz(360, 320))
+	face := faceIn(Font, nil)
+	label, ok := textAt(ops, face.Shape("EQ", TextSize.Default()))
+	if !ok {
+		t.Fatal("the short item's text is not drawn whole")
+	}
+	end, ok := cutEnd(ops)
+	if !ok {
+		t.Fatal("the long hint is not cut short")
+	}
+	var cut *paint.TextOp
+	ell := face.Shape("…", TextSize.Default()*0.9).Glyphs[0].ID
+	for _, op := range ops {
+		if tx, ok := op.(*paint.TextOp); ok && len(tx.Glyphs) > 0 && tx.Glyphs[len(tx.Glyphs)-1].ID == ell {
+			cut = tx
+		}
+	}
+	if cut == nil {
+		t.Fatal("no cut hint found")
+	}
+	if left := cut.Transform.C; left < label.Transform.C+face.Shape("EQ", TextSize.Default()).Advance+menuHintGap ||
+		end > m.card.Max.X {
+		t.Fatalf("the cut hint runs from %v to %v: over the item's text at %v, or outside the card %v", left, end,
+			label.Transform.C, m.card)
+	}
+	if _, ok := textAt(ops, face.Shape("Gain", TextSize.Default()*0.9)); !ok {
+		t.Error("a short hint is not drawn whole")
+	}
+}
+
+// A shortcut no wider than half the row shows whole beside a label too long for the menu, which is cut short.
+func TestALongLabelLeavesAShortcutWhole(t *testing.T) {
+	m := NewMenu([]MenuItem{{Label: strings.Repeat("Transpose up an octave ", 4), Hint: "Ctrl+Alt+Shift+F12"}})
+	// At 250 the shortcut fits in half the row, but not in what the label leaves.
+	m.Layout(gunim.Loose(geom.Sz(250, 100)), gunim.Frame{Scale: 1}, gunim.Children{})
+	ops := painted(m, geom.Sz(250, 100))
+	hint := faceIn(Font, nil).Shape("Ctrl+Alt+Shift+F12", TextSize.Default()*0.9)
+	h, ok := textAt(ops, hint)
+	if !ok {
+		t.Fatal("the shortcut is not drawn whole")
+	}
+	if end, ok := cutEnd(ops); !ok || end > h.Transform.C-menuHintGap+1 {
+		t.Fatalf("the long label is not cut short before the shortcut: it ends at %v (cut %v), the shortcut starts at %v",
+			end, ok, h.Transform.C)
+	}
+}
+
+// A menu so narrow that a hint would show only a glyph or two leaves the hint out and draws its text whole.
+func TestAHintWithLittleRoomLeavesTheRowToItsText(t *testing.T) {
+	m := NewMenu([]MenuItem{{Label: "Transpose", Hint: "Ctrl+Alt+Shift+F12"}})
+	m.Layout(gunim.Loose(geom.Sz(130, 100)), gunim.Frame{Scale: 1}, gunim.Children{})
+	ops := painted(m, geom.Sz(130, 100))
+	face := faceIn(Font, nil)
+	if _, ok := textAt(ops, face.Shape("Transpose", TextSize.Default())); !ok {
+		t.Fatal("the text is not drawn whole")
+	}
+	if end, ok := cutEnd(ops); ok {
+		t.Fatalf("something is cut short, to %v: want the hint left out and the text whole", end)
+	}
+}
+
+// Resting the pointer on a row whose hint or text is cut short shows its text and hint whole as a tooltip; a row
+// shown whole has none. New items under the resting pointer, no longer cut, close the tooltip.
+func TestARowCutShortShowsItsWholeTextAsATooltip(t *testing.T) {
+	long := strings.Repeat("LF gain, LF freq, ", 12)
+	longLabel := strings.Repeat("Transpose up an octave ", 4)
+	m := NewMenu([]MenuItem{{Label: "Input", Hint: "Gain"}, {Label: "EQ", Hint: long}, {Label: longLabel}})
+	w, run := stage(t, &frame{child: m, size: geom.Sz(360, 200)})
+	rowY := func(i int) float32 { return m.rowY(i) + m.row/2 }
+	w.Input(input.PointerMove{Pos: geom.Pt(60, rowY(1)), Time: time.Now()})
+	run(60)
+	if m.cutTip.tip.popup == nil || m.cutTip.tip.text != "EQ · "+long {
+		t.Fatalf("on the cut row the tooltip is %q (showing: %v), want the text and the hint whole",
+			m.cutTip.tip.text, m.cutTip.tip.popup != nil)
+	}
+	w.Input(input.PointerMove{Pos: geom.Pt(60, rowY(0)), Time: time.Now()})
+	run(60)
+	if m.cutTip.tip.popup != nil {
+		t.Fatalf("on a row shown whole a tooltip shows: %q", m.cutTip.tip.text)
+	}
+	w.Input(input.PointerMove{Pos: geom.Pt(60, rowY(2)), Time: time.Now()})
+	run(60)
+	if m.cutTip.tip.popup == nil || m.cutTip.tip.text != longLabel {
+		t.Fatalf("on a row whose text is cut the tooltip is %q (showing: %v), want the text whole",
+			m.cutTip.tip.text, m.cutTip.tip.popup != nil)
+	}
+	m.SetItems([]MenuItem{{Label: "Input"}, {Label: "EQ"}, {Label: "Gate"}})
+	run(60)
+	if m.cutTip.tip.popup != nil {
+		t.Fatalf("with short items under the pointer the old tooltip %q still shows", m.cutTip.tip.text)
+	}
+}
+
+// The touch theme shows no tooltips, a cut row's neither.
+func TestATouchMenuShowsNoTooltipForACutRow(t *testing.T) {
+	m := NewMenu([]MenuItem{{Label: "EQ", Hint: strings.Repeat("LF gain, LF freq, ", 12)}})
+	w, _, run := touchStage(t, m, geom.Sz(360, 200))
+	w.Input(input.PointerMove{Pos: geom.Pt(60, m.rowY(0)+m.row/2), Time: time.Now()})
+	run(90)
+	if m.cutTip.tip.popup != nil {
+		t.Fatalf("on the touch theme a cut row shows the tooltip %q", m.cutTip.tip.text)
+	}
+}
+
 func TestAMenuKeepsToTheScreensWidth(t *testing.T) {
 	d := NewDropdown(Labels("Short", strings.Repeat("A very long item ", 40)))
 	d.MaxWidth = 150

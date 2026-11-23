@@ -84,8 +84,10 @@ type Menu struct {
 
 	// shown holds the rows in view shaped, by item. Rows that leave the view are dropped.
 	shown map[int]*menuRow
-	// ell and smallEll are an ellipsis for an item's text and for a caption's, for text cut short.
-	ell, smallEll shapedText
+	// cutTip shows a row's text and hint whole while the pointer rests on a row that shows either cut short.
+	cutTip PartTip
+	// ell, smallEll and hintEll are an ellipsis for an item's text, a caption's and a hint's, for text cut short.
+	ell, smallEll, hintEll shapedText
 	// widest is the widest item's text with its hint, measured once for what widthOf names.
 	widest  float32
 	widthOf menuWidth
@@ -134,8 +136,12 @@ type Menu struct {
 	leaving bool
 }
 
-// menuRow is an item's text and hint, shaped.
-type menuRow struct{ label, hint shapedText }
+// menuRow is an item's text and hint, shaped. cut says the last paint cut the text or the hint short, so the row's
+// tooltip gives them whole.
+type menuRow struct {
+	label, hint shapedText
+	cut         bool
+}
 
 // MenuItem is a line of a [Menu], and of the menus of a [Dropdown], a [MenuButton], a [ContextMenu] and a
 // [BarMenu].
@@ -558,6 +564,7 @@ func (m *Menu) Handle(e input.Event, u *gunim.UI) bool {
 	case input.PointerLeave:
 		m.inside, m.follow = false, false
 	}
+	m.cutTip.Handle(e, u, m, m.tipWords())
 	if m.scroll.scrollable() {
 		in := m.scrolled(e)
 		if m.scroll.barEvent(in, u) {
@@ -733,6 +740,39 @@ const menuTick = 24
 // menuHintGap is the room between an item's text and its hint.
 const menuHintGap = 32
 
+// hintRoom is the most room a hint may take in a row of room for its text and its hint, with the hint and the text
+// as wide as hint and label. A hint that fits in half the row, as a shortcut, has all it needs, and a long label is
+// cut short beside it. A longer hint is cut short to what the label leaves, but never to less than half the row for
+// the label, so a hint never runs past the menu's edge or over the text.
+func hintRoom(room, label, hint float32) float32 {
+	if hint <= room/2 {
+		return min(hint, max(room-menuHintGap, 0))
+	}
+	return max(room-menuHintGap-min(label, room/2), 0)
+}
+
+// hintLeast is the fewest glyphs of a hint cut short that show before its ellipsis. A hint that would show fewer
+// shows not at all, and leaves its row to the text.
+const hintLeast = 3
+
+// tipWords is the tooltip of the row under the pointer: its text and its hint whole, where the last paint cut either
+// short, and none where it cut neither.
+func (m *Menu) tipWords() string {
+	if !m.inside {
+		return ""
+	}
+	i := m.rowAt(m.rest)
+	if i < 0 || m.shown[i] == nil || !m.shown[i].cut {
+		return ""
+	}
+	it := &m.list.items[i]
+	if it.Hint == "" || len(it.subItems()) > 0 || m.isCaption(i) {
+		// A caption draws no hint, nor does an item with a submenu.
+		return m.label(i)
+	}
+	return m.label(i) + " · " + it.Hint
+}
+
 // menuSubRoom is the room after an item's text for the chevron of its submenu.
 const menuSubRoom = 28
 
@@ -870,6 +910,8 @@ func (m *Menu) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom
 	m.glide = true
 	m.followPointer()
 	m.placeSub()
+	// A tooltip showing follows new items under the resting pointer, and closes where they are no longer cut.
+	m.cutTip.Retext(m.tipWords())
 	return c.Constrain(geom.Sz(w+2*m.margin, h+2*m.margin))
 }
 
@@ -877,6 +919,10 @@ func (m *Menu) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom
 // the rows, both at once: the new rows show where they are, and never slide in from where the old were.
 func (m *Menu) newRows() {
 	m.fresh = false
+	// What the rows showed cut short is for the old items, until the next paint.
+	for _, r := range m.shown {
+		r.cut = false
+	}
 	if m.hot >= 0 && !m.enabled(m.hot) {
 		m.moveUntold(m.step(-1, min(m.hot, m.len()-1), -1))
 	}
@@ -989,8 +1035,9 @@ func (m *Menu) Paint(p *paint.Painter, f gunim.Frame, _ geom.Size, _ gunim.Child
 		if m.isCaption(i) {
 			small := size * 0.85
 			caption := r.label.shape(face, m.label(i), small)
+			r.cut = false
 			if fits := room + m.gut + m.iconSpace; caption.Advance > fits {
-				caption = cutRunWith(caption, m.smallEll.shape(face, "…", small), fits)
+				caption, r.cut = cutRunWith(caption, m.smallEll.shape(face, "…", small), fits), true
 			}
 			caption.Paint(p, geom.Pt(card.Min.X+pad, m.rowY(i)+(m.row-caption.Height())/2), hint)
 			continue
@@ -1013,16 +1060,27 @@ func (m *Menu) Paint(p *paint.Painter, f gunim.Frame, _ geom.Size, _ gunim.Child
 			s := IconSize.Get(th)
 			drawIcon(p, th, icon.ChevronRight, geom.Rc(card.Max.X-pad-bar-s+4, m.rowY(i)+(m.row-s)/2, s, s), c, 1)
 			fits -= menuSubRoom
-		} else if it.Hint != "" {
-			h := r.hint.shape(face, it.Hint, size*0.9)
-			c := rowHint
-			h.Paint(p, geom.Pt(card.Max.X-pad-bar-h.Advance, m.rowY(i)+(m.row-h.Height())/2), c)
-			fits -= menuHintGap + h.Advance
 		}
 		full := r.label.shape(face, m.label(i), size)
+		r.cut = false
+		if len(it.subItems()) == 0 && it.Hint != "" {
+			h := r.hint.shape(face, it.Hint, size*0.9)
+			if most := hintRoom(room, full.Advance, h.Advance); h.Advance > most {
+				ell := m.hintEll.shape(face, "…", size*0.9)
+				h, r.cut = cutRunWith(h, ell, most), true
+				if len(h.Glyphs)-len(ell.Glyphs) < hintLeast {
+					// So little of the hint would show that the text has the row.
+					h.Advance = 0
+				}
+			}
+			if h.Advance > 0 {
+				h.Paint(p, geom.Pt(card.Max.X-pad-bar-h.Advance, m.rowY(i)+(m.row-h.Height())/2), rowHint)
+				fits -= menuHintGap + h.Advance
+			}
+		}
 		run := full
 		if run.Advance > fits {
-			run = cutRunWith(full, m.ell.shape(face, "…", size), fits)
+			run, r.cut = cutRunWith(full, m.ell.shape(face, "…", size), fits), true
 		}
 		y := m.rowY(i) + (m.row-run.Height())/2
 		run.Paint(p, geom.Pt(x+m.iconSpace, y), col)
@@ -1663,6 +1721,11 @@ type PartTip struct {
 
 // Handle follows the pointer event e over owner, with words the tooltip of the part under it.
 func (p *PartTip) Handle(e input.Event, u *gunim.UI, owner gunim.Node, words string) {
+	if !Tooltips.Get(u.Theme()) {
+		// A theme for a finger shows none: nothing rests on a touch screen to ask for one.
+		p.tip.hide(u)
+		return
+	}
 	p.tip.note(e, u, owner, tipDelay)
 	if words != p.tip.text {
 		p.tip.hide(u)
