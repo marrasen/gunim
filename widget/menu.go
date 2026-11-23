@@ -740,10 +740,10 @@ const menuTick = 24
 // menuHintGap is the room between an item's text and its hint.
 const menuHintGap = 32
 
-// hintRoom is the most room a hint may take in a row of room for its text and its hint. The hint is hint wide, and
-// the text beside it label wide. A hint that fits in half the row, as a shortcut, has all it needs, and a long label is cut short beside
-// it. A longer hint is cut short to what the label leaves, but never to less than half the row for the label, so a
-// hint never runs past the menu's edge or over the text.
+// hintRoom is the most room a hint may take in a row of room for its text and its hint, with the hint and the text
+// as wide as hint and label. A hint that fits in half the row, as a shortcut, has all it needs, and a long label is
+// cut short beside it. A longer hint is cut short to what the label leaves, but never to less than half the row for
+// the label, so a hint never runs past the menu's edge or over the text.
 func hintRoom(room, label, hint float32) float32 {
 	if hint <= room/2 {
 		return min(hint, max(room-menuHintGap, 0))
