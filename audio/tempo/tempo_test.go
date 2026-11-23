@@ -431,3 +431,24 @@ func TestQuartersAtAFrameAreExact(t *testing.T) {
 		t.Errorf("at the step to 90, the tempo reaching it is %v and from it %v, want 180 and 90", a, b)
 	}
 }
+
+func TestBarAtCountsBarsAcrossAChangeOfMeter(t *testing.T) {
+	var m Map
+	m.SetMeters([]Meter{{At: 0, Beats: 4, Unit: 4}, {At: 8 * PPQ, Beats: 6, Unit: 8}})
+	for _, c := range []struct {
+		at, start Ticks
+		bar       int
+		beats     int
+	}{
+		{0, 0, 1, 4},
+		{5 * PPQ, 4 * PPQ, 2, 4},
+		{8 * PPQ, 8 * PPQ, 3, 6},
+		{12*PPQ - 1, 11 * PPQ, 4, 6},
+	} {
+		bar, start, x := m.BarAt(c.at)
+		if bar != c.bar || start != c.start || x.Beats != c.beats {
+			t.Errorf("BarAt(%d) = bar %d from %d in %d beats, want bar %d from %d in %d", c.at, bar, start, x.Beats,
+				c.bar, c.start, c.beats)
+		}
+	}
+}

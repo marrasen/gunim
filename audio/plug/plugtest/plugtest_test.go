@@ -534,8 +534,8 @@ func TestAnnounceHitsTellsOfEachPulseAheadOfIt(t *testing.T) {
 	in[100], in[36000] = 0.25, 1
 	got := AnnounceHits(s, 24000, 0, 120, in)
 	want := []HitAhead{
-		{At: 0, HitNews: plug.HitNews{Kind: plug.HitComing, ID: 1, Frame: 100, Velocity: 0.25, Beat: 100.0 * 120 / 60 / 48000, BarBeats: 4}},
-		{At: 12000, HitNews: plug.HitNews{Kind: plug.HitComing, ID: 2, Frame: 36000, Velocity: 1, Beat: 1.5, BarBeats: 4}},
+		{At: 0, HitNews: plug.HitNews{Kind: plug.HitComing, ID: 1, Frame: 100, Velocity: 0.25, Beat: 100.0 * 120 / 60 / 48000, BarBeats: 4, Bar: FourFour(0)}},
+		{At: 12000, HitNews: plug.HitNews{Kind: plug.HitComing, ID: 2, Frame: 36000, Velocity: 1, Beat: 1.5, BarBeats: 4, Bar: FourFour(0)}},
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("the hits were told of as %+v, want %+v", got, want)

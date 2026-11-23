@@ -52,6 +52,9 @@ type HitNews struct {
 	// beat of each block on the way. A Removed's are 0.
 	Beat     float64
 	BarBeats float64
+	// Bar is the bar the hit lands in, with its meter, where the host
+	// tells it. A Removed's is the zero Bar.
+	Bar Bar
 }
 
 // HitKind is what a [HitNews] tells.

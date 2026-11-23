@@ -89,6 +89,9 @@ type ChordNews struct {
 	// Now's Beat is where its Frame falls. A Removed's are 0.
 	Beat     float64
 	BarBeats float64
+	// Bar is the bar the chord starts in, with its meter, where the host
+	// tells it. A Removed's is the zero Bar.
+	Bar Bar
 	// Tones are the chord's notes, as MIDI note numbers, lowest first,
 	// voiced as the host voices the lane's notes from it. Count of them
 	// hold: [ChordNews.Pitches] returns them.

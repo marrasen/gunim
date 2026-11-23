@@ -171,7 +171,8 @@ type HitAhead struct {
 // start. Each hit's ID counts from 1, in the order of their frames. Its
 // Beat is where it lands at tempo, in quarter notes a minute, as
 // [Drive] counts [plug.Position.Beat] at that [Ports.Tempo], in bars of
-// four; a tempo of zero leaves both 0.
+// four, and its Bar the bar of 4/4 it lands in; a tempo of zero leaves
+// them 0.
 func AnnounceHits(s plug.Setup, window, port int, tempo float64, values []float32) []HitAhead {
 	var out []HitAhead
 	for f, v := range values {
@@ -181,10 +182,17 @@ func AnnounceHits(s plug.Setup, window, port int, tempo float64, values []float3
 		n := plug.HitNews{Kind: plug.HitComing, Port: port, ID: int32(len(out) + 1), Frame: f, Velocity: float64(v)}
 		if tempo > 0 {
 			n.Beat, n.BarBeats = float64(f)*tempo/60/s.Rate, 4
+			n.Bar = FourFour(n.Beat)
 		}
 		out = append(out, HitAhead{At: max(f-window, 0), HitNews: n})
 	}
 	return out
+}
+
+// FourFour is the bar of 4/4 that beat, in quarter notes from the start, falls in, as [Drive] tells it.
+func FourFour(beat float64) plug.Bar {
+	n := math.Floor(beat / 4)
+	return plug.Bar{Number: int(n) + 1, Start: 4 * n, Beats: 4, Unit: 4}
 }
 
 // Announce returns the news a host sends of the NoteOns in events, for
@@ -444,6 +452,9 @@ func Drive(t *testing.T, d *plug.Descriptor, pr plug.Processor, s plug.Setup, fr
 			Beat: float64(at) * p.Tempo / 60 / s.Rate},
 			In: window(p.In, at, n), Out: window(out, 0, n), ControlIn: window(p.ControlIn, at, n),
 			ControlOut: window(controlOut, 0, n), LiveOut: window(liveOut, 0, n), NotesOut: notesOut}
+		if p.Tempo > 0 {
+			b.Position.Bar = FourFour(b.Position.Beat)
+		}
 		for _, port := range p.AuxIn {
 			b.AuxIn = append(b.AuxIn, window(port, at, n))
 		}
