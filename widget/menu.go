@@ -766,7 +766,8 @@ func (m *Menu) tipWords() string {
 		return ""
 	}
 	it := &m.list.items[i]
-	if it.Hint == "" || len(it.subItems()) > 0 {
+	if it.Hint == "" || len(it.subItems()) > 0 || m.isCaption(i) {
+		// A caption draws no hint, nor does an item with a submenu.
 		return m.label(i)
 	}
 	return m.label(i) + " · " + it.Hint
