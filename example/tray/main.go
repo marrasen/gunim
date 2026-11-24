@@ -2,12 +2,17 @@
 // takes the keyboard and closes once the user turns to something else. The flyout opens beside the icon on Windows,
 // and in the corner of the screen where the system does not say where the icon is.
 //
+// With -notify it shows two messages from the icon, tagged "older" and "newer", and logs the tag of each one clicked,
+// and how sure that tag is:
+//
 //	go run ./example/tray
 //	go run ./example/tray -open -shot flyout.png
+//	go run ./example/tray -notify
 package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"image"
 	"image/color"
@@ -43,13 +48,14 @@ const margin = 24
 func main() {
 	open := flag.Bool("open", false, "open the flyout at once, as a click on the icon does")
 	shot := flag.String("shot", "", "with -open, write the flyout to this PNG file after a second, and quit")
+	notify := flag.Bool("notify", false, "show two tagged messages, and log the tag of each one clicked")
 	flag.Parse()
-	if err := run(*open, *shot); err != nil {
+	if err := run(*open, *shot, *notify); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func run(open bool, shot string) error {
+func run(open bool, shot string, notify bool) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	return gunim.Main(ctx, func(a *gunim.App) error {
@@ -98,11 +104,25 @@ func run(open bool, shot string) error {
 			}
 		}
 		err := a.SetTray(gunim.Tray{Icon: []image.Image{berry(32)}, Tooltip: "Home server: you're up to date",
-			Items: []gunim.TrayItem{{Title: "Quit", ID: 1}}, OnPick: func(int) { quit() }, OnClick: show})
-		if err != nil {
+			Items: []gunim.TrayItem{{Title: "Quit", ID: 1}}, OnPick: func(int) { quit() }, OnClick: show,
+			AppID: "Gunim.Example.Tray", AppName: "Home server",
+			OnNotifyTag: func(tag string) { log.Printf("tray: clicked the message tagged %q", tag) }})
+		switch {
+		case notify && errors.Is(err, gunim.ErrNoTray):
+			// A desktop that shows no tray icons may still show the messages.
+			log.Printf("tray: %v; showing the messages all the same", err)
+		case err != nil:
 			return err
 		}
 		defer func() { _ = a.SetTray(gunim.Tray{}) }()
+		if notify {
+			for _, tag := range []string{"older", "newer"} {
+				if err := a.TrayNotifyTagged("Home server", "This message is tagged "+tag+".", tag); err != nil {
+					log.Printf("tray: %v", err)
+				}
+			}
+			log.Printf("tray: a click names its message: %v", a.TrayNotifyWay())
+		}
 		if open {
 			show()
 		}

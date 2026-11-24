@@ -58,6 +58,7 @@ type sniTray struct {
 
 // closeTray takes the icon off the bus, as the application ends.
 func closeTray() {
+	setNoticeTray(driver.Tray{})
 	tray.mu.Lock()
 	defer tray.mu.Unlock()
 	if tray.s != nil {
@@ -66,8 +67,10 @@ func closeTray() {
 	}
 }
 
-// SetTray implements [driver.Trayer].
+// SetTray implements [driver.Trayer]. The tray's messages go to the desktop's notification server, apart from the
+// icon: where no panel shows icons, SetTray returns ErrNoTray, and the messages show all the same.
 func (d *Driver) SetTray(t driver.Tray) error {
+	setNoticeTray(t)
 	tray.mu.Lock()
 	defer tray.mu.Unlock()
 	if len(t.Icon) == 0 {

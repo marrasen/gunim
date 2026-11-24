@@ -350,14 +350,24 @@ An application reaches the rest of the desktop through `App`, `Client`
 and `UI`:
 
 - **The tray.** `App.SetTray` shows an icon with a menu, and
-  `App.TrayNotify` a message from it. On Windows, `Tray.OnNotifyClick`
-  hears a click on the message, to open the page it is about, and
-  `Tray.OnNotifyGone` hears it leave the screen. A window of
+  `App.TrayNotify` a message from it. `Tray.OnNotifyClick` hears a
+  click on the message, to open the page it is about, and
+  `Tray.OnNotifyGone` hears it leave the screen. `App.TrayNotifyTagged`
+  gives a message a tag, any text up to 1 KiB, and `Tray.OnNotifyTag`
+  hears the tag of the message clicked, so an application that shows
+  several opens the right page. On Linux and with Windows's toasts the
+  click names its message, and `App.TrayNotifyWay` says so with
+  `NotifyExact`. Windows shows toasts under `Tray.AppID`, which it
+  registers for the current user, and falls back to tray balloons where
+  it cannot: a balloon's click names no message, so the tag is that of
+  the message shown last (`NotifyLast`). `driver.OffscreenTray` records the
+  messages and plays a click on one, for a test. A window of
   `driver.KindFlyout` opens beside the icon, at `App.TrayRect` on
   Windows, takes the keyboard, and closes once the user turns to
   something else. With `App.StayOpen` the
   application runs on with no window open. Linux speaks
-  StatusNotifierItem.
+  StatusNotifierItem for the icon, and org.freedesktop.Notifications
+  for the messages, which show where no panel shows the icon.
 - **The system's look.** `App.SystemLook` reads what the user chose
   for every application: light or dark, fewer animations, a text size
   and a contrast theme. `App.WatchSystemLook` hears each change.

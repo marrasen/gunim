@@ -78,7 +78,10 @@ func mediaLog(format string, args ...any) {
 }
 
 // rtCall calls method i of the COM object obj, and returns its HRESULT
-// as an error.
+// as an error. As with call, a variable whose address a caller passes
+// stays put for the length of the call.
+//
+//go:uintptrescapes
 func rtCall(obj uintptr, i int, args ...uintptr) error {
 	vtbl := *ptr[unsafe.Pointer](obj)
 	fn := *(*uintptr)(unsafe.Add(vtbl, uintptr(i)*unsafe.Sizeof(uintptr(0))))
@@ -141,6 +144,8 @@ type delegate struct {
 	refs   int32
 	iid    windows.GUID
 	invoke func(args uintptr)
+	// from, where set, runs in place of invoke, with the event's sender too.
+	from func(sender, args uintptr)
 }
 
 type delegateVtbl struct {
@@ -168,7 +173,11 @@ func delegateTable(name string) delegateVtbl {
 			return uintptr(atomic.AddInt32(&ptr[delegate](this).refs, -1))
 		}),
 		invoke: syscall.NewCallback(func(this, sender, args uintptr) uintptr {
-			ptr[delegate](this).invoke(args)
+			if d := ptr[delegate](this); d.from != nil {
+				d.from(sender, args)
+			} else {
+				d.invoke(args)
+			}
 			return 0
 		}),
 	}

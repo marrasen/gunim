@@ -24,14 +24,70 @@ type Tray struct {
 	OnPick  func(id int)
 	OnClick func()
 	// OnNotifyClick runs with a click on a message [TrayNotifier.TrayNotify] showed, as for a message that opens the
-	// page it is about. Windows does not say which message, and may say so for a click in the notification centre
-	// too, after a newer message: open a page that fits any message shown, or keep only one kind of message waiting.
-	// The program takes the foreground as the click comes, so a window raised from here comes to the front.
+	// page it is about. The program may take the foreground as the click comes, so a window raised from here comes
+	// to the front. OnNotifyTag hears which message was clicked.
 	//
 	// OnNotifyGone runs when the message shown last leaves the screen, closed or timed out, as it may then wait in
-	// the notification centre. Both run on a goroutine of the driver's. Only Windows says so.
+	// the notification centre. Both run on a goroutine of the driver's, on Windows and Linux.
 	OnNotifyClick func()
 	OnNotifyGone  func()
+	// OnNotifyTag runs with a click on a message [TagNotifier.TrayNotifyTagged] showed, with the tag it was shown
+	// with, and with "" for one [TrayNotifier.TrayNotify] showed. It runs after OnNotifyClick, where both are set,
+	// on a goroutine of the driver's. [NotifyWayer] says how sure the tag is.
+	//
+	// On Linux, and on Windows with toasts, the tag is that of the message clicked, of any of the last 64 shown on
+	// Linux, and any still in the notification centre on Windows. Windows's tray balloons report only that a
+	// message was clicked, so with those the tag is that of the message shown last.
+	OnNotifyTag func(tag string)
+	// AppID names the application to Windows's notifications, as its AppUserModelID: a few words with dots
+	// between, as "Company.Product". The bytes A-Z, a-z, 0-9, '.', '-' and '_' are kept, and others become '-'.
+	// Empty names it after the program file, as "gunim.<name>.<hash>", with a hash of the file's full path: two
+	// programs of one name in two folders get two, and a program moved to another folder gets a new one, whose
+	// toasts are apart from those of the old. An installed application sets its own. AppName is the name its
+	// messages show as from, on Windows and Linux, and empty takes the program file's name.
+	//
+	// To show toasts, the Windows driver writes, at the first message, the AppID with its name and the icon's
+	// picture under the current user's Software\Classes\AppUserModelId\<AppID> in the registry, with the class ID
+	// of the COM object that hears clicks from the notification centre, and that class ID's LocalServer32, the
+	// program file. The picture goes in the user's cache folder, under <AppID>. An uninstaller takes all three
+	// away. A click on a toast after the program ended starts the program again, with the argument -Embedding,
+	// which gunim takes out of os.Args, as the sole one there, before main runs; the click is heard once the program puts its icon up.
+	AppID, AppName string
+}
+
+// NotifyWay is how sure the tag [Tray.OnNotifyTag] hears is.
+type NotifyWay uint8
+
+const (
+	// NotifyNone says no message shows: no icon is up, the platform shows none, the user or a policy turned the
+	// application's toasts off on Windows, or Linux has no notification server on the session bus and none to start.
+	NotifyNone NotifyWay = iota
+	// NotifyLast says a click names no message, so the tag heard is that of the message shown last, as with
+	// Windows's tray balloons.
+	NotifyLast
+	// NotifyExact says a click names its message, so the tag heard is that message's, as with Windows's toasts
+	// and Linux's notification server.
+	NotifyExact
+)
+
+// String names w, for a log.
+func (w NotifyWay) String() string {
+	switch w {
+	case NotifyNone:
+		return "none"
+	case NotifyLast:
+		return "last"
+	case NotifyExact:
+		return "exact"
+	}
+	return "none"
+}
+
+// A NotifyWayer is a [TagNotifier] that says how sure a click's tag is.
+type NotifyWayer interface {
+	// TrayNotifyWay says how the next message shows: on Windows NotifyExact for a toast, and NotifyLast for a
+	// balloon, where toasts cannot be shown.
+	TrayNotifyWay() NotifyWay
 }
 
 // TrayItem is a line of a tray icon's menu: a command, a submenu, or a
@@ -58,6 +114,37 @@ type TrayNotifier interface {
 	// TrayNotify shows a message from the tray icon, as the system shows
 	// one, and fails where no icon is up or the platform has none.
 	TrayNotify(title, body string) error
+}
+
+// MaxNotifyTag is the most bytes a message's tag holds.
+const MaxNotifyTag = 1024
+
+// ErrNotifyTag says a message's tag is longer than [MaxNotifyTag] bytes.
+var ErrNotifyTag = errors.New("the message's tag is longer than MaxNotifyTag bytes")
+
+// ErrNotifyTimeout says the desktop has not answered that it shows a message. The message may still show, and a click
+// on it is heard.
+var ErrNotifyTimeout = errors.New("the desktop has not answered in time, and may still show the message")
+
+// CheckNotifyTag returns [ErrNotifyTag] for a tag longer than [MaxNotifyTag] bytes, and nil for any other.
+func CheckNotifyTag(tag string) error {
+	if len(tag) > MaxNotifyTag {
+		return ErrNotifyTag
+	}
+	return nil
+}
+
+// A TagNotifier is a [TrayNotifier] that gives each message a tag, which [Tray.OnNotifyTag] hears back with a click
+// on it.
+type TagNotifier interface {
+	// TrayNotifyTagged shows a message as TrayNotify does, with tag, any text the application picks, as an ID of
+	// the message or the page it is about. On Linux, and with a balloon on Windows, the tag stays in the process. With
+	// a toast on Windows it is part of the toast, which Windows stores for as long as it is in the notification
+	// centre, and other programs of the user's may read: a tag holds no secret.
+	//
+	// It fails with ErrNotifyTag for a tag longer than MaxNotifyTag bytes, and with ErrNotifyTimeout where the desktop
+	// has not answered in time.
+	TrayNotifyTagged(title, body, tag string) error
 }
 
 // A Trayer is a [Driver] that can show a tray icon.
