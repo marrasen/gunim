@@ -12,6 +12,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"image"
 	"image/color"
@@ -106,7 +107,11 @@ func run(open bool, shot string, notify bool) error {
 			Items: []gunim.TrayItem{{Title: "Quit", ID: 1}}, OnPick: func(int) { quit() }, OnClick: show,
 			AppID: "Gunim.Example.Tray", AppName: "Home server",
 			OnNotifyTag: func(tag string) { log.Printf("tray: clicked the message tagged %q", tag) }})
-		if err != nil {
+		switch {
+		case notify && errors.Is(err, gunim.ErrNoTray):
+			// A desktop that shows no tray icons may still show the messages.
+			log.Printf("tray: %v; showing the messages all the same", err)
+		case err != nil:
 			return err
 		}
 		defer func() { _ = a.SetTray(gunim.Tray{}) }()
