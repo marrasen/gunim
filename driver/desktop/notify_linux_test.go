@@ -74,15 +74,26 @@ func (f *fakeNotifier) Notify(app string, replaces uint32, icon, summary, body s
 // serve puts a watcher and a notification server on the bus at addr, on a connection of their own.
 func serve(t *testing.T, addr string) (*dbus.Conn, *fakeNotifier) {
 	t.Helper()
+	return serveWith(t, addr, true)
+}
+
+// serveWith puts a notification server on the bus at addr, and a watcher where watcher is true, as a panel that
+// shows icons has.
+func serveWith(t *testing.T, addr string, watcher bool) (*dbus.Conn, *fakeNotifier) {
+	t.Helper()
 	conn := connect(t, addr)
 	f := &fakeNotifier{}
-	if err := conn.Export(fakeWatcher{}, sniWatcherAt, sniWatcher); err != nil {
-		t.Fatal(err)
+	names := []string{notifyName}
+	if watcher {
+		if err := conn.Export(fakeWatcher{}, sniWatcherAt, sniWatcher); err != nil {
+			t.Fatal(err)
+		}
+		names = append(names, sniWatcher)
 	}
 	if err := conn.Export(f, notifyPath, notifyName); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{sniWatcher, notifyName} {
+	for _, name := range names {
 		if reply, err := conn.RequestName(name, dbus.NameFlagDoNotQueue); err != nil || reply != dbus.RequestNameReplyPrimaryOwner {
 			t.Fatalf("could not take the name %s: %v", name, err)
 		}
@@ -149,6 +160,7 @@ func (h *heardLog) quiet(t *testing.T, after string) {
 func upTray(t *testing.T, d *Driver, h *heardLog) {
 	t.Helper()
 	err := d.SetTray(driver.Tray{Icon: []image.Image{image.NewRGBA(image.Rect(0, 0, 16, 16))}, Tooltip: "test",
+		AppName:       "Test App",
 		OnNotifyClick: func() { h.add("click") },
 		OnNotifyTag:   func(tag string) { h.add("tag:" + tag) },
 		OnNotifyGone:  func() { h.add("gone") }})
@@ -198,6 +210,12 @@ func TestAClickOnAMessageHearsItsOwnTag(t *testing.T) {
 		}
 		if actions := args[5].([]string); len(actions) != 2 || actions[0] != "default" {
 			t.Fatalf("the message's actions are %q, want the default one", actions)
+		}
+		if args[0] != "Test App" {
+			t.Fatalf("the message is from %q, want the tray's AppName", args[0])
+		}
+		if _, ok := args[6].(map[string]dbus.Variant)["image-data"]; !ok {
+			t.Fatalf("the message's hints %v hold no image-data", args[6])
 		}
 	}
 }
@@ -254,6 +272,88 @@ func TestTheLastMessageLeavingRunsOnNotifyGone(t *testing.T) {
 	}
 	if got := h.wait(t, 1); got[0] != "gone" {
 		t.Fatalf("the last message leaving heard %q, want [gone]", got)
+	}
+	// A message clicked leaves too, and that is no more news.
+	if err := d.TrayNotifyTagged("title", "body", "three"); err != nil {
+		t.Fatal(err)
+	}
+	if err := server.Emit(notifyPath, notifyName+".ActionInvoked", uint32(3), "default"); err != nil {
+		t.Fatal(err)
+	}
+	h.wait(t, 2)
+	if err := server.Emit(notifyPath, notifyName+".NotificationClosed", uint32(3), uint32(2)); err != nil {
+		t.Fatal(err)
+	}
+	h.quiet(t, "the message clicked left")
+}
+
+// sendDirect sends the signal member, from conn straight to the bus name dest, as any program on the bus can,
+// past the match rules.
+func sendDirect(t *testing.T, conn *dbus.Conn, dest, member string, body ...any) {
+	t.Helper()
+	msg := &dbus.Message{Type: dbus.TypeSignal, Headers: map[dbus.HeaderField]dbus.Variant{
+		dbus.FieldPath:        dbus.MakeVariant(notifyPath),
+		dbus.FieldInterface:   dbus.MakeVariant(notifyName),
+		dbus.FieldMember:      dbus.MakeVariant(member),
+		dbus.FieldDestination: dbus.MakeVariant(dest),
+		dbus.FieldSignature:   dbus.MakeVariant(dbus.SignatureOf(body...)),
+	}, Body: body}
+	if call := conn.Send(msg, nil); call.Err != nil {
+		t.Fatal(call.Err)
+	}
+}
+
+// A click sent straight to the tray's connection by another program is dropped; one the server sends straight to
+// it is heard.
+func TestATrayDropsClicksSentStraightToItByAnotherProgram(t *testing.T) {
+	addr := privateBus(t)
+	server, _ := serve(t, addr)
+	d := &Driver{}
+	h := newHeardLog()
+	upTray(t, d, h)
+	if err := d.TrayNotifyTagged("title", "body", "mine"); err != nil {
+		t.Fatal(err)
+	}
+	notices.mu.Lock()
+	dest := notices.n.conn.Names()[0]
+	notices.mu.Unlock()
+	sendDirect(t, connect(t, addr), dest, "ActionInvoked", uint32(1), "default")
+	sendDirect(t, connect(t, addr), dest, "NotificationClosed", uint32(1), uint32(1))
+	h.quiet(t, "signals another program sent straight to the tray")
+	sendDirect(t, server, dest, "ActionInvoked", uint32(1), "default")
+	if got := h.wait(t, 2); got[1] != "tag:mine" {
+		t.Fatalf("the server's click heard %q, want [click tag:mine]", got)
+	}
+}
+
+// Where no panel shows icons, SetTray fails, and the messages show and are heard all the same.
+func TestMessagesShowWithNoPanelForTheIcon(t *testing.T) {
+	addr := privateBus(t)
+	server, f := serveWith(t, addr, false)
+	d := &Driver{}
+	h := newHeardLog()
+	err := d.SetTray(driver.Tray{Icon: []image.Image{image.NewRGBA(image.Rect(0, 0, 16, 16))},
+		OnNotifyTag: func(tag string) { h.add("tag:" + tag) }})
+	if !errors.Is(err, driver.ErrNoTray) {
+		t.Fatalf("SetTray with no panel returned %v, want ErrNoTray", err)
+	}
+	t.Cleanup(func() { _ = d.SetTray(driver.Tray{}) })
+	if w := d.TrayNotifyWay(); w != driver.NotifyExact {
+		t.Fatalf("with no panel the way is %v, want exact", w)
+	}
+	if err := d.TrayNotifyTagged("title", "body", "alone"); err != nil {
+		t.Fatal(err)
+	}
+	if err := server.Emit(notifyPath, notifyName+".ActionInvoked", uint32(1), "default"); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.wait(t, 1); got[0] != "tag:alone" {
+		t.Fatalf("a click heard %q, want [tag:alone]", got)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.shown) != 1 {
+		t.Fatalf("the server was handed %d messages, want 1", len(f.shown))
 	}
 }
 

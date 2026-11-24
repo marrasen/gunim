@@ -367,7 +367,7 @@ and `UI`:
   something else. With `App.StayOpen` the
   application runs on with no window open. Linux speaks
   StatusNotifierItem for the icon, and org.freedesktop.Notifications
-  for the messages.
+  for the messages, which show where no panel shows the icon.
 - **The system's look.** `App.SystemLook` reads what the user chose
   for every application: light or dark, fewer animations, a text size
   and a contrast theme. `App.WatchSystemLook` hears each change.

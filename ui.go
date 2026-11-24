@@ -319,6 +319,8 @@ const (
 
 // TrayNotifyWay says how the next message [App.TrayNotifyTagged] shows: NotifyExact where a click names the message
 // clicked, NotifyLast where the tag heard is that of the message shown last, and NotifyNone where no message shows.
+// It writes nothing; on Windows, before the first message, it says whether Windows has toasts, and the first
+// message may still fall back to a balloon.
 func (a *App) TrayNotifyWay() NotifyWay {
 	if w, ok := a.drv.(driver.NotifyWayer); ok {
 		return w.TrayNotifyWay()

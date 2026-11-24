@@ -41,16 +41,17 @@ type Tray struct {
 	OnNotifyTag func(tag string)
 	// AppID names the application to Windows's notifications, as its AppUserModelID: a few words with dots
 	// between, as "Company.Product". The bytes A-Z, a-z, 0-9, '.', '-' and '_' are kept, and others become '-'.
-	// Empty names it after the program file, as "gunim.<name>"; two programs of one file name then share it, so
-	// an application sets its own. AppName is the name its messages show as from, and empty takes the program
-	// file's name. Both are read at the first message.
+	// Empty names it after the program file, as "gunim.<name>.<hash>", with a hash of the file's full path: two
+	// programs of one name in two folders get two, and a program moved to another folder gets a new one, whose
+	// toasts are apart from those of the old. An installed application sets its own. AppName is the name its
+	// messages show as from, on Windows and Linux, and empty takes the program file's name.
 	//
-	// To show toasts, the driver writes both, at the first message, and the icon's picture, under the current user's
-	// Software\Classes\AppUserModelId\<AppID> in the registry, with the class ID of the COM object that hears
-	// clicks from the notification centre, and that class ID's LocalServer32, the program file. The picture goes in
-	// the user's cache folder, under <AppID>. An uninstaller takes all three away. A click on a toast after the
-	// program ended starts the program again, with the argument -Embedding, and the click is heard once it puts its
-	// icon up.
+	// To show toasts, the Windows driver writes, at the first message, the AppID with its name and the icon's
+	// picture under the current user's Software\Classes\AppUserModelId\<AppID> in the registry, with the class ID
+	// of the COM object that hears clicks from the notification centre, and that class ID's LocalServer32, the
+	// program file. The picture goes in the user's cache folder, under <AppID>. An uninstaller takes all three
+	// away. A click on a toast after the program ended starts the program again, with the argument -Embedding,
+	// which gunim takes out of os.Args before main runs; the click is heard once the program puts its icon up.
 	AppID, AppName string
 }
 
@@ -58,7 +59,8 @@ type Tray struct {
 type NotifyWay uint8
 
 const (
-	// NotifyNone says there is no message to show: no icon is up, or the platform shows none.
+	// NotifyNone says no message shows: no icon is up, the platform shows none, or the user or a policy turned
+	// the application's toasts off on Windows.
 	NotifyNone NotifyWay = iota
 	// NotifyLast says a click names no message, so the tag heard is that of the message shown last, as with
 	// Windows's tray balloons.

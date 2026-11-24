@@ -3,7 +3,10 @@ package desktop
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"runtime"
+	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"unsafe"
@@ -11,19 +14,20 @@ import (
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 
+	"github.com/marrasen/gunim/driver"
 	"github.com/marrasen/gunim/internal/toast"
 )
 
 // The tests here set the package's toaster and hooks, so none of them may run in parallel.
 
-// stubClicks puts a toaster up with the tray's click recorded, and takes both away as the test ends.
+// stubClicks records the tray's clicks, with no click heard yet, and puts both back as the test ends.
 func stubClicks(t *testing.T) *[]string {
 	t.Helper()
 	var heard []string
-	wasClicked, wasToasts := trayClicked, toasts
+	wasClicked, wasHeard := trayClicked, heardIDs
 	trayClicked = func(tag string) { heard = append(heard, tag) }
-	toasts = &toaster{appID: "gunim.test"}
-	t.Cleanup(func() { trayClicked, toasts = wasClicked, wasToasts })
+	heardIDs = nil
+	t.Cleanup(func() { trayClicked, heardIDs = wasClicked, wasHeard })
 	return &heard
 }
 
@@ -38,11 +42,6 @@ func TestAClickOnAToastIsHeardOnceWithItsTag(t *testing.T) {
 	}
 	if want := []string{odd, "chat:1"}; len(*heard) != 2 || (*heard)[0] != want[0] || (*heard)[1] != want[1] {
 		t.Fatalf("the clicks heard %q, want %q", *heard, want)
-	}
-	toasts = nil
-	clicked(toast.Launch("ab-3", "late"))
-	if len(*heard) != 2 {
-		t.Fatalf("with no toaster, a click heard %q", *heard)
 	}
 }
 
@@ -145,5 +144,225 @@ func TestRegisterAppIDWritesItsEntries(t *testing.T) {
 		if got := read(c.path, c.name); got != c.want {
 			t.Errorf("%s %q = %q, want %q", c.path, c.name, got, c.want)
 		}
+	}
+}
+
+// fake is a COM object of the test's: a toast, a notifier, a toast factory or an XML document, by its method table.
+type fake struct {
+	vtbl     *[16]uintptr
+	releases int
+	// A toast's handlers added, by method, its tokens taken off, and the next token.
+	added   map[uintptr]uintptr
+	removed []int64
+	token   int64
+	// A notifier's toasts shown, the errors Show returns, first to last, and its setting.
+	shown   []uintptr
+	showErr []uintptr
+	setting int32
+	// A factory's toasts made.
+	made []*fake
+}
+
+var (
+	fakeOnce                                      sync.Once
+	fakeToastTbl, fakeNotifierTbl, fakeFactoryTbl [16]uintptr
+)
+
+func fakeOf(this uintptr) *fake { return (*fake)(unsafe.Pointer(this)) } //nolint:govet // the test's own object
+
+// fakeTables makes the method tables of the fakes, once.
+func fakeTables() {
+	fakeOnce.Do(func() {
+		query := syscall.NewCallback(func(this, riid, ppv uintptr) uintptr {
+			*(*uintptr)(unsafe.Pointer(ppv)) = this //nolint:govet // a pointer COM passed
+			return 0
+		})
+		addRef := syscall.NewCallback(func(this uintptr) uintptr { return 1 })
+		release := syscall.NewCallback(func(this uintptr) uintptr {
+			fakeOf(this).releases++
+			return 0
+		})
+		add := syscall.NewCallback(func(this, h, tok uintptr) uintptr {
+			f := fakeOf(this)
+			f.token++
+			f.added[h] = h
+			*(*int64)(unsafe.Pointer(tok)) = f.token //nolint:govet // a pointer COM passed
+			return 0
+		})
+		remove := syscall.NewCallback(func(this, tok uintptr) uintptr {
+			f := fakeOf(this)
+			f.removed = append(f.removed, int64(tok))
+			return 0
+		})
+		for _, tbl := range []*[16]uintptr{&fakeToastTbl, &fakeNotifierTbl, &fakeFactoryTbl} {
+			tbl[0], tbl[1], tbl[2] = query, addRef, release
+		}
+		for _, i := range []int{toastAddActivated, toastAddDismissed, toastAddFailed} {
+			fakeToastTbl[i] = add
+		}
+		for _, i := range []int{toastRemoveActivated, toastRemoveDismissed, toastRemoveFailed} {
+			fakeToastTbl[i] = remove
+		}
+		// Show and get_Setting.
+		fakeNotifierTbl[6] = syscall.NewCallback(func(this, toastObj uintptr) uintptr {
+			f := fakeOf(this)
+			if len(f.showErr) > 0 {
+				hr := f.showErr[0]
+				f.showErr = f.showErr[1:]
+				if hr != 0 {
+					return hr
+				}
+			}
+			f.shown = append(f.shown, toastObj)
+			return 0
+		})
+		fakeNotifierTbl[8] = syscall.NewCallback(func(this, out uintptr) uintptr {
+			*(*int32)(unsafe.Pointer(out)) = fakeOf(this).setting //nolint:govet // a pointer COM passed
+			return 0
+		})
+		// CreateToastNotification.
+		fakeFactoryTbl[6] = syscall.NewCallback(func(this, doc, out uintptr) uintptr {
+			f := fakeOf(this)
+			tf := &fake{vtbl: &fakeToastTbl, added: map[uintptr]uintptr{}}
+			f.made = append(f.made, tf)
+			*(*uintptr)(unsafe.Pointer(out)) = uintptr(unsafe.Pointer(tf)) //nolint:govet // a pointer COM passed
+			return 0
+		})
+	})
+}
+
+func addr(f *fake) uintptr { return uintptr(unsafe.Pointer(f)) }
+
+// stubToaster puts up a toaster of fakes, with the tray up and its balloons and gone calls recorded, and puts
+// everything back as the test ends.
+func stubToaster(t *testing.T) (tt *toaster, notifier, factory *fake, balloons *[]string, gone *int) {
+	t.Helper()
+	fakeTables()
+	notifier = &fake{vtbl: &fakeNotifierTbl}
+	factory = &fake{vtbl: &fakeFactoryTbl}
+	doc := &fake{vtbl: &fakeFactoryTbl}
+	tt = &toaster{appID: "gunim.test", run: "ab", notifier: addr(notifier), factory: addr(factory)}
+	var b []string
+	var g int
+	wasUp, wasBalloon, wasGone, wasLoad, wasToasts, wasTray := trayUp, balloon, trayGone, loadXML, toasts, toastTray
+	trayUp = func() bool { return true }
+	balloon = func(title, body, tag string) error { b = append(b, tag); return nil }
+	trayGone = func() { g++ }
+	loadXML = func(string) (uintptr, error) { return addr(doc), nil }
+	toasts = tt
+	t.Cleanup(func() {
+		trayUp, balloon, trayGone, loadXML, toasts, toastTray = wasUp, wasBalloon, wasGone, wasLoad, wasToasts, wasTray
+		runtime.KeepAlive(doc)
+	})
+	return tt, notifier, factory, &b, &g
+}
+
+// A toast that will not show has its message shown as a balloon, and the next message is a toast again.
+func TestAToastThatFailsShowsItsMessageAsABalloon(t *testing.T) {
+	tt, notifier, factory, balloons, _ := stubToaster(t)
+	notifier.showErr = []uintptr{0x80004005}
+	for _, tag := range []string{"one", "two"} {
+		if err := notifyOnMain(nil, "title", "body", tag); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(*balloons) != 1 || (*balloons)[0] != "one" {
+		t.Fatalf("balloons shown for %q, want [one]", *balloons)
+	}
+	if toasts != tt || len(notifier.shown) != 1 || len(tt.shown) != 1 || tt.shown[0].tag != "two" {
+		t.Fatalf("after one failed toast: toaster kept %v, %d toasts shown", toasts == tt, len(notifier.shown))
+	}
+	// The failed toast's handlers came off, and it was let go.
+	if first := factory.made[0]; len(first.removed) != 3 || first.releases == 0 {
+		t.Fatalf("the failed toast had %d handlers taken off and %d releases", len(first.removed), first.releases)
+	}
+	// A toast Windows reports failed later shows as a balloon too, and the toaster stays.
+	toastFailed(tt.shown[0].unk)
+	if len(*balloons) != 2 || (*balloons)[1] != "two" || toasts != tt {
+		t.Fatalf("after a Failed event, balloons %q, toaster kept %v", *balloons, toasts == tt)
+	}
+}
+
+// The toaster keeps the last toastKept toasts: the oldest has its handlers taken off and is let go, and every toast
+// shares the same three handlers.
+func TestTheToasterLetsGoOfTheOldestToast(t *testing.T) {
+	tt, _, factory, _, _ := stubToaster(t)
+	for i := range toastKept + 1 {
+		if err := tt.show("title", "body", strconv.Itoa(i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(tt.shown) != toastKept || tt.shown[0].tag != "1" {
+		t.Fatalf("the toaster keeps %d toasts, the oldest %q", len(tt.shown), tt.shown[0].tag)
+	}
+	first, last := factory.made[0], factory.made[toastKept]
+	if len(first.removed) != 3 || first.releases == 0 {
+		t.Fatalf("the oldest toast had %d handlers taken off and %d releases", len(first.removed), first.releases)
+	}
+	for _, tok := range first.removed {
+		if tok < 1 || tok > 3 {
+			t.Fatalf("the oldest toast's handlers came off with tokens %v", first.removed)
+		}
+	}
+	if len(last.removed) != 0 || len(first.added) != 3 {
+		t.Fatalf("the newest toast lost handlers %v; the oldest had %d", last.removed, len(first.added))
+	}
+	for h := range first.added {
+		if _, ok := last.added[h]; !ok {
+			t.Fatal("two toasts were given different handlers")
+		}
+	}
+}
+
+// The last toast leaving runs OnNotifyGone, unless it was clicked; an older one leaving does nothing.
+func TestTheLastToastLeavingRunsOnNotifyGone(t *testing.T) {
+	tt, _, _, _, gone := stubToaster(t)
+	stubClicks(t)
+	for _, tag := range []string{"one", "two"} {
+		if err := tt.show("title", "body", tag); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dismissed(tt.shown[0].unk)
+	dismissed(0)
+	if *gone != 0 {
+		t.Fatalf("an older toast leaving ran OnNotifyGone %d times", *gone)
+	}
+	dismissed(tt.shown[1].unk)
+	if *gone != 1 {
+		t.Fatalf("the last toast leaving ran OnNotifyGone %d times, want once", *gone)
+	}
+	if err := tt.show("title", "body", "three"); err != nil {
+		t.Fatal(err)
+	}
+	clicked(toast.Launch(tt.last, "three"))
+	dismissed(tt.shown[2].unk)
+	if *gone != 1 {
+		t.Fatal("the last toast, clicked, ran OnNotifyGone as it left")
+	}
+}
+
+// TrayNotifyWay says none with no icon up or the toasts turned off, exact with toasts, and last where toasts could
+// not be set up.
+func TestNotifyWaySaysHowTheNextMessageShows(t *testing.T) {
+	_, notifier, _, _, _ := stubToaster(t)
+	if w := notifyWay(); w != driver.NotifyExact {
+		t.Fatalf("with toasts the way is %v, want exact", w)
+	}
+	notifier.setting = 2 // DisabledForUser
+	if w := notifyWay(); w != driver.NotifyNone {
+		t.Fatalf("with toasts turned off the way is %v, want none", w)
+	}
+	toasts = nil
+	toastTray = &driver.Tray{AppID: "gunim.test-failed"}
+	wasFailed := toastsFailed
+	toastsFailed = "gunim.test-failed"
+	t.Cleanup(func() { toastsFailed = wasFailed })
+	if w := notifyWay(); w != driver.NotifyLast {
+		t.Fatalf("where toasts failed the way is %v, want last", w)
+	}
+	trayUp = func() bool { return false }
+	if w := notifyWay(); w != driver.NotifyNone {
+		t.Fatalf("with no icon up the way is %v, want none", w)
 	}
 }

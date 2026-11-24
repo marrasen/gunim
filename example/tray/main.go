@@ -48,8 +48,6 @@ func main() {
 	open := flag.Bool("open", false, "open the flyout at once, as a click on the icon does")
 	shot := flag.String("shot", "", "with -open, write the flyout to this PNG file after a second, and quit")
 	notify := flag.Bool("notify", false, "show two tagged messages, and log the tag of each one clicked")
-	// Windows starts the program with -Embedding for a click on one of its toasts after it ended.
-	_ = flag.Bool("Embedding", false, "set by Windows as a click on a toast starts the program")
 	flag.Parse()
 	if err := run(*open, *shot, *notify); err != nil {
 		log.Fatal(err)

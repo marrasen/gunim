@@ -10,6 +10,7 @@ package toast
 
 import (
 	"crypto/sha1" //nolint:gosec // a name-based UUID, as RFC 9562's version 5 has it
+	"crypto/sha256"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -128,9 +129,37 @@ func unhex(c byte) (byte, bool) {
 	return 0, false
 }
 
+// MaxXML is the most bytes a toast's XML holds: Windows turns away a toast of more than 5 KB.
+const MaxXML = 5000
+
+// The most runes of a title and a body a toast shows; a toast shows a few lines of each, and longer text is cut.
+const (
+	maxTitle = 128
+	maxBody  = 1024
+)
+
 // XML returns the toast's content: title and body as its two lines of text, and launch as what a click on it hands
-// back. Text XML cannot hold is left out of title and body, and the rest is escaped.
+// back. Text XML cannot hold is left out of title and body, and the rest is escaped. Title and body are cut, the body
+// first, so the whole stays within MaxXML bytes; the launch argument stays whole, and one Launch wrote always fits.
 func XML(title, body, launch string) string {
+	t, b := []rune(title), []rune(body)
+	t, b = t[:min(len(t), maxTitle)], b[:min(len(b), maxBody)]
+	for {
+		s := xmlOf(string(t), string(b), launch)
+		if len(s) <= MaxXML || (len(t) == 0 && len(b) == 0) {
+			return s
+		}
+		// Cut by the bytes over, at least one rune at a time.
+		over := max(1, (len(s)-MaxXML)/6)
+		if len(b) > 0 {
+			b = b[:max(0, len(b)-over)]
+		} else {
+			t = t[:max(0, len(t)-over)]
+		}
+	}
+}
+
+func xmlOf(title, body, launch string) string {
 	var b strings.Builder
 	b.WriteString(`<toast launch="`)
 	escapeXML(&b, launch)
@@ -171,28 +200,51 @@ const MaxAppID = 128
 
 // AppID returns id made fit to be an AppUserModelID: the bytes A-Z, a-z, 0-9, '.', '-' and '_' kept, every other
 // rune made '-', and cut at MaxAppID. An id empty after that is named after the program file exe, as
-// "gunim.<name>".
+// "gunim.<name>.<hash>", where hash is 8 hex digits of a hash of exe's full path: two programs of one file name in
+// two folders get two IDs, and a program moved to another folder gets a new one.
 func AppID(id, exe string) string {
-	clean := func(s string) string {
-		var b strings.Builder
-		for _, r := range s {
-			switch {
-			case r >= 'A' && r <= 'Z', r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '.', r == '-', r == '_':
-				b.WriteRune(r)
-			default:
-				b.WriteByte('-')
-			}
-		}
-		return strings.Trim(b.String(), ".")
-	}
-	out := clean(id)
+	out := cleanID(id)
 	if strings.Trim(out, "-_") == "" {
-		out = "gunim." + clean(ProgramName(exe))
+		sum := sha256.Sum256([]byte(strings.ToLower(exe)))
+		out = fmt.Sprintf("gunim.%s.%x", cleanID(ProgramName(exe)), sum[:4])
 	}
 	if len(out) > MaxAppID {
 		out = out[:MaxAppID]
 	}
 	return out
+}
+
+// cleanID keeps the bytes an AppUserModelID may hold, and makes every other rune '-'.
+func cleanID(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r >= 'A' && r <= 'Z', r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '.', r == '-', r == '_':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('-')
+		}
+	}
+	return strings.Trim(b.String(), ".")
+}
+
+// TakeEmbedding returns args with every "-Embedding" and "/Embedding" after the program's name taken out, in any
+// case, and reports whether there was one: COM starts a program with it, for a click on one of its toasts after it
+// ended, and a program that parses its flags would stop at it.
+func TakeEmbedding(args []string) ([]string, bool) {
+	if len(args) == 0 {
+		return args, false
+	}
+	out := []string{args[0]}
+	found := false
+	for _, a := range args[1:] {
+		if strings.EqualFold(a, "-Embedding") || strings.EqualFold(a, "/Embedding") {
+			found = true
+			continue
+		}
+		out = append(out, a)
+	}
+	return out, found
 }
 
 // ProgramName is the program file exe's name with no folder or extension, or "gunim" where that leaves nothing.

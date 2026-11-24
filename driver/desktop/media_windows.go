@@ -141,6 +141,8 @@ type delegate struct {
 	refs   int32
 	iid    windows.GUID
 	invoke func(args uintptr)
+	// from, where set, runs in place of invoke, with the event's sender too.
+	from func(sender, args uintptr)
 }
 
 type delegateVtbl struct {
@@ -168,7 +170,11 @@ func delegateTable(name string) delegateVtbl {
 			return uintptr(atomic.AddInt32(&ptr[delegate](this).refs, -1))
 		}),
 		invoke: syscall.NewCallback(func(this, sender, args uintptr) uintptr {
-			ptr[delegate](this).invoke(args)
+			if d := ptr[delegate](this); d.from != nil {
+				d.from(sender, args)
+			} else {
+				d.invoke(args)
+			}
 			return 0
 		}),
 	}

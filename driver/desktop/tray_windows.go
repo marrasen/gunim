@@ -56,37 +56,21 @@ func (d *Driver) SetTray(t driver.Tray) error {
 func (d *Driver) TrayNotify(title, body string) error { return d.TrayNotifyTagged(title, body, "") }
 
 // TrayNotifyTagged implements [driver.TagNotifier], on the main thread. The message shows as a toast, with the tag
-// in its launch argument, or as a balloon where toasts cannot show, with the tag kept here; see notify_windows.go.
+// in its launch argument, or as a balloon where its toast cannot show, with the tag kept here; see notify_windows.go.
 func (d *Driver) TrayNotifyTagged(title, body, tag string) error {
 	if err := driver.CheckNotifyTag(tag); err != nil {
 		return err
 	}
-	return d.call(func() error {
-		if glfw.TrayUp() && readyToasts(d) {
-			err := toasts.show(title, body, tag)
-			if err == nil {
-				return nil
-			}
-			notifyLog("toast: %v; showing balloons", err)
-			toastsFailed = toasts.appID
-			closeToasts()
-		}
-		return glfw.TrayNotify(title, body, tag)
-	})
+	return d.call(func() error { return notifyOnMain(d, title, body, tag) })
 }
 
-// TrayNotifyWay implements [driver.NotifyWayer]: NotifyExact while messages show as toasts, and NotifyLast while
-// they show as balloons. It readies the toasts, as the first message does.
+// TrayNotifyWay implements [driver.NotifyWayer]: NotifyExact where messages show as toasts, NotifyLast where they
+// show as balloons, and NotifyNone with no icon up, or where the user or a policy turned the toasts off. It writes
+// nothing: before the first message, it says whether Windows has toasts.
 func (d *Driver) TrayNotifyWay() driver.NotifyWay {
 	way := driver.NotifyNone
 	_ = d.call(func() error {
-		switch {
-		case !glfw.TrayUp():
-		case readyToasts(d):
-			way = driver.NotifyExact
-		default:
-			way = driver.NotifyLast
-		}
+		way = notifyWay()
 		return nil
 	})
 	return way
@@ -107,6 +91,7 @@ func (d *Driver) TrayRect() (geom.Rect, error) {
 // thread.
 func closeTray() {
 	setToastTray(nil, nil)
+	closeToasts()
 	glfw.CloseTrayIcon()
 }
 

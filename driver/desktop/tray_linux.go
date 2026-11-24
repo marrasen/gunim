@@ -54,14 +54,11 @@ type sniTray struct {
 	// id's children, the root's under 0.
 	items map[int32]driver.TrayItem
 	kids  map[int32][]int32
-
-	// nmu guards notices, the messages shown; see notify_linux.go.
-	nmu     sync.Mutex
-	notices notices
 }
 
 // closeTray takes the icon off the bus, as the application ends.
 func closeTray() {
+	setNoticeTray(driver.Tray{})
 	tray.mu.Lock()
 	defer tray.mu.Unlock()
 	if tray.s != nil {
@@ -70,8 +67,10 @@ func closeTray() {
 	}
 }
 
-// SetTray implements [driver.Trayer].
+// SetTray implements [driver.Trayer]. The tray's messages go to the desktop's notification server, apart from the
+// icon: where no panel shows icons, SetTray returns ErrNoTray, and the messages show all the same.
 func (d *Driver) SetTray(t driver.Tray) error {
+	setNoticeTray(t)
 	tray.mu.Lock()
 	defer tray.mu.Unlock()
 	if len(t.Icon) == 0 {

@@ -99,19 +99,68 @@ func TestParseLaunchTurnsAwayOtherArguments(t *testing.T) {
 	}
 }
 
-// An AppUserModelID keeps the safe bytes of the one asked for, and is named after the program where none is.
+// An AppUserModelID keeps the safe bytes of the one asked for, and is named after the program where none is, with
+// a hash of its path, so two programs of one name in two folders get two.
 func TestAppIDIsSafeAndNamedAfterTheProgram(t *testing.T) {
 	for _, c := range []struct{ id, exe, want string }{
 		{"Example.Notes", `C:\x\notes.exe`, "Example.Notes"},
 		{"My App/Ü 2", "", "My-App---2"},
-		{"", `C:\Program Files\My Tool\my tool.exe`, "gunim.my-tool"},
-		{"", "", "gunim.gunim"},
-		{"  ", "/tmp/go-build/b001/exe/demo", "gunim.demo"},
 		{strings.Repeat("a", 200), "", strings.Repeat("a", MaxAppID)},
 	} {
 		if got := AppID(c.id, c.exe); got != c.want {
 			t.Errorf("AppID(%q, %q) = %q, want %q", c.id, c.exe, got, c.want)
 		}
+	}
+	a := AppID("", `C:\Program Files\My Tool\my tool.exe`)
+	if !strings.HasPrefix(a, "gunim.my-tool.") || len(a) != len("gunim.my-tool.")+8 {
+		t.Fatalf("the default AppID is %q, want gunim.my-tool.<8 hex>", a)
+	}
+	if b := AppID("  ", `C:\Other\my tool.exe`); b == a || !strings.HasPrefix(b, "gunim.my-tool.") {
+		t.Fatalf("two folders' programs of one name got %q and %q", a, b)
+	}
+	if b := AppID("", `c:\program files\my tool\MY TOOL.EXE`); b[len(b)-8:] != a[len(a)-8:] {
+		t.Fatalf("one path in another case got %q and %q", a, b)
+	}
+	if b := AppID("", ""); !strings.HasPrefix(b, "gunim.gunim.") {
+		t.Fatalf("with no program file the AppID is %q", b)
+	}
+}
+
+// COM's -Embedding is taken out of the arguments, wherever it is and in any case, and the program's name stays.
+func TestTakeEmbeddingTakesOutCOMsArgument(t *testing.T) {
+	args, found := TakeEmbedding([]string{"prog.exe", "-v", "-EMBEDDING", "file", "/Embedding"})
+	if !found || strings.Join(args, " ") != "prog.exe -v file" {
+		t.Fatalf("TakeEmbedding = %q, %v", args, found)
+	}
+	if args, found := TakeEmbedding([]string{"-Embedding", "-x"}); found || len(args) != 2 {
+		t.Fatalf("the program's own name was taken: %q, %v", args, found)
+	}
+	if args, found := TakeEmbedding(nil); found || args != nil {
+		t.Fatalf("no arguments gave %q, %v", args, found)
+	}
+}
+
+// A toast's XML stays within MaxXML however long the title and body, with the launch argument whole, the tag at its
+// longest and its worst.
+func TestAToastsXMLFitsWithTheLaunchArgumentWhole(t *testing.T) {
+	worst := strings.Repeat("\x01", 1024)
+	launch := Launch(strings.Repeat("a", MaxID), worst)
+	for _, c := range []struct{ title, body string }{
+		{strings.Repeat(`"`, 5000), strings.Repeat(`&`, 5000)},
+		{strings.Repeat("🎉", 5000), strings.Repeat("日", 5000)},
+		{"short", strings.Repeat("x", 100000)},
+	} {
+		s := XML(c.title, c.body, launch)
+		if len(s) > MaxXML {
+			t.Fatalf("the XML is %d bytes, over %d", len(s), MaxXML)
+		}
+		p := parse(t, s)
+		if p.Launch != launch || len(p.Texts) != 2 || p.Texts[0] == "" {
+			t.Fatalf("the launch argument or the title was cut: %d bytes of launch, texts %d", len(p.Launch), len(p.Texts))
+		}
+	}
+	if p := parse(t, XML("title", "body", launch)); p.Texts[1] != "body" {
+		t.Fatalf("a short body was cut to %q", p.Texts[1])
 	}
 }
 
