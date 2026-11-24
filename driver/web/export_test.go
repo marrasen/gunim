@@ -13,3 +13,6 @@ func (d *Driver) Canvas() js.Value { return d.canvas }
 // AfterLastWindow readies the driver for a new program, after a test closed its last
 // window, which ends the one running.
 func (d *Driver) AfterLastWindow() { d.quit = make(chan struct{}) }
+
+// OnApple says the browser's shortcuts are Command's.
+func OnApple() bool { return onApple }

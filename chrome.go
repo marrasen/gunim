@@ -115,6 +115,18 @@ func (u *UI) AskToClose() {
 	}
 }
 
+// SetCloseAsks has the platform ask the user, in its own words, before
+// the window closes where the application has no say in that: a
+// browser's page, as it closes, reloads or goes elsewhere. An
+// application turns it on while there is something to lose, and off
+// again after. Elsewhere it changes nothing, as the close button asks
+// the application; see [WindowOptions.AskToClose].
+func (u *UI) SetCloseAsks(on bool) {
+	if ca, ok := u.w.dw.(driver.CloseAsker); ok {
+		ca.SetCloseAsks(on)
+	}
+}
+
 // closeAsked answers the user asking to close the window: the
 // application is asked, with the window's AskToClose, or a window that
 // arrived animated leaves the same way. It reports false for a window

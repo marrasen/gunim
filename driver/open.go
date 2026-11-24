@@ -51,6 +51,16 @@ type TextStater interface {
 	SetTextState(s *input.TextState, seq uint64)
 }
 
+// A KeyClaimer is a [Window] the platform keeps some keys from, as a
+// browser keeps Ctrl+R to reload the page, and that can have them while
+// the node with the keyboard claims them, as a terminal does. The engine
+// calls SetKeysClaimed where the claim changes: as the focus moves, as
+// soon as it has handled a key or a press, and after a frame. A platform
+// that keeps no keys from a window has no need of it.
+type KeyClaimer interface {
+	SetKeysClaimed(on bool)
+}
+
 // A TextBoxPlacer is a [CaretPlacer] that also hears where the node the
 // caret is in lies, in logical pixels of window space, as a text field's
 // bounds, so it can keep the whole field in view above a keyboard on the
@@ -295,6 +305,19 @@ type Shooter interface {
 // window stays open, for the engine to close or keep.
 type CloseAsked struct{}
 
+// A CloseAsker is a [Window] the user can close with the application
+// having no say, as a browser closes a page. While told on, the platform
+// asks the user itself first, and sends no [CloseAsked].
+type CloseAsker interface {
+	SetCloseAsks(on bool)
+}
+
+// FullScreenLeft is sent on [Window.Input] when a window the application
+// asked to fill the screen does not, with the application still wanting
+// it: the user left, or the system refused. Where several windows share
+// the screen, as in a browser's page, each of them hears it.
+type FullScreenLeft struct{}
+
 // A Backgrounder is a [Window] the engine tells the colour under its
 // frame: what shows where the frame paints nothing and its first op
 // leaves the window uncovered. Its alpha is how opaque that is, as for
@@ -380,7 +403,10 @@ type Titler interface {
 }
 
 // A FullScreener is a [Window] that can fill its monitor, without the
-// platform's frame, and go back to the size and place it had.
+// platform's frame, and go back to the size and place it had. Where the
+// user can leave it, as in a browser, or the system refuse it, FullScreen
+// says how it is, and the driver sends [Redraw] as that changes, and
+// [FullScreenLeft] as it ends with the application still wanting it.
 type FullScreener interface {
 	SetFullScreen(on bool)
 	FullScreen() bool

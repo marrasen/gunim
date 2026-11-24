@@ -317,12 +317,14 @@ func (d *Driver) listenText(doc js.Value) {
 // and cut, copy and paste, by their letters and by Shift+Delete, Control+Insert and
 // Shift+Insert. With no text state there is nothing in the mirror to cut
 // or copy, so a window taking typing as it comes, as a terminal does, hears those.
-func (d *Driver) editKeyOwnedByDOM(e js.Value) bool {
+// programs says the window claims the keys and keeps no text, so they are the
+// browser's only while an input method has them.
+func (d *Driver) editKeyOwnedByDOM(e js.Value, programs bool) bool {
 	is := e.Get("isComposing")
 	if (!is.IsUndefined() && is.Bool()) || e.Get("key").String() == "Process" || e.Get("key").String() == "Unidentified" {
 		return true
 	}
-	if altGr(e) {
+	if altGr(e) || programs {
 		return false
 	}
 	ctrl, shift := e.Get("ctrlKey").Bool() || e.Get("metaKey").Bool(), e.Get("shiftKey").Bool()
@@ -346,4 +348,11 @@ func (d *Driver) editKeyOwnedByDOM(e js.Value) bool {
 		return !s.Secret && s.Selection[0] != s.Selection[1]
 	}
 	return false
+}
+
+// keepsNoText says the window gives no text state, so the mirror holds nothing of it.
+func (w *Window) keepsNoText() bool {
+	w.d.mu.Lock()
+	defer w.d.mu.Unlock()
+	return w.state == nil
 }

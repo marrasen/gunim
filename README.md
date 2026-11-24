@@ -494,6 +494,16 @@ gunim takes every touch on the canvas and scrolls for itself. For the browser to
 
 Each key has one owner. The browser keeps reloading, zooming, the developer tools, going back and forward, tabs, the address bar, full screen and its settings, the system keeps Command+H, Command+M and Command+\`, and the program never hears those keys. Every other key with Control or Command goes to the program alone, so the browser's own find and print don't run in it. Cut, copy and paste in a text field stay the browser's.
 
+A node that claims the keys, as a terminal does with `ClaimsKeys` (`gunim.KeyClaimer`), has nearly all the browser's keys too while it has the keyboard: Ctrl+R, Ctrl+L, F5, F12, Alt+Left and every other key the browser hands a page. The browser keeps zooming, and F11 until the program fills the screen. The system keeps Alt+F4, Alt+Space and Alt with the number pad's digits. A shortcut with Command is whose it is without a claim, as above, but for Command+V, below. Ctrl+W, Ctrl+T, Ctrl+N, Ctrl+Tab, Ctrl+Page Up and Ctrl+Page Down never reach a page outside full screen, so there they stay the browser's.
+
+In the program's full screen (`UI.SetFullScreen`), Chrome and Edge hand a page the browser's shortcuts, Ctrl+Tab among them. Once a node claims the keys there, the program also asks them for a lock on Escape, until full screen ends. Escape then reaches the program, and held it leaves full screen. Nothing else is locked, so Alt+Tab stays the user's. F11 always leaves in Chrome. Firefox and Safari have no such lock: there Ctrl+Tab and Ctrl+T stay the browser's, and Escape leaves at once. The user leaving on their own, or the browser refusing, sends the application `gunim.FullScreenLeft`.
+
+The developer tools' keys are claimed, as terminal programs use F12 and terminals copy with Ctrl+Shift+C: the tools open from the browser's menu.
+
+Reading the clipboard makes a browser ask the user first, with a prompt or a Paste button. A node that claims the keys and keeps no text of its own is spared that on the browser's paste keys: Ctrl+V, Ctrl+Shift+V and Shift+Insert, and Command+V on a Mac. It hears the key, reads the clipboard as on any platform, and gets what the browser pastes, for 2 s after the key. Where it does not read the clipboard, the paste goes nowhere, but for Command+V's, which is typed after 200 ms or before the next key. Copying while handling a key asks nothing.
+
+A page closes with no say for the program, and `AskToClose` sends nothing there. With `UI.SetCloseAsks(true)` the browser asks the user first, in its own words, before the page closes, reloads or goes elsewhere. Turn it on only while there is something to lose.
+
 `driver/web`'s tests need a real browser. This builds them, runs them in headless Chrome and exits with their result:
 
 ```sh

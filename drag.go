@@ -509,7 +509,7 @@ func (u *UI) dragKey(ev any) {
 		return
 	}
 	if down && key == input.KeyEscape {
-		u.cancelDrag()
+		u.giveUpDrag()
 		return
 	}
 	// A modifier's own key may or may not count itself as held.
@@ -526,8 +526,18 @@ func (u *UI) dragKey(ev any) {
 	}
 }
 
-// cancelDrag gives up the drag the pointer carries: nothing takes it.
-func (u *UI) cancelDrag() {
+// CancelDrag gives up the drag n started, where the pointer still
+// carries it, as Escape does: nothing takes it, and n hears
+// [input.DragEnd]. Over another program, where the system carries it, it
+// goes on.
+func (u *UI) CancelDrag(n Node) {
+	if u != nil && u.drag != nil && u.drag.source == u.index[n] {
+		u.giveUpDrag()
+	}
+}
+
+// giveUpDrag gives up the drag the pointer carries: nothing takes it.
+func (u *UI) giveUpDrag() {
 	d := u.drag
 	u.drag = nil
 	if d.over != nil {

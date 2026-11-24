@@ -109,6 +109,10 @@ type OffscreenWindow struct {
 	// SetKeyboardCover.
 	keyboard float32
 
+	// keysClaimed is what SetKeysClaimed last said, and closeAsks what
+	// SetCloseAsks did.
+	keysClaimed, closeAsks bool
+
 	// radius, edge and blends are the shape the window says it shows; see
 	// SetOutline.
 	radius, edge float32
@@ -212,6 +216,36 @@ func (w *OffscreenWindow) FullScreen() bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.full
+}
+
+// SetKeysClaimed implements [KeyClaimer].
+func (w *OffscreenWindow) SetKeysClaimed(on bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.keysClaimed = on
+}
+
+// KeysClaimed reports whether the node with the keyboard was last said
+// to claim the keys a platform keeps.
+func (w *OffscreenWindow) KeysClaimed() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.keysClaimed
+}
+
+// SetCloseAsks implements [CloseAsker].
+func (w *OffscreenWindow) SetCloseAsks(on bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.closeAsks = on
+}
+
+// CloseAsks reports whether the platform was last to ask the user before
+// the window closes.
+func (w *OffscreenWindow) CloseAsks() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.closeAsks
 }
 
 // RequestAttention implements [Attender].

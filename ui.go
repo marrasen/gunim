@@ -449,6 +449,10 @@ type WindowOptions struct {
 	// closes the window with [Client.Close] once it has decided, such as
 	// after asking whether to stop what is still running. When nil, the
 	// window closes at once.
+	//
+	// A browser closes a page, or leaves it, with nothing for the
+	// application to decide, and sends nothing. [UI.SetCloseAsks] has it
+	// ask the user first.
 	AskToClose Intent
 	// SystemFrame keeps the system's title bar and frame. Without it a window is chromeless: it gets the title bar
 	// registered with [RegisterTitleBar], which package widget provides, and a node of the application's that is a
@@ -2056,6 +2060,9 @@ type UI struct {
 	// is the seq of the last [input.TextEdit] the focus took.
 	textState         *input.TextState
 	textSent, textSeq uint64
+	// keysClaimed is whether the focused node claims the keys, as last
+	// told to the driver.
+	keysClaimed bool
 	// firstTyped is the [KeyFirst] that took the last press, when that
 	// press typed, until the next press: the text it types goes to it
 	// too, and to no one else.
@@ -2495,6 +2502,11 @@ func (u *UI) Clipboard() string {
 // ReadClipboard returns the text on the system clipboard, "" with no
 // error when it holds none, and an error when it could not be read, so
 // an application can tell an empty clipboard from one that failed.
+//
+// A browser asks the user before a page reads the clipboard. Read as a
+// node that claims the keys handles a paste key of the browser's, such
+// as Ctrl+Shift+V, it is what the browser pastes, and nothing is asked;
+// see [KeyClaimer].
 func (u *UI) ReadClipboard() (string, error) { return u.w.dw.Clipboard() }
 
 // SetClipboard puts s on the system clipboard. Where it cannot, as on
@@ -2599,6 +2611,15 @@ func (u *UI) SetBorder(b driver.Border) {
 
 // SetFullScreen makes the window fill its monitor, or gives it back
 // its frame, where the platform can.
+//
+// A browser fills the screen only as the user asks, so there it is
+// called while handling a key or a press, and the window fills the
+// screen a moment later. The user can leave it at any time, which no
+// desktop has them do, and the browser can refuse it: the application
+// then hears [FullScreenLeft]. Either way the window draws a frame, and
+// [UI.FullScreen] says how it went. Once a node claims the keys there
+// ([KeyClaimer]), Chrome and Edge hand over Escape too, until full screen
+// ends, and the user leaves by holding it.
 func (u *UI) SetFullScreen(on bool) {
 	if f, ok := u.w.dw.(driver.FullScreener); ok {
 		f.SetFullScreen(on)
@@ -2610,6 +2631,14 @@ func (u *UI) FullScreen() bool {
 	f, ok := u.w.dw.(driver.FullScreener)
 	return ok && f.FullScreen()
 }
+
+// FullScreenLeft travels to the application when a window no longer
+// fills the screen though the application asked it to and has not asked
+// it back: the user left, as with Escape in a browser, or the browser
+// refused. On a desktop a window leaves only as the application asks.
+type FullScreenLeft struct{}
+
+func init() { RegisterType[FullScreenLeft]("gunim.full-screen-left") }
 
 // RequestAttention asks for the user's attention without taking the
 // keyboard, where the platform can: it flashes the window in the task
@@ -3080,6 +3109,26 @@ func (u *UI) takeText(prev, next *state) {
 	if ok {
 		ti.SetTextInput(takes)
 	}
+	u.claimKeys(next)
+}
+
+// claimKeys tells the driver whether s, which has the keyboard, claims
+// the keys the platform would otherwise keep, where that has changed
+// since the driver last heard. See [KeyClaimer].
+func (u *UI) claimKeys(s *state) {
+	kc, ok := u.w.dw.(driver.KeyClaimer)
+	if !ok {
+		return
+	}
+	on := false
+	if s != nil {
+		c, is := s.node.(KeyClaimer)
+		on = is && c.ClaimsKeys()
+	}
+	if on != u.keysClaimed {
+		u.keysClaimed = on
+		kc.SetKeysClaimed(on)
+	}
 }
 
 // syncText tells the driver the state of s's text when s is a
@@ -3418,6 +3467,7 @@ func (u *UI) paintFrame(fp framePaint) {
 	u.sendTitleBar()
 	u.placeCaret()
 	u.syncText(u.focus, false)
+	u.claimKeys(u.focus)
 	u.hoverAgain(f.Now)
 	u.framePopups(f)
 	u.revealDrawn()

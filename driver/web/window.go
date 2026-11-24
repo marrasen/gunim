@@ -35,6 +35,8 @@ type Window struct {
 	parent                   *Window
 	over, above, passthrough bool
 	transparent              bool
+	// popup says the window is one, with no keyboard of its own.
+	popup bool
 
 	// The fields below are guarded by the driver's mu.
 
@@ -64,6 +66,9 @@ type Window struct {
 	sharpTimer        *time.Timer
 	sharpen           bool
 	takesFingers      bool
+	// claims says the window's focused node claims the keys, and closeAsks that the
+	// user is asked before the page closes. The driver's mu guards both.
+	claims, closeAsks bool
 }
 
 type frame struct {
@@ -80,6 +85,7 @@ func newWindow(d *Driver, o driver.Options) *Window {
 		above:       o.Above,
 		passthrough: o.Passthrough,
 		transparent: o.Kind == driver.KindPopup,
+		popup:       o.Kind == driver.KindPopup,
 	}
 	w.in = inbox.New(w.quit)
 	w.pane.Transparent = w.transparent
@@ -206,6 +212,7 @@ func (w *Window) Hide() error {
 	w.hidden, w.stale = true, true
 	w.d.kickLocked()
 	w.d.mu.Unlock()
+	w.d.lockKeys()
 	return nil
 }
 
@@ -216,6 +223,7 @@ func (w *Window) Show() error {
 	w.hidden = false
 	w.d.kickLocked()
 	w.d.mu.Unlock()
+	w.d.lockKeys()
 	return nil
 }
 
@@ -241,6 +249,7 @@ func (w *Window) SetTextInput(active bool) {
 		return
 	}
 	d.mu.Unlock()
+	d.lockKeys()
 	if active {
 		d.syncText(w)
 		d.focusMirror()
