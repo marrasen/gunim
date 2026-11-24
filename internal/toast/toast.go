@@ -6,12 +6,14 @@
 // percent-encoded first: every byte the XML would need to escape, or could not hold at all, becomes %XX, and so does
 // the percent sign. Any tag survives the trip whole, NUL and broken UTF-8 included, and the encoded text is at most
 // three times as long as the tag.
+//
+// It hashes with FNV, as a hash here only tells names apart: drivers link this package, and a program with no use for
+// cryptography should link none.
 package toast
 
 import (
-	"crypto/sha1" //nolint:gosec // a name-based UUID, as RFC 9562's version 5 has it
-	"crypto/sha256"
 	"fmt"
+	"hash/fnv"
 	"path/filepath"
 	"strings"
 	"unicode/utf8"
@@ -216,10 +218,11 @@ const MaxAppID = 128
 func AppID(id, exe string) string {
 	out := cleanID(id)
 	if strings.Trim(out, "-_") == "" {
-		sum := sha256.Sum256([]byte(strings.ToLower(exe)))
+		sum := fnv.New32a()
+		_, _ = sum.Write([]byte(strings.ToLower(exe)))
 		name := cleanID(ProgramName(exe))
 		name = name[:min(len(name), MaxAppID-len("gunim..01234567"))]
-		out = fmt.Sprintf("gunim.%s.%x", name, sum[:4])
+		out = fmt.Sprintf("gunim.%s.%08x", name, sum.Sum32())
 	}
 	if len(out) > MaxAppID {
 		out = out[:MaxAppID]
@@ -267,11 +270,12 @@ func ProgramName(exe string) string {
 func ActivatorCLSID(appID string) string {
 	// The namespace is gunim's own, a random UUID picked once.
 	ns := []byte{0x6b, 0x1f, 0x3e, 0x52, 0x9a, 0x4d, 0x4c, 0x7e, 0x8f, 0x21, 0x5d, 0x0c, 0x93, 0x7a, 0xe4, 0x10}
-	h := sha1.New() //nolint:gosec // a name-based UUID, as RFC 9562's version 5 has it
-	h.Write(ns)
-	h.Write([]byte(appID))
-	u := h.Sum(nil)[:16]
-	u[6] = u[6]&0x0f | 0x50
+	h := fnv.New128a()
+	_, _ = h.Write(ns)
+	_, _ = h.Write([]byte(appID))
+	u := h.Sum(nil)
+	// Version 8, a UUID of a program's own making.
+	u[6] = u[6]&0x0f | 0x80
 	u[8] = u[8]&0x3f | 0x80
 	return fmt.Sprintf("%X-%X-%X-%X-%X", u[0:4], u[4:6], u[6:8], u[8:10], u[10:16])
 }

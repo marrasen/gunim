@@ -39,6 +39,10 @@ type Tray struct {
 	// Linux, and any still in the notification centre on Windows. Windows's tray balloons report only that a
 	// message was clicked, so with those the tag is that of the message shown last.
 	OnNotifyTag func(tag string)
+	// NotifyIcon is the picture messages show, at several sizes, for an application whose Icon tells its state:
+	// Windows takes the picture as it readies toasts, in a later run as the icon goes up, and keeps it for the run.
+	// Empty takes Icon. Windows's balloons show the tray's icon.
+	NotifyIcon []image.Image
 	// AppID names the application to Windows's notifications, as its AppUserModelID: a few words with dots
 	// between, as "Company.Product". The bytes A-Z, a-z, 0-9, '.', '-' and '_' are kept, and others become '-'.
 	// Empty names it after the program file, as "gunim.<name>.<hash>", with a hash of the file's full path: two
@@ -46,7 +50,7 @@ type Tray struct {
 	// toasts are apart from those of the old. An installed application sets its own. AppName is the name its
 	// messages show as from, on Windows and Linux, and empty takes the program file's name.
 	//
-	// To show toasts, the Windows driver writes, at the first message, the AppID with its name and the icon's
+	// To show toasts, the Windows driver writes, at the first message, the AppID with its name and the messages'
 	// picture under the current user's Software\Classes\AppUserModelId\<AppID> in the registry, with the class ID
 	// of the COM object that hears clicks from the notification centre, and that class ID's LocalServer32, the
 	// program file. The picture goes in the user's cache folder, under <AppID>. An uninstaller takes all three

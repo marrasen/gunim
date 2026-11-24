@@ -182,13 +182,13 @@ func TestAToastsXMLFitsWithTheLaunchArgumentWhole(t *testing.T) {
 	}
 }
 
-// The activator's class ID is a version 5 UUID of the AppUserModelID, the same each run and apart for each ID.
+// The activator's class ID is a version 8 UUID of the AppUserModelID, the same each run and apart for each ID.
 func TestActivatorCLSIDIsStablePerAppID(t *testing.T) {
 	a, b := ActivatorCLSID("Example.One"), ActivatorCLSID("Example.Two")
 	if a != ActivatorCLSID("Example.One") || a == b {
 		t.Fatalf("class IDs %s and %s", a, b)
 	}
-	if len(a) != 36 || a[14] != '5' || !strings.ContainsRune("89AB", rune(a[19])) {
-		t.Fatalf("class ID %s is no version 5 UUID", a)
+	if len(a) != 36 || a[14] != '8' || !strings.ContainsRune("89AB", rune(a[19])) {
+		t.Fatalf("class ID %s is no version 8 UUID", a)
 	}
 }

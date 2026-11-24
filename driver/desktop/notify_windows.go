@@ -267,7 +267,7 @@ func openToaster(d *Driver, t *driver.Tray, appID, exe string) (*toaster, error)
 		name = toast.ProgramName(exe)
 	}
 	clsid := guid(toast.ActivatorCLSID(appID))
-	if err := registerAppID(appID, name, iconFile(appID, t.Icon), exe, clsid); err != nil {
+	if err := registerAppID(appID, name, iconFile(appID, notifyIcon(t)), exe, clsid); err != nil {
 		return nil, fmt.Errorf("registering the AppUserModelID: %w", err)
 	}
 	statics, err := factory("Windows.UI.Notifications.ToastNotificationManager", &iidToastManagerStatics)

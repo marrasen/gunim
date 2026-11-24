@@ -279,7 +279,7 @@ func (n *notifier) notify(t *driver.Tray, title, body, tag string) error {
 		app = toast.Clean(programID())
 	}
 	hints := map[string]dbus.Variant{}
-	if img, ok := imageData(t.Icon); ok {
+	if img, ok := imageData(notifyIcon(t)); ok {
 		hints["image-data"] = dbus.MakeVariant(img)
 	}
 	n.mu.Lock()
@@ -333,7 +333,7 @@ func (n *notifier) send(app, title, body string, hints map[string]dbus.Variant) 
 }
 
 // readsMarkup reports whether the server reads markup in a message's body, as it says of itself, asked once for each
-// server. One slow to say is taken to read it: an "&amp;" shown is better than a link made of someone's text.
+// server. One that does not say is taken to read it: an "&amp;" shown is better than a link made of someone's text.
 func (n *notifier) readsMarkup(ctx context.Context) bool {
 	n.mu.Lock()
 	markup, asked, gen := n.markup, n.asked, n.gen
@@ -346,7 +346,7 @@ func (n *notifier) readsMarkup(ctx context.Context) bool {
 	var caps []string
 	err := n.conn.Object(notifyName, notifyPath).CallWithContext(ctx, notifyName+".GetCapabilities", 0).Store(&caps)
 	if err != nil {
-		return errors.Is(err, context.DeadlineExceeded)
+		return true
 	}
 	markup = slices.Contains(caps, "body-markup")
 	n.mu.Lock()
