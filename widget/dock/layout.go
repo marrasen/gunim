@@ -9,7 +9,8 @@
 // plain data, which the application keeps, saves and changes. The
 // widgets, a [Dock] and the [Bar]s it holds, show one window's part of
 // the layout. They do not change it: they say what the user asks for as
-// a [Change], and [Layout.Apply] carries it out.
+// a [Change], and [Layout.Apply] carries it out. A dock that is Locked
+// only lets the user look: they pick tabs, and change nothing.
 //
 // A layout is a tree in each window. Each part of it is a [Node]: an
 // item, which is one of the application's views; a split of two nodes,
