@@ -24,14 +24,22 @@ type Tray struct {
 	OnPick  func(id int)
 	OnClick func()
 	// OnNotifyClick runs with a click on a message [TrayNotifier.TrayNotify] showed, as for a message that opens the
-	// page it is about. Windows does not say which message, and may say so for a click in the notification centre
-	// too, after a newer message: open a page that fits any message shown, or keep only one kind of message waiting.
-	// The program takes the foreground as the click comes, so a window raised from here comes to the front.
+	// page it is about. On Windows the click names no message, and may come from the notification centre too,
+	// after a newer message: open a page that fits any message shown, or tag each message and hear OnNotifyTag.
+	// On Windows the program takes the foreground as the click comes, so a window raised from here comes to the
+	// front.
 	//
 	// OnNotifyGone runs when the message shown last leaves the screen, closed or timed out, as it may then wait in
-	// the notification centre. Both run on a goroutine of the driver's. Only Windows says so.
+	// the notification centre. Both run on a goroutine of the driver's, on Windows and Linux.
 	OnNotifyClick func()
 	OnNotifyGone  func()
+	// OnNotifyTag runs with a click on a message [TagNotifier.TrayNotifyTagged] showed, with the tag it was shown
+	// with, and with "" for one [TrayNotifier.TrayNotify] showed. It runs after OnNotifyClick, where both are set,
+	// on a goroutine of the driver's.
+	//
+	// On Linux the tag is that of the message clicked, of any of the last 64 shown. Windows reports only that a
+	// message was clicked, so there the tag is that of the message shown last.
+	OnNotifyTag func(tag string)
 }
 
 // TrayItem is a line of a tray icon's menu: a command, a submenu, or a
@@ -58,6 +66,29 @@ type TrayNotifier interface {
 	// TrayNotify shows a message from the tray icon, as the system shows
 	// one, and fails where no icon is up or the platform has none.
 	TrayNotify(title, body string) error
+}
+
+// MaxNotifyTag is the most bytes a message's tag holds.
+const MaxNotifyTag = 1024
+
+// ErrNotifyTag says a message's tag is longer than [MaxNotifyTag] bytes.
+var ErrNotifyTag = errors.New("the message's tag is longer than MaxNotifyTag bytes")
+
+// CheckNotifyTag returns [ErrNotifyTag] for a tag longer than [MaxNotifyTag] bytes, and nil for any other.
+func CheckNotifyTag(tag string) error {
+	if len(tag) > MaxNotifyTag {
+		return ErrNotifyTag
+	}
+	return nil
+}
+
+// A TagNotifier is a [TrayNotifier] that gives each message a tag, which [Tray.OnNotifyTag] hears back with a click
+// on it.
+type TagNotifier interface {
+	// TrayNotifyTagged shows a message as TrayNotify does, with tag, any text the application picks, as an ID of
+	// the message or the page it is about. The tag stays in the process. It fails with ErrNotifyTag for a tag
+	// longer than MaxNotifyTag bytes.
+	TrayNotifyTagged(title, body, tag string) error
 }
 
 // A Trayer is a [Driver] that can show a tray icon.

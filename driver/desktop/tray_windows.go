@@ -25,9 +25,18 @@ func (d *Driver) SetTray(t driver.Tray) error {
 			gone := t.OnNotifyGone
 			icon.OnNotifyGone = func() { go gone() }
 		}
-		if t.OnNotifyClick != nil {
-			click := t.OnNotifyClick
-			icon.OnNotifyClick = func() { go click() }
+		if click, tagged := t.OnNotifyClick, t.OnNotifyTag; click != nil || tagged != nil {
+			// One goroutine for both, so OnNotifyTag runs after OnNotifyClick.
+			icon.OnNotifyTag = func(tag string) {
+				go func() {
+					if click != nil {
+						click()
+					}
+					if tagged != nil {
+						tagged(tag)
+					}
+				}()
+			}
 		}
 	}
 	done := make(chan error, 1)
@@ -38,9 +47,16 @@ func (d *Driver) SetTray(t driver.Tray) error {
 }
 
 // TrayNotify implements [driver.TrayNotifier], on the main thread.
-func (d *Driver) TrayNotify(title, body string) error {
+func (d *Driver) TrayNotify(title, body string) error { return d.TrayNotifyTagged(title, body, "") }
+
+// TrayNotifyTagged implements [driver.TagNotifier], on the main thread. The tag stays in the process, kept for a
+// click on the balloon, which names no message: the tag heard is that of the message shown last.
+func (d *Driver) TrayNotifyTagged(title, body, tag string) error {
+	if err := driver.CheckNotifyTag(tag); err != nil {
+		return err
+	}
 	done := make(chan error, 1)
-	if !d.post(func() { done <- glfw.TrayNotify(title, body) }) {
+	if !d.post(func() { done <- glfw.TrayNotify(title, body, tag) }) {
 		return errClosed
 	}
 	return <-done

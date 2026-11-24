@@ -54,6 +54,10 @@ type sniTray struct {
 	// id's children, the root's under 0.
 	items map[int32]driver.TrayItem
 	kids  map[int32][]int32
+
+	// nmu guards notices, the messages shown; see notify_linux.go.
+	nmu     sync.Mutex
+	notices notices
 }
 
 // closeTray takes the icon off the bus, as the application ends.

@@ -283,6 +283,30 @@ func (a *App) TrayNotify(title, body string) error {
 	return tn.TrayNotify(title, body)
 }
 
+// MaxNotifyTag is the most bytes a message's tag holds; see [driver.MaxNotifyTag].
+const MaxNotifyTag = driver.MaxNotifyTag
+
+// ErrNotifyTag says a message's tag is longer than [MaxNotifyTag] bytes.
+var ErrNotifyTag = driver.ErrNotifyTag
+
+// TrayNotifyTagged shows a message as [App.TrayNotify] does, with tag, any text the application picks, such as the
+// ID of what the message is about. A click on the message runs [Tray.OnNotifyTag] with the tag, so an application
+// that shows several messages opens the one clicked. The tag stays in the process. It returns ErrNotifyTag for a
+// tag longer than MaxNotifyTag bytes, and ErrNoTray where the platform shows no message so.
+//
+// On Linux a click names the message clicked. Windows reports only that a message was clicked, so there the tag is
+// that of the message shown last; see [driver.Tray].
+func (a *App) TrayNotifyTagged(title, body, tag string) error {
+	if err := driver.CheckNotifyTag(tag); err != nil {
+		return err
+	}
+	tn, ok := a.drv.(driver.TagNotifier)
+	if !ok {
+		return ErrNoTray
+	}
+	return tn.TrayNotifyTagged(title, body, tag)
+}
+
 // TrayRect returns the tray icon's rectangle in screen coordinates, for a [driver.KindFlyout] window to open beside
 // as [WindowOptions.Beside]. It fails where no icon is up, or the system does not say: only Windows does.
 func (a *App) TrayRect() (geom.Rect, error) {
