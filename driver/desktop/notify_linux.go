@@ -279,7 +279,7 @@ func (n *notifier) notify(t *driver.Tray, title, body, tag string) error {
 		app = toast.Clean(programID())
 	}
 	hints := map[string]dbus.Variant{}
-	if img, ok := imageData(t.Icon); ok {
+	if img, ok := imageData(notifyIcon(t)); ok {
 		hints["image-data"] = dbus.MakeVariant(img)
 	}
 	n.mu.Lock()

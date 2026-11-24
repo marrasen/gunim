@@ -778,3 +778,29 @@ func TestAnEarlyClickCountsOnceItsIDIsKnown(t *testing.T) {
 		t.Fatalf("clicked is %v, want 7 alone", n.clicked)
 	}
 }
+
+// A message shows NotifyIcon's picture where there is one, and the tray's icon where there is none.
+func TestAMessageShowsNotifyIcon(t *testing.T) {
+	addr := privateBus(t)
+	_, f := serve(t, addr)
+	d := &Driver{}
+	square := func(size int) []image.Image {
+		return []image.Image{image.NewRGBA(image.Rect(0, 0, size, size))}
+	}
+	t.Cleanup(func() { _ = d.SetTray(driver.Tray{}) })
+	for i, tray := range []driver.Tray{{Icon: square(16)}, {Icon: square(16), NotifyIcon: square(8)}} {
+		if err := d.SetTray(tray); err != nil {
+			t.Fatal(err)
+		}
+		if err := d.TrayNotify("title", "body"); err != nil {
+			t.Fatal(err)
+		}
+		f.set(func() {
+			hints, _ := f.shown[i][6].(map[string]dbus.Variant)
+			px, _ := hints["image-data"].Value().([]any)
+			if want := []int32{16, 8}[i]; len(px) == 0 || px[0] != want {
+				t.Fatalf("message %d shows %v, want a picture %d wide", i, px, want)
+			}
+		})
+	}
+}

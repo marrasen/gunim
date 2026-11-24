@@ -39,6 +39,10 @@ type Tray struct {
 	// Linux, and any still in the notification centre on Windows. Windows's tray balloons report only that a
 	// message was clicked, so with those the tag is that of the message shown last.
 	OnNotifyTag func(tag string)
+	// NotifyIcon is the picture messages show, at several sizes, for an application whose Icon tells its state:
+	// Windows takes the picture as it readies toasts, in a later run as the icon goes up, and keeps it for the run.
+	// Empty takes Icon. Windows's balloons show the tray's icon.
+	NotifyIcon []image.Image
 	// AppID names the application to Windows's notifications, as its AppUserModelID: a few words with dots
 	// between, as "Company.Product". The bytes A-Z, a-z, 0-9, '.', '-' and '_' are kept, and others become '-'.
 	// Empty names it after the program file, as "gunim.<name>.<hash>", with a hash of the file's full path: two
