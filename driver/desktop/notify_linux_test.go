@@ -3,6 +3,7 @@
 package desktop
 
 import (
+	"context"
 	"errors"
 	"image"
 	"net"
@@ -89,9 +90,10 @@ type fakeNotifier struct {
 	mu    sync.Mutex
 	next  uint32
 	shown [][]any
-	// caps are what GetCapabilities says, and hold has Notify wait for it to close.
-	caps []string
-	hold chan struct{}
+	// caps are what GetCapabilities says after capsIn, and hold has Notify wait for it to close.
+	caps   []string
+	capsIn time.Duration
+	hold   chan struct{}
 }
 
 // set runs fn with the fake held still.
@@ -104,6 +106,7 @@ func (f *fakeNotifier) set(fn func()) {
 func (f *fakeNotifier) GetCapabilities() ([]string, *dbus.Error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	time.Sleep(f.capsIn)
 	return append([]string{}, f.caps...), nil
 }
 
@@ -716,5 +719,62 @@ func TestAMessageIsCleanedAndEscapedForItsServer(t *testing.T) {
 		if args[0] != "App\ufffd" || args[3] != "T & <i>\ufffd" || args[4] != c.body {
 			t.Fatalf("with %v the server was handed app %q, title %q, body %q", c.caps, args[0], args[3], args[4])
 		}
+	}
+}
+
+// A server slow to say what it reads is handed an escaped body, as it may read markup.
+func TestABodyIsEscapedForAServerSlowToSayWhatItReads(t *testing.T) {
+	addr := privateBus(t)
+	_, f := serve(t, addr)
+	f.set(func() { f.capsIn = notifyTimeout/2 + 300*time.Millisecond })
+	d := &Driver{}
+	upTray(t, d, newHeardLog())
+	if err := d.TrayNotify("title", "<b>x</b>"); err != nil {
+		t.Fatal(err)
+	}
+	f.set(func() {
+		if got := f.shown[0][4]; got != "&lt;b&gt;x&lt;/b&gt;" {
+			t.Fatalf("the server was handed %q", got)
+		}
+	})
+}
+
+// A question to the bus that failed leaves the server and its messages known.
+func TestAFailedQuestionLeavesTheOwner(t *testing.T) {
+	addr := privateBus(t)
+	server, _ := serve(t, addr)
+	d := &Driver{}
+	h := newHeardLog()
+	upTray(t, d, h)
+	if err := d.TrayNotifyTagged("title", "body", "mine"); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if theNotifier().learnOwner(ctx) == "" {
+		t.Fatal("a question that failed forgot the server")
+	}
+	if err := server.Emit(notifyPath, notifyName+".ActionInvoked", uint32(1), "default"); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.wait(t, 2); got[1] != "tag:mine" {
+		t.Fatalf("the click heard %q, want [click tag:mine]", got)
+	}
+}
+
+// A click kept for a message's ID counts as soon as the ID is known, so the message leaving then is no news.
+func TestAnEarlyClickCountsOnceItsIDIsKnown(t *testing.T) {
+	n := &notifier{tags: map[uint32]string{}, clicked: map[uint32]bool{}, inflight: 2, owner: ":1.1"}
+	for _, action := range []string{"default", "other"} {
+		id := uint32(7)
+		if action == "other" {
+			id = 8
+		}
+		n.heard(&dbus.Signal{Sender: ":1.1", Path: notifyPath, Name: notifyName + ".ActionInvoked", Body: []any{id, action}})
+	}
+	n.sent(1, 7, "a", nil)
+	n.sent(2, 8, "b", nil)
+	if !n.clicked[7] || n.clicked[8] {
+		t.Fatalf("clicked is %v, want 7 alone", n.clicked)
 	}
 }

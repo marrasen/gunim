@@ -274,7 +274,9 @@ func (a *App) SetTray(t Tray) error {
 
 // TrayNotify shows a message from the application's tray icon, as the
 // system shows one, against the icon already there rather than one of
-// its own. It returns ErrNoTray where the platform shows none so.
+// its own. It returns ErrNoTray where the platform shows none so, and
+// ErrNotifyTimeout where the desktop is slow to answer, and may still
+// show the message.
 func (a *App) TrayNotify(title, body string) error {
 	tn, ok := a.drv.(driver.TrayNotifier)
 	if !ok {

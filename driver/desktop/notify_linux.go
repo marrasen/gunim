@@ -4,6 +4,7 @@ package desktop
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"image"
 	"slices"
@@ -180,6 +181,14 @@ func (n *notifier) start(ctx context.Context) error {
 	if err := n.conn.Hello(); err != nil {
 		return err
 	}
+	// Before the rules, as a connection that has closed takes the channel and never closes it.
+	signals := make(chan *dbus.Signal, 16)
+	n.conn.Signal(signals)
+	go func() {
+		for sig := range signals {
+			n.heard(sig)
+		}
+	}()
 	rules := [][]dbus.MatchOption{
 		{dbus.WithMatchSender(notifyName), dbus.WithMatchObjectPath(notifyPath), dbus.WithMatchInterface(notifyName),
 			dbus.WithMatchMember("ActionInvoked")},
@@ -193,28 +202,29 @@ func (n *notifier) start(ctx context.Context) error {
 			return err
 		}
 	}
-	signals := make(chan *dbus.Signal, 16)
-	n.conn.Signal(signals)
-	go func() {
-		for sig := range signals {
-			n.heard(sig)
-		}
-	}()
 	n.learnOwner(ctx)
 	return nil
 }
 
-// close closes the connection, which ends the goroutine that hears its signals.
-func (n *notifier) close() { _ = n.conn.Close() }
+// close closes the connection, which ends the goroutine that hears its signals. It does not wait: closing waits for
+// a message being written, and that never ends on a bus that has stopped reading.
+func (n *notifier) close() { go func() { _ = n.conn.Close() }() }
 
 // learnOwner asks the bus for the server's unique name, and keeps it, unless the bus reported a new one meanwhile. It
-// is "" while no server is up, as one may start only for the first message.
+// is "" while no server is up, as one may start only for the first message. A question that failed changes nothing.
 func (n *notifier) learnOwner(ctx context.Context) string {
 	n.mu.Lock()
 	gen := n.gen
 	n.mu.Unlock()
 	var owner string
-	if err := n.conn.BusObject().CallWithContext(ctx, busName+".GetNameOwner", 0, notifyName).Store(&owner); err != nil {
+	err := n.conn.BusObject().CallWithContext(ctx, busName+".GetNameOwner", 0, notifyName).Store(&owner)
+	if err != nil {
+		var none dbus.Error
+		if !errors.As(err, &none) || none.Name != busName+".Error.NameHasNoOwner" {
+			n.mu.Lock()
+			defer n.mu.Unlock()
+			return n.owner
+		}
 		owner = ""
 	}
 	return n.keepOwner(owner, gen)
@@ -323,7 +333,7 @@ func (n *notifier) send(app, title, body string, hints map[string]dbus.Variant) 
 }
 
 // readsMarkup reports whether the server reads markup in a message's body, as it says of itself, asked once for each
-// server.
+// server. One slow to say is taken to read it: an "&amp;" shown is better than a link made of someone's text.
 func (n *notifier) readsMarkup(ctx context.Context) bool {
 	n.mu.Lock()
 	markup, asked, gen := n.markup, n.asked, n.gen
@@ -336,7 +346,7 @@ func (n *notifier) readsMarkup(ctx context.Context) bool {
 	var caps []string
 	err := n.conn.Object(notifyName, notifyPath).CallWithContext(ctx, notifyName+".GetCapabilities", 0).Store(&caps)
 	if err != nil {
-		return false
+		return errors.Is(err, context.DeadlineExceeded)
 	}
 	markup = slices.Contains(caps, "body-markup")
 	n.mu.Lock()
@@ -371,6 +381,10 @@ func (n *notifier) sent(seq uint64, id uint32, tag string, err error) {
 		for _, sig := range n.early {
 			if sigID(sig) == id {
 				replay = append(replay, sig)
+				if sig.Sender == n.owner && isClick(sig) {
+					// Now, as the message may be heard leaving before the click is replayed.
+					n.clicked[id] = true
+				}
 			} else {
 				kept = append(kept, sig)
 			}
@@ -384,6 +398,15 @@ func (n *notifier) sent(seq uint64, id uint32, tag string, err error) {
 	for _, sig := range replay {
 		n.heard(sig)
 	}
+}
+
+// isClick reports whether a server's signal is a click on a message's body.
+func isClick(sig *dbus.Signal) bool {
+	if sig.Name != notifyName+".ActionInvoked" || len(sig.Body) < 2 {
+		return false
+	}
+	action, _ := sig.Body[1].(string)
+	return action == "default"
 }
 
 // sigID is the message ID a server's signal names, or 0.
@@ -439,7 +462,7 @@ func (n *notifier) heard(sig *dbus.Signal) {
 	}
 	gone := false
 	if click {
-		if action, _ := sig.Body[1].(string); action != "default" {
+		if !isClick(sig) {
 			n.mu.Unlock()
 			return
 		}
