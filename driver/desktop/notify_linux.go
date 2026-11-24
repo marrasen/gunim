@@ -151,3 +151,13 @@ func (s *sniTray) heard(sig *dbus.Signal) {
 		}
 	}
 }
+
+// TrayNotifyWay implements [driver.NotifyWayer]: the server names the message clicked, once an icon is up.
+func (d *Driver) TrayNotifyWay() driver.NotifyWay {
+	tray.mu.Lock()
+	defer tray.mu.Unlock()
+	if tray.s == nil {
+		return driver.NotifyNone
+	}
+	return driver.NotifyExact
+}

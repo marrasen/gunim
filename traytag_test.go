@@ -89,3 +89,32 @@ func TestATaggedMessageFailsWithATagTooLongOrNoTray(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TrayNotifyWay says NotifyNone with no icon up or no tray, and the driver's way once an icon is up.
+func TestTrayNotifyWaySaysHowSureATagIs(t *testing.T) {
+	d := &trayDriver{}
+	err := MainWith(context.Background(), d, func(a *App) error {
+		if w := a.TrayNotifyWay(); w != NotifyNone {
+			t.Errorf("with no icon up the way is %v, want none", w)
+		}
+		if err := a.SetTray(Tray{Icon: []image.Image{image.NewRGBA(image.Rect(0, 0, 16, 16))}}); err != nil {
+			return err
+		}
+		if w := a.TrayNotifyWay(); w != NotifyExact {
+			t.Errorf("with an icon up the way is %v, want exact", w)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = MainWith(context.Background(), &pumpDriver{}, func(a *App) error {
+		if w := a.TrayNotifyWay(); w != NotifyNone {
+			t.Errorf("a driver with no tray says %v, want none", w)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}

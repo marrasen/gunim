@@ -40,7 +40,13 @@ func (d *Driver) SetTray(t driver.Tray) error {
 		}
 	}
 	done := make(chan error, 1)
-	if !d.post(func() { done <- glfw.SetTrayIcon(icon) }) {
+	if !d.post(func() {
+		err := glfw.SetTrayIcon(icon)
+		if err == nil {
+			setToastTray(d, &t)
+		}
+		done <- err
+	}) {
 		return errClosed
 	}
 	return <-done
@@ -49,17 +55,41 @@ func (d *Driver) SetTray(t driver.Tray) error {
 // TrayNotify implements [driver.TrayNotifier], on the main thread.
 func (d *Driver) TrayNotify(title, body string) error { return d.TrayNotifyTagged(title, body, "") }
 
-// TrayNotifyTagged implements [driver.TagNotifier], on the main thread. The tag stays in the process, kept for a
-// click on the balloon, which names no message: the tag heard is that of the message shown last.
+// TrayNotifyTagged implements [driver.TagNotifier], on the main thread. The message shows as a toast, with the tag
+// in its launch argument, or as a balloon where toasts cannot show, with the tag kept here; see notify_windows.go.
 func (d *Driver) TrayNotifyTagged(title, body, tag string) error {
 	if err := driver.CheckNotifyTag(tag); err != nil {
 		return err
 	}
-	done := make(chan error, 1)
-	if !d.post(func() { done <- glfw.TrayNotify(title, body, tag) }) {
-		return errClosed
-	}
-	return <-done
+	return d.call(func() error {
+		if glfw.TrayUp() && readyToasts(d) {
+			err := toasts.show(title, body, tag)
+			if err == nil {
+				return nil
+			}
+			notifyLog("toast: %v; showing balloons", err)
+			toastsFailed = toasts.appID
+			closeToasts()
+		}
+		return glfw.TrayNotify(title, body, tag)
+	})
+}
+
+// TrayNotifyWay implements [driver.NotifyWayer]: NotifyExact while messages show as toasts, and NotifyLast while
+// they show as balloons. It readies the toasts, as the first message does.
+func (d *Driver) TrayNotifyWay() driver.NotifyWay {
+	way := driver.NotifyNone
+	_ = d.call(func() error {
+		switch {
+		case !glfw.TrayUp():
+		case readyToasts(d):
+			way = driver.NotifyExact
+		default:
+			way = driver.NotifyLast
+		}
+		return nil
+	})
+	return way
 }
 
 // TrayRect implements [driver.TrayLocator], through Shell_NotifyIconGetRect on the main thread.
@@ -75,7 +105,10 @@ func (d *Driver) TrayRect() (geom.Rect, error) {
 
 // closeTray takes the icon away, as the application ends, on the main
 // thread.
-func closeTray() { glfw.CloseTrayIcon() }
+func closeTray() {
+	setToastTray(nil, nil)
+	glfw.CloseTrayIcon()
+}
 
 // trayItems are a menu's lines as glfw has them.
 func trayItems(items []driver.TrayItem) []glfw.TrayMenuItem {

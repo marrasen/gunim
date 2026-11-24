@@ -81,3 +81,13 @@ func (o *OffscreenTray) Click(i int) error {
 	}
 	return nil
 }
+
+// TrayNotifyWay implements [NotifyWayer]: a click names its message, once an icon is up.
+func (o *OffscreenTray) TrayNotifyWay() NotifyWay {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if len(o.tray.Icon) == 0 {
+		return NotifyNone
+	}
+	return NotifyExact
+}

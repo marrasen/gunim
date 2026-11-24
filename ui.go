@@ -294,8 +294,8 @@ var ErrNotifyTag = driver.ErrNotifyTag
 // that shows several messages opens the one clicked. The tag stays in the process. It returns ErrNotifyTag for a
 // tag longer than MaxNotifyTag bytes, and ErrNoTray where the platform shows no message so.
 //
-// On Linux a click names the message clicked. Windows reports only that a message was clicked, so there the tag is
-// that of the message shown last; see [driver.Tray].
+// On Linux and with Windows's toasts a click names the message clicked. Windows's tray balloons report only that a
+// message was clicked, so with those the tag is that of the message shown last; [App.TrayNotifyWay] says which.
 func (a *App) TrayNotifyTagged(title, body, tag string) error {
 	if err := driver.CheckNotifyTag(tag); err != nil {
 		return err
@@ -305,6 +305,25 @@ func (a *App) TrayNotifyTagged(title, body, tag string) error {
 		return ErrNoTray
 	}
 	return tn.TrayNotifyTagged(title, body, tag)
+}
+
+// NotifyWay is how sure the tag [Tray.OnNotifyTag] hears is; see [driver.NotifyWay].
+type NotifyWay = driver.NotifyWay
+
+// The ways a message shows; see [driver.NotifyWay].
+const (
+	NotifyNone  = driver.NotifyNone
+	NotifyLast  = driver.NotifyLast
+	NotifyExact = driver.NotifyExact
+)
+
+// TrayNotifyWay says how the next message [App.TrayNotifyTagged] shows: NotifyExact where a click names the message
+// clicked, NotifyLast where the tag heard is that of the message shown last, and NotifyNone where no message shows.
+func (a *App) TrayNotifyWay() NotifyWay {
+	if w, ok := a.drv.(driver.NotifyWayer); ok {
+		return w.TrayNotifyWay()
+	}
+	return NotifyNone
 }
 
 // TrayRect returns the tray icon's rectangle in screen coordinates, for a [driver.KindFlyout] window to open beside

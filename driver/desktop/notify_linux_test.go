@@ -289,7 +289,13 @@ func TestAMessageFailsWithATagTooLongOrNoTray(t *testing.T) {
 	if err := d.TrayNotifyTagged("title", "body", "tag"); !errors.Is(err, driver.ErrNoTray) {
 		t.Fatalf("a message with no tray up returned %v, want ErrNoTray", err)
 	}
+	if w := d.TrayNotifyWay(); w != driver.NotifyNone {
+		t.Fatalf("with no tray up the way is %v, want none", w)
+	}
 	upTray(t, d, newHeardLog())
+	if w := d.TrayNotifyWay(); w != driver.NotifyExact {
+		t.Fatalf("with a tray up the way is %v, want exact", w)
+	}
 	if err := d.TrayNotifyTagged("title", "body", strings.Repeat("x", driver.MaxNotifyTag+1)); !errors.Is(err, driver.ErrNotifyTag) {
 		t.Fatalf("a tag of MaxNotifyTag+1 bytes returned %v, want ErrNotifyTag", err)
 	}

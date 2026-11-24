@@ -99,8 +99,8 @@ type TrayMenuItem struct {
 // TrayIcon is what the tray shows: the icon at several sizes, its
 // tooltip and menu, and what a pick from the menu, a click on the
 // icon and a click on its message call. They are called on the main
-// thread. OnNotifyTag hears the tag of the message shown last, as
-// Windows names no message in a click.
+// thread. For a balloon, OnNotifyTag hears the tag of the message shown
+// last, as a balloon's click names no message.
 type TrayIcon struct {
 	Images        []image.Image
 	Tooltip       string
@@ -376,21 +376,9 @@ func trayProc(hWnd windows.HWND, uMsg uint32, wParam _WPARAM, lParam _LPARAM) ui
 		case wmContextMenu:
 			s.showMenu(int32(int16(wParam&0xffff)), int32(int16(wParam>>16&0xffff)))
 		case ninBalloonUserClick:
-			if s.t.OnNotifyClick != nil || s.t.OnNotifyTag != nil {
-				// The click lets this program take the foreground for a moment; taking it now, on the main
-				// thread, lets the window the application raises after it come to the front.
-				takeForeground(s.hwnd)
-			}
-			if s.t.OnNotifyClick != nil {
-				s.t.OnNotifyClick()
-			}
-			if s.t.OnNotifyTag != nil {
-				s.t.OnNotifyTag(s.tag)
-			}
+			s.notifyClicked(s.tag)
 		case ninBalloonHide, ninBalloonTimeout:
-			if s.t.OnNotifyGone != nil {
-				s.t.OnNotifyGone()
-			}
+			s.notifyGone()
 		}
 		return 0
 	case uMsg == trayTaskbarCreated && trayTaskbarCreated != 0:
@@ -402,6 +390,48 @@ func trayProc(hWnd windows.HWND, uMsg uint32, wParam _WPARAM, lParam _LPARAM) ui
 	}
 	return uintptr(_DefWindowProcW(hWnd, uMsg, wParam, lParam))
 }
+
+// notifyClicked runs the icon's calls for a click on a message with the tag tag. The click lets this program take
+// the foreground for a moment; taking it now, on the main thread, lets the window the application raises after it
+// come to the front.
+func (s *trayState) notifyClicked(tag string) {
+	if s.t.OnNotifyClick == nil && s.t.OnNotifyTag == nil {
+		return
+	}
+	takeForeground(s.hwnd)
+	if s.t.OnNotifyClick != nil {
+		s.t.OnNotifyClick()
+	}
+	if s.t.OnNotifyTag != nil {
+		s.t.OnNotifyTag(tag)
+	}
+}
+
+// notifyGone runs the icon's call for the message shown last leaving the screen.
+func (s *trayState) notifyGone() {
+	if s.t.OnNotifyGone != nil {
+		s.t.OnNotifyGone()
+	}
+}
+
+// TrayNotifyClicked runs the tray's calls for a click on a toast the driver showed, with its tag, as a click on a
+// balloon does. It must be called on the main thread.
+func TrayNotifyClicked(tag string) {
+	if trayNow != nil {
+		trayNow.notifyClicked(tag)
+	}
+}
+
+// TrayNotifyGone runs the tray's call for a toast the driver showed leaving the screen. It must be called on the
+// main thread.
+func TrayNotifyGone() {
+	if trayNow != nil {
+		trayNow.notifyGone()
+	}
+}
+
+// TrayUp reports whether the tray icon is up.
+func TrayUp() bool { return trayNow != nil && trayNow.added }
 
 // showMenu shows the icon's menu at x, y, and calls OnPick with the
 // line picked.

@@ -16,3 +16,6 @@ func (d *Driver) TrayNotify(string, string) error { return driver.ErrNoTray }
 
 // TrayNotifyTagged implements [driver.TagNotifier]: there is no tray here.
 func (d *Driver) TrayNotifyTagged(string, string, string) error { return driver.ErrNoTray }
+
+// TrayNotifyWay implements [driver.NotifyWayer]: there is no tray here.
+func (d *Driver) TrayNotifyWay() driver.NotifyWay { return driver.NotifyNone }
