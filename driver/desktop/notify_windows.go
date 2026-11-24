@@ -102,12 +102,12 @@ var (
 	trayGone    = glfw.TrayNotifyGone
 	balloon     = glfw.TrayNotify
 	loadXML     = xmlDocument
+	setTrayIcon = glfw.SetTrayIcon
 )
 
 // toaster shows the tray's messages as toasts. It lives on the main thread, but for the handlers' Invoke, which
 // runs on a thread of the system's and posts to the main thread.
 type toaster struct {
-	d     *Driver
 	appID string
 	// notifier is the IToastNotifier for appID, and factory the IToastNotificationFactory.
 	notifier, factory uintptr
@@ -215,9 +215,24 @@ func notifyOnMain(d *Driver, title, body, tag string) error {
 		if err == nil {
 			return nil
 		}
-		notifyLog("toast: %v; this message shows as a balloon", err)
+		notifyLog("toast: %v", err)
+		return toasts.fallBack(title, body, tag)
 	}
 	return balloon(title, body, tag)
+}
+
+// fallBack shows a message whose toast failed as a balloon, which is then the message shown last. Where the user or a
+// policy turned the toasts off, the message shows nowhere, as a toast of theirs would.
+func (tt *toaster) fallBack(title, body, tag string) error {
+	if !tt.allowed() {
+		notifyLog("toasts are off; the message shows nowhere")
+		return nil
+	}
+	if err := balloon(title, body, tag); err != nil {
+		return err
+	}
+	tt.last = ""
+	return nil
 }
 
 // notifyWay says how the next message shows, with nothing written: a toast where the toaster is up and the user
@@ -235,6 +250,7 @@ func notifyWay() driver.NotifyWay {
 	case toastTray == nil || toastsFailed == toastAppID(toastTray):
 		return driver.NotifyLast
 	}
+	roInitialize()
 	statics, err := factory("Windows.UI.Notifications.ToastNotificationManager", &iidToastManagerStatics)
 	if err != nil {
 		return driver.NotifyLast
@@ -245,9 +261,8 @@ func notifyWay() driver.NotifyWay {
 
 // openToaster registers appID and readies its notifier.
 func openToaster(d *Driver, t *driver.Tray, appID, exe string) (*toaster, error) {
-	hr, _, _ := procRoInitialize.Call(0) // single-threaded, as OLE has it
-	notifyLog("RoInitialize: HRESULT %#x", uint32(hr))
-	name := t.AppName
+	roInitialize()
+	name := toast.Clean(t.AppName)
 	if name == "" {
 		name = toast.ProgramName(exe)
 	}
@@ -260,7 +275,7 @@ func openToaster(d *Driver, t *driver.Tray, appID, exe string) (*toaster, error)
 		return nil, err
 	}
 	defer rtRelease(statics)
-	tt := &toaster{d: d, appID: appID, run: runID()}
+	tt := &toaster{appID: appID, run: runID()}
 	h, del := hstring(appID)
 	defer del()
 	// CreateToastNotifierWithId.
@@ -278,6 +293,12 @@ func openToaster(d *Driver, t *driver.Tray, appID, exe string) (*toaster, error)
 	}
 	registerActivator(d, clsid)
 	return tt, nil
+}
+
+// roInitialize readies WinRT on the thread, single-threaded, as OLE has it.
+func roInitialize() {
+	hr, _, _ := procRoInitialize.Call(0)
+	notifyLog("RoInitialize: HRESULT %#x", uint32(hr))
 }
 
 // setting is the notifier's NotificationSetting: 0 where its toasts show, and above where the user, a policy or
@@ -375,24 +396,24 @@ var (
 )
 
 // handlers returns the three handlers: Activated, Dismissed and Failed. Activated reads the click's launch
-// argument; the others find their toast by its sender's identity.
-func handlers(d *Driver) [3]*delegate {
+// argument; the others find their toast by its sender's identity. They post to the driver open now.
+func handlers() [3]*delegate {
 	toastHandlersOnce.Do(func() {
 		toastHandlerTbls = [3]delegateVtbl{delegateTable("toast activated"), delegateTable("toast dismissed"),
 			delegateTable("toast failed")}
 		toastHandlers = [3]*delegate{
 			{vtbl: &toastHandlerTbls[0], refs: 1, iid: iidToastActivatedHandler, invoke: func(args uintptr) {
 				if launch, ok := activatedLaunch(args); ok {
-					d.post(func() { clicked(launch) })
+					postOpen(func() { clicked(launch) })
 				}
 			}},
 			{vtbl: &toastHandlerTbls[1], refs: 1, iid: iidToastDismissedHandler, from: func(sender, _ uintptr) {
 				unk := identity(sender)
-				d.post(func() { dismissed(unk) })
+				postOpen(func() { dismissed(unk) })
 			}},
 			{vtbl: &toastHandlerTbls[2], refs: 1, iid: iidToastFailedHandler, from: func(sender, _ uintptr) {
 				unk := identity(sender)
-				d.post(func() { toastFailed(unk) })
+				postOpen(func() { toastFailed(unk) })
 			}},
 		}
 	})
@@ -426,7 +447,7 @@ func (tt *toaster) show(title, body, tag string) error {
 		return fmt.Errorf("CreateToastNotification: %w", err)
 	}
 	st.unk = identity(st.toast)
-	hs := handlers(tt.d)
+	hs := handlers()
 	for i, at := range []int{toastAddActivated, toastAddDismissed, toastAddFailed} {
 		if err := rtCall(st.toast, at, uintptr(unsafe.Pointer(hs[i])), uintptr(unsafe.Pointer(&st.tokens[i]))); err != nil {
 			notifyLog("adding handler %d: %v", at, err)
@@ -538,8 +559,8 @@ func dismissed(unk uintptr) {
 func toastFailed(unk uintptr) {
 	if tt := toasts; tt != nil {
 		if st := tt.byIdentity(unk); st != nil {
-			notifyLog("toast %s failed; its message shows as a balloon", st.id)
-			_ = balloon(st.title, st.body, st.tag)
+			notifyLog("toast %s failed", st.id)
+			_ = tt.fallBack(st.title, st.body, st.tag)
 		}
 	}
 }
@@ -615,9 +636,13 @@ var (
 )
 
 // heardThroughCOM takes a click the COM object heard to the main thread; a test puts its own in its place.
-var heardThroughCOM = func(launch string) {
+var heardThroughCOM = func(launch string) { postOpen(func() { clicked(launch) }) }
+
+// postOpen posts f to the main thread of the driver that opened the toasts last, as a process may open more than one
+// in turn.
+func postOpen(f func()) {
 	if d := activatorDriver.Load(); d != nil {
-		d.post(func() { clicked(launch) })
+		d.post(f)
 	}
 }
 

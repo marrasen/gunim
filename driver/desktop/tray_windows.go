@@ -40,16 +40,18 @@ func (d *Driver) SetTray(t driver.Tray) error {
 		}
 	}
 	done := make(chan error, 1)
-	if !d.post(func() {
-		err := glfw.SetTrayIcon(icon)
-		if err == nil {
-			setToastTray(d, &t)
-		}
-		done <- err
-	}) {
+	if !d.post(func() { done <- d.showTray(icon, &t) }) {
 		return errClosed
 	}
 	return <-done
+}
+
+// showTray shows icon, and keeps t for the toasts, whatever came of the icon: one the taskbar would not take, as at
+// login, goes up once the taskbar is there. It runs on the main thread.
+func (d *Driver) showTray(icon *glfw.TrayIcon, t *driver.Tray) error {
+	err := setTrayIcon(icon)
+	setToastTray(d, t)
+	return err
 }
 
 // TrayNotify implements [driver.TrayNotifier], on the main thread.

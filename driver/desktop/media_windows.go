@@ -78,7 +78,10 @@ func mediaLog(format string, args ...any) {
 }
 
 // rtCall calls method i of the COM object obj, and returns its HRESULT
-// as an error.
+// as an error. As with call, a variable whose address a caller passes
+// stays put for the length of the call.
+//
+//go:uintptrescapes
 func rtCall(obj uintptr, i int, args ...uintptr) error {
 	vtbl := *ptr[unsafe.Pointer](obj)
 	fn := *(*uintptr)(unsafe.Add(vtbl, uintptr(i)*unsafe.Sizeof(uintptr(0))))

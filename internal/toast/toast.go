@@ -171,24 +171,34 @@ func xmlOf(title, body, launch string) string {
 	return b.String()
 }
 
-// escapeXML writes s escaped for XML text or an attribute in double quotes, leaving out what XML cannot hold:
-// control characters other than tab and line breaks, U+FFFE and U+FFFF. Broken UTF-8 becomes U+FFFD.
-func escapeXML(b *strings.Builder, s string) {
+// Clean returns s less what neither XML nor a message bus can hold: control characters other than tab and line
+// breaks, U+FFFE and U+FFFF go, and broken UTF-8 becomes U+FFFD.
+func Clean(s string) string {
+	var b strings.Builder
 	for _, r := range s {
-		switch {
-		case r == '&':
+		if (r >= 0x20 || r == '\t' || r == '\n' || r == '\r') && r != 0xfffe && r != 0xffff {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// escapeXML writes s, cleaned, escaped for XML text or an attribute in double quotes.
+func escapeXML(b *strings.Builder, s string) {
+	for _, r := range Clean(s) {
+		switch r {
+		case '&':
 			b.WriteString("&amp;")
-		case r == '<':
+		case '<':
 			b.WriteString("&lt;")
-		case r == '>':
+		case '>':
 			b.WriteString("&gt;")
-		case r == '"':
+		case '"':
 			b.WriteString("&quot;")
-		case r == '\'':
+		case '\'':
 			b.WriteString("&apos;")
-		case r == '\t', r == '\n', r == '\r':
+		case '\t', '\n', '\r':
 			fmt.Fprintf(b, "&#x%X;", r)
-		case r < 0x20, r == 0xfffe, r == 0xffff:
 		default:
 			b.WriteRune(r)
 		}
@@ -201,12 +211,15 @@ const MaxAppID = 128
 // AppID returns id made fit to be an AppUserModelID: the bytes A-Z, a-z, 0-9, '.', '-' and '_' kept, every other
 // rune made '-', and cut at MaxAppID. An id empty after that is named after the program file exe, as
 // "gunim.<name>.<hash>", where hash is 8 hex digits of a hash of exe's full path: two programs of one file name in
-// two folders get two IDs, and a program moved to another folder gets a new one.
+// two folders get two IDs, and a program moved to another folder gets a new one. A long name is cut, and the hash
+// stays whole.
 func AppID(id, exe string) string {
 	out := cleanID(id)
 	if strings.Trim(out, "-_") == "" {
 		sum := sha256.Sum256([]byte(strings.ToLower(exe)))
-		out = fmt.Sprintf("gunim.%s.%x", cleanID(ProgramName(exe)), sum[:4])
+		name := cleanID(ProgramName(exe))
+		name = name[:min(len(name), MaxAppID-len("gunim..01234567"))]
+		out = fmt.Sprintf("gunim.%s.%x", name, sum[:4])
 	}
 	if len(out) > MaxAppID {
 		out = out[:MaxAppID]
@@ -228,23 +241,15 @@ func cleanID(s string) string {
 	return strings.Trim(b.String(), ".")
 }
 
-// TakeEmbedding returns args with every "-Embedding" and "/Embedding" after the program's name taken out, in any
-// case, and reports whether there was one: COM starts a program with it, for a click on one of its toasts after it
-// ended, and a program that parses its flags would stop at it.
+// TakeEmbedding returns args without COM's "-Embedding" or "/Embedding", in any case, and reports whether it was there.
+// COM starts a program with it, for a click on one of its toasts after it ended, and a program that parses its flags
+// would stop at it. COM's is the sole argument, as the command registered has none, so a line with more is the user's
+// own and stays whole.
 func TakeEmbedding(args []string) ([]string, bool) {
-	if len(args) == 0 {
-		return args, false
+	if len(args) == 2 && (strings.EqualFold(args[1], "-Embedding") || strings.EqualFold(args[1], "/Embedding")) {
+		return args[:1], true
 	}
-	out := []string{args[0]}
-	found := false
-	for _, a := range args[1:] {
-		if strings.EqualFold(a, "-Embedding") || strings.EqualFold(a, "/Embedding") {
-			found = true
-			continue
-		}
-		out = append(out, a)
-	}
-	return out, found
+	return args, false
 }
 
 // ProgramName is the program file exe's name with no folder or extension, or "gunim" where that leaves nothing.

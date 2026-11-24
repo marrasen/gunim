@@ -51,7 +51,7 @@ type Tray struct {
 	// of the COM object that hears clicks from the notification centre, and that class ID's LocalServer32, the
 	// program file. The picture goes in the user's cache folder, under <AppID>. An uninstaller takes all three
 	// away. A click on a toast after the program ended starts the program again, with the argument -Embedding,
-	// which gunim takes out of os.Args before main runs; the click is heard once the program puts its icon up.
+	// which gunim takes out of os.Args, as the sole one there, before main runs; the click is heard once the program puts its icon up.
 	AppID, AppName string
 }
 
@@ -59,8 +59,8 @@ type Tray struct {
 type NotifyWay uint8
 
 const (
-	// NotifyNone says no message shows: no icon is up, the platform shows none, or the user or a policy turned
-	// the application's toasts off on Windows.
+	// NotifyNone says no message shows: no icon is up, the platform shows none, the user or a policy turned the
+	// application's toasts off on Windows, or Linux has no notification server on the session bus and none to start.
 	NotifyNone NotifyWay = iota
 	// NotifyLast says a click names no message, so the tag heard is that of the message shown last, as with
 	// Windows's tray balloons.
@@ -122,6 +122,10 @@ const MaxNotifyTag = 1024
 // ErrNotifyTag says a message's tag is longer than [MaxNotifyTag] bytes.
 var ErrNotifyTag = errors.New("the message's tag is longer than MaxNotifyTag bytes")
 
+// ErrNotifyTimeout says the desktop has not answered that it shows a message. The message may still show, and a click
+// on it is heard.
+var ErrNotifyTimeout = errors.New("the desktop has not answered in time, and may still show the message")
+
 // CheckNotifyTag returns [ErrNotifyTag] for a tag longer than [MaxNotifyTag] bytes, and nil for any other.
 func CheckNotifyTag(tag string) error {
 	if len(tag) > MaxNotifyTag {
@@ -134,8 +138,12 @@ func CheckNotifyTag(tag string) error {
 // on it.
 type TagNotifier interface {
 	// TrayNotifyTagged shows a message as TrayNotify does, with tag, any text the application picks, as an ID of
-	// the message or the page it is about. The tag stays in the process. It fails with ErrNotifyTag for a tag
-	// longer than MaxNotifyTag bytes.
+	// the message or the page it is about. On Linux, and with a balloon on Windows, the tag stays in the process. With
+	// a toast on Windows it is part of the toast, which Windows stores for as long as it is in the notification
+	// centre, and other programs of the user's may read: a tag holds no secret.
+	//
+	// It fails with ErrNotifyTag for a tag longer than MaxNotifyTag bytes, and with ErrNotifyTimeout where the desktop
+	// has not answered in time.
 	TrayNotifyTagged(title, body, tag string) error
 }
 

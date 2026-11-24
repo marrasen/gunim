@@ -289,10 +289,15 @@ const MaxNotifyTag = driver.MaxNotifyTag
 // ErrNotifyTag says a message's tag is longer than [MaxNotifyTag] bytes.
 var ErrNotifyTag = driver.ErrNotifyTag
 
+// ErrNotifyTimeout says the desktop has not answered that it shows a message, which may still show; see
+// [driver.ErrNotifyTimeout].
+var ErrNotifyTimeout = driver.ErrNotifyTimeout
+
 // TrayNotifyTagged shows a message as [App.TrayNotify] does, with tag, any text the application picks, such as the
 // ID of what the message is about. A click on the message runs [Tray.OnNotifyTag] with the tag, so an application
-// that shows several messages opens the one clicked. The tag stays in the process. It returns ErrNotifyTag for a
-// tag longer than MaxNotifyTag bytes, and ErrNoTray where the platform shows no message so.
+// that shows several messages opens the one clicked. A toast on Windows holds the tag, stored by Windows and within reach
+// of the user's other programs, so a tag holds no secret. It returns ErrNotifyTag for a tag longer than MaxNotifyTag
+// bytes, ErrNoTray where the platform shows no message so, and ErrNotifyTimeout where the desktop is slow to answer.
 //
 // On Linux and with Windows's toasts a click names the message clicked. Windows's tray balloons report only that a
 // message was clicked, so with those the tag is that of the message shown last; [App.TrayNotifyWay] says which.

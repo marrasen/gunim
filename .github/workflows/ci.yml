@@ -41,6 +41,11 @@ jobs:
         if: runner.os == 'Windows'
         run: go test "-gcflags=github.com/marrasen/gunim/filemanager=-d=maymorestack=runtime.mayMoreStackMove" -run StackMoves ./filemanager/
 
+      # The same for the toasts' WinRT calls, on objects of the tests'.
+      - name: Test toasts on moving stacks
+        if: runner.os == 'Windows'
+        run: go test "-gcflags=github.com/marrasen/gunim/driver/desktop=-d=maymorestack=runtime.mayMoreStackMove" -count=1 -run "Toast|COMObject|NotifyWay|TheHandlers" ./driver/desktop/
+
       # The tests on the real clipboard, named in the log. The ones in
       # internal/glfw fail rather than skip in CI when they cannot run,
       # and the step fails unless all five passed, so a rename cannot

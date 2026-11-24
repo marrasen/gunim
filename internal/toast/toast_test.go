@@ -126,17 +126,35 @@ func TestAppIDIsSafeAndNamedAfterTheProgram(t *testing.T) {
 	}
 }
 
-// COM's -Embedding is taken out of the arguments, wherever it is and in any case, and the program's name stays.
-func TestTakeEmbeddingTakesOutCOMsArgument(t *testing.T) {
-	args, found := TakeEmbedding([]string{"prog.exe", "-v", "-EMBEDDING", "file", "/Embedding"})
-	if !found || strings.Join(args, " ") != "prog.exe -v file" {
-		t.Fatalf("TakeEmbedding = %q, %v", args, found)
+// COM's -Embedding is taken out where it is the sole argument, in any case, and a line with more stays whole.
+func TestTakeEmbeddingTakesOutCOMsSoleArgument(t *testing.T) {
+	for _, a := range []string{"-Embedding", "-EMBEDDING", "/embedding"} {
+		if args, found := TakeEmbedding([]string{"prog.exe", a}); !found || len(args) != 1 || args[0] != "prog.exe" {
+			t.Fatalf("TakeEmbedding with %s = %q, %v", a, args, found)
+		}
 	}
-	if args, found := TakeEmbedding([]string{"-Embedding", "-x"}); found || len(args) != 2 {
-		t.Fatalf("the program's own name was taken: %q, %v", args, found)
+	for _, args := range [][]string{
+		nil, {"-Embedding"}, {"prog.exe", "-v"}, {"prog.exe", "-Embedding", "file"}, {"prog.exe", "-o", "-Embedding"},
+	} {
+		if got, found := TakeEmbedding(args); found || strings.Join(got, " ") != strings.Join(args, " ") {
+			t.Fatalf("TakeEmbedding(%q) = %q, %v; want it whole", args, got, found)
+		}
 	}
-	if args, found := TakeEmbedding(nil); found || args != nil {
-		t.Fatalf("no arguments gave %q, %v", args, found)
+}
+
+// Clean keeps text, tabs and line breaks, drops what a toast or the bus cannot hold, and mends broken UTF-8.
+func TestCleanDropsWhatCannotBeHeld(t *testing.T) {
+	if got, want := Clean("a\x00b\x01\tc\r\nd\uffff\ufffe \xff 🎉 <&>"), "ab\tc\r\nd \ufffd 🎉 <&>"; got != want {
+		t.Fatalf("Clean = %q, want %q", got, want)
+	}
+}
+
+// A program of a very long name keeps the whole hash of its path.
+func TestALongProgramNameKeepsItsHash(t *testing.T) {
+	long := strings.Repeat("n", 300) + ".exe"
+	a, b := AppID("", `C:\one\`+long), AppID("", `C:\two\`+long)
+	if a == b || len(a) != MaxAppID || a[:len(a)-8] != b[:len(b)-8] {
+		t.Fatalf("two long programs got %q and %q", a, b)
 	}
 }
 

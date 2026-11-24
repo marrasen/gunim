@@ -3,6 +3,8 @@ package desktop
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
+	"image"
 	"runtime"
 	"strconv"
 	"strings"
@@ -15,6 +17,7 @@ import (
 	"golang.org/x/sys/windows/registry"
 
 	"github.com/marrasen/gunim/driver"
+	"github.com/marrasen/gunim/internal/glfw"
 	"github.com/marrasen/gunim/internal/toast"
 )
 
@@ -54,12 +57,6 @@ func TestTheCOMObjectHandsTheLaunchArgumentOn(t *testing.T) {
 	heardThroughCOM = func(launch string) { got = append(got, launch) }
 	t.Cleanup(func() { heardThroughCOM = was })
 
-	call := func(obj uintptr, i int, args ...uintptr) uintptr {
-		vtbl := *(*unsafe.Pointer)(unsafe.Pointer(obj)) //nolint:govet // a COM object's pointer
-		fn := *(*uintptr)(unsafe.Add(vtbl, uintptr(i)*unsafe.Sizeof(uintptr(0))))
-		hr, _, _ := syscall.SyscallN(fn, append([]uintptr{obj}, args...)...)
-		return hr
-	}
 	factoryObj := uintptr(unsafe.Pointer(&classFactoryObj))
 	var out uintptr
 	if hr := call(factoryObj, 0, uintptr(unsafe.Pointer(&iidClassFactory)), uintptr(unsafe.Pointer(&out))); hr != 0 || out != factoryObj {
@@ -339,6 +336,91 @@ func TestTheLastToastLeavingRunsOnNotifyGone(t *testing.T) {
 	dismissed(tt.shown[2].unk)
 	if *gone != 1 {
 		t.Fatal("the last toast, clicked, ran OnNotifyGone as it left")
+	}
+}
+
+// Where the user turned the toasts off, a message whose toast fails shows nowhere, in step with TrayNotifyWay.
+func TestAFailedToastShowsNoBalloonWhereToastsAreOff(t *testing.T) {
+	tt, notifier, _, balloons, _ := stubToaster(t)
+	if err := tt.show("title", "body", "shown"); err != nil {
+		t.Fatal(err)
+	}
+	notifier.setting = 2 // DisabledForUser
+	notifier.showErr = []uintptr{0x803E0111}
+	if err := notifyOnMain(nil, "title", "body", "blocked"); err != nil {
+		t.Fatal(err)
+	}
+	toastFailed(tt.shown[0].unk)
+	if len(*balloons) != 0 || notifyWay() != driver.NotifyNone {
+		t.Fatalf("with toasts off, balloons showed for %q and the way is %v", *balloons, notifyWay())
+	}
+}
+
+// Once a balloon shows, it is the message shown last, and an older toast leaving does not run OnNotifyGone.
+func TestAnOlderToastLeavingAfterABalloonIsNoNews(t *testing.T) {
+	tt, notifier, _, balloons, gone := stubToaster(t)
+	stubClicks(t)
+	if err := tt.show("title", "body", "older"); err != nil {
+		t.Fatal(err)
+	}
+	notifier.showErr = []uintptr{0x80004005}
+	if err := notifyOnMain(nil, "title", "body", "balloon"); err != nil {
+		t.Fatal(err)
+	}
+	dismissed(tt.shown[0].unk)
+	if len(*balloons) != 1 || *gone != 0 {
+		t.Fatalf("%d balloons showed, and the older toast leaving ran OnNotifyGone %d times", len(*balloons), *gone)
+	}
+}
+
+// A tray whose icon the taskbar did not take yet is kept for the toasts, as the icon goes up later.
+func TestATrayIsKeptForToastsWhereItsIconIsNotUpYet(t *testing.T) {
+	stubToaster(t)
+	was := setTrayIcon
+	setTrayIcon = func(*glfw.TrayIcon) error { return windows.ERROR_TIMEOUT }
+	t.Cleanup(func() { setTrayIcon = was })
+	tray := &driver.Tray{AppID: "gunim.test", Icon: []image.Image{image.NewRGBA(image.Rect(0, 0, 16, 16))}}
+	if err := (&Driver{}).showTray(&glfw.TrayIcon{}, tray); !errors.Is(err, windows.ERROR_TIMEOUT) {
+		t.Fatalf("showTray returned %v, want the taskbar's error", err)
+	}
+	if toastTray != tray {
+		t.Fatal("the tray was let go of with its icon not up yet")
+	}
+}
+
+// TrayNotifyWay readies WinRT on the thread before it asks for anything of it, as at a program's first call.
+func TestNotifyWayReadiesWinRT(t *testing.T) {
+	stubToaster(t)
+	toasts, toastTray = nil, &driver.Tray{AppID: "gunim.test-fresh"}
+	hr := make(chan uint32)
+	go func() {
+		// A thread with no apartment yet, ended with the goroutine.
+		runtime.LockOSThread()
+		notifyWay()
+		r, _, _ := procRoInitialize.Call(0)
+		hr <- uint32(r)
+	}()
+	if r := <-hr; r != 1 {
+		t.Fatalf("RoInitialize after notifyWay returned %#x, want S_FALSE: the thread was not readied", r)
+	}
+}
+
+// The toasts' handlers post to the driver that opened the toasts last.
+func TestTheHandlersPostToTheDriverOpenNow(t *testing.T) {
+	stubToaster(t)
+	was := activatorDriver.Load()
+	t.Cleanup(func() { activatorDriver.Store(was) })
+	first, second := &Driver{}, &Driver{}
+	activatorDriver.Store(first)
+	hs := handlers()
+	activatorDriver.Store(second)
+	sender := &fake{vtbl: &fakeToastTbl}
+	for _, h := range hs[1:] {
+		call(uintptr(unsafe.Pointer(h)), 3, addr(sender), 0)
+	}
+	runtime.KeepAlive(sender)
+	if len(first.tasks) != 0 || len(second.tasks) != 2 {
+		t.Fatalf("the first driver was posted %d events and the second %d, want 0 and 2", len(first.tasks), len(second.tasks))
 	}
 }
 
