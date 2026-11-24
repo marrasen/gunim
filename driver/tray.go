@@ -50,7 +50,7 @@ type Tray struct {
 	// toasts are apart from those of the old. An installed application sets its own. AppName is the name its
 	// messages show as from, on Windows and Linux, and empty takes the program file's name.
 	//
-	// To show toasts, the Windows driver writes, at the first message, the AppID with its name and the icon's
+	// To show toasts, the Windows driver writes, at the first message, the AppID with its name and the messages'
 	// picture under the current user's Software\Classes\AppUserModelId\<AppID> in the registry, with the class ID
 	// of the COM object that hears clicks from the notification centre, and that class ID's LocalServer32, the
 	// program file. The picture goes in the user's cache folder, under <AppID>. An uninstaller takes all three

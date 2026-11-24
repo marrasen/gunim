@@ -726,7 +726,7 @@ func TestAMessageIsCleanedAndEscapedForItsServer(t *testing.T) {
 func TestABodyIsEscapedForAServerSlowToSayWhatItReads(t *testing.T) {
 	addr := privateBus(t)
 	_, f := serve(t, addr)
-	f.set(func() { f.capsIn = notifyTimeout/2 + 300*time.Millisecond })
+	f.set(func() { f.capsIn = notifyTimeout/2 + 100*time.Millisecond })
 	d := &Driver{}
 	upTray(t, d, newHeardLog())
 	if err := d.TrayNotify("title", "<b>x</b>"); err != nil {

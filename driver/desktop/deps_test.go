@@ -12,7 +12,7 @@ func TestTheLinuxDriverLinksNoCryptography(t *testing.T) {
 	cmd.Env = append(cmd.Environ(), "GOOS=linux", "GOARCH=arm64", "CGO_ENABLED=0")
 	out, err := cmd.Output()
 	if err != nil {
-		t.Skipf("go list: %v", err)
+		t.Fatalf("go list: %v", err)
 	}
 	for _, p := range strings.Fields(string(out)) {
 		if p == "crypto" || strings.HasPrefix(p, "crypto/") {
