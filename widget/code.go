@@ -40,6 +40,13 @@ var (
 	CodeGutterFill = theme.Color("code.gutter.fill", color.NRGBA{R: 0x1a, G: 0x1d, B: 0x25, A: 0xff})
 	CodeGutterInk  = theme.Foreground("code.gutter.ink", color.NRGBA{R: 0x5c, G: 0x63, B: 0x70, A: 0xff})
 	CodeLineFill   = theme.Color("code.line", color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x09})
+	// CodeLitFill is behind the line [CodeEditor.SetLit] lights, and
+	// CodeLitEdge the bar at its left, as a debugger shows the line it
+	// stands on.
+	CodeLitFill = theme.Color("code.lit", color.NRGBA{R: 0x5e, G: 0x9c, B: 0xff, A: 0x24})
+	CodeLitEdge = theme.Color("code.lit.edge", color.NRGBA{R: 0x5e, G: 0x9c, B: 0xff, A: 0xff})
+	// CodeLitMotion carries the lit line from line to line.
+	CodeLitMotion = theme.Spring("code.lit.motion", anim.Gentle)
 	// CodeScroll carries the code when it scrolls, damped so it stops
 	// at the ends without swinging past them.
 	CodeScroll = theme.Spring("code.scroll", anim.Spring{Response: 0.18, Damping: 1})
@@ -119,7 +126,8 @@ var codeWave = func() shape.Stroke {
 // none.
 //
 // The caret glides between places, a band follows it from line to
-// line, and a mark from [CodeEditor.SetMarks] fades in on its line
+// line, a line lit by [CodeEditor.SetLit] glides to the next one lit,
+// and a mark from [CodeEditor.SetMarks] fades in on its line
 // with its message after the code. A Placeholder goes at once as the
 // first character goes in, and fades back in when the code is empty
 // again.
@@ -175,6 +183,13 @@ type CodeEditor struct {
 	scrollX *anim.Float
 	scrollY *anim.Float
 	marks   []*codeMark
+	// lit carries the lit line's top, in lines from 0, litShown how much
+	// it shows, from 0 to 1, and litLine the line lit, from 1, or 0.
+	// reveal is a line, from 1, the next layout scrolls into view.
+	lit      *anim.Float
+	litShown *anim.Float
+	litLine  int
+	reveal   int
 
 	held bool
 
@@ -257,11 +272,13 @@ func NewCodeEditor() *CodeEditor {
 		rows:       anim.NewFloat(0),
 		scrollX:    anim.NewFloat(0),
 		scrollY:    anim.NewFloat(0),
+		lit:        anim.NewFloat(0),
+		litShown:   anim.NewFloat(0),
 		numberRuns: map[int]text.Run{},
 	}
 	c.multiline, c.Numbers = true, true
 	c.tabs = func() bool { return !c.TabMovesOn }
-	c.Add(c.focus, c.caretAt, c.band, c.scrollX, c.scrollY, c.rows, c.hint)
+	c.Add(c.focus, c.caretAt, c.band, c.scrollX, c.scrollY, c.rows, c.hint, c.lit, c.litShown)
 	c.changed = func(u *gunim.UI) {
 		if c.OnChange != nil {
 			send(u, c, c.OnChange(c.Text(), u))
@@ -344,6 +361,34 @@ func (c *CodeEditor) SetMarks(marks []CodeMark, u *gunim.UI) {
 	}
 	u.Invalidate()
 }
+
+// SetLit lights line, counted from 1, apart from the caret, as a
+// debugger lights the line it stands on; 0 lights none. The light
+// glides from the line lit before, fades in where none was lit, and
+// fades out on 0. With reveal, the editor scrolls the line into view
+// where it is out of it, and leaves the caret where it is.
+func (c *CodeEditor) SetLit(line int, reveal bool, u *gunim.UI) {
+	th := u.Theme()
+	if line > 0 {
+		if c.litLine == 0 && c.litShown.Value() <= 0.01 {
+			// Nothing lit: the light comes in where it is, not from the top.
+			c.lit.Jump(float32(line - 1))
+		} else {
+			c.lit.Animate(float32(line-1), CodeLitMotion.Get(th))
+		}
+		c.litShown.Animate(1, Quick.Get(th))
+		if reveal {
+			c.reveal = line
+		}
+	} else {
+		c.litShown.Animate(0, Settle.Get(th))
+	}
+	c.litLine = line
+	u.Invalidate()
+}
+
+// Lit returns the line lit, counted from 1, or 0.
+func (c *CodeEditor) Lit() int { return c.litLine }
 
 // Marks returns the marks shown, those fading away left out.
 func (c *CodeEditor) Marks() []CodeMark {
@@ -978,6 +1023,19 @@ func (c *CodeEditor) Layout(cs gunim.Constraints, f gunim.Frame, _ gunim.Childre
 			sy = at.Y + c.lineH - c.view.H
 		}
 	}
+	if c.reveal > 0 {
+		// A line lit to be shown: in view, with a line of room around it
+		// where there is room.
+		y := float32(min(c.reveal, max(len(c.lines), 1))-1) * c.lineH
+		room := min(c.lineH, max(0, (c.view.H-c.lineH)/2))
+		switch {
+		case y-room < sy:
+			sy = y - room
+		case y+c.lineH+room > sy+c.view.H:
+			sy = y + c.lineH + room - c.view.H
+		}
+		c.reveal = 0
+	}
 	c.followed, c.followedIn = caret, c.view
 	sx = max(0, min(sx, c.maxScrollX()))
 	sy = max(0, min(sy, c.maxScrollY()))
@@ -1014,6 +1072,13 @@ func (c *CodeEditor) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gun
 		band := CodeLineFill.Get(th)
 		band.A = uint8(float32(band.A) * (0.5 + 0.5*focus))
 		p.RRect(geom.Rc(c.gutterW, o.Y+c.band.Value(), box.W-c.gutterW, c.lineH), 0, paint.Solid(band))
+	}
+
+	// The lit line: a tint, and a bar at its left.
+	if shown := min(max(c.litShown.Value(), 0), 1); shown > 0 {
+		y := o.Y + c.lit.Value()*c.lineH
+		p.RRect(geom.Rc(c.gutterW, y, box.W-c.gutterW, c.lineH), 0, paint.Solid(fadedBy(CodeLitFill.Get(th), shown)))
+		p.RRect(geom.Rc(c.gutterW, y, 2, c.lineH), 0, paint.Solid(fadedBy(CodeLitEdge.Get(th), shown)))
 	}
 
 	// Marks: a tint on their lines.

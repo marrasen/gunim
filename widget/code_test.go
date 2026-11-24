@@ -390,3 +390,49 @@ func TestACodeMarkUnderlinesItsColumns(t *testing.T) {
 		t.Fatalf("a mark with no end drew %d waves", n)
 	}
 }
+
+// A lit line glides to the next one lit, frame by frame, and a line lit
+// to be shown scrolls into view with the caret left where it was.
+func TestCodeLitLineGlidesAndScrollsIntoView(t *testing.T) {
+	src := strings.Repeat("line\n", 200) + "end"
+	c, w, run := codeStage(t, src)
+	gunim.RegisterPatch(w, "stage", func(_ gunim.Node, line int, u *gunim.UI) { c.SetLit(line, true, u) })
+	if err := w.Client().Patch("stage", 3); err != nil {
+		t.Fatal(err)
+	}
+	run(1)
+	if got := c.lit.Value(); got != 2 {
+		t.Fatalf("the first line lit came in at line %v, want 2 from 0", got)
+	}
+	caret := c.caret
+	if err := w.Client().Patch("stage", 150); err != nil {
+		t.Fatal(err)
+	}
+	last := c.lit.Value()
+	moved := false
+	for range 90 {
+		run(1)
+		v := c.lit.Value()
+		if v < last-0.01 || v > 149.5 {
+			t.Fatalf("the light went from line %v to %v, heading for 149", last, v)
+		}
+		moved = moved || v > 2 && v < 149
+		last = v
+	}
+	if !moved || abs32(last-149) > 0.01 {
+		t.Fatalf("the light glided %v and settled at %v, want 149", moved, last)
+	}
+	if y := 149 * c.lineH; y < c.scrollY.Value() || y+c.lineH > c.scrollY.Value()+c.view.H {
+		t.Fatalf("line 150, at %v, is out of the view scrolled to %v", y, c.scrollY.Value())
+	}
+	if c.caret != caret {
+		t.Fatalf("lighting a line moved the caret from %d to %d", caret, c.caret)
+	}
+	if err := w.Client().Patch("stage", 0); err != nil {
+		t.Fatal(err)
+	}
+	run(60)
+	if c.Lit() != 0 || c.litShown.Value() > 0.01 {
+		t.Fatalf("lit %d shows %v after it went out", c.Lit(), c.litShown.Value())
+	}
+}
