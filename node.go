@@ -90,6 +90,21 @@ type Ornament interface {
 	Ornament()
 }
 
+// A SizeMover is an [Animator] whose motion changes its own size, as a fold
+// that opens. A container that springs its children to their places, as
+// widget.Flex does, has those after it follow the motion exactly: sprung
+// after it, they would trail it and lie over it on the way.
+//
+// SizeMoved returns how far the node's own motion took its size in the last
+// Step, and leaves out what changed the size at once, as a line of text come
+// into a fold's content, which the container springs from as ever.
+//
+// [Child.SizeMoved] reads it through whatever nodes lie between.
+type SizeMover interface {
+	Animator
+	SizeMoved() geom.Size
+}
+
 // Waker is an [Animator] that rests now but has something to do a while
 // later, as a scrollbar that fades once the content has been still for
 // a moment. WakeIn, asked after each Step, is how long until it wants a
@@ -674,6 +689,32 @@ func (c Child) Place(at geom.Point) {
 
 // Size returns the size the child chose at its last Layout.
 func (c Child) Size() geom.Size { return c.n.size }
+
+// SizeMoved returns the most that the motion of the [SizeMover]s in the
+// child's subtree, the child among them, can have grown and shrunk it by in
+// this frame's Step, across and down: what they grew by in all, and what
+// they shrank by, which is zero or less. A change of the child's size
+// within them is theirs, and any beyond came at once. Call it after Layout.
+func (c Child) SizeMoved() (grew, shrank geom.Size) {
+	sizeMoved(c.n, c.f.seq, &grew, &shrank)
+	return grew, shrank
+}
+
+// sizeMoved adds to grew and shrank what the [SizeMover]s at and below s
+// moved, of those frame seq laid out.
+func sizeMoved(s *state, seq uint64, grew, shrank *geom.Size) {
+	if s.laid != seq {
+		return
+	}
+	if m, ok := s.node.(SizeMover); ok && s.moving(seq) {
+		by := m.SizeMoved()
+		*grew = geom.Sz(grew.W+max(by.W, 0), grew.H+max(by.H, 0))
+		*shrank = geom.Sz(shrank.W+min(by.W, 0), shrank.H+min(by.H, 0))
+	}
+	for _, k := range s.kids {
+		sizeMoved(k, seq, grew, shrank)
+	}
+}
 
 // Paint draws the child's subtree at the position it was placed, under
 // whatever transform the parent has pushed.

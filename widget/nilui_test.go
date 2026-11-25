@@ -59,6 +59,7 @@ func TestEverySetterTakesANilUI(t *testing.T) {
 		"StatusSwitch.SetChecked": func() { NewStatusSwitch("s").SetChecked(true, u) },
 		"StatusSwitch.SetBusy":    func() { NewStatusSwitch("s").SetBusy(true, u) },
 		"LogView.SetLines":        func() { NewLogView().SetLines([]LogLine{{Text: "a"}}, 1, u) },
+		"Dialog.SetButtonShown":   func() { d := NewDialog("d"); d.SetButtonShown(d.OK(), false, u) },
 		"Pages.Show":              func() { NewPages(newSpot(1, 1)).Show(newSpot(2, 2), geom.Pt(0, 1), u) },
 		"TileGrid.SetLen":         func() { NewTileGrid(geom.Sz(10, 10)).SetLen(5, u) },
 		"TileGrid.SetSelected":    func() { g := NewTileGrid(geom.Sz(10, 10)); g.SetLen(5, u); g.SetSelected([][2]int{{1, 2}}, 1, u) },

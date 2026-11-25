@@ -1,6 +1,8 @@
 package widget
 
 import (
+	"time"
+
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
 	"github.com/marrasen/gunim/geom"
@@ -18,6 +20,8 @@ var FoldMotion = theme.Spring("motion.fold", anim.Spring{Response: 0.3, Damping:
 // it sounds the open or the close cue. A fold shut takes no room and no
 // pointer, and its child keeps its state.
 //
+// What lies after it in a [Flex] moves with it, frame by frame.
+//
 // Axis folds it sideways instead, so what lies after it glides along a
 // row. Comes makes it grow in as it joins the tree and shrink out as it
 // leaves, for something added and taken away rather than kept.
@@ -34,6 +38,10 @@ type Fold struct {
 	open  *anim.Float
 	shut  bool
 	box   geom.Size
+	// inner is the child's size at the last layout, and grew how far the
+	// last step opened the fold.
+	inner geom.Size
+	grew  float32
 	// laid is set by the first layout; a state set before it shows at once.
 	laid bool
 }
@@ -72,6 +80,25 @@ func (f *Fold) SetOpen(open bool, u *gunim.UI) {
 	u.Invalidate()
 }
 
+// shown is how far open the fold is shown, from 0 to 1.
+func (f *Fold) shown() float32 { return min(max(f.open.Value(), 0), 1) }
+
+// Step implements [gunim.Animator].
+func (f *Fold) Step(dt time.Duration) bool {
+	was := f.shown()
+	moving := f.Group.Step(dt)
+	f.grew = f.shown() - was
+	return moving
+}
+
+// SizeMoved implements [gunim.SizeMover].
+func (f *Fold) SizeMoved() geom.Size {
+	if f.Axis == Horizontal {
+		return geom.Sz(f.grew*f.inner.W, 0)
+	}
+	return geom.Sz(0, f.grew*f.inner.H)
+}
+
 // Children implements [gunim.Composite].
 func (f *Fold) Children() []gunim.Node { return []gunim.Node{f.child} }
 
@@ -101,14 +128,14 @@ func (f *Fold) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) g
 	if f.Axis == Horizontal {
 		s := k.Layout(gunim.Constraints{Max: c.Max})
 		k.Place(geom.Point{})
-		t := min(max(f.open.Value(), 0), 1)
-		f.box = c.Constrain(geom.Sz(s.W*t, s.H))
+		f.inner = s
+		f.box = c.Constrain(geom.Sz(s.W*f.shown(), s.H))
 		return f.box
 	}
 	s := k.Layout(gunim.Constraints{Min: geom.Sz(c.Min.W, 0), Max: geom.Sz(c.Max.W, 0)})
 	k.Place(geom.Point{})
-	t := min(max(f.open.Value(), 0), 1)
-	f.box = c.Constrain(geom.Sz(s.W, s.H*t))
+	f.inner = s
+	f.box = c.Constrain(geom.Sz(s.W, s.H*f.shown()))
 	return f.box
 }
 
@@ -123,7 +150,7 @@ func (f *Fold) Covers(p geom.Point) bool {
 
 // Paint implements [gunim.Node].
 func (f *Fold) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, kids gunim.Children) {
-	t := min(max(f.open.Value(), 0), 1)
+	t := f.shown()
 	if t < 0.001 {
 		return
 	}

@@ -3,6 +3,7 @@ package widget
 import (
 	"image/color"
 	"math"
+	"time"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/access"
@@ -63,8 +64,10 @@ type Chip struct {
 	size   geom.Size
 	crossX float32
 	click  Clicker
-	// cross is how far the cross has faded in, and laid that the chip has been laid out.
+	// cross is how far the cross has faded in, grew how far the last step took it, and laid that the chip has been
+	// laid out.
 	cross *anim.Float
+	grew  float32
 	laid  bool
 	// caps are the keys' names, shaped, and capsW how wide they all are.
 	caps  []shapedText
@@ -96,6 +99,25 @@ func (c *Chip) SetCross(show bool, u *gunim.UI) {
 	}
 }
 
+// crossShown is how much of the cross's room the chip gives it, from 0 to 1.
+func (c *Chip) crossShown() float32 { return min(max(c.cross.Value(), 0), 1) }
+
+// Step implements [gunim.Animator].
+func (c *Chip) Step(dt time.Duration) bool {
+	was := c.crossShown()
+	moving := c.Control.Step(dt)
+	c.grew = c.crossShown() - was
+	return moving
+}
+
+// SizeMoved implements [gunim.SizeMover]: the chip's end glides as the cross comes and goes.
+func (c *Chip) SizeMoved() geom.Size {
+	if len(c.Keys) > 0 {
+		return geom.Size{}
+	}
+	return geom.Sz(c.grew*c.size.H/2, 0)
+}
+
 // Layout implements [gunim.Node].
 func (c *Chip) Layout(cs gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
 	th := f.Theme
@@ -124,7 +146,7 @@ func (c *Chip) Layout(cs gunim.Constraints, f gunim.Frame, _ gunim.Children) geo
 		w += c.leadText.shape(faceIn(BoldFont, th), c.Lead, size).Advance + 6
 	}
 	w += c.labelText.shape(faceIn(Font, th), c.Label, size).Advance
-	shown := min(max(c.cross.Value(), 0), 1)
+	shown := c.crossShown()
 	c.size = cs.Constrain(geom.Sz(w+h/2+shown*h/2, h))
 	c.crossX = c.size.W - h/2
 	return c.size
@@ -140,7 +162,7 @@ func (c *Chip) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Chi
 		return
 	}
 	// The text has the room up to the cross, which takes a square at the end, and takes less of it as it fades.
-	shown := min(max(c.cross.Value(), 0), 1)
+	shown := c.crossShown()
 	end := box.W - box.H/2 - shown*box.H/2
 	fill := anim.Mix(anim.ColorCodec, ChipFill.Get(th), ChipHover.Get(th), c.hover.Value())
 	p.RRect(geom.Rect{Max: box.Point()}, box.H/2, paint.Solid(fill))
@@ -190,7 +212,7 @@ func (c *Chip) paintKeys(p *paint.Painter, th *theme.Live, box geom.Size) {
 		run.Paint(p, geom.Pt(x+pad, (box.H-1.5-run.Height())/2), Ink.Get(th))
 		x += w + gap
 	}
-	shown := min(max(c.cross.Value(), 0), 1)
+	shown := c.crossShown()
 	if shown < 0.01 {
 		return
 	}
