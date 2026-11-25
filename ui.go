@@ -238,6 +238,44 @@ func (a *App) OnNotification(fn func(tag string)) {
 	}
 }
 
+// ConfirmOptions say what [App.ConfirmPerson] asks; see [driver.ConfirmOptions].
+type ConfirmOptions = driver.ConfirmOptions
+
+// The errors of [App.ConfirmPerson]; see [driver.ErrNotConfirmed], [driver.ErrNoScreenLock], [driver.ErrConfirming] and
+// [driver.ErrNoConfirmer].
+var (
+	ErrNotConfirmed = driver.ErrNotConfirmed
+	ErrNoScreenLock = driver.ErrNoScreenLock
+	ErrConfirming   = driver.ErrConfirming
+	ErrNoConfirmer  = driver.ErrNoConfirmer
+)
+
+// ConfirmPerson asks, with the system's own prompt, whether it is the user who holds the device: by a finger, a face, or
+// the PIN, pattern or password of its screen lock. It returns nil once they have confirmed, and an error in every other
+// case: ErrNotConfirmed where they did not, ErrNoScreenLock where there is no lock to confirm with, ErrConfirming where a
+// prompt is up already, and ctx's error where that ends first. It waits for the application to be in front, and blocks,
+// so call it from a goroutine of the application's, never the main one, and with a ctx that ends.
+//
+// It is the system's word and no more. It opens no key, so a program whose process or system is broken into can be made
+// to skip it.
+//
+// It works on Android, for which gunimapk needs -permissions confirm, and returns ErrNoConfirmer elsewhere.
+func (a *App) ConfirmPerson(ctx context.Context, o ConfirmOptions) error {
+	if c, ok := a.drv.(driver.Confirmer); ok {
+		return c.ConfirmPerson(ctx, o)
+	}
+	return ErrNoConfirmer
+}
+
+// HasScreenLock reports whether the device has a screen lock with a PIN, a pattern or a password, as it is now. It
+// returns ErrNoConfirmer where gunim cannot tell.
+func (a *App) HasScreenLock() (bool, error) {
+	if c, ok := a.drv.(driver.Confirmer); ok {
+		return c.HasScreenLock(), nil
+	}
+	return false, ErrNoConfirmer
+}
+
 // NetworkState is what the system says of the network; see [driver.NetworkState].
 type NetworkState = driver.NetworkState
 

@@ -185,6 +185,7 @@ func TestEachPermissionAsksForItsOwnAndNoMore(t *testing.T) {
 		"music":         {"READ_MEDIA_AUDIO", "READ_EXTERNAL_STORAGE"},
 		"microphone":    {"RECORD_AUDIO"},
 		"camera":        {"CAMERA"},
+		"confirm":       {"USE_BIOMETRIC"},
 		"notifications": {"POST_NOTIFICATIONS"},
 		"internet":      {"INTERNET"},
 		"network-state": {"ACCESS_NETWORK_STATE"},

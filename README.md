@@ -580,8 +580,8 @@ folder, on a phone or a desktop, and a folder chooser picks a folder on
 the phone's storage or a card as a path.
 
 `-permissions` also takes `internet`, which a program needs to reach the
-network, and `camera`, `notifications`, `network-state`, `jobs`, `boot`
-and `hide-overlays`. `-manifest` names a file of the program's own parts
+network, and `camera`, `confirm`, `notifications`, `network-state`,
+`jobs`, `boot` and `hide-overlays`. `-manifest` names a file of the program's own parts
 of the manifest, such as its services, in Android's own form. `-min-sdk`
 sets the oldest Android the program runs on.
 
@@ -654,6 +654,14 @@ screenshots, recordings, the picture in Recents and screens cast, and
 clear of other apps' windows over it. A `Secret` field asks the keyboard
 to learn nothing, and `UI.SetClipboardSensitive` marks what it copies.
 `example/secret` shows them.
+
+`App.ConfirmPerson` asks, with Android's own prompt, whether it is the
+user who holds the phone: by a finger, a face, or the PIN, pattern or
+password of the screen lock. It returns nil for a yes and for nothing
+else. `App.HasScreenLock` says whether there is a screen lock to confirm
+with. It is the system's word, and opens no key: a program on a phone
+whose system is broken into can be made to skip it. A program that asks
+is built with `-permissions confirm`. `example/confirm` shows it.
 
 What gunim writes to Android's log holds no name or address of a file.
 `gunimapk -quiet` keeps the program's own output out of it too, and a
