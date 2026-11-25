@@ -260,7 +260,8 @@ var (
 // to skip it.
 //
 // It works on Android, for which gunimapk needs -permissions confirm, and returns ErrNoConfirmer elsewhere. Before Android
-// 11 it takes the PIN, the pattern or the password alone.
+// 11 the screen lock's own screen asks, which takes the PIN, the pattern or the password, and a finger where Android lets
+// it there.
 func (a *App) ConfirmPerson(ctx context.Context, o ConfirmOptions) error {
 	if c, ok := a.drv.(driver.Confirmer); ok {
 		return c.ConfirmPerson(ctx, o)

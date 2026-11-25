@@ -33,8 +33,8 @@
 //     background, a user-initiated job, from Android 14
 //   - boot, to run after the phone restarts, as a job that outlives a
 //     restart does
-//   - confirm, to ask with a finger or a face whether it is the user who
-//     holds the phone, as gunim's App.ConfirmPerson does, from Android 11
+//   - confirm, to ask whether it is the user who holds the phone, as
+//     gunim's App.ConfirmPerson does, from Android 11
 //   - hide-overlays, to hide other apps' windows over its own, from
 //     Android 12
 //   - playback, to play on in the background, in the system's media

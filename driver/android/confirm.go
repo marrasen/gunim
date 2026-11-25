@@ -45,8 +45,9 @@ var confirming struct {
 func (d *Driver) HasScreenLock() bool { return C.gunim_has_screen_lock() != 0 }
 
 // ConfirmPerson implements [driver.Confirmer], with Android's own prompt.
-// Before Android 11 it takes the PIN, the pattern or the password alone,
-// and stays as the user leaves the program and comes back.
+// Before Android 11 it is the screen of the lock's own, which takes the
+// PIN, the pattern or the password, and a finger where Android lets it
+// there. It stays as the user leaves the program and comes back.
 func (d *Driver) ConfirmPerson(ctx context.Context, o driver.ConfirmOptions) error {
 	if err := driver.CheckConfirm(o); err != nil {
 		return err
