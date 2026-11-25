@@ -75,6 +75,8 @@ type OffscreenWindow struct {
 	share   func(Share) error
 	vibrate func([]time.Duration) error
 	awake   func(bool) error
+	// secure answers Secure; see SetSecurer.
+	secure func(bool) error
 	// fingers is what TakeFingers last said.
 	fingers bool
 	// announced is what Announce said, in order.
@@ -1144,6 +1146,25 @@ func (w *OffscreenWindow) KeepAwake(on bool) error {
 	w.mu.Unlock()
 	if fn == nil {
 		return ErrNoAwaker
+	}
+	return fn(on)
+}
+
+// SetSecurer sets what Secure does, for a test standing in for the system.
+func (w *OffscreenWindow) SetSecurer(fn func(on bool) error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.secure = fn
+}
+
+// Secure implements [Securer] with the function SetSecurer set, and returns
+// [ErrNoSecurer] without one.
+func (w *OffscreenWindow) Secure(on bool) error {
+	w.mu.Lock()
+	fn := w.secure
+	w.mu.Unlock()
+	if fn == nil {
+		return ErrNoSecurer
 	}
 	return fn(on)
 }

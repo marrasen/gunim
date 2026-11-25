@@ -632,6 +632,12 @@ as the bytes come. A file ends with `Close`, once it is whole, or with
 `Remove`, and one that a run left half way is taken away by the next with
 `App.RemoveSaved`. `example/filesout` shows them.
 
+`Client.Secure(true)` keeps what a window shows to the screen: out of
+screenshots, recordings, the picture in Recents and screens cast, and
+clear of other apps' windows over it. A `Secret` field asks the keyboard
+to learn nothing, and `UI.SetClipboardSensitive` marks what it copies.
+`example/secret` shows them.
+
 What gunim writes to Android's log holds no name or address of a file.
 `gunimapk -quiet` keeps the program's own output out of it too, and a
 panic's message and stacks.

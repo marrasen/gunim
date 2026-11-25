@@ -203,6 +203,15 @@ type Driver struct {
 	compass     bool
 	compassOnce sync.Once
 
+	// secureMu is held, with mu not, while Java is told whether what the
+	// activity shows is kept to the screen. secureSent is what it was last
+	// told, and secureErr what it said.
+	secureMu   sync.Mutex
+	secureSent bool
+	secureErr  error
+	// secureUntil is when a secure window that closed has left the screen.
+	// mu guards it.
+	secureUntil time.Time
 	// awakeSent is what keepAwakeLocked last handed Java.
 	awakeSent bool
 	// excludedSent is the rects, four device pixel coordinates each,
@@ -819,6 +828,11 @@ func (d *Driver) closed(w *Window) {
 		default:
 			close(d.quit)
 		}
+	} else if w.secure {
+		// The screen shows w until another frame is drawn. With the last
+		// window the activity goes, as secure as it is.
+		d.secureUntil = time.Now().Add(time.Second)
+		time.AfterFunc(time.Second+time.Millisecond, func() { _ = d.tellSecure() })
 	}
 	d.mu.Unlock()
 	d.kick()

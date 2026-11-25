@@ -60,6 +60,23 @@ type Awaker interface {
 // on.
 var ErrNoAwaker = errors.New("driver: no way to keep the screen on here")
 
+// A Securer is a [Window] that can keep what it shows to the screen alone:
+// out of screenshots and recordings, of the picture the system's list of
+// programs shows, and of screens shared or cast. Secure(true) has taken
+// effect as it returns. It lasts until Secure(false) or the window's
+// closing.
+type Securer interface {
+	Secure(on bool) error
+}
+
+// ErrNoSecurer is returned where gunim cannot keep what a window shows to
+// the screen.
+var ErrNoSecurer = errors.New("driver: no way to keep a window out of screenshots on this platform")
+
+// ErrOverlaysStay is returned by Secure where the window is kept out of
+// screenshots, and other programs may draw over it.
+var ErrOverlaysStay = errors.New("driver: other programs may draw over the window")
+
 // A FingerTaker is a [Window] on a touch screen that can take more than
 // one finger at once. TakeFingers on sends every finger of a touch that
 // starts in the window as [input.Finger], a second one in place of a
