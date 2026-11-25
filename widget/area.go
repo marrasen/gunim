@@ -194,6 +194,9 @@ func (a *TextArea) Handle(e input.Event, u *gunim.UI) bool {
 			a.contextPress(a, a.indexAt(e.Pos, u), e.Pos, e.Touch, u)
 			break
 		}
+		if a.fingerDown(e) {
+			break
+		}
 		a.closeHandles()
 		a.press(a.indexAt(e.Pos, u), e.Clicks, e.Mods.Has(input.ModShift), WordStops.Get(u.Theme()))
 		a.held = true
@@ -210,6 +213,12 @@ func (a *TextArea) Handle(e input.Event, u *gunim.UI) bool {
 	case input.PointerUp:
 		a.held = false
 		if a.endWords(a, e.Pos, u) {
+			break
+		}
+		if d, ok := a.tapped(e.Pos); ok {
+			a.closeHandles()
+			a.press(a.indexAt(d.Pos, u), d.Clicks, d.Mods.Has(input.ModShift), WordStops.Get(u.Theme()))
+		} else if e.Pos == input.Away {
 			break
 		}
 		a.complete(u)

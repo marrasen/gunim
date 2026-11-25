@@ -478,6 +478,9 @@ func (c *CodeEditor) Handle(e input.Event, u *gunim.UI) bool {
 			c.contextPress(c, c.indexAt(e.Pos), e.Pos, e.Touch, u)
 			break
 		}
+		if c.fingerDown(e) {
+			break
+		}
 		c.closeHandles()
 		c.press(c.indexAt(e.Pos), e.Clicks, e.Mods.Has(input.ModShift), WordStops.Get(u.Theme()))
 		c.held = true
@@ -492,7 +495,13 @@ func (c *CodeEditor) Handle(e input.Event, u *gunim.UI) bool {
 		c.set(c.indexAt(e.Pos), true)
 	case input.PointerUp:
 		c.held = false
-		c.endWords(c, e.Pos, u)
+		if c.endWords(c, e.Pos, u) {
+			break
+		}
+		if d, ok := c.tapped(e.Pos); ok {
+			c.closeHandles()
+			c.press(c.indexAt(d.Pos), d.Clicks, d.Mods.Has(input.ModShift), WordStops.Get(th))
+		}
 	case input.Scroll:
 		dx, dy := e.Delta.X, e.Delta.Y
 		if e.Mods.Has(input.ModShift) && dx == 0 {
