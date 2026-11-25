@@ -390,3 +390,25 @@ func TestACodeMarkUnderlinesItsColumns(t *testing.T) {
 		t.Fatalf("a mark with no end drew %d waves", n)
 	}
 }
+
+// TestCodeTurnedReadOnlyStopsComposing: what is being composed goes, and the platform
+// hears that the code takes no text.
+func TestCodeTurnedReadOnlyStopsComposing(t *testing.T) {
+	c, w, run := codeStage(t, "make")
+	w.Input(input.Composing{Text: "に", Selected: [2]int{3, 3}})
+	run(1)
+	if len(c.preedit) == 0 {
+		t.Fatal("the code composes nothing")
+	}
+	c.SetReadOnly(true)
+	run(1)
+	if len(c.preedit) > 0 || c.TakesText() {
+		t.Errorf("read only, it composes %q, and takes text: %v", string(c.preedit), c.TakesText())
+	}
+	c.SetReadOnly(false)
+	run(1)
+	w.Input(input.TextInput{Text: "x"})
+	if c.Text() != "makex" && c.Text() != "xmake" {
+		t.Errorf("editable again, typing made %q", c.Text())
+	}
+}

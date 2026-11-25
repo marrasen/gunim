@@ -233,6 +233,15 @@ type Focusable interface {
 // text field does. While one has focus, the platform's input method
 // composes into the window and reports its composition as
 // [input.Composing], or as [input.TextEdit] to a [TextEditor].
+//
+// TakesText reports whether it takes text right now, so a node can start
+// and stop while it has the focus, as a terminal its user may no longer
+// type in. The focused node is asked as the focus moves, after each key
+// and press, and after every frame. One that stops is sent an empty
+// [input.Composing], which ends a composition into it, and a phone's
+// keyboard goes away. One that starts brings a phone's keyboard up at the
+// next tap on it, or at once where a tap on it had it start, as a field
+// the focus has come to does.
 type TextTaker interface {
 	Node
 	TakesText() bool

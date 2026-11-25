@@ -35,6 +35,7 @@ func (u *UI) handleOn(root *state, ev any) {
 	// browser decides whose the next key is before any frame. See KeyClaimer.
 	switch ev.(type) {
 	case input.KeyPress, input.TextInput, input.Composing, input.TextEdit, input.PointerDown, input.PointerUp:
+		u.takeTextAgain()
 		u.syncText(u.focus, false)
 		u.claimKeys(u.focus)
 	}
@@ -328,7 +329,10 @@ func (u *UI) handleRaw(root *state, ev any) {
 			return input.PointerUp{Pos: local, Button: e.Button, Mods: e.Mods, Touch: e.Touch, Time: e.Time}
 		}
 		if root == u.root {
-			u.askKeyboard(u.hit(root, e.Pos))
+			// Asked once the press is handled, which may have the node
+			// start to take text.
+			hit := u.hit(root, e.Pos)
+			defer func() { u.askKeyboard(hit) }()
 		}
 		if pointerDebug {
 			pointerf("release %d at %.1f,%.1f in the %s, to %s", e.Button, e.Pos.X, e.Pos.Y, u.rootName(root), nodeName(u.capture))

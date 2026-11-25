@@ -2139,6 +2139,9 @@ type UI struct {
 	// is the seq of the last [input.TextEdit] the focus took.
 	textState         *input.TextState
 	textSent, textSeq uint64
+	// takes is whether the focused node takes text, as last told to the
+	// driver.
+	takes bool
 	// keysClaimed is whether the focused node claims the keys, as last
 	// told to the driver.
 	keysClaimed bool
@@ -3104,7 +3107,7 @@ func (u *UI) Focus(n Node) bool {
 			grouped = grouped || a != next
 		}
 	}
-	u.takeText(prev, next)
+	u.takeText(next)
 	if next != nil {
 		u.deliver(next, input.FocusGained{Keyed: u.keyed, Step: u.focusStep, Grouped: grouped, Time: u.now})
 		// The nodes round it that it has come into, innermost first.
@@ -3180,21 +3183,35 @@ func (u *UI) showRings(keyboard bool) {
 // between two nodes that take text turns text input off on the way,
 // which ends it. The new node's text state reaches the driver before
 // text input turns on, so the input method starts from it.
-func (u *UI) takeText(prev, next *state) {
+func (u *UI) takeText(next *state) {
 	// The driver forgets the caret and its box as text input turns off,
 	// so the next node to take text tells them afresh, though they are
 	// where they were.
 	u.caretAt, u.boxAt = geom.Rect{}, geom.Rect{}
 	ti, ok := u.w.dw.(driver.TextInputter)
 	takes := takingText(next)
-	if ok && takes && takingText(prev) {
+	if ok && takes && u.takes {
 		ti.SetTextInput(false)
 	}
+	u.takes = takes
 	u.syncText(next, true)
 	if ok {
 		ti.SetTextInput(takes)
 	}
 	u.claimKeys(next)
+}
+
+// takeTextAgain is takeText for the node that has the keyboard, where it
+// has started or stopped taking text since the driver last heard. One
+// that stops ends a composition into it, as losing the focus would.
+func (u *UI) takeTextAgain() {
+	if takingText(u.focus) == u.takes {
+		return
+	}
+	u.takeText(u.focus)
+	if !u.takes && u.focus != nil {
+		u.deliver(u.focus, input.Composing{})
+	}
 }
 
 // claimKeys tells the driver whether s, which has the keyboard, claims
@@ -3253,6 +3270,8 @@ func (u *UI) askKeyboard(hit *state) {
 	if !ok || hit == nil || u.focus == nil || !hit.within(u.focus) || !takingText(u.focus) {
 		return
 	}
+	// The press may be what had it take text.
+	u.takeTextAgain()
 	ks.ShowKeyboard()
 }
 
@@ -3551,6 +3570,7 @@ func (u *UI) paintFrame(fp framePaint) {
 	u.fadedAway()
 	u.placeNatives(f.Scale)
 	u.sendTitleBar()
+	u.takeTextAgain()
 	u.placeCaret()
 	u.syncText(u.focus, false)
 	u.claimKeys(u.focus)

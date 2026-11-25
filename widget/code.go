@@ -313,7 +313,14 @@ func (c *CodeEditor) Replace(s string, u *gunim.UI) {
 }
 
 // SetReadOnly makes the code read only, or editable again.
-func (c *CodeEditor) SetReadOnly(on bool) { c.readOnly = on }
+// It may turn read only while it has the keyboard: what is being
+// composed goes, and a phone's keyboard with it.
+func (c *CodeEditor) SetReadOnly(on bool) {
+	if on {
+		c.compose(input.Composing{})
+	}
+	c.readOnly = on
+}
 
 // ReadOnly reports whether the code is read only.
 func (c *CodeEditor) ReadOnly() bool { return c.readOnly }
