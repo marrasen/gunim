@@ -17,24 +17,24 @@ var symbolData []byte
 
 //go:embed fonts/NotoSansSymbols-Regular.ttf
 var symbolData2 []byte
-var browserFaces []*font.Face
-var browserFontsTried bool
+var symbolFaces []*font.Face
+var symbolsTried bool
 
 // Called with the text package mutex held.
 func platformFace(r rune) *font.Face {
 	if !systemOn {
 		return nil
 	}
-	if !browserFontsTried {
-		browserFontsTried = true
+	if !symbolsTried {
+		symbolsTried = true
 		for _, data := range [][]byte{symbolData, symbolData2} {
 			if f, err := font.ParseTTF(bytes.NewReader(data)); err == nil {
-				browserFaces = append(browserFaces, f)
+				symbolFaces = append(symbolFaces, f)
 				faceOf(f)
 			}
 		}
 	}
-	for _, f := range browserFaces {
+	for _, f := range symbolFaces {
 		if _, ok := f.NominalGlyph(r); ok {
 			return f
 		}

@@ -458,6 +458,8 @@ type tilePic struct {
 	run     text.Run
 	shaped  [2]float32
 	shapeOf string
+	// shapedFrom tells when the fonts change what it was shaped as.
+	shapedFrom text.Stamp
 }
 
 func newTilePic() *tilePic {
@@ -555,7 +557,7 @@ func (p *tilePic) paintIcon(pt *paint.Painter, th *theme.Live, box geom.Size, op
 		return
 	}
 	size := max(8, s*0.15)
-	if p.shapeOf != p.ext || p.shaped[0] != size {
+	if p.shapedFrom.Moved() || p.shapeOf != p.ext || p.shaped[0] != size {
 		p.run = widget.BoldFont.Default().Shape(p.ext, size)
 		p.shapeOf, p.shaped[0] = p.ext, size
 	}

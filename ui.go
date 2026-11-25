@@ -2041,6 +2041,8 @@ type UI struct {
 	topics map[string][]*state
 	// kept holds what the nodes asked for with KeepDrawing drew last.
 	kept map[Node]*Drawing
+	// keptTurns is the fonts' count of turns, as the glyphs of kept were last held on to.
+	keptTurns uint64
 	// chrome is the title bar of a chromeless window, nil for a window
 	// with the system's.
 	chrome *titleBar
@@ -3315,6 +3317,7 @@ func (u *UI) frame(now, present time.Time, delta time.Duration) {
 	u.now, u.present = now, present
 	// Timers run first, so what they invalidate is drawn in this frame
 	u.runTimers()
+	u.keepGlyphs()
 	u.apart = !u.invalid && !u.dragOver
 	u.calm = u.apart && !u.stirred
 	u.moved, u.pressed = u.apart && !u.pressed, false
@@ -3686,9 +3689,14 @@ func (u *UI) roots() []*state {
 // is not stepped.
 func (u *UI) step(s *state, dt time.Duration, root *state) bool {
 	animating := false
+	s.grew, s.shrank = geom.Size{}, geom.Size{}
 	if a, ok := s.node.(Animator); ok && (!isOrnament(s.node) || showed(s, root)) && a.Step(dt) {
 		animating = true
 		s.moved = u.seq
+	}
+	if m, ok := s.node.(SizeMover); ok && s.moving(u.seq) {
+		by := m.SizeMoved()
+		s.grew, s.shrank = geom.Sz(max(by.W, 0), max(by.H, 0)), geom.Sz(min(by.W, 0), min(by.H, 0))
 	}
 	if w, ok := s.node.(Waker); ok {
 		d := w.WakeIn()
@@ -3704,6 +3712,11 @@ func (u *UI) step(s *state, dt time.Duration, root *state) bool {
 	for _, k := range s.kids {
 		if u.step(k, dt, root) {
 			animating = true
+		}
+		// One out of sight, as on a hidden tab, moves nothing round it.
+		if k.laid+1 >= u.seq {
+			s.grew = geom.Sz(s.grew.W+k.grew.W, s.grew.H+k.grew.H)
+			s.shrank = geom.Sz(s.shrank.W+k.shrank.W, s.shrank.H+k.shrank.H)
 		}
 	}
 	return animating

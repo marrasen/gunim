@@ -190,3 +190,27 @@ func TestAnInstantMotionLandsAtOnce(t *testing.T) {
 		t.Fatal("a stiff spring landed before its first step")
 	}
 }
+
+// A point shifted on its way keeps on as it was going, from its new place.
+func TestAShiftedPointKeepsItsMotion(t *testing.T) {
+	a, b := anim.NewPoint(geom.Point{}), anim.NewPoint(geom.Point{})
+	a.Animate(geom.Pt(100, 0), anim.Snappy)
+	b.Animate(geom.Pt(100, 0), anim.Snappy)
+	by := geom.Point{}
+	for i := range 60 {
+		if i%4 == 0 {
+			anim.Shift(b, geom.Pt(3, 7))
+			by = by.Add(geom.Pt(3, 7))
+		}
+		moving := a.Step(time.Second / 60)
+		if b.Step(time.Second/60) != moving {
+			t.Fatalf("step %d: the shifted point is moving %v", i, !moving)
+		}
+		if d := b.Value().Sub(a.Value()).Sub(by); math.Hypot(float64(d.X), float64(d.Y)) > 1e-3 {
+			t.Fatalf("step %d: the shifted point is at %v, want %v past %v", i, b.Value(), by, a.Value())
+		}
+	}
+	if b.Target() != geom.Pt(100, 0).Add(by) {
+		t.Fatalf("the shifted point heads for %v", b.Target())
+	}
+}

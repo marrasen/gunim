@@ -100,6 +100,8 @@ type Month struct {
 	// ring runs from 0 to 1 as the month shows that it has the keyboard.
 	ring  *anim.Float
 	texts map[textKey]text.Paragraph
+	// textsFrom tells when the fonts change what they were laid out as.
+	textsFrom text.Stamp
 }
 
 // monthDrag is an event taken hold of: where the pointer took it, and the day it is over.
@@ -690,6 +692,9 @@ func (m *Month) paintSprite(p *paint.Painter, th *theme.Live, s *sprite) {
 // paragraph lays s out on one line w wide, keeping it for the next frame.
 func (m *Month) paragraph(th *theme.Live, s string, w float32, bold bool, size float32) text.Paragraph {
 	k := textKey{s: s, w: w, lines: 1, bold: bold, fontSize: size}
+	if m.textsFrom.Moved() {
+		clear(m.texts)
+	}
 	if t, ok := m.texts[k]; ok {
 		return t
 	}

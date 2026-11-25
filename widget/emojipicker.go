@@ -552,6 +552,7 @@ type emojiRow struct {
 	row   pickerRow
 	runs  []text.Run
 	title text.Run
+	from  text.Stamp
 	size  float32
 	cell  float32
 	hover int
@@ -566,7 +567,7 @@ func (r *emojiRow) Layout(cs gunim.Constraints, f gunim.Frame, _ gunim.Children)
 		r.title = faceIn(BoldFont, th).Shape(r.row.title, TextSize.Get(th)*0.85)
 		return geom.Sz(cs.Max.W, r.title.Height()+10)
 	}
-	if size := min(EmojiSize.Get(th), r.cell*2/3); size != r.size || len(r.runs) != len(r.row.emoji) {
+	if size := min(EmojiSize.Get(th), r.cell*2/3); r.from.Moved() || size != r.size || len(r.runs) != len(r.row.emoji) {
 		r.size = size
 		r.runs = r.runs[:0]
 		for _, e := range r.row.emoji {

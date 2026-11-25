@@ -45,6 +45,8 @@ type RichText struct {
 	laid  text.SpanParagraph
 	key   []text.Span
 	width float32
+	// fonts tells when the fonts change what it was laid out as.
+	fonts text.Stamp
 	// from holds the index in Spans of each span laid out, and icon whether that span is the icon's box.
 	from []int
 	icon []bool
@@ -78,7 +80,7 @@ func (r *RichText) paragraph(th *theme.Live, width float32) text.SpanParagraph {
 			r.from, r.icon = append(r.from, i), append(r.icon, false)
 		}
 	}
-	if !slices.Equal(spans, r.key) || width != r.width {
+	if r.fonts.Moved() || !slices.Equal(spans, r.key) || width != r.width {
 		r.key, r.width = spans, width
 		r.laid = text.LayoutSpans(spans, text.Style{Align: r.Align, LineHeight: r.LineHeight}, width)
 	}

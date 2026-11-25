@@ -20,6 +20,7 @@ import (
 	"image/color"
 	"math"
 	"sync"
+	"sync/atomic"
 	"unicode"
 
 	"github.com/go-text/typesetting/bidi"
@@ -68,7 +69,91 @@ type Face struct {
 	zonesSet bool
 	// colored says which glyphs draw in colours of their own, as they are asked about.
 	colored map[uint32]bool
+	// browser is set for a face that draws with the browser's own fonts.
+	browser *browserFont
 }
+
+// FromBrowser reports whether the browser draws f's glyphs, with fonts of its own. That takes much longer than drawing
+// an outline, so a driver spreads a screenful of new ones over several frames.
+func (f *Face) FromBrowser() bool { return f.browser != nil }
+
+// Reach returns how far glyph id may go from its origin, in shares of its size, where the browser draws it: it may be a
+// whole word. It returns 0 for any other glyph.
+func (f *Face) Reach(id uint32) float32 {
+	if f.browser == nil {
+		return 0
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	return f.browser.reach(id)
+}
+
+// Generation counts the changes to what text is shaped into: a face's fallbacks, whether the system's fonts fill in,
+// and the browser's glyphs dropped. A run or a paragraph shaped before one may not draw as it did, or at all; a [Stamp]
+// tells what keeps them.
+func Generation() uint64 { return generation.Load() }
+
+// A Stamp tells what keeps shaped text when to shape it again.
+type Stamp struct{ at uint64 }
+
+// Moved reports whether the [Generation] is another than when it was last asked, so that what was shaped before then is
+// shaped again.
+func (s *Stamp) Moved() bool {
+	g := generation.Load()
+	moved := g != s.at
+	s.at = g
+	return moved
+}
+
+// turns counts the times the browser's fonts dropped glyphs out of use.
+var turns atomic.Uint64
+
+// Turns counts the times the browser's fonts dropped glyphs that nothing had asked for or drawn in a long while. After
+// each a driver keeps those it shows, with [Keep].
+func Turns() uint64 { return turns.Load() }
+
+// Keep holds on to the glyphs ops draw that are the browser's, so the next turn does not drop them.
+func Keep(ops []paint.Op) {
+	mu.Lock()
+	defer mu.Unlock()
+	for _, op := range ops {
+		switch op := op.(type) {
+		case *paint.TextOp:
+			for _, g := range op.Glyphs {
+				keepLocked(g)
+			}
+		case *paint.CellsOp:
+			for _, c := range op.Cells {
+				if c.Text {
+					keepLocked(c.Glyph)
+				}
+			}
+		}
+	}
+}
+
+// KeepGlyphs holds on to those of glyphs that are the browser's, as [Keep] does.
+func KeepGlyphs(glyphs []paint.Glyph) {
+	mu.Lock()
+	defer mu.Unlock()
+	for _, g := range glyphs {
+		keepLocked(g)
+	}
+}
+
+// keepLocked holds on to g where it is the browser's. It runs with mu held.
+func keepLocked(g paint.Glyph) {
+	if int(g.Face) < len(faces) && faces[g.Face].browser != nil {
+		faces[g.Face].browser.keepGlyph(g.ID)
+	}
+}
+
+// cellGeneration counts the changes that make what [Face.Cell] returned before no longer hold.
+var cellGeneration atomic.Uint64
+
+// CellGeneration counts the changes to what [Face.Cell] returns: a face's fallbacks, whether the system's fonts fill
+// in, and the browser's glyphs dropped. What keeps a cell's glyphs asks for them anew after each.
+func CellGeneration() uint64 { return cellGeneration.Load() }
 
 // Parse reads a TrueType or OpenType font.
 func Parse(data []byte) (*Face, error) {
@@ -150,6 +235,7 @@ func (f *Face) Fallback(others ...*Face) *Face {
 	mu.Lock()
 	f.fallback = append([]*Face(nil), others...)
 	generation.Add(1)
+	cellGeneration.Add(1)
 	mu.Unlock()
 	return f
 }
@@ -682,6 +768,9 @@ func (f *Face) shapeLocked(runes []rune, size float32, dir di.Direction) shaping
 // the shaper takes, and the result scaled to size, which is exact where
 // in's own size keeps a sixty-fourth of a pixel. It runs with mu held.
 func shape(in shaping.Input, size float32) shaping.Output {
+	if out, ok := platformShape(in, size); ok {
+		return out
+	}
 	whole := float32(math.Ceil(float64(size)))
 	if whole <= 0 || whole == size {
 		return shaper.Shape(in)
@@ -723,6 +812,7 @@ func (f *Face) wrapLocked(runes []rune, size, width float32, cfg shaping.WrapCon
 		Size:      toFixed(size),
 		Language:  language.DefaultLanguage(),
 	}, fm), fm)
+	inputs = platformRuns(f, inputs)
 	outs := make([]shaping.Output, len(inputs))
 	for i, in := range inputs {
 		outs[i] = shape(in, size)

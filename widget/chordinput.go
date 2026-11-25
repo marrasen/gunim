@@ -59,9 +59,10 @@ type ChordInput struct {
 	// keyboard is here, so the ring pulses.
 	phase time.Duration
 	on    bool
-	// width is the box's width, gliding. Each modifier's key fades and
+	// width is the box's width, gliding, and grew how far the last step took it. Each modifier's key fades and
 	// grows in by itself as it is held, and promptIn fades as the first comes.
 	width    *anim.Float
+	grew     float32
 	promptIn *anim.Float
 	capIn    [len(chordMods)]*anim.Float
 	capRun   [len(chordMods)]shapedText
@@ -99,13 +100,18 @@ func (c *ChordInput) Listen(u *gunim.UI) {
 
 // Step implements [gunim.Animator]: the ring pulses while the keyboard is here.
 func (c *ChordInput) Step(dt time.Duration) bool {
+	was := c.width.Value()
 	moving := c.Control.Step(dt)
+	c.grew = c.width.Value() - was
 	if !c.on {
 		return moving
 	}
 	c.phase = (c.phase + dt) % chordPulse
 	return true
 }
+
+// SizeMoved implements [gunim.SizeMover].
+func (c *ChordInput) SizeMoved() geom.Size { return geom.Sz(c.grew, 0) }
 
 // faded is ink at t of its strength.
 func faded(ink color.NRGBA, t float32) color.NRGBA {

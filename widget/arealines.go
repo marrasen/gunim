@@ -19,6 +19,8 @@ type areaText struct {
 	face  *text.Face
 	style text.Style
 	width float32
+	// from tells when the fonts change what the paragraphs were laid out as.
+	from text.Stamp
 	// LineHeight is the distance from one line's top to the next's, and
 	// Size the box the lines fill: the widest line by every line.
 	LineHeight float32
@@ -41,7 +43,7 @@ type areaPara struct {
 // of a text was runes long. Changed false says rs is as it was.
 func (t *areaText) update(face *text.Face, st text.Style, width float32, rs []rune, head, tail, was int, changed bool) {
 	switch {
-	case t.face != face || t.style != st || len(t.paras) == 0:
+	case t.from.Moved() || t.face != face || t.style != st || len(t.paras) == 0:
 		t.face, t.style, t.width = face, st, width
 		t.paras = t.paras[:0]
 		head, tail, was, changed = 0, 0, 0, true

@@ -1,5 +1,5 @@
-// Command webtest runs driver/web's tests in a real browser, which they need,
-// and exits with their result.
+// Command webtest runs the tests that need a real browser in one: driver/web's,
+// and those of the package text for a browser. It exits with their result.
 //
 //	go run ./tools/webtest
 //
@@ -32,7 +32,7 @@ import (
 )
 
 // page runs the tests and keeps what they print in window.testResult.
-const page = `<!doctype html><meta charset="utf-8"><title>driver/web tests</title>
+const page = `<!doctype html><meta charset="utf-8"><title>gunim tests</title>
 <canvas id="gunim" style="width:320px;height:240px"></canvas><pre id="output" style="white-space:pre-wrap"></pre>
 <script src="wasm_exec.js"></script><script>
 window.testResult = {done: false, code: null, output: "", read: 0};
@@ -40,9 +40,10 @@ const decoder = new TextDecoder(), write = globalThis.fs.writeSync;
 const add = s => { testResult.output += s; document.querySelector("#output").textContent += s; };
 globalThis.fs.writeSync = (fd, data) => { add(decoder.decode(data)); return write(fd, data); };
 const go = new Go();
-go.argv = ["web.test", "-test.v"];
+const of = new URLSearchParams(location.search).get("of") || "web";
+go.argv = [of + ".test", "-test.v"].concat(of == "text" ? ["-test.run=^TestBrowser"] : []);
 go.exit = code => { testResult.code = code; testResult.done = true; };
-WebAssembly.instantiateStreaming(fetch("web.test.wasm"), go.importObject)
+WebAssembly.instantiateStreaming(fetch(of + ".test.wasm"), go.importObject)
   .then(r => go.run(r.instance))
   .catch(e => { add(String(e)); go.exit(1); });
 </script>`
@@ -76,7 +77,7 @@ func run(chrome, serve string, timeout time.Duration) error {
 	}
 	handler := http.FileServer(http.Dir(dir))
 	if serve != "" {
-		fmt.Printf("open http://%s/\n", serve)
+		fmt.Printf("open http://%s/ and http://%s/?of=text\n", serve, serve)
 		return http.ListenAndServe(serve, handler)
 	}
 	l, err := (&net.ListenConfig{}).Listen(ctx, "tcp", "127.0.0.1:0")
@@ -85,20 +86,30 @@ func run(chrome, serve string, timeout time.Duration) error {
 	}
 	defer func() { _ = l.Close() }()
 	go func() { _ = http.Serve(l, handler) }()
-	err = runInChrome(ctx, chrome, dir, "http://"+l.Addr().String()+"/")
-	if ctx.Err() != nil {
-		return fmt.Errorf("no result in %v", timeout)
+	for _, t := range tested {
+		err = runInChrome(ctx, chrome, dir, "http://"+l.Addr().String()+"/?of="+t.name)
+		if ctx.Err() != nil {
+			return fmt.Errorf("no result in %v", timeout)
+		}
+		if err != nil {
+			return err
+		}
 	}
-	return err
+	return nil
 }
+
+// tested are the packages whose tests run. Of the package text's, those named for the browser do.
+var tested = []struct{ name, dir string }{{"web", "./driver/web"}, {"text", "./text"}}
 
 // build leaves the tests, Go's loader for them and the page in dir.
 func build(ctx context.Context, dir string) error {
-	test := exec.CommandContext(ctx, "go", "test", "-c", "-o", filepath.Join(dir, "web.test.wasm"), "./driver/web")
-	test.Env = append(os.Environ(), "GOOS=js", "GOARCH=wasm")
-	test.Stdout, test.Stderr = os.Stdout, os.Stderr
-	if err := test.Run(); err != nil {
-		return fmt.Errorf("building the tests: %w", err)
+	for _, t := range tested {
+		test := exec.CommandContext(ctx, "go", "test", "-c", "-o", filepath.Join(dir, t.name+".test.wasm"), t.dir)
+		test.Env = append(os.Environ(), "GOOS=js", "GOARCH=wasm")
+		test.Stdout, test.Stderr = os.Stdout, os.Stderr
+		if err := test.Run(); err != nil {
+			return fmt.Errorf("building the tests: %w", err)
+		}
 	}
 	root, err := exec.CommandContext(ctx, "go", "env", "GOROOT").Output()
 	if err != nil {
@@ -145,8 +156,12 @@ func runInChrome(ctx context.Context, chrome, dir, url string) error {
 	if err != nil {
 		return err
 	}
+	profile, err := os.MkdirTemp(dir, "profile")
+	if err != nil {
+		return err
+	}
 	cmd := exec.CommandContext(ctx, chrome, "--headless=new", "--remote-debugging-pipe",
-		"--user-data-dir="+filepath.Join(dir, "profile"), "--no-first-run", "--no-default-browser-check",
+		"--user-data-dir="+profile, "--no-first-run", "--no-default-browser-check",
 		"--no-sandbox", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--window-size=1280,800",
 		"about:blank")
 	cmd.ExtraFiles = []*os.File{commandsR, answersW}

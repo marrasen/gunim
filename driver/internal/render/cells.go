@@ -429,9 +429,27 @@ func (r *Renderer) placeGlyphs(op *paint.CellsOp, cw, ch int, plain bool, mode i
 						fx, sh = fx+1, 0
 					}
 					pg.key = glyphKeyFor(faceID, gly.ID, sizePx, uint8(sh), raster)
-					slot, ok := r.glyph(pg.key, func() text.Mask {
-						return face.Rasterize(pg.key.id, sizePx, float32(pg.key.shift)/subpixel, pg.key.raster)
-					})
+					made := fromBrowser(face)
+					if made && browserSize(face, gly.ID, sizePx) < sizePx {
+						// Stretched, as text.
+						s.placed = append(s.placed, pg)
+						continue
+					}
+					if made && r.later(pg.key, geom.Pt(fx, oy), sizePx, true) {
+						// Nothing to draw yet.
+						pg.fits = true
+						s.placed = append(s.placed, pg)
+						continue
+					}
+					var slot glyphSlot
+					var ok bool
+					if made {
+						slot, ok = r.browserSlot(pg.key, face, sizePx)
+					} else {
+						slot, ok = r.glyph(pg.key, func() text.Mask {
+							return face.Rasterize(pg.key.id, sizePx, float32(pg.key.shift)/subpixel, pg.key.raster)
+						})
+					}
 					cx, cy := int(x0)+x*cw, int(y0)
 					gx, gy := int(fx)+slot.off.X, int(oy)+slot.off.Y
 					pg.slot, pg.dx, pg.dy = slot, gx-cx, gy-cy
@@ -442,6 +460,10 @@ func (r *Renderer) placeGlyphs(op *paint.CellsOp, cw, ch int, plain bool, mode i
 					if ok && slot.w == 0 {
 						// Nothing to draw, as a space has.
 						pg.fits, pg.slot = true, glyphSlot{}
+					}
+					if made && r.fade(pg.key, geom.Pt(fx, oy), sizePx, true) < 1 {
+						// Faded in, as text.
+						pg.fits = false
 					}
 				}
 			}

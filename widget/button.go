@@ -51,7 +51,7 @@ type Button struct {
 	// Delete.
 	Kind ButtonKind
 	// OnClick runs on the UI goroutine when the button is clicked, or
-	// pressed by Space or Enter. It may act in the window through u; a
+	// pressed by Space or Enter, once however long the key is held. It may act in the window through u; a
 	// non-nil result is sent to the application as the button's intent.
 	// [Sends] makes one that only sends an intent.
 	OnClick func(u *gunim.UI) gunim.Intent
@@ -147,6 +147,10 @@ func (b *Button) Handle(e input.Event, u *gunim.UI) bool {
 	case input.KeyPress:
 		if e.Key != input.KeySpace && e.Key != input.KeyEnter && e.Key != input.KeyKPEnter {
 			return false
+		}
+		if e.Repeat {
+			// Held down, the key presses once.
+			return true
 		}
 		// Keyboard activation runs the same squash, so the button
 		// looks pressed however it was reached.

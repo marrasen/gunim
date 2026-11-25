@@ -280,6 +280,7 @@ type scene struct {
 	// and title it shaped.
 	name           string
 	title          text.Run
+	titleFrom      text.Stamp
 	titleFace      *text.Face
 	titleSize      float32
 	sideAt, noteAt geom.Rect
@@ -323,7 +324,7 @@ func (s *scene) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) 
 	w := c.Max.W
 	s.bar = PreviewTitleHeight.Get(th)
 	face, size := widget.Font.Get(th), widget.TextSize.Get(th)*0.9
-	if face != s.titleFace || size != s.titleSize {
+	if s.titleFrom.Moved() || face != s.titleFace || size != s.titleSize {
 		s.titleFace, s.titleSize = face, size
 		s.title = face.Shape(s.name, size)
 	}

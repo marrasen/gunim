@@ -8,11 +8,13 @@ import (
 	"log"
 	"math"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/marrasen/gunim/driver"
 	"github.com/marrasen/gunim/driver/internal/compose"
 	"github.com/marrasen/gunim/driver/internal/render"
+	"github.com/marrasen/gunim/text"
 )
 
 // frame runs in requestAnimationFrame, and after a new size in the
@@ -96,6 +98,7 @@ func (d *Driver) frame() {
 		}
 	}
 	d.comp.Finish(stack, surfW, surfH, scale)
+	d.keepGlyphs()
 	now := time.Now()
 	for _, j := range jobs {
 		if j.again {
@@ -107,6 +110,37 @@ func (d *Driver) frame() {
 		}
 	}
 }
+
+// keepGlyphs has the fonts hold on to the browser's glyphs that the windows show, where they have dropped some since the
+// last frame. After the first frame it has them ready the commonest.
+func (d *Driver) keepGlyphs() {
+	warmed.Do(func() {
+		time.AfterFunc(warmAfter, func() {
+			defer survive("fonts")
+			// Without a canvas to draw in there is nothing to ready.
+			_ = text.LoadSystemFonts()
+		})
+	})
+	turns := text.Turns()
+	if turns == keptTurns {
+		return
+	}
+	keptTurns = turns
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for _, w := range d.windows {
+		text.Keep(w.pane.Last)
+	}
+}
+
+// warmAfter is how long after the first frame the browser's fonts are readied, as warmed says they have been.
+const warmAfter = 300 * time.Millisecond
+
+var warmed sync.Once
+
+// keptTurns is the fonts' count of turns, as the windows' glyphs were last held on to. Both are the page's, as the
+// fonts are.
+var keptTurns uint64
 
 // framesDebug is set by GUNIM_DEBUG_FRAMES=1, which logs each second
 // how long the frames took to draw and what they sent the GPU. In a
