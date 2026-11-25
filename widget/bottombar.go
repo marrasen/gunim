@@ -48,6 +48,9 @@ type BarItem struct {
 	CountLabel string
 	// Dot shows a dot on the icon's corner, for news with no number, where Count is zero.
 	Dot bool
+	// Page is what the bar shows while the place is current. A place given to SetItems with no Page keeps the page
+	// of the place with its Key.
+	Page gunim.Node
 }
 
 // BottomBar shows one page at a time with a bar of places to move between them, 3 to 5 for a phone held upright.
@@ -56,8 +59,8 @@ type BarItem struct {
 // narrows or widens it slides out and the other form slides in. The bar keeps clear of the system's navigation bar
 // and its ground runs on under it.
 //
-// A tap or a click on a place goes there, and the new page fades in as the old one fades out. The pages keep their
-// state while hidden. With the keyboard on the bar, the arrow keys move the focus ring between places, Home and End
+// Each place holds its page. A tap or a click on a place goes there, and the new page fades in as the old one fades
+// out. The pages keep their state while hidden, and move, come and go with their places. With the keyboard on the bar, the arrow keys move the focus ring between places, Home and End
 // go to the ends, and Enter or Space goes to the place with the ring.
 type BottomBar struct {
 	anim.Group
@@ -68,12 +71,12 @@ type BottomBar struct {
 	OnSelect func(i int, u *gunim.UI) gunim.Intent
 
 	strip *barStrip
-	pages []gunim.Node
 	items []BarItem
-	// selected is the current place, prev the page fading out, or -1, and fade runs from 0 to 1 as the new page
+	// selected is the current place, prev the page fading out, or nil, and fade runs from 0 to 1 as the new page
 	// comes in.
-	selected, prev int
-	fade           *anim.Float
+	selected int
+	prev     gunim.Node
+	fade     *anim.Float
 	// rail runs from 0, a bar along the bottom, to 1, a rail down the left edge.
 	rail *anim.Float
 	laid bool
@@ -81,27 +84,53 @@ type BottomBar struct {
 	box geom.Size
 }
 
-// NewBottomBar returns a bar of items over pages, one page to each item in order, the first current.
+// NewBottomBar returns a bar of items, the first current. Pages, where given, are the places' pages in order, for
+// places with no Page of their own.
 func NewBottomBar(items []BarItem, pages ...gunim.Node) *BottomBar {
-	b := &BottomBar{pages: pages, prev: -1, fade: anim.NewFloat(1), rail: anim.NewFloat(0)}
+	b := &BottomBar{fade: anim.NewFloat(1), rail: anim.NewFloat(0)}
 	b.strip = newBarStrip(b)
 	b.Add(b.fade, b.rail)
+	items = slices.Clone(items)
+	for i := range items {
+		if items[i].Page == nil && i < len(pages) {
+			items[i].Page = pages[i]
+		}
+	}
 	b.SetItems(items, nil)
 	return b
 }
 
-// Children implements [gunim.Composite]: the pages, then the bar over them.
-func (b *BottomBar) Children() []gunim.Node { return append(slices.Clip(b.pages), b.strip) }
+// Children implements [gunim.Composite]: the places' pages, then the bar over them.
+func (b *BottomBar) Children() []gunim.Node { return append(b.pages(), b.strip) }
 
-// Items returns the places.
-func (b *BottomBar) Items() []BarItem { return b.items }
+// pages returns the places' pages, each once.
+func (b *BottomBar) pages() []gunim.Node {
+	var out []gunim.Node
+	for _, it := range b.items {
+		if it.Page != nil && !slices.Contains(out, it.Page) {
+			out = append(out, it.Page)
+		}
+	}
+	return out
+}
+
+// Items returns a copy of the places.
+func (b *BottomBar) Items() []BarItem { return slices.Clone(b.items) }
 
 // SetItems makes items the places, and sends no intent. The current place and the focus ring stay on their places,
-// found by Key; where their place goes they keep its spot, kept inside the bar. A count that comes or goes grows or
-// shrinks its badge.
+// found by Key; where their place goes they keep its spot, kept inside the bar. A place with no Page keeps the page of
+// the place with its Key. A page whose place goes leaves the tree, and the page of a new place joins it. A count that
+// comes or goes grows or shrinks its badge.
 func (b *BottomBar) SetItems(items []BarItem, u *gunim.UI) {
 	s := b.strip
+	items = slices.Clone(items)
 	from := oldPlaces(b.items, items)
+	for i, was := range from {
+		if items[i].Page == nil && was >= 0 {
+			items[i].Page = b.items[was].Page
+		}
+	}
+	shown := b.page(b.selected)
 	keep := func(i int) int {
 		if at := slices.Index(from, i); at >= 0 {
 			return at
@@ -109,10 +138,13 @@ func (b *BottomBar) SetItems(items []BarItem, u *gunim.UI) {
 		return min(max(i, 0), max(len(items)-1, 0))
 	}
 	b.selected, s.cursor = keep(b.selected), keep(s.cursor)
-	if b.prev >= 0 {
-		b.prev = slices.Index(from, b.prev)
-	}
 	b.items = items
+	if now := b.page(b.selected); now != shown && b.laid && u != nil {
+		// The current place's page changed under it: the new one fades in.
+		b.prev = shown
+		b.fade.Jump(0)
+		b.fade.Animate(1, Settle.Get(u.Theme()))
+	}
 	s.placesChanged(from, u)
 	u.Invalidate()
 }
@@ -154,14 +186,14 @@ func (b *BottomBar) SetSelected(i int, u *gunim.UI) {
 		s.cursor = i
 	}
 	if !b.laid || u == nil {
-		b.selected, b.prev = i, -1
+		b.selected, b.prev = i, nil
 		b.fade.Jump(1)
 		s.jump()
 		return
 	}
 	old := b.page(b.selected)
 	s.glide(b.selected, i, u.Theme())
-	b.prev, b.selected = b.selected, i
+	b.prev, b.selected = old, i
 	b.fade.Jump(0)
 	b.fade.Animate(1, Settle.Get(u.Theme()))
 	// The keyboard leaves a page as it hides, for the bar.
@@ -199,12 +231,12 @@ func (b *BottomBar) choose(i int, u *gunim.UI) {
 	act(u, b, gunim.CueSelect, b.OnSelect, i)
 }
 
-// page returns page i, or nil.
+// page returns place i's page, or nil.
 func (b *BottomBar) page(i int) gunim.Node {
-	if i < 0 || i >= len(b.pages) {
+	if i < 0 || i >= len(b.items) {
 		return nil
 	}
-	return b.pages[i]
+	return b.items[i].Page
 }
 
 // shown is how far the bar along the bottom shows, and how far the rail does, each from 0 to 1: the bar slides out
@@ -228,12 +260,12 @@ func (b *BottomBar) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Childr
 		b.rail.Animate(wantRail, Settle.Get(th))
 	}
 	s := b.strip
-	strip := kids.At(kids.Len() - 1)
+	strip, byNode := b.sort(kids, f.UI())
 	barT, railT := b.shown()
 	if len(b.items) == 0 {
 		barT, railT = 0, 0
 	}
-	safe, _ := under(f, s)
+	safe, _ := s.place.under(f)
 	barH := s.barHeight(th)
 	railW := min(BarRailWidth.Get(th), size.W)
 	if b.rail.Value() < 0.5 {
@@ -249,41 +281,76 @@ func (b *BottomBar) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Childr
 	left := railW * railT
 	bottom := (barH + safe) * barT
 	room := gunim.Tight(geom.Sz(max(size.W-left, 0), max(size.H-bottom, 0)))
-	for i := range kids.Len() - 1 {
-		if i != b.selected && i != b.prev {
-			continue
+	for _, n := range []gunim.Node{b.prev, b.page(b.selected)} {
+		if kid, ok := byNode[n]; ok && n != nil {
+			kid.Layout(room)
+			kid.Place(geom.Pt(left, 0))
 		}
-		kid := kids.At(i)
-		kid.Layout(room)
-		kid.Place(geom.Pt(left, 0))
 	}
 	return size
+}
+
+// sort finds the strip and the pages among kids, adds the pages of new places to the tree, and drops the pages
+// whose places have gone.
+func (b *BottomBar) sort(kids gunim.Children, u *gunim.UI) (strip gunim.Child, byNode map[gunim.Node]gunim.Child) {
+	byNode = map[gunim.Node]gunim.Child{}
+	pages := b.pages()
+	for kid := range kids.All {
+		n := kid.Node()
+		switch {
+		case n == gunim.Node(b.strip):
+			strip = kid
+		case slices.Contains(pages, n), n == b.prev:
+			byNode[n] = kid
+		case u.Presence(n) != gunim.Exiting:
+			kids.Drop(n)
+		}
+	}
+	for _, n := range pages {
+		if _, ok := byNode[n]; !ok {
+			byNode[n] = kids.Build(n)
+		}
+	}
+	return strip, byNode
 }
 
 // Paint implements [gunim.Node]: the page, the old one fading out under the new one coming in, and the bar over
 // them.
 func (b *BottomBar) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, kids gunim.Children) {
 	t := min(max(b.fade.Value(), 0), 1)
+	cur := b.page(b.selected)
+	var prev, now, strip gunim.Child
+	var hasPrev, hasNow bool
+	for kid := range kids.All {
+		switch n := kid.Node(); {
+		case n == gunim.Node(b.strip):
+			strip = kid
+		case cur != nil && n == cur:
+			now, hasNow = kid, true
+		case b.prev != nil && n == b.prev:
+			prev, hasPrev = kid, true
+		}
+	}
 	if t >= 1 {
-		b.prev = -1
+		b.prev, hasPrev = nil, false
 	}
 	whole := geom.Rect{Max: box.Point()}
-	if b.prev >= 0 && b.prev < kids.Len()-1 && t < 1 {
+	if hasPrev {
 		func() {
 			defer p.Layer(paint.LayerOpts{Bounds: whole, Opacity: 1 - t})()
-			kids.At(b.prev).Paint(p)
+			prev.Paint(p)
 		}()
 	}
-	if b.selected < kids.Len()-1 {
+	if hasNow {
 		func() {
 			if t < 1 {
 				defer p.Layer(paint.LayerOpts{Bounds: whole, Opacity: t})()
 			}
-			kids.At(b.selected).Paint(p)
+			now.Paint(p)
 		}()
 	}
 	if len(b.items) > 0 {
-		kids.At(kids.Len() - 1).Paint(p)
+		strip.Paint(p)
 	}
 }
 
@@ -309,6 +376,8 @@ type barStrip struct {
 	size   geom.Size
 	// th is the window's live theme, kept from Layout for Access, which has no frame.
 	th *theme.Live
+	// place is where the bar stood in the window as it was last painted.
+	place windowPlace
 }
 
 // barText is a place's shaped words.
@@ -544,11 +613,12 @@ func (s *barStrip) Step(dt time.Duration) bool { return s.Group.Step(dt) }
 // Paint implements [gunim.Node]: the ground and its edge, the pill, then each place.
 func (s *barStrip) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
 	th := f.Theme
+	s.place.note(f, s)
 	defer s.faint(p, box)()
 	ground := geom.Rect{Max: box.Point()}
 	if !s.rail {
 		// The ground runs on under the system's navigation bar where the bar stands on it.
-		ground.Max.Y += runsUnder(f, s)
+		ground.Max.Y += s.place.runsUnder(f)
 	}
 	p.RRect(ground, 0, paint.Solid(MenubarFill.Get(th)))
 	edge := MenuBorder.Get(th)

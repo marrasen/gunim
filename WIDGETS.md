@@ -208,7 +208,8 @@ Everything moves; nothing jumps once the user can see it.
 
 - **Springs from the theme.** `Quick` is for direct feedback: hover, press, focus, highlight. `Settle` is for things
   coming to rest or going away. `Bounce` is for things arriving, with an overshoot, as a `RadioGroup`'s dot
-  springs in.
+  springs in. A large panel that slides in from an edge, as a `Drawer` or a `BottomSheet`, arrives on `Settle`
+  instead: phones never overshoot one.
 - **The first layout jumps.** Keep a `laid` flag. Before the first layout, put every spring at its target, so a value
   set early shows at once instead of gliding up from zero. For an entrance the app asks for, give the widget a method
   that says so, as `Split.SlideFrom(v)` opens a split at share v and glides it to its share.
@@ -341,8 +342,8 @@ Three widgets lay out a program for a phone held upright. `example/phone` uses a
   bar keeps clear of the system's navigation bar, and its ground runs on under it. A screen reader hears a tab list.
 - **`BottomSheet`** slides up over the page from the bottom, half open, or as tall as its body where that is
   shorter. It is a modal: mount it over the window's root, as a `Dialog`, and it takes the keyboard and gives it back
-  as it closes. A drag on its top moves it between half and full. A drag on its body scrolls the body first and moves
-  the sheet with what is left past the body's ends. A fling down from half, a tap above it, Escape and Back close
+  as it closes. A drag on its top moves it between half and full. A drag up on its body opens it full first, and then
+  scrolls the body. A drag down scrolls the body back to its top first, and then takes the sheet down. A fling down from half, a tap above it, Escape and Back close
   it, and `OnDismiss` runs. It keeps above the keyboard on the screen, and stands centred, `SheetWidth` wide, in a
   wide window.
 - **`PullRefresh`** holds content that scrolls. Pulled down from its top past `PullReach`, it runs `OnRefresh` with

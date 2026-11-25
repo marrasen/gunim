@@ -40,12 +40,12 @@ const sheetFling = 600
 // than that, and as tall as its body where that is shorter. In a window wider than SheetWidth it stands centred.
 //
 // A drag on the handle or the title moves the sheet with the finger or the mouse, and it springs on, as it is let
-// go, to the nearer of half and full, or on the way it was flung. A drag on the body scrolls the body first, and
-// moves the sheet with what is left past the body's ends, so a list at its top lets a drag down take the sheet
-// down. A fling down closes it from half, and so does a tap on the page above it, Escape and a phone's Back. The
+// go, to the nearer of half and full, or on the way it was flung. A drag up on the body of a sheet below full opens
+// the sheet full first, and the body scrolls with the rest. A drag down scrolls the body back to its top first, and
+// the rest takes the sheet down. A fling down closes it from half, and so does a tap on the page above it, Escape and a phone's Back. The
 // sheet keeps itself and the field being typed in above the keyboard on the screen.
 //
-// Mounted, as with [gunim.UI.Insert] over the window's root, it springs up, takes the keyboard and holds it until it
+// Mounted, as with [gunim.UI.Insert] over the window's root, it slides up, takes the keyboard and holds it until it
 // closes, and then gives it back. With the keyboard on the sheet itself, Up opens it full and Down takes it back to
 // half. Tab goes into the body.
 type BottomSheet struct {
@@ -77,7 +77,11 @@ type BottomSheet struct {
 		from, start float32
 		trail       anim.Trail
 		moved       float32
+		// lift says a finger's drag up on the body opens the sheet full before the body scrolls.
+		lift bool
 	}
+	// place is where the sheet stood in the window as it was last painted: the shade covers the whole window.
+	place   windowPlace
 	outside Clicker
 	ring    *anim.Float
 	titled  shapedText
@@ -90,7 +94,7 @@ type BottomSheet struct {
 // th is the window's live theme, or nil before the first layout.
 func (s *BottomSheet) th() *theme.Live { return s.live }
 
-// NewBottomSheet returns a sheet titled title holding body, which may be nil. Mount it, and it springs up half
+// NewBottomSheet returns a sheet titled title holding body, which may be nil. Mount it, and it slides up half
 // open.
 func NewBottomSheet(title string, body gunim.Node) *BottomSheet {
 	s := &BottomSheet{Title: title, body: body, pos: anim.NewFloat(0), ring: anim.NewFloat(0)}
@@ -180,13 +184,36 @@ func (s *BottomSheet) TakesEscape(*gunim.UI) bool { return true }
 // DragsTouch implements [gunim.TouchDragger]: a finger on the handle or the title drags the sheet.
 func (s *BottomSheet) DragsTouch() bool { return s.drag.on && !s.drag.scrolls }
 
-// ClaimsPointer implements [gunim.PointerClaimer]: while a finger has taken the sheet down from where it rests,
-// its scrolls move the sheet back up before the body scrolls.
+// ClaimsPointer implements [gunim.PointerClaimer]: while a finger has taken the sheet down from where it rests, or
+// drags it up from half, its scrolls move the sheet before the body scrolls.
 func (s *BottomSheet) ClaimsPointer(geom.Point) bool {
-	return s.drag.on && s.drag.scrolls && s.pos.Value() < s.rest()-0.5
+	return s.drag.lift || s.drag.on && s.drag.scrolls && s.pos.Value() < s.rest()-0.5
 }
 
-// Transition implements [gunim.Transitioner]: the sheet springs up as it arrives and slides down as it goes.
+// Overhear implements [gunim.Overhearer]. A finger's scroll up on the body of a sheet below full is the sheet's
+// before the body's, so the sheet opens full first. A finger coming down ends a drag whose end went unheard.
+func (s *BottomSheet) Overhear(e input.Event, u *gunim.UI) {
+	switch e := e.(type) {
+	case input.PointerDown:
+		if e.Touch && s.drag.on && s.drag.scrolls {
+			s.letGo(e.Time, true, u)
+		}
+	case input.Scroll:
+		if !e.Touch || e.Fling || e.Delta.Y >= 0 || s.drag.lift || s.top <= s.half+0.5 || s.pos.Target() >= s.top-0.5 {
+			return
+		}
+		at, ok := u.Bounds(s)
+		if !ok {
+			return
+		}
+		p := e.Pos.Sub(at.Min)
+		if s.outsideAt(p) < 0 && !s.onTop(p) && !away(p) {
+			s.drag.lift = true
+		}
+	}
+}
+
+// Transition implements [gunim.Transitioner]: the sheet slides up as it arrives, with no overshoot, and down as it goes.
 func (s *BottomSheet) Transition(p gunim.Presence, f gunim.Frame) bool {
 	switch p {
 	case gunim.Entering:
@@ -250,6 +277,10 @@ func (s *BottomSheet) Handle(e input.Event, u *gunim.UI) bool {
 			s.drag.moved -= e.Delta.Y
 			s.drag.trail.Add(geom.Pt(0, -s.drag.moved), e.Time)
 			s.moveTo(s.drag.from+s.drag.moved, u)
+			if s.drag.lift && s.pos.Value() >= s.top-0.5 {
+				// Full: the body scrolls with the rest of the drag.
+				s.drag.lift = false
+			}
 		}
 		return true
 	case input.ScrollEnd:
@@ -304,7 +335,7 @@ func (s *BottomSheet) startDrag(y float32, at time.Time, scrolls bool) {
 }
 
 // endDrag forgets a drag under way.
-func (s *BottomSheet) endDrag() { s.drag.on, s.drag.scrolls = false, false }
+func (s *BottomSheet) endDrag() { s.drag.on, s.drag.scrolls, s.drag.lift = false, false, false }
 
 // moveTo puts the sheet at height h, as dragged: past full it gives less the further it goes.
 func (s *BottomSheet) moveTo(h float32, u *gunim.UI) {
@@ -360,7 +391,7 @@ func (s *BottomSheet) headerHeight(th *theme.Live) float32 {
 func (s *BottomSheet) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
 	th := f.Theme
 	size := fillOr(c, geom.Sz(390, 700))
-	safe, kb := under(f, s)
+	safe, kb := s.place.under(f)
 	s.box, s.keyboard, s.live = size, kb, th
 	room := max(size.H-kb, 0)
 	w := min(size.W, SheetWidth.Get(th))
@@ -384,7 +415,7 @@ func (s *BottomSheet) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Chil
 	case s.arrive:
 		s.arrive = false
 		s.pos.Jump(0)
-		s.pos.Animate(rest, Bounce.Get(th))
+		s.pos.Animate(rest, Settle.Get(th))
 	case !s.drag.on && f.UI() != nil && f.UI().Presence(s) != gunim.Exiting && s.pos.Target() != rest && s.laid:
 		// The window, the keyboard or the body changed what it rests at.
 		s.pos.Animate(rest, Settle.Get(th))
@@ -406,18 +437,20 @@ func (s *BottomSheet) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Chil
 // Paint implements [gunim.Node]: the shade over the page, as deep as the sheet has come up, then the panel.
 func (s *BottomSheet) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.Children) {
 	th := f.Theme
+	s.place.note(f, s)
 	h := s.pos.Value()
 	if h <= 0.5 {
 		return
 	}
 	shade := min(h/max(s.half, 1), 1)
 	dim := Scrim.Get(th)
-	p.RRect(geom.Rect{Max: box.Point()}, 0, paint.Solid(paint.Faded(dim, shade)))
+	// The shade covers the system's bars too, which the root keeps the sheet clear of.
+	p.RRect(geom.Rect{Max: box.Point()}.Union(s.place.window(box)), 0, paint.Solid(paint.Faded(dim, shade)))
 	radius := DialogRadius.Get(th)
 	panel := s.panel
 	// The ground runs on under the system's bars and past the window's edge, so only the top corners round.
 	ground := panel
-	ground.Max.Y = box.H + runsUnder(f, s) + radius
+	ground.Max.Y = box.H + s.place.runsUnder(f) + radius
 	p.RRect(ground, radius, paint.Solid(DialogFill.Get(th)))
 	p.RRectStroke(ground, radius, paint.Fill{}, paint.Stroke{Width: 1, Color: DialogBorder.Get(th)})
 	pad := SheetPadding.Get(th)

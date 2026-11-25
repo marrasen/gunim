@@ -189,6 +189,95 @@ func TestTheMouseKeysAndAScreenReaderRefresh(t *testing.T) {
 	}
 }
 
+// The program's own Ctrl+R, on a node round the list, wins over the refresh while the keyboard is inside the list;
+// a key nothing takes refreshes, and NoRefreshKeys leaves the keys alone.
+func TestTheProgramsOwnKeysComeFirst(t *testing.T) {
+	row := NewButton("Row")
+	r := NewPullRefresh(NewScroll(Column(row)))
+	r.OnRefresh = func(n int, _ *gunim.UI) gunim.Intent { return refreshAsked{n} }
+	var replaced int
+	wrap := &frame{child: r, size: geom.Sz(390, 700), keysGoOn: true, handle: func(e input.Event, _ *gunim.UI) bool {
+		if k, ok := e.(input.KeyPress); ok && k.Key == input.KeyR && k.Mods == input.ModControl {
+			replaced++
+			return true
+		}
+		return false
+	}}
+	w, g, run := phoneStage(t, geom.Sz(390, 800), wrap)
+	g.ui.Focus(row)
+	run(1)
+	w.Input(input.KeyPress{Key: input.KeyR, Mods: input.ModControl})
+	run(1)
+	if replaced != 1 || r.Current() != 0 {
+		t.Fatalf("Ctrl+R reached the program's own %d times, and started refresh %d", replaced, r.Current())
+	}
+	w.Input(input.KeyPress{Key: input.KeyF5})
+	run(1)
+	if r.Current() != 1 {
+		t.Fatal("F5, which nothing else takes, started no refresh")
+	}
+	r.Done(1, g.ui)
+	r.NoRefreshKeys = true
+	w.Input(input.KeyPress{Key: input.KeyF5})
+	run(1)
+	if r.Current() != 0 {
+		t.Fatal("with NoRefreshKeys F5 started a refresh")
+	}
+}
+
+// A pull that leaves the tree mid-refresh stops its timeout: it neither fails nor speaks once gone.
+func TestAPullThatLeavesStopsItsTimers(t *testing.T) {
+	r := NewPullRefresh(NewScroll(&pullContent{size: geom.Sz(390, 3000)}))
+	_, g, run := phoneStage(t, geom.Sz(390, 800), &frame{child: Column(r), size: geom.Sz(390, 800)})
+	r.Timeout = time.Second
+	r.SetRefreshing(true, g.ui)
+	run(1)
+	g.ui.Remove(r)
+	run(120)
+	if r.failed || r.Current() != 1 {
+		t.Fatalf("a second after it left, the pull failed %v, refresh %d under way", r.failed, r.Current())
+	}
+}
+
+// A pull hidden mid-pull misses the finger's ScrollEnd. Shown again, the next finger to come down ends it: it takes
+// that finger's scrolls no more, and the disc slides away.
+func TestAPullThatMissedItsEndLetsGo(t *testing.T) {
+	list := NewScroll(&pullContent{size: geom.Sz(390, 3000)})
+	r := NewPullRefresh(list)
+	r.OnRefresh = func(n int, _ *gunim.UI) gunim.Intent { return refreshAsked{n} }
+	b := NewBottomBar([]BarItem{{Label: "Inbox", Page: r}, {Label: "Notes", Page: newSpot(10, 10)}})
+	w, g, run := phoneStage(t, geom.Sz(390, 800), b)
+	t0 := time.Now()
+	w.Input(input.PointerMove{Pos: geom.Pt(200, 200), Touch: true, Time: t0})
+	w.Input(input.PointerDown{Pos: geom.Pt(200, 200), Button: input.ButtonPrimary, Clicks: 1, Touch: true, Time: t0})
+	run(1)
+	for i := 1; i <= 8; i++ {
+		w.Input(input.PointerMove{Pos: geom.Pt(200, 200+float32(i)*20), Touch: true, Time: t0.Add(time.Duration(i) * 50 * time.Millisecond)})
+		run(1)
+	}
+	if !r.drag.on {
+		t.Fatal("the finger pulls nothing")
+	}
+	b.SetSelected(1, g.ui)
+	run(90)
+	end := t0.Add(time.Second)
+	w.Input(input.PointerUp{Pos: geom.Pt(200, 360), Button: input.ButtonPrimary, Touch: true, Time: end})
+	w.Input(input.PointerLeave{Time: end})
+	b.SetSelected(0, g.ui)
+	run(90)
+	touchDown(w, geom.Pt(200, 300))
+	run(60)
+	if r.ClaimsPointer(geom.Pt(200, 300)) || r.pull.Value() > 0.5 {
+		t.Fatalf("after a new finger the pull claims it %v, the disc %v down", r.ClaimsPointer(geom.Pt(200, 300)),
+			r.pull.Value())
+	}
+	touchUp(w, geom.Pt(200, 300))
+	run(1)
+	if got := sent(w); len(got) != 0 {
+		t.Fatalf("the missed pull sent %v", got)
+	}
+}
+
 // With less motion the spinner stands still and asks for no frames, and the disc is a few quads, all inside the
 // box.
 func TestTheSpinnerIsCheapAndStillUnderLessMotion(t *testing.T) {

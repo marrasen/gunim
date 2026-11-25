@@ -46,7 +46,8 @@ const (
 // refresh is under way starts no other. With less motion the spinner stands still.
 //
 // The mouse pulls the same way from a part of the content that takes no press, while the content is at its top. F5
-// and Ctrl+R refresh from the keyboard where they reach the program, and a screen reader has a Refresh action.
+// and Ctrl+R refresh from the keyboard where nothing focused takes them first, and a screen reader has a Refresh
+// action.
 type PullRefresh struct {
 	anim.Group
 	// Label names the content for a screen reader, such as "Messages".
@@ -58,6 +59,8 @@ type PullRefresh struct {
 	// Timeout is how long a refresh may go unanswered before it fails, and zero waits for ever. NewPullRefresh sets
 	// it to 30 seconds.
 	Timeout time.Duration
+	// NoRefreshKeys leaves F5 and Ctrl+R to the program, for one that uses them for something else.
+	NoRefreshKeys bool
 
 	child gunim.Node
 	// pull is how far down the disc's bottom stands, from the top edge.
@@ -189,6 +192,49 @@ func (r *PullRefresh) retract(th *theme.Live) {
 	}
 }
 
+// Transition implements [gunim.Transitioner]: a pull that leaves stops its timers, so a refresh under way neither
+// fails nor speaks once it has gone.
+func (r *PullRefresh) Transition(p gunim.Presence, _ gunim.Frame) bool {
+	if p == gunim.Exiting {
+		r.stopTimers()
+	}
+	return true
+}
+
+// stopTimers stops the timeout and the warning's wait.
+func (r *PullRefresh) stopTimers() {
+	if r.stopTimeout != nil {
+		r.stopTimeout()
+		r.stopTimeout = nil
+	}
+	if r.stopFailShow != nil {
+		r.stopFailShow()
+		r.stopFailShow = nil
+	}
+}
+
+// dropPull lets go of a finger's pull that its ScrollEnd missed, as when the pull was hidden mid-pull: the disc
+// springs back as for a pull that went too short.
+func (r *PullRefresh) dropPull(th *theme.Live) {
+	if !r.drag.on || r.drag.mouse {
+		return
+	}
+	r.drag.on, r.drag.ready = false, false
+	to := float32(0)
+	if r.current > 0 || r.failed {
+		to = PullRest.Get(th)
+	}
+	r.pull.Animate(to, Settle.Get(th))
+}
+
+// Overhear implements [gunim.Overhearer]: a finger coming down starts a new gesture, which ends any pull whose end
+// went unheard.
+func (r *PullRefresh) Overhear(e input.Event, u *gunim.UI) {
+	if d, ok := e.(input.PointerDown); ok && d.Touch {
+		r.dropPull(u.Theme())
+	}
+}
+
 // give is how far down the disc stands for the pointer gone raw down: less the further it goes.
 func give(raw, reach float32) float32 {
 	if raw <= 0 {
@@ -246,16 +292,15 @@ func (r *PullRefresh) Handle(e input.Event, u *gunim.UI) bool {
 		}
 		r.letGo(u)
 		return true
-	case input.KeyPress:
-		return r.refreshKey(e, u)
 	}
 	return false
 }
 
-// CatchKey implements [gunim.KeyCatcher]: F5 and Ctrl+R refresh where nothing focused takes them.
+// CatchKey implements [gunim.KeyCatcher]: F5 and Ctrl+R refresh where nothing focused, nor anything round it,
+// takes them, unless NoRefreshKeys is set.
 func (r *PullRefresh) CatchKey(e input.Event, u *gunim.UI) bool {
 	k, ok := e.(input.KeyPress)
-	return ok && r.refreshKey(k, u)
+	return ok && !r.NoRefreshKeys && r.refreshKey(k, u)
 }
 
 // refreshKey refreshes on F5 and Ctrl+R, and reports whether k was one.

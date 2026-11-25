@@ -9,6 +9,7 @@ import (
 	"github.com/marrasen/gunim/driver"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
+	"github.com/marrasen/gunim/paint"
 )
 
 type sheetShut struct{}
@@ -130,10 +131,11 @@ func TestDraggingTheTopMovesTheSheet(t *testing.T) {
 	}
 }
 
-// A drag on the body scrolls the body first. Once the body is back at its top, the rest of a drag down takes the
-// sheet down, and let go slowly it springs back.
+// On a full sheet a drag up scrolls the body. A drag down scrolls the body back to its top first, the rest takes
+// the sheet down, and let go slowly it springs back.
 func TestTheBodyScrollsBeforeTheSheetMoves(t *testing.T) {
-	s, _, w, _, run := sheetStage(t, geom.Sz(390, 800), newSpot(390, 2000))
+	s, _, w, g, run := sheetStage(t, geom.Sz(390, 800), newSpot(390, 2000))
+	s.SetExpanded(true, g.ui)
 	sheetRests(t, s, run)
 	body, ok := s.held().(*Scroll)
 	if !ok {
@@ -142,7 +144,7 @@ func TestTheBodyScrollsBeforeTheSheetMoves(t *testing.T) {
 	fingerDrag(w, run, geom.Pt(200, 700), geom.Pt(200, 500), 10, 500*time.Millisecond, 150*time.Millisecond)
 	sheetRests(t, s, run)
 	scrolled := body.Offset()
-	if scrolled < 150 || s.pos.Value() < 399 || s.pos.Value() > 401 {
+	if scrolled < 150 || s.pos.Value() < 775 || s.pos.Value() > 777 {
 		t.Fatalf("a drag up on the body scrolled it %v and moved the sheet to %v", scrolled, s.pos.Value())
 	}
 	// Down by more than the body scrolled: the body goes back to its top, and the sheet down by the rest.
@@ -158,15 +160,15 @@ func TestTheBodyScrollsBeforeTheSheetMoves(t *testing.T) {
 		lowest = min(lowest, s.pos.Value())
 	}
 	run(20)
-	if body.Offset() > 0.5 || lowest > 380 {
+	if body.Offset() > 0.5 || lowest > 716 {
 		t.Fatalf("dragged 300 down, the body is at %v and the sheet came down to %v", body.Offset(), lowest)
 	}
 	end := t0.Add(800 * time.Millisecond)
 	w.Input(input.PointerUp{Pos: geom.Pt(200, 800), Button: input.ButtonPrimary, Touch: true, Time: end})
 	w.Input(input.PointerLeave{Time: end})
 	sheetRests(t, s, run)
-	if h := s.pos.Value(); h < 399 || h > 401 {
-		t.Fatalf("let go slowly, the sheet rests %v up, want back at half", h)
+	if h := s.pos.Value(); h < 775 || h > 777 {
+		t.Fatalf("let go slowly, the sheet rests %v up, want back at full", h)
 	}
 	if got := sent(w); len(got) != 0 {
 		t.Fatalf("the drags sent %v", got)
@@ -240,5 +242,75 @@ func TestAScreenReaderWorksTheSheet(t *testing.T) {
 	run(1)
 	if got := sent(w); len(got) != 1 || g.ui.Presence(s) != gunim.Exiting {
 		t.Fatalf("the screen reader's Close sent %v", got)
+	}
+}
+
+// A drag up on the body of a half sheet opens it full before the body scrolls; once full, a drag up scrolls the
+// body.
+func TestADragUpOnTheBodyOpensTheSheetFirst(t *testing.T) {
+	s, _, w, _, run := sheetStage(t, geom.Sz(390, 800), newSpot(390, 2000))
+	sheetRests(t, s, run)
+	body, ok := s.held().(*Scroll)
+	if !ok {
+		t.Fatal("the sheet holds its body in no scroll")
+	}
+	fingerDrag(w, run, geom.Pt(200, 700), geom.Pt(200, 400), 12, 600*time.Millisecond, 150*time.Millisecond)
+	sheetRests(t, s, run)
+	if !s.Expanded() || body.Offset() > 0.5 {
+		t.Fatalf("a drag up on the half sheet's body left it expanded %v, the body scrolled %v", s.Expanded(),
+			body.Offset())
+	}
+	fingerDrag(w, run, geom.Pt(200, 700), geom.Pt(200, 400), 12, 600*time.Millisecond, 150*time.Millisecond)
+	sheetRests(t, s, run)
+	if body.Offset() < 150 || !s.Expanded() {
+		t.Fatalf("a drag up on the full sheet's body scrolled it %v", body.Offset())
+	}
+}
+
+// The shade covers the whole window, the system's bars too, which the root keeps the sheet clear of.
+func TestTheShadeCoversThePhonesBars(t *testing.T) {
+	s, _, w, g, run := sheetStage(t, geom.Sz(390, 800), newSpot(390, 100))
+	w.Offscreen().SetSafeArea(geom.Insets{Top: 24, Bottom: 32})
+	w.Input(driver.Redraw{})
+	sheetRests(t, s, run)
+	bg := Background.Get(g.ui.Theme())
+	for _, op := range w.Offscreen().Ops() {
+		r, ok := op.(*paint.RRectOp)
+		if !ok || r.Fill.Solid == bg {
+			continue
+		}
+		at := geom.Rect{Min: r.Transform.Apply(r.Rect.Min), Max: r.Transform.Apply(r.Rect.Max)}
+		if at.Min.Y <= 0.5 && at.Max.Y >= 799.5 && at.Min.X <= 0.5 && at.Max.X >= 389.5 {
+			return
+		}
+	}
+	t.Fatal("nothing but the window's ground covers the whole window: the shade stops short of the bars")
+}
+
+// A finger's drag of the sheet whose end went unheard ends as the next finger comes down, and the sheet springs
+// back.
+func TestASheetDragThatMissedItsEndLetsGo(t *testing.T) {
+	s, _, w, g, run := sheetStage(t, geom.Sz(390, 800), newSpot(390, 2000))
+	sheetRests(t, s, run)
+	s.startDrag(0, time.Now(), true)
+	s.moveTo(250, g.ui)
+	run(1)
+	touchDown(w, geom.Pt(200, 700))
+	run(1)
+	touchUp(w, geom.Pt(200, 700))
+	sheetRests(t, s, run)
+	if s.drag.on || s.ClaimsPointer(geom.Pt(200, 700)) || s.pos.Value() < 399 {
+		t.Fatalf("after a new finger the drag is on %v, the sheet %v up", s.drag.on, s.pos.Value())
+	}
+}
+
+// A sheet slides up to half with no overshoot, as a phone's do.
+func TestASheetArrivesWithNoOvershoot(t *testing.T) {
+	s, _, _, _, run := sheetStage(t, geom.Sz(390, 800), newSpot(390, 2000))
+	for i := range 90 {
+		run(1)
+		if h := s.pos.Value(); h > 400.5 {
+			t.Fatalf("frame %d: the sheet arriving stands %v up, past half at 400", i, h)
+		}
 	}
 }

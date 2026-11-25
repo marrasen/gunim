@@ -60,3 +60,22 @@ func TestAFingerThatScrolledSaysItLifted(t *testing.T) {
 		t.Fatalf("a finger down mid-scroll made %d ends in all, want 2", n)
 	}
 }
+
+// A finger's scroll called off, as a pinch or the system does with a release at Away, says it ended once and leaves
+// no fling, however fast the finger went.
+func TestAScrollCalledOffEndsOnceWithNoFling(t *testing.T) {
+	r := &recorder{}
+	w, finger := touchStage(t, r)
+	at := time.Now()
+	finger(input.PointerDown{Pos: geom.Pt(100, 300), Button: input.ButtonPrimary, Clicks: 1, Touch: true, Time: at})
+	for i := 1; i <= 5; i++ {
+		finger(input.PointerMove{Pos: geom.Pt(100, 300-float32(i)*30), Touch: true, Time: at.Add(time.Duration(i) * 16 * time.Millisecond)})
+	}
+	finger(input.PointerUp{Pos: input.Away, Button: input.ButtonPrimary, Touch: true, Time: at.Add(96 * time.Millisecond)})
+	for range 10 {
+		w.Frame(time.Second / 60)
+	}
+	if n, after, _ := ends(r); n != 1 || after != 0 {
+		t.Fatalf("a scroll called off made %d ends and %d scrolls after, want one end and no fling", n, after)
+	}
+}

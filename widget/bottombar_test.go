@@ -74,8 +74,8 @@ func TestATapOnAPlaceGoesThere(t *testing.T) {
 		}
 		last = v
 	}
-	if last < 1.99 || b.prev != -1 {
-		t.Fatalf("the pill rests at %v, the old page %d still fading", last, b.prev)
+	if last < 1.99 || b.prev != nil {
+		t.Fatalf("the pill rests at %v, the old page %v still fading", last, b.prev)
 	}
 	// A tap on the current place sends nothing more.
 	tap(w, run, placeAt(t, b, g, 2))
@@ -207,15 +207,46 @@ func TestThePlacesKeepTheirKeys(t *testing.T) {
 	}
 }
 
-// A bar of no places draws nothing and leaves the page the whole window; a bar of one place, or of long labels, or
-// under text twice as large, draws inside its box, cuts its labels and grows taller.
+// A page goes with its place: reordered, the current place's page still shows; a new place brings its page, and
+// a place that goes takes its page out of the tree. Items hands out a copy.
+func TestAPageGoesWithItsPlace(t *testing.T) {
+	b, pages, _, g, run := placesStage(t, geom.Sz(390, 800))
+	b.SetSelected(1, g.ui)
+	run(90)
+	// Places given afresh, with no pages, keep their pages by Key.
+	fresh := barPlaces()
+	b.SetItems([]BarItem{fresh[1], fresh[0], fresh[2]}, g.ui)
+	run(90)
+	if b.Selected() != 0 || !g.ui.Drawn(pages[1]) || g.ui.Drawn(pages[0]) {
+		t.Fatalf("Mail moved first: place %d current, its page drawn %v, Home's %v", b.Selected(), g.ui.Drawn(pages[1]),
+			g.ui.Drawn(pages[0]))
+	}
+	news := newSpot(10, 10)
+	b.SetItems([]BarItem{fresh[1], fresh[0], {Key: "news", Label: "News", Page: news}}, g.ui)
+	run(2)
+	b.SetSelected(2, g.ui)
+	run(90)
+	if !g.ui.Drawn(news) {
+		t.Fatal("the new place's page is not drawn")
+	}
+	if g.ui.Presence(pages[2]) != gunim.Exiting {
+		t.Fatal("the page of the place that went stays in the tree")
+	}
+	got := b.Items()
+	got[0].Label = "Changed"
+	if b.Items()[0].Label == "Changed" {
+		t.Fatal("Items handed out the bar's own places")
+	}
+}
+
+// A bar of no places draws no bar; a bar of one place, or of long labels, or under text twice as large, draws inside
+// its box, cuts its labels and grows taller.
 func TestTheBarFitsWhatItHolds(t *testing.T) {
-	page := newSpot(10, 10)
-	b := NewBottomBar(nil, page)
-	_, _, run := phoneStage(t, geom.Sz(390, 800), b)
+	empty := NewBottomBar(nil, newSpot(10, 10))
+	_, g, run := phoneStage(t, geom.Sz(390, 800), empty)
 	run(1)
-	if page.box != geom.Sz(390, 800) {
-		t.Fatalf("with no places the page is %v, want the whole window", page.box)
+	if g.ui.Drawn(empty.strip) {
+		t.Fatal("a bar of no places draws its bar")
 	}
 	long := strings.Repeat("Notifications ", 4)
 	for _, items := range [][]BarItem{

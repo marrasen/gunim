@@ -114,7 +114,8 @@ type Scroll struct {
 // ScrollEnd says a finger that scrolled has lifted, or was taken for a pinch. It goes where the finger's scrolls
 // went, at Pos, from the node under it up through those round it. A node that follows the finger, as a sheet dragged
 // or a list pulled down, settles as it hears it, and returns false, so the nodes round it hear it too. A fling may
-// follow it, in scrolls with Fling set.
+// follow it, in scrolls with Fling set. It goes to what is drawn under Pos as the finger lifts, so a node hidden or
+// moved away meanwhile misses it, and lets go of its drag as the next finger comes down.
 type ScrollEnd struct {
 	Pos  geom.Point
 	Time time.Time
