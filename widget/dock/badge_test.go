@@ -157,8 +157,8 @@ func TestABadgeIsThereAsItsTabIs(t *testing.T) {
 }
 
 // TestABadgeInANarrowTabIsADot: the bar narrowing, the badge keeps to
-// half of what the title has, then to a dot, and at last to the icon's
-// corner, never jumping; and what it says shows in the tooltip.
+// what the title leaves, then to half, then to a dot, and at last to the
+// icon's corner, never jumping; and what it says shows in the tooltip.
 func TestABadgeInANarrowTabIsADot(t *testing.T) {
 	ink := widget.ToastErrorInk.Default()
 	last, had := geom.Rect{}, false
@@ -197,6 +197,105 @@ func TestABadgeInANarrowTabIsADot(t *testing.T) {
 			t.Fatalf("in a tab %v wide the tooltip is %q", tab.Size().W, tip)
 		}
 		last, had = pill, true
+	}
+}
+
+// TestABadgeBesideAShortTitleShowsWhole: in a tab as wide as it asks to
+// be, whichever of the two is the longer, and with a count as well.
+func TestABadgeBesideAShortTitleShowsWhole(t *testing.T) {
+	ink := widget.ToastErrorInk.Default()
+	for _, f := range []Face{
+		{Title: "log", Badge: "Bob"},
+		{Title: "log", Badge: "Ada Lovelace"},
+		{Title: "log", More: "+2", Badge: "Ada Lovelace", Closable: true},
+		{Title: "a log of it all", Badge: "Al"},
+		{Title: "log", Badge: "Bob", Icon: icon.SquareTerminal, Closable: true},
+	} {
+		f.BadgeInk = &widget.ToastErrorInk
+		b := NewBar("g", 1)
+		w, run, _ := stageBar(t, b, barTabs{tabs: []Tab{{ID: "1", Face: f}, {ID: "2"}}, front: "2"})
+		run(30)
+		g := b.badges["1"]
+		pill, _, ok := pillOn(w, b, "1", ink)
+		if want := g.run.Advance + 2*widget.BadgePadding.Default(); !ok || pill.Size().W < want-0.5 || g.cut {
+			t.Errorf("beside %q the badge %q is %v wide, want %v, cut %v", f.Title, f.Badge, pill.Size().W, want, g.cut)
+		}
+		if tip := b.tipOf(b.boxes[0].Center()); tip != "" || b.cut[0] {
+			t.Errorf("with the badge %q the title %q is cut, its tooltip %q", f.Badge, f.Title, tip)
+		}
+	}
+}
+
+// TestABadgeStandsStillAsItsTitleChanges: the tab widens and narrows for
+// the title, and the badge keeps its width on every frame.
+func TestABadgeStandsStillAsItsTitleChanges(t *testing.T) {
+	ink := widget.ToastErrorInk.Default()
+	b := NewBar("g", 1)
+	tabs := func(title string) barTabs {
+		return barTabs{tabs: []Tab{{ID: "1", Face: Face{Title: title, Badge: "Ada Lovelace", BadgeInk: &widget.ToastErrorInk}}, {ID: "2"}}, front: "2"}
+	}
+	w, run, _ := stageBar(t, b, tabs("a log"))
+	run(30)
+	pill, _, _ := pillOn(w, b, "1", ink)
+	for _, title := range []string{"a log of it all", "a log"} {
+		if err := w.Client().Update("v", tabs(title)); err != nil {
+			t.Fatal(err)
+		}
+		for frame := range 60 {
+			run(1)
+			now, _, ok := pillOn(w, b, "1", ink)
+			if d := now.Size().W - pill.Size().W; !ok || d > 0.5 || d < -0.5 {
+				t.Fatalf("becoming %q, frame %d: the badge goes from %v wide to %v", title, frame, pill.Size().W, now.Size().W)
+			}
+		}
+		if !w.Still() {
+			t.Fatalf("at %q the bar never rests", title)
+		}
+	}
+}
+
+// TestABadgeAndItsTitleShareWhatThereIs: what one of them leaves is the
+// other's, and where neither fits in half they have half each.
+func TestABadgeAndItsTitleShareWhatThereIs(t *testing.T) {
+	th := theme.NewLive(widget.Dark())
+	g := newTabBadge()
+	g.say("Ada Lovelace", nil, true, th)
+	whole, dot := g.width(th), TabBadgeDot.Default()
+	if whole <= 40 {
+		t.Fatalf("the badge is %v wide", whole)
+	}
+	fit := func(both, title float32) float32 {
+		g.stand(title, true, th)
+		return g.fit(both+badgeGap, th)
+	}
+	for _, c := range []struct {
+		name              string
+		both, title, want float32
+	}{
+		{"room for both", whole + 30.5, 30, whole},
+		{"room to spare", whole + 90, 30, whole},
+		{"a short title", 20 + whole - 10, 20, whole - 10},
+		{"a short badge", 2*whole + 20, 2*whole + 100, whole},
+		{"both too long", whole + 10, 2 * whole, (whole + 10) / 2},
+		{"hardly any room", 2*dot - 4, 100, dot},
+		{"hardly any beside a short title", 2*dot - 4, 10, dot},
+		{"none", -20, 10, dot},
+	} {
+		if got := fit(c.both, c.title); got < c.want-0.5 || got > c.want+0.01 {
+			t.Errorf("%s: of %v beside a title of %v the badge has %v, want %v", c.name, c.both, c.title, got, c.want)
+		}
+	}
+	// With more room it is never narrower, and the title is cut only where it is long.
+	last := float32(0)
+	for both := float32(0); both < whole+60; both += 0.5 {
+		w := fit(both, 40)
+		if w < last || w-last > 0.51 && last > 0 {
+			t.Fatalf("of %v the badge has %v, from %v", both, w, last)
+		}
+		if left := both - w; left < 40 && left < both/2-dot {
+			t.Fatalf("of %v the title has %v", both, left)
+		}
+		last = w
 	}
 }
 

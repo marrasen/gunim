@@ -15,14 +15,18 @@ import (
 // tabBadge is a tab's badge as it shows: a word or two in a pill, as
 // package widget's Badge. It grows and fades in, changes its words and
 // its colour in a fade, and shrinks and fades out. Where the tab has
-// little room it narrows to half of what there is, and at last to a dot,
-// which stands at the icon's corner in a tab of its icon alone.
+// little room it narrows to what the title leaves, or to half where both
+// are long, and at last to a dot, which stands at the icon's corner in a
+// tab of its icon alone.
 type tabBadge struct {
 	text string
 	ink  *theme.Token[color.NRGBA]
 	// on is how far it shows, and swap how far its words and colour have
 	// come from was and wasInk.
 	on, swap *anim.Float
+	// beside is the room the title beside it needs, which glides as the
+	// tab's width does.
+	beside   *anim.Float
 	run, was text.Run
 	wasInk   color.NRGBA
 	// face, size, said and from are what run was shaped from.
@@ -37,11 +41,14 @@ type tabBadge struct {
 // badgeGap is the room before a badge.
 const badgeGap = 6
 
-func newTabBadge() *tabBadge { return &tabBadge{on: anim.NewFloat(0), swap: anim.NewFloat(1)} }
+func newTabBadge() *tabBadge {
+	return &tabBadge{on: anim.NewFloat(0), swap: anim.NewFloat(1), beside: anim.NewFloat(0)}
+}
 
 func (g *tabBadge) step(dt time.Duration) bool {
 	moving := g.on.Step(dt)
-	return g.swap.Step(dt) || moving
+	moving = g.swap.Step(dt) || moving
+	return g.beside.Step(dt) || moving
 }
 
 // color is the badge's own colour.
@@ -102,12 +109,24 @@ func (g *tabBadge) width(th *theme.Live) float32 {
 	return min(g.run.Advance+2*widget.BadgePadding.Get(th), TabBadge.Get(th))
 }
 
+// stand has the badge stand beside a title that needs room. With still,
+// and while it does not show, that is simply so.
+func (g *tabBadge) stand(room float32, still bool, th *theme.Live) {
+	if still || g.on.Value() <= 0.001 {
+		g.beside.Jump(room)
+	}
+	g.beside.Animate(room, Slide.Get(th))
+}
+
 // fit is how wide the badge is drawn in room, all of which the tab has
-// for it and its title.
+// for it and its title. It has what the title leaves, or where that is
+// less than half of it, up to half.
 func (g *tabBadge) fit(room float32, th *theme.Live) float32 {
 	pad := 2 * widget.BadgePadding.Get(th)
 	w := anim.Mix(anim.FloatCodec, g.was.Advance+pad, g.run.Advance+pad, g.swapped())
-	w = min(w, TabBadge.Get(th), (room-badgeGap)/2)
+	room -= badgeGap
+	// A hair more than the title needs, so rounding never cuts it.
+	w = min(w, TabBadge.Get(th), max(room-g.beside.Value()-0.25, room/2))
 	return max(w, TabBadgeDot.Get(th))
 }
 

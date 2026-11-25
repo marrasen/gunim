@@ -35,9 +35,10 @@ type Face struct {
 	// Badge is a word or two in a small pill after the title, as who
 	// types in the pane, "" for none. It grows in and shrinks away, and
 	// changes its words in a fade. The tab is wider for it, as far as
-	// tabs get; with little room it takes up to half of it from the
-	// title, and in a narrow tab it is a dot. A screen reader reads it
-	// after the title, and so does the tooltip where it is cut.
+	// tabs get; with little room it has what the title leaves, or half
+	// where both are long, and in a narrow tab it is a dot. A screen
+	// reader reads it after the title, and so does the tooltip where it
+	// is cut.
 	Badge string
 	// BadgeInk is the token of the badge's colour, nil for the theme's
 	// accent: the words', and faintly the pill's.
@@ -605,7 +606,7 @@ func (b *Bar) follow(th *theme.Live) {
 // the bar, or before the bar shows, is simply there: its tab grows in
 // with it.
 func (b *Bar) showBadges(th *theme.Live) {
-	for _, t := range b.tabs {
+	for i, t := range b.tabs {
 		g := b.badges[t.id]
 		if g == nil {
 			if t.Badge == "" {
@@ -614,7 +615,13 @@ func (b *Bar) showBadges(th *theme.Live) {
 			g = newTabBadge()
 			b.badges[t.id] = g
 		}
-		if g.say(t.Badge, t.BadgeInk, !b.laid || b.moves[t.id] == nil, th) {
+		still := !b.laid || b.moves[t.id] == nil
+		need := b.titles[i].Advance
+		if more := b.more[i].Advance; more > 0 {
+			need += more + 6
+		}
+		g.stand(need, still, th)
+		if g.say(t.Badge, t.BadgeInk, still, th) {
 			delete(b.badges, t.id)
 		}
 	}
