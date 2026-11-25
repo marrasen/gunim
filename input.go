@@ -362,8 +362,13 @@ func (u *UI) handleRaw(root *state, ev any) {
 			return
 		}
 		u.dispatchTouch(root, e.Pos, func(local geom.Point) input.Event {
-			return input.Scroll{Pos: local, Delta: e.Delta, Notches: e.Notches, Mods: e.Mods, Touch: e.Touch, Time: e.Time}
+			return input.Scroll{Pos: local, Delta: e.Delta, Notches: e.Notches, Mods: e.Mods, Touch: e.Touch, Fling: e.Fling,
+				Time: e.Time}
 		}, e.Touch)
+	case input.ScrollEnd:
+		u.dispatchTouch(root, e.Pos, func(local geom.Point) input.Event {
+			return input.ScrollEnd{Pos: local, Time: e.Time}
+		}, true)
 	case input.Pinch:
 		u.pinchEvent(root, e)
 	case input.Finger:

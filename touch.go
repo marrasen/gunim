@@ -99,6 +99,9 @@ func (u *UI) touchEvent(root *state, ev any) bool {
 	switch e := ev.(type) {
 	case input.PointerDown:
 		u.fling = nil
+		if t := u.touch; t != nil && t.scrolling {
+			u.handleRaw(t.root, input.ScrollEnd{Pos: t.start, Time: e.Time})
+		}
 		u.endTouch()
 		if e.Touch && e.Button == input.ButtonPrimary {
 			t := &touchPress{root: root, start: e.Pos, last: e.Pos, lastAt: e.Time}
@@ -175,6 +178,7 @@ func (u *UI) touchEvent(root *state, ev any) bool {
 		case !t.scrolling:
 			return false
 		}
+		u.handleRaw(root, input.ScrollEnd{Pos: t.start, Time: e.Time})
 		speed := math.Hypot(float64(t.vel.X), float64(t.vel.Y))
 		if e.Pos != input.Away && e.Time.Sub(t.lastAt) < 100*time.Millisecond && speed > flingStop {
 			u.fling = &touchFling{root: root, at: t.start, vel: t.vel}
@@ -282,6 +286,6 @@ func (u *UI) stepFling(dt time.Duration) bool {
 		u.fling = nil
 		return false
 	}
-	u.handleRaw(f.root, input.Scroll{Pos: f.at, Delta: f.vel.Mul(float32(s)), Touch: true, Time: u.now})
+	u.handleRaw(f.root, input.Scroll{Pos: f.at, Delta: f.vel.Mul(float32(s)), Touch: true, Fling: true, Time: u.now})
 	return true
 }
