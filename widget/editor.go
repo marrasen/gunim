@@ -70,6 +70,11 @@ type editor struct {
 	// selected.
 	wording bool
 	words   [2]int
+	// tap is a finger's press, once fingerDown: what it does waits until
+	// the finger lifts from a tap. A finger that scrolls, or is held for
+	// the edit menu, leaves the selection as it was.
+	tap     input.PointerDown
+	tapping bool
 	// handles are the popups of the selection's two handles while they
 	// show, and handleAt where each hangs; see handles.go.
 	handles  [2]*gunim.Popup
@@ -610,12 +615,15 @@ const (
 // contextPress takes a press of the secondary button at rune i, at in
 // owner's space. A right click outside the selection puts the caret
 // there, and one inside it keeps it, and the edit menu opens. A finger
-// held still selects the word under it, as a phone's text field does,
-// and may go on to drag over more words; the menu opens as it lifts.
+// held still selects the word under it, as a phone's text field does, or
+// keeps the selection it is in, and may go on to drag over more words;
+// the menu opens as it lifts.
 func (e *editor) contextPress(owner gunim.Node, i int, at geom.Point, touch bool, u *gunim.UI) {
 	if touch {
 		e.closeMenu()
-		e.press(i, 2, false, WordStops.Get(u.Theme()))
+		if start, end := e.Selection(); start == end || i < start || i > end {
+			e.press(i, 2, false, WordStops.Get(u.Theme()))
+		}
 		e.words = [2]int{min(e.anchor, e.caret), max(e.anchor, e.caret)}
 		e.wording = true
 		return
@@ -726,6 +734,21 @@ func (e *editor) press(i, clicks int, shift bool, stops string) {
 	}
 	e.anchor, e.caret = clickRange(e.text, i, clicks, stops)
 	e.hinted, e.goal = false, false
+}
+
+// fingerDown takes a press d of the primary button, and reports whether a
+// finger's, which waits for tapped to say what it was.
+func (e *editor) fingerDown(d input.PointerDown) bool {
+	e.tap, e.tapping = d, d.Touch
+	return d.Touch
+}
+
+// tapped ends a finger's press as it is let go at at, and returns it
+// where it was a tap. One let go at [input.Away] scrolled or was held.
+func (e *editor) tapped(at geom.Point) (input.PointerDown, bool) {
+	was := e.tapping
+	e.tapping = false
+	return e.tap, was && at != input.Away
 }
 
 // clickRange returns what a click at rune i of rs selects: nothing on a

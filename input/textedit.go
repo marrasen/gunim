@@ -28,6 +28,10 @@ type TextState struct {
 	// Secret says the text is a password, which a keyboard keeps out of
 	// its suggestions and its memory.
 	Secret bool
+	// Raw says the text stays as it is typed: a keyboard corrects and
+	// capitalizes nothing, and offers no words. The engine sets it for a
+	// node that is a gunim.RawTexter.
+	Raw bool
 }
 
 // End returns where Text ends in the whole text.

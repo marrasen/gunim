@@ -283,6 +283,9 @@ func (t *TextField) Handle(e input.Event, u *gunim.UI) bool {
 			t.clearing = e.Button == input.ButtonPrimary
 			break
 		}
+		if t.fingerDown(e) {
+			break
+		}
 		t.closeHandles()
 		t.press(t.indexAt(e.Pos, u), e.Clicks, e.Mods.Has(input.ModShift), WordStops.Get(u.Theme()))
 		t.held = true
@@ -303,6 +306,10 @@ func (t *TextField) Handle(e input.Event, u *gunim.UI) bool {
 		t.held = false
 		if t.endWords(t, e.Pos, u) {
 			break
+		}
+		if d, ok := t.tapped(e.Pos); ok {
+			t.closeHandles()
+			t.press(t.indexAt(d.Pos, u), d.Clicks, d.Mods.Has(input.ModShift), WordStops.Get(u.Theme()))
 		}
 		if t.clearing && e.Button == input.ButtonPrimary {
 			t.clearing = false

@@ -14,7 +14,8 @@ var FormGap = theme.Length("form.gap", 12)
 // Form lines up labelled fields: each label beside its field, level
 // with the field's first line, the labels in a column of their own as
 // wide as the longest, the fields taking the rest. Put one in a [Dialog]'s Body, and Tab moves through
-// its fields and the dialog's buttons in turn.
+// its fields and the dialog's buttons in turn. A screen reader reads a field by its label, where the field has no
+// label of its own.
 type Form struct {
 	rows []formRow
 }
@@ -46,6 +47,16 @@ func (f *Form) Focusables() []gunim.Node {
 		}
 	}
 	return out
+}
+
+// AccessName implements [gunim.AccessNamer]: a field is called by its label.
+func (f *Form) AccessName(child gunim.Node) string {
+	for _, r := range f.rows {
+		if r.field == child {
+			return r.label.Text
+		}
+	}
+	return ""
 }
 
 // Children implements [gunim.Composite]: each label, then its field.

@@ -43,7 +43,7 @@ final class GunimInput {
 	private int start;
 	private int selA, selB;
 	private int compA = -1, compB = -1;
-	private boolean hasState, multiline, secret;
+	private boolean hasState, multiline, secret, raw;
 	// seq numbers the edits sent; batch counts the keyboard's batch
 	// edits open, whose changes go together as they close.
 	private long seq;
@@ -87,6 +87,8 @@ final class GunimInput {
 			int t = InputType.TYPE_CLASS_TEXT;
 			if (secret) {
 				t |= InputType.TYPE_TEXT_VARIATION_PASSWORD | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS;
+			} else if (raw) {
+				t |= InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS;
 			} else {
 				t |= InputType.TYPE_TEXT_FLAG_AUTO_CORRECT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES;
 			}
@@ -114,7 +116,8 @@ final class GunimInput {
 	}
 
 	/** setState takes a state of the node's text from Go. */
-	void setState(String s, int start, int a, int b, int ca, int cb, boolean multiline, boolean secret, long seq) {
+	void setState(String s, int start, int a, int b, int ca, int cb, boolean multiline, boolean secret, boolean raw,
+		long seq) {
 		debug("state seq=" + seq + " (sent " + this.seq + ", batch " + batch + ") text=\"" + s + "\" sel=" + a + "," + b
 			+ " comp=" + ca + "," + cb, secret || this.secret);
 		if (seq != this.seq) {
@@ -123,14 +126,15 @@ final class GunimInput {
 		if (batch > 0) {
 			// The keyboard is mid-edit: the state waits for the batch to
 			// close, and goes in then unless the batch made an edit.
-			pending = new Object[] {s, start, a, b, ca, cb, multiline, secret, seq};
+			pending = new Object[] {s, start, a, b, ca, cb, multiline, secret, raw, seq};
 			return;
 		}
 		pending = null;
-		boolean kind = !hasState || multiline != this.multiline || secret != this.secret;
+		boolean kind = !hasState || multiline != this.multiline || secret != this.secret || raw != this.raw;
 		hasState = true;
 		this.multiline = multiline;
 		this.secret = secret;
+		this.raw = raw;
 		if (ca == cb) {
 			ca = cb = -1;
 		}
@@ -195,7 +199,7 @@ final class GunimInput {
 			return;
 		}
 		setState((String) p[0], (Integer) p[1], (Integer) p[2], (Integer) p[3], (Integer) p[4], (Integer) p[5],
-			(Boolean) p[6], (Boolean) p[7], (Long) p[8]);
+			(Boolean) p[6], (Boolean) p[7], (Boolean) p[8], (Long) p[9]);
 	}
 
 	/** clearState leaves the keyboard with no text of Go's. */

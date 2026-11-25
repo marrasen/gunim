@@ -67,7 +67,10 @@ type PointerDown struct {
 	// touch, which the engine works out: the node pressed hears its
 	// press let go far away as the scroll starts. A finger held still is
 	// a press of the secondary button, as a right click is, which opens
-	// a context menu, and a text field selects the word under it.
+	// a context menu, and a text field selects the word under it: the
+	// press is let go at [Away] first. So a node whose press changes
+	// something at once, such as a caret or a selection, takes a finger's
+	// as it is let go, where that is not at Away: then it was a tap.
 	Touch bool
 	Time  time.Time
 }

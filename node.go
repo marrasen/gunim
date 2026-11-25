@@ -233,9 +233,29 @@ type Focusable interface {
 // text field does. While one has focus, the platform's input method
 // composes into the window and reports its composition as
 // [input.Composing], or as [input.TextEdit] to a [TextEditor].
+//
+// TakesText reports whether it takes text right now, so a node can start
+// and stop while it has the focus, as a terminal its user may no longer
+// type in. The focused node is asked as the focus moves, after each key
+// and press, and after every frame. One that stops is sent an empty
+// [input.Composing], which ends a composition into it, and a phone's
+// keyboard goes away. One that starts brings a phone's keyboard up at the
+// next tap on it, or at once where a tap on it had it start, as a field
+// the focus has come to does.
 type TextTaker interface {
 	Node
 	TakesText() bool
+}
+
+// A RawTexter is a [TextTaker] that takes text exactly as it is typed, as
+// a terminal does and code may: a phone's keyboard corrects nothing in
+// it, capitalizes nothing and offers no words. RawText is asked as
+// TakesText is. One that says so from the start, before the keyboard
+// comes up, has the keyboard of its kind; changed while the keyboard is
+// up, some keyboards change only the next time.
+type RawTexter interface {
+	TextTaker
+	RawText() bool
 }
 
 // A TextEditor is a [TextTaker] that edits a text of its own, as a text
@@ -298,6 +318,14 @@ type CaretReporter interface {
 type FocusKeeper interface {
 	Node
 	KeepsFocus()
+}
+
+// A FocusKeeperWhile is a [FocusKeeper] that keeps the focus only some of the time, such as a bar of tabs while the
+// keyboard is in a pane. It is asked as it is pressed, and while KeepsFocusWhile says no, the press moves the focus as
+// if the node were no FocusKeeper.
+type FocusKeeperWhile interface {
+	FocusKeeper
+	KeepsFocusWhile(u *UI) bool
 }
 
 // A PressFocuser is a [Focusable] that says whether a press focuses it. One that says no leaves the keyboard where

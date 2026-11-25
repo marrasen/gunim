@@ -30,6 +30,8 @@ type Window struct {
 	in        *inbox.Inbox
 	quit      chan struct{}
 	presented chan driver.Frame
+	// raw says the node that takes text in it takes it as it is typed.
+	raw       bool
 	closeOnce sync.Once
 
 	parent                   *Window
@@ -235,6 +237,7 @@ func (w *Window) Show() error {
 func (w *Window) SetTextInput(active bool) {
 	d := w.d
 	d.mu.Lock()
+	raw := w.raw
 	switch {
 	case active:
 		if d.typing != w {
@@ -251,11 +254,36 @@ func (w *Window) SetTextInput(active bool) {
 	d.mu.Unlock()
 	d.lockKeys()
 	if active {
+		// The browser reads it as the mirror takes the focus.
+		d.setRaw(raw)
 		d.syncText(w)
 		d.focusMirror()
 	} else {
 		d.leaveMirror()
 	}
+}
+
+// SetTextRaw implements [driver.RawTexter]: a phone's keyboard corrects nothing
+// in the mirror. A keyboard that is up may change only the next time it comes.
+func (w *Window) SetTextRaw(on bool) {
+	d := w.d
+	d.mu.Lock()
+	w.raw = on
+	typing := d.typing == w
+	d.mu.Unlock()
+	if typing {
+		d.setRaw(on)
+	}
+}
+
+// setRaw says whether the keyboard leaves what is typed in the mirror as it is.
+// The mirror never capitalizes, checks spelling or fills in, raw or not.
+func (d *Driver) setRaw(on bool) {
+	correct := "on"
+	if on {
+		correct = "off"
+	}
+	d.plain.Call("setAttribute", "autocorrect", correct)
 }
 
 // leaveMirror ends typing: nothing of the field stays in the page, and the keyboard
@@ -332,6 +360,7 @@ var (
 	_ driver.Backgrounder = (*Window)(nil)
 	_ driver.Recycler     = (*Window)(nil)
 	_ driver.TextInputter = (*Window)(nil)
+	_ driver.RawTexter    = (*Window)(nil)
 	_ driver.CaretPlacer  = (*Window)(nil)
 	_ driver.LinkOpener   = (*Window)(nil)
 	_ driver.CursorSetter = (*Window)(nil)

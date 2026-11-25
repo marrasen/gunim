@@ -117,6 +117,10 @@ type Info struct {
 	// label, a field's placeholder or the label beside it.
 	Name        string
 	Description string
+	// Hint says Name is only a hint of what the node is for, as a
+	// field's placeholder is: the label beside it is its name where
+	// there is one, and the hint then its description.
+	Hint bool
 	// Value is the node's text, for a text field, or a slider's value
 	// as words.
 	Value string

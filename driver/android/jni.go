@@ -145,7 +145,7 @@ func sendTextState(s *input.TextState, seq uint64) {
 	}
 	C.gunim_text_state(p, C.int(len(u)), C.int(s.Start),
 		at(s.Selection[0]), at(s.Selection[1]), at(s.Composing[0]), at(s.Composing[1]),
-		cBool(s.Multiline), cBool(s.Secret), C.longlong(seq))
+		cBool(s.Multiline), cBool(s.Secret), cBool(s.Raw), C.longlong(seq))
 }
 
 func cBool(b bool) C.int {

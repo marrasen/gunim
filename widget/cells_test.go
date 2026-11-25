@@ -201,6 +201,19 @@ func cellsRow(ops []paint.Op, y int) (*paint.CellsOp, bool) {
 // BenchmarkAGridScrollingAFullScreen draws a 200 by 60 terminal whose
 // every row changes each frame, as it does while text scrolls past.
 func BenchmarkAGridScrollingAFullScreen(b *testing.B) {
+	scrollFullScreen(b, func(*CellGrid, *gunim.UI) {})
+}
+
+// BenchmarkAGridFadingWhileItScrolls is the same, its colours gliding on every frame.
+func BenchmarkAGridFadingWhileItScrolls(b *testing.B) {
+	scrollFullScreen(b, func(g *CellGrid, u *gunim.UI) {
+		if !g.fade.Active() {
+			g.FadeColors(u)
+		}
+	})
+}
+
+func scrollFullScreen(b *testing.B, each func(*CellGrid, *gunim.UI)) {
 	g := NewCellGrid()
 	g.Size = 14
 	g.Resize(200, 60)
@@ -219,11 +232,18 @@ func BenchmarkAGridScrollingAFullScreen(b *testing.B) {
 		lines[i] = row
 	}
 	w.Frame(16_666_667)
+	var ui *gunim.UI
+	gunim.RegisterPatch(w, "cells", func(_ gunim.Node, _ struct{}, u *gunim.UI) { ui = u })
+	if err := w.Client().Patch("cells", struct{}{}); err != nil {
+		b.Fatal(err)
+	}
+	w.Frame(16_666_667)
 	b.ResetTimer()
 	for i := range b.N {
 		for y := range 60 {
 			g.SetRow(y, lines[(y+i)%61])
 		}
+		each(g, ui)
 		w.Frame(16_666_667)
 	}
 }
