@@ -32,8 +32,8 @@ type Drag struct {
 //
 // With Content set the dock holds the application's views itself, each
 // in its place. Without it the dock draws the bars and the dividers
-// alone, and the application draws each view where Rect says, and
-// passes the drags over its views to DragEvent.
+// alone, and the application draws each view where Rect says, beneath
+// the dock, and passes the drags over its views to DragEvent.
 //
 // A tab picked comes to the front at once, its view fading in from the
 // side the tab stands on, and a new split slides open. A tab dragged
@@ -1000,14 +1000,14 @@ func (d *Dock) CatchKey(e input.Event, u *gunim.UI) bool {
 }
 
 // Overhear implements [gunim.Overhearer]: a press in a pane has the
-// keys work in it.
+// keys work in it, and not one in what lies over it, as a dialog.
 func (d *Dock) Overhear(e input.Event, u *gunim.UI) {
 	down, ok := e.(input.PointerDown)
 	if !ok {
 		return
 	}
 	at, ok := u.Bounds(d)
-	if !ok {
+	if !ok || u.CoveredAt(d, down.Pos) {
 		return
 	}
 	p := down.Pos.Sub(at.Min)

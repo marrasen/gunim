@@ -3050,6 +3050,29 @@ func (u *UI) Bounds(n Node) (geom.Rect, bool) {
 	return u.rectIn(s, u.root), true
 }
 
+// CoveredAt reports whether a press at pos, in the window's space, goes to something drawn over n, such as a dialog:
+// to a node that is not n, above n or inside it, and is painted after it. A press on what lies beside n or under it
+// is not covered, and neither is one a popup's window takes, of which a node hears nothing. It is false for a node the
+// last frame left undrawn, and for one in a popup.
+func (u *UI) CoveredAt(n Node, pos geom.Point) bool {
+	s, ok := u.index[n]
+	if !ok || s.drawn == 0 || s.drawn != u.seq || u.surfaceOf(s) != nil {
+		return false
+	}
+	hit := u.hit(u.root, pos)
+	if hit == nil || hit.within(s) || s.within(hit) {
+		return false
+	}
+	// The branches the two lie in, below the nearest node that holds both.
+	for !s.within(hit.parent) {
+		hit = hit.parent
+	}
+	for s.parent != hit.parent {
+		s = s.parent
+	}
+	return slices.Index(s.parent.kids, hit) > slices.Index(s.parent.kids, s)
+}
+
 // Drawn reports whether n's parent painted it in the last frame, in the window or in a popup's. A node clipped away or
 // covered by another reads true. It reads false before the window's first frame, during a frame until the node is
 // painted, and on a nil UI.
