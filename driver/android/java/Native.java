@@ -8,6 +8,8 @@ import android.os.Build;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.system.ErrnoException;
+import android.system.Os;
 import android.view.Surface;
 
 /**
@@ -23,7 +25,45 @@ public final class Native {
 
 	private static final Handler ui = new Handler(Looper.getMainLooper());
 
+	private static boolean loaded;
+
+	/**
+	 * boot starts the program where no activity has, from a service, a
+	 * job or a receiver of the program's own, with any context of the
+	 * program's. The program's main function runs on a thread of its own
+	 * from here on, once for each process, and boot changes nothing once
+	 * it runs. The program opens its windows as ever, and they show when
+	 * an activity starts in the process.
+	 *
+	 * Call it on the UI thread, where Android calls such a component,
+	 * before the first native method of the program's own.
+	 */
+	public static void boot(Context c) {
+		load(c);
+		start(java.util.TimeZone.getDefault().getID());
+	}
+
+	// load loads the program, whose main waits for boot to run it.
+	static synchronized void load(Context c) {
+		if (loaded) {
+			return;
+		}
+		app = c.getApplicationContext();
+		// Go looks for its home and caches where a desktop keeps them.
+		try {
+			Os.setenv("HOME", app.getFilesDir().getPath(), true);
+			Os.setenv("TMPDIR", app.getCacheDir().getPath(), true);
+			Os.setenv("XDG_CACHE_HOME", app.getCacheDir().getPath(), true);
+			Os.setenv("XDG_CONFIG_HOME", app.getFilesDir().getPath(), true);
+		} catch (ErrnoException e) {
+			// Go falls back to its defaults.
+		}
+		System.loadLibrary("gunim");
+		loaded = true;
+	}
+
 	static native void start(String zone);
+	static native void go(long h, Context context);
 	static native void surfaceChanged(Surface surface, int width, int height);
 	static native void surfaceDestroyed(Surface surface);
 	static native void metrics(float density, float refreshRate);
@@ -46,6 +86,17 @@ public final class Native {
 	static native void heading(float[] rotation, int screen, int accuracy, float error);
 
 	// Called from Go.
+
+	// run has Go run the function h names, with the thread's JNIEnv and
+	// the application's context, and returns what it throws, or null.
+	static String run(long h) {
+		try {
+			go(h, app);
+			return null;
+		} catch (Throwable t) {
+			return String.valueOf(t);
+		}
+	}
 
 	static void nowPlaying(boolean on, boolean playing, String title, String artist, String album,
 		long length, long position, byte[] art) {

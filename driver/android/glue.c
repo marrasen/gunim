@@ -2,8 +2,13 @@
 
 #include <jni.h>
 #include <stdlib.h>
+#include <errno.h>
+#include <netdb.h>
 #include <string.h>
 #include <time.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <android/multinetwork.h>
 #include <android/native_window_jni.h>
 #include <android/log.h>
 #include <EGL/egl.h>
@@ -19,7 +24,7 @@ static JavaVM *vm;
 static jclass nativeClass;
 static jmethodID midPermitted, midAsk, midUserFolder, midChooseFolder, midChooseFiles;
 static jmethodID midNowPlaying, midShowKeyboard, midCaret, midBuzz, midFingers, midAwake, midShare, midVibrate, midExclude, midOpenLink, midTextState, midClearTextState, midGetClipboard, midSetClipboard, midFinish;
-static jmethodID midHasCompass, midWatchHeading, midNoBackupDir;
+static jmethodID midHasCompass, midWatchHeading, midNoBackupDir, midRun;
 static jclass audioClass;
 static jmethodID midAudioRoute, midAudioProbe, midAudioWatch;
 
@@ -57,6 +62,7 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *v, void *reserved) {
 	midAsk = (*env)->GetStaticMethodID(env, c, "ask", "(II)V");
 	midUserFolder = (*env)->GetStaticMethodID(env, c, "userFolder", "(I)Ljava/lang/String;");
 	midNoBackupDir = (*env)->GetStaticMethodID(env, c, "noBackupDir", "()Ljava/lang/String;");
+	midRun = (*env)->GetStaticMethodID(env, c, "run", "(J)Ljava/lang/String;");
 	midChooseFolder = (*env)->GetStaticMethodID(env, c, "chooseFolder", "(I)V");
 	midChooseFiles = (*env)->GetStaticMethodID(env, c, "chooseFiles", "(IZLjava/lang/String;)V");
 	jclass ac = (*env)->FindClass(env, "gunim/android/GunimAudio");
@@ -263,6 +269,64 @@ uint16_t *gunim_no_backup_dir(int *n) {
 	uint16_t *out = takeString(env, s, n);
 	envPut(a);
 	return out;
+}
+
+int gunim_env(uintptr_t h, uint16_t **thrown, int *n) {
+	*thrown = NULL;
+	if (nativeClass == NULL) {
+		return 0;
+	}
+	int a;
+	JNIEnv *env = envGet(&a);
+	if (env == NULL) {
+		return 0;
+	}
+	// Java's run is under goEnv on the stack, so FindClass there looks
+	// with run's class loader, the program's, and what goEnv leaves
+	// behind goes as it returns.
+	jstring s = (jstring)(*env)->CallStaticObjectMethod(env, nativeClass, midRun, (jlong)h);
+	*thrown = takeString(env, s, n);
+	envPut(a);
+	return 1;
+}
+
+JNIEXPORT void JNICALL Java_gunim_android_Native_go(JNIEnv *env, jclass c, jlong h, jobject context) {
+	goEnv(env, (uintptr_t)context, (uintptr_t)h);
+}
+
+int gunim_bind_socket(long long network, int fd) {
+	return android_setsocknetwork((net_handle_t)network, fd) == 0 ? 0 : errno;
+}
+
+int gunim_lookup(long long network, const char *host, int family, gunim_addr *out, int max, char *failed, int nfailed,
+	int *kind) {
+	struct addrinfo hints = {.ai_family = family, .ai_socktype = SOCK_STREAM}, *list = NULL;
+	*kind = 0;
+	int e = android_getaddrinfofornetwork((net_handle_t)network, host, NULL, &hints, &list);
+	if (e != 0) {
+		const char *why = e == EAI_SYSTEM ? strerror(errno) : gai_strerror(e);
+		strncpy(failed, why, nfailed - 1);
+		failed[nfailed - 1] = 0;
+		*kind = e == EAI_NONAME || e == EAI_NODATA ? GUNIM_NO_NAME : e == EAI_AGAIN ? GUNIM_TRY_AGAIN : GUNIM_FAILED;
+		return 0;
+	}
+	int n = 0;
+	for (struct addrinfo *i = list; i != NULL && n < max; i = i->ai_next) {
+		out[n].scope = 0;
+		if (i->ai_family == AF_INET) {
+			out[n].n = 4;
+			memcpy(out[n].b, &((struct sockaddr_in *)i->ai_addr)->sin_addr, 4);
+		} else if (i->ai_family == AF_INET6) {
+			out[n].n = 16;
+			memcpy(out[n].b, &((struct sockaddr_in6 *)i->ai_addr)->sin6_addr, 16);
+			out[n].scope = ((struct sockaddr_in6 *)i->ai_addr)->sin6_scope_id;
+		} else {
+			continue;
+		}
+		n++;
+	}
+	freeaddrinfo(list);
+	return n;
 }
 
 void gunim_buzz(void) {

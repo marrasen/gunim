@@ -590,6 +590,17 @@ the program's files out of both. `-keep-data` has Android offer to keep
 them as the program is uninstalled. `example/backup` shows the two
 folders.
 
+A program can bring Java of its own: `gunimapk -java DIR` compiles it
+with gunim's. `android.Env`, in `driver/android`, runs a Go function
+with the Java VM's environment, where the program calls Java with cgo of
+its own. A service, a job or a receiver that Android may start with no
+activity calls `gunim.android.Native.boot(context)`, which starts
+`main`. `App.NewWindow` waits until an activity shows the window, so the
+program starts its background work apart from it. `android.Network`
+keeps a socket and a lookup to one of the phone's networks, as a job's
+own. `example/background` works on in a job while it is out of sight,
+and goes on after Android ends its process.
+
 `Client.ChooseFiles` shows Android's document picker and returns paths
 to copies of the files chosen, in the app's cache. `gunimapk -opens
 .hej,.hejprop` puts the program under "Open with" and in the share sheet

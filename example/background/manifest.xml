@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- What example/background adds to the manifest: its job. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+	<application>
+		<service android:name="org.gunim.background.Work" android:exported="false"
+			android:permission="android.permission.BIND_JOB_SERVICE"/>
+	</application>
+</manifest>

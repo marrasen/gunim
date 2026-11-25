@@ -12,6 +12,21 @@
 // its own, once. main calls gunim.Main as on the desktop, and Main
 // opens this driver.
 //
+// # With no activity
+//
+// Android may run a program for a service, a job or a receiver, with no
+// activity, as after it ended the program's process in the middle of a
+// job. Such a component, in Java of the program's own, calls
+// gunim.android.Native.boot, which starts main the same way. gunim.Main
+// runs its function at once then, and App.NewWindow and App.Monitors wait
+// for an activity to show the window, which may never come. So a program
+// that works in the background starts that work before it opens its
+// window, or apart from it. Once an activity starts in the process, the
+// window opens there, and the work goes on.
+//
+// main runs once in a process. A program that works in the background
+// stays in main until it has no more to do.
+//
 // # Windows on one surface
 //
 // Android gives an activity one surface, and gunim opens several
@@ -62,11 +77,11 @@ func mainMain()
 // to find it.
 var theDriver = newDriver()
 
-// errNotStarted is returned by Open outside an activity.
-var errNotStarted = errors.New("android: no activity started gunim")
+// errNotStarted is returned by Open before Java has started gunim.
+var errNotStarted = errors.New("android: nothing started gunim")
 
-// Open returns the driver. The activity has started it by the time
-// main runs.
+// Open returns the driver. The activity, or another component, has
+// started it by the time main runs.
 func Open() (*Driver, error) {
 	d := theDriver
 	d.mu.Lock()
@@ -167,9 +182,9 @@ func newDriver() *Driver {
 	}
 }
 
-// start runs main once, for the first activity, in the phone's time
-// zone, zone. An activity made again, as after the user leaves and comes
-// back, finds it running.
+// start runs main once, for the first activity or other component, in
+// the phone's time zone, zone. An activity made again, as after the user
+// leaves and comes back, finds it running.
 func (d *Driver) start(zone string) {
 	d.mu.Lock()
 	if d.started {

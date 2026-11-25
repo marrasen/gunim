@@ -62,6 +62,15 @@
 // stands for the application ID. Write a class with its package, as the
 // application ID is another in a debug build with -debug-id.
 //
+// -java names a directory of the program's own Java files, and those in
+// the directories under it, which gunimapk compiles with gunim's, for the
+// service or the receiver that -manifest names. They see Android and
+// gunim's classes. Java calls Go through native methods, which the
+// program writes in C or exports with cgo, and Go calls Java through
+// driver/android's Env. A component that Android may start with no
+// activity calls gunim.android.Native.boot first, which starts the
+// program's main function; see driver/android.
+//
 // -min-sdk is the oldest Android the program runs on, by its API level:
 // 26, Android 8.0, which is the oldest gunim runs on, by default. 34 is
 // Android 14.
@@ -215,6 +224,7 @@ func main() {
 	iconBG := flag.String("icon-background", "", "the colour under the launcher's icon, as #rrggbb; the colour of the icon's edge by default")
 	permList := flag.String("permissions", "", "what the program may do beyond drawing and sound, comma separated, of "+strings.Join(permissionNames(), ", "))
 	manifest := flag.String("manifest", "", "a manifest of the program's own parts, as its services, to add to the APK's")
+	javaDir := flag.String("java", "", "a directory of the program's own Java files, to compile with gunim's")
 	minSDK := flag.Int("min-sdk", oldestSDK, "the oldest Android the program runs on, by its API level")
 	backup := flag.Bool("backup", true, "let Android back up the program's files, and take them to the user's next phone")
 	keepData := flag.Bool("keep-data", false, "have Android offer to keep the program's data as the user uninstalls it")
@@ -282,7 +292,11 @@ func main() {
 	if oerr != nil {
 		log.Fatal(oerr)
 	}
-	o := options{pkg: pkg, out: *out, id: appID, own: own, minSDK: *minSDK, noBackup: !*backup, keepData: *keepData, name: *name, version: *version, iconPNG: *iconPNG, iconBG: *iconBG, perms: perms,
+	javas, jerr := javaFiles(*javaDir)
+	if jerr != nil {
+		log.Fatal(jerr)
+	}
+	o := options{pkg: pkg, out: *out, id: appID, own: own, java: javas, minSDK: *minSDK, noBackup: !*backup, keepData: *keepData, name: *name, version: *version, iconPNG: *iconPNG, iconBG: *iconBG, perms: perms,
 		opens: opens, orientation: *orientation, category: *category, abis: strings.Split(*abiList, ","), keystore: *keystore, keyAlias: *keyAlias, genKey: *genKey,
 		install: *install || *run, start: *run}
 	err := buildAPK(ctx, o)
@@ -302,6 +316,8 @@ type options struct {
 	perms, abis     []string
 	// own are the program's own parts of the manifest.
 	own parts
+	// java are the program's own Java files.
+	java []string
 	// minSDK is the oldest Android the program runs on.
 	minSDK int
 	// noBackup keeps the program's files out of Android's backups, and
@@ -473,7 +489,7 @@ func (b *builder) build(o options) error {
 		}
 		libs = append(libs, lib)
 	}
-	dex, dexErr := b.dex(o.minSDK)
+	dex, dexErr := b.dex(o.minSDK, o.java)
 	if dexErr != nil {
 		return dexErr
 	}
@@ -801,9 +817,31 @@ func checkPages(lib string) error {
 	return nil
 }
 
-// dex compiles the Java half of the driver into classes.dex, for Android
-// from minSDK on.
-func (b *builder) dex(minSDK int) (string, error) {
+// javaFiles returns the Java files in dir and the directories under it,
+// or none for no dir.
+func javaFiles(dir string) ([]string, error) {
+	if dir == "" {
+		return nil, nil
+	}
+	var files []string
+	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && filepath.Ext(p) == ".java" {
+			files = append(files, p)
+		}
+		return err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("-java: %w", err)
+	}
+	if len(files) == 0 {
+		return nil, fmt.Errorf("-java: no Java files in %s", dir)
+	}
+	return files, nil
+}
+
+// dex compiles the Java half of the driver, and the program's own Java
+// files, into classes.dex, for Android from minSDK on.
+func (b *builder) dex(minSDK int, own []string) (string, error) {
 	src := filepath.Join(b.tmp, "java")
 	classes := filepath.Join(b.tmp, "classes")
 	dexDir := filepath.Join(b.tmp, "dex")
@@ -828,6 +866,7 @@ func (b *builder) dex(minSDK int) (string, error) {
 		}
 		args = append(args, path)
 	}
+	args = append(args, own...)
 	if err := b.tool(filepath.Join(b.javaBin, "javac"), args...); err != nil {
 		return "", err
 	}

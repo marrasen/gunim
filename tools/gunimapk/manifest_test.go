@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/xml"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -441,6 +442,56 @@ func checkAPK(t *testing.T, b *builder, apk string, o options) {
 	}
 }
 
+// ownJava writes a program's own service, which boots the program as a
+// component of its own does, and returns its files.
+func ownJava(t *testing.T) []string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "com", "example", "notes")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const src = `package com.example.notes;
+
+public class Sync extends android.app.Service {
+	@Override
+	public void onCreate() {
+		gunim.android.Native.boot(this);
+	}
+
+	@Override
+	public android.os.IBinder onBind(android.content.Intent i) {
+		return null;
+	}
+}
+`
+	for name, text := range map[string]string{"Sync.java": src, "notes.txt": "not Java"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files, err := javaFiles(filepath.Dir(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return files
+}
+
+func TestJavaFilesAreFoundWhereverTheyStand(t *testing.T) {
+	files := ownJava(t)
+	if len(files) != 1 || filepath.Base(files[0]) != "Sync.java" {
+		t.Errorf("found %q", files)
+	}
+	if files, err := javaFiles(""); err != nil || files != nil {
+		t.Errorf("with no directory: %q, %v", files, err)
+	}
+	if _, err := javaFiles(t.TempDir()); err == nil {
+		t.Error("a directory with no Java passes")
+	}
+	if _, err := javaFiles(filepath.Join(t.TempDir(), "gone")); err == nil {
+		t.Error("a directory that is gone passes")
+	}
+}
+
 // askingOptions asks for every part checkAPK looks for.
 func askingOptions(t *testing.T, id string) options {
 	t.Helper()
@@ -478,6 +529,7 @@ func TestAWholeAPKHoldsTheProgramAndItsManifest(t *testing.T) {
 	b := sdk(t)
 	o := askingOptions(t, "com.example.notes.debug")
 	o.out = filepath.Join(t.TempDir(), "notes.apk")
+	o.java = ownJava(t)
 	if err := buildAPK(context.Background(), o); err != nil {
 		t.Fatal(err)
 	}
@@ -490,6 +542,23 @@ func TestAWholeAPKHoldsTheProgramAndItsManifest(t *testing.T) {
 	names := make([]string, 0, len(z.File))
 	for _, f := range z.File {
 		names = append(names, f.Name)
+		if f.Name != "classes.dex" {
+			continue
+		}
+		r, err := f.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		dex, err := io.ReadAll(r)
+		_ = r.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, class := range []string{"Lgunim/android/GunimActivity;", "Lcom/example/notes/Sync;"} {
+			if !bytes.Contains(dex, []byte(class)) {
+				t.Errorf("the APK's classes have no %s", class)
+			}
+		}
 	}
 	for _, want := range []string{"classes.dex", "lib/x86_64/libgunim.so", "resources.arsc"} {
 		if !slices.Contains(names, want) {
