@@ -18,6 +18,10 @@ import java.io.FileNotFoundException;
  * content://org.gunim.music.gunim.files/sdcard/Download/song.mp3, and
  * the provider is private: an application reads only the files a share
  * granted it, and only to read.
+ *
+ * It runs in a process of its own, with no Go: Android may end an
+ * application that reads a file as the process that serves it goes, and
+ * the program's own process ends with the program.
  */
 public final class GunimFiles extends ContentProvider {
 	/** authority returns the provider's authority, from the package's name. */
@@ -81,7 +85,6 @@ public final class GunimFiles extends ContentProvider {
 		if (!"r".equals(mode)) {
 			throw new SecurityException("gunim shares files to read: mode " + mode);
 		}
-		Native.served = true;
 		return ParcelFileDescriptor.open(fileOf(uri), ParcelFileDescriptor.MODE_READ_ONLY);
 	}
 
