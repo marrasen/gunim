@@ -40,6 +40,8 @@ final class GunimView extends SurfaceView implements SurfaceHolder.Callback {
 		input = new GunimInput(this, imm);
 		getHolder().addCallback(this);
 		setFocusable(true);
+		// The system's highlight would lie over all that gunim draws.
+		setDefaultFocusHighlightEnabled(false);
 		setFocusableInTouchMode(true);
 	}
 
@@ -63,6 +65,15 @@ final class GunimView extends SurfaceView implements SurfaceHolder.Callback {
 		});
 	}
 
+	/** settled runs what waits for a surface, as there is one, or none comes until the view shows again. */
+	void settled() {
+		Runnable r = onSurface;
+		onSurface = null;
+		if (r != null) {
+			r.run();
+		}
+	}
+
 	@Override
 	public void surfaceCreated(SurfaceHolder h) {}
 
@@ -72,11 +83,7 @@ final class GunimView extends SurfaceView implements SurfaceHolder.Callback {
 		float rate = getDisplay() != null ? getDisplay().getRefreshRate() : 60;
 		Native.metrics(density, rate);
 		Native.surfaceChanged(h.getSurface(), width, height);
-		Runnable r = onSurface;
-		onSurface = null;
-		if (r != null) {
-			r.run();
-		}
+		settled();
 	}
 
 	@Override

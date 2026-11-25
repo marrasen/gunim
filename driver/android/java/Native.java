@@ -510,9 +510,12 @@ public final class Native {
 			GunimActivity a = activity;
 			if (a == null) {
 				done.countDown();
-			} else if (!a.applySecure(done::countDown)) {
-				over[0] = 1;
+				return;
 			}
+			a.applySecure((alone) -> {
+				over[0] = alone ? 0 : 1;
+				done.countDown();
+			});
 		};
 		if (Looper.myLooper() == Looper.getMainLooper()) {
 			apply.run();

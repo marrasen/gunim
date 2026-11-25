@@ -22,13 +22,9 @@ public class GunimActivity extends Activity {
 		Native.load(this);
 		waits = Native.waits();
 		Native.activity = this;
-		GunimView v = new GunimView(this);
+		GunimView v = view = new GunimView(this);
 		Native.view = v;
 		Native.keepGestures(v);
-		if (Native.secure) {
-			applySecure(() -> {
-			});
-		}
 		setContentView(v);
 		edgeToEdge(v);
 		applyAwake();
@@ -81,6 +77,9 @@ public class GunimActivity extends Activity {
 		}
 	}
 
+	// view is this activity's own, as Native.view is the newest's.
+	private GunimView view;
+
 	// secured says that this activity is secure as gunim made it, and
 	// flagged and filtered what it was before by the program's own doing.
 	private boolean secured, flagged, filtered;
@@ -94,19 +93,19 @@ public class GunimActivity extends Activity {
 	 * applySecure sets the window to what the program last asked: kept out
 	 * of screenshots, recordings, the picture in Recents and screens cast,
 	 * with other applications' windows over it hidden, and deaf to touches
-	 * through one. What the program set by itself stays as it is. It
-	 * returns false where such windows may stay. It runs on the UI thread,
-	 * and done once the screen shows the window so.
+	 * through one. What the program set by itself stays as it is. It runs
+	 * on the UI thread, and done once the screen shows the window so, with
+	 * false where such windows may stay.
 	 */
-	boolean applySecure(Runnable done) {
+	void applySecure(java.util.function.Consumer<Boolean> done) {
 		boolean on = Native.secure;
 		if (on == secured) {
-			done.run();
-			return !on || overlaysGo;
+			done.accept(!on || overlaysGo);
+			return;
 		}
 		secured = on;
 		int flag = android.view.WindowManager.LayoutParams.FLAG_SECURE;
-		GunimView v = Native.view;
+		GunimView v = view;
 		if (on) {
 			flagged = (getWindow().getAttributes().flags & flag) != 0;
 			getWindow().addFlags(flag);
@@ -126,23 +125,23 @@ public class GunimActivity extends Activity {
 			setRecentsScreenshotEnabled(!on);
 		}
 		hideOverlays(on);
+		Runnable ready = () -> done.accept(!on || overlaysGo);
 		// The mark of the view's own is made with its surface, and stays with
 		// that: a view that inherits its window's has none.
 		boolean marked = android.os.Build.VERSION.SDK_INT < INHERITS;
 		if (v != null && marked && GunimWatch.isShown(this)) {
-			v.remake(on, () -> afterFrames(done));
+			v.remake(on, () -> afterFrames(ready));
 		} else {
 			if (v != null && marked) {
 				v.setSecure(on);
 			}
 			if (v != null && GunimWatch.isShown(this)) {
-				afterFrames(done);
+				afterFrames(ready);
 			} else {
 				// It is made, and drawn, as it shows.
-				done.run();
+				ready.run();
 			}
 		}
-		return !on || overlaysGo;
 	}
 
 	// overlaysGo says that other applications' windows over this one are
@@ -240,6 +239,10 @@ public class GunimActivity extends Activity {
 	// stops, so only the activity the program runs in now speaks for it.
 	@Override
 	protected void onStart() {
+		// Nothing has shown yet, and the program has set what it will in an
+		// onCreate of its own.
+		applySecure((alone) -> {
+		});
 		super.onStart();
 		if (Native.activity == this) {
 			Native.shown(true);
@@ -248,6 +251,8 @@ public class GunimActivity extends Activity {
 
 	@Override
 	protected void onStop() {
+		// Its surface is made as it shows again.
+		view.settled();
 		if (Native.activity == this) {
 			Native.shown(false);
 		}
