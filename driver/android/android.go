@@ -251,6 +251,8 @@ func (d *Driver) start(zone string, quiet bool) {
 	go func() {
 		mainMain()
 		d.end()
+		// The last word on work that is done may wait for its turn.
+		notices.Drain()
 		ended()
 	}()
 }

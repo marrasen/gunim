@@ -27,7 +27,7 @@ static JavaVM *vm;
 static jclass nativeClass;
 static jmethodID midPermitted, midAsk, midUserFolder, midChooseFolder, midChooseFiles;
 static jmethodID midNowPlaying, midShowKeyboard, midCaret, midBuzz, midFingers, midAwake, midShare, midVibrate, midExclude, midOpenLink, midTextState, midClearTextState, midGetClipboard, midSetClipboard, midFinish;
-static jmethodID midHasCompass, midWatchHeading, midNoBackupDir, midRun, midEnded, midStreamEnd, midCloseStream, midOpenServed, midStopServed, midCreateDocument, midSaveFolder, midSave;
+static jmethodID midHasCompass, midWatchHeading, midNoBackupDir, midRun, midEnded, midStreamEnd, midCloseStream, midOpenServed, midStopServed, midCreateDocument, midSaveFolder, midSave, midNotify, midNotifyOn, midNotifyEnd, midWatchNetwork;
 static jclass audioClass;
 static jmethodID midAudioRoute, midAudioProbe, midAudioWatch;
 
@@ -57,6 +57,10 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *v, void *reserved) {
 	midSaveFolder = (*env)->GetStaticMethodID(env, c, "saveFolder", "(I)V");
 	midSave = (*env)->GetStaticMethodID(env, c, "save",
 		"(ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;");
+	midNotify = (*env)->GetStaticMethodID(env, c, "notify", "([Ljava/lang/String;IIIZ[B)I");
+	midNotifyOn = (*env)->GetStaticMethodID(env, c, "notifyOn", "(Ljava/lang/String;)Z");
+	midNotifyEnd = (*env)->GetStaticMethodID(env, c, "notifyEnd", "(Ljava/lang/String;)V");
+	midWatchNetwork = (*env)->GetStaticMethodID(env, c, "watchNetwork", "(Z)Z");
 	midVibrate = (*env)->GetStaticMethodID(env, c, "vibrate", "([J)Z");
 	midExclude = (*env)->GetStaticMethodID(env, c, "excludeGestures", "([I)V");
 	midOpenLink = (*env)->GetStaticMethodID(env, c, "openLink", "(Ljava/lang/String;)Z");
@@ -529,6 +533,72 @@ JNIEXPORT void JNICALL Java_gunim_android_Native_saved(JNIEnv *env, jclass c, ji
 		(*env)->ReleaseStringChars(env, place, ps);
 	}
 	(*env)->ReleaseStringChars(env, name, ns);
+}
+
+int gunim_notify(uint16_t *const *s, const int *ns, int importance, int lock, int parts, int ongoing, const void *icon,
+	int nicon) {
+	int a;
+	JNIEnv *env = envGet(&a);
+	jclass sc = (*env)->FindClass(env, "java/lang/String");
+	jobjectArray js = (*env)->NewObjectArray(env, 8, sc, NULL);
+	for (int i = 0; i < 8; i++) {
+		jstring j = (*env)->NewString(env, (const jchar *)s[i], ns[i]);
+		(*env)->SetObjectArrayElement(env, js, i, j);
+		(*env)->DeleteLocalRef(env, j);
+	}
+	jbyteArray ji = NULL;
+	if (nicon > 0) {
+		ji = (*env)->NewByteArray(env, nicon);
+		(*env)->SetByteArrayRegion(env, ji, 0, nicon, (const jbyte *)icon);
+	}
+	jint r = (*env)->CallStaticIntMethod(env, nativeClass, midNotify, js, importance, lock, parts,
+		ongoing ? JNI_TRUE : JNI_FALSE, ji);
+	if (ji != NULL) {
+		(*env)->DeleteLocalRef(env, ji);
+	}
+	(*env)->DeleteLocalRef(env, js);
+	(*env)->DeleteLocalRef(env, sc);
+	envPut(a);
+	return r;
+}
+
+int gunim_notify_on(const uint16_t *channel, int n) {
+	int a;
+	JNIEnv *env = envGet(&a);
+	jstring j = (*env)->NewString(env, (const jchar *)channel, n);
+	jboolean on = (*env)->CallStaticBooleanMethod(env, nativeClass, midNotifyOn, j);
+	(*env)->DeleteLocalRef(env, j);
+	envPut(a);
+	return on ? 1 : 0;
+}
+
+void gunim_notify_end(const uint16_t *tag, int n) {
+	int a;
+	JNIEnv *env = envGet(&a);
+	jstring j = (*env)->NewString(env, (const jchar *)tag, n);
+	(*env)->CallStaticVoidMethod(env, nativeClass, midNotifyEnd, j);
+	(*env)->DeleteLocalRef(env, j);
+	envPut(a);
+}
+
+JNIEXPORT void JNICALL Java_gunim_android_Native_tapped(JNIEnv *env, jclass c, jstring tag) {
+	jsize n = (*env)->GetStringLength(env, tag);
+	const jchar *s = (*env)->GetStringChars(env, tag, NULL);
+	goTapped((uint16_t *)s, n);
+	(*env)->ReleaseStringChars(env, tag, s);
+}
+
+int gunim_watch_network(int on) {
+	int a;
+	JNIEnv *env = envGet(&a);
+	jboolean ok = (*env)->CallStaticBooleanMethod(env, nativeClass, midWatchNetwork, on ? JNI_TRUE : JNI_FALSE);
+	envPut(a);
+	return ok ? 1 : 0;
+}
+
+JNIEXPORT void JNICALL Java_gunim_android_Native_network(JNIEnv *env, jclass c, jlong network, jboolean online,
+	jboolean internet, jboolean metered, jboolean blocked, jboolean moved) {
+	goNetwork(network, online, internet, metered, blocked, moved);
 }
 
 int gunim_vibrate(const long long *ms, int n) {
