@@ -40,6 +40,12 @@ void gunim_save_folder(int code);
 // gunim_save does one of GunimSave's calls, with five strings, and returns
 // what it says, n UTF-16 units of it for the caller to free.
 uint16_t *gunim_save(int what, const uint16_t *const *s, const int *ns, int *n);
+// gunim_look reads the size of text, and dark and still, 1 for each, and
+// returns 0 with no application yet.
+int gunim_look(float *v);
+void gunim_watch_look(void);
+void gunim_back_leaves(int on);
+void gunim_leave_app(void);
 int gunim_vibrate(const long long *ms, int n);
 void gunim_exclude_gestures(const int *xy, int n);
 int gunim_has_compass(void);

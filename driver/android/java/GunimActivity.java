@@ -43,7 +43,7 @@ public class GunimActivity extends Activity {
 			v.watchKeyboard(getWindow().getDecorView());
 		}
 		if (android.os.Build.VERSION.SDK_INT >= 33) {
-			watchBack();
+			applyBack();
 		}
 		v.requestFocus();
 		Native.boot(this);
@@ -177,20 +177,38 @@ public class GunimActivity extends Activity {
 		v.postOnAnimation(() -> v.postOnAnimation(() -> v.post(done)));
 	}
 
+	// back hears Back while the program takes it, from Android 13, or is
+	// null while the system has it.
+	private Object back;
+
 	/**
-	 * watchBack hands the back gesture and button to Go as the back key,
-	 * which the driver takes as Escape. Android 13 and later tell an app
-	 * of them through this callback rather than as a key, and Android 16
-	 * only so, for an app built for it; GunimView takes the key on older
+	 * applyBack hands the back gesture and button to Go, or leaves them to
+	 * the system, as Go last said, on the UI thread. Android 13 and later
+	 * tell an app of them through this callback rather than as a key, and
+	 * Android 16 only so, for an app built for it. With none they show, as
+	 * the gesture starts, what it leads to. GunimView takes the key on older
 	 * Android.
 	 */
+	void applyBack() {
+		if (android.os.Build.VERSION.SDK_INT >= 33) {
+			applyBack33();
+		}
+	}
+
 	@android.annotation.TargetApi(33)
-	private void watchBack() {
-		getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
-			android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, () -> {
-				Native.key(true, android.view.KeyEvent.KEYCODE_BACK, 0, 0, 0);
-				Native.key(false, android.view.KeyEvent.KEYCODE_BACK, 0, 0, 0);
-			});
+	private void applyBack33() {
+		if (Native.backLeft == (back == null)) {
+			return;
+		}
+		android.window.OnBackInvokedDispatcher d = getOnBackInvokedDispatcher();
+		if (Native.backLeft) {
+			d.unregisterOnBackInvokedCallback((android.window.OnBackInvokedCallback) back);
+			back = null;
+			return;
+		}
+		android.window.OnBackInvokedCallback b = Native::back;
+		d.registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, b);
+		back = b;
 	}
 
 	/**

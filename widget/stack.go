@@ -38,7 +38,7 @@ const stackFling = 0.8
 // below the top one keep their state, as what was typed in them.
 //
 // Escape, Alt+Left and a mouse's back button go back too, as the swipe does, when what has the keyboard leaves
-// them. Going back by any of these runs OnPop; Pop,
+// them, and so does a phone's Back, whatever has the keyboard. Going back by any of these runs OnPop; Pop,
 // the app's own, does not.
 type Stack struct {
 	anim.Group
@@ -175,6 +175,9 @@ func (s *Stack) Children() []gunim.Node {
 func (s *Stack) ClaimsPointer(p geom.Point) bool {
 	return len(s.screens) > 1 && p.X >= 0 && p.X < s.band
 }
+
+// TakesBack implements [gunim.BackTaker]: while there is a screen to go back to.
+func (s *Stack) TakesBack() bool { return len(s.screens) > 1 }
 
 // DragsTouch implements [gunim.TouchDragger]: a finger that landed in the edge band drags the top screen.
 func (s *Stack) DragsTouch() bool { return s.drag.armed }

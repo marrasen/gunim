@@ -382,10 +382,10 @@ type SystemLook = driver.SystemLook
 // ContrastColors are the colours of a contrast theme; see [driver.ContrastColors].
 type ContrastColors = driver.ContrastColors
 
-// ErrNoSystemLook says the platform has no look settings to read. Only Windows' are read so far.
+// ErrNoSystemLook says the platform has no look settings to read. Windows' and Android's are read so far.
 var ErrNoSystemLook = driver.ErrNoSystemLook
 
-// SystemLook reads the user's settings for light or dark, fewer animations, text size and a contrast theme.
+// SystemLook reads the user's settings for light or dark, fewer animations, text size and, on Windows, a contrast theme.
 // [github.com/marrasen/gunim/widget.ForLook] turns them into a theme.
 func (a *App) SystemLook() (SystemLook, error) {
 	lr, ok := a.drv.(driver.LookReader)
@@ -504,6 +504,10 @@ type WindowOptions struct {
 	// subpixels, and hinted or not. Its zero value follows the system's
 	// settings.
 	Text text.Rendering
+	// LeaveOnBack has a phone's Back leave the application, for the launcher or the one before, where nothing in the
+	// window takes it, as on the first page of a program that stacks pages: see [BackTaker]. Without it a Back that
+	// nothing takes does nothing. A desktop has no such Back.
+	LeaveOnBack bool
 	// Zoom draws the content that many times larger, as [UI.SetZoom] does; zero is 1.
 	Zoom float32
 	// ZoomKeys zooms the window with Ctrl and +, - or 0, and with Ctrl and the wheel, and reports each change as
@@ -788,6 +792,7 @@ func newWindow(dw driver.Window, root Node) *Window {
 		zoom:   1,
 	}
 	w.ui.noteHeadingNode(rootState)
+	w.ui.noteBackNode(rootState)
 	w.ui.noteEdgeSwipeNode(rootState)
 	return w
 }
@@ -1410,6 +1415,7 @@ func (w *Window) setUp(o WindowOptions) {
 	w.title = o.Title
 	w.askToClose = o.AskToClose
 	w.ui.zoomKeys = o.ZoomKeys
+	w.ui.leaveOnBack = o.LeaveOnBack
 	if o.Zoom > 0 {
 		w.ui.SetZoom(o.Zoom)
 	}
@@ -2307,6 +2313,10 @@ type UI struct {
 	// while there are some; see heading.go.
 	compassOn    bool
 	headingNodes map[*state]struct{}
+	// backNodes holds the nodes in the tree that can take Back, leaveOnBack is [WindowOptions.LeaveOnBack], and
+	// backLeft what the driver last heard of the next Back; see [BackTaker].
+	backNodes             map[*state]struct{}
+	leaveOnBack, backLeft bool
 	// edgeSwipeNodes holds the nodes in the tree that can keep edge
 	// swipes, so a frame looks for them only while there are some, and
 	// edgeSwipes is the bands last handed the window's driver; see
@@ -3074,6 +3084,7 @@ func (u *UI) InsertAt(parent Node, i int, child Node) {
 	ps.kids = insertKid(ps.kids, i, cs)
 	u.index[child] = cs
 	u.noteHeadingNode(cs)
+	u.noteBackNode(cs)
 	u.noteEdgeSwipeNode(cs)
 	u.noteNativeNode(cs)
 	u.invalid = true
@@ -3822,6 +3833,7 @@ func (u *UI) paintFrame(fp framePaint) {
 	u.framePopups(f)
 	u.revealDrawn()
 	u.watchHeading()
+	u.tellBack()
 	u.keepEdgeSwipes()
 	u.publishAccess(u.w.dw, u.root, u.w.title)
 	u.focusMoved = false
@@ -4100,6 +4112,7 @@ func (u *UI) forget(s *state) {
 	}
 	u.unsubscribe(s)
 	delete(u.headingNodes, s)
+	delete(u.backNodes, s)
 	delete(u.edgeSwipeNodes, s)
 	u.forgetNativeNode(s)
 	delete(u.index, s.node)

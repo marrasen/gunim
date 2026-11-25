@@ -154,6 +154,9 @@ An app's widget outside the package draws the same way with the exported helpers
   on. Ctrl+Shift+key is its own shortcut, apart from Ctrl+key. A disabled control takes no keys.
 - **Keys the browser keeps.** In a browser a page hears no Ctrl+R or F5, so give a control other keys. A view that must
   have every key, as a terminal must, implements `gunim.KeyClaimer`, and reports `ClaimsKeys` only while it does.
+- **Back.** A phone's Back is Escape first, so what closes on Escape closes on Back. A widget with pages to go back to
+  implements `gunim.BackTaker`, as `Stack` does. One that takes Escape in another way, such as to end an edit, says so
+  through `TakesBack` too, or Back leaves the program in the middle of it.
 - **Focus.** A control is focusable while enabled. The ring follows `input.FocusRing` with a spring. When something
   hides, move the keyboard off it (`UI.FocusFirstLaidOut` reaches a node laid out this frame).
 - **Hit tests use where things are drawn.** While rows, tiles or events spring to new places, test the pointer
