@@ -22,6 +22,8 @@ const (
 	// browserTime is how long a frame makes new glyphs of the browser's for, a third of a frame at 120 Hz. A screenful
 	// of Chinese is some hundreds of them, at up to half a millisecond each.
 	browserTime = 2500 * time.Microsecond
+	// browserMost is how many new glyphs a frame makes, whatever the time, as a browser may keep its clock coarse.
+	browserMost = 32
 	// browserFade is how long a glyph that came late takes to fade in.
 	browserFade = 120 * time.Millisecond
 	// browserLate is how many late glyphs are told apart.
@@ -32,10 +34,11 @@ const (
 	keptBytes = 8 << 20
 )
 
-// browserState is a renderer's part in drawing the browser's glyphs: how long this frame has spent on them, the frame's
-// number, and the glyphs left to a later frame.
+// browserState is a renderer's part in drawing the browser's glyphs: how long this frame has spent on them, how
+// many it has made, the frame's number, and the glyphs left to a later frame.
 type browserState struct {
 	spent time.Duration
+	made  int
 	frame uint64
 	late  map[glyphKey]lateGlyph
 }
@@ -48,7 +51,7 @@ type lateGlyph struct {
 
 // newFrame starts a frame.
 func (b *browserState) newFrame() {
-	b.spent = 0
+	b.spent, b.made = 0, 0
 	b.frame++
 }
 
@@ -99,6 +102,7 @@ func (r *Renderer) browserMask(key glyphKey, draw func() text.Mask) text.Mask {
 	start := time.Now()
 	m := draw()
 	r.browser.spent += time.Since(start)
+	r.browser.made++
 	r.shared.kept.put(key, m)
 	return m
 }
@@ -151,7 +155,7 @@ func (r *Renderer) browserSlot(key glyphKey, face *text.Face, sizePx float32) (g
 // The frame to come draws it whatever its damage. at is the glyph's origin and reach how far about it its size goes, in
 // device pixels, and upright says no rotation has it.
 func (r *Renderer) later(key glyphKey, at geom.Point, reach float32, upright bool) bool {
-	if r.browser.spent < browserTime || r.shared.has(key) {
+	if r.browser.spent < browserTime && r.browser.made < browserMost || r.shared.has(key) {
 		return false
 	}
 	if r.browser.late == nil || len(r.browser.late) >= browserLate {

@@ -6,6 +6,7 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/marrasen/gunim"
@@ -570,40 +571,52 @@ func TestAGridCutsHeapsOfMarks(t *testing.T) {
 }
 
 // A screen of new characters with marks is found over several frames that the grid asks for, showing the letters
-// meanwhile, and is then whole.
+// meanwhile, and is then whole: as many in a frame as there is time for, and so many at the most on a clock too coarse
+// to see the time go by.
 func TestAGridFindsMarksOverSeveralFrames(t *testing.T) {
-	was := findTime
-	findTime = 1
-	defer func() { findTime = was }()
-	g := NewCellGrid()
-	g.Size = 14
-	g.Resize(5, 1)
-	g.SetRow(0, []Cell{{Rune: 'e', Marks: "\u0301"}, {Rune: 'n', Marks: "\u0303"}, {Rune: 'o', Marks: "\u0308"}})
-	// In a view that is drawn again only where it is asked for.
-	w, run := stage(t, &frame{child: NewSteady(g, func(gunim.Frame) (any, bool) { return 0, true }), size: geom.Sz(100, 30)})
-	run(1)
-	composed := func() (n int) {
+	// As many letters as there are of each, with as many marks as it takes: none of them composed.
+	var cells []Cell
+	for _, mark := range []rune{0x323, 0x324, 0x325, 0x32d, 0x330, 0x331, 0x339, 0x33a, 0x33b, 0x347} {
+		for r := 'a'; r <= 'z'; r++ {
+			cells = append(cells, Cell{Rune: r, Marks: string([]rune{mark, 0x30a})})
+		}
+	}
+	for _, c := range []struct {
+		name string
+		step time.Duration
+		// first is how many the first frame finds.
+		first int
+	}{{"a millisecond each", time.Millisecond, 3}, {"a clock that stands", 0, findMost}} {
+		g := NewCellGrid()
+		g.Size = 14
+		now := time.Unix(0, 0)
+		g.clock = func() time.Time {
+			now = now.Add(c.step)
+			return now
+		}
+		g.Resize(len(cells), 1)
+		// In a view that is drawn again only where it is asked for.
+		set := false
+		w, run := stage(t, &frame{child: NewSteady(g, func(gunim.Frame) (any, bool) { return set, true }), size: geom.Sz(4000, 30)})
+		run(1)
+		g.SetRow(0, cells)
+		set = true
+		run(1)
+		if n := len(g.clusters.now); n != c.first || !g.unfinished {
+			t.Errorf("%s: the first frame found %d of %d, want %d", c.name, n, len(cells), c.first)
+		}
 		row, ok := cellsRow(w.Offscreen().Ops(), 0)
 		if !ok {
 			t.Fatal("the row drew no cells")
 		}
-		for i, r := range []rune{'é', 'ñ', 'ö'} {
-			want, _, _ := text.GoMono(false, false).Glyph(r, 14)
-			if !row.Cells[i].Text {
-				t.Fatalf("cell %d shows nothing", i)
-			}
-			if row.Cells[i].Glyph.ID == want.ID {
-				n++
-			}
+		last := len(cells) - 1
+		if want := g.letter(glyphKey{r: cells[last].Rune}); !row.Cells[last].Text || row.Cells[last].Glyph != want[0] {
+			t.Errorf("%s: meanwhile the last cell is %+v, want its letter %+v", c.name, row.Cells[last], want)
 		}
-		return n
-	}
-	if n := composed(); n == 3 {
-		t.Fatalf("the first frame found %d of three", n)
-	}
-	run(8)
-	if n := composed(); n != 3 || g.unfinished {
-		t.Errorf("after some frames %d of three are found", n)
+		run(len(cells)/c.first + 4)
+		if n := len(g.clusters.now); n != len(cells) || g.unfinished {
+			t.Errorf("%s: after some frames %d of %d are found", c.name, n, len(cells))
+		}
 	}
 }
 

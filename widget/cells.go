@@ -77,10 +77,13 @@ type CellGrid struct {
 	clusters cellCache[clusterKey]
 	// glyphsAt is the [text.CellGeneration] they were found in.
 	glyphsAt uint64
-	// finding is how long the frame being painted has spent on finding characters with marks, and unfinished says it
-	// left rows with letters drawn without theirs, for the frame after.
+	// finding is how long the frame being painted has spent on finding characters with marks, found how many it has,
+	// and unfinished says it left rows with letters drawn without theirs, for the frame after. clock is the time it
+	// goes by, or nil for the system's.
 	finding    time.Duration
+	found      int
 	unfinished bool
+	clock      func() time.Time
 	// marks is a row's lines under and through characters, kept for the next row.
 	marks []cellFill
 	// pats are the masks of the characters drawn in code, at the cells'
@@ -432,7 +435,7 @@ func (g *CellGrid) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 			g.lines[y].stale = true
 		}
 	}
-	g.finding, g.unfinished = 0, false
+	g.finding, g.found, g.unfinished = 0, 0, false
 	for y := range g.lines {
 		top := float32(y) * m.h
 		if top >= box.H {
@@ -603,13 +606,14 @@ func (g *CellGrid) character(c *Cell) []paint.Glyph {
 	cluster := clusterKey{key, cutMarks(c.Marks)}
 	glyphs, seen := g.clusters.get(cluster, g.cacheRoom())
 	if !seen {
-		if g.finding >= findTime {
+		if g.finding >= findTime || g.found >= findMost {
 			g.unfinished = true
 			return g.letter(key)
 		}
-		start := time.Now()
+		start := g.now()
 		glyphs = g.find(key, string(c.Rune)+cluster.marks)
-		g.finding += time.Since(start)
+		g.finding += g.now().Sub(start)
+		g.found++
 		// A copy, as the marks may be a piece of a much longer string.
 		cluster.marks = strings.Clone(cluster.marks)
 		g.clusters.put(cluster, glyphs, g.cacheRoom())
@@ -629,7 +633,19 @@ func (g *CellGrid) letter(key glyphKey) []paint.Glyph {
 
 // findTime is how long a frame spends on finding characters with marks, which take a font some twenty microseconds
 // each. A page of text in a script with marks takes a frame or two, and one of random marks shows its letters meanwhile.
-var findTime = 3 * time.Millisecond
+const findTime = 3 * time.Millisecond
+
+// findMost is how many a frame finds, whatever the time: a clock that ticks every few milliseconds, as Windows' does,
+// may see none of it go by.
+const findMost = 200
+
+// now is the time finding goes by.
+func (g *CellGrid) now() time.Time {
+	if g.clock != nil {
+		return g.clock()
+	}
+	return time.Now()
+}
 
 // marksMax is the most bytes of marks a cell draws. Any more than a few show nothing more.
 const marksMax = 96
