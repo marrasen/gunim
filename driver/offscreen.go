@@ -116,6 +116,9 @@ type OffscreenWindow struct {
 	// keysClaimed is what SetKeysClaimed last said, and closeAsks what
 	// SetCloseAsks did.
 	keysClaimed, closeAsks bool
+	// backLeaves is what SetBackLeaves last said, and appLeft counts LeaveApp's calls.
+	backLeaves bool
+	appLeft    int
 
 	// radius, edge and blends are the shape the window says it shows; see
 	// SetOutline.
@@ -235,6 +238,34 @@ func (w *OffscreenWindow) KeysClaimed() bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.keysClaimed
+}
+
+// SetBackLeaves implements [BackKeeper].
+func (w *OffscreenWindow) SetBackLeaves(leaves bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.backLeaves = leaves
+}
+
+// BackLeaves reports whether the next Back was last said to leave the application, for a test.
+func (w *OffscreenWindow) BackLeaves() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.backLeaves
+}
+
+// LeaveApp implements [BackKeeper]: it counts, for a test.
+func (w *OffscreenWindow) LeaveApp() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.appLeft++
+}
+
+// AppLeft returns how many times LeaveApp was called.
+func (w *OffscreenWindow) AppLeft() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.appLeft
 }
 
 // SetCloseAsks implements [CloseAsker].

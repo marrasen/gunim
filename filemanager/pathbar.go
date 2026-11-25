@@ -220,6 +220,9 @@ type filterField struct {
 	bar *pathBar
 }
 
+// TakesEscape implements [gunim.EscapeTaker]: Escape goes back to the files.
+func (f *filterField) TakesEscape(*gunim.UI) bool { return true }
+
 // Handle implements [gunim.Handler].
 func (f *filterField) Handle(e input.Event, u *gunim.UI) bool {
 	if k, ok := e.(input.KeyPress); ok {

@@ -46,6 +46,9 @@ func TestTheViewerOpensStepsAndCloses(t *testing.T) {
 	}
 	h.w.Input(key(input.KeyLeft, 0))
 	h.until("Left goes back", func() bool { return h.a.viewer.view.Name == "b.png" })
+	if v, ok := h.focused().(*viewer); !ok || !v.TakesEscape(nil) {
+		t.Error("the viewer says it takes no Escape")
+	}
 	h.w.Input(key(input.KeyEscape, 0))
 	h.until("Escape closes the viewer", func() bool { return !h.a.viewer.open })
 	h.until("the keyboard is back on the icons", func() bool { return h.focused() == gunim.Node(h.icons().grid) })

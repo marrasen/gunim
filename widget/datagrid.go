@@ -1717,7 +1717,7 @@ func (g *DataGrid) key(e input.KeyPress, u *gunim.UI) bool {
 		}
 		act(u, g, gunim.CuePress, g.OnActivate, g.selected)
 	case input.KeyEscape:
-		if g.selected < 0 && len(g.runs) == 0 {
+		if !g.TakesEscape(u) {
 			return false
 		}
 		g.selectAndTell(-1, u)
@@ -1730,6 +1730,9 @@ func (g *DataGrid) key(e input.KeyPress, u *gunim.UI) bool {
 	u.Invalidate()
 	return true
 }
+
+// TakesEscape implements [gunim.EscapeTaker]: while Escape lets go of a selection.
+func (g *DataGrid) TakesEscape(*gunim.UI) bool { return g.selected >= 0 || g.Multi && len(g.runs) > 0 }
 
 // moveKey moves the keyboard to another row for a key that does so, with
 // Multi: with Shift the rows from the anchor to it are selected, and

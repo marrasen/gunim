@@ -74,6 +74,8 @@ type Window struct {
 	// touch that starts in the window is a finger of its own, and a
 	// second one starts no pinch.
 	takesFingers bool
+	// backLeaves is what SetBackLeaves last said.
+	backLeaves bool
 	// keepsAwake is what KeepAwake last said.
 	keepsAwake bool
 	// secure is what Secure last said.
@@ -272,6 +274,7 @@ func (w *Window) Hide() error {
 	w.hidden, w.stale = true, true
 	w.d.excludeGesturesLocked()
 	w.d.keepAwakeLocked()
+	w.d.keepBackLocked()
 	w.d.mu.Unlock()
 	w.d.kick()
 	return nil
@@ -284,6 +287,7 @@ func (w *Window) Show() error {
 	w.hidden = false
 	w.d.excludeGesturesLocked()
 	w.d.keepAwakeLocked()
+	w.d.keepBackLocked()
 	w.d.mu.Unlock()
 	w.d.kick()
 	return nil

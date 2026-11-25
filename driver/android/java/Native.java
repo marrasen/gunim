@@ -167,6 +167,8 @@ public final class Native {
 	static native void servedUse(long id, int by);
 	static native void servedEnd();
 	static native int servedRead(long id, long offset, int size, byte[] data);
+	static native void back();
+	static native void look();
 	static native void tapped(String tag);
 	static native void network(long run, long network, boolean online, boolean internet, boolean metered, boolean blocked,
 		boolean moved);
@@ -679,6 +681,37 @@ public final class Native {
 		} catch (InterruptedException e) {
 			return 2;
 		}
+	}
+
+	static float[] readLook() {
+		return GunimLook.read();
+	}
+
+	static void watchLook() {
+		GunimLook.watch();
+	}
+
+	// backLeft says the next Back is the system's, and leaves the program.
+	// It is kept on the UI thread, where a new activity reads it.
+	static boolean backLeft;
+
+	static void backLeaves(boolean on) {
+		ui.post(() -> {
+			backLeft = on;
+			if (activity != null) {
+				activity.applyBack();
+			}
+		});
+	}
+
+	// leaveApp leaves the program, as the system's Back does from its
+	// first activity: the program goes to the background, and runs on.
+	static void leaveApp() {
+		ui.post(() -> {
+			if (activity != null) {
+				activity.moveTaskToBack(true);
+			}
+		});
 	}
 
 	static void buzz() {

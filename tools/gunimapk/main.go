@@ -1130,7 +1130,8 @@ var orientations = []string{
 // orientation on a tablet, where Android 16 lets other apps turn. The
 // activity holds the screen as o.orientation names, or turns with the
 // phone where it is "". It
-// keeps itself across rotation and a keyboard coming and going, hears
+// keeps itself across rotation, a keyboard coming and going and a new
+// size of text, hears
 // the back gesture through the callback GunimActivity registers, and
 // slides up as the soft keyboard opens, to keep the text caret above it. With
 // playback among o.perms it holds the service a program starts with
@@ -1191,7 +1192,7 @@ func manifestFor(o options) string {
 ` + asks.String() + o.own.beside + `	<application android:label="` + xmlEscape(name) + `"` + iconAttr + categoryAttr + ` android:hasCode="true" android:extractNativeLibs="true"
 		android:enableOnBackInvokedCallback="true"` + dataAttrs + o.own.attrs + `>
 		<activity android:name="gunim.android.GunimActivity" android:exported="true"
-			android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density"
+			android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density|fontScale"
 			android:windowSoftInputMode="adjustPan|stateAlwaysHidden"` + orientationAttr + launchMode + `
 			android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
 			<intent-filter>

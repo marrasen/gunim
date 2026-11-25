@@ -1192,6 +1192,9 @@ func eventTip(e Event) string {
 	return s
 }
 
+// TakesEscape implements [gunim.EscapeTaker]: while Escape calls a drag off, or lets go of the event chosen.
+func (d *Days) TakesEscape(*gunim.UI) bool { return d.drag != nil || d.selected != "" }
+
 // Handle implements [gunim.Handler].
 func (d *Days) Handle(e input.Event, u *gunim.UI) bool {
 	th := u.Theme()

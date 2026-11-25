@@ -509,6 +509,9 @@ func (pg *trashPage) Transition(p gunim.Presence, f gunim.Frame) bool {
 	return !pg.in.Active()
 }
 
+// TakesEscape implements [gunim.EscapeTaker]: Escape closes the page.
+func (pg *trashPage) TakesEscape(*gunim.UI) bool { return !pg.closing }
+
 // Handle implements [gunim.Handler]: Escape closes the page, Delete
 // deletes the items selected for good, after asking, and F5 reads the
 // trash again. It keeps every other key from the browser behind it, whose

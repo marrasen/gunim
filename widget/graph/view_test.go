@@ -222,10 +222,16 @@ func TestPickingAndDeleting(t *testing.T) {
 	if nodes, wire := v.Picked(); len(nodes) != 0 || wire != "w1" {
 		t.Fatalf("a click on the wire picked %v and %q", nodes, wire)
 	}
+	if !v.TakesEscape(nil) {
+		t.Error("with a wire picked the view says it takes no Escape")
+	}
 	w.Input(input.KeyPress{Key: input.KeyEscape})
 	run(1)
 	if nodes, wire := v.Picked(); len(nodes) != 0 || wire != "" {
 		t.Errorf("Escape left %v and %q picked", nodes, wire)
+	}
+	if v.TakesEscape(nil) {
+		t.Error("with nothing picked the view says it takes Escape")
 	}
 	click(w, run, mid("flt"), 2, 0)
 	if o := only[Open](t, sent()); o.Node != "flt" {

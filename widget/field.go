@@ -375,6 +375,9 @@ func (t *TextField) clearable() bool {
 	return t.Clearable && len(t.text) > 0 && len(t.preedit) == 0
 }
 
+// TakesEscape implements [gunim.EscapeTaker]: while Escape clears the text.
+func (t *TextField) TakesEscape(*gunim.UI) bool { return t.clearable() }
+
 // overClear reports whether p, in the field's space, is on the X, which stands before the eye where there is one.
 func (t *TextField) overClear(p geom.Point) bool {
 	return t.clearable() && t.fits.clear && p.X >= t.size.W-t.trail && (!t.eyeOn || p.X < t.eyeX)

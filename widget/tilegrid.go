@@ -558,6 +558,9 @@ func (g *TileGrid) drawBand(p geom.Point, u *gunim.UI) {
 	u.Invalidate()
 }
 
+// TakesEscape implements [gunim.EscapeTaker]: while Escape lets go of a selection.
+func (g *TileGrid) TakesEscape(*gunim.UI) bool { return g.cursor >= 0 || len(g.runs) > 0 }
+
 func (g *TileGrid) key(e input.KeyPress, u *gunim.UI) bool {
 	if e.Mods.Has(input.ModAlt) {
 		return false
@@ -612,7 +615,7 @@ func (g *TileGrid) key(e input.KeyPress, u *gunim.UI) bool {
 		act(u, g, gunim.CuePress, g.OnActivate, g.cursor)
 		return true
 	case input.KeyEscape:
-		if g.cursor < 0 && len(g.runs) == 0 {
+		if !g.TakesEscape(u) {
 			return false
 		}
 		g.setCursor(-1, u)

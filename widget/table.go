@@ -424,6 +424,9 @@ func (t *Table) KeepsKey(e input.KeyPress, u *gunim.UI) bool {
 	return e.Key == input.KeySpace && !e.Mods.Has(input.ModControl) && !e.Mods.Has(input.ModAlt) && t.finding(when(e.Time, u))
 }
 
+// TakesEscape implements [gunim.EscapeTaker]: while Escape gives up finding a name typed.
+func (t *Table) TakesEscape(u *gunim.UI) bool { return t.finding(u.Clock()) }
+
 func (t *Table) finding(now time.Time) bool {
 	return t.typed != "" && now.Sub(t.typedAt) < findPause
 }

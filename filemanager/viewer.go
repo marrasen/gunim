@@ -338,6 +338,9 @@ func (v *viewer) Handle(e input.Event, u *gunim.UI) bool {
 	return true
 }
 
+// TakesEscape implements [gunim.EscapeTaker]: Escape closes it.
+func (v *viewer) TakesEscape(*gunim.UI) bool { return !v.closing }
+
 func (v *viewer) key(e input.KeyPress, u *gunim.UI) bool {
 	if e.Mods.Has(input.ModControl) || e.Mods.Has(input.ModAlt) {
 		return false

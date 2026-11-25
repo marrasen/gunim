@@ -754,6 +754,9 @@ func (b *Menubar) key(k input.KeyPress, u *gunim.UI) bool {
 	return true
 }
 
+// TakesEscape implements [gunim.EscapeTaker]: while the keyboard is on the bar, or in a menu of it.
+func (b *Menubar) TakesEscape(*gunim.UI) bool { return b.armed || b.IsOpen() }
+
 // compactKey works a compact bar's list, and the menu beside it.
 func (b *Menubar) compactKey(k input.KeyPress, u *gunim.UI) bool {
 	if !b.IsOpen() {
