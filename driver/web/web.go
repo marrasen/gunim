@@ -32,6 +32,8 @@
 // zooming, and gunim never hears those. Every other key with Control or Command
 // is gunim's alone, so the browser's own find and print don't run in a program.
 // Cut, copy and paste in a text field stay the browser's, which edits the mirror.
+// A node that claims the keys, as a terminal does, has nearly all of the browser's
+// list too while it has the keyboard: see [driver.KeyClaimer] and claim.go.
 //
 // Gunim takes every touch on the canvas, and scrolls and pans for itself. A page
 // that wants the browser to have some of them, as to scroll the page with
@@ -135,6 +137,27 @@ type Driver struct {
 	secretAway bool
 	compStart  int
 	compSuffix string
+	// paste is the last paste a key of the program's brought, and keysLocked says the
+	// browser was asked for the keys a page in full screen can have: see claim.go.
+	// lentFocus says the mirror has the canvas's focus, for a paste.
+	paste      *keyPaste
+	keysLocked bool
+	lentFocus  bool
+	// altCode says a key of the number pad went down with Alt, which on Windows types a
+	// character by its number as Alt is let go.
+	altCode bool
+	// fullWant says a window wants the page to fill the screen, fullOurs that the page
+	// does, or may soon, as a window asked, and fullPending how many requests the
+	// browser has yet to answer. fullShown says the windows last heard that the page
+	// fills the screen. styleBefore holds the canvas's style from before,
+	// with each property's priority.
+	fullWant, fullOurs, fullShown bool
+
+	fullPending int
+	styleBefore map[string][2]string
+	// closing hears the page closing, while closeAsked says the user is to be asked.
+	closing    js.Func
+	closeAsked bool
 
 	// pageScale is the page's devicePixelRatio as last measured, scaleQuery the media
 	// query that tells of it changing, and scaleChanged what hears that.
@@ -233,6 +256,7 @@ func openDriver() (*Driver, error) {
 		d.frame()
 		return nil
 	})
+	d.makeClosing()
 	d.listen(doc)
 	d.listenViewport(doc)
 	d.listenContext()
@@ -491,6 +515,14 @@ func (d *Driver) stop() {
 		d.observer.Call("disconnect")
 		d.observed.Release()
 	}
+	d.askBeforeClosing()
+	d.closing.Release()
+	if d.fullScreen() {
+		// Nothing is there to hear the answer.
+		_, _ = call(js.Global().Get("document"), "exitFullscreen")
+	}
+	d.unpin()
+	d.forgetPaste(nil)
 	d.raf.Release()
 	d.compassEvent.Release()
 	for _, el := range []js.Value{d.plain, d.secret, d.safeProbe} {
@@ -597,6 +629,8 @@ func (d *Driver) closed(w *Window) {
 	if typing {
 		d.leaveMirror()
 	}
+	d.askBeforeClosing()
+	d.lockKeys()
 	if last {
 		select {
 		case <-d.quit:
@@ -819,6 +853,8 @@ func (d *Driver) listen(doc js.Value) {
 
 	d.on(c, "contextmenu", false, func(e js.Value) { e.Call("preventDefault") })
 	d.on(c, "pointerdown", false, func(e js.Value) {
+		// What a paste brought goes where the focus is, before the press can move it.
+		d.typePaste()
 		p, now := d.at(e), stamp(e)
 		touch, id := d.touchOf(e), e.Get("pointerId").Int()
 		d.mu.Lock()
@@ -1042,8 +1078,14 @@ func (d *Driver) listen(doc js.Value) {
 			delete(d.held, keyPlace(code, name))
 			d.mu.Unlock()
 			if heard {
+				d.takeFocusBack()
 				h.w.in.Push(input.KeyRelease{Key: h.key, Mods: m, Time: now})
+				if name == "Alt" && !d.altCode && d.claimed(h.w) {
+					// Letting go of Alt alone is what moves the keyboard to the menus.
+					e.Call("preventDefault")
+				}
 			}
+			d.pasteKeyUp(name, code)
 			return
 		}
 		// A soft keyboard's keys have no place. Any other key means a keyboard is at
@@ -1057,25 +1099,52 @@ func (d *Driver) listen(doc js.Value) {
 				d.focusMirror()
 			}
 		}
+		// What a paste brought comes before what is typed after it.
+		if !modifierKey(name) {
+			d.typePaste()
+		}
 		// A dead key is half a character, which the browser finishes.
 		if name == "Dead" {
 			return
 		}
-		if d.text.Equal(doc.Get("activeElement")) && d.editKeyOwnedByDOM(e) {
+		w := d.keyWindow()
+		claimer := d.claimer(w)
+		claimed := claimer != nil
+		// A paste key of a program that claims the keys, and keeps no text for the
+		// browser to paste into, is the program's, and the browser pastes for it.
+		programs := claimed && claimer.keepsNoText()
+		pastes := programs && pasteKey(name, code, m, onApple)
+		if d.text.Equal(doc.Get("activeElement")) && d.editKeyOwnedByDOM(e, programs) {
 			return
 		}
-		w := d.keyWindow()
 		if w == nil {
 			return
 		}
-		if browserKey(name, code, m) {
+		if claimed {
+			if keptKey(name, code, m, d.fullScreen()) {
+				if m&input.ModAlt != 0 && altCodeKey(code) {
+					d.altCode = true
+				}
+				return
+			}
+		} else if browserKey(name, code, m) {
 			return
+		}
+		if name == "Alt" {
+			d.altCode = false
+		}
+		if pastes {
+			d.expectPaste(claimer, code, onApple)
 		}
 		k := keyOf(code, name)
 		d.mu.Lock()
 		d.held[keyPlace(code, name)] = heldKey{w, k}
 		d.mu.Unlock()
 		typed := len([]rune(name)) == 1 && m&(input.ModControl|input.ModSuper) == 0
+		if claimed && m&input.ModAlt != 0 && !optionTypes {
+			// A shortcut, which the browser types nothing on.
+			typed = false
+		}
 		var char rune
 		if r := []rune(strings.ToLower(name)); len(r) == 1 {
 			char = r[0]
@@ -1089,7 +1158,8 @@ func (d *Driver) listen(doc js.Value) {
 			e.Call("preventDefault")
 		}
 		active := doc.Get("activeElement")
-		if inText := d.text.Equal(active); (inText || c.Equal(active)) && gunimKey(name, m, inText) {
+		inText := d.text.Equal(active)
+		if !pastes && (inText || c.Equal(active)) && (gunimKey(name, m, inText) || claimed && claimedKey(name, m, typed)) {
 			e.Call("preventDefault")
 		}
 	}
@@ -1098,7 +1168,19 @@ func (d *Driver) listen(doc js.Value) {
 	for _, t := range []js.Value{d.plain, d.secret} {
 		d.on(t, "keydown", false, func(e js.Value) { key(e, true) })
 		d.on(t, "keyup", false, func(e js.Value) { key(e, false) })
+		// The menu key would open the field's own menu over a program that claims the
+		// keys.
+		d.on(t, "contextmenu", false, func(e js.Value) {
+			if d.claimed(d.keyWindow()) {
+				e.Call("preventDefault")
+			}
+		})
 	}
+	d.on(doc, "paste", false, d.pasted)
+	for _, name := range []string{"copy", "cut"} {
+		d.on(doc, name, true, func(js.Value) { d.clipboardChanges() })
+	}
+	d.on(doc, "fullscreenchange", true, func(js.Value) { d.fullScreenChanged() })
 	d.listenText(doc)
 
 	focus := func(on bool) {
@@ -1119,6 +1201,8 @@ func (d *Driver) listen(doc js.Value) {
 	d.on(win, "blur", true, func(js.Value) {
 		focus(false)
 		d.releaseHeld()
+		// Another program may put something else on the clipboard now.
+		d.leftForAnother()
 	})
 	// Focus going to the page's own element takes the keys' releases with it.
 	for _, el := range []js.Value{c, d.plain, d.secret} {
@@ -1173,6 +1257,8 @@ func (d *Driver) listen(doc js.Value) {
 // has left and the browser won't say when they come up. The buttons and fingers
 // let go away from everything, so nothing takes it as a click.
 func (d *Driver) releaseHeld() {
+	d.endPasteKey()
+	d.takeFocusBack()
 	now := time.Now()
 	d.mu.Lock()
 	keys := d.held

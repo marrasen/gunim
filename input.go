@@ -31,10 +31,12 @@ func (u *UI) handleOn(root *state, ev any) {
 	}
 	// A driver that keeps a copy of the text hears what a key or a press did at
 	// once, not at the next frame, which may be some way off. An input method
-	// working on the copy meanwhile would work on old text. See TextStater.
+	// working on the copy meanwhile would work on old text. See TextStater. And a
+	// browser decides whose the next key is before any frame. See KeyClaimer.
 	switch ev.(type) {
 	case input.KeyPress, input.TextInput, input.Composing, input.TextEdit, input.PointerDown, input.PointerUp:
 		u.syncText(u.focus, false)
+		u.claimKeys(u.focus)
 	}
 }
 
@@ -93,6 +95,8 @@ func (u *UI) handleRaw(root *state, ev any) {
 				u.endDrop(id, e.Taken)
 			}
 		}
+	case driver.FullScreenLeft:
+		u.report(FullScreenLeft{})
 	case driver.WindowMaximized:
 		if u.chrome != nil {
 			u.chrome.maximized = e.Maximized

@@ -67,6 +67,14 @@ type Bar struct {
 	// Plus puts a + after the tabs, which asks for a New tab. A dock
 	// sets it on its bars from its own.
 	Plus bool
+	// Locked has the user look and pick, and change nothing: a tab is
+	// picked as ever, and neither dragged nor closed, nothing lands on
+	// the bar, and the + is gone. The ×s and the + fade, and the tabs
+	// slide to the room they leave. A drag of a tab ends where it is, and
+	// the tab stays. SetTabs changes the bar as ever. A
+	// dock sets it on its bars from its own; changed on a bar on its own
+	// once it shows, it shows from the next frame.
+	Locked bool
 	// Plain draws no fill behind the tabs, for a bar in a title bar that
 	// has its own.
 	Plain bool
@@ -150,6 +158,8 @@ type Bar struct {
 	// mark is how far the front tab's underline shows: it does in the
 	// group the keys work in, while the window shows several panes.
 	mark *anim.Float
+	// free is how far the ×s and the + show, 0 on a bar Locked.
+	free *anim.Float
 	laid bool
 	// dropped is the tab whose drag ended taken, or let go outside every
 	// window, until the tabs change; keptHere is a tab dropped back where
@@ -301,8 +311,8 @@ const (
 
 func makeBar(d *Dock, group string, win int) *Bar {
 	b := &Bar{d: d, group: group, Win: win, hot: -1, pressed: -1, landing: -1,
-		moves: map[string]*tabMove{}, arriving: map[string]bool{}, lit: anim.NewFloat(1), mark: anim.NewFloat(0)}
-	b.Add(b.lit, b.mark)
+		moves: map[string]*tabMove{}, arriving: map[string]bool{}, lit: anim.NewFloat(1), mark: anim.NewFloat(0), free: anim.NewFloat(1)}
+	b.Add(b.lit, b.mark, b.free)
 	if d != nil {
 		b.OnPlusMenu = func(at geom.Rect, u *gunim.UI) gunim.Intent {
 			if d.OnPlusMenu != nil {
@@ -539,11 +549,29 @@ func (b *Bar) moveTabs(th *theme.Live) bool {
 		m.open.Animate(1, slide)
 		moving = moving || m.box.Active() || m.open.Active()
 	}
-	if b.plusAt == nil || !b.laid {
+	switch {
+	case b.plusAt == nil || !b.laid || b.plusAt.Target().Empty() && !b.plusBox.Empty():
 		b.plusAt = anim.NewRect(b.plusBox)
+	case b.plus() || !b.Plus:
+		b.plusAt.Animate(b.plusBox, slide)
 	}
-	b.plusAt.Animate(b.plusBox, slide)
-	return moving || b.plusAt.Active() || len(b.gone) > 0
+	// Locked, the + fades out where it was.
+	return moving || b.plusAt.Active() || len(b.gone) > 0 || b.free.Active()
+}
+
+// plus reports whether the bar has a + to press.
+func (b *Bar) plus() bool { return b.Plus && !b.Locked }
+
+// follow fades the ×s and the + as Locked says. Before the bar shows,
+// they are simply there, or not.
+func (b *Bar) follow(th *theme.Live) {
+	on := anim.OnOff(!b.Locked)
+	switch {
+	case !b.laid:
+		b.free.Jump(on)
+	case b.free.Target() != on:
+		b.free.Animate(on, widget.Quick.Get(th))
+	}
 }
 
 // drawnAt is where tab i is drawn, and how far it is open.
@@ -583,6 +611,10 @@ func (b *Bar) tipOf(pos geom.Point) string {
 func (b *Bar) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
 	th := f.Theme
 	b.shape(th)
+	b.follow(th)
+	if b.Locked && b.carried != "" {
+		f.UI().CancelDrag(b)
+	}
 	h := BarHeight.Get(th)
 	if c.Max.H > 0 {
 		h = c.Max.H
@@ -597,7 +629,7 @@ func (b *Bar) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.
 		if t.Icon != nil {
 			w += iconW + 6
 		}
-		if t.Closable {
+		if t.Closable && !b.Locked {
 			w += tabCross + 2
 		}
 		if b.more[i].Advance > 0 {
@@ -607,7 +639,7 @@ func (b *Bar) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.
 		total += want[i] + gap
 	}
 	room := c.Max.W - 2*inset - b.reserve - b.lead
-	if b.Plus {
+	if b.plus() {
 		room -= tabPlus
 	}
 	if n := float32(len(b.tabs)); b.Caption && n > 1 && (room-captionLeast)/n-gap >= least {
@@ -628,7 +660,7 @@ func (b *Bar) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.
 		x += want[i] + gap
 	}
 	b.plusBox, b.end = geom.Rect{}, x
-	if b.Plus {
+	if b.plus() {
 		b.plusBox = geom.Rc(x+2, (h-24)/2, 24, 24)
 		b.end = x + tabPlus
 	}
@@ -675,7 +707,7 @@ func (b *Bar) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Chil
 			hot:      i == b.hot && b.carried == "",
 			front:    t.id == b.front,
 			lifted:   t.id == b.carried,
-			cross:    b.crossShown(i),
+			cross:    b.crossLit(i),
 			crossLit: i == b.hot && b.crossHot,
 		})
 	}
@@ -687,21 +719,23 @@ func (b *Bar) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Chil
 		}
 		p.RRect(geom.Rc(x-1.5, 6, 3, box.H-12), 1.5, paint.Solid(DropRing.Get(th)))
 	}
-	if b.Plus && b.plusAt != nil {
+	if free := b.freeLit(); b.Plus && b.plusAt != nil && free > 0 {
 		c := TabFaint.Get(th)
-		if b.hot == len(b.tabs) {
+		if b.hot == len(b.tabs) && b.plus() {
 			c = TabInk.Get(th)
 		}
+		c.A = uint8(float32(c.A) * free)
 		widget.PaintIcon(p, th, icon.Plus, b.plusAt.Value().Inset(geom.Uniform(5)), c)
 	}
 }
 
 // tabLook is how a tab is drawn. lit is how far it has the front tab's
-// ink, and at its place on the bar, -1 for one going.
+// ink, cross how far its × shows, and at its place on the bar, -1 for
+// one going.
 type tabLook struct {
-	at                                  int
-	lit                                 float32
-	hot, front, lifted, cross, crossLit bool
+	at                           int
+	lit, cross                   float32
+	hot, front, lifted, crossLit bool
 }
 
 // paintTab draws tab t in r, open as far as open says.
@@ -741,9 +775,7 @@ func (b *Bar) paintTab(p *paint.Painter, th *theme.Live, t tab, title, more text
 		x += tabIcon + 6
 	}
 	stop := r.Max.X - pad
-	if l.cross {
-		stop -= tabCross
-	}
+	stop -= tabCross * l.cross
 	if more.Advance > 0 {
 		mc := faint
 		mc.A = uint8(float32(mc.A) * 0.8)
@@ -758,11 +790,12 @@ func (b *Bar) paintTab(p *paint.Painter, th *theme.Live, t tab, title, more text
 		}
 		title.PaintFaded(p, geom.Pt(x, mid-title.Height()/2), c, room, widget.TextFade.Get(th))
 	}
-	if l.cross {
+	if l.cross > 0 {
 		cc := faint
 		if l.crossLit {
 			cc = ink
 		}
+		cc.A = uint8(float32(cc.A) * l.cross)
 		widget.PaintIcon(p, th, icon.X, crossIn(r, pad), cc)
 	}
 }
@@ -783,9 +816,21 @@ func (b *Bar) crossShown(i int) bool {
 	return b.tabs[i].id == b.front || i == b.hot
 }
 
-// onCross reports whether p is on tab i's ×, where it shows.
+// freeLit is how far the ×s and the + show, 0 to 1.
+func (b *Bar) freeLit() float32 { return min(max(b.free.Value(), 0), 1) }
+
+// crossLit is how far tab i's × shows, 0 for a tab that shows none.
+func (b *Bar) crossLit(i int) float32 {
+	if !b.crossShown(i) {
+		return 0
+	}
+	return b.freeLit()
+}
+
+// onCross reports whether p is on tab i's ×, where it shows, on a bar
+// not Locked.
 func (b *Bar) onCross(i int, p geom.Point) bool {
-	return b.crossShown(i) && crossIn(b.boxes[i], TabPadding.Default()).Inset(geom.Uniform(-4)).Contains(p)
+	return !b.Locked && b.crossShown(i) && crossIn(b.boxes[i], TabPadding.Default()).Inset(geom.Uniform(-4)).Contains(p)
 }
 
 // tabAt returns the tab at p; len(tabs) for the +; or -1.
@@ -795,7 +840,7 @@ func (b *Bar) tabAt(p geom.Point) int {
 			return i
 		}
 	}
-	if b.Plus && b.plusBox.Inset(geom.Uniform(-2)).Contains(p) {
+	if b.plus() && b.plusBox.Inset(geom.Uniform(-2)).Contains(p) {
 		return len(b.tabs)
 	}
 	return -1
@@ -835,7 +880,7 @@ func (b *Bar) Handle(e input.Event, u *gunim.UI) bool {
 	}
 	switch e := e.(type) {
 	case input.PointerMove:
-		if b.pressed >= 0 && b.pressed < len(b.tabs) && b.carried == "" && !b.pressedCross {
+		if b.pressed >= 0 && b.pressed < len(b.tabs) && b.carried == "" && !b.pressedCross && !b.Locked {
 			if d := e.Pos.Sub(b.pressAt); math.Hypot(float64(d.X), float64(d.Y)) > slop {
 				b.lift(u)
 				return true
@@ -861,7 +906,7 @@ func (b *Bar) Handle(e input.Event, u *gunim.UI) bool {
 		i := b.tabAt(e.Pos)
 		switch {
 		case e.Button == input.ButtonMiddle && i >= 0 && i < len(b.tabs):
-			if b.tabs[i].Closable {
+			if b.tabs[i].Closable && !b.Locked {
 				b.change(Close{ID: b.tabs[i].id}, u)
 			}
 			return true
@@ -877,7 +922,7 @@ func (b *Bar) Handle(e input.Event, u *gunim.UI) bool {
 		case i == len(b.tabs):
 			b.plusPressed = true
 			return true
-		case i >= 0 && e.Clicks == 2 && b.d != nil && b.d.Maximize && !b.onCross(i, e.Pos):
+		case i >= 0 && e.Clicks == 2 && b.d != nil && b.d.Maximize && !b.Locked && !b.onCross(i, e.Pos):
 			// Fills the window, or puts the panes back. The press ends
 			// here: the tab may not be where it was by its release.
 			b.d.ToggleMax(b.tabs[i].id, u)
@@ -920,6 +965,12 @@ func (b *Bar) Handle(e input.Event, u *gunim.UI) bool {
 		return true
 	case input.DragOver:
 		d, tab := e.Data.(Drag)
+		if b.Locked {
+			if b.landing >= 0 {
+				b.letLandingGo(u)
+			}
+			return false
+		}
 		if !tab && (b.Takes == nil || !b.Takes(e.Data)) {
 			return false
 		}
@@ -931,12 +982,16 @@ func (b *Bar) Handle(e input.Event, u *gunim.UI) bool {
 		u.Invalidate()
 		return true
 	case input.DragLeave:
-		b.landing = -1
-		b.holdOver(-1, Drag{}, u)
-		u.Invalidate()
+		b.letLandingGo(u)
 		return false
 	case input.Drop:
 		d, tab := e.Data.(Drag)
+		if b.Locked {
+			if b.landing >= 0 {
+				b.letLandingGo(u)
+			}
+			return false
+		}
 		if !tab && (b.Takes == nil || !b.Takes(e.Data)) {
 			return false
 		}
@@ -961,6 +1016,13 @@ func (b *Bar) Handle(e input.Event, u *gunim.UI) bool {
 		return true
 	}
 	return false
+}
+
+// letLandingGo forgets where what is dragged over the bar would land.
+func (b *Bar) letLandingGo(u *gunim.UI) {
+	b.landing = -1
+	b.holdOver(-1, Drag{}, u)
+	u.Invalidate()
 }
 
 // covers reports whether p is on the bar's tabs or its +.
@@ -1080,11 +1142,11 @@ func (b *Bar) dragEnded(e input.DragEnd, u *gunim.UI) {
 			o.pick(from, u)
 		}
 	}
-	if e.Out || e.Taken && b.keptHere != id {
+	if e.Out && !b.Locked || e.Taken && b.keptHere != id {
 		b.dropped = id
 	}
 	b.keptHere = ""
-	if e.Out && !e.Taken {
+	if e.Out && !e.Taken && !b.Locked {
 		b.change(Detach{ID: id, From: b.Win, At: e.At.Sub(b.grab), Size: b.detachSize()}, u)
 	}
 	u.Invalidate()

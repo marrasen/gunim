@@ -78,6 +78,17 @@ type Dock struct {
 	// back. Another pane asked for, or a change to what the window
 	// shows, puts them back too.
 	Maximize bool
+	// Locked has the user look at the panes and change nothing, as for a
+	// window of someone else's. A tab is picked and a pane focused as
+	// ever, with the pointer, the keys and a screen reader. No tab is
+	// dragged, closed or maximized, no divider moves, nothing dragged
+	// over lands in the window, and the +, the ×s, the dividers' grips
+	// and the button that puts the panes back fade away. Meanwhile the
+	// application's own changes, with SetLayout, SetActive and ToggleMax,
+	// show and move as ever. Changed once the dock shows, it shows from
+	// the next frame: a divider held then glides back, and a tab dragged
+	// stays where it was.
+	Locked bool
 	// OnMax, when set, runs on the UI goroutine as what the window shows
 	// changes by maximizing, with the item that fills it, "" for none.
 	// An application drawing the views itself shows Shown again. A
@@ -115,8 +126,10 @@ type Dock struct {
 	restore    *widget.IconButton
 	restoreAt  geom.Rect
 	restoreLit *anim.Float
-	laid       bool
-	size       geom.Size
+	// free is how far the dividers' grips show, 0 while Locked.
+	free *anim.Float
+	laid bool
+	size geom.Size
 	// groups, items and dividers are where the last layout put each
 	// group, each item shown, and each divider.
 	groups   []placedGroup
@@ -235,10 +248,10 @@ const restoreSize float32 = 24
 
 // NewDock returns a dock showing window win of the layouts it is given.
 func NewDock(win int) *Dock {
-	d := &Dock{win: win, items: map[string]geom.Rect{}, finals: map[string]geom.Rect{}, restoreLit: anim.NewFloat(0), bars: map[string]*Bar{}, nodes: map[string]gunim.Node{},
+	d := &Dock{win: win, items: map[string]geom.Rect{}, finals: map[string]geom.Rect{}, restoreLit: anim.NewFloat(0), free: anim.NewFloat(1), bars: map[string]*Bar{}, nodes: map[string]gunim.Node{},
 		itemOf: map[gunim.Node]string{}, mounted: map[gunim.Node]bool{}, showing: map[string]*fadeIn{}, fronts: map[string]string{},
 		shares: map[string]*anim.Float{}, splits: map[string]splitWas{}, closing: map[string]*closingSide{}, drop: anim.NewRect(geom.Rect{}), dropLit: anim.NewFloat(0)}
-	d.Add(d.drop, d.dropLit, d.restoreLit)
+	d.Add(d.drop, d.dropLit, d.restoreLit, d.free)
 	return d
 }
 
@@ -344,26 +357,66 @@ func (d *Dock) maxChanged(u *gunim.UI) {
 	if d.maxed != "" && d.restore == nil {
 		d.restore = widget.NewIconButton(icon.Minimize2, RestoreTip.Default())
 		d.restore.OnClick = func(u *gunim.UI) gunim.Intent {
-			d.ToggleMax(d.maxed, u)
+			if !d.Locked {
+				d.ToggleMax(d.maxed, u)
+			}
 			return nil
 		}
 	}
 	if d.restore != nil && u != nil {
 		d.restore.Tooltip = RestoreTip.Get(u.Theme())
 	}
-	on := float32(0)
-	if d.maxed != "" {
-		on = 1
+	var th *theme.Live
+	if u != nil {
+		th = u.Theme()
 	}
-	if !d.laid || u == nil {
-		d.restoreLit.Jump(on)
-	} else {
-		d.restoreLit.Animate(on, widget.Quick.Get(u.Theme()))
-	}
+	d.follow(th, d.laid)
 	if d.OnMax != nil && u != nil {
 		send(u, d, d.OnMax(d.maxed, u))
 	}
 	u.Invalidate()
+}
+
+// restores reports whether the user has a button to put the panes back
+// with.
+func (d *Dock) restores() bool { return d.maxed != "" && !d.Locked }
+
+// follow shows or hides the restore button, and the dividers' grips, as
+// Locked says, and ends a divider's drag as it turns Locked, gliding
+// where moving says. It reports whether anything moves. th may be nil,
+// and then nothing glides.
+func (d *Dock) follow(th *theme.Live, moving bool) bool {
+	going := d.Locked && d.release(th)
+	for _, s := range []struct {
+		lit *anim.Float
+		on  bool
+	}{{d.restoreLit, d.restores()}, {d.free, !d.Locked}} {
+		switch on := anim.OnOff(s.on); {
+		case !moving || th == nil:
+			s.lit.Jump(on)
+		case s.lit.Target() != on:
+			s.lit.Animate(on, widget.Quick.Get(th))
+		}
+		going = going || s.lit.Active()
+	}
+	return going
+}
+
+// release ends a divider's drag as the dock turns Locked in the middle
+// of it, and reports whether it did: the divider glides back where it
+// was. The release of the press is the dock's still.
+func (d *Dock) release(th *theme.Live) bool {
+	if d.held == "" {
+		return false
+	}
+	s := d.shares[d.held]
+	d.LetGo(nil)
+	if s != nil && th != nil {
+		to := s.Target()
+		s.Jump(d.heldShare)
+		s.Animate(to, Slide.Get(th))
+	}
+	return true
 }
 
 // Refresh reads the tabs' faces again, as when a title changed.
@@ -506,7 +559,7 @@ func (d *Dock) Children() []gunim.Node {
 
 // restoreShows reports whether the restore button shows, or is fading.
 func (d *Dock) restoreShows() bool {
-	return d.restore != nil && (d.maxed != "" || d.restoreLit.Value() > 0.01 || d.restoreLit.Active())
+	return d.restore != nil && (d.restores() || d.restoreLit.Value() > 0.01 || d.restoreLit.Active())
 }
 
 // node returns item's view, from Content, or nil.
@@ -656,11 +709,11 @@ func (d *Dock) sync(u *gunim.UI) {
 		}
 	}
 	for _, b := range d.bars {
-		b.Plus = d.Plus
+		b.Plus, b.Locked = d.Plus, d.Locked
 	}
 	if d.top != nil {
 		// The title bar's: on the title bar's own fill.
-		d.top.Plus, d.top.Plain = d.Plus, true
+		d.top.Plus, d.top.Plain, d.top.Locked = d.Plus, true, d.Locked
 	}
 	if root != nil {
 		walk(root, true)
@@ -1045,6 +1098,13 @@ func (d *Dock) rest(n *Node, r geom.Rect, gap, top float32, root bool) {
 func (d *Dock) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
 	size := c.Max
 	d.size = size
+	moving := d.follow(f.Theme, d.laid)
+	if d.top != nil && d.top.Locked != d.Locked {
+		d.top.Locked, moving = d.Locked, true
+	}
+	if moving {
+		f.RedrawAt(f.Now)
+	}
 	d.arrange(f.Theme, geom.Rect{Max: size.Point()})
 	type want struct {
 		n gunim.Node
@@ -1061,12 +1121,12 @@ func (d *Dock) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) g
 			continue
 		}
 		top := g.top.Min.Y <= 0
-		g.bar.Caption, g.bar.Plus = d.Caption && top, d.Plus
+		g.bar.Caption, g.bar.Plus, g.bar.Locked = d.Caption && top, d.Plus, d.Locked
 		g.bar.Plain = d.TopPlain && top
 		g.bar.reserve, g.bar.lead = 0, 0
 		if top && g.top.Max.X >= size.W {
 			g.bar.reserve = d.Corner
-			if d.maxed != "" {
+			if d.restores() {
 				g.bar.reserve += d.restoreRoom(f.Theme)
 			}
 		}
@@ -1176,11 +1236,16 @@ func (d *Dock) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids gunim.
 			}()
 		}
 	}
+	free := min(max(d.free.Value(), 0), 1)
 	for _, dv := range d.dividers {
+		if free <= 0 {
+			break
+		}
 		c := Divider.Get(th)
 		if dv.id == d.hot || dv.id == d.held {
 			c = DividerHot.Get(th)
 		}
+		c.A = uint8(float32(c.A) * free)
 		m := dv.rect.Center()
 		if dv.kind == Row {
 			p.RRect(geom.Rc(m.X-1, m.Y-20, 2, 40), 1, paint.Solid(c))
@@ -1221,8 +1286,11 @@ func (d *Dock) Covers(p geom.Point) bool {
 	return d.dividerAt(p) >= 0
 }
 
-// dividerAt is the divider at p, -1 for none.
+// dividerAt is the divider at p the pointer can drag, -1 for none.
 func (d *Dock) dividerAt(p geom.Point) int {
+	if d.Locked {
+		return -1
+	}
 	for i, dv := range d.dividers {
 		if dv.rect.Inset(geom.Uniform(-2)).Contains(p) {
 			return i
@@ -1252,6 +1320,9 @@ func (d *Dock) Focusable() bool { return false }
 // Handle implements [gunim.Handler]: a divider dragged, and a tab
 // dragged over the views.
 func (d *Dock) Handle(e input.Event, u *gunim.UI) bool {
+	if d.Locked && d.release(u.Theme()) {
+		u.Invalidate()
+	}
 	switch e := e.(type) {
 	case input.PointerMove:
 		if d.held != "" {
@@ -1363,6 +1434,10 @@ func (d *Dock) DragEvent(e input.Event, u *gunim.UI) bool {
 		if !ok {
 			return false
 		}
+		if d.Locked {
+			d.lightOut(u)
+			return false
+		}
 		_, at, split, ok := d.dropAt(e.Pos, dr, u.Theme())
 		d.light(at, ok, u)
 		if !ok {
@@ -1384,13 +1459,21 @@ func (d *Dock) DragEvent(e input.Event, u *gunim.UI) bool {
 		}
 		to, _, _, ok := d.dropAt(e.Pos, dr, u.Theme())
 		d.light(geom.Rect{}, false, u)
-		if !ok {
+		if !ok || d.Locked {
 			return false
 		}
 		d.change(Move{ID: dr.ID, To: to}, d, u)
 		return true
 	}
 	return false
+}
+
+// lightOut puts the light out where a drag over the window lit it
+// before the dock turned Locked.
+func (d *Dock) lightOut(u *gunim.UI) {
+	if d.dropLit.Target() > 0 {
+		d.light(geom.Rect{}, false, u)
+	}
 }
 
 // light lights at, where a tab would land, or puts the light out.

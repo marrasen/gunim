@@ -133,8 +133,13 @@ func clipboardCall(method string, args ...any) (js.Value, error) {
 }
 
 // Clipboard reads the system's clipboard, if the browser allows it. It waits
-// clipboardWait at most for the browser's answer.
+// clipboardWait at most for the browser's answer. On a paste key the program got, as
+// one that claims the keys does, it is the text the browser pastes on that key, with
+// no prompt: see keyPaste.
 func (w *Window) Clipboard() (string, error) {
+	if text, ok := w.d.pastedText(w); ok {
+		return text, nil
+	}
 	v, err := clipboardCall("readText")
 	if err != nil {
 		return "", err
@@ -144,7 +149,11 @@ func (w *Window) Clipboard() (string, error) {
 
 // SetClipboard writes the system's clipboard, if the browser allows it. It waits
 // clipboardWait at most for the browser's answer.
-func (w *Window) SetClipboard(s string) error { _, err := clipboardCall("writeText", s); return err }
+func (w *Window) SetClipboard(s string) error {
+	w.d.clipboardChanges()
+	_, err := clipboardCall("writeText", s)
+	return err
+}
 
 // Shoot has fn called with the next frame drawn.
 func (w *Window) Shoot(fn func(*image.RGBA)) { w.d.mu.Lock(); w.shot = fn; w.d.mu.Unlock(); w.d.kick() }

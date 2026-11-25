@@ -233,6 +233,22 @@ type TextEditor interface {
 	TextState() input.TextState
 }
 
+// A KeyClaimer is a node that wants, while it has the keyboard, the key
+// presses the platform around the window would otherwise keep, as a
+// terminal does: in a browser Ctrl+R then searches the shell's history,
+// where it would reload the page. ClaimsKeys reports whether it wants
+// them right now, so a node can claim them for some of what it shows and
+// not for the rest. Only the focused node itself is asked, as the focus
+// moves, after each key and press, and after every frame, so the driver
+// knows before the platform acts on the next key. Where the platform
+// keeps no keys from a window, as on a desktop, a claim changes nothing.
+// See [driver.KeyClaimer] for the driver's part, and package driver/web
+// for which keys a browser gives up.
+type KeyClaimer interface {
+	Node
+	ClaimsKeys() bool
+}
+
 // A ThemeScope is a node that gives its subtree a theme of its own. The
 // scope's theme falls back to the one around it for the tokens it
 // leaves out; see [theme.Live.Under]. The node steps the Live it
