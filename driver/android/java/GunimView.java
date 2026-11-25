@@ -388,6 +388,14 @@ final class GunimView extends SurfaceView implements SurfaceHolder.Callback {
 		return input.connect(out);
 	}
 
+	/** closeKeyboard closes the soft keyboard, and reports whether it showed. */
+	@android.annotation.TargetApi(30)
+	boolean closeKeyboard() {
+		android.view.WindowInsets in = getRootWindowInsets();
+		return in != null && in.isVisible(android.view.WindowInsets.Type.ime())
+			&& imm.hideSoftInputFromWindow(getWindowToken(), 0);
+	}
+
 	/**
 	 * showKeyboard shows the soft keyboard, for a text field the user has
 	 * tapped, and hides it. A node with no text of its own, which takes

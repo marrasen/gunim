@@ -208,7 +208,14 @@ public class GunimActivity extends Activity {
 			back = null;
 			return;
 		}
-		android.window.OnBackInvokedCallback b = Native::back;
+		// The keyboard has a callback of its own while it shows, of the same
+		// priority, and the last to come goes first. One that came before
+		// this is closed here, as it would have closed itself.
+		android.window.OnBackInvokedCallback b = () -> {
+			if (view == null || !view.closeKeyboard()) {
+				Native.back();
+			}
+		};
 		d.registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, b);
 		back = b;
 	}
