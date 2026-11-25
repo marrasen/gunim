@@ -24,6 +24,8 @@ const (
 	confirmNoLock
 	confirmFailed
 	confirmRefused
+	// confirmFailedWith and up are confirmFailed, with Android's code.
+	confirmFailedWith = 1000
 )
 
 // errConfirm is returned where Android shows no prompt, and
@@ -97,7 +99,10 @@ func confirmError(a int) error {
 	case confirmRefused:
 		return errConfirmPermission
 	}
-	return fmt.Errorf("%w (%d)", errConfirm, a)
+	if a >= confirmFailedWith {
+		return fmt.Errorf("%w: Android's error %d", errConfirm, a-confirmFailedWith)
+	}
+	return errConfirm
 }
 
 //export goConfirmed

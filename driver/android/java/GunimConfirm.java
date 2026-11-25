@@ -152,10 +152,30 @@ final class GunimConfirm {
 			@Override
 			public void onAuthenticationError(int error, CharSequence why) {
 				// A finger not known is no error, and the prompt stays for it.
-				answer(error == BiometricPrompt.BIOMETRIC_ERROR_NO_DEVICE_CREDENTIAL ? NO_LOCK : NO);
+				answer(answerOf(error));
 			}
 		});
 	}
+
+	// answerOf is what an error of the prompt's comes to: the user's no, and
+	// else that the prompt failed, with Android's code for it.
+	static int answerOf(int error) {
+		switch (error) {
+		case BiometricPrompt.BIOMETRIC_ERROR_USER_CANCELED:
+		case BiometricPrompt.BIOMETRIC_ERROR_CANCELED:
+		case ERROR_NEGATIVE_BUTTON:
+		case BiometricPrompt.BIOMETRIC_ERROR_LOCKOUT:
+		case BiometricPrompt.BIOMETRIC_ERROR_LOCKOUT_PERMANENT:
+			return NO;
+		case BiometricPrompt.BIOMETRIC_ERROR_NO_DEVICE_CREDENTIAL:
+			return NO_LOCK;
+		}
+		return FAILED_WITH + error;
+	}
+
+	// FAILED_WITH and up are FAILED, with Android's code. The negative
+	// button's is in no class of Android's that a program may name.
+	private static final int FAILED_WITH = 1000, ERROR_NEGATIVE_BUTTON = 13;
 
 	/** result takes the answer of the prompt's activity, and reports whether code is one's. */
 	static boolean result(int code, boolean ok) {

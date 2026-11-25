@@ -173,6 +173,9 @@ public final class Native {
 	static native void network(long run, long network, boolean online, boolean internet, boolean metered, boolean blocked,
 		boolean moved);
 	static native void confirmed(long run, int answer);
+	static native void cameraFrame(long run, java.nio.ByteBuffer y, java.nio.ByteBuffer u, java.nio.ByteBuffer v, int width,
+		int height, int yStride, int uvStride, int uvPixel, int turn, boolean mirror);
+	static native void cameraStopped(long run, int why);
 	static native void heading(float[] rotation, int screen, int accuracy, float error);
 
 	// Called from Go.
@@ -378,6 +381,9 @@ public final class Native {
 		}
 		if (p == 2) {
 			return new String[] {"android.permission.RECORD_AUDIO"};
+		}
+		if (p == 4) {
+			return new String[] {"android.permission.CAMERA"};
 		}
 		if (p == 3 && Build.VERSION.SDK_INT >= 33) {
 			return new String[] {"android.permission.POST_NOTIFICATIONS"};
@@ -725,6 +731,14 @@ public final class Native {
 				activity.moveTaskToBack(true);
 			}
 		});
+	}
+
+	static void cameraStart(long run, boolean front) {
+		GunimCamera.start(run, front);
+	}
+
+	static void cameraStop(long run) {
+		GunimCamera.stop(run);
 	}
 
 	static void buzz() {

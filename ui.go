@@ -901,6 +901,7 @@ func newWindow(dw driver.Window, root Node) *Window {
 	}
 	w.ui.noteHeadingNode(rootState)
 	w.ui.noteBackNode(rootState)
+	w.ui.noteCameraNode(rootState)
 	w.ui.noteEdgeSwipeNode(rootState)
 	return w
 }
@@ -1831,8 +1832,9 @@ func (w *Window) loop() {
 		// Before the application hears the window has closed.
 		w.keepPlace()
 	}()
-	// The compass stops before the window closes.
+	// The compass and the camera stop before the window closes.
 	defer w.ui.stopHeading()
+	defer w.ui.stopCamera()
 	// The child windows of the system's in it close before it does.
 	defer w.ui.closeNatives()
 	defer w.ui.runClosers()
@@ -2423,7 +2425,10 @@ type UI struct {
 	headingNodes map[*state]struct{}
 	// backNodes holds the nodes in the tree that can take Back, leaveOnBack is [WindowOptions.LeaveOnBack], and
 	// backLeft what the driver last heard of the next Back; see [BackTaker].
-	backNodes             map[*state]struct{}
+	backNodes map[*state]struct{}
+	// cameraNodes holds the nodes in the tree that can watch the camera, and camera the one it runs for.
+	cameraNodes           map[*state]struct{}
+	camera                cameraHold
 	leaveOnBack, backLeft bool
 	// edgeSwipeNodes holds the nodes in the tree that can keep edge
 	// swipes, so a frame looks for them only while there are some, and
@@ -3193,6 +3198,7 @@ func (u *UI) InsertAt(parent Node, i int, child Node) {
 	u.index[child] = cs
 	u.noteHeadingNode(cs)
 	u.noteBackNode(cs)
+	u.noteCameraNode(cs)
 	u.noteEdgeSwipeNode(cs)
 	u.noteNativeNode(cs)
 	u.invalid = true
@@ -3941,6 +3947,7 @@ func (u *UI) paintFrame(fp framePaint) {
 	u.framePopups(f)
 	u.revealDrawn()
 	u.watchHeading()
+	u.watchCamera()
 	u.tellBack()
 	u.keepEdgeSwipes()
 	u.publishAccess(u.w.dw, u.root, u.w.title)
@@ -4221,6 +4228,7 @@ func (u *UI) forget(s *state) {
 	u.unsubscribe(s)
 	delete(u.headingNodes, s)
 	delete(u.backNodes, s)
+	delete(u.cameraNodes, s)
 	delete(u.edgeSwipeNodes, s)
 	u.forgetNativeNode(s)
 	delete(u.index, s.node)

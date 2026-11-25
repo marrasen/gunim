@@ -1,0 +1,12 @@
+go test fuzz v1
+[]byte("000")
+[]byte("00")
+[]byte("00")
+int(3)
+int(1)
+int(3)
+int(2)
+int(1)
+int(90)
+bool(true)
+int(21)

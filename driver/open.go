@@ -115,6 +115,8 @@ const (
 	PermissionMicrophone
 	// PermissionNotifications shows messages, as [Notifier] does.
 	PermissionNotifications
+	// PermissionCamera sees through the camera, as [Camera] does.
+	PermissionCamera
 )
 
 // A Permitter is a [Driver] whose system has the user grant

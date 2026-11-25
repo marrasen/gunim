@@ -29,6 +29,7 @@ static jmethodID midPermitted, midAsk, midUserFolder, midChooseFolder, midChoose
 static jmethodID midNowPlaying, midShowKeyboard, midCaret, midBuzz, midFingers, midAwake, midShare, midVibrate, midExclude, midOpenLink, midTextState, midClearTextState, midGetClipboard, midSetClipboard, midFinish;
 static jmethodID midHasCompass, midWatchHeading, midNoBackupDir, midRun, midEnded, midStreamEnd, midCloseStream, midOpenServed, midStopServed, midCreateDocument, midSaveFolder, midSave, midNotify, midNotifyOn, midNotifyEnd, midWatchNetwork;
 static jmethodID midSetClipboardSensitive, midClearClipboardIf, midSecure;
+static jmethodID midCameraStart, midCameraStop;
 static jmethodID midConfirm, midCancelConfirm, midHasScreenLock;
 static jmethodID midBackLeaves, midLeaveApp, midLook, midWatchLook;
 static jclass audioClass;
@@ -71,6 +72,8 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *v, void *reserved) {
 	midConfirm = (*env)->GetStaticMethodID(env, c, "confirm", "(JLjava/lang/String;Ljava/lang/String;Z)V");
 	midCancelConfirm = (*env)->GetStaticMethodID(env, c, "cancelConfirm", "(J)V");
 	midHasScreenLock = (*env)->GetStaticMethodID(env, c, "hasScreenLock", "()Z");
+	midCameraStart = (*env)->GetStaticMethodID(env, c, "cameraStart", "(JZ)V");
+	midCameraStop = (*env)->GetStaticMethodID(env, c, "cameraStop", "(J)V");
 	midVibrate = (*env)->GetStaticMethodID(env, c, "vibrate", "([J)Z");
 	midExclude = (*env)->GetStaticMethodID(env, c, "excludeGestures", "([I)V");
 	midOpenLink = (*env)->GetStaticMethodID(env, c, "openLink", "(Ljava/lang/String;)Z");
@@ -711,6 +714,33 @@ int gunim_has_screen_lock(void) {
 
 JNIEXPORT void JNICALL Java_gunim_android_Native_confirmed(JNIEnv *env, jclass c, jlong run, jint answer) {
 	goConfirmed(run, answer);
+}
+
+void gunim_camera_start(long long run, int front) {
+	int a;
+	JNIEnv *env = envGet(&a);
+	(*env)->CallStaticVoidMethod(env, nativeClass, midCameraStart, (jlong)run, front ? JNI_TRUE : JNI_FALSE);
+	envPut(a);
+}
+
+void gunim_camera_stop(long long run) {
+	int a;
+	JNIEnv *env = envGet(&a);
+	(*env)->CallStaticVoidMethod(env, nativeClass, midCameraStop, (jlong)run);
+	envPut(a);
+}
+
+// The planes are the camera's own memory, which stays until this returns.
+JNIEXPORT void JNICALL Java_gunim_android_Native_cameraFrame(JNIEnv *env, jclass c, jlong run, jobject y, jobject u, jobject v,
+	jint width, jint height, jint yStride, jint uvStride, jint uvPixel, jint turn, jboolean mirror) {
+	goCameraFrame(run, (*env)->GetDirectBufferAddress(env, y), (*env)->GetDirectBufferAddress(env, u),
+		(*env)->GetDirectBufferAddress(env, v), (*env)->GetDirectBufferCapacity(env, y),
+		(*env)->GetDirectBufferCapacity(env, u), (*env)->GetDirectBufferCapacity(env, v),
+		width, height, yStride, uvStride, uvPixel, turn, mirror);
+}
+
+JNIEXPORT void JNICALL Java_gunim_android_Native_cameraStopped(JNIEnv *env, jclass c, jlong run, jint why) {
+	goCameraStopped(run, why);
 }
 
 int gunim_vibrate(const long long *ms, int n) {

@@ -98,6 +98,8 @@ type Renderer struct {
 
 	glyphs, lcdGlyphs, colorGlyphs glyphTexture
 	images                         map[*paint.Image]*imageTexture
+	// streams holds the textures of streams of pictures.
+	streams map[*paint.Stream]*streamTexture
 	// bigs holds the masks too big for the atlas; see bigmasks.go.
 	bigs bigMasks
 	// now is when the frame being drawn started, from clock, or time.Now where clock is nil.
@@ -614,7 +616,8 @@ void main() {
 // isES, to be used on the thread that context is current on. Its
 // programs come from sh, built on first use; its buffers are its own.
 func New(g gl.Context, isES bool, sh *Shared) (*Renderer, error) {
-	r := &Renderer{GL: g, shared: sh, isES: isES, images: map[*paint.Image]*imageTexture{}}
+	r := &Renderer{GL: g, shared: sh, isES: isES, images: map[*paint.Image]*imageTexture{},
+		streams: map[*paint.Stream]*streamTexture{}}
 	var err error
 	if r.drawProg, r.clipProg, r.blurProg, r.dual, err = sh.programs(g, isES); err != nil {
 		return nil, err
@@ -814,6 +817,9 @@ func (r *Renderer) Release() {
 	}
 	for m := range r.images {
 		r.dropImage(m)
+	}
+	for s := range r.streams {
+		r.dropStream(s)
 	}
 	g.DeleteTexture(r.glyphs.tex)
 	if r.ramps.tex != 0 {
