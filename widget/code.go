@@ -170,8 +170,10 @@ type CodeEditor struct {
 	hint    *anim.Float
 	caretAt *anim.Point
 	band    *anim.Float
-	// rows carries how many lines tall the editor is under MaxRows.
+	// rows carries how many lines tall the editor is under MaxRows, and
+	// grew is how far the last step took it.
 	rows    *anim.Float
+	grew    float32
 	scrollX *anim.Float
 	scrollY *anim.Float
 	marks   []*codeMark
@@ -413,7 +415,9 @@ func (c *CodeEditor) hostIndex(p geom.Point, _ *gunim.UI) int { return c.indexAt
 
 // Step implements [gunim.Animator].
 func (c *CodeEditor) Step(dt time.Duration) bool {
+	was := c.rows.Value()
 	moving := c.Group.Step(dt)
+	c.grew = c.rows.Value() - was
 	kept := c.marks[:0]
 	for _, m := range c.marks {
 		if m.shown.Step(dt) {
@@ -427,6 +431,15 @@ func (c *CodeEditor) Step(dt time.Duration) bool {
 	clear(c.marks[len(kept):])
 	c.marks = kept
 	return moving
+}
+
+// SizeMoved implements [gunim.SizeMover]: the editor grows and shrinks with
+// its code, up to MaxRows.
+func (c *CodeEditor) SizeMoved() geom.Size {
+	if c.MaxRows <= 0 {
+		return geom.Size{}
+	}
+	return geom.Sz(0, c.grew*c.lineH)
 }
 
 // origin returns where the code's top-left sits in the editor, as

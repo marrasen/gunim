@@ -21,6 +21,8 @@ package anim
 import (
 	"slices"
 	"time"
+
+	"github.com/marrasen/gunim/geom"
 )
 
 // MaxScalars is the most scalars a single [Animated] value can hold.
@@ -159,15 +161,19 @@ func (a *Animated[T]) Jump(v T) {
 	a.motion = nil
 }
 
-// Shift moves a number by d, along with where its animation started
-// and where it is heading, so a motion in flight carries on unchanged
-// from its new place. It is for a value measured from a point that
-// moved, such as a row's place in a list whose scroll offset jumped.
-func Shift(a *Float, d float32) {
-	s := &a.state[0]
-	s.Position += d
-	s.From += d
-	s.To += d
+// Shift moves a number, a point or a size by d, along with where its
+// animation started and where it is heading, so a motion in flight
+// carries on unchanged from its new place. It is for a value measured
+// from a point that moved, such as a row's place in a list whose scroll
+// offset jumped.
+func Shift[T float32 | geom.Point | geom.Size](a *Animated[T], d T) {
+	by := a.codec.Encode(d)
+	for i := range a.codec.N {
+		s := &a.state[i]
+		s.Position += by[i]
+		s.From += by[i]
+		s.To += by[i]
+	}
 }
 
 // Step advances the animation by dt and reports whether it is still

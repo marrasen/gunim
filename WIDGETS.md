@@ -150,7 +150,7 @@ An app's widget outside the package draws the same way with the exported helpers
   - Act on the release, so a press dragged away cancels.
   - For a control drawn by hand, whose parts are something other than an index, use `widget.Click[T]`. Every press
     starts a click there, so check `Clicks` to act once on a double click.
-- **Keys.** Space and Enter activate; arrows move; Home and End go to the ends; Escape closes what is open; Tab moves
+- **Keys.** Space and Enter activate, a button once however long they are held; arrows move; Home and End go to the ends; Escape closes what is open; Tab moves
   on. Ctrl+Shift+key is its own shortcut, apart from Ctrl+key. A disabled control takes no keys.
 - **Keys the browser keeps.** In a browser a page hears no Ctrl+R or F5, so give a control other keys. A view that must
   have every key, as a terminal must, implements `gunim.KeyClaimer`, and reports `ClaimsKeys` only while it does.
@@ -209,6 +209,10 @@ Everything moves; nothing jumps once the user can see it.
   `Add` for each sample after it. A `Fill` on every tick steps the curve and never slides it.
 - **Arriving and leaving.** Implement `gunim.Transitioner` to animate in on `Entering` and out on `Exiting`; the
   engine keeps the node until it reports settled.
+- **A size that moves.** A widget whose springs change the size its `Layout` returns, as a `Fold` opening, implements
+  `gunim.SizeMover` and says how far the last `Step` took it. What follows it in a `Row` or `Column` then moves with it
+  on every frame. Without it they spring after it, a spring behind a spring, and lie over it on the way. A container
+  of your own places its children right after each other and needs nothing, or reads `Child.SizeMoved`.
 - **Frames only while moving.** `Step` reports true only while something moves. A widget out of sight (on a hidden
   tab, scrolled away) asks for no frames.
 - **Draw another clock at `Frame.Present`.** A frame lights the screen a few refreshes after it is drawn. A playhead,
