@@ -263,7 +263,7 @@ func (c *browserCanvas) paintsColor() bool {
 	}
 	c.probed = true
 	c.set(&browserFont{family: "px sans-serif"}, 32, false)
-	const face = "\U0001F600"
+	const face = "\U0001F600\ufe0f"
 	pix, _ := c.draw(face, "#fff", c.measure(face), 0, 1)
 	for i := 0; i+3 < len(pix); i += 4 {
 		if pix[i+3] > 128 && min(pix[i], pix[i+1], pix[i+2]) < 240 {
@@ -424,8 +424,8 @@ func browserText(runes []rune) (text string, color bool) {
 	if !drawsAsEmoji(runes) || !browserPad.paintsColor() {
 		return text, false
 	}
-	if len(runes) == 1 && runes[0] < 0x1f000 {
-		// Asked for as an emoji, as a browser's plain font may have the likes of a bolt too.
+	if r := runes[0]; len(runes) == 1 && (r < 0x1f1e6 || r > 0x1f1ff) {
+		// Asked for as an emoji, as the browser's plain font may have the likes of a bolt or a face too.
 		text += string(rune(emojiSelector))
 	}
 	return text, true
@@ -453,7 +453,8 @@ func (b *browserFont) glyph(id uint32) (g browserGlyph, ok bool) {
 
 // width returns r's advance, in a share of the font's size. The characters of Chinese are as wide as each other, as are
 // the syllables of Korean and the emoji, so one of each is measured: a page of new ones is laid out in one go, where
-// each takes the browser a fifth of a millisecond.
+// each takes the browser a fifth of a millisecond. A browser with no font for that one gives the width of its
+// box, and a font it has for another is drawn small enough for it; see rasterize.
 func (b *browserFont) width(r rune) float32 {
 	like := r
 	switch {
@@ -510,8 +511,13 @@ func (b *browserFont) rasterize(id uint32, sizePx, dx float32, lcd bool) Mask {
 	c.set(b, sizePx, g.rtl)
 	e := c.measure(g.text)
 	var down int
-	if g.w > 0 {
+	switch room := g.advance * sizePx; {
+	case g.w > 0:
 		e, dx, down = b.fit(g, sizePx, dx, e)
+	case room > 0 && e.advance > 1.1*room+1:
+		// Wider than it was laid out as, which is as wide as what it is like.
+		c.set(b, sizePx*room/e.advance, g.rtl)
+		e = c.measure(g.text)
 	}
 	// White is what a browser smooths and thickens text of the least. The coverage is then the mask, and gunim's own.
 	fill, sub := "#fff", 1

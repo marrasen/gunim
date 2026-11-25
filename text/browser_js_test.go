@@ -189,6 +189,32 @@ func TestBrowserMeasuresAlikeCharactersOnce(t *testing.T) {
 	}
 }
 
+// A character wider than the one it is laid out like, as where the browser has a font for it and none for that one, is
+// drawn within its room, and not over the next.
+func TestBrowserDrawsACharacterInItsRoom(t *testing.T) {
+	b := browserFontFor(t, false, 10)
+	proto := js.Global().Get("CanvasRenderingContext2D").Get("prototype")
+	was := proto.Get("measureText")
+	proto.Set("measureText", js.Global().Call("eval", `(was => function (s) {
+		return s == "中" ? {width: 20} : was.call(this, s);
+	})`).Invoke(was))
+	defer proto.Set("measureText", was)
+	mu.Lock()
+	id := b.id([]rune{'国'}, false)
+	g, _ := b.glyph(id)
+	mu.Unlock()
+	if g.advance != 20.0/measureSize {
+		t.Fatalf("it is %v wide, want as wide as the other, %v", g.advance, 20.0/measureSize)
+	}
+	m := b.rasterize(id, 64, 0, false)
+	if m.W == 0 || m.Offset.X < -2 || m.Offset.X+m.W > 22 {
+		t.Errorf("it is drawn from %d to %d, in room for 20", m.Offset.X, m.Offset.X+m.W)
+	}
+	if m := b.rasterize(b.id([]rune("中国"), false), 64, 0, false); m.W < 40 {
+		t.Errorf("what is measured itself is drawn %d wide", m.W)
+	}
+}
+
 // Text of one character at a time needs no table.
 func TestBrowserCharactersTakeNoRoom(t *testing.T) {
 	f := GoSans(false, true)

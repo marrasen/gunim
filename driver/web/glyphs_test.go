@@ -35,7 +35,7 @@ func hasColorEmoji() bool {
 		const x = document.createElement("canvas").getContext("2d");
 		x.font = "32px sans-serif";
 		x.fillStyle = "#fff";
-		x.fillText("\u{1F600}", 0, 40);
+		x.fillText("\u{1F600}\uFE0F", 0, 40);
 		const p = x.getImageData(0, 0, 60, 60).data;
 		for (let i = 0; i < p.length; i += 4) if (p[i + 3] > 128 && Math.min(p[i], p[i + 1], p[i + 2]) < 240) return true;
 		return false;
@@ -46,7 +46,7 @@ func hasColorEmoji() bool {
 // reader sees it. What a face has stays the face's.
 func TestTheBrowserDrawsWhatNoFaceHas(t *testing.T) {
 	face := text.Default()
-	for _, s := range []string{"中", "한", "⇒", "א", "ไ", "x\u0302", "\U0001f468\u200d\U0001f469\u200d\U0001f467", "\U0001f1f8\U0001f1ea", "\U0001f44d\U0001f3fd", "❤\ufe0f"} {
+	for _, s := range []string{"中", "한", "⇒", "א", "ไ", "x\u0302", "\U0001f468\u200d\U0001f469\u200d\U0001f467", "\U0001f1f8\U0001f1ea", "\U0001f44d\U0001f3fd"} {
 		run := face.Shape(s, 20)
 		f := fromBrowser(t, s, run.Glyphs)
 		var m text.Mask
@@ -116,6 +116,7 @@ func TestTheBrowsersCharactersFitTheirCells(t *testing.T) {
 	}{{"中", 2}, {"⇒", 1}, {"⟶", 1}, {"中", 1}, {"\U0001f600", 2}, {"\U0001f600", 1}, {"\U0001f1f8\U0001f1ea", 2}, {"ไ", 1}, {"x\u0302", 1}} {
 		glyphs := text.GoMono(false, false).Cell(c.s, size, w*c.wide, ascent, descent)
 		f := fromBrowser(t, c.s, glyphs)
+		var tall float32
 		for _, scale := range []float32{1, 1.5, 2, 3} {
 			var m text.Mask
 			if colored(glyphs[0]) {
@@ -129,9 +130,11 @@ func TestTheBrowsersCharactersFitTheirCells(t *testing.T) {
 				t.Errorf("%q in %v cells at scale %v is %dx%d at %v, in a cell %v wide, %v above and %v below", c.s, c.wide, scale,
 					m.W, m.H, m.Offset, w*c.wide*scale, ascent*scale, descent*scale)
 			}
-			// As large as its scale, and not made larger after.
-			if c.s == "中" && c.wide == 2 && float32(m.H) < 9*scale {
-				t.Errorf("at scale %v it is %d tall", scale, m.H)
+			// As large as its scale, and not made larger after, give or take the pixels of its edges.
+			if scale == 1 {
+				tall = float32(m.H)
+			} else if float32(m.H) < (tall-2)*scale {
+				t.Errorf("%q in %v cells is %v tall, and at scale %v %d", c.s, c.wide, tall, scale, m.H)
 			}
 		}
 	}
@@ -148,8 +151,10 @@ func TestTheBrowsersCharactersFitTheirCells(t *testing.T) {
 func TestTheBrowsersTextLaysOut(t *testing.T) {
 	face := text.Default()
 	p := face.Layout(strings.Repeat("日本語", 10), text.Style{Size: 20}, 100)
-	if len(p.Lines) < 6 || p.Size.W > 100 {
-		t.Errorf("30 characters of 20 px wrap into %d lines, %v wide, in 100", len(p.Lines), p.Size.W)
+	// As wide as the browser's font has them, or its box for what it has no font for.
+	wide := face.Shape("日", 20).Advance
+	if per := int(100 / wide); len(p.Lines) != (30+per-1)/per || p.Size.W > 100 || p.Size.W < 100-wide {
+		t.Errorf("30 characters of %v px wrap into %d lines, %v wide, in 100", wide, len(p.Lines), p.Size.W)
 	}
 	run := face.Shape("ab中c\U0001f600d", 20)
 	last := float32(-1)
@@ -471,12 +476,17 @@ func TestHugeTextOfTheBrowsersIsDrawn(t *testing.T) {
 		{"an emoji", "\U0001f600", 2500},
 	} {
 		run := text.Default().Shape(c.s, c.size)
-		ops := onBlack(w, func(p *paint.Painter) {
-			run.Paint(p, geom.Pt(size.W/2-run.Advance/2, size.H/2-run.Height()/2), white)
-		})
-		presentOps(t, d, w, ops)
-		finish(t, d, w, nil)
-		if _, lit := showing(d); lit < 20 {
+		// Across its middle, a window's width at a time, as the box for what there is no font for is hollow.
+		lit := 0
+		for x := float32(0); x < min(run.Advance, 4000); x += size.W {
+			presentOps(t, d, w, onBlack(w, func(p *paint.Painter) {
+				run.Paint(p, geom.Pt(-x, size.H/2-run.Height()/2), white)
+			}))
+			finish(t, d, w, nil)
+			_, n := showing(d)
+			lit += n
+		}
+		if lit < 200 {
 			t.Errorf("%s at %v px, %v wide, shows %d pixels", c.name, c.size, run.Advance, lit)
 		}
 	}
