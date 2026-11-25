@@ -113,6 +113,8 @@ const (
 	// PermissionMicrophone records from the microphone, as package
 	// audio/speaker does through AAudio with Options.Record set.
 	PermissionMicrophone
+	// PermissionNotifications shows messages, as [Notifier] does.
+	PermissionNotifications
 )
 
 // A Permitter is a [Driver] whose system has the user grant

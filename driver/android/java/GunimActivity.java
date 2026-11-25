@@ -51,6 +51,7 @@ public class GunimActivity extends Activity {
 		// An activity Android brings back has told of its intent already.
 		if (!waits && (state == null || state.getBoolean(WAITS))) {
 			GunimOpen.opened(this, getIntent());
+			GunimNotify.tapped(this, getIntent());
 		}
 	}
 
@@ -71,6 +72,7 @@ public class GunimActivity extends Activity {
 		setIntent(intent);
 		if (!waits) {
 			GunimOpen.opened(this, intent);
+			GunimNotify.tapped(this, intent);
 		}
 	}
 

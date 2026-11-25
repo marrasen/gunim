@@ -632,6 +632,23 @@ as the bytes come. A file ends with `Close`, once it is whole, or with
 `Remove`, and one that a run left half way is taken away by the next with
 `App.RemoveSaved`. `example/filesout` shows them.
 
+`App.Notify` shows a message in the notification shade, in a channel the
+user can turn off, with a bar of progress where it has one. A message
+with the tag of one that shows takes its place. A tap on one opens the
+program, starting it where it has ended, and `App.OnNotification` hears
+the tag. `Lock` says how much of it the lock screen shows, where the
+user lets it show that much. Progress may be sent as often as it
+changes: gunim leaves out what comes faster than Android takes it, and
+shows the last. The program asks for `driver.PermissionNotifications`
+first, and is built with `-permissions notifications`. Java of the
+program's own gets such a tap with `gunim.android.Native.tapIntent`.
+
+`App.WatchNetwork` tells of the network: whether there is one, whether it
+costs, whether Android lets the program use it now, and whether what was
+connected before may be connected no longer. From Android 15 the network
+is blocked a few seconds after the program leaves the screen, unless a
+job of its own runs. `example/notify` shows both.
+
 `Client.Secure(true)` keeps what a window shows to the screen: out of
 screenshots, recordings, the picture in Recents and screens cast, and
 clear of other apps' windows over it. A `Secret` field asks the keyboard

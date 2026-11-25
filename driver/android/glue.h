@@ -40,6 +40,15 @@ void gunim_save_folder(int code);
 // gunim_save does one of GunimSave's calls, with five strings, and returns
 // what it says, n UTF-16 units of it for the caller to free.
 uint16_t *gunim_save(int what, const uint16_t *const *s, const int *ns, int *n);
+// gunim_notify shows a message of eight strings, and returns 0, 1 where
+// the user has it off, or 2 where Android does not take it.
+int gunim_notify(uint16_t *const *s, const int *ns, int importance, int lock, int parts, int ongoing, const void *icon,
+	int nicon);
+int gunim_notify_on(const uint16_t *channel, int n);
+void gunim_notify_end(const uint16_t *tag, int n);
+// gunim_watch_network starts or stops a run of listening, and returns 0
+// where Android refuses.
+int gunim_watch_network(long long run, int on);
 int gunim_vibrate(const long long *ms, int n);
 void gunim_exclude_gestures(const int *xy, int n);
 int gunim_has_compass(void);

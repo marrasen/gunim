@@ -189,6 +189,74 @@ func (a *App) Ask(p driver.Permission) bool {
 	return true
 }
 
+// Notification is a message the system shows apart from the application's window; see [driver.Notification].
+type Notification = driver.Notification
+
+// NotifyChannel is a kind of message; see [driver.NotifyChannel].
+type NotifyChannel = driver.NotifyChannel
+
+// NotifyProgress is how far the work a message tells of has come; see [driver.NotifyProgress].
+type NotifyProgress = driver.NotifyProgress
+
+// ErrNoNotifier is returned by [App.Notify] where the platform shows no such messages; see [driver.ErrNoNotifier].
+var ErrNoNotifier = driver.ErrNoNotifier
+
+// ErrNotifyOff is returned by [App.Notify] where the user has the messages off; see [driver.ErrNotifyOff].
+var ErrNotifyOff = driver.ErrNotifyOff
+
+// Notify shows n, as a phone does in its notification shade, or puts it in the place of the message with its tag. It
+// works with no window too, as from a job that Android started the program for. It returns ErrNotifyOff where the user
+// has the messages off, which [App.Ask] for [driver.PermissionNotifications] may change, and ErrNoNotifier on a desktop,
+// which shows messages from a tray icon with [App.TrayNotifyTagged].
+//
+// Android 13 and later show a message once the user has let the application, for which gunimapk needs -permissions
+// notifications. They show at most 50 of an application's at a time, and leave out one more without a word. One that
+// Android ended the program in the middle of stays, as it was, until [App.EndNotify].
+func (a *App) Notify(n Notification) error {
+	if nt, ok := a.drv.(driver.Notifier); ok {
+		return nt.Notify(n)
+	}
+	return ErrNoNotifier
+}
+
+// EndNotify takes the message with tag away, of this run or an earlier one. It returns nil where none shows, and
+// ErrNoNotifier where the platform shows no such messages.
+func (a *App) EndNotify(tag string) error {
+	if nt, ok := a.drv.(driver.Notifier); ok {
+		return nt.EndNotify(tag)
+	}
+	return ErrNoNotifier
+}
+
+// OnNotification has fn hear the tag of each message the user taps, of this run or an earlier one. The tap brings the
+// application to the front, or starts it. fn runs on a goroutine of the driver's, one call at a time, and is to hand the
+// work on rather than do it there. What was tapped before, as the tap that started the application, is heard at once.
+// A later fn takes the place of an earlier. It does nothing where the platform shows no such messages.
+func (a *App) OnNotification(fn func(tag string)) {
+	if nt, ok := a.drv.(driver.Notifier); ok {
+		nt.OnNotification(fn)
+	}
+}
+
+// NetworkState is what the system says of the network; see [driver.NetworkState].
+type NetworkState = driver.NetworkState
+
+// ErrNoNetworkWatch is returned by [App.WatchNetwork] where gunim does not hear of the network.
+var ErrNoNetworkWatch = driver.ErrNoNetworkWatch
+
+// WatchNetwork has fn hear how the network is, soon, and then each time that changes, until stop: whether there is one,
+// whether it costs, whether the system lets the application use it now, and whether what was connected before may be
+// connected no longer. fn runs on a goroutine of the driver's, one call at a time, and one slower than the changes hears
+// the last of them. It works with no window too.
+//
+// It works on Android, for which gunimapk needs -permissions network-state, and returns ErrNoNetworkWatch elsewhere.
+func (a *App) WatchNetwork(fn func(NetworkState)) (stop func(), err error) {
+	if nw, ok := a.drv.(driver.NetworkWatcher); ok {
+		return nw.WatchNetwork(fn)
+	}
+	return nil, ErrNoNetworkWatch
+}
+
 // RemoveSaved takes away what an earlier run of the program left of a file
 // that it was saving, by the [driver.SavedFile.Place] it kept. It returns
 // nil where there is nothing left, and an error where the system no longer
