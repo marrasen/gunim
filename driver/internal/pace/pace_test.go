@@ -44,7 +44,7 @@ func TestManyUpdatesDropNoneAndTheLastShows(t *testing.T) {
 			}
 			time.Sleep(10 * time.Millisecond)
 		}
-		p.Drain()
+		p.Drain(time.Minute)
 		if a.dropped > 0 || a.shown["work"] != 999 {
 			t.Fatalf("%d of %d dropped, and %d shows", a.dropped, a.posts, a.shown["work"])
 		}
@@ -69,7 +69,7 @@ func TestNewMessagesGoAtOnceAndAnUpdateAfterThemWaits(t *testing.T) {
 			_ = p.Update(strconv.Itoa(i), 100+i)
 		}
 		start := time.Now()
-		p.Drain()
+		p.Drain(time.Minute)
 		for i := range 5 {
 			if a.shown[strconv.Itoa(i)] != 100+i {
 				t.Fatalf("message %d shows %d", i, a.shown[strconv.Itoa(i)])
@@ -93,7 +93,7 @@ func TestABurstAfterARestDropsNone(t *testing.T) {
 				_ = p.Update("a", 1000*round+i)
 				time.Sleep(time.Millisecond)
 			}
-			p.Drain()
+			p.Drain(time.Minute)
 			if a.dropped > 0 || a.shown["a"] != 1000*round+199 {
 				t.Fatalf("%d dropped, and %d shows", a.dropped, a.shown["a"])
 			}
@@ -113,7 +113,7 @@ func TestOneTakenAwayDoesNotComeBack(t *testing.T) {
 		if err := p.End("a", func() error { delete(a.shown, "a"); return nil }); err != nil {
 			t.Fatal(err)
 		}
-		p.Drain()
+		p.Drain(time.Minute)
 		if _, ok := a.shown["a"]; ok || a.shown["b"] != 9 {
 			t.Fatalf("%v show", a.shown)
 		}
@@ -129,4 +129,34 @@ func TestAFailureComesBack(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+}
+
+// Draining ends where more goes on coming.
+func TestDrainingEndsWhereMoreGoesOnComing(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		a := &android{shown: map[string]int{}}
+		p := Pace[int]{Post: a.post}
+		stop := make(chan struct{})
+		ended := make(chan struct{})
+		go func() {
+			defer close(ended)
+			for {
+				select {
+				case <-stop:
+					return
+				case <-time.After(time.Millisecond):
+					_ = p.Update("a", 1)
+				}
+			}
+		}()
+		time.Sleep(time.Second)
+		start := time.Now()
+		p.Drain(5 * time.Second)
+		if d := time.Since(start); d > 5*time.Second {
+			t.Errorf("draining took %v", d)
+		}
+		close(stop)
+		<-ended
+		p.Drain(time.Minute)
+	})
 }

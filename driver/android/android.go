@@ -252,7 +252,7 @@ func (d *Driver) start(zone string, quiet bool) {
 		mainMain()
 		d.end()
 		// The last word on work that is done may wait for its turn.
-		notices.Drain()
+		notices.Drain(5 * time.Second)
 		ended()
 	}()
 }

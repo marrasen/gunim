@@ -33,6 +33,9 @@ final class GunimNetwork extends ConnectivityManager.NetworkCallback {
 	private String link = "";
 	private boolean blocked, settled, heard;
 
+	// waits is how many more times none waits for Android's word.
+	private int waits = 10;
+
 	// told is the network and the link Go heard of last.
 	private Network told;
 	private String toldLink = "";
@@ -77,7 +80,7 @@ final class GunimNetwork extends ConnectivityManager.NetworkCallback {
 		if (stopped || heard) {
 			return;
 		}
-		if (info() != null) {
+		if (info() != null && waits-- > 0) {
 			// There is one, and it is yet to be told of.
 			ui.postDelayed(this::none, 300);
 			return;

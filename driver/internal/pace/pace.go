@@ -76,16 +76,19 @@ func (p *Pace[T]) End(tag string, f func() error) error {
 	return f()
 }
 
-// Drain returns once all that waits has been posted.
-func (p *Pace[T]) Drain() {
-	for {
-		p.mu.Lock()
-		done := p.done
-		p.mu.Unlock()
-		if done == nil {
-			return
-		}
-		<-done
+// Drain returns once all that waits has been posted, or within most, as more may go on coming.
+func (p *Pace[T]) Drain(most time.Duration) {
+	p.mu.Lock()
+	done := p.done
+	p.mu.Unlock()
+	if done == nil {
+		return
+	}
+	end := time.NewTimer(most)
+	defer end.Stop()
+	select {
+	case <-done:
+	case <-end.C:
 	}
 }
 
