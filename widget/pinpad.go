@@ -159,10 +159,8 @@ func (p *PinPad) SetWaiting(d time.Duration, u *gunim.UI) {
 	th := u.Theme()
 	p.dim.Animate(1, Quick.Get(th))
 	// The dots swing out a dot's width and settle back, as a head shakes no: Bounce set off from rest at the speed
-	// that carries it that far. A spring at its target stays at rest, so it heads for a hair from it, which shows
-	// as nothing.
-	anim.Fling(p.shake, 2*math.Pi/max(Bounce.Get(th).Response, 0.05), anim.Decay{})
-	p.shake.Retarget(1e-4, Bounce.Get(th))
+	// that carries it that far.
+	anim.Kick(p.shake, 2*math.Pi/max(Bounce.Get(th).Response, 0.05), Bounce.Get(th))
 	u.Cue(gunim.CueClose, p)
 	p.endWait = u.After(d, p.stopWaiting)
 	u.Invalidate()

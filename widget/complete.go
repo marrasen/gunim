@@ -117,7 +117,7 @@ func (a *TextArea) complete(u *gunim.UI) {
 // hang from.
 func (a *TextArea) triggerBox(i int) geom.Rect {
 	_, at := a.para.Caret(i)
-	at = at.Add(a.origin(FieldPadding.Default()))
+	at = at.Add(a.origin())
 	h := a.para.lineHeight()
 	return geom.Rc(at.X, at.Y, 1, h+2)
 }

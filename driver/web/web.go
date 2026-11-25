@@ -137,6 +137,9 @@ type Driver struct {
 	secretAway bool
 	compStart  int
 	compSuffix string
+	// told says a window that gives no text state was told of a composition, and not
+	// yet of its end.
+	told bool
 	// paste is the last paste a key of the program's brought, and keysLocked says the
 	// browser was asked for the keys a page in full screen can have: see claim.go.
 	// lentFocus says the mirror has the canvas's focus, for a paste.
@@ -845,7 +848,7 @@ func (d *Driver) listen(doc js.Value) {
 	}
 	d.plain, d.secret = mirror("textarea"), mirror("input")
 	d.plain.Call("setAttribute", "autocomplete", "off")
-	d.plain.Call("setAttribute", "autocorrect", "on")
+	d.setRaw(false)
 	d.secret.Set("type", "password")
 	d.secret.Call("setAttribute", "autocomplete", "new-password")
 	d.secret.Call("setAttribute", "autocorrect", "off")

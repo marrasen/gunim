@@ -450,6 +450,33 @@ func TestAPinPadKeepsItsDigitsFromAScreenReader(t *testing.T) {
 	}
 }
 
+// Each wrong PIN shakes the dots, as far as the first did.
+func TestEveryWrongPinShakesTheDots(t *testing.T) {
+	p, _, g, run := pinStage(t)
+	var first float32
+	for i := range 3 {
+		p.SetWaiting(200*time.Millisecond, g.ui)
+		if i == 0 {
+			run(1)
+		}
+		most, last := float32(0), p.shake.Value()
+		for f := range 90 {
+			run(1)
+			s := p.shake.Value()
+			if s-last > 0.6 || last-s > 0.6 {
+				t.Fatalf("shake %d, frame %d: the dots went from %v to %v", i, f, last, s)
+			}
+			most, last = max(most, s), s
+		}
+		if i == 0 {
+			first = most
+		}
+		if most < 0.2 || most < first*0.9 || p.shake.Active() {
+			t.Fatalf("shake %d swung the dots %v, the first %v; still moving %v", i, most, first, p.shake.Active())
+		}
+	}
+}
+
 // After a wrong PIN the dots shake and settle, the pad takes no digits while the ring drains, and takes them again
 // once it has.
 func TestAPinPadWaitsAfterAWrongPin(t *testing.T) {

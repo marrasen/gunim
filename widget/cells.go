@@ -39,7 +39,8 @@ import (
 // for private use. In a browser, the browser draws it, within its cell.
 //
 // The cursor glides to a new cell along its row, and jumps to another
-// row.
+// row. A cell takes the colours it is set to at once, and glides to them
+// after FadeColors, as through a switch of theme.
 type CellGrid struct {
 	anim.Group
 	// Faces are the faces for regular, bold, italic and bold italic
@@ -67,6 +68,15 @@ type CellGrid struct {
 	at     *anim.Point
 	// lit fades the cursor through a blink.
 	lit *anim.Float
+	// fade runs from 0 to 1 as the colours glide from those in from, each row's as it showed, nil where it showed none; see
+	// FadeColors. fadedTo is how far the rows were last drawn, mixes the blends made there, and tinted a row in them.
+	fade    *anim.Float
+	from    [][]cellTint
+	fadedTo float32
+	mixes   map[cellMix]color.NRGBA
+	tinted  []Cell
+	// cursorInk is the colour the cursor was last drawn in, and cursorFrom the one it glides from with the cells.
+	cursorInk, cursorFrom color.NRGBA
 
 	// metrics are what the last layout measured the cells by.
 	metrics cellMetrics
@@ -108,6 +118,7 @@ type paintKey struct {
 	bg, ink color.NRGBA
 	cursor  Cursor
 	lit     float32
+	fade    float32
 	at      geom.Point
 	metrics cellMetrics
 	// set is true in every key made, so the zero key, before the first
@@ -230,8 +241,8 @@ type clusterKey struct {
 // NewCellGrid returns an empty grid.
 func NewCellGrid() *CellGrid {
 	g := &CellGrid{Background: Background, Foreground: Ink, at: anim.NewPoint(geom.Point{})}
-	g.lit = anim.NewFloat(1)
-	g.Add(g.at, g.lit)
+	g.lit, g.fade = anim.NewFloat(1), anim.NewFloat(1)
+	g.Add(g.at, g.lit, g.fade)
 	return g
 }
 
@@ -279,6 +290,118 @@ func isBlank(cells []Cell) bool {
 		}
 	}
 	return true
+}
+
+// FadeColors has the cells' colours, and the cursor's, glide from what shows now to what they are set to, in step with
+// a switch of theme made in the same update, as [theme.Switch] says. Call it before or after the rows are set in their
+// new colours, and before Resize. Characters change at once, and each place in the grid glides from the colours it
+// showed, so a screen that scrolls meanwhile stays sharp. Called again, it glides on from there.
+//
+// Before the grid has been drawn, or with a nil u, the colours jump. While it lasts, every row is drawn anew on every
+// frame, as when a program draws its whole screen; a grid that does not fade pays nothing.
+func (g *CellGrid) FadeColors(u *gunim.UI) {
+	g.from, g.cursorFrom = nil, color.NRGBA{}
+	g.fade.Jump(1)
+	if u == nil || !g.painted.set {
+		return
+	}
+	g.from = make([][]cellTint, len(g.lines))
+	for y := range g.lines {
+		cells := g.lines[y].paint
+		if len(cells) != g.cols {
+			continue
+		}
+		row := make([]cellTint, len(cells))
+		for x, c := range cells {
+			row[x] = cellTint{c.BG, c.FG}
+		}
+		g.from[y] = row
+	}
+	g.cursorFrom = g.cursorInk
+	g.fade.Jump(0)
+	g.fade.Animate(1, theme.Switch.In(u.Theme().Active()))
+	g.fadedTo = -1
+	u.Invalidate()
+}
+
+// cellTint is the colours a cell showed.
+type cellTint struct{ bg, fg color.NRGBA }
+
+// cellMix is two colours to blend.
+type cellMix struct{ a, b color.NRGBA }
+
+// mixesMax is how many blends a frame of a fade keeps. A screen of a program's palette has a few dozen.
+const mixesMax = 4096
+
+// followFade has every row drawn anew where a fade has moved since they were, and ends it once it is over.
+func (g *CellGrid) followFade() {
+	if g.from == nil {
+		return
+	}
+	v := min(max(g.fade.Value(), 0), 1)
+	if !g.fade.Active() {
+		g.from, g.mixes, g.tinted, g.cursorFrom = nil, nil, nil, color.NRGBA{}
+	} else if v == g.fadedTo {
+		return
+	}
+	g.fadedTo = v
+	clear(g.mixes)
+	for y := range g.lines {
+		g.lines[y].stale = true
+	}
+}
+
+// shownRow is row y's cells as they show: in colours on their way, through a fade.
+func (g *CellGrid) shownRow(y int, ink color.NRGBA) []Cell {
+	cells := g.lines[y].cells
+	if y >= len(g.from) || len(g.from[y]) != len(cells) {
+		return cells
+	}
+	g.tinted = append(g.tinted[:0], cells...)
+	for x := range g.tinted {
+		c := &g.tinted[x]
+		if c.FG.A == 0 {
+			c.FG = ink
+		}
+		t := g.tint(g.from[y][x], cellTint{c.BG, c.FG})
+		c.BG, c.FG = t.bg, t.fg
+	}
+	return g.tinted
+}
+
+// tint is the colours of a cell on its way from what it showed, was, to what it is set to, now. A clear background is
+// the grid's own, which glides with the theme: what a cell's fades in over, and out.
+func (g *CellGrid) tint(was, now cellTint) cellTint {
+	bg := now.bg
+	switch {
+	case was.bg.A == 0:
+		bg.A = uint8(float32(bg.A)*g.fadedTo + 0.5)
+	case bg.A == 0:
+		bg = was.bg
+		bg.A = uint8(float32(bg.A)*(1-g.fadedTo) + 0.5)
+	default:
+		bg = g.mix(was.bg, bg)
+	}
+	return cellTint{bg, g.mix(was.fg, now.fg)}
+}
+
+// mix is as far from a to b as the fade has come, blended as a theme's colours are.
+func (g *CellGrid) mix(a, b color.NRGBA) color.NRGBA {
+	if a == b {
+		return b
+	}
+	key := cellMix{a, b}
+	if c, ok := g.mixes[key]; ok {
+		return c
+	}
+	c := anim.MixColor(a, b, g.fadedTo)
+	if len(g.mixes) < mixesMax {
+		if g.mixes == nil {
+			g.mixes = map[cellMix]color.NRGBA{}
+		}
+		g.mixes[key] = c
+	}
+	return c
 }
 
 // SetCursor places the cursor.
@@ -410,10 +533,11 @@ func (g *CellGrid) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 			g.lines[y].stale = true
 		}
 	}
+	g.followFade()
 	bg, ink := g.Background.Get(f.Theme), g.Foreground.Get(f.Theme)
 	key := paintKey{
 		t: p.Transform(), scale: f.Scale, box: box, bg: bg, ink: ink,
-		cursor: g.cursor, lit: g.lit.Value(), at: g.at.Value(), metrics: m, set: true,
+		cursor: g.cursor, lit: g.lit.Value(), fade: g.fadedTo, at: g.at.Value(), metrics: m, set: true,
 	}
 	mark := p.Mark()
 	if key == g.painted && !g.staleIn(box) && p.Again(g.run) {
@@ -446,7 +570,7 @@ func (g *CellGrid) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 			line.paint, line.spare = line.spare[:0], line.paint
 			short := g.unfinished
 			g.unfinished = false
-			line.drawn, line.paint = g.drawRow(line.cells, ink, line.drawn, line.paint)
+			line.drawn, line.paint = g.drawRow(g.shownRow(y, ink), ink, line.drawn, line.paint)
 			line.stale = g.unfinished
 			g.unfinished = g.unfinished || short
 		}
@@ -750,13 +874,21 @@ func (g *CellGrid) paintCursor(p *paint.Painter, ink, background color.NRGBA) {
 	}
 	m := g.metrics
 	under := g.lines[cur.Row].cells[cur.Col]
-	col := cur.Color
-	if col.A == 0 {
-		col = under.FG
-		if col.A == 0 {
-			col = ink
-		}
+	if under.FG.A == 0 {
+		under.FG = ink
 	}
+	if shown := g.lines[cur.Row].paint; cur.Col < len(shown) {
+		// As it glides.
+		under.BG, under.FG = shown[cur.Col].BG, shown[cur.Col].FG
+	}
+	col := cur.Color
+	switch {
+	case col.A == 0:
+		col = under.FG
+	case g.from != nil && g.cursorFrom.A != 0:
+		col = g.mix(g.cursorFrom, col)
+	}
+	g.cursorInk = col
 	w := m.w
 	if under.Wide {
 		w *= 2

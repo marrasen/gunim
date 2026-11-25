@@ -56,6 +56,7 @@ func TestEverySetterTakesANilUI(t *testing.T) {
 		"VirtualList.SetKeys":     func() { NewVirtualList(func(Key) gunim.Node { return newSpot(1, 1) }).SetKeys([]Key{"a"}, u) },
 		"List.SetSelected":        func() { NewList().SetSelected("a", u) },
 		"Badge.SetHidden":         func() { NewBadge("b").SetHidden(true, u) },
+		"CellGrid.FadeColors":     func() { NewCellGrid().FadeColors(u) },
 		"StatusSwitch.SetChecked": func() { NewStatusSwitch("s").SetChecked(true, u) },
 		"StatusSwitch.SetBusy":    func() { NewStatusSwitch("s").SetBusy(true, u) },
 		"LogView.SetLines":        func() { NewLogView().SetLines([]LogLine{{Text: "a"}}, 1, u) },

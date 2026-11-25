@@ -1,6 +1,7 @@
 package gunim
 
 import (
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -396,5 +397,178 @@ func TestAWobbleAsAFingerLiftsTurnsNoFlingBack(t *testing.T) {
 			}
 		}
 		r.events = nil
+	}
+}
+
+// tapped is a node that says on a channel what a finger does to it, and whose layout waits
+// on hold, while that is set, to stand for a frame that takes long.
+type tapped struct {
+	recorder
+	events chan input.Event
+	hold   atomic.Pointer[chan struct{}]
+	laying chan struct{}
+}
+
+func (h *tapped) Handle(e input.Event, _ *UI) bool {
+	switch e.(type) {
+	case input.PointerDown, input.PointerUp, input.Scroll:
+		h.events <- e
+	}
+	return true
+}
+
+func (h *tapped) Layout(c Constraints, _ Frame, _ Children) geom.Size {
+	if hold := h.hold.Swap(nil); hold != nil {
+		h.laying <- struct{}{}
+		<-*hold
+	}
+	return c.Max
+}
+
+// queueWindow is an offscreen window that queues its input, as a platform's does, and shows each frame a millisecond
+// after it is drawn.
+type queueWindow struct {
+	*driver.OffscreenWindow
+	in    chan any
+	shown chan driver.Frame
+	// turn runs as the system has a turn, just before a frame is shown.
+	turn atomic.Pointer[func()]
+}
+
+func (w *queueWindow) Input() <-chan any              { return w.in }
+func (w *queueWindow) Presented() <-chan driver.Frame { return w.shown }
+func (w *queueWindow) Post(ev any)                    { w.in <- ev }
+
+func (w *queueWindow) Present(ops []paint.Op, damage []geom.Rect) error {
+	time.AfterFunc(time.Millisecond, func() {
+		if turn := w.turn.Load(); turn != nil {
+			(*turn)()
+		}
+		w.shown <- driver.Frame{Shown: time.Now()}
+	})
+	return w.OffscreenWindow.Present(ops, damage)
+}
+
+// touchLoop runs a window's own loop.
+func touchLoop(t *testing.T) (h *tapped, d *queueWindow) {
+	t.Helper()
+	h = &tapped{events: make(chan input.Event, 100), laying: make(chan struct{})}
+	d = &queueWindow{OffscreenWindow: driver.Offscreen(geom.Sz(400, 400)), in: make(chan any, 100), shown: make(chan driver.Frame, 100)}
+	w := newWindow(d, nil)
+	w.ui.Insert(w.ui.Root(), h)
+	go w.loop()
+	waitFor(t, func() bool { return w.Stats().Frames > 0 }, "the first frame")
+	t.Cleanup(w.Close)
+	return h, d
+}
+
+// next is the next thing a finger did to h, and nil after a while with nothing.
+func (h *tapped) next(t *testing.T) input.Event {
+	t.Helper()
+	select {
+	case e := <-h.events:
+		return e
+	case <-time.After(5 * time.Second):
+		t.Fatal("the node heard nothing more")
+		return nil
+	}
+}
+
+// TestATapBehindASlowFrameStaysATap: a finger lifts 80 ms after it came down, and the window hears of it only once
+// a frame of more than a long press is drawn, and the next one too, as a browser may hand it over.
+func TestATapBehindASlowFrameStaysATap(t *testing.T) {
+	for _, turns := range []int32{1, 2} {
+		h, d := touchLoop(t)
+		hold := make(chan struct{})
+		h.hold.Store(&hold)
+		at := time.Now()
+		d.Post(input.PointerDown{Pos: geom.Pt(50, 50), Button: input.ButtonPrimary, Clicks: 1, Touch: true, Time: at})
+		<-h.laying
+		time.Sleep(longPress + 50*time.Millisecond)
+		var turn atomic.Int32
+		lift := func() {
+			if turn.Add(1) == turns {
+				d.Post(input.PointerUp{Pos: geom.Pt(50, 50), Button: input.ButtonPrimary, Touch: true, Time: at.Add(80 * time.Millisecond)})
+			}
+		}
+		d.turn.Store(&lift)
+		close(hold)
+		if e, ok := h.next(t).(input.PointerDown); !ok || e.Button != input.ButtonPrimary {
+			t.Fatalf("the node heard %#v first, want the press", e)
+		}
+		if e, ok := h.next(t).(input.PointerUp); !ok || e.Button != input.ButtonPrimary || e.Pos == input.Away {
+			t.Fatalf("lifted as the frame %d after was shown, the node heard %#v next, want the press let go where it was", turns, e)
+		}
+	}
+}
+
+// TestAPressGoesByTheEventsTimes: whatever the window hears late, it was what the finger did.
+func TestAPressGoesByTheEventsTimes(t *testing.T) {
+	at := time.Now().Add(-2 * time.Second)
+	down := input.PointerDown{Pos: geom.Pt(50, 50), Button: input.ButtonPrimary, Clicks: 1, Touch: true, Time: at}
+	up := func(d time.Duration) any {
+		return input.PointerUp{Pos: geom.Pt(50, 50), Button: input.ButtonPrimary, Touch: true, Time: at.Add(d)}
+	}
+	move := func(x float32, d time.Duration) any {
+		return input.PointerMove{Pos: geom.Pt(x, 50), Touch: true, Time: at.Add(d)}
+	}
+	for _, c := range []struct {
+		name string
+		then []any
+		long bool
+	}{
+		{"a tap", []any{up(100 * time.Millisecond)}, false},
+		{"a tap as long as can be", []any{up(longPress - time.Millisecond)}, false},
+		{"a long press", []any{up(longPress)}, true},
+		{"a scroll", []any{move(90, 100*time.Millisecond), move(120, 600*time.Millisecond), up(700 * time.Millisecond)}, false},
+		{"a long press that then moves", []any{move(90, 600*time.Millisecond), up(700 * time.Millisecond)}, true},
+		{"a long press that trembles", []any{move(52, 100*time.Millisecond), move(51, 500*time.Millisecond), up(700 * time.Millisecond)}, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			h, d := touchLoop(t)
+			hold := make(chan struct{})
+			h.hold.Store(&hold)
+			d.Post(down)
+			<-h.laying
+			for _, ev := range c.then {
+				d.Post(ev)
+			}
+			close(hold)
+			h.next(t)
+			long := false
+			for {
+				switch e := h.next(t).(type) {
+				case input.PointerDown:
+					long = long || e.Button == input.ButtonSecondary
+					continue
+				case input.PointerUp:
+					if e.Pos == input.Away {
+						continue
+					}
+				case input.Scroll:
+				}
+				break
+			}
+			if long != c.long {
+				t.Errorf("a long press: %v, want %v", long, c.long)
+			}
+		})
+	}
+}
+
+// TestAFingerHeldInAWindowsOwnLoopIsALongPress: with nothing more heard of it.
+func TestAFingerHeldInAWindowsOwnLoopIsALongPress(t *testing.T) {
+	h, d := touchLoop(t)
+	at := time.Now()
+	d.Post(input.PointerDown{Pos: geom.Pt(50, 50), Button: input.ButtonPrimary, Clicks: 1, Touch: true, Time: at})
+	h.next(t)
+	if e, ok := h.next(t).(input.PointerUp); !ok || e.Pos != input.Away {
+		t.Fatalf("the node heard %#v, want the press let go away from it", e)
+	}
+	if e, ok := h.next(t).(input.PointerDown); !ok || e.Button != input.ButtonSecondary {
+		t.Fatalf("the node heard %#v, want the secondary button", e)
+	}
+	if took := time.Since(at); took < longPress-20*time.Millisecond {
+		t.Errorf("it came %v after the press, want %v", took, longPress)
 	}
 }

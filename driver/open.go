@@ -61,6 +61,16 @@ type KeyClaimer interface {
 	SetKeysClaimed(on bool)
 }
 
+// A RawTexter is a [TextInputter] that hears whether the text taken is to
+// stay as it is typed, as a shell's commands are, with nothing corrected
+// or capitalized and no words offered. The engine calls SetTextRaw where
+// that changes: before the text input it goes for turns on, and while it
+// is on. It starts out false. For a node that keeps a text of its own
+// [TextStater]'s state says it too.
+type RawTexter interface {
+	SetTextRaw(on bool)
+}
+
 // A TextBoxPlacer is a [CaretPlacer] that also hears where the node the
 // caret is in lies, in logical pixels of window space, as a text field's
 // bounds, so it can keep the whole field in view above a keyboard on the
