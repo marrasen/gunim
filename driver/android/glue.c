@@ -12,6 +12,10 @@
 #include "glue.h"
 
 static JavaVM *vm;
+// nativeClass is stored once what Go needs to call Java is ready, the
+// VM and every method's ID: a package's init runs on a thread of its
+// own as the library loads, and may call before then. What an init can
+// call asks javaReady first.
 static jclass nativeClass;
 static jmethodID midPermitted, midAsk, midUserFolder, midChooseFolder, midChooseFiles;
 static jmethodID midNowPlaying, midShowKeyboard, midCaret, midBuzz, midFingers, midAwake, midShare, midVibrate, midExclude, midOpenLink, midTextState, midClearTextState, midGetClipboard, midSetClipboard, midFinish;
@@ -31,7 +35,6 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *v, void *reserved) {
 	if (c == NULL) {
 		return -1;
 	}
-	nativeClass = (*env)->NewGlobalRef(env, c);
 	midShowKeyboard = (*env)->GetStaticMethodID(env, c, "showKeyboard", "(Z)V");
 	midNowPlaying = (*env)->GetStaticMethodID(env, c, "nowPlaying",
 		"(ZZLjava/lang/String;Ljava/lang/String;Ljava/lang/String;JJ[B)V");
@@ -65,8 +68,12 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *v, void *reserved) {
 	} else {
 		(*env)->ExceptionClear(env);
 	}
+	__atomic_store_n(&nativeClass, (jclass)(*env)->NewGlobalRef(env, c), __ATOMIC_RELEASE);
 	return JNI_VERSION_1_6;
 }
+
+// javaReady reports whether Go may call Java.
+static int javaReady(void) { return __atomic_load_n(&nativeClass, __ATOMIC_ACQUIRE) != NULL; }
 
 // envGet returns the calling thread's JNIEnv, attaching the thread to
 // the VM when it is a thread of Go's, and envPut detaches it again.
@@ -247,8 +254,7 @@ uint16_t *gunim_user_folder(int f, int *n) {
 }
 
 uint16_t *gunim_no_backup_dir(int *n) {
-	// A package's init runs before the library has told of the VM.
-	if (nativeClass == NULL) {
+	if (!javaReady()) {
 		return NULL;
 	}
 	int a;
@@ -609,7 +615,7 @@ void gunim_log(const char *line) {
 // returns into r, n at most. It returns how many it copied, or 0 where
 // the call failed.
 static int ints(jmethodID mid, int arg, int *r, int n) {
-	if (audioClass == NULL || mid == NULL) {
+	if (!javaReady() || audioClass == NULL || mid == NULL) {
 		return 0;
 	}
 	int a;
@@ -642,7 +648,7 @@ int gunim_audio_watch(void) {
 	if (__atomic_load_n(&audioWatching, __ATOMIC_ACQUIRE)) {
 		return 1;
 	}
-	if (audioClass == NULL || midAudioWatch == NULL) {
+	if (!javaReady() || audioClass == NULL || midAudioWatch == NULL) {
 		return 0;
 	}
 	int a;

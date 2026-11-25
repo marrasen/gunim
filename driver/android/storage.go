@@ -22,7 +22,7 @@ var errNoDir = errors.New("android: no folder to keep files in")
 // is installed. What a program keeps under its home is backed up, unless
 // gunimapk -backup=false keeps that out too.
 //
-// The folder is there once main runs.
+// The folder is there once main runs. A package's init may come before it.
 func NoBackupDir() (string, error) {
 	var n C.int
 	p := C.gunim_no_backup_dir(&n)
