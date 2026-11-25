@@ -725,6 +725,9 @@ func (m *Month) chipAt(pt geom.Point) (chip, bool) {
 	return chip{}, false
 }
 
+// TakesEscape implements [gunim.EscapeTaker]: while Escape calls a drag off, or lets go of the event chosen.
+func (m *Month) TakesEscape(*gunim.UI) bool { return m.drag != nil || m.selected != "" }
+
 // Handle implements [gunim.Handler].
 func (m *Month) Handle(e input.Event, u *gunim.UI) bool {
 	switch e := e.(type) {

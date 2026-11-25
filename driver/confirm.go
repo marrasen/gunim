@@ -28,7 +28,8 @@ type Confirmer interface {
 }
 
 // ErrNotConfirmed is returned where the user did not confirm: they left the prompt, or it went as they left the
-// application or the screen turned off, or they tried too often.
+// application or the screen turned off, or they tried too often. Before Android 11 a prompt stays as they leave the
+// application, and waits for them.
 var ErrNotConfirmed = errors.New("driver: the user did not confirm")
 
 // ErrNoScreenLock is returned where the device has no screen lock for the user to confirm with.

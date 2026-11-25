@@ -33,7 +33,7 @@ final class GunimConfirm {
 	private final String title, text;
 	private final boolean strong;
 
-	// signal takes the prompt away, from Android 10, and code is what the
+	// signal takes the prompt away, from Android 11, and code is what the
 	// activity of the prompt before that answers to.
 	private CancellationSignal signal;
 	private int code;
@@ -111,7 +111,9 @@ final class GunimConfirm {
 			return;
 		}
 		CharSequence title = this.title.isEmpty() ? a.getApplicationInfo().loadLabel(a.getPackageManager()) : this.title;
-		if (Build.VERSION.SDK_INT >= 29) {
+		// Android 10's prompt of this kind takes the PIN in an activity of its
+		// own, which it then neither takes away nor hears from.
+		if (Build.VERSION.SDK_INT >= 30) {
 			startPrompt(a, title);
 			return;
 		}
@@ -132,19 +134,14 @@ final class GunimConfirm {
 
 	private static final int CODES = 0x40000000;
 
-	@android.annotation.TargetApi(29)
-	@SuppressWarnings("deprecation")
+	@android.annotation.TargetApi(30)
 	private void startPrompt(GunimActivity a, CharSequence title) {
 		BiometricPrompt.Builder b = new BiometricPrompt.Builder(a).setTitle(title);
 		if (!text.isEmpty()) {
 			b.setDescription(text);
 		}
-		if (Build.VERSION.SDK_INT >= 30) {
-			b.setAllowedAuthenticators(BiometricManager.Authenticators.DEVICE_CREDENTIAL
-				| (strong ? BiometricManager.Authenticators.BIOMETRIC_STRONG : BiometricManager.Authenticators.BIOMETRIC_WEAK));
-		} else {
-			b.setDeviceCredentialAllowed(true);
-		}
+		b.setAllowedAuthenticators(BiometricManager.Authenticators.DEVICE_CREDENTIAL
+			| (strong ? BiometricManager.Authenticators.BIOMETRIC_STRONG : BiometricManager.Authenticators.BIOMETRIC_WEAK));
 		signal = new CancellationSignal();
 		b.build().authenticate(signal, a.getMainExecutor(), new BiometricPrompt.AuthenticationCallback() {
 			@Override

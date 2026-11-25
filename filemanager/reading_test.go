@@ -31,7 +31,13 @@ func TestSpaceShowsAFileInTheTextViewer(t *testing.T) {
 	if r.view.Kind() != fileview.Code {
 		t.Fatalf("a Go file shows as kind %d", r.view.Kind())
 	}
+	if !r.TakesEscape(nil) {
+		t.Error("the viewer says it takes no Escape")
+	}
 	h.w.Input(input.KeyPress{Key: input.KeyEscape})
+	if r.TakesEscape(nil) {
+		t.Error("the viewer says it takes Escape as it closes")
+	}
 	h.until("the viewer closes", func() bool { return !h.a.reading.open })
 
 	// Space on a folder opens it.

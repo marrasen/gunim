@@ -30,6 +30,7 @@ static jmethodID midNowPlaying, midShowKeyboard, midCaret, midBuzz, midFingers, 
 static jmethodID midHasCompass, midWatchHeading, midNoBackupDir, midRun, midEnded, midStreamEnd, midCloseStream, midOpenServed, midStopServed, midCreateDocument, midSaveFolder, midSave, midNotify, midNotifyOn, midNotifyEnd, midWatchNetwork;
 static jmethodID midSetClipboardSensitive, midClearClipboardIf, midSecure;
 static jmethodID midConfirm, midCancelConfirm, midHasScreenLock;
+static jmethodID midBackLeaves, midLeaveApp, midLook, midWatchLook;
 static jclass audioClass;
 static jmethodID midAudioRoute, midAudioProbe, midAudioWatch;
 
@@ -59,6 +60,10 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *v, void *reserved) {
 	midSaveFolder = (*env)->GetStaticMethodID(env, c, "saveFolder", "(I)V");
 	midSave = (*env)->GetStaticMethodID(env, c, "save",
 		"(ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;");
+	midLook = (*env)->GetStaticMethodID(env, c, "readLook", "()[F");
+	midWatchLook = (*env)->GetStaticMethodID(env, c, "watchLook", "()V");
+	midBackLeaves = (*env)->GetStaticMethodID(env, c, "backLeaves", "(Z)V");
+	midLeaveApp = (*env)->GetStaticMethodID(env, c, "leaveApp", "()V");
 	midNotify = (*env)->GetStaticMethodID(env, c, "notify", "([Ljava/lang/String;IIIZ[B)I");
 	midNotifyOn = (*env)->GetStaticMethodID(env, c, "notifyOn", "(Ljava/lang/String;)Z");
 	midNotifyEnd = (*env)->GetStaticMethodID(env, c, "notifyEnd", "(Ljava/lang/String;)V");
@@ -569,6 +574,47 @@ JNIEXPORT void JNICALL Java_gunim_android_Native_saved(JNIEnv *env, jclass c, ji
 		(*env)->ReleaseStringChars(env, place, ps);
 	}
 	(*env)->ReleaseStringChars(env, name, ns);
+}
+
+JNIEXPORT void JNICALL Java_gunim_android_Native_back(JNIEnv *env, jclass c) {
+	goBack();
+}
+
+JNIEXPORT void JNICALL Java_gunim_android_Native_look(JNIEnv *env, jclass c) {
+	goLook();
+}
+
+int gunim_look(float *v) {
+	int a;
+	JNIEnv *env = envGet(&a);
+	jfloatArray j = (jfloatArray)(*env)->CallStaticObjectMethod(env, nativeClass, midLook);
+	if (j != NULL) {
+		(*env)->GetFloatArrayRegion(env, j, 0, 3, v);
+		(*env)->DeleteLocalRef(env, j);
+	}
+	envPut(a);
+	return j != NULL;
+}
+
+void gunim_watch_look(void) {
+	int a;
+	JNIEnv *env = envGet(&a);
+	(*env)->CallStaticVoidMethod(env, nativeClass, midWatchLook);
+	envPut(a);
+}
+
+void gunim_back_leaves(int on) {
+	int a;
+	JNIEnv *env = envGet(&a);
+	(*env)->CallStaticVoidMethod(env, nativeClass, midBackLeaves, on ? JNI_TRUE : JNI_FALSE);
+	envPut(a);
+}
+
+void gunim_leave_app(void) {
+	int a;
+	JNIEnv *env = envGet(&a);
+	(*env)->CallStaticVoidMethod(env, nativeClass, midLeaveApp);
+	envPut(a);
 }
 
 int gunim_notify(uint16_t *const *s, const int *ns, int importance, int lock, int parts, int ongoing, const void *icon,

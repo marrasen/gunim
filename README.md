@@ -572,6 +572,14 @@ notch at a time. A finger held still is a right click, which opens a context
 menu; in text it selects a word, drags on over more words, and shows
 handles for the selection's ends and the edit menu.
 
+Back, the gesture or the button, is Escape first, which closes a menu or
+a dialog. Where nothing takes that, a `gunim.BackTaker`, as `Stack`, goes
+a page back. With `WindowOptions.LeaveOnBack` a Back that nothing takes
+leaves the program, as from its first page, and Android shows where it
+leads as the gesture starts. `App.SystemLook` reads the user's font size,
+dark theme and animations, and `App.WatchSystemLook` hears them change.
+`example/pages` shows both.
+
 An application asks the user for a permission with `App.Ask`, as
 `driver.PermissionMusic` to read their music: Android's prompt asks,
 and a desktop has it already. `gunimapk -permissions music` declares

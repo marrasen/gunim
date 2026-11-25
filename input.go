@@ -27,6 +27,7 @@ func (u *UI) handlePlatform(ev any) { u.handleOn(u.root, ev) }
 // menu keeps the keyboard while the menu is clicked.
 func (u *UI) handleOn(root *state, ev any) {
 	if u.keepKey(root, ev) {
+		u.tellBack()
 		return
 	}
 	if !u.touchEvent(root, ev) {
@@ -37,10 +38,12 @@ func (u *UI) handleOn(root *state, ev any) {
 	// working on the copy meanwhile would work on old text. See TextStater. And a
 	// browser decides whose the next key is before any frame. See KeyClaimer.
 	switch ev.(type) {
-	case input.KeyPress, input.TextInput, input.Composing, input.TextEdit, input.PointerDown, input.PointerUp:
+	case input.KeyPress, input.TextInput, input.Composing, input.TextEdit, input.PointerDown, input.PointerUp,
+		driver.BackAsked:
 		u.takeTextAgain()
 		u.syncText(u.focus, false)
 		u.claimKeys(u.focus)
+		u.tellBack()
 	}
 }
 
@@ -117,6 +120,11 @@ func (u *UI) handleRaw(root *state, ev any) {
 		return
 	case input.Heading:
 		u.headingEvent(e)
+		return
+	case driver.BackAsked:
+		if !u.behind {
+			u.back(e)
+		}
 		return
 	case input.MediaSeek:
 		target := u.focus
@@ -477,10 +485,11 @@ func (u *UI) Type(e input.Event) {
 // node and bubbles from there, which is how a shortcut a text field
 // ignores ends up at the window. With nothing focused it goes to the
 // root, so a window-wide shortcut works before anything has been
-// clicked. What nothing takes goes to the [KeyCatcher]s.
-func (u *UI) keyEvent(ev any) {
+// clicked. What nothing takes goes to the [KeyCatcher]s. It reports
+// whether something took it, other than Tab, which moves the focus.
+func (u *UI) keyEvent(ev any) bool {
 	if u.zoomKey(ev) {
-		return
+		return true
 	}
 	if ev, ok := ev.(input.Event); ok {
 		target := u.focus
@@ -502,7 +511,7 @@ func (u *UI) keyEvent(ev any) {
 			if h, ok := s.node.(Handler); ok && s.presence != Exiting {
 				u.on(s, func() { h.Handle(ev, u) })
 			}
-			return
+			return true
 		}
 		if m := u.stopsAtModal(ev); m != nil {
 			// A modal holds the keys: what it and its contents leave
@@ -510,13 +519,17 @@ func (u *UI) keyEvent(ev any) {
 			// catchers behind it. Tab still walks it.
 			if !u.keyFirst(ev, m) && !u.bubbleTo(target, ev, m) && !u.catchKeyIn(ev, m) {
 				u.tab(ev)
+				return false
 			}
-			return
+			return true
 		}
 		if !u.keyFirst(ev, nil) && !u.bubble(target, ev) && !u.catchKey(ev) {
 			u.tab(ev)
+			return false
 		}
+		return true
 	}
+	return false
 }
 
 // keyFirst offers a key press to the [KeyFirst] nodes above the focused node, the outermost first, unless the
@@ -881,11 +894,11 @@ type keptKey struct {
 	ev         any
 }
 
-// keepKey keeps a key, or what it types, that comes while a [UI.FocusFirstLaidOut] waits for a frame, for that frame
+// keepKey keeps a key, or what it types, or a Back, that comes while a [UI.FocusFirstLaidOut] waits for a frame, for that frame
 // to hand out, and reports whether it did. A press hands out the keys before it first.
 func (u *UI) keepKey(root *state, ev any) bool {
 	switch ev.(type) {
-	case input.KeyPress, input.KeyRelease, input.TextInput, input.Composing, input.TextEdit:
+	case input.KeyPress, input.KeyRelease, input.TextInput, input.Composing, input.TextEdit, driver.BackAsked:
 		if u.handingKeys {
 			return false
 		}

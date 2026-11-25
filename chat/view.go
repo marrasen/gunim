@@ -663,6 +663,9 @@ func (b *composerBox) Handle(e input.Event, u *gunim.UI) bool {
 	return false
 }
 
+// TakesEscape implements [gunim.EscapeTaker]: while Escape stops a reply or an edit.
+func (b *composerBox) TakesEscape(*gunim.UI) bool { return b.reply != nil && b.reply.open.Target() > 0 }
+
 // LinkBar is the strip that opens while the connection is down, saying so.
 type LinkBar struct {
 	anim.Group

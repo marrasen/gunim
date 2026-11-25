@@ -14,7 +14,8 @@ type SystemLook struct {
 	Dark bool
 	// LessMotion is true when the user turned animations off.
 	LessMotion bool
-	// TextScale is how much larger the user wants text: 1 as made, up to 2.25 on Windows.
+	// TextScale is how much larger the user wants text: 1 as made, up to 2.25 on Windows, and from 0.85 to 2 or so on
+	// Android.
 	TextScale float32
 	// Contrast holds the colours of the user's contrast theme, and is nil while none is on.
 	Contrast *ContrastColors

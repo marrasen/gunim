@@ -254,6 +254,9 @@ func modOf(k input.Key) input.Mods {
 	return 0
 }
 
+// TakesEscape implements [gunim.EscapeTaker]: while it listens.
+func (c *ChordInput) TakesEscape(*gunim.UI) bool { return c.on && !c.done && !c.Disabled }
+
 // Handle implements [gunim.Handler].
 func (c *ChordInput) Handle(e input.Event, u *gunim.UI) bool {
 	c.showTip(e, u, c)

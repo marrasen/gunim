@@ -125,6 +125,9 @@ func (r *reading) Transition(p gunim.Presence, f gunim.Frame) bool {
 	return !r.in.Active()
 }
 
+// TakesEscape implements [gunim.EscapeTaker]: Escape closes it.
+func (r *reading) TakesEscape(*gunim.UI) bool { return !r.closing }
+
 // Handle implements [gunim.Handler]: Escape and Space close it, and so
 // does a click beside the card; what the card holds takes the rest.
 func (r *reading) Handle(e input.Event, u *gunim.UI) bool {

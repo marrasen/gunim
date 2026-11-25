@@ -110,6 +110,9 @@ func TestTheTrashPageListsWhatTheTrashHolds(t *testing.T) {
 	if h.a.nav.path != h.dir {
 		t.Errorf("the page moved the window to %s", h.a.nav.path)
 	}
+	if !pg.TakesEscape(nil) {
+		t.Error("the page says it takes no Escape")
+	}
 	h.press(input.KeyEscape, 0)
 	h.until("the page has closed", func() bool { return !h.a.bin.open })
 }

@@ -25,6 +25,8 @@ final class GunimView extends SurfaceView implements SurfaceHolder.Callback {
 	private int pointer = -1;
 	private int second = -1;
 	private boolean pinching;
+	// backDown says the Back key went down here, before Android 13.
+	private boolean backDown;
 	// own holds, a bit per id, the fingers sent to Go as fingers of
 	// their own and not lifted yet, the first among them in a window
 	// that takes fingers; each lifts as itself, whatever
@@ -232,7 +234,12 @@ final class GunimView extends SurfaceView implements SurfaceHolder.Callback {
 
 	@Override
 	public boolean onKeyDown(int code, KeyEvent e) {
-		if (code != KeyEvent.KEYCODE_BACK && e.isSystem()) {
+		if (code == KeyEvent.KEYCODE_BACK) {
+			// It goes back as it is let go.
+			backDown = true;
+			return true;
+		}
+		if (e.isSystem()) {
 			return super.onKeyDown(code, e);
 		}
 		Native.key(true, code, e.getMetaState(), e.getUnicodeChar(), e.getRepeatCount());
@@ -241,7 +248,19 @@ final class GunimView extends SurfaceView implements SurfaceHolder.Callback {
 
 	@Override
 	public boolean onKeyUp(int code, KeyEvent e) {
-		if (code != KeyEvent.KEYCODE_BACK && e.isSystem()) {
+		if (code == KeyEvent.KEYCODE_BACK) {
+			boolean pressed = backDown && !e.isCanceled();
+			backDown = false;
+			if (pressed) {
+				if (Native.backLeft) {
+					Native.leaveApp();
+				} else {
+					Native.back();
+				}
+			}
+			return true;
+		}
+		if (e.isSystem()) {
 			return super.onKeyUp(code, e);
 		}
 		Native.key(false, code, e.getMetaState(), 0, 0);
@@ -367,6 +386,14 @@ final class GunimView extends SurfaceView implements SurfaceHolder.Callback {
 	@Override
 	public InputConnection onCreateInputConnection(EditorInfo out) {
 		return input.connect(out);
+	}
+
+	/** closeKeyboard closes the soft keyboard, and reports whether it showed. */
+	@android.annotation.TargetApi(30)
+	boolean closeKeyboard() {
+		android.view.WindowInsets in = getRootWindowInsets();
+		return in != null && in.isVisible(android.view.WindowInsets.Type.ime())
+			&& imm.hideSoftInputFromWindow(getWindowToken(), 0);
 	}
 
 	/**

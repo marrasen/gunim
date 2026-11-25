@@ -321,6 +321,9 @@ func TestDiskUsageClosesOnEscapeAndOpensOnTheFolderShowing(t *testing.T) {
 	if got := h.usagePage().state.Root; got != h.dir {
 		t.Fatalf("with nothing selected the page reads %s, want the folder showing", got)
 	}
+	if !h.usagePage().TakesEscape(nil) {
+		t.Error("the page says it takes no Escape")
+	}
 	h.press(input.KeyEscape, 0)
 	h.until("the page has closed", func() bool { return !h.a.usage.open })
 }

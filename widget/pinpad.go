@@ -362,6 +362,9 @@ func (p *PinPad) key(e input.KeyPress, u *gunim.UI) bool {
 	return true
 }
 
+// TakesEscape implements [gunim.EscapeTaker]: while there are digits for Escape to clear.
+func (p *PinPad) TakesEscape(*gunim.UI) bool { return !p.Disabled && len(p.digits) > 0 }
+
 // Layout implements [gunim.Node]: the row of dots over a 3 by 4 grid of keys, as large as the room allows, between
 // PinKeyLeast and PinKeySize tall and up to half as wide again.
 func (p *PinPad) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {

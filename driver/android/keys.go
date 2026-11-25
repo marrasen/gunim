@@ -4,8 +4,8 @@ package android
 
 import "github.com/marrasen/gunim/input"
 
-// keyOf returns the key an Android key code names. Back is Escape,
-// which closes what Escape closes.
+// keyOf returns the key an Android key code names. Back is none: see
+// [Driver.back].
 func keyOf(code int) input.Key {
 	switch {
 	case code >= 29 && code <= 54:
@@ -25,7 +25,6 @@ func keyOf(code int) input.Key {
 
 // keys maps the Android key codes that keyOf leaves to a table.
 var keys = map[int]input.Key{
-	4:   input.KeyEscape,         // KEYCODE_BACK
 	79:  input.KeyMediaPlayPause, // KEYCODE_HEADSETHOOK
 	85:  input.KeyMediaPlayPause,
 	86:  input.KeyMediaStop,

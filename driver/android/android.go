@@ -218,6 +218,10 @@ type Driver struct {
 	// last handed to Java to keep from the system's edge gestures.
 	excludedSent []int32
 
+	// backLeft is whether the next Back leaves the program, as Java last
+	// heard.
+	backLeft bool
+
 	// wake nudges the render thread, and surfaces carries surface
 	// changes to it.
 	wake     chan struct{}
@@ -369,6 +373,7 @@ func (d *Driver) NewWindow(o driver.Options) (driver.Window, error) {
 	}
 	w.hidden = o.Hidden
 	d.windows = append(d.windows, w)
+	d.keepBackLocked()
 	d.kick()
 	return w, nil
 }
@@ -590,8 +595,6 @@ const (
 	panEase = 0.05
 )
 
-// windowFocus tells the windows that fill the screen that the activity
-// has the keyboard, or has lost it.
 // Permitted implements [driver.Permitter].
 func (d *Driver) Permitted(p driver.Permission) bool { return permitted(p) }
 
@@ -686,6 +689,8 @@ func (d *Driver) filesOpened(e any) {
 	top.in.Push(e)
 }
 
+// windowFocus tells the window on top that the activity has the
+// keyboard, or has lost it.
 func (d *Driver) windowFocus(focused bool) {
 	d.mu.Lock()
 	var top *Window
@@ -817,6 +822,7 @@ func (d *Driver) closed(w *Window) {
 	d.runCompassLocked()
 	d.excludeGesturesLocked()
 	d.keepAwakeLocked()
+	d.keepBackLocked()
 	d.gone = append(d.gone, &w.pane)
 	last := true
 	for _, x := range d.windows {
