@@ -184,6 +184,9 @@ type addressField struct {
 	a *AddressBar
 }
 
+// TakesEscape implements [gunim.EscapeTaker]: while Escape ends the edit.
+func (f *addressField) TakesEscape(*gunim.UI) bool { return f.a.Editing() }
+
 // Handle implements [gunim.Handler].
 func (f *addressField) Handle(e input.Event, u *gunim.UI) bool {
 	switch e := e.(type) {

@@ -1001,6 +1001,11 @@ func (v *View) Handle(e input.Event, u *gunim.UI) bool {
 	return true
 }
 
+// TakesEscape implements [gunim.EscapeTaker]: while Escape lets go of what is held or picked.
+func (v *View) TakesEscape(*gunim.UI) bool {
+	return v.pr.kind != pressNone || len(v.picked) > 0 || v.wire != ""
+}
+
 // key does what a key does: Delete takes what is picked out, Escape
 // lets go of what is held or picked, and Home fits every box in view.
 func (v *View) key(k input.KeyPress, u *gunim.UI) bool {

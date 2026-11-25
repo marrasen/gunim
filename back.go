@@ -16,11 +16,35 @@ import (
 //
 // In a window with [WindowOptions.LeaveOnBack] a Back that nothing takes leaves the application. The engine asks
 // TakesBack after each frame and each event, as the system wants to know ahead whose the next Back is, and to show
-// where it leads. So a node that takes Escape alone says so here too, where it is to have Back. A popup that a press
-// outside closes, a drag and a modal take it themselves.
+// where it leads. A node that takes Escape alone is an [EscapeTaker]. A popup that a press outside closes, a drag and a
+// modal take it themselves.
 type BackTaker interface {
 	Handler
 	TakesBack() bool
+}
+
+// An EscapeTaker is a node that takes Escape at times, as a field that Escape clears, or a list whose selection it lets
+// go of. TakesEscape reports whether it takes Escape now, with no modifiers held. A phone's Back is then for it, as Escape
+// is, in a window with [WindowOptions.LeaveOnBack] too. The engine asks the nodes Escape reaches, after each frame and
+// each event: the one with the keyboard and those it is in, as far as an open [Modal]. One that takes Escape always, as
+// one that closes by it does, says true as long as it does.
+type EscapeTaker interface {
+	Handler
+	TakesEscape(u *UI) bool
+}
+
+// takesEscape reports whether a node that Escape reaches takes it now.
+func (u *UI) takesEscape() bool {
+	s := u.focus
+	if s == nil {
+		s = u.appRoot()
+	}
+	for ; s != nil; s = s.parent {
+		if e, ok := s.node.(EscapeTaker); ok && !s.leaving() && e.TakesEscape(u) {
+			return true
+		}
+	}
+	return false
 }
 
 // noteBackNode notes s while its node can take Back, so a frame walks the tree for one only while it holds some.
@@ -71,7 +95,14 @@ func (u *UI) closable() bool {
 
 // backLeaves reports whether a Back that comes now leaves the application.
 func (u *UI) backLeaves() bool {
-	return u.leaveOnBack && u.drag == nil && !u.closable() && u.modal(u.focus) == nil && len(u.backTakers()) == 0
+	if !u.leaveOnBack || u.drag != nil || u.closable() || u.modal(u.focus) != nil {
+		return false
+	}
+	if len(u.keysKept) > 0 || u.layoutAwaited() {
+		// A key that waits for a frame may show a page that takes it.
+		return false
+	}
+	return !u.takesEscape() && len(u.backTakers()) == 0
 }
 
 // tellBack tells the driver whether the next Back leaves the application, where that has changed since it last heard.

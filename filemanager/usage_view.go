@@ -437,6 +437,9 @@ func (pg *usagePage) Transition(p gunim.Presence, f gunim.Frame) bool {
 	return !pg.in.Active()
 }
 
+// TakesEscape implements [gunim.EscapeTaker]: Escape closes the page.
+func (pg *usagePage) TakesEscape(*gunim.UI) bool { return !pg.closing }
+
 // Handle implements [gunim.Handler]: Escape closes the page, and
 // Backspace or Alt+Up goes up. It keeps every other key from the browser
 // behind it, whose keys act on the files.

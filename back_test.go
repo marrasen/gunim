@@ -226,3 +226,92 @@ func (c *coverer) Paint(p *paint.Painter, _ Frame, _ geom.Size, kids Children) {
 		kids.At(0).Paint(p)
 	}
 }
+
+// A Back after a key that waits for a frame waits its turn, and goes to the page the key shows.
+func TestBackKeepsItsPlaceAfterKeysThatWait(t *testing.T) {
+	old, p := &box{size: geom.Sz(200, 40)}, &pager{}
+	w := backWindow(old, p)
+	held := &hides{}
+	w.ui.Insert(w.ui.Root(), held)
+	run(w, 1)
+	if !w.Offscreen().BackLeaves() {
+		t.Fatal("on the first page Back stays")
+	}
+	w.ui.Focus(old)
+	// Enter, held for the frame, shows a page.
+	opener := &opens{box: box{size: geom.Sz(200, 40)}, p: p}
+	w.ui.Insert(w.ui.Root(), opener)
+	w.ui.FocusFirstLaidOut(opener)
+	w.Input(input.KeyPress{Key: input.KeyEnter, Time: time.Now()})
+	if w.Offscreen().BackLeaves() {
+		t.Fatal("with a key waiting, the driver is told that Back leaves")
+	}
+	backAsked(w)
+	if p.pages != 0 || w.Offscreen().AppLeft() != 0 {
+		t.Fatalf("before the frame %d pages are open, and the program was left %d times", p.pages, w.Offscreen().AppLeft())
+	}
+	run(w, 2)
+	if opener.enters != 1 || p.backs != 1 || w.Offscreen().AppLeft() != 0 {
+		t.Fatalf("Enter was heard %d times, %d pages went back, and the program was left %d times", opener.enters, p.backs,
+			w.Offscreen().AppLeft())
+	}
+	if !w.Offscreen().BackLeaves() {
+		t.Fatal("with the page gone Back stays")
+	}
+}
+
+// opens is a box whose Enter shows a page of p.
+type opens struct {
+	box
+	p      *pager
+	enters int
+}
+
+func (o *opens) Focusable() bool { return true }
+
+func (o *opens) Handle(e input.Event, _ *UI) bool {
+	if k, ok := e.(input.KeyPress); ok && k.Key == input.KeyEnter {
+		o.enters++
+		o.p.pages++
+		return true
+	}
+	return false
+}
+
+// escaper takes Escape while on is set.
+type escaper struct {
+	focusPager
+	on bool
+}
+
+func (s *escaper) TakesEscape(*UI) bool { return s.on }
+
+// Only a node that Escape reaches has Back by it: the one with the keyboard, and those it is in.
+func TestOnlyANodeThatEscapeReachesTakesBackByIt(t *testing.T) {
+	a, b := &escaper{on: true}, &escaper{}
+	w := backWindow(a, b)
+	leaves := func() bool { run(w, 1); return w.Offscreen().BackLeaves() }
+	if !leaves() {
+		t.Fatal("a node that Escape does not reach takes Back")
+	}
+	w.ui.Focus(a)
+	if leaves() {
+		t.Fatal("the node with the keyboard does not take Back")
+	}
+	w.ui.Focus(b)
+	if !leaves() {
+		t.Fatal("a node beside the one with the keyboard takes Back")
+	}
+	// Round the one with the keyboard it does.
+	inner := &focusPager{}
+	w.ui.Insert(a, inner)
+	w.ui.Focus(inner)
+	if leaves() {
+		t.Fatal("a node round the one with the keyboard does not take Back")
+	}
+	// One that said so and left Escape holds no Back for good.
+	backAsked(w)
+	if w.Offscreen().AppLeft() != 1 {
+		t.Fatalf("a Back that was left took the program out %d times", w.Offscreen().AppLeft())
+	}
+}

@@ -327,6 +327,11 @@ func parseNumber(s string) (float64, bool) {
 	return v, true
 }
 
+// TakesEscape implements [gunim.EscapeTaker]: while Escape calls a drag off, or clears the text.
+func (n *NumberField) TakesEscape(u *gunim.UI) bool {
+	return n.drag.moving || n.TextField.TakesEscape(u)
+}
+
 // handleDrag takes the presses and moves of a drag, and reports whether
 // it took e. A press is held back from the text field until it either
 // moves past dragSlop, and drags, or is let go where it was, and is

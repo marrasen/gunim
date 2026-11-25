@@ -777,6 +777,9 @@ func (g *graph) drag(p geom.Point, mods input.Mods, u *gunim.UI) {
 	}
 }
 
+// TakesEscape implements [gunim.EscapeTaker]: while Escape lets go of a band.
+func (g *graph) TakesEscape(*gunim.UI) bool { return g.sel != 0 }
+
 // key acts on k, and reports whether k was one of the graph's keys.
 func (g *graph) key(k input.KeyPress, u *gunim.UI) bool {
 	if k.Mods.Has(input.ModControl) || k.Mods.Has(input.ModAlt) {

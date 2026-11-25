@@ -27,6 +27,7 @@ func (u *UI) handlePlatform(ev any) { u.handleOn(u.root, ev) }
 // menu keeps the keyboard while the menu is clicked.
 func (u *UI) handleOn(root *state, ev any) {
 	if u.keepKey(root, ev) {
+		u.tellBack()
 		return
 	}
 	if !u.touchEvent(root, ev) {
@@ -893,11 +894,11 @@ type keptKey struct {
 	ev         any
 }
 
-// keepKey keeps a key, or what it types, that comes while a [UI.FocusFirstLaidOut] waits for a frame, for that frame
+// keepKey keeps a key, or what it types, or a Back, that comes while a [UI.FocusFirstLaidOut] waits for a frame, for that frame
 // to hand out, and reports whether it did. A press hands out the keys before it first.
 func (u *UI) keepKey(root *state, ev any) bool {
 	switch ev.(type) {
-	case input.KeyPress, input.KeyRelease, input.TextInput, input.Composing, input.TextEdit:
+	case input.KeyPress, input.KeyRelease, input.TextInput, input.Composing, input.TextEdit, driver.BackAsked:
 		if u.handingKeys {
 			return false
 		}
