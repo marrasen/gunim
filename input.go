@@ -26,6 +26,9 @@ func (u *UI) handlePlatform(ev any) { u.handleOn(u.root, ev) }
 // press in a popup leaves focus where it is, so the node that opened a
 // menu keeps the keyboard while the menu is clicked.
 func (u *UI) handleOn(root *state, ev any) {
+	if u.keepKey(root, ev) {
+		return
+	}
 	if !u.touchEvent(root, ev) {
 		u.handleRaw(root, ev)
 	}
@@ -815,6 +818,9 @@ func (u *UI) FocusFirst(n Node) bool {
 // out: for a page about to show, which no frame has drawn yet, and so [UI.FocusFirst] cannot find. The node takes the
 // keyboard before that frame paints, so the page shows with it. Where the keyboard moves before then, or nothing inside
 // n takes it, it stays where it is.
+//
+// What is typed before that frame waits for it, so a key pressed right after the click that shows the page is the
+// page's.
 func (u *UI) FocusFirstLaidOut(n Node) {
 	s, ok := u.index[n]
 	if !ok {
@@ -826,21 +832,105 @@ func (u *UI) FocusFirstLaidOut(n Node) {
 }
 
 // laidFocus is a [UI.FocusFirstLaidOut] waiting for a layout: in is the node to focus inside, and from where the
-// keyboard was when it was asked for.
-type laidFocus struct{ in, from *state }
+// keyboard was when it was asked for. waited says a frame has been drawn since.
+type laidFocus struct {
+	in, from *state
+	waited   bool
+}
+
+// laidFocusDue reports whether the keyboard is still where it was as a [UI.FocusFirstLaidOut] was asked for, or
+// nowhere as what had it has left the tree, and the node it names still there.
+func (u *UI) laidFocusDue() bool {
+	lf := u.focusLaid
+	if lf == nil || lf.in.leaving() || u.index[lf.in.node] != lf.in {
+		return false
+	}
+	if u.focus == lf.from {
+		return true
+	}
+	gone := lf.from != nil && (u.index[lf.from.node] != lf.from || lf.from.leaving())
+	return gone && u.focus == nil
+}
+
+// layoutAwaited reports whether a [UI.FocusFirstLaidOut] waits for the next frame.
+func (u *UI) layoutAwaited() bool { return u.laidFocusDue() && !u.focusLaid.waited }
+
+// keptKey is a key typed while a [UI.FocusFirstLaidOut] waits for its frame, in the window whose tree starts at root,
+// with the keyboard on from.
+type keptKey struct {
+	root, from *state
+	ev         any
+}
+
+// keepKey keeps a key, or what it types, that comes while a [UI.FocusFirstLaidOut] waits for a frame, for that frame
+// to hand out, and reports whether it did. A press hands out the keys before it first.
+func (u *UI) keepKey(root *state, ev any) bool {
+	switch ev.(type) {
+	case input.KeyPress, input.KeyRelease, input.TextInput, input.Composing, input.TextEdit:
+		if u.handingKeys {
+			return false
+		}
+		if !u.w.draws() {
+			// No frame comes to wait for.
+			u.handKeys()
+			return false
+		}
+		if len(u.keysKept) == 0 && !u.layoutAwaited() {
+			return false
+		}
+		u.keysKept = append(u.keysKept, keptKey{root, u.focus, ev})
+		u.invalid = true
+		return true
+	case input.PointerDown:
+		u.handKeys()
+	}
+	return false
+}
+
+// handKeys hands out the keys kept, in order, to the node that has the keyboard now. An edit of the text of the node
+// that had it before is none of this one's: what it types is.
+func (u *UI) handKeys() {
+	if u.handingKeys || len(u.keysKept) == 0 {
+		return
+	}
+	u.handingKeys = true
+	defer func() { u.handingKeys = false }()
+	u.paintOwed()
+	for len(u.keysKept) > 0 {
+		k := u.keysKept[0]
+		u.keysKept = u.keysKept[1:]
+		ev := k.ev
+		if te, ok := ev.(input.TextEdit); ok && u.focus != k.from {
+			if te.Seq != 0 {
+				u.textSeq = te.Seq
+			}
+			if ev = (input.TextInput{Text: te.With, Time: te.Time}); te.With == "" || te.Composing[0] != te.Composing[1] {
+				continue
+			}
+		}
+		if _, ok := ev.(input.Composing); ok && u.focus != k.from {
+			continue
+		}
+		u.handleOn(k.root, ev)
+		if u.layoutAwaited() {
+			// The key has shown another page, and the rest are that one's.
+			u.invalid = true
+			return
+		}
+	}
+	u.keysKept = nil
+}
 
 // focusLaidOut ends a [UI.FocusFirstLaidOut] once the node it names has been laid out.
 func (u *UI) focusLaidOut() {
-	lf := u.focusLaid
-	if lf == nil {
-		return
-	}
-	if u.focus != lf.from || lf.in.leaving() || u.index[lf.in.node] != lf.in {
+	if !u.laidFocusDue() {
 		u.focusLaid = nil
 		return
 	}
+	lf := u.focusLaid
 	if lf.in.laid != u.seq {
 		// Not laid out yet, as in a popup still to open.
+		lf.waited = true
 		return
 	}
 	u.focusLaid = nil

@@ -870,6 +870,11 @@ func (b *Bar) Cursor(p geom.Point) input.Cursor {
 // dock step through them.
 func (b *Bar) Focusable() bool { return false }
 
+// KeepsFocus implements [gunim.FocusKeeper]: a press on the bar leaves
+// the keyboard in the pane that has it, until a tab picked has the pane
+// it shows take it.
+func (b *Bar) KeepsFocus() {}
+
 // Handle implements [gunim.Handler]. The ends of what began on the bar,
 // a press let go and a drag ended, are heard however the bar changed.
 func (b *Bar) Handle(e input.Event, u *gunim.UI) bool {

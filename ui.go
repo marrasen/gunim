@@ -2204,7 +2204,10 @@ type UI struct {
 	// seq counts frames; see [Frame].
 	seq uint64
 	// focusLaid waits for a layout to give a node the keyboard; see [UI.FocusFirstLaidOut].
-	focusLaid *laidFocus
+	// keysKept are the keys typed meanwhile, and handingKeys says they are being handed out.
+	focusLaid   *laidFocus
+	keysKept    []keptKey
+	handingKeys bool
 	// revealing are the nodes Reveal named, to bring into view once a
 	// frame has laid them out and drawn them.
 	revealing []*state
@@ -3485,6 +3488,7 @@ func (u *UI) frame(now, present time.Time, delta time.Duration) {
 		u.wakeAfter(u.wakeIn)
 	}
 	u.wakeIn = 0
+	u.handKeys()
 
 	// Counted last, so a reader that sees the count also sees the frame.
 	u.w.stats.frames.Add(1)

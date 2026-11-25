@@ -906,7 +906,7 @@ func (d *Dock) pick(id string, from gunim.Node, u *gunim.UI) {
 }
 
 // focus puts the keyboard in the view of the item the keys work in,
-// once it is laid out where it is new.
+// once it is laid out where it is new, unless it is there already.
 func (d *Dock) focus(u *gunim.UI, laidOut bool) {
 	v := d.node(d.Active())
 	if v == nil || !d.laid || u == nil {
@@ -915,6 +915,12 @@ func (d *Dock) focus(u *gunim.UI, laidOut bool) {
 	if !d.mounted[v] {
 		u.Insert(d, v)
 		d.mounted[v] = true
+	}
+	if u.HasFocus(v) {
+		// Asked for all the same, as another pane may be waiting to be
+		// laid out and take it.
+		u.FocusFirstLaidOut(u.Focused())
+		return
 	}
 	if laidOut {
 		u.FocusFirstLaidOut(v)
