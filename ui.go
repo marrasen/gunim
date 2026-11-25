@@ -1170,8 +1170,11 @@ func (c Client) KeepAwake(on bool) error {
 // can always film a screen.
 //
 // On Android hiding the other programs' windows needs gunimapk
-// -permissions hide-overlays, and Android 12. Without the permission it
-// returns [driver.ErrOverlaysStay], with the rest in effect. It returns
+// -permissions hide-overlays, and Android 12. Without either it returns
+// [driver.ErrOverlaysStay], with the rest in effect. An error of another
+// kind says that Android did not tell in time, so a program shows no secret
+// then. What the program set of its window by itself, in Java, stays. It
+// returns
 // [driver.ErrNoSecurer] where gunim can't, as on a desktop now. It is safe
 // from any goroutine.
 func (c Client) Secure(on bool) error {
@@ -2717,10 +2720,10 @@ func (u *UI) SetClipboardSensitive(s string) error {
 // sensitive mark is there, so a paste or a format another program adds leaves it ours, and the user's own later copy
 // of the same text, made elsewhere, survives. Other text is read and compared, but only while this program owns the
 // clipboard, so another program's text is never read and the call never waits on it. Nothing can reach the clipboard
-// between the check and the emptying. On Android, too, it clears only text this program put there, also in an earlier
-// run, and reads no other program's; it returns an error while the program is out of sight, when Android tells
-// nothing of the clipboard. Elsewhere the clipboard is read and then set to "", so text another program
-// puts there in that moment can be lost.
+// between the check and the emptying. On Android, too, it clears only text this program put there, in this run, and
+// reads no other program's. It returns an error while the program is out of sight, when Android tells nothing of the
+// clipboard. Elsewhere the clipboard is read and then set to "". On Android and elsewhere, text another program puts
+// there in that moment can be lost.
 func (u *UI) ClearClipboardIf(s string) (bool, error) {
 	if c, ok := u.w.dw.(driver.SensitiveClipboard); ok {
 		return c.ClearClipboardIf(s)

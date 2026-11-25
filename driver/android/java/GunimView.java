@@ -43,6 +43,26 @@ final class GunimView extends SurfaceView implements SurfaceHolder.Callback {
 		setFocusableInTouchMode(true);
 	}
 
+	// onSurface runs once the surface that remake asked for is there.
+	private Runnable onSurface;
+
+	/**
+	 * remake makes the surface again, secure or not, as it is one or the
+	 * other from the start, and runs ready once it is there.
+	 */
+	void remake(boolean secure, Runnable ready) {
+		boolean focused = hasFocus();
+		setVisibility(INVISIBLE);
+		setSecure(secure);
+		post(() -> {
+			onSurface = ready;
+			setVisibility(VISIBLE);
+			if (focused) {
+				requestFocus();
+			}
+		});
+	}
+
 	@Override
 	public void surfaceCreated(SurfaceHolder h) {}
 
@@ -52,6 +72,11 @@ final class GunimView extends SurfaceView implements SurfaceHolder.Callback {
 		float rate = getDisplay() != null ? getDisplay().getRefreshRate() : 60;
 		Native.metrics(density, rate);
 		Native.surfaceChanged(h.getSurface(), width, height);
+		Runnable r = onSurface;
+		onSurface = null;
+		if (r != null) {
+			r.run();
+		}
 	}
 
 	@Override
@@ -61,9 +86,32 @@ final class GunimView extends SurfaceView implements SurfaceHolder.Callback {
 		Native.surfaceDestroyed(h.getSurface());
 	}
 
+	// cut says that the touch has ended for Go, and goes on.
+	private boolean cut;
+
+	@Override
+	public boolean onFilterTouchEventForSecurity(MotionEvent e) {
+		boolean ok = super.onFilterTouchEventForSecurity(e);
+		if (!ok && e.getActionMasked() != MotionEvent.ACTION_DOWN && !cut) {
+			// A window has come over this one in the middle of a touch,
+			// and the rest of it is not to be gone by.
+			MotionEvent c = MotionEvent.obtain(e);
+			c.setAction(MotionEvent.ACTION_CANCEL);
+			onTouchEvent(c);
+			c.recycle();
+			cut = true;
+		}
+		return ok;
+	}
+
 	@Override
 	public boolean onTouchEvent(MotionEvent e) {
 		int action = e.getActionMasked();
+		if (action == MotionEvent.ACTION_DOWN) {
+			cut = false;
+		} else if (cut) {
+			return true;
+		}
 		switch (action) {
 		case MotionEvent.ACTION_DOWN:
 			pointer = e.getPointerId(0);

@@ -11,6 +11,7 @@ import (
 	"errors"
 	"runtime"
 	"slices"
+	"time"
 
 	"github.com/marrasen/gunim/driver"
 )
@@ -24,9 +25,9 @@ func (w *Window) Secure(on bool) error {
 	return w.d.tellSecure()
 }
 
-// errSecure is returned where Android failed to keep a window to the
-// screen.
-var errSecure = errors.New("android: the window is not kept out of screenshots")
+// errSecure is returned where Android did not say in time that a window is
+// kept to the screen, or no longer is.
+var errSecure = errors.New("android: the window may not be kept out of screenshots")
 
 // tellSecure tells Java whether what the activity shows is kept to the
 // screen, and returns once it is so. The UI thread does it, and may wait
@@ -35,19 +36,22 @@ func (d *Driver) tellSecure() error {
 	d.secureMu.Lock()
 	defer d.secureMu.Unlock()
 	d.mu.Lock()
-	on := slices.ContainsFunc(d.windows, func(w *Window) bool { return !w.closed && w.secure })
+	on := time.Now().Before(d.secureUntil) ||
+		slices.ContainsFunc(d.windows, func(w *Window) bool { return !w.closed && w.secure })
 	d.mu.Unlock()
-	if !on && !d.secureSent {
-		return nil
+	if on == d.secureSent && !errors.Is(d.secureErr, errSecure) {
+		return d.secureErr
 	}
 	d.secureSent = on
 	switch C.gunim_secure(cBool(on)) {
 	case 0:
-		return nil
+		d.secureErr = nil
 	case 1:
-		return driver.ErrOverlaysStay
+		d.secureErr = driver.ErrOverlaysStay
+	default:
+		d.secureErr = errSecure
 	}
-	return errSecure
+	return d.secureErr
 }
 
 // errClipboard is returned where Android takes nothing to the clipboard, and

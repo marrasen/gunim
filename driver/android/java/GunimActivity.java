@@ -2,6 +2,7 @@ package gunim.android;
 
 import android.app.Activity;
 import android.os.Bundle;
+import android.view.View;
 
 /**
  * GunimActivity runs a gunim program. It loads the program, built as
@@ -24,7 +25,10 @@ public class GunimActivity extends Activity {
 		GunimView v = new GunimView(this);
 		Native.view = v;
 		Native.keepGestures(v);
-		applySecure();
+		if (Native.secure) {
+			applySecure(() -> {
+			});
+		}
 		setContentView(v);
 		edgeToEdge(v);
 		applyAwake();
@@ -77,35 +81,91 @@ public class GunimActivity extends Activity {
 		}
 	}
 
+	// secured says that this activity is secure as gunim made it, and
+	// flagged and filtered what it was before by the program's own doing.
+	private boolean secured, flagged, filtered;
+
+	// INHERITS is the oldest Android known to keep the surface of a view
+	// out of recordings as it does its window. On one before it the surface
+	// is made again, as it is made one way or the other for good.
+	private static final int INHERITS = 34;
+
 	/**
 	 * applySecure sets the window to what the program last asked: kept out
 	 * of screenshots, recordings, the picture in Recents and screens cast,
 	 * with other applications' windows over it hidden, and deaf to touches
-	 * through one. It returns false where such windows may stay. It runs on
-	 * the UI thread.
+	 * through one. What the program set by itself stays as it is. It
+	 * returns false where such windows may stay. It runs on the UI thread,
+	 * and done once the screen shows the window so.
 	 */
-	boolean applySecure() {
+	boolean applySecure(Runnable done) {
 		boolean on = Native.secure;
-		int flag = android.view.WindowManager.LayoutParams.FLAG_SECURE;
-		if (on) {
-			getWindow().addFlags(flag);
-		} else {
-			getWindow().clearFlags(flag);
+		if (on == secured) {
+			done.run();
+			return !on || overlaysGo;
 		}
-		if (Native.view != null) {
-			Native.view.setFilterTouchesWhenObscured(on);
+		secured = on;
+		int flag = android.view.WindowManager.LayoutParams.FLAG_SECURE;
+		GunimView v = Native.view;
+		if (on) {
+			flagged = (getWindow().getAttributes().flags & flag) != 0;
+			getWindow().addFlags(flag);
+			if (v != null) {
+				filtered = v.getFilterTouchesWhenObscured();
+				v.setFilterTouchesWhenObscured(true);
+			}
+		} else {
+			if (!flagged) {
+				getWindow().clearFlags(flag);
+			}
+			if (v != null) {
+				v.setFilterTouchesWhenObscured(filtered);
+			}
 		}
 		if (android.os.Build.VERSION.SDK_INT >= 33) {
 			setRecentsScreenshotEnabled(!on);
 		}
+		hideOverlays(on);
+		// The mark of the view's own is made with its surface, and stays with
+		// that: a view that inherits its window's has none.
+		boolean marked = android.os.Build.VERSION.SDK_INT < INHERITS;
+		if (v != null && marked && GunimWatch.isShown(this)) {
+			v.remake(on, () -> afterFrames(done));
+		} else {
+			if (v != null && marked) {
+				v.setSecure(on);
+			}
+			if (v != null && GunimWatch.isShown(this)) {
+				afterFrames(done);
+			} else {
+				// It is made, and drawn, as it shows.
+				done.run();
+			}
+		}
+		return !on || overlaysGo;
+	}
+
+	// overlaysGo says that other applications' windows over this one are
+	// hidden while it is secure.
+	private boolean overlaysGo;
+
+	private void hideOverlays(boolean on) {
+		overlaysGo = false;
 		if (android.os.Build.VERSION.SDK_INT >= 31) {
 			try {
 				getWindow().setHideOverlayWindows(on);
+				overlaysGo = true;
 			} catch (SecurityException e) {
-				return !on;
+				// The program has no permission to.
 			}
 		}
-		return true;
+	}
+
+	// afterFrames runs done once the window has been laid out with what was
+	// set, and drawn.
+	private void afterFrames(Runnable done) {
+		View v = getWindow().getDecorView();
+		v.postOnAnimation(() -> v.postOnAnimation(() -> v.post(done)));
 	}
 
 	/**

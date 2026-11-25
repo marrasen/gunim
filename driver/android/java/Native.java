@@ -253,15 +253,15 @@ public final class Native {
 		cm.setPrimaryClip(own(s, false));
 	}
 
-	// FROM names, in a clip's extras, the program that put it there, to
-	// know its own by.
-	private static final String FROM = "gunim.from";
+	// OURS is in the extras of the clips that this process puts there, to
+	// know its own by: a word that names no program.
+	private static final String FROM = "gunim.from", OURS = java.util.UUID.randomUUID().toString();
 
 	// own returns s as a clip of this program's, marked sensitive or not.
 	private static ClipData own(String s, boolean sensitive) {
 		ClipData clip = ClipData.newPlainText("text", s);
 		android.os.PersistableBundle extras = new android.os.PersistableBundle();
-		extras.putString(FROM, app.getPackageName());
+		extras.putString(FROM, OURS);
 		if (sensitive) {
 			// ClipDescription.EXTRA_IS_SENSITIVE, which keyboards read on
 			// Android before 13 too.
@@ -296,7 +296,7 @@ public final class Native {
 	}
 
 	// clearClipboardIf empties the clipboard where it holds s from this
-	// program: 1 where it did, 0 where it holds something else, which it
+	// process: 1 where it did, 0 where it holds something else, which it
 	// reads nothing of where that is another program's, and 2 where Android
 	// does not tell.
 	static int clearClipboardIf(String s) {
@@ -308,7 +308,7 @@ public final class Native {
 				GunimView v = view;
 				return v != null && v.hasWindowFocus() ? 0 : 2;
 			}
-			if (about.getExtras() == null || !app.getPackageName().equals(about.getExtras().getString(FROM))) {
+			if (about.getExtras() == null || !OURS.equals(about.getExtras().getString(FROM))) {
 				return 0;
 			}
 			ClipData clip = cm.getPrimaryClip();
@@ -499,21 +499,29 @@ public final class Native {
 	// here for a new activity, as awake does.
 	static volatile boolean secure;
 
-	// secure sets that, and returns once the activity does it: 0, or 1
-	// where other applications' windows may stay over it.
+	// secure sets that, and returns once the screen shows the activity so:
+	// 0, or 1 where other applications' windows may stay over it, or 2
+	// where that took too long to know. On the UI thread it does not wait.
 	static int secure(boolean on) {
-		java.util.concurrent.FutureTask<Integer> apply = new java.util.concurrent.FutureTask<>(() -> {
+		java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
+		int[] over = new int[1];
+		Runnable apply = () -> {
 			secure = on;
-			return activity == null || activity.applySecure() ? 0 : 1;
-		});
+			GunimActivity a = activity;
+			if (a == null) {
+				done.countDown();
+			} else if (!a.applySecure(done::countDown)) {
+				over[0] = 1;
+			}
+		};
 		if (Looper.myLooper() == Looper.getMainLooper()) {
 			apply.run();
-		} else {
-			ui.post(apply);
+			return over[0];
 		}
+		ui.post(apply);
 		try {
-			return apply.get();
-		} catch (Exception e) {
+			return done.await(5, java.util.concurrent.TimeUnit.SECONDS) ? over[0] : 2;
+		} catch (InterruptedException e) {
 			return 2;
 		}
 	}
