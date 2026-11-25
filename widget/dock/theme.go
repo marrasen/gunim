@@ -36,6 +36,11 @@ var (
 	TabLeast  = theme.Length("dock.tab.least", 72)
 	// TabRadius rounds a tab.
 	TabRadius = theme.Length("dock.tab.radius", 7)
+	// TabBadge is the widest a tab's badge gets, its words fading out
+	// past that, and TabBadgeDot the dot it is in a tab with no room for
+	// words.
+	TabBadge    = theme.Length("dock.tab.badge", 96)
+	TabBadgeDot = theme.Length("dock.tab.badge.dot", 8)
 	// TabFront fills the tab in front, gliding between tabs as the one
 	// in front changes, and TabHover the tab under the pointer.
 	TabFront = theme.Color("dock.tab.front", color.NRGBA{R: 0x5e, G: 0x9c, B: 0xff, A: 0x26})

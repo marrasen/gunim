@@ -1,6 +1,7 @@
 package dock
 
 import (
+	"image/color"
 	"math"
 	"slices"
 	"time"
@@ -31,6 +32,16 @@ type Face struct {
 	// Closable gives the tab a ×, shown on the tab in front and the one
 	// under the pointer, and lets the middle button close it.
 	Closable bool
+	// Badge is a word or two in a small pill after the title, as who
+	// types in the pane, "" for none. It grows in and shrinks away, and
+	// changes its words in a fade. The tab is wider for it, as far as
+	// tabs get; with little room it takes up to half of it from the
+	// title, and in a narrow tab it is a dot. A screen reader reads it
+	// after the title, and so does the tooltip where it is cut.
+	Badge string
+	// BadgeInk is the token of the badge's colour, nil for the theme's
+	// accent: the words', and faintly the pill's.
+	BadgeInk *theme.Token[color.NRGBA]
 }
 
 // tab is a tab on a bar: the node it shows, and how it looks.
@@ -146,8 +157,10 @@ type Bar struct {
 	// moves are how the tabs move, by ID: each slides to its box, grows
 	// in as it opens and shrinks away in gone as it closes. arriving
 	// are the tabs new on the bar, which grow in; plusAt is where the +
-	// is drawn, sliding after the tabs.
+	// is drawn, sliding after the tabs. badges are the tabs' badges, by
+	// ID, on their way in and out too.
 	moves    map[string]*tabMove
+	badges   map[string]*tabBadge
 	arriving map[string]bool
 	gone     []tabGone
 	plusAt   *anim.Rect
@@ -295,6 +308,12 @@ type tabGone struct {
 	*tabMove
 	tab         tab
 	title, more text.Run
+	badge       *tabBadge
+}
+
+func (g tabGone) step(dt time.Duration) bool {
+	moving := g.tabMove.step(dt)
+	return g.badge != nil && g.badge.step(dt) || moving
 }
 
 // The bar's fixed measures: a tab's icon, its ×, the + and the room a
@@ -312,7 +331,7 @@ const (
 
 func makeBar(d *Dock, group string, win int) *Bar {
 	b := &Bar{d: d, group: group, Win: win, hot: -1, pressed: -1, landing: -1,
-		moves: map[string]*tabMove{}, arriving: map[string]bool{}, lit: anim.NewFloat(1), mark: anim.NewFloat(0), free: anim.NewFloat(1)}
+		moves: map[string]*tabMove{}, badges: map[string]*tabBadge{}, arriving: map[string]bool{}, lit: anim.NewFloat(1), mark: anim.NewFloat(0), free: anim.NewFloat(1)}
 	b.Add(b.lit, b.mark, b.free)
 	if d != nil {
 		b.OnPlusMenu = func(at geom.Rect, u *gunim.UI) gunim.Intent {
@@ -377,6 +396,7 @@ func (b *Bar) setStill(tabs []tab, front string, mark, still bool, u *gunim.UI) 
 		// place, the + too, and nothing left of the tabs before.
 		b.gone, b.plusAt = nil, nil
 		clear(b.moves)
+		clear(b.badges)
 		clear(b.arriving)
 		b.lit.Jump(1)
 		b.litFrom, b.was = geom.Rect{}, ""
@@ -435,7 +455,8 @@ func (b *Bar) tabsMoved(tabs []tab, th *theme.Live) {
 			continue
 		}
 		delete(b.moves, t.id)
-		g := tabGone{tabMove: m, tab: t}
+		g := tabGone{tabMove: m, tab: t, badge: b.badges[t.id]}
+		delete(b.badges, t.id)
 		if i < len(b.titles) {
 			g.title, g.more = b.titles[i], b.more[i]
 		}
@@ -510,6 +531,11 @@ func (b *Bar) Step(dt time.Duration) bool {
 			moving = true
 		}
 	}
+	for _, g := range b.badges {
+		if g.step(dt) {
+			moving = true
+		}
+	}
 	if b.plusAt != nil && b.plusAt.Step(dt) {
 		moving = true
 	}
@@ -575,6 +601,25 @@ func (b *Bar) follow(th *theme.Live) {
 	}
 }
 
+// showBadges has the badges say what the tabs do. One on a tab new on
+// the bar, or before the bar shows, is simply there: its tab grows in
+// with it.
+func (b *Bar) showBadges(th *theme.Live) {
+	for _, t := range b.tabs {
+		g := b.badges[t.id]
+		if g == nil {
+			if t.Badge == "" {
+				continue
+			}
+			g = newTabBadge()
+			b.badges[t.id] = g
+		}
+		if g.say(t.Badge, t.BadgeInk, !b.laid || b.moves[t.id] == nil, th) {
+			delete(b.badges, t.id)
+		}
+	}
+}
+
 // drawnAt is where tab i is drawn, and how far it is open.
 func (b *Bar) drawnAt(i int) (r geom.Rect, open float32) {
 	if m := b.moves[b.tabs[i].id]; m != nil {
@@ -597,13 +642,21 @@ func (b *Bar) fitTitle(i int, room float32) (run text.Run, cut bool) {
 }
 
 // tipOf is the tooltip at pos: the whole title of the tab there where
-// the tab shows less of it.
+// the tab shows less of it, and its badge's words where it shows less of
+// those.
 func (b *Bar) tipOf(pos geom.Point) string {
 	i := b.tabAt(pos)
-	if i < 0 || b.carried != "" || i >= len(b.cut) || !b.cut[i] {
+	if i < 0 || b.carried != "" || i >= len(b.cut) {
 		return ""
 	}
-	return b.tabs[i].Title
+	t := b.tabs[i]
+	if g := b.badges[t.id]; t.Badge != "" && g != nil && g.cut {
+		return t.Title + ", " + t.Badge
+	}
+	if !b.cut[i] {
+		return ""
+	}
+	return t.Title
 }
 
 // Layout implements [gunim.Node]: the tabs side by side, as wide as
@@ -613,6 +666,7 @@ func (b *Bar) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.
 	th := f.Theme
 	b.shape(th)
 	b.follow(th)
+	b.showBadges(th)
 	if b.Locked && b.carried != "" {
 		f.UI().CancelDrag(b)
 	}
@@ -635,6 +689,9 @@ func (b *Bar) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.
 		}
 		if b.more[i].Advance > 0 {
 			w += b.more[i].Advance + 6
+		}
+		if bw := b.badges[t.id].width(th); bw > 0 {
+			w += bw + badgeGap
 		}
 		want[i] = min(max(w, least), widest)
 		total += want[i] + gap
@@ -684,7 +741,7 @@ func (b *Bar) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Chil
 		p.RRect(geom.Rect{Max: box.Point()}, BarRadius.Get(th), paint.Solid(BarFill.Get(th)))
 	}
 	for _, g := range b.gone {
-		b.paintTab(p, th, g.tab, g.title, g.more, g.box.Value(), g.open.Value(), tabLook{at: -1})
+		b.paintTab(p, th, g.tab, g.title, g.more, g.box.Value(), g.open.Value(), tabLook{at: -1, badge: g.badge})
 	}
 	radius := TabRadius.Get(th)
 	if r := b.litAt(); r.Size().W > 0 {
@@ -710,6 +767,7 @@ func (b *Bar) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Chil
 			lifted:   t.id == b.carried,
 			cross:    b.crossLit(i),
 			crossLit: i == b.hot && b.crossHot,
+			badge:    b.badges[t.id],
 		})
 	}
 	if b.landing >= 0 && len(b.boxes) > 0 && b.landing <= len(b.boxes) {
@@ -737,6 +795,7 @@ type tabLook struct {
 	at                           int
 	lit, cross                   float32
 	hot, front, lifted, crossLit bool
+	badge                        *tabBadge
 }
 
 // paintTab draws tab t in r, open as far as open says.
@@ -764,11 +823,20 @@ func (b *Bar) paintTab(p *paint.Painter, th *theme.Live, t tab, title, more text
 	pad, tabIcon := TabPadding.Get(th), TabIcon.Get(th)
 	mid := r.Min.Y + r.Size().H/2
 	x := r.Min.X + pad
+	badge, faded := l.badge.shown(), float32(1)
+	if l.lifted {
+		faded = 1.0 / 3
+	}
 	if t.Icon != nil {
 		if r.Size().W < pad+tabIcon+6 {
 			// Too narrow for its title: its icon alone, in the middle.
 			if r.Size().W >= tabIcon+4 {
-				widget.PaintIcon(p, th, t.Icon, geom.Rc(r.Center().X-tabIcon/2, mid-tabIcon/2, tabIcon, tabIcon), c)
+				at := geom.Rc(r.Center().X-tabIcon/2, mid-tabIcon/2, tabIcon, tabIcon)
+				widget.PaintIcon(p, th, t.Icon, at, c)
+				if badge > 0 {
+					dot := TabBadgeDot.Get(th)
+					l.badge.paint(p, th, at.Max.X+dot/4, at.Min.Y+dot/4, dot, r.Size().H, faded)
+				}
 			}
 			return
 		}
@@ -777,6 +845,25 @@ func (b *Bar) paintTab(p *paint.Painter, th *theme.Live, t tab, title, more text
 	}
 	stop := r.Max.X - pad
 	stop -= tabCross * l.cross
+	if badge > 0 {
+		dot := TabBadgeDot.Get(th)
+		// It stands clear of the ×, shown or not, in a tab with room for one.
+		end := stop
+		if t.Closable {
+			room := min(max((r.Size().W-TabLeast.Default()+tabCross)/tabCross, 0), 1) * b.freeLit()
+			end = min(stop, r.Max.X-pad-tabCross*room)
+		}
+		w := l.badge.fit(end-x, th)
+		right, at := end, mid
+		if t.Icon != nil {
+			// With no room beside the icon the dot climbs to its corner.
+			beside := min(max((end-x)/(2*dot), 0), 1)
+			right = anim.Mix(anim.FloatCodec, x-6+dot/4, right, beside)
+			at = anim.Mix(anim.FloatCodec, mid-tabIcon/2+dot/4, at, beside)
+		}
+		l.badge.paint(p, th, right, at, w, r.Size().H, faded)
+		stop += (end - w - badgeGap - stop) * badge
+	}
 	if more.Advance > 0 {
 		mc := faint
 		mc.A = uint8(float32(mc.A) * 0.8)
@@ -1116,7 +1203,7 @@ func (b *Bar) lift(u *gunim.UI) {
 	b.tip.Hide(u)
 	d := Drag{ID: t.id, Win: b.Win, Grab: b.grab, Size: b.detachSize()}
 	b.dragging = d
-	pic := &tabPicture{face: t.Face, title: b.titles[i], size: r.Size()}
+	pic := &tabPicture{face: t.Face, title: b.titles[i], badge: b.badges[t.id], size: r.Size()}
 	u.StartDrag(b, d, widget.NewDragGhost(pic, b.grab), b.grab)
 	u.Invalidate()
 }
@@ -1166,6 +1253,9 @@ func (b *Bar) Access() access.Info {
 		if t.More != "" {
 			name += ", " + t.More
 		}
+		if t.Badge != "" {
+			name += ", " + t.Badge
+		}
 		part := access.Info{Role: access.RoleTab, Name: name, Actions: []string{access.ActionPress}}
 		if t.id == b.front {
 			part.State = access.StateSelected
@@ -1192,6 +1282,7 @@ func (b *Bar) AccessAct(r access.Request, u *gunim.UI) bool {
 type tabPicture struct {
 	face  Face
 	title text.Run
+	badge *tabBadge
 	size  geom.Size
 }
 
@@ -1215,5 +1306,13 @@ func (t *tabPicture) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gun
 		widget.PaintIcon(p, th, t.face.Icon, geom.Rc(x, mid-tabIcon/2, tabIcon, tabIcon), ink)
 		x += tabIcon + 6
 	}
-	t.title.PaintFaded(p, geom.Pt(x, mid-t.title.Height()/2), ink, box.W-x-pad, widget.TextFade.Get(th))
+	stop := box.W - pad
+	if on := t.badge.shown(); on > 0 {
+		w := t.badge.fit(stop-x, th)
+		t.badge.paint(p, th, stop, mid, w, box.H, 1)
+		stop -= (w + badgeGap) * on
+	}
+	if stop > x {
+		t.title.PaintFaded(p, geom.Pt(x, mid-t.title.Height()/2), ink, stop-x, widget.TextFade.Get(th))
+	}
 }
