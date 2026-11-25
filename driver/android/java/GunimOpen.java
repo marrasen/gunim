@@ -5,11 +5,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
-import android.database.Cursor;
 import android.net.Uri;
 import android.os.Bundle;
-import android.os.ParcelFileDescriptor;
-import android.provider.OpenableColumns;
 import android.webkit.MimeTypeMap;
 import java.util.ArrayList;
 import java.util.List;
@@ -44,23 +41,50 @@ final class GunimOpen {
 		// that opens no files reads nothing of it, and a malformed one is
 		// dropped: its extras can hold anything, or classes this program
 		// lacks.
-		String opens = opensOf(a);
+		Bundle meta = metaOf(a);
+		String opens = opensFor(i.getAction(), meta.getString("gunim.opens"));
 		if (opens.isEmpty()) {
 			return;
 		}
 		try {
 			List<Uri> uris = sentIn(i);
 			if (!uris.isEmpty()) {
-				hand(a, 0, uris, opens);
+				hand(a, 0, uris, opens, meta.getBoolean("gunim.streams"));
 			}
-		} catch (RuntimeException e) {
-			android.util.Log.w("gunim", "reading a file sent to this program: " + e);
+		} catch (RuntimeException | OutOfMemoryError | StackOverflowError e) {
+			// What it holds is the other application's, and goes into no log.
+			android.util.Log.w("gunim", "an intent sent to this program could not be read");
 		}
 	}
 
-	/** chosen hands over the files the document picker gave for code. */
-	static void chosen(GunimActivity a, int code, Intent data) {
-		hand(a, code, data == null ? new ArrayList<>() : chosenIn(data), "");
+	/**
+	 * opensFor returns what the program takes by action, of what -opens
+	 * named: ANY for every file shared to it, where it named that, and
+	 * otherwise the extensions, or "" for none.
+	 */
+	private static String opensFor(String action, String opens) {
+		if (opens == null) {
+			return "";
+		}
+		boolean shared = Intent.ACTION_SEND.equals(action) || Intent.ACTION_SEND_MULTIPLE.equals(action);
+		StringBuilder exts = new StringBuilder();
+		for (String e : opens.split(",")) {
+			if (ANY.equals(e)) {
+				if (shared) {
+					return ANY;
+				}
+			} else if (!e.isEmpty()) {
+				exts.append(exts.length() > 0 ? "," : "").append(e);
+			}
+		}
+		return exts.toString();
+	}
+
+	private static final String ANY = "*";
+
+	/** chosen hands over the files the document picker gave for code, as streams or as copies. */
+	static void chosen(GunimActivity a, int code, Intent data, boolean streams) {
+		hand(a, code, data == null ? new ArrayList<>() : chosenIn(data), "", streams);
 	}
 
 	/** sentIn returns the addresses another application sent in i. */
@@ -105,15 +129,13 @@ final class GunimOpen {
 		return uris;
 	}
 
-	/** opensOf returns the extensions gunimapk's -opens named. */
-	private static String opensOf(GunimActivity a) {
+	/** metaOf returns what gunimapk's -opens and -streams left the activity. */
+	private static Bundle metaOf(GunimActivity a) {
 		try {
 			ActivityInfo info = a.getPackageManager().getActivityInfo(a.getComponentName(), PackageManager.GET_META_DATA);
-			Bundle meta = info.metaData;
-			String opens = meta == null ? null : meta.getString("gunim.opens");
-			return opens == null ? "" : opens;
+			return info.metaData == null ? Bundle.EMPTY : info.metaData;
 		} catch (PackageManager.NameNotFoundException e) {
-			return "";
+			return Bundle.EMPTY;
 		}
 	}
 
@@ -121,59 +143,68 @@ final class GunimOpen {
 	 * hand opens uris and gives Go each one's file descriptor and name.
 	 * An address that fails to open goes as -1, for Go to report. Only a
 	 * content address from another application opens: a file address, or
-	 * one of this program's own provider, would let a caller read the
+	 * one of a provider of this program's, would let a caller read the
 	 * program's private files through it.
 	 */
-	private static void hand(Context c, int code, List<Uri> uris, String opens) {
+	private static void hand(Context c, int code, List<Uri> uris, String opens, boolean streams) {
 		Context app = c.getApplicationContext();
 		worker.execute(() -> {
-			int[] fds = new int[uris.size()];
-			StringBuilder names = new StringBuilder();
-			for (int n = 0; n < uris.size(); n++) {
-				Uri u = uris.get(n);
-				if (n > 0) {
-					names.append('\0');
+			List<GunimStreams.Found> found = new ArrayList<>();
+			try {
+				for (Uri u : uris) {
+					found.add(GunimStreams.open(app, u));
 				}
-				names.append(nameOf(app, u).replace('\0', '_'));
-				fds[n] = open(app, u);
+				hand(code, found, opens, streams);
+			} catch (RuntimeException | OutOfMemoryError | StackOverflowError e) {
+				// There were too many, or too large a word of one.
+				android.util.Log.w("gunim", "the files sent to this program could not be taken");
+				for (GunimStreams.Found f : found) {
+					f.close();
+				}
+				if (code != 0) {
+					Native.noFiles(code, streams);
+				}
 			}
-			Native.files(code, fds, names.toString(), opens);
 		});
 	}
 
-	private static int open(Context app, Uri u) {
-		if (!"content".equals(u.getScheme()) || GunimFiles.authority(app).equals(withoutUser(u.getAuthority()))) {
-			return -1;
+	/** hand gives Go the files found, which are Go's to close once it returns. */
+	private static void hand(int code, List<GunimStreams.Found> found, String opens, boolean streams) {
+		int n = found.size();
+		int[] fds = new int[n];
+		long[] ids = new long[n], stated = new long[n], held = new long[n];
+		StringBuilder names = new StringBuilder(), types = new StringBuilder();
+		for (int i = 0; i < n; i++) {
+			GunimStreams.Found f = found.get(i);
+			fds[i] = f.fd;
+			ids[i] = f.id;
+			stated[i] = f.stated;
+			held[i] = f.held;
+			names.append(i > 0 ? "\0" : "").append(f.name);
+			types.append(i > 0 ? "\0" : "").append(f.type);
 		}
-		try {
-			ParcelFileDescriptor p = app.getContentResolver().openFileDescriptor(u, "r");
-			return p == null ? -1 : p.detachFd();
-		} catch (Exception e) {
-			// A provider may throw anything back through the binder, and
-			// one file's failure is told as that file's.
-			android.util.Log.w("gunim", "opening " + u + ": " + e);
-			return -1;
+		if (streams) {
+			Native.streams(code, fds, ids, stated, held, names.toString(), types.toString(), opens);
+		} else {
+			Native.files(code, fds, ids, names.toString(), opens);
 		}
+	}
+
+	/** isOthers reports whether u is a content address of another application's. */
+	static boolean isOthers(Context app, Uri u) {
+		String authority = withoutUser(u.getAuthority());
+		if (!"content".equals(u.getScheme()) || authority == null) {
+			return false;
+		}
+		android.content.pm.ProviderInfo p = app.getPackageManager().resolveContentProvider(authority,
+			PackageManager.MATCH_DISABLED_COMPONENTS);
+		// A provider Android hides from this program is another's.
+		return !GunimFiles.authority(app).equals(authority) && (p == null || !app.getPackageName().equals(p.packageName));
 	}
 
 	/** withoutUser returns an authority without the user, as 0@, Android also reads. */
 	private static String withoutUser(String authority) {
 		return authority == null ? null : authority.substring(authority.lastIndexOf('@') + 1);
-	}
-
-	/** nameOf asks the provider for a file's name, or takes the address's last part. */
-	private static String nameOf(Context app, Uri u) {
-		if ("content".equals(u.getScheme())) {
-			try (Cursor c = app.getContentResolver().query(u, new String[] {OpenableColumns.DISPLAY_NAME}, null, null, null)) {
-				if (c != null && c.moveToFirst() && !c.isNull(0)) {
-					return c.getString(0);
-				}
-			} catch (Exception e) {
-				android.util.Log.w("gunim", "naming " + u + ": " + e);
-			}
-		}
-		String last = u.getLastPathSegment();
-		return last == null ? "" : last;
 	}
 
 	/**

@@ -101,6 +101,27 @@
 // extension with a MIME type of its own, as .mp3, shows up only where
 // the address holds the extension.
 //
+// A * among them, as -opens '*', takes any file shared to the program from
+// the share sheet. It offers the program under "Open with" for no more
+// than the extensions named beside it.
+// Android offers the program for text and links shared too, as it tells
+// them by no type of their own, and gunim brings none of those.
+//
+// -streams brings those files as gunim's input.StreamsOpened, to read as
+// they come from the other application, in place of copies.
+//
+// # The system's log
+//
+// Android keeps what programs write in a log that other programs cannot
+// read, and that a computer reads over USB. What gunim writes there holds
+// no name or address of a file. The program's own standard output and
+// standard error go there too, and a panic's message and stacks. -quiet
+// keeps those out. A crash then leaves one fixed line, or at times none, as
+// the program may be gone first. A program that
+// wants the rest keeps it with debug.SetCrashOutput, as package crashlog
+// does. What an init of a package writes goes out before gunim can help
+// it, and Android itself writes of a crash in C or in Java.
+//
 // # Debug and release builds
 //
 // By default the APK is a debug build, signed with the debug key in
@@ -229,7 +250,9 @@ func main() {
 	backup := flag.Bool("backup", true, "let Android back up the program's files, and take them to the user's next phone")
 	keepData := flag.Bool("keep-data", false, "have Android offer to keep the program's data as the user uninstalls it")
 	category := flag.String("category", "", "what kind of app the program is, by Android's name, as game; a game keeps -orientation on a tablet")
-	opensList := flag.String("opens", "", "file extensions the program opens through \"Open with\" and the share sheet, comma separated, as .hej,.hejprop")
+	opensList := flag.String("opens", "", "file extensions the program opens through \"Open with\" and the share sheet, comma separated, as .hej,.hejprop, and * for any file shared to it")
+	streams := flag.Bool("streams", false, "bring the files -opens takes as streams to read, in place of copies")
+	quiet := flag.Bool("quiet", false, "keep what the program writes, and a panic's message and stacks, out of the system's log")
 	orientation := flag.String("orientation", "", "hold the screen one way, by Android's name, as portrait or landscape; it turns with the phone by default")
 	abiList := flag.String("abi", "arm64-v8a,x86_64", "the ABIs to build for, comma separated")
 	install := flag.Bool("install", false, "install the APK with adb")
@@ -275,6 +298,9 @@ func main() {
 	if perr != nil {
 		log.Fatalf("gunimapk: %v", perr)
 	}
+	if *streams && len(opens) == 0 {
+		log.Fatal("-streams needs -opens, the files to bring")
+	}
 	if *category != "" && !slices.Contains(categories, *category) {
 		log.Fatalf("no category %q; there are %s", *category, strings.Join(categories, ", "))
 	}
@@ -297,7 +323,7 @@ func main() {
 		log.Fatal(jerr)
 	}
 	o := options{pkg: pkg, out: *out, id: appID, own: own, java: javas, minSDK: *minSDK, noBackup: !*backup, keepData: *keepData, name: *name, version: *version, iconPNG: *iconPNG, iconBG: *iconBG, perms: perms,
-		opens: opens, orientation: *orientation, category: *category, abis: strings.Split(*abiList, ","), keystore: *keystore, keyAlias: *keyAlias, genKey: *genKey,
+		opens: opens, streams: *streams, quiet: *quiet, orientation: *orientation, category: *category, abis: strings.Split(*abiList, ","), keystore: *keystore, keyAlias: *keyAlias, genKey: *genKey,
 		install: *install || *run, start: *run}
 	err := buildAPK(ctx, o)
 	stop()
@@ -323,8 +349,12 @@ type options struct {
 	// noBackup keeps the program's files out of Android's backups, and
 	// keepData offers to keep them as it is uninstalled.
 	noBackup, keepData bool
-	// opens are the file extensions the program opens, as .hej.
-	opens []string
+	// opens are the file extensions the program opens, as .hej, and * for
+	// any file shared to it. streams brings them as streams.
+	opens   []string
+	streams bool
+	// quiet keeps what the program writes out of the system's log.
+	quiet bool
 	// orientation is Android's name for the one way the screen is held,
 	// or "" to turn with the phone.
 	orientation string
@@ -1114,7 +1144,7 @@ func manifestFor(o options) string {
 	if len(o.opens) > 0 {
 		launchMode = `
 			android:launchMode="singleTask"`
-		opensFilters = opensXML(o.opens)
+		opensFilters = opensXML(o.opens, o.streams)
 	}
 	id, name, perms, orientation := o.id, o.name, o.perms, o.orientation
 	iconAttr := ""
@@ -1133,6 +1163,11 @@ func manifestFor(o options) string {
 	categoryAttr := ""
 	if o.category != "" {
 		categoryAttr = ` android:appCategory="` + o.category + `"`
+	}
+	quiet := ""
+	if o.quiet {
+		quiet = `		<meta-data android:name="gunim.quiet" android:value="true"/>
+`
 	}
 	dataAttrs := ""
 	if o.noBackup {
@@ -1161,7 +1196,7 @@ func manifestFor(o options) string {
 				<category android:name="android.intent.category.LAUNCHER"/>
 			</intent-filter>
 ` + opensFilters + `		</activity>
-` + service + o.own.inside + `		<provider android:name="gunim.android.GunimFiles" android:authorities="` + id + `.gunim.files"
+` + service + quiet + o.own.inside + `		<provider android:name="gunim.android.GunimFiles" android:authorities="` + id + `.gunim.files"
 			android:exported="false" android:grantUriPermissions="true" android:process=":gunim.files"/>
 		<provider android:name="gunim.android.GunimWatch" android:authorities="` + id + `.gunim.watch" android:exported="false"/>
 	</application>
@@ -1173,6 +1208,9 @@ func manifestFor(o options) string {
 // dots, in lower case once parseOpens has lowered it.
 var extension = regexp.MustCompile(`^(\.[a-z0-9_+-]+)+$`)
 
+// anyFile among -opens' extensions takes any file shared to the program.
+const anyFile = "*"
+
 // parseOpens reads -opens' list of extensions, in lower case.
 func parseOpens(list string) ([]string, error) {
 	if list == "" {
@@ -1181,8 +1219,8 @@ func parseOpens(list string) ([]string, error) {
 	var exts []string
 	for _, e := range strings.Split(list, ",") {
 		e = strings.ToLower(strings.TrimSpace(e))
-		if !extension.MatchString(e) {
-			return nil, fmt.Errorf("-opens: %q is no extension; write it as .hej", e)
+		if e != anyFile && !extension.MatchString(e) {
+			return nil, fmt.Errorf("-opens: %q is no extension; write it as .hej, or * for any file shared", e)
 		}
 		if !slices.Contains(exts, e) {
 			exts = append(exts, e)
@@ -1211,9 +1249,35 @@ func opensValue(exts []string) string {
 // dot it finds, so it takes a pattern for each further dot in the name.
 // The second takes the addresses that hold no name, as Files gives for
 // Downloads, and the third files shared to the program: both have only
-// the MIME type to go by.
-func opensXML(exts []string) string {
+// the MIME type to go by. Any file shared takes the third alone, for every
+// type.
+func opensXML(exts []string, streams bool) string {
 	var b strings.Builder
+	shared := "application/octet-stream"
+	named := slices.DeleteFunc(slices.Clone(exts), func(e string) bool { return e == anyFile })
+	if len(named) < len(exts) {
+		shared = "*/*"
+	}
+	if len(named) > 0 {
+		viewXML(&b, named)
+	}
+	b.WriteString(`			<intent-filter>
+				<action android:name="android.intent.action.SEND"/>
+				<action android:name="android.intent.action.SEND_MULTIPLE"/>
+				<category android:name="android.intent.category.DEFAULT"/>
+				<data android:mimeType="` + shared + `"/>
+			</intent-filter>
+			<meta-data android:name="gunim.opens" android:value="` + opensValue(exts) + `"/>
+`)
+	if streams {
+		b.WriteString(`			<meta-data android:name="gunim.streams" android:value="true"/>
+`)
+	}
+	return b.String()
+}
+
+// viewXML writes opensXML's filters for opening a file of one of exts.
+func viewXML(b *strings.Builder, exts []string) {
 	b.WriteString(`			<intent-filter>
 				<action android:name="android.intent.action.VIEW"/>
 				<category android:name="android.intent.category.DEFAULT"/>
@@ -1221,9 +1285,9 @@ func opensXML(exts []string) string {
 `)
 	for _, e := range exts {
 		escaped := strings.ReplaceAll(e, ".", `\\.`)
-		fmt.Fprintf(&b, "\t\t\t\t<data android:pathSuffix=%q/>\n", e)
+		fmt.Fprintf(b, "\t\t\t\t<data android:pathSuffix=%q/>\n", e)
 		for dots := range 4 {
-			fmt.Fprintf(&b, "\t\t\t\t<data android:pathPattern=\"%s%s\"/>\n", strings.Repeat(`.*\\.`, dots), ".*"+escaped)
+			fmt.Fprintf(b, "\t\t\t\t<data android:pathPattern=\"%s%s\"/>\n", strings.Repeat(`.*\\.`, dots), ".*"+escaped)
 		}
 	}
 	b.WriteString(`			</intent-filter>
@@ -1232,15 +1296,7 @@ func opensXML(exts []string) string {
 				<category android:name="android.intent.category.DEFAULT"/>
 				<data android:scheme="content" android:mimeType="application/octet-stream"/>
 			</intent-filter>
-			<intent-filter>
-				<action android:name="android.intent.action.SEND"/>
-				<action android:name="android.intent.action.SEND_MULTIPLE"/>
-				<category android:name="android.intent.category.DEFAULT"/>
-				<data android:mimeType="application/octet-stream"/>
-			</intent-filter>
-			<meta-data android:name="gunim.opens" android:value="` + opensValue(exts) + `"/>
 `)
-	return b.String()
 }
 
 func xmlEscape(s string) string {

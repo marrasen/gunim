@@ -72,6 +72,18 @@ func TestALongNameKeepsItsExtension(t *testing.T) {
 	}
 }
 
+func TestAnyHoldsNoFileBack(t *testing.T) {
+	c := New(filepath.Join(t.TempDir(), "copies"))
+	if got, err := c.Take([]File{{opened(t, "x"), "a.png"}}, Exts(Any)); err != nil || len(got) != 1 {
+		t.Errorf("any file: %q, %v", got, err)
+	}
+	for _, opens := range []string{".hej", ".hej,.png2", ""} {
+		if got, err := c.Take([]File{{opened(t, "x"), "a.png"}}, Exts(opens)); err == nil || len(got) != 0 {
+			t.Errorf("%q takes a.png: %q, %v", opens, got, err)
+		}
+	}
+}
+
 func TestExtensionsChooseWhatIsTaken(t *testing.T) {
 	c := New(filepath.Join(t.TempDir(), "copies"))
 	got, err := c.Take([]File{

@@ -290,6 +290,72 @@ func TestOpensAddsFiltersAndRunsTheActivityOnce(t *testing.T) {
 	}
 }
 
+// Any file may be shared to the program, and it opens none but those
+// named.
+func TestAnyFileSharedIsNoFileOpened(t *testing.T) {
+	type filter struct {
+		Actions []struct {
+			Name string `xml:"name,attr"`
+		} `xml:"action"`
+		Data []struct {
+			Mime   string `xml:"mimeType,attr"`
+			Suffix string `xml:"pathSuffix,attr"`
+		} `xml:"data"`
+	}
+	for opens, views := range map[string]int{"*": 0, ".hej,*": 2} {
+		exts, err := parseOpens(opens)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var doc struct {
+			App struct {
+				Activity struct {
+					Filters []filter `xml:"intent-filter"`
+					Meta    []struct {
+						Name  string `xml:"name,attr"`
+						Value string `xml:"value,attr"`
+					} `xml:"meta-data"`
+				} `xml:"activity"`
+				Meta []struct {
+					Name string `xml:"name,attr"`
+				} `xml:"meta-data"`
+			} `xml:"application"`
+		}
+		m := manifestFor(options{id: "org.gunim.sketch", name: "Sketch", opens: exts, streams: true, quiet: true})
+		if err := xml.Unmarshal([]byte(m), &doc); err != nil {
+			t.Fatalf("%v\n%s", err, m)
+		}
+		a := doc.App.Activity
+		// The launcher's comes first, and the share sheet's last.
+		if len(a.Filters) != 2+views {
+			t.Fatalf("-opens %s: %d filters", opens, len(a.Filters))
+		}
+		for _, f := range a.Filters[1 : 1+views] {
+			if f.Actions[0].Name != "android.intent.action.VIEW" {
+				t.Errorf("-opens %s: %+v", opens, f)
+			}
+		}
+		share := a.Filters[len(a.Filters)-1]
+		if len(share.Actions) != 2 || len(share.Data) != 1 || share.Data[0].Mime != "*/*" {
+			t.Errorf("-opens %s: shared by %+v", opens, share)
+		}
+		if strings.Contains(m, `pathSuffix="*"`) {
+			t.Errorf("-opens %s takes * for an extension", opens)
+		}
+		if len(a.Meta) != 2 || a.Meta[0].Value != opensValue(exts) || a.Meta[1].Name != "gunim.streams" || a.Meta[1].Value != "true" {
+			t.Errorf("-opens %s: the activity's %+v", opens, a.Meta)
+		}
+		if len(doc.App.Meta) != 1 || doc.App.Meta[0].Name != "gunim.quiet" {
+			t.Errorf("-quiet: the application's %+v", doc.App.Meta)
+		}
+	}
+	for _, s := range []string{"gunim.streams", "gunim.quiet"} {
+		if strings.Contains(manifestFor(options{id: "a.b", opens: []string{".hej"}}), s) {
+			t.Errorf("a program that did not ask has %s", s)
+		}
+	}
+}
+
 // One extension stays a string in the manifest, as a number the driver
 // would read as nothing.
 func TestOneExtensionStaysAString(t *testing.T) {

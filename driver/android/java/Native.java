@@ -47,7 +47,19 @@ public final class Native {
 		if (over) {
 			settle();
 		}
-		start(java.util.TimeZone.getDefault().getID());
+		start(java.util.TimeZone.getDefault().getID(), quiet(c));
+	}
+
+	// quiet reports whether gunimapk's -quiet keeps what the program
+	// writes out of the system's log.
+	private static boolean quiet(Context c) {
+		try {
+			android.os.Bundle meta = c.getPackageManager().getApplicationInfo(c.getPackageName(),
+				PackageManager.GET_META_DATA).metaData;
+			return meta != null && meta.getBoolean("gunim.quiet");
+		} catch (PackageManager.NameNotFoundException e) {
+			return true;
+		}
 	}
 
 	// closing says that the program is done with its windows, and over
@@ -91,7 +103,7 @@ public final class Native {
 		loaded = true;
 	}
 
-	static native void start(String zone);
+	static native void start(String zone, boolean quiet);
 	static native void go(long h, Context context);
 	static native void surfaceChanged(Surface surface, int width, int height);
 	static native void surfaceDestroyed(Surface surface);
@@ -111,7 +123,9 @@ public final class Native {
 	static native void composing(String s, int selStart, int selEnd);
 	static native void answered(int code, boolean granted);
 	static native void chosen(int code, String path);
-	static native void files(int code, int[] fds, String names, String opens);
+	static native void files(int code, int[] fds, long[] ids, String names, String opens);
+	static native void streams(int code, int[] fds, long[] ids, long[] stated, long[] held, String names, String types,
+		String opens);
 	static native void heading(float[] rotation, int screen, int accuracy, float error);
 
 	// Called from Go.
@@ -297,17 +311,18 @@ public final class Native {
 	}
 
 	// choosingFiles holds the codes of the document pickers showing, on
-	// the UI thread, to tell their answers from the folder chooser's.
-	static final java.util.Set<Integer> choosingFiles = new java.util.HashSet<>();
+	// the UI thread, to tell their answers from the folder chooser's, and
+	// whether each answers with streams.
+	static final java.util.Map<Integer, Boolean> choosingFiles = new java.util.HashMap<>();
 
 	// chooseFiles shows the system's document picker; the files chosen
 	// go to Go through GunimOpen. patterns are the kinds of file to show,
 	// each ended by a NUL.
-	static void chooseFiles(int code, boolean multiple, String patterns) {
+	static void chooseFiles(int code, boolean multiple, String patterns, boolean streams) {
 		ui.post(() -> {
 			GunimActivity a = activity;
 			if (a == null) {
-				files(code, new int[0], "", "");
+				noFiles(code, streams);
 				return;
 			}
 			android.content.Intent pick = new android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT);
@@ -319,13 +334,32 @@ public final class Native {
 			}
 			pick.putExtra(android.content.Intent.EXTRA_ALLOW_MULTIPLE, multiple);
 			try {
-				choosingFiles.add(code);
+				choosingFiles.put(code, streams);
 				a.startActivityForResult(pick, code);
 			} catch (android.content.ActivityNotFoundException e) {
 				choosingFiles.remove(code);
-				files(code, new int[0], "", "");
+				noFiles(code, streams);
 			}
 		});
+	}
+
+	// noFiles answers a chooser of files with none.
+	static void noFiles(int code, boolean streams) {
+		if (streams) {
+			streams(code, new int[0], new long[0], new long[0], new long[0], "", "", "");
+		} else {
+			files(code, new int[0], new long[0], "", "");
+		}
+	}
+
+	// streamEnd says how the sender of a stream ended, after a wait for
+	// its word where asked, and closeStream lets the stream go.
+	static int streamEnd(long id, boolean wait) {
+		return GunimStreams.end(id, wait);
+	}
+
+	static void closeStream(long id) {
+		GunimStreams.close(id);
 	}
 
 	// pathOf returns the path of a folder the chooser gave, where it

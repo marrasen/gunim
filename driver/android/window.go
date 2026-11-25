@@ -521,7 +521,8 @@ func (d *Driver) excludeGesturesLocked() {
 // permission for what it reads, as [driver.PermissionMusic].
 func (w *Window) ChooseFiles(o driver.ChooseOptions) ([]string, error) {
 	if !o.Folders {
-		return chooseFiles(o)
+		a := chooseFiles(o, false)
+		return a.paths, a.err
 	}
 	if p := chooseFolder(); p != "" {
 		return []string{p}, nil
@@ -529,7 +530,16 @@ func (w *Window) ChooseFiles(o driver.ChooseOptions) ([]string, error) {
 	return nil, nil
 }
 
+// ChooseStreams implements [driver.StreamChooser], with the system's
+// document picker, as ChooseFiles. The files are read straight from the
+// applications that hold them.
+func (w *Window) ChooseStreams(o driver.ChooseOptions) ([]*input.Stream, error) {
+	a := chooseFiles(o, true)
+	return a.streams, a.err
+}
+
 var (
+	_ driver.StreamChooser   = (*Window)(nil)
 	_ driver.Placer          = (*Window)(nil)
 	_ driver.PopupRoomer     = (*Window)(nil)
 	_ driver.Screener        = (*Window)(nil)

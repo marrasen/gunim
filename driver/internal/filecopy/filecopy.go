@@ -144,6 +144,18 @@ func SafeName(name string) string {
 	return name
 }
 
+// Any among gunimapk's -opens takes every file shared to the program.
+const Any = "*"
+
+// Exts returns the extensions in opens, separated by commas, for Take, or
+// nil for [Any], which holds none back.
+func Exts(opens string) []string {
+	if opens == Any {
+		return nil
+	}
+	return strings.Split(opens, ",")
+}
+
 // Matches reports whether name ends in one of exts, whatever its case.
 func Matches(name string, exts []string) bool {
 	name = strings.ToLower(name)

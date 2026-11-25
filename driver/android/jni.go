@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -31,8 +32,8 @@ import (
 // has a frame of its own to keep.
 
 //export goStart
-func goStart(zone *C.uint16_t, n C.int) {
-	theDriver.start(goString(zone, n))
+func goStart(zone *C.uint16_t, n C.int, quiet C.uchar) {
+	theDriver.start(goString(zone, n), quiet != 0)
 }
 
 //export goSurfaceChanged
@@ -418,10 +419,11 @@ var copies = sync.OnceValue(func() *filecopy.Cache {
 type fileChooser chan fileAnswer
 
 // fileAnswer is what a chooser of files gives: the copies made, and an
-// error for those that failed.
+// error for those that failed, or the streams.
 type fileAnswer struct {
-	paths []string
-	err   error
+	paths   []string
+	err     error
+	streams []*input.Stream
 }
 
 // The choosers of files waiting on the user, by their request code,
@@ -429,8 +431,8 @@ type fileAnswer struct {
 var choosingFiles = map[int]fileChooser{}
 
 // chooseFiles shows the system's document picker, and waits for the
-// copies of the files chosen.
-func chooseFiles(o driver.ChooseOptions) ([]string, error) {
+// copies of the files chosen, or for streams of them.
+func chooseFiles(o driver.ChooseOptions, streams bool) fileAnswer {
 	var patterns []string
 	for _, f := range o.Filters {
 		patterns = append(patterns, f.Patterns...)
@@ -446,20 +448,20 @@ func chooseFiles(o driver.ChooseOptions) ([]string, error) {
 	if o.Multiple {
 		multiple = 1
 	}
-	C.gunim_choose_files(C.int(code), multiple, up, C.int(len(u)))
+	C.gunim_choose_files(C.int(code), multiple, up, C.int(len(u)), cBool(streams))
 	runtime.KeepAlive(u)
-	a := <-ch
-	return a.paths, a.err
+	return <-ch
 }
 
-// goFiles hands over files Java opened, each an open file descriptor
-// and a name, -1 for one that failed to open. A code of 0 is another
+// goFiles hands over files Java opened, each an open file descriptor,
+// the id Java keeps its provider by until the copy is made, and a name, -1
+// for one that failed to open. A code of 0 is another
 // application opening them, for the extensions in opens; any other is
 // the chooser waiting on that code. The copy runs apart from the
 // caller, as a file can take a while to arrive.
 //
 //export goFiles
-func goFiles(code C.int, fds *C.int, n C.int, names *C.uint16_t, nn C.int, opens *C.uint16_t, no C.int) {
+func goFiles(code C.int, fds *C.int, ids *C.longlong, n C.int, names *C.uint16_t, nn C.int, opens *C.uint16_t, no C.int) {
 	var files []filecopy.File
 	nameList := strings.Split(goString(names, nn), "\x00")
 	if n > 0 {
@@ -471,30 +473,40 @@ func goFiles(code C.int, fds *C.int, n C.int, names *C.uint16_t, nn C.int, opens
 			files = append(files, f)
 		}
 	}
-	exts := strings.Split(goString(opens, no), ",")
+	kept := slices.Clone(unsafe.Slice(ids, int(n)))
+	exts := filecopy.Exts(goString(opens, no))
 	go func() {
+		defer func() {
+			for _, id := range kept {
+				C.gunim_close_stream(id)
+			}
+		}()
 		if code != 0 {
 			paths, err := copies().Take(files, nil)
-			choseFiles(int(code), paths, err)
+			choseFiles(int(code), fileAnswer{paths: paths, err: err})
 			return
 		}
 		paths, err := copies().Take(files, exts)
 		if err != nil {
-			log.Printf("gunim: files opened: %v", err)
+			// Their names are the other application's.
+			log.Printf("gunim: %d of %d files sent to this program were not taken", len(files)-len(paths), len(files))
 		}
 		if len(paths) > 0 {
-			theDriver.filesOpened(paths)
+			theDriver.filesOpened(driver.FilesOpened{Paths: paths})
 		}
 	}()
 }
 
-// choseFiles hands the copies made to the chooser of code.
-func choseFiles(code int, paths []string, err error) {
+// choseFiles hands the files chosen to the chooser of code, and reports
+// whether it waits still.
+func choseFiles(code int, a fileAnswer) bool {
 	asking.Lock()
 	ch := choosingFiles[code]
 	delete(choosingFiles, code)
 	asking.Unlock()
-	if ch != nil {
-		ch <- fileAnswer{paths, err}
+	if ch == nil {
+		return false
 	}
+	ch <- a
+	return true
 }

@@ -336,6 +336,21 @@ type FilesOpened struct {
 	Time  time.Time
 }
 
+// StreamsOpened arrives in place of [FilesOpened] where gunimapk's
+// -streams asks for it: the files another application hands this one, to
+// read as they come, with no copies made. The node that takes it closes
+// each stream, and one whose files failed to open takes it too, as those
+// fail at their first Read. It reaches a node as FilesOpened does, and the
+// window closes the streams no node took as it closes.
+//
+// A stream holds the application that sends it for as long as it is open.
+// The right to open the files ends with the activity they came to, and the
+// streams are open already, so they outlast it. They end with the process.
+type StreamsOpened struct {
+	Streams []*Stream
+	Time    time.Time
+}
+
 // DragOver arrives while something is dragged over a node: another
 // node's Data, dragged inside the application, from this window or
 // another, or [Files] from another program. It bubbles like a pointer
@@ -434,6 +449,7 @@ func (WindowHidden) isEvent()      {}
 func (WindowShown) isEvent()       {}
 func (MediaSeek) isEvent()         {}
 func (FilesOpened) isEvent()       {}
+func (StreamsOpened) isEvent()     {}
 
 // Button identifies a pointer button.
 type Button uint8

@@ -19,6 +19,7 @@ import (
 	"github.com/marrasen/gunim/driver"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
+	"github.com/marrasen/gunim/internal/instream"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/text"
 	"github.com/marrasen/gunim/theme"
@@ -958,6 +959,82 @@ func (c Client) ChooseFiles(ctx context.Context, o driver.ChooseOptions) ([]stri
 	}
 	o.Folder = absFolder(o.Folder)
 	return awaitDialog(ctx, c, func() ([]string, error) { return fc.ChooseFiles(o) })
+}
+
+// ChooseStreams is [Client.ChooseFiles] for files, which it opens to read
+// as they come. On Android the files are read straight from the
+// application that holds them, where ChooseFiles copies them first. The
+// caller closes each stream. One that failed to open is there too, and
+// fails at its first Read. It takes no o.Folders.
+func (c Client) ChooseStreams(ctx context.Context, o driver.ChooseOptions) ([]*input.Stream, error) {
+	if o.Folders {
+		return nil, errFolderStream
+	}
+	o.Folder = absFolder(o.Folder)
+	var choose func() ([]*input.Stream, error)
+	switch w := c.w.dw.(type) {
+	case driver.StreamChooser:
+		choose = func() ([]*input.Stream, error) { return w.ChooseStreams(o) }
+	case driver.FileChooser:
+		choose = func() ([]*input.Stream, error) {
+			paths, err := w.ChooseFiles(o)
+			streams := make([]*input.Stream, 0, len(paths))
+			for _, p := range paths {
+				streams = append(streams, streamOf(p))
+			}
+			return streams, err
+		}
+	default:
+		return nil, driver.ErrNoChooser
+	}
+	// What the user chooses once the caller has left is closed.
+	var mu sync.Mutex
+	left := false
+	var chosen []*input.Stream
+	_, err := awaitDialog(ctx, c, func() (struct{}, error) {
+		streams, err := choose()
+		mu.Lock()
+		defer mu.Unlock()
+		if left {
+			closeStreams(streams)
+			return struct{}{}, err
+		}
+		chosen = streams
+		return struct{}{}, err
+	})
+	mu.Lock()
+	defer mu.Unlock()
+	left = true
+	if errors.Is(err, ErrWindowClosed) || err != nil && ctx.Err() != nil {
+		closeStreams(chosen)
+		return nil, err
+	}
+	return chosen, err
+}
+
+// errFolderStream is returned for streams of folders.
+var errFolderStream = errors.New("gunim: a folder is no stream; choose it with ChooseFiles")
+
+// streamOf returns the file at path as a stream.
+func streamOf(path string) *input.Stream {
+	name := filepath.Base(path)
+	f, err := os.Open(path)
+	if err != nil {
+		return instream.Failing(name, err)
+	}
+	held := int64(instream.Unstated)
+	if st, err := f.Stat(); err == nil && st.Mode().IsRegular() {
+		held = st.Size()
+	}
+	return instream.New(name, "", instream.Source{R: f, Stated: instream.Unstated, Held: held,
+		End: func(bool) instream.End { return instream.Unknown }, Closed: func() {}, Local: true})
+}
+
+// closeStreams closes streams no one took.
+func closeStreams(streams []*input.Stream) {
+	for _, s := range streams {
+		_ = s.Close()
+	}
 }
 
 // SaveFile shows the system's dialog for choosing where to save a file,
@@ -2177,7 +2254,7 @@ type UI struct {
 	// platform says in that order.
 	drops map[uint64]pendingDrop
 	// opened holds the files handed over that no node has taken yet.
-	opened   []input.FilesOpened
+	opened   []input.Event
 	dropSeq  uint64
 	dragOuts []uint64
 	// outDrags are the drags handed to other programs, by drop number, to carry on should the pointer come back.
@@ -2287,6 +2364,12 @@ func (u *UI) runClosers() {
 	for _, c := range cs {
 		(*c)(u)
 	}
+	for _, e := range u.opened {
+		if s, ok := e.(input.StreamsOpened); ok {
+			closeStreams(s.Streams)
+		}
+	}
+	u.opened = nil
 }
 
 // wakeAfter has the window draw a frame d from now, for a [Waker]: one
