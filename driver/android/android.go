@@ -35,8 +35,14 @@
 // As main returns, the process ends, once no activity and no service of
 // the program's is left in it, as a job's: Android may start the next job
 // in a process it has, where main has run already. Goroutines that main
-// leaves run until then. A file the program shared is served by another
-// process, which stays. Android counts neither a provider of the program's
+// leaves run until then. A file the program shared by its path is served
+// by another process, which stays. One that the program serves itself, a
+// [driver.Served], keeps the process for as long as another application
+// has it open, stopped or not, and main's goroutines read for it. Where something comes
+// too late, as below, it stops first: a reader hears of an error, and has
+// 5 s to let the file go, as Android may end it with the process. A
+// program that serves files stays in main, with its window, for as long as
+// they are open. Android counts neither a provider of the program's
 // own nor a receiver that works on past its onReceive, so a program with
 // one of those stays in main, or gives it a process of its own in the
 // manifest.

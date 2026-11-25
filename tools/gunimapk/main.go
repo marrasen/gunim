@@ -59,7 +59,10 @@
 //
 // What stands beside the application goes beside gunim's, what it holds
 // goes in gunim's, and its attributes join gunim's own. ${applicationId}
-// stands for the application ID. Write a class with its package, as the
+// stands for the application ID. An Application class of the program's
+// own, as the application's android:name, runs in a process of gunim's
+// too, :gunim.files, which serves the files the program shares and has no
+// program. Write a class with its package, as the
 // application ID is another in a debug build with -debug-id.
 //
 // -java names a directory of the program's own Java files, and those in
@@ -1198,6 +1201,8 @@ func manifestFor(o options) string {
 ` + opensFilters + `		</activity>
 ` + service + quiet + o.own.inside + `		<provider android:name="gunim.android.GunimFiles" android:authorities="` + id + `.gunim.files"
 			android:exported="false" android:grantUriPermissions="true" android:process=":gunim.files"/>
+		<provider android:name="gunim.android.GunimServed" android:authorities="` + id + `.gunim.served"
+			android:exported="false" android:grantUriPermissions="true"/>
 		<provider android:name="gunim.android.GunimWatch" android:authorities="` + id + `.gunim.watch" android:exported="false"/>
 	</application>
 </manifest>

@@ -1787,6 +1787,9 @@ func TestBrowser(t *testing.T) {
 		if err := w.Share(driver.Share{Paths: []string{"/a"}}); !errors.Is(err, driver.ErrNoSharer) {
 			t.Fatalf("sharing files: %v", err)
 		}
+		if err := w.Share(driver.Share{Text: "hej", Served: []*driver.Served{{}}}); !errors.Is(err, driver.ErrNoSharer) {
+			t.Errorf("sharing a file served returned %v", err)
+		}
 	})
 	t.Run("a share the user closes is no error, and others keep their words", func(t *testing.T) {
 		nav := js.Global().Get("navigator")

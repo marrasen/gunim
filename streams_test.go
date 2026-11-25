@@ -140,6 +140,94 @@ func TestAChosenFileCutShortIsNotWhole(t *testing.T) {
 	}
 }
 
+func TestSaveStreamWritesWhatTheUserChose(t *testing.T) {
+	w := NewOffscreen(geom.Sz(400, 300), nil)
+	path := filepath.Join(t.TempDir(), "a.txt")
+	w.Offscreen().SetSaver(func(driver.SaveOptions) (string, error) { return path, nil })
+	f, err := w.Client().SaveStream(context.Background(), driver.SaveOptions{Name: "a.txt"})
+	if err != nil || f == nil || f.Name() != "a.txt" || !f.Made() {
+		t.Fatalf("%v, %v", f, err)
+	}
+	if _, err := io.WriteString(f, "hello"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if b, err := os.ReadFile(path); err != nil || string(b) != "hello" {
+		t.Errorf("%q, %v", b, err)
+	}
+	w.Offscreen().SetSaver(func(driver.SaveOptions) (string, error) { return "", nil })
+	if f, err := w.Client().SaveStream(context.Background(), driver.SaveOptions{}); f != nil || err != nil {
+		t.Errorf("chosen nothing: %v, %v", f, err)
+	}
+}
+
+func TestAFileChosenOnceTheCallerHasLeftIsTakenAway(t *testing.T) {
+	w := NewOffscreen(geom.Sz(400, 300), nil)
+	dir := t.TempDir()
+	answer := make(chan struct{})
+	w.Offscreen().SetSaver(func(driver.SaveOptions) (string, error) {
+		<-answer
+		return filepath.Join(dir, "a.txt"), nil
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if f, err := w.Client().SaveStream(ctx, driver.SaveOptions{}); f != nil || !errors.Is(err, context.Canceled) {
+		t.Fatalf("%v, %v", f, err)
+	}
+	close(answer)
+	time.Sleep(20 * time.Millisecond)
+	if left, err := os.ReadDir(dir); err != nil || len(left) != 0 {
+		t.Errorf("%v, %v", left, err)
+	}
+}
+
+func TestSaveFolderWritesInTheFolderChosen(t *testing.T) {
+	w := NewOffscreen(geom.Sz(400, 300), nil)
+	dir := t.TempDir()
+	var asked driver.ChooseOptions
+	w.Offscreen().SetChooser(func(o driver.ChooseOptions) ([]string, error) {
+		asked = o
+		return []string{dir}, nil
+	})
+	fo, err := w.Client().SaveFolder(context.Background(), driver.ChooseOptions{})
+	if err != nil || fo == nil || !asked.Folders {
+		t.Fatalf("%v, %v, asked %+v", fo, err, asked)
+	}
+	f, err := fo.Create("sub/a.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := errors.Join(f.Close(), fo.Close()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "sub", "a.txt")); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestOpenServedGoesToTheWindowsOpener(t *testing.T) {
+	w := NewOffscreen(geom.Sz(400, 300), nil)
+	s := &driver.Served{Name: "a.txt", Size: 5, Data: strings.NewReader("hello")}
+	if err := w.Client().OpenServed(s); !errors.Is(err, driver.ErrNoOpener) {
+		t.Errorf("with none: %v", err)
+	}
+	var got *driver.Served
+	w.Offscreen().SetOpener(func(s *driver.Served) error {
+		got = s
+		return driver.ErrNoneOpens
+	})
+	if err := w.Client().OpenServed(s); !errors.Is(err, driver.ErrNoneOpens) || got != s {
+		t.Errorf("%v, %v", got, err)
+	}
+	for _, bad := range []*driver.Served{nil, {Size: 5}, {Size: -1, Data: strings.NewReader("")}} {
+		if err := w.Client().OpenServed(bad); err == nil || errors.Is(err, driver.ErrNoneOpens) {
+			t.Errorf("%+v: %v", bad, err)
+		}
+	}
+}
+
 // streamWindow is a window whose own chooser hands over streams.
 type streamWindow struct {
 	*driver.OffscreenWindow

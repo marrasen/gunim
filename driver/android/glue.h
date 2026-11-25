@@ -22,7 +22,17 @@ void gunim_ended(void);
 void gunim_buzz(void);
 void gunim_take_fingers(int on);
 void gunim_keep_awake(int on);
-int gunim_share(const uint16_t *text, int nt, const uint16_t *subject, int ns, const uint16_t *paths, int np);
+int gunim_share(const uint16_t *text, int nt, const uint16_t *subject, int ns, const uint16_t *paths, int np,
+	const long long *ids, const long long *sizes, int n, const uint16_t *served, int nd);
+// gunim_open_served returns 0, 1 where nothing opens the file, or 2 where
+// there is no activity to open it from.
+int gunim_open_served(long long id, const uint16_t *name, int nn, const uint16_t *type, int nt, long long size);
+void gunim_stop_served(long long id);
+void gunim_create_document(int code, const uint16_t *name, int nn, const uint16_t *type, int nt);
+void gunim_save_folder(int code);
+// gunim_save does one of GunimSave's calls, with five strings, and returns
+// what it says, n UTF-16 units of it for the caller to free.
+uint16_t *gunim_save(int what, const uint16_t *const *s, const int *ns, int *n);
 int gunim_vibrate(const long long *ms, int n);
 void gunim_exclude_gestures(const int *xy, int n);
 int gunim_has_compass(void);

@@ -18,6 +18,9 @@ type Share struct {
 	// while the share sheet hands them over, and for a while after, so
 	// they must stay where they are.
 	Paths []string
+	// Served are files to share that the receiving application reads from
+	// this one.
+	Served []*Served
 }
 
 // A Sharer is a [Window] that shows the system's share sheet. Share
