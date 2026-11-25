@@ -28,6 +28,9 @@ import (
 // directly, placed at their cells, without the shaping a paragraph
 // needs.
 //
+// Box-drawing and block characters and the Powerline separators are
+// drawn in code, to the cell, so lines meet and join from cell to cell.
+//
 // The cursor glides to a new cell along its row, and jumps to another
 // row.
 type CellGrid struct {
@@ -63,16 +66,12 @@ type CellGrid struct {
 	// fitCols and fitRows are how many cells fit the last layout's box.
 	fitCols, fitRows int
 	glyphs           map[glyphKey]cellGlyph
-	// boxes are the rectangles each box-drawing or block character
-	// fills, by the character and the cells' size in device pixels,
-	// worked out once: an animation in half blocks draws the same one
-	// in every cell of every frame. marks is a row's lines under and
-	// through characters, kept for the next row.
-	boxes map[boxKey][]boxRect
+	// marks is a row's lines under and through characters, kept for the next row.
 	marks []cellFill
-	// pats are the masks of the box-drawing and block characters drawn
-	// in the cells' own pass, at the cells' size, and patOf each
-	// character's number among them, or 0 for one drawn as rectangles.
+	// pats are the masks of the characters drawn in code, at the cells'
+	// size, and patOf each one's number among them, or 0 for a character
+	// the font draws. A wide character's halves have masks of their own,
+	// at the character plus leftHalf and rightHalf.
 	pats  *paint.Patterns
 	patOf map[rune]uint16
 	// run is what the grid drew last frame, and painted what it drew it
@@ -98,11 +97,11 @@ type paintKey struct {
 	set bool
 }
 
-// boxKey names a character drawn in code at one size.
-type boxKey struct {
-	r    rune
-	w, h int
-}
+// What is added to a wide character drawn in code to name the mask of each half of it. No character is as high.
+const (
+	leftHalf  rune = 1 << 24
+	rightHalf rune = 2 << 24
+)
 
 // Cell is one character cell of a [CellGrid]. The zero Cell is blank.
 type Cell struct {
@@ -481,26 +480,24 @@ func (g *CellGrid) drawRow(cells []Cell, ink color.NRGBA, was rowPaint, cp []pai
 			fg = ink
 		}
 		cell := paint.CellPaint{BG: c.BG, FG: fg}
+		// A character with a pattern is drawn in the cells' pass.
 		if span == 1 {
 			cell.Pattern = g.pattern(c.Rune)
+		} else {
+			cell.Pattern = g.pattern(c.Rune + leftHalf)
 		}
 		cp = append(cp, cell)
 		if span == 2 {
-			cp = append(cp, paint.CellPaint{BG: c.BG})
+			cp = append(cp, paint.CellPaint{BG: c.BG, FG: fg, Pattern: g.pattern(c.Rune + rightHalf)})
 		}
-		// A character with a pattern is drawn in the cells' pass.
-		if cell.Pattern == 0 {
-			if drawn, ok := g.boxDrawn(lines, c.Rune, x0, x1, fg); ok {
-				lines = drawn
-			} else if c.Rune != 0 && c.Rune != ' ' {
-				if gly, ok := g.cellGlyph(c.Rune, c.Style, x1-x0); ok && c.Marks == "" {
-					// Drawn with the cells.
-					cp[len(cp)-span].Text, cp[len(cp)-span].Glyph = true, gly
-				} else {
-					g.place(&out, c.Rune, c.Style, fg, x0, x1)
-					for _, mark := range c.Marks {
-						g.place(&out, mark, c.Style, fg, x0, x1)
-					}
+		if cell.Pattern == 0 && c.Rune != 0 && c.Rune != ' ' {
+			if gly, ok := g.cellGlyph(c.Rune, c.Style, x1-x0); ok && c.Marks == "" {
+				// Drawn with the cells.
+				cp[len(cp)-span].Text, cp[len(cp)-span].Glyph = true, gly
+			} else {
+				g.place(&out, c.Rune, c.Style, fg, x0, x1)
+				for _, mark := range c.Marks {
+					g.place(&out, mark, c.Style, fg, x0, x1)
 				}
 			}
 		}
@@ -534,67 +531,35 @@ func (g *CellGrid) readyPatterns() {
 }
 
 // pattern is the number of r's mask among the grid's patterns, made
-// the first time r is met, or 0 for a character drawn otherwise.
+// the first time r is met, or 0 for a character drawn otherwise. r is a
+// character, or one plus leftHalf or rightHalf.
 func (g *CellGrid) pattern(r rune) uint16 {
-	if r < 0x2500 || r > 0x259f {
+	if r < firstDrawn || !drawnInCode(r&^(leftHalf|rightHalf)) {
 		return 0
 	}
 	if n, ok := g.patOf[r]; ok {
 		return n
 	}
 	w, h := g.pats.W, g.pats.H
-	rects := boxDrawing(r, w, h)
-	var n uint16
-	if len(rects) > 0 && len(g.pats.Masks) < 0xffff {
-		mask := make([]byte, w*h)
-		for _, b := range rects {
-			for y := max(b.y0, 0); y < min(b.y1, h); y++ {
-				for x := max(b.x0, 0); x < min(b.x1, w); x++ {
-					// Over what is there, as the rectangles drew.
-					a := int(mask[y*w+x])
-					mask[y*w+x] = uint8(a + int(b.alpha)*(255-a)/255)
-				}
-			}
+	var mask []byte
+	if half := r & (leftHalf | rightHalf); half == 0 {
+		mask = boxDrawing(r, w, h)
+	} else if both := boxDrawing(r-half, 2*w, h); both != nil {
+		from := 0
+		if half == rightHalf {
+			from = w
 		}
+		for y := range h {
+			mask = append(mask, both[y*2*w+from:y*2*w+from+w]...)
+		}
+	}
+	var n uint16
+	if mask != nil && len(g.pats.Masks) < 0xffff {
 		g.pats.Masks = append(g.pats.Masks, mask)
 		n = uint16(len(g.pats.Masks))
 	}
 	g.patOf[r] = n
 	return n
-}
-
-// boxDrawn adds to out what a box-drawing or block character fills in
-// the cells from x0 to x1, drawn to the cell rather than taken from the
-// font, so lines meet across cells. It reports false, adding nothing,
-// for any other character.
-func (g *CellGrid) boxDrawn(out []cellFill, r rune, x0, x1 float32, c color.NRGBA) ([]cellFill, bool) {
-	if r < 0x2500 || r > 0x259f {
-		return out, false
-	}
-	m := g.metrics
-	s := m.scale
-	w, h := int(math.Round(float64((x1-x0)*s))), int(math.Round(float64(m.h*s)))
-	key := boxKey{r, w, h}
-	rects, seen := g.boxes[key]
-	if !seen {
-		rects = boxDrawing(r, w, h)
-		if g.boxes == nil {
-			g.boxes = map[boxKey][]boxRect{}
-		}
-		g.boxes[key] = rects
-	}
-	if len(rects) == 0 {
-		return out, false
-	}
-	for _, b := range rects {
-		ink := c
-		ink.A = uint8(int(c.A) * int(b.alpha) / 255)
-		out = append(out, cellFill{c: ink, r: geom.Rect{
-			Min: geom.Pt(x0+float32(b.x0)/s, float32(b.y0)/s),
-			Max: geom.Pt(x0+float32(b.x1)/s, float32(b.y1)/s),
-		}})
-	}
-	return out, true
 }
 
 // cellGlyph returns r's glyph as a cell w wide draws it: from its left
@@ -713,6 +678,18 @@ func (g *CellGrid) paintCursor(p *paint.Painter, ink, background color.NRGBA) {
 		bg := under.BG
 		if bg.A == 0 {
 			bg = background
+		}
+		drawn := []rune{under.Rune}
+		if under.Wide {
+			drawn = []rune{under.Rune + leftHalf, under.Rune + rightHalf}
+		}
+		if g.pattern(drawn[0]) != 0 {
+			cells := make([]paint.CellPaint, len(drawn))
+			for i, r := range drawn {
+				cells[i] = paint.CellPaint{FG: bg, Pattern: g.pattern(r)}
+			}
+			p.Cells(at, geom.Sz(m.w, m.h), cells, g.pats, uintptr(unsafe.Pointer(g)), g.rows, m.size, m.ascent)
+			return
 		}
 		var d rowPaint
 		g.place(&d, under.Rune, under.Style, bg, 0, w)

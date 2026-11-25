@@ -432,3 +432,16 @@ func TestAGridTakesTheNewInkAfterAThemeSwitch(t *testing.T) {
 		}
 	}
 }
+
+func TestABlockCursorShowsABoxLineInTheCellsBackground(t *testing.T) {
+	w, g, run := newCellStage(t)
+	bg := color.NRGBA{R: 0x10, G: 0x20, B: 0x30, A: 0xff}
+	g.SetRow(0, []Cell{{Rune: '─', BG: bg}})
+	g.SetCursor(Cursor{Visible: true})
+	run(30)
+	ops := drawnOps(w.Offscreen().Ops())
+	last, ok := ops[len(ops)-1].(*paint.CellsOp)
+	if !ok || len(last.Cells) != 1 || last.Cells[0].FG != bg || last.Cells[0].Pattern == 0 {
+		t.Fatalf("the last op is %+v, want the line in the cell's background", ops[len(ops)-1])
+	}
+}

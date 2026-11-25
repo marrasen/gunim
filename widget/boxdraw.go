@@ -1,13 +1,16 @@
 package widget
 
-// Box-drawing and block-element characters are drawn in code rather than
-// taken from a font, as gridterm draws them.
+import "math"
+
+// Box-drawing and block-element characters, and the Powerline separators, are drawn in code rather than taken from a
+// font, as gridterm draws them.
 //
 // A font's box glyphs are designed for that font's own advance width and
 // line height, so in a terminal's cell box the strokes stop short of the
 // edges and adjacent cells do not join up. Every table and framed TUI
 // then renders as a field of disconnected ticks. Drawing them to the
-// exact cell size is the only way to make the lines meet.
+// exact cell size is the only way to make the lines meet. And where a font
+// lacks them, as every font in a browser does, they would not show at all.
 
 // stroke weights used by the line-drawing characters.
 const (
@@ -21,12 +24,12 @@ const (
 // arms, in the order up, right, down, left.
 type boxLine struct {
 	up, right, down, left uint8
-	// dashes, when non-zero, splits the arms into that many segments.
+	// dashes, when non-zero, splits the line into that many segments across the cell.
 	dashes int
 }
 
-// boxLines maps the line-drawing characters this package draws. The
-// remainder of the block falls through to the font.
+// boxLines maps the line-drawing characters made of straight arms. The rest of the block, the rounded corners and
+// the diagonals, are drawn by their shapes.
 var boxLines = map[rune]boxLine{
 	// Horizontal and vertical, plain and dashed.
 	0x2500: {right: wLight, left: wLight},
@@ -168,167 +171,344 @@ var boxLines = map[rune]boxLine{
 	0x257f: {up: wHeavy, down: wLight},
 }
 
-// boxRect is one rectangle a drawn character fills, in device pixels
-// from the cell's top left, and how much of the ink it takes.
-type boxRect struct {
-	x0, y0, x1, y1 int
-	alpha          uint8
+// firstDrawn is the first character drawn in code.
+const firstDrawn = 0x2500
+
+// drawnInCode reports whether r may be one of the characters drawn in code.
+func drawnInCode(r rune) bool {
+	return r >= firstDrawn && r <= 0x259f || r >= 0xe0b0 && r <= 0xe0bf
 }
 
-// boxDrawing is what r fills in a cell w by h device pixels, or nil
-// for a character the font draws.
-func boxDrawing(r rune, w, h int) []boxRect {
+// boxDrawing returns what r covers of w by h device pixels, one byte a pixel from the top, or nil for a character the
+// font draws.
+func boxDrawing(r rune, w, h int) []byte {
 	if w <= 0 || h <= 0 {
 		return nil
 	}
-	m := &mask{w: w, h: h}
+	m := &mask{pix: make([]byte, w*h), w: w, h: h}
 	if bl, ok := boxLines[r]; ok {
-		drawBoxLine(m, bl)
-		return m.out
+		m.line(bl)
+		return m.pix
 	}
-	if r >= 0x2580 && r <= 0x2595 && drawBlock(m, r) {
-		return m.out
+	switch {
+	case r >= 0x256d && r <= 0x2570:
+		// Down and right, down and left, up and left, up and right.
+		m.corner(r == 0x256d || r == 0x256e, r == 0x256d || r == 0x2570)
+	case r >= 0x2571 && r <= 0x2573:
+		m.diagonals(r != 0x2572, r != 0x2571)
+	case r >= 0x2580 && r <= 0x259f:
+		m.block(r)
+	case r >= 0xe0b0 && r <= 0xe0bf:
+		m.separator(r)
+	default:
+		return nil
 	}
-	return nil
+	return m.pix
 }
 
-// mask gathers the rectangles a character fills in a w by h cell.
+// mask gathers what a character covers of a w by h cell.
 type mask struct {
-	out  []boxRect
+	pix  []byte
 	w, h int
 }
 
-// fill fills the rectangle, as far as it lies in the cell.
+// fill covers the rectangle by alpha, as far as it lies in the cell.
 func (m *mask) fill(x0, y0, x1, y1 int, alpha uint8) {
 	x0, y0 = max(x0, 0), max(y0, 0)
 	x1, y1 = min(x1, m.w), min(y1, m.h)
-	if x0 >= x1 || y0 >= y1 {
-		return
+	for y := y0; y < y1; y++ {
+		for x := x0; x < x1; x++ {
+			m.pix[y*m.w+x] = max(m.pix[y*m.w+x], alpha)
+		}
 	}
-	m.out = append(m.out, boxRect{x0, y0, x1, y1, alpha})
 }
 
-// shade fills a rectangle with keep parts in period of the ink, for the
-// shade blocks. The painter blends it over the cell's own background,
-// which gridterm's dither stands in for.
-func (m *mask) shade(x0, y0, x1, y1, period, keep int) {
-	m.fill(x0, y0, x1, y1, uint8(255*keep/period))
+// cover covers the points inside holds, given in pixels from the cell's top left, antialiased.
+func (m *mask) cover(inside func(x, y float64) bool) {
+	const n = 8
+	for y := range m.h {
+		for x := range m.w {
+			in := 0
+			for j := range n {
+				for i := range n {
+					if inside(float64(x)+(float64(i)+0.5)/n, float64(y)+(float64(j)+0.5)/n) {
+						in++
+					}
+				}
+			}
+			m.pix[y*m.w+x] = max(m.pix[y*m.w+x], uint8(in*255/(n*n)))
+		}
+	}
 }
 
-// thickness returns the stroke width in pixels for a weight.
-func thickness(weight uint8, cell int) int {
-	light := max(cell/14, 1)
+// span is a stretch of pixels across a stroke, from lo up to hi.
+type span struct{ lo, hi int }
+
+// strokeWidth is how wide a light line is, in a cell h pixels tall. A heavy line is twice as wide, and a double line
+// two light ones with a light one's room between them.
+func strokeWidth(h int) int { return max(h/14, 1) }
+
+// strokes returns the stroke or strokes of a line of a weight that runs through the middle of size pixels: the lower
+// and the higher of a double line, and otherwise the one stroke twice.
+//
+// Rounding down keeps a one-pixel stroke on the same side of the middle in every cell, which is what stops a long
+// rule from looking ragged.
+func strokes(weight uint8, size, t int) [2]span {
 	switch weight {
 	case wHeavy:
-		return max(light*2, 2)
+		t *= 2
 	case wDouble:
-		return light
-	default:
-		return light
+		lo := size/2 - t/2
+		return [2]span{{lo - t, lo}, {lo + t, lo + 2*t}}
+	}
+	lo := size/2 - t/2
+	return [2]span{{lo, lo + t}, {lo, lo + t}}
+}
+
+// line draws a character made of straight arms. An arm runs from the cell's edge to where it meets the others, so the
+// same character in the next cell continues the line exactly, and corners close.
+func (m *mask) line(bl boxLine) {
+	t := strokeWidth(m.h)
+	if bl.dashes > 0 {
+		m.dashed(bl, t)
+		return
+	}
+	for side, s := range strokes(bl.up, m.w, t) {
+		end := armEnd(true, bl.up, bl.down, [2]uint8{bl.left, bl.right}, side, m.h, t)
+		m.fill(s.lo, 0, s.hi, end, 255)
+	}
+	for side, s := range strokes(bl.down, m.w, t) {
+		end := armEnd(false, bl.down, bl.up, [2]uint8{bl.left, bl.right}, side, m.h, t)
+		m.fill(s.lo, end, s.hi, m.h, 255)
+	}
+	for side, s := range strokes(bl.left, m.h, t) {
+		end := armEnd(true, bl.left, bl.right, [2]uint8{bl.up, bl.down}, side, m.w, t)
+		m.fill(0, s.lo, end, s.hi, 255)
+	}
+	for side, s := range strokes(bl.right, m.h, t) {
+		end := armEnd(false, bl.right, bl.left, [2]uint8{bl.up, bl.down}, side, m.w, t)
+		m.fill(end, s.lo, m.w, s.hi, 255)
 	}
 }
 
-// drawBoxLine strokes one line-drawing character. Every arm runs from
-// the cell's centre to its edge, so the same character in the next cell
-// continues the line exactly.
-func drawBoxLine(m *mask, bl boxLine) {
-	// Arms meet at the centre of the cell. Rounding down keeps a
-	// one-pixel stroke on the same side of centre in every cell, which
-	// is what stops a long rule from looking ragged.
-	cx, cy := m.w/2, m.h/2
-
-	arm := func(weight uint8, dir int, vertical bool) {
-		if weight == wNone {
-			return
+// armEnd returns where an arm ends, in pixels along it. low says it comes from the cell's top or left rather than
+// its bottom or right, and size is the cell's height or width along it. opposite is the weight of the arm on from it,
+// and across those of the arms to its sides, the top or left one first. A double arm's stroke on that side is 0, and
+// the other 1.
+func armEnd(low bool, weight, opposite uint8, across [2]uint8, side, size, t int) int {
+	mid := size / 2
+	if weight == wNone {
+		// No arm, so it ends at its own edge.
+		if low {
+			return 0
 		}
-		t := thickness(weight, m.h)
-		if weight == wDouble {
-			// Two parallel strokes with a gap of one stroke width.
-			off := t
-			m.stroke(cx-off, cy-off, dir, vertical, t, bl.dashes)
-			m.stroke(cx+off, cy+off, dir, vertical, t, bl.dashes)
-			return
-		}
-		m.stroke(cx, cy, dir, vertical, t, bl.dashes)
+		return size
 	}
-
-	arm(bl.up, -1, true)
-	arm(bl.down, +1, true)
-	arm(bl.left, -1, false)
-	arm(bl.right, +1, false)
+	// far is the far edge of a line across, and near the far edge of the first stroke of it the arm comes to, which
+	// is the same but for a double line.
+	far := func(w uint8) int {
+		s := strokes(w, size, t)
+		if low {
+			return s[1].hi
+		}
+		return s[0].lo
+	}
+	near := func(w uint8) int {
+		s := strokes(w, size, t)
+		if low {
+			return s[0].hi
+		}
+		return s[1].lo
+	}
+	if weight == wDouble {
+		// Each stroke of a double arm meets what is on its own side.
+		on, off := across[side], across[1-side]
+		switch {
+		case on == wDouble:
+			return near(on)
+		case on != wNone:
+			return far(on)
+		case opposite != wNone:
+			return mid
+		case off != wNone:
+			return far(off)
+		}
+		return mid
+	}
+	// The widest single line across closes the corner with this one.
+	if w := max(single(across[0]), single(across[1])); w != wNone {
+		return far(w)
+	}
+	switch {
+	case opposite != wNone:
+		return mid
+	case across[0] == wDouble && across[1] == wDouble:
+		return near(wDouble)
+	case across[0] == wDouble || across[1] == wDouble:
+		return far(wDouble)
+	}
+	return mid
 }
 
-// stroke draws one arm from (cx,cy) to the cell edge in direction dir.
-func (m *mask) stroke(cx, cy, dir int, vertical bool, t, dashes int) {
-	half := t / 2
-	if vertical {
-		y0, y1 := cy, m.h
-		if dir < 0 {
-			y0, y1 = 0, cy+t-half
-		}
-		m.dashed(cx-half, y0, cx-half+t, y1, dashes, true)
-		return
+// single returns a weight but for a double line's, which it returns as none.
+func single(weight uint8) uint8 {
+	if weight == wDouble {
+		return wNone
 	}
-	x0, x1 := cx, m.w
-	if dir < 0 {
-		x0, x1 = 0, cx+t-half
-	}
-	m.dashed(x0, cy-half, x1, cy-half+t, dashes, false)
+	return weight
 }
 
-// dashed fills a rectangle, optionally broken into n segments along its
-// long axis.
-func (m *mask) dashed(x0, y0, x1, y1, n int, vertical bool) {
-	if n <= 1 {
-		m.fill(x0, y0, x1, y1, 255)
-		return
+// dashed draws a line right across the cell in dashes, all as long as each other. The gaps between them, in the cell and
+// on to the next cell's, differ by a pixel at most.
+func (m *mask) dashed(bl boxLine, t int) {
+	size := m.w
+	if bl.up != wNone {
+		size = m.h
 	}
-	// Each segment is on for two thirds of its slot, which is roughly
-	// how the dashed characters look in a typical font.
-	if vertical {
-		span := y1 - y0
-		for i := range n {
-			a := y0 + span*i/n
-			b := y0 + (span*i/n + (span/n)*2/3)
-			m.fill(x0, a, x1, max(b, a+1), 255)
-		}
-		return
-	}
-	span := x1 - x0
+	n := bl.dashes
+	// Two thirds dash to one gap, to the nearest pixel, with a pixel of gap where there is room for one.
+	long := max(min((4*size+3*n)/(6*n), size/n-1), 1)
 	for i := range n {
-		a := x0 + span*i/n
-		b := x0 + (span*i/n + (span/n)*2/3)
-		m.fill(max(a, x0), y0, max(b, a+1), y1, 255)
+		lo := size*i/n + (size/n-long)/2
+		hi := lo + long
+		if bl.up != wNone {
+			s := strokes(bl.up, m.w, t)[0]
+			m.fill(s.lo, lo, s.hi, hi, 255)
+			continue
+		}
+		s := strokes(bl.left, m.h, t)[0]
+		m.fill(lo, s.lo, hi, s.hi, 255)
 	}
 }
 
-// drawBlock renders the block elements and shades, U+2580 to U+2595.
-func drawBlock(m *mask, r rune) bool {
+// corner draws a rounded corner between the light lines down, or up, and to the right, or the left.
+func (m *mask) corner(down, right bool) {
+	v, h := strokes(wLight, m.w, strokeWidth(m.h))[0], strokes(wLight, m.h, strokeWidth(m.h))[0]
+	x, y := float64(v.lo+v.hi)/2, float64(h.lo+h.hi)/2
+	half := float64(v.hi-v.lo) / 2
+	// The arc leaves the last pixel straight, for the line on from it to be as strong.
+	r := max(min(x, float64(m.w)-x, y, float64(m.h)-y)-1, 0)
+	// The arc's centre, and its ends straight up from it and straight across.
+	sx, sy := -1.0, -1.0
+	if right {
+		sx = 1
+	}
+	if down {
+		sy = 1
+	}
+	cx, cy := x+sx*r, y+sy*r
+	m.cover(func(px, py float64) bool {
+		switch {
+		case (px-cx)*sx >= 0:
+			return math.Abs(py-y) <= half
+		case (py-cy)*sy >= 0:
+			return math.Abs(px-x) <= half
+		}
+		return math.Abs(math.Hypot(px-cx, py-cy)-r) <= half
+	})
+}
+
+// diagonals draws light lines from corner to corner, rising to the right, falling or both.
+func (m *mask) diagonals(rising, falling bool) {
+	w, h := float64(m.w), float64(m.h)
+	half, long := float64(strokeWidth(m.h))/2, math.Hypot(w, h)
+	m.cover(func(x, y float64) bool {
+		return rising && math.Abs(x*h+y*w-w*h) <= half*long || falling && math.Abs(x*h-y*w) <= half*long
+	})
+}
+
+// eighth is how many of size pixels n eighths are, to the nearest. A block takes the pixels before it or from it on, so
+// two that share an edge leave no gap there, at any size.
+func eighth(n, size int) int { return (size*n + 4) / 8 }
+
+// quadrants are the quarters of the cell U+2596 to U+259F fill: 1 for the upper left, 2 the upper right, 4 the lower
+// left and 8 the lower right.
+var quadrants = [...]uint8{4, 8, 1, 1 | 4 | 8, 1 | 8, 1 | 2 | 4, 1 | 2 | 8, 2, 2 | 4, 2 | 4 | 8}
+
+// block draws the block elements, the shades and the quadrants, U+2580 to U+259F. A shade is so much of the ink all
+// over, which the painter blends over the cell's own background, where gridterm dithers.
+func (m *mask) block(r rune) {
+	w, h := m.w, m.h
+	midX, midY := eighth(4, w), eighth(4, h)
 	switch {
 	case r == 0x2580: // upper half
-		m.fill(0, 0, m.w, m.h/2, 255)
-	case r >= 0x2581 && r <= 0x2587: // lower eighths, 1/8 up to 7/8
-		n := int(r-0x2581) + 1
-		m.fill(0, m.h-m.h*n/8, m.w, m.h, 255)
-	case r == 0x2588: // full block
-		m.fill(0, 0, m.w, m.h, 255)
-	case r >= 0x2589 && r <= 0x258f: // left eighths, 7/8 down to 1/8
-		n := 8 - (int(r-0x2589) + 1)
-		m.fill(0, 0, m.w*n/8, m.h, 255)
+		m.fill(0, 0, w, midY, 255)
+	case r <= 0x2588: // lower eighths, 1/8 up to the full block
+		m.fill(0, min(eighth(8-int(r-0x2580), h), h-1), w, h, 255)
+	case r <= 0x258f: // left eighths, 7/8 down to 1/8
+		m.fill(0, 0, max(eighth(8-int(r-0x2588), w), 1), h, 255)
 	case r == 0x2590: // right half
-		m.fill(m.w/2, 0, m.w, m.h, 255)
-	case r == 0x2591: // light shade
-		m.shade(0, 0, m.w, m.h, 4, 1)
-	case r == 0x2592: // medium shade
-		m.shade(0, 0, m.w, m.h, 2, 1)
-	case r == 0x2593: // dark shade
-		m.shade(0, 0, m.w, m.h, 4, 3)
+		m.fill(midX, 0, w, h, 255)
+	case r <= 0x2593: // light, medium and dark shade
+		m.fill(0, 0, w, h, uint8(255*int(r-0x2590)/4))
 	case r == 0x2594: // upper eighth
-		m.fill(0, 0, m.w, max(m.h/8, 1), 255)
+		m.fill(0, 0, w, max(eighth(1, h), 1), 255)
 	case r == 0x2595: // right eighth
-		m.fill(m.w-max(m.w/8, 1), 0, m.w, m.h, 255)
+		m.fill(min(eighth(7, w), w-1), 0, w, h, 255)
 	default:
-		return false
+		q := quadrants[r-0x2596]
+		for i := range 4 {
+			if q&(1<<i) == 0 {
+				continue
+			}
+			x, y := span{0, midX}, span{0, midY}
+			if i&1 != 0 {
+				x = span{midX, w}
+			}
+			if i&2 != 0 {
+				y = span{midY, h}
+			}
+			m.fill(x.lo, y.lo, x.hi, y.hi, 255)
+		}
 	}
-	return true
+}
+
+// separator draws the Powerline separators: the triangles, the half circles and the cut corners, filled, and as the
+// line along their edge. Each fills its cell's height, and its flat side the whole of the cell's edge.
+func (m *mask) separator(r rune) {
+	w, h := float64(m.w), float64(m.h)
+	t := float64(strokeWidth(m.h))
+	// flip turns the character that points right into the one that points left.
+	flip := func(inside func(x, y float64) bool) func(x, y float64) bool {
+		return func(x, y float64) bool { return inside(w-x, y) }
+	}
+	arrow := func(x, y float64) bool { return x*h/2 <= min(y, h-y)*w }
+	arrowLine := func(x, y float64) bool {
+		return math.Abs(x*h/2-min(y, h-y)*w) <= t/2*math.Hypot(w, h/2)
+	}
+	ellipse := func(x, y, rx, ry float64) bool {
+		return rx > 0 && ry > 0 && x*x/(rx*rx)+(y-h/2)*(y-h/2)/(ry*ry) <= 1
+	}
+	round := func(x, y float64) bool { return ellipse(x, y, w, h/2) }
+	roundLine := func(x, y float64) bool { return round(x, y) && !ellipse(x, y, w-t, h/2-t) }
+	switch r {
+	case 0xe0b0:
+		m.cover(arrow)
+	case 0xe0b1:
+		m.cover(arrowLine)
+	case 0xe0b2:
+		m.cover(flip(arrow))
+	case 0xe0b3:
+		m.cover(flip(arrowLine))
+	case 0xe0b4:
+		m.cover(round)
+	case 0xe0b5:
+		m.cover(roundLine)
+	case 0xe0b6:
+		m.cover(flip(round))
+	case 0xe0b7:
+		m.cover(flip(roundLine))
+	case 0xe0b8: // the lower left corner
+		m.cover(func(x, y float64) bool { return y*w >= x*h })
+	case 0xe0ba: // the lower right
+		m.cover(func(x, y float64) bool { return y*w >= (w-x)*h })
+	case 0xe0bc: // the upper left
+		m.cover(func(x, y float64) bool { return y*w <= (w-x)*h })
+	case 0xe0be: // the upper right
+		m.cover(func(x, y float64) bool { return y*w <= x*h })
+	case 0xe0b9, 0xe0bf:
+		m.diagonals(false, true)
+	case 0xe0bb, 0xe0bd:
+		m.diagonals(true, false)
+	}
 }
