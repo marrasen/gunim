@@ -12,10 +12,14 @@
 #include "glue.h"
 
 static JavaVM *vm;
+// nativeClass is stored once what Go needs to call Java is ready, the
+// VM and every method's ID: a package's init runs on a thread of its
+// own as the library loads, and may call before then. What an init can
+// call asks javaReady first.
 static jclass nativeClass;
 static jmethodID midPermitted, midAsk, midUserFolder, midChooseFolder, midChooseFiles;
 static jmethodID midNowPlaying, midShowKeyboard, midCaret, midBuzz, midFingers, midAwake, midShare, midVibrate, midExclude, midOpenLink, midTextState, midClearTextState, midGetClipboard, midSetClipboard, midFinish;
-static jmethodID midHasCompass, midWatchHeading;
+static jmethodID midHasCompass, midWatchHeading, midNoBackupDir;
 static jclass audioClass;
 static jmethodID midAudioRoute, midAudioProbe, midAudioWatch;
 
@@ -31,7 +35,6 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *v, void *reserved) {
 	if (c == NULL) {
 		return -1;
 	}
-	nativeClass = (*env)->NewGlobalRef(env, c);
 	midShowKeyboard = (*env)->GetStaticMethodID(env, c, "showKeyboard", "(Z)V");
 	midNowPlaying = (*env)->GetStaticMethodID(env, c, "nowPlaying",
 		"(ZZLjava/lang/String;Ljava/lang/String;Ljava/lang/String;JJ[B)V");
@@ -53,6 +56,7 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *v, void *reserved) {
 	midPermitted = (*env)->GetStaticMethodID(env, c, "permitted", "(I)Z");
 	midAsk = (*env)->GetStaticMethodID(env, c, "ask", "(II)V");
 	midUserFolder = (*env)->GetStaticMethodID(env, c, "userFolder", "(I)Ljava/lang/String;");
+	midNoBackupDir = (*env)->GetStaticMethodID(env, c, "noBackupDir", "()Ljava/lang/String;");
 	midChooseFolder = (*env)->GetStaticMethodID(env, c, "chooseFolder", "(I)V");
 	midChooseFiles = (*env)->GetStaticMethodID(env, c, "chooseFiles", "(IZLjava/lang/String;)V");
 	jclass ac = (*env)->FindClass(env, "gunim/android/GunimAudio");
@@ -64,8 +68,12 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *v, void *reserved) {
 	} else {
 		(*env)->ExceptionClear(env);
 	}
+	__atomic_store_n(&nativeClass, (jclass)(*env)->NewGlobalRef(env, c), __ATOMIC_RELEASE);
 	return JNI_VERSION_1_6;
 }
+
+// javaReady reports whether Go may call Java.
+static int javaReady(void) { return __atomic_load_n(&nativeClass, __ATOMIC_ACQUIRE) != NULL; }
 
 // envGet returns the calling thread's JNIEnv, attaching the thread to
 // the VM when it is a thread of Go's, and envPut detaches it again.
@@ -83,6 +91,20 @@ static void envPut(int attached) {
 	if (attached) {
 		(*vm)->DetachCurrentThread(vm);
 	}
+}
+
+// takeString returns a copy of s, n UTF-16 units of it for the caller to
+// free, or NULL for a null s. It lets go of s.
+static uint16_t *takeString(JNIEnv *env, jstring s, int *n) {
+	*n = 0;
+	if (s == NULL) {
+		return NULL;
+	}
+	*n = (*env)->GetStringLength(env, s);
+	uint16_t *out = malloc((*n + 1) * sizeof(uint16_t));
+	(*env)->GetStringRegion(env, s, 0, *n, (jchar *)out);
+	(*env)->DeleteLocalRef(env, s);
+	return out;
 }
 
 void gunim_show_keyboard(int show) {
@@ -149,14 +171,7 @@ uint16_t *gunim_get_clipboard(int *n) {
 	int a;
 	JNIEnv *env = envGet(&a);
 	jstring s = (jstring)(*env)->CallStaticObjectMethod(env, nativeClass, midGetClipboard);
-	uint16_t *out = NULL;
-	*n = 0;
-	if (s != NULL) {
-		*n = (*env)->GetStringLength(env, s);
-		out = malloc((*n + 1) * sizeof(uint16_t));
-		(*env)->GetStringRegion(env, s, 0, *n, (jchar *)out);
-		(*env)->DeleteLocalRef(env, s);
-	}
+	uint16_t *out = takeString(env, s, n);
 	envPut(a);
 	return out;
 }
@@ -233,14 +248,19 @@ uint16_t *gunim_user_folder(int f, int *n) {
 	int a;
 	JNIEnv *env = envGet(&a);
 	jstring s = (jstring)(*env)->CallStaticObjectMethod(env, nativeClass, midUserFolder, f);
-	uint16_t *out = NULL;
-	*n = 0;
-	if (s != NULL) {
-		*n = (*env)->GetStringLength(env, s);
-		out = malloc((*n + 1) * sizeof(uint16_t));
-		(*env)->GetStringRegion(env, s, 0, *n, (jchar *)out);
-		(*env)->DeleteLocalRef(env, s);
+	uint16_t *out = takeString(env, s, n);
+	envPut(a);
+	return out;
+}
+
+uint16_t *gunim_no_backup_dir(int *n) {
+	if (!javaReady()) {
+		return NULL;
 	}
+	int a;
+	JNIEnv *env = envGet(&a);
+	jstring s = (jstring)(*env)->CallStaticObjectMethod(env, nativeClass, midNoBackupDir);
+	uint16_t *out = takeString(env, s, n);
 	envPut(a);
 	return out;
 }
@@ -595,7 +615,7 @@ void gunim_log(const char *line) {
 // returns into r, n at most. It returns how many it copied, or 0 where
 // the call failed.
 static int ints(jmethodID mid, int arg, int *r, int n) {
-	if (audioClass == NULL || mid == NULL) {
+	if (!javaReady() || audioClass == NULL || mid == NULL) {
 		return 0;
 	}
 	int a;
@@ -628,7 +648,7 @@ int gunim_audio_watch(void) {
 	if (__atomic_load_n(&audioWatching, __ATOMIC_ACQUIRE)) {
 		return 1;
 	}
-	if (audioClass == NULL || midAudioWatch == NULL) {
+	if (!javaReady() || audioClass == NULL || midAudioWatch == NULL) {
 		return 0;
 	}
 	int a;

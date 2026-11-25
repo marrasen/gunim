@@ -264,6 +264,13 @@ public final class Native {
 		return null;
 	}
 
+	// noBackupDir returns the program's folder that Android keeps out of
+	// backups, which it makes the first time, or null.
+	static String noBackupDir() {
+		java.io.File dir = app == null ? null : app.getNoBackupFilesDir();
+		return dir == null ? null : dir.getPath();
+	}
+
 	// fingers says each finger is a finger of its own, and a second one
 	// starts no pinch. Go sets it through takeFingers to what the window the
 	// touch started in takes, as each touch starts.

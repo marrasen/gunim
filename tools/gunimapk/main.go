@@ -21,12 +21,63 @@
 // program turns with the phone.
 //
 // -permissions names what the program may do beyond drawing, sound and
-// a light buzz: music, to read the phone's music once the user lets it,
-// microphone, to record once the user lets it,
-// and playback, to play on in the background, in the system's media
-// controls, as gunim's App.SetNowPlaying asks. Google Play asks the
-// developer why an app plays in the background, so leave playback out
-// of a program that only makes sound while it is in front, as a game.
+// a light buzz:
+//
+//   - music, to read the phone's music once the user lets it
+//   - microphone, to record once the user lets it
+//   - camera, to see through the camera once the user lets it
+//   - notifications, to notify once the user lets it, from Android 13
+//   - internet, to reach the network, which a program without it can't
+//   - network-state, to hear which networks there are
+//   - jobs, to start a transfer the user asks for that goes on in the
+//     background, a user-initiated job, from Android 14
+//   - boot, to run after the phone restarts, as a job that outlives a
+//     restart does
+//   - hide-overlays, to hide other apps' windows over its own, from
+//     Android 12
+//   - playback, to play on in the background, in the system's media
+//     controls, as gunim's App.SetNowPlaying asks
+//
+// Google Play asks the developer why an app plays in the background, so
+// leave playback out of a program that only makes sound while it is in
+// front, as a game.
+//
+// # What else the manifest says
+//
+// -manifest names a file of the program's own parts of the manifest, for
+// what gunimapk has no flag for. It is a manifest itself, with the
+// program's parts alone:
+//
+//	<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+//		<uses-permission android:name="android.permission.NFC"/>
+//		<application android:manageSpaceActivity="com.example.notes.Space">
+//			<service android:name="com.example.notes.Sync" android:exported="false"/>
+//			<provider android:name="com.example.notes.Pages" android:exported="false"
+//				android:authorities="${applicationId}.pages"/>
+//		</application>
+//	</manifest>
+//
+// What stands beside the application goes beside gunim's, what it holds
+// goes in gunim's, and its attributes join gunim's own. ${applicationId}
+// stands for the application ID. Write a class with its package, as the
+// application ID is another in a debug build with -debug-id.
+//
+// -min-sdk is the oldest Android the program runs on, by its API level:
+// 26, Android 8.0, which is the oldest gunim runs on, by default. 34 is
+// Android 14.
+//
+// # The program's files
+//
+// Android backs up what a program keeps, to the user's account and to a
+// phone the user moves to. -backup=false keeps the program's files out
+// of both, and out of a move to another kind of phone: it sets
+// allowBackup to false, and writes extraction rules that leave out
+// everything, since allowBackup alone lets a move to another phone
+// through. driver/android's NoBackupDir is a folder that is never backed
+// up, for a program that keeps some files out and not the rest.
+//
+// -keep-data has Android offer, as the user uninstalls the program, to
+// keep what it stored for a later install, from Android 10.
 //
 // -opens names file extensions the program opens, comma separated, as
 // .hej,.hejprop. Android then offers the program under "Open with" and in
@@ -47,6 +98,11 @@
 // ~/.android/debug.keystore, which gunimapk makes the first time.
 // It is named for its commit and the time it was built, and shows that
 // name as it starts.
+//
+// -debug-id gives a debug build an application ID of its own, so that it
+// installs beside the release build and shares nothing with it:
+//
+//	go run ./tools/gunimapk -id com.example.calculator -debug-id com.example.calculator.debug -run ./example/calculator
 //
 // -keystore signs with a key of your own and makes a release build,
 // closed to debuggers. Android installs an update only when it is
@@ -129,13 +185,13 @@ import (
 	"github.com/marrasen/gunim/driver/android/java"
 )
 
-// minSDK is the oldest Android the APK runs on: 8.0. targetSDK is the
-// one it is built for, Android 16, which Google Play asks of new apps
+// oldestSDK is the oldest Android a program can run on, and does unless
+// -min-sdk names a newer: 8.0. targetSDK is the one it is built for, Android 16, which Google Play asks of new apps
 // and updates since 31 August 2026. An app built for it draws under the
 // system bars, which the driver does, and hears the back gesture
 // through a callback, which GunimActivity registers.
 const (
-	minSDK    = 26
+	oldestSDK = 26
 	targetSDK = 36
 )
 
@@ -152,11 +208,16 @@ func main() {
 	log.SetPrefix("gunimapk: ")
 	out := flag.String("o", "", "the APK to write, or the App Bundle for Google Play, ending .aab; the package's name and .apk by default")
 	id := flag.String("id", "", "the application ID; org.gunim.<name> by default")
+	debugID := flag.String("debug-id", "", "the application ID of a debug build, to install beside the release build; -id by default")
 	name := flag.String("name", "", "the application's label; the package's name by default")
 	version := flag.String("version", "", "the version name users see, as 1.0.0; the commit and the time it was built by default")
 	iconPNG := flag.String("icon", "", "a PNG file for the launcher's icon, square, 288 pixels or more")
 	iconBG := flag.String("icon-background", "", "the colour under the launcher's icon, as #rrggbb; the colour of the icon's edge by default")
-	permList := flag.String("permissions", "", "what the program may do beyond drawing and sound, comma separated: music, to read the phone's music, microphone, to record, and playback, to play on in the background with the system's media controls")
+	permList := flag.String("permissions", "", "what the program may do beyond drawing and sound, comma separated, of "+strings.Join(permissionNames(), ", "))
+	manifest := flag.String("manifest", "", "a manifest of the program's own parts, as its services, to add to the APK's")
+	minSDK := flag.Int("min-sdk", oldestSDK, "the oldest Android the program runs on, by its API level")
+	backup := flag.Bool("backup", true, "let Android back up the program's files, and take them to the user's next phone")
+	keepData := flag.Bool("keep-data", false, "have Android offer to keep the program's data as the user uninstalls it")
 	category := flag.String("category", "", "what kind of app the program is, by Android's name, as game; a game keeps -orientation on a tablet")
 	opensList := flag.String("opens", "", "file extensions the program opens through \"Open with\" and the share sheet, comma separated, as .hej,.hejprop")
 	orientation := flag.String("orientation", "", "hold the screen one way, by Android's name, as portrait or landscape; it turns with the phone by default")
@@ -196,7 +257,7 @@ func main() {
 		perms = strings.Split(*permList, ",")
 		for _, p := range perms {
 			if _, ok := permissions[p]; !ok {
-				log.Fatalf("gunimapk: no permission %q; there are music, microphone and playback", p)
+				log.Fatalf("no permission %q; there are %s", p, strings.Join(permissionNames(), ", "))
 			}
 		}
 	}
@@ -213,7 +274,15 @@ func main() {
 	if *genKey && *keystore == "" {
 		log.Fatal("-genkey needs -keystore, the file to make")
 	}
-	o := options{pkg: pkg, out: *out, id: *id, name: *name, version: *version, iconPNG: *iconPNG, iconBG: *iconBG, perms: perms,
+	if *minSDK < oldestSDK || *minSDK > targetSDK {
+		log.Fatalf("-min-sdk %d: gunim runs on %d, and the program is built for %d", *minSDK, oldestSDK, targetSDK)
+	}
+	appID := appID(*id, *debugID, *keystore != "")
+	own, oerr := readParts(*manifest, appID)
+	if oerr != nil {
+		log.Fatal(oerr)
+	}
+	o := options{pkg: pkg, out: *out, id: appID, own: own, minSDK: *minSDK, noBackup: !*backup, keepData: *keepData, name: *name, version: *version, iconPNG: *iconPNG, iconBG: *iconBG, perms: perms,
 		opens: opens, orientation: *orientation, category: *category, abis: strings.Split(*abiList, ","), keystore: *keystore, keyAlias: *keyAlias, genKey: *genKey,
 		install: *install || *run, start: *run}
 	err := buildAPK(ctx, o)
@@ -231,6 +300,13 @@ type options struct {
 	// iconPNG is the launcher's icon, and iconBG the colour under it.
 	iconPNG, iconBG string
 	perms, abis     []string
+	// own are the program's own parts of the manifest.
+	own parts
+	// minSDK is the oldest Android the program runs on.
+	minSDK int
+	// noBackup keeps the program's files out of Android's backups, and
+	// keepData offers to keep them as it is uninstalled.
+	noBackup, keepData bool
 	// opens are the file extensions the program opens, as .hej.
 	opens []string
 	// orientation is Android's name for the one way the screen is held,
@@ -389,43 +465,22 @@ func androidrcSDK(rc, userHome string) string {
 
 // build writes the APK o asks for.
 func (b *builder) build(o options) error {
-	pkg := o.pkg
 	var libs []string
 	for _, abi := range o.abis {
-		lib, err := b.goLib(pkg, abi)
+		lib, err := b.goLib(o.pkg, abi, o.minSDK)
 		if err != nil {
 			return err
 		}
 		libs = append(libs, lib)
 	}
-	dex, dexErr := b.dex()
+	dex, dexErr := b.dex(o.minSDK)
 	if dexErr != nil {
 		return dexErr
 	}
-	manifest := filepath.Join(b.tmp, "AndroidManifest.xml")
-	if err := os.WriteFile(manifest, []byte(manifestFor(o)), 0o644); err != nil {
-		return err
+	link, linkErr := b.linkArgs(o)
+	if linkErr != nil {
+		return linkErr
 	}
-	var res []string
-	if o.iconPNG != "" {
-		compiled, iconErr := b.icon(o.iconPNG, o.iconBG)
-		if iconErr != nil {
-			return iconErr
-		}
-		res = append(res, compiled)
-	}
-	version := o.version
-	if version == "" {
-		version = versionOf(b.ctx, pkg)
-	}
-	link := []string{"-I", b.androidJar,
-		"--manifest", manifest, "--min-sdk-version", strconv.Itoa(minSDK),
-		"--target-sdk-version", strconv.Itoa(targetSDK), "--version-code", strconv.FormatInt(time.Now().Unix()/60, 10),
-		"--version-name", version}
-	if !o.release() {
-		link = append(link, "--debug-mode")
-	}
-	link = append(link, res...)
 	files := []packed{{"classes.dex", dex}}
 	for _, lib := range libs {
 		rel, err := filepath.Rel(b.tmp, lib)
@@ -462,6 +517,34 @@ func (b *builder) build(o options) error {
 	}
 	return b.tool(apksigner, "sign", "--ks", ks, "--ks-pass", "pass:android",
 		"--key-pass", "pass:android", "--out", o.out, aligned)
+}
+
+// linkArgs writes the manifest and the resources o asks for, and returns
+// aapt2's arguments to link them, after the output.
+func (b *builder) linkArgs(o options) ([]string, error) {
+	manifest := filepath.Join(b.tmp, "AndroidManifest.xml")
+	if err := os.WriteFile(manifest, []byte(manifestFor(o)), 0o644); err != nil {
+		return nil, err
+	}
+	version := o.version
+	if version == "" {
+		version = versionOf(b.ctx, o.pkg)
+	}
+	link := []string{"-I", b.androidJar,
+		"--manifest", manifest, "--min-sdk-version", strconv.Itoa(o.minSDK),
+		"--target-sdk-version", strconv.Itoa(targetSDK), "--version-code", strconv.FormatInt(time.Now().Unix()/60, 10),
+		"--version-name", version}
+	if !o.release() {
+		link = append(link, "--debug-mode")
+	}
+	res, err := b.resources(o)
+	if err != nil {
+		return nil, err
+	}
+	if res != "" {
+		link = append(link, res)
+	}
+	return link, nil
 }
 
 // signArgs returns apksigner's arguments to sign apk into out with the
@@ -661,16 +744,19 @@ func (b *builder) genKey(keystore, alias string) error {
 		"-alias", alias, "-keyalg", "RSA", "-keysize", "4096", "-validity", "10000")
 }
 
-// goLib builds pkg as lib/<abi>/libgunim.so under the working directory.
-func (b *builder) goLib(pkg, abi string) (string, error) {
+// goLib builds pkg as lib/<abi>/libgunim.so under the working directory,
+// for Android from minSDK on.
+func (b *builder) goLib(pkg, abi string, minSDK int) (string, error) {
 	a, ok := abis[abi]
 	if !ok {
 		return "", fmt.Errorf("unknown ABI %q", abi)
 	}
 	host := runtime.GOOS + "-x86_64"
-	cc := filepath.Join(b.ndk, "toolchains", "llvm", "prebuilt", host, "bin", fmt.Sprintf("%s%d-clang", a.clang, minSDK))
+	cc := clang(filepath.Join(b.ndk, "toolchains", "llvm", "prebuilt", host, "bin"), a.clang, minSDK)
 	lib := filepath.Join(b.tmp, "lib", abi, "libgunim.so")
-	cmd := exec.CommandContext(b.ctx, "go", "build", "-buildmode=c-shared", "-trimpath", "-ldflags=-s -w", "-o", lib, pkg)
+	// An NDK before 28 lays segments out for 4 KB pages unless told.
+	ldflags := fmt.Sprintf("-ldflags=-s -w -extldflags=-Wl,-z,max-page-size=%d", pageSize)
+	cmd := exec.CommandContext(b.ctx, "go", "build", "-buildmode=c-shared", "-trimpath", ldflags, "-o", lib, pkg)
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=1", "GOOS=android", "GOARCH="+a.goarch, "CC="+cc, "CXX="+cc+"++")
 	if a.goarch == "arm" {
 		cmd.Env = append(cmd.Env, "GOARM=7")
@@ -680,6 +766,18 @@ func (b *builder) goLib(pkg, abi string) (string, error) {
 		return "", fmt.Errorf("build %s for %s: %w", pkg, abi, err)
 	}
 	return lib, checkPages(lib)
+}
+
+// clang returns the NDK's clang in bin for target, as
+// aarch64-linux-android, on Android from minSDK on. An NDK older than
+// minSDK has none for it, and the newest it has serves.
+func clang(bin, target string, minSDK int) string {
+	for level := minSDK; level >= oldestSDK; level-- {
+		if cc := filepath.Join(bin, fmt.Sprintf("%s%d-clang", target, level)); exists(cc) {
+			return cc
+		}
+	}
+	return filepath.Join(bin, fmt.Sprintf("%s%d-clang", target, minSDK))
 }
 
 // pageSize is the largest memory page Android runs on. Google Play
@@ -703,8 +801,9 @@ func checkPages(lib string) error {
 	return nil
 }
 
-// dex compiles the Java half of the driver into classes.dex.
-func (b *builder) dex() (string, error) {
+// dex compiles the Java half of the driver into classes.dex, for Android
+// from minSDK on.
+func (b *builder) dex(minSDK int) (string, error) {
 	src := filepath.Join(b.tmp, "java")
 	classes := filepath.Join(b.tmp, "classes")
 	dexDir := filepath.Join(b.tmp, "dex")
@@ -749,13 +848,24 @@ func (b *builder) dex() (string, error) {
 	return filepath.Join(dexDir, "classes.dex"), nil
 }
 
-// icon compiles the launcher's icon from a PNG, as resources for aapt2
-// to link: the adaptive icon's layers, bg under the picture, and the
-// plain icon.
-func (b *builder) icon(png, bg string) (string, error) {
+// resources compiles the resources o asks for, for aapt2 to link, or
+// returns "" for none: the launcher's icon from a PNG, as the adaptive
+// icon's layers, the background under the picture, and the plain icon;
+// and the rules that keep the program's files out of backups.
+func (b *builder) resources(o options) (string, error) {
 	res := filepath.Join(b.tmp, "res")
-	if err := adaptiveIcon(res, png, bg); err != nil {
-		return "", err
+	if o.iconPNG != "" {
+		if err := adaptiveIcon(res, o.iconPNG, o.iconBG); err != nil {
+			return "", err
+		}
+	}
+	if o.noBackup {
+		if err := writeRules(res); err != nil {
+			return "", err
+		}
+	}
+	if !exists(res) {
+		return "", nil
 	}
 	out := filepath.Join(b.tmp, "res.zip")
 	return out, b.tool(filepath.Join(b.buildTools, "aapt2"), "compile", "--dir", res, "-o", out)
@@ -883,11 +993,29 @@ func pack(out, linked string, rename func(string) string, files []packed) (err e
 // program that calls App.SetNowPlaying play on unseen, as a foreground
 // service, which Google Play asks a developer to explain; a program
 // without it plays while it is in front, and shows no media controls.
+// camera says it can do without one, so that Google Play offers the
+// program to a device with none.
 var permissions = map[string]string{
 	"music": `	<uses-permission android:name="android.permission.READ_MEDIA_AUDIO"/>
 	<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>
 `,
 	"microphone": `	<uses-permission android:name="android.permission.RECORD_AUDIO"/>
+`,
+	"camera": `	<uses-permission android:name="android.permission.CAMERA"/>
+	<uses-feature android:name="android.hardware.camera" android:required="false"/>
+	<uses-feature android:name="android.hardware.camera.autofocus" android:required="false"/>
+`,
+	"notifications": `	<uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+`,
+	"internet": `	<uses-permission android:name="android.permission.INTERNET"/>
+`,
+	"network-state": `	<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+`,
+	"jobs": `	<uses-permission android:name="android.permission.RUN_USER_INITIATED_JOBS"/>
+`,
+	"boot": `	<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+`,
+	"hide-overlays": `	<uses-permission android:name="android.permission.HIDE_OVERLAY_WINDOWS"/>
 `,
 	"playback": `	<uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
 	<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
@@ -923,7 +1051,9 @@ var orientations = []string{
 // gunim's App.SetNowPlaying, to play media on in the background. The
 // provider hands the files a program shares with gunim's Client.Share to
 // the application they go to, and the vibration permission, which the
-// system grants as the program installs, lets it run Client.Vibrate.
+// system grants as the program installs, lets it run Client.Vibrate. The
+// program's own parts, o.own, come with it, as does what o says of
+// backups and of the data an uninstall leaves.
 func manifestFor(o options) string {
 	launchMode, opensFilters := "", ""
 	if len(o.opens) > 0 {
@@ -949,6 +1079,13 @@ func manifestFor(o options) string {
 	if o.category != "" {
 		categoryAttr = ` android:appCategory="` + o.category + `"`
 	}
+	dataAttrs := ""
+	if o.noBackup {
+		dataAttrs = ` android:allowBackup="false" android:dataExtractionRules="@xml/` + rulesName + `"`
+	}
+	if o.keepData {
+		dataAttrs += ` android:hasFragileUserData="true"`
+	}
 	service := ""
 	if slices.Contains(perms, "playback") {
 		service = `		<service android:name="gunim.android.GunimService" android:exported="false"
@@ -956,10 +1093,10 @@ func manifestFor(o options) string {
 `
 	}
 	return `<?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="` + id + `">
+<manifest xmlns:android="` + androidNS + `" package="` + id + `">
 	<uses-permission android:name="android.permission.VIBRATE"/>
-` + asks.String() + `	<application android:label="` + xmlEscape(name) + `"` + iconAttr + categoryAttr + ` android:hasCode="true" android:extractNativeLibs="true"
-		android:enableOnBackInvokedCallback="true">
+` + asks.String() + o.own.beside + `	<application android:label="` + xmlEscape(name) + `"` + iconAttr + categoryAttr + ` android:hasCode="true" android:extractNativeLibs="true"
+		android:enableOnBackInvokedCallback="true"` + dataAttrs + o.own.attrs + `>
 		<activity android:name="gunim.android.GunimActivity" android:exported="true"
 			android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density"
 			android:windowSoftInputMode="adjustPan|stateAlwaysHidden"` + orientationAttr + launchMode + `
@@ -969,7 +1106,7 @@ func manifestFor(o options) string {
 				<category android:name="android.intent.category.LAUNCHER"/>
 			</intent-filter>
 ` + opensFilters + `		</activity>
-` + service + `		<provider android:name="gunim.android.GunimFiles" android:authorities="` + id + `.gunim.files"
+` + service + o.own.inside + `		<provider android:name="gunim.android.GunimFiles" android:authorities="` + id + `.gunim.files"
 			android:exported="false" android:grantUriPermissions="true"/>
 	</application>
 </manifest>

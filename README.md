@@ -544,8 +544,9 @@ user lets the screen rotate.
 A build is a debug build, signed with the debug key, unless
 `-keystore` names a key of your own. Then it is a release build. Android
 installs an update only over an APK signed with the same key, so one
-key, kept safe, signs every build from any machine. `-genkey` makes
-the key the first time:
+key, kept safe, signs every build from any machine. `-debug-id` gives a
+debug build an application ID of its own, so it installs beside the
+release build. `-genkey` makes the key the first time:
 
 ```sh
 go run ./tools/gunimapk -keystore ~/keys/calculator.jks -genkey ./example/calculator
@@ -577,6 +578,19 @@ and a desktop has it already. `gunimapk -permissions music` declares
 what the APK may ask for. `App.UserFolder` finds the user's Music
 folder, on a phone or a desktop, and a folder chooser picks a folder on
 the phone's storage or a card as a path.
+
+`-permissions` also takes `internet`, which a program needs to reach the
+network, and `camera`, `notifications`, `network-state`, `jobs`, `boot`
+and `hide-overlays`. `-manifest` names a file of the program's own parts
+of the manifest, such as its services, in Android's own form. `-min-sdk`
+sets the oldest Android the program runs on.
+
+Android backs up what a program keeps under its home, and takes it to
+the user's next phone. `android.NoBackupDir`, in `driver/android`, is a
+folder that it leaves alone, and `gunimapk -backup=false` keeps all of
+the program's files out of both. `-keep-data` has Android offer to keep
+them as the program is uninstalled. `example/backup` shows the two
+folders.
 
 `Client.ChooseFiles` shows Android's document picker and returns paths
 to copies of the files chosen, in the app's cache. `gunimapk -opens
