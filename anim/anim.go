@@ -264,7 +264,11 @@ func (a *Animated[T]) startMotion(buf *[MaxScalars]float32, m Motion) {
 	a.motion = m
 	a.active = moving
 	if !moving {
+		// At rest, with no speed left for what starts next to carry on.
 		a.motion = nil
+		for i := range a.codec.N {
+			a.state[i].Velocity = 0
+		}
 	}
 }
 

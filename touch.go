@@ -38,12 +38,15 @@ const (
 // touchPress follows a finger's press in a window: where it went down,
 // whether its moves have chosen yet, whether it became a long press,
 // and, for a scroll, where it was last, how fast it moves, in logical
-// pixels a second, and where and when that speed was last read. stopLong
-// stops the wait for a long press.
+// pixels a second, and where and when that speed was last read. at is
+// when it went down, zero for a press with no time of its own or in a
+// window that keeps time by its frames. stopLong stops the wait for a
+// long press. ripe says the press has lasted as long as one, and frames
+// how many frames are yet to be shown before it is.
 type touchPress struct {
 	root        *state
 	start, last geom.Point
-	lastAt      time.Time
+	at, lastAt  time.Time
 	chosen      bool
 	scrolling   bool
 	held        bool
@@ -51,6 +54,11 @@ type touchPress struct {
 	readAt      geom.Point
 	readTime    time.Time
 	stopLong    func()
+	ripe        bool
+	frames      int
+	// proven runs once the finger has pressed what it came down on: see
+	// [UI.OncePressed].
+	proven []func()
 }
 
 // touchFling is a scroll coasting on after the finger lifted.
@@ -82,6 +90,11 @@ type touchFling struct {
 // which opens a context menu; the device buzzes. The finger's moves go
 // on as moves with the button held, as a text field takes to choose
 // more words, and the button comes up as the finger lifts.
+//
+// How long the finger was held goes by the events' own times, so a frame
+// that takes long to draw makes a tap behind it no long press, nor a long
+// press a tap. What the finger did meanwhile may still be waiting as the
+// time is up: see [UI.ripen].
 func (u *UI) touchEvent(root *state, ev any) bool {
 	switch e := ev.(type) {
 	case input.PointerDown:
@@ -89,12 +102,21 @@ func (u *UI) touchEvent(root *state, ev any) bool {
 		u.endTouch()
 		if e.Touch && e.Button == input.ButtonPrimary {
 			t := &touchPress{root: root, start: e.Pos, last: e.Pos, lastAt: e.Time}
-			t.stopLong = u.After(longPress, func(u *UI) { u.longPress(t) })
+			wait := longPress
+			if !u.stepped && !u.byFrames && !u.onHeld && !e.Time.IsZero() {
+				t.at = e.Time
+				wait -= max(0, u.timerClock().Sub(e.Time))
+			}
+			t.stopLong = u.After(wait, func(u *UI) { u.ripen(t) })
 			u.touch = t
 		}
 	case input.PointerMove:
 		t := u.touch
-		if !e.Touch || t == nil || t.root != root || t.held {
+		if !e.Touch || t == nil || t.root != root {
+			return false
+		}
+		u.heldUntil(t, e.Time)
+		if t.held {
 			return false
 		}
 		if !t.chosen {
@@ -105,6 +127,7 @@ func (u *UI) touchEvent(root *state, ev any) bool {
 			t.chosen = true
 			t.stopLong()
 			if u.dragsTouch() {
+				u.prove(t)
 				return false
 			}
 			t.scrolling = true
@@ -131,6 +154,9 @@ func (u *UI) touchEvent(root *state, ev any) bool {
 		if t == nil || t.root != root || e.Button != input.ButtonPrimary {
 			return false
 		}
+		if e.Touch && e.Pos != input.Away {
+			u.heldUntil(t, e.Time)
+		}
 		u.endTouch()
 		switch {
 		case !e.Touch:
@@ -138,6 +164,7 @@ func (u *UI) touchEvent(root *state, ev any) bool {
 		case !t.scrolling && !t.held && e.Pos != input.Away:
 			// A tap: focus moves now, where the finger came down, to text
 			// it pressed.
+			u.prove(t)
 			if root == u.root {
 				u.focusAt(t.start, true)
 			}
@@ -156,6 +183,33 @@ func (u *UI) touchEvent(root *state, ev any) bool {
 		return true
 	}
 	return false
+}
+
+// OncePressed runs fn once the press being handled presses what is under it, for a node that acts on presses others
+// take, as an [Overhearer]: at once for a mouse's, and for a finger's as it lifts from a tap, has been held for a long
+// press, or drags what it came down on. A finger that goes on to scroll, or whose press is called off, never runs it,
+// and neither does a node gone by then.
+func (u *UI) OncePressed(fn func(u *UI)) {
+	t := u.touch
+	if t == nil || t.chosen {
+		fn(u)
+		return
+	}
+	s := u.current
+	t.proven = append(t.proven, func() {
+		if s == nil || u.index[s.node] == s && !s.leaving() {
+			u.hear(s, func() { fn(u) })
+		}
+	})
+}
+
+// prove runs what waits for t to press what it came down on.
+func (u *UI) prove(t *touchPress) {
+	fns := t.proven
+	t.proven = nil
+	for _, fn := range fns {
+		fn()
+	}
 }
 
 // endTouch forgets the finger pressing, and stops its wait for a long
@@ -178,6 +232,27 @@ func (u *UI) dragsTouch() bool {
 	return false
 }
 
+// ripen notes that t has lasted as long as a long press. A window with a
+// driver that runs on its own waits until the frame that found so has been
+// shown, with the ones before it, by when the platform has handed over
+// what the finger did up to then, as a browser does only between frames;
+// and then until that has been handled. See [Window.waitTouch].
+func (u *UI) ripen(t *touchPress) {
+	if t.at.IsZero() || u.stepped || u.byFrames || u.onHeld {
+		u.longPress(t)
+		return
+	}
+	t.ripe, t.frames = true, u.w.unshown+1
+}
+
+// heldUntil turns t into a long press where the finger was still held
+// within the slop at now, by the events' times, and that is long enough.
+func (u *UI) heldUntil(t *touchPress, now time.Time) {
+	if !t.at.IsZero() && now.Sub(t.at) >= longPress {
+		u.longPress(t)
+	}
+}
+
 // longPress turns t into a long press, if the finger still presses
 // within the slop and what it pressed is not dragging.
 func (u *UI) longPress(t *touchPress) {
@@ -185,6 +260,7 @@ func (u *UI) longPress(t *touchPress) {
 		return
 	}
 	t.chosen, t.held = true, true
+	u.prove(t)
 	now := u.timerClock()
 	u.handleRaw(t.root, input.PointerUp{Pos: input.Away, Button: input.ButtonPrimary, Touch: true, Time: now})
 	u.handleRaw(t.root, input.PointerDown{Pos: t.start, Button: input.ButtonSecondary, Clicks: 1, Touch: true, Time: now})

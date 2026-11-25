@@ -60,9 +60,10 @@ type TextArea struct {
 	laid0 bool
 
 	// para is the text as laid out, kept up as it changes, paraW the width it breaks
-	// at, and view how tall its window is, for navigating.
+	// at, pad the room round it, and view how tall its window is, for navigating.
 	para  areaText
 	paraW float32
+	pad   float32
 	view  float32
 	// followed is the caret the view last scrolled to keep in sight.
 	followed int
@@ -86,6 +87,7 @@ func NewTextArea() *TextArea {
 		Control:     newControl(),
 		dismissedAt: -1,
 		Rows:        5,
+		pad:         FieldPadding.Default(),
 		focus:       anim.NewFloat(0),
 		caretAt:     anim.NewPoint(geom.Point{}),
 		scroll:      anim.NewFloat(0),
@@ -117,7 +119,7 @@ func (a *TextArea) TakesText() bool { return true }
 
 // TextCaret implements [gunim.CaretReporter].
 func (a *TextArea) TextCaret() geom.Rect {
-	at := a.caretAt.Value().Add(a.origin(FieldPadding.Default()))
+	at := a.caretAt.Value().Add(a.origin())
 	return geom.Rc(at.X, at.Y, 1.5, a.para.lineHeight())
 }
 
@@ -125,12 +127,12 @@ func (a *TextArea) TextCaret() geom.Rect {
 // area's space.
 func (a *TextArea) caretRect(i int) geom.Rect {
 	_, at := a.para.Caret(i)
-	at = at.Add(a.origin(FieldPadding.Default()))
+	at = at.Add(a.origin())
 	return geom.Rc(at.X, at.Y, 1.5, a.para.lineHeight())
 }
 
 // hostIndex returns the rune a press at p in the area's space is before.
-func (a *TextArea) hostIndex(p geom.Point, u *gunim.UI) int { return a.indexAt(p, u) }
+func (a *TextArea) hostIndex(p geom.Point, _ *gunim.UI) int { return a.indexAt(p) }
 
 // Text returns the area's text.
 func (a *TextArea) Text() string { return a.textString() }
@@ -191,25 +193,34 @@ func (a *TextArea) Handle(e input.Event, u *gunim.UI) bool {
 	case input.PointerDown:
 		if e.Button == input.ButtonSecondary {
 			a.closeCompletion()
-			a.contextPress(a, a.indexAt(e.Pos, u), e.Pos, e.Touch, u)
+			a.contextPress(a, a.indexAt(e.Pos), e.Pos, e.Touch, u)
+			break
+		}
+		if a.fingerDown(e) {
 			break
 		}
 		a.closeHandles()
-		a.press(a.indexAt(e.Pos, u), e.Clicks, e.Mods.Has(input.ModShift), WordStops.Get(u.Theme()))
+		a.press(a.indexAt(e.Pos), e.Clicks, e.Mods.Has(input.ModShift), WordStops.Get(u.Theme()))
 		a.held = true
 		a.complete(u)
 	case input.PointerMove:
 		if a.wording {
-			a.dragWords(a.indexAt(e.Pos, u), WordStops.Get(u.Theme()))
+			a.dragWords(a.indexAt(e.Pos), WordStops.Get(u.Theme()))
 			break
 		}
 		if !a.held {
 			return false
 		}
-		a.set(a.indexAt(e.Pos, u), true)
+		a.set(a.indexAt(e.Pos), true)
 	case input.PointerUp:
 		a.held = false
 		if a.endWords(a, e.Pos, u) {
+			break
+		}
+		if d, ok := a.tapped(e.Pos); ok {
+			a.closeHandles()
+			a.press(a.indexAt(d.Pos), d.Clicks, d.Mods.Has(input.ModShift), WordStops.Get(u.Theme()))
+		} else if e.Pos == input.Away {
 			break
 		}
 		a.complete(u)
@@ -265,14 +276,14 @@ func (a *TextArea) submits(k input.KeyPress) bool {
 }
 
 // origin returns where the paragraph's top-left sits in the area.
-func (a *TextArea) origin(pad float32) geom.Point {
-	return geom.Pt(pad, pad-a.scroll.Value())
+func (a *TextArea) origin() geom.Point {
+	return geom.Pt(a.pad, a.pad-a.scroll.Value())
 }
 
 // indexAt returns the rune index a pointer at p, in the area's space,
 // puts the caret at.
-func (a *TextArea) indexAt(p geom.Point, u *gunim.UI) int {
-	return a.para.Index(p.Sub(a.origin(FieldPadding.Get(u.Theme()))))
+func (a *TextArea) indexAt(p geom.Point) int {
+	return a.para.Index(p.Sub(a.origin()))
 }
 
 // areaNav navigates an area's lines.
@@ -369,6 +380,7 @@ func (a *TextArea) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) 
 	th := f.Theme
 	a.follow(th)
 	pad := FieldPadding.Get(th)
+	a.pad = pad
 	w := c.Max.W
 	if w <= 0 {
 		w = AreaWidth.Get(th)
@@ -481,11 +493,11 @@ func (a *TextArea) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 	border := anim.Mix(anim.ColorCodec, FieldBorder.Get(th), Accent.Get(th), min(focus, 1))
 	p.RRectStroke(geom.Rect{Max: box.Point()}, radius, paint.Solid(FieldFill.Get(th)), paint.Stroke{Width: 1 + focus, Color: border})
 
-	pad := FieldPadding.Get(th)
+	pad := a.pad
 	inner := geom.Rect{Min: geom.Pt(pad/2, pad/2), Max: geom.Pt(box.W-pad/2, box.H-pad/2)}
 	defer p.Layer(paint.LayerOpts{Bounds: inner, Opacity: 1, Clip: true})()
 
-	o := a.origin(pad)
+	o := a.origin()
 	if len(a.text) == 0 && len(a.preedit) == 0 {
 		a.paintPlaceholder(p, f, o, box.W-2*pad)
 	}

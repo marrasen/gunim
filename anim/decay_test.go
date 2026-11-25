@@ -1,6 +1,7 @@
 package anim
 
 import (
+	"math"
 	"testing"
 	"time"
 )
@@ -34,5 +35,65 @@ func TestAFlingTurnsIntoABounce(t *testing.T) {
 	}
 	if v := f.Value(); v < 49.9 || v > 50.1 {
 		t.Fatalf("settled at %v, want 50", v)
+	}
+}
+
+// TestAKickSwingsOutAndBack: each time, from rest and from a swing, wherever it rests.
+func TestAKickSwingsOutAndBack(t *testing.T) {
+	sp := Spring{Response: 0.4, Damping: 0.4}
+	for _, rest := range []float32{0, 5} {
+		f := NewFloat(rest)
+		for turn := range 3 {
+			at := f.Value()
+			Kick(f, 2*math.Pi/0.4, sp)
+			if f.Value() != at || f.Target() != rest || !f.Active() {
+				t.Fatalf("kick %d moved it from %v to %v at once, heading for %v", turn, at, f.Value(), f.Target())
+			}
+			most, frames := float32(0), 0
+			for f.Step(time.Second / 60) {
+				// The third comes as the second swings.
+				frames++
+				if turn == 1 && frames == 8 {
+					break
+				}
+				most = max(most, f.Value()-rest)
+			}
+			if most < 0.4 || most > 1 {
+				t.Errorf("kick %d, resting at %v, swung out %v, want under 1 and more than 0.4", turn, rest, most)
+			}
+		}
+		if f.Value() != rest || f.Active() {
+			t.Errorf("it came to rest at %v, want %v", f.Value(), rest)
+		}
+	}
+}
+
+func TestAKickWithNoMotionStaysWhereItIs(t *testing.T) {
+	f := NewFloat(3)
+	f.Animate(4, Gentle)
+	Kick(f, 10, Spring{})
+	if f.Value() != 4 || f.Active() {
+		t.Errorf("under a spring that takes no time it is at %v, moving %v", f.Value(), f.Active())
+	}
+	scaledTo(t, 0)
+	Kick(f, 10, Gentle)
+	if f.Value() != 4 || f.Active() {
+		t.Errorf("with animation off it is at %v, moving %v", f.Value(), f.Active())
+	}
+}
+
+// TestHeadingWhereItIsLeavesNoSpeed: for what starts next to carry on.
+func TestHeadingWhereItIsLeavesNoSpeed(t *testing.T) {
+	f, want := NewFloat(0), NewFloat(0)
+	Fling(f, -500, Decay{})
+	f.Retarget(0, Gentle)
+	f.Animate(1, Gentle)
+	want.Animate(1, Gentle)
+	for range 20 {
+		f.Step(time.Second / 60)
+		want.Step(time.Second / 60)
+		if f.Value() != want.Value() {
+			t.Fatalf("it is at %v, want %v", f.Value(), want.Value())
+		}
 	}
 }

@@ -3,6 +3,8 @@
 package web_test
 
 import (
+	"fmt"
+	"slices"
 	"syscall/js"
 	"testing"
 	"time"
@@ -15,13 +17,17 @@ import (
 )
 
 // shell is a node that claims the keys as a terminal does: Ctrl+Shift+V pastes and
-// Ctrl+Shift+C copies, and with text it takes typing, as it comes.
+// Ctrl+Shift+C copies, and with text it takes typing, as it comes. heard is what an
+// input method and the keys brought it, in order.
 type shell struct {
 	text  bool
 	keys  []input.KeyPress
 	typed string
 	read  []string
+	heard []string
 }
+
+var keyNames = map[input.Key]string{input.KeyBackspace: "Backspace", input.KeyDelete: "Delete", input.KeyEnter: "Enter"}
 
 func (s *shell) Layout(c gunim.Constraints, _ gunim.Frame, _ gunim.Children) geom.Size { return c.Max }
 func (s *shell) Paint(*paint.Painter, gunim.Frame, geom.Size, gunim.Children)          {}
@@ -33,6 +39,11 @@ func (s *shell) Handle(e input.Event, u *gunim.UI) bool {
 	switch e := e.(type) {
 	case input.KeyPress:
 		s.keys = append(s.keys, e)
+		name := keyNames[e.Key]
+		if e.Char != 0 {
+			name = string(e.Char)
+		}
+		s.heard = append(s.heard, "key "+name)
 		switch {
 		case e.Mods == input.ModControl|input.ModShift && e.Char == 'v':
 			text, err := u.ReadClipboard()
@@ -46,6 +57,14 @@ func (s *shell) Handle(e input.Event, u *gunim.UI) bool {
 		return true
 	case input.TextInput:
 		s.typed += e.Text
+		s.heard = append(s.heard, "text "+e.Text)
+		return true
+	case input.Composing:
+		h := "composing " + e.Text
+		if e.Selected != [2]int{len(e.Text), len(e.Text)} {
+			h += fmt.Sprint(" ", e.Selected)
+		}
+		s.heard = append(s.heard, h)
 		return true
 	case input.PointerDown:
 		return true
@@ -136,4 +155,176 @@ func TestATerminalInTheBrowser(t *testing.T) {
 		write.Release()
 		asked.Release()
 	}
+}
+
+// shellAt starts a shell that takes text, with the keyboard, and returns a function that
+// checks what it has heard since, and that the mirror holds nothing then.
+func shellAt(t *testing.T) (k *typist, heard func(step string, want ...string)) {
+	t.Helper()
+	sh := &shell{text: true}
+	k = &typist{t: t, d: show(t, sh)}
+	for give := time.Now().Add(20 * time.Second); !k.d.Mirror().Equal(activeElement()); time.Sleep(20 * time.Millisecond) {
+		click(k.d, 40, 20)
+		if time.Now().After(give) {
+			t.Fatal("the shell never took the keyboard")
+		}
+	}
+	// The claim comes with the focus, at the latest by the next frame.
+	for give := time.Now().Add(20 * time.Second); !down("r", "KeyR", "ctrlKey"); time.Sleep(20 * time.Millisecond) {
+		if time.Now().After(give) {
+			t.Fatal("Ctrl+R stays the browser's")
+		}
+	}
+	sh.heard = nil
+	return k, func(step string, want ...string) {
+		t.Helper()
+		if !slices.Equal(sh.heard, want) {
+			t.Fatalf("%s: the shell heard %q, want %q", step, sh.heard, want)
+		}
+		sh.heard = nil
+		if v := k.d.Mirror().Get("value").String(); len(want) > 0 && want[len(want)-1][0] != 'c' && v != "" {
+			t.Fatalf("%s: the mirror holds %q", step, v)
+		}
+	}
+}
+
+// TestATerminalHearsWhatIsComposed: it keeps no text for the mirror to hold, and shows
+// what an input method composes by [input.Composing], as on a desktop.
+func TestATerminalHearsWhatIsComposed(t *testing.T) {
+	k, heard := shellAt(t)
+	m := k.d.Mirror()
+	for _, round := range []string{"first", "again"} {
+		c := compose(m)
+		heard(round + ", as it starts")
+		c.step("k")
+		heard(round+", composing", "composing k")
+		c.step("日本")
+		m.Call("setSelectionRange", 0, 1)
+		m.Call("dispatchEvent", eventOf("InputEvent", "input", map[string]any{"inputType": "insertCompositionText", "data": "日本", "isComposing": true}))
+		heard(round+", converting", "composing 日本", "composing 日本 [0 3]")
+		// The keys are the input method's while it composes.
+		for _, e := range []map[string]any{
+			{"key": "Process", "code": "Enter"},
+			{"key": "Enter", "code": "Enter", "isComposing": true},
+			{"key": "c", "code": "KeyC", "ctrlKey": true, "isComposing": true},
+		} {
+			key := eventOf("KeyboardEvent", "keydown", e)
+			m.Call("dispatchEvent", key)
+			if key.Get("defaultPrevented").Bool() {
+				t.Errorf("%s: the input method's key %v is cancelled", round, e)
+			}
+		}
+		heard(round + ", keys of the input method's")
+		c.end("日本")
+		heard(round+", composed", "composing ", "text 日本")
+	}
+	// Firefox says what was composed once more, after the composition.
+	m.Call("dispatchEvent", eventOf("InputEvent", "input", map[string]any{"inputType": "insertCompositionText", "data": "日本"}))
+	heard("an input event after it")
+	// Safari takes the composition out and puts the text in, before its end.
+	c := compose(m)
+	c.step("ka")
+	c.step("")
+	c.step("か")
+	c.end("か")
+	heard("composed as Safari does", "composing ka", "composing ", "composing か", "composing ", "text か")
+	// What is dropped leaves nothing, whether or not it is emptied first.
+	c = compose(m)
+	c.step("ni")
+	c.step("")
+	c.end("")
+	heard("dropped", "composing ni", "composing ")
+	c = compose(m)
+	c.step("ni")
+	m.Set("value", "")
+	c.end("")
+	heard("dropped at once", "composing ni", "composing ")
+	// Two with nothing between, as Korean's syllables come.
+	c = compose(m)
+	c.step("한")
+	c.end("한")
+	c = compose(m)
+	c.step("그")
+	c.end("그")
+	heard("two in a row", "composing 한", "composing ", "text 한", "composing 그", "composing ", "text 그")
+	// The program still has Ctrl+C, and Ctrl+V, which the browser pastes on.
+	if !down("c", "KeyC", "ctrlKey") {
+		t.Error("Ctrl+C is the browser's")
+	}
+	heard("Ctrl+C", "key c")
+	if !web.OnApple() {
+		if down("v", "KeyV", "ctrlKey") {
+			t.Error("Ctrl+V is cancelled, so the browser pastes nothing")
+		}
+		heard("Ctrl+V", "key v")
+	}
+}
+
+// TestATerminalOnASoftKeyboard: one composes every word, and sends keys with no name.
+func TestATerminalOnASoftKeyboard(t *testing.T) {
+	k, heard := shellAt(t)
+	m := k.d.Mirror()
+	unnamed := func() {
+		m.Call("dispatchEvent", eventOf("KeyboardEvent", "keydown", map[string]any{"key": "Unidentified", "code": ""}))
+	}
+	word := func(steps ...string) *composer {
+		c := compose(m)
+		for _, s := range steps {
+			unnamed()
+			c.step(s)
+		}
+		return c
+	}
+	c := word("l", "ls", "l", "ls")
+	heard("a word", "composing l", "composing ls", "composing l", "composing ls")
+	c.end("ls")
+	k.insert(" ")
+	heard("a space after it", "composing ", "text ls", "text  ")
+	c = word("a", "")
+	c.end("")
+	heard("a word rubbed out", "composing a", "composing ")
+	k.key("Backspace", "")
+	heard("backspace on an empty line", "key Backspace")
+	for range 2 {
+		unnamed()
+		for kind, want := range map[string]string{"deleteContentBackward": "key Backspace", "deleteContentForward": "key Delete"} {
+			e := eventOf("InputEvent", "beforeinput", map[string]any{"inputType": kind})
+			m.Call("dispatchEvent", e)
+			if !e.Get("defaultPrevented").Bool() {
+				t.Errorf("%s is the browser's", kind)
+			}
+			heard(kind, want)
+		}
+	}
+	// A delete in a composition is the composition's.
+	c = word("ab")
+	m.Call("dispatchEvent", eventOf("InputEvent", "beforeinput", map[string]any{"inputType": "deleteContentBackward"}))
+	c.step("a")
+	c.end("a")
+	heard("a delete in a composition", "composing ab", "composing a", "composing ", "text a")
+	k.key("Enter", "")
+	heard("enter", "key Enter")
+}
+
+// TestATerminalLosingTheKeyboardMidCompositionKeepsNothingOfIt: the next composition
+// starts from nothing.
+func TestATerminalLosingTheKeyboardMidCompositionKeepsNothingOfIt(t *testing.T) {
+	k, heard := shellAt(t)
+	m := k.d.Mirror()
+	c := compose(m)
+	c.step("ni")
+	// The browser ends it, with what there is, as the focus leaves.
+	m.Call("blur")
+	c.end("ni")
+	heard("left", "composing ni", "composing ", "text ni")
+	for give := time.Now().Add(20 * time.Second); !m.Equal(activeElement()); time.Sleep(20 * time.Millisecond) {
+		click(k.d, 40, 20)
+		if time.Now().After(give) {
+			t.Fatal("the shell never took the keyboard back")
+		}
+	}
+	c = compose(m)
+	c.step("ka")
+	c.end("か")
+	heard("back", "composing ka", "composing ", "text ka")
 }

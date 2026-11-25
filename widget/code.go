@@ -313,7 +313,14 @@ func (c *CodeEditor) Replace(s string, u *gunim.UI) {
 }
 
 // SetReadOnly makes the code read only, or editable again.
-func (c *CodeEditor) SetReadOnly(on bool) { c.readOnly = on }
+// It may turn read only while it has the keyboard: what is being
+// composed goes, and a phone's keyboard with it.
+func (c *CodeEditor) SetReadOnly(on bool) {
+	if on {
+		c.compose(input.Composing{})
+	}
+	c.readOnly = on
+}
 
 // ReadOnly reports whether the code is read only.
 func (c *CodeEditor) ReadOnly() bool { return c.readOnly }
@@ -471,6 +478,9 @@ func (c *CodeEditor) Handle(e input.Event, u *gunim.UI) bool {
 			c.contextPress(c, c.indexAt(e.Pos), e.Pos, e.Touch, u)
 			break
 		}
+		if c.fingerDown(e) {
+			break
+		}
 		c.closeHandles()
 		c.press(c.indexAt(e.Pos), e.Clicks, e.Mods.Has(input.ModShift), WordStops.Get(u.Theme()))
 		c.held = true
@@ -485,7 +495,13 @@ func (c *CodeEditor) Handle(e input.Event, u *gunim.UI) bool {
 		c.set(c.indexAt(e.Pos), true)
 	case input.PointerUp:
 		c.held = false
-		c.endWords(c, e.Pos, u)
+		if c.endWords(c, e.Pos, u) {
+			break
+		}
+		if d, ok := c.tapped(e.Pos); ok {
+			c.closeHandles()
+			c.press(c.indexAt(d.Pos), d.Clicks, d.Mods.Has(input.ModShift), WordStops.Get(th))
+		}
 	case input.Scroll:
 		dx, dy := e.Delta.X, e.Delta.Y
 		if e.Mods.Has(input.ModShift) && dx == 0 {

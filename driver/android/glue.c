@@ -62,7 +62,7 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *v, void *reserved) {
 	midOpenLink = (*env)->GetStaticMethodID(env, c, "openLink", "(Ljava/lang/String;)Z");
 	midHasCompass = (*env)->GetStaticMethodID(env, c, "hasCompass", "()Z");
 	midWatchHeading = (*env)->GetStaticMethodID(env, c, "watchHeading", "(Z)V");
-	midTextState = (*env)->GetStaticMethodID(env, c, "textState", "([CIIIIIZZJ)V");
+	midTextState = (*env)->GetStaticMethodID(env, c, "textState", "([CIIIIIZZZJ)V");
 	midClearTextState = (*env)->GetStaticMethodID(env, c, "clearTextState", "()V");
 	midGetClipboard = (*env)->GetStaticMethodID(env, c, "getClipboard", "()Ljava/lang/String;");
 	midSetClipboard = (*env)->GetStaticMethodID(env, c, "setClipboard", "(Ljava/lang/String;)V");
@@ -167,13 +167,13 @@ void gunim_caret(int x0, int y0, int x1, int y1) {
 }
 
 void gunim_text_state(const uint16_t *text, int n, int start, int selA, int selB, int compA, int compB,
-	int multiline, int secret, long long seq) {
+	int multiline, int secret, int raw, long long seq) {
 	int a;
 	JNIEnv *env = envGet(&a);
 	jcharArray chars = (*env)->NewCharArray(env, n);
 	(*env)->SetCharArrayRegion(env, chars, 0, n, (const jchar *)text);
 	(*env)->CallStaticVoidMethod(env, nativeClass, midTextState, chars, start, selA, selB, compA, compB,
-		(jboolean)(multiline != 0), (jboolean)(secret != 0), (jlong)seq);
+		(jboolean)(multiline != 0), (jboolean)(secret != 0), (jboolean)(raw != 0), (jlong)seq);
 	(*env)->DeleteLocalRef(env, chars);
 	envPut(a);
 }

@@ -234,11 +234,11 @@ public final class Native {
 	}
 
 	static void textState(char[] text, int start, int selA, int selB, int compA, int compB,
-		boolean multiline, boolean secret, long seq) {
+		boolean multiline, boolean secret, boolean raw, long seq) {
 		String s = new String(text);
 		ui.post(() -> {
 			if (view != null) {
-				view.input.setState(s, start, selA, selB, compA, compB, multiline, secret, seq);
+				view.input.setState(s, start, selA, selB, compA, compB, multiline, secret, raw, seq);
 			}
 		});
 	}

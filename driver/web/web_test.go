@@ -1288,6 +1288,37 @@ func TestBrowser(t *testing.T) {
 			t.Errorf("a plain field kept the password field: %v, %q", d.text.Get("tagName"), d.secret.Get("value"))
 		}
 	})
+	t.Run("raw text is left as it is typed", func(t *testing.T) {
+		correct := func() string { return d.plain.Call("getAttribute", "autocorrect").String() }
+		for name, want := range map[string]string{"autocapitalize": "none", "autocomplete": "off", "spellcheck": "false"} {
+			if got := d.plain.Call("getAttribute", name).String(); got != want {
+				t.Errorf("the mirror's %s is %q, want %q", name, got, want)
+			}
+		}
+		w.SetTextRaw(true)
+		if got := correct(); got != "on" {
+			t.Errorf("with nothing taking text, autocorrect is %q", got)
+		}
+		w.SetTextInput(true)
+		if got := correct(); got != "off" {
+			t.Errorf("for raw text autocorrect is %q", got)
+		}
+		w.SetTextRaw(false)
+		if got := correct(); got != "on" {
+			t.Errorf("for a field after it autocorrect is %q", got)
+		}
+		w.SetTextRaw(true)
+		if got := correct(); got != "off" {
+			t.Errorf("for raw text again autocorrect is %q", got)
+		}
+		w.SetTextInput(false)
+		w.SetTextRaw(false)
+		w.SetTextInput(true)
+		if got := correct(); got != "on" {
+			t.Errorf("for the next field autocorrect is %q", got)
+		}
+		w.SetTextInput(false)
+	})
 	t.Run("switching windows leaves a secret alone", func(t *testing.T) {
 		w.SetTextInput(true)
 		defer w.SetTextInput(false)

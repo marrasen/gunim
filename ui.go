@@ -1778,6 +1778,9 @@ func (w *Window) wait() bool {
 	if len(w.ui.pending) > 0 {
 		out, next = w.out, w.ui.pending[0]
 	}
+	if t := w.ui.touch; t != nil && t.ripe && t.frames == 0 {
+		return w.waitTouch(t)
+	}
 	// A timer wakes the loop a refresh before the first refresh at or
 	// after it is due, so the frame drawn then runs it. One timer
 	// serves every wait: a terminal's output wakes the loop hundreds of
@@ -1828,14 +1831,7 @@ func (w *Window) wait() bool {
 	case st := <-w.steps:
 		w.heldAsked(st)
 	case ev, ok := <-w.dw.Input():
-		if !ok {
-			return false
-		}
-		if _, asked := ev.(driver.CloseAsked); asked {
-			return w.ui.closeAsked()
-		}
-		w.platform(ev)
-		w.ui.focusNow()
+		return w.took(ev, ok)
 	case e := <-w.popupIn:
 		w.ui.popupEvent(e)
 	case m := <-w.dragIn:
@@ -1847,8 +1843,7 @@ func (w *Window) wait() bool {
 	case out := <-w.fade:
 		w.ui.setFade(out)
 	case ev := <-w.injected:
-		w.route(ev)
-		w.ui.focusNow()
+		w.tookInjected(ev)
 	case got := <-w.accesses:
 		got <- w.ui.clientAccess()
 	case <-w.released():
@@ -1860,6 +1855,9 @@ func (w *Window) wait() bool {
 		w.unshown = max(w.unshown-1, 0)
 		if w.released() == nil {
 			w.unreleased = max(w.unreleased-1, 0)
+		}
+		if t := w.ui.touch; t != nil && t.ripe {
+			t.frames = max(t.frames-1, 0)
 		}
 		w.shown = f.Shown
 		w.learnLate(f)
@@ -1876,6 +1874,53 @@ func (w *Window) wait() bool {
 		w.ui.makeSpare()
 	case out <- next:
 		w.ui.pending = w.ui.pending[1:]
+	}
+	return true
+}
+
+// took handles ev, as the driver sent it, and reports whether the window
+// is still open.
+func (w *Window) took(ev any, ok bool) bool {
+	if !ok {
+		return false
+	}
+	if _, asked := ev.(driver.CloseAsked); asked {
+		return w.ui.closeAsked()
+	}
+	w.platform(ev)
+	w.ui.focusNow()
+	return true
+}
+
+// tookInjected handles ev, as the application sent it.
+func (w *Window) tookInjected(ev input.Event) {
+	w.route(ev)
+	w.ui.focusNow()
+}
+
+// touchSettle is how long no input comes before a finger's press that has
+// lasted is taken to be held still.
+const touchSettle = 2 * time.Millisecond
+
+// waitTouch is wait for a finger's press t that has lasted as long as a
+// long press: what the finger has done meanwhile is handled first, and the
+// press is a long one once nothing is waiting.
+func (w *Window) waitTouch(t *touchPress) bool {
+	settled := time.NewTimer(touchSettle)
+	defer settled.Stop()
+	select {
+	case <-w.done:
+		return false
+	case ev, ok := <-w.dw.Input():
+		return w.took(ev, ok)
+	case e := <-w.popupIn:
+		w.ui.popupEvent(e)
+	case ev := <-w.injected:
+		w.tookInjected(ev)
+	case <-settled.C:
+		t.ripe = false
+		w.ui.paintOwed()
+		w.ui.longPress(t)
 	}
 	return true
 }
@@ -2238,6 +2283,12 @@ type UI struct {
 	// is the seq of the last [input.TextEdit] the focus took.
 	textState         *input.TextState
 	textSent, textSeq uint64
+	// takes is whether the focused node takes text, as last told to the
+	// driver.
+	takes bool
+	// raw is whether it takes it as it is typed, as last told to the
+	// driver; see [RawTexter].
+	raw bool
 	// keysClaimed is whether the focused node claims the keys, as last
 	// told to the driver.
 	keysClaimed bool
@@ -2255,7 +2306,10 @@ type UI struct {
 	// seq counts frames; see [Frame].
 	seq uint64
 	// focusLaid waits for a layout to give a node the keyboard; see [UI.FocusFirstLaidOut].
-	focusLaid *laidFocus
+	// keysKept are the keys typed meanwhile, and handingKeys says they are being handed out.
+	focusLaid   *laidFocus
+	keysKept    []keptKey
+	handingKeys bool
 	// revealing are the nodes Reveal named, to bring into view once a
 	// frame has laid them out and drawn them.
 	revealing []*state
@@ -3095,6 +3149,29 @@ func (u *UI) Bounds(n Node) (geom.Rect, bool) {
 	return u.rectIn(s, u.root), true
 }
 
+// CoveredAt reports whether a press at pos, in the window's space, goes to something drawn over n, such as a dialog:
+// to a node that is not n, above n or inside it, and is painted after it. A press on what lies beside n or under it
+// is not covered, and neither is one a popup's window takes, of which a node hears nothing. It is false for a node the
+// last frame left undrawn, and for one in a popup.
+func (u *UI) CoveredAt(n Node, pos geom.Point) bool {
+	s, ok := u.index[n]
+	if !ok || s.drawn == 0 || s.drawn != u.seq || u.surfaceOf(s) != nil {
+		return false
+	}
+	hit := u.hit(u.root, pos)
+	if hit == nil || hit.within(s) || s.within(hit) {
+		return false
+	}
+	// The branches the two lie in, below the nearest node that holds both.
+	for !s.within(hit.parent) {
+		hit = hit.parent
+	}
+	for s.parent != hit.parent {
+		s = s.parent
+	}
+	return slices.Index(s.parent.kids, hit) > slices.Index(s.parent.kids, s)
+}
+
 // Drawn reports whether n's parent painted it in the last frame, in the window or in a popup's. A node clipped away or
 // covered by another reads true. It reads false before the window's first frame, during a frame until the node is
 // painted, and on a nil UI.
@@ -3203,7 +3280,7 @@ func (u *UI) Focus(n Node) bool {
 			grouped = grouped || a != next
 		}
 	}
-	u.takeText(prev, next)
+	u.takeText(next)
 	if next != nil {
 		u.deliver(next, input.FocusGained{Keyed: u.keyed, Step: u.focusStep, Grouped: grouped, Time: u.now})
 		// The nodes round it that it has come into, innermost first.
@@ -3279,21 +3356,59 @@ func (u *UI) showRings(keyboard bool) {
 // between two nodes that take text turns text input off on the way,
 // which ends it. The new node's text state reaches the driver before
 // text input turns on, so the input method starts from it.
-func (u *UI) takeText(prev, next *state) {
+func (u *UI) takeText(next *state) {
 	// The driver forgets the caret and its box as text input turns off,
 	// so the next node to take text tells them afresh, though they are
 	// where they were.
 	u.caretAt, u.boxAt = geom.Rect{}, geom.Rect{}
 	ti, ok := u.w.dw.(driver.TextInputter)
 	takes := takingText(next)
-	if ok && takes && takingText(prev) {
+	if ok && takes && u.takes {
 		ti.SetTextInput(false)
 	}
+	u.takes = takes
+	u.tellRaw(next)
 	u.syncText(next, true)
 	if ok {
 		ti.SetTextInput(takes)
 	}
 	u.claimKeys(next)
+}
+
+// tellRaw tells the driver whether s takes text as it is typed, where
+// that has changed since it last heard.
+func (u *UI) tellRaw(s *state) {
+	raw := rawText(s)
+	if raw == u.raw {
+		return
+	}
+	u.raw = raw
+	if rt, ok := u.w.dw.(driver.RawTexter); ok {
+		rt.SetTextRaw(raw)
+	}
+}
+
+// rawText reports whether s is a node that takes text as it is typed.
+func rawText(s *state) bool {
+	if !takingText(s) {
+		return false
+	}
+	r, ok := s.node.(RawTexter)
+	return ok && r.RawText()
+}
+
+// takeTextAgain is takeText for the node that has the keyboard, where it
+// has started or stopped taking text since the driver last heard. One
+// that stops ends a composition into it, as losing the focus would.
+func (u *UI) takeTextAgain() {
+	if takingText(u.focus) == u.takes {
+		u.tellRaw(u.focus)
+		return
+	}
+	u.takeText(u.focus)
+	if !u.takes && u.focus != nil {
+		u.deliver(u.focus, input.Composing{})
+	}
 }
 
 // claimKeys tells the driver whether s, which has the keyboard, claims
@@ -3329,6 +3444,7 @@ func (u *UI) syncText(s *state, fresh bool) {
 	if s != nil {
 		if ed, ok := s.node.(TextEditor); ok && ed.TakesText() {
 			v := ed.TextState()
+			v.Raw = v.Raw || rawText(s)
 			st = &v
 		}
 	}
@@ -3352,6 +3468,8 @@ func (u *UI) askKeyboard(hit *state) {
 	if !ok || hit == nil || u.focus == nil || !hit.within(u.focus) || !takingText(u.focus) {
 		return
 	}
+	// The press may be what had it take text.
+	u.takeTextAgain()
 	ks.ShowKeyboard()
 }
 
@@ -3520,6 +3638,7 @@ func (u *UI) frame(now, present time.Time, delta time.Duration) {
 		u.wakeAfter(u.wakeIn)
 	}
 	u.wakeIn = 0
+	u.handKeys()
 
 	// Counted last, so a reader that sees the count also sees the frame.
 	u.w.stats.frames.Add(1)
@@ -3650,6 +3769,7 @@ func (u *UI) paintFrame(fp framePaint) {
 	u.fadedAway()
 	u.placeNatives(f.Scale)
 	u.sendTitleBar()
+	u.takeTextAgain()
 	u.placeCaret()
 	u.syncText(u.focus, false)
 	u.claimKeys(u.focus)

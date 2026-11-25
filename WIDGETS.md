@@ -261,6 +261,10 @@ A widget that draws no name of its own takes a `Label` for screen readers, as `N
 `accessName`. A name such as "Pages" then doesn't also pop up as a tooltip. `Tooltip` stays the name where `Label` is
 empty.
 
+A view that stands labels beside its children, as `Form` does, implements `gunim.AccessNamer`, and each label is the name
+of the child beside it where that has none. A name that is only a hint, as a field's placeholder, sets
+`access.Info.Hint`, and gives way to the label too.
+
 ## Tests
 
 - **Every frame.** For anything that moves or scrolls, assert on every frame, starting from an awkward state: half

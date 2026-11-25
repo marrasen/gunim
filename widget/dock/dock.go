@@ -32,8 +32,8 @@ type Drag struct {
 //
 // With Content set the dock holds the application's views itself, each
 // in its place. Without it the dock draws the bars and the dividers
-// alone, and the application draws each view where Rect says, and
-// passes the drags over its views to DragEvent.
+// alone, and the application draws each view where Rect says, beneath
+// the dock, and passes the drags over its views to DragEvent.
 //
 // A tab picked comes to the front at once, its view fading in from the
 // side the tab stands on, and a new split slides open. A tab dragged
@@ -906,7 +906,8 @@ func (d *Dock) pick(id string, from gunim.Node, u *gunim.UI) {
 }
 
 // focus puts the keyboard in the view of the item the keys work in,
-// once it is laid out where it is new.
+// once it is laid out where it is new, unless it is there already. With
+// nothing in the view to take it, the nearest node above does.
 func (d *Dock) focus(u *gunim.UI, laidOut bool) {
 	v := d.node(d.Active())
 	if v == nil || !d.laid || u == nil {
@@ -916,11 +917,27 @@ func (d *Dock) focus(u *gunim.UI, laidOut bool) {
 		u.Insert(d, v)
 		d.mounted[v] = true
 	}
-	if laidOut {
-		u.FocusFirstLaidOut(v)
-	} else {
-		u.FocusFirst(v)
+	if u.HasFocus(v) {
+		// Asked for all the same, as another pane may be waiting to be
+		// laid out and take it.
+		u.FocusFirstLaidOut(u.Focused())
+		return
 	}
+	if laidOut || !u.FocusFirst(v) {
+		u.FocusFirstLaidOutOrAbove(v)
+	}
+}
+
+// hasKeyboard reports whether the keyboard is in an item the dock shows,
+// or showed as the last frame was drawn: one hidden since has it until
+// the one shown instead takes it.
+func (d *Dock) hasKeyboard(u *gunim.UI) bool {
+	for _, v := range d.nodes {
+		if v != nil && u.HasFocus(v) {
+			return true
+		}
+	}
+	return false
 }
 
 // StepTab brings the next tab of the pane the keys work in to the
@@ -983,21 +1000,27 @@ func (d *Dock) CatchKey(e input.Event, u *gunim.UI) bool {
 }
 
 // Overhear implements [gunim.Overhearer]: a press in a pane has the
-// keys work in it.
+// keys work in it, and not one in what lies over it, as a dialog, nor a
+// finger's that goes on to scroll.
 func (d *Dock) Overhear(e input.Event, u *gunim.UI) {
 	down, ok := e.(input.PointerDown)
 	if !ok {
 		return
 	}
 	at, ok := u.Bounds(d)
-	if !ok {
+	if !ok || u.CoveredAt(d, down.Pos) {
 		return
 	}
 	p := down.Pos.Sub(at.Min)
 	for it, r := range d.items {
-		if r.Contains(p) {
-			d.SetActive(it, u)
+		if !r.Contains(p) {
+			continue
 		}
+		u.OncePressed(func(u *gunim.UI) {
+			if slices.Contains(d.Shown(), it) {
+				d.SetActive(it, u)
+			}
+		})
 	}
 }
 
