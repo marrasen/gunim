@@ -29,7 +29,18 @@ func TestEverySetterTakesANilUI(t *testing.T) {
 			g.SetRows(10, u)
 			g.SetSelectedRows([][2]int{{1, 3}}, 1, u)
 		},
-		"Drawer.SetOpen":          func() { NewDrawer(newSpot(1, 1), newSpot(1, 1)).SetOpen(true, u) },
+		"Drawer.SetOpen": func() { NewDrawer(newSpot(1, 1), newSpot(1, 1)).SetOpen(true, u) },
+		"BottomBar.SetSelected": func() {
+			NewBottomBar([]BarItem{{Label: "a"}, {Label: "b"}}, newSpot(1, 1), newSpot(1, 1)).SetSelected(1, u)
+		},
+		"BottomBar.SetItems":      func() { NewBottomBar(nil).SetItems([]BarItem{{Label: "a", Count: 3}}, u) },
+		"BottomBar.SetCursor":     func() { NewBottomBar([]BarItem{{Label: "a"}, {Label: "b"}}).SetCursor(1, u) },
+		"BottomSheet.SetExpanded": func() { NewBottomSheet("s", newSpot(1, 1)).SetExpanded(true, u) },
+		"PullRefresh.SetRefreshing": func() {
+			r := NewPullRefresh(NewScroll(newSpot(1, 1)))
+			r.SetRefreshing(true, u)
+			r.SetRefreshing(false, u)
+		},
 		"TextField.SetText":       func() { NewTextField().SetText("t", u) },
 		"TextField.SetShown":      func() { f := NewTextField(); f.Secret = true; f.SetShown(true, u) },
 		"Histogram.SetCounts":     func() { NewHistogram().SetCounts([3][256]uint32{}, u) },
