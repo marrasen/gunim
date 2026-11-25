@@ -165,9 +165,6 @@ type document struct {
 	f           *os.File
 	id          string
 	gone        bool
-	// maybe says that nothing tells whether the document is kept. The
-	// right to it stays then, for Remove.
-	maybe bool
 }
 
 // newDocument returns the document at place, to write. Once it is whole it
@@ -279,16 +276,14 @@ func (d *document) finish(n int64) error {
 	case "1":
 		return nil
 	case "?":
-		d.mu.Lock()
-		d.maybe = true
-		d.mu.Unlock()
 		return driver.ErrMayNotBeKept
 	}
 	return driver.ErrNotSaved
 }
 
 // commit names the document as it is to be named, and lets go of the right
-// to it.
+// that a later run would need. This one may take the document away all the
+// same, for as long as the activity lives.
 func (d *document) commit(as string) error {
 	if as != "" {
 		got := fields(save(saveRename, d.at(), as))
@@ -299,12 +294,7 @@ func (d *document) commit(as string) error {
 		d.place, d.name = got[0], got[1]
 		d.mu.Unlock()
 	}
-	d.mu.Lock()
-	maybe := d.maybe
-	d.mu.Unlock()
-	if !maybe {
-		d.letGo(d.at())
-	}
+	d.letGo(d.at())
 	return nil
 }
 

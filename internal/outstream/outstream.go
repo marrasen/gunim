@@ -52,12 +52,14 @@ type Writer struct {
 	err   error
 	whole bool
 
-	open   sync.Once
-	w      io.Writer
-	ask    chan func() error
-	done   chan error
-	start  sync.Once
-	gone   chan struct{}
+	open  sync.Once
+	w     io.Writer
+	ask   chan func() error
+	done  chan error
+	start sync.Once
+	gone  chan struct{}
+	// idle is closed once there is no more to write, and Remove may come.
+	idle   chan struct{}
 	end    sync.Mutex
 	closed bool
 	// naming says that Commit runs.
@@ -67,7 +69,7 @@ type Writer struct {
 
 // New returns a writer to t.
 func New(t Target) *Writer {
-	return &Writer{t: t, ask: make(chan func() error), done: make(chan error, 1), gone: make(chan struct{})}
+	return &Writer{t: t, ask: make(chan func() error), done: make(chan error, 1), gone: make(chan struct{}), idle: make(chan struct{})}
 }
 
 // run has do run on the writer's goroutine, and waits for it, or for
@@ -85,6 +87,8 @@ func (w *Writer) run(do func() error) error {
 				case do := <-w.ask:
 					w.done <- do()
 				case <-w.gone:
+					return
+				case <-w.idle:
 					return
 				}
 			}
@@ -193,7 +197,9 @@ func (w *Writer) Close() error {
 		return err
 	}
 	if maybe {
-		// Whoever calls decides whether that will do.
+		// Whoever calls decides whether that will do, and may leave it.
+		w.buf = nil
+		close(w.idle)
 		return w.err
 	}
 	w.closed, w.whole, w.remove = true, true, errWhole

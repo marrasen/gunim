@@ -205,8 +205,8 @@ func (a *App) RemoveSaved(place string) error {
 
 // ForgetSaved gives back the rights that earlier runs kept to the files and
 // folders the user chose, so that [App.RemoveSaved] could take away what
-// they left half way: the program calls it once it has done so, with the
-// places it may still want to take away. A run that ends as it writes
+// they left half way: the program calls it at each start, once it has done
+// so, with the places it may still want to take away. A run that ends as it writes
 // leaves such a right behind, and Android keeps so many for a program. It
 // gives back every right to a document that Android keeps for the program,
 // so one that takes some by itself, in its own Java, names those in but too.

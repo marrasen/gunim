@@ -110,9 +110,7 @@ func (fi files) target(part, name string, check func() error) Target {
 // the file it leads to is written.
 func Save(p string) driver.SavedFile {
 	name := filepath.Base(p)
-	if to, err := filepath.EvalSymlinks(p); err == nil {
-		p = to
-	}
+	p, lost := follow(p)
 	perm, made := fs.FileMode(0o666), true
 	if st, err := os.Stat(p); err == nil {
 		perm, made = st.Mode().Perm(), false
@@ -120,6 +118,9 @@ func Save(p string) driver.SavedFile {
 	place := filepath.Join(filepath.Dir(p), part())
 	fi := files{
 		create: func(name string) (*os.File, error) {
+			if lost != nil {
+				return nil, lost
+			}
 			if made {
 				return os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
 			}
@@ -135,6 +136,27 @@ func Save(p string) driver.SavedFile {
 		rename: os.Rename, remove: os.Remove,
 	}
 	return &disk{Writer: New(fi.target(place, p, nil)), name: name, place: place, made: made}
+}
+
+// follow returns where the links at p lead, to a file or to where one may
+// come.
+func follow(p string) (string, error) {
+	for range 40 {
+		to, err := os.Readlink(p)
+		if err != nil {
+			return p, nil //nolint:nilerr // It is no link.
+		}
+		if !filepath.IsAbs(to) {
+			// The folder may be a link too, which ".." does not go back by.
+			dir, err := filepath.EvalSymlinks(filepath.Dir(p))
+			if err != nil {
+				return p, err
+			}
+			to = filepath.Join(dir, to)
+		}
+		p = to
+	}
+	return p, &fs.PathError{Op: "open", Path: p, Err: errors.New("too many links")}
 }
 
 // RemoveSaved takes away what [driver.SavedFile.Place] names, from an

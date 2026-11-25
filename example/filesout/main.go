@@ -209,6 +209,8 @@ func keepPlace(place string) error {
 
 // takeAwayLeft takes away what an earlier run left half written, and says so.
 func takeAwayLeft(a *gunim.App) string {
+	// There is no more that an earlier run left.
+	defer a.ForgetSaved()
 	p, err := placeFile()
 	if err != nil {
 		return ""
@@ -221,7 +223,6 @@ func takeAwayLeft(a *gunim.App) string {
 	s := fmt.Sprintf("A file was left half way. Taken away: %v", err)
 	log.Print(s)
 	_ = keepPlace("")
-	a.ForgetSaved()
 	return s
 }
 

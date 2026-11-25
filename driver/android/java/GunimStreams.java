@@ -7,6 +7,7 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.os.Parcel;
 import android.os.ParcelFileDescriptor;
+import android.os.Parcelable;
 import android.provider.OpenableColumns;
 import android.system.ErrnoException;
 import android.system.Os;
@@ -177,22 +178,51 @@ final class GunimStreams {
 	}
 
 	/**
-	 * saysFailed reports whether the other end's word, which comes to p in
-	 * wait milliseconds or not at all, is that it failed, or ended without
-	 * one. A word is four bytes, as ParcelFileDescriptor writes it: 0 where
-	 * it closed the file as it meant to.
+	 * closeAndHear closes the write end p of a pipe as whole, and reports
+	 * whether the other end's word, within wait milliseconds, is that it
+	 * failed.
+	 *
+	 * Each end of a pipe says how it ended as it closes, and one that has
+	 * heard the other says nothing. So the bytes end first, with no word,
+	 * the other end is heard, and this one's word comes last: the other end
+	 * may ask for it before it keeps what it took.
 	 */
-	static boolean saysFailed(ParcelFileDescriptor p, int wait) {
-		try {
-			if (!hasCome(p, wait)) {
-				return false;
-			}
-			byte[] b = new byte[4];
-			int n = Os.read(p.getFileDescriptor(), b, 0, 4);
-			return n <= 0 || b[0] == 0 && b[1] == 0 && b[2] == 0 && b[3] == 1;
-		} catch (ErrnoException | IOException | RuntimeException e) {
-			return true;
+	static boolean closeAndHear(ParcelFileDescriptor p, int wait) throws IOException {
+		if (!p.canDetectErrors()) {
+			p.close();
+			return false;
 		}
+		// Written so, p closes without a word. The parcel holds 1, the pipe
+		// and where the words go, as in wordOf.
+		Parcel parcel = Parcel.obtain();
+		ParcelFileDescriptor data = null, word = null;
+		try {
+			p.writeToParcel(parcel, Parcelable.PARCELABLE_WRITE_RETURN_VALUE);
+			parcel.setDataPosition(0);
+			if (parcel.readInt() == 1) {
+				data = parcel.readFileDescriptor();
+				word = parcel.readFileDescriptor();
+			}
+		} finally {
+			parcel.recycle();
+			letGo(data);
+		}
+		if (word == null) {
+			return false;
+		}
+		boolean failed = false;
+		try {
+			// A word is four bytes: 0 as it meant to end, 1 as it failed.
+			byte[] b = new byte[4];
+			failed = hasCome(word, wait) && Os.read(word.getFileDescriptor(), b, 0, 4) == 4
+				&& b[0] == 0 && b[1] == 0 && b[2] == 0 && b[3] == 1;
+			Os.write(word.getFileDescriptor(), new byte[4], 0, 4);
+		} catch (ErrnoException | RuntimeException e) {
+			// The other end has gone, and said no more.
+		} finally {
+			letGo(word);
+		}
+		return failed;
 	}
 
 	/** Found is a file another application hands over, and what it says of it. */

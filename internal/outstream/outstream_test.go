@@ -234,6 +234,29 @@ func TestAFileThatMayNotBeKeptIsTheProgramsToJudge(t *testing.T) {
 	k.heard(t, "open finish commit abandon remove")
 }
 
+func TestAFileThatMayNotBeKeptIsLeftAtNoCost(t *testing.T) {
+	before := runtime.NumGoroutine()
+	for range 50 {
+		w := New((&kept{finish: driver.ErrMayNotBeKept}).target())
+		if _, err := w.Write([]byte("x")); err != nil {
+			t.Fatal(err)
+		}
+		if err := w.Close(); !errors.Is(err, driver.ErrMayNotBeKept) {
+			t.Fatal(err)
+		}
+		if w.buf != nil {
+			t.Fatal("it keeps its buffer")
+		}
+	}
+	for range 100 {
+		if runtime.NumGoroutine() <= before+5 {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Errorf("%d goroutines, %d before", runtime.NumGoroutine(), before)
+}
+
 // list returns the names in dir.
 func list(t *testing.T, dir string) string {
 	t.Helper()
@@ -367,6 +390,46 @@ func TestANewFileIsAsTheOldOneWas(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(p); string(b) != "new" {
 		t.Errorf("it holds %q", b)
+	}
+}
+
+func TestALinkToNoFileYetStays(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "in"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	first, second := filepath.Join(dir, "first"), filepath.Join(dir, "in", "second")
+	if err := errors.Join(os.Symlink(filepath.Join("in", "second"), first), os.Symlink("a.txt", second)); err != nil {
+		t.Skip(err)
+	}
+	f := Save(first)
+	if !f.Made() {
+		t.Error("it was there")
+	}
+	put(t, f, "new")
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if b, err := os.ReadFile(filepath.Join(dir, "in", "a.txt")); err != nil || string(b) != "new" {
+		t.Errorf("%q, %v", b, err)
+	}
+	for _, l := range []string{first, second} {
+		if _, err := os.Readlink(l); err != nil {
+			t.Error(err)
+		}
+	}
+	// Links that lead round and round are no place to write.
+	a, b := filepath.Join(dir, "a"), filepath.Join(dir, "b")
+	if err := errors.Join(os.Symlink(b, a), os.Symlink(a, b)); err != nil {
+		t.Fatal(err)
+	}
+	f = Save(a)
+	if _, err := io.WriteString(f, "x"); err == nil {
+		t.Error("it was written")
+	}
+	_ = f.Remove()
+	if _, err := os.Readlink(a); err != nil {
+		t.Error(err)
 	}
 }
 

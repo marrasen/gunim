@@ -260,19 +260,15 @@ final class GunimSave {
 		if (o == null) {
 			return FAILED;
 		}
-		ParcelFileDescriptor word = null;
 		try {
-			if (!piped) {
-				o.file.close();
-				return KEPT;
+			if (piped) {
+				return GunimStreams.closeAndHear(o.file, WAIT) ? FAILED : MAYBE;
 			}
-			word = GunimStreams.wordOf(o.file);
 			o.file.close();
-			return word != null && GunimStreams.saysFailed(word, WAIT) ? FAILED : MAYBE;
+			return KEPT;
 		} catch (IOException | RuntimeException e) {
 			return FAILED;
 		} finally {
-			GunimStreams.letGo(word);
 			o.by.close();
 		}
 	}
