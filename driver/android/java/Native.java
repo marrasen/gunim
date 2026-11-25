@@ -8,6 +8,7 @@ import android.os.Build;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.DocumentsContract;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.view.Surface;
@@ -38,10 +39,17 @@ public final class Native {
 	 * again in a new one; it sends no broadcast again. It waits for an
 	 * activity of the program's own that shows to be left first.
 	 *
+	 * An Application class of the program's own runs in the process that
+	 * serves shared files too, which has no program: boot does nothing
+	 * there.
+	 *
 	 * Call it on the UI thread, where Android calls such a component,
 	 * before the first native method of the program's own.
 	 */
 	public static void boot(Context c) {
+		if (isFilesProcess()) {
+			return;
+		}
 		load(c);
 		late |= closing;
 		if (over) {
@@ -66,6 +74,20 @@ public final class Native {
 		}
 	}
 
+	// isFilesProcess reports whether this is the process of GunimFiles
+	// alone.
+	private static boolean isFilesProcess() {
+		if (Build.VERSION.SDK_INT >= 28) {
+			return android.app.Application.getProcessName().endsWith(GunimFiles.PROCESS);
+		}
+		try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.FileReader("/proc/self/cmdline"))) {
+			String line = r.readLine();
+			return line != null && line.trim().endsWith(GunimFiles.PROCESS);
+		} catch (java.io.IOException e) {
+			return false;
+		}
+	}
+
 	// closing says that the program is done with its windows, and over
 	// that its main has returned. late says that something booted it in
 	// between, and waits. The UI thread keeps all three.
@@ -87,7 +109,7 @@ public final class Native {
 	// main has run already it ends the process, unless that would take
 	// another activity with it: see settle.
 	static synchronized void load(Context c) {
-		if (over && (starting || GunimWatch.isAlone(c))) {
+		if (over && (starting || GunimWatch.isAlone(c) && !GunimServed.isOpen())) {
 			anew();
 		}
 		if (loaded) {
@@ -130,6 +152,10 @@ public final class Native {
 	static native void files(int code, int[] fds, long[] ids, String names, String opens);
 	static native void streams(int code, int[] fds, long[] ids, long[] stated, long[] held, String names, String types,
 		String opens);
+	static native void saved(int code, String place, String name, boolean made);
+	static native void servedUse(long id, int by);
+	static native void servedEnd();
+	static native int servedRead(long id, long offset, int size, byte[] data);
 	static native void heading(float[] rotation, int screen, int accuracy, float error);
 
 	// Called from Go.
@@ -383,6 +409,95 @@ public final class Native {
 		});
 	}
 
+	// creating holds when each of the codes of the pickers of a place for
+	// a file was asked for, on the UI thread.
+	static final java.util.Map<Integer, Long> creating = new java.util.HashMap<>();
+
+	// strays are those of a process that ended before the answer.
+	static final java.util.Map<Integer, Long> strays = new java.util.HashMap<>();
+
+	// createDocument shows the system's picker of a place to save a file
+	// in, and saveFolder its chooser of a folder to write in. What the user
+	// chose goes to Go as saved(code, place, name, made), with null for
+	// nothing.
+	static void createDocument(int code, String name, String type) {
+		ui.post(() -> {
+			android.content.Intent pick = new android.content.Intent(android.content.Intent.ACTION_CREATE_DOCUMENT);
+			pick.addCategory(android.content.Intent.CATEGORY_OPENABLE);
+			pick.setType(type.isEmpty() ? GunimFiles.typeOf(name) : type);
+			pick.putExtra(android.content.Intent.EXTRA_TITLE, name);
+			pickPlace(code, pick);
+		});
+	}
+
+	static void saveFolder(int code) {
+		ui.post(() -> pickPlace(code, new android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT_TREE)));
+	}
+
+	private static void pickPlace(int code, android.content.Intent pick) {
+		GunimActivity a = activity;
+		if (a == null) {
+			saved(code, null, "", false);
+			return;
+		}
+		try {
+			creating.put(code, System.currentTimeMillis());
+			a.startActivityForResult(pick, code);
+		} catch (android.content.ActivityNotFoundException e) {
+			creating.remove(code);
+			saved(code, null, "", false);
+		}
+	}
+
+	// picked takes the place the user chose, apart from the UI thread.
+	static void picked(int code, long asked, android.net.Uri u) {
+		if (u == null) {
+			saved(code, null, "", false);
+			return;
+		}
+		new Thread(() -> {
+			boolean folder = DocumentsContract.isTreeUri(u);
+			String about = folder ? "\0" + 0 : GunimSave.about(u, asked, "");
+			boolean made = about.endsWith("1");
+			if (folder || made) {
+				GunimSave.use(u);
+			}
+			saved(code, u.toString(), about.substring(0, about.indexOf('\0')), made);
+		}).start();
+	}
+
+	// save does one of GunimSave's calls for Go, by its number there.
+	static String save(int what, String a, String b, String c, String d, String e) {
+		switch (what) {
+		case 0:
+			return GunimSave.open(a);
+		case 1:
+			return GunimSave.finish(Long.parseLong(a), !b.isEmpty());
+		case 2:
+			GunimSave.abandon(Long.parseLong(a));
+			return "";
+		case 3:
+			return GunimSave.delete(a) ? "1" : "";
+		case 4:
+			GunimSave.letGo(a);
+			return "";
+		case 5:
+			return GunimSave.rootOf(a);
+		case 6:
+			return GunimSave.find(a, b, c);
+		case 7:
+			return GunimSave.mkdir(a, b, c);
+		case 8:
+			return GunimSave.create(a, b, c, d, e.isEmpty() ? GunimFiles.typeOf(c) : e);
+		case 9:
+			return GunimSave.rename(a, b);
+		case 10:
+			GunimSave.forget(a);
+			return "";
+		}
+		return "";
+	}
+
 	// choosingFiles holds the codes of the document pickers showing, on
 	// the UI thread, to tell their answers from the folder chooser's, and
 	// whether each answers with streams.
@@ -538,9 +653,10 @@ public final class Native {
 	}
 
 	// share shows the system's share sheet with text, a subject and
-	// files, the paths each ended by a NUL. It returns false where there
-	// is no activity to show the sheet over.
-	static boolean share(String text, String subject, String paths) {
+	// files, the paths each ended by a NUL, and files served, the name and
+	// the type of each ended by a NUL. It returns false where there is no
+	// activity to show the sheet over.
+	static boolean share(String text, String subject, String paths, long[] ids, long[] sizes, String served) {
 		GunimActivity a = activity;
 		if (a == null) {
 			return false;
@@ -553,6 +669,12 @@ public final class Native {
 			}
 			uris.add(GunimFiles.uriOf(a, p));
 			type = GunimFiles.commonType(type, GunimFiles.typeOf(p));
+		}
+		String[] words = served.split("\0", -1);
+		for (int i = 0; i < ids.length; i++) {
+			android.net.Uri u = GunimServed.uriOf(a, ids[i], words[2 * i], words[2 * i + 1], sizes[i]);
+			uris.add(u);
+			type = GunimFiles.commonType(type, GunimServed.typeOf(u));
 		}
 		android.content.Intent send;
 		if (uris.size() > 1) {
@@ -590,6 +712,42 @@ public final class Native {
 			}
 		});
 		return true;
+	}
+
+	// openServed hands a file served to another application. It returns 0,
+	// 1 where none opens it, and 2 where there is no activity to start one
+	// from.
+	static int openServed(long id, String name, String type, long size) {
+		GunimActivity a = activity;
+		if (a == null) {
+			return 2;
+		}
+		android.net.Uri u = GunimServed.uriOf(a, id, name, type, size);
+		android.content.Intent view = new android.content.Intent(android.content.Intent.ACTION_VIEW);
+		view.setDataAndType(u, GunimServed.typeOf(u));
+		view.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
+		java.util.concurrent.FutureTask<Integer> start = new java.util.concurrent.FutureTask<>(() -> {
+			try {
+				a.startActivity(view);
+				return 0;
+			} catch (android.content.ActivityNotFoundException e) {
+				return 1;
+			}
+		});
+		if (Looper.myLooper() == Looper.getMainLooper()) {
+			start.run();
+		} else {
+			ui.post(start);
+		}
+		try {
+			return start.get();
+		} catch (Exception e) {
+			return 1;
+		}
+	}
+
+	static void stopServed(long id) {
+		GunimServed.stop(id);
 	}
 
 	// openLink opens the web page at url in the browser the phone keeps
@@ -682,6 +840,11 @@ public final class Native {
 		});
 	}
 
+	// readers is for how many more seconds what comes too late waits for
+	// another application to let a file go that this program serves, which
+	// it can read no more: Android may end a reader with the process.
+	private static int readers = 5;
+
 	// settling says that settle runs again in a while, and starting that
 	// an activity which waited is being started again, for the new process
 	// to show.
@@ -706,10 +869,13 @@ public final class Native {
 	}
 
 	// isUnused reports whether the process holds nothing of the program's:
-	// no activity, gunim's or its own, and no service, as a job's.
+	// no activity, gunim's or its own, no service, as a job's, and no file
+	// that another application has open. One that has stopped counts too:
+	// Android may end the application with the process, though the user
+	// looks at it, and nothing needs the process to end.
 	@SuppressWarnings("deprecation")
 	private static boolean isUnused() {
-		if (!GunimWatch.live().isEmpty()) {
+		if (!GunimWatch.live().isEmpty() || GunimServed.isOpen()) {
 			return false;
 		}
 		android.app.ActivityManager m = (android.app.ActivityManager) app.getSystemService(Context.ACTIVITY_SERVICE);
@@ -728,6 +894,12 @@ public final class Native {
 	// it does. It forgets gunim's too, so one that waits and shows is
 	// started again first, and ends the process as it is created.
 	private static boolean isSettledLate() {
+		if (GunimServed.isOpen() && readers > 0) {
+			// A reader that hears of an error lets its file go.
+			readers--;
+			GunimServed.end();
+			return false;
+		}
 		GunimActivity waiting = null;
 		for (android.app.Activity a : GunimWatch.live()) {
 			if (!GunimWatch.isShown(a) || a.isFinishing()) {

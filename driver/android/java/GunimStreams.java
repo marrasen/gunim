@@ -7,6 +7,7 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.os.Parcel;
 import android.os.ParcelFileDescriptor;
+import android.os.Parcelable;
 import android.provider.OpenableColumns;
 import android.system.ErrnoException;
 import android.system.Os;
@@ -110,7 +111,7 @@ final class GunimStreams {
 		}
 	}
 
-	private static void letGo(ParcelFileDescriptor p) {
+	static void letGo(ParcelFileDescriptor p) {
 		try {
 			if (p != null) {
 				p.close();
@@ -139,7 +140,7 @@ final class GunimStreams {
 	 * file alone. Where it wrote anything else, there is no word, and the
 	 * file's end is not known.
 	 */
-	private static ParcelFileDescriptor wordOf(ParcelFileDescriptor file) {
+	static ParcelFileDescriptor wordOf(ParcelFileDescriptor file) {
 		if (!file.canDetectErrors()) {
 			return null;
 		}
@@ -174,6 +175,54 @@ final class GunimStreams {
 	private static final int DONE = 0, UNKNOWN = 1, FAILED = 2;
 
 	private GunimStreams() {
+	}
+
+	/**
+	 * closeAndHear closes the write end p of a pipe as whole, and reports
+	 * whether the other end's word, within wait milliseconds, is that it
+	 * failed.
+	 *
+	 * Each end of a pipe says how it ended as it closes, and one that has
+	 * heard the other says nothing. So the bytes end first, with no word,
+	 * the other end is heard, and this one's word comes last: the other end
+	 * may ask for it before it keeps what it took.
+	 */
+	static boolean closeAndHear(ParcelFileDescriptor p, int wait) throws IOException {
+		if (!p.canDetectErrors()) {
+			p.close();
+			return false;
+		}
+		// Written so, p closes without a word. The parcel holds 1, the pipe
+		// and where the words go, as in wordOf.
+		Parcel parcel = Parcel.obtain();
+		ParcelFileDescriptor data = null, word = null;
+		try {
+			p.writeToParcel(parcel, Parcelable.PARCELABLE_WRITE_RETURN_VALUE);
+			parcel.setDataPosition(0);
+			if (parcel.readInt() == 1) {
+				data = parcel.readFileDescriptor();
+				word = parcel.readFileDescriptor();
+			}
+		} finally {
+			parcel.recycle();
+			letGo(data);
+		}
+		if (word == null) {
+			return false;
+		}
+		boolean failed = false;
+		try {
+			// A word is four bytes: 0 as it meant to end, 1 as it failed.
+			byte[] b = new byte[4];
+			failed = hasCome(word, wait) && Os.read(word.getFileDescriptor(), b, 0, 4) == 4
+				&& b[0] == 0 && b[1] == 0 && b[2] == 0 && b[3] == 1;
+			Os.write(word.getFileDescriptor(), new byte[4], 0, 4);
+		} catch (ErrnoException | RuntimeException e) {
+			// The other end has gone, and said no more.
+		} finally {
+			letGo(word);
+		}
+		return failed;
 	}
 
 	/** Found is a file another application hands over, and what it says of it. */
@@ -274,7 +323,9 @@ final class GunimStreams {
 			android.util.Log.w("gunim", "a file sent to this program did not tell its name");
 		}
 		try {
-			f.type = cut(from.getType(u), LONGEST_TYPE);
+			String type = from.getType(u);
+			// One too long is none, as a part of it is another.
+			f.type = type == null || type.length() > LONGEST_TYPE ? "" : type.replace('\0', '_');
 		} catch (Exception | OutOfMemoryError | StackOverflowError e) {
 			// It states none.
 		}

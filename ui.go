@@ -20,6 +20,7 @@ import (
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/internal/instream"
+	"github.com/marrasen/gunim/internal/outstream"
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/text"
 	"github.com/marrasen/gunim/theme"
@@ -186,6 +187,34 @@ func (a *App) Ask(p driver.Permission) bool {
 		return pm.Permitted(p) || pm.Ask(p)
 	}
 	return true
+}
+
+// RemoveSaved takes away what an earlier run of the program left of a file
+// that it was saving, by the [driver.SavedFile.Place] it kept. It returns
+// nil where there is nothing left, and an error where the system no longer
+// lets it, or where the file had been closed as whole. A program that keeps
+// a Place forgets it once Close has returned, so that a file that is whole
+// stays. It calls [App.ForgetSaved] once it has taken away all it kept the
+// places of.
+func (a *App) RemoveSaved(place string) error {
+	if r, ok := a.drv.(driver.Remover); ok {
+		return r.RemoveSaved(place)
+	}
+	return outstream.RemoveSaved(place)
+}
+
+// ForgetSaved gives back the rights that earlier runs kept to the files and
+// folders the user chose, so that [App.RemoveSaved] could take away what
+// they left half way: the program calls it at each start, once it has done
+// so, with the places it may still want to take away. A run that ends as it writes
+// leaves such a right behind, and Android keeps so many for a program. It
+// gives back every right to a document that Android keeps for the program,
+// so one that takes some by itself, in its own Java, names those in but too.
+// It does nothing where there are no such rights, as on a desktop.
+func (a *App) ForgetSaved(but ...string) {
+	if r, ok := a.drv.(driver.Remover); ok {
+		r.ForgetSaved(but)
+	}
 }
 
 // UserFolder returns the folder the user keeps things of kind f in, as
@@ -987,27 +1016,32 @@ func (c Client) ChooseStreams(ctx context.Context, o driver.ChooseOptions) ([]*i
 	default:
 		return nil, driver.ErrNoChooser
 	}
-	// What the user chooses once the caller has left is closed.
+	return awaitChoice(ctx, c, choose, closeStreams)
+}
+
+// awaitChoice is awaitDialog for a choice that is open, and is let go of
+// where the caller has left by the time the user makes it.
+func awaitChoice[T any](ctx context.Context, c Client, choose func() (T, error), letGo func(T)) (T, error) {
 	var mu sync.Mutex
+	var chosen, none T
 	left := false
-	var chosen []*input.Stream
 	_, err := awaitDialog(ctx, c, func() (struct{}, error) {
-		streams, err := choose()
+		v, err := choose()
 		mu.Lock()
 		defer mu.Unlock()
 		if left {
-			closeStreams(streams)
+			letGo(v)
 			return struct{}{}, err
 		}
-		chosen = streams
+		chosen = v
 		return struct{}{}, err
 	})
 	mu.Lock()
 	defer mu.Unlock()
 	left = true
 	if errors.Is(err, ErrWindowClosed) || err != nil && ctx.Err() != nil {
-		closeStreams(chosen)
-		return nil, err
+		letGo(chosen)
+		return none, err
 	}
 	return chosen, err
 }
@@ -1050,6 +1084,80 @@ func (c Client) SaveFile(ctx context.Context, o driver.SaveOptions) (string, err
 	}
 	o.Folder = absFolder(o.Folder)
 	return awaitDialog(ctx, c, func() (string, error) { return fs.SaveFile(o) })
+}
+
+// SaveStream is [Client.SaveFile], and opens what the user chose to write
+// the file as its bytes come. On Android, where a file is kept by another
+// application and has no path, it is the only one. It returns nil where
+// the user chose nothing. The caller ends the file with Close, once it is
+// whole, or with Remove.
+func (c Client) SaveStream(ctx context.Context, o driver.SaveOptions) (driver.SavedFile, error) {
+	o.Folder = absFolder(o.Folder)
+	var save func() (driver.SavedFile, error)
+	switch w := c.w.dw.(type) {
+	case driver.StreamSaver:
+		save = func() (driver.SavedFile, error) { return w.SaveStream(o) }
+	case driver.FileSaver:
+		save = func() (driver.SavedFile, error) {
+			p, err := w.SaveFile(o)
+			if err != nil || p == "" {
+				return nil, err
+			}
+			return outstream.Save(p), nil
+		}
+	default:
+		return nil, driver.ErrNoChooser
+	}
+	return awaitChoice(ctx, c, save, func(f driver.SavedFile) {
+		if f != nil {
+			_ = f.Remove()
+		}
+	})
+}
+
+// SaveFolder shows the system's dialog for choosing a folder, owned by the
+// window, to write files in as their bytes come. It returns nil where the
+// user chose nothing. The caller closes the folder. It blocks until the
+// dialog closes or ctx ends; an ended ctx leaves the dialog open.
+func (c Client) SaveFolder(ctx context.Context, o driver.ChooseOptions) (driver.SavedFolder, error) {
+	o.Folder = absFolder(o.Folder)
+	o.Folders, o.Multiple = true, false
+	var save func() (driver.SavedFolder, error)
+	switch w := c.w.dw.(type) {
+	case driver.StreamSaver:
+		save = func() (driver.SavedFolder, error) { return w.SaveFolder(o) }
+	case driver.FileChooser:
+		save = func() (driver.SavedFolder, error) {
+			p, err := w.ChooseFiles(o)
+			if err != nil || len(p) == 0 {
+				return nil, err
+			}
+			return outstream.Folder(p[0])
+		}
+	default:
+		return nil, driver.ErrNoChooser
+	}
+	return awaitChoice(ctx, c, save, func(f driver.SavedFolder) {
+		if f != nil {
+			_ = f.Close()
+		}
+	})
+}
+
+// OpenServed hands a file the program serves to another application, which
+// the user picks where several open its type, or have picked before. It
+// returns once the system has taken it, [driver.ErrNoneOpens] where none
+// opens it, and [driver.ErrNoOpener] where gunim can't, as on a desktop.
+// [Client.Share] hands served files to the share sheet.
+func (c Client) OpenServed(s *driver.Served) error {
+	o, ok := c.w.dw.(driver.Opener)
+	if !ok {
+		return driver.ErrNoOpener
+	}
+	if err := s.Check(); err != nil {
+		return err
+	}
+	return o.OpenServed(s)
 }
 
 // absFolder is folder as a whole path, for the system's dialogs, which
@@ -1110,7 +1218,8 @@ func (c Client) Reveal(path string) error {
 // [driver.ErrNoSharer] where there is no sheet to show, as on a desktop
 // for now; [Client.CanShare] says which, so an application shows its
 // Share button only where it works. The files must stay where they are
-// while the receiving application reads them.
+// while the receiving application reads them, and those served go on until
+// they are stopped.
 func (c Client) Share(s driver.Share) error {
 	sh, ok := c.w.dw.(driver.Sharer)
 	if !ok {
@@ -1118,6 +1227,11 @@ func (c Client) Share(s driver.Share) error {
 	}
 	for _, p := range s.Paths {
 		if _, err := os.Stat(p); err != nil {
+			return err
+		}
+	}
+	for _, sv := range s.Served {
+		if err := sv.Check(); err != nil {
 			return err
 		}
 	}

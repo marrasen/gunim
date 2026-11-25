@@ -16,10 +16,17 @@ public class GunimActivity extends Activity {
 	private boolean waits;
 	private static final String WAITS = "gunim.waits";
 
+	private static final String CREATING = "gunim.creating";
+
 	@Override
+	@SuppressWarnings({"deprecation", "unchecked"})
 	protected void onCreate(Bundle state) {
 		super.onCreate(state);
 		Native.load(this);
+		if (state != null && state.getSerializable(CREATING) != null) {
+			// The process that asked may have ended since.
+			Native.strays.putAll((java.util.HashMap<Integer, Long>) state.getSerializable(CREATING));
+		}
 		waits = Native.waits();
 		Native.activity = this;
 		GunimView v = view = new GunimView(this);
@@ -51,6 +58,9 @@ public class GunimActivity extends Activity {
 	protected void onSaveInstanceState(Bundle out) {
 		super.onSaveInstanceState(out);
 		out.putBoolean(WAITS, waits);
+		if (!Native.creating.isEmpty()) {
+			out.putSerializable(CREATING, new java.util.HashMap<>(Native.creating));
+		}
 	}
 
 	// With -opens the activity runs once, so a file opened while the
@@ -283,6 +293,20 @@ public class GunimActivity extends Activity {
 	// or its chooser of folders, with the folder chosen or none.
 	@Override
 	protected void onActivityResult(int code, int result, android.content.Intent data) {
+		Long asked = Native.creating.remove(code);
+		if (asked != null) {
+			Native.strays.remove(code);
+			Native.picked(code, asked, result == RESULT_OK && data != null ? data.getData() : null);
+			return;
+		}
+		Long stray = Native.strays.remove(code);
+		if (stray != null) {
+			android.net.Uri made = result == RESULT_OK && data != null ? data.getData() : null;
+			if (made != null) {
+				new Thread(() -> GunimSave.stray(made, stray)).start();
+			}
+			return;
+		}
 		Boolean streams = Native.choosingFiles.remove(code);
 		if (streams != null) {
 			GunimOpen.chosen(this, code, result == RESULT_OK ? data : null, streams);

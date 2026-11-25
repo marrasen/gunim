@@ -62,6 +62,8 @@ type OffscreenWindow struct {
 	clipErr error
 	// chooser answers ChooseFiles; see SetChooser.
 	chooser func(ChooseOptions) ([]string, error)
+	// opener does OpenServed; see SetOpener.
+	opener func(*Served) error
 	// saver answers SaveFile; see SetSaver.
 	saver func(SaveOptions) (string, error)
 	// open and reveal answer Open and Reveal; see SetLauncher.
@@ -996,6 +998,26 @@ func (w *OffscreenWindow) ChooseFiles(o ChooseOptions) ([]string, error) {
 		return nil, ErrNoChooser
 	}
 	return fn(o)
+}
+
+// SetOpener sets what OpenServed does, for a test standing in for the
+// system.
+func (w *OffscreenWindow) SetOpener(fn func(*Served) error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.opener = fn
+}
+
+// OpenServed implements [Opener] with the function SetOpener set, and
+// returns [ErrNoOpener] without one.
+func (w *OffscreenWindow) OpenServed(s *Served) error {
+	w.mu.Lock()
+	fn := w.opener
+	w.mu.Unlock()
+	if fn == nil {
+		return ErrNoOpener
+	}
+	return fn(s)
 }
 
 // SetSaver sets what SaveFile answers, for a test standing in for the user.

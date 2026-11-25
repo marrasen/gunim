@@ -24,6 +24,9 @@ import java.io.FileNotFoundException;
  * the program's own process ends with the program.
  */
 public final class GunimFiles extends ContentProvider {
+	/** PROCESS ends the name of the provider's process, as gunimapk's manifest has it. */
+	static final String PROCESS = ":gunim.files";
+
 	/** authority returns the provider's authority, from the package's name. */
 	static String authority(Context c) {
 		return c.getPackageName() + ".gunim.files";

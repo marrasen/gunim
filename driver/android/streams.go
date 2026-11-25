@@ -72,12 +72,23 @@ func goStreams(code, n C.int, fds *C.int, ids, stated, held *C.longlong, names *
 // at returns number i of the n that p points at.
 func at[T any](p *T, n C.int, i int) T { return unsafe.Slice(p, int(n))[i] }
 
+// waitsForSender reports whether a read of fd may wait for another application, as
+// one of a pipe or a socket does, whatever size its file is said to have.
+func waitsForSender(fd int) bool {
+	var st syscall.Stat_t
+	if syscall.Fstat(fd, &st) != nil {
+		return true
+	}
+	kind := st.Mode & syscall.S_IFMT
+	return kind == syscall.S_IFIFO || kind == syscall.S_IFSOCK
+}
+
 // stream returns the stream Java keeps as id, read from fd.
 func stream(name, mime string, fd int, id, stated, held int64) *input.Stream {
 	if fd < 0 {
 		return instream.Failing(name, errNotOpened)
 	}
-	if held == instream.Unstated {
+	if waitsForSender(fd) {
 		// A read that waits on a pipe then takes no thread, and ends as
 		// the pipe is closed. Where the sender has undone it, as it can
 		// with a pipe it has kept, the stream ends without the read.
