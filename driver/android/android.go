@@ -38,7 +38,7 @@
 // leaves run until then. A file the program shared by its path is served
 // by another process, which stays. One that the program serves itself, a
 // [driver.Served], keeps the process for as long as another application
-// has it open, and main's goroutines read for it. Where something comes
+// has it open, stopped or not, and main's goroutines read for it. Where something comes
 // too late, as below, it stops first: a reader hears of an error, and has
 // 5 s to let the file go, as Android may end it with the process. A
 // program that serves files stays in main, with its window, for as long as

@@ -28,7 +28,7 @@ type Served struct {
 	Data io.ReaderAt
 	// OnUse, where it is set, is told how many times the file is open in
 	// other applications each time that changes, 0 for none. It is called
-	// on another goroutine, and returns soon. Another application that
+	// on another goroutine, in order, and returns soon. Another application that
 	// shows may read on with this one out of sight, so a program with
 	// work that a read needs, as a connection, keeps it while the file is
 	// open.
@@ -37,6 +37,8 @@ type Served struct {
 	mu      sync.Mutex
 	stopped chan struct{}
 	open    int
+	// telling is held as OnUse is told, so that it hears in order.
+	telling sync.Mutex
 }
 
 // ErrServedStopped is returned for a read of a [Served] that has stopped.
@@ -72,6 +74,8 @@ func (s *Served) Stopped() <-chan struct{} { return s.stopping() }
 
 // Use tells of the file opened, by 1, or closed, by -1, for a driver.
 func (s *Served) Use(by int) {
+	s.telling.Lock()
+	defer s.telling.Unlock()
 	s.mu.Lock()
 	s.open = max(0, s.open+by)
 	n, tell := s.open, s.OnUse
@@ -141,7 +145,12 @@ func (s *Served) Check() error {
 	if s == nil || s.Size < 0 || s.Data == nil {
 		return errors.New("driver: a served file needs its size and its data")
 	}
-	return nil
+	select {
+	case <-s.Stopped():
+		return ErrServedStopped
+	default:
+		return nil
+	}
 }
 
 // An Opener is a [Window] that hands a file this program serves to another

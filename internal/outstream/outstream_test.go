@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -21,6 +22,7 @@ type kept struct {
 	openErr error
 	write   func(p []byte) (int, error)
 	finish  error
+	commit  error
 	remove  error
 }
 
@@ -36,6 +38,7 @@ func (k *kept) target() Target {
 	return Target{
 		Open:    func() (io.Writer, error) { say("open"); return k, k.openErr },
 		Finish:  func(int64) error { say("finish"); return k.finish },
+		Commit:  func() error { say("commit"); return k.commit },
 		Abandon: func() { say("abandon") },
 		Remove:  func() error { say("remove"); return k.remove },
 	}
@@ -83,7 +86,7 @@ func TestAFileIsWrittenWholeAndFinishedOnce(t *testing.T) {
 	if _, err := w.Write([]byte("x")); err == nil {
 		t.Error("a whole file took more")
 	}
-	k.heard(t, "open finish")
+	k.heard(t, "open finish commit")
 }
 
 func TestAnEmptyFileIsOpenedToo(t *testing.T) {
@@ -91,7 +94,7 @@ func TestAnEmptyFileIsOpenedToo(t *testing.T) {
 	if err := New(k.target()).Close(); err != nil {
 		t.Fatal(err)
 	}
-	k.heard(t, "open finish")
+	k.heard(t, "open finish commit")
 }
 
 func TestAnErrorLeavesTheFileNotWhole(t *testing.T) {
@@ -182,6 +185,55 @@ func TestRemoveEndsACloseThatWaits(t *testing.T) {
 	})
 }
 
+// Remove comes too late once the file is being kept, and does nothing: the
+// file is whole, or Close says it is not, and then Remove takes it away.
+func TestRemoveDoesNothingWhileTheFileIsKept(t *testing.T) {
+	for _, fails := range []error{nil, errors.New("boom")} {
+		began, free := make(chan struct{}), make(chan struct{})
+		k := &kept{}
+		tg := k.target()
+		tg.Commit = func() error {
+			close(began)
+			<-free
+			return fails
+		}
+		w := New(tg)
+		got := make(chan error, 1)
+		go func() { got <- w.Close() }()
+		<-began
+		within(t, "Remove", func() {
+			if err := w.Remove(); err == nil {
+				t.Error("it was taken away as it was kept")
+			}
+		})
+		close(free)
+		if err := <-got; !errors.Is(err, fails) {
+			t.Errorf("Close: %v, want %v", err, fails)
+		}
+		err := w.Remove()
+		if (err == nil) != (fails != nil) {
+			t.Errorf("Remove after Close gave %v: %v", fails, err)
+		}
+	}
+}
+
+// A file that may not be kept is all there, and its program says what will
+// do: it leaves it, or takes it away.
+func TestAFileThatMayNotBeKeptIsTheProgramsToJudge(t *testing.T) {
+	k := &kept{finish: driver.ErrMayNotBeKept}
+	w := New(k.target())
+	for range 2 {
+		if err := w.Close(); !errors.Is(err, driver.ErrMayNotBeKept) {
+			t.Errorf("%v", err)
+		}
+	}
+	k.heard(t, "open finish commit")
+	if err := w.Remove(); err != nil {
+		t.Error(err)
+	}
+	k.heard(t, "open finish commit abandon remove")
+}
+
 // list returns the names in dir.
 func list(t *testing.T, dir string) string {
 	t.Helper()
@@ -260,6 +312,84 @@ func TestALaterRunTakesAwayAPartAndNothingElse(t *testing.T) {
 		if err := RemoveSaved(p); !errors.Is(err, driver.ErrNotMade) {
 			t.Errorf("%q: %v", p, err)
 		}
+	}
+}
+
+func TestRemoveAsTheFileOpensLeavesNothing(t *testing.T) {
+	dir := t.TempDir()
+	opening, free := make(chan struct{}), make(chan struct{})
+	place := filepath.Join(dir, part())
+	fi := files{
+		create: func(name string) (*os.File, error) {
+			close(opening)
+			<-free
+			return os.Create(name)
+		},
+		rename: os.Rename, remove: os.Remove,
+	}
+	w := New(fi.target(place, filepath.Join(dir, "a.txt"), nil))
+	go func() { _, _ = io.WriteString(w, "secret") }()
+	<-opening
+	if err := w.Remove(); err != nil {
+		t.Fatal(err)
+	}
+	close(free)
+	time.Sleep(100 * time.Millisecond)
+	if got := list(t, dir); got != "" {
+		t.Errorf("there is %s", got)
+	}
+}
+
+func TestANewFileIsAsTheOldOneWas(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no such permissions")
+	}
+	dir := t.TempDir()
+	p := filepath.Join(dir, "a.txt")
+	if err := os.WriteFile(p, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink(p, link); err != nil {
+		t.Fatal(err)
+	}
+	f := Save(link)
+	put(t, f, "new")
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	st, err := os.Stat(p)
+	if err != nil || st.Mode().Perm() != 0o600 {
+		t.Errorf("%v, %v", st.Mode(), err)
+	}
+	if to, err := os.Readlink(link); err != nil || to != p {
+		t.Errorf("the link leads to %q, %v", to, err)
+	}
+	if b, _ := os.ReadFile(p); string(b) != "new" {
+		t.Errorf("it holds %q", b)
+	}
+}
+
+func TestAFilesNameMayBeAsLongAsANameCanBe(t *testing.T) {
+	dir := t.TempDir()
+	name := strings.Repeat("a", 250)
+	fo, err := Folder(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = fo.Close() }()
+	in, err := fo.Create(name + ".x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []driver.SavedFile{Save(filepath.Join(dir, name)), in} {
+		put(t, f, "x")
+		if err := f.Close(); err != nil {
+			t.Error(err)
+		}
+	}
+	if got, want := list(t, dir), name+" "+name+".x"; got != want {
+		t.Errorf("there is %s", got)
 	}
 }
 

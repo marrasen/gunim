@@ -110,7 +110,7 @@ final class GunimStreams {
 		}
 	}
 
-	private static void letGo(ParcelFileDescriptor p) {
+	static void letGo(ParcelFileDescriptor p) {
 		try {
 			if (p != null) {
 				p.close();
@@ -139,7 +139,7 @@ final class GunimStreams {
 	 * file alone. Where it wrote anything else, there is no word, and the
 	 * file's end is not known.
 	 */
-	private static ParcelFileDescriptor wordOf(ParcelFileDescriptor file) {
+	static ParcelFileDescriptor wordOf(ParcelFileDescriptor file) {
 		if (!file.canDetectErrors()) {
 			return null;
 		}
@@ -174,6 +174,25 @@ final class GunimStreams {
 	private static final int DONE = 0, UNKNOWN = 1, FAILED = 2;
 
 	private GunimStreams() {
+	}
+
+	/**
+	 * saysFailed reports whether the other end's word, which comes to p in
+	 * wait milliseconds or not at all, is that it failed, or ended without
+	 * one. A word is four bytes, as ParcelFileDescriptor writes it: 0 where
+	 * it closed the file as it meant to.
+	 */
+	static boolean saysFailed(ParcelFileDescriptor p, int wait) {
+		try {
+			if (!hasCome(p, wait)) {
+				return false;
+			}
+			byte[] b = new byte[4];
+			int n = Os.read(p.getFileDescriptor(), b, 0, 4);
+			return n <= 0 || b[0] == 0 && b[1] == 0 && b[2] == 0 && b[3] == 1;
+		} catch (ErrnoException | IOException | RuntimeException e) {
+			return true;
+		}
 	}
 
 	/** Found is a file another application hands over, and what it says of it. */

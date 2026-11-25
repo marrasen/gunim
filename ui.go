@@ -194,12 +194,27 @@ func (a *App) Ask(p driver.Permission) bool {
 // nil where there is nothing left, and an error where the system no longer
 // lets it, or where the file had been closed as whole. A program that keeps
 // a Place forgets it once Close has returned, so that a file that is whole
-// stays.
+// stays. It calls [App.ForgetSaved] once it has taken away all it kept the
+// places of.
 func (a *App) RemoveSaved(place string) error {
 	if r, ok := a.drv.(driver.Remover); ok {
 		return r.RemoveSaved(place)
 	}
 	return outstream.RemoveSaved(place)
+}
+
+// ForgetSaved gives back the rights that earlier runs kept to the files and
+// folders the user chose, so that [App.RemoveSaved] could take away what
+// they left half way: the program calls it once it has done so, with the
+// places it may still want to take away. A run that ends as it writes
+// leaves such a right behind, and Android keeps so many for a program. It
+// gives back every right to a document that Android keeps for the program,
+// so one that takes some by itself, in its own Java, names those in but too.
+// It does nothing where there are no such rights, as on a desktop.
+func (a *App) ForgetSaved(but ...string) {
+	if r, ok := a.drv.(driver.Remover); ok {
+		r.ForgetSaved(but)
+	}
 }
 
 // UserFolder returns the folder the user keeps things of kind f in, as

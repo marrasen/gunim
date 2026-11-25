@@ -105,7 +105,7 @@ public final class Native {
 	// main has run already it ends the process, unless that would take
 	// another activity with it: see settle.
 	static synchronized void load(Context c) {
-		if (over && (starting || GunimWatch.isAlone(c) && !GunimServed.isHeld())) {
+		if (over && (starting || GunimWatch.isAlone(c) && !GunimServed.isOpen())) {
 			anew();
 		}
 		if (loaded) {
@@ -150,6 +150,7 @@ public final class Native {
 		String opens);
 	static native void saved(int code, String place, String name, boolean made);
 	static native void servedUse(long id, int by);
+	static native void servedEnd();
 	static native int servedRead(long id, long offset, int size, byte[] data);
 	static native void heading(float[] rotation, int screen, int accuracy, float error);
 
@@ -386,7 +387,7 @@ public final class Native {
 			String about = folder ? "\0" + 0 : GunimSave.about(u, asked, "");
 			boolean made = about.endsWith("1");
 			if (folder || made) {
-				GunimSave.take(u);
+				GunimSave.use(u);
 			}
 			saved(code, u.toString(), about.substring(0, about.indexOf('\0')), made);
 		}).start();
@@ -398,7 +399,7 @@ public final class Native {
 		case 0:
 			return GunimSave.open(a);
 		case 1:
-			return GunimSave.finish(Long.parseLong(a)) ? "1" : "";
+			return GunimSave.finish(Long.parseLong(a), !b.isEmpty());
 		case 2:
 			GunimSave.abandon(Long.parseLong(a));
 			return "";
@@ -417,6 +418,9 @@ public final class Native {
 			return GunimSave.create(a, b, c, d, e.isEmpty() ? GunimFiles.typeOf(c) : e);
 		case 9:
 			return GunimSave.rename(a, b);
+		case 10:
+			GunimSave.forget(a);
+			return "";
 		}
 		return "";
 	}
@@ -759,10 +763,12 @@ public final class Native {
 
 	// isUnused reports whether the process holds nothing of the program's:
 	// no activity, gunim's or its own, no service, as a job's, and no file
-	// that another application has open.
+	// that another application has open. One that has stopped counts too:
+	// Android may end the application with the process, though the user
+	// looks at it, and nothing needs the process to end.
 	@SuppressWarnings("deprecation")
 	private static boolean isUnused() {
-		if (!GunimWatch.live().isEmpty() || GunimServed.isHeld()) {
+		if (!GunimWatch.live().isEmpty() || GunimServed.isOpen()) {
 			return false;
 		}
 		android.app.ActivityManager m = (android.app.ActivityManager) app.getSystemService(Context.ACTIVITY_SERVICE);
@@ -781,7 +787,7 @@ public final class Native {
 	// it does. It forgets gunim's too, so one that waits and shows is
 	// started again first, and ends the process as it is created.
 	private static boolean isSettledLate() {
-		if (GunimServed.isHeld() && readers > 0) {
+		if (GunimServed.isOpen() && readers > 0) {
 			// A reader that hears of an error lets its file go.
 			readers--;
 			GunimServed.end();

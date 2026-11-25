@@ -99,6 +99,19 @@ func goServedUse(id C.longlong, by C.int) {
 	}
 }
 
+//export goServedEnd
+func goServedEnd() {
+	serving.Lock()
+	all := make([]*servedFile, 0, len(served))
+	for _, f := range served {
+		all = append(all, f)
+	}
+	serving.Unlock()
+	for _, f := range all {
+		f.Stop()
+	}
+}
+
 //export goServedRead
 func goServedRead(id, offset C.longlong, buf unsafe.Pointer, n C.int) C.int {
 	serving.Lock()

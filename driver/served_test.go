@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 )
@@ -104,4 +105,32 @@ func TestOnUseTellsHowManyHoldTheFile(t *testing.T) {
 		t.Errorf("told %v, want %v", told, want)
 	}
 	new(Served).Use(1) // With no one to tell.
+}
+
+func TestOnUseTellsInOrder(t *testing.T) {
+	var last, open int
+	s := &Served{OnUse: func(n int) { last, open = open, n }}
+	var wg sync.WaitGroup
+	for range 50 {
+		wg.Go(func() {
+			s.Use(1)
+			s.Use(-1)
+		})
+	}
+	wg.Wait()
+	// Each is told by one step from the one before, so the last is true.
+	if open != 0 || last != 1 {
+		t.Errorf("told %d after %d, want 0 after 1", open, last)
+	}
+}
+
+func TestAStoppedFileIsNotServedAgain(t *testing.T) {
+	s := &Served{Data: bytes.NewReader(nil)}
+	if err := s.Check(); err != nil {
+		t.Fatal(err)
+	}
+	s.Stop()
+	if err := s.Check(); !errors.Is(err, ErrServedStopped) {
+		t.Errorf("%v", err)
+	}
 }

@@ -33,11 +33,11 @@ func (w *Window) Vibrate(pattern ...time.Duration) error {
 }
 
 // Share implements [driver.Sharer] with navigator.share, for text. A browser
-// program has no files at paths to hand over, so a share of files is
-// [driver.ErrNoSharer]. A user who closes the share sheet is no error.
+// program has no files at paths to hand over, and serves none, so a share of
+// files is [driver.ErrNoSharer]. A user who closes the share sheet is no error.
 func (w *Window) Share(s driver.Share) error {
 	nav := js.Global().Get("navigator")
-	if nav.Get("share").IsUndefined() || len(s.Paths) > 0 {
+	if nav.Get("share").IsUndefined() || len(s.Paths) > 0 || len(s.Served) > 0 {
 		return driver.ErrNoSharer
 	}
 	p, err := call(nav, "share", map[string]any{"title": s.Subject, "text": s.Text})

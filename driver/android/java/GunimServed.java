@@ -86,14 +86,17 @@ public final class GunimServed extends ContentProvider {
 		}
 	}
 
-	/** isHeld reports whether another application has a file open. */
-	static boolean isHeld() {
+	/** isOpen reports whether another application has a file open, served still or not. */
+	static boolean isOpen() {
 		return held.get() > 0;
 	}
 
-	/** end ends the serving of every file: a read of one fails. */
+	/** end ends the serving of every file: a read of one fails, one that waits included. */
 	static void end() {
-		ended = true;
+		if (!ended) {
+			ended = true;
+			Native.servedEnd();
+		}
 	}
 
 	private static Item itemOf(Uri u) {

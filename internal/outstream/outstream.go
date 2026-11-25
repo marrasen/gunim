@@ -7,6 +7,8 @@ import (
 	"errors"
 	"io"
 	"sync"
+
+	"github.com/marrasen/gunim/driver"
 )
 
 // A Target is where a file is written.
@@ -15,10 +17,15 @@ type Target struct {
 	// closed with none.
 	Open func() (io.Writer, error)
 	// Finish is called once all of n bytes are written: it makes sure that
-	// they are kept.
+	// they are kept. It may return [driver.ErrMayNotBeKept], with which
+	// the file is committed all the same. Remove ends the waiting for it.
 	Finish func(n int64) error
+	// Commit then makes the file what it is to be, as by its name. Remove
+	// does nothing meanwhile.
+	Commit func() error
 	// Abandon lets go of the file, whatever it waits for, and Remove takes
-	// away what is there. Each is called once at most, in this order.
+	// away what is there. Each is called once at most, in this order, and
+	// may come while Open runs: what that opens goes too.
 	Abandon func()
 	Remove  func() error
 }
@@ -53,6 +60,8 @@ type Writer struct {
 	gone   chan struct{}
 	end    sync.Mutex
 	closed bool
+	// naming says that Commit runs.
+	naming bool
 	remove error
 }
 
@@ -142,6 +151,9 @@ func (w *Writer) Write(p []byte) (int, error) {
 	}
 }
 
+// errNaming is returned by Remove while the file is committed.
+var errNaming = errors.New("the file is being kept")
+
 // Close says that the file is whole.
 func (w *Writer) Close() error {
 	w.mu.Lock()
@@ -159,14 +171,29 @@ func (w *Writer) Close() error {
 		}
 		return w.t.Finish(n)
 	})
-	if w.err != nil {
+	maybe := errors.Is(w.err, driver.ErrMayNotBeKept)
+	if w.err != nil && !maybe {
 		return w.err
 	}
-	// Remove may have come as it finished, and has the last word.
+	// Remove may have come as it finished. From here on it comes too late.
+	w.end.Lock()
+	if w.closed {
+		w.end.Unlock()
+		w.err = errEnded
+		return w.err
+	}
+	w.naming = true
+	w.end.Unlock()
+	err := w.run(w.t.Commit)
 	w.end.Lock()
 	defer w.end.Unlock()
-	if w.closed {
-		w.err = errEnded
+	w.naming = false
+	if err != nil {
+		w.err = err
+		return err
+	}
+	if maybe {
+		// Whoever calls decides whether that will do.
 		return w.err
 	}
 	w.closed, w.whole, w.remove = true, true, errWhole
@@ -178,6 +205,9 @@ func (w *Writer) Close() error {
 func (w *Writer) Remove() error {
 	w.end.Lock()
 	defer w.end.Unlock()
+	if w.naming {
+		return errNaming
+	}
 	if w.closed {
 		return w.remove
 	}

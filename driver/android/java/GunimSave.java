@@ -4,6 +4,7 @@ import android.content.ContentProviderClient;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.UriPermission;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
@@ -49,7 +50,7 @@ final class GunimSave {
 	 * with calls the provider of u, held unstably where Android can: one
 	 * that ends in the call then ends the call, and not this program.
 	 */
-	private static <T> T with(Uri u, T failed, Doing<T> what) {
+	static <T> T with(Uri u, T failed, Doing<T> what) {
 		ContentProviderClient by = null;
 		try {
 			ContentResolver r = Native.app.getContentResolver();
@@ -86,7 +87,7 @@ final class GunimSave {
 	 * take keeps the right to write what the user chose, so that a later
 	 * run can take away a file this one leaves half written.
 	 */
-	static void take(Uri u) {
+	private static void take(Uri u) {
 		try {
 			Native.app.getContentResolver().takePersistableUriPermission(u, WRITE);
 		} catch (RuntimeException e) {
@@ -94,17 +95,81 @@ final class GunimSave {
 		}
 	}
 
-	/** letGo gives the right back. */
-	static void letGo(String place) {
+	/** rightTo returns the address of what the right to u is kept by: a folder's file by the folder. */
+	private static Uri rightTo(Uri u) {
 		try {
-			Uri u = Uri.parse(place);
 			if (DocumentsContract.isTreeUri(u)) {
-				// A folder's file is kept by the right to the folder.
-				u = DocumentsContract.buildTreeDocumentUri(u.getAuthority(), DocumentsContract.getTreeDocumentId(u));
+				return DocumentsContract.buildTreeDocumentUri(u.getAuthority(), DocumentsContract.getTreeDocumentId(u));
 			}
-			Native.app.getContentResolver().releasePersistableUriPermission(u, WRITE);
+		} catch (RuntimeException e) {
+			// It is no such address.
+		}
+		return u;
+	}
+
+	/** isKept reports whether a right to u is kept, from this run or an earlier one. */
+	private static boolean isKept(Uri u) {
+		Uri right = rightTo(u);
+		for (UriPermission p : Native.app.getContentResolver().getPersistedUriPermissions()) {
+			if (p.getUri().equals(right)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	// inUse counts the files and folders of this run that use a right, and
+	// earlier are those of the rights that an earlier run kept. They stay:
+	// the program may need them to take away what that left.
+	private static final java.util.HashMap<Uri, Integer> inUse = new java.util.HashMap<>();
+	private static final java.util.HashSet<Uri> earlier = new java.util.HashSet<>();
+
+	/** use keeps the right to what the user chose, for one file or folder of this run. */
+	static synchronized void use(Uri u) {
+		Uri right = rightTo(u);
+		Integer n = inUse.get(right);
+		if (n == null && isKept(u)) {
+			earlier.add(right);
+		}
+		inUse.put(right, n == null ? 1 : n + 1);
+		take(u);
+	}
+
+	/** letGo gives the right back, for one file or folder of this run, with the last that uses it. */
+	static synchronized void letGo(String place) {
+		Uri right = rightTo(Uri.parse(place));
+		Integer n = inUse.get(right);
+		if (n != null && n > 1) {
+			inUse.put(right, n - 1);
+			return;
+		}
+		inUse.remove(right);
+		if (n != null && !earlier.contains(right)) {
+			release(right);
+		}
+	}
+
+	private static void release(Uri right) {
+		try {
+			Native.app.getContentResolver().releasePersistableUriPermission(right, WRITE);
 		} catch (RuntimeException e) {
 			// There was none.
+		}
+	}
+
+	/** forget gives back the rights kept by earlier runs, but those to the places in but, each ended by a NUL. */
+	static synchronized void forget(String but) {
+		java.util.HashSet<Uri> keep = new java.util.HashSet<>(inUse.keySet());
+		for (String place : but.split("\0")) {
+			if (!place.isEmpty()) {
+				keep.add(rightTo(Uri.parse(place)));
+			}
+		}
+		for (UriPermission p : Native.app.getContentResolver().getPersistedUriPermissions()) {
+			if (!keep.contains(p.getUri())) {
+				release(p.getUri());
+				earlier.remove(p.getUri());
+			}
 		}
 	}
 
@@ -175,25 +240,39 @@ final class GunimSave {
 		}
 	}
 
-	/** finish closes the document kept as id as whole, and reports whether whoever keeps it has not given up. */
-	static boolean finish(long id) {
+	// How a document that was closed as whole ended: it is kept, it failed,
+	// or nothing tells, as for one that is handed over through a pipe.
+	private static final String KEPT = "1", FAILED = "", MAYBE = "?";
+
+	// WAIT is how long finish waits for a word of whoever keeps a document
+	// that it has failed, in milliseconds.
+	private static final int WAIT = 3000;
+
+	/**
+	 * finish closes the document kept as id as whole, and says how it
+	 * ended. What is handed over through a pipe is another application's to
+	 * keep, after this has closed it, and a word that it took all of it
+	 * says nothing of that: it may store it, or send it on, later. So that
+	 * one may not be kept, unless a word says that it failed.
+	 */
+	static String finish(long id, boolean piped) {
 		Open o = open.remove(id);
 		if (o == null) {
-			return false;
+			return FAILED;
 		}
+		ParcelFileDescriptor word = null;
 		try {
-			if (o.file.canDetectErrors()) {
-				o.file.checkError();
+			if (!piped) {
+				o.file.close();
+				return KEPT;
 			}
+			word = GunimStreams.wordOf(o.file);
 			o.file.close();
-			return true;
-		} catch (ParcelFileDescriptor.FileDescriptorDetachedException e) {
-			// It handed its end on, where Android loses sight of it.
-			return true;
+			return word != null && GunimStreams.saysFailed(word, WAIT) ? FAILED : MAYBE;
 		} catch (IOException | RuntimeException e) {
-			abandon(o.file);
-			return false;
+			return FAILED;
 		} finally {
+			GunimStreams.letGo(word);
 			o.by.close();
 		}
 	}
@@ -222,14 +301,20 @@ final class GunimSave {
 	static boolean delete(String place) {
 		Uri u = Uri.parse(place);
 		return with(u, false, (r, by) -> {
+			boolean said = false;
 			try {
-				if (DocumentsContract.deleteDocument(r, u)) {
-					return true;
-				}
+				said = DocumentsContract.deleteDocument(r, u);
 			} catch (Exception e) {
 				// It may be gone.
 			}
-			return column(r, u, Document.COLUMN_DOCUMENT_ID) == null && !isDenied(r, u);
+			// It says so of a provider that died in the call too, so the
+			// document is asked for. One that has died throws here.
+			try (Cursor c = by.query(u, new String[] {Document.COLUMN_DOCUMENT_ID}, null, null, null)) {
+				return (c == null || c.getCount() == 0) && (said || !isDenied(r, u));
+			} catch (RuntimeException e) {
+				// There is none to ask of, or the right to it went with it.
+				return said;
+			}
 		});
 	}
 
@@ -260,20 +345,35 @@ final class GunimSave {
 	static String find(String tree, String in, String name) {
 		Uri u = DocumentsContract.buildChildDocumentsUriUsingTree(Uri.parse(tree), in);
 		return with(u, "!", (r, by) -> {
-			try (Cursor c = r.query(u, new String[] {Document.COLUMN_DOCUMENT_ID, Document.COLUMN_DISPLAY_NAME,
-				Document.COLUMN_MIME_TYPE}, null, null, null)) {
-				if (c == null) {
-					return "!";
-				}
-				while (c.moveToNext()) {
-					if (name.equalsIgnoreCase(c.getString(1))) {
-						return (Document.MIME_TYPE_DIR.equals(c.getString(2)) ? "d" : "f") + c.getString(0);
+			// A folder in a cloud may tell of some files, and load the rest.
+			for (int i = 0; i < LOADS; i++) {
+				try (Cursor c = r.query(u, new String[] {Document.COLUMN_DOCUMENT_ID, Document.COLUMN_DISPLAY_NAME,
+					Document.COLUMN_MIME_TYPE}, null, null, null)) {
+					if (c == null) {
+						return "!";
+					}
+					while (c.moveToNext()) {
+						if (name.equalsIgnoreCase(c.getString(1))) {
+							return (Document.MIME_TYPE_DIR.equals(c.getString(2)) ? "d" : "f") + c.getString(0);
+						}
+					}
+					android.os.Bundle more = c.getExtras();
+					if (more != null && more.getString(DocumentsContract.EXTRA_ERROR) != null) {
+						return "!";
+					}
+					if (more == null || !more.getBoolean(DocumentsContract.EXTRA_LOADING)) {
+						return "";
 					}
 				}
-				return "";
+				Thread.sleep(500);
 			}
+			return "!";
 		});
 	}
+
+	// LOADS is how often find looks in a folder that is being loaded, half
+	// a second apart.
+	private static final int LOADS = 20;
 
 	/** mkdir makes a folder in the folder in, and returns its id, or "". */
 	static String mkdir(String tree, String in, String name) {
@@ -284,8 +384,8 @@ final class GunimSave {
 				return "";
 			}
 			if (!name.equals(nameOf(r, u, name))) {
-				// It made one of another name.
-				DocumentsContract.deleteDocument(r, u);
+				// It is one of another name. That stays: it may be one that
+				// was there.
 				return "";
 			}
 			return DocumentsContract.getDocumentId(u);
@@ -306,6 +406,11 @@ final class GunimSave {
 			}
 			String flags = column(r, u, Document.COLUMN_FLAGS);
 			if (flags == null || (Integer.parseInt(flags) & Document.FLAG_SUPPORTS_RENAME) == 0) {
+				String size = column(r, u, Document.COLUMN_SIZE);
+				if (size != null && !"0".equals(size)) {
+					// It is one that was there.
+					return "";
+				}
 				DocumentsContract.deleteDocument(r, u);
 				u = DocumentsContract.createDocument(r, parent, type, name);
 				if (u == null) {

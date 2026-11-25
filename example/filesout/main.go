@@ -181,7 +181,9 @@ func write(f driver.SavedFile, data io.ReaderAt) error {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	if err := f.Close(); err != nil {
+	// An application that keeps files in a cloud takes this one through a
+	// pipe, and does not say that it keeps it. That will do here.
+	if err := f.Close(); err != nil && !errors.Is(err, driver.ErrMayNotBeKept) {
 		return errors.Join(err, f.Remove())
 	}
 	return keepPlace("")
@@ -219,6 +221,7 @@ func takeAwayLeft(a *gunim.App) string {
 	s := fmt.Sprintf("A file was left half way. Taken away: %v", err)
 	log.Print(s)
 	_ = keepPlace("")
+	a.ForgetSaved()
 	return s
 }
 

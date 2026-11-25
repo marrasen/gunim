@@ -39,6 +39,7 @@ const (
 	saveMkdir
 	saveCreate
 	saveRename
+	saveForget
 )
 
 // save does one of GunimSave's calls.
@@ -115,7 +116,11 @@ func (w *Window) SaveStream(o driver.SaveOptions) (driver.SavedFile, error) {
 	if p.name == "" {
 		p.name = name
 	}
-	return newDocument(p.place, p.name, "", p.made, func(place string) { save(saveLetGo, place) }), nil
+	letGo := func(string) {}
+	if p.made {
+		letGo = func(place string) { save(saveLetGo, place) }
+	}
+	return newDocument(p.place, p.name, "", p.made, letGo), nil
 }
 
 // SaveFolder implements [driver.StreamSaver] with the system's chooser of
@@ -141,9 +146,13 @@ func (d *Driver) RemoveSaved(place string) error {
 	if save(saveDelete, place) == "" {
 		return driver.ErrNotSaved
 	}
-	save(saveLetGo, place)
+	// The right to it goes with ForgetSaved: there may be more to take away
+	// by it, as in a folder.
 	return nil
 }
+
+// ForgetSaved implements [driver.Remover].
+func (d *Driver) ForgetSaved(but []string) { save(saveForget, strings.Join(but, "\x00")) }
 
 // document is a file that another application keeps.
 type document struct {
@@ -156,6 +165,9 @@ type document struct {
 	f           *os.File
 	id          string
 	gone        bool
+	// maybe says that nothing tells whether the document is kept. The
+	// right to it stays then, for Remove.
+	maybe bool
 }
 
 // newDocument returns the document at place, to write. Once it is whole it
@@ -163,7 +175,7 @@ type document struct {
 func newDocument(place, name, as string, made bool, letGo func(place string)) *document {
 	d := &document{place: place, name: name, made: made, letGo: letGo}
 	d.Writer = outstream.New(outstream.Target{
-		Open: d.open, Finish: func(n int64) error { return d.finish(n, as) }, Abandon: d.abandon, Remove: d.remove,
+		Open: d.open, Finish: d.finish, Commit: func() error { return d.commit(as) }, Abandon: d.abandon, Remove: d.remove,
 	})
 	return d
 }
@@ -233,9 +245,8 @@ func quietError(err error) error {
 	return driver.ErrNotSaved
 }
 
-// finish makes sure that the n bytes written are kept, and names the
-// document as it is to be named.
-func (d *document) finish(n int64, as string) error {
+// finish makes sure that the n bytes written are kept.
+func (d *document) finish(n int64) error {
 	d.mu.Lock()
 	f, id := d.f, d.id
 	d.mu.Unlock()
@@ -245,12 +256,14 @@ func (d *document) finish(n int64, as string) error {
 		err = nil
 	}
 	var st syscall.Stat_t
+	disk := false
 	if c, cerr := f.SyscallConn(); err == nil && cerr == nil {
 		_ = c.Control(func(fd uintptr) {
-			if syscall.Fstat(int(fd), &st) == nil && st.Mode&syscall.S_IFMT == syscall.S_IFREG && st.Size != n {
-				err = driver.ErrNotSaved
-			}
+			disk = syscall.Fstat(int(fd), &st) == nil && st.Mode&syscall.S_IFMT == syscall.S_IFREG
 		})
+	}
+	if disk && st.Size != n {
+		err = driver.ErrNotSaved
 	}
 	if cerr := f.Close(); err == nil {
 		err = cerr
@@ -258,9 +271,25 @@ func (d *document) finish(n int64, as string) error {
 	if err != nil {
 		return quietError(err)
 	}
-	if save(saveFinish, id) == "" {
-		return driver.ErrNotSaved
+	piped := "1"
+	if disk {
+		piped = ""
 	}
+	switch save(saveFinish, id, piped) {
+	case "1":
+		return nil
+	case "?":
+		d.mu.Lock()
+		d.maybe = true
+		d.mu.Unlock()
+		return driver.ErrMayNotBeKept
+	}
+	return driver.ErrNotSaved
+}
+
+// commit names the document as it is to be named, and lets go of the right
+// to it.
+func (d *document) commit(as string) error {
 	if as != "" {
 		got := fields(save(saveRename, d.at(), as))
 		if len(got) != 2 {
@@ -270,7 +299,12 @@ func (d *document) finish(n int64, as string) error {
 		d.place, d.name = got[0], got[1]
 		d.mu.Unlock()
 	}
-	d.letGo(d.at())
+	d.mu.Lock()
+	maybe := d.maybe
+	d.mu.Unlock()
+	if !maybe {
+		d.letGo(d.at())
+	}
 	return nil
 }
 

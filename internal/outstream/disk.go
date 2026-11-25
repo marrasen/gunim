@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 
@@ -18,8 +19,9 @@ import (
 // mark is in the name of a file on the device's own disk that is not whole.
 const mark = ".gunim-part-"
 
-// part returns a name for base while it is not whole.
-func part(base string) string { return fmt.Sprintf(".%s%s%08x", base, mark, rand.Uint32()) }
+// part returns a name for a file while it is not whole. It is short, as
+// the file's own may be as long as a name can be.
+func part() string { return fmt.Sprintf("%s%016x", mark, rand.Uint64()) }
 
 // disk is a file on the device's own disk, as it is written.
 type disk struct {
@@ -49,6 +51,7 @@ type files struct {
 func (fi files) target(part, name string, check func() error) Target {
 	var mu sync.Mutex
 	var f *os.File
+	gone := false
 	return Target{
 		Open: func() (io.Writer, error) {
 			file, err := fi.create(part)
@@ -57,6 +60,10 @@ func (fi files) target(part, name string, check func() error) Target {
 			}
 			mu.Lock()
 			defer mu.Unlock()
+			if gone {
+				// Remove has come meanwhile, and found nothing.
+				return nil, errors.Join(errEnded, file.Close(), fi.remove(part))
+			}
 			f = file
 			return file, nil
 		},
@@ -71,17 +78,20 @@ func (fi files) target(part, name string, check func() error) Target {
 			if cerr := f.Close(); err == nil {
 				err = cerr
 			}
-			if err == nil && check != nil {
-				err = check()
-			}
-			if err != nil {
-				return err
+			return err
+		},
+		Commit: func() error {
+			if check != nil {
+				if err := check(); err != nil {
+					return err
+				}
 			}
 			return fi.rename(part, name)
 		},
 		Abandon: func() {
 			mu.Lock()
 			defer mu.Unlock()
+			gone = true
 			if f != nil {
 				_ = f.Close()
 			}
@@ -96,17 +106,35 @@ func (fi files) target(part, name string, check func() error) Target {
 }
 
 // Save returns the file at p, to write. What is there stays until it is
-// whole.
+// whole, and the new file then has its permissions. A link at p stays, and
+// the file it leads to is written.
 func Save(p string) driver.SavedFile {
-	_, err := os.Lstat(p)
-	place := filepath.Join(filepath.Dir(p), part(filepath.Base(p)))
+	name := filepath.Base(p)
+	if to, err := filepath.EvalSymlinks(p); err == nil {
+		p = to
+	}
+	perm, made := fs.FileMode(0o666), true
+	if st, err := os.Stat(p); err == nil {
+		perm, made = st.Mode().Perm(), false
+	}
+	place := filepath.Join(filepath.Dir(p), part())
 	fi := files{
 		create: func(name string) (*os.File, error) {
-			return os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o666)
+			if made {
+				return os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
+			}
+			f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+			if err != nil {
+				return nil, err
+			}
+			if err := f.Chmod(perm); err != nil && runtime.GOOS != "windows" {
+				return nil, errors.Join(err, f.Close(), os.Remove(name))
+			}
+			return f, nil
 		},
 		rename: os.Rename, remove: os.Remove,
 	}
-	return &disk{Writer: New(fi.target(place, p, nil)), name: filepath.Base(p), place: place, made: errors.Is(err, fs.ErrNotExist)}
+	return &disk{Writer: New(fi.target(place, p, nil)), name: name, place: place, made: made}
 }
 
 // RemoveSaved takes away what [driver.SavedFile.Place] names, from an
@@ -183,7 +211,7 @@ func (fo *folder) Create(p string) (driver.SavedFile, error) {
 	if err := fo.root.MkdirAll(filepath.FromSlash(path.Dir(p)), 0o777); err != nil {
 		return nil, err
 	}
-	place := filepath.FromSlash(path.Join(path.Dir(p), part(path.Base(p))))
+	place := filepath.FromSlash(path.Join(path.Dir(p), part()))
 	fi := files{
 		create: func(name string) (*os.File, error) {
 			return fo.root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o666)
@@ -194,9 +222,9 @@ func (fo *folder) Create(p string) (driver.SavedFile, error) {
 	var once sync.Once
 	ended := func() { once.Do(func() { fo.use(-1) }) }
 	t := fi.target(place, filepath.FromSlash(p), check)
-	finish, remove := t.Finish, t.Remove
-	t.Finish = func(n int64) error {
-		err := finish(n)
+	commit, remove := t.Commit, t.Remove
+	t.Commit = func() error {
+		err := commit()
 		if err == nil {
 			ended()
 		}

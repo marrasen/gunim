@@ -458,6 +458,10 @@ JNIEXPORT void JNICALL Java_gunim_android_Native_servedUse(JNIEnv *env, jclass c
 	goServedUse(id, by);
 }
 
+JNIEXPORT void JNICALL Java_gunim_android_Native_servedEnd(JNIEnv *env, jclass c) {
+	goServedEnd();
+}
+
 // Go reads into memory of C's own, as a read may take long, and Java moves
 // its arrays.
 JNIEXPORT jint JNICALL Java_gunim_android_Native_servedRead(JNIEnv *env, jclass c, jlong id, jlong offset, jint size,
