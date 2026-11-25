@@ -648,6 +648,11 @@ costs, whether Android lets the program use it now, and whether what was
 connected before may be connected no longer. From Android 15 the network
 is blocked a few seconds after the program leaves the screen, unless a
 job of its own runs. `example/notify` shows both.
+`Client.Secure(true)` keeps what a window shows to the screen: out of
+screenshots, recordings, the picture in Recents and screens cast, and
+clear of other apps' windows over it. A `Secret` field asks the keyboard
+to learn nothing, and `UI.SetClipboardSensitive` marks what it copies.
+`example/secret` shows them.
 
 What gunim writes to Android's log holds no name or address of a file.
 `gunimapk -quiet` keeps the program's own output out of it too, and a

@@ -2,6 +2,7 @@ package gunim.android;
 
 import android.app.Activity;
 import android.os.Bundle;
+import android.view.View;
 
 /**
  * GunimActivity runs a gunim program. It loads the program, built as
@@ -28,7 +29,7 @@ public class GunimActivity extends Activity {
 		}
 		waits = Native.waits();
 		Native.activity = this;
-		GunimView v = new GunimView(this);
+		GunimView v = view = new GunimView(this);
 		Native.view = v;
 		Native.keepGestures(v);
 		setContentView(v);
@@ -86,6 +87,96 @@ public class GunimActivity extends Activity {
 		} else {
 			getWindow().clearFlags(flag);
 		}
+	}
+
+	// view is this activity's own, as Native.view is the newest's.
+	private GunimView view;
+
+	// secured says that this activity is secure as gunim made it, and
+	// flagged and filtered what it was before by the program's own doing.
+	private boolean secured, flagged, filtered;
+
+	// INHERITS is the oldest Android known to keep the surface of a view
+	// out of recordings as it does its window. On one before it the surface
+	// is made again, as it is made one way or the other for good.
+	private static final int INHERITS = 34;
+
+	/**
+	 * applySecure sets the window to what the program last asked: kept out
+	 * of screenshots, recordings, the picture in Recents and screens cast,
+	 * with other applications' windows over it hidden, and deaf to touches
+	 * through one. What the program set by itself stays as it is. It runs
+	 * on the UI thread, and done once the screen shows the window so, with
+	 * false where such windows may stay.
+	 */
+	void applySecure(java.util.function.Consumer<Boolean> done) {
+		boolean on = Native.secure;
+		if (on == secured) {
+			done.accept(!on || overlaysGo);
+			return;
+		}
+		secured = on;
+		int flag = android.view.WindowManager.LayoutParams.FLAG_SECURE;
+		GunimView v = view;
+		if (on) {
+			flagged = (getWindow().getAttributes().flags & flag) != 0;
+			getWindow().addFlags(flag);
+			if (v != null) {
+				filtered = v.getFilterTouchesWhenObscured();
+				v.setFilterTouchesWhenObscured(true);
+			}
+		} else {
+			if (!flagged) {
+				getWindow().clearFlags(flag);
+			}
+			if (v != null) {
+				v.setFilterTouchesWhenObscured(filtered);
+			}
+		}
+		if (android.os.Build.VERSION.SDK_INT >= 33) {
+			setRecentsScreenshotEnabled(!on);
+		}
+		hideOverlays(on);
+		Runnable ready = () -> done.accept(!on || overlaysGo);
+		// The mark of the view's own is made with its surface, and stays with
+		// that: a view that inherits its window's has none.
+		boolean marked = android.os.Build.VERSION.SDK_INT < INHERITS;
+		if (v != null && marked && GunimWatch.isShown(this)) {
+			v.remake(on, () -> afterFrames(ready));
+		} else {
+			if (v != null && marked) {
+				v.setSecure(on);
+			}
+			if (v != null && GunimWatch.isShown(this)) {
+				afterFrames(ready);
+			} else {
+				// It is made, and drawn, as it shows.
+				ready.run();
+			}
+		}
+	}
+
+	// overlaysGo says that other applications' windows over this one are
+	// hidden while it is secure.
+	private boolean overlaysGo;
+
+	private void hideOverlays(boolean on) {
+		overlaysGo = false;
+		if (android.os.Build.VERSION.SDK_INT >= 31) {
+			try {
+				getWindow().setHideOverlayWindows(on);
+				overlaysGo = true;
+			} catch (SecurityException e) {
+				// The program has no permission to.
+			}
+		}
+	}
+
+	// afterFrames runs done once the window has been laid out with what was
+	// set, and drawn.
+	private void afterFrames(Runnable done) {
+		View v = getWindow().getDecorView();
+		v.postOnAnimation(() -> v.postOnAnimation(() -> v.post(done)));
 	}
 
 	/**
@@ -160,6 +251,10 @@ public class GunimActivity extends Activity {
 	// stops, so only the activity the program runs in now speaks for it.
 	@Override
 	protected void onStart() {
+		// Nothing has shown yet, and the program has set what it will in an
+		// onCreate of its own.
+		applySecure((alone) -> {
+		});
 		super.onStart();
 		if (Native.activity == this) {
 			Native.shown(true);
@@ -168,6 +263,8 @@ public class GunimActivity extends Activity {
 
 	@Override
 	protected void onStop() {
+		// Its surface is made as it shows again.
+		view.settled();
 		if (Native.activity == this) {
 			Native.shown(false);
 		}

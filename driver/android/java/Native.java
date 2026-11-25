@@ -55,8 +55,12 @@ public final class Native {
 		if (over) {
 			settle();
 		}
-		start(java.util.TimeZone.getDefault().getID(), quiet(c));
+		keepsQuiet = quiet(c);
+		start(java.util.TimeZone.getDefault().getID(), keepsQuiet);
 	}
+
+	// keepsQuiet is what quiet reported.
+	static boolean keepsQuiet;
 
 	// quiet reports whether gunimapk's -quiet keeps what the program
 	// writes out of the system's log.
@@ -284,7 +288,76 @@ public final class Native {
 			return;
 		}
 		ClipboardManager cm = (ClipboardManager) a.getSystemService(Context.CLIPBOARD_SERVICE);
-		cm.setPrimaryClip(ClipData.newPlainText("text", s));
+		cm.setPrimaryClip(own(s, false));
+	}
+
+	// OURS is in the extras of the clips that this process puts there, to
+	// know its own by: a word that names no program.
+	private static final String FROM = "gunim.from", OURS = java.util.UUID.randomUUID().toString();
+
+	// own returns s as a clip of this program's, marked sensitive or not.
+	private static ClipData own(String s, boolean sensitive) {
+		ClipData clip = ClipData.newPlainText("text", s);
+		android.os.PersistableBundle extras = new android.os.PersistableBundle();
+		extras.putString(FROM, OURS);
+		if (sensitive) {
+			// ClipDescription.EXTRA_IS_SENSITIVE, which keyboards read on
+			// Android before 13 too.
+			extras.putBoolean("android.content.extra.IS_SENSITIVE", true);
+		}
+		clip.getDescription().setExtras(extras);
+		return clip;
+	}
+
+	private static void emptyClipboard(ClipboardManager cm) {
+		if (Build.VERSION.SDK_INT >= 28) {
+			cm.clearPrimaryClip();
+		} else {
+			cm.setPrimaryClip(ClipData.newPlainText("", ""));
+		}
+	}
+
+	// setClipboardSensitive puts s on the clipboard marked sensitive, or
+	// empties it for "". It returns false where it could not.
+	static boolean setClipboardSensitive(String s) {
+		try {
+			ClipboardManager cm = (ClipboardManager) app.getSystemService(Context.CLIPBOARD_SERVICE);
+			if (s.isEmpty()) {
+				emptyClipboard(cm);
+			} else {
+				cm.setPrimaryClip(own(s, true));
+			}
+			return true;
+		} catch (RuntimeException e) {
+			return false;
+		}
+	}
+
+	// clearClipboardIf empties the clipboard where it holds s from this
+	// process: 1 where it did, 0 where it holds something else, which it
+	// reads nothing of where that is another program's, and 2 where Android
+	// does not tell.
+	static int clearClipboardIf(String s) {
+		try {
+			ClipboardManager cm = (ClipboardManager) app.getSystemService(Context.CLIPBOARD_SERVICE);
+			android.content.ClipDescription about = cm.getPrimaryClipDescription();
+			if (about == null) {
+				// It is empty, or Android tells the program in front alone.
+				GunimView v = view;
+				return v != null && v.hasWindowFocus() ? 0 : 2;
+			}
+			if (about.getExtras() == null || !OURS.equals(about.getExtras().getString(FROM))) {
+				return 0;
+			}
+			ClipData clip = cm.getPrimaryClip();
+			if (clip == null || clip.getItemCount() != 1 || !s.contentEquals(String.valueOf(clip.getItemAt(0).getText()))) {
+				return 0;
+			}
+			emptyClipboard(cm);
+			return 1;
+		} catch (RuntimeException e) {
+			return 2;
+		}
 	}
 
 	// permissionNames names permission p, as driver.Permission numbers
@@ -570,6 +643,40 @@ public final class Native {
 				activity.applyAwake();
 			}
 		});
+	}
+
+	// secure says the activity keeps what it shows to the screen. It lives
+	// here for a new activity, as awake does.
+	static volatile boolean secure;
+
+	// secure sets that, and returns once the screen shows the activity so:
+	// 0, or 1 where other applications' windows may stay over it, or 2
+	// where that took too long to know. On the UI thread it does not wait.
+	static int secure(boolean on) {
+		java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
+		int[] over = new int[1];
+		Runnable apply = () -> {
+			secure = on;
+			GunimActivity a = activity;
+			if (a == null) {
+				done.countDown();
+				return;
+			}
+			a.applySecure((alone) -> {
+				over[0] = alone ? 0 : 1;
+				done.countDown();
+			});
+		};
+		if (Looper.myLooper() == Looper.getMainLooper()) {
+			apply.run();
+			return over[0];
+		}
+		ui.post(apply);
+		try {
+			return done.await(5, java.util.concurrent.TimeUnit.SECONDS) ? over[0] : 2;
+		} catch (InterruptedException e) {
+			return 2;
+		}
 	}
 
 	static void buzz() {

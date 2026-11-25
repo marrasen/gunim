@@ -28,6 +28,7 @@ static jclass nativeClass;
 static jmethodID midPermitted, midAsk, midUserFolder, midChooseFolder, midChooseFiles;
 static jmethodID midNowPlaying, midShowKeyboard, midCaret, midBuzz, midFingers, midAwake, midShare, midVibrate, midExclude, midOpenLink, midTextState, midClearTextState, midGetClipboard, midSetClipboard, midFinish;
 static jmethodID midHasCompass, midWatchHeading, midNoBackupDir, midRun, midEnded, midStreamEnd, midCloseStream, midOpenServed, midStopServed, midCreateDocument, midSaveFolder, midSave, midNotify, midNotifyOn, midNotifyEnd, midWatchNetwork;
+static jmethodID midSetClipboardSensitive, midClearClipboardIf, midSecure;
 static jclass audioClass;
 static jmethodID midAudioRoute, midAudioProbe, midAudioWatch;
 
@@ -70,6 +71,9 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *v, void *reserved) {
 	midClearTextState = (*env)->GetStaticMethodID(env, c, "clearTextState", "()V");
 	midGetClipboard = (*env)->GetStaticMethodID(env, c, "getClipboard", "()Ljava/lang/String;");
 	midSetClipboard = (*env)->GetStaticMethodID(env, c, "setClipboard", "(Ljava/lang/String;)V");
+	midSetClipboardSensitive = (*env)->GetStaticMethodID(env, c, "setClipboardSensitive", "(Ljava/lang/String;)Z");
+	midClearClipboardIf = (*env)->GetStaticMethodID(env, c, "clearClipboardIf", "(Ljava/lang/String;)I");
+	midSecure = (*env)->GetStaticMethodID(env, c, "secure", "(Z)I");
 	midFinish = (*env)->GetStaticMethodID(env, c, "finish", "()V");
 	midEnded = (*env)->GetStaticMethodID(env, c, "ended", "()V");
 	midPermitted = (*env)->GetStaticMethodID(env, c, "permitted", "(I)Z");
@@ -205,6 +209,34 @@ void gunim_set_clipboard(const uint16_t *s, int n) {
 	(*env)->CallStaticVoidMethod(env, nativeClass, midSetClipboard, js);
 	(*env)->DeleteLocalRef(env, js);
 	envPut(a);
+}
+
+int gunim_set_clipboard_sensitive(const uint16_t *s, int n) {
+	int a;
+	JNIEnv *env = envGet(&a);
+	jstring js = (*env)->NewString(env, (const jchar *)s, n);
+	jboolean ok = (*env)->CallStaticBooleanMethod(env, nativeClass, midSetClipboardSensitive, js);
+	(*env)->DeleteLocalRef(env, js);
+	envPut(a);
+	return ok ? 1 : 0;
+}
+
+int gunim_clear_clipboard_if(const uint16_t *s, int n) {
+	int a;
+	JNIEnv *env = envGet(&a);
+	jstring js = (*env)->NewString(env, (const jchar *)s, n);
+	jint r = (*env)->CallStaticIntMethod(env, nativeClass, midClearClipboardIf, js);
+	(*env)->DeleteLocalRef(env, js);
+	envPut(a);
+	return r;
+}
+
+int gunim_secure(int on) {
+	int a;
+	JNIEnv *env = envGet(&a);
+	jint r = (*env)->CallStaticIntMethod(env, nativeClass, midSecure, on ? JNI_TRUE : JNI_FALSE);
+	envPut(a);
+	return r;
 }
 
 int gunim_permitted(int p) {

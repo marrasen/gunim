@@ -52,6 +52,26 @@ func TestShareAndVibrateSayWhenThereIsNone(t *testing.T) {
 	}
 }
 
+func TestSecureReachesTheDriver(t *testing.T) {
+	w := NewOffscreen(geom.Sz(400, 300), nil)
+	if err := w.Client().Secure(true); !errors.Is(err, driver.ErrNoSecurer) {
+		t.Errorf("with none: %v", err)
+	}
+	var got []bool
+	w.Offscreen().SetSecurer(func(on bool) error {
+		got = append(got, on)
+		return driver.ErrOverlaysStay
+	})
+	for _, on := range []bool{true, false} {
+		if err := w.Client().Secure(on); !errors.Is(err, driver.ErrOverlaysStay) {
+			t.Errorf("%v: %v", on, err)
+		}
+	}
+	if !slices.Equal(got, []bool{true, false}) {
+		t.Errorf("the driver heard %v", got)
+	}
+}
+
 func TestKeepAwakeReachesTheDriver(t *testing.T) {
 	w := NewOffscreen(geom.Sz(400, 300), nil)
 	var got []bool
