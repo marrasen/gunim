@@ -1,14 +1,19 @@
 // Command openfiles shows the files it is given: those another application opens with it, and those chosen with
-// its button. It says what each holds, so a run on a phone shows the whole way a file takes to a program.
+// its buttons, as copies or to read as they come. It says what each holds, so a run on a phone shows the whole way a file
+// takes to a program.
 //
 //	go run ./tools/gunimapk -run -name "Open files" -opens .hej ./example/openfiles
+//
+// With -opens '*' -streams it takes any file shared to it, and reads it as it comes.
 package main
 
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -30,6 +35,10 @@ type (
 	chooseIntent struct{}
 	// openedIntent is files another application opened with this one.
 	openedIntent struct{ paths []string }
+	// streamsIntent is files another application opened, to read as they come.
+	streamsIntent struct{ streams []*input.Stream }
+	// chooseStreamsIntent is the other button clicked.
+	chooseStreamsIntent struct{}
 )
 
 func main() {
@@ -54,8 +63,7 @@ func run() error {
 		if merr := c.Mount(gunim.Root, "opener", "opener", lines); merr != nil {
 			return merr
 		}
-		show := func(from string, paths []string, err error) {
-			text := describe(from, paths, err)
+		tell := func(text string) {
 			log.Print(text)
 			if lines == "No files yet." {
 				lines = ""
@@ -63,6 +71,7 @@ func run() error {
 			lines = text + "\n" + lines
 			_ = c.Update("opener", lines)
 		}
+		show := func(from string, paths []string, err error) { tell(describe(from, paths, err)) }
 		chosen := make(chan func(), 1)
 		for {
 			select {
@@ -73,6 +82,17 @@ func run() error {
 				switch in := e.Intent.(type) {
 				case openedIntent:
 					show("opened", in.paths, nil)
+				case streamsIntent:
+					go func() {
+						text := describeStreams("opened", in.streams, nil)
+						chosen <- func() { tell(text) }
+					}()
+				case chooseStreamsIntent:
+					go func() {
+						streams, err := c.ChooseStreams(ctx, driver.ChooseOptions{Title: "Choose files", Multiple: true})
+						text := describeStreams("chosen", streams, err)
+						chosen <- func() { tell(text) }
+					}()
 				case chooseIntent:
 					// The dialog waits on the user, and files opened meanwhile do not.
 					go func() {
@@ -110,6 +130,28 @@ func describe(from string, paths []string, err error) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
+// describeStreams reads streams to their ends, which keeps none of them, and says what came and whether it is whole.
+func describeStreams(from string, streams []*input.Stream, err error) string {
+	var b strings.Builder
+	if err != nil {
+		fmt.Fprintf(&b, "%s: %v\n", from, err)
+	}
+	if len(streams) == 0 && err == nil {
+		fmt.Fprintf(&b, "%s: nothing\n", from)
+	}
+	for _, s := range streams {
+		h := sha256.New()
+		n, err := io.Copy(h, s)
+		_ = s.Close()
+		end := "whole"
+		if err != nil {
+			end = err.Error()
+		}
+		fmt.Fprintf(&b, "%s: %s, %q, %d bytes of %d, %x: %s\n", from, s.Name, s.Type, n, s.Size, h.Sum(nil)[:4], end)
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
 // describeFile gives a file's name and size and the start of what it holds.
 func describeFile(path string) string {
 	data, err := os.ReadFile(path)
@@ -128,23 +170,29 @@ func describeFile(path string) string {
 
 // opener is a button over a list of the files given so far.
 type opener struct {
-	button *widget.Button
-	list   *widget.Label
+	button, streams *widget.Button
+	list            *widget.Label
 }
 
 func newOpener() *opener {
 	b := widget.NewButton("Choose files")
 	b.OnClick = widget.Sends(chooseIntent{})
-	return &opener{button: b, list: widget.NewLabel("")}
+	s := widget.NewButton("Choose files to read")
+	s.OnClick = widget.Sends(chooseStreamsIntent{})
+	return &opener{button: b, streams: s, list: widget.NewLabel("")}
 }
 
 // Children implements [gunim.Composite].
-func (v *opener) Children() []gunim.Node { return []gunim.Node{v.button, v.list} }
+func (v *opener) Children() []gunim.Node { return []gunim.Node{v.button, v.streams, v.list} }
 
 // Handle implements [gunim.Handler]: files another application opened go to the application.
 func (v *opener) Handle(e input.Event, u *gunim.UI) bool {
 	if o, ok := e.(input.FilesOpened); ok {
 		u.Send(v, openedIntent{paths: o.Paths})
+		return true
+	}
+	if o, ok := e.(input.StreamsOpened); ok {
+		u.Send(v, streamsIntent{streams: o.Streams})
 		return true
 	}
 	return false
@@ -159,8 +207,11 @@ func (v *opener) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children)
 	kids.At(0).Layout(gunim.Tight(geom.Sz(w, buttonH)))
 	kids.At(0).Place(geom.Pt(margin, margin))
 	y := float32(margin + buttonH + margin)
-	kids.At(1).Layout(gunim.Tight(geom.Sz(w, max(box.H-y-margin, 0))))
+	kids.At(1).Layout(gunim.Tight(geom.Sz(w, buttonH)))
 	kids.At(1).Place(geom.Pt(margin, y))
+	y += buttonH + margin
+	kids.At(2).Layout(gunim.Tight(geom.Sz(w, max(box.H-y-margin, 0))))
+	kids.At(2).Place(geom.Pt(margin, y))
 	return box
 }
 

@@ -261,6 +261,11 @@ type WindowShown struct{ Shown bool }
 // they arrive at start as well as while it runs.
 type FilesOpened struct{ Paths []string }
 
+// StreamsOpened is sent on [Window.Input] in place of [FilesOpened] where
+// the application reads the files as they come. The engine turns it into
+// [github.com/marrasen/gunim/input.StreamsOpened].
+type StreamsOpened struct{ Streams []*input.Stream }
+
 // WindowCovered is sent on [Window.Input] as the window goes out of
 // sight while it stays open, or comes back: covered whole by other
 // windows, on another virtual desktop or workspace, or on a screen that

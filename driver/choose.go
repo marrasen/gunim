@@ -1,6 +1,10 @@
 package driver
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/marrasen/gunim/input"
+)
 
 // ChooseOptions describes a dialog for choosing files or folders to open.
 type ChooseOptions struct {
@@ -31,6 +35,13 @@ type FileFilter struct {
 // cancelled. It may be called from any goroutine but the main one.
 type FileChooser interface {
 	ChooseFiles(o ChooseOptions) ([]string, error)
+}
+
+// A StreamChooser is a [Window] that shows the same dialog, and hands over
+// the files chosen to read as they come, with no copies made. A file that
+// failed to open is there too, and fails at its first Read.
+type StreamChooser interface {
+	ChooseStreams(o ChooseOptions) ([]*input.Stream, error)
 }
 
 // ErrNoChooser is returned where the platform has no file dialog gunim

@@ -140,7 +140,7 @@ type Driver struct {
 	gone    []*compose.Pane
 	// opened holds the files handed over before a window opened to take
 	// them, one batch to an entry.
-	opened [][]string
+	opened []any
 	// gest is the touch in progress; see gestures.
 	gest touch.Gestures
 	// fingersOn is what the view last heard from takeFingers.
@@ -218,8 +218,9 @@ func newDriver() *Driver {
 
 // start runs main once, for the first activity or other component, in
 // the phone's time zone, zone. An activity made again, as after the user
-// leaves and comes back, finds it running.
-func (d *Driver) start(zone string) {
+// leaves and comes back, finds it running. quiet keeps what the program
+// writes out of the system's log.
+func (d *Driver) start(zone string, quiet bool) {
 	d.mu.Lock()
 	if d.started {
 		d.mu.Unlock()
@@ -230,7 +231,11 @@ func (d *Driver) start(zone string) {
 	takeEnv()
 	// The last run's copies go as this one starts, apart from the UI thread.
 	go copies()
-	toLogcat()
+	if quiet {
+		hush()
+	} else {
+		toLogcat()
+	}
 	setZone(zone)
 	go d.render()
 	go func() {
@@ -336,8 +341,8 @@ func (d *Driver) NewWindow(o driver.Options) (driver.Window, error) {
 		w.pos = o.Anchor.Min.Add(w.parent.pos)
 	default:
 		w.fills = true
-		for _, paths := range d.opened {
-			w.in.Push(driver.FilesOpened{Paths: paths})
+		for _, e := range d.opened {
+			w.in.Push(e)
 		}
 		d.opened = nil
 	}
@@ -641,9 +646,10 @@ func (d *Driver) shown(on bool) {
 	}
 }
 
-// filesOpened hands files another application opened to the top window
-// that fills the screen, or keeps them for the first to open.
-func (d *Driver) filesOpened(paths []string) {
+// filesOpened hands files another application opened, as a
+// driver.FilesOpened or a driver.StreamsOpened, to the top window that
+// fills the screen, or keeps them for the first to open.
+func (d *Driver) filesOpened(e any) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	var top *Window
@@ -653,10 +659,10 @@ func (d *Driver) filesOpened(paths []string) {
 		}
 	}
 	if top == nil {
-		d.opened = append(d.opened, paths)
+		d.opened = append(d.opened, e)
 		return
 	}
-	top.in.Push(driver.FilesOpened{Paths: paths})
+	top.in.Push(e)
 }
 
 func (d *Driver) windowFocus(focused bool) {

@@ -3,6 +3,8 @@
 #include <jni.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <pthread.h>
+#include <unistd.h>
 #include <netdb.h>
 #include <string.h>
 #include <time.h>
@@ -24,7 +26,7 @@ static JavaVM *vm;
 static jclass nativeClass;
 static jmethodID midPermitted, midAsk, midUserFolder, midChooseFolder, midChooseFiles;
 static jmethodID midNowPlaying, midShowKeyboard, midCaret, midBuzz, midFingers, midAwake, midShare, midVibrate, midExclude, midOpenLink, midTextState, midClearTextState, midGetClipboard, midSetClipboard, midFinish;
-static jmethodID midHasCompass, midWatchHeading, midNoBackupDir, midRun, midEnded;
+static jmethodID midHasCompass, midWatchHeading, midNoBackupDir, midRun, midEnded, midStreamEnd, midCloseStream;
 static jclass audioClass;
 static jmethodID midAudioRoute, midAudioProbe, midAudioWatch;
 
@@ -65,7 +67,9 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *v, void *reserved) {
 	midNoBackupDir = (*env)->GetStaticMethodID(env, c, "noBackupDir", "()Ljava/lang/String;");
 	midRun = (*env)->GetStaticMethodID(env, c, "run", "(J)Ljava/lang/String;");
 	midChooseFolder = (*env)->GetStaticMethodID(env, c, "chooseFolder", "(I)V");
-	midChooseFiles = (*env)->GetStaticMethodID(env, c, "chooseFiles", "(IZLjava/lang/String;)V");
+	midChooseFiles = (*env)->GetStaticMethodID(env, c, "chooseFiles", "(IZLjava/lang/String;Z)V");
+	midStreamEnd = (*env)->GetStaticMethodID(env, c, "streamEnd", "(J)I");
+	midCloseStream = (*env)->GetStaticMethodID(env, c, "closeStream", "(J)V");
 	jclass ac = (*env)->FindClass(env, "gunim/android/GunimAudio");
 	if (ac != NULL) {
 		audioClass = (*env)->NewGlobalRef(env, ac);
@@ -218,11 +222,12 @@ void gunim_choose_folder(int code) {
 	envPut(a);
 }
 
-void gunim_choose_files(int code, int multiple, const uint16_t *patterns, int n) {
+void gunim_choose_files(int code, int multiple, const uint16_t *patterns, int n, int streams) {
 	int a;
 	JNIEnv *env = envGet(&a);
 	jstring p = (*env)->NewString(env, (const jchar *)patterns, n);
-	(*env)->CallStaticVoidMethod(env, nativeClass, midChooseFiles, code, multiple ? JNI_TRUE : JNI_FALSE, p);
+	(*env)->CallStaticVoidMethod(env, nativeClass, midChooseFiles, code, multiple ? JNI_TRUE : JNI_FALSE, p,
+		streams ? JNI_TRUE : JNI_FALSE);
 	(*env)->DeleteLocalRef(env, p);
 	envPut(a);
 }
@@ -238,6 +243,43 @@ JNIEXPORT void JNICALL Java_gunim_android_Native_files(JNIEnv *env, jclass c, ji
 	(*env)->ReleaseStringChars(env, opens, os);
 	(*env)->ReleaseStringChars(env, names, ns);
 	(*env)->ReleaseIntArrayElements(env, fds, f, JNI_ABORT);
+}
+
+JNIEXPORT void JNICALL Java_gunim_android_Native_streams(JNIEnv *env, jclass c, jint code, jintArray fds, jlongArray ids,
+	jlongArray stated, jlongArray held, jstring names, jstring types, jstring opens) {
+	jsize n = (*env)->GetArrayLength(env, fds);
+	jint *f = (*env)->GetIntArrayElements(env, fds, NULL);
+	jlong *i = (*env)->GetLongArrayElements(env, ids, NULL);
+	jlong *s = (*env)->GetLongArrayElements(env, stated, NULL);
+	jlong *h = (*env)->GetLongArrayElements(env, held, NULL);
+	jsize nn = (*env)->GetStringLength(env, names), nt = (*env)->GetStringLength(env, types);
+	jsize no = (*env)->GetStringLength(env, opens);
+	const jchar *ns = (*env)->GetStringChars(env, names, NULL), *ts = (*env)->GetStringChars(env, types, NULL);
+	const jchar *os = (*env)->GetStringChars(env, opens, NULL);
+	goStreams(code, n, (int *)f, (long long *)i, (long long *)s, (long long *)h, (uint16_t *)ns, nn, (uint16_t *)ts, nt,
+		(uint16_t *)os, no);
+	(*env)->ReleaseStringChars(env, opens, os);
+	(*env)->ReleaseStringChars(env, types, ts);
+	(*env)->ReleaseStringChars(env, names, ns);
+	(*env)->ReleaseLongArrayElements(env, held, h, JNI_ABORT);
+	(*env)->ReleaseLongArrayElements(env, stated, s, JNI_ABORT);
+	(*env)->ReleaseLongArrayElements(env, ids, i, JNI_ABORT);
+	(*env)->ReleaseIntArrayElements(env, fds, f, JNI_ABORT);
+}
+
+int gunim_stream_end(long long id) {
+	int a;
+	JNIEnv *env = envGet(&a);
+	jint end = (*env)->CallStaticIntMethod(env, nativeClass, midStreamEnd, (jlong)id);
+	envPut(a);
+	return end;
+}
+
+void gunim_close_stream(long long id) {
+	int a;
+	JNIEnv *env = envGet(&a);
+	(*env)->CallStaticVoidMethod(env, nativeClass, midCloseStream, (jlong)id);
+	envPut(a);
 }
 
 JNIEXPORT void JNICALL Java_gunim_android_Native_chosen(JNIEnv *env, jclass c, jint code, jstring path) {
@@ -446,10 +488,10 @@ void gunim_ended(void) {
 // The JNI methods of gunim.android.Native, which Java calls on its UI
 // thread. Each hands over to Go.
 
-JNIEXPORT void JNICALL Java_gunim_android_Native_start(JNIEnv *env, jclass c, jstring zone) {
+JNIEXPORT void JNICALL Java_gunim_android_Native_start(JNIEnv *env, jclass c, jstring zone, jboolean quiet) {
 	jsize n = (*env)->GetStringLength(env, zone);
 	const jchar *s = (*env)->GetStringChars(env, zone, NULL);
-	goStart((uint16_t *)s, n);
+	goStart((uint16_t *)s, n, quiet);
 	(*env)->ReleaseStringChars(env, zone, s);
 }
 
@@ -688,6 +730,31 @@ void gunim_window_release(ANativeWindow *w) {
 
 void gunim_log(const char *line) {
 	__android_log_write(ANDROID_LOG_INFO, "gunim", line);
+}
+
+static void *watchCrash(void *arg) {
+	int fd = (int)(intptr_t)arg;
+	char buf[512];
+	ssize_t n;
+	int told = 0;
+	while ((n = read(fd, buf, sizeof buf)) > 0 || (n < 0 && errno == EINTR)) {
+		if (n > 0 && !told) {
+			told = 1;
+			__android_log_write(ANDROID_LOG_ERROR, "gunim", "the program crashed");
+		}
+	}
+	return NULL;
+}
+
+// A thread of C's own, as Go's stop while the runtime dies. It reads on
+// to the end: the runtime would wait for room in a full pipe.
+int gunim_watch_crash(int fd) {
+	pthread_t t;
+	int e = pthread_create(&t, NULL, watchCrash, (void *)(intptr_t)fd);
+	if (e == 0) {
+		pthread_detach(t);
+	}
+	return e;
 }
 
 // ints calls GunimAudio's method mid with arg, and copies the ints it

@@ -64,12 +64,15 @@ func (u *UI) handleRaw(root *state, ev any) {
 	u.heldMods(ev)
 	if u.goingAway {
 		// A window on its way out takes nothing more.
+		if s, ok := ev.(driver.StreamsOpened); ok {
+			closeStreams(s.Streams)
+		}
 		return
 	}
 	if u.fadeOut {
 		// Nor does one fading out, or out, save word of the keyboard.
 		switch ev.(type) {
-		case driver.WindowFocus, driver.WindowShown, driver.WindowCovered, driver.FilesOpened:
+		case driver.WindowFocus, driver.WindowShown, driver.WindowCovered, driver.FilesOpened, driver.StreamsOpened:
 		default:
 			return
 		}
@@ -123,6 +126,14 @@ func (u *UI) handleRaw(root *state, ev any) {
 			return
 		}
 		u.opened = append(u.opened, input.FilesOpened{Paths: e.Paths, Time: u.Clock()})
+		u.offerOpened()
+		return
+	case driver.StreamsOpened:
+		if root != u.root {
+			closeStreams(e.Streams)
+			return
+		}
+		u.opened = append(u.opened, input.StreamsOpened{Streams: e.Streams, Time: u.Clock()})
 		u.offerOpened()
 		return
 	case driver.WindowCovered:
@@ -1112,7 +1123,7 @@ func (u *UI) offerOpened() {
 
 // offerFiles offers e to the focused node and up from it, then to each
 // view mounted at the root it did not pass, until one takes it.
-func (u *UI) offerFiles(e input.FilesOpened) bool {
+func (u *UI) offerFiles(e input.Event) bool {
 	target := u.focus
 	if target == nil {
 		target = u.appRoot()

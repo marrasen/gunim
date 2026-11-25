@@ -193,8 +193,9 @@ public class GunimActivity extends Activity {
 	// or its chooser of folders, with the folder chosen or none.
 	@Override
 	protected void onActivityResult(int code, int result, android.content.Intent data) {
-		if (Native.choosingFiles.remove(code)) {
-			GunimOpen.chosen(this, code, result == RESULT_OK ? data : null);
+		Boolean streams = Native.choosingFiles.remove(code);
+		if (streams != null) {
+			GunimOpen.chosen(this, code, result == RESULT_OK ? data : null, streams);
 			return;
 		}
 		String path = null;

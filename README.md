@@ -613,6 +613,18 @@ for a view that mounts late. gunim clears these copies as the program
 next starts, and Android may clear them sooner, so copy what should
 last. `example/openfiles` shows both ways in.
 
+`Client.ChooseStreams` hands over the files chosen to read as they
+come, with no copy on the disk, and `gunimapk -streams` does it for the
+files `-opens` takes, as `input.StreamsOpened`. `-opens '*'` takes any
+file from the share sheet. A stream's end is `io.EOF` only where the file
+came whole. Where the other application gave up, it is
+`input.ErrNotWhole`, and where nothing can tell, it is
+`input.ErrMayNotBeWhole`.
+
+What gunim writes to Android's log holds no name or address of a file.
+`gunimapk -quiet` keeps the program's own output out of it too, and a
+panic's message and stacks.
+
 `Client.Share` hands text and files to other apps through Android's
 share sheet, and `Client.CanShare` says where there is one to show.
 `Client.Vibrate` runs the phone's vibration motor in a pattern of on

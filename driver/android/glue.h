@@ -31,7 +31,9 @@ int gunim_open_link(const uint16_t *url, int n);
 int gunim_permitted(int p);
 void gunim_ask(int p, int code);
 void gunim_choose_folder(int code);
-void gunim_choose_files(int code, int multiple, const uint16_t *patterns, int n);
+void gunim_choose_files(int code, int multiple, const uint16_t *patterns, int n, int streams);
+int gunim_stream_end(long long id);
+void gunim_close_stream(long long id);
 uint16_t *gunim_user_folder(int f, int *n);
 uint16_t *gunim_no_backup_dir(int *n);
 // gunim_env has goEnv run h with the thread's JNIEnv, and returns 0 where
@@ -80,3 +82,6 @@ void gunim_window_release(ANativeWindow *w);
 
 // gunim_log writes a line to the system log.
 void gunim_log(const char *line);
+// gunim_watch_crash writes a fixed line to the system log once anything
+// comes through fd, and reads fd for as long as the process lives.
+int gunim_watch_crash(int fd);
