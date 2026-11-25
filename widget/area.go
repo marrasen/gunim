@@ -55,6 +55,8 @@ type TextArea struct {
 	// lines carries how many lines tall the area is, as it grows and shrinks with its text; laid says it has been
 	// laid out once.
 	lines *anim.Float
+	// grew is how far the last step took lines.
+	grew  float32
 	laid0 bool
 
 	// para is the text as laid out, kept up as it changes, paraW the width it breaks
@@ -148,9 +150,20 @@ func (a *TextArea) SetText(s string, u *gunim.UI) {
 
 // Step implements [gunim.Animator].
 func (a *TextArea) Step(dt time.Duration) bool {
+	was := a.lines.Value()
 	f, c, s, b, l := a.focus.Step(dt), a.caretAt.Step(dt), a.scroll.Step(dt), a.blink.step(dt), a.lines.Step(dt)
+	a.grew = a.lines.Value() - was
 	k := a.Control.Step(dt)
 	return f || c || s || b || l || k
+}
+
+// SizeMoved implements [gunim.SizeMover]: the area grows and shrinks with
+// its text, up to MaxRows.
+func (a *TextArea) SizeMoved() geom.Size {
+	if a.MaxRows <= a.Rows {
+		return geom.Size{}
+	}
+	return geom.Sz(0, a.grew*a.para.LineHeight)
 }
 
 // Handle implements [gunim.Handler].

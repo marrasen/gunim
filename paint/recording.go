@@ -125,6 +125,9 @@ func (r *Recording) keep(ops []Op, bounds []geom.Rect, at Transform) {
 	}
 }
 
+// Glyphs returns the glyphs the recording draws, which must not be changed.
+func (r *Recording) Glyphs() []Glyph { return r.glyphs }
+
 // Empty reports whether the recording holds nothing to draw.
 func (r *Recording) Empty() bool { return r == nil || len(r.ops) == 0 }
 

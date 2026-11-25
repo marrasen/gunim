@@ -518,6 +518,7 @@ type dragCard struct {
 	items []Row
 	more  int
 	runs  []text.Run
+	from  text.Stamp
 	size  float32
 }
 
@@ -538,7 +539,7 @@ const cardLine = 24
 // Layout implements [gunim.Node].
 func (c *dragCard) Layout(cs gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
 	size := widget.TextSize.Get(f.Theme) * 0.95
-	if c.size != size || len(c.runs) == 0 {
+	if c.from.Moved() || c.size != size || len(c.runs) == 0 {
 		c.size = size
 		c.runs = c.runs[:0]
 		for _, it := range c.items {

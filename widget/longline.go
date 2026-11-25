@@ -31,6 +31,8 @@ type longLine struct {
 	Advance float32
 	// shapes holds pieces shaped lately, by their text.
 	shapes map[string]text.Run
+	// from tells when the fonts change what they were shaped as.
+	from text.Stamp
 }
 
 // linePiece is a stretch of the line, shaped on its own: runes start to
@@ -57,7 +59,7 @@ const (
 // change that kept head runes at the start and tail at the end of a
 // line was runes long. Changed false says rs is as it was.
 func (l *longLine) update(face *text.Face, size float32, rs []rune, head, tail, was int, changed bool) {
-	if l.face != face || l.size != size || len(l.pieces) == 0 {
+	if l.from.Moved() || l.face != face || l.size != size || len(l.pieces) == 0 {
 		l.face, l.size = face, size
 		clear(l.shapes)
 		l.pieces = l.pieces[:0]

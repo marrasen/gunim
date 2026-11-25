@@ -49,6 +49,9 @@ var lcdFilter = [5]int{0x08, 0x4D, 0x56, 0x4D, 0x08}
 //
 // A glyph with no outline, such as a space, returns an empty mask.
 func (f *Face) Rasterize(id uint32, sizePx, dx float32, o Raster) Mask {
+	if f.browser != nil {
+		return f.browser.rasterize(id, sizePx, dx, o.LCD)
+	}
 	hint := o.Hint && sizePx <= hintMax
 	mu.Lock()
 	outline, ok := f.face.GlyphDataOutline(font.GID(id))

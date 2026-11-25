@@ -54,6 +54,8 @@ type Shared struct {
 	// atlas holds greyscale glyphs, lcd glyphs rendered for
 	// subpixels, and color glyphs in colours of their own.
 	atlas, lcd, color sharedAtlas
+	// kept are the masks of the glyphs a browser made.
+	kept keptMasks
 }
 
 // programs returns the shared programs, building them on first use
@@ -94,6 +96,16 @@ type sharedAtlas struct {
 	slots      map[glyphKey]sharedSlot
 }
 
+// restart empties the atlas, for a new epoch.
+func (a *sharedAtlas) restart() {
+	clear(a.slots)
+	a.x, a.y, a.rowH = 0, 0, 0
+	a.epoch++
+}
+
+// atlasSlots is how many glyphs an atlas holds, with those that have nothing to draw: more than fit it of any others.
+const atlasSlots = 1 << 18
+
 // scratchRows is the height of the strip along the atlas's foot that each renderer fills anew every frame, with
 // masks drawn for that frame alone.
 const scratchRows = 128
@@ -125,19 +137,32 @@ type glyphSlot struct {
 	off        image.Point
 }
 
+// atlasOf returns the atlas that holds key's glyph. It runs with mu held.
+func (s *Shared) atlasOf(key glyphKey) *sharedAtlas {
+	switch {
+	case key.color:
+		return &s.color
+	case key.raster.LCD:
+		return &s.lcd
+	}
+	return &s.atlas
+}
+
+// has reports whether a glyph is in the atlas, or its mask is kept, or there is known to be nothing of it to draw.
+func (s *Shared) has(key glyphKey) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.atlasOf(key).slots[key]
+	return ok || s.kept.has(key)
+}
+
 // glyph returns a glyph's place in the atlas, rasterizing it with raster on first
 // use, and the atlas's epoch. It reports false for a glyph with nothing
 // to draw.
 func (s *Shared) glyph(key glyphKey, raster func() text.Mask) (sharedSlot, int, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	a := &s.atlas
-	switch {
-	case key.color:
-		a = &s.color
-	case key.raster.LCD:
-		a = &s.lcd
-	}
+	a := s.atlasOf(key)
 	if a.slots == nil {
 		a.slots, a.epoch = map[glyphKey]sharedSlot{}, 1
 	}
@@ -146,6 +171,10 @@ func (s *Shared) glyph(key glyphKey, raster func() text.Mask) (sharedSlot, int, 
 	}
 	m := raster()
 	const room = atlasSize - scratchRows
+	if len(a.slots) >= atlasSlots {
+		// Glyphs with nothing to draw take no room, and could go on for ever.
+		a.restart()
+	}
 	if m.W == 0 || m.W+1 > atlasSize || m.H+1 > room {
 		a.slots[key] = sharedSlot{}
 		return sharedSlot{}, a.epoch, false
@@ -154,9 +183,7 @@ func (s *Shared) glyph(key glyphKey, raster func() text.Mask) (sharedSlot, int, 
 		a.x, a.y, a.rowH = 0, a.y+a.rowH, 0
 	}
 	if a.y+m.H+1 > room {
-		clear(a.slots)
-		a.x, a.y, a.rowH = 0, 0, 0
-		a.epoch++
+		a.restart()
 	}
 	slot := sharedSlot{glyphSlot: glyphSlot{x: a.x, y: a.y, w: m.W, h: m.H, off: m.Offset}, pix: m.Pix}
 	a.x += m.W + 1

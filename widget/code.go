@@ -170,8 +170,10 @@ type CodeEditor struct {
 	hint    *anim.Float
 	caretAt *anim.Point
 	band    *anim.Float
-	// rows carries how many lines tall the editor is under MaxRows.
+	// rows carries how many lines tall the editor is under MaxRows, and
+	// grew is how far the last step took it.
 	rows    *anim.Float
+	grew    float32
 	scrollX *anim.Float
 	scrollY *anim.Float
 	marks   []*codeMark
@@ -187,17 +189,19 @@ type CodeEditor struct {
 	laidSize    float32
 	laidTab     float32
 	laidColours uintptr
-	lines       []codeLine
-	shapes      shapeCache
-	numberRuns  map[int]text.Run
-	lineH       float32
-	glyphH      float32
-	tabW        float32
-	gutterW     float32
-	pad         float32
-	widest      float32
-	view        geom.Size
-	followed    int
+	// laidFrom tells when the fonts change what it was laid out as.
+	laidFrom   text.Stamp
+	lines      []codeLine
+	shapes     shapeCache
+	numberRuns map[int]text.Run
+	lineH      float32
+	glyphH     float32
+	tabW       float32
+	gutterW    float32
+	pad        float32
+	widest     float32
+	view       geom.Size
+	followed   int
 	// followedIn is the view's size when the caret was last followed:
 	// a view that changes size keeps the caret in it.
 	followedIn geom.Size
@@ -411,7 +415,9 @@ func (c *CodeEditor) hostIndex(p geom.Point, _ *gunim.UI) int { return c.indexAt
 
 // Step implements [gunim.Animator].
 func (c *CodeEditor) Step(dt time.Duration) bool {
+	was := c.rows.Value()
 	moving := c.Group.Step(dt)
+	c.grew = c.rows.Value() - was
 	kept := c.marks[:0]
 	for _, m := range c.marks {
 		if m.shown.Step(dt) {
@@ -425,6 +431,15 @@ func (c *CodeEditor) Step(dt time.Duration) bool {
 	clear(c.marks[len(kept):])
 	c.marks = kept
 	return moving
+}
+
+// SizeMoved implements [gunim.SizeMover]: the editor grows and shrinks with
+// its code, up to MaxRows.
+func (c *CodeEditor) SizeMoved() geom.Size {
+	if c.MaxRows <= 0 {
+		return geom.Size{}
+	}
+	return geom.Sz(0, c.grew*c.lineH)
 }
 
 // origin returns where the code's top-left sits in the editor, as
@@ -802,8 +817,9 @@ func (c *CodeEditor) relayout(th *theme.Live) {
 	shown, _ := c.shown()
 	head, tail, was, changed := c.shownChange()
 	colours := highlighterID(c.Highlight)
-	if !c.laid || c.laidFace != face || c.laidSize != size || c.laidTab != tab || c.laidColours != colours {
-		if c.laidFace != face || c.laidSize != size || c.laidTab != tab {
+	fonts := c.laidFrom.Moved()
+	if !c.laid || fonts || c.laidFace != face || c.laidSize != size || c.laidTab != tab || c.laidColours != colours {
+		if fonts || c.laidFace != face || c.laidSize != size || c.laidTab != tab {
 			c.shapes.clear()
 			clear(c.numberRuns)
 			space := face.Shape(" ", size)

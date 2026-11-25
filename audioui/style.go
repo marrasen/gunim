@@ -65,6 +65,8 @@ func Segment(p *paint.Painter, a, b geom.Point, width float32, c color.NRGBA) {
 var (
 	runsMu sync.Mutex
 	runs   = map[runKey]text.Run{}
+	// runsFrom tells when the fonts change what they were shaped as.
+	runsFrom text.Stamp
 )
 
 type runKey struct {
@@ -80,6 +82,9 @@ type runKey struct {
 func Shaped(s string, size float32, bold, mono bool) text.Run {
 	k := runKey{s, size, bold, mono}
 	runsMu.Lock()
+	if runsFrom.Moved() {
+		clear(runs)
+	}
 	r, ok := runs[k]
 	runsMu.Unlock()
 	if ok {

@@ -55,8 +55,10 @@ type View struct {
 			breaks bool
 		}
 	}
-	paras []laidPara
-	marks []mark
+	// laidFrom tells when the fonts change what they were laid out as.
+	laidFrom text.Stamp
+	paras    []laidPara
+	marks    []mark
 	// reach and markReach are the lowest any paragraph and any mark reaches, up to each one. Paragraphs come top
 	// first, and marks are sorted so, which with these finds those that reach a band of the view by binary search.
 	reach, markReach []float32
@@ -169,7 +171,7 @@ func (v *View) parse() {
 func (v *View) lay(th *theme.Live, w float32) {
 	v.parse()
 	size := widget.TextSize.Get(th)
-	if v.laidFor.width == w && v.laidFor.size == size && v.laidFor.parsed == v.parsed && v.paras != nil {
+	if !v.laidFrom.Moved() && v.laidFor.width == w && v.laidFor.size == size && v.laidFor.parsed == v.parsed && v.paras != nil {
 		return
 	}
 	v.laidFor.width, v.laidFor.size, v.laidFor.parsed = w, size, v.parsed

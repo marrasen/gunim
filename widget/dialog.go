@@ -18,6 +18,11 @@ import (
 // Dialog is a modal panel that fades, scales and blurs its way in and
 // out.
 //
+// With StayOpen, OK acts and the dialog stays, for one that goes on: its
+// body turns to what comes next, as a column of [Fold]s shuts one and opens
+// another, and SetButtonShown takes OK away and brings it back. The button
+// shrinks and fades out, or grows in, and the others glide along.
+//
 // A press on its title bar drags the panel about the window, and Alt
 // with an arrow key moves it a step, or four with Shift. The panel
 // stays whole inside the window.
@@ -50,8 +55,8 @@ type Dialog struct {
 	// what the dialog holds, such as a form's fields; a non-nil result is
 	// sent to the application as the dialog's intent.
 	//
-	// The dialog closes itself either way, on the frame the button is
-	// released. Waiting for the application to say so would put a round
+	// The dialog closes itself either way, unless it has StayOpen, on the
+	// frame the button is released. Waiting for the application to say so would put a round
 	// trip between the click and the animation, which is the thin
 	// client feeling this design exists to avoid.
 	OnAccept  func(u *gunim.UI) gunim.Intent
@@ -76,6 +81,11 @@ type Dialog struct {
 	// in the way, or nothing. With something in the way the dialog stays
 	// open, gives a shake, and says it under the body.
 	Check func() string
+	// StayOpen has OK run OnAccept, after Check, and leave the dialog open.
+	// Close closes it, and Cancel and Escape still do. A held Enter acts
+	// once. It may be set while the dialog is open, in OnAccept too, for a
+	// last step that closes it.
+	StayOpen bool
 	// Body is what the dialog shows under its title, such as a [Form].
 	// Set it before mounting the dialog, which grows to fit it. Enter
 	// in the body confirms, and Tab moves through the body's fields and
@@ -142,6 +152,8 @@ type Dialog struct {
 	grab         geom.Point
 	// cover is what CoversCaption returns.
 	cover [1]geom.Rect
+	// slots hold the buttons, each in one of its own.
+	slots map[*Button]*dialogButton
 }
 
 // dialogStep is how far an arrow key with Alt moves the panel, in
@@ -156,6 +168,7 @@ func NewDialog(title string) *Dialog {
 	d.problem = NewLabel("")
 	d.problem.Color = DialogProblem
 	d.Add(d.in, d.shake, d.problemIn, d.problemRoom, d.moveX, d.moveY)
+	d.slots = map[*Button]*dialogButton{}
 
 	d.ok = NewButton("OK")
 	d.ok.OnClick = func(u *gunim.UI) gunim.Intent {
@@ -167,6 +180,7 @@ func NewDialog(title string) *Dialog {
 		d.dismiss(u)
 		return nil
 	}
+	d.slots[d.ok], d.slots[d.cancel] = newDialogButton(d.ok), newDialogButton(d.cancel)
 	return d
 }
 
@@ -179,36 +193,91 @@ func (d *Dialog) dismiss(u *gunim.UI) {
 	d.finish(u, what)
 }
 
+// OK returns the button that accepts, to give it an icon, or to disable it:
+// Enter in the body presses it, so it does nothing while that is disabled.
+func (d *Dialog) OK() *Button { return d.ok }
+
+// Cancel returns the button that dismisses.
+func (d *Dialog) Cancel() *Button { return d.cancel }
+
+// SetButtonShown shows one of the dialog's buttons, or takes it away: OK in a
+// dialog that has moved on, say, where Close is all there is left. Once the
+// dialog is laid out, the button shrinks and fades out, or grows in, as the
+// others glide to their new places; before, or with a nil u, it is there or
+// not at once. The button going takes no press or key more, and leaves the
+// keyboard it had to the dialog.
+//
+// With OK away, Enter in the body does as Cancel does.
+func (d *Dialog) SetButtonShown(b *Button, shown bool, u *gunim.UI) {
+	s, ok := d.slots[b]
+	if !ok || s.away != shown {
+		return
+	}
+	s.away = !shown
+	to, motion := float32(0), Settle
+	if shown {
+		to, motion = 1, Bounce
+	}
+	if u == nil || d.laidWidth <= 0 {
+		s.in.Jump(to)
+	} else {
+		s.in.Animate(to, motion.Get(u.Theme()))
+	}
+	if u == nil || u.Presence(d) == gunim.Exiting {
+		return
+	}
+	if shown {
+		u.Insert(d, s)
+		// In the tree in the order they stand, for a screen reader.
+		for _, b := range d.standing() {
+			u.InsertAt(d, math.MaxInt32, d.slots[b])
+		}
+		return
+	}
+	had := u.Focused() == gunim.Node(b)
+	u.Remove(s)
+	if had {
+		u.Focus(d)
+	}
+}
+
 // SetButtons names the dialog's buttons, such as "Connect" and
 // "Cancel". An empty cancel leaves the dialog with OK alone, for one
-// that only tells; Escape still closes it.
+// that only tells; Escape still closes it. A button named anew while the
+// dialog is open glides to its new width.
 func (d *Dialog) SetButtons(ok, cancel string) {
 	d.ok.Label, d.cancel.Label = ok, cancel
 }
 
 // AddButton adds a button left of Cancel, which closes the dialog and
 // sends the intent onClick makes, as a third answer to a question: Leave
-// It beside Replace and Stop. Add buttons before mounting the dialog.
-func (d *Dialog) AddButton(label string, onClick func(u *gunim.UI) gunim.Intent) {
-	b := NewButton(label)
-	b.OnClick = func(u *gunim.UI) gunim.Intent {
+// It beside Replace and Stop. It returns the button. Add buttons before
+// mounting the dialog.
+func (d *Dialog) AddButton(label string, onClick func(u *gunim.UI) gunim.Intent) *Button {
+	return d.add(label, func(u *gunim.UI) gunim.Intent {
 		d.finish(u, onClick(u))
 		return nil
-	}
-	d.extra = append(d.extra, b)
+	})
 }
 
 // AddAction adds a button left of Cancel that runs onClick and leaves the
 // dialog open, for help with the form, such as generating a password. A
-// non-nil result is sent as the dialog's intent. Add buttons before
-// mounting the dialog.
-func (d *Dialog) AddAction(label string, onClick func(u *gunim.UI) gunim.Intent) {
-	b := NewButton(label)
-	b.OnClick = func(u *gunim.UI) gunim.Intent {
+// non-nil result is sent as the dialog's intent. It returns the button. Add
+// buttons before mounting the dialog.
+func (d *Dialog) AddAction(label string, onClick func(u *gunim.UI) gunim.Intent) *Button {
+	return d.add(label, func(u *gunim.UI) gunim.Intent {
 		send(u, d, onClick(u))
 		return nil
-	}
+	})
+}
+
+// add adds a button left of Cancel.
+func (d *Dialog) add(label string, onClick func(u *gunim.UI) gunim.Intent) *Button {
+	b := NewButton(label)
+	b.OnClick = onClick
 	d.extra = append(d.extra, b)
+	d.slots[b] = newDialogButton(b)
+	return b
 }
 
 // Close closes the dialog and sends nothing, for an action that leads
@@ -232,7 +301,28 @@ func (d *Dialog) accept(u *gunim.UI) {
 	if d.OnAccept != nil {
 		what = d.OnAccept(u)
 	}
+	if d.StayOpen {
+		send(u, d, what)
+		return
+	}
 	d.finish(u, what)
+}
+
+// enter does what Enter in the body does: as OK where it is there, and else
+// as Cancel.
+func (d *Dialog) enter(u *gunim.UI) {
+	for _, b := range []*Button{d.ok, d.cancel} {
+		switch {
+		case !d.shows(b):
+			continue
+		case b.Disabled:
+		case b == d.ok:
+			d.accept(u)
+		default:
+			d.dismiss(u)
+		}
+		return
+	}
 }
 
 // focusables returns what Tab moves through: the body's fields, then
@@ -243,28 +333,24 @@ func (d *Dialog) focusables() []gunim.Node {
 	if b, ok := d.Body.(interface{ Focusables() []gunim.Node }); ok {
 		out = append(out, b.Focusables()...)
 	}
+	row := d.row()
 	if d.DefaultFirst {
-		buttons := d.okCancel()
-		for i := len(buttons) - 1; i >= 0; i-- {
-			out = append(out, buttons[i])
-		}
-		for i := len(d.extra) - 1; i >= 0; i-- {
-			out = append(out, d.extra[i])
-		}
-		return out
+		slices.Reverse(row)
 	}
-	for _, b := range d.extra {
-		out = append(out, b)
-	}
-	return append(out, d.okCancel()...)
+	return append(out, row...)
 }
 
-// okCancel is Cancel, when it has a label, and OK.
-func (d *Dialog) okCancel() []gunim.Node {
-	if d.cancel.Label == "" {
-		return []gunim.Node{d.ok}
-	}
-	return []gunim.Node{d.cancel, d.ok}
+// shows reports whether the dialog shows b, one of its buttons: it has not
+// been taken away, and is no Cancel without a label.
+func (d *Dialog) shows(b *Button) bool {
+	return !d.slots[b].away && (b != d.cancel || b.Label != "")
+}
+
+// standing are the dialog's buttons it shows, left to right: the extra ones,
+// Cancel and OK.
+func (d *Dialog) standing() []*Button {
+	all := append(slices.Clone(d.extra), d.cancel, d.ok)
+	return slices.DeleteFunc(all, func(b *Button) bool { return !d.shows(b) })
 }
 
 // say has the dialog say msg under its body, or nothing for "". Words fade
@@ -313,10 +399,10 @@ func (d *Dialog) Children() []gunim.Node {
 	if d.Body != nil {
 		out = append(out, d.held(), d.problem)
 	}
-	for _, b := range d.extra {
-		out = append(out, b)
+	for _, b := range d.standing() {
+		out = append(out, d.slots[b])
 	}
-	return append(out, d.okCancel()...)
+	return out
 }
 
 // held is the body as the dialog holds it: in a scroll, so a body too
@@ -360,7 +446,9 @@ func (d *Dialog) Handle(e input.Event, u *gunim.UI) bool {
 			d.dismiss(u)
 			return true
 		case input.KeyEnter, input.KeyKPEnter:
-			d.accept(u)
+			if !k.Repeat || !d.StayOpen && d.shows(d.ok) {
+				d.enter(u)
+			}
 			return true
 		case input.KeyTab:
 			// A modal keeps focus among its own buttons.
@@ -387,8 +475,13 @@ func (d *Dialog) Handle(e input.Event, u *gunim.UI) bool {
 			// Cancel has the keyboard, and Enter presses it rather than
 			// the action the dialog stands out with: its ring says so,
 			// however the dialog was opened.
-			u.Focus(d.okCancel()[0])
-			u.ShowFocusRing()
+			for _, b := range []*Button{d.cancel, d.ok} {
+				if d.shows(b) {
+					u.Focus(b)
+					u.ShowFocusRing()
+					break
+				}
+			}
 			return true
 		}
 		if b, ok := d.Body.(interface{ Focusables() []gunim.Node }); ok {
@@ -495,17 +588,18 @@ func (d *Dialog) Modal() bool { return true }
 // it.
 func (d *Dialog) Focusable() bool { return true }
 
-// Buttons are the dialog's buttons, left to right as they stand: its
+// Buttons are the buttons the dialog shows, left to right as they stand: its
 // extra ones, then Cancel, then OK.
 func (d *Dialog) Buttons() []gunim.Node { return d.row() }
 
 // row is the dialog's buttons, left to right.
 func (d *Dialog) row() []gunim.Node {
-	var out []gunim.Node
-	for _, b := range d.extra {
+	bs := d.standing()
+	out := make([]gunim.Node, 0, len(bs))
+	for _, b := range bs {
 		out = append(out, b)
 	}
-	return append(out, d.okCancel()...)
+	return out
 }
 
 // step moves focus from the button that has it to the next along the
@@ -530,6 +624,9 @@ func (d *Dialog) step(u *gunim.UI, forward bool) bool {
 // previous, wrapping around.
 func (d *Dialog) cycle(u *gunim.UI, forward bool) {
 	kids := d.focusables()
+	if len(kids) == 0 {
+		return
+	}
 	at := -1
 	for i, k := range kids {
 		if k == u.Focused() {
@@ -571,7 +668,8 @@ func (d *Dialog) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children)
 	gap := DialogGap.Get(th)
 	row := -gap
 	for i := first; i < kids.Len(); i++ {
-		row += kids.At(i).Layout(gunim.Loose(size)).W + gap
+		kid := kids.At(i)
+		row += kid.Layout(gunim.Loose(size)).W + gap*gapOf(kid)
 	}
 	want := DialogWidth.Get(th)
 	if d.Width > 0 {
@@ -627,14 +725,37 @@ func (d *Dialog) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children)
 	// right so the primary action lands outermost.
 	x := panel.Max.X - pad
 	y := panel.Max.Y - pad
-	for i := kids.Len() - 1; i >= first; i-- {
-		kid := kids.At(i)
-		s := kid.Layout(gunim.Loose(panel.Size()))
-		x -= s.W
-		kid.Place(geom.Pt(x, y-s.H))
-		x -= DialogGap.Get(f.Theme)
+	for _, b := range []*Button{d.ok, d.cancel} {
+		x = d.placeButton(kids, first, b, x, y, panel, gap)
+	}
+	for _, b := range slices.Backward(d.extra) {
+		x = d.placeButton(kids, first, b, x, y, panel, gap)
 	}
 	return size
+}
+
+// placeButton places b, where kids from first on hold it, to end at x and y
+// in panel, and returns where the next one ends. One on its way out or in
+// takes the part of its room that shows, and of the gap.
+func (d *Dialog) placeButton(kids gunim.Children, first int, b *Button, x, y float32, panel geom.Rect, gap float32) float32 {
+	for i := first; i < kids.Len(); i++ {
+		kid := kids.At(i)
+		if kid.Node() != gunim.Node(d.slots[b]) {
+			continue
+		}
+		s := kid.Layout(gunim.Loose(panel.Size()))
+		kid.Place(geom.Pt(x-s.W, y-s.H))
+		return x - s.W - gap*gapOf(kid)
+	}
+	return x
+}
+
+// gapOf is how much of the gap beside it a dialog's button takes, 0 to 1.
+func gapOf(kid gunim.Child) float32 {
+	if s, ok := kid.Node().(*dialogButton); ok {
+		return s.shown()
+	}
+	return 1
 }
 
 // panel returns the dialog's own rectangle: centred in size, or with GrowDown its top where it first stood, and
@@ -825,4 +946,74 @@ func (d *Dialog) paintBar(p *paint.Painter, th *theme.Live, panel geom.Rect, rad
 		drawIcon(p, th, ic, geom.Rc(x, strip.Min.Y+(h-s)/2, s, s), ink.Get(th), 1)
 	}
 	title.Paint(p, geom.Pt(x+room, y), Ink.Get(th))
+}
+
+// dialogButton holds one of a dialog's buttons. It grows the button in as it
+// joins the tree and shrinks it out as it leaves, and has the room of one
+// whose label changes glide to the new width.
+type dialogButton struct {
+	anim.Group
+	b *Button
+	// away says the dialog does not show the button.
+	away bool
+	// in is how far in the button is, and wider how much wider it is laid
+	// out than its label asks.
+	in, wider *anim.Float
+	// label and width are the button's at the last layout.
+	label string
+	width float32
+}
+
+func newDialogButton(b *Button) *dialogButton {
+	s := &dialogButton{b: b, in: anim.NewFloat(1), wider: anim.NewFloat(0)}
+	s.Add(s.in, s.wider)
+	return s
+}
+
+// shown is how much of the button's room it takes, 0 to 1.
+func (s *dialogButton) shown() float32 { return min(max(s.in.Value(), 0), 1) }
+
+// Children implements [gunim.Composite].
+func (s *dialogButton) Children() []gunim.Node { return []gunim.Node{s.b} }
+
+// Transition implements [gunim.Transitioner]: the dialog sets the button off,
+// and it has come or gone once it rests. It stays as it is as the dialog
+// itself goes.
+func (s *dialogButton) Transition(gunim.Presence, gunim.Frame) bool { return !s.in.Active() }
+
+// Layout implements [gunim.Node].
+func (s *dialogButton) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
+	k := kids.At(0)
+	size := k.Layout(c)
+	if s.label != s.b.Label {
+		if s.width > 0 {
+			s.wider.Jump(s.width - size.W)
+			s.wider.Animate(0, Reflow.Get(f.Theme))
+		}
+		s.label = s.b.Label
+	}
+	if by := s.wider.Value(); by != 0 {
+		size = k.Layout(gunim.Tight(geom.Sz(max(size.W+by, 0), size.H)))
+	}
+	k.Place(geom.Point{})
+	s.width = size.W
+	return geom.Sz(size.W*s.shown(), size.H)
+}
+
+// Paint implements [gunim.Node]: on its way, the button is drawn as small as
+// its room, faded.
+func (s *dialogButton) Paint(p *paint.Painter, _ gunim.Frame, box geom.Size, kids gunim.Children) {
+	t := s.in.Value()
+	if t < 0.001 {
+		return
+	}
+	if t == 1 {
+		kids.At(0).Paint(p)
+		return
+	}
+	// The layer is as large as the button whole, and its focus ring.
+	whole := geom.Rect{Max: geom.Pt(kids.At(0).Size().W, box.H)}
+	defer p.Layer(paint.LayerOpts{Bounds: whole.Inset(geom.Uniform(-8)), Opacity: min(t, 1)})()
+	defer p.Push(paint.Scale(t, geom.Pt(0, box.H/2)))()
+	kids.At(0).Paint(p)
 }

@@ -3,6 +3,7 @@ package widget
 import (
 	"math"
 	"slices"
+	"time"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/anim"
@@ -516,8 +517,9 @@ type row struct {
 	slide *anim.Float
 
 	presence gunim.Presence
-	// inner is the item's own height at the last layout.
-	inner float32
+	// inner is the item's own height at the last layout, gap the room
+	// after a row in a list, and grew how far the last step took height.
+	inner, gap, grew float32
 	// instant is set for a row a virtual list builds or drops as it
 	// scrolls, which appears and goes at once: the change is in what
 	// is in view, where nothing arrived or left.
@@ -540,6 +542,23 @@ func newRow(key Key, child gunim.Node) *row {
 	}
 	r.Add(r.y, r.height, r.fade, r.slide)
 	return r
+}
+
+// Step implements [gunim.Animator].
+func (r *row) Step(dt time.Duration) bool {
+	was := r.height.Value()
+	moving := r.Group.Step(dt)
+	r.grew = r.height.Value() - was
+	return moving
+}
+
+// SizeMoved implements [gunim.SizeMover]. The room after the row opens and
+// closes with it: see closing.
+func (r *row) SizeMoved() geom.Size {
+	if r.inner <= 0 {
+		return geom.Sz(0, r.grew)
+	}
+	return geom.Sz(0, r.grew*(1+r.gap/r.inner))
 }
 
 // Children implements [gunim.Composite], so inserting a row brings the
@@ -586,7 +605,7 @@ func (r *row) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) ge
 	// Open toward the item's own height, and closed while leaving. The
 	// list reads the result as this row's height, so the rows below it
 	// move as it goes.
-	r.inner = inner.H
+	r.inner, r.gap = inner.H, ListSpacing.Get(f.Theme)
 	target := inner.H
 	spring := Quick.Get(f.Theme)
 	if r.presence == gunim.Exiting {

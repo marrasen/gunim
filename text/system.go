@@ -21,13 +21,15 @@ var (
 // UseSystemFonts turns the system fallback on or off. It is on to start
 // with: a character that neither a face nor its fallbacks cover comes
 // from a font installed on the system, so text in any script shows
-// where a font for it is installed.
+// where a font for it is installed. A browser shows a program no fonts, and
+// draws the character itself there.
 func UseSystemFonts(on bool) {
 	mu.Lock()
 	defer mu.Unlock()
 	if systemOn != on {
 		systemOn = on
 		generation.Add(1)
+		cellGeneration.Add(1)
 	}
 }
 
@@ -35,7 +37,13 @@ func UseSystemFonts(on bool) {
 // character first needs one. The first scan on a machine can take a
 // second or more; an application that shows text in many scripts can
 // call it from a goroutine at startup, so no frame waits on the scan.
+//
+// In a browser it has the browser find the fonts it draws Chinese and emoji
+// with, which is as slow the first time.
 func LoadSystemFonts() error {
+	if platformWarm() {
+		return nil
+	}
 	mu.Lock()
 	defer mu.Unlock()
 	if loadSystem() == nil {

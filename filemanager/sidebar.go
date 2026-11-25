@@ -455,6 +455,7 @@ type sectionHead struct {
 	sec   *section
 	title string
 	run   text.Run
+	from  text.Stamp
 	shown string
 	size  float32
 	// was is the title shown before, fading out as fade goes to 1.
@@ -482,7 +483,7 @@ func (h *sectionHead) Focusable() bool { return true }
 // Layout implements [gunim.Node].
 func (h *sectionHead) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
 	size := SmallText.Get(f.Theme)
-	if h.shown != h.title || h.size != size {
+	if h.from.Moved() || h.shown != h.title || h.size != size {
 		face := text.Default()
 		if bold := widget.BoldFont.Get(f.Theme); bold != nil {
 			face = bold
@@ -672,6 +673,7 @@ type placeRow struct {
 	// cutName and cutNote are name and note cut short to the room the
 	// row had at width cutW.
 	cutName, cutNote text.Run
+	from             text.Stamp
 	cutW             float32
 	// tip shows the name and the note whole while either is cut short.
 	tip widget.PartTip
@@ -707,7 +709,7 @@ func (r *placeRow) noteText() string {
 func (r *placeRow) shape(th *theme.Live) {
 	size := widget.TextSize.Get(th)
 	key := r.item.Name + "\x00" + r.noteText()
-	if key == r.shown && size == r.size {
+	if !r.from.Moved() && key == r.shown && size == r.size {
 		return
 	}
 	r.shown, r.size = key, size

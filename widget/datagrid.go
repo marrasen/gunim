@@ -292,7 +292,9 @@ type DataGrid struct {
 	partRow, partCol []int
 
 	shapes map[spanKey]*spanShape
-	frame  uint64
+	// shapedFrom tells when the fonts change what they were shaped as.
+	shapedFrom text.Stamp
+	frame      uint64
 
 	// fitted is the widest each Fit column has measured, 0 before its
 	// first rows, and fitAt the width it shows on its way there.
@@ -1174,6 +1176,9 @@ func spanImageSide(size float32) float32 { return size * 1.35 }
 // shape returns s shaped in face at size, from the grid's cache when it
 // was shaped for the same span before.
 func (g *DataGrid) shape(k spanKey, face *text.Face, s string, size float32) text.Run {
+	if g.shapedFrom.Moved() {
+		clear(g.shapes)
+	}
 	sh, ok := g.shapes[k]
 	if !ok {
 		sh = &spanShape{}
