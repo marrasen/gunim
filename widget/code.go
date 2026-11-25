@@ -187,17 +187,19 @@ type CodeEditor struct {
 	laidSize    float32
 	laidTab     float32
 	laidColours uintptr
-	lines       []codeLine
-	shapes      shapeCache
-	numberRuns  map[int]text.Run
-	lineH       float32
-	glyphH      float32
-	tabW        float32
-	gutterW     float32
-	pad         float32
-	widest      float32
-	view        geom.Size
-	followed    int
+	// laidFrom tells when the fonts change what it was laid out as.
+	laidFrom   text.Stamp
+	lines      []codeLine
+	shapes     shapeCache
+	numberRuns map[int]text.Run
+	lineH      float32
+	glyphH     float32
+	tabW       float32
+	gutterW    float32
+	pad        float32
+	widest     float32
+	view       geom.Size
+	followed   int
 	// followedIn is the view's size when the caret was last followed:
 	// a view that changes size keeps the caret in it.
 	followedIn geom.Size
@@ -802,8 +804,9 @@ func (c *CodeEditor) relayout(th *theme.Live) {
 	shown, _ := c.shown()
 	head, tail, was, changed := c.shownChange()
 	colours := highlighterID(c.Highlight)
-	if !c.laid || c.laidFace != face || c.laidSize != size || c.laidTab != tab || c.laidColours != colours {
-		if c.laidFace != face || c.laidSize != size || c.laidTab != tab {
+	fonts := c.laidFrom.Moved()
+	if !c.laid || fonts || c.laidFace != face || c.laidSize != size || c.laidTab != tab || c.laidColours != colours {
+		if fonts || c.laidFace != face || c.laidSize != size || c.laidTab != tab {
 			c.shapes.clear()
 			clear(c.numberRuns)
 			space := face.Shape(" ", size)

@@ -20,6 +20,9 @@ import (
 func (f *Face) IsColor(id uint32) bool {
 	mu.Lock()
 	defer mu.Unlock()
+	if f.browser != nil {
+		return f.browser.isColor(id)
+	}
 	if c, ok := f.colored[id]; ok {
 		return c
 	}
@@ -39,6 +42,9 @@ func (f *Face) IsColor(id uint32) bool {
 // It draws the glyph's COLR paint, or scales its bitmap from the nearest size the font keeps, and returns an empty
 // mask for a glyph with neither.
 func (f *Face) RasterizeColor(id uint32, sizePx float32) Mask {
+	if f.browser != nil {
+		return f.browser.rasterize(id, sizePx, 0, false)
+	}
 	mu.Lock()
 	paint, colr := f.face.GlyphDataColor(font.GID(id))
 	var bitmap font.GlyphBitmap

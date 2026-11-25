@@ -152,12 +152,14 @@ type Renderer struct {
 	damage, deviceBoxesBuf []geom.Rect
 	one                    [1]geom.Rect
 	// Stretched is the logical-pixel area where the last frame drew a
-	// big mask stretched, while its size changed, and SharpAt when a
-	// frame draws it sharp. The next frame redraws the area whatever
+	// big mask stretched, while its size changed, or left out glyphs the
+	// browser is yet to make, and SharpAt when a frame draws it sharp. The next frame redraws the area whatever
 	// its damage; a driver with no new frame by SharpAt draws its last
 	// one again.
 	Stretched geom.Rect
 	SharpAt   time.Time
+	// browser is what the glyphs a browser makes need.
+	browser browserState
 	// Held is the held clock's time of the frame drawn next, which the renderer goes by in place of the wall
 	// clock's, or zero; see driver.ClockHolder. wasHeld says the frame before was held, and lastNow is its time.
 	Held    time.Time
@@ -883,6 +885,7 @@ func (r *Renderer) DrawRects(ops []paint.Op, damage []geom.Rect, fbW, fbH int, s
 		r.Stretched, r.SharpAt = geom.Rect{}, time.Time{}
 	}
 	r.bigs.newFrame()
+	r.browser.newFrame()
 	r.stack, r.depth = r.stack[:0], 0
 	r.cut = clipCut{}
 	// bindDraw, below, makes the plain draw program current.

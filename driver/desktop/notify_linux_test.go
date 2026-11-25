@@ -63,8 +63,12 @@ func startBus(t *testing.T, sock string, services ...string) (addr string, stop 
 		})
 	}
 	t.Cleanup(stop)
-	until(t, "dbus-daemon to open its socket", func() bool {
-		_, err := os.Stat(sock)
+	// The socket is there a moment before anyone listens on it.
+	until(t, "dbus-daemon to listen on its socket", func() bool {
+		c, err := (&net.Dialer{}).DialContext(t.Context(), "unix", sock)
+		if err == nil {
+			_ = c.Close()
+		}
 		return err == nil
 	})
 	return addr, stop

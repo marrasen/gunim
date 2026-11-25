@@ -231,7 +231,7 @@ jobs:
         env:
           CGO_ENABLED: 0
 
-  # driver/web's tests need a real browser, and the runner fails if any of them
+  # driver/web's tests need a real browser, and some of text's do, and the runner fails if any of them
   # skips, so this runs them all. It tells Chrome its page has window focus.
   browser:
     name: Test the browser driver (Chrome, ubuntu-latest)

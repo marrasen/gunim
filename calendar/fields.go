@@ -45,6 +45,7 @@ type DateField struct {
 	over bool
 	// text is the day as last laid out, for key.
 	text    text.Paragraph
+	from    text.Stamp
 	textKey textKey
 }
 
@@ -141,7 +142,7 @@ func (f *DateField) Paint(p *paint.Painter, fr gunim.Frame, box geom.Size, _ gun
 	// The day keeps to one line in the room left of the icon, cut short with an ellipsis.
 	if room := ic.Min.X - 6 - pad; room > 0 {
 		k := textKey{s: f.value.Format("Mon 2 Jan 2006"), w: room, lines: 1, fontSize: widget.TextSize.Get(th)}
-		if k != f.textKey {
+		if f.from.Moved() || k != f.textKey {
 			f.text = widget.Font.Get(th).Layout(k.s, text.Style{Size: k.fontSize, MaxLines: 1}, room)
 			f.textKey = k
 		}

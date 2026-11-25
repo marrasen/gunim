@@ -142,6 +142,7 @@ func (s *specimen) pulse(u *gunim.UI) {
 type miniList struct {
 	items  []string
 	shaped []text.Run
+	from   text.Stamp
 	face   *text.Face
 	size   float32
 }
@@ -153,7 +154,7 @@ var listRow = widget.MenuRowHeight
 func (l *miniList) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) geom.Size {
 	th := f.Theme
 	face, size := widget.Font.Get(th), widget.TextSize.Get(th)
-	if face != l.face || size != l.size || len(l.shaped) != len(l.items) {
+	if l.from.Moved() || face != l.face || size != l.size || len(l.shaped) != len(l.items) {
 		l.face, l.size = face, size
 		l.shaped = l.shaped[:0]
 		for _, it := range l.items {

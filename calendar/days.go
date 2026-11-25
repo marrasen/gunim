@@ -134,6 +134,8 @@ type Days struct {
 	// ghostHeld is the drag that drew out an event being named, whose ghost stays until ClearGhost.
 	ghostHeld *dayDrag
 	texts     map[textKey]text.Paragraph
+	// textsFrom tells when the fonts change what they were laid out as.
+	textsFrom text.Stamp
 }
 
 // heldEvent is where the user left an event, and when.
@@ -1085,6 +1087,9 @@ func (d *Days) paintGhost(p *paint.Painter, th *theme.Live, r geom.Rect) {
 // paragraph lays s out, bold or not, w wide in up to lines lines, keeping it for the next frame.
 func (d *Days) paragraph(th *theme.Live, s string, w float32, lines int, bold bool, size float32) text.Paragraph {
 	k := textKey{s: s, w: w, lines: lines, bold: bold, fontSize: size}
+	if d.textsFrom.Moved() {
+		clear(d.texts)
+	}
 	if t, ok := d.texts[k]; ok {
 		return t
 	}
