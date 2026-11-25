@@ -108,6 +108,7 @@ type runCache struct {
 	runs map[runKey]text.Run
 	face *text.Face
 	bold *text.Face
+	from text.Stamp
 }
 
 type runKey struct {
@@ -119,7 +120,7 @@ type runKey struct {
 // shape returns s shaped at size, in the theme's font or its bold.
 func (c *runCache) shape(th *theme.Live, s string, size float32, bold bool) text.Run {
 	face, boldFace := widget.Font.Get(th), widget.BoldFont.Get(th)
-	if c.runs == nil || c.face != face || c.bold != boldFace || len(c.runs) > 4000 {
+	if c.from.Moved() || c.runs == nil || c.face != face || c.bold != boldFace || len(c.runs) > 4000 {
 		c.runs, c.face, c.bold = map[runKey]text.Run{}, face, boldFace
 	}
 	k := runKey{s, size, bold}

@@ -109,6 +109,7 @@ type Bar struct {
 	tip                  widget.PartTip
 	shapedSize           float32
 	shapedFace           *text.Face
+	shapedFrom           text.Stamp
 	// boxes are where the layout puts the tabs, plus where the + is,
 	// and end where the tabs and the + end. reserve is room kept free
 	// at the bar's right end, for the window's buttons.
@@ -408,7 +409,7 @@ func (b *Bar) shape(th *theme.Live) {
 	if TabBold.Get(th) {
 		face = widget.BoldFont.Get(th)
 	}
-	if b.shapedFace == face && b.shapedSize == size && len(b.titles) == len(b.tabs) {
+	if !b.shapedFrom.Moved() && b.shapedFace == face && b.shapedSize == size && len(b.titles) == len(b.tabs) {
 		return
 	}
 	b.shapedFace, b.shapedSize = face, size

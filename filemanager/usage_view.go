@@ -586,7 +586,8 @@ func (pg *usagePage) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids 
 // texts shapes the words the page draws, once for each face, size and
 // string, and forgets them when they grow many.
 type texts struct {
-	m map[textKey]text.Run
+	m    map[textKey]text.Run
+	from text.Stamp
 }
 
 type textKey struct {
@@ -598,6 +599,9 @@ type textKey struct {
 // run is s shaped in face at size.
 func (t *texts) run(face *text.Face, s string, size float32) text.Run {
 	k := textKey{face, s, size}
+	if t.from.Moved() {
+		clear(t.m)
+	}
 	if r, ok := t.m[k]; ok {
 		return r
 	}

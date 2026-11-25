@@ -3,6 +3,7 @@ package gunim
 import (
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/paint"
+	"github.com/marrasen/gunim/text"
 )
 
 // A Drawing is what a node drew the last time it was painted, kept to
@@ -36,6 +37,19 @@ func (u *UI) KeepDrawing(n Node) *Drawing {
 	d := &Drawing{}
 	u.kept[n] = d
 	return d
+}
+
+// keepGlyphs has the fonts hold on to the glyphs of the drawings kept, where they have dropped some since the last frame:
+// a node that has left the screen cannot draw its own anew.
+func (u *UI) keepGlyphs() {
+	turns := text.Turns()
+	if turns == u.keptTurns {
+		return
+	}
+	u.keptTurns = turns
+	for _, d := range u.kept {
+		text.KeepGlyphs(d.rec.Glyphs())
+	}
 }
 
 // ForgetDrawing stops keeping what n draws, and lets go of what it drew.

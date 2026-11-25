@@ -27,6 +27,9 @@ func registerViews(w *gunim.Window) {
 // goroutine alone.
 var runs = map[runKey]text.Run{}
 
+// runsFrom tells when the fonts change what they were shaped as.
+var runsFrom text.Stamp
+
 type runKey struct {
 	s    string
 	size float32
@@ -35,6 +38,9 @@ type runKey struct {
 // shaped is s shaped at size, from the cache.
 func shaped(s string, size float32) text.Run {
 	k := runKey{s, size}
+	if runsFrom.Moved() {
+		clear(runs)
+	}
 	if r, ok := runs[k]; ok {
 		return r
 	}

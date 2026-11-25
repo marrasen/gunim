@@ -1964,6 +1964,8 @@ type UI struct {
 	topics map[string][]*state
 	// kept holds what the nodes asked for with KeepDrawing drew last.
 	kept map[Node]*Drawing
+	// keptTurns is the fonts' count of turns, as the glyphs of kept were last held on to.
+	keptTurns uint64
 	// chrome is the title bar of a chromeless window, nil for a window
 	// with the system's.
 	chrome *titleBar
@@ -3232,6 +3234,7 @@ func (u *UI) frame(now, present time.Time, delta time.Duration) {
 	u.now, u.present = now, present
 	// Timers run first, so what they invalidate is drawn in this frame
 	u.runTimers()
+	u.keepGlyphs()
 	u.apart = !u.invalid && !u.dragOver
 	u.calm = u.apart && !u.stirred
 	u.moved, u.pressed = u.apart && !u.pressed, false
