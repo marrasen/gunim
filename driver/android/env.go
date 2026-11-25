@@ -18,7 +18,11 @@ import (
 // errNoJava is returned by Env before Java has loaded the program.
 var errNoJava = errors.New("android: no Java yet")
 
-// Env runs f on a thread attached to the Java VM, and returns once f
+// errThrown is returned by Env for an exception that says nothing of
+// itself.
+var errThrown = errors.New("android: a Java exception")
+
+// Env runs f with its thread attached to the Java VM, and returns once f
 // has, for a program that calls Java, its own or Android's, with cgo of
 // its own. env is the thread's JNIEnv, a *C.JNIEnv to a program that
 // includes jni.h, and context a jobject, the application's
@@ -35,15 +39,21 @@ var errNoJava = errors.New("android: no Java yet")
 // cleared, and comes back as Env's error. f must return: a panic or
 // [runtime.Goexit] may not leave it.
 //
-// The thread is not the UI thread, which Android wants some calls on.
-// Env may be called from several goroutines at once, and from within f.
+// f runs on the thread Env is called on. That is one of Go's own, unless
+// Java called the Go code that calls Env: then it is the thread Java
+// called on, which may be the UI thread. Android wants some calls on the
+// UI thread, and others off it. Env may be called from several goroutines
+// at once, and from within f.
 func Env(f func(env unsafe.Pointer, context uintptr)) error {
 	h := cgo.NewHandle(f)
 	defer h.Delete()
 	var n C.int
 	var thrown *C.uint16_t
-	if C.gunim_env(C.uintptr_t(h), &thrown, &n) == 0 {
+	switch C.gunim_env(C.uintptr_t(h), &thrown, &n) {
+	case 0:
 		return errNoJava
+	case 2:
+		return errThrown
 	}
 	if thrown == nil {
 		return nil

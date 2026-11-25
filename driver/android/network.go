@@ -15,6 +15,7 @@ import (
 	"net"
 	"net/netip"
 	"strconv"
+	"strings"
 	"syscall"
 	"unsafe"
 )
@@ -63,6 +64,10 @@ func (n Network) LookupNetIP(ctx context.Context, network, host string) ([]netip
 	family, ok := map[string]C.int{"ip": C.AF_UNSPEC, "ip4": C.AF_INET, "ip6": C.AF_INET6}[network]
 	if !ok {
 		return nil, net.UnknownNetworkError(network)
+	}
+	if host == "" || strings.ContainsRune(host, 0) {
+		// The system would look up what stands before the NUL.
+		return nil, &net.DNSError{Err: "no such host", Name: host, IsNotFound: true}
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, lookupError(host, err)

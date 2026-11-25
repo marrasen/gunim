@@ -28,6 +28,10 @@ import (
 //
 // With no surface, as while the activity is in the background, frames
 // wait. The engine waits for its frame, so it draws nothing meanwhile.
+//
+// It runs for as long as the process, past the program's last window:
+// the UI thread waits for it to take a surface and to let one go, and an
+// activity may come and go after the program is done with its windows.
 func (d *Driver) render() {
 	runtime.LockOSThread()
 	c, err := startGL()
@@ -41,8 +45,6 @@ func (d *Driver) render() {
 	attached := false
 	for {
 		select {
-		case <-d.quit:
-			return
 		case sc := <-d.surfaces:
 			if sc.gone != nil {
 				// A surface other than the one drawn on is an old
@@ -81,7 +83,8 @@ func (d *Driver) render() {
 			}
 		case <-d.wake:
 		}
-		if !attached {
+		if !attached || d.isOver() {
+			// The last frame stays on an activity on its way out.
 			continue
 		}
 		d.frame(c)
@@ -109,8 +112,6 @@ func startGL() (*compose.Compositor, error) {
 func (d *Driver) idle() {
 	for {
 		select {
-		case <-d.quit:
-			return
 		case <-d.wake:
 		case sc := <-d.surfaces:
 			if sc.window != nil {

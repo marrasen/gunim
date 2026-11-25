@@ -18,6 +18,7 @@ void gunim_clear_text_state(void);
 uint16_t *gunim_get_clipboard(int *n);
 void gunim_set_clipboard(const uint16_t *s, int n);
 void gunim_finish(void);
+void gunim_ended(void);
 void gunim_buzz(void);
 void gunim_take_fingers(int on);
 void gunim_keep_awake(int on);
@@ -35,7 +36,8 @@ uint16_t *gunim_user_folder(int f, int *n);
 uint16_t *gunim_no_backup_dir(int *n);
 // gunim_env has goEnv run h with the thread's JNIEnv, and returns 0 where
 // there is no Java. *thrown is the exception left, n UTF-16 units of it
-// for the caller to free, or NULL.
+// for the caller to free, or NULL. It returns 2 for one that says nothing
+// of itself.
 int gunim_env(uintptr_t h, uint16_t **thrown, int *n);
 
 // Networks, by the handles Java numbers them with; 0 is the default.

@@ -24,7 +24,7 @@ static JavaVM *vm;
 static jclass nativeClass;
 static jmethodID midPermitted, midAsk, midUserFolder, midChooseFolder, midChooseFiles;
 static jmethodID midNowPlaying, midShowKeyboard, midCaret, midBuzz, midFingers, midAwake, midShare, midVibrate, midExclude, midOpenLink, midTextState, midClearTextState, midGetClipboard, midSetClipboard, midFinish;
-static jmethodID midHasCompass, midWatchHeading, midNoBackupDir, midRun;
+static jmethodID midHasCompass, midWatchHeading, midNoBackupDir, midRun, midEnded;
 static jclass audioClass;
 static jmethodID midAudioRoute, midAudioProbe, midAudioWatch;
 
@@ -58,6 +58,7 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *v, void *reserved) {
 	midGetClipboard = (*env)->GetStaticMethodID(env, c, "getClipboard", "()Ljava/lang/String;");
 	midSetClipboard = (*env)->GetStaticMethodID(env, c, "setClipboard", "(Ljava/lang/String;)V");
 	midFinish = (*env)->GetStaticMethodID(env, c, "finish", "()V");
+	midEnded = (*env)->GetStaticMethodID(env, c, "ended", "()V");
 	midPermitted = (*env)->GetStaticMethodID(env, c, "permitted", "(I)Z");
 	midAsk = (*env)->GetStaticMethodID(env, c, "ask", "(II)V");
 	midUserFolder = (*env)->GetStaticMethodID(env, c, "userFolder", "(I)Ljava/lang/String;");
@@ -273,7 +274,7 @@ uint16_t *gunim_no_backup_dir(int *n) {
 
 int gunim_env(uintptr_t h, uint16_t **thrown, int *n) {
 	*thrown = NULL;
-	if (nativeClass == NULL) {
+	if (!javaReady()) {
 		return 0;
 	}
 	int a;
@@ -285,9 +286,16 @@ int gunim_env(uintptr_t h, uint16_t **thrown, int *n) {
 	// with run's class loader, the program's, and what goEnv leaves
 	// behind goes as it returns.
 	jstring s = (jstring)(*env)->CallStaticObjectMethod(env, nativeClass, midRun, (jlong)h);
+	int ran = 1;
+	if ((*env)->ExceptionCheck(env)) {
+		// run could not say what was thrown, as with no memory left.
+		(*env)->ExceptionClear(env);
+		s = NULL;
+		ran = 2;
+	}
 	*thrown = takeString(env, s, n);
 	envPut(a);
-	return 1;
+	return ran;
 }
 
 JNIEXPORT void JNICALL Java_gunim_android_Native_go(JNIEnv *env, jclass c, jlong h, jobject context) {
@@ -425,6 +433,13 @@ void gunim_finish(void) {
 	int a;
 	JNIEnv *env = envGet(&a);
 	(*env)->CallStaticVoidMethod(env, nativeClass, midFinish);
+	envPut(a);
+}
+
+void gunim_ended(void) {
+	int a;
+	JNIEnv *env = envGet(&a);
+	(*env)->CallStaticVoidMethod(env, nativeClass, midEnded);
 	envPut(a);
 }
 

@@ -596,7 +596,9 @@ with the Java VM's environment, where the program calls Java with cgo of
 its own. A service, a job or a receiver that Android may start with no
 activity calls `gunim.android.Native.boot(context)`, which starts
 `main`. `App.NewWindow` waits until an activity shows the window, so the
-program starts its background work apart from it. `android.Network`
+program starts its background work apart from it. The activity finishes
+as `gunim.Main` does, and the process ends once `main` has returned and
+no service of the program's runs in it, so the next one runs `main` anew. `android.Network`
 keeps a socket and a lookup to one of the phone's networks, as a job's
 own. `example/background` works on in a job while it is out of sight,
 and goes on after Android ends its process.

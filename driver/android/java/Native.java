@@ -33,18 +33,42 @@ public final class Native {
 	 * program's. The program's main function runs on a thread of its own
 	 * from here on, once for each process, and boot changes nothing once
 	 * it runs. The program opens its windows as ever, and they show when
-	 * an activity starts in the process.
+	 * an activity starts in the process. Where main has returned already,
+	 * boot ends the process, and Android starts a job or an activity
+	 * again in a new one; it sends no broadcast again.
 	 *
 	 * Call it on the UI thread, where Android calls such a component,
 	 * before the first native method of the program's own.
 	 */
 	public static void boot(Context c) {
 		load(c);
+		late |= closing;
 		start(java.util.TimeZone.getDefault().getID());
 	}
 
-	// load loads the program, whose main waits for boot to run it.
+	// closing says that the program is done with its windows, and over
+	// that its main has returned. late says that something booted it in
+	// between, and waits. The UI thread keeps all three.
+	private static boolean closing, over, late;
+
+	// anew ends the process, whose main has run, for Android to start
+	// again in a new one what it just started here, or what comes next.
+	private static void anew() {
+		android.os.Process.killProcess(android.os.Process.myPid());
+	}
+
+	// waits reports whether what starts now comes too late for the main
+	// that runs, and waits for the next.
+	static boolean waits() {
+		return closing;
+	}
+
+	// load loads the program, whose main waits for boot to run it, or
+	// ends a process where main has run.
 	static synchronized void load(Context c) {
+		if (over) {
+			anew();
+		}
 		if (loaded) {
 			return;
 		}
@@ -94,8 +118,22 @@ public final class Native {
 			go(h, app);
 			return null;
 		} catch (Throwable t) {
-			return String.valueOf(t);
+			return said(t);
 		}
+	}
+
+	// said returns what t says of itself, or the name of its class, as a
+	// toString of the program's own may throw or return null.
+	private static String said(Throwable t) {
+		try {
+			String s = t.toString();
+			if (s != null) {
+				return s;
+			}
+		} catch (Throwable thrown) {
+			// The class's name says what it can.
+		}
+		return t.getClass().getName();
 	}
 
 	static void nowPlaying(boolean on, boolean playing, String title, String artist, String album,
@@ -477,11 +515,59 @@ public final class Native {
 		});
 	}
 
+	// finish finishes the activity, as the program is done with its
+	// windows. One that comes later waits for a main that runs anew.
 	static void finish() {
 		ui.post(() -> {
+			closing = true;
 			if (activity != null) {
 				activity.finish();
 			}
 		});
+	}
+
+	// ended is told once main has returned.
+	static void ended() {
+		ui.post(() -> {
+			over = true;
+			if (late && activity != null && activity.shown && !activity.isFinishing()) {
+				// Android forgets an activity whose process ends while
+				// it shows, and not one it is starting.
+				activity.finish();
+				activity.startActivity(new android.content.Intent(activity.getIntent()));
+			} else if (late) {
+				anew();
+			} else {
+				endUnused();
+			}
+		});
+	}
+
+	// activities counts the activities there are, finished ones too until
+	// they are destroyed. served says another application has opened a
+	// file of the program's: Android may end one that reads a file as the
+	// process that serves it goes.
+	static int activities;
+	static volatile boolean served;
+
+	// endUnused ends the process, once main has returned and nothing of
+	// the program's is left in it, so that what Android starts next gets
+	// a new one, at once.
+	@SuppressWarnings("deprecation")
+	private static void endUnused() {
+		if (served || late) {
+			return;
+		}
+		boolean used = activities > 0;
+		android.app.ActivityManager m = (android.app.ActivityManager) app.getSystemService(Context.ACTIVITY_SERVICE);
+		// It tells of the program's own services alone, as of a job's.
+		for (android.app.ActivityManager.RunningServiceInfo s : m.getRunningServices(Integer.MAX_VALUE)) {
+			used |= s.pid == android.os.Process.myPid();
+		}
+		if (used) {
+			ui.postDelayed(Native::endUnused, 1000);
+		} else {
+			anew();
+		}
 	}
 }

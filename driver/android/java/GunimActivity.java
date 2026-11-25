@@ -9,10 +9,21 @@ import android.os.Bundle;
  * function, unless a component of the program's own has booted it.
  */
 public class GunimActivity extends Activity {
+	// waits says the activity came once the program was done with its
+	// windows, and waits for its main to run anew, in a new process. It
+	// tells of its intent there.
+	private boolean waits;
+	private static final String WAITS = "gunim.waits";
+
+	// shown says the activity can be seen.
+	boolean shown;
+
 	@Override
 	protected void onCreate(Bundle state) {
 		super.onCreate(state);
 		Native.load(this);
+		Native.activities++;
+		waits = Native.waits();
 		Native.activity = this;
 		GunimView v = new GunimView(this);
 		Native.view = v;
@@ -34,9 +45,15 @@ public class GunimActivity extends Activity {
 		Native.boot(this);
 		showBuild();
 		// An activity Android brings back has told of its intent already.
-		if (state == null) {
+		if (!waits && (state == null || state.getBoolean(WAITS))) {
 			GunimOpen.opened(this, getIntent());
 		}
+	}
+
+	@Override
+	protected void onSaveInstanceState(Bundle out) {
+		super.onSaveInstanceState(out);
+		out.putBoolean(WAITS, waits);
 	}
 
 	// With -opens the activity runs once, so a file opened while the
@@ -45,7 +62,9 @@ public class GunimActivity extends Activity {
 	protected void onNewIntent(android.content.Intent intent) {
 		super.onNewIntent(intent);
 		setIntent(intent);
-		GunimOpen.opened(this, intent);
+		if (!waits) {
+			GunimOpen.opened(this, intent);
+		}
 	}
 
 	/**
@@ -134,6 +153,7 @@ public class GunimActivity extends Activity {
 	@Override
 	protected void onStart() {
 		super.onStart();
+		shown = true;
 		if (Native.activity == this) {
 			Native.shown(true);
 		}
@@ -141,6 +161,7 @@ public class GunimActivity extends Activity {
 
 	@Override
 	protected void onStop() {
+		shown = false;
 		if (Native.activity == this) {
 			Native.shown(false);
 		}
@@ -149,6 +170,7 @@ public class GunimActivity extends Activity {
 
 	@Override
 	protected void onDestroy() {
+		Native.activities--;
 		if (Native.activity == this) {
 			Native.activity = null;
 			Native.view = null;

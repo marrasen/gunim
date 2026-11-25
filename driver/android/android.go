@@ -24,8 +24,29 @@
 // window, or apart from it. Once an activity starts in the process, the
 // window opens there, and the work goes on.
 //
-// main runs once in a process. A program that works in the background
-// stays in main until it has no more to do.
+// # The end
+//
+// main runs once in a process. The activity finishes as gunim.Main does,
+// when the program's last window closes or its context ends, and no
+// window opens after that: App.NewWindow returns an error, as it does
+// where it was waiting for an activity that never came. Then main may go
+// on, with work the background still has.
+//
+// As main returns, the process ends, once no activity and no service of
+// the program's is left in it, as a job's: Android may start the next job
+// in a process it has, where main has run already. Goroutines that main
+// leaves run until then. Where another application has opened a file the
+// program shared, the process stays for it.
+//
+// What comes in between does not get the main that has run. An activity,
+// or a component that calls boot, that comes after main has returned ends
+// the process. Android starts an activity again at once in a new one, and
+// a job too, after a while. It sends no broadcast again. One that comes
+// after gunim.Main has ended, and before main has, waits for main to
+// return, and then gets its new process the same way; an activity shows
+// nothing meanwhile. So a program with much work left as the user is done
+// with its window does best to leave the window open. The user leaves it
+// with Home, and Android lets a job's work go on.
 //
 // # Windows on one surface
 //
@@ -80,14 +101,23 @@ var theDriver = newDriver()
 // errNotStarted is returned by Open before Java has started gunim.
 var errNotStarted = errors.New("android: nothing started gunim")
 
+// errOver is returned for a window the program asks for once Run has
+// ended.
+var errOver = errors.New("android: the program is done with its windows")
+
 // Open returns the driver. The activity, or another component, has
-// started it by the time main runs.
+// started it by the time main runs. It gives the driver for one run:
+// there is none after that, as the activity is gone.
 func Open() (*Driver, error) {
 	d := theDriver
 	d.mu.Lock()
-	defer d.mu.Unlock()
-	if !d.started {
+	started := d.started
+	d.mu.Unlock()
+	if !started {
 		return nil, errNotStarted
+	}
+	if d.isOver() {
+		return nil, errOver
 	}
 	return d, nil
 }
@@ -150,7 +180,10 @@ type Driver struct {
 	panAt     time.Time
 	// panRest says the pan stood at its target at the last frame.
 	panRest bool
-	quit    chan struct{}
+	// quit is closed with the last window that fills the screen, and over
+	// as Run ends, or main where it never ran.
+	quit, over chan struct{}
+	overOnce   sync.Once
 
 	// headingTo is the windows that watch the heading, and compassOn
 	// says the sensors run for them. compass says the phone has the
@@ -177,6 +210,7 @@ func newDriver() *Driver {
 		sized:     make(chan struct{}),
 		headingTo: map[*Window]bool{},
 		quit:      make(chan struct{}),
+		over:      make(chan struct{}),
 		wake:      make(chan struct{}, 1),
 		surfaces:  make(chan surfaceChange),
 	}
@@ -201,8 +235,40 @@ func (d *Driver) start(zone string) {
 	go d.render()
 	go func() {
 		mainMain()
-		finish()
+		d.end()
+		ended()
 	}()
+}
+
+// end marks the windows done with, and has the activity finish.
+func (d *Driver) end() {
+	d.overOnce.Do(func() {
+		close(d.over)
+		finish()
+	})
+}
+
+// isOver reports whether the windows are done with.
+func (d *Driver) isOver() bool {
+	select {
+	case <-d.over:
+		return true
+	default:
+		return false
+	}
+}
+
+// waitSized waits for the first surface, and returns an error where the
+// program is done with its windows first.
+func (d *Driver) waitSized() error {
+	select {
+	case <-d.sized:
+	case <-d.over:
+	}
+	if d.isOver() {
+		return errOver
+	}
+	return nil
 }
 
 // setZone makes zone, as Europe/Stockholm, Go's local time zone. Go
@@ -229,12 +295,16 @@ func (d *Driver) Run(ctx context.Context, ready func()) error {
 	case <-ctx.Done():
 	case <-d.quit:
 	}
+	d.end()
 	return nil
 }
 
-// Monitors implements [driver.Driver]: the one screen.
+// Monitors implements [driver.Driver]: the one screen, or none once Run
+// has ended.
 func (d *Driver) Monitors() []driver.Monitor {
-	<-d.sized
+	if d.waitSized() != nil {
+		return nil
+	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	b := geom.Rect{Max: geom.Pt(float32(d.surfW), float32(d.surfH))}
@@ -248,7 +318,9 @@ func (d *Driver) Monitors() []driver.Monitor {
 // screen. A popup opens by its anchor, a utility window at its anchor,
 // and any other window fills the screen over the ones before it.
 func (d *Driver) NewWindow(o driver.Options) (driver.Window, error) {
-	<-d.sized
+	if err := d.waitSized(); err != nil {
+		return nil, err
+	}
 	w := newWindow(d, o)
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -725,8 +797,6 @@ func (d *Driver) closed(w *Window) {
 			last = false
 		}
 	}
-	d.mu.Unlock()
-	d.kick()
 	if last {
 		select {
 		case <-d.quit:
@@ -734,4 +804,6 @@ func (d *Driver) closed(w *Window) {
 			close(d.quit)
 		}
 	}
+	d.mu.Unlock()
+	d.kick()
 }

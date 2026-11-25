@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/xml"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -484,12 +485,44 @@ func TestJavaFilesAreFoundWhereverTheyStand(t *testing.T) {
 	if files, err := javaFiles(""); err != nil || files != nil {
 		t.Errorf("with no directory: %q, %v", files, err)
 	}
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(filepath.Dir(files[0]), link); err != nil {
+		t.Logf("no links here: %v", err)
+	} else if files, err := javaFiles(link); err != nil || len(files) != 1 {
+		t.Errorf("through a link: %q, %v", files, err)
+	}
 	if _, err := javaFiles(t.TempDir()); err == nil {
 		t.Error("a directory with no Java passes")
 	}
 	if _, err := javaFiles(filepath.Join(t.TempDir(), "gone")); err == nil {
 		t.Error("a directory that is gone passes")
 	}
+}
+
+// manyClasses is how many classes manyJava writes, of 1,000 methods
+// each: more than one file of classes holds.
+const manyClasses = 70
+
+// manyJava writes manyClasses classes, with a word of letters that take
+// more than ASCII, and returns their files.
+func manyJava(t *testing.T) []string {
+	t.Helper()
+	dir := t.TempDir()
+	files := make([]string, 0, manyClasses)
+	for c := range manyClasses {
+		var src strings.Builder
+		fmt.Fprintf(&src, "package many;\npublic class C%d {\n\tString word = \"räksmörgås\";\n", c)
+		for m := range 1000 {
+			fmt.Fprintf(&src, "\tint m%d_%d() { return %d; }\n", c, m, m)
+		}
+		src.WriteString("}\n")
+		file := filepath.Join(dir, fmt.Sprintf("C%d.java", c))
+		if err := os.WriteFile(file, []byte(src.String()), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, file)
+	}
+	return files
 }
 
 // askingOptions asks for every part checkAPK looks for.
@@ -529,7 +562,9 @@ func TestAWholeAPKHoldsTheProgramAndItsManifest(t *testing.T) {
 	b := sdk(t)
 	o := askingOptions(t, "com.example.notes.debug")
 	o.out = filepath.Join(t.TempDir(), "notes.apk")
-	o.java = ownJava(t)
+	o.java = append(ownJava(t), manyJava(t)...)
+	// The Java is UTF-8 whatever the system's own encoding is.
+	t.Setenv("JAVA_TOOL_OPTIONS", "-Dfile.encoding=US-ASCII")
 	if err := buildAPK(context.Background(), o); err != nil {
 		t.Fatal(err)
 	}
@@ -540,27 +575,34 @@ func TestAWholeAPKHoldsTheProgramAndItsManifest(t *testing.T) {
 	}
 	defer func() { _ = z.Close() }()
 	names := make([]string, 0, len(z.File))
+	var dex []byte
 	for _, f := range z.File {
 		names = append(names, f.Name)
-		if f.Name != "classes.dex" {
+		if filepath.Ext(f.Name) != ".dex" {
 			continue
 		}
 		r, err := f.Open()
 		if err != nil {
 			t.Fatal(err)
 		}
-		dex, err := io.ReadAll(r)
+		data, err := io.ReadAll(r)
 		_ = r.Close()
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, class := range []string{"Lgunim/android/GunimActivity;", "Lcom/example/notes/Sync;"} {
-			if !bytes.Contains(dex, []byte(class)) {
-				t.Errorf("the APK's classes have no %s", class)
-			}
+		dex = append(dex, data...)
+	}
+	words := make([]string, 0, 3+manyClasses)
+	words = append(words, "Lgunim/android/GunimActivity;", "Lcom/example/notes/Sync;", "räksmörgås")
+	for c := range manyClasses {
+		words = append(words, fmt.Sprintf("Lmany/C%d;", c))
+	}
+	for _, w := range words {
+		if !bytes.Contains(dex, []byte(w)) {
+			t.Errorf("the APK's classes have no %s", w)
 		}
 	}
-	for _, want := range []string{"classes.dex", "lib/x86_64/libgunim.so", "resources.arsc"} {
+	for _, want := range []string{"classes.dex", "classes2.dex", "lib/x86_64/libgunim.so", "resources.arsc"} {
 		if !slices.Contains(names, want) {
 			t.Errorf("the APK holds %q, and no %s", names, want)
 		}

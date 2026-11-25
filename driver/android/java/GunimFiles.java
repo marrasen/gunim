@@ -81,6 +81,7 @@ public final class GunimFiles extends ContentProvider {
 		if (!"r".equals(mode)) {
 			throw new SecurityException("gunim shares files to read: mode " + mode);
 		}
+		Native.served = true;
 		return ParcelFileDescriptor.open(fileOf(uri), ParcelFileDescriptor.MODE_READ_ONLY);
 	}
 
