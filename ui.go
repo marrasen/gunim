@@ -1679,6 +1679,9 @@ func (w *Window) wait() bool {
 	if len(w.ui.pending) > 0 {
 		out, next = w.out, w.ui.pending[0]
 	}
+	if t := w.ui.touch; t != nil && t.ripe && t.frames == 0 {
+		return w.waitTouch(t)
+	}
 	// A timer wakes the loop a refresh before the first refresh at or
 	// after it is due, so the frame drawn then runs it. One timer
 	// serves every wait: a terminal's output wakes the loop hundreds of
@@ -1729,14 +1732,7 @@ func (w *Window) wait() bool {
 	case st := <-w.steps:
 		w.heldAsked(st)
 	case ev, ok := <-w.dw.Input():
-		if !ok {
-			return false
-		}
-		if _, asked := ev.(driver.CloseAsked); asked {
-			return w.ui.closeAsked()
-		}
-		w.platform(ev)
-		w.ui.focusNow()
+		return w.took(ev, ok)
 	case e := <-w.popupIn:
 		w.ui.popupEvent(e)
 	case m := <-w.dragIn:
@@ -1748,8 +1744,7 @@ func (w *Window) wait() bool {
 	case out := <-w.fade:
 		w.ui.setFade(out)
 	case ev := <-w.injected:
-		w.route(ev)
-		w.ui.focusNow()
+		w.tookInjected(ev)
 	case got := <-w.accesses:
 		got <- w.ui.clientAccess()
 	case <-w.released():
@@ -1761,6 +1756,9 @@ func (w *Window) wait() bool {
 		w.unshown = max(w.unshown-1, 0)
 		if w.released() == nil {
 			w.unreleased = max(w.unreleased-1, 0)
+		}
+		if t := w.ui.touch; t != nil && t.ripe {
+			t.frames = max(t.frames-1, 0)
 		}
 		w.shown = f.Shown
 		w.learnLate(f)
@@ -1777,6 +1775,53 @@ func (w *Window) wait() bool {
 		w.ui.makeSpare()
 	case out <- next:
 		w.ui.pending = w.ui.pending[1:]
+	}
+	return true
+}
+
+// took handles ev, as the driver sent it, and reports whether the window
+// is still open.
+func (w *Window) took(ev any, ok bool) bool {
+	if !ok {
+		return false
+	}
+	if _, asked := ev.(driver.CloseAsked); asked {
+		return w.ui.closeAsked()
+	}
+	w.platform(ev)
+	w.ui.focusNow()
+	return true
+}
+
+// tookInjected handles ev, as the application sent it.
+func (w *Window) tookInjected(ev input.Event) {
+	w.route(ev)
+	w.ui.focusNow()
+}
+
+// touchSettle is how long no input comes before a finger's press that has
+// lasted is taken to be held still.
+const touchSettle = 2 * time.Millisecond
+
+// waitTouch is wait for a finger's press t that has lasted as long as a
+// long press: what the finger has done meanwhile is handled first, and the
+// press is a long one once nothing is waiting.
+func (w *Window) waitTouch(t *touchPress) bool {
+	settled := time.NewTimer(touchSettle)
+	defer settled.Stop()
+	select {
+	case <-w.done:
+		return false
+	case ev, ok := <-w.dw.Input():
+		return w.took(ev, ok)
+	case e := <-w.popupIn:
+		w.ui.popupEvent(e)
+	case ev := <-w.injected:
+		w.tookInjected(ev)
+	case <-settled.C:
+		t.ripe = false
+		w.ui.paintOwed()
+		w.ui.longPress(t)
 	}
 	return true
 }
