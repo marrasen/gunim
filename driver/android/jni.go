@@ -358,7 +358,9 @@ func ask(p driver.Permission) bool {
 	answers[code] = ch
 	asking.Unlock()
 	C.gunim_ask(C.int(p), C.int(code))
-	return <-ch
+	<-ch
+	// What the prompt says may not be all that is needed.
+	return permitted(p)
 }
 
 // answered hands the user's answer to the prompt of code to its ask.

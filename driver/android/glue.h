@@ -46,6 +46,15 @@ int gunim_look(float *v);
 void gunim_watch_look(void);
 void gunim_back_leaves(int on);
 void gunim_leave_app(void);
+// gunim_notify shows a message of eight strings, and returns 0, 1 where
+// the user has it off, or 2 where Android does not take it.
+int gunim_notify(uint16_t *const *s, const int *ns, int importance, int lock, int parts, int ongoing, const void *icon,
+	int nicon);
+int gunim_notify_on(const uint16_t *channel, int n);
+void gunim_notify_end(const uint16_t *tag, int n);
+// gunim_watch_network starts or stops a run of listening, and returns 0
+// where Android refuses.
+int gunim_watch_network(long long run, int on);
 int gunim_vibrate(const long long *ms, int n);
 void gunim_exclude_gestures(const int *xy, int n);
 int gunim_has_compass(void);

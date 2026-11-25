@@ -129,6 +129,17 @@ public final class Native {
 		loaded = true;
 	}
 
+	/**
+	 * tapIntent returns the intent of a tap on a message that the
+	 * program's own Java shows, as a job's, which brings tag back to the
+	 * program as one of gunim's App.Notify does. It throws an
+	 * IllegalStateException where the storage that a tap is known by fails,
+	 * as with a full disk.
+	 */
+	public static android.app.PendingIntent tapIntent(Context c, String tag) {
+		return GunimNotify.tap(c.getApplicationContext(), tag);
+	}
+
 	static native void start(String zone, boolean quiet);
 	static native void go(long h, Context context);
 	static native void surfaceChanged(Surface surface, int width, int height);
@@ -158,6 +169,9 @@ public final class Native {
 	static native int servedRead(long id, long offset, int size, byte[] data);
 	static native void back();
 	static native void look();
+	static native void tapped(String tag);
+	static native void network(long run, long network, boolean online, boolean internet, boolean metered, boolean blocked,
+		boolean moved);
 	static native void heading(float[] rotation, int screen, int accuracy, float error);
 
 	// Called from Go.
@@ -353,7 +367,8 @@ public final class Native {
 	// permissionNames names permission p, as driver.Permission numbers
 	// it, as this Android names it: reading music is its own
 	// permission since Android 13, and part of reading storage before;
-	// 2 records from the microphone.
+	// 2 records from the microphone, and 3 shows messages, which needs
+	// asking for since Android 13 alone.
 	static String[] permissionNames(int p) {
 		if (p == 1) {
 			return Build.VERSION.SDK_INT >= 33
@@ -363,10 +378,16 @@ public final class Native {
 		if (p == 2) {
 			return new String[] {"android.permission.RECORD_AUDIO"};
 		}
+		if (p == 3 && Build.VERSION.SDK_INT >= 33) {
+			return new String[] {"android.permission.POST_NOTIFICATIONS"};
+		}
 		return null;
 	}
 
 	static boolean permitted(int p) {
+		if (p == 3) {
+			return GunimNotify.isOn();
+		}
 		String[] names = permissionNames(p);
 		if (names == null || app == null) {
 			return false;
@@ -417,6 +438,22 @@ public final class Native {
 
 	// strays are those of a process that ended before the answer.
 	static final java.util.Map<Integer, Long> strays = new java.util.HashMap<>();
+
+	static int notify(String[] s, int importance, int lock, int parts, boolean ongoing, byte[] icon) {
+		return GunimNotify.post(s, importance, lock, parts, ongoing, icon);
+	}
+
+	static boolean notifyOn(String channel) {
+		return GunimNotify.isOn(channel);
+	}
+
+	static void notifyEnd(String tag) {
+		GunimNotify.end(tag);
+	}
+
+	static boolean watchNetwork(long run, boolean on) {
+		return GunimNetwork.watch(run, on);
+	}
 
 	// createDocument shows the system's picker of a place to save a file
 	// in, and saveFolder its chooser of a folder to write in. What the user
