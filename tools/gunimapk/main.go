@@ -754,7 +754,9 @@ func (b *builder) goLib(pkg, abi string, minSDK int) (string, error) {
 	host := runtime.GOOS + "-x86_64"
 	cc := clang(filepath.Join(b.ndk, "toolchains", "llvm", "prebuilt", host, "bin"), a.clang, minSDK)
 	lib := filepath.Join(b.tmp, "lib", abi, "libgunim.so")
-	cmd := exec.CommandContext(b.ctx, "go", "build", "-buildmode=c-shared", "-trimpath", "-ldflags=-s -w", "-o", lib, pkg)
+	// An NDK before 28 lays segments out for 4 KB pages unless told.
+	ldflags := fmt.Sprintf("-ldflags=-s -w -extldflags=-Wl,-z,max-page-size=%d", pageSize)
+	cmd := exec.CommandContext(b.ctx, "go", "build", "-buildmode=c-shared", "-trimpath", ldflags, "-o", lib, pkg)
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=1", "GOOS=android", "GOARCH="+a.goarch, "CC="+cc, "CXX="+cc+"++")
 	if a.goarch == "arm" {
 		cmd.Env = append(cmd.Env, "GOARM=7")
