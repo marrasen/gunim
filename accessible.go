@@ -20,6 +20,15 @@ type Accessible interface {
 	Access() access.Info
 }
 
+// An AccessNamer is a node that says what its children are for, as a
+// form's labels do its fields. AccessName's word for a child is the name
+// of the first [Accessible] at or beneath it, where that says no name of
+// its own, or only a hint of one; "" says nothing.
+type AccessNamer interface {
+	Node
+	AccessName(child Node) string
+}
+
 // An AccessActor is an [Accessible] that carries out a screen reader's
 // requests: its actions, or a new value. It reports whether it did.
 // Focus requests are the engine's, for any [Focusable].
@@ -126,27 +135,47 @@ func (u *UI) accessTree(root *state, title string) *access.Tree {
 		Bounds: geom.Rect{Max: root.size.Point()},
 	}
 	ids[top.ID] = root
-	u.gather(root, top, ids)
+	u.gather(root, top, ids, new(string))
 	return access.NewTree(top)
 }
 
 // gather adds what s's children say to parent, skipping nodes that say
 // nothing and the ones the last frame left undrawn or that are leaving.
-// ids gathers the nodes by ID.
-func (u *UI) gather(s *state, parent *access.Node, ids map[uint64]*state) {
+// ids gathers the nodes by ID. name is what an [AccessNamer] above calls
+// the first node beneath s that says anything, taken by that one.
+func (u *UI) gather(s *state, parent *access.Node, ids map[uint64]*state, name *string) {
+	namer, names := s.node.(AccessNamer)
 	for _, k := range s.kids {
 		if k.presence == Exiting || k.drawn != u.seq {
 			continue
 		}
-		into := parent
+		if names {
+			own := namer.AccessName(k.node)
+			name = &own
+		}
+		into, under := parent, name
 		if a, ok := k.node.(Accessible); ok {
-			n := u.accessNode(k, a.Access())
+			n := u.accessNode(k, called(a.Access(), *name))
+			*name = ""
 			ids[n.ID] = k
 			parent.Children = append(parent.Children, n)
-			into = n
+			into, under = n, new(string)
 		}
-		u.gather(k, into, ids)
+		u.gather(k, into, ids, under)
 	}
+}
+
+// called is info named name, where it says no name of its own. A name
+// that is only a hint goes on to be its description.
+func called(info access.Info, name string) access.Info {
+	if name == "" || info.Name != "" && !info.Hint {
+		return info
+	}
+	if info.Description == "" {
+		info.Description = info.Name
+	}
+	info.Name = name
+	return info
 }
 
 // accessNode makes s's node from what it said.
