@@ -35,7 +35,8 @@ public final class Native {
 	 * it runs. The program opens its windows as ever, and they show when
 	 * an activity starts in the process. Where main has returned already,
 	 * boot ends the process, and Android starts a job or an activity
-	 * again in a new one; it sends no broadcast again.
+	 * again in a new one; it sends no broadcast again. It waits for an
+	 * activity of the program's own that shows to be left first.
 	 *
 	 * Call it on the UI thread, where Android calls such a component,
 	 * before the first native method of the program's own.
@@ -43,6 +44,9 @@ public final class Native {
 	public static void boot(Context c) {
 		load(c);
 		late |= closing;
+		if (over) {
+			settle();
+		}
 		start(java.util.TimeZone.getDefault().getID(), quiet(c));
 	}
 
@@ -75,10 +79,11 @@ public final class Native {
 		return closing;
 	}
 
-	// load loads the program, whose main waits for boot to run it, or
-	// ends a process where main has run.
+	// load loads the program, whose main waits for boot to run it. Where
+	// main has run already it ends the process, unless that would take
+	// another activity with it: see settle.
 	static synchronized void load(Context c) {
-		if (over) {
+		if (over && (starting || GunimWatch.isAlone(c))) {
 			anew();
 		}
 		if (loaded) {
@@ -549,13 +554,15 @@ public final class Native {
 		});
 	}
 
-	// finish finishes the activity, as the program is done with its
+	// finish finishes gunim's activities, as the program is done with its
 	// windows. One that comes later waits for a main that runs anew.
 	static void finish() {
 		ui.post(() -> {
 			closing = true;
-			if (activity != null) {
-				activity.finish();
+			for (android.app.Activity a : GunimWatch.live()) {
+				if (a instanceof GunimActivity) {
+					a.finish();
+				}
 			}
 		});
 	}
@@ -564,44 +571,75 @@ public final class Native {
 	static void ended() {
 		ui.post(() -> {
 			over = true;
-			if (late && activity != null && activity.shown && !activity.isFinishing()) {
-				// Android forgets an activity whose process ends while
-				// it shows, and not one it is starting.
-				activity.finish();
-				activity.startActivity(new android.content.Intent(activity.getIntent()));
-			} else if (late) {
-				anew();
-			} else {
-				endUnused();
-			}
+			settle();
 		});
 	}
 
-	// activities counts the activities there are, finished ones too until
-	// they are destroyed. served says another application has opened a
-	// file of the program's: Android may end one that reads a file as the
-	// process that serves it goes.
-	static int activities;
-	static volatile boolean served;
+	// settling says that settle runs again in a while, and starting that
+	// an activity which waited is being started again, for the new process
+	// to show.
+	private static boolean settling, starting;
 
-	// endUnused ends the process, once main has returned and nothing of
-	// the program's is left in it, so that what Android starts next gets
-	// a new one, at once.
-	@SuppressWarnings("deprecation")
-	private static void endUnused() {
-		if (served || late) {
+	// settle ends the process once main has returned and it is of no more
+	// use, so that what Android starts next gets a new one, at once. It
+	// looks again in a while otherwise.
+	private static void settle() {
+		if (settling || starting) {
 			return;
 		}
-		boolean used = activities > 0;
-		android.app.ActivityManager m = (android.app.ActivityManager) app.getSystemService(Context.ACTIVITY_SERVICE);
-		// It tells of the program's own services alone, as of a job's.
-		for (android.app.ActivityManager.RunningServiceInfo s : m.getRunningServices(Integer.MAX_VALUE)) {
-			used |= s.pid == android.os.Process.myPid();
-		}
-		if (used) {
-			ui.postDelayed(Native::endUnused, 1000);
-		} else {
+		if (late ? isSettledLate() : isUnused()) {
 			anew();
+		} else if (!starting) {
+			settling = true;
+			ui.postDelayed(() -> {
+				settling = false;
+				settle();
+			}, 1000);
 		}
+	}
+
+	// isUnused reports whether the process holds nothing of the program's:
+	// no activity, gunim's or its own, and no service, as a job's.
+	@SuppressWarnings("deprecation")
+	private static boolean isUnused() {
+		if (!GunimWatch.live().isEmpty()) {
+			return false;
+		}
+		android.app.ActivityManager m = (android.app.ActivityManager) app.getSystemService(Context.ACTIVITY_SERVICE);
+		// It tells of the program's own services alone.
+		for (android.app.ActivityManager.RunningServiceInfo s : m.getRunningServices(Integer.MAX_VALUE)) {
+			if (s.pid == android.os.Process.myPid()) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	// isSettledLate reports whether the process may end for what came too
+	// late in it, which Android starts again: once no activity of the
+	// program's own shows, as Android forgets one whose process ends while
+	// it does. It forgets gunim's too, so one that waits and shows is
+	// started again first, and ends the process as it is created.
+	private static boolean isSettledLate() {
+		GunimActivity waiting = null;
+		for (android.app.Activity a : GunimWatch.live()) {
+			if (!GunimWatch.isShown(a) || a.isFinishing()) {
+				continue;
+			}
+			if (!(a instanceof GunimActivity)) {
+				return false;
+			}
+			waiting = (GunimActivity) a;
+		}
+		if (waiting == null) {
+			return true;
+		}
+		starting = true;
+		waiting.finish();
+		waiting.startActivity(new android.content.Intent(waiting.getIntent()));
+		// Where Android refuses the start, as for one just left, the
+		// process ends all the same.
+		ui.postDelayed(Native::anew, 5000);
+		return false;
 	}
 }

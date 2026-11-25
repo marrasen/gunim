@@ -35,13 +35,17 @@
 // As main returns, the process ends, once no activity and no service of
 // the program's is left in it, as a job's: Android may start the next job
 // in a process it has, where main has run already. Goroutines that main
-// leaves run until then. Where another application has opened a file the
-// program shared, the process stays for it.
+// leaves run until then. A file the program shared is served by another
+// process, which stays. Android counts neither a provider of the program's
+// own nor a receiver that works on past its onReceive, so a program with
+// one of those stays in main, or gives it a process of its own in the
+// manifest.
 //
 // What comes in between does not get the main that has run. An activity,
 // or a component that calls boot, that comes after main has returned ends
-// the process. Android starts an activity again at once in a new one, and
-// a job too, after a while. It sends no broadcast again. One that comes
+// the process, once no activity of the program's own shows. Android starts
+// an activity again at once in a new one, a job too, after a while, and a
+// service where that asked to be. It sends no broadcast again. One that comes
 // after gunim.Main has ended, and before main has, waits for main to
 // return, and then gets its new process the same way; an activity shows
 // nothing meanwhile. So a program with much work left as the user is done

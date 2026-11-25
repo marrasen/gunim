@@ -1131,8 +1131,10 @@ var orientations = []string{
 // playback among o.perms it holds the service a program starts with
 // gunim's App.SetNowPlaying, to play media on in the background. The
 // provider hands the files a program shares with gunim's Client.Share to
-// the application they go to, and the vibration permission, which the
-// system grants as the program installs, lets it run Client.Vibrate. The
+// the application they go to, in a process of its own, which outlives the
+// program's. A second one, which provides nothing, watches the program's
+// activities. The vibration permission, which the system grants as the
+// program installs, lets it run Client.Vibrate. The
 // program's own parts, o.own, come with it, as does what o says of
 // backups and of the data an uninstall leaves.
 func manifestFor(o options) string {
@@ -1193,7 +1195,8 @@ func manifestFor(o options) string {
 			</intent-filter>
 ` + opensFilters + `		</activity>
 ` + service + quiet + o.own.inside + `		<provider android:name="gunim.android.GunimFiles" android:authorities="` + id + `.gunim.files"
-			android:exported="false" android:grantUriPermissions="true"/>
+			android:exported="false" android:grantUriPermissions="true" android:process=":gunim.files"/>
+		<provider android:name="gunim.android.GunimWatch" android:authorities="` + id + `.gunim.watch" android:exported="false"/>
 	</application>
 </manifest>
 `

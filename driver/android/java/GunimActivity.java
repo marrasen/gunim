@@ -15,14 +15,10 @@ public class GunimActivity extends Activity {
 	private boolean waits;
 	private static final String WAITS = "gunim.waits";
 
-	// shown says the activity can be seen.
-	boolean shown;
-
 	@Override
 	protected void onCreate(Bundle state) {
 		super.onCreate(state);
 		Native.load(this);
-		Native.activities++;
 		waits = Native.waits();
 		Native.activity = this;
 		GunimView v = new GunimView(this);
@@ -153,7 +149,6 @@ public class GunimActivity extends Activity {
 	@Override
 	protected void onStart() {
 		super.onStart();
-		shown = true;
 		if (Native.activity == this) {
 			Native.shown(true);
 		}
@@ -161,7 +156,6 @@ public class GunimActivity extends Activity {
 
 	@Override
 	protected void onStop() {
-		shown = false;
 		if (Native.activity == this) {
 			Native.shown(false);
 		}
@@ -170,7 +164,6 @@ public class GunimActivity extends Activity {
 
 	@Override
 	protected void onDestroy() {
-		Native.activities--;
 		if (Native.activity == this) {
 			Native.activity = null;
 			Native.view = null;

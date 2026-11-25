@@ -126,7 +126,7 @@ func TestAProgramsOwnPartsJoinTheManifest(t *testing.T) {
 	for _, p := range d.App.Providers {
 		authorities = append(authorities, p.Authorities)
 	}
-	if want := []string{"com.example.notes.debug.pages", "com.example.notes.debug.gunim.files"}; !slices.Equal(authorities, want) {
+	if want := []string{"com.example.notes.debug.pages", "com.example.notes.debug.gunim.files", "com.example.notes.debug.gunim.watch"}; !slices.Equal(authorities, want) {
 		t.Errorf("authorities %q, want %q", authorities, want)
 	}
 }
@@ -415,6 +415,13 @@ func checkAPK(t *testing.T, b *builder, apk string, o options) {
 	check("service", "name", "com.example.notes.Sync", "permission", "android.permission.BIND_JOB_SERVICE")
 	check("provider", "name", "com.example.notes.Pages", "authorities", o.id+".pages")
 	check("provider", "name", "gunim.android.GunimFiles", "authorities", o.id+".gunim.files")
+	// Android may end a reader of a shared file with the process that
+	// serves it, so that one is not the program's, which ends.
+	check("provider", "name", "gunim.android.GunimFiles", "process", ":gunim.files")
+	check("provider", "name", "gunim.android.GunimFiles", "exported", "false")
+	check("provider", "name", "gunim.android.GunimWatch", "authorities", o.id+".gunim.watch")
+	check("provider", "name", "gunim.android.GunimWatch", "process", "")
+	check("provider", "name", "gunim.android.GunimWatch", "exported", "false")
 	if e := find(m, "service", "name", "com.example.notes.Sync"); e != nil && e.parent != "application" {
 		t.Errorf("the program's service is in %s", e.parent)
 	}
