@@ -248,6 +248,48 @@ jobs:
       - name: Test in Chrome
         run: go run ./tools/webtest
 
+  # Android. The runner has the SDK, the NDK and Java, and gunimapk finds
+  # them as on a developer's machine. The driver needs cgo, so nothing in
+  # the other jobs reads its files.
+  android:
+    name: Vet and build for Android (ubuntu-latest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GOOS: android
+      GOARCH: arm64
+      CGO_ENABLED: 1
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+          cache-dependency-path: go.sum
+
+      - name: Find the NDK
+        run: |
+          ndk="${ANDROID_NDK_HOME:-$(ls -d "$ANDROID_HOME"/ndk/* | sort -V | tail -1)}"
+          bin="$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          test -x "$bin/aarch64-linux-android26-clang"
+          echo "CC=$bin/aarch64-linux-android26-clang" >> "$GITHUB_ENV"
+          echo "CXX=$bin/aarch64-linux-android26-clang++" >> "$GITHUB_ENV"
+
+      - name: Vet
+        run: go vet -unsafeptr=false ./...
+
+      - name: Build
+        run: go build ./...
+
+      # A whole APK, with its manifest and its rules read back from it. The
+      # step fails unless both tests passed, so a rename cannot leave it
+      # passing with nothing run.
+      - name: Build an APK
+        shell: bash
+        run: |
+          GOOS= GOARCH= CC= CXX= GUNIMAPK_TEST=build go test -v -count=1 -run APK ./tools/gunimapk | tee apk.log
+          test "$(grep -c -- '^--- PASS: ' apk.log)" -ge 2
+
   lint:
     name: Lint
     runs-on: ubuntu-latest

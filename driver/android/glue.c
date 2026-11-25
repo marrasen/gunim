@@ -15,7 +15,7 @@ static JavaVM *vm;
 static jclass nativeClass;
 static jmethodID midPermitted, midAsk, midUserFolder, midChooseFolder, midChooseFiles;
 static jmethodID midNowPlaying, midShowKeyboard, midCaret, midBuzz, midFingers, midAwake, midShare, midVibrate, midExclude, midOpenLink, midTextState, midClearTextState, midGetClipboard, midSetClipboard, midFinish;
-static jmethodID midHasCompass, midWatchHeading;
+static jmethodID midHasCompass, midWatchHeading, midNoBackupDir;
 static jclass audioClass;
 static jmethodID midAudioRoute, midAudioProbe, midAudioWatch;
 
@@ -53,6 +53,7 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *v, void *reserved) {
 	midPermitted = (*env)->GetStaticMethodID(env, c, "permitted", "(I)Z");
 	midAsk = (*env)->GetStaticMethodID(env, c, "ask", "(II)V");
 	midUserFolder = (*env)->GetStaticMethodID(env, c, "userFolder", "(I)Ljava/lang/String;");
+	midNoBackupDir = (*env)->GetStaticMethodID(env, c, "noBackupDir", "()Ljava/lang/String;");
 	midChooseFolder = (*env)->GetStaticMethodID(env, c, "chooseFolder", "(I)V");
 	midChooseFiles = (*env)->GetStaticMethodID(env, c, "chooseFiles", "(IZLjava/lang/String;)V");
 	jclass ac = (*env)->FindClass(env, "gunim/android/GunimAudio");
@@ -83,6 +84,20 @@ static void envPut(int attached) {
 	if (attached) {
 		(*vm)->DetachCurrentThread(vm);
 	}
+}
+
+// takeString returns a copy of s, n UTF-16 units of it for the caller to
+// free, or NULL for a null s. It lets go of s.
+static uint16_t *takeString(JNIEnv *env, jstring s, int *n) {
+	*n = 0;
+	if (s == NULL) {
+		return NULL;
+	}
+	*n = (*env)->GetStringLength(env, s);
+	uint16_t *out = malloc((*n + 1) * sizeof(uint16_t));
+	(*env)->GetStringRegion(env, s, 0, *n, (jchar *)out);
+	(*env)->DeleteLocalRef(env, s);
+	return out;
 }
 
 void gunim_show_keyboard(int show) {
@@ -149,14 +164,7 @@ uint16_t *gunim_get_clipboard(int *n) {
 	int a;
 	JNIEnv *env = envGet(&a);
 	jstring s = (jstring)(*env)->CallStaticObjectMethod(env, nativeClass, midGetClipboard);
-	uint16_t *out = NULL;
-	*n = 0;
-	if (s != NULL) {
-		*n = (*env)->GetStringLength(env, s);
-		out = malloc((*n + 1) * sizeof(uint16_t));
-		(*env)->GetStringRegion(env, s, 0, *n, (jchar *)out);
-		(*env)->DeleteLocalRef(env, s);
-	}
+	uint16_t *out = takeString(env, s, n);
 	envPut(a);
 	return out;
 }
@@ -233,14 +241,20 @@ uint16_t *gunim_user_folder(int f, int *n) {
 	int a;
 	JNIEnv *env = envGet(&a);
 	jstring s = (jstring)(*env)->CallStaticObjectMethod(env, nativeClass, midUserFolder, f);
-	uint16_t *out = NULL;
-	*n = 0;
-	if (s != NULL) {
-		*n = (*env)->GetStringLength(env, s);
-		out = malloc((*n + 1) * sizeof(uint16_t));
-		(*env)->GetStringRegion(env, s, 0, *n, (jchar *)out);
-		(*env)->DeleteLocalRef(env, s);
+	uint16_t *out = takeString(env, s, n);
+	envPut(a);
+	return out;
+}
+
+uint16_t *gunim_no_backup_dir(int *n) {
+	// A package's init runs before the library has told of the VM.
+	if (nativeClass == NULL) {
+		return NULL;
 	}
+	int a;
+	JNIEnv *env = envGet(&a);
+	jstring s = (jstring)(*env)->CallStaticObjectMethod(env, nativeClass, midNoBackupDir);
+	uint16_t *out = takeString(env, s, n);
 	envPut(a);
 	return out;
 }

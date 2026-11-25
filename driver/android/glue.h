@@ -29,6 +29,7 @@ void gunim_ask(int p, int code);
 void gunim_choose_folder(int code);
 void gunim_choose_files(int code, int multiple, const uint16_t *patterns, int n);
 uint16_t *gunim_user_folder(int f, int *n);
+uint16_t *gunim_no_backup_dir(int *n);
 
 // For package audio/internal/aaudio, which calls them where the driver
 // is linked in: what GunimAudio.route and GunimAudio.probe return, into
