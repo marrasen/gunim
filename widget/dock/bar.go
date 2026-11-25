@@ -457,6 +457,10 @@ func (b *Bar) tabsMoved(tabs []tab, th *theme.Live) {
 		}
 		delete(b.moves, t.id)
 		g := tabGone{tabMove: m, tab: t, badge: b.badges[t.id]}
+		if g.badge != nil {
+			// It says no more than it does.
+			g.badge.held = false
+		}
 		delete(b.badges, t.id)
 		if i < len(b.titles) {
 			g.title, g.more = b.titles[i], b.more[i]

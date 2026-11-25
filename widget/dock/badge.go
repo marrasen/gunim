@@ -21,15 +21,18 @@ import (
 type tabBadge struct {
 	text string
 	ink  *theme.Token[color.NRGBA]
-	// on is how far it shows, and swap how far its words and colour have
-	// come from was and wasInk.
-	on, swap *anim.Float
+	// on is how far it shows, swap how far its words and colour have come
+	// from was and wasInk, and wide the width its words ask for.
+	on, swap, wide *anim.Float
+	// held says it has other words to say, as want, once the fade it is
+	// in ends.
+	held bool
 	// beside is the room the title beside it needs, which glides as the
 	// tab's width does.
-	beside   *anim.Float
-	run, was text.Run
-	wasInk   color.NRGBA
-	// face, size, said and from are what run was shaped from.
+	beside         *anim.Float
+	run, was, want text.Run
+	wasInk         color.NRGBA
+	// face, size, said and from are what want was shaped from.
 	face *text.Face
 	size float32
 	said string
@@ -42,13 +45,14 @@ type tabBadge struct {
 const badgeGap = 6
 
 func newTabBadge() *tabBadge {
-	return &tabBadge{on: anim.NewFloat(0), swap: anim.NewFloat(1), beside: anim.NewFloat(0)}
+	return &tabBadge{on: anim.NewFloat(0), swap: anim.NewFloat(1), wide: anim.NewFloat(0), beside: anim.NewFloat(0)}
 }
 
 func (g *tabBadge) step(dt time.Duration) bool {
 	moving := g.on.Step(dt)
 	moving = g.swap.Step(dt) || moving
-	return g.beside.Step(dt) || moving
+	moving = g.wide.Step(dt) || moving
+	return g.beside.Step(dt) || moving || g.held
 }
 
 // color is the badge's own colour.
@@ -71,32 +75,45 @@ func (g *tabBadge) shown() float32 {
 func (g *tabBadge) swapped() float32 { return min(max(g.swap.Value(), 0), 1) }
 
 // say has the badge say s in ink, "" for nothing, and reports whether
-// it is gone. With still, it is simply there, or not.
+// it is gone. Its width sets out at once, and words that change while
+// others still fade in wait for them. With still, it is simply there, or
+// not.
 func (g *tabBadge) say(s string, ink *theme.Token[color.NRGBA], still bool, th *theme.Live) (gone bool) {
 	if s == "" {
 		// It keeps its words while it goes.
+		g.held = false
 		if still {
 			g.on.Jump(0)
 		}
 		g.on.Animate(0, widget.Settle.Get(th))
 		return g.on.Value() < 0.001 && !g.on.Active()
 	}
-	changes := g.text != "" && (g.text != s || g.ink != ink) && g.on.Value() > 0.001 && !still
-	if changes && g.swapped() > 0.5 {
-		g.was, g.wasInk = g.run, g.color(th)
-		g.swap.Jump(0)
-	}
-	g.text, g.ink = s, ink
 	face, size := widget.Font.Get(th), widget.BadgeSize.Get(th)
 	if g.from.Moved() || g.face != face || g.size != size || g.said != s {
-		g.run, g.face, g.size, g.said = face.Shape(s, size), face, size, s
+		g.want, g.face, g.size, g.said = face.Shape(s, size), face, size, s
 	}
 	if still {
 		g.on.Jump(1)
+	}
+	still = still || g.text == "" || g.on.Value() <= 0.001
+	changes := g.text != s || g.ink != ink
+	g.held = changes && !still && g.swap.Active()
+	if !g.held {
+		if changes && !still {
+			g.was, g.wasInk = g.run, g.color(th)
+			g.swap.Jump(0)
+		}
+		g.run, g.text, g.ink = g.want, s, ink
+	}
+	wide := g.want.Advance + 2*widget.BadgePadding.Get(th)
+	if still {
 		g.swap.Jump(1)
+		g.wide.Jump(wide)
 	}
 	g.on.Animate(1, widget.Quick.Get(th))
 	g.swap.Animate(1, widget.Quick.Get(th))
+	// As its tab's width does.
+	g.wide.Animate(wide, Slide.Get(th))
 	return false
 }
 
@@ -106,7 +123,7 @@ func (g *tabBadge) width(th *theme.Live) float32 {
 	if g == nil || g.on.Target() == 0 {
 		return 0
 	}
-	return min(g.run.Advance+2*widget.BadgePadding.Get(th), TabBadge.Get(th))
+	return min(g.want.Advance+2*widget.BadgePadding.Get(th), TabBadge.Get(th))
 }
 
 // stand has the badge stand beside a title that needs room. With still,
@@ -122,11 +139,9 @@ func (g *tabBadge) stand(room float32, still bool, th *theme.Live) {
 // for it and its title. It has what the title leaves, or where that is
 // less than half of it, up to half.
 func (g *tabBadge) fit(room float32, th *theme.Live) float32 {
-	pad := 2 * widget.BadgePadding.Get(th)
-	w := anim.Mix(anim.FloatCodec, g.was.Advance+pad, g.run.Advance+pad, g.swapped())
 	room -= badgeGap
 	// A hair more than the title needs, so rounding never cuts it.
-	w = min(w, TabBadge.Get(th), max(room-g.beside.Value()-0.25, room/2))
+	w := min(g.wide.Value(), TabBadge.Get(th), max(room-g.beside.Value()-0.25, room/2))
 	return max(w, TabBadgeDot.Get(th))
 }
 

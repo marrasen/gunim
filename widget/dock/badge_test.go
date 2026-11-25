@@ -11,6 +11,7 @@ import (
 	"github.com/marrasen/gunim/icon"
 	"github.com/marrasen/gunim/input"
 	"github.com/marrasen/gunim/paint"
+	"github.com/marrasen/gunim/text"
 	"github.com/marrasen/gunim/theme"
 	"github.com/marrasen/gunim/widget"
 )
@@ -197,6 +198,117 @@ func TestABadgeInANarrowTabIsADot(t *testing.T) {
 			t.Fatalf("in a tab %v wide the tooltip is %q", tab.Size().W, tip)
 		}
 		last, had = pill, true
+	}
+}
+
+// words are the words drawn in pill, with how far each shows.
+func words(w *gunim.Window, pill geom.Rect, runs map[string]text.Run) map[string]float32 {
+	out := map[string]float32{}
+	for _, op := range w.Offscreen().Ops() {
+		op, ok := op.(*paint.TextOp)
+		if !ok || len(op.Glyphs) == 0 || !pill.Inset(geom.Uniform(-2)).Contains(op.Transform.Apply(op.Glyphs[0].At)) {
+			continue
+		}
+		for s, run := range runs {
+			if slices.EqualFunc(op.Glyphs, run.Glyphs, func(a, b paint.Glyph) bool { return a.ID == b.ID }) {
+				out[s] += float32(op.Color.A) / 255
+			}
+		}
+	}
+	return out
+}
+
+// TestABadgeChangedAgainInItsFadePopsNothing: before the fade is half
+// done and past it, to longer words and to shorter, the pill's edges and
+// the words in it go on from where they are on every frame.
+func TestABadgeChangedAgainInItsFadePopsNothing(t *testing.T) {
+	ink := widget.ToastErrorInk.Default()
+	long, short := "Ada Lovelace", "Al"
+	runs := map[string]text.Run{}
+	for _, s := range []string{long, short, "Bo", "Grace Hopper"} {
+		runs[s] = widget.Font.Default().Shape(s, widget.BadgeSize.Default())
+	}
+	for _, c := range [][3]string{{long, short, "Bo"}, {long, short, "Grace Hopper"}, {short, long, "Bo"}, {long, short, long}, {long, "Grace Hopper", ""}} {
+		limit := float32(9)
+		if c[2] == "" {
+			// It shrinks away as its width sets out.
+			limit = 14
+		}
+		for after := 1; after <= 24; after++ {
+			b := NewBar("g", 1)
+			tabs := func(badge string) barTabs {
+				return barTabs{tabs: []Tab{{ID: "1", Face: Face{Title: "log", Badge: badge, BadgeInk: &widget.ToastErrorInk}}, {ID: "2"}}, front: "2"}
+			}
+			w, run, _ := stageBar(t, b, tabs(c[0]))
+			run(30)
+			pill, _, _ := pillOn(w, b, "1", ink)
+			said := words(w, pill, runs)
+			if said[c[0]] < 0.99 {
+				t.Fatalf("the badge says %v", said)
+			}
+			for frame := range 90 {
+				if frame == 0 || frame == after {
+					say := c[1]
+					if frame == after {
+						say = c[2]
+					}
+					if err := w.Client().Update("v", tabs(say)); err != nil {
+						t.Fatal(err)
+					}
+				}
+				run(1)
+				now, fill, ok := pillOn(w, b, "1", ink)
+				saying := words(w, now, runs)
+				if c[2] == "" && frame > after && (!ok || fill.A < 20) {
+					// Gone, or nearly.
+					continue
+				}
+				if d := now.Size().W - pill.Size().W; d > limit || d < -limit {
+					t.Fatalf("%q, after %d frames, frame %d: the badge goes from %v wide to %v", c, after, frame, pill.Size().W, now.Size().W)
+				}
+				if d := now.Min.X - pill.Min.X; d > limit || d < -limit {
+					t.Fatalf("%q, after %d frames, frame %d: the badge goes from %v to %v", c, after, frame, pill, now)
+				}
+				for s := range runs {
+					if d := saying[s] - said[s]; d > 0.2 || d < -0.2 {
+						t.Fatalf("%q, after %d frames, frame %d: %q goes from %.2f to %.2f, with %v", c, after, frame, s, said[s], saying[s], saying)
+					}
+				}
+				pill, said = now, saying
+			}
+			if c[2] == "" {
+				if len(b.badges) != 0 || !w.Still() {
+					t.Fatalf("%q, after %d frames: %d badges are kept, and the bar rests %v", c, after, len(b.badges), w.Still())
+				}
+				continue
+			}
+			want := runs[c[2]].Advance + 2*widget.BadgePadding.Default()
+			if d := pill.Size().W - want; said[c[2]] < 0.99 || len(said) != 1 || d > 0.5 || d < -0.5 || !w.Still() {
+				t.Fatalf("%q, after %d frames: the badge says %v, %v wide, want %v, and rests %v", c, after, said, pill.Size().W, want, w.Still())
+			}
+		}
+	}
+}
+
+// TestATabClosedWithItsBadgeInAFadeGoes: with more words waiting for the fade's end.
+func TestATabClosedWithItsBadgeInAFadeGoes(t *testing.T) {
+	b := NewBar("g", 1)
+	w, run, _ := stageBar(t, b, badged(3, "Ada"))
+	run(30)
+	for _, badge := range []string{"Bo", "Cy"} {
+		if err := w.Client().Update("v", badged(3, badge)); err != nil {
+			t.Fatal(err)
+		}
+		run(2)
+	}
+	tabs := badged(3, "Cy")
+	tabs.tabs = slices.Delete(tabs.tabs, 1, 2)
+	if err := w.Client().Update("v", tabs); err != nil {
+		t.Fatal(err)
+	}
+	run(90)
+	if len(b.gone) != 0 || !w.Still() {
+		t.Errorf("%d tabs are still going, and the bar rests %v", len(b.gone), w.Still())
 	}
 }
 
