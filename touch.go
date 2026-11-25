@@ -56,6 +56,9 @@ type touchPress struct {
 	stopLong    func()
 	ripe        bool
 	frames      int
+	// proven runs once the finger has pressed what it came down on: see
+	// [UI.OncePressed].
+	proven []func()
 }
 
 // touchFling is a scroll coasting on after the finger lifted.
@@ -124,6 +127,7 @@ func (u *UI) touchEvent(root *state, ev any) bool {
 			t.chosen = true
 			t.stopLong()
 			if u.dragsTouch() {
+				u.prove(t)
 				return false
 			}
 			t.scrolling = true
@@ -160,6 +164,7 @@ func (u *UI) touchEvent(root *state, ev any) bool {
 		case !t.scrolling && !t.held && e.Pos != input.Away:
 			// A tap: focus moves now, where the finger came down, to text
 			// it pressed.
+			u.prove(t)
 			if root == u.root {
 				u.focusAt(t.start, true)
 			}
@@ -178,6 +183,33 @@ func (u *UI) touchEvent(root *state, ev any) bool {
 		return true
 	}
 	return false
+}
+
+// OncePressed runs fn once the press being handled presses what is under it, for a node that acts on presses others
+// take, as an [Overhearer]: at once for a mouse's, and for a finger's as it lifts from a tap, has been held for a long
+// press, or drags what it came down on. A finger that goes on to scroll, or whose press is called off, never runs it,
+// and neither does a node gone by then.
+func (u *UI) OncePressed(fn func(u *UI)) {
+	t := u.touch
+	if t == nil || t.chosen {
+		fn(u)
+		return
+	}
+	s := u.current
+	t.proven = append(t.proven, func() {
+		if s == nil || u.index[s.node] == s && !s.leaving() {
+			u.hear(s, func() { fn(u) })
+		}
+	})
+}
+
+// prove runs what waits for t to press what it came down on.
+func (u *UI) prove(t *touchPress) {
+	fns := t.proven
+	t.proven = nil
+	for _, fn := range fns {
+		fn()
+	}
 }
 
 // endTouch forgets the finger pressing, and stops its wait for a long
@@ -228,6 +260,7 @@ func (u *UI) longPress(t *touchPress) {
 		return
 	}
 	t.chosen, t.held = true, true
+	u.prove(t)
 	now := u.timerClock()
 	u.handleRaw(t.root, input.PointerUp{Pos: input.Away, Button: input.ButtonPrimary, Touch: true, Time: now})
 	u.handleRaw(t.root, input.PointerDown{Pos: t.start, Button: input.ButtonSecondary, Clicks: 1, Touch: true, Time: now})

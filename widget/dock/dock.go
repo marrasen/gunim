@@ -1000,7 +1000,8 @@ func (d *Dock) CatchKey(e input.Event, u *gunim.UI) bool {
 }
 
 // Overhear implements [gunim.Overhearer]: a press in a pane has the
-// keys work in it, and not one in what lies over it, as a dialog.
+// keys work in it, and not one in what lies over it, as a dialog, nor a
+// finger's that goes on to scroll.
 func (d *Dock) Overhear(e input.Event, u *gunim.UI) {
 	down, ok := e.(input.PointerDown)
 	if !ok {
@@ -1012,9 +1013,14 @@ func (d *Dock) Overhear(e input.Event, u *gunim.UI) {
 	}
 	p := down.Pos.Sub(at.Min)
 	for it, r := range d.items {
-		if r.Contains(p) {
-			d.SetActive(it, u)
+		if !r.Contains(p) {
+			continue
 		}
+		u.OncePressed(func(u *gunim.UI) {
+			if slices.Contains(d.Shown(), it) {
+				d.SetActive(it, u)
+			}
+		})
 	}
 }
 

@@ -154,3 +154,104 @@ func TestAPressOverAPaneIsNotItsOwn(t *testing.T) {
 		}
 	}
 }
+
+// TestAFingerThatScrollsLeavesThePaneTheKeysWorkIn: one that taps, that is held, or that drags what it pressed, has
+// them work in the pane it pressed, and not before that shows.
+func TestAFingerThatScrollsLeavesThePaneTheKeysWorkIn(t *testing.T) {
+	for _, content := range []bool{true, false} {
+		h, w, run, b := host(t, content, nil)
+		at := time.Now()
+		down := func() {
+			w.Input(input.PointerMove{Pos: b, Touch: true, Time: at})
+			w.Input(input.PointerDown{Pos: b, Button: input.ButtonPrimary, Clicks: 1, Touch: true, Time: at})
+		}
+		move := func(n int) {
+			for i := range n {
+				at = at.Add(16 * time.Millisecond)
+				w.Input(input.PointerMove{Pos: b.Add(geom.Pt(0, -float32(i+1)*6)), Touch: true, Time: at})
+				run(1)
+			}
+		}
+		up := func(p geom.Point) {
+			at = at.Add(16 * time.Millisecond)
+			w.Input(input.PointerUp{Pos: p, Button: input.ButtonPrimary, Touch: true, Time: at})
+			w.Input(input.PointerLeave{Time: at})
+			run(2)
+		}
+		again := func() {
+			h.own["b"].drags = false
+			at = at.Add(time.Second)
+			run(60)
+			onUIDock(t, w, run, func(u *gunim.UI) { h.d.SetActive("a", u) })
+		}
+		want := func(step, pane string) {
+			t.Helper()
+			if got := h.d.Active(); got != pane {
+				t.Errorf("views in the dock %v, %s: the keys work in %s, want %s", content, step, got, pane)
+			}
+		}
+		down()
+		want("as a finger comes down", "a")
+		run(2)
+		move(8)
+		want("as it scrolls", "a")
+		up(b.Add(geom.Pt(0, -48)))
+		run(60)
+		want("as it lifts from a scroll", "a")
+
+		again()
+		down()
+		up(input.Away)
+		run(60)
+		want("called off", "a")
+
+		again()
+		down()
+		run(3)
+		up(b)
+		want("as it taps", "b")
+
+		again()
+		down()
+		run(10)
+		want("held a while", "a")
+		run(30)
+		want("held for long", "b")
+		up(b)
+		want("let go after that", "b")
+
+		again()
+		h.own["b"].drags = true
+		down()
+		want("on what drags", "a")
+		move(4)
+		want("as it drags", "b")
+		up(b.Add(geom.Pt(0, -24)))
+		want("as it lifts from a drag", "b")
+
+		// One that goes on to scroll says nothing of the tap after it, elsewhere.
+		again()
+		down()
+		move(8)
+		up(b)
+		run(60)
+		r, _ := h.d.Rect("a")
+		w.Input(input.PointerDown{Pos: r.Center(), Button: input.ButtonPrimary, Clicks: 1, Touch: true, Time: at})
+		w.Input(input.PointerUp{Pos: r.Center(), Button: input.ButtonPrimary, Touch: true, Time: at.Add(time.Millisecond)})
+		run(2)
+		want("tapping a after it", "a")
+	}
+}
+
+// TestAPaneGoneAsAFingerLiftsIsNotThePaneTheKeysWorkIn: taken out of the layout under the finger.
+func TestAPaneGoneAsAFingerLiftsIsNotThePaneTheKeysWorkIn(t *testing.T) {
+	h, w, run, b := host(t, true, nil)
+	w.Input(input.PointerDown{Pos: b, Button: input.ButtonPrimary, Clicks: 1, Touch: true, Time: time.Now()})
+	onUIDock(t, w, run, func(u *gunim.UI) { h.d.SetLayout(NewLayout(true, "a"), u) })
+	run(3)
+	w.Input(input.PointerUp{Pos: b, Button: input.ButtonPrimary, Touch: true, Time: time.Now()})
+	run(3)
+	if h.d.active == "b" {
+		t.Error("the keys work in a pane that is gone")
+	}
+}
