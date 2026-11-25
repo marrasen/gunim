@@ -164,6 +164,11 @@ An app's widget outside the package draws the same way with the exported helpers
   against their drawn position (`anim.Float.Value()`), never against where they are heading (`Target()`).
 - **Hover follows content.** When content scrolls under a resting pointer, work out the hover again from the last
   pointer position on every frame of the scroll.
+- **A finger's scroll that ends.** A finger dragged on a touch screen reaches nodes as `input.Scroll` with `Touch`
+  set, offered to the node under it first and then to those round it. As the finger lifts, `input.ScrollEnd` goes the
+  same way. A node that follows the finger, as a sheet dragged by what its body leaves, settles on it and returns
+  false, so the nodes round it hear it too. The fling that may follow comes as scrolls with `Fling` set, which such a
+  node leaves alone.
 - **Every control works from the keyboard.** A part that takes a click (a chip's remove cross, a split's divider, a
   curve's point) has a key too.
 
@@ -325,6 +330,26 @@ The kit's own widgets:
   guard there.
 - `Keyboard` cannot tell a keyboard plugged in. An app that sees one sets `Keyboard.Disabled`, and the keyboard on
   the screen stays down.
+
+## Phone: a bar of places, a sheet and pull to refresh
+
+Three widgets lay out a program for a phone held upright. `example/phone` uses all three.
+
+- **`BottomBar`** shows one page at a time over a bar of 3 to 5 places, each an icon over a label, with a count or a
+  dot on the icon's corner. A pill glides behind the current place's icon. In a window `BarRailFrom` wide or more the
+  bar stands as a rail down the left, and it slides from one form to the other as the window changes width. The
+  bar keeps clear of the system's navigation bar, and its ground runs on under it. A screen reader hears a tab list.
+- **`BottomSheet`** slides up over the page from the bottom, half open, or as tall as its body where that is
+  shorter. It is a modal: mount it over the window's root, as a `Dialog`, and it takes the keyboard and gives it back
+  as it closes. A drag on its top moves it between half and full. A drag on its body scrolls the body first and moves
+  the sheet with what is left past the body's ends. A fling down from half, a tap above it, Escape and Back close
+  it, and `OnDismiss` runs. It keeps above the keyboard on the screen, and stands centred, `SheetWidth` wide, in a
+  wide window.
+- **`PullRefresh`** holds content that scrolls. Pulled down from its top past `PullReach`, it runs `OnRefresh` with
+  the refresh's number, and a disc spins until the program answers with `Done` or `Fail` and that number. A refresh
+  unanswered for `Timeout` fails, and a pull during a refresh starts no other. The mouse pulls from a part of the
+  content that takes no press, F5 and Ctrl+R refresh, and a screen reader has a Refresh action. With less motion the
+  spinner stands still.
 
 ## Checklist for a new widget
 

@@ -106,7 +106,18 @@ type Scroll struct {
 	// screen, rather than a wheel or a touchpad: its Delta is then the
 	// finger's own move, so a node that pans with it moves by Delta.
 	Touch bool
+	// Fling says the scroll coasts on after the finger lifted.
+	Fling bool
 	Time  time.Time
+}
+
+// ScrollEnd says a finger that scrolled has lifted, or was taken for a pinch. It goes where the finger's scrolls
+// went, at Pos, from the node under it up through those round it. A node that follows the finger, as a sheet dragged
+// or a list pulled down, settles as it hears it, and returns false, so the nodes round it hear it too. A fling may
+// follow it, in scrolls with Fling set.
+type ScrollEnd struct {
+	Pos  geom.Point
+	Time time.Time
 }
 
 // Pinch carries two fingers on a touch screen spreading apart or
@@ -426,6 +437,7 @@ func (PointerMove) isEvent()  {}
 func (PointerDown) isEvent()  {}
 func (PointerUp) isEvent()    {}
 func (Scroll) isEvent()       {}
+func (ScrollEnd) isEvent()    {}
 func (Pinch) isEvent()        {}
 func (Finger) isEvent()       {}
 func (Heading) isEvent()      {}

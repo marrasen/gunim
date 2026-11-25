@@ -714,6 +714,14 @@ program starts. `Client.Shot` takes a picture of the window, with its
 popups, as on the desktop.
 [driver/android](driver/android/android.go) says how it fits together.
 
+`widget.BottomBar` moves between a program's places from a bar along the
+bottom, which stands as a rail down the left where the window is wide.
+`widget.BottomSheet` slides up from the bottom over the page, and
+`widget.PullRefresh` refreshes a list pulled down from its top.
+`example/phone` shows the three.
+
+![phone](example/phone/phone.png)
+
 The examples lay themselves out for a phone where the window is narrow;
 the calculator and the chat take `-size 390x800` to try it on the
 desktop.
