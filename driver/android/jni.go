@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -452,14 +453,15 @@ func chooseFiles(o driver.ChooseOptions, streams bool) fileAnswer {
 	return <-ch
 }
 
-// goFiles hands over files Java opened, each an open file descriptor
-// and a name, -1 for one that failed to open. A code of 0 is another
+// goFiles hands over files Java opened, each an open file descriptor,
+// the id Java keeps its provider by until the copy is made, and a name, -1
+// for one that failed to open. A code of 0 is another
 // application opening them, for the extensions in opens; any other is
 // the chooser waiting on that code. The copy runs apart from the
 // caller, as a file can take a while to arrive.
 //
 //export goFiles
-func goFiles(code C.int, fds *C.int, n C.int, names *C.uint16_t, nn C.int, opens *C.uint16_t, no C.int) {
+func goFiles(code C.int, fds *C.int, ids *C.longlong, n C.int, names *C.uint16_t, nn C.int, opens *C.uint16_t, no C.int) {
 	var files []filecopy.File
 	nameList := strings.Split(goString(names, nn), "\x00")
 	if n > 0 {
@@ -471,8 +473,14 @@ func goFiles(code C.int, fds *C.int, n C.int, names *C.uint16_t, nn C.int, opens
 			files = append(files, f)
 		}
 	}
-	exts := strings.Split(goString(opens, no), ",")
+	kept := slices.Clone(unsafe.Slice(ids, int(n)))
+	exts := filecopy.Exts(goString(opens, no))
 	go func() {
+		defer func() {
+			for _, id := range kept {
+				C.gunim_close_stream(id)
+			}
+		}()
 		if code != 0 {
 			paths, err := copies().Take(files, nil)
 			choseFiles(int(code), fileAnswer{paths: paths, err: err})

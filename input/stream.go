@@ -57,7 +57,8 @@ func (s *Stream) Read(p []byte) (int, error) {
 }
 
 // Close lets the sender go, wherever the reading has come, and ends a
-// Read that waits. A program that takes a stream closes it.
+// Read that waits. It waits for no other application. A program that takes
+// a stream closes it.
 func (s *Stream) Close() error {
 	s.once.Do(func() {
 		s.drop.Stop()

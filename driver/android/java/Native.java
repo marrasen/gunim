@@ -123,7 +123,7 @@ public final class Native {
 	static native void composing(String s, int selStart, int selEnd);
 	static native void answered(int code, boolean granted);
 	static native void chosen(int code, String path);
-	static native void files(int code, int[] fds, String names, String opens);
+	static native void files(int code, int[] fds, long[] ids, String names, String opens);
 	static native void streams(int code, int[] fds, long[] ids, long[] stated, long[] held, String names, String types,
 		String opens);
 	static native void heading(float[] rotation, int screen, int accuracy, float error);
@@ -344,18 +344,18 @@ public final class Native {
 	}
 
 	// noFiles answers a chooser of files with none.
-	private static void noFiles(int code, boolean streams) {
+	static void noFiles(int code, boolean streams) {
 		if (streams) {
 			streams(code, new int[0], new long[0], new long[0], new long[0], "", "", "");
 		} else {
-			files(code, new int[0], "", "");
+			files(code, new int[0], new long[0], "", "");
 		}
 	}
 
-	// streamEnd says how the sender of a stream ended, and closeStream
-	// lets the stream go.
-	static int streamEnd(long id) {
-		return GunimStreams.end(id);
+	// streamEnd says how the sender of a stream ended, after a wait for
+	// its word where asked, and closeStream lets the stream go.
+	static int streamEnd(long id, boolean wait) {
+		return GunimStreams.end(id, wait);
 	}
 
 	static void closeStream(long id) {

@@ -35,10 +35,15 @@ type Source struct {
 	// and Held the one the open file has, where it is one on a disk; each
 	// is Unstated otherwise.
 	Stated, Held int64
-	// End asks, once, how the sender ended, after R has.
-	End func() End
+	// End asks, once, how the sender ended, after R has. With wait it may
+	// wait a while for the sender's word, where nothing else tells.
+	End func(wait bool) End
 	// Closed is told as the file is let go, once.
 	Closed func()
+	// Local says the file is the device's own, quick to close, and that
+	// closing the stream waits for it. Closing another's may take as long
+	// as the other application likes, and no one waits.
+	Local bool
 }
 
 // size returns the size a stream says it has.
@@ -59,7 +64,9 @@ func New(name, mime string, s Source) *input.Stream {
 	if s.Held < 0 {
 		s.Held = Unstated
 	}
-	return input.NewStream(name, Type(mime), s.size(), &reader{s: s})
+	return input.NewStream(name, Type(mime), s.size(), &reader{
+		s: s, ask: make(chan struct{}), got: make(chan chunk, 1), closed: make(chan struct{}),
+	})
 }
 
 // Failing returns the stream of a file that did not open.
@@ -75,83 +82,151 @@ func (f failing) Read([]byte) (int, error) { return 0, f.err }
 // Close implements [io.Closer].
 func (f failing) Close() error { return nil }
 
-// reader is a Source read to its end.
+// chunkSize is how much is read at a time.
+const chunkSize = 64 << 10
+
+// chunk is what one read of a Source's R gave, and how the reading ended,
+// where it has.
+type chunk struct {
+	b   []byte
+	end error
+}
+
+// reader is a Source read to its end. A goroutine of its own reads R, as a
+// read of another application's file may wait for as long as that
+// application likes, and Close ends no such read: it ends the waiting for
+// it.
 type reader struct {
 	s Source
-	// n is how many bytes have come, and end how the reading ended, once
-	// it has. One goroutine reads at a time.
-	n   int64
-	end error
+	// ask has the goroutine read once more, and got brings what it read,
+	// which is good until the next ask. start starts it.
+	ask   chan struct{}
+	got   chan chunk
+	start sync.Once
 
-	mu     sync.Mutex
-	closed bool
+	// left is what Read has yet to give of the last chunk, and end how
+	// the reading ended. One goroutine reads at a time.
+	left []byte
+	end  error
+
+	once   sync.Once
+	closed chan struct{}
 }
 
 // Read implements [io.Reader].
 func (r *reader) Read(p []byte) (int, error) {
-	if r.end != nil || len(p) == 0 {
-		return 0, r.end
+	if r.isClosed() {
+		return 0, io.ErrClosedPipe
 	}
-	n, err := r.s.R.Read(p)
-	r.n += int64(n)
-	switch {
-	case r.isClosed():
-		r.end = io.ErrClosedPipe
-	case r.over():
-		r.end = input.ErrNotWhole
-	case errors.Is(err, io.EOF):
-		r.end = r.ended()
-	case err != nil:
-		// The system's own words may name the file.
-		r.end = input.ErrNotWhole
+	if len(p) == 0 {
+		return 0, nil
 	}
-	return n, r.end
+	if len(r.left) == 0 && r.end == nil {
+		r.start.Do(func() { go r.run() })
+		select {
+		case r.ask <- struct{}{}:
+		case <-r.closed:
+			return 0, io.ErrClosedPipe
+		}
+		select {
+		case c := <-r.got:
+			r.left, r.end = c.b, c.end
+		case <-r.closed:
+			return 0, io.ErrClosedPipe
+		}
+	}
+	n := copy(p, r.left)
+	r.left = r.left[n:]
+	if len(r.left) == 0 {
+		return n, r.end
+	}
+	return n, nil
 }
 
-// over reports whether more bytes have come than a size said.
-func (r *reader) over() bool {
-	return r.s.Held != Unstated && r.n > r.s.Held || r.s.Stated != Unstated && r.n > r.s.Stated
+// run reads a chunk for each ask, until the end or until the stream is
+// closed.
+func (r *reader) run() {
+	buf := make([]byte, chunkSize)
+	total := int64(0)
+	for {
+		select {
+		case <-r.ask:
+		case <-r.closed:
+			return
+		}
+		c := chunk{}
+		for len(c.b) == 0 && c.end == nil {
+			n, err := r.s.R.Read(buf)
+			total += int64(n)
+			c.b = buf[:n]
+			switch {
+			case r.over(total):
+				c.end = input.ErrNotWhole
+			case errors.Is(err, io.EOF):
+				c.end = r.ended(total)
+			case err != nil:
+				// The system's own words may name the file.
+				c.end = input.ErrNotWhole
+			}
+		}
+		r.got <- c
+		if c.end != nil {
+			return
+		}
+	}
 }
 
-// ended tells how the bytes ended: io.EOF for a file that is whole.
-func (r *reader) ended() error {
-	end := r.s.End()
-	if end == Failed {
-		return input.ErrNotWhole
-	}
-	known := end == Done
+// over reports whether the n bytes that have come are more than a size
+// said.
+func (r *reader) over(n int64) bool {
+	return r.s.Held != Unstated && n > r.s.Held || r.s.Stated != Unstated && n > r.s.Stated
+}
+
+// ended tells how n bytes ended: io.EOF for a file that is whole.
+func (r *reader) ended(n int64) error {
+	known := false
 	for _, size := range []int64{r.s.Held, r.s.Stated} {
 		switch size {
 		case Unstated:
-		case r.n:
+		case n:
 			known = true
 		default:
 			return input.ErrNotWhole
 		}
 	}
-	if !known {
+	switch end := r.s.End(!known); {
+	case end == Failed:
+		return input.ErrNotWhole
+	case end == Unknown && !known:
 		return input.ErrMayNotBeWhole
 	}
 	return io.EOF
 }
 
 func (r *reader) isClosed() bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.closed
+	select {
+	case <-r.closed:
+		return true
+	default:
+		return false
+	}
 }
 
 // Close implements [io.Closer].
 func (r *reader) Close() error {
-	r.mu.Lock()
-	was := r.closed
-	r.closed = true
-	r.mu.Unlock()
-	if was {
-		return nil
-	}
-	err := r.s.R.Close()
-	r.s.Closed()
+	var err error
+	r.once.Do(func() {
+		close(r.closed)
+		done := make(chan error, 1)
+		go func() {
+			err := r.s.R.Close()
+			r.s.Closed()
+			done <- err
+		}()
+		if r.s.Local {
+			err = <-done
+		}
+	})
 	return err
 }
 

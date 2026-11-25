@@ -104,6 +104,8 @@
 // A * among them, as -opens '*', takes any file shared to the program from
 // the share sheet. It offers the program under "Open with" for no more
 // than the extensions named beside it.
+// Android offers the program for text and links shared too, as it tells
+// them by no type of their own, and gunim brings none of those.
 //
 // -streams brings those files as gunim's input.StreamsOpened, to read as
 // they come from the other application, in place of copies.

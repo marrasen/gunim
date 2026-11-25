@@ -16,7 +16,7 @@ import (
 
 func source(text string, stated, held int64, end End) Source {
 	return Source{R: io.NopCloser(strings.NewReader(text)), Stated: stated, Held: held,
-		End: func() End { return end }, Closed: func() {}}
+		End: func(bool) End { return end }, Closed: func() {}}
 }
 
 func TestAFileIsWholeOnlyWhereSomethingSaysSo(t *testing.T) {
@@ -95,8 +95,9 @@ func TestAPipeClosedWithAnErrorIsNoEndOfTheFile(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatal(err)
 	}
-	closed := 0
-	st := New("a", "", Source{R: r, Stated: Unstated, Held: Unstated, End: func() End { return Failed }, Closed: func() { closed++ }})
+	closed := make(chan struct{}, 2)
+	st := New("a", "", Source{R: r, Stated: Unstated, Held: Unstated, End: func(bool) End { return Failed },
+		Closed: func() { closed <- struct{}{} }})
 	var out bytes.Buffer
 	if n, err := io.Copy(&out, st); !errors.Is(err, input.ErrNotWhole) {
 		t.Fatalf("copied %d bytes, %v, want an error", n, err)
@@ -106,8 +107,123 @@ func TestAPipeClosedWithAnErrorIsNoEndOfTheFile(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if closed != 1 {
-		t.Errorf("let go of %d times", closed)
+	<-closed
+	select {
+	case <-closed:
+		t.Error("let go of twice")
+	case <-time.After(20 * time.Millisecond):
+	}
+}
+
+// stuck is a file whose every call waits, as one that the application
+// serving it may make.
+type stuck struct {
+	reading chan struct{}
+	free    chan struct{}
+}
+
+func (s stuck) Read([]byte) (int, error) {
+	close(s.reading)
+	<-s.free
+	return 0, io.EOF
+}
+
+func (s stuck) Close() error {
+	<-s.free
+	return nil
+}
+
+// within fails the test where do takes long.
+func within(t *testing.T, what string, do func()) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() {
+		do()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("%s still waits", what)
+	}
+}
+
+func TestCloseWaitsForNothingAndEndsARead(t *testing.T) {
+	f := stuck{make(chan struct{}), make(chan struct{})}
+	closed := make(chan struct{})
+	st := New("a", "", Source{R: f, Stated: Unstated, Held: 5, End: func(bool) End { return Done }, Closed: func() { close(closed) }})
+	got := make(chan error, 1)
+	go func() {
+		_, err := io.ReadAll(st)
+		got <- err
+	}()
+	<-f.reading
+	within(t, "Close", func() { _ = st.Close() })
+	within(t, "Read", func() {
+		if err := <-got; !errors.Is(err, io.ErrClosedPipe) {
+			t.Errorf("a read that Close ended: %v", err)
+		}
+	})
+	// The file goes once its own calls let it.
+	close(f.free)
+	within(t, "the file", func() { <-closed })
+}
+
+func TestClosingEndsTheWaitForTheSendersWord(t *testing.T) {
+	asked, free := make(chan struct{}), make(chan struct{})
+	defer close(free)
+	s := source("hello", Unstated, Unstated, Done)
+	s.End = func(bool) End {
+		close(asked)
+		<-free
+		return Done
+	}
+	st := New("a", "", s)
+	got := make(chan error, 1)
+	go func() {
+		_, err := io.ReadAll(st)
+		got <- err
+	}()
+	<-asked
+	within(t, "Close", func() { _ = st.Close() })
+	within(t, "Read", func() {
+		if err := <-got; err == nil {
+			t.Error("a stream closed before its end is known reads as whole")
+		}
+	})
+}
+
+// The sender's word is waited for only where no size tells.
+func TestAStatedSizeTellsWithoutAWait(t *testing.T) {
+	for _, c := range []struct {
+		stated, held int64
+		waits        bool
+	}{{Unstated, Unstated, true}, {5, Unstated, false}, {Unstated, 5, false}, {0, Unstated, true}} {
+		waited := false
+		s := source("hello", c.stated, c.held, Done)
+		s.End = func(wait bool) End {
+			waited = wait
+			return Done
+		}
+		if _, err := io.ReadAll(New("a", "", s)); err != nil || waited != c.waits {
+			t.Errorf("stated %d, held %d: waits %v, %v", c.stated, c.held, waited, err)
+		}
+	}
+}
+
+// A file of the device's own is closed as Close returns, so that it can be
+// removed then.
+func TestAFileOfTheDevicesOwnIsClosedAsCloseReturns(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := New("a", "", Source{R: f, Stated: Unstated, Held: 0, End: func(bool) End { return Unknown }, Closed: func() {}, Local: true})
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); !errors.Is(err, os.ErrClosed) {
+		t.Errorf("it is still open: %v", err)
 	}
 }
 
@@ -126,7 +242,7 @@ func TestClosingEndsAReadThatWaits(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = w.Close() }()
-	st := New("a", "", Source{R: r, Stated: Unstated, Held: Unstated, End: func() End { return Done }, Closed: func() {}})
+	st := New("a", "", Source{R: r, Stated: Unstated, Held: Unstated, End: func(bool) End { return Done }, Closed: func() {}})
 	got := make(chan error, 1)
 	go func() {
 		_, err := io.ReadAll(st)

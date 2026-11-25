@@ -10,7 +10,6 @@ import "C"
 
 import (
 	"bufio"
-	"log"
 	"os"
 	"runtime/debug"
 	"strconv"
@@ -64,28 +63,37 @@ func toLogcat() {
 // wants them calls [debug.SetCrashOutput], as package crashlog does, with
 // a file of its own.
 func hush() {
-	// The runtime opens its way to the log as it first writes, and keeps
-	// it: the socket that appears as it does leads nowhere from here on.
+	// The runtime opens its way to the log as it first writes, which an
+	// init of a package may have had it do, and keeps it: that socket
+	// leads nowhere from here on. The system's own, which the rest of the
+	// process writes through, Java's crashes too, stays. It is there once
+	// something is written by it, so one that comes after that is the
+	// runtime's. Of those there before, the runtime's is the one that
+	// waits as it writes.
+	C.gunim_log_open()
 	before := logSockets()
 	print("gunim: the rest goes into no log\n")
-	null, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
-	if err != nil {
-		log.Fatal("gunim: android: no way to keep quiet")
-	}
-	after := logSockets()
-	for fd := range before {
-		if len(after) > len(before) {
-			delete(after, fd)
+	found := false
+	for fd := range logSockets() {
+		if before[fd] && !waits(fd) {
+			continue
 		}
-	}
-	// With none new, the runtime has written before, and any may be its
-	// own.
-	for fd := range after {
+		found = true
+		null, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+		if err != nil {
+			found = false
+			continue
+		}
 		if err := syscall.Dup3(int(null.Fd()), fd, syscall.O_CLOEXEC); err != nil {
-			os.Exit(2)
+			found = false
 		}
+		_ = null.Close()
 	}
-	_ = null.Close()
+	if !found {
+		line := C.CString("the runtime's way to the log was not found: a panic is told there")
+		C.gunim_log(line)
+		C.free(unsafe.Pointer(line))
+	}
 	r, w, err := os.Pipe()
 	if err != nil {
 		return
@@ -103,15 +111,7 @@ func hush() {
 // logSockets returns the process's sockets to the system's log.
 func logSockets() map[int]bool {
 	fds := map[int]bool{}
-	entries, err := os.ReadDir("/proc/self/fd")
-	if err != nil {
-		return fds
-	}
-	for _, e := range entries {
-		fd, err := strconv.Atoi(e.Name())
-		if err != nil {
-			continue
-		}
+	for fd := range openFiles() {
 		if a, err := syscall.Getpeername(fd); err == nil {
 			if u, ok := a.(*syscall.SockaddrUnix); ok && u.Name == "/dev/socket/logdw" {
 				fds[fd] = true
@@ -120,3 +120,25 @@ func logSockets() map[int]bool {
 	}
 	return fds
 }
+
+// openFiles returns the numbers of the process's open files, or every
+// number one may have.
+func openFiles() map[int]bool {
+	fds := map[int]bool{}
+	if entries, err := os.ReadDir("/proc/self/fd"); err == nil {
+		for _, e := range entries {
+			if fd, err := strconv.Atoi(e.Name()); err == nil {
+				fds[fd] = true
+			}
+		}
+		return fds
+	}
+	for fd := range 1 << 15 {
+		fds[fd] = true
+	}
+	return fds
+}
+
+// waits reports whether a write to fd waits for room. The runtime's way to
+// the log does, and the system's drops a line instead.
+func waits(fd int) bool { return C.gunim_waits(C.int(fd)) != 0 }

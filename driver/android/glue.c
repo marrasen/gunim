@@ -3,6 +3,7 @@
 #include <jni.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <pthread.h>
 #include <unistd.h>
 #include <netdb.h>
@@ -68,7 +69,7 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *v, void *reserved) {
 	midRun = (*env)->GetStaticMethodID(env, c, "run", "(J)Ljava/lang/String;");
 	midChooseFolder = (*env)->GetStaticMethodID(env, c, "chooseFolder", "(I)V");
 	midChooseFiles = (*env)->GetStaticMethodID(env, c, "chooseFiles", "(IZLjava/lang/String;Z)V");
-	midStreamEnd = (*env)->GetStaticMethodID(env, c, "streamEnd", "(J)I");
+	midStreamEnd = (*env)->GetStaticMethodID(env, c, "streamEnd", "(JZ)I");
 	midCloseStream = (*env)->GetStaticMethodID(env, c, "closeStream", "(J)V");
 	jclass ac = (*env)->FindClass(env, "gunim/android/GunimAudio");
 	if (ac != NULL) {
@@ -232,16 +233,19 @@ void gunim_choose_files(int code, int multiple, const uint16_t *patterns, int n,
 	envPut(a);
 }
 
-JNIEXPORT void JNICALL Java_gunim_android_Native_files(JNIEnv *env, jclass c, jint code, jintArray fds, jstring names, jstring opens) {
+JNIEXPORT void JNICALL Java_gunim_android_Native_files(JNIEnv *env, jclass c, jint code, jintArray fds, jlongArray ids, jstring names,
+	jstring opens) {
 	jsize n = (*env)->GetArrayLength(env, fds);
 	jint *f = (*env)->GetIntArrayElements(env, fds, NULL);
+	jlong *i = (*env)->GetLongArrayElements(env, ids, NULL);
 	jsize nn = (*env)->GetStringLength(env, names);
 	const jchar *ns = (*env)->GetStringChars(env, names, NULL);
 	jsize no = (*env)->GetStringLength(env, opens);
 	const jchar *os = (*env)->GetStringChars(env, opens, NULL);
-	goFiles(code, (int *)f, n, (uint16_t *)ns, nn, (uint16_t *)os, no);
+	goFiles(code, (int *)f, (long long *)i, n, (uint16_t *)ns, nn, (uint16_t *)os, no);
 	(*env)->ReleaseStringChars(env, opens, os);
 	(*env)->ReleaseStringChars(env, names, ns);
+	(*env)->ReleaseLongArrayElements(env, ids, i, JNI_ABORT);
 	(*env)->ReleaseIntArrayElements(env, fds, f, JNI_ABORT);
 }
 
@@ -267,10 +271,11 @@ JNIEXPORT void JNICALL Java_gunim_android_Native_streams(JNIEnv *env, jclass c, 
 	(*env)->ReleaseIntArrayElements(env, fds, f, JNI_ABORT);
 }
 
-int gunim_stream_end(long long id) {
+int gunim_stream_end(long long id, int wait) {
 	int a;
 	JNIEnv *env = envGet(&a);
-	jint end = (*env)->CallStaticIntMethod(env, nativeClass, midStreamEnd, (jlong)id);
+	jint end = (*env)->CallStaticIntMethod(env, nativeClass, midStreamEnd, (jlong)id,
+		wait ? JNI_TRUE : JNI_FALSE);
 	envPut(a);
 	return end;
 }
@@ -730,6 +735,15 @@ void gunim_window_release(ANativeWindow *w) {
 
 void gunim_log(const char *line) {
 	__android_log_write(ANDROID_LOG_INFO, "gunim", line);
+}
+
+void gunim_log_open(void) {
+	__android_log_write(ANDROID_LOG_INFO, "gunim", "the program keeps quiet");
+}
+
+int gunim_waits(int fd) {
+	int flags = fcntl(fd, F_GETFL);
+	return flags >= 0 && (flags & O_NONBLOCK) == 0;
 }
 
 static void *watchCrash(void *arg) {

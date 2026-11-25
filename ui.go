@@ -1027,7 +1027,7 @@ func streamOf(path string) *input.Stream {
 		held = st.Size()
 	}
 	return instream.New(name, "", instream.Source{R: f, Stated: instream.Unstated, Held: held,
-		End: func() instream.End { return instream.Unknown }, Closed: func() {}})
+		End: func(bool) instream.End { return instream.Unknown }, Closed: func() {}, Local: true})
 }
 
 // closeStreams closes streams no one took.

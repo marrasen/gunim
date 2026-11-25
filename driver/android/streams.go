@@ -36,8 +36,8 @@ func goStreams(code, n C.int, fds *C.int, ids, stated, held *C.longlong, names *
 	nameList := strings.Split(goString(names, nn), "\x00")
 	typeList := strings.Split(goString(types, nt), "\x00")
 	var exts []string
-	if o := goString(opens, no); o != "*" && code == 0 {
-		exts = strings.Split(o, ",")
+	if code == 0 {
+		exts = filecopy.Exts(goString(opens, no))
 	}
 	var streams []*input.Stream
 	for i := range int(n) {
@@ -77,13 +77,16 @@ func stream(name, mime string, fd int, id, stated, held int64) *input.Stream {
 	if fd < 0 {
 		return instream.Failing(name, errNotOpened)
 	}
-	// Close ends a read that waits on a pipe or a socket only where the
-	// read waits in Go. A file on a disk never waits so.
-	_ = syscall.SetNonblock(fd, true)
+	if held == instream.Unstated {
+		// A read that waits on a pipe then takes no thread, and ends as
+		// the pipe is closed. Where the sender has undone it, as it can
+		// with a pipe it has kept, the stream ends without the read.
+		_ = syscall.SetNonblock(fd, true)
+	}
 	return instream.New(name, mime, instream.Source{
 		R: os.NewFile(uintptr(fd), "stream"), Stated: stated, Held: held,
-		End: func() instream.End {
-			switch C.gunim_stream_end(C.longlong(id)) {
+		End: func(wait bool) instream.End {
+			switch C.gunim_stream_end(C.longlong(id), cBool(wait)) {
 			case 0:
 				return instream.Done
 			case 1:
