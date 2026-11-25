@@ -116,6 +116,7 @@ func (d *Driver) syncText(w *Window) {
 // typing as it comes: the plain field, holding nothing of the field before.
 func (d *Driver) clearMirror() {
 	d.useMirror(false)
+	d.told = false
 	d.syncingText = true
 	d.text.Set("value", "")
 	d.syncingText = false
@@ -155,15 +156,7 @@ func (d *Driver) domEdited(composing bool) {
 	d.mu.Lock()
 	if w.state == nil {
 		d.mu.Unlock()
-		// A window that gives no text state takes what is typed as it comes.
-		if !composing {
-			if text := d.text.Get("value").String(); text != "" {
-				d.syncingText = true
-				d.text.Set("value", "")
-				d.syncingText = false
-				w.in.Push(input.TextInput{Text: text, Time: time.Now()})
-			}
-		}
+		d.typedAsItComes(w, composing)
 		return
 	}
 	old := *w.state
@@ -209,6 +202,44 @@ func (d *Driver) domEdited(composing bool) {
 	if ok {
 		w.in.Push(edit)
 	}
+}
+
+// typedAsItComes sends what the browser put in the mirror to a window that gives no text
+// state, as a desktop does: what an input method composes as [input.Composing], an empty
+// one as that ends, and then the text. The mirror holds nothing of it from one text to the
+// next, so it is empty but for a composition.
+func (d *Driver) typedAsItComes(w *Window, composing bool) {
+	text := d.text.Get("value").String()
+	if composing {
+		at := func(end string) int { return byteOffset(text, d.text.Get(end).Int()) }
+		if text != "" || d.told {
+			w.in.Push(input.Composing{Text: text, Selected: [2]int{at("selectionStart"), at("selectionEnd")}})
+		}
+		d.told = text != ""
+		return
+	}
+	if d.told {
+		d.told = false
+		w.in.Push(input.Composing{})
+	}
+	if text != "" {
+		d.syncingText = true
+		d.text.Set("value", "")
+		d.syncingText = false
+		w.in.Push(input.TextInput{Text: text, Time: time.Now()})
+	}
+}
+
+// deleteKey sends a soft keyboard's delete, which has no key, to a window that gives no
+// text state, as the key it stands for. With nothing in the mirror the browser would
+// delete nothing.
+func (d *Driver) deleteKey(w *Window, kind string, e js.Value) {
+	key := input.KeyBackspace
+	if kind == "deleteContentForward" {
+		key = input.KeyDelete
+	}
+	e.Call("preventDefault")
+	w.in.Push(input.KeyPress{Key: key, Time: stamp(e)})
 }
 
 // queueBehind takes an edit of the browser's while the engine is held up, as waiting
@@ -263,7 +294,7 @@ func (d *Driver) listenText(doc js.Value) {
 			d.compStart = byteOffset(text, t.Get("selectionStart").Int())
 			end := byteOffset(text, t.Get("selectionEnd").Int())
 			d.compSuffix = text[end:]
-			d.composing = true
+			d.composing, d.told = true, false
 		})
 		d.on(t, "compositionend", false, func(js.Value) { d.compositionEnded() })
 		d.on(t, "beforeinput", false, func(e js.Value) {
@@ -279,6 +310,8 @@ func (d *Driver) listenText(doc js.Value) {
 			case single && (kind == "insertLineBreak" || kind == "insertParagraph"):
 				e.Call("preventDefault")
 				w.in.Push(input.KeyPress{Key: input.KeyEnter, Time: stamp(e)})
+			case !hasState && !d.composing && (kind == "deleteContentBackward" || kind == "deleteContentForward"):
+				d.deleteKey(w, kind, e)
 			case hasState && !d.composing && e.Get("cancelable").Bool() && w.in.Waiting():
 				d.queueBehind(w, kind, e)
 			}

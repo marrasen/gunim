@@ -137,6 +137,9 @@ type Driver struct {
 	secretAway bool
 	compStart  int
 	compSuffix string
+	// told says a window that gives no text state was told of a composition, and not
+	// yet of its end.
+	told bool
 	// paste is the last paste a key of the program's brought, and keysLocked says the
 	// browser was asked for the keys a page in full screen can have: see claim.go.
 	// lentFocus says the mirror has the canvas's focus, for a paste.
