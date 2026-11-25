@@ -149,6 +149,8 @@ func (r *Renderer) text(op *paint.TextOp) {
 		l.rect, colorLook.rect = fade, fade
 	}
 
+	// How far about its origin a glyph may reach, for those of the browser's.
+	reach := sizePx * max(float32(math.Hypot(float64(shape.A), float64(shape.B))), float32(math.Hypot(float64(shape.D), float64(shape.E))))
 	var (
 		face   *text.Face
 		faceID uint32
@@ -168,6 +170,10 @@ func (r *Renderer) text(op *paint.TextOp) {
 				ox, oy = float32(math.Round(float64(ox))), float32(math.Round(float64(oy)))
 			}
 			key := glyphKey{face: faceID, id: gly.ID, size: int32(math.Round(float64(sizePx) * 64)), color: true}
+			if fromBrowser(face) {
+				r.browserGlyph(key, face, sizePx, geom.Pt(ox, oy), shape, upright, reach, &colorLook)
+				continue
+			}
 			slot, ok := r.glyph(key, func() text.Mask { return face.RasterizeColor(key.id, sizePx) })
 			if !ok {
 				continue
@@ -186,6 +192,10 @@ func (r *Renderer) text(op *paint.TextOp) {
 			ox, oy, shift = fx, float32(math.Round(float64(oy))), uint8(s)
 		}
 		key := glyphKeyFor(faceID, gly.ID, sizePx, shift, raster)
+		if fromBrowser(face) {
+			r.browserGlyph(key, face, sizePx, geom.Pt(ox, oy), shape, upright, reach, &l)
+			continue
+		}
 		slot, ok := r.glyph(key, func() text.Mask {
 			return face.Rasterize(key.id, sizePx, float32(key.shift)/subpixel, key.raster)
 		})
@@ -205,6 +215,7 @@ func (r *Renderer) textBox(op *paint.TextOp) geom.Rect {
 		lo = geom.Pt(min(lo.X, g.At.X), min(lo.Y, g.At.Y))
 		hi = geom.Pt(max(hi.X, g.At.X), max(hi.Y, g.At.Y))
 	}
+	hi.X = browserReach(op, hi.X)
 	pad, t := geom.Pt(2*op.Size, 2*op.Size), op.Transform
 	return geom.Rect{Min: t.Apply(lo.Sub(pad)).Mul(r.scale), Max: t.Apply(hi.Add(pad)).Mul(r.scale)}
 }
