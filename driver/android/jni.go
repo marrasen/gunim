@@ -11,6 +11,7 @@ import "C"
 
 import (
 	"log"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -262,7 +263,21 @@ func share(s driver.Share) error {
 	t, tp := utf16Of(s.Text)
 	j, jp := utf16Of(s.Subject)
 	f, fp := utf16Of(paths.String())
-	ok := C.gunim_share(tp, C.int(len(t)), jp, C.int(len(j)), fp, C.int(len(f)))
+	var ids, sizes []C.longlong
+	var served strings.Builder
+	for _, sv := range s.Served {
+		ids, sizes = append(ids, C.longlong(serve(sv))), append(sizes, C.longlong(sv.Size))
+		served.WriteString(servedName(sv) + "\x00" + servedType(sv) + "\x00")
+	}
+	d, dp := utf16Of(served.String())
+	var idp, zp *C.longlong
+	if len(ids) > 0 {
+		idp, zp = &ids[0], &sizes[0]
+	}
+	ok := C.gunim_share(tp, C.int(len(t)), jp, C.int(len(j)), fp, C.int(len(f)), idp, zp, C.int(len(ids)), dp, C.int(len(d)))
+	runtime.KeepAlive(d)
+	runtime.KeepAlive(ids)
+	runtime.KeepAlive(sizes)
 	runtime.KeepAlive(t)
 	runtime.KeepAlive(j)
 	runtime.KeepAlive(f)
@@ -324,8 +339,10 @@ func goAnswered(code, granted C.int) { answered(int(code), granted != 0) }
 // The prompts for permissions waiting on the user's answer, by their
 // request code.
 var (
-	asking  sync.Mutex
-	askCode int
+	asking sync.Mutex
+	// askCode begins anywhere, so that an answer to a process that ended
+	// is none to this one.
+	askCode = rand.IntN(1 << 29)
 	answers = map[int]chan bool{}
 )
 

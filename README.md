@@ -623,6 +623,15 @@ came whole. Where the other application gave up, it is
 `input.ErrNotWhole`, and where nothing can tell, it is
 `input.ErrMayNotBeWhole`.
 
+Files go out as streams too. A `driver.Served` is a file other
+applications read from this one while it runs, at any place in it, with
+no copy on the disk: `Client.OpenServed` has one opened, and
+`Client.Share` shares some. `Client.SaveStream` writes a file where the
+user chooses, and `Client.SaveFolder` writes files in a folder of theirs,
+as the bytes come. A file ends with `Close`, once it is whole, or with
+`Remove`, and one that a run left half way is taken away by the next with
+`App.RemoveSaved`. `example/filesout` shows them.
+
 What gunim writes to Android's log holds no name or address of a file.
 `gunimapk -quiet` keeps the program's own output out of it too, and a
 panic's message and stacks.

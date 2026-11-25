@@ -27,7 +27,7 @@ static JavaVM *vm;
 static jclass nativeClass;
 static jmethodID midPermitted, midAsk, midUserFolder, midChooseFolder, midChooseFiles;
 static jmethodID midNowPlaying, midShowKeyboard, midCaret, midBuzz, midFingers, midAwake, midShare, midVibrate, midExclude, midOpenLink, midTextState, midClearTextState, midGetClipboard, midSetClipboard, midFinish;
-static jmethodID midHasCompass, midWatchHeading, midNoBackupDir, midRun, midEnded, midStreamEnd, midCloseStream;
+static jmethodID midHasCompass, midWatchHeading, midNoBackupDir, midRun, midEnded, midStreamEnd, midCloseStream, midOpenServed, midStopServed, midCreateDocument, midSaveFolder, midSave;
 static jclass audioClass;
 static jmethodID midAudioRoute, midAudioProbe, midAudioWatch;
 
@@ -50,7 +50,13 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *v, void *reserved) {
 	midBuzz = (*env)->GetStaticMethodID(env, c, "buzz", "()V");
 	midFingers = (*env)->GetStaticMethodID(env, c, "takeFingers", "(Z)V");
 	midAwake = (*env)->GetStaticMethodID(env, c, "keepAwake", "(Z)V");
-	midShare = (*env)->GetStaticMethodID(env, c, "share", "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Z");
+	midShare = (*env)->GetStaticMethodID(env, c, "share", "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;[J[JLjava/lang/String;)Z");
+	midOpenServed = (*env)->GetStaticMethodID(env, c, "openServed", "(JLjava/lang/String;Ljava/lang/String;J)I");
+	midStopServed = (*env)->GetStaticMethodID(env, c, "stopServed", "(J)V");
+	midCreateDocument = (*env)->GetStaticMethodID(env, c, "createDocument", "(ILjava/lang/String;Ljava/lang/String;)V");
+	midSaveFolder = (*env)->GetStaticMethodID(env, c, "saveFolder", "(I)V");
+	midSave = (*env)->GetStaticMethodID(env, c, "save",
+		"(ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;");
 	midVibrate = (*env)->GetStaticMethodID(env, c, "vibrate", "([J)Z");
 	midExclude = (*env)->GetStaticMethodID(env, c, "excludeGestures", "([I)V");
 	midOpenLink = (*env)->GetStaticMethodID(env, c, "openLink", "(Ljava/lang/String;)Z");
@@ -405,18 +411,120 @@ void gunim_keep_awake(int on) {
 	envPut(a);
 }
 
-int gunim_share(const uint16_t *text, int nt, const uint16_t *subject, int ns, const uint16_t *paths, int np) {
+int gunim_share(const uint16_t *text, int nt, const uint16_t *subject, int ns, const uint16_t *paths, int np,
+	const long long *ids, const long long *sizes, int n, const uint16_t *served, int nd) {
 	int a;
 	JNIEnv *env = envGet(&a);
 	jstring jt = (*env)->NewString(env, (const jchar *)text, nt);
 	jstring js = (*env)->NewString(env, (const jchar *)subject, ns);
 	jstring jp = (*env)->NewString(env, (const jchar *)paths, np);
-	jboolean ok = (*env)->CallStaticBooleanMethod(env, nativeClass, midShare, jt, js, jp);
+	jstring jd = (*env)->NewString(env, (const jchar *)served, nd);
+	jlongArray ji = (*env)->NewLongArray(env, n), jz = (*env)->NewLongArray(env, n);
+	if (n > 0) {
+		(*env)->SetLongArrayRegion(env, ji, 0, n, (const jlong *)ids);
+		(*env)->SetLongArrayRegion(env, jz, 0, n, (const jlong *)sizes);
+	}
+	jboolean ok = (*env)->CallStaticBooleanMethod(env, nativeClass, midShare, jt, js, jp, ji, jz, jd);
+	(*env)->DeleteLocalRef(env, jd);
+	(*env)->DeleteLocalRef(env, ji);
+	(*env)->DeleteLocalRef(env, jz);
 	(*env)->DeleteLocalRef(env, jt);
 	(*env)->DeleteLocalRef(env, js);
 	(*env)->DeleteLocalRef(env, jp);
 	envPut(a);
 	return ok ? 1 : 0;
+}
+
+int gunim_open_served(long long id, const uint16_t *name, int nn, const uint16_t *type, int nt, long long size) {
+	int a;
+	JNIEnv *env = envGet(&a);
+	jstring jn = (*env)->NewString(env, (const jchar *)name, nn);
+	jstring jt = (*env)->NewString(env, (const jchar *)type, nt);
+	jint ok = (*env)->CallStaticIntMethod(env, nativeClass, midOpenServed, (jlong)id, jn, jt, (jlong)size);
+	(*env)->DeleteLocalRef(env, jn);
+	(*env)->DeleteLocalRef(env, jt);
+	envPut(a);
+	return ok;
+}
+
+void gunim_stop_served(long long id) {
+	int a;
+	JNIEnv *env = envGet(&a);
+	(*env)->CallStaticVoidMethod(env, nativeClass, midStopServed, (jlong)id);
+	envPut(a);
+}
+
+JNIEXPORT void JNICALL Java_gunim_android_Native_servedUse(JNIEnv *env, jclass c, jlong id, jint by) {
+	goServedUse(id, by);
+}
+
+// Go reads into memory of C's own, as a read may take long, and Java moves
+// its arrays.
+JNIEXPORT jint JNICALL Java_gunim_android_Native_servedRead(JNIEnv *env, jclass c, jlong id, jlong offset, jint size,
+	jbyteArray data) {
+	if (size < 0 || size > (*env)->GetArrayLength(env, data)) {
+		return -1;
+	}
+	void *buf = malloc(size > 0 ? size : 1);
+	if (buf == NULL) {
+		return -1;
+	}
+	int n = goServedRead(id, offset, buf, size);
+	if (n > 0) {
+		(*env)->SetByteArrayRegion(env, data, 0, n, buf);
+	}
+	free(buf);
+	return n;
+}
+
+void gunim_create_document(int code, const uint16_t *name, int nn, const uint16_t *type, int nt) {
+	int a;
+	JNIEnv *env = envGet(&a);
+	jstring jn = (*env)->NewString(env, (const jchar *)name, nn);
+	jstring jt = (*env)->NewString(env, (const jchar *)type, nt);
+	(*env)->CallStaticVoidMethod(env, nativeClass, midCreateDocument, code, jn, jt);
+	(*env)->DeleteLocalRef(env, jn);
+	(*env)->DeleteLocalRef(env, jt);
+	envPut(a);
+}
+
+void gunim_save_folder(int code) {
+	int a;
+	JNIEnv *env = envGet(&a);
+	(*env)->CallStaticVoidMethod(env, nativeClass, midSaveFolder, code);
+	envPut(a);
+}
+
+uint16_t *gunim_save(int what, const uint16_t *const *s, const int *ns, int *n) {
+	int a;
+	JNIEnv *env = envGet(&a);
+	jstring j[5];
+	for (int i = 0; i < 5; i++) {
+		j[i] = (*env)->NewString(env, (const jchar *)s[i], ns[i]);
+	}
+	jstring r = (jstring)(*env)->CallStaticObjectMethod(env, nativeClass, midSave, what, j[0], j[1], j[2], j[3], j[4]);
+	if ((*env)->ExceptionCheck(env)) {
+		(*env)->ExceptionClear(env);
+		r = NULL;
+	}
+	uint16_t *out = takeString(env, r, n);
+	for (int i = 0; i < 5; i++) {
+		(*env)->DeleteLocalRef(env, j[i]);
+	}
+	envPut(a);
+	return out;
+}
+
+JNIEXPORT void JNICALL Java_gunim_android_Native_saved(JNIEnv *env, jclass c, jint code, jstring place, jstring name,
+	jboolean made) {
+	jsize nn = (*env)->GetStringLength(env, name), np = place == NULL ? 0 : (*env)->GetStringLength(env, place);
+	const jchar *ns = (*env)->GetStringChars(env, name, NULL);
+	const jchar *ps = place == NULL ? NULL : (*env)->GetStringChars(env, place, NULL);
+	goSaved(code, (uint16_t *)ps, np, (uint16_t *)ns, nn, made);
+	if (ps != NULL) {
+		(*env)->ReleaseStringChars(env, place, ps);
+	}
+	(*env)->ReleaseStringChars(env, name, ns);
 }
 
 int gunim_vibrate(const long long *ms, int n) {

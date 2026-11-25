@@ -274,7 +274,9 @@ final class GunimStreams {
 			android.util.Log.w("gunim", "a file sent to this program did not tell its name");
 		}
 		try {
-			f.type = cut(from.getType(u), LONGEST_TYPE);
+			String type = from.getType(u);
+			// One too long is none, as a part of it is another.
+			f.type = type == null || type.length() > LONGEST_TYPE ? "" : type.replace('\0', '_');
 		} catch (Exception | OutOfMemoryError | StackOverflowError e) {
 			// It states none.
 		}
