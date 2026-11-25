@@ -1159,6 +1159,29 @@ func (c Client) KeepAwake(on bool) error {
 	return a.KeepAwake(on)
 }
 
+// Secure says whether what the window shows is kept to the screen alone,
+// as a password, a key or a letter may be: out of screenshots and
+// recordings, of the picture in the system's list of programs, and of
+// screens shared or cast. Other programs' windows over it are hidden too,
+// where the system can, and a touch through one is ignored. It has taken
+// effect as it returns, so a program calls it before it shows the secret,
+// and calls it with false once the secret has left the window, animations
+// and all. It lasts until then, or until the window closes. Another camera
+// can always film a screen.
+//
+// On Android hiding the other programs' windows needs gunimapk
+// -permissions hide-overlays, and Android 12. Without the permission it
+// returns [driver.ErrOverlaysStay], with the rest in effect. It returns
+// [driver.ErrNoSecurer] where gunim can't, as on a desktop now. It is safe
+// from any goroutine.
+func (c Client) Secure(on bool) error {
+	s, ok := c.w.dw.(driver.Securer)
+	if !ok {
+		return driver.ErrNoSecurer
+	}
+	return s.Secure(on)
+}
+
 // TakeFingers says whether the window takes more than one finger at
 // once on a touch screen, as a game steered with one thumb while the
 // other taps does. On, every finger of a touch that starts in the window
@@ -2605,7 +2628,7 @@ func (u *UI) SetClipboard(s string) {
 }
 
 // MarksClipboardSensitive reports whether [UI.SetClipboardSensitive] marks text sensitive on this platform, so the
-// system keeps it out of its history: true on Windows. Where it is false, an app may warn the user, or clear the text
+// system keeps it out of its history: true on Windows and Android. Where it is false, an app may warn the user, or clear the text
 // sooner.
 func (u *UI) MarksClipboardSensitive() bool {
 	if u == nil || u.w == nil {
@@ -2619,7 +2642,9 @@ func (u *UI) MarksClipboardSensitive() bool {
 // where it could not.
 //
 // On Windows the system then keeps s out of the clipboard history (Win+V) and the cloud clipboard, and asks
-// clipboard monitors to skip it; where those marks cannot be set, nothing is left on the clipboard. Elsewhere it puts
+// clipboard monitors to skip it; where those marks cannot be set, nothing is left on the clipboard. On Android the
+// system hides s in the preview it shows as something is copied, from Android 13, and a keyboard that keeps a history
+// of the clipboard is asked to skip it. Elsewhere it puts
 // s there as [UI.SetClipboard] does, and a clipboard manager may keep it. Pair it with [UI.ClearClipboardIf] to take
 // s off again after a while.
 func (u *UI) SetClipboardSensitive(s string) error {
@@ -2638,7 +2663,9 @@ func (u *UI) SetClipboardSensitive(s string) error {
 // sensitive mark is there, so a paste or a format another program adds leaves it ours, and the user's own later copy
 // of the same text, made elsewhere, survives. Other text is read and compared, but only while this program owns the
 // clipboard, so another program's text is never read and the call never waits on it. Nothing can reach the clipboard
-// between the check and the emptying. Elsewhere the clipboard is read and then set to "", so text another program
+// between the check and the emptying. On Android, too, it clears only text this program put there, also in an earlier
+// run, and reads no other program's; it returns an error while the program is out of sight, when Android tells
+// nothing of the clipboard. Elsewhere the clipboard is read and then set to "", so text another program
 // puts there in that moment can be lost.
 func (u *UI) ClearClipboardIf(s string) (bool, error) {
 	if c, ok := u.w.dw.(driver.SensitiveClipboard); ok {

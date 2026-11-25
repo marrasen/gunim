@@ -277,7 +277,7 @@ final class GunimView extends SurfaceView implements SurfaceHolder.Callback {
 		// The view runs to the screen's bottom, under the navigation bar,
 		// so the keyboard covers all of its own height.
 		int px = Math.max(0, ime);
-		GunimInput.debug("insets ime=" + ime + " nav=" + nav + " visible=" + insets.isVisible(android.view.WindowInsets.Type.ime()));
+		GunimInput.debug("insets ime=" + ime + " nav=" + nav + " visible=" + insets.isVisible(android.view.WindowInsets.Type.ime()), false);
 		if (px != covered) {
 			covered = px;
 			Native.keyboard(px);

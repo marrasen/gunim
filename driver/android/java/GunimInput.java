@@ -56,9 +56,16 @@ final class GunimInput {
 	// gunimime: adb shell setprop log.tag.gunimime DEBUG turns it on.
 	private static final String tag = "gunimime";
 
-	static void debug(String msg) {
-		if (Log.isLoggable(tag, Log.DEBUG)) {
-			Log.d(tag, msg);
+	private void debug(String msg) {
+		debug(msg, secret);
+	}
+
+	// What is typed into a secret field goes into no log, nor what is typed
+	// into a program built to keep quiet.
+	static void debug(String msg, boolean secret) {
+		if (Log.isLoggable(tag, Log.DEBUG) && !Native.keepsQuiet) {
+			int word = msg.indexOf(' ');
+			Log.d(tag, secret && word >= 0 ? msg.substring(0, word) : msg);
 		}
 	}
 
@@ -79,7 +86,7 @@ final class GunimInput {
 		} else {
 			int t = InputType.TYPE_CLASS_TEXT;
 			if (secret) {
-				t |= InputType.TYPE_TEXT_VARIATION_PASSWORD;
+				t |= InputType.TYPE_TEXT_VARIATION_PASSWORD | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS;
 			} else {
 				t |= InputType.TYPE_TEXT_FLAG_AUTO_CORRECT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES;
 			}
@@ -90,6 +97,10 @@ final class GunimInput {
 		}
 		out.imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN | EditorInfo.IME_FLAG_NO_EXTRACT_UI
 			| (multiline ? EditorInfo.IME_FLAG_NO_ENTER_ACTION : EditorInfo.IME_ACTION_DONE);
+		if (hasState && secret) {
+			// The keyboard learns nothing of it.
+			out.imeOptions |= EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING;
+		}
 		out.initialSelStart = Math.min(selA, selB);
 		out.initialSelEnd = Math.max(selA, selB);
 		if (hasState) {
@@ -105,7 +116,7 @@ final class GunimInput {
 	/** setState takes a state of the node's text from Go. */
 	void setState(String s, int start, int a, int b, int ca, int cb, boolean multiline, boolean secret, long seq) {
 		debug("state seq=" + seq + " (sent " + this.seq + ", batch " + batch + ") text=\"" + s + "\" sel=" + a + "," + b
-			+ " comp=" + ca + "," + cb);
+			+ " comp=" + ca + "," + cb, secret || this.secret);
 		if (seq != this.seq) {
 			return; // behind the edits sent: a later state follows them
 		}

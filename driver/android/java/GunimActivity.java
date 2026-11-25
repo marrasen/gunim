@@ -24,6 +24,7 @@ public class GunimActivity extends Activity {
 		GunimView v = new GunimView(this);
 		Native.view = v;
 		Native.keepGestures(v);
+		applySecure();
 		setContentView(v);
 		edgeToEdge(v);
 		applyAwake();
@@ -74,6 +75,37 @@ public class GunimActivity extends Activity {
 		} else {
 			getWindow().clearFlags(flag);
 		}
+	}
+
+	/**
+	 * applySecure sets the window to what the program last asked: kept out
+	 * of screenshots, recordings, the picture in Recents and screens cast,
+	 * with other applications' windows over it hidden, and deaf to touches
+	 * through one. It returns false where such windows may stay. It runs on
+	 * the UI thread.
+	 */
+	boolean applySecure() {
+		boolean on = Native.secure;
+		int flag = android.view.WindowManager.LayoutParams.FLAG_SECURE;
+		if (on) {
+			getWindow().addFlags(flag);
+		} else {
+			getWindow().clearFlags(flag);
+		}
+		if (Native.view != null) {
+			Native.view.setFilterTouchesWhenObscured(on);
+		}
+		if (android.os.Build.VERSION.SDK_INT >= 33) {
+			setRecentsScreenshotEnabled(!on);
+		}
+		if (android.os.Build.VERSION.SDK_INT >= 31) {
+			try {
+				getWindow().setHideOverlayWindows(on);
+			} catch (SecurityException e) {
+				return !on;
+			}
+		}
+		return true;
 	}
 
 	/**

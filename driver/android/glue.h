@@ -17,6 +17,13 @@ void gunim_text_state(const uint16_t *text, int n, int start, int selA, int selB
 void gunim_clear_text_state(void);
 uint16_t *gunim_get_clipboard(int *n);
 void gunim_set_clipboard(const uint16_t *s, int n);
+int gunim_set_clipboard_sensitive(const uint16_t *s, int n);
+// gunim_clear_clipboard_if returns 1 where it emptied the clipboard, 0
+// where that holds something else, or 2 where Android does not tell.
+int gunim_clear_clipboard_if(const uint16_t *s, int n);
+// gunim_secure returns 0, or 1 where other applications' windows may stay
+// over the activity's.
+int gunim_secure(int on);
 void gunim_finish(void);
 void gunim_ended(void);
 void gunim_buzz(void);

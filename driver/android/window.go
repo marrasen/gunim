@@ -76,6 +76,8 @@ type Window struct {
 	takesFingers bool
 	// keepsAwake is what KeepAwake last said.
 	keepsAwake bool
+	// secure is what Secure last said.
+	secure bool
 	// excluded is the bands KeepEdgeSwipes last kept from the system's
 	// edge gestures, in the window's logical pixels.
 	excluded []geom.Rect
