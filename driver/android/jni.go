@@ -182,7 +182,10 @@ func setClipboard(s string) {
 	C.gunim_set_clipboard(p, C.int(len(u)))
 }
 
+// finish has the activity finish, as the program is done with its
+// windows, and ended says that main has returned.
 func finish() { C.gunim_finish() }
+func ended()  { C.gunim_ended() }
 
 // utf16Of returns s as UTF-16, and a pointer to it for C, nil when empty.
 func utf16Of(s string) ([]uint16, *C.uint16_t) {

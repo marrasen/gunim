@@ -62,6 +62,15 @@
 // stands for the application ID. Write a class with its package, as the
 // application ID is another in a debug build with -debug-id.
 //
+// -java names a directory of the program's own Java files, and those in
+// the directories under it, which gunimapk compiles with gunim's, for the
+// service or the receiver that -manifest names. They see Android and
+// gunim's classes. Java calls Go through native methods, which the
+// program writes in C or exports with cgo, and Go calls Java through
+// driver/android's Env. A component that Android may start with no
+// activity calls gunim.android.Native.boot first, which starts the
+// program's main function; see driver/android.
+//
 // -min-sdk is the oldest Android the program runs on, by its API level:
 // 26, Android 8.0, which is the oldest gunim runs on, by default. 34 is
 // Android 14.
@@ -215,6 +224,7 @@ func main() {
 	iconBG := flag.String("icon-background", "", "the colour under the launcher's icon, as #rrggbb; the colour of the icon's edge by default")
 	permList := flag.String("permissions", "", "what the program may do beyond drawing and sound, comma separated, of "+strings.Join(permissionNames(), ", "))
 	manifest := flag.String("manifest", "", "a manifest of the program's own parts, as its services, to add to the APK's")
+	javaDir := flag.String("java", "", "a directory of the program's own Java files, to compile with gunim's")
 	minSDK := flag.Int("min-sdk", oldestSDK, "the oldest Android the program runs on, by its API level")
 	backup := flag.Bool("backup", true, "let Android back up the program's files, and take them to the user's next phone")
 	keepData := flag.Bool("keep-data", false, "have Android offer to keep the program's data as the user uninstalls it")
@@ -282,7 +292,11 @@ func main() {
 	if oerr != nil {
 		log.Fatal(oerr)
 	}
-	o := options{pkg: pkg, out: *out, id: appID, own: own, minSDK: *minSDK, noBackup: !*backup, keepData: *keepData, name: *name, version: *version, iconPNG: *iconPNG, iconBG: *iconBG, perms: perms,
+	javas, jerr := javaFiles(*javaDir)
+	if jerr != nil {
+		log.Fatal(jerr)
+	}
+	o := options{pkg: pkg, out: *out, id: appID, own: own, java: javas, minSDK: *minSDK, noBackup: !*backup, keepData: *keepData, name: *name, version: *version, iconPNG: *iconPNG, iconBG: *iconBG, perms: perms,
 		opens: opens, orientation: *orientation, category: *category, abis: strings.Split(*abiList, ","), keystore: *keystore, keyAlias: *keyAlias, genKey: *genKey,
 		install: *install || *run, start: *run}
 	err := buildAPK(ctx, o)
@@ -302,6 +316,8 @@ type options struct {
 	perms, abis     []string
 	// own are the program's own parts of the manifest.
 	own parts
+	// java are the program's own Java files.
+	java []string
 	// minSDK is the oldest Android the program runs on.
 	minSDK int
 	// noBackup keeps the program's files out of Android's backups, and
@@ -473,7 +489,7 @@ func (b *builder) build(o options) error {
 		}
 		libs = append(libs, lib)
 	}
-	dex, dexErr := b.dex(o.minSDK)
+	dex, dexErr := b.dex(o.minSDK, o.java)
 	if dexErr != nil {
 		return dexErr
 	}
@@ -481,7 +497,10 @@ func (b *builder) build(o options) error {
 	if linkErr != nil {
 		return linkErr
 	}
-	files := []packed{{"classes.dex", dex}}
+	var files []packed
+	for _, d := range dex {
+		files = append(files, packed{filepath.Base(d), d})
+	}
 	for _, lib := range libs {
 		rel, err := filepath.Rel(b.tmp, lib)
 		if err != nil {
@@ -576,8 +595,8 @@ func (b *builder) buildBundle(o options, link []string, files []packed) error {
 		return err
 	}
 	for i := range files {
-		if files[i].name == "classes.dex" {
-			files[i].name = "dex/classes.dex"
+		if strings.HasSuffix(files[i].name, ".dex") {
+			files[i].name = "dex/" + files[i].name
 		}
 	}
 	base := filepath.Join(b.tmp, "base.zip")
@@ -801,35 +820,65 @@ func checkPages(lib string) error {
 	return nil
 }
 
-// dex compiles the Java half of the driver into classes.dex, for Android
-// from minSDK on.
-func (b *builder) dex(minSDK int) (string, error) {
+// javaFiles returns the Java files in dir and the directories under it,
+// or none for no dir. It follows a link that dir is, and none in it.
+func javaFiles(dir string) ([]string, error) {
+	if dir == "" {
+		return nil, nil
+	}
+	// A walk follows no link, and the directory itself may be one.
+	dir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return nil, fmt.Errorf("-java: %w", err)
+	}
+	var files []string
+	err = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && filepath.Ext(p) == ".java" {
+			files = append(files, p)
+		}
+		return err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("-java: %w", err)
+	}
+	if len(files) == 0 {
+		return nil, fmt.Errorf("-java: no Java files in %s", dir)
+	}
+	return files, nil
+}
+
+// dex compiles the Java half of the driver, and the program's own Java
+// files, for Android from minSDK on, into classes.dex, with classes2.dex
+// and on for what one file can't hold: 65,536 methods. Android 5.0 and
+// later load them all.
+func (b *builder) dex(minSDK int, own []string) ([]string, error) {
 	src := filepath.Join(b.tmp, "java")
 	classes := filepath.Join(b.tmp, "classes")
 	dexDir := filepath.Join(b.tmp, "dex")
 	for _, d := range []string{src, classes, dexDir} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
-			return "", err
+			return nil, err
 		}
 	}
 	files, globErr := fs.Glob(java.Sources, "*.java")
 	if globErr != nil {
-		return "", globErr
+		return nil, globErr
 	}
-	args := []string{"--release", "11", "-nowarn", "-classpath", b.androidJar, "-d", classes}
+	args := []string{"--release", "11", "-encoding", "UTF-8", "-nowarn", "-classpath", b.androidJar, "-d", classes}
 	for _, f := range files {
 		data, readErr := java.Sources.ReadFile(f)
 		if readErr != nil {
-			return "", readErr
+			return nil, readErr
 		}
 		path := filepath.Join(src, f)
 		if err := os.WriteFile(path, data, 0o644); err != nil {
-			return "", err
+			return nil, err
 		}
 		args = append(args, path)
 	}
+	args = append(args, own...)
 	if err := b.tool(filepath.Join(b.javaBin, "javac"), args...); err != nil {
-		return "", err
+		return nil, err
 	}
 	var compiled []string
 	walkErr := filepath.WalkDir(classes, func(p string, d fs.DirEntry, err error) error {
@@ -839,13 +888,17 @@ func (b *builder) dex(minSDK int) (string, error) {
 		return err
 	})
 	if walkErr != nil {
-		return "", walkErr
+		return nil, walkErr
 	}
 	args = append([]string{"--release", "--min-api", strconv.Itoa(minSDK), "--lib", b.androidJar, "--output", dexDir}, compiled...)
 	if err := b.tool(filepath.Join(b.buildTools, "d8"), args...); err != nil {
-		return "", err
+		return nil, err
 	}
-	return filepath.Join(dexDir, "classes.dex"), nil
+	dex, err := filepath.Glob(filepath.Join(dexDir, "*.dex"))
+	if err == nil && len(dex) == 0 {
+		err = errors.New("d8 wrote no classes")
+	}
+	return dex, err
 }
 
 // resources compiles the resources o asks for, for aapt2 to link, or
@@ -1050,8 +1103,10 @@ var orientations = []string{
 // playback among o.perms it holds the service a program starts with
 // gunim's App.SetNowPlaying, to play media on in the background. The
 // provider hands the files a program shares with gunim's Client.Share to
-// the application they go to, and the vibration permission, which the
-// system grants as the program installs, lets it run Client.Vibrate. The
+// the application they go to, in a process of its own, which outlives the
+// program's. A second one, which provides nothing, watches the program's
+// activities. The vibration permission, which the system grants as the
+// program installs, lets it run Client.Vibrate. The
 // program's own parts, o.own, come with it, as does what o says of
 // backups and of the data an uninstall leaves.
 func manifestFor(o options) string {
@@ -1107,7 +1162,8 @@ func manifestFor(o options) string {
 			</intent-filter>
 ` + opensFilters + `		</activity>
 ` + service + o.own.inside + `		<provider android:name="gunim.android.GunimFiles" android:authorities="` + id + `.gunim.files"
-			android:exported="false" android:grantUriPermissions="true"/>
+			android:exported="false" android:grantUriPermissions="true" android:process=":gunim.files"/>
+		<provider android:name="gunim.android.GunimWatch" android:authorities="` + id + `.gunim.watch" android:exported="false"/>
 	</application>
 </manifest>
 `

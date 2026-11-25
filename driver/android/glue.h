@@ -1,7 +1,10 @@
 // The C half of the Android driver: the JNI entry points Java calls,
 // the calls back into Java, and EGL. The Go half is in jni.go.
 
+#pragma once
+
 #include <stdint.h>
+#include <sys/socket.h>
 #include <android/native_window.h>
 
 // Calls into Java, from any thread.
@@ -15,6 +18,7 @@ void gunim_clear_text_state(void);
 uint16_t *gunim_get_clipboard(int *n);
 void gunim_set_clipboard(const uint16_t *s, int n);
 void gunim_finish(void);
+void gunim_ended(void);
 void gunim_buzz(void);
 void gunim_take_fingers(int on);
 void gunim_keep_awake(int on);
@@ -30,6 +34,26 @@ void gunim_choose_folder(int code);
 void gunim_choose_files(int code, int multiple, const uint16_t *patterns, int n);
 uint16_t *gunim_user_folder(int f, int *n);
 uint16_t *gunim_no_backup_dir(int *n);
+// gunim_env has goEnv run h with the thread's JNIEnv, and returns 0 where
+// there is no Java. *thrown is the exception left, n UTF-16 units of it
+// for the caller to free, or NULL. It returns 2 for one that says nothing
+// of itself.
+int gunim_env(uintptr_t h, uint16_t **thrown, int *n);
+
+// Networks, by the handles Java numbers them with; 0 is the default.
+// gunim_bind_socket keeps fd to one, and returns 0 or the errno.
+// gunim_lookup looks host up on one, writes up to max addresses and
+// returns how many; where it fails, *kind says how and failed holds what
+// the system says.
+typedef struct {
+	unsigned char b[16];
+	int n;
+	uint32_t scope;
+} gunim_addr;
+enum { GUNIM_FAILED = 1, GUNIM_NO_NAME, GUNIM_TRY_AGAIN };
+int gunim_bind_socket(long long network, int fd);
+int gunim_lookup(long long network, const char *host, int family, gunim_addr *out, int max, char *failed, int nfailed,
+	int *kind);
 
 // For package audio/internal/aaudio, which calls them where the driver
 // is linked in: what GunimAudio.route and GunimAudio.probe return, into

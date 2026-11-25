@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/xml"
+	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -124,7 +126,7 @@ func TestAProgramsOwnPartsJoinTheManifest(t *testing.T) {
 	for _, p := range d.App.Providers {
 		authorities = append(authorities, p.Authorities)
 	}
-	if want := []string{"com.example.notes.debug.pages", "com.example.notes.debug.gunim.files"}; !slices.Equal(authorities, want) {
+	if want := []string{"com.example.notes.debug.pages", "com.example.notes.debug.gunim.files", "com.example.notes.debug.gunim.watch"}; !slices.Equal(authorities, want) {
 		t.Errorf("authorities %q, want %q", authorities, want)
 	}
 }
@@ -413,6 +415,13 @@ func checkAPK(t *testing.T, b *builder, apk string, o options) {
 	check("service", "name", "com.example.notes.Sync", "permission", "android.permission.BIND_JOB_SERVICE")
 	check("provider", "name", "com.example.notes.Pages", "authorities", o.id+".pages")
 	check("provider", "name", "gunim.android.GunimFiles", "authorities", o.id+".gunim.files")
+	// Android may end a reader of a shared file with the process that
+	// serves it, so that one is not the program's, which ends.
+	check("provider", "name", "gunim.android.GunimFiles", "process", ":gunim.files")
+	check("provider", "name", "gunim.android.GunimFiles", "exported", "false")
+	check("provider", "name", "gunim.android.GunimWatch", "authorities", o.id+".gunim.watch")
+	check("provider", "name", "gunim.android.GunimWatch", "process", "")
+	check("provider", "name", "gunim.android.GunimWatch", "exported", "false")
 	if e := find(m, "service", "name", "com.example.notes.Sync"); e != nil && e.parent != "application" {
 		t.Errorf("the program's service is in %s", e.parent)
 	}
@@ -439,6 +448,88 @@ func checkAPK(t *testing.T, b *builder, apk string, o options) {
 	if e := find(rules, "cross-platform-transfer", "", ""); e == nil || e.attrs["platform"] != "ios" {
 		t.Errorf("the APK's rules for another kind of device are %+v", e)
 	}
+}
+
+// ownJava writes a program's own service, which boots the program as a
+// component of its own does, and returns its files.
+func ownJava(t *testing.T) []string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "com", "example", "notes")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const src = `package com.example.notes;
+
+public class Sync extends android.app.Service {
+	@Override
+	public void onCreate() {
+		gunim.android.Native.boot(this);
+	}
+
+	@Override
+	public android.os.IBinder onBind(android.content.Intent i) {
+		return null;
+	}
+}
+`
+	for name, text := range map[string]string{"Sync.java": src, "notes.txt": "not Java"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files, err := javaFiles(filepath.Dir(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return files
+}
+
+func TestJavaFilesAreFoundWhereverTheyStand(t *testing.T) {
+	files := ownJava(t)
+	if len(files) != 1 || filepath.Base(files[0]) != "Sync.java" {
+		t.Errorf("found %q", files)
+	}
+	if files, err := javaFiles(""); err != nil || files != nil {
+		t.Errorf("with no directory: %q, %v", files, err)
+	}
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(filepath.Dir(files[0]), link); err != nil {
+		t.Logf("no links here: %v", err)
+	} else if files, err := javaFiles(link); err != nil || len(files) != 1 {
+		t.Errorf("through a link: %q, %v", files, err)
+	}
+	if _, err := javaFiles(t.TempDir()); err == nil {
+		t.Error("a directory with no Java passes")
+	}
+	if _, err := javaFiles(filepath.Join(t.TempDir(), "gone")); err == nil {
+		t.Error("a directory that is gone passes")
+	}
+}
+
+// manyClasses is how many classes manyJava writes, of 1,000 methods
+// each: more than one file of classes holds.
+const manyClasses = 70
+
+// manyJava writes manyClasses classes, with a word of letters that take
+// more than ASCII, and returns their files.
+func manyJava(t *testing.T) []string {
+	t.Helper()
+	dir := t.TempDir()
+	files := make([]string, 0, manyClasses)
+	for c := range manyClasses {
+		var src strings.Builder
+		fmt.Fprintf(&src, "package many;\npublic class C%d {\n\tString word = \"räksmörgås\";\n", c)
+		for m := range 1000 {
+			fmt.Fprintf(&src, "\tint m%d_%d() { return %d; }\n", c, m, m)
+		}
+		src.WriteString("}\n")
+		file := filepath.Join(dir, fmt.Sprintf("C%d.java", c))
+		if err := os.WriteFile(file, []byte(src.String()), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, file)
+	}
+	return files
 }
 
 // askingOptions asks for every part checkAPK looks for.
@@ -478,6 +569,9 @@ func TestAWholeAPKHoldsTheProgramAndItsManifest(t *testing.T) {
 	b := sdk(t)
 	o := askingOptions(t, "com.example.notes.debug")
 	o.out = filepath.Join(t.TempDir(), "notes.apk")
+	o.java = append(ownJava(t), manyJava(t)...)
+	// The Java is UTF-8 whatever the system's own encoding is.
+	t.Setenv("JAVA_TOOL_OPTIONS", "-Dfile.encoding=US-ASCII")
 	if err := buildAPK(context.Background(), o); err != nil {
 		t.Fatal(err)
 	}
@@ -488,10 +582,34 @@ func TestAWholeAPKHoldsTheProgramAndItsManifest(t *testing.T) {
 	}
 	defer func() { _ = z.Close() }()
 	names := make([]string, 0, len(z.File))
+	var dex []byte
 	for _, f := range z.File {
 		names = append(names, f.Name)
+		if filepath.Ext(f.Name) != ".dex" {
+			continue
+		}
+		r, err := f.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := io.ReadAll(r)
+		_ = r.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		dex = append(dex, data...)
 	}
-	for _, want := range []string{"classes.dex", "lib/x86_64/libgunim.so", "resources.arsc"} {
+	words := make([]string, 0, 3+manyClasses)
+	words = append(words, "Lgunim/android/GunimActivity;", "Lcom/example/notes/Sync;", "räksmörgås")
+	for c := range manyClasses {
+		words = append(words, fmt.Sprintf("Lmany/C%d;", c))
+	}
+	for _, w := range words {
+		if !bytes.Contains(dex, []byte(w)) {
+			t.Errorf("the APK's classes have no %s", w)
+		}
+	}
+	for _, want := range []string{"classes.dex", "classes2.dex", "lib/x86_64/libgunim.so", "resources.arsc"} {
 		if !slices.Contains(names, want) {
 			t.Errorf("the APK holds %q, and no %s", names, want)
 		}

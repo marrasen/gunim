@@ -8,6 +8,8 @@ import android.os.Build;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.system.ErrnoException;
+import android.system.Os;
 import android.view.Surface;
 
 /**
@@ -23,7 +25,74 @@ public final class Native {
 
 	private static final Handler ui = new Handler(Looper.getMainLooper());
 
+	private static boolean loaded;
+
+	/**
+	 * boot starts the program where no activity has, from a service, a
+	 * job or a receiver of the program's own, with any context of the
+	 * program's. The program's main function runs on a thread of its own
+	 * from here on, once for each process, and boot changes nothing once
+	 * it runs. The program opens its windows as ever, and they show when
+	 * an activity starts in the process. Where main has returned already,
+	 * boot ends the process, and Android starts a job or an activity
+	 * again in a new one; it sends no broadcast again. It waits for an
+	 * activity of the program's own that shows to be left first.
+	 *
+	 * Call it on the UI thread, where Android calls such a component,
+	 * before the first native method of the program's own.
+	 */
+	public static void boot(Context c) {
+		load(c);
+		late |= closing;
+		if (over) {
+			settle();
+		}
+		start(java.util.TimeZone.getDefault().getID());
+	}
+
+	// closing says that the program is done with its windows, and over
+	// that its main has returned. late says that something booted it in
+	// between, and waits. The UI thread keeps all three.
+	private static boolean closing, over, late;
+
+	// anew ends the process, whose main has run, for Android to start
+	// again in a new one what it just started here, or what comes next.
+	private static void anew() {
+		android.os.Process.killProcess(android.os.Process.myPid());
+	}
+
+	// waits reports whether what starts now comes too late for the main
+	// that runs, and waits for the next.
+	static boolean waits() {
+		return closing;
+	}
+
+	// load loads the program, whose main waits for boot to run it. Where
+	// main has run already it ends the process, unless that would take
+	// another activity with it: see settle.
+	static synchronized void load(Context c) {
+		if (over && (starting || GunimWatch.isAlone(c))) {
+			anew();
+		}
+		if (loaded) {
+			return;
+		}
+		app = c.getApplicationContext();
+		// Go looks for its home and caches where a desktop keeps them.
+		try {
+			Os.setenv("HOME", app.getFilesDir().getPath(), true);
+			Os.setenv("TMPDIR", app.getCacheDir().getPath(), true);
+			Os.setenv("XDG_CACHE_HOME", app.getCacheDir().getPath(), true);
+			Os.setenv("XDG_CONFIG_HOME", app.getFilesDir().getPath(), true);
+		} catch (ErrnoException e) {
+			// Go falls back to its defaults.
+		}
+		System.loadLibrary("gunim");
+		loaded = true;
+	}
+
 	static native void start(String zone);
+	static native void go(long h, Context context);
 	static native void surfaceChanged(Surface surface, int width, int height);
 	static native void surfaceDestroyed(Surface surface);
 	static native void metrics(float density, float refreshRate);
@@ -46,6 +115,31 @@ public final class Native {
 	static native void heading(float[] rotation, int screen, int accuracy, float error);
 
 	// Called from Go.
+
+	// run has Go run the function h names, with the thread's JNIEnv and
+	// the application's context, and returns what it throws, or null.
+	static String run(long h) {
+		try {
+			go(h, app);
+			return null;
+		} catch (Throwable t) {
+			return said(t);
+		}
+	}
+
+	// said returns what t says of itself, or the name of its class, as a
+	// toString of the program's own may throw or return null.
+	private static String said(Throwable t) {
+		try {
+			String s = t.toString();
+			if (s != null) {
+				return s;
+			}
+		} catch (Throwable thrown) {
+			// The class's name says what it can.
+		}
+		return t.getClass().getName();
+	}
 
 	static void nowPlaying(boolean on, boolean playing, String title, String artist, String album,
 		long length, long position, byte[] art) {
@@ -426,11 +520,92 @@ public final class Native {
 		});
 	}
 
+	// finish finishes gunim's activities, as the program is done with its
+	// windows. One that comes later waits for a main that runs anew.
 	static void finish() {
 		ui.post(() -> {
-			if (activity != null) {
-				activity.finish();
+			closing = true;
+			for (android.app.Activity a : GunimWatch.live()) {
+				if (a instanceof GunimActivity) {
+					a.finish();
+				}
 			}
 		});
+	}
+
+	// ended is told once main has returned.
+	static void ended() {
+		ui.post(() -> {
+			over = true;
+			settle();
+		});
+	}
+
+	// settling says that settle runs again in a while, and starting that
+	// an activity which waited is being started again, for the new process
+	// to show.
+	private static boolean settling, starting;
+
+	// settle ends the process once main has returned and it is of no more
+	// use, so that what Android starts next gets a new one, at once. It
+	// looks again in a while otherwise.
+	private static void settle() {
+		if (settling || starting) {
+			return;
+		}
+		if (late ? isSettledLate() : isUnused()) {
+			anew();
+		} else if (!starting) {
+			settling = true;
+			ui.postDelayed(() -> {
+				settling = false;
+				settle();
+			}, 1000);
+		}
+	}
+
+	// isUnused reports whether the process holds nothing of the program's:
+	// no activity, gunim's or its own, and no service, as a job's.
+	@SuppressWarnings("deprecation")
+	private static boolean isUnused() {
+		if (!GunimWatch.live().isEmpty()) {
+			return false;
+		}
+		android.app.ActivityManager m = (android.app.ActivityManager) app.getSystemService(Context.ACTIVITY_SERVICE);
+		// It tells of the program's own services alone.
+		for (android.app.ActivityManager.RunningServiceInfo s : m.getRunningServices(Integer.MAX_VALUE)) {
+			if (s.pid == android.os.Process.myPid()) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	// isSettledLate reports whether the process may end for what came too
+	// late in it, which Android starts again: once no activity of the
+	// program's own shows, as Android forgets one whose process ends while
+	// it does. It forgets gunim's too, so one that waits and shows is
+	// started again first, and ends the process as it is created.
+	private static boolean isSettledLate() {
+		GunimActivity waiting = null;
+		for (android.app.Activity a : GunimWatch.live()) {
+			if (!GunimWatch.isShown(a) || a.isFinishing()) {
+				continue;
+			}
+			if (!(a instanceof GunimActivity)) {
+				return false;
+			}
+			waiting = (GunimActivity) a;
+		}
+		if (waiting == null) {
+			return true;
+		}
+		starting = true;
+		waiting.finish();
+		waiting.startActivity(new android.content.Intent(waiting.getIntent()));
+		// Where Android refuses the start, as for one just left, the
+		// process ends all the same.
+		ui.postDelayed(Native::anew, 5000);
+		return false;
 	}
 }
