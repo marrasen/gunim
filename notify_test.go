@@ -182,3 +182,75 @@ func TestAChangeASlowListenerMissesIsInTheNext(t *testing.T) {
 		}
 	})
 }
+
+// News of a run of listening that has stopped, which was on its way, is heard by no one, and starts no change.
+func TestNewsOfAListeningThatStoppedIsLeftOut(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var listens []int64
+		n := driver.NetworkNews{Listen: func(run int64, on bool) error {
+			if !on {
+				run = -run
+			}
+			listens = append(listens, run)
+			return nil
+		}}
+		var heard []NetworkState
+		hear := func(s NetworkState) { heard = append(heard, s) }
+		wifi, mobile := NetworkState{Online: true, Network: 1}, NetworkState{Online: true, Network: 2}
+		first, err := n.Watch(hear)
+		if err != nil {
+			t.Fatal(err)
+		}
+		n.Set(1, wifi, false)
+		synctest.Wait()
+		first()
+		n.Set(1, mobile, true)
+		second, err := n.Watch(hear)
+		if err != nil {
+			t.Fatal(err)
+		}
+		n.Set(1, mobile, true)
+		synctest.Wait()
+		n.Set(2, wifi, false)
+		synctest.Wait()
+		if !slices.Equal(heard, []NetworkState{wifi, wifi}) {
+			t.Fatalf("heard %+v", heard)
+		}
+		third, err := n.Watch(hear)
+		if err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		second()
+		n.Set(2, mobile, false)
+		synctest.Wait()
+		third()
+		if want := []int64{1, -1, 2, -2}; !slices.Equal(listens, want) {
+			t.Fatalf("it listened %v, want %v", listens, want)
+		}
+		if l := heard[len(heard)-1]; l.Network != 2 || !l.Changed || len(heard) != 4 {
+			t.Fatalf("heard %+v", heard)
+		}
+	})
+}
+
+// Where the driver cannot listen, no one watches, and the next to try may.
+func TestAWatchFailsWhereTheDriverCannotListen(t *testing.T) {
+	want := errors.New("no")
+	fail := true
+	n := driver.NetworkNews{Listen: func(int64, bool) error {
+		if fail {
+			return want
+		}
+		return nil
+	}}
+	if _, err := n.Watch(func(NetworkState) {}); !errors.Is(err, want) {
+		t.Fatal(err)
+	}
+	fail = false
+	stop, err := n.Watch(func(NetworkState) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stop()
+}

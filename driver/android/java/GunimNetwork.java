@@ -2,6 +2,7 @@ package gunim.android;
 
 import android.content.Context;
 import android.net.ConnectivityManager;
+import android.net.LinkAddress;
 import android.net.LinkProperties;
 import android.net.Network;
 import android.net.NetworkCapabilities;
@@ -9,6 +10,10 @@ import android.net.NetworkInfo;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import java.net.InetAddress;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * GunimNetwork tells Go of the network the program's connections use, and
@@ -18,12 +23,15 @@ import android.os.Looper;
 @SuppressWarnings("deprecation")
 final class GunimNetwork extends ConnectivityManager.NetworkCallback {
 	// watching is what listens, or null.
-	private static GunimNetwork watching;
+	private static volatile GunimNetwork watching;
 
 	private static final Handler ui = new Handler(Looper.getMainLooper());
 
 	private final ConnectivityManager cm;
-	private boolean stopped;
+
+	// run is the number Go gave the listening. What Go hears of one that it
+	// stopped, from a call under way, it leaves out by this.
+	private final long run;
 
 	// current is the network, or null, of which caps, link and blocked
 	// are. Android tells of all three as it names one, and settled says that
@@ -31,24 +39,27 @@ final class GunimNetwork extends ConnectivityManager.NetworkCallback {
 	private Network current;
 	private NetworkCapabilities caps;
 	private String link = "";
+	private Set<InetAddress> addresses = Collections.emptySet();
 	private boolean blocked, settled, heard;
 
 	// waits is how many more times none waits for Android's word.
 	private int waits = 10;
 
-	// told is the network and the link Go heard of last.
+	// told is the network, its interface and its addresses Go heard of last.
 	private Network told;
 	private String toldLink = "";
+	private Set<InetAddress> toldAddresses = Collections.emptySet();
 
-	private GunimNetwork(ConnectivityManager cm) {
+	private GunimNetwork(ConnectivityManager cm, long run) {
 		this.cm = cm;
+		this.run = run;
 	}
 
 	/**
-	 * watch starts or stops listening, and returns false where Android
-	 * refuses. Go calls it for one at a time.
+	 * watch starts or stops listening, as the run numbered, and returns
+	 * false where Android refuses. Go calls it for one at a time.
 	 */
-	static boolean watch(boolean on) {
+	static boolean watch(long run, boolean on) {
 		if (Native.app == null) {
 			return false;
 		}
@@ -58,18 +69,18 @@ final class GunimNetwork extends ConnectivityManager.NetworkCallback {
 			watching = null;
 			if (was != null) {
 				cm.unregisterNetworkCallback(was);
-				ui.post(() -> was.stopped = true);
 			}
 			return true;
 		}
-		GunimNetwork n = new GunimNetwork(cm);
+		GunimNetwork n = new GunimNetwork(cm, run);
+		watching = n;
 		try {
 			cm.registerDefaultNetworkCallback(n, ui);
 		} catch (RuntimeException e) {
 			// The manifest lacks network-state, or too many listen.
+			watching = null;
 			return false;
 		}
-		watching = n;
 		ui.postDelayed(n::none, 300);
 		return true;
 	}
@@ -77,7 +88,7 @@ final class GunimNetwork extends ConnectivityManager.NetworkCallback {
 	// none says that there is no network, where Android says nothing as
 	// listening starts, as it does with none.
 	private void none() {
-		if (stopped || heard) {
+		if (watching != this || heard) {
 			return;
 		}
 		if (info() != null && waits-- > 0) {
@@ -102,6 +113,7 @@ final class GunimNetwork extends ConnectivityManager.NetworkCallback {
 		current = n;
 		caps = null;
 		link = "";
+		addresses = Collections.emptySet();
 		blocked = false;
 		settled = false;
 		heard = true;
@@ -120,7 +132,13 @@ final class GunimNetwork extends ConnectivityManager.NetworkCallback {
 		if (!n.equals(current)) {
 			return;
 		}
-		link = p.getInterfaceName() + p.getLinkAddresses() + p.getDnsServers();
+		// A name server that is another leaves what is connected be, and so
+		// does an address more.
+		link = String.valueOf(p.getInterfaceName());
+		addresses = new HashSet<>();
+		for (LinkAddress a : p.getLinkAddresses()) {
+			addresses.add(a.getAddress());
+		}
 		if (Build.VERSION.SDK_INT < 29) {
 			settled = true;
 		}
@@ -142,18 +160,19 @@ final class GunimNetwork extends ConnectivityManager.NetworkCallback {
 			current = null;
 			caps = null;
 			link = "";
+			addresses = Collections.emptySet();
 			blocked = false;
 			tell();
 		}
 	}
 
 	private void tell() {
-		if (stopped) {
+		if (watching != this) {
 			return;
 		}
 		if (current == null) {
 			told = null;
-			Native.network(0, false, false, false, false, false);
+			Native.network(run, 0, false, false, false, false, false);
 			return;
 		}
 		if (!settled || caps == null) {
@@ -166,10 +185,11 @@ final class GunimNetwork extends ConnectivityManager.NetworkCallback {
 		}
 		boolean free = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
 			|| Build.VERSION.SDK_INT >= 30 && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_TEMPORARILY_NOT_METERED);
-		boolean moved = current.equals(told) && !link.equals(toldLink);
+		boolean moved = current.equals(told) && (!link.equals(toldLink) || !addresses.containsAll(toldAddresses));
 		told = current;
+		toldAddresses = addresses;
 		toldLink = link;
-		Native.network(current.getNetworkHandle(), true, caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED),
+		Native.network(run, current.getNetworkHandle(), true, caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED),
 			!free, off, moved);
 	}
 }

@@ -11,8 +11,10 @@ import android.graphics.BitmapFactory;
 import android.graphics.drawable.Icon;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.util.HashMap;
@@ -57,11 +59,17 @@ final class GunimNotify {
 		return Native.app == null ? null : Native.app.getSystemService(NotificationManager.class);
 	}
 
+	// isOn reports whether the user has the program's messages on.
+	static boolean isOn() {
+		NotificationManager m = manager();
+		return m != null && m.areNotificationsEnabled();
+	}
+
 	// isOn reports whether the user has the program's messages on, and
 	// those of the channel id, where there is one.
 	static boolean isOn(String id) {
 		NotificationManager m = manager();
-		if (m == null || !m.areNotificationsEnabled()) {
+		if (m == null || !isOn()) {
 			return false;
 		}
 		NotificationChannel c = m.getNotificationChannel(id.isEmpty() ? CHANNEL : id);
@@ -150,11 +158,21 @@ final class GunimNotify {
 			: Icon.createWithResource("android", android.R.drawable.ic_popup_reminder);
 	}
 
-	/** tap returns the intent that opens the program and brings tag to it. */
+	/**
+	 * tap returns the intent that opens the program and brings tag to it. It
+	 * throws an IllegalStateException where the word cannot be kept, as with
+	 * a full disk: no tap would be known for one.
+	 */
 	static PendingIntent tap(Context c, String tag) {
+		String with;
+		try {
+			with = word(c, true);
+		} catch (IOException e) {
+			throw new IllegalStateException("the word of a tap cannot be kept", e);
+		}
 		return PendingIntent.getActivity(c, code(tag), open(c)
 			.putExtra(TAG, tag)
-			.putExtra(WORD, word(c, true)),
+			.putExtra(WORD, with),
 			PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
 	}
 
@@ -202,15 +220,23 @@ final class GunimNotify {
 		if (tag == null || with == null) {
 			return;
 		}
-		String own = word(c, false);
+		String own;
+		try {
+			own = word(c, false);
+		} catch (IOException e) {
+			// What it was for is the program's, and goes into no log.
+			android.util.Log.w("gunim", "a tap on a notification could not be known for one");
+			return;
+		}
 		if (own != null && MessageDigest.isEqual(own.getBytes(StandardCharsets.UTF_8), with.getBytes(StandardCharsets.UTF_8))) {
 			Native.tapped(tag);
 		}
 	}
 
 	// word returns the word that shows a tap to be one, made the first time
-	// where asked, or null.
-	private static synchronized String word(Context c, boolean make) {
+	// where asked, or null where there is none. One that cannot be read is
+	// not made anew, as messages that show hold it.
+	private static synchronized String word(Context c, boolean make) throws IOException {
 		if (word != null) {
 			return word;
 		}
@@ -221,7 +247,8 @@ final class GunimNotify {
 				word = new String(b, StandardCharsets.UTF_8);
 				return word;
 			}
-		} catch (java.io.IOException e) {
+			// It holds no word, and no message does.
+		} catch (NoSuchFileException e) {
 			// There is none yet.
 		}
 		if (!make) {
@@ -237,11 +264,9 @@ final class GunimNotify {
 		try (FileOutputStream out = new FileOutputStream(part)) {
 			out.write(hex.toString().getBytes(StandardCharsets.UTF_8));
 			out.getFD().sync();
-		} catch (java.io.IOException e) {
-			return null;
 		}
 		if (!part.renameTo(f)) {
-			return null;
+			throw new IOException("the word was not kept");
 		}
 		word = hex.toString();
 		return word;

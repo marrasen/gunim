@@ -61,7 +61,7 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *v, void *reserved) {
 	midNotify = (*env)->GetStaticMethodID(env, c, "notify", "([Ljava/lang/String;IIIZ[B)I");
 	midNotifyOn = (*env)->GetStaticMethodID(env, c, "notifyOn", "(Ljava/lang/String;)Z");
 	midNotifyEnd = (*env)->GetStaticMethodID(env, c, "notifyEnd", "(Ljava/lang/String;)V");
-	midWatchNetwork = (*env)->GetStaticMethodID(env, c, "watchNetwork", "(Z)Z");
+	midWatchNetwork = (*env)->GetStaticMethodID(env, c, "watchNetwork", "(JZ)Z");
 	midVibrate = (*env)->GetStaticMethodID(env, c, "vibrate", "([J)Z");
 	midExclude = (*env)->GetStaticMethodID(env, c, "excludeGestures", "([I)V");
 	midOpenLink = (*env)->GetStaticMethodID(env, c, "openLink", "(Ljava/lang/String;)Z");
@@ -620,17 +620,17 @@ JNIEXPORT void JNICALL Java_gunim_android_Native_tapped(JNIEnv *env, jclass c, j
 	(*env)->ReleaseStringChars(env, tag, s);
 }
 
-int gunim_watch_network(int on) {
+int gunim_watch_network(long long run, int on) {
 	int a;
 	JNIEnv *env = envGet(&a);
-	jboolean ok = (*env)->CallStaticBooleanMethod(env, nativeClass, midWatchNetwork, on ? JNI_TRUE : JNI_FALSE);
+	jboolean ok = (*env)->CallStaticBooleanMethod(env, nativeClass, midWatchNetwork, (jlong)run, on ? JNI_TRUE : JNI_FALSE);
 	envPut(a);
 	return ok ? 1 : 0;
 }
 
-JNIEXPORT void JNICALL Java_gunim_android_Native_network(JNIEnv *env, jclass c, jlong network, jboolean online,
+JNIEXPORT void JNICALL Java_gunim_android_Native_network(JNIEnv *env, jclass c, jlong run, jlong network, jboolean online,
 	jboolean internet, jboolean metered, jboolean blocked, jboolean moved) {
-	goNetwork(network, online, internet, metered, blocked, moved);
+	goNetwork(run, network, online, internet, metered, blocked, moved);
 }
 
 int gunim_vibrate(const long long *ms, int n) {

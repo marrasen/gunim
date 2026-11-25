@@ -132,7 +132,9 @@ public final class Native {
 	/**
 	 * tapIntent returns the intent of a tap on a message that the
 	 * program's own Java shows, as a job's, which brings tag back to the
-	 * program as one of gunim's App.Notify does.
+	 * program as one of gunim's App.Notify does. It throws an
+	 * IllegalStateException where the storage that a tap is known by fails,
+	 * as with a full disk.
 	 */
 	public static android.app.PendingIntent tapIntent(Context c, String tag) {
 		return GunimNotify.tap(c.getApplicationContext(), tag);
@@ -166,7 +168,7 @@ public final class Native {
 	static native void servedEnd();
 	static native int servedRead(long id, long offset, int size, byte[] data);
 	static native void tapped(String tag);
-	static native void network(long network, boolean online, boolean internet, boolean metered, boolean blocked,
+	static native void network(long run, long network, boolean online, boolean internet, boolean metered, boolean blocked,
 		boolean moved);
 	static native void heading(float[] rotation, int screen, int accuracy, float error);
 
@@ -382,7 +384,7 @@ public final class Native {
 
 	static boolean permitted(int p) {
 		if (p == 3) {
-			return GunimNotify.isOn("");
+			return GunimNotify.isOn();
 		}
 		String[] names = permissionNames(p);
 		if (names == null || app == null) {
@@ -447,8 +449,8 @@ public final class Native {
 		GunimNotify.end(tag);
 	}
 
-	static boolean watchNetwork(boolean on) {
-		return GunimNetwork.watch(on);
+	static boolean watchNetwork(long run, boolean on) {
+		return GunimNetwork.watch(run, on);
 	}
 
 	// createDocument shows the system's picker of a place to save a file

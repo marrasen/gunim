@@ -16,8 +16,8 @@ type NetworkState struct {
 	Blocked bool
 	// Network names the network, as the Network of driver/android does, and is 0 with none.
 	Network int64
-	// Changed says that what was connected before may no longer be: since the last call the network, or an address on
-	// it, became another, or it was blocked or let go.
+	// Changed says that what was connected before may no longer be: since the last call the network became another, an
+	// address of the device's on it went, or it was blocked or let go.
 	Changed bool
 }
 
