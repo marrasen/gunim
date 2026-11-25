@@ -38,9 +38,11 @@ type Fold struct {
 	open  *anim.Float
 	shut  bool
 	box   geom.Size
-	// inner is the child's size at the last layout, and grew how far the
-	// last step opened the fold.
+	// inner is the child's size in the last frame, seq, the largest where it
+	// was laid out more than once, as a row that shrinks its children does,
+	// and grew is how far the last step opened the fold.
 	inner geom.Size
+	seq   uint64
 	grew  float32
 	// laid is set by the first layout; a state set before it shows at once.
 	laid bool
@@ -99,6 +101,15 @@ func (f *Fold) SizeMoved() geom.Size {
 	return geom.Sz(0, f.grew*f.inner.H)
 }
 
+// note keeps the child's size in frame fr.
+func (f *Fold) note(s geom.Size, fr gunim.Frame) {
+	if n := fr.Number(); n == 0 || f.seq != n {
+		f.inner, f.seq = geom.Size{}, n
+	}
+	f.inner = geom.Sz(max(f.inner.W, s.W), max(f.inner.H, s.H))
+	f.laid = true
+}
+
 // Children implements [gunim.Composite].
 func (f *Fold) Children() []gunim.Node { return []gunim.Node{f.child} }
 
@@ -122,19 +133,20 @@ func (f *Fold) Transition(p gunim.Presence, fr gunim.Frame) bool {
 
 // Layout implements [gunim.Node]: down, as wide as the child and as tall
 // as it is open; across, as tall as the child and as wide as it is open.
-func (f *Fold) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
-	f.laid = true
+func (f *Fold) Layout(c gunim.Constraints, fr gunim.Frame, kids gunim.Children) geom.Size {
 	k := kids.At(0)
 	if f.Axis == Horizontal {
 		s := k.Layout(gunim.Constraints{Max: c.Max})
 		k.Place(geom.Point{})
-		f.inner = s
-		f.box = c.Constrain(geom.Sz(s.W*f.shown(), s.H))
+		f.note(s, fr)
+		// Squeezed in a row, its room is a share of what it shows of all of
+		// the child, and it fills it.
+		f.box = c.Constrain(geom.Sz(f.inner.W*f.shown(), s.H))
 		return f.box
 	}
 	s := k.Layout(gunim.Constraints{Min: geom.Sz(c.Min.W, 0), Max: geom.Sz(c.Max.W, 0)})
 	k.Place(geom.Point{})
-	f.inner = s
+	f.note(s, fr)
 	f.box = c.Constrain(geom.Sz(s.W, s.H*f.shown()))
 	return f.box
 }

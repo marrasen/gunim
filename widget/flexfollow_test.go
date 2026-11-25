@@ -321,3 +321,71 @@ func TestAColumnResizedAsAFoldOpensKeepsWhatFollowsUnderIt(t *testing.T) {
 		mustFollow(t, fmt.Sprintf("frame %d", i), (fr.size.H-f.box.H-gap-20)/2+f.box.H+gap, below.at.Y)
 	}
 }
+
+// In a row too narrow for its children, only what a fold's motion moved is
+// followed: a child that changes size at once has the others glide.
+func TestAnOverfullRowGlidesForASizeChangedAtOnceAsAFoldMoves(t *testing.T) {
+	f := NewFold(newSpot(30, 30), false)
+	f.Axis = Horizontal
+	a, b, last := newSpot(150, 30), newSpot(250, 30), newSpot(40, 30)
+	w, run := stage(t, &frame{child: Row(f, a, b, last), size: geom.Sz(300, 40)})
+	do(t, w, func(u *gunim.UI) { f.SetOpen(true, u) })
+	run(2)
+	was, starts := last.at.X, b.at.X
+	a.size.W = 70
+	for i := range 60 {
+		run(1)
+		// The fold's own part of it is 2 px on a frame, and the spring's at most some more.
+		if d := abs32(last.at.X - was); d > 3 {
+			t.Fatalf("frame %d: the last child jumped %v", i, d)
+		}
+		if d := abs32(b.at.X - starts); d > 14 {
+			t.Fatalf("frame %d: what follows the child that shrank at once jumped %v", i, d)
+		}
+		was, starts = last.at.X, b.at.X
+	}
+}
+
+// Squeezed in a row, a fold fills the room it has on every frame, so nothing
+// jumps as the row comes to be too narrow.
+func TestAFoldSqueezedInARowNeverJumps(t *testing.T) {
+	mk := func() *Fold {
+		f := NewFold(newSpot(200, 20), false)
+		f.Axis = Horizontal
+		return f
+	}
+	f, g, last := mk(), mk(), newSpot(60, 20)
+	w, run := stage(t, &frame{child: Row(f, g, last), size: geom.Sz(300, 40)})
+	gap := Gap.Default()
+	for _, open := range []bool{true, false} {
+		do(t, w, func(u *gunim.UI) { f.SetOpen(open, u) })
+		run(4)
+		do(t, w, func(u *gunim.UI) { g.SetOpen(open, u) })
+		fw, gw := f.box.W, g.box.W
+		for i := range 60 {
+			run(1)
+			mustFollow(t, fmt.Sprintf("open %v, frame %d", open, i), f.box.W+gap+g.box.W+gap, last.at.X)
+			if d := max(abs32(f.box.W-fw), abs32(g.box.W-gw)); d > 30 {
+				t.Fatalf("open %v, frame %d: a fold's width jumped %v", open, i, d)
+			}
+			fw, gw = f.box.W, g.box.W
+		}
+	}
+}
+
+// A growing child takes what a fold leaves from the frame the fold lets the
+// column out of its squeeze.
+func TestAColumnLeavingItsSqueezeFollowsAFold(t *testing.T) {
+	a, grower := newSpot(50, 60), newSpot(50, 0)
+	f := NewFold(newSpot(50, 300), true)
+	w, run := stage(t, &frame{child: Column(a, grower, f).Grow(grower, 1), size: geom.Sz(400, 200)})
+	gap := Gap.Default()
+	for _, open := range []bool{false, true} {
+		do(t, w, func(u *gunim.UI) { f.SetOpen(open, u) })
+		for i := range 60 {
+			run(1)
+			when := fmt.Sprintf("open %v, frame %d", open, i)
+			mustFollow(t, when, a.box.H+gap, grower.at.Y)
+		}
+	}
+}

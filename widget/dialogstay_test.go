@@ -301,3 +301,73 @@ func TestADialogsButtonsAreThereAtOnceWithAnimationOff(t *testing.T) {
 		t.Fatalf("with animation off, OK came back to %v, want %v", r, was)
 	}
 }
+
+// Held with the keyboard on OK, where a click leaves it, Enter and Space
+// press it once.
+func TestAKeyHeldOnADialogsOKPressesItOnce(t *testing.T) {
+	d := NewDialog("Share")
+	d.StayOpen = true
+	d.OnAccept = Sends("create")
+	w, u, run := stageDialog(t, d)
+	r, _ := u.Bounds(d.OK())
+	click(w, r.Center().X, r.Center().Y)
+	run(1)
+	if u.Focused() != gunim.Node(d.OK()) {
+		t.Fatalf("after a click on OK, the keyboard is on %T", u.Focused())
+	}
+	sentNow(w)
+	for _, k := range []input.Key{input.KeyEnter, input.KeyKPEnter, input.KeySpace} {
+		w.Input(input.KeyPress{Key: k})
+		for range 10 {
+			w.Input(input.KeyPress{Key: k, Repeat: true})
+			run(1)
+		}
+		if got := sentNow(w); len(got) != 1 {
+			t.Fatalf("key %v, held, accepted %d times", k, len(got))
+		}
+	}
+}
+
+// pressHearer is a dialog's body that hears the presses made in it.
+type pressHearer struct {
+	*spot
+	presses int
+}
+
+func (b *pressHearer) Overhear(e input.Event, _ *gunim.UI) {
+	if _, press := e.(input.PointerDown); press {
+		b.presses++
+	}
+}
+
+// A dialog's body that overhears has every press, on the dialog's disabled
+// buttons, its title bar and round it too, and takes none of them.
+func TestADialogsBodyOverhearsEveryPress(t *testing.T) {
+	d := NewDialog("Somebody asks to join")
+	body := &pressHearer{spot: newSpot(100, 40)}
+	d.Body = body
+	d.OnAccept = Sends("allow")
+	d.StayOpen = true
+	d.OK().Disabled = true
+	w, u, run := stageDialog(t, d)
+	ok, _ := u.Bounds(d.OK())
+	panel := d.rested
+	places := []geom.Point{ok.Center(), {X: panel.Center().X, Y: panel.Min.Y + 6}, {X: 5, Y: 5}, body.at.Add(geom.Pt(3, 3))}
+	for i, p := range places {
+		w.Input(input.PointerDown{Pos: p, Clicks: 1, Touch: i%2 == 1, Time: time.Now()})
+		w.Input(input.PointerUp{Pos: p, Touch: i%2 == 1, Time: time.Now()})
+		run(1)
+		if body.presses != i+1 {
+			t.Fatalf("pressed at %v, the body heard %d presses, want %d", p, body.presses, i+1)
+		}
+	}
+	if got := sentNow(w); len(got) != 0 {
+		t.Fatalf("presses with OK disabled sent %v", got)
+	}
+	d.OK().Disabled = false
+	run(30)
+	click(w, ok.Center().X, ok.Center().Y)
+	if got := sentNow(w); len(got) != 1 || body.presses != len(places)+1 {
+		t.Fatalf("overheard, a press on OK sent %v, and the body heard %d", got, body.presses)
+	}
+}

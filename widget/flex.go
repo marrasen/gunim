@@ -88,10 +88,11 @@ type Flex struct {
 	laid bool
 }
 
-// flexSpot is a child's place, and the size it was last laid out at.
+// flexSpot is a child's place, the size it was last laid out at, and the
+// size it took with all the room it wanted.
 type flexSpot struct {
 	*anim.Point
-	size geom.Size
+	size, want geom.Size
 }
 
 // Row returns a Flex that lays kids out left to right. Kids too wide
@@ -179,7 +180,6 @@ func (f *Flex) Layout(c gunim.Constraints, fr gunim.Frame, kids gunim.Children) 
 	// weight of those that grow.
 	sizes := make([]geom.Size, n)
 	var used, natural, weight float32
-	squeeze := false
 	for i := range n {
 		kid := kids.At(i)
 		if w := f.grow[kid.Node()]; w > 0 && maxMain > 0 {
@@ -198,9 +198,11 @@ func (f *Flex) Layout(c gunim.Constraints, fr gunim.Frame, kids gunim.Children) 
 	// On a bounded main axis, children that do not fit shrink in
 	// proportion to their natural size, and are laid out again within
 	// their share: a label wraps, a button shortens its label.
+	wants := sizes
+	var rooms []float32
 	if maxMain > 0 && used > maxMain && natural > 0 {
-		squeeze = true
-		rooms := f.shrink(kids, sizes, fr, max(0, maxMain-gaps))
+		wants = slices.Clone(sizes)
+		rooms = f.shrink(kids, sizes, fr, max(0, maxMain-gaps))
 		used = gaps
 		for i := range n {
 			kid := kids.At(i)
@@ -227,7 +229,7 @@ func (f *Flex) Layout(c gunim.Constraints, fr gunim.Frame, kids gunim.Children) 
 	resized := !f.laid || c != f.last
 	var moved []geom.Point
 	if !resized {
-		if before := f.before(kids, sizes, gap, maxMain, squeeze); before != nil {
+		if before := f.before(kids, fr, sizes, wants, rooms, gap, maxMain); before != nil {
 			// What the children's own motion moved, each place moves with it.
 			_, moved = f.spread(c, before, gap, weight)
 			for i := range moved {
@@ -235,7 +237,7 @@ func (f *Flex) Layout(c gunim.Constraints, fr gunim.Frame, kids gunim.Children) 
 			}
 		}
 	}
-	f.place(fr, kids, sizes, at, moved, resized)
+	f.place(fr, kids, sizes, wants, at, moved, resized)
 	f.last, f.laid = c, true
 	return own
 }
@@ -289,20 +291,21 @@ func (f *Flex) spread(c gunim.Constraints, sizes []geom.Size, gap, weight float3
 }
 
 // before returns the sizes the children would have in this frame, had none
-// of those that move their own size moved it, or nil where none did. squeeze
-// says the children were shrunk to fit.
-func (f *Flex) before(kids gunim.Children, sizes []geom.Size, gap, maxMain float32, squeeze bool) []geom.Size {
+// of those that move their own size moved it, or nil where none did. wants
+// are the sizes they take with all the room they want, and rooms, where that
+// is more than there is, the room each was shrunk to.
+func (f *Flex) before(kids gunim.Children, fr gunim.Frame, sizes, wants []geom.Size, rooms []float32, gap, maxMain float32) []geom.Size {
 	var out []geom.Size
 	for i, s := range sizes {
 		kid := kids.At(i)
 		sp, ok := f.at[kid.Node()]
-		if !ok || sp.size == s {
+		if !ok || sp.size == s && sp.want == wants[i] {
 			continue
 		}
 		grew, shrank := kid.SizeMoved()
-		by := geom.Sz(
-			min(max(s.W-sp.size.W, shrank.W), grew.W),
-			min(max(s.H-sp.size.H, shrank.H), grew.H))
+		by := f.size(
+			min(max(f.main(wants[i])-f.main(sp.want), f.main(shrank)), f.main(grew)),
+			min(max(f.cross(s)-f.cross(sp.size), f.cross(shrank)), f.cross(grew)))
 		if f.growing(kid.Node(), maxMain) {
 			// As long as its share, which follows from the others.
 			by = f.size(0, f.cross(by))
@@ -312,34 +315,62 @@ func (f *Flex) before(kids gunim.Children, sizes []geom.Size, gap, maxMain float
 		}
 		if out == nil {
 			out = slices.Clone(sizes)
+			for j := range out {
+				// For now, as long as each would want to be, and the growing
+				// ones no length.
+				out[j] = f.size(f.main(wants[j]), f.cross(sizes[j]))
+				if f.growing(kids.At(j).Node(), maxMain) {
+					out[j] = f.size(0, f.cross(sizes[j]))
+				}
+			}
 		}
-		out[i] = geom.Sz(s.W-by.W, s.H-by.H)
+		out[i] = geom.Sz(out[i].W-by.W, out[i].H-by.H)
 	}
 	if out == nil || maxMain <= 0 {
 		return out
 	}
-	// What one child takes, those shrunk to fit and the growing ones give.
-	var now, was, weight float32
-	for i, s := range sizes {
-		node := kids.At(i).Node()
-		if f.growing(node, maxMain) {
-			weight += f.grow[node]
-			continue
-		}
-		if sp, ok := f.at[node]; ok && squeeze {
-			out[i] = sp.size
-		}
-		now += f.main(s)
-		was += f.main(out[i])
+	if n := len(sizes); n > 1 {
+		maxMain = max(squeezed, maxMain-gap*float32(n-1))
 	}
-	if len(sizes) > 1 {
-		maxMain -= gap * float32(len(sizes)-1)
+
+	// Shrunk to fit as they would have been.
+	var natural, now, was, weight float32
+	for i, s := range out {
+		if node := kids.At(i).Node(); f.grow[node] > 0 {
+			weight += f.grow[node]
+		} else {
+			natural += f.main(s)
+		}
+	}
+	var fit []float32
+	if natural > maxMain {
+		fit = f.shrink(kids, out, fr, maxMain)
 	}
 	for i, s := range out {
-		node := kids.At(i).Node()
-		if w := f.grow[node]; weight > 0 && w > 0 {
+		if f.grow[kids.At(i).Node()] > 0 {
+			continue
+		}
+		long, shown := f.main(s), f.main(sizes[i])
+		switch {
+		case len(rooms) > 0 && abs32(shown-max(squeezed, rooms[i])) > sameSpot:
+			// Shorter than its room, or longer, it goes by itself.
+			long = shown
+			if sp, ok := f.at[kids.At(i).Node()]; ok {
+				grew, shrank := kids.At(i).SizeMoved()
+				long -= min(max(shown-f.main(sp.size), f.main(shrank)), f.main(grew))
+			}
+		case fit != nil:
+			long = min(long, max(squeezed, fit[i]))
+		}
+		out[i] = f.size(long, f.cross(s))
+		now += shown
+		was += long
+	}
+	// The growing ones share what that leaves.
+	for i, s := range out {
+		if w := f.grow[kids.At(i).Node()]; w > 0 {
 			share := max(squeezed, max(0, maxMain-was)*w/weight) - max(squeezed, max(0, maxMain-now)*w/weight)
-			out[i] = f.size(f.main(s)+share, f.cross(s))
+			out[i] = f.size(f.main(sizes[i])+share, f.cross(s))
 		}
 	}
 	return out
@@ -468,7 +499,7 @@ const sameSpot = 0.01
 // the Flex kept its size and a child moved, and jumping when the Flex
 // itself was resized. moved, when set, is how far each child's place moved
 // with the children that move their own size, which it follows at once.
-func (f *Flex) place(fr gunim.Frame, kids gunim.Children, sizes []geom.Size, at, moved []geom.Point, resized bool) {
+func (f *Flex) place(fr gunim.Frame, kids gunim.Children, sizes, wants []geom.Size, at, moved []geom.Point, resized bool) {
 	motion := Reflow.Get(fr.Theme)
 	seen := make(map[gunim.Node]bool, kids.Len())
 	for i, target := range at {
@@ -492,7 +523,7 @@ func (f *Flex) place(fr gunim.Frame, kids gunim.Children, sizes []geom.Size, at,
 			}
 			p.Animate(target, motion)
 		}
-		p.size = sizes[i]
+		p.size, p.want = sizes[i], wants[i]
 		kid.Place(p.Value())
 	}
 	// Forget children that have left.

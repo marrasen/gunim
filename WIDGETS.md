@@ -150,7 +150,7 @@ An app's widget outside the package draws the same way with the exported helpers
   - Act on the release, so a press dragged away cancels.
   - For a control drawn by hand, whose parts are something other than an index, use `widget.Click[T]`. Every press
     starts a click there, so check `Clicks` to act once on a double click.
-- **Keys.** Space and Enter activate; arrows move; Home and End go to the ends; Escape closes what is open; Tab moves
+- **Keys.** Space and Enter activate, a button once however long they are held; arrows move; Home and End go to the ends; Escape closes what is open; Tab moves
   on. Ctrl+Shift+key is its own shortcut, apart from Ctrl+key. A disabled control takes no keys.
 - **Keys the browser keeps.** In a browser a page hears no Ctrl+R or F5, so give a control other keys. A view that must
   have every key, as a terminal must, implements `gunim.KeyClaimer`, and reports `ClaimsKeys` only while it does.
