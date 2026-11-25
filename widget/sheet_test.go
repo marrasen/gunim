@@ -314,3 +314,87 @@ func TestASheetArrivesWithNoOvershoot(t *testing.T) {
 		}
 	}
 }
+
+// sideways takes the scrolls that go more across than down, as a row of chips that scrolls sideways does, and
+// counts them.
+type sideways struct{ took int }
+
+func (s *sideways) Layout(c gunim.Constraints, _ gunim.Frame, _ gunim.Children) geom.Size {
+	return c.Constrain(geom.Sz(390, 100))
+}
+
+func (s *sideways) Paint(*paint.Painter, gunim.Frame, geom.Size, gunim.Children) {}
+
+func (s *sideways) Handle(e input.Event, _ *gunim.UI) bool {
+	if sc, ok := e.(input.Scroll); ok && abs32(sc.Delta.X) > abs32(sc.Delta.Y) {
+		s.took++
+		return true
+	}
+	return false
+}
+
+// A sideways swipe on a half sheet's body that drifts up goes to the body, and the sheet stays where it is.
+func TestASidewaysSwipeOnTheBodyStaysTheBodys(t *testing.T) {
+	row := &sideways{}
+	s, _, w, g, run := sheetStage(t, geom.Sz(390, 800), Column(row, newSpot(390, 2000)))
+	sheetRests(t, s, run)
+	at, ok := g.ui.Bounds(row)
+	if !ok {
+		t.Fatal("the row is not drawn")
+	}
+	y := at.Center().Y
+	fingerDrag(w, run, geom.Pt(300, y), geom.Pt(60, y-10), 12, 400*time.Millisecond, 150*time.Millisecond)
+	sheetRests(t, s, run)
+	if row.took == 0 || s.Expanded() || s.pos.Value() > 400.5 {
+		t.Fatalf("a sideways swipe drifting up gave the row %d scrolls and took the sheet to %v", row.took,
+			s.pos.Value())
+	}
+}
+
+// cover is drawn over the window and takes every event.
+type cover struct{ _ int }
+
+func (*cover) Layout(c gunim.Constraints, _ gunim.Frame, _ gunim.Children) geom.Size { return c.Max }
+
+func (*cover) Paint(*paint.Painter, gunim.Frame, geom.Size, gunim.Children) {}
+
+func (*cover) Handle(input.Event, *gunim.UI) bool { return true }
+
+// A drag up on a node drawn over a half sheet's body leaves the sheet no claim: once the node goes, a click on a
+// button in the body presses the button.
+func TestADragOnANodeOverTheSheetLeavesNoClaim(t *testing.T) {
+	ok := NewButton("Send")
+	ok.OnClick = Sends(sheetShut{})
+	s, _, w, g, run := sheetStage(t, geom.Sz(390, 800), Column(ok, newSpot(390, 2000)))
+	sheetRests(t, s, run)
+	over := &cover{}
+	g.ui.Insert(g.ui.Root(), over)
+	run(2)
+	fingerDrag(w, run, geom.Pt(200, 700), geom.Pt(200, 500), 10, 400*time.Millisecond, 150*time.Millisecond)
+	run(2)
+	g.ui.Remove(over)
+	run(2)
+	b, drawn := g.ui.Bounds(ok)
+	if !drawn {
+		t.Fatal("the button is not drawn")
+	}
+	click(w, b.Center().X, b.Center().Y)
+	run(1)
+	if got := sent(w); len(got) != 1 {
+		t.Fatalf("a click on the body's button sent %v, want the button's intent", got)
+	}
+}
+
+// A drag of the sheet whose end went unheard ends at a press of the mouse, as of a finger.
+func TestAMousePressEndsAMissedSheetDrag(t *testing.T) {
+	s, _, w, g, run := sheetStage(t, geom.Sz(390, 800), newSpot(390, 2000))
+	sheetRests(t, s, run)
+	s.startDrag(0, time.Now(), true)
+	s.moveTo(250, g.ui)
+	run(1)
+	click(w, 200, 700)
+	sheetRests(t, s, run)
+	if s.drag.on || s.pos.Value() < 399 {
+		t.Fatalf("after a click the drag is on %v, the sheet %v up", s.drag.on, s.pos.Value())
+	}
+}

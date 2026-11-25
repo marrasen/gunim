@@ -192,11 +192,14 @@ func (r *PullRefresh) retract(th *theme.Live) {
 	}
 }
 
-// Transition implements [gunim.Transitioner]: a pull that leaves stops its timers, so a refresh under way neither
-// fails nor speaks once it has gone.
+// Transition implements [gunim.Transitioner]: a pull that leaves ends the refresh under way and its warning, with no
+// word to a screen reader, so a pull that comes back starts at rest and a late answer does nothing.
 func (r *PullRefresh) Transition(p gunim.Presence, _ gunim.Frame) bool {
 	if p == gunim.Exiting {
 		r.stopTimers()
+		r.current, r.own, r.failed = 0, false, false
+		r.drag.on, r.drag.mouse, r.drag.armed, r.drag.ready = false, false, false, false
+		r.pull.Jump(0)
 	}
 	return true
 }
@@ -227,10 +230,10 @@ func (r *PullRefresh) dropPull(th *theme.Live) {
 	r.pull.Animate(to, Settle.Get(th))
 }
 
-// Overhear implements [gunim.Overhearer]: a finger coming down starts a new gesture, which ends any pull whose end
-// went unheard.
+// Overhear implements [gunim.Overhearer]: a press, by a finger or the mouse, starts a new gesture, which ends any
+// pull whose end went unheard.
 func (r *PullRefresh) Overhear(e input.Event, u *gunim.UI) {
-	if d, ok := e.(input.PointerDown); ok && d.Touch {
+	if _, ok := e.(input.PointerDown); ok {
 		r.dropPull(u.Theme())
 	}
 }

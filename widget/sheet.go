@@ -190,16 +190,22 @@ func (s *BottomSheet) ClaimsPointer(geom.Point) bool {
 	return s.drag.lift || s.drag.on && s.drag.scrolls && s.pos.Value() < s.rest()-0.5
 }
 
-// Overhear implements [gunim.Overhearer]. A finger's scroll up on the body of a sheet below full is the sheet's
-// before the body's, so the sheet opens full first. A finger coming down ends a drag whose end went unheard.
+// Overhear implements [gunim.Overhearer]. A finger's scroll mostly up on the body of a sheet below full is the
+// sheet's before the body's, so the sheet opens full first. A press, by a finger or the mouse, ends a drag whose end
+// went unheard.
 func (s *BottomSheet) Overhear(e input.Event, u *gunim.UI) {
+	if s.drag.lift && !s.drag.on {
+		// The scroll the sheet claimed went to a node drawn over it: the claim ends.
+		s.drag.lift = false
+	}
 	switch e := e.(type) {
 	case input.PointerDown:
-		if e.Touch && s.drag.on && s.drag.scrolls {
+		if s.drag.on && s.drag.scrolls {
 			s.letGo(e.Time, true, u)
 		}
 	case input.Scroll:
-		if !e.Touch || e.Fling || e.Delta.Y >= 0 || s.drag.lift || s.top <= s.half+0.5 || s.pos.Target() >= s.top-0.5 {
+		if !e.Touch || e.Fling || -e.Delta.Y <= abs32(e.Delta.X) || s.drag.lift || s.top <= s.half+0.5 ||
+			s.pos.Target() >= s.top-0.5 {
 			return
 		}
 		at, ok := u.Bounds(s)

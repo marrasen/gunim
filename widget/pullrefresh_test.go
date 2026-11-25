@@ -228,14 +228,53 @@ func TestTheProgramsOwnKeysComeFirst(t *testing.T) {
 // A pull that leaves the tree mid-refresh stops its timeout: it neither fails nor speaks once gone.
 func TestAPullThatLeavesStopsItsTimers(t *testing.T) {
 	r := NewPullRefresh(NewScroll(&pullContent{size: geom.Sz(390, 3000)}))
-	_, g, run := phoneStage(t, geom.Sz(390, 800), &frame{child: Column(r), size: geom.Sz(390, 800)})
+	col := Column(r)
+	_, g, run := phoneStage(t, geom.Sz(390, 800), &frame{child: col, size: geom.Sz(390, 800)})
 	r.Timeout = time.Second
 	r.SetRefreshing(true, g.ui)
 	run(1)
 	g.ui.Remove(r)
 	run(120)
-	if r.failed || r.Current() != 1 {
-		t.Fatalf("a second after it left, the pull failed %v, refresh %d under way", r.failed, r.Current())
+	if r.failed || r.Refreshing() {
+		t.Fatalf("a second after it left, the pull failed %v, refreshing %v", r.failed, r.Refreshing())
+	}
+	// Back in the tree it stands at rest, and a late answer to the refresh it left does nothing.
+	g.ui.Insert(col, r)
+	run(240)
+	r.Done(1, g.ui)
+	if r.Refreshing() || r.failed || r.pull.Value() > 0.5 {
+		t.Fatalf("back, the pull is refreshing %v, failed %v, its disc %v down", r.Refreshing(), r.failed,
+			r.pull.Value())
+	}
+	// A refresh after it comes back times out as ever.
+	r.SetRefreshing(true, g.ui)
+	run(90)
+	if r.Refreshing() || !r.failed {
+		t.Fatal("a refresh after the pull came back never timed out")
+	}
+}
+
+// A pull whose end went unheard ends at the next press, the mouse's as a finger's: a click on a row in the list
+// presses the row, and the disc slides away.
+func TestAMousePressEndsAMissedPull(t *testing.T) {
+	row := NewButton("Row")
+	row.OnClick = Sends(refreshAsked{99})
+	r := NewPullRefresh(NewScroll(Column(row, &pullContent{size: geom.Sz(390, 3000)})))
+	w, g, run := phoneStage(t, geom.Sz(390, 800), r)
+	r.startPull(0, false)
+	r.pullTo(120, g.ui)
+	run(1)
+	b, ok := g.ui.Bounds(row)
+	if !ok {
+		t.Fatal("the row is not drawn")
+	}
+	click(w, b.Center().X, b.Center().Y)
+	run(60)
+	if got := sent(w); len(got) != 1 || got[0] != (refreshAsked{99}) {
+		t.Fatalf("a click on the row sent %v, want the row's intent", got)
+	}
+	if r.drag.on || r.pull.Value() > 0.5 {
+		t.Fatalf("after a click the pull is on %v, its disc %v down", r.drag.on, r.pull.Value())
 	}
 }
 
