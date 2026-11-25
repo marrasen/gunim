@@ -244,3 +244,21 @@ func Fling(a *Float, v float32, d Decay) {
 	rest := s.Position + v*max(d.Tau, 0.01)
 	a.Retarget(rest, d)
 }
+
+// Kick sets a going at velocity v, in units a second, and has sp bring it
+// back to where it is heading: a thing that swings out from rest and
+// settles where it was, as a row shakes its head. Kicked again, at rest or
+// still swinging, it sets off at v from where it is. A kick of 2π times d,
+// over sp's Response, swings it out by d, less what sp's damping takes.
+//
+// To carry a speed on to somewhere new, as a finger lets go of a page,
+// start with [Fling] and retarget.
+func Kick(a *Float, v float32, sp Spring) {
+	if instant(sp) || a.scaled(sp) && Scale() == 0 {
+		a.land()
+		return
+	}
+	s := &a.state[0]
+	s.From, s.Velocity, s.Elapsed = s.Position, v, 0
+	a.motion, a.active = sp, true
+}
