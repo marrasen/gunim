@@ -25,7 +25,7 @@ type Face struct {
 	// fades out at the tab's edge, and shows whole in a tooltip.
 	Title, Short string
 	// More is said faintly after the title, as "+2" for a tab of three
-	// panes.
+	// panes. It fades away in a tab with no room for it beside a title.
 	More string
 	// Icon is drawn before the title; nil draws none.
 	Icon *icon.Icon
@@ -876,10 +876,21 @@ func (b *Bar) paintTab(p *paint.Painter, th *theme.Live, t tab, title, more text
 		stop += (end - w - badgeGap - stop) * badge
 	}
 	if more.Advance > 0 {
-		mc := faint
-		mc.A = uint8(float32(mc.A) * 0.8)
-		more.Paint(p, geom.Pt(stop-more.Advance, mid-more.Height()/2), mc)
-		stop -= more.Advance + 6
+		// Where the title would have hardly any room left beside it, the
+		// count fades as it gives its own up, cut where that ends.
+		takes := more.Advance + 6
+		// Half a pixel over, so rounding cuts nothing in a tab that fits.
+		fits := min(max((stop-x-takes+0.5)/max(min(title.Advance, moreRoom), 1), 0), 1)
+		room := more.Advance
+		if fits < 1 {
+			room = takes*fits - 6
+		}
+		if room > 0 {
+			mc := faint
+			mc.A = uint8(float32(mc.A) * 0.8 * room / more.Advance)
+			more.PaintFaded(p, geom.Pt(stop-room, mid-more.Height()/2), mc, room, widget.TextFade.Get(th))
+		}
+		stop -= takes * fits
 	}
 	if room := stop - x; room > 0 {
 		if l.at >= 0 && l.at < len(b.titles) {
@@ -898,6 +909,10 @@ func (b *Bar) paintTab(p *paint.Painter, th *theme.Live, t tab, title, more text
 		widget.PaintIcon(p, th, icon.X, crossIn(r, pad), cc)
 	}
 }
+
+// moreRoom is the room the title has beside a tab's count at the least,
+// where the count shows whole and the title is that long.
+const moreRoom = 24
 
 // crossIn is where the × of a tab in r is.
 func crossIn(r geom.Rect, pad float32) geom.Rect {

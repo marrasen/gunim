@@ -411,6 +411,79 @@ func TestABadgeAndItsTitleShareWhatThereIs(t *testing.T) {
 	}
 }
 
+// TestACountThatDoesNotFitFadesAway: the tab narrowing, with a badge and
+// without, the count after the title stays clear of the icon and of the
+// title on the way, and fades as the room goes.
+func TestACountThatDoesNotFitFadesAway(t *testing.T) {
+	for _, f := range []Face{
+		{Title: "Terminal", More: "+2", Icon: icon.SquareTerminal, Closable: true, Badge: "Ada Lovelace", BadgeInk: &widget.ToastErrorInk},
+		{Title: "Terminal", More: "+2", Icon: icon.SquareTerminal},
+		{Title: "Terminal", More: "+2", Badge: "Ada Lovelace", BadgeInk: &widget.ToastErrorInk},
+		{Title: "log", More: "+12"},
+		{Title: "log", More: "+2", Icon: icon.SquareTerminal},
+		{Title: "log", More: "+2", Icon: icon.SquareTerminal, Badge: "Ada Lovelace", BadgeInk: &widget.ToastErrorInk},
+	} {
+		var last, lastTitle, full float32
+		for wide := float32(300); wide >= 20; wide -= 0.5 {
+			b := NewBar("g", 1)
+			w, run, _ := stageBar(t, b, barTabs{tabs: []Tab{{ID: "1", Face: f}}, front: "1"})
+			onUIDock(t, w, run, func(u *gunim.UI) { b.reserve = 800 - wide })
+			run(60)
+			tab, _ := b.drawnAt(0)
+			left, right := tab.Min.X+TabPadding.Default(), tab.Max.X-TabPadding.Default()
+			if f.Icon != nil {
+				left += TabIcon.Default() + 6
+			}
+			// How far the title reaches, and where the count starts and how it shows.
+			var alpha, title float32
+			at := float32(-1)
+			for _, op := range w.Offscreen().Ops() {
+				op, ok := op.(*paint.TextOp)
+				if !ok || len(op.Glyphs) == 0 {
+					continue
+				}
+				same := func(r text.Run) bool {
+					return slices.EqualFunc(op.Glyphs, r.Glyphs, func(a, b paint.Glyph) bool { return a.ID == b.ID })
+				}
+				x := op.Transform.Apply(op.Glyphs[0].At).X
+				switch {
+				case same(b.more[0]):
+					at, alpha = x, float32(op.Color.A)/255
+					if wide == 300 && op.FadeTo > 0 {
+						t.Fatalf("%+v: with room the count is cut", f)
+					}
+				case same(b.titles[0]):
+					if title = x + b.titles[0].Advance; op.FadeTo > 0 {
+						title = min(title, x+op.FadeTo)
+					}
+				}
+			}
+			if alpha > 0 && (at < left-0.5 || at > right || title > at+0.5) {
+				t.Fatalf("%+v in a tab at %v: the count is at %v, after an icon that ends at %v and a title at %v", f, tab, at, left, title)
+			}
+			if alpha > full-0.01 && at+b.more[0].Advance > right+0.5 {
+				t.Fatalf("%+v in a tab at %v: the count is cut at %v", f, tab, at)
+			}
+			if d := alpha - last; wide < 300 && (d > 0.1 || d < -0.1) {
+				t.Fatalf("%+v in a tab %v wide: the count goes from %.2f to %.2f", f, tab.Size().W, last, alpha)
+			}
+			if d := title - lastTitle; wide < 300 && title > 0 && lastTitle > 0 && (d > 3 || d < -3) {
+				t.Fatalf("%+v in a tab %v wide: the title ends at %v, from %v", f, tab.Size().W, title, lastTitle)
+			}
+			if wide == 300 {
+				full = alpha
+			}
+			if full < 0.5 {
+				t.Fatalf("%+v: with room the count shows %v", f, alpha)
+			}
+			last, lastTitle = alpha, title
+		}
+		if last != 0 {
+			t.Errorf("%+v: with no room the count shows %v", f, last)
+		}
+	}
+}
+
 // TestADraggedTabKeepsItsBadge: faint on the bar, and whole on the picture the drag carries.
 func TestADraggedTabKeepsItsBadge(t *testing.T) {
 	b := NewBar("g", 1)
