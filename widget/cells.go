@@ -4,7 +4,9 @@ import (
 	"image/color"
 	"math"
 	"slices"
+	"strings"
 	"time"
+	"unicode/utf8"
 	"unsafe"
 
 	"github.com/marrasen/gunim"
@@ -26,10 +28,15 @@ import (
 // line changed costs one line. A screen that changes whole, as a
 // scrolling one does, stays cheap: characters take their font's glyphs
 // directly, placed at their cells, without the shaping a paragraph
-// needs.
+// needs. Only a character with marks is shaped, once, with a few
+// milliseconds a frame for new ones: a screenful of those shows its
+// letters first, and its marks over the frames after.
 //
 // Box-drawing and block characters and the Powerline separators are
 // drawn in code, to the cell, so lines meet and join from cell to cell.
+// A letter and its marks are one character, composed where a font has it
+// so. A character no font has shows the face's box for it, unless it is
+// for private use. In a browser, the browser draws it, within its cell.
 //
 // The cursor glides to a new cell along its row, and jumps to another
 // row.
@@ -65,7 +72,15 @@ type CellGrid struct {
 	metrics cellMetrics
 	// fitCols and fitRows are how many cells fit the last layout's box.
 	fitCols, fitRows int
-	glyphs           map[glyphKey]cellGlyph
+	// glyphs are what draws each character without marks, and clusters each with them, found once for the cells' size.
+	glyphs   cellCache[glyphKey]
+	clusters cellCache[clusterKey]
+	// glyphsAt is the [text.CellGeneration] they were found in.
+	glyphsAt uint64
+	// finding is how long the frame being painted has spent on finding characters with marks, and unfinished says it
+	// left rows with letters drawn without theirs, for the frame after.
+	finding    time.Duration
+	unfinished bool
 	// marks is a row's lines under and through characters, kept for the next row.
 	marks []cellFill
 	// pats are the masks of the characters drawn in code, at the cells'
@@ -200,12 +215,13 @@ type cellMetrics struct {
 type glyphKey struct {
 	r     rune
 	style CellStyle
+	wide  bool
 }
 
-type cellGlyph struct {
-	g       paint.Glyph
-	advance float32
-	ok      bool
+// clusterKey is a character with marks.
+type clusterKey struct {
+	glyphKey
+	marks string
 }
 
 // NewCellGrid returns an empty grid.
@@ -321,10 +337,16 @@ func (g *CellGrid) measure(size, scale float32) {
 	m.line = max(snap(size/14), 1/scale)
 	m.strikeAt = snap(m.ascent - ascent*0.3)
 	g.metrics = m
-	g.glyphs = map[glyphKey]cellGlyph{}
+	g.forget()
 	for y := range g.lines {
 		g.lines[y].stale = true
 	}
+}
+
+// forget drops the glyphs found.
+func (g *CellGrid) forget() {
+	g.glyphs, g.clusters = cellCache[glyphKey]{}, cellCache[clusterKey]{}
+	g.glyphsAt = text.CellGeneration()
 }
 
 // Layout implements [gunim.Node]. The grid fills the space it is given,
@@ -379,6 +401,12 @@ func (g *CellGrid) Layout(c gunim.Constraints, f gunim.Frame, _ gunim.Children) 
 // Paint implements [gunim.Node].
 func (g *CellGrid) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim.Children) {
 	m := g.metrics
+	if g.glyphsAt != text.CellGeneration() {
+		g.forget()
+		for y := range g.lines {
+			g.lines[y].stale = true
+		}
+	}
 	bg, ink := g.Background.Get(f.Theme), g.Foreground.Get(f.Theme)
 	key := paintKey{
 		t: p.Transform(), scale: f.Scale, box: box, bg: bg, ink: ink,
@@ -404,6 +432,7 @@ func (g *CellGrid) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 			g.lines[y].stale = true
 		}
 	}
+	g.finding, g.unfinished = 0, false
 	for y := range g.lines {
 		top := float32(y) * m.h
 		if top >= box.H {
@@ -412,9 +441,15 @@ func (g *CellGrid) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, _ gunim
 		line := &g.lines[y]
 		if line.stale {
 			line.paint, line.spare = line.spare[:0], line.paint
+			short := g.unfinished
+			g.unfinished = false
 			line.drawn, line.paint = g.drawRow(line.cells, ink, line.drawn, line.paint)
-			line.stale = false
+			line.stale = g.unfinished
+			g.unfinished = g.unfinished || short
 		}
+	}
+	if g.unfinished {
+		f.RedrawAt(f.Now.Add(time.Millisecond))
 	}
 	// Every row's cells first, in one pass, so the rows go to the GPU
 	// together; then what is drawn over them.
@@ -486,20 +521,17 @@ func (g *CellGrid) drawRow(cells []Cell, ink color.NRGBA, was rowPaint, cp []pai
 		} else {
 			cell.Pattern = g.pattern(c.Rune + leftHalf)
 		}
+		if cell.Pattern == 0 && c.Rune != 0 && c.Rune != ' ' {
+			if glyphs := g.character(&cells[x]); len(glyphs) == 1 && glyphs[0].At.Y == 0 {
+				// Drawn with the cells.
+				cell.Text, cell.Glyph = true, glyphs[0]
+			} else {
+				out.place(glyphs, fg, x0, x1)
+			}
+		}
 		cp = append(cp, cell)
 		if span == 2 {
 			cp = append(cp, paint.CellPaint{BG: c.BG, FG: fg, Pattern: g.pattern(c.Rune + rightHalf)})
-		}
-		if cell.Pattern == 0 && c.Rune != 0 && c.Rune != ' ' {
-			if gly, ok := g.cellGlyph(c.Rune, c.Style, x1-x0); ok && c.Marks == "" {
-				// Drawn with the cells.
-				cp[len(cp)-span].Text, cp[len(cp)-span].Glyph = true, gly
-			} else {
-				g.place(&out, c.Rune, c.Style, fg, x0, x1)
-				for _, mark := range c.Marks {
-					g.place(&out, mark, c.Style, fg, x0, x1)
-				}
-			}
 		}
 		if c.Style&CellUnderline != 0 {
 			lines = append(lines, cellFill{r: geom.Rect{Min: geom.Pt(x0, m.ascent+m.line), Max: geom.Pt(x1, m.ascent+2*m.line)}, c: fg})
@@ -562,51 +594,112 @@ func (g *CellGrid) pattern(r rune) uint16 {
 	return n
 }
 
-// cellGlyph returns r's glyph as a cell w wide draws it: from its left
-// edge, centred where it is narrower, as a fallback font's may be.
-func (g *CellGrid) cellGlyph(r rune, style CellStyle, w float32) (paint.Glyph, bool) {
-	key := glyphKey{r, style & (CellBold | CellItalic)}
-	cg, seen := g.glyphs[key]
+// character returns the glyphs that draw c's character and its marks, from its cell's left edge.
+func (g *CellGrid) character(c *Cell) []paint.Glyph {
+	key := glyphKey{c.Rune, c.Style & (CellBold | CellItalic), c.Wide}
+	if c.Marks == "" {
+		return g.letter(key)
+	}
+	cluster := clusterKey{key, cutMarks(c.Marks)}
+	glyphs, seen := g.clusters.get(cluster, g.cacheRoom())
 	if !seen {
-		cg.g, cg.advance, cg.ok = g.face(key.style).Glyph(r, g.metrics.size)
-		g.glyphs[key] = cg
+		if g.finding >= findTime {
+			g.unfinished = true
+			return g.letter(key)
+		}
+		start := time.Now()
+		glyphs = g.find(key, string(c.Rune)+cluster.marks)
+		g.finding += time.Since(start)
+		// A copy, as the marks may be a piece of a much longer string.
+		cluster.marks = strings.Clone(cluster.marks)
+		g.clusters.put(cluster, glyphs, g.cacheRoom())
 	}
-	if !cg.ok {
-		return paint.Glyph{}, false
-	}
-	gly := cg.g
-	gly.At = geom.Pt(0, 0)
-	if cg.advance > 0 && cg.advance < w {
-		gly.At.X = (w - cg.advance) / 2
-	}
-	return gly, true
+	return glyphs
 }
 
-// place adds r's glyph to the run of its colour, centred in the cells
-// from x0 to x1 when it is narrower, as a fallback font's may be.
-func (g *CellGrid) place(out *rowPaint, r rune, style CellStyle, c color.NRGBA, x0, x1 float32) {
-	key := glyphKey{r, style & (CellBold | CellItalic)}
-	cg, seen := g.glyphs[key]
+// letter returns the glyphs that draw key's character.
+func (g *CellGrid) letter(key glyphKey) []paint.Glyph {
+	glyphs, seen := g.glyphs.get(key, g.cacheRoom())
 	if !seen {
-		cg.g, cg.advance, cg.ok = g.face(key.style).Glyph(r, g.metrics.size)
-		g.glyphs[key] = cg
+		glyphs = g.find(key, string(key.r))
+		g.glyphs.put(key, glyphs, g.cacheRoom())
 	}
-	if !cg.ok {
+	return glyphs
+}
+
+// findTime is how long a frame spends on finding characters with marks, which take a font some twenty microseconds
+// each. A page of text in a script with marks takes a frame or two, and one of random marks shows its letters meanwhile.
+var findTime = 3 * time.Millisecond
+
+// marksMax is the most bytes of marks a cell draws. Any more than a few show nothing more.
+const marksMax = 96
+
+// cutMarks returns marks, as far as a cell draws them.
+func cutMarks(marks string) string {
+	if len(marks) <= marksMax {
+		return marks
+	}
+	cut := marksMax
+	for cut > 0 && !utf8.RuneStart(marks[cut]) {
+		cut--
+	}
+	return marks[:cut]
+}
+
+// cacheRoom is how many characters a cache of the grid takes in a turn: as many as it shows at once, or more.
+func (g *CellGrid) cacheRoom() int { return max(4096, g.cols*g.rows) }
+
+// cellCache keeps the glyphs of characters. It holds those asked for since its last turn, and those of the turn before,
+// and turns as it fills, so it stays in bounds whatever it is asked for, and keeps all that shows.
+type cellCache[K comparable] struct {
+	now, old map[K][]paint.Glyph
+}
+
+// get returns the glyphs kept for k. room is how many are kept to a turn.
+func (c *cellCache[K]) get(k K, room int) ([]paint.Glyph, bool) {
+	if glyphs, ok := c.now[k]; ok {
+		return glyphs, true
+	}
+	glyphs, ok := c.old[k]
+	if ok {
+		c.put(k, glyphs, room)
+	}
+	return glyphs, ok
+}
+
+// put keeps glyphs for k.
+func (c *cellCache[K]) put(k K, glyphs []paint.Glyph, room int) {
+	if c.now == nil || len(c.now) >= room {
+		c.now, c.old = map[K][]paint.Glyph{}, c.now
+	}
+	c.now[k] = glyphs
+}
+
+// find returns the glyphs that draw s, a character with key's style and width.
+func (g *CellGrid) find(key glyphKey, s string) []paint.Glyph {
+	m := g.metrics
+	w := m.w
+	if key.wide {
+		w *= 2
+	}
+	return g.face(key.style).Cell(s, m.size, w, m.ascent, m.h-m.ascent)
+}
+
+// place adds glyphs, placed in the cells from x0 to x1, to the run of their colour.
+func (d *rowPaint) place(glyphs []paint.Glyph, c color.NRGBA, x0, x1 float32) {
+	if len(glyphs) == 0 {
 		return
 	}
-	at := x0
-	if cg.advance > 0 && cg.advance < x1-x0 {
-		at += (x1 - x0 - cg.advance) / 2
-	}
-	glyph := cg.g
-	glyph.At = geom.Pt(at, 0)
-	i := slices.IndexFunc(out.runs, func(run glyphRun) bool { return run.c == c })
+	i := slices.IndexFunc(d.runs, func(run glyphRun) bool { return run.c == c })
 	if i < 0 {
-		out.runs = append(out.runs, glyphRun{c: c, lo: x0, hi: x1})
-		i = len(out.runs) - 1
+		d.runs = append(d.runs, glyphRun{c: c, lo: x0, hi: x1})
+		i = len(d.runs) - 1
 	}
-	run := &out.runs[i]
-	run.glyphs = append(run.glyphs, glyph)
+	run := &d.runs[i]
+	for _, glyph := range glyphs {
+		glyph.At.X += x0
+		run.glyphs = append(run.glyphs, glyph)
+	}
 	run.lo, run.hi = min(run.lo, x0), max(run.hi, x1)
 }
 
@@ -692,7 +785,7 @@ func (g *CellGrid) paintCursor(p *paint.Painter, ink, background color.NRGBA) {
 			return
 		}
 		var d rowPaint
-		g.place(&d, under.Rune, under.Style, bg, 0, w)
+		d.place(g.character(&under), bg, 0, w)
 		defer p.Push(paint.Translate(geom.Pt(at.X, at.Y+m.ascent)))()
 		for _, run := range d.runs {
 			p.Text(run.glyphs, m.size, run.c, geom.Rect{Min: geom.Pt(0, -m.ascent), Max: geom.Pt(w, m.h-m.ascent)})

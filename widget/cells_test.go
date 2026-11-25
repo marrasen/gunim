@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"image/color"
 	"math"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
@@ -12,6 +14,7 @@ import (
 	"github.com/marrasen/gunim/paint"
 	"github.com/marrasen/gunim/text"
 	"github.com/marrasen/gunim/theme"
+	"golang.org/x/image/font/gofont/gomono"
 	"golang.org/x/image/font/gofont/goregular"
 )
 
@@ -433,6 +436,92 @@ func TestAGridTakesTheNewInkAfterAThemeSwitch(t *testing.T) {
 	}
 }
 
+// firstRow returns what a grid draws cells as, and the text it draws over them.
+func firstRow(t *testing.T, cells []Cell) (row *paint.CellsOp, over []paint.Glyph) {
+	t.Helper()
+	w, g, run := newCellStage(t)
+	for y := range 12 {
+		g.SetRow(y, nil)
+	}
+	g.SetRow(0, cells)
+	run(1)
+	row, ok := cellsRow(w.Offscreen().Ops(), 0)
+	if !ok {
+		t.Fatal("the row drew no cells")
+	}
+	for _, op := range w.Offscreen().Ops() {
+		if op, ok := op.(*paint.TextOp); ok {
+			over = append(over, op.Glyphs...)
+		}
+	}
+	return row, over
+}
+
+// withoutSystemFonts has the test do with the faces gunim carries, as a browser does.
+func withoutSystemFonts(t *testing.T) {
+	text.UseSystemFonts(false)
+	t.Cleanup(func() { text.UseSystemFonts(true) })
+}
+
+func TestALetterAndItsMarkDrawAsOneCharacter(t *testing.T) {
+	row, over := firstRow(t, []Cell{{Rune: 'e', Marks: "\u0301"}, {Rune: 'é'}, {Rune: 'e'}})
+	if !row.Cells[0].Text || row.Cells[0].Glyph != row.Cells[1].Glyph || row.Cells[0].Glyph == row.Cells[2].Glyph {
+		t.Fatalf("e with an acute accent is drawn as %+v, and é as %+v", row.Cells[0], row.Cells[1])
+	}
+	if len(over) != 0 {
+		t.Fatalf("%d glyphs are drawn over the cells", len(over))
+	}
+}
+
+func TestAMarkNoFaceHasLeavesItsLetter(t *testing.T) {
+	withoutSystemFonts(t)
+	row, _ := firstRow(t, []Cell{{Rune: 'x', Marks: "\u0302"}, {Rune: 'x'}})
+	if !row.Cells[0].Text || row.Cells[0].Glyph != row.Cells[1].Glyph {
+		t.Fatalf("x with a mark is drawn as %+v, want the x of %+v", row.Cells[0], row.Cells[1])
+	}
+}
+
+// The marks no face joins to their letter are each drawn over it, from the font that has them, and not in the cell
+// before or after.
+func TestMarksAreDrawnOverTheirLetter(t *testing.T) {
+	face := text.GoMono(false, false)
+	if _, _, ok := face.Glyph('\u0302', 14); !ok {
+		t.Skip("no font here has the mark")
+	}
+	for _, marks := range []string{"\u0302", "\u0302\u0301", "\u0303\u0301", "\u0323\u0302", "\u0302\u0301\u0300"} {
+		row, over := firstRow(t, []Cell{{Rune: 'a'}, {Rune: 'x', Marks: marks}})
+		if row.Cells[1].Text || len(over) < 2 {
+			t.Fatalf("x with marks %+q is drawn as %+v and %+v", marks, row.Cells[1], over)
+		}
+		for _, gly := range over {
+			f, _ := text.Lookup(gly.Face)
+			m := f.Rasterize(gly.ID, 14, 0, text.Raster{})
+			lo := gly.At.X + float32(m.Offset.X)
+			if hi := lo + float32(m.W); lo < row.Size.W-1 || hi > 2*row.Size.W+2 {
+				t.Errorf("a glyph of x with marks %+q is drawn from %v to %v, in cells %v wide", marks, lo, hi, row.Size.W)
+			}
+		}
+	}
+}
+
+// A character no font has shows the face's box for it, as in a paragraph. One for private use, as icon fonts use, and
+// one with nothing to show draw nothing.
+func TestACharacterNoFontHasShowsABox(t *testing.T) {
+	withoutSystemFonts(t)
+	row, over := firstRow(t, []Cell{{Rune: '中', Wide: true}, {}, {Rune: '\ue0a0'}, {Rune: '\u200b'}, {Rune: '\u3164'}, {Rune: '\u00a0'}, {Rune: '\u2800'}})
+	if c := row.Cells[0]; !c.Text || c.Glyph.ID != 0 || c.Glyph.At.X <= 0 {
+		t.Errorf("a character no font has is drawn as %+v, want the face's box in the middle of its two cells", c)
+	}
+	for i, c := range row.Cells[2:7] {
+		if c.Text && c.Glyph.ID == 0 {
+			t.Errorf("cell %d shows a box, as %+v", i+2, c)
+		}
+	}
+	if len(over) != 0 {
+		t.Errorf("%d glyphs are drawn over the cells", len(over))
+	}
+}
+
 func TestABlockCursorShowsABoxLineInTheCellsBackground(t *testing.T) {
 	w, g, run := newCellStage(t)
 	bg := color.NRGBA{R: 0x10, G: 0x20, B: 0x30, A: 0xff}
@@ -443,5 +532,114 @@ func TestABlockCursorShowsABoxLineInTheCellsBackground(t *testing.T) {
 	last, ok := ops[len(ops)-1].(*paint.CellsOp)
 	if !ok || len(last.Cells) != 1 || last.Cells[0].FG != bg || last.Cells[0].Pattern == 0 {
 		t.Fatalf("the last op is %+v, want the line in the cell's background", ops[len(ops)-1])
+	}
+}
+
+// Marks that come in heaps from anywhere, as a terminal's program may send, take no more and no more of a grid's memory
+// as they go on.
+func TestAGridKeepsItsCharactersInBounds(t *testing.T) {
+	var c cellCache[int]
+	const room = 100
+	for i := range 10000 {
+		c.put(i, nil, room)
+		if _, ok := c.get(0, room); !ok {
+			t.Fatalf("after %d characters one asked for all along is gone", i)
+		}
+		if n := len(c.now) + len(c.old); n > 2*room {
+			t.Fatalf("after %d characters the cache holds %d, with room for %d", i, n, room)
+		}
+	}
+	if _, ok := c.get(5, room); ok {
+		t.Error("a character not asked for since is still there")
+	}
+}
+
+func TestAGridCutsHeapsOfMarks(t *testing.T) {
+	_, g, run := newCellStage(t)
+	heap := "\u0302" + strings.Repeat("\u0303", 100000)
+	g.SetRow(0, []Cell{{Rune: 'x', Marks: heap}})
+	run(3)
+	for k := range g.clusters.now {
+		if len(k.marks) > marksMax || !strings.HasPrefix(heap, k.marks) {
+			t.Errorf("%d bytes of marks are kept", len(k.marks))
+		}
+	}
+	if got := cutMarks("a" + strings.Repeat("\u0302", 100)); len(got) > marksMax || !utf8.ValidString(got) {
+		t.Errorf("cut, the marks are %d bytes, %q", len(got), got)
+	}
+}
+
+// A screen of new characters with marks is found over several frames that the grid asks for, showing the letters
+// meanwhile, and is then whole.
+func TestAGridFindsMarksOverSeveralFrames(t *testing.T) {
+	was := findTime
+	findTime = 1
+	defer func() { findTime = was }()
+	g := NewCellGrid()
+	g.Size = 14
+	g.Resize(5, 1)
+	g.SetRow(0, []Cell{{Rune: 'e', Marks: "\u0301"}, {Rune: 'n', Marks: "\u0303"}, {Rune: 'o', Marks: "\u0308"}})
+	// In a view that is drawn again only where it is asked for.
+	w, run := stage(t, &frame{child: NewSteady(g, func(gunim.Frame) (any, bool) { return 0, true }), size: geom.Sz(100, 30)})
+	run(1)
+	composed := func() (n int) {
+		row, ok := cellsRow(w.Offscreen().Ops(), 0)
+		if !ok {
+			t.Fatal("the row drew no cells")
+		}
+		for i, r := range []rune{'é', 'ñ', 'ö'} {
+			want, _, _ := text.GoMono(false, false).Glyph(r, 14)
+			if !row.Cells[i].Text {
+				t.Fatalf("cell %d shows nothing", i)
+			}
+			if row.Cells[i].Glyph.ID == want.ID {
+				n++
+			}
+		}
+		return n
+	}
+	if n := composed(); n == 3 {
+		t.Fatalf("the first frame found %d of three", n)
+	}
+	run(8)
+	if n := composed(); n != 3 || g.unfinished {
+		t.Errorf("after some frames %d of three are found", n)
+	}
+}
+
+// What was found holds only until the faces' fallbacks change.
+func TestAGridFindsItsCharactersAgainAfterAFallback(t *testing.T) {
+	withoutSystemFonts(t)
+	face, err := text.Parse(gomono.TTF)
+	if err != nil {
+		t.Fatal(err)
+	}
+	symbols, err := text.Parse(goregular.TTF)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, g, run := newCellStage(t)
+	g.Faces = [4]*text.Face{face}
+	run(2)
+	was := g.glyphsAt
+	face.Fallback(symbols)
+	g.SetRow(1, cellsOf("again"))
+	run(1)
+	if g.glyphsAt == was || g.glyphsAt != text.CellGeneration() || len(g.glyphs.old) != 0 {
+		t.Error("the grid draws what it found before")
+	}
+}
+
+// What shows nothing itself, as a joiner after a letter that joins none, leaves the letter as it is, in its cell.
+func TestHiddenCharactersLeaveTheLetterAlone(t *testing.T) {
+	for _, marks := range []string{"\u200b", "\u200d", "\ufe0f", "\ufe0e", "\u034f", "\u00ad", "\u2060"} {
+		row, over := firstRow(t, []Cell{{Rune: 'a', Marks: marks}, {Rune: 'a'}})
+		if !row.Cells[0].Text || row.Cells[0].Glyph != row.Cells[1].Glyph || len(over) != 0 {
+			t.Errorf("a with %+q is drawn as %+v, with %d glyphs over the cells", marks, row.Cells[0], len(over))
+		}
+	}
+	row, over := firstRow(t, []Cell{{Rune: 'e', Marks: "\u200b\u0301"}, {Rune: 'é'}})
+	if row.Cells[0].Glyph != row.Cells[1].Glyph || len(over) != 0 {
+		t.Errorf("e with a space of no width and an accent is drawn as %+v", row.Cells[0])
 	}
 }
