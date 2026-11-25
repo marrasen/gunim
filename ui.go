@@ -2187,6 +2187,9 @@ type UI struct {
 	// takes is whether the focused node takes text, as last told to the
 	// driver.
 	takes bool
+	// raw is whether it takes it as it is typed, as last told to the
+	// driver; see [RawTexter].
+	raw bool
 	// keysClaimed is whether the focused node claims the keys, as last
 	// told to the driver.
 	keysClaimed bool
@@ -3242,6 +3245,7 @@ func (u *UI) takeText(next *state) {
 		ti.SetTextInput(false)
 	}
 	u.takes = takes
+	u.tellRaw(next)
 	u.syncText(next, true)
 	if ok {
 		ti.SetTextInput(takes)
@@ -3249,11 +3253,34 @@ func (u *UI) takeText(next *state) {
 	u.claimKeys(next)
 }
 
+// tellRaw tells the driver whether s takes text as it is typed, where
+// that has changed since it last heard.
+func (u *UI) tellRaw(s *state) {
+	raw := rawText(s)
+	if raw == u.raw {
+		return
+	}
+	u.raw = raw
+	if rt, ok := u.w.dw.(driver.RawTexter); ok {
+		rt.SetTextRaw(raw)
+	}
+}
+
+// rawText reports whether s is a node that takes text as it is typed.
+func rawText(s *state) bool {
+	if !takingText(s) {
+		return false
+	}
+	r, ok := s.node.(RawTexter)
+	return ok && r.RawText()
+}
+
 // takeTextAgain is takeText for the node that has the keyboard, where it
 // has started or stopped taking text since the driver last heard. One
 // that stops ends a composition into it, as losing the focus would.
 func (u *UI) takeTextAgain() {
 	if takingText(u.focus) == u.takes {
+		u.tellRaw(u.focus)
 		return
 	}
 	u.takeText(u.focus)
@@ -3295,6 +3322,7 @@ func (u *UI) syncText(s *state, fresh bool) {
 	if s != nil {
 		if ed, ok := s.node.(TextEditor); ok && ed.TakesText() {
 			v := ed.TextState()
+			v.Raw = v.Raw || rawText(s)
 			st = &v
 		}
 	}

@@ -247,6 +247,17 @@ type TextTaker interface {
 	TakesText() bool
 }
 
+// A RawTexter is a [TextTaker] that takes text exactly as it is typed, as
+// a terminal does and code may: a phone's keyboard corrects nothing in
+// it, capitalizes nothing and offers no words. RawText is asked as
+// TakesText is. One that says so from the start, before the keyboard
+// comes up, has the keyboard of its kind; changed while the keyboard is
+// up, some keyboards change only the next time.
+type RawTexter interface {
+	TextTaker
+	RawText() bool
+}
+
 // A TextEditor is a [TextTaker] that edits a text of its own, as a text
 // field does, and shows it to the platform's input method. The engine
 // asks for its state after every frame while it has focus, and hands

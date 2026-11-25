@@ -19,6 +19,7 @@ type phoneWindow struct {
 }
 
 func (w *phoneWindow) SetTextInput(on bool) { w.said = append(w.said, fmt.Sprint("text input ", on)) }
+func (w *phoneWindow) SetTextRaw(on bool)   { w.said = append(w.said, fmt.Sprint("raw ", on)) }
 func (w *phoneWindow) ShowKeyboard()        { w.said = append(w.said, "keyboard") }
 func (w *phoneWindow) SetTextCaret(geom.Rect) {
 	w.said = append(w.said, "caret")
@@ -220,4 +221,63 @@ func TestAFocusedNodesTextTurnsSecret(t *testing.T) {
 			t.Errorf("as it turned secret %v, the driver heard %q, want %q", secret, got, want)
 		}
 	}
+}
+
+// rawTo is a node that takes text as it is typed while raw says so.
+type rawTo struct {
+	typeTo
+	raw bool
+}
+
+func (r *rawTo) RawText() bool { return r.raw }
+
+// rawTextEditor edits a text of its own as it is typed.
+type rawTextEditor struct{ editsText }
+
+func (*rawTextEditor) RawText() bool { return true }
+
+// TestTheDriverHearsThatTextIsTakenAsItIsTyped: before the text input it goes for, as it changes, and no more where
+// the next node takes text as any does. A node that keeps a text has it in its state too.
+func TestTheDriverHearsThatTextIsTakenAsItIsTyped(t *testing.T) {
+	pw := &phoneWindow{OffscreenWindow: driver.Offscreen(geom.Sz(800, 600))}
+	w := newWindow(pw, nil)
+	term, field, code := &rawTo{raw: true}, &editsText{}, &rawTextEditor{}
+	for _, n := range []Node{term, field, code} {
+		w.ui.Insert(w.ui.Root(), n)
+	}
+	frame := func() { w.Frame(time.Second / 60) }
+	frame()
+	check := func(what string, want ...string) {
+		t.Helper()
+		got := slices.DeleteFunc(pw.take(), func(s string) bool { return s == "caret" })
+		if !slices.Equal(got, want) {
+			t.Fatalf("%s, the driver heard %q, want %q", what, got, want)
+		}
+	}
+	// One that takes no text takes none raw.
+	w.ui.Focus(term)
+	frame()
+	check("as one that takes no text took the focus", "text input false")
+	term.on = true
+	w.ui.Invalidate()
+	frame()
+	check("as it took text", "raw true", "text input true")
+	term.raw = false
+	w.ui.Invalidate()
+	frame()
+	check("as it stopped taking it raw", "raw false")
+	w.Input(input.KeyPress{Key: input.KeyEnter})
+	check("a key that changed nothing")
+	term.raw = true
+	w.Input(input.KeyPress{Key: input.KeyEnter})
+	check("a key after which it takes it raw again", "raw true")
+	w.ui.Focus(field)
+	check("as a field took the focus", "text input false", "raw false", "text", "text input true")
+	w.ui.Focus(code)
+	check("as one that keeps its text raw took it", "text input false", "raw true", "text", "text input true")
+	if w.ui.textState == nil || !w.ui.textState.Raw {
+		t.Error("its state does not say it is raw")
+	}
+	w.ui.Focus(nil)
+	check("as the focus left", "raw false", "no text", "text input false")
 }

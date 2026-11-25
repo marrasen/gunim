@@ -845,7 +845,7 @@ func (d *Driver) listen(doc js.Value) {
 	}
 	d.plain, d.secret = mirror("textarea"), mirror("input")
 	d.plain.Call("setAttribute", "autocomplete", "off")
-	d.plain.Call("setAttribute", "autocorrect", "on")
+	d.setRaw(false)
 	d.secret.Set("type", "password")
 	d.secret.Call("setAttribute", "autocomplete", "new-password")
 	d.secret.Call("setAttribute", "autocorrect", "off")
