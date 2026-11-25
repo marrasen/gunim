@@ -906,7 +906,8 @@ func (d *Dock) pick(id string, from gunim.Node, u *gunim.UI) {
 }
 
 // focus puts the keyboard in the view of the item the keys work in,
-// once it is laid out where it is new, unless it is there already.
+// once it is laid out where it is new, unless it is there already. With
+// nothing in the view to take it, the nearest node above does.
 func (d *Dock) focus(u *gunim.UI, laidOut bool) {
 	v := d.node(d.Active())
 	if v == nil || !d.laid || u == nil {
@@ -922,11 +923,21 @@ func (d *Dock) focus(u *gunim.UI, laidOut bool) {
 		u.FocusFirstLaidOut(u.Focused())
 		return
 	}
-	if laidOut {
-		u.FocusFirstLaidOut(v)
-	} else {
-		u.FocusFirst(v)
+	if laidOut || !u.FocusFirst(v) {
+		u.FocusFirstLaidOutOrAbove(v)
 	}
+}
+
+// hasKeyboard reports whether the keyboard is in an item the dock shows,
+// or showed as the last frame was drawn: one hidden since has it until
+// the one shown instead takes it.
+func (d *Dock) hasKeyboard(u *gunim.UI) bool {
+	for _, v := range d.nodes {
+		if v != nil && u.HasFocus(v) {
+			return true
+		}
+	}
+	return false
 }
 
 // StepTab brings the next tab of the pane the keys work in to the

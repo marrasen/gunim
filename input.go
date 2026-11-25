@@ -633,7 +633,7 @@ func (u *UI) focusAt(p geom.Point, touch bool) {
 			}
 			return
 		}
-		if _, ok := s.node.(FocusKeeper); ok {
+		if keepsFocus(s.node, u) {
 			return
 		}
 	}
@@ -641,6 +641,15 @@ func (u *UI) focusAt(p geom.Point, touch bool) {
 		return
 	}
 	u.Focus(nil)
+}
+
+// keepsFocus reports whether a press on n leaves the focus where it is.
+func keepsFocus(n Node, u *UI) bool {
+	if k, ok := n.(FocusKeeperWhile); ok {
+		return k.KeepsFocusWhile(u)
+	}
+	_, ok := n.(FocusKeeper)
+	return ok
 }
 
 // tab moves focus when Tab went unhandled: forward, or back with Shift.
@@ -822,20 +831,30 @@ func (u *UI) FocusFirst(n Node) bool {
 // What is typed before that frame waits for it, so a key pressed right after the click that shows the page is the
 // page's.
 func (u *UI) FocusFirstLaidOut(n Node) {
+	u.focusOnceLaidOut(n, false)
+}
+
+// FocusFirstLaidOutOrAbove is [UI.FocusFirstLaidOut] for a page that has the keyboard whatever is in it: where nothing
+// inside n takes it, it goes to the nearest [Focusable] above n, as by a press on n, and where there is none, to
+// nothing.
+func (u *UI) FocusFirstLaidOutOrAbove(n Node) { u.focusOnceLaidOut(n, true) }
+
+func (u *UI) focusOnceLaidOut(n Node, above bool) {
 	s, ok := u.index[n]
 	if !ok {
 		u.stray("FocusFirstLaidOut", n)
 		return
 	}
-	u.focusLaid = &laidFocus{in: s, from: u.focus}
+	u.focusLaid = &laidFocus{in: s, from: u.focus, above: above}
 	u.invalid = true
 }
 
 // laidFocus is a [UI.FocusFirstLaidOut] waiting for a layout: in is the node to focus inside, and from where the
-// keyboard was when it was asked for. waited says a frame has been drawn since.
+// keyboard was when it was asked for. above says what is above takes it where nothing inside does, and waited that a
+// frame has been drawn since.
 type laidFocus struct {
-	in, from *state
-	waited   bool
+	in, from      *state
+	above, waited bool
 }
 
 // laidFocusDue reports whether the keyboard is still where it was as a [UI.FocusFirstLaidOut] was asked for, or
@@ -961,6 +980,16 @@ func (u *UI) focusLaidOut() {
 			return
 		}
 	}
+	if !lf.above {
+		return
+	}
+	for s := lf.in.parent; s != nil; s = s.parent {
+		if f, ok := s.node.(Focusable); ok && f.Focusable() {
+			u.Focus(s.node)
+			return
+		}
+	}
+	u.Focus(nil)
 }
 
 // Reveal scrolls n into view through every [Revealer] around it, as

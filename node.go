@@ -320,6 +320,14 @@ type FocusKeeper interface {
 	KeepsFocus()
 }
 
+// A FocusKeeperWhile is a [FocusKeeper] that keeps the focus only some of the time, such as a bar of tabs while the
+// keyboard is in a pane. It is asked as it is pressed, and while KeepsFocusWhile says no, the press moves the focus as
+// if the node were no FocusKeeper.
+type FocusKeeperWhile interface {
+	FocusKeeper
+	KeepsFocusWhile(u *UI) bool
+}
+
 // A PressFocuser is a [Focusable] that says whether a press focuses it. One that says no leaves the keyboard where
 // it is, as a toolbar's buttons do, and Tab still reaches it.
 type PressFocuser interface {
