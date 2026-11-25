@@ -5,8 +5,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/marrasen/gunim"
 	"github.com/marrasen/gunim/geom"
 	"github.com/marrasen/gunim/input"
+	"github.com/marrasen/gunim/paint"
 )
 
 // fingerText is a text widget as a finger works it.
@@ -125,5 +127,56 @@ func TestAFingersPressWaitsToShowWhatItIs(t *testing.T) {
 			touchUp(w, in)
 			run(2)
 		})
+	}
+}
+
+// TestTheCaretStandsWhereTheTextIsDrawn: in the theme's padding, as the touch theme's is wider, and on every frame of a
+// switch to it. The platform's caret, a handle and a list of suggestions go by it.
+func TestTheCaretStandsWhereTheTextIsDrawn(t *testing.T) {
+	for _, c := range fingerTexts() {
+		t.Run(c.name, func(t *testing.T) {
+			themed := NewThemed(c.node, Dark())
+			g := &grab{child: themed}
+			w, run := stage(t, &frame{child: g, size: geom.Sz(300, 80)})
+			w.TimeByFrames(true)
+			run(1)
+			g.ui.Focus(c.node)
+			c.ed.set(0, false)
+			check := func(when string) {
+				t.Helper()
+				box, _ := g.ui.Bounds(c.node)
+				// Where the first line of the text is drawn: it is long, as a line's number is not.
+				first := geom.Pt(1e6, 1e6)
+				for _, op := range w.Offscreen().Ops() {
+					if op, ok := op.(*paint.TextOp); ok && len(op.Glyphs) > 10 {
+						if at := op.Transform.Apply(op.Glyphs[0].At); at.Y < first.Y {
+							first = at
+						}
+					}
+				}
+				want := first.X - box.Min.X
+				for what, r := range map[string]geom.Rect{"the caret": c.node.(gunim.CaretReporter).TextCaret(), "a handle's place": c.node.caretRect(0)} {
+					if d := r.Min.X - want; d > 1 || d < -1 {
+						t.Fatalf("%s: %s is %v in, and the text %v", when, what, r.Min.X, want)
+					}
+				}
+			}
+			run(60)
+			check("under the dark theme")
+			themed.Use(Dark().With(Touch()...))
+			g.ui.Invalidate()
+			for range 120 {
+				run(1)
+				check("switching to the touch theme")
+			}
+		})
+	}
+	a := NewTextArea()
+	a.Triggers = "@"
+	_, g, run := touchStage(t, a, geom.Sz(300, 80))
+	a.SetText("@a", g.ui)
+	run(60)
+	if got := a.triggerBox(0).Min; got != geom.Pt(16, 16) {
+		t.Errorf("under the touch theme suggestions hang from %v, and the padding is 16", got)
 	}
 }
