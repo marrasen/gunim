@@ -172,6 +172,7 @@ public final class Native {
 	static native void tapped(String tag);
 	static native void network(long run, long network, boolean online, boolean internet, boolean metered, boolean blocked,
 		boolean moved);
+	static native void confirmed(long run, int answer);
 	static native void heading(float[] rotation, int screen, int accuracy, float error);
 
 	// Called from Go.
@@ -681,6 +682,18 @@ public final class Native {
 		} catch (InterruptedException e) {
 			return 2;
 		}
+	}
+
+	static void confirm(long run, String title, String text, boolean strong) {
+		GunimConfirm.ask(run, title, text, strong);
+	}
+
+	static void cancelConfirm(long run) {
+		GunimConfirm.cancel(run);
+	}
+
+	static boolean hasScreenLock() {
+		return app != null && GunimConfirm.hasLock(app);
 	}
 
 	static float[] readLook() {

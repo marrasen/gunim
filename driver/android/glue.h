@@ -55,6 +55,11 @@ void gunim_notify_end(const uint16_t *tag, int n);
 // gunim_watch_network starts or stops a run of listening, and returns 0
 // where Android refuses.
 int gunim_watch_network(long long run, int on);
+// gunim_confirm shows the prompt numbered run, whose answer goConfirmed
+// takes, and gunim_cancel_confirm takes it away.
+void gunim_confirm(long long run, const uint16_t *title, int nt, const uint16_t *text, int nx, int strong);
+void gunim_cancel_confirm(long long run);
+int gunim_has_screen_lock(void);
 int gunim_vibrate(const long long *ms, int n);
 void gunim_exclude_gestures(const int *xy, int n);
 int gunim_has_compass(void);

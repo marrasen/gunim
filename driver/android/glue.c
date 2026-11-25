@@ -29,6 +29,7 @@ static jmethodID midPermitted, midAsk, midUserFolder, midChooseFolder, midChoose
 static jmethodID midNowPlaying, midShowKeyboard, midCaret, midBuzz, midFingers, midAwake, midShare, midVibrate, midExclude, midOpenLink, midTextState, midClearTextState, midGetClipboard, midSetClipboard, midFinish;
 static jmethodID midHasCompass, midWatchHeading, midNoBackupDir, midRun, midEnded, midStreamEnd, midCloseStream, midOpenServed, midStopServed, midCreateDocument, midSaveFolder, midSave, midNotify, midNotifyOn, midNotifyEnd, midWatchNetwork;
 static jmethodID midSetClipboardSensitive, midClearClipboardIf, midSecure;
+static jmethodID midConfirm, midCancelConfirm, midHasScreenLock;
 static jmethodID midBackLeaves, midLeaveApp, midLook, midWatchLook;
 static jclass audioClass;
 static jmethodID midAudioRoute, midAudioProbe, midAudioWatch;
@@ -67,6 +68,9 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *v, void *reserved) {
 	midNotifyOn = (*env)->GetStaticMethodID(env, c, "notifyOn", "(Ljava/lang/String;)Z");
 	midNotifyEnd = (*env)->GetStaticMethodID(env, c, "notifyEnd", "(Ljava/lang/String;)V");
 	midWatchNetwork = (*env)->GetStaticMethodID(env, c, "watchNetwork", "(JZ)Z");
+	midConfirm = (*env)->GetStaticMethodID(env, c, "confirm", "(JLjava/lang/String;Ljava/lang/String;Z)V");
+	midCancelConfirm = (*env)->GetStaticMethodID(env, c, "cancelConfirm", "(J)V");
+	midHasScreenLock = (*env)->GetStaticMethodID(env, c, "hasScreenLock", "()Z");
 	midVibrate = (*env)->GetStaticMethodID(env, c, "vibrate", "([J)Z");
 	midExclude = (*env)->GetStaticMethodID(env, c, "excludeGestures", "([I)V");
 	midOpenLink = (*env)->GetStaticMethodID(env, c, "openLink", "(Ljava/lang/String;)Z");
@@ -677,6 +681,36 @@ int gunim_watch_network(long long run, int on) {
 JNIEXPORT void JNICALL Java_gunim_android_Native_network(JNIEnv *env, jclass c, jlong run, jlong network, jboolean online,
 	jboolean internet, jboolean metered, jboolean blocked, jboolean moved) {
 	goNetwork(run, network, online, internet, metered, blocked, moved);
+}
+
+void gunim_confirm(long long run, const uint16_t *title, int nt, const uint16_t *text, int nx, int strong) {
+	int a;
+	JNIEnv *env = envGet(&a);
+	jstring jt = (*env)->NewString(env, (const jchar *)title, nt);
+	jstring jx = (*env)->NewString(env, (const jchar *)text, nx);
+	(*env)->CallStaticVoidMethod(env, nativeClass, midConfirm, (jlong)run, jt, jx, strong ? JNI_TRUE : JNI_FALSE);
+	(*env)->DeleteLocalRef(env, jt);
+	(*env)->DeleteLocalRef(env, jx);
+	envPut(a);
+}
+
+void gunim_cancel_confirm(long long run) {
+	int a;
+	JNIEnv *env = envGet(&a);
+	(*env)->CallStaticVoidMethod(env, nativeClass, midCancelConfirm, (jlong)run);
+	envPut(a);
+}
+
+int gunim_has_screen_lock(void) {
+	int a;
+	JNIEnv *env = envGet(&a);
+	jboolean ok = (*env)->CallStaticBooleanMethod(env, nativeClass, midHasScreenLock);
+	envPut(a);
+	return ok ? 1 : 0;
+}
+
+JNIEXPORT void JNICALL Java_gunim_android_Native_confirmed(JNIEnv *env, jclass c, jlong run, jint answer) {
+	goConfirmed(run, answer);
 }
 
 int gunim_vibrate(const long long *ms, int n) {

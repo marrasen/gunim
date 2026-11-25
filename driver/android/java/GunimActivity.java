@@ -297,6 +297,18 @@ public class GunimActivity extends Activity {
 	}
 
 	@Override
+	protected void onResume() {
+		super.onResume();
+		GunimConfirm.resumed(this);
+	}
+
+	@Override
+	protected void onPause() {
+		GunimConfirm.paused(this);
+		super.onPause();
+	}
+
+	@Override
 	protected void onDestroy() {
 		if (Native.activity == this) {
 			Native.activity = null;
@@ -320,6 +332,9 @@ public class GunimActivity extends Activity {
 	// or its chooser of folders, with the folder chosen or none.
 	@Override
 	protected void onActivityResult(int code, int result, android.content.Intent data) {
+		if (GunimConfirm.result(code, result == RESULT_OK)) {
+			return;
+		}
 		Long asked = Native.creating.remove(code);
 		if (asked != null) {
 			Native.strays.remove(code);

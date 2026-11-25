@@ -33,6 +33,8 @@
 //     background, a user-initiated job, from Android 14
 //   - boot, to run after the phone restarts, as a job that outlives a
 //     restart does
+//   - confirm, to ask whether it is the user who holds the phone, as
+//     gunim's App.ConfirmPerson does, from Android 11
 //   - hide-overlays, to hide other apps' windows over its own, from
 //     Android 12
 //   - playback, to play on in the background, in the system's media
@@ -1098,6 +1100,8 @@ var permissions = map[string]string{
 	"network-state": `	<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
 `,
 	"jobs": `	<uses-permission android:name="android.permission.RUN_USER_INITIATED_JOBS"/>
+`,
+	"confirm": `	<uses-permission android:name="android.permission.USE_BIOMETRIC"/>
 `,
 	"boot": `	<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
 `,
