@@ -19,12 +19,15 @@ import (
 // It travels by reference. A state that carries an *Image hands the
 // window the same pixels the application decoded, with no copy, and
 // the driver uploads them to the GPU once and keeps the texture for as
-// long as frames draw the image. A new picture is a new Image.
+// long as frames draw the image. A new picture is a new Image. One that
+// changes often is a [Stream].
 type Image struct {
 	w, h int
 	// pix is premultiplied RGBA, four bytes a pixel, row by row from
 	// the top.
 	pix []byte
+	// stream is what it is a picture of, or nil.
+	stream *Stream
 }
 
 // NewImage copies m into a new Image.

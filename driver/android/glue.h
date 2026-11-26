@@ -60,6 +60,10 @@ int gunim_watch_network(long long run, int on);
 void gunim_confirm(long long run, const uint16_t *title, int nt, const uint16_t *text, int nx, int strong);
 void gunim_cancel_confirm(long long run);
 int gunim_has_screen_lock(void);
+// gunim_camera_start runs the camera as the run numbered, whose frames
+// goCameraFrame reads, and gunim_camera_stop stops it.
+void gunim_camera_start(long long run, int front);
+void gunim_camera_stop(long long run);
 int gunim_vibrate(const long long *ms, int n);
 void gunim_exclude_gestures(const int *xy, int n);
 int gunim_has_compass(void);

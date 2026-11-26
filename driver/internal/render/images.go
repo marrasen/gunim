@@ -32,7 +32,12 @@ func (r *Renderer) image(op *paint.ImageOp) {
 	if iw == 0 || ih == 0 || op.Opacity <= 0 {
 		return
 	}
-	tex := r.texture(op.Image)
+	var tex uint32
+	if s := op.Image.Stream(); s != nil {
+		tex = r.streamTexture(s, op.Image)
+	} else {
+		tex = r.texture(op.Image)
+	}
 	r.uses(tex)
 	src := op.Src
 	if src.Empty() {
@@ -69,6 +74,51 @@ func (r *Renderer) texture(img *paint.Image) uint32 {
 	g.ActiveTexture(gl.TEXTURE0)
 	r.mipmaps(t.tex, w, h)
 	r.images[img] = t
+	return t.tex
+}
+
+// streamTexture is the texture of a stream of pictures, w by h, with img in it.
+type streamTexture struct {
+	tex  uint32
+	w, h int
+	img  *paint.Image
+	used time.Time
+}
+
+// streamTexture returns the texture of s, with its picture img in it. It
+// has no mipmaps, as its pictures come too often for them.
+func (r *Renderer) streamTexture(s *paint.Stream, img *paint.Image) uint32 {
+	t := r.streams[s]
+	if t == nil {
+		g := r.GL
+		t = &streamTexture{tex: g.CreateTexture()}
+		g.ActiveTexture(glTexture1)
+		g.BindTexture(gl.TEXTURE_2D, t.tex)
+		g.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, glLinear)
+		g.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, glLinear)
+		g.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+		g.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+		g.ActiveTexture(gl.TEXTURE0)
+		r.streams[s] = t
+	}
+	t.used = time.Now()
+	if t.img == img {
+		return t.tex
+	}
+	// What is drawn of the picture before goes out first.
+	r.flush()
+	t.img = img
+	w, h := img.Size()
+	g := r.GL
+	g.ActiveTexture(glTexture1)
+	g.BindTexture(gl.TEXTURE_2D, t.tex)
+	if t.w == w && t.h == h {
+		g.TexSubImage2D(gl.TEXTURE_2D, 0, 0, 0, int32(w), int32(h), gl.RGBA, gl.UNSIGNED_BYTE, img.Pix())
+	} else {
+		t.w, t.h = w, h
+		g.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, int32(w), int32(h), gl.RGBA, gl.UNSIGNED_BYTE, img.Pix())
+	}
+	g.ActiveTexture(gl.TEXTURE0)
 	return t.tex
 }
 
@@ -155,6 +205,11 @@ func (r *Renderer) mipmaps(tex uint32, w, h int) {
 // of the least recently drawn when they fill the budget.
 func (r *Renderer) evictImages() {
 	now := time.Now()
+	for s, t := range r.streams {
+		if now.Sub(t.used) > imageIdle {
+			r.dropStream(s)
+		}
+	}
 	total := 0
 	for m, t := range r.images {
 		if now.Sub(t.used) > imageIdle {
@@ -178,4 +233,9 @@ func (r *Renderer) evictImages() {
 func (r *Renderer) dropImage(m *paint.Image) {
 	r.GL.DeleteTexture(r.images[m].tex)
 	delete(r.images, m)
+}
+
+func (r *Renderer) dropStream(s *paint.Stream) {
+	r.GL.DeleteTexture(r.streams[s].tex)
+	delete(r.streams, s)
 }

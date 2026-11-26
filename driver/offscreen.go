@@ -84,6 +84,10 @@ type OffscreenWindow struct {
 	// edgeSwipes is what KeepEdgeSwipes last kept, and edgeSwipeCalls how many times it was called.
 	edgeSwipes     []geom.Rect
 	edgeSwipeCalls int
+	// camera hears StartCamera and StopCamera, and picture is what CameraPicture returns; see SetCamera.
+	camera   func(o CameraOptions, on bool) error
+	cameraOn *CameraOptions
+	picture  *paint.Image
 	// compass answers WatchHeading; see SetCompass.
 	compass func(on bool)
 	// anchor is where a popup was last attached, and origin where the
@@ -1231,6 +1235,57 @@ func (w *OffscreenWindow) EdgeSwipesKept() (bands []geom.Rect, calls int) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return append([]geom.Rect(nil), w.edgeSwipes...), w.edgeSwipeCalls
+}
+
+// SetCamera gives the window a pretend camera, for a test standing in for a device with one: fn hears each call to
+// StartCamera, with on, whose error it returns, and to StopCamera. Without one, the window has no camera. A test sends
+// what it sees with [OffscreenWindow.SetCameraPicture] and [CameraReady].
+func (w *OffscreenWindow) SetCamera(fn func(o CameraOptions, on bool) error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.camera = fn
+}
+
+// SetCameraPicture sets the picture the camera has.
+func (w *OffscreenWindow) SetCameraPicture(img *paint.Image) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.picture = img
+}
+
+// StartCamera implements [Camera] with the function SetCamera set.
+func (w *OffscreenWindow) StartCamera(_ int64, o CameraOptions) error {
+	w.mu.Lock()
+	fn := w.camera
+	w.mu.Unlock()
+	if fn == nil {
+		return ErrNoCamera
+	}
+	if err := fn(o, true); err != nil {
+		return err
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.cameraOn = &o
+	return nil
+}
+
+// StopCamera implements [Camera].
+func (w *OffscreenWindow) StopCamera() {
+	w.mu.Lock()
+	fn, o := w.camera, w.cameraOn
+	w.cameraOn, w.picture = nil, nil
+	w.mu.Unlock()
+	if fn != nil && o != nil {
+		_ = fn(*o, false)
+	}
+}
+
+// CameraPicture implements [Camera].
+func (w *OffscreenWindow) CameraPicture() *paint.Image {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.picture
 }
 
 // SetCompass gives the window a pretend compass, for a test standing in for a device with one: fn hears each call

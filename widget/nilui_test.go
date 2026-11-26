@@ -82,6 +82,7 @@ func TestEverySetterTakesANilUI(t *testing.T) {
 		"ColorPicker.SetValue":    func() { NewColorPicker(color.NRGBA{}).SetValue(color.NRGBA{R: 1}, u) },
 		"ColorPicker.SetOriginal": func() { NewColorPicker(color.NRGBA{}).SetOriginal(color.NRGBA{R: 1}, u) },
 		"ColorButton.SetValue":    func() { NewColorButton(color.NRGBA{}).SetValue(color.NRGBA{R: 1}, u) },
+		"Viewfinder.SetOn":        func() { NewViewfinder().SetOn(false, u) },
 		"Stack.Push":              func() { NewStack(newSpot(1, 1)).Push(newSpot(2, 2), u) },
 		"Stack.Pop":               func() { s := NewStack(newSpot(1, 1)); s.Push(newSpot(2, 2), u); s.Pop(u) },
 		"PinPad.SetWaiting":       func() { NewPinPad(4, "OK").SetWaiting(time.Second, u) },

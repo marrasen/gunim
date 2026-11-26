@@ -121,6 +121,15 @@ func (u *UI) handleRaw(root *state, ev any) {
 	case input.Heading:
 		u.headingEvent(e)
 		return
+	case driver.CameraReady:
+		u.cameraReady()
+		return
+	case driver.CameraStopped:
+		// One that stopped before the one that runs has nothing to say.
+		if u.camera.on && e.Run == u.camera.run {
+			u.cameraEnded(e.Err)
+		}
+		return
 	case driver.BackAsked:
 		if !u.behind {
 			u.back(e)
@@ -155,6 +164,7 @@ func (u *UI) handleRaw(root *state, ev any) {
 		// A window out of sight draws nothing, and the application
 		// carries on unaware: music plays on under other windows.
 		u.w.covered = e.Covered
+		u.watchCamera()
 		if !e.Covered {
 			u.w.resumed, u.invalid = true, true
 		}
@@ -169,9 +179,10 @@ func (u *UI) handleRaw(root *state, ev any) {
 		if e.Shown {
 			u.w.resumed, u.invalid = true, true
 		} else {
-			// Out of sight, the compass rests and the edges go back to
+			// Out of sight, the compass and the camera rest and the edges go back to
 			// the system; the first frame shown takes both up again.
 			u.watchHeading()
+			u.watchCamera()
 			u.keepEdgeSwipes()
 		}
 		var ev input.Event = input.WindowShown{Time: u.Clock()}

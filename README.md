@@ -671,6 +671,17 @@ with. It is the system's word, and opens no key: a program on a phone
 whose system is broken into can be made to skip it. A program that asks
 is built with `-permissions confirm`. `example/confirm` shows it.
 
+A `widget.Viewfinder` shows what the camera sees, and hands each frame's
+brightness to the program, as to one that reads codes. The camera runs
+while the viewfinder is drawn, and stops as its page leaves and as the
+program leaves the screen. gunim writes nothing of it anywhere. Android
+does keep a picture of the screen for Recents as the program leaves,
+which may show the last frame: `Client.Secure(true)` keeps it out. The program
+asks for `driver.PermissionCamera` first, and is built with
+`-permissions camera`. A node of the program's own does the same as a
+`gunim.CameraWatcher`, and `paint.Stream` draws pictures that come as
+often, as a video's, from one texture. `example/camera` shows it.
+
 What gunim writes to Android's log holds no name or address of a file.
 `gunimapk -quiet` keeps the program's own output out of it too, and a
 panic's message and stacks.

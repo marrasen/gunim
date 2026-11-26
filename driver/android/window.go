@@ -206,6 +206,7 @@ func (w *Window) Close() error {
 		w.closed = true
 		w.next = nil
 		w.d.mu.Unlock()
+		w.StopCamera()
 		w.d.closed(w)
 		close(w.quit)
 		w.in.Close()

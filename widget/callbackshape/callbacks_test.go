@@ -169,6 +169,7 @@ var structs = []any{
 	(*widget.Tree)(nil),
 	(*widget.TreeItem)(nil),
 	(*widget.TypeAhead)(nil),
+	(*widget.Viewfinder)(nil),
 	(*widget.VirtualList)(nil),
 	(*widget.WindowControls)(nil),
 	(*widget.WindowTitle)(nil),

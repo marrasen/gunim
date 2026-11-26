@@ -10,6 +10,8 @@ import (
 
 // bothThemes are the colour tokens whose dark default suits the light theme too.
 var bothThemes = map[string]bool{
+	// What a camera shows before it shows anything is dark in both.
+	"viewfinder.fill": true,
 	// Strong fills with white on them.
 	"button.primary": true, "button.primary.hover": true, "button.danger": true, "button.danger.hover": true,
 	"button.strong.ink": true, "button.primary.ink": true, "check.mark": true, "window.close.hot": true,
