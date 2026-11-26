@@ -24,8 +24,11 @@ import (
 // doIntent is a button clicked, by its label.
 type doIntent struct{ what string }
 
-// scan is the button that shows the camera.
-const scan = "Show the camera"
+// The buttons that show the camera, and that keep it out of Recents and screenshots.
+const (
+	scan   = "Show the camera"
+	secure = "Keep it out of Recents"
+)
 
 // page is what the window shows: the words under the picture, and whether the camera is let.
 type page struct {
@@ -56,7 +59,7 @@ func run() error {
 		tick := time.NewTicker(time.Second)
 		defer tick.Stop()
 		answers := make(chan bool, 1)
-		let := false
+		let, kept := false, false
 		tell := func(format string, args ...any) {
 			words := fmt.Sprintf(format, args...)
 			log.Print(words)
@@ -80,6 +83,11 @@ func run() error {
 				}
 				switch in := e.Intent.(type) {
 				case doIntent:
+					if in.what == secure {
+						kept = !kept
+						tell("Kept out of Recents and screenshots: %v, %v", kept, c.Secure(kept))
+						continue
+					}
 					// The prompt shows over the window, which goes on.
 					go func() { answers <- a.Ask(driver.PermissionCamera) }()
 				case stopped:
@@ -128,15 +136,17 @@ func (m *meter) words() string {
 	return fmt.Sprintf("%d frames a second, %s", n, *last)
 }
 
-// view is the picture over two buttons and the words.
+// view is the picture over three buttons and the words.
 type view struct {
-	finder     *widget.Viewfinder
-	show, turn *widget.Button
-	text       *widget.Label
+	finder           *widget.Viewfinder
+	show, turn, keep *widget.Button
+	text             *widget.Label
 }
 
 func newView(m *meter) *view {
-	v := &view{finder: widget.NewViewfinder(), show: widget.NewButton(scan), turn: widget.NewButton("Turn it round"), text: widget.NewLabel("")}
+	v := &view{finder: widget.NewViewfinder(), show: widget.NewButton(scan), turn: widget.NewButton("Turn it round"),
+		keep: widget.NewButton(secure), text: widget.NewLabel("")}
+	v.keep.OnClick = widget.Sends(doIntent{secure})
 	v.finder.Label = "What the camera sees"
 	v.finder.Radius = 12
 	v.finder.ReadFrame = m.read
@@ -160,16 +170,16 @@ func (v *view) set(p page, u *gunim.UI) {
 }
 
 // Children implements [gunim.Composite].
-func (v *view) Children() []gunim.Node { return []gunim.Node{v.finder, v.show, v.turn, v.text} }
+func (v *view) Children() []gunim.Node { return []gunim.Node{v.finder, v.show, v.turn, v.keep, v.text} }
 
 // Layout implements [gunim.Node]: the picture on top, then the buttons and the words.
 func (v *view) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
 	box := c.Max
 	const margin, buttonH, textH = 12, 48, 96
 	w := box.W - 2*margin
-	h := max(box.H-3*margin-textH-2*(buttonH+margin), 0)
+	h := max(box.H-3*margin-textH-3*(buttonH+margin), 0)
 	y := float32(margin)
-	for i, kh := range []float32{h, buttonH, buttonH, textH} {
+	for i, kh := range []float32{h, buttonH, buttonH, buttonH, textH} {
 		kids.At(i).Layout(gunim.Tight(geom.Sz(w, kh)))
 		kids.At(i).Place(geom.Pt(margin, y))
 		y += kh + margin

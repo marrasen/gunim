@@ -18,8 +18,10 @@ var ViewfinderFill = theme.Color("viewfinder.fill", color.NRGBA{R: 0x0c, G: 0x0e
 // reads codes. The picture fades in as it comes, and out as the camera stops. It takes no keys.
 //
 // The camera runs while the viewfinder is drawn, and stops as it leaves, as its window goes out of sight, and while SetOn has
-// it off: the program has nothing to stop. Its frames stay in memory, and once it stops the viewfinder keeps none. Ask for
-// [github.com/marrasen/gunim/driver.PermissionCamera] before it shows.
+// it off: the program has nothing to stop. Its frames stay in memory, and once it stops the viewfinder keeps none. Android
+// keeps a picture of the screen for Recents as the program leaves, which may show the last frame;
+// [github.com/marrasen/gunim.Client.Secure] keeps it out. Ask for [github.com/marrasen/gunim/driver.PermissionCamera]
+// before it shows.
 type Viewfinder struct {
 	anim.Group
 	// Front is the camera on the screen's side. Set it before the viewfinder shows, or while it is off.

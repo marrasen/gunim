@@ -674,7 +674,9 @@ is built with `-permissions confirm`. `example/confirm` shows it.
 A `widget.Viewfinder` shows what the camera sees, and hands each frame's
 brightness to the program, as to one that reads codes. The camera runs
 while the viewfinder is drawn, and stops as its page leaves and as the
-program leaves the screen. Nothing of it is written anywhere. The program
+program leaves the screen. gunim writes nothing of it anywhere. Android
+does keep a picture of the screen for Recents as the program leaves,
+which may show the last frame: `Client.Secure(true)` keeps it out. The program
 asks for `driver.PermissionCamera` first, and is built with
 `-permissions camera`. A node of the program's own does the same as a
 `gunim.CameraWatcher`, and `paint.Stream` draws pictures that come as

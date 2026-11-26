@@ -159,3 +159,100 @@ func BenchmarkPicture(b *testing.B) {
 		_, _, _, _ = f.Picture(720)
 	}
 }
+
+// colourful returns a w by h frame whose every pixel has a brightness, and every two by two pixels a colour, of their
+// own, with the colour planes apart, in rows wider than they are, as some phones give them.
+func colourful(w, h, uvPixel int) *Frame {
+	cw, ch := (w+1)/2, (h+1)/2
+	f := &Frame{Width: w, Height: h, YStride: w + 1, UVStride: uvPixel*cw + 3, UVPixel: uvPixel}
+	f.Y = make([]byte, f.YStride*h)
+	for y := range h {
+		for x := range w {
+			f.Y[y*f.YStride+x] = byte(60 + 7*x + 13*y)
+		}
+	}
+	f.U, f.V = make([]byte, f.UVStride*ch), make([]byte, f.UVStride*ch)
+	for y := range ch {
+		for x := range cw {
+			f.U[y*f.UVStride+x*uvPixel] = byte(40 + 37*x + 59*y)
+			f.V[y*f.UVStride+x*uvPixel] = byte(200 - 29*x - 43*y)
+		}
+	}
+	return f
+}
+
+// Each pixel's colour is the one its two by two have, wherever it is turned, for each way of laying out the colour.
+func TestEachPixelHasItsOwnColourForEachTurn(t *testing.T) {
+	const w, h = 6, 4
+	for _, uvPixel := range []int{1, 2} {
+		for _, turn := range []int{0, 90, 180, 270} {
+			for _, mirror := range []bool{false, true} {
+				f := colourful(w, h, uvPixel)
+				f.Turn, f.Mirror = turn, mirror
+				pix, pw, ph, err := f.Picture(0)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for y := range h {
+					for x := range w {
+						// Where (x, y) goes, worked out apart from Picture.
+						px, py := x, y
+						switch turn {
+						case 90:
+							px, py = h-1-y, x
+						case 180:
+							px, py = w-1-x, h-1-y
+						case 270:
+							px, py = y, w-1-x
+						}
+						if mirror {
+							px = pw - 1 - px
+						}
+						c := (y/2)*f.UVStride + (x/2)*uvPixel
+						r, g, b := rgb(f.Y[y*f.YStride+x], f.U[c], f.V[c])
+						o := 4 * (py*pw + px)
+						if py >= ph || [3]byte(pix[o:o+3]) != [3]byte{r, g, b} {
+							t.Fatalf("laid out %d apart, turned %d, mirrored %v: (%d, %d) is %v at (%d, %d), want %v",
+								uvPixel, turn, mirror, x, y, pix[o:o+3], px, py, [3]byte{r, g, b})
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// A frame larger than any camera's, or laid out wider apart than one is, is refused, though its planes hold it.
+func TestAFrameBeyondTheBoundsIsRefused(t *testing.T) {
+	for name, set := range map[string]func(f *Frame){
+		"colour five bytes apart": func(f *Frame) {
+			*f = *colourful(4, 2, 5)
+		},
+		"one pixel wider than the most": func(f *Frame) {
+			*f = *colourful(maxSide+1, 2, 2)
+		},
+		"one pixel higher than the most": func(f *Frame) {
+			*f = *colourful(2, maxSide+1, 2)
+		},
+		"rows of brightness further apart than any": func(f *Frame) {
+			*f = *colourful(4, 2, 2)
+			f.YStride = 4*maxSide + 1
+			f.Y = make([]byte, 2*f.YStride)
+		},
+		"rows of colour further apart than any": func(f *Frame) {
+			*f = *colourful(4, 2, 2)
+			f.UVStride = 4*maxSide + 1
+			f.U, f.V = make([]byte, f.UVStride), make([]byte, f.UVStride)
+		},
+	} {
+		f := &Frame{}
+		set(f)
+		if err := f.Check(); err == nil {
+			t.Errorf("%s: taken", name)
+		}
+	}
+	// As large as the most, it is taken.
+	if err := colourful(maxSide, 2, 2).Check(); err != nil {
+		t.Errorf("a frame as wide as the most is refused: %v", err)
+	}
+}
