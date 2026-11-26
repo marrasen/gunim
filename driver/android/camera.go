@@ -8,6 +8,7 @@ package android
 import "C"
 
 import (
+	"sync"
 	"time"
 	"unsafe"
 
@@ -20,8 +21,16 @@ import (
 // started each.
 var cameraRuns camera.Runs
 
+// cameraCalls is held from a change to cameraRuns until Java has heard of
+// it, so Java hears of starts and stops in the order cameraRuns made them.
+// Without it, two windows that start the camera at once can leave Java
+// running a run that Go has already replaced, which no StopCamera stops.
+var cameraCalls sync.Mutex
+
 // StartCamera implements [driver.Camera].
 func (w *Window) StartCamera(run int64, o driver.CameraOptions) error {
+	cameraCalls.Lock()
+	defer cameraCalls.Unlock()
 	r, was := cameraRuns.Start(w, run, o.ReadFrame)
 	if was != nil {
 		C.gunim_camera_stop(C.longlong(was.ID))
@@ -39,6 +48,8 @@ func (w *Window) StartCamera(run int64, o driver.CameraOptions) error {
 
 // StopCamera implements [driver.Camera].
 func (w *Window) StopCamera() {
+	cameraCalls.Lock()
+	defer cameraCalls.Unlock()
 	if r := cameraRuns.Stop(w); r != nil {
 		C.gunim_camera_stop(C.longlong(r.ID))
 	}
