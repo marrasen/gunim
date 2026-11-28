@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"math"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -674,5 +675,37 @@ func TestHiddenCharactersLeaveTheLetterAlone(t *testing.T) {
 	row, over := firstRow(t, []Cell{{Rune: 'e', Marks: "\u200b\u0301"}, {Rune: 'é'}})
 	if row.Cells[0].Glyph != row.Cells[1].Glyph || len(over) != 0 {
 		t.Errorf("e with a space of no width and an accent is drawn as %+v", row.Cells[0])
+	}
+}
+
+// A grid's patterns make each of their masks again at any size, as the grid draws that character in a cell of that
+// size, for cells shown under a zoom: a wide character's halves too.
+func TestAGridsPatternsDrawAtAnySize(t *testing.T) {
+	w, g, run := newCellStage(t)
+	g.SetRow(0, []Cell{{Rune: '┌'}, {Rune: '─'}, {Rune: '▌'}, {Rune: '█', Wide: true}, {}})
+	run(1)
+	row, ok := cellsRow(w.Offscreen().Ops(), 0)
+	if !ok {
+		t.Fatal("the row drew no cells")
+	}
+	pats := row.Patterns
+	if pats.MaskAt == nil {
+		t.Fatal("the grid's patterns cannot be made at another size")
+	}
+	want := map[uint16]rune{row.Cells[0].Pattern: '┌', row.Cells[1].Pattern: '─', row.Cells[2].Pattern: '▌',
+		row.Cells[3].Pattern: '█' + leftHalf, row.Cells[4].Pattern: '█' + rightHalf}
+	if len(want) != 5 || want[0] != 0 {
+		t.Fatalf("the row's patterns are %+v, want five apart", row.Cells[:5])
+	}
+	for n, r := range want {
+		for _, size := range [][2]int{{pats.W, pats.H}, {5, 11}, {6, 13}, {12, 25}} {
+			got := pats.MaskAt(int(n)-1, size[0], size[1])
+			if !slices.Equal(got, patternMask(r, size[0], size[1])) || len(got) != size[0]*size[1] {
+				t.Errorf("pattern %d, %c, made at %dx%d is not the grid's drawing of it at that size", n, r&^(leftHalf|rightHalf), size[0], size[1])
+			}
+		}
+	}
+	if got := pats.MaskAt(len(pats.Masks), 6, 13); got != nil {
+		t.Errorf("a pattern past the last made %d bytes, want none", len(got))
 	}
 }
