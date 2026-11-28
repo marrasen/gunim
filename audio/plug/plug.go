@@ -247,6 +247,34 @@ type NotesInput struct {
 	Name string
 	// Description is the port's tooltip.
 	Description string
+	// Notes names the notes the input reacts to, in the order a host lists them, as a drum map names its drums.
+	// Empty names none.
+	Notes []NoteName
+	// ByPitchClass says each of Notes names a pitch class, 0 (C) to 11 (B), in every octave.
+	ByPitchClass bool
+}
+
+// NoteName names a note a notes input reacts to, as [NotesInput.Notes] lists them.
+type NoteName struct {
+	// Note is the MIDI note, 0 to 127, or with [NotesInput.ByPitchClass] the pitch class, 0 (C) to 11 (B).
+	Note int
+	// Name labels the note's row in a host's editor: "Pad", or "Bass fill".
+	Name string
+	// Description says what the note does, as its row's tooltip.
+	Description string
+}
+
+// NoteNamed returns the name in gives MIDI note n, and false where it names none.
+func (in NotesInput) NoteNamed(n int) (NoteName, bool) {
+	if in.ByPitchClass {
+		n = (n%12 + 12) % 12
+	}
+	for _, nn := range in.Notes {
+		if nn.Note == n {
+			return nn, true
+		}
+	}
+	return NoteName{}, false
 }
 
 // mainNotesOnly is the notes inputs of a plugin that lists none.
@@ -772,6 +800,30 @@ func checkNotesIn(d *Descriptor) error {
 			return fmt.Errorf("%s has two notes inputs of key %q", d.ID, in.Key)
 		}
 		keys[in.Key] = true
+		if err := checkNoteNames(in); err != nil {
+			return fmt.Errorf("%s: notes input %q: %w", d.ID, in.Key, err)
+		}
+	}
+	return nil
+}
+
+// checkNoteNames returns what is wrong with the names in gives its notes, if anything.
+func checkNoteNames(in NotesInput) error {
+	top := 127
+	if in.ByPitchClass {
+		top = 11
+	}
+	seen := map[int]bool{}
+	for _, nn := range in.Notes {
+		switch {
+		case nn.Note < 0 || nn.Note > top:
+			return fmt.Errorf("note %d is outside 0 to %d", nn.Note, top)
+		case nn.Name == "":
+			return fmt.Errorf("note %d has no name", nn.Note)
+		case seen[nn.Note]:
+			return fmt.Errorf("note %d is named twice", nn.Note)
+		}
+		seen[nn.Note] = true
 	}
 	return nil
 }
@@ -875,7 +927,7 @@ func AddFinder(f Finder) {
 // Lookup returns the plugin registered as id, and whether there is one:
 // one registered already, or one a [Finder] registers as it is asked.
 func Lookup(id string) (Descriptor, bool) {
-	if d, ok := registered(id); ok {
+	if d, ok := Registered(id); ok {
 		return d, true
 	}
 	findersMu.Lock()
@@ -883,15 +935,15 @@ func Lookup(id string) (Descriptor, bool) {
 	findersMu.Unlock()
 	for _, f := range fs {
 		if f(id) {
-			return registered(id)
+			return Registered(id)
 		}
 	}
 	return Descriptor{}, false
 }
 
-// registered returns the plugin registered as id, and whether there is
-// one.
-func registered(id string) (Descriptor, bool) {
+// Registered returns the plugin registered as id, and whether there is one, asking no [Finder]: it loads no plugin,
+// so a host may call it while it draws.
+func Registered(id string) (Descriptor, bool) {
 	registryMu.RLock()
 	defer registryMu.RUnlock()
 	d, ok := registry[id]
