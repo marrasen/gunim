@@ -83,7 +83,7 @@ func (a *app) reveal(path string) {
 	}
 	go func() {
 		if err := reveal(path); err != nil {
-			a.post(func() { a.fail(fmt.Sprintf("Showing %s: %v", a.ps.Show(path), err)) })
+			a.post(func() { a.fail(fmt.Sprintf("Showing %s: %v", a.shown(path), err)) })
 		}
 	}()
 }
@@ -163,6 +163,7 @@ func (a *app) showPreviewOf(sel []entry) {
 			a.post(func() {
 				if a.preview.seq == seq {
 					pv.NoReveal = a.fetches()
+					pv.Shown = a.shown(path)
 					for i, f := range pv.Facts {
 						if f.Label == "In" {
 							// The top by its name.
@@ -182,7 +183,7 @@ func (a *app) showPreviewOf(sel []entry) {
 		if a.systemIconsOn() {
 			key = "dir"
 		}
-		pv := Preview{Seq: seq, Title: info.Name, Type: "This folder", Path: n.path, Shown: a.ps.Show(n.path), Tint: TintFolder, IconKey: key, Dir: true,
+		pv := Preview{Seq: seq, Title: info.Name, Type: "This folder", Path: n.path, Shown: a.shown(n.path), Tint: TintFolder, IconKey: key, Dir: true,
 			Facts: []Fact{{"Holds", plural(len(n.all), "item")}, {"Modified", a.timeText(n.mod)}, {"In", a.placeName(a.ps.Dir(n.path))}}, NoReveal: a.fetches()}
 		a.patch(pv)
 	}
@@ -283,6 +284,7 @@ func (m memory) thumbnail(fsys FS, path string, size int64) (*paint.Image, image
 	if size > m.image {
 		return nil, image.Point{}, nil
 	}
+	defer m.hold()()
 	name := fsys.Paths().Base(path)
 	b, err := readFile(fsys, path)
 	if err != nil {

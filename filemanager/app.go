@@ -139,9 +139,11 @@ type Options struct {
 	// open.
 	ReadOnly bool
 	// Memory, when above zero, is about the most the window's pictures
-	// take: the thumbnails, and a picture read for the preview or the
-	// viewer, which is refused where it would take more. A page in a
-	// browser, which has little memory, sets it.
+	// take: the thumbnails, and one picture at a time read and decoded for
+	// a thumbnail, the preview or the viewer, which is refused where it
+	// would take more. At the most they take seven eighths of it. A page
+	// in a browser, which has little memory, sets it. [Hub.SetMemory]
+	// sets it for several windows together.
 	Memory int64
 	// Poll is how often the folder showing is checked for changes: every
 	// two seconds when zero, and never when below zero.
@@ -391,6 +393,11 @@ func newApp(ctx context.Context, c screen, o Options) (*app, error) {
 	if err := a.setTop(o); err != nil {
 		return nil, err
 	}
+	if a.topHere() {
+		// The trash is elsewhere than the top, so a window kept inside one
+		// has none: a delete asks, and deletes for good.
+		tr, a.trash = nil, nil
+	}
 	switch {
 	case a.prefsPath != "":
 		a.prefs, a.prefsErr = loadPrefs(a.prefsPath)
@@ -574,6 +581,10 @@ func (a *app) post(fn func()) {
 
 // patch sends a patch to the browser.
 func (a *app) patch(v any) {
+	if n, ok := v.(Notice); ok {
+		n.Title, n.Body = a.untop(n.Title), a.untop(n.Body)
+		v = n
+	}
 	a.logShown(v)
 	if n, ok := v.(Notice); ok && !a.c.on && a.pane != nil && len(a.held) < 8 {
 		// Said once the pane shows.
@@ -634,6 +645,7 @@ func (a *app) send(err error) {
 
 // fail shows msg in the banner under the path bar.
 func (a *app) fail(msg string) {
+	msg = a.untop(msg)
 	a.banner++
 	a.bannerText = msg
 	a.patch(Banner{Seq: a.banner, Text: msg})

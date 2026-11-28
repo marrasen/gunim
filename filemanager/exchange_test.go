@@ -351,7 +351,7 @@ func TestMemoryBoundsThePictures(t *testing.T) {
 		t.Errorf("no memory set: %+v", m)
 	}
 	m := memoryOf(64 << 20)
-	if m.thumbs != 16<<20 || m.image != 8<<20 || m.pixels != 16<<20 || m.workers != 1 {
+	if m.thumbs != 16<<20 || m.image != 8<<20 || m.pixels != 4<<20 || m.workers != 1 || m.gate == nil {
 		t.Errorf("64 MB: %+v", m)
 	}
 	dir := t.TempDir()

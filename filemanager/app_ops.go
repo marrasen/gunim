@@ -145,12 +145,17 @@ func (a *app) handleOps(in gunim.Intent) bool {
 	case PauseOp:
 		a.pauseOp(v.ID, !v.Resume)
 	case UndoOp:
-		a.undo(v.ID)
+		if !a.refused() {
+			a.undo(v.ID)
+		}
 	case DismissOp:
 		a.dismissOp(v.ID)
 	case ClashAnswered, Confirmed, Prompted, PasswordGiven, DialogClosed, FavouriteEdited:
 		a.answered(in)
 	case NoticeAnswered:
+		if v.Button == 0 && a.refused() {
+			break
+		}
 		a.uploadAnswered(v)
 	case Command:
 		return a.opsCommand(v.Name)
@@ -344,7 +349,7 @@ func (a *app) askZip(fs string, ps PathStyle, paths []string, dest string) {
 			return
 		}
 		at := a.ps.Join(dest, name)
-		ask := PasswordAsk{FS: a.fs.ID(), Path: at, Where: a.ps.Show(at), Make: true}
+		ask := PasswordAsk{FS: a.fs.ID(), Path: at, Where: a.shown(at), Make: true}
 		// Asked until the window closes, which waits for the question.
 		ctx, cancel := a.untilStopped()
 		a.ops.wg.Go(func() {
@@ -419,7 +424,7 @@ func (a *app) startOp(j job, title string) {
 		outside: systemClip.outside,
 	}
 	if j.kind == OpExtract {
-		ask := PasswordAsk{FS: a.fs.ID(), Path: j.srcs[0], Where: a.ps.Show(j.srcs[0])}
+		ask := PasswordAsk{FS: a.fs.ID(), Path: j.srcs[0], Where: a.shown(j.srcs[0])}
 		e.password = func(ctx context.Context, wrong bool) (Password, error) {
 			ask.Wrong = wrong
 			return a.askPassword(ctx, id, ask)
@@ -631,7 +636,7 @@ func (a *app) publishOps() {
 		if !ok {
 			t.OpProgress = OpProgress{Done: 1, Bytes: t.BytesTotal, BytesTotal: t.BytesTotal,
 				Items: t.ItemsTotal, ItemsTotal: t.ItemsTotal}
-			v.Ended, v.Note, v.Undo, v.Stays, v.Took = true, r.end.note, r.end.undo != 0, r.end.stays, r.end.took
+			v.Ended, v.Note, v.Undo, v.Stays, v.Took = true, r.end.note, r.end.undo != 0 && a.mayChange(), r.end.stays, r.end.took
 			t.Speed, t.ItemSpeed = r.end.speed, r.end.itemSpeed
 		}
 		v.OpProgress = t.OpProgress
@@ -956,6 +961,7 @@ func (a *app) showError(e ErrorBox) { a.showErrorThen(e, func(bool) {}) }
 
 // showErrorThen shows e, and tells then whether Retry was picked.
 func (a *app) showErrorThen(e ErrorBox, then func(retry bool)) {
+	e.Title, e.Body = a.untop(e.Title), a.untop(e.Body)
 	a.logShown(e)
 	a.showDialog(&dialog{view: "error", state: e, answer: func(in gunim.Intent) {
 		v, _ := in.(DialogClosed)

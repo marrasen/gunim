@@ -3,6 +3,7 @@ package filemanager
 import (
 	"fmt"
 	"slices"
+	"strings"
 )
 
 // The top: a folder the window keeps inside, as Options.Top says, on the
@@ -55,6 +56,56 @@ func (a *app) placeName(p string) string {
 	return a.ps.placeName(p)
 }
 
+// shown is the path p as the user reads it: under a top, from the top's
+// name, as "Share/Reports", and otherwise as the path style writes it.
+func (a *app) shown(p string) string {
+	if !a.topHere() || a.aboveTop(p) {
+		return a.ps.Show(p)
+	}
+	return showUnder(a.ps, a.top.path, a.top.name, p)
+}
+
+// showUnder is p, inside top, written from top's name.
+func showUnder(ps PathStyle, top, name, p string) string {
+	rel, err := ps.Rel(top, p)
+	if err != nil || rel == "." {
+		return name
+	}
+	return name + ps.Sep() + rel
+}
+
+// untop is text the window shows, with every whole path of the top in it
+// written from the top's name, as an error of the file system's says
+// them. A top at the very top of its file system names nothing but
+// itself, and stays as it is.
+func (a *app) untop(text string) string {
+	if !a.topHere() {
+		return text
+	}
+	top := a.ps.Show(a.top.path)
+	if a.ps.Dir(a.top.path) == a.top.path || top == "" {
+		return text
+	}
+	text = strings.ReplaceAll(text, top+a.ps.Sep(), a.top.name+a.ps.Sep())
+	return strings.ReplaceAll(text, top, a.top.name)
+}
+
+// typedPath is the path the user typed, where it begins with the top's
+// name, as the path bar shows it: the folder under the top.
+func (a *app) typedPath(typed string) string {
+	if !a.topHere() {
+		return typed
+	}
+	name := a.top.name
+	switch {
+	case typed == name:
+		return a.top.path
+	case strings.HasPrefix(typed, name+a.ps.Sep()), strings.HasPrefix(typed, name+"/"):
+		return a.ps.Join(a.top.path, typed[len(name)+1:])
+	}
+	return typed
+}
+
 // refuseAbove says the folder at p cannot be gone to, being above the top.
 func (a *app) refuseAbove(p string) {
 	a.fail(a.ps.Show(p) + " is outside " + a.top.name + ".")
@@ -83,7 +134,7 @@ func (a *app) withinTop(ps []Place) []Place {
 		return ps
 	}
 	return slices.DeleteFunc(slices.Clone(ps), func(p Place) bool {
-		return p.FS == a.fs.ID() && p.Path != TrashPath && a.aboveTop(p.Path)
+		return p.FS == a.fs.ID() && (p.Path == TrashPath || a.aboveTop(p.Path))
 	})
 }
 

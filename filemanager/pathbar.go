@@ -57,16 +57,15 @@ func newPathBar(b *browser) *pathBar {
 	p.deep.KeepFocus = true
 	p.deep.OnClick = widget.Sends(Command{Name: CmdDeepFilter})
 	nav := func(b *widget.IconButton) gunim.Node { return widget.NewSized(b, navSize, navSize) }
-	filter := widget.Row(p.filter, nav(p.deep)).Grow(p.filter, 1)
+	p.upload = widget.NewIconButton(icon.Upload, "Upload files")
+	p.upload.KeepFocus = true
+	p.upload.OnClick = widget.Sends(Command{Name: CmdUpload})
+	filter := widget.Row(p.filter, &tailButtons{deep: nav(p.deep), upload: nav(p.upload), b: b}).Grow(p.filter, 1)
 	filter.Cross, filter.Gap = widget.CrossCenter, smallGap
 	// The menus sit behind a button left of Back, drawn as the path bar's
 	// buttons are, on nothing of their own.
 	menus := &menuSlot{child: widget.NewThemed(widget.NewSized(b.title.bar, navSize+8, navSize), menuButtonTheme()), b: b}
-	p.upload = widget.NewIconButton(icon.Upload, "Upload files")
-	p.upload.KeepFocus = true
-	p.upload.OnClick = widget.Sends(Command{Name: CmdUpload})
-	upload := &browserSlot{child: nav(p.upload), b: b}
-	p.row = widget.Row(menus, nav(p.back), nav(p.fwd), nav(p.up), p.addr, &filterBox{child: filter, bar: p}, upload).Grow(p.addr, 1)
+	p.row = widget.Row(menus, nav(p.back), nav(p.fwd), nav(p.up), p.addr, &filterBox{child: filter, bar: p}).Grow(p.addr, 1)
 	p.row.Cross = widget.CrossCenter
 	p.row.Gap = smallGap
 	return p
@@ -103,31 +102,35 @@ func (m *menuSlot) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids guni
 	}
 }
 
-// browserSlot holds what only a window in a browser has, and nothing
-// elsewhere.
-type browserSlot struct {
-	child gunim.Node
-	b     *browser
+// tailButtons are the buttons after the filter: the one that has it look
+// in the folders under this one, and in a browser Upload files after it.
+type tailButtons struct {
+	deep, upload gunim.Node
+	b            *browser
 }
 
 // Children implements [gunim.Composite].
-func (m *browserSlot) Children() []gunim.Node { return []gunim.Node{m.child} }
+func (t *tailButtons) Children() []gunim.Node { return []gunim.Node{t.deep, t.upload} }
 
 // Layout implements [gunim.Node].
-func (m *browserSlot) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
-	if !m.b.shell.Browser {
-		kids.At(0).Layout(gunim.Tight(geom.Size{}))
-		return geom.Size{}
-	}
+func (t *tailButtons) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
 	size := kids.At(0).Layout(c)
 	kids.At(0).Place(geom.Point{})
-	return size
+	if !t.b.shell.Browser {
+		kids.At(1).Layout(gunim.Tight(geom.Size{}))
+		return size
+	}
+	gap := smallGap.Get(f.Theme)
+	us := kids.At(1).Layout(c)
+	kids.At(1).Place(geom.Pt(size.W+gap, 0))
+	return geom.Sz(size.W+gap+us.W, max(size.H, us.H))
 }
 
 // Paint implements [gunim.Node].
-func (m *browserSlot) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim.Children) {
-	if m.b.shell.Browser {
-		kids.At(0).Paint(p)
+func (t *tailButtons) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim.Children) {
+	kids.At(0).Paint(p)
+	if t.b.shell.Browser {
+		kids.At(1).Paint(p)
 	}
 }
 
@@ -154,9 +157,13 @@ type filterBox struct {
 func (f *filterBox) Children() []gunim.Node { return []gunim.Node{f.child} }
 
 // Layout implements [gunim.Node].
-func (f *filterBox) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
+func (f *filterBox) Layout(c gunim.Constraints, fr gunim.Frame, kids gunim.Children) geom.Size {
 	room := f.bar.room
 	w := min(max(room*0.25, 120), 220) + navSize
+	if f.bar.b.shell.Browser {
+		// Upload files, after the filter's own button.
+		w += navSize + smallGap.Get(fr.Theme)
+	}
 	if f.hidden = room > 0 && room < 560; f.hidden {
 		w = 0
 	}
@@ -207,7 +214,7 @@ func (p *pathBar) setListing(l Listing, u *gunim.UI) {
 		for i, c := range l.Crumbs {
 			cs[i] = widget.Crumb{Name: c.Name, Path: c.Path}
 		}
-		p.addr.SetPath(p.b.shell.Paths.Show(l.Path), cs, u)
+		p.addr.SetPath(p.b.shell.show(l.Path), cs, u)
 		p.filter.SetText(l.Filter, u)
 	}
 }

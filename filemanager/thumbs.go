@@ -207,7 +207,8 @@ func (a *app) thumbMade(job thumbJob, done thumbDone) {
 	t.cache[job.key] = done
 	t.order = append(t.order, job.key)
 	t.bytes += thumbBytes(done)
-	for int64(t.bytes) > a.mem.thumbs && len(t.order) > 1 {
+	most := a.thumbsShare()
+	for int64(t.bytes) > most && len(t.order) > 1 {
 		old := t.order[0]
 		t.order = t.order[1:]
 		t.bytes -= thumbBytes(t.cache[old])
@@ -255,6 +256,7 @@ func (m memory) makeThumb(fsys FS, path string, size int, online bool) (*paint.I
 		}
 		return paint.NewImageFit(img, size, size), image.Point{}, nil
 	}
+	defer m.hold()()
 	img, full, err := m.decodePicture(fsys, path)
 	if err != nil {
 		return nil, full, err
@@ -263,7 +265,7 @@ func (m memory) makeThumb(fsys FS, path string, size int, online bool) (*paint.I
 }
 
 // decodePicture reads the picture at path on fsys, and returns it with its size. A picture of more than m.pixels is
-// refused, with its size in the error.
+// refused, with its size in the error. The caller holds the memory's gate.
 func (m memory) decodePicture(fsys FS, path string) (img image.Image, size image.Point, err error) {
 	name := fsys.Paths().Base(path)
 	f, err := fsys.Open(path)

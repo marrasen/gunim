@@ -38,6 +38,9 @@ type Hub struct {
 	// moving or has moved, so each moves once.
 	cuts map[uint32]bool
 	favs map[string]*memFavourites
+	// mem is what the windows' pictures take together, where SetMemory
+	// says.
+	mem memory
 	// open opens a window with o and serves it, and is nil where no
 	// window can open, as in a test.
 	open func(o Options) error
@@ -280,6 +283,9 @@ func joinHub(a *app, h *Hub) *Hub {
 		h = &Hub{}
 	}
 	h.mu.Lock()
+	if h.mem.gate != nil {
+		a.mem = h.mem
+	}
 	h.apps = append(h.apps, a)
 	if h.ids == nil {
 		h.ids = map[*app]string{}

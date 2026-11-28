@@ -2,12 +2,14 @@ package filemanager
 
 import (
 	"archive/zip"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -165,17 +167,17 @@ func (a *app) startUploadInto(into string, streams []*input.Stream) {
 	e := env{fs: a.fs, ask: ask, pause: r.pause, report: func(p progress) { a.post(func() { a.progressed(id, p) }) }}
 	a.ops.wg.Go(func() {
 		run := &runner{ctx: ctx, env: e, rec: record{kind: OpCopy}}
-		landed, skipped, err := run.uploadAll(streams, into)
+		landed, folders, bad, err := run.uploadAll(streams, into)
 		run.tell(true)
 		stopped := ctx.Err() != nil
-		a.post(func() { a.uploadEnded(id, into, what, landed, skipped, err, stopped) })
+		a.post(func() { a.uploadEnded(id, into, what, landed, folders, bad, err, stopped) })
 	})
 }
 
 // uploadEnded takes the end of upload id into the folder into, which
 // put the files landed there and left out skipped, those that were no
 // files, as folders are.
-func (a *app) uploadEnded(id int, into, what string, landed, skipped []string, err error, stopped bool) {
+func (a *app) uploadEnded(id int, into, what string, landed, folders, bad []string, err error, stopped bool) {
 	r, ok := a.ops.running[id]
 	if !ok {
 		return
@@ -184,9 +186,16 @@ func (a *app) uploadEnded(id int, into, what string, landed, skipped []string, e
 	r.cancel()
 	a.dropDialogs(id)
 	n := Notice{Title: "Uploaded " + what + " to " + a.placeName(into), Kind: "success"}
-	if len(skipped) > 0 {
-		n.Body = "Left out " + whatIn(a.ps, skipped) + ": only files can be uploaded, not folders."
-		n.Kind = "warning"
+	var left []string
+	if len(folders) > 0 {
+		left = append(left, "Left out "+whatIn(a.ps, folders)+": only files can be uploaded, not folders.")
+	}
+	if len(bad) > 0 {
+		left = append(left, "Left out "+strings.Join(bad, ", ")+".")
+	}
+	skipped := len(left) > 0
+	if skipped {
+		n.Body, n.Kind = strings.Join(left, " "), "warning"
 	}
 	switch {
 	case stopped || errors.Is(err, context.Canceled) || errors.Is(err, errStopped):
@@ -196,7 +205,7 @@ func (a *app) uploadEnded(id int, into, what string, landed, skipped []string, e
 	case err != nil:
 		a.endCard(r, false, Notice{})
 		a.showError(ErrorBox{Title: "The upload stopped", Body: err.Error()})
-	case !a.endCard(r, len(skipped) == 0, n) || len(skipped) > 0:
+	case !a.endCard(r, !skipped, n) || skipped:
 		a.patch(n)
 	}
 	if a.ps.Same(into, a.nav.path) {
@@ -210,9 +219,9 @@ func (a *app) uploadEnded(id int, into, what string, landed, skipped []string, e
 }
 
 // uploadAll writes each of streams into the folder dest, and returns the
-// paths written and the names of those that were folders. It closes
-// every stream.
-func (r *runner) uploadAll(streams []*input.Stream, dest string) (landed, skipped []string, err error) {
+// paths written, the names of those that were folders, and those left out
+// for their names, with why. It closes every stream.
+func (r *runner) uploadAll(streams []*input.Stream, dest string) (landed, folders, badNames []string, err error) {
 	defer closeStreams(streams)
 	r.p.itemsTotal = len(streams)
 	for _, s := range streams {
@@ -220,16 +229,22 @@ func (r *runner) uploadAll(streams []*input.Stream, dest string) (landed, skippe
 			r.p.bytesTotal += s.Size
 		}
 	}
+	ps := r.env.fs.Paths()
 	for _, s := range streams {
 		if err := r.ctx.Err(); err != nil {
-			return landed, skipped, err
+			return landed, folders, badNames, err
 		}
-		to, err := r.uploadOne(s, dest)
+		var to string
+		if nerr := checkName(ps, s.Name); nerr != nil {
+			badNames = append(badNames, s.Name+" ("+nerr.Error()+")")
+		} else {
+			to, err = r.uploadOne(s, dest)
+		}
 		switch {
 		case errors.Is(err, input.ErrFolder):
-			skipped = append(skipped, s.Name)
+			folders, err = append(folders, s.Name), nil
 		case err != nil:
-			return landed, skipped, err
+			return landed, folders, badNames, err
 		case to != "":
 			landed = append(landed, to)
 		}
@@ -237,20 +252,33 @@ func (r *runner) uploadAll(streams []*input.Stream, dest string) (landed, skippe
 		r.p.items++
 		r.tell(false)
 	}
-	return landed, skipped, nil
+	return landed, folders, badNames, nil
 }
 
 // uploadOne writes s into the folder dest, and returns where it went, or
-// "" where the user skipped it.
+// "" where the user skipped it. Its first bytes are read before anything
+// is asked or made, so a folder dropped is found to be one first, and
+// fails with input.ErrFolder.
 func (r *runner) uploadOne(s *input.Stream, dest string) (string, error) {
 	fsys := r.env.fs
 	ps := fsys.Paths()
-	if err := checkName(ps, s.Name); err != nil {
-		return "", fmt.Errorf("%s: %w", s.Name, err)
-	}
 	to := ps.Join(dest, s.Name)
 	r.p.current = to
 	r.tell(false)
+	first := make([]byte, 64<<10)
+	n, rerr := io.ReadFull(s, first)
+	switch {
+	case errors.Is(rerr, io.EOF), errors.Is(rerr, io.ErrUnexpectedEOF):
+		// All of it is in hand.
+	case errors.Is(rerr, input.ErrFolder):
+		return "", input.ErrFolder
+	case rerr != nil:
+		return "", fmt.Errorf("reading %s: %w", s.Name, rerr)
+	}
+	from := io.MultiReader(bytes.NewReader(first[:n]), s)
+	if rerr != nil {
+		from = bytes.NewReader(first[:n])
+	}
 	replace := false
 	if old, err := fsys.Lstat(to); err == nil {
 		ans, err := r.decide(clash{dst: to, sameKind: !old.IsDir(), from: ItemFacts(max(s.Size, 0), false, time.Time{})})
@@ -274,7 +302,9 @@ func (r *runner) uploadOne(s *input.Stream, dest string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("writing %s: %w", ps.Show(to), err)
 	}
-	if err := r.pourAs(out, s, s.Name, ps.Show(to), true); err != nil {
+	// What failed takes its part file with it, where the file system
+	// still answers.
+	if err := r.pourAs(out, from, s.Name, ps.Show(to), true); err != nil {
 		return "", errors.Join(err, out.Close(), fsys.Remove(part))
 	}
 	if err := out.Close(); err != nil {
@@ -320,7 +350,9 @@ func (a *app) download(paths []string) {
 	}
 	paths = slices.Clone(paths)
 	es := a.selectedEntries()
-	one := len(paths) == 1 && len(es) == 1 && !es[0].Dir && !a.opensAsFolder(es[0])
+	// A file goes as it is, an archive too, though the window walks into
+	// it.
+	one := len(paths) == 1 && len(es) == 1 && !es[0].Dir
 	name := a.ps.Base(paths[0])
 	if !one {
 		name = zipName(a.ps, paths)

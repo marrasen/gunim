@@ -28,6 +28,9 @@ type FileDrag struct {
 	// Style is how the items' file system writes paths: the zero value,
 	// SystemPaths, for the computer's own.
 	Style PathStyle
+	// ReadOnly says the items are of a window that may change nothing,
+	// so they are copied, and never moved away.
+	ReadOnly bool
 	// scripted marks a drag a script started, which never leaves the
 	// window.
 	scripted bool
@@ -169,7 +172,7 @@ func planDrop(t dropTarget, transfers bool, d FileDrag, mods input.Mods) (DropFi
 	}
 	copying := across || d.Volume == "" || t.vol == "" || d.Volume != t.vol
 	switch {
-	case mods.Has(input.ModControl):
+	case mods.Has(input.ModControl) || d.ReadOnly:
 		copying = true
 	case mods.Has(input.ModShift):
 		copying = false
@@ -510,7 +513,8 @@ func (v *dndView) crumbSpot(d input.Drop, u *gunim.UI) (widget.DropSpot, bool) {
 // picture of their names.
 func (pg *listingPage) dragRows(sel [][2]int, _ geom.Point) (any, gunim.Node, geom.Point) {
 	dir := pg.b.listing.path
-	d := FileDrag{Volume: pg.b.dnd.vols[dir], FS: pg.b.shell.FS, Style: pg.b.shell.Paths, scripted: pg.b.dnd.scripting}
+	d := FileDrag{Volume: pg.b.dnd.vols[dir], FS: pg.b.shell.FS, Style: pg.b.shell.Paths, scripted: pg.b.dnd.scripting,
+		ReadOnly: pg.b.shell.ReadOnly}
 	var items []Row
 	for _, r := range sel {
 		for i := r[0]; i < r[1]; i++ {

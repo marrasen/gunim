@@ -113,7 +113,10 @@ Download saves the items selected (a folder, or several items, as one
 zip) through `Client.SaveStream`, and Upload files, the path bar's
 button or files dropped on the window put files into a folder from
 `Client.ChooseStreams` or the drop's streams. Its settings last as long
-as the page, and `Options.Memory` bounds what its pictures take.
+as the page, and `Options.Memory`, or `Hub.SetMemory` for several
+windows together, bounds what its pictures take: one picture is decoded
+at a time, and at the most they take seven eighths of it. Under a top
+there is no trash, and every path shows from the top's name.
 
 ```sh
 CGO_ENABLED=0 go run ./example/files

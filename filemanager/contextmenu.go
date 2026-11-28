@@ -29,7 +29,7 @@ const (
 func changes(cmd string) bool {
 	switch cmd {
 	case CmdCut, CmdPaste, CmdPasteZip, CmdRename, CmdDuplicate, CmdZip, CmdExtract, CmdTrash, CmdDelete, CmdNewFolder,
-		CmdUpload:
+		CmdUpload, CmdEmptyTrash:
 		return true
 	}
 	return false
@@ -400,11 +400,11 @@ func (v *dndView) copyPaths(u *gunim.UI) {
 	if l.cur != nil {
 		rows, _ := l.cur.selectedRows(l.cur.selection())
 		for _, r := range rows {
-			paths = append(paths, v.b.shell.Paths.Show(v.b.shell.Paths.Join(l.path, r.Name)))
+			paths = append(paths, v.b.shell.show(v.b.shell.Paths.Join(l.path, r.Name)))
 		}
 	}
 	if len(paths) == 0 {
-		paths = []string{v.b.shell.Paths.Show(l.path)}
+		paths = []string{v.b.shell.show(l.path)}
 	}
 	u.SetClipboard(strings.Join(paths, "\n"))
 }
@@ -643,7 +643,9 @@ func (s *sideMenu) prepare(at geom.Point, u *gunim.UI) bool {
 		}
 	}
 	unread := pr.item.Err != ""
-	s.st.cmds = fill(s.m, items, func(cmd string) bool { return cmd == localUsage && unread }, func(string) bool { return false })
+	readOnly := s.b.shell.ReadOnly
+	s.st.cmds = fill(s.m, items, func(cmd string) bool { return cmd == localUsage && unread || readOnly && changes(cmd) },
+		func(string) bool { return false })
 	return true
 }
 

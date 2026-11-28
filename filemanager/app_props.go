@@ -25,6 +25,13 @@ func (a *app) properties() {
 				a.fail("Reading the properties: " + err.Error())
 				return
 			}
+			if a.topHere() {
+				// Written from the top's name, as the path bar has it.
+				p.Location = a.shown(a.ps.Dir(paths[0]))
+				if len(paths) == 1 && a.atTop(paths[0]) {
+					p.Name, p.Title, p.Location = a.top.name, "Properties of "+a.top.name, ""
+				}
+			}
 			a.showProps(paths, p, count)
 		})
 	}()
@@ -191,6 +198,9 @@ var errNoAttrs = errors.New("the items here have no read-only and hidden attribu
 
 // applyAttrs sets the read-only and hidden attributes of path.
 func (a *app) applyAttrs(path string, readOnly, hidden bool) {
+	if a.refused() {
+		return
+	}
 	fsys := a.fs
 	go func() {
 		err := errNoAttrs

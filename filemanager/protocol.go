@@ -113,6 +113,15 @@ type Shell struct {
 	Top, TopName string
 }
 
+// show is the path p as the user reads it: under a top, from the top's
+// name, as the window writes it.
+func (s Shell) show(p string) string {
+	if s.Top != "" && s.Paths.inside(p, s.Top) {
+		return showUnder(s.Paths, s.Top, s.TopName, p)
+	}
+	return s.Paths.Show(p)
+}
+
 // placeName is what the window calls the folder at p: the top by its
 // name.
 func (s Shell) placeName(p string) string {
