@@ -74,6 +74,7 @@ func (u *UI) handleRaw(root *state, ev any) {
 		if s, ok := ev.(driver.StreamsOpened); ok {
 			closeStreams(s.Streams)
 		}
+		closeStreams(dropStreams(ev))
 		return
 	}
 	if u.fadeOut {
@@ -81,6 +82,7 @@ func (u *UI) handleRaw(root *state, ev any) {
 		switch ev.(type) {
 		case driver.WindowFocus, driver.WindowShown, driver.WindowCovered, driver.FilesOpened, driver.StreamsOpened:
 		default:
+			closeStreams(dropStreams(ev))
 			return
 		}
 	}
@@ -398,6 +400,10 @@ func (u *UI) handleRaw(root *state, ev any) {
 		took := u.dispatchAt(root, e.Pos, func(local geom.Point) input.Event {
 			return input.Drop{Pos: local, Data: data, Paths: e.Paths, Mods: e.Mods, Time: e.Time}
 		})
+		if took == nil {
+			// The files a browser handed over are no one's.
+			closeStreams(dropStreams(e))
+		}
 		// The node the files hovered over hears they left, if another
 		// took them.
 		if u.dragAt != nil && u.dragAt != took {

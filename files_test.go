@@ -1,6 +1,10 @@
 package gunim
 
 import (
+	"errors"
+	"io"
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 
@@ -90,5 +94,64 @@ func TestFilesDraggedInAreOfferedToTheNodesUnderThemAsTheyMove(t *testing.T) {
 	w.Input(driver.FilesLeft{})
 	if after := bk.heard(); len(after) != 0 {
 		t.Fatalf("after the drop the basket heard %v", after)
+	}
+}
+
+func TestADropOfStreamsNoNodeTakesIsLetGo(t *testing.T) {
+	w := newTestWindow()
+	bk := &fileBasket{}
+	w.ui.Insert(w.ui.Root(), bk)
+	run(w, 1)
+
+	// Taken, the streams are the taker's.
+	taken, took := sentStream("a")
+	w.Input(input.Drop{Pos: geom.Pt(10, 10), Data: input.Files{Streams: []*input.Stream{taken}}})
+	run(w, 1)
+	got := bk.heard()
+	if len(got) != 1 || took.closed != 0 {
+		t.Fatalf("a drop on the basket brought %v, and closed its stream %d times", got, took.closed)
+	}
+	if d, _ := got[0].(input.Drop); len(StreamsOf(d.Data.(input.Files))) != 1 || StreamsOf(d.Data.(input.Files))[0] != taken {
+		t.Fatalf("the basket heard %v, want the stream dropped", got[0])
+	}
+
+	// Dropped where no node takes them, gunim closes them.
+	lost, left := sentStream("b")
+	w.Input(input.Drop{Pos: geom.Pt(500, 10), Data: input.Files{Streams: []*input.Stream{lost}}})
+	run(w, 1)
+	if left.closed != 1 {
+		t.Fatalf("a drop no node took left its stream closed %d times, want once", left.closed)
+	}
+}
+
+func TestStreamsOfOpensTheFilesDroppedAsTheyAreRead(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "a.txt")
+	if err := os.WriteFile(file, []byte("hello"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	folder := filepath.Join(dir, "sub")
+	if err := os.Mkdir(folder, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	streams := StreamsOf(input.Files{Paths: []string{file, folder, filepath.Join(dir, "gone.txt")}})
+	if len(streams) != 3 {
+		t.Fatalf("three paths gave %d streams", len(streams))
+	}
+	defer closeStreams(streams)
+
+	// Changed before the first read, the file is read as it is then: it
+	// opens as it is read.
+	if err := os.WriteFile(file, []byte("HELLO"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if b, err := io.ReadAll(streams[0]); err != nil || string(b) != "HELLO" || streams[0].Name != "a.txt" || streams[0].Size != 5 {
+		t.Fatalf("the file %q of %d read %q, %v", streams[0].Name, streams[0].Size, b, err)
+	}
+	if _, err := io.ReadAll(streams[1]); !errors.Is(err, input.ErrFolder) || streams[1].Name != "sub" {
+		t.Fatalf("the folder %q read with %v, want ErrFolder", streams[1].Name, err)
+	}
+	if _, err := io.ReadAll(streams[2]); err == nil {
+		t.Fatal("a file that is gone read")
 	}
 }

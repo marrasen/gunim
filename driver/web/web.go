@@ -111,6 +111,11 @@ type Driver struct {
 	// pointer until it lifts, and hover the window a hovering mouse is
 	// over.
 	pressed, hover *Window
+	// filesOver is the window files dragged in from the computer are over,
+	// filesAt where in it and filesMods with what held, as it was last told.
+	filesOver *Window
+	filesAt   geom.Point
+	filesMods input.Mods
 	// pointer is the id of the pointer pressing: one drives the pointer at
 	// a time, as gunim has one, and a second finger is its own or pinches.
 	// fingers is the window each finger of its own came down in, by id.
@@ -621,6 +626,9 @@ func (d *Driver) closed(w *Window) {
 	if d.hover == w {
 		d.hover = nil
 	}
+	if d.filesOver == w {
+		d.filesOver = nil
+	}
 	typing := d.typing == w
 	if typing {
 		d.typing = nil
@@ -854,6 +862,7 @@ func (d *Driver) listen(doc js.Value) {
 	d.secret.Call("setAttribute", "autocorrect", "off")
 	d.text = d.plain
 
+	d.listenFiles(c)
 	d.on(c, "contextmenu", false, func(e js.Value) { e.Call("preventDefault") })
 	d.on(c, "pointerdown", false, func(e js.Value) {
 		// What a paste brought goes where the focus is, before the press can move it.

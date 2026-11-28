@@ -293,7 +293,8 @@ type WindowCovered struct{ Covered bool }
 // at Pos, in logical pixels, with their Paths once the system has told
 // them, which may be a moment after the drag arrives. Mods are the
 // modifier keys held. FilesLeft is sent as the drag leaves with no
-// drop; a drop arrives as an [input.Drop] with its Paths.
+// drop; a drop arrives as an [input.Drop] with its Paths. A browser tells
+// no paths, and its drop carries [input.Files] with the files' Streams.
 type FilesOver struct {
 	Pos   geom.Point
 	Paths []string

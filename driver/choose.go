@@ -48,6 +48,16 @@ type StreamChooser interface {
 // can show.
 var ErrNoChooser = errors.New("driver: no file dialog on this platform")
 
+// ErrNoGesture is returned where the system shows its file dialog only as
+// the user clicks or types, as a browser does, and the user has done
+// neither for a while. The program shows a button that asks again.
+var ErrNoGesture = errors.New("driver: the browser shows its file dialog only as the user clicks or types")
+
+// ErrNoDialog is returned where the system will show no file dialog for
+// this program at all, as a browser for a page in a frame of another site.
+// The error holds the system's words.
+var ErrNoDialog = errors.New("driver: the system shows no file dialog here")
+
 // SaveOptions describes a dialog for choosing where to save a file.
 type SaveOptions struct {
 	Title string

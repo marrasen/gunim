@@ -39,6 +39,21 @@ type SavedFile interface {
 	Remove() error
 }
 
+// A MemorySaved is a [SavedFile] that may hold the whole file in memory
+// until Close, as a browser's download does where nothing can write it to
+// the disk as it comes. See [HeldInMemory].
+type MemorySaved interface {
+	InMemory() bool
+}
+
+// HeldInMemory reports whether f may hold the whole file in memory until
+// it is closed: a program refuses a file larger than memory can hold
+// there, or warns of it, before it writes.
+func HeldInMemory(f SavedFile) bool {
+	m, ok := f.(MemorySaved)
+	return ok && m.InMemory()
+}
+
 // A SavedFolder is a folder the user chose, to write files in. Its paths
 // are relative, with slashes, as [io/fs.ValidPath] has them, and the
 // folders on the way are made.
