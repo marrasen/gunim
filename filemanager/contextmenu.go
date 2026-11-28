@@ -28,7 +28,8 @@ const (
 // what the folder showing holds, which in an archive it cannot.
 func changes(cmd string) bool {
 	switch cmd {
-	case CmdCut, CmdPaste, CmdPasteZip, CmdRename, CmdDuplicate, CmdZip, CmdExtract, CmdTrash, CmdDelete, CmdNewFolder:
+	case CmdCut, CmdPaste, CmdPasteZip, CmdRename, CmdDuplicate, CmdZip, CmdExtract, CmdTrash, CmdDelete, CmdNewFolder,
+		CmdUpload:
 		return true
 	}
 	return false
@@ -37,6 +38,7 @@ func changes(cmd string) bool {
 // rowItems are the context menu of the items selected.
 var rowItems = []menuItem{
 	{"Open", "Enter", CmdOpen},
+	{"Download", "", CmdDownload},
 	{"View", "Space", CmdViewer},
 	{"Open with system", "", CmdOpenSystem},
 	{"Open with", "", localOpenWith},
@@ -66,6 +68,7 @@ var rowItems = []menuItem{
 // beside the items.
 var emptyItems = []menuItem{
 	{"New folder", "Ctrl+Shift+N", CmdNewFolder},
+	{"Upload files…", "", CmdUpload},
 	{"Paste", "Ctrl+V", CmdPaste},
 	{"Paste as zip…", "", CmdPasteZip},
 	{"Refresh", "F5", CmdRefresh},
@@ -198,8 +201,8 @@ func (pg *listingPage) contextMenu(g gunim.Node, rowAt func(geom.Point) int, sel
 		if row < 0 {
 			b.listing.selectNone(u)
 			st = menuState{path: b.listing.path}
-			readOnly := b.listing.readOnly != ""
-			st.cmds = fill(m, emptyItems, func(cmd string) bool {
+			readOnly := b.listing.readOnly != "" || b.shell.ReadOnly
+			st.cmds = fill(m, b.shell.offered(emptyItems), func(cmd string) bool {
 				return (cmd == CmdPaste || cmd == CmdPasteZip) && clipEmpty || readOnly && changes(cmd)
 			}, b.title.checked)
 			b.paneHints(m, st.cmds)
@@ -211,7 +214,7 @@ func (pg *listingPage) contextMenu(g gunim.Node, rowAt func(geom.Point) int, sel
 		if one {
 			st.path = b.shell.Paths.Join(b.listing.path, sel[0].Name)
 		}
-		items := rowItems
+		items := b.shell.offered(rowItems)
 		if b.shell.Fetches {
 			items = without(items, CmdReveal)
 		}
@@ -242,7 +245,7 @@ func (pg *listingPage) contextMenu(g gunim.Node, rowAt func(geom.Point) int, sel
 			// Only for an archive it can open.
 			items = without(items, CmdExtract)
 		}
-		readOnly := b.listing.readOnly != ""
+		readOnly := b.listing.readOnly != "" || b.shell.ReadOnly
 		st.cmds = fill(m, items, func(cmd string) bool {
 			if readOnly && changes(cmd) {
 				return true
@@ -628,6 +631,7 @@ func (s *sideMenu) prepare(at geom.Point, u *gunim.UI) bool {
 	case pr.item.Kind == "trash":
 		items = trashPlaceItems
 	}
+	items = s.b.shell.offered(items)
 	if pr.item.away {
 		items = without(without(items, localUsage), CmdEmptyTrash)
 	}

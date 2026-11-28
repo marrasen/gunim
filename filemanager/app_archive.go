@@ -150,16 +150,31 @@ func (a *app) askUnlock(ar *archives, p string) {
 // readOnlyHere refuses the command name where it would change what the
 // archive showing holds, and says why. It reports whether it did.
 func (a *app) readOnlyHere(name string) bool {
-	if a.nav.archive == "" {
-		return false
+	if a.shell.ReadOnly && (changes(name) || name == CmdUndo) {
+		a.refuseReadOnly()
+		return true
 	}
-	switch name {
-	case CmdCut, CmdPaste, CmdPasteZip, CmdTrash, CmdDelete, CmdRename, CmdNewFolder, CmdZip, CmdExtract, CmdDuplicate:
-	default:
+	if a.nav.archive == "" || !changes(name) {
 		return false
 	}
 	a.refuseArchive(a.nav.archive)
 	return true
+}
+
+// refuseReadOnly says that the files of a window that is read only do
+// not change.
+func (a *app) refuseReadOnly() {
+	a.patch(Notice{Title: readOnlyHint, Body: "Nothing here can be changed.", Kind: "info"})
+}
+
+// setReadOnly shows the files to look at only, or to change too.
+func (a *app) setReadOnly(on bool) {
+	if a.shell.ReadOnly == on {
+		return
+	}
+	a.shell.ReadOnly = on
+	a.opts.ReadOnly = on
+	a.publishShell()
 }
 
 // refuseArchive says that what the archive at p holds does not change.

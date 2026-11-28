@@ -105,6 +105,15 @@ renames, makes folders, and moves items to the trash, each in the
 background with progress, cancel and undo. It is a thin program over the
 `filemanager` package, which any gunim program can open on a file system
 of its own, such as a server's, with its own places and favourites.
+`Options.Top` keeps a window inside one folder, with nothing above it
+shown or reachable, and `Options.ReadOnly` (or `Window.SetReadOnly`)
+shows the files to look at only. In a browser the file manager has none
+of the computer's programs or folders: a file opens in the viewer,
+Download saves the items selected (a folder, or several items, as one
+zip) through `Client.SaveStream`, and Upload files, the path bar's
+button or files dropped on the window put files into a folder from
+`Client.ChooseStreams` or the drop's streams. Its settings last as long
+as the page, and `Options.Memory` bounds what its pictures take.
 
 ```sh
 CGO_ENABLED=0 go run ./example/files

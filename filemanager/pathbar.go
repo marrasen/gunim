@@ -26,10 +26,11 @@ type pathBar struct {
 	back, fwd, up *widget.IconButton
 	addr          *widget.AddressBar
 	filter        *filterField
-	// deep has the filter look in the folders under this one too.
-	deep *widget.IconButton
-	row  *widget.Flex
-	path string
+	// deep has the filter look in the folders under this one too, and
+	// upload asks for files to upload, in a browser.
+	deep, upload *widget.IconButton
+	row          *widget.Flex
+	path         string
 	// room is the browser's width, as it was laid out last.
 	room float32
 }
@@ -61,7 +62,11 @@ func newPathBar(b *browser) *pathBar {
 	// The menus sit behind a button left of Back, drawn as the path bar's
 	// buttons are, on nothing of their own.
 	menus := &menuSlot{child: widget.NewThemed(widget.NewSized(b.title.bar, navSize+8, navSize), menuButtonTheme()), b: b}
-	p.row = widget.Row(menus, nav(p.back), nav(p.fwd), nav(p.up), p.addr, &filterBox{child: filter, bar: p}).Grow(p.addr, 1)
+	p.upload = widget.NewIconButton(icon.Upload, "Upload files")
+	p.upload.KeepFocus = true
+	p.upload.OnClick = widget.Sends(Command{Name: CmdUpload})
+	upload := &browserSlot{child: nav(p.upload), b: b}
+	p.row = widget.Row(menus, nav(p.back), nav(p.fwd), nav(p.up), p.addr, &filterBox{child: filter, bar: p}, upload).Grow(p.addr, 1)
 	p.row.Cross = widget.CrossCenter
 	p.row.Gap = smallGap
 	return p
@@ -94,6 +99,34 @@ func (m *menuSlot) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Childre
 // Paint implements [gunim.Node].
 func (m *menuSlot) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim.Children) {
 	if !m.b.shell.HostMenus {
+		kids.At(0).Paint(p)
+	}
+}
+
+// browserSlot holds what only a window in a browser has, and nothing
+// elsewhere.
+type browserSlot struct {
+	child gunim.Node
+	b     *browser
+}
+
+// Children implements [gunim.Composite].
+func (m *browserSlot) Children() []gunim.Node { return []gunim.Node{m.child} }
+
+// Layout implements [gunim.Node].
+func (m *browserSlot) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
+	if !m.b.shell.Browser {
+		kids.At(0).Layout(gunim.Tight(geom.Size{}))
+		return geom.Size{}
+	}
+	size := kids.At(0).Layout(c)
+	kids.At(0).Place(geom.Point{})
+	return size
+}
+
+// Paint implements [gunim.Node].
+func (m *browserSlot) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim.Children) {
+	if m.b.shell.Browser {
 		kids.At(0).Paint(p)
 	}
 }
@@ -182,6 +215,8 @@ func (p *pathBar) setListing(l Listing, u *gunim.UI) {
 // setShell names the file system the path is on before its folders, as
 // the title does.
 func (p *pathBar) setShell(s Shell, u *gunim.UI) {
+	p.upload.Disabled, p.upload.Why = s.ReadOnly, readOnlyHint
+	u.Invalidate()
 	lead := widget.AddressLead{Name: s.Where}
 	if s.Where != "" {
 		lead.Icon, lead.Tooltip = icon.Server, "Home on "+s.Where

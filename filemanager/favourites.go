@@ -413,7 +413,7 @@ func (a *app) favName(fs, path string) string {
 // are taken to end in a name after the last slash or backslash.
 func (a *app) folderName(fs, path string) string {
 	if fs == a.fs.ID() {
-		return a.ps.placeName(path)
+		return a.placeName(path)
 	}
 	if name := path[strings.LastIndexAny(path, `/\`)+1:]; name != "" {
 		return name

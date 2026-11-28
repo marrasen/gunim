@@ -156,13 +156,19 @@ func (a *app) showPreviewOf(sel []entry) {
 			case <-ctx.Done():
 				return
 			}
-			pv := itemPreview(ctx, fsys, seq, path, e, fetch, a.timeText)
+			pv := a.mem.itemPreview(ctx, fsys, seq, path, e, fetch, a.timeText)
 			if ctx.Err() != nil {
 				return
 			}
 			a.post(func() {
 				if a.preview.seq == seq {
 					pv.NoReveal = a.fetches()
+					for i, f := range pv.Facts {
+						if f.Label == "In" {
+							// The top by its name.
+							pv.Facts[i].Value = a.placeName(a.ps.Dir(path))
+						}
+					}
 					a.patch(pv)
 					if e.Dir {
 						a.count(ctx, seq, path)
@@ -171,13 +177,13 @@ func (a *app) showPreviewOf(sel []entry) {
 			})
 		}()
 	default:
-		info := entry{Name: a.ps.placeName(n.path), Dir: true, Type: "Folder", Mod: n.mod}
+		info := entry{Name: a.placeName(n.path), Dir: true, Type: "Folder", Mod: n.mod}
 		key := ""
 		if a.systemIconsOn() {
 			key = "dir"
 		}
 		pv := Preview{Seq: seq, Title: info.Name, Type: "This folder", Path: n.path, Shown: a.ps.Show(n.path), Tint: TintFolder, IconKey: key, Dir: true,
-			Facts: []Fact{{"Holds", plural(len(n.all), "item")}, {"Modified", a.timeText(n.mod)}, {"In", a.ps.placeName(a.ps.Dir(n.path))}}, NoReveal: a.fetches()}
+			Facts: []Fact{{"Holds", plural(len(n.all), "item")}, {"Modified", a.timeText(n.mod)}, {"In", a.placeName(a.ps.Dir(n.path))}}, NoReveal: a.fetches()}
 		a.patch(pv)
 	}
 }
@@ -206,7 +212,7 @@ func manyPreview(seq int, sel []entry) Preview {
 
 // itemPreview reads what the pane shows for the item at path on fsys. A file kept online only is read, and so
 // downloaded, only when fetch says the user asked.
-func itemPreview(ctx context.Context, fsys FS, seq int, path string, e entry, fetch bool, when func(time.Time) string) Preview {
+func (m memory) itemPreview(ctx context.Context, fsys FS, seq int, path string, e entry, fetch bool, when func(time.Time) string) Preview {
 	ps := fsys.Paths()
 	pv := Preview{Seq: seq, Title: e.base(), Type: e.Type, Path: path, Shown: ps.Show(path), Tint: tintOf(e), IconKey: e.iconKey, Dir: e.Dir}
 	if !e.Dir {
@@ -240,7 +246,7 @@ func itemPreview(ctx context.Context, fsys FS, seq int, path string, e entry, fe
 			pv.Image = paint.NewImageFit(img, thumbSize, thumbSize)
 		}
 	case tintOf(e) == TintImage:
-		img, size, err := thumbnail(fsys, path, e.Size)
+		img, size, err := m.thumbnail(fsys, path, e.Size)
 		switch {
 		case err != nil:
 			pv.Err = err.Error()
@@ -273,8 +279,8 @@ func (a *app) timeText(t time.Time) string {
 
 // thumbnail reads the picture at path on fsys and makes it at most
 // thumbSize across. A picture too large to read quickly gives none.
-func thumbnail(fsys FS, path string, size int64) (*paint.Image, image.Point, error) {
-	if size > maxImage {
+func (m memory) thumbnail(fsys FS, path string, size int64) (*paint.Image, image.Point, error) {
+	if size > m.image {
 		return nil, image.Point{}, nil
 	}
 	name := fsys.Paths().Base(path)
@@ -289,7 +295,7 @@ func thumbnail(fsys FS, path string, size int64) (*paint.Image, image.Point, err
 	if err != nil {
 		return nil, image.Point{}, fmt.Errorf("reading the picture %s: %w", name, err)
 	}
-	if cfg.Width*cfg.Height > maxPixels {
+	if int64(cfg.Width)*int64(cfg.Height) > m.pixels {
 		return nil, image.Pt(cfg.Width, cfg.Height), nil
 	}
 	img, _, err := image.Decode(bytes.NewReader(b))

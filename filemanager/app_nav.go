@@ -133,8 +133,16 @@ func (a *app) startNav(dir string) {
 }
 
 // home is the home folder of the file system showing, and says so in the
-// window when it cannot be found.
+// window when it cannot be found. Under a top, a home outside it is the
+// top.
 func (a *app) home() (string, error) {
+	if a.topHere() {
+		// Where the file system cannot say, or says elsewhere.
+		if home, err := a.fs.Home(); err == nil && !a.aboveTop(home) {
+			return home, nil
+		}
+		return a.top.path, nil
+	}
 	home, err := a.fs.Home()
 	if err != nil {
 		a.fail("Finding your home folder: " + err.Error())
@@ -194,7 +202,7 @@ func (a *app) navCommand(name string) bool {
 			a.goHistory(1)
 		}
 	case CmdUp:
-		if parent := a.ps.Dir(n.path); parent != n.path {
+		if parent := a.ps.Dir(n.path); parent != n.path && !a.atTop(n.path) {
 			if a.newWindowAsked() {
 				a.openWindow(parent)
 				break
@@ -372,6 +380,14 @@ func (a *app) navigate(path string, travel int, record bool) {
 	if err != nil {
 		a.fail(fmt.Sprintf("Opening %s: %v", a.ps.Show(path), err))
 		return
+	}
+	if a.aboveTop(abs) {
+		if n.path != "" {
+			a.refuseAbove(abs)
+			return
+		}
+		// The first folder, given outside: the top in its place.
+		abs = a.top.path
 	}
 	if record && n.path != "" && !a.ps.Same(abs, n.path) {
 		n.back = append(n.back, a.here())
@@ -676,10 +692,10 @@ func (a *app) sortBy(by SortBy, toggle bool) {
 func (a *app) publishListing() {
 	n := &a.nav
 	l := Listing{
-		Gen: n.gen, Path: n.path, Title: a.ps.placeName(n.path), Crumbs: crumbs(a.ps, n.path),
+		Gen: n.gen, Path: n.path, Title: a.placeName(n.path), Crumbs: a.topCrumbs(n.path),
 		Total: len(n.rows), All: len(a.entries()), Sort: n.sort, Desc: n.desc, Filter: n.filter,
 		Deep: a.tree.on, Walking: a.deep() && a.tree.walking && !a.tree.again, Travel: n.travel, Loading: n.loading,
-		CanBack: len(n.back) > 0, CanForward: len(n.fwd) > 0, CanUp: a.ps.Dir(n.path) != n.path,
+		CanBack: len(n.back) > 0, CanForward: len(n.fwd) > 0, CanUp: a.ps.Dir(n.path) != n.path && !a.atTop(n.path),
 	}
 	if n.err != nil {
 		l.Err = n.err.Error()
@@ -895,7 +911,7 @@ func (a *app) sendSelection(slide, show bool) {
 
 // newWindowAsked reports whether the folder the intent being handled opens goes in a new window: Ctrl was held, as in
 // Explorer.
-func (a *app) newWindowAsked() bool { return a.mods.Has(input.ModControl) }
+func (a *app) newWindowAsked() bool { return !a.shell.Browser && a.mods.Has(input.ModControl) }
 
 // typed selects the item the text typed at the listing names, as Explorer does.
 func (a *app) typed(v Typed) {

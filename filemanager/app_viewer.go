@@ -60,6 +60,18 @@ func (a *app) handleViewer(in gunim.Intent) bool {
 	return true
 }
 
+// viewFile opens the viewer on the file at path, where it is a row of
+// the folder showing.
+func (a *app) viewFile(path string) {
+	n := &a.nav
+	for i, e := range n.rows {
+		if a.ps.Same(a.ps.Join(n.path, e.Name), path) {
+			a.openViewer(n.gen, i)
+			return
+		}
+	}
+}
+
 // openViewerOnCursor opens the viewer on the row the keyboard is on.
 func (a *app) openViewerOnCursor() {
 	n := &a.nav
@@ -155,9 +167,9 @@ func (a *app) viewerWants(w ViewerWants) {
 	v.stop()
 	ctx, cancel := context.WithCancel(a.ctx)
 	v.cancel = cancel
-	seq, path, fit, fsys := v.seq, v.view.Path, v.asked, a.fs
+	seq, path, fit, fsys, mem := v.seq, v.view.Path, v.asked, a.fs, a.mem
 	go func() {
-		img, size, err := decodePicture(fsys, path)
+		img, size, err := mem.decodePicture(fsys, path)
 		var pic *paint.Image
 		if err == nil && ctx.Err() == nil {
 			pic = paint.NewImageFit(img, fit[0], fit[1])

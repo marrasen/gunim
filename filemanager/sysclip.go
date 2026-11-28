@@ -260,7 +260,7 @@ func (a *app) pastedSystem(fsID, here string, sf systemFiles, err error) {
 	}
 	if len(sf.paths) == 0 {
 		a.startOp(job{kind: OpCopy, srcs: sf.names, dest: here, outside: true, seq: sf.seq},
-			"Copying "+whatIn(a.ps, sf.names)+" to "+a.ps.placeName(here))
+			"Copying "+whatIn(a.ps, sf.names)+" to "+a.placeName(here))
 		return
 	}
 	if fsID != "" && a.opts.Transfer == nil {
@@ -288,10 +288,10 @@ func (a *app) pastedSystem(fsID, here string, sf systemFiles, err error) {
 	srcs := sf.paths
 	if sf.cut {
 		a.startOp(job{kind: OpMove, srcs: srcs, dest: here, cut: &systemCut{seq: sf.seq}},
-			"Moving "+a.what(srcs)+" to "+a.ps.placeName(here))
+			"Moving "+a.what(srcs)+" to "+a.placeName(here))
 		return
 	}
-	a.startOp(job{kind: OpCopy, srcs: srcs, dest: here}, "Copying "+a.what(srcs)+" to "+a.ps.placeName(here))
+	a.startOp(job{kind: OpCopy, srcs: srcs, dest: here}, "Copying "+a.what(srcs)+" to "+a.placeName(here))
 }
 
 // sizedReader reads what r holds, a file the clipboard says is size

@@ -216,9 +216,9 @@ func (a *app) opsCommand(name string) bool {
 			}
 			a.syncClip()
 			a.hub.others(a, func(o *app) { o.syncClip() })
-			a.startOp(job{kind: OpMove, srcs: srcs, dest: here}, "Moving "+a.what(srcs)+" to "+a.ps.placeName(here))
+			a.startOp(job{kind: OpMove, srcs: srcs, dest: here}, "Moving "+a.what(srcs)+" to "+a.placeName(here))
 		} else {
-			a.startOp(job{kind: OpCopy, srcs: srcs, dest: here}, "Copying "+a.what(srcs)+" to "+a.ps.placeName(here))
+			a.startOp(job{kind: OpCopy, srcs: srcs, dest: here}, "Copying "+a.what(srcs)+" to "+a.placeName(here))
 		}
 	case CmdTrash:
 		if a.trash == nil {
@@ -406,7 +406,7 @@ func (a *app) startOp(j job, title string) {
 		r.from = a.placeLabel(a.fs.ID(), a.ps.Dir(j.srcs[0]))
 	}
 	if j.kind == OpCopy || j.kind == OpMove {
-		r.to = a.ps.placeName(j.dest)
+		r.to = a.placeName(j.dest)
 	}
 	e := env{
 		pause:   r.pause,
@@ -778,9 +778,9 @@ func (a *app) doneTitle(j job, rec record) string {
 	n := len(rec.steps) + rec.replaced
 	switch j.kind {
 	case OpCopy:
-		return "Copied " + plural(n, "item") + " to " + a.ps.placeName(j.dest)
+		return "Copied " + plural(n, "item") + " to " + a.placeName(j.dest)
 	case OpMove:
-		return "Moved " + plural(n, "item") + " to " + a.ps.placeName(j.dest)
+		return "Moved " + plural(n, "item") + " to " + a.placeName(j.dest)
 	case OpTrash:
 		return "Moved " + plural(n, "item") + " to the trash"
 	case OpDelete:
@@ -842,7 +842,7 @@ func (a *app) undone(id int, rec record) {
 func (a *app) askClash(ctx context.Context, op int, c clash) (answer, error) {
 	reply := make(chan ClashAnswered, 1)
 	a.post(func() {
-		ask := ClashAsk{Op: op, Name: a.ps.Base(c.dst), Where: a.ps.placeName(a.ps.Dir(c.dst)),
+		ask := ClashAsk{Op: op, Name: a.ps.Base(c.dst), Where: a.placeName(a.ps.Dir(c.dst)),
 			New: c.from, Old: describe(a.fs, c.dst), SameKind: c.sameKind, CanForAll: !c.once}
 		if e, err := statEntry(a.fs, c.dst); err == nil {
 			ask.OldFolder = e.Dir

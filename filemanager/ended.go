@@ -220,7 +220,7 @@ func (a *app) warnNotice(j job, rec record, err error) Notice {
 		into = a.ps.Dir(rec.warnings[0].Path)
 	}
 	w := warnBody(rec.warnings)
-	w.Title = "Wrote " + what + " to " + a.ps.placeName(into) + ", but couldn't " + lost(n, rec.warnings, "set")
+	w.Title = "Wrote " + what + " to " + a.placeName(into) + ", but couldn't " + lost(n, rec.warnings, "set")
 	if rec.replaced > 0 {
 		w.Body += " " + plural(rec.replaced, "file") + " replaced, which undo cannot bring back."
 	}

@@ -55,6 +55,10 @@ func (a *app) showFS(fsys FS, dir string) {
 	a.shell.NoTrashCan = !canOpen(a.trash)
 	a.shell.Where, a.shell.Fetches = a.where(), a.fetches()
 	a.shell.OpenWith = a.openWithOn()
+	a.shell.Top, a.shell.TopName = "", ""
+	if a.topHere() {
+		a.shell.Top, a.shell.TopName = a.top.path, a.top.name
+	}
 	a.publishShell()
 	a.loadFavourites()
 	a.loadPlaces()

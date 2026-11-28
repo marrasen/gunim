@@ -245,11 +245,11 @@ func (a *app) searchStatus() string {
 	var b strings.Builder
 	switch {
 	case s.walking:
-		fmt.Fprintf(&b, "Looking through %s: %s items so far…", a.ps.placeName(s.root), count(len(s.items)))
+		fmt.Fprintf(&b, "Looking through %s: %s items so far…", a.placeName(s.root), count(len(s.items)))
 	case s.stopped != "":
-		fmt.Fprintf(&b, "%s in %s. Type more to narrow it down.", s.stopped, a.ps.placeName(s.root))
+		fmt.Fprintf(&b, "%s in %s. Type more to narrow it down.", s.stopped, a.placeName(s.root))
 	default:
-		fmt.Fprintf(&b, "%s under %s. Type > for commands.", plural(len(s.items), "item"), a.ps.placeName(s.root))
+		fmt.Fprintf(&b, "%s under %s. Type > for commands.", plural(len(s.items), "item"), a.placeName(s.root))
 	}
 	if n := len(s.errs); n > 0 {
 		fmt.Fprintf(&b, " %s could not be read.", plural(n, "folder"))

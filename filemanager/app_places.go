@@ -126,6 +126,9 @@ func (a *app) loadPlaces() {
 // home folder, the drives and the trash of the computer, for its own file
 // system, and the home folder, the top and any trash for another.
 func (a *app) defaultPlaces() ([]Place, error) {
+	if a.topHere() {
+		return []Place{a.topPlace()}, nil
+	}
 	if a.fs.ID() == "" {
 		return LocalPlaces()
 	}
@@ -135,7 +138,7 @@ func (a *app) defaultPlaces() ([]Place, error) {
 	}
 	top := a.ps.VolumeName(home) + a.ps.Sep()
 	out := []Place{{Name: "Home", Path: home, Kind: "home", FS: a.fs.ID()},
-		{Name: a.ps.placeName(top), Path: top, Kind: "drive", FS: a.fs.ID()}}
+		{Name: a.placeName(top), Path: top, Kind: "drive", FS: a.fs.ID()}}
 	if sr, ok := optional[SpaceReporter](a.fs); ok {
 		if free, total, err := sr.Space(top); errors.Is(err, errors.ErrUnsupported) {
 			// The file system cannot say after all.
@@ -189,7 +192,7 @@ func keepAbsent(was, order []string) []string {
 }
 
 func (a *app) publishPlaces() {
-	s := Places{Places: a.places, Favourites: a.favPlaces(), Current: a.nav.path,
+	s := Places{Places: a.withinTop(a.places), Favourites: a.withinTop(a.favPlaces()), Current: a.nav.path,
 		Order: slices.Clone(a.prefs.SidebarOrder), Collapsed: slices.Clone(a.prefs.SidebarCollapsed)}
 	a.patch(s)
 	a.publishVolumes(s)

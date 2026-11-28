@@ -38,6 +38,8 @@ var menus = []struct {
 		{"New window", "Ctrl+N", CmdNewWindow},
 		{"New folder", "Ctrl+Shift+N", CmdNewFolder},
 		{"Open", "Enter", CmdOpen},
+		{"Download", "", CmdDownload},
+		{"Upload files…", "", CmdUpload},
 		{"-", "", ""},
 		{"Pin to sidebar", "Ctrl+D", CmdPin},
 		{"Show in system file manager", "", CmdReveal},
@@ -112,8 +114,9 @@ type titleBar struct {
 	// the title the window was given last.
 	folder, native string
 	// fetches says the menus are those of a file system whose files are
-	// fetched to open, and pane that they are a pane's.
-	fetches, pane bool
+	// fetched to open, pane that they are a pane's, and browser that they
+	// are a page's in a browser.
+	fetches, pane, browser bool
 	// hosted are the commands the program's menus offer, which these
 	// leave out.
 	hosted []string
@@ -121,7 +124,7 @@ type titleBar struct {
 
 func newTitleBar(b *browser) *titleBar {
 	t := &titleBar{b: b}
-	t.bar = &menuButton{Menubar: widget.NewMenubar(t.build(false, false, nil)...), b: b}
+	t.bar = &menuButton{Menubar: widget.NewMenubar(t.build(Shell{})...), b: b}
 	t.bar.Compact = true
 	t.bar.OnPick = func(m, i int, u *gunim.UI) gunim.Intent {
 		t.pick(m, i, u)
@@ -243,11 +246,12 @@ func (h *titleHead) Paint(p *paint.Painter, f gunim.Frame, box geom.Size, kids g
 	}
 }
 
-// build makes the bar's menus, and sets the commands of their items. On
-// a file system whose files are fetched to open, nothing shows in the
-// system's file manager, so the menus leave that out. The items keep
-// their ticks.
-func (t *titleBar) build(fetches, pane bool, hosted []string) []widget.BarMenu {
+// build makes the bar's menus for a window as s says, and sets the
+// commands of their items. On a file system whose files are fetched to
+// open, nothing shows in the system's file manager, so the menus leave
+// that out. The items keep their ticks.
+func (t *titleBar) build(s Shell) []widget.BarMenu {
+	fetches, pane, hosted := s.Fetches, s.Pane, s.Hosted
 	var was map[string]bool
 	if t.bar != nil {
 		was = map[string]bool{}
@@ -260,7 +264,7 @@ func (t *titleBar) build(fetches, pane bool, hosted []string) []widget.BarMenu {
 	bars := make([]widget.BarMenu, 0, len(menus))
 	t.cmds = t.cmds[:0]
 	for _, m := range menus {
-		items := m.items
+		items := s.offered(m.items)
 		if !iconsHere {
 			items = without(items, CmdSystemIcons)
 		}
@@ -295,7 +299,7 @@ func (t *titleBar) build(fetches, pane bool, hosted []string) []widget.BarMenu {
 		bars = append(bars, bm)
 		t.cmds = append(t.cmds, cmds)
 	}
-	t.fetches, t.pane, t.hosted = fetches, pane, slices.Clone(hosted)
+	t.fetches, t.pane, t.browser, t.hosted = fetches, pane, s.Browser, slices.Clone(hosted)
 	return bars
 }
 
@@ -348,17 +352,19 @@ func (t *titleBar) check(cmd string, on bool) {
 }
 
 func (t *titleBar) setShell(s Shell, u *gunim.UI) {
-	if s.Fetches != t.fetches || s.Pane != t.pane || !slices.Equal(s.Hosted, t.hosted) {
-		t.bar.Menus = t.build(s.Fetches, s.Pane, s.Hosted)
+	if s.Fetches != t.fetches || s.Pane != t.pane || s.Browser != t.browser || !slices.Equal(s.Hosted, t.hosted) {
+		t.bar.Menus = t.build(s)
 	}
 	t.head.hidden = s.Pane
 	for m, cmds := range t.cmds {
 		for i, c := range cmds {
+			item := &t.bar.Menus[m].Items[i]
+			item.Disabled = s.ReadOnly && (changes(c) || c == CmdUndo)
 			switch c {
 			case CmdTrash:
-				t.bar.Menus[m].Items[i].Label = trashLabel(s.NoTrash)
+				item.Label = trashLabel(s.NoTrash)
 			case CmdTrashCan:
-				t.bar.Menus[m].Items[i].Disabled = s.NoTrashCan
+				item.Disabled = s.NoTrashCan
 			}
 		}
 	}

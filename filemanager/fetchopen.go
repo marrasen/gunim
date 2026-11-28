@@ -55,6 +55,12 @@ func (a *app) openFiles(paths []string) {
 	if len(paths) == 0 {
 		return
 	}
+	if a.shell.Browser {
+		// A page has no programs to open files with: the first shows in
+		// the viewer.
+		a.viewFile(paths[0])
+		return
+	}
 	if a.fetches() {
 		a.fetchToOpen(paths, a.c.Open)
 		return

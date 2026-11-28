@@ -131,6 +131,13 @@ func (w *Window) Show(fsys FS, dir string) {
 	w.do(func(a *app) { a.showFS(fsys, dir) })
 }
 
+// SetReadOnly shows the files to look at only, or to change too, as
+// [Options.ReadOnly] does. What runs already goes on: the file system
+// refuses what it may no longer do.
+func (w *Window) SetReadOnly(on bool) {
+	w.do(func(a *app) { a.setReadOnly(on) })
+}
+
 // Notify shows a notice in the window, as the window shows its own: a
 // title, a body, and a kind, success, warning or info, for its icon.
 func (w *Window) Notify(title, body, kind string) {
