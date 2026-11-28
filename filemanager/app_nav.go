@@ -69,6 +69,8 @@ type navState struct {
 	// moves counts the folders gone to, so a path typed whose true case
 	// comes after the user went elsewhere is left alone.
 	moves int
+	// view is the name of a file to view once the folder is read.
+	view string
 	// filtered is what rows were filtered from and by.
 	filtered filtering
 }
@@ -133,8 +135,16 @@ func (a *app) startNav(dir string) {
 }
 
 // home is the home folder of the file system showing, and says so in the
-// window when it cannot be found.
+// window when it cannot be found. Under a top, a home outside it is the
+// top.
 func (a *app) home() (string, error) {
+	if a.topHere() {
+		// Where the file system cannot say, or says elsewhere.
+		if home, err := a.fs.Home(); err == nil && !a.aboveTop(home) {
+			return home, nil
+		}
+		return a.top.path, nil
+	}
 	home, err := a.fs.Home()
 	if err != nil {
 		a.fail("Finding your home folder: " + err.Error())
@@ -194,7 +204,7 @@ func (a *app) navCommand(name string) bool {
 			a.goHistory(1)
 		}
 	case CmdUp:
-		if parent := a.ps.Dir(n.path); parent != n.path {
+		if parent := a.ps.Dir(n.path); parent != n.path && !a.atTop(n.path) {
 			if a.newWindowAsked() {
 				a.openWindow(parent)
 				break
@@ -358,6 +368,10 @@ func (a *app) hopped(h *hop, from visited) bool {
 // navigate shows the folder at path. travel is the way the user went,
 // and record keeps the folder left in the history.
 func (a *app) navigate(path string, travel int, record bool) {
+	if path == TrashPath && a.topHere() {
+		a.fail("There is no trash to open here.")
+		return
+	}
 	if path == TrashPath {
 		// The trash is a page over a folder: the home folder, where none
 		// shows yet.
@@ -370,8 +384,16 @@ func (a *app) navigate(path string, travel int, record bool) {
 	n := &a.nav
 	abs, err := a.ps.Abs(path)
 	if err != nil {
-		a.fail(fmt.Sprintf("Opening %s: %v", a.ps.Show(path), err))
+		a.fail(fmt.Sprintf("Opening %s: %v", a.shown(path), err))
 		return
+	}
+	if a.aboveTop(abs) {
+		if n.path != "" {
+			a.refuseAbove(abs)
+			return
+		}
+		// The first folder, given outside: the top in its place.
+		abs = a.top.path
 	}
 	if record && n.path != "" && !a.ps.Same(abs, n.path) {
 		n.back = append(n.back, a.here())
@@ -393,7 +415,7 @@ func (a *app) navigate(path string, travel int, record bool) {
 	}
 	n.moves++
 	n.all, n.rows, n.err = nil, nil, nil
-	n.filter, n.pick = "", nil
+	n.filter, n.pick, n.view = "", nil, ""
 	a.tree.forget()
 	clear(n.sel)
 	n.cursor, n.gap = "", false
@@ -410,6 +432,7 @@ func (a *app) navigate(path string, travel int, record bool) {
 // once the file system says; where it cannot say, the path goes as typed,
 // to show why there.
 func (a *app) goTyped(typed string) {
+	typed = a.typedPath(typed)
 	tc, ok := optional[TrueCaser](a.fs)
 	abs, err := a.ps.Abs(typed)
 	if !ok || err != nil {
@@ -516,10 +539,10 @@ func (a *app) listed(gen int, path string, es []entry, mod time.Time, err error)
 	if err != nil {
 		n.all, n.rows = nil, nil
 		if errors.Is(err, fs.ErrNotExist) {
-			n.err = fmt.Errorf("%s no longer exists", a.ps.Show(path))
+			n.err = fmt.Errorf("%s no longer exists", a.shown(path))
 		}
 		// Once: a poll that finds it still failing does not list again.
-		a.logLine("Listing "+a.ps.Show(path), n.err.Error())
+		a.logLine("Listing "+a.shown(path), n.err.Error())
 		a.publishListing()
 		a.publishStatus()
 		return
@@ -533,6 +556,10 @@ func (a *app) listed(gen int, path string, es []entry, mod time.Time, err error)
 	if slices.ContainsFunc(es, func(e entry) bool { return e.Kind == KindLink && e.Dir }) {
 		// A link to a folder can lead to another volume.
 		a.publishVolumes(Places{Current: path})
+	}
+	if v := n.view; v != "" {
+		n.view = ""
+		a.viewFile(a.ps.Join(path, v))
 	}
 	if len(a.script) > 0 && !a.scripting {
 		a.scripting = true
@@ -676,10 +703,10 @@ func (a *app) sortBy(by SortBy, toggle bool) {
 func (a *app) publishListing() {
 	n := &a.nav
 	l := Listing{
-		Gen: n.gen, Path: n.path, Title: a.ps.placeName(n.path), Crumbs: crumbs(a.ps, n.path),
+		Gen: n.gen, Path: n.path, Title: a.placeName(n.path), Crumbs: a.topCrumbs(n.path),
 		Total: len(n.rows), All: len(a.entries()), Sort: n.sort, Desc: n.desc, Filter: n.filter,
 		Deep: a.tree.on, Walking: a.deep() && a.tree.walking && !a.tree.again, Travel: n.travel, Loading: n.loading,
-		CanBack: len(n.back) > 0, CanForward: len(n.fwd) > 0, CanUp: a.ps.Dir(n.path) != n.path,
+		CanBack: len(n.back) > 0, CanForward: len(n.fwd) > 0, CanUp: a.ps.Dir(n.path) != n.path && !a.atTop(n.path),
 	}
 	if n.err != nil {
 		l.Err = n.err.Error()
@@ -895,7 +922,7 @@ func (a *app) sendSelection(slide, show bool) {
 
 // newWindowAsked reports whether the folder the intent being handled opens goes in a new window: Ctrl was held, as in
 // Explorer.
-func (a *app) newWindowAsked() bool { return a.mods.Has(input.ModControl) }
+func (a *app) newWindowAsked() bool { return !a.shell.Browser && a.mods.Has(input.ModControl) }
 
 // typed selects the item the text typed at the listing names, as Explorer does.
 func (a *app) typed(v Typed) {
@@ -953,11 +980,11 @@ func (a *app) activate(e entry) {
 		return
 	}
 	if e.Err != "" {
-		a.fail(a.ps.Show(path) + " cannot be read: " + e.Err)
+		a.fail(a.shown(path) + " cannot be read: " + e.Err)
 		return
 	}
 	if e.Broken {
-		a.fail(a.ps.Show(path) + " is a link to something that is gone.")
+		a.fail(a.shown(path) + " is a link to something that is gone.")
 		return
 	}
 	a.openFiles([]string{path})
@@ -1056,7 +1083,7 @@ func (a *app) readSpace() {
 		a.post(func() {
 			if a.ps.Same(a.nav.path, path) {
 				if err != nil && (a.nav.spaceErr == nil || a.nav.spaceErr.Error() != err.Error()) {
-					a.logLine("Reading the free space of "+a.ps.Show(path), err.Error())
+					a.logLine("Reading the free space of "+a.shown(path), err.Error())
 				}
 				a.nav.space, a.nav.spaceErr = s, err
 				a.publishStatus()

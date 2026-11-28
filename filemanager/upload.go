@@ -292,7 +292,7 @@ func (a *app) uploadWhere(path string) string {
 	if w := a.where(); w != "" {
 		return w
 	}
-	return a.ps.placeName(a.ps.Dir(path))
+	return a.placeName(a.ps.Dir(path))
 }
 
 // uploadAnswered takes the answer to an offer to upload. With its box

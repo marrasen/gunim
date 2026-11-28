@@ -321,6 +321,9 @@ func (pg *usagePage) pathOf(key string) string {
 	if key != "" {
 		p = ps.Join(append([]string{p}, strings.Split(key, "/")...)...)
 	}
+	if top := pg.state.Top; top != "" && ps.inside(p, top) {
+		return showUnder(ps, top, pg.state.TopName, p)
+	}
 	return ps.Show(p)
 }
 
@@ -345,6 +348,7 @@ func (pg *usagePage) menuItems(key string) (items []widget.MenuItem, acts []stri
 		add("Go up", "up")
 	}
 	inCloud := it.Online+it.Local+it.Pinned > 0
+	off = pg.state.ReadOnly
 	if it.Rest == 0 && pg.state.CanKeep && inCloud {
 		if it.Local+it.Pinned > 0 {
 			add("Free up space", UsageFree)
@@ -354,6 +358,7 @@ func (pg *usagePage) menuItems(key string) (items []widget.MenuItem, acts []stri
 		}
 	}
 	if it.Rest == 0 {
+		off = false
 		add("Show in Files", UsageShow)
 		if !it.Dir {
 			add("Open", UsageOpen)
@@ -365,7 +370,7 @@ func (pg *usagePage) menuItems(key string) (items []widget.MenuItem, acts []stri
 	if pg.removable(it) {
 		// Not while the folder is read: a folder still being read could
 		// gain items after it went.
-		brk, off = true, pg.state.Reading
+		brk, off = true, pg.state.Reading || pg.state.ReadOnly
 		if pg.state.Trash {
 			add("Move to trash", UsageTrash)
 			items[len(items)-1].Hint = "Delete"

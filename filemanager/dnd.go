@@ -28,6 +28,9 @@ type FileDrag struct {
 	// Style is how the items' file system writes paths: the zero value,
 	// SystemPaths, for the computer's own.
 	Style PathStyle
+	// ReadOnly says the items are of a window that may change nothing,
+	// so they are copied, and never moved away.
+	ReadOnly bool
 	// scripted marks a drag a script started, which never leaves the
 	// window.
 	scripted bool
@@ -169,7 +172,7 @@ func planDrop(t dropTarget, transfers bool, d FileDrag, mods input.Mods) (DropFi
 	}
 	copying := across || d.Volume == "" || t.vol == "" || d.Volume != t.vol
 	switch {
-	case mods.Has(input.ModControl):
+	case mods.Has(input.ModControl) || d.ReadOnly:
 		copying = true
 	case mods.Has(input.ModShift):
 		copying = false
@@ -272,7 +275,17 @@ func newDndView(b *browser) *dndView {
 func (v *dndView) zone(child gunim.Node, spot func(input.Drop, *gunim.UI) (widget.DropSpot, bool)) *widget.DropZone {
 	z := widget.NewDropZone(child)
 	z.Spot = spot
-	z.OnDrop = func(widget.DropSpot, input.Drop, *gunim.UI) gunim.Intent { return v.plan }
+	z.OnDrop = func(_ widget.DropSpot, d input.Drop, _ *gunim.UI) gunim.Intent {
+		if up, ok := v.plan.(uploadPlan); ok {
+			// The files come with the drop, and are read as they go up.
+			f, _ := d.Data.(input.Files)
+			if len(f.Streams) == 0 {
+				return nil
+			}
+			return UploadDropped{Into: up.into, Token: holdDropped(f.Streams)}
+		}
+		return v.plan
+	}
 	z.OnOpen = func(s widget.DropSpot, u *gunim.UI) gunim.Intent {
 		if k, ok := s.Key.(spotKey); ok {
 			return Navigate{Path: k.path}
@@ -342,8 +355,17 @@ func (v *dndView) dragEnded(input.DragEnd) gunim.Intent {
 
 // spot fills in a spot for dropping d into the folder dir.
 func (v *dndView) spot(d input.Drop, key spotKey, r geom.Rect, dir, vol string, opens bool) widget.DropSpot {
-	fd, _ := fileDragOf(d)
 	sh := v.b.shell
+	if sh.ReadOnly {
+		v.plan = nil
+		return widget.DropSpot{Key: key, Rect: r, Radius: 6, Hint: widget.DropHint{Text: readOnlyHint}, Refused: true}
+	}
+	if v.uploads(d) {
+		v.plan = uploadPlan{into: dir}
+		return widget.DropSpot{Key: key, Rect: r, Radius: 6, Opens: opens,
+			Hint: widget.DropHint{Text: "Upload to " + sh.placeName(dir), Effect: widget.DropCopy}}
+	}
+	fd, _ := fileDragOf(d)
 	plan, hint, ok := dropPlan(sh.Paths, sh.FS, sh.Transfers, fd, dir, v.vols[vol], v.volErrs[vol], d.Mods)
 	v.plan = plan
 	if !ok {
@@ -356,7 +378,7 @@ func (v *dndView) spot(d input.Drop, key spotKey, r geom.Rect, dir, vol string, 
 // row under it, or else the folder showing.
 func (v *dndView) listingSpot(d input.Drop, u *gunim.UI) (widget.DropSpot, bool) {
 	l := v.b.listing
-	if _, ok := fileDragOf(d); !ok || l.cur == nil || l.path == "" {
+	if _, ok := fileDragOf(d); !ok && !v.uploads(d) || l.cur == nil || l.path == "" {
 		return widget.DropSpot{}, false
 	}
 	zr, ok := u.Bounds(v.listing)
@@ -390,8 +412,9 @@ func (v *dndView) listingSpot(d input.Drop, u *gunim.UI) (widget.DropSpot, bool)
 func (v *dndView) sideSpot(d input.Drop, u *gunim.UI) (widget.DropSpot, bool) {
 	s := v.b.side
 	fd, ok := fileDragOf(d)
+	up := v.uploads(d)
 	zr, ok2 := u.Bounds(v.side)
-	if !ok || !ok2 {
+	if !ok && !up || !ok2 {
 		return widget.DropSpot{}, false
 	}
 	at := d.Pos.Add(zr.Min)
@@ -410,6 +433,10 @@ func (v *dndView) sideSpot(d input.Drop, u *gunim.UI) (widget.DropSpot, bool) {
 						Hint: widget.DropHint{Text: "Press Delete to move items to the trash"}, Refused: true}, true
 				}
 				if pr.item.away {
+					if up {
+						// Uploads go into the window's own files.
+						return widget.DropSpot{}, false
+					}
 					return v.awaySpot(d, fd, pr.item, k, r.Add(zr.Min.Mul(-1))), true
 				}
 				dir := pr.item.Path
@@ -418,7 +445,7 @@ func (v *dndView) sideSpot(d input.Drop, u *gunim.UI) (widget.DropSpot, bool) {
 		}
 	}
 	fr, ok := u.Bounds(s.favSec)
-	if !ok {
+	if !ok || up {
 		return widget.DropSpot{}, false
 	}
 	// The last section reaches down to the bottom of the sidebar.
@@ -470,7 +497,7 @@ func (v *dndView) awaySpot(d input.Drop, fd FileDrag, it placeItem, k widget.Key
 // crumbSpot finds the folder of the path under a drop.
 func (v *dndView) crumbSpot(d input.Drop, u *gunim.UI) (widget.DropSpot, bool) {
 	zr, ok := u.Bounds(v.crumbs)
-	if _, ok2 := fileDragOf(d); !ok || !ok2 {
+	if _, ok2 := fileDragOf(d); !ok || !ok2 && !v.uploads(d) {
 		return widget.DropSpot{}, false
 	}
 	at := d.Pos.Add(zr.Min)
@@ -486,7 +513,8 @@ func (v *dndView) crumbSpot(d input.Drop, u *gunim.UI) (widget.DropSpot, bool) {
 // picture of their names.
 func (pg *listingPage) dragRows(sel [][2]int, _ geom.Point) (any, gunim.Node, geom.Point) {
 	dir := pg.b.listing.path
-	d := FileDrag{Volume: pg.b.dnd.vols[dir], FS: pg.b.shell.FS, Style: pg.b.shell.Paths, scripted: pg.b.dnd.scripting}
+	d := FileDrag{Volume: pg.b.dnd.vols[dir], FS: pg.b.shell.FS, Style: pg.b.shell.Paths, scripted: pg.b.dnd.scripting,
+		ReadOnly: pg.b.shell.ReadOnly}
 	var items []Row
 	for _, r := range sel {
 		for i := r[0]; i < r[1]; i++ {
@@ -661,4 +689,22 @@ func (v *dndView) script(w *gunim.Window, s ScriptDrag, u *gunim.UI) {
 		w.Input(input.PointerUp{Pos: at, Button: input.ButtonSecondary})
 	}
 	v.scriptAt = at
+}
+
+// uploadPlan is a drop of files of the user's computer, in a browser,
+// into the folder into.
+type uploadPlan struct{ into string }
+
+// readOnlyHint is what a drop on a window that is read only says.
+const readOnlyHint = "These files can only be looked at"
+
+// uploads reports whether d carries files of the user's computer to a
+// window in a browser, which come with no paths, and as streams once they
+// are dropped.
+func (v *dndView) uploads(d input.Drop) bool {
+	if !v.b.shell.Browser {
+		return false
+	}
+	f, ok := d.Data.(input.Files)
+	return ok && len(f.Paths) == 0
 }

@@ -284,6 +284,9 @@ func (a *app) closeTrashCan(unmount bool) {
 // trashAct does what the page asks to the items of keys.
 func (a *app) trashAct(keys []string, act string) {
 	s := &a.bin
+	if act != TrashRead && a.refused() {
+		return
+	}
 	switch act {
 	case TrashRead:
 		a.readTrashCan()
@@ -422,6 +425,9 @@ func upperFirst(s string) string {
 // background, and says so on the trash page where it shows, and as a
 // notice where it does not.
 func (a *app) emptyTrash() {
+	if a.refused() {
+		return
+	}
 	s := &a.bin
 	can, ok := s.can, s.open
 	if !ok {

@@ -124,8 +124,8 @@ func (a *app) walked(gen int, es []entry, errs []walkError, stopped string, done
 		}
 		if len(d.errs) > 0 {
 			// Once for the walk: there may be a great many.
-			a.logLine("Filtering under "+a.ps.Show(d.root), plural(len(d.errs), "folder")+" could not be read, the first "+
-				a.ps.Show(a.ps.Join(d.root, d.errs[0].rel))+": "+d.errs[0].err.Error())
+			a.logLine("Filtering under "+a.shown(d.root), plural(len(d.errs), "folder")+" could not be read, the first "+
+				a.shown(a.ps.Join(d.root, d.errs[0].rel))+": "+d.errs[0].err.Error())
 		}
 	}
 	// The rows take the items in as they come, at most every few

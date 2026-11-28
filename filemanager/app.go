@@ -127,6 +127,24 @@ type Options struct {
 	// Name is what the window's title calls the program, and Files when
 	// empty.
 	Name string
+	// Top, when set, is a folder the window keeps inside, on the file
+	// system it opens on: nothing above it shows or can be gone to, by
+	// Up, Back, the path bar, a path typed, a place or a favourite.
+	// Where no Places or PlacesOn are given, it is the one place. TopName
+	// is what the window calls it, and its own name when empty.
+	Top, TopName string
+	// ReadOnly shows the files to look at only: what would change them is
+	// dimmed in the menus, and refused with a word where a key or a drop
+	// asks for it. [Window.SetReadOnly] changes it while the window is
+	// open.
+	ReadOnly bool
+	// Memory, when above zero, is about the most the window's pictures
+	// take: the thumbnails, and one picture at a time read and decoded for
+	// a thumbnail, the preview or the viewer, which is refused where it
+	// would take more. At the most they take seven eighths of it. A page
+	// in a browser, which has little memory, sets it. [Hub.SetMemory]
+	// sets it for several windows together.
+	Memory int64
 	// Poll is how often the folder showing is checked for changes: every
 	// two seconds when zero, and never when below zero.
 	Poll time.Duration
@@ -144,6 +162,8 @@ type Options struct {
 	trash Trasher
 	// defaults stands in for DefaultFavourites, for tests.
 	defaults func() []Favourite
+	// browser has the window be as it is in a browser, for tests.
+	browser bool
 }
 
 // Transfer is items going from one file system to another, which the
@@ -260,6 +280,10 @@ type app struct {
 	// uploads holds the copies changed on this computer that the window
 	// offers to upload, by the key of the notice that offers.
 	uploads map[string]copyKey
+	// top is the folder the window keeps inside, and mem the most its
+	// pictures take.
+	top topState
+	mem memory
 }
 
 // handler is one area's share of the intents: it reports whether it
@@ -346,7 +370,7 @@ func (a *app) join(h *Hub, w *Window) {
 	a.publishClip()
 	a.handlers = []handler{a.handleDnd, a.handleNav, a.handleOps, a.handlePreview, a.handlePlaces, a.handleShell,
 		a.handleIcons, a.handleViewer, a.handleReading, a.handleSearch, a.handleTheme, a.handleUsage,
-		a.handleTrashCan}
+		a.handleTrashCan, a.handleExchange}
 	a.startup(a.opts)
 }
 
@@ -365,17 +389,32 @@ func newApp(ctx context.Context, c screen, o Options) (*app, error) {
 	a.nav.init()
 	a.ops.init()
 	a.thumbs.init()
-	if a.prefsPath == "" {
+	a.mem = memoryOf(o.Memory)
+	if err := a.setTop(o); err != nil {
+		return nil, err
+	}
+	if a.topHere() {
+		// The trash is elsewhere than the top, so a window kept inside one
+		// has none: a delete asks, and deletes for good.
+		tr, a.trash = nil, nil
+	}
+	switch {
+	case a.prefsPath != "":
+		a.prefs, a.prefsErr = loadPrefs(a.prefsPath)
+	case inBrowser:
+		// A page has no settings file: they last as long as it.
+	default:
 		if a.prefsPath, err = defaultPrefsPath(); err != nil {
 			return nil, err
 		}
+		a.prefs, a.prefsErr = loadPrefs(a.prefsPath)
 	}
-	a.prefs, a.prefsErr = loadPrefs(a.prefsPath)
 	a.iconsSent = map[string]bool{}
 	a.shell = Shell{Light: a.prefs.Light, ShowHidden: a.prefs.ShowHidden, ShowPreview: !a.prefs.HidePreview,
 		SystemIcons: a.systemIconsOn(),
 		Sidebar:     a.prefs.Sidebar, FS: a.fs.ID(), Paths: a.ps, NoTrash: tr == nil, NoTrashCan: !canOpen(tr),
-		Transfers: o.Transfer != nil, PlaceMenu: o.PlaceMenu != nil, Actions: o.ItemActions, Name: o.Name, UploadEdited: a.prefs.UploadEdited}
+		Transfers: o.Transfer != nil, PlaceMenu: o.PlaceMenu != nil, Actions: o.ItemActions, Name: o.Name, UploadEdited: a.prefs.UploadEdited,
+		ReadOnly: o.ReadOnly, Browser: inBrowser || o.browser, Top: a.top.path, TopName: a.top.name}
 	a.shell.Where, a.shell.Fetches = a.where(), a.fetches()
 	a.shell.OpenWith = a.openWithOn()
 	a.nav.sort, a.nav.desc = a.prefs.Sort, a.prefs.Desc
@@ -410,6 +449,10 @@ func (a *app) take(handlers []handler, ev gunim.Envelope) {
 }
 
 func (a *app) handle(handlers []handler, in gunim.Intent) {
+	if c, ok := in.(Command); ok && !a.shell.offers(c.Name) {
+		// A key for what the window has not, as Ctrl+N in a browser.
+		return
+	}
 	for _, h := range handlers {
 		if h(in) {
 			return
@@ -538,6 +581,10 @@ func (a *app) post(fn func()) {
 
 // patch sends a patch to the browser.
 func (a *app) patch(v any) {
+	if n, ok := v.(Notice); ok {
+		n.Title, n.Body = a.untop(n.Title), a.untop(n.Body)
+		v = n
+	}
 	a.logShown(v)
 	if n, ok := v.(Notice); ok && !a.c.on && a.pane != nil && len(a.held) < 8 {
 		// Said once the pane shows.
@@ -598,6 +645,7 @@ func (a *app) send(err error) {
 
 // fail shows msg in the banner under the path bar.
 func (a *app) fail(msg string) {
+	msg = a.untop(msg)
 	a.banner++
 	a.bannerText = msg
 	a.patch(Banner{Seq: a.banner, Text: msg})
@@ -609,7 +657,7 @@ func (a *app) fail(msg string) {
 // change to it, leaving what another window wrote there.
 func (a *app) savePrefs(change func(p *prefs)) {
 	change(&a.prefs)
-	if a.prefsErr != nil {
+	if a.prefsErr != nil || a.prefsPath == "" {
 		return
 	}
 	if err := updatePrefs(a.prefsPath, change); err != nil {

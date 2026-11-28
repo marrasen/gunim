@@ -141,8 +141,8 @@ func (a *app) indexed(gen int, items []indexed, errs []walkError, stopped string
 		s.cancel()
 		if len(s.errs) > 0 {
 			// Once for the walk: there may be a great many.
-			a.logLine("Searching under "+a.ps.Show(s.root), plural(len(s.errs), "folder")+" could not be read, the first "+
-				a.ps.Show(a.ps.Join(s.root, s.errs[0].rel))+": "+s.errs[0].err.Error())
+			a.logLine("Searching under "+a.shown(s.root), plural(len(s.errs), "folder")+" could not be read, the first "+
+				a.shown(a.ps.Join(s.root, s.errs[0].rel))+": "+s.errs[0].err.Error())
 		}
 	}
 	if done || time.Since(s.reranked) > 4*indexReport {
@@ -214,7 +214,11 @@ func (a *app) rank() {
 	seq, text := s.seq, s.text
 	if strings.HasPrefix(text, ">") {
 		here := slices.DeleteFunc(slices.Clone(a.places), func(p Place) bool { return p.FS != a.fs.ID() })
-		hits := rankCommands(strings.TrimSpace(strings.TrimPrefix(text, ">")), here, a.favPlaces(), a.fs.ID(), a.ps)
+		hits := rankCommands(strings.TrimSpace(strings.TrimPrefix(text, ">")), a.withinTop(here), a.withinTop(a.favPlaces()), a.fs.ID(), a.ps)
+		hits = slices.DeleteFunc(hits, func(h PaletteHit) bool {
+			cmd, ok := strings.CutPrefix(h.Key, "cmd:")
+			return ok && !a.shell.offers(cmd)
+		})
 		if a.pane != nil {
 			// The program the pane is in picks the theme.
 			hits = slices.DeleteFunc(hits, func(h PaletteHit) bool {
@@ -226,10 +230,27 @@ func (a *app) rank() {
 	}
 	items, errs, root := s.items, s.errs, s.root
 	status, ps := a.searchStatus(), a.ps
+	top := ""
+	if a.atTop(root) {
+		top = a.top.name
+	}
 	go func() {
 		hits := rankIndex(ctx, ps, root, items, errs, text)
 		if ctx.Err() != nil {
 			return
+		}
+		if top != "" {
+			// The top by its name, as the path bar has it.
+			was := ps.placeName(root)
+			for i, h := range hits {
+				if rest, ok := strings.CutPrefix(h.Detail, was); ok && !h.Problem {
+					rest = strings.TrimLeft(rest, `/\`)
+					hits[i].Detail = top
+					if rest != "" {
+						hits[i].Detail += ps.Sep() + rest
+					}
+				}
+			}
 		}
 		a.post(func() {
 			if a.search.seq == seq {
@@ -245,11 +266,11 @@ func (a *app) searchStatus() string {
 	var b strings.Builder
 	switch {
 	case s.walking:
-		fmt.Fprintf(&b, "Looking through %s: %s items so far…", a.ps.placeName(s.root), count(len(s.items)))
+		fmt.Fprintf(&b, "Looking through %s: %s items so far…", a.placeName(s.root), count(len(s.items)))
 	case s.stopped != "":
-		fmt.Fprintf(&b, "%s in %s. Type more to narrow it down.", s.stopped, a.ps.placeName(s.root))
+		fmt.Fprintf(&b, "%s in %s. Type more to narrow it down.", s.stopped, a.placeName(s.root))
 	default:
-		fmt.Fprintf(&b, "%s under %s. Type > for commands.", plural(len(s.items), "item"), a.ps.placeName(s.root))
+		fmt.Fprintf(&b, "%s under %s. Type > for commands.", plural(len(s.items), "item"), a.placeName(s.root))
 	}
 	if n := len(s.errs); n > 0 {
 		fmt.Fprintf(&b, " %s could not be read.", plural(n, "folder"))
@@ -417,7 +438,7 @@ func (a *app) palettePicked(v PalettePicked) {
 	case "file":
 		info, err := a.fs.Lstat(rest)
 		if err != nil {
-			a.fail(fmt.Sprintf("Opening %s: %v", a.ps.Show(rest), err))
+			a.fail(fmt.Sprintf("Opening %s: %v", a.shown(rest), err))
 			return
 		}
 		if v.Ctrl {

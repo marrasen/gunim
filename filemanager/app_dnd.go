@@ -82,10 +82,18 @@ func (a *app) dropFiles(v DropFiles) {
 		return
 	}
 	if v.To == a.fs.ID() {
+		if a.shell.ReadOnly {
+			a.refuseReadOnly()
+			return
+		}
 		if at := a.archiveOf(v.Into, true); at != "" {
 			a.refuseArchive(at)
 			return
 		}
+	}
+	if !v.Copy && v.FS == a.fs.ID() && a.shell.ReadOnly {
+		// Nothing leaves a folder that may not change: a move copies.
+		v.Copy = true
 	}
 	if !v.Copy && v.FS == a.fs.ID() && a.anyInArchive(v.Paths) {
 		// What an archive holds stays in it: a move out of it copies.
@@ -103,7 +111,7 @@ func (a *app) dropFiles(v DropFiles) {
 	}
 	for _, p := range v.Paths {
 		if a.ps.Same(a.ps.Dir(p), v.Into) {
-			a.fail(a.ps.Base(p) + " is already in " + a.ps.placeName(v.Into) + ".")
+			a.fail(a.ps.Base(p) + " is already in " + a.placeName(v.Into) + ".")
 			return
 		}
 		if err := into(a.fs, p, v.Into); err != nil {
@@ -113,10 +121,10 @@ func (a *app) dropFiles(v DropFiles) {
 	}
 	srcs := slices.Clone(v.Paths)
 	if v.Copy {
-		a.startOp(job{kind: OpCopy, srcs: srcs, dest: v.Into}, "Copying "+a.what(srcs)+" to "+a.ps.placeName(v.Into))
+		a.startOp(job{kind: OpCopy, srcs: srcs, dest: v.Into}, "Copying "+a.what(srcs)+" to "+a.placeName(v.Into))
 		return
 	}
-	a.startOp(job{kind: OpMove, srcs: srcs, dest: v.Into}, "Moving "+a.what(srcs)+" to "+a.ps.placeName(v.Into))
+	a.startOp(job{kind: OpMove, srcs: srcs, dest: v.Into}, "Moving "+a.what(srcs)+" to "+a.placeName(v.Into))
 }
 
 // pinFolders adds the folders among paths to the favourites, once each

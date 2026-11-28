@@ -187,13 +187,13 @@ func (a *app) needThumbs(v NeedThumbs) {
 // pumpThumbs starts the next jobs while workers are free.
 func (a *app) pumpThumbs() {
 	t := &a.thumbs
-	for len(t.busy) < workers() && len(t.queue) > 0 {
+	for len(t.busy) < a.mem.workers && len(t.queue) > 0 {
 		job := t.queue[0]
 		t.queue = t.queue[1:]
 		t.busy[job.key] = true
-		fsys := a.fs
+		fsys, mem := a.fs, a.mem
 		go func() {
-			img, full, err := makeThumb(fsys, job.key.path, job.key.size, job.online)
+			img, full, err := mem.makeThumb(fsys, job.key.path, job.key.size, job.online)
 			a.post(func() { a.thumbMade(job, thumbDone{img: img, full: full, err: err}) })
 		}()
 	}
@@ -207,7 +207,8 @@ func (a *app) thumbMade(job thumbJob, done thumbDone) {
 	t.cache[job.key] = done
 	t.order = append(t.order, job.key)
 	t.bytes += thumbBytes(done)
-	for t.bytes > thumbBudget && len(t.order) > 1 {
+	most := a.thumbsShare()
+	for int64(t.bytes) > most && len(t.order) > 1 {
 		old := t.order[0]
 		t.order = t.order[1:]
 		t.bytes -= thumbBytes(t.cache[old])
@@ -247,7 +248,7 @@ func (a *app) cachedThumb(path string, mod int64) (*paint.Image, image.Point) {
 // makeThumb reads the picture at path on fsys and makes it at most size pixels across, and returns the picture's own
 // size. A file kept online only is not read: its thumbnail is the one the system keeps, if any, and its size is
 // unknown.
-func makeThumb(fsys FS, path string, size int, online bool) (*paint.Image, image.Point, error) {
+func (m memory) makeThumb(fsys FS, path string, size int, online bool) (*paint.Image, image.Point, error) {
 	if online {
 		img, err := systemThumb(fsys, path, size)
 		if err != nil || img == nil {
@@ -255,16 +256,17 @@ func makeThumb(fsys FS, path string, size int, online bool) (*paint.Image, image
 		}
 		return paint.NewImageFit(img, size, size), image.Point{}, nil
 	}
-	img, full, err := decodePicture(fsys, path)
+	defer m.hold()()
+	img, full, err := m.decodePicture(fsys, path)
 	if err != nil {
 		return nil, full, err
 	}
 	return paint.NewImageFit(img, size, size), full, nil
 }
 
-// decodePicture reads the picture at path on fsys, and returns it with its size. A picture of more than maxPixels is
-// refused, with its size in the error.
-func decodePicture(fsys FS, path string) (img image.Image, size image.Point, err error) {
+// decodePicture reads the picture at path on fsys, and returns it with its size. A picture of more than m.pixels is
+// refused, with its size in the error. The caller holds the memory's gate.
+func (m memory) decodePicture(fsys FS, path string) (img image.Image, size image.Point, err error) {
 	name := fsys.Paths().Base(path)
 	f, err := fsys.Open(path)
 	if err != nil {
@@ -280,7 +282,7 @@ func decodePicture(fsys FS, path string) (img image.Image, size image.Point, err
 		return nil, image.Point{}, fmt.Errorf("reading the picture %s: %w", name, err)
 	}
 	size = image.Pt(cfg.Width, cfg.Height)
-	if cfg.Width*cfg.Height > maxPixels {
+	if int64(cfg.Width)*int64(cfg.Height) > m.pixels {
 		return nil, size, fmt.Errorf("%s is too large to show: %d × %d pixels", name, cfg.Width, cfg.Height)
 	}
 	if _, serr := f.Seek(0, io.SeekStart); serr != nil {

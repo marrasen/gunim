@@ -201,7 +201,7 @@ func (a *app) manyCopy(small bool) {
 		}
 	}
 	a.ops.limit = rate * (1 << 20)
-	a.startOp(job{kind: OpCopy, srcs: srcs, dest: to}, "Copying "+a.what(srcs)+" to "+a.ps.placeName(to))
+	a.startOp(job{kind: OpCopy, srcs: srcs, dest: to}, "Copying "+a.what(srcs)+" to "+a.placeName(to))
 	a.ops.limit = 0
 }
 
@@ -243,7 +243,7 @@ func (a *app) manyMove() {
 		srcs = append(srcs, dir)
 	}
 	a.ops.limit, a.ops.across = 12*(1<<20), true
-	a.startOp(job{kind: OpMove, srcs: srcs, dest: to}, "Moving "+a.what(srcs)+" to "+a.ps.placeName(to))
+	a.startOp(job{kind: OpMove, srcs: srcs, dest: to}, "Moving "+a.what(srcs)+" to "+a.placeName(to))
 	a.ops.limit, a.ops.across = 0, false
 }
 

@@ -26,10 +26,11 @@ type pathBar struct {
 	back, fwd, up *widget.IconButton
 	addr          *widget.AddressBar
 	filter        *filterField
-	// deep has the filter look in the folders under this one too.
-	deep *widget.IconButton
-	row  *widget.Flex
-	path string
+	// deep has the filter look in the folders under this one too, and
+	// upload asks for files to upload, in a browser.
+	deep, upload *widget.IconButton
+	row          *widget.Flex
+	path         string
 	// room is the browser's width, as it was laid out last.
 	room float32
 }
@@ -56,7 +57,10 @@ func newPathBar(b *browser) *pathBar {
 	p.deep.KeepFocus = true
 	p.deep.OnClick = widget.Sends(Command{Name: CmdDeepFilter})
 	nav := func(b *widget.IconButton) gunim.Node { return widget.NewSized(b, navSize, navSize) }
-	filter := widget.Row(p.filter, nav(p.deep)).Grow(p.filter, 1)
+	p.upload = widget.NewIconButton(icon.Upload, "Upload files")
+	p.upload.KeepFocus = true
+	p.upload.OnClick = widget.Sends(Command{Name: CmdUpload})
+	filter := widget.Row(p.filter, &tailButtons{deep: nav(p.deep), upload: nav(p.upload), b: b}).Grow(p.filter, 1)
 	filter.Cross, filter.Gap = widget.CrossCenter, smallGap
 	// The menus sit behind a button left of Back, drawn as the path bar's
 	// buttons are, on nothing of their own.
@@ -98,6 +102,38 @@ func (m *menuSlot) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids guni
 	}
 }
 
+// tailButtons are the buttons after the filter: the one that has it look
+// in the folders under this one, and in a browser Upload files after it.
+type tailButtons struct {
+	deep, upload gunim.Node
+	b            *browser
+}
+
+// Children implements [gunim.Composite].
+func (t *tailButtons) Children() []gunim.Node { return []gunim.Node{t.deep, t.upload} }
+
+// Layout implements [gunim.Node].
+func (t *tailButtons) Layout(c gunim.Constraints, f gunim.Frame, kids gunim.Children) geom.Size {
+	size := kids.At(0).Layout(c)
+	kids.At(0).Place(geom.Point{})
+	if !t.b.shell.Browser {
+		kids.At(1).Layout(gunim.Tight(geom.Size{}))
+		return size
+	}
+	gap := smallGap.Get(f.Theme)
+	us := kids.At(1).Layout(c)
+	kids.At(1).Place(geom.Pt(size.W+gap, 0))
+	return geom.Sz(size.W+gap+us.W, max(size.H, us.H))
+}
+
+// Paint implements [gunim.Node].
+func (t *tailButtons) Paint(p *paint.Painter, _ gunim.Frame, _ geom.Size, kids gunim.Children) {
+	kids.At(0).Paint(p)
+	if t.b.shell.Browser {
+		kids.At(1).Paint(p)
+	}
+}
+
 // deepTip is what the button that has the filter look in the folders
 // under this one says, on or not.
 func deepTip(on bool) string {
@@ -121,9 +157,13 @@ type filterBox struct {
 func (f *filterBox) Children() []gunim.Node { return []gunim.Node{f.child} }
 
 // Layout implements [gunim.Node].
-func (f *filterBox) Layout(c gunim.Constraints, _ gunim.Frame, kids gunim.Children) geom.Size {
+func (f *filterBox) Layout(c gunim.Constraints, fr gunim.Frame, kids gunim.Children) geom.Size {
 	room := f.bar.room
 	w := min(max(room*0.25, 120), 220) + navSize
+	if f.bar.b.shell.Browser {
+		// Upload files, after the filter's own button.
+		w += navSize + smallGap.Get(fr.Theme)
+	}
 	if f.hidden = room > 0 && room < 560; f.hidden {
 		w = 0
 	}
@@ -174,7 +214,7 @@ func (p *pathBar) setListing(l Listing, u *gunim.UI) {
 		for i, c := range l.Crumbs {
 			cs[i] = widget.Crumb{Name: c.Name, Path: c.Path}
 		}
-		p.addr.SetPath(p.b.shell.Paths.Show(l.Path), cs, u)
+		p.addr.SetPath(p.b.shell.show(l.Path), cs, u)
 		p.filter.SetText(l.Filter, u)
 	}
 }
@@ -182,6 +222,8 @@ func (p *pathBar) setListing(l Listing, u *gunim.UI) {
 // setShell names the file system the path is on before its folders, as
 // the title does.
 func (p *pathBar) setShell(s Shell, u *gunim.UI) {
+	p.upload.Disabled, p.upload.Why = s.ReadOnly, readOnlyHint
+	u.Invalidate()
 	lead := widget.AddressLead{Name: s.Where}
 	if s.Where != "" {
 		lead.Icon, lead.Tooltip = icon.Server, "Home on "+s.Where
