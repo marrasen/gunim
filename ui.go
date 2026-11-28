@@ -1213,10 +1213,12 @@ func (c Client) SaveFile(ctx context.Context, o driver.SaveOptions) (string, err
 //
 // In a browser that has a dialog for saving, and shows it as the user
 // clicks or types, the file is written where the user chooses as its bytes
-// come. Otherwise it becomes a download, with no dialog: its bytes are
-// kept by the browser, outside the program's memory, and handed to its
-// downloads at Close, which returns [driver.ErrMayNotBeKept]. So call it
-// from the click, before the bytes are ready.
+// come. Otherwise it becomes a download, with no dialog, written to the
+// disk as it comes by gunim's save worker where the page names it (see
+// [github.com/marrasen/gunim/driver/web/saveworker]), and kept whole by the
+// browser until Close where it does not: [driver.HeldInMemory] tells. A
+// download's Close returns [driver.ErrMayNotBeKept]. So call it from the
+// click, before the bytes are ready.
 func (c Client) SaveStream(ctx context.Context, o driver.SaveOptions) (driver.SavedFile, error) {
 	o.Folder = absFolder(o.Folder)
 	var save func() (driver.SavedFile, error)

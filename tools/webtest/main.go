@@ -35,10 +35,14 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/marrasen/gunim/driver/web/saveworker"
 )
 
-// page runs the tests and keeps what they print in window.testResult.
+// page runs the tests and keeps what they print in window.testResult. It
+// names gunim's save worker, served beside it.
 const page = `<!doctype html><meta charset="utf-8"><title>gunim tests</title>
+<meta name="gunim-save-worker" content="gunim-save.js">
 <canvas id="gunim" style="width:320px;height:240px"></canvas><pre id="output" style="white-space:pre-wrap"></pre>
 <script src="wasm_exec.js"></script><script>
 window.testResult = {done: false, code: null, output: "", read: 0};
@@ -146,6 +150,9 @@ func build(ctx context.Context, dir string) error {
 		return err
 	}
 	if err := os.WriteFile(filepath.Join(dir, "wasm_exec.js"), loader, 0o600); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(dir, saveworker.Name), saveworker.Script, 0o600); err != nil {
 		return err
 	}
 	return os.WriteFile(filepath.Join(dir, "index.html"), []byte(page), 0o600)
