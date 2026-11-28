@@ -29,7 +29,9 @@ type CellsOp struct {
 	// below a row's top their baseline is, in logical pixels.
 	TextSize, Baseline float32
 	// Grid tells one grid's rows from another's, and Row is this row's
-	// number in it, so a driver knows which rows follow each other.
+	// number in it, so a driver knows which rows follow each other. A
+	// row lies Row cells below the grid's first: a driver puts every
+	// row of a grid on the same pixels, whichever rows it draws together.
 	Grid uintptr
 	Row  int
 
@@ -55,9 +57,18 @@ type CellPaint struct {
 // is pattern i+1, W*H bytes of coverage row by row from the top. A grid
 // adds masks as it meets new characters, and makes new Patterns when
 // its cells change size; a driver keeps what it has uploaded of each.
+//
+// Cells drawn under a scale, as a zoomed view draws them, are a
+// different size on the screen, and seldom a whole number of pixels: a
+// driver puts each cell on whole pixels, some a pixel wider than others,
+// and draws each pattern at the size of its cell. MaskAt makes mask i at
+// w by h device pixels, for that, as the grid would draw it at that
+// size. Without it, a driver shrinks or stretches Masks, keeping every
+// line.
 type Patterns struct {
-	W, H  int
-	Masks [][]byte
+	W, H   int
+	Masks  [][]byte
+	MaskAt func(i, w, h int) []byte
 }
 
 func (*CellsOp) isOp() {}

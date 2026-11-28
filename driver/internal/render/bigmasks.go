@@ -168,7 +168,8 @@ func (r *Renderer) releaseBigMasks() {
 }
 
 // rebase moves the times the renderer keeps on by d, as its clock changes from the wall's to a held one or back:
-// when each big mask was made and drawn, and when what was drawn stretched turns sharp.
+// when each big mask and each grid's glyphs were made, when each big mask was drawn, and when what was drawn
+// stretched turns sharp.
 func (r *Renderer) rebase(d time.Duration) {
 	for _, sizes := range r.bigs.sizes {
 		for _, m := range sizes {
@@ -177,6 +178,14 @@ func (r *Renderer) rebase(d time.Duration) {
 	}
 	for shape, t := range r.bigs.made {
 		r.bigs.made[shape] = t.Add(d)
+	}
+	for _, zooms := range r.cellsState.zooms {
+		for _, z := range zooms {
+			z.made, z.at = z.made.Add(d), z.at.Add(d)
+		}
+	}
+	for _, t := range r.cellsState.pats {
+		t.used = t.used.Add(d)
 	}
 	if !r.SharpAt.IsZero() {
 		r.SharpAt = r.SharpAt.Add(d)

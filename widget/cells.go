@@ -102,6 +102,9 @@ type CellGrid struct {
 	// at the character plus leftHalf and rightHalf.
 	pats  *paint.Patterns
 	patOf map[rune]uint16
+	// patRunes are the characters of pats' masks, in their order, for
+	// making them again at another size.
+	patRunes *[]rune
 	// run is what the grid drew last frame, and painted what it drew it
 	// from, so a frame in which nothing of the grid changed hands the
 	// drawing on rather than drawing thousands of cells again.
@@ -685,8 +688,17 @@ func (g *CellGrid) readyPatterns() {
 	if g.pats != nil && g.pats.W == w && g.pats.H == h {
 		return
 	}
-	g.pats = &paint.Patterns{W: w, H: h}
+	// The characters of these patterns, apart from the grid's, so the
+	// patterns go on making masks after the grid makes new ones.
+	runes := new([]rune)
+	g.pats = &paint.Patterns{W: w, H: h, MaskAt: func(i, w, h int) []byte {
+		if i < 0 || i >= len(*runes) {
+			return nil
+		}
+		return patternMask((*runes)[i], w, h)
+	}}
 	g.patOf = map[rune]uint16{}
+	g.patRunes = runes
 }
 
 // pattern is the number of r's mask among the grid's patterns, made
@@ -699,26 +711,38 @@ func (g *CellGrid) pattern(r rune) uint16 {
 	if n, ok := g.patOf[r]; ok {
 		return n
 	}
-	w, h := g.pats.W, g.pats.H
-	var mask []byte
-	if half := r & (leftHalf | rightHalf); half == 0 {
-		mask = boxDrawing(r, w, h)
-	} else if both := boxDrawing(r-half, 2*w, h); both != nil {
-		from := 0
-		if half == rightHalf {
-			from = w
-		}
-		for y := range h {
-			mask = append(mask, both[y*2*w+from:y*2*w+from+w]...)
-		}
-	}
+	mask := patternMask(r, g.pats.W, g.pats.H)
 	var n uint16
 	if mask != nil && len(g.pats.Masks) < 0xffff {
 		g.pats.Masks = append(g.pats.Masks, mask)
+		*g.patRunes = append(*g.patRunes, r)
 		n = uint16(len(g.pats.Masks))
 	}
 	g.patOf[r] = n
 	return n
+}
+
+// patternMask draws r, a character or one plus leftHalf or rightHalf, in
+// a cell of w by h device pixels, or returns nil for one drawn
+// otherwise.
+func patternMask(r rune, w, h int) []byte {
+	half := r & (leftHalf | rightHalf)
+	if half == 0 {
+		return boxDrawing(r, w, h)
+	}
+	both := boxDrawing(r-half, 2*w, h)
+	if both == nil {
+		return nil
+	}
+	from := 0
+	if half == rightHalf {
+		from = w
+	}
+	var mask []byte
+	for y := range h {
+		mask = append(mask, both[y*2*w+from:y*2*w+from+w]...)
+	}
+	return mask
 }
 
 // character returns the glyphs that draw c's character and its marks, from its cell's left edge.
