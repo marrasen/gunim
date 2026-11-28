@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -26,6 +27,14 @@ import (
 // the next library starts is a module that crashed: the library skips
 // it from then on, lists it in [Library.Failed], and loads it again only
 // when [Library.Retry] asks.
+//
+// A bundle that lists nothing has its module loaded to find what it
+// makes, and Load keeps a module loaded until [Shutdown]. So the journal
+// keeps what each such module made, by the size and time of its binary,
+// and the next library lists those from the journal, loading none of
+// them till a song asks for one. A program with many plugins installed
+// would otherwise hold every one of them loaded, with what each
+// allocated, used or not.
 type Library struct {
 	journal string
 	scanned chan struct{}
@@ -39,6 +48,9 @@ type Library struct {
 	found   []Found
 	failed  map[string]error
 	crashed []string
+	// made is what the modules of the bundles that list nothing make, as
+	// their loads found it.
+	made map[string]scannedModule
 	// loading serializes the loads, as the journal names one at a time.
 	loading sync.Mutex
 }
@@ -58,6 +70,30 @@ type journalFile struct {
 	Loading string
 	// Crashed are the modules that crashed as they loaded.
 	Crashed []string
+	// Scanned are the modules of the bundles that list nothing, by path,
+	// as their loads found them.
+	Scanned map[string]scannedModule `json:",omitempty"`
+}
+
+// scannedModule is what a module of a bundle that lists nothing made,
+// and the size and time of its binary as it was loaded: a binary of
+// another size or time is loaded again.
+type scannedModule struct {
+	Size, ModTime int64
+	Classes       []Class
+}
+
+// stamp returns the size and time of the binary of the module at path.
+func stamp(path string) (size, modTime int64, ok bool) {
+	bin, err := binaryPath(path)
+	if err != nil {
+		return 0, 0, false
+	}
+	fi, err := os.Stat(bin)
+	if err != nil {
+		return 0, 0, false
+	}
+	return fi.Size(), fi.ModTime().UnixNano(), true
 }
 
 // ErrCrashed is the error of a plugin whose module crashed as it loaded,
@@ -94,6 +130,10 @@ func NewLibraryAt(journal string, dirs ...string) *Library {
 	}
 	j.Loading = ""
 	l.crashed = j.Crashed
+	l.made = j.Scanned
+	if l.made == nil {
+		l.made = map[string]scannedModule{}
+	}
 	l.write(j)
 	go l.scan(append(systemDirs(), dirs...))
 	return l
@@ -144,7 +184,8 @@ func (l *Library) load(path string, fn func() error) error {
 	defer l.loading.Unlock()
 	l.mu.Lock()
 	crashed := slices.Contains(l.crashed, path)
-	j := journalFile{Loading: path, Crashed: slices.Clone(l.crashed)}
+	j := l.journalLocked()
+	j.Loading = path
 	l.mu.Unlock()
 	if crashed {
 		return fmt.Errorf("%w: %s", ErrCrashed, path)
@@ -159,18 +200,58 @@ func (l *Library) load(path string, fn func() error) error {
 	return err
 }
 
+// journalLocked is what the journal holds now, but the module loading.
+// The caller holds l.mu.
+func (l *Library) journalLocked() journalFile {
+	return journalFile{Crashed: slices.Clone(l.crashed), Scanned: maps.Clone(l.made)}
+}
+
+// cached returns what the module at path made, as the journal keeps it,
+// where its binary has not changed since and it did not crash.
+func (l *Library) cached(path string) ([]Class, bool) {
+	size, modTime, ok := stamp(path)
+	if !ok {
+		return nil, false
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	s, ok := l.made[path]
+	if !ok || s.Size != size || s.ModTime != modTime || slices.Contains(l.crashed, path) {
+		return nil, false
+	}
+	return slices.Clone(s.Classes), true
+}
+
+// remember keeps what the module at path made, for the journal.
+func (l *Library) remember(path string, classes []Class) {
+	size, modTime, ok := stamp(path)
+	if !ok {
+		return
+	}
+	l.mu.Lock()
+	l.made[path] = scannedModule{Size: size, ModTime: modTime, Classes: slices.Clone(classes)}
+	l.mu.Unlock()
+}
+
 func (l *Library) scan(dirs []string) {
 	defer close(l.scanned)
 	l.bundles = Scan(dirs...)
 	var found []Found
+	unlisted := map[string]bool{}
 	for _, b := range l.bundles {
 		classes := append(slices.Clone(b.Effects), b.Instruments...)
 		if !b.Listed {
-			var m *Module
-			if l.load(b.Path, func() (err error) { m, err = Load(b.Path); return err }) != nil {
-				continue
+			unlisted[b.Path] = true
+			cs, ok := l.cached(b.Path)
+			if !ok {
+				var m *Module
+				if l.load(b.Path, func() (err error) { m, err = Load(b.Path); return err }) != nil {
+					continue
+				}
+				cs = append(m.Effects(), m.Instruments()...)
+				l.remember(b.Path, cs)
 			}
-			classes = append(m.Effects(), m.Instruments()...)
+			classes = cs
 		}
 		for _, c := range classes {
 			found = append(found, Found{ID: PlugID(c), Class: c, Path: b.Path})
@@ -179,7 +260,12 @@ func (l *Library) scan(dirs []string) {
 	l.mu.Lock()
 	l.found = append(l.found, found...)
 	sortFound(l.found)
+	// Modules no longer on disk, or that list what they make now, are
+	// not kept.
+	maps.DeleteFunc(l.made, func(path string, _ scannedModule) bool { return !unlisted[path] })
+	j := l.journalLocked()
 	l.mu.Unlock()
+	l.write(j)
 }
 
 // sortFound sorts fs by vendor, then name.
@@ -238,8 +324,13 @@ func (l *Library) Retry(path string) error {
 	if err := l.load(path, func() (err error) { m, err = Load(path); return err }); err != nil {
 		return err
 	}
+	l.remember(path, append(m.Effects(), m.Instruments()...))
 	l.mu.Lock()
-	defer l.mu.Unlock()
+	defer func() {
+		j := l.journalLocked()
+		l.mu.Unlock()
+		l.write(j)
+	}()
 	for _, c := range append(m.Effects(), m.Instruments()...) {
 		if !slices.ContainsFunc(l.found, func(f Found) bool { return f.ID == PlugID(c) }) {
 			l.found = append(l.found, Found{ID: PlugID(c), Class: c, Path: path})
