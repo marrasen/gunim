@@ -40,18 +40,30 @@ import (
 )
 
 // page runs the tests and keeps what they print in window.testResult. It
-// names gunim's save worker, served beside it.
+// names gunim's save worker, served beside it. Its script is a file of its
+// own, so a page served with a strict Content-Security-Policy runs it.
 const page = `<!doctype html><meta charset="utf-8"><title>gunim tests</title>
 <meta name="gunim-save-worker" content="gunim-save.js">
 <canvas id="gunim" style="width:320px;height:240px"></canvas><pre id="output" style="white-space:pre-wrap"></pre>
-<script src="wasm_exec.js"></script><script>
-window.testResult = {done: false, code: null, output: "", read: 0};
+<script src="wasm_exec.js"></script><script src="run.js"></script>`
+
+// runJS is page's script. On a page served with a policy (csp=...), the
+// tests named TestStrict run, whatever -run says, and elsewhere they don't.
+const runJS = `window.testResult = {done: false, code: null, output: "", read: 0};
 const decoder = new TextDecoder(), write = globalThis.fs.writeSync;
 const add = s => { testResult.output += s; document.querySelector("#output").textContent += s; };
 globalThis.fs.writeSync = (fd, data) => { add(decoder.decode(data)); return write(fd, data); };
 const go = new Go();
 const query = new URLSearchParams(location.search), of = query.get("of") || "web", only = query.get("run");
-go.argv = [of + ".test", "-test.v"].concat(only ? ["-test.run=" + only] : of == "text" ? ["-test.run=^TestBrowser"] : []);
+let args = [];
+if (query.get("csp")) {
+  args = ["-test.run=^TestStrict"];
+} else if (of == "text") {
+  args = ["-test.run=^TestBrowser"];
+} else {
+  args = ["-test.skip=^TestStrict"].concat(only ? ["-test.run=" + only] : []);
+}
+go.argv = [of + ".test", "-test.v"].concat(args);
 go.exit = code => { testResult.code = code; testResult.done = true; };
 if (typeof webtestAsk == "function") {
   const waiting = new Map();
@@ -68,7 +80,17 @@ if (typeof webtestAsk == "function") {
 WebAssembly.instantiateStreaming(fetch(of + ".test.wasm"), go.importObject)
   .then(r => go.run(r.instance))
   .catch(e => { add(String(e)); go.exit(1); });
-</script>`
+`
+
+// policies are the Content-Security-Policies a page may be served with, by
+// the csp of its address: as strict as a page that runs a program and
+// nothing more, as kakel's guest page, with frames of its own or none.
+var policies = map[string]string{
+	"closed": "default-src 'none'; base-uri 'none'; form-action 'none'; script-src 'self' 'wasm-unsafe-eval'; " +
+		"connect-src 'self'; style-src 'self'; img-src 'self'",
+}
+
+func init() { policies["frames"] = policies["closed"] + "; frame-src 'self'" }
 
 // progress asks the page for what the tests printed since it last asked.
 const progress = `window.testResult ? JSON.stringify({
@@ -98,9 +120,15 @@ func run(chrome, serve, only string, timeout time.Duration) error {
 	if err := build(ctx, dir); err != nil {
 		return err
 	}
-	handler := http.FileServer(http.Dir(dir))
+	files := http.FileServer(http.Dir(dir))
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if policy, ok := policies[r.URL.Query().Get("csp")]; ok && r.URL.Path == "/" {
+			w.Header().Set("Content-Security-Policy", policy)
+		}
+		files.ServeHTTP(w, r)
+	})
 	if serve != "" {
-		fmt.Printf("open http://%s/ and http://%s/?of=text\n", serve, serve)
+		fmt.Printf("open http://%s/, http://%s/?csp=frames, http://%s/?csp=closed and http://%s/?of=text\n", serve, serve, serve, serve)
 		return http.ListenAndServe(serve, handler)
 	}
 	l, err := (&net.ListenConfig{}).Listen(ctx, "tcp", "127.0.0.1:0")
@@ -111,6 +139,9 @@ func run(chrome, serve, only string, timeout time.Duration) error {
 	go func() { _ = http.Serve(l, handler) }()
 	for _, t := range tested {
 		address := "http://" + l.Addr().String() + "/?of=" + t.name
+		if t.csp != "" {
+			address += "&csp=" + t.csp
+		}
 		if only != "" {
 			if t.name != "web" {
 				continue
@@ -128,12 +159,20 @@ func run(chrome, serve, only string, timeout time.Duration) error {
 	return nil
 }
 
-// tested are the packages whose tests run. Of the package text's, those named for the browser do.
-var tested = []struct{ name, dir string }{{"web", "./driver/web"}, {"text", "./text"}}
+// tested are the packages whose tests run, and the policy each page is
+// served with. Of the package text's, those named for the browser run.
+var tested = []struct{ name, dir, csp string }{
+	{"web", "./driver/web", ""}, {"web", "./driver/web", "frames"}, {"web", "./driver/web", "closed"}, {"text", "./text", ""},
+}
 
 // build leaves the tests, Go's loader for them and the page in dir.
 func build(ctx context.Context, dir string) error {
+	built := map[string]bool{}
 	for _, t := range tested {
+		if built[t.name] {
+			continue
+		}
+		built[t.name] = true
 		test := exec.CommandContext(ctx, "go", "test", "-c", "-o", filepath.Join(dir, t.name+".test.wasm"), t.dir)
 		test.Env = append(os.Environ(), "GOOS=js", "GOARCH=wasm")
 		test.Stdout, test.Stderr = os.Stdout, os.Stderr
@@ -153,6 +192,9 @@ func build(ctx context.Context, dir string) error {
 		return err
 	}
 	if err := os.WriteFile(filepath.Join(dir, saveworker.Name), saveworker.Script, 0o600); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(dir, "run.js"), []byte(runJS), 0o600); err != nil {
 		return err
 	}
 	return os.WriteFile(filepath.Join(dir, "index.html"), []byte(page), 0o600)

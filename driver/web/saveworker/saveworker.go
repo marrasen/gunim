@@ -12,9 +12,17 @@
 // The content is the script's address, relative to the page. The driver
 // registers the worker for the folder gunim-save/ beside the script, so it
 // sees no other request of the page's. A page served over plain HTTP from
-// anywhere but the computer itself has no service workers, and a
-// Content-Security-Policy must allow the script as a worker (worker-src
-// 'self').
+// anywhere but the computer itself has no service workers.
+//
+// A page with a Content-Security-Policy needs two things of it:
+//
+//   - worker-src 'self', for the worker. A policy with no worker-src or
+//     child-src takes script-src instead, so script-src 'self' does too.
+//   - frame-src 'self', for the hidden frame each download is asked for in.
+//     A policy with no frame-src takes child-src, and then default-src.
+//
+// Without the frame, a save falls back at once to a download the browser
+// holds whole, and the log says why.
 //
 // The package holds no browser code of Go's, so a server built for any
 // system embeds the script.

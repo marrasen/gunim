@@ -270,7 +270,9 @@ func (r *blobReader) Close() error {
 
 // ChooseStreams implements [driver.StreamChooser] with the browser's file
 // picker, an input of type file. It returns no streams where the user
-// cancelled, in a browser that says so, as all of today's do. A browser shows
+// cancelled: a browser with the picker's cancel event says so, and in one
+// without, a picker the page has had the keyboard back from for
+// a minute, with no file chosen, counts as cancelled. A browser shows
 // the picker only as the user clicks or types, and ChooseStreams returns
 // [driver.ErrNoGesture] where it can tell that the user has done neither for a
 // while. Filters become the picker's accept, where each pattern is an
@@ -308,21 +310,31 @@ func (w *Window) ChooseStreams(o driver.ChooseOptions) ([]*input.Stream, error) 
 		return nil
 	})
 	cancelled := js.FuncOf(func(js.Value, []js.Value) any {
+		sawCancel.Store(true)
 		select {
 		case got <- nil:
 		default:
 		}
 		return nil
 	})
-	defer chosen.Release()
-	defer cancelled.Release()
 	in.Call("addEventListener", "change", chosen)
 	in.Call("addEventListener", "cancel", cancelled)
+	// Taken off before they are let go, so a choice that comes late reaches
+	// nothing.
+	defer func() {
+		in.Call("removeEventListener", "change", chosen)
+		in.Call("removeEventListener", "cancel", cancelled)
+		chosen.Release()
+		cancelled.Release()
+	}()
 
 	// A browser without the cancel event says nothing of a picker closed
 	// with no choice, but the page has the keyboard back: once it has
-	// left and come back, and no choice follows in a while, the user
-	// cancelled.
+	// left and come back with no file chosen, and no choice follows in a
+	// long while, the user cancelled. A browser with the event says so
+	// itself, and gets no such guess: the keyboard may come back while
+	// its picker is still open, as on another screen.
+	guess := !cancelKnown()
 	away, back := make(chan struct{}, 1), make(chan struct{}, 1)
 	blur := js.FuncOf(func(js.Value, []js.Value) any {
 		select {
@@ -379,7 +391,7 @@ func (w *Window) ChooseStreams(o driver.ChooseOptions) ([]*input.Stream, error) 
 		case <-away:
 			left = true
 		case <-back:
-			if left && grace == nil {
+			if guess && left && grace == nil && in.Get("files").Length() == 0 {
 				graceTimer = time.NewTimer(pickerGrace)
 				grace = graceTimer.C
 			}
@@ -392,9 +404,25 @@ func (w *Window) ChooseStreams(o driver.ChooseOptions) ([]*input.Stream, error) 
 }
 
 // pickerGrace is how long a choice may take to arrive once the page has the
-// keyboard back from the picker, before the picker counts as cancelled. A
-// browser hands over the files chosen a moment after the picker closes.
-var pickerGrace = 3 * time.Second
+// keyboard back from the picker, before the picker counts as cancelled, in a
+// browser without the cancel event. It is long, as a picker may hand over a
+// file a while after it closes, as one it fetches from a cloud.
+var pickerGrace = time.Minute
+
+// sawCancel says a picker's cancel event has come in this page.
+var sawCancel atomic.Bool
+
+// cancelKnown reports whether the browser tells of a picker cancelled. A
+// browser with an oncancel handler on inputs has the event, as Chrome 113,
+// Firefox 91 and Safari 16.4 on do; some a little older have the handler
+// for dialogs alone, and their pickers are waited on until the window
+// closes.
+var cancelKnown = func() bool {
+	if sawCancel.Load() {
+		return true
+	}
+	return js.Global().Get("Reflect").Call("has", js.Global().Get("HTMLInputElement").Get("prototype"), "oncancel").Bool()
+}
 
 // activeGesture reports whether the user has just clicked or typed, as a
 // browser asks before it shows a picker, or true where the browser does not

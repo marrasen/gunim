@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"strings"
 	"sync"
 	"syscall/js"
 	"time"
@@ -33,7 +34,11 @@ import (
 //   - Otherwise, where the page names gunim's save worker (see
 //     [github.com/marrasen/gunim/driver/web/saveworker]) and the browser runs
 //     it, the file is a download, written to the disk as the bytes come. A
-//     Write waits until the download takes more.
+//     Write waits until the download takes more, for as long as the browser
+//     holds the download: while it asks the user where to save it, or
+//     whether the site may download, or forever where the user never
+//     answers. A program that gives up calls Remove, which ends the wait at
+//     once.
 //   - Otherwise the file is a download kept in the browser until Close, which
 //     Firefox and Safari keep in memory: [driver.HeldInMemory] says so of it.
 //
@@ -54,13 +59,14 @@ func (w *Window) SaveStream(o driver.SaveOptions) (driver.SavedFile, error) {
 		// a frame: the download does.
 		log.Printf("gunim: web: no dialog for saving %s, so it downloads: %v", name, err)
 	}
-	if sw, ok := saveWorker(); ok {
-		f, err := newStreamed(sw, name)
-		if err == nil {
+	sw, scope, err := saveWorker()
+	if err == nil {
+		var f *streamed
+		if f, err = newStreamed(sw, scope, name); err == nil {
 			return f, nil
 		}
-		log.Printf("gunim: web: the save worker did not take %s, so the browser holds it until it is whole: %v", name, err)
 	}
+	log.Printf("gunim: web: no save worker for %s, so the browser holds it whole until it is downloaded: %v", name, err)
 	return newDownload(name), nil
 }
 
@@ -241,16 +247,13 @@ func ignore(p js.Value) {
 
 var ignored = js.FuncOf(func(js.Value, []js.Value) any { return nil })
 
-// keepFor is how long what a download is read from is kept once the browser
-// has it: the link to a download's bytes, and the frame a streamed download
-// was asked for in. A browser may hold a download a long while before it
-// reads it, as Safari does while it asks the user whether the site may
-// download, and a link let go of meanwhile fails the download. They go with
-// the page in any case.
-var keepFor = 30 * time.Minute
-
-// later lets go of something once keepFor has passed.
-func later(letGo func()) { time.AfterFunc(keepFor, letGo) }
+// blobKeep is how long a download's link to its Blob is kept once clicked.
+// Nothing tells when the browser has read it. Firefox fails a download whose
+// link goes at once, and FileSaver.js keeps it 40 s for that. Whether Safari
+// reads it before or after it asks the user whether the site may download is
+// not known here, and a Blob is memory in Firefox and Safari, so it is not
+// kept longer for that.
+var blobKeep = 40 * time.Second
 
 // download is a file collected as Blobs in the browser, and handed to the
 // browser's downloads once whole. Chrome keeps large Blobs on its disk;
@@ -343,7 +346,7 @@ func (f *download) finish(int64) error {
 	doc.Get("body").Call("appendChild", a)
 	_, err := call(a, "click")
 	a.Call("remove")
-	later(func() { js.Global().Get("URL").Call("revokeObjectURL", url) })
+	time.AfterFunc(blobKeep, func() { js.Global().Get("URL").Call("revokeObjectURL", url) })
 	if err != nil {
 		return err
 	}
@@ -367,38 +370,15 @@ func (d downloadWriter) Write(b []byte) (int, error) {
 	return len(b), nil
 }
 
-// The save worker, registered once for the page, and whether it is there.
-var (
-	workerMu    sync.Mutex
-	workerAsked bool
-	worker      js.Value
-	workerScope string
-)
-
 // workerWait is how long the browser may take to start the save worker, and
 // a download through it.
 var workerWait = 10 * time.Second
 
-// saveWorker returns the save worker the page names, running, or false where
-// it names none or the browser runs none. It registers the worker the first
-// time.
-func saveWorker() (js.Value, bool) {
-	workerMu.Lock()
-	defer workerMu.Unlock()
-	if !workerAsked {
-		workerAsked = true
-		var err error
-		worker, workerScope, err = registerWorker()
-		if err != nil {
-			log.Printf("gunim: web: no save worker, so large downloads are held in memory: %v", err)
-		}
-	}
-	return worker, worker.Truthy()
-}
-
-// registerWorker registers the save worker the page's meta tag names, for the
-// folder gunim-save/ beside it, and waits until it runs.
-func registerWorker() (js.Value, string, error) {
+// saveWorker returns the save worker the page names, running, and the scope
+// it serves, or why there is none. It asks the browser each time, which keeps
+// the registration: so a worker updated since, or one that failed to start
+// before, is found as it is now. It registers the worker where there is none.
+var saveWorker = func() (js.Value, string, error) {
 	doc := js.Global().Get("document")
 	meta := doc.Call("querySelector", `meta[name="gunim-save-worker"]`)
 	if !meta.Truthy() {
@@ -411,6 +391,21 @@ func registerWorker() (js.Value, string, error) {
 	urls := js.Global().Get("URL")
 	script := urls.New(meta.Call("getAttribute", "content").String(), doc.Get("baseURI")).Get("href").String()
 	scope := urls.New("gunim-save/", script).Get("href").String()
+	running := func(reg js.Value) js.Value {
+		if !reg.Truthy() {
+			return js.Undefined()
+		}
+		if a := reg.Get("active"); a.Truthy() && a.Get("state").String() == "activated" {
+			return a
+		}
+		return js.Undefined()
+	}
+	if p, err := call(sw, "getRegistration", scope); err == nil {
+		if reg, err := await(p, workerWait); err == nil && running(reg).Truthy() &&
+			reg.Get("active").Get("scriptURL").String() == script {
+			return running(reg), scope, nil
+		}
+	}
 	p, err := call(sw, "register", script, map[string]any{"scope": scope})
 	if err != nil {
 		return js.Undefined(), "", err
@@ -420,7 +415,7 @@ func registerWorker() (js.Value, string, error) {
 		return js.Undefined(), "", err
 	}
 	for give := time.Now().Add(workerWait); ; time.Sleep(20 * time.Millisecond) {
-		if a := reg.Get("active"); a.Truthy() && a.Get("state").String() == "activated" {
+		if a := running(reg); a.Truthy() {
 			return a, scope, nil
 		}
 		if time.Now().After(give) {
@@ -456,20 +451,24 @@ type streamed struct {
 	heard    js.Func
 	letGo    func()
 
-	ready, started, pulls chan struct{}
-	cancelled, gone       chan struct{}
-	cancelOnce, goneOnce  sync.Once
-	endOnce               sync.Once
+	ready, started, pulls, blocked chan struct{}
+	cancelled, gone                chan struct{}
+	cancelOnce, goneOnce           sync.Once
+	endOnce                        sync.Once
 }
 
-// newStreamed starts a download of name through the save worker sw, and
-// returns once the browser has asked the worker for it.
-func newStreamed(sw js.Value, name string) (*streamed, error) {
+// errFrameBlocked is a page whose Content-Security-Policy keeps out the
+// frame a download through the save worker is asked for in.
+var errFrameBlocked = errors.New("web: the page's Content-Security-Policy keeps the download's frame out; it needs frame-src 'self'")
+
+// newStreamed starts a download of name through the save worker sw, which
+// serves scope, and returns once the browser has asked the worker for it.
+func newStreamed(sw js.Value, scope, name string) (*streamed, error) {
 	var b [16]byte
 	_, _ = rand.Read(b[:])
 	f := &streamed{name: name, id: hex.EncodeToString(b[:]), sw: sw,
 		ready: make(chan struct{}, 1), started: make(chan struct{}, 1), pulls: make(chan struct{}, 1),
-		cancelled: make(chan struct{}), gone: make(chan struct{})}
+		blocked: make(chan struct{}, 1), cancelled: make(chan struct{}), gone: make(chan struct{})}
 	f.heard = js.FuncOf(func(_ js.Value, args []js.Value) any {
 		m := args[0].Get("data")
 		note := func(ch chan struct{}) {
@@ -501,9 +500,26 @@ func newStreamed(sw js.Value, name string) (*streamed, error) {
 		f.end()
 		return nil, err
 	}
-	address := workerScope + f.id + "/" + js.Global().Call("encodeURIComponent", name).String()
+	address := scope + f.id + "/" + js.Global().Call("encodeURIComponent", name).String()
+	// A policy that keeps the frame out says so at once, where waiting for
+	// the download would take workerWait.
+	violation := js.FuncOf(func(_ js.Value, args []js.Value) any {
+		e := args[0]
+		if e.Get("disposition").String() == "enforce" && strings.HasPrefix(e.Get("blockedURI").String(), scope) {
+			select {
+			case f.blocked <- struct{}{}:
+			default:
+			}
+		}
+		return nil
+	})
+	doc := js.Global().Get("document")
+	doc.Call("addEventListener", "securitypolicyviolation", violation)
 	f.letGo = openDownload(address)
-	if err := f.wait(f.started, "start the download"); err != nil {
+	err := f.wait(f.started, "start the download")
+	doc.Call("removeEventListener", "securitypolicyviolation", violation)
+	violation.Release()
+	if err != nil {
 		f.send(map[string]any{"abort": "never started"}, nil)
 		f.end()
 		return nil, err
@@ -526,6 +542,8 @@ func (f *streamed) wait(ch chan struct{}, what string) error {
 	select {
 	case <-ch:
 		return nil
+	case <-f.blocked:
+		return errFrameBlocked
 	case <-t.C:
 		return fmt.Errorf("the save worker did not %s", what)
 	}
@@ -594,16 +612,18 @@ func (f *streamed) abandon() {
 	f.end()
 }
 
-// end lets go of what the file holds. The frame the download came in stays
-// a while, as the browser may still be reading from it.
+// end lets go of what the file holds, and of the frame the download was
+// asked for in.
 func (f *streamed) end() {
 	f.endOnce.Do(func() {
 		f.goneOnce.Do(func() { close(f.gone) })
 		f.port.Set("onmessage", js.Null())
 		f.port.Call("close")
 		f.heard.Release()
+		// The browser's downloads have the file from the frame on: the
+		// frame goes, whatever the download does.
 		if f.letGo != nil {
-			later(f.letGo)
+			f.letGo()
 		}
 	})
 }

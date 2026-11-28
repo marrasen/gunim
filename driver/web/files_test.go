@@ -490,15 +490,9 @@ func TestSaveStreamTellsCancelFromFailure(t *testing.T) {
 
 // withoutWorker has the test's saves find no save worker.
 func withoutWorker(t *testing.T) {
-	workerMu.Lock()
-	asked, was, scope := workerAsked, worker, workerScope
-	workerAsked, worker = true, js.Undefined()
-	workerMu.Unlock()
-	t.Cleanup(func() {
-		workerMu.Lock()
-		workerAsked, worker, workerScope = asked, was, scope
-		workerMu.Unlock()
-	})
+	prior := saveWorker
+	saveWorker = func() (js.Value, string, error) { return js.Undefined(), "", errors.New("none, for the test") }
+	t.Cleanup(func() { saveWorker = prior })
 }
 
 func TestSaveStreamDownloadsWhereThereIsNoDialog(t *testing.T) {
@@ -580,10 +574,84 @@ func TestFilesDroppedBesideTheCanvasStayOnThePage(t *testing.T) {
 	}
 }
 
+// frames counts the frames on the page.
+func frames() int {
+	return js.Global().Get("document").Call("querySelectorAll", "iframe").Length()
+}
+
+// withoutCancel has the test's pickers be in a browser with no cancel event,
+// or with one.
+func withoutCancel(t *testing.T, none bool) {
+	prior := cancelKnown
+	cancelKnown = func() bool { return !none }
+	t.Cleanup(func() { cancelKnown = prior })
+}
+
+// keyboardAwayAndBack has the page lose the keyboard to a picker, and get it
+// back.
+func keyboardAwayAndBack() {
+	js.Global().Call("dispatchEvent", js.Global().Get("Event").New("blur"))
+	js.Global().Call("dispatchEvent", js.Global().Get("Event").New("focus"))
+}
+
+func TestAPickerIsCancelledOnlyWhereTheBrowserCannotSay(t *testing.T) {
+	helper(t)
+	_, w := testWindow(t)
+	setFor(t, &pickerGrace, 200*time.Millisecond)
+	doc := js.Global().Get("document")
+	open := func() (<-chan error, *[]*input.Stream, js.Value) {
+		click(t)
+		done := make(chan error, 1)
+		got := new([]*input.Stream)
+		go func() {
+			var err error
+			*got, err = w.ChooseStreams(driver.ChooseOptions{})
+			done <- err
+		}()
+		waitFor(t, "the picker", func() bool { return doc.Call("querySelector", "input[type=file]").Truthy() })
+		return done, got, doc.Call("querySelector", "input[type=file]")
+	}
+	waiting := func(done <-chan error) bool {
+		select {
+		case <-done:
+			return false
+		case <-time.After(3 * pickerGrace):
+			return true
+		}
+	}
+
+	// A browser with the cancel event is not second-guessed: the keyboard
+	// may come back while its picker is open.
+	withoutCancel(t, false)
+	done, got, in := open()
+	keyboardAwayAndBack()
+	if !waiting(done) {
+		t.Fatal("a picker in a browser with the cancel event was given up as the keyboard came back")
+	}
+	in.Call("dispatchEvent", js.Global().Get("Event").New("cancel"))
+	if err := <-done; err != nil || *got != nil {
+		t.Fatalf("a cancelled picker gave %v, %v", *got, err)
+	}
+
+	// Without it, a file chosen as the keyboard comes back is waited for.
+	withoutCancel(t, true)
+	done, got, in = open()
+	in.Set("files", filesOf(newFile("a.txt", "", "a")).Get("files"))
+	keyboardAwayAndBack()
+	if !waiting(done) {
+		t.Fatal("a picker with a file chosen was given up as the keyboard came back")
+	}
+	in.Call("dispatchEvent", js.Global().Get("Event").New("change"))
+	if err := <-done; err != nil || len(*got) != 1 {
+		t.Fatalf("the choice gave %v, %v", *got, err)
+	}
+}
+
 func TestAPickerClosedWithNoWordIsCancelled(t *testing.T) {
 	helper(t)
 	_, w := testWindow(t)
 	setFor(t, &pickerGrace, 200*time.Millisecond)
+	withoutCancel(t, true)
 	click(t)
 	done := make(chan error, 1)
 	var got []*input.Stream
@@ -596,8 +664,8 @@ func TestAPickerClosedWithNoWordIsCancelled(t *testing.T) {
 	waitFor(t, "the picker", func() bool { return doc.Call("querySelector", "input[type=file]").Truthy() })
 	// The picker takes the keyboard, and gives it back with no choice and no
 	// cancel event, as in a browser that has none.
-	js.Global().Call("dispatchEvent", js.Global().Get("Event").New("blur"))
-	js.Global().Call("dispatchEvent", js.Global().Get("Event").New("focus"))
+	in := doc.Call("querySelector", "input[type=file]")
+	keyboardAwayAndBack()
 	select {
 	case err := <-done:
 		if err != nil || got != nil {
@@ -606,6 +674,10 @@ func TestAPickerClosedWithNoWordIsCancelled(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("the picker was waited for after the page had the keyboard back")
 	}
+	// A choice that comes after reaches nothing, and harms nothing.
+	in.Set("files", filesOf(newFile("a.txt", "", "a")).Get("files"))
+	in.Call("dispatchEvent", js.Global().Get("Event").New("change"))
+	in.Call("dispatchEvent", js.Global().Get("Event").New("cancel"))
 }
 
 func TestAPickerThePageMayNotShowSaysWhy(t *testing.T) {
@@ -622,37 +694,47 @@ func TestAPickerThePageMayNotShowSaysWhy(t *testing.T) {
 
 // probeDownload has a download fetched in a frame the save worker controls,
 // in place of the browser's downloads, which the test runner turns down, and
-// hands over the response.
-func probeDownload(t *testing.T) <-chan js.Value {
-	got := make(chan js.Value, 1)
+// hands over the response, or undefined where it failed. The frame's fetch
+// dies with it, so it stays until the test ends, and gone says the driver let
+// go of it.
+func probeDownload(t *testing.T) (got <-chan js.Value, gone *atomic.Bool) {
+	resp := make(chan js.Value, 1)
+	gone = new(atomic.Bool)
 	prior := openDownload
 	openDownload = func(address string) func() {
 		doc := js.Global().Get("document")
 		probe := doc.Call("createElement", "iframe")
-		loaded := js.Global().Get("Promise").New(js.FuncOf(func(_ js.Value, a []js.Value) any {
+		onload := js.FuncOf(func(_ js.Value, a []js.Value) any {
 			probe.Set("onload", a[0])
 			return nil
-		}))
-		probe.Set("src", workerScope+"probe")
+		})
+		loaded := js.Global().Get("Promise").New(onload)
+		onload.Release()
+		// The worker's scope, of which address is id/name.
+		scope := address[:strings.LastIndex(address[:strings.LastIndex(address, "/")], "/")+1]
+		probe.Set("src", scope+"probe")
 		doc.Get("body").Call("appendChild", probe)
+		t.Cleanup(func() { probe.Call("remove") })
 		go func() {
 			if _, err := await(loaded, 10*time.Second); err != nil {
-				t.Error(err)
+				println("the probe's frame did not load:", err.Error())
+				resp <- js.Undefined()
+				return
 			}
 			win := probe.Get("contentWindow")
 			if !win.Get("navigator").Get("serviceWorker").Get("controller").Truthy() {
-				t.Error("the save worker never took the probe's frame")
+				println("the save worker never took the probe's frame")
 			}
-			resp, err := await(win.Call("fetch", address), 10*time.Second)
+			r, err := await(win.Call("fetch", address), 10*time.Second)
 			if err != nil {
-				t.Error(err)
+				println("the probe's fetch failed:", err.Error())
 			}
-			got <- resp
+			resp <- r
 		}()
-		return func() { probe.Call("remove") }
+		return func() { gone.Store(true) }
 	}
 	t.Cleanup(func() { openDownload = prior })
-	return got
+	return resp, gone
 }
 
 // counted counts what is written through it.
@@ -697,10 +779,10 @@ func readBody(reader js.Value, w io.Writer, stopAfter int64) error {
 func TestSaveStreamWritesThroughTheSaveWorker(t *testing.T) {
 	_, w := testWindow(t)
 	stubbed(t, "showSaveFilePicker", js.Undefined())
-	if _, ok := saveWorker(); !ok {
-		t.Fatal("no save worker, where the page names one")
+	if _, _, err := saveWorker(); err != nil {
+		t.Fatalf("no save worker, where the page names one: %v", err)
 	}
-	got := probeDownload(t)
+	got, gone := probeDownload(t)
 	f, err := w.SaveStream(driver.SaveOptions{Name: `out "file".bin`})
 	if err != nil || f == nil {
 		t.Fatalf("saving gave %v, %v", f, err)
@@ -741,6 +823,9 @@ func TestSaveStreamWritesThroughTheSaveWorker(t *testing.T) {
 	if err := <-done; !errors.Is(err, driver.ErrMayNotBeKept) {
 		t.Fatalf("Close = %v, want ErrMayNotBeKept: the browser tells nothing of a download", err)
 	}
+	if !gone.Load() {
+		t.Fatal("the download's frame stayed after it ended")
+	}
 	if grew > heapRoom {
 		t.Fatalf("saving %d MB grew the program's memory by %d MB", bigSize>>20, grew>>20)
 	}
@@ -750,7 +835,7 @@ func TestSaveStreamWritesThroughTheSaveWorker(t *testing.T) {
 func TestADownloadCancelledEndsTheWrites(t *testing.T) {
 	_, w := testWindow(t)
 	stubbed(t, "showSaveFilePicker", js.Undefined())
-	got := probeDownload(t)
+	got, _ := probeDownload(t)
 	f, err := w.SaveStream(driver.SaveOptions{Name: "out.bin"})
 	if err != nil || f == nil {
 		t.Fatalf("saving gave %v, %v", f, err)
@@ -772,4 +857,131 @@ func TestADownloadCancelledEndsTheWrites(t *testing.T) {
 		t.Fatal("the program waited on a cancelled download")
 	}
 	_ = f.Remove()
+}
+
+func TestTheSaveWorkerIsFoundAgain(t *testing.T) {
+	_, w := testWindow(t)
+	stubbed(t, "showSaveFilePicker", js.Undefined())
+	sw, scope, err := saveWorker()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Taken away, as by the user or an update that failed, the worker is
+	// registered again for the next save.
+	reg, err := await(js.Global().Get("navigator").Get("serviceWorker").Call("getRegistration", scope), 10*time.Second)
+	if err != nil || !reg.Truthy() || !reg.Get("active").Equal(sw) {
+		t.Fatalf("the registration is %v, %v", reg, err)
+	}
+	if _, err := await(reg.Call("unregister"), 10*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = probeDownload(t)
+	f, err := w.SaveStream(driver.SaveOptions{Name: "again.bin"})
+	if _, ok := f.(*streamed); err != nil || !ok {
+		t.Fatalf("a save after the worker went gave a %T, %v", f, err)
+	}
+	_ = f.Remove()
+}
+
+func TestADownloadTheBrowserHoldsEndsWithRemove(t *testing.T) {
+	_, w := testWindow(t)
+	stubbed(t, "showSaveFilePicker", js.Undefined())
+	_, gone := probeDownload(t)
+	f, err := w.SaveStream(driver.SaveOptions{Name: "held.bin"})
+	if err != nil || f == nil {
+		t.Fatalf("saving gave %v, %v", f, err)
+	}
+	// Nothing reads the download, as while the browser asks the user.
+	done := make(chan error, 1)
+	go func() { done <- writePattern(f, 4<<20) }()
+	select {
+	case err := <-done:
+		t.Fatalf("a write to a download no one takes ended with %v", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+	start := time.Now()
+	if err := f.Remove(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("the write went through")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Remove left the write waiting")
+	}
+	if err := f.Close(); err == nil {
+		t.Fatal("a removed download closed")
+	}
+	if !gone.Load() {
+		t.Fatal("the download's frame stayed after Remove")
+	}
+	t.Logf("Remove ended the wait in %v", time.Since(start))
+}
+
+func TestADownloadsLinkGoesAfterAWhile(t *testing.T) {
+	_, w := testWindow(t)
+	withoutWorker(t)
+	stubbed(t, "showSaveFilePicker", js.Undefined())
+	setFor(t, &blobKeep, 100*time.Millisecond)
+	anchor := js.Global().Get("HTMLAnchorElement").Get("prototype")
+	prior := anchor.Get("click")
+	var href string
+	keep := js.FuncOf(func(this js.Value, _ []js.Value) any { href = this.Get("href").String(); return nil })
+	anchor.Set("click", keep)
+	t.Cleanup(func() { anchor.Set("click", prior); keep.Release() })
+	f, _ := w.SaveStream(driver.SaveOptions{Name: "a.bin"})
+	_, _ = f.Write([]byte("abc"))
+	if err := f.Close(); !errors.Is(err, driver.ErrMayNotBeKept) {
+		t.Fatal(err)
+	}
+	if _, err := await(js.Global().Call("fetch", href), 5*time.Second); err != nil {
+		t.Fatalf("the link went at once: %v", err)
+	}
+	time.Sleep(300 * time.Millisecond)
+	if _, err := await(js.Global().Call("fetch", href), 5*time.Second); err == nil {
+		t.Fatal("the link stayed")
+	}
+}
+
+// policy returns the Content-Security-Policy the test runner served the page
+// with: "frames", "closed", or "" for none.
+func policy() string {
+	return js.Global().Get("URLSearchParams").New(js.Global().Get("location").Get("search")).Call("get", "csp").String()
+}
+
+// TestStrictPageSaves runs on pages the runner serves with a policy as
+// strict as kakel's guest page's, with the real frame a download is asked
+// for in. The browser's downloads are turned down by the runner, after the
+// worker has heard the download.
+func TestStrictPageSaves(t *testing.T) {
+	_, w := testWindow(t)
+	stubbed(t, "showSaveFilePicker", js.Undefined())
+	start := time.Now()
+	f, err := w.SaveStream(driver.SaveOptions{Name: "strict.bin"})
+	took := time.Since(start)
+	if err != nil || f == nil {
+		t.Fatalf("saving gave %v, %v", f, err)
+	}
+	defer func() { _ = f.Remove() }()
+	switch p := policy(); p {
+	case "frames":
+		if _, ok := f.(*streamed); !ok {
+			t.Fatalf("with frame-src 'self', saving gave a %T, want a download through the worker", f)
+		}
+	case "closed":
+		if _, ok := f.(*download); !ok {
+			t.Fatalf("with no frames, saving gave a %T, want a download held whole", f)
+		}
+		if took > 3*time.Second {
+			t.Fatalf("a policy that keeps the frame out took %v to fall back", took)
+		}
+		if n := frames(); n != 0 {
+			t.Fatalf("%d frames stayed after the download failed to start", n)
+		}
+	default:
+		t.Fatalf("the page has policy %q, want one of the runner's", p)
+	}
+	t.Logf("with policy %s, saving took %v and gave a %T", policy(), took, f)
 }
