@@ -480,11 +480,44 @@ func TestTheFirstNotesInputMustBeTheMain(t *testing.T) {
 		t.Errorf("the riser is at %d, want 1", at)
 	}
 	old := synth()
-	if in := old.NotesInputs(); len(in) != 1 || in[0] != (NotesInput{Name: "Notes"}) {
+	if in := old.NotesInputs(); len(in) != 1 || in[0].Key != "" || in[0].Name != "Notes" {
 		t.Errorf("a synth that lists no inputs has %v, want the main one alone, named Notes", in)
 	}
 	if fx := (Descriptor{}); fx.NotesInputs() != nil || fx.NotesInAt("") != -1 {
 		t.Errorf("a plugin that takes no notes has notes inputs %v", fx.NotesInputs())
+	}
+}
+
+func TestANotesInputNamesItsNotes(t *testing.T) {
+	newer := func(Host) Plugin { return nil }
+	synth := func(in NotesInput) Descriptor {
+		return Descriptor{ID: "test.names", Name: "X", New: newer, Kind: "Instrument|Synth", Notes: true,
+			NotesIn: []NotesInput{{Name: "Notes"}, in}}
+	}
+	for name, in := range map[string]NotesInput{
+		"a note out of range":  {Key: "g", Name: "G", Notes: []NoteName{{Note: 128, Name: "High"}}},
+		"a pitch class past B": {Key: "g", Name: "G", ByPitchClass: true, Notes: []NoteName{{Note: 12, Name: "C again"}}},
+		"an unnamed note":      {Key: "g", Name: "G", Notes: []NoteName{{Note: 60}}},
+		"a note named twice":   {Key: "g", Name: "G", Notes: []NoteName{{Note: 60, Name: "A"}, {Note: 60, Name: "B"}}},
+	} {
+		if d := synth(in); check(&d) == nil {
+			t.Errorf("%s was taken", name)
+		}
+	}
+	in := NotesInput{Key: "g", Name: "Gestures", ByPitchClass: true,
+		Notes: []NoteName{{Note: 0, Name: "Pad"}, {Note: 3, Name: "Fill", Description: "Plays a fill"}}}
+	if d := synth(in); check(&d) != nil {
+		t.Fatalf("an input naming its pitch classes was refused: %v", check(&d))
+	}
+	if nn, ok := in.NoteNamed(51); !ok || nn.Name != "Fill" {
+		t.Errorf("D#3 is named %+v, %v; want Fill, in every octave", nn, ok)
+	}
+	if _, ok := in.NoteNamed(62); ok {
+		t.Error("D4 is named, but the input names no D")
+	}
+	exact := NotesInput{Notes: []NoteName{{Note: 60, Name: "Go"}}}
+	if _, ok := exact.NoteNamed(72); ok {
+		t.Error("C5 is named by C4's name on an input that names notes, not pitch classes")
 	}
 }
 
