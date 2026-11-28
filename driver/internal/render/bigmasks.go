@@ -179,8 +179,13 @@ func (r *Renderer) rebase(d time.Duration) {
 	for shape, t := range r.bigs.made {
 		r.bigs.made[shape] = t.Add(d)
 	}
-	for _, z := range r.cellsState.zooms {
-		z.made = z.made.Add(d)
+	for _, zooms := range r.cellsState.zooms {
+		for _, z := range zooms {
+			z.made, z.at = z.made.Add(d), z.at.Add(d)
+		}
+	}
+	for _, t := range r.cellsState.pats {
+		t.used = t.used.Add(d)
 	}
 	if !r.SharpAt.IsZero() {
 		r.SharpAt = r.SharpAt.Add(d)

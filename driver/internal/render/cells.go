@@ -121,12 +121,12 @@ type cellsState struct {
 	// patternsMade the textures of patterns made, for tests.
 	inCells, spilled, patternsMade int
 
-	// zooms is how the glyphs of each drawing of a grid are sized, drawn
-	// holds the transforms each grid was drawn under this frame, which
-	// tell its drawings apart, and frame counts the frames drawn.
-	zooms map[zoomKey]*cellZoom
-	drawn map[uintptr][]paint.Transform
-	frame int
+	// zooms is how the glyphs of each drawing of a grid are sized, by
+	// the grid, claimed the one each grid and transform took this frame,
+	// and frame counts the frames drawn.
+	zooms   map[uintptr][]*cellZoom
+	claimed map[zoomClaim]*cellZoom
+	frame   int
 }
 
 // cellGrid is where a grid's cells land: cell i, across or down, starts
@@ -189,8 +189,8 @@ type patternTexture struct {
 	// per is how many slots a row holds, room how many masks the texture
 	// has room for and sent how many are on it.
 	per, room, sent int
-	// used is the frame it was last drawn from.
-	used int
+	// used is when it was last drawn from.
+	used time.Time
 }
 
 // scaledMask names a mask of a Patterns made at another size.
@@ -214,13 +214,23 @@ type laterText struct {
 	raster float32
 }
 
-// zoomKey names one drawing of a grid: the grid, and which of the
-// transforms it is drawn under in a frame, from the first. A grid shown
-// twice, as in a small copy of a window, has two, each sized apart.
-type zoomKey struct {
+// zoomClaim names one drawing of a grid in a frame: the grid, and the
+// transform it is drawn under, the same in every pass over the frame's
+// damage.
+type zoomClaim struct {
 	grid uintptr
-	n    int
+	t    paint.Transform
 }
+
+// zoomNear is how far apart, as a ratio, the scales of a drawing of a
+// grid may be from one frame to the next and still be the same drawing.
+// A grid shown twice, as a pane and its small copy in an overview, has a
+// state for each, and a frame that draws only one of them takes the
+// state nearest its scale, never the other's.
+const zoomNear = 1.25
+
+// zoomsMost is how many drawings of one grid keep their states.
+const zoomsMost = 4
 
 // cellZoom is how a drawing of a grid has its glyphs sized while its
 // scale changes, as a big mask's is (see bigmasks.go): at the size they
@@ -233,9 +243,10 @@ type cellZoom struct {
 	// sharp is the size last made and made when.
 	sharp float32
 	made  time.Time
-	// frame is the frame the grid was last drawn in, k its scale then,
-	// and want, size and stretch what was found for it.
+	// frame is the frame the grid was last drawn in, and at when, k its
+	// scale then, and want, size and stretch what was found for it.
 	frame         int
+	at            time.Time
 	k             float32
 	want, size    float32
 	stretch, seen bool
@@ -579,7 +590,8 @@ func (r *Renderer) cellGridOf(op *paint.CellsOp, cw, ch int) (cellGrid, bool) {
 		oq, sq := math.Round(corner*(1<<edgeShift)), math.Round(step*(1<<edgeShift))
 		if sq < 1 || math.Abs(oq) >= edgeMost || math.Abs(oq)+far*sq >= edgeMost {
 			// Too far off, or too big, for the fractions: drawn as under
-			// a turn.
+			// a turn, stretched from the cells at rest. Left so on purpose:
+			// a grid this far off, half a million pixels, is off screen.
 			return turned, false
 		}
 		g.o[a], g.s[a] = int32(oq), int32(sq)
@@ -598,31 +610,21 @@ func (r *Renderer) cellGlyphSize(op *paint.CellsOp, k float32) (float32, bool) {
 		want = max(float32(math.Round(float64(want*k)*4))/4, 0.25)
 	}
 	if s.zooms == nil {
-		s.zooms, s.drawn = map[zoomKey]*cellZoom{}, map[uintptr][]paint.Transform{}
+		s.zooms, s.claimed = map[uintptr][]*cellZoom{}, map[zoomClaim]*cellZoom{}
 	}
-	// Which drawing of the grid this is: the same in every pass over the
-	// frame's damage, and in the frames after while the grid is drawn as
-	// often and in the same order.
-	key := zoomKey{grid: op.Grid}
-	seen := s.drawn[op.Grid]
-	for key.n < len(seen) && seen[key.n] != op.Transform {
-		key.n++
-	}
-	if key.n == len(seen) {
-		s.drawn[op.Grid] = append(seen, op.Transform)
-	}
-	z := s.zooms[key]
-	if z == nil {
-		z = &cellZoom{sharp: want, made: r.now}
-		s.zooms[key] = z
-	}
-	if z.seen && z.frame == s.frame && z.want == want {
+	claim := zoomClaim{op.Grid, op.Transform}
+	z := s.claimed[claim]
+	if z != nil && z.want == want {
 		return z.size, z.stretch
+	}
+	if z == nil {
+		z = s.zoomFor(op.Grid, k, want, r.now)
+		s.claimed[claim] = z
 	}
 	// Moving: the frame before drew it at another scale. A change of the
 	// screen's scale, or a jump, is no zoom to wait out.
 	moving := z.seen && z.frame == s.frame-1 && z.k != k
-	z.seen, z.frame, z.k, z.want = true, s.frame, k, want
+	z.seen, z.frame, z.at, z.k, z.want = true, s.frame, r.now, k, want
 	switch {
 	case want == z.sharp:
 		z.size, z.stretch = want, false
@@ -635,17 +637,75 @@ func (r *Renderer) cellGlyphSize(op *paint.CellsOp, k float32) (float32, bool) {
 	return z.size, z.stretch
 }
 
-// cellsFrame starts a frame for the cells: it counts it, and lets go of
-// the sizes of grids not drawn lately.
-func (s *cellsState) cellsFrame() {
-	s.frame++
-	clear(s.drawn)
-	if len(s.zooms) > 64 {
-		for key, z := range s.zooms {
-			if z.frame < s.frame-2 {
-				delete(s.zooms, key)
+// zoomFor returns the state of the drawing of grid at scale k, which no
+// other drawing has taken this frame: the one whose scale was nearest
+// k, within zoomNear, or a new one, which lets go of the one drawn
+// longest ago past zoomsMost.
+func (s *cellsState) zoomFor(grid uintptr, k, want float32, now time.Time) *cellZoom {
+	zooms := s.zooms[grid]
+	var near *cellZoom
+	far := float32(zoomNear)
+	for _, z := range zooms {
+		if z.frame == s.frame && z.seen {
+			continue
+		}
+		if d := max(k/z.k, z.k/k); d <= far {
+			near, far = z, d
+		}
+	}
+	if near != nil {
+		return near
+	}
+	if len(zooms) >= zoomsMost {
+		old := 0
+		for i, z := range zooms {
+			if z.at.Before(zooms[old].at) {
+				old = i
 			}
 		}
+		zooms = append(zooms[:old], zooms[old+1:]...)
+	}
+	z := &cellZoom{sharp: want, made: now, k: k}
+	s.zooms[grid] = append(zooms, z)
+	return z
+}
+
+// cellsFrame starts a frame for the cells.
+func (s *cellsState) cellsFrame() {
+	s.frame++
+	clear(s.claimed)
+}
+
+// evictCells lets go of what drawing cells keeps for grids the window
+// has stopped drawing: textures of patterns, and how their drawings'
+// glyphs are sized.
+func (r *Renderer) evictCells() {
+	s := &r.cellsState
+	kept := s.pats[:0]
+	for _, t := range s.pats {
+		if r.now.Sub(t.used) > imageIdle {
+			r.GL.DeleteTexture(t.tex)
+			if s.cur == t {
+				s.cur = nil
+			}
+			continue
+		}
+		kept = append(kept, t)
+	}
+	clear(s.pats[len(kept):])
+	s.pats = kept
+	for grid, zooms := range s.zooms {
+		live := zooms[:0]
+		for _, z := range zooms {
+			if r.now.Sub(z.at) <= imageIdle {
+				live = append(live, z)
+			}
+		}
+		if len(live) == 0 {
+			delete(s.zooms, grid)
+			continue
+		}
+		s.zooms[grid] = live
 	}
 }
 
@@ -710,7 +770,7 @@ func (r *Renderer) sendPatterns(pats *paint.Patterns, at cellSizes) *patternText
 				// The one drawn longest ago goes.
 				old := 0
 				for i, t := range s.pats {
-					if t.used < s.pats[old].used {
+					if t.used.Before(s.pats[old].used) {
 						old = i
 					}
 				}
@@ -728,7 +788,7 @@ func (r *Renderer) sendPatterns(pats *paint.Patterns, at cellSizes) *patternText
 		pt.sent = 0
 		s.patternsMade++
 	}
-	pt.used = s.frame
+	pt.used = r.now
 	if pt.sent == n {
 		return pt
 	}
@@ -757,7 +817,9 @@ func (r *Renderer) sendPatterns(pats *paint.Patterns, at cellSizes) *patternText
 // layOutPatterns sets the sizes pt's masks are made at and how they lie
 // in its texture, with room for n masks and more. Cells too big for the
 // texture, or past patternMost, have their masks made at one size small
-// enough, and stretched.
+// enough, and stretched. Left so on purpose: such cells, past 128 by 256
+// device pixels, come only with a zoom far in, where a pixel more or
+// less of a line does not show.
 func (r *Renderer) layOutPatterns(pt *patternTexture, n int) {
 	most := r.cellsState.maxTex
 	width := min(patternsWidth, most)

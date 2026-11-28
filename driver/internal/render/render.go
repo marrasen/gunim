@@ -1035,6 +1035,7 @@ func (r *Renderer) DrawRects(ops []paint.Op, damage []geom.Rect, fbW, fbH int, s
 	}
 	r.evictImages()
 	r.evictBigMasks()
+	r.evictCells()
 	r.evictMeshes()
 }
 

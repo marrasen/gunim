@@ -513,3 +513,63 @@ func TestAResizedMaskKeepsItsLines(t *testing.T) {
 		}
 	}
 }
+
+// A grid shown twice, as a pane at rest and a small copy of it in an overview, keeps the sizing of each drawing
+// apart. Frames whose damage holds only the copy leave the pane's alone, and the pane, drawn again, is sharp at once
+// rather than stretched from the copy's size.
+func TestAGridShownTwiceKeepsEachDrawingsSize(t *testing.T) {
+	r, done := zoomRenderer(t)
+	defer done()
+	z := newZoomGrid()
+	pane, tile := paint.Translate(geom.Pt(10, 10)), paint.Translate(geom.Pt(20, 400)).Mul(paint.Scale(0.3, geom.Point{}))
+	var p paint.Painter
+	p.RRect(geom.Rect{Max: benchSize.Point()}, 0, paint.Solid(black))
+	z.paint(&p, pane)
+	z.paint(&p, tile)
+	ops := p.Ops()
+	now := time.Unix(1000, 0)
+	draw := func(damage geom.Rect) {
+		r.clock = func() time.Time { return now }
+		r.Draw(ops, damage, int(benchSize.W), int(benchSize.H), 1)
+		now = now.Add(time.Second / 60)
+	}
+	draw(paint.Everything)
+	for range 4 {
+		// Only the copy changes.
+		draw(geom.Rc(0, 380, 400, 100))
+	}
+	r.cellsState.inCells, r.cellsState.spilled = 0, 0
+	draw(geom.Rc(0, 0, 800, 300))
+	if r.cellsState.inCells == 0 || r.cellsState.spilled > 0 {
+		t.Errorf("the pane drawn again after frames of only its copy drew %d glyphs in their cells and %d stretched as text, want all sharp in their cells",
+			r.cellsState.inCells, r.cellsState.spilled)
+	}
+	if !r.SharpAt.IsZero() {
+		t.Error("the pane drawn again asked for a frame to sharpen it, as if it had been drawn stretched")
+	}
+}
+
+// Textures of patterns the window stopped drawing are let go of, after the time images are.
+func TestIdlePatternTexturesAreLetGo(t *testing.T) {
+	r, done := zoomRenderer(t)
+	defer done()
+	z := newZoomGrid()
+	now := time.Unix(1000, 0)
+	draw := func(k float32) {
+		var p paint.Painter
+		p.RRect(geom.Rect{Max: benchSize.Point()}, 0, paint.Solid(black))
+		z.paint(&p, paint.Scale(k, geom.Point{}))
+		r.clock = func() time.Time { return now }
+		r.Draw(p.Ops(), paint.Everything, int(benchSize.W), int(benchSize.H), 1)
+	}
+	draw(0.5)
+	draw(1)
+	if n := len(r.cellsState.pats); n != 2 {
+		t.Fatalf("two sizes of a grid keep %d textures of patterns, want 2", n)
+	}
+	now = now.Add(imageIdle + time.Second)
+	draw(1)
+	if n := len(r.cellsState.pats); n != 1 {
+		t.Errorf("with one size drawn for %v, %d textures of patterns are kept, want 1", imageIdle, n)
+	}
+}
