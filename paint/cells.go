@@ -29,7 +29,9 @@ type CellsOp struct {
 	// below a row's top their baseline is, in logical pixels.
 	TextSize, Baseline float32
 	// Grid tells one grid's rows from another's, and Row is this row's
-	// number in it, so a driver knows which rows follow each other.
+	// number in it, so a driver knows which rows follow each other. A
+	// row lies Row cells below the grid's first: a driver puts every
+	// row of a grid on the same pixels, whichever rows it draws together.
 	Grid uintptr
 	Row  int
 

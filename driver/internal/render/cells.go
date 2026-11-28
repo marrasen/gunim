@@ -37,42 +37,66 @@ const (
 	cellsRows  = 512
 )
 
-// patternsWidth is the width of the texture of patterns, which holds
-// them side by side in rows.
+// patternsWidth is the widest a texture of patterns is, which holds them
+// side by side in rows.
 const patternsWidth = 2048
 
-// scaledMost is how many masks made at other sizes a renderer keeps, for
-// grids drawn by turns under a scale.
-const scaledMost = 8192
+// patternMost is the widest pattern made, in pixels, and twice it the
+// tallest: cells bigger than that, under a big zoom, stretch patterns
+// made at it.
+const patternMost = 128
+
+// patternTextures is how many textures of patterns a renderer keeps, one
+// for each grid and size of its cells drawn lately.
+const patternTextures = 8
+
+// scaledBytes is how many bytes of masks made at other sizes a renderer
+// keeps, for grids drawn by turns under a scale.
+const scaledBytes = 16 << 20
+
+// edgeShift is how many bits of a fraction of a pixel a grid's corner and
+// a cell's size keep. The cells program finds the edges of cells with the
+// same whole numbers as the renderer does, so the two never disagree.
+const (
+	edgeShift = 12
+	edgeHalf  = 1 << (edgeShift - 1)
+	// edgeMost bounds the grid's corner and the far edge of its cells,
+	// in fractions, so no sum overflows 32 bits.
+	edgeMost = 1 << 29
+)
 
 // cellsState is a renderer's means of drawing cells.
 type cellsState struct {
-	prog         program
-	failed       bool
-	vao, vbo     uint32
-	tex          uint32
-	texW         int
-	row          int
-	uStep, uLo   int32
-	uSlot, uKind int32
-	uBase, uPer  int32
-	// pats is the texture of patterns, the Patterns it holds and at which
-	// sizes, how many of their masks are uploaded, and how many it has
-	// room for.
-	pats     uint32
-	patsOf   *paint.Patterns
-	patsAt   cellSizes
-	patsSent int
-	patsRoom int
-	patsPer  int
+	prog        program
+	failed      bool
+	vao, vbo    uint32
+	tex         uint32
+	texW        int
+	row         int
+	uO, uS      int32
+	uWhole      int32
+	uRow0       int32
+	uRows       int32
+	uLo, uSlot  int32
+	uKind, uFit int32
+	uBase, uPer int32
+	// maxTex is the biggest texture the GPU takes.
+	maxTex int
+	// pats are the textures of patterns, each for a Patterns at the sizes
+	// its cells come in, and cur the one the run queued draws from.
+	pats []*patternTexture
+	cur  *patternTexture
 	// scaled are masks made at sizes other than their Patterns', by
-	// Patterns, mask and size.
-	scaled  map[scaledMask][]byte
-	pending *paint.CellsOp
-	// grid is where the run of rows queued lands on the pixels, and on
-	// says it lands on the device's pixels rather than under a turn.
+	// Patterns, mask and size, and scaledSize their bytes.
+	scaled     map[scaledMask][]byte
+	scaledSize int
+	pending    *paint.CellsOp
+	// grid is where the run of rows queued lands, on says it lands on
+	// the device's pixels rather than under a turn, and row0 is the
+	// grid's row the run starts at, or 0 under a turn.
 	grid     cellGrid
 	on       bool
+	row0     int
 	firstRow int
 	rows     int
 	upload   []byte
@@ -93,29 +117,38 @@ type cellsState struct {
 	// joins a run.
 	placed                                         []placedGlyph
 	uMode, uGamma, uContrast, uTable, uTexW, uCols int32
-	// inCells and spilled count the glyphs drawn each way, for tests.
-	inCells, spilled int
+	// inCells and spilled count the glyphs drawn each way, and
+	// patternsMade the textures of patterns made, for tests.
+	inCells, spilled, patternsMade int
 
-	// zooms is how each grid's glyphs are sized, by the grid, and frame
-	// counts the frames drawn, for them.
-	zooms map[uintptr]*cellZoom
+	// zooms is how the glyphs of each drawing of a grid are sized, drawn
+	// holds the transforms each grid was drawn under this frame, which
+	// tell its drawings apart, and frame counts the frames drawn.
+	zooms map[zoomKey]*cellZoom
+	drawn map[uintptr][]paint.Transform
 	frame int
 }
 
-// cellGrid is where a run of cells lands: cell x of the run's row y
-// covers the pixels from at plus edge(x) to at plus edge(x+1) across, and
-// likewise down. step is a cell's size in pixels, whole at rest, and with
-// any fraction under a scale.
+// cellGrid is where a grid's cells land: cell i, across or down, starts
+// at edge(i), in whole pixels. o is the grid's corner and s a cell's
+// size, in 1/2^edgeShift pixels: whole at rest, and with any fraction
+// under a scale. Every row of a grid lands on the same edges, whichever
+// run it is drawn in.
 type cellGrid struct {
-	at   [2]int
-	step [2]float32
+	o, s [2]int32
 }
 
-// edge is where cell i starts along axis 0, across, or 1, down, from the
-// grid's corner, in whole pixels. The cells program finds it the same
-// way.
+// edge is where cell i starts along axis 0, across, or 1, down. The
+// cells program finds it the same way.
 func (g cellGrid) edge(i, axis int) int {
-	return int(math.Floor(float64(float32(float32(i)*g.step[axis])) + 0.5))
+	return int((g.o[axis] + int32(i)*g.s[axis] + edgeHalf) >> edgeShift)
+}
+
+// whole reports whether the cells are a whole number of pixels, each as
+// wide and as tall as every other.
+func (g cellGrid) whole() bool {
+	const frac = 1<<edgeShift - 1
+	return g.s[0]&frac == 0 && g.s[1]&frac == 0
 }
 
 // cellSizes are the sizes a grid's cells come in, in pixels: lo and
@@ -132,14 +165,32 @@ func (c cellSizes) kinds() int { return (c.hi[0] - c.lo[0] + 1) * (c.hi[1] - c.l
 func (g cellGrid) sizes() cellSizes {
 	var c cellSizes
 	for a := range 2 {
-		lo := int(math.Floor(float64(g.step[a])))
-		c.lo[a] = max(lo, 1)
+		c.lo[a] = max(int(g.s[a]>>edgeShift), 1)
 		c.hi[a] = c.lo[a]
-		if float32(lo) != g.step[a] {
+		if g.s[a]&(1<<edgeShift-1) != 0 {
 			c.hi[a] = c.lo[a] + 1
 		}
 	}
 	return c
+}
+
+// patternTexture is a texture of a Patterns' masks, made at each of the
+// sizes its cells come in, side by side, per to a row of the texture,
+// each in a slot as big as the biggest. Where those sizes are too big,
+// fit is set and the masks are made at one smaller size, made, and
+// stretched to the cells.
+type patternTexture struct {
+	tex  uint32
+	pats *paint.Patterns
+	at   cellSizes
+	// made are the sizes the masks are made at: at's, or one smaller.
+	made cellSizes
+	fit  bool
+	// per is how many slots a row holds, room how many masks the texture
+	// has room for and sent how many are on it.
+	per, room, sent int
+	// used is the frame it was last drawn from.
+	used int
 }
 
 // scaledMask names a mask of a Patterns made at another size.
@@ -163,13 +214,21 @@ type laterText struct {
 	raster float32
 }
 
-// cellZoom is how a grid's glyphs are sized while its scale changes, as
-// a big mask's is (see bigmasks.go): at the size they show at, which a
-// grid at rest keeps; but while its scale moves, from one frame to the
-// next, they draw as text stretched from the size last made, and are
-// made at the new size once the scale holds for a frame, or every
-// bigMaskStale while it never does. A zoom then fills the atlas with a
-// few sizes of a screen of glyphs, rather than one each frame.
+// zoomKey names one drawing of a grid: the grid, and which of the
+// transforms it is drawn under in a frame, from the first. A grid shown
+// twice, as in a small copy of a window, has two, each sized apart.
+type zoomKey struct {
+	grid uintptr
+	n    int
+}
+
+// cellZoom is how a drawing of a grid has its glyphs sized while its
+// scale changes, as a big mask's is (see bigmasks.go): at the size they
+// show at, which a grid at rest keeps; but while its scale moves, from
+// one frame to the next, they draw as text stretched from the size last
+// made, and are made at the new size once the scale holds for a frame,
+// or every bigMaskStale while it never does. A zoom then fills the atlas
+// with a few sizes of a screen of glyphs, rather than one each frame.
 type cellZoom struct {
 	// sharp is the size last made and made when.
 	sharp float32
@@ -215,15 +274,22 @@ void main() {
 }
 `
 
+// The cells program's edges are cellGrid's: whole numbers, in 1/4096
+// pixel, so it and the renderer agree to the pixel.
 const cellsFragment = `
 uniform sampler2D u_cells;
 uniform sampler2D u_patterns;
 uniform sampler2D u_atlas;
 uniform sampler2D u_lcd;
-uniform vec2 u_step;
+uniform ivec2 u_o;
+uniform ivec2 u_s;
+uniform int u_whole;
+uniform int u_row0;
+uniform int u_rows;
 uniform ivec2 u_lo;
 uniform ivec2 u_slot;
 uniform ivec2 u_kind;
+uniform int u_fit;
 uniform int u_base;
 uniform int u_per;
 uniform int u_mode;
@@ -236,16 +302,17 @@ in vec2 v_px;
 
 int u16(float lo, float hi) { return int(lo * 255.0 + 0.5) + 256 * int(hi * 255.0 + 0.5); }
 
-// edge is where cell i starts, in whole pixels from the run's corner,
-// for cells step pixels apart: as cellGrid.edge finds it.
-int edge(int i, float step) { return int(floor(float(i) * step + 0.5)); }
+// edge is where cell i starts, in whole pixels, for a grid whose corner
+// is o and whose cells are s apart, in 1/4096 pixel.
+int edge(int i, int o, int s) { return (o + i * s + 2048) >> 12; }
 
-// cellOf is the cell that holds pixel p.
-int cellOf(int p, float step) {
-	int c = int(floor((float(p) + 0.5) / step));
-	if (edge(c, step) > p) {
+// cellOf is the cell that holds pixel p: found in floats, and set right
+// by the edges.
+int cellOf(int p, int o, int s) {
+	int c = int(floor((float(p) + 0.5 - float(o) / 4096.0) * 4096.0 / float(s)));
+	if (edge(c, o, s) > p) {
 		c--;
-	} else if (edge(c + 1, step) <= p) {
+	} else if (edge(c + 1, o, s) <= p) {
 		c++;
 	}
 	return c;
@@ -275,24 +342,46 @@ vec3 coverage(ivec2 at, vec4 c) {
 
 void main() {
 	ivec2 p = ivec2(floor(v_px));
-	ivec2 cell = ivec2(clamp(cellOf(p.x, u_step.x), 0, u_cols - 1), max(cellOf(p.y, u_step.y), 0));
-	ivec2 start = ivec2(edge(cell.x, u_step.x), edge(cell.y, u_step.y));
-	ivec2 size = ivec2(edge(cell.x + 1, u_step.x), edge(cell.y + 1, u_step.y)) - start;
+	ivec2 lo = ivec2(0, u_row0), hi = ivec2(u_cols - 1, u_row0 + u_rows - 1);
+	ivec2 cell, start, size;
+	// left is where the cell before starts.
+	int left;
+	if (u_whole != 0) {
+		// Cells a whole number of pixels, as at rest: a division finds
+		// the cell, and the edges are a cell apart.
+		size = u_s >> 12;
+		ivec2 e0 = (u_o + 2048) >> 12;
+		cell = clamp(ivec2(floor((v_px - vec2(e0)) / vec2(size))), lo, hi);
+		start = e0 + cell * size;
+		left = start.x - size.x;
+	} else {
+		cell = clamp(ivec2(cellOf(p.x, u_o.x, u_s.x), cellOf(p.y, u_o.y, u_s.y)), lo, hi);
+		start = ivec2(edge(cell.x, u_o.x, u_s.x), edge(cell.y, u_o.y, u_s.y));
+		size = ivec2(edge(cell.x + 1, u_o.x, u_s.x), edge(cell.y + 1, u_o.y, u_s.y)) - start;
+		left = edge(cell.x - 1, u_o.x, u_s.x);
+	}
 	ivec2 inside = clamp(p - start, ivec2(0), max(size - 1, ivec2(0)));
 	int x = cell.x * 3;
-	int y = u_base + cell.y;
+	int y = u_base + cell.y - u_row0;
 	vec4 bg = texelFetch(u_cells, ivec2(x, y), 0);
 	vec4 fg = texelFetch(u_cells, ivec2(x + 1, y), 0);
 	vec4 pt = texelFetch(u_cells, ivec2(x + 2, y), 0);
 	int id = u16(pt.r, pt.g);
 	float a = 0.0;
 	if (id > 0) {
-		// The pattern made at this cell's size: the narrower or the wider,
-		// the shorter or the taller.
-		ivec2 kind = min(ivec2(greaterThan(size, u_lo)), u_kind - 1);
-		int k = (id - 1) * u_kind.x * u_kind.y + kind.y * u_kind.x + kind.x;
-		inside = min(inside, u_lo + kind - 1);
-		a = texelFetch(u_patterns, ivec2((k % u_per) * u_slot.x + inside.x, (k / u_per) * u_slot.y + inside.y), 0).r;
+		int k = id - 1;
+		ivec2 at;
+		if (u_fit != 0) {
+			// Made smaller than the cell, and stretched to it.
+			at = inside * u_slot / max(size, ivec2(1));
+		} else {
+			// The pattern made at this cell's size: the narrower or the
+			// wider, the shorter or the taller.
+			ivec2 kind = min(ivec2(greaterThan(size, u_lo)), u_kind - 1);
+			k = k * u_kind.x * u_kind.y + kind.y * u_kind.x + kind.x;
+			at = min(inside, u_lo + kind - 1);
+		}
+		a = texelFetch(u_patterns, ivec2((k % u_per) * u_slot.x + at.x, (k / u_per) * u_slot.y + at.y), 0).r;
 	}
 	vec4 f = vec4(fg.rgb * fg.a, fg.a) * a;
 	vec3 col = f.rgb + bg.rgb * bg.a * (1.0 - f.a);
@@ -314,7 +403,8 @@ void main() {
 		vec4 e1 = texelFetch(u_cells, ivec2((t + 1) % u_texw, u_table + (t + 1) / u_texw), 0);
 		ivec2 gsize = ivec2(int(e1.r * 255.0 + 0.5), int(e1.g * 255.0 + 0.5));
 		ivec2 off = ivec2(int(e1.b * 255.0 + 0.5), int(e1.a * 255.0 + 0.5)) - 128;
-		ivec2 q = p - ivec2(edge(nx, u_step.x), start.y) - off;
+		int nstart = d < 0 ? left : (d == 0 ? start.x : start.x + size.x);
+		ivec2 q = p - ivec2(nstart, start.y) - off;
 		if (q.x >= 0 && q.y >= 0 && q.x < gsize.x && q.y < gsize.y) {
 			vec4 nfg = d == 0 ? fg : texelFetch(u_cells, ivec2(nx * 3 + 1, y), 0);
 			vec3 m = coverage(ivec2(u16(e0.r, e0.g), u16(e0.b, e0.a)) + q, nfg);
@@ -384,12 +474,18 @@ func (r *Renderer) cellsReady() bool {
 	s.uTable = g.GetUniformLocation(id, "u_table")
 	s.uTexW = g.GetUniformLocation(id, "u_texw")
 	s.uCols = g.GetUniformLocation(id, "u_cols")
-	s.uStep = g.GetUniformLocation(id, "u_step")
+	s.uO = g.GetUniformLocation(id, "u_o")
+	s.uS = g.GetUniformLocation(id, "u_s")
+	s.uWhole = g.GetUniformLocation(id, "u_whole")
+	s.uRow0 = g.GetUniformLocation(id, "u_row0")
+	s.uRows = g.GetUniformLocation(id, "u_rows")
 	s.uLo = g.GetUniformLocation(id, "u_lo")
 	s.uSlot = g.GetUniformLocation(id, "u_slot")
 	s.uKind = g.GetUniformLocation(id, "u_kind")
+	s.uFit = g.GetUniformLocation(id, "u_fit")
 	s.uBase = g.GetUniformLocation(id, "u_base")
 	s.uPer = g.GetUniformLocation(id, "u_per")
+	s.maxTex = max(g.GetInteger(gl.MAX_TEXTURE_SIZE), 1024)
 
 	s.vao = g.CreateVertexArray()
 	g.BindVertexArray(s.vao)
@@ -462,21 +558,31 @@ func (r *Renderer) cells(op *paint.CellsOp) {
 // cellGridOf returns where op's cells land, for cells cw by ch device
 // pixels at rest, and whether they land on the device's pixels: at rest
 // and under any scale that keeps them upright, but not under a turn or a
-// skew, where they are drawn at rest and turned.
+// skew, where they are drawn at rest and turned. The grid's corner is
+// that of its first row, op.Row rows above op's.
 func (r *Renderer) cellGridOf(op *paint.CellsOp, cw, ch int) (cellGrid, bool) {
 	t := op.Transform
+	turned := cellGrid{s: [2]int32{int32(cw) << edgeShift, int32(ch) << edgeShift}}
 	if t.B != 0 || t.D != 0 || !(t.A > 0) || !(t.E > 0) {
-		return cellGrid{step: [2]float32{float32(cw), float32(ch)}}, false
+		return turned, false
 	}
-	o := t.Apply(op.At)
-	g := cellGrid{at: [2]int{int(math.Round(float64(o.X * r.scale))), int(math.Round(float64(o.Y * r.scale)))}}
-	for a, v := range [2]float32{float32(cw) * t.A, float32(ch) * t.E} {
+	o := t.Apply(geom.Pt(op.At.X, op.At.Y-float32(op.Row)*op.Size.H)).Mul(r.scale)
+	far := float64(max(len(op.Cells), op.Row+cellsRows) + 2)
+	var g cellGrid
+	for a, v := range [2][2]float32{{o.X, float32(cw) * t.A}, {o.Y, float32(ch) * t.E}} {
+		corner, step := float64(v[0]), float64(v[1])
 		// A size within a thousandth of a whole pixel is that pixel, so a
 		// rounding slip does not make every so many cells a pixel wider.
-		if n := float32(math.Round(float64(v))); n >= 1 && math.Abs(float64(v-n)) < 1e-3 {
-			v = n
+		if n := math.Round(step); n >= 1 && math.Abs(step-n) < 1e-3 {
+			step = n
 		}
-		g.step[a] = v
+		oq, sq := math.Round(corner*(1<<edgeShift)), math.Round(step*(1<<edgeShift))
+		if sq < 1 || math.Abs(oq) >= edgeMost || math.Abs(oq)+far*sq >= edgeMost {
+			// Too far off, or too big, for the fractions: drawn as under
+			// a turn.
+			return turned, false
+		}
+		g.o[a], g.s[a] = int32(oq), int32(sq)
 	}
 	return g, true
 }
@@ -492,23 +598,29 @@ func (r *Renderer) cellGlyphSize(op *paint.CellsOp, k float32) (float32, bool) {
 		want = max(float32(math.Round(float64(want*k)*4))/4, 0.25)
 	}
 	if s.zooms == nil {
-		s.zooms = map[uintptr]*cellZoom{}
+		s.zooms, s.drawn = map[zoomKey]*cellZoom{}, map[uintptr][]paint.Transform{}
 	}
-	z := s.zooms[op.Grid]
+	// Which drawing of the grid this is: the same in every pass over the
+	// frame's damage, and in the frames after while the grid is drawn as
+	// often and in the same order.
+	key := zoomKey{grid: op.Grid}
+	seen := s.drawn[op.Grid]
+	for key.n < len(seen) && seen[key.n] != op.Transform {
+		key.n++
+	}
+	if key.n == len(seen) {
+		s.drawn[op.Grid] = append(seen, op.Transform)
+	}
+	z := s.zooms[key]
 	if z == nil {
 		z = &cellZoom{sharp: want, made: r.now}
-		s.zooms[op.Grid] = z
+		s.zooms[key] = z
 	}
-	if z.seen && z.frame == s.frame {
-		if z.want == want {
-			return z.size, z.stretch
-		}
-		// The grid drawn again in the same frame at another size, as in a
-		// small copy of a window: made at its size, sharp.
-		return want, false
+	if z.seen && z.frame == s.frame && z.want == want {
+		return z.size, z.stretch
 	}
-	// Moving: the frame before drew the grid at another scale. A change
-	// of the screen's scale, or a jump, is no zoom to wait out.
+	// Moving: the frame before drew it at another scale. A change of the
+	// screen's scale, or a jump, is no zoom to wait out.
 	moving := z.seen && z.frame == s.frame-1 && z.k != k
 	z.seen, z.frame, z.k, z.want = true, s.frame, k, want
 	switch {
@@ -527,10 +639,11 @@ func (r *Renderer) cellGlyphSize(op *paint.CellsOp, k float32) (float32, bool) {
 // the sizes of grids not drawn lately.
 func (s *cellsState) cellsFrame() {
 	s.frame++
+	clear(s.drawn)
 	if len(s.zooms) > 64 {
-		for id, z := range s.zooms {
+		for key, z := range s.zooms {
 			if z.frame < s.frame-2 {
-				delete(s.zooms, id)
+				delete(s.zooms, key)
 			}
 		}
 	}
@@ -563,54 +676,108 @@ func (r *Renderer) startCells(op *paint.CellsOp, grid cellGrid, on bool) {
 		s.row = 0
 	}
 	s.pending, s.firstRow, s.rows = op, s.row, 0
-	s.grid, s.on = grid, on
+	s.grid, s.on, s.row0 = grid, on, 0
+	if on {
+		s.row0 = op.Row
+	}
 	s.upload = s.upload[:0]
 	s.table = s.table[:0]
 	if s.index == nil {
 		s.index = map[cellGlyph]uint16{}
 	}
 	clear(s.index)
-	r.sendPatterns(op.Patterns, grid.sizes())
+	s.cur = r.sendPatterns(op.Patterns, grid.sizes())
 }
 
-// sendPatterns uploads the masks of pats the GPU does not have yet, made
-// at each of the sizes the cells come in.
-func (r *Renderer) sendPatterns(pats *paint.Patterns, at cellSizes) {
+// sendPatterns returns the texture of pats' masks at the sizes at, with
+// those the GPU does not have yet uploaded. Each Patterns and sizes keeps
+// a texture of its own while it is drawn, so a grid drawn twice a frame
+// at two sizes makes neither again.
+func (r *Renderer) sendPatterns(pats *paint.Patterns, at cellSizes) *patternTexture {
 	s := &r.cellsState
 	g := r.GL
 	n := len(pats.Masks)
-	kinds := at.kinds()
-	if s.patsOf != pats || s.patsAt != at || n > s.patsRoom {
-		if s.pats != 0 {
-			g.DeleteTexture(s.pats)
+	var pt *patternTexture
+	for _, t := range s.pats {
+		if t.pats == pats && t.at == at {
+			pt = t
+			break
 		}
-		s.patsPer = max(patternsWidth/at.hi[0], 1)
-		s.patsRoom = max(256, 2*n)
-		rows := (s.patsRoom*kinds + s.patsPer - 1) / s.patsPer
-		s.pats = r.cellsTexture(patternsUnit, glR8, glRed, s.patsPer*at.hi[0], rows*at.hi[1], 1)
-		s.patsOf, s.patsAt, s.patsSent = pats, at, 0
 	}
-	if s.patsSent == n {
-		return
+	if pt == nil || n > pt.room {
+		if pt == nil {
+			if len(s.pats) >= patternTextures {
+				// The one drawn longest ago goes.
+				old := 0
+				for i, t := range s.pats {
+					if t.used < s.pats[old].used {
+						old = i
+					}
+				}
+				g.DeleteTexture(s.pats[old].tex)
+				s.pats = append(s.pats[:old], s.pats[old+1:]...)
+			}
+			pt = &patternTexture{pats: pats, at: at}
+			s.pats = append(s.pats, pt)
+		} else {
+			g.DeleteTexture(pt.tex)
+		}
+		r.layOutPatterns(pt, n)
+		pt.tex = r.cellsTexture(patternsUnit, glR8, glRed, pt.per*pt.made.hi[0],
+			(pt.room*pt.made.kinds()+pt.per-1)/pt.per*pt.made.hi[1], 1)
+		pt.sent = 0
+		s.patternsMade++
+	}
+	pt.used = s.frame
+	if pt.sent == n {
+		return pt
 	}
 	g.ActiveTexture(patternsUnit)
-	g.BindTexture(gl.TEXTURE_2D, s.pats)
+	g.BindTexture(gl.TEXTURE_2D, pt.tex)
 	g.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
-	across := at.hi[0] - at.lo[0] + 1
-	for k := s.patsSent; k < n; k++ {
+	made := pt.made
+	kinds, across := made.kinds(), made.hi[0]-made.lo[0]+1
+	for k := pt.sent; k < n; k++ {
 		for kind := range kinds {
-			w, h := at.lo[0]+kind%across, at.lo[1]+kind/across
+			w, h := made.lo[0]+kind%across, made.lo[1]+kind/across
 			m := r.patternMask(pats, k, w, h)
 			if m == nil {
 				continue
 			}
 			slot := k*kinds + kind
-			x, y := (slot%s.patsPer)*at.hi[0], (slot/s.patsPer)*at.hi[1]
+			x, y := (slot%pt.per)*made.hi[0], (slot/pt.per)*made.hi[1]
 			g.TexSubImage2D(gl.TEXTURE_2D, 0, int32(x), int32(y), int32(w), int32(h), glRed, gl.UNSIGNED_BYTE, m)
 		}
 	}
 	g.ActiveTexture(gl.TEXTURE0)
-	s.patsSent = n
+	pt.sent = n
+	return pt
+}
+
+// layOutPatterns sets the sizes pt's masks are made at and how they lie
+// in its texture, with room for n masks and more. Cells too big for the
+// texture, or past patternMost, have their masks made at one size small
+// enough, and stretched.
+func (r *Renderer) layOutPatterns(pt *patternTexture, n int) {
+	most := r.cellsState.maxTex
+	width := min(patternsWidth, most)
+	made, fit := pt.at, false
+	pt.room = max(64, 2*n)
+	for {
+		slot := made.hi
+		pt.per = max(width/slot[0], 1)
+		rows := (pt.room*made.kinds() + pt.per - 1) / pt.per
+		small := slot[0] <= patternMost && slot[1] <= 2*patternMost
+		if small && slot[0] <= width && rows*slot[1] <= most || slot == [2]int{1, 1} {
+			break
+		}
+		// A size three quarters as big, the same each way, for every cell.
+		fit = true
+		w := max(min(slot[0]*3/4, patternMost), 1)
+		h := max(min(slot[1]*3/4, 2*patternMost), 1)
+		made = cellSizes{lo: [2]int{w, h}, hi: [2]int{w, h}}
+	}
+	pt.made, pt.fit = made, fit
 }
 
 // patternMask returns mask i of pats at w by h device pixels: its own
@@ -636,10 +803,11 @@ func (r *Renderer) patternMask(pats *paint.Patterns, i, w, h int) []byte {
 	if len(made) != w*h {
 		made = resizeMask(m, pats.W, pats.H, w, h)
 	}
-	if s.scaled == nil || len(s.scaled) >= scaledMost {
-		s.scaled = map[scaledMask][]byte{}
+	if s.scaled == nil || s.scaledSize+len(made) > scaledBytes {
+		s.scaled, s.scaledSize = map[scaledMask][]byte{}, 0
 	}
 	s.scaled[key] = made
+	s.scaledSize += len(made)
 	return made
 }
 
@@ -779,8 +947,8 @@ func (r *Renderer) addRow(op *paint.CellsOp, raster float32) {
 	b := s.upload
 	n := 0
 	var spill map[color.NRGBA]*paint.TextOp
-	gr := s.grid
-	top, bottom := gr.at[1]+gr.edge(s.rows, 1), gr.at[1]+gr.edge(s.rows+1, 1)
+	gr, row := s.grid, s.row0+s.rows
+	top, bottom := gr.edge(row, 1), gr.edge(row+1, 1)
 	for x, c := range op.Cells {
 		var glyphAt uint16
 		if c.Text {
@@ -790,8 +958,8 @@ func (r *Renderer) addRow(op *paint.CellsOp, raster float32) {
 			if how == inCell {
 				// Into the cells either side, which look for it, but not
 				// the rows above and below, which may be drawn apart.
-				left, right := gr.at[0]+gr.edge(x-1, 0), gr.at[0]+gr.edge(x+2, 0)
-				dx, dy := pg.gx-(gr.at[0]+gr.edge(x, 0)), pg.gy-top
+				left, right := gr.edge(x-1, 0), gr.edge(x+2, 0)
+				dx, dy := pg.gx-gr.edge(x, 0), pg.gy-top
 				sl := pg.slot
 				if pg.gx < left || pg.gx+sl.w > right || pg.gy < top || pg.gy+sl.h > bottom ||
 					dx < -128 || dx >= 128 || dy >= 128 || sl.w >= 256 || sl.h >= 256 {
@@ -858,15 +1026,15 @@ func (r *Renderer) flushCells() {
 		g.BindTexture(gl.TEXTURE_2D, r.lcdGlyphs.tex)
 	}
 	gr := s.grid
-	w, h := gr.edge(len(op.Cells), 0), gr.edge(s.rows, 1)
 	if s.on {
 		// The quad covers the pixels the cells land on, and each fragment
-		// finds its pixel from the run's corner.
-		x0, y0 := float32(gr.at[0]), float32(gr.at[1])
+		// finds its cell by its pixel.
+		x0, x1 := float32(gr.edge(0, 0)), float32(gr.edge(len(op.Cells), 0))
+		y0, y1 := float32(gr.edge(s.row0, 1)), float32(gr.edge(s.row0+s.rows, 1))
 		sx, sy := 2/float32(r.fbW), 2/float32(r.fbH)
-		for i, c := range [4][2]float32{{0, 0}, {float32(w), 0}, {float32(w), float32(h)}, {0, float32(h)}} {
-			s.verts[i*4+0] = (x0+c[0])*sx - 1
-			s.verts[i*4+1] = 1 - (y0+c[1])*sy
+		for i, c := range [4][2]float32{{x0, y0}, {x1, y0}, {x1, y1}, {x0, y1}} {
+			s.verts[i*4+0] = c[0]*sx - 1
+			s.verts[i*4+1] = 1 - c[1]*sy
 			s.verts[i*4+2] = c[0]
 			s.verts[i*4+3] = c[1]
 		}
@@ -883,7 +1051,16 @@ func (r *Renderer) flushCells() {
 			s.verts[i*4+3] = (l.Y - op.At.Y) * r.scale
 		}
 	}
-	at := s.patsAt
+	pt := s.cur
+	made := pt.made
+	whole := int32(0)
+	if gr.whole() {
+		whole = 1
+	}
+	fit := int32(0)
+	if pt.fit {
+		fit = 1
+	}
 	g.UseProgram(s.prog.id)
 	g.BindVertexArray(s.vao)
 	g.BindBuffer(gl.ARRAY_BUFFER, s.vbo)
@@ -891,13 +1068,18 @@ func (r *Renderer) flushCells() {
 	g.ActiveTexture(cellsUnit)
 	g.BindTexture(gl.TEXTURE_2D, s.tex)
 	g.ActiveTexture(patternsUnit)
-	g.BindTexture(gl.TEXTURE_2D, s.pats)
-	g.Uniform2fv(s.uStep, gr.step[:])
-	g.Uniform2iv(s.uLo, []int32{int32(at.lo[0]), int32(at.lo[1])})
-	g.Uniform2iv(s.uSlot, []int32{int32(at.hi[0]), int32(at.hi[1])})
-	g.Uniform2iv(s.uKind, []int32{int32(at.hi[0] - at.lo[0] + 1), int32(at.hi[1] - at.lo[1] + 1)})
+	g.BindTexture(gl.TEXTURE_2D, pt.tex)
+	g.Uniform2iv(s.uO, gr.o[:])
+	g.Uniform2iv(s.uS, gr.s[:])
+	g.Uniform1i(s.uWhole, whole)
+	g.Uniform1i(s.uRow0, int32(s.row0))
+	g.Uniform1i(s.uRows, int32(s.rows))
+	g.Uniform2iv(s.uLo, []int32{int32(made.lo[0]), int32(made.lo[1])})
+	g.Uniform2iv(s.uSlot, []int32{int32(made.hi[0]), int32(made.hi[1])})
+	g.Uniform2iv(s.uKind, []int32{int32(made.hi[0] - made.lo[0] + 1), int32(made.hi[1] - made.lo[1] + 1)})
+	g.Uniform1i(s.uFit, fit)
 	g.Uniform1i(s.uBase, int32(s.firstRow))
-	g.Uniform1i(s.uPer, int32(s.patsPer))
+	g.Uniform1i(s.uPer, int32(pt.per))
 	g.Uniform1i(s.uMode, int32(s.mode))
 	g.Uniform4fv(s.uGamma, r.gamma[:])
 	contrast := float32(greyContrast)
@@ -939,8 +1121,8 @@ func (r *Renderer) releaseCells() {
 	if s.tex != 0 {
 		g.DeleteTexture(s.tex)
 	}
-	if s.pats != 0 {
-		g.DeleteTexture(s.pats)
+	for _, t := range s.pats {
+		g.DeleteTexture(t.tex)
 	}
 	*s = cellsState{}
 }
