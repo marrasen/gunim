@@ -118,11 +118,15 @@ func (r *Renderer) text(op *paint.TextOp) {
 	// Corners arrive in device pixels, placed by the glyph's own
 	// transform: the op's without its translation.
 	shape := paint.Transform{A: t.A, B: t.B, D: t.D, E: t.E}
-	if upright && k != 1 {
+	if upright && (k != 1 || r.rasterAt > 0) {
 		// The glyphs rasterize at the size they show at, and the quads
-		// carry what rounding that size left.
+		// carry what rounding that size left, or at the size rasterAt
+		// asks for, stretched.
 		shown := sizePx * k
 		sizePx = max(float32(math.Round(float64(shown)*4))/4, 0.25)
+		if r.rasterAt > 0 {
+			sizePx = r.rasterAt
+		}
 		shape.A, shape.E = shown/sizePx, shown/sizePx
 	}
 	if upright && !r.cull.Empty() && r.outside(r.textBox(op)) {

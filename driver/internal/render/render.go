@@ -127,6 +127,10 @@ type Renderer struct {
 	textRendering text.Rendering
 	subpixels     bool
 	gamma         [4]float32
+	// rasterAt, when not zero, is the device size text under an upright
+	// scale rasterizes at, stretched to the size it shows at: cells set it
+	// for their glyphs drawn stretched while their zoom moves.
+	rasterAt float32
 
 	// layers holds one offscreen target per nesting depth, reused from
 	// frame to frame and resized with the window. layers[0] is the
@@ -891,6 +895,7 @@ func (r *Renderer) DrawRects(ops []paint.Op, damage []geom.Rect, fbW, fbH int, s
 		r.Stretched, r.SharpAt = geom.Rect{}, time.Time{}
 	}
 	r.bigs.newFrame()
+	r.cellsState.cellsFrame()
 	r.browser.newFrame()
 	r.stack, r.depth = r.stack[:0], 0
 	r.cut = clipCut{}
