@@ -383,7 +383,18 @@ type DragOver struct {
 // manager, carries: the Data of [DragOver] and [Drop]. Paths holds the
 // files once the system has told them, which may be a moment after the
 // drag arrives over the window.
-type Files struct{ Paths []string }
+//
+// A browser tells no paths, nor any names before the drop. There a Drop
+// carries the files in Streams instead, one for each, to read as they
+// come: a dragged folder is there too, and fails at its first Read with
+// [ErrFolder]. The node that takes the drop closes them, and gunim closes
+// those of a drop no node took. [github.com/marrasen/gunim.StreamsOf]
+// gives streams on every platform, opening the Paths where there are
+// some, so a program reads a drop the same way everywhere.
+type Files struct {
+	Paths   []string
+	Streams []*Stream
+}
 
 // DragLeave arrives when a drag a node took DragOver for moves on, or
 // ends somewhere else.

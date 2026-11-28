@@ -103,7 +103,9 @@ type DropTarget struct {
 	anim.Group
 	// Accept says whether the target takes a drop of data, from inside
 	// the application, or of paths, from another program. Nil takes
-	// everything.
+	// everything. A browser tells no paths: its files come as the
+	// [input.Files] Streams of the drop, which [gunim.StreamsOf] reads
+	// the same way as the paths of a desktop.
 	Accept func(data any, paths []string) bool
 	// OnDrop runs on the UI goroutine with a drop the target takes; a
 	// non-nil result is sent to the application as the target's intent.

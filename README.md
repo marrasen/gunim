@@ -504,13 +504,15 @@ Reading the clipboard makes a browser ask the user first, with a prompt or a Pas
 
 A page closes with no say for the program, and `AskToClose` sends nothing there. With `UI.SetCloseAsks(true)` the browser asks the user first, in its own words, before the page closes, reloads or goes elsewhere. Turn it on only while there is something to lose.
 
+Files come and go as streams, read and written a piece at a time, so a file of several GB never sits whole in the program's memory. Files dropped on the canvas from the computer light a drop target as they hover, as on a desktop, and arrive in the drop's `input.Files` as `Streams`, with no paths: `gunim.StreamsOf` gives a drop's streams on every platform, opening a desktop's paths. `Client.ChooseStreams` shows the browser's file picker. `Client.SaveStream` writes where the user chooses, in a browser with a dialog for saving (Chrome and Edge), and elsewhere collects the file in the browser's own storage and hands it to its downloads at `Close`, which then returns `driver.ErrMayNotBeKept`. A browser shows these dialogs only as the user clicks or types, so a program asks in the click: the picker returns `driver.ErrNoGesture` where there was none, and a save downloads.
+
 `driver/web`'s tests need a real browser, and so do some of `text`'s. This builds them, runs them in headless Chrome and exits with their result:
 
 ```sh
 go run ./tools/webtest
 ```
 
-A test that skips fails the run. Name a browser with `-chrome path`. On Windows, or for another browser or a phone, `go run ./tools/webtest -serve 127.0.0.1:8784` serves the test page to open there. The result is on the page and in `window.testResult`.
+A test that skips fails the run. Name a browser with `-chrome path`. On Windows, or for another browser or a phone, `go run ./tools/webtest -serve 127.0.0.1:8784` serves the test page to open there. The result is on the page and in `window.testResult`. The runner clicks and chooses files in the picker for the tests that need a user, and those skip on a page opened by hand. `-run` runs only the `driver/web` tests that match, as `go test -run` does.
 
 A browser shows a program none of its fonts. What no face a program carries has, such as Chinese, Arabic or an arrow, the browser draws for it: a character at a time, or a word where a script's letters join, and an emoji in its own colours. Where it has no font either, it draws its own box.
 

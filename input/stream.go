@@ -18,6 +18,10 @@ var ErrNotWhole = errors.New("the file did not come whole")
 // program that takes the file all the same says so to the user.
 var ErrMayNotBeWhole = errors.New("the file may not be whole")
 
+// ErrFolder ends a [Stream] that is a folder, as one among files dropped
+// on the window: a folder has no bytes of its own to read.
+var ErrFolder = errors.New("a folder is no file to read")
+
 // A Stream is a file another application hands this one, read as it
 // comes, with no copy on the disk. What it says of itself comes from the
 // other application, which may say anything.

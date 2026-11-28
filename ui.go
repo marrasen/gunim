@@ -1109,6 +1109,11 @@ func (c Client) ChooseFiles(ctx context.Context, o driver.ChooseOptions) ([]stri
 // application that holds them, where ChooseFiles copies them first. The
 // caller closes each stream. One that failed to open is there too, and
 // fails at its first Read. It takes no o.Folders.
+//
+// In a browser it shows the browser's file picker, and the files are read
+// from the browser a piece at a time. A browser shows the picker only as
+// the user clicks or types, so call it from the click: where the user has
+// done neither for a while it returns [driver.ErrNoGesture].
 func (c Client) ChooseStreams(ctx context.Context, o driver.ChooseOptions) ([]*input.Stream, error) {
 	if o.Folders {
 		return nil, errFolderStream
@@ -1205,6 +1210,13 @@ func (c Client) SaveFile(ctx context.Context, o driver.SaveOptions) (string, err
 // application and has no path, it is the only one. It returns nil where
 // the user chose nothing. The caller ends the file with Close, once it is
 // whole, or with Remove.
+//
+// In a browser that has a dialog for saving, and shows it as the user
+// clicks or types, the file is written where the user chooses as its bytes
+// come. Otherwise it becomes a download, with no dialog: its bytes are
+// kept by the browser, outside the program's memory, and handed to its
+// downloads at Close, which returns [driver.ErrMayNotBeKept]. So call it
+// from the click, before the bytes are ready.
 func (c Client) SaveStream(ctx context.Context, o driver.SaveOptions) (driver.SavedFile, error) {
 	o.Folder = absFolder(o.Folder)
 	var save func() (driver.SavedFile, error)
