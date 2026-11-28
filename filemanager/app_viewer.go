@@ -60,6 +60,28 @@ func (a *app) handleViewer(in gunim.Intent) bool {
 	return true
 }
 
+// viewFile opens the viewer on the file at path: in the folder showing,
+// or in its own, which is gone to first, with the file selected.
+func (a *app) viewFile(path string) {
+	n := &a.nav
+	for i, e := range n.rows {
+		if a.ps.Same(a.ps.Join(n.path, e.Name), path) {
+			a.openViewer(n.gen, i)
+			return
+		}
+	}
+	dir, name := a.ps.Dir(path), a.ps.Base(path)
+	if a.ps.Same(dir, n.path) && !n.loading {
+		// Not there, or hidden by the filter.
+		a.fail(a.shown(path) + " is not in this folder now.")
+		return
+	}
+	a.navigate(dir, 0, true)
+	if a.ps.Same(a.nav.path, dir) {
+		n.pick, n.view = []string{name}, name
+	}
+}
+
 // openViewerOnCursor opens the viewer on the row the keyboard is on.
 func (a *app) openViewerOnCursor() {
 	n := &a.nav
@@ -155,13 +177,17 @@ func (a *app) viewerWants(w ViewerWants) {
 	v.stop()
 	ctx, cancel := context.WithCancel(a.ctx)
 	v.cancel = cancel
-	seq, path, fit, fsys := v.seq, v.view.Path, v.asked, a.fs
+	seq, path, fit, fsys, mem := v.seq, v.view.Path, v.asked, a.fs, a.mem
 	go func() {
-		img, size, err := decodePicture(fsys, path)
+		// Decoded and drawn smaller while it holds the memory, so the
+		// picture whole is let go of before the next is read.
+		release := mem.hold()
+		img, size, err := mem.decodePicture(fsys, path)
 		var pic *paint.Image
 		if err == nil && ctx.Err() == nil {
 			pic = paint.NewImageFit(img, fit[0], fit[1])
 		}
+		release()
 		if ctx.Err() != nil {
 			return
 		}

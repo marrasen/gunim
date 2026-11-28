@@ -124,7 +124,7 @@ func (a *app) transfer(from string, ps PathStyle, paths []string, to, into strin
 // one on another file system, or else by its own name.
 func (a *app) placeLabel(fs, path string) string {
 	if fs == a.fs.ID() {
-		return a.ps.placeName(path)
+		return a.placeName(path)
 	}
 	for _, p := range a.places {
 		if p.FS == fs && p.Path == path && p.Name != "" {

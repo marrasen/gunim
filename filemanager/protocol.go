@@ -101,6 +101,34 @@ type Shell struct {
 	// TrashCan is the ID of the trash page showing over the browser, as
 	// Usage is.
 	TrashCan gunim.ID
+	// ReadOnly says the files are to look at only, so what would change
+	// them is dimmed.
+	ReadOnly bool
+	// Browser says the window is a page in a browser, which has no
+	// programs to open files with, no other windows and no folders of
+	// the computer's: files come in by Upload and go out by Download.
+	Browser bool
+	// Top is the folder the window keeps inside, and "" for none, and
+	// TopName what it is called.
+	Top, TopName string
+}
+
+// show is the path p as the user reads it: under a top, from the top's
+// name, as the window writes it.
+func (s Shell) show(p string) string {
+	if s.Top != "" && s.Paths.inside(p, s.Top) {
+		return showUnder(s.Paths, s.Top, s.TopName, p)
+	}
+	return s.Paths.Show(p)
+}
+
+// placeName is what the window calls the folder at p: the top by its
+// name.
+func (s Shell) placeName(p string) string {
+	if s.Top != "" && s.Paths.Same(p, s.Top) {
+		return s.TopName
+	}
+	return s.Paths.placeName(p)
 }
 
 // page is the ID of the page showing over the browser, Disk usage or the
@@ -355,6 +383,12 @@ const (
 	CmdUploadAsk    = "upload." + uploadAsk
 	CmdUploadAlways = "upload." + uploadAlways
 	CmdUploadNever  = "upload." + uploadNever
+	// CmdDownload saves the items selected on the user's computer, in a
+	// browser: a file as it is, and a folder, or several items, as one
+	// zip. CmdUpload asks for files of the user's computer and puts them
+	// in the folder showing.
+	CmdDownload = "download"
+	CmdUpload   = "uploadfiles"
 )
 
 // SortClicked says a column's title was clicked.
@@ -404,4 +438,23 @@ func init() {
 	gunim.RegisterType[SidebarMoved]("files.sidebar-moved")
 	gunim.RegisterType[CloseAsked]("files.close-asked")
 	gunim.RegisterType[FocusListing]("files.focus-listing")
+}
+
+// offers reports whether a window as s says has the command cmd.
+func (s Shell) offers(cmd string) bool {
+	return len(s.offered([]menuItem{{label: cmd, cmd: cmd}})) == 1
+}
+
+// offered are those of items a window as s says has: in a browser, none
+// that need this computer's programs, its folders or another window, and
+// Download and Upload, which only a browser has.
+func (s Shell) offered(items []menuItem) []menuItem {
+	if !s.Browser {
+		return without(without(items, CmdDownload), CmdUpload)
+	}
+	for _, cmd := range []string{CmdOpenSystem, localOpenWith, localOpenWindow, CmdNewWindow, CmdReveal, CmdTrashCan,
+		CmdCloseApp, CmdSystemIcons, CmdUploadAsk, CmdUploadAlways, CmdUploadNever} {
+		items = without(items, cmd)
+	}
+	return items
 }

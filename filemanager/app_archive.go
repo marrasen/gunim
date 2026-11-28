@@ -107,7 +107,7 @@ func (a *app) inFolderOf(archive string) {
 // until it is right or the user gives none.
 func (a *app) askUnlock(ar *archives, p string) {
 	moves := a.nav.moves
-	ask := PasswordAsk{FS: a.fs.ID(), Path: p, Where: a.ps.Show(p)}
+	ask := PasswordAsk{FS: a.fs.ID(), Path: p, Where: a.shown(p)}
 	ctx, cancel := a.untilStopped()
 	go func() {
 		defer cancel()
@@ -130,7 +130,7 @@ func (a *app) askUnlock(ar *archives, p string) {
 				continue
 			}
 			if err != nil {
-				a.post(func() { a.fail("Opening " + a.ps.Show(p) + ": " + err.Error()) })
+				a.post(func() { a.fail("Opening " + a.shown(p) + ": " + err.Error()) })
 				return
 			}
 			if pw.Worked != nil {
@@ -150,16 +150,84 @@ func (a *app) askUnlock(ar *archives, p string) {
 // readOnlyHere refuses the command name where it would change what the
 // archive showing holds, and says why. It reports whether it did.
 func (a *app) readOnlyHere(name string) bool {
-	if a.nav.archive == "" {
-		return false
+	if !a.mayChange() && (changes(name) || name == CmdUndo) {
+		a.refuseReadOnly()
+		return true
 	}
-	switch name {
-	case CmdCut, CmdPaste, CmdPasteZip, CmdTrash, CmdDelete, CmdRename, CmdNewFolder, CmdZip, CmdExtract, CmdDuplicate:
-	default:
+	if a.nav.archive == "" || !changes(name) {
 		return false
 	}
 	a.refuseArchive(a.nav.archive)
 	return true
+}
+
+// refuseReadOnly says that the files of a window that is read only do
+// not change.
+func (a *app) refuseReadOnly() {
+	a.patch(Notice{Title: readOnlyHint, Body: "Nothing here can be changed.", Kind: "info"})
+}
+
+// mayChange reports whether the window may change its files: it is not
+// read only. Every change asks it, whatever asks for the change.
+func (a *app) mayChange() bool { return !a.shell.ReadOnly }
+
+// refused reports whether a change is refused, as the window is read
+// only, and says so where it is.
+func (a *app) refused() bool {
+	if a.mayChange() {
+		return false
+	}
+	a.refuseReadOnly()
+	return true
+}
+
+// setReadOnly shows the files to look at only, or to change too. As it
+// turns read only, the questions open that lead to a change are called
+// off, and what offers to undo is offered no more.
+func (a *app) setReadOnly(on bool) {
+	if a.shell.ReadOnly == on {
+		return
+	}
+	a.shell.ReadOnly = on
+	a.opts.ReadOnly = on
+	a.publishShell()
+	if on {
+		a.ops.undo = nil
+		a.dropAsked()
+	}
+	a.publishOps()
+	a.publishUsage()
+	a.publishTrashCan()
+}
+
+// dropAsked calls off the questions shown that no operation waits on,
+// as a name for a new folder, or whether to delete: each is answered as
+// closed.
+func (a *app) dropAsked() {
+	var kept, gone []*dialog
+	for _, d := range a.ops.dialogs {
+		if d.op == 0 {
+			gone = append(gone, d)
+		} else {
+			kept = append(kept, d)
+		}
+	}
+	if len(gone) == 0 {
+		return
+	}
+	shown := a.ops.dialogs[0]
+	a.ops.dialogs = kept
+	if shown.op == 0 {
+		a.send(a.c.Unmount(shown.id))
+		if len(kept) > 0 {
+			a.mountDialog(kept[0])
+		} else {
+			a.patch(FocusListing{})
+		}
+	}
+	for _, d := range gone {
+		d.answer(DialogClosed{})
+	}
 }
 
 // refuseArchive says that what the archive at p holds does not change.

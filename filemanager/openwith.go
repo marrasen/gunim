@@ -101,7 +101,7 @@ func (a *app) openWith(v OpenWith) {
 	}
 	go func() {
 		if err := open(v.Path); err != nil {
-			a.post(func() { a.fail(fmt.Sprintf("Opening %s: %v", a.ps.Show(v.Path), err)) })
+			a.post(func() { a.fail(fmt.Sprintf("Opening %s: %v", a.shown(v.Path), err)) })
 		}
 	}()
 }

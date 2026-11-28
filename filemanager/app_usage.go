@@ -212,7 +212,7 @@ func (a *app) usageRead(seq int) {
 		errs, first := st.errs, st.first
 		st.mu.Unlock()
 		if errs > 0 {
-			a.logLine("Reading the disk usage of "+a.ps.Show(s.root), plural(errs, "folder")+" could not be read, the first "+first)
+			a.logLine("Reading the disk usage of "+a.shown(s.root), plural(errs, "folder")+" could not be read, the first "+first)
 		}
 	}
 	a.publishUsage()
@@ -225,11 +225,26 @@ func (a *app) usageState() Usage {
 	s.gen++
 	u.Seq, u.Gen = s.seq, s.gen
 	u.Root, u.Paths = s.root, a.ps
+	if a.topHere() {
+		u.Top, u.TopName = a.top.path, a.top.name
+		if len(u.Crumbs) > 0 && a.atTop(s.root) {
+			u.Crumbs[0].Name = a.top.name
+		}
+		if a.atTop(s.root) {
+			u.Total.Name = a.top.name
+			for i, it := range u.Items {
+				if it.Key == "" && it.Parent < 0 {
+					u.Items[i].Name = a.top.name
+				}
+			}
+		}
+	}
 	u.Where = a.shell.Where
 	u.Free, u.Space = s.free, s.space
 	u.Measure, u.Colour = s.measure, s.colour
 	u.CanKeep = s.scan.keeper != nil
 	u.Trash = a.trash != nil
+	u.ReadOnly = !a.mayChange()
 	u.Note, u.NoteErr = s.note, s.noteErr
 	if !u.Cloud {
 		u.Measure = MeasureAll
@@ -292,6 +307,15 @@ func (a *app) usageAct(key, act string) {
 		if rest || key == "" {
 			dir, name = path, ""
 		}
+		if a.shell.Browser {
+			// A page has no other window: the item shows here.
+			a.closeUsage(true)
+			a.navigate(dir, 0, true)
+			if name != "" {
+				a.nav.pick = []string{name}
+			}
+			return
+		}
 		a.openWindowOn(dir, name)
 	case UsageOpen:
 		if rest {
@@ -299,6 +323,9 @@ func (a *app) usageAct(key, act string) {
 		}
 		a.openFiles([]string{path})
 	case UsageTrash, UsageDelete:
+		if a.refused() {
+			return
+		}
 		if s.scan.reading() {
 			s.note, s.noteErr = "Wait until the folder is read to delete from it.", true
 			a.publishUsage()
@@ -308,7 +335,7 @@ func (a *app) usageAct(key, act string) {
 			a.usageRemove(key, path, act == UsageDelete)
 		}
 	case UsageFree, UsageKeep:
-		if !rest {
+		if !rest && !a.refused() {
 			a.keepOnDevice(key, path, act == UsageKeep)
 		}
 	}
@@ -329,7 +356,7 @@ func (a *app) keepOnDevice(key, path string, keep bool) {
 		a.publishUsage()
 		return
 	}
-	name := a.ps.Show(path)
+	name := a.shown(path)
 	what := "Freeing up the space of " + name
 	if keep {
 		what = "Keeping " + name + " on this device"

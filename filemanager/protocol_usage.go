@@ -96,6 +96,9 @@ type Usage struct {
 	Root, Where string
 	// Paths is how the file system writes its paths.
 	Paths PathStyle
+	// Top is the folder the window keeps inside, "" for none, and TopName
+	// what it is called: paths are written from that name.
+	Top, TopName string
 	// Focus is the key of the folder the boxes show, and Crumbs its
 	// folders from Root down.
 	Focus  string
@@ -109,6 +112,9 @@ type Usage struct {
 	// Free and Space are the bytes free on the drive and in all, where
 	// the file system says.
 	Free, Space uint64
+	// ReadOnly says the window may change nothing, so deleting and
+	// what the cloud keeps are dimmed.
+	ReadOnly bool
 	// Reading says the folder is still being read, and Took how long it
 	// took or has taken so far.
 	Reading bool

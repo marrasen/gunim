@@ -145,12 +145,17 @@ func (a *app) handleOps(in gunim.Intent) bool {
 	case PauseOp:
 		a.pauseOp(v.ID, !v.Resume)
 	case UndoOp:
-		a.undo(v.ID)
+		if !a.refused() {
+			a.undo(v.ID)
+		}
 	case DismissOp:
 		a.dismissOp(v.ID)
 	case ClashAnswered, Confirmed, Prompted, PasswordGiven, DialogClosed, FavouriteEdited:
 		a.answered(in)
 	case NoticeAnswered:
+		if v.Button == 0 && a.refused() {
+			break
+		}
 		a.uploadAnswered(v)
 	case Command:
 		return a.opsCommand(v.Name)
@@ -216,9 +221,9 @@ func (a *app) opsCommand(name string) bool {
 			}
 			a.syncClip()
 			a.hub.others(a, func(o *app) { o.syncClip() })
-			a.startOp(job{kind: OpMove, srcs: srcs, dest: here}, "Moving "+a.what(srcs)+" to "+a.ps.placeName(here))
+			a.startOp(job{kind: OpMove, srcs: srcs, dest: here}, "Moving "+a.what(srcs)+" to "+a.placeName(here))
 		} else {
-			a.startOp(job{kind: OpCopy, srcs: srcs, dest: here}, "Copying "+a.what(srcs)+" to "+a.ps.placeName(here))
+			a.startOp(job{kind: OpCopy, srcs: srcs, dest: here}, "Copying "+a.what(srcs)+" to "+a.placeName(here))
 		}
 	case CmdTrash:
 		if a.trash == nil {
@@ -344,7 +349,7 @@ func (a *app) askZip(fs string, ps PathStyle, paths []string, dest string) {
 			return
 		}
 		at := a.ps.Join(dest, name)
-		ask := PasswordAsk{FS: a.fs.ID(), Path: at, Where: a.ps.Show(at), Make: true}
+		ask := PasswordAsk{FS: a.fs.ID(), Path: at, Where: a.shown(at), Make: true}
 		// Asked until the window closes, which waits for the question.
 		ctx, cancel := a.untilStopped()
 		a.ops.wg.Go(func() {
@@ -406,7 +411,7 @@ func (a *app) startOp(j job, title string) {
 		r.from = a.placeLabel(a.fs.ID(), a.ps.Dir(j.srcs[0]))
 	}
 	if j.kind == OpCopy || j.kind == OpMove {
-		r.to = a.ps.placeName(j.dest)
+		r.to = a.placeName(j.dest)
 	}
 	e := env{
 		pause:   r.pause,
@@ -419,7 +424,7 @@ func (a *app) startOp(j job, title string) {
 		outside: systemClip.outside,
 	}
 	if j.kind == OpExtract {
-		ask := PasswordAsk{FS: a.fs.ID(), Path: j.srcs[0], Where: a.ps.Show(j.srcs[0])}
+		ask := PasswordAsk{FS: a.fs.ID(), Path: j.srcs[0], Where: a.shown(j.srcs[0])}
 		e.password = func(ctx context.Context, wrong bool) (Password, error) {
 			ask.Wrong = wrong
 			return a.askPassword(ctx, id, ask)
@@ -631,7 +636,7 @@ func (a *app) publishOps() {
 		if !ok {
 			t.OpProgress = OpProgress{Done: 1, Bytes: t.BytesTotal, BytesTotal: t.BytesTotal,
 				Items: t.ItemsTotal, ItemsTotal: t.ItemsTotal}
-			v.Ended, v.Note, v.Undo, v.Stays, v.Took = true, r.end.note, r.end.undo != 0, r.end.stays, r.end.took
+			v.Ended, v.Note, v.Undo, v.Stays, v.Took = true, r.end.note, r.end.undo != 0 && a.mayChange(), r.end.stays, r.end.took
 			t.Speed, t.ItemSpeed = r.end.speed, r.end.itemSpeed
 		}
 		v.OpProgress = t.OpProgress
@@ -778,9 +783,9 @@ func (a *app) doneTitle(j job, rec record) string {
 	n := len(rec.steps) + rec.replaced
 	switch j.kind {
 	case OpCopy:
-		return "Copied " + plural(n, "item") + " to " + a.ps.placeName(j.dest)
+		return "Copied " + plural(n, "item") + " to " + a.placeName(j.dest)
 	case OpMove:
-		return "Moved " + plural(n, "item") + " to " + a.ps.placeName(j.dest)
+		return "Moved " + plural(n, "item") + " to " + a.placeName(j.dest)
 	case OpTrash:
 		return "Moved " + plural(n, "item") + " to the trash"
 	case OpDelete:
@@ -842,7 +847,7 @@ func (a *app) undone(id int, rec record) {
 func (a *app) askClash(ctx context.Context, op int, c clash) (answer, error) {
 	reply := make(chan ClashAnswered, 1)
 	a.post(func() {
-		ask := ClashAsk{Op: op, Name: a.ps.Base(c.dst), Where: a.ps.placeName(a.ps.Dir(c.dst)),
+		ask := ClashAsk{Op: op, Name: a.ps.Base(c.dst), Where: a.placeName(a.ps.Dir(c.dst)),
 			New: c.from, Old: describe(a.fs, c.dst), SameKind: c.sameKind, CanForAll: !c.once}
 		if e, err := statEntry(a.fs, c.dst); err == nil {
 			ask.OldFolder = e.Dir
@@ -956,6 +961,7 @@ func (a *app) showError(e ErrorBox) { a.showErrorThen(e, func(bool) {}) }
 
 // showErrorThen shows e, and tells then whether Retry was picked.
 func (a *app) showErrorThen(e ErrorBox, then func(retry bool)) {
+	e.Title, e.Body = a.untop(e.Title), a.untop(e.Body)
 	a.logShown(e)
 	a.showDialog(&dialog{view: "error", state: e, answer: func(in gunim.Intent) {
 		v, _ := in.(DialogClosed)

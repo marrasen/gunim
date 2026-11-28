@@ -43,6 +43,9 @@ func (a *app) showFS(fsys FS, dir string) {
 	a.search = searchState{gen: a.search.gen + 1, seq: a.search.seq}
 	a.opts.FS, a.fs, a.ps = unwrapFS(fsys), a.archived(fsys), fsys.Paths()
 	a.trash, _ = optional[Trasher](fsys)
+	if a.topHere() {
+		a.trash = nil
+	}
 	a.thumbs.cache, a.thumbs.order, a.thumbs.bytes, a.thumbs.queue = map[thumbKey]thumbDone{}, nil, 0, nil
 	a.dnd.vols, a.dnd.volErrs = nil, nil
 	a.nav.path = ""
@@ -55,6 +58,10 @@ func (a *app) showFS(fsys FS, dir string) {
 	a.shell.NoTrashCan = !canOpen(a.trash)
 	a.shell.Where, a.shell.Fetches = a.where(), a.fetches()
 	a.shell.OpenWith = a.openWithOn()
+	a.shell.Top, a.shell.TopName = "", ""
+	if a.topHere() {
+		a.shell.Top, a.shell.TopName = a.top.path, a.top.name
+	}
 	a.publishShell()
 	a.loadFavourites()
 	a.loadPlaces()

@@ -38,6 +38,9 @@ type Hub struct {
 	// moving or has moved, so each moves once.
 	cuts map[uint32]bool
 	favs map[string]*memFavourites
+	// mem is what the windows' pictures take together, where SetMemory
+	// says.
+	mem memory
 	// open opens a window with o and serves it, and is nil where no
 	// window can open, as in a test.
 	open func(o Options) error
@@ -129,6 +132,13 @@ func (w *Window) Stop() {
 // carry on where they started.
 func (w *Window) Show(fsys FS, dir string) {
 	w.do(func(a *app) { a.showFS(fsys, dir) })
+}
+
+// SetReadOnly shows the files to look at only, or to change too, as
+// [Options.ReadOnly] does. What runs already goes on: the file system
+// refuses what it may no longer do.
+func (w *Window) SetReadOnly(on bool) {
+	w.do(func(a *app) { a.setReadOnly(on) })
 }
 
 // Notify shows a notice in the window, as the window shows its own: a
@@ -273,6 +283,9 @@ func joinHub(a *app, h *Hub) *Hub {
 		h = &Hub{}
 	}
 	h.mu.Lock()
+	if h.mem.gate != nil {
+		a.mem = h.mem
+	}
 	h.apps = append(h.apps, a)
 	if h.ids == nil {
 		h.ids = map[*app]string{}
